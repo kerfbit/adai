@@ -196,6 +196,10 @@ if(BUILD_EXAMPLES)
     add_executable(phase5_examples Phase5Examples.cpp)
     target_link_libraries(phase5_examples adai_core)
     
+    # Data Pipeline Enhancement Example
+    add_executable(data_pipeline_example DataPipelineExample.cpp)
+    target_link_libraries(data_pipeline_example adai_nlp)
+    
     message(STATUS "Building example programs (disable with -DBUILD_EXAMPLES=OFF)")
 endif()
 

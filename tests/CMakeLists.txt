@@ -162,6 +162,11 @@ add_executable(phase5Tests phase5_test.cpp)
 target_link_libraries(phase5Tests adai_core GTest::gtest_main)
 add_test(NAME Phase5Tests COMMAND phase5Tests)
 
+# Data Pipeline tests (Efficient Batching, Parallel Data Loading)
+add_executable(datapipelineTests datapipeline_test.cpp)
+target_link_libraries(datapipelineTests adai_nlp GTest::gtest_main)
+add_test(NAME DataPipelineTests COMMAND datapipelineTests)
+
 # ============================================================================
 # Integration Tests
 # ============================================================================
@@ -184,4 +189,4 @@ add_test(NAME IntegrationTests COMMAND integrationTests)
 # Test Summary
 # ============================================================================
 
-message(STATUS "Configured 24 test suites using library targets (including integration and Phase 5 tests)")
+message(STATUS "Configured 25 test suites using library targets (including integration and Phase 5 tests)")
