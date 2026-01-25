@@ -1,5 +1,9 @@
 # ADAI - Advanced Deep Learning AI
 
+[![CI](https://github.com/rjv717/adai/actions/workflows/ci.yml/badge.svg)](https://github.com/rjv717/adai/actions/workflows/ci.yml)
+[![Coverage](https://codecov.io/gh/rjv717/adai/branch/main/graph/badge.svg)](https://codecov.io/gh/rjv717/adai)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A modern C++ implementation of transformer-based neural networks and natural language processing tools, featuring encoder-decoder architectures, multi-head attention, and a complete chatbot framework.
 
 ## 🌟 Features
@@ -8,8 +12,9 @@ A modern C++ implementation of transformer-based neural networks and natural lan
 - **Optimization Algorithms**: SGD, SGD with Momentum, Adam, and AdamW optimizers
 - **NLP Tools**: BPE tokenization, text generation, and conversation management
 - **Chatbot Framework**: Complete CLI and training tools for conversational AI
-- **Comprehensive Testing**: 18 test suites with extensive coverage
+- **Comprehensive Testing**: 20 test suites with extensive coverage
 - **Production Ready**: Memory-efficient, well-documented, and thoroughly tested
+- **CI/CD Pipeline**: Automated testing and quality checks
 
 ## 🚀 Quick Start
 

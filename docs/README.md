@@ -19,6 +19,7 @@ Welcome to the Advanced Deep Learning AI (ADAI) documentation. This guide will h
 - **[Building ADAI](guides/building.md)** - Build instructions, requirements, and troubleshooting
 - **[Contributing Guide](guides/contributing.md)** - How to contribute to the project
 - **[Git Workflow](guides/git-workflow.md)** - Branching, commits, and PR process
+- **[CI/CD Pipeline](guides/ci-cd.md)** - Continuous integration and deployment
 - **[Technical Debt Management](guides/technical-debt-management.md)** - How to track and resolve technical debt
 - **[Training Example](guides/training-example.md)** - Complete training workflow
 - **[Save/Load Models](guides/save-load.md)** - Model persistence

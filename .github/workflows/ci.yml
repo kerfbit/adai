@@ -1,0 +1,156 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  build-and-test:
+    name: Build and Test (${{ matrix.os }}, ${{ matrix.compiler }}, ${{ matrix.build_type }})
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-20.04]
+        compiler: [gcc, clang]
+        build_type: [Debug, Release]
+        exclude:
+          # Reduce matrix size - skip some combinations
+          - os: ubuntu-20.04
+            build_type: Debug
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    
+    - name: Install dependencies (Ubuntu)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          cmake \
+          build-essential \
+          clang \
+          clang-tidy \
+          clang-format
+    
+    - name: Set up compiler
+      run: |
+        if [ "${{ matrix.compiler }}" = "gcc" ]; then
+          echo "CC=gcc" >> $GITHUB_ENV
+          echo "CXX=g++" >> $GITHUB_ENV
+        else
+          echo "CC=clang" >> $GITHUB_ENV
+          echo "CXX=clang++" >> $GITHUB_ENV
+        fi
+    
+    - name: Configure CMake
+      run: |
+        mkdir -p build
+        cd build
+        cmake .. \
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+          -DCMAKE_C_COMPILER=$CC \
+          -DCMAKE_CXX_COMPILER=$CXX
+    
+    - name: Build
+      run: |
+        cd build
+        make -j$(nproc)
+    
+    - name: Run Tests
+      run: |
+        cd build
+        ctest --output-on-failure --verbose
+    
+    - name: Upload Test Results
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-${{ matrix.os }}-${{ matrix.compiler }}-${{ matrix.build_type }}
+        path: build/Testing/
+        retention-days: 7
+
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-22.04
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          cmake \
+          build-essential \
+          clang-tidy \
+          clang-format
+    
+    - name: Check code formatting
+      run: |
+        # Check if any files would be reformatted
+        find src tests -name '*.cpp' -o -name '*.hpp' | \
+          xargs clang-format --dry-run --Werror || \
+          (echo "Code formatting issues found. Run './scripts/format_code.sh' to fix." && exit 1)
+    
+    - name: Run static analysis
+      run: |
+        mkdir -p build
+        cd build
+        cmake ..
+        # Run clang-tidy on source files
+        cd ..
+        ./scripts/analyze_code.sh || true
+        # Note: Using '|| true' to not fail on warnings for now
+        # Remove this once all warnings are addressed
+
+  sanitizer-tests:
+    name: Sanitizer Tests
+    runs-on: ubuntu-22.04
+    
+    strategy:
+      matrix:
+        sanitizer: [asan, ubsan]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake build-essential clang
+    
+    - name: Build with ${{ matrix.sanitizer }}
+      run: |
+        mkdir -p build
+        cd build
+        if [ "${{ matrix.sanitizer }}" = "asan" ]; then
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address -fno-omit-frame-pointer -g" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address"
+        else
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_CXX_FLAGS="-fsanitize=undefined -fno-omit-frame-pointer -g" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=undefined"
+        fi
+        make -j$(nproc)
+    
+    - name: Run tests with ${{ matrix.sanitizer }}
+      run: |
+        cd build
+        ctest --output-on-failure
+      env:
+        ASAN_OPTIONS: detect_leaks=1:check_initialization_order=1
+        UBSAN_OPTIONS: print_stacktrace=1
