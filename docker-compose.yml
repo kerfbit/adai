@@ -1,0 +1,84 @@
+# Docker Compose configuration for ADAI Chatbot API
+version: '3.8'
+
+services:
+  # Main chatbot API server
+  chatbot-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: adai-chatbot:latest
+    container_name: adai-chatbot-api
+    ports:
+      - "8080:8080"
+    volumes:
+      # Mount model artifacts directory
+      - ./models:/app/models:ro
+      # Mount vocabulary directory
+      - ./vocab:/app/vocab:ro
+      # Mount logs directory (writable)
+      - ./logs:/app/logs:rw
+    environment:
+      # Server configuration
+      - PORT=8080
+      - MAX_LENGTH=100
+      - TEMPERATURE=1.0
+      - TOP_P=0.9
+      - TOP_K=50
+      - BEAM_WIDTH=4
+      - SESSION_TIMEOUT=1800
+      # Logging
+      - LOG_LEVEL=INFO
+    command: >
+      ./chatbot_api_server
+      --vocab /app/vocab/vocab.txt
+      --port 8080
+      --max-length 100
+      --temperature 1.0
+      --session-timeout 1800
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - adai-network
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+
+  # Optional: Nginx reverse proxy for production
+  nginx:
+    image: nginx:alpine
+    container_name: adai-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - chatbot-api
+    networks:
+      - adai-network
+    restart: unless-stopped
+    profiles:
+      - production
+
+networks:
+  adai-network:
+    driver: bridge
+
+volumes:
+  # Named volumes for persistent data
+  model-data:
+  logs-data:

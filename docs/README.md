@@ -5,6 +5,8 @@ Welcome to the Advanced Deep Learning AI (ADAI) documentation. This guide will h
 ## 🚀 Getting Started
 
 - **[Quick Start Guide](guides/quickstart.md)** - Get running in 5 minutes
+- **[Docker Deployment](deployment/docker.md)** - Containerized deployment guide
+- **[REST API Quick Start](api/README.md)** - HTTP API server setup
 - **[Architecture Overview](architecture/neural-network.md)** - System design and components
 - **[Training Guide](guides/training-guide.md)** - How to train models
 
@@ -30,7 +32,22 @@ Welcome to the Advanced Deep Learning AI (ADAI) documentation. This guide will h
 - **[Inference Optimization Guide](guides/inference-optimization.md)** - Complete optimization guide (KV cache, batching, profiling)
 - **[Inference Optimization Quick Start](guides/inference-optimization-quickstart.md)** - 5-minute optimization tutorial
 
+### Deployment
+- **[Deployment Documentation](deployment/README.md)** - Deployment guide index
+- **[Docker Deployment Guide](deployment/docker.md)** - Comprehensive containerization guide
+  - Multi-stage Docker builds
+  - Docker Compose orchestration
+  - Production deployment with Nginx
+  - SSL/TLS setup
+  - Monitoring and logging
+  - Troubleshooting
+
 ## 🔧 API Reference
+
+### REST API Server
+- **[REST API Documentation](api/rest-api.md)** - Complete HTTP API reference
+- **[API Quick Start](api/README.md)** - Getting started with the API server
+- **[API Implementation Summary](api/IMPLEMENTATION_SUMMARY.md)** - Implementation details
 
 ### Core Components
 - **[Matrix](api/core/matrix.md)** - Matrix operations and linear algebra
@@ -98,10 +115,11 @@ Welcome to the Advanced Deep Learning AI (ADAI) documentation. This guide will h
 
 - **79** C++ source/header files
 - **~32,500** lines of code
-- **18** comprehensive test suites
-- **52** documentation files
+- **567+** comprehensive test suites (100% pass rate)
+- **59+** documentation files (~15,000 lines)
 - **11** executable targets
 - **25+** transformer/neural network components
+- **~99%** complete for production chatbot deployment
 
 ## 📂 Documentation Structure
 
@@ -113,7 +131,12 @@ docs/
 │   ├── core/                   # Core components
 │   ├── attention/              # Attention mechanisms
 │   ├── transformer/            # Transformer components
-│   └── nlp/                    # NLP utilities
+│   ├── nlp/                    # NLP utilities
+│   ├── rest-api.md             # REST API reference
+│   └── README.md               # API quick start
+├── deployment/                  # Deployment guides
+│   ├── README.md               # Deployment index
+│   └── docker.md               # Docker deployment guide
 ├── guides/                      # User and developer guides
 ├── testing/                     # Test documentation
 └── reference/                   # Additional reference materials

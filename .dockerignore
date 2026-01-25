@@ -1,0 +1,78 @@
+# Docker build context exclusions
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Build artifacts
+build/
+cmake-build-*/
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Documentation (not needed in container)
+docs/
+*.md
+!README.md
+
+# Test files
+tests/
+Testing/
+*.test
+*_test.cpp
+
+# Legacy code
+legacy/
+
+# Temporary files
+*.tmp
+*.log
+*.pid
+
+# Archive and backup files
+ARCHIVE_SUMMARY.md
+PHASE3_PART2_COMPLETE.md
+PROCESS_IMPROVEMENT_PLAN.md
+TECHNICAL_DEBT.md
+*.backup
+
+# Sample and example files
+sample_training_data.txt
+texts/
+tools/
+scripts/analyze_code.sh
+scripts/check_tech_debt.sh
+scripts/format_code.sh
+scripts/run_tests.sh
+scripts/api_client_example.py
+
+# CMake cache and intermediate files
+CMakeCache.txt
+cmake_install.cmake
+CMakeFiles/
+CTestTestfile.cmake
+compile_commands.json
+Makefile
+
+# Debug builds
+debug/
+
+# Models (mount via volume instead)
+*.bin
+models/
+
+# Logs
+logs/
+*.log
