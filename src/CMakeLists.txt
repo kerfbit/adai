@@ -85,6 +85,34 @@ target_precompile_headers(adai_nlp
         <cctype>
 )
 
+# API layer (optional, requires httplib)
+option(BUILD_API_SERVER "Build REST API server" ON)
+if(BUILD_API_SERVER)
+    # Try to find cpp-httplib
+    find_path(HTTPLIB_INCLUDE_DIR httplib.h
+        PATHS
+            /usr/include
+            /usr/local/include
+            ${CMAKE_SOURCE_DIR}/external/cpp-httplib
+    )
+    
+    if(HTTPLIB_INCLUDE_DIR)
+        add_library(adai_api STATIC
+            ChatbotAPI.cpp
+        )
+        target_link_libraries(adai_api 
+            adai_models 
+            adai_nlp
+            pthread
+        )
+        target_include_directories(adai_api PRIVATE ${HTTPLIB_INCLUDE_DIR})
+        message(STATUS "Building API server (cpp-httplib found at ${HTTPLIB_INCLUDE_DIR})")
+    else()
+        message(WARNING "cpp-httplib not found. API server will not be built. Install with: sudo apt-get install libhttplib-dev or download from https://github.com/yhirose/cpp-httplib")
+        set(BUILD_API_SERVER OFF)
+    endif()
+endif()
+
 # ============================================================================
 # Production Executables
 # ============================================================================
@@ -102,6 +130,18 @@ target_link_libraries(chatbot_trainer
     adai_models 
     adai_nlp
 )
+
+# Chatbot API Server - REST API service
+if(BUILD_API_SERVER)
+    add_executable(chatbot_api_server ChatbotAPIServer.cpp)
+    target_link_libraries(chatbot_api_server 
+        adai_api
+        adai_models 
+        adai_nlp
+    )
+    target_include_directories(chatbot_api_server PRIVATE ${HTTPLIB_INCLUDE_DIR})
+    message(STATUS "Building chatbot_api_server executable")
+endif()
 
 # ============================================================================
 # Example Programs (optional build)
