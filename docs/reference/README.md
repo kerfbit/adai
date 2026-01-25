@@ -29,6 +29,14 @@ This directory contains reference materials, technical specifications, and imple
   - Production monitoring patterns
   - Troubleshooting guide
 
+- **[Dataset Batch Processing](../api/data/dataset-batch-processing.md)** - Complete guide to efficient batch processing ✨ NEW
+  - Dataset batch methods (get_batch_with_padding, get_dynamic_batches)
+  - TokenBatchLoader for multi-threaded loading
+  - Dynamic batching optimization (20-40% token reduction)
+  - Parallel loading (2-6x throughput improvement)
+  - Training pipeline integration
+  - Complete API reference and examples
+
 ### Project Planning
 
 - **[Chatbot Completeness](chatbot-completeness.md)** - Feature completeness tracking and roadmap

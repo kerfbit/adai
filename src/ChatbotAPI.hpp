@@ -4,6 +4,7 @@
 #include "ConversationContext.hpp"
 #include "TextGenerator.hpp"
 #include "BPETokenizer.hpp"
+#include "BatchProcessor.hpp"
 #include <string>
 #include <memory>
 #include <mutex>
@@ -30,6 +31,9 @@ struct Session {
  */
 class ChatbotAPI {
 public:
+    // Allow test class to access private members
+    friend class ChatbotAPITest;
+    
     /**
      * @brief Generation parameters for chat responses
      */
@@ -40,6 +44,26 @@ public:
         size_t top_k = 50;
         std::string strategy = "nucleus"; // "greedy", "beam", "temperature", "top_k", "nucleus"
         size_t beam_width = 4;
+    };
+
+    /**
+     * @brief Batch request for processing multiple messages
+     */
+    struct BatchRequest {
+        std::vector<std::string> messages;
+        std::vector<std::string> session_ids;  // Optional: for batch session processing
+        GenerationConfig config;
+    };
+
+    /**
+     * @brief Batch response containing multiple generated responses
+     */
+    struct BatchResponse {
+        std::vector<std::string> responses;
+        std::vector<std::string> session_ids;  // Returned session IDs
+        bool success = true;
+        std::string error;
+        BatchStats stats;  // Efficiency statistics
     };
 
     /**
@@ -85,23 +109,49 @@ public:
         default_config_ = config;
     }
 
+    /**
+     * @brief Generate batch responses (stateless)
+     * @param inputs Vector of input messages
+     * @param config Generation configuration
+     * @return BatchResponse with generated responses and statistics
+     */
+    BatchResponse generate_batch_responses(const std::vector<std::string>& inputs,
+                                          const GenerationConfig& config);
+    
+    /**
+     * @brief Generate batch responses with sessions (stateful)
+     * @param inputs Vector of input messages
+     * @param session_ids Vector of session IDs (empty for new sessions)
+     * @param config Generation configuration
+     * @return BatchResponse with generated responses, session IDs, and statistics
+     */
+    BatchResponse generate_batch_session_responses(const std::vector<std::string>& inputs,
+                                                   const std::vector<std::string>& session_ids,
+                                                   const GenerationConfig& config);
+
+    // JSON utilities (public for testing)
+    std::string parse_json_string(const std::string& json, const std::string& key);
+    std::vector<std::string> parse_json_array(const std::string& json, const std::string& key);
+    std::string create_json_response(const std::string& response, bool success = true, const std::string& error = "");
+    std::string create_batch_json_response(const BatchResponse& batch_response);
+    std::string create_error_response(const std::string& error);
+
 private:
     // HTTP endpoint handlers
     std::string handle_chat(const std::string& request_body);
     std::string handle_chat_session(const std::string& request_body);
     std::string handle_clear_session(const std::string& request_body);
     std::string handle_health();
+    
+    // Batch endpoint handlers
+    std::string handle_batch_chat(const std::string& request_body);
+    std::string handle_batch_chat_session(const std::string& request_body);
 
     // Session management
     std::string create_session_id();
     Session* get_or_create_session(const std::string& session_id);
     void cleanup_expired_sessions();
     bool is_session_expired(const Session& session);
-
-    // JSON utilities
-    std::string parse_json_string(const std::string& json, const std::string& key);
-    std::string create_json_response(const std::string& response, bool success = true, const std::string& error = "");
-    std::string create_error_response(const std::string& error);
 
     // Text generation
     std::string generate_response(const std::string& input, const GenerationConfig& config);

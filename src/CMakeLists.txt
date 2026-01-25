@@ -204,6 +204,10 @@ if(BUILD_EXAMPLES)
     add_executable(data_pipeline_example DataPipelineExample.cpp)
     target_link_libraries(data_pipeline_example adai_nlp)
     
+    # Dataset Batch Processing Example
+    add_executable(dataset_batch_processing_example DatasetBatchProcessingExample.cpp)
+    target_link_libraries(dataset_batch_processing_example adai_nlp)
+    
     message(STATUS "Building example programs (disable with -DBUILD_EXAMPLES=OFF)")
 endif()
 

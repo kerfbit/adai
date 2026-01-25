@@ -167,6 +167,21 @@ add_executable(datapipelineTests datapipeline_test.cpp)
 target_link_libraries(datapipelineTests adai_nlp GTest::gtest_main)
 add_test(NAME DataPipelineTests COMMAND datapipelineTests)
 
+# ChatbotAPI tests (REST API with batch processing)
+add_executable(chatbotapiTests chatbotapi_test.cpp)
+target_link_libraries(chatbotapiTests 
+    adai_api
+    adai_models 
+    adai_nlp 
+    adai_transformer 
+    adai_attention
+    adai_feedforward
+    adai_layers
+    adai_core
+    GTest::gtest_main
+)
+add_test(NAME ChatbotAPITests COMMAND chatbotapiTests)
+
 # ============================================================================
 # Integration Tests
 # ============================================================================
@@ -189,4 +204,4 @@ add_test(NAME IntegrationTests COMMAND integrationTests)
 # Test Summary
 # ============================================================================
 
-message(STATUS "Configured 25 test suites using library targets (including integration and Phase 5 tests)")
+message(STATUS "Configured 26 test suites using library targets (including ChatbotAPI, integration and Phase 5 tests)")

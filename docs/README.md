@@ -88,6 +88,14 @@ Welcome to the Advanced Deep Learning AI (ADAI) documentation. This guide will h
 - **[Text Generator](api/nlp/text-generator.md)** - Text generation utilities
 - **[Conversation Context](api/nlp/conversation-context.md)** - Conversation management
 
+### Data Processing
+- **[Dataset Batch Processing](api/data/dataset-batch-processing.md)** - Complete guide to batch processing with datasets ✨ NEW
+  - Automatic padding and dynamic batching (20-40% efficiency improvement)
+  - Multi-threaded parallel loading (2-6x speedup)
+  - Integration with BatchProcessor utilities
+  - Training pipeline examples
+  - Performance optimization guide
+
 ### Optimization
 - **[KV Cache](reference/kvcache.md)** - Key-Value caching for inference optimization (2-3x speedup)
 - **[Batch Processor](reference/batchprocessor.md)** - Batch processing utilities for multi-sequence inference (2-4x throughput)

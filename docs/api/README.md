@@ -5,6 +5,8 @@ This directory contains documentation for the ADAI Chatbot API.
 ## Quick Links
 
 - **[REST API Documentation](rest-api.md)** - Complete API reference with examples
+- **[Batch Processing Guide](batch-processing.md)** - Batch processing for API endpoints ✨
+- **[Dataset Batch Processing](data/dataset-batch-processing.md)** - Dataset batch processing integration ✨ NEW
 - [Build Instructions](#build-instructions)
 - [Quick Start](#quick-start)
 

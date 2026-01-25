@@ -11,6 +11,7 @@
 #include <memory>
 #include <sstream>
 #include <cmath>
+#include "BatchProcessor.hpp"
 
 /**
  * @file Dataset.hpp
@@ -1073,6 +1074,299 @@ public:
                          sample.target.begin(), ::tolower);
         }
     }
+    
+    // ============================================================
+    // Batch Processing Integration
+    // ============================================================
+    
+    /**
+     * @brief Get batch of tokenized sequences with padding
+     * 
+     * Retrieves samples from a split, tokenizes them, and creates a padded batch
+     * ready for model processing.
+     * 
+     * @param split_type Which split to get batch from
+     * @param batch_start Start index within the split
+     * @param batch_size Number of samples in batch
+     * @param tokenizer_fn Function to tokenize a string into token IDs
+     * @param pad_token_id Token ID to use for padding (default: 0)
+     * @return TokenBatch with padded input sequences
+     * 
+     * @code
+     * auto tokenizer_fn = [&tokenizer](const std::string& text) {
+     *     return tokenizer.encode(text);
+     * };
+     * TokenBatch batch = dataset.get_batch_with_padding(
+     *     SplitType::TRAIN, 0, 32, tokenizer_fn, 0);
+     * @endcode
+     */
+    TokenBatch get_batch_with_padding(
+        SplitType split_type,
+        size_t batch_start,
+        size_t batch_size,
+        std::function<std::vector<int>(const std::string&)> tokenizer_fn,
+        int pad_token_id = 0) const {
+        
+        // Get indices for split
+        const std::vector<size_t>* indices = nullptr;
+        switch (split_type) {
+            case SplitType::TRAIN:
+                indices = &train_indices_;
+                break;
+            case SplitType::VALIDATION:
+                indices = &validation_indices_;
+                break;
+            case SplitType::TEST:
+                indices = &test_indices_;
+                break;
+        }
+        
+        if (!indices || batch_start >= indices->size()) {
+            return TokenBatch();  // Empty batch
+        }
+        
+        // Calculate actual batch size
+        size_t actual_batch_size = std::min(batch_size, indices->size() - batch_start);
+        
+        // Tokenize all inputs in batch
+        std::vector<std::vector<int>> sequences;
+        sequences.reserve(actual_batch_size);
+        
+        for (size_t i = batch_start; i < batch_start + actual_batch_size; ++i) {
+            size_t data_idx = (*indices)[i];
+            sequences.push_back(tokenizer_fn(data_[data_idx].input));
+        }
+        
+        // Create padded batch
+        return create_batch(sequences, pad_token_id);
+    }
+    
+    /**
+     * @brief Get batch of tokenized target sequences with padding
+     * 
+     * Similar to get_batch_with_padding but for target sequences.
+     * 
+     * @param split_type Which split to get batch from
+     * @param batch_start Start index within the split
+     * @param batch_size Number of samples in batch
+     * @param tokenizer_fn Function to tokenize a string into token IDs
+     * @param pad_token_id Token ID to use for padding (default: 0)
+     * @return TokenBatch with padded target sequences
+     */
+    TokenBatch get_target_batch_with_padding(
+        SplitType split_type,
+        size_t batch_start,
+        size_t batch_size,
+        std::function<std::vector<int>(const std::string&)> tokenizer_fn,
+        int pad_token_id = 0) const {
+        
+        // Get indices for split
+        const std::vector<size_t>* indices = nullptr;
+        switch (split_type) {
+            case SplitType::TRAIN:
+                indices = &train_indices_;
+                break;
+            case SplitType::VALIDATION:
+                indices = &validation_indices_;
+                break;
+            case SplitType::TEST:
+                indices = &test_indices_;
+                break;
+        }
+        
+        if (!indices || batch_start >= indices->size()) {
+            return TokenBatch();  // Empty batch
+        }
+        
+        // Calculate actual batch size
+        size_t actual_batch_size = std::min(batch_size, indices->size() - batch_start);
+        
+        // Tokenize all targets in batch
+        std::vector<std::vector<int>> sequences;
+        sequences.reserve(actual_batch_size);
+        
+        for (size_t i = batch_start; i < batch_start + actual_batch_size; ++i) {
+            size_t data_idx = (*indices)[i];
+            sequences.push_back(tokenizer_fn(data_[data_idx].target));
+        }
+        
+        // Create padded batch
+        return create_batch(sequences, pad_token_id);
+    }
+    
+    /**
+     * @brief Get dynamic batches optimized for sequence length
+     * 
+     * Creates multiple batches where sequences of similar length are grouped
+     * together to minimize padding waste.
+     * 
+     * @param split_type Which split to get batches from
+     * @param tokenizer_fn Function to tokenize a string into token IDs
+     * @param max_batch_size Maximum number of sequences per batch (default: 32)
+     * @param length_tolerance Maximum length difference within a batch (default: 10)
+     * @param pad_token_id Token ID to use for padding (default: 0)
+     * @return Vector of TokenBatch objects
+     * 
+     * @code
+     * auto tokenizer_fn = [&tokenizer](const std::string& text) {
+     *     return tokenizer.encode(text);
+     * };
+     * auto batches = dataset.get_dynamic_batches(
+     *     SplitType::TRAIN, tokenizer_fn, 32, 10, 0);
+     * for (const auto& batch : batches) {
+     *     // Process each batch
+     *     std::cout << "Batch size: " << batch.batch_size() 
+     *               << ", max_length: " << batch.max_length << std::endl;
+     * }
+     * @endcode
+     */
+    std::vector<TokenBatch> get_dynamic_batches(
+        SplitType split_type,
+        std::function<std::vector<int>(const std::string&)> tokenizer_fn,
+        int max_batch_size = 32,
+        int length_tolerance = 10,
+        int pad_token_id = 0) const {
+        
+        // Get indices for split
+        const std::vector<size_t>* indices = nullptr;
+        switch (split_type) {
+            case SplitType::TRAIN:
+                indices = &train_indices_;
+                break;
+            case SplitType::VALIDATION:
+                indices = &validation_indices_;
+                break;
+            case SplitType::TEST:
+                indices = &test_indices_;
+                break;
+        }
+        
+        if (!indices || indices->empty()) {
+            return std::vector<TokenBatch>();  // Empty
+        }
+        
+        // Tokenize all sequences
+        std::vector<std::vector<int>> all_sequences;
+        all_sequences.reserve(indices->size());
+        
+        for (size_t idx : *indices) {
+            all_sequences.push_back(tokenizer_fn(data_[idx].input));
+        }
+        
+        // Create dynamic batches using BatchProcessor
+        return create_dynamic_batches(all_sequences, max_batch_size, 
+                                     length_tolerance, pad_token_id);
+    }
+    
+    /**
+     * @brief Process a batch through a model and collect outputs
+     * 
+     * Convenience method that handles batch padding, processing, and output collection.
+     * 
+     * @param samples Batch of data samples to process
+     * @param tokenizer_fn Function to tokenize a string into token IDs
+     * @param model_fn Function that processes a batch of token sequences and returns outputs
+     * @param pad_token_id Token ID to use for padding (default: 0)
+     * @return Vector of model outputs (one per sample)
+     * 
+     * @code
+     * auto batch = dataset.get_split(SplitType::TRAIN).slice(0, 32);
+     * auto outputs = dataset.process_batch(
+     *     batch,
+     *     [&tokenizer](const std::string& text) { return tokenizer.encode(text); },
+     *     [&model](const std::vector<std::vector<int>>& seqs) {
+     *         // Process batch through model
+     *         return model.forward_batch(seqs);
+     *     },
+     *     0
+     * );
+     * @endcode
+     */
+    template<typename OutputType>
+    std::vector<OutputType> process_batch(
+        const std::vector<DataSample>& samples,
+        std::function<std::vector<int>(const std::string&)> tokenizer_fn,
+        std::function<std::vector<OutputType>(const TokenBatch&)> model_fn,
+        int pad_token_id = 0) const {
+        
+        if (samples.empty()) {
+            return std::vector<OutputType>();
+        }
+        
+        // Tokenize all inputs
+        std::vector<std::vector<int>> sequences;
+        sequences.reserve(samples.size());
+        
+        for (const auto& sample : samples) {
+            sequences.push_back(tokenizer_fn(sample.input));
+        }
+        
+        // Create padded batch
+        TokenBatch batch = create_batch(sequences, pad_token_id);
+        
+        // Process through model
+        return model_fn(batch);
+    }
+    
+    /**
+     * @brief Compute batch statistics for a split
+     * 
+     * Analyzes the padding efficiency for batches in a split.
+     * 
+     * @param split_type Which split to analyze
+     * @param tokenizer_fn Function to tokenize a string into token IDs
+     * @param batch_size Size of batches to analyze
+     * @return BatchStats with efficiency metrics
+     * 
+     * @code
+     * auto stats = dataset.get_batch_statistics(
+     *     SplitType::TRAIN,
+     *     [&tokenizer](const std::string& text) { return tokenizer.encode(text); },
+     *     32
+     * );
+     * std::cout << "Padding efficiency: " 
+     *           << (stats.efficiency_percentage * 100) << "%" << std::endl;
+     * @endcode
+     */
+    BatchStats get_batch_statistics(
+        SplitType split_type,
+        std::function<std::vector<int>(const std::string&)> tokenizer_fn,
+        size_t batch_size) const {
+        
+        // Get indices for split
+        const std::vector<size_t>* indices = nullptr;
+        switch (split_type) {
+            case SplitType::TRAIN:
+                indices = &train_indices_;
+                break;
+            case SplitType::VALIDATION:
+                indices = &validation_indices_;
+                break;
+            case SplitType::TEST:
+                indices = &test_indices_;
+                break;
+        }
+        
+        if (!indices || indices->empty()) {
+            return BatchStats();  // Empty stats
+        }
+        
+        // Sample a batch
+        size_t actual_batch_size = std::min(batch_size, indices->size());
+        std::vector<std::vector<int>> sequences;
+        sequences.reserve(actual_batch_size);
+        
+        for (size_t i = 0; i < actual_batch_size; ++i) {
+            size_t data_idx = (*indices)[i];
+            sequences.push_back(tokenizer_fn(data_[i].input));
+        }
+        
+        // Create batch and compute stats
+        TokenBatch batch = create_batch(sequences, 0);
+        std::vector<TokenBatch> batch_vec = {batch};
+        return compute_batch_stats(batch_vec);
+    }
+
 };
 
 /**

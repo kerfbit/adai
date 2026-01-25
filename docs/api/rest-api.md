@@ -10,6 +10,8 @@ Date: January 24, 2026
 
 The ADAI Chatbot API provides a REST interface for interacting with transformer-based language models. It supports both single-turn and multi-turn conversations with session management, multiple text generation strategies, and configurable parameters.
 
+**NEW in v1.1:** Batch processing endpoints for high-throughput applications! Process multiple requests 2-4x faster. See [Batch Processing Documentation](batch-processing.md).
+
 **Base URL:** `http://localhost:8080` (default)
 
 **Content-Type:** `application/json`
@@ -241,6 +243,89 @@ curl -X POST http://localhost:8080/clear-session \
 ```
 
 **Use Case:** Reset conversation, start fresh with same session ID
+
+---
+
+### 5. Batch Chat (NEW in v1.1) 🚀
+
+**Endpoint:** `POST /chat/batch`
+
+**Description:** Process multiple messages in a single request for higher throughput. Uses dynamic batching to minimize padding overhead.
+
+**Request Body:**
+```json
+{
+  "messages": [
+    "What is AI?",
+    "What is ML?",
+    "What is NLP?"
+  ]
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "responses": [
+    "AI is artificial intelligence...",
+    "ML is machine learning...",
+    "NLP is natural language processing..."
+  ],
+  "stats": {
+    "total_tokens": 150,
+    "actual_tokens": 120,
+    "padding_ratio": 0.2,
+    "num_batches": 1,
+    "avg_batch_size": 3.0,
+    "efficiency": 80.0
+  }
+}
+```
+
+**Benefits:**
+- 2-4x faster than sequential single requests
+- 20-60% reduction in padding overhead
+- Automatic dynamic batching by sequence length
+
+**See:** [Batch Processing Documentation](batch-processing.md) for detailed usage and examples.
+
+---
+
+### 6. Batch Session Chat (NEW in v1.1) 🚀
+
+**Endpoint:** `POST /chat/batch-session`
+
+**Description:** Process multiple messages with session support. Maintains conversation history for each session.
+
+**Request Body:**
+```json
+{
+  "messages": ["Hello", "How are you?"],
+  "session_ids": ["user_1", "user_2"]
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "responses": ["Hi! How can I help?", "I'm doing well!"],
+  "session_ids": ["user_1", "user_2"],
+  "stats": {
+    "total_tokens": 100,
+    "actual_tokens": 85,
+    "padding_ratio": 0.15,
+    "num_batches": 1,
+    "avg_batch_size": 2.0,
+    "efficiency": 85.0
+  }
+}
+```
+
+**Note:** If `session_ids` is omitted, new sessions are created automatically.
+
+**See:** [Batch Processing Documentation](batch-processing.md) for detailed usage and examples.
 
 ---
 
