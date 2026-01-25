@@ -1,0 +1,234 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 23,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "default",
+      "hidden": true,
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "debug",
+      "displayName": "Debug Build",
+      "description": "Debug build with all symbols and no optimization",
+      "inherits": "default",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "BUILD_TESTING": "ON",
+        "BUILD_EXAMPLES": "ON",
+        "ENABLE_CCACHE": "ON"
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Release Build",
+      "description": "Optimized release build",
+      "inherits": "default",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_TESTING": "ON",
+        "BUILD_EXAMPLES": "OFF",
+        "ENABLE_CCACHE": "ON"
+      }
+    },
+    {
+      "name": "relwithdebinfo",
+      "displayName": "Release with Debug Info",
+      "description": "Optimized build with debug symbols",
+      "inherits": "default",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "BUILD_TESTING": "ON",
+        "BUILD_EXAMPLES": "OFF",
+        "ENABLE_CCACHE": "ON"
+      }
+    },
+    {
+      "name": "asan",
+      "displayName": "AddressSanitizer Build",
+      "description": "Debug build with AddressSanitizer for memory error detection",
+      "inherits": "debug",
+      "cacheVariables": {
+        "ENABLE_ASAN": "ON",
+        "BUILD_EXAMPLES": "OFF"
+      }
+    },
+    {
+      "name": "ubsan",
+      "displayName": "UndefinedBehaviorSanitizer Build",
+      "description": "Debug build with UndefinedBehaviorSanitizer",
+      "inherits": "debug",
+      "cacheVariables": {
+        "ENABLE_UBSAN": "ON",
+        "BUILD_EXAMPLES": "OFF"
+      }
+    },
+    {
+      "name": "tsan",
+      "displayName": "ThreadSanitizer Build",
+      "description": "Debug build with ThreadSanitizer for detecting race conditions",
+      "inherits": "debug",
+      "cacheVariables": {
+        "ENABLE_TSAN": "ON",
+        "BUILD_EXAMPLES": "OFF"
+      }
+    },
+    {
+      "name": "coverage",
+      "displayName": "Coverage Build",
+      "description": "Debug build with code coverage instrumentation",
+      "inherits": "debug",
+      "cacheVariables": {
+        "ENABLE_COVERAGE": "ON",
+        "BUILD_EXAMPLES": "OFF"
+      }
+    },
+    {
+      "name": "clang-tidy",
+      "displayName": "Build with Clang-Tidy",
+      "description": "Debug build with clang-tidy static analysis",
+      "inherits": "debug",
+      "cacheVariables": {
+        "ENABLE_CLANG_TIDY": "ON"
+      }
+    },
+    {
+      "name": "ci",
+      "displayName": "CI Build",
+      "description": "Configuration used in CI pipelines",
+      "inherits": "release",
+      "cacheVariables": {
+        "BUILD_TESTING": "ON",
+        "BUILD_EXAMPLES": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "debug",
+      "displayName": "Debug Build",
+      "configurePreset": "debug",
+      "jobs": 4
+    },
+    {
+      "name": "release",
+      "displayName": "Release Build",
+      "configurePreset": "release",
+      "jobs": 4
+    },
+    {
+      "name": "relwithdebinfo",
+      "displayName": "Release with Debug Info",
+      "configurePreset": "relwithdebinfo",
+      "jobs": 4
+    },
+    {
+      "name": "asan",
+      "displayName": "AddressSanitizer Build",
+      "configurePreset": "asan",
+      "jobs": 4
+    },
+    {
+      "name": "ubsan",
+      "displayName": "UndefinedBehaviorSanitizer Build",
+      "configurePreset": "ubsan",
+      "jobs": 4
+    },
+    {
+      "name": "tsan",
+      "displayName": "ThreadSanitizer Build",
+      "configurePreset": "tsan",
+      "jobs": 4
+    },
+    {
+      "name": "coverage",
+      "displayName": "Coverage Build",
+      "configurePreset": "coverage",
+      "jobs": 4
+    },
+    {
+      "name": "clang-tidy",
+      "displayName": "Build with Clang-Tidy",
+      "configurePreset": "clang-tidy",
+      "jobs": 4
+    },
+    {
+      "name": "ci",
+      "displayName": "CI Build",
+      "configurePreset": "ci",
+      "jobs": 4
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "default",
+      "hidden": true,
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error",
+        "stopOnFailure": false
+      }
+    },
+    {
+      "name": "debug",
+      "displayName": "Debug Tests",
+      "configurePreset": "debug",
+      "inherits": "default"
+    },
+    {
+      "name": "release",
+      "displayName": "Release Tests",
+      "configurePreset": "release",
+      "inherits": "default"
+    },
+    {
+      "name": "asan",
+      "displayName": "AddressSanitizer Tests",
+      "configurePreset": "asan",
+      "inherits": "default",
+      "environment": {
+        "ASAN_OPTIONS": "detect_leaks=1:check_initialization_order=1"
+      }
+    },
+    {
+      "name": "ubsan",
+      "displayName": "UndefinedBehaviorSanitizer Tests",
+      "configurePreset": "ubsan",
+      "inherits": "default",
+      "environment": {
+        "UBSAN_OPTIONS": "print_stacktrace=1"
+      }
+    },
+    {
+      "name": "tsan",
+      "displayName": "ThreadSanitizer Tests",
+      "configurePreset": "tsan",
+      "inherits": "default",
+      "environment": {
+        "TSAN_OPTIONS": "second_deadlock_stack=1"
+      }
+    },
+    {
+      "name": "coverage",
+      "displayName": "Coverage Tests",
+      "configurePreset": "coverage",
+      "inherits": "default"
+    },
+    {
+      "name": "ci",
+      "displayName": "CI Tests",
+      "configurePreset": "ci",
+      "inherits": "default"
+    }
+  ]
+}

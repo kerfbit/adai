@@ -13,6 +13,19 @@ option(ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
 option(ENABLE_TSAN "Enable ThreadSanitizer" OFF)
 option(ENABLE_COVERAGE "Enable code coverage" OFF)
 option(ENABLE_CLANG_TIDY "Run clang-tidy during build" OFF)
+option(ENABLE_CCACHE "Use ccache for compilation caching" ON)
+
+# Enable ccache if available and requested
+if(ENABLE_CCACHE)
+    find_program(CCACHE_PROGRAM ccache)
+    if(CCACHE_PROGRAM)
+        set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+        set(CMAKE_C_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+        message(STATUS "ccache enabled: ${CCACHE_PROGRAM}")
+    else()
+        message(STATUS "ccache requested but not found")
+    endif()
+endif()
 
 # Compiler options
 if(ENABLE_ASAN)
@@ -58,8 +71,26 @@ add_subdirectory(src)
 
 if(BUILD_TESTING)
     enable_testing()
+    
+    # Use FetchContent to automatically download and build Google Test
+    include(FetchContent)
+    
+    FetchContent_Declare(
+        googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG v1.14.0
+        GIT_SHALLOW TRUE
+        GIT_PROGRESS TRUE
+    )
+    
+    # For Windows: Prevent overriding the parent project's compiler/linker settings
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    
+    # Make Google Test available
+    FetchContent_MakeAvailable(googletest)
+    
+    # Add tests subdirectory
     add_subdirectory(tests)
     
-    find_package(GTest REQUIRED)
-    include_directories(${GTEST_INCLUDE_DIRS})
+    message(STATUS "Google Test v1.14.0 fetched and configured")
 endif()

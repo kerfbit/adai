@@ -11,6 +11,20 @@ add_library(adai_core STATIC
     Optimizer.cpp
 )
 
+# Precompiled headers for commonly used STL headers
+target_precompile_headers(adai_core
+    PUBLIC
+        <vector>
+        <string>
+        <memory>
+        <algorithm>
+        <cmath>
+        <iostream>
+        <stdexcept>
+        <unordered_map>
+        <utility>
+)
+
 # Layer normalization and utilities
 add_library(adai_layers STATIC
     LayerNorm.cpp
@@ -59,6 +73,17 @@ add_library(adai_nlp STATIC
     ConversationContext.cpp
 )
 target_link_libraries(adai_nlp adai_core)
+
+# Additional precompiled headers for NLP components
+target_precompile_headers(adai_nlp
+    PRIVATE
+        <fstream>
+        <sstream>
+        <regex>
+        <queue>
+        <unordered_set>
+        <cctype>
+)
 
 # ============================================================================
 # Production Executables

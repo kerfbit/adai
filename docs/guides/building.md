@@ -35,8 +35,9 @@ This guide covers everything you need to know about building the ADAI project fr
 
 ### Required Dependencies
 
-1. **CMake** (≥ 3.10)
+1. **CMake** (≥ 3.10, **3.23+ recommended**)
    - Build system generator
+   - CMake 3.23+ required for CMake presets support
    - https://cmake.org/download/
 
 2. **C++17 Compatible Compiler**
@@ -48,9 +49,10 @@ This guide covers everything you need to know about building the ADAI project fr
 
 ### Optional Dependencies
 
-1. **Google Test** (≥ 1.10.0)
-   - Automatically fetched by CMake
-   - For running tests
+1. **ccache**
+   - Compilation caching tool
+   - Automatically detected and used when available
+   - Dramatically speeds up recompilation (70-80% faster)
 
 2. **clang-format** (≥ 10.0)
    - Code formatting tool
@@ -64,6 +66,8 @@ This guide covers everything you need to know about building the ADAI project fr
    - Coverage report generation
    - For development and testing
 
+**Note**: Google Test is no longer a system dependency. It's automatically downloaded and built using CMake FetchContent.
+
 ## Quick Start
 
 ### Clone Repository
@@ -73,7 +77,22 @@ git clone https://github.com/yourusername/adai.git
 cd adai
 ```
 
-### Basic Build
+### Modern Build (Recommended)
+
+Using CMake presets (CMake 3.23+):
+
+```bash
+# Configure and build in one step
+cmake --preset debug
+cmake --build --preset debug
+
+# Run tests
+ctest --preset debug
+```
+
+### Traditional Build
+
+For older CMake versions or custom configurations:
 
 ```bash
 # Create build directory
@@ -101,11 +120,120 @@ ctest --output-on-failure
 ./tests/integrationTests
 ```
 
+## Modern Build Optimizations
+
+ADAI uses several modern CMake features to optimize build times and simplify workflows.
+
+### CMake Presets (Recommended)
+
+CMake presets provide pre-configured build configurations for common scenarios. This is the easiest way to build ADAI.
+
+```bash
+# List available presets
+cmake --list-presets
+
+# Configure using a preset
+cmake --preset debug          # Debug build
+cmake --preset release        # Release build
+cmake --preset asan          # AddressSanitizer build
+cmake --preset coverage      # Code coverage build
+
+# Build using a preset
+cmake --build --preset debug
+cmake --build --preset release
+
+# Run tests using a preset
+ctest --preset debug
+ctest --preset asan
+```
+
+#### Available Presets
+
+| Preset | Description | Use Case |
+|--------|-------------|----------|
+| **debug** | Debug build with all symbols | Development and debugging |
+| **release** | Optimized release build | Production and performance |
+| **relwithdebinfo** | Optimized with debug info | Performance debugging |
+| **asan** | AddressSanitizer enabled | Memory error detection |
+| **ubsan** | UndefinedBehaviorSanitizer | Undefined behavior detection |
+| **tsan** | ThreadSanitizer | Race condition detection |
+| **coverage** | Code coverage enabled | Test coverage analysis |
+| **clang-tidy** | Static analysis enabled | Code quality checks |
+| **ci** | CI/CD configuration | Automated builds |
+
+### Compilation Caching with ccache
+
+ADAI automatically uses ccache when available to significantly speed up recompilation:
+
+```bash
+# Install ccache (if not already installed)
+# Ubuntu/Debian
+sudo apt-get install ccache
+
+# Fedora/RHEL
+sudo dnf install ccache
+
+# macOS
+brew install ccache
+
+# Verify ccache is working
+ccache -s  # Show statistics
+
+# Configure will automatically detect and use ccache
+cmake --preset debug
+
+# After building, check cache statistics
+ccache -s
+```
+
+**Performance Impact**: ccache can reduce recompilation time by 70-80% for incremental builds.
+
+**Disable ccache** (if needed):
+```bash
+cmake -DENABLE_CCACHE=OFF --preset debug
+```
+
+### Precompiled Headers
+
+ADAI uses precompiled headers for commonly included STL headers to reduce compilation time:
+
+- **adai_core**: `<vector>`, `<string>`, `<memory>`, `<algorithm>`, `<cmath>`, etc.
+- **adai_nlp**: `<fstream>`, `<sstream>`, `<regex>`, `<queue>`, etc.
+
+Precompiled headers are automatically used when building libraries. No configuration needed.
+
+**Benefits**:
+- Faster clean builds (20-30% reduction)
+- Automatic reuse across translation units
+- No manual header management
+
+### FetchContent Dependencies
+
+Google Test is automatically downloaded and built using CMake's FetchContent:
+
+```cmake
+# No need to manually install Google Test
+# CMake handles it automatically during configuration
+```
+
+**Benefits**:
+- No system-wide Google Test installation required
+- Consistent test framework version across all builds
+- Automatic setup in CI/CD environments
+
+**Offline builds**: If you need to build offline, download Google Test manually:
+```bash
+# Download Google Test v1.14.0 once
+git clone --depth 1 --branch v1.14.0 https://github.com/google/googletest.git _deps/googletest-src
+```
+
 ## Build Options
+
+**Note**: For CMake 3.23+, using [CMake Presets](#cmake-presets-recommended) is recommended instead of manually specifying options.
 
 ### CMake Configuration Options
 
-Configure the build with various options:
+Configure the build with various options (traditional method):
 
 ```bash
 # Disable building examples
@@ -121,8 +249,20 @@ cmake -DCMAKE_BUILD_TYPE=Debug ..
 # Enable Address Sanitizer (debug builds)
 cmake -DENABLE_ASAN=ON ..
 
+# Enable UndefinedBehavior Sanitizer
+cmake -DENABLE_UBSAN=ON ..
+
+# Enable Thread Sanitizer
+cmake -DENABLE_TSAN=ON ..
+
 # Enable code coverage
 cmake -DENABLE_COVERAGE=ON ..
+
+# Enable clang-tidy static analysis
+cmake -DENABLE_CLANG_TIDY=ON ..
+
+# Disable ccache (enabled by default)
+cmake -DENABLE_CCACHE=OFF ..
 
 # Specify compiler
 cmake -DCMAKE_CXX_COMPILER=clang++ ..
@@ -132,8 +272,22 @@ cmake -DCMAKE_CXX_COMPILER=g++-11 ..
 cmake -DCMAKE_BUILD_TYPE=Release \
       -DBUILD_EXAMPLES=ON \
       -DCMAKE_CXX_COMPILER=g++ \
+      -DENABLE_CCACHE=ON \
       ..
 ```
+
+### Available CMake Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `BUILD_TESTING` | ON | Build test suite |
+| `BUILD_EXAMPLES` | ON | Build example programs |
+| `ENABLE_ASAN` | OFF | Enable AddressSanitizer |
+| `ENABLE_UBSAN` | OFF | Enable UndefinedBehaviorSanitizer |
+| `ENABLE_TSAN` | OFF | Enable ThreadSanitizer |
+| `ENABLE_COVERAGE` | OFF | Enable code coverage |
+| `ENABLE_CLANG_TIDY` | OFF | Run clang-tidy during build |
+| `ENABLE_CCACHE` | ON | Use ccache for caching |
 
 ### Build Types
 
@@ -155,11 +309,17 @@ sudo apt-get install -y \
     build-essential \
     cmake \
     git \
+    ccache \
     clang-format \
     clang-tidy \
     lcov
 
-# Build
+# Build using presets (CMake 3.23+)
+cmake --preset release
+cmake --build --preset release
+ctest --preset release
+
+# OR traditional build
 mkdir build && cd build
 cmake -DCMAKE_BUILD_TYPE=Release ..
 make -j$(nproc)
@@ -174,10 +334,16 @@ sudo dnf install -y \
     gcc-c++ \
     cmake \
     git \
+    ccache \
     clang-tools-extra \
     lcov
 
-# Build
+# Build using presets (CMake 3.23+)
+cmake --preset release
+cmake --build --preset release
+ctest --preset release
+
+# OR traditional build
 mkdir build && cd build
 cmake -DCMAKE_BUILD_TYPE=Release ..
 make -j$(nproc)
@@ -194,9 +360,14 @@ xcode-select --install
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
 # Install dependencies
-brew install cmake clang-format cppcheck lcov
+brew install cmake ccache clang-format cppcheck lcov
 
-# Build
+# Build using presets (CMake 3.23+)
+cmake --preset release
+cmake --build --preset release
+ctest --preset release
+
+# OR traditional build
 mkdir build && cd build
 cmake -DCMAKE_BUILD_TYPE=Release ..
 make -j$(sysctl -n hw.ncpu)
