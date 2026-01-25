@@ -1,0 +1,159 @@
+cmake_minimum_required(VERSION 3.10)
+
+enable_testing()
+
+find_package(GTest REQUIRED)
+include_directories(${GTEST_INCLUDE_DIRS})
+include_directories(${CMAKE_SOURCE_DIR}/src)
+
+# ============================================================================
+# Core Component Tests - Now using libraries
+# ============================================================================
+
+# Tokenizer tests
+add_executable(runTests tokenizer_test.cpp)
+target_link_libraries(runTests adai_nlp ${GTEST_LIBRARIES} pthread)
+add_test(NAME TokenizerTests COMMAND runTests)
+
+# Matrix tests
+add_executable(matrixTests matrix_test.cpp)
+target_link_libraries(matrixTests adai_core ${GTEST_LIBRARIES} pthread)
+add_test(NAME MatrixTests COMMAND matrixTests)
+
+# Activation tests
+add_executable(activationTests activation_test.cpp)
+target_link_libraries(activationTests adai_core ${GTEST_LIBRARIES} pthread)
+add_test(NAME ActivationTests COMMAND activationTests)
+
+# Optimizer tests
+add_executable(optimizerTests optimizer_test.cpp)
+target_link_libraries(optimizerTests adai_core ${GTEST_LIBRARIES} pthread)
+add_test(NAME OptimizerTests COMMAND optimizerTests)
+
+# ============================================================================
+# Layer Tests
+# ============================================================================
+
+# LayerNorm tests
+add_executable(layernormTests layernorm_test.cpp)
+target_link_libraries(layernormTests adai_layers ${GTEST_LIBRARIES} pthread)
+add_test(NAME LayerNormTests COMMAND layernormTests)
+
+# PositionalEncoding tests
+add_executable(positionalencodingTests positionalencoding_test.cpp)
+target_link_libraries(positionalencodingTests adai_layers ${GTEST_LIBRARIES} pthread)
+add_test(NAME PositionalEncodingTests COMMAND positionalencodingTests)
+
+# TokenEmbedding tests
+add_executable(tokenembeddingTests tokenembedding_test.cpp)
+target_link_libraries(tokenembeddingTests adai_layers ${GTEST_LIBRARIES} pthread)
+add_test(NAME TokenEmbeddingTests COMMAND tokenembeddingTests)
+
+# ============================================================================
+# Attention Tests
+# ============================================================================
+
+# MultiHeadAttention tests
+add_executable(multiheadattentionTests multiheadattention_test.cpp)
+target_link_libraries(multiheadattentionTests adai_attention ${GTEST_LIBRARIES} pthread)
+add_test(NAME MultiHeadAttentionTests COMMAND multiheadattentionTests)
+
+# CrossAttention tests
+add_executable(crossattentionTests crossattention_test.cpp)
+target_link_libraries(crossattentionTests adai_attention ${GTEST_LIBRARIES} pthread)
+add_test(NAME CrossAttentionTests COMMAND crossattentionTests)
+
+# ============================================================================
+# Feed-Forward Tests
+# ============================================================================
+
+# FeedForward tests
+add_executable(feedforwardTests feedforward_test.cpp)
+target_link_libraries(feedforwardTests adai_feedforward ${GTEST_LIBRARIES} pthread)
+add_test(NAME FeedForwardTests COMMAND feedforwardTests)
+
+# ============================================================================
+# Transformer Block Tests
+# ============================================================================
+
+# EncoderBlock tests
+add_executable(encoderblockTests encoderblock_test.cpp)
+target_link_libraries(encoderblockTests adai_transformer ${GTEST_LIBRARIES} pthread)
+add_test(NAME EncoderBlockTests COMMAND encoderblockTests)
+
+# DecoderBlock tests
+add_executable(decoderblockTests decoderblock_test.cpp)
+target_link_libraries(decoderblockTests adai_transformer ${GTEST_LIBRARIES} pthread)
+add_test(NAME DecoderBlockTests COMMAND decoderblockTests)
+
+# ============================================================================
+# Model Tests
+# ============================================================================
+
+# LanguageModelHead tests
+add_executable(languagemodelheadTests languagemodelhead_test.cpp)
+target_link_libraries(languagemodelheadTests adai_models ${GTEST_LIBRARIES} pthread)
+add_test(NAME LanguageModelHeadTests COMMAND languagemodelheadTests)
+
+# Decoder tests
+add_executable(decoderTests decoder_test.cpp)
+target_link_libraries(decoderTests adai_models ${GTEST_LIBRARIES} pthread)
+add_test(NAME DecoderTests COMMAND decoderTests)
+
+# EncoderDecoderModel tests
+add_executable(encoderdecoderTests encoderdecoder_test.cpp)
+target_link_libraries(encoderdecoderTests adai_models adai_nlp ${GTEST_LIBRARIES} pthread)
+add_test(NAME EncoderDecoderTests COMMAND encoderdecoderTests)
+
+# ============================================================================
+# NLP Component Tests
+# ============================================================================
+
+# TextGenerator tests
+add_executable(textgeneratorTests textgenerator_test.cpp)
+target_link_libraries(textgeneratorTests adai_nlp ${GTEST_LIBRARIES} pthread)
+add_test(NAME TextGeneratorTests COMMAND textgeneratorTests)
+
+# ConversationContext tests
+add_executable(conversationcontextTests conversationcontext_test.cpp)
+target_link_libraries(conversationcontextTests adai_nlp ${GTEST_LIBRARIES} pthread)
+add_test(NAME ConversationContextTests COMMAND conversationcontextTests)
+
+# ============================================================================
+# Application Tests
+# ============================================================================
+
+# ChatbotTrainer tests (unit tests for data structures and helper functions)
+add_executable(chatbottrainerTests chatbottrainer_test.cpp)
+target_link_libraries(chatbottrainerTests ${GTEST_LIBRARIES} pthread)
+add_test(NAME ChatbotTrainerTests COMMAND chatbottrainerTests)
+
+# ChatbotCLI tests (unit tests for command parsing and helper functions)
+add_executable(chatbotcliTests chatbotcli_test.cpp)
+target_link_libraries(chatbotcliTests ${GTEST_LIBRARIES} pthread)
+add_test(NAME ChatbotCLITests COMMAND chatbotcliTests)
+
+# ============================================================================
+# Integration Tests
+# ============================================================================
+
+# Integration tests - End-to-end workflows
+add_executable(integrationTests integration_test.cpp)
+target_link_libraries(integrationTests 
+    adai_models 
+    adai_nlp 
+    adai_transformer 
+    adai_attention
+    adai_feedforward
+    adai_layers
+    adai_core
+    ${GTEST_LIBRARIES} 
+    pthread
+)
+add_test(NAME IntegrationTests COMMAND integrationTests)
+
+# ============================================================================
+# Test Summary
+# ============================================================================
+
+message(STATUS "Configured 19 test suites using library targets (including integration tests)")

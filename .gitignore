@@ -1,0 +1,65 @@
+# Build directories
+build/
+cmake-build-*/
+.cmake/
+
+# Compiled Object files
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dll
+*.dylib
+
+# Executables
+*.exe
+*.out
+*.app
+tokenizer
+encoder
+chatbot
+chatbot_trainer
+*_example
+
+# Build directories
+build/
+cmake-build-*/
+.cmake/
+
+# Model files and checkpoints
+*.bin
+*.bin.*
+*.epoch*
+sample_model.*
+models/
+checkpoints/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Backup files
+*.backup
+*~
+
+# Test artifacts
+Testing/
+test_*.bin
+
+# Coverage reports
+*.gcda
+*.gcno
+*.gcov
+coverage.info
+coverage_html/
+coverage/
+
+# Documentation build artifacts
+docs/html/
+docs/latex/
+*.pdf
