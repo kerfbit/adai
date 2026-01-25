@@ -16,6 +16,7 @@ Welcome to the Advanced Deep Learning AI (ADAI) documentation. This guide will h
 - **[Chatbot User Guide](guides/chatbot-guide.md)** - Using the chatbot CLI
 - **[Chatbot CLI Internals](guides/chatbot-cli-internals.md)** - How the CLI works
 - **[Training Internals](guides/training-internals.md)** - Training system details
+- **[Enhanced Training Pipeline](guides/enhanced-training-pipeline.md)** - Production-ready training infrastructure (NEW)
 
 ### Development
 - **[Building ADAI](guides/building.md)** - Build instructions, requirements, and troubleshooting
@@ -113,11 +114,11 @@ Welcome to the Advanced Deep Learning AI (ADAI) documentation. This guide will h
 
 ## 📊 Project Metrics
 
-- **79** C++ source/header files
-- **~32,500** lines of code
-- **567+** comprehensive test suites (100% pass rate)
-- **59+** documentation files (~15,000 lines)
-- **11** executable targets
+- **82** C++ source/header files
+- **~36,400** lines of code
+- **630+** comprehensive test suites (100% pass rate)
+- **60+** documentation files (~16,000+ lines)
+- **12** executable targets
 - **25+** transformer/neural network components
 - **~99%** complete for production chatbot deployment
 

@@ -138,6 +138,21 @@ add_executable(chatbotcliTests chatbotcli_test.cpp)
 target_link_libraries(chatbotcliTests GTest::gtest_main)
 add_test(NAME ChatbotCLITests COMMAND chatbotcliTests)
 
+# Dataset tests (data loading and splitting)
+add_executable(datasetTests dataset_test.cpp)
+target_link_libraries(datasetTests GTest::gtest_main)
+add_test(NAME DatasetTests COMMAND datasetTests)
+
+# MetricsTracker tests (training metrics tracking)
+add_executable(metricstrackerTests metricstracker_test.cpp)
+target_link_libraries(metricstrackerTests GTest::gtest_main)
+add_test(NAME MetricsTrackerTests COMMAND metricstrackerTests)
+
+# CheckpointManager tests (model checkpoint management)
+add_executable(checkpointmanagerTests checkpointmanager_test.cpp)
+target_link_libraries(checkpointmanagerTests GTest::gtest_main)
+add_test(NAME CheckpointManagerTests COMMAND checkpointmanagerTests)
+
 # ============================================================================
 # Integration Tests
 # ============================================================================
@@ -160,4 +175,4 @@ add_test(NAME IntegrationTests COMMAND integrationTests)
 # Test Summary
 # ============================================================================
 
-message(STATUS "Configured 20 test suites using library targets (including integration tests)")
+message(STATUS "Configured 23 test suites using library targets (including integration tests)")

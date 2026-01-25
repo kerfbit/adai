@@ -188,6 +188,10 @@ if(BUILD_EXAMPLES)
     add_executable(inference_optimization_benchmark InferenceOptimizationBenchmark.cpp)
     target_link_libraries(inference_optimization_benchmark adai_models adai_nlp)
     
+    # Enhanced Training Pipeline Example
+    add_executable(enhanced_training_example EnhancedTrainingExample.cpp)
+    target_link_libraries(enhanced_training_example adai_models adai_nlp)
+    
     message(STATUS "Building example programs (disable with -DBUILD_EXAMPLES=OFF)")
 endif()
 
