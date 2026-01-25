@@ -135,8 +135,12 @@ Run specific test suites:
 ## 🤝 Contributing
 
 Contributions are welcome! Please refer to:
-- [Process Improvement Plan](PROCESS_IMPROVEMENT_PLAN.md) for development guidelines
-- [Documentation Guide](docs/README.md) for documentation standards
+- [Contributing Guide](docs/guides/contributing.md) - Coding standards and submission process
+- [Building Guide](docs/guides/building.md) - Build instructions and troubleshooting
+- [Git Workflow](docs/guides/git-workflow.md) - Branching strategy and commit conventions
+- [Technical Debt Tracker](TECHNICAL_DEBT.md) - Known issues and improvement opportunities
+- [Process Improvement Plan](PROCESS_IMPROVEMENT_PLAN.md) - Development guidelines
+- [Documentation Guide](docs/README.md) - Documentation standards
 
 ## 📈 Performance
 

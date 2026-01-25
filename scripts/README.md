@@ -4,6 +4,34 @@ This directory contains utility scripts for ADAI development.
 
 ## Available Scripts
 
+### 📊 check_tech_debt.sh
+Scans codebase for technical debt markers and verifies tracking.
+
+**Usage:**
+```bash
+./scripts/check_tech_debt.sh
+```
+
+**What it does:**
+- Scans for TODO, FIXME, HACK, and XXX markers in code
+- Verifies all markers are tracked in TECHNICAL_DEBT.md
+- Reports summary of tracked technical debt items
+- Highlights high-priority items
+
+**Output:**
+- Lists any untracked technical debt markers
+- Shows count of active tracked items
+- Displays high-priority debt items
+- Exit code 0 if all debt is tracked, 1 if untracked markers found
+
+**Best Practices:**
+- Run before committing code
+- All new debt markers must be tracked in TECHNICAL_DEBT.md
+- Reference debt items in code: `// See TD-XXX in TECHNICAL_DEBT.md`
+- Create GitHub issues for new debt using `.github/ISSUE_TEMPLATE/technical-debt.md`
+
+---
+
 ### 🎨 format_code.sh
 Formats all C++ source files using clang-format.
 

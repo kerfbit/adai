@@ -602,7 +602,7 @@ class ChatbotTrainer {
                 // Note: This will use the model's update_weights() until
                 // full parameter exposure is implemented
                 model->update_weights();
-                // optimizer->step();  // TODO: Use this once parameters are exposed
+                // optimizer->step();  // See TD-001 in TECHNICAL_DEBT.md - Parameter exposure incomplete
 
                 total_loss += loss;
                 global_step++;

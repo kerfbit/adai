@@ -324,10 +324,8 @@ void EncoderDecoderModel::register_parameters(Optimizer& optimizer) {
     // The actual parameter registration would need to be implemented
     // in each component (encoder, decoder, lm_head)
 
-    // TODO: Implement parameter exposure in:
-    // - LLMEncoder::register_parameters()
-    // - LLMDecoder::register_parameters()
-    // - LanguageModelHead::register_parameters()
+    // See TD-001 in TECHNICAL_DEBT.md - Complete optimizer parameter exposure
+    // Tasks: Implement parameter exposure in LLMEncoder, LLMDecoder, and LanguageModelHead
 
     std::cerr << "Warning: register_parameters() not fully implemented. "
               << "Components need to expose weight/gradient pointers." << std::endl;
