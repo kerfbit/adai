@@ -154,6 +154,15 @@ target_link_libraries(checkpointmanagerTests GTest::gtest_main)
 add_test(NAME CheckpointManagerTests COMMAND checkpointmanagerTests)
 
 # ============================================================================
+# Phase 5 Advanced Features Tests
+# ============================================================================
+
+# Phase 5 tests (RLHF, LoRA, Quantization, Speculative Decoding)
+add_executable(phase5Tests phase5_test.cpp)
+target_link_libraries(phase5Tests adai_core GTest::gtest_main)
+add_test(NAME Phase5Tests COMMAND phase5Tests)
+
+# ============================================================================
 # Integration Tests
 # ============================================================================
 
@@ -175,4 +184,4 @@ add_test(NAME IntegrationTests COMMAND integrationTests)
 # Test Summary
 # ============================================================================
 
-message(STATUS "Configured 23 test suites using library targets (including integration tests)")
+message(STATUS "Configured 24 test suites using library targets (including integration and Phase 5 tests)")

@@ -192,6 +192,10 @@ if(BUILD_EXAMPLES)
     add_executable(enhanced_training_example EnhancedTrainingExample.cpp)
     target_link_libraries(enhanced_training_example adai_models adai_nlp)
     
+    # Phase 5 Advanced Features Examples
+    add_executable(phase5_examples Phase5Examples.cpp)
+    target_link_libraries(phase5_examples adai_core)
+    
     message(STATUS "Building example programs (disable with -DBUILD_EXAMPLES=OFF)")
 endif()
 
