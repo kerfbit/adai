@@ -146,6 +146,89 @@ Matrix MultiHeadAttention::forward(const Matrix& input, const Matrix* mask) {
     return output;
 }
 
+Matrix MultiHeadAttention::forward_with_cache(const Matrix& input, const Matrix* mask,
+                                              KVCache* kv_cache, bool use_cache) {
+    // If no cache provided or cache disabled, fall back to regular forward
+    if (!use_cache || kv_cache == nullptr) {
+        return forward(input, mask);
+    }
+
+    // Cache input for backward pass (if needed for training)
+    cached_input = input;
+
+    int num_new_tokens = input.rows;
+
+    // Validate input dimensions
+    if (input.cols != d_model) {
+        throw std::invalid_argument("Input dimension (" + std::to_string(input.cols) +
+                                    ") must match d_model (" + std::to_string(d_model) + ")");
+    }
+
+    // Compute Q, K, V for NEW tokens only
+    Matrix Q_new = input * W_q;
+    Matrix K_new = input * W_k;
+    Matrix V_new = input * W_v;
+
+    // Query is always from the new tokens
+    cached_Q = Q_new;
+
+    // Append new K, V to cache
+    kv_cache->append(K_new, V_new);
+
+    // Get full K, V from cache (includes all previous + new tokens)
+    const Matrix& K_full = kv_cache->get_keys();
+    const Matrix& V_full = kv_cache->get_values();
+    
+    cached_K = K_full;
+    cached_V = V_full;
+
+    int total_seq_len = K_full.rows;
+
+    // Compute attention scores: Q_new * K_full^T
+    // Shape: [num_new_tokens, total_seq_len]
+    Matrix scores = Q_new * K_full.transpose();
+
+    // Scale by sqrt(d_k)
+    float scale_factor = 1.0f / std::sqrt(static_cast<float>(d_k));
+    scores = scores.scale(scale_factor);
+
+    // Cache scores for backward pass
+    cached_scores = scores;
+
+    // Apply mask if provided
+    // Mask shape should be [num_new_tokens, total_seq_len]
+    if (mask != nullptr) {
+        if (mask->rows != num_new_tokens || mask->cols != total_seq_len) {
+            throw std::invalid_argument(
+                "Mask dimensions (" + std::to_string(mask->rows) + ", " +
+                std::to_string(mask->cols) + ") must match [num_new_tokens=" +
+                std::to_string(num_new_tokens) + ", total_seq_len=" +
+                std::to_string(total_seq_len) + "]");
+        }
+
+        for (int i = 0; i < num_new_tokens; ++i) {
+            for (int j = 0; j < total_seq_len; ++j) {
+                if ((*mask)(i, j) == 0.0f) {
+                    scores(i, j) = -1e9f;
+                }
+            }
+        }
+    }
+
+    // Apply softmax to get attention weights
+    // Shape: [num_new_tokens, total_seq_len]
+    cached_attention_weights = Activation::softmax(scores);
+
+    // Apply attention to values
+    // [num_new_tokens, total_seq_len] * [total_seq_len, d_model] = [num_new_tokens, d_model]
+    cached_attention_output = cached_attention_weights * V_full;
+
+    // Final linear projection
+    Matrix output = cached_attention_output * W_o;
+
+    return output;
+}
+
 Matrix MultiHeadAttention::backward(const Matrix& grad_output) {
     // Validate gradient dimensions
     if (grad_output.rows != cached_input.rows || grad_output.cols != d_model) {

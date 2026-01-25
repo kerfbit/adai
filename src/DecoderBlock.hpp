@@ -7,6 +7,7 @@
 #include "LayerNorm.hpp"
 #include "Matrix.hpp"
 #include "MultiHeadAttention.hpp"
+#include "KVCache.hpp"
 
 /**
  * Transformer Decoder Block
@@ -109,6 +110,25 @@ class DecoderBlock {
      */
     Matrix forward(const Matrix& input, const Matrix& encoder_output, const Matrix& self_attn_mask,
                    const Matrix* cross_attn_mask = nullptr);
+
+    /**
+     * Forward pass with KV cache support (for inference optimization)
+     *
+     * Same as forward() but with caching for autoregressive generation.
+     *
+     * @param input Decoder input (new tokens only) [num_new_tokens, d_model]
+     * @param encoder_output Encoder output for cross-attention [enc_seq_len, d_model]
+     * @param self_attn_mask Causal mask [num_new_tokens, total_seq_len]
+     * @param self_attn_cache Cache for self-attention K/V pairs
+     * @param cross_attn_cache Cache for cross-attention K/V pairs (computed once from encoder)
+     * @param cross_attn_mask Optional padding mask for encoder
+     * @param use_cache If true, update caches
+     * @return Output [num_new_tokens, d_model]
+     */
+    Matrix forward_with_cache(const Matrix& input, const Matrix& encoder_output,
+                             const Matrix& self_attn_mask, KVCache* self_attn_cache,
+                             KVCache* cross_attn_cache,
+                             const Matrix* cross_attn_mask = nullptr, bool use_cache = true);
 
     /**
      * Backward pass through decoder block

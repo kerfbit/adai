@@ -4,6 +4,7 @@
 #include <vector>
 #include "Matrix.hpp"
 #include "Optimizer.hpp"
+#include "KVCache.hpp"
 
 /**
  * Cross-Attention Mechanism for Transformer Decoder
@@ -120,6 +121,23 @@ class CrossAttention {
      * 7. Project through W_o
      */
     Matrix forward(const Matrix& query_input, const Matrix& kv_input, const Matrix* mask = nullptr);
+
+    /**
+     * Forward pass with KV cache support (for inference optimization)
+     *
+     * For cross-attention, K/V from encoder are constant across all generation steps,
+     * so we compute and cache them once on the first call.
+     *
+     * @param query_input Query input from decoder [num_new_tokens, d_model]
+     * @param kv_input Key-Value input from encoder [src_len, d_model] (used only if cache empty)
+     * @param mask Optional attention mask [num_new_tokens, src_len]
+     * @param kv_cache Cache for encoder K/V pairs (computed once, reused)
+     * @param use_cache If true, use/populate cache
+     * @return Attention output [num_new_tokens, d_model]
+     */
+    Matrix forward_with_cache(const Matrix& query_input, const Matrix& kv_input,
+                             const Matrix* mask = nullptr, KVCache* kv_cache = nullptr,
+                             bool use_cache = true);
 
     /**
      * Backward pass through cross-attention

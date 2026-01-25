@@ -297,6 +297,126 @@ Matrix cross_attended = cross_attn.forward(
 // Decoder won't attend to padded positions
 ```
 
+#### Forward Pass with KV Cache (Inference Optimization)
+
+```cpp
+Matrix forward_with_cache(const Matrix& query_input,
+                         const Matrix& kv_input,
+                         const Matrix* mask = nullptr,
+                         KVCache* kv_cache = nullptr,
+                         bool use_cache = true)
+```
+
+**Purpose**: Optimized inference for autoregressive generation with encoder-decoder models.
+
+**Key Insight**: In cross-attention, the encoder output (K, V) is **constant** across all decoder generation steps. We can compute and cache them once on the first call, then reuse for all subsequent tokens.
+
+**Input**:
+- `query_input`: Query from decoder `[num_new_tokens, d_model]`
+- `kv_input`: Encoder output `[src_len, d_model]` (only used if cache empty)
+- `mask`: Optional attention mask `[num_new_tokens, src_len]` (default: nullptr)
+- `kv_cache`: Cache for encoder K/V pairs (default: nullptr)
+- `use_cache`: Enable caching (default: true)
+
+**Output**:
+- Attended representation `[num_new_tokens, d_model]`
+
+**Behavior**:
+1. **First call (cache empty)**:
+   - Compute K, V from encoder output
+   - Store in cache for reuse
+   - Compute attention with new queries
+   
+2. **Subsequent calls (cache populated)**:
+   - Retrieve K, V from cache (no recomputation!)
+   - Only compute Q from new decoder tokens
+   - Compute attention with cached K, V
+
+**Performance**: For cross-attention, caching encoder K/V eliminates redundant computation on every generation step.
+
+**Example - Machine Translation**:
+```cpp
+CrossAttention cross_attn(512, 8);
+KVCache encoder_kv_cache;  // Cache for encoder K/V
+
+// Encode source sentence once
+Matrix english_encoding = encoder.forward(english_tokens);  // [20, 512]
+
+// Generate French translation token by token
+Matrix decoder_state(1, 512);  // Start with BOS token
+
+for (int i = 0; i < max_length; ++i) {
+    // First iteration: computes K,V from encoder, caches them
+    // Subsequent iterations: reuses cached K,V
+    Matrix cross_attended = cross_attn.forward_with_cache(
+        decoder_state,        // [1, 512] - just the new token
+        english_encoding,     // [20, 512] - only read on first call
+        nullptr,              // No mask
+        &encoder_kv_cache,    // Cache encoder K/V
+        true                  // Use cache
+    );
+    
+    // Generate next token...
+    decoder_state = generate_next_token(cross_attended);
+}
+
+// Result: Encoder K/V computed once, reused 50 times!
+```
+
+**Without Cache (Inefficient)**:
+```cpp
+// BAD: Recomputes encoder K/V every step
+for (int i = 0; i < max_length; ++i) {
+    Matrix cross_attended = cross_attn.forward(
+        decoder_state,       // Changes each step
+        english_encoding     // Same every step - wasteful to recompute K,V!
+    );
+}
+```
+
+**With Cache (Efficient)**:
+```cpp
+// GOOD: Encoder K/V computed once, cached, reused
+KVCache encoder_kv_cache;
+for (int i = 0; i < max_length; ++i) {
+    Matrix cross_attended = cross_attn.forward_with_cache(
+        decoder_state,
+        english_encoding,    // K,V computed only on i=0
+        nullptr,
+        &encoder_kv_cache,
+        true
+    );
+}
+```
+
+**Memory**: O(src_len × d_model) additional memory for cached K, V matrices.
+
+**Speedup**: Proportional to generation length. For 50-token generation, eliminates 49 redundant K,V computations.
+
+**Integration with DecoderKVCache**:
+```cpp
+// In DecoderBlock with both self-attention and cross-attention caches
+DecoderKVCache full_cache(num_layers);
+
+for (int layer = 0; layer < num_layers; ++layer) {
+    // Self-attention cache (grows with each token)
+    auto& self_attn_cache = full_cache.get_self_attention_cache(layer);
+    hidden = self_attn.forward_with_cache(hidden, nullptr, &self_attn_cache, true);
+    
+    // Cross-attention cache (constant, set once)
+    auto& cross_attn_cache = full_cache.get_cross_attention_cache(layer);
+    hidden = cross_attn.forward_with_cache(
+        hidden, encoder_output, nullptr, &cross_attn_cache, true
+    );
+}
+```
+
+**See Also**:
+- [KVCache API Reference](../../reference/kvcache.md) - Complete caching documentation
+- [Inference Optimization Guide](../../guides/inference-optimization.md) - Performance optimization
+
+---
+
 #### Backward Pass
 
 ```cpp
@@ -1568,9 +1688,39 @@ The CrossAttention component is fully implemented, tested via DecoderBlock integ
 
 ---
 
+## See Also
+
+### Core Documentation
+- **[MultiHeadAttention API](multihead-attention.md)** - Self-attention mechanism
+- **[Decoder API](../models/decoder.md)** - Full decoder implementation using CrossAttention
+- **[DecoderBlock API](../transformer/decoder-block.md)** - Single decoder layer with self + cross attention
+- **[Transformer Architecture](../../architecture/transformer-design.md)** - Overall system design
+
+### Optimization & Performance
+- **[KVCache API Reference](../../reference/kvcache.md)** - Complete KV caching documentation
+  - How to use `forward_with_cache` effectively
+  - Cache management strategies
+  - Performance impact (eliminates redundant encoder K/V computation)
+- **[Inference Optimization Guide](../../guides/inference-optimization.md)** - Complete optimization guide
+  - Cross-attention caching in encoder-decoder models
+  - Combined with self-attention cache for maximum speedup
+- **[PerformanceProfiler API](../../reference/performanceprofiler.md)** - Measure optimization impact
+- **[BatchProcessor API](../../reference/batchprocessor.md)** - Batch processing for throughput
+
+### Implementation Examples
+- **[Encoder-Decoder Model Example](../models/encoder-decoder-model.md)** - Full seq2seq architecture
+- **[Quick Start Guide](../../guides/inference-optimization-quickstart.md)** - Get started with optimizations
+
+---
+
 **Component Maintainer**: GitHub Copilot  
-**Last Updated**: January 24, 2026  
-**Version**: 1.1  
-**Dependencies**: Matrix.hpp, Activation.hpp, Optimizer.hpp (optional)  
+**Last Updated**: January 25, 2026  
+**Version**: 1.2  
+**Dependencies**: Matrix.hpp, Activation.hpp, Optimizer.hpp (optional), KVCache.hpp  
 **Used By**: DecoderBlock.hpp, LLMDecoder  
 **Test Coverage**: 39/39 tests passing (27 original + 12 optimizer integration tests)
+
+**Recent Updates**:
+- Added `forward_with_cache()` method for inference optimization (v1.2)
+- Added comprehensive caching documentation and examples
+- Added cross-references to optimization documentation

@@ -129,6 +129,83 @@ Matrix LLMDecoder::forward_with_mask(const std::vector<int>& token_ids, const Ma
     return output;
 }
 
+Matrix LLMDecoder::forward_with_cache(const std::vector<int>& token_ids, DecoderKVCache& kv_cache,
+                                      const Matrix* encoder_output, bool use_cache) {
+    int num_new_tokens = token_ids.size();
+    int current_position = kv_cache.current_length();
+    int total_seq_len = current_position + num_new_tokens;
+
+    // Cache inputs for backward pass (if training)
+    cached_token_ids = token_ids;
+    if (encoder_output) {
+        cached_encoder_output = *encoder_output;
+    }
+    cached_decoder_outputs.clear();
+
+    // 1. Token embedding (only for new tokens)
+    Matrix embeddings = token_embedding->forward(token_ids);
+    cached_embeddings = embeddings;
+
+    // 2. Add positional encoding (offset by current_position)
+    // We need to generate positional encoding starting from current_position
+    Matrix pos_encoded(num_new_tokens, d_model);
+    
+    for (int pos = 0; pos < num_new_tokens; ++pos) {
+        int absolute_pos = current_position + pos;
+        for (int i = 0; i < d_model; ++i) {
+            if (i % 2 == 0) {
+                // Even dimensions: sin(pos / 10000^(2i/d_model))
+                float angle = absolute_pos / std::pow(10000.0f, (2.0f * (i / 2)) / d_model);
+                pos_encoded(pos, i) = embeddings(pos, i) + std::sin(angle);
+            } else {
+                // Odd dimensions: cos(pos / 10000^(2i/d_model))
+                float angle = absolute_pos / std::pow(10000.0f, (2.0f * ((i - 1) / 2)) / d_model);
+                pos_encoded(pos, i) = embeddings(pos, i) + std::cos(angle);
+            }
+        }
+    }
+    cached_pos_encoded = pos_encoded;
+
+    // 3. Create causal mask for new tokens
+    // Shape: [num_new_tokens, total_seq_len]
+    // New tokens can attend to all previous tokens + themselves
+    Matrix causal_mask(num_new_tokens, total_seq_len);
+    for (int i = 0; i < num_new_tokens; ++i) {
+        int current_token_pos = current_position + i;
+        for (int j = 0; j < total_seq_len; ++j) {
+            // Can attend to positions <= current position
+            causal_mask(i, j) = (j <= current_token_pos) ? 1.0f : 0.0f;
+        }
+    }
+
+    // 4. Pass through decoder blocks with KV cache
+    Matrix x = pos_encoded;
+
+    for (int layer_idx = 0; layer_idx < num_layers; ++layer_idx) {
+        KVCache& self_attn_cache = kv_cache.get_self_attention_cache(layer_idx);
+        KVCache& cross_attn_cache = kv_cache.get_cross_attention_cache(layer_idx);
+
+        if (encoder_output && encoder_output->rows > 0) {
+            // Encoder-decoder mode with cross-attention
+            x = decoder_blocks[layer_idx]->forward_with_cache(
+                x, *encoder_output, causal_mask, &self_attn_cache, &cross_attn_cache, nullptr,
+                use_cache);
+        } else {
+            // Decoder-only mode (no cross-attention)
+            Matrix empty_encoder(1, d_model);
+            x = decoder_blocks[layer_idx]->forward_with_cache(
+                x, empty_encoder, causal_mask, &self_attn_cache, &cross_attn_cache, nullptr,
+                use_cache);
+        }
+        cached_decoder_outputs.push_back(x);
+    }
+
+    // 5. Final layer normalization
+    Matrix output = final_norm->forward(x);
+
+    return output;
+}
+
 // Backward pass
 void LLMDecoder::backward(const Matrix& grad_output) {
     if (!requires_grad) {

@@ -98,6 +98,75 @@ Matrix DecoderBlock::forward(const Matrix& input, const Matrix& encoder_output,
     return normed3;
 }
 
+Matrix DecoderBlock::forward_with_cache(const Matrix& input, const Matrix& encoder_output,
+                                       const Matrix& self_attn_mask, KVCache* self_attn_cache,
+                                       KVCache* cross_attn_cache,
+                                       const Matrix* cross_attn_mask, bool use_cache) {
+    // If no caching, fall back to regular forward
+    if (!use_cache || self_attn_cache == nullptr) {
+        return forward(input, encoder_output, self_attn_mask, cross_attn_mask);
+    }
+
+    // Cache input for backward pass (if needed for training)
+    cached_input = input;
+    cached_encoder_output = encoder_output;
+
+    // Step 1: Masked self-attention with cache
+    Matrix self_attn_out = self_attention->forward_with_cache(
+        input, &self_attn_mask, self_attn_cache, use_cache);
+    cached_self_attn_output = self_attn_out;
+
+    // Step 2: First residual connection (input + self-attention output)
+    Matrix residual1(input.rows, input.cols);
+    for (int i = 0; i < input.rows; ++i) {
+        for (int j = 0; j < input.cols; ++j) {
+            residual1(i, j) = input(i, j) + self_attn_out(i, j);
+        }
+    }
+    cached_residual1 = residual1;
+
+    // Step 3: First layer normalization
+    Matrix normed1 = norm1->forward(residual1);
+    cached_normed1 = normed1;
+
+    // Step 4: Cross-attention to encoder output with cache
+    // For cross-attention, K/V are from encoder (constant), cached on first call
+    Matrix cross_attn_out = cross_attention->forward_with_cache(
+        normed1, encoder_output, cross_attn_mask, cross_attn_cache, use_cache);
+    cached_cross_attn_output = cross_attn_out;
+
+    // Step 5: Second residual connection (normed1 + cross-attention output)
+    Matrix residual2(normed1.rows, normed1.cols);
+    for (int i = 0; i < normed1.rows; ++i) {
+        for (int j = 0; j < normed1.cols; ++j) {
+            residual2(i, j) = normed1(i, j) + cross_attn_out(i, j);
+        }
+    }
+    cached_residual2 = residual2;
+
+    // Step 6: Second layer normalization
+    Matrix normed2 = norm2->forward(residual2);
+    cached_normed2 = normed2;
+
+    // Step 7: Feed-forward network (no caching needed)
+    Matrix ff_out = feed_forward->forward(normed2);
+    cached_ff_output = ff_out;
+
+    // Step 8: Third residual connection (normed2 + ff output)
+    Matrix residual3(normed2.rows, normed2.cols);
+    for (int i = 0; i < normed2.rows; ++i) {
+        for (int j = 0; j < normed2.cols; ++j) {
+            residual3(i, j) = normed2(i, j) + ff_out(i, j);
+        }
+    }
+    cached_residual3 = residual3;
+
+    // Step 9: Third layer normalization
+    Matrix normed3 = norm3->forward(residual3);
+
+    return normed3;
+}
+
 Matrix DecoderBlock::backward(const Matrix& grad_output) {
     // Step 1: Gradient through third layer norm
     Matrix grad_residual3 = norm3->backward(grad_output);

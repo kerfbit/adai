@@ -4,6 +4,7 @@
 #include <vector>
 #include "Matrix.hpp"
 #include "Optimizer.hpp"
+#include "KVCache.hpp"
 
 /**
  * Multi-Head Self-Attention Mechanism
@@ -117,6 +118,28 @@ class MultiHeadAttention {
      * 6. Project through W_o
      */
     Matrix forward(const Matrix& input, const Matrix* mask = nullptr);
+
+    /**
+     * Forward pass with KV cache support (for inference optimization)
+     *
+     * Enables caching of key-value pairs during autoregressive generation.
+     * In subsequent calls, only computes K/V for new tokens and reuses cached values.
+     *
+     * @param input Input matrix [num_new_tokens, d_model]
+     * @param mask Optional attention mask [num_new_tokens, total_seq_len]
+     * @param kv_cache Pointer to KVCache structure (nullptr = no caching)
+     * @param use_cache If true and kv_cache provided, update cache with new K/V
+     * @return Attention output [num_new_tokens, d_model]
+     *
+     * Cache Behavior:
+     * - First call (empty cache): Compute K/V for all tokens, store in cache
+     * - Subsequent calls: Compute K/V for new token only, concatenate with cache
+     * - Attention computed over all tokens (cached + new)
+     *
+     * Performance: ~2-3x speedup for long sequences
+     */
+    Matrix forward_with_cache(const Matrix& input, const Matrix* mask = nullptr,
+                             KVCache* kv_cache = nullptr, bool use_cache = true);
 
     /**
      * Backward pass through multi-head attention

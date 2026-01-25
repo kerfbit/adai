@@ -119,6 +119,11 @@ add_executable(conversationcontextTests conversationcontext_test.cpp)
 target_link_libraries(conversationcontextTests adai_nlp GTest::gtest_main)
 add_test(NAME ConversationContextTests COMMAND conversationcontextTests)
 
+# Inference Optimization tests (KV Cache, Batch Processing, Profiling)
+add_executable(inferenceOptimizationTests inference_optimization_test.cpp)
+target_link_libraries(inferenceOptimizationTests adai_models adai_nlp GTest::gtest_main)
+add_test(NAME InferenceOptimizationTests COMMAND inferenceOptimizationTests)
+
 # ============================================================================
 # Application Tests
 # ============================================================================
@@ -155,4 +160,4 @@ add_test(NAME IntegrationTests COMMAND integrationTests)
 # Test Summary
 # ============================================================================
 
-message(STATUS "Configured 19 test suites using library targets (including integration tests)")
+message(STATUS "Configured 20 test suites using library targets (including integration tests)")

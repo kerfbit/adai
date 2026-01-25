@@ -26,6 +26,10 @@ Welcome to the Advanced Deep Learning AI (ADAI) documentation. This guide will h
 - **[Implementation Checklist](guides/implementation-checklist.md)** - Development checklist
 - **[Implementation Guide](guides/implementation-guide.md)** - Implementation best practices
 
+### Performance Optimization
+- **[Inference Optimization Guide](guides/inference-optimization.md)** - Complete optimization guide (KV cache, batching, profiling)
+- **[Inference Optimization Quick Start](guides/inference-optimization-quickstart.md)** - 5-minute optimization tutorial
+
 ## 🔧 API Reference
 
 ### Core Components
@@ -37,14 +41,14 @@ Welcome to the Advanced Deep Learning AI (ADAI) documentation. This guide will h
 - **[Neuron Layer](api/core/neuron-layer.md)** - Dense layer implementation
 
 ### Attention Mechanisms
-- **[Multi-Head Attention](api/attention/multihead-attention.md)** - Self-attention implementation
-- **[Cross Attention](api/attention/cross-attention.md)** - Encoder-decoder attention
+- **[Multi-Head Attention](api/attention/multihead-attention.md)** - Self-attention implementation (updated with KV cache support)
+- **[Cross Attention](api/attention/cross-attention.md)** - Encoder-decoder attention (updated with KV cache support)
 
 ### Transformer Components
 - **[Encoder Block](api/transformer/encoder-block.md)** - Transformer encoder
-- **[Decoder Block](api/transformer/decoder-block.md)** - Transformer decoder
+- **[Decoder Block](api/transformer/decoder-block.md)** - Transformer decoder (updated with dual KV cache support)
 - **[Encoder](api/transformer/encoder.md)** - Full encoder stack
-- **[Decoder](api/transformer/decoder.md)** - Full decoder stack
+- **[Decoder](api/transformer/decoder.md)** - Full decoder stack (updated with KV cache support)
 - **[Encoder-Decoder Model](api/transformer/encoder-decoder-model.md)** - Complete transformer model
 - **[Layer Normalization](api/transformer/layer-norm.md)** - Layer norm implementation
 - **[Feed Forward](api/transformer/feed-forward.md)** - Position-wise FFN
@@ -56,6 +60,11 @@ Welcome to the Advanced Deep Learning AI (ADAI) documentation. This guide will h
 - **[BPE Tokenizer](api/nlp/tokenizer.md)** - Byte-Pair Encoding tokenization
 - **[Text Generator](api/nlp/text-generator.md)** - Text generation utilities
 - **[Conversation Context](api/nlp/conversation-context.md)** - Conversation management
+
+### Optimization
+- **[KV Cache](reference/kvcache.md)** - Key-Value caching for inference optimization (2-3x speedup)
+- **[Batch Processor](reference/batchprocessor.md)** - Batch processing utilities for multi-sequence inference (2-4x throughput)
+- **[Performance Profiler](reference/performanceprofiler.md)** - High-resolution timing and profiling tools
 
 ## 🏗️ Architecture Deep Dives
 

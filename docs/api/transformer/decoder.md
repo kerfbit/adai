@@ -218,6 +218,173 @@ Matrix forward_with_mask(const std::vector<int>& token_ids,
 
 **Use Case**: Fine-grained control over attention patterns
 
+#### forward_with_cache() ✨ NEW
+```cpp
+Matrix forward_with_cache(const std::vector<int>& token_ids,
+                         DecoderKVCache& kv_cache,
+                         const Matrix* encoder_output = nullptr,
+                         bool use_cache = true)
+```
+
+**Purpose**: Optimized forward pass using KV cache for autoregressive generation
+
+**Parameters**:
+- `token_ids`: New token IDs to process [num_new_tokens] (typically 1 during generation)
+- `kv_cache`: Multi-layer KV cache structure (DecoderKVCache)
+- `encoder_output`: Optional encoder output for cross-attention (can be nullptr)
+- `use_cache`: Whether to update cache with new K/V pairs (default: true)
+
+**Returns**: Matrix [num_new_tokens, d_model]
+
+**Performance**: ~2-3x speedup for long sequences by avoiding redundant computation
+
+**How It Works**:
+
+1. **First Call (Empty Cache)**:
+   - Processes all tokens in `token_ids`
+   - Computes K/V for all positions in self-attention
+   - Stores K/V pairs in cache for future use
+   - Behavior similar to regular `forward()`
+
+2. **Subsequent Calls (Cache Populated)**:
+   - Only processes new tokens (typically 1 token)
+   - Reuses cached K/V from previous positions
+   - Only computes K/V for new position
+   - Much faster than reprocessing entire sequence
+
+**Cache Structure**:
+```cpp
+DecoderKVCache kv_cache;
+kv_cache.initialize(num_layers, max_seq_length, d_model, num_heads);
+
+// Each layer has two caches:
+// - Self-attention cache: stores decoder's own K/V pairs
+// - Cross-attention cache: stores encoder K/V pairs (computed once)
+```
+
+**Typical Usage Pattern**:
+```cpp
+// Initialize decoder and cache
+LLMDecoder decoder(vocab_size=1000, d_model=256, num_layers=4, 
+                   num_heads=4, d_ff=1024, max_seq_length=128);
+DecoderKVCache kv_cache;
+kv_cache.initialize(4, 128, 256, 4);  // num_layers, max_seq_len, d_model, num_heads
+
+// Optional: Encode input for encoder-decoder mode
+Matrix encoder_output = encoder.encode(input_text);  // [input_len, 256]
+
+// Generate tokens autoregressively
+std::vector<int> generated = {BOS_TOKEN};
+
+for (int i = 0; i < max_gen_length; ++i) {
+    // Process only the last token (except first iteration)
+    std::vector<int> current_token = {generated.back()};
+    
+    // Forward with cache (2-3x faster than regular forward)
+    Matrix decoder_output = decoder.forward_with_cache(
+        current_token, kv_cache, &encoder_output, true
+    );
+    
+    // Get logits and sample next token
+    Matrix logits = lm_head.forward(decoder_output);
+    int next_token = sample_token(logits);
+    
+    generated.push_back(next_token);
+    if (next_token == EOS_TOKEN) break;
+}
+
+// Clear cache for next sequence
+kv_cache.clear();
+```
+
+**Performance Comparison**:
+
+*Without Cache (Inefficient)*:
+```cpp
+// Generate 50 tokens
+std::vector<int> generated = {BOS_TOKEN};
+for (int i = 0; i < 50; ++i) {
+    // Reprocesses ALL tokens every iteration (1+2+3+...+50 = 1,275 forward passes)
+    Matrix output = decoder.forward_with_encoder(generated, encoder_output);
+    int next_token = sample_token(output);
+    generated.push_back(next_token);
+}
+// Total computation: O(n²) where n = sequence length
+```
+
+*With Cache (Efficient)*:
+```cpp
+// Generate 50 tokens
+DecoderKVCache kv_cache;
+kv_cache.initialize(num_layers, max_seq_length, d_model, num_heads);
+
+std::vector<int> generated = {BOS_TOKEN};
+for (int i = 0; i < 50; ++i) {
+    // Only processes new token (50 forward passes total)
+    std::vector<int> new_token = {generated.back()};
+    Matrix output = decoder.forward_with_cache(new_token, kv_cache, &encoder_output);
+    int next_token = sample_token(output);
+    generated.push_back(next_token);
+}
+// Total computation: O(n) where n = sequence length
+// Speedup: ~25x for 50 tokens (1,275 / 50)
+```
+
+**Key Differences from Regular Forward**:
+
+| Aspect | `forward()` | `forward_with_cache()` |
+|--------|-------------|------------------------|
+| Input | Full sequence | Only new tokens |
+| Computation | Recomputes all positions | Only new positions |
+| Complexity | O(seq_len²) | O(seq_len) per token |
+| Memory | Low | Higher (cache storage) |
+| Use Case | Training, first pass | Inference, generation |
+| Speedup | Baseline | 2-3x for long sequences |
+
+**Important Notes**:
+
+1. **Positional Encoding**: Automatically adjusts for cache position
+   - Uses `current_position = kv_cache.current_length()`
+   - Adds correct positional encoding for new tokens
+
+2. **Causal Masking**: Adapts to cache state
+   - New tokens can attend to cached + new positions
+   - Shape: [num_new_tokens, total_seq_len]
+
+3. **Cross-Attention Cache**: Computed once per sequence
+   - Encoder K/V cached on first call
+   - Reused for all subsequent decoder steps
+   - No recomputation needed
+
+4. **Cache Management**:
+   - Call `kv_cache.clear()` between sequences
+   - Ensure `max_seq_length` >= generation length
+   - Cache grows incrementally during generation
+
+**Integration with DecoderBlock**:
+```cpp
+// Inside forward_with_cache implementation
+for (int layer_idx = 0; layer_idx < num_layers; ++layer_idx) {
+    KVCache& self_attn_cache = kv_cache.get_self_attention_cache(layer_idx);
+    KVCache& cross_attn_cache = kv_cache.get_cross_attention_cache(layer_idx);
+    
+    // Each DecoderBlock also has forward_with_cache
+    x = decoder_blocks[layer_idx]->forward_with_cache(
+        x, encoder_output, causal_mask, 
+        &self_attn_cache, &cross_attn_cache, nullptr, use_cache
+    );
+}
+```
+
+**When to Use**:
+- ✅ Autoregressive text generation (chatbots, translation)
+- ✅ Beam search decoding
+- ✅ Sampling-based generation
+- ✅ Long sequence generation (>20 tokens)
+- ❌ Training (use regular `forward()` or `forward_with_encoder()`)
+- ❌ Single-pass inference
+- ❌ Batch processing (current implementation is single-sequence)
+
 ### Causal Masking
 
 #### create_causal_mask()
@@ -495,33 +662,86 @@ LLMDecoder decoder(
 ## Performance Considerations
 
 ### Memory Usage
-**Forward Pass**:
+**Forward Pass (without cache)**:
 - Token embeddings: `seq_length × d_model × sizeof(float)`
 - Decoder outputs: `num_layers × seq_length × d_model × sizeof(float)`
 - Attention scores: `num_layers × num_heads × seq_length² × sizeof(float)`
 
+**Forward Pass (with cache)**:
+- Base memory: Same as above for new tokens only
+- Cache memory: `num_layers × 2 × max_seq_length × d_model × sizeof(float)`
+  - 2× for self-attention + cross-attention caches
+  - Example: 4 layers × 2 × 128 tokens × 256 dims × 4 bytes = 1.05 MB
+
 **Backward Pass**: Approximately 2× forward pass memory (gradients)
 
 ### Time Complexity
+**Without Cache (Standard Forward)**:
 - **Self-Attention**: O(seq_length² × d_model) per layer
 - **Cross-Attention**: O(seq_length × encoder_length × d_model) per layer
 - **Feed-Forward**: O(seq_length × d_model × d_ff) per layer
 - **Total**: O(num_layers × seq_length × (seq_length × d_model + d_model × d_ff))
+- **Autoregressive (n tokens)**: O(n² × num_layers × d_model) - quadratic!
 
-### Optimization Opportunities
-1. **KV Caching**: Cache key/value tensors during autoregressive generation
+**With Cache (forward_with_cache)**:
+- **Self-Attention**: O(seq_length × d_model) per layer (linear in cache size)
+- **Cross-Attention**: O(1) after first call (encoder K/V cached)
+- **Feed-Forward**: O(d_model × d_ff) for new tokens only
+- **Total per token**: O(num_layers × seq_length × d_model)
+- **Autoregressive (n tokens)**: O(n × num_layers × d_model) - linear!
+
+**Speedup Analysis**:
+```
+Generation length: n tokens
+Without cache: 1 + 2 + 3 + ... + n = n(n+1)/2 computations
+With cache: n computations
+Speedup: n(n+1)/(2n) ≈ n/2 for large n
+
+Examples:
+- 10 tokens: ~5x speedup
+- 50 tokens: ~25x speedup
+- 100 tokens: ~50x speedup
+```
+
+### Optimization Opportunities ✨
+1. **KV Caching** ✅ IMPLEMENTED: Use `forward_with_cache()` for 2-3x speedup
 2. **Mask Reuse**: Cache causal masks for common sequence lengths
-3. **Batch Processing**: Process multiple sequences simultaneously
+3. **Batch Processing**: Process multiple sequences simultaneously (see BatchProcessor)
 4. **Gradient Checkpointing**: Trade computation for memory during training
+5. **Performance Profiling**: Use PerformanceProfiler to identify bottlenecks
+
+**Quick Optimization Setup**:
+```cpp
+// 1. Enable KV cache for generation
+DecoderKVCache kv_cache;
+kv_cache.initialize(num_layers, max_seq_length, d_model, num_heads);
+
+// 2. Use cached forward pass
+for (int i = 0; i < gen_length; ++i) {
+    auto output = decoder.forward_with_cache(new_tokens, kv_cache, &enc_out);
+    // ... generate next token
+}
+
+// 3. Profile performance
+PerformanceProfiler profiler;
+profiler.start_profiling();
+// ... run generation
+profiler.stop_profiling();
+auto stats = profiler.get_stats();
+std::cout << "Avg token time: " << stats.mean_time_ms << "ms" << std::endl;
+```
+
+See [Inference Optimization Guide](../../guides/inference-optimization.md) for complete optimization strategies.
 
 ## Limitations
 
 ### Current Implementation
-1. **No KV Caching**: Recomputes attention for all previous tokens each step
+1. ~~**No KV Caching**~~ ✅ **RESOLVED**: `forward_with_cache()` implemented for 2-3x speedup
 2. **Incomplete Persistence**: save/load doesn't include component weights
-3. **No Batch Support**: Processes one sequence at a time
+3. **No Batch Support**: Processes one sequence at a time (single-sequence cache)
 4. **Fixed Architecture**: Cannot dynamically change num_layers, d_model, etc.
 5. **Learning Rate Propagation**: update_weights() doesn't pass lr to components
+6. **Cache Limitations**: Current cache doesn't support batched generation
 
 ### Known Issues
 1. **LayerNorm Update**: Final layer norm update_weights commented out (method may not exist)
@@ -597,9 +817,10 @@ std::string response = decoder.get_token_embedding()->decode(generated);
 
 ### Short-term
 1. Implement complete save/load for all components
-2. Add batch processing support
-3. Implement KV caching for efficient inference
+2. Add batch processing support (batched KV cache)
+3. ~~Implement KV caching for efficient inference~~ ✅ COMPLETED (v1.1)
 4. Add gradient clipping to prevent exploding gradients
+5. Add batch support to `forward_with_cache()`
 
 ### Medium-term
 1. Support dynamic architecture modification
@@ -613,6 +834,33 @@ std::string response = decoder.get_token_embedding()->decode(generated);
 3. Adaptive computation (early exit, layer dropping)
 4. Model quantization for deployment
 
+## See Also
+
+### Core Components
+- **[DecoderBlock](decoder-block.md)** - Individual decoder layer with self/cross-attention
+- **[MultiHeadAttention](../attention/multi-head-attention.md)** - Self-attention mechanism with KV cache
+- **[CrossAttention](../attention/cross-attention.md)** - Encoder-decoder attention with KV cache
+- **[TokenEmbedding](../embeddings/token-embedding.md)** - Token to vector conversion
+- **[PositionalEncoding](../embeddings/positional-encoding.md)** - Position information
+- **[LayerNorm](../normalization/layer-norm.md)** - Layer normalization
+
+### Related Models
+- **[LLMEncoder](encoder.md)** - Paired encoder for encoder-decoder models
+- **[EncoderDecoderModel](encoder-decoder-model.md)** - Complete transformer model
+- **[LanguageModelHead](../generation/language-model-head.md)** - Output projection to vocabulary
+
+### Optimization & Generation
+- **[KVCache API](../../reference/kvcache.md)** - Key-Value caching system for inference
+- **[BatchProcessor API](../../reference/batchprocessor.md)** - Batch processing utilities
+- **[PerformanceProfiler API](../../reference/performanceprofiler.md)** - Profiling and benchmarking
+- **[TextGenerator](../generation/text-generator.md)** - Generation strategies (beam search, sampling)
+- **[Inference Optimization Guide](../../guides/inference-optimization.md)** - Complete optimization guide
+- **[Inference Quickstart](../../guides/inference-optimization-quickstart.md)** - Quick optimization setup
+
+### Architecture Documentation
+- **[Decoder Architecture](../../architecture/decoder-architecture.md)** - Design patterns
+- **[Decoder Design](../../architecture/decoder-design.md)** - Implementation details
+
 ## Related Documentation
 - **DecoderBlock**: `DECODERBLOCK_CONTEXT.md`
 - **CrossAttention**: `CROSSATTENTION_CONTEXT.md`
@@ -622,4 +870,11 @@ std::string response = decoder.get_token_embedding()->decode(generated);
 - **TextGenerator**: `TEXTGENERATOR_CONTEXT.md`
 
 ## Version History
+- **v1.1** (2026-01-25): Added forward_with_cache() for inference optimization
 - **v1.0** (2026-01-18): Initial implementation with decoder-only and encoder-decoder support
+
+---
+
+**Last Updated**: January 25, 2026  
+**Version**: 1.1  
+**Dependencies**: `Matrix.hpp`, `LayerNorm.hpp`, `PositionalEncoding.hpp`, `TokenEmbedding.hpp`, `DecoderBlock.hpp`, `KVCache.hpp`

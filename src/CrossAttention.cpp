@@ -126,6 +126,97 @@ Matrix CrossAttention::forward(const Matrix& query_input, const Matrix& kv_input
     return output;
 }
 
+Matrix CrossAttention::forward_with_cache(const Matrix& query_input, const Matrix& kv_input,
+                                         const Matrix* mask, KVCache* kv_cache, bool use_cache) {
+    // If no cache or caching disabled, use regular forward
+    if (!use_cache || kv_cache == nullptr) {
+        return forward(query_input, kv_input, mask);
+    }
+
+    // Cache query input for backward pass (if needed)
+    cached_query_input = query_input;
+
+    int num_new_tokens = query_input.rows;
+
+    // Validate dimensions
+    if (query_input.cols != d_model) {
+        throw std::invalid_argument("Query input dimension (" + std::to_string(query_input.cols) +
+                                    ") must match d_model (" + std::to_string(d_model) + ")");
+    }
+
+    // Project queries (always from new decoder tokens)
+    cached_Q = query_input * W_q;  // [num_new_tokens, d_model]
+
+    // For cross-attention, K and V from encoder are constant across all generation steps
+    // Compute and cache them only once (on first call when cache is empty)
+    if (kv_cache->is_empty()) {
+        // First call: compute K, V from encoder and cache them
+        if (kv_input.cols != d_model) {
+            throw std::invalid_argument(
+                "Key-Value input dimension (" + std::to_string(kv_input.cols) +
+                ") must match d_model (" + std::to_string(d_model) + ")");
+        }
+
+        cached_kv_input = kv_input;
+
+        Matrix K_encoder = kv_input * W_k;  // [src_len, d_model]
+        Matrix V_encoder = kv_input * W_v;  // [src_len, d_model]
+
+        // Initialize cache with encoder K/V (these remain constant)
+        kv_cache->append(K_encoder, V_encoder);
+    }
+
+    // Retrieve cached K, V from encoder
+    const Matrix& K_full = kv_cache->get_keys();
+    const Matrix& V_full = kv_cache->get_values();
+
+    cached_K = K_full;
+    cached_V = V_full;
+
+    int src_len = K_full.rows;
+
+    // Compute attention scores: Q_new * K_encoder^T
+    // Shape: [num_new_tokens, src_len]
+    Matrix scores = cached_Q * K_full.transpose();
+
+    // Scale by sqrt(d_k)
+    float scale_factor = 1.0f / std::sqrt(static_cast<float>(d_k));
+    scores = scores.scale(scale_factor);
+
+    cached_scores = scores;
+
+    // Apply mask if provided
+    // Mask shape: [num_new_tokens, src_len]
+    if (mask != nullptr) {
+        if (mask->rows != num_new_tokens || mask->cols != src_len) {
+            throw std::invalid_argument(
+                "Mask dimensions (" + std::to_string(mask->rows) + ", " +
+                std::to_string(mask->cols) + ") must match [num_new_tokens=" +
+                std::to_string(num_new_tokens) + ", src_len=" + std::to_string(src_len) + "]");
+        }
+
+        for (int i = 0; i < num_new_tokens; ++i) {
+            for (int j = 0; j < src_len; ++j) {
+                if ((*mask)(i, j) == 0.0f) {
+                    scores(i, j) = -1e9f;
+                }
+            }
+        }
+    }
+
+    // Apply softmax
+    cached_attention_weights = Activation::softmax(scores);
+
+    // Apply attention to values
+    // [num_new_tokens, src_len] * [src_len, d_model] = [num_new_tokens, d_model]
+    cached_attention_output = cached_attention_weights * V_full;
+
+    // Output projection
+    Matrix output = cached_attention_output * W_o;
+
+    return output;
+}
+
 void CrossAttention::backward(const Matrix& grad_output, Matrix& grad_query_input,
                               Matrix& grad_kv_input) {
     int tgt_len = cached_query_input.rows;

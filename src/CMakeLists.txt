@@ -184,6 +184,10 @@ if(BUILD_EXAMPLES)
     add_executable(optimizer_example OptimizerExample.cpp)
     target_link_libraries(optimizer_example adai_core)
     
+    # Inference Optimization Benchmark
+    add_executable(inference_optimization_benchmark InferenceOptimizationBenchmark.cpp)
+    target_link_libraries(inference_optimization_benchmark adai_models adai_nlp)
+    
     message(STATUS "Building example programs (disable with -DBUILD_EXAMPLES=OFF)")
 endif()
 
