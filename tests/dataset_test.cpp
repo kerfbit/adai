@@ -16,6 +16,8 @@ protected:
         std::filesystem::remove("test_conversations.txt");
         std::filesystem::remove("test_data.tsv");
         std::filesystem::remove("test_output.txt");
+        std::filesystem::remove("test_data.json");
+        std::filesystem::remove("test_data.csv");
     }
     
     void create_test_conversation_file() {
@@ -34,6 +36,23 @@ protected:
         file << "Hello\tHi there!\n";
         file << "How are you?\tI'm doing great!\n";
         file << "What's your name?\tI'm an AI assistant.\n";
+        file.close();
+    }
+    
+    void create_test_json_file() {
+        std::ofstream file("test_data.json");
+        file << "{\"input\": \"Hello\", \"target\": \"Hi there!\"}\n";
+        file << "{\"input\": \"How are you?\", \"target\": \"I'm doing great!\"}\n";
+        file << "{\"input\": \"What's your name?\", \"target\": \"I'm an AI assistant.\"}\n";
+        file.close();
+    }
+    
+    void create_test_csv_file() {
+        std::ofstream file("test_data.csv");
+        file << "input,target\n";
+        file << "\"Hello\",\"Hi there!\"\n";
+        file << "\"How are you?\",\"I'm doing great!\"\n";
+        file << "\"What's your name?\",\"I'm an AI assistant.\"\n";
         file.close();
     }
 };
@@ -272,6 +291,329 @@ TEST_F(DatasetTest, PrintStatistics) {
     std::string output = testing::internal::GetCapturedStdout();
     
     EXPECT_GT(output.length(), 0);
+}
+
+// ============================================================
+// v2.0 Enhanced Features Tests
+// ============================================================
+
+// Test: Iterator interface
+TEST_F(DatasetTest, IteratorInterface) {
+    Dataset dataset;
+    dataset.add_sample("Input 1", "Target 1");
+    dataset.add_sample("Input 2", "Target 2");
+    dataset.add_sample("Input 3", "Target 3");
+    
+    // Range-based for loop
+    int count = 0;
+    for (const auto& sample : dataset) {
+        EXPECT_FALSE(sample.input.empty());
+        EXPECT_FALSE(sample.target.empty());
+        count++;
+    }
+    EXPECT_EQ(count, 3);
+    
+    // Manual iteration
+    auto it = dataset.begin();
+    EXPECT_EQ(it->input, "Input 1");
+    ++it;
+    EXPECT_EQ(it->input, "Input 2");
+    
+    // Const iteration
+    const Dataset& const_dataset = dataset;
+    auto cit = const_dataset.cbegin();
+    EXPECT_EQ(cit->input, "Input 1");
+}
+
+// Test: Batch iterator
+TEST_F(DatasetTest, BatchIterator) {
+    Dataset dataset;
+    for (int i = 0; i < 10; ++i) {
+        dataset.add_sample("Input " + std::to_string(i), "Target " + std::to_string(i));
+    }
+    dataset.split(0.8, 0.1, 0.1);
+    
+    // Batch iteration
+    int batch_count = 0;
+    int sample_count = 0;
+    for (auto batch : dataset.get_batch_range(SplitType::TRAIN, 3)) {
+        batch_count++;
+        sample_count += batch.size();
+        EXPECT_GT(batch.size(), 0);
+        EXPECT_LE(batch.size(), 3);
+    }
+    
+    EXPECT_EQ(sample_count, dataset.size(SplitType::TRAIN));
+    EXPECT_GT(batch_count, 0);
+}
+
+// Test: Load JSON format
+TEST_F(DatasetTest, LoadJsonFormat) {
+    create_test_json_file();
+    
+    Dataset dataset;
+    EXPECT_TRUE(dataset.load_from_file("test_data.json"));
+    EXPECT_EQ(dataset.size(), 3);
+    
+    const auto& data = dataset.get_all();
+    EXPECT_EQ(data[0].input, "Hello");
+    EXPECT_EQ(data[0].target, "Hi there!");
+}
+
+// Test: Load CSV format
+TEST_F(DatasetTest, LoadCsvFormat) {
+    create_test_csv_file();
+    
+    Dataset dataset;
+    EXPECT_TRUE(dataset.load_from_file("test_data.csv"));
+    EXPECT_EQ(dataset.size(), 3);
+    
+    const auto& data = dataset.get_all();
+    EXPECT_EQ(data[0].input, "Hello");
+    EXPECT_EQ(data[0].target, "Hi there!");
+}
+
+// Test: Stratified split
+TEST_F(DatasetTest, StratifiedSplit) {
+    Dataset dataset;
+    // Add samples with varying lengths
+    dataset.add_sample("Short", "Response");
+    dataset.add_sample("Medium length input", "Medium response");
+    dataset.add_sample("Very long input text here", "Very long response text here");
+    dataset.add_sample("X", "Y");
+    dataset.add_sample("Another medium one", "Another response");
+    dataset.add_sample("This is quite a long input with many words", "Long response as well");
+    
+    dataset.split_stratified(0.5, 0.3, 0.2, 3);
+    
+    EXPECT_TRUE(dataset.is_split());
+    size_t total = dataset.size(SplitType::TRAIN) + 
+                  dataset.size(SplitType::VALIDATION) + 
+                  dataset.size(SplitType::TEST);
+    EXPECT_EQ(total, dataset.size());
+}
+
+// Test: K-fold cross-validation
+TEST_F(DatasetTest, KFoldCrossValidation) {
+    Dataset dataset;
+    for (int i = 0; i < 15; ++i) {
+        dataset.add_sample("Input " + std::to_string(i), "Target " + std::to_string(i));
+    }
+    
+    dataset.setup_k_fold(5);
+    EXPECT_EQ(dataset.get_num_folds(), 5);
+    
+    for (int fold = 0; fold < 5; ++fold) {
+        std::vector<DataSample> train_data, val_data;
+        dataset.get_fold(fold, train_data, val_data);
+        
+        EXPECT_GT(train_data.size(), 0);
+        EXPECT_GT(val_data.size(), 0);
+        EXPECT_EQ(train_data.size() + val_data.size(), dataset.size());
+    }
+}
+
+// Test: Data augmentation
+TEST_F(DatasetTest, DataAugmentation) {
+    Dataset dataset;
+    dataset.add_sample("Hello", "Hi");
+    dataset.add_sample("Bye", "Goodbye");
+    
+    size_t original_size = dataset.size();
+    
+    // Set augmentation function
+    dataset.set_augmentation([](const DataSample& sample) {
+        return DataSample("[AUG] " + sample.input, sample.target);
+    });
+    
+    dataset.augment_data(1);  // 1 augmented per original
+    
+    EXPECT_EQ(dataset.size(), original_size * 2);
+    
+    // Check some samples are augmented
+    bool found_augmented = false;
+    for (const auto& sample : dataset) {
+        if (sample.input.find("[AUG]") != std::string::npos) {
+            found_augmented = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(found_augmented);
+}
+
+// Test: Filter by length
+TEST_F(DatasetTest, FilterByLength) {
+    Dataset dataset;
+    dataset.add_sample("X", "Y");  // Total: 2
+    dataset.add_sample("Hello there", "Hi back");  // Total: ~18
+    dataset.add_sample("This is a much longer input", "And a longer response too");  // Total: ~50
+    
+    size_t original_size = dataset.size();
+    dataset.filter_by_length(10, 30);
+    
+    EXPECT_LT(dataset.size(), original_size);
+    
+    // Check all remaining samples are within range
+    for (const auto& sample : dataset) {
+        size_t total_len = sample.input.length() + sample.target.length();
+        EXPECT_GE(total_len, 10);
+        EXPECT_LE(total_len, 30);
+    }
+}
+
+// Test: Filter by pattern
+TEST_F(DatasetTest, FilterByPattern) {
+    Dataset dataset;
+    dataset.add_sample("Hello world", "Hi");
+    dataset.add_sample("Goodbye world", "Bye");
+    dataset.add_sample("How are you", "Fine");
+    
+    // Keep only samples with "world"
+    dataset.filter_by_pattern("world", true);
+    
+    EXPECT_EQ(dataset.size(), 2);
+    
+    // All remaining should contain "world"
+    for (const auto& sample : dataset) {
+        bool has_pattern = (sample.input.find("world") != std::string::npos ||
+                           sample.target.find("world") != std::string::npos);
+        EXPECT_TRUE(has_pattern);
+    }
+}
+
+// Test: Preprocessing
+TEST_F(DatasetTest, Preprocessing) {
+    Dataset dataset;
+    dataset.add_sample("HELLO", "WORLD");
+    dataset.add_sample("GOODBYE", "BYE");
+    
+    // Set preprocessing to lowercase
+    dataset.set_preprocessing([](const std::string& text) {
+        std::string lower = text;
+        std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+        return lower;
+    });
+    
+    dataset.apply_preprocessing();
+    
+    // Check all samples are lowercase
+    for (const auto& sample : dataset) {
+        bool is_lowercase_input = (sample.input == "hello" || sample.input == "goodbye");
+        bool is_lowercase_target = (sample.target == "world" || sample.target == "bye");
+        EXPECT_TRUE(is_lowercase_input);
+        EXPECT_TRUE(is_lowercase_target);
+    }
+}
+
+// Test: Lowercase convenience method
+TEST_F(DatasetTest, LowercaseMethod) {
+    Dataset dataset;
+    dataset.add_sample("HELLO", "WORLD");
+    
+    dataset.lowercase();
+    
+    auto data = dataset.get_all();
+    EXPECT_EQ(data[0].input, "hello");
+    EXPECT_EQ(data[0].target, "world");
+}
+
+// Test: LazyDataset
+TEST_F(DatasetTest, LazyDataset) {
+    create_test_conversation_file();
+    
+    LazyDataset lazy("test_conversations.txt");
+    
+    EXPECT_GT(lazy.size(), 0);
+    
+    // Load single sample
+    auto sample = lazy.get_sample(0);
+    EXPECT_FALSE(sample.input.empty());
+    EXPECT_FALSE(sample.target.empty());
+    
+    // Load range
+    auto samples = lazy.load_range(0, 2);
+    EXPECT_EQ(samples.size(), 2);
+}
+
+// Test: Multiple format auto-detection
+TEST_F(DatasetTest, FormatAutoDetection) {
+    create_test_json_file();
+    create_test_csv_file();
+    
+    Dataset json_dataset;
+    EXPECT_TRUE(json_dataset.load_from_file("test_data.json"));
+    EXPECT_GT(json_dataset.size(), 0);
+    
+    Dataset csv_dataset;
+    EXPECT_TRUE(csv_dataset.load_from_file("test_data.csv"));
+    EXPECT_GT(csv_dataset.size(), 0);
+    
+    // Both should have loaded same data
+    EXPECT_EQ(json_dataset.size(), csv_dataset.size());
+}
+
+// Test: Batch iterator edge cases
+TEST_F(DatasetTest, BatchIteratorEdgeCases) {
+    Dataset dataset;
+    dataset.add_sample("A", "1");
+    dataset.add_sample("B", "2");
+    dataset.add_sample("C", "3");
+    dataset.split(1.0, 0.0, 0.0);
+    
+    // Batch size larger than dataset
+    int count = 0;
+    for (auto batch : dataset.get_batch_range(SplitType::TRAIN, 10)) {
+        EXPECT_LE(batch.size(), 3);
+        count++;
+    }
+    EXPECT_EQ(count, 1);
+    
+    // Batch size of 1
+    count = 0;
+    for (auto batch : dataset.get_batch_range(SplitType::TRAIN, 1)) {
+        EXPECT_EQ(batch.size(), 1);
+        count++;
+    }
+    EXPECT_EQ(count, 3);
+}
+
+// Test: K-fold with invalid parameters
+TEST_F(DatasetTest, KFoldInvalidParams) {
+    Dataset dataset;
+    dataset.add_sample("A", "1");
+    
+    // K=1 should be invalid
+    testing::internal::CaptureStderr();
+    dataset.setup_k_fold(1);
+    std::string output = testing::internal::GetCapturedStderr();
+    EXPECT_GT(output.length(), 0);
+}
+
+// Test: Statistics after split
+TEST_F(DatasetTest, StatisticsAfterSplit) {
+    Dataset dataset;
+    dataset.load_from_file("test_conversations.txt");
+    dataset.split(0.6, 0.2, 0.2);
+    
+    const auto& stats = dataset.get_stats();
+    EXPECT_EQ(stats.total_samples, dataset.size());
+    EXPECT_EQ(stats.train_samples, dataset.size(SplitType::TRAIN));
+    EXPECT_EQ(stats.validation_samples, dataset.size(SplitType::VALIDATION));
+    EXPECT_EQ(stats.test_samples, dataset.size(SplitType::TEST));
+}
+
+// Test: Filter invalidates split
+TEST_F(DatasetTest, FilterInvalidatesSplit) {
+    Dataset dataset;
+    dataset.load_from_file("test_conversations.txt");
+    dataset.split(0.6, 0.2, 0.2);
+    
+    EXPECT_TRUE(dataset.is_split());
+    
+    dataset.filter_by_length(5, 100);
+    
+    // Split should be invalidated
+    EXPECT_FALSE(dataset.is_split());
 }
 
 int main(int argc, char** argv) {

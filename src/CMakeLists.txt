@@ -192,6 +192,10 @@ if(BUILD_EXAMPLES)
     add_executable(enhanced_training_example EnhancedTrainingExample.cpp)
     target_link_libraries(enhanced_training_example adai_models adai_nlp)
     
+    # Dataset Enhanced Features Example
+    add_executable(dataset_enhanced_example DatasetEnhancedExample.cpp)
+    target_link_libraries(dataset_enhanced_example adai_core)
+    
     # Phase 5 Advanced Features Examples
     add_executable(phase5_examples Phase5Examples.cpp)
     target_link_libraries(phase5_examples adai_core)

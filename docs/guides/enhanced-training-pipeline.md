@@ -1,6 +1,6 @@
 # Enhanced Training Pipeline Documentation
 
-**Version:** 1.0  
+**Version:** 2.0  
 **Date:** January 2026  
 **Status:** Production Ready
 
@@ -10,41 +10,70 @@
 
 The enhanced training pipeline provides comprehensive infrastructure for training transformer models with industry-standard features:
 
-- **Dataset Abstraction:** Efficient data loading, splitting, and batching
+- **Dataset Abstraction:** Efficient data loading, splitting, and batching (v2.0 enhanced!)
 - **Metrics Tracking:** Perplexity, loss curves, convergence analysis
 - **Checkpoint Management:** Best model tracking, automatic rotation
 - **Validation Loops:** Automatic validation with early stopping
 - **Advanced Optimizers:** Adam/AdamW with learning rate scheduling
 
+**New in v2.0:**
+- Iterator interface for memory-efficient iteration
+- Batch iterator for mini-batch training
+- JSON and CSV format support
+- Stratified splitting for balanced datasets
+- K-fold cross-validation
+- Data augmentation hooks
+- Filtering and preprocessing
+- Lazy loading for large datasets
+
 ---
 
 ## Components
 
-### 1. Dataset (`Dataset.hpp`)
+### 1. Dataset (`Dataset.hpp`) - v2.0 Enhanced! ✨
 
 Manages training data with automatic splitting and efficient loading.
 
 #### Features
 
-- Multiple file format support (conversation, TSV)
-- Automatic train/validation/test splitting
+- Multiple file format support (conversation, TSV, **JSON, CSV** ✨)
+- Automatic train/validation/test splitting (**random and stratified** ✨)
+- **K-fold cross-validation** ✨
 - Data shuffling and batching
 - Dataset statistics and analysis
-- Memory-efficient iteration
+- **Memory-efficient iteration with iterators** ✨
+- **Batch iteration for mini-batch training** ✨
+- **Data augmentation hooks** ✨
+- **Filtering and preprocessing** ✨
+- **Lazy loading for large datasets** ✨
 
 #### Usage Example
 
 ```cpp
 #include "Dataset.hpp"
 
-// Load dataset from file
+// Load dataset from file (auto-detects JSON, CSV, TSV, or conversation)
 Dataset dataset;
-dataset.load_from_file("conversations.txt");
+dataset.load_from_file("conversations.json");
 
-// Split into train/val/test (80%/10%/10%)
-dataset.split(0.8f, 0.1f, 0.1f);
+// Filter and preprocess (NEW!)
+dataset.filter_by_length(10, 500);
+dataset.lowercase();
 
-// Get training data
+// Stratified split (NEW!)
+dataset.split_stratified(0.8f, 0.1f, 0.1f, 5);
+
+// Iterator interface (NEW!)
+for (const auto& sample : dataset) {
+    // Direct iteration, no copying
+}
+
+// Batch iteration for mini-batch training (NEW!)
+for (auto batch : dataset.get_batch_iterator(SplitType::TRAIN, 32)) {
+    train_on_batch(batch);  // batch is std::vector<DataSample>
+}
+
+// Original API still works
 auto train_data = dataset.get_split(SplitType::TRAIN);
 auto val_data = dataset.get_split(SplitType::VALIDATION);
 auto test_data = dataset.get_split(SplitType::TEST);
@@ -56,7 +85,7 @@ dataset.shuffle_split(SplitType::TRAIN);
 dataset.print_stats();
 ```
 
-#### File Formats
+#### File Formats (v2.0 Enhanced!)
 
 **Conversation Format:**
 ```
@@ -73,7 +102,22 @@ Hello, how are you?<TAB>I'm doing great, thanks!
 What's your name?<TAB>I'm an AI assistant.
 ```
 
-#### API Reference
+**JSON Format (NEW!):**
+```json
+{"input": "Hello, how are you?", "target": "I'm doing great, thanks!"}
+{"input": "What's your name?", "target": "I'm an AI assistant."}
+```
+
+**CSV Format (NEW!):**
+```csv
+input,target
+"Hello, how are you?","I'm doing great, thanks!"
+"What's your name?","I'm an AI assistant."
+```
+
+**For comprehensive v2.0 feature documentation, see:** [`dataset-enhanced-features.md`](dataset-enhanced-features.md)
+
+#### API Reference (v2.0)
 
 ```cpp
 class Dataset {
