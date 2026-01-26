@@ -118,7 +118,7 @@ endif()
 # ============================================================================
 
 # Chatbot CLI - Interactive chatbot application
-add_executable(chatbot ChatbotCLI.cpp)
+add_executable(chatbot ChatbotCLI_main.cpp ChatbotCLI.cpp)
 target_link_libraries(chatbot 
     adai_models 
     adai_nlp

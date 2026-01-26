@@ -1,66 +1,35 @@
+#include "ChatbotCLI.hpp"
 #include <ctime>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
-#include <string>
 #include "BPETokenizer.hpp"
 #include "ConversationContext.hpp"
 #include "EncoderDecoderModel.hpp"
-#include "TextGenerator.hpp"
 
-// ANSI color codes for better CLI experience
-#define COLOR_RESET "\033[0m"
-#define COLOR_USER "\033[1;36m"    // Cyan
-#define COLOR_BOT "\033[1;32m"     // Green
-#define COLOR_SYSTEM "\033[1;33m"  // Yellow
-#define COLOR_ERROR "\033[1;31m"   // Red
+ChatbotCLI::ChatbotCLI(const std::string& vocab_file, const std::string& model_file,
+                       const std::string& conv_save_file)
+    : vocab_path(vocab_file),
+      model_path(model_file),
+      conversation_save_path(conv_save_file),
+      max_response_length(100),
+      temperature(1.0f),
+      top_p(0.9f),
+      top_k(50),
+      beam_width(5),
+      generation_strategy("nucleus") {
+    // Smart pointers automatically initialize to nullptr
+}
 
-class ChatbotCLI {
-   private:
-    BPETokenizer* tokenizer;
-    EncoderDecoderModel* model;
-    ConversationContext* context;
+ChatbotCLI::~ChatbotCLI() = default;
 
-    std::string model_path;
-    std::string vocab_path;
-    std::string conversation_save_path;
-
-    // Generation parameters
-    int max_response_length;
-    float temperature;
-    float top_p;
-    int top_k;
-    int beam_width;
-    std::string generation_strategy;
-
-   public:
-    ChatbotCLI(const std::string& vocab_file, const std::string& model_file,
-               const std::string& conv_save_file = "conversation_history.txt")
-        : vocab_path(vocab_file),
-          model_path(model_file),
-          conversation_save_path(conv_save_file),
-          max_response_length(100),
-          temperature(1.0f),
-          top_p(0.9f),
-          top_k(50),
-          beam_width(5),
-          generation_strategy("nucleus") {
-        tokenizer = nullptr;
-        model = nullptr;
-        context = nullptr;
-    }
-
-    ~ChatbotCLI() {
-        cleanup();
-    }
-
-    bool initialize() {
+bool ChatbotCLI::initialize() {
         std::cout << COLOR_SYSTEM << "🤖 Initializing Chatbot..." << COLOR_RESET << std::endl;
 
         // Load tokenizer
         std::cout << COLOR_SYSTEM << "📚 Loading tokenizer from: " << vocab_path << COLOR_RESET
                   << std::endl;
-        tokenizer = new BPETokenizer();
+        tokenizer = std::make_unique<BPETokenizer>();
         tokenizer->load_vocab(vocab_path);
         std::cout << COLOR_SYSTEM
                   << "✅ Tokenizer loaded (vocab size: " << tokenizer->get_vocab_size() << ")"
@@ -69,13 +38,13 @@ class ChatbotCLI {
         // Initialize model
         std::cout << COLOR_SYSTEM << "🧠 Initializing transformer model..." << COLOR_RESET
                   << std::endl;
-        model = new EncoderDecoderModel(512,   // d_model
-                                        8,     // num_heads
-                                        2048,  // d_ff
-                                        6,     // num_encoder_layers
-                                        6,     // num_decoder_layers
-                                        tokenizer->get_vocab_size(),
-                                        1024  // max_seq_length
+        model = std::make_unique<EncoderDecoderModel>(512,   // d_model
+                                                      8,     // num_heads
+                                                      2048,  // d_ff
+                                                      6,     // num_encoder_layers
+                                                      6,     // num_decoder_layers
+                                                      tokenizer->get_vocab_size(),
+                                                      1024  // max_seq_length
         );
 
         // Load pre-trained weights if available
@@ -100,12 +69,9 @@ class ChatbotCLI {
                       << COLOR_RESET << std::endl;
         }
 
-        // Create text generator (no longer needed - using model's built-in generation)
-        std::cout << COLOR_SYSTEM << "✅ Text generator initialized" << COLOR_RESET << std::endl;
-
         // Create conversation context manager
-        context = new ConversationContext(20,   // max 20 messages
-                                          2048  // max 2048 tokens
+        context = std::make_unique<ConversationContext>(20,   // max 20 messages
+                                                        2048  // max 2048 tokens
         );
         std::cout << COLOR_SYSTEM << "✅ Conversation manager initialized" << COLOR_RESET
                   << std::endl;
@@ -114,16 +80,7 @@ class ChatbotCLI {
         return true;
     }
 
-    void cleanup() {
-        if (model)
-            delete model;
-        if (tokenizer)
-            delete tokenizer;
-        if (context)
-            delete context;
-    }
-
-    void print_welcome() {
+void ChatbotCLI::print_welcome() {
         std::cout << "╔═══════════════════════════════════════════════════════════╗" << std::endl;
         std::cout << "║          🤖 ADAI Transformer Chatbot CLI v1.0            ║" << std::endl;
         std::cout << "╚═══════════════════════════════════════════════════════════╝" << std::endl;
@@ -144,7 +101,7 @@ class ChatbotCLI {
         std::cout << std::endl;
     }
 
-    void print_stats() {
+void ChatbotCLI::print_stats() {
         std::cout << std::endl;
         std::cout << COLOR_SYSTEM << "📊 Conversation Statistics:" << COLOR_RESET << std::endl;
         std::cout << "  Total messages: " << context->get_message_count() << std::endl;
@@ -152,7 +109,7 @@ class ChatbotCLI {
         std::cout << std::endl;
     }
 
-    void print_settings() {
+void ChatbotCLI::print_settings() {
         std::cout << std::endl;
         std::cout << COLOR_SYSTEM << "⚙️  Current Settings:" << COLOR_RESET << std::endl;
         std::cout << "  Strategy: " << generation_strategy << std::endl;
@@ -164,7 +121,9 @@ class ChatbotCLI {
         std::cout << std::endl;
     }
 
-    void handle_command(const std::string& command) {
+void ChatbotCLI::handle_command(const std::string& command) {
+        std::string_view cmd_view(command);
+        
         if (command == "/help") {
             print_welcome();
         } else if (command == "/clear") {
@@ -194,10 +153,10 @@ class ChatbotCLI {
             print_stats();
         } else if (command == "/settings") {
             print_settings();
-        } else if (command.substr(0, 5) == "/set ") {
-            handle_setting(command.substr(5));
-        } else if (command.substr(0, 8) == "/system ") {
-            std::string system_msg = command.substr(8);
+        } else if (cmd_view.size() > 5 && cmd_view.substr(0, 5) == "/set ") {
+            handle_setting(cmd_view.substr(5));
+        } else if (cmd_view.size() > 8 && cmd_view.substr(0, 8) == "/system ") {
+            std::string system_msg(cmd_view.substr(8));
             context->set_system_message(system_msg);
             std::cout << COLOR_SYSTEM << "✅ System message set" << COLOR_RESET << std::endl;
         } else {
@@ -206,16 +165,16 @@ class ChatbotCLI {
         }
     }
 
-    void handle_setting(const std::string& setting) {
+void ChatbotCLI::handle_setting(std::string_view setting) {
         size_t space_pos = setting.find(' ');
-        if (space_pos == std::string::npos) {
+        if (space_pos == std::string_view::npos) {
             std::cout << COLOR_ERROR << "❌ Usage: /set <parameter> <value>" << COLOR_RESET
                       << std::endl;
             return;
         }
 
-        std::string param = setting.substr(0, space_pos);
-        std::string value = setting.substr(space_pos + 1);
+        std::string_view param = setting.substr(0, space_pos);
+        std::string_view value = setting.substr(space_pos + 1);
 
         if (param == "strategy") {
             if (value == "greedy" || value == "beam" || value == "sampling" || value == "top-k" ||
@@ -229,21 +188,21 @@ class ChatbotCLI {
                           << COLOR_RESET << std::endl;
             }
         } else if (param == "length" || param == "max_length") {
-            max_response_length = std::stoi(value);
+            max_response_length = std::stoi(std::string(value));
             std::cout << COLOR_SYSTEM << "✅ Max response length set to: " << max_response_length
                       << COLOR_RESET << std::endl;
         } else if (param == "temperature" || param == "temp") {
-            temperature = std::stof(value);
+            temperature = std::stof(std::string(value));
             std::cout << COLOR_SYSTEM << "✅ Temperature set to: " << temperature << COLOR_RESET
                       << std::endl;
         } else if (param == "top_p" || param == "top-p") {
-            top_p = std::stof(value);
+            top_p = std::stof(std::string(value));
             std::cout << COLOR_SYSTEM << "✅ Top-p set to: " << top_p << COLOR_RESET << std::endl;
         } else if (param == "top_k" || param == "top-k") {
-            top_k = std::stoi(value);
+            top_k = std::stoi(std::string(value));
             std::cout << COLOR_SYSTEM << "✅ Top-k set to: " << top_k << COLOR_RESET << std::endl;
         } else if (param == "beam_width" || param == "beam-width") {
-            beam_width = std::stoi(value);
+            beam_width = std::stoi(std::string(value));
             std::cout << COLOR_SYSTEM << "✅ Beam width set to: " << beam_width << COLOR_RESET
                       << std::endl;
         } else {
@@ -255,7 +214,7 @@ class ChatbotCLI {
         }
     }
 
-    std::string generate_response(const std::string& user_input) {
+std::string ChatbotCLI::generate_response(const std::string& user_input) {
         // Add user message to context
         context->add_user_message(user_input);
 
@@ -279,7 +238,7 @@ class ChatbotCLI {
         return response;
     }
 
-    void run() {
+void ChatbotCLI::run() {
         if (!initialize()) {
             std::cerr << COLOR_ERROR << "Failed to initialize chatbot!" << COLOR_RESET << std::endl;
             return;
@@ -338,40 +297,3 @@ class ChatbotCLI {
 
         std::cout << COLOR_SYSTEM << "👋 Goodbye!" << COLOR_RESET << std::endl;
     }
-};
-
-int main(int argc, char* argv[]) {
-    // Default paths
-    std::string vocab_path = "vocab.txt";
-    std::string model_path = "chatbot_model.bin";
-    std::string conv_save_path = "conversation_history.txt";
-
-    // Parse command line arguments
-    if (argc > 1) {
-        vocab_path = argv[1];
-    }
-    if (argc > 2) {
-        model_path = argv[2];
-    }
-    if (argc > 3) {
-        conv_save_path = argv[3];
-    }
-
-    // Show usage if help requested
-    if (argc > 1 && (std::string(argv[1]) == "--help" || std::string(argv[1]) == "-h")) {
-        std::cout << "Usage: " << argv[0] << " [vocab_file] [model_file] [conversation_save_file]"
-                  << std::endl;
-        std::cout << std::endl;
-        std::cout << "Default values:" << std::endl;
-        std::cout << "  vocab_file: vocab.txt" << std::endl;
-        std::cout << "  model_file: chatbot_model.bin" << std::endl;
-        std::cout << "  conversation_save_file: conversation_history.txt" << std::endl;
-        return 0;
-    }
-
-    // Create and run chatbot
-    ChatbotCLI chatbot(vocab_path, model_path, conv_save_path);
-    chatbot.run();
-
-    return 0;
-}

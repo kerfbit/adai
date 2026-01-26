@@ -138,6 +138,18 @@ add_executable(chatbotcliTests chatbotcli_test.cpp)
 target_link_libraries(chatbotcliTests GTest::gtest_main)
 add_test(NAME ChatbotCLITests COMMAND chatbotcliTests)
 
+# ChatbotCLI improved tests (full unit tests with header support)
+add_executable(chatbotcliImprovedTests 
+    chatbotcli_improved_test.cpp
+    ../src/ChatbotCLI.cpp  # Include implementation
+)
+target_link_libraries(chatbotcliImprovedTests 
+    adai_models 
+    adai_nlp 
+    GTest::gtest_main
+)
+add_test(NAME ChatbotCLIImprovedTests COMMAND chatbotcliImprovedTests)
+
 # Dataset tests (data loading and splitting)
 add_executable(datasetTests dataset_test.cpp)
 target_link_libraries(datasetTests GTest::gtest_main)

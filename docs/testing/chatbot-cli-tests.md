@@ -2,14 +2,163 @@
 
 ## Overview
 
-This document provides comprehensive documentation for the ChatbotCLI test suite. The tests cover command parsing, parameter validation, color formatting, file operations, and integration workflows for the command-line chatbot interface.
+This document provides comprehensive documentation for the ChatbotCLI test suites. The tests cover command parsing, parameter validation, color formatting, file operations, integration workflows, and modern C++ implementation for the command-line chatbot interface.
+
+## Test Suites
+
+### Legacy Test Suite
 
 **Test File:** `tests/chatbotcli_test.cpp`  
 **Test Executable:** `chatbotcliTests`  
 **Total Tests:** 83 tests across 15 test suites  
-**Test Framework:** Google Test (GTest) 1.14.0
+**Test Framework:** Google Test (GTest) 1.14.0  
+**Approach:** Helper functions and mocks (ChatbotCLI was in .cpp without header)
 
-## Test Coverage Summary
+### Improved Test Suite (2026)
+
+**Test File:** `tests/chatbotcli_improved_test.cpp`  
+**Test Executable:** `chatbotcliImprovedTests`  
+**Total Tests:** 23 tests across 4 test suites  
+**Test Framework:** Google Test (GTest) 1.14.0  
+**Approach:** Direct class instantiation and testing via header file
+
+**Key Improvements:**
+- ✅ Tests actual ChatbotCLI class (not just helper functions)
+- ✅ Full constructor, accessor, and mutator coverage
+- ✅ Direct command handling tests via `handle_setting()`
+- ✅ Test fixture with automatic setup/teardown
+- ✅ All tests passing with modern C++ implementation
+
+## Improved Test Suite Coverage
+
+| Test Suite | Tests | Purpose |
+|------------|-------|---------|
+| ChatbotCLITest | 17 | Class functionality (constructor, getters, setters, commands) |
+| CommandValidationTest | 3 | Command recognition and validation |
+| StrategyValidationTest | 2 | Generation strategy validation |
+| ColorCodeTest | 1 | ANSI color code validation |
+| **Total** | **23** | **Core CLI functionality with header support** |
+
+### ChatbotCLITest Suite (17 tests)
+
+**Purpose:** Test ChatbotCLI class members and methods directly
+
+**Test Fixture:**
+```cpp
+class ChatbotCLITest : public ::testing::Test {
+   protected:
+    void SetUp() override {
+        // Create test vocab file
+        vocab_file = "test_vocab.txt";
+        model_file = "test_model.bin";
+        conv_file = "test_conversation.txt";
+        
+        std::ofstream vocab(vocab_file);
+        vocab << "hello 100\\n";
+        vocab << "world 50\\n";
+        vocab << "test 25\\n";
+        vocab.close();
+    }
+    
+    void TearDown() override {
+        std::remove(vocab_file.c_str());
+        std::remove(model_file.c_str());
+        std::remove(conv_file.c_str());
+    }
+    
+    std::string vocab_file;
+    std::string model_file;
+    std::string conv_file;
+};
+```
+
+#### Constructor Tests (3 tests)
+
+**ConstructorSetsDefaultParameters**
+```cpp
+TEST_F(ChatbotCLITest, ConstructorSetsDefaultParameters)
+```
+**Validates:**
+- `max_response_length` = 100
+- `temperature` = 1.0f
+- `top_p` = 0.9f
+- `top_k` = 50
+- `beam_width` = 5
+- `generation_strategy` = "nucleus"
+
+**ConstructorStoresFilePaths**
+```cpp
+TEST_F(ChatbotCLITest, ConstructorStoresFilePaths)
+```
+**Validates:**
+- Correct storage of `vocab_path`
+- Correct storage of `model_path`
+- Correct storage of `conversation_save_path`
+
+**DefaultConversationSavePath**
+```cpp
+TEST_F(ChatbotCLITest, DefaultConversationSavePath)
+```
+**Validates:**
+- Default path is "conversation_history.txt"
+
+#### Accessor/Mutator Tests (6 tests)
+
+**SetAndGetGenerationStrategy**
+- Tests setting and retrieving: greedy, beam, sampling
+
+**SetAndGetMaxResponseLength**
+- Tests setting values: 50, 200
+
+**SetAndGetTemperature**
+- Tests setting values: 0.5f, 1.5f
+
+**SetAndGetTopP**
+- Tests setting values: 0.8f, 0.95f
+
+**SetAndGetTopK**
+- Tests setting values: 10, 100
+
+**SetAndGetBeamWidth**
+- Tests setting values: 3, 10
+
+#### Command Handling Tests (8 tests)
+
+All tests redirect stdout to suppress output during testing.
+
+**HandleSettingStrategy**
+```cpp
+TEST_F(ChatbotCLITest, HandleSettingStrategy)
+```
+**Tests:**
+```cpp
+cli.handle_setting("strategy greedy");
+cli.handle_setting("strategy beam");
+cli.handle_setting("strategy nucleus");
+```
+
+**HandleSettingMaxLength**
+- Tests: `"length 150"`, `"max_length 75"`
+
+**HandleSettingTemperature**
+- Tests: `"temperature 0.7"`, `"temp 1.2"`
+
+**HandleSettingTopP**
+- Tests: `"top_p 0.85"`, `"top-p 0.92"`
+
+**HandleSettingTopK**
+- Tests: `"top_k 20"`, `"top-k 40"`
+
+**HandleSettingBeamWidth**
+- Tests: `"beam_width 7"`, `"beam-width 12"`
+
+**HandleSettingInvalidStrategy**
+- Verifies invalid strategy doesn't change current value
+
+**HandleSettingMissingValue**
+- Verifies missing value doesn't change current value
+
+## Legacy Test Suite Coverage
 
 | Test Suite | Tests | Purpose |
 |------------|-------|---------|
@@ -30,7 +179,7 @@ This document provides comprehensive documentation for the ChatbotCLI test suite
 | ColorOutputTest | 5 | Colored output formatting |
 | **Total** | **83** | **Complete CLI functionality** |
 
-## Test Suites Detailed
+## Legacy Test Suites Detailed
 
 ### 1. ColorCodeTest (3 tests)
 
@@ -1252,13 +1401,15 @@ Each test is independent and doesn't rely on others:
 
 ## Known Limitations
 
-### 1. No Full Class Testing
+### 1. Legacy Tests - No Full Class Testing
 
-**Limitation:** ChatbotCLI defined in `.cpp` without header
+**Limitation:** Original ChatbotCLI defined in `.cpp` without header
 
-**Impact:** Cannot instantiate full class in tests
+**Impact:** Cannot instantiate full class in legacy tests
 
 **Workaround:** Test helper functions and logic separately
+
+**Resolution (2026):** ✅ **Solved** - Header file created, improved test suite added
 
 ### 2. No Interactive Testing
 
@@ -1370,7 +1521,11 @@ Test system limits:
 
 ## Related Documentation
 
-- **ChatbotCLI Context:** `Context Documentation/CHATBOTCLI_CONTEXT.md`
+- **ChatbotCLI Header:** `src/ChatbotCLI.hpp`
+- **ChatbotCLI Implementation:** `src/ChatbotCLI.cpp`
+- **ChatbotCLI Context:** `docs/guides/chatbot-cli-internals.md`
+- **Improved Test Suite:** `tests/chatbotcli_improved_test.cpp`
+- **Legacy Test Suite:** `tests/chatbotcli_test.cpp`
 - **EncoderDecoderModel Tests:** `tests/encoderdecoder_test.cpp`
 - **ChatbotTrainer Tests:** `tests/chatbottrainer_test.cpp`
 - **Optimizer Tests:** `tests/optimizer_test.cpp`
@@ -1380,8 +1535,19 @@ Test system limits:
 
 ## Summary
 
-The ChatbotCLI test suite provides comprehensive validation of:
+The ChatbotCLI testing infrastructure provides comprehensive validation through two complementary test suites:
 
+### Improved Test Suite (2026)
+✅ **23 tests** with direct class instantiation  
+✅ **4 test suites** covering core functionality  
+✅ **100% pass rate** with modern C++ implementation  
+✅ **Constructor testing** for all initialization paths  
+✅ **Accessor/mutator testing** for all parameters  
+✅ **Command handling** via actual class methods  
+✅ **Test fixtures** with automatic setup/teardown  
+✅ **Smart pointer support** testing modern implementation  
+
+### Legacy Test Suite
 ✅ **83 tests** covering all testable CLI functionality  
 ✅ **15 test suites** organized by feature category  
 ✅ **100% pass rate** with fast execution (1ms)  
@@ -1394,16 +1560,17 @@ The ChatbotCLI test suite provides comprehensive validation of:
 ✅ **Color formatting** for all 5 ANSI color codes  
 ✅ **Default configuration** for all 17 default values  
 
+**Combined Coverage:** 106 tests ensuring ChatbotCLI reliability
+
 **Key Strengths:**
-- Comprehensive coverage of testable components
+- Comprehensive coverage from helper functions to full class
 - Well-organized test suites
 - Clear, descriptive test names
-- Proper file cleanup
+- Proper file cleanup and fixtures
 - Edge case coverage
 - Integration testing
 - Fast execution
+- Modern C++ best practices
 
-**Key Testing Philosophy:**
-Test what can be tested in isolation (helper functions, parsing logic, validation) while acknowledging that full class testing requires integration/end-to-end approaches due to architectural constraints.
-
-The test suite ensures that all command-line interface logic, parameter handling, and utility functions work correctly, providing confidence in the CLI's core functionality.
+**Testing Evolution:**
+The addition of the header file and improved test suite in 2026 resolved the original architectural limitation, enabling full class-level testing while maintaining backward compatibility with the extensive legacy test suite. Together, they provide defense-in-depth validation of all ChatbotCLI functionality.
