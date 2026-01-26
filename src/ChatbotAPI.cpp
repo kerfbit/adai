@@ -418,7 +418,7 @@ std::vector<std::string> ChatbotAPI::parse_json_array(const std::string& json, c
     size_t pos = array_start + 1;
     while (pos < array_end) {
         // Skip whitespace
-        while (pos < array_end && (json[pos] == ' ' || json[pos] == '\\n' || json[pos] == '\\r' || json[pos] == '\\t')) {
+        while (pos < array_end && (json[pos] == ' ' || json[pos] == '\n' || json[pos] == '\r' || json[pos] == '\t')) {
             pos++;
         }
 
@@ -436,7 +436,7 @@ std::vector<std::string> ChatbotAPI::parse_json_array(const std::string& json, c
             size_t value_end = value_start;
             
             while (value_end < array_end) {
-                if (json[value_end] == '"' && (value_end == value_start || json[value_end - 1] != '\\\\')) {
+                if (json[value_end] == '"' && (value_end == value_start || json[value_end - 1] != '\\')) {
                     break;
                 }
                 value_end++;
@@ -448,13 +448,13 @@ std::vector<std::string> ChatbotAPI::parse_json_array(const std::string& json, c
                 // Unescape
                 std::string unescaped;
                 for (size_t i = 0; i < value.length(); ++i) {
-                    if (value[i] == '\\\\' && i + 1 < value.length()) {
+                    if (value[i] == '\\' && i + 1 < value.length()) {
                         char next = value[i + 1];
-                        if (next == 'n') { unescaped += '\\n'; i++; }
-                        else if (next == 'r') { unescaped += '\\r'; i++; }
-                        else if (next == 't') { unescaped += '\\t'; i++; }
+                        if (next == 'n') { unescaped += '\n'; i++; }
+                        else if (next == 'r') { unescaped += '\r'; i++; }
+                        else if (next == 't') { unescaped += '\t'; i++; }
                         else if (next == '"') { unescaped += '"'; i++; }
-                        else if (next == '\\\\') { unescaped += '\\\\'; i++; }
+                        else if (next == '\\') { unescaped += '\\'; i++; }
                         else unescaped += value[i];
                     } else {
                         unescaped += value[i];
@@ -513,11 +513,11 @@ std::string ChatbotAPI::create_batch_json_response(const BatchResponse& batch_re
             oss << "\"";
             // Escape quotes and special characters
             for (char c : batch_response.responses[i]) {
-                if (c == '"') oss << "\\\\\\\"";
-                else if (c == '\\\\') oss << "\\\\\\\\";
-                else if (c == '\\n') oss << "\\\\n";
-                else if (c == '\\r') oss << "\\\\r";
-                else if (c == '\\t') oss << "\\\\t";
+                if (c == '"') oss << "\\\"";
+                else if (c == '\\') oss << "\\\\";
+                else if (c == '\n') oss << "\\n";
+                else if (c == '\r') oss << "\\r";
+                else if (c == '\t') oss << "\\t";
                 else oss << c;
             }
             oss << "\"";
