@@ -1,914 +1,536 @@
-#include <../gtest/gtest.h>
+#include <gtest/gtest.h>
 #include <cmath>
-#include <cstdio>
 #include <fstream>
-#include <sstream>
-#include <string>
-#include <vector>
+#include <memory>
+#include "../src/ChatbotTrainer.hpp"
 
-// Note: ChatbotTrainer is in a .cpp file without a header
-// We'll need to test it through its command-line interface
-// For now, we'll create tests for the data structures and helper functionality
-// that can be extracted, and integration tests
+// ============================================================================
+// Test Fixtures
+// ============================================================================
 
-// Mock/Test data structures matching ChatbotTrainer.cpp
+class ChatbotTrainerTest : public ::testing::Test {
+protected:
+    TrainingConfig config;
+    std::unique_ptr<ChatbotTrainer> trainer;
 
-struct ConversationPair {
-    std::string input;
-    std::string response;
-
-    ConversationPair(const std::string& in, const std::string& resp) : input(in), response(resp) {}
-};
-
-enum class LRSchedule {
-    CONSTANT,
-    LINEAR_WARMUP,
-    COSINE_DECAY,
-    WARMUP_COSINE,
-    STEP_DECAY,
-    EXPONENTIAL_DECAY
-};
-
-struct TrainingConfig {
-    int d_model = 512;
-    int num_heads = 8;
-    int d_ff = 2048;
-    int num_encoder_layers = 6;
-    int num_decoder_layers = 6;
-    int max_seq_length = 512;
-
-    int num_epochs = 10;
-    float learning_rate = 0.001f;
-    int batch_size = 1;
-    int validation_split = 10;
-
-    LRSchedule lr_schedule = LRSchedule::WARMUP_COSINE;
-    int warmup_steps = 0;
-    float min_learning_rate = 1e-6f;
-    float lr_decay_factor = 0.1f;
-    int lr_decay_steps = 0;
-
-    float adam_beta1 = 0.9f;
-    float adam_beta2 = 0.999f;
-    float weight_decay = 0.01f;
-    float gradient_clip_norm = 1.0f;
-
-    bool save_checkpoints = true;
-    int checkpoint_every = 1;
-
-    bool enable_early_stopping = false;
-    int patience = 5;
-    float min_delta = 1e-4f;
-    bool restore_best_weights = true;
-
-    int log_every = 10;
-    bool verbose = true;
-};
-
-// Helper function to create test data file
-std::string create_test_data_file(const std::string& filename,
-                                  const std::vector<std::pair<std::string, std::string>>& pairs) {
-    std::ofstream file(filename);
-    if (!file.is_open()) {
-        return "";
+    void SetUp() override {
+        // Default test configuration
+        config.num_epochs = 5;
+        config.d_model = 64;  // Small model for fast testing
+        config.num_heads = 4;
+        config.d_ff = 256;
+        config.num_encoder_layers = 2;
+        config.num_decoder_layers = 2;
+        config.max_seq_length = 32;
+        config.validation_split = 5;  // 20% validation
+        config.log_level = LogLevel::SILENT;  // Quiet during tests
+        
+        trainer = std::make_unique<ChatbotTrainer>(config);
     }
 
-    for (const auto& pair : pairs) {
-        file << "INPUT: " << pair.first << "\n";
-        file << "RESPONSE: " << pair.second << "\n\n";
+    void TearDown() override {
+        trainer.reset();
     }
+};
 
-    file.close();
-    return filename;
+class MetricsTest : public ::testing::Test {
+protected:
+    std::unique_ptr<ChatbotTrainer> trainer;
+
+    void SetUp() override {
+        TrainingConfig config;
+        config.log_level = LogLevel::SILENT;
+        trainer = std::make_unique<ChatbotTrainer>(config);
+    }
+};
+
+class LoggingTest : public ::testing::Test {
+protected:
+    std::unique_ptr<ChatbotTrainer> trainer;
+
+    void SetUp() override {
+        TrainingConfig config;
+        trainer = std::make_unique<ChatbotTrainer>(config);
+    }
+};
+
+// ============================================================================
+// Metrics Tests
+// ============================================================================
+
+TEST_F(MetricsTest, CalculatePerplexity_ZeroLoss) {
+    float loss = 0.0f;
+    float perplexity = trainer->calculate_perplexity(loss);
+    EXPECT_FLOAT_EQ(perplexity, 1.0f);  // exp(0) = 1
 }
 
-// Helper function to create test vocabulary file
-std::string create_test_vocab_file(const std::string& filename, int vocab_size = 100) {
-    std::ofstream file(filename);
-    if (!file.is_open()) {
-        return "";
-    }
+TEST_F(MetricsTest, CalculatePerplexity_UnitLoss) {
+    float loss = 1.0f;
+    float perplexity = trainer->calculate_perplexity(loss);
+    EXPECT_NEAR(perplexity, std::exp(1.0f), 1e-5);  // exp(1) ≈ 2.718
+}
 
-    file << "<unk>\n<pad>\n<s>\n</s>\n";
-    for (int i = 0; i < vocab_size - 4; i++) {
-        file << "token" << i << "\n";
-    }
+TEST_F(MetricsTest, CalculatePerplexity_TypicalLoss) {
+    float loss = 2.3026f;  // ln(10)
+    float perplexity = trainer->calculate_perplexity(loss);
+    EXPECT_NEAR(perplexity, 10.0f, 1e-3);  // exp(ln(10)) = 10
+}
 
-    file.close();
-    return filename;
+TEST_F(MetricsTest, CalculatePerplexity_LargeLoss) {
+    float loss = 4.6052f;  // ln(100)
+    float perplexity = trainer->calculate_perplexity(loss);
+    EXPECT_NEAR(perplexity, 100.0f, 1e-2);
+}
+
+TEST_F(MetricsTest, CalculatePerplexity_Monotonic) {
+    // Perplexity should increase monotonically with loss
+    float loss1 = 1.0f;
+    float loss2 = 2.0f;
+    float loss3 = 3.0f;
+    
+    float ppl1 = trainer->calculate_perplexity(loss1);
+    float ppl2 = trainer->calculate_perplexity(loss2);
+    float ppl3 = trainer->calculate_perplexity(loss3);
+    
+    EXPECT_LT(ppl1, ppl2);
+    EXPECT_LT(ppl2, ppl3);
+}
+
+TEST_F(MetricsTest, CalculateAccuracy_PerfectMatch) {
+    // When vectors match, accuracy should be 100%
+    std::vector<int> predictions = {1, 2, 3};
+    std::vector<int> targets = {1, 2, 3};
+    
+    float accuracy = trainer->calculate_accuracy(predictions, targets);
+    EXPECT_FLOAT_EQ(accuracy, 1.0f);  // 100% accuracy
+}
+
+TEST_F(MetricsTest, CalculateAccuracy_PartialMatch) {
+    // 2 out of 4 correct = 50%
+    std::vector<int> predictions = {1, 2, 3, 4};
+    std::vector<int> targets = {1, 5, 3, 6};
+    
+    float accuracy = trainer->calculate_accuracy(predictions, targets);
+    EXPECT_FLOAT_EQ(accuracy, 0.5f);  // 50% accuracy
+}
+
+TEST_F(MetricsTest, CalculateAccuracy_NoMatch) {
+    // 0 out of 3 correct = 0%
+    std::vector<int> predictions = {1, 2, 3};
+    std::vector<int> targets = {4, 5, 6};
+    
+    float accuracy = trainer->calculate_accuracy(predictions, targets);
+    EXPECT_FLOAT_EQ(accuracy, 0.0f);  // 0% accuracy
+}
+
+TEST_F(MetricsTest, CalculateAccuracy_EmptyVectors) {
+    std::vector<int> predictions;
+    std::vector<int> targets;
+    
+    float accuracy = trainer->calculate_accuracy(predictions, targets);
+    EXPECT_FLOAT_EQ(accuracy, -1.0f);
+}
+
+TEST_F(MetricsTest, CalculateAccuracy_MismatchedSizes) {
+    std::vector<int> predictions = {1, 2, 3};
+    std::vector<int> targets = {1, 2};
+    
+    float accuracy = trainer->calculate_accuracy(predictions, targets);
+    EXPECT_FLOAT_EQ(accuracy, -1.0f);
 }
 
 // ============================================================================
-// ConversationPair Tests
+// Logging System Tests
 // ============================================================================
 
-TEST(ConversationPairTest, BasicConstruction) {
-    ConversationPair pair("Hello", "Hi there");
+TEST_F(LoggingTest, LogLevel_Silent_NoOutput) {
+    TrainingConfig config;
+    config.log_level = LogLevel::SILENT;
+    auto silent_trainer = std::make_unique<ChatbotTrainer>(config);
+    
+    // Should not crash, but won't verify output (would need output capture)
+    silent_trainer->log(LogLevel::NORMAL, "This should not appear", "");
+    silent_trainer->log(LogLevel::VERBOSE, "This should not appear", "");
+    silent_trainer->log(LogLevel::DEBUG, "This should not appear", "");
+}
 
+TEST_F(LoggingTest, LogLevel_Normal_FiltersVerbose) {
+    TrainingConfig config;
+    config.log_level = LogLevel::NORMAL;
+    auto normal_trainer = std::make_unique<ChatbotTrainer>(config);
+    
+    // NORMAL and below should appear, VERBOSE and DEBUG should not
+    normal_trainer->log(LogLevel::SILENT, "Error message", "");
+    normal_trainer->log(LogLevel::NORMAL, "Normal message", "");
+    normal_trainer->log(LogLevel::VERBOSE, "Should be filtered", "");
+    normal_trainer->log(LogLevel::DEBUG, "Should be filtered", "");
+}
+
+TEST_F(LoggingTest, LogLevel_Verbose_FiltersDebug) {
+    TrainingConfig config;
+    config.log_level = LogLevel::VERBOSE;
+    auto verbose_trainer = std::make_unique<ChatbotTrainer>(config);
+    
+    // VERBOSE and below should appear, DEBUG should not
+    verbose_trainer->log(LogLevel::SILENT, "Error message", "");
+    verbose_trainer->log(LogLevel::NORMAL, "Normal message", "");
+    verbose_trainer->log(LogLevel::VERBOSE, "Verbose message", "");
+    verbose_trainer->log(LogLevel::DEBUG, "Should be filtered", "");
+}
+
+TEST_F(LoggingTest, LogLevel_Debug_ShowsAll) {
+    TrainingConfig config;
+    config.log_level = LogLevel::DEBUG;
+    auto debug_trainer = std::make_unique<ChatbotTrainer>(config);
+    
+    // All messages should appear
+    debug_trainer->log(LogLevel::SILENT, "Error message", "");
+    debug_trainer->log(LogLevel::NORMAL, "Normal message", "");
+    debug_trainer->log(LogLevel::VERBOSE, "Verbose message", "");
+    debug_trainer->log(LogLevel::DEBUG, "Debug message", "");
+}
+
+// ============================================================================
+// Configuration Tests
+// ============================================================================
+
+TEST_F(ChatbotTrainerTest, Config_DefaultValues) {
+    TrainingConfig default_config;
+    
+    EXPECT_EQ(default_config.d_model, 512);
+    EXPECT_EQ(default_config.num_heads, 8);
+    EXPECT_EQ(default_config.d_ff, 2048);
+    EXPECT_EQ(default_config.num_encoder_layers, 6);
+    EXPECT_EQ(default_config.num_decoder_layers, 6);
+    EXPECT_EQ(default_config.max_seq_length, 512);
+    EXPECT_EQ(default_config.num_epochs, 10);
+    EXPECT_FLOAT_EQ(default_config.learning_rate, 0.001f);
+    EXPECT_EQ(default_config.batch_size, 1);
+    EXPECT_EQ(default_config.gradient_accumulation_steps, 1);
+    EXPECT_EQ(default_config.validation_split, 10);
+    EXPECT_EQ(default_config.lr_schedule, LRSchedule::WARMUP_COSINE);
+    EXPECT_EQ(default_config.optimizer_type, OptimizerType::ADAMW);
+    EXPECT_FLOAT_EQ(default_config.weight_decay, 0.01f);
+    EXPECT_FLOAT_EQ(default_config.gradient_clip_norm, 1.0f);
+    EXPECT_EQ(default_config.log_level, LogLevel::VERBOSE);
+}
+
+TEST_F(ChatbotTrainerTest, Config_CustomValues) {
+    TrainingConfig custom_config;
+    custom_config.d_model = 256;
+    custom_config.num_heads = 4;
+    custom_config.learning_rate = 0.0001f;
+    custom_config.num_epochs = 20;
+    custom_config.log_level = LogLevel::NORMAL;
+    
+    auto custom_trainer = std::make_unique<ChatbotTrainer>(custom_config);
+    
+    EXPECT_EQ(custom_trainer->get_config().d_model, 256);
+    EXPECT_EQ(custom_trainer->get_config().num_heads, 4);
+    EXPECT_FLOAT_EQ(custom_trainer->get_config().learning_rate, 0.0001f);
+    EXPECT_EQ(custom_trainer->get_config().num_epochs, 20);
+    EXPECT_EQ(custom_trainer->get_config().log_level, LogLevel::NORMAL);
+}
+
+TEST_F(ChatbotTrainerTest, Constructor_InitializesState) {
+    EXPECT_FLOAT_EQ(trainer->get_best_validation_loss(), std::numeric_limits<float>::max());
+    EXPECT_EQ(trainer->get_best_epoch(), 0);
+    EXPECT_EQ(trainer->get_global_step(), 0);
+    EXPECT_FLOAT_EQ(trainer->get_current_learning_rate(), config.learning_rate);
+    EXPECT_FALSE(trainer->was_early_stopped());
+}
+
+// ============================================================================
+// Training Configuration Enum Tests
+// ============================================================================
+
+TEST(EnumTest, LRSchedule_AllValues) {
+    EXPECT_EQ(static_cast<int>(LRSchedule::CONSTANT), 0);
+    EXPECT_NE(LRSchedule::LINEAR_WARMUP, LRSchedule::COSINE_DECAY);
+    EXPECT_NE(LRSchedule::WARMUP_COSINE, LRSchedule::STEP_DECAY);
+    EXPECT_NE(LRSchedule::STEP_DECAY, LRSchedule::EXPONENTIAL_DECAY);
+}
+
+TEST(EnumTest, LogLevel_Ordering) {
+    EXPECT_LT(static_cast<int>(LogLevel::SILENT), static_cast<int>(LogLevel::NORMAL));
+    EXPECT_LT(static_cast<int>(LogLevel::NORMAL), static_cast<int>(LogLevel::VERBOSE));
+    EXPECT_LT(static_cast<int>(LogLevel::VERBOSE), static_cast<int>(LogLevel::DEBUG));
+    
+    EXPECT_EQ(static_cast<int>(LogLevel::SILENT), 0);
+    EXPECT_EQ(static_cast<int>(LogLevel::NORMAL), 1);
+    EXPECT_EQ(static_cast<int>(LogLevel::VERBOSE), 2);
+    EXPECT_EQ(static_cast<int>(LogLevel::DEBUG), 3);
+}
+
+// ============================================================================
+// Data Structure Tests
+// ============================================================================
+
+TEST(DataStructureTest, ConversationPair_Construction) {
+    ConversationPair pair("Hello", "Hi there!");
+    
     EXPECT_EQ(pair.input, "Hello");
-    EXPECT_EQ(pair.response, "Hi there");
+    EXPECT_EQ(pair.response, "Hi there!");
 }
 
-TEST(ConversationPairTest, EmptyStrings) {
+TEST(DataStructureTest, ConversationPair_EmptyStrings) {
     ConversationPair pair("", "");
-
+    
     EXPECT_TRUE(pair.input.empty());
     EXPECT_TRUE(pair.response.empty());
 }
 
-TEST(ConversationPairTest, LongStrings) {
-    std::string long_input(1000, 'a');
-    std::string long_response(1000, 'b');
-
-    ConversationPair pair(long_input, long_response);
-
-    EXPECT_EQ(pair.input.length(), 1000);
-    EXPECT_EQ(pair.response.length(), 1000);
+TEST(DataStructureTest, TokenizedPair_Construction) {
+    std::vector<int> input_tokens = {1, 2, 3};
+    std::vector<int> target_tokens = {4, 5, 6};
+    
+    TokenizedPair pair(input_tokens, target_tokens, "hello", "world");
+    
+    EXPECT_EQ(pair.input_tokens.size(), 3);
+    EXPECT_EQ(pair.target_tokens.size(), 3);
+    EXPECT_EQ(pair.input_tokens[0], 1);
+    EXPECT_EQ(pair.target_tokens[2], 6);
+    EXPECT_EQ(pair.input_text, "hello");
+    EXPECT_EQ(pair.target_text, "world");
 }
 
-TEST(ConversationPairTest, SpecialCharacters) {
-    ConversationPair pair("Hello\nWorld!", "Hi\tthere\r\n");
-
-    EXPECT_NE(pair.input.find('\n'), std::string::npos);
-    EXPECT_NE(pair.response.find('\t'), std::string::npos);
-}
-
-// ============================================================================
-// TrainingConfig Tests
-// ============================================================================
-
-TEST(TrainingConfigTest, DefaultValues) {
-    TrainingConfig config;
-
-    // Model architecture defaults
-    EXPECT_EQ(config.d_model, 512);
-    EXPECT_EQ(config.num_heads, 8);
-    EXPECT_EQ(config.d_ff, 2048);
-    EXPECT_EQ(config.num_encoder_layers, 6);
-    EXPECT_EQ(config.num_decoder_layers, 6);
-    EXPECT_EQ(config.max_seq_length, 512);
-
-    // Training defaults
-    EXPECT_EQ(config.num_epochs, 10);
-    EXPECT_FLOAT_EQ(config.learning_rate, 0.001f);
-    EXPECT_EQ(config.batch_size, 1);
-    EXPECT_EQ(config.validation_split, 10);
-}
-
-TEST(TrainingConfigTest, LRScheduleDefaults) {
-    TrainingConfig config;
-
-    EXPECT_EQ(config.lr_schedule, LRSchedule::WARMUP_COSINE);
-    EXPECT_EQ(config.warmup_steps, 0);
-    EXPECT_FLOAT_EQ(config.min_learning_rate, 1e-6f);
-    EXPECT_FLOAT_EQ(config.lr_decay_factor, 0.1f);
-    EXPECT_EQ(config.lr_decay_steps, 0);
-}
-
-TEST(TrainingConfigTest, OptimizerDefaults) {
-    TrainingConfig config;
-
-    EXPECT_FLOAT_EQ(config.adam_beta1, 0.9f);
-    EXPECT_FLOAT_EQ(config.adam_beta2, 0.999f);
-    EXPECT_FLOAT_EQ(config.weight_decay, 0.01f);
-    EXPECT_FLOAT_EQ(config.gradient_clip_norm, 1.0f);
-}
-
-TEST(TrainingConfigTest, CheckpointDefaults) {
-    TrainingConfig config;
-
-    EXPECT_TRUE(config.save_checkpoints);
-    EXPECT_EQ(config.checkpoint_every, 1);
-}
-
-TEST(TrainingConfigTest, EarlyStoppingDefaults) {
-    TrainingConfig config;
-
-    EXPECT_FALSE(config.enable_early_stopping);
-    EXPECT_EQ(config.patience, 5);
-    EXPECT_FLOAT_EQ(config.min_delta, 1e-4f);
-    EXPECT_TRUE(config.restore_best_weights);
-}
-
-TEST(TrainingConfigTest, LoggingDefaults) {
-    TrainingConfig config;
-
-    EXPECT_EQ(config.log_every, 10);
-    EXPECT_TRUE(config.verbose);
-}
-
-TEST(TrainingConfigTest, CustomValues) {
-    TrainingConfig config;
-
-    config.d_model = 768;
-    config.num_heads = 12;
-    config.num_epochs = 20;
-    config.learning_rate = 0.0001f;
-
-    EXPECT_EQ(config.d_model, 768);
-    EXPECT_EQ(config.num_heads, 12);
-    EXPECT_EQ(config.num_epochs, 20);
-    EXPECT_FLOAT_EQ(config.learning_rate, 0.0001f);
+TEST(DataStructureTest, TokenizedPair_EmptyVectors) {
+    std::vector<int> empty;
+    
+    TokenizedPair pair(empty, empty, "", "");
+    
+    EXPECT_TRUE(pair.input_tokens.empty());
+    EXPECT_TRUE(pair.target_tokens.empty());
+    EXPECT_TRUE(pair.input_text.empty());
+    EXPECT_TRUE(pair.target_text.empty());
 }
 
 // ============================================================================
-// Configuration Validation Tests
+// Getter Tests
 // ============================================================================
 
-TEST(ConfigValidationTest, DModelDivisibleByHeads) {
-    TrainingConfig config;
-
-    // Valid: 512 % 8 = 0
-    config.d_model = 512;
-    config.num_heads = 8;
-    EXPECT_EQ(config.d_model % config.num_heads, 0);
-
-    // Valid: 768 % 12 = 0
-    config.d_model = 768;
-    config.num_heads = 12;
-    EXPECT_EQ(config.d_model % config.num_heads, 0);
+TEST_F(ChatbotTrainerTest, Getters_EmptyVectors) {
+    EXPECT_TRUE(trainer->get_training_losses().empty());
+    EXPECT_TRUE(trainer->get_validation_losses().empty());
+    EXPECT_TRUE(trainer->get_training_perplexities().empty());
+    EXPECT_TRUE(trainer->get_validation_perplexities().empty());
+    EXPECT_TRUE(trainer->get_learning_rates().empty());
+    EXPECT_TRUE(trainer->get_gradient_norms().empty());
 }
 
-TEST(ConfigValidationTest, DModelNotDivisibleByHeads) {
-    TrainingConfig config;
-
-    // Invalid: 500 % 8 != 0
-    config.d_model = 500;
-    config.num_heads = 8;
-    EXPECT_NE(config.d_model % config.num_heads, 0);
-
-    // Should be corrected to 504 (nearest multiple)
-    int corrected = ((config.d_model + config.num_heads - 1) / config.num_heads) * config.num_heads;
-    EXPECT_EQ(corrected, 504);
-}
-
-TEST(ConfigValidationTest, DFFRatio) {
-    TrainingConfig config;
-
-    // Standard 4x ratio
-    config.d_model = 512;
-    config.d_ff = 2048;
-    float ratio = static_cast<float>(config.d_ff) / config.d_model;
-    EXPECT_FLOAT_EQ(ratio, 4.0f);
-
-    // Acceptable 3x ratio
-    config.d_ff = 1536;
-    ratio = static_cast<float>(config.d_ff) / config.d_model;
-    EXPECT_FLOAT_EQ(ratio, 3.0f);
-    EXPECT_GE(ratio, 2.0f);
-    EXPECT_LE(ratio, 8.0f);
-}
-
-TEST(ConfigValidationTest, NumHeadsPowerOfTwo) {
-    // Check if power of 2
-    auto is_power_of_2 = [](int n) { return n > 0 && (n & (n - 1)) == 0; };
-
-    EXPECT_TRUE(is_power_of_2(2));
-    EXPECT_TRUE(is_power_of_2(4));
-    EXPECT_TRUE(is_power_of_2(8));
-    EXPECT_TRUE(is_power_of_2(16));
-
-    EXPECT_FALSE(is_power_of_2(3));
-    EXPECT_FALSE(is_power_of_2(5));
-    EXPECT_FALSE(is_power_of_2(6));
-    EXPECT_FALSE(is_power_of_2(10));
-}
-
-TEST(ConfigValidationTest, LearningRateRange) {
-    TrainingConfig config;
-
-    // Valid ranges
-    config.learning_rate = 0.001f;
-    EXPECT_GT(config.learning_rate, 0.0f);
-    EXPECT_LE(config.learning_rate, 1.0f);
-
-    config.learning_rate = 0.1f;
-    EXPECT_GT(config.learning_rate, 0.0f);
-    EXPECT_LE(config.learning_rate, 1.0f);
-}
-
-TEST(ConfigValidationTest, MinLearningRateLessThanMax) {
-    TrainingConfig config;
-
-    config.learning_rate = 0.001f;
-    config.min_learning_rate = 1e-6f;
-
-    EXPECT_LT(config.min_learning_rate, config.learning_rate);
-}
-
-TEST(ConfigValidationTest, LayerCountRanges) {
-    TrainingConfig config;
-
-    // Valid ranges
-    EXPECT_GE(config.num_encoder_layers, 1);
-    EXPECT_LE(config.num_encoder_layers, 48);
-    EXPECT_GE(config.num_decoder_layers, 1);
-    EXPECT_LE(config.num_decoder_layers, 48);
-}
-
-TEST(ConfigValidationTest, SequenceLengthRange) {
-    TrainingConfig config;
-
-    EXPECT_GE(config.max_seq_length, 16);
-    EXPECT_LE(config.max_seq_length, 8192);
+TEST_F(ChatbotTrainerTest, Getters_DataSizes) {
+    EXPECT_EQ(trainer->get_training_data_size(), 0);
+    EXPECT_EQ(trainer->get_validation_data_size(), 0);
+    EXPECT_EQ(trainer->get_tokenized_training_size(), 0);
+    EXPECT_EQ(trainer->get_tokenized_validation_size(), 0);
 }
 
 // ============================================================================
-// Learning Rate Schedule Tests
+// Checkpoint Metadata Tests
 // ============================================================================
 
-class LRScheduleTest : public ::testing::Test {
-   protected:
-    float calculate_learning_rate(LRSchedule schedule, int step, int total_steps, int warmup_steps,
-                                  float base_lr, float min_lr, float decay_factor = 0.1f) {
-        // Auto-configure warmup if needed
-        int warmup = warmup_steps;
-        if (warmup == 0 && schedule != LRSchedule::CONSTANT) {
-            warmup = total_steps / 10;
-        }
+class CheckpointTest : public ::testing::Test {
+protected:
+    std::string test_checkpoint_path;
+    std::string test_metadata_path;
 
-        switch (schedule) {
-            case LRSchedule::CONSTANT:
-                return base_lr;
+    void SetUp() override {
+        test_checkpoint_path = "test_checkpoint.bin";
+        test_metadata_path = test_checkpoint_path + ".metadata";
+    }
 
-            case LRSchedule::LINEAR_WARMUP:
-                if (step < warmup) {
-                    return base_lr * (static_cast<float>(step) / warmup);
-                }
-                return base_lr;
+    void TearDown() override {
+        // Clean up test files
+        std::remove(test_checkpoint_path.c_str());
+        std::remove(test_metadata_path.c_str());
+    }
 
-            case LRSchedule::COSINE_DECAY: {
-                float progress = static_cast<float>(step) / total_steps;
-                float cosine = 0.5f * (1.0f + std::cos(3.14159265359f * progress));
-                return min_lr + (base_lr - min_lr) * cosine;
-            }
-
-            case LRSchedule::WARMUP_COSINE: {
-                if (step < warmup) {
-                    return base_lr * (static_cast<float>(step) / warmup);
-                }
-                float progress = static_cast<float>(step - warmup) / (total_steps - warmup);
-                float cosine = 0.5f * (1.0f + std::cos(3.14159265359f * progress));
-                return min_lr + (base_lr - min_lr) * cosine;
-            }
-
-            case LRSchedule::STEP_DECAY: {
-                int decay_steps = total_steps / 10;  // Simple assumption
-                int num_decays = step / decay_steps;
-                return base_lr * std::pow(decay_factor, num_decays);
-            }
-
-            case LRSchedule::EXPONENTIAL_DECAY: {
-                int decay_steps = total_steps / 10;
-                float decay_rate = std::pow(decay_factor, 1.0f / decay_steps);
-                return base_lr * std::pow(decay_rate, step);
-            }
-
-            default:
-                return base_lr;
-        }
+    void create_dummy_metadata(int epoch, int global_step, float lr, 
+                               float best_val_loss, int best_epoch) {
+        std::ofstream meta_file(test_metadata_path);
+        meta_file << "epoch=" << epoch << "\n";
+        meta_file << "global_step=" << global_step << "\n";
+        meta_file << "learning_rate=" << lr << "\n";
+        meta_file << "best_validation_loss=" << best_val_loss << "\n";
+        meta_file << "best_epoch=" << best_epoch << "\n";
+        meta_file.close();
     }
 };
 
-TEST_F(LRScheduleTest, ConstantSchedule) {
-    float lr = calculate_learning_rate(LRSchedule::CONSTANT, 0, 1000, 0, 0.001f, 1e-6f);
-    EXPECT_FLOAT_EQ(lr, 0.001f);
-
-    lr = calculate_learning_rate(LRSchedule::CONSTANT, 500, 1000, 0, 0.001f, 1e-6f);
-    EXPECT_FLOAT_EQ(lr, 0.001f);
-
-    lr = calculate_learning_rate(LRSchedule::CONSTANT, 1000, 1000, 0, 0.001f, 1e-6f);
-    EXPECT_FLOAT_EQ(lr, 0.001f);
-}
-
-TEST_F(LRScheduleTest, LinearWarmupSchedule) {
-    int warmup = 100;
-
-    // At step 0, LR should be 0
-    float lr = calculate_learning_rate(LRSchedule::LINEAR_WARMUP, 0, 1000, warmup, 0.001f, 1e-6f);
-    EXPECT_FLOAT_EQ(lr, 0.0f);
-
-    // At step 50 (half warmup), LR should be half of base
-    lr = calculate_learning_rate(LRSchedule::LINEAR_WARMUP, 50, 1000, warmup, 0.001f, 1e-6f);
-    EXPECT_FLOAT_EQ(lr, 0.0005f);
-
-    // At step 100 (end warmup), LR should be base
-    lr = calculate_learning_rate(LRSchedule::LINEAR_WARMUP, 100, 1000, warmup, 0.001f, 1e-6f);
-    EXPECT_FLOAT_EQ(lr, 0.001f);
-
-    // After warmup, LR stays constant
-    lr = calculate_learning_rate(LRSchedule::LINEAR_WARMUP, 500, 1000, warmup, 0.001f, 1e-6f);
-    EXPECT_FLOAT_EQ(lr, 0.001f);
-}
-
-TEST_F(LRScheduleTest, CosineDecaySchedule) {
-    // At step 0, LR should be at max
-    float lr = calculate_learning_rate(LRSchedule::COSINE_DECAY, 0, 1000, 0, 0.001f, 1e-6f);
-    EXPECT_NEAR(lr, 0.001f, 1e-7f);
-
-    // At step 500 (halfway), LR should be between min and max
-    lr = calculate_learning_rate(LRSchedule::COSINE_DECAY, 500, 1000, 0, 0.001f, 1e-6f);
-    EXPECT_GT(lr, 1e-6f);
-    EXPECT_LT(lr, 0.001f);
-
-    // At step 1000 (end), LR should be at min
-    lr = calculate_learning_rate(LRSchedule::COSINE_DECAY, 1000, 1000, 0, 0.001f, 1e-6f);
-    EXPECT_NEAR(lr, 1e-6f, 1e-7f);
-}
-
-TEST_F(LRScheduleTest, WarmupCosineSchedule) {
-    int warmup = 100;
-
-    // During warmup (step 50), LR should increase linearly
-    float lr = calculate_learning_rate(LRSchedule::WARMUP_COSINE, 50, 1000, warmup, 0.001f, 1e-6f);
-    EXPECT_FLOAT_EQ(lr, 0.0005f);
-
-    // At end of warmup, LR should be at max
-    lr = calculate_learning_rate(LRSchedule::WARMUP_COSINE, 100, 1000, warmup, 0.001f, 1e-6f);
-    EXPECT_FLOAT_EQ(lr, 0.001f);
-
-    // After warmup, should decay with cosine
-    lr = calculate_learning_rate(LRSchedule::WARMUP_COSINE, 550, 1000, warmup, 0.001f, 1e-6f);
-    EXPECT_GT(lr, 1e-6f);
-    EXPECT_LT(lr, 0.001f);
-}
-
-TEST_F(LRScheduleTest, StepDecaySchedule) {
-    // Initially at base LR
-    float lr = calculate_learning_rate(LRSchedule::STEP_DECAY, 0, 1000, 0, 0.001f, 1e-6f, 0.1f);
-    EXPECT_FLOAT_EQ(lr, 0.001f);
-
-    // After one decay interval, should be reduced
-    lr = calculate_learning_rate(LRSchedule::STEP_DECAY, 100, 1000, 0, 0.001f, 1e-6f, 0.1f);
-    EXPECT_LT(lr, 0.001f);
-
-    // Should continue decaying
-    lr = calculate_learning_rate(LRSchedule::STEP_DECAY, 200, 1000, 0, 0.001f, 1e-6f, 0.1f);
-    EXPECT_LT(lr, 0.0001f);
-}
-
-TEST_F(LRScheduleTest, ExponentialDecaySchedule) {
-    // Initially at base LR
-    float lr =
-        calculate_learning_rate(LRSchedule::EXPONENTIAL_DECAY, 0, 1000, 0, 0.001f, 1e-6f, 0.1f);
-    EXPECT_FLOAT_EQ(lr, 0.001f);
-
-    // Should decay smoothly
-    float lr_100 =
-        calculate_learning_rate(LRSchedule::EXPONENTIAL_DECAY, 100, 1000, 0, 0.001f, 1e-6f, 0.1f);
-    float lr_200 =
-        calculate_learning_rate(LRSchedule::EXPONENTIAL_DECAY, 200, 1000, 0, 0.001f, 1e-6f, 0.1f);
-
-    EXPECT_LT(lr_100, 0.001f);
-    EXPECT_LT(lr_200, lr_100);
-}
-
-TEST_F(LRScheduleTest, AutoWarmupConfiguration) {
-    // When warmup_steps = 0, should auto-configure to 10% of total
-    int total_steps = 1000;
-    int auto_warmup = total_steps / 10;
-
-    EXPECT_EQ(auto_warmup, 100);
-
-    // Verify warmup behavior with auto-configured warmup
-    float lr =
-        calculate_learning_rate(LRSchedule::WARMUP_COSINE, 50, total_steps, 0, 0.001f, 1e-6f);
-    EXPECT_LT(lr, 0.001f);  // Should be in warmup phase
-}
-
-// ============================================================================
-// Data Loading Tests
-// ============================================================================
-
-TEST(DataLoadingTest, ParseValidConversationFile) {
-    std::vector<std::pair<std::string, std::string>> test_data = {
-        {"Hello", "Hi there"}, {"How are you?", "I'm doing great!"}, {"Goodbye", "See you later"}};
-
-    std::string filename = "test_conversations.txt";
-    create_test_data_file(filename, test_data);
-
-    // Verify file exists and has content
-    std::ifstream file(filename);
-    ASSERT_TRUE(file.is_open());
-
-    std::vector<ConversationPair> pairs;
+TEST_F(CheckpointTest, Metadata_FileFormat) {
+    create_dummy_metadata(5, 1000, 0.0001f, 2.5f, 3);
+    
+    std::ifstream meta_file(test_metadata_path);
+    ASSERT_TRUE(meta_file.is_open());
+    
     std::string line;
-    std::string current_input;
-    std::string current_response;
-
-    while (std::getline(file, line)) {
-        line.erase(0, line.find_first_not_of(" \t\n\r"));
-        line.erase(line.find_last_not_of(" \t\n\r") + 1);
-
-        if (line.empty()) {
-            if (!current_input.empty() && !current_response.empty()) {
-                pairs.emplace_back(current_input, current_response);
-                current_input.clear();
-                current_response.clear();
-            }
-            continue;
-        }
-
-        if (line.substr(0, 6) == "INPUT:") {
-            current_input = line.substr(6);
-            current_input.erase(0, current_input.find_first_not_of(" \t"));
-        } else if (line.substr(0, 9) == "RESPONSE:") {
-            current_response = line.substr(9);
-            current_response.erase(0, current_response.find_first_not_of(" \t"));
-        }
-    }
-
-    // Last pair
-    if (!current_input.empty() && !current_response.empty()) {
-        pairs.emplace_back(current_input, current_response);
-    }
-
-    file.close();
-
-    EXPECT_EQ(pairs.size(), 3);
-    EXPECT_EQ(pairs[0].input, "Hello");
-    EXPECT_EQ(pairs[0].response, "Hi there");
-    EXPECT_EQ(pairs[1].input, "How are you?");
-    EXPECT_EQ(pairs[1].response, "I'm doing great!");
-
-    // Cleanup
-    std::remove(filename.c_str());
+    std::getline(meta_file, line);
+    EXPECT_EQ(line, "epoch=5");
+    
+    std::getline(meta_file, line);
+    EXPECT_EQ(line, "global_step=1000");
+    
+    std::getline(meta_file, line);
+    EXPECT_EQ(line, "learning_rate=0.0001");
+    
+    meta_file.close();
 }
 
-TEST(DataLoadingTest, ParseFileWithExtraWhitespace) {
-    std::ofstream file("test_whitespace.txt");
-    file << "INPUT:    Hello   \n";
-    file << "RESPONSE:    Hi there   \n\n";
-    file << "INPUT:  Test  \n";
-    file << "RESPONSE:  Response  \n\n";
-    file.close();
-
-    std::ifstream infile("test_whitespace.txt");
-    ASSERT_TRUE(infile.is_open());
-
-    std::vector<ConversationPair> pairs;
+TEST_F(CheckpointTest, Metadata_ParseKeyValue) {
+    create_dummy_metadata(10, 5000, 0.00005f, 1.8f, 7);
+    
+    std::ifstream meta_file(test_metadata_path);
     std::string line;
-    std::string current_input;
-    std::string current_response;
-
-    while (std::getline(infile, line)) {
-        line.erase(0, line.find_first_not_of(" \t\n\r"));
-        line.erase(line.find_last_not_of(" \t\n\r") + 1);
-
-        if (line.empty()) {
-            if (!current_input.empty() && !current_response.empty()) {
-                pairs.emplace_back(current_input, current_response);
-                current_input.clear();
-                current_response.clear();
-            }
-            continue;
-        }
-
-        if (line.substr(0, 6) == "INPUT:") {
-            current_input = line.substr(6);
-            current_input.erase(0, current_input.find_first_not_of(" \t"));
-        } else if (line.substr(0, 9) == "RESPONSE:") {
-            current_response = line.substr(9);
-            current_response.erase(0, current_response.find_first_not_of(" \t"));
-        }
+    
+    while (std::getline(meta_file, line)) {
+        size_t pos = line.find('=');
+        EXPECT_NE(pos, std::string::npos);
+        
+        std::string key = line.substr(0, pos);
+        std::string value = line.substr(pos + 1);
+        
+        EXPECT_FALSE(key.empty());
+        EXPECT_FALSE(value.empty());
     }
-
-    if (!current_input.empty() && !current_response.empty()) {
-        pairs.emplace_back(current_input, current_response);
-    }
-
-    infile.close();
-
-    EXPECT_EQ(pairs.size(), 2);
-    EXPECT_EQ(pairs[0].input, "Hello");
-    EXPECT_EQ(pairs[0].response, "Hi there");
-
-    std::remove("test_whitespace.txt");
-}
-
-TEST(DataLoadingTest, SkipIncompletePairs) {
-    std::ofstream file("test_incomplete.txt");
-    file << "INPUT: Hello\n\n";               // Missing response
-    file << "RESPONSE: Orphan response\n\n";  // Missing input
-    file << "INPUT: Valid input\n";
-    file << "RESPONSE: Valid response\n\n";
-    file.close();
-
-    std::ifstream infile("test_incomplete.txt");
-    ASSERT_TRUE(infile.is_open());
-
-    std::vector<ConversationPair> pairs;
-    std::string line;
-    std::string current_input;
-    std::string current_response;
-
-    while (std::getline(infile, line)) {
-        line.erase(0, line.find_first_not_of(" \t\n\r"));
-        line.erase(line.find_last_not_of(" \t\n\r") + 1);
-
-        if (line.empty()) {
-            if (!current_input.empty() && !current_response.empty()) {
-                pairs.emplace_back(current_input, current_response);
-            }
-            current_input.clear();
-            current_response.clear();
-            continue;
-        }
-
-        if (line.substr(0, 6) == "INPUT:") {
-            current_input = line.substr(6);
-            current_input.erase(0, current_input.find_first_not_of(" \t"));
-        } else if (line.substr(0, 9) == "RESPONSE:") {
-            current_response = line.substr(9);
-            current_response.erase(0, current_response.find_first_not_of(" \t"));
-        }
-    }
-
-    if (!current_input.empty() && !current_response.empty()) {
-        pairs.emplace_back(current_input, current_response);
-    }
-
-    infile.close();
-
-    // Should only have 1 valid pair
-    EXPECT_EQ(pairs.size(), 1);
-    EXPECT_EQ(pairs[0].input, "Valid input");
-    EXPECT_EQ(pairs[0].response, "Valid response");
-
-    std::remove("test_incomplete.txt");
+    
+    meta_file.close();
 }
 
 // ============================================================================
-// Data Splitting Tests
+// Gradient Accumulation Tests
 // ============================================================================
 
-TEST(DataSplittingTest, SplitWithValidationRatio) {
-    std::vector<ConversationPair> all_data;
-    for (int i = 0; i < 100; i++) {
-        all_data.emplace_back("Input" + std::to_string(i), "Response" + std::to_string(i));
-    }
-
-    int validation_split = 10;  // 1/10 for validation
-    int validation_size = all_data.size() / validation_split;
-
-    EXPECT_EQ(validation_size, 10);
-
-    std::vector<ConversationPair> validation_data(all_data.end() - validation_size, all_data.end());
-
-    std::vector<ConversationPair> training_data(all_data.begin(), all_data.end() - validation_size);
-
-    EXPECT_EQ(training_data.size(), 90);
-    EXPECT_EQ(validation_data.size(), 10);
-
-    // Verify data integrity
-    EXPECT_EQ(training_data[0].input, "Input0");
-    EXPECT_EQ(validation_data[0].input, "Input90");
+TEST(GradientAccumulationTest, EffectiveBatchSize_NoAccumulation) {
+    TrainingConfig config;
+    config.batch_size = 4;
+    config.gradient_accumulation_steps = 1;
+    
+    int effective_batch = config.batch_size * config.gradient_accumulation_steps;
+    EXPECT_EQ(effective_batch, 4);
 }
 
-TEST(DataSplittingTest, NoSplitWhenValidationSplitZero) {
-    std::vector<ConversationPair> all_data;
-    for (int i = 0; i < 50; i++) {
-        all_data.emplace_back("Input" + std::to_string(i), "Response" + std::to_string(i));
-    }
-
-    int validation_split = 0;
-
-    if (validation_split <= 0) {
-        // No split should occur
-        EXPECT_EQ(all_data.size(), 50);
-    }
+TEST(GradientAccumulationTest, EffectiveBatchSize_WithAccumulation) {
+    TrainingConfig config;
+    config.batch_size = 1;
+    config.gradient_accumulation_steps = 32;
+    
+    int effective_batch = config.batch_size * config.gradient_accumulation_steps;
+    EXPECT_EQ(effective_batch, 32);
 }
 
-TEST(DataSplittingTest, InsufficientDataForSplit) {
-    std::vector<ConversationPair> all_data;
-    for (int i = 0; i < 5; i++) {
-        all_data.emplace_back("Input" + std::to_string(i), "Response" + std::to_string(i));
-    }
-
-    int validation_split = 10;
-    int validation_size = all_data.size() / validation_split;
-
-    EXPECT_EQ(validation_size, 0);  // Not enough data
+TEST(GradientAccumulationTest, EffectiveBatchSize_Large) {
+    TrainingConfig config;
+    config.batch_size = 8;
+    config.gradient_accumulation_steps = 16;
+    
+    int effective_batch = config.batch_size * config.gradient_accumulation_steps;
+    EXPECT_EQ(effective_batch, 128);
 }
 
 // ============================================================================
 // Early Stopping Tests
 // ============================================================================
 
-TEST(EarlyStoppingTest, CheckImprovementDetection) {
-    float best_loss = 2.5f;
-    float min_delta = 1e-4f;
-
-    // Significant improvement
-    float new_loss = 2.3f;
-    bool improved = (new_loss < best_loss - min_delta);
-    EXPECT_TRUE(improved);
-
-    // No improvement (within delta)
-    new_loss = 2.49999f;
-    improved = (new_loss < best_loss - min_delta);
-    EXPECT_FALSE(improved);
-
-    // Worse
-    new_loss = 2.6f;
-    improved = (new_loss < best_loss - min_delta);
-    EXPECT_FALSE(improved);
+TEST(EarlyStoppingTest, Config_DefaultDisabled) {
+    TrainingConfig config;
+    EXPECT_FALSE(config.enable_early_stopping);
+    EXPECT_EQ(config.patience, 5);
+    EXPECT_FLOAT_EQ(config.min_delta, 1e-4f);
+    EXPECT_TRUE(config.restore_best_weights);
 }
 
-TEST(EarlyStoppingTest, PatienceCounter) {
-    int patience = 5;
-    int epochs_without_improvement = 0;
-
-    // Simulate epochs without improvement
-    for (int i = 0; i < patience - 1; i++) {
-        epochs_without_improvement++;
-        EXPECT_FALSE(epochs_without_improvement >= patience);
-    }
-
-    // One more epoch triggers early stopping
-    epochs_without_improvement++;
-    EXPECT_TRUE(epochs_without_improvement >= patience);
-}
-
-TEST(EarlyStoppingTest, ResetCounterOnImprovement) {
-    int epochs_without_improvement = 3;
-
-    // Improvement detected
-    float best_loss = 2.5f;
-    float new_loss = 2.3f;
-    float min_delta = 1e-4f;
-
-    if (new_loss < best_loss - min_delta) {
-        best_loss = new_loss;
-        epochs_without_improvement = 0;
-    }
-
-    EXPECT_EQ(epochs_without_improvement, 0);
-    EXPECT_FLOAT_EQ(best_loss, 2.3f);
+TEST(EarlyStoppingTest, Config_EnabledWithPatience) {
+    TrainingConfig config;
+    config.enable_early_stopping = true;
+    config.patience = 10;
+    config.min_delta = 0.001f;
+    
+    EXPECT_TRUE(config.enable_early_stopping);
+    EXPECT_EQ(config.patience, 10);
+    EXPECT_FLOAT_EQ(config.min_delta, 0.001f);
 }
 
 // ============================================================================
-// Checkpoint Naming Tests
+// Learning Rate Schedule Tests
 // ============================================================================
 
-TEST(CheckpointTest, EpochCheckpointNaming) {
-    std::string base_path = "model.bin";
-
-    std::string epoch1 = base_path + ".epoch1";
-    std::string epoch10 = base_path + ".epoch10";
-    std::string epoch100 = base_path + ".epoch100";
-
-    EXPECT_EQ(epoch1, "model.bin.epoch1");
-    EXPECT_EQ(epoch10, "model.bin.epoch10");
-    EXPECT_EQ(epoch100, "model.bin.epoch100");
+TEST(LRScheduleTest, WarmupSteps_AutoCalculation) {
+    TrainingConfig config;
+    config.warmup_steps = 0;  // Auto mode
+    
+    // If total steps = 1000, auto warmup should be ~100 (10%)
+    int total_steps = 1000;
+    int auto_warmup = (config.warmup_steps > 0) ? config.warmup_steps : total_steps / 10;
+    
+    EXPECT_EQ(auto_warmup, 100);
 }
 
-TEST(CheckpointTest, CheckpointFrequency) {
-    int checkpoint_every = 5;
+TEST(LRScheduleTest, WarmupSteps_ManualSetting) {
+    TrainingConfig config;
+    config.warmup_steps = 500;
+    
+    EXPECT_EQ(config.warmup_steps, 500);
+}
 
-    for (int epoch = 0; epoch < 20; epoch++) {
-        bool should_checkpoint = ((epoch + 1) % checkpoint_every == 0);
-
-        if (epoch + 1 == 5 || epoch + 1 == 10 || epoch + 1 == 15 || epoch + 1 == 20) {
-            EXPECT_TRUE(should_checkpoint);
-        } else {
-            EXPECT_FALSE(should_checkpoint);
-        }
-    }
+TEST(LRScheduleTest, MinLearningRate_LessThanBase) {
+    TrainingConfig config;
+    config.learning_rate = 0.001f;
+    config.min_learning_rate = 1e-6f;
+    
+    EXPECT_LT(config.min_learning_rate, config.learning_rate);
 }
 
 // ============================================================================
-// Integration Tests (File I/O)
+// Integration Tests (require minimal dependencies)
 // ============================================================================
 
-TEST(IntegrationTest, CreateAndLoadVocabFile) {
-    std::string vocab_file = "test_vocab.txt";
-    int vocab_size = 50;
-
-    create_test_vocab_file(vocab_file, vocab_size);
-
-    std::ifstream file(vocab_file);
-    ASSERT_TRUE(file.is_open());
-
-    std::vector<std::string> tokens;
-    std::string token;
-    while (std::getline(file, token)) {
-        tokens.push_back(token);
-    }
-    file.close();
-
-    EXPECT_EQ(tokens.size(), vocab_size);
-    EXPECT_EQ(tokens[0], "<unk>");
-    EXPECT_EQ(tokens[1], "<pad>");
-    EXPECT_EQ(tokens[2], "<s>");
-    EXPECT_EQ(tokens[3], "</s>");
-
-    std::remove(vocab_file.c_str());
+TEST_F(ChatbotTrainerTest, Perplexity_AfterTraining) {
+    // This test verifies that perplexity vectors are properly sized
+    // after training (would need real training data to fully test)
+    
+    // Initially empty
+    EXPECT_TRUE(trainer->get_training_perplexities().empty());
+    EXPECT_TRUE(trainer->get_validation_perplexities().empty());
 }
 
-TEST(IntegrationTest, CreateAndLoadConversationFile) {
-    std::vector<std::pair<std::string, std::string>> conversations = {
-        {"Hello", "Hi"}, {"How are you?", "Fine, thanks!"}, {"Goodbye", "Bye!"}};
-
-    std::string data_file = "test_data.txt";
-    create_test_data_file(data_file, conversations);
-
-    std::ifstream file(data_file);
-    ASSERT_TRUE(file.is_open());
-
-    std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    file.close();
-
-    EXPECT_NE(content.find("INPUT: Hello"), std::string::npos);
-    EXPECT_NE(content.find("RESPONSE: Hi"), std::string::npos);
-    EXPECT_NE(content.find("INPUT: How are you?"), std::string::npos);
-    EXPECT_NE(content.find("RESPONSE: Fine, thanks!"), std::string::npos);
-
-    std::remove(data_file.c_str());
+TEST_F(ChatbotTrainerTest, LearningRate_InitialValue) {
+    EXPECT_FLOAT_EQ(trainer->get_current_learning_rate(), config.learning_rate);
 }
 
 // ============================================================================
 // Edge Case Tests
 // ============================================================================
 
-TEST(EdgeCaseTest, EmptyDataFile) {
-    std::string filename = "empty_data.txt";
-    std::ofstream file(filename);
-    file.close();
-
-    std::ifstream infile(filename);
-    ASSERT_TRUE(infile.is_open());
-
-    std::vector<ConversationPair> pairs;
-    std::string line;
-    std::string current_input;
-    std::string current_response;
-
-    while (std::getline(infile, line)) {
-        if (!current_input.empty() && !current_response.empty()) {
-            pairs.emplace_back(current_input, current_response);
-        }
-    }
-    infile.close();
-
-    EXPECT_EQ(pairs.size(), 0);
-
-    std::remove(filename.c_str());
+TEST_F(MetricsTest, Perplexity_NegativeLoss_Invalid) {
+    // Negative loss is invalid, but calculate_perplexity should still compute
+    float loss = -1.0f;
+    float perplexity = trainer->calculate_perplexity(loss);
+    EXPECT_GT(perplexity, 0.0f);  // exp(negative) is still positive
+    EXPECT_LT(perplexity, 1.0f);  // exp(-1) ≈ 0.368
 }
 
-TEST(EdgeCaseTest, VeryLongConversationPair) {
-    std::string long_input(10000, 'a');
-    std::string long_response(10000, 'b');
-
-    ConversationPair pair(long_input, long_response);
-
-    EXPECT_EQ(pair.input.length(), 10000);
-    EXPECT_EQ(pair.response.length(), 10000);
+TEST_F(MetricsTest, Perplexity_VeryLargeLoss) {
+    float loss = 10.0f;  // Very high loss
+    float perplexity = trainer->calculate_perplexity(loss);
+    EXPECT_GT(perplexity, 20000.0f);  // exp(10) ≈ 22026
 }
 
-TEST(EdgeCaseTest, SpecialCharactersInConversation) {
-    std::string input = "What's the weather like? It's 25 degrees!";
-    std::string response = "I don't know... Check online @ weather.com";
-
-    ConversationPair pair(input, response);
-
-    EXPECT_NE(pair.input.find("degrees"), std::string::npos);
-    EXPECT_NE(pair.response.find('@'), std::string::npos);
-}
-
-TEST(EdgeCaseTest, ZeroEpochs) {
+TEST(ConfigTest, ValidationSplit_Zero_NoValidation) {
     TrainingConfig config;
-    config.num_epochs = 0;
-
-    // Training should not run
-    for (int epoch = 0; epoch < config.num_epochs; epoch++) {
-        FAIL() << "Should not execute any epochs";
-    }
-
-    SUCCEED();
+    config.validation_split = 0;
+    
+    EXPECT_EQ(config.validation_split, 0);
 }
 
-TEST(EdgeCaseTest, ExtremelySmallModel) {
+TEST(ConfigTest, ValidationSplit_Typical) {
     TrainingConfig config;
-    config.d_model = 64;
-    config.num_heads = 4;
-    config.d_ff = 256;
-    config.num_encoder_layers = 1;
-    config.num_decoder_layers = 1;
-
-    // Verify divisibility
-    EXPECT_EQ(config.d_model % config.num_heads, 0);
-
-    // Verify all parameters are positive
-    EXPECT_GT(config.d_model, 0);
-    EXPECT_GT(config.num_heads, 0);
-    EXPECT_GT(config.d_ff, 0);
-    EXPECT_GT(config.num_encoder_layers, 0);
-    EXPECT_GT(config.num_decoder_layers, 0);
+    config.validation_split = 10;  // 10% validation
+    
+    EXPECT_EQ(config.validation_split, 10);
 }
 
 // ============================================================================
-// Main
+// Main Function
 // ============================================================================
 
 int main(int argc, char** argv) {

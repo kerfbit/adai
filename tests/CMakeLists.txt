@@ -128,9 +128,22 @@ add_test(NAME InferenceOptimizationTests COMMAND inferenceOptimizationTests)
 # Application Tests
 # ============================================================================
 
-# ChatbotTrainer tests (unit tests for data structures and helper functions)
-add_executable(chatbottrainerTests chatbottrainer_test.cpp)
-target_link_libraries(chatbottrainerTests GTest::gtest_main)
+# ChatbotTrainer tests (comprehensive unit tests with header support)
+add_executable(chatbottrainerTests 
+    chatbottrainer_test.cpp
+    ../src/ChatbotTrainer.cpp  # Include implementation
+)
+target_compile_definitions(chatbottrainerTests PRIVATE CHATBOT_TRAINER_TEST_BUILD)
+target_link_libraries(chatbottrainerTests
+    adai_models
+    adai_nlp
+    adai_transformer
+    adai_attention
+    adai_feedforward
+    adai_layers
+    adai_core
+    GTest::gtest_main
+)
 add_test(NAME ChatbotTrainerTests COMMAND chatbottrainerTests)
 
 # ChatbotCLI tests (unit tests for command parsing and helper functions)
@@ -216,4 +229,4 @@ add_test(NAME IntegrationTests COMMAND integrationTests)
 # Test Summary
 # ============================================================================
 
-message(STATUS "Configured 26 test suites using library targets (including ChatbotAPI, integration and Phase 5 tests)")
+message(STATUS "Configured 27 test suites using library targets (including ChatbotAPI, ChatbotTrainer, integration and Phase 5 tests)")

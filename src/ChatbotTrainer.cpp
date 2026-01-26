@@ -1,16 +1,13 @@
+#include "ChatbotTrainer.hpp"
 #include <algorithm>
 #include <ctime>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <numeric>
+#include <random>
 #include <sstream>
-#include <string>
-#include <vector>
-#include "BPETokenizer.hpp"
 #include "ConversationContext.hpp"
-#include "EncoderDecoderModel.hpp"
-#include "Optimizer.hpp"
 
 // ANSI color codes
 #define COLOR_RESET "\033[0m"
@@ -20,108 +17,7 @@
 #define COLOR_ERROR "\033[1;31m"
 #define COLOR_PROGRESS "\033[1;35m"
 
-/**
- * @brief Training data pair (input, target response)
- */
-struct ConversationPair {
-    std::string input;
-    std::string response;
-
-    ConversationPair(const std::string& in, const std::string& resp) : input(in), response(resp) {}
-};
-
-/**
- * @brief Learning rate scheduling strategy
- */
-enum class LRSchedule {
-    CONSTANT,          // No scheduling
-    LINEAR_WARMUP,     // Linear warmup then constant
-    COSINE_DECAY,      // Cosine annealing decay
-    WARMUP_COSINE,     // Linear warmup + cosine decay (recommended)
-    STEP_DECAY,        // Step-wise decay at intervals
-    EXPONENTIAL_DECAY  // Exponential decay
-};
-
-/**
- * @brief Training configuration
- */
-struct TrainingConfig {
-    // Model architecture
-    int d_model = 512;
-    int num_heads = 8;
-    int d_ff = 2048;
-    int num_encoder_layers = 6;
-    int num_decoder_layers = 6;
-    int max_seq_length = 512;
-
-    // Training parameters
-    int num_epochs = 10;
-    float learning_rate = 0.001f;  // Initial/base learning rate
-    int batch_size = 1;            // Currently only batch_size=1 supported
-    int validation_split = 10;     // Use 1/10 of data for validation
-
-    // Learning rate scheduling
-    LRSchedule lr_schedule = LRSchedule::WARMUP_COSINE;
-    int warmup_steps = 0;             // Warmup steps (0 = auto: 10% of total)
-    float min_learning_rate = 1e-6f;  // Minimum LR for decay schedules
-    float lr_decay_factor = 0.1f;     // Decay factor for step/exponential
-    int lr_decay_steps = 0;           // Steps between decays (0 = auto: per epoch)
-
-    // Optimizer settings
-    OptimizerType optimizer_type = OptimizerType::ADAMW;  // Optimizer algorithm
-    float adam_beta1 = 0.9f;                              // Adam first moment decay
-    float adam_beta2 = 0.999f;                            // Adam second moment decay
-    float weight_decay = 0.01f;                           // L2 regularization / weight decay
-    float gradient_clip_norm = 1.0f;                      // Maximum gradient norm (0 = no clipping)
-
-    // Checkpointing
-    bool save_checkpoints = true;
-    int checkpoint_every = 1;  // Save every N epochs
-
-    // Early stopping
-    bool enable_early_stopping = false;
-    int patience = 5;                  // Epochs to wait for improvement
-    float min_delta = 1e-4f;           // Minimum change to qualify as improvement
-    bool restore_best_weights = true;  // Restore best model after early stop
-
-    // Logging
-    int log_every = 10;  // Log every N samples
-    bool verbose = true;
-};
-
-/**
- * @brief Chatbot model trainer
- */
-class ChatbotTrainer {
-   private:
-    BPETokenizer* tokenizer;
-    EncoderDecoderModel* model;
-    Optimizer* optimizer;  // Centralized optimizer
-    TrainingConfig config;
-
-    std::vector<ConversationPair> training_data;
-    std::vector<ConversationPair> validation_data;
-
-    // Training statistics
-    std::vector<float> training_losses;
-    std::vector<float> validation_losses;
-    std::vector<float> learning_rates;  // Track learning rate over time
-    std::vector<float> gradient_norms;  // Track gradient norms
-    float best_validation_loss;
-    int best_epoch;
-
-    // Learning rate scheduling state
-    int global_step;
-    int total_training_steps;
-    float current_learning_rate;
-
-    // Early stopping state
-    int epochs_without_improvement;
-    std::string best_model_path;
-    bool early_stopped;
-
-   public:
-    ChatbotTrainer(const TrainingConfig& cfg)
+ChatbotTrainer::ChatbotTrainer(const TrainingConfig& cfg)
         : config(cfg),
           tokenizer(nullptr),
           model(nullptr),
@@ -131,26 +27,20 @@ class ChatbotTrainer {
           global_step(0),
           total_training_steps(0),
           current_learning_rate(cfg.learning_rate),
+          accumulation_step(0),
+          accumulated_loss(0.0f),
           epochs_without_improvement(0),
-          early_stopped(false) {}
+          early_stopped(false),
+          start_epoch(0) {}
 
-    ~ChatbotTrainer() {
-        if (model)
-            delete model;
-        if (optimizer)
-            delete optimizer;
-        if (tokenizer)
-            delete tokenizer;
-    }
-
-    /**
-     * @brief Initialize tokenizer from vocabulary file
-     */
-    bool load_tokenizer(const std::string& vocab_path) {
+/**
+ * @brief Initialize tokenizer from vocabulary file
+ */
+bool ChatbotTrainer::load_tokenizer(const std::string& vocab_path) {
         std::cout << COLOR_INFO << "📚 Loading tokenizer from: " << vocab_path << COLOR_RESET
                   << std::endl;
 
-        tokenizer = new BPETokenizer();
+        tokenizer = std::make_unique<BPETokenizer>();
         try {
             tokenizer->load_vocab(vocab_path);
             std::cout << COLOR_SUCCESS
@@ -167,14 +57,14 @@ class ChatbotTrainer {
     /**
      * @brief Build vocabulary from training texts
      */
-    bool build_vocabulary(const std::vector<std::string>& texts, int vocab_size = 5000,
-                          const std::string& save_path = "vocab.txt") {
+bool ChatbotTrainer::build_vocabulary(const std::vector<std::string>& texts, int vocab_size,
+                          const std::string& save_path) {
         std::cout << COLOR_INFO << "🔨 Building vocabulary..." << COLOR_RESET << std::endl;
         std::cout << COLOR_INFO << "  Texts: " << texts.size() << std::endl;
         std::cout << COLOR_INFO << "  Target vocab size: " << vocab_size << COLOR_RESET
                   << std::endl;
 
-        tokenizer = new BPETokenizer();
+        tokenizer = std::make_unique<BPETokenizer>();
         try {
             tokenizer->build_vocab(texts, vocab_size, 1);
             tokenizer->save_vocab(save_path);
@@ -199,7 +89,7 @@ class ChatbotTrainer {
      * RESPONSE: <bot response>
      * (blank line between pairs)
      */
-    bool load_conversation_data(const std::string& filepath) {
+bool ChatbotTrainer::load_conversation_data(const std::string& filepath) {
         std::cout << COLOR_INFO << "📖 Loading conversation data from: " << filepath << COLOR_RESET
                   << std::endl;
 
@@ -255,9 +145,9 @@ class ChatbotTrainer {
     }
 
     /**
-     * @brief Split data into training and validation sets
+     * @brief Split data into training and validation sets with random shuffling
      */
-    void split_data() {
+void ChatbotTrainer::split_data() {
         if (config.validation_split <= 0) {
             std::cout << COLOR_WARNING << "⚠️  No validation split, using all data for training"
                       << COLOR_RESET << std::endl;
@@ -271,11 +161,26 @@ class ChatbotTrainer {
             return;
         }
 
-        // Move last validation_size items to validation set
-        validation_data.assign(training_data.end() - validation_size, training_data.end());
-        training_data.erase(training_data.end() - validation_size, training_data.end());
+        // Randomly shuffle data before splitting
+        std::vector<int> indices(training_data.size());
+        std::iota(indices.begin(), indices.end(), 0);
+        std::random_device rd;
+        std::mt19937 g(rd());
+        std::shuffle(indices.begin(), indices.end(), g);
 
-        std::cout << COLOR_INFO << "📊 Data split:" << COLOR_RESET << std::endl;
+        // Split based on shuffled indices
+        for (int i = 0; i < validation_size; i++) {
+            validation_data.push_back(training_data[indices[i]]);
+        }
+
+        // Keep remaining for training
+        std::vector<ConversationPair> temp_training;
+        for (int i = validation_size; i < indices.size(); i++) {
+            temp_training.push_back(training_data[indices[i]]);
+        }
+        training_data = std::move(temp_training);
+
+        std::cout << COLOR_INFO << "📊 Data split (randomly shuffled):" << COLOR_RESET << std::endl;
         std::cout << COLOR_INFO << "  Training: " << training_data.size() << " pairs" << COLOR_RESET
                   << std::endl;
         std::cout << COLOR_INFO << "  Validation: " << validation_data.size() << " pairs"
@@ -285,7 +190,7 @@ class ChatbotTrainer {
     /**
      * @brief Validate and auto-correct model architecture parameters
      */
-    void validate_and_correct_config() {
+void ChatbotTrainer::validate_and_correct_config() {
         bool corrected = false;
 
         std::cout << COLOR_INFO << "🔍 Validating model configuration..." << COLOR_RESET
@@ -385,9 +290,96 @@ class ChatbotTrainer {
     }
 
     /**
+     * @brief Preprocess and tokenize all training and validation data
+     */
+void ChatbotTrainer::preprocess_data() {
+        if (!tokenizer) {
+            std::cerr << COLOR_ERROR << "❌ Tokenizer not initialized!" << COLOR_RESET << std::endl;
+            return;
+        }
+
+        std::cout << COLOR_INFO << "🔄 Preprocessing and tokenizing data..." << COLOR_RESET
+                  << std::endl;
+
+        // Tokenize training data
+        tokenized_training_data.clear();
+        for (const auto& pair : training_data) {
+            std::vector<int> input_tokens = tokenizer->encode(pair.input);
+            std::vector<int> target_tokens = tokenizer->encode(pair.response);
+            tokenized_training_data.emplace_back(input_tokens, target_tokens, pair.input,
+                                                 pair.response);
+        }
+
+        // Tokenize validation data
+        tokenized_validation_data.clear();
+        for (const auto& pair : validation_data) {
+            std::vector<int> input_tokens = tokenizer->encode(pair.input);
+            std::vector<int> target_tokens = tokenizer->encode(pair.response);
+            tokenized_validation_data.emplace_back(input_tokens, target_tokens, pair.input,
+                                                   pair.response);
+        }
+
+        // Initialize shuffling indices
+        training_indices.resize(tokenized_training_data.size());
+        std::iota(training_indices.begin(), training_indices.end(), 0);
+
+        std::cout << COLOR_SUCCESS << "✅ Data preprocessed:" << COLOR_RESET << std::endl;
+        std::cout << COLOR_INFO << "  Training samples: " << tokenized_training_data.size()
+                  << COLOR_RESET << std::endl;
+        std::cout << COLOR_INFO << "  Validation samples: " << tokenized_validation_data.size()
+                  << COLOR_RESET << std::endl;
+    }
+
+    /**
+     * @brief Shuffle training data indices for epoch
+     */
+void ChatbotTrainer::shuffle_training_data() {
+        std::random_device rd;
+        std::mt19937 g(rd());
+        std::shuffle(training_indices.begin(), training_indices.end(), g);
+    }
+
+/**
+ * @brief Log message based on log level
+ */
+void ChatbotTrainer::log(LogLevel level, const std::string& message, const std::string& color) {
+        if (static_cast<int>(config.log_level) >= static_cast<int>(level)) {
+            std::cout << color << message << COLOR_RESET << std::endl;
+        }
+}
+
+    /**
+     * @brief Calculate perplexity from loss
+     * Perplexity = exp(loss), measures how well the model predicts the next token
+     * Lower is better, with 1.0 being perfect prediction
+     */
+float ChatbotTrainer::calculate_perplexity(float loss) {
+        return std::exp(loss);
+    }
+
+    /**
+     * @brief Calculate token-level accuracy (stub - requires model output probabilities)
+     * This is a placeholder until model exposes prediction probabilities
+     * Returns -1.0 to indicate not implemented
+     */
+float ChatbotTrainer::calculate_accuracy(const std::vector<int>& predictions, const std::vector<int>& targets) {
+        if (predictions.empty() || targets.empty() || predictions.size() != targets.size()) {
+            return -1.0f;  // Not implemented yet
+        }
+        
+        int correct = 0;
+        for (size_t i = 0; i < predictions.size(); i++) {
+            if (predictions[i] == targets[i]) {
+                correct++;
+            }
+        }
+        return static_cast<float>(correct) / predictions.size();
+    }
+
+    /**
      * @brief Initialize the encoder-decoder model
      */
-    void initialize_model() {
+void ChatbotTrainer::initialize_model() {
         // Validate and correct configuration first
         validate_and_correct_config();
 
@@ -405,7 +397,7 @@ class ChatbotTrainer {
         std::cout << COLOR_INFO << "  learning_rate: " << config.learning_rate << COLOR_RESET
                   << std::endl;
 
-        model = new EncoderDecoderModel(config.d_model, config.num_heads, config.d_ff,
+        model = std::make_unique<EncoderDecoderModel>(config.d_model, config.num_heads, config.d_ff,
                                         config.num_encoder_layers, config.num_decoder_layers,
                                         tokenizer->get_vocab_size(), config.max_seq_length);
 
@@ -443,7 +435,7 @@ class ChatbotTrainer {
                       << std::endl;
         }
 
-        optimizer = new Optimizer(config.optimizer_type, config.learning_rate);
+        optimizer = std::make_unique<Optimizer>(config.optimizer_type, config.learning_rate);
         optimizer->set_weight_decay(config.weight_decay);
         optimizer->set_max_grad_norm(config.gradient_clip_norm);
 
@@ -462,7 +454,7 @@ class ChatbotTrainer {
     /**
      * @brief Calculate learning rate for current step
      */
-    float calculate_learning_rate(int step) {
+float ChatbotTrainer::calculate_learning_rate(int step) {
         float lr = config.learning_rate;
         int warmup = config.warmup_steps;
 
@@ -525,17 +517,17 @@ class ChatbotTrainer {
     /**
      * @brief Update learning rate for current step
      */
-    void update_learning_rate() {
+void ChatbotTrainer::update_learning_rate() {
         current_learning_rate = calculate_learning_rate(global_step);
         optimizer->set_learning_rate(current_learning_rate);
         // Also update model LR for backward compatibility
         model->set_learning_rate(current_learning_rate);
     }
 
-    /**
-     * @brief Get learning rate schedule name
-     */
-    const char* get_schedule_name() const {
+/**
+ * @brief Get learning rate schedule name
+ */
+std::string ChatbotTrainer::get_schedule_name() {
         switch (config.lr_schedule) {
             case LRSchedule::CONSTANT:
                 return "Constant";
@@ -552,110 +544,168 @@ class ChatbotTrainer {
             default:
                 return "Unknown";
         }
-    }
+}
 
-    /**
-     * @brief Train one epoch
-     */
-    float train_epoch(int epoch) {
+/**
+ * @brief Train one epoch with gradient accumulation support
+ */
+float ChatbotTrainer::train_epoch(int epoch) {
         float total_loss = 0.0f;
         float total_grad_norm = 0.0f;
-        int num_samples = training_data.size();
+        int num_samples = tokenized_training_data.size();
+        int effective_batch_size = config.batch_size * config.gradient_accumulation_steps;
 
         std::cout << COLOR_PROGRESS << "\n📈 Epoch " << (epoch + 1) << "/" << config.num_epochs
                   << COLOR_RESET << std::endl;
+        if (config.gradient_accumulation_steps > 1) {
+            std::cout << COLOR_INFO << "  Using gradient accumulation: " 
+                      << config.gradient_accumulation_steps << " steps (effective batch size: "
+                      << effective_batch_size << ")" << COLOR_RESET << std::endl;
+        }
+
+        // Shuffle data at the start of each epoch
+        shuffle_training_data();
+
+        // Reset accumulation state at epoch start
+        accumulation_step = 0;
+        accumulated_loss = 0.0f;
 
         for (int i = 0; i < num_samples; i++) {
-            const auto& pair = training_data[i];
+            const auto& pair = tokenized_training_data[training_indices[i]];
 
-            // Update learning rate based on schedule
-            update_learning_rate();
+            // Update learning rate based on schedule (only at optimizer step)
+            if (accumulation_step == 0) {
+                update_learning_rate();
+            }
 
             try {
-                // Zero gradients (use optimizer's zero_grad for consistency)
-                optimizer->zero_grad();
-                model->zero_grad();  // Also call model's to be safe
-
-                // Forward pass
-                std::vector<int> input_tokens = model->get_tokenizer()->encode(pair.input);
-                std::vector<int> target_tokens = model->get_tokenizer()->encode(pair.response);
-
-                Matrix logits = model->forward(input_tokens, target_tokens);
-
-                // Compute loss
-                float loss = model->compute_loss_for_training(logits, target_tokens);
-
-                // Backward pass (computes gradients only)
-                Matrix grad_loss = model->compute_loss_gradient_for_training(logits, target_tokens);
-                model->backward_pass(grad_loss);
-
-                // Get gradient norm before clipping
-                float grad_norm = optimizer->get_gradient_norm();
-                total_grad_norm += grad_norm;
-
-                // Clip gradients and update weights using optimizer
-                if (config.gradient_clip_norm > 0.0f) {
-                    optimizer->clip_gradients();
+                // Zero gradients at the start of accumulation cycle
+                if (accumulation_step == 0) {
+                    model->zero_grad();
                 }
 
-                // Update weights using centralized optimizer
-                // Note: This will use the model's update_weights() until
-                // full parameter exposure is implemented
-                model->update_weights();
-                // optimizer->step();  // See TD-001 in TECHNICAL_DEBT.md - Parameter exposure incomplete
+                // Forward pass using cached tokenized data
+                Matrix logits = model->forward(pair.input_tokens, pair.target_tokens);
 
-                total_loss += loss;
-                global_step++;
+                // Compute loss
+                float loss = model->compute_loss_for_training(logits, pair.target_tokens);
+                
+                // Scale loss by accumulation steps for proper gradient averaging
+                float scaled_loss = loss / config.gradient_accumulation_steps;
+                accumulated_loss += loss;  // Track unscaled for logging
 
-                // Log progress
-                if (config.verbose && (i + 1) % config.log_every == 0) {
-                    float avg_loss = total_loss / (i + 1);
-                    float avg_grad_norm = total_grad_norm / (i + 1);
-                    std::cout << COLOR_INFO << "  Sample " << (i + 1) << "/" << num_samples
-                              << " - Loss: " << std::fixed << std::setprecision(4) << loss
-                              << " - Avg: " << avg_loss << " - LR: " << current_learning_rate
-                              << " - GradNorm: " << avg_grad_norm << COLOR_RESET << std::endl;
+                // Backward pass (accumulates gradients)
+                Matrix grad_loss = model->compute_loss_gradient_for_training(logits, pair.target_tokens);
+                
+                // Scale gradients for accumulation by modifying in-place
+                if (config.gradient_accumulation_steps > 1) {
+                    float scale = 1.0f / config.gradient_accumulation_steps;
+                    for (int r = 0; r < grad_loss.rows; r++) {
+                        for (int c = 0; c < grad_loss.cols; c++) {
+                            grad_loss.data[r][c] *= scale;
+                        }
+                    }
+                }
+                
+                model->backward_pass(grad_loss);
+
+                accumulation_step++;
+
+                // Update weights after accumulating enough gradients
+                bool should_update = (accumulation_step >= config.gradient_accumulation_steps) ||
+                                    (i == num_samples - 1);  // Last sample in epoch
+
+                if (should_update) {
+                    // Get gradient norm before clipping
+                    float grad_norm = optimizer->get_gradient_norm();
+                    total_grad_norm += grad_norm;
+
+                    // Clip gradients
+                    if (config.gradient_clip_norm > 0.0f) {
+                        optimizer->clip_gradients();
+                    }
+
+                    // Update weights
+                    // TODO (TD-001): Once full parameter exposure is complete, replace with:
+                    //   optimizer->step();
+                    // For now, model->update_weights() is the correct approach as it handles
+                    // the internal weight updates until all components expose their parameters
+                    model->update_weights();
+
+                    total_loss += accumulated_loss;
+                    global_step++;
+
+                    // Log progress
+                    if ((i + 1) % (config.log_every * config.gradient_accumulation_steps) == 0 || i == num_samples - 1) {
+                        int num_updates = global_step - (epoch * (num_samples / config.gradient_accumulation_steps));
+                        float avg_loss = total_loss / num_updates;
+                        float avg_grad_norm = total_grad_norm / num_updates;
+                        
+                        log(LogLevel::VERBOSE,
+                            "  Sample " + std::to_string(i + 1) + "/" + std::to_string(num_samples) +
+                            " (Update " + std::to_string(num_updates) + ")" +
+                            " - Loss: " + std::to_string(accumulated_loss) +
+                            " - Avg: " + std::to_string(avg_loss) +
+                            " - LR: " + std::to_string(current_learning_rate) +
+                            " - GradNorm: " + std::to_string(avg_grad_norm),
+                            COLOR_INFO);
+                    }
+
+                    // Reset accumulation state
+                    accumulation_step = 0;
+                    accumulated_loss = 0.0f;
                 }
             } catch (const std::exception& e) {
                 std::cerr << COLOR_ERROR << "  ❌ Error training sample " << (i + 1) << ": "
                           << e.what() << COLOR_RESET << std::endl;
+                // Reset accumulation on error
+                accumulation_step = 0;
+                accumulated_loss = 0.0f;
             }
         }
 
         float epoch_loss = total_loss / num_samples;
         float avg_grad_norm = total_grad_norm / num_samples;
+        float epoch_perplexity = calculate_perplexity(epoch_loss);
+        
         training_losses.push_back(epoch_loss);
+        training_perplexities.push_back(epoch_perplexity);
         learning_rates.push_back(current_learning_rate);
         gradient_norms.push_back(avg_grad_norm);
 
-        std::cout << COLOR_SUCCESS << "✅ Epoch " << (epoch + 1)
-                  << " complete - Avg Loss: " << epoch_loss << " - LR: " << current_learning_rate
-                  << " - Avg GradNorm: " << avg_grad_norm << COLOR_RESET << std::endl;
+        log(LogLevel::NORMAL, 
+            "✅ Epoch " + std::to_string(epoch + 1) + 
+            " complete - Loss: " + std::to_string(epoch_loss) + 
+            " - Perplexity: " + std::to_string(epoch_perplexity) +
+            " - LR: " + std::to_string(current_learning_rate) +
+            " - GradNorm: " + std::to_string(avg_grad_norm),
+            COLOR_SUCCESS);
 
         return epoch_loss;
     }
 
     /**
-     * @brief Validate on validation set
+     * @brief Validate on validation set (inference-only, no weight updates)
      */
-    float validate() {
-        if (validation_data.empty()) {
+float ChatbotTrainer::validate() {
+        if (tokenized_validation_data.empty()) {
             return 0.0f;
         }
 
         std::cout << COLOR_INFO << "🔍 Validating..." << COLOR_RESET << std::endl;
 
+        // Set model to evaluation mode
+        model->set_training(false);
+
         float total_loss = 0.0f;
-        int num_samples = validation_data.size();
+        int num_samples = tokenized_validation_data.size();
 
         for (int i = 0; i < num_samples; i++) {
-            const auto& pair = validation_data[i];
+            const auto& pair = tokenized_validation_data[i];
 
             try {
-                // For validation, we just compute loss
-                // Note: train_step does update weights, so validation loss won't be perfect
-                // In production, you'd want a separate validation method
-                float loss = model->train_step(pair.input, pair.response);
+                // Use evaluate() which doesn't update weights
+                float loss = model->evaluate(pair.input_text, pair.target_text);
                 total_loss += loss;
             } catch (const std::exception& e) {
                 std::cerr << COLOR_ERROR << "  ❌ Error validating sample " << (i + 1) << ": "
@@ -663,11 +713,19 @@ class ChatbotTrainer {
             }
         }
 
-        float validation_loss = total_loss / num_samples;
-        validation_losses.push_back(validation_loss);
+        // Restore training mode
+        model->set_training(true);
 
-        std::cout << COLOR_INFO << "  Validation Loss: " << validation_loss << COLOR_RESET
-                  << std::endl;
+        float validation_loss = total_loss / num_samples;
+        float validation_perplexity = calculate_perplexity(validation_loss);
+        
+        validation_losses.push_back(validation_loss);
+        validation_perplexities.push_back(validation_perplexity);
+
+        log(LogLevel::NORMAL,
+            "  Validation - Loss: " + std::to_string(validation_loss) + 
+            " - Perplexity: " + std::to_string(validation_perplexity),
+            COLOR_INFO);
 
         // Track best model
         if (validation_loss < best_validation_loss - config.min_delta) {
@@ -704,7 +762,7 @@ class ChatbotTrainer {
     /**
      * @brief Check if early stopping criteria is met
      */
-    bool should_early_stop() {
+bool ChatbotTrainer::should_early_stop() {
         if (!config.enable_early_stopping || validation_data.empty()) {
             return false;
         }
@@ -715,7 +773,7 @@ class ChatbotTrainer {
     /**
      * @brief Restore best model weights
      */
-    void restore_best_model() {
+void ChatbotTrainer::restore_best_model() {
         if (best_model_path.empty()) {
             std::cout << COLOR_WARNING << "⚠️  No best model to restore" << COLOR_RESET << std::endl;
             return;
@@ -725,11 +783,8 @@ class ChatbotTrainer {
                   << COLOR_RESET << std::endl;
 
         try {
-            // Delete current model and load best one
-            if (model)
-                delete model;
-
-            model = new EncoderDecoderModel(config.d_model, config.num_heads, config.d_ff,
+            // Reset model and load best one
+            model = std::make_unique<EncoderDecoderModel>(config.d_model, config.num_heads, config.d_ff,
                                             config.num_encoder_layers, config.num_decoder_layers,
                                             tokenizer->get_vocab_size(), config.max_seq_length);
 
@@ -745,13 +800,26 @@ class ChatbotTrainer {
     }
 
     /**
-     * @brief Save model checkpoint
+     * @brief Save model checkpoint with metadata
      */
-    void save_checkpoint(const std::string& filepath, int epoch) {
+void ChatbotTrainer::save_checkpoint(const std::string& filepath, int epoch) {
         std::cout << COLOR_INFO << "💾 Saving checkpoint..." << COLOR_RESET << std::endl;
 
         try {
             model->save_model(filepath);
+            
+            // Save training state metadata
+            std::string metadata_path = filepath + ".metadata";
+            std::ofstream meta_file(metadata_path);
+            if (meta_file.is_open()) {
+                meta_file << "epoch=" << epoch << "\n";
+                meta_file << "global_step=" << global_step << "\n";
+                meta_file << "learning_rate=" << current_learning_rate << "\n";
+                meta_file << "best_validation_loss=" << best_validation_loss << "\n";
+                meta_file << "best_epoch=" << best_epoch << "\n";
+                meta_file.close();
+            }
+            
             std::cout << COLOR_SUCCESS << "✅ Checkpoint saved to: " << filepath << COLOR_RESET
                       << std::endl;
         } catch (const std::exception& e) {
@@ -761,9 +829,64 @@ class ChatbotTrainer {
     }
 
     /**
+     * @brief Load checkpoint and resume training state
+     */
+bool ChatbotTrainer::load_checkpoint(const std::string& filepath) {
+        std::cout << COLOR_INFO << "📂 Loading checkpoint from: " << filepath << COLOR_RESET
+                  << std::endl;
+
+        try {
+            // Load model weights
+            model->load_model(filepath);
+            
+            // Load training state metadata if available
+            std::string metadata_path = filepath + ".metadata";
+            std::ifstream meta_file(metadata_path);
+            if (meta_file.is_open()) {
+                std::string line;
+                while (std::getline(meta_file, line)) {
+                    size_t pos = line.find('=');
+                    if (pos != std::string::npos) {
+                        std::string key = line.substr(0, pos);
+                        std::string value = line.substr(pos + 1);
+                        
+                        if (key == "epoch") {
+                            start_epoch = std::stoi(value) + 1;  // Resume from next epoch
+                        } else if (key == "global_step") {
+                            global_step = std::stoi(value);
+                        } else if (key == "learning_rate") {
+                            current_learning_rate = std::stof(value);
+                        } else if (key == "best_validation_loss") {
+                            best_validation_loss = std::stof(value);
+                        } else if (key == "best_epoch") {
+                            best_epoch = std::stoi(value);
+                        }
+                    }
+                }
+                meta_file.close();
+                
+                std::cout << COLOR_SUCCESS << "✅ Checkpoint loaded - resuming from epoch " 
+                          << start_epoch << COLOR_RESET << std::endl;
+                std::cout << COLOR_INFO << "  Global step: " << global_step << COLOR_RESET << std::endl;
+                std::cout << COLOR_INFO << "  Best validation loss: " << best_validation_loss 
+                          << COLOR_RESET << std::endl;
+            } else {
+                std::cout << COLOR_WARNING << "⚠️  No metadata found, starting fresh" 
+                          << COLOR_RESET << std::endl;
+            }
+            
+            return true;
+        } catch (const std::exception& e) {
+            std::cerr << COLOR_ERROR << "❌ Failed to load checkpoint: " << e.what() << COLOR_RESET
+                      << std::endl;
+            return false;
+        }
+    }
+
+    /**
      * @brief Main training loop
      */
-    void train(const std::string& output_model_path = "chatbot_model.bin") {
+void ChatbotTrainer::train(const std::string& output_model_path = "chatbot_model.bin") {
         if (!tokenizer) {
             std::cerr << COLOR_ERROR << "❌ Tokenizer not initialized!" << COLOR_RESET << std::endl;
             return;
@@ -777,11 +900,26 @@ class ChatbotTrainer {
         // Initialize model
         initialize_model();
 
+        // Load checkpoint if resuming
+        if (!config.resume_from_checkpoint.empty()) {
+            if (!load_checkpoint(config.resume_from_checkpoint)) {
+                std::cerr << COLOR_ERROR << "❌ Failed to load checkpoint, starting fresh" 
+                          << COLOR_RESET << std::endl;
+                start_epoch = 0;
+            }
+        }
+
         // Split data
         split_data();
 
+        // Preprocess and tokenize all data
+        preprocess_data();
+
         // Calculate total training steps for LR scheduling
-        total_training_steps = config.num_epochs * training_data.size();
+        // Account for gradient accumulation - each optimizer step processes multiple samples
+        int samples_per_update = config.gradient_accumulation_steps;
+        int updates_per_epoch = (tokenized_training_data.size() + samples_per_update - 1) / samples_per_update;
+        total_training_steps = config.num_epochs * updates_per_epoch;
 
         // Print LR schedule info
         std::cout << COLOR_INFO << "📊 Learning Rate Schedule: " << get_schedule_name()
@@ -814,12 +952,15 @@ class ChatbotTrainer {
 
         // Training loop
         std::cout << COLOR_PROGRESS << "\n🚀 Starting training..." << COLOR_RESET << std::endl;
+        if (start_epoch > 0) {
+            std::cout << COLOR_INFO << "📍 Resuming from epoch " << start_epoch << COLOR_RESET << std::endl;
+        }
         std::cout << COLOR_PROGRESS << "═══════════════════════════════════════" << COLOR_RESET
                   << std::endl;
 
         auto start_time = std::time(nullptr);
 
-        for (int epoch = 0; epoch < config.num_epochs; epoch++) {
+        for (int epoch = start_epoch; epoch < config.num_epochs; epoch++) {
             // Train epoch
             float train_loss = train_epoch(epoch);
 
@@ -869,7 +1010,7 @@ class ChatbotTrainer {
     /**
      * @brief Print training summary
      */
-    void print_training_summary(long duration) {
+void ChatbotTrainer::print_training_summary(long duration) {
         std::cout << COLOR_SUCCESS << "\n╔═══════════════════════════════════════╗" << COLOR_RESET
                   << std::endl;
         std::cout << COLOR_SUCCESS << "║     🎉 TRAINING COMPLETE! 🎉         ║" << COLOR_RESET
@@ -927,7 +1068,7 @@ class ChatbotTrainer {
     /**
      * @brief Test generation with trained model
      */
-    void test_generation(const std::vector<std::string>& test_prompts) {
+void ChatbotTrainer::test_generation(const std::vector<std::string>& test_prompts) {
         if (!model) {
             std::cerr << COLOR_ERROR << "❌ Model not initialized!" << COLOR_RESET << std::endl;
             return;
@@ -950,8 +1091,7 @@ class ChatbotTrainer {
 
         std::cout << COLOR_INFO << "═══════════════════════════════════════" << COLOR_RESET
                   << std::endl;
-    }
-};
+}
 
 /**
  * @brief Print usage information
@@ -986,6 +1126,10 @@ void print_usage(const char* program_name) {
               << std::endl;
     std::cout << "  --adam-beta1 <val>     Adam beta1 parameter (default: 0.9)" << std::endl;
     std::cout << "  --adam-beta2 <val>     Adam beta2 parameter (default: 0.999)" << std::endl;
+    std::cout << "  --batch-size <n>       Batch size for training (default: 1)" << std::endl;
+    std::cout << "  --grad-accum <n>       Gradient accumulation steps (default: 1)" << std::endl;
+    std::cout << "  --resume <file>        Resume training from checkpoint (NEW)" << std::endl;
+    std::cout << "  --log-level <level>    Logging: silent, normal, verbose, debug (default: verbose, NEW)" << std::endl;
     std::cout << "  --early-stopping       Enable early stopping based on validation loss"
               << std::endl;
     std::cout << "  --patience <n>         Early stopping patience in epochs (default: 5)"
@@ -1001,10 +1145,11 @@ void print_usage(const char* program_name) {
               << " --data conversations.txt --build-vocab 5000 --epochs 20 \\" << std::endl;
     std::cout << "      --lr 0.0001 --optimizer adamw --weight-decay 0.01 --grad-clip 1.0 \\"
               << std::endl;
-    std::cout << "      --lr-schedule warmup-cosine --early-stopping --patience 3 \\" << std::endl;
-    std::cout << "      --output my_model.bin" << std::endl;
+    std::cout << "      --batch-size 4 --grad-accum 8 --lr-schedule warmup-cosine \\" << std::endl;
+    std::cout << "      --early-stopping --patience 3 --output my_model.bin" << std::endl;
 }
 
+#ifndef CHATBOT_TRAINER_TEST_BUILD
 int main(int argc, char* argv[]) {
     // Parse command line arguments
     std::string data_file;
@@ -1091,6 +1236,27 @@ int main(int argc, char* argv[]) {
             config.adam_beta1 = std::stof(argv[++i]);
         } else if (arg == "--adam-beta2" && i + 1 < argc) {
             config.adam_beta2 = std::stof(argv[++i]);
+        } else if (arg == "--batch-size" && i + 1 < argc) {
+            config.batch_size = std::stoi(argv[++i]);
+        } else if (arg == "--grad-accum" && i + 1 < argc) {
+            config.gradient_accumulation_steps = std::stoi(argv[++i]);
+        } else if (arg == "--resume" && i + 1 < argc) {
+            config.resume_from_checkpoint = argv[++i];
+        } else if (arg == "--log-level" && i + 1 < argc) {
+            std::string level = argv[++i];
+            if (level == "silent")
+                config.log_level = LogLevel::SILENT;
+            else if (level == "normal")
+                config.log_level = LogLevel::NORMAL;
+            else if (level == "verbose")
+                config.log_level = LogLevel::VERBOSE;
+            else if (level == "debug")
+                config.log_level = LogLevel::DEBUG;
+            else {
+                std::cerr << COLOR_ERROR << "Unknown log level: " << level << COLOR_RESET
+                          << std::endl;
+                return 1;
+            }
         } else if (arg == "--early-stopping") {
             config.enable_early_stopping = true;
         } else if (arg == "--patience" && i + 1 < argc) {
@@ -1162,3 +1328,5 @@ int main(int argc, char* argv[]) {
 
     return 0;
 }
+#endif // CHATBOT_TRAINER_TEST_BUILD
+

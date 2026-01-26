@@ -13,12 +13,15 @@ Welcome to the Advanced Deep Learning AI (ADAI) documentation. This guide will h
 ## 📚 User Guides
 
 ### Chatbot
+
 - **[Chatbot User Guide](guides/chatbot-guide.md)** - Using the chatbot CLI
 - **[Chatbot CLI Internals](guides/chatbot-cli-internals.md)** - How the CLI works
-- **[Training Internals](guides/training-internals.md)** - Training system details
+- **[Training Internals](guides/training-internals.md)** - Training system details ⭐ **UPDATED Jan 2026**
+- **[Training Improvements Quick Reference](guides/chatbot-trainer-improvements-2026.md)** - January 2026 improvements ✨ **NEW**
 - **[Enhanced Training Pipeline](guides/enhanced-training-pipeline.md)** - Production-ready training infrastructure (NEW)
 
 ### Development
+
 - **[Building ADAI](guides/building.md)** - Build instructions, requirements, and troubleshooting
 - **[Contributing Guide](guides/contributing.md)** - How to contribute to the project
 - **[Git Workflow](guides/git-workflow.md)** - Branching, commits, and PR process
@@ -30,10 +33,12 @@ Welcome to the Advanced Deep Learning AI (ADAI) documentation. This guide will h
 - **[Implementation Guide](guides/implementation-guide.md)** - Implementation best practices
 
 ### Performance Optimization
+
 - **[Inference Optimization Guide](guides/inference-optimization.md)** - Complete optimization guide (KV cache, batching, profiling)
 - **[Inference Optimization Quick Start](guides/inference-optimization-quickstart.md)** - 5-minute optimization tutorial
 
 ### Advanced Features (Phase 5) ✨ NEW
+
 - **[Phase 5 Advanced Features Guide](guides/phase5-advanced-features.md)** - Complete guide to state-of-the-art features
   - RLHF (Reinforcement Learning from Human Feedback)
   - LoRA (Low-Rank Adaptation for parameter-efficient fine-tuning)
@@ -43,6 +48,7 @@ Welcome to the Advanced Deep Learning AI (ADAI) documentation. This guide will h
   - 60+ pages of comprehensive documentation
 
 ### Deployment
+
 - **[Deployment Documentation](deployment/README.md)** - Deployment guide index
 - **[Docker Deployment Guide](deployment/docker.md)** - Comprehensive containerization guide
   - Multi-stage Docker builds
@@ -55,11 +61,13 @@ Welcome to the Advanced Deep Learning AI (ADAI) documentation. This guide will h
 ## 🔧 API Reference
 
 ### REST API Server
+
 - **[REST API Documentation](api/rest-api.md)** - Complete HTTP API reference
 - **[API Quick Start](api/README.md)** - Getting started with the API server
 - **[API Implementation Summary](api/IMPLEMENTATION_SUMMARY.md)** - Implementation details
 
 ### Core Components
+
 - **[Matrix](api/core/matrix.md)** - Matrix operations and linear algebra
 - **[Activation](api/core/activation.md)** - Activation functions (ReLU, Softmax, etc.)
 - **[Optimizer](api/core/optimizer.md)** - SGD, Adam, AdamW optimizers
@@ -68,10 +76,12 @@ Welcome to the Advanced Deep Learning AI (ADAI) documentation. This guide will h
 - **[Neuron Layer](api/core/neuron-layer.md)** - Dense layer implementation
 
 ### Attention Mechanisms
+
 - **[Multi-Head Attention](api/attention/multihead-attention.md)** - Self-attention implementation (updated with KV cache support)
 - **[Cross Attention](api/attention/cross-attention.md)** - Encoder-decoder attention (updated with KV cache support)
 
 ### Transformer Components
+
 - **[Encoder Block](api/transformer/encoder-block.md)** - Transformer encoder
 - **[Decoder Block](api/transformer/decoder-block.md)** - Transformer decoder (updated with dual KV cache support)
 - **[Encoder](api/transformer/encoder.md)** - Full encoder stack
@@ -84,11 +94,13 @@ Welcome to the Advanced Deep Learning AI (ADAI) documentation. This guide will h
 - **[Language Model Head](api/transformer/language-model-head.md)** - Output projection layer
 
 ### NLP Utilities
+
 - **[BPE Tokenizer](api/nlp/tokenizer.md)** - Byte-Pair Encoding tokenization
 - **[Text Generator](api/nlp/text-generator.md)** - Text generation utilities
 - **[Conversation Context](api/nlp/conversation-context.md)** - Conversation management
 
 ### Data Processing
+
 - **[Dataset Batch Processing](api/data/dataset-batch-processing.md)** - Complete guide to batch processing with datasets ✨ NEW
   - Automatic padding and dynamic batching (20-40% efficiency improvement)
   - Multi-threaded parallel loading (2-6x speedup)
@@ -97,11 +109,13 @@ Welcome to the Advanced Deep Learning AI (ADAI) documentation. This guide will h
   - Performance optimization guide
 
 ### Optimization
+
 - **[KV Cache](reference/kvcache.md)** - Key-Value caching for inference optimization (2-3x speedup)
 - **[Batch Processor](reference/batchprocessor.md)** - Batch processing utilities for multi-sequence inference (2-4x throughput)
 - **[Performance Profiler](reference/performanceprofiler.md)** - High-resolution timing and profiling tools
 
 ### Advanced Features (Phase 5) ✨ NEW
+
 - **[Reward Model](api/advanced/reward-model.md)** - RLHF preference modeling with Bradley-Terry loss
 - **[PPO Optimizer](api/advanced/ppo-optimizer.md)** - Proximal Policy Optimization for alignment
 - **[LoRA Adapter](api/advanced/lora.md)** - Low-rank adaptation (100-1000x parameter reduction)
