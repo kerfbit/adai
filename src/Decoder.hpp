@@ -12,6 +12,7 @@
 #include "DecoderBlock.hpp"
 #include "LayerNorm.hpp"
 #include "Matrix.hpp"
+#include "Optimizer.hpp"
 #include "PositionalEncoding.hpp"
 #include "TokenEmbedding.hpp"
 #include "KVCache.hpp"
@@ -259,4 +260,11 @@ class LLMDecoder {
         }
         return cached_decoder_outputs.back();
     }
+
+    /**
+     * Register all decoder parameters with optimizer
+     *
+     * @param optimizer Optimizer to register parameters with
+     */
+    void register_parameters_with_optimizer(Optimizer& optimizer);
 };

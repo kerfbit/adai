@@ -277,6 +277,7 @@ public:
     int get_embedding_dim() const;
     void save_weights(const std::string& filename);
     void load_weights(const std::string& filename);
+    void register_parameters_with_optimizer(Optimizer& optimizer);
 };
 ```
 
@@ -934,7 +935,63 @@ public:
 };
 ```
 
-### 3. Input Validation and Preprocessing
+### 3. Optimizer Integration (Advanced Training)
+
+```cpp
+#include "encoder.hpp"
+#include "Optimizer.hpp"
+
+// Example: Training with external optimizer
+void train_with_optimizer() {
+    // Create encoder
+    LLMEncoder encoder(vocab_size, d_model, num_layers, num_heads, d_ff);
+    
+    // Create and configure optimizer
+    Optimizer optimizer(OptimizerType::ADAMW, 0.001f);
+    optimizer.set_betas(0.9f, 0.999f);
+    optimizer.set_weight_decay(0.01f);
+    optimizer.set_max_grad_norm(1.0f);
+    
+    // Register all encoder parameters with optimizer
+    encoder.register_parameters_with_optimizer(optimizer);
+    
+    // Training loop
+    for (int epoch = 0; epoch < num_epochs; ++epoch) {
+        float epoch_loss = 0.0f;
+        
+        for (auto& batch : training_data) {
+            // Zero gradients
+            optimizer.zero_grad();
+            
+            // Forward pass
+            Matrix embeddings = encoder.encode(batch.text);
+            float loss = compute_task_loss(embeddings, batch.labels);
+            
+            // Backward pass
+            Matrix grad_output = compute_gradient(embeddings, batch.labels);
+            encoder.backward(grad_output);
+            
+            // Clip gradients and update
+            float grad_norm = optimizer.clip_gradients();
+            optimizer.step();
+            
+            epoch_loss += loss;
+        }
+        
+        std::cout << "Epoch " << epoch 
+                  << " Loss: " << epoch_loss / training_data.size() << std::endl;
+    }
+}
+```
+
+**Benefits of Optimizer Integration**:
+- **Adaptive Learning Rates**: Adam/AdamW automatically adjust per-parameter learning rates
+- **Gradient Clipping**: Prevents exploding gradients in deep networks
+- **Weight Decay**: L2 regularization for better generalization
+- **Training Stability**: Better convergence for transformer models
+- **Production Ready**: Industry-standard optimization techniques
+
+### 4. Input Validation and Preprocessing
 
 ```cpp
 class TextPreprocessor {

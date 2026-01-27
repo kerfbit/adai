@@ -316,19 +316,14 @@ void EncoderDecoderModel::zero_grad() {
 
 // Register parameters with external optimizer
 void EncoderDecoderModel::register_parameters(Optimizer& optimizer) {
-    // Note: This is a simplified implementation
-    // Full implementation would require exposing weight/gradient pointers
-    // from LLMEncoder, LLMDecoder, and LanguageModelHead
-
-    // For now, this serves as a placeholder for the optimizer integration
-    // The actual parameter registration would need to be implemented
-    // in each component (encoder, decoder, lm_head)
-
-    // See TD-001 in TECHNICAL_DEBT.md - Complete optimizer parameter exposure
-    // Tasks: Implement parameter exposure in LLMEncoder, LLMDecoder, and LanguageModelHead
-
-    std::cerr << "Warning: register_parameters() not fully implemented. "
-              << "Components need to expose weight/gradient pointers." << std::endl;
+    // Register encoder parameters
+    encoder->register_parameters_with_optimizer(optimizer);
+    
+    // Register decoder parameters
+    decoder->register_parameters_with_optimizer(optimizer);
+    
+    // Register language model head parameters
+    lm_head->set_optimizer(&optimizer);
 }
 
 // Backward pass without weight update (for use with external optimizer)

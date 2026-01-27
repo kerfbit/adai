@@ -8,6 +8,7 @@
 #include "Matrix.hpp"
 #include "MultiHeadAttention.hpp"
 #include "KVCache.hpp"
+#include "Optimizer.hpp"
 
 /**
  * Transformer Decoder Block
@@ -184,4 +185,11 @@ class DecoderBlock {
      * @param filepath Path to load file
      */
     void load(const std::string& filepath);
+
+    /**
+     * Register all decoder block parameters with optimizer
+     *
+     * @param optimizer Optimizer to register parameters with
+     */
+    void register_parameters_with_optimizer(class Optimizer& optimizer);
 };

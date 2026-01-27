@@ -473,18 +473,60 @@ void set_tokenizer(BPETokenizer* tokenizer_ptr)
 
 ### Weight Management
 
+#### register_parameters()
+```cpp
+void register_parameters(Optimizer& optimizer)
+```
+
+**Purpose**: Register all model parameters with an external optimizer
+
+**Process**:
+1. Register encoder parameters recursively (all layers)
+2. Register decoder parameters recursively (all layers)
+3. Register language model head parameters
+
+**Registered Components**:
+- **Encoder**: Token embeddings, encoder blocks (attention, feed-forward, layer norms), final layer norm
+- **Decoder**: Token embeddings, decoder blocks (self-attention, cross-attention, feed-forward, layer norms), final layer norm
+- **LM Head**: Output projection weights and biases
+
+**Benefits**:
+- Enables advanced optimization (Adam, AdamW, etc.)
+- Centralized gradient management
+- Gradient clipping and weight decay
+- Automatic parameter tracking
+
+**Example**:
+```cpp
+Optimizer optimizer(OptimizerType::ADAMW, 0.001f);
+optimizer.set_betas(0.9f, 0.999f);
+optimizer.set_weight_decay(0.01f);
+optimizer.set_max_grad_norm(1.0f);
+
+model.register_parameters(optimizer);
+
+// Training loop
+for (auto& batch : dataset) {
+    optimizer.zero_grad();
+    float loss = model.train_step(batch.input, batch.target);
+    optimizer.step();
+}
+```
+
+**Note**: Replaces the simplified `update_weights()` method with full optimizer integration
+
 #### update_weights()
 ```cpp
 void update_weights()
 ```
 
-**Purpose**: Apply gradient descent to all parameters
+**Purpose**: Apply gradient descent to all parameters (legacy method)
 
 **Updates**:
-- Decoder weights (encoder update commented out - method not available)
+- Decoder weights
 - LanguageModelHead weights
 
-**Note**: Uses internal learning_rate
+**Note**: Uses internal learning_rate. **Deprecated** - use `register_parameters()` with external `Optimizer` instead for production training.
 
 #### zero_grad()
 ```cpp

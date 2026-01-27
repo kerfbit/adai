@@ -445,6 +445,52 @@ grad = decoder_layer.backward(loss_gradient);
 decoder_layer.update_weights();
 ```
 
+#### Optimizer Integration
+```cpp
+void register_parameters_with_optimizer(Optimizer& optimizer)
+```
+
+**Purpose**: Register all decoder block parameters with an external optimizer
+
+**Process**:
+1. Register self-attention parameters (Q, K, V, output projections)
+2. Register cross-attention parameters (Q, K, V, output projections)
+3. Register feed-forward parameters (W1, W2, biases)
+4. Register all three layer normalization parameters (gamma, beta)
+
+**Example**:
+```cpp
+// Create decoder block
+DecoderBlock block(d_model, num_heads, d_ff);
+
+// Create and configure optimizer
+Optimizer optimizer(OptimizerType::ADAMW, 0.001f);
+optimizer.set_betas(0.9f, 0.999f);
+optimizer.set_weight_decay(0.01f);
+optimizer.set_max_grad_norm(1.0f);
+
+// Register all parameters
+block.register_parameters_with_optimizer(optimizer);
+
+// Training loop
+for (auto& batch : data) {
+    optimizer.zero_grad();
+    Matrix output = block.forward(batch.input, encoder_out, mask);
+    Matrix grad = compute_gradient(output, batch.target);
+    block.backward(grad);
+    optimizer.clip_gradients();
+    optimizer.step();
+}
+```
+
+**Benefits**:
+- Advanced optimization algorithms (Adam, AdamW)
+- Automatic gradient clipping for training stability
+- Weight decay regularization
+- Centralized parameter management
+
+**Note**: Preferred over `update_weights()` for production training
+
 #### Model Persistence
 ```cpp
 void save(const std::string& filepath)

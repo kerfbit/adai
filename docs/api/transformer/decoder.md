@@ -115,6 +115,7 @@ public:
     void zero_grad();
     void set_training(bool mode);
     void set_learning_rate(float lr);
+    void register_parameters_with_optimizer(Optimizer& optimizer);
     
     // Persistence
     void save_weights(const std::string& filepath) const;
@@ -457,6 +458,77 @@ void zero_grad()
 - Token embedding gradients
 - All decoder block gradients
 - Layer norm gradients (if applicable)
+
+#### register_parameters_with_optimizer()
+```cpp
+void register_parameters_with_optimizer(Optimizer& optimizer)
+```
+
+**Purpose**: Register all decoder parameters with an external optimizer for advanced training
+
+**Process**:
+1. Register token embedding parameters
+2. Recursively register all decoder block parameters:
+   - Masked self-attention (Q, K, V, output projections)
+   - Cross-attention (Q, K, V, output projections)
+   - Feed-forward network (W1, W2, biases)
+   - Layer normalization (gamma, beta) for all three sub-layers
+3. Register final layer normalization parameters
+
+**Component Registration Chain**:
+```
+LLMDecoder::register_parameters_with_optimizer(optimizer)
+    → TokenEmbedding::set_optimizer(&optimizer)
+        → optimizer.add_parameter_group(embedding_matrix, embedding_grad)
+    → DecoderBlock[i]::register_parameters_with_optimizer(optimizer)
+        → MultiHeadAttention::set_optimizer(&optimizer)  // Self-attention
+        → CrossAttention::set_optimizer(&optimizer)
+        → FeedForward::set_optimizer(&optimizer)
+        → LayerNorm::set_optimizer(&optimizer) [×3]
+    → LayerNorm::set_optimizer(&optimizer)  // Final norm
+```
+
+**Example Usage**:
+```cpp
+// Create decoder
+LLMDecoder decoder(vocab_size, d_model, num_layers, num_heads, d_ff);
+
+// Create and configure optimizer
+Optimizer optimizer(OptimizerType::ADAMW, 0.001f);
+optimizer.set_betas(0.9f, 0.999f);
+optimizer.set_weight_decay(0.01f);
+optimizer.set_max_grad_norm(1.0f);
+
+// Register all decoder parameters
+decoder.register_parameters_with_optimizer(optimizer);
+
+// Training loop
+for (int epoch = 0; epoch < num_epochs; ++epoch) {
+    for (auto& batch : training_data) {
+        optimizer.zero_grad();
+        
+        // Forward pass
+        Matrix output = decoder.forward_with_encoder(batch.tokens, encoder_output);
+        float loss = compute_loss(output, batch.targets);
+        
+        // Backward pass
+        Matrix grad = compute_gradient(output, batch.targets);
+        decoder.backward(grad);
+        
+        // Gradient clipping and update
+        optimizer.clip_gradients();
+        optimizer.step();
+    }
+}
+```
+
+**Benefits**:
+- **Advanced Optimization**: Use Adam/AdamW for better convergence
+- **Gradient Clipping**: Essential for transformer training stability
+- **Weight Decay**: L2 regularization
+- **Centralized Management**: All parameters tracked in optimizer
+
+**Note**: Replaces the legacy `update_weights()` method for production training
 
 ### Persistence
 

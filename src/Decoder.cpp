@@ -341,3 +341,16 @@ void LLMDecoder::zero_grad() {
 
     final_norm->zero_grad();
 }
+
+void LLMDecoder::register_parameters_with_optimizer(Optimizer& optimizer) {
+    // Register token embedding parameters
+    token_embedding->set_optimizer(&optimizer);
+    
+    // Register all decoder block parameters
+    for (auto& block : decoder_blocks) {
+        block->register_parameters_with_optimizer(optimizer);
+    }
+    
+    // Register final layer norm parameters
+    final_norm->set_optimizer(&optimizer);
+}

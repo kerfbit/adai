@@ -6,6 +6,7 @@
 #include "LayerNorm.hpp"
 #include "Matrix.hpp"
 #include "MultiHeadAttention.hpp"
+#include "Optimizer.hpp"
 
 /**
  * Transformer Encoder Block
@@ -215,4 +216,11 @@ class EncoderBlock {
     float get_dropout_rate() const {
         return dropout_rate;
     }
+
+    /**
+     * Register all encoder block parameters with optimizer
+     *
+     * @param optimizer Optimizer to register parameters with
+     */
+    void register_parameters_with_optimizer(class Optimizer& optimizer);
 };

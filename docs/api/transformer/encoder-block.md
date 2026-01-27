@@ -1541,6 +1541,52 @@ void load_weights(const std::string& filename)
 
 ---
 
+```cpp
+void register_parameters_with_optimizer(Optimizer& optimizer)
+```
+**Purpose:** Register all encoder block parameters with an external optimizer
+
+**Parameters:**
+- `optimizer`: Reference to optimizer that will manage parameter updates
+
+**Process:**
+1. Register attention parameters (Q, K, V, output projections)
+2. Register feed-forward parameters (W1, W2, biases)
+3. Register layer normalization parameters (gamma, beta for both norms)
+
+**Example:**
+```cpp
+// Create encoder block
+EncoderBlock block(d_model, num_heads, d_ff);
+
+// Create optimizer
+Optimizer optimizer(OptimizerType::ADAMW, 0.001f);
+optimizer.set_weight_decay(0.01f);
+optimizer.set_max_grad_norm(1.0f);
+
+// Register all parameters
+block.register_parameters_with_optimizer(optimizer);
+
+// Training loop
+for (auto& batch : data) {
+    optimizer.zero_grad();
+    Matrix output = block.forward(batch.input, mask);
+    Matrix grad = compute_gradient(output, batch.target);
+    block.backward(grad);
+    optimizer.step();
+}
+```
+
+**Benefits:**
+- Enables Adam/AdamW optimization
+- Automatic gradient clipping
+- Weight decay regularization
+- Better convergence for transformer training
+
+**Note:** Replaces legacy `update_weights()` for production training
+
+---
+
 ### Configuration
 
 ```cpp

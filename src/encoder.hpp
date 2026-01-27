@@ -16,6 +16,7 @@
 #include "LayerNorm.hpp"
 #include "Matrix.hpp"
 #include "MultiHeadAttention.hpp"
+#include "Optimizer.hpp"
 #include "PositionalEncoding.hpp"
 #include "TokenEmbedding.hpp"
 
@@ -178,4 +179,11 @@ class LLMEncoder {
      * @param grad_output Gradient w.r.t. sentence embedding
      */
     void backward_sentence_embedding(const std::vector<float>& grad_output);
+
+    /**
+     * Register all encoder parameters with optimizer
+     *
+     * @param optimizer Optimizer to register parameters with
+     */
+    void register_parameters_with_optimizer(Optimizer& optimizer);
 };

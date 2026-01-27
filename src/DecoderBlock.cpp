@@ -329,3 +329,13 @@ void DecoderBlock::load(const std::string& filepath) {
     cross_attention->learning_rate = learning_rate;
     feed_forward->learning_rate = learning_rate;
 }
+
+void DecoderBlock::register_parameters_with_optimizer(Optimizer& optimizer) {
+    // Register all sub-component parameters
+    self_attention->set_optimizer(&optimizer);
+    cross_attention->set_optimizer(&optimizer);
+    feed_forward->set_optimizer(&optimizer);
+    norm1->set_optimizer(&optimizer);
+    norm2->set_optimizer(&optimizer);
+    norm3->set_optimizer(&optimizer);
+}

@@ -293,3 +293,11 @@ void EncoderBlock::print_config(const std::string& name) const {
     std::cout << "    - Feed-Forward: " << ff_params << std::endl;
     std::cout << "    - Layer Norm: " << norm_params << std::endl;
 }
+
+void EncoderBlock::register_parameters_with_optimizer(Optimizer& optimizer) {
+    // Register all sub-component parameters
+    attention->set_optimizer(&optimizer);
+    feed_forward->set_optimizer(&optimizer);
+    norm1->set_optimizer(&optimizer);
+    norm2->set_optimizer(&optimizer);
+}

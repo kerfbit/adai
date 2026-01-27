@@ -234,3 +234,16 @@ void LLMEncoder::load_weights(const std::string& filename) {
     std::cout << "Loading model weights from: " << filename << std::endl;
     // In production, implement full deserialization
 }
+
+void LLMEncoder::register_parameters_with_optimizer(Optimizer& optimizer) {
+    // Register token embedding parameters
+    token_embedding->set_optimizer(&optimizer);
+    
+    // Register all encoder block parameters
+    for (auto& block : encoder_blocks) {
+        block->register_parameters_with_optimizer(optimizer);
+    }
+    
+    // Register final layer norm parameters
+    final_norm->set_optimizer(&optimizer);
+}
