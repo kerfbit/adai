@@ -111,7 +111,7 @@ void LanguageModelHead::zero_grad() {
     bias_grad.fill(0.0f);
 }
 
-void LanguageModelHead::save(const std::string& filepath) {
+void LanguageModelHead::save(const std::string& filepath) const {
     std::ofstream file(filepath, std::ios::binary);
     if (!file.is_open()) {
         throw std::runtime_error("Failed to open file for writing: " + filepath);
@@ -186,4 +186,14 @@ void LanguageModelHead::register_parameters() {
     // Register weight matrix and bias
     optimizer->add_parameter_group(&W_output, &W_output_grad);
     optimizer->add_parameter_group(&bias, &bias_grad);
+}
+
+void LanguageModelHead::save_weights(const std::string& filename) const {
+    // Wrapper for consistency with other components
+    save(filename);
+}
+
+void LanguageModelHead::load_weights(const std::string& filename) {
+    // Wrapper for consistency with other components
+    load(filename);
 }

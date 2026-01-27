@@ -113,7 +113,7 @@ class LanguageModelHead {
      *
      * @param filepath Path to save file
      */
-    void save(const std::string& filepath);
+    void save(const std::string& filepath) const;
 
     /**
      * Load parameters from file
@@ -139,4 +139,22 @@ class LanguageModelHead {
      * Can be called manually if needed.
      */
     void register_parameters();
+
+    /**
+     * Save weights to file (consistent with other components)
+     *
+     * Wrapper around save() for API consistency.
+     *
+     * @param filename Path to save weights
+     */
+    void save_weights(const std::string& filename) const;
+
+    /**
+     * Load weights from file (consistent with other components)
+     *
+     * Wrapper around load() for API consistency.
+     *
+     * @param filename Path to load weights from
+     */
+    void load_weights(const std::string& filename);
 };

@@ -397,9 +397,9 @@ void ChatbotTrainer::initialize_model() {
         std::cout << COLOR_INFO << "  learning_rate: " << config.learning_rate << COLOR_RESET
                   << std::endl;
 
-        model = std::make_unique<EncoderDecoderModel>(config.d_model, config.num_heads, config.d_ff,
+        model = std::make_unique<EncoderDecoderModel>(tokenizer->get_vocab_size(), config.d_model,
                                         config.num_encoder_layers, config.num_decoder_layers,
-                                        tokenizer->get_vocab_size(), config.max_seq_length);
+                                        config.num_heads, config.d_ff, config.max_seq_length);
 
         std::cout << COLOR_SUCCESS << "✅ Model initialized" << COLOR_RESET << std::endl;
 

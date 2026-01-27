@@ -280,11 +280,17 @@ void LLMDecoder::save_weights(const std::string& filepath) const {
 
     file.close();
 
-    // Note: TokenEmbedding, DecoderBlock, and LayerNorm don't have save_weights methods
-    // In a production implementation, you would add these methods to those classes
-    // For now, we save only the configuration
-    std::cout << "Warning: Decoder weights not fully saved (save_weights not implemented in all "
-                 "components)\n";
+    // Save component weights to separate files
+    std::string base = filepath.substr(0, filepath.find_last_of('.'));
+    token_embedding->save_weights(base + "_token_emb.bin");
+
+    for (size_t i = 0; i < decoder_blocks.size(); ++i) {
+        decoder_blocks[i]->save(base + "_decoder_block_" + std::to_string(i) + ".bin");
+    }
+
+    final_norm->save_weights(base + "_final_norm.bin");
+
+    std::cout << "Saved Decoder weights to " << filepath << std::endl;
 }
 
 // Load weights
@@ -312,10 +318,17 @@ void LLMDecoder::load_weights(const std::string& filepath) {
 
     file.close();
 
-    // Note: TokenEmbedding, DecoderBlock, and LayerNorm don't have load_weights methods
-    // Weights are randomly initialized for now
-    std::cout << "Warning: Decoder weights not fully loaded (load_weights not implemented in all "
-                 "components)\n";
+    // Load component weights from separate files
+    std::string base = filepath.substr(0, filepath.find_last_of('.'));
+    token_embedding->load_weights(base + "_token_emb.bin");
+
+    for (size_t i = 0; i < decoder_blocks.size(); ++i) {
+        decoder_blocks[i]->load(base + "_decoder_block_" + std::to_string(i) + ".bin");
+    }
+
+    final_norm->load_weights(base + "_final_norm.bin");
+
+    std::cout << "Loaded Decoder weights from " << filepath << std::endl;
 }
 
 // Zero gradients
@@ -326,6 +339,5 @@ void LLMDecoder::zero_grad() {
         block->zero_grad();
     }
 
-    // LayerNorm doesn't have zero_grad method
-    // final_norm->zero_grad();
+    final_norm->zero_grad();
 }

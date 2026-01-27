@@ -248,3 +248,13 @@ void TokenEmbedding::clip_gradients(float max_norm) {
         }
     }
 }
+
+void TokenEmbedding::save_weights(const std::string& filename) const {
+    // Wrapper for consistency with other components
+    save_embeddings(filename);
+}
+
+void TokenEmbedding::load_weights(const std::string& filename) {
+    // Wrapper for consistency with other components
+    load_pretrained(filename);
+}

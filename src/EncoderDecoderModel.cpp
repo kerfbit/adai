@@ -381,8 +381,8 @@ void EncoderDecoderModel::save_model(const std::string& filepath) const {
     // Save decoder weights
     decoder->save_weights(filepath + ".decoder");
 
-    // Note: LanguageModelHead doesn't have save_weights method
-    // lm_head->save_weights(filepath + ".lm_head");
+    // Save language model head
+    lm_head->save_weights(filepath + ".lm_head");
 }
 
 // Load model
@@ -421,8 +421,9 @@ void EncoderDecoderModel::load_model(const std::string& filepath) {
     // Load component weights
     encoder->load_weights(filepath + ".encoder");
     decoder->load_weights(filepath + ".decoder");
-    // Note: LanguageModelHead doesn't have load_weights method
-    // lm_head->load_weights(filepath + ".lm_head");
+
+    // Load language model head
+    lm_head->load_weights(filepath + ".lm_head");
 
     // Update special tokens
     bos_token_id = loaded_bos;

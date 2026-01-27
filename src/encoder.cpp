@@ -218,12 +218,68 @@ int LLMEncoder::get_embedding_dim() const {
     return d_model;
 }
 void LLMEncoder::save_weights(const std::string& filename) {
-    std::cout << "Saving model weights to: " << filename << std::endl;
-    // In production, implement full serialization
+    std::ofstream file(filename, std::ios::binary);
+    if (!file.is_open()) {
+        throw std::runtime_error("Failed to open file for writing: " + filename);
+    }
+
+    // Write header with dimensions for validation
+    file.write(reinterpret_cast<const char*>(&vocab_size), sizeof(int));
+    file.write(reinterpret_cast<const char*>(&d_model), sizeof(int));
+    file.write(reinterpret_cast<const char*>(&num_layers), sizeof(int));
+    file.write(reinterpret_cast<const char*>(&num_heads), sizeof(int));
+    file.write(reinterpret_cast<const char*>(&d_ff), sizeof(int));
+    file.write(reinterpret_cast<const char*>(&max_seq_length), sizeof(int));
+
+    file.close();
+
+    // Save component weights to separate files
+    std::string base = filename.substr(0, filename.find_last_of('.'));
+    token_embedding->save_weights(base + "_token_emb.bin");
+
+    for (size_t i = 0; i < encoder_blocks.size(); ++i) {
+        encoder_blocks[i]->save_weights(base + "_encoder_block_" + std::to_string(i) + ".bin");
+    }
+
+    final_norm->save_weights(base + "_final_norm.bin");
+
+    std::cout << "Saved Encoder weights to " << filename << std::endl;
 }
 void LLMEncoder::load_weights(const std::string& filename) {
-    std::cout << "Loading model weights from: " << filename << std::endl;
-    // In production, implement full deserialization
+    std::ifstream file(filename, std::ios::binary);
+    if (!file.is_open()) {
+        throw std::runtime_error("Failed to open file for reading: " + filename);
+    }
+
+    // Read and verify header
+    int loaded_vocab_size, loaded_d_model, loaded_num_layers;
+    int loaded_num_heads, loaded_d_ff, loaded_max_seq_length;
+
+    file.read(reinterpret_cast<char*>(&loaded_vocab_size), sizeof(int));
+    file.read(reinterpret_cast<char*>(&loaded_d_model), sizeof(int));
+    file.read(reinterpret_cast<char*>(&loaded_num_layers), sizeof(int));
+    file.read(reinterpret_cast<char*>(&loaded_num_heads), sizeof(int));
+    file.read(reinterpret_cast<char*>(&loaded_d_ff), sizeof(int));
+    file.read(reinterpret_cast<char*>(&loaded_max_seq_length), sizeof(int));
+
+    if (loaded_vocab_size != vocab_size || loaded_d_model != d_model ||
+        loaded_num_layers != num_layers) {
+        throw std::runtime_error("Model architecture mismatch in encoder");
+    }
+
+    file.close();
+
+    // Load component weights from separate files
+    std::string base = filename.substr(0, filename.find_last_of('.'));
+    token_embedding->load_weights(base + "_token_emb.bin");
+
+    for (size_t i = 0; i < encoder_blocks.size(); ++i) {
+        encoder_blocks[i]->load_weights(base + "_encoder_block_" + std::to_string(i) + ".bin");
+    }
+
+    final_norm->load_weights(base + "_final_norm.bin");
+
+    std::cout << "Loaded Encoder weights from " << filename << std::endl;
 }  // Example usage and testing
 int main() {
     std::cout << "=== LLM Chatbot Encoder Demo ===" << std::endl;

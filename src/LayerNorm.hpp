@@ -172,4 +172,19 @@ class LayerNorm {
      * @param name Optional name for the layer
      */
     void print_config(const std::string& name = "LayerNorm") const;
+
+    /**
+     * Save weights (gamma and beta) to file
+     *
+     * @param filename Path to save weights
+     */
+    void save_weights(const std::string& filename) const;
+
+    /**
+     * Load weights (gamma and beta) from file
+     *
+     * @param filename Path to load weights from
+     * @throws std::runtime_error if file cannot be opened or dimensions mismatch
+     */
+    void load_weights(const std::string& filename);
 };

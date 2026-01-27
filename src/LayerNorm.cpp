@@ -1,5 +1,7 @@
 #include "LayerNorm.hpp"
 #include <iostream>
+#include <fstream>
+#include <stdexcept>
 #include "Optimizer.hpp"
 
 LayerNorm::LayerNorm(int dim, float epsilon) : eps(epsilon), optimizer(nullptr) {
@@ -210,4 +212,60 @@ void LayerNorm::print_config(const std::string& name) const {
             max_beta = beta(0, j);
     }
     std::cout << min_beta << ", " << max_beta << "]" << std::endl;
+}
+
+void LayerNorm::save_weights(const std::string& filename) const {
+    std::ofstream file(filename, std::ios::binary);
+    if (!file.is_open()) {
+        throw std::runtime_error("Failed to open file for writing: " + filename);
+    }
+
+    // Write dimension
+    int dim = gamma.cols;
+    file.write(reinterpret_cast<const char*>(&dim), sizeof(int));
+    file.write(reinterpret_cast<const char*>(&eps), sizeof(float));
+
+    // Write gamma
+    for (int j = 0; j < gamma.cols; ++j) {
+        file.write(reinterpret_cast<const char*>(&gamma(0, j)), sizeof(float));
+    }
+
+    // Write beta
+    for (int j = 0; j < beta.cols; ++j) {
+        file.write(reinterpret_cast<const char*>(&beta(0, j)), sizeof(float));
+    }
+
+    file.close();
+    std::cout << "Saved LayerNorm weights to " << filename << std::endl;
+}
+
+void LayerNorm::load_weights(const std::string& filename) {
+    std::ifstream file(filename, std::ios::binary);
+    if (!file.is_open()) {
+        throw std::runtime_error("Failed to open file for reading: " + filename);
+    }
+
+    // Read and verify dimensions
+    int loaded_dim;
+    float loaded_eps;
+    file.read(reinterpret_cast<char*>(&loaded_dim), sizeof(int));
+    file.read(reinterpret_cast<char*>(&loaded_eps), sizeof(float));
+
+    if (loaded_dim != gamma.cols) {
+        throw std::runtime_error("Dimension mismatch: file has " + std::to_string(loaded_dim) +
+                                 ", expected " + std::to_string(gamma.cols));
+    }
+
+    // Read gamma
+    for (int j = 0; j < gamma.cols; ++j) {
+        file.read(reinterpret_cast<char*>(&gamma(0, j)), sizeof(float));
+    }
+
+    // Read beta
+    for (int j = 0; j < beta.cols; ++j) {
+        file.read(reinterpret_cast<char*>(&beta(0, j)), sizeof(float));
+    }
+
+    file.close();
+    std::cout << "Loaded LayerNorm weights from " << filename << std::endl;
 }

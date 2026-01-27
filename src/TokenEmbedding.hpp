@@ -237,4 +237,24 @@ class TokenEmbedding {
      * @param max_norm Maximum allowed gradient norm
      */
     void clip_gradients(float max_norm);
+
+    /**
+     * Save weights to file (consistent with other components)
+     *
+     * Wrapper around save_embeddings() for API consistency.
+     *
+     * @param filename Path to save weights
+     * @throws std::runtime_error if file cannot be opened
+     */
+    void save_weights(const std::string& filename) const;
+
+    /**
+     * Load weights from file (consistent with other components)
+     *
+     * Wrapper around load_pretrained() for API consistency.
+     *
+     * @param filename Path to load weights from
+     * @throws std::runtime_error if file cannot be opened or dimensions mismatch
+     */
+    void load_weights(const std::string& filename);
 };
