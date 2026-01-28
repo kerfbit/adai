@@ -293,6 +293,9 @@ void ChatbotTrainer::validate_and_correct_config() {
      * @brief Preprocess and tokenize all training and validation data
      */
 void ChatbotTrainer::preprocess_data() {
+        // Get tokenizer from model (ownership was transferred during initialization)
+        BPETokenizer* tokenizer = model ? model->get_tokenizer() : nullptr;
+        
         if (!tokenizer) {
             std::cerr << COLOR_ERROR << "❌ Tokenizer not initialized!" << COLOR_RESET << std::endl;
             return;
@@ -400,6 +403,10 @@ void ChatbotTrainer::initialize_model() {
         model = std::make_unique<EncoderDecoderModel>(tokenizer->get_vocab_size(), config.d_model,
                                         config.num_encoder_layers, config.num_decoder_layers,
                                         config.num_heads, config.d_ff, config.max_seq_length);
+
+        // Transfer tokenizer ownership to the model
+        // The model will now own the tokenizer and handle saving/loading
+        model->set_tokenizer(tokenizer.release());
 
         std::cout << COLOR_SUCCESS << "✅ Model initialized" << COLOR_RESET << std::endl;
 
