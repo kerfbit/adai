@@ -5,59 +5,78 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** January 28, 2026  
-**Total Items:** 1  
+**Total Items:** 0  
 **High Priority:** 0  
 **Medium Priority:** 0  
-**Low Priority:** 1
+**Low Priority:** 0
 
 ## Active Technical Debt
 
-### 1. Improve Error Handling in BPE Tokenizer
-
-**ID:** TD-002  
-**Priority:** Low  
-**Component:** NLP / Tokenization  
-**Effort:** 2-3 hours  
-**Status:** Open  
-
-**Description:**  
-BPE tokenizer could benefit from more robust error handling and validation, particularly for edge cases like empty strings, invalid UTF-8, and malformed vocabulary files.
-
-**Impact:**
-
-- Potential crashes on invalid input
-- Unclear error messages for debugging
-- Lack of input validation
-
-**Location:**
-
-- `src/BPETokenizer.cpp` - encode/decode methods
-
-**Tasks:**
-
-- [ ] Add input validation for empty/null strings
-- [ ] Add UTF-8 validation
-- [ ] Improve vocabulary file format validation
-- [ ] Add specific exception types for different error conditions
-- [ ] Add error handling tests
-
-**Files Affected:**
-
-- `src/BPETokenizer.hpp`
-- `src/BPETokenizer.cpp`
-- `tests/test_tokenizer.cpp`
-
-**Related Issues:** [Create issue in GitHub]
-
-**Notes:**
-
-- Current implementation assumes well-formed input
-- Should use descriptive exceptions rather than generic errors
-- Consider adding debug logging for tokenization process
+None currently! All tracked technical debt items have been resolved. 🎉
 
 ---
 
 ## Resolved Items
+
+### TD-002: Improve Error Handling in BPE Tokenizer
+
+**Resolution Date:** January 28, 2026  
+**Component:** NLP / Tokenization  
+**Resolved By:** Comprehensive error handling implementation
+
+**Summary:**  
+Implemented robust error handling and validation for the BPE tokenizer, including custom exception types, UTF-8 validation, input validation, and vocabulary file format validation.
+
+**Changes Made:**
+
+1. ✅ Created custom exception types:
+   - `TokenizerInputError` - for empty/invalid input
+   - `TokenizerEncodingError` - for UTF-8 encoding issues
+   - `VocabularyFileError` - for malformed vocabulary files
+   - `TokenIDError` - for out-of-range token IDs
+
+2. ✅ Implemented UTF-8 validation:
+   - `is_valid_utf8()` helper method validates character sequences
+   - Detects invalid start bytes, incomplete sequences, and malformed continuation bytes
+   - Applied to `encode()` and `pre_tokenize()` methods
+
+3. ✅ Added input validation:
+   - `validate_input()` helper checks for empty strings and UTF-8 validity
+   - `encode()` validates non-empty input with proper UTF-8
+   - `decode()` validates non-empty token ID vector and checks for negative IDs
+
+4. ✅ Enhanced vocabulary file validation:
+   - Validates filename is not empty
+   - Throws descriptive exceptions for file not found
+   - Validates special tokens section format and integer parsing
+   - Validates vocabulary entries with tab separators and non-negative IDs
+   - Validates BPE merges format and non-empty tokens
+   - Ensures loaded vocabulary contains required special tokens
+
+5. ✅ Created comprehensive test suite:
+   - 27 tests covering all error conditions
+   - Tests for exception types, messages, and inheritance
+   - Edge case coverage (empty input, invalid UTF-8, malformed files)
+   - All tests passing
+
+**Files Modified:**
+
+- `src/BPETokenizer.hpp` - Added custom exception types and validation methods
+- `src/BPETokenizer.cpp` - Implemented validation throughout encode/decode/load_vocab
+- `tests/tokenizer_error_handling_test.cpp` - New comprehensive test suite (27 tests)
+- `tests/CMakeLists.txt` - Added tokenizerErrorHandlingTests target
+
+**Verification:**  
+All 27 tests pass, validating:
+
+- Empty input detection
+- UTF-8 validation for various invalid sequences
+- Token ID range checking
+- Vocabulary file format validation
+- Exception type hierarchy
+- Descriptive error messages
+
+---
 
 ### TD-001: Complete Optimizer Parameter Exposure
 
@@ -206,24 +225,24 @@ When resolving a debt item:
 |----------|-------|------------|
 | High     | 0     | 0%         |
 | Medium   | 0     | 0%         |
-| Low      | 1     | 100%       |
+| Low      | 0     | 0%         |
 
 ### By Component
 
 | Component            | Count |
 |----------------------|-------|
-| NLP / Tokenization   | 1     |
+| All Resolved         | 0     |
 
 ### Effort Distribution
 
 | Effort Range | Count |
 |--------------|-------|
 | 0-2 hours    | 0     |
-| 2-4 hours    | 1     |
+| 2-4 hours    | 0     |
 | 4-8 hours    | 0     |
 | 8+ hours     | 0     |
 
-**Total Estimated Effort:** 2-3 hours
+**Total Estimated Effort:** 0 hours
 
 ---
 

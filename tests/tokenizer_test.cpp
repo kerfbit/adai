@@ -276,13 +276,14 @@ TEST_F(BPETokenizerTest, EncodeUnknownTokens) {
 TEST_F(BPETokenizerTest, EncodeEmptyString) {
     BPETokenizer tokenizer;
 
-    auto ids = tokenizer.encode("", false);
-    EXPECT_EQ(ids.size(), 0);
+    // Empty string should now throw TokenizerInputError
+    EXPECT_THROW({
+        tokenizer.encode("", false);
+    }, TokenizerInputError);
 
-    auto ids_with_special = tokenizer.encode("", true);
-    EXPECT_EQ(ids_with_special.size(), 2);  // Just BOS and EOS
-    EXPECT_EQ(ids_with_special[0], 2);
-    EXPECT_EQ(ids_with_special[1], 3);
+    EXPECT_THROW({
+        tokenizer.encode("", true);
+    }, TokenizerInputError);
 }
 
 // ============================================================================
@@ -335,9 +336,11 @@ TEST_F(BPETokenizerTest, DecodeEmptyIds) {
     BPETokenizer tokenizer;
 
     std::vector<int> ids = {};
-    auto decoded = tokenizer.decode(ids, true);
-
-    EXPECT_EQ(decoded, "");
+    
+    // Empty IDs vector should now throw TokenizerInputError
+    EXPECT_THROW({
+        tokenizer.decode(ids, true);
+    }, TokenizerInputError);
 }
 
 // ============================================================================
@@ -544,11 +547,10 @@ TEST_F(BPETokenizerTest, RepeatedBuildVocab) {
 TEST_F(BPETokenizerTest, LoadNonexistentFile) {
     BPETokenizer tokenizer;
 
-    // Should handle gracefully
-    EXPECT_NO_THROW(tokenizer.load_vocab("nonexistent_file.txt"));
-
-    // Should still have special tokens
-    EXPECT_EQ(tokenizer.get_vocab_size(), 4);
+    // Should now throw VocabularyFileError instead of handling gracefully
+    EXPECT_THROW({
+        tokenizer.load_vocab("nonexistent_file.txt");
+    }, VocabularyFileError);
 }
 
 // ============================================================================

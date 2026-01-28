@@ -8,10 +8,49 @@
 #include <queue>
 #include <regex>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+
+// Custom exception types for BPE Tokenizer errors
+
+/**
+ * @brief Exception thrown when input string is empty or invalid
+ */
+class TokenizerInputError : public std::invalid_argument {
+   public:
+    explicit TokenizerInputError(const std::string& message)
+        : std::invalid_argument("Tokenizer Input Error: " + message) {}
+};
+
+/**
+ * @brief Exception thrown when UTF-8 encoding is invalid
+ */
+class TokenizerEncodingError : public std::runtime_error {
+   public:
+    explicit TokenizerEncodingError(const std::string& message)
+        : std::runtime_error("Tokenizer Encoding Error: " + message) {}
+};
+
+/**
+ * @brief Exception thrown when vocabulary file is malformed
+ */
+class VocabularyFileError : public std::runtime_error {
+   public:
+    explicit VocabularyFileError(const std::string& message)
+        : std::runtime_error("Vocabulary File Error: " + message) {}
+};
+
+/**
+ * @brief Exception thrown when token IDs are out of range
+ */
+class TokenIDError : public std::out_of_range {
+   public:
+    explicit TokenIDError(const std::string& message)
+        : std::out_of_range("Token ID Error: " + message) {}
+};
 
 class BPETokenizer {
    private:
@@ -93,4 +132,11 @@ class BPETokenizer {
 
     // Get top-k most frequent tokens (for debugging)
     std::vector<std::pair<std::string, int>> get_top_tokens(int k = 10) const;
+
+   private:
+    // UTF-8 validation helper
+    bool is_valid_utf8(const std::string& text) const;
+    
+    // Validate input string
+    void validate_input(const std::string& text, const std::string& context) const;
 };

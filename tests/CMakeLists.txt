@@ -15,6 +15,11 @@ add_executable(runTests tokenizer_test.cpp)
 target_link_libraries(runTests adai_nlp GTest::gtest_main)
 add_test(NAME TokenizerTests COMMAND runTests)
 
+# Tokenizer error handling tests (TD-002)
+add_executable(tokenizerErrorHandlingTests tokenizer_error_handling_test.cpp)
+target_link_libraries(tokenizerErrorHandlingTests adai_nlp GTest::gtest_main)
+add_test(NAME TokenizerErrorHandlingTests COMMAND tokenizerErrorHandlingTests)
+
 # Matrix tests
 add_executable(matrixTests matrix_test.cpp)
 target_link_libraries(matrixTests adai_core GTest::gtest_main)
