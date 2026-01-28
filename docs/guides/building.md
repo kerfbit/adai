@@ -66,6 +66,13 @@ This guide covers everything you need to know about building the ADAI project fr
    - Coverage report generation
    - For development and testing
 
+5. **CUDA Toolkit** (≥ 11.0, **for GPU acceleration**)
+   - NVIDIA GPU acceleration support
+   - Optional - enables GPU-accelerated matrix operations
+   - Required only if building with `-DENABLE_GPU=ON`
+   - Download: https://developer.nvidia.com/cuda-downloads
+   - Requires NVIDIA GPU with compute capability 6.0+
+
 **Note**: Google Test is no longer a system dependency. It's automatically downloaded and built using CMake FetchContent.
 
 ## Quick Start
@@ -282,6 +289,7 @@ cmake -DCMAKE_BUILD_TYPE=Release \
 |--------|---------|-------------|
 | `BUILD_TESTING` | ON | Build test suite |
 | `BUILD_EXAMPLES` | ON | Build example programs |
+| `ENABLE_GPU` | OFF | Enable GPU acceleration with CUDA |
 | `ENABLE_ASAN` | OFF | Enable AddressSanitizer |
 | `ENABLE_UBSAN` | OFF | Enable UndefinedBehaviorSanitizer |
 | `ENABLE_TSAN` | OFF | Enable ThreadSanitizer |
@@ -297,6 +305,121 @@ cmake -DCMAKE_BUILD_TYPE=Release \
 | **Release** | -O3 | None | Production, performance testing |
 | **RelWithDebInfo** | -O2 | Full | Performance testing with debugging |
 | **MinSizeRel** | -Os | None | Size-constrained environments |
+
+### GPU Acceleration (Optional)
+
+ADAI supports optional GPU acceleration using NVIDIA CUDA for faster matrix operations.
+
+#### Requirements
+
+- NVIDIA GPU with compute capability 6.0 or higher
+- CUDA Toolkit 11.0 or later
+- NVIDIA drivers properly installed
+
+#### Installing CUDA
+
+**Ubuntu/Debian:**
+```bash
+# Add NVIDIA package repositories
+wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb
+sudo dpkg -i cuda-keyring_1.0-1_all.deb
+sudo apt-get update
+
+# Install CUDA Toolkit
+sudo apt-get install -y cuda-toolkit-11-8
+```
+
+**Fedora/RHEL:**
+```bash
+# Install CUDA repository
+sudo dnf config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel8/x86_64/cuda-rhel8.repo
+
+# Install CUDA Toolkit
+sudo dnf install -y cuda-toolkit-11-8
+```
+
+#### Building with GPU Support
+
+```bash
+# Configure with GPU support
+cmake -DENABLE_GPU=ON -DCMAKE_BUILD_TYPE=Release ..
+
+# Optionally specify CUDA architectures (compute capabilities)
+cmake -DENABLE_GPU=ON \
+      -DCMAKE_CUDA_ARCHITECTURES="60;70;80" \
+      -DCMAKE_BUILD_TYPE=Release ..
+
+# Build
+make -j$(nproc)
+
+# Test GPU functionality
+./gpu_example
+```
+
+#### GPU Architecture Targets
+
+By default, ADAI compiles for multiple GPU architectures. You can customize this:
+
+| Compute Capability | GPU Examples | CMake Flag |
+|-------------------|--------------|------------|
+| 6.0 | Pascal (GTX 10xx, P100) | 60 |
+| 6.1 | Pascal (GTX 10xx Ti, P4) | 61 |
+| 7.0 | Volta (V100) | 70 |
+| 7.5 | Turing (RTX 20xx, T4) | 75 |
+| 8.0 | Ampere (A100) | 80 |
+| 8.6 | Ampere (RTX 30xx, A10) | 86 |
+
+**Example - Build only for RTX 30xx series:**
+```bash
+cmake -DENABLE_GPU=ON -DCMAKE_CUDA_ARCHITECTURES="86" ..
+```
+
+#### Verifying GPU Support
+
+After building with GPU support:
+
+```bash
+# Run the GPU example
+./gpu_example
+
+# Output will show:
+# - GPU device information
+# - Performance comparisons (CPU vs GPU)
+# - Speedup metrics
+```
+
+#### GPU API Usage
+
+When GPU support is enabled, the Matrix class gains additional methods:
+
+```cpp
+#include "Matrix.hpp"
+
+// Initialize GPU (do this once at startup)
+Matrix::gpu_initialize();
+
+// Create matrices
+Matrix A(1000, 1000);
+Matrix B(1000, 1000);
+A.randomize();
+B.randomize();
+
+// Use GPU-accelerated operations
+Matrix C = A.multiply_gpu(B);      // Fast matrix multiplication
+Matrix D = A.add_gpu(B);           // Fast element-wise addition
+Matrix E = A.transpose_gpu();      // Fast transpose
+Matrix F = A.scale_gpu(2.5f);      // Fast scalar multiplication
+Matrix G = A.hadamard_gpu(B);      // Fast element-wise multiply
+
+// Cleanup (do this before exit)
+Matrix::gpu_cleanup();
+```
+
+**Note**: GPU operations transfer data to/from GPU memory. For best performance:
+- Use GPU operations on large matrices (500x500 or larger)
+- Batch multiple operations together when possible
+- Keep data on GPU between operations (future enhancement)
+
 
 ## Platform-Specific Instructions
 

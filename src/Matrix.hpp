@@ -6,11 +6,18 @@
 #include <stdexcept>
 #include <vector>
 
+#ifdef ADAI_ENABLE_GPU
+#include "gpu/GPUUtils.hpp"
+#include "gpu/MatrixGPU.hpp"
+#endif
+
 /**
  * Matrix class for tensor operations in neural networks
  *
  * Provides basic matrix operations needed for neural network computations
  * including multiplication, addition, subtraction, transpose, and gradient operations.
+ * 
+ * When compiled with GPU support (ENABLE_GPU=ON), provides GPU-accelerated operations.
  */
 class Matrix {
    public:
@@ -195,4 +202,73 @@ class Matrix {
      * @param values Vector of values to set
      */
     void set_col(int col_idx, const std::vector<float>& values);
+
+#ifdef ADAI_ENABLE_GPU
+    /**
+     * GPU-accelerated operations (available when compiled with ENABLE_GPU=ON)
+     */
+
+    /**
+     * Check if GPU acceleration is available
+     * @return True if GPU is available and initialized
+     */
+    static bool gpu_available();
+
+    /**
+     * Initialize GPU subsystem (must be called before using GPU operations)
+     * @throws std::runtime_error if GPU initialization fails
+     */
+    static void gpu_initialize();
+
+    /**
+     * Cleanup GPU resources
+     */
+    static void gpu_cleanup();
+
+    /**
+     * Get GPU device information
+     * @param device Device ID (default: current device)
+     * @return String with device information
+     */
+    static std::string gpu_info(int device = -1);
+
+    /**
+     * Matrix multiplication using GPU (C = this * other)
+     * @param other Matrix to multiply with
+     * @return Result matrix
+     * @throws std::runtime_error if GPU is not initialized
+     */
+    Matrix multiply_gpu(const Matrix& other) const;
+
+    /**
+     * Matrix addition using GPU (C = this + other)
+     * @param other Matrix to add
+     * @return Result matrix
+     * @throws std::runtime_error if GPU is not initialized
+     */
+    Matrix add_gpu(const Matrix& other) const;
+
+    /**
+     * Matrix transpose using GPU
+     * @return Transposed matrix
+     * @throws std::runtime_error if GPU is not initialized
+     */
+    Matrix transpose_gpu() const;
+
+    /**
+     * Scalar multiplication using GPU
+     * @param scalar Value to multiply each element by
+     * @return Result matrix
+     * @throws std::runtime_error if GPU is not initialized
+     */
+    Matrix scale_gpu(float scalar) const;
+
+    /**
+     * Element-wise multiplication using GPU
+     * @param other Matrix to multiply element-wise
+     * @return Result matrix
+     * @throws std::runtime_error if GPU is not initialized
+     */
+    Matrix hadamard_gpu(const Matrix& other) const;
+#endif
 };

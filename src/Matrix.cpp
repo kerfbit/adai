@@ -299,3 +299,178 @@ void Matrix::set_col(int col_idx, const std::vector<float>& values) {
         data[i][col_idx] = values[i];
     }
 }
+
+#ifdef ADAI_ENABLE_GPU
+// ============================================================================
+// GPU-Accelerated Operations
+// ============================================================================
+
+bool Matrix::gpu_available() {
+    return adai::gpu::GPUManager::is_available();
+}
+
+void Matrix::gpu_initialize() {
+    adai::gpu::GPUManager::initialize();
+}
+
+void Matrix::gpu_cleanup() {
+    adai::gpu::GPUManager::cleanup();
+}
+
+std::string Matrix::gpu_info(int device) {
+    return adai::gpu::GPUManager::get_device_info(device);
+}
+
+// Helper function to flatten matrix to 1D array
+static std::vector<float> flatten_matrix(const Matrix& mat) {
+    std::vector<float> flat(mat.rows * mat.cols);
+    for (int i = 0; i < mat.rows; i++) {
+        for (int j = 0; j < mat.cols; j++) {
+            flat[i * mat.cols + j] = mat.data[i][j];
+        }
+    }
+    return flat;
+}
+
+// Helper function to unflatten 1D array to matrix
+static Matrix unflatten_matrix(const std::vector<float>& flat, int rows, int cols) {
+    Matrix result(rows, cols);
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            result.data[i][j] = flat[i * cols + j];
+        }
+    }
+    return result;
+}
+
+Matrix Matrix::multiply_gpu(const Matrix& other) const {
+    if (cols != other.rows) {
+        throw std::invalid_argument("Matrix dimensions incompatible for multiplication");
+    }
+    
+    if (!gpu_available()) {
+        throw std::runtime_error("GPU not initialized. Call Matrix::gpu_initialize() first.");
+    }
+    
+    // Flatten matrices
+    auto a_flat = flatten_matrix(*this);
+    auto b_flat = flatten_matrix(other);
+    
+    // Allocate GPU memory
+    adai::gpu::GPUMemory<float> d_a(rows * cols);
+    adai::gpu::GPUMemory<float> d_b(other.rows * other.cols);
+    adai::gpu::GPUMemory<float> d_c(rows * other.cols);
+    
+    // Copy to GPU
+    d_a.copy_from_host(a_flat.data(), rows * cols);
+    d_b.copy_from_host(b_flat.data(), other.rows * other.cols);
+    
+    // Perform multiplication on GPU
+    adai::gpu::matrix_multiply_gpu(d_a.get(), d_b.get(), d_c.get(), 
+                                   rows, cols, other.cols);
+    
+    // Copy result back
+    std::vector<float> c_flat(rows * other.cols);
+    d_c.copy_to_host(c_flat.data(), rows * other.cols);
+    
+    return unflatten_matrix(c_flat, rows, other.cols);
+}
+
+Matrix Matrix::add_gpu(const Matrix& other) const {
+    if (rows != other.rows || cols != other.cols) {
+        throw std::invalid_argument("Matrix dimensions must match for addition");
+    }
+    
+    if (!gpu_available()) {
+        throw std::runtime_error("GPU not initialized. Call Matrix::gpu_initialize() first.");
+    }
+    
+    int size = rows * cols;
+    auto a_flat = flatten_matrix(*this);
+    auto b_flat = flatten_matrix(other);
+    
+    adai::gpu::GPUMemory<float> d_a(size);
+    adai::gpu::GPUMemory<float> d_b(size);
+    adai::gpu::GPUMemory<float> d_c(size);
+    
+    d_a.copy_from_host(a_flat.data(), size);
+    d_b.copy_from_host(b_flat.data(), size);
+    
+    adai::gpu::matrix_add_gpu(d_a.get(), d_b.get(), d_c.get(), size);
+    
+    std::vector<float> c_flat(size);
+    d_c.copy_to_host(c_flat.data(), size);
+    
+    return unflatten_matrix(c_flat, rows, cols);
+}
+
+Matrix Matrix::transpose_gpu() const {
+    if (!gpu_available()) {
+        throw std::runtime_error("GPU not initialized. Call Matrix::gpu_initialize() first.");
+    }
+    
+    auto a_flat = flatten_matrix(*this);
+    
+    adai::gpu::GPUMemory<float> d_input(rows * cols);
+    adai::gpu::GPUMemory<float> d_output(rows * cols);
+    
+    d_input.copy_from_host(a_flat.data(), rows * cols);
+    
+    adai::gpu::matrix_transpose_gpu(d_input.get(), d_output.get(), rows, cols);
+    
+    std::vector<float> output_flat(rows * cols);
+    d_output.copy_to_host(output_flat.data(), rows * cols);
+    
+    return unflatten_matrix(output_flat, cols, rows);
+}
+
+Matrix Matrix::scale_gpu(float scalar) const {
+    if (!gpu_available()) {
+        throw std::runtime_error("GPU not initialized. Call Matrix::gpu_initialize() first.");
+    }
+    
+    int size = rows * cols;
+    auto a_flat = flatten_matrix(*this);
+    
+    adai::gpu::GPUMemory<float> d_a(size);
+    adai::gpu::GPUMemory<float> d_c(size);
+    
+    d_a.copy_from_host(a_flat.data(), size);
+    
+    adai::gpu::matrix_multiply_scalar_gpu(d_a.get(), scalar, d_c.get(), size);
+    
+    std::vector<float> c_flat(size);
+    d_c.copy_to_host(c_flat.data(), size);
+    
+    return unflatten_matrix(c_flat, rows, cols);
+}
+
+Matrix Matrix::hadamard_gpu(const Matrix& other) const {
+    if (rows != other.rows || cols != other.cols) {
+        throw std::invalid_argument("Matrix dimensions must match for element-wise multiplication");
+    }
+    
+    if (!gpu_available()) {
+        throw std::runtime_error("GPU not initialized. Call Matrix::gpu_initialize() first.");
+    }
+    
+    int size = rows * cols;
+    auto a_flat = flatten_matrix(*this);
+    auto b_flat = flatten_matrix(other);
+    
+    adai::gpu::GPUMemory<float> d_a(size);
+    adai::gpu::GPUMemory<float> d_b(size);
+    adai::gpu::GPUMemory<float> d_c(size);
+    
+    d_a.copy_from_host(a_flat.data(), size);
+    d_b.copy_from_host(b_flat.data(), size);
+    
+    adai::gpu::matrix_multiply_elementwise_gpu(d_a.get(), d_b.get(), d_c.get(), size);
+    
+    std::vector<float> c_flat(size);
+    d_c.copy_to_host(c_flat.data(), size);
+    
+    return unflatten_matrix(c_flat, rows, cols);
+}
+
+#endif // ADAI_ENABLE_GPU

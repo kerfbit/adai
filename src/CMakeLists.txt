@@ -11,6 +11,36 @@ add_library(adai_core STATIC
     Optimizer.cpp
 )
 
+# GPU support (optional)
+if(ENABLE_GPU)
+    # Add GPU library
+    add_library(adai_gpu STATIC
+        gpu/MatrixGPU.cu
+    )
+    
+    # Set CUDA properties
+    set_target_properties(adai_gpu PROPERTIES
+        CUDA_SEPARABLE_COMPILATION ON
+        CUDA_RESOLVE_DEVICE_SYMBOLS ON
+    )
+    
+    # Link with CUDA libraries
+    target_link_libraries(adai_gpu
+        CUDA::cudart
+        CUDA::cublas
+    )
+    
+    # Include GPU headers
+    target_include_directories(adai_gpu PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    
+    # Link core library with GPU library
+    target_link_libraries(adai_core adai_gpu)
+    
+    message(STATUS "GPU support added to adai_core")
+endif()
+
 # Precompiled headers for commonly used STL headers
 target_precompile_headers(adai_core
     PUBLIC
@@ -207,6 +237,10 @@ if(BUILD_EXAMPLES)
     # Dataset Batch Processing Example
     add_executable(dataset_batch_processing_example DatasetBatchProcessingExample.cpp)
     target_link_libraries(dataset_batch_processing_example adai_nlp)
+    
+    # GPU Acceleration Example (always build, shows status even without GPU)
+    add_executable(gpu_example GPUExample.cpp)
+    target_link_libraries(gpu_example adai_core)
     
     message(STATUS "Building example programs (disable with -DBUILD_EXAMPLES=OFF)")
 endif()

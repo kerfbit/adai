@@ -8,12 +8,37 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)  # For clang-tidy
 # Options
 option(BUILD_TESTING "Build test suite" ON)
 option(BUILD_EXAMPLES "Build example programs" ON)
+option(ENABLE_GPU "Enable GPU acceleration with CUDA" OFF)
 option(ENABLE_ASAN "Enable AddressSanitizer" OFF)
 option(ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
 option(ENABLE_TSAN "Enable ThreadSanitizer" OFF)
 option(ENABLE_COVERAGE "Enable code coverage" OFF)
 option(ENABLE_CLANG_TIDY "Run clang-tidy during build" OFF)
 option(ENABLE_CCACHE "Use ccache for compilation caching" ON)
+
+# GPU/CUDA support
+if(ENABLE_GPU)
+    enable_language(CUDA)
+    find_package(CUDAToolkit REQUIRED)
+    
+    if(NOT DEFINED CMAKE_CUDA_STANDARD)
+        set(CMAKE_CUDA_STANDARD 14)
+        set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+    endif()
+    
+    # Set CUDA architectures (compute capability)
+    # Can be overridden with -DCMAKE_CUDA_ARCHITECTURES
+    if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+        set(CMAKE_CUDA_ARCHITECTURES 60 61 70 75 80 86)
+    endif()
+    
+    message(STATUS "GPU acceleration enabled")
+    message(STATUS "  CUDA Version: ${CUDAToolkit_VERSION}")
+    message(STATUS "  CUDA Architectures: ${CMAKE_CUDA_ARCHITECTURES}")
+    add_compile_definitions(ADAI_ENABLE_GPU)
+else()
+    message(STATUS "GPU acceleration disabled (enable with -DENABLE_GPU=ON)")
+endif()
 
 # Enable ccache if available and requested
 if(ENABLE_CCACHE)
