@@ -452,7 +452,6 @@ void ChatbotTrainer::initialize_model() {
         }
 
         // Register model parameters with optimizer
-        // Note: This will print a warning until parameter exposure is fully implemented
         model->register_parameters(*optimizer);
 
         std::cout << COLOR_SUCCESS << "✅ Optimizer initialized" << COLOR_RESET << std::endl;
@@ -632,12 +631,8 @@ float ChatbotTrainer::train_epoch(int epoch) {
                         optimizer->clip_gradients();
                     }
 
-                    // Update weights
-                    // TODO (TD-001): Once full parameter exposure is complete, replace with:
-                    //   optimizer->step();
-                    // For now, model->update_weights() is the correct approach as it handles
-                    // the internal weight updates until all components expose their parameters
-                    model->update_weights();
+                    // Update weights via optimizer
+                    optimizer->step();
 
                     total_loss += accumulated_loss;
                     global_step++;
