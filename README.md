@@ -14,6 +14,7 @@ A modern C++ implementation of transformer-based neural networks and natural lan
 - **Chatbot Framework**: Complete CLI and training tools for conversational AI
 - **REST API Server**: Production-ready HTTP API with session management
 - **Docker Support**: Containerized deployment with Docker and Docker Compose
+- **Windows Support**: Native Windows executables via cross-compilation (MinGW-w64)
 - **Inference Optimization**: KV cache implementation for 2-3x speedup
 - **Comprehensive Testing**: 567+ test suites with extensive coverage
 - **Production Ready**: Memory-efficient, well-documented, and thoroughly tested
@@ -44,6 +45,22 @@ make
 # Run tests
 ctest
 ```
+
+### Cross-Compiling for Windows (Linux)
+
+Build native Windows executables from Linux:
+
+```bash
+# Quick build
+./scripts/build_windows.sh
+
+# Create distribution package
+./scripts/package_windows.sh
+
+# Find executables in: dist-windows/adai-chatbot-windows-x64/
+```
+
+See [Windows Cross-Compilation Guide](docs/guides/windows-cross-compilation.md) for details.
 
 ### Running the Chatbot
 

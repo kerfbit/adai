@@ -727,6 +727,39 @@ export ASAN_OPTIONS=verbosity=1
 
 ### Cross-Compilation
 
+#### Windows from Linux (MinGW-w64)
+
+Build native Windows executables from Linux using the automated scripts:
+
+```bash
+# Quick build
+./scripts/build_windows.sh
+
+# Create distribution package with all files
+./scripts/package_windows.sh
+```
+
+For detailed instructions, see [Windows Cross-Compilation Guide](windows-cross-compilation.md).
+
+Manual cross-compilation:
+
+```bash
+# Install MinGW-w64
+sudo apt-get install mingw-w64 g++-mingw-w64  # Ubuntu/Debian
+
+# Configure
+mkdir build-windows && cd build-windows
+cmake -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchains/mingw-w64.cmake \
+      -DCMAKE_BUILD_TYPE=Release ..
+
+# Build
+cmake --build . -j$(nproc)
+
+# Executables will be in src/*.exe
+```
+
+#### ARM Cross-Compilation
+
 ```bash
 # Example: Cross-compile for ARM
 cmake -DCMAKE_TOOLCHAIN_FILE=arm-toolchain.cmake ..

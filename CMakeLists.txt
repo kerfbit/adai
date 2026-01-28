@@ -5,6 +5,20 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)  # For clang-tidy
 
+# Windows-specific settings
+if(WIN32 OR MINGW)
+    message(STATUS "Configuring for Windows build")
+    # Ensure we have proper Windows API version (Windows 7+)
+    add_compile_definitions(_WIN32_WINNT=0x0601)
+    
+    # For MinGW cross-compilation: static linking to avoid DLL dependencies
+    if(MINGW)
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++ -static")
+        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -static-libgcc -static-libstdc++")
+        message(STATUS "  Enabling static linking for MinGW")
+    endif()
+endif()
+
 # Options
 option(BUILD_TESTING "Build test suite" ON)
 option(BUILD_EXAMPLES "Build example programs" ON)
