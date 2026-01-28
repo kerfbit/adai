@@ -38,14 +38,18 @@ bool ChatbotCLI::initialize() {
         // Initialize model
         std::cout << COLOR_SYSTEM << "🧠 Initializing transformer model..." << COLOR_RESET
                   << std::endl;
-        model = std::make_unique<EncoderDecoderModel>(512,   // d_model
-                                                      8,     // num_heads
-                                                      2048,  // d_ff
-                                                      6,     // num_encoder_layers
-                                                      6,     // num_decoder_layers
-                                                      tokenizer->get_vocab_size(),
-                                                      1024  // max_seq_length
+        model = std::make_unique<EncoderDecoderModel>(
+            tokenizer->get_vocab_size(),  // vocab_size
+            512,                          // d_model
+            6,                            // encoder_layers
+            6,                            // decoder_layers
+            8,                            // num_heads
+            2048,                         // d_ff
+            1024                          // max_seq_length
         );
+
+        // Transfer tokenizer ownership to the model
+        model->set_tokenizer(tokenizer.release());
 
         // Load pre-trained weights if available
         std::ifstream model_file(model_path);

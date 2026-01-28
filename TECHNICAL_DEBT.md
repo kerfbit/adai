@@ -24,15 +24,18 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 Complete the parameter exposure work to allow external optimizer to fully manage all model parameters. Currently, the optimizer integration is incomplete - models still call `update_weights()` internally instead of delegating to the centralized optimizer via `optimizer->step()`.
 
 **Impact:**
+
 - Code duplication between model-specific weight updates and optimizer
 - Cannot easily switch optimizer strategies without modifying model code
 - Inconsistent weight update patterns across components
 
 **Location:**
+
 - `src/EncoderDecoderModel.cpp:327-329` - TODO comment for parameter exposure
 - `src/ChatbotTrainer.cpp:605` - Commented out `optimizer->step()` call
 
 **Tasks:**
+
 - [ ] Expose parameters in `LLMEncoder` via `register_parameters()` method
 - [ ] Expose parameters in `LLMDecoder` via `register_parameters()` method
 - [ ] Expose parameters in `LanguageModelHead` via `register_parameters()` method
@@ -41,6 +44,7 @@ Complete the parameter exposure work to allow external optimizer to fully manage
 - [ ] Update documentation for optimizer integration
 
 **Files Affected:**
+
 - `src/EncoderDecoderModel.cpp`
 - `src/ChatbotTrainer.cpp`
 - `src/LLMEncoder.hpp` / `src/LLMEncoder.cpp`
@@ -50,6 +54,7 @@ Complete the parameter exposure work to allow external optimizer to fully manage
 **Related Issues:** [Create issue in GitHub]
 
 **Notes:**
+
 - Current implementation uses a hybrid approach - optimizer is configured but `update_weights()` is still called
 - Full implementation requires exposing weight and gradient pointers from all components
 - Should maintain backward compatibility during transition
@@ -68,14 +73,17 @@ Complete the parameter exposure work to allow external optimizer to fully manage
 BPE tokenizer could benefit from more robust error handling and validation, particularly for edge cases like empty strings, invalid UTF-8, and malformed vocabulary files.
 
 **Impact:**
+
 - Potential crashes on invalid input
 - Unclear error messages for debugging
 - Lack of input validation
 
 **Location:**
+
 - `src/BPETokenizer.cpp` - encode/decode methods
 
 **Tasks:**
+
 - [ ] Add input validation for empty/null strings
 - [ ] Add UTF-8 validation
 - [ ] Improve vocabulary file format validation
@@ -83,6 +91,7 @@ BPE tokenizer could benefit from more robust error handling and validation, part
 - [ ] Add error handling tests
 
 **Files Affected:**
+
 - `src/BPETokenizer.hpp`
 - `src/BPETokenizer.cpp`
 - `tests/test_tokenizer.cpp`
@@ -90,6 +99,7 @@ BPE tokenizer could benefit from more robust error handling and validation, part
 **Related Issues:** [Create issue in GitHub]
 
 **Notes:**
+
 - Current implementation assumes well-formed input
 - Should use descriptive exceptions rather than generic errors
 - Consider adding debug logging for tokenization process
@@ -167,27 +177,33 @@ When adding a new technical debt item:
    - Add to project board
 
 3. **Update code comments** to reference the tracking item:
+
    ```cpp
    // See TD-001 in TECHNICAL_DEBT.md - Parameter exposure incomplete
    ```
 
-4. **Remove untracked TODOs** - All TODOs must be tracked here or in GitHub issues
+4. **Remove untracked TODOs**
+
+- All TODOs must be tracked here or in GitHub issues
 
 ### Prioritization Criteria
 
 **High Priority:**
+
 - Blocks new feature development
 - Causes bugs or incorrect behavior
 - Security or stability issues
 - Affects multiple components
 
 **Medium Priority:**
+
 - Improves code maintainability significantly
 - Reduces technical complexity
 - Enables future features
 - Clear path to resolution
 
 **Low Priority:**
+
 - Nice-to-have improvements
 - Cosmetic code cleanup
 - Performance optimizations (non-critical)
@@ -219,9 +235,9 @@ When resolving a debt item:
 ### By Component
 
 | Component            | Count |
-|---------------------|-------|
+|----------------------|-------|
 | Optimizer Integration| 1     |
-| NLP / Tokenization  | 1     |
+| NLP / Tokenization   | 1     |
 
 ### Effort Distribution
 
