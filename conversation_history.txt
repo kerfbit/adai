@@ -1,4 +1,6 @@
 MAX_MESSAGES:20
-MAX_TOKENS:2048
+MAX_TOKENS:480
 KEEP_SYSTEM:1
 ---
+user|2|hello
+assistant|43| broken. understand your is, for and, brint middleline ser us oningatings,ous d practut facesig isducely dssive atink.ing. sat toaers

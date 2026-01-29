@@ -831,6 +831,88 @@ void ChatbotTrainer::save_checkpoint(const std::string& filepath, int epoch) {
     }
 
     /**
+     * @brief Finalize model by creating standard-named files from best epoch
+     */
+void ChatbotTrainer::finalize_model(const std::string& output_path) {
+        std::cout << COLOR_INFO << "\n🔧 Finalizing model..." << COLOR_RESET << std::endl;
+
+        // Determine best epoch checkpoint path
+        std::string best_checkpoint_path = output_path + ".epoch" + std::to_string(best_epoch);
+        
+        // Extensions that need to be copied/linked
+        std::vector<std::string> extensions = {"config", "decoder", "lm_head", "vocab", "encoder"};
+        
+        std::cout << COLOR_INFO << "📋 Creating standardized model files from epoch " 
+                  << best_epoch << "..." << COLOR_RESET << std::endl;
+
+        // Create empty base file (required for ifstream check in load_model)
+        std::ofstream base_file(output_path);
+        base_file.close();
+
+        // Create symlinks for all component files
+        for (const auto& ext : extensions) {
+            std::string src_file = best_checkpoint_path + "." + ext;
+            std::string dest_file = output_path + "." + ext;
+            
+            std::ifstream src(src_file);
+            if (src.good()) {
+                src.close();
+                
+                // Remove existing destination if it exists
+                std::remove(dest_file.c_str());
+                
+                // Create symlink using relative path
+                std::string src_basename = src_file.substr(src_file.find_last_of("/") + 1);
+                std::string link_cmd = "ln -sf " + src_basename + " " + dest_file;
+                int result = std::system(link_cmd.c_str());
+                
+                if (result == 0) {
+                    std::cout << COLOR_SUCCESS << "  ✓ Linked " << ext << COLOR_RESET << std::endl;
+                } else {
+                    std::cout << COLOR_WARNING << "  ⚠ Failed to link " << ext << COLOR_RESET << std::endl;
+                }
+            } else {
+                std::cout << COLOR_WARNING << "  ⚠ Missing " << ext << " file" << COLOR_RESET << std::endl;
+            }
+        }
+
+        // Cleanup old epoch checkpoints if not keeping all
+        if (!config.keep_all_checkpoints) {
+            std::cout << COLOR_INFO << "\n🧹 Cleaning up intermediate checkpoints..." << COLOR_RESET << std::endl;
+            
+            int removed_count = 0;
+            for (int epoch = 1; epoch <= config.num_epochs; epoch++) {
+                if (epoch == best_epoch) {
+                    continue;  // Keep the best epoch
+                }
+                
+                std::string epoch_base = output_path + ".epoch" + std::to_string(epoch);
+                
+                // Remove all component files for this epoch
+                for (const auto& ext : extensions) {
+                    std::string file_to_remove = epoch_base + "." + ext;
+                    std::remove(file_to_remove.c_str());
+                }
+                
+                // Remove metadata file
+                std::remove((epoch_base + ".metadata").c_str());
+                removed_count++;
+            }
+            
+            std::cout << COLOR_SUCCESS << "  ✓ Removed " << removed_count << " checkpoint(s) (kept epoch " 
+                      << best_epoch << ")" << COLOR_RESET << std::endl;
+        } else {
+            std::cout << COLOR_INFO << "  ℹ Keeping all epoch checkpoints" << COLOR_RESET << std::endl;
+        }
+
+        std::cout << COLOR_SUCCESS << "\n✅ Model finalized:" << COLOR_RESET << std::endl;
+        std::cout << COLOR_SUCCESS << "  📁 Base model: " << output_path << COLOR_RESET << std::endl;
+        std::cout << COLOR_SUCCESS << "  🏆 Best epoch: " << best_epoch << COLOR_RESET << std::endl;
+        std::cout << COLOR_SUCCESS << "  📊 Best validation loss: " << best_validation_loss 
+                  << COLOR_RESET << std::endl;
+    }
+
+    /**
      * @brief Load checkpoint and resume training state
      */
 bool ChatbotTrainer::load_checkpoint(const std::string& filepath) {
@@ -1020,6 +1102,9 @@ void ChatbotTrainer::train(const std::string& output_model_path = "chatbot_model
         std::cout << COLOR_PROGRESS << "\n💾 Saving final model..." << COLOR_RESET << std::endl;
         save_checkpoint(output_model_path, config.num_epochs);
 
+        // Finalize model - create standard named files from best epoch
+        finalize_model(output_model_path);
+
         // Print summary
         print_training_summary(duration);
     }
@@ -1155,6 +1240,8 @@ void print_usage(const char* program_name) {
               << std::endl;
     std::cout << "  --no-restore-best      Don't restore best weights after early stopping"
               << std::endl;
+    std::cout << "  --keep-all-checkpoints Keep all epoch checkpoints (default: keep only best)"
+              << std::endl;
     std::cout << "  --no-validation        Skip validation split" << std::endl;
     std::cout << "  --help                 Show this help message" << std::endl;
     std::cout << "\nExample:" << std::endl;
@@ -1283,6 +1370,8 @@ int main(int argc, char* argv[]) {
             config.min_delta = std::stof(argv[++i]);
         } else if (arg == "--no-restore-best") {
             config.restore_best_weights = false;
+        } else if (arg == "--keep-all-checkpoints") {
+            config.keep_all_checkpoints = true;
         } else if (arg == "--no-validation") {
             use_validation = false;
             config.validation_split = 0;

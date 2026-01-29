@@ -95,6 +95,7 @@ struct TrainingConfig {
     // Checkpointing
     bool save_checkpoints = true;
     int checkpoint_every = 1;  // Save every N epochs
+    bool keep_all_checkpoints = false;  // Keep all epoch checkpoints (default: keep only best)
     std::string resume_from_checkpoint;  // Path to checkpoint to resume from (empty = no resume)
 
     // Early stopping
@@ -181,6 +182,7 @@ class ChatbotTrainer {
     bool should_early_stop();
     void restore_best_model();
     void save_checkpoint(const std::string& filepath, int epoch);
+    void finalize_model(const std::string& output_path);
     bool load_checkpoint(const std::string& filepath);
     void print_training_summary(long duration);
 
