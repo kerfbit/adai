@@ -27,6 +27,10 @@
 #include <stdexcept>
 #include <cmath>
 
+#ifdef ADAI_ENABLE_OPENMP
+#include <omp.h>
+#endif
+
 /**
  * @brief Padding strategy for batch creation
  */
@@ -261,6 +265,54 @@ public:
         std::vector<std::vector<int>>& sequences,
         const AugmentationConfig& config
     ) {
+#ifdef ADAI_ENABLE_OPENMP
+        // Parallel version with OpenMP
+        // Each thread gets its own RNG seeded differently for thread safety
+        #pragma omp parallel
+        {
+            int thread_id = omp_get_thread_num();
+            std::mt19937 gen(config.seed + thread_id);
+            std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+            
+            #pragma omp for schedule(dynamic, 16)
+            for (size_t seq_idx = 0; seq_idx < sequences.size(); ++seq_idx) {
+                auto& seq = sequences[seq_idx];
+                
+                // Token dropout
+                if (config.enable_token_dropout && config.token_dropout_prob > 0.0f) {
+                    std::vector<int> new_seq;
+                    new_seq.reserve(seq.size());
+                    for (int token : seq) {
+                        if (dist(gen) >= config.token_dropout_prob) {
+                            new_seq.push_back(token);
+                        }
+                    }
+                    if (!new_seq.empty()) {
+                        seq = std::move(new_seq);
+                    }
+                }
+                
+                // Token masking
+                if (config.enable_token_masking && config.token_mask_prob > 0.0f) {
+                    for (int& token : seq) {
+                        if (dist(gen) < config.token_mask_prob) {
+                            token = config.mask_token_id;
+                        }
+                    }
+                }
+                
+                // Sequence shuffle (adjacent tokens)
+                if (config.enable_sequence_shuffle && config.shuffle_prob > 0.0f && seq.size() > 1) {
+                    for (size_t i = 0; i < seq.size() - 1; ++i) {
+                        if (dist(gen) < config.shuffle_prob) {
+                            std::swap(seq[i], seq[i + 1]);
+                        }
+                    }
+                }
+            }
+        }
+#else
+        // Sequential fallback
         std::mt19937 gen(config.seed);
         std::uniform_real_distribution<float> dist(0.0f, 1.0f);
         
@@ -296,6 +348,7 @@ public:
                 }
             }
         }
+#endif
     }
     
     /**

@@ -1,6 +1,20 @@
 cmake_minimum_required(VERSION 3.10)
 
 # ============================================================================
+# OpenMP Support for Parallel Processing
+# ============================================================================
+
+# Find OpenMP package
+find_package(OpenMP)
+if(OpenMP_CXX_FOUND)
+    message(STATUS "OpenMP found - enabling parallel matrix operations")
+    set(ENABLE_OPENMP ON)
+else()
+    message(WARNING "OpenMP not found - matrix operations will run sequentially. Install with: sudo apt-get install libomp-dev")
+    set(ENABLE_OPENMP OFF)
+endif()
+
+# ============================================================================
 # Core Libraries - Build Once, Link Many
 # ============================================================================
 
@@ -10,6 +24,13 @@ add_library(adai_core STATIC
     Activation.cpp
     Optimizer.cpp
 )
+
+# OpenMP support (optional but recommended)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(adai_core PUBLIC OpenMP::OpenMP_CXX)
+    target_compile_definitions(adai_core PUBLIC ADAI_ENABLE_OPENMP)
+    message(STATUS "OpenMP support added to adai_core - parallel CPU operations enabled")
+endif()
 
 # GPU support (optional)
 if(ENABLE_GPU)
@@ -147,19 +168,67 @@ endif()
 # Production Executables
 # ============================================================================
 
-# Chatbot CLI - Interactive chatbot application
+# Chatbot CLI - Interactive chatbot application with parallel optimizations (P1-P5)
 add_executable(chatbot ChatbotCLI_main.cpp ChatbotCLI.cpp)
 target_link_libraries(chatbot 
     adai_models 
     adai_nlp
+    adai_attention    # Priority 4: Parallel attention heads
+    adai_core         # Priority 1: OpenMP matrix operations
 )
+if(OpenMP_CXX_FOUND)
+    message(STATUS "Building chatbot with full parallel optimizations")
+endif()
 
-# Chatbot Trainer - Model training tool
+# Chatbot Trainer - Model training tool with parallel optimizations (P1-P5)
 add_executable(chatbot_trainer ChatbotTrainer.cpp)
 target_link_libraries(chatbot_trainer 
     adai_models 
     adai_nlp
+    adai_attention    # Priority 4: Parallel attention heads
+    adai_core         # Priority 1: OpenMP matrix operations
 )
+if(OpenMP_CXX_FOUND)
+    message(STATUS "Building chatbot_trainer with full parallel optimizations (OpenMP + parallel attention)")
+endif()
+
+# OpenMP Benchmark - Test parallel performance (Priority 1 implementation)
+add_executable(openmp_benchmark OpenMPBenchmark.cpp)
+target_link_libraries(openmp_benchmark adai_core)
+if(OpenMP_CXX_FOUND)
+    message(STATUS "Building openmp_benchmark with OpenMP support")
+endif()
+
+# Augmentation Benchmark - Test parallel data augmentation (Priority 2 implementation)
+add_executable(augmentation_benchmark AugmentationBenchmark.cpp)
+target_link_libraries(augmentation_benchmark adai_core)
+if(OpenMP_CXX_FOUND)
+    message(STATUS "Building augmentation_benchmark with OpenMP support")
+endif()
+
+# Batched Inference Benchmark - Test batched inference throughput (Priority 3 implementation)
+add_executable(batched_inference_benchmark BatchedInferenceBenchmark.cpp)
+target_link_libraries(batched_inference_benchmark adai_nlp adai_core)
+message(STATUS "Building batched_inference_benchmark")
+
+# Attention Head Benchmark - Test parallel attention head computation (Priority 4 implementation)
+add_executable(attention_head_benchmark AttentionHeadBenchmark.cpp)
+target_link_libraries(attention_head_benchmark adai_attention adai_core)
+if(OpenMP_CXX_FOUND)
+    message(STATUS "Building attention_head_benchmark with OpenMP support")
+endif()
+
+# Pipeline Benchmark - Test encoder-decoder pipeline parallelism (Priority 5 implementation)
+add_executable(pipeline_benchmark PipelineBenchmark.cpp)
+target_link_libraries(pipeline_benchmark adai_models adai_nlp adai_core pthread)
+message(STATUS "Building pipeline_benchmark")
+
+# Integrated Benchmark - Test all optimizations together (Priority 1-5 combined)
+add_executable(integrated_benchmark IntegratedBenchmark.cpp)
+target_link_libraries(integrated_benchmark adai_models adai_nlp adai_attention adai_core pthread)
+if(OpenMP_CXX_FOUND)
+    message(STATUS "Building integrated_benchmark with full parallelization (OpenMP + pthread)")
+endif()
 
 # Chatbot GUI - Qt-based graphical interface (optional)
 option(BUILD_GUI "Build Qt GUI for chatbot" ON)

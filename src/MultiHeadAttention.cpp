@@ -7,6 +7,10 @@
 #include "Activation.hpp"
 #include "Optimizer.hpp"
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 MultiHeadAttention::MultiHeadAttention(int d_model, int num_heads)
     : d_model(d_model),
       num_heads(num_heads),
@@ -142,6 +146,192 @@ Matrix MultiHeadAttention::forward(const Matrix& input, const Matrix* mask) {
 
     // Final linear projection
     Matrix output = cached_attention_output * W_o;
+
+    return output;
+}
+
+Matrix MultiHeadAttention::forward_parallel(const Matrix& input, const Matrix* mask, 
+                                           bool use_parallel) {
+    // Cache input for backward pass
+    cached_input = input;
+
+    int seq_len = input.rows;
+
+    // Validate input dimensions
+    if (input.cols != d_model) {
+        throw std::invalid_argument("Input dimension (" + std::to_string(input.cols) +
+                                    ") must match d_model (" + std::to_string(d_model) + ")");
+    }
+
+    // Linear projections to get Q, K, V
+    Matrix Q = input * W_q;
+    Matrix K = input * W_k;
+    Matrix V = input * W_v;
+
+    cached_Q = Q;
+    cached_K = K;
+    cached_V = V;
+
+    // Allocate output matrix once
+    Matrix concatenated(seq_len, d_model);
+
+#ifdef _OPENMP
+    if (use_parallel) {
+        // Parallel version using OpenMP
+        // Process each head in parallel - each thread works on its own head
+        #pragma omp parallel for schedule(static)
+        for (int h = 0; h < num_heads; ++h) {
+            int start_dim = h * d_k;
+
+            // Compute attention for this head directly into output buffer
+            // scores = Q_head * K_head^T
+            Matrix scores_head(seq_len, seq_len);
+            for (int i = 0; i < seq_len; ++i) {
+                for (int j = 0; j < seq_len; ++j) {
+                    float sum = 0.0f;
+                    for (int k = 0; k < d_k; ++k) {
+                        sum += Q(i, start_dim + k) * K(j, start_dim + k);
+                    }
+                    scores_head(i, j) = sum;
+                }
+            }
+
+            // Scale by sqrt(d_k)
+            float scale_factor = 1.0f / std::sqrt(static_cast<float>(d_k));
+            for (int i = 0; i < seq_len; ++i) {
+                for (int j = 0; j < seq_len; ++j) {
+                    scores_head(i, j) *= scale_factor;
+                }
+            }
+
+            // Apply mask if provided
+            if (mask != nullptr) {
+                for (int i = 0; i < seq_len; ++i) {
+                    for (int j = 0; j < seq_len; ++j) {
+                        if ((*mask)(i, j) == 0.0f) {
+                            scores_head(i, j) = -1e9f;
+                        }
+                    }
+                }
+            }
+
+            // Apply softmax row-wise
+            for (int i = 0; i < seq_len; ++i) {
+                // Find max for numerical stability
+                float max_score = scores_head(i, 0);
+                for (int j = 1; j < seq_len; ++j) {
+                    max_score = std::max(max_score, scores_head(i, j));
+                }
+
+                // Compute exp and sum
+                float sum_exp = 0.0f;
+                for (int j = 0; j < seq_len; ++j) {
+                    scores_head(i, j) = std::exp(scores_head(i, j) - max_score);
+                    sum_exp += scores_head(i, j);
+                }
+
+                // Normalize
+                for (int j = 0; j < seq_len; ++j) {
+                    scores_head(i, j) /= sum_exp;
+                }
+            }
+
+            // Apply attention to values: output = attention_weights * V_head
+            // Write directly to concatenated output
+            for (int i = 0; i < seq_len; ++i) {
+                for (int k = 0; k < d_k; ++k) {
+                    float sum = 0.0f;
+                    for (int j = 0; j < seq_len; ++j) {
+                        sum += scores_head(i, j) * V(j, start_dim + k);
+                    }
+                    concatenated(i, start_dim + k) = sum;
+                }
+            }
+        }
+    } else {
+#endif
+        // Sequential fallback
+        for (int h = 0; h < num_heads; ++h) {
+            int start_dim = h * d_k;
+
+            Matrix scores_head(seq_len, seq_len);
+            for (int i = 0; i < seq_len; ++i) {
+                for (int j = 0; j < seq_len; ++j) {
+                    float sum = 0.0f;
+                    for (int k = 0; k < d_k; ++k) {
+                        sum += Q(i, start_dim + k) * K(j, start_dim + k);
+                    }
+                    scores_head(i, j) = sum;
+                }
+            }
+
+            float scale_factor = 1.0f / std::sqrt(static_cast<float>(d_k));
+            for (int i = 0; i < seq_len; ++i) {
+                for (int j = 0; j < seq_len; ++j) {
+                    scores_head(i, j) *= scale_factor;
+                }
+            }
+
+            if (mask != nullptr) {
+                for (int i = 0; i < seq_len; ++i) {
+                    for (int j = 0; j < seq_len; ++j) {
+                        if ((*mask)(i, j) == 0.0f) {
+                            scores_head(i, j) = -1e9f;
+                        }
+                    }
+                }
+            }
+
+            for (int i = 0; i < seq_len; ++i) {
+                float max_score = scores_head(i, 0);
+                for (int j = 1; j < seq_len; ++j) {
+                    max_score = std::max(max_score, scores_head(i, j));
+                }
+
+                float sum_exp = 0.0f;
+                for (int j = 0; j < seq_len; ++j) {
+                    scores_head(i, j) = std::exp(scores_head(i, j) - max_score);
+                    sum_exp += scores_head(i, j);
+                }
+
+                for (int j = 0; j < seq_len; ++j) {
+                    scores_head(i, j) /= sum_exp;
+                }
+            }
+
+            for (int i = 0; i < seq_len; ++i) {
+                for (int k = 0; k < d_k; ++k) {
+                    float sum = 0.0f;
+                    for (int j = 0; j < seq_len; ++j) {
+                        sum += scores_head(i, j) * V(j, start_dim + k);
+                    }
+                    concatenated(i, start_dim + k) = sum;
+                }
+            }
+        }
+#ifdef _OPENMP
+    }
+#endif
+
+    // Cache for backward pass (compute average attention for compatibility)
+    Matrix scores = Q * K.transpose();
+    float scale_factor = 1.0f / std::sqrt(static_cast<float>(d_k));
+    scores = scores.scale(scale_factor);
+    if (mask != nullptr) {
+        for (int i = 0; i < seq_len; ++i) {
+            for (int j = 0; j < seq_len; ++j) {
+                if ((*mask)(i, j) == 0.0f) {
+                    scores(i, j) = -1e9f;
+                }
+            }
+        }
+    }
+    cached_scores = scores;
+    cached_attention_weights = Activation::softmax(scores);
+    cached_attention_output = concatenated;
+
+    // Final linear projection
+    Matrix output = concatenated * W_o;
 
     return output;
 }

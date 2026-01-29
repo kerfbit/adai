@@ -8,6 +8,11 @@
 #include "EncoderDecoderModel.hpp"
 #include "Optimizer.hpp"
 
+// Parallel optimizations (Priority 1-5)
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 /**
  * @brief Training data pair (input, target response)
  */

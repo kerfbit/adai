@@ -5,6 +5,34 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)  # For clang-tidy
 
+# ============================================================================
+# Optimization Flags for Maximum Performance
+# ============================================================================
+
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release)
+endif()
+
+# Release build optimizations
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        add_compile_options(
+            -O3                    # Maximum optimization
+            -march=native          # Optimize for current CPU architecture
+            -mtune=native          # Tune for current CPU
+            -ffast-math            # Fast floating point math
+            -funroll-loops         # Unroll loops for performance
+            -ftree-vectorize       # Auto-vectorization
+        )
+        message(STATUS "Release mode: Enabled aggressive optimizations (-O3 -march=native)")
+    elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+        add_compile_options(/O2 /arch:AVX2)
+        message(STATUS "Release mode: Enabled MSVC optimizations (/O2 /arch:AVX2)")
+    endif()
+else()
+    message(STATUS "Build type: ${CMAKE_BUILD_TYPE} (use -DCMAKE_BUILD_TYPE=Release for full optimizations)")
+endif()
+
 # Windows-specific settings
 if(WIN32 OR MINGW)
     message(STATUS "Configuring for Windows build")
