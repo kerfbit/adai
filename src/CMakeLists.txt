@@ -192,6 +192,14 @@ if(OpenMP_CXX_FOUND)
     message(STATUS "Building chatbot_trainer with full parallel optimizations (OpenMP + parallel attention)")
 endif()
 
+# Vocabulary Builder - Standalone BPE vocabulary creation tool
+add_executable(vocab_builder VocabBuilder.cpp)
+target_link_libraries(vocab_builder adai_nlp)
+set_target_properties(vocab_builder PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+message(STATUS "Building vocab_builder - standalone vocabulary creation tool")
+
 # OpenMP Benchmark - Test parallel performance (Priority 1 implementation)
 add_executable(openmp_benchmark OpenMPBenchmark.cpp)
 target_link_libraries(openmp_benchmark adai_core)
