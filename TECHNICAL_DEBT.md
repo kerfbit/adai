@@ -23,12 +23,14 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 Current GPU implementation transfers data between CPU and GPU for each operation. For better performance with repeated GPU operations, persistent GPU memory buffers could be implemented.
 
 **Current Behavior:**
+
 ```cpp
 Matrix C = A.multiply_gpu(B);  // Transfers A, B to GPU, then result back
 Matrix D = C.add_gpu(A);       // Transfers C, A to GPU again, then result back
 ```
 
 **Desired Behavior:**
+
 ```cpp
 // Future enhancement - keep data on GPU between operations
 GPUMatrix A_gpu = A.to_gpu();
@@ -39,22 +41,26 @@ Matrix D = D_gpu.to_cpu();  // Only transfer final result
 ```
 
 **Impact:**  
+
 - **Performance:** Would significantly improve performance for sequences of GPU operations
 - **Current Workaround:** Current implementation works correctly, just not optimal for chained operations
 - **Users Affected:** Only users leveraging GPU acceleration with multiple sequential operations
 
 **Implementation Notes:**
+
 - Create `GPUMatrix` class that maintains device memory
 - Implement conversion operators (`to_gpu()`, `to_cpu()`)
 - Add smart memory management (RAII pattern already in place with `GPUMemory`)
 - Consider implementing memory pools for frequently allocated sizes
 
 **Files to Modify:**
+
 - `src/gpu/GPUUtils.hpp` - Add `GPUMatrix` class
 - `src/Matrix.hpp` - Add conversion methods
 - `src/gpu/MatrixGPU.cu` - Update operations to work with persistent GPU memory
 
 **Related:**
+
 - GPU acceleration implemented in commit [current]
 - See `docs/guides/building.md` for GPU compilation instructions
 
