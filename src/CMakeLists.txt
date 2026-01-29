@@ -161,6 +161,57 @@ target_link_libraries(chatbot_trainer
     adai_nlp
 )
 
+# Chatbot GUI - Qt-based graphical interface (optional)
+option(BUILD_GUI "Build Qt GUI for chatbot" ON)
+if(BUILD_GUI)
+    # Find Qt5 or Qt6
+    find_package(Qt6 COMPONENTS Widgets QUIET)
+    if(NOT Qt6_FOUND)
+        find_package(Qt5 COMPONENTS Widgets QUIET)
+    endif()
+    
+    if(Qt6_FOUND OR Qt5_FOUND)
+        # Enable Qt's automatic MOC (Meta-Object Compiler)
+        set(CMAKE_AUTOMOC ON)
+        set(CMAKE_AUTOUIC ON)
+        set(CMAKE_AUTORCC ON)
+        
+        # Build the actual GUI binary (will be renamed)
+        add_executable(chatbot_gui_binary 
+            ChatbotGUI_main.cpp 
+            ChatbotGUI.cpp
+        )
+        
+        # Link with appropriate Qt version
+        if(Qt6_FOUND)
+            target_link_libraries(chatbot_gui_binary 
+                adai_models 
+                adai_nlp
+                Qt6::Widgets
+            )
+            message(STATUS "Building chatbot_gui with Qt6")
+        else()
+            target_link_libraries(chatbot_gui_binary 
+                adai_models 
+                adai_nlp
+                Qt5::Widgets
+            )
+            message(STATUS "Building chatbot_gui with Qt5")
+        endif()
+        
+        # Build the wrapper that fixes environment issues
+        add_executable(chatbot_gui ChatbotGUI_wrapper.cpp)
+        
+        # Make sure the binary is built before the wrapper
+        add_dependencies(chatbot_gui chatbot_gui_binary)
+        
+        message(STATUS "Building chatbot_gui wrapper to fix library path issues")
+    else()
+        message(WARNING "Qt5/Qt6 not found. GUI will not be built. Install with: sudo apt-get install qt5-default or qtbase5-dev")
+        set(BUILD_GUI OFF)
+    endif()
+endif()
+
 # Chatbot API Server - REST API service
 if(BUILD_API_SERVER)
     add_executable(chatbot_api_server ChatbotAPIServer.cpp)
