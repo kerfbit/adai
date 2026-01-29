@@ -70,8 +70,8 @@ bool ChatbotGUI::initializeChatbot() {
             model->load_model(model_path);
         }
         
-        // Create conversation context
-        context = std::make_unique<ConversationContext>(20, 2048);
+        // Create conversation context with max_tokens=480 to stay under model's max_len=512
+        context = std::make_unique<ConversationContext>(20, 480);
         
         return true;
     } catch (const std::exception& e) {
@@ -150,15 +150,22 @@ QWidget* ChatbotGUI::createInputArea() {
     inputField->setPlaceholderText("Type your message here...");
     inputField->setMinimumHeight(40);
     
+    clearButton = new QPushButton("Clear");
+    clearButton->setMinimumWidth(80);
+    clearButton->setMinimumHeight(40);
+    clearButton->setToolTip("Clear conversation history");
+    
     sendButton = new QPushButton("Send");
     sendButton->setMinimumWidth(100);
     sendButton->setMinimumHeight(40);
     
     // Connect signals
     connect(sendButton, &QPushButton::clicked, this, &ChatbotGUI::onSendMessage);
+    connect(clearButton, &QPushButton::clicked, this, &ChatbotGUI::onClearConversation);
     connect(inputField, &QLineEdit::returnPressed, this, &ChatbotGUI::onSendMessage);
     
     layout->addWidget(inputField);
+    layout->addWidget(clearButton);
     layout->addWidget(sendButton);
     
     return widget;

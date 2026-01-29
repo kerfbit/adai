@@ -88,6 +88,44 @@ build_project() {
 }
 
 # ============================================================================
+# GUI Build Function
+# ============================================================================
+
+build_gui() {
+    print_header "Building Chatbot GUI with Full Parallel Processing"
+    
+    if [ ! -d "$BUILD_DIR" ]; then
+        print_error "Build directory not found. Please run build first."
+        return 1
+    fi
+    
+    cd "$BUILD_DIR"
+    
+    # Reconfigure to pick up any changes
+    print_info "Reconfiguring with CMake..."
+    cmake ..
+    
+    # Build GUI components
+    print_info "Building chatbot_gui with parallel optimizations..."
+    make chatbot_gui_binary chatbot_gui -j"$NUM_CORES"
+    
+    cd ..
+    print_success "GUI build completed!"
+    
+    # Verify
+    if [ -f "$BUILD_DIR/src/chatbot_gui_binary" ]; then
+        print_success "chatbot_gui_binary: $(ls -lh $BUILD_DIR/src/chatbot_gui_binary | awk '{print $5}')"
+        
+        # Check OpenMP linkage
+        if ldd "$BUILD_DIR/src/chatbot_gui_binary" | grep -q libgomp; then
+            print_success "OpenMP (parallel processing) is linked ✓"
+        else
+            print_error "OpenMP not linked - parallel processing may not be available"
+        fi
+    fi
+}
+
+# ============================================================================
 # Vocabulary Creation Functions
 # ============================================================================
 
@@ -199,15 +237,18 @@ interactive_menu() {
         print_header "ADAI Build & Vocabulary Tool"
         echo "1. Build project (Release mode)"
         echo "2. Build project (Debug mode)"
-        echo "3. Create vocabulary (5000 tokens)"
-        echo "4. Create vocabulary (custom size)"
-        echo "5. Train model (10 epochs)"
-        echo "6. Train model (custom epochs)"
-        echo "7. Full workflow (build + vocab + train)"
-        echo "8. Clean build directory"
-        echo "9. Exit"
+        echo "3. Build GUI with parallel processing"
+        echo "4. Create vocabulary (5000 tokens)"
+        echo "5. Create vocabulary (custom size)"
+        echo "6. Train model (10 epochs)"
+        echo "7. Train model (custom epochs)"
+        echo "8. Full workflow (build + vocab + train)"
+        echo "9. Verify GUI parallel processing"
+        echo "10. Verify CLI parallel processing"
+        echo "11. Clean build directory"
+        echo "12. Exit"
         echo ""
-        read -p "Select option [1-9]: " choice
+        read -p "Select option [1-12]: " choice
         
         case $choice in
             1)
@@ -219,22 +260,25 @@ interactive_menu() {
                 build_project
                 ;;
             3)
-                create_vocabulary 5000 vocab.txt
+                build_gui
                 ;;
             4)
+                create_vocabulary 5000 vocab.txt
+                ;;
+            5)
                 read -p "Enter vocabulary size: " size
                 read -p "Enter output filename [vocab.txt]: " filename
                 filename=${filename:-vocab.txt}
                 create_vocabulary "$size" "$filename"
                 ;;
-            5)
+            6)
                 train_model sample_training_data.txt vocab.txt chatbot_model.bin 10
                 ;;
-            6)
+            7)
                 read -p "Enter number of epochs: " epochs
                 train_model sample_training_data.txt vocab.txt chatbot_model.bin "$epochs"
                 ;;
-            7)
+            8)
                 print_header "Full Workflow"
                 RELEASE_BUILD=true
                 build_project
@@ -242,12 +286,26 @@ interactive_menu() {
                 train_model sample_training_data.txt vocab.txt chatbot_model.bin 10
                 print_success "Full workflow completed!"
                 ;;
-            8)
+            9)
+                if [ -f "./verify_gui_parallel.sh" ]; then
+                    ./verify_gui_parallel.sh
+                else
+                    print_error "Verification script not found"
+                fi
+                ;;
+            10)
+                if [ -f "./verify_cli_parallel.sh" ]; then
+                    ./verify_cli_parallel.sh
+                else
+                    print_error "Verification script not found"
+                fi
+                ;;
+            11)
                 print_info "Cleaning build directory..."
                 rm -rf "$BUILD_DIR"
                 print_success "Build directory cleaned"
                 ;;
-            9)
+            12)
                 print_info "Exiting..."
                 exit 0
                 ;;
@@ -274,18 +332,24 @@ Usage: $0 [COMMAND] [OPTIONS]
 Commands:
     build               Build the project (Release mode)
     build-debug         Build the project (Debug mode)
+    build-gui           Build GUI with full parallel processing
     vocab [SIZE] [OUT]  Create vocabulary (default: 5000 tokens, vocab.txt)
     train [EPOCHS]      Train model (default: 10 epochs)
     full                Run full workflow (build + vocab + train)
+    verify-gui          Verify GUI parallel processing support
+    verify-cli          Verify CLI parallel processing support
     clean               Clean build directory
     interactive         Launch interactive menu (default)
     help                Show this help message
 
 Examples:
     $0 build                      # Build in release mode
+    $0 build-gui                  # Rebuild GUI with parallel processing
     $0 vocab 10000 my_vocab.txt   # Create 10k vocabulary
     $0 train 20                   # Train for 20 epochs
     $0 full                       # Complete workflow
+    $0 verify-gui                 # Check GUI parallel support
+    $0 verify-cli                 # Check CLI parallel support
 
 Environment Variables:
     BUILD_DIR           Build directory (default: build)
@@ -304,6 +368,9 @@ case "${1:-interactive}" in
         RELEASE_BUILD=false
         build_project
         ;;
+    build-gui)
+        build_gui
+        ;;
     vocab)
         create_vocabulary "${2:-5000}" "${3:-vocab.txt}"
         ;;
@@ -316,6 +383,27 @@ case "${1:-interactive}" in
         create_vocabulary 5000 vocab.txt
         train_model sample_training_data.txt vocab.txt chatbot_model.bin 10
         print_success "🎉 Full workflow completed!"
+        ;;
+    verify-gui)
+        if [ -f "./verify_gui_parallel.sh" ]; then
+            ./verify_gui_parallel.sh
+        else
+            print_error "Verification script not found"
+        fi
+        ;;
+    verify-gui)        
+        if [ -f "./verify_gui_parallel.sh" ]; then
+            ./verify_gui_parallel.sh
+        else
+            print_error "Verification script not found"
+        fi
+        ;;
+    verify-cli)
+        if [ -f "./verify_cli_parallel.sh" ]; then
+            ./verify_cli_parallel.sh
+        else
+            print_error "Verification script not found"
+        fi
         ;;
     clean)
         rm -rf "$BUILD_DIR"

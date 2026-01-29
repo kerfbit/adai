@@ -259,21 +259,33 @@ if(BUILD_GUI)
             ChatbotGUI.cpp
         )
         
-        # Link with appropriate Qt version
+        # Link with appropriate Qt version and full parallel processing libraries
         if(Qt6_FOUND)
             target_link_libraries(chatbot_gui_binary 
                 adai_models 
                 adai_nlp
+                adai_attention    # Priority 4: Parallel attention heads
+                adai_core         # Priority 1: OpenMP matrix operations
                 Qt6::Widgets
             )
-            message(STATUS "Building chatbot_gui with Qt6")
+            if(OpenMP_CXX_FOUND)
+                message(STATUS "Building chatbot_gui with Qt6 and full parallel optimizations (OpenMP + parallel attention)")
+            else()
+                message(STATUS "Building chatbot_gui with Qt6")
+            endif()
         else()
             target_link_libraries(chatbot_gui_binary 
                 adai_models 
                 adai_nlp
+                adai_attention    # Priority 4: Parallel attention heads
+                adai_core         # Priority 1: OpenMP matrix operations
                 Qt5::Widgets
             )
-            message(STATUS "Building chatbot_gui with Qt5")
+            if(OpenMP_CXX_FOUND)
+                message(STATUS "Building chatbot_gui with Qt5 and full parallel optimizations (OpenMP + parallel attention)")
+            else()
+                message(STATUS "Building chatbot_gui with Qt5")
+            endif()
         endif()
         
         # Build the wrapper that fixes environment issues

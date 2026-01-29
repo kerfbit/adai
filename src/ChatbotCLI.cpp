@@ -73,9 +73,9 @@ bool ChatbotCLI::initialize() {
                       << COLOR_RESET << std::endl;
         }
 
-        // Create conversation context manager
+        // Create conversation context manager with max_tokens=480 to stay under model's max_len=512
         context = std::make_unique<ConversationContext>(20,   // max 20 messages
-                                                        2048  // max 2048 tokens
+                                                        480   // max 480 tokens (< 512 limit)
         );
         std::cout << COLOR_SYSTEM << "✅ Conversation manager initialized" << COLOR_RESET
                   << std::endl;
