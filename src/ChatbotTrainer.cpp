@@ -624,6 +624,18 @@ float ChatbotTrainer::train_epoch(int epoch) {
                 if (should_update) {
                     // Get gradient norm before clipping
                     float grad_norm = optimizer->get_gradient_norm();
+                    
+                    // Safety check for NaN/Inf gradients
+                    if (std::isnan(grad_norm) || std::isinf(grad_norm)) {
+                        std::cerr << COLOR_ERROR << "  ⚠️  WARNING: NaN or Inf gradient detected at sample " 
+                                  << (i + 1) << "! Skipping update." << COLOR_RESET << std::endl;
+                        // Reset accumulation and skip this update
+                        accumulation_step = 0;
+                        accumulated_loss = 0.0f;
+                        model->zero_grad();
+                        continue;
+                    }
+                    
                     total_grad_norm += grad_norm;
 
                     // Clip gradients
@@ -666,8 +678,11 @@ float ChatbotTrainer::train_epoch(int epoch) {
             }
         }
 
-        float epoch_loss = total_loss / num_samples;
-        float avg_grad_norm = total_grad_norm / num_samples;
+        // CRITICAL FIX: Divide by number of actual updates, not num_samples
+        // total_loss only accumulates when should_update is true
+        int num_updates = global_step - (epoch * (num_samples / config.gradient_accumulation_steps));
+        float epoch_loss = (num_updates > 0) ? (total_loss / num_updates) : 0.0f;
+        float avg_grad_norm = (num_updates > 0) ? (total_grad_norm / num_updates) : 0.0f;
         float epoch_perplexity = calculate_perplexity(epoch_loss);
         
         training_losses.push_back(epoch_loss);
@@ -680,7 +695,8 @@ float ChatbotTrainer::train_epoch(int epoch) {
             " complete - Loss: " + std::to_string(epoch_loss) + 
             " - Perplexity: " + std::to_string(epoch_perplexity) +
             " - LR: " + std::to_string(current_learning_rate) +
-            " - GradNorm: " + std::to_string(avg_grad_norm),
+            " - GradNorm: " + std::to_string(avg_grad_norm) +
+            " - Updates: " + std::to_string(num_updates),
             COLOR_SUCCESS);
 
         return epoch_loss;
