@@ -18,6 +18,7 @@ The Dataset abstraction has been significantly enhanced with production-ready fe
 **Purpose:** Enable range-based for loops and memory-efficient iteration
 
 **Usage:**
+
 ```cpp
 Dataset dataset;
 dataset.load_from_file("data.txt");
@@ -34,6 +35,7 @@ for (auto it = dataset.begin(); it != dataset.end(); ++it) {
 ```
 
 **Benefits:**
+
 - No data copying - direct access to samples
 - Standard C++ idioms
 - Compatible with STL algorithms
@@ -45,6 +47,7 @@ for (auto it = dataset.begin(); it != dataset.end(); ++it) {
 **Purpose:** Iterate over dataset in configurable batches for mini-batch training
 
 **Usage:**
+
 ```cpp
 Dataset dataset;
 dataset.load_from_file("data.txt");
@@ -63,6 +66,7 @@ for (auto batch : dataset.get_batch_iterator(64)) {
 ```
 
 **Benefits:**
+
 - Efficient mini-batch training
 - No manual batch slicing
 - Automatic batch size handling
@@ -76,12 +80,14 @@ for (auto batch : dataset.get_batch_iterator(64)) {
 **Supported Formats:**
 
 **Line-delimited JSON (JSONL):**
+
 ```json
 {"input": "What is AI?", "target": "Artificial Intelligence"}
 {"input": "Explain ML", "target": "Machine Learning basics"}
 ```
 
 **JSON Array:**
+
 ```json
 [
   {"input": "Question 1", "target": "Answer 1"},
@@ -90,6 +96,7 @@ for (auto batch : dataset.get_batch_iterator(64)) {
 ```
 
 **Usage:**
+
 ```cpp
 Dataset dataset;
 dataset.load_from_file("data.json");  // Auto-detects JSON format
@@ -102,6 +109,7 @@ dataset.load_from_file("data.json");  // Auto-detects JSON format
 **Purpose:** Load datasets from CSV files
 
 **Format:**
+
 ```csv
 input,target
 "Hello","Hi there!"
@@ -109,12 +117,14 @@ input,target
 ```
 
 **Features:**
+
 - Automatic header detection and skipping
 - Quote handling
 - Configurable delimiter (default: comma)
 - Whitespace trimming
 
 **Usage:**
+
 ```cpp
 Dataset dataset;
 dataset.load_from_file("data.csv");  // Auto-detects CSV format
@@ -127,11 +137,13 @@ dataset.load_from_file("data.csv");  // Auto-detects CSV format
 **Purpose:** Create balanced train/val/test splits based on sample characteristics
 
 **How it Works:**
+
 - Bins samples by total length (input + target)
 - Splits each bin proportionally
 - Ensures balanced distribution across splits
 
 **Usage:**
+
 ```cpp
 Dataset dataset;
 dataset.load_from_file("data.txt");
@@ -141,6 +153,7 @@ dataset.split_stratified(0.8, 0.1, 0.1, 5);
 ```
 
 **Benefits:**
+
 - Prevents length bias in splits
 - Better generalization
 - More reliable validation
@@ -152,6 +165,7 @@ dataset.split_stratified(0.8, 0.1, 0.1, 5);
 **Purpose:** Enable k-fold cross-validation for robust model evaluation
 
 **Usage:**
+
 ```cpp
 Dataset dataset;
 dataset.load_from_file("data.txt");
@@ -163,7 +177,7 @@ dataset.setup_k_fold(5);
 for (int fold = 0; fold < dataset.get_num_folds(); ++fold) {
     std::vector<DataSample> train_data, val_data;
     dataset.get_fold(fold, train_data, val_data);
-    
+
     // Train and validate
     train_model(train_data);
     evaluate_model(val_data);
@@ -171,6 +185,7 @@ for (int fold = 0; fold < dataset.get_num_folds(); ++fold) {
 ```
 
 **Benefits:**
+
 - Better model evaluation
 - Reduce overfitting
 - Use all data for validation
@@ -182,6 +197,7 @@ for (int fold = 0; fold < dataset.get_num_folds(); ++fold) {
 **Purpose:** Expand training data through transformations
 
 **Usage:**
+
 ```cpp
 Dataset dataset;
 dataset.load_from_file("data.txt");
@@ -198,6 +214,7 @@ dataset.augment_data(2);
 ```
 
 **Augmentation Ideas:**
+
 - Synonym replacement
 - Paraphrasing
 - Back-translation
@@ -211,6 +228,7 @@ dataset.augment_data(2);
 **Purpose:** Clean and preprocess datasets
 
 **Filtering by Length:**
+
 ```cpp
 Dataset dataset;
 dataset.load_from_file("data.txt");
@@ -220,6 +238,7 @@ dataset.filter_by_length(10, 100);
 ```
 
 **Filtering by Pattern:**
+
 ```cpp
 // Keep samples containing "question"
 dataset.filter_by_pattern("question", true);
@@ -229,12 +248,13 @@ dataset.filter_by_pattern("spam", false);
 ```
 
 **Preprocessing:**
+
 ```cpp
 // Set preprocessing function
 dataset.set_preprocessing([](const std::string& text) {
     std::string processed = text;
     // Lowercase
-    std::transform(processed.begin(), processed.end(), 
+    std::transform(processed.begin(), processed.end(),
                    processed.begin(), ::tolower);
     // Remove punctuation, normalize, etc.
     return processed;
@@ -245,6 +265,7 @@ dataset.apply_preprocessing();
 ```
 
 **Quick Lowercase:**
+
 ```cpp
 dataset.lowercase();  // Convenience method
 ```
@@ -256,11 +277,13 @@ dataset.lowercase();  // Convenience method
 **Purpose:** Handle very large datasets that don't fit in memory
 
 **How it Works:**
+
 - Indexes file positions on initialization
 - Loads samples on-demand
 - Minimal memory footprint
 
 **Usage:**
+
 ```cpp
 LazyDataset lazy_dataset("huge_dataset.txt");
 
@@ -280,6 +303,7 @@ for (size_t i = 0; i < lazy_dataset.size(); i += 1000) {
 ```
 
 **Benefits:**
+
 - Handle datasets larger than RAM
 - Fast initialization
 - Flexible chunk processing
@@ -295,29 +319,29 @@ int main() {
     // Load dataset (auto-detects format)
     Dataset dataset;
     dataset.load_from_file("training_data.json");
-    
+
     // Filter and preprocess
     dataset.filter_by_length(10, 500);
     dataset.lowercase();
-    
+
     // Stratified split
     dataset.split_stratified(0.7, 0.2, 0.1, 5);
-    
+
     // Train with batch iteration
     for (int epoch = 0; epoch < 10; ++epoch) {
         // Shuffle each epoch
         dataset.shuffle_split(SplitType::TRAIN);
-        
+
         // Mini-batch training
         for (auto batch : dataset.get_batch_iterator(SplitType::TRAIN, 32)) {
             train_on_batch(batch);
         }
-        
+
         // Validation
         auto val_data = dataset.get_split(SplitType::VALIDATION);
         evaluate(val_data);
     }
-    
+
     return 0;
 }
 ```
@@ -415,7 +439,7 @@ size_t size() const
 ## File Format Summary
 
 | Format | Extension | Auto-Detect | Example |
-|--------|-----------|-------------|---------|
+| -------- | ----------- | ------------- | --------- |
 | Conversation | .txt | ✓ | `INPUT: ...\nRESPONSE: ...` |
 | TSV | .tsv | ✓ | `input\ttarget\n` |
 | JSON | .json | ✓ | `{"input": "...", "target": "..."}` |
@@ -430,7 +454,7 @@ size_t size() const
 - **Standard Dataset:** Loads entire dataset into RAM
   - Best for: Datasets < 10GB
   - Fastest iteration
-  
+
 - **LazyDataset:** Loads samples on-demand
   - Best for: Datasets > 10GB
   - Minimal memory usage
@@ -454,6 +478,7 @@ size_t size() const
 ## Testing
 
 Comprehensive tests available in `tests/test_dataset.cpp`:
+
 - Iterator functionality
 - Batch iteration
 - JSON/CSV parsing
@@ -464,6 +489,7 @@ Comprehensive tests available in `tests/test_dataset.cpp`:
 - Lazy loading
 
 Run tests:
+
 ```bash
 cd build
 ctest -R Dataset --output-on-failure
@@ -474,6 +500,7 @@ ctest -R Dataset --output-on-failure
 ## Future Enhancements
 
 Potential additions:
+
 - Memory-mapped file I/O for even larger datasets
 - Parallel data loading (multi-threaded)
 - Streaming dataset iterator
@@ -488,6 +515,7 @@ Potential additions:
 All v1.0 features remain compatible. New code benefits:
 
 **Before (v1.0):**
+
 ```cpp
 auto train_data = dataset.get_split(SplitType::TRAIN);
 for (const auto& sample : train_data) {
@@ -496,6 +524,7 @@ for (const auto& sample : train_data) {
 ```
 
 **After (v2.0):**
+
 ```cpp
 // Option 1: Direct iteration (no copying)
 for (const auto& sample : dataset) {
@@ -514,14 +543,14 @@ for (auto batch : dataset.get_batch_iterator(SplitType::TRAIN, 32)) {
 
 The enhanced Dataset abstraction provides:
 
-✅ **Iterator interface** - Standard C++ iteration  
-✅ **Batch iteration** - Efficient mini-batch training  
-✅ **Multiple formats** - JSON, CSV, TSV, conversation  
-✅ **Stratified splitting** - Balanced dataset splits  
-✅ **K-fold CV** - Robust model evaluation  
-✅ **Data augmentation** - Expand training data  
-✅ **Filtering/preprocessing** - Clean datasets  
-✅ **Lazy loading** - Handle very large datasets  
+✅ **Iterator interface** - Standard C++ iteration
+✅ **Batch iteration** - Efficient mini-batch training
+✅ **Multiple formats** - JSON, CSV, TSV, conversation
+✅ **Stratified splitting** - Balanced dataset splits
+✅ **K-fold CV** - Robust model evaluation
+✅ **Data augmentation** - Expand training data
+✅ **Filtering/preprocessing** - Clean datasets
+✅ **Lazy loading** - Handle very large datasets
 ✅ **Production-ready** - Fully tested and documented
 
 ---

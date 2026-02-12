@@ -1452,3 +1452,107 @@ int main(int argc, char* argv[]) {
 }
 #endif // CHATBOT_TRAINER_TEST_BUILD
 
+// New methods for incremental training support
+
+bool ChatbotTrainer::train(int num_epochs) {
+    config.num_epochs = num_epochs;
+    
+    try {
+        // Initialize model if needed (this also initializes optimizer)
+        if (!model) {
+            initialize_model();
+        }
+        
+        // Preprocess data
+        preprocess_data();
+        
+        // Split data if needed
+        if (validation_data.empty() && config.validation_split > 0) {
+            split_data();
+        }
+        
+        // Calculate total steps
+        int samples_per_update = config.gradient_accumulation_steps;
+        int updates_per_epoch = (tokenized_training_data.size() + samples_per_update - 1) / samples_per_update;
+        total_training_steps = num_epochs * updates_per_epoch;
+        
+        // Train for specified epochs
+        for (int epoch = 0; epoch < num_epochs; ++epoch) {
+            float epoch_loss = train_epoch(epoch);
+            training_losses.push_back(epoch_loss);
+            
+            // Validate
+            if (!tokenized_validation_data.empty()) {
+                float val_loss = validate();
+                validation_losses.push_back(val_loss);
+                
+                // Check for improvement
+                if (val_loss < best_validation_loss - config.min_delta) {
+                    best_validation_loss = val_loss;
+                    best_epoch = epoch + 1;
+                    epochs_without_improvement = 0;
+                } else {
+                    epochs_without_improvement++;
+                }
+                
+                // Early stopping check
+                if (config.enable_early_stopping && epochs_without_improvement >= config.patience) {
+                    early_stopped = true;
+                    break;
+                }
+            }
+        }
+        
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << COLOR_ERROR << "❌ Training failed: " << e.what() << COLOR_RESET << std::endl;
+        return false;
+    }
+}
+
+void ChatbotTrainer::set_tokenizer(std::unique_ptr<BPETokenizer> tok) {
+    tokenizer = std::move(tok);
+}
+
+void ChatbotTrainer::set_model(std::unique_ptr<EncoderDecoderModel> mdl) {
+    model = std::move(mdl);
+    
+    // Initialize optimizer for the model if not already done
+    if (!optimizer) {
+        optimizer = std::make_unique<Optimizer>(config.optimizer_type, config.learning_rate);
+        optimizer->set_weight_decay(config.weight_decay);
+        optimizer->set_max_grad_norm(config.gradient_clip_norm);
+        
+        if (config.optimizer_type == OptimizerType::ADAM ||
+            config.optimizer_type == OptimizerType::ADAMW) {
+            optimizer->set_betas(config.adam_beta1, config.adam_beta2);
+        }
+        
+        // Register model parameters with optimizer
+        model->register_parameters(*optimizer);
+    }
+}
+
+std::unique_ptr<EncoderDecoderModel> ChatbotTrainer::release_model() {
+    return std::move(model);
+}
+
+BPETokenizer* ChatbotTrainer::release_tokenizer() {
+    return tokenizer.release();
+}
+
+void ChatbotTrainer::add_training_pair(const std::string& input, const std::string& response) {
+    training_data.emplace_back(input, response);
+}
+
+void ChatbotTrainer::add_validation_pair(const std::string& input, const std::string& response) {
+    validation_data.emplace_back(input, response);
+}
+
+float ChatbotTrainer::get_final_training_loss() const {
+    return training_losses.empty() ? 0.0f : training_losses.back();
+}
+
+float ChatbotTrainer::get_final_validation_loss() const {
+    return validation_losses.empty() ? 0.0f : validation_losses.back();
+}

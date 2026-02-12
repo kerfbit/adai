@@ -7,7 +7,7 @@ Comprehensive comparison between the existing LLMEncoder and the new LLMDecoder 
 ## High-Level Comparison
 
 | Aspect | LLMEncoder | LLMDecoder |
-|--------|-----------|-----------|
+| -------- | ----------- | ----------- |
 | **Purpose** | Encode input text to contextualized representations | Generate output text autoregressively |
 | **Attention Type** | Bidirectional self-attention | Causal self-attention + cross-attention |
 | **Input** | Source text (e.g., question) | Target sequence prefix (during training) or generated tokens (during inference) |
@@ -24,7 +24,7 @@ Comprehensive comparison between the existing LLMEncoder and the new LLMDecoder 
 ### Shared Components (No Changes Needed)
 
 | Component | Used in Encoder | Used in Decoder | Notes |
-|-----------|----------------|----------------|-------|
+| ----------- | ---------------- | ---------------- | ------- |
 | `BPETokenizer` | ✅ Yes | ✅ Yes | Can be shared instance or separate |
 | `TokenEmbedding` | ✅ Yes | ✅ Yes | Decoder has its own instance |
 | `PositionalEncoding` | ✅ Yes | ✅ Yes | Can be shared or separate |
@@ -37,7 +37,7 @@ Comprehensive comparison between the existing LLMEncoder and the new LLMDecoder 
 ### New Components (Decoder Only)
 
 | Component | Purpose | Equivalent in Encoder |
-|-----------|---------|----------------------|
+| ----------- | --------- | ---------------------- |
 | `DecoderBlock` | Single decoder layer | `EncoderBlock` |
 | `LanguageModelHead` | Project to vocabulary | None (encoder outputs embeddings) |
 | `TextGenerator` | Generation strategies | None |
@@ -49,7 +49,7 @@ Comprehensive comparison between the existing LLMEncoder and the new LLMDecoder 
 
 ### EncoderBlock Architecture
 
-```
+```text
 Input [seq_len × d_model]
     ↓
 ┌─────────────────────────┐
@@ -69,13 +69,13 @@ Add & Norm (LayerNorm 2)
 Output [seq_len × d_model]
 ```
 
-**Total Sub-layers:** 2  
-**Attention Layers:** 1 (self-attention)  
+**Total Sub-layers:** 2
+**Attention Layers:** 1 (self-attention)
 **LayerNorm Layers:** 2
 
 ### DecoderBlock Architecture
 
-```
+```text
 Input [seq_len × d_model]      Encoder Output [enc_len × d_model]
     ↓                                      │
 ┌─────────────────────────┐               │
@@ -103,8 +103,8 @@ Add & Norm (LayerNorm 3)
 Output [seq_len × d_model]
 ```
 
-**Total Sub-layers:** 3  
-**Attention Layers:** 2 (self + cross)  
+**Total Sub-layers:** 3
+**Attention Layers:** 2 (self + cross)
 **LayerNorm Layers:** 3
 
 ---
@@ -117,7 +117,7 @@ Output [seq_len × d_model]
 // All positions can attend to all positions
 Matrix attention_output = self_attention->forward(
     input,     // Q
-    input,     // K  
+    input,     // K
     input,     // V
     mask       // Optional padding mask only
 );
@@ -131,6 +131,7 @@ Matrix attention_output = self_attention->forward(
 ```
 
 **Characteristics:**
+
 - ✓ Full context (bidirectional)
 - ✓ Rich representations
 - ✗ Cannot be used for generation (sees future)
@@ -156,6 +157,7 @@ Matrix attention_output = self_attention->forward(
 ```
 
 **Characteristics:**
+
 - ✓ Autoregressive (can generate)
 - ✓ No future information leakage
 - ✗ Less context per position
@@ -181,6 +183,7 @@ Matrix cross_attention_output = cross_attention->forward(
 ```
 
 **Characteristics:**
+
 - ✓ Conditions on input
 - ✓ Full encoder context available
 - ✓ Enables seq2seq tasks
@@ -195,29 +198,29 @@ Matrix cross_attention_output = cross_attention->forward(
 Matrix LLMEncoder::encode(const std::string& text) {
     // 1. Tokenize
     std::vector<int> token_ids = tokenizer->encode(text, true);
-    
+
     // 2. Embed
     Matrix embeddings = token_embedding->forward(token_ids);
-    
+
     // 3. Add positional encoding
     Matrix encoded = positional_encoding->forward(embeddings);
-    
+
     // 4. Pass through encoder blocks
     for (int i = 0; i < num_layers; ++i) {
         encoded = encoder_blocks[i]->forward(encoded);
         // No encoder output needed (self-contained)
     }
-    
+
     // 5. Final layer norm
     encoded = final_norm->forward(encoded);
-    
+
     // 6. Return embeddings [seq_len × d_model]
     return encoded;
 }
 ```
 
-**Input:** Text string  
-**Output:** Embeddings matrix  
+**Input:** Text string
+**Output:** Embeddings matrix
 **Dependencies:** None (self-contained)
 
 ### LLMDecoder Forward Pass
@@ -227,13 +230,13 @@ Matrix LLMDecoder::forward(const std::vector<int>& token_ids,
                           const Matrix& encoder_output) {
     // 1. Embed (tokens already from tokenizer)
     Matrix embeddings = token_embedding->forward(token_ids);
-    
+
     // 2. Add positional encoding
     Matrix decoded = positional_encoding->forward(embeddings);
-    
+
     // 3. Create causal mask
     Matrix causal_mask = create_causal_mask(token_ids.size());
-    
+
     // 4. Pass through decoder blocks
     for (int i = 0; i < num_layers; ++i) {
         decoded = decoder_blocks[i]->forward(
@@ -242,20 +245,20 @@ Matrix LLMDecoder::forward(const std::vector<int>& token_ids,
             causal_mask      // Causal mask
         );
     }
-    
+
     // 5. Final layer norm
     decoded = final_norm->forward(decoded);
-    
+
     // 6. Project to vocabulary
     Matrix logits = lm_head->forward(decoded);
-    
+
     // 7. Return logits [seq_len × vocab_size]
     return logits;
 }
 ```
 
-**Input:** Token IDs + Encoder output  
-**Output:** Vocabulary logits  
+**Input:** Token IDs + Encoder output
+**Output:** Vocabulary logits
 **Dependencies:** Requires encoder output
 
 ---
@@ -280,8 +283,8 @@ encoder.backward(grad);
 encoder.update_weights();
 ```
 
-**Training Mode:** Supervised (with task-specific objective)  
-**Gradient Source:** Classification/regression loss  
+**Training Mode:** Supervised (with task-specific objective)
+**Gradient Source:** Classification/regression loss
 **Update Frequency:** Per batch
 
 ### Decoder Training (Language Modeling)
@@ -308,8 +311,8 @@ decoder.update_weights();
 encoder.update_weights();
 ```
 
-**Training Mode:** Sequence-to-sequence (teacher forcing)  
-**Gradient Source:** Next-token prediction loss  
+**Training Mode:** Sequence-to-sequence (teacher forcing)
+**Gradient Source:** Next-token prediction loss
 **Update Frequency:** Per batch (both encoder & decoder)
 
 ---
@@ -329,6 +332,7 @@ Matrix embeddings = encoder.encode(input_text);
 ```
 
 **Characteristics:**
+
 - ✓ Single forward pass
 - ✓ Parallel processing
 - ✓ Fast (O(n) in sequence length)
@@ -347,11 +351,11 @@ std::vector<int> generated = {bos_token_id};
 for (int step = 0; step < max_length; ++step) {
     // Forward pass (gets longer each step)
     Matrix logits = decoder.forward(generated, encoder_output);
-    
+
     // Sample/select next token
     int next_token = sample(logits);
     generated.push_back(next_token);
-    
+
     if (next_token == eos_token_id) break;
 }
 
@@ -360,6 +364,7 @@ std::string output = tokenizer->decode(generated);
 ```
 
 **Characteristics:**
+
 - ✗ Multiple forward passes (one per token)
 - ✗ Sequential processing
 - ✗ Slower (O(n²) due to repeated decoding)
@@ -374,46 +379,47 @@ std::string output = tokenizer->decode(generated);
 For d_model=512, num_layers=6, num_heads=8, d_ff=2048, vocab_size=10000:
 
 | Component | Parameters | Notes |
-|-----------|-----------|-------|
+| ----------- | ----------- | ------- |
 | Token Embedding | 10000 × 512 = 5.12M | Vocab → d_model |
 | Positional Encoding | 0 (pre-computed) | Not learnable |
-| **Per EncoderBlock:** | | |
+| **Per EncoderBlock:** |  |  |
 | - MultiHeadAttention | 4 × (512 × 512) = 1.05M | W_q, W_k, W_v, W_o |
 | - FeedForward | 2 × (512 × 2048) = 2.10M | W1, W2 |
 | - LayerNorm (×2) | 2 × (2 × 512) = 2.05K | gamma, beta |
-| **Total per block** | ~3.15M | |
-| **All 6 blocks** | 18.9M | |
-| Final LayerNorm | 1.02K | |
-| **TOTAL ENCODER** | **~24M parameters** | |
+| **Total per block** | ~3.15M |  |
+| **All 6 blocks** | 18.9M |  |
+| Final LayerNorm | 1.02K |  |
+| **TOTAL ENCODER** | **~24M parameters** |  |
 
 ### LLMDecoder Parameters
 
 Same hyperparameters as encoder:
 
 | Component | Parameters | Notes |
-|-----------|-----------|-------|
+| ----------- | ----------- | ------- |
 | Token Embedding | 10000 × 512 = 5.12M | Separate from encoder |
-| Positional Encoding | 0 (pre-computed) | |
-| **Per DecoderBlock:** | | |
-| - Self-Attention | 4 × (512 × 512) = 1.05M | |
+| Positional Encoding | 0 (pre-computed) |  |
+| **Per DecoderBlock:** |  |  |
+| - Self-Attention | 4 × (512 × 512) = 1.05M |  |
 | - Cross-Attention | 4 × (512 × 512) = 1.05M | **Extra** |
-| - FeedForward | 2 × (512 × 2048) = 2.10M | |
+| - FeedForward | 2 × (512 × 2048) = 2.10M |  |
 | - LayerNorm (×3) | 3 × (2 × 512) = 3.07K | **Extra norm** |
 | **Total per block** | ~4.20M | ~33% more than encoder |
-| **All 6 blocks** | 25.2M | |
-| Final LayerNorm | 1.02K | |
+| **All 6 blocks** | 25.2M |  |
+| Final LayerNorm | 1.02K |  |
 | Language Model Head | 512 × 10000 = 5.12M | **New component** |
-| **TOTAL DECODER** | **~35M parameters** | |
+| **TOTAL DECODER** | **~35M parameters** |  |
 
 ### Complete Encoder-Decoder Model
 
 | Component | Parameters |
-|-----------|-----------|
+| ----------- | ----------- |
 | Encoder | 24M |
 | Decoder | 35M |
 | **TOTAL** | **~59M parameters** |
 
 **Note:** Parameters can be reduced by:
+
 - Weight tying (share token embeddings): -5M
 - Shared positional encoding: 0 (already shared)
 - Smaller d_ff: proportional reduction
@@ -425,7 +431,7 @@ Same hyperparameters as encoder:
 ### Encoder Memory (Inference)
 
 | Component | Size (seq_len=256, d_model=512) |
-|-----------|--------------------------------|
+| ----------- | -------------------------------- |
 | Input embeddings | 256 × 512 × 4B = 512KB |
 | Per block cache | ~5 matrices × 512KB = 2.5MB |
 | 6 blocks total | 6 × 2.5MB = 15MB |
@@ -434,7 +440,7 @@ Same hyperparameters as encoder:
 ### Decoder Memory (Inference, autoregressive)
 
 | Component | Size (max_gen=100, d_model=512) |
-|-----------|--------------------------------|
+| ----------- | -------------------------------- |
 | Encoder output (cached) | 256 × 512 × 4B = 512KB |
 | Decoder embeddings (growing) | 100 × 512 × 4B = 200KB |
 | Per block cache | ~7 matrices × 200KB = 1.4MB |
@@ -451,18 +457,21 @@ Same hyperparameters as encoder:
 ### When to Use Encoder Only
 
 ✅ **Sentence Classification**
+
 ```cpp
 Matrix emb = encoder.encode("This movie is great!");
 int sentiment = classify(emb);  // Positive/Negative
 ```
 
 ✅ **Semantic Search**
+
 ```cpp
 Matrix query_emb = encoder.encode("machine learning");
 std::vector<float> scores = search(query_emb, document_embeddings);
 ```
 
 ✅ **Named Entity Recognition**
+
 ```cpp
 Matrix token_embs = encoder.encode("John lives in Paris");
 std::vector<std::string> entities = ner_tagger(token_embs);
@@ -471,6 +480,7 @@ std::vector<std::string> entities = ner_tagger(token_embs);
 ### When to Use Decoder Only (GPT-style)
 
 ✅ **Text Completion**
+
 ```cpp
 std::string completed = decoder_only.generate("Once upon a time");
 // Output: "Once upon a time, there was a brave knight..."
@@ -481,6 +491,7 @@ std::string completed = decoder_only.generate("Once upon a time");
 ### When to Use Encoder-Decoder
 
 ✅ **Machine Translation**
+
 ```cpp
 EncoderDecoderModel translator;
 std::string french = translator.generate_response(
@@ -491,6 +502,7 @@ std::string french = translator.generate_response(
 ```
 
 ✅ **Chatbot / Question Answering**
+
 ```cpp
 EncoderDecoderModel chatbot;
 std::string answer = chatbot.generate_response(
@@ -501,6 +513,7 @@ std::string answer = chatbot.generate_response(
 ```
 
 ✅ **Summarization**
+
 ```cpp
 EncoderDecoderModel summarizer;
 std::string summary = summarizer.generate_response(
@@ -511,6 +524,7 @@ std::string summary = summarizer.generate_response(
 ```
 
 ✅ **Dialogue Generation**
+
 ```cpp
 EncoderDecoderModel dialogue;
 std::string reply = dialogue.generate_response(
@@ -555,7 +569,7 @@ std::string reply = dialogue.generate_response(
 ### Encoder Performance
 
 | Metric | Value (CPU, single-threaded) |
-|--------|------------------------------|
+| -------- | ------------------------------ |
 | Throughput | ~5000 tokens/sec |
 | Latency | O(n) with sequence length |
 | Memory | O(n × d_model) |
@@ -564,13 +578,14 @@ std::string reply = dialogue.generate_response(
 ### Decoder Performance
 
 | Metric | Value (CPU, single-threaded) |
-|--------|------------------------------|
+| -------- | ------------------------------ |
 | Throughput | ~50-100 tokens/sec (generation) |
 | Latency | O(n²) with sequence length |
 | Memory | O(n × d_model) per step |
 | Parallelization | Hard (sequential generation) |
 
 **Why Slower?**
+
 - Sequential generation (can't parallelize across tokens)
 - Repeated forward passes (one per generated token)
 - Growing sequence length
@@ -581,13 +596,13 @@ std::string reply = dialogue.generate_response(
 
 ### Current State (Encoder Only)
 
-```
+```text
 Input Text → Encoder → Embeddings → Classifier → Output Label
 ```
 
 ### After Adding Decoder
 
-```
+```text
 Option 1: Keep encoder standalone
 Input Text → Encoder → Embeddings → Classifier → Output Label
 
@@ -596,6 +611,7 @@ Input Text → Encoder → Decoder → Generated Text
 ```
 
 **No Breaking Changes:**
+
 - Existing encoder code unchanged
 - Encoder can still be used independently
 - Decoder is additive functionality
@@ -605,7 +621,7 @@ Input Text → Encoder → Decoder → Generated Text
 ## Summary Table
 
 | Feature | Encoder | Decoder |
-|---------|---------|---------|
+| --------- | --------- | --------- |
 | **Architecture** | Transformer Encoder | Transformer Decoder |
 | **Blocks** | EncoderBlock | DecoderBlock |
 | **Attention Layers/Block** | 1 (self) | 2 (self + cross) |
@@ -627,6 +643,6 @@ Input Text → Encoder → Decoder → Generated Text
 
 ---
 
-**Document Version:** 1.0  
-**Last Updated:** January 18, 2026  
+**Document Version:** 1.0
+**Last Updated:** January 18, 2026
 **Related:** DECODER_DESIGN.md, DECODER_DESIGN_SUMMARY.md

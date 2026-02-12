@@ -3,6 +3,7 @@
 ## Endpoints
 
 ### POST /chat/batch
+
 Process multiple messages (stateless)
 
 ```bash
@@ -12,6 +13,7 @@ curl -X POST http://localhost:8080/chat/batch \
 ```
 
 ### POST /chat/batch-session
+
 Process multiple messages with sessions (stateful)
 
 ```bash

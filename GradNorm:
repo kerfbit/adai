@@ -1,0 +1,645 @@
+[1;36m📚 Loading tokenizer from: vocab.txt[0m
+[BPE Tokenizer] Vocabulary loaded from vocab.txt
+  - Vocabulary size: 9999
+  - BPE merges: 9844
+  - Special tokens: 4
+[1;32m✅ Tokenizer loaded (vocab size: 9999)[0m
+[1;36m📖 Loading conversation data from: sample_training_data.txt[0m
+[1;32m✅ Loaded 7500 conversation pairs[0m
+[1;36m🔍 Validating model configuration...[0m
+[1;32m✅ Configuration validated[0m
+[1;36m🧠 Initializing transformer model...[0m
+[1;36m  d_model: 512[0m
+[1;36m  num_heads: 8[0m
+[1;36m  d_ff: 2048[0m
+[1;36m  encoder_layers: 6[0m
+[1;36m  decoder_layers: 6[0m
+[1;36m  max_seq_length: 512[0m
+[1;36m  learning_rate: 0.0003[0m
+LLM Encoder initialized with:
+  Vocab size: 9999
+  Model dimension: 512
+  Number of layers: 6
+  Number of heads: 8
+  Feed-forward dimension: 2048
+  Max sequence length: 512
+DecoderBlock initialized:
+  Model dimension: 512
+  Number of heads: 8
+  Feed-forward dimension: 2048
+DecoderBlock initialized:
+  Model dimension: 512
+  Number of heads: 8
+  Feed-forward dimension: 2048
+DecoderBlock initialized:
+  Model dimension: 512
+  Number of heads: 8
+  Feed-forward dimension: 2048
+DecoderBlock initialized:
+  Model dimension: 512
+  Number of heads: 8
+  Feed-forward dimension: 2048
+DecoderBlock initialized:
+  Model dimension: 512
+  Number of heads: 8
+  Feed-forward dimension: 2048
+DecoderBlock initialized:
+  Model dimension: 512
+  Number of heads: 8
+  Feed-forward dimension: 2048
+LanguageModelHead initialized:
+  Input dimension: 512
+  Vocabulary size: 9999
+  Parameters: 5129487
+[1;32m✅ Model initialized[0m
+[1;36m🎯 Initializing optimizer...[0m
+[1;36m  Type: AdamW[0m
+[1;36m  Learning rate: 0.0003[0m
+[1;36m  Weight decay: 0.01[0m
+[1;36m  Gradient clip norm: 1[0m
+[1;36m  Adam beta1: 0.9[0m
+[1;36m  Adam beta2: 0.999[0m
+[1;32m✅ Optimizer initialized[0m
+
+[1;32m🚀 Parallel Optimizations Status:[0m
+[1;32m  ✓ Priority 1: OpenMP CPU Parallelization (4.21x on matrix ops)[0m
+[1;36m    - Threads: 8[0m
+[1;32m  ✓ Priority 4: Attention Head Parallelism (1.3-2.0x)[0m
+[1;36m    - Parallel heads across 8 attention heads[0m
+[1;36m  ℹ  Priority 3: Batched inference available at inference time[0m
+[1;36m  ℹ  Priority 5: Pipeline parallelism available for serving[0m
+[1;36m  ℹ  Combined potential: 5.5x speedup vs sequential baseline[0m
+
+[1;36m📊 Data split (randomly shuffled):[0m
+[1;36m  Training: 6750 pairs[0m
+[1;36m  Validation: 750 pairs[0m
+[1;36m🔄 Preprocessing and tokenizing data...[0m
+[1;32m✅ Data preprocessed:[0m
+[1;36m  Training samples: 6750[0m
+[1;36m  Validation samples: 750[0m
+[1;36m📊 Learning Rate Schedule: Warmup + Cosine[0m
+[1;36m  Base LR: 0.0003[0m
+[1;36m  Warmup steps: 20250[0m
+[1;36m  Min LR: 1e-06[0m
+[1;36m  Total steps: 202500[0m
+[1;35m
+🚀 Starting training...[0m
+[1;35m═══════════════════════════════════════[0m
+[1;35m
+📈 Epoch 1/30[0m
+[1;36m  Sample 10/6750 (Update 10) - Loss: 9.197095 - Avg: 9.259703 - LR: 0.000000 - GradNorm: 6.400533[0m
+[1;36m  Sample 20/6750 (Update 20) - Loss: 9.302135 - Avg: 9.253107 - LR: 0.000000 - GradNorm: 6.113057[0m
+[1;36m  Sample 30/6750 (Update 30) - Loss: 9.257711 - Avg: 9.249364 - LR: 0.000000 - GradNorm: 6.140201[0m
+[1;36m  Sample 40/6750 (Update 40) - Loss: 9.275784 - Avg: 9.244913 - LR: 0.000001 - GradNorm: 6.190456[0m
+[1;36m  Sample 50/6750 (Update 50) - Loss: 9.155855 - Avg: 9.241184 - LR: 0.000001 - GradNorm: 6.230558[0m
+[1;36m  Sample 60/6750 (Update 60) - Loss: 9.146263 - Avg: 9.233407 - LR: 0.000001 - GradNorm: 6.237990[0m
+[1;36m  Sample 70/6750 (Update 70) - Loss: 9.206234 - Avg: 9.225111 - LR: 0.000001 - GradNorm: 6.194603[0m
+[1;36m  Sample 80/6750 (Update 80) - Loss: 9.151321 - Avg: 9.217722 - LR: 0.000001 - GradNorm: 6.206386[0m
+[1;36m  Sample 90/6750 (Update 90) - Loss: 9.077797 - Avg: 9.210461 - LR: 0.000001 - GradNorm: 6.250654[0m
+[1;36m  Sample 100/6750 (Update 100) - Loss: 9.108831 - Avg: 9.200876 - LR: 0.000001 - GradNorm: 6.222704[0m
+[1;36m  Sample 110/6750 (Update 110) - Loss: 9.016236 - Avg: 9.188047 - LR: 0.000002 - GradNorm: 6.203619[0m
+[1;36m  Sample 120/6750 (Update 120) - Loss: 9.176426 - Avg: 9.176960 - LR: 0.000002 - GradNorm: 6.208910[0m
+[1;36m  Sample 130/6750 (Update 130) - Loss: 8.967876 - Avg: 9.164207 - LR: 0.000002 - GradNorm: 6.206838[0m
+[1;36m  Sample 140/6750 (Update 140) - Loss: 9.066309 - Avg: 9.151490 - LR: 0.000002 - GradNorm: 6.211785[0m
+[1;36m  Sample 150/6750 (Update 150) - Loss: 8.869329 - Avg: 9.138148 - LR: 0.000002 - GradNorm: 6.206126[0m
+[1;36m  Sample 160/6750 (Update 160) - Loss: 8.815783 - Avg: 9.119960 - LR: 0.000002 - GradNorm: 6.217227[0m
+[1;36m  Sample 170/6750 (Update 170) - Loss: 8.691238 - Avg: 9.104814 - LR: 0.000003 - GradNorm: 6.211480[0m
+[1;36m  Sample 180/6750 (Update 180) - Loss: 8.705323 - Avg: 9.085328 - LR: 0.000003 - GradNorm: 6.203336[0m
+[1;36m  Sample 190/6750 (Update 190) - Loss: 9.080375 - Avg: 9.067254 - LR: 0.000003 - GradNorm: 6.204376[0m
+[1;36m  Sample 200/6750 (Update 200) - Loss: 8.545259 - Avg: 9.048439 - LR: 0.000003 - GradNorm: 6.190171[0m
+[1;36m  Sample 210/6750 (Update 210) - Loss: 8.597279 - Avg: 9.029495 - LR: 0.000003 - GradNorm: 6.178600[0m
+[1;36m  Sample 220/6750 (Update 220) - Loss: 8.537243 - Avg: 9.007515 - LR: 0.000003 - GradNorm: 6.197153[0m
+[1;36m  Sample 230/6750 (Update 230) - Loss: 8.326108 - Avg: 8.982946 - LR: 0.000003 - GradNorm: 6.231910[0m
+[1;36m  Sample 240/6750 (Update 240) - Loss: 8.363384 - Avg: 8.960074 - LR: 0.000004 - GradNorm: 6.249767[0m
+[1;36m  Sample 250/6750 (Update 250) - Loss: 8.249068 - Avg: 8.934078 - LR: 0.000004 - GradNorm: 6.270759[0m
+[1;36m  Sample 260/6750 (Update 260) - Loss: 8.249798 - Avg: 8.911674 - LR: 0.000004 - GradNorm: 6.274410[0m
+[1;36m  Sample 270/6750 (Update 270) - Loss: 8.138069 - Avg: 8.889295 - LR: 0.000004 - GradNorm: 6.263332[0m
+[1;36m  Sample 280/6750 (Update 280) - Loss: 7.999720 - Avg: 8.864543 - LR: 0.000004 - GradNorm: 6.269182[0m
+[1;36m  Sample 290/6750 (Update 290) - Loss: 8.107721 - Avg: 8.841578 - LR: 0.000004 - GradNorm: 6.268658[0m
+[1;36m  Sample 300/6750 (Update 300) - Loss: 8.964523 - Avg: 8.820454 - LR: 0.000004 - GradNorm: 6.273479[0m
+[1;36m  Sample 310/6750 (Update 310) - Loss: 7.856974 - Avg: 8.805115 - LR: 0.000005 - GradNorm: 6.246646[0m
+[1;36m  Sample 320/6750 (Update 320) - Loss: 7.813374 - Avg: 8.778189 - LR: 0.000005 - GradNorm: 6.263959[0m
+[1;36m  Sample 330/6750 (Update 330) - Loss: 7.774848 - Avg: 8.751715 - LR: 0.000005 - GradNorm: 6.260230[0m
+[1;36m  Sample 340/6750 (Update 340) - Loss: 8.913411 - Avg: 8.729650 - LR: 0.000005 - GradNorm: 6.256241[0m
+[1;36m  Sample 350/6750 (Update 350) - Loss: 8.748270 - Avg: 8.705488 - LR: 0.000005 - GradNorm: 6.255971[0m
+[1;36m  Sample 360/6750 (Update 360) - Loss: 7.685777 - Avg: 8.677252 - LR: 0.000005 - GradNorm: 6.271859[0m
+[1;36m  Sample 370/6750 (Update 370) - Loss: 7.567848 - Avg: 8.655815 - LR: 0.000005 - GradNorm: 6.269646[0m
+[1;36m  Sample 380/6750 (Update 380) - Loss: 7.592255 - Avg: 8.629998 - LR: 0.000006 - GradNorm: 6.273848[0m
+[1;36m  Sample 390/6750 (Update 390) - Loss: 7.545030 - Avg: 8.604165 - LR: 0.000006 - GradNorm: 6.268141[0m
+[1;36m  Sample 400/6750 (Update 400) - Loss: 8.692143 - Avg: 8.586662 - LR: 0.000006 - GradNorm: 6.244366[0m
+[1;36m  Sample 410/6750 (Update 410) - Loss: 7.424242 - Avg: 8.567953 - LR: 0.000006 - GradNorm: 6.226040[0m
+[1;36m  Sample 420/6750 (Update 420) - Loss: 7.803875 - Avg: 8.547131 - LR: 0.000006 - GradNorm: 6.215321[0m
+[1;36m  Sample 430/6750 (Update 430) - Loss: 7.461159 - Avg: 8.523728 - LR: 0.000006 - GradNorm: 6.211404[0m
+[1;36m  Sample 440/6750 (Update 440) - Loss: 8.502185 - Avg: 8.503479 - LR: 0.000007 - GradNorm: 6.206291[0m
+[1;36m  Sample 450/6750 (Update 450) - Loss: 7.292068 - Avg: 8.480454 - LR: 0.000007 - GradNorm: 6.199038[0m
+[1;36m  Sample 460/6750 (Update 460) - Loss: 7.126060 - Avg: 8.458376 - LR: 0.000007 - GradNorm: 6.190843[0m
+[1;36m  Sample 470/6750 (Update 470) - Loss: 7.004492 - Avg: 8.430124 - LR: 0.000007 - GradNorm: 6.202077[0m
+[1;36m  Sample 480/6750 (Update 480) - Loss: 7.136355 - Avg: 8.407985 - LR: 0.000007 - GradNorm: 6.194267[0m
+[1;36m  Sample 490/6750 (Update 490) - Loss: 7.674469 - Avg: 8.382928 - LR: 0.000007 - GradNorm: 6.187059[0m
+[1;36m  Sample 500/6750 (Update 500) - Loss: 6.825138 - Avg: 8.362535 - LR: 0.000007 - GradNorm: 6.174043[0m
+[1;36m  Sample 510/6750 (Update 510) - Loss: 6.941857 - Avg: 8.337911 - LR: 0.000008 - GradNorm: 6.166588[0m
+[1;36m  Sample 520/6750 (Update 520) - Loss: 8.282272 - Avg: 8.312143 - LR: 0.000008 - GradNorm: 6.171699[0m
+[1;36m  Sample 530/6750 (Update 530) - Loss: 6.756610 - Avg: 8.287360 - LR: 0.000008 - GradNorm: 6.164048[0m
+[1;36m  Sample 540/6750 (Update 540) - Loss: 6.588603 - Avg: 8.260717 - LR: 0.000008 - GradNorm: 6.165318[0m
+[1;36m  Sample 550/6750 (Update 550) - Loss: 6.709934 - Avg: 8.235399 - LR: 0.000008 - GradNorm: 6.155366[0m
+[1;36m  Sample 560/6750 (Update 560) - Loss: 6.843574 - Avg: 8.213441 - LR: 0.000008 - GradNorm: 6.135187[0m
+[1;36m  Sample 570/6750 (Update 570) - Loss: 6.605296 - Avg: 8.187953 - LR: 0.000008 - GradNorm: 6.138834[0m
+[1;36m  Sample 580/6750 (Update 580) - Loss: 6.422631 - Avg: 8.160928 - LR: 0.000009 - GradNorm: 6.154624[0m
+[1;36m  Sample 590/6750 (Update 590) - Loss: 7.003609 - Avg: 8.134875 - LR: 0.000009 - GradNorm: 6.151615[0m
+[1;36m  Sample 600/6750 (Update 600) - Loss: 8.197251 - Avg: 8.113192 - LR: 0.000009 - GradNorm: 6.139040[0m
+[1;36m  Sample 610/6750 (Update 610) - Loss: 6.198394 - Avg: 8.090776 - LR: 0.000009 - GradNorm: 6.132718[0m
+[1;36m  Sample 620/6750 (Update 620) - Loss: 7.125563 - Avg: 8.066130 - LR: 0.000009 - GradNorm: 6.128073[0m
+[1;36m  Sample 630/6750 (Update 630) - Loss: 8.024014 - Avg: 8.043311 - LR: 0.000009 - GradNorm: 6.111605[0m
+[1;36m  Sample 640/6750 (Update 640) - Loss: 7.020439 - Avg: 8.016747 - LR: 0.000009 - GradNorm: 6.113851[0m
+[1;36m  Sample 650/6750 (Update 650) - Loss: 6.568199 - Avg: 7.994061 - LR: 0.000010 - GradNorm: 6.108704[0m
+[1;36m  Sample 660/6750 (Update 660) - Loss: 5.889384 - Avg: 7.965968 - LR: 0.000010 - GradNorm: 6.109671[0m
+[1;36m  Sample 670/6750 (Update 670) - Loss: 7.875293 - Avg: 7.948113 - LR: 0.000010 - GradNorm: 6.097915[0m
+[1;36m  Sample 680/6750 (Update 680) - Loss: 6.028573 - Avg: 7.919580 - LR: 0.000010 - GradNorm: 6.101046[0m
+[1;36m  Sample 690/6750 (Update 690) - Loss: 6.471798 - Avg: 7.898235 - LR: 0.000010 - GradNorm: 6.093196[0m
+[1;36m  Sample 700/6750 (Update 700) - Loss: 5.851428 - Avg: 7.870024 - LR: 0.000010 - GradNorm: 6.094466[0m
+[1;36m  Sample 710/6750 (Update 710) - Loss: 5.723881 - Avg: 7.840576 - LR: 0.000011 - GradNorm: 6.095186[0m
+[1;36m  Sample 720/6750 (Update 720) - Loss: 8.137243 - Avg: 7.821332 - LR: 0.000011 - GradNorm: 6.086310[0m
+[1;36m  Sample 730/6750 (Update 730) - Loss: 5.808546 - Avg: 7.796633 - LR: 0.000011 - GradNorm: 6.083470[0m
+[1;36m  Sample 740/6750 (Update 740) - Loss: 5.475331 - Avg: 7.769495 - LR: 0.000011 - GradNorm: 6.082749[0m
+[1;36m  Sample 750/6750 (Update 750) - Loss: 5.414406 - Avg: 7.741252 - LR: 0.000011 - GradNorm: 6.079694[0m
+[1;36m  Sample 760/6750 (Update 760) - Loss: 6.126579 - Avg: 7.718322 - LR: 0.000011 - GradNorm: 6.068089[0m
+[1;36m  Sample 770/6750 (Update 770) - Loss: 5.261986 - Avg: 7.695487 - LR: 0.000011 - GradNorm: 6.063363[0m
+[1;36m  Sample 780/6750 (Update 780) - Loss: 5.412146 - Avg: 7.665335 - LR: 0.000012 - GradNorm: 6.067306[0m
+[1;36m  Sample 790/6750 (Update 790) - Loss: 6.031024 - Avg: 7.649320 - LR: 0.000012 - GradNorm: 6.056576[0m
+[1;36m  Sample 800/6750 (Update 800) - Loss: 5.261161 - Avg: 7.618936 - LR: 0.000012 - GradNorm: 6.057876[0m
+[1;36m  Sample 810/6750 (Update 810) - Loss: 5.956545 - Avg: 7.594863 - LR: 0.000012 - GradNorm: 6.051286[0m
+[1;36m  Sample 820/6750 (Update 820) - Loss: 5.065298 - Avg: 7.566341 - LR: 0.000012 - GradNorm: 6.064968[0m
+[1;36m  Sample 830/6750 (Update 830) - Loss: 6.036094 - Avg: 7.539209 - LR: 0.000012 - GradNorm: 6.063129[0m
+[1;36m  Sample 840/6750 (Update 840) - Loss: 7.617197 - Avg: 7.513681 - LR: 0.000012 - GradNorm: 6.061131[0m
+[1;36m  Sample 850/6750 (Update 850) - Loss: 4.939998 - Avg: 7.488528 - LR: 0.000013 - GradNorm: 6.059584[0m
+[1;36m  Sample 860/6750 (Update 860) - Loss: 4.871361 - Avg: 7.464838 - LR: 0.000013 - GradNorm: 6.049918[0m
+[1;36m  Sample 870/6750 (Update 870) - Loss: 4.729604 - Avg: 7.440734 - LR: 0.000013 - GradNorm: 6.042851[0m
+[1;36m  Sample 880/6750 (Update 880) - Loss: 5.074055 - Avg: 7.416514 - LR: 0.000013 - GradNorm: 6.036532[0m
+[1;36m  Sample 890/6750 (Update 890) - Loss: 4.917483 - Avg: 7.388888 - LR: 0.000013 - GradNorm: 6.032899[0m
+[1;36m  Sample 900/6750 (Update 900) - Loss: 4.976585 - Avg: 7.364028 - LR: 0.000013 - GradNorm: 6.026528[0m
+[1;36m  Sample 910/6750 (Update 910) - Loss: 4.720490 - Avg: 7.338275 - LR: 0.000013 - GradNorm: 6.021704[0m
+[1;36m  Sample 920/6750 (Update 920) - Loss: 4.592825 - Avg: 7.310627 - LR: 0.000014 - GradNorm: 6.024578[0m
+[1;36m  Sample 930/6750 (Update 930) - Loss: 4.494511 - Avg: 7.291173 - LR: 0.000014 - GradNorm: 6.021767[0m
+[1;36m  Sample 940/6750 (Update 940) - Loss: 4.373765 - Avg: 7.262918 - LR: 0.000014 - GradNorm: 6.024121[0m
+[1;36m  Sample 950/6750 (Update 950) - Loss: 4.608005 - Avg: 7.234048 - LR: 0.000014 - GradNorm: 6.023928[0m
+[1;36m  Sample 960/6750 (Update 960) - Loss: 7.885540 - Avg: 7.216699 - LR: 0.000014 - GradNorm: 6.014605[0m
+[1;36m  Sample 970/6750 (Update 970) - Loss: 7.519636 - Avg: 7.200107 - LR: 0.000014 - GradNorm: 6.005347[0m
+[1;36m  Sample 980/6750 (Update 980) - Loss: 4.565718 - Avg: 7.179070 - LR: 0.000015 - GradNorm: 6.003696[0m
+[1;36m  Sample 990/6750 (Update 990) - Loss: 7.600951 - Avg: 7.161730 - LR: 0.000015 - GradNorm: 5.992674[0m
+[1;36m  Sample 1000/6750 (Update 1000) - Loss: 4.370714 - Avg: 7.136627 - LR: 0.000015 - GradNorm: 5.993064[0m
+[1;36m  Sample 1010/6750 (Update 1010) - Loss: 3.987211 - Avg: 7.112069 - LR: 0.000015 - GradNorm: 5.988147[0m
+[1;36m  Sample 1020/6750 (Update 1020) - Loss: 4.255647 - Avg: 7.091523 - LR: 0.000015 - GradNorm: 5.985404[0m
+[1;36m  Sample 1030/6750 (Update 1030) - Loss: 4.075640 - Avg: 7.069756 - LR: 0.000015 - GradNorm: 5.980541[0m
+[1;36m  Sample 1040/6750 (Update 1040) - Loss: 6.051269 - Avg: 7.047259 - LR: 0.000015 - GradNorm: 5.982779[0m
+[1;36m  Sample 1050/6750 (Update 1050) - Loss: 4.506466 - Avg: 7.025584 - LR: 0.000016 - GradNorm: 5.979210[0m
+[1;36m  Sample 1060/6750 (Update 1060) - Loss: 4.316298 - Avg: 7.001157 - LR: 0.000016 - GradNorm: 5.980345[0m
+[1;36m  Sample 1070/6750 (Update 1070) - Loss: 3.894766 - Avg: 6.987115 - LR: 0.000016 - GradNorm: 5.986959[0m
+[1;36m  Sample 1080/6750 (Update 1080) - Loss: 4.032618 - Avg: 6.965892 - LR: 0.000016 - GradNorm: 5.985810[0m
+[1;36m  Sample 1090/6750 (Update 1090) - Loss: 3.793597 - Avg: 6.939618 - LR: 0.000016 - GradNorm: 5.986193[0m
+[1;36m  Sample 1100/6750 (Update 1100) - Loss: 4.257790 - Avg: 6.918498 - LR: 0.000016 - GradNorm: 5.978959[0m
+[1;36m  Sample 1110/6750 (Update 1110) - Loss: 4.051176 - Avg: 6.896458 - LR: 0.000016 - GradNorm: 5.977769[0m
+[1;36m  Sample 1120/6750 (Update 1120) - Loss: 3.879372 - Avg: 6.872634 - LR: 0.000017 - GradNorm: 5.978905[0m
+[1;36m  Sample 1130/6750 (Update 1130) - Loss: 3.721651 - Avg: 6.857157 - LR: 0.000017 - GradNorm: 5.976647[0m
+[1;36m  Sample 1140/6750 (Update 1140) - Loss: 4.002097 - Avg: 6.838907 - LR: 0.000017 - GradNorm: 5.976640[0m
+[1;36m  Sample 1150/6750 (Update 1150) - Loss: 5.899935 - Avg: 6.818262 - LR: 0.000017 - GradNorm: 5.978830[0m
+[1;36m  Sample 1160/6750 (Update 1160) - Loss: 3.520804 - Avg: 6.796776 - LR: 0.000017 - GradNorm: 5.978330[0m
+[1;36m  Sample 1170/6750 (Update 1170) - Loss: 4.757915 - Avg: 6.776192 - LR: 0.000017 - GradNorm: 5.979840[0m
+[1;36m  Sample 1180/6750 (Update 1180) - Loss: 7.548865 - Avg: 6.760352 - LR: 0.000017 - GradNorm: 5.982645[0m
+[1;36m  Sample 1190/6750 (Update 1190) - Loss: 4.715406 - Avg: 6.738257 - LR: 0.000018 - GradNorm: 5.978360[0m
+[1;36m  Sample 1200/6750 (Update 1200) - Loss: 3.647087 - Avg: 6.717541 - LR: 0.000018 - GradNorm: 5.978333[0m
+[1;36m  Sample 1210/6750 (Update 1210) - Loss: 7.900706 - Avg: 6.702370 - LR: 0.000018 - GradNorm: 5.971143[0m
+[1;36m  Sample 1220/6750 (Update 1220) - Loss: 3.484653 - Avg: 6.679117 - LR: 0.000018 - GradNorm: 5.971529[0m
+[1;36m  Sample 1230/6750 (Update 1230) - Loss: 3.642575 - Avg: 6.656201 - LR: 0.000018 - GradNorm: 5.968805[0m
+[1;36m  Sample 1240/6750 (Update 1240) - Loss: 3.385622 - Avg: 6.635889 - LR: 0.000018 - GradNorm: 5.965705[0m
+[1;36m  Sample 1250/6750 (Update 1250) - Loss: 8.551335 - Avg: 6.620181 - LR: 0.000019 - GradNorm: 5.964005[0m
+[1;36m  Sample 1260/6750 (Update 1260) - Loss: 4.405966 - Avg: 6.597863 - LR: 0.000019 - GradNorm: 5.961667[0m
+[1;36m  Sample 1270/6750 (Update 1270) - Loss: 3.976307 - Avg: 6.579520 - LR: 0.000019 - GradNorm: 5.958375[0m
+[1;36m  Sample 1280/6750 (Update 1280) - Loss: 3.994904 - Avg: 6.560161 - LR: 0.000019 - GradNorm: 5.959901[0m
+[1;36m  Sample 1290/6750 (Update 1290) - Loss: 4.419374 - Avg: 6.543244 - LR: 0.000019 - GradNorm: 5.962150[0m
+[1;36m  Sample 1300/6750 (Update 1300) - Loss: 3.404704 - Avg: 6.521132 - LR: 0.000019 - GradNorm: 5.980963[0m
+[1;36m  Sample 1310/6750 (Update 1310) - Loss: 3.896500 - Avg: 6.505711 - LR: 0.000019 - GradNorm: 5.977856[0m
+[1;36m  Sample 1320/6750 (Update 1320) - Loss: 3.295070 - Avg: 6.486303 - LR: 0.000020 - GradNorm: 5.974890[0m
+[1;36m  Sample 1330/6750 (Update 1330) - Loss: 4.175772 - Avg: 6.465235 - LR: 0.000020 - GradNorm: 5.977886[0m
+[1;36m  Sample 1340/6750 (Update 1340) - Loss: 7.815512 - Avg: 6.449845 - LR: 0.000020 - GradNorm: 5.977565[0m
+[1;36m  Sample 1350/6750 (Update 1350) - Loss: 3.156430 - Avg: 6.429237 - LR: 0.000020 - GradNorm: 5.982385[0m
+[1;36m  Sample 1360/6750 (Update 1360) - Loss: 4.331674 - Avg: 6.415483 - LR: 0.000020 - GradNorm: 5.979241[0m
+[1;36m  Sample 1370/6750 (Update 1370) - Loss: 3.888832 - Avg: 6.392299 - LR: 0.000020 - GradNorm: 5.991801[0m
+[1;36m  Sample 1380/6750 (Update 1380) - Loss: 3.438129 - Avg: 6.378257 - LR: 0.000020 - GradNorm: 5.994641[0m
+[1;36m  Sample 1390/6750 (Update 1390) - Loss: 3.110651 - Avg: 6.354475 - LR: 0.000021 - GradNorm: 5.999835[0m
+[1;36m  Sample 1400/6750 (Update 1400) - Loss: 4.308505 - Avg: 6.338760 - LR: 0.000021 - GradNorm: 5.997905[0m
+[1;36m  Sample 1410/6750 (Update 1410) - Loss: 2.969923 - Avg: 6.316412 - LR: 0.000021 - GradNorm: 5.999823[0m
+[1;36m  Sample 1420/6750 (Update 1420) - Loss: 4.185662 - Avg: 6.298685 - LR: 0.000021 - GradNorm: 6.010632[0m
+[1;36m  Sample 1430/6750 (Update 1430) - Loss: 3.020192 - Avg: 6.280958 - LR: 0.000021 - GradNorm: 6.023142[0m
+[1;36m  Sample 1440/6750 (Update 1440) - Loss: 2.991203 - Avg: 6.266457 - LR: 0.000021 - GradNorm: 6.025900[0m
+[1;36m  Sample 1450/6750 (Update 1450) - Loss: 3.102898 - Avg: 6.251363 - LR: 0.000021 - GradNorm: 6.036861[0m
+[1;36m  Sample 1460/6750 (Update 1460) - Loss: 4.372071 - Avg: 6.236899 - LR: 0.000022 - GradNorm: 6.054711[0m
+[1;36m  Sample 1470/6750 (Update 1470) - Loss: 2.715917 - Avg: 6.220379 - LR: 0.000022 - GradNorm: 6.077064[0m
+[1;36m  Sample 1480/6750 (Update 1480) - Loss: 2.571635 - Avg: 6.198662 - LR: 0.000022 - GradNorm: 6.101026[0m
+[1;36m  Sample 1490/6750 (Update 1490) - Loss: 4.184642 - Avg: 6.181338 - LR: 0.000022 - GradNorm: 6.097116[0m
+[1;36m  Sample 1500/6750 (Update 1500) - Loss: 3.008362 - Avg: 6.168563 - LR: 0.000022 - GradNorm: 6.124547[0m
+[1;36m  Sample 1510/6750 (Update 1510) - Loss: 3.455347 - Avg: 6.154580 - LR: 0.000022 - GradNorm: 6.125711[0m
+[1;36m  Sample 1520/6750 (Update 1520) - Loss: 2.984359 - Avg: 6.137936 - LR: 0.000023 - GradNorm: 6.155897[0m
+[1;36m  Sample 1530/6750 (Update 1530) - Loss: 2.805571 - Avg: 6.121491 - LR: 0.000023 - GradNorm: 6.505138[0m
+[1;36m  Sample 1540/6750 (Update 1540) - Loss: 2.521260 - Avg: 6.102568 - LR: 0.000023 - GradNorm: 6.507376[0m
+[1;36m  Sample 1550/6750 (Update 1550) - Loss: 3.241376 - Avg: 6.093285 - LR: 0.000023 - GradNorm: 6.518406[0m
+[1;36m  Sample 1560/6750 (Update 1560) - Loss: 3.379351 - Avg: 6.081769 - LR: 0.000023 - GradNorm: 6.532547[0m
+[1;36m  Sample 1570/6750 (Update 1570) - Loss: 2.252170 - Avg: 6.062858 - LR: 0.000023 - GradNorm: 6.540788[0m
+[1;36m  Sample 1580/6750 (Update 1580) - Loss: 2.223914 - Avg: 6.044861 - LR: 0.000023 - GradNorm: 6.576545[0m
+[1;36m  Sample 1590/6750 (Update 1590) - Loss: 2.124294 - Avg: 6.028589 - LR: 0.000024 - GradNorm: 6.607711[0m
+[1;36m  Sample 1600/6750 (Update 1600) - Loss: 2.914116 - Avg: 6.009071 - LR: 0.000024 - GradNorm: 6.616985[0m
+[1;36m  Sample 1610/6750 (Update 1610) - Loss: 4.268620 - Avg: 5.993614 - LR: 0.000024 - GradNorm: 6.656162[0m
+[1;36m  Sample 1620/6750 (Update 1620) - Loss: 4.187575 - Avg: 5.974774 - LR: 0.000024 - GradNorm: 6.669106[0m
+[1;36m  Sample 1630/6750 (Update 1630) - Loss: 2.680768 - Avg: 5.956269 - LR: 0.000024 - GradNorm: 6.671278[0m
+[1;36m  Sample 1640/6750 (Update 1640) - Loss: 4.087687 - Avg: 5.943479 - LR: 0.000024 - GradNorm: 6.679675[0m
+[1;36m  Sample 1650/6750 (Update 1650) - Loss: 4.033835 - Avg: 5.927887 - LR: 0.000024 - GradNorm: 6.681133[0m
+[1;36m  Sample 1660/6750 (Update 1660) - Loss: 2.331100 - Avg: 5.908752 - LR: 0.000025 - GradNorm: 6.686117[0m
+[1;36m  Sample 1670/6750 (Update 1670) - Loss: 2.630568 - Avg: 5.895278 - LR: 0.000025 - GradNorm: 6.691187[0m
+[1;36m  Sample 1680/6750 (Update 1680) - Loss: 2.202459 - Avg: 5.880672 - LR: 0.000025 - GradNorm: 6.767867[0m
+[1;36m  Sample 1690/6750 (Update 1690) - Loss: 4.210343 - Avg: 5.865330 - LR: 0.000025 - GradNorm: 6.793526[0m
+[1;36m  Sample 1700/6750 (Update 1700) - Loss: 2.924861 - Avg: 5.849004 - LR: 0.000025 - GradNorm: 6.825039[0m
+[1;36m  Sample 1710/6750 (Update 1710) - Loss: 1.853866 - Avg: 5.832106 - LR: 0.000025 - GradNorm: 6.840433[0m
+[1;36m  Sample 1720/6750 (Update 1720) - Loss: 7.866231 - Avg: 5.817648 - LR: 0.000025 - GradNorm: 6.845294[0m
+[1;36m  Sample 1730/6750 (Update 1730) - Loss: 4.162008 - Avg: 5.804615 - LR: 0.000026 - GradNorm: 6.885571[0m
+[1;36m  Sample 1740/6750 (Update 1740) - Loss: 7.445525 - Avg: 5.795365 - LR: 0.000026 - GradNorm: 6.907017[0m
+[1;36m  Sample 1750/6750 (Update 1750) - Loss: 2.742698 - Avg: 5.778854 - LR: 0.000026 - GradNorm: 6.949573[0m
+[1;36m  Sample 1760/6750 (Update 1760) - Loss: 4.107514 - Avg: 5.764709 - LR: 0.000026 - GradNorm: 6.977656[0m
+[1;36m  Sample 1770/6750 (Update 1770) - Loss: 2.238755 - Avg: 5.749125 - LR: 0.000026 - GradNorm: 7.052098[0m
+[1;36m  Sample 1780/6750 (Update 1780) - Loss: 2.807549 - Avg: 5.734184 - LR: 0.000026 - GradNorm: 7.065413[0m
+[1;36m  Sample 1790/6750 (Update 1790) - Loss: 2.016646 - Avg: 5.716504 - LR: 0.000027 - GradNorm: 7.080904[0m
+[1;36m  Sample 1800/6750 (Update 1800) - Loss: 2.312248 - Avg: 5.701988 - LR: 0.000027 - GradNorm: 7.096114[0m
+[1;36m  Sample 1810/6750 (Update 1810) - Loss: 1.951716 - Avg: 5.690424 - LR: 0.000027 - GradNorm: 7.113773[0m
+[1;36m  Sample 1820/6750 (Update 1820) - Loss: 2.068806 - Avg: 5.671747 - LR: 0.000027 - GradNorm: 7.124489[0m
+[1;36m  Sample 1830/6750 (Update 1830) - Loss: 2.089582 - Avg: 5.653644 - LR: 0.000027 - GradNorm: 7.129386[0m
+[1;36m  Sample 1840/6750 (Update 1840) - Loss: 4.064210 - Avg: 5.643562 - LR: 0.000027 - GradNorm: 7.135451[0m
+[1;36m  Sample 1850/6750 (Update 1850) - Loss: 2.961419 - Avg: 5.631601 - LR: 0.000027 - GradNorm: 7.138785[0m
+[1;36m  Sample 1860/6750 (Update 1860) - Loss: 3.881512 - Avg: 5.621318 - LR: 0.000028 - GradNorm: 7.706670[0m
+[1;36m  Sample 1870/6750 (Update 1870) - Loss: 2.396271 - Avg: 5.609694 - LR: 0.000028 - GradNorm: 7.749323[0m
+[1;36m  Sample 1880/6750 (Update 1880) - Loss: 7.816976 - Avg: 5.595896 - LR: 0.000028 - GradNorm: 7.760422[0m
+[1;36m  Sample 1890/6750 (Update 1890) - Loss: 4.282204 - Avg: 5.590523 - LR: 0.000028 - GradNorm: 7.765332[0m
+[1;36m  Sample 1900/6750 (Update 1900) - Loss: 2.196943 - Avg: 5.573771 - LR: 0.000028 - GradNorm: 7.776398[0m
+[1;36m  Sample 1910/6750 (Update 1910) - Loss: 3.869541 - Avg: 5.558584 - LR: 0.000028 - GradNorm: 7.796245[0m
+[1;36m  Sample 1920/6750 (Update 1920) - Loss: 2.367538 - Avg: 5.543877 - LR: 0.000028 - GradNorm: 7.813280[0m
+[1;36m  Sample 1930/6750 (Update 1930) - Loss: 7.721807 - Avg: 5.531643 - LR: 0.000029 - GradNorm: 7.822689[0m
+[1;36m  Sample 1940/6750 (Update 1940) - Loss: 2.107829 - Avg: 5.519627 - LR: 0.000029 - GradNorm: 7.839576[0m
+[1;36m  Sample 1950/6750 (Update 1950) - Loss: 1.771240 - Avg: 5.505630 - LR: 0.000029 - GradNorm: 7.849343[0m
+[1;36m  Sample 1960/6750 (Update 1960) - Loss: 2.503180 - Avg: 5.489891 - LR: 0.000029 - GradNorm: 7.847391[0m
+[1;36m  Sample 1970/6750 (Update 1970) - Loss: 2.485663 - Avg: 5.475478 - LR: 0.000029 - GradNorm: 7.849612[0m
+[1;36m  Sample 1980/6750 (Update 1980) - Loss: 7.449333 - Avg: 5.470556 - LR: 0.000029 - GradNorm: 7.862695[0m
+[1;36m  Sample 1990/6750 (Update 1990) - Loss: 2.069929 - Avg: 5.458041 - LR: 0.000029 - GradNorm: 7.910536[0m
+[1;36m  Sample 2000/6750 (Update 2000) - Loss: 1.747830 - Avg: 5.445650 - LR: 0.000030 - GradNorm: 7.925238[0m
+[1;36m  Sample 2010/6750 (Update 2010) - Loss: 3.669952 - Avg: 5.430997 - LR: 0.000030 - GradNorm: 7.956497[0m
+[1;36m  Sample 2020/6750 (Update 2020) - Loss: 3.613026 - Avg: 5.419241 - LR: 0.000030 - GradNorm: 7.961246[0m
+[1;36m  Sample 2030/6750 (Update 2030) - Loss: 7.205324 - Avg: 5.407034 - LR: 0.000030 - GradNorm: 7.985116[0m
+[1;36m  Sample 2040/6750 (Update 2040) - Loss: 1.741087 - Avg: 5.396704 - LR: 0.000030 - GradNorm: 8.028884[0m
+[1;36m  Sample 2050/6750 (Update 2050) - Loss: 1.928046 - Avg: 5.384648 - LR: 0.000030 - GradNorm: 8.052965[0m
+[1;36m  Sample 2060/6750 (Update 2060) - Loss: 2.168386 - Avg: 5.367906 - LR: 0.000031 - GradNorm: 8.065451[0m
+[1;36m  Sample 2070/6750 (Update 2070) - Loss: 7.364929 - Avg: 5.356016 - LR: 0.000031 - GradNorm: 8.090346[0m
+[1;36m  Sample 2080/6750 (Update 2080) - Loss: 2.623827 - Avg: 5.341075 - LR: 0.000031 - GradNorm: 8.104484[0m
+[1;36m  Sample 2090/6750 (Update 2090) - Loss: 1.432700 - Avg: 5.329804 - LR: 0.000031 - GradNorm: 8.147988[0m
+[1;36m  Sample 2100/6750 (Update 2100) - Loss: 2.474902 - Avg: 5.318511 - LR: 0.000031 - GradNorm: 8.211967[0m
+[1;36m  Sample 2110/6750 (Update 2110) - Loss: 1.487291 - Avg: 5.305136 - LR: 0.000031 - GradNorm: 8.239598[0m
+[1;36m  Sample 2120/6750 (Update 2120) - Loss: 2.217273 - Avg: 5.292385 - LR: 0.000031 - GradNorm: 8.274723[0m
+[1;36m  Sample 2130/6750 (Update 2130) - Loss: 3.522185 - Avg: 5.282404 - LR: 0.000032 - GradNorm: 8.318625[0m
+[1;36m  Sample 2140/6750 (Update 2140) - Loss: 2.383788 - Avg: 5.266572 - LR: 0.000032 - GradNorm: 8.333942[0m
+[1;36m  Sample 2150/6750 (Update 2150) - Loss: 1.065269 - Avg: 5.254459 - LR: 0.000032 - GradNorm: 8.353228[0m
+[1;36m  Sample 2160/6750 (Update 2160) - Loss: 1.858690 - Avg: 5.239560 - LR: 0.000032 - GradNorm: 8.358213[0m
+[1;36m  Sample 2170/6750 (Update 2170) - Loss: 1.406384 - Avg: 5.224396 - LR: 0.000032 - GradNorm: 8.376889[0m
+[1;36m  Sample 2180/6750 (Update 2180) - Loss: 1.320306 - Avg: 5.212439 - LR: 0.000032 - GradNorm: 8.379937[0m
+[1;36m  Sample 2190/6750 (Update 2190) - Loss: 3.973630 - Avg: 5.201186 - LR: 0.000032 - GradNorm: 8.389505[0m
+[1;36m  Sample 2200/6750 (Update 2200) - Loss: 1.606161 - Avg: 5.191247 - LR: 0.000033 - GradNorm: 8.406709[0m
+[1;36m  Sample 2210/6750 (Update 2210) - Loss: 3.486703 - Avg: 5.181921 - LR: 0.000033 - GradNorm: 8.414568[0m
+[1;36m  Sample 2220/6750 (Update 2220) - Loss: 1.816385 - Avg: 5.168596 - LR: 0.000033 - GradNorm: 8.417323[0m
+[1;36m  Sample 2230/6750 (Update 2230) - Loss: 3.474849 - Avg: 5.154988 - LR: 0.000033 - GradNorm: 8.467236[0m
+[1;36m  Sample 2240/6750 (Update 2240) - Loss: 1.513668 - Avg: 5.141078 - LR: 0.000033 - GradNorm: 8.487796[0m
+[1;36m  Sample 2250/6750 (Update 2250) - Loss: 2.161764 - Avg: 5.127188 - LR: 0.000033 - GradNorm: 8.848694[0m
+[1;36m  Sample 2260/6750 (Update 2260) - Loss: 7.791852 - Avg: 5.120428 - LR: 0.000033 - GradNorm: 8.895258[0m
+[1;36m  Sample 2270/6750 (Update 2270) - Loss: 1.838643 - Avg: 5.106558 - LR: 0.000034 - GradNorm: 8.922913[0m
+[1;36m  Sample 2280/6750 (Update 2280) - Loss: 1.227887 - Avg: 5.095157 - LR: 0.000034 - GradNorm: 8.953950[0m
+[1;36m  Sample 2290/6750 (Update 2290) - Loss: 1.194201 - Avg: 5.086599 - LR: 0.000034 - GradNorm: 8.968946[0m
+[1;36m  Sample 2300/6750 (Update 2300) - Loss: 2.398027 - Avg: 5.071651 - LR: 0.000034 - GradNorm: 8.996927[0m
+[1;36m  Sample 2310/6750 (Update 2310) - Loss: 7.973832 - Avg: 5.060092 - LR: 0.000034 - GradNorm: 9.002877[0m
+[1;36m  Sample 2320/6750 (Update 2320) - Loss: 1.804714 - Avg: 5.050821 - LR: 0.000034 - GradNorm: 9.025737[0m
+[1;36m  Sample 2330/6750 (Update 2330) - Loss: 1.488784 - Avg: 5.036999 - LR: 0.000035 - GradNorm: 9.071563[0m
+[1;36m  Sample 2340/6750 (Update 2340) - Loss: 1.000571 - Avg: 5.024491 - LR: 0.000035 - GradNorm: 9.084242[0m
+[1;36m  Sample 2350/6750 (Update 2350) - Loss: 1.051973 - Avg: 5.012199 - LR: 0.000035 - GradNorm: 9.100691[0m
+[1;36m  Sample 2360/6750 (Update 2360) - Loss: 5.623922 - Avg: 4.997538 - LR: 0.000035 - GradNorm: 9.096158[0m
+[1;36m  Sample 2370/6750 (Update 2370) - Loss: 4.044096 - Avg: 4.986372 - LR: 0.000035 - GradNorm: 9.106643[0m
+[1;36m  Sample 2380/6750 (Update 2380) - Loss: 3.387137 - Avg: 4.974650 - LR: 0.000035 - GradNorm: 9.115871[0m
+[1;36m  Sample 2390/6750 (Update 2390) - Loss: 3.487118 - Avg: 4.961796 - LR: 0.000035 - GradNorm: 9.120723[0m
+[1;36m  Sample 2400/6750 (Update 2400) - Loss: 8.288543 - Avg: 4.949461 - LR: 0.000036 - GradNorm: 9.161028[0m
+[1;36m  Sample 2410/6750 (Update 2410) - Loss: 1.390238 - Avg: 4.939270 - LR: 0.000036 - GradNorm: 9.189983[0m
+[1;36m  Sample 2420/6750 (Update 2420) - Loss: 1.523540 - Avg: 4.928828 - LR: 0.000036 - GradNorm: 9.211259[0m
+[1;36m  Sample 2430/6750 (Update 2430) - Loss: 1.526207 - Avg: 4.915361 - LR: 0.000036 - GradNorm: 9.232341[0m
+[1;36m  Sample 2440/6750 (Update 2440) - Loss: 1.519895 - Avg: 4.903363 - LR: 0.000036 - GradNorm: 9.235225[0m
+[1;36m  Sample 2450/6750 (Update 2450) - Loss: 3.593300 - Avg: 4.895011 - LR: 0.000036 - GradNorm: 9.295671[0m
+[1;36m  Sample 2460/6750 (Update 2460) - Loss: 7.648815 - Avg: 4.890124 - LR: 0.000036 - GradNorm: 9.337651[0m
+[1;36m  Sample 2470/6750 (Update 2470) - Loss: 1.656845 - Avg: 4.879685 - LR: 0.000037 - GradNorm: 9.381871[0m
+[1;36m  Sample 2480/6750 (Update 2480) - Loss: 7.377278 - Avg: 4.868742 - LR: 0.000037 - GradNorm: 9.399322[0m
+[1;36m  Sample 2490/6750 (Update 2490) - Loss: 0.862338 - Avg: 4.855752 - LR: 0.000037 - GradNorm: 9.442054[0m
+[1;36m  Sample 2500/6750 (Update 2500) - Loss: 0.874593 - Avg: 4.841506 - LR: 0.000037 - GradNorm: 9.474327[0m
+[1;36m  Sample 2510/6750 (Update 2510) - Loss: 0.768734 - Avg: 4.828538 - LR: 0.000037 - GradNorm: 9.473203[0m
+[1;36m  Sample 2520/6750 (Update 2520) - Loss: 1.922215 - Avg: 4.821419 - LR: 0.000037 - GradNorm: 9.506289[0m
+[1;36m  Sample 2530/6750 (Update 2530) - Loss: 1.290743 - Avg: 4.811724 - LR: 0.000037 - GradNorm: 9.506870[0m
+[1;36m  Sample 2540/6750 (Update 2540) - Loss: 3.196587 - Avg: 4.801817 - LR: 0.000038 - GradNorm: 9.504947[0m
+[1;36m  Sample 2550/6750 (Update 2550) - Loss: 3.549191 - Avg: 4.793199 - LR: 0.000038 - GradNorm: 9.532900[0m
+[1;36m  Sample 2560/6750 (Update 2560) - Loss: 1.307353 - Avg: 4.782069 - LR: 0.000038 - GradNorm: 9.540036[0m
+[1;36m  Sample 2570/6750 (Update 2570) - Loss: 7.505814 - Avg: 4.770380 - LR: 0.000038 - GradNorm: 9.555347[0m
+[1;36m  Sample 2580/6750 (Update 2580) - Loss: 0.823997 - Avg: 4.761077 - LR: 0.000038 - GradNorm: 9.566184[0m
+[1;36m  Sample 2590/6750 (Update 2590) - Loss: 0.649257 - Avg: 4.748023 - LR: 0.000038 - GradNorm: 9.565969[0m
+[1;36m  Sample 2600/6750 (Update 2600) - Loss: 3.159274 - Avg: 4.739333 - LR: 0.000039 - GradNorm: 9.576559[0m
+[1;36m  Sample 2610/6750 (Update 2610) - Loss: 8.163547 - Avg: 4.731768 - LR: 0.000039 - GradNorm: 9.621709[0m
+[1;36m  Sample 2620/6750 (Update 2620) - Loss: 1.770296 - Avg: 4.721031 - LR: 0.000039 - GradNorm: 9.651670[0m
+[1;36m  Sample 2630/6750 (Update 2630) - Loss: 1.760947 - Avg: 4.710972 - LR: 0.000039 - GradNorm: 9.676702[0m
+[1;36m  Sample 2640/6750 (Update 2640) - Loss: 0.625089 - Avg: 4.697621 - LR: 0.000039 - GradNorm: 9.696392[0m
+[1;36m  Sample 2650/6750 (Update 2650) - Loss: 1.416337 - Avg: 4.687560 - LR: 0.000039 - GradNorm: 9.711553[0m
+[1;36m  Sample 2660/6750 (Update 2660) - Loss: 6.994468 - Avg: 4.680357 - LR: 0.000039 - GradNorm: 9.728539[0m
+[1;36m  Sample 2670/6750 (Update 2670) - Loss: 3.532093 - Avg: 4.672287 - LR: 0.000040 - GradNorm: 9.795046[0m
+[1;36m  Sample 2680/6750 (Update 2680) - Loss: 1.798020 - Avg: 4.660871 - LR: 0.000040 - GradNorm: 9.845026[0m
+[1;36m  Sample 2690/6750 (Update 2690) - Loss: 7.828504 - Avg: 4.652821 - LR: 0.000040 - GradNorm: 9.862593[0m
+[1;36m  Sample 2700/6750 (Update 2700) - Loss: 0.776493 - Avg: 4.640525 - LR: 0.000040 - GradNorm: 9.880600[0m
+[1;36m  Sample 2710/6750 (Update 2710) - Loss: 7.479674 - Avg: 4.630947 - LR: 0.000040 - GradNorm: 9.881274[0m
+[1;36m  Sample 2720/6750 (Update 2720) - Loss: 0.926035 - Avg: 4.622976 - LR: 0.000040 - GradNorm: 9.881717[0m
+[1;36m  Sample 2730/6750 (Update 2730) - Loss: 3.252241 - Avg: 4.614432 - LR: 0.000040 - GradNorm: 9.956669[0m
+[1;36m  Sample 2740/6750 (Update 2740) - Loss: 1.525588 - Avg: 4.601541 - LR: 0.000041 - GradNorm: 9.965935[0m
+[1;36m  Sample 2750/6750 (Update 2750) - Loss: 0.832353 - Avg: 4.591954 - LR: 0.000041 - GradNorm: 9.965934[0m
+[1;36m  Sample 2760/6750 (Update 2760) - Loss: 0.673302 - Avg: 4.583922 - LR: 0.000041 - GradNorm: 9.964102[0m
+[1;36m  Sample 2770/6750 (Update 2770) - Loss: 0.520860 - Avg: 4.571754 - LR: 0.000041 - GradNorm: 9.986726[0m
+[1;36m  Sample 2780/6750 (Update 2780) - Loss: 1.576292 - Avg: 4.565166 - LR: 0.000041 - GradNorm: 9.997822[0m
+[1;36m  Sample 2790/6750 (Update 2790) - Loss: 1.006876 - Avg: 4.559128 - LR: 0.000041 - GradNorm: 9.995349[0m
+[1;36m  Sample 2800/6750 (Update 2800) - Loss: 1.818416 - Avg: 4.554011 - LR: 0.000041 - GradNorm: 10.045822[0m
+[1;36m  Sample 2810/6750 (Update 2810) - Loss: 3.539050 - Avg: 4.548444 - LR: 0.000042 - GradNorm: 10.058678[0m
+[1;36m  Sample 2820/6750 (Update 2820) - Loss: 1.455455 - Avg: 4.539485 - LR: 0.000042 - GradNorm: 10.065357[0m
+[1;36m  Sample 2830/6750 (Update 2830) - Loss: 0.560621 - Avg: 4.533356 - LR: 0.000042 - GradNorm: 10.062225[0m
+[1;36m  Sample 2840/6750 (Update 2840) - Loss: 0.762959 - Avg: 4.524085 - LR: 0.000042 - GradNorm: 10.087101[0m
+[1;36m  Sample 2850/6750 (Update 2850) - Loss: 0.529155 - Avg: 4.516375 - LR: 0.000042 - GradNorm: 10.121306[0m
+[1;36m  Sample 2860/6750 (Update 2860) - Loss: 2.377639 - Avg: 4.510428 - LR: 0.000042 - GradNorm: 10.207157[0m
+[1;36m  Sample 2870/6750 (Update 2870) - Loss: 7.247941 - Avg: 4.507568 - LR: 0.000043 - GradNorm: 10.220796[0m
+[1;36m  Sample 2880/6750 (Update 2880) - Loss: 3.573906 - Avg: 4.498876 - LR: 0.000043 - GradNorm: 10.235826[0m
+[1;36m  Sample 2890/6750 (Update 2890) - Loss: 7.359978 - Avg: 4.489643 - LR: 0.000043 - GradNorm: 10.262134[0m
+[1;36m  Sample 2900/6750 (Update 2900) - Loss: 0.485873 - Avg: 4.480376 - LR: 0.000043 - GradNorm: 10.275473[0m
+[1;36m  Sample 2910/6750 (Update 2910) - Loss: 3.395092 - Avg: 4.470683 - LR: 0.000043 - GradNorm: 10.272087[0m
+[1;36m  Sample 2920/6750 (Update 2920) - Loss: 0.561707 - Avg: 4.459015 - LR: 0.000043 - GradNorm: 10.295345[0m
+[1;36m  Sample 2930/6750 (Update 2930) - Loss: 1.248334 - Avg: 4.451769 - LR: 0.000043 - GradNorm: 10.316465[0m
+[1;36m  Sample 2940/6750 (Update 2940) - Loss: 1.524271 - Avg: 4.443608 - LR: 0.000044 - GradNorm: 10.344626[0m
+[1;36m  Sample 2950/6750 (Update 2950) - Loss: 1.620500 - Avg: 4.437549 - LR: 0.000044 - GradNorm: 10.398575[0m
+[1;36m  Sample 2960/6750 (Update 2960) - Loss: 1.177261 - Avg: 4.430340 - LR: 0.000044 - GradNorm: 10.403298[0m
+[1;36m  Sample 2970/6750 (Update 2970) - Loss: 1.085757 - Avg: 4.419854 - LR: 0.000044 - GradNorm: 10.486844[0m
+[1;36m  Sample 2980/6750 (Update 2980) - Loss: 2.930027 - Avg: 4.412474 - LR: 0.000044 - GradNorm: 10.477273[0m
+[1;36m  Sample 2990/6750 (Update 2990) - Loss: 0.942135 - Avg: 4.401109 - LR: 0.000044 - GradNorm: 10.482306[0m
+[1;36m  Sample 3000/6750 (Update 3000) - Loss: 7.126601 - Avg: 4.392081 - LR: 0.000044 - GradNorm: 10.498574[0m
+[1;36m  Sample 3010/6750 (Update 3010) - Loss: 8.154922 - Avg: 4.386222 - LR: 0.000045 - GradNorm: 10.515908[0m
+[1;36m  Sample 3020/6750 (Update 3020) - Loss: 2.424875 - Avg: 4.382441 - LR: 0.000045 - GradNorm: 10.558147[0m
+[1;36m  Sample 3030/6750 (Update 3030) - Loss: 0.565177 - Avg: 4.372999 - LR: 0.000045 - GradNorm: 10.568603[0m
+[1;36m  Sample 3040/6750 (Update 3040) - Loss: 0.696672 - Avg: 4.365326 - LR: 0.000045 - GradNorm: 10.593470[0m
+[1;36m  Sample 3050/6750 (Update 3050) - Loss: 7.238331 - Avg: 4.357364 - LR: 0.000045 - GradNorm: 10.586168[0m
+[1;36m  Sample 3060/6750 (Update 3060) - Loss: 1.240780 - Avg: 4.347167 - LR: 0.000045 - GradNorm: 10.605082[0m
+[1;36m  Sample 3070/6750 (Update 3070) - Loss: 2.853998 - Avg: 4.339606 - LR: 0.000045 - GradNorm: 10.618446[0m
+[1;36m  Sample 3080/6750 (Update 3080) - Loss: 1.436721 - Avg: 4.331452 - LR: 0.000046 - GradNorm: 10.643983[0m
+[1;36m  Sample 3090/6750 (Update 3090) - Loss: 2.699118 - Avg: 4.324059 - LR: 0.000046 - GradNorm: 10.644500[0m
+[1;36m  Sample 3100/6750 (Update 3100) - Loss: 1.205769 - Avg: 4.318360 - LR: 0.000046 - GradNorm: 10.655886[0m
+[1;36m  Sample 3110/6750 (Update 3110) - Loss: 0.919863 - Avg: 4.308920 - LR: 0.000046 - GradNorm: 10.666942[0m
+[1;36m  Sample 3120/6750 (Update 3120) - Loss: 0.692385 - Avg: 4.298120 - LR: 0.000046 - GradNorm: 10.679178[0m
+[1;36m  Sample 3130/6750 (Update 3130) - Loss: 0.883100 - Avg: 4.291838 - LR: 0.000046 - GradNorm: 10.679259[0m
+[1;36m  Sample 3140/6750 (Update 3140) - Loss: 0.825341 - Avg: 4.282076 - LR: 0.000047 - GradNorm: 10.683766[0m
+[1;36m  Sample 3150/6750 (Update 3150) - Loss: 1.315260 - Avg: 4.273512 - LR: 0.000047 - GradNorm: 10.719628[0m
+[1;36m  Sample 3160/6750 (Update 3160) - Loss: 0.805120 - Avg: 4.264060 - LR: 0.000047 - GradNorm: 10.772628[0m
+[1;36m  Sample 3170/6750 (Update 3170) - Loss: 0.987514 - Avg: 4.256188 - LR: 0.000047 - GradNorm: 10.792424[0m
+[1;36m  Sample 3180/6750 (Update 3180) - Loss: 0.675100 - Avg: 4.249336 - LR: 0.000047 - GradNorm: 10.812214[0m
+[1;36m  Sample 3190/6750 (Update 3190) - Loss: 1.283755 - Avg: 4.239873 - LR: 0.000047 - GradNorm: 10.835226[0m
+[1;36m  Sample 3200/6750 (Update 3200) - Loss: 0.527646 - Avg: 4.231441 - LR: 0.000047 - GradNorm: 10.854156[0m
+[1;36m  Sample 3210/6750 (Update 3210) - Loss: 1.258685 - Avg: 4.222654 - LR: 0.000048 - GradNorm: 10.848563[0m
+[1;36m  Sample 3220/6750 (Update 3220) - Loss: 0.405280 - Avg: 4.215434 - LR: 0.000048 - GradNorm: 10.849850[0m
+[1;36m  Sample 3230/6750 (Update 3230) - Loss: 1.270783 - Avg: 4.206331 - LR: 0.000048 - GradNorm: 10.846001[0m
+[1;36m  Sample 3240/6750 (Update 3240) - Loss: 1.107363 - Avg: 4.198508 - LR: 0.000048 - GradNorm: 10.853122[0m
+[1;36m  Sample 3250/6750 (Update 3250) - Loss: 1.161067 - Avg: 4.190917 - LR: 0.000048 - GradNorm: 10.888021[0m
+[1;36m  Sample 3260/6750 (Update 3260) - Loss: 0.594507 - Avg: 4.183708 - LR: 0.000048 - GradNorm: 10.891968[0m
+[1;36m  Sample 3270/6750 (Update 3270) - Loss: 1.103508 - Avg: 4.175160 - LR: 0.000048 - GradNorm: 10.899614[0m
+[1;36m  Sample 3280/6750 (Update 3280) - Loss: 0.800491 - Avg: 4.167476 - LR: 0.000049 - GradNorm: 10.969817[0m
+[1;36m  Sample 3290/6750 (Update 3290) - Loss: 0.367561 - Avg: 4.159738 - LR: 0.000049 - GradNorm: 10.981407[0m
+[1;36m  Sample 3300/6750 (Update 3300) - Loss: 2.740818 - Avg: 4.150488 - LR: 0.000049 - GradNorm: 10.991959[0m
+[1;36m  Sample 3310/6750 (Update 3310) - Loss: 2.890590 - Avg: 4.142119 - LR: 0.000049 - GradNorm: 11.009696[0m
+[1;36m  Sample 3320/6750 (Update 3320) - Loss: 7.261374 - Avg: 4.138685 - LR: 0.000049 - GradNorm: 11.009246[0m
+[1;36m  Sample 3330/6750 (Update 3330) - Loss: 2.671500 - Avg: 4.132640 - LR: 0.000049 - GradNorm: 11.004992[0m
+[1;36m  Sample 3340/6750 (Update 3340) - Loss: 3.127747 - Avg: 4.125749 - LR: 0.000049 - GradNorm: 11.008777[0m
+[1;36m  Sample 3350/6750 (Update 3350) - Loss: 0.633298 - Avg: 4.117995 - LR: 0.000050 - GradNorm: 11.014798[0m
+[1;36m  Sample 3360/6750 (Update 3360) - Loss: 3.115820 - Avg: 4.112993 - LR: 0.000050 - GradNorm: 11.029286[0m
+[1;36m  Sample 3370/6750 (Update 3370) - Loss: 0.830605 - Avg: 4.107158 - LR: 0.000050 - GradNorm: 11.043489[0m
+[1;36m  Sample 3380/6750 (Update 3380) - Loss: 2.653881 - Avg: 4.101789 - LR: 0.000050 - GradNorm: 11.050946[0m
+[1;36m  Sample 3390/6750 (Update 3390) - Loss: 1.485916 - Avg: 4.097004 - LR: 0.000050 - GradNorm: 11.066422[0m
+[1;36m  Sample 3400/6750 (Update 3400) - Loss: 1.006492 - Avg: 4.091606 - LR: 0.000050 - GradNorm: 11.064107[0m
+[1;36m  Sample 3410/6750 (Update 3410) - Loss: 2.817044 - Avg: 4.086522 - LR: 0.000051 - GradNorm: 11.090301[0m
+[1;36m  Sample 3420/6750 (Update 3420) - Loss: 7.628801 - Avg: 4.079461 - LR: 0.000051 - GradNorm: 11.089624[0m
+[1;36m  Sample 3430/6750 (Update 3430) - Loss: 1.231463 - Avg: 4.071934 - LR: 0.000051 - GradNorm: 11.111583[0m
+[1;36m  Sample 3440/6750 (Update 3440) - Loss: 5.328978 - Avg: 4.064904 - LR: 0.000051 - GradNorm: 11.122111[0m
+[1;36m  Sample 3450/6750 (Update 3450) - Loss: 2.771661 - Avg: 4.061602 - LR: 0.000051 - GradNorm: 11.149990[0m
+[1;36m  Sample 3460/6750 (Update 3460) - Loss: 1.762623 - Avg: 4.056853 - LR: 0.000051 - GradNorm: 11.167248[0m
+[1;36m  Sample 3470/6750 (Update 3470) - Loss: 0.739442 - Avg: 4.051796 - LR: 0.000051 - GradNorm: 11.170264[0m
+[1;36m  Sample 3480/6750 (Update 3480) - Loss: 0.841006 - Avg: 4.043832 - LR: 0.000052 - GradNorm: 11.215003[0m
+[1;36m  Sample 3490/6750 (Update 3490) - Loss: 2.784731 - Avg: 4.035699 - LR: 0.000052 - GradNorm: 11.230783[0m
+[1;36m  Sample 3500/6750 (Update 3500) - Loss: 2.679672 - Avg: 4.029140 - LR: 0.000052 - GradNorm: 11.374159[0m
+[1;36m  Sample 3510/6750 (Update 3510) - Loss: 0.431920 - Avg: 4.025210 - LR: 0.000052 - GradNorm: 11.377095[0m
+[1;36m  Sample 3520/6750 (Update 3520) - Loss: 2.298254 - Avg: 4.020319 - LR: 0.000052 - GradNorm: 11.389977[0m
+[1;36m  Sample 3530/6750 (Update 3530) - Loss: 1.049301 - Avg: 4.013905 - LR: 0.000052 - GradNorm: 11.408125[0m
+[1;36m  Sample 3540/6750 (Update 3540) - Loss: 0.411545 - Avg: 4.007187 - LR: 0.000052 - GradNorm: 11.424110[0m
+[1;36m  Sample 3550/6750 (Update 3550) - Loss: 1.056849 - Avg: 4.001384 - LR: 0.000053 - GradNorm: 11.448174[0m
+[1;36m  Sample 3560/6750 (Update 3560) - Loss: 2.419243 - Avg: 3.995529 - LR: 0.000053 - GradNorm: 11.471984[0m
+[1;36m  Sample 3570/6750 (Update 3570) - Loss: 0.793055 - Avg: 3.989087 - LR: 0.000053 - GradNorm: 11.472710[0m
+[1;36m  Sample 3580/6750 (Update 3580) - Loss: 1.211773 - Avg: 3.984782 - LR: 0.000053 - GradNorm: 11.558850[0m
+[1;36m  Sample 3590/6750 (Update 3590) - Loss: 0.753333 - Avg: 3.975849 - LR: 0.000053 - GradNorm: 11.585358[0m
+[1;36m  Sample 3600/6750 (Update 3600) - Loss: 0.747532 - Avg: 3.969286 - LR: 0.000053 - GradNorm: 11.598457[0m
+[1;36m  Sample 3610/6750 (Update 3610) - Loss: 0.249413 - Avg: 3.961237 - LR: 0.000053 - GradNorm: 11.594816[0m
+[1;36m  Sample 3620/6750 (Update 3620) - Loss: 0.477279 - Avg: 3.954422 - LR: 0.000054 - GradNorm: 11.591260[0m
+[1;36m  Sample 3630/6750 (Update 3630) - Loss: 2.909479 - Avg: 3.952363 - LR: 0.000054 - GradNorm: 11.612072[0m
+[1;36m  Sample 3640/6750 (Update 3640) - Loss: 7.392010 - Avg: 3.948910 - LR: 0.000054 - GradNorm: 11.618972[0m
+[1;36m  Sample 3650/6750 (Update 3650) - Loss: 2.511239 - Avg: 3.943765 - LR: 0.000054 - GradNorm: 11.615086[0m
+[1;36m  Sample 3660/6750 (Update 3660) - Loss: 0.473402 - Avg: 3.936987 - LR: 0.000054 - GradNorm: 11.615170[0m
+[1;36m  Sample 3670/6750 (Update 3670) - Loss: 0.805822 - Avg: 3.931764 - LR: 0.000054 - GradNorm: 11.627952[0m
+[1;36m  Sample 3680/6750 (Update 3680) - Loss: 0.238726 - Avg: 3.925643 - LR: 0.000055 - GradNorm: 11.624359[0m
+[1;36m  Sample 3690/6750 (Update 3690) - Loss: 8.177381 - Avg: 3.922370 - LR: 0.000055 - GradNorm: 11.626703[0m
+[1;36m  Sample 3700/6750 (Update 3700) - Loss: 7.092779 - Avg: 3.919321 - LR: 0.000055 - GradNorm: 11.655242[0m
+[1;36m  Sample 3710/6750 (Update 3710) - Loss: 6.974036 - Avg: 3.913498 - LR: 0.000055 - GradNorm: 11.701513[0m
+[1;36m  Sample 3720/6750 (Update 3720) - Loss: 7.396929 - Avg: 3.907984 - LR: 0.000055 - GradNorm: 11.742198[0m
+[1;36m  Sample 3730/6750 (Update 3730) - Loss: 2.550055 - Avg: 3.905314 - LR: 0.000055 - GradNorm: 11.742643[0m
+[1;36m  Sample 3740/6750 (Update 3740) - Loss: 7.333826 - Avg: 3.898410 - LR: 0.000055 - GradNorm: 11.743489[0m
+[1;36m  Sample 3750/6750 (Update 3750) - Loss: 0.557571 - Avg: 3.890131 - LR: 0.000056 - GradNorm: 11.759425[0m
+[1;36m  Sample 3760/6750 (Update 3760) - Loss: 0.950755 - Avg: 3.886435 - LR: 0.000056 - GradNorm: 11.761513[0m
+[1;36m  Sample 3770/6750 (Update 3770) - Loss: 0.627557 - Avg: 3.883840 - LR: 0.000056 - GradNorm: 11.795769[0m
+[1;36m  Sample 3780/6750 (Update 3780) - Loss: 0.530426 - Avg: 3.876752 - LR: 0.000056 - GradNorm: 11.814492[0m
+[1;36m  Sample 3790/6750 (Update 3790) - Loss: 0.404797 - Avg: 3.867815 - LR: 0.000056 - GradNorm: 11.810923[0m
+[1;36m  Sample 3800/6750 (Update 3800) - Loss: 0.570196 - Avg: 3.861425 - LR: 0.000056 - GradNorm: 11.813265[0m
+[1;36m  Sample 3810/6750 (Update 3810) - Loss: 7.467184 - Avg: 3.858768 - LR: 0.000056 - GradNorm: 11.824177[0m
+[1;36m  Sample 3820/6750 (Update 3820) - Loss: 2.521806 - Avg: 3.853215 - LR: 0.000057 - GradNorm: 11.828641[0m
+[1;36m  Sample 3830/6750 (Update 3830) - Loss: 2.256382 - Avg: 3.849741 - LR: 0.000057 - GradNorm: 11.834878[0m
+[1;36m  Sample 3840/6750 (Update 3840) - Loss: 0.703750 - Avg: 3.843343 - LR: 0.000057 - GradNorm: 11.833736[0m
+[1;36m  Sample 3850/6750 (Update 3850) - Loss: 0.491369 - Avg: 3.837754 - LR: 0.000057 - GradNorm: 11.829284[0m
+[1;36m  Sample 3860/6750 (Update 3860) - Loss: 3.873289 - Avg: 3.832203 - LR: 0.000057 - GradNorm: 11.902045[0m
+[1;36m  Sample 3870/6750 (Update 3870) - Loss: 0.173481 - Avg: 3.827968 - LR: 0.000057 - GradNorm: 11.934281[0m
+[1;36m  Sample 3880/6750 (Update 3880) - Loss: 1.141219 - Avg: 3.820695 - LR: 0.000057 - GradNorm: 11.938966[0m
+[1;36m  Sample 3890/6750 (Update 3890) - Loss: 0.309078 - Avg: 3.812623 - LR: 0.000058 - GradNorm: 11.927988[0m
+[1;36m  Sample 3900/6750 (Update 3900) - Loss: 2.356868 - Avg: 3.805177 - LR: 0.000058 - GradNorm: 11.934672[0m
+[1;36m  Sample 3910/6750 (Update 3910) - Loss: 0.610419 - Avg: 3.797286 - LR: 0.000058 - GradNorm: 11.932378[0m
+[1;36m  Sample 3920/6750 (Update 3920) - Loss: 2.283207 - Avg: 3.791214 - LR: 0.000058 - GradNorm: 11.940191[0m
+[1;36m  Sample 3930/6750 (Update 3930) - Loss: 0.795213 - Avg: 3.783026 - LR: 0.000058 - GradNorm: 11.932528[0m
+[1;36m  Sample 3940/6750 (Update 3940) - Loss: 0.918252 - Avg: 3.776311 - LR: 0.000058 - GradNorm: 11.955528[0m
+[1;36m  Sample 3950/6750 (Update 3950) - Loss: 0.505163 - Avg: 3.769744 - LR: 0.000059 - GradNorm: 11.969587[0m
+[1;36m  Sample 3960/6750 (Update 3960) - Loss: 1.804448 - Avg: 3.770498 - LR: 0.000059 - GradNorm: 11.984946[0m
+[1;36m  Sample 3970/6750 (Update 3970) - Loss: 1.086243 - Avg: 3.766038 - LR: 0.000059 - GradNorm: 12.003701[0m
+[1;36m  Sample 3980/6750 (Update 3980) - Loss: 0.397271 - Avg: 3.759719 - LR: 0.000059 - GradNorm: 12.018570[0m
+[1;36m  Sample 3990/6750 (Update 3990) - Loss: 0.714083 - Avg: 3.755646 - LR: 0.000059 - GradNorm: 12.042723[0m
+[1;36m  Sample 4000/6750 (Update 4000) - Loss: 0.720635 - Avg: 3.751740 - LR: 0.000059 - GradNorm: 12.064153[0m
+[1;36m  Sample 4010/6750 (Update 4010) - Loss: 0.439330 - Avg: 3.745047 - LR: 0.000059 - GradNorm: 12.060491[0m
+[1;36m  Sample 4020/6750 (Update 4020) - Loss: 0.722466 - Avg: 3.737156 - LR: 0.000060 - GradNorm: 12.068278[0m
+[1;36m  Sample 4030/6750 (Update 4030) - Loss: 0.391236 - Avg: 3.731928 - LR: 0.000060 - GradNorm: 12.099439[0m
+[1;36m  Sample 4040/6750 (Update 4040) - Loss: 0.815024 - Avg: 3.726900 - LR: 0.000060 - GradNorm: 12.120813[0m
+[1;36m  Sample 4050/6750 (Update 4050) - Loss: 1.205503 - Avg: 3.720667 - LR: 0.000060 - GradNorm: 12.128462[0m
+[1;36m  Sample 4060/6750 (Update 4060) - Loss: 0.450461 - Avg: 3.717435 - LR: 0.000060 - GradNorm: 12.134680[0m
+[1;36m  Sample 4070/6750 (Update 4070) - Loss: 1.392093 - Avg: 3.711055 - LR: 0.000060 - GradNorm: 12.150651[0m
+[1;36m  Sample 4080/6750 (Update 4080) - Loss: 0.598017 - Avg: 3.703882 - LR: 0.000060 - GradNorm: 12.159919[0m
+[1;36m  Sample 4090/6750 (Update 4090) - Loss: 2.842556 - Avg: 3.700790 - LR: 0.000061 - GradNorm: 12.173963[0m
+[1;36m  Sample 4100/6750 (Update 4100) - Loss: 2.109033 - Avg: 3.698422 - LR: 0.000061 - GradNorm: 12.244513[0m
+[1;36m  Sample 4110/6750 (Update 4110) - Loss: 0.956627 - Avg: 3.693678 - LR: 0.000061 - GradNorm: 12.272207[0m
+[1;36m  Sample 4120/6750 (Update 4120) - Loss: 7.115911 - Avg: 3.688319 - LR: 0.000061 - GradNorm: 12.263167[0m
+[1;36m  Sample 4130/6750 (Update 4130) - Loss: 1.181358 - Avg: 3.682163 - LR: 0.000061 - GradNorm: 12.263318[0m
+[1;36m  Sample 4140/6750 (Update 4140) - Loss: 0.448449 - Avg: 3.677218 - LR: 0.000061 - GradNorm: 12.274178[0m
+[1;36m  Sample 4150/6750 (Update 4150) - Loss: 0.691969 - Avg: 3.671575 - LR: 0.000061 - GradNorm: 12.288680[0m
+[1;36m  Sample 4160/6750 (Update 4160) - Loss: 2.668573 - Avg: 3.665721 - LR: 0.000062 - GradNorm: 12.316614[0m
+[1;36m  Sample 4170/6750 (Update 4170) - Loss: 1.001652 - Avg: 3.661628 - LR: 0.000062 - GradNorm: 12.323047[0m
+[1;36m  Sample 4180/6750 (Update 4180) - Loss: 1.126163 - Avg: 3.658399 - LR: 0.000062 - GradNorm: 12.360108[0m
+[1;36m  Sample 4190/6750 (Update 4190) - Loss: 0.752021 - Avg: 3.654084 - LR: 0.000062 - GradNorm: 12.402823[0m
+[1;36m  Sample 4200/6750 (Update 4200) - Loss: 1.326358 - Avg: 3.651067 - LR: 0.000062 - GradNorm: 12.426427[0m
+[1;36m  Sample 4210/6750 (Update 4210) - Loss: 0.716798 - Avg: 3.645043 - LR: 0.000062 - GradNorm: 12.445184[0m
+[1;36m  Sample 4220/6750 (Update 4220) - Loss: 2.585400 - Avg: 3.640984 - LR: 0.000063 - GradNorm: 12.461662[0m
+[1;36m  Sample 4230/6750 (Update 4230) - Loss: 0.808737 - Avg: 3.635978 - LR: 0.000063 - GradNorm: 12.466950[0m
+[1;36m  Sample 4240/6750 (Update 4240) - Loss: 0.740360 - Avg: 3.631765 - LR: 0.000063 - GradNorm: 12.471313[0m
+[1;36m  Sample 4250/6750 (Update 4250) - Loss: 0.413300 - Avg: 3.626476 - LR: 0.000063 - GradNorm: 12.468923[0m
+[1;36m  Sample 4260/6750 (Update 4260) - Loss: 0.795959 - Avg: 3.621736 - LR: 0.000063 - GradNorm: 12.485800[0m
+[1;36m  Sample 4270/6750 (Update 4270) - Loss: 0.351935 - Avg: 3.614529 - LR: 0.000063 - GradNorm: 12.482367[0m
+[1;36m  Sample 4280/6750 (Update 4280) - Loss: 5.399661 - Avg: 3.610700 - LR: 0.000063 - GradNorm: 12.481060[0m
+[1;36m  Sample 4290/6750 (Update 4290) - Loss: 0.411389 - Avg: 3.604278 - LR: 0.000064 - GradNorm: 12.496085[0m
+[1;36m  Sample 4300/6750 (Update 4300) - Loss: 0.380180 - Avg: 3.599378 - LR: 0.000064 - GradNorm: 12.504455[0m
+[1;36m  Sample 4310/6750 (Update 4310) - Loss: 8.682499 - Avg: 3.597311 - LR: 0.000064 - GradNorm: 12.532596[0m
+[1;36m  Sample 4320/6750 (Update 4320) - Loss: 0.427451 - Avg: 3.593623 - LR: 0.000064 - GradNorm: 12.560974[0m
+[1;36m  Sample 4330/6750 (Update 4330) - Loss: 0.765901 - Avg: 3.587229 - LR: 0.000064 - GradNorm: 12.570917[0m
+[1;36m  Sample 4340/6750 (Update 4340) - Loss: 7.067954 - Avg: 3.584332 - LR: 0.000064 - GradNorm: 12.571318[0m
+[1;36m  Sample 4350/6750 (Update 4350) - Loss: 0.425727 - Avg: 3.579414 - LR: 0.000064 - GradNorm: 12.571128[0m
+[1;36m  Sample 4360/6750 (Update 4360) - Loss: 0.507995 - Avg: 3.574901 - LR: 0.000065 - GradNorm: 12.577201[0m
+[1;36m  Sample 4370/6750 (Update 4370) - Loss: 7.387345 - Avg: 3.572501 - LR: 0.000065 - GradNorm: 12.576843[0m
+[1;36m  Sample 4380/6750 (Update 4380) - Loss: 0.633658 - Avg: 3.567481 - LR: 0.000065 - GradNorm: 12.574885[0m
+[1;36m  Sample 4390/6750 (Update 4390) - Loss: 1.218652 - Avg: 3.563433 - LR: 0.000065 - GradNorm: 12.585598[0m
+[1;36m  Sample 4400/6750 (Update 4400) - Loss: 2.417718 - Avg: 3.558522 - LR: 0.000065 - GradNorm: 12.586629[0m
+[1;36m  Sample 4410/6750 (Update 4410) - Loss: 0.987046 - Avg: 3.554122 - LR: 0.000065 - GradNorm: 12.603910[0m
+[1;36m  Sample 4420/6750 (Update 4420) - Loss: 0.634689 - Avg: 3.549899 - LR: 0.000065 - GradNorm: 12.616527[0m
+[1;36m  Sample 4430/6750 (Update 4430) - Loss: 7.650999 - Avg: 3.545126 - LR: 0.000066 - GradNorm: 12.621572[0m
+[1;36m  Sample 4440/6750 (Update 4440) - Loss: 0.397453 - Avg: 3.541485 - LR: 0.000066 - GradNorm: 12.631258[0m
+[1;36m  Sample 4450/6750 (Update 4450) - Loss: 0.291777 - Avg: 3.535065 - LR: 0.000066 - GradNorm: 12.655233[0m
+[1;36m  Sample 4460/6750 (Update 4460) - Loss: 0.737396 - Avg: 3.533796 - LR: 0.000066 - GradNorm: 12.656569[0m
+[1;36m  Sample 4470/6750 (Update 4470) - Loss: 0.510670 - Avg: 3.529512 - LR: 0.000066 - GradNorm: 12.679693[0m
+[1;36m  Sample 4480/6750 (Update 4480) - Loss: 0.818639 - Avg: 3.526302 - LR: 0.000066 - GradNorm: 12.669866[0m
+[1;36m  Sample 4490/6750 (Update 4490) - Loss: 0.265168 - Avg: 3.521368 - LR: 0.000067 - GradNorm: 12.661760[0m
+[1;36m  Sample 4500/6750 (Update 4500) - Loss: 6.523221 - Avg: 3.516239 - LR: 0.000067 - GradNorm: 12.652479[0m
+[1;36m  Sample 4510/6750 (Update 4510) - Loss: 0.541128 - Avg: 3.511593 - LR: 0.000067 - GradNorm: 12.647045[0m
+[1;36m  Sample 4520/6750 (Update 4520) - Loss: 0.333850 - Avg: 3.505064 - LR: 0.000067 - GradNorm: 12.636670[0m
+[1;36m  Sample 4530/6750 (Update 4530) - Loss: 6.905073 - Avg: 3.502577 - LR: 0.000067 - GradNorm: 12.629005[0m
+[1;36m  Sample 4540/6750 (Update 4540) - Loss: 2.836995 - Avg: 3.496860 - LR: 0.000067 - GradNorm: 12.650644[0m
+[1;36m  Sample 4550/6750 (Update 4550) - Loss: 1.284837 - Avg: 3.494746 - LR: 0.000067 - GradNorm: 12.708472[0m
+[1;36m  Sample 4560/6750 (Update 4560) - Loss: 0.492235 - Avg: 3.490526 - LR: 0.000068 - GradNorm: 12.715809[0m
+[1;36m  Sample 4570/6750 (Update 4570) - Loss: 0.809291 - Avg: 3.485022 - LR: 0.000068 - GradNorm: 12.727387[0m
+[1;36m  Sample 4580/6750 (Update 4580) - Loss: 0.652142 - Avg: 3.480817 - LR: 0.000068 - GradNorm: 12.739390[0m
+[1;36m  Sample 4590/6750 (Update 4590) - Loss: 2.421443 - Avg: 3.476215 - LR: 0.000068 - GradNorm: 12.749332[0m
+[1;36m  Sample 4600/6750 (Update 4600) - Loss: 2.936577 - Avg: 3.470635 - LR: 0.000068 - GradNorm: 12.752876[0m
+[1;36m  Sample 4610/6750 (Update 4610) - Loss: 0.872505 - Avg: 3.468107 - LR: 0.000068 - GradNorm: 12.745974[0m
+[1;36m  Sample 4620/6750 (Update 4620) - Loss: 0.697997 - Avg: 3.462435 - LR: 0.000068 - GradNorm: 12.743324[0m
+[1;36m  Sample 4630/6750 (Update 4630) - Loss: 0.917400 - Avg: 3.458963 - LR: 0.000069 - GradNorm: 12.747634[0m
+[1;36m  Sample 4640/6750 (Update 4640) - Loss: 0.341993 - Avg: 3.454582 - LR: 0.000069 - GradNorm: 12.777942[0m
+[1;36m  Sample 4650/6750 (Update 4650) - Loss: 0.753010 - Avg: 3.450906 - LR: 0.000069 - GradNorm: 12.788923[0m
+[1;36m  Sample 4660/6750 (Update 4660) - Loss: 8.320101 - Avg: 3.446664 - LR: 0.000069 - GradNorm: 12.795839[0m
+[1;36m  Sample 4670/6750 (Update 4670) - Loss: 0.464828 - Avg: 3.442711 - LR: 0.000069 - GradNorm: 12.799683[0m
+[1;36m  Sample 4680/6750 (Update 4680) - Loss: 0.829634 - Avg: 3.437350 - LR: 0.000069 - GradNorm: 12.830484[0m
+[1;36m  Sample 4690/6750 (Update 4690) - Loss: 0.509395 - Avg: 3.434956 - LR: 0.000069 - GradNorm: 12.834810[0m
+[1;36m  Sample 4700/6750 (Update 4700) - Loss: 0.482421 - Avg: 3.429080 - LR: 0.000070 - GradNorm: 12.856236[0m
+[1;36m  Sample 4710/6750 (Update 4710) - Loss: 3.338125 - Avg: 3.426474 - LR: 0.000070 - GradNorm: 12.854548[0m
+[1;36m  Sample 4720/6750 (Update 4720) - Loss: 2.441415 - Avg: 3.421705 - LR: 0.000070 - GradNorm: 12.894420[0m
+[1;36m  Sample 4730/6750 (Update 4730) - Loss: 0.197670 - Avg: 3.415967 - LR: 0.000070 - GradNorm: 12.915205[0m
+[1;36m  Sample 4740/6750 (Update 4740) - Loss: 0.405647 - Avg: 3.414515 - LR: 0.000070 - GradNorm: 12.910455[0m
+[1;36m  Sample 4750/6750 (Update 4750) - Loss: 1.646462 - Avg: 3.410191 - LR: 0.000070 - GradNorm: 12.925137[0m
+[1;36m  Sample 4760/6750 (Update 4760) - Loss: 1.016020 - Avg: 3.408361 - LR: 0.000071 - GradNorm: 12.949306[0m
+[1;36m  Sample 4770/6750 (Update 4770) - Loss: 1.089202 - Avg: 3.409088 - LR: 0.000071 - GradNorm: 13.020078[0m
+[1;36m  Sample 4780/6750 (Update 4780) - Loss: 1.188946 - Avg: 3.405699 - LR: 0.000071 - GradNorm: 13.043160[0m
+[1;36m  Sample 4790/6750 (Update 4790) - Loss: 0.924558 - Avg: 3.401450 - LR: 0.000071 - GradNorm: 13.044704[0m
+[1;36m  Sample 4800/6750 (Update 4800) - Loss: 1.087386 - Avg: 3.399008 - LR: 0.000071 - GradNorm: 13.203970[0m
+[1;36m  Sample 4810/6750 (Update 4810) - Loss: 2.312875 - Avg: 3.396547 - LR: 0.000071 - GradNorm: 13.205956[0m
+[1;36m  Sample 4820/6750 (Update 4820) - Loss: 0.495610 - Avg: 3.393555 - LR: 0.000071 - GradNorm: 13.204159[0m
+[1;36m  Sample 4830/6750 (Update 4830) - Loss: 0.812906 - Avg: 3.389842 - LR: 0.000072 - GradNorm: 13.215114[0m
+[1;36m  Sample 4840/6750 (Update 4840) - Loss: 1.041041 - Avg: 3.384496 - LR: 0.000072 - GradNorm: 13.222029[0m
+[1;36m  Sample 4850/6750 (Update 4850) - Loss: 2.657261 - Avg: 3.379503 - LR: 0.000072 - GradNorm: 13.375461[0m
+[1;36m  Sample 4860/6750 (Update 4860) - Loss: 1.227417 - Avg: 3.376008 - LR: 0.000072 - GradNorm: 13.402297[0m
+[1;36m  Sample 4870/6750 (Update 4870) - Loss: 0.525255 - Avg: 3.372152 - LR: 0.000072 - GradNorm: 13.480010[0m
+[1;36m  Sample 4880/6750 (Update 4880) - Loss: 1.329986 - Avg: 3.371621 - LR: 0.000072 - GradNorm: 13.521911[0m
+[1;36m  Sample 4890/6750 (Update 4890) - Loss: 0.965446 - Avg: 3.367741 - LR: 0.000072 - GradNorm: 13.517691[0m
+[1;36m  Sample 4900/6750 (Update 4900) - Loss: 2.319981 - Avg: 3.365303 - LR: 0.000073 - GradNorm: 13.516583[0m
+[1;36m  Sample 4910/6750 (Update 4910) - Loss: 0.578296 - Avg: 3.360425 - LR: 0.000073 - GradNorm: 13.913001[0m
+[1;36m  Sample 4920/6750 (Update 4920) - Loss: 2.557425 - Avg: 3.356761 - LR: 0.000073 - GradNorm: 13.906434[0m
+[1;36m  Sample 4930/6750 (Update 4930) - Loss: 0.351591 - Avg: 3.353044 - LR: 0.000073 - GradNorm: 13.901316[0m
+[1;36m  Sample 4940/6750 (Update 4940) - Loss: 1.371870 - Avg: 3.348863 - LR: 0.000073 - GradNorm: 13.917397[0m
+[1;36m  Sample 4950/6750 (Update 4950) - Loss: 1.109095 - Avg: 3.347128 - LR: 0.000073 - GradNorm: 13.961256[0m
+[1;36m  Sample 4960/6750 (Update 4960) - Loss: 3.739845 - Avg: 3.344931 - LR: 0.000073 - GradNorm: 13.991049[0m
+[1;36m  Sample 4970/6750 (Update 4970) - Loss: 0.406505 - Avg: 3.342099 - LR: 0.000074 - GradNorm: 13.990527[0m
+[1;36m  Sample 4980/6750 (Update 4980) - Loss: 0.962599 - Avg: 3.340603 - LR: 0.000074 - GradNorm: 13.988441[0m
+[1;36m  Sample 4990/6750 (Update 4990) - Loss: 3.122046 - Avg: 3.336506 - LR: 0.000074 - GradNorm: 14.058325[0m
+[1;36m  Sample 5000/6750 (Update 5000) - Loss: 0.365544 - Avg: 3.332336 - LR: 0.000074 - GradNorm: 14.059081[0m
+[1;36m  Sample 5010/6750 (Update 5010) - Loss: 0.667166 - Avg: 3.329201 - LR: 0.000074 - GradNorm: 14.064898[0m
+[1;36m  Sample 5020/6750 (Update 5020) - Loss: 3.110218 - Avg: 3.326231 - LR: 0.000074 - GradNorm: 14.053430[0m
+[1;36m  Sample 5030/6750 (Update 5030) - Loss: 7.051239 - Avg: 3.324570 - LR: 0.000075 - GradNorm: 14.053929[0m
+[1;36m  Sample 5040/6750 (Update 5040) - Loss: 0.312213 - Avg: 3.320960 - LR: 0.000075 - GradNorm: 14.049440[0m
+[1;36m  Sample 5050/6750 (Update 5050) - Loss: 0.218371 - Avg: 3.315765 - LR: 0.000075 - GradNorm: 14.051855[0m
+[1;36m  Sample 5060/6750 (Update 5060) - Loss: 0.317886 - Avg: 3.310542 - LR: 0.000075 - GradNorm: 14.042327[0m
+[1;36m  Sample 5070/6750 (Update 5070) - Loss: 0.186796 - Avg: 3.304636 - LR: 0.000075 - GradNorm: 14.025906[0m
+[1;36m  Sample 5080/6750 (Update 5080) - Loss: 0.380352 - Avg: 3.301643 - LR: 0.000075 - GradNorm: 14.051645[0m
+[1;36m  Sample 5090/6750 (Update 5090) - Loss: 2.439344 - Avg: 3.298340 - LR: 0.000075 - GradNorm: 14.042891[0m
+[1;36m  Sample 5100/6750 (Update 5100) - Loss: 1.224708 - Avg: 3.295544 - LR: 0.000076 - GradNorm: 14.041079[0m
+[1;36m  Sample 5110/6750 (Update 5110) - Loss: 1.665555 - Avg: 3.293069 - LR: 0.000076 - GradNorm: 14.041080[0m
+[1;36m  Sample 5120/6750 (Update 5120) - Loss: 0.325483 - Avg: 3.289909 - LR: 0.000076 - GradNorm: 14.046575[0m
+[1;36m  Sample 5130/6750 (Update 5130) - Loss: 0.251276 - Avg: 3.284307 - LR: 0.000076 - GradNorm: 14.039113[0m
+[1;36m  Sample 5140/6750 (Update 5140) - Loss: 2.387916 - Avg: 3.283650 - LR: 0.000076 - GradNorm: 14.035899[0m
+[1;36m  Sample 5150/6750 (Update 5150) - Loss: 2.423717 - Avg: 3.281879 - LR: 0.000076 - GradNorm: 14.033633[0m
+[1;36m  Sample 5160/6750 (Update 5160) - Loss: 2.485123 - Avg: 3.278443 - LR: 0.000076 - GradNorm: 14.046649[0m
+[1;36m  Sample 5170/6750 (Update 5170) - Loss: 0.319788 - Avg: 3.276043 - LR: 0.000077 - GradNorm: 14.070887[0m
+[1;36m  Sample 5180/6750 (Update 5180) - Loss: 0.201564 - Avg: 3.271819 - LR: 0.000077 - GradNorm: 14.065926[0m
+[1;36m  Sample 5190/6750 (Update 5190) - Loss: 7.117993 - Avg: 3.269440 - LR: 0.000077 - GradNorm: 14.054311[0m
+[1;36m  Sample 5200/6750 (Update 5200) - Loss: 3.061202 - Avg: 3.266021 - LR: 0.000077 - GradNorm: 14.052244[0m
+[1;36m  Sample 5210/6750 (Update 5210) - Loss: 0.776059 - Avg: 3.263158 - LR: 0.000077 - GradNorm: 14.051597[0m
+[1;36m  Sample 5220/6750 (Update 5220) - Loss: 0.311479 - Avg: 3.260271 - LR: 0.000077 - GradNorm: 14.040742[0m
+[1;36m  Sample 5230/6750 (Update 5230) - Loss: 0.545032 - Avg: 3.259987 - LR: 0.000077 - GradNorm: 14.035929[0m
+[1;36m  Sample 5240/6750 (Update 5240) - Loss: 0.738417 - Avg: 3.257494 - LR: 0.000078 - GradNorm: 14.037159[0m
+[1;36m  Sample 5250/6750 (Update 5250) - Loss: 0.695867 - Avg: 3.252425 - LR: 0.000078 - GradNorm: 14.029776[0m
+[1;36m  Sample 5260/6750 (Update 5260) - Loss: 0.377307 - Avg: 3.248353 - LR: 0.000078 - GradNorm: 14.023768[0m
+[1;36m  Sample 5270/6750 (Update 5270) - Loss: 0.837150 - Avg: 3.243823 - LR: 0.000078 - GradNorm: 14.019226[0m
+[1;36m  Sample 5280/6750 (Update 5280) - Loss: 2.384048 - Avg: 3.239546 - LR: 0.000078 - GradNorm: 14.034082[0m
+[1;36m  Sample 5290/6750 (Update 5290) - Loss: 0.898618 - Avg: 3.237283 - LR: 0.000078 - GradNorm: 14.082063[0m
+[1;36m  Sample 5300/6750 (Update 5300) - Loss: 0.794687 - Avg: 3.233573 - LR: 0.000079 - GradNorm: 14.092653[0m
+[1;36m  Sample 5310/6750 (Update 5310) - Loss: 5.967597 - Avg: 3.230344 - LR: 0.000079 - GradNorm: 14.111706[0m
+[1;36m  Sample 5320/6750 (Update 5320) - Loss: 0.239263 - Avg: 3.228510 - LR: 0.000079 - GradNorm: 14.108500[0m
+[1;36m  Sample 5330/6750 (Update 5330) - Loss: 2.886169 - Avg: 3.223730 - LR: 0.000079 - GradNorm: 14.127942[0m
+[1;36m  Sample 5340/6750 (Update 5340) - Loss: 0.298824 - Avg: 3.219125 - LR: 0.000079 - GradNorm: 14.116639[0m
+[1;36m  Sample 5350/6750 (Update 5350) - Loss: 0.273920 - Avg: 3.215143 - LR: 0.000079 - GradNorm: 14.111871[0m
+[1;36m  Sample 5360/6750 (Update 5360) - Loss: 2.121574 - Avg: 3.212617 - LR: 0.000079 - GradNorm: 14.114577[0m
+[1;36m  Sample 5370/6750 (Update 5370) - Loss: 0.180606 - Avg: 3.207975 - LR: 0.000080 - GradNorm: 14.109870[0m
+[1;36m  Sample 5380/6750 (Update 5380) - Loss: 2.553333 - Avg: 3.203480 - LR: 0.000080 - GradNorm: 14.102399[0m
+[1;36m  Sample 5390/6750 (Update 5390) - Loss: 0.210656 - Avg: 3.198729 - LR: 0.000080 - GradNorm: 14.086626[0m
+[1;36m  Sample 5400/6750 (Update 5400) - Loss: 1.072659 - Avg: 3.194916 - LR: 0.000080 - GradNorm: 14.093398[0m
+[1;36m  Sample 5410/6750 (Update 5410) - Loss: 0.145143 - Avg: 3.189870 - LR: 0.000080 - GradNorm: 14.077336[0m
+[1;36m  Sample 5420/6750 (Update 5420) - Loss: 0.135575 - Avg: 3.184480 - LR: 0.000080 - GradNorm: 14.065680[0m
+[1;36m  Sample 5430/6750 (Update 5430) - Loss: 0.435456 - Avg: 3.179736 - LR: 0.000080 - GradNorm: 14.066805[0m
+[1;36m  Sample 5440/6750 (Update 5440) - Loss: 0.701499 - Avg: 3.179042 - LR: 0.000081 - GradNorm: 14.070418[0m
+[1;36m  Sample 5450/6750 (Update 5450) - Loss: 0.842730 - Avg: 3.175715 - LR: 0.000081 - GradNorm: 14.072913[0m
+[1;36m  Sample 5460/6750 (Update 5460) - Loss: 0.154157 - Avg: 3.171053 - LR: 0.000081 - GradNorm: 14.061728[0m
+[1;36m  Sample 5470/6750 (Update 5470) - Loss: 0.237569 - Avg: 3.167660 - LR: 0.000081 - GradNorm: 14.055675[0m
+[1;36m  Sample 5480/6750 (Update 5480) - Loss: 0.179459 - Avg: 3.162752 - LR: 0.000081 - GradNorm: 14.047723[0m
+[1;36m  Sample 5490/6750 (Update 5490) - Loss: 0.067912 - Avg: 3.159029 - LR: 0.000081 - GradNorm: 14.042214[0m
+[1;36m  Sample 5500/6750 (Update 5500) - Loss: 0.259402 - Avg: 3.155604 - LR: 0.000081 - GradNorm: 14.038853[0m
+[1;36m  Sample 5510/6750 (Update 5510) - Loss: 0.434068 - Avg: 3.152321 - LR: 0.000082 - GradNorm: 14.034417[0m
+[1;36m  Sample 5520/6750 (Update 5520) - Loss: 0.286394 - Avg: 3.149996 - LR: 0.000082 - GradNorm: 14.026356[0m
+[1;36m  Sample 5530/6750 (Update 5530) - Loss: 0.210390 - Avg: 3.146108 - LR: 0.000082 - GradNorm: 14.012291[0m
+[1;36m  Sample 5540/6750 (Update 5540) - Loss: 0.486136 - Avg: 3.141690 - LR: 0.000082 - GradNorm: 14.005869[0m
+[1;36m  Sample 5550/6750 (Update 5550) - Loss: 0.470261 - Avg: 3.138050 - LR: 0.000082 - GradNorm: 13.996661[0m
+[1;36m  Sample 5560/6750 (Update 5560) - Loss: 0.329173 - Avg: 3.133244 - LR: 0.000082 - GradNorm: 13.980486[0m

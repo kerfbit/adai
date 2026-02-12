@@ -22,27 +22,27 @@ int main() {
     // Create decoder
     int vocab_size = 1000;
     LLMDecoder decoder(vocab_size, 512, 6, 8, 2048, 1024);
-    
+
     // Create cache (IMPORTANT: one per sequence)
     DecoderKVCache cache(6);  // 6 = num_layers
-    
+
     // Initial prompt
     std::vector<int> prompt = {1, 2, 3};
     Matrix output = decoder.forward_with_cache(prompt, cache, nullptr, true);
-    
+
     // Generate tokens (this is where cache speeds things up!)
     for (int i = 0; i < 50; ++i) {
         // Get next token (from language model head + sampling)
         int next_token = 100 + i;  // Simplified
-        
+
         // Process only the new token (not the entire sequence!)
         std::vector<int> new_token = {next_token};
         output = decoder.forward_with_cache(new_token, cache, nullptr, true);
     }
-    
+
     // When done, clear cache for next sequence
     cache.clear();
-    
+
     return 0;
 }
 ```
@@ -62,7 +62,7 @@ int main() {
         {10, 11, 12},
         {20, 21, 22, 23, 24, 25, 26}
     };
-    
+
     // Create efficient batches
     auto batches = create_dynamic_batches(
         sequences,
@@ -70,11 +70,11 @@ int main() {
         /*length_tolerance=*/5,
         /*pad_token_id=*/0
     );
-    
+
     // Show batch efficiency
     BatchStats stats = compute_batch_stats(batches);
     stats.print();
-    
+
     // Process batches
     LLMDecoder decoder(1000, 512, 6, 8, 2048, 1024);
     for (const auto& batch : batches) {
@@ -83,7 +83,7 @@ int main() {
             // Process output...
         }
     }
-    
+
     return 0;
 }
 ```
@@ -97,16 +97,16 @@ int main() {
 int main() {
     LLMDecoder decoder(1000, 512, 6, 8, 2048, 1024);
     std::vector<int> tokens = {1, 2, 3, 4, 5};
-    
+
     Profiler profiler;
-    
+
     // Measure baseline
     profiler.start("baseline");
     for (int i = 0; i < 100; ++i) {
         decoder.forward(tokens);
     }
     profiler.stop("baseline");
-    
+
     // Measure with cache
     DecoderKVCache cache(6);
     profiler.start("with_cache");
@@ -115,18 +115,19 @@ int main() {
         decoder.forward_with_cache(new_token, cache, nullptr, true);
     }
     profiler.stop("with_cache");
-    
+
     // Compare
     auto baseline = profiler.get_stats("baseline");
     auto optimized = profiler.get_stats("with_cache");
     Profiler::compare(baseline, optimized);
-    
+
     return 0;
 }
 ```
 
 **Output**:
-```
+
+```text
 === Performance Comparison ===
 Speedup: 2.8x
 Improvement: 64.3%
@@ -145,6 +146,7 @@ make inference_optimization_benchmark
 ```
 
 This will run comprehensive benchmarks and show:
+
 - KV cache speedup
 - Batch processing efficiency
 - Combined optimization impact
@@ -161,12 +163,12 @@ DecoderKVCache conversation_cache(num_layers);
 while (true) {
     std::string user_input = get_user_input();
     auto tokens = tokenizer.encode(user_input);
-    
+
     // Generate response using cache
     Matrix hidden = decoder.forward_with_cache(
         tokens, conversation_cache, nullptr, true
     );
-    
+
     // Continue generation...
 }
 
@@ -182,12 +184,12 @@ std::map<std::string, DecoderKVCache> session_caches;
 void handle_request(std::string session_id, std::string prompt) {
     // Get or create cache for this session
     auto& cache = session_caches[session_id];
-    
+
     auto tokens = tokenizer.encode(prompt);
     Matrix output = decoder.forward_with_cache(
         tokens, cache, nullptr, true
     );
-    
+
     // Generate response...
 }
 
@@ -236,9 +238,9 @@ for (auto& batch : batches) {
 ## Performance Expectations
 
 | Optimization | Expected Speedup | Use Case |
-|-------------|------------------|----------|
-| KV Cache    | 2-3x            | Autoregressive generation |
-| Batching    | 2-4x throughput | Multiple simultaneous requests |
-| Combined    | 4-12x           | Production deployment |
+| ------------- | ------------------ | ---------- |
+| KV Cache | 2-3x | Autoregressive generation |
+| Batching | 2-4x throughput | Multiple simultaneous requests |
+| Combined | 4-12x | Production deployment |
 
 Happy optimizing! 🚀

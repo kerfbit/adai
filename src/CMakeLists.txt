@@ -192,6 +192,21 @@ if(OpenMP_CXX_FOUND)
     message(STATUS "Building chatbot_trainer with full parallel optimizations (OpenMP + parallel attention)")
 endif()
 
+# Incremental Training Tool - Incremental model training with data management
+add_executable(incremental_trainer IncrementalTrainingTool.cpp IncrementalTrainer.cpp 
+    ChatbotTrainer.cpp)  # Include implementation
+target_compile_definitions(incremental_trainer PRIVATE CHATBOT_TRAINER_TEST_BUILD)
+target_link_libraries(incremental_trainer 
+    adai_models 
+    adai_nlp
+    adai_attention
+    adai_core
+    stdc++fs  # For std::filesystem
+)
+if(OpenMP_CXX_FOUND)
+    message(STATUS "Building incremental_trainer with full parallel optimizations")
+endif()
+
 # Vocabulary Builder - Standalone BPE vocabulary creation tool
 add_executable(vocab_builder VocabBuilder.cpp)
 target_link_libraries(vocab_builder adai_nlp)
@@ -381,6 +396,16 @@ if(BUILD_EXAMPLES)
     # GPU Acceleration Example (always build, shows status even without GPU)
     add_executable(gpu_example GPUExample.cpp)
     target_link_libraries(gpu_example adai_core)
+    
+    # RAG (Retrieval-Augmented Generation) Example
+    add_executable(rag_example RAGExample.cpp DocumentStore.cpp RAGInference.cpp)
+    target_link_libraries(rag_example adai_models adai_nlp)
+    message(STATUS "Building rag_example - Retrieval-Augmented Generation demo")
+    
+    # RAG vs BERT Comparison Test
+    add_executable(rag_bert_comparison RAGBERTComparisonTest.cpp DocumentStore.cpp RAGInference.cpp)
+    target_link_libraries(rag_bert_comparison adai_models adai_nlp)
+    message(STATUS "Building rag_bert_comparison - comprehensive RAG vs BERT analysis")
     
     message(STATUS "Building example programs (disable with -DBUILD_EXAMPLES=OFF)")
 endif()

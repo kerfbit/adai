@@ -584,6 +584,12 @@ void BPETokenizer::load_vocab(const std::string& filename) {
         throw VocabularyFileError("Missing required special tokens in " + filename);
     }
     
+    // Ensure special_tokens set is properly populated (in case vocab loading didn't catch all)
+    if (vocab.find("<pad>") != vocab.end()) special_tokens.insert("<pad>");
+    if (vocab.find("<unk>") != vocab.end()) special_tokens.insert("<unk>");
+    if (vocab.find("<bos>") != vocab.end()) special_tokens.insert("<bos>");
+    if (vocab.find("<eos>") != vocab.end()) special_tokens.insert("<eos>");
+    
     std::cout << "[BPE Tokenizer] Vocabulary loaded from " << filename << std::endl;
     std::cout << "  - Vocabulary size: " << vocab.size() << std::endl;
     std::cout << "  - BPE merges: " << bpe_merges.size() << std::endl;

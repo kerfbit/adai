@@ -5,6 +5,7 @@
 The `MultiHeadAttention` class implements the multi-head self-attention mechanism introduced in "Attention is All You Need" (Vaswani et al., 2017). This is the core component of transformer architectures, enabling models to attend to different representation subspaces and capture diverse relationships in the input sequence.
 
 **Files:**
+
 - `src/MultiHeadAttention.hpp` - Header file with class declaration and interface
 - `src/MultiHeadAttention.cpp` - Implementation file with all method definitions
 - `src/MultiHeadAttentionExample.cpp` - Standalone example demonstrating usage
@@ -14,6 +15,7 @@ The `MultiHeadAttention` class implements the multi-head self-attention mechanis
 ---
 
 ## Table of Contents
+
 1. [Mathematical Foundation](#mathematical-foundation)
 2. [Class Architecture](#class-architecture)
 3. [Implementation Details](#implementation-details)
@@ -37,11 +39,12 @@ The attention mechanism computes a weighted sum of values based on the similarit
 
 For a single head:
 
-```
+```text
 Attention(Q, K, V) = softmax(QK^T / √d_k) V
 ```
 
 Where:
+
 - **Q** (Queries): Matrix of shape `[seq_len, d_k]` - represents what we're looking for
 - **K** (Keys): Matrix of shape `[seq_len, d_k]` - represents what each position offers
 - **V** (Values): Matrix of shape `[seq_len, d_k]` - represents the actual content to aggregate
@@ -52,16 +55,18 @@ Where:
 
 Instead of computing a single attention function, multi-head attention projects Q, K, V into multiple subspaces and computes attention in parallel:
 
-```
+```text
 MultiHead(Q, K, V) = Concat(head₁, ..., head_h) W_o
 ```
 
 Where each head is computed as:
-```
+
+```text
 head_i = Attention(Q W_q^i, K W_k^i, V W_v^i)
 ```
 
 **Parameters:**
+
 - **W_q**: Query projection matrix `[d_model, d_model]`
 - **W_k**: Key projection matrix `[d_model, d_model]`
 - **W_v**: Value projection matrix `[d_model, d_model]`
@@ -79,11 +84,13 @@ Multiple heads allow the model to jointly attend to information from different r
 ### Complexity Analysis
 
 **Time Complexity:**
+
 - Attention computation: O(seq_len² × d_model)
 - Linear projections: O(seq_len × d_model²)
 - Total: **O(seq_len² × d_model + seq_len × d_model²)**
 
 **Space Complexity:**
+
 - Weight matrices: O(4 × d_model²)
 - Attention weights: O(seq_len²)
 - Cached activations: O(seq_len × d_model)
@@ -135,6 +142,7 @@ float learning_rate;  // Learning rate for weight updates (default: 0.001)
 ### Initialization
 
 **Xavier/He Initialization:**
+
 ```cpp
 scale = √(2 / d_model)
 ```
@@ -152,13 +160,16 @@ MultiHeadAttention(int d_model, int num_heads)
 ```
 
 **Parameters:**
+
 - `d_model`: Model dimension (must be divisible by num_heads)
 - `num_heads`: Number of attention heads
 
 **Validation:**
+
 - Throws `std::invalid_argument` if d_model % num_heads ≠ 0
 
 **Initialization Steps:**
+
 1. Validates dimension compatibility
 2. Computes d_k = d_model / num_heads
 3. Initializes weight matrices with Xavier scaling
@@ -167,6 +178,7 @@ MultiHeadAttention(int d_model, int num_heads)
 6. Initializes optimizer pointer to nullptr (no optimizer by default)
 
 **Example:**
+
 ```cpp
 // For 512-dimensional embeddings with 8 heads
 MultiHeadAttention mha(512, 8);  // d_k = 64 per head
@@ -174,6 +186,7 @@ mha.learning_rate = 0.0001f;     // Adjust learning rate
 ```
 
 **Common Configurations:**
+
 - **Small models**: d_model=256, num_heads=4
 - **Base models**: d_model=512, num_heads=8
 - **Large models**: d_model=1024, num_heads=16
@@ -190,6 +203,7 @@ Matrix forward(const Matrix& input, const Matrix* mask = nullptr)
 ```
 
 **Parameters:**
+
 - `input`: Input matrix `[seq_len, d_model]`
 - `mask`: Optional attention mask `[seq_len, seq_len]` (default: nullptr)
 
@@ -208,6 +222,7 @@ if (input.cols != d_model) {
 #### 2. Linear Projections
 
 Compute queries, keys, and values:
+
 ```cpp
 Q = input × W_q   // [seq_len, d_model]
 K = input × W_k   // [seq_len, d_model]
@@ -262,6 +277,7 @@ Final linear transformation to integrate information from all heads.
 ### Caching
 
 The forward pass caches intermediate values for backward pass:
+
 - `cached_input`: Original input
 - `cached_Q, cached_K, cached_V`: Projected queries, keys, values
 - `cached_scores`: Pre-softmax attention scores
@@ -284,6 +300,7 @@ Matrix forward_with_cache(const Matrix& input,
 **Purpose**: Optimized forward pass using KV cache for autoregressive generation
 
 **Parameters:**
+
 - `input`: New token embeddings [num_new_tokens, d_model] (typically 1 during generation)
 - `mask`: Optional attention mask [num_new_tokens, total_seq_len]
 - `kv_cache`: Pointer to KVCache structure (nullptr = no caching)
@@ -297,6 +314,7 @@ Matrix forward_with_cache(const Matrix& input,
 
 **KV Caching Concept**:
 In autoregressive generation (e.g., text generation), we generate one token at a time. Without caching, we recompute K and V for all previous tokens every step. With caching, we:
+
 1. Compute K/V only for the new token
 2. Store ("cache") these K/V pairs
 3. Reuse cached K/V from previous steps
@@ -305,16 +323,17 @@ In autoregressive generation (e.g., text generation), we generate one token at a
 **Cache Behavior**:
 
 1. **First Call (Empty Cache)**:
+
    ```cpp
    // Input: [1, d_model] (first token)
    Q_new = input * W_q    // [1, d_model]
    K_new = input * W_k    // [1, d_model]
    V_new = input * W_v    // [1, d_model]
-   
+
    cache.append(K_new, V_new)  // Cache now has 1 token
    K_full = cache.get_keys()    // [1, d_model]
    V_full = cache.get_values()  // [1, d_model]
-   
+
    // Compute attention
    scores = Q_new * K_full.transpose()  // [1, 1]
    attention_weights = softmax(scores / sqrt(d_k))
@@ -322,16 +341,17 @@ In autoregressive generation (e.g., text generation), we generate one token at a
    ```
 
 2. **Second Call (Cache Has 1 Token)**:
+
    ```cpp
    // Input: [1, d_model] (second token)
    Q_new = input * W_q    // [1, d_model] - only for new token
    K_new = input * W_k    // [1, d_model] - only for new token
    V_new = input * W_v    // [1, d_model] - only for new token
-   
+
    cache.append(K_new, V_new)  // Cache now has 2 tokens
    K_full = cache.get_keys()    // [2, d_model] - reuses previous!
    V_full = cache.get_values()  // [2, d_model] - reuses previous!
-   
+
    // Compute attention over ALL tokens (cached + new)
    scores = Q_new * K_full.transpose()  // [1, 2]
    attention_weights = softmax(scores / sqrt(d_k))
@@ -339,6 +359,7 @@ In autoregressive generation (e.g., text generation), we generate one token at a
    ```
 
 3. **Nth Call (Cache Has N-1 Tokens)**:
+
    ```cpp
    // Only compute K/V for new token, reuse cached K/V from previous N-1 tokens
    K_full = [cached_K[0:N-1]; K_new]  // [N, d_model]
@@ -350,7 +371,7 @@ In autoregressive generation (e.g., text generation), we generate one token at a
 #### 1. Fallback Check
 
 ```cpp
-if (!use_cache || kv_cache == nullptr) {
+if (!use_cache |  | kv_cache == nullptr) {
     return forward(input, mask);  // Use regular forward
 }
 ```
@@ -421,9 +442,10 @@ output = attention_output * W_o  // [num_new_tokens, d_model]
 ### Performance Analysis
 
 **Without Cache (Inefficient)**:
-```
+
+```text
 Step 1: Compute K/V for token 0 (1 computation)
-Step 2: Compute K/V for tokens 0, 1 (2 computations) 
+Step 2: Compute K/V for tokens 0, 1 (2 computations)
 Step 3: Compute K/V for tokens 0, 1, 2 (3 computations)
 ...
 Step N: Compute K/V for tokens 0...N-1 (N computations)
@@ -434,7 +456,8 @@ Complexity: O(N²)
 ```
 
 **With Cache (Efficient)**:
-```
+
+```text
 Step 1: Compute K/V for token 0, cache it (1 computation)
 Step 2: Compute K/V for token 1, cache it, reuse cached K/V[0] (1 computation)
 Step 3: Compute K/V for token 2, cache it, reuse cached K/V[0:1] (1 computation)
@@ -468,7 +491,7 @@ for (int i = 0; i < max_gen_length; ++i) {
     for (int j = 0; j < total_len; ++j) {
         causal_mask(0, j) = (j <= current_pos) ? 1.0f : 0.0f;
     }
-    
+
     // Forward with cache (much faster!)
     Matrix attn_output = mha.forward_with_cache(
         current_token_emb,  // [1, 512] - only new token
@@ -476,12 +499,12 @@ for (int i = 0; i < max_gen_length; ++i) {
         &kv_cache,          // Growing cache
         true                // Update cache
     );
-    
+
     // Project to vocabulary and sample next token
     Matrix logits = lm_head.forward(attn_output);
     int next_token = sample_token(logits);
     current_token_emb = token_embedding(next_token);
-    
+
     generated.push_back(current_token_emb);
     if (next_token == EOS_TOKEN) break;
 }
@@ -521,7 +544,7 @@ float speedup = time_no_cache / time_with_cache;
 ### Key Differences from Regular Forward
 
 | Aspect | `forward()` | `forward_with_cache()` |
-|--------|-------------|------------------------|
+| -------- | ------------- | ------------------------ |
 | Input Size | Full sequence | Only new tokens |
 | K/V Computation | All tokens | Only new tokens |
 | K/V Source | Computed | Cached + new |
@@ -564,13 +587,15 @@ float speedup = time_no_cache / time_with_cache;
 ### When to Use
 
 ✅ **Use `forward_with_cache()` for**:
+
 - Autoregressive text generation
-- Beam search decoding  
+- Beam search decoding
 - Sampling-based generation
 - Long sequence generation (>10 tokens)
 - Real-time chatbot responses
 
 ❌ **Use regular `forward()` for**:
+
 - Training (process full batches)
 - Single-pass inference
 - Bi-directional attention
@@ -587,6 +612,7 @@ Matrix backward(const Matrix& grad_output)
 ```
 
 **Parameters:**
+
 - `grad_output`: Gradient from upstream `[seq_len, d_model]`
 
 **Returns:** Gradient w.r.t. input `[seq_len, d_model]`
@@ -625,11 +651,12 @@ The backward pass implements the chain rule through the multi-head attention com
 
 This is the most complex step. For softmax, the Jacobian is:
 
-```
+```text
 ∂softmax_i/∂x_j = softmax_i × (δ_ij - softmax_j)
 ```
 
 Implemented as:
+
 ```cpp
 for each row i:
     sum = Σ(attention_weights[i,k] × grad_attn_weights[i,k])
@@ -661,6 +688,7 @@ for each row i:
 #### 9. Gradient w.r.t. Input
 
 Sum gradients from all three projection paths:
+
 ```cpp
 ∂L/∂input = ∂L/∂Q × W_q^T + ∂L/∂K × W_k^T + ∂L/∂V × W_v^T
 ```
@@ -672,6 +700,7 @@ void update_weights()
 ```
 
 Applies accumulated gradients using Matrix::apply_gradients():
+
 ```cpp
 W_q.apply_gradients(W_q_grad, learning_rate);
 W_k.apply_gradients(W_k_grad, learning_rate);
@@ -713,16 +742,16 @@ for (int epoch = 0; epoch < num_epochs; ++epoch) {
     for (auto& batch : training_data) {
         // Forward pass
         Matrix output = mha.forward(batch.input);
-        
+
         // Compute loss (example: MSE with target)
         float loss = compute_loss(output, batch.target);
-        
+
         // Compute gradient of loss
         Matrix grad_output = compute_loss_gradient(output, batch.target);
-        
+
         // Backward pass
         Matrix grad_input = mha.backward(grad_output);
-        
+
         // Update weights (uses optimizer if set, otherwise simple gradient descent)
         mha.update_weights();
     }
@@ -745,12 +774,12 @@ for (int step = 0; step < max_steps; ++step) {
     // Learning rate warmup schedule
     float lr = base_lr * std::min(1.0f, step / (float)warmup_steps);
     optimizer.set_learning_rate(lr);
-    
+
     // Training step
     Matrix output = mha.forward(input);
     Matrix grad_input = mha.backward(grad_output);
     mha.update_weights();  // Uses Adam optimization
-    
+
     if (step % 100 == 0) {
         std::cout << "Step " << step << ", LR: " << lr << std::endl;
     }
@@ -766,15 +795,15 @@ MultiHeadAttention mha(512, 8);
 for (int step = 0; step < max_steps; ++step) {
     Matrix output = mha.forward(input);
     Matrix grad_input = mha.backward(grad_output);
-    
+
     // Monitor gradients
     float grad_norm = mha.get_gradient_norm();
     if (grad_norm > 10.0f) {
-        std::cout << "Warning: Large gradients detected! Norm: " 
+        std::cout << "Warning: Large gradients detected! Norm: "
                   << grad_norm << std::endl;
         mha.clip_gradients(5.0f);
     }
-    
+
     mha.update_weights();
 }
 ```
@@ -806,14 +835,14 @@ Used to ignore padded positions in variable-length sequences:
 Matrix create_padding_mask(const std::vector<int>& lengths, int max_len) {
     int batch_size = lengths.size();
     Matrix mask(max_len, max_len);
-    
+
     for (int i = 0; i < max_len; ++i) {
         for (int j = 0; j < max_len; ++j) {
             // Allow attention only within valid sequence length
             mask(i, j) = (j < lengths[0]) ? 1.0f : 0.0f;
         }
     }
-    
+
     return mask;
 }
 ```
@@ -825,14 +854,14 @@ Used in autoregressive models (e.g., language models) to prevent attending to fu
 ```cpp
 Matrix create_causal_mask(int seq_len) {
     Matrix mask(seq_len, seq_len);
-    
+
     for (int i = 0; i < seq_len; ++i) {
         for (int j = 0; j < seq_len; ++j) {
             // Position i can only attend to positions <= i
             mask(i, j) = (j <= i) ? 1.0f : 0.0f;
         }
     }
-    
+
     return mask;
 }
 
@@ -842,7 +871,8 @@ Matrix output = mha.forward(input, &causal_mask);
 ```
 
 **Causal Mask Pattern:**
-```
+
+```text
 1 0 0 0 0
 1 1 0 0 0
 1 1 1 0 0
@@ -857,14 +887,14 @@ Combine padding and causal masks:
 ```cpp
 Matrix combine_masks(const Matrix& padding_mask, const Matrix& causal_mask) {
     Matrix combined(padding_mask.rows, padding_mask.cols);
-    
+
     for (int i = 0; i < padding_mask.rows; ++i) {
         for (int j = 0; j < padding_mask.cols; ++j) {
             // Both masks must allow attention
             combined(i, j) = padding_mask(i, j) * causal_mask(i, j);
         }
     }
-    
+
     return combined;
 }
 ```
@@ -872,11 +902,13 @@ Matrix combine_masks(const Matrix& padding_mask, const Matrix& causal_mask) {
 ### Mask Implementation Details
 
 **How masking works:**
+
 1. Mask values of 0 → set score to -1e9 (very negative)
 2. Softmax(-1e9) ≈ 0, so no attention to masked positions
 3. Mask values of 1 → score unchanged, normal attention
 
-**Why -1e9?** 
+**Why -1e9?**
+
 - Large enough to make softmax output ≈ 0
 - Not too large to avoid numerical overflow
 - Works reliably with float32 precision
@@ -890,17 +922,20 @@ Matrix combine_masks(const Matrix& padding_mask, const Matrix& causal_mask) {
 For d_model = D, seq_len = S:
 
 **Static Memory:**
+
 - Weight matrices: 4 × D² × 4 bytes = 16D² bytes
 - Gradient matrices: 4 × D² × 4 bytes = 16D² bytes
 - Total static: **32D² bytes**
 
 **Dynamic Memory (per forward pass):**
+
 - Attention scores: S² × 4 bytes
 - Attention weights: S² × 4 bytes
 - Cached Q, K, V, output: 4 × S × D × 4 bytes
 - Total dynamic: **2S² + 16SD bytes**
 
 **Example Sizes:**
+
 - d_model=512, seq_len=512: ~8.6 MB per layer
 - d_model=1024, seq_len=1024: ~37 MB per layer
 
@@ -923,6 +958,7 @@ For d_model = D, seq_len = S:
 #### 1. Reduced Sequence Length
 
 For very long sequences, consider:
+
 - **Sliding window attention**: Only attend to nearby positions
 - **Sparse attention**: Attend to fixed patterns
 - **Chunking**: Process long sequences in chunks
@@ -937,6 +973,7 @@ For very long sequences, consider:
 #### 3. Gradient Checkpointing
 
 Trade computation for memory by not caching all activations:
+
 ```cpp
 // Recompute forward pass during backward instead of caching
 // (Saves memory at cost of 33% more computation)
@@ -945,6 +982,7 @@ Trade computation for memory by not caching all activations:
 #### 4. Flash Attention
 
 For very large models, implement fused kernels that:
+
 - Compute attention in blocks
 - Avoid materializing full attention matrix
 - Reduce memory bandwidth usage
@@ -964,30 +1002,30 @@ private:
     std::unique_ptr<FeedForward> feed_forward;
     std::unique_ptr<LayerNorm> norm1;
     std::unique_ptr<LayerNorm> norm2;
-    
+
 public:
     EncoderBlock(int d_model, int num_heads, int d_ff)
         : attention(new MultiHeadAttention(d_model, num_heads)),
           feed_forward(new FeedForward(d_model, d_ff)),
           norm1(new LayerNorm(d_model)),
           norm2(new LayerNorm(d_model)) {}
-    
+
     void set_optimizer(Optimizer* opt) {
         attention->set_optimizer(opt);
         // Can also set optimizer for feed_forward if it supports it
     }
-    
+
     Matrix forward(const Matrix& input) {
         // Self-attention with residual connection
         Matrix attn_output = attention->forward(input);
         Matrix residual1 = input + attn_output;
         Matrix normed1 = norm1->forward(residual1);
-        
+
         // Feed-forward with residual connection
         Matrix ff_output = feed_forward->forward(normed1);
         Matrix residual2 = normed1 + ff_output;
         Matrix output = norm2->forward(residual2);
-        
+
         return output;
     }
 };
@@ -999,7 +1037,7 @@ public:
 class TransformerEncoder {
 private:
     std::vector<std::unique_ptr<EncoderBlock>> layers;
-    
+
 public:
     TransformerEncoder(int num_layers, int d_model, int num_heads, int d_ff) {
         for (int i = 0; i < num_layers; ++i) {
@@ -1008,14 +1046,14 @@ public:
             );
         }
     }
-    
+
     Matrix forward(const Matrix& input, const Matrix* mask = nullptr) {
         Matrix output = input;
-        
+
         for (auto& layer : layers) {
             output = layer->forward(output, mask);
         }
-        
+
         return output;
     }
 };
@@ -1051,7 +1089,8 @@ mha.print_config();
 ```
 
 **Output:**
-```
+
+```text
 MultiHeadAttention Configuration:
   Model Dimension (d_model): 512
   Number of Heads: 8
@@ -1103,6 +1142,7 @@ void clip_gradients(float max_norm);
 **Purpose:** Prevent exploding gradients during training
 
 **Usage:**
+
 ```cpp
 // Clip gradients if norm exceeds threshold
 mha.backward(grad_output);
@@ -1111,8 +1151,9 @@ mha.update_weights();
 ```
 
 **Algorithm:**
-```
-norm = ||gradients||₂
+
+```text
+norm = |  | gradients |  |₂
 if norm > max_norm:
     gradients = gradients × (max_norm / norm)
 ```
@@ -1133,9 +1174,9 @@ for (int step = 0; step < max_steps; ++step) {
         std::pow(step + 1, -0.5f),
         (step + 1) * std::pow(warmup_steps, -1.5f)
     );
-    
+
     mha.learning_rate = lr;
-    
+
     // Training step...
 }
 ```
@@ -1143,6 +1184,7 @@ for (int step = 0; step < max_steps; ++step) {
 ### 2. Residual Connections
 
 Always use residual connections with attention:
+
 ```cpp
 Matrix attn_output = mha.forward(input);
 Matrix output = input + attn_output;  // Residual connection
@@ -1153,6 +1195,7 @@ Matrix output = input + attn_output;  // Residual connection
 Normalize before or after attention:
 
 **Pre-LN (more stable):**
+
 ```cpp
 Matrix normed = layer_norm.forward(input);
 Matrix attn_output = mha.forward(normed);
@@ -1160,6 +1203,7 @@ Matrix output = input + attn_output;
 ```
 
 **Post-LN (original transformer):**
+
 ```cpp
 Matrix attn_output = mha.forward(input);
 Matrix residual = input + attn_output;
@@ -1169,6 +1213,7 @@ Matrix output = layer_norm.forward(residual);
 ### 4. Dropout (Future Enhancement)
 
 After attention weights (not implemented yet):
+
 ```cpp
 // attention_weights = dropout(attention_weights, p=0.1)
 ```
@@ -1186,7 +1231,7 @@ for (int i = 0; i < 512; ++i) {
     }
 }
 float avg = sum / (512 * 512);
-std::cout << "Average |W_q| value: " << avg << std::endl;
+std::cout << "Average | W_q | value: " << avg << std::endl;
 // Should be close to sqrt(2/512) ≈ 0.0625
 ```
 
@@ -1217,8 +1262,8 @@ std::cout << "Average |W_q| value: " << avg << std::endl;
 ```cpp
 bool validate_input(const Matrix& input, int expected_d_model) {
     if (input.cols != expected_d_model) {
-        std::cerr << "Input dimension " << input.cols 
-                  << " doesn't match expected " << expected_d_model 
+        std::cerr << "Input dimension " << input.cols
+                  << " doesn't match expected " << expected_d_model
                   << std::endl;
         return false;
     }
@@ -1238,11 +1283,13 @@ if (validate_input(input, mha.get_d_model())) {
 ### Why Attention?
 
 **Problem with RNNs:**
+
 - Sequential processing (slow)
 - Vanishing gradients over long distances
 - Difficulty capturing long-range dependencies
 
 **Attention Solution:**
+
 - Parallel processing (fast)
 - Direct connections between all positions
 - Constant path length for information flow
@@ -1250,11 +1297,13 @@ if (validate_input(input, mha.get_d_model())) {
 ### Self-Attention vs. Cross-Attention
 
 **Self-Attention** (implemented here):
+
 - Q, K, V all from same source
 - Relates positions within a single sequence
 - Used in: Encoders, decoders
 
 **Cross-Attention**:
+
 - Q from one source, K and V from another
 - Relates positions across two sequences
 - Used in: Encoder-decoder attention
@@ -1262,6 +1311,7 @@ if (validate_input(input, mha.get_d_model())) {
 ### Attention as Soft Dictionary Lookup
 
 Think of attention as:
+
 - **Keys**: Dictionary keys
 - **Values**: Dictionary values
 - **Queries**: Lookup requests
@@ -1270,6 +1320,7 @@ Think of attention as:
 ### Positional Information
 
 Attention is **permutation-invariant** - it doesn't inherently know position. Solutions:
+
 1. **Positional Encoding**: Add position info to embeddings
 2. **Relative Positional Encodings**: Learn relative positions
 3. **Positional Attention**: Modify attention to be position-aware
@@ -1281,7 +1332,7 @@ Attention is **permutation-invariant** - it doesn't inherently know position. So
 ### vs. Recurrent Neural Networks (RNNs)
 
 | Feature | MultiHeadAttention | RNN |
-|---------|-------------------|-----|
+| --------- | ------------------- | ----- |
 | Parallelization | Full | Sequential |
 | Path length | O(1) | O(n) |
 | Training speed | Fast | Slow |
@@ -1291,7 +1342,7 @@ Attention is **permutation-invariant** - it doesn't inherently know position. So
 ### vs. Convolutional Neural Networks (CNNs)
 
 | Feature | MultiHeadAttention | CNN |
-|---------|-------------------|-----|
+| --------- | ------------------- | ----- |
 | Receptive field | Global | Local |
 | Parameter sharing | No | Yes |
 | Translation invariance | No | Yes |
@@ -1305,21 +1356,21 @@ Attention is **permutation-invariant** - it doesn't inherently know position. So
 ### Typical Forward Pass Times (CPU)
 
 | Configuration | Seq Len | Time (ms) |
-|--------------|---------|-----------|
-| d=256, h=4   | 128     | ~5        |
-| d=512, h=8   | 128     | ~15       |
-| d=512, h=8   | 512     | ~180      |
-| d=1024, h=16 | 128     | ~50       |
+| -------------- | --------- | ----------- |
+| d=256, h=4 | 128 | ~5 |
+| d=512, h=8 | 128 | ~15 |
+| d=512, h=8 | 512 | ~180 |
+| d=1024, h=16 | 128 | ~50 |
 
 *Times are approximate and hardware-dependent*
 
 ### Memory Footprint
 
 | d_model | num_heads | Static Memory | Dynamic (seq=512) |
-|---------|-----------|---------------|-------------------|
-| 256     | 4         | 2 MB          | 1.5 MB            |
-| 512     | 8         | 8 MB          | 5 MB              |
-| 1024    | 16        | 32 MB         | 18 MB             |
+| --------- | ----------- | --------------- | ------------------- |
+| 256 | 4 | 2 MB | 1.5 MB |
+| 512 | 8 | 8 MB | 5 MB |
+| 1024 | 16 | 32 MB | 18 MB |
 
 ---
 
@@ -1330,6 +1381,7 @@ Attention is **permutation-invariant** - it doesn't inherently know position. So
 The MultiHeadAttention class now supports the centralized Optimizer class:
 
 **Changes:**
+
 - Added `Optimizer* optimizer` member (optional, defaults to nullptr)
 - Added `set_optimizer(Optimizer* opt)` method to attach optimizer
 - Added `register_parameters()` method to register weights with optimizer
@@ -1339,6 +1391,7 @@ The MultiHeadAttention class now supports the centralized Optimizer class:
 **Migration Guide:**
 
 Old code (still works):
+
 ```cpp
 MultiHeadAttention mha(512, 8);
 mha.learning_rate = 0.001f;
@@ -1346,6 +1399,7 @@ mha.update_weights();  // Simple gradient descent
 ```
 
 New code (recommended):
+
 ```cpp
 MultiHeadAttention mha(512, 8);
 Optimizer optimizer(0.001f);
@@ -1354,6 +1408,7 @@ mha.update_weights();  // Adam/AdamW/etc optimization
 ```
 
 **Advantages:**
+
 - Use Adam, AdamW, or other advanced optimizers
 - Centralized learning rate scheduling
 - Gradient clipping at optimizer level
@@ -1409,6 +1464,7 @@ The `MultiHeadAttention` class provides:
 - **Integration**: Designed to work with LayerNorm, PositionalEncoding, TokenEmbedding, Optimizer, KVCache
 
 **Key Strengths:**
+
 - Industry-standard implementation of transformer attention
 - Well-documented with mathematical foundations
 - Comprehensive error handling and validation
@@ -1417,11 +1473,13 @@ The `MultiHeadAttention` class provides:
 - Production-ready inference optimization (KV caching)
 
 **Performance:**
+
 - Training: O(seq_len² × d_model) per forward pass
 - Inference (cached): O(seq_len × d_model) per token - ~25x speedup for 50 tokens
 - Memory (cache): ~1-2 MB for typical configurations
 
 **Use Cases:**
+
 - Transformer encoders and decoders
 - BERT-style models
 - GPT-style autoregressive models
@@ -1433,6 +1491,7 @@ This implementation forms the foundation for modern transformer-based architectu
 ## See Also
 
 ### Related Components
+
 - **[CrossAttention](cross-attention.md)** - Encoder-decoder attention with KV cache
 - **[DecoderBlock](../transformer/decoder-block.md)** - Uses MultiHeadAttention with dual caching
 - **[LLMDecoder](../transformer/decoder.md)** - Full decoder stack with multi-layer caching
@@ -1441,6 +1500,7 @@ This implementation forms the foundation for modern transformer-based architectu
 - **[TokenEmbedding](../embeddings/token-embedding.md)** - Token to vector conversion
 
 ### Optimization & Performance
+
 - **[KVCache API](../../reference/kvcache.md)** - Key-Value caching system documentation
 - **[BatchProcessor API](../../reference/batchprocessor.md)** - Batch processing utilities
 - **[PerformanceProfiler API](../../reference/performanceprofiler.md)** - Profiling and benchmarking
@@ -1448,12 +1508,13 @@ This implementation forms the foundation for modern transformer-based architectu
 - **[Inference Quickstart](../../guides/inference-optimization-quickstart.md)** - Quick optimization setup
 
 ### Academic References
+
 - **"Attention Is All You Need"** (Vaswani et al., 2017) - Original transformer paper
 - **"BERT"** (Devlin et al., 2018) - Bidirectional encoder representations
 - **"GPT-2"** (Radford et al., 2019) - Autoregressive language modeling
 
 ---
 
-**Last Updated**: January 25, 2026  
-**Version**: 1.1  
+**Last Updated**: January 25, 2026
+**Version**: 1.1
 **Dependencies**: `Matrix.hpp`, `Optimizer.hpp`, `KVCache.hpp`

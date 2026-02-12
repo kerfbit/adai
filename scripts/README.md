@@ -5,26 +5,31 @@ This directory contains utility scripts for ADAI development.
 ## Available Scripts
 
 ### 📊 check_tech_debt.sh
+
 Scans codebase for technical debt markers and verifies tracking.
 
 **Usage:**
+
 ```bash
 ./scripts/check_tech_debt.sh
 ```
 
 **What it does:**
+
 - Scans for TODO, FIXME, HACK, and XXX markers in code
 - Verifies all markers are tracked in TECHNICAL_DEBT.md
 - Reports summary of tracked technical debt items
 - Highlights high-priority items
 
 **Output:**
+
 - Lists any untracked technical debt markers
 - Shows count of active tracked items
 - Displays high-priority debt items
 - Exit code 0 if all debt is tracked, 1 if untracked markers found
 
 **Best Practices:**
+
 - Run before committing code
 - All new debt markers must be tracked in TECHNICAL_DEBT.md
 - Reference debt items in code: `// See TD-XXX in TECHNICAL_DEBT.md`
@@ -33,14 +38,17 @@ Scans codebase for technical debt markers and verifies tracking.
 ---
 
 ### 🎨 format_code.sh
+
 Formats all C++ source files using clang-format.
 
 **Usage:**
+
 ```bash
 ./scripts/format_code.sh
 ```
 
 **Requirements:** clang-format
+
 ```bash
 sudo apt-get install clang-format
 ```
@@ -48,9 +56,11 @@ sudo apt-get install clang-format
 ---
 
 ### 🔬 analyze_code.sh
+
 Runs static analysis on C++ source files using clang-tidy.
 
 **Usage:**
+
 ```bash
 # Analyze all source files
 ./scripts/analyze_code.sh
@@ -60,6 +70,7 @@ Runs static analysis on C++ source files using clang-tidy.
 ```
 
 **Requirements:** clang-tidy
+
 ```bash
 sudo apt-get install clang-tidy
 ```
@@ -67,9 +78,11 @@ sudo apt-get install clang-tidy
 ---
 
 ### 🧪 run_tests.sh
+
 Runs the test suite with optional sanitizers and coverage.
 
 **Usage:**
+
 ```bash
 # Run tests normally
 ./scripts/run_tests.sh
@@ -93,9 +106,11 @@ Runs the test suite with optional sanitizers and coverage.
 ./scripts/run_tests.sh --asan --verbose
 ```
 
-**Requirements:** 
+**Requirements:**
+
 - AddressSanitizer/UndefinedBehaviorSanitizer: GCC/Clang with sanitizer support
 - Coverage: lcov
+
 ```bash
 sudo apt-get install lcov
 ```

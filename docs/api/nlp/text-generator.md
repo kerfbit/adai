@@ -4,13 +4,14 @@
 
 The **TextGenerator** class implements various autoregressive decoding strategies for transformer-based language models. It provides a comprehensive toolkit for converting model logits into coherent text sequences using different sampling and search algorithms.
 
-**File Location:** `src/TextGenerator.hpp`, `src/TextGenerator.cpp`  
-**Dependencies:** `Matrix`, `BPETokenizer`, `<random>`, `<functional>`  
+**File Location:** `src/TextGenerator.hpp`, `src/TextGenerator.cpp`
+**Dependencies:** `Matrix`, `BPETokenizer`, `<random>`, `<functional>`
 **Lines of Code:** ~850 lines (hpp: 360, cpp: 490)
 
 ### Primary Purpose
 
 Enable flexible text generation from language models by providing:
+
 - Multiple decoding strategies (greedy, beam search, sampling)
 - Temperature control for creativity/determinism balance
 - Top-k and nucleus (top-p) filtering
@@ -29,11 +30,11 @@ public:
     struct BeamHypothesis { /* ... */ };
     struct GenerationConfig { /* ... */ };
     using ModelForwardFn = std::function<Matrix(const std::vector<int>&)>;
-    
+
     // Constructors
     TextGenerator();
     TextGenerator(const GenerationConfig& config, unsigned int seed);
-    
+
     // Generation methods
     std::vector<int> generate_greedy(...);
     std::vector<int> generate_beam_search(...);
@@ -41,18 +42,18 @@ public:
     std::vector<int> generate_top_k(...);
     std::vector<int> generate_nucleus(...);
     std::vector<int> generate(...);  // Combined
-    
+
     // String-based generation
     std::string generate_text(...);
     std::vector<std::string> generate_batch(...);
-    
+
 private:
     // Filtering methods
     std::vector<float> apply_temperature(...);
     std::vector<float> apply_top_k(...);
     std::vector<float> apply_top_p(...);
     std::vector<float> apply_repetition_penalty(...);
-    
+
     // Utility methods
     std::vector<float> softmax(...);
     int sample_token(...);
@@ -88,6 +89,7 @@ struct GenerationConfig {
 **Purpose:** Centralized configuration for all generation parameters.
 
 **Key Parameters:**
+
 - **temperature**: Controls randomness (0=greedy, <1=focused, >1=creative)
 - **top_k**: Limits sampling to k most likely tokens
 - **top_p**: Dynamic cutoff based on cumulative probability
@@ -107,6 +109,7 @@ struct BeamHypothesis {
 **Purpose:** Tracks candidate sequences during beam search.
 
 **Usage:**
+
 - Maintains partial sequences with their cumulative scores
 - Marked as finished when <eos> or max_length reached
 - Sorted by score to select best hypotheses
@@ -120,6 +123,7 @@ using ModelForwardFn = std::function<Matrix(const std::vector<int>&)>;
 **Purpose:** Function signature for model inference.
 
 **Contract:**
+
 - Input: `std::vector<int>` (token IDs of current sequence)
 - Output: `Matrix` of shape [seq_len, vocab_size] (logits)
 - Last row contains logits for next token prediction
@@ -138,7 +142,8 @@ std::vector<int> generate_greedy(
 ```
 
 **Algorithm:**
-```
+
+```text
 1. Initialize sequence with prompt (or <bos>)
 2. Loop until <eos> or max_length:
    a. Get model logits for current sequence
@@ -148,16 +153,19 @@ std::vector<int> generate_greedy(
 ```
 
 **Characteristics:**
+
 - **Deterministic**: Always produces same output for same input
 - **Fast**: O(max_length × inference_time)
 - **Quality**: Can be repetitive or boring
 
 **When to Use:**
+
 - Fast inference required
 - Deterministic output needed
 - Factual question answering
 
 **Example:**
+
 ```cpp
 TextGenerator::GenerationConfig config;
 config.max_length = 50;
@@ -180,7 +188,8 @@ std::vector<int> generate_sampling(
 ```
 
 **Algorithm:**
-```
+
+```text
 1. Initialize sequence with prompt
 2. Loop until <eos> or max_length:
    a. Get model logits
@@ -192,6 +201,7 @@ std::vector<int> generate_sampling(
 ```
 
 **Temperature Effects:**
+
 - **temperature = 0**: Greedy (argmax)
 - **temperature < 1**: More focused, conservative
   - 0.3: Very focused (factual tasks)
@@ -202,18 +212,21 @@ std::vector<int> generate_sampling(
   - 2.0: Very diverse but often incoherent
 
 **Mathematical Formulation:**
-```
+
+```text
 scaled_logits_i = logits_i / temperature
 
 p(token_i) = exp(scaled_logits_i) / Σ_j exp(scaled_logits_j)
 ```
 
 **When to Use:**
+
 - Need controlled randomness
 - Creative text generation
 - Dialogue systems
 
 **Example:**
+
 ```cpp
 config.temperature = 0.8f;  // Slightly creative
 TextGenerator gen(config);
@@ -233,7 +246,8 @@ std::vector<int> generate_top_k(
 ```
 
 **Algorithm:**
-```
+
+```text
 1. Initialize sequence with prompt
 2. Loop until <eos> or max_length:
    a. Get model logits
@@ -245,6 +259,7 @@ std::vector<int> generate_top_k(
 ```
 
 **Top-k Values:**
+
 - **k = 1**: Greedy decoding
 - **k = 5-10**: Very conservative
 - **k = 20-40**: Balanced (common for chatbots)
@@ -252,21 +267,25 @@ std::vector<int> generate_top_k(
 - **k = vocab_size**: No filtering (standard sampling)
 
 **Advantages:**
+
 - Prevents sampling from very low probability tokens
 - Simple to understand and implement
 - Computationally efficient (partial sort)
 
 **Disadvantages:**
+
 - Fixed k doesn't adapt to distribution shape
 - May be too restrictive when model is uncertain
 - May be too permissive when model is confident
 
 **When to Use:**
+
 - General-purpose text generation
 - When you know appropriate k for your domain
 - Fast inference needed
 
 **Example:**
+
 ```cpp
 config.top_k = 20;
 config.temperature = 0.9f;
@@ -287,7 +306,8 @@ std::vector<int> generate_nucleus(
 ```
 
 **Algorithm:**
-```
+
+```text
 1. Initialize sequence with prompt
 2. Loop until <eos> or max_length:
    a. Get model logits
@@ -300,6 +320,7 @@ std::vector<int> generate_nucleus(
 ```
 
 **Top-p Values:**
+
 - **p = 0.5**: Very conservative
 - **p = 0.7-0.8**: Focused but diverse
 - **p = 0.9**: Balanced (recommended for most tasks)
@@ -307,27 +328,32 @@ std::vector<int> generate_nucleus(
 - **p = 1.0**: No filtering
 
 **Mathematical Formulation:**
-```
+
+```text
 sorted_probs = sort(softmax(logits), descending=True)
 cumsum = cumulative_sum(sorted_probs)
 nucleus = {tokens where cumsum <= p}
 ```
 
 **Advantages:**
+
 - **Adaptive**: Nucleus size varies with distribution
 - **Intelligent**: Conservative when confident, diverse when uncertain
 - **Robust**: Works well across different tasks
 
 **Disadvantages:**
+
 - Slightly more computation (requires sorting)
 - Less interpretable than top-k
 
 **When to Use:**
+
 - Production chatbots
 - General-purpose generation
 - When distribution shape varies significantly
 
 **Example:**
+
 ```cpp
 config.top_p = 0.9f;
 config.temperature = 1.0f;
@@ -348,7 +374,8 @@ std::vector<int> generate_beam_search(
 ```
 
 **Algorithm:**
-```
+
+```text
 1. Initialize num_beams hypotheses with prompt
 2. Loop until all beams finish or max_length:
    a. For each active beam:
@@ -363,12 +390,14 @@ std::vector<int> generate_beam_search(
 ```
 
 **Beam Width:**
+
 - **num_beams = 1**: Greedy decoding
 - **num_beams = 3-5**: Standard (good quality/speed trade-off)
 - **num_beams = 10-20**: High quality (slower)
 
 **Length Penalty:**
-```
+
+```text
 score_normalized = score / ((5 + length) / 6) ^ alpha
 
 alpha = 0.0: No penalty (favors short sequences)
@@ -377,17 +406,20 @@ alpha = 1.0: Strong penalty (favors longer sequences)
 ```
 
 **Characteristics:**
+
 - **Semi-deterministic**: Same input → same output (given same config)
 - **High quality**: Explores multiple paths
 - **Slower**: O(num_beams × max_length × inference_time)
 
 **When to Use:**
+
 - Translation tasks
 - Summarization
 - Tasks requiring high quality over diversity
 - When computational cost is acceptable
 
 **Example:**
+
 ```cpp
 config.num_beams = 5;
 config.length_penalty = true;
@@ -410,7 +442,8 @@ std::vector<int> generate(
 ```
 
 **Algorithm:**
-```
+
+```text
 if num_beams > 1:
     return beam_search()
 else:
@@ -427,6 +460,7 @@ else:
 ```
 
 **Filter Application Order:**
+
 1. **Temperature**: Scale logits
 2. **Top-k**: Keep top k tokens
 3. **Top-p**: Keep nucleus
@@ -436,6 +470,7 @@ else:
 **Recommended Configurations:**
 
 **Chatbot (conversational):**
+
 ```cpp
 config.temperature = 0.7f;
 config.top_p = 0.9f;
@@ -444,6 +479,7 @@ config.max_length = 100;
 ```
 
 **Creative writing:**
+
 ```cpp
 config.temperature = 1.0f;
 config.top_p = 0.95f;
@@ -452,6 +488,7 @@ config.max_length = 200;
 ```
 
 **Code generation:**
+
 ```cpp
 config.temperature = 0.3f;
 config.top_p = 0.85f;
@@ -460,6 +497,7 @@ config.max_length = 150;
 ```
 
 **Question answering:**
+
 ```cpp
 config.temperature = 0.1f;  // Very focused
 config.repetition_penalty = 1.0f;
@@ -467,6 +505,7 @@ config.max_length = 50;
 ```
 
 **Translation:**
+
 ```cpp
 config.num_beams = 4;
 config.length_penalty = true;
@@ -489,7 +528,8 @@ std::vector<float> apply_repetition_penalty(
 ```
 
 **Algorithm:**
-```
+
+```text
 for each token in generated_tokens:
     if logits[token] > 0:
         logits[token] /= penalty
@@ -498,11 +538,13 @@ for each token in generated_tokens:
 ```
 
 **Effect:**
+
 - **penalty = 1.0**: No effect
 - **penalty = 1.1-1.3**: Mild reduction of repetition
 - **penalty = 1.5-2.0**: Strong reduction (may affect coherence)
 
 **Use Cases:**
+
 - Reduce token-level repetition
 - Prevent stuck loops in generation
 - Encourage vocabulary diversity
@@ -514,19 +556,20 @@ for each token in generated_tokens:
 ```cpp
 std::vector<float> softmax(const std::vector<float>& logits) {
     float max_logit = max(logits);
-    
+
     // Compute exp(x - max)
     probs[i] = exp(logits[i] - max_logit);
     sum = Σ probs
-    
+
     // Normalize
     probs[i] /= sum;
-    
+
     return probs;
 }
 ```
 
 **Why subtract max:**
+
 - Prevents overflow: exp(large_number) → inf
 - Maintains numerical stability
 - Doesn't change result: softmax(x) = softmax(x - c)
@@ -537,18 +580,20 @@ std::vector<float> softmax(const std::vector<float>& logits) {
 
 ```cpp
 int sample_token(const std::vector<float>& probabilities) {
-    std::discrete_distribution<int> dist(probabilities.begin(), 
+    std::discrete_distribution<int> dist(probabilities.begin(),
                                          probabilities.end());
     return dist(rng);
 }
 ```
 
 **Properties:**
+
 - Uses C++ `<random>` library
 - Weighted random sampling
 - Reproducible with seed
 
 **Seeding:**
+
 ```cpp
 TextGenerator gen(config, 42);  // Fixed seed for reproducibility
 TextGenerator gen(config, 0);   // Random seed (non-reproducible)
@@ -564,6 +609,7 @@ TextGenerator gen(config, 0);   // Random seed (non-reproducible)
 ```cpp
 TextGenerator();
 ```
+
 - Uses default GenerationConfig
 - Random seed
 
@@ -571,6 +617,7 @@ TextGenerator();
 ```cpp
 TextGenerator(const GenerationConfig& config, unsigned int seed);
 ```
+
 - Custom configuration
 - Explicit seed (0 for random)
 
@@ -585,6 +632,7 @@ std::vector<int> generate_greedy(
     const std::vector<int>& prompt_tokens = {}
 );
 ```
+
 **Returns:** Token IDs (greedy decoding)
 
 #### generate_beam_search
@@ -595,6 +643,7 @@ std::vector<int> generate_beam_search(
     int num_beams = -1
 );
 ```
+
 **Returns:** Best sequence from beam search
 
 #### generate_sampling
@@ -605,6 +654,7 @@ std::vector<int> generate_sampling(
     float temperature = -1.0f
 );
 ```
+
 **Returns:** Sampled token sequence
 
 #### generate_top_k
@@ -615,6 +665,7 @@ std::vector<int> generate_top_k(
     int k = -1
 );
 ```
+
 **Returns:** Top-k sampled sequence
 
 #### generate_nucleus
@@ -625,6 +676,7 @@ std::vector<int> generate_nucleus(
     float p = -1.0f
 );
 ```
+
 **Returns:** Nucleus sampled sequence
 
 #### generate (Combined)
@@ -634,6 +686,7 @@ std::vector<int> generate(
     const std::vector<int>& prompt_tokens = {}
 );
 ```
+
 **Returns:** Generated sequence using all configured filters
 
 ---
@@ -648,8 +701,9 @@ std::string generate_text(
     const std::string& prompt = ""
 );
 ```
-**Input:** Text prompt  
-**Output:** Generated text  
+
+**Input:** Text prompt
+**Output:** Generated text
 **Process:** encode → generate → decode
 
 #### generate_batch
@@ -660,8 +714,9 @@ std::vector<std::string> generate_batch(
     const std::vector<std::string>& prompts
 );
 ```
-**Input:** Multiple text prompts  
-**Output:** Multiple generated texts  
+
+**Input:** Multiple text prompts
+**Output:** Multiple generated texts
 **Note:** Sequential processing (not parallelized)
 
 ---
@@ -672,18 +727,21 @@ std::vector<std::string> generate_batch(
 ```cpp
 void set_config(const GenerationConfig& new_config);
 ```
+
 Update configuration at runtime
 
 #### get_config
 ```cpp
 GenerationConfig get_config() const;
 ```
+
 Retrieve current configuration
 
 #### set_seed
 ```cpp
 void set_seed(unsigned int seed);
 ```
+
 Change random seed
 
 ---
@@ -822,7 +880,7 @@ std::vector<std::string> responses = gen.generate_batch(
 ### Time Complexity
 
 | Strategy | Time Complexity | Notes |
-|----------|----------------|-------|
+| ---------- | ---------------- | ------- |
 | Greedy | O(L × T) | L=max_length, T=inference_time |
 | Sampling | O(L × T) | Same as greedy |
 | Top-k | O(L × (T + k log k)) | Partial sort overhead |
@@ -832,7 +890,7 @@ std::vector<std::string> responses = gen.generate_batch(
 ### Memory Usage
 
 | Component | Memory | Scaling |
-|-----------|--------|---------|
+| ----------- | -------- | --------- |
 | Config | ~100 bytes | Constant |
 | RNG state | ~5 KB | Constant |
 | Generated tokens | L × 4 bytes | O(L) |
@@ -842,27 +900,32 @@ std::vector<std::string> responses = gen.generate_batch(
 ### Optimization Tips
 
 1. **Use greedy for inference speed**
+
    ```cpp
    config.temperature = 0.0f;
    ```
 
 2. **Limit max_length for faster generation**
+
    ```cpp
    config.max_length = 50;  // Instead of 200
    ```
 
 3. **Prefer top-k over top-p for speed**
+
    ```cpp
    config.top_k = 20;    // Fast
    config.top_p = 0.0f;  // Disable top-p
    ```
 
 4. **Reduce beam width for speed**
+
    ```cpp
    config.num_beams = 3;  // Instead of 10
    ```
 
 5. **Batch processing for throughput**
+
    ```cpp
    auto responses = gen.generate_batch(model_fn, tokenizer, prompts);
    ```
@@ -876,6 +939,7 @@ std::vector<std::string> responses = gen.generate_batch(
 **File:** `tests/textgenerator_test.cpp` (to be created)
 
 **Test Categories:**
+
 1. **Constructor Tests**
    - Default configuration
    - Custom configuration
@@ -922,10 +986,12 @@ std::vector<std::string> responses = gen.generate_batch(
 ### Issue 1: Repetitive Output
 
 **Symptoms:**
+
 - Same tokens repeated
 - Stuck in loops
 
 **Solutions:**
+
 ```cpp
 config.repetition_penalty = 1.2f;  // Penalize repetition
 config.temperature = 0.9f;         // Add randomness
@@ -937,10 +1003,12 @@ config.top_p = 0.9f;               // Increase diversity
 ### Issue 2: Incoherent Output
 
 **Symptoms:**
+
 - Nonsensical text
 - Random word jumbles
 
 **Solutions:**
+
 ```cpp
 config.temperature = 0.7f;  // Reduce from 1.2
 config.top_k = 20;          // Limit to likely tokens
@@ -952,10 +1020,12 @@ config.top_p = 0.85f;       // Reduce from 0.95
 ### Issue 3: Generation Too Short
 
 **Symptoms:**
+
 - Premature <eos> generation
 - Very short sequences
 
 **Solutions:**
+
 ```cpp
 config.min_length = 20;           // Enforce minimum
 config.repetition_penalty = 1.1f; // Prevent early loops
@@ -967,10 +1037,12 @@ config.repetition_penalty = 1.1f; // Prevent early loops
 ### Issue 4: Slow Generation
 
 **Symptoms:**
+
 - High latency
 - Long inference time
 
 **Solutions:**
+
 ```cpp
 config.num_beams = 1;       // Disable beam search
 config.max_length = 50;     // Reduce from 200
@@ -1054,7 +1126,7 @@ std::string response = gen.generate_text(model_fn, tokenizer, prompt);
 
 1. **Beam Search:**
    - "Google's Neural Machine Translation System" (Wu et al., 2016)
-   
+
 2. **Nucleus Sampling:**
    - "The Curious Case of Neural Text Degeneration" (Holtzman et al., 2019)
 
@@ -1076,13 +1148,14 @@ std::string response = gen.generate_text(model_fn, tokenizer, prompt);
 
 The **TextGenerator** class provides:
 
-✅ **Multiple strategies:** Greedy, beam search, sampling variants  
-✅ **Flexible configuration:** 15+ parameters for fine-tuning  
-✅ **Production-ready:** Robust, tested, documented  
-✅ **Easy integration:** Works with any decoder model  
-✅ **Comprehensive API:** Token-based and string-based generation  
+✅ **Multiple strategies:** Greedy, beam search, sampling variants
+✅ **Flexible configuration:** 15+ parameters for fine-tuning
+✅ **Production-ready:** Robust, tested, documented
+✅ **Easy integration:** Works with any decoder model
+✅ **Comprehensive API:** Token-based and string-based generation
 
 **Best for:**
+
 - Chatbot response generation
 - Text completion
 - Translation

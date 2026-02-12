@@ -1,7 +1,7 @@
 # Chatbot REST API Documentation
 
-**ADAI Chatbot API Server**  
-Version 1.0.0  
+**ADAI Chatbot API Server**
+Version 1.0.0
 Date: January 24, 2026
 
 ---
@@ -71,6 +71,7 @@ curl -X POST http://localhost:8080/chat \
 **Request:** None
 
 **Response:**
+
 ```json
 {
   "status": "ok",
@@ -79,9 +80,11 @@ curl -X POST http://localhost:8080/chat \
 ```
 
 **Status Codes:**
+
 - `200 OK` - Server is running
 
 **Example:**
+
 ```bash
 curl http://localhost:8080/health
 ```
@@ -95,6 +98,7 @@ curl http://localhost:8080/health
 **Description:** Send a single message and receive a response. No conversation history is maintained.
 
 **Request Body:**
+
 ```json
 {
   "message": "What is the capital of France?"
@@ -102,6 +106,7 @@ curl http://localhost:8080/health
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -110,6 +115,7 @@ curl http://localhost:8080/health
 ```
 
 **Error Response:**
+
 ```json
 {
   "success": false,
@@ -118,10 +124,12 @@ curl http://localhost:8080/health
 ```
 
 **Status Codes:**
+
 - `200 OK` - Success
 - `500 Internal Server Error` - Generation failed
 
 **Example:**
+
 ```bash
 curl -X POST http://localhost:8080/chat \
   -H "Content-Type: application/json" \
@@ -139,6 +147,7 @@ curl -X POST http://localhost:8080/chat \
 **Description:** Send a message within a conversation session. Maintains conversation history across multiple requests.
 
 **Request Body:**
+
 ```json
 {
   "session_id": "abc123...",
@@ -147,10 +156,12 @@ curl -X POST http://localhost:8080/chat \
 ```
 
 **Parameters:**
+
 - `session_id` (optional): Session identifier. If empty or not provided, a new session is created.
 - `message` (required): User message
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -160,6 +171,7 @@ curl -X POST http://localhost:8080/chat \
 ```
 
 **Error Response:**
+
 ```json
 {
   "success": false,
@@ -168,10 +180,12 @@ curl -X POST http://localhost:8080/chat \
 ```
 
 **Status Codes:**
+
 - `200 OK` - Success
 - `500 Internal Server Error` - Generation failed
 
 **Example (New Session):**
+
 ```bash
 # First message - creates new session
 curl -X POST http://localhost:8080/chat/session \
@@ -183,6 +197,7 @@ curl -X POST http://localhost:8080/chat/session \
 ```
 
 **Example (Continuing Session):**
+
 ```bash
 # Subsequent message - use session_id from previous response
 curl -X POST http://localhost:8080/chat/session \
@@ -196,6 +211,7 @@ curl -X POST http://localhost:8080/chat/session \
 **Use Case:** Chatbots, conversational agents, context-aware interactions
 
 **Session Management:**
+
 - Sessions automatically expire after 30 minutes of inactivity (configurable with `--timeout` flag)
 - Conversation history is limited to 10 messages and 2048 tokens (configurable in code)
 - Expired sessions are cleaned up during health checks
@@ -209,6 +225,7 @@ curl -X POST http://localhost:8080/chat/session \
 **Description:** Clear conversation history for a specific session.
 
 **Request Body:**
+
 ```json
 {
   "session_id": "abc123..."
@@ -216,6 +233,7 @@ curl -X POST http://localhost:8080/chat/session \
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -224,6 +242,7 @@ curl -X POST http://localhost:8080/chat/session \
 ```
 
 **Error Response:**
+
 ```json
 {
   "success": false,
@@ -232,10 +251,12 @@ curl -X POST http://localhost:8080/chat/session \
 ```
 
 **Status Codes:**
+
 - `200 OK` - Success
 - `400 Bad Request` - Invalid session ID
 
 **Example:**
+
 ```bash
 curl -X POST http://localhost:8080/clear-session \
   -H "Content-Type: application/json" \
@@ -253,6 +274,7 @@ curl -X POST http://localhost:8080/clear-session \
 **Description:** Process multiple messages in a single request for higher throughput. Uses dynamic batching to minimize padding overhead.
 
 **Request Body:**
+
 ```json
 {
   "messages": [
@@ -264,6 +286,7 @@ curl -X POST http://localhost:8080/clear-session \
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -284,6 +307,7 @@ curl -X POST http://localhost:8080/clear-session \
 ```
 
 **Benefits:**
+
 - 2-4x faster than sequential single requests
 - 20-60% reduction in padding overhead
 - Automatic dynamic batching by sequence length
@@ -299,6 +323,7 @@ curl -X POST http://localhost:8080/clear-session \
 **Description:** Process multiple messages with session support. Maintains conversation history for each session.
 
 **Request Body:**
+
 ```json
 {
   "messages": ["Hello", "How are you?"],
@@ -307,6 +332,7 @@ curl -X POST http://localhost:8080/clear-session \
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -426,22 +452,22 @@ BASE_URL = "http://localhost:8080"
 class ChatSession:
     def __init__(self):
         self.session_id = None
-    
+
     def send_message(self, message):
         payload = {"message": message}
         if self.session_id:
             payload["session_id"] = self.session_id
-        
+
         response = requests.post(
             f"{BASE_URL}/chat/session",
             headers={"Content-Type": "application/json"},
             data=json.dumps(payload)
         )
-        
+
         data = response.json()
         self.session_id = data.get("session_id")
         return data["response"]
-    
+
     def clear(self):
         if self.session_id:
             requests.post(
@@ -507,16 +533,16 @@ async function singleTurnChat(message) {
 
 async function multiTurnChat() {
     let sessionId = null;
-    
+
     const sendMessage = async (message) => {
         const payload = { message };
         if (sessionId) payload.session_id = sessionId;
-        
+
         const response = await axios.post(`${BASE_URL}/chat/session`, payload);
         sessionId = response.data.session_id;
         return response.data.response;
     };
-    
+
     console.log(await sendMessage("Hello!"));
     console.log(await sendMessage("Tell me a joke."));
     console.log(await sendMessage("Can you explain the previous joke?"));
@@ -536,6 +562,7 @@ async function multiTurnChat() {
 ### Common Error Responses
 
 **Missing Required Field:**
+
 ```json
 {
   "success": false,
@@ -544,6 +571,7 @@ async function multiTurnChat() {
 ```
 
 **Generation Failed:**
+
 ```json
 {
   "success": false,
@@ -552,6 +580,7 @@ async function multiTurnChat() {
 ```
 
 **Session Not Found:**
+
 ```json
 {
   "success": false,
@@ -639,21 +668,25 @@ done
 ### Server Won't Start
 
 **Problem:** Port already in use
-```
+
+```text
 Failed to start server
 ```
 
 **Solution:** Use a different port
+
 ```bash
 ./chatbot_api_server --vocab vocab.txt --port 8081
 ```
 
 **Problem:** cpp-httplib not found
-```
+
+```text
 cpp-httplib not found. API server will not be built.
 ```
 
 **Solution:** Install cpp-httplib
+
 ```bash
 ./scripts/install_httplib.sh
 # Then rebuild
@@ -665,6 +698,7 @@ cd build && cmake .. -DBUILD_API_SERVER=ON && make chatbot_api_server
 **Problem:** Generation takes too long
 
 **Solutions:**
+
 - Reduce `--max-gen-len` (shorter responses)
 - Use faster generation strategy (`--strategy greedy`)
 - Reduce model size (`--d-model`, `--enc-layers`, `--dec-layers`)
@@ -675,6 +709,7 @@ cd build && cmake .. -DBUILD_API_SERVER=ON && make chatbot_api_server
 **Problem:** Server crashes or high memory usage
 
 **Solutions:**
+
 - Reduce session timeout (`--timeout 10`)
 - Reduce max sequence length (`--max-seq-len 512`)
 - Limit concurrent sessions (application-level)
@@ -685,6 +720,7 @@ cd build && cmake .. -DBUILD_API_SERVER=ON && make chatbot_api_server
 **Problem:** Responses are incoherent or repetitive
 
 **Solutions:**
+
 - Train model on domain-specific data
 - Adjust generation parameters:
   - Increase temperature (`--temperature 1.2`)
@@ -765,6 +801,7 @@ WantedBy=multi-user.target
 ```
 
 Enable and start:
+
 ```bash
 sudo systemctl enable chatbot-api
 sudo systemctl start chatbot-api
@@ -797,6 +834,7 @@ CMD ["./build/chatbot_api_server", "--vocab", "vocab.txt", "--port", "8080"]
 ```
 
 Build and run:
+
 ```bash
 docker build -t adai-chatbot .
 docker run -p 8080:8080 -v $(pwd)/model.bin:/app/model.bin adai-chatbot \
@@ -814,6 +852,6 @@ docker run -p 8080:8080 -v $(pwd)/model.bin:/app/model.bin adai-chatbot \
 
 ---
 
-**Last Updated:** January 24, 2026  
-**Version:** 1.0.0  
+**Last Updated:** January 24, 2026
+**Version:** 1.0.0
 **Contact:** See project repository for issues and contributions

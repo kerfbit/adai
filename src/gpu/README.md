@@ -65,6 +65,7 @@ Matrix::gpu_cleanup();
 ## Performance
 
 GPU operations are fastest on:
+
 - Large matrices (>500x500)
 - Batch operations
 - Repeated computations

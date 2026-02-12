@@ -1,7 +1,7 @@
 # BatchProcessor API Reference
 
-**Module:** `BatchProcessor.hpp`  
-**Purpose:** Batch processing utilities for efficient multi-sequence inference  
+**Module:** `BatchProcessor.hpp`
+**Purpose:** Batch processing utilities for efficient multi-sequence inference
 **Performance Impact:** 2-4x throughput improvement
 
 ---
@@ -13,7 +13,8 @@ The BatchProcessor provides utilities for processing multiple sequences together
 ### Why Use Batching?
 
 **Without Batching:**
-```
+
+```text
 Request 1: Process sequence [1, 2, 3, 4, 5] → 10ms
 Request 2: Process sequence [6, 7, 8] → 10ms
 Request 3: Process sequence [9, 10, 11, 12] → 10ms
@@ -21,12 +22,14 @@ Total: 30ms for 3 requests = 100 requests/second
 ```
 
 **With Batching:**
-```
+
+```text
 Batch: Process all 3 sequences together → 15ms
 Total: 15ms for 3 requests = 200 requests/second ✅ 2x faster!
 ```
 
 **Key Benefits:**
+
 - 2-4x higher throughput
 - Better hardware utilization (GPU/CPU)
 - Lower latency per request in high-traffic scenarios
@@ -66,31 +69,37 @@ struct TokenBatch {
 #### Fields
 
 ##### `batch_token_ids`
+
 Vector of token ID sequences, all padded to `max_length`.
 
-**Type:** `std::vector<std::vector<int>>`  
+**Type:** `std::vector<std::vector<int>>`
 **Example:**
+
 ```cpp
 batch.batch_token_ids[0] = {1, 2, 3, 0, 0};  // Original: [1, 2, 3], padded with 0s
 batch.batch_token_ids[1] = {4, 5, 6, 7, 8};  // Original: [4, 5, 6, 7, 8], no padding
 ```
 
 ##### `lengths`
+
 Original sequence lengths before padding.
 
-**Type:** `std::vector<int>`  
+**Type:** `std::vector<int>`
 **Example:**
+
 ```cpp
 batch.lengths[0] = 3;  // First sequence has 3 real tokens
 batch.lengths[1] = 5;  // Second sequence has 5 real tokens
 ```
 
 ##### `max_length`
+
 Maximum sequence length in the batch (all sequences padded to this length).
 
 **Type:** `int`
 
 ##### `pad_token_id`
+
 Token ID used for padding (typically 0).
 
 **Type:** `int`
@@ -104,6 +113,7 @@ Get number of sequences in batch.
 **Returns:** Number of sequences
 
 **Example:**
+
 ```cpp
 TokenBatch batch = create_batch(sequences);
 std::cout << "Processing " << batch.batch_size() << " sequences" << std::endl;
@@ -118,6 +128,7 @@ Check if batch is empty.
 **Returns:** `true` if batch contains no sequences
 
 **Example:**
+
 ```cpp
 if (batch.is_empty()) {
     std::cout << "No sequences to process" << std::endl;
@@ -149,7 +160,8 @@ struct BatchStats {
 Print batch statistics to stdout.
 
 **Example Output:**
-```
+
+```text
 Batch Statistics:
   Total tokens (with padding): 1000
   Actual tokens: 850
@@ -160,6 +172,7 @@ Batch Statistics:
 ```
 
 **Example:**
+
 ```cpp
 BatchStats stats = compute_batch_stats(batches);
 stats.print();
@@ -181,17 +194,20 @@ TokenBatch create_batch(
 ```
 
 **Parameters:**
+
 - `sequences` - Vector of token ID sequences (variable length)
 - `pad_token_id` - Token ID to use for padding (default: 0)
 
 **Returns:** `TokenBatch` with all sequences padded to same length
 
 **Behavior:**
+
 1. Find the longest sequence in the input
 2. Pad all shorter sequences to match the longest
 3. Store original lengths for later unpadding
 
 **Example:**
+
 ```cpp
 std::vector<std::vector<int>> sequences = {
     {1, 2, 3},           // Length 3
@@ -227,6 +243,7 @@ std::vector<TokenBatch> create_dynamic_batches(
 ```
 
 **Parameters:**
+
 - `sequences` - Vector of token ID sequences
 - `max_batch_size` - Maximum number of sequences per batch (default: 32)
 - `length_tolerance` - Maximum length difference within a batch (default: 10)
@@ -235,12 +252,14 @@ std::vector<TokenBatch> create_dynamic_batches(
 **Returns:** Vector of `TokenBatch`, each containing sequences of similar length
 
 **Algorithm:**
+
 1. Sort sequences by length
 2. Group similar-length sequences together
 3. Create batches respecting `max_batch_size` and `length_tolerance`
 4. Minimize padding within each batch
 
 **Example:**
+
 ```cpp
 std::vector<std::vector<int>> sequences = {
     {1, 2, 3},                    // Length 3
@@ -287,15 +306,18 @@ Matrix create_padding_mask(const TokenBatch& batch)
 ```
 
 **Parameters:**
+
 - `batch` - TokenBatch with padding information
 
 **Returns:** Matrix `[batch_size, max_length]` with padding mask
+
 - Value 1.0 for real tokens
 - Value 0.0 for padding tokens
 
 **Purpose:** Used in attention mechanisms to prevent attending to padding.
 
 **Example:**
+
 ```cpp
 std::vector<std::vector<int>> sequences = {
     {1, 2, 3},      // Length 3
@@ -311,6 +333,7 @@ Matrix mask = create_padding_mask(batch);
 ```
 
 **Integration with Attention:**
+
 ```cpp
 // In attention computation
 Matrix attention_scores = compute_scores(Q, K);  // [batch, seq, seq]
@@ -345,12 +368,14 @@ std::vector<Matrix> unbatch_outputs(
 ```
 
 **Parameters:**
+
 - `batch_outputs` - Vector of matrices, one per batch item
 - `batch` - Original TokenBatch with length information
 
 **Returns:** Vector of matrices without padding
 
 **Example:**
+
 ```cpp
 // After processing batch through model
 std::vector<Matrix> batch_outputs = model.forward(batch);
@@ -375,11 +400,13 @@ BatchStats compute_batch_stats(const std::vector<TokenBatch>& batches)
 ```
 
 **Parameters:**
+
 - `batches` - Vector of TokenBatch
 
 **Returns:** `BatchStats` with efficiency metrics
 
 **Example:**
+
 ```cpp
 auto batches = create_dynamic_batches(sequences, 32, 10, 0);
 BatchStats stats = compute_batch_stats(batches);
@@ -413,12 +440,12 @@ private:
     LLMDecoder decoder;
     std::queue<std::vector<int>> request_queue;
     int batch_size = 8;
-    
+
 public:
     void add_request(const std::vector<int>& tokens) {
         request_queue.push(tokens);
     }
-    
+
     std::vector<std::vector<int>> process_batch() {
         // Collect up to batch_size requests
         std::vector<std::vector<int>> sequences;
@@ -426,31 +453,31 @@ public:
             sequences.push_back(request_queue.front());
             request_queue.pop();
         }
-        
+
         if (sequences.empty()) {
             return {};
         }
-        
+
         // Create batch
         TokenBatch batch = create_batch(sequences, 0);
         Matrix padding_mask = create_padding_mask(batch);
-        
+
         // Process batch through model
         std::vector<Matrix> outputs;
         for (const auto& seq : batch.batch_token_ids) {
             Matrix output = decoder.forward(seq, nullptr, true);
             outputs.push_back(output);
         }
-        
+
         // Remove padding
         auto individual_outputs = unbatch_outputs(outputs, batch);
-        
+
         // Convert back to token IDs (simplified)
         std::vector<std::vector<int>> results;
         for (const auto& output : individual_outputs) {
             results.push_back({/* decode output */});
         }
-        
+
         return results;
     }
 };
@@ -471,7 +498,7 @@ void process_documents(const std::vector<std::string>& documents) {
     for (const auto& doc : documents) {
         token_sequences.push_back(tokenizer.encode(doc));
     }
-    
+
     // Create dynamic batches (minimize padding)
     auto batches = create_dynamic_batches(
         token_sequences,
@@ -479,24 +506,24 @@ void process_documents(const std::vector<std::string>& documents) {
         20,   // length_tolerance (allow up to 20 token difference)
         0     // pad_token_id
     );
-    
+
     // Check efficiency
     BatchStats stats = compute_batch_stats(batches);
     std::cout << "Created " << batches.size() << " batches" << std::endl;
-    std::cout << "Efficiency: " << ((1.0 - stats.padding_ratio) * 100) 
+    std::cout << "Efficiency: " << ((1.0 - stats.padding_ratio) * 100)
               << "%" << std::endl;
-    
+
     // Process each batch
     std::vector<Matrix> all_outputs;
     for (const auto& batch : batches) {
         Matrix padding_mask = create_padding_mask(batch);
-        
+
         // Process batch through model
         std::vector<Matrix> batch_outputs;
         for (const auto& seq : batch.batch_token_ids) {
             batch_outputs.push_back(model.forward(seq));
         }
-        
+
         // Unbatch and collect
         auto individual = unbatch_outputs(batch_outputs, batch);
         all_outputs.insert(all_outputs.end(), individual.begin(), individual.end());
@@ -521,37 +548,37 @@ private:
     std::chrono::milliseconds batch_timeout{50};  // 50ms timeout
     std::chrono::time_point<std::chrono::steady_clock> last_batch_time;
     int max_batch_size = 16;
-    
+
 public:
     RealTimeBatchProcessor() {
         last_batch_time = std::chrono::steady_clock::now();
     }
-    
+
     void add_sequence(const std::vector<int>& seq) {
         pending_sequences.push_back(seq);
-        
+
         // Check if we should process batch
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             now - last_batch_time
         );
-        
-        bool should_process = 
-            pending_sequences.size() >= max_batch_size ||
+
+        bool should_process =
+            pending_sequences.size() >= max_batch_size |  |
             elapsed >= batch_timeout;
-        
+
         if (should_process && !pending_sequences.empty()) {
             process_pending_batch();
         }
     }
-    
+
 private:
     void process_pending_batch() {
         // Create batch
         TokenBatch batch = create_batch(pending_sequences, 0);
-        
+
         // Process...
-        
+
         // Reset
         pending_sequences.clear();
         last_batch_time = std::chrono::steady_clock::now();
@@ -576,16 +603,16 @@ void batch_with_cache_example() {
         {4, 5, 6, 7},
         {8, 9}
     };
-    
+
     // One cache per sequence
     std::vector<DecoderKVCache> caches;
     for (int i = 0; i < prompts.size(); ++i) {
         caches.emplace_back(num_layers);
     }
-    
+
     // Create batch
     TokenBatch batch = create_batch(prompts, 0);
-    
+
     // Process batch with caches
     std::vector<Matrix> outputs;
     for (int i = 0; i < batch.batch_size(); ++i) {
@@ -597,17 +624,17 @@ void batch_with_cache_example() {
         );
         outputs.push_back(output);
     }
-    
+
     // Generate next tokens for batch
     for (int step = 0; step < 10; ++step) {
         std::vector<int> next_tokens;
-        
+
         // Sample next token for each sequence
         for (int i = 0; i < batch.batch_size(); ++i) {
             int next_token = sample_from_logits(outputs[i]);
             next_tokens.push_back(next_token);
         }
-        
+
         // Process new tokens with caches
         for (int i = 0; i < batch.batch_size(); ++i) {
             std::vector<int> new_token = {next_tokens[i]};
@@ -631,7 +658,7 @@ void batch_with_cache_example() {
 **Trade-offs:**
 
 | Batch Size | Throughput | Latency | Memory |
-|------------|-----------|---------|--------|
+| ------------ | ----------- | --------- | -------- |
 | 1 | Low | Best | Low |
 | 8-16 | Medium | Good | Medium |
 | 32-64 | High | Acceptable | High |
@@ -687,11 +714,11 @@ std::vector<int> tolerances = {5, 10, 15, 20, 30, 50};
 for (int tol : tolerances) {
     auto batches = create_dynamic_batches(sequences, 32, tol, 0);
     BatchStats stats = compute_batch_stats(batches);
-    
+
     std::cout << "Tolerance: " << tol << std::endl;
     std::cout << "  Batches: " << stats.num_batches << std::endl;
     std::cout << "  Padding: " << (stats.padding_ratio * 100) << "%" << std::endl;
-    std::cout << "  Efficiency: " << ((1.0 - stats.padding_ratio) * 100) 
+    std::cout << "  Efficiency: " << ((1.0 - stats.padding_ratio) * 100)
               << "%" << std::endl;
 }
 
@@ -708,29 +735,29 @@ for (int tol : tolerances) {
 
 void benchmark_batching() {
     Profiler profiler;
-    
+
     // Test different batch sizes
     std::vector<int> batch_sizes = {1, 4, 8, 16, 32};
-    
+
     for (int bs : batch_sizes) {
         profiler.start("batch_size_" + std::to_string(bs));
-        
+
         // Create batches
         auto batches = create_dynamic_batches(sequences, bs, 10, 0);
-        
+
         // Process batches
         for (const auto& batch : batches) {
             // Process through model...
         }
-        
+
         profiler.stop("batch_size_" + std::to_string(bs));
     }
-    
+
     // Print results
     std::cout << "\nBatch Size Performance:" << std::endl;
     for (int bs : batch_sizes) {
         auto stats = profiler.get_stats("batch_size_" + std::to_string(bs));
-        std::cout << "Batch " << bs << ": " << stats.mean_us / 1000.0 
+        std::cout << "Batch " << bs << ": " << stats.mean_us / 1000.0
                   << " ms" << std::endl;
     }
 }
@@ -810,7 +837,7 @@ TokenBatch create_left_padded_batch(
 ) {
     TokenBatch batch;
     batch.pad_token_id = pad_token_id;
-    
+
     // Find max length
     batch.max_length = 0;
     for (const auto& seq : sequences) {
@@ -818,24 +845,24 @@ TokenBatch create_left_padded_batch(
             batch.max_length = seq.size();
         }
     }
-    
+
     // Left-pad sequences
     for (const auto& seq : sequences) {
         std::vector<int> padded_seq;
         int padding_needed = batch.max_length - seq.size();
-        
+
         // Add padding at the beginning
         for (int i = 0; i < padding_needed; ++i) {
             padded_seq.push_back(pad_token_id);
         }
-        
+
         // Add actual sequence
         padded_seq.insert(padded_seq.end(), seq.begin(), seq.end());
-        
+
         batch.batch_token_ids.push_back(padded_seq);
         batch.lengths.push_back(seq.size());
     }
-    
+
     return batch;
 }
 ```
@@ -848,7 +875,7 @@ TokenBatch create_left_padded_batch(
 struct PriorityRequest {
     std::vector<int> tokens;
     int priority;  // Higher = more important
-    
+
     bool operator<(const PriorityRequest& other) const {
         return priority < other.priority;  // Max heap
     }
@@ -860,13 +887,13 @@ std::vector<TokenBatch> create_priority_batches(
 ) {
     // Sort by priority (descending)
     std::sort(requests.begin(), requests.end(), std::greater<PriorityRequest>());
-    
+
     // Extract token sequences
     std::vector<std::vector<int>> sequences;
     for (const auto& req : requests) {
         sequences.push_back(req.tokens);
     }
-    
+
     // Create batches (high priority requests in early batches)
     std::vector<TokenBatch> batches;
     for (size_t i = 0; i < sequences.size(); i += max_batch_size) {
@@ -877,7 +904,7 @@ std::vector<TokenBatch> create_priority_batches(
         );
         batches.push_back(create_batch(batch_seqs));
     }
-    
+
     return batches;
 }
 ```
@@ -892,7 +919,7 @@ private:
     int min_batch_size = 4;
     int max_batch_size = 32;
     float target_efficiency = 0.85;  // 85% efficiency target
-    
+
 public:
     std::vector<TokenBatch> create_adaptive_batches(
         const std::vector<std::vector<int>>& sequences
@@ -900,25 +927,25 @@ public:
         int current_batch_size = (min_batch_size + max_batch_size) / 2;
         int best_batch_size = current_batch_size;
         float best_efficiency = 0.0;
-        
+
         // Try different batch sizes
         for (int bs = min_batch_size; bs <= max_batch_size; bs += 4) {
             auto batches = create_dynamic_batches(sequences, bs, 10, 0);
             BatchStats stats = compute_batch_stats(batches);
-            
+
             float efficiency = 1.0 - stats.padding_ratio;
-            
+
             if (efficiency > best_efficiency) {
                 best_efficiency = efficiency;
                 best_batch_size = bs;
             }
-            
+
             // Early exit if we hit target
             if (efficiency >= target_efficiency) {
                 break;
             }
         }
-        
+
         return create_dynamic_batches(sequences, best_batch_size, 10, 0);
     }
 };
@@ -931,11 +958,13 @@ public:
 ### Problem: Low throughput improvement from batching
 
 **Possible causes:**
+
 1. Batch size too small
 2. Too much padding overhead
 3. Sequential processing instead of parallel
 
 **Solutions:**
+
 ```cpp
 // Solution 1: Increase batch size
 auto batches = create_dynamic_batches(sequences, 32, 10, 0);  // Not 8
@@ -955,10 +984,12 @@ if (stats.padding_ratio > 0.3) {
 ### Problem: Out of memory when batching
 
 **Possible causes:**
+
 1. Batch size too large for available memory
 2. Sequences too long
 
 **Solutions:**
+
 ```cpp
 // Solution 1: Reduce batch size
 auto batches = create_dynamic_batches(sequences, 16, 10, 0);  // Not 64
@@ -973,7 +1004,7 @@ for (auto& seq : sequences) {
 // Solution 3: Process in smaller chunks
 std::vector<std::vector<int>> chunk;
 for (size_t i = 0; i < sequences.size(); i += 100) {
-    chunk.assign(sequences.begin() + i, 
+    chunk.assign(sequences.begin() + i,
                  sequences.begin() + std::min(i + 100, sequences.size()));
     auto batches = create_dynamic_batches(chunk, 16, 10, 0);
     // Process batches...
@@ -985,10 +1016,12 @@ for (size_t i = 0; i < sequences.size(); i += 100) {
 ### Problem: High padding ratio
 
 **Possible causes:**
+
 1. Very variable sequence lengths
 2. Length tolerance too large
 
 **Solutions:**
+
 ```cpp
 // Solution 1: Reduce length tolerance
 auto batches = create_dynamic_batches(sequences, 32, 5, 0);  // Not 50
@@ -1017,7 +1050,7 @@ stats.print();  // Identify the issue
 ### Throughput Improvement
 
 | Configuration | Throughput Gain | Use Case |
-|--------------|----------------|----------|
+| -------------- | ---------------- | ---------- |
 | Batch size 4 | 1.5-2x | Low latency |
 | Batch size 16 | 2-3x | Balanced |
 | Batch size 32 | 3-4x | High throughput |
@@ -1026,7 +1059,7 @@ stats.print();  // Identify the issue
 ### Combined with KV Cache
 
 | Optimization | Individual | Combined |
-|-------------|-----------|----------|
+| ------------- | ----------- | ---------- |
 | KV Cache only | 2-3x | - |
 | Batching only | 2-4x | - |
 | Both | - | **4-12x** ✅ |
@@ -1042,6 +1075,6 @@ stats.print();  // Identify the issue
 
 ---
 
-**Last Updated:** January 25, 2026  
-**Version:** 1.0  
+**Last Updated:** January 25, 2026
+**Version:** 1.0
 **Status:** Production-ready

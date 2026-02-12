@@ -8,21 +8,22 @@ This document provides comprehensive documentation for the ChatbotCLI test suite
 
 ### Legacy Test Suite
 
-**Test File:** `tests/chatbotcli_test.cpp`  
-**Test Executable:** `chatbotcliTests`  
-**Total Tests:** 83 tests across 15 test suites  
-**Test Framework:** Google Test (GTest) 1.14.0  
+**Test File:** `tests/chatbotcli_test.cpp`
+**Test Executable:** `chatbotcliTests`
+**Total Tests:** 83 tests across 15 test suites
+**Test Framework:** Google Test (GTest) 1.14.0
 **Approach:** Helper functions and mocks (ChatbotCLI was in .cpp without header)
 
 ### Improved Test Suite (2026)
 
-**Test File:** `tests/chatbotcli_improved_test.cpp`  
-**Test Executable:** `chatbotcliImprovedTests`  
-**Total Tests:** 23 tests across 4 test suites  
-**Test Framework:** Google Test (GTest) 1.14.0  
+**Test File:** `tests/chatbotcli_improved_test.cpp`
+**Test Executable:** `chatbotcliImprovedTests`
+**Total Tests:** 23 tests across 4 test suites
+**Test Framework:** Google Test (GTest) 1.14.0
 **Approach:** Direct class instantiation and testing via header file
 
 **Key Improvements:**
+
 - ✅ Tests actual ChatbotCLI class (not just helper functions)
 - ✅ Full constructor, accessor, and mutator coverage
 - ✅ Direct command handling tests via `handle_setting()`
@@ -32,7 +33,7 @@ This document provides comprehensive documentation for the ChatbotCLI test suite
 ## Improved Test Suite Coverage
 
 | Test Suite | Tests | Purpose |
-|------------|-------|---------|
+| ------------ | ------- | --------- |
 | ChatbotCLITest | 17 | Class functionality (constructor, getters, setters, commands) |
 | CommandValidationTest | 3 | Command recognition and validation |
 | StrategyValidationTest | 2 | Generation strategy validation |
@@ -44,6 +45,7 @@ This document provides comprehensive documentation for the ChatbotCLI test suite
 **Purpose:** Test ChatbotCLI class members and methods directly
 
 **Test Fixture:**
+
 ```cpp
 class ChatbotCLITest : public ::testing::Test {
    protected:
@@ -52,20 +54,20 @@ class ChatbotCLITest : public ::testing::Test {
         vocab_file = "test_vocab.txt";
         model_file = "test_model.bin";
         conv_file = "test_conversation.txt";
-        
+
         std::ofstream vocab(vocab_file);
         vocab << "hello 100\\n";
         vocab << "world 50\\n";
         vocab << "test 25\\n";
         vocab.close();
     }
-    
+
     void TearDown() override {
         std::remove(vocab_file.c_str());
         std::remove(model_file.c_str());
         std::remove(conv_file.c_str());
     }
-    
+
     std::string vocab_file;
     std::string model_file;
     std::string conv_file;
@@ -75,10 +77,13 @@ class ChatbotCLITest : public ::testing::Test {
 #### Constructor Tests (3 tests)
 
 **ConstructorSetsDefaultParameters**
+
 ```cpp
 TEST_F(ChatbotCLITest, ConstructorSetsDefaultParameters)
 ```
+
 **Validates:**
+
 - `max_response_length` = 100
 - `temperature` = 1.0f
 - `top_p` = 0.9f
@@ -87,39 +92,51 @@ TEST_F(ChatbotCLITest, ConstructorSetsDefaultParameters)
 - `generation_strategy` = "nucleus"
 
 **ConstructorStoresFilePaths**
+
 ```cpp
 TEST_F(ChatbotCLITest, ConstructorStoresFilePaths)
 ```
+
 **Validates:**
+
 - Correct storage of `vocab_path`
 - Correct storage of `model_path`
 - Correct storage of `conversation_save_path`
 
 **DefaultConversationSavePath**
+
 ```cpp
 TEST_F(ChatbotCLITest, DefaultConversationSavePath)
 ```
+
 **Validates:**
+
 - Default path is "conversation_history.txt"
 
 #### Accessor/Mutator Tests (6 tests)
 
 **SetAndGetGenerationStrategy**
+
 - Tests setting and retrieving: greedy, beam, sampling
 
 **SetAndGetMaxResponseLength**
+
 - Tests setting values: 50, 200
 
 **SetAndGetTemperature**
+
 - Tests setting values: 0.5f, 1.5f
 
 **SetAndGetTopP**
+
 - Tests setting values: 0.8f, 0.95f
 
 **SetAndGetTopK**
+
 - Tests setting values: 10, 100
 
 **SetAndGetBeamWidth**
+
 - Tests setting values: 3, 10
 
 #### Command Handling Tests (8 tests)
@@ -127,10 +144,13 @@ TEST_F(ChatbotCLITest, DefaultConversationSavePath)
 All tests redirect stdout to suppress output during testing.
 
 **HandleSettingStrategy**
+
 ```cpp
 TEST_F(ChatbotCLITest, HandleSettingStrategy)
 ```
+
 **Tests:**
+
 ```cpp
 cli.handle_setting("strategy greedy");
 cli.handle_setting("strategy beam");
@@ -138,30 +158,37 @@ cli.handle_setting("strategy nucleus");
 ```
 
 **HandleSettingMaxLength**
+
 - Tests: `"length 150"`, `"max_length 75"`
 
 **HandleSettingTemperature**
+
 - Tests: `"temperature 0.7"`, `"temp 1.2"`
 
 **HandleSettingTopP**
+
 - Tests: `"top_p 0.85"`, `"top-p 0.92"`
 
 **HandleSettingTopK**
+
 - Tests: `"top_k 20"`, `"top-k 40"`
 
 **HandleSettingBeamWidth**
+
 - Tests: `"beam_width 7"`, `"beam-width 12"`
 
 **HandleSettingInvalidStrategy**
+
 - Verifies invalid strategy doesn't change current value
 
 **HandleSettingMissingValue**
+
 - Verifies missing value doesn't change current value
 
 ## Legacy Test Suite Coverage
 
 | Test Suite | Tests | Purpose |
-|------------|-------|---------|
+| ------------ | ------- | --------- |
 | ColorCodeTest | 3 | ANSI color code validation |
 | CommandValidationTest | 4 | Command recognition and validation |
 | StrategyValidationTest | 3 | Generation strategy validation |
@@ -191,9 +218,11 @@ cli.handle_setting("strategy nucleus");
 ```cpp
 TEST(ColorCodeTest, ColorCodesAreDefined)
 ```
+
 **Purpose:** Verify all color codes have correct ANSI values
 
 **Validates:**
+
 - `COLOR_RESET` = `"\033[0m"`
 - `COLOR_USER` = `"\033[1;36m"` (Cyan)
 - `COLOR_BOT` = `"\033[1;32m"` (Green)
@@ -206,6 +235,7 @@ TEST(ColorCodeTest, ColorCodesAreDefined)
 ```cpp
 TEST(ColorCodeTest, ColorCodesAreNonEmpty)
 ```
+
 **Purpose:** Ensure all color codes contain content
 
 **Expected:** Every color code has length > 0
@@ -214,6 +244,7 @@ TEST(ColorCodeTest, ColorCodesAreNonEmpty)
 ```cpp
 TEST(ColorCodeTest, ColorCodesStartWithEscape)
 ```
+
 **Purpose:** Verify all codes start with escape character
 
 **Expected:** First character is `'\033'` for all colors
@@ -230,9 +261,11 @@ TEST(ColorCodeTest, ColorCodesStartWithEscape)
 ```cpp
 TEST(CommandValidationTest, RecognizeValidCommands)
 ```
+
 **Purpose:** Verify all valid commands are recognized
 
 **Valid Commands Tested:**
+
 - `/help` - Show help message
 - `/clear` - Clear conversation
 - `/save` - Save conversation
@@ -248,9 +281,11 @@ TEST(CommandValidationTest, RecognizeValidCommands)
 ```cpp
 TEST(CommandValidationTest, RecognizeCommandsWithArguments)
 ```
+
 **Purpose:** Recognize commands that take arguments
 
 **Examples:**
+
 - `/set strategy greedy`
 - `/set temperature 0.8`
 - `/system You are helpful`
@@ -261,9 +296,11 @@ TEST(CommandValidationTest, RecognizeCommandsWithArguments)
 ```cpp
 TEST(CommandValidationTest, RejectInvalidCommands)
 ```
+
 **Purpose:** Reject unknown commands
 
 **Invalid Commands:**
+
 - `/unknown`
 - `/test`
 - `/` (only slash)
@@ -275,9 +312,11 @@ TEST(CommandValidationTest, RejectInvalidCommands)
 ```cpp
 TEST(CommandValidationTest, RejectNonCommands)
 ```
+
 **Purpose:** Reject user messages as commands
 
 **Examples:**
+
 - `"Hello"` - Normal message
 - `"What is the weather?"` - Question
 - `"exit"` - Missing slash
@@ -296,9 +335,11 @@ TEST(CommandValidationTest, RejectNonCommands)
 ```cpp
 TEST(StrategyValidationTest, RecognizeValidStrategies)
 ```
+
 **Purpose:** Verify all 5 generation strategies recognized
 
 **Valid Strategies:**
+
 1. `greedy` - Greedy decoding
 2. `beam` - Beam search
 3. `sampling` - Temperature sampling
@@ -311,9 +352,11 @@ TEST(StrategyValidationTest, RecognizeValidStrategies)
 ```cpp
 TEST(StrategyValidationTest, RejectInvalidStrategies)
 ```
+
 **Purpose:** Reject unknown strategies
 
 **Invalid Examples:**
+
 - `"random"`
 - `"best"`
 - `""` (empty)
@@ -325,6 +368,7 @@ TEST(StrategyValidationTest, RejectInvalidStrategies)
 ```cpp
 TEST(StrategyValidationTest, StrategyCount)
 ```
+
 **Purpose:** Verify exactly 5 strategies available
 
 **Expected:** `VALID_STRATEGIES.size() == 5`
@@ -341,11 +385,13 @@ TEST(StrategyValidationTest, StrategyCount)
 ```cpp
 TEST(SetCommandParsingTest, ParseValidSetCommand)
 ```
+
 **Purpose:** Parse basic `/set` command
 
 **Input:** `/set strategy greedy`
 
 **Expected Output:**
+
 - `valid = true`
 - `param = "strategy"`
 - `value = "greedy"`
@@ -354,11 +400,13 @@ TEST(SetCommandParsingTest, ParseValidSetCommand)
 ```cpp
 TEST(SetCommandParsingTest, ParseSetCommandWithNumericValue)
 ```
+
 **Purpose:** Parse float parameter values
 
 **Input:** `/set temperature 0.8`
 
 **Expected Output:**
+
 - `valid = true`
 - `param = "temperature"`
 - `value = "0.8"`
@@ -367,11 +415,13 @@ TEST(SetCommandParsingTest, ParseSetCommandWithNumericValue)
 ```cpp
 TEST(SetCommandParsingTest, ParseSetCommandWithIntValue)
 ```
+
 **Purpose:** Parse integer parameter values
 
 **Input:** `/set length 150`
 
 **Expected Output:**
+
 - `valid = true`
 - `param = "length"`
 - `value = "150"`
@@ -380,11 +430,13 @@ TEST(SetCommandParsingTest, ParseSetCommandWithIntValue)
 ```cpp
 TEST(SetCommandParsingTest, RejectSetCommandWithoutValue)
 ```
+
 **Purpose:** Reject `/set` without value
 
 **Input:** `/set strategy`
 
 **Expected Output:**
+
 - `valid = false`
 - `error = "Missing value"`
 
@@ -392,11 +444,13 @@ TEST(SetCommandParsingTest, RejectSetCommandWithoutValue)
 ```cpp
 TEST(SetCommandParsingTest, RejectNonSetCommand)
 ```
+
 **Purpose:** Reject non-set commands
 
 **Input:** `/help`
 
 **Expected Output:**
+
 - `valid = false`
 - `error = "Not a set command"`
 
@@ -404,11 +458,13 @@ TEST(SetCommandParsingTest, RejectNonSetCommand)
 ```cpp
 TEST(SetCommandParsingTest, ParseSetCommandWithSpacesInValue)
 ```
+
 **Purpose:** Handle multi-word values
 
 **Input:** `/set system You are helpful`
 
 **Expected Output:**
+
 - `valid = true`
 - `param = "system"`
 - `value = "You are helpful"`
@@ -425,6 +481,7 @@ TEST(SetCommandParsingTest, ParseSetCommandWithSpacesInValue)
 ```cpp
 TEST(ParameterNormalizationTest, NormalizeLength)
 ```
+
 **Aliases:** `length`, `max_length`
 
 **Expected:** Both normalize to `"max_length"`
@@ -433,6 +490,7 @@ TEST(ParameterNormalizationTest, NormalizeLength)
 ```cpp
 TEST(ParameterNormalizationTest, NormalizeTemperature)
 ```
+
 **Aliases:** `temperature`, `temp`
 
 **Expected:** Both normalize to `"temperature"`
@@ -441,6 +499,7 @@ TEST(ParameterNormalizationTest, NormalizeTemperature)
 ```cpp
 TEST(ParameterNormalizationTest, NormalizeTopP)
 ```
+
 **Aliases:** `top_p`, `top-p`
 
 **Expected:** Both normalize to `"top_p"`
@@ -449,6 +508,7 @@ TEST(ParameterNormalizationTest, NormalizeTopP)
 ```cpp
 TEST(ParameterNormalizationTest, NormalizeTopK)
 ```
+
 **Aliases:** `top_k`, `top-k`
 
 **Expected:** Both normalize to `"top_k"`
@@ -457,6 +517,7 @@ TEST(ParameterNormalizationTest, NormalizeTopK)
 ```cpp
 TEST(ParameterNormalizationTest, NormalizeBeamWidth)
 ```
+
 **Aliases:** `beam_width`, `beam-width`
 
 **Expected:** Both normalize to `"beam_width"`
@@ -465,9 +526,11 @@ TEST(ParameterNormalizationTest, NormalizeBeamWidth)
 ```cpp
 TEST(ParameterNormalizationTest, UnknownParameterUnchanged)
 ```
+
 **Purpose:** Unknown parameters remain unchanged
 
 **Examples:**
+
 - `"unknown"` → `"unknown"`
 - `"strategy"` → `"strategy"` (no alias)
 
@@ -485,7 +548,9 @@ TEST(ParameterNormalizationTest, UnknownParameterUnchanged)
 ```cpp
 TEST(StringTrimmingTest, TrimLeadingWhitespace)
 ```
+
 **Examples:**
+
 - `"  hello"` → `"hello"`
 - `"\thello"` → `"hello"`
 - `"\nhello"` → `"hello"`
@@ -496,7 +561,9 @@ TEST(StringTrimmingTest, TrimLeadingWhitespace)
 ```cpp
 TEST(StringTrimmingTest, TrimTrailingWhitespace)
 ```
+
 **Examples:**
+
 - `"hello  "` → `"hello"`
 - `"hello\t"` → `"hello"`
 - `"hello\n"` → `"hello"`
@@ -507,7 +574,9 @@ TEST(StringTrimmingTest, TrimTrailingWhitespace)
 ```cpp
 TEST(StringTrimmingTest, TrimBothSides)
 ```
+
 **Examples:**
+
 - `"  hello  "` → `"hello"`
 - `"\t\nhello\r\n"` → `"hello"`
 
@@ -517,7 +586,9 @@ TEST(StringTrimmingTest, TrimBothSides)
 ```cpp
 TEST(StringTrimmingTest, NoTrimNeeded)
 ```
+
 **Examples:**
+
 - `"hello"` → `"hello"`
 - `"hello world"` → `"hello world"`
 
@@ -527,7 +598,9 @@ TEST(StringTrimmingTest, NoTrimNeeded)
 ```cpp
 TEST(StringTrimmingTest, EmptyAndWhitespaceOnly)
 ```
+
 **Examples:**
+
 - `""` → `""`
 - `"   "` → `""`
 - `"\t\n\r"` → `""`
@@ -546,9 +619,11 @@ TEST(StringTrimmingTest, EmptyAndWhitespaceOnly)
 ```cpp
 TEST(FileOperationsTest, CreateVocabFile)
 ```
+
 **Purpose:** Create and validate vocabulary file
 
 **Process:**
+
 1. Create vocab file with 10 tokens
 2. Verify file exists
 3. Read and validate contents
@@ -561,9 +636,11 @@ TEST(FileOperationsTest, CreateVocabFile)
 ```cpp
 TEST(FileOperationsTest, CreateModelFile)
 ```
+
 **Purpose:** Create binary model file
 
 **Process:**
+
 1. Create binary file with `d_model = 512`
 2. Read back binary data
 3. Verify value matches
@@ -575,16 +652,19 @@ TEST(FileOperationsTest, CreateModelFile)
 ```cpp
 TEST(FileOperationsTest, CreateConversationFile)
 ```
+
 **Purpose:** Create conversation history file
 
 **Process:**
+
 1. Create file with 4 lines (2 exchanges)
 2. Validate line count
 3. Check USER/ASSISTANT markers
 4. Cleanup
 
 **Example Content:**
-```
+
+```text
 USER: Hello!
 ASSISTANT: Hi there! How can I help you?
 USER: What's the weather?
@@ -597,9 +677,11 @@ ASSISTANT: I don't have access to real-time weather data.
 ```cpp
 TEST(FileOperationsTest, ReadConversationFile)
 ```
+
 **Purpose:** Read and parse conversation file
 
 **Process:**
+
 1. Create conversation file
 2. Read entire content as string
 3. Verify presence of markers and text
@@ -619,42 +701,49 @@ TEST(FileOperationsTest, ReadConversationFile)
 ```cpp
 TEST(DefaultParametersTest, MaxResponseLength)
 ```
+
 **Expected:** `max_response_length = 100`
 
 #### Temperature
 ```cpp
 TEST(DefaultParametersTest, Temperature)
 ```
+
 **Expected:** `temperature = 1.0f`
 
 #### TopP
 ```cpp
 TEST(DefaultParametersTest, TopP)
 ```
+
 **Expected:** `top_p = 0.9f`
 
 #### TopK
 ```cpp
 TEST(DefaultParametersTest, TopK)
 ```
+
 **Expected:** `top_k = 50`
 
 #### BeamWidth
 ```cpp
 TEST(DefaultParametersTest, BeamWidth)
 ```
+
 **Expected:** `beam_width = 5`
 
 #### GenerationStrategy
 ```cpp
 TEST(DefaultParametersTest, GenerationStrategy)
 ```
+
 **Expected:** `generation_strategy = "nucleus"`
 
 #### StrategyIsValid
 ```cpp
 TEST(DefaultParametersTest, StrategyIsValid)
 ```
+
 **Purpose:** Default strategy is valid
 
 **Expected:** `is_valid_strategy("nucleus") == true`
@@ -671,42 +760,49 @@ TEST(DefaultParametersTest, StrategyIsValid)
 ```cpp
 TEST(ModelArchitectureTest, DefaultDModel)
 ```
+
 **Expected:** `d_model = 512`
 
 #### DefaultNumHeads
 ```cpp
 TEST(ModelArchitectureTest, DefaultNumHeads)
 ```
+
 **Expected:** `num_heads = 8`
 
 #### DefaultDFF
 ```cpp
 TEST(ModelArchitectureTest, DefaultDFF)
 ```
+
 **Expected:** `d_ff = 2048`
 
 #### DefaultEncoderLayers
 ```cpp
 TEST(ModelArchitectureTest, DefaultEncoderLayers)
 ```
+
 **Expected:** `num_encoder_layers = 6`
 
 #### DefaultDecoderLayers
 ```cpp
 TEST(ModelArchitectureTest, DefaultDecoderLayers)
 ```
+
 **Expected:** `num_decoder_layers = 6`
 
 #### DefaultMaxSeqLength
 ```cpp
 TEST(ModelArchitectureTest, DefaultMaxSeqLength)
 ```
+
 **Expected:** `max_seq_length = 1024`
 
 #### DModelDivisibleByHeads
 ```cpp
 TEST(ModelArchitectureTest, DModelDivisibleByHeads)
 ```
+
 **Purpose:** Validate architecture constraint
 
 **Expected:** `d_model % num_heads == 0` (512 % 8 = 0)
@@ -715,6 +811,7 @@ TEST(ModelArchitectureTest, DModelDivisibleByHeads)
 ```cpp
 TEST(ModelArchitectureTest, DFFLargerThanDModel)
 ```
+
 **Purpose:** Validate feed-forward expansion
 
 **Expected:** `d_ff > d_model` (2048 > 512)
@@ -731,18 +828,21 @@ TEST(ModelArchitectureTest, DFFLargerThanDModel)
 ```cpp
 TEST(ConversationContextConfigTest, DefaultMaxMessages)
 ```
+
 **Expected:** `max_messages = 20`
 
 #### DefaultMaxTokens
 ```cpp
 TEST(ConversationContextConfigTest, DefaultMaxTokens)
 ```
+
 **Expected:** `max_tokens = 2048`
 
 #### MaxTokensGreaterThanMaxMessages
 ```cpp
 TEST(ConversationContextConfigTest, MaxTokensGreaterThanMaxMessages)
 ```
+
 **Purpose:** Validate sensible defaults
 
 **Expected:** `max_tokens > max_messages` (2048 > 20)
@@ -751,12 +851,14 @@ TEST(ConversationContextConfigTest, MaxTokensGreaterThanMaxMessages)
 ```cpp
 TEST(ConversationContextConfigTest, MaxMessagesPositive)
 ```
+
 **Expected:** `max_messages > 0`
 
 #### MaxTokensPositive
 ```cpp
 TEST(ConversationContextConfigTest, MaxTokensPositive)
 ```
+
 **Expected:** `max_tokens > 0`
 
 ---
@@ -771,36 +873,42 @@ TEST(ConversationContextConfigTest, MaxTokensPositive)
 ```cpp
 TEST(CommandLineDefaultsTest, DefaultVocabPath)
 ```
+
 **Expected:** `vocab_path = "vocab.txt"`
 
 #### DefaultModelPath
 ```cpp
 TEST(CommandLineDefaultsTest, DefaultModelPath)
 ```
+
 **Expected:** `model_path = "chatbot_model.bin"`
 
 #### DefaultConversationPath
 ```cpp
 TEST(CommandLineDefaultsTest, DefaultConversationPath)
 ```
+
 **Expected:** `conv_save_path = "conversation_history.txt"`
 
 #### AllPathsNonEmpty
 ```cpp
 TEST(CommandLineDefaultsTest, AllPathsNonEmpty)
 ```
+
 **Expected:** All paths have length > 0
 
 #### VocabPathHasExtension
 ```cpp
 TEST(CommandLineDefaultsTest, VocabPathHasExtension)
 ```
+
 **Expected:** Path contains `".txt"`
 
 #### ModelPathHasExtension
 ```cpp
 TEST(CommandLineDefaultsTest, ModelPathHasExtension)
 ```
+
 **Expected:** Path contains `".bin"`
 
 ---
@@ -815,6 +923,7 @@ TEST(CommandLineDefaultsTest, ModelPathHasExtension)
 ```cpp
 TEST(EdgeCaseTest, EmptyCommandString)
 ```
+
 **Input:** `""`
 
 **Expected:** `is_valid_command() == false`
@@ -823,6 +932,7 @@ TEST(EdgeCaseTest, EmptyCommandString)
 ```cpp
 TEST(EdgeCaseTest, OnlySlashCommand)
 ```
+
 **Input:** `"/"`
 
 **Expected:** `is_valid_command() == false`
@@ -831,6 +941,7 @@ TEST(EdgeCaseTest, OnlySlashCommand)
 ```cpp
 TEST(EdgeCaseTest, VeryLongCommand)
 ```
+
 **Input:** `/set temperature ` + 1000 zeros
 
 **Expected:** Parses successfully, value length = 1000
@@ -839,6 +950,7 @@ TEST(EdgeCaseTest, VeryLongCommand)
 ```cpp
 TEST(EdgeCaseTest, CommandWithMultipleSpaces)
 ```
+
 **Input:** `/set strategy     greedy` (5 spaces)
 
 **Expected:** Parses with spaces preserved in value
@@ -847,6 +959,7 @@ TEST(EdgeCaseTest, CommandWithMultipleSpaces)
 ```cpp
 TEST(EdgeCaseTest, TrimVeryLongWhitespace)
 ```
+
 **Input:** 100 spaces + `"test"` + 100 spaces
 
 **Expected:** Trims to `"test"`
@@ -855,6 +968,7 @@ TEST(EdgeCaseTest, TrimVeryLongWhitespace)
 ```cpp
 TEST(EdgeCaseTest, SpecialCharactersInCommand)
 ```
+
 **Input:** `/test!@#`
 
 **Expected:** `is_valid_command() == false`
@@ -863,6 +977,7 @@ TEST(EdgeCaseTest, SpecialCharactersInCommand)
 ```cpp
 TEST(EdgeCaseTest, UnicodeInCommand)
 ```
+
 **Input:** `/system Hello 世界`
 
 **Expected:** Recognized as valid command
@@ -871,6 +986,7 @@ TEST(EdgeCaseTest, UnicodeInCommand)
 ```cpp
 TEST(EdgeCaseTest, NegativeNumericValues)
 ```
+
 **Input:** `/set temperature -0.5`
 
 **Expected:** Parses successfully, value = `"-0.5"`
@@ -879,6 +995,7 @@ TEST(EdgeCaseTest, NegativeNumericValues)
 ```cpp
 TEST(EdgeCaseTest, ScientificNotationValues)
 ```
+
 **Input:** `/set temperature 1e-6`
 
 **Expected:** Parses successfully, value = `"1e-6"`
@@ -887,6 +1004,7 @@ TEST(EdgeCaseTest, ScientificNotationValues)
 ```cpp
 TEST(EdgeCaseTest, ZeroValues)
 ```
+
 **Input:** `/set length 0`
 
 **Expected:** Parses successfully, value = `"0"`
@@ -903,9 +1021,11 @@ TEST(EdgeCaseTest, ZeroValues)
 ```cpp
 TEST(IntegrationTest, CompleteCommandWorkflow)
 ```
+
 **Purpose:** Complete command processing workflow
 
 **Steps:**
+
 1. Input: `"  /set strategy beam  "`
 2. Trim to `"/set strategy beam"`
 3. Validate as command
@@ -918,9 +1038,11 @@ TEST(IntegrationTest, CompleteCommandWorkflow)
 ```cpp
 TEST(IntegrationTest, ParameterChangeWorkflow)
 ```
+
 **Purpose:** Change multiple parameters
 
 **Steps:**
+
 1. Parse `/set temp 0.8`
 2. Normalize `temp` → `temperature`
 3. Parse `/set length 150`
@@ -932,9 +1054,11 @@ TEST(IntegrationTest, ParameterChangeWorkflow)
 ```cpp
 TEST(IntegrationTest, FileCreationAndVerification)
 ```
+
 **Purpose:** Create and verify all file types
 
 **Steps:**
+
 1. Create vocab file
 2. Create model file
 3. Create conversation file
@@ -947,10 +1071,12 @@ TEST(IntegrationTest, FileCreationAndVerification)
 ```cpp
 TEST(IntegrationTest, AllValidStrategiesRecognized)
 ```
+
 **Purpose:** Test all 5 strategies end-to-end
 
 **Process:**
 For each strategy in `[greedy, beam, sampling, top-k, nucleus]`:
+
 1. Verify `is_valid_strategy()` returns true
 2. Create `/set strategy <name>` command
 3. Parse command
@@ -962,6 +1088,7 @@ For each strategy in `[greedy, beam, sampling, top-k, nucleus]`:
 ```cpp
 TEST(IntegrationTest, AllCommandsRecognized)
 ```
+
 **Purpose:** Verify all commands recognized
 
 **Commands Tested:**
@@ -981,6 +1108,7 @@ TEST(IntegrationTest, AllCommandsRecognized)
 ```cpp
 TEST(ParameterRangeTest, TemperatureReasonableRange)
 ```
+
 **Expected Range:** 0.1 ≤ temperature ≤ 2.0
 
 **Default:** 1.0 (within range)
@@ -989,6 +1117,7 @@ TEST(ParameterRangeTest, TemperatureReasonableRange)
 ```cpp
 TEST(ParameterRangeTest, TopPInValidRange)
 ```
+
 **Expected Range:** 0.0 < top_p ≤ 1.0
 
 **Default:** 0.9 (within range)
@@ -997,6 +1126,7 @@ TEST(ParameterRangeTest, TopPInValidRange)
 ```cpp
 TEST(ParameterRangeTest, TopKPositive)
 ```
+
 **Expected:** `top_k > 0`
 
 **Default:** 50
@@ -1005,6 +1135,7 @@ TEST(ParameterRangeTest, TopKPositive)
 ```cpp
 TEST(ParameterRangeTest, BeamWidthPositive)
 ```
+
 **Expected:** `beam_width > 0`
 
 **Default:** 5
@@ -1013,6 +1144,7 @@ TEST(ParameterRangeTest, BeamWidthPositive)
 ```cpp
 TEST(ParameterRangeTest, MaxLengthPositive)
 ```
+
 **Expected:** `max_response_length > 0`
 
 **Default:** 100
@@ -1021,6 +1153,7 @@ TEST(ParameterRangeTest, MaxLengthPositive)
 ```cpp
 TEST(ParameterRangeTest, MaxLengthReasonable)
 ```
+
 **Expected Range:** 10 ≤ max_response_length ≤ 2048
 
 **Default:** 100 (within range)
@@ -1037,6 +1170,7 @@ TEST(ParameterRangeTest, MaxLengthReasonable)
 ```cpp
 TEST(ColorOutputTest, ColoredUserMessage)
 ```
+
 **Format:** `COLOR_USER + "You: " + COLOR_RESET + message`
 
 **Expected:** Contains USER color, RESET, and message
@@ -1045,6 +1179,7 @@ TEST(ColorOutputTest, ColoredUserMessage)
 ```cpp
 TEST(ColorOutputTest, ColoredBotMessage)
 ```
+
 **Format:** `COLOR_BOT + "Bot: " + COLOR_RESET + message`
 
 **Expected:** Contains BOT color, RESET, and message
@@ -1053,6 +1188,7 @@ TEST(ColorOutputTest, ColoredBotMessage)
 ```cpp
 TEST(ColorOutputTest, ColoredSystemMessage)
 ```
+
 **Format:** `COLOR_SYSTEM + message + COLOR_RESET`
 
 **Expected:** Contains SYSTEM color, RESET, and message
@@ -1061,6 +1197,7 @@ TEST(ColorOutputTest, ColoredSystemMessage)
 ```cpp
 TEST(ColorOutputTest, ColoredErrorMessage)
 ```
+
 **Format:** `COLOR_ERROR + message + COLOR_RESET`
 
 **Expected:** Contains ERROR color, RESET, and message
@@ -1069,6 +1206,7 @@ TEST(ColorOutputTest, ColoredErrorMessage)
 ```cpp
 TEST(ColorOutputTest, ResetAtEndOfColoredString)
 ```
+
 **Purpose:** Verify RESET at string end
 
 **Expected:** Last 4 characters are `COLOR_RESET`
@@ -1081,6 +1219,7 @@ TEST(ColorOutputTest, ResetAtEndOfColoredString)
 ```cpp
 bool is_valid_command(const std::string& input)
 ```
+
 **Purpose:** Check if input is a valid command
 
 **Returns:** `true` if starts with `/` and matches known command
@@ -1089,6 +1228,7 @@ bool is_valid_command(const std::string& input)
 ```cpp
 bool is_valid_strategy(const std::string& strategy)
 ```
+
 **Purpose:** Validate generation strategy
 
 **Returns:** `true` if strategy in `[greedy, beam, sampling, top-k, nucleus]`
@@ -1097,6 +1237,7 @@ bool is_valid_strategy(const std::string& strategy)
 ```cpp
 SetCommandResult parse_set_command(const std::string& command)
 ```
+
 **Purpose:** Parse `/set param value` command
 
 **Returns:** Struct with `valid`, `param`, `value`, `error` fields
@@ -1105,9 +1246,11 @@ SetCommandResult parse_set_command(const std::string& command)
 ```cpp
 std::string normalize_param(const std::string& param)
 ```
+
 **Purpose:** Normalize parameter aliases to canonical names
 
 **Mappings:**
+
 - `length`, `max_length` → `max_length`
 - `temperature`, `temp` → `temperature`
 - `top_p`, `top-p` → `top_p`
@@ -1118,6 +1261,7 @@ std::string normalize_param(const std::string& param)
 ```cpp
 std::string trim(const std::string& str)
 ```
+
 **Purpose:** Remove leading/trailing whitespace
 
 **Handles:** Spaces, tabs, newlines, carriage returns
@@ -1126,10 +1270,12 @@ std::string trim(const std::string& str)
 ```cpp
 void create_test_vocab_file(const std::string& filepath, int vocab_size = 100)
 ```
+
 **Purpose:** Create test vocabulary file
 
 **Format:**
-```
+
+```text
 <unk>
 <pad>
 <s>
@@ -1143,12 +1289,14 @@ token1
 ```cpp
 void create_test_model_file(const std::string& filepath)
 ```
+
 **Purpose:** Create minimal binary model file for testing
 
 ### create_test_conversation_file()
 ```cpp
 void create_test_conversation_file(const std::string& filepath)
 ```
+
 **Purpose:** Create test conversation history file
 
 ---
@@ -1170,7 +1318,8 @@ make chatbotcliTests
 ```
 
 **Expected Output:**
-```
+
+```text
 [==========] Running 83 tests from 15 test suites.
 [----------] Global test environment set-up.
 ...
@@ -1201,16 +1350,16 @@ make chatbotcliTests
 
 ### Summary Statistics
 
-**Total Tests:** 83  
-**Test Suites:** 15  
-**Passed:** 83 (100%)  
-**Failed:** 0  
+**Total Tests:** 83
+**Test Suites:** 15
+**Passed:** 83 (100%)
+**Failed:** 0
 **Execution Time:** 1 ms
 
 ### Coverage by Category
 
 | Category | Tests | Coverage |
-|----------|-------|----------|
+| ---------- | ------- | ---------- |
 | Command Parsing | 10 | 100% of command types |
 | Parameter Validation | 19 | All 6 parameters + aliases |
 | String Utilities | 5 | All whitespace cases |
@@ -1222,14 +1371,14 @@ make chatbotcliTests
 
 ### Components Tested
 
-✅ **Command Recognition:** All 8 commands  
-✅ **Generation Strategies:** All 5 strategies  
-✅ **Parameter Aliases:** All 5 parameter types  
-✅ **ANSI Colors:** All 5 color codes  
-✅ **File Operations:** Vocab, model, conversation files  
-✅ **Default Values:** All 13 default settings  
-✅ **Edge Cases:** Empty, long, special characters, unicode  
-✅ **Integration:** Complete workflows  
+✅ **Command Recognition:** All 8 commands
+✅ **Generation Strategies:** All 5 strategies
+✅ **Parameter Aliases:** All 5 parameter types
+✅ **ANSI Colors:** All 5 color codes
+✅ **File Operations:** Vocab, model, conversation files
+✅ **Default Values:** All 13 default settings
+✅ **Edge Cases:** Empty, long, special characters, unicode
+✅ **Integration:** Complete workflows
 
 ---
 
@@ -1238,12 +1387,14 @@ make chatbotcliTests
 ### What's Tested
 
 **✅ Command Line Interface:**
+
 - Command validation (8 commands)
 - Command parsing logic
 - Parameter extraction
 - Argument handling
 
 **✅ Generation Parameters:**
+
 - All 5 strategies
 - 6 configurable parameters
 - Parameter aliases (10 total)
@@ -1251,23 +1402,27 @@ make chatbotcliTests
 - Range validation
 
 **✅ Color System:**
+
 - All 5 ANSI color codes
 - Color formatting functions
 - Reset code handling
 
 **✅ File Operations:**
+
 - Vocabulary file I/O
 - Model file creation
 - Conversation history
 - File validation
 
 **✅ Configuration:**
+
 - Model architecture (6 params)
 - Context settings (2 params)
 - Generation defaults (6 params)
 - File paths (3 paths)
 
 **✅ Utilities:**
+
 - Whitespace trimming
 - String parsing
 - Parameter normalization
@@ -1275,6 +1430,7 @@ make chatbotcliTests
 ### What's Not Tested (Requires Full Class)
 
 **❌ Full ChatbotCLI Instantiation:**
+
 - Constructor with real components
 - Initialization sequence
 - Component integration
@@ -1282,18 +1438,21 @@ make chatbotcliTests
 - Tokenizer integration
 
 **❌ Interactive Loop:**
+
 - Main run() loop
 - User input handling
 - Response generation
 - Conversation flow
 
 **❌ Component Integration:**
+
 - EncoderDecoderModel interaction
 - ConversationContext usage
 - BPETokenizer integration
 - TextGenerator usage
 
 **❌ Generation Execution:**
+
 - Actual text generation
 - Strategy implementation
 - Response formatting
@@ -1386,6 +1545,7 @@ TEST(CommandValidationTest, RejectInvalidCommands)
 ### 7. Descriptive Test Names
 
 All test names clearly describe what they test:
+
 - `ColorCodesAreDefined` - Clear expectation
 - `ParseValidSetCommand` - Clear input type
 - `RejectInvalidCommands` - Clear negative test
@@ -1393,6 +1553,7 @@ All test names clearly describe what they test:
 ### 8. Isolated Tests
 
 Each test is independent and doesn't rely on others:
+
 - No shared state between tests
 - Each test creates its own test data
 - File operations include cleanup
@@ -1450,6 +1611,7 @@ Each test is independent and doesn't rely on others:
 ### 1. Mock Component Testing
 
 Create mock versions of:
+
 - `EncoderDecoderModel`
 - `ConversationContext`
 - `BPETokenizer`
@@ -1459,6 +1621,7 @@ Create mock versions of:
 ### 2. Interactive Simulation
 
 Create test harness to simulate user input:
+
 ```cpp
 TEST(InteractiveTest, CommandSequence) {
     // Simulate: /set strategy beam → hello → /stats → /exit
@@ -1468,6 +1631,7 @@ TEST(InteractiveTest, CommandSequence) {
 ### 3. Error Condition Testing
 
 Test error scenarios:
+
 - File not found
 - Permission denied
 - Out of memory
@@ -1477,6 +1641,7 @@ Test error scenarios:
 ### 4. Performance Testing
 
 Add performance benchmarks:
+
 - Command parsing speed
 - File I/O performance
 - Memory usage
@@ -1485,6 +1650,7 @@ Add performance benchmarks:
 ### 5. Terminal Output Capture
 
 Capture and validate console output:
+
 ```cpp
 TEST(OutputTest, WelcomeMessageFormat) {
     // Redirect stdout
@@ -1496,6 +1662,7 @@ TEST(OutputTest, WelcomeMessageFormat) {
 ### 6. Extended Parameter Validation
 
 Test parameter boundaries:
+
 - Negative values
 - Extreme values
 - Type mismatches
@@ -1504,6 +1671,7 @@ Test parameter boundaries:
 ### 7. Unicode and Internationalization
 
 Extended unicode testing:
+
 - Various languages
 - Emoji in commands
 - Multi-byte characters
@@ -1512,6 +1680,7 @@ Extended unicode testing:
 ### 8. Stress Testing
 
 Test system limits:
+
 - Very long conversations
 - Rapid command input
 - Large file operations
@@ -1538,31 +1707,34 @@ Test system limits:
 The ChatbotCLI testing infrastructure provides comprehensive validation through two complementary test suites:
 
 ### Improved Test Suite (2026)
-✅ **23 tests** with direct class instantiation  
-✅ **4 test suites** covering core functionality  
-✅ **100% pass rate** with modern C++ implementation  
-✅ **Constructor testing** for all initialization paths  
-✅ **Accessor/mutator testing** for all parameters  
-✅ **Command handling** via actual class methods  
-✅ **Test fixtures** with automatic setup/teardown  
-✅ **Smart pointer support** testing modern implementation  
+
+✅ **23 tests** with direct class instantiation
+✅ **4 test suites** covering core functionality
+✅ **100% pass rate** with modern C++ implementation
+✅ **Constructor testing** for all initialization paths
+✅ **Accessor/mutator testing** for all parameters
+✅ **Command handling** via actual class methods
+✅ **Test fixtures** with automatic setup/teardown
+✅ **Smart pointer support** testing modern implementation
 
 ### Legacy Test Suite
-✅ **83 tests** covering all testable CLI functionality  
-✅ **15 test suites** organized by feature category  
-✅ **100% pass rate** with fast execution (1ms)  
-✅ **Command parsing** for all 8 commands  
-✅ **Parameter validation** for all 6 parameters + aliases  
-✅ **Generation strategies** for all 5 strategies  
-✅ **File operations** for vocab, model, conversation files  
-✅ **Edge cases** including unicode, long inputs, special chars  
-✅ **Integration workflows** for complete command processing  
-✅ **Color formatting** for all 5 ANSI color codes  
-✅ **Default configuration** for all 17 default values  
+
+✅ **83 tests** covering all testable CLI functionality
+✅ **15 test suites** organized by feature category
+✅ **100% pass rate** with fast execution (1ms)
+✅ **Command parsing** for all 8 commands
+✅ **Parameter validation** for all 6 parameters + aliases
+✅ **Generation strategies** for all 5 strategies
+✅ **File operations** for vocab, model, conversation files
+✅ **Edge cases** including unicode, long inputs, special chars
+✅ **Integration workflows** for complete command processing
+✅ **Color formatting** for all 5 ANSI color codes
+✅ **Default configuration** for all 17 default values
 
 **Combined Coverage:** 106 tests ensuring ChatbotCLI reliability
 
 **Key Strengths:**
+
 - Comprehensive coverage from helper functions to full class
 - Well-organized test suites
 - Clear, descriptive test names

@@ -1,0 +1,3084 @@
+INPUT: Explain this: There were a king with a large jaw and a queen with a plain face, on the
+throne of England; there were a king with a large jaw and a queen with
+a fair face, on the throne of France.
+RESPONSE: In both countries it was clearer
+than crystal to the lords of the State preserves of loaves and fishes,
+that things in general were settled for ever.
+
+INPUT: Summarize: There were a king with a large jaw and a queen with a plain face, on the
+throne of England; there were a king with a large jaw and a queen with
+a fair face, on the throne of France. In both countries it was clearer
+than crystal to the lords of the State preserves of loaves and fishes,
+that things in general were settled for ever.
+RESPONSE: It was the year of Our Lord one thousand seven hundred and seventy-five.
+
+INPUT: Can you explain: It was the year of Our Lord one thousand seven hundred and seventy-five.
+RESPONSE: Spiritual revelations were conceded to England at that favoured period,
+as at this.
+
+INPUT: Summarize: It was the year of Our Lord one thousand seven hundred and seventy-five. Spiritual revelations were conceded to England at that favoured period,
+as at this.
+RESPONSE: Southcott had recently attained her five-and-twentieth
+blessed birthday, of whom a prophetic private in the Life Guards had
+heralded the sublime appearance by announcing that arrangements were
+made for the swallowing up of London and Westminster.
+
+INPUT: Can you explain: Southcott had recently attained her five-and-twentieth
+blessed birthday, of whom a prophetic private in the Life Guards had
+heralded the sublime appearance by announcing that arrangements were
+made for the swallowing up of London and Westminster.
+RESPONSE: Even the Cock-lane
+ghost had been laid only a round dozen of years, after rapping out its
+messages, as the spirits of this very year last past (supernaturally
+deficient in originality) rapped out theirs.
+
+INPUT: Summarize: Southcott had recently attained her five-and-twentieth
+blessed birthday, of whom a prophetic private in the Life Guards had
+heralded the sublime appearance by announcing that arrangements were
+made for the swallowing up of London and Westminster. Even the Cock-lane
+ghost had been laid only a round dozen of years, after rapping out its
+messages, as the spirits of this very year last past (supernaturally
+deficient in originality) rapped out theirs.
+RESPONSE: Mere messages in the
+earthly order of events had lately come to the English Crown and People,
+from a congress of British subjects in America: which, strange
+to relate, have proved more important to the human race than any
+communications yet received through any of the chickens of the Cock-lane
+brood.
+
+INPUT: Can you explain: Mere messages in the
+earthly order of events had lately come to the English Crown and People,
+from a congress of British subjects in America: which, strange
+to relate, have proved more important to the human race than any
+communications yet received through any of the chickens of the Cock-lane
+brood.
+RESPONSE: France, less favoured on the whole as to matters spiritual than her
+sister of the shield and trident, rolled with exceeding smoothness down
+hill, making paper money and spending it.
+
+INPUT: Summarize: Mere messages in the
+earthly order of events had lately come to the English Crown and People,
+from a congress of British subjects in America: which, strange
+to relate, have proved more important to the human race than any
+communications yet received through any of the chickens of the Cock-lane
+brood. France, less favoured on the whole as to matters spiritual than her
+sister of the shield and trident, rolled with exceeding smoothness down
+hill, making paper money and spending it.
+RESPONSE: Under the guidance of her
+Christian pastors, she entertained herself, besides, with such humane
+achievements as sentencing a youth to have his hands cut off, his tongue
+torn out with pincers, and his body burned alive, because he had not
+kneeled down in the rain to do honour to a dirty procession of monks
+which passed within his view, at a distance of some fifty or sixty
+yards.
+
+INPUT: What does this say: Under the guidance of her
+Christian pastors, she entertained herself, besides, with such humane
+achievements as sentencing a youth to have his hands cut off, his tongue
+torn out with pincers, and his body burned alive, because he had not
+kneeled down in the rain to do honour to a dirty procession of monks
+which passed within his view, at a distance of some fifty or sixty
+yards.
+RESPONSE: It is likely enough that, rooted in the woods of France and
+Norway, there were growing trees, when that sufferer was put to death,
+already marked by the Woodman, Fate, to come down and be sawn into
+boards, to make a certain movable framework with a sack and a knife in
+it, terrible in history.
+
+INPUT: Summarize: Under the guidance of her
+Christian pastors, she entertained herself, besides, with such humane
+achievements as sentencing a youth to have his hands cut off, his tongue
+torn out with pincers, and his body burned alive, because he had not
+kneeled down in the rain to do honour to a dirty procession of monks
+which passed within his view, at a distance of some fifty or sixty
+yards. It is likely enough that, rooted in the woods of France and
+Norway, there were growing trees, when that sufferer was put to death,
+already marked by the Woodman, Fate, to come down and be sawn into
+boards, to make a certain movable framework with a sack and a knife in
+it, terrible in history.
+RESPONSE: It is likely enough that in the rough outhouses
+of some tillers of the heavy lands adjacent to Paris, there were
+sheltered from the weather that very day, rude carts, bespattered with
+rustic mire, snuffed about by pigs, and roosted in by poultry, which
+the Farmer, Death, had already set apart to be his tumbrils of
+the Revolution.
+
+INPUT: Can you explain: It is likely enough that in the rough outhouses
+of some tillers of the heavy lands adjacent to Paris, there were
+sheltered from the weather that very day, rude carts, bespattered with
+rustic mire, snuffed about by pigs, and roosted in by poultry, which
+the Farmer, Death, had already set apart to be his tumbrils of
+the Revolution.
+RESPONSE: But that Woodman and that Farmer, though they work
+unceasingly, work silently, and no one heard them as they went about
+with muffled tread: the rather, forasmuch as to entertain any suspicion
+that they were awake, was to be atheistical and traitorous.
+
+INPUT: Summarize: It is likely enough that in the rough outhouses
+of some tillers of the heavy lands adjacent to Paris, there were
+sheltered from the weather that very day, rude carts, bespattered with
+rustic mire, snuffed about by pigs, and roosted in by poultry, which
+the Farmer, Death, had already set apart to be his tumbrils of
+the Revolution. But that Woodman and that Farmer, though they work
+unceasingly, work silently, and no one heard them as they went about
+with muffled tread: the rather, forasmuch as to entertain any suspicion
+that they were awake, was to be atheistical and traitorous.
+RESPONSE: In England, there was scarcely an amount of order and protection to
+justify much national boasting.
+
+INPUT: Explain this: In England, there was scarcely an amount of order and protection to
+justify much national boasting.
+RESPONSE: Giles’s, to search
+for contraband goods, and the mob fired on the musketeers, and the
+musketeers fired on the mob, and nobody thought any of these occurrences
+much out of the common way.
+
+INPUT: Summarize: In England, there was scarcely an amount of order and protection to
+justify much national boasting. Giles’s, to search
+for contraband goods, and the mob fired on the musketeers, and the
+musketeers fired on the mob, and nobody thought any of these occurrences
+much out of the common way.
+RESPONSE: In the midst of them, the hangman, ever busy
+and ever worse than useless, was in constant requisition; now, stringing
+up long rows of miscellaneous criminals; now, hanging a housebreaker on
+Saturday who had been taken on Tuesday; now, burning people in the
+hand at Newgate by the dozen, and now burning pamphlets at the door of
+Westminster Hall; to-day, taking the life of an atrocious murderer,
+and to-morrow of a wretched pilferer who had robbed a farmer’s boy of
+sixpence.
+
+INPUT: Explain this: In the midst of them, the hangman, ever busy
+and ever worse than useless, was in constant requisition; now, stringing
+up long rows of miscellaneous criminals; now, hanging a housebreaker on
+Saturday who had been taken on Tuesday; now, burning people in the
+hand at Newgate by the dozen, and now burning pamphlets at the door of
+Westminster Hall; to-day, taking the life of an atrocious murderer,
+and to-morrow of a wretched pilferer who had robbed a farmer’s boy of
+sixpence.
+RESPONSE: All these things, and a thousand like them, came to pass in and close
+upon the dear old year one thousand seven hundred and seventy-five.
+
+INPUT: Summarize: In the midst of them, the hangman, ever busy
+and ever worse than useless, was in constant requisition; now, stringing
+up long rows of miscellaneous criminals; now, hanging a housebreaker on
+Saturday who had been taken on Tuesday; now, burning people in the
+hand at Newgate by the dozen, and now burning pamphlets at the door of
+Westminster Hall; to-day, taking the life of an atrocious murderer,
+and to-morrow of a wretched pilferer who had robbed a farmer’s boy of
+sixpence. All these things, and a thousand like them, came to pass in and close
+upon the dear old year one thousand seven hundred and seventy-five.
+RESPONSE: Environed by them, while the Woodman and the Farmer worked unheeded,
+those two of the large jaws, and those other two of the plain and the
+fair faces, trod with stir enough, and carried their divine rights
+with a high hand.
+
+INPUT: Can you explain: Environed by them, while the Woodman and the Farmer worked unheeded,
+those two of the large jaws, and those other two of the plain and the
+fair faces, trod with stir enough, and carried their divine rights
+with a high hand.
+RESPONSE: Thus did the year one thousand seven hundred
+and seventy-five conduct their Greatnesses, and myriads of small
+creatures--the creatures of this chronicle among the rest--along the
+roads that lay before them.
+
+INPUT: Summarize: Environed by them, while the Woodman and the Farmer worked unheeded,
+those two of the large jaws, and those other two of the plain and the
+fair faces, trod with stir enough, and carried their divine rights
+with a high hand. Thus did the year one thousand seven hundred
+and seventy-five conduct their Greatnesses, and myriads of small
+creatures--the creatures of this chronicle among the rest--along the
+roads that lay before them.
+RESPONSE: The Mail
+
+
+It was the Dover road that lay, on a Friday night late in November,
+before the first of the persons with whom this history has business.
+
+INPUT: Can you explain: The Mail
+
+
+It was the Dover road that lay, on a Friday night late in November,
+before the first of the persons with whom this history has business.
+RESPONSE: The Dover road lay, as to him, beyond the Dover mail, as it lumbered up
+Shooter’s Hill.
+
+INPUT: Summarize: The Mail
+
+
+It was the Dover road that lay, on a Friday night late in November,
+before the first of the persons with whom this history has business. The Dover road lay, as to him, beyond the Dover mail, as it lumbered up
+Shooter’s Hill.
+RESPONSE: He walked up hill in the mire by the side of the mail,
+as the rest of the passengers did; not because they had the least relish
+for walking exercise, under the circumstances, but because the hill,
+and the harness, and the mud, and the mail, were all so heavy, that the
+horses had three times already come to a stop, besides once drawing the
+coach across the road, with the mutinous intent of taking it back
+to Blackheath.
+
+INPUT: What is this about: He walked up hill in the mire by the side of the mail,
+as the rest of the passengers did; not because they had the least relish
+for walking exercise, under the circumstances, but because the hill,
+and the harness, and the mud, and the mail, were all so heavy, that the
+horses had three times already come to a stop, besides once drawing the
+coach across the road, with the mutinous intent of taking it back
+to Blackheath.
+RESPONSE: Reins and whip and coachman and guard, however, in
+combination, had read that article of war which forbade a purpose
+otherwise strongly in favour of the argument, that some brute animals
+are endued with Reason; and the team had capitulated and returned to
+their duty.
+
+INPUT: Summarize: He walked up hill in the mire by the side of the mail,
+as the rest of the passengers did; not because they had the least relish
+for walking exercise, under the circumstances, but because the hill,
+and the harness, and the mud, and the mail, were all so heavy, that the
+horses had three times already come to a stop, besides once drawing the
+coach across the road, with the mutinous intent of taking it back
+to Blackheath. Reins and whip and coachman and guard, however, in
+combination, had read that article of war which forbade a purpose
+otherwise strongly in favour of the argument, that some brute animals
+are endued with Reason; and the team had capitulated and returned to
+their duty.
+RESPONSE: With drooping heads and tremulous tails, they mashed their way through
+the thick mud, floundering and stumbling between whiles, as if they were
+falling to pieces at the larger joints.
+
+INPUT: Explain this: With drooping heads and tremulous tails, they mashed their way through
+the thick mud, floundering and stumbling between whiles, as if they were
+falling to pieces at the larger joints.
+RESPONSE: As often as the driver rested
+them and brought them to a stand, with a wary “Wo-ho!
+
+INPUT: Summarize: With drooping heads and tremulous tails, they mashed their way through
+the thick mud, floundering and stumbling between whiles, as if they were
+falling to pieces at the larger joints. As often as the driver rested
+them and brought them to a stand, with a wary “Wo-ho!
+RESPONSE: ” the
+near leader violently shook his head and everything upon it--like an
+unusually emphatic horse, denying that the coach could be got up the
+hill.
+
+INPUT: What does this mean: ” the
+near leader violently shook his head and everything upon it--like an
+unusually emphatic horse, denying that the coach could be got up the
+hill.
+RESPONSE: Whenever the leader made this rattle, the passenger started, as a
+nervous passenger might, and was disturbed in mind.
+
+INPUT: Summarize: ” the
+near leader violently shook his head and everything upon it--like an
+unusually emphatic horse, denying that the coach could be got up the
+hill. Whenever the leader made this rattle, the passenger started, as a
+nervous passenger might, and was disturbed in mind.
+RESPONSE: There was a steaming mist in all the hollows, and it had roamed in its
+forlornness up the hill, like an evil spirit, seeking rest and finding
+none.
+
+INPUT: Tell me about: There was a steaming mist in all the hollows, and it had roamed in its
+forlornness up the hill, like an evil spirit, seeking rest and finding
+none.
+RESPONSE: A clammy and intensely cold mist, it made its slow way through the
+air in ripples that visibly followed and overspread one another, as the
+waves of an unwholesome sea might do.
+
+INPUT: Summarize: There was a steaming mist in all the hollows, and it had roamed in its
+forlornness up the hill, like an evil spirit, seeking rest and finding
+none. A clammy and intensely cold mist, it made its slow way through the
+air in ripples that visibly followed and overspread one another, as the
+waves of an unwholesome sea might do.
+RESPONSE: It was dense enough to shut out
+everything from the light of the coach-lamps but these its own workings,
+and a few yards of road; and the reek of the labouring horses steamed
+into it, as if they had made it all.
+
+INPUT: Tell me about: It was dense enough to shut out
+everything from the light of the coach-lamps but these its own workings,
+and a few yards of road; and the reek of the labouring horses steamed
+into it, as if they had made it all.
+RESPONSE: Two other passengers, besides the one, were plodding up the hill by the
+side of the mail.
+
+INPUT: Summarize: It was dense enough to shut out
+everything from the light of the coach-lamps but these its own workings,
+and a few yards of road; and the reek of the labouring horses steamed
+into it, as if they had made it all. Two other passengers, besides the one, were plodding up the hill by the
+side of the mail.
+RESPONSE: All three were wrapped to the cheekbones and over the
+ears, and wore jack-boots.
+
+INPUT: Can you explain: All three were wrapped to the cheekbones and over the
+ears, and wore jack-boots.
+RESPONSE: Not one of the three could have said, from
+anything he saw, what either of the other two was like; and each was
+hidden under almost as many wrappers from the eyes of the mind, as from
+the eyes of the body, of his two companions.
+
+INPUT: Summarize: All three were wrapped to the cheekbones and over the
+ears, and wore jack-boots. Not one of the three could have said, from
+anything he saw, what either of the other two was like; and each was
+hidden under almost as many wrappers from the eyes of the mind, as from
+the eyes of the body, of his two companions.
+RESPONSE: In those days, travellers
+were very shy of being confidential on a short notice, for anybody on
+the road might be a robber or in league with robbers.
+
+INPUT: What does this say: In those days, travellers
+were very shy of being confidential on a short notice, for anybody on
+the road might be a robber or in league with robbers.
+RESPONSE: As to the latter,
+when every posting-house and ale-house could produce somebody in
+“the Captain’s” pay, ranging from the landlord to the lowest stable
+non-descript, it was the likeliest thing upon the cards.
+
+INPUT: Summarize: In those days, travellers
+were very shy of being confidential on a short notice, for anybody on
+the road might be a robber or in league with robbers. As to the latter,
+when every posting-house and ale-house could produce somebody in
+“the Captain’s” pay, ranging from the landlord to the lowest stable
+non-descript, it was the likeliest thing upon the cards.
+RESPONSE: So the guard
+of the Dover mail thought to himself, that Friday night in November, one
+thousand seven hundred and seventy-five, lumbering up Shooter’s Hill, as
+he stood on his own particular perch behind the mail, beating his feet,
+and keeping an eye and a hand on the arm-chest before him, where a
+loaded blunderbuss lay at the top of six or eight loaded horse-pistols,
+deposited on a substratum of cutlass.
+
+INPUT: What is this about: So the guard
+of the Dover mail thought to himself, that Friday night in November, one
+thousand seven hundred and seventy-five, lumbering up Shooter’s Hill, as
+he stood on his own particular perch behind the mail, beating his feet,
+and keeping an eye and a hand on the arm-chest before him, where a
+loaded blunderbuss lay at the top of six or eight loaded horse-pistols,
+deposited on a substratum of cutlass.
+RESPONSE: The Dover mail was in its usual genial position that the guard suspected
+the passengers, the passengers suspected one another and the guard, they
+all suspected everybody else, and the coachman was sure of nothing but
+the horses; as to which cattle he could with a clear conscience have
+taken his oath on the two Testaments that they were not fit for the
+journey.
+
+INPUT: Summarize: So the guard
+of the Dover mail thought to himself, that Friday night in November, one
+thousand seven hundred and seventy-five, lumbering up Shooter’s Hill, as
+he stood on his own particular perch behind the mail, beating his feet,
+and keeping an eye and a hand on the arm-chest before him, where a
+loaded blunderbuss lay at the top of six or eight loaded horse-pistols,
+deposited on a substratum of cutlass. The Dover mail was in its usual genial position that the guard suspected
+the passengers, the passengers suspected one another and the guard, they
+all suspected everybody else, and the coachman was sure of nothing but
+the horses; as to which cattle he could with a clear conscience have
+taken his oath on the two Testaments that they were not fit for the
+journey.
+RESPONSE: ” said the coachman.
+
+INPUT: What does this say: ” said the coachman.
+RESPONSE: One more pull and you’re at the
+top and be damned to you, for I have had trouble enough to get you to
+it!
+
+INPUT: Summarize: ” said the coachman. One more pull and you’re at the
+top and be damned to you, for I have had trouble enough to get you to
+it!
+RESPONSE: ” the guard replied.
+
+INPUT: What does this say: ” the guard replied.
+RESPONSE: “What o’clock do you make it, Joe?
+
+INPUT: Summarize: ” the guard replied. “What o’clock do you make it, Joe?
+RESPONSE: ”
+
+“Ten minutes, good, past eleven.
+
+INPUT: Explain this: ”
+
+“Ten minutes, good, past eleven.
+RESPONSE: ” ejaculated the vexed coachman, “and not atop of Shooter’s
+yet!
+
+INPUT: Summarize: ”
+
+“Ten minutes, good, past eleven. ” ejaculated the vexed coachman, “and not atop of Shooter’s
+yet!
+RESPONSE: ”
+
+The emphatic horse, cut short by the whip in a most decided negative,
+made a decided scramble for it, and the three other horses followed
+suit.
+
+INPUT: What does this say: ”
+
+The emphatic horse, cut short by the whip in a most decided negative,
+made a decided scramble for it, and the three other horses followed
+suit.
+RESPONSE: Once more, the Dover mail struggled on, with the jack-boots of its
+passengers squashing along by its side.
+
+INPUT: Summarize: ”
+
+The emphatic horse, cut short by the whip in a most decided negative,
+made a decided scramble for it, and the three other horses followed
+suit. Once more, the Dover mail struggled on, with the jack-boots of its
+passengers squashing along by its side.
+RESPONSE: They had stopped when the coach
+stopped, and they kept close company with it.
+
+INPUT: Can you explain: They had stopped when the coach
+stopped, and they kept close company with it.
+RESPONSE: If any one of the three
+had had the hardihood to propose to another to walk on a little ahead
+into the mist and darkness, he would have put himself in a fair way of
+getting shot instantly as a highwayman.
+
+INPUT: Summarize: They had stopped when the coach
+stopped, and they kept close company with it. If any one of the three
+had had the hardihood to propose to another to walk on a little ahead
+into the mist and darkness, he would have put himself in a fair way of
+getting shot instantly as a highwayman.
+RESPONSE: The last burst carried the mail to the summit of the hill.
+
+INPUT: Can you explain: The last burst carried the mail to the summit of the hill.
+RESPONSE: The horses
+stopped to breathe again, and the guard got down to skid the wheel for
+the descent, and open the coach-door to let the passengers in.
+
+INPUT: Summarize: The last burst carried the mail to the summit of the hill. The horses
+stopped to breathe again, and the guard got down to skid the wheel for
+the descent, and open the coach-door to let the passengers in.
+RESPONSE: ” cried the coachman in a warning voice, looking down from his
+box.
+
+INPUT: What is this about: ” cried the coachman in a warning voice, looking down from his
+box.
+RESPONSE: “What do you say, Tom?
+
+INPUT: Summarize: ” cried the coachman in a warning voice, looking down from his
+box. “What do you say, Tom?
+RESPONSE: ”
+
+They both listened.
+
+INPUT: Can you explain: ”
+
+They both listened.
+RESPONSE: “I say a horse at a canter coming up, Joe.
+
+INPUT: Summarize: ”
+
+They both listened. “I say a horse at a canter coming up, Joe.
+RESPONSE: ”
+
+“_I_ say a horse at a gallop, Tom,” returned the guard, leaving his hold
+of the door, and mounting nimbly to his place.
+
+INPUT: What does this say: ”
+
+“_I_ say a horse at a gallop, Tom,” returned the guard, leaving his hold
+of the door, and mounting nimbly to his place.
+RESPONSE: In the king’s
+name, all of you!
+
+INPUT: Summarize: ”
+
+“_I_ say a horse at a gallop, Tom,” returned the guard, leaving his hold
+of the door, and mounting nimbly to his place. In the king’s
+name, all of you!
+RESPONSE: ”
+
+With this hurried adjuration, he cocked his blunderbuss, and stood on
+the offensive.
+
+INPUT: Tell me about: ”
+
+With this hurried adjuration, he cocked his blunderbuss, and stood on
+the offensive.
+RESPONSE: The passenger booked by this history, was on the coach-step, getting in;
+the two other passengers were close behind him, and about to follow.
+
+INPUT: Summarize: ”
+
+With this hurried adjuration, he cocked his blunderbuss, and stood on
+the offensive. The passenger booked by this history, was on the coach-step, getting in;
+the two other passengers were close behind him, and about to follow.
+RESPONSE: He
+remained on the step, half in the coach and half out of; they remained
+in the road below him.
+
+INPUT: What does this mean: He
+remained on the step, half in the coach and half out of; they remained
+in the road below him.
+RESPONSE: They all looked from the coachman to the guard,
+and from the guard to the coachman, and listened.
+
+INPUT: Summarize: He
+remained on the step, half in the coach and half out of; they remained
+in the road below him. They all looked from the coachman to the guard,
+and from the guard to the coachman, and listened.
+RESPONSE: The coachman looked
+back and the guard looked back, and even the emphatic leader pricked up
+his ears and looked back, without contradicting.
+
+INPUT: Tell me about: The coachman looked
+back and the guard looked back, and even the emphatic leader pricked up
+his ears and looked back, without contradicting.
+RESPONSE: The stillness consequent on the cessation of the rumbling and labouring
+of the coach, added to the stillness of the night, made it very quiet
+indeed.
+
+INPUT: Summarize: The coachman looked
+back and the guard looked back, and even the emphatic leader pricked up
+his ears and looked back, without contradicting. The stillness consequent on the cessation of the rumbling and labouring
+of the coach, added to the stillness of the night, made it very quiet
+indeed.
+RESPONSE: The panting of the horses communicated a tremulous motion to
+the coach, as if it were in a state of agitation.
+
+INPUT: Tell me about: The panting of the horses communicated a tremulous motion to
+the coach, as if it were in a state of agitation.
+RESPONSE: The hearts of the
+passengers beat loud enough perhaps to be heard; but at any rate, the
+quiet pause was audibly expressive of people out of breath, and holding
+the breath, and having the pulses quickened by expectation.
+
+INPUT: Summarize: The panting of the horses communicated a tremulous motion to
+the coach, as if it were in a state of agitation. The hearts of the
+passengers beat loud enough perhaps to be heard; but at any rate, the
+quiet pause was audibly expressive of people out of breath, and holding
+the breath, and having the pulses quickened by expectation.
+RESPONSE: The sound of a horse at a gallop came fast and furiously up the hill.
+
+INPUT: What does this say: The sound of a horse at a gallop came fast and furiously up the hill.
+RESPONSE: ” the guard sang out, as loud as he could roar.
+
+INPUT: Summarize: The sound of a horse at a gallop came fast and furiously up the hill. ” the guard sang out, as loud as he could roar.
+RESPONSE: ”
+
+The pace was suddenly checked, and, with much splashing and floundering,
+a man’s voice called from the mist, “Is that the Dover mail?
+
+INPUT: Can you explain: ”
+
+The pace was suddenly checked, and, with much splashing and floundering,
+a man’s voice called from the mist, “Is that the Dover mail?
+RESPONSE: ”
+
+“Never you mind what it is!
+
+INPUT: Summarize: ”
+
+The pace was suddenly checked, and, with much splashing and floundering,
+a man’s voice called from the mist, “Is that the Dover mail? ”
+
+“Never you mind what it is!
+RESPONSE: ” the guard retorted.
+
+INPUT: Explain this: ” the guard retorted.
+RESPONSE: ”
+
+“_Is_ that the Dover mail?
+
+INPUT: Summarize: ” the guard retorted. ”
+
+“_Is_ that the Dover mail?
+RESPONSE: ”
+
+“Why do you want to know?
+
+INPUT: Explain this: ”
+
+“Why do you want to know?
+RESPONSE: ”
+
+“I want a passenger, if it is.
+
+INPUT: Summarize: ”
+
+“Why do you want to know? ”
+
+“I want a passenger, if it is.
+RESPONSE: ”
+
+“What passenger?
+
+INPUT: Explain this: ”
+
+“What passenger?
+RESPONSE: ”
+
+Our booked passenger showed in a moment that it was his name.
+
+INPUT: Summarize: ”
+
+“What passenger? ”
+
+Our booked passenger showed in a moment that it was his name.
+RESPONSE: The guard,
+the coachman, and the two other passengers eyed him distrustfully.
+
+INPUT: What is this about: The guard,
+the coachman, and the two other passengers eyed him distrustfully.
+RESPONSE: “Keep where you are,” the guard called to the voice in the mist,
+“because, if I should make a mistake, it could never be set right in
+your lifetime.
+
+INPUT: Summarize: The guard,
+the coachman, and the two other passengers eyed him distrustfully. “Keep where you are,” the guard called to the voice in the mist,
+“because, if I should make a mistake, it could never be set right in
+your lifetime.
+RESPONSE: Gentleman of the name of Lorry answer straight.
+
+INPUT: What is this about: Gentleman of the name of Lorry answer straight.
+RESPONSE: ”
+
+“What is the matter?
+
+INPUT: Summarize: Gentleman of the name of Lorry answer straight. ”
+
+“What is the matter?
+RESPONSE: ” asked the passenger, then, with mildly quavering
+speech.
+
+INPUT: Tell me about: ” asked the passenger, then, with mildly quavering
+speech.
+RESPONSE: ”
+
+(“I don’t like Jerry’s voice, if it is Jerry,” growled the guard to
+himself.
+
+INPUT: Summarize: ” asked the passenger, then, with mildly quavering
+speech. ”
+
+(“I don’t like Jerry’s voice, if it is Jerry,” growled the guard to
+himself.
+RESPONSE: “He’s hoarser than suits me, is Jerry.
+
+INPUT: Explain this: “He’s hoarser than suits me, is Jerry.
+RESPONSE: ”
+
+“What is the matter?
+
+INPUT: Summarize: “He’s hoarser than suits me, is Jerry. ”
+
+“What is the matter?
+RESPONSE: ”
+
+“A despatch sent after you from over yonder.
+
+INPUT: Tell me about: ”
+
+“A despatch sent after you from over yonder.
+RESPONSE: ”
+
+“I know this messenger, guard,” said Mr.
+
+INPUT: Summarize: ”
+
+“A despatch sent after you from over yonder. ”
+
+“I know this messenger, guard,” said Mr.
+RESPONSE: Lorry, getting down into the
+road--assisted from behind more swiftly than politely by the other two
+passengers, who immediately scrambled into the coach, shut the door, and
+pulled up the window.
+
+INPUT: Explain this: Lorry, getting down into the
+road--assisted from behind more swiftly than politely by the other two
+passengers, who immediately scrambled into the coach, shut the door, and
+pulled up the window.
+RESPONSE: “He may come close; there’s nothing wrong.
+
+INPUT: Summarize: Lorry, getting down into the
+road--assisted from behind more swiftly than politely by the other two
+passengers, who immediately scrambled into the coach, shut the door, and
+pulled up the window. “He may come close; there’s nothing wrong.
+RESPONSE: ”
+
+“I hope there ain’t, but I can’t make so ‘Nation sure of that,” said the
+guard, in gruff soliloquy.
+
+INPUT: What does this mean: ”
+
+“I hope there ain’t, but I can’t make so ‘Nation sure of that,” said the
+guard, in gruff soliloquy.
+RESPONSE: ” said Jerry, more hoarsely than before.
+
+INPUT: Summarize: ”
+
+“I hope there ain’t, but I can’t make so ‘Nation sure of that,” said the
+guard, in gruff soliloquy. ” said Jerry, more hoarsely than before.
+RESPONSE: “Come on at a footpace!
+
+INPUT: What is this about: “Come on at a footpace!
+RESPONSE: And if you’ve got holsters to that
+saddle o’ yourn, don’t let me see your hand go nigh ’em.
+
+INPUT: Summarize: “Come on at a footpace! And if you’ve got holsters to that
+saddle o’ yourn, don’t let me see your hand go nigh ’em.
+RESPONSE: For I’m a devil
+at a quick mistake, and when I make one it takes the form of Lead.
+
+INPUT: What does this mean: For I’m a devil
+at a quick mistake, and when I make one it takes the form of Lead.
+RESPONSE: So
+now let’s look at you.
+
+INPUT: Summarize: For I’m a devil
+at a quick mistake, and when I make one it takes the form of Lead. So
+now let’s look at you.
+RESPONSE: ”
+
+The figures of a horse and rider came slowly through the eddying mist,
+and came to the side of the mail, where the passenger stood.
+
+INPUT: What does this mean: ”
+
+The figures of a horse and rider came slowly through the eddying mist,
+and came to the side of the mail, where the passenger stood.
+RESPONSE: The rider
+stooped, and, casting up his eyes at the guard, handed the passenger
+a small folded paper.
+
+INPUT: Summarize: ”
+
+The figures of a horse and rider came slowly through the eddying mist,
+and came to the side of the mail, where the passenger stood. The rider
+stooped, and, casting up his eyes at the guard, handed the passenger
+a small folded paper.
+RESPONSE: The rider’s horse was blown, and both horse and
+rider were covered with mud, from the hoofs of the horse to the hat of
+the man.
+
+INPUT: Explain this: The rider’s horse was blown, and both horse and
+rider were covered with mud, from the hoofs of the horse to the hat of
+the man.
+RESPONSE: ” said the passenger, in a tone of quiet business confidence.
+
+INPUT: Summarize: The rider’s horse was blown, and both horse and
+rider were covered with mud, from the hoofs of the horse to the hat of
+the man. ” said the passenger, in a tone of quiet business confidence.
+RESPONSE: The watchful guard, with his right hand at the stock of his raised
+blunderbuss, his left at the barrel, and his eye on the horseman,
+answered curtly, “Sir.
+
+INPUT: What is this about: The watchful guard, with his right hand at the stock of his raised
+blunderbuss, his left at the barrel, and his eye on the horseman,
+answered curtly, “Sir.
+RESPONSE: ”
+
+“There is nothing to apprehend.
+
+INPUT: Summarize: The watchful guard, with his right hand at the stock of his raised
+blunderbuss, his left at the barrel, and his eye on the horseman,
+answered curtly, “Sir. ”
+
+“There is nothing to apprehend.
+RESPONSE: I belong to Tellson’s Bank.
+
+INPUT: What is this about: I belong to Tellson’s Bank.
+RESPONSE: You must
+know Tellson’s Bank in London.
+
+INPUT: Summarize: I belong to Tellson’s Bank. You must
+know Tellson’s Bank in London.
+RESPONSE: I am going to Paris on business.
+
+INPUT: Can you explain: I am going to Paris on business.
+RESPONSE: ”
+
+“If so be as you’re quick, sir.
+
+INPUT: Summarize: I am going to Paris on business. ”
+
+“If so be as you’re quick, sir.
+RESPONSE: ”
+
+He opened it in the light of the coach-lamp on that side, and
+read--first to himself and then aloud: “‘Wait at Dover for Mam’selle.
+
+INPUT: Tell me about: ”
+
+He opened it in the light of the coach-lamp on that side, and
+read--first to himself and then aloud: “‘Wait at Dover for Mam’selle.
+RESPONSE: ’
+It’s not long, you see, guard.
+
+INPUT: Summarize: ”
+
+He opened it in the light of the coach-lamp on that side, and
+read--first to himself and then aloud: “‘Wait at Dover for Mam’selle. ’
+It’s not long, you see, guard.
+RESPONSE: Jerry, say that my answer was, RECALLED
+TO LIFE.
+
+INPUT: What does this mean: Jerry, say that my answer was, RECALLED
+TO LIFE.
+RESPONSE: ”
+
+Jerry started in his saddle.
+
+INPUT: Summarize: Jerry, say that my answer was, RECALLED
+TO LIFE. ”
+
+Jerry started in his saddle.
+RESPONSE: “That’s a Blazing strange answer, too,”
+ said he, at his hoarsest.
+
+INPUT: What does this mean: “That’s a Blazing strange answer, too,”
+ said he, at his hoarsest.
+RESPONSE: “Take that message back, and they will know that I received this, as
+well as if I wrote.
+
+INPUT: Summarize: “That’s a Blazing strange answer, too,”
+ said he, at his hoarsest. “Take that message back, and they will know that I received this, as
+well as if I wrote.
+RESPONSE: Make the best of your way.
+
+INPUT: What is this about: Make the best of your way.
+RESPONSE: ”
+
+With those words the passenger opened the coach-door and got in; not at
+all assisted by his fellow-passengers, who had expeditiously secreted
+their watches and purses in their boots, and were now making a general
+pretence of being asleep.
+
+INPUT: Summarize: Make the best of your way. ”
+
+With those words the passenger opened the coach-door and got in; not at
+all assisted by his fellow-passengers, who had expeditiously secreted
+their watches and purses in their boots, and were now making a general
+pretence of being asleep.
+RESPONSE: With no more definite purpose than to escape
+the hazard of originating any other kind of action.
+
+INPUT: What does this say: With no more definite purpose than to escape
+the hazard of originating any other kind of action.
+RESPONSE: The coach lumbered on again, with heavier wreaths of mist closing round
+it as it began the descent.
+
+INPUT: Summarize: With no more definite purpose than to escape
+the hazard of originating any other kind of action. The coach lumbered on again, with heavier wreaths of mist closing round
+it as it began the descent.
+RESPONSE: The guard soon replaced his blunderbuss
+in his arm-chest, and, having looked to the rest of its contents, and
+having looked to the supplementary pistols that he wore in his belt,
+looked to a smaller chest beneath his seat, in which there were a
+few smith’s tools, a couple of torches, and a tinder-box.
+
+INPUT: Can you explain: The guard soon replaced his blunderbuss
+in his arm-chest, and, having looked to the rest of its contents, and
+having looked to the supplementary pistols that he wore in his belt,
+looked to a smaller chest beneath his seat, in which there were a
+few smith’s tools, a couple of torches, and a tinder-box.
+RESPONSE: For he was
+furnished with that completeness that if the coach-lamps had been blown
+and stormed out, which did occasionally happen, he had only to shut
+himself up inside, keep the flint and steel sparks well off the straw,
+and get a light with tolerable safety and ease (if he were lucky) in
+five minutes.
+
+INPUT: Summarize: The guard soon replaced his blunderbuss
+in his arm-chest, and, having looked to the rest of its contents, and
+having looked to the supplementary pistols that he wore in his belt,
+looked to a smaller chest beneath his seat, in which there were a
+few smith’s tools, a couple of torches, and a tinder-box. For he was
+furnished with that completeness that if the coach-lamps had been blown
+and stormed out, which did occasionally happen, he had only to shut
+himself up inside, keep the flint and steel sparks well off the straw,
+and get a light with tolerable safety and ease (if he were lucky) in
+five minutes.
+RESPONSE: ” softly over the coach roof.
+
+INPUT: What is this about: ” softly over the coach roof.
+RESPONSE: ”
+
+“Did you hear the message?
+
+INPUT: Summarize: ” softly over the coach roof. ”
+
+“Did you hear the message?
+RESPONSE: ”
+
+“I did, Joe.
+
+INPUT: Explain this: ”
+
+“I did, Joe.
+RESPONSE: ”
+
+“What did you make of it, Tom?
+
+INPUT: Summarize: ”
+
+“I did, Joe. ”
+
+“What did you make of it, Tom?
+RESPONSE: ”
+
+“Nothing at all, Joe.
+
+INPUT: What is this about: ”
+
+“Nothing at all, Joe.
+RESPONSE: ”
+
+“That’s a coincidence, too,” the guard mused, “for I made the same of it
+myself.
+
+INPUT: Summarize: ”
+
+“Nothing at all, Joe. ”
+
+“That’s a coincidence, too,” the guard mused, “for I made the same of it
+myself.
+RESPONSE: ”
+
+Jerry, left alone in the mist and darkness, dismounted meanwhile, not
+only to ease his spent horse, but to wipe the mud from his face, and
+shake the wet out of his hat-brim, which might be capable of
+holding about half a gallon.
+
+INPUT: What is this about: ”
+
+Jerry, left alone in the mist and darkness, dismounted meanwhile, not
+only to ease his spent horse, but to wipe the mud from his face, and
+shake the wet out of his hat-brim, which might be capable of
+holding about half a gallon.
+RESPONSE: After standing with the bridle over his
+heavily-splashed arm, until the wheels of the mail were no longer within
+hearing and the night was quite still again, he turned to walk down the
+hill.
+
+INPUT: Summarize: ”
+
+Jerry, left alone in the mist and darkness, dismounted meanwhile, not
+only to ease his spent horse, but to wipe the mud from his face, and
+shake the wet out of his hat-brim, which might be capable of
+holding about half a gallon. After standing with the bridle over his
+heavily-splashed arm, until the wheels of the mail were no longer within
+hearing and the night was quite still again, he turned to walk down the
+hill.
+RESPONSE: “After that there gallop from Temple Bar, old lady, I won’t trust your
+fore-legs till I get you on the level,” said this hoarse messenger,
+glancing at his mare.
+
+INPUT: What does this say: “After that there gallop from Temple Bar, old lady, I won’t trust your
+fore-legs till I get you on the level,” said this hoarse messenger,
+glancing at his mare.
+RESPONSE: “‘Recalled to life.
+
+INPUT: Summarize: “After that there gallop from Temple Bar, old lady, I won’t trust your
+fore-legs till I get you on the level,” said this hoarse messenger,
+glancing at his mare. “‘Recalled to life.
+RESPONSE: ’ That’s a Blazing strange
+message.
+
+INPUT: Explain this: ’ That’s a Blazing strange
+message.
+RESPONSE: Much of that wouldn’t do for you, Jerry!
+
+INPUT: Summarize: ’ That’s a Blazing strange
+message. Much of that wouldn’t do for you, Jerry!
+RESPONSE: You’d
+be in a Blazing bad way, if recalling to life was to come into fashion,
+Jerry!
+
+INPUT: Tell me about: You’d
+be in a Blazing bad way, if recalling to life was to come into fashion,
+Jerry!
+RESPONSE: ”
+
+
+
+
+CHAPTER III.
+
+INPUT: Summarize: You’d
+be in a Blazing bad way, if recalling to life was to come into fashion,
+Jerry! ”
+
+
+
+
+CHAPTER III.
+RESPONSE: The Night Shadows
+
+
+A wonderful fact to reflect upon, that every human creature is
+constituted to be that profound secret and mystery to every other.
+
+INPUT: Explain this: The Night Shadows
+
+
+A wonderful fact to reflect upon, that every human creature is
+constituted to be that profound secret and mystery to every other.
+RESPONSE: A
+solemn consideration, when I enter a great city by night, that every
+one of those darkly clustered houses encloses its own secret; that every
+room in every one of them encloses its own secret; that every beating
+heart in the hundreds of thousands of breasts there, is, in some of
+its imaginings, a secret to the heart nearest it!
+
+INPUT: Summarize: The Night Shadows
+
+
+A wonderful fact to reflect upon, that every human creature is
+constituted to be that profound secret and mystery to every other. A
+solemn consideration, when I enter a great city by night, that every
+one of those darkly clustered houses encloses its own secret; that every
+room in every one of them encloses its own secret; that every beating
+heart in the hundreds of thousands of breasts there, is, in some of
+its imaginings, a secret to the heart nearest it!
+RESPONSE: Something of the
+awfulness, even of Death itself, is referable to this.
+
+INPUT: What does this mean: Something of the
+awfulness, even of Death itself, is referable to this.
+RESPONSE: No more can I
+turn the leaves of this dear book that I loved, and vainly hope in time
+to read it all.
+
+INPUT: Summarize: Something of the
+awfulness, even of Death itself, is referable to this. No more can I
+turn the leaves of this dear book that I loved, and vainly hope in time
+to read it all.
+RESPONSE: No more can I look into the depths of this unfathomable
+water, wherein, as momentary lights glanced into it, I have had glimpses
+of buried treasure and other things submerged.
+
+INPUT: What does this say: No more can I look into the depths of this unfathomable
+water, wherein, as momentary lights glanced into it, I have had glimpses
+of buried treasure and other things submerged.
+RESPONSE: It was appointed that the
+book should shut with a spring, for ever and for ever, when I had read
+but a page.
+
+INPUT: Summarize: No more can I look into the depths of this unfathomable
+water, wherein, as momentary lights glanced into it, I have had glimpses
+of buried treasure and other things submerged. It was appointed that the
+book should shut with a spring, for ever and for ever, when I had read
+but a page.
+RESPONSE: It was appointed that the water should be locked in an
+eternal frost, when the light was playing on its surface, and I stood
+in ignorance on the shore.
+
+INPUT: What is this about: It was appointed that the water should be locked in an
+eternal frost, when the light was playing on its surface, and I stood
+in ignorance on the shore.
+RESPONSE: My friend is dead, my neighbour is dead,
+my love, the darling of my soul, is dead; it is the inexorable
+consolidation and perpetuation of the secret that was always in that
+individuality, and which I shall carry in mine to my life’s end.
+
+INPUT: Summarize: It was appointed that the water should be locked in an
+eternal frost, when the light was playing on its surface, and I stood
+in ignorance on the shore. My friend is dead, my neighbour is dead,
+my love, the darling of my soul, is dead; it is the inexorable
+consolidation and perpetuation of the secret that was always in that
+individuality, and which I shall carry in mine to my life’s end.
+RESPONSE: In
+any of the burial-places of this city through which I pass, is there
+a sleeper more inscrutable than its busy inhabitants are, in their
+innermost personality, to me, or than I am to them?
+
+INPUT: What is this about: In
+any of the burial-places of this city through which I pass, is there
+a sleeper more inscrutable than its busy inhabitants are, in their
+innermost personality, to me, or than I am to them?
+RESPONSE: As to this, his natural and not to be alienated inheritance, the
+messenger on horseback had exactly the same possessions as the King, the
+first Minister of State, or the richest merchant in London.
+
+INPUT: Summarize: In
+any of the burial-places of this city through which I pass, is there
+a sleeper more inscrutable than its busy inhabitants are, in their
+innermost personality, to me, or than I am to them? As to this, his natural and not to be alienated inheritance, the
+messenger on horseback had exactly the same possessions as the King, the
+first Minister of State, or the richest merchant in London.
+RESPONSE: So with the
+three passengers shut up in the narrow compass of one lumbering old mail
+coach; they were mysteries to one another, as complete as if each had
+been in his own coach and six, or his own coach and sixty, with the
+breadth of a county between him and the next.
+
+INPUT: Tell me about: So with the
+three passengers shut up in the narrow compass of one lumbering old mail
+coach; they were mysteries to one another, as complete as if each had
+been in his own coach and six, or his own coach and sixty, with the
+breadth of a county between him and the next.
+RESPONSE: The messenger rode back at an easy trot, stopping pretty often at
+ale-houses by the way to drink, but evincing a tendency to keep his
+own counsel, and to keep his hat cocked over his eyes.
+
+INPUT: Summarize: So with the
+three passengers shut up in the narrow compass of one lumbering old mail
+coach; they were mysteries to one another, as complete as if each had
+been in his own coach and six, or his own coach and sixty, with the
+breadth of a county between him and the next. The messenger rode back at an easy trot, stopping pretty often at
+ale-houses by the way to drink, but evincing a tendency to keep his
+own counsel, and to keep his hat cocked over his eyes.
+RESPONSE: He had eyes that
+assorted very well with that decoration, being of a surface black, with
+no depth in the colour or form, and much too near together--as if they
+were afraid of being found out in something, singly, if they kept too
+far apart.
+
+INPUT: What is this about: He had eyes that
+assorted very well with that decoration, being of a surface black, with
+no depth in the colour or form, and much too near together--as if they
+were afraid of being found out in something, singly, if they kept too
+far apart.
+RESPONSE: They had a sinister expression, under an old cocked-hat like
+a three-cornered spittoon, and over a great muffler for the chin and
+throat, which descended nearly to the wearer’s knees.
+
+INPUT: Summarize: He had eyes that
+assorted very well with that decoration, being of a surface black, with
+no depth in the colour or form, and much too near together--as if they
+were afraid of being found out in something, singly, if they kept too
+far apart. They had a sinister expression, under an old cocked-hat like
+a three-cornered spittoon, and over a great muffler for the chin and
+throat, which descended nearly to the wearer’s knees.
+RESPONSE: When he stopped
+for drink, he moved this muffler with his left hand, only while he
+poured his liquor in with his right; as soon as that was done, he
+muffled again.
+
+INPUT: What does this say: When he stopped
+for drink, he moved this muffler with his left hand, only while he
+poured his liquor in with his right; as soon as that was done, he
+muffled again.
+RESPONSE: ” said the messenger, harping on one theme as he rode.
+
+INPUT: Summarize: When he stopped
+for drink, he moved this muffler with his left hand, only while he
+poured his liquor in with his right; as soon as that was done, he
+muffled again. ” said the messenger, harping on one theme as he rode.
+RESPONSE: “It wouldn’t do for you, Jerry.
+
+INPUT: Tell me about: “It wouldn’t do for you, Jerry.
+RESPONSE: Jerry, you honest tradesman, it wouldn’t
+suit _your_ line of business!
+
+INPUT: Summarize: “It wouldn’t do for you, Jerry. Jerry, you honest tradesman, it wouldn’t
+suit _your_ line of business!
+RESPONSE: Bust me if I don’t think he’d
+been a drinking!
+
+INPUT: Can you explain: Bust me if I don’t think he’d
+been a drinking!
+RESPONSE: ”
+
+His message perplexed his mind to that degree that he was fain, several
+times, to take off his hat to scratch his head.
+
+INPUT: Summarize: Bust me if I don’t think he’d
+been a drinking! ”
+
+His message perplexed his mind to that degree that he was fain, several
+times, to take off his hat to scratch his head.
+RESPONSE: Except on the crown,
+which was raggedly bald, he had stiff, black hair, standing jaggedly all
+over it, and growing down hill almost to his broad, blunt nose.
+
+INPUT: What is this about: Except on the crown,
+which was raggedly bald, he had stiff, black hair, standing jaggedly all
+over it, and growing down hill almost to his broad, blunt nose.
+RESPONSE: It was
+so like Smith’s work, so much more like the top of a strongly spiked
+wall than a head of hair, that the best of players at leap-frog might
+have declined him, as the most dangerous man in the world to go over.
+
+INPUT: Summarize: Except on the crown,
+which was raggedly bald, he had stiff, black hair, standing jaggedly all
+over it, and growing down hill almost to his broad, blunt nose. It was
+so like Smith’s work, so much more like the top of a strongly spiked
+wall than a head of hair, that the best of players at leap-frog might
+have declined him, as the most dangerous man in the world to go over.
+RESPONSE: While he trotted back with the message he was to deliver to the night
+watchman in his box at the door of Tellson’s Bank, by Temple Bar, who
+was to deliver it to greater authorities within, the shadows of the
+night took such shapes to him as arose out of the message, and took such
+shapes to the mare as arose out of _her_ private topics of uneasiness.
+
+INPUT: What does this say: While he trotted back with the message he was to deliver to the night
+watchman in his box at the door of Tellson’s Bank, by Temple Bar, who
+was to deliver it to greater authorities within, the shadows of the
+night took such shapes to him as arose out of the message, and took such
+shapes to the mare as arose out of _her_ private topics of uneasiness.
+RESPONSE: They seemed to be numerous, for she shied at every shadow on the road.
+
+INPUT: Summarize: While he trotted back with the message he was to deliver to the night
+watchman in his box at the door of Tellson’s Bank, by Temple Bar, who
+was to deliver it to greater authorities within, the shadows of the
+night took such shapes to him as arose out of the message, and took such
+shapes to the mare as arose out of _her_ private topics of uneasiness. They seemed to be numerous, for she shied at every shadow on the road.
+RESPONSE: What time, the mail-coach lumbered, jolted, rattled, and bumped upon
+its tedious way, with its three fellow-inscrutables inside.
+
+INPUT: What does this mean: What time, the mail-coach lumbered, jolted, rattled, and bumped upon
+its tedious way, with its three fellow-inscrutables inside.
+RESPONSE: To whom,
+likewise, the shadows of the night revealed themselves, in the forms
+their dozing eyes and wandering thoughts suggested.
+
+INPUT: Summarize: What time, the mail-coach lumbered, jolted, rattled, and bumped upon
+its tedious way, with its three fellow-inscrutables inside. To whom,
+likewise, the shadows of the night revealed themselves, in the forms
+their dozing eyes and wandering thoughts suggested.
+RESPONSE: Tellson’s Bank had a run upon it in the mail.
+
+INPUT: Can you explain: Tellson’s Bank had a run upon it in the mail.
+RESPONSE: As the bank
+passenger--with an arm drawn through the leathern strap, which did what
+lay in it to keep him from pounding against the next passenger,
+and driving him into his corner, whenever the coach got a special
+jolt--nodded in his place, with half-shut eyes, the little
+coach-windows, and the coach-lamp dimly gleaming through them, and the
+bulky bundle of opposite passenger, became the bank, and did a great
+stroke of business.
+
+INPUT: Summarize: Tellson’s Bank had a run upon it in the mail. As the bank
+passenger--with an arm drawn through the leathern strap, which did what
+lay in it to keep him from pounding against the next passenger,
+and driving him into his corner, whenever the coach got a special
+jolt--nodded in his place, with half-shut eyes, the little
+coach-windows, and the coach-lamp dimly gleaming through them, and the
+bulky bundle of opposite passenger, became the bank, and did a great
+stroke of business.
+RESPONSE: The rattle of the harness was the chink of money,
+and more drafts were honoured in five minutes than even Tellson’s, with
+all its foreign and home connection, ever paid in thrice the time.
+
+INPUT: Explain this: The rattle of the harness was the chink of money,
+and more drafts were honoured in five minutes than even Tellson’s, with
+all its foreign and home connection, ever paid in thrice the time.
+RESPONSE: Then
+the strong-rooms underground, at Tellson’s, with such of their valuable
+stores and secrets as were known to the passenger (and it was not a
+little that he knew about them), opened before him, and he went in among
+them with the great keys and the feebly-burning candle, and found them
+safe, and strong, and sound, and still, just as he had last seen them.
+
+INPUT: Summarize: The rattle of the harness was the chink of money,
+and more drafts were honoured in five minutes than even Tellson’s, with
+all its foreign and home connection, ever paid in thrice the time. Then
+the strong-rooms underground, at Tellson’s, with such of their valuable
+stores and secrets as were known to the passenger (and it was not a
+little that he knew about them), opened before him, and he went in among
+them with the great keys and the feebly-burning candle, and found them
+safe, and strong, and sound, and still, just as he had last seen them.
+RESPONSE: But, though the bank was almost always with him, and though the coach
+(in a confused way, like the presence of pain under an opiate) was
+always with him, there was another current of impression that never
+ceased to run, all through the night.
+
+INPUT: What is this about: But, though the bank was almost always with him, and though the coach
+(in a confused way, like the presence of pain under an opiate) was
+always with him, there was another current of impression that never
+ceased to run, all through the night.
+RESPONSE: He was on his way to dig some one
+out of a grave.
+
+INPUT: Summarize: But, though the bank was almost always with him, and though the coach
+(in a confused way, like the presence of pain under an opiate) was
+always with him, there was another current of impression that never
+ceased to run, all through the night. He was on his way to dig some one
+out of a grave.
+RESPONSE: Now, which of the multitude of faces that showed themselves before him
+was the true face of the buried person, the shadows of the night did
+not indicate; but they were all the faces of a man of five-and-forty by
+years, and they differed principally in the passions they expressed,
+and in the ghastliness of their worn and wasted state.
+
+INPUT: Tell me about: Now, which of the multitude of faces that showed themselves before him
+was the true face of the buried person, the shadows of the night did
+not indicate; but they were all the faces of a man of five-and-forty by
+years, and they differed principally in the passions they expressed,
+and in the ghastliness of their worn and wasted state.
+RESPONSE: Pride, contempt,
+defiance, stubbornness, submission, lamentation, succeeded one another;
+so did varieties of sunken cheek, cadaverous colour, emaciated hands
+and figures.
+
+INPUT: Summarize: Now, which of the multitude of faces that showed themselves before him
+was the true face of the buried person, the shadows of the night did
+not indicate; but they were all the faces of a man of five-and-forty by
+years, and they differed principally in the passions they expressed,
+and in the ghastliness of their worn and wasted state. Pride, contempt,
+defiance, stubbornness, submission, lamentation, succeeded one another;
+so did varieties of sunken cheek, cadaverous colour, emaciated hands
+and figures.
+RESPONSE: But the face was in the main one face, and every head was
+prematurely white.
+
+INPUT: What is this about: But the face was in the main one face, and every head was
+prematurely white.
+RESPONSE: A hundred times the dozing passenger inquired of this
+spectre:
+
+“Buried how long?
+
+INPUT: Summarize: But the face was in the main one face, and every head was
+prematurely white. A hundred times the dozing passenger inquired of this
+spectre:
+
+“Buried how long?
+RESPONSE: ”
+
+The answer was always the same: “Almost eighteen years.
+
+INPUT: Explain this: ”
+
+The answer was always the same: “Almost eighteen years.
+RESPONSE: ”
+
+“You had abandoned all hope of being dug out?
+
+INPUT: Summarize: ”
+
+The answer was always the same: “Almost eighteen years. ”
+
+“You had abandoned all hope of being dug out?
+RESPONSE: ”
+
+“You know that you are recalled to life?
+
+INPUT: Tell me about: ”
+
+“You know that you are recalled to life?
+RESPONSE: ”
+
+“They tell me so.
+
+INPUT: Summarize: ”
+
+“You know that you are recalled to life? ”
+
+“They tell me so.
+RESPONSE: ”
+
+“I hope you care to live?
+
+INPUT: Explain this: ”
+
+“I hope you care to live?
+RESPONSE: ”
+
+“I can’t say.
+
+INPUT: Summarize: ”
+
+“I hope you care to live? ”
+
+“I can’t say.
+RESPONSE: ”
+
+“Shall I show her to you?
+
+INPUT: What does this say: ”
+
+“Shall I show her to you?
+RESPONSE: Will you come and see her?
+
+INPUT: Summarize: ”
+
+“Shall I show her to you? Will you come and see her?
+RESPONSE: ”
+
+The answers to this question were various and contradictory.
+
+INPUT: Tell me about: ”
+
+The answers to this question were various and contradictory.
+RESPONSE: Sometimes
+the broken reply was, “Wait!
+
+INPUT: Summarize: ”
+
+The answers to this question were various and contradictory. Sometimes
+the broken reply was, “Wait!
+RESPONSE: It would kill me if I saw her too soon.
+
+INPUT: What is this about: It would kill me if I saw her too soon.
+RESPONSE: ”
+ Sometimes, it was given in a tender rain of tears, and then it was,
+“Take me to her.
+
+INPUT: Summarize: It would kill me if I saw her too soon. ”
+ Sometimes, it was given in a tender rain of tears, and then it was,
+“Take me to her.
+RESPONSE: ” Sometimes it was staring and bewildered, and then it
+was, “I don’t know her.
+
+INPUT: Tell me about: ” Sometimes it was staring and bewildered, and then it
+was, “I don’t know her.
+RESPONSE: I don’t understand.
+
+INPUT: Summarize: ” Sometimes it was staring and bewildered, and then it
+was, “I don’t know her. I don’t understand.
+RESPONSE: ”
+
+After such imaginary discourse, the passenger in his fancy would dig,
+and dig, dig--now with a spade, now with a great key, now with his
+hands--to dig this wretched creature out.
+
+INPUT: Explain this: ”
+
+After such imaginary discourse, the passenger in his fancy would dig,
+and dig, dig--now with a spade, now with a great key, now with his
+hands--to dig this wretched creature out.
+RESPONSE: Got out at last, with earth
+hanging about his face and hair, he would suddenly fan away to dust.
+
+INPUT: Summarize: ”
+
+After such imaginary discourse, the passenger in his fancy would dig,
+and dig, dig--now with a spade, now with a great key, now with his
+hands--to dig this wretched creature out. Got out at last, with earth
+hanging about his face and hair, he would suddenly fan away to dust.
+RESPONSE: The
+passenger would then start to himself, and lower the window, to get the
+reality of mist and rain on his cheek.
+
+INPUT: Can you explain: The
+passenger would then start to himself, and lower the window, to get the
+reality of mist and rain on his cheek.
+RESPONSE: Yet even when his eyes were opened on the mist and rain, on the moving
+patch of light from the lamps, and the hedge at the roadside retreating
+by jerks, the night shadows outside the coach would fall into the train
+of the night shadows within.
+
+INPUT: Summarize: The
+passenger would then start to himself, and lower the window, to get the
+reality of mist and rain on his cheek. Yet even when his eyes were opened on the mist and rain, on the moving
+patch of light from the lamps, and the hedge at the roadside retreating
+by jerks, the night shadows outside the coach would fall into the train
+of the night shadows within.
+RESPONSE: The real Banking-house by Temple Bar, the
+real business of the past day, the real strong rooms, the real express
+sent after him, and the real message returned, would all be there.
+
+INPUT: What does this mean: The real Banking-house by Temple Bar, the
+real business of the past day, the real strong rooms, the real express
+sent after him, and the real message returned, would all be there.
+RESPONSE: Out
+of the midst of them, the ghostly face would rise, and he would accost
+it again.
+
+INPUT: Summarize: The real Banking-house by Temple Bar, the
+real business of the past day, the real strong rooms, the real express
+sent after him, and the real message returned, would all be there. Out
+of the midst of them, the ghostly face would rise, and he would accost
+it again.
+RESPONSE: ”
+
+“Almost eighteen years.
+
+INPUT: What is this about: ”
+
+“Almost eighteen years.
+RESPONSE: ”
+
+“I hope you care to live?
+
+INPUT: Summarize: ”
+
+“Almost eighteen years. ”
+
+“I hope you care to live?
+RESPONSE: ”
+
+“I can’t say.
+
+INPUT: What does this say: ”
+
+“I can’t say.
+RESPONSE: ”
+
+Dig--dig--dig--until an impatient movement from one of the two
+passengers would admonish him to pull up the window, draw his arm
+securely through the leathern strap, and speculate upon the two
+slumbering forms, until his mind lost its hold of them, and they again
+slid away into the bank and the grave.
+
+INPUT: Summarize: ”
+
+“I can’t say. ”
+
+Dig--dig--dig--until an impatient movement from one of the two
+passengers would admonish him to pull up the window, draw his arm
+securely through the leathern strap, and speculate upon the two
+slumbering forms, until his mind lost its hold of them, and they again
+slid away into the bank and the grave.
+RESPONSE: ”
+
+“Almost eighteen years.
+
+INPUT: What does this mean: ”
+
+“Almost eighteen years.
+RESPONSE: ”
+
+“You had abandoned all hope of being dug out?
+
+INPUT: Summarize: ”
+
+“Almost eighteen years. ”
+
+“You had abandoned all hope of being dug out?
+RESPONSE: ”
+
+The words were still in his hearing as just spoken--distinctly in
+his hearing as ever spoken words had been in his life--when the weary
+passenger started to the consciousness of daylight, and found that the
+shadows of the night were gone.
+
+INPUT: Tell me about: ”
+
+The words were still in his hearing as just spoken--distinctly in
+his hearing as ever spoken words had been in his life--when the weary
+passenger started to the consciousness of daylight, and found that the
+shadows of the night were gone.
+RESPONSE: He lowered the window, and looked out at the rising sun.
+
+INPUT: Summarize: ”
+
+The words were still in his hearing as just spoken--distinctly in
+his hearing as ever spoken words had been in his life--when the weary
+passenger started to the consciousness of daylight, and found that the
+shadows of the night were gone. He lowered the window, and looked out at the rising sun.
+RESPONSE: There was a
+ridge of ploughed land, with a plough upon it where it had been left
+last night when the horses were unyoked; beyond, a quiet coppice-wood,
+in which many leaves of burning red and golden yellow still remained
+upon the trees.
+
+INPUT: What is this about: There was a
+ridge of ploughed land, with a plough upon it where it had been left
+last night when the horses were unyoked; beyond, a quiet coppice-wood,
+in which many leaves of burning red and golden yellow still remained
+upon the trees.
+RESPONSE: Though the earth was cold and wet, the sky was clear,
+and the sun rose bright, placid, and beautiful.
+
+INPUT: Summarize: There was a
+ridge of ploughed land, with a plough upon it where it had been left
+last night when the horses were unyoked; beyond, a quiet coppice-wood,
+in which many leaves of burning red and golden yellow still remained
+upon the trees. Though the earth was cold and wet, the sky was clear,
+and the sun rose bright, placid, and beautiful.
+RESPONSE: ” said the passenger, looking at the sun.
+
+INPUT: What does this say: ” said the passenger, looking at the sun.
+RESPONSE: “Gracious
+Creator of day!
+
+INPUT: Summarize: ” said the passenger, looking at the sun. “Gracious
+Creator of day!
+RESPONSE: To be buried alive for eighteen years!
+
+INPUT: What does this say: To be buried alive for eighteen years!
+RESPONSE: ”
+
+
+
+
+CHAPTER IV.
+
+INPUT: Summarize: To be buried alive for eighteen years! ”
+
+
+
+
+CHAPTER IV.
+RESPONSE: The Preparation
+
+
+When the mail got successfully to Dover, in the course of the forenoon,
+the head drawer at the Royal George Hotel opened the coach-door as his
+custom was.
+
+INPUT: What does this mean: The Preparation
+
+
+When the mail got successfully to Dover, in the course of the forenoon,
+the head drawer at the Royal George Hotel opened the coach-door as his
+custom was.
+RESPONSE: He did it with some flourish of ceremony, for a mail journey
+from London in winter was an achievement to congratulate an adventurous
+traveller upon.
+
+INPUT: Summarize: The Preparation
+
+
+When the mail got successfully to Dover, in the course of the forenoon,
+the head drawer at the Royal George Hotel opened the coach-door as his
+custom was. He did it with some flourish of ceremony, for a mail journey
+from London in winter was an achievement to congratulate an adventurous
+traveller upon.
+RESPONSE: By that time, there was only one adventurous traveller left be
+congratulated: for the two others had been set down at their respective
+roadside destinations.
+
+INPUT: What does this say: By that time, there was only one adventurous traveller left be
+congratulated: for the two others had been set down at their respective
+roadside destinations.
+RESPONSE: The mildewy inside of the coach, with its damp
+and dirty straw, its disagreeable smell, and its obscurity, was rather
+like a larger dog-kennel.
+
+INPUT: Summarize: By that time, there was only one adventurous traveller left be
+congratulated: for the two others had been set down at their respective
+roadside destinations. The mildewy inside of the coach, with its damp
+and dirty straw, its disagreeable smell, and its obscurity, was rather
+like a larger dog-kennel.
+RESPONSE: Lorry, the passenger, shaking himself out
+of it in chains of straw, a tangle of shaggy wrapper, flapping hat, and
+muddy legs, was rather like a larger sort of dog.
+
+INPUT: Tell me about: Lorry, the passenger, shaking himself out
+of it in chains of straw, a tangle of shaggy wrapper, flapping hat, and
+muddy legs, was rather like a larger sort of dog.
+RESPONSE: “There will be a packet to Calais, tomorrow, drawer?
+
+INPUT: Summarize: Lorry, the passenger, shaking himself out
+of it in chains of straw, a tangle of shaggy wrapper, flapping hat, and
+muddy legs, was rather like a larger sort of dog. “There will be a packet to Calais, tomorrow, drawer?
+RESPONSE: ”
+
+“Yes, sir, if the weather holds and the wind sets tolerable fair.
+
+INPUT: What is this about: ”
+
+“Yes, sir, if the weather holds and the wind sets tolerable fair.
+RESPONSE: The
+tide will serve pretty nicely at about two in the afternoon, sir.
+
+INPUT: Summarize: ”
+
+“Yes, sir, if the weather holds and the wind sets tolerable fair. The
+tide will serve pretty nicely at about two in the afternoon, sir.
+RESPONSE: ”
+
+“I shall not go to bed till night; but I want a bedroom, and a barber.
+
+INPUT: Tell me about: ”
+
+“I shall not go to bed till night; but I want a bedroom, and a barber.
+RESPONSE: ”
+
+“And then breakfast, sir?
+
+INPUT: Summarize: ”
+
+“I shall not go to bed till night; but I want a bedroom, and a barber. ”
+
+“And then breakfast, sir?
+RESPONSE: That way, sir, if you please.
+
+INPUT: Tell me about: That way, sir, if you please.
+RESPONSE: Gentleman’s valise and hot water to Concord.
+
+INPUT: Summarize: That way, sir, if you please. Gentleman’s valise and hot water to Concord.
+RESPONSE: Pull off
+gentleman’s boots in Concord.
+
+INPUT: What does this mean: Pull off
+gentleman’s boots in Concord.
+RESPONSE: (You will find a fine sea-coal fire, sir.
+
+INPUT: Summarize: Pull off
+gentleman’s boots in Concord. (You will find a fine sea-coal fire, sir.
+RESPONSE: )
+Fetch barber to Concord.
+
+INPUT: What does this say: )
+Fetch barber to Concord.
+RESPONSE: Stir about there, now, for Concord!
+
+INPUT: Summarize: )
+Fetch barber to Concord. Stir about there, now, for Concord!
+RESPONSE: ”
+
+The Concord bed-chamber being always assigned to a passenger by the
+mail, and passengers by the mail being always heavily wrapped up from
+head to foot, the room had the odd interest for the establishment of the
+Royal George, that although but one kind of man was seen to go into it,
+all kinds and varieties of men came out of it.
+
+INPUT: Tell me about: ”
+
+The Concord bed-chamber being always assigned to a passenger by the
+mail, and passengers by the mail being always heavily wrapped up from
+head to foot, the room had the odd interest for the establishment of the
+Royal George, that although but one kind of man was seen to go into it,
+all kinds and varieties of men came out of it.
+RESPONSE: Consequently, another
+drawer, and two porters, and several maids and the landlady, were all
+loitering by accident at various points of the road between the Concord
+and the coffee-room, when a gentleman of sixty, formally dressed in a
+brown suit of clothes, pretty well worn, but very well kept, with large
+square cuffs and large flaps to the pockets, passed along on his way to
+his breakfast.
+
+INPUT: Summarize: ”
+
+The Concord bed-chamber being always assigned to a passenger by the
+mail, and passengers by the mail being always heavily wrapped up from
+head to foot, the room had the odd interest for the establishment of the
+Royal George, that although but one kind of man was seen to go into it,
+all kinds and varieties of men came out of it. Consequently, another
+drawer, and two porters, and several maids and the landlady, were all
+loitering by accident at various points of the road between the Concord
+and the coffee-room, when a gentleman of sixty, formally dressed in a
+brown suit of clothes, pretty well worn, but very well kept, with large
+square cuffs and large flaps to the pockets, passed along on his way to
+his breakfast.
+RESPONSE: The coffee-room had no other occupant, that forenoon, than the gentleman
+in brown.
+
+INPUT: What does this say: The coffee-room had no other occupant, that forenoon, than the gentleman
+in brown.
+RESPONSE: His breakfast-table was drawn before the fire, and as he sat,
+with its light shining on him, waiting for the meal, he sat so still,
+that he might have been sitting for his portrait.
+
+INPUT: Summarize: The coffee-room had no other occupant, that forenoon, than the gentleman
+in brown. His breakfast-table was drawn before the fire, and as he sat,
+with its light shining on him, waiting for the meal, he sat so still,
+that he might have been sitting for his portrait.
+RESPONSE: Very orderly and methodical he looked, with a hand on each knee, and a
+loud watch ticking a sonorous sermon under his flapped waist-coat,
+as though it pitted its gravity and longevity against the levity and
+evanescence of the brisk fire.
+
+INPUT: Can you explain: Very orderly and methodical he looked, with a hand on each knee, and a
+loud watch ticking a sonorous sermon under his flapped waist-coat,
+as though it pitted its gravity and longevity against the levity and
+evanescence of the brisk fire.
+RESPONSE: He had a good leg, and was a little vain
+of it, for his brown stockings fitted sleek and close, and were of a
+fine texture; his shoes and buckles, too, though plain, were trim.
+
+INPUT: Summarize: Very orderly and methodical he looked, with a hand on each knee, and a
+loud watch ticking a sonorous sermon under his flapped waist-coat,
+as though it pitted its gravity and longevity against the levity and
+evanescence of the brisk fire. He had a good leg, and was a little vain
+of it, for his brown stockings fitted sleek and close, and were of a
+fine texture; his shoes and buckles, too, though plain, were trim.
+RESPONSE: He
+wore an odd little sleek crisp flaxen wig, setting very close to his
+head: which wig, it is to be presumed, was made of hair, but which
+looked far more as though it were spun from filaments of silk or glass.
+
+INPUT: What is this about: He
+wore an odd little sleek crisp flaxen wig, setting very close to his
+head: which wig, it is to be presumed, was made of hair, but which
+looked far more as though it were spun from filaments of silk or glass.
+RESPONSE: His linen, though not of a fineness in accordance with his stockings,
+was as white as the tops of the waves that broke upon the neighbouring
+beach, or the specks of sail that glinted in the sunlight far at sea.
+
+INPUT: Summarize: He
+wore an odd little sleek crisp flaxen wig, setting very close to his
+head: which wig, it is to be presumed, was made of hair, but which
+looked far more as though it were spun from filaments of silk or glass. His linen, though not of a fineness in accordance with his stockings,
+was as white as the tops of the waves that broke upon the neighbouring
+beach, or the specks of sail that glinted in the sunlight far at sea.
+RESPONSE: A
+face habitually suppressed and quieted, was still lighted up under the
+quaint wig by a pair of moist bright eyes that it must have cost
+their owner, in years gone by, some pains to drill to the composed and
+reserved expression of Tellson’s Bank.
+
+INPUT: Can you explain: A
+face habitually suppressed and quieted, was still lighted up under the
+quaint wig by a pair of moist bright eyes that it must have cost
+their owner, in years gone by, some pains to drill to the composed and
+reserved expression of Tellson’s Bank.
+RESPONSE: He had a healthy colour in his
+cheeks, and his face, though lined, bore few traces of anxiety.
+
+INPUT: Summarize: A
+face habitually suppressed and quieted, was still lighted up under the
+quaint wig by a pair of moist bright eyes that it must have cost
+their owner, in years gone by, some pains to drill to the composed and
+reserved expression of Tellson’s Bank. He had a healthy colour in his
+cheeks, and his face, though lined, bore few traces of anxiety.
+RESPONSE: But, perhaps the confidential bachelor clerks in Tellson’s Bank were
+principally occupied with the cares of other people; and perhaps
+second-hand cares, like second-hand clothes, come easily off and on.
+
+INPUT: What does this say: But, perhaps the confidential bachelor clerks in Tellson’s Bank were
+principally occupied with the cares of other people; and perhaps
+second-hand cares, like second-hand clothes, come easily off and on.
+RESPONSE: Completing his resemblance to a man who was sitting for his portrait,
+Mr.
+
+INPUT: Summarize: But, perhaps the confidential bachelor clerks in Tellson’s Bank were
+principally occupied with the cares of other people; and perhaps
+second-hand cares, like second-hand clothes, come easily off and on. Completing his resemblance to a man who was sitting for his portrait,
+Mr.
+RESPONSE: Lorry dropped off to sleep.
+
+INPUT: Can you explain: Lorry dropped off to sleep.
+RESPONSE: The arrival of his breakfast roused him,
+and he said to the drawer, as he moved his chair to it:
+
+“I wish accommodation prepared for a young lady who may come here at any
+time to-day.
+
+INPUT: Summarize: Lorry dropped off to sleep. The arrival of his breakfast roused him,
+and he said to the drawer, as he moved his chair to it:
+
+“I wish accommodation prepared for a young lady who may come here at any
+time to-day.
+RESPONSE: Jarvis Lorry, or she may only ask for a
+gentleman from Tellson’s Bank.
+
+INPUT: Tell me about: Jarvis Lorry, or she may only ask for a
+gentleman from Tellson’s Bank.
+RESPONSE: Please to let me know.
+
+INPUT: Summarize: Jarvis Lorry, or she may only ask for a
+gentleman from Tellson’s Bank. Please to let me know.
+RESPONSE: Tellson’s Bank in London, sir?
+
+INPUT: What is this about: Tellson’s Bank in London, sir?
+RESPONSE: We have oftentimes the honour to entertain your gentlemen in
+their travelling backwards and forwards betwixt London and Paris, sir.
+
+INPUT: Summarize: Tellson’s Bank in London, sir? We have oftentimes the honour to entertain your gentlemen in
+their travelling backwards and forwards betwixt London and Paris, sir.
+RESPONSE: A
+vast deal of travelling, sir, in Tellson and Company’s House.
+
+INPUT: Can you explain: A
+vast deal of travelling, sir, in Tellson and Company’s House.
+RESPONSE: We are quite a French House, as well as an English one.
+
+INPUT: Summarize: A
+vast deal of travelling, sir, in Tellson and Company’s House. We are quite a French House, as well as an English one.
+RESPONSE: Not much in the habit of such travelling yourself, I think,
+sir?
+
+INPUT: Tell me about: Not much in the habit of such travelling yourself, I think,
+sir?
+RESPONSE: ”
+
+“Not of late years.
+
+INPUT: Summarize: Not much in the habit of such travelling yourself, I think,
+sir? ”
+
+“Not of late years.
+RESPONSE: It is fifteen years since we--since I--came last
+from France.
+
+INPUT: What does this mean: It is fifteen years since we--since I--came last
+from France.
+RESPONSE: ”
+
+“Indeed, sir?
+
+INPUT: Summarize: It is fifteen years since we--since I--came last
+from France. ”
+
+“Indeed, sir?
+RESPONSE: That was before my time here, sir.
+
+INPUT: Can you explain: That was before my time here, sir.
+RESPONSE: Before our people’s
+time here, sir.
+
+INPUT: Summarize: That was before my time here, sir. Before our people’s
+time here, sir.
+RESPONSE: The George was in other hands at that time, sir.
+
+INPUT: What does this mean: The George was in other hands at that time, sir.
+RESPONSE: ”
+
+“I believe so.
+
+INPUT: Summarize: The George was in other hands at that time, sir. ”
+
+“I believe so.
+RESPONSE: ”
+
+“But I would hold a pretty wager, sir, that a House like Tellson and
+Company was flourishing, a matter of fifty, not to speak of fifteen
+years ago?
+
+INPUT: What does this say: ”
+
+“But I would hold a pretty wager, sir, that a House like Tellson and
+Company was flourishing, a matter of fifty, not to speak of fifteen
+years ago?
+RESPONSE: ”
+
+“You might treble that, and say a hundred and fifty, yet not be far from
+the truth.
+
+INPUT: Summarize: ”
+
+“But I would hold a pretty wager, sir, that a House like Tellson and
+Company was flourishing, a matter of fifty, not to speak of fifteen
+years ago? ”
+
+“You might treble that, and say a hundred and fifty, yet not be far from
+the truth.
+RESPONSE: ”
+
+“Indeed, sir!
+
+INPUT: What does this say: ”
+
+“Indeed, sir!
+RESPONSE: ”
+
+Rounding his mouth and both his eyes, as he stepped backward from the
+table, the waiter shifted his napkin from his right arm to his left,
+dropped into a comfortable attitude, and stood surveying the guest while
+he ate and drank, as from an observatory or watchtower.
+
+INPUT: Summarize: ”
+
+“Indeed, sir! ”
+
+Rounding his mouth and both his eyes, as he stepped backward from the
+table, the waiter shifted his napkin from his right arm to his left,
+dropped into a comfortable attitude, and stood surveying the guest while
+he ate and drank, as from an observatory or watchtower.
+RESPONSE: According to the
+immemorial usage of waiters in all ages.
+
+INPUT: Explain this: According to the
+immemorial usage of waiters in all ages.
+RESPONSE: Lorry had finished his breakfast, he went out for a stroll on
+the beach.
+
+INPUT: Summarize: According to the
+immemorial usage of waiters in all ages. Lorry had finished his breakfast, he went out for a stroll on
+the beach.
+RESPONSE: The little narrow, crooked town of Dover hid itself away
+from the beach, and ran its head into the chalk cliffs, like a marine
+ostrich.
+
+INPUT: Tell me about: The little narrow, crooked town of Dover hid itself away
+from the beach, and ran its head into the chalk cliffs, like a marine
+ostrich.
+RESPONSE: The beach was a desert of heaps of sea and stones tumbling
+wildly about, and the sea did what it liked, and what it liked was
+destruction.
+
+INPUT: Summarize: The little narrow, crooked town of Dover hid itself away
+from the beach, and ran its head into the chalk cliffs, like a marine
+ostrich. The beach was a desert of heaps of sea and stones tumbling
+wildly about, and the sea did what it liked, and what it liked was
+destruction.
+RESPONSE: It thundered at the town, and thundered at the cliffs, and
+brought the coast down, madly.
+
+INPUT: What does this mean: It thundered at the town, and thundered at the cliffs, and
+brought the coast down, madly.
+RESPONSE: The air among the houses was of so strong
+a piscatory flavour that one might have supposed sick fish went up to be
+dipped in it, as sick people went down to be dipped in the sea.
+
+INPUT: Summarize: It thundered at the town, and thundered at the cliffs, and
+brought the coast down, madly. The air among the houses was of so strong
+a piscatory flavour that one might have supposed sick fish went up to be
+dipped in it, as sick people went down to be dipped in the sea.
+RESPONSE: A little
+fishing was done in the port, and a quantity of strolling about by
+night, and looking seaward: particularly at those times when the tide
+made, and was near flood.
+
+INPUT: What does this mean: A little
+fishing was done in the port, and a quantity of strolling about by
+night, and looking seaward: particularly at those times when the tide
+made, and was near flood.
+RESPONSE: Small tradesmen, who did no business whatever,
+sometimes unaccountably realised large fortunes, and it was remarkable
+that nobody in the neighbourhood could endure a lamplighter.
+
+INPUT: Summarize: A little
+fishing was done in the port, and a quantity of strolling about by
+night, and looking seaward: particularly at those times when the tide
+made, and was near flood. Small tradesmen, who did no business whatever,
+sometimes unaccountably realised large fortunes, and it was remarkable
+that nobody in the neighbourhood could endure a lamplighter.
+RESPONSE: As the day declined into the afternoon, and the air, which had been
+at intervals clear enough to allow the French coast to be seen, became
+again charged with mist and vapour, Mr.
+
+INPUT: What does this say: As the day declined into the afternoon, and the air, which had been
+at intervals clear enough to allow the French coast to be seen, became
+again charged with mist and vapour, Mr.
+RESPONSE: Lorry’s thoughts seemed to cloud
+too.
+
+INPUT: Summarize: As the day declined into the afternoon, and the air, which had been
+at intervals clear enough to allow the French coast to be seen, became
+again charged with mist and vapour, Mr. Lorry’s thoughts seemed to cloud
+too.
+RESPONSE: When it was dark, and he sat before the coffee-room fire, awaiting
+his dinner as he had awaited his breakfast, his mind was busily digging,
+digging, digging, in the live red coals.
+
+INPUT: What is this about: When it was dark, and he sat before the coffee-room fire, awaiting
+his dinner as he had awaited his breakfast, his mind was busily digging,
+digging, digging, in the live red coals.
+RESPONSE: A bottle of good claret after dinner does a digger in the red coals no
+harm, otherwise than as it has a tendency to throw him out of work.
+
+INPUT: Summarize: When it was dark, and he sat before the coffee-room fire, awaiting
+his dinner as he had awaited his breakfast, his mind was busily digging,
+digging, digging, in the live red coals. A bottle of good claret after dinner does a digger in the red coals no
+harm, otherwise than as it has a tendency to throw him out of work.
+RESPONSE: Lorry had been idle a long time, and had just poured out his last
+glassful of wine with as complete an appearance of satisfaction as is
+ever to be found in an elderly gentleman of a fresh complexion who has
+got to the end of a bottle, when a rattling of wheels came up the narrow
+street, and rumbled into the inn-yard.
+
+INPUT: What is this about: Lorry had been idle a long time, and had just poured out his last
+glassful of wine with as complete an appearance of satisfaction as is
+ever to be found in an elderly gentleman of a fresh complexion who has
+got to the end of a bottle, when a rattling of wheels came up the narrow
+street, and rumbled into the inn-yard.
+RESPONSE: He set down his glass untouched.
+
+INPUT: Summarize: Lorry had been idle a long time, and had just poured out his last
+glassful of wine with as complete an appearance of satisfaction as is
+ever to be found in an elderly gentleman of a fresh complexion who has
+got to the end of a bottle, when a rattling of wheels came up the narrow
+street, and rumbled into the inn-yard. He set down his glass untouched.
+RESPONSE: “This is Mam’selle!
+
+INPUT: What is this about: “This is Mam’selle!
+RESPONSE: In a very few minutes the waiter came in to announce that Miss Manette
+had arrived from London, and would be happy to see the gentleman from
+Tellson’s.
+
+INPUT: Summarize: “This is Mam’selle! In a very few minutes the waiter came in to announce that Miss Manette
+had arrived from London, and would be happy to see the gentleman from
+Tellson’s.
+RESPONSE: ”
+
+Miss Manette had taken some refreshment on the road, and required none
+then, and was extremely anxious to see the gentleman from Tellson’s
+immediately, if it suited his pleasure and convenience.
+
+INPUT: Can you explain: ”
+
+Miss Manette had taken some refreshment on the road, and required none
+then, and was extremely anxious to see the gentleman from Tellson’s
+immediately, if it suited his pleasure and convenience.
+RESPONSE: The gentleman from Tellson’s had nothing left for it but to empty his
+glass with an air of stolid desperation, settle his odd little flaxen
+wig at the ears, and follow the waiter to Miss Manette’s apartment.
+
+INPUT: Summarize: ”
+
+Miss Manette had taken some refreshment on the road, and required none
+then, and was extremely anxious to see the gentleman from Tellson’s
+immediately, if it suited his pleasure and convenience. The gentleman from Tellson’s had nothing left for it but to empty his
+glass with an air of stolid desperation, settle his odd little flaxen
+wig at the ears, and follow the waiter to Miss Manette’s apartment.
+RESPONSE: It was a large, dark room, furnished in a funereal manner with black
+horsehair, and loaded with heavy dark tables.
+
+INPUT: What is this about: It was a large, dark room, furnished in a funereal manner with black
+horsehair, and loaded with heavy dark tables.
+RESPONSE: These had been oiled and
+oiled, until the two tall candles on the table in the middle of the room
+were gloomily reflected on every leaf; as if _they_ were buried, in deep
+graves of black mahogany, and no light to speak of could be expected
+from them until they were dug out.
+
+INPUT: Summarize: It was a large, dark room, furnished in a funereal manner with black
+horsehair, and loaded with heavy dark tables. These had been oiled and
+oiled, until the two tall candles on the table in the middle of the room
+were gloomily reflected on every leaf; as if _they_ were buried, in deep
+graves of black mahogany, and no light to speak of could be expected
+from them until they were dug out.
+RESPONSE: The obscurity was so difficult to penetrate that Mr.
+
+INPUT: What does this mean: The obscurity was so difficult to penetrate that Mr.
+RESPONSE: Lorry, picking his
+way over the well-worn Turkey carpet, supposed Miss Manette to be, for
+the moment, in some adjacent room, until, having got past the two tall
+candles, he saw standing to receive him by the table between them and
+the fire, a young lady of not more than seventeen, in a riding-cloak,
+and still holding her straw travelling-hat by its ribbon in her hand.
+
+INPUT: Summarize: The obscurity was so difficult to penetrate that Mr. Lorry, picking his
+way over the well-worn Turkey carpet, supposed Miss Manette to be, for
+the moment, in some adjacent room, until, having got past the two tall
+candles, he saw standing to receive him by the table between them and
+the fire, a young lady of not more than seventeen, in a riding-cloak,
+and still holding her straw travelling-hat by its ribbon in her hand.
+RESPONSE: The likeness passed away, like a breath along the surface of
+the gaunt pier-glass behind her, on the frame of which, a hospital
+procession of negro cupids, several headless and all cripples, were
+offering black baskets of Dead Sea fruit to black divinities of the
+feminine gender--and he made his formal bow to Miss Manette.
+
+INPUT: Can you explain: The likeness passed away, like a breath along the surface of
+the gaunt pier-glass behind her, on the frame of which, a hospital
+procession of negro cupids, several headless and all cripples, were
+offering black baskets of Dead Sea fruit to black divinities of the
+feminine gender--and he made his formal bow to Miss Manette.
+RESPONSE: “Pray take a seat, sir.
+
+INPUT: Summarize: The likeness passed away, like a breath along the surface of
+the gaunt pier-glass behind her, on the frame of which, a hospital
+procession of negro cupids, several headless and all cripples, were
+offering black baskets of Dead Sea fruit to black divinities of the
+feminine gender--and he made his formal bow to Miss Manette. “Pray take a seat, sir.
+RESPONSE: ” In a very clear and pleasant young voice; a
+little foreign in its accent, but a very little indeed.
+
+INPUT: What does this say: ” In a very clear and pleasant young voice; a
+little foreign in its accent, but a very little indeed.
+RESPONSE: “I kiss your hand, miss,” said Mr.
+
+INPUT: Summarize: ” In a very clear and pleasant young voice; a
+little foreign in its accent, but a very little indeed. “I kiss your hand, miss,” said Mr.
+RESPONSE: Lorry, with the manners of an earlier
+date, as he made his formal bow again, and took his seat.
+
+INPUT: Explain this: Lorry, with the manners of an earlier
+date, as he made his formal bow again, and took his seat.
+RESPONSE: “I received a letter from the Bank, sir, yesterday, informing me that
+some intelligence--or discovery--”
+
+“The word is not material, miss; either word will do.
+
+INPUT: Summarize: Lorry, with the manners of an earlier
+date, as he made his formal bow again, and took his seat. “I received a letter from the Bank, sir, yesterday, informing me that
+some intelligence--or discovery--”
+
+“The word is not material, miss; either word will do.
+RESPONSE: ”
+
+“--respecting the small property of my poor father, whom I never saw--so
+long dead--”
+
+Mr.
+
+INPUT: What does this mean: ”
+
+“--respecting the small property of my poor father, whom I never saw--so
+long dead--”
+
+Mr.
+RESPONSE: Lorry moved in his chair, and cast a troubled look towards the
+hospital procession of negro cupids.
+
+INPUT: Summarize: ”
+
+“--respecting the small property of my poor father, whom I never saw--so
+long dead--”
+
+Mr. Lorry moved in his chair, and cast a troubled look towards the
+hospital procession of negro cupids.
+RESPONSE: As if _they_ had any help for
+anybody in their absurd baskets!
+
+INPUT: What does this say: As if _they_ had any help for
+anybody in their absurd baskets!
+RESPONSE: “--rendered it necessary that I should go to Paris, there to communicate
+with a gentleman of the Bank, so good as to be despatched to Paris for
+the purpose.
+
+INPUT: Summarize: As if _they_ had any help for
+anybody in their absurd baskets! “--rendered it necessary that I should go to Paris, there to communicate
+with a gentleman of the Bank, so good as to be despatched to Paris for
+the purpose.
+RESPONSE: ”
+
+“As I was prepared to hear, sir.
+
+INPUT: What is this about: ”
+
+“As I was prepared to hear, sir.
+RESPONSE: ”
+
+She curtseyed to him (young ladies made curtseys in those days), with a
+pretty desire to convey to him that she felt how much older and wiser he
+was than she.
+
+INPUT: Summarize: ”
+
+“As I was prepared to hear, sir. ”
+
+She curtseyed to him (young ladies made curtseys in those days), with a
+pretty desire to convey to him that she felt how much older and wiser he
+was than she.
+RESPONSE: He made her another bow.
+
+INPUT: Tell me about: He made her another bow.
+RESPONSE: “I replied to the Bank, sir, that as it was considered necessary, by
+those who know, and who are so kind as to advise me, that I should go to
+France, and that as I am an orphan and have no friend who could go with
+me, I should esteem it highly if I might be permitted to place myself,
+during the journey, under that worthy gentleman’s protection.
+
+INPUT: Summarize: He made her another bow. “I replied to the Bank, sir, that as it was considered necessary, by
+those who know, and who are so kind as to advise me, that I should go to
+France, and that as I am an orphan and have no friend who could go with
+me, I should esteem it highly if I might be permitted to place myself,
+during the journey, under that worthy gentleman’s protection.
+RESPONSE: The
+gentleman had left London, but I think a messenger was sent after him to
+beg the favour of his waiting for me here.
+
+INPUT: What is this about: The
+gentleman had left London, but I think a messenger was sent after him to
+beg the favour of his waiting for me here.
+RESPONSE: ”
+
+“I was happy,” said Mr.
+
+INPUT: Summarize: The
+gentleman had left London, but I think a messenger was sent after him to
+beg the favour of his waiting for me here. ”
+
+“I was happy,” said Mr.
+RESPONSE: Lorry, “to be entrusted with the charge.
+
+INPUT: What does this say: Lorry, “to be entrusted with the charge.
+RESPONSE: I shall
+be more happy to execute it.
+
+INPUT: Summarize: Lorry, “to be entrusted with the charge. I shall
+be more happy to execute it.
+RESPONSE: ”
+
+“Sir, I thank you indeed.
+
+INPUT: Can you explain: ”
+
+“Sir, I thank you indeed.
+RESPONSE: I thank you very gratefully.
+
+INPUT: Summarize: ”
+
+“Sir, I thank you indeed. I thank you very gratefully.
+RESPONSE: It was told me
+by the Bank that the gentleman would explain to me the details of the
+business, and that I must prepare myself to find them of a surprising
+nature.
+
+INPUT: Tell me about: It was told me
+by the Bank that the gentleman would explain to me the details of the
+business, and that I must prepare myself to find them of a surprising
+nature.
+RESPONSE: I have done my best to prepare myself, and I naturally have a
+strong and eager interest to know what they are.
+
+INPUT: Summarize: It was told me
+by the Bank that the gentleman would explain to me the details of the
+business, and that I must prepare myself to find them of a surprising
+nature. I have done my best to prepare myself, and I naturally have a
+strong and eager interest to know what they are.
+RESPONSE: ”
+
+“Naturally,” said Mr.
+
+INPUT: Can you explain: ”
+
+“Naturally,” said Mr.
+RESPONSE: “Yes--I--”
+
+After a pause, he added, again settling the crisp flaxen wig at the
+ears, “It is very difficult to begin.
+
+INPUT: Summarize: ”
+
+“Naturally,” said Mr. “Yes--I--”
+
+After a pause, he added, again settling the crisp flaxen wig at the
+ears, “It is very difficult to begin.
+RESPONSE: ”
+
+He did not begin, but, in his indecision, met her glance.
+
+INPUT: Tell me about: ”
+
+He did not begin, but, in his indecision, met her glance.
+RESPONSE: The young
+forehead lifted itself into that singular expression--but it was pretty
+and characteristic, besides being singular--and she raised her hand,
+as if with an involuntary action she caught at, or stayed some passing
+shadow.
+
+INPUT: Summarize: ”
+
+He did not begin, but, in his indecision, met her glance. The young
+forehead lifted itself into that singular expression--but it was pretty
+and characteristic, besides being singular--and she raised her hand,
+as if with an involuntary action she caught at, or stayed some passing
+shadow.
+RESPONSE: “Are you quite a stranger to me, sir?
+
+INPUT: Can you explain: “Are you quite a stranger to me, sir?
+RESPONSE: Lorry opened his hands, and extended them outwards with
+an argumentative smile.
+
+INPUT: Summarize: “Are you quite a stranger to me, sir? Lorry opened his hands, and extended them outwards with
+an argumentative smile.
+RESPONSE: Between the eyebrows and just over the little feminine nose, the line of
+which was as delicate and fine as it was possible to be, the expression
+deepened itself as she took her seat thoughtfully in the chair by which
+she had hitherto remained standing.
+
+INPUT: What is this about: Between the eyebrows and just over the little feminine nose, the line of
+which was as delicate and fine as it was possible to be, the expression
+deepened itself as she took her seat thoughtfully in the chair by which
+she had hitherto remained standing.
+RESPONSE: He watched her as she mused, and the
+moment she raised her eyes again, went on:
+
+“In your adopted country, I presume, I cannot do better than address you
+as a young English lady, Miss Manette?
+
+INPUT: Summarize: Between the eyebrows and just over the little feminine nose, the line of
+which was as delicate and fine as it was possible to be, the expression
+deepened itself as she took her seat thoughtfully in the chair by which
+she had hitherto remained standing. He watched her as she mused, and the
+moment she raised her eyes again, went on:
+
+“In your adopted country, I presume, I cannot do better than address you
+as a young English lady, Miss Manette?
+RESPONSE: ”
+
+“If you please, sir.
+
+INPUT: What does this mean: ”
+
+“If you please, sir.
+RESPONSE: ”
+
+“Miss Manette, I am a man of business.
+
+INPUT: Summarize: ”
+
+“If you please, sir. ”
+
+“Miss Manette, I am a man of business.
+RESPONSE: I have a business charge to
+acquit myself of.
+
+INPUT: What is this about: I have a business charge to
+acquit myself of.
+RESPONSE: In your reception of it, don’t heed me any more than
+if I was a speaking machine--truly, I am not much else.
+
+INPUT: Summarize: I have a business charge to
+acquit myself of. In your reception of it, don’t heed me any more than
+if I was a speaking machine--truly, I am not much else.
+RESPONSE: I will, with
+your leave, relate to you, miss, the story of one of our customers.
+
+INPUT: Can you explain: I will, with
+your leave, relate to you, miss, the story of one of our customers.
+RESPONSE: ”
+
+He seemed wilfully to mistake the word she had repeated, when he added,
+in a hurry, “Yes, customers; in the banking business we usually call
+our connection our customers.
+
+INPUT: Summarize: I will, with
+your leave, relate to you, miss, the story of one of our customers. ”
+
+He seemed wilfully to mistake the word she had repeated, when he added,
+in a hurry, “Yes, customers; in the banking business we usually call
+our connection our customers.
+RESPONSE: He was a French gentleman; a scientific
+gentleman; a man of great acquirements--a Doctor.
+
+INPUT: What does this mean: He was a French gentleman; a scientific
+gentleman; a man of great acquirements--a Doctor.
+RESPONSE: ”
+
+“Not of Beauvais?
+
+INPUT: Summarize: He was a French gentleman; a scientific
+gentleman; a man of great acquirements--a Doctor. ”
+
+“Not of Beauvais?
+RESPONSE: ”
+
+“Why, yes, of Beauvais.
+
+INPUT: Tell me about: ”
+
+“Why, yes, of Beauvais.
+RESPONSE: Like Monsieur Manette, your father, the
+gentleman was of Beauvais.
+
+INPUT: Summarize: ”
+
+“Why, yes, of Beauvais. Like Monsieur Manette, your father, the
+gentleman was of Beauvais.
+RESPONSE: Like Monsieur Manette, your father, the
+gentleman was of repute in Paris.
+
+INPUT: What does this say: Like Monsieur Manette, your father, the
+gentleman was of repute in Paris.
+RESPONSE: I had the honour of knowing him there.
+
+INPUT: Summarize: Like Monsieur Manette, your father, the
+gentleman was of repute in Paris. I had the honour of knowing him there.
+RESPONSE: Our relations were business relations, but confidential.
+
+INPUT: What does this mean: Our relations were business relations, but confidential.
+RESPONSE: I was at that
+time in our French House, and had been--oh!
+
+INPUT: Summarize: Our relations were business relations, but confidential. I was at that
+time in our French House, and had been--oh!
+RESPONSE: ”
+
+“At that time--I may ask, at what time, sir?
+
+INPUT: What does this mean: ”
+
+“At that time--I may ask, at what time, sir?
+RESPONSE: ”
+
+“I speak, miss, of twenty years ago.
+
+INPUT: Summarize: ”
+
+“At that time--I may ask, at what time, sir? ”
+
+“I speak, miss, of twenty years ago.
+RESPONSE: He married--an English lady--and
+I was one of the trustees.
+
+INPUT: What is this about: He married--an English lady--and
+I was one of the trustees.
+RESPONSE: His affairs, like the affairs of many other
+French gentlemen and French families, were entirely in Tellson’s hands.
+
+INPUT: Summarize: He married--an English lady--and
+I was one of the trustees. His affairs, like the affairs of many other
+French gentlemen and French families, were entirely in Tellson’s hands.
+RESPONSE: In a similar way I am, or I have been, trustee of one kind or other for
+scores of our customers.
+
+INPUT: What does this mean: In a similar way I am, or I have been, trustee of one kind or other for
+scores of our customers.
+RESPONSE: These are mere business relations, miss;
+there is no friendship in them, no particular interest, nothing like
+sentiment.
+
+INPUT: Summarize: In a similar way I am, or I have been, trustee of one kind or other for
+scores of our customers. These are mere business relations, miss;
+there is no friendship in them, no particular interest, nothing like
+sentiment.
+RESPONSE: I have passed from one to another, in the course of my
+business life, just as I pass from one of our customers to another in
+the course of my business day; in short, I have no feelings; I am a mere
+machine.
+
+INPUT: Tell me about: I have passed from one to another, in the course of my
+business life, just as I pass from one of our customers to another in
+the course of my business day; in short, I have no feelings; I am a mere
+machine.
+RESPONSE: To go on--”
+
+“But this is my father’s story, sir; and I begin to think”--the
+curiously roughened forehead was very intent upon him--“that when I was
+left an orphan through my mother’s surviving my father only two years,
+it was you who brought me to England.
+
+INPUT: Summarize: I have passed from one to another, in the course of my
+business life, just as I pass from one of our customers to another in
+the course of my business day; in short, I have no feelings; I am a mere
+machine. To go on--”
+
+“But this is my father’s story, sir; and I begin to think”--the
+curiously roughened forehead was very intent upon him--“that when I was
+left an orphan through my mother’s surviving my father only two years,
+it was you who brought me to England.
+RESPONSE: I am almost sure it was you.
+
+INPUT: Explain this: I am almost sure it was you.
+RESPONSE: Lorry took the hesitating little hand that confidingly advanced
+to take his, and he put it with some ceremony to his lips.
+
+INPUT: Summarize: I am almost sure it was you. Lorry took the hesitating little hand that confidingly advanced
+to take his, and he put it with some ceremony to his lips.
+RESPONSE: He then
+conducted the young lady straightway to her chair again, and, holding
+the chair-back with his left hand, and using his right by turns to rub
+his chin, pull his wig at the ears, or point what he said, stood looking
+down into her face while she sat looking up into his.
+
+INPUT: Can you explain: He then
+conducted the young lady straightway to her chair again, and, holding
+the chair-back with his left hand, and using his right by turns to rub
+his chin, pull his wig at the ears, or point what he said, stood looking
+down into her face while she sat looking up into his.
+RESPONSE: “Miss Manette, it _was_ I.
+
+INPUT: Summarize: He then
+conducted the young lady straightway to her chair again, and, holding
+the chair-back with his left hand, and using his right by turns to rub
+his chin, pull his wig at the ears, or point what he said, stood looking
+down into her face while she sat looking up into his. “Miss Manette, it _was_ I.
+RESPONSE: And you will see how truly I spoke of myself
+just now, in saying I had no feelings, and that all the relations I hold
+with my fellow-creatures are mere business relations, when you reflect
+that I have never seen you since.
+
+INPUT: What is this about: And you will see how truly I spoke of myself
+just now, in saying I had no feelings, and that all the relations I hold
+with my fellow-creatures are mere business relations, when you reflect
+that I have never seen you since.
+RESPONSE: No; you have been the ward of
+Tellson’s House since, and I have been busy with the other business of
+Tellson’s House since.
+
+INPUT: Summarize: And you will see how truly I spoke of myself
+just now, in saying I had no feelings, and that all the relations I hold
+with my fellow-creatures are mere business relations, when you reflect
+that I have never seen you since. No; you have been the ward of
+Tellson’s House since, and I have been busy with the other business of
+Tellson’s House since.
+RESPONSE: I have no time for them, no chance
+of them.
+
+INPUT: Tell me about: I have no time for them, no chance
+of them.
+RESPONSE: I pass my whole life, miss, in turning an immense pecuniary
+Mangle.
+
+INPUT: Summarize: I have no time for them, no chance
+of them. I pass my whole life, miss, in turning an immense pecuniary
+Mangle.
+RESPONSE: ”
+
+After this odd description of his daily routine of employment, Mr.
+
+INPUT: Tell me about: ”
+
+After this odd description of his daily routine of employment, Mr.
+RESPONSE: Lorry
+flattened his flaxen wig upon his head with both hands (which was most
+unnecessary, for nothing could be flatter than its shining surface was
+before), and resumed his former attitude.
+
+INPUT: Summarize: ”
+
+After this odd description of his daily routine of employment, Mr. Lorry
+flattened his flaxen wig upon his head with both hands (which was most
+unnecessary, for nothing could be flatter than its shining surface was
+before), and resumed his former attitude.
+RESPONSE: “So far, miss (as you have remarked), this is the story of your
+regretted father.
+
+INPUT: Explain this: “So far, miss (as you have remarked), this is the story of your
+regretted father.
+RESPONSE: Now comes the difference.
+
+INPUT: Summarize: “So far, miss (as you have remarked), this is the story of your
+regretted father. Now comes the difference.
+RESPONSE: If your father had not died
+when he did--Don’t be frightened!
+
+INPUT: What does this say: If your father had not died
+when he did--Don’t be frightened!
+RESPONSE: ”
+
+She did, indeed, start.
+
+INPUT: Summarize: If your father had not died
+when he did--Don’t be frightened! ”
+
+She did, indeed, start.
+RESPONSE: And she caught his wrist with both her hands.
+
+INPUT: What does this mean: And she caught his wrist with both her hands.
+RESPONSE: Lorry, in a soothing tone, bringing his left hand from
+the back of the chair to lay it on the supplicatory fingers that clasped
+him in so violent a tremble: “pray control your agitation--a matter of
+business.
+
+INPUT: Summarize: And she caught his wrist with both her hands. Lorry, in a soothing tone, bringing his left hand from
+the back of the chair to lay it on the supplicatory fingers that clasped
+him in so violent a tremble: “pray control your agitation--a matter of
+business.
+RESPONSE: ”
+
+“I entreat you to tell me more, sir.
+
+INPUT: Explain this: ”
+
+“I entreat you to tell me more, sir.
+RESPONSE: ”
+
+“I can bear anything but the uncertainty you leave me in at this
+moment.
+
+INPUT: Summarize: ”
+
+“I entreat you to tell me more, sir. ”
+
+“I can bear anything but the uncertainty you leave me in at this
+moment.
+RESPONSE: ”
+
+“You speak collectedly, and you--_are_ collected.
+
+INPUT: What is this about: ”
+
+“You speak collectedly, and you--_are_ collected.
+RESPONSE: ” (Though
+his manner was less satisfied than his words.
+
+INPUT: Summarize: ”
+
+“You speak collectedly, and you--_are_ collected. ” (Though
+his manner was less satisfied than his words.
+RESPONSE: ) “A matter of business.
+
+INPUT: Tell me about: ) “A matter of business.
+RESPONSE: Regard it as a matter of business--business that must be done.
+
+INPUT: Summarize: ) “A matter of business. Regard it as a matter of business--business that must be done.
+RESPONSE: Now
+if this doctor’s wife, though a lady of great courage and spirit,
+had suffered so intensely from this cause before her little child was
+born--”
+
+“The little child was a daughter, sir.
+
+INPUT: Explain this: Now
+if this doctor’s wife, though a lady of great courage and spirit,
+had suffered so intensely from this cause before her little child was
+born--”
+
+“The little child was a daughter, sir.
+RESPONSE: ”
+
+“A daughter.
+
+INPUT: Summarize: Now
+if this doctor’s wife, though a lady of great courage and spirit,
+had suffered so intensely from this cause before her little child was
+born--”
+
+“The little child was a daughter, sir. ”
+
+“A daughter.
+RESPONSE: A-a-matter of business--don’t be distressed.
+
+INPUT: Explain this: A-a-matter of business--don’t be distressed.
+RESPONSE: Miss, if the
+poor lady had suffered so intensely before her little child was born,
+that she came to the determination of sparing the poor child the
+inheritance of any part of the agony she had known the pains of, by
+rearing her in the belief that her father was dead--No, don’t kneel!
+
+INPUT: Summarize: A-a-matter of business--don’t be distressed. Miss, if the
+poor lady had suffered so intensely before her little child was born,
+that she came to the determination of sparing the poor child the
+inheritance of any part of the agony she had known the pains of, by
+rearing her in the belief that her father was dead--No, don’t kneel!
+RESPONSE: In
+Heaven’s name why should you kneel to me!
+
+INPUT: What does this say: In
+Heaven’s name why should you kneel to me!
+RESPONSE: ”
+
+“For the truth.
+
+INPUT: Summarize: In
+Heaven’s name why should you kneel to me! ”
+
+“For the truth.
+RESPONSE: O dear, good, compassionate sir, for the truth!
+
+INPUT: What does this say: O dear, good, compassionate sir, for the truth!
+RESPONSE: ”
+
+“A--a matter of business.
+
+INPUT: Summarize: O dear, good, compassionate sir, for the truth! ”
+
+“A--a matter of business.
+RESPONSE: You confuse me, and how can I transact
+business if I am confused?
+
+INPUT: What does this mean: You confuse me, and how can I transact
+business if I am confused?
+RESPONSE: Let us be clear-headed.
+
+INPUT: Summarize: You confuse me, and how can I transact
+business if I am confused? Let us be clear-headed.
+RESPONSE: If you could kindly
+mention now, for instance, what nine times ninepence are, or how many
+shillings in twenty guineas, it would be so encouraging.
+
+INPUT: What does this mean: If you could kindly
+mention now, for instance, what nine times ninepence are, or how many
+shillings in twenty guineas, it would be so encouraging.
+RESPONSE: I should be so
+much more at my ease about your state of mind.
+
+INPUT: Summarize: If you could kindly
+mention now, for instance, what nine times ninepence are, or how many
+shillings in twenty guineas, it would be so encouraging. I should be so
+much more at my ease about your state of mind.
+RESPONSE: ”
+
+Without directly answering to this appeal, she sat so still when he had
+very gently raised her, and the hands that had not ceased to clasp
+his wrists were so much more steady than they had been, that she
+communicated some reassurance to Mr.
+
+INPUT: Can you explain: ”
+
+Without directly answering to this appeal, she sat so still when he had
+very gently raised her, and the hands that had not ceased to clasp
+his wrists were so much more steady than they had been, that she
+communicated some reassurance to Mr.
+RESPONSE: “That’s right, that’s right.
+
+INPUT: Summarize: ”
+
+Without directly answering to this appeal, she sat so still when he had
+very gently raised her, and the hands that had not ceased to clasp
+his wrists were so much more steady than they had been, that she
+communicated some reassurance to Mr. “That’s right, that’s right.
+RESPONSE: You have business before
+you; useful business.
+
+INPUT: Tell me about: You have business before
+you; useful business.
+RESPONSE: Miss Manette, your mother took this course with
+you.
+
+INPUT: Summarize: You have business before
+you; useful business. Miss Manette, your mother took this course with
+you.
+RESPONSE: And when she died--I believe broken-hearted--having never slackened
+her unavailing search for your father, she left you, at two years old,
+to grow to be blooming, beautiful, and happy, without the dark cloud
+upon you of living in uncertainty whether your father soon wore his
+heart out in prison, or wasted there through many lingering years.
+
+INPUT: Can you explain: And when she died--I believe broken-hearted--having never slackened
+her unavailing search for your father, she left you, at two years old,
+to grow to be blooming, beautiful, and happy, without the dark cloud
+upon you of living in uncertainty whether your father soon wore his
+heart out in prison, or wasted there through many lingering years.
+RESPONSE: ”
+
+As he said the words he looked down, with an admiring pity, on the
+flowing golden hair; as if he pictured to himself that it might have
+been already tinged with grey.
+
+INPUT: Summarize: And when she died--I believe broken-hearted--having never slackened
+her unavailing search for your father, she left you, at two years old,
+to grow to be blooming, beautiful, and happy, without the dark cloud
+upon you of living in uncertainty whether your father soon wore his
+heart out in prison, or wasted there through many lingering years. ”
+
+As he said the words he looked down, with an admiring pity, on the
+flowing golden hair; as if he pictured to himself that it might have
+been already tinged with grey.
+RESPONSE: “You know that your parents had no great possession, and that what
+they had was secured to your mother and to you.
+
+INPUT: What does this mean: “You know that your parents had no great possession, and that what
+they had was secured to your mother and to you.
+RESPONSE: There has been no new
+discovery, of money, or of any other property; but--”
+
+He felt his wrist held closer, and he stopped.
+
+INPUT: Summarize: “You know that your parents had no great possession, and that what
+they had was secured to your mother and to you. There has been no new
+discovery, of money, or of any other property; but--”
+
+He felt his wrist held closer, and he stopped.
+RESPONSE: The expression in the
+forehead, which had so particularly attracted his notice, and which was
+now immovable, had deepened into one of pain and horror.
+
+INPUT: What is this about: The expression in the
+forehead, which had so particularly attracted his notice, and which was
+now immovable, had deepened into one of pain and horror.
+RESPONSE: “But he has been--been found.
+
+INPUT: Summarize: The expression in the
+forehead, which had so particularly attracted his notice, and which was
+now immovable, had deepened into one of pain and horror. “But he has been--been found.
+RESPONSE: Greatly changed, it is too
+probable; almost a wreck, it is possible; though we will hope the best.
+
+INPUT: Tell me about: Greatly changed, it is too
+probable; almost a wreck, it is possible; though we will hope the best.
+RESPONSE: Your father has been taken to the house of an old servant
+in Paris, and we are going there: I, to identify him if I can: you, to
+restore him to life, love, duty, rest, comfort.
+
+INPUT: Summarize: Greatly changed, it is too
+probable; almost a wreck, it is possible; though we will hope the best. Your father has been taken to the house of an old servant
+in Paris, and we are going there: I, to identify him if I can: you, to
+restore him to life, love, duty, rest, comfort.
+RESPONSE: ”
+
+A shiver ran through her frame, and from it through his.
+
+INPUT: What does this mean: ”
+
+A shiver ran through her frame, and from it through his.
+RESPONSE: She said, in a
+low, distinct, awe-stricken voice, as if she were saying it in a dream,
+
+“I am going to see his Ghost!
+
+INPUT: Summarize: ”
+
+A shiver ran through her frame, and from it through his. She said, in a
+low, distinct, awe-stricken voice, as if she were saying it in a dream,
+
+“I am going to see his Ghost!
+RESPONSE: It will be his Ghost--not him!
+
+INPUT: What is this about: It will be his Ghost--not him!
+RESPONSE: Lorry quietly chafed the hands that held his arm.
+
+INPUT: Summarize: It will be his Ghost--not him! Lorry quietly chafed the hands that held his arm.
+RESPONSE: “There, there,
+there!
+
+INPUT: What does this mean: “There, there,
+there!
+RESPONSE: The best and the worst are known to you, now.
+
+INPUT: Summarize: “There, there,
+there! The best and the worst are known to you, now.
+RESPONSE: You are well on your way to the poor wronged gentleman, and, with a fair
+sea voyage, and a fair land journey, you will be soon at his dear side.
+
+INPUT: Explain this: You are well on your way to the poor wronged gentleman, and, with a fair
+sea voyage, and a fair land journey, you will be soon at his dear side.
+RESPONSE: ”
+
+She repeated in the same tone, sunk to a whisper, “I have been free, I
+have been happy, yet his Ghost has never haunted me!
+
+INPUT: Summarize: You are well on your way to the poor wronged gentleman, and, with a fair
+sea voyage, and a fair land journey, you will be soon at his dear side. ”
+
+She repeated in the same tone, sunk to a whisper, “I have been free, I
+have been happy, yet his Ghost has never haunted me!
+RESPONSE: ”
+
+“Only one thing more,” said Mr.
+
+INPUT: Explain this: ”
+
+“Only one thing more,” said Mr.
+RESPONSE: Lorry, laying stress upon it as a
+wholesome means of enforcing her attention: “he has been found under
+another name; his own, long forgotten or long concealed.
+
+INPUT: Summarize: ”
+
+“Only one thing more,” said Mr. Lorry, laying stress upon it as a
+wholesome means of enforcing her attention: “he has been found under
+another name; his own, long forgotten or long concealed.
+RESPONSE: It would be
+worse than useless now to inquire which; worse than useless to seek to
+know whether he has been for years overlooked, or always designedly
+held prisoner.
+
+INPUT: What is this about: It would be
+worse than useless now to inquire which; worse than useless to seek to
+know whether he has been for years overlooked, or always designedly
+held prisoner.
+RESPONSE: It would be worse than useless now to make any inquiries,
+because it would be dangerous.
+
+INPUT: Summarize: It would be
+worse than useless now to inquire which; worse than useless to seek to
+know whether he has been for years overlooked, or always designedly
+held prisoner. It would be worse than useless now to make any inquiries,
+because it would be dangerous.
+RESPONSE: Better not to mention the subject,
+anywhere or in any way, and to remove him--for a while at all
+events--out of France.
+
+INPUT: Tell me about: Better not to mention the subject,
+anywhere or in any way, and to remove him--for a while at all
+events--out of France.
+RESPONSE: Even I, safe as an Englishman, and even
+Tellson’s, important as they are to French credit, avoid all naming of
+the matter.
+
+INPUT: Summarize: Better not to mention the subject,
+anywhere or in any way, and to remove him--for a while at all
+events--out of France. Even I, safe as an Englishman, and even
+Tellson’s, important as they are to French credit, avoid all naming of
+the matter.
+RESPONSE: I carry about me, not a scrap of writing openly referring
+to it.
+
+INPUT: What does this mean: I carry about me, not a scrap of writing openly referring
+to it.
+RESPONSE: This is a secret service altogether.
+
+INPUT: Summarize: I carry about me, not a scrap of writing openly referring
+to it. This is a secret service altogether.
+RESPONSE: My credentials, entries,
+and memoranda, are all comprehended in the one line, ‘Recalled to Life;’
+which may mean anything.
+
+INPUT: Tell me about: My credentials, entries,
+and memoranda, are all comprehended in the one line, ‘Recalled to Life;’
+which may mean anything.
+RESPONSE: But what is the matter!
+
+INPUT: Summarize: My credentials, entries,
+and memoranda, are all comprehended in the one line, ‘Recalled to Life;’
+which may mean anything. But what is the matter!
+RESPONSE: She doesn’t notice a
+word!
+
+INPUT: Explain this: She doesn’t notice a
+word!
+RESPONSE: ”
+
+Perfectly still and silent, and not even fallen back in her chair, she
+sat under his hand, utterly insensible; with her eyes open and fixed
+upon him, and with that last expression looking as if it were carved or
+branded into her forehead.
+
+INPUT: Summarize: She doesn’t notice a
+word! ”
+
+Perfectly still and silent, and not even fallen back in her chair, she
+sat under his hand, utterly insensible; with her eyes open and fixed
+upon him, and with that last expression looking as if it were carved or
+branded into her forehead.
+RESPONSE: So close was her hold upon his arm, that he
+feared to detach himself lest he should hurt her; therefore he called
+out loudly for assistance without moving.
+
+INPUT: Can you explain: So close was her hold upon his arm, that he
+feared to detach himself lest he should hurt her; therefore he called
+out loudly for assistance without moving.
+RESPONSE: A wild-looking woman, whom even in his agitation, Mr.
+
+INPUT: Summarize: So close was her hold upon his arm, that he
+feared to detach himself lest he should hurt her; therefore he called
+out loudly for assistance without moving. A wild-looking woman, whom even in his agitation, Mr.
+RESPONSE: Lorry observed to
+be all of a red colour, and to have red hair, and to be dressed in some
+extraordinary tight-fitting fashion, and to have on her head a most
+wonderful bonnet like a Grenadier wooden measure, and good measure too,
+or a great Stilton cheese, came running into the room in advance of the
+inn servants, and soon settled the question of his detachment from the
+poor young lady, by laying a brawny hand upon his chest, and sending him
+flying back against the nearest wall.
+
+INPUT: Tell me about: Lorry observed to
+be all of a red colour, and to have red hair, and to be dressed in some
+extraordinary tight-fitting fashion, and to have on her head a most
+wonderful bonnet like a Grenadier wooden measure, and good measure too,
+or a great Stilton cheese, came running into the room in advance of the
+inn servants, and soon settled the question of his detachment from the
+poor young lady, by laying a brawny hand upon his chest, and sending him
+flying back against the nearest wall.
+RESPONSE: (“I really think this must be a man!
+
+INPUT: Summarize: Lorry observed to
+be all of a red colour, and to have red hair, and to be dressed in some
+extraordinary tight-fitting fashion, and to have on her head a most
+wonderful bonnet like a Grenadier wooden measure, and good measure too,
+or a great Stilton cheese, came running into the room in advance of the
+inn servants, and soon settled the question of his detachment from the
+poor young lady, by laying a brawny hand upon his chest, and sending him
+flying back against the nearest wall. (“I really think this must be a man!
+RESPONSE: Lorry’s breathless
+reflection, simultaneously with his coming against the wall.
+
+INPUT: What does this mean: Lorry’s breathless
+reflection, simultaneously with his coming against the wall.
+RESPONSE: )
+
+“Why, look at you all!
+
+INPUT: Summarize: Lorry’s breathless
+reflection, simultaneously with his coming against the wall. )
+
+“Why, look at you all!
+RESPONSE: ” bawled this figure, addressing the inn servants.
+
+INPUT: What is this about: ” bawled this figure, addressing the inn servants.
+RESPONSE: “Why don’t you go and fetch things, instead of standing there staring
+at me?
+
+INPUT: Summarize: ” bawled this figure, addressing the inn servants. “Why don’t you go and fetch things, instead of standing there staring
+at me?
+RESPONSE: I am not so much to look at, am I?
+
+INPUT: What does this say: I am not so much to look at, am I?
+RESPONSE: Why don’t you go and fetch
+things?
+
+INPUT: Summarize: I am not so much to look at, am I? Why don’t you go and fetch
+things?
+RESPONSE: I’ll let you know, if you don’t bring smelling-salts, cold
+water, and vinegar, quick, I will.
+
+INPUT: Explain this: I’ll let you know, if you don’t bring smelling-salts, cold
+water, and vinegar, quick, I will.
+RESPONSE: ”
+
+There was an immediate dispersal for these restoratives, and she
+softly laid the patient on a sofa, and tended her with great skill and
+gentleness: calling her “my precious!
+
+INPUT: Summarize: I’ll let you know, if you don’t bring smelling-salts, cold
+water, and vinegar, quick, I will. ”
+
+There was an immediate dispersal for these restoratives, and she
+softly laid the patient on a sofa, and tended her with great skill and
+gentleness: calling her “my precious!
+RESPONSE: ” and spreading her
+golden hair aside over her shoulders with great pride and care.
+
+INPUT: Can you explain: ” and spreading her
+golden hair aside over her shoulders with great pride and care.
+RESPONSE: ” she said, indignantly turning to Mr.
+
+INPUT: Summarize: ” and spreading her
+golden hair aside over her shoulders with great pride and care. ” she said, indignantly turning to Mr.
+RESPONSE: Lorry;
+“couldn’t you tell her what you had to tell her, without frightening her
+to death?
+
+INPUT: Tell me about: Lorry;
+“couldn’t you tell her what you had to tell her, without frightening her
+to death?
+RESPONSE: Look at her, with her pretty pale face and her cold hands.
+
+INPUT: Summarize: Lorry;
+“couldn’t you tell her what you had to tell her, without frightening her
+to death? Look at her, with her pretty pale face and her cold hands.
+RESPONSE: Do
+you call _that_ being a Banker?
+

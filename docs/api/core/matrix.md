@@ -5,6 +5,7 @@
 The `Matrix` class is a fundamental component for tensor operations in the neural network framework. It provides essential matrix operations needed for forward propagation, backpropagation, and gradient-based optimization in deep learning applications.
 
 **Files:**
+
 - `src/Matrix.hpp` - Header file with class declaration and interface
 - `src/Matrix.cpp` - Implementation file with all method definitions
 
@@ -36,6 +37,7 @@ int cols;                               // Number of columns
 ```cpp
 Matrix()
 ```
+
 Creates an empty matrix with `rows = 0` and `cols = 0`.
 
 **Use case:** Default initialization, container storage
@@ -44,9 +46,11 @@ Creates an empty matrix with `rows = 0` and `cols = 0`.
 ```cpp
 Matrix(int r, int c)
 ```
+
 Creates a zero-initialized matrix with specified dimensions.
 
 **Parameters:**
+
 - `r` - Number of rows
 - `c` - Number of columns
 
@@ -55,6 +59,7 @@ Creates a zero-initialized matrix with specified dimensions.
 **Use case:** Creating weight matrices, gradient buffers, activation tensors
 
 **Example:**
+
 ```cpp
 Matrix weights(256, 512);  // 256x512 zero matrix for layer weights
 Matrix gradients(10, 10);  // 10x10 gradient accumulator
@@ -64,6 +69,7 @@ Matrix gradients(10, 10);  // 10x10 gradient accumulator
 ```cpp
 Matrix(const std::vector<std::vector<float>>& d)
 ```
+
 Creates a matrix from existing 2D vector data.
 
 **Validation:** Ensures all rows have the same number of columns
@@ -73,6 +79,7 @@ Creates a matrix from existing 2D vector data.
 **Use case:** Loading pre-initialized data, testing, constant matrices
 
 **Example:**
+
 ```cpp
 Matrix identity({{1, 0, 0},
                  {0, 1, 0},
@@ -95,6 +102,7 @@ const float& operator()(int i, int j) const  // Read-only access
 **Complexity:** O(1)
 
 **Example:**
+
 ```cpp
 Matrix A(3, 3);
 A(0, 0) = 1.5;           // Set element
@@ -116,6 +124,7 @@ Matrix operator*(const Matrix& other) const
 **Algorithm:** Triple nested loop with O(m × n × p) complexity
 
 **Example:**
+
 ```cpp
 Matrix W(512, 256);      // Weights
 Matrix X(100, 512);      // Batch of 100 inputs
@@ -123,7 +132,8 @@ Matrix Y = X * W;        // Result: 100x256
 ```
 
 **Formula:**
-```
+
+```text
 Y[i][j] = Σ(k=0 to n-1) A[i][k] * B[k][j]
 ```
 
@@ -142,6 +152,7 @@ Matrix operator+(const Matrix& other) const
 **Use case:** Residual connections, bias addition
 
 **Example:**
+
 ```cpp
 Matrix A(5, 5);
 Matrix B(5, 5);
@@ -163,6 +174,7 @@ Matrix operator-(const Matrix& other) const
 **Use case:** Computing gradients, error terms
 
 **Example:**
+
 ```cpp
 Matrix predicted(10, 1);
 Matrix target(10, 1);
@@ -184,13 +196,15 @@ Matrix transpose() const
 **Use case:** Weight matrix transpose for backprop, attention computation
 
 **Example:**
+
 ```cpp
 Matrix W(256, 512);
 Matrix W_T = W.transpose();  // 512x256
 ```
 
 **Formula:**
-```
+
+```text
 B[j][i] = A[i][j]  for all i, j
 ```
 
@@ -213,6 +227,7 @@ Matrix hadamard(const Matrix& other) const
 **Use case:** Activation derivatives, masking, gating mechanisms
 
 **Example:**
+
 ```cpp
 Matrix activations(100, 256);
 Matrix derivatives(100, 256);
@@ -220,7 +235,8 @@ Matrix grad = activations.hadamard(derivatives);
 ```
 
 **Formula:**
-```
+
+```text
 C[i][j] = A[i][j] * B[i][j]  for all i, j
 ```
 
@@ -237,6 +253,7 @@ Matrix scale(float scalar) const
 **Use case:** Learning rate scaling, normalization constants
 
 **Example:**
+
 ```cpp
 Matrix scores(10, 10);
 float scale_factor = 1.0 / sqrt(64);  // Attention scaling
@@ -244,7 +261,8 @@ Matrix scaled = scores.scale(scale_factor);
 ```
 
 **Formula:**
-```
+
+```text
 B[i][j] = scalar * A[i][j]  for all i, j
 ```
 
@@ -269,6 +287,7 @@ void apply_gradients(const Matrix& gradients, float learning_rate)
 **Use case:** Primary mechanism for updating neural network weights
 
 **Example:**
+
 ```cpp
 Matrix weights(512, 256);
 Matrix weight_gradients(512, 256);
@@ -278,11 +297,13 @@ weights.apply_gradients(weight_gradients, lr);
 ```
 
 **Formula:**
-```
+
+```text
 W[i][j] = W[i][j] - learning_rate * grad[i][j]  for all i, j
 ```
 
 **Gradient Descent Variants:**
+
 - **SGD:** Direct application as shown
 - **Momentum:** Requires velocity buffer (external)
 - **Adam:** Requires momentum and velocity buffers (external)
@@ -304,6 +325,7 @@ void randomize(float scale = 0.1f)
 **Use case:** Weight initialization before training
 
 **Example:**
+
 ```cpp
 Matrix W(256, 512);
 float scale = sqrt(2.0f / 256);  // He initialization
@@ -311,6 +333,7 @@ W.randomize(scale);
 ```
 
 **Initialization Strategies:**
+
 - **Xavier:** `scale = sqrt(2.0 / (fan_in + fan_out))`
 - **He:** `scale = sqrt(2.0 / fan_in)`
 - **Uniform:** Custom implementation needed
@@ -332,6 +355,7 @@ void fill(float value)
 **Use case:** Zeroing gradients, initializing bias, creating constant matrices
 
 **Example:**
+
 ```cpp
 Matrix gradients(256, 512);
 gradients.fill(0.0f);  // Zero all gradients
@@ -350,6 +374,7 @@ float sum() const
 **Use case:** Computing total loss, gradient magnitude
 
 **Example:**
+
 ```cpp
 Matrix loss(10, 1);
 float total_loss = loss.sum();
@@ -368,13 +393,15 @@ float mean() const
 **Use case:** Statistics, normalization
 
 **Example:**
+
 ```cpp
 Matrix activations(100, 256);
 float avg_activation = activations.mean();
 ```
 
 **Formula:**
-```
+
+```text
 mean = sum(all elements) / (rows * cols)
 ```
 
@@ -385,6 +412,7 @@ bool is_valid() const
 ```
 
 **Checks:**
+
 1. Dimensions are positive
 2. Data vector size matches `rows`
 3. All row vectors have size `cols`
@@ -412,12 +440,14 @@ Matrix reshape(int new_rows, int new_cols) const
 **Use case:** Changing tensor dimensions while preserving data
 
 **Example:**
+
 ```cpp
 Matrix A(2, 6);     // 2x6 matrix
 Matrix B = A.reshape(3, 4);  // Reshape to 3x4
 ```
 
 **Process:**
+
 1. Flatten to 1D: `[a₀₀, a₀₁, ..., a₁₅]`
 2. Reform to new shape: 12 elements → 3 rows × 4 cols
 
@@ -433,6 +463,7 @@ void set_row(int row_idx, const std::vector<float>& values)
 **Use case:** Row-wise operations, extracting embeddings
 
 **Example:**
+
 ```cpp
 Matrix embeddings(1000, 256);
 std::vector<float> word_vec = embeddings.get_row(42);
@@ -453,6 +484,7 @@ void set_col(int col_idx, const std::vector<float>& values)
 **Use case:** Feature extraction, dimension-wise statistics
 
 **Example:**
+
 ```cpp
 Matrix features(100, 10);
 std::vector<float> feature_0 = features.get_col(0);
@@ -461,8 +493,8 @@ std::vector<float> feature_0 = features.get_col(0);
 ### Print (Debug)
 
 ```cpp
-void print(const std::string& name = "", 
-           int max_rows = 10, 
+void print(const std::string& name = "",
+           int max_rows = 10,
            int max_cols = 10) const
 ```
 
@@ -473,13 +505,15 @@ void print(const std::string& name = "",
 **Use case:** Debugging, visualization
 
 **Example:**
+
 ```cpp
 Matrix W(512, 256);
 W.print("Layer1 Weights", 5, 5);
 ```
 
 **Output:**
-```
+
+```text
 Layer1 Weights (512x256):
 [  0.0234  -0.0156   0.0089  -0.0234   0.0145 ...]
 [ -0.0123   0.0267  -0.0089   0.0156  -0.0234 ...]
@@ -497,11 +531,11 @@ Layer1 Weights (512x256):
 class LinearLayer {
     Matrix W;  // Weights [in_features, out_features]
     Matrix b;  // Bias [1, out_features]
-    
+
     Matrix forward(const Matrix& input) {
         // input: [batch_size, in_features]
         Matrix output = input * W;  // [batch_size, out_features]
-        
+
         // Broadcast bias addition
         for (int i = 0; i < output.rows; i++) {
             for (int j = 0; j < output.cols; j++) {
@@ -510,11 +544,11 @@ class LinearLayer {
         }
         return output;
     }
-    
+
     void backward(const Matrix& grad_output, const Matrix& input) {
         // Gradient w.r.t. weights
         Matrix grad_W = input.transpose() * grad_output;
-        
+
         // Gradient w.r.t. bias
         Matrix grad_b(1, b.cols);
         for (int j = 0; j < grad_output.cols; j++) {
@@ -524,7 +558,7 @@ class LinearLayer {
             }
             grad_b(0, j) = sum;
         }
-        
+
         // Update weights
         W.apply_gradients(grad_W, learning_rate);
         b.apply_gradients(grad_b, learning_rate);
@@ -538,20 +572,20 @@ class LinearLayer {
 // Scaled dot-product attention
 Matrix attention(const Matrix& Q, const Matrix& K, const Matrix& V, float d_k) {
     // Q: [seq_len, d_k], K: [seq_len, d_k], V: [seq_len, d_v]
-    
+
     // Compute attention scores
     Matrix scores = Q * K.transpose();  // [seq_len, seq_len]
-    
+
     // Scale
     float scale = 1.0f / sqrt(d_k);
     scores = scores.scale(scale);
-    
+
     // Softmax (implemented separately)
     Matrix attn_weights = softmax(scores);
-    
+
     // Apply attention to values
     Matrix output = attn_weights * V;  // [seq_len, d_v]
-    
+
     return output;
 }
 ```
@@ -581,7 +615,7 @@ weight_gradients.fill(0.0f);
 for (int step = 0; step < accumulation_steps; step++) {
     // Forward and backward pass
     Matrix batch_grad = compute_gradients();
-    
+
     // Accumulate gradients
     weight_gradients = weight_gradients + batch_grad;
 }
@@ -601,7 +635,7 @@ weights.apply_gradients(weight_gradients, learning_rate);
 1. **`std::out_of_range`**
    - Element access with invalid indices
    - Row/column access beyond bounds
-   
+
 2. **`std::invalid_argument`**
    - Dimension mismatch in operations
    - Inconsistent row sizes in data constructor
@@ -610,6 +644,7 @@ weights.apply_gradients(weight_gradients, learning_rate);
 ### Dimension Checking
 
 All binary operations validate dimensions:
+
 ```cpp
 Matrix A(10, 20);
 Matrix B(15, 20);
@@ -640,7 +675,7 @@ if (M.is_valid() && i < M.rows && j < M.cols) {
 ### Time Complexity
 
 | Operation | Complexity | Notes |
-|-----------|-----------|-------|
+| ----------- | ----------- | ------- |
 | Element access | O(1) | Direct indexing |
 | Matrix multiplication | O(m×n×p) | For [m×n] * [n×p] |
 | Addition/Subtraction | O(m×n) | Element-wise |
@@ -662,6 +697,7 @@ if (M.is_valid() && i < M.rows && j < M.cols) {
 ### In-Place vs Copy
 
 **In-place operations** (modify existing matrix):
+
 - `apply_gradients()`
 - `randomize()`
 - `fill()`
@@ -669,6 +705,7 @@ if (M.is_valid() && i < M.rows && j < M.cols) {
 - `set_col()`
 
 **Copy operations** (create new matrix):
+
 - All arithmetic operators (+, -, *)
 - `transpose()`
 - `scale()`
@@ -700,6 +737,7 @@ for (int j = 0; j < cols; j++) {
 ### 2. SIMD Vectorization
 
 Potential for vectorization in:
+
 - Matrix multiplication inner loop
 - Element-wise operations
 - Sum/mean computation
@@ -707,6 +745,7 @@ Potential for vectorization in:
 ### 3. Parallel Processing
 
 Large matrices can benefit from:
+
 - OpenMP parallelization of loops
 - Thread-based batch processing
 - GPU acceleration (requires CUDA/OpenCL)
@@ -752,7 +791,7 @@ Matrix gradients(rows, cols);  // Automatically zero-initialized
 ### 3. Dimension Validation
 
 ```cpp
-void validate_dimensions(const Matrix& A, const Matrix& B, 
+void validate_dimensions(const Matrix& A, const Matrix& B,
                          const std::string& operation) {
     if (A.cols != B.rows) {
         throw std::invalid_argument(
@@ -769,13 +808,13 @@ void validate_dimensions(const Matrix& A, const Matrix& B,
 template<typename Func>
 Matrix batch_process(const Matrix& batch_input, Func operation) {
     Matrix batch_output(batch_input.rows, expected_output_cols);
-    
+
     for (int i = 0; i < batch_input.rows; i++) {
         std::vector<float> sample = batch_input.get_row(i);
         std::vector<float> result = operation(sample);
         batch_output.set_row(i, result);
     }
-    
+
     return batch_output;
 }
 ```
@@ -891,20 +930,20 @@ assert(abs(W(0, 0) - 0.9f) < 1e-6);
 ### Numerical Gradient Checking
 
 ```cpp
-float numerical_gradient(Matrix& W, int i, int j, 
+float numerical_gradient(Matrix& W, int i, int j,
                          std::function<float()> loss_fn) {
     float epsilon = 1e-5f;
-    
+
     float orig = W(i, j);
-    
+
     W(i, j) = orig + epsilon;
     float loss_plus = loss_fn();
-    
+
     W(i, j) = orig - epsilon;
     float loss_minus = loss_fn();
-    
+
     W(i, j) = orig;
-    
+
     return (loss_plus - loss_minus) / (2 * epsilon);
 }
 ```
@@ -918,7 +957,7 @@ float numerical_gradient(Matrix& W, int i, int j,
 ```cpp
 #define DEBUG_DIMS
 #ifdef DEBUG_DIMS
-    std::cout << "A: " << A.rows << "x" << A.cols 
+    std::cout << "A: " << A.rows << "x" << A.cols
               << ", B: " << B.rows << "x" << B.cols << std::endl;
 #endif
 ```
@@ -930,7 +969,7 @@ float numerical_gradient(Matrix& W, int i, int j,
 bool has_nan_or_inf(const Matrix& M) {
     for (int i = 0; i < M.rows; i++) {
         for (int j = 0; j < M.cols; j++) {
-            if (std::isnan(M(i, j)) || std::isinf(M(i, j))) {
+            if (std::isnan(M(i, j)) |  | std::isinf(M(i, j))) {
                 return true;
             }
         }
@@ -961,22 +1000,24 @@ float gradient_norm(const Matrix& grad) {
 
 For matrices A[m×n] and B[n×p]:
 
-```
+```text
 C[i][j] = Σ(k=0 to n-1) A[i][k] × B[k][j]
 ```
 
 **Geometric Interpretation:**
+
 - Each element is the dot product of a row from A and a column from B
 - Result dimensions: number of rows from A, number of columns from B
 
 **Properties:**
+
 - Associative: (AB)C = A(BC)
 - Distributive: A(B+C) = AB + AC
 - Not commutative: AB ≠ BA (generally)
 
 ### Transpose Properties
 
-```
+```text
 (A^T)^T = A
 (AB)^T = B^T A^T
 (A + B)^T = A^T + B^T
@@ -984,11 +1025,12 @@ C[i][j] = Σ(k=0 to n-1) A[i][k] × B[k][j]
 
 ### Gradient Descent Update Rule
 
-```
+```text
 W(t+1) = W(t) - η × ∇L/∂W
 ```
 
 Where:
+
 - W(t): weights at time step t
 - η: learning rate
 - ∇L/∂W: gradient of loss with respect to weights
@@ -1000,6 +1042,7 @@ Where:
 The `Matrix` class provides a complete, self-contained implementation for neural network tensor operations with:
 
 **Strengths:**
+
 - Clean, intuitive interface
 - Comprehensive operation coverage
 - Strong error checking
@@ -1007,6 +1050,7 @@ The `Matrix` class provides a complete, self-contained implementation for neural
 - Training-ready with gradient support
 
 **Use Cases:**
+
 - Neural network weight matrices
 - Activation tensors
 - Gradient storage and propagation
@@ -1014,6 +1058,7 @@ The `Matrix` class provides a complete, self-contained implementation for neural
 - Attention mechanisms
 
 **Integration:**
+
 - Used by LayerNorm, TokenEmbedding, MultiHeadAttention, FeedForward
 - Core component of LLMEncoder architecture
 - Standalone utility for matrix computations

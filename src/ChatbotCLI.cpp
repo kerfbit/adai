@@ -219,18 +219,19 @@ void ChatbotCLI::handle_setting(std::string_view setting) {
     }
 
 std::string ChatbotCLI::generate_response(const std::string& user_input) {
-        // Add user message to context
+        // Add user message to context (for history tracking)
         context->add_user_message(user_input);
 
-        // Format context for model
-        std::string formatted_context = context->format_with_special_tokens();
+        // IMPORTANT FIX: Use only the current user input, not the full conversation context
+        // This prevents the input sequence from growing with each turn
+        std::string input_for_encoding = user_input;
 
         // Generate response using EncoderDecoderModel
         std::string response;
 
         try {
             response = model->generate_response_with_strategy(
-                formatted_context, max_response_length, generation_strategy, temperature, top_p,
+                input_for_encoding, max_response_length, generation_strategy, temperature, top_p,
                 top_k, beam_width);
         } catch (const std::exception& e) {
             response = "[Error generating response: " + std::string(e.what()) + "]";

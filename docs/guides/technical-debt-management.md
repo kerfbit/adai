@@ -17,6 +17,7 @@ Technical debt represents code that works but could be improved. It includes:
 ## When to Track Technical Debt
 
 Track debt when:
+
 - You implement a temporary workaround
 - You skip a feature to meet a deadline
 - You discover code that needs refactoring
@@ -25,6 +26,7 @@ Track debt when:
 - You see duplicated or overly complex code
 
 Don't track:
+
 - Simple typos or formatting issues (just fix them)
 - Planned features (use feature requests instead)
 - Actual bugs (use bug reports instead)
@@ -38,13 +40,13 @@ Add a new entry in the "Active Technical Debt" section:
 ```markdown
 ### 3. Your Debt Item Title
 
-**ID:** TD-003  
-**Priority:** Medium  
-**Component:** Component Name  
-**Effort:** 2-4 hours  
-**Status:** Open  
+**ID:** TD-003
+**Priority:** Medium
+**Component:** Component Name
+**Effort:** 2-4 hours
+**Status:** Open
 
-**Description:**  
+**Description:**
 Clear description of the debt item and why it exists.
 
 **Impact:**
@@ -107,6 +109,7 @@ This will find any untracked TODOs, FIXMEs, HACKs, or XXX markers.
 ### High Priority
 
 Characteristics:
+
 - Blocks new features
 - Causes bugs or incorrect behavior
 - Security or stability concerns
@@ -114,6 +117,7 @@ Characteristics:
 - Significant technical risk
 
 Examples:
+
 - Memory leaks
 - Race conditions
 - Broken APIs
@@ -124,6 +128,7 @@ Examples:
 ### Medium Priority
 
 Characteristics:
+
 - Improves maintainability significantly
 - Reduces technical complexity
 - Enables future features
@@ -131,6 +136,7 @@ Characteristics:
 - Localized impact
 
 Examples:
+
 - Code duplication
 - Missing abstractions
 - Incomplete feature implementation
@@ -141,12 +147,14 @@ Examples:
 ### Low Priority
 
 Characteristics:
+
 - Nice-to-have improvements
 - Cosmetic cleanups
 - Non-critical optimizations
 - Developer convenience
 
 Examples:
+
 - Better variable names
 - More comments
 - Stylistic improvements
@@ -167,26 +175,31 @@ Examples:
 ### Implementation Process
 
 1. **Create a branch**
+
    ```bash
    git checkout -b fix/td-003-algorithm-optimization
    ```
 
 2. **Make changes incrementally**
+
    - Fix one thing at a time
    - Keep commits focused
    - Run tests frequently
 
 3. **Add tests**
+
    - Ensure behavior is preserved
    - Add tests for edge cases
    - Verify no regressions
 
 4. **Update documentation**
+
    - Update code comments
    - Update API docs if needed
    - Update user guides if behavior changes
 
 5. **Run quality checks**
+
    ```bash
    ./scripts/format_code.sh
    ./scripts/analyze_code.sh
@@ -197,28 +210,33 @@ Examples:
 ### Completing the Resolution
 
 1. **Update TECHNICAL_DEBT.md**
+
    - Move item to "Resolved Items" section
    - Add resolution date
    - Add brief summary of changes
 
    ```markdown
    ## Resolved Items
-   
+
    ### TD-003: Algorithm Optimization (Resolved: 2026-01-24)
+
    **Resolution:** Replaced O(n²) algorithm with O(n log n) sort-based approach.
    Achieved 10x performance improvement on large datasets.
    **PR:** #123
    ```
 
 2. **Close GitHub issue** (if exists)
+
    - Reference PR in closing comment
    - Add metrics if applicable
 
 3. **Update statistics** in TECHNICAL_DEBT.md
+
    - Decrement active count
    - Update priority distribution
 
 4. **Remove code comments**
+
    - Delete `// See TD-XXX` references
    - Add normal documentation as needed
 
@@ -227,11 +245,11 @@ Examples:
 ### Incomplete Feature Implementation
 
 ```markdown
-**ID:** TD-XXX  
-**Priority:** Medium  
-**Component:** Feature Name  
+**ID:** TD-XXX
+**Priority:** Medium
+**Component:** Feature Name
 
-**Description:**  
+**Description:**
 Feature X was partially implemented. Currently supports Y but needs Z.
 
 **Tasks:**
@@ -243,11 +261,11 @@ Feature X was partially implemented. Currently supports Y but needs Z.
 ### Code Duplication
 
 ```markdown
-**ID:** TD-XXX  
-**Priority:** Low  
-**Component:** Core/Utils  
+**ID:** TD-XXX
+**Priority:** Low
+**Component:** Core/Utils
 
-**Description:**  
+**Description:**
 Similar logic duplicated in multiple files. Should extract to common utility.
 
 **Tasks:**
@@ -259,11 +277,11 @@ Similar logic duplicated in multiple files. Should extract to common utility.
 ### Performance Issue
 
 ```markdown
-**ID:** TD-XXX  
-**Priority:** Medium  
-**Component:** Matrix Operations  
+**ID:** TD-XXX
+**Priority:** Medium
+**Component:** Matrix Operations
 
-**Description:**  
+**Description:**
 Matrix multiplication uses naive O(n³) algorithm. Should optimize for large matrices.
 
 **Tasks:**
@@ -320,6 +338,7 @@ Matrix multiplication uses naive O(n³) algorithm. Should optimize for large mat
    - Can any items be closed?
 
 2. **Run scanner**
+
    ```bash
    ./scripts/check_tech_debt.sh
    ```
@@ -339,6 +358,7 @@ Matrix multiplication uses naive O(n³) algorithm. Should optimize for large mat
 ### During Code Review
 
 Reviewers should check:
+
 - [ ] New TODOs are tracked in TECHNICAL_DEBT.md
 - [ ] Existing debt references are accurate
 - [ ] No untracked technical debt introduced
@@ -368,6 +388,7 @@ Reviewers should check:
 ### IDE Integration
 
 Consider configuring your IDE to:
+
 - Highlight TODO/FIXME comments
 - Link to TECHNICAL_DEBT.md
 - Show debt items in task list
@@ -387,6 +408,7 @@ Add pre-commit hook to check for untracked debt:
 ### Track Over Time
 
 Monitor these metrics:
+
 - Total debt items (should trend down)
 - Average age of debt items
 - High-priority debt count

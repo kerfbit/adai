@@ -132,7 +132,7 @@ class Matrix { };
 
 /**
  * @brief Class description
- * 
+ *
  * Detailed description with usage examples
  */
 class MyClass {
@@ -140,7 +140,7 @@ public:
     // Public interface first
     MyClass();
     void publicMethod();
-    
+
 private:
     // Private implementation last
     void privateMethod();
@@ -164,12 +164,12 @@ if (condition) {
 }
 
 // Function declarations
-void myFunction(int param1, 
+void myFunction(int param1,
                 const std::string& param2,
                 Matrix* output);
 
 // Constructor initialization
-MyClass::MyClass(int size) 
+MyClass::MyClass(int size)
     : member1(size),
       member2(0),
       member3(nullptr) {
@@ -194,16 +194,16 @@ find src/ -name '*.cpp' -o -name '*.hpp' | xargs clang-format -i
 ```cpp
 /**
  * @brief Brief one-line description
- * 
+ *
  * Detailed description that explains what the function does,
  * including any important algorithms or implementation notes.
- * 
+ *
  * @param input Input matrix of shape [seq_len, d_model]
  * @param mask Optional attention mask
  * @return Output matrix of shape [seq_len, d_model]
- * 
+ *
  * @throws std::invalid_argument if dimensions don't match
- * 
+ *
  * Example:
  * @code
  * Matrix input(10, 64);
@@ -230,14 +230,14 @@ if (d_model % num_heads != 0) {
 }
 
 // Validate inputs early
-if (matrix.rows == 0 || matrix.cols == 0) {
+if (matrix.rows == 0 |  | matrix.cols == 0) {
     throw std::runtime_error("Matrix dimensions cannot be zero");
 }
 
 // Provide meaningful error messages
 throw std::runtime_error(
-    "Expected input shape [" + std::to_string(expected_rows) + 
-    ", " + std::to_string(expected_cols) + "], got [" + 
+    "Expected input shape [" + std::to_string(expected_rows) +
+    ", " + std::to_string(expected_cols) + "], got [" +
     std::to_string(input.rows) + ", " + std::to_string(input.cols) + "]");
 ```
 
@@ -245,7 +245,7 @@ throw std::runtime_error(
 
 ```cpp
 // Use smart pointers
-std::unique_ptr<EncoderBlock> block = 
+std::unique_ptr<EncoderBlock> block =
     std::make_unique<EncoderBlock>(d_model, num_heads, d_ff);
 
 // Use range-based for loops
@@ -279,7 +279,7 @@ std::vector<float> data(size);
 // Use descriptive test suite names
 TEST(MyClassTest, ConstructorInitializesCorrectly) {
     MyClass obj(param);
-    
+
     EXPECT_EQ(obj.getParam(), param);
     EXPECT_TRUE(obj.isValid());
 }
@@ -290,7 +290,7 @@ protected:
     void SetUp() override {
         obj = std::make_unique<MyClass>(10);
     }
-    
+
     std::unique_ptr<MyClass> obj;
 };
 
@@ -358,9 +358,9 @@ ctest -R "Matrix.*"
 ```cmake
 # In tests/CMakeLists.txt
 add_executable(myNewTests my_new_test.cpp)
-target_link_libraries(myNewTests 
-    adai_core 
-    ${GTEST_LIBRARIES} 
+target_link_libraries(myNewTests
+    adai_core
+    ${GTEST_LIBRARIES}
     pthread
 )
 add_test(NAME MyNewTests COMMAND myNewTests)
@@ -397,6 +397,7 @@ When adding features, update relevant documentation:
 ### Submission Process
 
 1. **Push your changes**
+
    ```bash
    git push origin feature/your-feature
    ```
@@ -522,6 +523,7 @@ valgrind --tool=callgrind ./build/myProgram
 ## Recognition
 
 Contributors will be:
+
 - Listed in project contributors
 - Credited in release notes
 - Acknowledged in documentation

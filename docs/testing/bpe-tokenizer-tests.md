@@ -6,23 +6,26 @@ Comprehensive unit test suite for the `BPETokenizer` class covering all major fu
 
 ## Test Results
 
-**Total Tests:** 37  
-**Passed:** 37 (100%)  
-**Failed:** 0  
+**Total Tests:** 37
+**Passed:** 37 (100%)
+**Failed:** 0
 **Execution Time:** ~99-111ms
 
 ## Test Categories
 
 ### 1. Construction and Initialization (2 tests)
+
 - ✅ `DefaultConstruction` - Verifies tokenizer starts with 4 special tokens
 - ✅ `SpecialTokensInitialized` - Confirms BOS/EOS tokens are properly added
 
 ### 2. Vocabulary Building (3 tests)
+
 - ✅ `BuildVocabularyBasic` - Tests basic vocabulary construction from corpus
 - ✅ `BuildVocabularyWithThreshold` - Validates frequency threshold filtering
 - ✅ `BuildVocabularyEmptyTexts` - Handles empty input gracefully
 
 ### 3. Pre-tokenization (5 tests)
+
 - ✅ `PreTokenizeBasic` - Basic text pre-tokenization with lowercasing
 - ✅ `PreTokenizeContractions` - Handles contractions ('m, 't, etc.)
 - ✅ `PreTokenizeNumbers` - Extracts numeric sequences
@@ -30,39 +33,46 @@ Comprehensive unit test suite for the `BPETokenizer` class covering all major fu
 - ✅ `PreTokenizeEmptyString` - Returns empty result for empty input
 
 ### 4. Tokenization (3 tests)
+
 - ✅ `TokenizeWithoutVocab` - Tokenizes after vocabulary building
 - ✅ `TokenizeEmptyString` - Handles empty strings
 - ✅ `TokenizeWithMerges` - Applies BPE merge rules correctly
 
 ### 5. Encoding (4 tests)
+
 - ✅ `EncodeWithSpecialTokens` - Adds BOS/EOS tokens when requested
 - ✅ `EncodeWithoutSpecialTokens` - Excludes special tokens when not needed
 - ✅ `EncodeUnknownTokens` - Maps unknown tokens to `<unk>` (ID 1)
 - ✅ `EncodeEmptyString` - Returns empty or BOS+EOS only
 
 ### 6. Decoding (4 tests)
+
 - ✅ `DecodeBasic` - Converts token IDs back to text
 - ✅ `DecodeSkipSpecialTokens` - Filters out special tokens when requested
 - ✅ `DecodeKeepSpecialTokens` - Preserves special tokens when requested
 - ✅ `DecodeEmptyIds` - Returns empty string for empty input
 
 ### 7. Encode-Decode Round Trip (2 tests)
+
 - ✅ `EncodeDecodeRoundTrip` - Verifies text preservation through encoding/decoding
 - ✅ `EncodeDecodeWithSpecialTokens` - Round trip with special token handling
 
 ### 8. Serialization (4 tests)
+
 - ✅ `SaveVocabulary` - Saves vocabulary to file
 - ✅ `LoadVocabulary` - Loads vocabulary from file
 - ✅ `SaveLoadRoundTrip` - Preserves vocabulary size through save/load
 - ✅ `SaveLoadPreservesEncoding` - Encoding identical after save/load
 
 ### 9. Utility Methods (3 tests)
+
 - ✅ `GetVocabSize` - Returns correct vocabulary size
 - ✅ `PrintVocabStats` - Prints statistics without crashing
 - ✅ `GetTopTokens` - Returns top-k tokens sorted by ID
 - ✅ `GetTopTokensMoreThanVocab` - Handles k > vocab_size gracefully
 
 ### 10. Edge Cases and Error Handling (6 tests)
+
 - ✅ `VeryLongText` - Handles 10,000 character strings
 - ✅ `SpecialCharacters` - Processes newlines, tabs, carriage returns
 - ✅ `UnicodeCharacters` - Basic ASCII handling
@@ -73,6 +83,7 @@ Comprehensive unit test suite for the `BPETokenizer` class covering all major fu
 ## Test Coverage
 
 ### Methods Tested
+
 - ✅ `BPETokenizer()` - Constructor
 - ✅ `build_vocab()` - Vocabulary building with frequency threshold
 - ✅ `build_bpe_merges()` - BPE merge rule learning
@@ -87,6 +98,7 @@ Comprehensive unit test suite for the `BPETokenizer` class covering all major fu
 - ✅ `get_top_tokens()` - Top-k token retrieval
 
 ### Features Tested
+
 - ✅ Special tokens (<pad>, <unk>, <bos>, <eos>)
 - ✅ Character frequency counting
 - ✅ Frequency threshold filtering
@@ -115,6 +127,7 @@ protected:
 ```cpp
 void create_test_vocab(const std::string& filename);
 ```
+
 Creates a pre-built test vocabulary file with 20 tokens including special tokens, characters, and merged tokens.
 
 ### Test Patterns
@@ -144,7 +157,7 @@ EXPECT_EQ(tokenizer2.get_vocab_size(), original_size);
 
 ## Sample Test Output
 
-```
+```text
 [==========] Running 37 tests from 1 test suite.
 [----------] Global test environment set-up.
 [----------] 37 tests from BPETokenizerTest
@@ -162,30 +175,35 @@ EXPECT_EQ(tokenizer2.get_vocab_size(), original_size);
 ## Key Test Validations
 
 ### Special Token Handling
+
 - BOS token (ID 2) added at start when `add_special_tokens=true`
 - EOS token (ID 3) added at end when `add_special_tokens=true`
 - Unknown tokens mapped to `<unk>` (ID 1)
 - Special tokens filtered during decode when `skip_special_tokens=true`
 
 ### Vocabulary Building
+
 - Empty corpus results in 4 tokens (special tokens only)
 - Frequency threshold filters rare characters
 - BPE merges continue until target vocab size or no more pairs
 - Progress reporting at each stage
 
 ### Tokenization
+
 - Text is lowercased during pre-tokenization
 - Regex pattern extracts contractions, words, numbers, punctuation
 - BPE merges applied in learned order
 - Empty strings return empty token lists
 
 ### Serialization
+
 - File format: v1.0 with sections (VOCAB_SIZE, SPECIAL_TOKENS, VOCAB, BPE_MERGES)
 - Special characters escaped (\n, \t, \r, \\, \s)
 - Load gracefully handles nonexistent files
 - Save/load preserves exact vocabulary and merge rules
 
 ### Edge Cases
+
 - Very long text (10,000 chars) processed successfully
 - Special characters (\n, \t, \r) handled correctly
 - Repeated vocabulary building replaces previous vocab
@@ -194,6 +212,7 @@ EXPECT_EQ(tokenizer2.get_vocab_size(), original_size);
 ## Integration Test
 
 The `CompleteWorkflow` test validates the entire pipeline:
+
 1. Build vocabulary from training corpus (100 tokens)
 2. Save vocabulary to file
 3. Load vocabulary in new tokenizer
@@ -203,7 +222,7 @@ The `CompleteWorkflow` test validates the entire pipeline:
 
 ## Test File Structure
 
-```
+```text
 tests/tokenizer_test.cpp (600+ lines)
 ├── Helper functions (create_test_vocab)
 ├── Test fixture (BPETokenizerTest)
@@ -237,6 +256,7 @@ ctest -R "Tokenizer" --output-on-failure
 ```
 
 ### Expected Results
+
 - All 37 tests pass in ~100ms
 - No memory leaks or crashes
 - Test vocabulary files cleaned up automatically
@@ -244,11 +264,13 @@ ctest -R "Tokenizer" --output-on-failure
 ## Comparison with Original Tests
 
 ### Original Tests (3 tests, 2 failed)
+
 - ❌ `BasicFunctionality` - Incorrect expectations about tokenization
 - ✅ `EmptyInput` - Passed
 - ❌ `WhitespaceInput` - Incorrect expectations
 
 ### New Test Suite (37 tests, 37 passed)
+
 - ✅ Comprehensive coverage of all methods
 - ✅ Proper understanding of BPE behavior
 - ✅ Edge cases and error handling

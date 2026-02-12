@@ -217,11 +217,30 @@ class ChatbotTrainer {
      * @brief Train the model
      */
     void train(const std::string& output_model_path);
+    
+    /**
+     * @brief Train the model and return success status (for incremental training)
+     */
+    bool train(int num_epochs);
 
     /**
      * @brief Test generation with trained model
      */
     void test_generation(const std::vector<std::string>& test_prompts);
+    
+    // Model and tokenizer ownership transfer (for incremental training)
+    void set_tokenizer(std::unique_ptr<BPETokenizer> tok);
+    void set_model(std::unique_ptr<EncoderDecoderModel> mdl);
+    std::unique_ptr<EncoderDecoderModel> release_model();
+    BPETokenizer* release_tokenizer();
+    
+    // Data management
+    void add_training_pair(const std::string& input, const std::string& response);
+    void add_validation_pair(const std::string& input, const std::string& response);
+    
+    // Access final metrics
+    float get_final_training_loss() const;
+    float get_final_validation_loss() const;
 
     // Metrics and logging helpers (public for testing)
     

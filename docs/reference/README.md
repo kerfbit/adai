@@ -53,15 +53,18 @@ This directory contains reference materials, technical specifications, and imple
 ## 🔗 Related Documentation
 
 ### For API Usage
+
 - See [API Reference](../api/README.md) for component APIs
 - See [Guides](../guides/README.md) for usage tutorials
 
 ### For Performance Optimization
+
 - [Inference Optimization Guide](../guides/inference-optimization.md) - Complete optimization guide
 - [Quick Start](../guides/inference-optimization-quickstart.md) - 5-minute tutorial
 - [KVCache API](kvcache.md) - Detailed cache API reference
 
 ### For Development
+
 - [Architecture Documentation](../architecture/) - System design and patterns
 - [Testing Documentation](../testing/) - Test suites and validation
 
@@ -77,6 +80,7 @@ When adding new reference documentation:
 ### Document Types
 
 This directory is for:
+
 - ✅ API reference documentation
 - ✅ Technical specifications
 - ✅ Implementation details
@@ -84,6 +88,7 @@ This directory is for:
 - ✅ Project planning documents
 
 This directory is NOT for:
+
 - ❌ User guides (use `guides/` instead)
 - ❌ Architecture overviews (use `architecture/` instead)
 - ❌ Test documentation (use `testing/` instead)

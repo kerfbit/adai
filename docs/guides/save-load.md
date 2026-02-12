@@ -1,13 +1,17 @@
 # BPE Tokenizer - Save and Load Vocabulary Example
 
 ## Overview
+
 The BPE Tokenizer now supports saving and loading built vocabularies, allowing you to:
+
 - Build a vocabulary once and reuse it across multiple sessions
 - Share vocabularies between different programs
 - Avoid rebuilding vocabularies which can be time-consuming for large corpora
 
 ## Features
+
 The save/load functionality preserves:
+
 - **Vocabulary mappings** (token → ID)
 - **Inverse vocabulary** (ID → token)
 - **BPE merge rules** (ordered list of merge operations)
@@ -63,22 +67,22 @@ int main() {
         "jumps over the lazy dog",
         // ... more training data ...
     };
-    
+
     builder.build_vocab(training_data, 5000);
     builder.save_vocab("my_vocab.txt");
-    
+
     // === Later runs: Just load ===
     BPETokenizer tokenizer;
     tokenizer.load_vocab("my_vocab.txt");
-    
+
     // Use immediately
     std::string text = "Hello, world!";
     auto ids = tokenizer.encode(text);
     std::string decoded = tokenizer.decode(ids);
-    
+
     std::cout << "Original: " << text << std::endl;
     std::cout << "Decoded:  " << decoded << std::endl;
-    
+
     return 0;
 }
 ```
@@ -87,7 +91,7 @@ int main() {
 
 The saved vocabulary file uses a structured text format:
 
-```
+``` text
 # BPE Tokenizer Vocabulary v1.0
 VOCAB_SIZE 10000
 SPECIAL_TOKENS
@@ -96,17 +100,19 @@ unk_token_id 1
 bos_token_id 2
 eos_token_id 3
 VOCAB
-token1	id1
-token2	id2
+token1 id1
+token2 id2
 ...
 BPE_MERGES 9931
-first1	second1
-first2	second2
+first1 second1
+first2 second2
 ...
 ```
 
 ### Special Character Escaping
+
 Special characters in tokens are escaped for proper storage:
+
 - Space: `\s`
 - Newline: `\n`
 - Tab: `\t`
@@ -130,6 +136,7 @@ cd build
 ```
 
 The output will show:
+
 - Building vocabulary from training data
 - Saving to `vocab.txt`
 - Loading into a new tokenizer

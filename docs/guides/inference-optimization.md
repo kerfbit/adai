@@ -1,7 +1,7 @@
 # Inference Optimization Guide
 
-**ADAI Transformer Library - Phase 3, Part 2**  
-**Date:** January 25, 2026  
+**ADAI Transformer Library - Phase 3, Part 2**
+**Date:** January 25, 2026
 **Status:** Complete
 
 ---
@@ -16,6 +16,7 @@ This guide covers the inference optimization features implemented in Phase 3, Pa
 - **Combined Impact**: 4-12x total speedup possible
 
 **Quick Links:**
+
 - **[KVCache API Reference](../reference/kvcache.md)** - Detailed API documentation for KV cache
 - **[BatchProcessor API Reference](../reference/batchprocessor.md)** - Detailed API documentation for batch processing
 - **[PerformanceProfiler API Reference](../reference/performanceprofiler.md)** - Detailed API documentation for profiling tools
@@ -51,17 +52,17 @@ During autoregressive text generation, the model generates tokens one at a time.
 
 ### How It Works
 
-```
+```text
 Step 1: Generate token 1
   - Compute K, V for token 1
   - Store in cache
-  
+
 Step 2: Generate token 2
   - Compute K, V for token 2 only
   - Concatenate with cached K, V
   - Attention over all tokens (cached + new)
   - Append new K, V to cache
-  
+
 Step 3: Generate token 3
   - Compute K, V for token 3 only
   - Use cache for tokens 1-2
@@ -78,7 +79,7 @@ struct KVCache {
     Matrix keys;           // Accumulated keys [seq_len, d_model]
     Matrix values;         // Accumulated values [seq_len, d_model]
     int current_length;    // Number of cached positions
-    
+
     void append(const Matrix& new_keys, const Matrix& new_values);
     void clear();
 };
@@ -87,7 +88,7 @@ struct KVCache {
 struct DecoderKVCache {
     std::vector<KVCache> self_attention_caches;   // Per-layer self-attention
     std::vector<KVCache> cross_attention_caches;  // Per-layer cross-attention
-    
+
     KVCache& get_self_attention_cache(int layer_idx);
     KVCache& get_cross_attention_cache(int layer_idx);
 };
@@ -120,11 +121,11 @@ Matrix output = decoder.forward_with_cache(prompt, cache, nullptr, true);
 for (int step = 0; step < max_new_tokens; ++step) {
     // Get next token ID (from language model head + sampling)
     int next_token = sample_next_token(output);
-    
+
     // Generate with cache (only process new token)
     std::vector<int> new_token = {next_token};
     output = decoder.forward_with_cache(new_token, cache, nullptr, true);
-    
+
     // Cache automatically grows: [3, 4, 5, 6, ...]
 }
 
@@ -177,8 +178,8 @@ std::vector<std::vector<int>> sequences = {
 };
 
 // Create batches (max 4 sequences, max 5 token difference)
-auto batches = create_dynamic_batches(sequences, 
-                                     /*max_batch_size=*/4, 
+auto batches = create_dynamic_batches(sequences,
+                                     /*max_batch_size=*/4,
                                      /*length_tolerance=*/5,
                                      /*pad_token_id=*/0);
 
@@ -230,8 +231,8 @@ for (const auto& request : pending_requests) {
 }
 
 // Create efficient batches
-auto batches = create_dynamic_batches(user_prompts, 
-                                     max_batch_size, 
+auto batches = create_dynamic_batches(user_prompts,
+                                     max_batch_size,
                                      length_tolerance,
                                      pad_token_id);
 
@@ -314,8 +315,8 @@ Profiler::compare(baseline_stats, optimized_stats);
 auto stats = Benchmark::run("my_function", []() {
     // Code to benchmark
     decoder.forward(tokens);
-}, 
-/*iterations=*/100, 
+},
+/*iterations=*/100,
 /*warmup=*/10);
 
 stats.print();
@@ -365,9 +366,9 @@ for (int i = 0; i < 50; ++i) {
     // Sample next token
     int next_token = sample_from_logits(logits);
     tokens.push_back(next_token);
-    
+
     if (next_token == tokenizer.eos_token_id()) break;
-    
+
     // Generate next token (cache speeds this up!)
     std::vector<int> new_token = {next_token};
     hidden = decoder.forward_with_cache(new_token, cache, nullptr, true);
@@ -455,34 +456,34 @@ Profiler::compare(no_cache, with_cache);
 Tested on: CPU, d_model=512, 6 layers, 8 heads
 
 | Sequence Length | Without Cache | With Cache | Speedup |
-|----------------|---------------|------------|---------|
-| 10 tokens      | 45.2 ms       | 18.1 ms    | 2.5x    |
-| 20 tokens      | 89.5 ms       | 31.2 ms    | 2.9x    |
-| 50 tokens      | 223.1 ms      | 78.3 ms    | 2.8x    |
-| 100 tokens     | 445.8 ms      | 156.7 ms   | 2.8x    |
+| ---------------- | --------------- | ------------ | --------- |
+| 10 tokens | 45.2 ms | 18.1 ms | 2.5x |
+| 20 tokens | 89.5 ms | 31.2 ms | 2.9x |
+| 50 tokens | 223.1 ms | 78.3 ms | 2.8x |
+| 100 tokens | 445.8 ms | 156.7 ms | 2.8x |
 
 **Key Insight**: Speedup is consistent across sequence lengths, ~2.5-3x improvement.
 
 ### Batch Processing Throughput
 
 | Batch Size | Sequential (seq/s) | Batched (seq/s) | Improvement |
-|------------|-------------------|-----------------|-------------|
-| 1          | 22.1              | 22.1            | 1.0x        |
-| 2          | 22.0              | 38.5            | 1.75x       |
-| 4          | 21.8              | 65.2            | 3.0x        |
-| 8          | 21.5              | 98.3            | 4.6x        |
-| 16         | 21.2              | 127.5           | 6.0x        |
+| ------------ | ------------------- | ----------------- | ------------- |
+| 1 | 22.1 | 22.1 | 1.0x |
+| 2 | 22.0 | 38.5 | 1.75x |
+| 4 | 21.8 | 65.2 | 3.0x |
+| 8 | 21.5 | 98.3 | 4.6x |
+| 16 | 21.2 | 127.5 | 6.0x |
 
 **Note**: Actual batching requires batched matrix operations. Current implementation shows potential; full batching would achieve near-linear scaling.
 
 ### Combined Optimizations
 
 | Configuration | Latency (ms/token) | Throughput (tokens/s) |
-|---------------|-------------------|----------------------|
-| Baseline      | 42.3              | 23.6                 |
-| KV Cache only | 15.1              | 66.2                 |
-| Batch only    | 38.5              | 103.5                |
-| Combined      | 12.8              | 312.5                |
+| --------------- | ------------------- | ---------------------- |
+| Baseline | 42.3 | 23.6 |
+| KV Cache only | 15.1 | 66.2 |
+| Batch only | 38.5 | 103.5 |
+| Combined | 12.8 | 312.5 |
 
 **Total improvement: ~13x throughput with combined optimizations**
 
@@ -521,7 +522,7 @@ Matrix output = decoder.forward_with_cache(tokens, cache, nullptr, true);
 
 for (int i = 0; i < 50; ++i) {
     int next_token = sample(output);
-    
+
     // Process only new token
     std::vector<int> new_token = {next_token};
     output = decoder.forward_with_cache(new_token, cache, nullptr, true);
@@ -529,6 +530,7 @@ for (int i = 0; i < 50; ++i) {
 ```
 
 **Changes**:
+
 1. Create `DecoderKVCache` once per sequence
 2. Use `forward_with_cache()` instead of `forward()`
 3. Pass only new tokens (not entire sequence) after initial pass
@@ -575,13 +577,13 @@ void process_request(const std::string& session_id, const std::string& message) 
     if (session_caches.find(session_id) == session_caches.end()) {
         session_caches[session_id] = DecoderKVCache(num_layers);
     }
-    
+
     auto& cache = session_caches[session_id];
-    
+
     // Process with cache
     auto tokens = tokenizer.encode(message);
     Matrix output = decoder.forward_with_cache(tokens, cache, nullptr, true);
-    
+
     // Generate response...
 }
 
@@ -600,16 +602,16 @@ void clear_session(const std::string& session_id) {
 struct KVCache {
     // Append new key-value pair
     void append(const Matrix& new_keys, const Matrix& new_values);
-    
+
     // Clear cache
     void clear();
-    
+
     // Check if empty
     bool is_empty() const;
-    
+
     // Get current length
     int size() const;
-    
+
     // Access cached data
     const Matrix& get_keys() const;
     const Matrix& get_values() const;
@@ -622,17 +624,17 @@ struct KVCache {
 struct DecoderKVCache {
     // Constructor
     explicit DecoderKVCache(int num_layers);
-    
+
     // Clear all caches
     void clear();
-    
+
     // Clear self-attention only (keep cross-attention)
     void clear_self_attention();
-    
+
     // Get cache for specific layer
     KVCache& get_self_attention_cache(int layer_idx);
     KVCache& get_cross_attention_cache(int layer_idx);
-    
+
     // Check state
     bool is_empty() const;
     int current_length() const;
@@ -646,7 +648,7 @@ class LLMDecoder {
 public:
     // Original method (still available)
     Matrix forward(const std::vector<int>& token_ids);
-    
+
     // NEW: Cache-aware forward pass
     Matrix forward_with_cache(
         const std::vector<int>& token_ids,  // New tokens to process
@@ -664,7 +666,7 @@ class MultiHeadAttention {
 public:
     // Original method
     Matrix forward(const Matrix& input, const Matrix* mask = nullptr);
-    
+
     // NEW: Cache-aware forward
     Matrix forward_with_cache(
         const Matrix& input,
@@ -728,8 +730,8 @@ class Profiler {
     ProfileStats get_stats(const std::string& name);
     void print_all();
     void reset();
-    
-    static void compare(const ProfileStats& baseline, 
+
+    static void compare(const ProfileStats& baseline,
                        const ProfileStats& optimized);
 };
 
@@ -742,7 +744,7 @@ class Benchmark {
         int iterations = 100,
         int warmup_iterations = 10
     );
-    
+
     template <typename FuncA, typename FuncB>
     static void compare(
         const std::string& name_a, FuncA func_a,
@@ -783,25 +785,25 @@ class InferenceService {
     LLMDecoder decoder;
     std::map<std::string, DecoderKVCache> session_caches;
     std::mutex cache_mutex;
-    
-    std::string generate(const std::string& session_id, 
+
+    std::string generate(const std::string& session_id,
                         const std::string& prompt) {
         std::lock_guard<std::mutex> lock(cache_mutex);
-        
+
         // Get or create cache
         auto& cache = get_or_create_cache(session_id);
-        
+
         // Tokenize
         auto tokens = tokenizer.encode(prompt);
-        
+
         // Generate with cache
         Matrix hidden = decoder.forward_with_cache(
             tokens, cache, nullptr, true
         );
-        
+
         // ... continue generation
     }
-    
+
     void clear_session(const std::string& session_id) {
         std::lock_guard<std::mutex> lock(cache_mutex);
         session_caches.erase(session_id);
@@ -855,6 +857,7 @@ The inference optimizations provide significant performance improvements:
 - ✅ **Production-ready** - tested and benchmarked
 
 For questions or issues, refer to:
+
 - API Reference (above)
 - **[KVCache API Reference](../reference/kvcache.md)** - Detailed KV cache API documentation
 - **[BatchProcessor API Reference](../reference/batchprocessor.md)** - Detailed batch processing API documentation
@@ -865,5 +868,5 @@ For questions or issues, refer to:
 
 ---
 
-**Last Updated**: January 25, 2026  
+**Last Updated**: January 25, 2026
 **Version**: 1.0

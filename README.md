@@ -109,7 +109,7 @@ Full documentation is available in the [`docs/`](docs/) directory:
 
 ## 🏗️ Project Structure
 
-```
+```text
 adai/
 ├── src/                    # Source code
 │   ├── Core components (Matrix, Activation, Optimizer)
@@ -132,12 +132,14 @@ adai/
 ## 🧪 Testing
 
 Run all tests:
+
 ```bash
 cd build
 ctest
 ```
 
 Run specific test suites:
+
 ```bash
 ./tests/matrixTests
 ./tests/optimizerTests
@@ -158,12 +160,14 @@ Run specific test suites:
 ## 🔧 Core Components
 
 ### Neural Network Core
+
 - **Matrix**: Efficient matrix operations with operator overloading
 - **Activation**: ReLU, Softmax, Tanh, Sigmoid functions
 - **Optimizer**: SGD, Adam, AdamW with gradient clipping
 - **Neural Network**: Base network with forward/backward propagation
 
 ### Transformer Architecture
+
 - **Multi-Head Attention**: Scaled dot-product attention
 - **Cross Attention**: Encoder-decoder attention mechanism
 - **Encoder/Decoder Blocks**: Complete transformer components
@@ -171,6 +175,7 @@ Run specific test suites:
 - **Positional Encoding**: Position-aware embeddings
 
 ### NLP Pipeline
+
 - **BPE Tokenizer**: Byte-Pair Encoding with vocabulary management
 - **Text Generator**: Beam search and sampling-based generation
 - **Conversation Context**: Multi-turn conversation handling
@@ -187,6 +192,7 @@ Run specific test suites:
 ## 🤝 Contributing
 
 Contributions are welcome! Please refer to:
+
 - [Contributing Guide](docs/guides/contributing.md) - Coding standards and submission process
 - [Building Guide](docs/guides/building.md) - Build instructions and troubleshooting
 - [Git Workflow](docs/guides/git-workflow.md) - Branching strategy and commit conventions

@@ -1,7 +1,7 @@
 # Model Quantization API Reference
 
-**File:** `src/Quantization.hpp`  
-**Status:** ✅ Production-ready (Phase 5 - January 2026)  
+**File:** `src/Quantization.hpp`
+**Status:** ✅ Production-ready (Phase 5 - January 2026)
 **Purpose:** Compress models with INT8/INT4 quantization (4-8x memory reduction)
 
 ---
@@ -22,16 +22,19 @@ The `Quantizer` and `QuantizedMatrix` classes provide model compression through 
 ## Quantization Modes
 
 ### Symmetric INT8
+
 - **Range:** [-127, 127]
 - **Formula:** `Q(x) = round(x / scale)`
 - **Use:** General purpose, best balance
 
 ### Asymmetric INT8
+
 - **Range:** [0, 255]
 - **Formula:** `Q(x) = round(x / scale) + zero_point`
 - **Use:** Activations with non-symmetric distributions
 
 ### INT4
+
 - **Range:** [-7, 7] (symmetric) or [0, 15] (asymmetric)
 - **Formula:** Same as INT8 but 4-bit storage
 - **Use:** Maximum compression, slight accuracy trade-off
@@ -46,17 +49,17 @@ public:
     Quantizer(QuantizationMode mode = QuantizationMode::SYMMETRIC_INT8,
               CalibrationMethod calibration = CalibrationMethod::MIN_MAX,
               float percentile = 0.999f);
-    
+
     QuantizationParams calibrate(const std::vector<float>& data);
     int8_t quantize(float value, const QuantizationParams& params) const;
     float dequantize(int8_t qvalue, const QuantizationParams& params) const;
-    
-    std::vector<int8_t> quantize_matrix(const Matrix& mat, 
+
+    std::vector<int8_t> quantize_matrix(const Matrix& mat,
                                          const QuantizationParams& params) const;
     Matrix dequantize_matrix(const std::vector<int8_t>& qdata,
                             int rows, int cols,
                             const QuantizationParams& params) const;
-    
+
     float compute_quantization_error(const std::vector<float>& data,
                                      const QuantizationParams& params) const;
 };
@@ -73,7 +76,7 @@ scale = (max - min) / (qmax - qmin)
 zero_point = round(-min / scale)
 ```
 
-**Pros:** Fast, simple  
+**Pros:** Fast, simple
 **Cons:** Sensitive to outliers
 
 ### PERCENTILE
@@ -84,7 +87,7 @@ float p_max = percentile(data, percentile);
 scale = (p_max - p_min) / (qmax - qmin)
 ```
 
-**Pros:** Outlier-robust (recommended)  
+**Pros:** Outlier-robust (recommended)
 **Cons:** Slightly slower
 
 ### MSE
@@ -93,7 +96,7 @@ scale = (p_max - p_min) / (qmax - qmin)
 argmin_{scale,zp} MSE(Q(D(x)))
 ```
 
-**Pros:** Optimal quality  
+**Pros:** Optimal quality
 **Cons:** Slowest calibration
 
 ---
@@ -105,10 +108,10 @@ class QuantizedMatrix {
 public:
     void quantize_from(const Matrix& mat, Quantizer& quantizer);
     Matrix dequantize(Quantizer& quantizer) const;
-    
+
     void save(const std::string& filepath) const;
     void load(const std::string& filepath);
-    
+
     int rows() const;
     int cols() const;
     float memory_reduction() const;
@@ -127,15 +130,15 @@ int main() {
     // 1. Create weight matrix
     Matrix weights(768, 768);
     load_weights(weights, "model.bin");
-    
-    std::cout << "Original size: " 
+
+    std::cout << "Original size: "
               << (768*768*sizeof(float)/1024) << " KB\n";
-    
+
     // 2. Create quantizer with percentile calibration
     Quantizer quantizer(QuantizationMode::SYMMETRIC_INT8,
                        CalibrationMethod::PERCENTILE,
                        0.999f);
-    
+
     // 3. Calibrate on weight data
     std::vector<float> calibration_data;
     for (int i = 0; i < weights.rows; i++) {
@@ -143,38 +146,38 @@ int main() {
             calibration_data.push_back(weights(i, j));
         }
     }
-    
+
     QuantizationParams params = quantizer.calibrate(calibration_data);
-    
+
     std::cout << "Quantization params:\n";
     std::cout << "  Scale: " << params.scale << "\n";
     std::cout << "  Zero point: " << params.zero_point << "\n";
-    
+
     // 4. Quantize matrix
     QuantizedMatrix qmat;
     qmat.quantize_from(weights, quantizer);
-    
-    std::cout << "Compressed size: " 
+
+    std::cout << "Compressed size: "
               << (768*768*sizeof(int8_t)/1024) << " KB\n";
-    std::cout << "Memory reduction: " 
+    std::cout << "Memory reduction: "
               << qmat.memory_reduction() << "x\n";
-    
+
     // 5. Measure error
     float error = quantizer.compute_quantization_error(
         calibration_data, params);
     std::cout << "MSE: " << error << "\n";
     std::cout << "RMSE: " << std::sqrt(error) << "\n";
-    
+
     // 6. Save quantized model
     qmat.save("model_int8.bin");
-    
+
     // 7. Load and use
     QuantizedMatrix loaded;
     loaded.load("model_int8.bin");
-    
+
     Matrix reconstructed = loaded.dequantize(quantizer);
     // Use reconstructed for inference
-    
+
     return 0;
 }
 ```
@@ -188,7 +191,7 @@ int main() {
 ```cpp
 // Quantize all model weights
 std::vector<std::string> weight_names = {
-    "W_Q", "W_K", "W_V", "W_O", 
+    "W_Q", "W_K", "W_V", "W_O",
     "W_FF1", "W_FF2"
 };
 
@@ -197,11 +200,11 @@ Quantizer quantizer(QuantizationMode::SYMMETRIC_INT8,
 
 for (const auto& name : weight_names) {
     Matrix weights = load_weights(name);
-    
+
     // Calibrate per-layer
     auto data = matrix_to_vector(weights);
     auto params = quantizer.calibrate(data);
-    
+
     // Quantize and save
     QuantizedMatrix qmat;
     qmat.quantize_from(weights, quantizer);
@@ -236,7 +239,7 @@ Matrix result = quantized_forward(quant_acts);
 ### Memory Savings
 
 | Precision | Bytes/Value | Model Size (350M params) | Reduction |
-|-----------|-------------|--------------------------|-----------|
+| ----------- | ------------- | -------------------------- | ----------- |
 | FP32 | 4 | 1.4 GB | 1x |
 | FP16 | 2 | 700 MB | 2x |
 | INT8 | 1 | 350 MB | 4x |
@@ -245,7 +248,7 @@ Matrix result = quantized_forward(quant_acts);
 ### Accuracy Impact
 
 | Quantization | Typical Accuracy Loss |
-|--------------|----------------------|
+| -------------- | ---------------------- |
 | INT8 (min-max) | 0.5-2% |
 | INT8 (percentile) | 0.1-1% |
 | INT8 (MSE) | <0.5% |
@@ -368,7 +371,7 @@ QuantizedMatrix qmat;
 qmat.quantize_from(W_merged, quantizer);
 qmat.save("model_lora_int8.bin");
 
-// Result: 
+// Result:
 // - LoRA: 100x fewer training params
 // - INT8: 4x smaller deployment
 // - Combined: Extremely efficient!
@@ -378,7 +381,7 @@ qmat.save("model_lora_int8.bin");
 
 ## Test Coverage
 
-**File:** `tests/phase5_test.cpp`  
+**File:** `tests/phase5_test.cpp`
 **Test Cases:** 15
 
 - Constructor defaults
@@ -403,6 +406,6 @@ qmat.save("model_lora_int8.bin");
 
 ---
 
-**Last Updated:** January 25, 2026  
-**Version:** 1.0  
+**Last Updated:** January 25, 2026
+**Version:** 1.0
 **Status:** Production-ready

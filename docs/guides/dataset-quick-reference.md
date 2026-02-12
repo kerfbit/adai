@@ -122,7 +122,7 @@ dataset.shuffle_split(SplitType::TRAIN)    // Shuffle one split
 ## File Formats
 
 | Format | File | Auto-Detect |
-|--------|------|-------------|
+| -------- | ------ | ------------- |
 | Conversation | `INPUT: ...\nRESPONSE: ...` | ✓ |
 | TSV | `input\ttarget` | ✓ |
 | JSON | `{"input": "...", "target": "..."}` | ✓ |
@@ -138,25 +138,25 @@ int main() {
     dataset.load_from_file("data.json");
     dataset.filter_by_length(10, 500);
     dataset.lowercase();
-    
+
     // Stratified split
     dataset.split_stratified(0.7, 0.2, 0.1, 5);
-    
+
     // Training loop
     for (int epoch = 0; epoch < 10; ++epoch) {
         dataset.shuffle_split(SplitType::TRAIN);
-        
+
         // Mini-batch training
         for (auto batch : dataset.get_batch_iterator(SplitType::TRAIN, 32)) {
             train(batch);
         }
-        
+
         // Validation
         for (auto batch : dataset.get_batch_iterator(SplitType::VALIDATION, 64)) {
             validate(batch);
         }
     }
-    
+
     return 0;
 }
 ```
@@ -164,7 +164,7 @@ int main() {
 ## Key Improvements (v1.0 → v2.0)
 
 | Feature | v1.0 | v2.0 |
-|---------|------|------|
+| --------- | ------ | ------ |
 | Iteration | Copy data | ✅ Iterator (no copy) |
 | Batching | Manual | ✅ Batch iterator |
 | Formats | 2 | ✅ 4 (+ JSON, CSV) |
@@ -190,6 +190,6 @@ int main() {
 
 ---
 
-**Version:** 2.0  
-**Date:** January 2026  
+**Version:** 2.0
+**Date:** January 2026
 **Status:** Production Ready ✅

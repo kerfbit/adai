@@ -1,12 +1,15 @@
 # EncoderDecoderModel - Context Documentation
 
 ## Overview
+
 The `EncoderDecoderModel` class implements a complete sequence-to-sequence transformer architecture that combines an encoder and decoder for advanced NLP tasks. This is the highest-level component in the chatbot system, integrating all previously built components into a unified model.
 
 ## Purpose
+
 **Primary Function**: Enable sequence-to-sequence transformations where the output depends on understanding and transforming an input sequence.
 
 **Key Applications**:
+
 - **Chatbot Conversations**: Generate contextual responses to user inputs
 - **Machine Translation**: Translate text from one language to another
 - **Text Summarization**: Generate concise summaries of long documents
@@ -16,7 +19,7 @@ The `EncoderDecoderModel` class implements a complete sequence-to-sequence trans
 ## Architecture
 
 ### High-Level Pipeline
-```
+```text
 Input Text
     ↓
 [Tokenization]
@@ -41,7 +44,7 @@ Output Text
 ```
 
 ### Component Integration
-```
+```text
 ┌─────────────────────────────────────────────────────┐
 │           EncoderDecoderModel                       │
 ├─────────────────────────────────────────────────────┤
@@ -69,17 +72,20 @@ Output Text
 ### Internal Components
 
 #### 1. BPETokenizer
+
 - **Role**: Convert text ↔ token IDs
 - **Shared**: Same vocabulary for encoder and decoder
 - **Special Tokens**: `<pad>`, `<bos>`, `<eos>`
 
 #### 2. LLMEncoder
+
 - **Role**: Encode input text into context representations
 - **Architecture**: Multi-layer transformer encoder
 - **Output**: Context matrix [input_length, d_model]
 - **Used**: Once per generation/training step
 
 #### 3. LLMDecoder
+
 - **Role**: Generate output autoregressively
 - **Architecture**: Multi-layer transformer decoder with cross-attention
 - **Input**: Previous tokens + encoder context
@@ -87,11 +93,13 @@ Output Text
 - **Used**: Once per token during generation
 
 #### 4. LanguageModelHead
+
 - **Role**: Project decoder output to vocabulary probabilities
 - **Architecture**: Linear layer [d_model → vocab_size]
 - **Output**: Logits [output_length, vocab_size]
 
 #### 5. TextGenerator
+
 - **Role**: Implement generation strategies
 - **Strategies**: Greedy, beam search, sampling, top-k, nucleus
 - **Features**: Temperature, repetition penalty, length control
@@ -99,6 +107,7 @@ Output Text
 ## Class Structure
 
 ### File Location
+
 - Header: `/home/rodney/Repos/adai/src/EncoderDecoderModel.hpp`
 - Implementation: `/home/rodney/Repos/adai/src/EncoderDecoderModel.cpp`
 - Example: `/home/rodney/Repos/adai/src/EncoderDecoderModelExample.cpp`
@@ -123,7 +132,7 @@ private:
     std::unique_ptr<LLMDecoder> decoder;
     std::unique_ptr<LanguageModelHead> lm_head;
     std::unique_ptr<TextGenerator> generator;
-    
+
     // Architecture configuration
     int vocab_size;
     int d_model;
@@ -132,22 +141,22 @@ private:
     int num_heads;
     int d_ff;
     int max_seq_length;
-    
+
     // Special tokens
     int bos_token_id;  // Beginning of sequence
     int eos_token_id;  // End of sequence
     int pad_token_id;  // Padding
-    
+
     // Training state
     bool requires_grad;
     float learning_rate;
-    
+
     // Cached values
     Matrix cached_encoder_output;
     Matrix cached_decoder_output;
     std::vector<int> cached_input_tokens;
     std::vector<int> cached_target_tokens;
-    
+
 public:
     // Constructor & destructor
     EncoderDecoderModel(int vocab_size, int d_model = 512,
@@ -155,11 +164,11 @@ public:
                         int num_heads = 8, int d_ff = 2048,
                         int max_seq_length = 512);
     ~EncoderDecoderModel();
-    
+
     // Inference methods
     std::string generate_response(const std::string& input_text, int max_length = 100);
     std::string generate_response_with_strategy(...);
-    
+
     // Training methods
     float train_step(const std::string& input_text, const std::string& target_text);
     float train_step_tokenized(const std::vector<int>& input_tokens,
@@ -167,31 +176,31 @@ public:
     float evaluate(const std::string& input_text, const std::string& target_text);
     float compute_perplexity(const std::vector<std::string>& inputs,
                             const std::vector<std::string>& targets);
-    
+
     // Configuration
     void set_training(bool mode);
     void set_learning_rate(float lr);
     void set_generation_config(const TextGenerator::GenerationConfig& config);
     void set_tokenizer(BPETokenizer* tokenizer_ptr);
-    
+
     // Weight management
     void update_weights();
     void zero_grad();
     void save_model(const std::string& filepath) const;
     void load_model(const std::string& filepath);
-    
+
     // Advanced usage
     Matrix forward(const std::vector<int>& input_tokens,
                   const std::vector<int>& target_tokens);
     void backward(const Matrix& grad_output);
-    
+
     // Component access
     LLMEncoder* get_encoder();
     LLMDecoder* get_decoder();
     LanguageModelHead* get_lm_head();
     TextGenerator* get_generator();
     BPETokenizer* get_tokenizer();
-    
+
 private:
     float compute_loss(const Matrix& logits, const std::vector<int>& target_tokens);
     Matrix compute_loss_gradient(const Matrix& logits,
@@ -212,6 +221,7 @@ EncoderDecoderModel(int vocab_size, int d_model = 512,
 **Purpose**: Initialize complete encoder-decoder model
 
 **Parameters**:
+
 - `vocab_size`: Size of shared vocabulary
 - `d_model`: Model dimension (default: 512)
 - `encoder_layers`: Number of encoder layers (default: 6)
@@ -221,6 +231,7 @@ EncoderDecoderModel(int vocab_size, int d_model = 512,
 - `max_seq_length`: Maximum sequence length (default: 512)
 
 **Initialization**:
+
 1. Creates BPETokenizer (empty, needs vocab building)
 2. Creates LLMEncoder with specified configuration
 3. Creates LLMDecoder with specified configuration
@@ -239,6 +250,7 @@ std::string generate_response(const std::string& input_text, int max_length = 10
 **Purpose**: Generate response using default/configured strategy
 
 **Process**:
+
 1. Tokenize input text
 2. Encode with LLMEncoder → context representation
 3. Create model_fn lambda capturing encoder output
@@ -247,6 +259,7 @@ std::string generate_response(const std::string& input_text, int max_length = 10
 6. Return response string
 
 **Model Function**:
+
 ```cpp
 auto model_fn = [this](const std::vector<int>& tokens) -> Matrix {
     Matrix decoder_out = decoder->forward_with_encoder(tokens, encoder_output);
@@ -273,6 +286,7 @@ std::string generate_response_with_strategy(
 **Purpose**: Generate with explicit strategy selection
 
 **Strategies**:
+
 - `"greedy"`: Deterministic, pick highest probability token
 - `"beam"`: Beam search with `num_beams` beams
 - `"sampling"`: Sample from distribution with `temperature`
@@ -280,6 +294,7 @@ std::string generate_response_with_strategy(
 - `"nucleus"`: Sample from nucleus (top-p)
 
 **Process**:
+
 1. Encode input (same as generate_response)
 2. Create model_fn lambda
 3. Call strategy-specific TextGenerator method
@@ -297,6 +312,7 @@ float train_step(const std::string& input_text, const std::string& target_text)
 **Purpose**: Single training iteration on text pair
 
 **Process**:
+
 1. Tokenize input and target texts
 2. Call train_step_tokenized()
 
@@ -311,9 +327,10 @@ float train_step_tokenized(const std::vector<int>& input_tokens,
 **Purpose**: Training step on pre-tokenized sequences
 
 **Process**:
+
 1. **Check mode**: Verify `requires_grad=true`
 2. **Zero gradients**: Clear previous gradients
-3. **Forward pass**: 
+3. **Forward pass**:
    - Encode input → context
    - Decode with teacher forcing (use target tokens)
    - Project to vocabulary
@@ -322,6 +339,7 @@ float train_step_tokenized(const std::vector<int>& input_tokens,
 6. **Update weights**: Apply gradient descent
 
 **Teacher Forcing**:
+
 ```cpp
 decoder_input = [<bos>, target[0], target[1], ..., target[n-1]]
 decoder_output = decoder.forward_with_encoder(decoder_input, encoder_output)
@@ -339,6 +357,7 @@ float evaluate(const std::string& input_text, const std::string& target_text)
 **Purpose**: Compute loss without updating weights
 
 **Process**:
+
 1. Temporarily disable training mode
 2. Forward pass only
 3. Compute and return loss
@@ -357,12 +376,14 @@ float compute_perplexity(const std::vector<std::string>& input_texts,
 **Formula**: `perplexity = exp(avg_cross_entropy_loss)`
 
 **Process**:
+
 1. Disable training mode
 2. Evaluate each (input, target) pair
 3. Compute average loss
 4. Return exp(avg_loss)
 
 **Interpretation**:
+
 - Lower perplexity = better model
 - Perplexity ≈ "how many tokens model is confused between"
 
@@ -377,19 +398,22 @@ float compute_loss(const Matrix& logits, const std::vector<int>& target_tokens)
 
 **Purpose**: Compute cross-entropy loss
 
-**Formula**: 
-```
+**Formula**:
+
+```text
 loss = -mean(log(P(target_token | context)))
      = -mean(log(softmax(logits)[target]))
 ```
 
 **Implementation**:
+
 1. For each timestep t:
    - Compute softmax: `P = exp(logits - max) / sum(exp(logits - max))`
    - Cross-entropy: `-log(P[target[t]] + epsilon)`
 2. Average over sequence length
 
 **Numerical Stability**:
+
 - Subtract max logit before exp (prevents overflow)
 - Add epsilon=1e-10 before log (prevents log(0))
 
@@ -404,6 +428,7 @@ Matrix compute_loss_gradient(const Matrix& logits,
 **Formula**: `grad = softmax(logits) - one_hot(target)`
 
 **Implementation**:
+
 1. Compute softmax probabilities
 2. Subtract 1.0 at target position
 3. Scale by 1/sequence_length
@@ -420,6 +445,7 @@ void set_training(bool mode)
 **Purpose**: Switch between training and inference modes
 
 **Effects**:
+
 - Sets `requires_grad` flag
 - Propagates to decoder (encoder method not available)
 - Affects gradient computation and caching
@@ -432,6 +458,7 @@ void set_learning_rate(float lr)
 **Purpose**: Update learning rate for gradient descent
 
 **Propagates to**:
+
 - Decoder (encoder method not available)
 - Internal learning_rate variable
 
@@ -443,6 +470,7 @@ void set_generation_config(const TextGenerator::GenerationConfig& config)
 **Purpose**: Configure text generation behavior
 
 **Config Parameters**:
+
 ```cpp
 struct GenerationConfig {
     int max_length;           // Maximum output length
@@ -467,7 +495,8 @@ void set_tokenizer(BPETokenizer* tokenizer_ptr)
 
 **Purpose**: Replace default tokenizer with custom one
 
-**Use Case**: 
+**Use Case**:
+
 - Load pre-trained tokenizer
 - Use domain-specific vocabulary
 
@@ -481,22 +510,26 @@ void register_parameters(Optimizer& optimizer)
 **Purpose**: Register all model parameters with an external optimizer
 
 **Process**:
+
 1. Register encoder parameters recursively (all layers)
 2. Register decoder parameters recursively (all layers)
 3. Register language model head parameters
 
 **Registered Components**:
+
 - **Encoder**: Token embeddings, encoder blocks (attention, feed-forward, layer norms), final layer norm
 - **Decoder**: Token embeddings, decoder blocks (self-attention, cross-attention, feed-forward, layer norms), final layer norm
 - **LM Head**: Output projection weights and biases
 
 **Benefits**:
+
 - Enables advanced optimization (Adam, AdamW, etc.)
 - Centralized gradient management
 - Gradient clipping and weight decay
 - Automatic parameter tracking
 
 **Example**:
+
 ```cpp
 Optimizer optimizer(OptimizerType::ADAMW, 0.001f);
 optimizer.set_betas(0.9f, 0.999f);
@@ -523,6 +556,7 @@ void update_weights()
 **Purpose**: Apply gradient descent to all parameters (legacy method)
 
 **Updates**:
+
 - Decoder weights
 - LanguageModelHead weights
 
@@ -536,6 +570,7 @@ void zero_grad()
 **Purpose**: Clear accumulated gradients
 
 **Clears**:
+
 - Encoder gradients
 - Decoder gradients
 - LanguageModelHead gradients
@@ -552,17 +587,20 @@ void save_model(const std::string& filepath) const
 **Purpose**: Save complete model to disk
 
 **Files Created**:
+
 1. `{filepath}.config` - Architecture configuration (binary)
 2. `{filepath}.vocab` - Tokenizer vocabulary
 3. `{filepath}.encoder` - Encoder weights (partial)
 4. `{filepath}.decoder` - Decoder weights (partial)
 
 **Saved in Config**:
+
 - vocab_size, d_model, encoder_layers, decoder_layers
 - num_heads, d_ff, max_seq_length
 - bos_token_id, eos_token_id, pad_token_id
 
 **Limitations**:
+
 - LanguageModelHead lacks save_weights method (commented out)
 - Component save methods incomplete (only config saved)
 
@@ -574,6 +612,7 @@ void load_model(const std::string& filepath)
 **Purpose**: Load complete model from disk
 
 **Process**:
+
 1. Load and verify architecture config
 2. Load tokenizer vocabulary
 3. Load encoder weights (partial)
@@ -595,20 +634,28 @@ Matrix forward(const std::vector<int>& input_tokens,
 **Purpose**: Complete forward pass for training
 
 **Process**:
+
 1. **Cache inputs**: Store for backward pass
 2. **Encode**:
+
    ```cpp
    encoder_output = encoder->encode_with_mask(input_tokens, no_mask)
    ```
+
 3. **Prepare decoder input** (teacher forcing):
+
    ```cpp
    decoder_input = [<bos>, target[0], target[1], ..., target[n-1]]
    ```
+
 4. **Decode**:
+
    ```cpp
    decoder_output = decoder->forward_with_encoder(decoder_input, encoder_output)
    ```
+
 5. **Project to vocabulary**:
+
    ```cpp
    logits = lm_head->forward(decoder_output)
    ```
@@ -625,15 +672,20 @@ void backward(const Matrix& grad_output)
 **Purpose**: Backpropagate gradients through model
 
 **Process**:
+
 1. Check `requires_grad` flag
 2. Backward through LM head:
+
    ```cpp
    grad_decoder = lm_head->backward(grad_output)
    ```
+
 3. Backward through decoder:
+
    ```cpp
    decoder->backward(grad_decoder)
    ```
+
 4. Encoder gradients: Handled via cross-attention in decoder
 
 **Note**: Simplified implementation; full version would explicitly propagate encoder gradients
@@ -674,13 +726,13 @@ model.set_learning_rate(0.001f);
 
 for (int epoch = 0; epoch < 10; ++epoch) {
     float total_loss = 0.0f;
-    
+
     for (const auto& [input, target] : data) {
         float loss = model.train_step(input, target);
         total_loss += loss;
     }
-    
-    std::cout << "Epoch " << epoch << " Loss: " 
+
+    std::cout << "Epoch " << epoch << " Loss: "
               << total_loss / data.size() << std::endl;
 }
 ```
@@ -746,9 +798,11 @@ model.update_weights();
 ## Design Decisions
 
 ### 1. Shared Vocabulary
+
 **Decision**: Encoder and decoder use same tokenizer/vocabulary
 
 **Rationale**:
+
 - Simplifies architecture (single vocab)
 - Enables weight sharing between embeddings
 - Sufficient for most seq2seq tasks
@@ -756,9 +810,11 @@ model.update_weights();
 **Trade-off**: Cannot use different vocabularies for input/output
 
 ### 2. Teacher Forcing in Training
+
 **Decision**: Use target tokens as decoder input during training
 
 **Rationale**:
+
 - Prevents error accumulation during training
 - Faster convergence
 - Standard practice in seq2seq models
@@ -766,35 +822,43 @@ model.update_weights();
 **Alternative**: Scheduled sampling (gradually mix predicted tokens)
 
 ### 3. Component Ownership
+
 **Decision**: Use `std::unique_ptr` for all components
 
 **Rationale**:
+
 - Automatic memory management
 - Clear ownership semantics
 - Prevents accidental copying
 
 ### 4. Separate Generation and Training Paths
+
 **Decision**: Distinct methods for inference vs training
 
 **Rationale**:
+
 - Different input preparation (teacher forcing vs autoregressive)
 - Different optimization needs
 - Clearer API for users
 
 ### 5. Multiple Generation Strategies
+
 **Decision**: Expose multiple generation methods
 
 **Rationale**:
+
 - Different use cases need different strategies
 - Easy experimentation
 - Flexibility for production deployment
 
 ### 6. Incomplete Persistence
+
 **Decision**: Save configuration even though component weights not fully saved
 
 **Current State**: Only saves configuration + tokenizer vocab
 
-**Rationale**: 
+**Rationale**:
+
 - Component classes lack save/load methods
 - Partial functionality better than none
 - Clear warning messages
@@ -804,6 +868,7 @@ model.update_weights();
 ## Integration Points
 
 ### Components Used
+
 1. **BPETokenizer**: Text ↔ tokens conversion
 2. **LLMEncoder**: Input encoding
 3. **LLMDecoder**: Autoregressive decoding
@@ -812,6 +877,7 @@ model.update_weights();
 6. **Matrix**: Data structures
 
 ### Used By
+
 - Application code (chatbot, translation, etc.)
 - Training scripts
 - Evaluation scripts
@@ -831,6 +897,7 @@ EncoderDecoderModel model(
     max_seq_length = 32
 );
 ```
+
 **Use**: Quick experiments, debugging
 
 ### Small Model (Development)
@@ -845,6 +912,7 @@ EncoderDecoderModel model(
     max_seq_length = 64
 );
 ```
+
 **Use**: Local development, unit testing
 
 ### Medium Model (Demo/Small Production)
@@ -859,6 +927,7 @@ EncoderDecoderModel model(
     max_seq_length = 128
 );
 ```
+
 **Use**: Demos, small-scale deployment
 
 ### Large Model (Production)
@@ -873,33 +942,41 @@ EncoderDecoderModel model(
     max_seq_length = 512
 );
 ```
+
 **Use**: Production chatbots, translation systems
 
 ## Performance Considerations
 
 ### Memory Usage
+
 **Training**:
+
 - Encoder: `encoder_layers × input_len × d_model`
 - Decoder: `decoder_layers × output_len × d_model`
 - Attention: `num_heads × (input_len² + output_len²)`
 - Gradients: ~2× forward pass memory
 
 **Inference**:
+
 - Encoder: Once per conversation turn
 - Decoder: Once per generated token
 - Can cache encoder output across tokens
 
 ### Time Complexity
+
 **Per Training Step**:
+
 - Encoder: `O(encoder_layers × input_len² × d_model)`
 - Decoder: `O(decoder_layers × output_len² × d_model)`
 - Cross-attention: `O(decoder_layers × input_len × output_len × d_model)`
 
 **Per Inference Token**:
+
 - Encoder: `O(encoder_layers × input_len² × d_model)` (once)
 - Decoder: `O(decoder_layers × output_len² × d_model)` (per token)
 
 ### Optimization Opportunities
+
 1. **KV Caching**: Cache decoder key/value tensors
 2. **Encoder Reuse**: Cache encoder output for multi-turn conversations
 3. **Batch Processing**: Process multiple inputs simultaneously
@@ -909,6 +986,7 @@ EncoderDecoderModel model(
 ## Limitations
 
 ### Current Implementation
+
 1. **No Batch Support**: Processes one sequence at a time
 2. **Incomplete Persistence**: Component weights not fully saved
 3. **Simplified Backward**: Encoder gradients not explicitly propagated
@@ -916,6 +994,7 @@ EncoderDecoderModel model(
 5. **Teacher Forcing Only**: No scheduled sampling or other curricula
 
 ### Known Issues
+
 1. **LLMEncoder Methods**: Missing set_training(), set_learning_rate(), update_weights()
 2. **LanguageModelHead Methods**: Missing save_weights(), load_weights()
 3. **Memory Inefficiency**: No KV caching, regenerates attention each token
@@ -924,6 +1003,7 @@ EncoderDecoderModel model(
 ## Testing Strategy
 
 ### Unit Tests Needed
+
 1. **Constructor**: Verify component initialization
 2. **Forward Pass**: Test encoder → decoder → lm_head pipeline
 3. **Generation**: Test all generation strategies
@@ -933,6 +1013,7 @@ EncoderDecoderModel model(
 7. **Edge Cases**: Empty inputs, long sequences, special tokens
 
 ### Integration Tests
+
 1. **End-to-End Generation**: Input text → output text
 2. **Training Loop**: Multiple epochs, convergence
 3. **Multi-turn Conversation**: Sequential generation
@@ -942,6 +1023,7 @@ EncoderDecoderModel model(
 ## Future Enhancements
 
 ### Short-term
+
 1. Implement complete save/load for all components
 2. Add batch processing support
 3. Add attention masking for padding tokens
@@ -949,6 +1031,7 @@ EncoderDecoderModel model(
 5. Add gradient clipping
 
 ### Medium-term
+
 1. Support different encoder/decoder vocabularies
 2. Add scheduled sampling for training
 3. Implement label smoothing
@@ -956,6 +1039,7 @@ EncoderDecoderModel model(
 5. Implement beam search length penalty
 
 ### Long-term
+
 1. Pre-training support (masked language modeling)
 2. Transfer learning utilities
 3. Model compression (pruning, quantization)
@@ -963,6 +1047,7 @@ EncoderDecoderModel model(
 5. Reinforcement learning from human feedback (RLHF)
 
 ## Related Documentation
+
 - **LLMEncoder**: `ENCODER_CONTEXT.md`
 - **LLMDecoder**: `DECODER_CONTEXT.md`
 - **LanguageModelHead**: `LANGUAGEMODELHEAD_CONTEXT.md`
@@ -970,4 +1055,5 @@ EncoderDecoderModel model(
 - **BPETokenizer**: `BPE_TOKENIZER_CONTEXT.md`
 
 ## Version History
+
 - **v1.0** (2026-01-18): Initial implementation with encoder-decoder integration, multiple generation strategies, and training support

@@ -18,13 +18,13 @@ Quick reference guide for implementing the decoder components following the exis
 
 /**
  * [Component Name]
- * 
+ *
  * [Brief description]
- * 
+ *
  * Features:
  * - [Feature 1]
  * - [Feature 2]
- * 
+ *
  * Architecture:
  * [ASCII diagram if helpful]
  */
@@ -32,65 +32,65 @@ class ComponentName {
 private:
     // Components (use std::unique_ptr for owned objects)
     std::unique_ptr<SubComponent> component;
-    
+
     // Parameters
     Matrix weights;
     Matrix bias;
-    
+
     // Gradients
     Matrix weights_grad;
     Matrix bias_grad;
-    
+
     // Hyperparameters
     int param1;
     float param2;
-    
+
     // Cached values for backward pass
     Matrix cached_input;
     Matrix cached_intermediate;
-    
+
 public:
     float learning_rate;  // Public learning rate
-    
+
     /**
      * Constructor
-     * 
+     *
      * @param param1 Description
      * @param param2 Description (default: value)
      */
     ComponentName(int param1, float param2 = 1.0f);
-    
+
     /**
      * Forward pass
-     * 
+     *
      * @param input Input matrix [shape]
      * @return Output matrix [shape]
      */
     Matrix forward(const Matrix& input);
-    
+
     /**
      * Backward pass
-     * 
+     *
      * @param grad_output Gradient from next layer [shape]
      * @return Gradient w.r.t. input [shape]
      */
     Matrix backward(const Matrix& grad_output);
-    
+
     /**
      * Update weights using accumulated gradients
      */
     void update_weights();
-    
+
     /**
      * Zero accumulated gradients
      */
     void zero_grad();
-    
+
     /**
      * Save parameters to file
      */
     void save(const std::string& filepath);
-    
+
     /**
      * Load parameters from file
      */
@@ -111,16 +111,16 @@ ComponentName::ComponentName(int param1, float param2)
     : param1(param1), param2(param2), learning_rate(0.001f),
       weights(rows, cols), bias(1, cols),
       weights_grad(rows, cols), bias_grad(1, cols) {
-    
+
     // Initialize weights (Xavier/He initialization)
     float scale = std::sqrt(2.0f / param1);
     weights.randomize(scale);
     bias.fill(0.0f);
-    
+
     // Zero gradients
     weights_grad.fill(0.0f);
     bias_grad.fill(0.0f);
-    
+
     // Print initialization info
     std::cout << "ComponentName initialized:" << std::endl;
     std::cout << "  param1: " << param1 << std::endl;
@@ -130,24 +130,24 @@ ComponentName::ComponentName(int param1, float param2)
 Matrix ComponentName::forward(const Matrix& input) {
     // Cache input for backward pass
     cached_input = input;
-    
+
     // Compute output
     Matrix output = input * weights + bias;
-    
+
     return output;
 }
 
 Matrix ComponentName::backward(const Matrix& grad_output) {
     // Compute gradient w.r.t. weights: input^T * grad_output
     Matrix grad_weights = cached_input.transpose() * grad_output;
-    
+
     // Accumulate gradients
     for (int i = 0; i < weights_grad.rows; ++i) {
         for (int j = 0; j < weights_grad.cols; ++j) {
             weights_grad(i, j) += grad_weights(i, j);
         }
     }
-    
+
     // Compute gradient w.r.t. bias (sum over batch)
     for (int j = 0; j < bias_grad.cols; ++j) {
         float sum = 0.0f;
@@ -156,10 +156,10 @@ Matrix ComponentName::backward(const Matrix& grad_output) {
         }
         bias_grad(0, j) += sum;
     }
-    
+
     // Compute gradient w.r.t. input: grad_output * weights^T
     Matrix grad_input = grad_output * weights.transpose();
-    
+
     return grad_input;
 }
 
@@ -179,22 +179,22 @@ void ComponentName::save(const std::string& filepath) {
     if (!file.is_open()) {
         throw std::runtime_error("Failed to open file: " + filepath);
     }
-    
+
     // Save dimensions
     file.write(reinterpret_cast<const char*>(&param1), sizeof(param1));
-    
+
     // Save weights
     for (int i = 0; i < weights.rows; ++i) {
         for (int j = 0; j < weights.cols; ++j) {
             file.write(reinterpret_cast<const char*>(&weights(i, j)), sizeof(float));
         }
     }
-    
+
     // Save bias
     for (int j = 0; j < bias.cols; ++j) {
         file.write(reinterpret_cast<const char*>(&bias(0, j)), sizeof(float));
     }
-    
+
     file.close();
 }
 
@@ -203,27 +203,27 @@ void ComponentName::load(const std::string& filepath) {
     if (!file.is_open()) {
         throw std::runtime_error("Failed to open file: " + filepath);
     }
-    
+
     // Load dimensions
     int loaded_param1;
     file.read(reinterpret_cast<char*>(&loaded_param1), sizeof(loaded_param1));
-    
+
     if (loaded_param1 != param1) {
         throw std::runtime_error("Parameter mismatch");
     }
-    
+
     // Load weights
     for (int i = 0; i < weights.rows; ++i) {
         for (int j = 0; j < weights.cols; ++j) {
             file.read(reinterpret_cast<char*>(&weights(i, j)), sizeof(float));
         }
     }
-    
+
     // Load bias
     for (int j = 0; j < bias.cols; ++j) {
         file.read(reinterpret_cast<char*>(&bias(0, j)), sizeof(float));
     }
-    
+
     file.close();
 }
 ```
@@ -274,7 +274,7 @@ for (int i = 0; i < grad_path2.rows; ++i) {
 ```cpp
 Matrix create_causal_mask(int seq_len) {
     Matrix mask(seq_len, seq_len);
-    
+
     for (int i = 0; i < seq_len; ++i) {
         for (int j = 0; j < seq_len; ++j) {
             if (j <= i) {
@@ -284,7 +284,7 @@ Matrix create_causal_mask(int seq_len) {
             }
         }
     }
-    
+
     return mask;
 }
 ```
@@ -292,18 +292,18 @@ Matrix create_causal_mask(int seq_len) {
 ### Softmax with Temperature
 
 ```cpp
-std::vector<float> softmax_with_temperature(const std::vector<float>& logits, 
+std::vector<float> softmax_with_temperature(const std::vector<float>& logits,
                                             float temperature) {
     std::vector<float> scaled_logits(logits.size());
-    
+
     // Apply temperature scaling
     for (size_t i = 0; i < logits.size(); ++i) {
         scaled_logits[i] = logits[i] / temperature;
     }
-    
+
     // Find max for numerical stability
     float max_logit = *std::max_element(scaled_logits.begin(), scaled_logits.end());
-    
+
     // Compute exp and sum
     std::vector<float> probs(logits.size());
     float sum = 0.0f;
@@ -311,12 +311,12 @@ std::vector<float> softmax_with_temperature(const std::vector<float>& logits,
         probs[i] = std::exp(scaled_logits[i] - max_logit);
         sum += probs[i];
     }
-    
+
     // Normalize
     for (size_t i = 0; i < probs.size(); ++i) {
         probs[i] /= sum;
     }
-    
+
     return probs;
 }
 ```
@@ -327,7 +327,7 @@ std::vector<float> softmax_with_temperature(const std::vector<float>& logits,
 int sample_from_distribution(const std::vector<float>& probs) {
     static std::random_device rd;
     static std::mt19937 gen(rd());
-    
+
     std::discrete_distribution<> dist(probs.begin(), probs.end());
     return dist(gen);
 }
@@ -336,26 +336,26 @@ int sample_from_distribution(const std::vector<float>& probs) {
 ### Cross-Entropy Loss
 
 ```cpp
-float compute_cross_entropy_loss(const Matrix& logits, 
+float compute_cross_entropy_loss(const Matrix& logits,
                                  const std::vector<int>& targets) {
     float total_loss = 0.0f;
     int seq_len = logits.rows;
-    
+
     for (int i = 0; i < seq_len; ++i) {
         // Get logits for this position
         std::vector<float> position_logits(logits.cols);
         for (int j = 0; j < logits.cols; ++j) {
             position_logits[j] = logits(i, j);
         }
-        
+
         // Softmax
         std::vector<float> probs = softmax(position_logits);
-        
+
         // Cross-entropy: -log(p[target])
         int target = targets[i];
         total_loss -= std::log(probs[target] + 1e-10f);  // Add epsilon for stability
     }
-    
+
     return total_loss / seq_len;  // Average over sequence
 }
 ```
@@ -366,7 +366,7 @@ float compute_cross_entropy_loss(const Matrix& logits,
 Matrix compute_cross_entropy_gradient(const Matrix& logits,
                                       const std::vector<int>& targets) {
     Matrix grad(logits.rows, logits.cols);
-    
+
     for (int i = 0; i < logits.rows; ++i) {
         // Get logits and compute softmax
         std::vector<float> position_logits(logits.cols);
@@ -374,7 +374,7 @@ Matrix compute_cross_entropy_gradient(const Matrix& logits,
             position_logits[j] = logits(i, j);
         }
         std::vector<float> probs = softmax(position_logits);
-        
+
         // Gradient: p - 1 at target, p elsewhere
         for (int j = 0; j < logits.cols; ++j) {
             if (j == targets[i]) {
@@ -384,7 +384,7 @@ Matrix compute_cross_entropy_gradient(const Matrix& logits,
             }
         }
     }
-    
+
     // Scale by sequence length
     return grad.scale(1.0f / logits.rows);
 }
@@ -397,13 +397,15 @@ Matrix compute_cross_entropy_gradient(const Matrix& logits,
 ### DecoderBlock
 
 **Key Differences from EncoderBlock:**
+
 1. Three sub-layers instead of two (add cross-attention)
 2. Self-attention uses causal mask
 3. Cross-attention takes encoder output as K,V
 
 **Forward Pass Order:**
+
 ```cpp
-Matrix DecoderBlock::forward(const Matrix& input, 
+Matrix DecoderBlock::forward(const Matrix& input,
                             const Matrix& encoder_output,
                             const Matrix& causal_mask,
                             const Matrix* cross_mask) {
@@ -411,7 +413,7 @@ Matrix DecoderBlock::forward(const Matrix& input,
     Matrix self_attn_out = self_attention->forward(input, &causal_mask);
     Matrix res1 = add_residual(input, self_attn_out);
     Matrix norm1_out = norm1->forward(res1);
-    
+
     // 2. Cross-attention (to encoder)
     Matrix cross_attn_out = cross_attention->forward_cross(
         norm1_out,           // Query from decoder
@@ -421,17 +423,18 @@ Matrix DecoderBlock::forward(const Matrix& input,
     );
     Matrix res2 = add_residual(norm1_out, cross_attn_out);
     Matrix norm2_out = norm2->forward(res2);
-    
+
     // 3. Feed-forward
     Matrix ff_out = feed_forward->forward(norm2_out);
     Matrix res3 = add_residual(norm2_out, ff_out);
     Matrix output = norm3->forward(res3);
-    
+
     return output;
 }
 ```
 
 **Cross-Attention Usage:**
+
 ```cpp
 // Self-attention: Q = K = V = input
 Matrix self_out = self_attention->forward(input, input, input, mask);
@@ -448,40 +451,42 @@ Matrix cross_out = cross_attention->forward(
 ### LanguageModelHead
 
 **Simple Linear Projection:**
+
 ```cpp
 Matrix LanguageModelHead::forward(const Matrix& input) {
     // input: [seq_len, d_model]
     // output: [seq_len, vocab_size]
-    
+
     cached_input = input;
     Matrix output = input * W_output;  // [seq_len, vocab_size]
-    
+
     // Add bias (broadcast)
     for (int i = 0; i < output.rows; ++i) {
         for (int j = 0; j < output.cols; ++j) {
             output(i, j) += bias(0, j);
         }
     }
-    
+
     return output;
 }
 ```
 
 **Gradient Computation:**
+
 ```cpp
 Matrix LanguageModelHead::backward(const Matrix& grad_output) {
     // grad_output: [seq_len, vocab_size]
-    
+
     // Gradient w.r.t. W_output: input^T * grad_output
     Matrix grad_W = cached_input.transpose() * grad_output;
-    
+
     // Accumulate
     for (int i = 0; i < W_output_grad.rows; ++i) {
         for (int j = 0; j < W_output_grad.cols; ++j) {
             W_output_grad(i, j) += grad_W(i, j);
         }
     }
-    
+
     // Gradient w.r.t. bias: sum over batch
     for (int j = 0; j < bias_grad.cols; ++j) {
         float sum = 0.0f;
@@ -490,10 +495,10 @@ Matrix LanguageModelHead::backward(const Matrix& grad_output) {
         }
         bias_grad(0, j) += sum;
     }
-    
+
     // Gradient w.r.t. input
     Matrix grad_input = grad_output * W_output.transpose();
-    
+
     return grad_input;
 }
 ```
@@ -501,27 +506,28 @@ Matrix LanguageModelHead::backward(const Matrix& grad_output) {
 ### LLMDecoder
 
 **Constructor Pattern:**
+
 ```cpp
 LLMDecoder::LLMDecoder(int vocab_size, int d_model, int num_layers,
                        int num_heads, int d_ff, int max_seq_length)
     : vocab_size(vocab_size), d_model(d_model), num_layers(num_layers),
       num_heads(num_heads), d_ff(d_ff), max_seq_length(max_seq_length),
       requires_grad(false), learning_rate(0.001f) {
-    
+
     // Initialize components
     tokenizer = std::make_unique<BPETokenizer>();
     token_embedding = std::make_unique<TokenEmbedding>(vocab_size, d_model);
     positional_encoding = std::make_unique<PositionalEncoding>(max_seq_length, d_model);
     final_norm = std::make_unique<LayerNorm>(d_model);
     lm_head = std::make_unique<LanguageModelHead>(d_model, vocab_size);
-    
+
     // Initialize decoder blocks
     for (int i = 0; i < num_layers; ++i) {
         decoder_blocks.push_back(
             std::make_unique<DecoderBlock>(d_model, num_heads, d_ff)
         );
     }
-    
+
     std::cout << "LLM Decoder initialized with:" << std::endl;
     std::cout << "  Vocab size: " << vocab_size << std::endl;
     std::cout << "  Model dimension: " << d_model << std::endl;
@@ -532,36 +538,37 @@ LLMDecoder::LLMDecoder(int vocab_size, int d_model, int num_layers,
 ### TextGenerator
 
 **Greedy Generation:**
+
 ```cpp
-std::string TextGenerator::generate_greedy(const std::string& prompt, 
+std::string TextGenerator::generate_greedy(const std::string& prompt,
                                           int max_length) {
     // Encode input
     Matrix encoder_output = encoder->encode(prompt);
-    
+
     // Initialize with BOS token
     std::vector<int> generated_tokens = {bos_token_id};
-    
+
     for (int step = 0; step < max_length; ++step) {
         // Get next token logits
         std::vector<float> logits = decoder->generate_next_token_logits(
             generated_tokens, encoder_output
         );
-        
+
         // Find argmax (greedy)
         int next_token = std::distance(
             logits.begin(),
             std::max_element(logits.begin(), logits.end())
         );
-        
+
         // Append token
         generated_tokens.push_back(next_token);
-        
+
         // Stop if EOS
         if (next_token == eos_token_id) {
             break;
         }
     }
-    
+
     // Decode to text
     return decoder->get_tokenizer()->decode(generated_tokens);
 }
@@ -583,10 +590,10 @@ protected:
         d_model = 64;
         num_heads = 4;
         d_ff = 256;
-        
+
         decoder_block = std::make_unique<DecoderBlock>(d_model, num_heads, d_ff);
     }
-    
+
     int d_model;
     int num_heads;
     int d_ff;
@@ -597,14 +604,14 @@ TEST_F(DecoderBlockTest, ForwardPassShapeCorrect) {
     int seq_len = 10;
     Matrix input(seq_len, d_model);
     input.randomize(0.1f);
-    
+
     Matrix encoder_output(15, d_model);  // Different length
     encoder_output.randomize(0.1f);
-    
+
     Matrix causal_mask = create_causal_mask(seq_len);
-    
+
     Matrix output = decoder_block->forward(input, encoder_output, causal_mask);
-    
+
     EXPECT_EQ(output.rows, seq_len);
     EXPECT_EQ(output.cols, d_model);
 }
@@ -614,24 +621,24 @@ TEST_F(DecoderBlockTest, BackwardGradientCheck) {
     int seq_len = 5;
     Matrix input(seq_len, d_model);
     input.randomize(0.1f);
-    
+
     Matrix encoder_output(8, d_model);
     encoder_output.randomize(0.1f);
-    
+
     Matrix causal_mask = create_causal_mask(seq_len);
-    
+
     // Forward
     Matrix output = decoder_block->forward(input, encoder_output, causal_mask);
-    
+
     // Backward
     Matrix grad_output(seq_len, d_model);
     grad_output.fill(1.0f);  // All ones
-    
+
     Matrix grad_input = decoder_block->backward(grad_output);
-    
+
     EXPECT_EQ(grad_input.rows, seq_len);
     EXPECT_EQ(grad_input.cols, d_model);
-    
+
     // Check gradient is not all zeros
     float grad_sum = grad_input.sum();
     EXPECT_NE(grad_sum, 0.0f);
@@ -716,7 +723,7 @@ DecoderBlock::DecoderBlock(int d_model, int num_heads, int d_ff) {
 }
 
 // ✅ CORRECT
-DecoderBlock::DecoderBlock(int d_model, int num_heads, int d_ff) 
+DecoderBlock::DecoderBlock(int d_model, int num_heads, int d_ff)
     : learning_rate(0.001f) {
     self_attention = std::make_unique<MultiHeadAttention>(d_model, num_heads);
     self_attention->learning_rate = learning_rate;  // Propagate learning rate
@@ -784,8 +791,8 @@ void update_weights() {
 
 ---
 
-**Document Version:** 1.0  
-**Last Updated:** January 18, 2026  
+**Document Version:** 1.0
+**Last Updated:** January 18, 2026
 **Related:** DECODER_DESIGN.md, DECODER_DESIGN_SUMMARY.md
 
 
@@ -821,6 +828,7 @@ The enhanced save function now stores:
 4. **BPE Merges**: All merge rules in order (critical for tokenization)
 
 **Special Character Escaping:**
+
 - Space → `\s`
 - Newline → `\n`
 - Tab → `\t`
@@ -828,7 +836,8 @@ The enhanced save function now stores:
 - Backslash → `\\`
 
 **File Format:**
-```
+
+```text
 # BPE Tokenizer Vocabulary v1.0
 VOCAB_SIZE <size>
 SPECIAL_TOKENS
@@ -851,13 +860,14 @@ The enhanced load function:
 1. **Clears existing state**: vocab, inverse_vocab, bpe_merges, special_tokens
 2. **Parses sections**: Identifies and processes each file section
 3. **Unescapes tokens**: Converts escape sequences back to original characters
-4. **Rebuilds all structures**: 
+4. **Rebuilds all structures**:
    - Vocabulary mappings
    - Inverse vocabulary
    - Special tokens set
    - BPE merge rules (in original order)
 
 **Section Processing:**
+
 - Skips comments and empty lines
 - Reads special token IDs
 - Rebuilds vocabulary and inverse vocabulary
@@ -912,7 +922,7 @@ auto ids = tokenizer.encode("Hello, world!");
 
 ### Validation Results
 
-```
+```text
 Original tokenizer: "Hello, this is a fascinating test of tokenization!"
 Loaded tokenizer:   "Hello, this is a fascinating test of tokenization!"
 
@@ -924,6 +934,7 @@ Decoded text matches: YES
 ## Conclusion
 
 The save/load functionality is fully implemented, tested, and working correctly. The tokenizer can now:
+
 - Save complete state to disk
 - Load and restore exact behavior
 - Handle all special characters properly

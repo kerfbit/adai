@@ -8,17 +8,20 @@ Thank you for your interest in contributing to the Advanced Deep Learning AI (AD
 - **[Building Guide](docs/guides/building.md)** - Build instructions and troubleshooting
 - **[Git Workflow](docs/guides/git-workflow.md)** - Branching strategy and commit conventions
 - **[CI/CD Documentation](docs/guides/ci-cd.md)** - Automated testing and deployment
-- **[Technical Debt Tracker](TECHNICAL_DEBT.md)** - Known issues and improvements
+- **[Technical Debt Tracker](docs/guides/TECHNICAL_DEBT.md)** - Known issues and improvements
+- **[Troubleshooting](docs/guides/troubleshooting/)** - Common issues and fixes
 
 ## Getting Started
 
 1. **Fork and Clone**
+
    ```bash
    git fork https://github.com/rjv717/adai.git
    cd adai
    ```
 
 2. **Build**
+
    ```bash
    mkdir build && cd build
    cmake ..
@@ -26,6 +29,7 @@ Thank you for your interest in contributing to the Advanced Deep Learning AI (AD
    ```
 
 3. **Run Tests**
+
    ```bash
    ctest --output-on-failure
    ```
@@ -52,7 +56,8 @@ Thank you for your interest in contributing to the Advanced Deep Learning AI (AD
 ## Commit Message Format
 
 Use conventional commits:
-```
+
+```text
 <type>(<scope>): <subject>
 
 <body>
@@ -63,7 +68,8 @@ Use conventional commits:
 **Types:** feat, fix, docs, style, refactor, test, chore
 
 **Example:**
-```
+
+```text
 feat(decoder): Add beam search generation
 
 Implement beam search decoding algorithm for improved

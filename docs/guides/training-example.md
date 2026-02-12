@@ -20,7 +20,7 @@ The encoder now supports full backpropagation through all components, enabling f
 #include "encoder.hpp"
 
 // Initialize encoder
-LLMEncoder encoder(vocab_size, d_model=256, num_layers=4, 
+LLMEncoder encoder(vocab_size, d_model=256, num_layers=4,
                    num_heads=8, d_ff=1024, max_seq_length=512);
 
 // Load or build tokenizer
@@ -40,22 +40,22 @@ for (int epoch = 0; epoch < num_epochs; epoch++) {
         // Zero gradients
         encoder.zero_grad();
         classifier.zero_grad();
-        
+
         // Forward pass through encoder
         Matrix sentence_emb = encoder.get_sentence_embedding_trainable(text);
-        
+
         // Forward pass through classifier
         std::vector<float> logits = classifier.forward(sentence_emb);
-        
+
         // Compute loss (cross-entropy)
         float loss = compute_cross_entropy_loss(logits, label);
-        
+
         // Backward pass through classifier
         Matrix grad_sentence_emb = classifier.backward(loss_gradient);
-        
+
         // Backward pass through encoder
         encoder.backward_sentence_embedding(grad_sentence_emb);
-        
+
         // Weights are updated automatically during backward passes
     }
 }
@@ -70,19 +70,19 @@ for (int epoch = 0; epoch < num_epochs; epoch++) {
         // Zero gradients
         encoder.zero_grad();
         token_classifier.zero_grad();
-        
+
         // Forward pass through encoder (returns seq_len x d_model)
         Matrix token_embeddings = encoder.encode(text);
-        
+
         // Forward pass through token classifier
         Matrix logits = token_classifier.forward(token_embeddings);
-        
+
         // Compute loss
         Matrix loss_grad = compute_token_loss_gradient(logits, token_labels);
-        
+
         // Backward pass through classifier
         Matrix grad_embeddings = token_classifier.backward(loss_grad);
-        
+
         // Backward pass through encoder
         encoder.backward(grad_embeddings);
     }
@@ -92,6 +92,7 @@ for (int epoch = 0; epoch < num_epochs; epoch++) {
 ## Component-Level Gradient Flow
 
 ### Matrix Operations
+
 ```cpp
 Matrix A, B, grad_output;
 
@@ -104,6 +105,7 @@ Matrix grad_B = A.transpose() * grad_output;
 ```
 
 ### Layer Normalization
+
 ```cpp
 LayerNorm norm(d_model);
 
@@ -116,6 +118,7 @@ Matrix grad_input = norm.backward(grad_output);
 ```
 
 ### Multi-Head Attention
+
 ```cpp
 MultiHeadAttention attn(d_model, num_heads);
 
@@ -128,6 +131,7 @@ Matrix grad_input = attn.backward(grad_output);
 ```
 
 ### Feed-Forward Network
+
 ```cpp
 FeedForward ff(d_model, d_ff);
 
@@ -142,26 +146,34 @@ Matrix grad_input = ff.backward(grad_output);
 ## Key Features
 
 ### 1. Activation Caching
+
 Forward passes automatically cache intermediate values needed for backpropagation:
+
 - Input values
 - Normalized outputs
 - Attention weights
 - Activated values (before/after GELU)
 
 ### 2. Gradient Accumulation
+
 Each component maintains gradient matrices:
+
 - `W_*_grad` for weight matrices
 - `b_*_grad` for biases
 - `embedding_grad` for token embeddings
 
 ### 3. Automatic Weight Updates
+
 During `backward()`, weights are updated using:
+
 ```cpp
 W = W - learning_rate * grad_W
 ```
 
 ### 4. Residual Connection Gradients
+
 EncoderBlock properly handles gradient flow through residual connections:
+
 ```cpp
 // Forward: output = x + f(x)
 // Backward: grad_x = grad_output + grad_from_f
@@ -192,12 +204,12 @@ for (int i = 0; i < rows; i++) {
         // Perturb weight
         W(i, j) += epsilon;
         float loss_plus = forward_and_compute_loss();
-        
+
         W(i, j) -= 2 * epsilon;
         float loss_minus = forward_and_compute_loss();
-        
+
         W(i, j) += epsilon; // Restore
-        
+
         numerical_grad(i, j) = (loss_plus - loss_minus) / (2 * epsilon);
     }
 }
@@ -227,6 +239,7 @@ void clip_gradients(float max_norm) {
 ## Common Training Patterns
 
 ### Fine-tuning for Sentiment Analysis
+
 ```cpp
 encoder.set_requires_grad(true);
 encoder.set_learning_rate(0.0001f); // Lower LR for fine-tuning
@@ -239,6 +252,7 @@ for (auto& [text, sentiment] : sentiment_dataset) {
 ```
 
 ### Feature Extraction (Frozen Encoder)
+
 ```cpp
 encoder.set_requires_grad(false); // Freeze encoder
 
@@ -249,6 +263,7 @@ for (auto& [text, label] : dataset) {
 ```
 
 ### Gradual Unfreezing
+
 ```cpp
 // Epoch 1-5: Train only classifier
 encoder.set_requires_grad(false);
@@ -270,31 +285,31 @@ class SentimentClassifier {
 private:
     LLMEncoder encoder;
     NeuralNetwork classifier;
-    
+
 public:
     SentimentClassifier(/* params */) {
         encoder = LLMEncoder(vocab_size, d_model, ...);
-        
+
         // Build classifier on top of encoder
         std::vector<int> layers = {d_model, 128, 64, 3}; // 3 classes
         classifier = NeuralNetwork(layers);
-        
+
         encoder.set_requires_grad(true);
     }
-    
+
     void train(const std::vector<std::pair<std::string, int>>& data) {
         for (auto& [text, label] : data) {
             // Forward
             Matrix emb = encoder.get_sentence_embedding_trainable(text);
             std::vector<float> emb_vec = matrix_to_vector(emb);
             std::vector<float> logits = classifier.forward(emb_vec);
-            
+
             // Compute loss
             auto loss_info = compute_loss(logits, label);
-            
+
             // Backward through classifier
             classifier.backward(loss_info.gradient);
-            
+
             // Backward through encoder
             Matrix grad_emb = vector_to_matrix(classifier.get_input_gradient());
             encoder.backward_sentence_embedding(grad_emb);
@@ -306,21 +321,24 @@ public:
 ## Mathematical Foundations
 
 ### Attention Gradient Flow
-```
+
+```text
 ∂L/∂Q = ∂L/∂Attention × softmax'(QK^T/√d_k) × K
 ∂L/∂K = ∂L/∂Attention × softmax'(QK^T/√d_k)^T × Q
 ∂L/∂V = ∂L/∂Attention × Attention_weights^T
 ```
 
 ### Layer Norm Gradients
-```
+
+```text
 ∂L/∂x = γ/σ × (∂L/∂y - mean(∂L/∂y) - (x-μ)/σ² × mean(∂L/∂y × (x-μ)))
 ∂L/∂γ = Σ(∂L/∂y × (x-μ)/σ)
 ∂L/∂β = Σ(∂L/∂y)
 ```
 
 ### GELU Derivative
-```
+
+```text
 GELU(x) = x × Φ(x)  where Φ is standard normal CDF
 GELU'(x) = Φ(x) + x × φ(x)  where φ is standard normal PDF
 

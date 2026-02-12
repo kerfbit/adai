@@ -7,6 +7,7 @@ The `LLMEncoder` class implements a transformer-based encoder architecture for n
 ## Purpose
 
 The LLMEncoder is designed to:
+
 - Convert text into rich, contextualized embeddings suitable for downstream NLP tasks
 - Provide transformer-based feature extraction for chatbot applications
 - Support variable-length sequence encoding with positional information
@@ -18,7 +19,7 @@ The LLMEncoder is designed to:
 
 ### Component Hierarchy
 
-```
+```text
 LLMEncoder
 ├── BPETokenizer (text → token IDs)
 ├── TokenEmbedding (token IDs → dense vectors)
@@ -33,7 +34,7 @@ LLMEncoder
 
 ### Information Flow
 
-```
+```text
 Input Text
     ↓
 BPE Tokenization → [token_1, token_2, ..., token_n]
@@ -66,17 +67,17 @@ class Matrix {
 public:
     std::vector<std::vector<float>> data;
     int rows, cols;
-    
+
     // Constructors
     Matrix(int r, int c);
     Matrix(const std::vector<std::vector<float>>& d);
-    
+
     // Operators
     float& operator()(int i, int j);
     const float& operator()(int i, int j) const;
     Matrix operator*(const Matrix& other) const;  // Matrix multiplication
     Matrix operator+(const Matrix& other) const;  // Element-wise addition
-    
+
     // Operations
     Matrix transpose() const;
     void randomize(float scale = 0.1f);
@@ -85,6 +86,7 @@ public:
 ```
 
 **Issues & Improvements:**
+
 - No move semantics (performance issue with large matrices)
 - No SIMD optimizations for matrix operations
 - Memory layout not optimized for cache coherency
@@ -97,13 +99,14 @@ class Activation {
 public:
     // Softmax activation (used in attention)
     static Matrix softmax(const Matrix& input);
-    
+
     // GELU activation (used in feed-forward)
     static Matrix gelu(const Matrix& input);
 };
 ```
 
 **Formula:**
+
 - **Softmax**: `softmax(x_i) = exp(x_i - max(x)) / Σ exp(x_j - max(x))`
 - **GELU**: `gelu(x) = 0.5 * x * (1 + tanh(√(2/π) * (x + 0.044715 * x³)))`
 
@@ -114,7 +117,7 @@ class LayerNorm {
 private:
     Matrix gamma, beta;  // Learnable parameters
     float eps;           // Small constant for numerical stability
-    
+
 public:
     LayerNorm(int dim, float epsilon = 1e-5f);
     Matrix forward(const Matrix& input);
@@ -122,7 +125,8 @@ public:
 ```
 
 **Formula:**
-```
+
+```text
 mean = (1/d) * Σ x_i
 var = (1/d) * Σ (x_i - mean)²
 output = gamma * ((x - mean) / √(var + ε)) + beta
@@ -134,7 +138,7 @@ output = gamma * ((x - mean) / √(var + ε)) + beta
 class PositionalEncoding {
 private:
     Matrix pos_encoding;  // Pre-computed positional encodings
-    
+
 public:
     PositionalEncoding(int max_len, int d_model);
     Matrix forward(const Matrix& input);
@@ -142,7 +146,8 @@ public:
 ```
 
 **Formula (Sinusoidal):**
-```
+
+```text
 PE(pos, 2i) = sin(pos / 10000^(2i/d_model))
 PE(pos, 2i+1) = cos(pos / 10000^(2i/d_model))
 ```
@@ -155,7 +160,7 @@ private:
     Matrix embedding_matrix;  // [vocab_size, d_model]
     int vocab_size;
     int d_model;
-    
+
 public:
     TokenEmbedding(int vocab_size, int d_model);
     Matrix forward(const std::vector<int>& token_ids);
@@ -174,7 +179,7 @@ private:
     int num_heads;    // Number of attention heads
     int d_k;          // Dimension per head (d_model / num_heads)
     Matrix W_q, W_k, W_v, W_o;  // Weight matrices
-    
+
 public:
     MultiHeadAttention(int d_model, int num_heads);
     Matrix forward(const Matrix& input, const Matrix* mask = nullptr);
@@ -182,7 +187,8 @@ public:
 ```
 
 **Formula (Scaled Dot-Product Attention):**
-```
+
+```text
 Q = input * W_q
 K = input * W_k
 V = input * W_v
@@ -202,7 +208,7 @@ private:
     Matrix W1, W2;    // Weight matrices
     Matrix b1, b2;    // Bias vectors
     int d_model, d_ff;
-    
+
 public:
     FeedForward(int d_model, int d_ff);
     Matrix forward(const Matrix& input);
@@ -210,7 +216,8 @@ public:
 ```
 
 **Formula:**
-```
+
+```text
 hidden = GELU(input * W1 + b1)
 output = hidden * W2 + b2
 ```
@@ -225,7 +232,7 @@ private:
     std::unique_ptr<LayerNorm> norm1;
     std::unique_ptr<LayerNorm> norm2;
     float dropout_rate;
-    
+
 public:
     EncoderBlock(int d_model, int num_heads, int d_ff, float dropout = 0.1f);
     Matrix forward(const Matrix& input, const Matrix* mask = nullptr);
@@ -233,7 +240,8 @@ public:
 ```
 
 **Forward Pass:**
-```
+
+```text
 x1 = LayerNorm(x + MultiHeadAttention(x))
 x2 = LayerNorm(x1 + FeedForward(x1))
 ```
@@ -248,30 +256,30 @@ private:
     std::unique_ptr<PositionalEncoding> positional_encoding;
     std::vector<std::unique_ptr<EncoderBlock>> encoder_blocks;
     std::unique_ptr<LayerNorm> final_norm;
-    
+
     int vocab_size;
     int d_model;
     int num_layers;
     int num_heads;
     int d_ff;
     int max_seq_length;
-    
+
 public:
     // Constructor
     LLMEncoder(int vocab_size, int d_model = 512, int num_layers = 6,
                int num_heads = 8, int d_ff = 2048, int max_seq_length = 512);
-    
+
     // Encoding methods
     Matrix encode(const std::string& text);
-    Matrix encode_with_mask(const std::vector<int>& token_ids, 
+    Matrix encode_with_mask(const std::vector<int>& token_ids,
                            const Matrix& attention_mask);
     std::vector<float> get_sentence_embedding(const std::string& text);
-    
+
     // Tokenizer management
     void load_tokenizer_vocab(const std::string& vocab_file);
-    void build_tokenizer(const std::vector<std::string>& corpus, 
+    void build_tokenizer(const std::vector<std::string>& corpus,
                         int vocab_size = 10000);
-    
+
     // Utilities
     void print_config() const;
     int get_embedding_dim() const;
@@ -296,35 +304,35 @@ class TextClassifier {
 private:
     LLMEncoder encoder;
     NeuralNetwork classifier;
-    
+
 public:
     TextClassifier(int vocab_size, int num_classes)
         : encoder(vocab_size, 256, 4, 8, 1024, 128),
           classifier({256, 128, 64, num_classes},
-                    {ActivationType::RELU, ActivationType::RELU, 
+                    {ActivationType::RELU, ActivationType::RELU,
                      ActivationType::LINEAR},
                     LossType::CATEGORICAL_CROSS_ENTROPY, 0.001f) {
         classifier.initialize_he();
     }
-    
+
     std::vector<float> classify(const std::string& text) {
         // Get sentence embedding from encoder
         auto features = encoder.get_sentence_embedding(text);
-        
+
         // Classify using neural network
         return classifier.predict(features);
     }
-    
+
     void train(const std::vector<std::string>& texts,
               const std::vector<std::vector<float>>& labels,
               int epochs = 50) {
-        
+
         // Encode all texts to features
         std::vector<std::vector<float>> features;
         for (const auto& text : texts) {
             features.push_back(encoder.get_sentence_embedding(text));
         }
-        
+
         // Train classifier
         classifier.fit(features, labels, epochs, 32);
     }
@@ -342,26 +350,26 @@ public:
     // Process multiple texts in parallel
     std::vector<std::vector<float>> get_batch_sentence_embeddings(
         const std::vector<std::string>& texts) {
-        
+
         std::vector<std::vector<float>> embeddings;
         embeddings.reserve(texts.size());
-        
+
         for (const auto& text : texts) {
             embeddings.push_back(get_sentence_embedding(text));
         }
-        
+
         return embeddings;
     }
-    
+
     // Get token-level embeddings for sequence tasks
     std::vector<Matrix> encode_batch(const std::vector<std::string>& texts) {
         std::vector<Matrix> encoded_batch;
         encoded_batch.reserve(texts.size());
-        
+
         for (const auto& text : texts) {
             encoded_batch.push_back(encode(text));
         }
-        
+
         return encoded_batch;
     }
 };
@@ -376,7 +384,7 @@ namespace EncoderUtils {
     std::vector<float> matrix_to_vector(const Matrix& mat) {
         std::vector<float> vec;
         vec.reserve(mat.rows * mat.cols);
-        
+
         for (int i = 0; i < mat.rows; i++) {
             for (int j = 0; j < mat.cols; j++) {
                 vec.push_back(mat(i, j));
@@ -384,11 +392,11 @@ namespace EncoderUtils {
         }
         return vec;
     }
-    
+
     // Max pooling over sequence dimension
     std::vector<float> max_pool(const Matrix& mat) {
         std::vector<float> pooled(mat.cols);
-        
+
         for (int j = 0; j < mat.cols; j++) {
             float max_val = mat(0, j);
             for (int i = 1; i < mat.rows; i++) {
@@ -398,12 +406,12 @@ namespace EncoderUtils {
         }
         return pooled;
     }
-    
+
     // Attention pooling with learned weights
-    std::vector<float> attention_pool(const Matrix& mat, 
+    std::vector<float> attention_pool(const Matrix& mat,
                                      const std::vector<float>& attention_weights) {
         std::vector<float> pooled(mat.cols, 0.0f);
-        
+
         for (int j = 0; j < mat.cols; j++) {
             for (int i = 0; i < mat.rows; i++) {
                 pooled[j] += mat(i, j) * attention_weights[i];
@@ -422,55 +430,55 @@ class LLMEncoder {
 private:
     std::unique_ptr<NeuralNetwork> classification_head;
     bool use_classification_head;
-    
+
 public:
     // Enable end-to-end training with classifier
-    void add_classification_head(int num_classes, 
+    void add_classification_head(int num_classes,
                                  const std::vector<int>& hidden_sizes = {128, 64}) {
-        
+
         std::vector<int> architecture = {d_model};
         architecture.insert(architecture.end(), hidden_sizes.begin(), hidden_sizes.end());
         architecture.push_back(num_classes);
-        
+
         std::vector<ActivationType> activations;
         for (size_t i = 0; i < hidden_sizes.size(); i++) {
             activations.push_back(ActivationType::RELU);
         }
         activations.push_back(ActivationType::LINEAR);
-        
+
         classification_head = std::make_unique<NeuralNetwork>(
-            architecture, activations, 
+            architecture, activations,
             LossType::CATEGORICAL_CROSS_ENTROPY, 0.001f
         );
         classification_head->initialize_he();
         use_classification_head = true;
     }
-    
+
     // Classify directly
     std::vector<float> classify(const std::string& text) {
         if (!use_classification_head) {
             throw std::runtime_error("Classification head not initialized");
         }
-        
+
         auto sentence_emb = get_sentence_embedding(text);
         return classification_head->predict(sentence_emb);
     }
-    
+
     // Train end-to-end (encoder frozen, only classifier trained)
     void train_classifier(const std::vector<std::string>& texts,
                          const std::vector<std::vector<float>>& labels,
                          int epochs = 50, int batch_size = 32) {
-        
+
         if (!use_classification_head) {
             throw std::runtime_error("Classification head not initialized");
         }
-        
+
         // Encode all texts (encoder weights frozen)
         std::vector<std::vector<float>> features;
         for (const auto& text : texts) {
             features.push_back(get_sentence_embedding(text));
         }
-        
+
         // Train only the classification head
         classification_head->fit(features, labels, epochs, batch_size);
     }
@@ -494,26 +502,26 @@ public:
     std::vector<float> get_sentence_embedding(const std::string& text,
                                               PoolingStrategy strategy = PoolingStrategy::MEAN) {
         Matrix encoded = encode(text);
-        
+
         switch (strategy) {
             case PoolingStrategy::MEAN:
                 return mean_pool(encoded);
-            
+
             case PoolingStrategy::MAX:
                 return EncoderUtils::max_pool(encoded);
-            
+
             case PoolingStrategy::CLS_TOKEN:
                 return get_row_as_vector(encoded, 0);
-            
+
             case PoolingStrategy::LAST_TOKEN:
                 return get_row_as_vector(encoded, encoded.rows - 1);
-            
+
             case PoolingStrategy::ATTENTION:
                 // Would require implementing attention pooling
                 return mean_pool(encoded);  // Fallback
         }
     }
-    
+
 private:
     std::vector<float> mean_pool(const Matrix& mat) {
         std::vector<float> pooled(d_model, 0.0f);
@@ -525,7 +533,7 @@ private:
         }
         return pooled;
     }
-    
+
     std::vector<float> get_row_as_vector(const Matrix& mat, int row) {
         std::vector<float> vec(mat.cols);
         for (int j = 0; j < mat.cols; j++) {
@@ -547,22 +555,22 @@ private:
 class LLMEncoder {
 private:
     bool requires_grad;
-    
+
 public:
     void set_requires_grad(bool grad) {
         requires_grad = grad;
     }
-    
+
     // Backward pass through encoder (simplified)
     void backward(const std::vector<float>& grad_output) {
         if (!requires_grad) return;
-        
+
         // Would need to implement:
         // 1. Store activations during forward pass
         // 2. Implement backward pass for each component
         // 3. Accumulate gradients
         // 4. Update weights
-        
+
         // This is a significant extension requiring full autograd system
     }
 };
@@ -579,11 +587,11 @@ public:
 int main() {
     // Initialize encoder
     LLMEncoder encoder(5000, 256, 4, 8, 1024, 128);
-    
+
     // Build tokenizer from corpus
     std::vector<std::string> corpus = load_training_texts();
     encoder.build_tokenizer(corpus, 5000);
-    
+
     // Create sentiment classifier (positive/negative)
     NeuralNetwork classifier(
         {256, 128, 2},  // Input: encoder output, Output: 2 classes
@@ -592,7 +600,7 @@ int main() {
         0.001f
     );
     classifier.initialize_he();
-    
+
     // Prepare training data
     std::vector<std::string> train_texts = {
         "This movie was absolutely fantastic!",
@@ -600,31 +608,31 @@ int main() {
         "Great product, highly recommend!",
         // ... more examples
     };
-    
+
     std::vector<std::vector<float>> train_labels = {
         {1.0f, 0.0f},  // Positive
         {0.0f, 1.0f},  // Negative
         {1.0f, 0.0f},  // Positive
         // ... more labels
     };
-    
+
     // Extract features using encoder
     std::vector<std::vector<float>> features;
     for (const auto& text : train_texts) {
         features.push_back(encoder.get_sentence_embedding(text));
     }
-    
+
     // Train classifier
     classifier.fit(features, train_labels, 100, 16);
-    
+
     // Test on new text
     std::string test_text = "Amazing quality and fast shipping!";
     auto test_features = encoder.get_sentence_embedding(test_text);
     auto prediction = classifier.predict(test_features);
-    
+
     std::cout << "Positive: " << prediction[0] << std::endl;
     std::cout << "Negative: " << prediction[1] << std::endl;
-    
+
     return 0;
 }
 ```
@@ -647,25 +655,25 @@ class IntentClassifier {
 private:
     LLMEncoder encoder;
     NeuralNetwork classifier;
-    
+
 public:
     IntentClassifier()
         : encoder(5000, 256, 4, 8, 1024, 128),
           classifier({256, 128, 64, 5},
-                    {ActivationType::RELU, ActivationType::RELU, 
+                    {ActivationType::RELU, ActivationType::RELU,
                      ActivationType::LINEAR},
                     LossType::CATEGORICAL_CROSS_ENTROPY, 0.001f) {
         classifier.initialize_he();
     }
-    
+
     void load_tokenizer(const std::string& vocab_file) {
         encoder.load_tokenizer_vocab(vocab_file);
     }
-    
+
     Intent classify_intent(const std::string& user_message) {
         auto features = encoder.get_sentence_embedding(user_message);
         auto probabilities = classifier.predict(features);
-        
+
         // Find intent with highest probability
         int max_idx = 0;
         for (int i = 1; i < probabilities.size(); i++) {
@@ -673,28 +681,28 @@ public:
                 max_idx = i;
             }
         }
-        
+
         return static_cast<Intent>(max_idx);
     }
-    
+
     void train(const std::vector<std::string>& messages,
               const std::vector<Intent>& intents,
               int epochs = 100) {
-        
+
         // Convert to training format
         std::vector<std::vector<float>> features;
         std::vector<std::vector<float>> labels;
-        
+
         for (size_t i = 0; i < messages.size(); i++) {
             // Extract features
             features.push_back(encoder.get_sentence_embedding(messages[i]));
-            
+
             // One-hot encode intent
             std::vector<float> label(5, 0.0f);
             label[static_cast<int>(intents[i])] = 1.0f;
             labels.push_back(label);
         }
-        
+
         // Train
         classifier.fit(features, labels, epochs, 32);
     }
@@ -712,60 +720,60 @@ private:
     LLMEncoder encoder;
     std::vector<std::string> documents;
     std::vector<std::vector<float>> doc_embeddings;
-    
+
 public:
     SemanticSearch(int vocab_size = 5000)
         : encoder(vocab_size, 256, 4, 8, 1024, 128) {}
-    
+
     void build_index(const std::vector<std::string>& docs,
                     const std::string& vocab_file) {
         encoder.load_tokenizer_vocab(vocab_file);
-        
+
         documents = docs;
         doc_embeddings.clear();
-        
+
         for (const auto& doc : documents) {
             doc_embeddings.push_back(
                 encoder.get_sentence_embedding(doc)
             );
         }
     }
-    
+
     std::vector<int> search(const std::string& query, int top_k = 5) {
         auto query_emb = encoder.get_sentence_embedding(query);
-        
+
         // Compute cosine similarity with all documents
         std::vector<std::pair<float, int>> similarities;
-        
+
         for (size_t i = 0; i < doc_embeddings.size(); i++) {
             float sim = cosine_similarity(query_emb, doc_embeddings[i]);
             similarities.push_back({sim, i});
         }
-        
+
         // Sort by similarity (descending)
         std::sort(similarities.begin(), similarities.end(),
                  [](const auto& a, const auto& b) { return a.first > b.first; });
-        
+
         // Return top-k document indices
         std::vector<int> results;
         for (int i = 0; i < std::min(top_k, (int)similarities.size()); i++) {
             results.push_back(similarities[i].second);
         }
-        
+
         return results;
     }
-    
+
 private:
     float cosine_similarity(const std::vector<float>& a,
                            const std::vector<float>& b) {
         float dot = 0.0f, norm_a = 0.0f, norm_b = 0.0f;
-        
+
         for (size_t i = 0; i < a.size(); i++) {
             dot += a[i] * b[i];
             norm_a += a[i] * a[i];
             norm_b += b[i] * b[i];
         }
-        
+
         return dot / (std::sqrt(norm_a) * std::sqrt(norm_b) + 1e-8f);
     }
 };
@@ -809,20 +817,20 @@ public:
     std::vector<Matrix> encode_batch(
         const std::vector<std::vector<int>>& token_ids_batch,
         int max_len) {
-        
+
         // Pad sequences to same length
         std::vector<std::vector<int>> padded_batch = pad_sequences(
             token_ids_batch, max_len
         );
-        
+
         // Process in parallel
         std::vector<Matrix> results(padded_batch.size());
-        
+
         #pragma omp parallel for
         for (size_t i = 0; i < padded_batch.size(); i++) {
             results[i] = encode_sequence(padded_batch[i]);
         }
-        
+
         return results;
     }
 };
@@ -835,7 +843,7 @@ public:
 class CachedAttention {
 private:
     std::unordered_map<std::string, std::pair<Matrix, Matrix>> kv_cache;
-    
+
 public:
     Matrix forward_with_cache(const Matrix& input, const std::string& cache_key) {
         if (kv_cache.find(cache_key) != kv_cache.end()) {
@@ -859,31 +867,31 @@ public:
 class FeatureExtractor {
 private:
     LLMEncoder encoder;
-    
+
 public:
     // Extract features for classification
     std::vector<std::vector<float>> extract_for_classification(
         const std::vector<std::string>& texts) {
-        
+
         std::vector<std::vector<float>> features;
         features.reserve(texts.size());
-        
+
         for (const auto& text : texts) {
             features.push_back(encoder.get_sentence_embedding(text));
         }
-        
+
         return features;
     }
-    
+
     // Extract features for sequence labeling
     std::vector<std::vector<std::vector<float>>> extract_for_sequence_labeling(
         const std::vector<std::string>& texts) {
-        
+
         std::vector<std::vector<std::vector<float>>> features;
-        
+
         for (const auto& text : texts) {
             Matrix encoded = encoder.encode(text);
-            
+
             // Convert matrix to vector of vectors
             std::vector<std::vector<float>> seq_features;
             for (int i = 0; i < encoded.rows; i++) {
@@ -895,7 +903,7 @@ public:
             }
             features.push_back(seq_features);
         }
-        
+
         return features;
     }
 };
@@ -909,26 +917,26 @@ class EncoderClassifierPipeline {
 private:
     LLMEncoder encoder;
     NeuralNetwork classifier;
-    
+
 public:
     void save(const std::string& model_dir) {
         // Save encoder weights
         encoder.save_weights(model_dir + "/encoder_weights.bin");
-        
+
         // Save classifier
         classifier.save(model_dir + "/classifier.nn");
-        
+
         // Save metadata
         std::ofstream meta(model_dir + "/metadata.txt");
         meta << "encoder_dim: " << encoder.get_embedding_dim() << "\n";
         meta << "num_classes: " << classifier.get_layer_sizes().back() << "\n";
         meta.close();
     }
-    
+
     void load(const std::string& model_dir) {
         // Load encoder weights
         encoder.load_weights(model_dir + "/encoder_weights.bin");
-        
+
         // Load classifier
         classifier.load(model_dir + "/classifier.nn");
     }
@@ -945,46 +953,47 @@ public:
 void train_with_optimizer() {
     // Create encoder
     LLMEncoder encoder(vocab_size, d_model, num_layers, num_heads, d_ff);
-    
+
     // Create and configure optimizer
     Optimizer optimizer(OptimizerType::ADAMW, 0.001f);
     optimizer.set_betas(0.9f, 0.999f);
     optimizer.set_weight_decay(0.01f);
     optimizer.set_max_grad_norm(1.0f);
-    
+
     // Register all encoder parameters with optimizer
     encoder.register_parameters_with_optimizer(optimizer);
-    
+
     // Training loop
     for (int epoch = 0; epoch < num_epochs; ++epoch) {
         float epoch_loss = 0.0f;
-        
+
         for (auto& batch : training_data) {
             // Zero gradients
             optimizer.zero_grad();
-            
+
             // Forward pass
             Matrix embeddings = encoder.encode(batch.text);
             float loss = compute_task_loss(embeddings, batch.labels);
-            
+
             // Backward pass
             Matrix grad_output = compute_gradient(embeddings, batch.labels);
             encoder.backward(grad_output);
-            
+
             // Clip gradients and update
             float grad_norm = optimizer.clip_gradients();
             optimizer.step();
-            
+
             epoch_loss += loss;
         }
-        
-        std::cout << "Epoch " << epoch 
+
+        std::cout << "Epoch " << epoch
                   << " Loss: " << epoch_loss / training_data.size() << std::endl;
     }
 }
 ```
 
 **Benefits of Optimizer Integration**:
+
 - **Adaptive Learning Rates**: Adam/AdamW automatically adjust per-parameter learning rates
 - **Gradient Clipping**: Prevents exploding gradients in deep networks
 - **Weight Decay**: L2 regularization for better generalization
@@ -998,34 +1007,34 @@ class TextPreprocessor {
 public:
     static std::string clean_text(const std::string& text) {
         std::string cleaned = text;
-        
+
         // Remove extra whitespace
         cleaned = std::regex_replace(cleaned, std::regex("\\s+"), " ");
-        
+
         // Trim
         cleaned.erase(0, cleaned.find_first_not_of(" \t\n\r"));
         cleaned.erase(cleaned.find_last_not_of(" \t\n\r") + 1);
-        
+
         return cleaned;
     }
-    
+
     static std::vector<std::string> prepare_batch(
         const std::vector<std::string>& texts,
         int max_length = 512) {
-        
+
         std::vector<std::string> prepared;
-        
+
         for (const auto& text : texts) {
             std::string cleaned = clean_text(text);
-            
+
             // Truncate if too long
             if (cleaned.length() > max_length) {
                 cleaned = cleaned.substr(0, max_length);
             }
-            
+
             prepared.push_back(cleaned);
         }
-        
+
         return prepared;
     }
 };
@@ -1041,26 +1050,26 @@ public:
 
 void test_encoder_dimensions() {
     LLMEncoder encoder(1000, 128, 2, 4, 512, 64);
-    
+
     std::string test_text = "Hello world";
     auto embedding = encoder.get_sentence_embedding(test_text);
-    
+
     assert(embedding.size() == 128);  // Should match d_model
     std::cout << "✓ Dimension test passed" << std::endl;
 }
 
 void test_encoder_consistency() {
     LLMEncoder encoder(1000, 128, 2, 4, 512, 64);
-    
+
     std::string text = "Test consistency";
     auto emb1 = encoder.get_sentence_embedding(text);
     auto emb2 = encoder.get_sentence_embedding(text);
-    
+
     // Same input should give same output
     for (size_t i = 0; i < emb1.size(); i++) {
         assert(std::abs(emb1[i] - emb2[i]) < 1e-6f);
     }
-    
+
     std::cout << "✓ Consistency test passed" << std::endl;
 }
 
@@ -1069,11 +1078,11 @@ void test_integration_with_neural_network() {
     NeuralNetwork classifier({128, 64, 3},
                             {ActivationType::RELU, ActivationType::LINEAR},
                             LossType::CATEGORICAL_CROSS_ENTROPY);
-    
+
     std::string text = "Integration test";
     auto features = encoder.get_sentence_embedding(text);
     auto output = classifier.predict(features);
-    
+
     assert(output.size() == 3);  // Should match output layer size
     std::cout << "✓ Integration test passed" << std::endl;
 }
@@ -1095,7 +1104,7 @@ class LLMEncoderDecoder {
 private:
     LLMEncoder encoder;
     // Add decoder components
-    
+
 public:
     std::string generate_response(const std::string& input) {
         // Encode input
@@ -1243,7 +1252,7 @@ The encoder implements a full transformer encoder stack with the following compo
 
 ### Architecture Diagram
 
-```
+```text
 Input Text
     ↓
 Tokenizer (BPE)
@@ -1292,7 +1301,7 @@ Contextualized Embeddings
 ## Configuration Parameters
 
 | Parameter | Default | Description |
-|-----------|---------|-------------|
+| ----------- | --------- | ------------- |
 | `vocab_size` | 5000 | Size of the vocabulary |
 | `d_model` | 512 | Dimension of embeddings and hidden states |
 | `num_layers` | 6 | Number of encoder layers |
@@ -1317,7 +1326,7 @@ int main() {
         1024,    // d_ff
         128      // max_seq_length
     );
-    
+
     // Build tokenizer from corpus
     std::vector<std::string> corpus = {
         "Hello, how can I help you?",
@@ -1325,14 +1334,14 @@ int main() {
         "What can I do for you today?"
     };
     encoder.build_tokenizer(corpus, 5000);
-    
+
     // Encode text
     std::string input = "Hello, how can I help you?";
     Matrix embeddings = encoder.encode(input);
-    
+
     // Get sentence embedding
     std::vector<float> sentence_emb = encoder.get_sentence_embedding(input);
-    
+
     return 0;
 }
 ```
@@ -1374,6 +1383,7 @@ Matrix embeddings = encoder.encode_with_mask(token_ids, mask);
 ## Building
 
 ### Prerequisites
+
 - CMake 3.10+
 - C++17 compatible compiler
 - Google Test (for testing)
@@ -1404,16 +1414,19 @@ This encoder can be used for various NLP tasks:
 ## Performance Characteristics
 
 ### Time Complexity
+
 - **Attention**: O(n²·d) where n is sequence length, d is model dimension
 - **Feed-Forward**: O(n·d·d_ff)
 - **Per Layer**: O(n²·d + n·d·d_ff)
 - **Full Model**: O(L·(n²·d + n·d·d_ff)) where L is number of layers
 
 ### Space Complexity
+
 - **Parameters**: O(V·d + L·(d² + d·d_ff)) where V is vocabulary size
 - **Activations**: O(n·d)
 
 ### Typical Performance (on modern CPU)
+
 - **Small Model** (d=256, L=4): ~10-50ms per sentence
 - **Medium Model** (d=512, L=6): ~50-200ms per sentence
 - **Large Model** (d=768, L=12): ~200-500ms per sentence
@@ -1451,21 +1464,26 @@ LLMEncoder encoder(30000, 768, 12, 12, 3072, 512);
 ## Technical Details
 
 ### Initialization Strategies
+
 - **Embeddings**: Xavier initialization - uniform(-√(6/(vocab_size + d_model)), √(6/(vocab_size + d_model)))
 - **Linear Layers**: Normal distribution N(0, √(2/d_model))
 - **Layer Norm**: gamma=1.0, beta=0.0
 
 ### Attention Mechanism
+
 The scaled dot-product attention:
-```
+
+```text
 score = (Q · K^T) / √d_k
 attention = softmax(score)
 output = attention · V
 ```
 
 ### Residual Connections
+
 Post-normalization pattern:
-```
+
+```text
 x = x + SubLayer(x)
 x = LayerNorm(x)
 ```
@@ -1483,6 +1501,7 @@ This implementation is part of the ADAI project.
 ## Contributing
 
 Contributions are welcome! Areas for improvement:
+
 - Optimizations for specific hardware
 - Additional activation functions
 - Alternative attention mechanisms

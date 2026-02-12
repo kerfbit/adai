@@ -76,9 +76,9 @@ Complete checklist of all files and tasks required to implement the decoder arch
 
 ### Phase 1 Deliverables Summary
 
-**Files:** 8 (2 headers + 2 cpp + 2 tests + 2 docs)  
-**Estimated Lines:** ~2,800  
-**Dependencies:** Existing components only  
+**Files:** 8 (2 headers + 2 cpp + 2 tests + 2 docs)
+**Estimated Lines:** ~2,800
+**Dependencies:** Existing components only
 **Duration:** 1 week
 
 ---
@@ -155,9 +155,9 @@ Complete checklist of all files and tasks required to implement the decoder arch
 
 ### Phase 2 Deliverables Summary
 
-**Files:** 6 (1 header + 1 cpp + 1 example + 2 tests + 1 doc)  
-**Estimated Lines:** ~2,650  
-**Dependencies:** Phase 1 components  
+**Files:** 6 (1 header + 1 cpp + 1 example + 2 tests + 1 doc)
+**Estimated Lines:** ~2,650
+**Dependencies:** Phase 1 components
 **Duration:** 1 week
 
 ---
@@ -228,9 +228,9 @@ Complete checklist of all files and tasks required to implement the decoder arch
 
 ### Phase 3 Deliverables Summary
 
-**Files:** 5 (1 header + 1 cpp + 1 example + 1 test + 1 doc)  
-**Estimated Lines:** ~2,120  
-**Dependencies:** Phase 2 components  
+**Files:** 5 (1 header + 1 cpp + 1 example + 1 test + 1 doc)
+**Estimated Lines:** ~2,120
+**Dependencies:** Phase 2 components
 **Duration:** 1 week
 
 ---
@@ -326,9 +326,9 @@ Complete checklist of all files and tasks required to implement the decoder arch
 
 ### Phase 4 Deliverables Summary
 
-**Files:** 9 (1 header + 1 cpp + 2 apps + 2 tests + 2 docs + 1 guide)  
-**Estimated Lines:** ~3,250  
-**Dependencies:** Phase 3 components  
+**Files:** 9 (1 header + 1 cpp + 2 apps + 2 tests + 2 docs + 1 guide)
+**Estimated Lines:** ~3,250
+**Dependencies:** Phase 3 components
 **Duration:** 1 week
 
 ---
@@ -466,7 +466,7 @@ add_test(NAME Performance COMMAND performance_test)
 ### Overall Statistics
 
 | Phase | Files | Lines | Status |
-|-------|-------|-------|--------|
+| ------- | ------- | ------- | -------- |
 | Phase 1 | 8 | ~2,800 | ⬜ Not Started |
 | Phase 2 | 6 | ~2,650 | ⬜ Not Started |
 | Phase 3 | 5 | ~2,120 | ⬜ Not Started |
@@ -476,7 +476,7 @@ add_test(NAME Performance COMMAND performance_test)
 ### Design Documentation
 
 | Document | Lines | Status |
-|----------|-------|--------|
+| ---------- | ------- | -------- |
 | DECODER_DESIGN.md | ~1000 | ✅ Complete |
 | DECODER_DESIGN_SUMMARY.md | ~500 | ✅ Complete |
 | DECODER_ARCHITECTURE_DIAGRAMS.md | ~600 | ✅ Complete |
@@ -489,6 +489,7 @@ add_test(NAME Performance COMMAND performance_test)
 ## 🎯 Milestones
 
 ### Milestone 1: Core Components Working
+
 - [ ] LanguageModelHead passes all tests
 - [ ] DecoderBlock passes all tests
 - [ ] Can instantiate and run forward pass
@@ -497,6 +498,7 @@ add_test(NAME Performance COMMAND performance_test)
 **Target:** End of Week 1
 
 ### Milestone 2: Full Decoder Working
+
 - [ ] LLMDecoder initialized successfully
 - [ ] Forward pass with encoder output works
 - [ ] Backward pass computes gradients
@@ -505,6 +507,7 @@ add_test(NAME Performance COMMAND performance_test)
 **Target:** End of Week 2
 
 ### Milestone 3: Generation Working
+
 - [ ] All generation strategies implemented
 - [ ] Can generate coherent sequences
 - [ ] EOS/max length handled correctly
@@ -513,6 +516,7 @@ add_test(NAME Performance COMMAND performance_test)
 **Target:** End of Week 3
 
 ### Milestone 4: Complete Chatbot
+
 - [ ] End-to-end training works
 - [ ] Interactive chatbot functional
 - [ ] Documentation complete
@@ -554,7 +558,7 @@ add_test(NAME Performance COMMAND performance_test)
 ## 🐛 Known Risks & Mitigation
 
 | Risk | Impact | Probability | Mitigation |
-|------|--------|-------------|------------|
+| ------ | -------- | ------------- | ------------ |
 | Gradient vanishing | High | Medium | Gradient clipping, careful initialization |
 | Memory issues | High | Low | Profiling, efficient caching |
 | Slow generation | Medium | High | KV-cache optimization, batching |
@@ -566,18 +570,21 @@ add_test(NAME Performance COMMAND performance_test)
 ## 📝 Notes
 
 ### Assumptions
+
 - Existing encoder code remains unchanged
 - Matrix class API is stable
 - GTest framework available
 - C++11 or later standard
 
 ### Constraints
+
 - CPU-only implementation (no GPU)
 - Single-threaded (for now)
 - Limited to available memory
 - Binary model format (not portable)
 
 ### Future Enhancements
+
 - GPU acceleration (CUDA)
 - Multi-threading
 - KV-cache for faster generation
@@ -590,6 +597,7 @@ add_test(NAME Performance COMMAND performance_test)
 ## 📞 Support
 
 For questions or issues during implementation:
+
 1. Refer to design documents
 2. Check existing encoder code for patterns
 3. Review unit tests for examples
@@ -597,8 +605,8 @@ For questions or issues during implementation:
 
 ---
 
-**Checklist Version:** 1.0  
-**Last Updated:** January 18, 2026  
+**Checklist Version:** 1.0
+**Last Updated:** January 18, 2026
 **Status:** Ready for implementation
 
 **Next Step:** Begin Phase 1 - Implement LanguageModelHead.hpp

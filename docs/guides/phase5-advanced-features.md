@@ -1,7 +1,7 @@
 # Phase 5: Advanced Features - Complete Implementation Guide
 
-**Version:** 1.0  
-**Date:** January 2026  
+**Version:** 1.0
+**Date:** January 2026
 **Status:** Production-Ready Implementation
 
 ---
@@ -26,7 +26,7 @@ Phase 5 implements state-of-the-art advanced features for production AI systems:
 ### Components Implemented
 
 | Component | Purpose | Key Benefit |
-|-----------|---------|-------------|
+| ----------- | --------- | ------------- |
 | **RewardModel** | RLHF training | Learn human preferences |
 | **PPOOptimizer** | Policy optimization | Align model with feedback |
 | **LoRAAdapter** | Efficient fine-tuning | 100-1000x fewer parameters |
@@ -35,7 +35,7 @@ Phase 5 implements state-of-the-art advanced features for production AI systems:
 
 ### Architecture Overview
 
-```
+```text
 ┌─────────────────────────────────────────────────────────┐
 │                    Base Transformer Model                │
 │          (EncoderDecoderModel / LLMDecoder)             │
@@ -111,8 +111,9 @@ L = -\log \sigma(r_{\text{chosen}} - r_{\text{rejected}})
 $$
 
 where:
+
 - $r_{\text{chosen}}$ = reward for preferred response
-- $r_{\text{rejected}}$ = reward for dispreferred response  
+- $r_{\text{rejected}}$ = reward for dispreferred response
 - $\sigma$ = sigmoid function
 
 ### PPOOptimizer Implementation
@@ -139,7 +140,7 @@ for (int step = 0; step < 100; step++) {
     float reward = reward_model.predict_reward(state);
     float log_prob = policy.log_prob(action, state);
     float value = ppo.estimate_value(state);
-    
+
     traj.add_step(state, action, reward, log_prob, value);
 }
 
@@ -155,7 +156,8 @@ L^{\text{CLIP}}(\theta) = \mathbb{E}_t \left[ \min(r_t(\theta) \hat{A}_t, \text{
 $$
 
 where:
-- $r_t(\theta) = \frac{\pi_\theta(a_t|s_t)}{\pi_{\theta_{\text{old}}}(a_t|s_t)}$ (probability ratio)
+
+- $r_t(\theta) = \frac{\pi_\theta(a_t| s_t)}{\pi_{\theta_{\text{old}}}(a_t |s_t)}$ (probability ratio)
 - $\hat{A}_t$ = advantage estimate (from GAE)
 - $\epsilon$ = clipping parameter (typically 0.2)
 
@@ -172,6 +174,7 @@ W' = W + \frac{\alpha}{r} BA
 $$
 
 where:
+
 - $W$ = frozen pretrained weights
 - $B \in \mathbb{R}^{d \times r}$, $A \in \mathbb{R}^{r \times k}$ = trainable adapters
 - $r$ = rank (typically 4, 8, 16) << $\min(d, k)$
@@ -251,7 +254,7 @@ Matrix output = x * W_merged;
 Reduces model size and inference latency:
 
 | Precision | Memory | Speedup | Accuracy Loss |
-|-----------|--------|---------|---------------|
+| ----------- | -------- | --------- | --------------- |
 | FP32 | 1x | 1x | 0% |
 | INT8 | 4x | 2-4x | <1% |
 | INT4 | 8x | 3-6x | 1-3% |
@@ -264,7 +267,7 @@ $$
 Q(x) = \text{round}\left(\frac{x}{s}\right)
 $$
 
-where $s = \frac{\max(|x|)}{q_{\max}}$
+where $s = \frac{\max(| x |)}{q_{\max}}$
 
 #### 2. Asymmetric Quantization
 
@@ -273,6 +276,7 @@ Q(x) = \text{round}\left(\frac{x}{s} + z\right)
 $$
 
 where:
+
 - $s = \frac{x_{\max} - x_{\min}}{q_{\max} - q_{\min}}$
 - $z$ = zero point
 
@@ -370,6 +374,7 @@ $$
 $$
 
 where:
+
 - $K$ = number of candidates
 - $\alpha$ = acceptance rate
 
@@ -405,7 +410,7 @@ decoder.print_stats();
 
 ### Expected Performance
 
-```
+```text
 === Speculative Decoding Statistics ===
 Total proposals: 95
 Accepted proposals: 76
@@ -418,7 +423,7 @@ Target forward passes: 24
 ### Theoretical Speedup Table
 
 | K (candidates) | Acceptance Rate | Speedup |
-|----------------|-----------------|---------|
+| ---------------- | ----------------- | --------- |
 | 2 | 50% | 0.67x |
 | 2 | 70% | 0.93x |
 | 4 | 50% | 1.00x |
@@ -447,37 +452,37 @@ print_speedup_table();
 int main() {
     // 1. Load pretrained model
     EncoderDecoderModel model = load_pretrained_model("sft_model.bin");
-    
+
     // 2. Train reward model on preference data
     RewardModel reward_model(768, {512, 256, 1});
     auto preferences = load_preference_dataset("preferences.json");
-    
+
     for (int epoch = 0; epoch < 10; epoch++) {
         float loss = reward_model.train_on_batch(preferences, 0.001);
         std::cout << "Reward Model Epoch " << epoch << ": " << loss << std::endl;
     }
     reward_model.save("reward_model.bin");
-    
+
     // 3. PPO fine-tuning
     PPOConfig ppo_config;
     ppo_config.learning_rate = 1e-5;
     ppo_config.num_epochs = 4;
-    
+
     PPOOptimizer ppo(&reward_model, ppo_config, 768);
-    
+
     for (int iteration = 0; iteration < 1000; iteration++) {
         // Collect rollout
         Trajectory traj = collect_rollout(model, prompts);
-        
+
         // PPO update
         float policy_loss = ppo.update(traj);
-        
+
         if (iteration % 10 == 0) {
             model.save("rlhf_model_iter_" + std::to_string(iteration) + ".bin");
             std::cout << "Iteration " << iteration << ", Loss: " << policy_loss << std::endl;
         }
     }
-    
+
     model.save("rlhf_model_final.bin");
     return 0;
 }
@@ -492,58 +497,58 @@ int main() {
 int main() {
     // Load base model
     EncoderDecoderModel base_model("large_model.bin");
-    
+
     // Freeze base model weights
     base_model.freeze_weights();
-    
+
     // Add LoRA adapters to attention layers
     LoRAConfig config;
     config.rank = 8;
     config.alpha = 16.0f;
-    
+
     std::vector<LoRAAdapter> adapters;
     int num_layers = 24;
     int d_model = 768;
-    
+
     for (int layer = 0; layer < num_layers; layer++) {
         // Q, K, V, O projections
         for (int proj = 0; proj < 4; proj++) {
             adapters.push_back(LoRAAdapter(d_model, d_model, config.rank, config.alpha));
         }
     }
-    
+
     std::cout << "Trainable parameters: " << adapters.size() * adapters[0].num_parameters() << std::endl;
-    
+
     // Fine-tuning loop
     auto dataset = load_task_dataset("task_data.txt");
-    
+
     for (int epoch = 0; epoch < 5; epoch++) {
         for (auto& batch : dataset) {
             // Forward pass with LoRA
             auto outputs = forward_with_lora(base_model, adapters, batch);
             float loss = compute_loss(outputs, batch.targets);
-            
+
             // Backward pass (only updates LoRA parameters)
             backward_lora(adapters, loss);
-            
+
             // Update LoRA adapters
             for (auto& adapter : adapters) {
                 adapter.update(0.001f);
             }
         }
-        
+
         std::cout << "Epoch " << epoch << " complete" << std::endl;
     }
-    
+
     // Save LoRA adapters (much smaller than full model)
     for (size_t i = 0; i < adapters.size(); i++) {
         adapters[i].save("lora_adapter_" + std::to_string(i) + ".bin");
     }
-    
+
     // Optional: Merge for deployment
     auto merged_model = merge_lora_adapters(base_model, adapters);
     merged_model.save("merged_model.bin");
-    
+
     return 0;
 }
 ```
@@ -557,44 +562,44 @@ int main() {
 int main() {
     // Load full-precision model
     EncoderDecoderModel model("large_model.bin");
-    
+
     // Create quantizer
     Quantizer quantizer(
         QuantizationMode::SYMMETRIC_INT8,
         CalibrationMethod::PERCENTILE,
         0.999f
     );
-    
+
     // Collect calibration data
     std::cout << "Collecting calibration data..." << std::endl;
     auto calibration_samples = load_calibration_data("calib_data.txt");
-    
+
     // Quantize each weight matrix
     std::vector<QuantizedMatrix> quantized_weights;
-    
+
     for (auto& weight_matrix : model.get_all_weights()) {
         QuantizedMatrix qW;
         qW.quantize_from(weight_matrix, quantizer);
         quantized_weights.push_back(qW);
-        
+
         std::cout << "Memory reduction: " << qW.memory_reduction() << "x" << std::endl;
     }
-    
+
     // Save quantized model
     for (size_t i = 0; i < quantized_weights.size(); i++) {
         quantized_weights[i].save("weight_" + std::to_string(i) + "_int8.bin");
     }
-    
+
     // Inference with dequantization
     std::string prompt = "What is machine learning?";
     auto tokens = tokenizer.encode(prompt);
-    
+
     // Dequantize on-the-fly during inference
     for (auto& qW : quantized_weights) {
         Matrix W = qW.dequantize(quantizer);
         // Use W in forward pass
     }
-    
+
     return 0;
 }
 ```
@@ -608,43 +613,43 @@ int main() {
     // Load models
     LLMDecoder draft_model("draft_125M.bin");
     LLMDecoder target_model("target_7B.bin");
-    
+
     BPETokenizer tokenizer("vocab.txt");
     TextGenerator draft_gen(&draft_model, &tokenizer);
     TextGenerator target_gen(&target_model, &tokenizer);
-    
+
     // Create speculative decoder
     SpeculativeDecodingConfig config;
     config.num_candidates = 6;
     config.temperature = 0.8;
     config.max_length = 200;
-    
+
     SpeculativeDecoder decoder(&draft_gen, &target_gen, config);
-    
+
     // Batch generation
     std::vector<std::string> prompts = {
         "Explain artificial intelligence:",
         "What are the benefits of renewable energy?",
         "Describe the water cycle:"
     };
-    
+
     for (const auto& prompt : prompts) {
         auto start = std::chrono::high_resolution_clock::now();
-        
+
         std::string response = decoder.generate(prompt);
-        
+
         auto end = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-        
+
         std::cout << "\n=== Prompt ===" << std::endl;
         std::cout << prompt << std::endl;
         std::cout << "\n=== Response ===" << std::endl;
         std::cout << response << std::endl;
         std::cout << "\nGeneration time: " << duration.count() << "ms" << std::endl;
     }
-    
+
     decoder.print_stats();
-    
+
     return 0;
 }
 ```
@@ -656,7 +661,7 @@ int main() {
 ### RLHF Training Performance
 
 | Dataset Size | Reward Model Training | PPO Training (1000 iters) |
-|--------------|----------------------|---------------------------|
+| -------------- | ---------------------- | --------------------------- |
 | 10K pairs | ~5 minutes | ~2 hours |
 | 100K pairs | ~45 minutes | ~20 hours |
 | 1M pairs | ~8 hours | ~200 hours |
@@ -664,7 +669,7 @@ int main() {
 ### LoRA Parameter Reduction
 
 | Model Size | Full Fine-Tuning | LoRA (r=8) | Reduction |
-|------------|------------------|------------|-----------|
+| ------------ | ------------------ | ------------ | ----------- |
 | 125M | 125M params | ~590K | 212x |
 | 350M | 350M params | ~1.2M | 292x |
 | 1.3B | 1.3B params | ~4.5M | 289x |
@@ -673,7 +678,7 @@ int main() {
 ### Quantization Results
 
 | Model | FP32 Size | INT8 Size | Accuracy | Speedup |
-|-------|-----------|-----------|----------|---------|
+| ------- | ----------- | ----------- | ---------- | --------- |
 | 125M | 500 MB | 125 MB | -0.3% | 2.1x |
 | 350M | 1.4 GB | 350 MB | -0.5% | 2.3x |
 | 1.3B | 5.2 GB | 1.3 GB | -0.8% | 2.5x |
@@ -682,7 +687,7 @@ int main() {
 ### Speculative Decoding Speedup
 
 | Draft Model | Target Model | Acceptance Rate | Actual Speedup |
-|-------------|--------------|-----------------|----------------|
+| ------------- | -------------- | ----------------- | ---------------- |
 | 125M | 350M | 75% | 1.8x |
 | 125M | 1.3B | 70% | 1.7x |
 | 350M | 7B | 82% | 2.3x |
@@ -766,12 +771,13 @@ int main() {
 
 Phase 5 provides production-ready implementations of:
 
-✅ **RLHF Pipeline** - Complete reward modeling and PPO optimization  
-✅ **LoRA Adapters** - 100-1000x parameter reduction for fine-tuning  
-✅ **Quantization** - 4-8x memory savings with minimal accuracy loss  
-✅ **Speculative Decoding** - 2-3x inference speedup  
+✅ **RLHF Pipeline** - Complete reward modeling and PPO optimization
+✅ **LoRA Adapters** - 100-1000x parameter reduction for fine-tuning
+✅ **Quantization** - 4-8x memory savings with minimal accuracy loss
+✅ **Speculative Decoding** - 2-3x inference speedup
 
 All components are:
+
 - Fully implemented in modern C++
 - Comprehensively tested
 - Production-ready
@@ -786,6 +792,6 @@ All components are:
 
 ---
 
-**Version:** 1.0  
-**Last Updated:** January 2026  
+**Version:** 1.0
+**Last Updated:** January 2026
 **Maintainer:** ADAI Development Team

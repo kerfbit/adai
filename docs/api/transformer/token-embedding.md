@@ -1,6 +1,6 @@
 # TokenEmbedding Class - Technical Context Documentation
 
-**Version:** 1.1  
+**Version:** 1.1
 **Last Updated:** January 24, 2026
 
 ## Overview
@@ -8,10 +8,12 @@
 The `TokenEmbedding` class is a foundational component for neural language models, converting discrete token IDs into continuous dense vector representations. It implements a learnable embedding layer that maps vocabulary indices to high-dimensional vectors, serving as the first layer in transformer-based architectures and other sequence models.
 
 **Files:**
+
 - `src/TokenEmbedding.hpp` - Header file with class declaration and interface
 - `src/TokenEmbedding.cpp` - Implementation file with all method definitions
 
 **Dependencies:**
+
 - `Matrix.hpp` - Matrix operations and storage
 - `Optimizer.hpp` - Advanced optimization algorithms (optional)
 
@@ -51,12 +53,14 @@ float learning_rate;  // Learning rate for gradient updates (used when optimizer
 ### Forward Pass Operation
 
 For a single token ID `t`:
-```
+
+```text
 embedding(t) = embedding_matrix[t, :]
 ```
 
 For a sequence of tokens `[t₁, t₂, ..., tₙ]`:
-```
+
+```text
 output = [embedding_matrix[t₁, :],
           embedding_matrix[t₂, :],
           ...,
@@ -64,17 +68,20 @@ output = [embedding_matrix[t₁, :],
 ```
 
 **Dimensions:**
+
 - Input: `[sequence_length]` - vector of token IDs
 - Output: `[sequence_length, d_model]` - matrix of embeddings
 
 ### Backward Pass (Gradient Computation)
 
 For each position `i` in the sequence with token ID `t`:
-```
+
+```text
 embedding_grad[t, :] += grad_output[i, :]
 ```
 
 **Key Properties:**
+
 - Gradients accumulate for tokens appearing multiple times in sequence
 - Only embeddings for tokens in the sequence receive gradient updates
 - Other embedding vectors remain unchanged during this backward pass
@@ -82,7 +89,8 @@ embedding_grad[t, :] += grad_output[i, :]
 ### Weight Update
 
 Gradient descent update rule:
-```
+
+```text
 embedding_matrix -= learning_rate × embedding_grad
 ```
 
@@ -95,7 +103,8 @@ After update, gradients are zeroed for next iteration.
 ### Xavier/Glorot Initialization
 
 The embedding matrix is initialized with random values scaled by:
-```
+
+```text
 scale = √(1 / d_model)
 ```
 
@@ -114,10 +123,12 @@ TokenEmbedding(int vocab_size, int d_model)
 ```
 
 **Parameters:**
+
 - `vocab_size` - Total number of unique tokens in vocabulary
 - `d_model` - Dimension of embedding vectors (typically 128, 256, 512, or 1024)
 
 **Initialization Steps:**
+
 1. Creates `vocab_size × d_model` embedding matrix
 2. Creates gradient matrix with same dimensions
 3. Applies Xavier initialization to embeddings
@@ -125,6 +136,7 @@ TokenEmbedding(int vocab_size, int d_model)
 5. Sets default learning rate to 0.001
 
 **Example:**
+
 ```cpp
 // For a vocabulary of 10,000 tokens with 512-dimensional embeddings
 TokenEmbedding embeddings(10000, 512);
@@ -144,22 +156,26 @@ Matrix forward(const std::vector<int>& token_ids)
 **Purpose:** Convert sequence of token IDs to embeddings
 
 **Parameters:**
+
 - `token_ids` - Vector of token indices `[sequence_length]`
 
 **Returns:** Matrix of embeddings `[sequence_length, d_model]`
 
 **Process:**
+
 1. Validates all token IDs are within bounds `[0, vocab_size)`
 2. Caches token IDs for backward pass
 3. Looks up embedding for each token ID
 4. Constructs output matrix with embeddings as rows
 
 **Exceptions:**
+
 - `std::out_of_range` - If any token ID is negative or >= vocab_size
 
 **Complexity:** O(sequence_length × d_model)
 
 **Example:**
+
 ```cpp
 std::vector<int> tokens = {5, 12, 3, 5};  // "Hello world Hello"
 Matrix embeddings = layer.forward(tokens);
@@ -176,15 +192,18 @@ void backward(const std::vector<int>& token_ids, const Matrix& grad_output)
 **Purpose:** Accumulate gradients for embedding parameters
 
 **Parameters:**
+
 - `token_ids` - Vector of token indices (must match forward pass)
 - `grad_output` - Gradient from upstream layer `[sequence_length, d_model]`
 
 **Process:**
+
 1. Validates dimensions match (token_ids.size() == grad_output.rows)
 2. For each position in sequence, accumulates gradient to corresponding embedding
 3. Handles repeated tokens by summing their gradients
 
 **Gradient Accumulation:**
+
 ```cpp
 for (i = 0; i < sequence_length; ++i) {
     token_id = token_ids[i];
@@ -195,6 +214,7 @@ for (i = 0; i < sequence_length; ++i) {
 **Important:** If token ID 5 appears 3 times, its embedding receives sum of 3 gradients.
 
 **Exceptions:**
+
 - `std::invalid_argument` - Dimension mismatch
 - `std::out_of_range` - Invalid token ID
 
@@ -209,6 +229,7 @@ void update_weights()
 **Purpose:** Apply accumulated gradients to embedding matrix
 
 **Process:**
+
 1. If optimizer is set, uses `optimizer->step()` for advanced optimization (Adam, AdamW, etc.)
 2. Otherwise, falls back to simple gradient descent: `embedding_matrix -= learning_rate × embedding_grad`
 3. Calls `zero_grad()` to reset gradients
@@ -216,18 +237,19 @@ void update_weights()
 **When to Call:** After one or more backward passes, before next forward pass
 
 **Example Training Loop:**
+
 ```cpp
 for (int epoch = 0; epoch < num_epochs; ++epoch) {
     embeddings.zero_grad();  // Clear previous gradients
-    
+
     // Forward pass
     Matrix output = embeddings.forward(token_ids);
-    
+
     // ... compute loss and gradients ...
-    
+
     // Backward pass
     embeddings.backward(token_ids, grad_from_loss);
-    
+
     // Update weights
     embeddings.update_weights();
 }
@@ -242,13 +264,16 @@ void set_optimizer(Optimizer* opt)
 **Purpose:** Set optimizer for advanced optimization algorithms
 
 **Parameters:**
+
 - `opt` - Pointer to optimizer (nullptr to use simple gradient descent)
 
 **Process:**
+
 1. Stores optimizer pointer
 2. If optimizer is not nullptr, automatically calls `register_parameters()`
 
 **Example:**
+
 ```cpp
 Optimizer adam(OptimizerType::ADAM, 0.001f);
 adam.set_betas(0.9f, 0.999f);
@@ -262,6 +287,7 @@ void register_parameters()
 **Purpose:** Register embedding parameters with optimizer
 
 **Process:**
+
 - Registers `embedding_matrix` and `embedding_grad` with the optimizer
 - Called automatically by `set_optimizer()`
 - No-op if optimizer is nullptr
@@ -276,7 +302,8 @@ void zero_grad()
 
 **Purpose:** Reset all gradients to zero
 
-**When to Call:** 
+**When to Call:**
+
 - Before starting a new training iteration
 - After calling `update_weights()` (automatically called)
 - When resetting training state
@@ -296,11 +323,13 @@ std::vector<float> get_token_embedding(int token_id) const
 **Returns:** Embedding vector for specified token `[d_model]`
 
 **Use Cases:**
+
 - Inspecting learned embeddings
 - Visualization (e.g., t-SNE, PCA)
 - Computing token similarities
 
 **Example:**
+
 ```cpp
 std::vector<float> hello_embedding = embeddings.get_token_embedding(5);
 // hello_embedding.size() == d_model
@@ -315,6 +344,7 @@ const Matrix& get_embeddings() const
 **Returns:** Read-only reference to entire embedding matrix `[vocab_size, d_model]`
 
 **Use Cases:**
+
 - Saving embeddings
 - Analysis and visualization
 - Transfer learning
@@ -327,6 +357,7 @@ int get_embedding_dim() const // Returns d_model
 ```
 
 **Use Cases:**
+
 - Dimension verification
 - Dynamic architecture construction
 - Debugging
@@ -344,7 +375,8 @@ void save_embeddings(const std::string& filename) const
 **Purpose:** Persist learned embeddings to binary file
 
 **File Format:**
-```
+
+```text
 [vocab_size: int]           // 4 bytes
 [d_model: int]              // 4 bytes
 [embedding data: float[]]   // vocab_size × d_model × 4 bytes
@@ -353,6 +385,7 @@ void save_embeddings(const std::string& filename) const
 **Storage Order:** Row-major (all elements of token 0, then token 1, etc.)
 
 **Example:**
+
 ```cpp
 embeddings.save_embeddings("embeddings_epoch_100.bin");
 ```
@@ -366,21 +399,25 @@ void load_pretrained(const std::string& filename)
 **Purpose:** Load embeddings from file (e.g., Word2Vec, GloVe format converted to binary)
 
 **Validation:**
+
 - Checks vocab_size and d_model match current instance
 - Throws exception if dimensions mismatch
 
 **Use Cases:**
+
 - Transfer learning
 - Fine-tuning pre-trained models
 - Resuming training
 
 **Example:**
+
 ```cpp
 TokenEmbedding embeddings(10000, 300);
 embeddings.load_pretrained("glove.6B.300d.bin");
 ```
 
 **Exceptions:**
+
 - `std::runtime_error` - File cannot be opened or dimension mismatch
 
 ---
@@ -396,11 +433,13 @@ void initialize_constant(float value)
 **Purpose:** Set all embeddings to a specific value
 
 **Use Cases:**
+
 - Testing
 - Debugging gradient flow
 - Baseline comparisons
 
 **Example:**
+
 ```cpp
 embeddings.initialize_constant(0.0f);  // Zero initialization
 embeddings.initialize_constant(1.0f);  // Ones initialization
@@ -415,6 +454,7 @@ void reinitialize()
 **Purpose:** Reset embeddings to new random values using Xavier initialization
 
 **Use Cases:**
+
 - Restarting training
 - Testing initialization impact
 - Multiple training runs with different seeds
@@ -432,16 +472,19 @@ float get_gradient_norm() const
 **Purpose:** Compute L2 norm of gradient matrix
 
 **Formula:**
-```
+
+```text
 norm = √(Σᵢⱼ (embedding_grad[i,j])²)
 ```
 
 **Use Cases:**
+
 - Monitoring gradient magnitudes
 - Detecting vanishing/exploding gradients
 - Adaptive learning rate strategies
 
 **Example:**
+
 ```cpp
 float grad_norm = embeddings.get_gradient_norm();
 if (grad_norm > 10.0f) {
@@ -458,7 +501,8 @@ void clip_gradients(float max_norm)
 **Purpose:** Prevent exploding gradients by scaling down if norm exceeds threshold
 
 **Algorithm:**
-```
+
+```text
 norm = get_gradient_norm()
 if (norm > max_norm):
     scale = max_norm / norm
@@ -466,11 +510,13 @@ if (norm > max_norm):
 ```
 
 **Use Cases:**
+
 - Stabilizing training
 - Handling extreme gradient values
 - Training recurrent models
 
 **Example:**
+
 ```cpp
 // Clip gradients before weight update
 embeddings.clip_gradients(5.0f);
@@ -490,7 +536,8 @@ void print_config(const std::string& name = "TokenEmbedding") const
 **Purpose:** Display layer configuration and statistics
 
 **Output Example:**
-```
+
+```text
 TokenEmbedding Configuration:
   Vocabulary Size: 10000
   Embedding Dimension: 512
@@ -500,6 +547,7 @@ TokenEmbedding Configuration:
 ```
 
 **Use Cases:**
+
 - Debugging network architecture
 - Memory profiling
 - Documentation and logging
@@ -524,14 +572,14 @@ for (int epoch = 0; epoch < num_epochs; ++epoch) {
     for (const auto& batch : training_data) {
         // Forward pass
         Matrix embedded = embeddings.forward(batch.token_ids);
-        
+
         // ... pass through rest of model ...
         // ... compute loss ...
         // ... backpropagate to get grad_embedded ...
-        
+
         // Backward pass
         embeddings.backward(batch.token_ids, grad_embedded);
-        
+
         // Update (uses Adam optimizer)
         embeddings.update_weights();
     }
@@ -550,14 +598,14 @@ for (int epoch = 0; epoch < num_epochs; ++epoch) {
     for (const auto& batch : training_data) {
         // Forward pass
         Matrix embedded = embeddings.forward(batch.token_ids);
-        
+
         // ... pass through rest of model ...
         // ... compute loss ...
         // ... backpropagate to get grad_embedded ...
-        
+
         // Backward pass
         embeddings.backward(batch.token_ids, grad_embedded);
-        
+
         // Update (uses simple gradient descent)
         embeddings.update_weights();
     }
@@ -587,19 +635,19 @@ embeddings.save_embeddings("fine_tuned_embeddings.bin");
 // Training with gradient monitoring
 for (int step = 0; step < max_steps; ++step) {
     embeddings.zero_grad();
-    
+
     Matrix output = embeddings.forward(tokens);
     // ... forward through model ...
-    
+
     embeddings.backward(tokens, grad_output);
-    
+
     // Monitor gradients
     float grad_norm = embeddings.get_gradient_norm();
     if (grad_norm > 10.0f) {
         embeddings.clip_gradients(5.0f);
         std::cout << "Clipped gradients from " << grad_norm << " to 5.0" << std::endl;
     }
-    
+
     embeddings.update_weights();
 }
 ```
@@ -653,11 +701,13 @@ Matrix embedded = embeddings.forward(tokens);
 ### Memory Usage
 
 For `vocab_size = V` and `d_model = D`:
+
 - **Embedding Matrix**: V × D × 4 bytes (float)
 - **Gradient Matrix**: V × D × 4 bytes (float)
 - **Total**: 2 × V × D × 4 bytes
 
 **Example Sizes:**
+
 - V=10,000, D=512: ~39 MB
 - V=50,000, D=512: ~195 MB
 - V=50,000, D=1024: ~390 MB
@@ -674,6 +724,7 @@ For `vocab_size = V` and `d_model = D`:
 ### Cache Efficiency
 
 The lookup operation has good cache locality since:
+
 - Each token lookup reads one contiguous row
 - Sequential token lookups may benefit from prefetching
 - Gradient accumulation writes to rows in random order (depends on token frequency)
@@ -690,7 +741,7 @@ embeddings.learning_rate = initial_lr;
 for (int epoch = 0; epoch < num_epochs; ++epoch) {
     // Decay learning rate
     embeddings.learning_rate = initial_lr * std::pow(0.95f, epoch);
-    
+
     // Training loop...
 }
 ```
@@ -764,7 +815,7 @@ for (int step = 0; step < warmup_steps; ++step) {
 // Validate token IDs before use
 bool validate_tokens(const std::vector<int>& tokens, int vocab_size) {
     for (int token : tokens) {
-        if (token < 0 || token >= vocab_size) {
+        if (token < 0 |  | token >= vocab_size) {
             return false;
         }
     }
@@ -842,6 +893,7 @@ assert(std::abs(numerical_grad - analytical) < 1e-3);
 **Problem:** Neural networks operate on continuous values, but text consists of discrete tokens.
 
 **Solution:** Learn a mapping from discrete token space to continuous vector space where:
+
 - Similar tokens have similar embeddings (cosine similarity)
 - Semantic relationships are captured (e.g., king - man + woman ≈ queen)
 - Embedding space enables mathematical operations on words
@@ -849,17 +901,19 @@ assert(std::abs(numerical_grad - analytical) < 1e-3);
 ### Embedding Dimension Selection
 
 **Trade-offs:**
-- **Larger d_model**: 
+
+- **Larger d_model**:
   - More capacity to capture semantic nuances
   - Higher memory and computation cost
   - Risk of overfitting with small datasets
-  
+
 - **Smaller d_model**:
   - Faster training and inference
   - Less memory usage
   - May miss subtle semantic relationships
 
 **Common Choices:**
+
 - Small models: 128-256
 - Medium models: 512
 - Large models: 768-1024
@@ -868,11 +922,13 @@ assert(std::abs(numerical_grad - analytical) < 1e-3);
 ### Initialization Importance
 
 Xavier initialization ensures:
-```
+
+```text
 Var(embedding[i,j]) ≈ 1/d_model
 ```
 
 This maintains variance of activations through layers, critical for:
+
 - Stable gradient flow
 - Faster convergence
 - Avoiding saturation in activation functions
@@ -969,7 +1025,7 @@ for (int epoch = 0; epoch < num_epochs; ++epoch) {
     // Decay learning rate
     float new_lr = 0.001f * std::pow(0.95f, epoch);
     optimizer.set_learning_rate(new_lr);
-    
+
     // Training epoch
     for (const auto& batch : training_data) {
         // ... training ...
@@ -997,6 +1053,7 @@ embeddings.update_weights();  // Simple: param -= lr * grad
 ### Version 1.1 (January 24, 2026)
 
 **Optimizer Integration:**
+
 - Added optional `Optimizer` support for advanced optimization algorithms
 - New method: `set_optimizer(Optimizer* opt)` - configure optimizer
 - New method: `register_parameters()` - register with optimizer (called automatically)
@@ -1004,6 +1061,7 @@ embeddings.update_weights();  // Simple: param -= lr * grad
 - Fully backward compatible - existing code without optimizer continues to work
 
 **Benefits:**
+
 - Access to Adam, AdamW, SGD with momentum, and other advanced optimizers
 - Better convergence on complex tasks
 - Per-parameter adaptive learning rates
@@ -1013,6 +1071,7 @@ embeddings.update_weights();  // Simple: param -= lr * grad
 **Migration Guide:**
 
 Old code (still works):
+
 ```cpp
 TokenEmbedding embeddings(vocab_size, d_model);
 embeddings.learning_rate = 0.001f;
@@ -1022,6 +1081,7 @@ embeddings.update_weights();
 ```
 
 New code (recommended):
+
 ```cpp
 TokenEmbedding embeddings(vocab_size, d_model);
 Optimizer adam(OptimizerType::ADAM, 0.001f);

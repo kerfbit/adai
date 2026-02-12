@@ -1,7 +1,7 @@
 # Data Pipeline Enhancement Guide
 
-**Version:** 1.0  
-**Date:** January 2026  
+**Version:** 1.0
+**Date:** January 2026
 **Status:** Production Ready
 
 ---
@@ -39,7 +39,7 @@ The data pipeline enhancement provides two main components for efficient trainin
 ### Benefits
 
 | Feature | Benefit | Typical Improvement |
-|---------|---------|---------------------|
+| --------- | --------- | --------------------- |
 | Dynamic batching | Reduced padding | 20-50% less padding |
 | Bucketing | Better memory efficiency | 30-60% less padding |
 | Parallel loading | Hide I/O latency | 2-5x faster data loading |
@@ -162,13 +162,15 @@ auto batches = EfficientBatching::create_bucketed_batches(
 ```
 
 **How it works:**
+
 1. Sequences assigned to buckets by length
 2. Batch created within each bucket (similar lengths together)
 3. Batch size dynamically adjusted to stay within token budget
 4. Results in minimal padding waste
 
 **Bucket boundaries example:**
-```
+
+```text
 Bucket 0: sequences with length <= 10
 Bucket 1: sequences with 10 < length <= 20
 Bucket 2: sequences with 20 < length <= 30
@@ -195,6 +197,7 @@ std::cout << "Efficiency score: " << stats.efficiency_score << "\n";
 ```
 
 **Interpreting results:**
+
 - **Padding ratio**: 0.0 = no padding (perfect), 1.0 = all padding (worst)
 - **Efficiency score**: 1.0 - padding_ratio (higher is better)
 - **Target**: < 0.2 padding ratio (> 0.8 efficiency) for good performance
@@ -292,6 +295,7 @@ config.augmentation_config = /* ... */;  // Data augmentation config
 ### Worker Thread Configuration
 
 **Choosing number of workers:**
+
 ```cpp
 // CPU-bound (model training on CPU)
 config.num_workers = 2;  // Low overhead, avoid CPU contention
@@ -304,6 +308,7 @@ config.num_workers = 8-16;  // Compensate for slow I/O
 ```
 
 **Prefetch factor:**
+
 ```cpp
 // Low memory
 config.prefetch_factor = 1;  // Minimal buffer (1 batch per worker)
@@ -357,6 +362,7 @@ EfficientBatching::apply_augmentation(sequences, config);
 ```
 
 **Use cases:**
+
 - Improve model robustness to missing tokens
 - Reduce overfitting
 - Simulate noisy input data
@@ -379,6 +385,7 @@ EfficientBatching::apply_augmentation(sequences, config);
 ```
 
 **Use cases:**
+
 - Masked language modeling
 - Denoising autoencoders
 - Improve token representations
@@ -400,6 +407,7 @@ EfficientBatching::apply_augmentation(sequences, config);
 ```
 
 **Use cases:**
+
 - Reduce positional overfitting
 - Improve robustness to word order variations
 - Better generalization
@@ -453,35 +461,35 @@ EncoderDecoderModel model(/* params */);
 int num_epochs = 10;
 for (int epoch = 0; epoch < num_epochs; ++epoch) {
     std::cout << "Epoch " << (epoch + 1) << "/" << num_epochs << "\n";
-    
+
     DataLoaderIterator iter(loader);
     int step = 0;
     double total_loss = 0.0;
-    
+
     while (auto batch = iter.next()) {
         ++step;
-        
+
         // Forward pass
         auto output = model.forward(batch->sequences);
-        
+
         // Calculate loss
         double loss = calculate_loss(output, batch->sequences);
         total_loss += loss;
-        
+
         // Backward pass
         model.backward(/* gradients */);
-        
+
         // Update weights
         model.update_weights(0.001);  // learning rate
-        
+
         if (step % 10 == 0) {
             std::cout << "Step " << step << "/" << loader.num_batches()
                       << " | Loss: " << loss << "\n";
         }
     }
-    
+
     double avg_loss = total_loss / loader.num_batches();
-    std::cout << "Epoch " << (epoch + 1) << " complete | Avg Loss: " 
+    std::cout << "Epoch " << (epoch + 1) << " complete | Avg Loss: "
               << avg_loss << "\n\n";
 }
 ```
@@ -553,6 +561,7 @@ model.set_train_mode();
 ### Memory Management
 
 **Monitor memory usage:**
+
 ```cpp
 // Calculate memory requirements
 size_t batch_memory = 0;
@@ -561,11 +570,12 @@ for (const auto& batch : batches) {
     batch_memory += batch.total_tokens() * sizeof(int);  // masks
 }
 
-std::cout << "Estimated batch memory: " << (batch_memory / 1024.0 / 1024.0) 
+std::cout << "Estimated batch memory: " << (batch_memory / 1024.0 / 1024.0)
           << " MB\n";
 ```
 
 **Optimize prefetch buffer:**
+
 ```cpp
 // Balance between throughput and memory
 DataLoaderConfig config;
@@ -613,7 +623,7 @@ std::cout << "Throughput: " << throughput << " sequences/second\n";
 ### Batching Strategy Selection
 
 | Dataset Characteristic | Recommended Strategy | Rationale |
-|------------------------|----------------------|-----------|
+| ------------------------ | ---------------------- | ----------- |
 | Uniform lengths (±20%) | Simple dynamic batching | Minimal padding already |
 | Variable lengths (±50%) | Dynamic batching with sorting | Reduces padding significantly |
 | Wide variation (±100%+) | Bucketing | Best efficiency for diverse lengths |
@@ -699,6 +709,7 @@ config.shuffle = false;   // Sequential
 **Symptoms:** Wasted memory, slow training
 
 **Solutions:**
+
 1. Enable dynamic batching with sorting
 2. Switch to bucketing strategy
 3. Adjust bucket boundaries
@@ -723,6 +734,7 @@ auto batches = EfficientBatching::create_dynamic_batches(
 **Symptoms:** GPU idle, low throughput
 
 **Solutions:**
+
 1. Increase number of workers
 2. Increase prefetch factor
 3. Check for I/O bottleneck (slow disk)
@@ -743,6 +755,7 @@ config.prefetch_factor = 3;  // was 1
 **Symptoms:** Out of memory errors, crashes
 
 **Solutions:**
+
 1. Reduce batch size
 2. Reduce prefetch factor
 3. Use bucketing with token limit
@@ -765,6 +778,7 @@ bucket_config.max_tokens_per_batch = 1024;  // strict limit
 **Symptoms:** Loader hangs, no batches returned
 
 **Solutions:**
+
 1. Always call `loader.stop()` when done
 2. Check for exceptions in worker threads
 3. Ensure dataset is not empty
@@ -786,6 +800,7 @@ try {
 **Symptoms:** Different results each run
 
 **Solutions:**
+
 1. Set random seed for reproducibility
 2. Disable shuffling if exact order needed
 3. Disable augmentation for debugging
@@ -900,6 +915,6 @@ For more examples, see `src/DataPipelineExample.cpp`.
 
 ---
 
-**Version:** 1.0  
-**Last Updated:** January 2026  
+**Version:** 1.0
+**Last Updated:** January 2026
 **Status:** Complete

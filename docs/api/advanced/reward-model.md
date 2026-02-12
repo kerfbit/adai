@@ -1,7 +1,7 @@
 # Reward Model API Reference
 
-**File:** `src/RewardModel.hpp`  
-**Status:** ✅ Production-ready (Phase 5 - January 2026)  
+**File:** `src/RewardModel.hpp`
+**Status:** ✅ Production-ready (Phase 5 - January 2026)
 **Purpose:** Learn human preferences for Reinforcement Learning from Human Feedback (RLHF)
 
 ---
@@ -28,15 +28,15 @@ private:
     std::vector<int> layer_dims_;
     std::vector<Matrix> weights_;
     std::vector<std::vector<float>> biases_;
-    
+
 public:
     RewardModel(int input_dim, const std::vector<int>& layer_dims);
-    
+
     float forward(const std::vector<float>& input);
     float predict_reward(const std::vector<float>& encoding);
     float compute_loss(const PreferencePair& pair);
     float train_on_batch(const std::vector<PreferencePair>& pairs, float learning_rate);
-    
+
     void save(const std::string& filepath) const;
     void load(const std::string& filepath);
 };
@@ -51,16 +51,19 @@ RewardModel(int input_dim, const std::vector<int>& layer_dims)
 ```
 
 **Parameters:**
+
 - `input_dim` - Dimension of input encodings (typically 2× encoding_dim for prompt+response)
 - `layer_dims` - Hidden layer dimensions, last must be 1 for scalar reward
 
 **Example:**
+
 ```cpp
 // For 768-dim encoder with prompt+response concatenation
 RewardModel reward_model(1536, {512, 256, 128, 1});
 ```
 
 **Throws:**
+
 - `std::invalid_argument` if `layer_dims` is empty or final layer ≠ 1
 
 ---
@@ -76,11 +79,13 @@ float forward(const std::vector<float>& input)
 Compute reward score for a given input encoding.
 
 **Parameters:**
+
 - `input` - Concatenated prompt + response encoding
 
 **Returns:** Scalar reward value (higher = better response)
 
 **Throws:**
+
 - `std::invalid_argument` if input dimension mismatch
 
 **Implementation:** Multi-layer perceptron with ReLU activations (hidden) and linear output
@@ -96,6 +101,7 @@ float predict_reward(const std::vector<float>& encoding)
 Convenience wrapper for forward pass.
 
 **Parameters:**
+
 - `encoding` - Response encoding to score
 
 **Returns:** Predicted reward
@@ -111,12 +117,15 @@ float compute_loss(const PreferencePair& pair)
 Compute Bradley-Terry loss for a preference pair.
 
 **Loss Formula:**
-```
+
+```text
 L = -log(σ(r_chosen - r_rejected))
 ```
+
 where σ is sigmoid function.
 
 **Parameters:**
+
 - `pair` - PreferencePair containing prompt, chosen, and rejected encodings
 
 **Returns:** Loss value (lower = model better matches preference)
@@ -126,24 +135,27 @@ where σ is sigmoid function.
 ### train_on_batch()
 
 ```cpp
-float train_on_batch(const std::vector<PreferencePair>& pairs, 
+float train_on_batch(const std::vector<PreferencePair>& pairs,
                      float learning_rate)
 ```
 
 Train reward model on a batch of preference pairs.
 
 **Parameters:**
+
 - `pairs` - Vector of preference pairs (chosen vs rejected)
 - `learning_rate` - Gradient descent learning rate (typical: 1e-4 to 1e-3)
 
 **Returns:** Average loss across batch
 
 **Algorithm:**
+
 1. Accumulate gradients across all pairs
 2. Average gradients
 3. Update weights via gradient descent
 
 **Example:**
+
 ```cpp
 std::vector<PreferencePair> preferences;
 // ... populate preferences ...
@@ -169,6 +181,7 @@ Save trained reward model to binary file.
 **Format:** Binary format with architecture + weights
 
 **Example:**
+
 ```cpp
 reward_model.save("reward_model.bin");
 ```
@@ -184,6 +197,7 @@ void load(const std::string& filepath)
 Load trained reward model from file.
 
 **Example:**
+
 ```cpp
 RewardModel loaded_model(1536, {512, 256, 128, 1});
 loaded_model.load("reward_model.bin");
@@ -200,7 +214,7 @@ struct PreferencePair {
     std::vector<float> prompt_encoding;
     std::vector<float> chosen_encoding;    // Better response
     std::vector<float> rejected_encoding;  // Worse response
-    
+
     PreferencePair(const std::vector<float>& prompt,
                    const std::vector<float>& chosen,
                    const std::vector<float>& rejected);
@@ -218,41 +232,41 @@ struct PreferencePair {
 int main() {
     // 1. Create reward model (768-dim encoder → 1536 input)
     RewardModel reward_model(1536, {512, 256, 128, 1});
-    
+
     // 2. Prepare training data
     std::vector<PreferencePair> preferences;
-    
+
     for (int i = 0; i < 100; i++) {
         auto prompt = create_encoding(768);
         auto good_response = create_encoding(768);
         auto bad_response = create_encoding(768);
-        
+
         preferences.push_back(PreferencePair(prompt, good_response, bad_response));
     }
-    
+
     // 3. Train reward model
     std::cout << "Training reward model...\n";
     for (int epoch = 0; epoch < 10; epoch++) {
         float loss = reward_model.train_on_batch(preferences, 0.001f);
         std::cout << "Epoch " << epoch + 1 << " - Loss: " << loss << "\n";
     }
-    
+
     // 4. Save model
     reward_model.save("reward_model.bin");
-    
+
     // 5. Use for inference
     auto test_prompt = create_encoding(768);
     auto test_response = create_encoding(768);
-    
+
     // Concatenate prompt + response
     std::vector<float> full_input = test_prompt;
-    full_input.insert(full_input.end(), 
-                     test_response.begin(), 
+    full_input.insert(full_input.end(),
+                     test_response.begin(),
                      test_response.end());
-    
+
     float reward = reward_model.predict_reward(full_input);
     std::cout << "Response reward: " << reward << "\n";
-    
+
     return 0;
 }
 ```
@@ -285,10 +299,10 @@ PPOOptimizer ppo(&reward_model, config, state_dim);
 for (const auto& prompt : prompts) {
     auto response_a = model.generate(prompt);
     auto response_b = model.generate(prompt);
-    
+
     // Human annotator chooses better response
     bool a_is_better = get_human_preference(response_a, response_b);
-    
+
     if (a_is_better) {
         preferences.push_back(PreferencePair(
             encode(prompt),
@@ -338,11 +352,13 @@ input.insert(input.end(), response_encoding.begin(), response_encoding.end());
 ```
 
 ### 2. Learning Rate Selection
+
 - Start with 1e-3
 - Decrease if loss oscillates
 - Increase if convergence too slow
 
 ### 3. Data Quality
+
 - Need 100-1000+ preference pairs for good model
 - Ensure diverse prompts
 - Multiple annotators reduce bias
@@ -381,7 +397,7 @@ float policy_loss = ppo.update(traj);
 
 ## Test Coverage
 
-**File:** `tests/phase5_test.cpp`  
+**File:** `tests/phase5_test.cpp`
 **Test Cases:** 5
 
 - `RewardModelTest.Constructor` - Architecture validation
@@ -402,6 +418,6 @@ float policy_loss = ppo.update(traj);
 
 ---
 
-**Last Updated:** January 25, 2026  
-**Version:** 1.0  
+**Last Updated:** January 25, 2026
+**Version:** 1.0
 **Status:** Production-ready

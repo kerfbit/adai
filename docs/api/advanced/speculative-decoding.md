@@ -1,7 +1,7 @@
 # Speculative Decoding API Reference
 
-**File:** `src/SpeculativeDecoding.hpp`  
-**Status:** ✅ Production-ready (Phase 5 - January 2026)  
+**File:** `src/SpeculativeDecoding.hpp`
+**Status:** ✅ Production-ready (Phase 5 - January 2026)
 **Purpose:** Accelerate inference 2-3x with mathematically equivalent sampling
 
 ---
@@ -22,7 +22,7 @@ The `SpeculativeDecoding` class implements speculative decoding, a technique to 
 ## How It Works
 
 ### Standard Generation (Slow)
-```
+```text
 for each position:
     token = sample(target_model(prefix))     # Sequential
     prefix.append(token)
@@ -30,7 +30,7 @@ for each position:
 ```
 
 ### Speculative Decoding (Fast)
-```
+```text
 1. Draft model generates K candidates: [t1, t2, ..., tK]    # Fast model
 2. Target model verifies ALL K in parallel                   # One forward pass
 3. Accept verified tokens, reject rest
@@ -48,16 +48,16 @@ public:
     SpeculativeDecoder(TextGenerator* draft_model,
                       TextGenerator* target_model,
                       const SpeculativeDecodingConfig& config);
-    
+
     std::string generate(const std::string& prompt,
                         int max_length);
-    
+
     std::vector<int> generate_candidates(const std::string& prefix,
                                         int num_candidates);
-    
+
     std::vector<int> verify_candidates(const std::string& prefix,
                                       const std::vector<int>& candidates);
-    
+
     SpeculativeDecodingStats get_stats() const;
     void reset_stats();
 };
@@ -77,6 +77,7 @@ struct SpeculativeDecodingConfig {
 ```
 
 **Hyperparameter Guide:**
+
 - `num_candidates` (K):
   - **Larger K** = more speedup potential, but lower acceptance rate
   - **Smaller K** = higher acceptance, less speedup
@@ -97,11 +98,13 @@ SpeculativeDecoder(TextGenerator* draft_model,
 ```
 
 **Requirements:**
+
 - **Draft model:** Small, fast model (e.g., 125M params)
 - **Target model:** Large, accurate model (e.g., 1.3B params)
 - **Both models:** Same tokenizer and vocabulary
 
 **Example:**
+
 ```cpp
 // Load models
 TextGenerator draft_model(&small_decoder, &tokenizer);
@@ -129,7 +132,8 @@ std::string generate(const std::string& prompt, int max_length)
 Generate text using speculative decoding.
 
 **Algorithm:**
-```
+
+```text
 1. Initialize: prefix = prompt
 2. While length < max_length:
    a. Draft: Generate K candidate tokens with draft model
@@ -141,6 +145,7 @@ Generate text using speculative decoding.
 ```
 
 **Example:**
+
 ```cpp
 std::string prompt = "Once upon a time";
 std::string story = spec_decoder.generate(prompt, 200);
@@ -174,7 +179,8 @@ std::vector<int> verify_candidates(const std::string& prefix,
 Verify candidates with target model using acceptance criterion.
 
 **Acceptance Criterion:**
-```
+
+```text
 Accept token t_i if:
   p_target(t_i | prefix, t_1, ..., t_{i-1}) >= p_draft(t_i | ...)
 ```
@@ -204,6 +210,7 @@ SpeculativeDecodingStats get_stats() const;
 Get performance statistics.
 
 **Example:**
+
 ```cpp
 auto stats = spec_decoder.get_stats();
 std::cout << "Acceptance rate: " << stats.acceptance_rate * 100 << "%\n";
@@ -223,64 +230,64 @@ std::cout << "Accepted: " << stats.total_candidates_accepted << "\n";
 int main() {
     // 1. Load models
     BPETokenizer tokenizer("vocab.txt");
-    
+
     // Draft model: Small and fast (125M params)
     LLMDecoder draft_decoder(512, 8, 2048, 6, tokenizer.vocab_size());
     draft_decoder.load("draft_model.bin");
     TextGenerator draft_gen(&draft_decoder, &tokenizer);
-    
+
     // Target model: Large and accurate (1.3B params)
     LLMDecoder target_decoder(768, 12, 3072, 12, tokenizer.vocab_size());
     target_decoder.load("target_model.bin");
     TextGenerator target_gen(&target_decoder, &tokenizer);
-    
+
     // 2. Configure speculative decoding
     SpeculativeDecodingConfig config;
     config.num_candidates = 5;
     config.temperature = 1.0f;
     config.max_length = 200;
-    
+
     SpeculativeDecoder spec_decoder(&draft_gen, &target_gen, config);
-    
+
     // 3. Generate text
     std::string prompt = "The future of AI is";
-    
+
     auto start = std::chrono::high_resolution_clock::now();
     std::string output = spec_decoder.generate(prompt, 200);
     auto end = std::chrono::high_resolution_clock::now();
-    
+
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
         end - start).count();
-    
+
     // 4. Display results
     std::cout << "Generated text:\n" << output << "\n\n";
     std::cout << "Time: " << duration << "ms\n\n";
-    
+
     // 5. Show statistics
     auto stats = spec_decoder.get_stats();
     std::cout << "Speculative Decoding Statistics:\n";
-    std::cout << "  Acceptance rate: " 
+    std::cout << "  Acceptance rate: "
               << (stats.acceptance_rate * 100) << "%\n";
-    std::cout << "  Average speedup: " 
+    std::cout << "  Average speedup: "
               << stats.average_speedup << "x\n";
-    std::cout << "  Candidates proposed: " 
+    std::cout << "  Candidates proposed: "
               << stats.total_candidates_proposed << "\n";
-    std::cout << "  Candidates accepted: " 
+    std::cout << "  Candidates accepted: "
               << stats.total_candidates_accepted << "\n";
-    std::cout << "  Iterations: " 
+    std::cout << "  Iterations: "
               << stats.num_iterations << "\n";
-    
+
     // 6. Compare with standard generation
     auto start_std = std::chrono::high_resolution_clock::now();
     std::string output_std = target_gen.generate(prompt, 200);
     auto end_std = std::chrono::high_resolution_clock::now();
-    
+
     auto duration_std = std::chrono::duration_cast<std::chrono::milliseconds>(
         end_std - start_std).count();
-    
+
     std::cout << "\nStandard generation time: " << duration_std << "ms\n";
     std::cout << "Speedup: " << (float)duration_std / duration << "x\n";
-    
+
     return 0;
 }
 ```
@@ -292,7 +299,7 @@ int main() {
 ### Acceptance Rates
 
 | K (candidates) | Typical Acceptance Rate |
-|----------------|------------------------|
+| ---------------- | ------------------------ |
 | 2 | 85-95% |
 | 4 | 70-80% |
 | 5 | 65-75% |
@@ -302,7 +309,8 @@ int main() {
 ### Speedup Calculations
 
 **Theoretical Speedup:**
-```
+
+```text
 speedup = (K × acceptance_rate) / (1 + overhead)
 
 Examples:
@@ -312,6 +320,7 @@ K=6, acceptance=65%: 6 × 0.65 = 3.9x
 ```
 
 **Practical Speedup:**
+
 - CPU: 1.5-2.5x (due to overhead)
 - GPU: 2.0-3.5x (parallel verification)
 
@@ -320,6 +329,7 @@ K=6, acceptance=65%: 6 × 0.65 = 3.9x
 ## Model Selection Guide
 
 ### Draft Model Characteristics
+
 - **Size:** 10-50x smaller than target (e.g., 125M vs 1.3B)
 - **Speed:** Should be 5-10x faster
 - **Quality:** Doesn't need to be perfect, just "reasonable"
@@ -327,7 +337,7 @@ K=6, acceptance=65%: 6 × 0.65 = 3.9x
 ### Good Draft-Target Pairs
 
 | Draft Model | Target Model | Expected Speedup |
-|-------------|--------------|------------------|
+| ------------- | -------------- | ------------------ |
 | 125M params | 1.3B params | 2.0-2.5x |
 | 350M params | 7B params | 2.5-3.0x |
 | 1.3B params | 13B params | 2.0-2.8x |
@@ -388,11 +398,13 @@ auto results = batch_processor.generate_batch(prompts);
 ### Low Acceptance Rate (<50%)
 
 **Causes:**
+
 - Draft model too different from target
 - K (num_candidates) too large
 - High temperature
 
 **Solutions:**
+
 - Train better draft model (distillation)
 - Reduce K to 3-4
 - Lower temperature
@@ -401,11 +413,13 @@ auto results = batch_processor.generate_batch(prompts);
 ### No Speedup
 
 **Causes:**
+
 - Draft model not fast enough
 - Overhead too high (Python, I/O)
 - Draft model too large
 
 **Solutions:**
+
 - Use smaller/faster draft model
 - Profile and optimize bottlenecks
 - Ensure draft is 5-10x faster than target
@@ -457,7 +471,7 @@ if (stats.average_speedup < 1.5f) {
 
 ## Test Coverage
 
-**File:** `tests/phase5_test.cpp`  
+**File:** `tests/phase5_test.cpp`
 **Test Cases:** 5
 
 - Constructor validation
@@ -485,6 +499,6 @@ if (stats.average_speedup < 1.5f) {
 
 ---
 
-**Last Updated:** January 25, 2026  
-**Version:** 1.0  
+**Last Updated:** January 25, 2026
+**Version:** 1.0
 **Status:** Production-ready

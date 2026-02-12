@@ -7,6 +7,7 @@ The `Neuron` class represents a single computational unit in a neural network la
 ## Purpose
 
 The Neuron class is designed to:
+
 - Provide a low-level abstraction for neural network computations
 - Enable flexible construction of custom layer architectures
 - Support both forward pass (inference) and gradient computation (training)
@@ -16,7 +17,7 @@ The Neuron class is designed to:
 
 ### Core Components
 
-```
+```text
 Inputs (x₁, x₂, ..., xₙ)
          ↓
     Weighted Sum: z = Σ(wᵢ × xᵢ) + b
@@ -29,12 +30,14 @@ Activation Function: a = f(z)
 ### Mathematical Formulation
 
 **Forward Pass:**
-```
+
+```text
 z = w₁x₁ + w₂x₂ + ... + wₙxₙ + b
 a = f(z)
 ```
 
 Where:
+
 - `w₁, w₂, ..., wₙ` are learnable weights
 - `x₁, x₂, ..., xₙ` are input values
 - `b` is the learnable bias term
@@ -43,13 +46,15 @@ Where:
 - `a` is the activation (output)
 
 **Backward Pass (Gradient Computation):**
-```
+
+```text
 ∂L/∂w = ∂L/∂a × ∂a/∂z × ∂z/∂w = δ × x
 ∂L/∂b = ∂L/∂a × ∂a/∂z = δ
 ∂L/∂x = ∂L/∂a × ∂a/∂z × ∂z/∂x = δ × w
 ```
 
 Where:
+
 - `L` is the loss function
 - `δ = ∂L/∂a × f'(z)` is the error gradient
 
@@ -63,43 +68,43 @@ private:
     std::vector<float> weights;  // Weight vector [w₁, w₂, ..., wₙ]
     float bias;                  // Bias term b
     float learning_rate;         // Learning rate for weight updates
-    
+
     // Cached values for backpropagation
     std::vector<float> last_input;
     float last_pre_activation;   // z value
     float last_activation;        // a value
-    
+
     // Activation function pointer
     ActivationType activation_type;
-    
+
 public:
     // Constructors
-    Neuron(int input_size, ActivationType activation = ActivationType::RELU, 
+    Neuron(int input_size, ActivationType activation = ActivationType::RELU,
            float lr = 0.01f);
     Neuron(const std::vector<float>& init_weights, float init_bias,
            ActivationType activation = ActivationType::RELU, float lr = 0.01f);
-    
+
     // Forward pass
     float forward(const std::vector<float>& inputs);
-    
+
     // Backward pass
     std::vector<float> backward(float gradient);
-    
+
     // Weight updates
     void update_weights();
-    
+
     // Getters and setters
     const std::vector<float>& get_weights() const;
     float get_bias() const;
     void set_weights(const std::vector<float>& new_weights);
     void set_bias(float new_bias);
     void set_learning_rate(float lr);
-    
+
     // Utility functions
     void randomize(float scale = 0.1f);
     void xavier_init(int fan_in, int fan_out);
     void he_init(int fan_in);
-    
+
     // Serialization
     void save(std::ofstream& file) const;
     void load(std::ifstream& file);
@@ -125,7 +130,7 @@ enum class ActivationType {
 ### Activation Function Properties
 
 | Function | Range | Derivative | Use Case |
-|----------|-------|------------|----------|
+| ---------- | ------- | ------------ | ---------- |
 | Linear | (-∞, ∞) | f'(x) = 1 | Regression output |
 | Sigmoid | (0, 1) | f'(x) = f(x)(1-f(x)) | Binary classification |
 | Tanh | (-1, 1) | f'(x) = 1 - f(x)² | Hidden layers |
@@ -194,17 +199,17 @@ class NeuronLayer {
 private:
     std::vector<Neuron> neurons;
     int input_size, output_size;
-    
+
 public:
-    NeuronLayer(int in_size, int out_size, ActivationType activation) 
+    NeuronLayer(int in_size, int out_size, ActivationType activation)
         : input_size(in_size), output_size(out_size) {
-        
+
         for (int i = 0; i < out_size; ++i) {
             neurons.emplace_back(in_size, activation);
             neurons[i].he_init(in_size);
         }
     }
-    
+
     std::vector<float> forward(const std::vector<float>& inputs) {
         std::vector<float> outputs;
         for (auto& neuron : neurons) {
@@ -212,10 +217,10 @@ public:
         }
         return outputs;
     }
-    
+
     std::vector<float> backward(const std::vector<float>& gradients) {
         std::vector<float> input_gradients(input_size, 0.0f);
-        
+
         for (size_t i = 0; i < neurons.size(); ++i) {
             auto neuron_grads = neurons[i].backward(gradients[i]);
             for (size_t j = 0; j < input_gradients.size(); ++j) {
@@ -224,7 +229,7 @@ public:
         }
         return input_gradients;
     }
-    
+
     void update_weights() {
         for (auto& neuron : neurons) {
             neuron.update_weights();
@@ -241,12 +246,12 @@ class CustomFeedForward {
 private:
     NeuronLayer layer1;
     NeuronLayer layer2;
-    
+
 public:
     CustomFeedForward(int d_model, int d_ff)
         : layer1(d_model, d_ff, ActivationType::GELU),
           layer2(d_ff, d_model, ActivationType::LINEAR) {}
-    
+
     std::vector<float> forward(const std::vector<float>& input) {
         auto hidden = layer1.forward(input);
         return layer2.forward(hidden);
@@ -261,19 +266,19 @@ public:
 ```cpp
 float Neuron::forward(const std::vector<float>& inputs) {
     assert(inputs.size() == weights.size());
-    
+
     // Cache inputs for backpropagation
     last_input = inputs;
-    
+
     // Compute weighted sum: z = Σ(wᵢ × xᵢ) + b
     last_pre_activation = bias;
     for (size_t i = 0; i < inputs.size(); ++i) {
         last_pre_activation += weights[i] * inputs[i];
     }
-    
+
     // Apply activation function: a = f(z)
     last_activation = apply_activation(last_pre_activation, activation_type);
-    
+
     return last_activation;
 }
 ```
@@ -283,23 +288,23 @@ float Neuron::forward(const std::vector<float>& inputs) {
 ```cpp
 std::vector<float> Neuron::backward(float gradient) {
     // Compute activation gradient: δ = gradient × f'(z)
-    float delta = gradient * activation_derivative(last_pre_activation, 
+    float delta = gradient * activation_derivative(last_pre_activation,
                                                     activation_type);
-    
+
     // Compute gradients for inputs
     std::vector<float> input_gradients(weights.size());
     for (size_t i = 0; i < weights.size(); ++i) {
         input_gradients[i] = delta * weights[i];
     }
-    
+
     // Update weights: w = w - lr × δ × x
     for (size_t i = 0; i < weights.size(); ++i) {
         weights[i] -= learning_rate * delta * last_input[i];
     }
-    
+
     // Update bias: b = b - lr × δ
     bias -= learning_rate * delta;
-    
+
     return input_gradients;
 }
 ```
@@ -344,7 +349,7 @@ Matrix layer_to_matrix(const NeuronLayer& layer) {
 float apply_activation(float x, ActivationType type) {
     Matrix input(1, 1);
     input(0, 0) = x;
-    
+
     switch(type) {
         case ActivationType::GELU:
             return Activation::gelu(input)(0, 0);
@@ -363,10 +368,10 @@ void test_forward_pass() {
     Neuron n(3, ActivationType::LINEAR);
     n.set_weights({1.0f, 2.0f, 3.0f});
     n.set_bias(1.0f);
-    
+
     std::vector<float> input = {1.0f, 1.0f, 1.0f};
     float output = n.forward(input);
-    
+
     assert(std::abs(output - 7.0f) < 1e-5f);  // 1+2+3+1 = 7
 }
 
@@ -375,16 +380,16 @@ void test_backward_pass() {
     Neuron n(2, ActivationType::LINEAR, 0.1f);
     n.set_weights({1.0f, 1.0f});
     n.set_bias(0.0f);
-    
+
     std::vector<float> input = {1.0f, 1.0f};
     float output = n.forward(input);  // output = 2
-    
+
     // Compute gradients (loss = 0.5 * (output - target)²)
     float target = 3.0f;
     float gradient = output - target;  // gradient = -1
-    
+
     auto input_grads = n.backward(gradient);
-    
+
     // Check weight updates
     auto new_weights = n.get_weights();
     assert(std::abs(new_weights[0] - 1.1f) < 1e-5f);  // 1.0 - 0.1*(-1)*1
@@ -399,7 +404,7 @@ void test_xor_network() {
     // XOR function learning test
     NeuronLayer hidden(2, 2, ActivationType::TANH);
     NeuronLayer output(2, 1, ActivationType::SIGMOID);
-    
+
     // Training data for XOR
     std::vector<std::pair<std::vector<float>, float>> data = {
         {{0.0f, 0.0f}, 0.0f},
@@ -407,7 +412,7 @@ void test_xor_network() {
         {{1.0f, 0.0f}, 1.0f},
         {{1.0f, 1.0f}, 0.0f}
     };
-    
+
     // Train for several epochs
     // Verify convergence
 }
@@ -417,7 +422,7 @@ void test_xor_network() {
 
 ### File Format
 
-```
+```text
 # Neuron Weights v1.0
 INPUT_SIZE <n>
 ACTIVATION <type>

@@ -71,11 +71,13 @@ cd build/src
 ### Test the API
 
 **Health Check:**
+
 ```bash
 curl http://localhost:8080/health
 ```
 
 **Single-Turn Chat:**
+
 ```bash
 curl -X POST http://localhost:8080/chat \
   -H "Content-Type: application/json" \
@@ -83,6 +85,7 @@ curl -X POST http://localhost:8080/chat \
 ```
 
 **Multi-Turn Chat:**
+
 ```bash
 # First message (creates session)
 curl -X POST http://localhost:8080/chat/session \
@@ -102,10 +105,12 @@ curl -X POST http://localhost:8080/chat/session \
 ### Command-Line Options
 
 **Server:**
+
 - `--port <n>` - Port number (default: 8080)
 - `--timeout <n>` - Session timeout in minutes (default: 30)
 
 **Model:**
+
 - `--model <path>` - Pre-trained model file (optional)
 - `--vocab <path>` - Vocabulary file (required)
 - `--d-model <n>` - Model dimension (default: 512)
@@ -115,6 +120,7 @@ curl -X POST http://localhost:8080/chat/session \
 - `--dec-layers <n>` - Decoder layers (default: 6)
 
 **Generation:**
+
 - `--max-gen-len <n>` - Max response length (default: 100)
 - `--temperature <f>` - Sampling temperature (default: 1.0)
 - `--top-p <f>` - Nucleus sampling threshold (default: 0.9)
@@ -123,6 +129,7 @@ curl -X POST http://localhost:8080/chat/session \
 ### Example Configurations
 
 **Development (fast):**
+
 ```bash
 ./chatbot_api_server \
     --vocab vocab.txt \
@@ -135,6 +142,7 @@ curl -X POST http://localhost:8080/chat/session \
 ```
 
 **Production (quality):**
+
 ```bash
 ./chatbot_api_server \
     --model trained_model.bin \
@@ -154,7 +162,7 @@ curl -X POST http://localhost:8080/chat/session \
 ## Available Endpoints
 
 | Method | Endpoint | Description |
-|--------|----------|-------------|
+| -------- | ---------- | ------------- |
 | GET | `/health` | Server health check |
 | POST | `/chat` | Single-turn conversation |
 | POST | `/chat/session` | Multi-turn conversation |
@@ -176,7 +184,7 @@ def chat(message, session_id=None):
     payload = {"message": message}
     if session_id:
         payload["session_id"] = session_id
-    
+
     response = requests.post(url, json=payload)
     data = response.json()
     return data["response"], data.get("session_id")
@@ -196,7 +204,7 @@ const axios = require('axios');
 async function chat(message, sessionId = null) {
     const payload = { message };
     if (sessionId) payload.session_id = sessionId;
-    
+
     const response = await axios.post('http://localhost:8080/chat/session', payload);
     return [response.data.response, response.data.session_id];
 }
@@ -229,13 +237,16 @@ curl -s -X POST http://localhost:8080/chat/session \
 ### Build Issues
 
 **Problem:** cpp-httplib not found
-```
+
+```text
 cpp-httplib not found. API server will not be built.
 ```
+
 **Solution:** Run `./scripts/install_httplib.sh` and rebuild
 
 **Problem:** Linking errors
 **Solution:** Ensure all dependencies are built:
+
 ```bash
 cd build
 cmake .. -DBUILD_API_SERVER=ON
@@ -250,12 +261,14 @@ make chatbot_api_server
 
 **Problem:** Slow responses
 **Solutions:**
+
 - Reduce `--max-gen-len`
 - Use `--strategy greedy`
 - Reduce model size (`--d-model`, layers)
 
 **Problem:** High memory usage
 **Solutions:**
+
 - Reduce `--timeout` (shorter session lifetime)
 - Reduce `--max-seq-len`
 - Monitor with `/health` endpoint
@@ -282,6 +295,7 @@ make chatbot_api_server
 ---
 
 **Related Documentation:**
+
 - [Chatbot Completeness Analysis](../reference/chatbot-completeness.md)
 - [Training Guide](../guides/) (TODO)
 - [Architecture Overview](../architecture/) (TODO)

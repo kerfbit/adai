@@ -87,7 +87,7 @@ This package contains the complete design specification for implementing a Trans
 
 ## 🏗️ Architecture Overview
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                  ENCODER-DECODER MODEL                       │
 │                                                               │
@@ -129,7 +129,7 @@ Reuses: `Matrix`, `MultiHeadAttention`, `FeedForward`, `LayerNorm`, `TokenEmbedd
 ### 4 Phases (4 Weeks)
 
 | Phase | Components | Files | Lines | Duration |
-|-------|-----------|-------|-------|----------|
+| ------- | ----------- | ------- | ------- | ---------- |
 | 1 | LanguageModelHead, DecoderBlock | 8 | ~2,800 | 1 week |
 | 2 | LLMDecoder | 6 | ~2,650 | 1 week |
 | 3 | TextGenerator | 5 | ~2,120 | 1 week |
@@ -149,29 +149,29 @@ Reuses: `Matrix`, `MultiHeadAttention`, `FeedForward`, `LayerNorm`, `TokenEmbedd
 
 ### 1. Encoder-Decoder Architecture (vs Decoder-Only)
 
-✅ **Chosen:** Encoder-Decoder  
-**Rationale:** Leverages existing encoder, standard for seq2seq tasks  
+✅ **Chosen:** Encoder-Decoder
+**Rationale:** Leverages existing encoder, standard for seq2seq tasks
 **Alternative:** GPT-style decoder-only (would require encoder redesign)
 
 ### 2. Component Reuse Strategy
 
-✅ **Maximize reuse:** 70% of components already exist  
+✅ **Maximize reuse:** 70% of components already exist
 **New code:** Only decoder-specific logic (causal masking, cross-attention, generation)
 
 ### 3. No Breaking Changes
 
-✅ **Backward compatible:** Encoder code unchanged  
-✅ **Additive:** Decoder is separate module  
+✅ **Backward compatible:** Encoder code unchanged
+✅ **Additive:** Decoder is separate module
 ✅ **Optional integration:** Can use encoder standalone
 
 ### 4. Multiple Generation Strategies
 
-✅ **Implemented:** Greedy, Sampling, Top-k, Nucleus, Beam Search  
+✅ **Implemented:** Greedy, Sampling, Top-k, Nucleus, Beam Search
 **Rationale:** Different use cases need different strategies
 
 ### 5. Teacher Forcing Training
 
-✅ **Standard approach:** Use ground truth during training  
+✅ **Standard approach:** Use ground truth during training
 **Alternative:** Scheduled sampling (future enhancement)
 
 ---
@@ -206,16 +206,19 @@ Reuses: `Matrix`, `MultiHeadAttention`, `FeedForward`, `LayerNorm`, `TokenEmbedd
 ### Functional Capabilities
 
 ✅ **Sequence-to-sequence modeling**
+
 - Machine translation
 - Summarization
 - Question answering
 
 ✅ **Chatbot functionality**
+
 - Conversational AI
 - Response generation
 - Context-aware replies
 
 ✅ **Text generation**
+
 - Creative writing
 - Auto-completion
 - Content generation
@@ -238,7 +241,7 @@ Reuses: `Matrix`, `MultiHeadAttention`, `FeedForward`, `LayerNorm`, `TokenEmbedd
 
 ### Causal Masking
 
-```
+```text
 Lower triangular mask prevents future token access:
   [✓  ✗  ✗  ✗]
   [✓  ✓  ✗  ✗]
@@ -248,7 +251,7 @@ Lower triangular mask prevents future token access:
 
 ### Cross-Attention
 
-```
+```text
 Decoder queries attend to encoder output:
 Decoder: "sunny" → Encoder: [What, is, the, weather]
                               ↑                   ↑
@@ -257,7 +260,7 @@ Decoder: "sunny" → Encoder: [What, is, the, weather]
 
 ### Autoregressive Generation
 
-```
+```text
 Step 1: [<BOS>] → "It"
 Step 2: [<BOS>, "It"] → "is"
 Step 3: [<BOS>, "It", "is"] → "sunny"
@@ -270,7 +273,7 @@ Step 3: [<BOS>, "It", "is"] → "sunny"
 
 ### Context Documentation
 
-```
+```text
 Context Documentation/
 ├── LANGUAGEMODELHEAD_CONTEXT.md
 ├── DECODERBLOCK_CONTEXT.md
@@ -281,7 +284,7 @@ Context Documentation/
 
 ### Design Documentation
 
-```
+```text
 (root)/
 ├── DECODER_DESIGN.md
 ├── DECODER_DESIGN_SUMMARY.md
@@ -373,24 +376,28 @@ touch tests/languagemodelhead_test.cpp
 ## 📋 Checklist Quick Reference
 
 ### Phase 1 (Week 1)
+
 - [ ] LanguageModelHead.hpp/cpp
 - [ ] DecoderBlock.hpp/cpp
 - [ ] Unit tests for both
 - [ ] Context documentation
 
 ### Phase 2 (Week 2)
+
 - [ ] Decoder.hpp/cpp
 - [ ] DecoderExample.cpp
 - [ ] Integration tests
 - [ ] Context documentation
 
 ### Phase 3 (Week 3)
+
 - [ ] TextGenerator.hpp/cpp
 - [ ] TextGeneratorExample.cpp
 - [ ] Generation tests
 - [ ] Context documentation
 
 ### Phase 4 (Week 4)
+
 - [ ] EncoderDecoderModel.hpp/cpp
 - [ ] ChatbotApp.cpp
 - [ ] End-to-end tests
@@ -430,19 +437,19 @@ touch tests/languagemodelhead_test.cpp
 
 ### Avoid These Mistakes
 
-❌ **Forgetting to cache for backward pass**  
+❌ **Forgetting to cache for backward pass**
 ✅ Always cache inputs and intermediates
 
-❌ **Not propagating learning rates**  
+❌ **Not propagating learning rates**
 ✅ Set learning_rate for all sub-components
 
-❌ **Incorrect residual gradient accumulation**  
+❌ **Incorrect residual gradient accumulation**
 ✅ Split gradients at residual connections
 
-❌ **Not zeroing gradients after update**  
+❌ **Not zeroing gradients after update**
 ✅ Call zero_grad() after update_weights()
 
-❌ **Ignoring causal mask in decoder**  
+❌ **Ignoring causal mask in decoder**
 ✅ Always apply causal mask in self-attention
 
 **See DECODER_IMPLEMENTATION_GUIDE.md for more**
@@ -477,7 +484,7 @@ touch tests/languagemodelhead_test.cpp
 ### Design Phase Metrics
 
 | Metric | Value |
-|--------|-------|
+| -------- | ------- |
 | Design documents | 6 |
 | Total documentation lines | ~4,600 |
 | Diagrams | 8 |
@@ -487,7 +494,7 @@ touch tests/languagemodelhead_test.cpp
 ### Implementation Estimates
 
 | Metric | Value |
-|--------|-------|
+| -------- | ------- |
 | New components | 5 |
 | Source files | 10 |
 | Test files | 7 |
@@ -498,7 +505,7 @@ touch tests/languagemodelhead_test.cpp
 ### Expected Deliverables
 
 | Category | Count |
-|----------|-------|
+| ---------- | ------- |
 | Header files | 5 |
 | Implementation files | 5 |
 | Test files | 7 |
@@ -562,24 +569,28 @@ touch tests/languagemodelhead_test.cpp
 ## 📅 Timeline
 
 ### Week 1: Core Components
+
 - LanguageModelHead
 - DecoderBlock
 - Unit tests
 - Documentation
 
 ### Week 2: Decoder Stack
+
 - LLMDecoder
 - Integration tests
 - Examples
 - Documentation
 
 ### Week 3: Generation
+
 - TextGenerator
 - All strategies
 - Generation tests
 - Documentation
 
 ### Week 4: Integration
+
 - EncoderDecoderModel
 - Chatbot app
 - End-to-end tests
@@ -616,7 +627,7 @@ touch tests/languagemodelhead_test.cpp
 ## 📖 Version History
 
 | Version | Date | Changes |
-|---------|------|---------|
+| --------- | ------ | --------- |
 | 1.0 | 2026-01-18 | Initial design package |
 
 ---
@@ -627,8 +638,8 @@ This design documentation is part of the ADAI project. Refer to the main project
 
 ---
 
-**Package Version:** 1.0  
-**Created:** January 18, 2026  
+**Package Version:** 1.0
+**Created:** January 18, 2026
 **Status:** Complete - Ready for Implementation Review
 
 ---
@@ -657,6 +668,7 @@ This document provides a high-level overview of the Decoder architecture design 
 **Goal:** Create a transformer decoder that seamlessly integrates with the existing encoder implementation while maximizing code reuse and maintaining architectural consistency.
 
 **Approach:**
+
 - **Composition over reinvention** - Reuse existing components (70% reuse rate)
 - **Pattern consistency** - Mirror encoder's design patterns and conventions
 - **Production-ready** - Include training, inference, and model persistence
@@ -669,7 +681,7 @@ This document provides a high-level overview of the Decoder architecture design 
 ### 5 New Classes
 
 | Class | Purpose | Lines of Code (est.) | Complexity |
-|-------|---------|---------------------|------------|
+| ------- | --------- | --------------------- | ------------ |
 | `DecoderBlock` | Single decoder layer with self/cross-attention | ~350 | Medium |
 | `LanguageModelHead` | Project to vocabulary logits | ~200 | Low |
 | `LLMDecoder` | Complete decoder stack | ~400 | Medium |
@@ -684,18 +696,19 @@ This document provides a high-level overview of the Decoder architecture design 
 
 ### Reused Components (No Changes Needed)
 
-✅ `MultiHeadAttention` - Used for both self & cross-attention  
-✅ `FeedForward` - Position-wise FFN in decoder blocks  
-✅ `LayerNorm` - 3 instances per decoder block  
-✅ `TokenEmbedding` - Decoder input embeddings  
-✅ `PositionalEncoding` - Add position information  
-✅ `BPETokenizer` - Shared with encoder  
-✅ `Activation` - Softmax for output probabilities  
-✅ `Matrix` - All tensor operations  
+✅ `MultiHeadAttention` - Used for both self & cross-attention
+✅ `FeedForward` - Position-wise FFN in decoder blocks
+✅ `LayerNorm` - 3 instances per decoder block
+✅ `TokenEmbedding` - Decoder input embeddings
+✅ `PositionalEncoding` - Add position information
+✅ `BPETokenizer` - Shared with encoder
+✅ `Activation` - Softmax for output probabilities
+✅ `Matrix` - All tensor operations
 
 ### Why This Works
 
 The existing components were designed with sufficient generality:
+
 - `MultiHeadAttention` supports both self-attention (Q=K=V) and cross-attention (Q≠K,V)
 - `FeedForward` is position-wise (works on any sequence)
 - `LayerNorm` normalizes features (agnostic to encoder/decoder)
@@ -706,13 +719,14 @@ The existing components were designed with sufficient generality:
 
 ### 1. DecoderBlock Structure
 
-```
+```text
 Input → Self-Attention → Add&Norm →
-     → Cross-Attention → Add&Norm →  
+     → Cross-Attention → Add&Norm →
      → Feed-Forward → Add&Norm → Output
 ```
 
 **Rationale:**
+
 - Standard transformer decoder architecture (Vaswani et al., 2017)
 - 3 sub-layers with residual connections
 - Self-attention uses causal mask (autoregressive)
@@ -721,7 +735,8 @@ Input → Self-Attention → Add&Norm →
 ### 2. Masking Strategy
 
 **Self-Attention (Causal):**
-```
+
+```text
 [ 0   -∞   -∞   -∞ ]  Position 0 sees only itself
 [ 0    0   -∞   -∞ ]  Position 1 sees 0,1
 [ 0    0    0   -∞ ]  Position 2 sees 0,1,2
@@ -729,12 +744,13 @@ Input → Self-Attention → Add&Norm →
 ```
 
 **Cross-Attention (Padding):**
+
 - Mask encoder padding tokens to prevent attention
 - Allows variable-length encoder sequences
 
 ### 3. Text Generation Pipeline
 
-```
+```text
 Encoder Output (static)
      ↓
 [BOS] → Decoder → Logits → Softmax → Sample → Token₁
@@ -747,6 +763,7 @@ Encoder Output (static)
 ```
 
 **Generation Strategies:**
+
 1. **Greedy** - Always pick highest probability token
 2. **Sampling** - Random sampling with temperature
 3. **Top-k** - Sample from top k tokens only
@@ -756,11 +773,13 @@ Encoder Output (static)
 ### 4. Training vs Inference
 
 **Training (Teacher Forcing):**
+
 - Decoder sees full target sequence (shifted right)
 - Parallel processing of all positions
 - Efficient gradient computation
 
 **Inference (Autoregressive):**
+
 - Generate one token at a time
 - Sequential processing (cannot parallelize)
 - Cache encoder output for efficiency
@@ -804,12 +823,14 @@ std::string response = model.generate_response(
 ### Memory Footprint
 
 **Per DecoderBlock:**
+
 - 2× MultiHeadAttention: 2 × 4 × (d_model × d_model) parameters
 - 1× FeedForward: 2 × (d_model × d_ff) parameters
 - 3× LayerNorm: 6 × d_model parameters
 - Cached activations: ~5 × (seq_len × d_model) floats
 
 **Example (d_model=512, d_ff=2048, seq_len=256):**
+
 - Parameters: ~12M per block
 - Cached activations: ~2.5MB per block
 - 6 blocks: ~72M parameters, ~15MB cache
@@ -826,23 +847,27 @@ std::string response = model.generate_response(
 ## Implementation Phases
 
 ### Phase 1: Core Components (Week 1)
+
 - [ ] `LanguageModelHead` class
-- [ ] `DecoderBlock` class  
+- [ ] `DecoderBlock` class
 - [ ] Unit tests
 - [ ] Documentation
 
 ### Phase 2: Decoder Stack (Week 2)
+
 - [ ] `LLMDecoder` class
 - [ ] Causal masking
 - [ ] Integration tests
 - [ ] Example programs
 
 ### Phase 3: Generation (Week 3)
+
 - [ ] `TextGenerator` class
 - [ ] All generation strategies
 - [ ] Generation quality tests
 
 ### Phase 4: Integration (Week 4)
+
 - [ ] `EncoderDecoderModel` class
 - [ ] Training pipeline
 - [ ] End-to-end chatbot
@@ -853,18 +878,21 @@ std::string response = model.generate_response(
 ## Testing Coverage
 
 ### Unit Tests (per component)
+
 - Forward pass shape verification
 - Backward pass gradient checking
 - Parameter updates correctness
 - Edge cases (empty sequences, max length, etc.)
 
 ### Integration Tests
+
 - Encoder-decoder connection
 - End-to-end training
 - Generation quality
 - Model save/load
 
 ### Performance Tests
+
 - Memory profiling
 - Inference speed
 - Training throughput
@@ -910,18 +938,20 @@ std::string summary = summarizer.generate_response(
 ## Comparison with Alternatives
 
 ### Encoder-Decoder (Chosen Design)
-✅ Separate input/output representations  
-✅ Cross-attention enables conditioning  
-✅ Standard for seq2seq tasks  
-✅ Well-understood architecture  
-❌ More parameters than decoder-only  
+
+✅ Separate input/output representations
+✅ Cross-attention enables conditioning
+✅ Standard for seq2seq tasks
+✅ Well-understood architecture
+❌ More parameters than decoder-only
 
 ### Decoder-Only (GPT-style)
-✅ Simpler architecture  
-✅ Fewer parameters  
-✅ Easier to scale  
-❌ Would require encoder redesign  
-❌ Less separation of input/output  
+
+✅ Simpler architecture
+✅ Fewer parameters
+✅ Easier to scale
+❌ Would require encoder redesign
+❌ Less separation of input/output
 
 **Decision:** Encoder-decoder chosen to leverage existing encoder implementation.
 
@@ -930,6 +960,7 @@ std::string summary = summarizer.generate_response(
 ## Dependencies & Requirements
 
 ### Required Existing Components
+
 - `Matrix` class (tensor operations)
 - `MultiHeadAttention` (attention mechanism)
 - `FeedForward` (position-wise FFN)
@@ -940,6 +971,7 @@ std::string summary = summarizer.generate_response(
 - `Activation` (softmax, GELU)
 
 ### New Dependencies
+
 - None (uses existing dependencies)
 
 ### Build System Changes
@@ -961,16 +993,19 @@ target_link_libraries(decoder encoder matrix ...)
 ## Risk Assessment
 
 ### Low Risk
-✅ Reusing proven components (MultiHeadAttention, FeedForward)  
-✅ Following established patterns from encoder  
-✅ Standard transformer decoder architecture  
+
+✅ Reusing proven components (MultiHeadAttention, FeedForward)
+✅ Following established patterns from encoder
+✅ Standard transformer decoder architecture
 
 ### Medium Risk
-⚠️ Text generation quality (requires tuning)  
-⚠️ Memory usage during long sequence generation  
-⚠️ Training convergence (need good hyperparameters)  
+
+⚠️ Text generation quality (requires tuning)
+⚠️ Memory usage during long sequence generation
+⚠️ Training convergence (need good hyperparameters)
 
 ### Mitigation Strategies
+
 - Start with small models for testing
 - Implement gradient clipping
 - Add memory profiling
@@ -981,22 +1016,25 @@ target_link_libraries(decoder encoder matrix ...)
 ## Success Criteria
 
 ### Functional Requirements
-✅ Forward pass produces correct shape outputs  
-✅ Backward pass computes valid gradients  
-✅ Training loop converges  
-✅ Generation produces coherent text  
-✅ Model save/load preserves parameters  
+
+✅ Forward pass produces correct shape outputs
+✅ Backward pass computes valid gradients
+✅ Training loop converges
+✅ Generation produces coherent text
+✅ Model save/load preserves parameters
 
 ### Quality Requirements
-✅ Code follows existing style guidelines  
-✅ >90% test coverage for new components  
-✅ Documentation matches encoder standard  
-✅ No memory leaks (valgrind clean)  
+
+✅ Code follows existing style guidelines
+✅ >90% test coverage for new components
+✅ Documentation matches encoder standard
+✅ No memory leaks (valgrind clean)
 
 ### Performance Requirements
-✅ Inference speed: >50 tokens/second (on CPU)  
-✅ Training speed: >1000 tokens/second (batch size 32)  
-✅ Memory: <500MB for 6-layer model (d_model=512)  
+
+✅ Inference speed: >50 tokens/second (on CPU)
+✅ Training speed: >1000 tokens/second (batch size 32)
+✅ Memory: <500MB for 6-layer model (d_model=512)
 
 ---
 
@@ -1016,6 +1054,7 @@ target_link_libraries(decoder encoder matrix ...)
 ## Conclusion
 
 This decoder design:
+
 - **Maximizes code reuse** (70% existing components)
 - **Follows established patterns** (mirrors encoder structure)
 - **Enables full chatbot functionality** (generation + training)
@@ -1024,12 +1063,12 @@ This decoder design:
 
 The design is **ready for implementation** with clear phases, success criteria, and risk mitigation strategies.
 
-**Estimated Effort:** 4 weeks (1 developer, full-time)  
-**Estimated Code:** ~1,850 new lines + ~500 test lines + documentation  
-**Code Reuse:** ~70% (existing components)  
+**Estimated Effort:** 4 weeks (1 developer, full-time)
+**Estimated Code:** ~1,850 new lines + ~500 test lines + documentation
+**Code Reuse:** ~70% (existing components)
 
 ---
 
-**Document Version:** 1.0  
-**Last Updated:** January 18, 2026  
+**Document Version:** 1.0
+**Last Updated:** January 18, 2026
 **Status:** Design Complete - Ready for Review

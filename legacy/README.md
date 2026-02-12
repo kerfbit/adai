@@ -8,7 +8,7 @@ This directory contains archived implementations of traditional dense (fully-con
 
 ## Directory Structure
 
-```
+```text
 legacy/
 └── dense_networks/
     ├── README.md           # Detailed documentation of archived components
@@ -48,6 +48,7 @@ See `dense_networks/README.md` for complete analysis and reasoning.
 ## Accessing Archived Code
 
 These files are preserved for:
+
 - **Reference** - Understanding traditional neural network implementations
 - **Education** - Learning basic neural network concepts
 - **Comparison** - Contrasting dense networks with transformers
@@ -58,6 +59,7 @@ To view the code, browse the subdirectories. To use it, you would need to manual
 ## Active Development
 
 For current ADAI development, use the transformer components in `src/`:
+
 - MultiHeadAttention
 - CrossAttention
 - FeedForward
@@ -71,6 +73,7 @@ All active components use the unified Optimizer class and follow modern transfor
 ## Git History
 
 Full development history of these components is preserved in git. Use:
+
 ```bash
 git log --follow legacy/dense_networks/src/Neuron.hpp
 ```

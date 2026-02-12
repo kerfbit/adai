@@ -1,12 +1,15 @@
 # Decoder (LLMDecoder) - Context Documentation
 
 ## Overview
+
 The `LLMDecoder` class implements a transformer-based decoder for autoregressive text generation. This component is essential for chatbot applications, machine translation, and any sequence-to-sequence task requiring text generation. It supports both decoder-only architectures (like GPT) and encoder-decoder architectures (like BART, T5).
 
 ## Purpose
+
 **Primary Function**: Generate text autoregressively by predicting one token at a time while attending to previously generated tokens and optionally to encoder representations.
 
 **Key Capabilities**:
+
 - Autoregressive text generation with causal masking
 - Cross-attention to encoder outputs (encoder-decoder mode)
 - Multi-layer transformer architecture
@@ -17,7 +20,7 @@ The `LLMDecoder` class implements a transformer-based decoder for autoregressive
 ## Architecture
 
 ### Component Stack
-```
+```text
 Input Token IDs [batch_size, seq_length]
     ↓
 Token Embedding [seq_length, d_model]
@@ -38,13 +41,16 @@ Output [seq_length, d_model]
 ```
 
 ### Internal Components
+
 1. **TokenEmbedding**: Converts token IDs to dense vectors
 2. **PositionalEncoding**: Adds position information to embeddings
 3. **DecoderBlocks** (×N): Multi-head attention + cross-attention + feed-forward
 4. **LayerNorm**: Final normalization layer
 
 ### DecoderBlock Structure
+
 Each decoder block contains:
+
 - **Masked Self-Attention**: Attends to previous tokens only (causal masking)
 - **Cross-Attention**: Attends to encoder outputs (if provided)
 - **Feed-Forward Network**: Non-linear transformation
@@ -54,6 +60,7 @@ Each decoder block contains:
 ## Class Structure
 
 ### File Location
+
 - Header: `/home/rodney/Repos/adai/src/Decoder.hpp`
 - Implementation: `/home/rodney/Repos/adai/src/Decoder.cpp`
 
@@ -75,7 +82,7 @@ private:
     std::unique_ptr<PositionalEncoding> positional_encoding;
     std::vector<std::unique_ptr<DecoderBlock>> decoder_blocks;
     std::unique_ptr<LayerNorm> final_norm;
-    
+
     // Configuration
     int vocab_size;        // Size of vocabulary
     int d_model;          // Model dimension
@@ -83,24 +90,24 @@ private:
     int num_heads;        // Number of attention heads
     int d_ff;             // Feed-forward dimension
     int max_seq_length;   // Maximum sequence length
-    
+
     // Training state
     bool requires_grad;
     float learning_rate;
-    
+
     // Cached values for backward pass
     std::vector<int> cached_token_ids;
     Matrix cached_embeddings;
     Matrix cached_pos_encoded;
     std::vector<Matrix> cached_decoder_outputs;
     Matrix cached_encoder_output;
-    
+
 public:
     // Constructor and destructor
     LLMDecoder(int vocab_size, int d_model = 512, int num_layers = 6,
                int num_heads = 8, int d_ff = 2048, int max_seq_length = 512);
     ~LLMDecoder();
-    
+
     // Forward pass methods
     Matrix forward(const std::vector<int>& token_ids);
     Matrix forward_with_encoder(const std::vector<int>& token_ids,
@@ -108,7 +115,7 @@ public:
     Matrix forward_with_mask(const std::vector<int>& token_ids,
                             const Matrix& causal_mask,
                             const Matrix* encoder_output = nullptr);
-    
+
     // Training methods
     void backward(const Matrix& grad_output);
     void update_weights(float learning_rate);
@@ -116,11 +123,11 @@ public:
     void set_training(bool mode);
     void set_learning_rate(float lr);
     void register_parameters_with_optimizer(Optimizer& optimizer);
-    
+
     // Persistence
     void save_weights(const std::string& filepath) const;
     void load_weights(const std::string& filepath);
-    
+
     // Accessors
     int get_d_model() const;
     int get_vocab_size() const;
@@ -129,7 +136,7 @@ public:
     TokenEmbedding* get_token_embedding();
     DecoderBlock* get_decoder_block(int layer);
     Matrix get_last_output() const;
-    
+
 private:
     Matrix create_causal_mask(int seq_length) const;
 };
@@ -146,6 +153,7 @@ LLMDecoder(int vocab_size, int d_model = 512, int num_layers = 6,
 **Purpose**: Initialize decoder with specified architecture
 
 **Parameters**:
+
 - `vocab_size`: Size of token vocabulary
 - `d_model`: Dimension of embeddings and hidden states (default: 512)
 - `num_layers`: Number of decoder layers (default: 6)
@@ -154,6 +162,7 @@ LLMDecoder(int vocab_size, int d_model = 512, int num_layers = 6,
 - `max_seq_length`: Maximum sequence length (default: 512)
 
 **Initialization**:
+
 1. Creates TokenEmbedding(vocab_size, d_model)
 2. Creates PositionalEncoding(d_model, max_seq_length)
 3. Creates num_layers DecoderBlocks(d_model, num_heads, d_ff)
@@ -170,6 +179,7 @@ Matrix forward(const std::vector<int>& token_ids)
 **Purpose**: Decoder-only forward pass (no cross-attention)
 
 **Process**:
+
 1. Converts token IDs to embeddings
 2. Adds positional encoding
 3. Creates causal mask
@@ -189,10 +199,12 @@ Matrix forward_with_encoder(const std::vector<int>& token_ids,
 **Purpose**: Encoder-decoder forward pass with cross-attention
 
 **Parameters**:
+
 - `token_ids`: Decoder input tokens
 - `encoder_output`: Output from encoder [encoder_seq_len, d_model]
 
 **Process**:
+
 1. Converts token IDs to embeddings
 2. Adds positional encoding
 3. Creates causal mask for autoregressive generation
@@ -213,6 +225,7 @@ Matrix forward_with_mask(const std::vector<int>& token_ids,
 **Purpose**: Forward pass with custom attention mask
 
 **Parameters**:
+
 - `token_ids`: Decoder input tokens
 - `causal_mask`: Custom causal mask matrix
 - `encoder_output`: Optional encoder output
@@ -230,6 +243,7 @@ Matrix forward_with_cache(const std::vector<int>& token_ids,
 **Purpose**: Optimized forward pass using KV cache for autoregressive generation
 
 **Parameters**:
+
 - `token_ids`: New token IDs to process [num_new_tokens] (typically 1 during generation)
 - `kv_cache`: Multi-layer KV cache structure (DecoderKVCache)
 - `encoder_output`: Optional encoder output for cross-attention (can be nullptr)
@@ -254,6 +268,7 @@ Matrix forward_with_cache(const std::vector<int>& token_ids,
    - Much faster than reprocessing entire sequence
 
 **Cache Structure**:
+
 ```cpp
 DecoderKVCache kv_cache;
 kv_cache.initialize(num_layers, max_seq_length, d_model, num_heads);
@@ -264,9 +279,10 @@ kv_cache.initialize(num_layers, max_seq_length, d_model, num_heads);
 ```
 
 **Typical Usage Pattern**:
+
 ```cpp
 // Initialize decoder and cache
-LLMDecoder decoder(vocab_size=1000, d_model=256, num_layers=4, 
+LLMDecoder decoder(vocab_size=1000, d_model=256, num_layers=4,
                    num_heads=4, d_ff=1024, max_seq_length=128);
 DecoderKVCache kv_cache;
 kv_cache.initialize(4, 128, 256, 4);  // num_layers, max_seq_len, d_model, num_heads
@@ -280,16 +296,16 @@ std::vector<int> generated = {BOS_TOKEN};
 for (int i = 0; i < max_gen_length; ++i) {
     // Process only the last token (except first iteration)
     std::vector<int> current_token = {generated.back()};
-    
+
     // Forward with cache (2-3x faster than regular forward)
     Matrix decoder_output = decoder.forward_with_cache(
         current_token, kv_cache, &encoder_output, true
     );
-    
+
     // Get logits and sample next token
     Matrix logits = lm_head.forward(decoder_output);
     int next_token = sample_token(logits);
-    
+
     generated.push_back(next_token);
     if (next_token == EOS_TOKEN) break;
 }
@@ -301,6 +317,7 @@ kv_cache.clear();
 **Performance Comparison**:
 
 *Without Cache (Inefficient)*:
+
 ```cpp
 // Generate 50 tokens
 std::vector<int> generated = {BOS_TOKEN};
@@ -314,6 +331,7 @@ for (int i = 0; i < 50; ++i) {
 ```
 
 *With Cache (Efficient)*:
+
 ```cpp
 // Generate 50 tokens
 DecoderKVCache kv_cache;
@@ -334,7 +352,7 @@ for (int i = 0; i < 50; ++i) {
 **Key Differences from Regular Forward**:
 
 | Aspect | `forward()` | `forward_with_cache()` |
-|--------|-------------|------------------------|
+| -------- | ------------- | ------------------------ |
 | Input | Full sequence | Only new tokens |
 | Computation | Recomputes all positions | Only new positions |
 | Complexity | O(seq_len²) | O(seq_len) per token |
@@ -363,21 +381,23 @@ for (int i = 0; i < 50; ++i) {
    - Cache grows incrementally during generation
 
 **Integration with DecoderBlock**:
+
 ```cpp
 // Inside forward_with_cache implementation
 for (int layer_idx = 0; layer_idx < num_layers; ++layer_idx) {
     KVCache& self_attn_cache = kv_cache.get_self_attention_cache(layer_idx);
     KVCache& cross_attn_cache = kv_cache.get_cross_attention_cache(layer_idx);
-    
+
     // Each DecoderBlock also has forward_with_cache
     x = decoder_blocks[layer_idx]->forward_with_cache(
-        x, encoder_output, causal_mask, 
+        x, encoder_output, causal_mask,
         &self_attn_cache, &cross_attn_cache, nullptr, use_cache
     );
 }
 ```
 
 **When to Use**:
+
 - ✅ Autoregressive text generation (chatbots, translation)
 - ✅ Beam search decoding
 - ✅ Sampling-based generation
@@ -396,7 +416,8 @@ Matrix create_causal_mask(int seq_length) const
 **Purpose**: Create lower-triangular mask for autoregressive generation
 
 **Mask Pattern**:
-```
+
+```text
 Position:  0  1  2  3  4
     0:     1  0  0  0  0    (can only see position 0)
     1:     1  1  0  0  0    (can see positions 0-1)
@@ -408,6 +429,7 @@ Position:  0  1  2  3  4
 **Rationale**: Prevents positions from attending to future tokens, ensuring autoregressive property
 
 **Implementation**:
+
 ```cpp
 for (int i = 0; i < seq_length; ++i) {
     for (int j = 0; j < seq_length; ++j) {
@@ -426,6 +448,7 @@ void backward(const Matrix& grad_output)
 **Purpose**: Backpropagate gradients through decoder
 
 **Process** (reverse order):
+
 1. Backward through final layer norm
 2. Backward through decoder blocks (N → 1)
 3. Skip positional encoding (no learnable parameters)
@@ -441,6 +464,7 @@ void update_weights(float lr)
 **Purpose**: Update all learnable parameters
 
 **Updates**:
+
 1. Token embedding weights
 2. All decoder block weights (attention + FFN)
 3. Final layer norm parameters (gamma, beta)
@@ -455,6 +479,7 @@ void zero_grad()
 **Purpose**: Clear accumulated gradients
 
 **Clears**:
+
 - Token embedding gradients
 - All decoder block gradients
 - Layer norm gradients (if applicable)
@@ -467,6 +492,7 @@ void register_parameters_with_optimizer(Optimizer& optimizer)
 **Purpose**: Register all decoder parameters with an external optimizer for advanced training
 
 **Process**:
+
 1. Register token embedding parameters
 2. Recursively register all decoder block parameters:
    - Masked self-attention (Q, K, V, output projections)
@@ -476,7 +502,8 @@ void register_parameters_with_optimizer(Optimizer& optimizer)
 3. Register final layer normalization parameters
 
 **Component Registration Chain**:
-```
+
+```text
 LLMDecoder::register_parameters_with_optimizer(optimizer)
     → TokenEmbedding::set_optimizer(&optimizer)
         → optimizer.add_parameter_group(embedding_matrix, embedding_grad)
@@ -489,6 +516,7 @@ LLMDecoder::register_parameters_with_optimizer(optimizer)
 ```
 
 **Example Usage**:
+
 ```cpp
 // Create decoder
 LLMDecoder decoder(vocab_size, d_model, num_layers, num_heads, d_ff);
@@ -506,15 +534,15 @@ decoder.register_parameters_with_optimizer(optimizer);
 for (int epoch = 0; epoch < num_epochs; ++epoch) {
     for (auto& batch : training_data) {
         optimizer.zero_grad();
-        
+
         // Forward pass
         Matrix output = decoder.forward_with_encoder(batch.tokens, encoder_output);
         float loss = compute_loss(output, batch.targets);
-        
+
         // Backward pass
         Matrix grad = compute_gradient(output, batch.targets);
         decoder.backward(grad);
-        
+
         // Gradient clipping and update
         optimizer.clip_gradients();
         optimizer.step();
@@ -523,6 +551,7 @@ for (int epoch = 0; epoch < num_epochs; ++epoch) {
 ```
 
 **Benefits**:
+
 - **Advanced Optimization**: Use Adam/AdamW for better convergence
 - **Gradient Clipping**: Essential for transformer training stability
 - **Weight Decay**: L2 regularization
@@ -559,7 +588,7 @@ void load_weights(const std::string& filepath)
 ### Decoder-Only Generation (GPT-style)
 ```cpp
 // Initialize decoder
-LLMDecoder decoder(vocab_size=1000, d_model=256, num_layers=4, 
+LLMDecoder decoder(vocab_size=1000, d_model=256, num_layers=4,
                    num_heads=4, d_ff=1024, max_seq_length=128);
 
 // Generate one step
@@ -579,11 +608,11 @@ Matrix encoder_output = encoder.encode(input_text);  // [input_len, d_model]
 std::vector<int> generated = {BOS_TOKEN};
 for (int i = 0; i < max_length; ++i) {
     Matrix decoder_output = decoder.forward_with_encoder(generated, encoder_output);
-    
+
     // Get logits for next token (requires LanguageModelHead)
     Matrix logits = lm_head.forward(decoder_output);
     int next_token = argmax(logits.data[logits.rows - 1]);
-    
+
     generated.push_back(next_token);
     if (next_token == EOS_TOKEN) break;
 }
@@ -615,14 +644,17 @@ lm_head.zero_grad();
 ## Design Decisions
 
 ### 1. Decoder-Only vs. Encoder-Decoder
+
 **Decision**: Support both architectures with same class
 
 **Rationale**:
+
 - Decoder-only: Pass empty encoder output (1×d_model matrix)
 - Encoder-decoder: Pass actual encoder output
 - Unified interface reduces code duplication
 
 **Implementation**:
+
 ```cpp
 if (encoder_output.rows > 0 && encoder_output.cols > 0) {
     // Use cross-attention
@@ -635,9 +667,11 @@ if (encoder_output.rows > 0 && encoder_output.cols > 0) {
 ```
 
 ### 2. Causal Masking
+
 **Decision**: Generate causal mask automatically in forward pass
 
 **Rationale**:
+
 - Autoregressive generation requires causal masking
 - Creating mask per forward pass ensures correct sequence length
 - Prevents accidental future information leakage
@@ -645,9 +679,11 @@ if (encoder_output.rows > 0 && encoder_output.cols > 0) {
 **Alternative**: Cache and reuse masks (optimization for inference)
 
 ### 3. Caching for Backward Pass
+
 **Decision**: Cache all intermediate activations during forward pass
 
 **Cached Values**:
+
 - `cached_token_ids`: Original input tokens
 - `cached_embeddings`: Token embeddings
 - `cached_pos_encoded`: Positional-encoded embeddings
@@ -659,17 +695,21 @@ if (encoder_output.rows > 0 && encoder_output.cols > 0) {
 **Trade-off**: Memory usage vs. recomputation cost
 
 ### 4. Component Ownership
+
 **Decision**: Use `std::unique_ptr` for all components
 
 **Rationale**:
+
 - Automatic memory management
 - Clear ownership semantics
 - Prevents accidental copying
 
 ### 5. Partial Save/Load Implementation
+
 **Decision**: Save configuration only, warn about incomplete persistence
 
 **Current State**:
+
 - Saves: vocab_size, d_model, num_layers, num_heads, d_ff, max_seq_length
 - Does NOT save: Token embeddings, decoder block weights, layer norm parameters
 
@@ -678,17 +718,20 @@ if (encoder_output.rows > 0 && encoder_output.cols > 0) {
 ## Integration Points
 
 ### Used By
+
 1. **EncoderDecoderModel**: Combines LLMEncoder + LLMDecoder for seq2seq
 2. **TextGenerator**: Uses decoder output for autoregressive generation
 3. **Training Loop**: Calls forward/backward/update_weights
 
 ### Uses
+
 1. **TokenEmbedding**: Converts token IDs to embeddings
 2. **PositionalEncoding**: Adds position information
 3. **DecoderBlock**: Multi-head attention + FFN layers
 4. **LayerNorm**: Final normalization
 
 ### Related Components
+
 - **LLMEncoder**: Paired encoder for encoder-decoder models
 - **LanguageModelHead**: Projects decoder output to vocabulary logits
 - **TextGenerator**: Implements generation strategies (beam search, sampling, etc.)
@@ -734,12 +777,15 @@ LLMDecoder decoder(
 ## Performance Considerations
 
 ### Memory Usage
+
 **Forward Pass (without cache)**:
+
 - Token embeddings: `seq_length × d_model × sizeof(float)`
 - Decoder outputs: `num_layers × seq_length × d_model × sizeof(float)`
 - Attention scores: `num_layers × num_heads × seq_length² × sizeof(float)`
 
 **Forward Pass (with cache)**:
+
 - Base memory: Same as above for new tokens only
 - Cache memory: `num_layers × 2 × max_seq_length × d_model × sizeof(float)`
   - 2× for self-attention + cross-attention caches
@@ -748,7 +794,9 @@ LLMDecoder decoder(
 **Backward Pass**: Approximately 2× forward pass memory (gradients)
 
 ### Time Complexity
+
 **Without Cache (Standard Forward)**:
+
 - **Self-Attention**: O(seq_length² × d_model) per layer
 - **Cross-Attention**: O(seq_length × encoder_length × d_model) per layer
 - **Feed-Forward**: O(seq_length × d_model × d_ff) per layer
@@ -756,6 +804,7 @@ LLMDecoder decoder(
 - **Autoregressive (n tokens)**: O(n² × num_layers × d_model) - quadratic!
 
 **With Cache (forward_with_cache)**:
+
 - **Self-Attention**: O(seq_length × d_model) per layer (linear in cache size)
 - **Cross-Attention**: O(1) after first call (encoder K/V cached)
 - **Feed-Forward**: O(d_model × d_ff) for new tokens only
@@ -763,7 +812,8 @@ LLMDecoder decoder(
 - **Autoregressive (n tokens)**: O(n × num_layers × d_model) - linear!
 
 **Speedup Analysis**:
-```
+
+```text
 Generation length: n tokens
 Without cache: 1 + 2 + 3 + ... + n = n(n+1)/2 computations
 With cache: n computations
@@ -776,6 +826,7 @@ Examples:
 ```
 
 ### Optimization Opportunities ✨
+
 1. **KV Caching** ✅ IMPLEMENTED: Use `forward_with_cache()` for 2-3x speedup
 2. **Mask Reuse**: Cache causal masks for common sequence lengths
 3. **Batch Processing**: Process multiple sequences simultaneously (see BatchProcessor)
@@ -783,6 +834,7 @@ Examples:
 5. **Performance Profiling**: Use PerformanceProfiler to identify bottlenecks
 
 **Quick Optimization Setup**:
+
 ```cpp
 // 1. Enable KV cache for generation
 DecoderKVCache kv_cache;
@@ -808,6 +860,7 @@ See [Inference Optimization Guide](../../guides/inference-optimization.md) for c
 ## Limitations
 
 ### Current Implementation
+
 1. ~~**No KV Caching**~~ ✅ **RESOLVED**: `forward_with_cache()` implemented for 2-3x speedup
 2. **Incomplete Persistence**: save/load doesn't include component weights
 3. **No Batch Support**: Processes one sequence at a time (single-sequence cache)
@@ -816,6 +869,7 @@ See [Inference Optimization Guide](../../guides/inference-optimization.md) for c
 6. **Cache Limitations**: Current cache doesn't support batched generation
 
 ### Known Issues
+
 1. **LayerNorm Update**: Final layer norm update_weights commented out (method may not exist)
 2. **Component Save/Load**: TokenEmbedding, DecoderBlock lack persistence methods
 3. **Gradient Flow**: No gradient clipping or normalization
@@ -823,6 +877,7 @@ See [Inference Optimization Guide](../../guides/inference-optimization.md) for c
 ## Testing Strategy
 
 ### Unit Tests Needed
+
 1. **Constructor**: Verify component initialization
 2. **Causal Masking**: Validate mask shape and values
 3. **Forward Pass**: Test decoder-only and encoder-decoder modes
@@ -832,6 +887,7 @@ See [Inference Optimization Guide](../../guides/inference-optimization.md) for c
 7. **Edge Cases**: Empty sequences, single tokens, max length
 
 ### Integration Tests
+
 1. **With LLMEncoder**: Full encoder-decoder pipeline
 2. **With LanguageModelHead**: Decoder → logits → tokens
 3. **With TextGenerator**: Autoregressive generation
@@ -865,19 +921,19 @@ int max_length = 20;
 for (int i = 0; i < max_length; ++i) {
     // Decode
     Matrix decoder_output = decoder.forward_with_encoder(generated, encoder_output);
-    
+
     // Project to vocabulary
     Matrix logits = lm_head.forward(decoder_output);
-    
+
     // Sample next token
     std::vector<float> last_logits(logits.cols);
     for (int j = 0; j < logits.cols; ++j) {
         last_logits[j] = logits.data[logits.rows - 1][j];
     }
-    
+
     int next_token = argmax(last_logits);
     generated.push_back(next_token);
-    
+
     if (next_token == EOS_TOKEN) break;
 }
 
@@ -888,6 +944,7 @@ std::string response = decoder.get_token_embedding()->decode(generated);
 ## Future Enhancements
 
 ### Short-term
+
 1. Implement complete save/load for all components
 2. Add batch processing support (batched KV cache)
 3. ~~Implement KV caching for efficient inference~~ ✅ COMPLETED (v1.1)
@@ -895,12 +952,14 @@ std::string response = decoder.get_token_embedding()->decode(generated);
 5. Add batch support to `forward_with_cache()`
 
 ### Medium-term
+
 1. Support dynamic architecture modification
 2. Add mixed precision training (FP16/BF16)
 3. Implement distributed training support
 4. Add attention visualization tools
 
 ### Long-term
+
 1. Flash Attention integration for faster attention
 2. Sparse attention patterns (Longformer, BigBird)
 3. Adaptive computation (early exit, layer dropping)
@@ -909,6 +968,7 @@ std::string response = decoder.get_token_embedding()->decode(generated);
 ## See Also
 
 ### Core Components
+
 - **[DecoderBlock](decoder-block.md)** - Individual decoder layer with self/cross-attention
 - **[MultiHeadAttention](../attention/multi-head-attention.md)** - Self-attention mechanism with KV cache
 - **[CrossAttention](../attention/cross-attention.md)** - Encoder-decoder attention with KV cache
@@ -917,11 +977,13 @@ std::string response = decoder.get_token_embedding()->decode(generated);
 - **[LayerNorm](../normalization/layer-norm.md)** - Layer normalization
 
 ### Related Models
+
 - **[LLMEncoder](encoder.md)** - Paired encoder for encoder-decoder models
 - **[EncoderDecoderModel](encoder-decoder-model.md)** - Complete transformer model
 - **[LanguageModelHead](../generation/language-model-head.md)** - Output projection to vocabulary
 
 ### Optimization & Generation
+
 - **[KVCache API](../../reference/kvcache.md)** - Key-Value caching system for inference
 - **[BatchProcessor API](../../reference/batchprocessor.md)** - Batch processing utilities
 - **[PerformanceProfiler API](../../reference/performanceprofiler.md)** - Profiling and benchmarking
@@ -930,10 +992,12 @@ std::string response = decoder.get_token_embedding()->decode(generated);
 - **[Inference Quickstart](../../guides/inference-optimization-quickstart.md)** - Quick optimization setup
 
 ### Architecture Documentation
+
 - **[Decoder Architecture](../../architecture/decoder-architecture.md)** - Design patterns
 - **[Decoder Design](../../architecture/decoder-design.md)** - Implementation details
 
 ## Related Documentation
+
 - **DecoderBlock**: `DECODERBLOCK_CONTEXT.md`
 - **CrossAttention**: `CROSSATTENTION_CONTEXT.md`
 - **TokenEmbedding**: `TOKENEMBEDDING_CONTEXT.md`
@@ -942,11 +1006,12 @@ std::string response = decoder.get_token_embedding()->decode(generated);
 - **TextGenerator**: `TEXTGENERATOR_CONTEXT.md`
 
 ## Version History
+
 - **v1.1** (2026-01-25): Added forward_with_cache() for inference optimization
 - **v1.0** (2026-01-18): Initial implementation with decoder-only and encoder-decoder support
 
 ---
 
-**Last Updated**: January 25, 2026  
-**Version**: 1.1  
+**Last Updated**: January 25, 2026
+**Version**: 1.1
 **Dependencies**: `Matrix.hpp`, `LayerNorm.hpp`, `PositionalEncoding.hpp`, `TokenEmbedding.hpp`, `DecoderBlock.hpp`, `KVCache.hpp`

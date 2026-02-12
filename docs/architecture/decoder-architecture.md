@@ -6,7 +6,7 @@ This document provides visual representations of the decoder architecture and it
 
 ## 1. Complete Encoder-Decoder Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                         ENCODER-DECODER MODEL                                │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -132,7 +132,7 @@ INPUT TEXT: "What is the weather like?"
 
 ## 2. DecoderBlock Internal Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                            DECODER BLOCK                                     │
 │                                                                               │
@@ -229,7 +229,7 @@ INPUT TEXT: "What is the weather like?"
 
 ### Self-Attention Mask (Causal)
 
-```
+```text
 Sequence: ["<BOS>", "It", "is", "sunny"]
 Positions:    0      1     2      3
 
@@ -260,7 +260,7 @@ From Pos ↓    0      1      2      3
 
 ### Cross-Attention Mask (Padding)
 
-```
+```text
 Encoder Tokens: ["What", "is", "the", "weather", "<PAD>", "<PAD>"]
 Decoder Token:  "It"
 
@@ -282,7 +282,7 @@ ATTENTION WEIGHTS (after mask + softmax):
 
 ## 4. Autoregressive Generation Flow
 
-```
+```text
 STEP-BY-STEP TOKEN GENERATION
 
 Encoder Output (computed once): [6 × 512]
@@ -347,7 +347,7 @@ Final: [101, 234, 456, 789, 890, 102]     │
 
 ## 5. Component Dependency Graph
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                      COMPONENT DEPENDENCIES                      │
 └─────────────────────────────────────────────────────────────────┘
@@ -404,7 +404,7 @@ Legend:
 
 ## 6. Training vs Inference Comparison
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                    TRAINING (Teacher Forcing)                    │
 └─────────────────────────────────────────────────────────────────┘
@@ -484,7 +484,7 @@ Characteristics:
 
 ## 7. Memory Layout During Generation
 
-```
+```text
 GENERATION STATE EVOLUTION
 
 Initial State:
@@ -522,7 +522,7 @@ Memory Growth: O(N × d_model) per sequence
 
 ## 8. Class Hierarchy and Relationships
 
-```
+```text
 ┌────────────────────────────────────────────────────────────────┐
 │                        CLASS DIAGRAM                            │
 └────────────────────────────────────────────────────────────────┘
@@ -599,6 +599,6 @@ Memory Growth: O(N × d_model) per sequence
 
 ---
 
-**Document Version:** 1.0  
-**Last Updated:** January 18, 2026  
+**Document Version:** 1.0
+**Last Updated:** January 18, 2026
 **Related Documents:** DECODER_DESIGN.md, DECODER_DESIGN_SUMMARY.md

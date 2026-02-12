@@ -7,13 +7,16 @@ The ADAI Chatbot GUI is a modern, user-friendly graphical interface for interact
 ## Features
 
 ### Chat Interface
+
 - **Clean message display** with color-coded user and bot messages
 - **Timestamp** for each message
 - **Auto-scrolling** to latest messages
 - **Real-time response generation**
 
 ### Generation Settings Panel
+
 Configure all generation parameters in real-time:
+
 - **Generation Strategy**: Nucleus (Top-p), Top-k, Greedy, Beam Search, Sampling
 - **Temperature**: Control randomness (0.1 - 2.0)
 - **Top-p (Nucleus)**: Probability mass cutoff (0.1 - 1.0)
@@ -22,6 +25,7 @@ Configure all generation parameters in real-time:
 - **Beam Width**: For beam search strategy (1 - 10)
 
 ### Conversation Management
+
 - **Clear Chat**: Reset conversation history
 - **Save Conversation**: Export chat history to file
 - **Load Conversation**: Import previous conversations
@@ -59,6 +63,7 @@ brew install qt@6
 ```
 
 #### Windows
+
 Download and install Qt from: https://www.qt.io/download
 
 ## Building the GUI
@@ -113,7 +118,7 @@ make chatbot_gui -j$(nproc)
 
 # Example output:
 # Usage: chatbot_gui [vocab_file] [model_file]
-# 
+#
 # Default values:
 #   vocab_file: vocab.txt
 #   model_file: chatbot_model.bin
@@ -124,6 +129,7 @@ make chatbot_gui -j$(nproc)
 ### Starting a Conversation
 
 1. **Launch the application**
+
    ```bash
    ./src/chatbot_gui
    ```
@@ -154,16 +160,19 @@ make chatbot_gui -j$(nproc)
 ### Managing Conversations
 
 #### Save Conversation
+
 1. Click **"Save Conversation"** button
 2. Choose a location and filename
 3. Conversation is saved in plain text format
 
 #### Load Conversation
+
 1. Click **"Load Conversation"** button
 2. Select a previously saved conversation file
 3. Context is restored for the chatbot
 
 #### Clear Chat
+
 1. Click **"Clear Chat"** button
 2. Confirm the action
 3. Chat display and conversation context are reset
@@ -182,6 +191,7 @@ make chatbot_gui -j$(nproc)
 **Problem**: CMake cannot find Qt
 
 **Solution**:
+
 ```bash
 # Find Qt installation
 find /usr -name "Qt5Config.cmake" 2>/dev/null
@@ -196,9 +206,11 @@ cmake .. -DCMAKE_PREFIX_PATH=/path/to/qt -DBUILD_GUI=ON
 **Problem**: "Failed to initialize chatbot components"
 
 **Solution**:
+
 1. Ensure `vocab.txt` exists in the working directory
 2. Train a model first using `chatbot_trainer`
 3. Or specify correct paths:
+
    ```bash
    ./src/chatbot_gui /path/to/vocab.txt /path/to/model.bin
    ```
@@ -210,6 +222,7 @@ cmake .. -DCMAKE_PREFIX_PATH=/path/to/qt -DBUILD_GUI=ON
 **Explanation**: Response generation happens in the main thread. For large models or long responses, this may take time.
 
 **Solutions**:
+
 - Reduce **Max Response Length**
 - Use **Greedy** strategy instead of Beam Search
 - Train a smaller model for faster inference
@@ -220,6 +233,7 @@ cmake .. -DCMAKE_PREFIX_PATH=/path/to/qt -DBUILD_GUI=ON
 **Problem**: Messages don't appear in chat window
 
 **Solution**:
+
 1. Check Qt version compatibility
 2. Verify model initialization succeeded
 3. Check terminal output for error messages
@@ -260,7 +274,7 @@ cd build
    - Command-line argument parsing
    - Window creation and display
 
-3. **Integration**: 
+3. **Integration**:
    - Uses existing `BPETokenizer` for text processing
    - Uses `EncoderDecoderModel` for generation
    - Uses `ConversationContext` for multi-turn dialogue
@@ -285,6 +299,7 @@ cd build
 ## Future Enhancements
 
 Planned features for future versions:
+
 - [ ] Asynchronous generation (non-blocking UI)
 - [ ] Conversation export to multiple formats (JSON, Markdown)
 - [ ] Syntax highlighting for code in messages
@@ -297,7 +312,7 @@ Planned features for future versions:
 ## Comparison with CLI
 
 | Feature | GUI | CLI |
-|---------|-----|-----|
+| --------- | ----- | ----- |
 | **Ease of Use** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ |
 | **Visual Appeal** | ⭐⭐⭐⭐⭐ | ⭐⭐ |
 | **Configuration** | Real-time sliders | Command syntax |
@@ -310,7 +325,7 @@ Planned features for future versions:
 
 ### Creative Writing Assistant
 
-```
+```text
 Settings:
 - Strategy: Nucleus
 - Temperature: 1.2
@@ -322,7 +337,7 @@ Message: "Write a short poem about artificial intelligence"
 
 ### Technical Q&A
 
-```
+```text
 Settings:
 - Strategy: Greedy
 - Temperature: 0.7
@@ -334,7 +349,7 @@ Message: "Explain how transformers work in machine learning"
 
 ### Casual Conversation
 
-```
+```text
 Settings:
 - Strategy: Nucleus
 - Temperature: 1.0
@@ -347,6 +362,7 @@ Message: "What's your favorite hobby?"
 ## Support
 
 For issues, questions, or contributions:
+
 - Check the main ADAI documentation
 - Review ChatbotCLI guide for similar functionality
 - Examine the source code in `src/ChatbotGUI.cpp`

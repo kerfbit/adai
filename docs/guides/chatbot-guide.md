@@ -43,7 +43,7 @@ make chatbot -j$(nproc)
 
 ### Your First Conversation
 
-```
+```text
 ╔═══════════════════════════════════════════════════════════╗
 ║          🤖 ADAI Transformer Chatbot CLI v1.0            ║
 ╚═══════════════════════════════════════════════════════════╝
@@ -89,7 +89,8 @@ make chatbot
 ### File Requirements
 
 **Vocabulary File** (`vocab.txt`):
-```
+
+```text
 hello 100
 world 50
 test 25
@@ -97,6 +98,7 @@ test 25
 ```
 
 **Model File** (`chatbot_model.bin`):
+
 - Pre-trained transformer weights
 - Binary format from training
 - Optional (will use random initialization if missing)
@@ -104,7 +106,7 @@ test 25
 ### Default File Paths
 
 | File | Default Path | Purpose |
-|------|-------------|---------|
+| ------ | ------------- | --------- |
 | Vocabulary | `vocab.txt` | BPE tokenizer vocabulary |
 | Model | `chatbot_model.bin` | Pre-trained weights |
 | Conversation | `conversation_history.txt` | Auto-saved conversations |
@@ -138,7 +140,8 @@ test 25
 ```
 
 Output:
-```
+
+```text
 Usage: chatbot [vocab_file] [model_file] [conversation_save_file]
 
 Default values:
@@ -151,7 +154,7 @@ Default values:
 
 Once running, simply type your messages:
 
-```
+```text
 You: [your message here]
 Bot: [response]
 ```
@@ -167,16 +170,18 @@ All commands start with `/` and are case-sensitive.
 ### Help and Information
 
 #### `/help`
+
 Display available commands and usage information.
 
-```
+```text
 You: /help
 ```
 
 #### `/stats`
+
 Show conversation statistics.
 
-```
+```text
 You: /stats
 
 📊 Conversation Statistics:
@@ -185,9 +190,10 @@ You: /stats
 ```
 
 #### `/settings`
+
 Display current generation parameters.
 
-```
+```text
 You: /settings
 
 ⚙️  Current Settings:
@@ -202,25 +208,28 @@ You: /settings
 ### Conversation Management
 
 #### `/clear`
+
 Clear conversation history (resets context).
 
-```
+```text
 You: /clear
 ✅ Conversation history cleared
 ```
 
 #### `/save`
+
 Manually save conversation to file.
 
-```
+```text
 You: /save
 ✅ Conversation saved to: conversation_history.txt
 ```
 
 #### `/load`
+
 Load previously saved conversation.
 
-```
+```text
 You: /load
 ✅ Conversation loaded from: conversation_history.txt
 ```
@@ -228,9 +237,10 @@ You: /load
 ### Configuration
 
 #### `/set <parameter> <value>`
+
 Change generation parameters during conversation.
 
-```
+```text
 You: /set temperature 0.7
 ✅ Temperature set to: 0.7
 
@@ -242,9 +252,10 @@ You: /set max_length 150
 ```
 
 #### `/system <message>`
+
 Set system message for conversation context.
 
-```
+```text
 You: /system You are a helpful programming assistant
 ✅ System message set
 ```
@@ -252,9 +263,10 @@ You: /system You are a helpful programming assistant
 ### Exit
 
 #### `/exit` or `/quit`
+
 Exit the chatbot (auto-saves conversation).
 
-```
+```text
 You: /exit
 💾 Saving conversation...
 ✅ Conversation saved to: conversation_history.txt
@@ -271,16 +283,17 @@ The chatbot supports 5 text generation strategies:
 
 **Strategy:** Always selects highest probability token
 
-```
+```text
 You: /set strategy greedy
 ```
 
 **Best for:**
+
 - Consistent, predictable responses
 - Factual information retrieval
 - Deterministic testing
 
-**Pros:** Fast, deterministic  
+**Pros:** Fast, deterministic
 **Cons:** Can be repetitive, lacks creativity
 
 ---
@@ -289,20 +302,22 @@ You: /set strategy greedy
 
 **Strategy:** Maintains multiple candidate sequences
 
-```
+```text
 You: /set strategy beam
 You: /set beam_width 5
 ```
 
 **Best for:**
+
 - High-quality, coherent responses
 - Translation tasks
 - Structured output
 
-**Pros:** Better quality than greedy  
+**Pros:** Better quality than greedy
 **Cons:** Slower, requires more memory
 
 **Parameters:**
+
 - `beam_width`: Number of beams (default: 5)
 
 ---
@@ -311,20 +326,22 @@ You: /set beam_width 5
 
 **Strategy:** Samples from probability distribution
 
-```
+```text
 You: /set strategy sampling
 You: /set temperature 0.8
 ```
 
 **Best for:**
+
 - Creative responses
 - Varied outputs
 - Exploration
 
-**Pros:** Diverse, creative  
+**Pros:** Diverse, creative
 **Cons:** Can be inconsistent
 
 **Parameters:**
+
 - `temperature`: Controls randomness (0.1-2.0)
   - Low (0.1-0.5): More focused
   - Medium (0.6-1.0): Balanced
@@ -336,20 +353,22 @@ You: /set temperature 0.8
 
 **Strategy:** Samples from top K most likely tokens
 
-```
+```text
 You: /set strategy top-k
 You: /set top_k 40
 ```
 
 **Best for:**
+
 - Controlled diversity
 - Filtering unlikely tokens
 - Quality + variety balance
 
-**Pros:** Good balance of quality and diversity  
+**Pros:** Good balance of quality and diversity
 **Cons:** Fixed cutoff can be limiting
 
 **Parameters:**
+
 - `top_k`: Number of top tokens (default: 50)
 
 ---
@@ -358,20 +377,22 @@ You: /set top_k 40
 
 **Strategy:** Samples from smallest set of tokens with cumulative probability ≥ p
 
-```
+```text
 You: /set strategy nucleus
 You: /set top_p 0.9
 ```
 
 **Best for:**
+
 - General conversation (default)
 - Natural-sounding responses
 - Adaptive quality control
 
-**Pros:** Adaptive, high quality, natural  
+**Pros:** Adaptive, high quality, natural
 **Cons:** Slightly slower than greedy
 
 **Parameters:**
+
 - `top_p`: Cumulative probability threshold (0.0-1.0)
   - 0.9: Recommended default
   - 0.95: More diverse
@@ -384,7 +405,7 @@ You: /set top_p 0.9
 ### Complete Parameter Reference
 
 | Parameter | Aliases | Type | Range | Default | Description |
-|-----------|---------|------|-------|---------|-------------|
+| ----------- | --------- | ------ | ------- | --------- | ------------- |
 | `strategy` | - | string | See above | `nucleus` | Generation strategy |
 | `length` | `max_length` | int | 1-1024 | 100 | Maximum response tokens |
 | `temperature` | `temp` | float | 0.1-2.0 | 1.0 | Sampling randomness |
@@ -407,7 +428,7 @@ You: /set temp 0.7
 ### Recommended Configurations
 
 #### **Creative Writing**
-```
+```text
 /set strategy nucleus
 /set temperature 1.2
 /set top_p 0.95
@@ -415,7 +436,7 @@ You: /set temp 0.7
 ```
 
 #### **Factual Q&A**
-```
+```text
 /set strategy nucleus
 /set temperature 0.5
 /set top_p 0.8
@@ -423,7 +444,7 @@ You: /set temp 0.7
 ```
 
 #### **Code Generation**
-```
+```text
 /set strategy beam
 /set beam_width 5
 /set temperature 0.3
@@ -431,7 +452,7 @@ You: /set temp 0.7
 ```
 
 #### **Casual Conversation**
-```
+```text
 /set strategy nucleus
 /set temperature 1.0
 /set top_p 0.9
@@ -446,7 +467,7 @@ You: /set temp 0.7
 
 Conversations are **automatically saved** when you exit:
 
-```
+```text
 You: /exit
 💾 Saving conversation...
 ✅ Conversation saved to: conversation_history.txt
@@ -456,14 +477,14 @@ You: /exit
 
 Save at any time:
 
-```
+```text
 You: /save
 ✅ Conversation saved to: conversation_history.txt
 ```
 
 ### Loading Previous Conversations
 
-```
+```text
 You: /load
 ✅ Conversation loaded from: conversation_history.txt
 ```
@@ -476,7 +497,8 @@ You: /load
 - **Max tokens:** 2048 (context window)
 
 View current usage:
-```
+
+```text
 You: /stats
 📊 Conversation Statistics:
   Total messages: 12
@@ -491,7 +513,7 @@ You: /stats
 
 Set context or personality:
 
-```
+```text
 You: /system You are a helpful Python programming expert
 ✅ System message set
 
@@ -507,7 +529,7 @@ Use different save files for different topics:
 # Work conversations
 ./src/chatbot vocab.txt model.bin work_chat.txt
 
-# Personal conversations  
+# Personal conversations
 ./src/chatbot vocab.txt model.bin personal_chat.txt
 ```
 
@@ -515,7 +537,7 @@ Use different save files for different topics:
 
 Try different settings mid-conversation:
 
-```
+```text
 You: Tell me a story
 Bot: [creative story with default nucleus]
 
@@ -540,39 +562,42 @@ echo -e "Hello\nWhat is AI?\n/exit" | ./src/chatbot
 ### Common Issues
 
 #### **Error: Failed to load tokenizer**
-```
+```text
 ❌ Failed to load tokenizer from: vocab.txt
 ```
 
 **Solution:** Ensure `vocab.txt` exists and is formatted correctly:
-```
+
+```text
 token1 frequency1
 token2 frequency2
 ...
 ```
 
 #### **Warning: Model not found**
-```
+```text
 ℹ️  No pre-trained model found. Using random initialization.
    (Train the model first for better results)
 ```
 
 **Solution:** Either:
+
 1. Provide a trained model file
 2. Continue with random weights (for testing only)
 
 #### **Conversation not loading**
-```
+```text
 ❌ Failed to load conversation
 ```
 
 **Solution:**
+
 - Check file exists and has read permissions
 - Verify file format is correct
 - Try `/clear` and start fresh
 
 #### **Invalid command**
-```
+```text
 ❓ Unknown command. Type /help for available commands.
 ```
 
@@ -591,7 +616,7 @@ token2 frequency2
 
 ### Example 1: Basic Conversation
 
-```
+```text
 You: Hello!
 Bot: Hi there! How can I help you today?
 
@@ -606,7 +631,7 @@ You: /stats
 
 ### Example 2: Adjusting Creativity
 
-```
+```text
 You: Tell me a creative story about a robot
 Bot: [creative, diverse story]
 
@@ -621,7 +646,7 @@ Bot: [focused, concise summary]
 
 ### Example 3: Role-Playing
 
-```
+```text
 You: /system You are a Shakespearean actor
 ✅ System message set
 
@@ -640,7 +665,7 @@ Bot: Arrr, matey! 'Twas a fine day on the high seas...
 
 ### Example 4: Comparing Strategies
 
-```
+```text
 You: Explain quantum computing
 
 You: /set strategy greedy
@@ -690,16 +715,17 @@ ctest -R ChatbotCLI
 
 The ADAI Chatbot CLI provides:
 
-✅ **5 generation strategies** for different use cases  
-✅ **Flexible configuration** via runtime commands  
-✅ **Conversation management** with auto-save  
-✅ **System messages** for context control  
-✅ **Colored output** for better UX  
-✅ **Comprehensive help** system  
-✅ **Modern C++** implementation (smart pointers, string_view)  
-✅ **Fully tested** (106 total tests across 2 suites)  
+✅ **5 generation strategies** for different use cases
+✅ **Flexible configuration** via runtime commands
+✅ **Conversation management** with auto-save
+✅ **System messages** for context control
+✅ **Colored output** for better UX
+✅ **Comprehensive help** system
+✅ **Modern C++** implementation (smart pointers, string_view)
+✅ **Fully tested** (106 total tests across 2 suites)
 
 **Perfect for:**
+
 - Testing transformer models
 - Interactive AI conversations
 - Experimenting with generation strategies
@@ -707,10 +733,10 @@ The ADAI Chatbot CLI provides:
 - Production chatbot deployments
 
 **Get Started:**
+
 ```bash
 ./src/chatbot
 You: Hello!
 ```
 
 Enjoy your conversations! 🤖
-

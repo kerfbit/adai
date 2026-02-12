@@ -7,6 +7,7 @@
 #include <vector>
 #include "BPETokenizer.hpp"
 #include "Decoder.hpp"
+#include "KVCache.hpp"
 #include "LanguageModelHead.hpp"
 #include "Matrix.hpp"
 #include "TextGenerator.hpp"

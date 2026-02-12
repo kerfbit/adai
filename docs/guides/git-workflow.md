@@ -12,7 +12,7 @@ We follow a **Git Flow** inspired branching model:
   - Always stable and deployable
   - Protected branch - requires pull request reviews
   - Tagged for releases
-  
+
 - **`develop`** - Integration branch for ongoing development
   - Latest development changes
   - Source for feature branches
@@ -50,7 +50,7 @@ We use **Conventional Commits** for clear and consistent commit history.
 
 ### Format
 
-```
+```text
 <type>(<scope>): <subject>
 
 [optional body]
@@ -139,6 +139,7 @@ git push -u origin feature/add-gelu-activation
 ### Creating a Pull Request
 
 1. **Ensure your branch is up to date**
+
    ```bash
    git checkout develop
    git pull origin develop
@@ -147,6 +148,7 @@ git push -u origin feature/add-gelu-activation
    ```
 
 2. **Run tests locally**
+
    ```bash
    cd build
    cmake ..
@@ -155,6 +157,7 @@ git push -u origin feature/add-gelu-activation
    ```
 
 3. **Push to remote**
+
    ```bash
    git push origin feature/your-feature
    ```
@@ -171,12 +174,14 @@ git push -u origin feature/add-gelu-activation
 Same as commit message format: `<type>(<scope>): <description>`
 
 **PR Description Should Include:**
+
 - What changes were made
 - Why the changes were necessary
 - How to test the changes
 - Related issue numbers (if applicable)
 
 **Before Submitting:**
+
 - [ ] All tests pass locally
 - [ ] Code follows project style guidelines
 - [ ] Documentation updated if needed
@@ -193,6 +198,7 @@ Same as commit message format: `<type>(<scope>): <description>`
 ## Commit Best Practices
 
 ### Do:
+
 - ✅ Commit early and often
 - ✅ Make atomic commits (one logical change per commit)
 - ✅ Write descriptive commit messages
@@ -200,6 +206,7 @@ Same as commit message format: `<type>(<scope>): <description>`
 - ✅ Keep commits focused and small
 
 ### Don't:
+
 - ❌ Commit directly to `main` or `develop`
 - ❌ Commit generated files (build artifacts, binaries)
 - ❌ Commit IDE-specific files
@@ -233,6 +240,7 @@ git push --force-with-lease origin feature/your-feature
 ### Creating a Release
 
 1. **Create release branch from develop**
+
    ```bash
    git checkout develop
    git pull origin develop
@@ -245,11 +253,13 @@ git push --force-with-lease origin feature/your-feature
    - Update `CHANGELOG.md`
 
 3. **Commit version bump**
+
    ```bash
    git commit -am "chore(release): bump version to 1.0.0"
    ```
 
 4. **Merge to main and tag**
+
    ```bash
    git checkout main
    git pull origin main
@@ -259,6 +269,7 @@ git push --force-with-lease origin feature/your-feature
    ```
 
 5. **Merge back to develop**
+
    ```bash
    git checkout develop
    git pull origin develop
@@ -267,6 +278,7 @@ git push --force-with-lease origin feature/your-feature
    ```
 
 6. **Delete release branch**
+
    ```bash
    git branch -d release/v1.0.0
    git push origin --delete release/v1.0.0
@@ -283,7 +295,7 @@ Automatically format code before commit:
 # .git/hooks/pre-commit
 
 # Format staged C++ files
-for file in $(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(cpp|hpp)$'); do
+for file in $(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(cpp |hpp)$'); do
     if command -v clang-format &> /dev/null; then
         clang-format -i "$file"
         git add "$file"
@@ -300,7 +312,7 @@ Validate commit message format:
 # .git/hooks/commit-msg
 
 commit_msg=$(cat "$1")
-pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z]+\))?: .{1,50}'
+pattern='^(feat| fix | docs | style | refactor | perf | test | build | ci | chore |revert)(\([a-z]+\))?: .{1,50}'
 
 if ! echo "$commit_msg" | grep -qE "$pattern"; then
     echo "Error: Commit message does not follow conventional commits format"

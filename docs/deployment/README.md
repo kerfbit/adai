@@ -1,7 +1,7 @@
 # Deployment Documentation
 
-**ADAI Chatbot API Server - Deployment Guides**  
-Version 1.0.0  
+**ADAI Chatbot API Server - Deployment Guides**
+Version 1.0.0
 Date: January 25, 2026
 
 ---
@@ -16,13 +16,14 @@ This directory contains comprehensive deployment documentation for the ADAI Chat
 
 ### 1. Docker Deployment
 
-**File:** [docker.md](docker.md)  
-**Status:** ✅ Complete  
+**File:** [docker.md](docker.md)
+**Status:** ✅ Complete
 **Level:** Beginner to Advanced
 
 Comprehensive guide for containerized deployment using Docker and Docker Compose.
 
 **Topics Covered:**
+
 - Multi-stage Docker builds
 - Docker Compose orchestration
 - Volume management
@@ -33,6 +34,7 @@ Comprehensive guide for containerized deployment using Docker and Docker Compose
 - Troubleshooting
 
 **Quick Start:**
+
 ```bash
 # Build Docker image
 ./scripts/docker_build.sh
@@ -45,6 +47,7 @@ docker-compose ps
 ```
 
 **Best For:**
+
 - Local development environments
 - Containerized production deployments
 - Cloud deployments (AWS ECS, Google Cloud Run, Azure Container Instances)
@@ -58,10 +61,11 @@ docker-compose ps
 
 **Goal:** Run chatbot API locally for testing and development
 
-**Recommended Approach:** Docker Compose  
+**Recommended Approach:** Docker Compose
 **Guide:** [docker.md](docker.md) - Quick Start section
 
 **Steps:**
+
 1. Build Docker image
 2. Start with `docker-compose up -d`
 3. Access at `http://localhost:8080`
@@ -74,10 +78,11 @@ docker-compose ps
 
 **Goal:** Deploy to a single VPS or dedicated server
 
-**Recommended Approach:** Docker with systemd service  
+**Recommended Approach:** Docker with systemd service
 **Guide:** [docker.md](docker.md) - Production Deployment section
 
 **Steps:**
+
 1. Set up SSL certificates
 2. Configure docker-compose.yml for production
 3. Deploy with Nginx reverse proxy
@@ -91,15 +96,17 @@ docker-compose ps
 
 **Goal:** Deploy to cloud infrastructure (AWS, GCP, Azure)
 
-**Recommended Approach:** Docker + Cloud Container Services  
+**Recommended Approach:** Docker + Cloud Container Services
 **Guide:** [docker.md](docker.md)
 
 **Platforms:**
+
 - **AWS:** ECS, Fargate, or EC2 with Docker
 - **Google Cloud:** Cloud Run or GKE
 - **Azure:** Container Instances or AKS
 
 **Steps:**
+
 1. Build and push Docker image to container registry
 2. Configure cloud service
 3. Deploy container
@@ -113,10 +120,11 @@ docker-compose ps
 
 **Goal:** Deploy to Kubernetes cluster for high availability
 
-**Recommended Approach:** Docker + Kubernetes manifests  
+**Recommended Approach:** Docker + Kubernetes manifests
 **Guide:** [docker.md](docker.md) + Kubernetes docs
 
 **Steps:**
+
 1. Build Docker image
 2. Push to container registry
 3. Create Kubernetes manifests (Deployment, Service, Ingress)
@@ -166,6 +174,7 @@ docker-compose ps
 ### Common Commands
 
 **Docker:**
+
 ```bash
 # Build image
 ./scripts/docker_build.sh
@@ -184,6 +193,7 @@ docker-compose ps
 ```
 
 **Docker Compose:**
+
 ```bash
 # Start services
 docker-compose up -d
@@ -215,7 +225,7 @@ docker-compose restart chatbot-api
 
 ## Architecture Overview
 
-```
+```text
                                     ┌─────────────────────┐
                                     │   Internet/Users    │
                                     └──────────┬──────────┘
@@ -282,15 +292,18 @@ docker-compose restart chatbot-api
 ### Inference Optimization
 
 ✅ **Implemented:**
+
 - KV cache for decoder (2-3x speedup)
 - Multi-layer cache architecture
 - Dual cache support (self + cross attention)
 
 ⚠️ **Available (Not Yet Integrated):**
+
 - Batch processing infrastructure
 - Performance profiling tools
 
 ❌ **Future Enhancements:**
+
 - Model quantization (INT8/INT4)
 - GPU acceleration
 - Speculative decoding
@@ -357,6 +370,7 @@ tail -f logs/api.log
 ### Metrics Collection
 
 **Recommended Tools:**
+
 - **Prometheus:** Metrics collection
 - **Grafana:** Visualization
 - **ELK Stack:** Log aggregation
@@ -489,6 +503,7 @@ For deployment issues or questions:
 ## Summary
 
 ✅ **Complete Deployment Infrastructure:**
+
 - Docker containerization
 - Docker Compose orchestration
 - Production-ready configuration
@@ -497,12 +512,14 @@ For deployment issues or questions:
 - Comprehensive documentation
 
 ✅ **Deployment Options:**
+
 - Local development
 - Single server production
 - Cloud deployment
 - Kubernetes (with Docker foundation)
 
 ✅ **Production Features:**
+
 - SSL/TLS support
 - Reverse proxy (Nginx)
 - Rate limiting
@@ -514,6 +531,6 @@ For deployment issues or questions:
 
 ---
 
-**Document Version:** 1.0.0  
-**Last Updated:** January 25, 2026  
+**Document Version:** 1.0.0
+**Last Updated:** January 25, 2026
 **Maintainer:** ADAI Project Team

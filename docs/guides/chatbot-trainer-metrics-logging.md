@@ -1,7 +1,7 @@
 # ChatbotTrainer Metrics and Logging System
 
-**Last Updated:** January 2026  
-**Component:** ChatbotTrainer  
+**Last Updated:** January 2026
+**Component:** ChatbotTrainer
 **Priority:** Low Priority Enhancements
 
 ## Overview
@@ -27,7 +27,7 @@ This document describes the enhanced metrics tracking and logging system added t
 
 Perplexity measures how well the model predicts the next token. It's the exponential of the loss:
 
-```
+```text
 Perplexity = exp(loss)
 ```
 
@@ -49,7 +49,7 @@ std::vector<float> validation_perplexities;  // Per-epoch validation perplexity
 
 **Example Output:**
 
-```
+```text
 ✅ Epoch 5 complete - Loss: 2.3456 - Perplexity: 10.44 - LR: 0.0001 - GradNorm: 1.23
   Validation - Loss: 2.4123 - Perplexity: 11.16
 ```
@@ -60,7 +60,7 @@ std::vector<float> validation_perplexities;  // Per-epoch validation perplexity
 
 Token-level accuracy measures the percentage of tokens the model predicts correctly.
 
-```
+```text
 Accuracy = (correct_tokens / total_tokens) × 100%
 ```
 
@@ -82,7 +82,7 @@ std::vector<float> validation_accuracies;    // Per-epoch validation accuracy
 Once the model exposes predictions, accuracy will be calculated as:
 
 ```cpp
-float calculate_accuracy(const std::vector<int>& predictions, 
+float calculate_accuracy(const std::vector<int>& predictions,
                         const std::vector<int>& targets) {
     int correct = 0;
     for (size_t i = 0; i < predictions.size(); i++) {
@@ -121,7 +121,7 @@ The new logging system provides four verbosity levels:
 
 **Example Output:**
 
-```
+```text
 ✅ Epoch 5 complete - Loss: 2.3456 - Perplexity: 10.44 - LR: 0.0001 - GradNorm: 1.23
   Validation - Loss: 2.4123 - Perplexity: 11.16
   ⭐ New best validation loss!
@@ -140,7 +140,7 @@ The new logging system provides four verbosity levels:
 
 **Example Output:**
 
-```
+```text
   Sample 100/1000 (Update 25) - Loss: 2.45 - Avg: 2.40 - LR: 0.0001 - GradNorm: 1.15
   Sample 200/1000 (Update 50) - Loss: 2.38 - Avg: 2.35 - LR: 0.0001 - GradNorm: 1.08
 ✅ Epoch 5 complete - Loss: 2.3456 - Perplexity: 10.44 - LR: 0.0001 - GradNorm: 1.23
@@ -158,7 +158,7 @@ The new logging system provides four verbosity levels:
 **Signature:**
 
 ```cpp
-void log(LogLevel level, const std::string& message, 
+void log(LogLevel level, const std::string& message,
          const std::string& color = COLOR_RESET)
 ```
 
@@ -172,7 +172,7 @@ void log(LogLevel level, const std::string& message,
 
 ```cpp
 // This will only print if log_level is VERBOSE or DEBUG
-log(LogLevel::VERBOSE, 
+log(LogLevel::VERBOSE,
     "Sample progress: " + std::to_string(current_sample),
     COLOR_INFO);
 
@@ -191,7 +191,7 @@ log(LogLevel::NORMAL,
 ```cpp
 struct TrainingConfig {
     // ... other fields ...
-    
+
     // Logging
     int log_every = 10;                          // Log every N samples (VERBOSE mode)
     LogLevel log_level = LogLevel::VERBOSE;      // NEW: Logging verbosity
@@ -231,7 +231,7 @@ Run training with minimal output for automated workflows:
 
 **Output:**
 
-```
+```text
 ✅ Training complete! Model saved to: production_model.bin
 ```
 
@@ -252,7 +252,7 @@ Standard training with epoch-level monitoring:
 
 **Output:**
 
-```
+```text
 🚀 Starting training...
 ═══════════════════════════════════════
 ✅ Epoch 1 complete - Loss: 3.2145 - Perplexity: 24.87 - LR: 0.0001 - GradNorm: 2.45
@@ -280,7 +280,7 @@ Detailed progress for interactive development:
 
 **Output:**
 
-```
+```text
 🚀 Starting training...
 ═══════════════════════════════════════
   Sample 10/500 (Update 3) - Loss: 3.45 - Avg: 3.48 - LR: 0.0001 - GradNorm: 2.78
@@ -479,7 +479,7 @@ float calculate_perplexity(float loss) {
 ### Log Level Comparison
 
 ```cpp
-void log(LogLevel level, const std::string& message, 
+void log(LogLevel level, const std::string& message,
          const std::string& color) {
     if (static_cast<int>(config.log_level) >= static_cast<int>(level)) {
         std::cout << color << message << COLOR_RESET << std::endl;
@@ -497,12 +497,12 @@ void log(LogLevel level, const std::string& message,
 
 **Logging Overhead:**
 
-| Level   | Overhead | Use Case                    |
-|---------|----------|----------------------------|
-| SILENT  | ~0%      | Production, automation     |
-| NORMAL  | < 1%     | Standard training          |
-| VERBOSE | 1-3%     | Development, debugging     |
-| DEBUG   | 3-5%     | Deep debugging             |
+| Level | Overhead | Use Case |
+| --------- | ---------- | ---------------------------- |
+| SILENT | ~0% | Production, automation |
+| NORMAL | < 1% | Standard training |
+| VERBOSE | 1-3% | Development, debugging |
+| DEBUG | 3-5% | Deep debugging |
 
 **Optimization:**
 
@@ -525,6 +525,7 @@ void log(LogLevel level, const std::string& message,
 ### January 2026 - Initial Implementation
 
 **Added:**
+
 - `LogLevel` enum with 4 levels (SILENT, NORMAL, VERBOSE, DEBUG)
 - `log()` helper method for level-based logging
 - Perplexity tracking for training and validation
@@ -533,10 +534,12 @@ void log(LogLevel level, const std::string& message,
 - Updated all training/validation loops to use new system
 
 **Performance:**
+
 - No overhead for SILENT mode
 - < 3% overhead for VERBOSE mode (default)
 
 **Compatibility:**
+
 - Fully backward compatible
 - Old `verbose` boolean still works
 - Default behavior unchanged (VERBOSE level)

@@ -1,7 +1,7 @@
 # LoRA (Low-Rank Adaptation) API Reference
 
-**File:** `src/LoRA.hpp`  
-**Status:** ✅ Production-ready (Phase 5 - January 2026)  
+**File:** `src/LoRA.hpp`
+**Status:** ✅ Production-ready (Phase 5 - January 2026)
 **Purpose:** Parameter-efficient fine-tuning with 100-1000x parameter reduction
 
 ---
@@ -24,11 +24,12 @@ The `LoRAAdapter` class implements Low-Rank Adaptation (LoRA), a technique for f
 
 For a weight matrix W ∈ ℝ^(d×k), LoRA represents the update as:
 
-```
+```text
 W' = W + (α/r) × B × A
 ```
 
 where:
+
 - **W** - Original frozen weights (d × k)
 - **A** - Low-rank matrix (r × k), randomly initialized
 - **B** - Low-rank matrix (d × r), initialized to zeros
@@ -36,11 +37,13 @@ where:
 - **α** - Scaling factor (typically 16 or 32)
 
 **Parameter Reduction:**
+
 - Original: d × k parameters
 - LoRA: (d × r) + (r × k) = r(d + k) parameters
 - Reduction: (d × k) / [r(d + k)]
 
 **Example:** For d=768, k=768, r=8:
+
 - Original: 589,824 parameters
 - LoRA: 12,288 parameters
 - **Reduction: 48x fewer parameters!**
@@ -56,28 +59,28 @@ private:
     int output_dim_;
     int rank_;
     float alpha_;
-    
+
     Matrix A_;        // (rank × input_dim)
     Matrix B_;        // (output_dim × rank)
     Matrix grad_A_;
     Matrix grad_B_;
-    
+
 public:
     LoRAAdapter(int input_dim, int output_dim, int rank, float alpha = 16.0f);
-    
+
     Matrix forward(const Matrix& x, const Matrix& W_output);
     void backward(const Matrix& x, const Matrix& grad_output);
     void update(float learning_rate);
     void zero_grad();
-    
+
     Matrix merge_with_base(const Matrix& W);
-    
+
     Matrix get_A() const;
     Matrix get_B() const;
-    
+
     void save(const std::string& filepath) const;
     void load(const std::string& filepath);
-    
+
     int trainable_parameters() const;
     float parameter_reduction(int original_params) const;
 };
@@ -92,16 +95,19 @@ LoRAAdapter(int input_dim, int output_dim, int rank, float alpha = 16.0f)
 ```
 
 **Parameters:**
+
 - `input_dim` - Input dimension (k)
 - `output_dim` - Output dimension (d)
 - `rank` - Rank of low-rank decomposition (r)
 - `alpha` - Scaling factor (default: 16.0)
 
 **Initialization:**
+
 - **A** ~ N(0, 1/√r) - Random Gaussian
 - **B** = 0 - Ensures ΔW = 0 initially
 
 **Example:**
+
 ```cpp
 // For transformer attention: 768 → 768 with rank 8
 LoRAAdapter adapter(768, 768, 8, 16.0f);
@@ -120,7 +126,8 @@ Matrix forward(const Matrix& x, const Matrix& W_output)
 Compute forward pass with LoRA adaptation.
 
 **Algorithm:**
-```
+
+```text
 1. y_base = x × W_output          (frozen base model)
 2. xA = x × A^T                   (low-rank projection)
 3. xAB = xA × B^T                 (reconstruct adaptation)
@@ -128,12 +135,14 @@ Compute forward pass with LoRA adaptation.
 ```
 
 **Parameters:**
+
 - `x` - Input activations (batch_size × input_dim)
 - `W_output` - Base model weights (input_dim × output_dim), **frozen**
 
 **Returns:** Adapted output (batch_size × output_dim)
 
 **Example:**
+
 ```cpp
 Matrix x(2, 768);           // Batch of 2 inputs
 Matrix W_base(768, 768);    // Frozen base weights
@@ -153,10 +162,12 @@ void backward(const Matrix& x, const Matrix& grad_output)
 Compute gradients for A and B (W remains frozen).
 
 **Gradients:**
+
 - `grad_B = (α/r) × grad_output^T × (x × A^T)`
 - `grad_A = (α/r) × B^T × grad_output^T × x`
 
 **Parameters:**
+
 - `x` - Input from forward pass (must be cached!)
 - `grad_output` - Gradient flowing back from loss
 
@@ -173,12 +184,14 @@ void update(float learning_rate)
 Apply gradient descent to adapter parameters.
 
 **Update Rule:**
-```
+
+```text
 A ← A - lr × grad_A
 B ← B - lr × grad_B
 ```
 
 **Example:**
+
 ```cpp
 // Training loop
 for (int epoch = 0; epoch < epochs; epoch++) {
@@ -186,10 +199,10 @@ for (int epoch = 0; epoch < epochs; epoch++) {
         // Forward
         Matrix output = adapter.forward(batch.x, W_base);
         Matrix loss_grad = compute_loss_gradient(output, batch.target);
-        
+
         // Backward
         adapter.backward(batch.x, loss_grad);
-        
+
         // Update only adapter weights
         adapter.update(0.001f);
         adapter.zero_grad();
@@ -218,16 +231,19 @@ Matrix merge_with_base(const Matrix& W)
 Merge LoRA adapter into base weights for deployment.
 
 **Formula:**
-```
+
+```text
 W_merged = W + (α/r) × B × A
 ```
 
 **Benefits:**
+
 - **Zero inference overhead** - merged weights = standard matrix
 - **No adapter needed** at deployment
 - **Same computational cost** as original model
 
 **Example:**
+
 ```cpp
 // After training
 Matrix W_base(768, 768);  // Original weights
@@ -271,6 +287,7 @@ Calculate reduction ratio.
 **Returns:** `original_params / trainable_params`
 
 **Example:**
+
 ```cpp
 int original = 768 * 768;  // 589,824
 float reduction = adapter.parameter_reduction(original);
@@ -300,6 +317,7 @@ void load(const std::string& filepath)
 Load adapter weights from file.
 
 **Example - Multiple Task Adapters:**
+
 ```cpp
 // Train adapters for different tasks
 LoRAAdapter summarization(768, 768, 8);
@@ -331,49 +349,49 @@ int main() {
     // 1. Create LoRA adapter
     int dim = 768;
     LoRAAdapter lora(dim, dim, 8, 16.0f);
-    
+
     std::cout << "Trainable params: " << lora.trainable_parameters() << "\n";
     std::cout << "Reduction: " << lora.parameter_reduction(dim * dim) << "x\n";
-    
+
     // 2. Load frozen base model
     Matrix W_base(dim, dim);
     load_pretrained_weights(W_base, "base_model.bin");
-    
+
     // 3. Training loop
     for (int epoch = 0; epoch < 10; epoch++) {
         float epoch_loss = 0.0f;
-        
+
         for (auto& batch : training_data) {
             // Forward with LoRA
             Matrix output = lora.forward(batch.x, W_base);
-            
+
             // Compute loss
             float loss = cross_entropy(output, batch.labels);
             epoch_loss += loss;
-            
+
             // Backward (only through LoRA)
             Matrix grad = compute_gradient(output, batch.labels);
             lora.backward(batch.x, grad);
-            
+
             // Update adapters only
             lora.update(0.001f);
             lora.zero_grad();
         }
-        
-        std::cout << "Epoch " << epoch + 1 
+
+        std::cout << "Epoch " << epoch + 1
                   << " - Loss: " << epoch_loss << "\n";
     }
-    
+
     // 4. Save adapter
     lora.save("lora_adapter.bin");
-    
+
     // 5. Option A: Use with adapter at inference
     Matrix test_output = lora.forward(test_input, W_base);
-    
+
     // 6. Option B: Merge for deployment (zero overhead)
     Matrix W_merged = lora.merge_with_base(W_base);
     // Now just use: output = x * W_merged (no LoRA needed!)
-    
+
     return 0;
 }
 ```
@@ -391,17 +409,17 @@ struct TransformerWithLoRA {
     LoRAAdapter key_lora;
     LoRAAdapter value_lora;
     LoRAAdapter output_lora;
-    
+
     Matrix W_Q, W_K, W_V, W_O;  // Frozen base weights
-    
+
     Matrix forward(const Matrix& x) {
         Matrix Q = query_lora.forward(x, W_Q);
         Matrix K = key_lora.forward(x, W_K);
         Matrix V = value_lora.forward(x, W_V);
-        
+
         Matrix attention_out = compute_attention(Q, K, V);
         Matrix output = output_lora.forward(attention_out, W_O);
-        
+
         return output;
     }
 };
@@ -451,11 +469,11 @@ struct LoRAConfig {
     float alpha = 16.0f;
     float dropout = 0.0f;  // Optional dropout
     std::vector<std::string> target_modules;
-    
+
     bool should_adapt(const std::string& module_name) const {
         if (target_modules.empty()) return true;
-        return std::find(target_modules.begin(), 
-                        target_modules.end(), 
+        return std::find(target_modules.begin(),
+                        target_modules.end(),
                         module_name) != target_modules.end();
     }
 };
@@ -468,7 +486,7 @@ struct LoRAConfig {
 ### Memory Usage
 
 | Model Size | Full Fine-Tune | LoRA (r=8) | Reduction |
-|-----------|----------------|------------|-----------|
+| ----------- | ---------------- | ------------ | ----------- |
 | 124M params | 496 MB | 4 MB | 124x |
 | 350M params | 1.4 GB | 11 MB | 127x |
 | 1.3B params | 5.2 GB | 42 MB | 124x |
@@ -526,6 +544,7 @@ struct LoRAConfig {
 ### Issue: Poor Adaptation Quality
 
 **Solution:**
+
 - Increase rank (try r=16 or r=32)
 - Increase alpha
 - Adapt more modules
@@ -534,6 +553,7 @@ struct LoRAConfig {
 ### Issue: Overfitting
 
 **Solution:**
+
 - Decrease rank
 - Add dropout
 - Reduce learning rate
@@ -542,6 +562,7 @@ struct LoRAConfig {
 ### Issue: Slow Inference
 
 **Solution:**
+
 ```cpp
 // Merge adapter for deployment
 Matrix W_merged = adapter.merge_with_base(W_base);
@@ -552,7 +573,7 @@ Matrix W_merged = adapter.merge_with_base(W_base);
 
 ## Test Coverage
 
-**File:** `tests/phase5_test.cpp`  
+**File:** `tests/phase5_test.cpp`
 **Test Cases:** 9
 
 - Constructor validation
@@ -584,6 +605,6 @@ Matrix W_merged = adapter.merge_with_base(W_base);
 
 ---
 
-**Last Updated:** January 25, 2026  
-**Version:** 1.0  
+**Last Updated:** January 25, 2026
+**Version:** 1.0
 **Status:** Production-ready

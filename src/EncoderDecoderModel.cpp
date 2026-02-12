@@ -140,12 +140,25 @@ std::string EncoderDecoderModel::generate_response(const std::string& input_text
     }
     cached_encoder_output = encoder->encode_with_mask(input_tokens, encoder_mask);
 
-    // Create model forward function for generator
-    auto model_fn = [this](const std::vector<int>& tokens) -> Matrix {
-        // Decode with cross-attention to encoder output
-        Matrix decoder_out = decoder->forward_with_encoder(tokens, cached_encoder_output);
+    // Initialize KV cache for efficient generation
+    DecoderKVCache kv_cache(decoder_layers);
+    size_t processed_length = 0;
 
-        // Project to vocabulary
+    // Create model forward function with KV caching
+    auto model_fn = [this, &kv_cache, &processed_length](const std::vector<int>& tokens) -> Matrix {
+        size_t current_length = tokens.size();
+        
+        // Determine which tokens are new (not yet processed)
+        std::vector<int> new_tokens(tokens.begin() + processed_length, tokens.end());
+        
+        // Process only new tokens with cache
+        Matrix decoder_out = decoder->forward_with_cache(new_tokens, kv_cache, 
+                                                         &cached_encoder_output, true);
+        
+        // Update processed length
+        processed_length = current_length;
+
+        // Project to vocabulary (last position of output)
         Matrix logits = lm_head->forward(decoder_out);
 
         return logits;
@@ -156,8 +169,8 @@ std::string EncoderDecoderModel::generate_response(const std::string& input_text
         generator->generate(model_fn, {bos_token_id}  // Start with <bos>
         );
 
-    // Decode tokens to text
-    std::string response = tokenizer->decode(output_tokens);
+    // Decode tokens to text (skip special tokens like <bos>, <eos>, <unk>, <pad>)
+    std::string response = tokenizer->decode(output_tokens, true);
 
     return response;
 }
@@ -179,10 +192,27 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
     }
     cached_encoder_output = encoder->encode_with_mask(input_tokens, encoder_mask);
 
-    // Create model forward function
-    auto model_fn = [this](const std::vector<int>& tokens) -> Matrix {
-        Matrix decoder_out = decoder->forward_with_encoder(tokens, cached_encoder_output);
+    // Initialize KV cache for efficient generation
+    DecoderKVCache kv_cache(decoder_layers);
+    size_t processed_length = 0;
+
+    // Create model forward function with KV caching
+    auto model_fn = [this, &kv_cache, &processed_length](const std::vector<int>& tokens) -> Matrix {
+        size_t current_length = tokens.size();
+        
+        // Determine which tokens are new (not yet processed)
+        std::vector<int> new_tokens(tokens.begin() + processed_length, tokens.end());
+        
+        // Process only new tokens with cache
+        Matrix decoder_out = decoder->forward_with_cache(new_tokens, kv_cache, 
+                                                         &cached_encoder_output, true);
+        
+        // Update processed length
+        processed_length = current_length;
+
+        // Project to vocabulary (last position of output)
         Matrix logits = lm_head->forward(decoder_out);
+
         return logits;
     };
 
@@ -209,7 +239,8 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
         output_tokens = generator->generate(model_fn, {bos_token_id});
     }
 
-    return tokenizer->decode(output_tokens);
+    // Decode tokens to text (skip special tokens like <bos>, <eos>, <unk>, <pad>)
+    return tokenizer->decode(output_tokens, true);
 }
 
 // Training step

@@ -48,6 +48,7 @@ You should see output indicating the MinGW-w64 compiler version.
 ```
 
 This script will:
+
 1. Check for required tools
 2. Configure CMake with the MinGW-w64 toolchain
 3. Build Windows executables
@@ -60,6 +61,7 @@ This script will:
 ```
 
 This creates a complete Windows distribution in `dist-windows/` with:
+
 - All `.exe` files
 - Required data files (vocab.txt, models, etc.)
 - README.txt for Windows users
@@ -95,6 +97,7 @@ find . -name "*.exe"
 ```
 
 You should see:
+
 - `src/chatbot.exe` - Interactive chatbot CLI
 - `src/chatbot_trainer.exe` - Model training tool
 
@@ -103,6 +106,7 @@ You should see:
 The MinGW-w64 toolchain file (`cmake/toolchains/mingw-w64.cmake`) configures:
 
 ### Compiler Settings
+
 - **Target**: Windows x86_64 (64-bit)
 - **Compiler**: `x86_64-w64-mingw32-g++`
 - **Standard**: C++17
@@ -114,6 +118,7 @@ set(CMAKE_EXE_LINKER_FLAGS "-static-libgcc -static-libstdc++ -static")
 ```
 
 This ensures the executables are self-contained and don't require:
+
 - `libgcc_s_seh-1.dll`
 - `libstdc++-6.dll`
 - `libwinpthread-1.dll`
@@ -130,7 +135,7 @@ Targets Windows 7+ API level (0x0601).
 ### Available Options
 
 | Option | Default | Description |
-|--------|---------|-------------|
+| -------- | --------- | ------------- |
 | `BUILD_TESTING` | OFF | Build test suite (disabled for Windows) |
 | `BUILD_EXAMPLES` | OFF | Build example programs |
 | `BUILD_API_SERVER` | OFF | Build REST API server (requires cpp-httplib) |
@@ -151,6 +156,7 @@ cmake \
 ### Method 1: Copy to Windows Machine
 
 1. Build and package:
+
    ```bash
    ./scripts/build_windows.sh
    ./scripts/package_windows.sh
@@ -159,6 +165,7 @@ cmake \
 2. Transfer `dist-windows/adai-chatbot-windows-x64.zip` to Windows
 
 3. Extract and run:
+
    ```cmd
    cd adai-chatbot-windows-x64
    run_chatbot.bat
@@ -184,7 +191,7 @@ wine build-windows/src/chatbot.exe --help
 
 The `package_windows.sh` script creates:
 
-```
+```text
 dist-windows/adai-chatbot-windows-x64/
 ├── chatbot.exe              # Main chatbot application
 ├── chatbot_trainer.exe      # Training tool
@@ -205,7 +212,7 @@ dist-windows/adai-chatbot-windows-x64/
 
 ### Cross-Compilation Workflow
 
-```
+```text
 Linux Development Environment
          ↓
     CMake + MinGW-w64
@@ -220,12 +227,14 @@ Linux Development Environment
 ### Static vs Dynamic Linking
 
 **Static Linking (Used)**:
+
 - ✅ No external DLL dependencies
 - ✅ Single executable file
 - ✅ Portable across Windows systems
 - ❌ Larger executable size
 
 **Dynamic Linking (Not Used)**:
+
 - ✅ Smaller executable size
 - ❌ Requires MinGW runtime DLLs
 - ❌ Compatibility issues
@@ -235,24 +244,26 @@ Linux Development Environment
 The build targets **Windows 7** as minimum version (`_WIN32_WINNT=0x0601`):
 
 | Windows Version | Supported |
-|-----------------|-----------|
-| Windows 11      | ✅ Yes    |
-| Windows 10      | ✅ Yes    |
-| Windows 8/8.1   | ✅ Yes    |
-| Windows 7       | ✅ Yes    |
-| Windows Vista   | ⚠️ Untested |
-| Windows XP      | ❌ No     |
+| ----------------- | ----------- |
+| Windows 11 | ✅ Yes |
+| Windows 10 | ✅ Yes |
+| Windows 8/8.1 | ✅ Yes |
+| Windows 7 | ✅ Yes |
+| Windows Vista | ⚠️ Untested |
+| Windows XP | ❌ No |
 
 ## Troubleshooting
 
 ### MinGW Compiler Not Found
 
 **Error**:
-```
+
+```text
 ERROR: MinGW-w64 toolchain not found!
 ```
 
 **Solution**:
+
 ```bash
 # Ubuntu/Debian
 sudo apt-get install mingw-w64 g++-mingw-w64
@@ -264,11 +275,13 @@ which x86_64-w64-mingw32-g++
 ### CMake Configuration Failed
 
 **Error**:
-```
+
+```text
 CMake Error: Could not create named generator MinGW Makefiles
 ```
 
 **Solution**:
+
 1. Ensure CMake version 3.10+
 2. Verify toolchain file path
 3. Check MinGW installation
@@ -276,6 +289,7 @@ CMake Error: Could not create named generator MinGW Makefiles
 ### Executable Won't Run on Windows
 
 **Symptoms**:
+
 - "Not a valid Win32 application"
 - Missing DLL errors
 - Immediate crash
@@ -283,18 +297,21 @@ CMake Error: Could not create named generator MinGW Makefiles
 **Solutions**:
 
 1. **Check Architecture**:
+
    ```bash
    file build-windows/src/chatbot.exe
    # Should show: PE32+ executable (console) x86-64
    ```
 
 2. **Verify Static Linking**:
+
    ```bash
    x86_64-w64-mingw32-objdump -p build-windows/src/chatbot.exe | grep DLL
    # Should only show Windows system DLLs
    ```
 
 3. **Test with Wine**:
+
    ```bash
    wine64 build-windows/src/chatbot.exe --help
    ```
@@ -320,6 +337,7 @@ set(TOOLCHAIN_PREFIX i686-w64-mingw32)
 ```
 
 Then rebuild:
+
 ```bash
 ./scripts/build_windows.sh clean
 ./scripts/build_windows.sh
@@ -356,6 +374,7 @@ cmake \
 1. Install Windows headers for cpp-httplib
 2. Update toolchain to find Windows libraries
 3. Enable in build:
+
    ```bash
    cmake -DBUILD_API_SERVER=ON ...
    ```
@@ -372,23 +391,23 @@ on: [push, pull_request]
 jobs:
   build-windows:
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@v3
-    
+
     - name: Install MinGW
       run: |
         sudo apt-get update
         sudo apt-get install -y mingw-w64 g++-mingw-w64
-    
+
     - name: Build Windows Executables
       run: |
         ./scripts/build_windows.sh
-    
+
     - name: Package Windows Distribution
       run: |
         ./scripts/package_windows.sh
-    
+
     - name: Upload Artifacts
       uses: actions/upload-artifact@v3
       with:
@@ -402,15 +421,15 @@ jobs:
 build-windows:
   stage: build
   image: ubuntu:22.04
-  
+
   before_script:
     - apt-get update
     - apt-get install -y mingw-w64 g++-mingw-w64 cmake make zip
-  
+
   script:
     - ./scripts/build_windows.sh
     - ./scripts/package_windows.sh
-  
+
   artifacts:
     paths:
       - dist-windows/adai-chatbot-windows-x64.zip
@@ -422,6 +441,7 @@ build-windows:
 ### Binary Size
 
 Typical sizes with static linking:
+
 - `chatbot.exe`: 2-4 MB
 - `chatbot_trainer.exe`: 2-4 MB
 
@@ -438,6 +458,7 @@ The default Release build uses `-O3` optimization. Additional flags:
 ### Runtime Performance
 
 Cross-compiled executables have the same performance as native Windows builds:
+
 - No emulation layer
 - Native Windows PE format
 - Direct system calls
@@ -450,6 +471,7 @@ Windows executables should be code-signed for distribution:
 
 1. Obtain code signing certificate
 2. Use `osslsigncode` on Linux:
+
    ```bash
    osslsigncode sign \
      -certs cert.pem \
@@ -464,7 +486,7 @@ Run security checks before distribution:
 
 ```bash
 # Check for hardcoded credentials
-grep -r "password\|secret\|key" src/
+grep -r "password\| secret\ |key" src/
 
 # Verify no debug symbols in release
 x86_64-w64-mingw32-objdump -h chatbot.exe | grep debug
@@ -473,6 +495,7 @@ x86_64-w64-mingw32-objdump -h chatbot.exe | grep debug
 ## License Compliance
 
 The ADAI chatbot uses:
+
 - **MinGW-w64**: Permissive licensing (runtime exception)
 - **Standard Library**: Static linking allowed
 - **No external dependencies**: Self-contained executable

@@ -15,7 +15,7 @@ std::vector<ActivationType> activations = {
 };
 
 // Create network
-NeuralNetwork nn(architecture, activations, 
+NeuralNetwork nn(architecture, activations,
                  LossType::CATEGORICAL_CROSS_ENTROPY, 0.01f);
 
 // Initialize weights
@@ -32,7 +32,7 @@ std::vector<std::vector<float>> X_train = {{...}, {...}, ...};
 std::vector<std::vector<float>> y_train = {{...}, {...}, ...};
 
 // Train
-nn.fit(X_train, y_train, 
+nn.fit(X_train, y_train,
        100,    // epochs
        32,     // batch_size (0 = full batch)
        nullptr, nullptr, // validation data (optional)
@@ -156,7 +156,7 @@ const auto& layer = nn.get_layer(0);
 ## Best Practices
 
 1. **Normalize inputs**: Scale to [0, 1] or standardize
-2. **Choose activation wisely**: 
+2. **Choose activation wisely**:
    - ReLU for hidden layers
    - Sigmoid for binary output
    - Linear for regression output
@@ -171,24 +171,28 @@ const auto& layer = nn.get_layer(0);
 ## Troubleshooting
 
 ### Network not learning
+
 - Try different learning rate (0.001 - 0.1)
 - Check data normalization
 - Increase network capacity (more neurons/layers)
 - Check loss function matches task
 
 ### Overfitting
+
 - Reduce network size
 - Use validation set
 - Stop training earlier
 - Add regularization (future feature)
 
 ### Poor accuracy
+
 - Increase training epochs
 - Adjust architecture
 - Normalize inputs
 - Try different activation functions
 
 ### Exploding gradients
+
 - Reduce learning rate
 - Check for proper initialization
 - Normalize inputs

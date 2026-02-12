@@ -5,6 +5,7 @@ This guide walks through setting up branch protection rules for the ADAI reposit
 ## Why Branch Protection?
 
 Branch protection rules:
+
 - **Prevent force pushes** to important branches
 - **Require code reviews** before merging
 - **Ensure CI passes** before allowing merges
@@ -17,6 +18,7 @@ Branch protection rules:
 ### 1. Require Pull Request Reviews
 
 **Settings:**
+
 - ✅ Require a pull request before merging
 - ✅ Require approvals: **1**
 - ✅ Dismiss stale pull request approvals when new commits are pushed
@@ -27,10 +29,12 @@ Branch protection rules:
 ### 2. Require Status Checks
 
 **Settings:**
+
 - ✅ Require status checks to pass before merging
 - ✅ Require branches to be up to date before merging
 
 **Required Status Checks:**
+
 - `Build and Test (ubuntu-22.04, gcc, Release)`
 - `Build and Test (ubuntu-22.04, clang, Release)`
 - `Build and Test (ubuntu-20.04, gcc, Release)`
@@ -43,6 +47,7 @@ Branch protection rules:
 ### 3. Additional Protections
 
 **Settings:**
+
 - ✅ Require conversation resolution before merging
 - ✅ Require signed commits (optional but recommended)
 - ✅ Require linear history (prevents merge commits, enforces squash or rebase)
@@ -64,13 +69,14 @@ Branch protection rules:
    - Branch name pattern: `main`
 
 3. **Configure Protection Settings**
-   
+
    **Protect matching branches:**
+
    - ✅ Require a pull request before merging
      - Required approvals: `1`
      - ✅ Dismiss stale pull request approvals when new commits are pushed
      - ✅ Require review from Code Owners
-   
+
    - ✅ Require status checks to pass before merging
      - ✅ Require branches to be up to date before merging
      - Search and add each required status check:
@@ -78,12 +84,12 @@ Branch protection rules:
        - `Build and Test (ubuntu-22.04, clang, Release)`
        - `Code Quality Checks`
        - And others as they appear in your Actions
-   
+
    - ✅ Require conversation resolution before merging
    - ✅ Require signed commits (optional)
    - ✅ Require linear history
    - ✅ Include administrators
-   
+
    - ❌ Allow force pushes: **Nobody**
    - ❌ Allow deletions: Disabled
 
@@ -136,6 +142,7 @@ EOF
 For repositories using a `develop` integration branch:
 
 **Settings (slightly relaxed from `main`):**
+
 - ✅ Require pull request reviews: **1 approval**
 - ✅ Require status checks to pass
 - ✅ Require conversation resolution
@@ -144,6 +151,7 @@ For repositories using a `develop` integration branch:
 - ❌ Allow deletions: Disabled
 
 **Difference from `main`:**
+
 - May not require linear history (allows merge commits)
 - May not require signed commits
 - Same CI checks required
@@ -151,6 +159,7 @@ For repositories using a `develop` integration branch:
 ## Bypass Options (Not Recommended)
 
 For emergency situations, repository admins can:
+
 1. Temporarily disable branch protection
 2. Make emergency changes
 3. Re-enable protection immediately
@@ -161,7 +170,7 @@ For emergency situations, repository admins can:
 
 Create `.github/CODEOWNERS` file to automatically assign reviewers:
 
-```
+```text
 # Default owners for everything
 * @rjv717
 
@@ -178,6 +187,7 @@ Create `.github/CODEOWNERS` file to automatically assign reviewers:
 ```
 
 **Benefits:**
+
 - Automatic reviewer assignment
 - Can require review from code owners
 - Clear ownership of code areas
@@ -187,6 +197,7 @@ Create `.github/CODEOWNERS` file to automatically assign reviewers:
 ### Test the Protection
 
 1. **Try to push directly to main:**
+
    ```bash
    git checkout main
    echo "test" >> test.txt
@@ -194,21 +205,22 @@ Create `.github/CODEOWNERS` file to automatically assign reviewers:
    git commit -m "test: Direct push"
    git push origin main
    ```
-   
+
    **Expected result:** Push rejected with message about branch protection
 
 2. **Try force push:**
+
    ```bash
    git push --force origin main
    ```
-   
+
    **Expected result:** Force push rejected
 
 3. **Create PR without CI passing:**
    - Create branch and PR
    - Don't wait for CI
    - Try to merge
-   
+
    **Expected result:** Merge button disabled until CI passes
 
 ### View Protection Status
@@ -228,6 +240,7 @@ gh api repos/rjv717/adai/branches/main/protection/required_status_checks | jq
 **Problem:** Required status checks don't appear in the list
 
 **Solution:**
+
 1. Run workflows at least once on the branch
 2. Wait for workflows to complete
 3. Refresh branch protection settings page
@@ -238,12 +251,14 @@ gh api repos/rjv717/adai/branches/main/protection/required_status_checks | jq
 **Problem:** Merge button disabled despite passing checks
 
 **Causes:**
+
 - Branch not up to date with base branch
 - Conversations not resolved
 - Required reviewers haven't approved
 - Administrator enforcement enabled but admin hasn't approved
 
 **Solutions:**
+
 1. Update branch: `git pull origin main && git push`
 2. Resolve all conversations
 3. Request/wait for review approval
@@ -254,6 +269,7 @@ gh api repos/rjv717/adai/branches/main/protection/required_status_checks | jq
 **Problem:** Need to push critical fix but can't bypass protection
 
 **Solution:**
+
 1. Create hotfix branch from main
 2. Make fix
 3. Create PR
@@ -277,6 +293,7 @@ gh api repos/rjv717/adai/branches/main/protection/required_status_checks | jq
 ### Review Protection Effectiveness
 
 Monthly review:
+
 - Number of direct push attempts (should be 0)
 - PRs merged without review (should be 0)
 - CI failures caught before merge
@@ -285,6 +302,7 @@ Monthly review:
 ### Adjust Rules As Needed
 
 As project matures:
+
 - Add more required status checks
 - Increase required reviewers (2+)
 - Add required code owners
@@ -298,5 +316,5 @@ As project matures:
 
 ---
 
-**Last Updated:** January 24, 2026  
+**Last Updated:** January 24, 2026
 **Status:** Recommended for implementation

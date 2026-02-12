@@ -25,11 +25,11 @@ This guide covers everything you need to know about building the ADAI project fr
 ### Supported Compilers
 
 | Compiler | Minimum Version | Recommended |
-|----------|----------------|-------------|
-| GCC      | 7.0            | 11.0+       |
-| Clang    | 5.0            | 13.0+       |
-| MSVC     | 2017 (19.10)   | 2022        |
-| AppleClang | 10.0         | Latest      |
+| ---------- | ---------------- | ------------- |
+| GCC | 7.0 | 11.0+ |
+| Clang | 5.0 | 13.0+ |
+| MSVC | 2017 (19.10) | 2022 |
+| AppleClang | 10.0 | Latest |
 
 ## Dependencies
 
@@ -157,7 +157,7 @@ ctest --preset asan
 #### Available Presets
 
 | Preset | Description | Use Case |
-|--------|-------------|----------|
+| -------- | ------------- | ---------- |
 | **debug** | Debug build with all symbols | Development and debugging |
 | **release** | Optimized release build | Production and performance |
 | **relwithdebinfo** | Optimized with debug info | Performance debugging |
@@ -196,6 +196,7 @@ ccache -s
 **Performance Impact**: ccache can reduce recompilation time by 70-80% for incremental builds.
 
 **Disable ccache** (if needed):
+
 ```bash
 cmake -DENABLE_CCACHE=OFF --preset debug
 ```
@@ -210,6 +211,7 @@ ADAI uses precompiled headers for commonly included STL headers to reduce compil
 Precompiled headers are automatically used when building libraries. No configuration needed.
 
 **Benefits**:
+
 - Faster clean builds (20-30% reduction)
 - Automatic reuse across translation units
 - No manual header management
@@ -224,11 +226,13 @@ Google Test is automatically downloaded and built using CMake's FetchContent:
 ```
 
 **Benefits**:
+
 - No system-wide Google Test installation required
 - Consistent test framework version across all builds
 - Automatic setup in CI/CD environments
 
 **Offline builds**: If you need to build offline, download Google Test manually:
+
 ```bash
 # Download Google Test v1.14.0 once
 git clone --depth 1 --branch v1.14.0 https://github.com/google/googletest.git _deps/googletest-src
@@ -286,7 +290,7 @@ cmake -DCMAKE_BUILD_TYPE=Release \
 ### Available CMake Options
 
 | Option | Default | Description |
-|--------|---------|-------------|
+| -------- | --------- | ------------- |
 | `BUILD_TESTING` | ON | Build test suite |
 | `BUILD_EXAMPLES` | ON | Build example programs |
 | `ENABLE_GPU` | OFF | Enable GPU acceleration with CUDA |
@@ -300,7 +304,7 @@ cmake -DCMAKE_BUILD_TYPE=Release \
 ### Build Types
 
 | Build Type | Optimization | Debug Info | Use Case |
-|------------|-------------|------------|----------|
+| ------------ | ------------- | ------------ | ---------- |
 | **Debug** | -O0 | Full | Development, debugging |
 | **Release** | -O3 | None | Production, performance testing |
 | **RelWithDebInfo** | -O2 | Full | Performance testing with debugging |
@@ -319,6 +323,7 @@ ADAI supports optional GPU acceleration using NVIDIA CUDA for faster matrix oper
 #### Installing CUDA
 
 **Ubuntu/Debian:**
+
 ```bash
 # Add NVIDIA package repositories
 wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb
@@ -330,6 +335,7 @@ sudo apt-get install -y cuda-toolkit-11-8
 ```
 
 **Fedora/RHEL:**
+
 ```bash
 # Install CUDA repository
 sudo dnf config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/rhel8/x86_64/cuda-rhel8.repo
@@ -361,7 +367,7 @@ make -j$(nproc)
 By default, ADAI compiles for multiple GPU architectures. You can customize this:
 
 | Compute Capability | GPU Examples | CMake Flag |
-|-------------------|--------------|------------|
+| ------------------- | -------------- | ------------ |
 | 6.0 | Pascal (GTX 10xx, P100) | 60 |
 | 6.1 | Pascal (GTX 10xx Ti, P4) | 61 |
 | 7.0 | Volta (V100) | 70 |
@@ -370,6 +376,7 @@ By default, ADAI compiles for multiple GPU architectures. You can customize this
 | 8.6 | Ampere (RTX 30xx, A10) | 86 |
 
 **Example - Build only for RTX 30xx series:**
+
 ```bash
 cmake -DENABLE_GPU=ON -DCMAKE_CUDA_ARCHITECTURES="86" ..
 ```
@@ -416,6 +423,7 @@ Matrix::gpu_cleanup();
 ```
 
 **Note**: GPU operations transfer data to/from GPU memory. For best performance:
+
 - Use GPU operations on large matrices (500x500 or larger)
 - Batch multiple operations together when possible
 - Keep data on GPU between operations (future enhancement)

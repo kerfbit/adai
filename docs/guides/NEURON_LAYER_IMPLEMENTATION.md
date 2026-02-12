@@ -7,17 +7,20 @@ The `NeuronLayer` class has been successfully implemented as part of the neural 
 ## Files
 
 ### Header File: `src/Neuron.hpp`
+
 - Contains the complete `NeuronLayer` class interface
 - Located alongside the `Neuron` class definition
 - Includes comprehensive documentation for all methods
 
 ### Implementation File: `src/Neuron.cpp`
+
 - Contains all method implementations for `NeuronLayer`
 - Implements forward/backward propagation through the layer
 - Includes gradient accumulation logic
 - Provides serialization support
 
 ### Example Program: `src/NeuronLayerExample.cpp`
+
 - Demonstrates 4 different usage patterns
 - Shows single layer forward pass
 - Demonstrates two-layer network
@@ -30,30 +33,37 @@ The `NeuronLayer` class has been successfully implemented as part of the neural 
 ```cpp
 NeuronLayer(int in_size, int out_size, ActivationType activation, float lr = 0.01f);
 ```
+
 Creates a layer with specified input/output dimensions and activation function.
 
 ### Core Methods
 
 **Forward Propagation:**
+
 ```cpp
 std::vector<float> forward(const std::vector<float>& inputs);
 ```
+
 Computes layer output by passing inputs through all neurons in parallel.
 
 **Backward Propagation:**
+
 ```cpp
 std::vector<float> backward(const std::vector<float>& gradients);
 ```
+
 Performs backpropagation, updating weights and accumulating input gradients.
 
 ### Weight Initialization
 
 **He Initialization (for ReLU):**
+
 ```cpp
 void he_init();
 ```
 
 **Xavier Initialization (for Sigmoid/Tanh):**
+
 ```cpp
 void xavier_init(int fan_out);
 ```
@@ -61,6 +71,7 @@ void xavier_init(int fan_out);
 ### Configuration
 
 **Set Learning Rate:**
+
 ```cpp
 void set_learning_rate(float lr);
 ```
@@ -80,28 +91,35 @@ void set_learning_rate(float lr);
 ## Key Features
 
 ### 1. Gradient Accumulation
+
 The backward pass correctly accumulates gradients from all neurons sharing the same input:
-```
+
+```text
 ∂L/∂xᵢ = Σⱼ (δⱼ × wᵢⱼ)
 ```
 
 ### 2. Uniform Initialization
+
 All neurons in a layer are initialized with the same strategy for consistent weight distributions.
 
 ### 3. Parallel Structure
+
 Each neuron processes the same input independently, enabling future parallelization.
 
 ### 4. Complete Serialization
+
 Full layer state (all neurons' weights and biases) can be saved and restored.
 
 ## Implementation Details
 
 ### Memory Layout
+
 - **Neurons Storage:** `std::vector<Neuron>` (contiguous)
 - **Total Parameters:** `(input_size + 1) × output_size` floats
 - **Space Complexity:** O(m × n) where m=neurons, n=inputs
 
 ### Time Complexity
+
 - **Forward Pass:** O(m × n)
 - **Backward Pass:** O(m × n)
 - **Initialization:** O(m × n)
@@ -109,6 +127,7 @@ Full layer state (all neurons' weights and biases) can be saved and restored.
 ## Test Results
 
 ### Example Output
+
 The example program demonstrates:
 
 1. **Single Layer Forward Pass:** ✅
@@ -146,7 +165,9 @@ cmake --build . --target neuronlayer
 ```
 
 ### CMake Configuration
+
 Added to `src/CMakeLists.txt`:
+
 ```cmake
 set(NEURON_LAYER_SOURCE_FILES Neuron.cpp NeuronLayerExample.cpp)
 add_executable(neuronlayer ${NEURON_LAYER_SOURCE_FILES})
@@ -172,10 +193,10 @@ for (const auto& [input, target] : training_data) {
     auto h1 = layer1.forward(input);
     auto h2 = layer2.forward(h1);
     auto output = layer3.forward(h2);
-    
+
     // Compute gradient
     std::vector<float> grad = compute_loss_gradient(output, target);
-    
+
     // Backward
     auto grad2 = layer3.backward(grad);
     auto grad1 = layer2.backward(grad2);
@@ -186,6 +207,7 @@ for (const auto& [input, target] : training_data) {
 ## Status
 
 ✅ **Complete Implementation**
+
 - All methods implemented and tested
 - Documentation complete
 - Example program working
@@ -195,6 +217,7 @@ for (const auto& [input, target] : training_data) {
 ## Next Steps
 
 Potential enhancements:
+
 1. Batch processing support
 2. Dropout layer functionality
 3. SIMD/parallel optimization

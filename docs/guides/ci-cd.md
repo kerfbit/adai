@@ -11,12 +11,14 @@ The project uses GitHub Actions for automated testing, quality checks, and relea
 ### 1. CI Workflow (`ci.yml`)
 
 **Triggers:**
+
 - Push to `main` or `develop` branches
 - Pull requests to `main` or `develop` branches
 
 **Jobs:**
 
 #### Build and Test
+
 - **Matrix Strategy:** Tests across multiple configurations
   - OS: Ubuntu 22.04, Ubuntu 20.04
   - Compilers: GCC, Clang
@@ -30,6 +32,7 @@ The project uses GitHub Actions for automated testing, quality checks, and relea
   6. Upload test results on failure
 
 #### Code Quality
+
 - **Checks:**
   - Code formatting with clang-format (dry-run)
   - Static analysis with clang-tidy
@@ -38,12 +41,14 @@ The project uses GitHub Actions for automated testing, quality checks, and relea
   - Static analysis warnings (informational only for now)
 
 #### Sanitizer Tests
+
 - **Sanitizers:**
   - AddressSanitizer (ASAN) - Memory error detection
   - UndefinedBehaviorSanitizer (UBSAN) - Undefined behavior detection
 - **Purpose:** Catch memory leaks, buffer overflows, and undefined behavior
 
 **Status Badge:**
+
 ```markdown
 [![CI](https://github.com/rjv717/adai/actions/workflows/ci.yml/badge.svg)](https://github.com/rjv717/adai/actions/workflows/ci.yml)
 ```
@@ -53,10 +58,12 @@ The project uses GitHub Actions for automated testing, quality checks, and relea
 ### 2. Code Coverage Workflow (`coverage.yml`)
 
 **Triggers:**
+
 - Push to `main` or `develop` branches
 - Pull requests to `main` branch
 
 **Process:**
+
 1. Build with coverage instrumentation (`--coverage` flag)
 2. Run all tests
 3. Generate coverage report with lcov
@@ -66,11 +73,13 @@ The project uses GitHub Actions for automated testing, quality checks, and relea
 7. Display coverage summary in GitHub Action summary
 
 **Outputs:**
+
 - Coverage report uploaded to Codecov
 - HTML coverage report as artifact (30-day retention)
 - Coverage summary in action logs
 
 **Status Badge:**
+
 ```markdown
 [![codecov](https://codecov.io/gh/rjv717/adai/branch/main/graph/badge.svg)](https://codecov.io/gh/rjv717/adai)
 ```
@@ -80,10 +89,12 @@ The project uses GitHub Actions for automated testing, quality checks, and relea
 ### 3. Release Workflow (`release.yml`)
 
 **Triggers:**
+
 - Push of version tags (e.g., `v1.0.0`, `v1.2.3`)
 - Manual workflow dispatch
 
 **Process:**
+
 1. Build Release configuration on multiple platforms
 2. Run full test suite
 3. Package binaries with documentation
@@ -91,11 +102,13 @@ The project uses GitHub Actions for automated testing, quality checks, and relea
 5. Create GitHub Release with artifacts
 
 **Platforms:**
+
 - Ubuntu 22.04
 - Ubuntu 20.04
 - macOS (latest)
 
 **Artifacts Include:**
+
 - Compiled executables (`chatbot`, `chatbot_trainer`)
 - Documentation
 - README
@@ -199,11 +212,13 @@ open coverage_html/index.html      # macOS
 ### CI Build Fails but Local Succeeds
 
 **Common causes:**
+
 1. **Missing dependencies** - Check workflow installs all required packages
 2. **Environment differences** - CI uses clean Ubuntu/macOS environment
 3. **Cached build artifacts** - CI always builds from scratch
 
 **Solutions:**
+
 - Test in clean environment: `rm -rf build && mkdir build && cd build && cmake .. && make`
 - Check CI logs for specific error messages
 - Ensure all dependencies are in `ci.yml` install steps
@@ -213,6 +228,7 @@ open coverage_html/index.html      # macOS
 **Error message:** "Code formatting issues found"
 
 **Solution:**
+
 ```bash
 ./scripts/format_code.sh
 git add .
@@ -225,6 +241,7 @@ git push --force-with-lease
 **Error:** AddressSanitizer detects memory leak/error
 
 **Steps:**
+
 1. Run locally with sanitizer enabled (see above)
 2. Review sanitizer output for specific issue
 3. Fix the memory issue
@@ -236,6 +253,7 @@ git push --force-with-lease
 **Error:** Codecov upload failed
 
 **Causes:**
+
 - Missing or invalid `CODECOV_TOKEN` secret
 - Codecov service outage
 
@@ -248,6 +266,7 @@ git push --force-with-lease
 ### Reducing CI Time
 
 Current strategies:
+
 - **Matrix exclusions:** Skip some OS/compiler/build type combinations
 - **Parallel jobs:** Multiple configurations run in parallel
 - **Dependency caching:** Could be added for faster builds
@@ -266,6 +285,7 @@ Current strategies:
 ### Status Checks
 
 View workflow runs:
+
 - Repository → Actions tab
 - See all runs, logs, and artifacts
 - Download test results and coverage reports
@@ -273,6 +293,7 @@ View workflow runs:
 ### Badges
 
 Add to README.md:
+
 ```markdown
 [![CI](https://github.com/rjv717/adai/actions/workflows/ci.yml/badge.svg)](https://github.com/rjv717/adai/actions/workflows/ci.yml)
 [![Coverage](https://codecov.io/gh/rjv717/adai/branch/main/graph/badge.svg)](https://codecov.io/gh/rjv717/adai)
@@ -281,6 +302,7 @@ Add to README.md:
 ### Notifications
 
 Configure notifications:
+
 - GitHub Settings → Notifications
 - Email on workflow failures
 - Slack/Discord integration available
@@ -294,16 +316,19 @@ Configure notifications:
 1. **Update version** in relevant files
 2. **Commit and push** changes
 3. **Create and push tag:**
+
    ```bash
    git tag -a v1.0.0 -m "Release version 1.0.0"
    git push origin v1.0.0
    ```
+
 4. **Release workflow** automatically creates GitHub release
 5. **Download artifacts** from release page
 
 ### Manual Release
 
 Trigger manually:
+
 1. Go to Actions → Release workflow
 2. Click "Run workflow"
 3. Select branch
@@ -332,5 +357,5 @@ Trigger manually:
 
 ---
 
-**Last Updated:** January 24, 2026  
+**Last Updated:** January 24, 2026
 **Maintained By:** ADAI Development Team

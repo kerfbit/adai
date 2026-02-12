@@ -16,26 +16,47 @@ Welcome to the Advanced Deep Learning AI (ADAI) documentation. This guide will h
 
 - **[Chatbot User Guide](guides/chatbot-guide.md)** - Using the chatbot CLI
 - **[Chatbot CLI Internals](guides/chatbot-cli-internals.md)** - How the CLI works
+- **[Training Guide](guides/training-guide.md)** - Comprehensive training documentation covering all methods ⭐ **EXPANDED**
 - **[Training Internals](guides/training-internals.md)** - Training system details ⭐ **UPDATED Jan 2026**
 - **[Training Improvements Quick Reference](guides/chatbot-trainer-improvements-2026.md)** - January 2026 improvements ✨ **NEW**
 - **[Enhanced Training Pipeline](guides/enhanced-training-pipeline.md)** - Production-ready training infrastructure (NEW)
+- **[Training Metrics and Logging](guides/chatbot-trainer-metrics-logging.md)** - Enhanced metrics tracking and logging system ✨ **NEW**
+
+### Advanced Training
+
+- **[Incremental Training Guide](guides/incremental-training-guide.md)** - Session-based continuous training without restarting ✨ **NEW**
+- **[Project Gutenberg Training](guides/gutenberg-training-guide.md)** - Download and train on 70,000+ free books ✨ **NEW**
 
 ### Development
 
 - **[Building ADAI](guides/building.md)** - Build instructions, requirements, and troubleshooting
+- **[Build and Vocab Guide](guides/BUILD_AND_VOCAB_GUIDE.md)** - Build system and vocabulary setup ✨ ADDED
 - **[Contributing Guide](guides/contributing.md)** - How to contribute to the project
 - **[Git Workflow](guides/git-workflow.md)** - Branching, commits, and PR process
 - **[CI/CD Pipeline](guides/ci-cd.md)** - Continuous integration and deployment
 - **[Technical Debt Management](guides/technical-debt-management.md)** - How to track and resolve technical debt
+- **[Technical Debt Tracker](guides/TECHNICAL_DEBT.md)** - Known issues and improvement opportunities ✨ ADDED
 - **[Training Example](guides/training-example.md)** - Complete training workflow
 - **[Save/Load Models](guides/save-load.md)** - Model persistence
 - **[Implementation Checklist](guides/implementation-checklist.md)** - Development checklist
+- **[Priority 1 Checklist](guides/PRIORITY1_CHECKLIST.md)** - High-priority tasks ✨ ADDED
 - **[Implementation Guide](guides/implementation-guide.md)** - Implementation best practices
+- **[Commands Reference](guides/COMMANDS.md)** - Common commands and utilities ✨ ADDED
+- **[Process Improvement Plan](guides/PROCESS_IMPROVEMENT_PLAN.md)** - Development process guidelines ✨ ADDED
+- **[Neuron Layer Implementation](guides/NEURON_LAYER_IMPLEMENTATION.md)** - NeuronLayer class implementation details ✨ **NEW**
+
+### Data Processing & Pipeline
+
+- **[Dataset Enhanced Features](guides/dataset-enhanced-features.md)** - Advanced dataset capabilities (iterators, k-fold CV, augmentation) ✨ **NEW**
+- **[Data Pipeline Enhancement](guides/data-pipeline-enhancement.md)** - Efficient batching and parallel data loading ✨ **NEW**
 
 ### Performance Optimization
 
 - **[Inference Optimization Guide](guides/inference-optimization.md)** - Complete optimization guide (KV cache, batching, profiling)
 - **[Inference Optimization Quick Start](guides/inference-optimization-quickstart.md)** - 5-minute optimization tutorial
+- **[Batch Processing Integration](guides/BATCH_PROCESSING_INTEGRATION.md)** - Batch processing setup and configuration ✨ ADDED
+- **[OpenMP Implementation](guides/OPENMP_IMPLEMENTATION.md)** - OpenMP parallelization guide ✨ ADDED
+- **[RAG Implementation Guide](guides/RAG_IMPLEMENTATION_GUIDE.md)** - Retrieval-Augmented Generation setup ✨ ADDED
 
 ### Advanced Features (Phase 5) ✨ NEW
 
@@ -46,6 +67,37 @@ Welcome to the Advanced Deep Learning AI (ADAI) documentation. This guide will h
   - Speculative Decoding (2-3x faster inference)
   - Complete examples and benchmarks
   - 60+ pages of comprehensive documentation
+
+### Chatbot GUI
+
+- **[Chatbot GUI Guide](guides/chatbot-gui-guide.md)** - GUI application user guide
+- **[Chatbot GUI README](guides/CHATBOT_GUI_README.md)** - GUI setup and usage ✨ ADDED
+
+### Platform-Specific
+
+- **[Windows Cross Compilation](guides/windows-cross-compilation.md)** - Cross-compiling for Windows
+- **[Windows Build Quick Reference](guides/WINDOWS_BUILD_QUICK_REFERENCE.md)** - Windows build quick reference ✨ ADDED
+
+### Troubleshooting & Fixes
+
+- **[Troubleshooting Index](guides/troubleshooting/README.md)** - Common issues and solutions index ✨ ADDED
+- **[Input Length Fix](guides/troubleshooting/INPUT_LENGTH_FIX.md)** - Fixing input length issues ✨ ADDED
+- **[Model Loading Fix](guides/troubleshooting/MODEL_LOADING_FIX.md)** - Troubleshooting model loading ✨ ADDED
+- **[Thread Error Fix](guides/troubleshooting/THREAD_ERROR_FIX.md)** - Resolving threading issues ✨ ADDED
+- **[Training Fix Strategy](guides/troubleshooting/TRAINING_FIX_STRATEGY.md)** - Training problem solutions ✨ ADDED
+- **[CPP Wrapper Solution](guides/troubleshooting/CPP_WRAPPER_SOLUTION.md)** - C++ wrapper troubleshooting ✨ ADDED
+- **[Chatbot GUI Troubleshooting](guides/troubleshooting/CHATBOT_GUI_TROUBLESHOOTING.md)** - GUI-specific issues ✨ ADDED
+
+### Quick Reference
+
+- **[Quick Reference Index](guides/quick-reference/README.md)** - All quick reference documents ✨ ADDED
+- **[Batch Processing Quick Reference](guides/BATCH_PROCESSING_QUICK_REFERENCE.md)** - Quick reference for batch processing
+- **[OpenMP Quick Reference](guides/OPENMP_QUICK_REFERENCE.md)** - OpenMP usage quick reference
+- **[Parallel Optimizations Quick Reference](guides/PARALLEL_OPTIMIZATIONS_QUICK_REFERENCE.md)** - Parallelization strategies
+- **[RAG Quick Reference](guides/RAG_QUICK_REFERENCE.md)** - RAG usage quick reference
+- **[Augmentation Quick Reference](guides/AUGMENTATION_QUICK_REFERENCE.md)** - Data augmentation techniques
+- **[Windows Build Quick Reference](guides/WINDOWS_BUILD_QUICK_REFERENCE.md)** - Windows build quick reference
+- **[Dataset Quick Reference](guides/dataset-quick-reference.md)** - Dataset v2.0 API and usage patterns ✨ **NEW**
 
 ### Deployment
 
@@ -114,7 +166,7 @@ Welcome to the Advanced Deep Learning AI (ADAI) documentation. This guide will h
 - **[Batch Processor](reference/batchprocessor.md)** - Batch processing utilities for multi-sequence inference (2-4x throughput)
 - **[Performance Profiler](reference/performanceprofiler.md)** - High-resolution timing and profiling tools
 
-### Advanced Features (Phase 5) ✨ NEW
+### Advanced Features API (Phase 5) ✨ NEW
 
 - **[Reward Model](api/advanced/reward-model.md)** - RLHF preference modeling with Bradley-Terry loss
 - **[PPO Optimizer](api/advanced/ppo-optimizer.md)** - Proximal Policy Optimization for alignment
@@ -147,8 +199,18 @@ Welcome to the Advanced Deep Learning AI (ADAI) documentation. This guide will h
 
 ## 🔄 Development & Process
 
-- **[Process Improvement Plan](../PROCESS_IMPROVEMENT_PLAN.md)** - Development process improvements
-- **[Archive Summary](../ARCHIVE_SUMMARY.md)** - Project history and archive
+- **[Process Improvement Plan](guides/PROCESS_IMPROVEMENT_PLAN.md)** - Development process improvements
+
+## 📦 Project Archive
+
+Historical summaries and completion reports (moved from root):
+
+- **[Archive Index](archive/)** - Historical project summaries
+  - Phase completion reports (PHASE3-5_COMPLETE.md)
+  - Implementation summaries (GPU, OpenMP, KV Cache, etc.)
+  - Analysis reports and training summaries
+  - Build and integration summaries
+  - Natural language and audio encoder-decoder reports
 
 ## 📊 Project Metrics
 
@@ -162,7 +224,7 @@ Welcome to the Advanced Deep Learning AI (ADAI) documentation. This guide will h
 
 ## 📂 Documentation Structure
 
-```
+```text
 docs/
 ├── README.md (this file)        # Documentation index
 ├── architecture/                # System architecture and design
@@ -171,27 +233,37 @@ docs/
 │   ├── attention/              # Attention mechanisms
 │   ├── transformer/            # Transformer components
 │   ├── nlp/                    # NLP utilities
+│   ├── advanced/               # Advanced features (RLHF, LoRA, etc.)
+│   ├── data/                   # Data processing
 │   ├── rest-api.md             # REST API reference
 │   └── README.md               # API quick start
 ├── deployment/                  # Deployment guides
 │   ├── README.md               # Deployment index
 │   └── docker.md               # Docker deployment guide
 ├── guides/                      # User and developer guides
+│   ├── troubleshooting/        # Troubleshooting and fixes
+│   └── quick-reference/        # Quick reference docs
 ├── testing/                     # Test documentation
-└── reference/                   # Additional reference materials
+├── reference/                   # Additional reference materials
+└── archive/                     # Historical summaries and reports
 ```
 
 ## 🤝 Contributing
 
-- **[Technical Debt Tracker](../TECHNICAL_DEBT.md)** - Known issues and improvement opportunities
-- **[Process Improvement Plan](../PROCESS_IMPROVEMENT_PLAN.md)** - Development guidelines and roadmap
+- **[Contributing Guide](guides/contributing.md)** - Comprehensive contribution guidelines
+- **[Technical Debt Tracker](guides/TECHNICAL_DEBT.md)** - Known issues and improvement opportunities
+- **[Process Improvement Plan](guides/PROCESS_IMPROVEMENT_PLAN.md)** - Development guidelines and roadmap
 
 When adding new documentation:
+
 1. Place API docs in the appropriate `api/` subdirectory
 2. User guides go in `guides/`
 3. Architecture docs go in `architecture/`
 4. Test docs go in `testing/`
-5. Update this index when adding new major documents
+5. Troubleshooting guides go in `guides/troubleshooting/`
+6. Quick reference docs go in `guides/quick-reference/`
+7. Historical documents go in `archive/`
+8. Update this index when adding new major documents
 
 ## 📝 License
 

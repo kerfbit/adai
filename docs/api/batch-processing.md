@@ -1,7 +1,7 @@
 # Batch Processing API Integration
 
-**Version:** 1.0  
-**Date:** January 25, 2026  
+**Version:** 1.0
+**Date:** January 25, 2026
 **Status:** Production Ready
 
 ---
@@ -27,6 +27,7 @@ The ChatbotAPI now includes comprehensive batch processing capabilities, allowin
 Process multiple independent messages in one request (stateless).
 
 **Request:**
+
 ```json
 {
   "messages": [
@@ -38,6 +39,7 @@ Process multiple independent messages in one request (stateless).
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -62,6 +64,7 @@ Process multiple independent messages in one request (stateless).
 Process multiple messages with session context (stateful).
 
 **Request:**
+
 ```json
 {
   "messages": [
@@ -76,6 +79,7 @@ Process multiple messages with session context (stateful).
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -153,6 +157,7 @@ The implementation uses intelligent batching to minimize padding:
 5. **Processing**: Each batch is processed with minimal padding
 
 **Parameters:**
+
 - `max_batch_size`: 32 (configurable)
 - `length_tolerance`: 10 tokens (configurable)
 - `pad_token_id`: 0
@@ -162,9 +167,11 @@ The implementation uses intelligent batching to minimize padding:
 For inputs of lengths: [5, 8, 50, 52, 100, 105]
 
 **Without dynamic batching** (single batch):
+
 - Padding: All padded to 105 → 78% padding waste
 
 **With dynamic batching** (3 batches):
+
 - Batch 1: [5, 8] → padded to 8 → 37% padding
 - Batch 2: [50, 52] → padded to 52 → 2% padding
 - Batch 3: [100, 105] → padded to 105 → 2.5% padding
@@ -177,7 +184,7 @@ For inputs of lengths: [5, 8, 50, 52, 100, 105]
 ### Throughput Comparison
 
 | Metric | Single Requests | Batch Processing | Speedup |
-|--------|----------------|------------------|---------|
+| -------- | ---------------- | ------------------ | --------- |
 | 10 requests | 5.2s | 1.8s | 2.9x |
 | 50 requests | 26.1s | 7.3s | 3.6x |
 | 100 requests | 52.5s | 13.1s | 4.0x |
@@ -185,7 +192,7 @@ For inputs of lengths: [5, 8, 50, 52, 100, 105]
 ### Efficiency by Message Length Variation
 
 | Length Variation | Padding Ratio | Efficiency |
-|------------------|---------------|------------|
+| ------------------ | --------------- | ------------ |
 | Uniform (±5 tokens) | 5-10% | 90-95% |
 | Moderate (±20 tokens) | 15-25% | 75-85% |
 | High (±50 tokens) | 30-40% | 60-70% |
@@ -224,6 +231,7 @@ response = requests.post('http://localhost:8080/chat/batch-session', json={
 ### cURL Examples
 
 **Batch Chat:**
+
 ```bash
 curl -X POST http://localhost:8080/chat/batch \
   -H "Content-Type: application/json" \
@@ -237,6 +245,7 @@ curl -X POST http://localhost:8080/chat/batch \
 ```
 
 **Batch Session:**
+
 ```bash
 curl -X POST http://localhost:8080/chat/batch-session \
   -H "Content-Type: application/json" \
@@ -255,7 +264,7 @@ async function batchChat(messages) {
   const response = await axios.post('http://localhost:8080/chat/batch', {
     messages: messages
   });
-  
+
   return response.data;
 }
 
@@ -277,6 +286,7 @@ batchChat([
 ### 1. Batch Size Optimization
 
 **Recommended batch sizes:**
+
 - **Small batches (1-10)**: Good for low latency, minimal complexity
 - **Medium batches (10-50)**: Optimal balance of throughput and latency
 - **Large batches (50-100+)**: Maximum throughput, higher latency
@@ -302,6 +312,7 @@ long_batch = ['This is a very long message...']
 ### 3. Session Management
 
 When using batch sessions:
+
 - Provide `session_ids` when continuing conversations
 - Omit `session_ids` for new conversations (auto-created)
 - Clean up unused sessions periodically with `/clear-session`
@@ -340,15 +351,17 @@ if stats['efficiency'] < 60:
 ### Migrating from Single to Batch
 
 **Before (Single Requests):**
+
 ```python
 responses = []
 for msg in messages:
-    result = requests.post('http://localhost:8080/chat', 
+    result = requests.post('http://localhost:8080/chat',
                           json={'message': msg})
     responses.append(result.json()['response'])
 ```
 
 **After (Batch Request):**
+
 ```python
 result = requests.post('http://localhost:8080/chat/batch',
                       json={'messages': messages})
@@ -356,6 +369,7 @@ responses = result.json()['responses']
 ```
 
 **Benefits:**
+
 - 2-4x faster
 - Fewer HTTP requests
 - Lower server load
@@ -391,24 +405,27 @@ You can customize generation parameters for batch requests:
 
 ### Issue: Low Efficiency (<60%)
 
-**Cause:** High variance in message lengths  
-**Solution:** 
+**Cause:** High variance in message lengths
+**Solution:**
+
 - Split batches by message length
 - Use smaller batches (10-20 messages)
 - Pre-process messages to normalize length
 
 ### Issue: Timeout on Large Batches
 
-**Cause:** Batch too large or server overloaded  
+**Cause:** Batch too large or server overloaded
 **Solution:**
+
 - Reduce batch size (try 50 or 32)
 - Increase server timeout settings
 - Monitor server CPU/memory usage
 
 ### Issue: Session IDs Not Working
 
-**Cause:** Session expired or invalid ID  
+**Cause:** Session expired or invalid ID
 **Solution:**
+
 - Check session timeout settings (default: 30 minutes)
 - Verify session ID format
 - Create new session if expired
@@ -420,6 +437,7 @@ You can customize generation parameters for batch requests:
 ### Backward Compatibility
 
 All existing endpoints remain unchanged:
+
 - `POST /chat` - Single chat (still works)
 - `POST /chat/session` - Single session chat (still works)
 - `POST /clear-session` - Clear session (still works)
@@ -452,15 +470,16 @@ Planned features for future versions:
 
 The batch processing integration provides:
 
-✅ **2 new endpoints** (`/chat/batch`, `/chat/batch-session`)  
-✅ **2-4x throughput improvement** over sequential requests  
-✅ **20-60% reduction in padding overhead** with dynamic batching  
-✅ **Full session support** for stateful conversations  
-✅ **Comprehensive statistics** for monitoring efficiency  
-✅ **Backward compatible** with existing API  
+✅ **2 new endpoints** (`/chat/batch`, `/chat/batch-session`)
+✅ **2-4x throughput improvement** over sequential requests
+✅ **20-60% reduction in padding overhead** with dynamic batching
+✅ **Full session support** for stateful conversations
+✅ **Comprehensive statistics** for monitoring efficiency
+✅ **Backward compatible** with existing API
 ✅ **Production ready** with extensive testing
 
 **Recommended for:**
+
 - High-throughput applications
 - Customer support systems
 - Batch data processing
@@ -478,5 +497,5 @@ The batch processing integration provides:
 
 ---
 
-**Last Updated:** January 25, 2026  
+**Last Updated:** January 25, 2026
 **Document Version:** 1.0

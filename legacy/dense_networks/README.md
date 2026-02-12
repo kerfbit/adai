@@ -1,6 +1,6 @@
 # Dense Neural Network Components - Archived
 
-**Archive Date:** January 24, 2026  
+**Archive Date:** January 24, 2026
 **Status:** Reference Implementation (Not Actively Maintained)
 
 ## Overview
@@ -10,24 +10,31 @@ This directory contains the original dense (fully-connected) neural network impl
 ## Why Archived?
 
 ### 1. Architectural Divergence
+
 - **Dense Networks:** Traditional feed-forward networks with per-neuron abstraction
 - **Transformer Components:** Matrix-based operations optimized for sequence processing and attention mechanisms
 - These represent fundamentally different architectural paradigms
 
 ### 2. Zero Integration
+
 Dependency analysis revealed:
+
 - NO transformer components depend on Neuron/NeuralNetwork classes
 - NO cross-usage between dense networks and transformer architecture
 - Complete isolation from the main codebase
 
 ### 3. Maintenance Consistency
+
 Between late 2025 and early 2026, the project underwent comprehensive refactoring:
+
 - 6 major transformer components (MultiHeadAttention, LayerNorm, TokenEmbedding, CrossAttention, FeedForward, LanguageModelHead) were refactored to use a unified Optimizer class
 - 291 tests updated across all transformer components
 - Dense network components would require similar refactoring (6-8 hours effort) with zero benefit to the transformer architecture
 
 ### 4. Project Focus
+
 The ADAI project's clear direction is transformer-based natural language processing. Maintaining parallel neural network paradigms:
+
 - Creates confusion about project scope
 - Increases maintenance burden
 - Dilutes development focus
@@ -35,24 +42,28 @@ The ADAI project's clear direction is transformer-based natural language process
 ## Archived Components
 
 ### Source Files (`src/`)
+
 - **Neuron.hpp** (244 lines) - Single neuron with weights, bias, and activation functions
 - **Neuron.cpp** - Implementation of forward/backward passes
 - **NeuralNetwork.hpp** (225 lines) - Multi-layer feed-forward network
 - **NeuralNetwork.cpp** - Network training, prediction, and serialization
 
 ### Test Files (`tests/`)
+
 - **neuron_test.cpp** (568 lines, 34 tests) - Neuron and NeuronLayer tests
 - **neuronlayer_test.cpp** (635 lines) - NeuronLayer comprehensive tests
 - **neuralnetwork_test.cpp** (1073 lines, 48 tests) - NeuralNetwork tests
 - **Total:** 2,276 lines of test code, 82 tests
 
 ### Example Files (`examples/`)
+
 - **NeuronLayerExample.cpp** (117 lines) - XOR problem demonstration
 - **NeuralNetworkExample.cpp** (249 lines) - XOR, linear regression, classification examples
 
 ## Features
 
 ### Activation Functions
+
 - LINEAR
 - SIGMOID
 - TANH
@@ -62,6 +73,7 @@ The ADAI project's clear direction is transformer-based natural language process
 - SOFTPLUS
 
 ### Loss Functions
+
 - Mean Squared Error (MSE)
 - Mean Absolute Error (MAE)
 - Binary Cross-Entropy
@@ -69,6 +81,7 @@ The ADAI project's clear direction is transformer-based natural language process
 - Huber Loss
 
 ### Capabilities
+
 - Forward/backward propagation
 - Multiple initialization strategies (Xavier, He)
 - Per-neuron learning rates
@@ -79,6 +92,7 @@ The ADAI project's clear direction is transformer-based natural language process
 ## Educational Value
 
 These components remain valuable for:
+
 1. **Learning traditional neural networks** - Clear implementation of basic concepts
 2. **Comparing architectures** - Understanding differences between dense and transformer networks
 3. **Reference implementation** - Well-tested, documented code for simple problems
@@ -94,6 +108,7 @@ These files are preserved in their original working state but are **not included
 ## Build Status at Archive Time
 
 All tests were passing:
+
 - ✅ 34 Neuron tests
 - ✅ 48 NeuralNetwork tests
 - ✅ XOR, regression, and classification examples working
@@ -101,6 +116,7 @@ All tests were passing:
 ## Alternative: Modern Transformer Architecture
 
 For current neural network development in ADAI, use the transformer components:
+
 - **MultiHeadAttention** - Self-attention mechanisms
 - **FeedForward** - Transformer feed-forward layers
 - **LayerNorm** - Layer normalization

@@ -1,7 +1,7 @@
 # FeedForward Class - Technical Context Documentation
 
-**Version:** 1.1  
-**Last Updated:** January 24, 2026  
+**Version:** 1.1
+**Last Updated:** January 24, 2026
 **Status:** Active - Optimizer Integration Complete
 
 ## Overview
@@ -9,12 +9,14 @@
 The `FeedForward` class implements a position-wise feed-forward neural network, a critical component in transformer architectures. It applies two linear transformations with a GELU activation function in between, processing each position in the sequence independently and identically.
 
 **Files:**
+
 - `src/FeedForward.hpp` - Header file with class declaration and interface
 - `src/FeedForward.cpp` - Implementation file with all method definitions
 - `src/FeedForwardExample.cpp` - Standalone example demonstrating usage
 - `tests/feedforward_test.cpp` - Unit tests (51/51 tests passing)
 
 **Dependencies:**
+
 - `Matrix.hpp` - Matrix operations and linear algebra
 - `Activation.hpp` - GELU activation function
 - `Optimizer.hpp` - Advanced optimization algorithms (Adam, AdamW, SGD)
@@ -24,6 +26,7 @@ The `FeedForward` class implements a position-wise feed-forward neural network, 
 ---
 
 ## Table of Contents
+
 1. [Mathematical Foundation](#mathematical-foundation)
 2. [Class Architecture](#class-architecture)
 3. [Implementation Details](#implementation-details)
@@ -44,11 +47,12 @@ The `FeedForward` class implements a position-wise feed-forward neural network, 
 
 The feed-forward network consists of two linear transformations with a GELU (Gaussian Error Linear Unit) activation:
 
-```
+```text
 FFN(x) = GELU(xW₁ + b₁)W₂ + b₂
 ```
 
 **Components:**
+
 - **W₁**: First layer weights `[d_model × d_ff]`
 - **b₁**: First layer bias `[d_ff]`
 - **W₂**: Second layer weights `[d_ff × d_model]`
@@ -59,18 +63,20 @@ FFN(x) = GELU(xW₁ + b₁)W₂ + b₂
 
 The GELU activation function is defined as:
 
-```
+```text
 GELU(x) = x · Φ(x)
 ```
 
 Where Φ(x) is the cumulative distribution function of the standard normal distribution.
 
 **Approximation used:**
-```
+
+```text
 GELU(x) ≈ 0.5 · x · (1 + tanh(√(2/π) · (x + 0.044715 · x³)))
 ```
 
 **Properties:**
+
 - Smooth, non-monotonic function
 - Differentiable everywhere
 - Gives small negative values for negative inputs (unlike ReLU which zeroes them)
@@ -79,12 +85,14 @@ GELU(x) ≈ 0.5 · x · (1 + tanh(√(2/π) · (x + 0.044715 · x³)))
 ### Dimensions and Expansion Ratio
 
 **Typical Configuration:**
+
 - Input/Output dimension: `d_model` (e.g., 512, 768)
 - Hidden dimension: `d_ff` (typically 4 × d_model)
 - Expansion ratio: `d_ff / d_model = 4`
 
 **Example:**
-```
+
+```text
 d_model = 512  →  d_ff = 2048
 Input: [seq_len, 512] → Hidden: [seq_len, 2048] → Output: [seq_len, 512]
 ```
@@ -93,12 +101,13 @@ Input: [seq_len, 512] → Hidden: [seq_len, 2048] → Output: [seq_len, 512]
 
 The network is applied identically and independently to each position:
 
-```
+```text
 For each position i in sequence:
     output[i] = FFN(input[i])
 ```
 
 This means:
+
 - Same weights applied to all positions
 - No interaction between different positions
 - Fully parallelizable across sequence
@@ -106,25 +115,29 @@ This means:
 ### Complexity Analysis
 
 **Time Complexity:**
+
 - First linear layer: O(seq_len × d_model × d_ff)
 - GELU activation: O(seq_len × d_ff)
 - Second linear layer: O(seq_len × d_ff × d_model)
 - Total: **O(seq_len × d_model × d_ff)**
 
 **Space Complexity:**
+
 - Weights: O(d_model × d_ff + d_ff × d_model) = O(2 × d_model × d_ff)
 - Biases: O(d_ff + d_model)
 - Activations (cached): O(seq_len × d_ff + seq_len × d_model)
 - Total: **O(d_model × d_ff + seq_len × d_ff)**
 
 **Parameter Count:**
-```
+
+```text
 Total parameters = (d_model × d_ff) + d_ff + (d_ff × d_model) + d_model
                  = 2 × d_model × d_ff + d_ff + d_model
 ```
 
 For d_model=512, d_ff=2048:
-```
+
+```text
 Total = 2 × 512 × 2048 + 2048 + 512 = 2,099,712 parameters
 ```
 
@@ -170,16 +183,19 @@ float learning_rate;  // Learning rate for gradient descent (default: 0.001)
 ### Memory Layout
 
 **Weight Matrices:**
+
 - `W1`: Maps input dimension to expanded hidden dimension
 - `W2`: Maps hidden dimension back to output dimension
 - Both use row-major storage from Matrix class
 
 **Bias Vectors:**
+
 - Stored as 1×n matrices for broadcasting during addition
 - `b1`: Broadcast across all positions during first transformation
 - `b2`: Broadcast across all positions during second transformation
 
 **Gradient Accumulation:**
+
 - Gradients accumulate across backward passes
 - Must call `zero_grad()` or `update_weights()` to reset
 
@@ -194,6 +210,7 @@ FeedForward::FeedForward(int d_model, int d_ff)
 ```
 
 **Initialization Steps:**
+
 1. Set dimensions (d_model, d_ff)
 2. Allocate weight matrices (W1, W2)
 3. Allocate bias vectors (b1, b2)
@@ -202,6 +219,7 @@ FeedForward::FeedForward(int d_model, int d_ff)
 6. Zero-initialize gradients
 
 **Weight Initialization:**
+
 ```cpp
 float scale = √(2.0 / d_model);  // He initialization for GELU
 W1 ~ Normal(0, scale)
@@ -215,7 +233,8 @@ b2 = 0
 **Purpose:** Compute feed-forward transformation on input
 
 **Algorithm:**
-```
+
+```text
 1. Cache input for backward pass
 2. Compute hidden = input × W1
 3. Add bias: hidden += b1 (broadcast)
@@ -227,12 +246,13 @@ b2 = 0
 9. Return output
 ```
 
-**Input:** Matrix of shape `[seq_len, d_model]`  
+**Input:** Matrix of shape `[seq_len, d_model]`
 **Output:** Matrix of shape `[seq_len, d_model]`
 
 **Time Complexity:** O(seq_len × d_model × d_ff)
 
 **Example:**
+
 ```cpp
 FeedForward ff(512, 2048);
 Matrix input(10, 512);  // 10 tokens, 512 dimensions
@@ -244,7 +264,8 @@ Matrix output = ff.forward(input);  // [10, 512]
 **Purpose:** Compute gradients for all parameters and return gradient w.r.t. input
 
 **Algorithm:**
-```
+
+```text
 1. Validate gradient dimensions
 2. Compute b2_grad = sum(grad_output) over batch dimension
 3. Compute W2_grad = cached_hidden_activated^T × grad_output
@@ -257,34 +278,39 @@ Matrix output = ff.forward(input);  // [10, 512]
 10. Return grad_input
 ```
 
-**Input:** Gradient matrix `[seq_len, d_model]`  
+**Input:** Gradient matrix `[seq_len, d_model]`
 **Output:** Gradient matrix `[seq_len, d_model]`
 
 **Gradient Equations:**
 
 For the second layer:
-```
+
+```text
 ∂L/∂b2 = Σᵢ ∂L/∂output[i,:]
 ∂L/∂W2 = hidden_activated^T × ∂L/∂output
 ∂L/∂hidden_activated = ∂L/∂output × W2^T
 ```
 
 Through GELU activation:
-```
+
+```text
 ∂L/∂hidden = ∂L/∂hidden_activated ⊙ GELU'(hidden)
 ```
 
 For the first layer:
-```
+
+```text
 ∂L/∂b1 = Σᵢ ∂L/∂hidden[i,:]
 ∂L/∂W1 = input^T × ∂L/∂hidden
 ∂L/∂input = ∂L/∂hidden × W1^T
 ```
 
 **GELU Derivative:**
+
 ```cpp
 GELU'(x) = Φ(x) + x · φ(x)
 ```
+
 Where φ(x) is the probability density function of the standard normal distribution.
 
 ### Method: `update_weights()`
@@ -292,7 +318,8 @@ Where φ(x) is the probability density function of the standard normal distribut
 **Purpose:** Apply accumulated gradients to weights and biases
 
 **Algorithm:**
-```
+
+```text
 1. W1 -= learning_rate × W1_grad  (using Matrix::apply_gradients)
 2. W2 -= learning_rate × W2_grad  (using Matrix::apply_gradients)
 3. b1 -= learning_rate × b1_grad
@@ -307,7 +334,8 @@ Where φ(x) is the probability density function of the standard normal distribut
 **Purpose:** Reset all gradient accumulators to zero
 
 **Algorithm:**
-```
+
+```text
 For all elements in W1_grad, W2_grad, b1_grad, b2_grad:
     gradient = 0.0
 ```
@@ -319,13 +347,15 @@ For all elements in W1_grad, W2_grad, b1_grad, b2_grad:
 **Purpose:** Compute L2 norm of all gradients combined
 
 **Algorithm:**
-```
-norm = √(||W1_grad||² + ||W2_grad||² + ||b1_grad||² + ||b2_grad||²)
+
+```text
+norm = √(|  | W1_grad |  | ² + |  | W2_grad |  | ² + |  | b1_grad |  | ² + |  | b2_grad |  |²)
 ```
 
 **Returns:** Float value representing gradient magnitude
 
 **Use Cases:**
+
 - Monitor gradient flow during training
 - Detect vanishing/exploding gradients
 - Decide when to apply gradient clipping
@@ -335,7 +365,8 @@ norm = √(||W1_grad||² + ||W2_grad||² + ||b1_grad||² + ||b2_grad||²)
 **Purpose:** Prevent exploding gradients by scaling
 
 **Algorithm:**
-```
+
+```text
 1. current_norm = get_gradient_norm()
 2. If current_norm > max_norm:
        scale = max_norm / current_norm
@@ -346,6 +377,7 @@ norm = √(||W1_grad||² + ||W2_grad||² + ||b1_grad||² + ||b2_grad||²)
 ```
 
 **Example:**
+
 ```cpp
 ff.forward(input);
 ff.backward(grad_output);
@@ -363,7 +395,8 @@ ff.update_weights();
 **Purpose:** Persist weights and biases to binary file
 
 **File Format:**
-```
+
+```text
 [int32] d_model
 [int32] d_ff
 [float32 × d_model × d_ff] W1 elements (row-major)
@@ -375,6 +408,7 @@ ff.update_weights();
 **Total File Size:** `8 + 4×(2×d_model×d_ff + d_ff + d_model)` bytes
 
 **Example:**
+
 ```cpp
 ff.save_weights("feedforward_layer3.bin");
 ```
@@ -384,10 +418,12 @@ ff.save_weights("feedforward_layer3.bin");
 **Purpose:** Load weights and biases from binary file
 
 **Validation:**
+
 - Checks that saved dimensions match current instance
 - Throws `std::runtime_error` on mismatch or file not found
 
 **Example:**
+
 ```cpp
 FeedForward ff(512, 2048);
 ff.load_weights("feedforward_layer3.bin");  // Must match dimensions
@@ -398,7 +434,8 @@ ff.load_weights("feedforward_layer3.bin");  // Must match dimensions
 **Purpose:** Display network configuration
 
 **Output Example:**
-```
+
+```text
 MyFFN Configuration:
   Model Dimension (d_model): 512
   Feed-Forward Dimension (d_ff): 2048
@@ -418,12 +455,14 @@ MyFFN Configuration:
 ### Detailed Computation Flow
 
 **Step 1: First Linear Transformation**
+
 ```cpp
 hidden = input × W1
 // Shape: [seq_len, d_model] × [d_model, d_ff] = [seq_len, d_ff]
 ```
 
 **Step 2: Add First Bias**
+
 ```cpp
 For each row i in hidden:
     For each column j:
@@ -432,18 +471,21 @@ For each row i in hidden:
 ```
 
 **Step 3: GELU Activation**
+
 ```cpp
 hidden_activated = GELU(hidden)
 // Applied element-wise to entire matrix
 ```
 
 **Step 4: Second Linear Transformation**
+
 ```cpp
 output = hidden_activated × W2
 // Shape: [seq_len, d_ff] × [d_ff, d_model] = [seq_len, d_model]
 ```
 
 **Step 5: Add Second Bias**
+
 ```cpp
 For each row i in output:
     For each column j:
@@ -454,6 +496,7 @@ For each row i in output:
 ### Caching for Backpropagation
 
 During forward pass, three matrices are cached:
+
 1. **cached_input**: Original input (needed for W1 gradient)
 2. **cached_hidden**: Pre-activation hidden layer (needed for GELU gradient)
 3. **cached_hidden_activated**: Post-activation hidden (needed for W2 gradient)
@@ -466,7 +509,7 @@ During forward pass, three matrices are cached:
 
 ### Gradient Flow Diagram
 
-```
+```text
 grad_output [seq_len, d_model]
     |
     ├─→ ∂L/∂b2 (sum over batch)
@@ -487,24 +530,28 @@ grad_output [seq_len, d_model]
 ### Computational Steps
 
 **1. Gradient w.r.t. Second Bias (b2)**
+
 ```cpp
 b2_grad[0,j] = Σᵢ grad_output[i,j]
 // Sum gradient contributions from all positions
 ```
 
 **2. Gradient w.r.t. Second Weight (W2)**
+
 ```cpp
 W2_grad = cached_hidden_activated^T × grad_output
 // Shape: [d_ff, seq_len] × [seq_len, d_model] = [d_ff, d_model]
 ```
 
 **3. Gradient w.r.t. Activated Hidden Layer**
+
 ```cpp
 grad_hidden_activated = grad_output × W2^T
 // Shape: [seq_len, d_model] × [d_model, d_ff] = [seq_len, d_ff]
 ```
 
 **4. Gradient Through GELU**
+
 ```cpp
 gelu_derivative = GELU'(cached_hidden)
 grad_hidden = grad_hidden_activated ⊙ gelu_derivative
@@ -512,18 +559,21 @@ grad_hidden = grad_hidden_activated ⊙ gelu_derivative
 ```
 
 **5. Gradient w.r.t. First Bias (b1)**
+
 ```cpp
 b1_grad[0,j] = Σᵢ grad_hidden[i,j]
 // Sum gradient contributions from all positions
 ```
 
 **6. Gradient w.r.t. First Weight (W1)**
+
 ```cpp
 W1_grad = cached_input^T × grad_hidden
 // Shape: [d_model, seq_len] × [seq_len, d_ff] = [d_model, d_ff]
 ```
 
 **7. Gradient w.r.t. Input**
+
 ```cpp
 grad_input = grad_hidden × W1^T
 // Shape: [seq_len, d_ff] × [d_ff, d_model] = [seq_len, d_model]
@@ -534,7 +584,7 @@ grad_input = grad_hidden × W1^T
 The derivative is computed using the `Activation::gelu_derivative()` method:
 
 ```cpp
-GELU'(x) ≈ 0.5 · tanh(z) + 
+GELU'(x) ≈ 0.5 · tanh(z) +
            (0.0535161 · x³ + 0.398942 · x) · sech²(z) + 0.5
 
 Where: z = 0.797885 · (x + 0.044715 · x³)
@@ -549,33 +599,39 @@ This approximation provides efficient gradient computation while maintaining num
 ### Xavier/He Initialization Strategy
 
 **First Layer (W1):**
+
 ```cpp
 scale1 = √(2.0 / d_model)
 W1[i,j] ~ Normal(0, scale1)
 ```
 
 **Rationale:**
+
 - Factor of 2 compensates for GELU's non-linearity (He initialization)
 - Scaled by input dimension (d_model)
 - Prevents gradient vanishing in deep networks
 
 **Second Layer (W2):**
+
 ```cpp
 scale2 = √(2.0 / d_ff)
 W2[i,j] ~ Normal(0, scale2)
 ```
 
 **Rationale:**
+
 - Scaled by hidden dimension (d_ff)
 - Ensures appropriate gradient magnitude at output
 
 **Biases:**
+
 ```cpp
 b1[j] = 0
 b2[j] = 0
 ```
 
 **Rationale:**
+
 - Zero initialization is standard for biases
 - Allows weights to determine initial behavior
 - Symmetry breaking provided by weight initialization
@@ -583,11 +639,13 @@ b2[j] = 0
 ### Initialization Impact
 
 **Good Initialization:**
+
 - Gradients have appropriate magnitude
 - Training converges smoothly
 - Avoids saturation in early epochs
 
 **Poor Initialization:**
+
 - Vanishing gradients (too small)
 - Exploding gradients (too large)
 - Slow or unstable training
@@ -620,12 +678,14 @@ ff.update_weights();  // Apply accumulated gradients
 **Strategies:**
 
 1. **Norm-based clipping:**
+
 ```cpp
 float max_norm = 5.0f;
 ff.clip_gradients(max_norm);
 ```
 
 2. **Monitoring before clipping:**
+
 ```cpp
 float norm = ff.get_gradient_norm();
 if (norm > threshold) {
@@ -651,6 +711,7 @@ if (norm > 100.0) {
 ```
 
 **Typical Gradient Norms:**
+
 - Small models (d_model=64): 1-10
 - Medium models (d_model=512): 10-100
 - Large models (d_model=1024): 100-1000
@@ -664,6 +725,7 @@ if (norm > 100.0) {
 As of Version 1.1, `FeedForward` supports integration with the `Optimizer` class, enabling advanced optimization algorithms (Adam, AdamW, SGD with momentum) while maintaining full backward compatibility with simple gradient descent.
 
 **Design Philosophy:**
+
 - **Optional Integration:** Optimizer pointer defaults to `nullptr`
 - **Backward Compatible:** Existing code works unchanged
 - **Fallback Behavior:** When optimizer is not set, uses simple gradient descent with `learning_rate`
@@ -698,6 +760,7 @@ ff.set_optimizer(&optimizer);
 ### Weight Update Behavior
 
 **With Optimizer (New Approach):**
+
 ```cpp
 void FeedForward::update_weights() {
     if (optimizer) {
@@ -752,7 +815,7 @@ for (int epoch = 0; epoch < epochs; ++epoch) {
         optimizer.set_learning_rate(new_lr);
         std::cout << "LR decreased to: " << new_lr << std::endl;
     }
-    
+
     // Training loop
     for (auto& batch : data) {
         ff.forward(batch.input);
@@ -814,13 +877,13 @@ for (auto& batch : data) {
     Matrix attn_out = attention.forward(batch);
     Matrix ff_out = feedforward.forward(attn_out);
     Matrix final_out = norm2.forward(ff_out);
-    
+
     // Backward
     Matrix grad = compute_loss_gradient(final_out, batch.target);
     Matrix grad_ff = norm2.backward(grad);
     Matrix grad_attn = feedforward.backward(grad_ff);
     attention.backward(grad_attn);
-    
+
     // Update all with shared optimizer
     attention.update_weights();
     feedforward.update_weights();
@@ -832,6 +895,7 @@ for (auto& batch : data) {
 ### Migration Guide
 
 **Old Code (Version 1.0):**
+
 ```cpp
 FeedForward ff(512, 2048);
 ff.learning_rate = 0.001f;
@@ -842,6 +906,7 @@ ff.update_weights();
 ```
 
 **New Code (Version 1.1 - with Optimizer):**
+
 ```cpp
 FeedForward ff(512, 2048);
 Optimizer opt(OptimizerType::ADAM, 0.001f);
@@ -853,6 +918,7 @@ ff.update_weights();  // Now uses Adam
 ```
 
 **Important Notes:**
+
 - Old code continues to work without modification
 - `learning_rate` is still respected when optimizer is nullptr
 - `update_weights()` now automatically calls `zero_grad()`
@@ -872,13 +938,13 @@ for (int epoch = 0; epoch < num_epochs; ++epoch) {
     for (auto& batch : training_data) {
         // Forward pass
         Matrix output = ff.forward(batch.input);
-        
+
         // Compute loss gradient (from loss function)
         Matrix grad_output = compute_loss_gradient(output, batch.target);
-        
+
         // Backward pass
         Matrix grad_input = ff.backward(grad_output);
-        
+
         // Update weights
         ff.update_weights();
     }
@@ -892,18 +958,18 @@ class TransformerBlock {
     MultiHeadAttention attention;
     FeedForward feedforward;
     LayerNorm norm1, norm2;
-    
+
     Matrix forward(const Matrix& input) {
         // Attention sublayer with residual
         Matrix attn_out = attention.forward(input);
         Matrix residual1 = input + attn_out;
         Matrix normed1 = norm1.forward(residual1);
-        
+
         // Feed-forward sublayer with residual
         Matrix ff_out = feedforward.forward(normed1);
         Matrix residual2 = normed1 + ff_out;
         Matrix normed2 = norm2.forward(residual2);
-        
+
         return normed2;
     }
 };
@@ -965,11 +1031,13 @@ FeedForward ff_xl(2048, 8192);  // 4x expansion
 ### Computational Bottlenecks
 
 **Matrix Multiplications:**
+
 - First layer: O(seq_len × d_model × d_ff)
 - Second layer: O(seq_len × d_ff × d_model)
 - Dominant operations in feed-forward network
 
 **Optimization Strategies:**
+
 1. Use optimized BLAS libraries (if available)
 2. Batch process multiple sequences together
 3. Utilize GPU acceleration for matrix operations
@@ -978,6 +1046,7 @@ FeedForward ff_xl(2048, 8192);  // 4x expansion
 ### Memory Optimization
 
 **Activation Checkpointing:**
+
 ```cpp
 // Standard approach: Cache all activations
 Matrix output = ff.forward(input);  // Caches 3 matrices
@@ -987,6 +1056,7 @@ Matrix output = ff.forward(input);  // Caches 3 matrices
 ```
 
 **Gradient Accumulation:**
+
 ```cpp
 // Instead of processing large batch at once:
 for (int i = 0; i < num_mini_batches; ++i) {
@@ -1000,15 +1070,18 @@ ff.update_weights();  // Single update for all mini-batches
 ### Batch Size Impact
 
 **Small Batches (seq_len = 1-10):**
+
 - Low memory usage
 - Less efficient matrix operations
 - Good for inference
 
 **Medium Batches (seq_len = 10-100):**
+
 - Balanced efficiency
 - Good for training
 
 **Large Batches (seq_len = 100+):**
+
 - High memory usage
 - More efficient matrix operations
 - May require gradient accumulation
@@ -1016,14 +1089,17 @@ ff.update_weights();  // Single update for all mini-batches
 ### Numerical Stability
 
 **Bias Addition:**
+
 - Broadcasting ensures consistent behavior
 - No accumulation errors
 
 **GELU Computation:**
+
 - Approximation formula is numerically stable
 - No special handling needed for extreme values
 
 **Gradient Flow:**
+
 - GELU provides better gradient flow than ReLU
 - Less prone to dead neurons
 - Smoother optimization landscape
@@ -1034,7 +1110,7 @@ ff.update_weights();  // Single update for all mini-batches
 
 ### Position in Transformer Architecture
 
-```
+```text
 Input Embedding
     ↓
 Positional Encoding
@@ -1073,6 +1149,7 @@ Matrix final_output = layer_norm.forward(residual);
 ```
 
 **Benefits of Residual Connections:**
+
 - Gradient flow through skip connections
 - Easier to train deep networks
 - Model can learn identity function if needed
@@ -1080,36 +1157,43 @@ Matrix final_output = layer_norm.forward(residual);
 ### Pre-Norm vs Post-Norm
 
 **Post-Norm (Original Transformer):**
+
 ```cpp
 x = LayerNorm(x + Attention(x))
 x = LayerNorm(x + FeedForward(x))
 ```
 
 **Pre-Norm (Modern Transformers):**
+
 ```cpp
 x = x + Attention(LayerNorm(x))
 x = x + FeedForward(LayerNorm(x))
 ```
 
 **Trade-offs:**
+
 - Post-Norm: Better final performance, harder to train
 - Pre-Norm: Easier to train, slightly worse performance
 
 ### Typical Hyperparameters
 
 **GPT-2 Small:**
+
 - d_model: 768
 - d_ff: 3072 (4x expansion)
 
 **BERT Base:**
+
 - d_model: 768
 - d_ff: 3072 (4x expansion)
 
 **GPT-3:**
+
 - d_model: 12288
 - d_ff: 49152 (4x expansion)
 
 **T5:**
+
 - d_model: 512
 - d_ff: 2048 (4x expansion)
 
@@ -1120,11 +1204,13 @@ x = x + FeedForward(LayerNorm(x))
 ### Issue: Exploding Gradients
 
 **Symptoms:**
+
 - Gradient norm > 100
 - NaN values in weights
 - Training divergence
 
 **Solutions:**
+
 ```cpp
 // 1. Gradient clipping
 ff.clip_gradients(5.0f);
@@ -1139,11 +1225,13 @@ ff.learning_rate = 0.0001f;
 ### Issue: Vanishing Gradients
 
 **Symptoms:**
+
 - Gradient norm < 1e-6
 - No learning progress
 - Weights barely change
 
 **Solutions:**
+
 ```cpp
 // 1. Check activation function (GELU is good)
 // 2. Verify residual connections
@@ -1157,10 +1245,12 @@ ff.learning_rate = 0.01f;
 ### Issue: Slow Training
 
 **Symptoms:**
+
 - High wall-clock time per iteration
 - Low GPU/CPU utilization
 
 **Solutions:**
+
 ```cpp
 // 1. Increase batch size (if memory allows)
 Matrix large_batch(128, 512);  // Instead of (16, 512)
@@ -1178,10 +1268,12 @@ ff.update_weights();
 ### Issue: Memory Overflow
 
 **Symptoms:**
+
 - Out of memory errors
 - System slowdown
 
 **Solutions:**
+
 ```cpp
 // 1. Reduce batch size
 Matrix smaller_batch(8, 512);  // Instead of (128, 512)
@@ -1207,7 +1299,7 @@ ff.backward(grad_output);
 float norm = ff.get_gradient_norm();
 std::cout << "Gradient norm: " << norm << std::endl;
 
-if (std::isnan(norm) || std::isinf(norm)) {
+if (std::isnan(norm) |  | std::isinf(norm)) {
     std::cerr << "Invalid gradient detected!" << std::endl;
     // Take corrective action
 }
@@ -1220,7 +1312,7 @@ if (std::isnan(norm) || std::isinf(norm)) {
 void print_weight_stats(const FeedForward& ff) {
     // Access to internal matrices would require friend function
     // or getter methods
-    
+
     std::cout << "W1 mean: " << compute_mean(W1) << std::endl;
     std::cout << "W1 std: " << compute_std(W1) << std::endl;
     std::cout << "W2 mean: " << compute_mean(W2) << std::endl;
@@ -1236,8 +1328,8 @@ Matrix output = ff.forward(input);
 // Check for invalid values
 for (int i = 0; i < output.rows; ++i) {
     for (int j = 0; j < output.cols; ++j) {
-        if (std::isnan(output(i,j)) || std::isinf(output(i,j))) {
-            std::cerr << "Invalid output at [" << i << "," << j << "]" 
+        if (std::isnan(output(i,j)) |  | std::isinf(output(i,j))) {
+            std::cerr << "Invalid output at [" << i << "," << j << "]"
                       << std::endl;
         }
     }
@@ -1264,21 +1356,25 @@ ff.print_config("Layer 3 FeedForward");
 ### 1. Initialization
 
 ✅ **Do:**
+
 - Use provided He initialization (automatic)
 - Verify dimensions match your model architecture
 
 ❌ **Don't:**
+
 - Manually initialize with arbitrary values
 - Use same initialization for all layers
 
 ### 2. Learning Rate
 
 ✅ **Do:**
+
 - Start with default (0.001)
 - Use learning rate scheduling
 - Monitor gradient norms
 
 ❌ **Don't:**
+
 - Use very large learning rates (>0.1)
 - Keep learning rate constant throughout training
 - Ignore gradient behavior
@@ -1286,11 +1382,13 @@ ff.print_config("Layer 3 FeedForward");
 ### 3. Gradient Management
 
 ✅ **Do:**
+
 - Call `zero_grad()` before each training iteration (or use `update_weights()`)
 - Monitor gradient norms regularly
 - Apply gradient clipping when needed
 
 ❌ **Don't:**
+
 - Forget to zero gradients between iterations
 - Ignore exploding/vanishing gradient warnings
 - Apply extreme gradient clipping (<0.1)
@@ -1298,11 +1396,13 @@ ff.print_config("Layer 3 FeedForward");
 ### 4. Memory Management
 
 ✅ **Do:**
+
 - Process appropriate batch sizes
 - Use gradient accumulation for large effective batches
 - Monitor memory usage
 
 ❌ **Don't:**
+
 - Process entire dataset in one forward pass
 - Ignore out-of-memory warnings
 - Create unnecessary copies of large matrices
@@ -1310,11 +1410,13 @@ ff.print_config("Layer 3 FeedForward");
 ### 5. Model Persistence
 
 ✅ **Do:**
+
 - Save checkpoints regularly
 - Verify dimensions when loading
 - Test loaded weights before deployment
 
 ❌ **Don't:**
+
 - Overwrite previous checkpoints without backup
 - Load weights without dimension validation
 - Deploy without testing loaded model
@@ -1336,6 +1438,7 @@ The current implementation uses GELU. To use a different activation:
 ```
 
 **Supported Alternatives:**
+
 - ReLU: `Activation::relu()` and `Activation::relu_derivative()`
 - Tanh: `Activation::tanh()` and `Activation::tanh_derivative()`
 - Sigmoid: `Activation::sigmoid()` and `Activation::sigmoid_derivative()`
@@ -1383,28 +1486,34 @@ For memory efficiency and speed (requires external support):
 ## API Reference Summary
 
 ### Constructors
+
 - `FeedForward(int d_model, int d_ff)` - Initialize with dimensions
 
 ### Core Methods
+
 - `Matrix forward(const Matrix& input)` - Forward propagation
 - `Matrix backward(const Matrix& grad_output)` - Backward propagation
 - `void update_weights()` - Apply gradients and zero them
 - `void zero_grad()` - Reset gradient accumulators
 
 ### Gradient Management
+
 - `float get_gradient_norm() const` - Get L2 norm of all gradients
 - `void clip_gradients(float max_norm)` - Scale gradients to max norm
 
 ### Persistence
+
 - `void save_weights(const std::string& filename) const` - Save to file
 - `void load_weights(const std::string& filename)` - Load from file
 
 ### Utilities
+
 - `void print_config(const std::string& name) const` - Display configuration
 - `int get_d_model() const` - Get input/output dimension
 - `int get_d_ff() const` - Get hidden dimension
 
 ### Public Members
+
 - `float learning_rate` - Learning rate (default: 0.001)
 
 ---
@@ -1442,7 +1551,7 @@ for (int epoch = 0; epoch < epochs; ++epoch) {
         for (auto& ff : ff_layers) {
             x = ff.forward(x);
         }
-        
+
         // Backward through all layers (reverse order)
         Matrix grad = compute_loss_gradient(x, targets);
         for (int i = num_layers - 1; i >= 0; --i) {
@@ -1480,7 +1589,7 @@ for (auto& batch : fine_tuning_data) {
 **Configuration: d_model=512, d_ff=2048, seq_len=128**
 
 | Operation | Time (ms) | Memory (MB) |
-|-----------|-----------|-------------|
+| ----------- | ----------- | ------------- |
 | Constructor | 5-10 | 16.5 |
 | Forward pass | 20-30 | +2.0 |
 | Backward pass | 30-50 | +2.0 |
@@ -1489,7 +1598,7 @@ for (auto& batch : fine_tuning_data) {
 **Scaling with Sequence Length:**
 
 | seq_len | Forward (ms) | Backward (ms) |
-|---------|--------------|---------------|
+| --------- | -------------- | --------------- |
 | 16 | 3-5 | 5-8 |
 | 64 | 12-18 | 20-30 |
 | 128 | 20-30 | 30-50 |
@@ -1498,7 +1607,7 @@ for (auto& batch : fine_tuning_data) {
 **Parameter Counts for Common Configurations:**
 
 | d_model | d_ff | Parameters | Memory |
-|---------|------|------------|--------|
+| --------- | ------ | ------------ | -------- |
 | 256 | 1024 | 525,568 | 2.0 MB |
 | 512 | 2048 | 2,099,712 | 8.0 MB |
 | 768 | 3072 | 4,722,432 | 18.0 MB |
@@ -1511,23 +1620,27 @@ for (auto& batch : fine_tuning_data) {
 The `FeedForward` class provides a production-ready implementation of the position-wise feed-forward network used in transformer architectures. Key features include:
 
 ✅ **Robust Implementation:**
+
 - Xavier/He weight initialization
 - GELU activation for better gradient flow
 - Proper gradient computation and accumulation
 
 ✅ **Training Support:**
+
 - Gradient clipping to prevent exploding gradients
 - Gradient monitoring for debugging
 - Weight persistence for checkpointing
 - Advanced optimizer integration (Adam, AdamW, SGD)
 
 ✅ **Flexibility:**
+
 - Configurable dimensions (d_model, d_ff)
 - Adjustable learning rate
 - Integration-ready for transformer blocks
 - Optional optimizer for advanced optimization strategies
 
 ✅ **Production Ready:**
+
 - Comprehensive error handling
 - Memory-efficient caching
 - Well-documented API
@@ -1546,33 +1659,39 @@ The implementation follows modern best practices for deep learning components an
 Added support for advanced optimization algorithms through the `Optimizer` class:
 
 **New Functionality:**
+
 - `set_optimizer(Optimizer* opt)` - Register optimizer and parameters
 - `register_parameters()` - Explicitly register parameter groups
 - Enhanced `update_weights()` - Uses optimizer when available, falls back to gradient descent
 
 **Parameter Management:**
+
 - Registers 4 parameter groups: W1, W2, b1, b2
 - Each group linked with corresponding gradient matrix
 - Supports Adam, AdamW, SGD with momentum
 
 **Backward Compatibility:**
+
 - Optimizer pointer defaults to `nullptr`
 - Existing code works without modification
 - `learning_rate` still used when optimizer not set
 - Simple gradient descent fallback maintained
 
 **Benefits:**
+
 - Better convergence with adaptive learning rates
 - Built-in weight decay and momentum support
 - Learning rate scheduling capability
 - Unified optimization across model components
 
 **Test Coverage:**
+
 - Added 12 comprehensive optimizer integration tests
 - Total test suite: 51/51 tests passing
 - Tests cover all optimizer types and edge cases
 
 **Migration:**
+
 ```cpp
 // Old code (still works):
 FeedForward ff(512, 2048);
@@ -1587,6 +1706,7 @@ ff.update_weights();  // Uses Adam
 ```
 
 **Documentation Updates:**
+
 - Added Optimizer Integration section
 - Updated Class Architecture with optimizer member
 - Added 5 optimizer usage patterns
@@ -1595,4 +1715,3 @@ ff.update_weights();  // Uses Adam
 ---
 
 **End of Documentation**
-

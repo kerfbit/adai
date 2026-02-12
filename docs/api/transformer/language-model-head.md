@@ -1,15 +1,15 @@
 # LanguageModelHead Component - Context Documentation
 
-**Version:** 1.1  
-**Last Updated:** January 24, 2026  
+**Version:** 1.1
+**Last Updated:** January 24, 2026
 **Status:** Active - Optimizer Integration Complete
 
 ## Overview
 
-**File**: `src/LanguageModelHead.hpp`, `src/LanguageModelHead.cpp`  
-**Tests**: `tests/languagemodelhead_test.cpp` (42/42 tests passing)  
-**Purpose**: Final projection layer that maps decoder hidden states to vocabulary logits for next-token prediction  
-**Role in Decoder**: Output layer that enables the model to generate probability distributions over the vocabulary  
+**File**: `src/LanguageModelHead.hpp`, `src/LanguageModelHead.cpp`
+**Tests**: `tests/languagemodelhead_test.cpp` (42/42 tests passing)
+**Purpose**: Final projection layer that maps decoder hidden states to vocabulary logits for next-token prediction
+**Role in Decoder**: Output layer that enables the model to generate probability distributions over the vocabulary
 **Dependencies**: `Matrix.hpp`, `Activation.hpp`, `Optimizer.hpp`
 
 The LanguageModelHead is the final component in a transformer decoder that converts the model's internal representations (d_model dimension) into scores for each token in the vocabulary (vocab_size dimension). This is essential for language modeling tasks where the model needs to predict the next token.
@@ -19,7 +19,7 @@ The LanguageModelHead is the final component in a transformer decoder that conve
 ## Architecture
 
 ### Component Structure
-```
+```text
 Input: [seq_len, d_model]
     ↓
 Linear Projection: input * W_output
@@ -34,7 +34,8 @@ Output Logits: [seq_len, vocab_size]
 ### Mathematical Formulation
 
 **Forward Pass**:
-```
+
+```text
 logits = input × W_output + bias
 
 Where:
@@ -45,7 +46,8 @@ Where:
 ```
 
 **Probability Distribution** (optional):
-```
+
+```text
 probabilities = softmax(logits)
 
 For position i:
@@ -53,7 +55,8 @@ For position i:
 ```
 
 **Backward Pass**:
-```
+
+```text
 Gradients:
   ∂L/∂W_output = input^T × ∂L/∂logits
   ∂L/∂bias     = Σ_i ∂L/∂logits[i,:]  (sum over sequence)
@@ -70,19 +73,24 @@ LanguageModelHead(int d_model, int vocab_size)
 ```
 
 **Parameters**:
+
 - `d_model`: Model dimension (input feature size, typically 512 or 768)
 - `vocab_size`: Size of vocabulary (output dimension, e.g., 50000)
 
 **Initialization**:
+
 - **Weights**: Xavier/Glorot initialization
-  ```
+
+```text
   scale = sqrt(2.0 / (d_model + vocab_size))
   W_output ~ Uniform(-scale, scale)
   ```
+
 - **Bias**: Zero initialization
 - **Gradients**: Zero initialization
 
 **Example**:
+
 ```cpp
 // For GPT-2 small: d_model=768, vocab_size=50257
 LanguageModelHead lm_head(768, 50257);
@@ -95,19 +103,23 @@ LanguageModelHead lm_head(768, 50257);
 Matrix forward(const Matrix& input)
 ```
 
-**Input**: 
+**Input**:
+
 - `input`: Decoder output `[seq_len, d_model]`
 
-**Output**: 
+**Output**:
+
 - Logits `[seq_len, vocab_size]`
 
 **Process**:
+
 1. Cache input for backward pass
 2. Compute `logits = input × W_output`
 3. Add bias (broadcast to all sequence positions)
 4. Return unnormalized scores
 
 **Example**:
+
 ```cpp
 Matrix decoder_output(10, 768);  // 10 tokens, 768 dimensions
 Matrix logits = lm_head.forward(decoder_output);
@@ -119,13 +131,16 @@ Matrix logits = lm_head.forward(decoder_output);
 std::vector<float> get_probabilities(const std::vector<float>& logits)
 ```
 
-**Input**: 
+**Input**:
+
 - `logits`: Raw scores for a single position `[vocab_size]`
 
-**Output**: 
+**Output**:
+
 - Probability distribution `[vocab_size]` summing to 1.0
 
 **Process**:
+
 1. Convert vector to Matrix
 2. Apply softmax normalization
 3. Convert back to vector
@@ -133,6 +148,7 @@ std::vector<float> get_probabilities(const std::vector<float>& logits)
 **Use Case**: Next-token prediction during text generation
 
 **Example**:
+
 ```cpp
 // Get logits for last position
 std::vector<float> last_logits(vocab_size);
@@ -152,13 +168,16 @@ int next_token = sample_from_distribution(probs);
 Matrix backward(const Matrix& grad_output)
 ```
 
-**Input**: 
+**Input**:
+
 - `grad_output`: Gradient from loss `[seq_len, vocab_size]`
 
-**Output**: 
+**Output**:
+
 - Gradient w.r.t. input `[seq_len, d_model]`
 
 **Process**:
+
 1. Compute weight gradient: `grad_W = input^T × grad_output`
 2. Accumulate into `W_output_grad`
 3. Compute bias gradient: sum `grad_output` over sequence dimension
@@ -166,6 +185,7 @@ Matrix backward(const Matrix& grad_output)
 5. Compute input gradient: `grad_input = grad_output × W_output^T`
 
 **Example**:
+
 ```cpp
 // Assuming cross-entropy loss gradient
 Matrix grad_from_loss(seq_len, vocab_size);
@@ -181,6 +201,7 @@ void update_weights()
 ```
 
 **Process**:
+
 1. If optimizer is set, calls `optimizer->step()`
 2. Otherwise, applies simple gradient descent:
    - `W_output -= learning_rate × W_output_grad`
@@ -188,6 +209,7 @@ void update_weights()
 3. Automatically zeros gradients
 
 **Typical Usage**:
+
 ```cpp
 // Training loop
 for (int step = 0; step < num_steps; ++step) {
@@ -207,6 +229,7 @@ void register_parameters()
 **Purpose**: Enable advanced optimization algorithms (Adam, AdamW, SGD with momentum)
 
 **Usage**:
+
 ```cpp
 LanguageModelHead lm_head(768, 50257);
 Optimizer adam(OptimizerType::ADAM, 0.001f);
@@ -235,11 +258,13 @@ void load(const std::string& filepath)
 ```
 
 **Save Format** (binary):
+
 1. Dimensions: `d_model`, `vocab_size` (2 × int)
 2. W_output matrix: `d_model × vocab_size` floats
 3. Bias vector: `vocab_size` floats
 
 **Example**:
+
 ```cpp
 lm_head.save("lm_head_weights.bin");
 
@@ -255,40 +280,48 @@ loaded_head.load("lm_head_weights.bin");
 ### Memory Layout
 
 **Parameters**:
+
 - `W_output`: `d_model × vocab_size` = 768 × 50257 ≈ **154M floats** (617 MB)
 - `bias`: `vocab_size` = 50257 floats (201 KB)
 - **Total**: ~617 MB for GPT-2 scale
 
 **Gradients** (same size as parameters):
+
 - `W_output_grad`: ~617 MB
 - `bias_grad`: ~201 KB
 
 **Cache**:
+
 - `cached_input`: `seq_len × d_model` (varies by sequence length)
 
 ### Initialization Strategy
 
 **Xavier Initialization** for weights:
+
 ```cpp
 float scale = std::sqrt(2.0f / (d_model + vocab_size));
 W_output.randomize(scale);
 ```
 
 **Why Xavier?**
+
 - Maintains variance of activations across layers
 - Prevents vanishing/exploding gradients
 - Formula: `Var(W) = 2 / (n_in + n_out)`
 
 **Bias Initialization**:
+
 ```cpp
 bias.fill(0.0f);
 ```
+
 - Standard practice: start with zero bias
 - Model learns appropriate biases during training
 
 ### Gradient Computation
 
 **Weight Gradient**:
+
 ```cpp
 // grad_W = input^T × grad_output
 Matrix grad_W = cached_input.transpose() * grad_output;
@@ -298,6 +331,7 @@ W_output_grad += grad_W;
 ```
 
 **Bias Gradient**:
+
 ```cpp
 // Sum over sequence dimension (each position contributes)
 for (int j = 0; j < vocab_size; ++j) {
@@ -310,6 +344,7 @@ for (int j = 0; j < vocab_size; ++j) {
 ```
 
 **Input Gradient** (for decoder backprop):
+
 ```cpp
 Matrix grad_input = grad_output * W_output.transpose();
 ```
@@ -353,15 +388,15 @@ for (int step = 0; step < max_length; ++step) {
     // Forward pass
     Matrix decoder_output = decoder.forward(generated_tokens);
     Matrix logits = lm_head.forward(decoder_output);
-    
+
     // Get probabilities for last position
     std::vector<float> last_logits = extract_last_position(logits);
     std::vector<float> probs = lm_head.get_probabilities(last_logits);
-    
+
     // Sample next token
     int next_token = sample_with_temperature(probs, temperature);
     generated_tokens.push_back(next_token);
-    
+
     // Stop if EOS token
     if (next_token == EOS_TOKEN) break;
 }
@@ -374,17 +409,18 @@ for (int step = 0; step < max_length; ++step) {
 ### Cross-Entropy Loss
 
 **For Next-Token Prediction**:
+
 ```cpp
 // Given logits [seq_len, vocab_size] and targets [seq_len]
-Matrix compute_cross_entropy_grad(const Matrix& logits, 
+Matrix compute_cross_entropy_grad(const Matrix& logits,
                                    const std::vector<int>& targets) {
     Matrix grad(logits.rows, logits.cols);
-    
+
     for (int i = 0; i < logits.rows; ++i) {
         // Compute softmax probabilities
         std::vector<float> probs = softmax_row(logits, i);
-        
-        // Gradient: predicted_prob - 1.0 for correct token, 
+
+        // Gradient: predicted_prob - 1.0 for correct token,
         //          predicted_prob - 0.0 for other tokens
         for (int j = 0; j < logits.cols; ++j) {
             grad(i, j) = probs[j];
@@ -393,13 +429,14 @@ Matrix compute_cross_entropy_grad(const Matrix& logits,
             }
         }
     }
-    
+
     return grad;
 }
 ```
 
 **Loss Value**:
-```
+
+```text
 L = -Σ_i log(P(y_i | x_i))
 
 Where y_i is the target token at position i
@@ -412,11 +449,13 @@ Where y_i is the target token at position i
 ### Computational Complexity
 
 **Forward Pass**:
+
 - Matrix multiplication: `O(seq_len × d_model × vocab_size)`
 - Bias addition: `O(seq_len × vocab_size)`
 - **Total**: `O(seq_len × d_model × vocab_size)`
 
 **Backward Pass**:
+
 - Weight gradient: `O(seq_len × d_model × vocab_size)`
 - Input gradient: `O(seq_len × d_model × vocab_size)`
 - Bias gradient: `O(seq_len × vocab_size)`
@@ -425,18 +464,20 @@ Where y_i is the target token at position i
 ### Memory Usage
 
 **For GPT-2 Small (d_model=768, vocab_size=50257)**:
+
 - Parameters: ~617 MB
 - Gradients: ~617 MB
 - Activations (seq_len=1024): ~50 MB
 - **Total**: ~1.3 GB
 
 **Optimization Opportunity**:
+
 - Weight tying: Share embeddings with token embeddings to reduce parameters by ~50%
 - Quantization: Use int8/int16 to reduce memory
 
 ### Bottlenecks
 
-1. **Large Vocabulary**: 
+1. **Large Vocabulary**:
    - For vocab_size=50K and d_model=768, W_output has 38M parameters
    - This is often the largest single layer in the model
 
@@ -467,6 +508,7 @@ Matrix logits = input * embedding_table.transpose();
 ```
 
 **Benefits**:
+
 - Reduces parameters by ~50% (for typical models)
 - Often improves generalization
 - Used in GPT-2, GPT-3, BERT
@@ -476,26 +518,29 @@ Matrix logits = input * embedding_table.transpose();
 **Concept**: Cluster rare tokens into groups, compute probabilities hierarchically
 
 **Benefits**:
+
 - Reduces computation for vocab_size > 100K
 - Speeds up both training and inference
 
 ### 3. Temperature Scaling
 
 **Applied During Generation**:
+
 ```cpp
 std::vector<float> get_probabilities_with_temp(
     const std::vector<float>& logits, float temperature) {
-    
+
     std::vector<float> scaled_logits(logits.size());
     for (size_t i = 0; i < logits.size(); ++i) {
         scaled_logits[i] = logits[i] / temperature;
     }
-    
+
     return get_probabilities(scaled_logits);
 }
 ```
 
 **Temperature Effects**:
+
 - `T < 1.0`: Sharper distribution (more confident, less diverse)
 - `T = 1.0`: Standard softmax
 - `T > 1.0`: Flatter distribution (less confident, more diverse)
@@ -507,6 +552,7 @@ std::vector<float> get_probabilities_with_temp(
 ### Unit Test Coverage
 
 **Test 1: Forward Pass Dimensions**
+
 ```cpp
 LanguageModelHead lm_head(512, 10000);
 Matrix input(20, 512);  // 20 tokens
@@ -516,6 +562,7 @@ assert(logits.cols == 10000);
 ```
 
 **Test 2: Probability Normalization**
+
 ```cpp
 std::vector<float> logits = {1.0, 2.0, 3.0, 4.0, 5.0};
 std::vector<float> probs = lm_head.get_probabilities(logits);
@@ -526,6 +573,7 @@ assert(abs(sum - 1.0f) < 1e-5);  // Should sum to 1.0
 ```
 
 **Test 3: Gradient Check**
+
 ```cpp
 // Numerical gradient vs analytical gradient
 float epsilon = 1e-5f;
@@ -537,6 +585,7 @@ assert(max_diff < 1e-3);  // Should match closely
 ```
 
 **Test 4: Save/Load Consistency**
+
 ```cpp
 lm_head.save("test.bin");
 LanguageModelHead loaded(512, 10000);
@@ -550,6 +599,7 @@ assert(matrices_equal(output1, output2, 1e-6));
 ### Integration Tests
 
 **Test 5: Full Decoder Pipeline**
+
 ```cpp
 // Decoder → LanguageModelHead → Loss → Backward
 Matrix decoder_out = decoder.forward(input_ids);
@@ -572,6 +622,7 @@ assert(lm_head.has_gradients());
 **Problem**: Vocabulary size (50K+) causes large gradient magnitudes
 
 **Solution**:
+
 ```cpp
 // Gradient clipping
 void clip_gradients(float max_norm) {
@@ -589,6 +640,7 @@ void clip_gradients(float max_norm) {
 **Problem**: `exp(logit)` overflows for large logits
 
 **Solution**: LogSumExp trick (already handled in Activation::softmax)
+
 ```cpp
 // Subtract max before exp
 float max_logit = max(logits);
@@ -602,6 +654,7 @@ for (int i = 0; i < n; ++i) {
 **Problem**: Computing full softmax over 50K tokens is slow
 
 **Solutions**:
+
 1. **Top-k sampling**: Only consider top-k most likely tokens
 2. **Nucleus (top-p) sampling**: Consider smallest set with cumulative prob > p
 3. **Beam search**: Track only top-b candidates
@@ -611,6 +664,7 @@ for (int i = 0; i < n; ++i) {
 **Problem**: Activations `[batch × seq_len × vocab_size]` don't fit in memory
 
 **Solution**:
+
 ```cpp
 // Process in chunks
 for (int start = 0; start < seq_len; start += chunk_size) {
@@ -628,7 +682,7 @@ for (int start = 0; start < seq_len; start += chunk_size) {
 ### vs. FeedForward Layer
 
 | Aspect | LanguageModelHead | FeedForward |
-|--------|-------------------|-------------|
+| -------- | ------------------- | ------------- |
 | Purpose | Project to vocabulary | Non-linear transformation |
 | Layers | 1 linear | 2 linear + activation |
 | Output size | vocab_size | d_model |
@@ -638,7 +692,7 @@ for (int start = 0; start < seq_len; start += chunk_size) {
 ### vs. TokenEmbedding Layer
 
 | Aspect | LanguageModelHead | TokenEmbedding |
-|--------|-------------------|----------------|
+| -------- | ------------------- | ---------------- |
 | Direction | d_model → vocab | vocab → d_model |
 | Input | Hidden states | Token IDs |
 | Output | Logits | Embeddings |
@@ -654,7 +708,7 @@ for (int start = 0; start < seq_len; start += chunk_size) {
 class LanguageModelHead {
     Matrix* W_output;  // Pointer to shared embedding table
     bool owns_weights;
-    
+
     void tie_weights(Matrix& embedding_table) {
         W_output = &embedding_table;
         owns_weights = false;
@@ -708,10 +762,10 @@ lm_head.learning_rate = 0.0001f;
 for (int epoch = 0; epoch < num_epochs; ++epoch) {
     for (auto& batch : training_data) {
         lm_head.zero_grad();
-        
+
         Matrix decoder_out = decoder.forward(batch.input);
         Matrix logits = lm_head.forward(decoder_out);
-        
+
         Matrix grad = cross_entropy_gradient(logits, batch.targets);
         lm_head.backward(grad);
         lm_head.update_weights();
@@ -721,29 +775,29 @@ for (int epoch = 0; epoch < num_epochs; ++epoch) {
 
 ### Example 2: Greedy Decoding
 ```cpp
-std::vector<int> greedy_decode(LLMDecoder& decoder, 
+std::vector<int> greedy_decode(LLMDecoder& decoder,
                                LanguageModelHead& lm_head,
                                const std::vector<int>& prompt,
                                int max_length) {
     std::vector<int> tokens = prompt;
-    
+
     for (int i = 0; i < max_length; ++i) {
         Matrix decoder_out = decoder.forward(tokens);
         Matrix logits = lm_head.forward(decoder_out);
-        
+
         // Get last position logits
         std::vector<float> last_logits(lm_head.vocab_size);
         for (int j = 0; j < lm_head.vocab_size; ++j) {
             last_logits[j] = logits(logits.rows - 1, j);
         }
-        
+
         // Select token with highest logit
         int next_token = argmax(last_logits);
         tokens.push_back(next_token);
-        
+
         if (next_token == EOS_TOKEN) break;
     }
-    
+
     return tokens;
 }
 ```
@@ -756,10 +810,10 @@ int sample_top_k(const std::vector<float>& logits, int k, float temperature) {
     for (size_t i = 0; i < logits.size(); ++i) {
         scaled_logits[i] = logits[i] / temperature;
     }
-    
+
     // Get top-k indices
     auto top_k_indices = get_top_k_indices(scaled_logits, k);
-    
+
     // Compute probabilities only for top-k
     std::vector<float> top_k_probs(k);
     float sum = 0.0f;
@@ -767,12 +821,12 @@ int sample_top_k(const std::vector<float>& logits, int k, float temperature) {
         top_k_probs[i] = exp(scaled_logits[top_k_indices[i]]);
         sum += top_k_probs[i];
     }
-    
+
     // Normalize
     for (int i = 0; i < k; ++i) {
         top_k_probs[i] /= sum;
     }
-    
+
     // Sample from top-k
     int sampled_idx = sample_categorical(top_k_probs);
     return top_k_indices[sampled_idx];
@@ -784,17 +838,20 @@ int sample_top_k(const std::vector<float>& logits, int k, float temperature) {
 ## References
 
 ### Related Components
+
 - **Decoder.hpp**: Stacks DecoderBlocks to process sequences
 - **TokenEmbedding.hpp**: Converts token IDs to embeddings (inverse operation)
 - **Activation.hpp**: Provides softmax for probability computation
 - **Matrix.hpp**: Core tensor operations
 
 ### Design Documents
+
 - **DECODER_DESIGN.md**: Overall decoder architecture
 - **DECODER_IMPLEMENTATION_GUIDE.md**: Implementation patterns
 - **ENCODER_DECODER_COMPARISON.md**: Differences from encoder
 
 ### Academic References
+
 - "Attention Is All You Need" (Vaswani et al., 2017)
   - Section 3.1: Scaled Dot-Product Attention
   - Section 3.3: Position-wise Feed-Forward Networks
@@ -810,11 +867,11 @@ int sample_top_k(const std::vector<float>& logits, int k, float temperature) {
 
 The **LanguageModelHead** component is the critical final layer that transforms decoder hidden states into actionable vocabulary predictions. Key characteristics:
 
-✅ **Simple but Essential**: Single linear projection + bias  
-✅ **Scalable**: Handles vocabularies from 1K to 100K+ tokens  
-✅ **Flexible**: Supports both training (with gradients) and inference (with sampling)  
-✅ **Efficient**: Direct matrix operations with minimal overhead  
-✅ **Integration-Ready**: Works seamlessly with decoder and loss functions  
+✅ **Simple but Essential**: Single linear projection + bias
+✅ **Scalable**: Handles vocabularies from 1K to 100K+ tokens
+✅ **Flexible**: Supports both training (with gradients) and inference (with sampling)
+✅ **Efficient**: Direct matrix operations with minimal overhead
+✅ **Integration-Ready**: Works seamlessly with decoder and loss functions
 ✅ **Advanced Optimization**: Supports Adam, AdamW, SGD with momentum (v1.1)
 
 **Performance**: O(seq_len × d_model × vocab_size) complexity makes this the most expensive layer for large vocabularies, but optimizations like weight tying and adaptive softmax can mitigate costs.
@@ -832,22 +889,26 @@ The **LanguageModelHead** component is the critical final layer that transforms 
 Added support for advanced optimization algorithms through the `Optimizer` class:
 
 **New Functionality:**
+
 - `set_optimizer(Optimizer* opt)` - Register optimizer and parameters
 - `register_parameters()` - Explicitly register parameter groups
 - Enhanced `update_weights()` - Uses optimizer when available, falls back to gradient descent
 
 **Parameter Management:**
+
 - Registers 2 parameter groups: W_output, bias
 - Each group linked with corresponding gradient matrix
 - Supports Adam, AdamW, SGD with momentum
 
 **Backward Compatibility:**
+
 - Optimizer pointer defaults to `nullptr`
 - Existing code works without modification
 - `learning_rate` still used when optimizer not set
 - Simple gradient descent fallback maintained
 
 **Benefits:**
+
 - Better convergence with adaptive learning rates
 - Built-in weight decay and momentum support
 - Learning rate scheduling capability
@@ -855,11 +916,13 @@ Added support for advanced optimization algorithms through the `Optimizer` class
 - Especially beneficial for large vocabulary sizes
 
 **Test Coverage:**
+
 - Added 12 comprehensive optimizer integration tests
 - Total test suite: 42/42 tests passing
 - Tests cover all optimizer types and edge cases
 
 **Migration:**
+
 ```cpp
 // Old code (still works):
 LanguageModelHead lm_head(768, 50257);
@@ -874,6 +937,7 @@ lm_head.update_weights();  // Uses Adam
 ```
 
 **Documentation Updates:**
+
 - Added Optimizer Integration section
 - Updated Weight Update documentation
 - Added backward compatibility notes
@@ -882,4 +946,3 @@ lm_head.update_weights();  // Uses Adam
 ---
 
 **End of Documentation**
-

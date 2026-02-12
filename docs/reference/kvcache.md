@@ -1,7 +1,7 @@
 # KVCache API Reference
 
-**Module:** `KVCache.hpp`  
-**Purpose:** Key-Value caching for efficient autoregressive generation  
+**Module:** `KVCache.hpp`
+**Purpose:** Key-Value caching for efficient autoregressive generation
 **Performance Impact:** 2-3x speedup for text generation
 
 ---
@@ -13,14 +13,16 @@ The KVCache system provides efficient caching of key-value pairs during autoregr
 ### Why Use KVCache?
 
 **Without Cache:**
-```
+
+```text
 Step 1: Generate token 1 → Compute K,V for [token 1]
 Step 2: Generate token 2 → Compute K,V for [token 1, token 2]  ❌ Redundant!
 Step 3: Generate token 3 → Compute K,V for [token 1, token 2, token 3]  ❌ Very redundant!
 ```
 
 **With Cache:**
-```
+
+```text
 Step 1: Generate token 1 → Compute K,V for [token 1], cache them
 Step 2: Generate token 2 → Compute K,V for [token 2] only, use cache for token 1  ✅
 Step 3: Generate token 3 → Compute K,V for [token 3] only, use cache for tokens 1-2  ✅
@@ -55,6 +57,7 @@ KVCache()
 Creates an empty cache.
 
 **Example:**
+
 ```cpp
 KVCache cache;  // Empty cache
 ```
@@ -68,6 +71,7 @@ Check if cache is empty.
 **Returns:** `true` if cache is empty, `false` otherwise
 
 **Example:**
+
 ```cpp
 KVCache cache;
 if (cache.is_empty()) {
@@ -84,6 +88,7 @@ Get number of cached positions.
 **Returns:** Number of token positions currently cached
 
 **Example:**
+
 ```cpp
 std::cout << "Cache contains " << cache.size() << " positions" << std::endl;
 ```
@@ -95,6 +100,7 @@ std::cout << "Cache contains " << cache.size() << " positions" << std::endl;
 Clear all cached data.
 
 **Example:**
+
 ```cpp
 cache.clear();  // Reset cache for new sequence
 ```
@@ -106,14 +112,17 @@ cache.clear();  // Reset cache for new sequence
 Append new key-value pairs to cache.
 
 **Parameters:**
+
 - `new_keys` - Keys for new position(s) `[num_new_positions, d_model]`
 - `new_values` - Values for new position(s) `[num_new_positions, d_model]`
 
 **Behavior:**
+
 - If cache is empty: Initialize with new keys/values
 - If cache has data: Concatenate new keys/values to existing cache
 
 **Example:**
+
 ```cpp
 // First call - initialize cache
 Matrix keys1(1, 64);    // 1 new position, 64 dimensions
@@ -140,9 +149,10 @@ Get cached keys matrix.
 **Returns:** Reference to cached keys `[current_length, d_model]`
 
 **Example:**
+
 ```cpp
 const Matrix& cached_keys = cache.get_keys();
-std::cout << "Cached keys shape: [" << cached_keys.rows 
+std::cout << "Cached keys shape: [" << cached_keys.rows
           << ", " << cached_keys.cols << "]" << std::endl;
 ```
 
@@ -155,6 +165,7 @@ Get cached values matrix.
 **Returns:** Reference to cached values `[current_length, d_model]`
 
 **Example:**
+
 ```cpp
 const Matrix& cached_values = cache.get_values();
 ```
@@ -183,9 +194,11 @@ explicit DecoderKVCache(int num_layers)
 Creates a multi-layer cache with separate caches for each decoder layer.
 
 **Parameters:**
+
 - `num_layers` - Number of decoder layers
 
 **Example:**
+
 ```cpp
 // For a 6-layer decoder
 DecoderKVCache cache(6);
@@ -202,6 +215,7 @@ Clear all caches (self-attention and cross-attention).
 **Use case:** Starting a new sequence
 
 **Example:**
+
 ```cpp
 cache.clear();  // Clear all caches for new conversation
 ```
@@ -215,6 +229,7 @@ Clear only self-attention caches, keep cross-attention caches.
 **Use case:** In encoder-decoder models, encoder output (cross-attention K/V) remains constant across generation steps, so only self-attention cache needs clearing.
 
 **Example:**
+
 ```cpp
 // Keep encoder cross-attention cache, clear decoder self-attention
 cache.clear_self_attention();
@@ -227,11 +242,13 @@ cache.clear_self_attention();
 Get cache for a specific layer's self-attention.
 
 **Parameters:**
+
 - `layer_idx` - Layer index (0-based)
 
 **Returns:** Reference to the layer's self-attention cache
 
 **Example:**
+
 ```cpp
 // Access cache for layer 0
 KVCache& layer0_cache = cache.get_self_attention_cache(0);
@@ -247,11 +264,13 @@ layer0_cache.append(new_keys, new_values);
 Get cache for a specific layer's cross-attention.
 
 **Parameters:**
+
 - `layer_idx` - Layer index (0-based)
 
 **Returns:** Reference to the layer's cross-attention cache
 
 **Example:**
+
 ```cpp
 // Cache encoder K/V once for cross-attention
 KVCache& cross_cache = cache.get_cross_attention_cache(0);
@@ -267,6 +286,7 @@ Check if any cache is populated.
 **Returns:** `true` if all caches are empty, `false` otherwise
 
 **Example:**
+
 ```cpp
 if (cache.is_empty()) {
     std::cout << "Starting new generation" << std::endl;
@@ -282,6 +302,7 @@ Get current sequence length from first layer cache.
 **Returns:** Number of cached positions (assumes all layers have same length)
 
 **Example:**
+
 ```cpp
 std::cout << "Generated " << cache.current_length() << " tokens so far" << std::endl;
 ```
@@ -308,7 +329,7 @@ Matrix hidden = decoder.forward_with_cache(prompt, cache, nullptr, true);
 for (int i = 0; i < 50; ++i) {
     // Sample next token
     int next_token = sample_from_logits(hidden);
-    
+
     // Generate with cache (only process new token)
     std::vector<int> new_token = {next_token};
     hidden = decoder.forward_with_cache(new_token, cache, nullptr, true);
@@ -329,15 +350,15 @@ void handle_user_message(const std::string& session_id, const std::string& messa
     if (conversation_caches.find(session_id) == conversation_caches.end()) {
         conversation_caches[session_id] = DecoderKVCache(num_layers);
     }
-    
+
     auto& cache = conversation_caches[session_id];
-    
+
     // Encode user message
     auto tokens = tokenizer.encode(message);
-    
+
     // Generate response using cached conversation history
     Matrix hidden = decoder.forward_with_cache(tokens, cache, nullptr, true);
-    
+
     // Continue generation...
 }
 
@@ -362,7 +383,7 @@ Matrix hidden = decoder.forward_with_cache(start_token, cache, &encoder_output, 
 for (int i = 0; i < max_length; ++i) {
     int next_token = sample_from_logits(hidden);
     std::vector<int> new_token = {next_token};
-    
+
     // Cross-attention cache reused, only self-attention cache grows
     hidden = decoder.forward_with_cache(new_token, cache, &encoder_output, true);
 }
@@ -393,7 +414,7 @@ for (int i = 0; i < batch_size; ++i) {
 ### Time Complexity
 
 | Operation | Without Cache | With Cache | Speedup |
-|-----------|--------------|------------|---------|
+| ----------- | -------------- | ------------ | --------- |
 | Token 1 | O(d²) | O(d²) | 1x |
 | Token 2 | O(2 × d²) | O(d²) | 2x |
 | Token 10 | O(10 × d²) | O(d²) | 10x |
@@ -404,10 +425,12 @@ for (int i = 0; i < batch_size; ++i) {
 ### Space Complexity
 
 **Per sequence:**
+
 - Memory: O(num_layers × seq_len × d_model)
 - Typical: 6 layers × 100 tokens × 512 dims = ~1.2 MB per sequence
 
 **Memory vs Speed Tradeoff:**
+
 - ✅ Acceptable: Cache adds ~1-2 MB per active conversation
 - ✅ Worth it: 2-3x speedup is significant for user experience
 
@@ -459,7 +482,7 @@ for (int i = 0; i < 50; ++i) {
 class CacheManager {
     std::map<std::string, DecoderKVCache> caches;
     std::map<std::string, std::chrono::time_point> last_access;
-    
+
 public:
     DecoderKVCache& get_cache(const std::string& session_id, int num_layers) {
         if (caches.find(session_id) == caches.end()) {
@@ -468,14 +491,14 @@ public:
         last_access[session_id] = std::chrono::steady_clock::now();
         return caches[session_id];
     }
-    
+
     void cleanup_old_caches(int timeout_minutes) {
         auto now = std::chrono::steady_clock::now();
         for (auto it = last_access.begin(); it != last_access.end(); ) {
             auto elapsed = std::chrono::duration_cast<std::chrono::minutes>(
                 now - it->second
             ).count();
-            
+
             if (elapsed > timeout_minutes) {
                 caches.erase(it->first);
                 it = last_access.erase(it);
@@ -495,7 +518,7 @@ void limit_cache_size(DecoderKVCache& cache, int max_length) {
     if (cache.current_length() > max_length) {
         // Strategy 1: Clear and restart
         cache.clear();
-        
+
         // Strategy 2: Keep recent tokens only
         // (Requires implementing truncate method)
     }
@@ -524,19 +547,19 @@ Matrix CustomAttention::forward_with_cache(
 ) {
     // Compute Q (always from new tokens)
     Matrix Q = input * W_q;
-    
+
     // Compute K, V for new tokens only
     Matrix K_new = input * W_k;
     Matrix V_new = input * W_v;
-    
+
     // Append to cache
     if (use_cache && kv_cache) {
         kv_cache->append(K_new, V_new);
-        
+
         // Use full K, V from cache
         const Matrix& K_full = kv_cache->get_keys();
         const Matrix& V_full = kv_cache->get_values();
-        
+
         // Compute attention with all cached K/V
         return scaled_dot_product_attention(Q, K_full, V_full, mask);
     } else {
@@ -572,11 +595,11 @@ std::cout << "Cache working! Length: " << final_length << std::endl;
 size_t estimate_cache_memory(const DecoderKVCache& cache, int d_model) {
     int num_layers = cache.self_attention_caches.size();
     int seq_len = cache.current_length();
-    
+
     // Each cache stores 2 matrices (K and V) of [seq_len, d_model] floats
     size_t bytes_per_layer = 2 * seq_len * d_model * sizeof(float);
     size_t total_bytes = num_layers * bytes_per_layer * 2;  // self + cross
-    
+
     return total_bytes;
 }
 
@@ -592,11 +615,13 @@ std::cout << "Cache using ~" << (memory / 1024 / 1024) << " MB" << std::endl;
 ### Problem: Cache not speeding up generation
 
 **Possible causes:**
+
 1. Recreating cache each step
 2. Not passing cache to `forward_with_cache()`
 3. Setting `use_cache=false`
 
 **Solution:**
+
 ```cpp
 // ✅ Correct
 DecoderKVCache cache(num_layers);  // Create once
@@ -608,11 +633,13 @@ for (int i = 0; i < 50; ++i) {
 ### Problem: Out of memory
 
 **Possible causes:**
+
 1. Too many active caches
 2. Very long sequences
 3. Large model dimensions
 
 **Solutions:**
+
 ```cpp
 // Solution 1: Limit cache size
 if (cache.current_length() > 1000) {
@@ -648,6 +675,6 @@ cache_manager.cleanup_old_caches(30);  // Remove caches older than 30 min
 
 ---
 
-**Last Updated:** January 25, 2026  
-**Version:** 1.0  
+**Last Updated:** January 25, 2026
+**Version:** 1.0
 **Status:** Production-ready

@@ -21,12 +21,14 @@ make chatbot_api_server
 ### 3. Test Batch Processing
 
 **Using Python:**
+
 ```bash
 cd scripts
 ./batch_api_client.py
 ```
 
 **Using cURL:**
+
 ```bash
 curl -X POST http://localhost:8080/chat/batch \
   -H "Content-Type: application/json" \
@@ -71,11 +73,11 @@ import requests
 
 messages = [
     "User 1 question",
-    "User 2 question", 
+    "User 2 question",
     "User 3 question"
 ]
 
-response = requests.post('http://localhost:8080/chat/batch', 
+response = requests.post('http://localhost:8080/chat/batch',
                         json={'messages': messages})
 
 for i, resp in enumerate(response.json()['responses'], 1):

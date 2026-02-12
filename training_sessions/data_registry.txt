@@ -1,0 +1,12 @@
+# Data Registry: data_file checksum num_samples trained
+gutenberg_data/gutenberg_1342_training.txt 43755_-4667141912052569741 100 1
+gutenberg_data/gutenberg_1661_training.txt 70895_-4667133310128468599 300 1
+gutenberg_data/gutenberg_11_training.txt 87462_-4667133311048953307 300 1
+gutenberg_data/gutenberg_84_training.txt 111798_-4667133309414104872 300 1
+gutenberg_data/gutenberg_98_training.txt 101911_-4667133308493649111 300 1
+gutenberg_data/gutenberg_1260_training.txt 108802_-4667133307526187420 300 1
+gutenberg_data/gutenberg_11_training.txt 87462_-4667133311048953307 300 1
+gutenberg_data/gutenberg_1661_training.txt 70895_-4667133310128468599 300 1
+gutenberg_data/gutenberg_84_training.txt 111798_-4667133309414104872 300 1
+gutenberg_data/gutenberg_98_training.txt 101911_-4667133308493649111 300 1
+gutenberg_data/gutenberg_1260_training.txt 108802_-4667133307526187420 300 1
