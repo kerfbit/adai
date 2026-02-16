@@ -34,9 +34,9 @@ EncoderDecoderModel::EncoderDecoderModel(int vocab_size, int d_model, int encode
     // Initialize text generator with default config
     TextGenerator::GenerationConfig gen_config;
     gen_config.max_length = max_seq_length;
-    gen_config.bos_token_id = 1;  // Default <bos>
-    gen_config.eos_token_id = 2;  // Default <eos>
-    gen_config.pad_token_id = 0;  // Default <pad>
+    gen_config.bos_token_id = 2;  // <bos> token
+    gen_config.eos_token_id = 3;  // <eos> token
+    gen_config.pad_token_id = 0;  // <pad> token
 
     generator = std::make_unique<TextGenerator>(gen_config, 42);
 
@@ -129,8 +129,8 @@ Matrix EncoderDecoderModel::compute_loss_gradient(const Matrix& logits,
 
 // Generate response
 std::string EncoderDecoderModel::generate_response(const std::string& input_text, int max_length) {
-    // Encode input
-    std::vector<int> input_tokens = tokenizer->encode(input_text);
+    // Encode input (no special tokens for encoder input)
+    std::vector<int> input_tokens = tokenizer->encode(input_text, false);
     int input_len = input_tokens.size();
     Matrix encoder_mask(input_len, input_len);
     for (int i = 0; i < input_len; ++i) {
@@ -181,8 +181,8 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
                                                                  const std::string& strategy,
                                                                  float temperature, int top_k,
                                                                  float top_p, int num_beams) {
-    // Encode input
-    std::vector<int> input_tokens = tokenizer->encode(input_text);
+    // Encode input (no special tokens for encoder input)
+    std::vector<int> input_tokens = tokenizer->encode(input_text, false);
     int input_len = input_tokens.size();
     Matrix encoder_mask(input_len, input_len);
     for (int i = 0; i < input_len; ++i) {
@@ -246,8 +246,8 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
 // Training step
 float EncoderDecoderModel::train_step(const std::string& input_text,
                                       const std::string& target_text) {
-    std::vector<int> input_tokens = tokenizer->encode(input_text);
-    std::vector<int> target_tokens = tokenizer->encode(target_text);
+    std::vector<int> input_tokens = tokenizer->encode(input_text, false);   // Encoder: no special tokens
+    std::vector<int> target_tokens = tokenizer->encode(target_text, true);  // Decoder: with special tokens
 
     return train_step_tokenized(input_tokens, target_tokens);
 }
@@ -283,8 +283,8 @@ float EncoderDecoderModel::evaluate(const std::string& input_text, const std::st
     bool prev_mode = requires_grad;
     set_training(false);
 
-    std::vector<int> input_tokens = tokenizer->encode(input_text);
-    std::vector<int> target_tokens = tokenizer->encode(target_text);
+    std::vector<int> input_tokens = tokenizer->encode(input_text, false);   // Encoder: no special tokens
+    std::vector<int> target_tokens = tokenizer->encode(target_text, true);  // Decoder: with special tokens
 
     // Forward pass only
     Matrix logits = forward(input_tokens, target_tokens);
@@ -367,6 +367,13 @@ void EncoderDecoderModel::backward_pass(const Matrix& grad_output) {
 // Set tokenizer
 void EncoderDecoderModel::set_tokenizer(BPETokenizer* tokenizer_ptr) {
     tokenizer.reset(tokenizer_ptr);
+    
+    // Synchronize special token IDs from tokenizer
+    TextGenerator::GenerationConfig config = generator->get_config();
+    config.bos_token_id = tokenizer->get_bos_token_id();
+    config.eos_token_id = tokenizer->get_eos_token_id();
+    config.pad_token_id = tokenizer->get_pad_token_id();
+    set_generation_config(config);
 }
 
 // Set generation config

@@ -161,7 +161,7 @@ public:
 private:
     // Internal helpers
     bool initialize_session();
-    bool finalize_session(float final_loss, float final_val_loss);
+    bool finalize_session(int samples_trained, int epochs_completed, float final_loss, float final_val_loss);
     bool should_auto_save();
     void perform_auto_save();
     std::string generate_session_checkpoint_path();

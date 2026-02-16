@@ -557,8 +557,8 @@ std::string ChatbotAPI::create_batch_json_response(const BatchResponse& batch_re
 
 std::string ChatbotAPI::generate_response(const std::string& input, const GenerationConfig& config) {
     try {
-        // Tokenize input
-        std::vector<int> input_tokens = tokenizer_->encode(input);
+        // Tokenize input (no special tokens for encoder input)
+        std::vector<int> input_tokens = tokenizer_->encode(input, false);
         
         // Create a TextGenerator with appropriate configuration
         TextGenerator::GenerationConfig gen_config;
@@ -617,7 +617,7 @@ ChatbotAPI::BatchResponse ChatbotAPI::generate_batch_responses(
         input_token_sequences.reserve(inputs.size());
         
         for (const auto& input : inputs) {
-            input_token_sequences.push_back(tokenizer_->encode(input));
+            input_token_sequences.push_back(tokenizer_->encode(input, false));  // Encoder: no special tokens
         }
         
         // Create batches using dynamic batching for efficiency

@@ -307,8 +307,8 @@ void ChatbotTrainer::preprocess_data() {
         // Tokenize training data
         tokenized_training_data.clear();
         for (const auto& pair : training_data) {
-            std::vector<int> input_tokens = tokenizer->encode(pair.input);
-            std::vector<int> target_tokens = tokenizer->encode(pair.response);
+            std::vector<int> input_tokens = tokenizer->encode(pair.input, false);    // Encoder: no special tokens
+            std::vector<int> target_tokens = tokenizer->encode(pair.response, true); // Decoder: with special tokens
             tokenized_training_data.emplace_back(input_tokens, target_tokens, pair.input,
                                                  pair.response);
         }
@@ -316,8 +316,8 @@ void ChatbotTrainer::preprocess_data() {
         // Tokenize validation data
         tokenized_validation_data.clear();
         for (const auto& pair : validation_data) {
-            std::vector<int> input_tokens = tokenizer->encode(pair.input);
-            std::vector<int> target_tokens = tokenizer->encode(pair.response);
+            std::vector<int> input_tokens = tokenizer->encode(pair.input, false);    // Encoder: no special tokens
+            std::vector<int> target_tokens = tokenizer->encode(pair.response, true); // Decoder: with special tokens
             tokenized_validation_data.emplace_back(input_tokens, target_tokens, pair.input,
                                                    pair.response);
         }

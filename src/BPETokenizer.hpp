@@ -118,8 +118,15 @@ class BPETokenizer {
 
     // Convert IDs back to text
     std::string decode(const std::vector<int>& ids, bool skip_special_tokens = true);
+    
     // Get vocabulary size
     size_t get_vocab_size() const;
+
+    // Get special token IDs
+    int get_bos_token_id() const { return bos_token_id; }
+    int get_eos_token_id() const { return eos_token_id; }
+    int get_pad_token_id() const { return pad_token_id; }
+    int get_unk_token_id() const { return unk_token_id; }
 
     // Save vocabulary to file
     void save_vocab(const std::string& filename) const;

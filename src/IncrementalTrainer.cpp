@@ -197,7 +197,7 @@ bool IncrementalTrainer::train_incremental(int num_epochs) {
         // Finalize session
         float final_loss = trainer.get_final_training_loss();
         float final_val_loss = trainer.get_final_validation_loss();
-        finalize_session(final_loss, final_val_loss);
+        finalize_session(training_pairs.size(), num_epochs, final_loss, final_val_loss);
         
         // Clear pending data
         pending_data_files.clear();
@@ -272,7 +272,7 @@ bool IncrementalTrainer::train_full_retrain(int num_epochs) {
         
         float final_loss = trainer.get_final_training_loss();
         float final_val_loss = trainer.get_final_validation_loss();
-        finalize_session(final_loss, final_val_loss);
+        finalize_session(all_pairs.size(), num_epochs, final_loss, final_val_loss);
         
         pending_data_files.clear();
         save_data_registry();
@@ -580,13 +580,15 @@ bool IncrementalTrainer::initialize_session() {
     return true;
 }
 
-bool IncrementalTrainer::finalize_session(float final_loss, float final_val_loss) {
+bool IncrementalTrainer::finalize_session(int samples_trained, int epochs_completed, float final_loss, float final_val_loss) {
     if (session_history.empty()) {
         return false;
     }
     
     auto& session = session_history.back();
     session.end_time = std::chrono::system_clock::now();
+    session.samples_trained = samples_trained;
+    session.epochs_completed = epochs_completed;
     session.final_loss = final_loss;
     session.final_validation_loss = final_val_loss;
     session.checkpoint_path = generate_session_checkpoint_path();

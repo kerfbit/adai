@@ -10,3 +10,5 @@ gutenberg_data/gutenberg_1661_training.txt 70895_-4667133310128468599 300 1
 gutenberg_data/gutenberg_84_training.txt 111798_-4667133309414104872 300 1
 gutenberg_data/gutenberg_98_training.txt 101911_-4667133308493649111 300 1
 gutenberg_data/gutenberg_1260_training.txt 108802_-4667133307526187420 300 1
+gutenberg_data/gutenberg_76_training.txt 100055_-4667075332129369465 400 1
+gutenberg_data/gutenberg_2030_training.txt 441881_-4666731825665043033 1000 1

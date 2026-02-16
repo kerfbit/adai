@@ -2,269 +2,135 @@
 
 Welcome to the Advanced Deep Learning AI (ADAI) documentation. This guide will help you navigate through all aspects of the project, from getting started to deep architectural understanding.
 
-## 🚀 Getting Started
+## 📁 Documentation Structure
 
-- **[Quick Start Guide](guides/quickstart.md)** - Get running in 5 minutes
-- **[Docker Deployment](deployment/docker.md)** - Containerized deployment guide
-- **[REST API Quick Start](api/README.md)** - HTTP API server setup
-- **[Architecture Overview](architecture/neural-network.md)** - System design and components
-- **[Training Guide](guides/training-guide.md)** - How to train models
+The documentation is organized into two main sections:
 
-## 📚 User Guides
+### 👨‍💻 [Development Documentation](development/)
 
-### Chatbot
+For developers, contributors, and architects
 
-- **[Chatbot User Guide](guides/chatbot-guide.md)** - Using the chatbot CLI
-- **[Chatbot CLI Internals](guides/chatbot-cli-internals.md)** - How the CLI works
-- **[Training Guide](guides/training-guide.md)** - Comprehensive training documentation covering all methods ⭐ **EXPANDED**
-- **[Training Internals](guides/training-internals.md)** - Training system details ⭐ **UPDATED Jan 2026**
-- **[Training Improvements Quick Reference](guides/chatbot-trainer-improvements-2026.md)** - January 2026 improvements ✨ **NEW**
-- **[Enhanced Training Pipeline](guides/enhanced-training-pipeline.md)** - Production-ready training infrastructure (NEW)
-- **[Training Metrics and Logging](guides/chatbot-trainer-metrics-logging.md)** - Enhanced metrics tracking and logging system ✨ **NEW**
+Contains all coding and development-related documentation:
 
-### Advanced Training
+- **[API Documentation](development/api/)** - Component APIs and interfaces
+- **[Architecture](development/architecture/)** - System design and architecture
+- **[Testing](development/testing/)** - Test specifications and coverage
+- **[Reference](development/reference/)** - Technical reference materials
+- **[Developer Guides](development/guides/)** - Implementation guides, CI/CD, git workflow, internals
+- **[Archive](development/archive/)** - Historical documentation and phase summaries
 
-- **[Incremental Training Guide](guides/incremental-training-guide.md)** - Session-based continuous training without restarting ✨ **NEW**
-- **[Project Gutenberg Training](guides/gutenberg-training-guide.md)** - Download and train on 70,000+ free books ✨ **NEW**
+### 👥 [Operations Documentation](operations/)
 
-### Development
+For users, data scientists, and system administrators
 
-- **[Building ADAI](guides/building.md)** - Build instructions, requirements, and troubleshooting
-- **[Build and Vocab Guide](guides/BUILD_AND_VOCAB_GUIDE.md)** - Build system and vocabulary setup ✨ ADDED
-- **[Contributing Guide](guides/contributing.md)** - How to contribute to the project
-- **[Git Workflow](guides/git-workflow.md)** - Branching, commits, and PR process
-- **[CI/CD Pipeline](guides/ci-cd.md)** - Continuous integration and deployment
-- **[Technical Debt Management](guides/technical-debt-management.md)** - How to track and resolve technical debt
-- **[Technical Debt Tracker](guides/TECHNICAL_DEBT.md)** - Known issues and improvement opportunities ✨ ADDED
-- **[Training Example](guides/training-example.md)** - Complete training workflow
-- **[Save/Load Models](guides/save-load.md)** - Model persistence
-- **[Implementation Checklist](guides/implementation-checklist.md)** - Development checklist
-- **[Priority 1 Checklist](guides/PRIORITY1_CHECKLIST.md)** - High-priority tasks ✨ ADDED
-- **[Implementation Guide](guides/implementation-guide.md)** - Implementation best practices
-- **[Commands Reference](guides/COMMANDS.md)** - Common commands and utilities ✨ ADDED
-- **[Process Improvement Plan](guides/PROCESS_IMPROVEMENT_PLAN.md)** - Development process guidelines ✨ ADDED
-- **[Neuron Layer Implementation](guides/NEURON_LAYER_IMPLEMENTATION.md)** - NeuronLayer class implementation details ✨ **NEW**
+Contains all user-facing and operational documentation:
 
-### Data Processing & Pipeline
+- **[User Guides](operations/guides/)** - How to use the chatbot, train models, and configure features
+- **[Deployment](operations/deployment/)** - Docker and infrastructure setup
+- **[Troubleshooting](operations/guides/troubleshooting/)** - Common issues and solutions
+- **[Quick References](operations/guides/quick-reference/)** - Quick reference cards and cheat sheets
 
-- **[Dataset Enhanced Features](guides/dataset-enhanced-features.md)** - Advanced dataset capabilities (iterators, k-fold CV, augmentation) ✨ **NEW**
-- **[Data Pipeline Enhancement](guides/data-pipeline-enhancement.md)** - Efficient batching and parallel data loading ✨ **NEW**
+## 🚀 Quick Start
 
-### Performance Optimization
+### For New Users
 
-- **[Inference Optimization Guide](guides/inference-optimization.md)** - Complete optimization guide (KV cache, batching, profiling)
-- **[Inference Optimization Quick Start](guides/inference-optimization-quickstart.md)** - 5-minute optimization tutorial
-- **[Batch Processing Integration](guides/BATCH_PROCESSING_INTEGRATION.md)** - Batch processing setup and configuration ✨ ADDED
-- **[OpenMP Implementation](guides/OPENMP_IMPLEMENTATION.md)** - OpenMP parallelization guide ✨ ADDED
-- **[RAG Implementation Guide](guides/RAG_IMPLEMENTATION_GUIDE.md)** - Retrieval-Augmented Generation setup ✨ ADDED
+- **[Quick Start Guide](operations/guides/quickstart.md)** - Get running in 5 minutes
+- **[Chatbot User Guide](operations/guides/chatbot-guide.md)** - Using the chatbot
+- **[Training Guide](operations/guides/training-guide.md)** - How to train models
+- **[Docker Deployment](operations/deployment/docker.md)** - Containerized deployment
 
-### Advanced Features (Phase 5) ✨ NEW
+### For New Developers
 
-- **[Phase 5 Advanced Features Guide](guides/phase5-advanced-features.md)** - Complete guide to state-of-the-art features
-  - RLHF (Reinforcement Learning from Human Feedback)
-  - LoRA (Low-Rank Adaptation for parameter-efficient fine-tuning)
-  - Model Quantization (INT8/INT4 compression)
-  - Speculative Decoding (2-3x faster inference)
-  - Complete examples and benchmarks
-  - 60+ pages of comprehensive documentation
+- **[Contributing Guide](development/guides/contributing.md)** - How to contribute
+- **[Building ADAI](development/guides/building.md)** - Build instructions
+- **[Git Workflow](development/guides/git-workflow.md)** - Git best practices
+- **[API Reference](development/api/)** - Component APIs
 
-### Chatbot GUI
+## 📖 For Developers
 
-- **[Chatbot GUI Guide](guides/chatbot-gui-guide.md)** - GUI application user guide
-- **[Chatbot GUI README](guides/CHATBOT_GUI_README.md)** - GUI setup and usage ✨ ADDED
+Documentation for those working on the codebase:
 
-### Platform-Specific
+### Essential Guides
 
-- **[Windows Cross Compilation](guides/windows-cross-compilation.md)** - Cross-compiling for Windows
-- **[Windows Build Quick Reference](guides/WINDOWS_BUILD_QUICK_REFERENCE.md)** - Windows build quick reference ✨ ADDED
+- [Contributing Guide](development/guides/contributing.md) - Contribution guidelines
+- [Building ADAI](development/guides/building.md) - Build instructions and requirements
+- [Git Workflow](development/guides/git-workflow.md) - Branching, commits, and PR process
+- [CI/CD Pipeline](development/guides/ci-cd.md) - Continuous integration
 
-### Troubleshooting & Fixes
+### API & Architecture
 
-- **[Troubleshooting Index](guides/troubleshooting/README.md)** - Common issues and solutions index ✨ ADDED
-- **[Input Length Fix](guides/troubleshooting/INPUT_LENGTH_FIX.md)** - Fixing input length issues ✨ ADDED
-- **[Model Loading Fix](guides/troubleshooting/MODEL_LOADING_FIX.md)** - Troubleshooting model loading ✨ ADDED
-- **[Thread Error Fix](guides/troubleshooting/THREAD_ERROR_FIX.md)** - Resolving threading issues ✨ ADDED
-- **[Training Fix Strategy](guides/troubleshooting/TRAINING_FIX_STRATEGY.md)** - Training problem solutions ✨ ADDED
-- **[CPP Wrapper Solution](guides/troubleshooting/CPP_WRAPPER_SOLUTION.md)** - C++ wrapper troubleshooting ✨ ADDED
-- **[Chatbot GUI Troubleshooting](guides/troubleshooting/CHATBOT_GUI_TROUBLESHOOTING.md)** - GUI-specific issues ✨ ADDED
+- [API Documentation](development/api/) - Complete API reference
+- [Architecture](development/architecture/) - System design documentation
+- [Testing](development/testing/) - Test documentation
 
-### Quick Reference
+### Implementation Guides
 
-- **[Quick Reference Index](guides/quick-reference/README.md)** - All quick reference documents ✨ ADDED
-- **[Batch Processing Quick Reference](guides/BATCH_PROCESSING_QUICK_REFERENCE.md)** - Quick reference for batch processing
-- **[OpenMP Quick Reference](guides/OPENMP_QUICK_REFERENCE.md)** - OpenMP usage quick reference
-- **[Parallel Optimizations Quick Reference](guides/PARALLEL_OPTIMIZATIONS_QUICK_REFERENCE.md)** - Parallelization strategies
-- **[RAG Quick Reference](guides/RAG_QUICK_REFERENCE.md)** - RAG usage quick reference
-- **[Augmentation Quick Reference](guides/AUGMENTATION_QUICK_REFERENCE.md)** - Data augmentation techniques
-- **[Windows Build Quick Reference](guides/WINDOWS_BUILD_QUICK_REFERENCE.md)** - Windows build quick reference
-- **[Dataset Quick Reference](guides/dataset-quick-reference.md)** - Dataset v2.0 API and usage patterns ✨ **NEW**
+- [Implementation Guide](development/guides/implementation-guide.md) - Best practices
+- [RAG Implementation](development/guides/RAG_IMPLEMENTATION_GUIDE.md) - Retrieval-Augmented Generation
+- [OpenMP Implementation](development/guides/OPENMP_IMPLEMENTATION.md) - Parallel processing
+- [Training Internals](development/guides/training-internals.md) - Training system details
+- [Technical Debt Management](development/guides/technical-debt-management.md) - Managing technical debt
+
+## 👥 For Users and Operators
+
+Documentation for using and operating the chatbot:
+
+### Getting Started
+
+- [Quick Start](operations/guides/quickstart.md) - 5-minute quick start
+- [Chatbot Guide](operations/guides/chatbot-guide.md) - Using the chatbot CLI
+- [Chatbot GUI Guide](operations/guides/chatbot-gui-guide.md) - Using the GUI
+
+### Training
+
+- [Training Guide](operations/guides/training-guide.md) - Complete training guide
+- [Incremental Training](operations/guides/incremental-training-guide.md) - Continuous training
+- [Gutenberg Training](operations/guides/gutenberg-training-guide.md) - Training with books
+
+### Configuration & Optimization
+
+- [Build and Vocab Guide](operations/guides/BUILD_AND_VOCAB_GUIDE.md) - Setup guide
+- [Inference Optimization](operations/guides/inference-optimization.md) - Performance tuning
+- [RAG Quick Reference](operations/guides/RAG_QUICK_REFERENCE.md) - RAG usage
 
 ### Deployment
 
-- **[Deployment Documentation](deployment/README.md)** - Deployment guide index
-- **[Docker Deployment Guide](deployment/docker.md)** - Comprehensive containerization guide
-  - Multi-stage Docker builds
-  - Docker Compose orchestration
-  - Production deployment with Nginx
-  - SSL/TLS setup
-  - Monitoring and logging
-  - Troubleshooting
+- [Docker Deployment](operations/deployment/docker.md) - Production deployment
 
-## 🔧 API Reference
+### Troubleshooting
 
-### REST API Server
+- [Troubleshooting Index](operations/guides/troubleshooting/README.md) - Common issues
+- [Training Fix Strategy](operations/guides/troubleshooting/TRAINING_FIX_STRATEGY.md)
+- [GUI Troubleshooting](operations/guides/troubleshooting/CHATBOT_GUI_TROUBLESHOOTING.md)
 
-- **[REST API Documentation](api/rest-api.md)** - Complete HTTP API reference
-- **[API Quick Start](api/README.md)** - Getting started with the API server
-- **[API Implementation Summary](api/IMPLEMENTATION_SUMMARY.md)** - Implementation details
+## 📊 Project Highlights
 
-### Core Components
-
-- **[Matrix](api/core/matrix.md)** - Matrix operations and linear algebra
-- **[Activation](api/core/activation.md)** - Activation functions (ReLU, Softmax, etc.)
-- **[Optimizer](api/core/optimizer.md)** - SGD, Adam, AdamW optimizers
-- **[Neural Network](api/core/neural-network.md)** - Base neural network implementation
-- **[Neuron](api/core/neuron.md)** - Individual neuron component
-- **[Neuron Layer](api/core/neuron-layer.md)** - Dense layer implementation
-
-### Attention Mechanisms
-
-- **[Multi-Head Attention](api/attention/multihead-attention.md)** - Self-attention implementation (updated with KV cache support)
-- **[Cross Attention](api/attention/cross-attention.md)** - Encoder-decoder attention (updated with KV cache support)
-
-### Transformer Components
-
-- **[Encoder Block](api/transformer/encoder-block.md)** - Transformer encoder
-- **[Decoder Block](api/transformer/decoder-block.md)** - Transformer decoder (updated with dual KV cache support)
-- **[Encoder](api/transformer/encoder.md)** - Full encoder stack
-- **[Decoder](api/transformer/decoder.md)** - Full decoder stack (updated with KV cache support)
-- **[Encoder-Decoder Model](api/transformer/encoder-decoder-model.md)** - Complete transformer model
-- **[Layer Normalization](api/transformer/layer-norm.md)** - Layer norm implementation
-- **[Feed Forward](api/transformer/feed-forward.md)** - Position-wise FFN
-- **[Positional Encoding](api/transformer/positional-encoding.md)** - Position embeddings
-- **[Token Embedding](api/transformer/token-embedding.md)** - Token embeddings
-- **[Language Model Head](api/transformer/language-model-head.md)** - Output projection layer
-
-### NLP Utilities
-
-- **[BPE Tokenizer](api/nlp/tokenizer.md)** - Byte-Pair Encoding tokenization
-- **[Text Generator](api/nlp/text-generator.md)** - Text generation utilities
-- **[Conversation Context](api/nlp/conversation-context.md)** - Conversation management
-
-### Data Processing
-
-- **[Dataset Batch Processing](api/data/dataset-batch-processing.md)** - Complete guide to batch processing with datasets ✨ NEW
-  - Automatic padding and dynamic batching (20-40% efficiency improvement)
-  - Multi-threaded parallel loading (2-6x speedup)
-  - Integration with BatchProcessor utilities
-  - Training pipeline examples
-  - Performance optimization guide
-
-### Optimization
-
-- **[KV Cache](reference/kvcache.md)** - Key-Value caching for inference optimization (2-3x speedup)
-- **[Batch Processor](reference/batchprocessor.md)** - Batch processing utilities for multi-sequence inference (2-4x throughput)
-- **[Performance Profiler](reference/performanceprofiler.md)** - High-resolution timing and profiling tools
-
-### Advanced Features API (Phase 5) ✨ NEW
-
-- **[Reward Model](api/advanced/reward-model.md)** - RLHF preference modeling with Bradley-Terry loss
-- **[PPO Optimizer](api/advanced/ppo-optimizer.md)** - Proximal Policy Optimization for alignment
-- **[LoRA Adapter](api/advanced/lora.md)** - Low-rank adaptation (100-1000x parameter reduction)
-- **[Quantization](api/advanced/quantization.md)** - INT8/INT4 model compression (4-8x memory reduction)
-- **[Speculative Decoding](api/advanced/speculative-decoding.md)** - Accelerated inference (2-3x speedup)
-
-## 🏗️ Architecture Deep Dives
-
-- **[Transformer Design](architecture/transformer-design.md)** - Complete transformer architecture
-- **[Decoder Architecture](architecture/decoder-architecture.md)** - Decoder design patterns
-- **[Decoder Design](architecture/decoder-design.md)** - Detailed decoder implementation
-- **[Encoder-Decoder Comparison](architecture/encoder-decoder-comparison.md)** - Architectural comparison
-
-## 🧪 Testing
-
-- **[BPE Tokenizer Tests](testing/bpe-tokenizer-tests.md)** - Tokenizer test suite
-- **[Chatbot CLI Tests](testing/chatbot-cli-tests.md)** - CLI testing
-- **[Chatbot Trainer Tests](testing/chatbot-trainer-tests.md)** - Trainer testing
-- **[Encoder-Decoder Tests](testing/encoder-decoder-tests.md)** - Model testing
-- **[Neural Network Tests](testing/neural-network-tests.md)** - Core network tests
-- **[Neuron Tests](testing/neuron-tests.md)** - Neuron component tests
-- **[Neuron Layer Tests](testing/neuron-layer-tests.md)** - Layer testing
-- **[Optimizer Integration Tests](testing/optimizer-integration-tests.md)** - Optimizer testing
-
-## 📖 Reference
-
-- **[Chatbot Completeness](reference/chatbot-completeness.md)** - Feature completeness analysis
-- **[Gradient Operations](reference/GRADIENT_OPERATIONS_WITHOUT_OPTIMIZER.md)** - Manual gradient computation
-
-## 🔄 Development & Process
-
-- **[Process Improvement Plan](guides/PROCESS_IMPROVEMENT_PLAN.md)** - Development process improvements
-
-## 📦 Project Archive
-
-Historical summaries and completion reports (moved from root):
-
-- **[Archive Index](archive/)** - Historical project summaries
-  - Phase completion reports (PHASE3-5_COMPLETE.md)
-  - Implementation summaries (GPU, OpenMP, KV Cache, etc.)
-  - Analysis reports and training summaries
-  - Build and integration summaries
-  - Natural language and audio encoder-decoder reports
-
-## 📊 Project Metrics
-
-- **87** C++ source/header files (includes Phase 5 components)
+- **87** C++ source/header files
 - **~39,000** lines of code
-- **730+** comprehensive test suites (100% pass rate) ✨
+- **730+** comprehensive test suites (100% pass rate)
 - **65+** documentation files (~18,000+ lines)
-- **13** executable targets (includes phase5_examples)
-- **30+** transformer/neural network components (includes advanced features)
-- **100%** complete for production AI applications ✨ NEW
+- **30+** transformer/neural network components
+- Production-ready AI chatbot with advanced features
 
-## 📂 Documentation Structure
+## 🗂️ Directory Layout
 
 ```text
 docs/
-├── README.md (this file)        # Documentation index
-├── architecture/                # System architecture and design
-├── api/                         # API reference documentation
-│   ├── core/                   # Core components
-│   ├── attention/              # Attention mechanisms
-│   ├── transformer/            # Transformer components
-│   ├── nlp/                    # NLP utilities
-│   ├── advanced/               # Advanced features (RLHF, LoRA, etc.)
-│   ├── data/                   # Data processing
-│   ├── rest-api.md             # REST API reference
-│   └── README.md               # API quick start
-├── deployment/                  # Deployment guides
-│   ├── README.md               # Deployment index
-│   └── docker.md               # Docker deployment guide
-├── guides/                      # User and developer guides
-│   ├── troubleshooting/        # Troubleshooting and fixes
-│   └── quick-reference/        # Quick reference docs
-├── testing/                     # Test documentation
-├── reference/                   # Additional reference materials
-└── archive/                     # Historical summaries and reports
+├── README.md (this file)
+├── development/              # Developer & coding documentation
+│   ├── api/                 # API reference
+│   ├── architecture/        # System architecture
+│   ├── testing/             # Test documentation
+│   ├── reference/           # Technical reference
+│   ├── guides/              # Developer guides
+│   └── archive/             # Historical docs
+└── operations/              # User & operations documentation
+    ├── guides/              # User guides
+    ├── deployment/          # Deployment docs
+    ├── troubleshooting/     # Troubleshooting
+    └── quick-reference/     # Quick refs
 ```
 
-## 🤝 Contributing
+## 📄 License
 
-- **[Contributing Guide](guides/contributing.md)** - Comprehensive contribution guidelines
-- **[Technical Debt Tracker](guides/TECHNICAL_DEBT.md)** - Known issues and improvement opportunities
-- **[Process Improvement Plan](guides/PROCESS_IMPROVEMENT_PLAN.md)** - Development guidelines and roadmap
-
-When adding new documentation:
-
-1. Place API docs in the appropriate `api/` subdirectory
-2. User guides go in `guides/`
-3. Architecture docs go in `architecture/`
-4. Test docs go in `testing/`
-5. Troubleshooting guides go in `guides/troubleshooting/`
-6. Quick reference docs go in `guides/quick-reference/`
-7. Historical documents go in `archive/`
-8. Update this index when adding new major documents
-
-## 📝 License
-
-See [LICENSE](../LICENSE) file in the root directory.
+See [../LICENSE](../LICENSE) for details.

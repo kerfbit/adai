@@ -1,1 +1,0 @@
-gutenberg_data/gutenberg_76_training.txt
