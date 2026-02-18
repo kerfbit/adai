@@ -1,14 +1,21 @@
-// Content of IncrementalTrainer.cpp from commit e447ef3b4a2570b60c5096b1ca969c1c52caa277
-// This is just a placeholder for the actual content, use the actual content from the specified SHA.
-
+#include "IncrementalTrainer.hpp"
+#include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
+#include <ctime>
+#include <regex>
+#include <cstdlib>
 
-class IncrementalTrainer {
-public:
-    void train() {
-        std::cout << "Training..." << std::endl;
-    }
-};
+// ANSI color codes
+#define COLOR_RESET "\033[0m"
+#define COLOR_INFO "\033[1;36m"
+#define COLOR_SUCCESS "\033[1;32m"
+#define COLOR_WARNING "\033[1;33m"
+#define COLOR_ERROR "\033[1;31m"
+#define COLOR_PROGRESS "\033[1;35m"
 
 namespace fs = std::filesystem;
 
