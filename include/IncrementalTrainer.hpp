@@ -23,6 +23,12 @@ struct TrainingSession {
     float final_validation_loss;
     std::string checkpoint_path;
     std::vector<std::string> data_files_used;
+    
+    // TODO: TD-004 - Add per-epoch loss tracking vector for training visualization
+    // TODO: TD-004 - Add per-epoch validation loss tracking vector for overfitting detection
+    // TODO: TD-004 - Add per-epoch training time tracking for performance analysis
+    // TODO: TD-004 - Add per-epoch learning rate tracking for schedule effectiveness analysis
+    // TODO: TD-004 - Add per-epoch gradient norm tracking for training stability monitoring
 };
 
 /**
@@ -169,6 +175,13 @@ private:
     void ensure_directories_exist();
     int load_conversation_pairs(const std::string& filepath, 
                                std::vector<ConversationPair>& pairs);
+    
+    // TODO: TD-005 - Add update_checkpoint_symlinks(checkpoint_path) to manage latest symlink
+    // TODO: TD-005 - Add update_best_checkpoint(validation_loss, checkpoint_path) to track best model
+    // TODO: TD-005 - Add get_best_checkpoint_path() to retrieve best model across all sessions
+    // TODO: TD-005 - Add is_windows_platform() helper for platform-specific symlink handling
+    // TODO: TD-005 - Add create_or_update_symlink(target, link_path) with Windows fallback logic
+    // TODO: TD-005 - Add remove_symlink_if_exists(link_path) for cleanup operations
     
     // Gutenberg helpers
     bool download_file(const std::string& url, const std::string& output_path);

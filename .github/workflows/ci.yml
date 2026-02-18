@@ -110,6 +110,49 @@ jobs:
         ./scripts/analyze_code.sh || true
         # Note: Using '|| true' to not fail on warnings for now
         # Remove this once all warnings are addressed
+  
+  todo-scanner:
+    name: Scan for Untracked TODOs
+    runs-on: ubuntu-22.04
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Scan for TODO comments
+      run: |
+        echo "🔍 Scanning for TODO comments in source files..."
+        
+        # Find all TODO comments in C++ source files
+        TODO_COUNT=$(grep -r "TODO:" --include="*.cpp" --include="*.hpp" src/ tests/ include/ | wc -l || true)
+        
+        echo "Found $TODO_COUNT TODO comments"
+        
+        # List all TODOs with file and line number
+        if [ $TODO_COUNT -gt 0 ]; then
+          echo ""
+          echo "📋 TODO Comments Found:"
+          echo "===================="
+          grep -rn "TODO:" --include="*.cpp" --include="*.hpp" src/ tests/ include/ || true
+          echo ""
+          echo "⚠️  Please ensure all TODOs are tracked in docs/development/guides/TECHNICAL_DEBT.md"
+          echo "   or have associated GitHub issues."
+        else
+          echo "✅ No TODO comments found"
+        fi
+        
+        # Create artifact with TODO list
+        mkdir -p todo-report
+        echo "# TODO Report - $(date)" > todo-report/todos.txt
+        echo "" >> todo-report/todos.txt
+        grep -rn "TODO:" --include="*.cpp" --include="*.hpp" src/ tests/ include/ >> todo-report/todos.txt || echo "No TODOs found" >> todo-report/todos.txt
+    
+    - name: Upload TODO Report
+      uses: actions/upload-artifact@v4
+      with:
+        name: todo-report
+        path: todo-report/
+        retention-days: 30
 
   sanitizer-tests:
     name: Sanitizer Tests

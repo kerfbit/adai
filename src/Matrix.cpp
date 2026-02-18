@@ -44,6 +44,10 @@ const float& Matrix::operator()(int i, int j) const {
 }
 
 // Matrix multiplication
+// TODO: See TD-007 in TECHNICAL_DEBT.md - Add explicit SIMD intrinsics for matrix multiplication
+// TODO: Integrate BLAS library (OpenBLAS/MKL) for optimized GEMM operations on large matrices (>256x256)
+// TODO: Add cache-blocking/tiling optimization for better L1/L2 cache utilization
+// TODO: Implement specialized fast paths for common matrix sizes (powers of 2, multiples of SIMD width)
 Matrix Matrix::operator*(const Matrix& other) const {
     if (cols != other.rows) {
         throw std::invalid_argument("Matrix dimensions incompatible for multiplication: [" +
@@ -54,6 +58,9 @@ Matrix Matrix::operator*(const Matrix& other) const {
 
     Matrix result(rows, other.cols);
 
+    // TODO: Add BLAS library integration: result = cblas_sgemm(this, other) for matrices >256x256
+    // TODO: Use AVX2/AVX-512 intrinsics (_mm256_fmadd_ps) for 8-16 float SIMD operations
+    // TODO: Add ARM NEON intrinsics (vfmaq_f32) for ARM64 platforms
 #ifdef ADAI_ENABLE_OPENMP
     // Parallel version with OpenMP - 5-8x speedup on multi-core CPUs
     #pragma omp parallel for collapse(2) schedule(dynamic, 32) if(rows > 64 && other.cols > 64)
@@ -84,6 +91,9 @@ Matrix Matrix::operator*(const Matrix& other) const {
 }
 
 // Matrix addition
+// TODO: See TD-007 in TECHNICAL_DEBT.md - Add SIMD vectorization for element-wise operations
+// TODO: Use AVX2 _mm256_add_ps for 8-way float addition per instruction
+// TODO: Add ARM NEON vaddq_f32 for 4-way float addition on ARM platforms
 Matrix Matrix::operator+(const Matrix& other) const {
     if (rows != other.rows || cols != other.cols) {
         throw std::invalid_argument("Matrix dimensions must match for addition");
@@ -112,6 +122,9 @@ Matrix Matrix::operator+(const Matrix& other) const {
 }
 
 // Matrix subtraction
+// TODO: See TD-007 in TECHNICAL_DEBT.md - Add SIMD vectorization for element-wise operations
+// TODO: Use AVX2 _mm256_sub_ps for 8-way float subtraction per instruction
+// TODO: Add ARM NEON vsubq_f32 for 4-way float subtraction on ARM platforms
 Matrix Matrix::operator-(const Matrix& other) const {
     if (rows != other.rows || cols != other.cols) {
         throw std::invalid_argument("Matrix dimensions must match for subtraction");
@@ -201,6 +214,9 @@ Matrix Matrix::scale(float scalar) const {
 }
 
 // Hadamard product (element-wise multiplication)
+// TODO: See TD-007 in TECHNICAL_DEBT.md - Add SIMD vectorization for element-wise multiplication
+// TODO: Use AVX2 _mm256_mul_ps for 8-way float multiplication per instruction
+// TODO: Add ARM NEON vmulq_f32 for 4-way float multiplication on ARM platforms
 Matrix Matrix::hadamard(const Matrix& other) const {
     if (rows != other.rows || cols != other.cols) {
         throw std::invalid_argument("Matrix dimensions must match for Hadamard product");
@@ -229,6 +245,9 @@ Matrix Matrix::hadamard(const Matrix& other) const {
 }
 
 // Apply gradients (gradient descent update)
+// TODO: See TD-007 in TECHNICAL_DEBT.md - Add SIMD vectorization for gradient updates
+// TODO: Use AVX2 _mm256_fmadd_ps for fused multiply-add operations (data - lr * grad)
+// TODO: Add ARM NEON vfmsq_f32 for fused multiply-subtract on ARM platforms
 void Matrix::apply_gradients(const Matrix& gradients, float learning_rate) {
     if (rows != gradients.rows || cols != gradients.cols) {
         throw std::invalid_argument("Gradient matrix dimensions must match");
@@ -273,6 +292,9 @@ void Matrix::fill(float value) {
 }
 
 // Sum of all elements
+// TODO: See TD-007 in TECHNICAL_DEBT.md - Add SIMD horizontal sum reduction
+// TODO: Use AVX2 _mm256_hadd_ps with _mm256_reduce_add_ps for vectorized summation
+// TODO: Add ARM NEON vaddvq_f32 for efficient horizontal sum on ARM platforms
 float Matrix::sum() const {
     float total = 0.0f;
 #ifdef ADAI_ENABLE_OPENMP

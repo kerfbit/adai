@@ -190,6 +190,12 @@ bool IncrementalTrainer::train_incremental(int num_epochs) {
     model = trainer.release_model();
     
     if (success) {
+        // TODO: TD-004 - Retrieve per-epoch losses from ChatbotTrainer with get_epoch_losses() method
+        // TODO: TD-004 - Retrieve per-epoch validation losses from ChatbotTrainer
+        // TODO: TD-004 - Calculate per-epoch training times from epoch start/end timestamps
+        // TODO: TD-004 - Retrieve per-epoch learning rates from optimizer's LR scheduler history
+        // TODO: TD-004 - Retrieve per-epoch gradient norms from optimizer's gradient tracking
+        
         // Save checkpoint
         std::string checkpoint_path = generate_session_checkpoint_path();
         save_model(checkpoint_path);
@@ -289,6 +295,19 @@ bool IncrementalTrainer::resume_last_session() {
     }
     
     const auto& last_session = session_history.back();
+    
+    // Validate checkpoint path
+    if (last_session.checkpoint_path.empty()) {
+        std::cerr << COLOR_ERROR << "❌ Invalid session: checkpoint path is empty" << COLOR_RESET << std::endl;
+        return false;
+    }
+    
+    // Check if checkpoint file exists
+    if (!fs::exists(last_session.checkpoint_path)) {
+        std::cerr << COLOR_ERROR << "❌ Checkpoint file not found: " << last_session.checkpoint_path << COLOR_RESET << std::endl;
+        return false;
+    }
+    
     std::cout << COLOR_INFO << "🔄 Resuming from session #" << last_session.session_id << COLOR_RESET << std::endl;
     
     return load_model(last_session.checkpoint_path);
@@ -309,6 +328,13 @@ bool IncrementalTrainer::load_session_history() {
     session_history.clear();
     std::string line;
     
+    // TODO: TD-004 - Check for version marker to determine if per-epoch metrics are available
+    // TODO: TD-004 - Parse per-epoch loss values from extended format (comma-separated after checkpoint_path)
+    // TODO: TD-004 - Parse per-epoch validation loss values with backward compatibility for old format
+    // TODO: TD-004 - Parse per-epoch training times with fallback to zero if not present
+    // TODO: TD-004 - Parse per-epoch learning rates with fallback to config default if not present
+    // TODO: TD-004 - Parse per-epoch gradient norms for advanced debugging capabilities
+    
     while (std::getline(file, line)) {
         if (line.empty() || line[0] == '#') continue;
         
@@ -317,6 +343,12 @@ bool IncrementalTrainer::load_session_history() {
         
         iss >> session.session_id >> session.samples_trained >> session.epochs_completed
             >> session.final_loss >> session.final_validation_loss >> session.checkpoint_path;
+        
+        // Validate that parsing was successful
+        if (iss.fail() || session.checkpoint_path.empty()) {
+            std::cerr << COLOR_WARNING << "⚠️  Skipping malformed session history line: " << line << COLOR_RESET << std::endl;
+            continue;
+        }
         
         session_history.push_back(session);
         
@@ -339,7 +371,16 @@ bool IncrementalTrainer::save_session_history() {
         return false;
     }
     
+    // TODO: TD-004 - Add version header ("# VERSION 2") to indicate extended format with per-epoch metrics
+    // TODO: TD-004 - Update header comment to include per-epoch metric columns
     file << "# Session History: session_id samples_trained epochs final_loss final_val_loss checkpoint_path\n";
+    
+    // TODO: TD-004 - Serialize per-epoch losses as comma-separated values after checkpoint_path
+    // TODO: TD-004 - Serialize per-epoch validation losses in separate column or embedded JSON
+    // TODO: TD-004 - Serialize per-epoch training times in ISO 8601 duration format or seconds
+    // TODO: TD-004 - Serialize per-epoch learning rates with scientific notation for precision
+    // TODO: TD-004 - Serialize per-epoch gradient norms for debugging training instability
+    // TODO: TD-004 - Add optional JSON serialization mode for complex nested data structures
     
     for (const auto& session : session_history) {
         file << session.session_id << " " 
@@ -373,6 +414,10 @@ void IncrementalTrainer::cleanup_old_sessions() {
     
     for (int i = 0; i < to_remove; ++i) {
         const auto& session = session_history[i];
+        
+        // TODO: TD-005 - Check if checkpoint to be deleted is target of "best_checkpoint.bin" symlink
+        // TODO: TD-005 - If deleting best checkpoint, find next best and update symlink before deletion
+        // TODO: TD-005 - Remove any dangling symlinks pointing to deleted checkpoint files
         
         // Delete checkpoint file
         if (fs::exists(session.checkpoint_path)) {
@@ -468,6 +513,12 @@ bool IncrementalTrainer::save_model(const std::string& path) {
     try {
         model->save_model(path);
         std::cout << COLOR_SUCCESS << "💾 Model saved to: " << path << COLOR_RESET << std::endl;
+        
+        // TODO: TD-005 - Update "latest_checkpoint.bin" symlink after successful save
+        // TODO: TD-005 - Check if this is best checkpoint and update "best_checkpoint.bin" symlink if needed
+        // TODO: TD-005 - Use std::filesystem::create_symlink() with force overwrite for existing links
+        // TODO: TD-005 - Add platform detection with #ifdef _WIN32 for Windows compatibility
+        
         return true;
     } catch (const std::exception& e) {
         std::cerr << COLOR_ERROR << "❌ Failed to save model: " << e.what() << COLOR_RESET << std::endl;
@@ -503,6 +554,13 @@ void IncrementalTrainer::print_training_summary() const {
     std::cout << COLOR_SUCCESS << "📈 Total Samples Trained: " << get_total_samples_trained() << COLOR_RESET << std::endl;
     std::cout << COLOR_SUCCESS << "⏱️  Total Training Time: " << std::fixed << std::setprecision(2)
               << get_total_training_time_hours() << " hours" << COLOR_RESET << std::endl;
+    
+    // TODO: TD-004 - Display per-epoch loss progression graph using ASCII art or sparklines
+    // TODO: TD-004 - Show validation loss trend to detect overfitting visually
+    // TODO: TD-004 - Display learning rate schedule visualization across epochs
+    // TODO: TD-004 - Show min/max/avg gradient norms for training stability assessment
+    // TODO: TD-005 - Display path to "latest_checkpoint.bin" symlink if it exists
+    // TODO: TD-005 - Display path to "best_checkpoint.bin" symlink and its validation loss
     
     if (!session_history.empty()) {
         const auto& last = session_history.back();
@@ -580,6 +638,8 @@ bool IncrementalTrainer::initialize_session() {
     return true;
 }
 
+// See TD-004 in TECHNICAL_DEBT.md - Enhanced metrics tracking for training sessions
+// See TD-005 in TECHNICAL_DEBT.md - Checkpoint management and symbolic links
 bool IncrementalTrainer::finalize_session(int samples_trained, int epochs_completed, float final_loss, float final_val_loss) {
     if (session_history.empty()) {
         return false;
@@ -592,6 +652,18 @@ bool IncrementalTrainer::finalize_session(int samples_trained, int epochs_comple
     session.final_loss = final_loss;
     session.final_validation_loss = final_val_loss;
     session.checkpoint_path = generate_session_checkpoint_path();
+    
+    // TODO: TD-004 - Store collected per-epoch metrics in session.per_epoch_losses vector
+    // TODO: TD-004 - Store per-epoch validation losses in session.per_epoch_validation_losses vector
+    // TODO: TD-004 - Store per-epoch training times in session.per_epoch_training_times vector
+    // TODO: TD-004 - Store per-epoch learning rates in session.per_epoch_learning_rates vector
+    
+    // TODO: TD-005 - Create/update "latest_checkpoint.bin" symlink to session.checkpoint_path in root directory
+    // TODO: TD-005 - Compare final_validation_loss with best recorded loss across all sessions
+    // TODO: TD-005 - Update "best_checkpoint.bin" symlink if this session has lowest validation loss
+    // TODO: TD-005 - Implement Windows fallback: copy file instead of symlink on Windows platform
+    // TODO: TD-005 - Add error handling for symlink creation failures (permissions, filesystem support)
+    // TODO: TD-005 - Log symlink creation/update operations with INFO level messages
     
     current_session_id++;
     
@@ -915,6 +987,7 @@ IncrementalTrainer::create_qa_pairs_from_text(const std::vector<std::string>& se
     return pairs;
 }
 
+// See TD-006 in TECHNICAL_DEBT.md - Fill-in-the-Middle (FIM) training data generation
 bool IncrementalTrainer::convert_gutenberg_to_training_data(const std::string& text_file,
                                                             const std::string& output_file,
                                                             int max_pairs) {

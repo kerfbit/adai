@@ -32,6 +32,11 @@ if(OpenMP_CXX_FOUND)
     message(STATUS "OpenMP support added to adai_core - parallel CPU operations enabled")
 endif()
 
+# TODO: See TD-007 in TECHNICAL_DEBT.md - Add BLAS library support for optimized matrix operations
+# TODO: Add find_package(BLAS) or use cmake/FindBLAS.cmake for OpenBLAS/MKL/Accelerate detection
+# TODO: if(ENABLE_BLAS AND BLAS_FOUND): target_link_libraries(adai_core PUBLIC ${BLAS_LIBRARIES})
+# TODO: Add compile definition: target_compile_definitions(adai_core PUBLIC ADAI_ENABLE_BLAS)
+
 # GPU support (optional)
 if(ENABLE_GPU)
     # Add GPU library

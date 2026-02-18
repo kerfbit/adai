@@ -260,6 +260,7 @@ class ChatbotTrainer {
     float calculate_accuracy(const std::vector<int>& predictions, const std::vector<int>& targets);
 
     // Getters for testing
+    // TODO: TD-004 - These getters expose per-epoch metrics for IncrementalTrainer integration
     const std::vector<float>& get_training_losses() const { return training_losses; }
     const std::vector<float>& get_validation_losses() const { return validation_losses; }
     const std::vector<float>& get_training_perplexities() const { return training_perplexities; }
