@@ -1,4 +1,4 @@
-INPUT: Tell me about: [Illustration]
+INPUT: Can you explain: [Illustration]
 
 Alice’s Adventures in Wonderland
 
@@ -36,7 +36,7 @@ INPUT: Summarize: Down the Rabbit-Hole
 RESPONSE: A Caucus-Race and a Long Tale
  CHAPTER IV.
 
-INPUT: Can you explain: A Caucus-Race and a Long Tale
+INPUT: What is this about: A Caucus-Race and a Long Tale
  CHAPTER IV.
 RESPONSE: The Rabbit Sends in a Little Bill
  CHAPTER V.
@@ -69,7 +69,7 @@ INPUT: Summarize: A Mad Tea-Party
 RESPONSE: The Mock Turtle’s Story
  CHAPTER X.
 
-INPUT: Tell me about: The Mock Turtle’s Story
+INPUT: Can you explain: The Mock Turtle’s Story
  CHAPTER X.
 RESPONSE: The Lobster Quadrille
  CHAPTER XI.
@@ -81,7 +81,7 @@ RESPONSE: Alice’s Evidence
 
 CHAPTER I.
 
-INPUT: Tell me about: Alice’s Evidence
+INPUT: Explain this: Alice’s Evidence
 
 CHAPTER I.
 RESPONSE: Down the Rabbit-Hole
@@ -109,7 +109,7 @@ making a daisy-chain would be worth the trouble of getting up and
 picking the daisies, when suddenly a White Rabbit with pink eyes ran
 close by her.
 
-INPUT: Explain this: ”
+INPUT: What does this mean: ”
 
 So she was considering in her own mind (as well as she could, for the
 hot day made her feel very sleepy and stupid), whether the pleasure of
@@ -132,7 +132,7 @@ dear!
 RESPONSE: In another moment down went Alice after it, never once considering how
 in the world she was to get out again.
 
-INPUT: Explain this: In another moment down went Alice after it, never once considering how
+INPUT: What is this about: In another moment down went Alice after it, never once considering how
 in the world she was to get out again.
 RESPONSE: The rabbit-hole went straight on like a tunnel for some way, and then
 dipped suddenly down, so suddenly that Alice had not a moment to think
@@ -148,7 +148,7 @@ RESPONSE: Either the well was very deep, or she fell very slowly, for she had
 plenty of time as she went down to look about her and to wonder what
 was going to happen next.
 
-INPUT: Explain this: Either the well was very deep, or she fell very slowly, for she had
+INPUT: Can you explain: Either the well was very deep, or she fell very slowly, for she had
 plenty of time as she went down to look about her and to wonder what
 was going to happen next.
 RESPONSE: First, she tried to look down and make out
@@ -170,7 +170,7 @@ disappointment it was empty: she did not like to drop the jar for fear
 of killing somebody underneath, so managed to put it into one of the
 cupboards as she fell past it.
 
-INPUT: What does this mean: She took down a jar from one of the shelves as she
+INPUT: Tell me about: She took down a jar from one of the shelves as she
 passed; it was labelled “ORANGE MARMALADE”, but to her great
 disappointment it was empty: she did not like to drop the jar for fear
 of killing somebody underneath, so managed to put it into one of the
@@ -187,7 +187,7 @@ think nothing of tumbling down stairs!
 RESPONSE: How brave they’ll all think me
 at home!
 
-INPUT: What does this mean: How brave they’ll all think me
+INPUT: Can you explain: How brave they’ll all think me
 at home!
 RESPONSE: Why, I wouldn’t say anything about it, even if I fell off the
 top of the house!
@@ -197,14 +197,14 @@ at home! Why, I wouldn’t say anything about it, even if I fell off the
 top of the house!
 RESPONSE: ” (Which was very likely true.
 
-INPUT: What is this about: ” (Which was very likely true.
+INPUT: Tell me about: ” (Which was very likely true.
 RESPONSE: Would the fall _never_ come to an end?
 
 INPUT: Summarize: ” (Which was very likely true. Would the fall _never_ come to an end?
 RESPONSE: “I wonder how
 many miles I’ve fallen by this time?
 
-INPUT: What is this about: “I wonder how
+INPUT: Can you explain: “I wonder how
 many miles I’ve fallen by this time?
 RESPONSE: “I must be
 getting somewhere near the centre of the earth.
@@ -244,7 +244,7 @@ RESPONSE: )
 
 Presently she began again.
 
-INPUT: What does this mean: )
+INPUT: Explain this: )
 
 Presently she began again.
 RESPONSE: “I wonder if I shall fall right _through_
@@ -257,7 +257,7 @@ the earth!
 RESPONSE: How funny it’ll seem to come out among the people that walk
 with their heads downward!
 
-INPUT: Tell me about: How funny it’ll seem to come out among the people that walk
+INPUT: What does this mean: How funny it’ll seem to come out among the people that walk
 with their heads downward!
 RESPONSE: The Antipathies, I think—” (she was rather
 glad there _was_ no one listening, this time, as it didn’t sound at all
@@ -271,7 +271,7 @@ the right word) “—but I shall have to ask them what the name of the
 country is, you know.
 RESPONSE: Please, Ma’am, is this New Zealand or Australia?
 
-INPUT: What is this about: Please, Ma’am, is this New Zealand or Australia?
+INPUT: What does this mean: Please, Ma’am, is this New Zealand or Australia?
 RESPONSE: ”
 (and she tried to curtsey as she spoke—fancy _curtseying_ as you’re
 falling through the air!
@@ -281,7 +281,7 @@ INPUT: Summarize: Please, Ma’am, is this New Zealand or Australia? ”
 falling through the air!
 RESPONSE: Do you think you could manage it?
 
-INPUT: What does this mean: Do you think you could manage it?
+INPUT: Explain this: Do you think you could manage it?
 RESPONSE: ) “And what
 an ignorant little girl she’ll think me for asking!
 
@@ -290,7 +290,7 @@ an ignorant little girl she’ll think me for asking!
 RESPONSE: No, it’ll never do
 to ask: perhaps I shall see it written up somewhere.
 
-INPUT: What does this say: No, it’ll never do
+INPUT: Explain this: No, it’ll never do
 to ask: perhaps I shall see it written up somewhere.
 RESPONSE: ”
 
@@ -303,7 +303,7 @@ Down, down, down.
 RESPONSE: There was nothing else to do, so Alice soon began
 talking again.
 
-INPUT: Tell me about: There was nothing else to do, so Alice soon began
+INPUT: What does this say: There was nothing else to do, so Alice soon began
 talking again.
 RESPONSE: “Dinah’ll miss me very much to-night, I should think!
 
@@ -312,7 +312,7 @@ talking again. “Dinah’ll miss me very much to-night, I should think!
 RESPONSE: ”
 (Dinah was the cat.
 
-INPUT: What does this say: ”
+INPUT: Tell me about: ”
 (Dinah was the cat.
 RESPONSE: ) “I hope they’ll remember her saucer of milk at
 tea-time.
@@ -322,7 +322,7 @@ INPUT: Summarize: ”
 tea-time.
 RESPONSE: I wish you were down here with me!
 
-INPUT: Explain this: I wish you were down here with me!
+INPUT: What is this about: I wish you were down here with me!
 RESPONSE: There are
 no mice in the air, I’m afraid, but you might catch a bat, and that’s
 very like a mouse, you know.
@@ -332,7 +332,7 @@ no mice in the air, I’m afraid, but you might catch a bat, and that’s
 very like a mouse, you know.
 RESPONSE: But do cats eat bats, I wonder?
 
-INPUT: What does this say: But do cats eat bats, I wonder?
+INPUT: What is this about: But do cats eat bats, I wonder?
 RESPONSE: ” And here
 Alice began to get rather sleepy, and went on saying to herself, in a
 dreamy sort of way, “Do cats eat bats?
@@ -343,7 +343,7 @@ dreamy sort of way, “Do cats eat bats?
 RESPONSE: ” and
 sometimes, “Do bats eat cats?
 
-INPUT: Explain this: ” and
+INPUT: Tell me about: ” and
 sometimes, “Do bats eat cats?
 RESPONSE: ” for, you see, as she couldn’t answer
 either question, it didn’t much matter which way she put it.
@@ -356,7 +356,7 @@ that she was dozing off, and had just begun to dream that she was
 walking hand in hand with Dinah, and saying to her very earnestly,
 “Now, Dinah, tell me the truth: did you ever eat a bat?
 
-INPUT: What does this mean: She felt
+INPUT: Tell me about: She felt
 that she was dozing off, and had just begun to dream that she was
 walking hand in hand with Dinah, and saying to her very earnestly,
 “Now, Dinah, tell me the truth: did you ever eat a bat?
@@ -371,7 +371,7 @@ thump!
 RESPONSE: down she came upon a heap of sticks and dry leaves, and
 the fall was over.
 
-INPUT: What does this say: down she came upon a heap of sticks and dry leaves, and
+INPUT: Tell me about: down she came upon a heap of sticks and dry leaves, and
 the fall was over.
 RESPONSE: Alice was not a bit hurt, and she jumped up on to her feet in a moment:
 she looked up, but it was all dark overhead; before her was another
@@ -387,7 +387,7 @@ RESPONSE: There was not a moment to be lost: away went Alice like the wind,
 and was just in time to hear it say, as it turned a corner, “Oh my ears
 and whiskers, how late it’s getting!
 
-INPUT: What does this say: There was not a moment to be lost: away went Alice like the wind,
+INPUT: Can you explain: There was not a moment to be lost: away went Alice like the wind,
 and was just in time to hear it say, as it turned a corner, “Oh my ears
 and whiskers, how late it’s getting!
 RESPONSE: ” She was close behind it when she
@@ -406,7 +406,7 @@ Alice had been all the way down one side and up the other, trying every
 door, she walked sadly down the middle, wondering how she was ever to
 get out again.
 
-INPUT: Tell me about: There were doors all round the hall, but they were all locked; and when
+INPUT: Can you explain: There were doors all round the hall, but they were all locked; and when
 Alice had been all the way down one side and up the other, trying every
 door, she walked sadly down the middle, wondering how she was ever to
 get out again.
@@ -425,7 +425,7 @@ but, alas!
 RESPONSE: either the locks were too large, or the key was too small,
 but at any rate it would not open any of them.
 
-INPUT: Explain this: either the locks were too large, or the key was too small,
+INPUT: Can you explain: either the locks were too large, or the key was too small,
 but at any rate it would not open any of them.
 RESPONSE: However, on the second
 time round, she came upon a low curtain she had not noticed before, and
@@ -441,7 +441,7 @@ RESPONSE: Alice opened the door and found that it led into a small passage, not
 much larger than a rat-hole: she knelt down and looked along the
 passage into the loveliest garden you ever saw.
 
-INPUT: What is this about: Alice opened the door and found that it led into a small passage, not
+INPUT: What does this say: Alice opened the door and found that it led into a small passage, not
 much larger than a rat-hole: she knelt down and looked along the
 passage into the loveliest garden you ever saw.
 RESPONSE: How she longed to get
@@ -460,7 +460,7 @@ poor Alice, “it would be of very little use without my shoulders.
 RESPONSE: Oh,
 how I wish I could shut up like a telescope!
 
-INPUT: Tell me about: Oh,
+INPUT: What does this mean: Oh,
 how I wish I could shut up like a telescope!
 RESPONSE: I think I could, if I only
 knew how to begin.
@@ -495,7 +495,7 @@ letters.
 RESPONSE: It was all very well to say “Drink me,” but the wise little Alice was
 not going to do _that_ in a hurry.
 
-INPUT: Tell me about: It was all very well to say “Drink me,” but the wise little Alice was
+INPUT: What does this mean: It was all very well to say “Drink me,” but the wise little Alice was
 not going to do _that_ in a hurry.
 RESPONSE: However, this bottle was _not_ marked “poison,” so Alice ventured to
 taste it, and finding it very nice, (it had, in fact, a sort of mixed
@@ -515,7 +515,7 @@ RESPONSE: * * * * * * *
 
 “What a curious feeling!
 
-INPUT: Can you explain: * * * * * * *
+INPUT: What does this say: * * * * * * *
 
  * * * * * *
 
@@ -560,7 +560,7 @@ said Alice to herself, “in my going out altogether, like a candle.
 RESPONSE: I
 wonder what I should be like then?
 
-INPUT: What is this about: I
+INPUT: Can you explain: I
 wonder what I should be like then?
 RESPONSE: ” And she tried to fancy what the
 flame of a candle is like after the candle is blown out, for she could
@@ -593,7 +593,7 @@ and when she had tired herself out with trying, the poor little thing
 sat down and cried.
 RESPONSE: “Come, there’s no use in crying like that!
 
-INPUT: Tell me about: “Come, there’s no use in crying like that!
+INPUT: Can you explain: “Come, there’s no use in crying like that!
 RESPONSE: ” said Alice to herself,
 rather sharply; “I advise you to leave off this minute!
 
@@ -606,7 +606,7 @@ her eyes; and once she remembered trying to box her own ears for having
 cheated herself in a game of croquet she was playing against herself,
 for this curious child was very fond of pretending to be two people.
 
-INPUT: What does this say: ” She generally
+INPUT: Explain this: ” She generally
 gave herself very good advice, (though she very seldom followed it),
 and sometimes she scolded herself so severely as to bring tears into
 her eyes; and once she remembered trying to box her own ears for having
@@ -625,7 +625,7 @@ people!
 RESPONSE: Why, there’s hardly enough of me left to make _one_ respectable
 person!
 
-INPUT: Tell me about: Why, there’s hardly enough of me left to make _one_ respectable
+INPUT: What is this about: Why, there’s hardly enough of me left to make _one_ respectable
 person!
 RESPONSE: ”
 
@@ -644,7 +644,7 @@ Alice, “and if it makes me grow larger, I can reach the key; and if it
 makes me grow smaller, I can creep under the door; so either way I’ll
 get into the garden, and I don’t care which happens!
 
-INPUT: What does this mean: “Well, I’ll eat it,” said
+INPUT: What is this about: “Well, I’ll eat it,” said
 Alice, “and if it makes me grow larger, I can reach the key; and if it
 makes me grow smaller, I can creep under the door; so either way I’ll
 get into the garden, and I don’t care which happens!
@@ -665,7 +665,7 @@ had got so much into the way of expecting nothing but out-of-the-way
 things to happen, that it seemed quite dull and stupid for life to go
 on in the common way.
 
-INPUT: What does this say: ”, holding her hand on the top of her head to feel which way it was
+INPUT: What is this about: ”, holding her hand on the top of her head to feel which way it was
 growing, and she was quite surprised to find that she remained the same
 size: to be sure, this generally happens when one eats cake, but Alice
 had got so much into the way of expecting nothing but out-of-the-way
@@ -687,7 +687,7 @@ RESPONSE: * * * * * * *
 
 CHAPTER II.
 
-INPUT: What is this about: * * * * * * *
+INPUT: What does this say: * * * * * * *
 
  * * * * * *
 
@@ -711,7 +711,7 @@ RESPONSE: ” cried Alice (she was so much surprised, that
 for the moment she quite forgot how to speak good English); “now I’m
 opening out like the largest telescope that ever was!
 
-INPUT: Explain this: ” cried Alice (she was so much surprised, that
+INPUT: Tell me about: ” cried Alice (she was so much surprised, that
 for the moment she quite forgot how to speak good English); “now I’m
 opening out like the largest telescope that ever was!
 RESPONSE: ”
@@ -726,7 +726,7 @@ sight, they were getting so far off).
 RESPONSE: “Oh, my poor little feet, I
 wonder who will put on your shoes and stockings for you now, dears?
 
-INPUT: Tell me about: “Oh, my poor little feet, I
+INPUT: Can you explain: “Oh, my poor little feet, I
 wonder who will put on your shoes and stockings for you now, dears?
 RESPONSE: I’m
 sure _I_ shan’t be able!
@@ -739,7 +739,7 @@ myself about you: you must manage the best way you can;—but I must be
 kind to them,” thought Alice, “or perhaps they won’t walk the way I
 want to go!
 
-INPUT: Explain this: I shall be a great deal too far off to trouble
+INPUT: Tell me about: I shall be a great deal too far off to trouble
 myself about you: you must manage the best way you can;—but I must be
 kind to them,” thought Alice, “or perhaps they won’t walk the way I
 want to go!
@@ -755,7 +755,7 @@ RESPONSE: ”
 
 And she went on planning to herself how she would manage it.
 
-INPUT: Explain this: ”
+INPUT: Tell me about: ”
 
 And she went on planning to herself how she would manage it.
 RESPONSE: “They must
@@ -776,7 +776,7 @@ INPUT: Summarize: And how odd the directions will look! _Alice’s Right Foot, E
 RESPONSE: , Hearthrug, near the Fender,_ (_with
  Alice’s love_).
 
-INPUT: Explain this: , Hearthrug, near the Fender,_ (_with
+INPUT: What does this mean: , Hearthrug, near the Fender,_ (_with
  Alice’s love_).
 RESPONSE: Oh dear, what nonsense I’m talking!
 
@@ -788,7 +788,7 @@ Just then her head struck against the roof of the hall: in fact she was
 now more than nine feet high, and she at once took up the little golden
 key and hurried off to the garden door.
 
-INPUT: What is this about: ”
+INPUT: What does this say: ”
 
 Just then her head struck against the roof of the hall: in fact she was
 now more than nine feet high, and she at once took up the little golden
@@ -807,7 +807,7 @@ hopeless than ever: she sat down and began to cry again.
 RESPONSE: “You ought to be ashamed of yourself,” said Alice, “a great girl like
 you,” (she might well say this), “to go on crying in this way!
 
-INPUT: Can you explain: “You ought to be ashamed of yourself,” said Alice, “a great girl like
+INPUT: Explain this: “You ought to be ashamed of yourself,” said Alice, “a great girl like
 you,” (she might well say this), “to go on crying in this way!
 RESPONSE: Stop
 this moment, I tell you!
@@ -834,7 +834,7 @@ Rabbit returning, splendidly dressed, with a pair of white kid gloves
 in one hand and a large fan in the other: he came trotting along in a
 great hurry, muttering to himself as he came, “Oh!
 
-INPUT: What does this mean: It was the White
+INPUT: Tell me about: It was the White
 Rabbit returning, splendidly dressed, with a pair of white kid gloves
 in one hand and a large fan in the other: he came trotting along in a
 great hurry, muttering to himself as he came, “Oh!
@@ -848,7 +848,7 @@ great hurry, muttering to himself as he came, “Oh! the Duchess, the
 Duchess!
 RESPONSE: won’t she be savage if I’ve kept her waiting!
 
-INPUT: Explain this: won’t she be savage if I’ve kept her waiting!
+INPUT: Tell me about: won’t she be savage if I’ve kept her waiting!
 RESPONSE: ” Alice felt
 so desperate that she was ready to ask help of any one; so, when the
 Rabbit came near her, she began, in a low, timid voice, “If you please,
@@ -863,7 +863,7 @@ the fan, and skurried away into the darkness as hard as he could go.
 RESPONSE: Alice took up the fan and gloves, and, as the hall was very hot, she
 kept fanning herself all the time she went on talking: “Dear, dear!
 
-INPUT: What does this say: Alice took up the fan and gloves, and, as the hall was very hot, she
+INPUT: What is this about: Alice took up the fan and gloves, and, as the hall was very hot, she
 kept fanning herself all the time she went on talking: “Dear, dear!
 RESPONSE: How
 queer everything is to-day!
@@ -873,7 +873,7 @@ kept fanning herself all the time she went on talking: “Dear, dear! How
 queer everything is to-day!
 RESPONSE: And yesterday things went on just as usual.
 
-INPUT: What does this mean: And yesterday things went on just as usual.
+INPUT: Tell me about: And yesterday things went on just as usual.
 RESPONSE: I wonder if I’ve been changed in the night?
 
 INPUT: Summarize: And yesterday things went on just as usual. I wonder if I’ve been changed in the night?
@@ -901,7 +901,7 @@ RESPONSE: ” And she began
 thinking over all the children she knew that were of the same age as
 herself, to see if she could have been changed for any of them.
 
-INPUT: What does this mean: ” And she began
+INPUT: Can you explain: ” And she began
 thinking over all the children she knew that were of the same age as
 herself, to see if she could have been changed for any of them.
 RESPONSE: “I’m sure I’m not Ada,” she said, “for her hair goes in such long
@@ -916,7 +916,7 @@ be Mabel, for I know all sorts of things, and she, oh!
 RESPONSE: she knows such a
 very little!
 
-INPUT: What does this mean: she knows such a
+INPUT: What is this about: she knows such a
 very little!
 RESPONSE: Besides, _she’s_ she, and _I’m_ I, and—oh dear, how
 puzzling it all is!
@@ -926,7 +926,7 @@ very little! Besides, _she’s_ she, and _I’m_ I, and—oh dear, how
 puzzling it all is!
 RESPONSE: I’ll try if I know all the things I used to know.
 
-INPUT: What does this say: I’ll try if I know all the things I used to know.
+INPUT: What is this about: I’ll try if I know all the things I used to know.
 RESPONSE: Let me see: four times five is twelve, and four times six is thirteen,
 and four times seven is—oh dear!
 
@@ -946,7 +946,7 @@ Geography.
 RESPONSE: London is the capital of Paris, and Paris is the capital of
 Rome, and Rome—no, _that’s_ all wrong, I’m certain!
 
-INPUT: Explain this: London is the capital of Paris, and Paris is the capital of
+INPUT: What is this about: London is the capital of Paris, and Paris is the capital of
 Rome, and Rome—no, _that’s_ all wrong, I’m certain!
 RESPONSE: I must have been
 changed for Mabel!
@@ -964,7 +964,7 @@ did not come the same as they used to do:—
 And pour the waters of the Nile
  On every golden scale!
 
-INPUT: What does this mean: I’ll try and say ‘_How doth the little_—’” and she
+INPUT: Tell me about: I’ll try and say ‘_How doth the little_—’” and she
 crossed her hands on her lap as if she were saying lessons, and began
 to repeat it, but her voice sounded hoarse and strange, and the words
 did not come the same as they used to do:—
@@ -997,7 +997,7 @@ filled with tears again as she went on, “I must be Mabel after all, and
 I shall have to go and live in that poky little house, and have next to
 no toys to play with, and oh!
 
-INPUT: Tell me about: ”
+INPUT: What does this say: ”
 
 “I’m sure those are not the right words,” said poor Alice, and her eyes
 filled with tears again as she went on, “I must be Mabel after all, and
@@ -1014,7 +1014,7 @@ no toys to play with, and oh! ever so many lessons to learn!
 RESPONSE: No, I’ve
 made up my mind about it; if I’m Mabel, I’ll stay down here!
 
-INPUT: Tell me about: No, I’ve
+INPUT: Explain this: No, I’ve
 made up my mind about it; if I’m Mabel, I’ll stay down here!
 RESPONSE: It’ll be
 no use their putting their heads down and saying ‘Come up again, dear!
@@ -1038,7 +1038,7 @@ here till I’m somebody else’—but, oh dear!
 RESPONSE: ” cried Alice, with a sudden
 burst of tears, “I do wish they _would_ put their heads down!
 
-INPUT: What does this mean: ” cried Alice, with a sudden
+INPUT: Can you explain: ” cried Alice, with a sudden
 burst of tears, “I do wish they _would_ put their heads down!
 RESPONSE: I am so
 _very_ tired of being all alone here!
@@ -1052,7 +1052,7 @@ As she said this she looked down at her hands, and was surprised to see
 that she had put on one of the Rabbit’s little white kid gloves while
 she was talking.
 
-INPUT: Tell me about: ”
+INPUT: What does this say: ”
 
 As she said this she looked down at her hands, and was surprised to see
 that she had put on one of the Rabbit’s little white kid gloves while
@@ -1083,7 +1083,7 @@ found out that the cause of this was the fan she was holding, and she
 dropped it hastily, just in time to avoid shrinking away altogether.
 RESPONSE: “That _was_ a narrow escape!
 
-INPUT: What does this mean: “That _was_ a narrow escape!
+INPUT: What is this about: “That _was_ a narrow escape!
 RESPONSE: ” said Alice, a good deal frightened at the
 sudden change, but very glad to find herself still in existence; “and
 now for the garden!
@@ -1094,7 +1094,7 @@ now for the garden!
 RESPONSE: ” and she ran with all speed back to the little
 door: but, alas!
 
-INPUT: Tell me about: ” and she ran with all speed back to the little
+INPUT: What does this mean: ” and she ran with all speed back to the little
 door: but, alas!
 RESPONSE: the little door was shut again, and the little golden
 key was lying on the glass table as before, “and things are worse than
@@ -1108,7 +1108,7 @@ ever,” thought the poor child, “for I never was so small as this
 before, never!
 RESPONSE: And I declare it’s too bad, that it is!
 
-INPUT: What does this say: And I declare it’s too bad, that it is!
+INPUT: What is this about: And I declare it’s too bad, that it is!
 RESPONSE: ”
 
 As she said these words her foot slipped, and in another moment,
@@ -1120,7 +1120,7 @@ As she said these words her foot slipped, and in another moment,
 splash!
 RESPONSE: she was up to her chin in salt water.
 
-INPUT: What is this about: she was up to her chin in salt water.
+INPUT: Tell me about: she was up to her chin in salt water.
 RESPONSE: Her first idea was that
 she had somehow fallen into the sea, “and in that case I can go back by
 railway,” she said to herself.
@@ -1134,7 +1134,7 @@ to on the English coast you find a number of bathing machines in the
 sea, some children digging in the sand with wooden spades, then a row
 of lodging houses, and behind them a railway station.
 
-INPUT: Explain this: (Alice had been to the seaside once in
+INPUT: What is this about: (Alice had been to the seaside once in
 her life, and had come to the general conclusion, that wherever you go
 to on the English coast you find a number of bathing machines in the
 sea, some children digging in the sand with wooden spades, then a row
@@ -1161,7 +1161,7 @@ to find her way out.
 RESPONSE: “I shall be punished for it now, I suppose, by
 being drowned in my own tears!
 
-INPUT: What does this say: “I shall be punished for it now, I suppose, by
+INPUT: Tell me about: “I shall be punished for it now, I suppose, by
 being drowned in my own tears!
 RESPONSE: That _will_ be a queer thing, to be
 sure!
@@ -1189,7 +1189,7 @@ she was now, and she soon made out that it was only a mouse that had
 slipped in like herself.
 RESPONSE: “Would it be of any use, now,” thought Alice, “to speak to this mouse?
 
-INPUT: What does this say: “Would it be of any use, now,” thought Alice, “to speak to this mouse?
+INPUT: Tell me about: “Would it be of any use, now,” thought Alice, “to speak to this mouse?
 RESPONSE: Everything is so out-of-the-way down here, that I should think very
 likely it can talk: at any rate, there’s no harm in trying.
 
@@ -1198,7 +1198,7 @@ likely it can talk: at any rate, there’s no harm in trying.
 RESPONSE: ” So she
 began: “O Mouse, do you know the way out of this pool?
 
-INPUT: What is this about: ” So she
+INPUT: Can you explain: ” So she
 began: “O Mouse, do you know the way out of this pool?
 RESPONSE: I am very tired
 of swimming about here, O Mouse!
@@ -1211,7 +1211,7 @@ way of speaking to a mouse: she had never done such a thing before, but
 she remembered having seen in her brother’s Latin Grammar, “A mouse—of
 a mouse—to a mouse—a mouse—O mouse!
 
-INPUT: Explain this: ” (Alice thought this must be the right
+INPUT: What does this mean: ” (Alice thought this must be the right
 way of speaking to a mouse: she had never done such a thing before, but
 she remembered having seen in her brother’s Latin Grammar, “A mouse—of
 a mouse—to a mouse—a mouse—O mouse!
@@ -1228,7 +1228,7 @@ but it said nothing.
 RESPONSE: “Perhaps it doesn’t understand English,” thought Alice; “I daresay it’s
 a French mouse, come over with William the Conqueror.
 
-INPUT: Can you explain: “Perhaps it doesn’t understand English,” thought Alice; “I daresay it’s
+INPUT: What does this mean: “Perhaps it doesn’t understand English,” thought Alice; “I daresay it’s
 a French mouse, come over with William the Conqueror.
 RESPONSE: ” (For, with all
 her knowledge of history, Alice had no very clear notion how long ago
@@ -1250,7 +1250,7 @@ RESPONSE: The Mouse gave a
 sudden leap out of the water, and seemed to quiver all over with
 fright.
 
-INPUT: Explain this: The Mouse gave a
+INPUT: Tell me about: The Mouse gave a
 sudden leap out of the water, and seemed to quiver all over with
 fright.
 RESPONSE: “Oh, I beg your pardon!
@@ -1261,7 +1261,7 @@ fright. “Oh, I beg your pardon!
 RESPONSE: ” cried Alice hastily, afraid that she
 had hurt the poor animal’s feelings.
 
-INPUT: What is this about: ” cried Alice hastily, afraid that she
+INPUT: What does this mean: ” cried Alice hastily, afraid that she
 had hurt the poor animal’s feelings.
 RESPONSE: “I quite forgot you didn’t like
 cats.
@@ -1273,7 +1273,7 @@ RESPONSE: ”
 
 “Not like cats!
 
-INPUT: Can you explain: ”
+INPUT: What is this about: ”
 
 “Not like cats!
 RESPONSE: ” cried the Mouse, in a shrill, passionate voice.
@@ -1299,7 +1299,7 @@ about it.
 RESPONSE: And yet I wish I could show you our cat Dinah: I think you’d
 take a fancy to cats if you could only see her.
 
-INPUT: What does this say: And yet I wish I could show you our cat Dinah: I think you’d
+INPUT: Tell me about: And yet I wish I could show you our cat Dinah: I think you’d
 take a fancy to cats if you could only see her.
 RESPONSE: She is such a dear
 quiet thing,” Alice went on, half to herself, as she swam lazily about
@@ -1318,7 +1318,7 @@ pardon!
 RESPONSE: ” cried Alice again, for this time the Mouse was bristling all
 over, and she felt certain it must be really offended.
 
-INPUT: Explain this: ” cried Alice again, for this time the Mouse was bristling all
+INPUT: Can you explain: ” cried Alice again, for this time the Mouse was bristling all
 over, and she felt certain it must be really offended.
 RESPONSE: “We won’t talk
 about her any more if you’d rather not.
@@ -1329,7 +1329,7 @@ about her any more if you’d rather not.
 RESPONSE: ” cried the Mouse, who was trembling down to the end of his
 tail.
 
-INPUT: What is this about: ” cried the Mouse, who was trembling down to the end of his
+INPUT: What does this mean: ” cried the Mouse, who was trembling down to the end of his
 tail.
 RESPONSE: “As if _I_ would talk on such a subject!
 
@@ -1338,7 +1338,7 @@ tail. “As if _I_ would talk on such a subject!
 RESPONSE: Our family always
 _hated_ cats: nasty, low, vulgar things!
 
-INPUT: What is this about: Our family always
+INPUT: What does this mean: Our family always
 _hated_ cats: nasty, low, vulgar things!
 RESPONSE: Don’t let me hear the name
 again!
@@ -1350,7 +1350,7 @@ RESPONSE: ”
 
 “I won’t indeed!
 
-INPUT: Can you explain: ”
+INPUT: Tell me about: ”
 
 “I won’t indeed!
 RESPONSE: ” said Alice, in a great hurry to change the subject of
@@ -1373,7 +1373,7 @@ our house I should like to show you!
 RESPONSE: A little bright-eyed terrier, you
 know, with oh, such long curly brown hair!
 
-INPUT: Tell me about: A little bright-eyed terrier, you
+INPUT: Can you explain: A little bright-eyed terrier, you
 know, with oh, such long curly brown hair!
 RESPONSE: And it’ll fetch things when
 you throw them, and it’ll sit up and beg for its dinner, and all sorts
@@ -1388,7 +1388,7 @@ know, and he says it’s so useful, it’s worth a hundred pounds!
 RESPONSE: He says
 it kills all the rats and—oh dear!
 
-INPUT: Can you explain: He says
+INPUT: Explain this: He says
 it kills all the rats and—oh dear!
 RESPONSE: ” cried Alice in a sorrowful tone,
 “I’m afraid I’ve offended it again!
@@ -1400,7 +1400,7 @@ RESPONSE: ” For the Mouse was swimming away
 from her as hard as it could go, and making quite a commotion in the
 pool as it went.
 
-INPUT: Tell me about: ” For the Mouse was swimming away
+INPUT: Explain this: ” For the Mouse was swimming away
 from her as hard as it could go, and making quite a commotion in the
 pool as it went.
 RESPONSE: So she called softly after it, “Mouse dear!
@@ -1411,7 +1411,7 @@ pool as it went. So she called softly after it, “Mouse dear!
 RESPONSE: Do come back again, and we
 won’t talk about cats or dogs either, if you don’t like them!
 
-INPUT: Tell me about: Do come back again, and we
+INPUT: What does this mean: Do come back again, and we
 won’t talk about cats or dogs either, if you don’t like them!
 RESPONSE: ” When the
 Mouse heard this, it turned round and swam slowly back to her: its face
@@ -1431,7 +1431,7 @@ It was high time to go, for the pool was getting quite crowded with the
 birds and animals that had fallen into it: there were a Duck and a
 Dodo, a Lory and an Eaglet, and several other curious creatures.
 
-INPUT: Tell me about: ”
+INPUT: What does this mean: ”
 
 It was high time to go, for the pool was getting quite crowded with the
 birds and animals that had fallen into it: there were a Duck and a
@@ -1451,7 +1451,7 @@ They were indeed a queer-looking party that assembled on the bank—the
 birds with draggled feathers, the animals with their fur clinging close
 to them, and all dripping wet, cross, and uncomfortable.
 
-INPUT: What does this mean: A Caucus-Race and a Long Tale
+INPUT: What does this say: A Caucus-Race and a Long Tale
 
 They were indeed a queer-looking party that assembled on the bank—the
 birds with draggled feathers, the animals with their fur clinging close
@@ -1475,7 +1475,7 @@ older than you, and must know better;” and this Alice would not allow
 without knowing how old it was, and, as the Lory positively refused to
 tell its age, there was no more to be said.
 
-INPUT: Explain this: Indeed, she had quite a long argument
+INPUT: What is this about: Indeed, she had quite a long argument
 with the Lory, who at last turned sulky, and would only say, “I am
 older than you, and must know better;” and this Alice would not allow
 without knowing how old it was, and, as the Lory positively refused to
@@ -1492,7 +1492,7 @@ called out, “Sit down, all of you, and listen to me!
 RESPONSE: _I’ll_ soon make
 you dry enough!
 
-INPUT: Tell me about: _I’ll_ soon make
+INPUT: Explain this: _I’ll_ soon make
 you dry enough!
 RESPONSE: ” They all sat down at once, in a large ring, with the
 Mouse in the middle.
@@ -1503,7 +1503,7 @@ Mouse in the middle.
 RESPONSE: Alice kept her eyes anxiously fixed on it, for she
 felt sure she would catch a bad cold if she did not get dry very soon.
 
-INPUT: What does this mean: Alice kept her eyes anxiously fixed on it, for she
+INPUT: Tell me about: Alice kept her eyes anxiously fixed on it, for she
 felt sure she would catch a bad cold if she did not get dry very soon.
 RESPONSE: ” said the Mouse with an important air, “are you all ready?
 
@@ -1512,7 +1512,7 @@ felt sure she would catch a bad cold if she did not get dry very soon. ” said 
 RESPONSE: This
 is the driest thing I know.
 
-INPUT: What does this mean: This
+INPUT: Explain this: This
 is the driest thing I know.
 RESPONSE: Silence all round, if you please!
 
@@ -1523,7 +1523,7 @@ the Conqueror, whose cause was favoured by the pope, was soon submitted
 to by the English, who wanted leaders, and had been of late much
 accustomed to usurpation and conquest.
 
-INPUT: What does this mean: ‘William
+INPUT: What does this say: ‘William
 the Conqueror, whose cause was favoured by the pope, was soon submitted
 to by the English, who wanted leaders, and had been of late much
 accustomed to usurpation and conquest.
@@ -1541,14 +1541,14 @@ Mercia and Northumbria—’”
 “Ugh!
 RESPONSE: ” said the Lory, with a shiver.
 
-INPUT: Can you explain: ” said the Lory, with a shiver.
+INPUT: What is this about: ” said the Lory, with a shiver.
 RESPONSE: “I beg your pardon!
 
 INPUT: Summarize: ” said the Lory, with a shiver. “I beg your pardon!
 RESPONSE: ” said the Mouse, frowning, but very politely: “Did
 you speak?
 
-INPUT: What is this about: ” said the Mouse, frowning, but very politely: “Did
+INPUT: What does this say: ” said the Mouse, frowning, but very politely: “Did
 you speak?
 RESPONSE: ” said the Lory hastily.
 
@@ -1556,7 +1556,7 @@ INPUT: Summarize: ” said the Mouse, frowning, but very politely: “Did
 you speak? ” said the Lory hastily.
 RESPONSE: “I thought you did,” said the Mouse.
 
-INPUT: What does this mean: “I thought you did,” said the Mouse.
+INPUT: Tell me about: “I thought you did,” said the Mouse.
 RESPONSE: ‘Edwin and Morcar,
 the earls of Mercia and Northumbria, declared for him: and even
 Stigand, the patriotic archbishop of Canterbury, found it advisable—’”
@@ -1571,7 +1571,7 @@ Stigand, the patriotic archbishop of Canterbury, found it advisable—’”
 RESPONSE: “Found _it_,” the Mouse replied rather crossly: “of course you know
 what ‘it’ means.
 
-INPUT: Can you explain: “Found _it_,” the Mouse replied rather crossly: “of course you know
+INPUT: What is this about: “Found _it_,” the Mouse replied rather crossly: “of course you know
 what ‘it’ means.
 RESPONSE: ”
 
@@ -1602,7 +1602,7 @@ it advisable to go with Edgar Atheling to meet William and offer him
 the crown.
 RESPONSE: William’s conduct at first was moderate.
 
-INPUT: What does this say: William’s conduct at first was moderate.
+INPUT: Explain this: William’s conduct at first was moderate.
 RESPONSE: But the insolence
 of his Normans—’ How are you getting on now, my dear?
 
@@ -1627,7 +1627,7 @@ remedies—”
 
 “Speak English!
 
-INPUT: Explain this: ”
+INPUT: Can you explain: ”
 
 “In that case,” said the Dodo solemnly, rising to its feet, “I move
 that the meeting adjourn, for the immediate adoption of more energetic
@@ -1649,7 +1649,7 @@ RESPONSE: ” And
 the Eaglet bent down its head to hide a smile: some of the other birds
 tittered audibly.
 
-INPUT: Explain this: ” And
+INPUT: Tell me about: ” And
 the Eaglet bent down its head to hide a smile: some of the other birds
 tittered audibly.
 RESPONSE: “What I was going to say,” said the Dodo in an offended tone, “was,
@@ -1663,7 +1663,7 @@ RESPONSE: ”
 
 “What _is_ a Caucus-race?
 
-INPUT: What is this about: ”
+INPUT: Tell me about: ”
 
 “What _is_ a Caucus-race?
 RESPONSE: ” said Alice; not that she wanted much to
@@ -1677,7 +1677,7 @@ know, but the Dodo had paused as if it thought that _somebody_ ought to
 speak, and no one else seemed inclined to say anything.
 RESPONSE: “Why,” said the Dodo, “the best way to explain it is to do it.
 
-INPUT: What is this about: “Why,” said the Dodo, “the best way to explain it is to do it.
+INPUT: Can you explain: “Why,” said the Dodo, “the best way to explain it is to do it.
 RESPONSE: ” (And,
 as you might like to try the thing yourself, some winter day, I will
 tell you how the Dodo managed it.
@@ -1691,7 +1691,7 @@ First it marked out a race-course, in a sort of circle, (“the exact
 shape doesn’t matter,” it said,) and then all the party were placed
 along the course, here and there.
 
-INPUT: Tell me about: )
+INPUT: What is this about: )
 
 First it marked out a race-course, in a sort of circle, (“the exact
 shape doesn’t matter,” it said,) and then all the party were placed
@@ -1711,7 +1711,7 @@ RESPONSE: However,
 when they had been running half an hour or so, and were quite dry
 again, the Dodo suddenly called out “The race is over!
 
-INPUT: Tell me about: However,
+INPUT: What does this say: However,
 when they had been running half an hour or so, and were quite dry
 again, the Dodo suddenly called out “The race is over!
 RESPONSE: ” and they all
@@ -1728,7 +1728,7 @@ thought, and it sat for a long time with one finger pressed upon its
 forehead (the position in which you usually see Shakespeare, in the
 pictures of him), while the rest waited in silence.
 
-INPUT: What does this mean: ”
+INPUT: Explain this: ”
 
 This question the Dodo could not answer without a great deal of
 thought, and it sat for a long time with one finger pressed upon its
@@ -1760,7 +1760,7 @@ RESPONSE: “Why, _she_, of course,” said the Dodo, pointing to Alice with one
 finger; and the whole party at once crowded round her, calling out in a
 confused way, “Prizes!
 
-INPUT: What does this mean: “Why, _she_, of course,” said the Dodo, pointing to Alice with one
+INPUT: Explain this: “Why, _she_, of course,” said the Dodo, pointing to Alice with one
 finger; and the whole party at once crowded round her, calling out in a
 confused way, “Prizes!
 RESPONSE: ”
@@ -1787,7 +1787,7 @@ INPUT: Summarize: There was exactly
 one a-piece, all round. “But she must have a prize herself, you know,” said the Mouse.
 RESPONSE: “Of course,” the Dodo replied very gravely.
 
-INPUT: Can you explain: “Of course,” the Dodo replied very gravely.
+INPUT: What is this about: “Of course,” the Dodo replied very gravely.
 RESPONSE: “What else have you got in
 your pocket?
 
@@ -1795,13 +1795,13 @@ INPUT: Summarize: “Of course,” the Dodo replied very gravely. “What else h
 your pocket?
 RESPONSE: ” he went on, turning to Alice.
 
-INPUT: What does this mean: ” he went on, turning to Alice.
+INPUT: Can you explain: ” he went on, turning to Alice.
 RESPONSE: “Only a thimble,” said Alice sadly.
 
 INPUT: Summarize: ” he went on, turning to Alice. “Only a thimble,” said Alice sadly.
 RESPONSE: “Hand it over here,” said the Dodo.
 
-INPUT: Can you explain: “Hand it over here,” said the Dodo.
+INPUT: What is this about: “Hand it over here,” said the Dodo.
 RESPONSE: Then they all crowded round her once more, while the Dodo solemnly
 presented the thimble, saying “We beg your acceptance of this elegant
 thimble;” and, when it had finished this short speech, they all
@@ -1816,7 +1816,7 @@ that she did not dare to laugh; and, as she could not think of anything
 to say, she simply bowed, and took the thimble, looking as solemn as
 she could.
 
-INPUT: Can you explain: Alice thought the whole thing very absurd, but they all looked so grave
+INPUT: What does this say: Alice thought the whole thing very absurd, but they all looked so grave
 that she did not dare to laugh; and, as she could not think of anything
 to say, she simply bowed, and took the thimble, looking as solemn as
 she could.
@@ -1833,7 +1833,7 @@ theirs, and the small ones choked and had to be patted on the back.
 RESPONSE: However, it was over at last, and they sat down again in a ring, and
 begged the Mouse to tell them something more.
 
-INPUT: What does this say: However, it was over at last, and they sat down again in a ring, and
+INPUT: What is this about: However, it was over at last, and they sat down again in a ring, and
 begged the Mouse to tell them something more.
 RESPONSE: “You promised to tell me your history, you know,” said Alice, “and why
 it is you hate—C and D,” she added in a whisper, half afraid that it
@@ -1845,7 +1845,7 @@ it is you hate—C and D,” she added in a whisper, half afraid that it
 would be offended again.
 RESPONSE: “Mine is a long and a sad tale!
 
-INPUT: Can you explain: “Mine is a long and a sad tale!
+INPUT: What does this say: “Mine is a long and a sad tale!
 RESPONSE: ” said the Mouse, turning to Alice, and
 sighing.
 
@@ -1874,7 +1874,7 @@ RESPONSE: —Come, I’ll take no
  denial; We must have a trial: For really this morning I’ve
  nothing to do.
 
-INPUT: Tell me about: —Come, I’ll take no
+INPUT: Can you explain: —Come, I’ll take no
  denial; We must have a trial: For really this morning I’ve
  nothing to do.
 RESPONSE: ’ Said the mouse to the cur, ‘Such a trial, dear
@@ -1888,7 +1888,7 @@ RESPONSE: ’
  ‘I’ll be judge, I’ll be jury,’ Said cunning old Fury: ‘I’ll
  try the whole cause, and condemn you to death.
 
-INPUT: Can you explain: ’
+INPUT: What is this about: ’
  ‘I’ll be judge, I’ll be jury,’ Said cunning old Fury: ‘I’ll
  try the whole cause, and condemn you to death.
 RESPONSE: ’”
@@ -1902,7 +1902,7 @@ INPUT: Summarize: ’
 “You are not attending!
 RESPONSE: ” said the Mouse to Alice severely.
 
-INPUT: Can you explain: ” said the Mouse to Alice severely.
+INPUT: Explain this: ” said the Mouse to Alice severely.
 RESPONSE: “What are
 you thinking of?
 
@@ -1913,7 +1913,7 @@ RESPONSE: ”
 “I beg your pardon,” said Alice very humbly: “you had got to the fifth
 bend, I think?
 
-INPUT: Tell me about: ”
+INPUT: What does this say: ”
 
 “I beg your pardon,” said Alice very humbly: “you had got to the fifth
 bend, I think?
@@ -1926,7 +1926,7 @@ bend, I think? _” cried the Mouse, sharply and very angrily.
 RESPONSE: ” said Alice, always ready to make herself useful, and looking
 anxiously about her.
 
-INPUT: What does this say: ” said Alice, always ready to make herself useful, and looking
+INPUT: What is this about: ” said Alice, always ready to make herself useful, and looking
 anxiously about her.
 RESPONSE: “Oh, do let me help to undo it!
 
@@ -1937,7 +1937,7 @@ RESPONSE: ”
 “I shall do nothing of the sort,” said the Mouse, getting up and
 walking away.
 
-INPUT: What does this say: ”
+INPUT: What does this mean: ”
 
 “I shall do nothing of the sort,” said the Mouse, getting up and
 walking away.
@@ -1951,7 +1951,7 @@ RESPONSE: ”
 
 “I didn’t mean it!
 
-INPUT: What does this mean: ”
+INPUT: What does this say: ”
 
 “I didn’t mean it!
 RESPONSE: ” pleaded poor Alice.
@@ -1962,7 +1962,7 @@ INPUT: Summarize: ”
 RESPONSE: “But you’re so easily offended,
 you know!
 
-INPUT: What does this say: “But you’re so easily offended,
+INPUT: Explain this: “But you’re so easily offended,
 you know!
 RESPONSE: ”
 
@@ -1974,7 +1974,7 @@ you know! ”
 The Mouse only growled in reply.
 RESPONSE: “Please come back and finish your story!
 
-INPUT: Tell me about: “Please come back and finish your story!
+INPUT: What does this say: “Please come back and finish your story!
 RESPONSE: ” Alice called after it; and
 the others all joined in chorus, “Yes, please do!
 
@@ -1983,7 +1983,7 @@ the others all joined in chorus, “Yes, please do!
 RESPONSE: ” but the Mouse only
 shook its head impatiently, and walked a little quicker.
 
-INPUT: What does this mean: ” but the Mouse only
+INPUT: What does this say: ” but the Mouse only
 shook its head impatiently, and walked a little quicker.
 RESPONSE: “What a pity it wouldn’t stay!
 
@@ -1993,7 +1993,7 @@ RESPONSE: ” sighed the Lory, as soon as it was
 quite out of sight; and an old Crab took the opportunity of saying to
 her daughter “Ah, my dear!
 
-INPUT: Explain this: ” sighed the Lory, as soon as it was
+INPUT: Tell me about: ” sighed the Lory, as soon as it was
 quite out of sight; and an old Crab took the opportunity of saying to
 her daughter “Ah, my dear!
 RESPONSE: Let this be a lesson to you never to lose
@@ -2005,7 +2005,7 @@ her daughter “Ah, my dear! Let this be a lesson to you never to lose
 _your_ temper!
 RESPONSE: ” “Hold your tongue, Ma!
 
-INPUT: What does this mean: ” “Hold your tongue, Ma!
+INPUT: Explain this: ” “Hold your tongue, Ma!
 RESPONSE: ” said the young Crab, a little
 snappishly.
 
@@ -2013,7 +2013,7 @@ INPUT: Summarize: ” “Hold your tongue, Ma! ” said the young Crab, a little
 snappishly.
 RESPONSE: “You’re enough to try the patience of an oyster!
 
-INPUT: Explain this: “You’re enough to try the patience of an oyster!
+INPUT: What is this about: “You’re enough to try the patience of an oyster!
 RESPONSE: ”
 
 “I wish I had our Dinah here, I know I do!
@@ -2024,7 +2024,7 @@ INPUT: Summarize: “You’re enough to try the patience of an oyster! ”
 RESPONSE: ” said Alice aloud,
 addressing nobody in particular.
 
-INPUT: Explain this: ” said Alice aloud,
+INPUT: Tell me about: ” said Alice aloud,
 addressing nobody in particular.
 RESPONSE: “She’d soon fetch it back!
 
@@ -2047,7 +2047,7 @@ INPUT: Summarize: ”
 RESPONSE: And she’s such a capital one for catching mice you
 can’t think!
 
-INPUT: Tell me about: And she’s such a capital one for catching mice you
+INPUT: What is this about: And she’s such a capital one for catching mice you
 can’t think!
 RESPONSE: And oh, I wish you could see her after the birds!
 
@@ -2056,7 +2056,7 @@ can’t think! And oh, I wish you could see her after the birds!
 RESPONSE: Why,
 she’ll eat a little bird as soon as look at it!
 
-INPUT: Can you explain: Why,
+INPUT: What does this say: Why,
 she’ll eat a little bird as soon as look at it!
 RESPONSE: ”
 
@@ -2086,7 +2086,7 @@ to its children, “Come away, my dears!
 RESPONSE: It’s high time you were all in
 bed!
 
-INPUT: Tell me about: It’s high time you were all in
+INPUT: What does this mean: It’s high time you were all in
 bed!
 RESPONSE: ” On various pretexts they all moved off, and Alice was soon left
 alone.
@@ -2105,7 +2105,7 @@ tone.
 RESPONSE: “Nobody seems to like her, down here, and I’m sure she’s the best
 cat in the world!
 
-INPUT: What does this mean: “Nobody seems to like her, down here, and I’m sure she’s the best
+INPUT: What does this say: “Nobody seems to like her, down here, and I’m sure she’s the best
 cat in the world!
 RESPONSE: I wonder if I shall ever see you
 any more!
@@ -2116,7 +2116,7 @@ any more!
 RESPONSE: ” And here poor Alice began to cry again, for she felt very
 lonely and low-spirited.
 
-INPUT: Tell me about: ” And here poor Alice began to cry again, for she felt very
+INPUT: Explain this: ” And here poor Alice began to cry again, for she felt very
 lonely and low-spirited.
 RESPONSE: In a little while, however, she again heard a
 little pattering of footsteps in the distance, and she looked up
@@ -2134,7 +2134,7 @@ It was the White Rabbit, trotting slowly back again, and looking
 anxiously about as it went, as if it had lost something; and she heard
 it muttering to itself “The Duchess!
 
-INPUT: Tell me about: The Rabbit Sends in a Little Bill
+INPUT: What is this about: The Rabbit Sends in a Little Bill
 
 It was the White Rabbit, trotting slowly back again, and looking
 anxiously about as it went, as if it had lost something; and she heard
@@ -2151,7 +2151,7 @@ my fur and whiskers!
 RESPONSE: She’ll get me executed, as sure as ferrets are
 ferrets!
 
-INPUT: Can you explain: She’ll get me executed, as sure as ferrets are
+INPUT: What does this mean: She’ll get me executed, as sure as ferrets are
 ferrets!
 RESPONSE: Where _can_ I have dropped them, I wonder?
 
@@ -2164,7 +2164,7 @@ they were nowhere to be seen—everything seemed to have changed since
 her swim in the pool, and the great hall, with the glass table and the
 little door, had vanished completely.
 
-INPUT: What is this about: ” Alice guessed in a
+INPUT: What does this say: ” Alice guessed in a
 moment that it was looking for the fan and the pair of white kid
 gloves, and she very good-naturedly began hunting about for them, but
 they were nowhere to be seen—everything seemed to have changed since
@@ -2206,7 +2206,7 @@ surprised he’ll be when he finds out who I am!
 RESPONSE: But I’d better take him
 his fan and gloves—that is, if I can find them.
 
-INPUT: Explain this: But I’d better take him
+INPUT: Tell me about: But I’d better take him
 his fan and gloves—that is, if I can find them.
 RESPONSE: ” As she said this, she
 came upon a neat little house, on the door of which was a bright brass
@@ -2218,7 +2218,7 @@ came upon a neat little house, on the door of which was a bright brass
 plate with the name “W.
 RESPONSE: RABBIT,” engraved upon it.
 
-INPUT: Tell me about: RABBIT,” engraved upon it.
+INPUT: What is this about: RABBIT,” engraved upon it.
 RESPONSE: She went in without
 knocking, and hurried upstairs, in great fear lest she should meet the
 real Mary Ann, and be turned out of the house before she had found the
@@ -2231,7 +2231,7 @@ fan and gloves.
 RESPONSE: “How queer it seems,” Alice said to herself, “to be going messages for
 a rabbit!
 
-INPUT: Tell me about: “How queer it seems,” Alice said to herself, “to be going messages for
+INPUT: Can you explain: “How queer it seems,” Alice said to herself, “to be going messages for
 a rabbit!
 RESPONSE: I suppose Dinah’ll be sending me on messages next!
 
@@ -2251,7 +2251,7 @@ here directly, and get ready for your walk!
 RESPONSE: ’ ‘Coming in a minute,
 nurse!
 
-INPUT: Tell me about: ’ ‘Coming in a minute,
+INPUT: What does this say: ’ ‘Coming in a minute,
 nurse!
 RESPONSE: But I’ve got to see that the mouse doesn’t get out.
 
@@ -2261,7 +2261,7 @@ RESPONSE: ’ Only I
 don’t think,” Alice went on, “that they’d let Dinah stop in the house
 if it began ordering people about like that!
 
-INPUT: Tell me about: ’ Only I
+INPUT: Explain this: ’ Only I
 don’t think,” Alice went on, “that they’d let Dinah stop in the house
 if it began ordering people about like that!
 RESPONSE: ”
@@ -2285,7 +2285,7 @@ RESPONSE: There was no label
 this time with the words “DRINK ME,” but nevertheless she uncorked it
 and put it to her lips.
 
-INPUT: What does this mean: There was no label
+INPUT: Tell me about: There was no label
 this time with the words “DRINK ME,” but nevertheless she uncorked it
 and put it to her lips.
 RESPONSE: “I know _something_ interesting is sure to
@@ -2319,7 +2319,7 @@ down the bottle, saying to herself “That’s quite enough—I hope I shan’t
 grow any more—As it is, I can’t get out at the door—I do wish I hadn’t
 drunk quite so much!
 
-INPUT: What does this say: She hastily put
+INPUT: Can you explain: She hastily put
 down the bottle, saying to herself “That’s quite enough—I hope I shan’t
 grow any more—As it is, I can’t get out at the door—I do wish I hadn’t
 drunk quite so much!
@@ -2334,7 +2334,7 @@ and very soon had to kneel down on the floor: in another minute there
 was not even room for this, and she tried the effect of lying down with
 one elbow against the door, and the other arm curled round her head.
 
-INPUT: What is this about: She went on growing, and growing,
+INPUT: Tell me about: She went on growing, and growing,
 and very soon had to kneel down on the floor: in another minute there
 was not even room for this, and she tried the effect of lying down with
 one elbow against the door, and the other arm curled round her head.
@@ -2350,7 +2350,7 @@ of the window, and one foot up the chimney, and said to herself “Now I
 can do no more, whatever happens.
 RESPONSE: What _will_ become of me?
 
-INPUT: What is this about: What _will_ become of me?
+INPUT: Can you explain: What _will_ become of me?
 RESPONSE: ”
 
 Luckily for Alice, the little magic bottle had now had its full effect,
@@ -2381,7 +2381,7 @@ yet—it’s rather curious, you know, this sort of life!
 RESPONSE: I do wonder what
 _can_ have happened to me!
 
-INPUT: What does this mean: I do wonder what
+INPUT: Tell me about: I do wonder what
 _can_ have happened to me!
 RESPONSE: When I used to read fairy-tales, I fancied
 that kind of thing never happened, and now here I am in the middle of
@@ -2393,7 +2393,7 @@ that kind of thing never happened, and now here I am in the middle of
 one!
 RESPONSE: There ought to be a book written about me, that there ought!
 
-INPUT: Can you explain: There ought to be a book written about me, that there ought!
+INPUT: Explain this: There ought to be a book written about me, that there ought!
 RESPONSE: And
 when I grow up, I’ll write one—but I’m grown up now,” she added in a
 sorrowful tone; “at least there’s no room to grow up any more _here_.
@@ -2406,7 +2406,7 @@ RESPONSE: ”
 “But then,” thought Alice, “shall I _never_ get any older than I am
 now?
 
-INPUT: Tell me about: ”
+INPUT: What does this mean: ”
 
 “But then,” thought Alice, “shall I _never_ get any older than I am
 now?
@@ -2439,7 +2439,7 @@ lessons in here?
 RESPONSE: Why, there’s hardly room for _you_, and no room at all
 for any lesson-books!
 
-INPUT: What does this say: Why, there’s hardly room for _you_, and no room at all
+INPUT: Tell me about: Why, there’s hardly room for _you_, and no room at all
 for any lesson-books!
 RESPONSE: ”
 
@@ -2466,7 +2466,7 @@ the Rabbit coming to look for her, and she trembled till she shook the
 house, quite forgetting that she was now about a thousand times as
 large as the Rabbit, and had no reason to be afraid of it.
 
-INPUT: Tell me about: Alice knew it was
+INPUT: What is this about: Alice knew it was
 the Rabbit coming to look for her, and she trembled till she shook the
 house, quite forgetting that she was now about a thousand times as
 large as the Rabbit, and had no reason to be afraid of it.
@@ -2483,7 +2483,7 @@ that attempt proved a failure.
 RESPONSE: Alice heard it say to itself “Then I’ll
 go round and get in at the window.
 
-INPUT: What does this mean: Alice heard it say to itself “Then I’ll
+INPUT: What does this say: Alice heard it say to itself “Then I’ll
 go round and get in at the window.
 RESPONSE: ”
 
@@ -2513,7 +2513,7 @@ from which she concluded that it was just possible it had fallen into a
 cucumber-frame, or something of the sort.
 RESPONSE: Next came an angry voice—the Rabbit’s—“Pat!
 
-INPUT: Explain this: Next came an angry voice—the Rabbit’s—“Pat!
+INPUT: What is this about: Next came an angry voice—the Rabbit’s—“Pat!
 RESPONSE: ” And
 then a voice she had never heard before, “Sure then I’m here!
 
@@ -2534,7 +2534,7 @@ for apples, yer honour! ”
 “Digging for apples, indeed!
 RESPONSE: ” said the Rabbit angrily.
 
-INPUT: What does this say: ” said the Rabbit angrily.
+INPUT: Explain this: ” said the Rabbit angrily.
 RESPONSE: Come and
 help me out of _this!
 
@@ -2542,7 +2542,7 @@ INPUT: Summarize: ” said the Rabbit angrily. Come and
 help me out of _this!
 RESPONSE: _” (Sounds of more broken glass.
 
-INPUT: Explain this: _” (Sounds of more broken glass.
+INPUT: What does this say: _” (Sounds of more broken glass.
 RESPONSE: )
 
 “Now tell me, Pat, what’s that in the window?
@@ -2554,7 +2554,7 @@ RESPONSE: ”
 
 “Sure, it’s an arm, yer honour!
 
-INPUT: Can you explain: ”
+INPUT: What does this say: ”
 
 “Sure, it’s an arm, yer honour!
 RESPONSE: ” (He pronounced it “arrum.
@@ -2566,7 +2566,7 @@ RESPONSE: ”)
 
 “An arm, you goose!
 
-INPUT: Can you explain: ”)
+INPUT: Explain this: ”)
 
 “An arm, you goose!
 RESPONSE: Who ever saw one that size?
@@ -2591,7 +2591,7 @@ RESPONSE: ”
 
 “Well, it’s got no business there, at any rate: go and take it away!
 
-INPUT: Can you explain: ”
+INPUT: What does this say: ”
 
 “Well, it’s got no business there, at any rate: go and take it away!
 RESPONSE: ”
@@ -2609,7 +2609,7 @@ now and then; such as, “Sure, I don’t like it, yer honour, at all, at
 all!
 RESPONSE: ” “Do as I tell you, you coward!
 
-INPUT: Tell me about: ” “Do as I tell you, you coward!
+INPUT: What does this mean: ” “Do as I tell you, you coward!
 RESPONSE: ” and at last she spread out her
 hand again, and made another snatch in the air.
 
@@ -2629,7 +2629,7 @@ of cucumber-frames there must be!
 RESPONSE: “I wonder what
 they’ll do next!
 
-INPUT: Can you explain: “I wonder what
+INPUT: Tell me about: “I wonder what
 they’ll do next!
 RESPONSE: As for pulling me out of the window, I only wish they
 _could!
@@ -2639,7 +2639,7 @@ they’ll do next! As for pulling me out of the window, I only wish they
 _could!
 RESPONSE: _ I’m sure _I_ don’t want to stay in here any longer!
 
-INPUT: Tell me about: _ I’m sure _I_ don’t want to stay in here any longer!
+INPUT: Can you explain: _ I’m sure _I_ don’t want to stay in here any longer!
 RESPONSE: ”
 
 She waited for some time without hearing anything more: at last came a
@@ -2655,7 +2655,7 @@ talking together: she made out the words: “Where’s the other
 ladder?
 RESPONSE: —Why, I hadn’t to bring but one; Bill’s got the other—Bill!
 
-INPUT: What does this mean: —Why, I hadn’t to bring but one; Bill’s got the other—Bill!
+INPUT: What does this say: —Why, I hadn’t to bring but one; Bill’s got the other—Bill!
 RESPONSE: —Here, put ’em up at this corner—No, tie ’em
 together first—they don’t reach half high enough yet—Oh!
 
@@ -2664,7 +2664,7 @@ together first—they don’t reach half high enough yet—Oh!
 RESPONSE: they’ll do
 well enough; don’t be particular—Here, Bill!
 
-INPUT: What is this about: they’ll do
+INPUT: Can you explain: they’ll do
 well enough; don’t be particular—Here, Bill!
 RESPONSE: catch hold of this
 rope—Will the roof bear?
@@ -2674,14 +2674,14 @@ well enough; don’t be particular—Here, Bill! catch hold of this
 rope—Will the roof bear?
 RESPONSE: —Mind that loose slate—Oh, it’s coming down!
 
-INPUT: Explain this: —Mind that loose slate—Oh, it’s coming down!
+INPUT: What is this about: —Mind that loose slate—Oh, it’s coming down!
 RESPONSE: ” (a loud crash)—“Now, who did that?
 
 INPUT: Summarize: —Mind that loose slate—Oh, it’s coming down! ” (a loud crash)—“Now, who did that?
 RESPONSE: —It was Bill, I
 fancy—Who’s to go down the chimney?
 
-INPUT: Explain this: —It was Bill, I
+INPUT: Can you explain: —It was Bill, I
 fancy—Who’s to go down the chimney?
 RESPONSE: —Nay, _I_ shan’t!
 
@@ -2689,7 +2689,7 @@ INPUT: Summarize: —It was Bill, I
 fancy—Who’s to go down the chimney? —Nay, _I_ shan’t!
 RESPONSE: —_That_ I won’t, then!
 
-INPUT: Explain this: —_That_ I won’t, then!
+INPUT: Tell me about: —_That_ I won’t, then!
 RESPONSE: —Bill’s to go down—Here, Bill!
 
 INPUT: Summarize: —_That_ I won’t, then! —Bill’s to go down—Here, Bill!
@@ -2705,7 +2705,7 @@ you’re to go down the chimney! So Bill’s got to come down the chimney, has h
 RESPONSE: ” said Alice to
 herself.
 
-INPUT: Tell me about: ” said Alice to
+INPUT: What is this about: ” said Alice to
 herself.
 RESPONSE: “Shy, they seem to put everything upon Bill!
 
@@ -2715,7 +2715,7 @@ RESPONSE: I wouldn’t be in
 Bill’s place for a good deal: this fireplace is narrow, to be sure; but
 I _think_ I can kick a little!
 
-INPUT: Can you explain: I wouldn’t be in
+INPUT: What is this about: I wouldn’t be in
 Bill’s place for a good deal: this fireplace is narrow, to be sure; but
 I _think_ I can kick a little!
 RESPONSE: ”
@@ -2747,7 +2747,7 @@ RESPONSE: ” then
 silence, and then another confusion of voices—“Hold up his head—Brandy
 now—Don’t choke him—How was it, old fellow?
 
-INPUT: What does this mean: ” then
+INPUT: What is this about: ” then
 silence, and then another confusion of voices—“Hold up his head—Brandy
 now—Don’t choke him—How was it, old fellow?
 RESPONSE: What happened to you?
@@ -2757,4 +2757,753 @@ silence, and then another confusion of voices—“Hold up his head—Brandy
 now—Don’t choke him—How was it, old fellow? What happened to you?
 RESPONSE: Tell
 us all about it!
+
+INPUT: Tell me about: Tell
+us all about it!
+RESPONSE: ”
+
+Last came a little feeble, squeaking voice, (“That’s Bill,” thought
+Alice,) “Well, I hardly know—No more, thank ye; I’m better now—but I’m
+a deal too flustered to tell you—all I know is, something comes at me
+like a Jack-in-the-box, and up I goes like a sky-rocket!
+
+INPUT: Summarize: Tell
+us all about it! ”
+
+Last came a little feeble, squeaking voice, (“That’s Bill,” thought
+Alice,) “Well, I hardly know—No more, thank ye; I’m better now—but I’m
+a deal too flustered to tell you—all I know is, something comes at me
+like a Jack-in-the-box, and up I goes like a sky-rocket!
+RESPONSE: ”
+
+“So you did, old fellow!
+
+INPUT: Explain this: ”
+
+“So you did, old fellow!
+RESPONSE: “We must burn the house down!
+
+INPUT: Summarize: ”
+
+“So you did, old fellow! “We must burn the house down!
+RESPONSE: ” said the Rabbit’s voice; and Alice
+called out as loud as she could, “If you do, I’ll set Dinah at you!
+
+INPUT: Can you explain: ” said the Rabbit’s voice; and Alice
+called out as loud as she could, “If you do, I’ll set Dinah at you!
+RESPONSE: ”
+
+There was a dead silence instantly, and Alice thought to herself, “I
+wonder what they _will_ do next!
+
+INPUT: Summarize: ” said the Rabbit’s voice; and Alice
+called out as loud as she could, “If you do, I’ll set Dinah at you! ”
+
+There was a dead silence instantly, and Alice thought to herself, “I
+wonder what they _will_ do next!
+RESPONSE: If they had any sense, they’d take the
+roof off.
+
+INPUT: Can you explain: If they had any sense, they’d take the
+roof off.
+RESPONSE: ” After a minute or two, they began moving about again, and
+Alice heard the Rabbit say, “A barrowful will do, to begin with.
+
+INPUT: Summarize: If they had any sense, they’d take the
+roof off. ” After a minute or two, they began moving about again, and
+Alice heard the Rabbit say, “A barrowful will do, to begin with.
+RESPONSE: ”
+
+“A barrowful of _what?
+
+INPUT: What does this say: ”
+
+“A barrowful of _what?
+RESPONSE: _” thought Alice; but she had not long to doubt,
+for the next moment a shower of little pebbles came rattling in at the
+window, and some of them hit her in the face.
+
+INPUT: Summarize: ”
+
+“A barrowful of _what? _” thought Alice; but she had not long to doubt,
+for the next moment a shower of little pebbles came rattling in at the
+window, and some of them hit her in the face.
+RESPONSE: “I’ll put a stop to
+this,” she said to herself, and shouted out, “You’d better not do that
+again!
+
+INPUT: Tell me about: “I’ll put a stop to
+this,” she said to herself, and shouted out, “You’d better not do that
+again!
+RESPONSE: ” which produced another dead silence.
+
+INPUT: Summarize: “I’ll put a stop to
+this,” she said to herself, and shouted out, “You’d better not do that
+again! ” which produced another dead silence.
+RESPONSE: Alice noticed with some surprise that the pebbles were all turning into
+little cakes as they lay on the floor, and a bright idea came into her
+head.
+
+INPUT: Tell me about: Alice noticed with some surprise that the pebbles were all turning into
+little cakes as they lay on the floor, and a bright idea came into her
+head.
+RESPONSE: “If I eat one of these cakes,” she thought, “it’s sure to make
+_some_ change in my size; and as it can’t possibly make me larger, it
+must make me smaller, I suppose.
+
+INPUT: Summarize: Alice noticed with some surprise that the pebbles were all turning into
+little cakes as they lay on the floor, and a bright idea came into her
+head. “If I eat one of these cakes,” she thought, “it’s sure to make
+_some_ change in my size; and as it can’t possibly make me larger, it
+must make me smaller, I suppose.
+RESPONSE: ”
+
+So she swallowed one of the cakes, and was delighted to find that she
+began shrinking directly.
+
+INPUT: Explain this: ”
+
+So she swallowed one of the cakes, and was delighted to find that she
+began shrinking directly.
+RESPONSE: As soon as she was small enough to get
+through the door, she ran out of the house, and found quite a crowd of
+little animals and birds waiting outside.
+
+INPUT: Summarize: ”
+
+So she swallowed one of the cakes, and was delighted to find that she
+began shrinking directly. As soon as she was small enough to get
+through the door, she ran out of the house, and found quite a crowd of
+little animals and birds waiting outside.
+RESPONSE: The poor little Lizard, Bill,
+was in the middle, being held up by two guinea-pigs, who were giving it
+something out of a bottle.
+
+INPUT: Explain this: The poor little Lizard, Bill,
+was in the middle, being held up by two guinea-pigs, who were giving it
+something out of a bottle.
+RESPONSE: They all made a rush at Alice the moment she
+appeared; but she ran off as hard as she could, and soon found herself
+safe in a thick wood.
+
+INPUT: Summarize: The poor little Lizard, Bill,
+was in the middle, being held up by two guinea-pigs, who were giving it
+something out of a bottle. They all made a rush at Alice the moment she
+appeared; but she ran off as hard as she could, and soon found herself
+safe in a thick wood.
+RESPONSE: “The first thing I’ve got to do,” said Alice to herself, as she
+wandered about in the wood, “is to grow to my right size again; and the
+second thing is to find my way into that lovely garden.
+
+INPUT: Explain this: “The first thing I’ve got to do,” said Alice to herself, as she
+wandered about in the wood, “is to grow to my right size again; and the
+second thing is to find my way into that lovely garden.
+RESPONSE: I think that
+will be the best plan.
+
+INPUT: Summarize: “The first thing I’ve got to do,” said Alice to herself, as she
+wandered about in the wood, “is to grow to my right size again; and the
+second thing is to find my way into that lovely garden. I think that
+will be the best plan.
+RESPONSE: ”
+
+It sounded an excellent plan, no doubt, and very neatly and simply
+arranged; the only difficulty was, that she had not the smallest idea
+how to set about it; and while she was peering about anxiously among
+the trees, a little sharp bark just over her head made her look up in a
+great hurry.
+
+INPUT: What does this mean: ”
+
+It sounded an excellent plan, no doubt, and very neatly and simply
+arranged; the only difficulty was, that she had not the smallest idea
+how to set about it; and while she was peering about anxiously among
+the trees, a little sharp bark just over her head made her look up in a
+great hurry.
+RESPONSE: An enormous puppy was looking down at her with large round eyes, and
+feebly stretching out one paw, trying to touch her.
+
+INPUT: Summarize: ”
+
+It sounded an excellent plan, no doubt, and very neatly and simply
+arranged; the only difficulty was, that she had not the smallest idea
+how to set about it; and while she was peering about anxiously among
+the trees, a little sharp bark just over her head made her look up in a
+great hurry. An enormous puppy was looking down at her with large round eyes, and
+feebly stretching out one paw, trying to touch her.
+RESPONSE: “Poor little
+thing!
+
+INPUT: What does this mean: “Poor little
+thing!
+RESPONSE: ” said Alice, in a coaxing tone, and she tried hard to whistle to
+it; but she was terribly frightened all the time at the thought that it
+might be hungry, in which case it would be very likely to eat her up in
+spite of all her coaxing.
+
+INPUT: Summarize: “Poor little
+thing! ” said Alice, in a coaxing tone, and she tried hard to whistle to
+it; but she was terribly frightened all the time at the thought that it
+might be hungry, in which case it would be very likely to eat her up in
+spite of all her coaxing.
+RESPONSE: This seemed to Alice a good opportunity for making her escape; so she
+set off at once, and ran till she was quite tired and out of breath,
+and till the puppy’s bark sounded quite faint in the distance.
+
+INPUT: What is this about: This seemed to Alice a good opportunity for making her escape; so she
+set off at once, and ran till she was quite tired and out of breath,
+and till the puppy’s bark sounded quite faint in the distance.
+RESPONSE: “And yet what a dear little puppy it was!
+
+INPUT: Summarize: This seemed to Alice a good opportunity for making her escape; so she
+set off at once, and ran till she was quite tired and out of breath,
+and till the puppy’s bark sounded quite faint in the distance. “And yet what a dear little puppy it was!
+RESPONSE: ” said Alice, as she leant
+against a buttercup to rest herself, and fanned herself with one of the
+leaves: “I should have liked teaching it tricks very much, if—if I’d
+only been the right size to do it!
+
+INPUT: What is this about: ” said Alice, as she leant
+against a buttercup to rest herself, and fanned herself with one of the
+leaves: “I should have liked teaching it tricks very much, if—if I’d
+only been the right size to do it!
+RESPONSE: I’d nearly forgotten that
+I’ve got to grow up again!
+
+INPUT: Summarize: ” said Alice, as she leant
+against a buttercup to rest herself, and fanned herself with one of the
+leaves: “I should have liked teaching it tricks very much, if—if I’d
+only been the right size to do it! I’d nearly forgotten that
+I’ve got to grow up again!
+RESPONSE: Let me see—how _is_ it to be managed?
+
+INPUT: What does this say: Let me see—how _is_ it to be managed?
+RESPONSE: I
+suppose I ought to eat or drink something or other; but the great
+question is, what?
+
+INPUT: Summarize: Let me see—how _is_ it to be managed? I
+suppose I ought to eat or drink something or other; but the great
+question is, what?
+RESPONSE: ”
+
+The great question certainly was, what?
+
+INPUT: What does this mean: ”
+
+The great question certainly was, what?
+RESPONSE: Alice looked all round her at
+the flowers and the blades of grass, but she did not see anything that
+looked like the right thing to eat or drink under the circumstances.
+
+INPUT: Summarize: ”
+
+The great question certainly was, what? Alice looked all round her at
+the flowers and the blades of grass, but she did not see anything that
+looked like the right thing to eat or drink under the circumstances.
+RESPONSE: There was a large mushroom growing near her, about the same height as
+herself; and when she had looked under it, and on both sides of it, and
+behind it, it occurred to her that she might as well look and see what
+was on the top of it.
+
+INPUT: Tell me about: There was a large mushroom growing near her, about the same height as
+herself; and when she had looked under it, and on both sides of it, and
+behind it, it occurred to her that she might as well look and see what
+was on the top of it.
+RESPONSE: She stretched herself up on tiptoe, and peeped over the edge of the
+mushroom, and her eyes immediately met those of a large blue
+caterpillar, that was sitting on the top with its arms folded, quietly
+smoking a long hookah, and taking not the smallest notice of her or of
+anything else.
+
+INPUT: Summarize: There was a large mushroom growing near her, about the same height as
+herself; and when she had looked under it, and on both sides of it, and
+behind it, it occurred to her that she might as well look and see what
+was on the top of it. She stretched herself up on tiptoe, and peeped over the edge of the
+mushroom, and her eyes immediately met those of a large blue
+caterpillar, that was sitting on the top with its arms folded, quietly
+smoking a long hookah, and taking not the smallest notice of her or of
+anything else.
+RESPONSE: Advice from a Caterpillar
+
+The Caterpillar and Alice looked at each other for some time in
+silence: at last the Caterpillar took the hookah out of its mouth, and
+addressed her in a languid, sleepy voice.
+
+INPUT: What is this about: Advice from a Caterpillar
+
+The Caterpillar and Alice looked at each other for some time in
+silence: at last the Caterpillar took the hookah out of its mouth, and
+addressed her in a languid, sleepy voice.
+RESPONSE: _” said the Caterpillar.
+
+INPUT: Summarize: Advice from a Caterpillar
+
+The Caterpillar and Alice looked at each other for some time in
+silence: at last the Caterpillar took the hookah out of its mouth, and
+addressed her in a languid, sleepy voice. _” said the Caterpillar.
+RESPONSE: This was not an encouraging opening for a conversation.
+
+INPUT: What does this mean: This was not an encouraging opening for a conversation.
+RESPONSE: Alice replied,
+rather shyly, “I—I hardly know, sir, just at present—at least I know
+who I _was_ when I got up this morning, but I think I must have been
+changed several times since then.
+
+INPUT: Summarize: This was not an encouraging opening for a conversation. Alice replied,
+rather shyly, “I—I hardly know, sir, just at present—at least I know
+who I _was_ when I got up this morning, but I think I must have been
+changed several times since then.
+RESPONSE: ”
+
+“What do you mean by that?
+
+INPUT: What does this say: ”
+
+“What do you mean by that?
+RESPONSE: ” said the Caterpillar sternly.
+
+INPUT: Summarize: ”
+
+“What do you mean by that? ” said the Caterpillar sternly.
+RESPONSE: ”
+
+“I can’t explain _myself_, I’m afraid, sir,” said Alice, “because I’m
+not myself, you see.
+
+INPUT: Tell me about: ”
+
+“I can’t explain _myself_, I’m afraid, sir,” said Alice, “because I’m
+not myself, you see.
+RESPONSE: ”
+
+“I don’t see,” said the Caterpillar.
+
+INPUT: Summarize: ”
+
+“I can’t explain _myself_, I’m afraid, sir,” said Alice, “because I’m
+not myself, you see. ”
+
+“I don’t see,” said the Caterpillar.
+RESPONSE: “I’m afraid I can’t put it more clearly,” Alice replied very politely,
+“for I can’t understand it myself to begin with; and being so many
+different sizes in a day is very confusing.
+
+INPUT: What does this say: “I’m afraid I can’t put it more clearly,” Alice replied very politely,
+“for I can’t understand it myself to begin with; and being so many
+different sizes in a day is very confusing.
+RESPONSE: ”
+
+“It isn’t,” said the Caterpillar.
+
+INPUT: Summarize: “I’m afraid I can’t put it more clearly,” Alice replied very politely,
+“for I can’t understand it myself to begin with; and being so many
+different sizes in a day is very confusing. ”
+
+“It isn’t,” said the Caterpillar.
+RESPONSE: “Well, perhaps you haven’t found it so yet,” said Alice; “but when you
+have to turn into a chrysalis—you will some day, you know—and then
+after that into a butterfly, I should think you’ll feel it a little
+queer, won’t you?
+
+INPUT: Explain this: “Well, perhaps you haven’t found it so yet,” said Alice; “but when you
+have to turn into a chrysalis—you will some day, you know—and then
+after that into a butterfly, I should think you’ll feel it a little
+queer, won’t you?
+RESPONSE: ”
+
+“Not a bit,” said the Caterpillar.
+
+INPUT: Summarize: “Well, perhaps you haven’t found it so yet,” said Alice; “but when you
+have to turn into a chrysalis—you will some day, you know—and then
+after that into a butterfly, I should think you’ll feel it a little
+queer, won’t you? ”
+
+“Not a bit,” said the Caterpillar.
+RESPONSE: “Well, perhaps your feelings may be different,” said Alice; “all I know
+is, it would feel very queer to _me_.
+
+INPUT: What does this say: “Well, perhaps your feelings may be different,” said Alice; “all I know
+is, it would feel very queer to _me_.
+RESPONSE: ” said the Caterpillar contemptuously.
+
+INPUT: Summarize: “Well, perhaps your feelings may be different,” said Alice; “all I know
+is, it would feel very queer to _me_. ” said the Caterpillar contemptuously.
+RESPONSE: _”
+
+Which brought them back again to the beginning of the conversation.
+
+INPUT: Explain this: _”
+
+Which brought them back again to the beginning of the conversation.
+RESPONSE: Alice felt a little irritated at the Caterpillar’s making such _very_
+short remarks, and she drew herself up and said, very gravely, “I
+think, you ought to tell me who _you_ are, first.
+
+INPUT: Summarize: _”
+
+Which brought them back again to the beginning of the conversation. Alice felt a little irritated at the Caterpillar’s making such _very_
+short remarks, and she drew herself up and said, very gravely, “I
+think, you ought to tell me who _you_ are, first.
+RESPONSE: ” said the Caterpillar.
+
+INPUT: What does this mean: ” said the Caterpillar.
+RESPONSE: Here was another puzzling question; and as Alice could not think of any
+good reason, and as the Caterpillar seemed to be in a _very_ unpleasant
+state of mind, she turned away.
+
+INPUT: Summarize: ” said the Caterpillar. Here was another puzzling question; and as Alice could not think of any
+good reason, and as the Caterpillar seemed to be in a _very_ unpleasant
+state of mind, she turned away.
+RESPONSE: ” the Caterpillar called after her.
+
+INPUT: What does this say: ” the Caterpillar called after her.
+RESPONSE: “I’ve something
+important to say!
+
+INPUT: Summarize: ” the Caterpillar called after her. “I’ve something
+important to say!
+RESPONSE: ”
+
+This sounded promising, certainly: Alice turned and came back again.
+
+INPUT: What does this say: ”
+
+This sounded promising, certainly: Alice turned and came back again.
+RESPONSE: “Keep your temper,” said the Caterpillar.
+
+INPUT: Summarize: ”
+
+This sounded promising, certainly: Alice turned and came back again. “Keep your temper,” said the Caterpillar.
+RESPONSE: ” said Alice, swallowing down her anger as well as she
+could.
+
+INPUT: Tell me about: ” said Alice, swallowing down her anger as well as she
+could.
+RESPONSE: “No,” said the Caterpillar.
+
+INPUT: Summarize: ” said Alice, swallowing down her anger as well as she
+could. “No,” said the Caterpillar.
+RESPONSE: Alice thought she might as well wait, as she had nothing else to do,
+and perhaps after all it might tell her something worth hearing.
+
+INPUT: Explain this: Alice thought she might as well wait, as she had nothing else to do,
+and perhaps after all it might tell her something worth hearing.
+RESPONSE: For
+some minutes it puffed away without speaking, but at last it unfolded
+its arms, took the hookah out of its mouth again, and said, “So you
+think you’re changed, do you?
+
+INPUT: Summarize: Alice thought she might as well wait, as she had nothing else to do,
+and perhaps after all it might tell her something worth hearing. For
+some minutes it puffed away without speaking, but at last it unfolded
+its arms, took the hookah out of its mouth again, and said, “So you
+think you’re changed, do you?
+RESPONSE: ”
+
+“I’m afraid I am, sir,” said Alice; “I can’t remember things as I
+used—and I don’t keep the same size for ten minutes together!
+
+INPUT: What is this about: ”
+
+“I’m afraid I am, sir,” said Alice; “I can’t remember things as I
+used—and I don’t keep the same size for ten minutes together!
+RESPONSE: ”
+
+“Can’t remember _what_ things?
+
+INPUT: Summarize: ”
+
+“I’m afraid I am, sir,” said Alice; “I can’t remember things as I
+used—and I don’t keep the same size for ten minutes together! ”
+
+“Can’t remember _what_ things?
+RESPONSE: ” said the Caterpillar.
+
+INPUT: Tell me about: ” said the Caterpillar.
+RESPONSE: “Well, I’ve tried to say “How doth the little busy bee,” but it all
+came different!
+
+INPUT: Summarize: ” said the Caterpillar. “Well, I’ve tried to say “How doth the little busy bee,” but it all
+came different!
+RESPONSE: ” Alice replied in a very melancholy voice.
+
+INPUT: What does this mean: ” Alice replied in a very melancholy voice.
+RESPONSE: “Repeat, ‘_You are old, Father William_,’” said the Caterpillar.
+
+INPUT: Summarize: ” Alice replied in a very melancholy voice. “Repeat, ‘_You are old, Father William_,’” said the Caterpillar.
+RESPONSE: Alice folded her hands, and began:—
+
+“You are old, Father William,” the young man said,
+ “And your hair has become very white;
+And yet you incessantly stand on your head—
+ Do you think, at your age, it is right?
+
+INPUT: Tell me about: Alice folded her hands, and began:—
+
+“You are old, Father William,” the young man said,
+ “And your hair has become very white;
+And yet you incessantly stand on your head—
+ Do you think, at your age, it is right?
+RESPONSE: ”
+
+“In my youth,” Father William replied to his son,
+ “I feared it might injure the brain;
+But, now that I’m perfectly sure I have none,
+ Why, I do it again and again.
+
+INPUT: Summarize: Alice folded her hands, and began:—
+
+“You are old, Father William,” the young man said,
+ “And your hair has become very white;
+And yet you incessantly stand on your head—
+ Do you think, at your age, it is right? ”
+
+“In my youth,” Father William replied to his son,
+ “I feared it might injure the brain;
+But, now that I’m perfectly sure I have none,
+ Why, I do it again and again.
+RESPONSE: ”
+
+“You are old,” said the youth, “as I mentioned before,
+ And have grown most uncommonly fat;
+Yet you turned a back-somersault in at the door—
+ Pray, what is the reason of that?
+
+INPUT: Can you explain: ”
+
+“You are old,” said the youth, “as I mentioned before,
+ And have grown most uncommonly fat;
+Yet you turned a back-somersault in at the door—
+ Pray, what is the reason of that?
+RESPONSE: ”
+
+“In my youth,” said the sage, as he shook his grey locks,
+ “I kept all my limbs very supple
+By the use of this ointment—one shilling the box—
+ Allow me to sell you a couple?
+
+INPUT: Summarize: ”
+
+“You are old,” said the youth, “as I mentioned before,
+ And have grown most uncommonly fat;
+Yet you turned a back-somersault in at the door—
+ Pray, what is the reason of that? ”
+
+“In my youth,” said the sage, as he shook his grey locks,
+ “I kept all my limbs very supple
+By the use of this ointment—one shilling the box—
+ Allow me to sell you a couple?
+RESPONSE: ”
+
+“You are old,” said the youth, “and your jaws are too weak
+ For anything tougher than suet;
+Yet you finished the goose, with the bones and the beak—
+ Pray, how did you manage to do it?
+
+INPUT: What is this about: ”
+
+“You are old,” said the youth, “and your jaws are too weak
+ For anything tougher than suet;
+Yet you finished the goose, with the bones and the beak—
+ Pray, how did you manage to do it?
+RESPONSE: ”
+
+“In my youth,” said his father, “I took to the law,
+ And argued each case with my wife;
+And the muscular strength, which it gave to my jaw,
+ Has lasted the rest of my life.
+
+INPUT: Summarize: ”
+
+“You are old,” said the youth, “and your jaws are too weak
+ For anything tougher than suet;
+Yet you finished the goose, with the bones and the beak—
+ Pray, how did you manage to do it? ”
+
+“In my youth,” said his father, “I took to the law,
+ And argued each case with my wife;
+And the muscular strength, which it gave to my jaw,
+ Has lasted the rest of my life.
+RESPONSE: ”
+
+“You are old,” said the youth, “one would hardly suppose
+ That your eye was as steady as ever;
+Yet you balanced an eel on the end of your nose—
+ What made you so awfully clever?
+
+INPUT: What is this about: ”
+
+“You are old,” said the youth, “one would hardly suppose
+ That your eye was as steady as ever;
+Yet you balanced an eel on the end of your nose—
+ What made you so awfully clever?
+RESPONSE: ”
+
+“I have answered three questions, and that is enough,”
+ Said his father; “don’t give yourself airs!
+
+INPUT: Summarize: ”
+
+“You are old,” said the youth, “one would hardly suppose
+ That your eye was as steady as ever;
+Yet you balanced an eel on the end of your nose—
+ What made you so awfully clever? ”
+
+“I have answered three questions, and that is enough,”
+ Said his father; “don’t give yourself airs!
+RESPONSE: Do you think I can listen all day to such stuff?
+
+INPUT: Explain this: Do you think I can listen all day to such stuff?
+RESPONSE: Be off, or I’ll kick you down stairs!
+
+INPUT: Summarize: Do you think I can listen all day to such stuff? Be off, or I’ll kick you down stairs!
+RESPONSE: ”
+
+“That is not said right,” said the Caterpillar.
+
+INPUT: Tell me about: ”
+
+“That is not said right,” said the Caterpillar.
+RESPONSE: “Not _quite_ right, I’m afraid,” said Alice, timidly; “some of the
+words have got altered.
+
+INPUT: Summarize: ”
+
+“That is not said right,” said the Caterpillar. “Not _quite_ right, I’m afraid,” said Alice, timidly; “some of the
+words have got altered.
+RESPONSE: ”
+
+“It is wrong from beginning to end,” said the Caterpillar decidedly,
+and there was silence for some minutes.
+
+INPUT: What does this say: ”
+
+“It is wrong from beginning to end,” said the Caterpillar decidedly,
+and there was silence for some minutes.
+RESPONSE: The Caterpillar was the first to speak.
+
+INPUT: Summarize: ”
+
+“It is wrong from beginning to end,” said the Caterpillar decidedly,
+and there was silence for some minutes. The Caterpillar was the first to speak.
+RESPONSE: “What size do you want to be?
+
+INPUT: Tell me about: “What size do you want to be?
+RESPONSE: “Oh, I’m not particular as to size,” Alice hastily replied; “only one
+doesn’t like changing so often, you know.
+
+INPUT: Summarize: “What size do you want to be? “Oh, I’m not particular as to size,” Alice hastily replied; “only one
+doesn’t like changing so often, you know.
+RESPONSE: ”
+
+“I _don’t_ know,” said the Caterpillar.
+
+INPUT: What does this mean: ”
+
+“I _don’t_ know,” said the Caterpillar.
+RESPONSE: Alice said nothing: she had never been so much contradicted in her life
+before, and she felt that she was losing her temper.
+
+INPUT: Summarize: ”
+
+“I _don’t_ know,” said the Caterpillar. Alice said nothing: she had never been so much contradicted in her life
+before, and she felt that she was losing her temper.
+RESPONSE: “Are you content now?
+
+INPUT: What does this say: “Are you content now?
+RESPONSE: ” said the Caterpillar.
+
+INPUT: Summarize: “Are you content now? ” said the Caterpillar.
+RESPONSE: “Well, I should like to be a _little_ larger, sir, if you wouldn’t
+mind,” said Alice: “three inches is such a wretched height to be.
+
+INPUT: What is this about: “Well, I should like to be a _little_ larger, sir, if you wouldn’t
+mind,” said Alice: “three inches is such a wretched height to be.
+RESPONSE: ”
+
+“It is a very good height indeed!
+
+INPUT: Summarize: “Well, I should like to be a _little_ larger, sir, if you wouldn’t
+mind,” said Alice: “three inches is such a wretched height to be. ”
+
+“It is a very good height indeed!
+RESPONSE: ” said the Caterpillar angrily,
+rearing itself upright as it spoke (it was exactly three inches high).
+
+INPUT: Explain this: ” said the Caterpillar angrily,
+rearing itself upright as it spoke (it was exactly three inches high).
+RESPONSE: “But I’m not used to it!
+
+INPUT: Summarize: ” said the Caterpillar angrily,
+rearing itself upright as it spoke (it was exactly three inches high). “But I’m not used to it!
+RESPONSE: ” pleaded poor Alice in a piteous tone.
+
+INPUT: Tell me about: ” pleaded poor Alice in a piteous tone.
+RESPONSE: And she
+thought of herself, “I wish the creatures wouldn’t be so easily
+offended!
+
+INPUT: Summarize: ” pleaded poor Alice in a piteous tone. And she
+thought of herself, “I wish the creatures wouldn’t be so easily
+offended!
+RESPONSE: ”
+
+“You’ll get used to it in time,” said the Caterpillar; and it put the
+hookah into its mouth and began smoking again.
+
+INPUT: Explain this: ”
+
+“You’ll get used to it in time,” said the Caterpillar; and it put the
+hookah into its mouth and began smoking again.
+RESPONSE: This time Alice waited patiently until it chose to speak again.
+
+INPUT: Summarize: ”
+
+“You’ll get used to it in time,” said the Caterpillar; and it put the
+hookah into its mouth and began smoking again. This time Alice waited patiently until it chose to speak again.
+RESPONSE: In a
+minute or two the Caterpillar took the hookah out of its mouth and
+yawned once or twice, and shook itself.
+
+INPUT: Explain this: In a
+minute or two the Caterpillar took the hookah out of its mouth and
+yawned once or twice, and shook itself.
+RESPONSE: Then it got down off the
+mushroom, and crawled away in the grass, merely remarking as it went,
+“One side will make you grow taller, and the other side will make you
+grow shorter.
+
+INPUT: Summarize: In a
+minute or two the Caterpillar took the hookah out of its mouth and
+yawned once or twice, and shook itself. Then it got down off the
+mushroom, and crawled away in the grass, merely remarking as it went,
+“One side will make you grow taller, and the other side will make you
+grow shorter.
+RESPONSE: ”
+
+“One side of _what?
+
+INPUT: What does this say: ”
+
+“One side of _what?
+RESPONSE: _ The other side of _what?
+
+INPUT: Summarize: ”
+
+“One side of _what? _ The other side of _what?
+RESPONSE: _” thought Alice to
+herself.
+
+INPUT: Explain this: _” thought Alice to
+herself.
+RESPONSE: “Of the mushroom,” said the Caterpillar, just as if she had asked it
+aloud; and in another moment it was out of sight.
+
+INPUT: Summarize: _” thought Alice to
+herself. “Of the mushroom,” said the Caterpillar, just as if she had asked it
+aloud; and in another moment it was out of sight.
+RESPONSE: Alice remained looking thoughtfully at the mushroom for a minute,
+trying to make out which were the two sides of it; and as it was
+perfectly round, she found this a very difficult question.
 

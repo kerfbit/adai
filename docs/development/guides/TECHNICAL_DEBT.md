@@ -4,10 +4,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** February 17, 2026  
-**Total Items:** 5  
+**Last Updated:** February 18, 2026  
+**Total Items:** 4  
 **High Priority:** 0  
-**Medium Priority:** 3  
+**Medium Priority:** 2  
 **Low Priority:** 2
 
 ## Table of Contents
@@ -17,10 +17,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 - [Active Technical Debt](#active-technical-debt)
   - [TD-003: GPU Memory Management Optimization](#td-003-gpu-memory-management-optimization)
   - [TD-004: Enhanced Metrics Tracking for Training Sessions](#td-004-enhanced-metrics-tracking-for-training-sessions)
-  - [TD-005: Checkpoint Management and Symbolic Links](#td-005-checkpoint-management-and-symbolic-links)
   - [TD-006: Fill-in-the-Middle (FIM) Training Data Generation](#td-006-fill-in-the-middle-fim-training-data-generation)
   - [TD-007: Matrix Operations SIMD Acceleration](#td-007-matrix-operations-simd-acceleration)
 - [Resolved Items](#resolved-items)
+  - [TD-005: Checkpoint Management and Symbolic Links](#td-005-checkpoint-management-and-symbolic-links)
   - [TD-002: Improve Error Handling in BPE Tokenizer](#td-002-improve-error-handling-in-bpe-tokenizer)
   - [TD-001: Complete Optimizer Parameter Exposure](#td-001-complete-optimizer-parameter-exposure)
 - [Future Improvements](#future-improvements)
@@ -160,78 +160,6 @@ session.learning_rates = {/* LR schedule over time */};
 
 - Could integrate with TensorBoard or similar visualization tools
 - Foundation for early stopping implementation
-
----
-
-### TD-005: Checkpoint Management and Symbolic Links
-
-**Priority:** MEDIUM  
-**Status:** Planned  
-**Component:** Training / IncrementalTrainer  
-**Created:** February 17, 2026  
-**Effort Estimate:** 2-3 hours
-
-**Description:**
-Checkpoint files are currently saved with session-specific names in the training_sessions directory. There's no easy way to access the "latest" or "best" checkpoint without parsing session history. Adding symbolic links would improve usability.
-
-**Current Behavior:**
-
-```bash
-training_sessions/
-├── session_0_checkpoint.bin
-├── session_1_checkpoint.bin
-├── session_2_checkpoint.bin
-└── session_history.txt  # Must parse to find latest
-```
-
-**Desired Behavior:**
-
-```bash
-training_sessions/
-├── session_0_checkpoint.bin
-├── session_1_checkpoint.bin
-├── session_2_checkpoint.bin
-└── session_history.txt
-
-# In root directory:
-latest_checkpoint.bin -> training_sessions/session_2_checkpoint.bin
-best_checkpoint.bin -> training_sessions/session_1_checkpoint.bin
-```
-
-**Benefits:**
-
-- Easier integration with deployment scripts
-- Quick access to latest model without parsing
-- Support for "best model" tracking (lowest validation loss)
-- Simpler command-line usage
-
-**Implementation Tasks:**
-
-- [ ] Create symbolic link after each checkpoint save
-- [ ] Update `latest_checkpoint.bin` symlink to newest session
-- [ ] Track best validation loss and update `best_checkpoint.bin` symlink
-- [ ] Add configuration option to enable/disable symlinks
-- [ ] Handle symlink cleanup during old session removal
-- [ ] Add Windows-compatible fallback (copy instead of symlink)
-
-**Files to Modify:**
-
-- `src/IncrementalTrainer.cpp` - Update `finalize_session()` (line 584) (10 TODOs added)
-- `src/IncrementalTrainer.cpp` - Modify `save_model()` method (4 TODOs added)
-- `src/IncrementalTrainer.cpp` - Update `cleanup_old_sessions()` (3 TODOs added)
-- `include/IncrementalTrainer.hpp` - Add symlink management methods (6 TODOs added)
-
-**Code Location:**
-
-`src/IncrementalTrainer.cpp:584`
-
-**Granular TODOs Added:** 23 specific implementation tasks across 2 files
-
-**Platform Considerations:****
-
-- Use `std::filesystem::create_symlink()` on Unix/Linux
-- Use file copy or junction points on Windows
-- Add error handling for insufficient permissions
 
 ---
 
@@ -430,6 +358,90 @@ Multiple TODOs added throughout `src/Matrix.cpp`:
 ---
 
 ## Resolved Items
+
+### TD-005: Checkpoint Management and Symbolic Links
+
+**Resolution Date:** February 18, 2026  
+**Component:** Training / IncrementalTrainer  
+**Resolved By:** Complete symlink management implementation with cross-platform support
+
+**Summary:**
+Implemented automatic checkpoint symlink management to provide easy access to "latest" and "best" model checkpoints. The system creates and maintains symbolic links (or file copies on Windows) that always point to the most recent checkpoint and the checkpoint with the lowest validation loss.
+
+**Changes Made:**
+
+1. ✅ Added configuration options for symlink management:
+   - `enable_checkpoint_symlinks` - toggle feature on/off (default: true)
+   - `latest_symlink_name` - configurable name for latest checkpoint link
+   - `best_symlink_name` - configurable name for best checkpoint link
+
+2. ✅ Implemented cross-platform symlink support:
+   - Unix/Linux: Uses `std::filesystem::create_symlink()` for true symbolic links
+   - Windows: Falls back to file copying for compatibility
+   - Platform detection with `is_windows_platform()` helper
+
+3. ✅ Created checkpoint tracking infrastructure:
+   - Added `best_validation_loss` and `best_checkpoint_path` private members
+   - Automatically initializes best checkpoint from session history on startup
+   - Tracks and compares validation loss across all sessions
+
+4. ✅ Implemented symlink helper methods:
+   - `update_checkpoint_symlinks()` - Updates "latest" link after each session
+   - `update_best_checkpoint()` - Updates "best" link when validation loss improves
+   - `create_or_update_symlink()` - Creates/updates symlinks with error handling
+   - `remove_symlink_if_exists()` - Safely removes existing links
+   - `get_best_checkpoint_path()` - Retrieves path to best checkpoint
+
+5. ✅ Integrated with training workflow:
+   - `finalize_session()` now creates/updates symlinks after each session
+   - `cleanup_old_sessions()` handles symlink cleanup when deleting checkpoints
+   - Recalculates best checkpoint if the best model is deleted during cleanup
+
+6. ✅ Enhanced training summary output:
+   - `print_training_summary()` displays symlink paths and targets
+   - Shows best checkpoint validation loss for quick reference
+   - Handles both symlinks and file copies transparently
+
+**Files Modified:**
+
+- `include/IncrementalTrainer.hpp` - Added configuration and method declarations
+- `src/IncrementalTrainer.hpp` - Added configuration and method declarations (duplicate header)
+- `src/IncrementalTrainer.cpp` - Implemented all symlink management logic
+  - Added `#include <limits>` for `std::numeric_limits`
+  - Updated constructor to initialize best checkpoint tracking
+  - Implemented 6 new symlink helper methods (~110 lines)
+  - Updated `finalize_session()` to create symlinks
+  - Updated `cleanup_old_sessions()` to handle symlink cleanup
+  - Updated `print_training_summary()` to display symlink information
+
+**Usage Example:**
+
+```cpp
+IncrementalTrainer trainer("vocab.txt", "model.bin");
+trainer.config.enable_checkpoint_symlinks = true;  // Enabled by default
+trainer.add_new_data("new_data.txt");
+trainer.train_incremental(5);
+
+// Symlinks are automatically created:
+// - latest_checkpoint.bin -> training_sessions/session_N_checkpoint.bin
+// - best_checkpoint.bin -> training_sessions/session_M_checkpoint.bin (lowest val loss)
+```
+
+**Benefits Realized:**
+
+- Deployment scripts can reference `latest_checkpoint.bin` without parsing history
+- Easy access to best model for inference and evaluation
+- Automatic cleanup when old checkpoints are removed
+- Cross-platform compatibility with Windows fallback
+- Configurable for different deployment scenarios
+
+**Testing:**
+
+- Compiled successfully on Linux (GCC)
+- All existing tests pass
+- No breaking changes to existing functionality
+
+---
 
 ### TD-002: Improve Error Handling in BPE Tokenizer
 
@@ -636,14 +648,14 @@ When resolving a debt item:
 | Priority | Count | Percentage |
 | ---------- | ------- | ------------ |
 | High | 0 | 0% |
-| Medium | 3 | 60% |
-| Low | 2 | 40% |
+| Medium | 2 | 50% |
+| Low | 2 | 50% |
 
 ### By Component
 
 | Component | Count |
 | ---------------------- | ------- |
-| Training / IncrementalTrainer | 2 |
+| Training / IncrementalTrainer | 1 |
 | Performance / Matrix Operations | 1 |
 | Training / Data Generation | 1 |
 | GPU / Performance | 1 |
@@ -653,11 +665,11 @@ When resolving a debt item:
 | Effort Range | Count |
 | -------------- | ------- |
 | 0-2 hours | 0 |
-| 2-4 hours | 2 |
+| 2-4 hours | 1 |
 | 4-8 hours | 2 |
 | 8+ hours | 1 |
 
-**Total Estimated Effort:** 28-36 hours
+**Total Estimated Effort:** 26-33 hours
 
 ---
 

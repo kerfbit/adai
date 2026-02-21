@@ -63,4 +63,3 @@ The goal is to evolve the existing `adai_chatbot` executable into a production-r
 * **Logging**: Confirm that the service outputs JSON-formatted logs to standard output.
 * **Docker**: Use `docker-compose up -d` to launch the service and check its status and logs (`docker-compose logs adai`).
 * **systemd**: On a bare-metal or VM deployment, use `sudo systemctl start adai` to run the service and `journalctl -u adai` to inspect its logs.
-

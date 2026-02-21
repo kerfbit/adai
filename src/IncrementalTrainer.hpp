@@ -58,6 +58,11 @@ struct IncrementalConfig {
     // Checkpointing
     bool save_incremental_checkpoints = true;
     std::string checkpoint_dir = "checkpoints";
+    
+    // Checkpoint symlink management (TD-005)
+    bool enable_checkpoint_symlinks = true;  // Create latest/best symlinks
+    std::string latest_symlink_name = "latest_checkpoint.bin";  // Name for latest checkpoint symlink
+    std::string best_symlink_name = "best_checkpoint.bin";  // Name for best checkpoint symlink
 };
 
 /**
@@ -154,6 +159,10 @@ private:
     std::chrono::system_clock::time_point last_save_time;
     int samples_since_last_save;
     
+    // Best checkpoint tracking (TD-005)
+    float best_validation_loss;
+    std::string best_checkpoint_path;
+    
     // Helper methods
     bool initialize_session();
     bool finalize_session(int samples_trained, int epochs_completed, float final_loss, float final_val_loss);
@@ -165,6 +174,14 @@ private:
     bool save_pending_data_list();
     bool load_pending_data_list();
     int load_conversation_pairs(const std::string& filepath, std::vector<ConversationPair>& pairs);
+    
+    // Symlink management helpers (TD-005)
+    void update_checkpoint_symlinks(const std::string& checkpoint_path);
+    void update_best_checkpoint(float validation_loss, const std::string& checkpoint_path);
+    std::string get_best_checkpoint_path() const;
+    bool is_windows_platform() const;
+    bool create_or_update_symlink(const std::string& target, const std::string& link_path);
+    bool remove_symlink_if_exists(const std::string& link_path);
     
     // Project Gutenberg helpers
     std::string get_gutenberg_url(int book_id) const;

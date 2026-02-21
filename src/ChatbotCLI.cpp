@@ -1,5 +1,6 @@
 #include "ChatbotCLI.hpp"
 #include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -52,22 +53,37 @@ bool ChatbotCLI::initialize() {
         model->set_tokenizer(tokenizer.release());
 
         // Load pre-trained weights if available
-        std::ifstream model_file(model_path);
+        // Resolve symlink if model_path is a symlink
+        std::string resolved_model_path = model_path;
+        try {
+            if (std::filesystem::is_symlink(model_path)) {
+                resolved_model_path = std::filesystem::read_symlink(model_path).string();
+                std::cout << COLOR_SYSTEM << "🔗 Resolved symlink: " << model_path 
+                          << " -> " << resolved_model_path << COLOR_RESET << std::endl;
+            }
+        } catch (...) {
+            // If symlink resolution fails, use original path
+        }
+        
+        std::ifstream model_file(resolved_model_path + ".config");
         if (model_file.good()) {
-            std::cout << COLOR_SYSTEM << "💾 Loading model weights from: " << model_path
+            std::cout << COLOR_SYSTEM << "💾 Loading model weights from: " << resolved_model_path
                       << COLOR_RESET << std::endl;
             try {
-                model->load_model(model_path);
+                model->load_model(resolved_model_path);
                 std::cout << COLOR_SYSTEM << "✅ Model weights loaded successfully!" << COLOR_RESET
                           << std::endl;
-            } catch (...) {
+            } catch (const std::exception& e) {
                 std::cout << COLOR_SYSTEM
-                          << "⚠️  Failed to load model weights. Using random initialization."
+                          << "⚠️  Failed to load model weights: " << e.what() << COLOR_RESET
+                          << std::endl;
+                std::cout << COLOR_SYSTEM
+                          << "   Using random initialization instead."
                           << COLOR_RESET << std::endl;
             }
         } else {
             std::cout << COLOR_SYSTEM
-                      << "ℹ️  No pre-trained model found. Using random initialization."
+                      << "ℹ️  No pre-trained model found at: " << resolved_model_path
                       << COLOR_RESET << std::endl;
             std::cout << COLOR_SYSTEM << "   (Train the model first for better results)"
                       << COLOR_RESET << std::endl;

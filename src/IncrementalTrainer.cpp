@@ -4,6 +4,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <ctime>
 #include <regex>
@@ -21,7 +22,9 @@ namespace fs = std::filesystem;
 
 IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path, 
                                        const std::string& model_path)
-    : current_session_id(0), samples_since_last_save(0) {
+    : current_session_id(0), samples_since_last_save(0), 
+      best_validation_loss(std::numeric_limits<float>::max()), 
+      best_checkpoint_path("") {
     
     std::cout << COLOR_INFO << "🔧 Initializing Incremental Training System..." << COLOR_RESET << std::endl;
     
@@ -61,6 +64,20 @@ IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path,
     load_session_history();
     load_data_registry();
     load_pending_data_list();
+    
+    // Initialize best checkpoint from history (TD-005)
+    if (!session_history.empty()) {
+        for (const auto& session : session_history) {
+            if (session.final_validation_loss < best_validation_loss) {
+                best_validation_loss = session.final_validation_loss;
+                best_checkpoint_path = session.checkpoint_path;
+            }
+        }
+        if (!best_checkpoint_path.empty()) {
+            std::cout << COLOR_INFO << "🏆 Best checkpoint: " << best_checkpoint_path 
+                      << " (val loss: " << best_validation_loss << ")" << COLOR_RESET << std::endl;
+        }
+    }
     
     last_save_time = std::chrono::system_clock::now();
 }
@@ -415,14 +432,37 @@ void IncrementalTrainer::cleanup_old_sessions() {
     for (int i = 0; i < to_remove; ++i) {
         const auto& session = session_history[i];
         
-        // TODO: TD-005 - Check if checkpoint to be deleted is target of "best_checkpoint.bin" symlink
-        // TODO: TD-005 - If deleting best checkpoint, find next best and update symlink before deletion
-        // TODO: TD-005 - Remove any dangling symlinks pointing to deleted checkpoint files
+        // TD-005: Check if we're deleting the best checkpoint
+        bool deleting_best = (session.checkpoint_path == best_checkpoint_path);
         
         // Delete checkpoint file
         if (fs::exists(session.checkpoint_path)) {
             fs::remove(session.checkpoint_path);
             std::cout << COLOR_INFO << "🗑️  Removed old checkpoint: " << session.checkpoint_path << COLOR_RESET << std::endl;
+        }
+        
+        // If we deleted the best checkpoint, find the next best from remaining sessions
+        if (deleting_best && config.enable_checkpoint_symlinks) {
+            best_validation_loss = std::numeric_limits<float>::max();
+            best_checkpoint_path = "";
+            
+            // Search through remaining sessions (after the ones we're removing)
+            for (size_t j = to_remove; j < session_history.size(); ++j) {
+                const auto& remaining_session = session_history[j];
+                if (remaining_session.final_validation_loss < best_validation_loss && 
+                    fs::exists(remaining_session.checkpoint_path)) {
+                    best_validation_loss = remaining_session.final_validation_loss;
+                    best_checkpoint_path = remaining_session.checkpoint_path;
+                }
+            }
+            
+            // Update the best_checkpoint symlink to new best (or remove if no sessions remain)
+            if (!best_checkpoint_path.empty()) {
+                update_best_checkpoint(best_validation_loss, best_checkpoint_path);
+            } else {
+                // No valid checkpoints remain, remove the symlink
+                remove_symlink_if_exists(config.best_symlink_name);
+            }
         }
     }
     
@@ -559,8 +599,29 @@ void IncrementalTrainer::print_training_summary() const {
     // TODO: TD-004 - Show validation loss trend to detect overfitting visually
     // TODO: TD-004 - Display learning rate schedule visualization across epochs
     // TODO: TD-004 - Show min/max/avg gradient norms for training stability assessment
-    // TODO: TD-005 - Display path to "latest_checkpoint.bin" symlink if it exists
-    // TODO: TD-005 - Display path to "best_checkpoint.bin" symlink and its validation loss
+    
+    // TD-005: Display checkpoint symlink information
+    if (config.enable_checkpoint_symlinks) {
+        std::cout << "\n" << COLOR_INFO << "📎 Checkpoint Links:" << COLOR_RESET << std::endl;
+        
+        // Show latest checkpoint link
+        if (fs::exists(config.latest_symlink_name)) {
+            std::cout << "  Latest: " << config.latest_symlink_name;
+            if (!is_windows_platform() && fs::is_symlink(config.latest_symlink_name)) {
+                std::cout << " -> " << fs::read_symlink(config.latest_symlink_name).string();
+            }
+            std::cout << std::endl;
+        }
+        
+        // Show best checkpoint link
+        if (fs::exists(config.best_symlink_name)) {
+            std::cout << "  Best: " << config.best_symlink_name;
+            if (!is_windows_platform() && fs::is_symlink(config.best_symlink_name)) {
+                std::cout << " -> " << fs::read_symlink(config.best_symlink_name).string();
+            }
+            std::cout << " (val loss: " << best_validation_loss << ")" << std::endl;
+        }
+    }
     
     if (!session_history.empty()) {
         const auto& last = session_history.back();
@@ -658,12 +719,9 @@ bool IncrementalTrainer::finalize_session(int samples_trained, int epochs_comple
     // TODO: TD-004 - Store per-epoch training times in session.per_epoch_training_times vector
     // TODO: TD-004 - Store per-epoch learning rates in session.per_epoch_learning_rates vector
     
-    // TODO: TD-005 - Create/update "latest_checkpoint.bin" symlink to session.checkpoint_path in root directory
-    // TODO: TD-005 - Compare final_validation_loss with best recorded loss across all sessions
-    // TODO: TD-005 - Update "best_checkpoint.bin" symlink if this session has lowest validation loss
-    // TODO: TD-005 - Implement Windows fallback: copy file instead of symlink on Windows platform
-    // TODO: TD-005 - Add error handling for symlink creation failures (permissions, filesystem support)
-    // TODO: TD-005 - Log symlink creation/update operations with INFO level messages
+    // TD-005: Checkpoint symlink management
+    update_checkpoint_symlinks(session.checkpoint_path);
+    update_best_checkpoint(final_val_loss, session.checkpoint_path);
     
     current_session_id++;
     
@@ -768,6 +826,124 @@ bool IncrementalTrainer::load_pending_data_list() {
     return true;
 }
 
+// ============================================================================
+// Symlink Management (TD-005)
+// ============================================================================
+
+bool IncrementalTrainer::is_windows_platform() const {
+#ifdef _WIN32
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool IncrementalTrainer::create_or_update_symlink(const std::string& target, const std::string& link_path) {
+    if (!config.enable_checkpoint_symlinks) {
+        return false;
+    }
+    
+    // Remove existing symlink/file at link_path
+    remove_symlink_if_exists(link_path);
+    
+    try {
+        if (is_windows_platform()) {
+            // Windows fallback: copy file instead of symlink
+            // Use std::filesystem::copy with overwrite
+            std::error_code ec;
+            fs::copy_file(target, link_path, fs::copy_options::overwrite_existing, ec);
+            if (ec) {
+                std::cerr << COLOR_WARNING << "⚠️  Failed to copy checkpoint file: " 
+                          << ec.message() << COLOR_RESET << std::endl;
+                return false;
+            }
+            std::cout << COLOR_INFO << "📋 Copied checkpoint to: " << link_path 
+                      << COLOR_RESET << std::endl;
+        } else {
+            // Unix/Linux: create symbolic link
+            std::error_code ec;
+            fs::create_symlink(target, link_path, ec);
+            if (ec) {
+                std::cerr << COLOR_WARNING << "⚠️  Failed to create symlink: " 
+                          << ec.message() << COLOR_RESET << std::endl;
+                return false;
+            }
+            std::cout << COLOR_INFO << "🔗 Created symlink: " << link_path 
+                      << " -> " << target << COLOR_RESET << std::endl;
+        }
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << COLOR_WARNING << "⚠️  Failed to create/update checkpoint link: " 
+                  << e.what() << COLOR_RESET << std::endl;
+        return false;
+    }
+}
+
+bool IncrementalTrainer::remove_symlink_if_exists(const std::string& link_path) {
+    try {
+        if (fs::exists(link_path)) {
+            std::error_code ec;
+            fs::remove(link_path, ec);
+            if (ec) {
+                std::cerr << COLOR_WARNING << "⚠️  Failed to remove existing link: " 
+                          << ec.message() << COLOR_RESET << std::endl;
+                return false;
+            }
+        }
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << COLOR_WARNING << "⚠️  Error removing link: " 
+                  << e.what() << COLOR_RESET << std::endl;
+        return false;
+    }
+}
+
+void IncrementalTrainer::update_checkpoint_symlinks(const std::string& checkpoint_path) {
+    if (!config.enable_checkpoint_symlinks) {
+        return;
+    }
+    
+    // Create/update "latest_checkpoint.bin" symlink in root directory
+    std::string latest_link = config.latest_symlink_name;
+    create_or_update_symlink(checkpoint_path, latest_link);
+}
+
+void IncrementalTrainer::update_best_checkpoint(float validation_loss, const std::string& checkpoint_path) {
+    if (!config.enable_checkpoint_symlinks) {
+        return;
+    }
+    
+    // Check if this is the best validation loss so far
+    bool is_best = false;
+    
+    if (session_history.size() <= 1) {
+        // First session - always best
+        is_best = true;
+    } else {
+        // Compare with previous best
+        if (validation_loss < best_validation_loss) {
+            is_best = true;
+        }
+    }
+    
+    if (is_best) {
+        best_validation_loss = validation_loss;
+        best_checkpoint_path = checkpoint_path;
+        
+        // Create/update "best_checkpoint.bin" symlink in root directory
+        std::string best_link = config.best_symlink_name;
+        create_or_update_symlink(checkpoint_path, best_link);
+        
+        std::cout << COLOR_SUCCESS << "🏆 New best checkpoint! Validation loss: " 
+                  << validation_loss << COLOR_RESET << std::endl;
+    }
+}
+
+std::string IncrementalTrainer::get_best_checkpoint_path() const {
+    return best_checkpoint_path;
+}
+
+// ============================================================================
 
 int IncrementalTrainer::load_conversation_pairs(const std::string& filepath,
                                                 std::vector<ConversationPair>& pairs) {

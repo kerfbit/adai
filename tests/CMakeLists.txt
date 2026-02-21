@@ -230,8 +230,22 @@ target_link_libraries(integrationTests
 )
 add_test(NAME IntegrationTests COMMAND integrationTests)
 
+# RAG vs BERT Comparison Test
+add_executable(ragBertComparisonTests rag_bert_comparison_test.cpp)
+target_link_libraries(ragBertComparisonTests 
+    adai_models 
+    adai_nlp 
+    adai_transformer
+    adai_attention
+    adai_feedforward
+    adai_layers
+    adai_core
+    GTest::gtest_main
+)
+add_test(NAME RAGBERTComparisonTests COMMAND ragBertComparisonTests)
+
 # ============================================================================
 # Test Summary
 # ============================================================================
 
-message(STATUS "Configured 27 test suites using library targets (including ChatbotAPI, ChatbotTrainer, integration and Phase 5 tests)")
+message(STATUS "Configured 28 test suites using library targets (including ChatbotAPI, ChatbotTrainer, integration, RAG/BERT comparison and Phase 5 tests)")

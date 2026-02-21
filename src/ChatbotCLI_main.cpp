@@ -5,7 +5,7 @@
 int main(int argc, char* argv[]) {
     // Default paths
     std::string vocab_path = "vocab.txt";
-    std::string model_path = "chatbot_model.bin";
+    std::string model_path = "latest_checkpoint.bin";
     std::string conv_save_path = "conversation_history.txt";
 
     // Parse command line arguments
@@ -26,7 +26,7 @@ int main(int argc, char* argv[]) {
         std::cout << std::endl;
         std::cout << "Default values:" << std::endl;
         std::cout << "  vocab_file: vocab.txt" << std::endl;
-        std::cout << "  model_file: chatbot_model.bin" << std::endl;
+        std::cout << "  model_file: latest_checkpoint.bin" << std::endl;
         std::cout << "  conversation_save_file: conversation_history.txt" << std::endl;
         return 0;
     }

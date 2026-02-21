@@ -4,3 +4,4 @@
 2 0 0 3.10215 0 training_sessions/session_2_checkpoint.bin
 3 0 0 3.10424 0 training_sessions/session_3_checkpoint.bin
 4 0 0 3.16667 0 training_sessions/session_4_checkpoint.bin
+5 900 5 3.07862 0 training_sessions/session_5_checkpoint.bin

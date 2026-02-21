@@ -221,38 +221,38 @@ set_target_properties(vocab_builder PROPERTIES
 message(STATUS "Building vocab_builder - standalone vocabulary creation tool")
 
 # OpenMP Benchmark - Test parallel performance (Priority 1 implementation)
-add_executable(openmp_benchmark OpenMPBenchmark.cpp)
+add_executable(openmp_benchmark ../benchmarks/OpenMPBenchmark.cpp)
 target_link_libraries(openmp_benchmark adai_core)
 if(OpenMP_CXX_FOUND)
     message(STATUS "Building openmp_benchmark with OpenMP support")
 endif()
 
 # Augmentation Benchmark - Test parallel data augmentation (Priority 2 implementation)
-add_executable(augmentation_benchmark AugmentationBenchmark.cpp)
+add_executable(augmentation_benchmark ../benchmarks/AugmentationBenchmark.cpp)
 target_link_libraries(augmentation_benchmark adai_core)
 if(OpenMP_CXX_FOUND)
     message(STATUS "Building augmentation_benchmark with OpenMP support")
 endif()
 
 # Batched Inference Benchmark - Test batched inference throughput (Priority 3 implementation)
-add_executable(batched_inference_benchmark BatchedInferenceBenchmark.cpp)
+add_executable(batched_inference_benchmark ../benchmarks/BatchedInferenceBenchmark.cpp)
 target_link_libraries(batched_inference_benchmark adai_nlp adai_core)
 message(STATUS "Building batched_inference_benchmark")
 
 # Attention Head Benchmark - Test parallel attention head computation (Priority 4 implementation)
-add_executable(attention_head_benchmark AttentionHeadBenchmark.cpp)
+add_executable(attention_head_benchmark ../benchmarks/AttentionHeadBenchmark.cpp)
 target_link_libraries(attention_head_benchmark adai_attention adai_core)
 if(OpenMP_CXX_FOUND)
     message(STATUS "Building attention_head_benchmark with OpenMP support")
 endif()
 
 # Pipeline Benchmark - Test encoder-decoder pipeline parallelism (Priority 5 implementation)
-add_executable(pipeline_benchmark PipelineBenchmark.cpp)
+add_executable(pipeline_benchmark ../benchmarks/PipelineBenchmark.cpp)
 target_link_libraries(pipeline_benchmark adai_models adai_nlp adai_core pthread)
 message(STATUS "Building pipeline_benchmark")
 
 # Integrated Benchmark - Test all optimizations together (Priority 1-5 combined)
-add_executable(integrated_benchmark IntegratedBenchmark.cpp)
+add_executable(integrated_benchmark ../benchmarks/IntegratedBenchmark.cpp)
 target_link_libraries(integrated_benchmark adai_models adai_nlp adai_attention adai_core pthread)
 if(OpenMP_CXX_FOUND)
     message(STATUS "Building integrated_benchmark with full parallelization (OpenMP + pthread)")
@@ -339,7 +339,7 @@ endif()
 
 if(BUILD_EXAMPLES)
     # Tokenizer example
-    add_executable(tokenizer_example BPETokenizerexample.cpp)
+    add_executable(tokenizer_example ../examples/BPETokenizerexample.cpp)
     target_link_libraries(tokenizer_example adai_nlp)
     
     # LLM Encoder example
@@ -347,70 +347,65 @@ if(BUILD_EXAMPLES)
     target_link_libraries(encoder_example adai_models adai_nlp)
     
     # EncoderBlock example
-    add_executable(encoderblock_example EncoderBlockExample.cpp)
+    add_executable(encoderblock_example ../examples/EncoderBlockExample.cpp)
     target_link_libraries(encoderblock_example adai_transformer)
     
     # MultiHeadAttention example
-    add_executable(mha_example MultiHeadAttentionExample.cpp)
+    add_executable(mha_example ../examples/MultiHeadAttentionExample.cpp)
     target_link_libraries(mha_example adai_attention)
     
     # FeedForward example
-    add_executable(feedforward_example FeedForwardExample.cpp)
+    add_executable(feedforward_example ../examples/FeedForwardExample.cpp)
     target_link_libraries(feedforward_example adai_feedforward)
     
     # DecoderBlock example
-    add_executable(decoderblock_example DecoderBlockExample.cpp)
+    add_executable(decoderblock_example ../examples/DecoderBlockExample.cpp)
     target_link_libraries(decoderblock_example adai_transformer)
     
     # TextGenerator example
-    add_executable(textgenerator_example TextGeneratorExample.cpp)
+    add_executable(textgenerator_example ../examples/TextGeneratorExample.cpp)
     target_link_libraries(textgenerator_example adai_nlp)
     
     # EncoderDecoderModel example
-    add_executable(encoder_decoder_example EncoderDecoderModelExample.cpp)
+    add_executable(encoder_decoder_example ../examples/EncoderDecoderModelExample.cpp)
     target_link_libraries(encoder_decoder_example adai_models adai_nlp)
     
     # Optimizer example
-    add_executable(optimizer_example OptimizerExample.cpp)
+    add_executable(optimizer_example ../examples/OptimizerExample.cpp)
     target_link_libraries(optimizer_example adai_core)
     
     # Inference Optimization Benchmark
-    add_executable(inference_optimization_benchmark InferenceOptimizationBenchmark.cpp)
+    add_executable(inference_optimization_benchmark ../benchmarks/InferenceOptimizationBenchmark.cpp)
     target_link_libraries(inference_optimization_benchmark adai_models adai_nlp)
     
     # Enhanced Training Pipeline Example
-    add_executable(enhanced_training_example EnhancedTrainingExample.cpp)
+    add_executable(enhanced_training_example ../examples/EnhancedTrainingExample.cpp)
     target_link_libraries(enhanced_training_example adai_models adai_nlp)
     
     # Dataset Enhanced Features Example
-    add_executable(dataset_enhanced_example DatasetEnhancedExample.cpp)
+    add_executable(dataset_enhanced_example ../examples/DatasetEnhancedExample.cpp)
     target_link_libraries(dataset_enhanced_example adai_core)
     
     # Phase 5 Advanced Features Examples
-    add_executable(phase5_examples Phase5Examples.cpp)
+    add_executable(phase5_examples ../examples/Phase5Examples.cpp)
     target_link_libraries(phase5_examples adai_core)
     
     # Data Pipeline Enhancement Example
-    add_executable(data_pipeline_example DataPipelineExample.cpp)
+    add_executable(data_pipeline_example ../examples/DataPipelineExample.cpp)
     target_link_libraries(data_pipeline_example adai_nlp)
     
     # Dataset Batch Processing Example
-    add_executable(dataset_batch_processing_example DatasetBatchProcessingExample.cpp)
+    add_executable(dataset_batch_processing_example ../examples/DatasetBatchProcessingExample.cpp)
     target_link_libraries(dataset_batch_processing_example adai_nlp)
     
     # GPU Acceleration Example (always build, shows status even without GPU)
-    add_executable(gpu_example GPUExample.cpp)
+    add_executable(gpu_example ../examples/GPUExample.cpp)
     target_link_libraries(gpu_example adai_core)
     
     # RAG (Retrieval-Augmented Generation) Example
-    add_executable(rag_example RAGExample.cpp DocumentStore.cpp RAGInference.cpp)
+    add_executable(rag_example ../examples/RAGExample.cpp DocumentStore.cpp RAGInference.cpp)
     target_link_libraries(rag_example adai_models adai_nlp)
     message(STATUS "Building rag_example - Retrieval-Augmented Generation demo")
-    
-    # RAG vs BERT Comparison Test
-    add_executable(rag_bert_comparison RAGBERTComparisonTest.cpp DocumentStore.cpp RAGInference.cpp)
-    target_link_libraries(rag_bert_comparison adai_models adai_nlp)
-    message(STATUS "Building rag_bert_comparison - comprehensive RAG vs BERT analysis")
     
     message(STATUS "Building example programs (disable with -DBUILD_EXAMPLES=OFF)")
 endif()
