@@ -1,0 +1,3269 @@
+INPUT: What does this say: MOBY-DICK;
+
+or, THE WHALE.
+RESPONSE: By Herman Melville
+
+CONTENTS
+
+ETYMOLOGY.
+
+INPUT: Summarize: MOBY-DICK;
+
+or, THE WHALE. By Herman Melville
+
+CONTENTS
+
+ETYMOLOGY.
+RESPONSE: EXTRACTS (Supplied by a Sub-Sub-Librarian).
+
+INPUT: Explain this: EXTRACTS (Supplied by a Sub-Sub-Librarian).
+RESPONSE: Enter Ahab; to Him, Stubb.
+
+INPUT: Summarize: EXTRACTS (Supplied by a Sub-Sub-Librarian). Enter Ahab; to Him, Stubb.
+RESPONSE: Midnight, Forecastle.
+
+INPUT: Can you explain: Midnight, Forecastle.
+RESPONSE: The Whiteness of the Whale.
+
+INPUT: Summarize: Midnight, Forecastle. The Whiteness of the Whale.
+RESPONSE: Ahab’s Boat and Crew.
+
+INPUT: Explain this: Ahab’s Boat and Crew.
+RESPONSE: The Town-Ho’s Story.
+
+INPUT: Summarize: Ahab’s Boat and Crew. The Town-Ho’s Story.
+RESPONSE: Of the Monstrous Pictures of Whales.
+
+INPUT: What is this about: Of the Monstrous Pictures of Whales.
+RESPONSE: Of the Less Erroneous Pictures of Whales, and the True
+Pictures of Whaling Scenes.
+
+INPUT: Summarize: Of the Monstrous Pictures of Whales. Of the Less Erroneous Pictures of Whales, and the True
+Pictures of Whaling Scenes.
+RESPONSE: Of Whales in Paint; in Teeth; in Wood; in Sheet-Iron; in
+Stone; in Mountains; in Stars.
+
+INPUT: What does this say: Of Whales in Paint; in Teeth; in Wood; in Sheet-Iron; in
+Stone; in Mountains; in Stars.
+RESPONSE: The Jeroboam’s Story.
+
+INPUT: Summarize: Of Whales in Paint; in Teeth; in Wood; in Sheet-Iron; in
+Stone; in Mountains; in Stars. The Jeroboam’s Story.
+RESPONSE: Stubb and Flask kill a Right Whale; and Then Have a Talk
+over Him.
+
+INPUT: What does this say: Stubb and Flask kill a Right Whale; and Then Have a Talk
+over Him.
+RESPONSE: The Sperm Whale’s Head—Contrasted View.
+
+INPUT: Summarize: Stubb and Flask kill a Right Whale; and Then Have a Talk
+over Him. The Sperm Whale’s Head—Contrasted View.
+RESPONSE: The Right Whale’s Head—Contrasted View.
+
+INPUT: What is this about: The Right Whale’s Head—Contrasted View.
+RESPONSE: The Great Heidelburgh Tun.
+
+INPUT: Summarize: The Right Whale’s Head—Contrasted View. The Great Heidelburgh Tun.
+RESPONSE: The Pequod Meets The Virgin.
+
+INPUT: Tell me about: The Pequod Meets The Virgin.
+RESPONSE: The Honor and Glory of Whaling.
+
+INPUT: Summarize: The Pequod Meets The Virgin. The Honor and Glory of Whaling.
+RESPONSE: Jonah Historically Regarded.
+
+INPUT: What does this say: Jonah Historically Regarded.
+RESPONSE: Schools and Schoolmasters.
+
+INPUT: Summarize: Jonah Historically Regarded. Schools and Schoolmasters.
+RESPONSE: Fast-Fish and Loose-Fish.
+
+INPUT: Tell me about: Fast-Fish and Loose-Fish.
+RESPONSE: The Pequod Meets The Rose-Bud.
+
+INPUT: Summarize: Fast-Fish and Loose-Fish. The Pequod Meets The Rose-Bud.
+RESPONSE: A Squeeze of the Hand.
+
+INPUT: Explain this: A Squeeze of the Hand.
+RESPONSE: Stowing Down and Clearing Up.
+
+INPUT: Summarize: A Squeeze of the Hand. Stowing Down and Clearing Up.
+RESPONSE: A Bower in the Arsacides.
+
+INPUT: Can you explain: A Bower in the Arsacides.
+RESPONSE: Measurement of The Whale’s Skeleton.
+
+INPUT: Summarize: A Bower in the Arsacides. Measurement of The Whale’s Skeleton.
+RESPONSE: Does the Whale’s Magnitude Diminish?
+
+INPUT: Explain this: Does the Whale’s Magnitude Diminish?
+RESPONSE: Ahab and the Carpenter.
+
+INPUT: Summarize: Does the Whale’s Magnitude Diminish? Ahab and the Carpenter.
+RESPONSE: Ahab and Starbuck in the Cabin.
+
+INPUT: What does this mean: Ahab and Starbuck in the Cabin.
+RESPONSE: Queequeg in His Coffin.
+
+INPUT: Summarize: Ahab and Starbuck in the Cabin. Queequeg in His Coffin.
+RESPONSE: The Pequod Meets The Bachelor.
+
+INPUT: Explain this: The Pequod Meets The Bachelor.
+RESPONSE: The Deck Towards the End of the First Night Watch.
+
+INPUT: Summarize: The Pequod Meets The Bachelor. The Deck Towards the End of the First Night Watch.
+RESPONSE: —The Forecastle Bulwarks.
+
+INPUT: Tell me about: —The Forecastle Bulwarks.
+RESPONSE: —Thunder and Lightning.
+
+INPUT: Summarize: —The Forecastle Bulwarks. —Thunder and Lightning.
+RESPONSE: The Pequod Meets The Rachel.
+
+INPUT: Tell me about: The Pequod Meets The Rachel.
+RESPONSE: The Pequod Meets The Delight.
+
+INPUT: Summarize: The Pequod Meets The Rachel. The Pequod Meets The Delight.
+RESPONSE: The Chase—First Day.
+
+INPUT: What does this say: The Chase—First Day.
+RESPONSE: The Chase—Second Day.
+
+INPUT: Summarize: The Chase—First Day. The Chase—Second Day.
+RESPONSE: Epilogue
+
+Original Transcriber’s Notes:
+
+This text is a combination of etexts, one from the now-defunct ERIS
+project at Virginia Tech and one from Project Gutenberg’s archives.
+
+INPUT: What is this about: Epilogue
+
+Original Transcriber’s Notes:
+
+This text is a combination of etexts, one from the now-defunct ERIS
+project at Virginia Tech and one from Project Gutenberg’s archives.
+RESPONSE: The
+proofreaders of this version are indebted to The University of Adelaide
+Library for preserving the Virginia Tech version.
+
+INPUT: Summarize: Epilogue
+
+Original Transcriber’s Notes:
+
+This text is a combination of etexts, one from the now-defunct ERIS
+project at Virginia Tech and one from Project Gutenberg’s archives. The
+proofreaders of this version are indebted to The University of Adelaide
+Library for preserving the Virginia Tech version.
+RESPONSE: The resulting etext
+was compared with a public domain hard copy version of the text.
+
+INPUT: What does this mean: The resulting etext
+was compared with a public domain hard copy version of the text.
+RESPONSE: (Supplied by a Late Consumptive Usher to a Grammar School.
+
+INPUT: Summarize: The resulting etext
+was compared with a public domain hard copy version of the text. (Supplied by a Late Consumptive Usher to a Grammar School.
+RESPONSE: )
+
+ The pale Usher—threadbare in coat, heart, body, and brain; I see him
+ now.
+
+INPUT: What does this say: )
+
+ The pale Usher—threadbare in coat, heart, body, and brain; I see him
+ now.
+RESPONSE: He was ever dusting his old lexicons and grammars, with a queer
+ handkerchief, mockingly embellished with all the gay flags of all the
+ known nations of the world.
+
+INPUT: Summarize: )
+
+ The pale Usher—threadbare in coat, heart, body, and brain; I see him
+ now. He was ever dusting his old lexicons and grammars, with a queer
+ handkerchief, mockingly embellished with all the gay flags of all the
+ known nations of the world.
+RESPONSE: He loved to dust his old grammars; it
+ somehow mildly reminded him of his mortality.
+
+INPUT: What is this about: He loved to dust his old grammars; it
+ somehow mildly reminded him of his mortality.
+RESPONSE: “While you take in hand to school others, and to teach them by what
+ name a whale-fish is to be called in our tongue, leaving out, through
+ ignorance, the letter H, which almost alone maketh up the
+ signification of the word, you deliver that which is not true.
+
+INPUT: Summarize: He loved to dust his old grammars; it
+ somehow mildly reminded him of his mortality. “While you take in hand to school others, and to teach them by what
+ name a whale-fish is to be called in our tongue, leaving out, through
+ ignorance, the letter H, which almost alone maketh up the
+ signification of the word, you deliver that which is not true.
+RESPONSE: This animal is named from
+ roundness or rolling; for in Dan.
+
+INPUT: What does this mean: This animal is named from
+ roundness or rolling; for in Dan.
+RESPONSE: _hvalt_ is arched or vaulted.
+
+INPUT: Summarize: This animal is named from
+ roundness or rolling; for in Dan. _hvalt_ is arched or vaulted.
+RESPONSE: ”
+ —_Webster’s Dictionary.
+
+INPUT: What is this about: ”
+ —_Webster’s Dictionary.
+RESPONSE: * * * It is more immediately from the Dut.
+
+INPUT: Summarize: ”
+ —_Webster’s Dictionary. * * * It is more immediately from the Dut.
+RESPONSE: _Walw-ian_, to roll, to wallow.
+
+INPUT: What does this mean: _Walw-ian_, to roll, to wallow.
+RESPONSE: ” —_Richardson’s Dictionary.
+
+INPUT: Summarize: _Walw-ian_, to roll, to wallow. ” —_Richardson’s Dictionary.
+RESPONSE: _
+
+ ‏חו‎, _Hebrew_.
+
+INPUT: Tell me about: _
+
+ ‏חו‎, _Hebrew_.
+RESPONSE: WHŒL, _Anglo-Saxon_.
+
+INPUT: Summarize: _
+
+ ‏חו‎, _Hebrew_. WHŒL, _Anglo-Saxon_.
+RESPONSE: PEKEE-NUEE-NUEE, _Fegee_.
+
+INPUT: Can you explain: PEKEE-NUEE-NUEE, _Fegee_.
+RESPONSE: PEHEE-NUEE-NUEE, _Erromangoan_.
+
+INPUT: Summarize: PEKEE-NUEE-NUEE, _Fegee_. PEHEE-NUEE-NUEE, _Erromangoan_.
+RESPONSE: (Supplied by a Sub-Sub-Librarian).
+
+INPUT: Can you explain: (Supplied by a Sub-Sub-Librarian).
+RESPONSE: It will be seen that this mere painstaking burrower and grub-worm of
+ a poor devil of a Sub-Sub appears to have gone through the long
+ Vaticans and street-stalls of the earth, picking up whatever random
+ allusions to whales he could anyways find in any book whatsoever,
+ sacred or profane.
+
+INPUT: Summarize: (Supplied by a Sub-Sub-Librarian). It will be seen that this mere painstaking burrower and grub-worm of
+ a poor devil of a Sub-Sub appears to have gone through the long
+ Vaticans and street-stalls of the earth, picking up whatever random
+ allusions to whales he could anyways find in any book whatsoever,
+ sacred or profane.
+RESPONSE: Therefore you must not, in every case at least,
+ take the higgledy-piggledy whale statements, however authentic, in
+ these extracts, for veritable gospel cetology.
+
+INPUT: Tell me about: Therefore you must not, in every case at least,
+ take the higgledy-piggledy whale statements, however authentic, in
+ these extracts, for veritable gospel cetology.
+RESPONSE: As
+ touching the ancient authors generally, as well as the poets here
+ appearing, these extracts are solely valuable or entertaining, as
+ affording a glancing bird’s eye view of what has been promiscuously
+ said, thought, fancied, and sung of Leviathan, by many nations and
+ generations, including our own.
+
+INPUT: Summarize: Therefore you must not, in every case at least,
+ take the higgledy-piggledy whale statements, however authentic, in
+ these extracts, for veritable gospel cetology. As
+ touching the ancient authors generally, as well as the poets here
+ appearing, these extracts are solely valuable or entertaining, as
+ affording a glancing bird’s eye view of what has been promiscuously
+ said, thought, fancied, and sung of Leviathan, by many nations and
+ generations, including our own.
+RESPONSE: So fare thee well, poor devil of a Sub-Sub, whose commentator I am.
+
+INPUT: What does this say: So fare thee well, poor devil of a Sub-Sub, whose commentator I am.
+RESPONSE: Thou belongest to that hopeless, sallow tribe which no wine of this
+ world will ever warm; and for whom even Pale Sherry would be too
+ rosy-strong; but with whom one sometimes loves to sit, and feel
+ poor-devilish, too; and grow convivial upon tears; and say to them
+ bluntly, with full eyes and empty glasses, and in not altogether
+ unpleasant sadness—Give it up, Sub-Subs!
+
+INPUT: Summarize: So fare thee well, poor devil of a Sub-Sub, whose commentator I am. Thou belongest to that hopeless, sallow tribe which no wine of this
+ world will ever warm; and for whom even Pale Sherry would be too
+ rosy-strong; but with whom one sometimes loves to sit, and feel
+ poor-devilish, too; and grow convivial upon tears; and say to them
+ bluntly, with full eyes and empty glasses, and in not altogether
+ unpleasant sadness—Give it up, Sub-Subs!
+RESPONSE: For by how much the more
+ pains ye take to please the world, by so much the more shall ye for
+ ever go thankless!
+
+INPUT: What does this say: For by how much the more
+ pains ye take to please the world, by so much the more shall ye for
+ ever go thankless!
+RESPONSE: Would that I could clear out Hampton Court and the
+ Tuileries for ye!
+
+INPUT: Summarize: For by how much the more
+ pains ye take to please the world, by so much the more shall ye for
+ ever go thankless! Would that I could clear out Hampton Court and the
+ Tuileries for ye!
+RESPONSE: But gulp down your tears and hie aloft to the
+ royal-mast with your hearts; for your friends who have gone before
+ are clearing out the seven-storied heavens, and making refugees of
+ long-pampered Gabriel, Michael, and Raphael, against your coming.
+
+INPUT: What does this say: But gulp down your tears and hie aloft to the
+ royal-mast with your hearts; for your friends who have gone before
+ are clearing out the seven-storied heavens, and making refugees of
+ long-pampered Gabriel, Michael, and Raphael, against your coming.
+RESPONSE: Here ye strike but splintered hearts together—there, ye shall strike
+ unsplinterable glasses!
+
+INPUT: Summarize: But gulp down your tears and hie aloft to the
+ royal-mast with your hearts; for your friends who have gone before
+ are clearing out the seven-storied heavens, and making refugees of
+ long-pampered Gabriel, Michael, and Raphael, against your coming. Here ye strike but splintered hearts together—there, ye shall strike
+ unsplinterable glasses!
+RESPONSE: “And God created great whales.
+
+INPUT: Explain this: “And God created great whales.
+RESPONSE: “Leviathan maketh a path to shine after him; One would think the deep
+ to be hoary.
+
+INPUT: Summarize: “And God created great whales. “Leviathan maketh a path to shine after him; One would think the deep
+ to be hoary.
+RESPONSE: “Now the Lord had prepared a great fish to swallow up Jonah.
+
+INPUT: What is this about: “Now the Lord had prepared a great fish to swallow up Jonah.
+RESPONSE: “There go the ships; there is that Leviathan whom thou hast made to
+ play therein.
+
+INPUT: Summarize: “Now the Lord had prepared a great fish to swallow up Jonah. “There go the ships; there is that Leviathan whom thou hast made to
+ play therein.
+RESPONSE: “In that day, the Lord with his sore, and great, and strong sword,
+ shall punish Leviathan the piercing serpent, even Leviathan that
+ crooked serpent; and he shall slay the dragon that is in the sea.
+
+INPUT: Tell me about: “In that day, the Lord with his sore, and great, and strong sword,
+ shall punish Leviathan the piercing serpent, even Leviathan that
+ crooked serpent; and he shall slay the dragon that is in the sea.
+RESPONSE: “And what thing soever besides cometh within the chaos of this
+ monster’s mouth, be it beast, boat, or stone, down it goes all
+ incontinently that foul great swallow of his, and perisheth in the
+ bottomless gulf of his paunch.
+
+INPUT: Summarize: “In that day, the Lord with his sore, and great, and strong sword,
+ shall punish Leviathan the piercing serpent, even Leviathan that
+ crooked serpent; and he shall slay the dragon that is in the sea. “And what thing soever besides cometh within the chaos of this
+ monster’s mouth, be it beast, boat, or stone, down it goes all
+ incontinently that foul great swallow of his, and perisheth in the
+ bottomless gulf of his paunch.
+RESPONSE: ” —_Holland’s Plutarch’s Morals_.
+
+INPUT: What is this about: ” —_Holland’s Plutarch’s Morals_.
+RESPONSE: “The Indian Sea breedeth the most and the biggest fishes that are:
+ among which the Whales and Whirlpooles called Balaene, take up as
+ much in length as four acres or arpens of land.
+
+INPUT: Summarize: ” —_Holland’s Plutarch’s Morals_. “The Indian Sea breedeth the most and the biggest fishes that are:
+ among which the Whales and Whirlpooles called Balaene, take up as
+ much in length as four acres or arpens of land.
+RESPONSE: ” —_Holland’s Pliny_.
+
+INPUT: Tell me about: ” —_Holland’s Pliny_.
+RESPONSE: “Scarcely had we proceeded two days on the sea, when about sunrise a
+ great many Whales and other monsters of the sea, appeared.
+
+INPUT: Summarize: ” —_Holland’s Pliny_. “Scarcely had we proceeded two days on the sea, when about sunrise a
+ great many Whales and other monsters of the sea, appeared.
+RESPONSE: Among the
+ former, one was of a most monstrous size....
+
+INPUT: Explain this: Among the
+ former, one was of a most monstrous size....
+RESPONSE: This came towards us,
+ open-mouthed, raising the waves on all sides, and beating the sea
+ before him into a foam.
+
+INPUT: Summarize: Among the
+ former, one was of a most monstrous size.... This came towards us,
+ open-mouthed, raising the waves on all sides, and beating the sea
+ before him into a foam.
+RESPONSE: ” —_Tooke’s Lucian_.
+
+INPUT: What does this say: ” —_Tooke’s Lucian_.
+RESPONSE: “_The True History_.
+
+INPUT: Summarize: ” —_Tooke’s Lucian_. “_The True History_.
+RESPONSE: ”
+
+ “He visited this country also with a view of catching horse-whales,
+ which had bones of very great value for their teeth, of which he
+ brought some to the king....
+
+INPUT: What does this mean: ”
+
+ “He visited this country also with a view of catching horse-whales,
+ which had bones of very great value for their teeth, of which he
+ brought some to the king....
+RESPONSE: The best whales were catched in his own
+ country, of which some were forty-eight, some fifty yards long.
+
+INPUT: Summarize: ”
+
+ “He visited this country also with a view of catching horse-whales,
+ which had bones of very great value for their teeth, of which he
+ brought some to the king.... The best whales were catched in his own
+ country, of which some were forty-eight, some fifty yards long.
+RESPONSE: He
+ said that he was one of six who had killed sixty in two days.
+
+INPUT: What does this mean: He
+ said that he was one of six who had killed sixty in two days.
+RESPONSE: ”
+ —_Other or Other’s verbal narrative taken down from his mouth by King
+ Alfred, A.
+
+INPUT: Summarize: He
+ said that he was one of six who had killed sixty in two days. ”
+ —_Other or Other’s verbal narrative taken down from his mouth by King
+ Alfred, A.
+RESPONSE: “And whereas all the other things, whether beast or vessel, that
+ enter into the dreadful gulf of this monster’s (whale’s) mouth, are
+ immediately lost and swallowed up, the sea-gudgeon retires into it in
+ great security, and there sleeps.
+
+INPUT: Can you explain: “And whereas all the other things, whether beast or vessel, that
+ enter into the dreadful gulf of this monster’s (whale’s) mouth, are
+ immediately lost and swallowed up, the sea-gudgeon retires into it in
+ great security, and there sleeps.
+RESPONSE: —_Apology for Raimond
+ Sebond_.
+
+INPUT: Summarize: “And whereas all the other things, whether beast or vessel, that
+ enter into the dreadful gulf of this monster’s (whale’s) mouth, are
+ immediately lost and swallowed up, the sea-gudgeon retires into it in
+ great security, and there sleeps. —_Apology for Raimond
+ Sebond_.
+RESPONSE: “Let us fly, let us fly!
+
+INPUT: Can you explain: “Let us fly, let us fly!
+RESPONSE: Old Nick take me if it is not Leviathan
+ described by the noble prophet Moses in the life of patient Job.
+
+INPUT: Summarize: “Let us fly, let us fly! Old Nick take me if it is not Leviathan
+ described by the noble prophet Moses in the life of patient Job.
+RESPONSE: “This whale’s liver was two cartloads.
+
+INPUT: What does this say: “This whale’s liver was two cartloads.
+RESPONSE: ” —_Stowe’s Annals_.
+
+INPUT: Summarize: “This whale’s liver was two cartloads. ” —_Stowe’s Annals_.
+RESPONSE: “The great Leviathan that maketh the seas to seethe like boiling
+ pan.
+
+INPUT: Can you explain: “The great Leviathan that maketh the seas to seethe like boiling
+ pan.
+RESPONSE: ” —_Lord Bacon’s Version of the Psalms_.
+
+INPUT: Summarize: “The great Leviathan that maketh the seas to seethe like boiling
+ pan. ” —_Lord Bacon’s Version of the Psalms_.
+RESPONSE: “Touching that monstrous bulk of the whale or ork we have received
+ nothing certain.
+
+INPUT: What does this say: “Touching that monstrous bulk of the whale or ork we have received
+ nothing certain.
+RESPONSE: They grow exceeding fat, insomuch that an incredible
+ quantity of oil will be extracted out of one whale.
+
+INPUT: Summarize: “Touching that monstrous bulk of the whale or ork we have received
+ nothing certain. They grow exceeding fat, insomuch that an incredible
+ quantity of oil will be extracted out of one whale.
+RESPONSE: “_History of Life and Death_.
+
+INPUT: What does this say: “_History of Life and Death_.
+RESPONSE: ”
+
+ “The sovereignest thing on earth is parmacetti for an inward bruise.
+
+INPUT: Summarize: “_History of Life and Death_. ”
+
+ “The sovereignest thing on earth is parmacetti for an inward bruise.
+RESPONSE: ”
+ —_King Henry_.
+
+INPUT: Can you explain: ”
+ —_King Henry_.
+RESPONSE: “Very like a whale.
+
+INPUT: Summarize: ”
+ —_King Henry_. “Very like a whale.
+RESPONSE: “Which to secure, no skill of leach’s art Mote him availle, but to
+ returne againe To his wound’s worker, that with lowly dart, Dinting
+ his breast, had bred his restless paine, Like as the wounded whale to
+ shore flies thro’ the maine.
+
+INPUT: Tell me about: “Which to secure, no skill of leach’s art Mote him availle, but to
+ returne againe To his wound’s worker, that with lowly dart, Dinting
+ his breast, had bred his restless paine, Like as the wounded whale to
+ shore flies thro’ the maine.
+RESPONSE: ” —_The Fairie Queen_.
+
+INPUT: Summarize: “Which to secure, no skill of leach’s art Mote him availle, but to
+ returne againe To his wound’s worker, that with lowly dart, Dinting
+ his breast, had bred his restless paine, Like as the wounded whale to
+ shore flies thro’ the maine. ” —_The Fairie Queen_.
+RESPONSE: “Immense as whales, the motion of whose vast bodies can in a peaceful
+ calm trouble the ocean till it boil.
+
+INPUT: Tell me about: “Immense as whales, the motion of whose vast bodies can in a peaceful
+ calm trouble the ocean till it boil.
+RESPONSE: ” —_Sir William Davenant.
+
+INPUT: Summarize: “Immense as whales, the motion of whose vast bodies can in a peaceful
+ calm trouble the ocean till it boil. ” —_Sir William Davenant.
+RESPONSE: Preface
+ to Gondibert_.
+
+INPUT: Tell me about: Preface
+ to Gondibert_.
+RESPONSE: “What spermacetti is, men might justly doubt, since the learned
+ Hosmannus in his work of thirty years, saith plainly, _Nescio quid
+ sit_.
+
+INPUT: Summarize: Preface
+ to Gondibert_. “What spermacetti is, men might justly doubt, since the learned
+ Hosmannus in his work of thirty years, saith plainly, _Nescio quid
+ sit_.
+RESPONSE: Of Sperma Ceti and the Sperma Ceti Whale.
+
+INPUT: What does this mean: Of Sperma Ceti and the Sperma Ceti Whale.
+RESPONSE: _
+
+ “Like Spencer’s Talus with his modern flail He threatens ruin with
+ his ponderous tail.
+
+INPUT: Summarize: Of Sperma Ceti and the Sperma Ceti Whale. _
+
+ “Like Spencer’s Talus with his modern flail He threatens ruin with
+ his ponderous tail.
+RESPONSE: Their fixed jav’lins in his side he wears,
+ And on his back a grove of pikes appears.
+
+INPUT: What is this about: Their fixed jav’lins in his side he wears,
+ And on his back a grove of pikes appears.
+RESPONSE: ” —_Waller’s Battle of the
+ Summer Islands_.
+
+INPUT: Summarize: Their fixed jav’lins in his side he wears,
+ And on his back a grove of pikes appears. ” —_Waller’s Battle of the
+ Summer Islands_.
+RESPONSE: “By art is created that great Leviathan, called a Commonwealth or
+ State—(in Latin, Civitas) which is but an artificial man.
+
+INPUT: What does this mean: “By art is created that great Leviathan, called a Commonwealth or
+ State—(in Latin, Civitas) which is but an artificial man.
+RESPONSE: ” —_Opening
+ sentence of Hobbes’s Leviathan_.
+
+INPUT: Summarize: “By art is created that great Leviathan, called a Commonwealth or
+ State—(in Latin, Civitas) which is but an artificial man. ” —_Opening
+ sentence of Hobbes’s Leviathan_.
+RESPONSE: “Silly Mansoul swallowed it without chewing, as if it had been a
+ sprat in the mouth of a whale.
+
+INPUT: What is this about: “Silly Mansoul swallowed it without chewing, as if it had been a
+ sprat in the mouth of a whale.
+RESPONSE: ” —_Pilgrim’s Progress_.
+
+INPUT: Summarize: “Silly Mansoul swallowed it without chewing, as if it had been a
+ sprat in the mouth of a whale. ” —_Pilgrim’s Progress_.
+RESPONSE: “That sea beast Leviathan, which God of all his works Created hugest
+ that swim the ocean stream.
+
+INPUT: Explain this: “That sea beast Leviathan, which God of all his works Created hugest
+ that swim the ocean stream.
+RESPONSE: ” —_Paradise Lost_.
+
+INPUT: Summarize: “That sea beast Leviathan, which God of all his works Created hugest
+ that swim the ocean stream. ” —_Paradise Lost_.
+RESPONSE: —“There Leviathan, Hugest of living creatures, in the deep Stretched
+ like a promontory sleeps or swims, And seems a moving land; and at
+ his gills Draws in, and at his breath spouts out a sea.
+
+INPUT: Tell me about: —“There Leviathan, Hugest of living creatures, in the deep Stretched
+ like a promontory sleeps or swims, And seems a moving land; and at
+ his gills Draws in, and at his breath spouts out a sea.
+RESPONSE: “The mighty whales which swim in a sea of water, and have a sea of
+ oil swimming in them.
+
+INPUT: Summarize: —“There Leviathan, Hugest of living creatures, in the deep Stretched
+ like a promontory sleeps or swims, And seems a moving land; and at
+ his gills Draws in, and at his breath spouts out a sea. “The mighty whales which swim in a sea of water, and have a sea of
+ oil swimming in them.
+RESPONSE: ” —_Fuller’s Profane and Holy State_.
+
+INPUT: Tell me about: ” —_Fuller’s Profane and Holy State_.
+RESPONSE: “So close behind some promontory lie The huge Leviathan to attend
+ their prey, And give no chance, but swallow in the fry, Which through
+ their gaping jaws mistake the way.
+
+INPUT: Summarize: ” —_Fuller’s Profane and Holy State_. “So close behind some promontory lie The huge Leviathan to attend
+ their prey, And give no chance, but swallow in the fry, Which through
+ their gaping jaws mistake the way.
+RESPONSE: ” —_Dryden’s Annus Mirabilis_.
+
+INPUT: What is this about: ” —_Dryden’s Annus Mirabilis_.
+RESPONSE: “While the whale is floating at the stern of the ship, they cut off
+ his head, and tow it with a boat as near the shore as it will come;
+ but it will be aground in twelve or thirteen feet water.
+
+INPUT: Summarize: ” —_Dryden’s Annus Mirabilis_. “While the whale is floating at the stern of the ship, they cut off
+ his head, and tow it with a boat as near the shore as it will come;
+ but it will be aground in twelve or thirteen feet water.
+RESPONSE: ” —_Thomas
+ Edge’s Ten Voyages to Spitzbergen, in Purchas_.
+
+INPUT: What is this about: ” —_Thomas
+ Edge’s Ten Voyages to Spitzbergen, in Purchas_.
+RESPONSE: “In their way they saw many whales sporting in the ocean, and in
+ wantonness fuzzing up the water through their pipes and vents, which
+ nature has placed on their shoulders.
+
+INPUT: Summarize: ” —_Thomas
+ Edge’s Ten Voyages to Spitzbergen, in Purchas_. “In their way they saw many whales sporting in the ocean, and in
+ wantonness fuzzing up the water through their pipes and vents, which
+ nature has placed on their shoulders.
+RESPONSE: Herbert’s Voyages
+ into Asia and Africa.
+
+INPUT: Can you explain: Herbert’s Voyages
+ into Asia and Africa.
+RESPONSE: “Here they saw such huge troops of whales, that they were forced to
+ proceed with a great deal of caution for fear they should run their
+ ship upon them.
+
+INPUT: Summarize: Herbert’s Voyages
+ into Asia and Africa. “Here they saw such huge troops of whales, that they were forced to
+ proceed with a great deal of caution for fear they should run their
+ ship upon them.
+RESPONSE: ” —_Schouten’s Sixth Circumnavigation_.
+
+INPUT: Tell me about: ” —_Schouten’s Sixth Circumnavigation_.
+RESPONSE: “We set sail from the Elbe, wind N.
+
+INPUT: Summarize: ” —_Schouten’s Sixth Circumnavigation_. “We set sail from the Elbe, wind N.
+RESPONSE: in the ship called The
+ Jonas-in-the-Whale....
+
+INPUT: Tell me about: in the ship called The
+ Jonas-in-the-Whale....
+RESPONSE: Some say the whale can’t open his mouth, but
+ that is a fable....
+
+INPUT: Summarize: in the ship called The
+ Jonas-in-the-Whale.... Some say the whale can’t open his mouth, but
+ that is a fable....
+RESPONSE: They frequently climb up the masts to see whether
+ they can see a whale, for the first discoverer has a ducat for his
+ pains....
+
+INPUT: What does this say: They frequently climb up the masts to see whether
+ they can see a whale, for the first discoverer has a ducat for his
+ pains....
+RESPONSE: I was told of a whale taken near Shetland, that had above a
+ barrel of herrings in his belly....
+
+INPUT: Summarize: They frequently climb up the masts to see whether
+ they can see a whale, for the first discoverer has a ducat for his
+ pains.... I was told of a whale taken near Shetland, that had above a
+ barrel of herrings in his belly....
+RESPONSE: One of our harpooneers told me
+ that he caught once a whale in Spitzbergen that was white all over.
+
+INPUT: Explain this: One of our harpooneers told me
+ that he caught once a whale in Spitzbergen that was white all over.
+RESPONSE: ”
+ —_A Voyage to Greenland, A.
+
+INPUT: Summarize: One of our harpooneers told me
+ that he caught once a whale in Spitzbergen that was white all over. ”
+ —_A Voyage to Greenland, A.
+RESPONSE: “Several whales have come in upon this coast (Fife) Anno 1652, one
+ eighty feet in length of the whale-bone kind came in, which (as I was
+ informed), besides a vast quantity of oil, did afford 500 weight of
+ baleen.
+
+INPUT: Tell me about: “Several whales have come in upon this coast (Fife) Anno 1652, one
+ eighty feet in length of the whale-bone kind came in, which (as I was
+ informed), besides a vast quantity of oil, did afford 500 weight of
+ baleen.
+RESPONSE: The jaws of it stand for a gate in the garden of Pitferren.
+
+INPUT: Summarize: “Several whales have come in upon this coast (Fife) Anno 1652, one
+ eighty feet in length of the whale-bone kind came in, which (as I was
+ informed), besides a vast quantity of oil, did afford 500 weight of
+ baleen. The jaws of it stand for a gate in the garden of Pitferren.
+RESPONSE: ”
+ —_Sibbald’s Fife and Kinross_.
+
+INPUT: Tell me about: ”
+ —_Sibbald’s Fife and Kinross_.
+RESPONSE: “Myself have agreed to try whether I can master and kill this
+ Sperma-ceti whale, for I could never hear of any of that sort that
+ was killed by any man, such is his fierceness and swiftness.
+
+INPUT: Summarize: ”
+ —_Sibbald’s Fife and Kinross_. “Myself have agreed to try whether I can master and kill this
+ Sperma-ceti whale, for I could never hear of any of that sort that
+ was killed by any man, such is his fierceness and swiftness.
+RESPONSE: ”
+ —_Richard Strafford’s Letter from the Bermudas.
+
+INPUT: Explain this: ”
+ —_Richard Strafford’s Letter from the Bermudas.
+RESPONSE: “Whales in the sea God’s voice obey.
+
+INPUT: Summarize: ”
+ —_Richard Strafford’s Letter from the Bermudas. “Whales in the sea God’s voice obey.
+RESPONSE: “We saw also abundance of large whales, there being more in those
+ southern seas, as I may say, by a hundred to one; than we have to the
+ northward of us.
+
+INPUT: What does this mean: “We saw also abundance of large whales, there being more in those
+ southern seas, as I may say, by a hundred to one; than we have to the
+ northward of us.
+RESPONSE: ” —_Captain Cowley’s Voyage round the Globe, A.
+
+INPUT: Summarize: “We saw also abundance of large whales, there being more in those
+ southern seas, as I may say, by a hundred to one; than we have to the
+ northward of us. ” —_Captain Cowley’s Voyage round the Globe, A.
+RESPONSE: and the breath of the whale is frequently attended with such an
+ insupportable smell, as to bring on a disorder of the brain.
+
+INPUT: What does this say: and the breath of the whale is frequently attended with such an
+ insupportable smell, as to bring on a disorder of the brain.
+RESPONSE: ”
+ —_Ulloa’s South America_.
+
+INPUT: Summarize: and the breath of the whale is frequently attended with such an
+ insupportable smell, as to bring on a disorder of the brain. ”
+ —_Ulloa’s South America_.
+RESPONSE: “To fifty chosen sylphs of special note, We trust the important
+ charge, the petticoat.
+
+INPUT: Explain this: “To fifty chosen sylphs of special note, We trust the important
+ charge, the petticoat.
+RESPONSE: Oft have we known that seven-fold fence to
+ fail, Tho’ stuffed with hoops and armed with ribs of whale.
+
+INPUT: Summarize: “To fifty chosen sylphs of special note, We trust the important
+ charge, the petticoat. Oft have we known that seven-fold fence to
+ fail, Tho’ stuffed with hoops and armed with ribs of whale.
+RESPONSE: ” —_Rape
+ of the Lock_.
+
+INPUT: What does this say: ” —_Rape
+ of the Lock_.
+RESPONSE: “If we compare land animals in respect to magnitude, with those that
+ take up their abode in the deep, we shall find they will appear
+ contemptible in the comparison.
+
+INPUT: Summarize: ” —_Rape
+ of the Lock_. “If we compare land animals in respect to magnitude, with those that
+ take up their abode in the deep, we shall find they will appear
+ contemptible in the comparison.
+RESPONSE: The whale is doubtless the largest
+ animal in creation.
+
+INPUT: What does this mean: The whale is doubtless the largest
+ animal in creation.
+RESPONSE: ” —_Goldsmith, Nat.
+
+INPUT: Summarize: The whale is doubtless the largest
+ animal in creation. ” —_Goldsmith, Nat.
+RESPONSE: “If you should write a fable for little fishes, you would make them
+ speak like great whales.
+
+INPUT: What does this mean: “If you should write a fable for little fishes, you would make them
+ speak like great whales.
+RESPONSE: ” —_Goldsmith to Johnson_.
+
+INPUT: Summarize: “If you should write a fable for little fishes, you would make them
+ speak like great whales. ” —_Goldsmith to Johnson_.
+RESPONSE: “In the afternoon we saw what was supposed to be a rock, but it was
+ found to be a dead whale, which some Asiatics had killed, and were
+ then towing ashore.
+
+INPUT: Tell me about: “In the afternoon we saw what was supposed to be a rock, but it was
+ found to be a dead whale, which some Asiatics had killed, and were
+ then towing ashore.
+RESPONSE: They seemed to endeavor to conceal themselves
+ behind the whale, in order to avoid being seen by us.
+
+INPUT: Summarize: “In the afternoon we saw what was supposed to be a rock, but it was
+ found to be a dead whale, which some Asiatics had killed, and were
+ then towing ashore. They seemed to endeavor to conceal themselves
+ behind the whale, in order to avoid being seen by us.
+RESPONSE: ” —_Cook’s
+ Voyages_.
+
+INPUT: What does this say: ” —_Cook’s
+ Voyages_.
+RESPONSE: “The larger whales, they seldom venture to attack.
+
+INPUT: Summarize: ” —_Cook’s
+ Voyages_. “The larger whales, they seldom venture to attack.
+RESPONSE: They stand in so
+ great dread of some of them, that when out at sea they are afraid to
+ mention even their names, and carry dung, lime-stone, juniper-wood,
+ and some other articles of the same nature in their boats, in order
+ to terrify and prevent their too near approach.
+
+INPUT: What is this about: They stand in so
+ great dread of some of them, that when out at sea they are afraid to
+ mention even their names, and carry dung, lime-stone, juniper-wood,
+ and some other articles of the same nature in their boats, in order
+ to terrify and prevent their too near approach.
+RESPONSE: ” —_Uno Von Troil’s
+ Letters on Banks’s and Solander’s Voyage to Iceland in_ 1772.
+
+INPUT: Summarize: They stand in so
+ great dread of some of them, that when out at sea they are afraid to
+ mention even their names, and carry dung, lime-stone, juniper-wood,
+ and some other articles of the same nature in their boats, in order
+ to terrify and prevent their too near approach. ” —_Uno Von Troil’s
+ Letters on Banks’s and Solander’s Voyage to Iceland in_ 1772.
+RESPONSE: “The Spermacetti Whale found by the Nantuckois, is an active, fierce
+ animal, and requires vast address and boldness in the fishermen.
+
+INPUT: Can you explain: “The Spermacetti Whale found by the Nantuckois, is an active, fierce
+ animal, and requires vast address and boldness in the fishermen.
+RESPONSE: ”
+ —_Thomas Jefferson’s Whale Memorial to the French minister in_ 1778.
+
+INPUT: Summarize: “The Spermacetti Whale found by the Nantuckois, is an active, fierce
+ animal, and requires vast address and boldness in the fishermen. ”
+ —_Thomas Jefferson’s Whale Memorial to the French minister in_ 1778.
+RESPONSE: “And pray, sir, what in the world is equal to it?
+
+INPUT: Can you explain: “And pray, sir, what in the world is equal to it?
+RESPONSE: ” —_Edmund Burke’s
+ reference in Parliament to the Nantucket Whale-Fishery_.
+
+INPUT: Summarize: “And pray, sir, what in the world is equal to it? ” —_Edmund Burke’s
+ reference in Parliament to the Nantucket Whale-Fishery_.
+RESPONSE: “Spain—a great whale stranded on the shores of Europe.
+
+INPUT: What does this mean: “Spain—a great whale stranded on the shores of Europe.
+RESPONSE: ” —_Edmund
+ Burke_.
+
+INPUT: Summarize: “Spain—a great whale stranded on the shores of Europe. ” —_Edmund
+ Burke_.
+RESPONSE: )
+
+ “A tenth branch of the king’s ordinary revenue, said to be grounded
+ on the consideration of his guarding and protecting the seas from
+ pirates and robbers, is the right to _royal_ fish, which are whale
+ and sturgeon.
+
+INPUT: Can you explain: )
+
+ “A tenth branch of the king’s ordinary revenue, said to be grounded
+ on the consideration of his guarding and protecting the seas from
+ pirates and robbers, is the right to _royal_ fish, which are whale
+ and sturgeon.
+RESPONSE: And these, when either thrown ashore or caught near the
+ coast, are the property of the king.
+
+INPUT: Summarize: )
+
+ “A tenth branch of the king’s ordinary revenue, said to be grounded
+ on the consideration of his guarding and protecting the seas from
+ pirates and robbers, is the right to _royal_ fish, which are whale
+ and sturgeon. And these, when either thrown ashore or caught near the
+ coast, are the property of the king.
+RESPONSE: “Soon to the sport of death the crews repair: Rodmond unerring o’er
+ his head suspends The barbed steel, and every turn attends.
+
+INPUT: Can you explain: “Soon to the sport of death the crews repair: Rodmond unerring o’er
+ his head suspends The barbed steel, and every turn attends.
+RESPONSE: ”
+ —_Falconer’s Shipwreck_.
+
+INPUT: Summarize: “Soon to the sport of death the crews repair: Rodmond unerring o’er
+ his head suspends The barbed steel, and every turn attends. ”
+ —_Falconer’s Shipwreck_.
+RESPONSE: “Bright shone the roofs, the domes, the spires, And rockets blew self
+ driven, To hang their momentary fire Around the vault of heaven.
+
+INPUT: What does this mean: “Bright shone the roofs, the domes, the spires, And rockets blew self
+ driven, To hang their momentary fire Around the vault of heaven.
+RESPONSE: “So fire with water to compare, The ocean serves on high, Up-spouted
+ by a whale in air, To express unwieldy joy.
+
+INPUT: Summarize: “Bright shone the roofs, the domes, the spires, And rockets blew self
+ driven, To hang their momentary fire Around the vault of heaven. “So fire with water to compare, The ocean serves on high, Up-spouted
+ by a whale in air, To express unwieldy joy.
+RESPONSE: ” —_Cowper, on the Queen’s
+ Visit to London_.
+
+INPUT: What does this say: ” —_Cowper, on the Queen’s
+ Visit to London_.
+RESPONSE: “Ten or fifteen gallons of blood are thrown out of the heart at a
+ stroke, with immense velocity.
+
+INPUT: Summarize: ” —_Cowper, on the Queen’s
+ Visit to London_. “Ten or fifteen gallons of blood are thrown out of the heart at a
+ stroke, with immense velocity.
+RESPONSE: ” —_John Hunter’s account of the
+ dissection of a whale_.
+
+INPUT: What does this say: ” —_John Hunter’s account of the
+ dissection of a whale_.
+RESPONSE: (_A small sized one_.
+
+INPUT: Summarize: ” —_John Hunter’s account of the
+ dissection of a whale_. (_A small sized one_.
+RESPONSE: )
+
+ “The aorta of a whale is larger in the bore than the main pipe of the
+ water-works at London Bridge, and the water roaring in its passage
+ through that pipe is inferior in impetus and velocity to the blood
+ gushing from the whale’s heart.
+
+INPUT: Can you explain: )
+
+ “The aorta of a whale is larger in the bore than the main pipe of the
+ water-works at London Bridge, and the water roaring in its passage
+ through that pipe is inferior in impetus and velocity to the blood
+ gushing from the whale’s heart.
+RESPONSE: ” —_Paley’s Theology_.
+
+INPUT: Summarize: )
+
+ “The aorta of a whale is larger in the bore than the main pipe of the
+ water-works at London Bridge, and the water roaring in its passage
+ through that pipe is inferior in impetus and velocity to the blood
+ gushing from the whale’s heart. ” —_Paley’s Theology_.
+RESPONSE: “The whale is a mammiferous animal without hind feet.
+
+INPUT: Can you explain: “The whale is a mammiferous animal without hind feet.
+RESPONSE: ” —_Baron
+ Cuvier_.
+
+INPUT: Summarize: “The whale is a mammiferous animal without hind feet. ” —_Baron
+ Cuvier_.
+RESPONSE: “In 40 degrees south, we saw Spermacetti Whales, but did not take any
+ till the first of May, the sea being then covered with them.
+
+INPUT: Tell me about: “In 40 degrees south, we saw Spermacetti Whales, but did not take any
+ till the first of May, the sea being then covered with them.
+RESPONSE: ”
+ —_Colnett’s Voyage for the Purpose of Extending the Spermaceti Whale
+ Fishery_.
+
+INPUT: Summarize: “In 40 degrees south, we saw Spermacetti Whales, but did not take any
+ till the first of May, the sea being then covered with them. ”
+ —_Colnett’s Voyage for the Purpose of Extending the Spermaceti Whale
+ Fishery_.
+RESPONSE: ”
+ —_Montgomery’s World before the Flood_.
+
+INPUT: What is this about: ”
+ —_Montgomery’s World before the Flood_.
+RESPONSE: To the finny people’s king.
+
+INPUT: Summarize: ”
+ —_Montgomery’s World before the Flood_. To the finny people’s king.
+RESPONSE: Not a mightier
+ whale than this In the vast Atlantic is; Not a fatter fish than he,
+ Flounders round the Polar Sea.
+
+INPUT: Explain this: Not a mightier
+ whale than this In the vast Atlantic is; Not a fatter fish than he,
+ Flounders round the Polar Sea.
+RESPONSE: ” —_Charles Lamb’s Triumph of the
+ Whale_.
+
+INPUT: Summarize: Not a mightier
+ whale than this In the vast Atlantic is; Not a fatter fish than he,
+ Flounders round the Polar Sea. ” —_Charles Lamb’s Triumph of the
+ Whale_.
+RESPONSE: “In the year 1690 some persons were on a high hill observing the
+ whales spouting and sporting with each other, when one observed:
+ there—pointing to the sea—is a green pasture where our children’s
+ grand-children will go for bread.
+
+INPUT: What is this about: “In the year 1690 some persons were on a high hill observing the
+ whales spouting and sporting with each other, when one observed:
+ there—pointing to the sea—is a green pasture where our children’s
+ grand-children will go for bread.
+RESPONSE: ” —_Obed Macy’s History of
+ Nantucket_.
+
+INPUT: Summarize: “In the year 1690 some persons were on a high hill observing the
+ whales spouting and sporting with each other, when one observed:
+ there—pointing to the sea—is a green pasture where our children’s
+ grand-children will go for bread. ” —_Obed Macy’s History of
+ Nantucket_.
+RESPONSE: “I built a cottage for Susan and myself and made a gateway in the
+ form of a Gothic Arch, by setting up a whale’s jaw bones.
+
+INPUT: What does this say: “I built a cottage for Susan and myself and made a gateway in the
+ form of a Gothic Arch, by setting up a whale’s jaw bones.
+RESPONSE: ”
+ —_Hawthorne’s Twice Told Tales_.
+
+INPUT: Summarize: “I built a cottage for Susan and myself and made a gateway in the
+ form of a Gothic Arch, by setting up a whale’s jaw bones. ”
+ —_Hawthorne’s Twice Told Tales_.
+RESPONSE: “She came to bespeak a monument for her first love, who had been
+ killed by a whale in the Pacific ocean, no less than forty years
+ ago.
+
+INPUT: What does this say: “She came to bespeak a monument for her first love, who had been
+ killed by a whale in the Pacific ocean, no less than forty years
+ ago.
+RESPONSE: “No, Sir, ’tis a Right Whale,” answered Tom; “I saw his sprout; he
+ threw up a pair of as pretty rainbows as a Christian would wish to
+ look at.
+
+INPUT: Summarize: “She came to bespeak a monument for her first love, who had been
+ killed by a whale in the Pacific ocean, no less than forty years
+ ago. “No, Sir, ’tis a Right Whale,” answered Tom; “I saw his sprout; he
+ threw up a pair of as pretty rainbows as a Christian would wish to
+ look at.
+RESPONSE: He’s a raal oil-butt, that fellow!
+
+INPUT: What does this say: He’s a raal oil-butt, that fellow!
+RESPONSE: ” —_Cooper’s Pilot_.
+
+INPUT: Summarize: He’s a raal oil-butt, that fellow! ” —_Cooper’s Pilot_.
+RESPONSE: “The papers were brought in, and we saw in the Berlin Gazette that
+ whales had been introduced on the stage there.
+
+INPUT: Tell me about: “The papers were brought in, and we saw in the Berlin Gazette that
+ whales had been introduced on the stage there.
+RESPONSE: ” —_Eckermann’s
+ Conversations with Goethe_.
+
+INPUT: Summarize: “The papers were brought in, and we saw in the Berlin Gazette that
+ whales had been introduced on the stage there. ” —_Eckermann’s
+ Conversations with Goethe_.
+RESPONSE: Chace, what is the matter?
+
+INPUT: What is this about: Chace, what is the matter?
+RESPONSE: ” I answered, “we have been
+ stove by a whale.
+
+INPUT: Summarize: Chace, what is the matter? ” I answered, “we have been
+ stove by a whale.
+RESPONSE: ” —“_Narrative of the Shipwreck of the Whale Ship
+ Essex of Nantucket, which was attacked and finally destroyed by a
+ large Sperm Whale in the Pacific Ocean_.
+
+INPUT: What does this say: ” —“_Narrative of the Shipwreck of the Whale Ship
+ Essex of Nantucket, which was attacked and finally destroyed by a
+ large Sperm Whale in the Pacific Ocean_.
+RESPONSE: ” _By Owen Chace of
+ Nantucket, first mate of said vessel.
+
+INPUT: Summarize: ” —“_Narrative of the Shipwreck of the Whale Ship
+ Essex of Nantucket, which was attacked and finally destroyed by a
+ large Sperm Whale in the Pacific Ocean_. ” _By Owen Chace of
+ Nantucket, first mate of said vessel.
+RESPONSE: “A mariner sat in the shrouds one night, The wind was piping free;
+ Now bright, now dimmed, was the moonlight pale, And the phospher
+ gleamed in the wake of the whale, As it floundered in the sea.
+
+INPUT: What does this say: “A mariner sat in the shrouds one night, The wind was piping free;
+ Now bright, now dimmed, was the moonlight pale, And the phospher
+ gleamed in the wake of the whale, As it floundered in the sea.
+RESPONSE: ”
+ —_Elizabeth Oakes Smith_.
+
+INPUT: Summarize: “A mariner sat in the shrouds one night, The wind was piping free;
+ Now bright, now dimmed, was the moonlight pale, And the phospher
+ gleamed in the wake of the whale, As it floundered in the sea. ”
+ —_Elizabeth Oakes Smith_.
+RESPONSE: “The quantity of line withdrawn from the boats engaged in the capture
+ of this one whale, amounted altogether to 10,440 yards or nearly six
+ English miles....
+
+INPUT: Can you explain: “The quantity of line withdrawn from the boats engaged in the capture
+ of this one whale, amounted altogether to 10,440 yards or nearly six
+ English miles....
+RESPONSE: “Sometimes the whale shakes its tremendous tail in the air, which,
+ cracking like a whip, resounds to the distance of three or four
+ miles.
+
+INPUT: Summarize: “The quantity of line withdrawn from the boats engaged in the capture
+ of this one whale, amounted altogether to 10,440 yards or nearly six
+ English miles.... “Sometimes the whale shakes its tremendous tail in the air, which,
+ cracking like a whip, resounds to the distance of three or four
+ miles.
+RESPONSE: “Mad with the agonies he endures from these fresh attacks, the
+ infuriated Sperm Whale rolls over and over; he rears his enormous
+ head, and with wide expanded jaws snaps at everything around him; he
+ rushes at the boats with his head; they are propelled before him with
+ vast swiftness, and sometimes utterly destroyed....
+
+INPUT: Explain this: “Mad with the agonies he endures from these fresh attacks, the
+ infuriated Sperm Whale rolls over and over; he rears his enormous
+ head, and with wide expanded jaws snaps at everything around him; he
+ rushes at the boats with his head; they are propelled before him with
+ vast swiftness, and sometimes utterly destroyed....
+RESPONSE: It is a matter of
+ great astonishment that the consideration of the habits of so
+ interesting, and, in a commercial point of view, so important an
+ animal (as the Sperm Whale) should have been so entirely neglected,
+ or should have excited so little curiosity among the numerous, and
+ many of them competent observers, that of late years, must have
+ possessed the most abundant and the most convenient opportunities of
+ witnessing their habitudes.
+
+INPUT: Summarize: “Mad with the agonies he endures from these fresh attacks, the
+ infuriated Sperm Whale rolls over and over; he rears his enormous
+ head, and with wide expanded jaws snaps at everything around him; he
+ rushes at the boats with his head; they are propelled before him with
+ vast swiftness, and sometimes utterly destroyed.... It is a matter of
+ great astonishment that the consideration of the habits of so
+ interesting, and, in a commercial point of view, so important an
+ animal (as the Sperm Whale) should have been so entirely neglected,
+ or should have excited so little curiosity among the numerous, and
+ many of them competent observers, that of late years, must have
+ possessed the most abundant and the most convenient opportunities of
+ witnessing their habitudes.
+RESPONSE: ” —_Thomas Beale’s History of the Sperm
+ Whale_, 1839.
+
+INPUT: Tell me about: ” —_Thomas Beale’s History of the Sperm
+ Whale_, 1839.
+RESPONSE: “The Cachalot” (Sperm Whale) “is not only better armed than the True
+ Whale” (Greenland or Right Whale) “in possessing a formidable weapon
+ at either extremity of its body, but also more frequently displays a
+ disposition to employ these weapons offensively and in manner at once
+ so artful, bold, and mischievous, as to lead to its being regarded as
+ the most dangerous to attack of all the known species of the whale
+ tribe.
+
+INPUT: Summarize: ” —_Thomas Beale’s History of the Sperm
+ Whale_, 1839. “The Cachalot” (Sperm Whale) “is not only better armed than the True
+ Whale” (Greenland or Right Whale) “in possessing a formidable weapon
+ at either extremity of its body, but also more frequently displays a
+ disposition to employ these weapons offensively and in manner at once
+ so artful, bold, and mischievous, as to lead to its being regarded as
+ the most dangerous to attack of all the known species of the whale
+ tribe.
+RESPONSE: ” —_Frederick Debell Bennett’s Whaling Voyage Round the Globe_,
+ 1840.
+
+INPUT: Explain this: ” —_Frederick Debell Bennett’s Whaling Voyage Round the Globe_,
+ 1840.
+RESPONSE: “There she blows,” was sung out from the mast-head.
+
+INPUT: Summarize: ” —_Frederick Debell Bennett’s Whaling Voyage Round the Globe_,
+ 1840. “There she blows,” was sung out from the mast-head.
+RESPONSE: ” demanded the captain.
+
+INPUT: What is this about: ” demanded the captain.
+RESPONSE: “Three points off the lee bow,
+ sir.
+
+INPUT: Summarize: ” demanded the captain. “Three points off the lee bow,
+ sir.
+RESPONSE: ” “Raise up your wheel.
+
+INPUT: Can you explain: ” “Raise up your wheel.
+RESPONSE: ” “Mast-head
+ ahoy!
+
+INPUT: Summarize: ” “Raise up your wheel. ” “Mast-head
+ ahoy!
+RESPONSE: Do you see that whale now?
+
+INPUT: Explain this: Do you see that whale now?
+RESPONSE: A shoal of Sperm
+ Whales!
+
+INPUT: Summarize: Do you see that whale now? A shoal of Sperm
+ Whales!
+RESPONSE: sing out
+ every time!
+
+INPUT: What is this about: sing out
+ every time!
+RESPONSE: there—there—_thar_ she
+ blows—bowes—bo-o-os!
+
+INPUT: Summarize: sing out
+ every time! there—there—_thar_ she
+ blows—bowes—bo-o-os!
+RESPONSE: ” “Two miles and a half.
+
+INPUT: Explain this: ” “Two miles and a half.
+RESPONSE: ” “Thunder
+ and lightning!
+
+INPUT: Summarize: ” “Two miles and a half. ” “Thunder
+ and lightning!
+RESPONSE: Ross Browne’s Etchings
+ of a Whaling Cruize_.
+
+INPUT: What does this say: Ross Browne’s Etchings
+ of a Whaling Cruize_.
+RESPONSE: “The Whale-ship Globe, on board of which vessel occurred the horrid
+ transactions we are about to relate, belonged to the island of
+ Nantucket.
+
+INPUT: Summarize: Ross Browne’s Etchings
+ of a Whaling Cruize_. “The Whale-ship Globe, on board of which vessel occurred the horrid
+ transactions we are about to relate, belonged to the island of
+ Nantucket.
+RESPONSE: ” —“_Narrative of the Globe Mutiny_,” _by Lay and Hussey
+ survivors.
+
+INPUT: Explain this: ” —“_Narrative of the Globe Mutiny_,” _by Lay and Hussey
+ survivors.
+RESPONSE: Being once pursued by a whale which he had wounded, he parried the
+ assault for some time with a lance; but the furious monster at length
+ rushed on the boat; himself and comrades only being preserved by
+ leaping into the water when they saw the onset was inevitable.
+
+INPUT: Summarize: ” —“_Narrative of the Globe Mutiny_,” _by Lay and Hussey
+ survivors. Being once pursued by a whale which he had wounded, he parried the
+ assault for some time with a lance; but the furious monster at length
+ rushed on the boat; himself and comrades only being preserved by
+ leaping into the water when they saw the onset was inevitable.
+RESPONSE: ”
+ —_Missionary Journal of Tyerman and Bennett_.
+
+INPUT: What is this about: ”
+ —_Missionary Journal of Tyerman and Bennett_.
+RESPONSE: “Nantucket itself,” said Mr.
+
+INPUT: Summarize: ”
+ —_Missionary Journal of Tyerman and Bennett_. “Nantucket itself,” said Mr.
+RESPONSE: Webster, “is a very striking and
+ peculiar portion of the National interest.
+
+INPUT: What is this about: Webster, “is a very striking and
+ peculiar portion of the National interest.
+RESPONSE: There is a population of
+ eight or nine thousand persons living here in the sea, adding largely
+ every year to the National wealth by the boldest and most persevering
+ industry.
+
+INPUT: Summarize: Webster, “is a very striking and
+ peculiar portion of the National interest. There is a population of
+ eight or nine thousand persons living here in the sea, adding largely
+ every year to the National wealth by the boldest and most persevering
+ industry.
+RESPONSE: ” —_Report of Daniel Webster’s Speech in the U.
+
+INPUT: What does this say: ” —_Report of Daniel Webster’s Speech in the U.
+RESPONSE: Senate,
+ on the application for the Erection of a Breakwater at Nantucket_.
+
+INPUT: Summarize: ” —_Report of Daniel Webster’s Speech in the U. Senate,
+ on the application for the Erection of a Breakwater at Nantucket_.
+RESPONSE: “The whale fell directly over him, and probably killed him in a
+ moment.
+
+INPUT: Tell me about: “The whale fell directly over him, and probably killed him in a
+ moment.
+RESPONSE: ” —“_The Whale and his Captors, or The Whaleman’s Adventures
+ and the Whale’s Biography, gathered on the Homeward Cruise of the
+ Commodore Preble_.
+
+INPUT: Summarize: “The whale fell directly over him, and probably killed him in a
+ moment. ” —“_The Whale and his Captors, or The Whaleman’s Adventures
+ and the Whale’s Biography, gathered on the Homeward Cruise of the
+ Commodore Preble_.
+RESPONSE: “If you make the least damn bit of noise,” replied Samuel, “I will
+ send you to hell.
+
+INPUT: Can you explain: “If you make the least damn bit of noise,” replied Samuel, “I will
+ send you to hell.
+RESPONSE: ” —_Life of Samuel Comstock_ (_the mutineer_), _by
+ his brother, William Comstock.
+
+INPUT: Summarize: “If you make the least damn bit of noise,” replied Samuel, “I will
+ send you to hell. ” —_Life of Samuel Comstock_ (_the mutineer_), _by
+ his brother, William Comstock.
+RESPONSE: Another Version of the whale-ship
+ Globe narrative_.
+
+INPUT: Explain this: Another Version of the whale-ship
+ Globe narrative_.
+RESPONSE: “The voyages of the Dutch and English to the Northern Ocean, in
+ order, if possible, to discover a passage through it to India, though
+ they failed of their main object, laid-open the haunts of the whale.
+
+INPUT: Summarize: Another Version of the whale-ship
+ Globe narrative_. “The voyages of the Dutch and English to the Northern Ocean, in
+ order, if possible, to discover a passage through it to India, though
+ they failed of their main object, laid-open the haunts of the whale.
+RESPONSE: ”
+ —_McCulloch’s Commercial Dictionary_.
+
+INPUT: Tell me about: ”
+ —_McCulloch’s Commercial Dictionary_.
+RESPONSE: “These things are reciprocal; the ball rebounds, only to bound
+ forward again; for now in laying open the haunts of the whale, the
+ whalemen seem to have indirectly hit upon new clews to that same
+ mystic North-West Passage.
+
+INPUT: Summarize: ”
+ —_McCulloch’s Commercial Dictionary_. “These things are reciprocal; the ball rebounds, only to bound
+ forward again; for now in laying open the haunts of the whale, the
+ whalemen seem to have indirectly hit upon new clews to that same
+ mystic North-West Passage.
+RESPONSE: ” —_From_ “_Something_” _unpublished_.
+
+INPUT: Tell me about: ” —_From_ “_Something_” _unpublished_.
+RESPONSE: “It is impossible to meet a whale-ship on the ocean without being
+ struck by her near appearance.
+
+INPUT: Summarize: ” —_From_ “_Something_” _unpublished_. “It is impossible to meet a whale-ship on the ocean without being
+ struck by her near appearance.
+RESPONSE: The vessel under short sail, with
+ look-outs at the mast-heads, eagerly scanning the wide expanse around
+ them, has a totally different air from those engaged in regular
+ voyage.
+
+INPUT: What is this about: The vessel under short sail, with
+ look-outs at the mast-heads, eagerly scanning the wide expanse around
+ them, has a totally different air from those engaged in regular
+ voyage.
+RESPONSE: ” —_Currents and Whaling.
+
+INPUT: Summarize: The vessel under short sail, with
+ look-outs at the mast-heads, eagerly scanning the wide expanse around
+ them, has a totally different air from those engaged in regular
+ voyage. ” —_Currents and Whaling.
+RESPONSE: “Pedestrians in the vicinity of London and elsewhere may recollect
+ having seen large curved bones set upright in the earth, either to
+ form arches over gateways, or entrances to alcoves, and they may
+ perhaps have been told that these were the ribs of whales.
+
+INPUT: Explain this: “Pedestrians in the vicinity of London and elsewhere may recollect
+ having seen large curved bones set upright in the earth, either to
+ form arches over gateways, or entrances to alcoves, and they may
+ perhaps have been told that these were the ribs of whales.
+RESPONSE: ” —_Tales
+ of a Whale Voyager to the Arctic Ocean_.
+
+INPUT: Summarize: “Pedestrians in the vicinity of London and elsewhere may recollect
+ having seen large curved bones set upright in the earth, either to
+ form arches over gateways, or entrances to alcoves, and they may
+ perhaps have been told that these were the ribs of whales. ” —_Tales
+ of a Whale Voyager to the Arctic Ocean_.
+RESPONSE: “It was not till the boats returned from the pursuit of these whales,
+ that the whites saw their ship in bloody possession of the savages
+ enrolled among the crew.
+
+INPUT: Explain this: “It was not till the boats returned from the pursuit of these whales,
+ that the whites saw their ship in bloody possession of the savages
+ enrolled among the crew.
+RESPONSE: ” —_Newspaper Account of the Taking and
+ Retaking of the Whale-Ship Hobomack_.
+
+INPUT: Summarize: “It was not till the boats returned from the pursuit of these whales,
+ that the whites saw their ship in bloody possession of the savages
+ enrolled among the crew. ” —_Newspaper Account of the Taking and
+ Retaking of the Whale-Ship Hobomack_.
+RESPONSE: “It is generally well known that out of the crews of Whaling vessels
+ (American) few ever return in the ships on board of which they
+ departed.
+
+INPUT: Tell me about: “It is generally well known that out of the crews of Whaling vessels
+ (American) few ever return in the ships on board of which they
+ departed.
+RESPONSE: ” —_Cruise in a Whale Boat_.
+
+INPUT: Summarize: “It is generally well known that out of the crews of Whaling vessels
+ (American) few ever return in the ships on board of which they
+ departed. ” —_Cruise in a Whale Boat_.
+RESPONSE: “Suddenly a mighty mass emerged from the water, and shot up
+ perpendicularly into the air.
+
+INPUT: Can you explain: “Suddenly a mighty mass emerged from the water, and shot up
+ perpendicularly into the air.
+RESPONSE: ” —_Miriam Coffin or
+ the Whale Fisherman_.
+
+INPUT: Summarize: “Suddenly a mighty mass emerged from the water, and shot up
+ perpendicularly into the air. ” —_Miriam Coffin or
+ the Whale Fisherman_.
+RESPONSE: “The Whale is harpooned to be sure; but bethink you, how you would
+ manage a powerful unbroken colt, with the mere appliance of a rope
+ tied to the root of his tail.
+
+INPUT: What is this about: “The Whale is harpooned to be sure; but bethink you, how you would
+ manage a powerful unbroken colt, with the mere appliance of a rope
+ tied to the root of his tail.
+RESPONSE: ” —_A Chapter on Whaling in Ribs and
+ Trucks_.
+
+INPUT: Summarize: “The Whale is harpooned to be sure; but bethink you, how you would
+ manage a powerful unbroken colt, with the mere appliance of a rope
+ tied to the root of his tail. ” —_A Chapter on Whaling in Ribs and
+ Trucks_.
+RESPONSE: “On one occasion I saw two of these monsters (whales) probably male
+ and female, slowly swimming, one after the other, within less than a
+ stone’s throw of the shore” (Terra Del Fuego), “over which the beech
+ tree extended its branches.
+
+INPUT: What does this say: “On one occasion I saw two of these monsters (whales) probably male
+ and female, slowly swimming, one after the other, within less than a
+ stone’s throw of the shore” (Terra Del Fuego), “over which the beech
+ tree extended its branches.
+RESPONSE: ” —_Darwin’s Voyage of a Naturalist_.
+
+INPUT: Summarize: “On one occasion I saw two of these monsters (whales) probably male
+ and female, slowly swimming, one after the other, within less than a
+ stone’s throw of the shore” (Terra Del Fuego), “over which the beech
+ tree extended its branches. ” —_Darwin’s Voyage of a Naturalist_.
+RESPONSE: ’ exclaimed the mate, as upon turning his head, he saw
+ the distended jaws of a large Sperm Whale close to the head of the
+ boat, threatening it with instant destruction;—‘Stern all, for your
+ lives!
+
+INPUT: Explain this: ’ exclaimed the mate, as upon turning his head, he saw
+ the distended jaws of a large Sperm Whale close to the head of the
+ boat, threatening it with instant destruction;—‘Stern all, for your
+ lives!
+RESPONSE: ’” —_Wharton the Whale Killer_.
+
+INPUT: Summarize: ’ exclaimed the mate, as upon turning his head, he saw
+ the distended jaws of a large Sperm Whale close to the head of the
+ boat, threatening it with instant destruction;—‘Stern all, for your
+ lives! ’” —_Wharton the Whale Killer_.
+RESPONSE: “So be cheery, my lads, let your hearts never fail, While the bold
+ harpooneer is striking the whale!
+
+INPUT: What is this about: “So be cheery, my lads, let your hearts never fail, While the bold
+ harpooneer is striking the whale!
+RESPONSE: ” —_Nantucket Song_.
+
+INPUT: Summarize: “So be cheery, my lads, let your hearts never fail, While the bold
+ harpooneer is striking the whale! ” —_Nantucket Song_.
+RESPONSE: “Oh, the rare old Whale, mid storm and gale In his ocean home will be
+ A giant in might, where might is right, And King of the boundless
+ sea.
+
+INPUT: Tell me about: “Oh, the rare old Whale, mid storm and gale In his ocean home will be
+ A giant in might, where might is right, And King of the boundless
+ sea.
+RESPONSE: Some years ago—never mind how long precisely—having
+little or no money in my purse, and nothing particular to interest me
+on shore, I thought I would sail about a little and see the watery part
+of the world.
+
+INPUT: Summarize: “Oh, the rare old Whale, mid storm and gale In his ocean home will be
+ A giant in might, where might is right, And King of the boundless
+ sea. Some years ago—never mind how long precisely—having
+little or no money in my purse, and nothing particular to interest me
+on shore, I thought I would sail about a little and see the watery part
+of the world.
+RESPONSE: It is a way I have of driving off the spleen and
+regulating the circulation.
+
+INPUT: Can you explain: It is a way I have of driving off the spleen and
+regulating the circulation.
+RESPONSE: Whenever I find myself growing grim about
+the mouth; whenever it is a damp, drizzly November in my soul; whenever
+I find myself involuntarily pausing before coffin warehouses, and
+bringing up the rear of every funeral I meet; and especially whenever
+my hypos get such an upper hand of me, that it requires a strong moral
+principle to prevent me from deliberately stepping into the street, and
+methodically knocking people’s hats off—then, I account it high time to
+get to sea as soon as I can.
+
+INPUT: Summarize: It is a way I have of driving off the spleen and
+regulating the circulation. Whenever I find myself growing grim about
+the mouth; whenever it is a damp, drizzly November in my soul; whenever
+I find myself involuntarily pausing before coffin warehouses, and
+bringing up the rear of every funeral I meet; and especially whenever
+my hypos get such an upper hand of me, that it requires a strong moral
+principle to prevent me from deliberately stepping into the street, and
+methodically knocking people’s hats off—then, I account it high time to
+get to sea as soon as I can.
+RESPONSE: This is my substitute for pistol and ball.
+
+INPUT: What does this mean: This is my substitute for pistol and ball.
+RESPONSE: With a philosophical flourish Cato throws himself upon his sword; I
+quietly take to the ship.
+
+INPUT: Summarize: This is my substitute for pistol and ball. With a philosophical flourish Cato throws himself upon his sword; I
+quietly take to the ship.
+RESPONSE: There is nothing surprising in this.
+
+INPUT: Can you explain: There is nothing surprising in this.
+RESPONSE: If they
+but knew it, almost all men in their degree, some time or other,
+cherish very nearly the same feelings towards the ocean with me.
+
+INPUT: Summarize: There is nothing surprising in this. If they
+but knew it, almost all men in their degree, some time or other,
+cherish very nearly the same feelings towards the ocean with me.
+RESPONSE: There now is your insular city of the Manhattoes, belted round by
+wharves as Indian isles by coral reefs—commerce surrounds it with her
+surf.
+
+INPUT: What does this say: There now is your insular city of the Manhattoes, belted round by
+wharves as Indian isles by coral reefs—commerce surrounds it with her
+surf.
+RESPONSE: Right and left, the streets take you waterward.
+
+INPUT: Summarize: There now is your insular city of the Manhattoes, belted round by
+wharves as Indian isles by coral reefs—commerce surrounds it with her
+surf. Right and left, the streets take you waterward.
+RESPONSE: Its extreme
+downtown is the battery, where that noble mole is washed by waves, and
+cooled by breezes, which a few hours previous were out of sight of
+land.
+
+INPUT: What is this about: Its extreme
+downtown is the battery, where that noble mole is washed by waves, and
+cooled by breezes, which a few hours previous were out of sight of
+land.
+RESPONSE: Look at the crowds of water-gazers there.
+
+INPUT: Summarize: Its extreme
+downtown is the battery, where that noble mole is washed by waves, and
+cooled by breezes, which a few hours previous were out of sight of
+land. Look at the crowds of water-gazers there.
+RESPONSE: Circumambulate the city of a dreamy Sabbath afternoon.
+
+INPUT: What does this say: Circumambulate the city of a dreamy Sabbath afternoon.
+RESPONSE: Go from Corlears
+Hook to Coenties Slip, and from thence, by Whitehall, northward.
+
+INPUT: Summarize: Circumambulate the city of a dreamy Sabbath afternoon. Go from Corlears
+Hook to Coenties Slip, and from thence, by Whitehall, northward.
+RESPONSE: —Posted like silent sentinels all around the town, stand
+thousands upon thousands of mortal men fixed in ocean reveries.
+
+INPUT: What does this mean: —Posted like silent sentinels all around the town, stand
+thousands upon thousands of mortal men fixed in ocean reveries.
+RESPONSE: Some
+leaning against the spiles; some seated upon the pier-heads; some
+looking over the bulwarks of ships from China; some high aloft in the
+rigging, as if striving to get a still better seaward peep.
+
+INPUT: Summarize: —Posted like silent sentinels all around the town, stand
+thousands upon thousands of mortal men fixed in ocean reveries. Some
+leaning against the spiles; some seated upon the pier-heads; some
+looking over the bulwarks of ships from China; some high aloft in the
+rigging, as if striving to get a still better seaward peep.
+RESPONSE: But these
+are all landsmen; of week days pent up in lath and plaster—tied to
+counters, nailed to benches, clinched to desks.
+
+INPUT: Explain this: But these
+are all landsmen; of week days pent up in lath and plaster—tied to
+counters, nailed to benches, clinched to desks.
+RESPONSE: Are
+the green fields gone?
+
+INPUT: Summarize: But these
+are all landsmen; of week days pent up in lath and plaster—tied to
+counters, nailed to benches, clinched to desks. Are
+the green fields gone?
+RESPONSE: here come more crowds, pacing straight for the water, and
+seemingly bound for a dive.
+
+INPUT: Can you explain: here come more crowds, pacing straight for the water, and
+seemingly bound for a dive.
+RESPONSE: Nothing will content them but the
+extremest limit of the land; loitering under the shady lee of yonder
+warehouses will not suffice.
+
+INPUT: Summarize: here come more crowds, pacing straight for the water, and
+seemingly bound for a dive. Nothing will content them but the
+extremest limit of the land; loitering under the shady lee of yonder
+warehouses will not suffice.
+RESPONSE: They must get just as nigh the water
+as they possibly can without falling in.
+
+INPUT: What is this about: They must get just as nigh the water
+as they possibly can without falling in.
+RESPONSE: And there they stand—miles of
+them—leagues.
+
+INPUT: Summarize: They must get just as nigh the water
+as they possibly can without falling in. And there they stand—miles of
+them—leagues.
+RESPONSE: Inlanders all, they come from lanes and alleys, streets
+and avenues—north, east, south, and west.
+
+INPUT: What does this mean: Inlanders all, they come from lanes and alleys, streets
+and avenues—north, east, south, and west.
+RESPONSE: Yet here they all unite.
+
+INPUT: Summarize: Inlanders all, they come from lanes and alleys, streets
+and avenues—north, east, south, and west. Yet here they all unite.
+RESPONSE: Tell
+me, does the magnetic virtue of the needles of the compasses of all
+those ships attract them thither?
+
+INPUT: What does this say: Tell
+me, does the magnetic virtue of the needles of the compasses of all
+those ships attract them thither?
+RESPONSE: Say you are in the country; in some high land of lakes.
+
+INPUT: Summarize: Tell
+me, does the magnetic virtue of the needles of the compasses of all
+those ships attract them thither? Say you are in the country; in some high land of lakes.
+RESPONSE: Take
+almost any path you please, and ten to one it carries you down in a
+dale, and leaves you there by a pool in the stream.
+
+INPUT: What does this say: Take
+almost any path you please, and ten to one it carries you down in a
+dale, and leaves you there by a pool in the stream.
+RESPONSE: There is magic in
+it.
+
+INPUT: Summarize: Take
+almost any path you please, and ten to one it carries you down in a
+dale, and leaves you there by a pool in the stream. There is magic in
+it.
+RESPONSE: Let the most absent-minded of men be plunged in his deepest
+reveries—stand that man on his legs, set his feet a-going, and he will
+infallibly lead you to water, if water there be in all that region.
+
+INPUT: Explain this: Let the most absent-minded of men be plunged in his deepest
+reveries—stand that man on his legs, set his feet a-going, and he will
+infallibly lead you to water, if water there be in all that region.
+RESPONSE: Should you ever be athirst in the great American desert, try this
+experiment, if your caravan happen to be supplied with a metaphysical
+professor.
+
+INPUT: Summarize: Let the most absent-minded of men be plunged in his deepest
+reveries—stand that man on his legs, set his feet a-going, and he will
+infallibly lead you to water, if water there be in all that region. Should you ever be athirst in the great American desert, try this
+experiment, if your caravan happen to be supplied with a metaphysical
+professor.
+RESPONSE: Yes, as every one knows, meditation and water are wedded for
+ever.
+
+INPUT: Tell me about: Yes, as every one knows, meditation and water are wedded for
+ever.
+RESPONSE: But here is an artist.
+
+INPUT: Summarize: Yes, as every one knows, meditation and water are wedded for
+ever. But here is an artist.
+RESPONSE: He desires to paint you the dreamiest, shadiest,
+quietest, most enchanting bit of romantic landscape in all the valley
+of the Saco.
+
+INPUT: What does this say: He desires to paint you the dreamiest, shadiest,
+quietest, most enchanting bit of romantic landscape in all the valley
+of the Saco.
+RESPONSE: What is the chief element he employs?
+
+INPUT: Summarize: He desires to paint you the dreamiest, shadiest,
+quietest, most enchanting bit of romantic landscape in all the valley
+of the Saco. What is the chief element he employs?
+RESPONSE: There stand his
+trees, each with a hollow trunk, as if a hermit and a crucifix were
+within; and here sleeps his meadow, and there sleep his cattle; and up
+from yonder cottage goes a sleepy smoke.
+
+INPUT: What does this mean: There stand his
+trees, each with a hollow trunk, as if a hermit and a crucifix were
+within; and here sleeps his meadow, and there sleep his cattle; and up
+from yonder cottage goes a sleepy smoke.
+RESPONSE: Deep into distant woodlands
+winds a mazy way, reaching to overlapping spurs of mountains bathed in
+their hill-side blue.
+
+INPUT: Summarize: There stand his
+trees, each with a hollow trunk, as if a hermit and a crucifix were
+within; and here sleeps his meadow, and there sleep his cattle; and up
+from yonder cottage goes a sleepy smoke. Deep into distant woodlands
+winds a mazy way, reaching to overlapping spurs of mountains bathed in
+their hill-side blue.
+RESPONSE: But though the picture lies thus tranced, and
+though this pine-tree shakes down its sighs like leaves upon this
+shepherd’s head, yet all were vain, unless the shepherd’s eye were
+fixed upon the magic stream before him.
+
+INPUT: Tell me about: But though the picture lies thus tranced, and
+though this pine-tree shakes down its sighs like leaves upon this
+shepherd’s head, yet all were vain, unless the shepherd’s eye were
+fixed upon the magic stream before him.
+RESPONSE: Go visit the Prairies in June,
+when for scores on scores of miles you wade knee-deep among
+Tiger-lilies—what is the one charm wanting?
+
+INPUT: Summarize: But though the picture lies thus tranced, and
+though this pine-tree shakes down its sighs like leaves upon this
+shepherd’s head, yet all were vain, unless the shepherd’s eye were
+fixed upon the magic stream before him. Go visit the Prairies in June,
+when for scores on scores of miles you wade knee-deep among
+Tiger-lilies—what is the one charm wanting?
+RESPONSE: —Water—there is not a drop
+of water there!
+
+INPUT: Can you explain: —Water—there is not a drop
+of water there!
+RESPONSE: Were Niagara but a cataract of sand, would you travel
+your thousand miles to see it?
+
+INPUT: Summarize: —Water—there is not a drop
+of water there! Were Niagara but a cataract of sand, would you travel
+your thousand miles to see it?
+RESPONSE: Why did the poor poet of Tennessee, upon
+suddenly receiving two handfuls of silver, deliberate whether to buy
+him a coat, which he sadly needed, or invest his money in a pedestrian
+trip to Rockaway Beach?
+
+INPUT: Tell me about: Why did the poor poet of Tennessee, upon
+suddenly receiving two handfuls of silver, deliberate whether to buy
+him a coat, which he sadly needed, or invest his money in a pedestrian
+trip to Rockaway Beach?
+RESPONSE: Why is almost every robust healthy boy with a
+robust healthy soul in him, at some time or other crazy to go to sea?
+
+INPUT: Summarize: Why did the poor poet of Tennessee, upon
+suddenly receiving two handfuls of silver, deliberate whether to buy
+him a coat, which he sadly needed, or invest his money in a pedestrian
+trip to Rockaway Beach? Why is almost every robust healthy boy with a
+robust healthy soul in him, at some time or other crazy to go to sea?
+RESPONSE: Why upon your first voyage as a passenger, did you yourself feel such a
+mystical vibration, when first told that you and your ship were now out
+of sight of land?
+
+INPUT: Tell me about: Why upon your first voyage as a passenger, did you yourself feel such a
+mystical vibration, when first told that you and your ship were now out
+of sight of land?
+RESPONSE: Why did the old Persians hold the sea holy?
+
+INPUT: Summarize: Why upon your first voyage as a passenger, did you yourself feel such a
+mystical vibration, when first told that you and your ship were now out
+of sight of land? Why did the old Persians hold the sea holy?
+RESPONSE: Why did
+the Greeks give it a separate deity, and own brother of Jove?
+
+INPUT: What does this say: Why did
+the Greeks give it a separate deity, and own brother of Jove?
+RESPONSE: Surely
+all this is not without meaning.
+
+INPUT: Summarize: Why did
+the Greeks give it a separate deity, and own brother of Jove? Surely
+all this is not without meaning.
+RESPONSE: And still deeper the meaning of that
+story of Narcissus, who because he could not grasp the tormenting, mild
+image he saw in the fountain, plunged into it and was drowned.
+
+INPUT: Explain this: And still deeper the meaning of that
+story of Narcissus, who because he could not grasp the tormenting, mild
+image he saw in the fountain, plunged into it and was drowned.
+RESPONSE: But that
+same image, we ourselves see in all rivers and oceans.
+
+INPUT: Summarize: And still deeper the meaning of that
+story of Narcissus, who because he could not grasp the tormenting, mild
+image he saw in the fountain, plunged into it and was drowned. But that
+same image, we ourselves see in all rivers and oceans.
+RESPONSE: It is the image
+of the ungraspable phantom of life; and this is the key to it all.
+
+INPUT: What does this mean: It is the image
+of the ungraspable phantom of life; and this is the key to it all.
+RESPONSE: Now, when I say that I am in the habit of going to sea whenever I begin
+to grow hazy about the eyes, and begin to be over conscious of my
+lungs, I do not mean to have it inferred that I ever go to sea as a
+passenger.
+
+INPUT: Summarize: It is the image
+of the ungraspable phantom of life; and this is the key to it all. Now, when I say that I am in the habit of going to sea whenever I begin
+to grow hazy about the eyes, and begin to be over conscious of my
+lungs, I do not mean to have it inferred that I ever go to sea as a
+passenger.
+RESPONSE: For to go as a passenger you must needs have a purse, and a
+purse is but a rag unless you have something in it.
+
+INPUT: What does this say: For to go as a passenger you must needs have a purse, and a
+purse is but a rag unless you have something in it.
+RESPONSE: Besides, passengers
+get sea-sick—grow quarrelsome—don’t sleep of nights—do not enjoy
+themselves much, as a general thing;—no, I never go as a passenger;
+nor, though I am something of a salt, do I ever go to sea as a
+Commodore, or a Captain, or a Cook.
+
+INPUT: Summarize: For to go as a passenger you must needs have a purse, and a
+purse is but a rag unless you have something in it. Besides, passengers
+get sea-sick—grow quarrelsome—don’t sleep of nights—do not enjoy
+themselves much, as a general thing;—no, I never go as a passenger;
+nor, though I am something of a salt, do I ever go to sea as a
+Commodore, or a Captain, or a Cook.
+RESPONSE: I abandon the glory and distinction
+of such offices to those who like them.
+
+INPUT: What does this say: I abandon the glory and distinction
+of such offices to those who like them.
+RESPONSE: For my part, I abominate all
+honorable respectable toils, trials, and tribulations of every kind
+whatsoever.
+
+INPUT: Summarize: I abandon the glory and distinction
+of such offices to those who like them. For my part, I abominate all
+honorable respectable toils, trials, and tribulations of every kind
+whatsoever.
+RESPONSE: It is quite as much as I can do to take care of myself,
+without taking care of ships, barques, brigs, schooners, and what not.
+
+INPUT: Can you explain: It is quite as much as I can do to take care of myself,
+without taking care of ships, barques, brigs, schooners, and what not.
+RESPONSE: And as for going as cook,—though I confess there is considerable glory
+in that, a cook being a sort of officer on ship-board—yet, somehow, I
+never fancied broiling fowls;—though once broiled, judiciously
+buttered, and judgmatically salted and peppered, there is no one who
+will speak more respectfully, not to say reverentially, of a broiled
+fowl than I will.
+
+INPUT: Summarize: It is quite as much as I can do to take care of myself,
+without taking care of ships, barques, brigs, schooners, and what not. And as for going as cook,—though I confess there is considerable glory
+in that, a cook being a sort of officer on ship-board—yet, somehow, I
+never fancied broiling fowls;—though once broiled, judiciously
+buttered, and judgmatically salted and peppered, there is no one who
+will speak more respectfully, not to say reverentially, of a broiled
+fowl than I will.
+RESPONSE: It is out of the idolatrous dotings of the old
+Egyptians upon broiled ibis and roasted river horse, that you see the
+mummies of those creatures in their huge bake-houses the pyramids.
+
+INPUT: Explain this: It is out of the idolatrous dotings of the old
+Egyptians upon broiled ibis and roasted river horse, that you see the
+mummies of those creatures in their huge bake-houses the pyramids.
+RESPONSE: No, when I go to sea, I go as a simple sailor, right before the mast,
+plumb down into the forecastle, aloft there to the royal mast-head.
+
+INPUT: Summarize: It is out of the idolatrous dotings of the old
+Egyptians upon broiled ibis and roasted river horse, that you see the
+mummies of those creatures in their huge bake-houses the pyramids. No, when I go to sea, I go as a simple sailor, right before the mast,
+plumb down into the forecastle, aloft there to the royal mast-head.
+RESPONSE: True, they rather order me about some, and make me jump from spar to
+spar, like a grasshopper in a May meadow.
+
+INPUT: Can you explain: True, they rather order me about some, and make me jump from spar to
+spar, like a grasshopper in a May meadow.
+RESPONSE: And at first, this sort of
+thing is unpleasant enough.
+
+INPUT: Summarize: True, they rather order me about some, and make me jump from spar to
+spar, like a grasshopper in a May meadow. And at first, this sort of
+thing is unpleasant enough.
+RESPONSE: It touches one’s sense of honor,
+particularly if you come of an old established family in the land, the
+Van Rensselaers, or Randolphs, or Hardicanutes.
+
+INPUT: What does this say: It touches one’s sense of honor,
+particularly if you come of an old established family in the land, the
+Van Rensselaers, or Randolphs, or Hardicanutes.
+RESPONSE: And more than all, if
+just previous to putting your hand into the tar-pot, you have been
+lording it as a country schoolmaster, making the tallest boys stand in
+awe of you.
+
+INPUT: Summarize: It touches one’s sense of honor,
+particularly if you come of an old established family in the land, the
+Van Rensselaers, or Randolphs, or Hardicanutes. And more than all, if
+just previous to putting your hand into the tar-pot, you have been
+lording it as a country schoolmaster, making the tallest boys stand in
+awe of you.
+RESPONSE: The transition is a keen one, I assure you, from a
+schoolmaster to a sailor, and requires a strong decoction of Seneca and
+the Stoics to enable you to grin and bear it.
+
+INPUT: Explain this: The transition is a keen one, I assure you, from a
+schoolmaster to a sailor, and requires a strong decoction of Seneca and
+the Stoics to enable you to grin and bear it.
+RESPONSE: But even this wears off
+in time.
+
+INPUT: Summarize: The transition is a keen one, I assure you, from a
+schoolmaster to a sailor, and requires a strong decoction of Seneca and
+the Stoics to enable you to grin and bear it. But even this wears off
+in time.
+RESPONSE: What of it, if some old hunks of a sea-captain orders me to get a broom
+and sweep down the decks?
+
+INPUT: What is this about: What of it, if some old hunks of a sea-captain orders me to get a broom
+and sweep down the decks?
+RESPONSE: What does that indignity amount to, weighed,
+I mean, in the scales of the New Testament?
+
+INPUT: Summarize: What of it, if some old hunks of a sea-captain orders me to get a broom
+and sweep down the decks? What does that indignity amount to, weighed,
+I mean, in the scales of the New Testament?
+RESPONSE: Do you think the archangel
+Gabriel thinks anything the less of me, because I promptly and
+respectfully obey that old hunks in that particular instance?
+
+INPUT: What does this say: Do you think the archangel
+Gabriel thinks anything the less of me, because I promptly and
+respectfully obey that old hunks in that particular instance?
+RESPONSE: Well, then, however the old sea-captains may
+order me about—however they may thump and punch me about, I have the
+satisfaction of knowing that it is all right; that everybody else is
+one way or other served in much the same way—either in a physical or
+metaphysical point of view, that is; and so the universal thump is
+passed round, and all hands should rub each other’s shoulder-blades,
+and be content.
+
+INPUT: Summarize: Do you think the archangel
+Gabriel thinks anything the less of me, because I promptly and
+respectfully obey that old hunks in that particular instance? Well, then, however the old sea-captains may
+order me about—however they may thump and punch me about, I have the
+satisfaction of knowing that it is all right; that everybody else is
+one way or other served in much the same way—either in a physical or
+metaphysical point of view, that is; and so the universal thump is
+passed round, and all hands should rub each other’s shoulder-blades,
+and be content.
+RESPONSE: Again, I always go to sea as a sailor, because they make a point of
+paying me for my trouble, whereas they never pay passengers a single
+penny that I ever heard of.
+
+INPUT: What is this about: Again, I always go to sea as a sailor, because they make a point of
+paying me for my trouble, whereas they never pay passengers a single
+penny that I ever heard of.
+RESPONSE: On the contrary, passengers themselves must
+pay.
+
+INPUT: Summarize: Again, I always go to sea as a sailor, because they make a point of
+paying me for my trouble, whereas they never pay passengers a single
+penny that I ever heard of. On the contrary, passengers themselves must
+pay.
+RESPONSE: And there is all the difference in the world between paying and
+being paid.
+
+INPUT: What does this mean: And there is all the difference in the world between paying and
+being paid.
+RESPONSE: The act of paying is perhaps the most uncomfortable
+infliction that the two orchard thieves entailed upon us.
+
+INPUT: Summarize: And there is all the difference in the world between paying and
+being paid. The act of paying is perhaps the most uncomfortable
+infliction that the two orchard thieves entailed upon us.
+RESPONSE: But _being
+paid_,—what will compare with it?
+
+INPUT: What does this mean: But _being
+paid_,—what will compare with it?
+RESPONSE: The urbane activity with which a man
+receives money is really marvellous, considering that we so earnestly
+believe money to be the root of all earthly ills, and that on no
+account can a monied man enter heaven.
+
+INPUT: Summarize: But _being
+paid_,—what will compare with it? The urbane activity with which a man
+receives money is really marvellous, considering that we so earnestly
+believe money to be the root of all earthly ills, and that on no
+account can a monied man enter heaven.
+RESPONSE: how cheerfully we consign
+ourselves to perdition!
+
+INPUT: What is this about: how cheerfully we consign
+ourselves to perdition!
+RESPONSE: Finally, I always go to sea as a sailor, because of the wholesome
+exercise and pure air of the fore-castle deck.
+
+INPUT: Summarize: how cheerfully we consign
+ourselves to perdition! Finally, I always go to sea as a sailor, because of the wholesome
+exercise and pure air of the fore-castle deck.
+RESPONSE: For as in this world,
+head winds are far more prevalent than winds from astern (that is, if
+you never violate the Pythagorean maxim), so for the most part the
+Commodore on the quarter-deck gets his atmosphere at second hand from
+the sailors on the forecastle.
+
+INPUT: What does this say: For as in this world,
+head winds are far more prevalent than winds from astern (that is, if
+you never violate the Pythagorean maxim), so for the most part the
+Commodore on the quarter-deck gets his atmosphere at second hand from
+the sailors on the forecastle.
+RESPONSE: He thinks he breathes it first; but not
+so.
+
+INPUT: Summarize: For as in this world,
+head winds are far more prevalent than winds from astern (that is, if
+you never violate the Pythagorean maxim), so for the most part the
+Commodore on the quarter-deck gets his atmosphere at second hand from
+the sailors on the forecastle. He thinks he breathes it first; but not
+so.
+RESPONSE: In much the same way do the commonalty lead their leaders in many
+other things, at the same time that the leaders little suspect it.
+
+INPUT: Tell me about: In much the same way do the commonalty lead their leaders in many
+other things, at the same time that the leaders little suspect it.
+RESPONSE: But
+wherefore it was that after having repeatedly smelt the sea as a
+merchant sailor, I should now take it into my head to go on a whaling
+voyage; this the invisible police officer of the Fates, who has the
+constant surveillance of me, and secretly dogs me, and influences me in
+some unaccountable way—he can better answer than any one else.
+
+INPUT: Summarize: In much the same way do the commonalty lead their leaders in many
+other things, at the same time that the leaders little suspect it. But
+wherefore it was that after having repeatedly smelt the sea as a
+merchant sailor, I should now take it into my head to go on a whaling
+voyage; this the invisible police officer of the Fates, who has the
+constant surveillance of me, and secretly dogs me, and influences me in
+some unaccountable way—he can better answer than any one else.
+RESPONSE: And,
+doubtless, my going on this whaling voyage, formed part of the grand
+programme of Providence that was drawn up a long time ago.
+
+INPUT: Tell me about: And,
+doubtless, my going on this whaling voyage, formed part of the grand
+programme of Providence that was drawn up a long time ago.
+RESPONSE: It came in
+as a sort of brief interlude and solo between more extensive
+performances.
+
+INPUT: Summarize: And,
+doubtless, my going on this whaling voyage, formed part of the grand
+programme of Providence that was drawn up a long time ago. It came in
+as a sort of brief interlude and solo between more extensive
+performances.
+RESPONSE: I take it that this part of the bill must have run
+something like this:
+
+“_Grand Contested Election for the Presidency of the United States.
+
+INPUT: What does this mean: I take it that this part of the bill must have run
+something like this:
+
+“_Grand Contested Election for the Presidency of the United States.
+RESPONSE: _
+“WHALING VOYAGE BY ONE ISHMAEL.
+
+INPUT: Summarize: I take it that this part of the bill must have run
+something like this:
+
+“_Grand Contested Election for the Presidency of the United States. _
+“WHALING VOYAGE BY ONE ISHMAEL.
+RESPONSE: “BLOODY BATTLE IN AFFGHANISTAN.
+
+INPUT: What is this about: “BLOODY BATTLE IN AFFGHANISTAN.
+RESPONSE: Chief among these motives was the overwhelming idea of the great whale
+himself.
+
+INPUT: Summarize: “BLOODY BATTLE IN AFFGHANISTAN. Chief among these motives was the overwhelming idea of the great whale
+himself.
+RESPONSE: Such a portentous and mysterious monster roused all my
+curiosity.
+
+INPUT: Can you explain: Such a portentous and mysterious monster roused all my
+curiosity.
+RESPONSE: Then the wild and distant seas where he rolled his island
+bulk; the undeliverable, nameless perils of the whale; these, with all
+the attending marvels of a thousand Patagonian sights and sounds,
+helped to sway me to my wish.
+
+INPUT: Summarize: Such a portentous and mysterious monster roused all my
+curiosity. Then the wild and distant seas where he rolled his island
+bulk; the undeliverable, nameless perils of the whale; these, with all
+the attending marvels of a thousand Patagonian sights and sounds,
+helped to sway me to my wish.
+RESPONSE: With other men, perhaps, such things
+would not have been inducements; but as for me, I am tormented with an
+everlasting itch for things remote.
+
+INPUT: What does this mean: With other men, perhaps, such things
+would not have been inducements; but as for me, I am tormented with an
+everlasting itch for things remote.
+RESPONSE: I love to sail forbidden seas, and
+land on barbarous coasts.
+
+INPUT: Summarize: With other men, perhaps, such things
+would not have been inducements; but as for me, I am tormented with an
+everlasting itch for things remote. I love to sail forbidden seas, and
+land on barbarous coasts.
+RESPONSE: Not ignoring what is good, I am quick to
+perceive a horror, and could still be social with it—would they let
+me—since it is but well to be on friendly terms with all the inmates of
+the place one lodges in.
+
+INPUT: Can you explain: Not ignoring what is good, I am quick to
+perceive a horror, and could still be social with it—would they let
+me—since it is but well to be on friendly terms with all the inmates of
+the place one lodges in.
+RESPONSE: By reason of these things, then, the whaling voyage was welcome; the
+great flood-gates of the wonder-world swung open, and in the wild
+conceits that swayed me to my purpose, two and two there floated into
+my inmost soul, endless processions of the whale, and, mid most of them
+all, one grand hooded phantom, like a snow hill in the air.
+
+INPUT: Summarize: Not ignoring what is good, I am quick to
+perceive a horror, and could still be social with it—would they let
+me—since it is but well to be on friendly terms with all the inmates of
+the place one lodges in. By reason of these things, then, the whaling voyage was welcome; the
+great flood-gates of the wonder-world swung open, and in the wild
+conceits that swayed me to my purpose, two and two there floated into
+my inmost soul, endless processions of the whale, and, mid most of them
+all, one grand hooded phantom, like a snow hill in the air.
+RESPONSE: I stuffed a shirt or two into my old carpet-bag, tucked it under my
+arm, and started for Cape Horn and the Pacific.
+
+INPUT: Tell me about: I stuffed a shirt or two into my old carpet-bag, tucked it under my
+arm, and started for Cape Horn and the Pacific.
+RESPONSE: Quitting the good city
+of old Manhatto, I duly arrived in New Bedford.
+
+INPUT: Summarize: I stuffed a shirt or two into my old carpet-bag, tucked it under my
+arm, and started for Cape Horn and the Pacific. Quitting the good city
+of old Manhatto, I duly arrived in New Bedford.
+RESPONSE: It was a Saturday night
+in December.
+
+INPUT: What is this about: It was a Saturday night
+in December.
+RESPONSE: Much was I disappointed upon learning that the little
+packet for Nantucket had already sailed, and that no way of reaching
+that place would offer, till the following Monday.
+
+INPUT: Summarize: It was a Saturday night
+in December. Much was I disappointed upon learning that the little
+packet for Nantucket had already sailed, and that no way of reaching
+that place would offer, till the following Monday.
+RESPONSE: As most young candidates for the pains and penalties of whaling stop at
+this same New Bedford, thence to embark on their voyage, it may as well
+be related that I, for one, had no idea of so doing.
+
+INPUT: What does this say: As most young candidates for the pains and penalties of whaling stop at
+this same New Bedford, thence to embark on their voyage, it may as well
+be related that I, for one, had no idea of so doing.
+RESPONSE: For my mind was
+made up to sail in no other than a Nantucket craft, because there was a
+fine, boisterous something about everything connected with that famous
+old island, which amazingly pleased me.
+
+INPUT: Summarize: As most young candidates for the pains and penalties of whaling stop at
+this same New Bedford, thence to embark on their voyage, it may as well
+be related that I, for one, had no idea of so doing. For my mind was
+made up to sail in no other than a Nantucket craft, because there was a
+fine, boisterous something about everything connected with that famous
+old island, which amazingly pleased me.
+RESPONSE: Besides though New Bedford has
+of late been gradually monopolising the business of whaling, and though
+in this matter poor old Nantucket is now much behind her, yet Nantucket
+was her great original—the Tyre of this Carthage;—the place where the
+first dead American whale was stranded.
+
+INPUT: Explain this: Besides though New Bedford has
+of late been gradually monopolising the business of whaling, and though
+in this matter poor old Nantucket is now much behind her, yet Nantucket
+was her great original—the Tyre of this Carthage;—the place where the
+first dead American whale was stranded.
+RESPONSE: Where else but from Nantucket
+did those aboriginal whalemen, the Red-Men, first sally out in canoes
+to give chase to the Leviathan?
+
+INPUT: Summarize: Besides though New Bedford has
+of late been gradually monopolising the business of whaling, and though
+in this matter poor old Nantucket is now much behind her, yet Nantucket
+was her great original—the Tyre of this Carthage;—the place where the
+first dead American whale was stranded. Where else but from Nantucket
+did those aboriginal whalemen, the Red-Men, first sally out in canoes
+to give chase to the Leviathan?
+RESPONSE: And where but from Nantucket, too, did
+that first adventurous little sloop put forth, partly laden with
+imported cobblestones—so goes the story—to throw at the whales, in
+order to discover when they were nigh enough to risk a harpoon from the
+bowsprit?
+
+INPUT: Explain this: And where but from Nantucket, too, did
+that first adventurous little sloop put forth, partly laden with
+imported cobblestones—so goes the story—to throw at the whales, in
+order to discover when they were nigh enough to risk a harpoon from the
+bowsprit?
+RESPONSE: Now having a night, a day, and still another night following before me
+in New Bedford, ere I could embark for my destined port, it became a
+matter of concernment where I was to eat and sleep meanwhile.
+
+INPUT: Summarize: And where but from Nantucket, too, did
+that first adventurous little sloop put forth, partly laden with
+imported cobblestones—so goes the story—to throw at the whales, in
+order to discover when they were nigh enough to risk a harpoon from the
+bowsprit? Now having a night, a day, and still another night following before me
+in New Bedford, ere I could embark for my destined port, it became a
+matter of concernment where I was to eat and sleep meanwhile.
+RESPONSE: It was a
+very dubious-looking, nay, a very dark and dismal night, bitingly cold
+and cheerless.
+
+INPUT: Tell me about: It was a
+very dubious-looking, nay, a very dark and dismal night, bitingly cold
+and cheerless.
+RESPONSE: I knew no one in the place.
+
+INPUT: Summarize: It was a
+very dubious-looking, nay, a very dark and dismal night, bitingly cold
+and cheerless. I knew no one in the place.
+RESPONSE: With anxious grapnels I had
+sounded my pocket, and only brought up a few pieces of silver,—So,
+wherever you go, Ishmael, said I to myself, as I stood in the middle of
+a dreary street shouldering my bag, and comparing the gloom towards the
+north with the darkness towards the south—wherever in your wisdom you
+may conclude to lodge for the night, my dear Ishmael, be sure to
+inquire the price, and don’t be too particular.
+
+INPUT: Explain this: With anxious grapnels I had
+sounded my pocket, and only brought up a few pieces of silver,—So,
+wherever you go, Ishmael, said I to myself, as I stood in the middle of
+a dreary street shouldering my bag, and comparing the gloom towards the
+north with the darkness towards the south—wherever in your wisdom you
+may conclude to lodge for the night, my dear Ishmael, be sure to
+inquire the price, and don’t be too particular.
+RESPONSE: With halting steps I paced the streets, and passed the sign of “The
+Crossed Harpoons”—but it looked too expensive and jolly there.
+
+INPUT: Summarize: With anxious grapnels I had
+sounded my pocket, and only brought up a few pieces of silver,—So,
+wherever you go, Ishmael, said I to myself, as I stood in the middle of
+a dreary street shouldering my bag, and comparing the gloom towards the
+north with the darkness towards the south—wherever in your wisdom you
+may conclude to lodge for the night, my dear Ishmael, be sure to
+inquire the price, and don’t be too particular. With halting steps I paced the streets, and passed the sign of “The
+Crossed Harpoons”—but it looked too expensive and jolly there.
+RESPONSE: Further
+on, from the bright red windows of the “Sword-Fish Inn,” there came
+such fervent rays, that it seemed to have melted the packed snow and
+ice from before the house, for everywhere else the congealed frost lay
+ten inches thick in a hard, asphaltic pavement,—rather weary for me,
+when I struck my foot against the flinty projections, because from
+hard, remorseless service the soles of my boots were in a most
+miserable plight.
+
+INPUT: Can you explain: Further
+on, from the bright red windows of the “Sword-Fish Inn,” there came
+such fervent rays, that it seemed to have melted the packed snow and
+ice from before the house, for everywhere else the congealed frost lay
+ten inches thick in a hard, asphaltic pavement,—rather weary for me,
+when I struck my foot against the flinty projections, because from
+hard, remorseless service the soles of my boots were in a most
+miserable plight.
+RESPONSE: Too expensive and jolly, again thought I, pausing one
+moment to watch the broad glare in the street, and hear the sounds of
+the tinkling glasses within.
+
+INPUT: Summarize: Further
+on, from the bright red windows of the “Sword-Fish Inn,” there came
+such fervent rays, that it seemed to have melted the packed snow and
+ice from before the house, for everywhere else the congealed frost lay
+ten inches thick in a hard, asphaltic pavement,—rather weary for me,
+when I struck my foot against the flinty projections, because from
+hard, remorseless service the soles of my boots were in a most
+miserable plight. Too expensive and jolly, again thought I, pausing one
+moment to watch the broad glare in the street, and hear the sounds of
+the tinkling glasses within.
+RESPONSE: But go on, Ishmael, said I at last; don’t
+you hear?
+
+INPUT: What does this mean: But go on, Ishmael, said I at last; don’t
+you hear?
+RESPONSE: get away from before the door; your patched boots are
+stopping the way.
+
+INPUT: Summarize: But go on, Ishmael, said I at last; don’t
+you hear? get away from before the door; your patched boots are
+stopping the way.
+RESPONSE: I now by instinct followed the streets
+that took me waterward, for there, doubtless, were the cheapest, if not
+the cheeriest inns.
+
+INPUT: What does this say: I now by instinct followed the streets
+that took me waterward, for there, doubtless, were the cheapest, if not
+the cheeriest inns.
+RESPONSE: blocks of blackness, not houses, on either hand,
+and here and there a candle, like a candle moving about in a tomb.
+
+INPUT: Summarize: I now by instinct followed the streets
+that took me waterward, for there, doubtless, were the cheapest, if not
+the cheeriest inns. blocks of blackness, not houses, on either hand,
+and here and there a candle, like a candle moving about in a tomb.
+RESPONSE: At
+this hour of the night, of the last day of the week, that quarter of
+the town proved all but deserted.
+
+INPUT: What does this mean: At
+this hour of the night, of the last day of the week, that quarter of
+the town proved all but deserted.
+RESPONSE: But presently I came to a smoky light
+proceeding from a low, wide building, the door of which stood
+invitingly open.
+
+INPUT: Summarize: At
+this hour of the night, of the last day of the week, that quarter of
+the town proved all but deserted. But presently I came to a smoky light
+proceeding from a low, wide building, the door of which stood
+invitingly open.
+RESPONSE: It had a careless look, as if it were meant for the
+uses of the public; so, entering, the first thing I did was to stumble
+over an ash-box in the porch.
+
+INPUT: Explain this: It had a careless look, as if it were meant for the
+uses of the public; so, entering, the first thing I did was to stumble
+over an ash-box in the porch.
+RESPONSE: thought I, ha, as the flying
+particles almost choked me, are these ashes from that destroyed city,
+Gomorrah?
+
+INPUT: Summarize: It had a careless look, as if it were meant for the
+uses of the public; so, entering, the first thing I did was to stumble
+over an ash-box in the porch. thought I, ha, as the flying
+particles almost choked me, are these ashes from that destroyed city,
+Gomorrah?
+RESPONSE: But “The Crossed Harpoons,” and “The Sword-Fish?
+
+INPUT: Explain this: But “The Crossed Harpoons,” and “The Sword-Fish?
+RESPONSE: ”—this, then
+must needs be the sign of “The Trap.
+
+INPUT: Summarize: But “The Crossed Harpoons,” and “The Sword-Fish? ”—this, then
+must needs be the sign of “The Trap.
+RESPONSE: ” However, I picked myself up and
+hearing a loud voice within, pushed on and opened a second, interior
+door.
+
+INPUT: Tell me about: ” However, I picked myself up and
+hearing a loud voice within, pushed on and opened a second, interior
+door.
+RESPONSE: It seemed the great Black Parliament sitting in Tophet.
+
+INPUT: Summarize: ” However, I picked myself up and
+hearing a loud voice within, pushed on and opened a second, interior
+door. It seemed the great Black Parliament sitting in Tophet.
+RESPONSE: A hundred black
+faces turned round in their rows to peer; and beyond, a black Angel of
+Doom was beating a book in a pulpit.
+
+INPUT: What does this say: A hundred black
+faces turned round in their rows to peer; and beyond, a black Angel of
+Doom was beating a book in a pulpit.
+RESPONSE: It was a negro church; and the
+preacher’s text was about the blackness of darkness, and the weeping
+and wailing and teeth-gnashing there.
+
+INPUT: Summarize: A hundred black
+faces turned round in their rows to peer; and beyond, a black Angel of
+Doom was beating a book in a pulpit. It was a negro church; and the
+preacher’s text was about the blackness of darkness, and the weeping
+and wailing and teeth-gnashing there.
+RESPONSE: Ha, Ishmael, muttered I, backing
+out, Wretched entertainment at the sign of ‘The Trap!
+
+INPUT: Can you explain: Ha, Ishmael, muttered I, backing
+out, Wretched entertainment at the sign of ‘The Trap!
+RESPONSE: ’
+
+Moving on, I at last came to a dim sort of light not far from the
+docks, and heard a forlorn creaking in the air; and looking up, saw a
+swinging sign over the door with a white painting upon it, faintly
+representing a tall straight jet of misty spray, and these words
+underneath—“The Spouter Inn:—Peter Coffin.
+
+INPUT: Summarize: Ha, Ishmael, muttered I, backing
+out, Wretched entertainment at the sign of ‘The Trap! ’
+
+Moving on, I at last came to a dim sort of light not far from the
+docks, and heard a forlorn creaking in the air; and looking up, saw a
+swinging sign over the door with a white painting upon it, faintly
+representing a tall straight jet of misty spray, and these words
+underneath—“The Spouter Inn:—Peter Coffin.
+RESPONSE: —Rather ominous in that particular connexion, thought
+I.
+
+INPUT: Explain this: —Rather ominous in that particular connexion, thought
+I.
+RESPONSE: But it is a common name in Nantucket, they say, and I suppose this
+Peter here is an emigrant from there.
+
+INPUT: Summarize: —Rather ominous in that particular connexion, thought
+I. But it is a common name in Nantucket, they say, and I suppose this
+Peter here is an emigrant from there.
+RESPONSE: As the light looked so dim, and
+the place, for the time, looked quiet enough, and the dilapidated
+little wooden house itself looked as if it might have been carted here
+from the ruins of some burnt district, and as the swinging sign had a
+poverty-stricken sort of creak to it, I thought that here was the very
+spot for cheap lodgings, and the best of pea coffee.
+
+INPUT: Tell me about: As the light looked so dim, and
+the place, for the time, looked quiet enough, and the dilapidated
+little wooden house itself looked as if it might have been carted here
+from the ruins of some burnt district, and as the swinging sign had a
+poverty-stricken sort of creak to it, I thought that here was the very
+spot for cheap lodgings, and the best of pea coffee.
+RESPONSE: It was a queer sort of place—a gable-ended old house, one side palsied
+as it were, and leaning over sadly.
+
+INPUT: Summarize: As the light looked so dim, and
+the place, for the time, looked quiet enough, and the dilapidated
+little wooden house itself looked as if it might have been carted here
+from the ruins of some burnt district, and as the swinging sign had a
+poverty-stricken sort of creak to it, I thought that here was the very
+spot for cheap lodgings, and the best of pea coffee. It was a queer sort of place—a gable-ended old house, one side palsied
+as it were, and leaning over sadly.
+RESPONSE: It stood on a sharp bleak corner,
+where that tempestuous wind Euroclydon kept up a worse howling than
+ever it did about poor Paul’s tossed craft.
+
+INPUT: Can you explain: It stood on a sharp bleak corner,
+where that tempestuous wind Euroclydon kept up a worse howling than
+ever it did about poor Paul’s tossed craft.
+RESPONSE: Euroclydon, nevertheless,
+is a mighty pleasant zephyr to any one in-doors, with his feet on the
+hob quietly toasting for bed.
+
+INPUT: Summarize: It stood on a sharp bleak corner,
+where that tempestuous wind Euroclydon kept up a worse howling than
+ever it did about poor Paul’s tossed craft. Euroclydon, nevertheless,
+is a mighty pleasant zephyr to any one in-doors, with his feet on the
+hob quietly toasting for bed.
+RESPONSE: “In judging of that tempestuous wind
+called Euroclydon,” says an old writer—of whose works I possess the
+only copy extant—“it maketh a marvellous difference, whether thou
+lookest out at it from a glass window where the frost is all on the
+outside, or whether thou observest it from that sashless window, where
+the frost is on both sides, and of which the wight Death is the only
+glazier.
+
+INPUT: Tell me about: “In judging of that tempestuous wind
+called Euroclydon,” says an old writer—of whose works I possess the
+only copy extant—“it maketh a marvellous difference, whether thou
+lookest out at it from a glass window where the frost is all on the
+outside, or whether thou observest it from that sashless window, where
+the frost is on both sides, and of which the wight Death is the only
+glazier.
+RESPONSE: ” True enough, thought I, as this passage occurred to my
+mind—old black-letter, thou reasonest well.
+
+INPUT: Summarize: “In judging of that tempestuous wind
+called Euroclydon,” says an old writer—of whose works I possess the
+only copy extant—“it maketh a marvellous difference, whether thou
+lookest out at it from a glass window where the frost is all on the
+outside, or whether thou observest it from that sashless window, where
+the frost is on both sides, and of which the wight Death is the only
+glazier. ” True enough, thought I, as this passage occurred to my
+mind—old black-letter, thou reasonest well.
+RESPONSE: Yes, these eyes are
+windows, and this body of mine is the house.
+
+INPUT: Can you explain: Yes, these eyes are
+windows, and this body of mine is the house.
+RESPONSE: What a pity they didn’t
+stop up the chinks and the crannies though, and thrust in a little lint
+here and there.
+
+INPUT: Summarize: Yes, these eyes are
+windows, and this body of mine is the house. What a pity they didn’t
+stop up the chinks and the crannies though, and thrust in a little lint
+here and there.
+RESPONSE: But it’s too late to make any improvements now.
+
+INPUT: What does this say: But it’s too late to make any improvements now.
+RESPONSE: The
+universe is finished; the copestone is on, and the chips were carted
+off a million years ago.
+
+INPUT: Summarize: But it’s too late to make any improvements now. The
+universe is finished; the copestone is on, and the chips were carted
+off a million years ago.
+RESPONSE: Poor Lazarus there, chattering his teeth
+against the curbstone for his pillow, and shaking off his tatters with
+his shiverings, he might plug up both ears with rags, and put a
+corn-cob into his mouth, and yet that would not keep out the
+tempestuous Euroclydon.
+
+INPUT: What is this about: Poor Lazarus there, chattering his teeth
+against the curbstone for his pillow, and shaking off his tatters with
+his shiverings, he might plug up both ears with rags, and put a
+corn-cob into his mouth, and yet that would not keep out the
+tempestuous Euroclydon.
+RESPONSE: says old Dives, in his red silken
+wrapper—(he had a redder one afterwards) pooh, pooh!
+
+INPUT: Summarize: Poor Lazarus there, chattering his teeth
+against the curbstone for his pillow, and shaking off his tatters with
+his shiverings, he might plug up both ears with rags, and put a
+corn-cob into his mouth, and yet that would not keep out the
+tempestuous Euroclydon. says old Dives, in his red silken
+wrapper—(he had a redder one afterwards) pooh, pooh!
+RESPONSE: What a fine frosty
+night; how Orion glitters; what northern lights!
+
+INPUT: What does this mean: What a fine frosty
+night; how Orion glitters; what northern lights!
+RESPONSE: Let them talk of their
+oriental summer climes of everlasting conservatories; give me the
+privilege of making my own summer with my own coals.
+
+INPUT: Summarize: What a fine frosty
+night; how Orion glitters; what northern lights! Let them talk of their
+oriental summer climes of everlasting conservatories; give me the
+privilege of making my own summer with my own coals.
+RESPONSE: But what thinks Lazarus?
+
+INPUT: Tell me about: But what thinks Lazarus?
+RESPONSE: Can he warm his blue hands by holding them up
+to the grand northern lights?
+
+INPUT: Summarize: But what thinks Lazarus? Can he warm his blue hands by holding them up
+to the grand northern lights?
+RESPONSE: Would not Lazarus rather be in Sumatra
+than here?
+
+INPUT: What does this say: Would not Lazarus rather be in Sumatra
+than here?
+RESPONSE: Would he not far rather lay him down lengthwise along the
+line of the equator; yea, ye gods!
+
+INPUT: Summarize: Would not Lazarus rather be in Sumatra
+than here? Would he not far rather lay him down lengthwise along the
+line of the equator; yea, ye gods!
+RESPONSE: go down to the fiery pit itself, in
+order to keep out this frost?
+
+INPUT: What does this mean: go down to the fiery pit itself, in
+order to keep out this frost?
+RESPONSE: Now, that Lazarus should lie stranded there on the curbstone before the
+door of Dives, this is more wonderful than that an iceberg should be
+moored to one of the Moluccas.
+
+INPUT: Summarize: go down to the fiery pit itself, in
+order to keep out this frost? Now, that Lazarus should lie stranded there on the curbstone before the
+door of Dives, this is more wonderful than that an iceberg should be
+moored to one of the Moluccas.
+RESPONSE: Yet Dives himself, he too lives like a
+Czar in an ice palace made of frozen sighs, and being a president of a
+temperance society, he only drinks the tepid tears of orphans.
+
+INPUT: What does this say: Yet Dives himself, he too lives like a
+Czar in an ice palace made of frozen sighs, and being a president of a
+temperance society, he only drinks the tepid tears of orphans.
+RESPONSE: But no more of this blubbering now, we are going a-whaling, and there
+is plenty of that yet to come.
+
+INPUT: Summarize: Yet Dives himself, he too lives like a
+Czar in an ice palace made of frozen sighs, and being a president of a
+temperance society, he only drinks the tepid tears of orphans. But no more of this blubbering now, we are going a-whaling, and there
+is plenty of that yet to come.
+RESPONSE: Let us scrape the ice from our frosted
+feet, and see what sort of a place this “Spouter” may be.
+
+INPUT: Can you explain: Let us scrape the ice from our frosted
+feet, and see what sort of a place this “Spouter” may be.
+RESPONSE: Entering that gable-ended Spouter-Inn, you found yourself in a wide,
+low, straggling entry with old-fashioned wainscots, reminding one of
+the bulwarks of some condemned old craft.
+
+INPUT: Summarize: Let us scrape the ice from our frosted
+feet, and see what sort of a place this “Spouter” may be. Entering that gable-ended Spouter-Inn, you found yourself in a wide,
+low, straggling entry with old-fashioned wainscots, reminding one of
+the bulwarks of some condemned old craft.
+RESPONSE: On one side hung a very large
+oilpainting so thoroughly besmoked, and every way defaced, that in the
+unequal crosslights by which you viewed it, it was only by diligent
+study and a series of systematic visits to it, and careful inquiry of
+the neighbors, that you could any way arrive at an understanding of its
+purpose.
+
+INPUT: What does this mean: On one side hung a very large
+oilpainting so thoroughly besmoked, and every way defaced, that in the
+unequal crosslights by which you viewed it, it was only by diligent
+study and a series of systematic visits to it, and careful inquiry of
+the neighbors, that you could any way arrive at an understanding of its
+purpose.
+RESPONSE: Such unaccountable masses of shades and shadows, that at first
+you almost thought some ambitious young artist, in the time of the New
+England hags, had endeavored to delineate chaos bewitched.
+
+INPUT: Summarize: On one side hung a very large
+oilpainting so thoroughly besmoked, and every way defaced, that in the
+unequal crosslights by which you viewed it, it was only by diligent
+study and a series of systematic visits to it, and careful inquiry of
+the neighbors, that you could any way arrive at an understanding of its
+purpose. Such unaccountable masses of shades and shadows, that at first
+you almost thought some ambitious young artist, in the time of the New
+England hags, had endeavored to delineate chaos bewitched.
+RESPONSE: But by dint
+of much and earnest contemplation, and oft repeated ponderings, and
+especially by throwing open the little window towards the back of the
+entry, you at last come to the conclusion that such an idea, however
+wild, might not be altogether unwarranted.
+
+INPUT: Explain this: But by dint
+of much and earnest contemplation, and oft repeated ponderings, and
+especially by throwing open the little window towards the back of the
+entry, you at last come to the conclusion that such an idea, however
+wild, might not be altogether unwarranted.
+RESPONSE: But what most puzzled and confounded you was a long, limber,
+portentous, black mass of something hovering in the centre of the
+picture over three blue, dim, perpendicular lines floating in a
+nameless yeast.
+
+INPUT: Summarize: But by dint
+of much and earnest contemplation, and oft repeated ponderings, and
+especially by throwing open the little window towards the back of the
+entry, you at last come to the conclusion that such an idea, however
+wild, might not be altogether unwarranted. But what most puzzled and confounded you was a long, limber,
+portentous, black mass of something hovering in the centre of the
+picture over three blue, dim, perpendicular lines floating in a
+nameless yeast.
+RESPONSE: A boggy, soggy, squitchy picture truly, enough to drive
+a nervous man distracted.
+
+INPUT: What is this about: A boggy, soggy, squitchy picture truly, enough to drive
+a nervous man distracted.
+RESPONSE: Yet was there a sort of indefinite,
+half-attained, unimaginable sublimity about it that fairly froze you to
+it, till you involuntarily took an oath with yourself to find out what
+that marvellous painting meant.
+
+INPUT: Summarize: A boggy, soggy, squitchy picture truly, enough to drive
+a nervous man distracted. Yet was there a sort of indefinite,
+half-attained, unimaginable sublimity about it that fairly froze you to
+it, till you involuntarily took an oath with yourself to find out what
+that marvellous painting meant.
+RESPONSE: Ever and anon a bright, but, alas,
+deceptive idea would dart you through.
+
+INPUT: What is this about: Ever and anon a bright, but, alas,
+deceptive idea would dart you through.
+RESPONSE: —It’s the Black Sea in a midnight
+gale.
+
+INPUT: Summarize: Ever and anon a bright, but, alas,
+deceptive idea would dart you through. —It’s the Black Sea in a midnight
+gale.
+RESPONSE: —It’s the unnatural combat of the four primal elements.
+
+INPUT: What is this about: —It’s the unnatural combat of the four primal elements.
+RESPONSE: —It’s a
+blasted heath.
+
+INPUT: Summarize: —It’s the unnatural combat of the four primal elements. —It’s a
+blasted heath.
+RESPONSE: —It’s a Hyperborean winter scene.
+
+INPUT: What does this say: —It’s a Hyperborean winter scene.
+RESPONSE: —It’s the breaking-up of
+the icebound stream of Time.
+
+INPUT: Summarize: —It’s a Hyperborean winter scene. —It’s the breaking-up of
+the icebound stream of Time.
+RESPONSE: But at last all these fancies yielded to
+that one portentous something in the picture’s midst.
+
+INPUT: What does this mean: But at last all these fancies yielded to
+that one portentous something in the picture’s midst.
+RESPONSE: _That_ once found
+out, and all the rest were plain.
+
+INPUT: Summarize: But at last all these fancies yielded to
+that one portentous something in the picture’s midst. _That_ once found
+out, and all the rest were plain.
+RESPONSE: But stop; does it not bear a faint
+resemblance to a gigantic fish?
+
+INPUT: What is this about: But stop; does it not bear a faint
+resemblance to a gigantic fish?
+RESPONSE: even the great leviathan himself?
+
+INPUT: Summarize: But stop; does it not bear a faint
+resemblance to a gigantic fish? even the great leviathan himself?
+RESPONSE: In fact, the artist’s design seemed this: a final theory of my own,
+partly based upon the aggregated opinions of many aged persons with
+whom I conversed upon the subject.
+
+INPUT: What is this about: In fact, the artist’s design seemed this: a final theory of my own,
+partly based upon the aggregated opinions of many aged persons with
+whom I conversed upon the subject.
+RESPONSE: The picture represents a Cape-Horner
+in a great hurricane; the half-foundered ship weltering there with its
+three dismantled masts alone visible; and an exasperated whale,
+purposing to spring clean over the craft, is in the enormous act of
+impaling himself upon the three mast-heads.
+
+INPUT: Summarize: In fact, the artist’s design seemed this: a final theory of my own,
+partly based upon the aggregated opinions of many aged persons with
+whom I conversed upon the subject. The picture represents a Cape-Horner
+in a great hurricane; the half-foundered ship weltering there with its
+three dismantled masts alone visible; and an exasperated whale,
+purposing to spring clean over the craft, is in the enormous act of
+impaling himself upon the three mast-heads.
+RESPONSE: The opposite wall of this entry was hung all over with a heathenish
+array of monstrous clubs and spears.
+
+INPUT: Can you explain: The opposite wall of this entry was hung all over with a heathenish
+array of monstrous clubs and spears.
+RESPONSE: Some were thickly set with
+glittering teeth resembling ivory saws; others were tufted with knots
+of human hair; and one was sickle-shaped, with a vast handle sweeping
+round like the segment made in the new-mown grass by a long-armed
+mower.
+
+INPUT: Summarize: The opposite wall of this entry was hung all over with a heathenish
+array of monstrous clubs and spears. Some were thickly set with
+glittering teeth resembling ivory saws; others were tufted with knots
+of human hair; and one was sickle-shaped, with a vast handle sweeping
+round like the segment made in the new-mown grass by a long-armed
+mower.
+RESPONSE: You shuddered as you gazed, and wondered what monstrous cannibal
+and savage could ever have gone a death-harvesting with such a hacking,
+horrifying implement.
+
+INPUT: Explain this: You shuddered as you gazed, and wondered what monstrous cannibal
+and savage could ever have gone a death-harvesting with such a hacking,
+horrifying implement.
+RESPONSE: Mixed with these were rusty old whaling lances
+and harpoons all broken and deformed.
+
+INPUT: Summarize: You shuddered as you gazed, and wondered what monstrous cannibal
+and savage could ever have gone a death-harvesting with such a hacking,
+horrifying implement. Mixed with these were rusty old whaling lances
+and harpoons all broken and deformed.
+RESPONSE: Some were storied weapons.
+
+INPUT: What does this mean: Some were storied weapons.
+RESPONSE: With
+this once long lance, now wildly elbowed, fifty years ago did Nathan
+Swain kill fifteen whales between a sunrise and a sunset.
+
+INPUT: Summarize: Some were storied weapons. With
+this once long lance, now wildly elbowed, fifty years ago did Nathan
+Swain kill fifteen whales between a sunrise and a sunset.
+RESPONSE: And that
+harpoon—so like a corkscrew now—was flung in Javan seas, and run away
+with by a whale, years afterwards slain off the Cape of Blanco.
+
+INPUT: What does this mean: And that
+harpoon—so like a corkscrew now—was flung in Javan seas, and run away
+with by a whale, years afterwards slain off the Cape of Blanco.
+RESPONSE: The
+original iron entered nigh the tail, and, like a restless needle
+sojourning in the body of a man, travelled full forty feet, and at last
+was found imbedded in the hump.
+
+INPUT: Summarize: And that
+harpoon—so like a corkscrew now—was flung in Javan seas, and run away
+with by a whale, years afterwards slain off the Cape of Blanco. The
+original iron entered nigh the tail, and, like a restless needle
+sojourning in the body of a man, travelled full forty feet, and at last
+was found imbedded in the hump.
+RESPONSE: Crossing this dusky entry, and on through yon low-arched way—cut
+through what in old times must have been a great central chimney with
+fireplaces all round—you enter the public room.
+
+INPUT: What does this mean: Crossing this dusky entry, and on through yon low-arched way—cut
+through what in old times must have been a great central chimney with
+fireplaces all round—you enter the public room.
+RESPONSE: A still duskier place
+is this, with such low ponderous beams above, and such old wrinkled
+planks beneath, that you would almost fancy you trod some old craft’s
+cockpits, especially of such a howling night, when this corner-anchored
+old ark rocked so furiously.
+
+INPUT: Summarize: Crossing this dusky entry, and on through yon low-arched way—cut
+through what in old times must have been a great central chimney with
+fireplaces all round—you enter the public room. A still duskier place
+is this, with such low ponderous beams above, and such old wrinkled
+planks beneath, that you would almost fancy you trod some old craft’s
+cockpits, especially of such a howling night, when this corner-anchored
+old ark rocked so furiously.
+RESPONSE: On one side stood a long, low, shelf-like
+table covered with cracked glass cases, filled with dusty rarities
+gathered from this wide world’s remotest nooks.
+
+INPUT: What does this say: On one side stood a long, low, shelf-like
+table covered with cracked glass cases, filled with dusty rarities
+gathered from this wide world’s remotest nooks.
+RESPONSE: Projecting from the
+further angle of the room stands a dark-looking den—the bar—a rude
+attempt at a right whale’s head.
+
+INPUT: Summarize: On one side stood a long, low, shelf-like
+table covered with cracked glass cases, filled with dusty rarities
+gathered from this wide world’s remotest nooks. Projecting from the
+further angle of the room stands a dark-looking den—the bar—a rude
+attempt at a right whale’s head.
+RESPONSE: Be that how it may, there stands the
+vast arched bone of the whale’s jaw, so wide, a coach might almost
+drive beneath it.
+
+INPUT: What does this mean: Be that how it may, there stands the
+vast arched bone of the whale’s jaw, so wide, a coach might almost
+drive beneath it.
+RESPONSE: Within are shabby shelves, ranged round with old
+decanters, bottles, flasks; and in those jaws of swift destruction,
+like another cursed Jonah (by which name indeed they called him),
+bustles a little withered old man, who, for their money, dearly sells
+the sailors deliriums and death.
+
+INPUT: Summarize: Be that how it may, there stands the
+vast arched bone of the whale’s jaw, so wide, a coach might almost
+drive beneath it. Within are shabby shelves, ranged round with old
+decanters, bottles, flasks; and in those jaws of swift destruction,
+like another cursed Jonah (by which name indeed they called him),
+bustles a little withered old man, who, for their money, dearly sells
+the sailors deliriums and death.
+RESPONSE: Abominable are the tumblers into which he pours his poison.
+
+INPUT: What does this say: Abominable are the tumblers into which he pours his poison.
+RESPONSE: Though true
+cylinders without—within, the villanous green goggling glasses
+deceitfully tapered downwards to a cheating bottom.
+
+INPUT: Summarize: Abominable are the tumblers into which he pours his poison. Though true
+cylinders without—within, the villanous green goggling glasses
+deceitfully tapered downwards to a cheating bottom.
+RESPONSE: Parallel meridians
+rudely pecked into the glass, surround these footpads’ goblets.
+
+INPUT: Explain this: Parallel meridians
+rudely pecked into the glass, surround these footpads’ goblets.
+RESPONSE: Fill to
+_this_ mark, and your charge is but a penny; to _this_ a penny more;
+and so on to the full glass—the Cape Horn measure, which you may gulp
+down for a shilling.
+
+INPUT: Summarize: Parallel meridians
+rudely pecked into the glass, surround these footpads’ goblets. Fill to
+_this_ mark, and your charge is but a penny; to _this_ a penny more;
+and so on to the full glass—the Cape Horn measure, which you may gulp
+down for a shilling.
+RESPONSE: Upon entering the place I found a number of young seamen gathered about
+a table, examining by a dim light divers specimens of _skrimshander_.
+
+INPUT: What does this say: Upon entering the place I found a number of young seamen gathered about
+a table, examining by a dim light divers specimens of _skrimshander_.
+RESPONSE: I
+sought the landlord, and telling him I desired to be accommodated with
+a room, received for answer that his house was full—not a bed
+unoccupied.
+
+INPUT: Summarize: Upon entering the place I found a number of young seamen gathered about
+a table, examining by a dim light divers specimens of _skrimshander_. I
+sought the landlord, and telling him I desired to be accommodated with
+a room, received for answer that his house was full—not a bed
+unoccupied.
+RESPONSE: “But avast,” he added, tapping his forehead, “you haint no
+objections to sharing a harpooneer’s blanket, have ye?
+
+INPUT: What does this mean: “But avast,” he added, tapping his forehead, “you haint no
+objections to sharing a harpooneer’s blanket, have ye?
+RESPONSE: I s’pose you are
+goin’ a-whalin’, so you’d better get used to that sort of thing.
+
+INPUT: Summarize: “But avast,” he added, tapping his forehead, “you haint no
+objections to sharing a harpooneer’s blanket, have ye? I s’pose you are
+goin’ a-whalin’, so you’d better get used to that sort of thing.
+RESPONSE: ”
+
+I told him that I never liked to sleep two in a bed; that if I should
+ever do so, it would depend upon who the harpooneer might be, and that
+if he (the landlord) really had no other place for me, and the
+harpooneer was not decidedly objectionable, why rather than wander
+further about a strange town on so bitter a night, I would put up with
+the half of any decent man’s blanket.
+
+INPUT: What does this say: ”
+
+I told him that I never liked to sleep two in a bed; that if I should
+ever do so, it would depend upon who the harpooneer might be, and that
+if he (the landlord) really had no other place for me, and the
+harpooneer was not decidedly objectionable, why rather than wander
+further about a strange town on so bitter a night, I would put up with
+the half of any decent man’s blanket.
+RESPONSE: All right; take a seat.
+
+INPUT: Summarize: ”
+
+I told him that I never liked to sleep two in a bed; that if I should
+ever do so, it would depend upon who the harpooneer might be, and that
+if he (the landlord) really had no other place for me, and the
+harpooneer was not decidedly objectionable, why rather than wander
+further about a strange town on so bitter a night, I would put up with
+the half of any decent man’s blanket. All right; take a seat.
+RESPONSE: Supper’ll be ready directly.
+
+INPUT: What does this say: Supper’ll be ready directly.
+RESPONSE: ”
+
+I sat down on an old wooden settle, carved all over like a bench on the
+Battery.
+
+INPUT: Summarize: Supper’ll be ready directly. ”
+
+I sat down on an old wooden settle, carved all over like a bench on the
+Battery.
+RESPONSE: At one end a ruminating tar was still further adorning it with
+his jack-knife, stooping over and diligently working away at the space
+between his legs.
+
+INPUT: Can you explain: At one end a ruminating tar was still further adorning it with
+his jack-knife, stooping over and diligently working away at the space
+between his legs.
+RESPONSE: He was trying his hand at a ship under full sail, but
+he didn’t make much headway, I thought.
+
+INPUT: Summarize: At one end a ruminating tar was still further adorning it with
+his jack-knife, stooping over and diligently working away at the space
+between his legs. He was trying his hand at a ship under full sail, but
+he didn’t make much headway, I thought.
+RESPONSE: At last some four or five of us were summoned to our meal in an
+adjoining room.
+
+INPUT: What is this about: At last some four or five of us were summoned to our meal in an
+adjoining room.
+RESPONSE: It was cold as Iceland—no fire at all—the landlord said
+he couldn’t afford it.
+
+INPUT: Summarize: At last some four or five of us were summoned to our meal in an
+adjoining room. It was cold as Iceland—no fire at all—the landlord said
+he couldn’t afford it.
+RESPONSE: Nothing but two dismal tallow candles, each in a
+winding sheet.
+
+INPUT: Tell me about: Nothing but two dismal tallow candles, each in a
+winding sheet.
+RESPONSE: We were fain to button up our monkey jackets, and hold
+to our lips cups of scalding tea with our half frozen fingers.
+
+INPUT: Summarize: Nothing but two dismal tallow candles, each in a
+winding sheet. We were fain to button up our monkey jackets, and hold
+to our lips cups of scalding tea with our half frozen fingers.
+RESPONSE: But the
+fare was of the most substantial kind—not only meat and potatoes, but
+dumplings; good heavens!
+
+INPUT: What does this say: But the
+fare was of the most substantial kind—not only meat and potatoes, but
+dumplings; good heavens!
+RESPONSE: dumplings for supper!
+
+INPUT: Summarize: But the
+fare was of the most substantial kind—not only meat and potatoes, but
+dumplings; good heavens! dumplings for supper!
+RESPONSE: One young fellow in a
+green box coat, addressed himself to these dumplings in a most direful
+manner.
+
+INPUT: What does this say: One young fellow in a
+green box coat, addressed himself to these dumplings in a most direful
+manner.
+RESPONSE: “My boy,” said the landlord, “you’ll have the nightmare to a dead
+sartainty.
+
+INPUT: Summarize: One young fellow in a
+green box coat, addressed himself to these dumplings in a most direful
+manner. “My boy,” said the landlord, “you’ll have the nightmare to a dead
+sartainty.
+RESPONSE: ”
+
+“Landlord,” I whispered, “that aint the harpooneer is it?
+
+INPUT: What does this say: ”
+
+“Landlord,” I whispered, “that aint the harpooneer is it?
+RESPONSE: ”
+
+“Oh, no,” said he, looking a sort of diabolically funny, “the
+harpooneer is a dark complexioned chap.
+
+INPUT: Summarize: ”
+
+“Landlord,” I whispered, “that aint the harpooneer is it? ”
+
+“Oh, no,” said he, looking a sort of diabolically funny, “the
+harpooneer is a dark complexioned chap.
+RESPONSE: He never eats dumplings, he
+don’t—he eats nothing but steaks, and he likes ’em rare.
+
+INPUT: What does this say: He never eats dumplings, he
+don’t—he eats nothing but steaks, and he likes ’em rare.
+RESPONSE: ”
+
+“The devil he does,” says I.
+
+INPUT: Summarize: He never eats dumplings, he
+don’t—he eats nothing but steaks, and he likes ’em rare. ”
+
+“The devil he does,” says I.
+RESPONSE: “Where is that harpooneer?
+
+INPUT: Tell me about: “Where is that harpooneer?
+RESPONSE: ”
+
+“He’ll be here afore long,” was the answer.
+
+INPUT: Summarize: “Where is that harpooneer? ”
+
+“He’ll be here afore long,” was the answer.
+RESPONSE: I could not help it, but I began to feel suspicious of this “dark
+complexioned” harpooneer.
+
+INPUT: What does this mean: I could not help it, but I began to feel suspicious of this “dark
+complexioned” harpooneer.
+RESPONSE: At any rate, I made up my mind that if it so
+turned out that we should sleep together, he must undress and get into
+bed before I did.
+
+INPUT: Summarize: I could not help it, but I began to feel suspicious of this “dark
+complexioned” harpooneer. At any rate, I made up my mind that if it so
+turned out that we should sleep together, he must undress and get into
+bed before I did.
+RESPONSE: Supper over, the company went back to the bar-room, when, knowing not
+what else to do with myself, I resolved to spend the rest of the
+evening as a looker on.
+
+INPUT: Explain this: Supper over, the company went back to the bar-room, when, knowing not
+what else to do with myself, I resolved to spend the rest of the
+evening as a looker on.
+RESPONSE: Presently a rioting noise was heard without.
+
+INPUT: Summarize: Supper over, the company went back to the bar-room, when, knowing not
+what else to do with myself, I resolved to spend the rest of the
+evening as a looker on. Presently a rioting noise was heard without.
+RESPONSE: Starting up, the landlord
+cried, “That’s the Grampus’s crew.
+
+INPUT: Explain this: Starting up, the landlord
+cried, “That’s the Grampus’s crew.
+RESPONSE: I seed her reported in the offing
+this morning; a three years’ voyage, and a full ship.
+
+INPUT: Summarize: Starting up, the landlord
+cried, “That’s the Grampus’s crew. I seed her reported in the offing
+this morning; a three years’ voyage, and a full ship.
+RESPONSE: Hurrah, boys; now
+we’ll have the latest news from the Feegees.
+
+INPUT: Can you explain: Hurrah, boys; now
+we’ll have the latest news from the Feegees.
+RESPONSE: ”
+
+A tramping of sea boots was heard in the entry; the door was flung
+open, and in rolled a wild set of mariners enough.
+
+INPUT: Summarize: Hurrah, boys; now
+we’ll have the latest news from the Feegees. ”
+
+A tramping of sea boots was heard in the entry; the door was flung
+open, and in rolled a wild set of mariners enough.
+RESPONSE: Enveloped in their
+shaggy watch coats, and with their heads muffled in woollen comforters,
+all bedarned and ragged, and their beards stiff with icicles, they
+seemed an eruption of bears from Labrador.
+
+INPUT: What does this say: Enveloped in their
+shaggy watch coats, and with their heads muffled in woollen comforters,
+all bedarned and ragged, and their beards stiff with icicles, they
+seemed an eruption of bears from Labrador.
+RESPONSE: They had just landed from
+their boat, and this was the first house they entered.
+
+INPUT: Summarize: Enveloped in their
+shaggy watch coats, and with their heads muffled in woollen comforters,
+all bedarned and ragged, and their beards stiff with icicles, they
+seemed an eruption of bears from Labrador. They had just landed from
+their boat, and this was the first house they entered.
+RESPONSE: No wonder, then,
+that they made a straight wake for the whale’s mouth—the bar—when the
+wrinkled little old Jonah, there officiating, soon poured them out
+brimmers all round.
+
+INPUT: Can you explain: No wonder, then,
+that they made a straight wake for the whale’s mouth—the bar—when the
+wrinkled little old Jonah, there officiating, soon poured them out
+brimmers all round.
+RESPONSE: One complained of a bad cold in his head, upon
+which Jonah mixed him a pitch-like potion of gin and molasses, which he
+swore was a sovereign cure for all colds and catarrhs whatsoever, never
+mind of how long standing, or whether caught off the coast of Labrador,
+or on the weather side of an ice-island.
+
+INPUT: Summarize: No wonder, then,
+that they made a straight wake for the whale’s mouth—the bar—when the
+wrinkled little old Jonah, there officiating, soon poured them out
+brimmers all round. One complained of a bad cold in his head, upon
+which Jonah mixed him a pitch-like potion of gin and molasses, which he
+swore was a sovereign cure for all colds and catarrhs whatsoever, never
+mind of how long standing, or whether caught off the coast of Labrador,
+or on the weather side of an ice-island.
+RESPONSE: The liquor soon mounted into their heads, as it generally does even
+with the arrantest topers newly landed from sea, and they began
+capering about most obstreperously.
+
+INPUT: What does this mean: The liquor soon mounted into their heads, as it generally does even
+with the arrantest topers newly landed from sea, and they began
+capering about most obstreperously.
+RESPONSE: I observed, however, that one of them held somewhat aloof, and though
+he seemed desirous not to spoil the hilarity of his shipmates by his
+own sober face, yet upon the whole he refrained from making as much
+noise as the rest.
+
+INPUT: Summarize: The liquor soon mounted into their heads, as it generally does even
+with the arrantest topers newly landed from sea, and they began
+capering about most obstreperously. I observed, however, that one of them held somewhat aloof, and though
+he seemed desirous not to spoil the hilarity of his shipmates by his
+own sober face, yet upon the whole he refrained from making as much
+noise as the rest.
+RESPONSE: This man interested me at once; and since the
+sea-gods had ordained that he should soon become my shipmate (though
+but a sleeping-partner one, so far as this narrative is concerned), I
+will here venture upon a little description of him.
+
+INPUT: What is this about: This man interested me at once; and since the
+sea-gods had ordained that he should soon become my shipmate (though
+but a sleeping-partner one, so far as this narrative is concerned), I
+will here venture upon a little description of him.
+RESPONSE: He stood full six
+feet in height, with noble shoulders, and a chest like a coffer-dam.
+
+INPUT: Summarize: This man interested me at once; and since the
+sea-gods had ordained that he should soon become my shipmate (though
+but a sleeping-partner one, so far as this narrative is concerned), I
+will here venture upon a little description of him. He stood full six
+feet in height, with noble shoulders, and a chest like a coffer-dam.
+RESPONSE: I
+have seldom seen such brawn in a man.
+
+INPUT: What is this about: I
+have seldom seen such brawn in a man.
+RESPONSE: His face was deeply brown and
+burnt, making his white teeth dazzling by the contrast; while in the
+deep shadows of his eyes floated some reminiscences that did not seem
+to give him much joy.
+
+INPUT: Summarize: I
+have seldom seen such brawn in a man. His face was deeply brown and
+burnt, making his white teeth dazzling by the contrast; while in the
+deep shadows of his eyes floated some reminiscences that did not seem
+to give him much joy.
+RESPONSE: His voice at once announced that he was a
+Southerner, and from his fine stature, I thought he must be one of
+those tall mountaineers from the Alleghanian Ridge in Virginia.
+
+INPUT: Tell me about: His voice at once announced that he was a
+Southerner, and from his fine stature, I thought he must be one of
+those tall mountaineers from the Alleghanian Ridge in Virginia.
+RESPONSE: When
+the revelry of his companions had mounted to its height, this man
+slipped away unobserved, and I saw no more of him till he became my
+comrade on the sea.
+
+INPUT: Summarize: His voice at once announced that he was a
+Southerner, and from his fine stature, I thought he must be one of
+those tall mountaineers from the Alleghanian Ridge in Virginia. When
+the revelry of his companions had mounted to its height, this man
+slipped away unobserved, and I saw no more of him till he became my
+comrade on the sea.
+RESPONSE: In a few minutes, however, he was missed by his
+shipmates, and being, it seems, for some reason a huge favourite with
+them, they raised a cry of “Bulkington!
+
+INPUT: What is this about: In a few minutes, however, he was missed by his
+shipmates, and being, it seems, for some reason a huge favourite with
+them, they raised a cry of “Bulkington!
+RESPONSE: where’s
+Bulkington?
+
+INPUT: Summarize: In a few minutes, however, he was missed by his
+shipmates, and being, it seems, for some reason a huge favourite with
+them, they raised a cry of “Bulkington! where’s
+Bulkington?
+RESPONSE: ” and darted out of the house in pursuit of him.
+
+INPUT: What does this say: ” and darted out of the house in pursuit of him.
+RESPONSE: It was now about nine o’clock, and the room seeming almost
+supernaturally quiet after these orgies, I began to congratulate myself
+upon a little plan that had occurred to me just previous to the
+entrance of the seamen.
+
+INPUT: Summarize: ” and darted out of the house in pursuit of him. It was now about nine o’clock, and the room seeming almost
+supernaturally quiet after these orgies, I began to congratulate myself
+upon a little plan that had occurred to me just previous to the
+entrance of the seamen.
+RESPONSE: No man prefers to sleep two in a bed.
+
+INPUT: Tell me about: No man prefers to sleep two in a bed.
+RESPONSE: In fact, you would a good deal
+rather not sleep with your own brother.
+
+INPUT: Summarize: No man prefers to sleep two in a bed. In fact, you would a good deal
+rather not sleep with your own brother.
+RESPONSE: I don’t know how it is, but
+people like to be private when they are sleeping.
+
+INPUT: What is this about: I don’t know how it is, but
+people like to be private when they are sleeping.
+RESPONSE: And when it comes to
+sleeping with an unknown stranger, in a strange inn, in a strange town,
+and that stranger a harpooneer, then your objections indefinitely
+multiply.
+
+INPUT: Summarize: I don’t know how it is, but
+people like to be private when they are sleeping. And when it comes to
+sleeping with an unknown stranger, in a strange inn, in a strange town,
+and that stranger a harpooneer, then your objections indefinitely
+multiply.
+RESPONSE: Nor was there any earthly reason why I as a sailor should
+sleep two in a bed, more than anybody else; for sailors no more sleep
+two in a bed at sea, than bachelor Kings do ashore.
+
+INPUT: What does this say: Nor was there any earthly reason why I as a sailor should
+sleep two in a bed, more than anybody else; for sailors no more sleep
+two in a bed at sea, than bachelor Kings do ashore.
+RESPONSE: To be sure they all
+sleep together in one apartment, but you have your own hammock, and
+cover yourself with your own blanket, and sleep in your own skin.
+
+INPUT: Summarize: Nor was there any earthly reason why I as a sailor should
+sleep two in a bed, more than anybody else; for sailors no more sleep
+two in a bed at sea, than bachelor Kings do ashore. To be sure they all
+sleep together in one apartment, but you have your own hammock, and
+cover yourself with your own blanket, and sleep in your own skin.
+RESPONSE: The more I pondered over this harpooneer, the more I abominated the
+thought of sleeping with him.
+
+INPUT: What does this say: The more I pondered over this harpooneer, the more I abominated the
+thought of sleeping with him.
+RESPONSE: It was fair to presume that being a
+harpooneer, his linen or woollen, as the case might be, would not be of
+the tidiest, certainly none of the finest.
+
+INPUT: Summarize: The more I pondered over this harpooneer, the more I abominated the
+thought of sleeping with him. It was fair to presume that being a
+harpooneer, his linen or woollen, as the case might be, would not be of
+the tidiest, certainly none of the finest.
+RESPONSE: I began to twitch all over.
+
+INPUT: What is this about: I began to twitch all over.
+RESPONSE: Besides, it was getting late, and my decent harpooneer ought to be home
+and going bedwards.
+
+INPUT: Summarize: I began to twitch all over. Besides, it was getting late, and my decent harpooneer ought to be home
+and going bedwards.
+RESPONSE: Suppose now, he should tumble in upon me at
+midnight—how could I tell from what vile hole he had been coming?
+
+INPUT: Explain this: Suppose now, he should tumble in upon me at
+midnight—how could I tell from what vile hole he had been coming?
+RESPONSE: I’ve changed my mind about that harpooneer.
+
+INPUT: Summarize: Suppose now, he should tumble in upon me at
+midnight—how could I tell from what vile hole he had been coming? I’ve changed my mind about that harpooneer.
+RESPONSE: —I shan’t sleep
+with him.
+

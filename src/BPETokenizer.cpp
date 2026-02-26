@@ -590,6 +590,13 @@ void BPETokenizer::load_vocab(const std::string& filename) {
     if (vocab.find("<bos>") != vocab.end()) special_tokens.insert("<bos>");
     if (vocab.find("<eos>") != vocab.end()) special_tokens.insert("<eos>");
     
+    // Map special token IDs to their string representations in inverse_vocab
+    // This ensures that when decoding, the special token IDs (0,1,2,3) can be resolved
+    inverse_vocab[pad_token_id] = "<pad>";
+    inverse_vocab[unk_token_id] = "<unk>";
+    inverse_vocab[bos_token_id] = "<bos>";
+    inverse_vocab[eos_token_id] = "<eos>";
+    
     std::cout << "[BPE Tokenizer] Vocabulary loaded from " << filename << std::endl;
     std::cout << "  - Vocabulary size: " << vocab.size() << std::endl;
     std::cout << "  - BPE merges: " << bpe_merges.size() << std::endl;

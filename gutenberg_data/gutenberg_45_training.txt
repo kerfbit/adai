@@ -1,0 +1,3088 @@
+INPUT: What does this say: ANNE OF GREEN GABLES
+
+By Lucy Maud Montgomery
+
+Table of Contents
+
+ CHAPTER I Mrs.
+RESPONSE: Rachel Lynde Is Surprised
+ CHAPTER II Matthew Cuthbert Is Surprised
+ CHAPTER III Marilla Cuthbert Is Surprised
+ CHAPTER IV Morning at Green Gables
+ CHAPTER V Anne’s History
+ CHAPTER VI Marilla Makes Up Her Mind
+ CHAPTER VII Anne Says Her Prayers
+ CHAPTER VIII Anne’s Bringing-up Is Begun
+ CHAPTER IX Mrs.
+
+INPUT: Summarize: ANNE OF GREEN GABLES
+
+By Lucy Maud Montgomery
+
+Table of Contents
+
+ CHAPTER I Mrs. Rachel Lynde Is Surprised
+ CHAPTER II Matthew Cuthbert Is Surprised
+ CHAPTER III Marilla Cuthbert Is Surprised
+ CHAPTER IV Morning at Green Gables
+ CHAPTER V Anne’s History
+ CHAPTER VI Marilla Makes Up Her Mind
+ CHAPTER VII Anne Says Her Prayers
+ CHAPTER VIII Anne’s Bringing-up Is Begun
+ CHAPTER IX Mrs.
+RESPONSE: Rachel Lynde Is Surprised
+
+MRS.
+
+INPUT: What does this mean: Rachel Lynde Is Surprised
+
+MRS.
+RESPONSE: Rachel Lynde lived just where the Avonlea main road dipped down
+into a little hollow, fringed with alders and ladies’ eardrops and
+traversed by a brook that had its source away back in the woods of the
+old Cuthbert place; it was reputed to be an intricate, headlong brook
+in its earlier course through those woods, with dark secrets of pool
+and cascade; but by the time it reached Lynde’s Hollow it was a quiet,
+well-conducted little stream, for not even a brook could run past Mrs.
+
+INPUT: Summarize: Rachel Lynde Is Surprised
+
+MRS. Rachel Lynde lived just where the Avonlea main road dipped down
+into a little hollow, fringed with alders and ladies’ eardrops and
+traversed by a brook that had its source away back in the woods of the
+old Cuthbert place; it was reputed to be an intricate, headlong brook
+in its earlier course through those woods, with dark secrets of pool
+and cascade; but by the time it reached Lynde’s Hollow it was a quiet,
+well-conducted little stream, for not even a brook could run past Mrs.
+RESPONSE: Rachel Lynde’s door without due regard for decency and decorum; it
+probably was conscious that Mrs.
+
+INPUT: What does this mean: Rachel Lynde’s door without due regard for decency and decorum; it
+probably was conscious that Mrs.
+RESPONSE: Rachel was sitting at her window,
+keeping a sharp eye on everything that passed, from brooks and children
+up, and that if she noticed anything odd or out of place she would never
+rest until she had ferreted out the whys and wherefores thereof.
+
+INPUT: Summarize: Rachel Lynde’s door without due regard for decency and decorum; it
+probably was conscious that Mrs. Rachel was sitting at her window,
+keeping a sharp eye on everything that passed, from brooks and children
+up, and that if she noticed anything odd or out of place she would never
+rest until she had ferreted out the whys and wherefores thereof.
+RESPONSE: There are plenty of people, in Avonlea and out of it, who can attend
+closely to their neighbors’ business by dint of neglecting their own;
+but Mrs.
+
+INPUT: What is this about: There are plenty of people, in Avonlea and out of it, who can attend
+closely to their neighbors’ business by dint of neglecting their own;
+but Mrs.
+RESPONSE: Rachel Lynde was one of those capable creatures who can manage
+their own concerns and those of other folks into the bargain.
+
+INPUT: Summarize: There are plenty of people, in Avonlea and out of it, who can attend
+closely to their neighbors’ business by dint of neglecting their own;
+but Mrs. Rachel Lynde was one of those capable creatures who can manage
+their own concerns and those of other folks into the bargain.
+RESPONSE: She was a
+notable housewife; her work was always done and well done; she “ran” the
+Sewing Circle, helped run the Sunday-school, and was the strongest prop
+of the Church Aid Society and Foreign Missions Auxiliary.
+
+INPUT: What is this about: She was a
+notable housewife; her work was always done and well done; she “ran” the
+Sewing Circle, helped run the Sunday-school, and was the strongest prop
+of the Church Aid Society and Foreign Missions Auxiliary.
+RESPONSE: Yet with all
+this Mrs.
+
+INPUT: Summarize: She was a
+notable housewife; her work was always done and well done; she “ran” the
+Sewing Circle, helped run the Sunday-school, and was the strongest prop
+of the Church Aid Society and Foreign Missions Auxiliary. Yet with all
+this Mrs.
+RESPONSE: Rachel found abundant time to sit for hours at her kitchen
+window, knitting “cotton warp” quilts--she had knitted sixteen of them,
+as Avonlea housekeepers were wont to tell in awed voices--and keeping
+a sharp eye on the main road that crossed the hollow and wound up
+the steep red hill beyond.
+
+INPUT: What does this say: Rachel found abundant time to sit for hours at her kitchen
+window, knitting “cotton warp” quilts--she had knitted sixteen of them,
+as Avonlea housekeepers were wont to tell in awed voices--and keeping
+a sharp eye on the main road that crossed the hollow and wound up
+the steep red hill beyond.
+RESPONSE: Since Avonlea occupied a little triangular
+peninsula jutting out into the Gulf of St.
+
+INPUT: Summarize: Rachel found abundant time to sit for hours at her kitchen
+window, knitting “cotton warp” quilts--she had knitted sixteen of them,
+as Avonlea housekeepers were wont to tell in awed voices--and keeping
+a sharp eye on the main road that crossed the hollow and wound up
+the steep red hill beyond. Since Avonlea occupied a little triangular
+peninsula jutting out into the Gulf of St.
+RESPONSE: Lawrence, with water on two
+sides of it, anybody who went out of it or into it had to pass over that
+hill road and so run the unseen gauntlet of Mrs.
+
+INPUT: What is this about: Lawrence, with water on two
+sides of it, anybody who went out of it or into it had to pass over that
+hill road and so run the unseen gauntlet of Mrs.
+RESPONSE: Rachel’s all-seeing
+eye.
+
+INPUT: Summarize: Lawrence, with water on two
+sides of it, anybody who went out of it or into it had to pass over that
+hill road and so run the unseen gauntlet of Mrs. Rachel’s all-seeing
+eye.
+RESPONSE: She was sitting there one afternoon in early June.
+
+INPUT: What is this about: She was sitting there one afternoon in early June.
+RESPONSE: The sun was coming in
+at the window warm and bright; the orchard on the slope below the house
+was in a bridal flush of pinky-white bloom, hummed over by a myriad of
+bees.
+
+INPUT: Summarize: She was sitting there one afternoon in early June. The sun was coming in
+at the window warm and bright; the orchard on the slope below the house
+was in a bridal flush of pinky-white bloom, hummed over by a myriad of
+bees.
+RESPONSE: Thomas Lynde--a meek little man whom Avonlea people called “Rachel
+Lynde’s husband”--was sowing his late turnip seed on the hill field
+beyond the barn; and Matthew Cuthbert ought to have been sowing his on
+the big red brook field away over by Green Gables.
+
+INPUT: What does this mean: Thomas Lynde--a meek little man whom Avonlea people called “Rachel
+Lynde’s husband”--was sowing his late turnip seed on the hill field
+beyond the barn; and Matthew Cuthbert ought to have been sowing his on
+the big red brook field away over by Green Gables.
+RESPONSE: Rachel knew
+that he ought because she had heard him tell Peter Morrison the evening
+before in William J.
+
+INPUT: Summarize: Thomas Lynde--a meek little man whom Avonlea people called “Rachel
+Lynde’s husband”--was sowing his late turnip seed on the hill field
+beyond the barn; and Matthew Cuthbert ought to have been sowing his on
+the big red brook field away over by Green Gables. Rachel knew
+that he ought because she had heard him tell Peter Morrison the evening
+before in William J.
+RESPONSE: Blair’s store over at Carmody that he meant to sow
+his turnip seed the next afternoon.
+
+INPUT: What is this about: Blair’s store over at Carmody that he meant to sow
+his turnip seed the next afternoon.
+RESPONSE: Peter had asked him, of course, for
+Matthew Cuthbert had never been known to volunteer information about
+anything in his whole life.
+
+INPUT: Summarize: Blair’s store over at Carmody that he meant to sow
+his turnip seed the next afternoon. Peter had asked him, of course, for
+Matthew Cuthbert had never been known to volunteer information about
+anything in his whole life.
+RESPONSE: And yet here was Matthew Cuthbert, at half-past three on the afternoon
+of a busy day, placidly driving over the hollow and up the hill;
+moreover, he wore a white collar and his best suit of clothes, which was
+plain proof that he was going out of Avonlea; and he had the buggy
+and the sorrel mare, which betokened that he was going a considerable
+distance.
+
+INPUT: Tell me about: And yet here was Matthew Cuthbert, at half-past three on the afternoon
+of a busy day, placidly driving over the hollow and up the hill;
+moreover, he wore a white collar and his best suit of clothes, which was
+plain proof that he was going out of Avonlea; and he had the buggy
+and the sorrel mare, which betokened that he was going a considerable
+distance.
+RESPONSE: Now, where was Matthew Cuthbert going and why was he going
+there?
+
+INPUT: Summarize: And yet here was Matthew Cuthbert, at half-past three on the afternoon
+of a busy day, placidly driving over the hollow and up the hill;
+moreover, he wore a white collar and his best suit of clothes, which was
+plain proof that he was going out of Avonlea; and he had the buggy
+and the sorrel mare, which betokened that he was going a considerable
+distance. Now, where was Matthew Cuthbert going and why was he going
+there?
+RESPONSE: Had it been any other man in Avonlea, Mrs.
+
+INPUT: What is this about: Had it been any other man in Avonlea, Mrs.
+RESPONSE: Rachel, deftly putting this
+and that together, might have given a pretty good guess as to both
+questions.
+
+INPUT: Summarize: Had it been any other man in Avonlea, Mrs. Rachel, deftly putting this
+and that together, might have given a pretty good guess as to both
+questions.
+RESPONSE: But Matthew so rarely went from home that it must be
+something pressing and unusual which was taking him; he was the shyest
+man alive and hated to have to go among strangers or to any place where
+he might have to talk.
+
+INPUT: What does this say: But Matthew so rarely went from home that it must be
+something pressing and unusual which was taking him; he was the shyest
+man alive and hated to have to go among strangers or to any place where
+he might have to talk.
+RESPONSE: Matthew, dressed up with a white collar and
+driving in a buggy, was something that didn’t happen often.
+
+INPUT: Summarize: But Matthew so rarely went from home that it must be
+something pressing and unusual which was taking him; he was the shyest
+man alive and hated to have to go among strangers or to any place where
+he might have to talk. Matthew, dressed up with a white collar and
+driving in a buggy, was something that didn’t happen often.
+RESPONSE: Rachel,
+ponder as she might, could make nothing of it and her afternoon’s
+enjoyment was spoiled.
+
+INPUT: What does this mean: Rachel,
+ponder as she might, could make nothing of it and her afternoon’s
+enjoyment was spoiled.
+RESPONSE: “I’ll just step over to Green Gables after tea and find out from Marilla
+where he’s gone and why,” the worthy woman finally concluded.
+
+INPUT: Summarize: Rachel,
+ponder as she might, could make nothing of it and her afternoon’s
+enjoyment was spoiled. “I’ll just step over to Green Gables after tea and find out from Marilla
+where he’s gone and why,” the worthy woman finally concluded.
+RESPONSE: “He
+doesn’t generally go to town this time of year and he _never_ visits; if
+he’d run out of turnip seed he wouldn’t dress up and take the buggy to
+go for more; he wasn’t driving fast enough to be going for a doctor.
+
+INPUT: What does this mean: “He
+doesn’t generally go to town this time of year and he _never_ visits; if
+he’d run out of turnip seed he wouldn’t dress up and take the buggy to
+go for more; he wasn’t driving fast enough to be going for a doctor.
+RESPONSE: Yet something must have happened since last night to start him off.
+
+INPUT: Summarize: “He
+doesn’t generally go to town this time of year and he _never_ visits; if
+he’d run out of turnip seed he wouldn’t dress up and take the buggy to
+go for more; he wasn’t driving fast enough to be going for a doctor. Yet something must have happened since last night to start him off.
+RESPONSE: I’m
+clean puzzled, that’s what, and I won’t know a minute’s peace of mind or
+conscience until I know what has taken Matthew Cuthbert out of Avonlea
+today.
+
+INPUT: Explain this: I’m
+clean puzzled, that’s what, and I won’t know a minute’s peace of mind or
+conscience until I know what has taken Matthew Cuthbert out of Avonlea
+today.
+RESPONSE: ”
+
+Accordingly after tea Mrs.
+
+INPUT: Summarize: I’m
+clean puzzled, that’s what, and I won’t know a minute’s peace of mind or
+conscience until I know what has taken Matthew Cuthbert out of Avonlea
+today. ”
+
+Accordingly after tea Mrs.
+RESPONSE: Rachel set out; she had not far to go; the
+big, rambling, orchard-embowered house where the Cuthberts lived was a
+scant quarter of a mile up the road from Lynde’s Hollow.
+
+INPUT: Explain this: Rachel set out; she had not far to go; the
+big, rambling, orchard-embowered house where the Cuthberts lived was a
+scant quarter of a mile up the road from Lynde’s Hollow.
+RESPONSE: To be sure, the
+long lane made it a good deal further.
+
+INPUT: Summarize: Rachel set out; she had not far to go; the
+big, rambling, orchard-embowered house where the Cuthberts lived was a
+scant quarter of a mile up the road from Lynde’s Hollow. To be sure, the
+long lane made it a good deal further.
+RESPONSE: Matthew Cuthbert’s father, as
+shy and silent as his son after him, had got as far away as he possibly
+could from his fellow men without actually retreating into the woods
+when he founded his homestead.
+
+INPUT: What does this say: Matthew Cuthbert’s father, as
+shy and silent as his son after him, had got as far away as he possibly
+could from his fellow men without actually retreating into the woods
+when he founded his homestead.
+RESPONSE: Green Gables was built at the furthest
+edge of his cleared land and there it was to this day, barely visible
+from the main road along which all the other Avonlea houses were so
+sociably situated.
+
+INPUT: Summarize: Matthew Cuthbert’s father, as
+shy and silent as his son after him, had got as far away as he possibly
+could from his fellow men without actually retreating into the woods
+when he founded his homestead. Green Gables was built at the furthest
+edge of his cleared land and there it was to this day, barely visible
+from the main road along which all the other Avonlea houses were so
+sociably situated.
+RESPONSE: Rachel Lynde did not call living in such a place
+_living_ at all.
+
+INPUT: Tell me about: Rachel Lynde did not call living in such a place
+_living_ at all.
+RESPONSE: “It’s just _staying_, that’s what,” she said as she stepped along the
+deep-rutted, grassy lane bordered with wild rose bushes.
+
+INPUT: Summarize: Rachel Lynde did not call living in such a place
+_living_ at all. “It’s just _staying_, that’s what,” she said as she stepped along the
+deep-rutted, grassy lane bordered with wild rose bushes.
+RESPONSE: “It’s no wonder
+Matthew and Marilla are both a little odd, living away back here by
+themselves.
+
+INPUT: Tell me about: “It’s no wonder
+Matthew and Marilla are both a little odd, living away back here by
+themselves.
+RESPONSE: Trees aren’t much company, though dear knows if they were
+there’d be enough of them.
+
+INPUT: Summarize: “It’s no wonder
+Matthew and Marilla are both a little odd, living away back here by
+themselves. Trees aren’t much company, though dear knows if they were
+there’d be enough of them.
+RESPONSE: I’d ruther look at people.
+
+INPUT: What is this about: I’d ruther look at people.
+RESPONSE: To be sure, they
+seem contented enough; but then, I suppose, they’re used to it.
+
+INPUT: Summarize: I’d ruther look at people. To be sure, they
+seem contented enough; but then, I suppose, they’re used to it.
+RESPONSE: A body
+can get used to anything, even to being hanged, as the Irishman said.
+
+INPUT: Tell me about: A body
+can get used to anything, even to being hanged, as the Irishman said.
+RESPONSE: Rachel stepped out of the lane into the backyard of
+Green Gables.
+
+INPUT: Summarize: A body
+can get used to anything, even to being hanged, as the Irishman said. Rachel stepped out of the lane into the backyard of
+Green Gables.
+RESPONSE: Very green and neat and precise was that yard, set about
+on one side with great patriarchal willows and on the other with prim
+Lombardies.
+
+INPUT: Tell me about: Very green and neat and precise was that yard, set about
+on one side with great patriarchal willows and on the other with prim
+Lombardies.
+RESPONSE: Not a stray stick nor stone was to be seen, for Mrs.
+
+INPUT: Summarize: Very green and neat and precise was that yard, set about
+on one side with great patriarchal willows and on the other with prim
+Lombardies. Not a stray stick nor stone was to be seen, for Mrs.
+RESPONSE: Rachel
+would have seen it if there had been.
+
+INPUT: Explain this: Rachel
+would have seen it if there had been.
+RESPONSE: Privately she was of the opinion
+that Marilla Cuthbert swept that yard over as often as she swept her
+house.
+
+INPUT: Summarize: Rachel
+would have seen it if there had been. Privately she was of the opinion
+that Marilla Cuthbert swept that yard over as often as she swept her
+house.
+RESPONSE: One could have eaten a meal off the ground without overbrimming
+the proverbial peck of dirt.
+
+INPUT: Explain this: One could have eaten a meal off the ground without overbrimming
+the proverbial peck of dirt.
+RESPONSE: Rachel rapped smartly at the kitchen door and stepped in
+when bidden to do so.
+
+INPUT: Summarize: One could have eaten a meal off the ground without overbrimming
+the proverbial peck of dirt. Rachel rapped smartly at the kitchen door and stepped in
+when bidden to do so.
+RESPONSE: The kitchen at Green Gables was a cheerful
+apartment--or would have been cheerful if it had not been so painfully
+clean as to give it something of the appearance of an unused parlor.
+
+INPUT: What does this mean: The kitchen at Green Gables was a cheerful
+apartment--or would have been cheerful if it had not been so painfully
+clean as to give it something of the appearance of an unused parlor.
+RESPONSE: Its
+windows looked east and west; through the west one, looking out on
+the back yard, came a flood of mellow June sunlight; but the east one,
+whence you got a glimpse of the bloom white cherry-trees in the left
+orchard and nodding, slender birches down in the hollow by the brook,
+was greened over by a tangle of vines.
+
+INPUT: Summarize: The kitchen at Green Gables was a cheerful
+apartment--or would have been cheerful if it had not been so painfully
+clean as to give it something of the appearance of an unused parlor. Its
+windows looked east and west; through the west one, looking out on
+the back yard, came a flood of mellow June sunlight; but the east one,
+whence you got a glimpse of the bloom white cherry-trees in the left
+orchard and nodding, slender birches down in the hollow by the brook,
+was greened over by a tangle of vines.
+RESPONSE: Here sat Marilla Cuthbert, when
+she sat at all, always slightly distrustful of sunshine, which seemed to
+her too dancing and irresponsible a thing for a world which was meant to
+be taken seriously; and here she sat now, knitting, and the table behind
+her was laid for supper.
+
+INPUT: What does this mean: Here sat Marilla Cuthbert, when
+she sat at all, always slightly distrustful of sunshine, which seemed to
+her too dancing and irresponsible a thing for a world which was meant to
+be taken seriously; and here she sat now, knitting, and the table behind
+her was laid for supper.
+RESPONSE: Rachel, before she had fairly closed the door, had taken a mental
+note of everything that was on that table.
+
+INPUT: Summarize: Here sat Marilla Cuthbert, when
+she sat at all, always slightly distrustful of sunshine, which seemed to
+her too dancing and irresponsible a thing for a world which was meant to
+be taken seriously; and here she sat now, knitting, and the table behind
+her was laid for supper. Rachel, before she had fairly closed the door, had taken a mental
+note of everything that was on that table.
+RESPONSE: There were three plates laid,
+so that Marilla must be expecting some one home with Matthew to tea; but
+the dishes were everyday dishes and there was only crab-apple preserves
+and one kind of cake, so that the expected company could not be any
+particular company.
+
+INPUT: What does this mean: There were three plates laid,
+so that Marilla must be expecting some one home with Matthew to tea; but
+the dishes were everyday dishes and there was only crab-apple preserves
+and one kind of cake, so that the expected company could not be any
+particular company.
+RESPONSE: Yet what of Matthew’s white collar and the sorrel
+mare?
+
+INPUT: Summarize: There were three plates laid,
+so that Marilla must be expecting some one home with Matthew to tea; but
+the dishes were everyday dishes and there was only crab-apple preserves
+and one kind of cake, so that the expected company could not be any
+particular company. Yet what of Matthew’s white collar and the sorrel
+mare?
+RESPONSE: Rachel was getting fairly dizzy with this unusual mystery
+about quiet, unmysterious Green Gables.
+
+INPUT: Explain this: Rachel was getting fairly dizzy with this unusual mystery
+about quiet, unmysterious Green Gables.
+RESPONSE: “Good evening, Rachel,” Marilla said briskly.
+
+INPUT: Summarize: Rachel was getting fairly dizzy with this unusual mystery
+about quiet, unmysterious Green Gables. “Good evening, Rachel,” Marilla said briskly.
+RESPONSE: “This is a real fine
+evening, isn’t it?
+
+INPUT: Tell me about: “This is a real fine
+evening, isn’t it?
+RESPONSE: Won’t you sit down?
+
+INPUT: Summarize: “This is a real fine
+evening, isn’t it? Won’t you sit down?
+RESPONSE: How are all your folks?
+
+INPUT: What does this mean: How are all your folks?
+RESPONSE: ”
+
+Something that for lack of any other name might be called friendship
+existed and always had existed between Marilla Cuthbert and Mrs.
+
+INPUT: Summarize: How are all your folks? ”
+
+Something that for lack of any other name might be called friendship
+existed and always had existed between Marilla Cuthbert and Mrs.
+RESPONSE: Rachel,
+in spite of--or perhaps because of--their dissimilarity.
+
+INPUT: Can you explain: Rachel,
+in spite of--or perhaps because of--their dissimilarity.
+RESPONSE: Marilla was a tall, thin woman, with angles and without curves; her dark
+hair showed some gray streaks and was always twisted up in a hard little
+knot behind with two wire hairpins stuck aggressively through it.
+
+INPUT: Summarize: Rachel,
+in spite of--or perhaps because of--their dissimilarity. Marilla was a tall, thin woman, with angles and without curves; her dark
+hair showed some gray streaks and was always twisted up in a hard little
+knot behind with two wire hairpins stuck aggressively through it.
+RESPONSE: She
+looked like a woman of narrow experience and rigid conscience, which she
+was; but there was a saving something about her mouth which, if it had
+been ever so slightly developed, might have been considered indicative
+of a sense of humor.
+
+INPUT: What does this mean: She
+looked like a woman of narrow experience and rigid conscience, which she
+was; but there was a saving something about her mouth which, if it had
+been ever so slightly developed, might have been considered indicative
+of a sense of humor.
+RESPONSE: “We’re all pretty well,” said Mrs.
+
+INPUT: Summarize: She
+looked like a woman of narrow experience and rigid conscience, which she
+was; but there was a saving something about her mouth which, if it had
+been ever so slightly developed, might have been considered indicative
+of a sense of humor. “We’re all pretty well,” said Mrs.
+RESPONSE: “I was kind of afraid _you_
+weren’t, though, when I saw Matthew starting off today.
+
+INPUT: Explain this: “I was kind of afraid _you_
+weren’t, though, when I saw Matthew starting off today.
+RESPONSE: I thought maybe
+he was going to the doctor’s.
+
+INPUT: Summarize: “I was kind of afraid _you_
+weren’t, though, when I saw Matthew starting off today. I thought maybe
+he was going to the doctor’s.
+RESPONSE: ”
+
+Marilla’s lips twitched understandingly.
+
+INPUT: What does this say: ”
+
+Marilla’s lips twitched understandingly.
+RESPONSE: She had expected Mrs.
+
+INPUT: Summarize: ”
+
+Marilla’s lips twitched understandingly. She had expected Mrs.
+RESPONSE: Rachel up; she had known that the sight of Matthew jaunting off so
+unaccountably would be too much for her neighbor’s curiosity.
+
+INPUT: Explain this: Rachel up; she had known that the sight of Matthew jaunting off so
+unaccountably would be too much for her neighbor’s curiosity.
+RESPONSE: “Oh, no, I’m quite well although I had a bad headache yesterday,” she
+said.
+
+INPUT: Summarize: Rachel up; she had known that the sight of Matthew jaunting off so
+unaccountably would be too much for her neighbor’s curiosity. “Oh, no, I’m quite well although I had a bad headache yesterday,” she
+said.
+RESPONSE: “Matthew went to Bright River.
+
+INPUT: What is this about: “Matthew went to Bright River.
+RESPONSE: We’re getting a little boy from an
+orphan asylum in Nova Scotia and he’s coming on the train tonight.
+
+INPUT: Summarize: “Matthew went to Bright River. We’re getting a little boy from an
+orphan asylum in Nova Scotia and he’s coming on the train tonight.
+RESPONSE: ”
+
+If Marilla had said that Matthew had gone to Bright River to meet a
+kangaroo from Australia Mrs.
+
+INPUT: What does this mean: ”
+
+If Marilla had said that Matthew had gone to Bright River to meet a
+kangaroo from Australia Mrs.
+RESPONSE: Rachel could not have been more astonished.
+
+INPUT: Summarize: ”
+
+If Marilla had said that Matthew had gone to Bright River to meet a
+kangaroo from Australia Mrs. Rachel could not have been more astonished.
+RESPONSE: She was actually stricken dumb for five seconds.
+
+INPUT: What does this say: She was actually stricken dumb for five seconds.
+RESPONSE: It was unsupposable
+that Marilla was making fun of her, but Mrs.
+
+INPUT: Summarize: She was actually stricken dumb for five seconds. It was unsupposable
+that Marilla was making fun of her, but Mrs.
+RESPONSE: Rachel was almost forced to
+suppose it.
+
+INPUT: Can you explain: Rachel was almost forced to
+suppose it.
+RESPONSE: “Are you in earnest, Marilla?
+
+INPUT: Summarize: Rachel was almost forced to
+suppose it. “Are you in earnest, Marilla?
+RESPONSE: ” she demanded when voice returned to her.
+
+INPUT: Can you explain: ” she demanded when voice returned to her.
+RESPONSE: “Yes, of course,” said Marilla, as if getting boys from orphan asylums
+in Nova Scotia were part of the usual spring work on any well-regulated
+Avonlea farm instead of being an unheard of innovation.
+
+INPUT: Summarize: ” she demanded when voice returned to her. “Yes, of course,” said Marilla, as if getting boys from orphan asylums
+in Nova Scotia were part of the usual spring work on any well-regulated
+Avonlea farm instead of being an unheard of innovation.
+RESPONSE: Rachel felt that she had received a severe mental jolt.
+
+INPUT: Can you explain: Rachel felt that she had received a severe mental jolt.
+RESPONSE: She thought
+in exclamation points.
+
+INPUT: Summarize: Rachel felt that she had received a severe mental jolt. She thought
+in exclamation points.
+RESPONSE: Marilla and Matthew Cuthbert of all people
+adopting a boy!
+
+INPUT: Tell me about: Marilla and Matthew Cuthbert of all people
+adopting a boy!
+RESPONSE: From an orphan asylum!
+
+INPUT: Summarize: Marilla and Matthew Cuthbert of all people
+adopting a boy! From an orphan asylum!
+RESPONSE: Well, the world was certainly
+turning upside down!
+
+INPUT: Explain this: Well, the world was certainly
+turning upside down!
+RESPONSE: She would be surprised at nothing after this!
+
+INPUT: Summarize: Well, the world was certainly
+turning upside down! She would be surprised at nothing after this!
+RESPONSE: “What on earth put such a notion into your head?
+
+INPUT: What does this mean: “What on earth put such a notion into your head?
+RESPONSE: ” she demanded
+disapprovingly.
+
+INPUT: Summarize: “What on earth put such a notion into your head? ” she demanded
+disapprovingly.
+RESPONSE: This had been done without her advice being asked, and must perforce be
+disapproved.
+
+INPUT: Can you explain: This had been done without her advice being asked, and must perforce be
+disapproved.
+RESPONSE: “Well, we’ve been thinking about it for some time--all winter in fact,”
+ returned Marilla.
+
+INPUT: Summarize: This had been done without her advice being asked, and must perforce be
+disapproved. “Well, we’ve been thinking about it for some time--all winter in fact,”
+ returned Marilla.
+RESPONSE: Alexander Spencer was up here one day before
+Christmas and she said she was going to get a little girl from the
+asylum over in Hopeton in the spring.
+
+INPUT: Tell me about: Alexander Spencer was up here one day before
+Christmas and she said she was going to get a little girl from the
+asylum over in Hopeton in the spring.
+RESPONSE: Her cousin lives there and Mrs.
+
+INPUT: Summarize: Alexander Spencer was up here one day before
+Christmas and she said she was going to get a little girl from the
+asylum over in Hopeton in the spring. Her cousin lives there and Mrs.
+RESPONSE: Spencer has visited her and knows all about it.
+
+INPUT: Tell me about: Spencer has visited her and knows all about it.
+RESPONSE: So Matthew and I have
+talked it over off and on ever since.
+
+INPUT: Summarize: Spencer has visited her and knows all about it. So Matthew and I have
+talked it over off and on ever since.
+RESPONSE: We thought we’d get a boy.
+
+INPUT: What does this mean: We thought we’d get a boy.
+RESPONSE: Matthew
+is getting up in years, you know--he’s sixty--and he isn’t so spry as he
+once was.
+
+INPUT: Summarize: We thought we’d get a boy. Matthew
+is getting up in years, you know--he’s sixty--and he isn’t so spry as he
+once was.
+RESPONSE: His heart troubles him a good deal.
+
+INPUT: What is this about: His heart troubles him a good deal.
+RESPONSE: And you know how desperate
+hard it’s got to be to get hired help.
+
+INPUT: Summarize: His heart troubles him a good deal. And you know how desperate
+hard it’s got to be to get hired help.
+RESPONSE: There’s never anybody to be had
+but those stupid, half-grown little French boys; and as soon as you do
+get one broke into your ways and taught something he’s up and off to the
+lobster canneries or the States.
+
+INPUT: Tell me about: There’s never anybody to be had
+but those stupid, half-grown little French boys; and as soon as you do
+get one broke into your ways and taught something he’s up and off to the
+lobster canneries or the States.
+RESPONSE: At first Matthew suggested getting a
+Home boy.
+
+INPUT: Summarize: There’s never anybody to be had
+but those stupid, half-grown little French boys; and as soon as you do
+get one broke into your ways and taught something he’s up and off to the
+lobster canneries or the States. At first Matthew suggested getting a
+Home boy.
+RESPONSE: But I said ‘no’ flat to that.
+
+INPUT: Can you explain: But I said ‘no’ flat to that.
+RESPONSE: ‘They may be all right--I’m not
+saying they’re not--but no London street Arabs for me,’ I said.
+
+INPUT: Summarize: But I said ‘no’ flat to that. ‘They may be all right--I’m not
+saying they’re not--but no London street Arabs for me,’ I said.
+RESPONSE: ‘Give
+me a native born at least.
+
+INPUT: What is this about: ‘Give
+me a native born at least.
+RESPONSE: There’ll be a risk, no matter who we get.
+
+INPUT: Summarize: ‘Give
+me a native born at least. There’ll be a risk, no matter who we get.
+RESPONSE: But
+I’ll feel easier in my mind and sleep sounder at nights if we get a born
+Canadian.
+
+INPUT: Tell me about: But
+I’ll feel easier in my mind and sleep sounder at nights if we get a born
+Canadian.
+RESPONSE: ’ So in the end we decided to ask Mrs.
+
+INPUT: Summarize: But
+I’ll feel easier in my mind and sleep sounder at nights if we get a born
+Canadian. ’ So in the end we decided to ask Mrs.
+RESPONSE: Spencer to pick us out
+one when she went over to get her little girl.
+
+INPUT: What does this say: Spencer to pick us out
+one when she went over to get her little girl.
+RESPONSE: We heard last week she
+was going, so we sent her word by Richard Spencer’s folks at Carmody
+to bring us a smart, likely boy of about ten or eleven.
+
+INPUT: Summarize: Spencer to pick us out
+one when she went over to get her little girl. We heard last week she
+was going, so we sent her word by Richard Spencer’s folks at Carmody
+to bring us a smart, likely boy of about ten or eleven.
+RESPONSE: We decided that
+would be the best age--old enough to be of some use in doing chores
+right off and young enough to be trained up proper.
+
+INPUT: What does this say: We decided that
+would be the best age--old enough to be of some use in doing chores
+right off and young enough to be trained up proper.
+RESPONSE: We mean to give him
+a good home and schooling.
+
+INPUT: Summarize: We decided that
+would be the best age--old enough to be of some use in doing chores
+right off and young enough to be trained up proper. We mean to give him
+a good home and schooling.
+RESPONSE: We had a telegram from Mrs.
+
+INPUT: Tell me about: We had a telegram from Mrs.
+RESPONSE: Alexander Spencer
+today--the mail-man brought it from the station--saying they were coming
+on the five-thirty train tonight.
+
+INPUT: Summarize: We had a telegram from Mrs. Alexander Spencer
+today--the mail-man brought it from the station--saying they were coming
+on the five-thirty train tonight.
+RESPONSE: So Matthew went to Bright River to
+meet him.
+
+INPUT: What is this about: So Matthew went to Bright River to
+meet him.
+RESPONSE: Spencer will drop him off there.
+
+INPUT: Summarize: So Matthew went to Bright River to
+meet him. Spencer will drop him off there.
+RESPONSE: Of course she goes on to
+White Sands station herself.
+
+INPUT: What is this about: Of course she goes on to
+White Sands station herself.
+RESPONSE: Rachel prided herself on always speaking her mind; she proceeded to
+speak it now, having adjusted her mental attitude to this amazing piece
+of news.
+
+INPUT: Summarize: Of course she goes on to
+White Sands station herself. Rachel prided herself on always speaking her mind; she proceeded to
+speak it now, having adjusted her mental attitude to this amazing piece
+of news.
+RESPONSE: “Well, Marilla, I’ll just tell you plain that I think you’re doing a
+mighty foolish thing--a risky thing, that’s what.
+
+INPUT: Explain this: “Well, Marilla, I’ll just tell you plain that I think you’re doing a
+mighty foolish thing--a risky thing, that’s what.
+RESPONSE: You don’t know what
+you’re getting.
+
+INPUT: Summarize: “Well, Marilla, I’ll just tell you plain that I think you’re doing a
+mighty foolish thing--a risky thing, that’s what. You don’t know what
+you’re getting.
+RESPONSE: You’re bringing a strange child into your house and home
+and you don’t know a single thing about him nor what his disposition is
+like nor what sort of parents he had nor how he’s likely to turn out.
+
+INPUT: Explain this: You’re bringing a strange child into your house and home
+and you don’t know a single thing about him nor what his disposition is
+like nor what sort of parents he had nor how he’s likely to turn out.
+RESPONSE: Why, it was only last week I read in the paper how a man and his wife up
+west of the Island took a boy out of an orphan asylum and he set fire to
+the house at night--set it _on purpose_, Marilla--and nearly burnt them to
+a crisp in their beds.
+
+INPUT: Summarize: You’re bringing a strange child into your house and home
+and you don’t know a single thing about him nor what his disposition is
+like nor what sort of parents he had nor how he’s likely to turn out. Why, it was only last week I read in the paper how a man and his wife up
+west of the Island took a boy out of an orphan asylum and he set fire to
+the house at night--set it _on purpose_, Marilla--and nearly burnt them to
+a crisp in their beds.
+RESPONSE: And I know another case where an adopted boy used
+to suck the eggs--they couldn’t break him of it.
+
+INPUT: Explain this: And I know another case where an adopted boy used
+to suck the eggs--they couldn’t break him of it.
+RESPONSE: If you had asked my
+advice in the matter--which you didn’t do, Marilla--I’d have said for
+mercy’s sake not to think of such a thing, that’s what.
+
+INPUT: Summarize: And I know another case where an adopted boy used
+to suck the eggs--they couldn’t break him of it. If you had asked my
+advice in the matter--which you didn’t do, Marilla--I’d have said for
+mercy’s sake not to think of such a thing, that’s what.
+RESPONSE: ”
+
+This Job’s comforting seemed neither to offend nor to alarm Marilla.
+
+INPUT: Explain this: ”
+
+This Job’s comforting seemed neither to offend nor to alarm Marilla.
+RESPONSE: She
+knitted steadily on.
+
+INPUT: Summarize: ”
+
+This Job’s comforting seemed neither to offend nor to alarm Marilla. She
+knitted steadily on.
+RESPONSE: “I don’t deny there’s something in what you say, Rachel.
+
+INPUT: Explain this: “I don’t deny there’s something in what you say, Rachel.
+RESPONSE: I’ve had some
+qualms myself.
+
+INPUT: Summarize: “I don’t deny there’s something in what you say, Rachel. I’ve had some
+qualms myself.
+RESPONSE: But Matthew was terrible set on it.
+
+INPUT: Tell me about: But Matthew was terrible set on it.
+RESPONSE: I could see that, so
+I gave in.
+
+INPUT: Summarize: But Matthew was terrible set on it. I could see that, so
+I gave in.
+RESPONSE: It’s so seldom Matthew sets his mind on anything that when he
+does I always feel it’s my duty to give in.
+
+INPUT: What is this about: It’s so seldom Matthew sets his mind on anything that when he
+does I always feel it’s my duty to give in.
+RESPONSE: And as for the risk, there’s
+risks in pretty near everything a body does in this world.
+
+INPUT: Summarize: It’s so seldom Matthew sets his mind on anything that when he
+does I always feel it’s my duty to give in. And as for the risk, there’s
+risks in pretty near everything a body does in this world.
+RESPONSE: There’s risks
+in people’s having children of their own if it comes to that--they don’t
+always turn out well.
+
+INPUT: What does this mean: There’s risks
+in people’s having children of their own if it comes to that--they don’t
+always turn out well.
+RESPONSE: And then Nova Scotia is right close to the Island.
+
+INPUT: Summarize: There’s risks
+in people’s having children of their own if it comes to that--they don’t
+always turn out well. And then Nova Scotia is right close to the Island.
+RESPONSE: It isn’t as if we were getting him from England or the States.
+
+INPUT: Explain this: It isn’t as if we were getting him from England or the States.
+RESPONSE: He can’t
+be much different from ourselves.
+
+INPUT: Summarize: It isn’t as if we were getting him from England or the States. He can’t
+be much different from ourselves.
+RESPONSE: ”
+
+“Well, I hope it will turn out all right,” said Mrs.
+
+INPUT: Can you explain: ”
+
+“Well, I hope it will turn out all right,” said Mrs.
+RESPONSE: Rachel in a tone
+that plainly indicated her painful doubts.
+
+INPUT: Summarize: ”
+
+“Well, I hope it will turn out all right,” said Mrs. Rachel in a tone
+that plainly indicated her painful doubts.
+RESPONSE: “Only don’t say I didn’t
+warn you if he burns Green Gables down or puts strychnine in the well--I
+heard of a case over in New Brunswick where an orphan asylum child did
+that and the whole family died in fearful agonies.
+
+INPUT: What does this say: “Only don’t say I didn’t
+warn you if he burns Green Gables down or puts strychnine in the well--I
+heard of a case over in New Brunswick where an orphan asylum child did
+that and the whole family died in fearful agonies.
+RESPONSE: Only, it was a girl
+in that instance.
+
+INPUT: Summarize: “Only don’t say I didn’t
+warn you if he burns Green Gables down or puts strychnine in the well--I
+heard of a case over in New Brunswick where an orphan asylum child did
+that and the whole family died in fearful agonies. Only, it was a girl
+in that instance.
+RESPONSE: ”
+
+“Well, we’re not getting a girl,” said Marilla, as if poisoning wells
+were a purely feminine accomplishment and not to be dreaded in the case
+of a boy.
+
+INPUT: What is this about: ”
+
+“Well, we’re not getting a girl,” said Marilla, as if poisoning wells
+were a purely feminine accomplishment and not to be dreaded in the case
+of a boy.
+RESPONSE: “I’d never dream of taking a girl to bring up.
+
+INPUT: Summarize: ”
+
+“Well, we’re not getting a girl,” said Marilla, as if poisoning wells
+were a purely feminine accomplishment and not to be dreaded in the case
+of a boy. “I’d never dream of taking a girl to bring up.
+RESPONSE: Alexander Spencer for doing it.
+
+INPUT: Can you explain: Alexander Spencer for doing it.
+RESPONSE: But there, _she_ wouldn’t shrink
+from adopting a whole orphan asylum if she took it into her head.
+
+INPUT: Summarize: Alexander Spencer for doing it. But there, _she_ wouldn’t shrink
+from adopting a whole orphan asylum if she took it into her head.
+RESPONSE: Rachel would have liked to stay until Matthew came home with his
+imported orphan.
+
+INPUT: What does this say: Rachel would have liked to stay until Matthew came home with his
+imported orphan.
+RESPONSE: But reflecting that it would be a good two hours at
+least before his arrival she concluded to go up the road to Robert
+Bell’s and tell the news.
+
+INPUT: Summarize: Rachel would have liked to stay until Matthew came home with his
+imported orphan. But reflecting that it would be a good two hours at
+least before his arrival she concluded to go up the road to Robert
+Bell’s and tell the news.
+RESPONSE: It would certainly make a sensation second
+to none, and Mrs.
+
+INPUT: What does this mean: It would certainly make a sensation second
+to none, and Mrs.
+RESPONSE: Rachel dearly loved to make a sensation.
+
+INPUT: Summarize: It would certainly make a sensation second
+to none, and Mrs. Rachel dearly loved to make a sensation.
+RESPONSE: So she took
+herself away, somewhat to Marilla’s relief, for the latter felt
+her doubts and fears reviving under the influence of Mrs.
+
+INPUT: What does this say: So she took
+herself away, somewhat to Marilla’s relief, for the latter felt
+her doubts and fears reviving under the influence of Mrs.
+RESPONSE: Rachel’s
+pessimism.
+
+INPUT: Summarize: So she took
+herself away, somewhat to Marilla’s relief, for the latter felt
+her doubts and fears reviving under the influence of Mrs. Rachel’s
+pessimism.
+RESPONSE: “Well, of all things that ever were or will be!
+
+INPUT: What is this about: “Well, of all things that ever were or will be!
+RESPONSE: Rachel
+when she was safely out in the lane.
+
+INPUT: Summarize: “Well, of all things that ever were or will be! Rachel
+when she was safely out in the lane.
+RESPONSE: “It does really seem as if I must
+be dreaming.
+
+INPUT: Can you explain: “It does really seem as if I must
+be dreaming.
+RESPONSE: Well, I’m sorry for that poor young one and no mistake.
+
+INPUT: Summarize: “It does really seem as if I must
+be dreaming. Well, I’m sorry for that poor young one and no mistake.
+RESPONSE: Matthew and Marilla don’t know anything about children and they’ll
+expect him to be wiser and steadier than his own grandfather, if so be’s
+he ever had a grandfather, which is doubtful.
+
+INPUT: Tell me about: Matthew and Marilla don’t know anything about children and they’ll
+expect him to be wiser and steadier than his own grandfather, if so be’s
+he ever had a grandfather, which is doubtful.
+RESPONSE: It seems uncanny to think
+of a child at Green Gables somehow; there’s never been one there, for
+Matthew and Marilla were grown up when the new house was built--if they
+ever _were_ children, which is hard to believe when one looks at them.
+
+INPUT: Summarize: Matthew and Marilla don’t know anything about children and they’ll
+expect him to be wiser and steadier than his own grandfather, if so be’s
+he ever had a grandfather, which is doubtful. It seems uncanny to think
+of a child at Green Gables somehow; there’s never been one there, for
+Matthew and Marilla were grown up when the new house was built--if they
+ever _were_ children, which is hard to believe when one looks at them.
+RESPONSE: I wouldn’t be in that orphan’s shoes for anything.
+
+INPUT: What does this say: I wouldn’t be in that orphan’s shoes for anything.
+RESPONSE: My, but I pity him,
+that’s what.
+
+INPUT: Summarize: I wouldn’t be in that orphan’s shoes for anything. My, but I pity him,
+that’s what.
+RESPONSE: Rachel to the wild rose bushes out of the fulness of her
+heart; but if she could have seen the child who was waiting patiently
+at the Bright River station at that very moment her pity would have been
+still deeper and more profound.
+
+INPUT: What does this say: Rachel to the wild rose bushes out of the fulness of her
+heart; but if she could have seen the child who was waiting patiently
+at the Bright River station at that very moment her pity would have been
+still deeper and more profound.
+RESPONSE: Matthew Cuthbert Is Surprised
+
+MATTHEW Cuthbert and the sorrel mare jogged comfortably over the eight
+miles to Bright River.
+
+INPUT: Summarize: Rachel to the wild rose bushes out of the fulness of her
+heart; but if she could have seen the child who was waiting patiently
+at the Bright River station at that very moment her pity would have been
+still deeper and more profound. Matthew Cuthbert Is Surprised
+
+MATTHEW Cuthbert and the sorrel mare jogged comfortably over the eight
+miles to Bright River.
+RESPONSE: It was a pretty road, running along between
+snug farmsteads, with now and again a bit of balsamy fir wood to drive
+through or a hollow where wild plums hung out their filmy bloom.
+
+INPUT: What is this about: It was a pretty road, running along between
+snug farmsteads, with now and again a bit of balsamy fir wood to drive
+through or a hollow where wild plums hung out their filmy bloom.
+RESPONSE: The air
+was sweet with the breath of many apple orchards and the meadows sloped
+away in the distance to horizon mists of pearl and purple; while
+
+ “The little birds sang as if it were
+ The one day of summer in all the year.
+
+INPUT: Summarize: It was a pretty road, running along between
+snug farmsteads, with now and again a bit of balsamy fir wood to drive
+through or a hollow where wild plums hung out their filmy bloom. The air
+was sweet with the breath of many apple orchards and the meadows sloped
+away in the distance to horizon mists of pearl and purple; while
+
+ “The little birds sang as if it were
+ The one day of summer in all the year.
+RESPONSE: ”
+
+Matthew enjoyed the drive after his own fashion, except during the
+moments when he met women and had to nod to them--for in Prince Edward
+Island you are supposed to nod to all and sundry you meet on the road
+whether you know them or not.
+
+INPUT: Can you explain: ”
+
+Matthew enjoyed the drive after his own fashion, except during the
+moments when he met women and had to nod to them--for in Prince Edward
+Island you are supposed to nod to all and sundry you meet on the road
+whether you know them or not.
+RESPONSE: Matthew dreaded all women except Marilla and Mrs.
+
+INPUT: Summarize: ”
+
+Matthew enjoyed the drive after his own fashion, except during the
+moments when he met women and had to nod to them--for in Prince Edward
+Island you are supposed to nod to all and sundry you meet on the road
+whether you know them or not. Matthew dreaded all women except Marilla and Mrs.
+RESPONSE: Rachel; he had an
+uncomfortable feeling that the mysterious creatures were secretly
+laughing at him.
+
+INPUT: Can you explain: Rachel; he had an
+uncomfortable feeling that the mysterious creatures were secretly
+laughing at him.
+RESPONSE: He may have been quite right in thinking so, for he
+was an odd-looking personage, with an ungainly figure and long iron-gray
+hair that touched his stooping shoulders, and a full, soft brown beard
+which he had worn ever since he was twenty.
+
+INPUT: Summarize: Rachel; he had an
+uncomfortable feeling that the mysterious creatures were secretly
+laughing at him. He may have been quite right in thinking so, for he
+was an odd-looking personage, with an ungainly figure and long iron-gray
+hair that touched his stooping shoulders, and a full, soft brown beard
+which he had worn ever since he was twenty.
+RESPONSE: In fact, he had looked
+at twenty very much as he looked at sixty, lacking a little of the
+grayness.
+
+INPUT: What does this mean: In fact, he had looked
+at twenty very much as he looked at sixty, lacking a little of the
+grayness.
+RESPONSE: When he reached Bright River there was no sign of any train; he thought
+he was too early, so he tied his horse in the yard of the small Bright
+River hotel and went over to the station house.
+
+INPUT: Summarize: In fact, he had looked
+at twenty very much as he looked at sixty, lacking a little of the
+grayness. When he reached Bright River there was no sign of any train; he thought
+he was too early, so he tied his horse in the yard of the small Bright
+River hotel and went over to the station house.
+RESPONSE: The long platform was
+almost deserted; the only living creature in sight being a girl who was
+sitting on a pile of shingles at the extreme end.
+
+INPUT: What is this about: The long platform was
+almost deserted; the only living creature in sight being a girl who was
+sitting on a pile of shingles at the extreme end.
+RESPONSE: Matthew, barely noting
+that it _was_ a girl, sidled past her as quickly as possible without
+looking at her.
+
+INPUT: Summarize: The long platform was
+almost deserted; the only living creature in sight being a girl who was
+sitting on a pile of shingles at the extreme end. Matthew, barely noting
+that it _was_ a girl, sidled past her as quickly as possible without
+looking at her.
+RESPONSE: Had he looked he could hardly have failed to notice the
+tense rigidity and expectation of her attitude and expression.
+
+INPUT: Explain this: Had he looked he could hardly have failed to notice the
+tense rigidity and expectation of her attitude and expression.
+RESPONSE: She was
+sitting there waiting for something or somebody and, since sitting and
+waiting was the only thing to do just then, she sat and waited with all
+her might and main.
+
+INPUT: Summarize: Had he looked he could hardly have failed to notice the
+tense rigidity and expectation of her attitude and expression. She was
+sitting there waiting for something or somebody and, since sitting and
+waiting was the only thing to do just then, she sat and waited with all
+her might and main.
+RESPONSE: Matthew encountered the stationmaster locking up the ticket office
+preparatory to going home for supper, and asked him if the five-thirty
+train would soon be along.
+
+INPUT: What is this about: Matthew encountered the stationmaster locking up the ticket office
+preparatory to going home for supper, and asked him if the five-thirty
+train would soon be along.
+RESPONSE: “The five-thirty train has been in and gone half an hour ago,” answered
+that brisk official.
+
+INPUT: Summarize: Matthew encountered the stationmaster locking up the ticket office
+preparatory to going home for supper, and asked him if the five-thirty
+train would soon be along. “The five-thirty train has been in and gone half an hour ago,” answered
+that brisk official.
+RESPONSE: “But there was a passenger dropped off for you--a
+little girl.
+
+INPUT: What is this about: “But there was a passenger dropped off for you--a
+little girl.
+RESPONSE: She’s sitting out there on the shingles.
+
+INPUT: Summarize: “But there was a passenger dropped off for you--a
+little girl. She’s sitting out there on the shingles.
+RESPONSE: I asked her to
+go into the ladies’ waiting room, but she informed me gravely that she
+preferred to stay outside.
+
+INPUT: What does this mean: I asked her to
+go into the ladies’ waiting room, but she informed me gravely that she
+preferred to stay outside.
+RESPONSE: ‘There was more scope for imagination,’ she
+said.
+
+INPUT: Summarize: I asked her to
+go into the ladies’ waiting room, but she informed me gravely that she
+preferred to stay outside. ‘There was more scope for imagination,’ she
+said.
+RESPONSE: She’s a case, I should say.
+
+INPUT: Can you explain: She’s a case, I should say.
+RESPONSE: ”
+
+“I’m not expecting a girl,” said Matthew blankly.
+
+INPUT: Summarize: She’s a case, I should say. ”
+
+“I’m not expecting a girl,” said Matthew blankly.
+RESPONSE: “It’s a boy I’ve come
+for.
+
+INPUT: Tell me about: “It’s a boy I’ve come
+for.
+RESPONSE: Alexander Spencer was to bring him over
+from Nova Scotia for me.
+
+INPUT: Summarize: “It’s a boy I’ve come
+for. Alexander Spencer was to bring him over
+from Nova Scotia for me.
+RESPONSE: ”
+
+The stationmaster whistled.
+
+INPUT: Explain this: ”
+
+The stationmaster whistled.
+RESPONSE: “Guess there’s some mistake,” he said.
+
+INPUT: Summarize: ”
+
+The stationmaster whistled. “Guess there’s some mistake,” he said.
+RESPONSE: Spencer came off the train
+with that girl and gave her into my charge.
+
+INPUT: What does this say: Spencer came off the train
+with that girl and gave her into my charge.
+RESPONSE: Said you and your sister
+were adopting her from an orphan asylum and that you would be along for
+her presently.
+
+INPUT: Summarize: Spencer came off the train
+with that girl and gave her into my charge. Said you and your sister
+were adopting her from an orphan asylum and that you would be along for
+her presently.
+RESPONSE: That’s all I know about it--and I haven’t got any more
+orphans concealed hereabouts.
+
+INPUT: What does this mean: That’s all I know about it--and I haven’t got any more
+orphans concealed hereabouts.
+RESPONSE: ”
+
+“I don’t understand,” said Matthew helplessly, wishing that Marilla was
+at hand to cope with the situation.
+
+INPUT: Summarize: That’s all I know about it--and I haven’t got any more
+orphans concealed hereabouts. ”
+
+“I don’t understand,” said Matthew helplessly, wishing that Marilla was
+at hand to cope with the situation.
+RESPONSE: “Well, you’d better question the girl,” said the stationmaster
+carelessly.
+
+INPUT: What does this mean: “Well, you’d better question the girl,” said the stationmaster
+carelessly.
+RESPONSE: “I dare say she’ll be able to explain--she’s got a tongue
+of her own, that’s certain.
+
+INPUT: Summarize: “Well, you’d better question the girl,” said the stationmaster
+carelessly. “I dare say she’ll be able to explain--she’s got a tongue
+of her own, that’s certain.
+RESPONSE: Maybe they were out of boys of the brand you
+wanted.
+
+INPUT: What does this say: Maybe they were out of boys of the brand you
+wanted.
+RESPONSE: ”
+
+He walked jauntily away, being hungry, and the unfortunate Matthew was
+left to do that which was harder for him than bearding a lion in its
+den--walk up to a girl--a strange girl--an orphan girl--and demand of
+her why she wasn’t a boy.
+
+INPUT: Summarize: Maybe they were out of boys of the brand you
+wanted. ”
+
+He walked jauntily away, being hungry, and the unfortunate Matthew was
+left to do that which was harder for him than bearding a lion in its
+den--walk up to a girl--a strange girl--an orphan girl--and demand of
+her why she wasn’t a boy.
+RESPONSE: Matthew groaned in spirit as he turned about
+and shuffled gently down the platform towards her.
+
+INPUT: Can you explain: Matthew groaned in spirit as he turned about
+and shuffled gently down the platform towards her.
+RESPONSE: She had been watching him ever since he had passed her and she had her
+eyes on him now.
+
+INPUT: Summarize: Matthew groaned in spirit as he turned about
+and shuffled gently down the platform towards her. She had been watching him ever since he had passed her and she had her
+eyes on him now.
+RESPONSE: Matthew was not looking at her and would not have seen
+what she was really like if he had been, but an ordinary observer would
+have seen this: A child of about eleven, garbed in a very short, very
+tight, very ugly dress of yellowish-gray wincey.
+
+INPUT: Can you explain: Matthew was not looking at her and would not have seen
+what she was really like if he had been, but an ordinary observer would
+have seen this: A child of about eleven, garbed in a very short, very
+tight, very ugly dress of yellowish-gray wincey.
+RESPONSE: She wore a faded brown
+sailor hat and beneath the hat, extending down her back, were two braids
+of very thick, decidedly red hair.
+
+INPUT: Summarize: Matthew was not looking at her and would not have seen
+what she was really like if he had been, but an ordinary observer would
+have seen this: A child of about eleven, garbed in a very short, very
+tight, very ugly dress of yellowish-gray wincey. She wore a faded brown
+sailor hat and beneath the hat, extending down her back, were two braids
+of very thick, decidedly red hair.
+RESPONSE: Her face was small, white and thin,
+also much freckled; her mouth was large and so were her eyes, which
+looked green in some lights and moods and gray in others.
+
+INPUT: What is this about: Her face was small, white and thin,
+also much freckled; her mouth was large and so were her eyes, which
+looked green in some lights and moods and gray in others.
+RESPONSE: So far, the ordinary observer; an extraordinary observer might have seen
+that the chin was very pointed and pronounced; that the big eyes
+were full of spirit and vivacity; that the mouth was sweet-lipped
+and expressive; that the forehead was broad and full; in short,
+our discerning extraordinary observer might have concluded that no
+commonplace soul inhabited the body of this stray woman-child of whom
+shy Matthew Cuthbert was so ludicrously afraid.
+
+INPUT: Summarize: Her face was small, white and thin,
+also much freckled; her mouth was large and so were her eyes, which
+looked green in some lights and moods and gray in others. So far, the ordinary observer; an extraordinary observer might have seen
+that the chin was very pointed and pronounced; that the big eyes
+were full of spirit and vivacity; that the mouth was sweet-lipped
+and expressive; that the forehead was broad and full; in short,
+our discerning extraordinary observer might have concluded that no
+commonplace soul inhabited the body of this stray woman-child of whom
+shy Matthew Cuthbert was so ludicrously afraid.
+RESPONSE: Matthew, however, was spared the ordeal of speaking first, for as soon
+as she concluded that he was coming to her she stood up, grasping with
+one thin brown hand the handle of a shabby, old-fashioned carpet-bag;
+the other she held out to him.
+
+INPUT: What does this mean: Matthew, however, was spared the ordeal of speaking first, for as soon
+as she concluded that he was coming to her she stood up, grasping with
+one thin brown hand the handle of a shabby, old-fashioned carpet-bag;
+the other she held out to him.
+RESPONSE: “I suppose you are Mr.
+
+INPUT: Summarize: Matthew, however, was spared the ordeal of speaking first, for as soon
+as she concluded that he was coming to her she stood up, grasping with
+one thin brown hand the handle of a shabby, old-fashioned carpet-bag;
+the other she held out to him. “I suppose you are Mr.
+RESPONSE: Matthew Cuthbert of Green Gables?
+
+INPUT: Explain this: Matthew Cuthbert of Green Gables?
+RESPONSE: ” she said in
+a peculiarly clear, sweet voice.
+
+INPUT: Summarize: Matthew Cuthbert of Green Gables? ” she said in
+a peculiarly clear, sweet voice.
+RESPONSE: “I’m very glad to see you.
+
+INPUT: Can you explain: “I’m very glad to see you.
+RESPONSE: I was
+beginning to be afraid you weren’t coming for me and I was imagining
+all the things that might have happened to prevent you.
+
+INPUT: Summarize: “I’m very glad to see you. I was
+beginning to be afraid you weren’t coming for me and I was imagining
+all the things that might have happened to prevent you.
+RESPONSE: I had made up
+my mind that if you didn’t come for me tonight I’d go down the track to
+that big wild cherry-tree at the bend, and climb up into it to stay all
+night.
+
+INPUT: Can you explain: I had made up
+my mind that if you didn’t come for me tonight I’d go down the track to
+that big wild cherry-tree at the bend, and climb up into it to stay all
+night.
+RESPONSE: I wouldn’t be a bit afraid, and it would be lovely to sleep in a
+wild cherry-tree all white with bloom in the moonshine, don’t you think?
+
+INPUT: Summarize: I had made up
+my mind that if you didn’t come for me tonight I’d go down the track to
+that big wild cherry-tree at the bend, and climb up into it to stay all
+night. I wouldn’t be a bit afraid, and it would be lovely to sleep in a
+wild cherry-tree all white with bloom in the moonshine, don’t you think?
+RESPONSE: You could imagine you were dwelling in marble halls, couldn’t you?
+
+INPUT: Can you explain: You could imagine you were dwelling in marble halls, couldn’t you?
+RESPONSE: And
+I was quite sure you would come for me in the morning, if you didn’t
+tonight.
+
+INPUT: Summarize: You could imagine you were dwelling in marble halls, couldn’t you? And
+I was quite sure you would come for me in the morning, if you didn’t
+tonight.
+RESPONSE: ”
+
+Matthew had taken the scrawny little hand awkwardly in his; then and
+there he decided what to do.
+
+INPUT: What does this say: ”
+
+Matthew had taken the scrawny little hand awkwardly in his; then and
+there he decided what to do.
+RESPONSE: He could not tell this child with the
+glowing eyes that there had been a mistake; he would take her home and
+let Marilla do that.
+
+INPUT: Summarize: ”
+
+Matthew had taken the scrawny little hand awkwardly in his; then and
+there he decided what to do. He could not tell this child with the
+glowing eyes that there had been a mistake; he would take her home and
+let Marilla do that.
+RESPONSE: She couldn’t be left at Bright River anyhow, no
+matter what mistake had been made, so all questions and explanations
+might as well be deferred until he was safely back at Green Gables.
+
+INPUT: Can you explain: She couldn’t be left at Bright River anyhow, no
+matter what mistake had been made, so all questions and explanations
+might as well be deferred until he was safely back at Green Gables.
+RESPONSE: “I’m sorry I was late,” he said shyly.
+
+INPUT: Summarize: She couldn’t be left at Bright River anyhow, no
+matter what mistake had been made, so all questions and explanations
+might as well be deferred until he was safely back at Green Gables. “I’m sorry I was late,” he said shyly.
+RESPONSE: The horse is over in
+the yard.
+
+INPUT: Explain this: The horse is over in
+the yard.
+RESPONSE: ”
+
+“Oh, I can carry it,” the child responded cheerfully.
+
+INPUT: Summarize: The horse is over in
+the yard. ”
+
+“Oh, I can carry it,” the child responded cheerfully.
+RESPONSE: I’ve got all my worldly goods in it, but it isn’t heavy.
+
+INPUT: Explain this: I’ve got all my worldly goods in it, but it isn’t heavy.
+RESPONSE: And if it isn’t
+carried in just a certain way the handle pulls out--so I’d better
+keep it because I know the exact knack of it.
+
+INPUT: Summarize: I’ve got all my worldly goods in it, but it isn’t heavy. And if it isn’t
+carried in just a certain way the handle pulls out--so I’d better
+keep it because I know the exact knack of it.
+RESPONSE: It’s an extremely old
+carpet-bag.
+
+INPUT: Can you explain: It’s an extremely old
+carpet-bag.
+RESPONSE: Oh, I’m very glad you’ve come, even if it would have been
+nice to sleep in a wild cherry-tree.
+
+INPUT: Summarize: It’s an extremely old
+carpet-bag. Oh, I’m very glad you’ve come, even if it would have been
+nice to sleep in a wild cherry-tree.
+RESPONSE: We’ve got to drive a long piece,
+haven’t we?
+
+INPUT: Can you explain: We’ve got to drive a long piece,
+haven’t we?
+RESPONSE: Spencer said it was eight miles.
+
+INPUT: Summarize: We’ve got to drive a long piece,
+haven’t we? Spencer said it was eight miles.
+RESPONSE: I’m glad because I
+love driving.
+
+INPUT: What is this about: I’m glad because I
+love driving.
+RESPONSE: Oh, it seems so wonderful that I’m going to live with you
+and belong to you.
+
+INPUT: Summarize: I’m glad because I
+love driving. Oh, it seems so wonderful that I’m going to live with you
+and belong to you.
+RESPONSE: I’ve never belonged to anybody--not really.
+
+INPUT: Explain this: I’ve never belonged to anybody--not really.
+RESPONSE: But the
+asylum was the worst.
+
+INPUT: Summarize: I’ve never belonged to anybody--not really. But the
+asylum was the worst.
+RESPONSE: I’ve only been in it four months, but that was
+enough.
+
+INPUT: What does this mean: I’ve only been in it four months, but that was
+enough.
+RESPONSE: I don’t suppose you ever were an orphan in an asylum, so you
+can’t possibly understand what it is like.
+
+INPUT: Summarize: I’ve only been in it four months, but that was
+enough. I don’t suppose you ever were an orphan in an asylum, so you
+can’t possibly understand what it is like.
+RESPONSE: It’s worse than anything you
+could imagine.
+
+INPUT: Tell me about: It’s worse than anything you
+could imagine.
+RESPONSE: Spencer said it was wicked of me to talk like
+that, but I didn’t mean to be wicked.
+
+INPUT: Summarize: It’s worse than anything you
+could imagine. Spencer said it was wicked of me to talk like
+that, but I didn’t mean to be wicked.
+RESPONSE: It’s so easy to be wicked without
+knowing it, isn’t it?
+
+INPUT: Tell me about: It’s so easy to be wicked without
+knowing it, isn’t it?
+RESPONSE: They were good, you know--the asylum people.
+
+INPUT: Summarize: It’s so easy to be wicked without
+knowing it, isn’t it? They were good, you know--the asylum people.
+RESPONSE: But
+there is so little scope for the imagination in an asylum--only just
+in the other orphans.
+
+INPUT: Can you explain: But
+there is so little scope for the imagination in an asylum--only just
+in the other orphans.
+RESPONSE: It was pretty interesting to imagine things about
+them--to imagine that perhaps the girl who sat next to you was really
+the daughter of a belted earl, who had been stolen away from her parents
+in her infancy by a cruel nurse who died before she could confess.
+
+INPUT: Summarize: But
+there is so little scope for the imagination in an asylum--only just
+in the other orphans. It was pretty interesting to imagine things about
+them--to imagine that perhaps the girl who sat next to you was really
+the daughter of a belted earl, who had been stolen away from her parents
+in her infancy by a cruel nurse who died before she could confess.
+RESPONSE: I
+used to lie awake at nights and imagine things like that, because
+I didn’t have time in the day.
+
+INPUT: What does this say: I
+used to lie awake at nights and imagine things like that, because
+I didn’t have time in the day.
+RESPONSE: I guess that’s why I’m so thin--I _am_
+dreadful thin, ain’t I?
+
+INPUT: Summarize: I
+used to lie awake at nights and imagine things like that, because
+I didn’t have time in the day. I guess that’s why I’m so thin--I _am_
+dreadful thin, ain’t I?
+RESPONSE: There isn’t a pick on my bones.
+
+INPUT: What is this about: There isn’t a pick on my bones.
+RESPONSE: I do love to
+imagine I’m nice and plump, with dimples in my elbows.
+
+INPUT: Summarize: There isn’t a pick on my bones. I do love to
+imagine I’m nice and plump, with dimples in my elbows.
+RESPONSE: ”
+
+With this Matthew’s companion stopped talking, partly because she was
+out of breath and partly because they had reached the buggy.
+
+INPUT: What does this say: ”
+
+With this Matthew’s companion stopped talking, partly because she was
+out of breath and partly because they had reached the buggy.
+RESPONSE: Not another
+word did she say until they had left the village and were driving down
+a steep little hill, the road part of which had been cut so deeply into
+the soft soil that the banks, fringed with blooming wild cherry-trees
+and slim white birches, were several feet above their heads.
+
+INPUT: Summarize: ”
+
+With this Matthew’s companion stopped talking, partly because she was
+out of breath and partly because they had reached the buggy. Not another
+word did she say until they had left the village and were driving down
+a steep little hill, the road part of which had been cut so deeply into
+the soft soil that the banks, fringed with blooming wild cherry-trees
+and slim white birches, were several feet above their heads.
+RESPONSE: The child put out her hand and broke off a branch of wild plum that
+brushed against the side of the buggy.
+
+INPUT: What does this say: The child put out her hand and broke off a branch of wild plum that
+brushed against the side of the buggy.
+RESPONSE: “Isn’t that beautiful?
+
+INPUT: Summarize: The child put out her hand and broke off a branch of wild plum that
+brushed against the side of the buggy. “Isn’t that beautiful?
+RESPONSE: What did that tree, leaning out from the bank,
+all white and lacy, make you think of?
+
+INPUT: Explain this: What did that tree, leaning out from the bank,
+all white and lacy, make you think of?
+RESPONSE: “Well now, I dunno,” said Matthew.
+
+INPUT: Summarize: What did that tree, leaning out from the bank,
+all white and lacy, make you think of? “Well now, I dunno,” said Matthew.
+RESPONSE: “Why, a bride, of course--a bride all in white with a lovely misty veil.
+
+INPUT: What does this say: “Why, a bride, of course--a bride all in white with a lovely misty veil.
+RESPONSE: I’ve never seen one, but I can imagine what she would look like.
+
+INPUT: Summarize: “Why, a bride, of course--a bride all in white with a lovely misty veil. I’ve never seen one, but I can imagine what she would look like.
+RESPONSE: I don’t
+ever expect to be a bride myself.
+
+INPUT: Can you explain: I don’t
+ever expect to be a bride myself.
+RESPONSE: I’m so homely nobody will ever want to
+marry me--unless it might be a foreign missionary.
+
+INPUT: Summarize: I don’t
+ever expect to be a bride myself. I’m so homely nobody will ever want to
+marry me--unless it might be a foreign missionary.
+RESPONSE: I suppose a foreign
+missionary mightn’t be very particular.
+
+INPUT: Can you explain: I suppose a foreign
+missionary mightn’t be very particular.
+RESPONSE: But I do hope that some day I
+shall have a white dress.
+
+INPUT: Summarize: I suppose a foreign
+missionary mightn’t be very particular. But I do hope that some day I
+shall have a white dress.
+RESPONSE: That is my highest ideal of earthly bliss.
+
+INPUT: What is this about: That is my highest ideal of earthly bliss.
+RESPONSE: I
+just love pretty clothes.
+
+INPUT: Summarize: That is my highest ideal of earthly bliss. I
+just love pretty clothes.
+RESPONSE: And I’ve never had a pretty dress in my life
+that I can remember--but of course it’s all the more to look forward
+to, isn’t it?
+
+INPUT: Can you explain: And I’ve never had a pretty dress in my life
+that I can remember--but of course it’s all the more to look forward
+to, isn’t it?
+RESPONSE: And then I can imagine that I’m dressed gorgeously.
+
+INPUT: Summarize: And I’ve never had a pretty dress in my life
+that I can remember--but of course it’s all the more to look forward
+to, isn’t it? And then I can imagine that I’m dressed gorgeously.
+RESPONSE: This
+morning when I left the asylum I felt so ashamed because I had to wear
+this horrid old wincey dress.
+
+INPUT: What does this say: This
+morning when I left the asylum I felt so ashamed because I had to wear
+this horrid old wincey dress.
+RESPONSE: All the orphans had to wear them, you
+know.
+
+INPUT: Summarize: This
+morning when I left the asylum I felt so ashamed because I had to wear
+this horrid old wincey dress. All the orphans had to wear them, you
+know.
+RESPONSE: A merchant in Hopeton last winter donated three hundred yards of
+wincey to the asylum.
+
+INPUT: Tell me about: A merchant in Hopeton last winter donated three hundred yards of
+wincey to the asylum.
+RESPONSE: Some people said it was because he couldn’t sell
+it, but I’d rather believe that it was out of the kindness of his heart,
+wouldn’t you?
+
+INPUT: Summarize: A merchant in Hopeton last winter donated three hundred yards of
+wincey to the asylum. Some people said it was because he couldn’t sell
+it, but I’d rather believe that it was out of the kindness of his heart,
+wouldn’t you?
+RESPONSE: When we got on the train I felt as if everybody must be
+looking at me and pitying me.
+
+INPUT: What does this mean: When we got on the train I felt as if everybody must be
+looking at me and pitying me.
+RESPONSE: But I just went to work and imagined that
+I had on the most beautiful pale blue silk dress--because when you _are_
+imagining you might as well imagine something worth while--and a big
+hat all flowers and nodding plumes, and a gold watch, and kid gloves and
+boots.
+
+INPUT: Summarize: When we got on the train I felt as if everybody must be
+looking at me and pitying me. But I just went to work and imagined that
+I had on the most beautiful pale blue silk dress--because when you _are_
+imagining you might as well imagine something worth while--and a big
+hat all flowers and nodding plumes, and a gold watch, and kid gloves and
+boots.
+RESPONSE: I felt cheered up right away and I enjoyed my trip to the Island
+with all my might.
+
+INPUT: Tell me about: I felt cheered up right away and I enjoyed my trip to the Island
+with all my might.
+RESPONSE: I wasn’t a bit sick coming over in the boat.
+
+INPUT: Summarize: I felt cheered up right away and I enjoyed my trip to the Island
+with all my might. I wasn’t a bit sick coming over in the boat.
+RESPONSE: Spencer, although she generally is.
+
+INPUT: Tell me about: Spencer, although she generally is.
+RESPONSE: She said she hadn’t time
+to get sick, watching to see that I didn’t fall overboard.
+
+INPUT: Summarize: Spencer, although she generally is. She said she hadn’t time
+to get sick, watching to see that I didn’t fall overboard.
+RESPONSE: She said she
+never saw the beat of me for prowling about.
+
+INPUT: What does this say: She said she
+never saw the beat of me for prowling about.
+RESPONSE: But if it kept her from
+being seasick it’s a mercy I did prowl, isn’t it?
+
+INPUT: Summarize: She said she
+never saw the beat of me for prowling about. But if it kept her from
+being seasick it’s a mercy I did prowl, isn’t it?
+RESPONSE: And I wanted to see
+everything that was to be seen on that boat, because I didn’t know
+whether I’d ever have another opportunity.
+
+INPUT: Can you explain: And I wanted to see
+everything that was to be seen on that boat, because I didn’t know
+whether I’d ever have another opportunity.
+RESPONSE: Oh, there are a lot more
+cherry-trees all in bloom!
+
+INPUT: Summarize: And I wanted to see
+everything that was to be seen on that boat, because I didn’t know
+whether I’d ever have another opportunity. Oh, there are a lot more
+cherry-trees all in bloom!
+RESPONSE: This Island is the bloomiest place.
+
+INPUT: Explain this: This Island is the bloomiest place.
+RESPONSE: I just
+love it already, and I’m so glad I’m going to live here.
+
+INPUT: Summarize: This Island is the bloomiest place. I just
+love it already, and I’m so glad I’m going to live here.
+RESPONSE: I’ve always
+heard that Prince Edward Island was the prettiest place in the world,
+and I used to imagine I was living here, but I never really expected I
+would.
+
+INPUT: Explain this: I’ve always
+heard that Prince Edward Island was the prettiest place in the world,
+and I used to imagine I was living here, but I never really expected I
+would.
+RESPONSE: It’s delightful when your imaginations come true, isn’t it?
+
+INPUT: Summarize: I’ve always
+heard that Prince Edward Island was the prettiest place in the world,
+and I used to imagine I was living here, but I never really expected I
+would. It’s delightful when your imaginations come true, isn’t it?
+RESPONSE: But those red roads are so funny.
+
+INPUT: Explain this: But those red roads are so funny.
+RESPONSE: When we got into the train at
+Charlottetown and the red roads began to flash past I asked Mrs.
+
+INPUT: Summarize: But those red roads are so funny. When we got into the train at
+Charlottetown and the red roads began to flash past I asked Mrs.
+RESPONSE: Spencer
+what made them red and she said she didn’t know and for pity’s sake not
+to ask her any more questions.
+
+INPUT: What is this about: Spencer
+what made them red and she said she didn’t know and for pity’s sake not
+to ask her any more questions.
+RESPONSE: She said I must have asked her a thousand
+already.
+
+INPUT: Summarize: Spencer
+what made them red and she said she didn’t know and for pity’s sake not
+to ask her any more questions. She said I must have asked her a thousand
+already.
+RESPONSE: I suppose I had, too, but how are you going to find out about
+things if you don’t ask questions?
+
+INPUT: What is this about: I suppose I had, too, but how are you going to find out about
+things if you don’t ask questions?
+RESPONSE: And what _does_ make the roads red?
+
+INPUT: Summarize: I suppose I had, too, but how are you going to find out about
+things if you don’t ask questions? And what _does_ make the roads red?
+RESPONSE: ”
+
+“Well now, I dunno,” said Matthew.
+
+INPUT: Tell me about: ”
+
+“Well now, I dunno,” said Matthew.
+RESPONSE: “Well, that is one of the things to find out sometime.
+
+INPUT: Summarize: ”
+
+“Well now, I dunno,” said Matthew. “Well, that is one of the things to find out sometime.
+RESPONSE: Isn’t it splendid
+to think of all the things there are to find out about?
+
+INPUT: Explain this: Isn’t it splendid
+to think of all the things there are to find out about?
+RESPONSE: It just makes
+me feel glad to be alive--it’s such an interesting world.
+
+INPUT: Summarize: Isn’t it splendid
+to think of all the things there are to find out about? It just makes
+me feel glad to be alive--it’s such an interesting world.
+RESPONSE: It wouldn’t be
+half so interesting if we knew all about everything, would it?
+
+INPUT: Tell me about: It wouldn’t be
+half so interesting if we knew all about everything, would it?
+RESPONSE: There’d
+be no scope for imagination then, would there?
+
+INPUT: Summarize: It wouldn’t be
+half so interesting if we knew all about everything, would it? There’d
+be no scope for imagination then, would there?
+RESPONSE: But am I talking too
+much?
+
+INPUT: Explain this: But am I talking too
+much?
+RESPONSE: People are always telling me I do.
+
+INPUT: Summarize: But am I talking too
+much? People are always telling me I do.
+RESPONSE: Would you rather I didn’t
+talk?
+
+INPUT: What does this mean: Would you rather I didn’t
+talk?
+RESPONSE: If you say so I’ll stop.
+
+INPUT: Summarize: Would you rather I didn’t
+talk? If you say so I’ll stop.
+RESPONSE: I can _stop_ when I make up my mind to it,
+although it’s difficult.
+
+INPUT: What is this about: I can _stop_ when I make up my mind to it,
+although it’s difficult.
+RESPONSE: ”
+
+Matthew, much to his own surprise, was enjoying himself.
+
+INPUT: Summarize: I can _stop_ when I make up my mind to it,
+although it’s difficult. ”
+
+Matthew, much to his own surprise, was enjoying himself.
+RESPONSE: Like most quiet
+folks he liked talkative people when they were willing to do the talking
+themselves and did not expect him to keep up his end of it.
+
+INPUT: What does this mean: Like most quiet
+folks he liked talkative people when they were willing to do the talking
+themselves and did not expect him to keep up his end of it.
+RESPONSE: But he had
+never expected to enjoy the society of a little girl.
+
+INPUT: Summarize: Like most quiet
+folks he liked talkative people when they were willing to do the talking
+themselves and did not expect him to keep up his end of it. But he had
+never expected to enjoy the society of a little girl.
+RESPONSE: Women were bad
+enough in all conscience, but little girls were worse.
+
+INPUT: What does this mean: Women were bad
+enough in all conscience, but little girls were worse.
+RESPONSE: He detested the
+way they had of sidling past him timidly, with sidewise glances, as if
+they expected him to gobble them up at a mouthful if they ventured to
+say a word.
+
+INPUT: Summarize: Women were bad
+enough in all conscience, but little girls were worse. He detested the
+way they had of sidling past him timidly, with sidewise glances, as if
+they expected him to gobble them up at a mouthful if they ventured to
+say a word.
+RESPONSE: That was the Avonlea type of well-bred little girl.
+
+INPUT: Explain this: That was the Avonlea type of well-bred little girl.
+RESPONSE: But
+this freckled witch was very different, and although he found it rather
+difficult for his slower intelligence to keep up with her brisk mental
+processes he thought that he “kind of liked her chatter.
+
+INPUT: Summarize: That was the Avonlea type of well-bred little girl. But
+this freckled witch was very different, and although he found it rather
+difficult for his slower intelligence to keep up with her brisk mental
+processes he thought that he “kind of liked her chatter.
+RESPONSE: ” So he said as
+shyly as usual:
+
+“Oh, you can talk as much as you like.
+
+INPUT: What is this about: ” So he said as
+shyly as usual:
+
+“Oh, you can talk as much as you like.
+RESPONSE: ”
+
+“Oh, I’m so glad.
+
+INPUT: Summarize: ” So he said as
+shyly as usual:
+
+“Oh, you can talk as much as you like. ”
+
+“Oh, I’m so glad.
+RESPONSE: I know you and I are going to get along together
+fine.
+
+INPUT: What is this about: I know you and I are going to get along together
+fine.
+RESPONSE: It’s such a relief to talk when one wants to and not be told
+that children should be seen and not heard.
+
+INPUT: Summarize: I know you and I are going to get along together
+fine. It’s such a relief to talk when one wants to and not be told
+that children should be seen and not heard.
+RESPONSE: I’ve had that said to me a
+million times if I have once.
+
+INPUT: Can you explain: I’ve had that said to me a
+million times if I have once.
+RESPONSE: And people laugh at me because I use big
+words.
+
+INPUT: Summarize: I’ve had that said to me a
+million times if I have once. And people laugh at me because I use big
+words.
+RESPONSE: But if you have big ideas you have to use big words to express
+them, haven’t you?
+
+INPUT: Tell me about: But if you have big ideas you have to use big words to express
+them, haven’t you?
+RESPONSE: ”
+
+“Well now, that seems reasonable,” said Matthew.
+
+INPUT: Summarize: But if you have big ideas you have to use big words to express
+them, haven’t you? ”
+
+“Well now, that seems reasonable,” said Matthew.
+RESPONSE: Spencer said that my tongue must be hung in the middle.
+
+INPUT: What does this mean: Spencer said that my tongue must be hung in the middle.
+RESPONSE: But it
+isn’t--it’s firmly fastened at one end.
+
+INPUT: Summarize: Spencer said that my tongue must be hung in the middle. But it
+isn’t--it’s firmly fastened at one end.
+RESPONSE: Spencer said your place was
+named Green Gables.
+
+INPUT: What does this mean: Spencer said your place was
+named Green Gables.
+RESPONSE: I asked her all about it.
+
+INPUT: Summarize: Spencer said your place was
+named Green Gables. I asked her all about it.
+RESPONSE: And she said there were
+trees all around it.
+
+INPUT: What is this about: And she said there were
+trees all around it.
+RESPONSE: I was gladder than ever.
+
+INPUT: Summarize: And she said there were
+trees all around it. I was gladder than ever.
+RESPONSE: And
+there weren’t any at all about the asylum, only a few poor weeny-teeny
+things out in front with little whitewashed cagey things about them.
+
+INPUT: What does this say: And
+there weren’t any at all about the asylum, only a few poor weeny-teeny
+things out in front with little whitewashed cagey things about them.
+RESPONSE: They just looked like orphans themselves, those trees did.
+
+INPUT: Summarize: And
+there weren’t any at all about the asylum, only a few poor weeny-teeny
+things out in front with little whitewashed cagey things about them. They just looked like orphans themselves, those trees did.
+RESPONSE: It used to
+make me want to cry to look at them.
+
+INPUT: Can you explain: It used to
+make me want to cry to look at them.
+RESPONSE: I used to say to them, ‘Oh, you
+_poor_ little things!
+
+INPUT: Summarize: It used to
+make me want to cry to look at them. I used to say to them, ‘Oh, you
+_poor_ little things!
+RESPONSE: If you were out in a great big woods with other
+trees all around you and little mosses and June bells growing over your
+roots and a brook not far away and birds singing in your branches, you
+could grow, couldn’t you?
+
+INPUT: What is this about: If you were out in a great big woods with other
+trees all around you and little mosses and June bells growing over your
+roots and a brook not far away and birds singing in your branches, you
+could grow, couldn’t you?
+RESPONSE: But you can’t where you are.
+
+INPUT: Summarize: If you were out in a great big woods with other
+trees all around you and little mosses and June bells growing over your
+roots and a brook not far away and birds singing in your branches, you
+could grow, couldn’t you? But you can’t where you are.
+RESPONSE: I know just
+exactly how you feel, little trees.
+
+INPUT: Explain this: I know just
+exactly how you feel, little trees.
+RESPONSE: ’ I felt sorry to leave them behind
+this morning.
+
+INPUT: Summarize: I know just
+exactly how you feel, little trees. ’ I felt sorry to leave them behind
+this morning.
+RESPONSE: You do get so attached to things like that, don’t you?
+
+INPUT: What is this about: You do get so attached to things like that, don’t you?
+RESPONSE: Is
+there a brook anywhere near Green Gables?
+
+INPUT: Summarize: You do get so attached to things like that, don’t you? Is
+there a brook anywhere near Green Gables?
+RESPONSE: ”
+
+“Well now, yes, there’s one right below the house.
+
+INPUT: What is this about: ”
+
+“Well now, yes, there’s one right below the house.
+RESPONSE: It’s always been one of my dreams to live near a brook.
+
+INPUT: Summarize: ”
+
+“Well now, yes, there’s one right below the house. It’s always been one of my dreams to live near a brook.
+RESPONSE: I
+never expected I would, though.
+
+INPUT: What does this say: I
+never expected I would, though.
+RESPONSE: Dreams don’t often come true, do they?
+
+INPUT: Summarize: I
+never expected I would, though. Dreams don’t often come true, do they?
+RESPONSE: Wouldn’t it be nice if they did?
+
+INPUT: Explain this: Wouldn’t it be nice if they did?
+RESPONSE: But just now I feel pretty nearly
+perfectly happy.
+
+INPUT: Summarize: Wouldn’t it be nice if they did? But just now I feel pretty nearly
+perfectly happy.
+RESPONSE: I can’t feel exactly perfectly happy because--well,
+what color would you call this?
+
+INPUT: Tell me about: I can’t feel exactly perfectly happy because--well,
+what color would you call this?
+RESPONSE: ”
+
+She twitched one of her long glossy braids over her thin shoulder and
+held it up before Matthew’s eyes.
+
+INPUT: Summarize: I can’t feel exactly perfectly happy because--well,
+what color would you call this? ”
+
+She twitched one of her long glossy braids over her thin shoulder and
+held it up before Matthew’s eyes.
+RESPONSE: Matthew was not used to deciding on
+the tints of ladies’ tresses, but in this case there couldn’t be much
+doubt.
+
+INPUT: Explain this: Matthew was not used to deciding on
+the tints of ladies’ tresses, but in this case there couldn’t be much
+doubt.
+RESPONSE: “It’s red, ain’t it?
+
+INPUT: Summarize: Matthew was not used to deciding on
+the tints of ladies’ tresses, but in this case there couldn’t be much
+doubt. “It’s red, ain’t it?
+RESPONSE: The girl let the braid drop back with a sigh that seemed to come from
+her very toes and to exhale forth all the sorrows of the ages.
+
+INPUT: What does this mean: The girl let the braid drop back with a sigh that seemed to come from
+her very toes and to exhale forth all the sorrows of the ages.
+RESPONSE: “Yes, it’s red,” she said resignedly.
+
+INPUT: Summarize: The girl let the braid drop back with a sigh that seemed to come from
+her very toes and to exhale forth all the sorrows of the ages. “Yes, it’s red,” she said resignedly.
+RESPONSE: “Now you see why I can’t be
+perfectly happy.
+
+INPUT: What does this say: “Now you see why I can’t be
+perfectly happy.
+RESPONSE: Nobody could who has red hair.
+
+INPUT: Summarize: “Now you see why I can’t be
+perfectly happy. Nobody could who has red hair.
+RESPONSE: I don’t mind the other
+things so much--the freckles and the green eyes and my skinniness.
+
+INPUT: What is this about: I don’t mind the other
+things so much--the freckles and the green eyes and my skinniness.
+RESPONSE: I
+can imagine them away.
+
+INPUT: Summarize: I don’t mind the other
+things so much--the freckles and the green eyes and my skinniness. I
+can imagine them away.
+RESPONSE: I can imagine that I have a beautiful rose-leaf
+complexion and lovely starry violet eyes.
+
+INPUT: What is this about: I can imagine that I have a beautiful rose-leaf
+complexion and lovely starry violet eyes.
+RESPONSE: But I _cannot_ imagine that
+red hair away.
+
+INPUT: Summarize: I can imagine that I have a beautiful rose-leaf
+complexion and lovely starry violet eyes. But I _cannot_ imagine that
+red hair away.
+RESPONSE: I think to myself, ‘Now my hair is a
+glorious black, black as the raven’s wing.
+
+INPUT: Tell me about: I think to myself, ‘Now my hair is a
+glorious black, black as the raven’s wing.
+RESPONSE: ’ But all the time I _know_ it
+is just plain red and it breaks my heart.
+
+INPUT: Summarize: I think to myself, ‘Now my hair is a
+glorious black, black as the raven’s wing. ’ But all the time I _know_ it
+is just plain red and it breaks my heart.
+RESPONSE: It will be my lifelong sorrow.
+
+INPUT: What is this about: It will be my lifelong sorrow.
+RESPONSE: I read of a girl once in a novel who had a lifelong sorrow but it wasn’t
+red hair.
+
+INPUT: Summarize: It will be my lifelong sorrow. I read of a girl once in a novel who had a lifelong sorrow but it wasn’t
+red hair.
+RESPONSE: Her hair was pure gold rippling back from her alabaster brow.
+
+INPUT: What does this say: Her hair was pure gold rippling back from her alabaster brow.
+RESPONSE: What is an alabaster brow?
+
+INPUT: Summarize: Her hair was pure gold rippling back from her alabaster brow. What is an alabaster brow?
+RESPONSE: I never could find out.
+
+INPUT: Tell me about: I never could find out.
+RESPONSE: ”
+
+“Well now, I’m afraid I can’t,” said Matthew, who was getting a little
+dizzy.
+
+INPUT: Summarize: I never could find out. ”
+
+“Well now, I’m afraid I can’t,” said Matthew, who was getting a little
+dizzy.
+RESPONSE: He felt as he had once felt in his rash youth when another boy
+had enticed him on the merry-go-round at a picnic.
+
+INPUT: Can you explain: He felt as he had once felt in his rash youth when another boy
+had enticed him on the merry-go-round at a picnic.
+RESPONSE: “Well, whatever it was it must have been something nice because she was
+divinely beautiful.
+
+INPUT: Summarize: He felt as he had once felt in his rash youth when another boy
+had enticed him on the merry-go-round at a picnic. “Well, whatever it was it must have been something nice because she was
+divinely beautiful.
+RESPONSE: Have you ever imagined what it must feel like to be
+divinely beautiful?
+
+INPUT: What is this about: Have you ever imagined what it must feel like to be
+divinely beautiful?
+RESPONSE: ”
+
+“Well now, no, I haven’t,” confessed Matthew ingenuously.
+
+INPUT: Summarize: Have you ever imagined what it must feel like to be
+divinely beautiful? ”
+
+“Well now, no, I haven’t,” confessed Matthew ingenuously.
+RESPONSE: Which would you rather be if you had the
+choice--divinely beautiful or dazzlingly clever or angelically good?
+
+INPUT: What does this say: Which would you rather be if you had the
+choice--divinely beautiful or dazzlingly clever or angelically good?
+RESPONSE: ”
+
+“Well now, I--I don’t know exactly.
+
+INPUT: Summarize: Which would you rather be if you had the
+choice--divinely beautiful or dazzlingly clever or angelically good? ”
+
+“Well now, I--I don’t know exactly.
+RESPONSE: ”
+
+“Neither do I.
+
+INPUT: What does this mean: ”
+
+“Neither do I.
+RESPONSE: But it doesn’t make much real
+difference for it isn’t likely I’ll ever be either.
+
+INPUT: Summarize: ”
+
+“Neither do I. But it doesn’t make much real
+difference for it isn’t likely I’ll ever be either.
+RESPONSE: It’s certain I’ll
+never be angelically good.
+
+INPUT: Can you explain: It’s certain I’ll
+never be angelically good.
+RESPONSE: Spencer says--oh, Mr.
+
+INPUT: Summarize: It’s certain I’ll
+never be angelically good. Spencer says--oh, Mr.
+RESPONSE: ”
+
+That was not what Mrs.
+
+INPUT: Explain this: ”
+
+That was not what Mrs.
+RESPONSE: Spencer had said; neither had the child tumbled
+out of the buggy nor had Matthew done anything astonishing.
+
+INPUT: Summarize: ”
+
+That was not what Mrs. Spencer had said; neither had the child tumbled
+out of the buggy nor had Matthew done anything astonishing.
+RESPONSE: They had
+simply rounded a curve in the road and found themselves in the “Avenue.
+
+INPUT: What is this about: They had
+simply rounded a curve in the road and found themselves in the “Avenue.
+RESPONSE: ”
+
+The “Avenue,” so called by the Newbridge people, was a stretch of road
+four or five hundred yards long, completely arched over with huge,
+wide-spreading apple-trees, planted years ago by an eccentric old
+farmer.
+
+INPUT: Summarize: They had
+simply rounded a curve in the road and found themselves in the “Avenue. ”
+
+The “Avenue,” so called by the Newbridge people, was a stretch of road
+four or five hundred yards long, completely arched over with huge,
+wide-spreading apple-trees, planted years ago by an eccentric old
+farmer.
+RESPONSE: Overhead was one long canopy of snowy fragrant bloom.
+
+INPUT: Tell me about: Overhead was one long canopy of snowy fragrant bloom.
+RESPONSE: Below the
+boughs the air was full of a purple twilight and far ahead a glimpse
+of painted sunset sky shone like a great rose window at the end of a
+cathedral aisle.
+
+INPUT: Summarize: Overhead was one long canopy of snowy fragrant bloom. Below the
+boughs the air was full of a purple twilight and far ahead a glimpse
+of painted sunset sky shone like a great rose window at the end of a
+cathedral aisle.
+RESPONSE: Its beauty seemed to strike the child dumb.
+
+INPUT: What is this about: Its beauty seemed to strike the child dumb.
+RESPONSE: She leaned back in the
+buggy, her thin hands clasped before her, her face lifted rapturously to
+the white splendor above.
+
+INPUT: Summarize: Its beauty seemed to strike the child dumb. She leaned back in the
+buggy, her thin hands clasped before her, her face lifted rapturously to
+the white splendor above.
+RESPONSE: Even when they had passed out and were driving
+down the long slope to Newbridge she never moved or spoke.
+
+INPUT: Explain this: Even when they had passed out and were driving
+down the long slope to Newbridge she never moved or spoke.
+RESPONSE: Still with
+rapt face she gazed afar into the sunset west, with eyes that saw
+visions trooping splendidly across that glowing background.
+
+INPUT: Summarize: Even when they had passed out and were driving
+down the long slope to Newbridge she never moved or spoke. Still with
+rapt face she gazed afar into the sunset west, with eyes that saw
+visions trooping splendidly across that glowing background.
+RESPONSE: Through
+Newbridge, a bustling little village where dogs barked at them and small
+boys hooted and curious faces peered from the windows, they drove, still
+in silence.
+
+INPUT: Tell me about: Through
+Newbridge, a bustling little village where dogs barked at them and small
+boys hooted and curious faces peered from the windows, they drove, still
+in silence.
+RESPONSE: When three more miles had dropped away behind them the child
+had not spoken.
+
+INPUT: Summarize: Through
+Newbridge, a bustling little village where dogs barked at them and small
+boys hooted and curious faces peered from the windows, they drove, still
+in silence. When three more miles had dropped away behind them the child
+had not spoken.
+RESPONSE: She could keep silence, it was evident, as energetically
+as she could talk.
+
+INPUT: Explain this: She could keep silence, it was evident, as energetically
+as she could talk.
+RESPONSE: “I guess you’re feeling pretty tired and hungry,” Matthew ventured to
+say at last, accounting for her long visitation of dumbness with the
+only reason he could think of.
+
+INPUT: Summarize: She could keep silence, it was evident, as energetically
+as she could talk. “I guess you’re feeling pretty tired and hungry,” Matthew ventured to
+say at last, accounting for her long visitation of dumbness with the
+only reason he could think of.
+RESPONSE: “But we haven’t very far to go now--only
+another mile.
+
+INPUT: What does this say: “But we haven’t very far to go now--only
+another mile.
+RESPONSE: ”
+
+She came out of her reverie with a deep sigh and looked at him with the
+dreamy gaze of a soul that had been wondering afar, star-led.
+
+INPUT: Summarize: “But we haven’t very far to go now--only
+another mile. ”
+
+She came out of her reverie with a deep sigh and looked at him with the
+dreamy gaze of a soul that had been wondering afar, star-led.
+RESPONSE: Cuthbert,” she whispered, “that place we came through--that
+white place--what was it?
+
+INPUT: Tell me about: Cuthbert,” she whispered, “that place we came through--that
+white place--what was it?
+RESPONSE: ”
+
+“Well now, you must mean the Avenue,” said Matthew after a few moments’
+profound reflection.
+
+INPUT: Summarize: Cuthbert,” she whispered, “that place we came through--that
+white place--what was it? ”
+
+“Well now, you must mean the Avenue,” said Matthew after a few moments’
+profound reflection.
+RESPONSE: “It is a kind of pretty place.
+
+INPUT: What is this about: “It is a kind of pretty place.
+RESPONSE: Oh, _pretty_ doesn’t seem the right word to use.
+
+INPUT: Summarize: “It is a kind of pretty place. Oh, _pretty_ doesn’t seem the right word to use.
+RESPONSE: Nor beautiful,
+either.
+
+INPUT: Tell me about: Nor beautiful,
+either.
+RESPONSE: They don’t go far enough.
+
+INPUT: Summarize: Nor beautiful,
+either. They don’t go far enough.
+RESPONSE: Oh, it was wonderful--wonderful.
+
+INPUT: Explain this: Oh, it was wonderful--wonderful.
+RESPONSE: It’s the first thing I ever saw that couldn’t be improved upon by
+imagination.
+
+INPUT: Summarize: Oh, it was wonderful--wonderful. It’s the first thing I ever saw that couldn’t be improved upon by
+imagination.
+RESPONSE: It just satisfied me here”--she put one hand on her
+breast--“it made a queer funny ache and yet it was a pleasant ache.
+
+INPUT: Can you explain: It just satisfied me here”--she put one hand on her
+breast--“it made a queer funny ache and yet it was a pleasant ache.
+RESPONSE: Did
+you ever have an ache like that, Mr.
+
+INPUT: Summarize: It just satisfied me here”--she put one hand on her
+breast--“it made a queer funny ache and yet it was a pleasant ache. Did
+you ever have an ache like that, Mr.
+RESPONSE: ”
+
+“Well now, I just can’t recollect that I ever had.
+
+INPUT: What does this mean: ”
+
+“Well now, I just can’t recollect that I ever had.
+RESPONSE: ”
+
+“I have it lots of times--whenever I see anything royally beautiful.
+
+INPUT: Summarize: ”
+
+“Well now, I just can’t recollect that I ever had. ”
+
+“I have it lots of times--whenever I see anything royally beautiful.
+RESPONSE: But they shouldn’t call that lovely place the Avenue.
+
+INPUT: What is this about: But they shouldn’t call that lovely place the Avenue.
+RESPONSE: There is no
+meaning in a name like that.
+
+INPUT: Summarize: But they shouldn’t call that lovely place the Avenue. There is no
+meaning in a name like that.
+RESPONSE: They should call it--let me see--the
+White Way of Delight.
+
+INPUT: What does this say: They should call it--let me see--the
+White Way of Delight.
+RESPONSE: Isn’t that a nice imaginative name?
+
+INPUT: Summarize: They should call it--let me see--the
+White Way of Delight. Isn’t that a nice imaginative name?
+RESPONSE: When I don’t
+like the name of a place or a person I always imagine a new one and
+always think of them so.
+
+INPUT: What does this mean: When I don’t
+like the name of a place or a person I always imagine a new one and
+always think of them so.
+RESPONSE: There was a girl at the asylum whose name was
+Hepzibah Jenkins, but I always imagined her as Rosalia DeVere.
+
+INPUT: Summarize: When I don’t
+like the name of a place or a person I always imagine a new one and
+always think of them so. There was a girl at the asylum whose name was
+Hepzibah Jenkins, but I always imagined her as Rosalia DeVere.
+RESPONSE: Other
+people may call that place the Avenue, but I shall always call it the
+White Way of Delight.
+
+INPUT: Tell me about: Other
+people may call that place the Avenue, but I shall always call it the
+White Way of Delight.
+RESPONSE: Have we really only another mile to go before we
+get home?
+
+INPUT: Summarize: Other
+people may call that place the Avenue, but I shall always call it the
+White Way of Delight. Have we really only another mile to go before we
+get home?
+RESPONSE: I’m glad and I’m sorry.
+
+INPUT: What is this about: I’m glad and I’m sorry.
+RESPONSE: I’m sorry because this drive has been
+so pleasant and I’m always sorry when pleasant things end.
+
+INPUT: Summarize: I’m glad and I’m sorry. I’m sorry because this drive has been
+so pleasant and I’m always sorry when pleasant things end.
+RESPONSE: Something
+still pleasanter may come after, but you can never be sure.
+
+INPUT: What does this say: Something
+still pleasanter may come after, but you can never be sure.
+RESPONSE: And it’s so
+often the case that it isn’t pleasanter.
+
+INPUT: Summarize: Something
+still pleasanter may come after, but you can never be sure. And it’s so
+often the case that it isn’t pleasanter.
+RESPONSE: That has been my experience
+anyhow.
+
+INPUT: What does this say: That has been my experience
+anyhow.
+RESPONSE: But I’m glad to think of getting home.
+
+INPUT: Summarize: That has been my experience
+anyhow. But I’m glad to think of getting home.
+RESPONSE: You see, I’ve never had
+a real home since I can remember.
+
+INPUT: What does this mean: You see, I’ve never had
+a real home since I can remember.
+RESPONSE: It gives me that pleasant ache again
+just to think of coming to a really truly home.
+
+INPUT: Summarize: You see, I’ve never had
+a real home since I can remember. It gives me that pleasant ache again
+just to think of coming to a really truly home.
+RESPONSE: Oh, isn’t that pretty!
+
+INPUT: What does this say: Oh, isn’t that pretty!
+RESPONSE: ”
+
+They had driven over the crest of a hill.
+
+INPUT: Summarize: Oh, isn’t that pretty! ”
+
+They had driven over the crest of a hill.
+RESPONSE: Below them was a pond, looking
+almost like a river so long and winding was it.
+
+INPUT: Tell me about: Below them was a pond, looking
+almost like a river so long and winding was it.
+RESPONSE: A bridge spanned it
+midway and from there to its lower end, where an amber-hued belt of
+sand-hills shut it in from the dark blue gulf beyond, the water was a
+glory of many shifting hues--the most spiritual shadings of crocus and
+rose and ethereal green, with other elusive tintings for which no name
+has ever been found.
+
+INPUT: Summarize: Below them was a pond, looking
+almost like a river so long and winding was it. A bridge spanned it
+midway and from there to its lower end, where an amber-hued belt of
+sand-hills shut it in from the dark blue gulf beyond, the water was a
+glory of many shifting hues--the most spiritual shadings of crocus and
+rose and ethereal green, with other elusive tintings for which no name
+has ever been found.
+RESPONSE: Above the bridge the pond ran up into fringing
+groves of fir and maple and lay all darkly translucent in their wavering
+shadows.
+
+INPUT: What is this about: Above the bridge the pond ran up into fringing
+groves of fir and maple and lay all darkly translucent in their wavering
+shadows.
+RESPONSE: Here and there a wild plum leaned out from the bank like a
+white-clad girl tiptoeing to her own reflection.
+
+INPUT: Summarize: Above the bridge the pond ran up into fringing
+groves of fir and maple and lay all darkly translucent in their wavering
+shadows. Here and there a wild plum leaned out from the bank like a
+white-clad girl tiptoeing to her own reflection.
+RESPONSE: From the marsh at the
+head of the pond came the clear, mournfully-sweet chorus of the frogs.
+
+INPUT: Tell me about: From the marsh at the
+head of the pond came the clear, mournfully-sweet chorus of the frogs.
+RESPONSE: There was a little gray house peering around a white apple orchard on
+a slope beyond and, although it was not yet quite dark, a light was
+shining from one of its windows.
+
+INPUT: Summarize: From the marsh at the
+head of the pond came the clear, mournfully-sweet chorus of the frogs. There was a little gray house peering around a white apple orchard on
+a slope beyond and, although it was not yet quite dark, a light was
+shining from one of its windows.
+RESPONSE: “That’s Barry’s pond,” said Matthew.
+
+INPUT: Tell me about: “That’s Barry’s pond,” said Matthew.
+RESPONSE: “Oh, I don’t like that name, either.
+
+INPUT: Summarize: “That’s Barry’s pond,” said Matthew. “Oh, I don’t like that name, either.
+RESPONSE: I shall call it--let me see--the
+Lake of Shining Waters.
+
+INPUT: What does this mean: I shall call it--let me see--the
+Lake of Shining Waters.
+RESPONSE: Yes, that is the right name for it.
+
+INPUT: Summarize: I shall call it--let me see--the
+Lake of Shining Waters. Yes, that is the right name for it.
+RESPONSE: I know
+because of the thrill.
+
+INPUT: What does this say: I know
+because of the thrill.
+RESPONSE: When I hit on a name that suits exactly it gives
+me a thrill.
+
+INPUT: Summarize: I know
+because of the thrill. When I hit on a name that suits exactly it gives
+me a thrill.
+RESPONSE: Do things ever give you a thrill?
+
+INPUT: Tell me about: Do things ever give you a thrill?
+RESPONSE: ”
+
+Matthew ruminated.
+
+INPUT: Summarize: Do things ever give you a thrill? ”
+
+Matthew ruminated.
+RESPONSE: It always kind of gives me a thrill to see them ugly
+white grubs that spade up in the cucumber beds.
+
+INPUT: What does this say: It always kind of gives me a thrill to see them ugly
+white grubs that spade up in the cucumber beds.
+RESPONSE: I hate the look of
+them.
+
+INPUT: Summarize: It always kind of gives me a thrill to see them ugly
+white grubs that spade up in the cucumber beds. I hate the look of
+them.
+RESPONSE: ”
+
+“Oh, I don’t think that can be exactly the same kind of a thrill.
+
+INPUT: Can you explain: ”
+
+“Oh, I don’t think that can be exactly the same kind of a thrill.
+RESPONSE: There doesn’t seem to be much connection between grubs
+and lakes of shining waters, does there?
+
+INPUT: Summarize: ”
+
+“Oh, I don’t think that can be exactly the same kind of a thrill. There doesn’t seem to be much connection between grubs
+and lakes of shining waters, does there?
+RESPONSE: But why do other people call it
+Barry’s pond?
+
+INPUT: What is this about: But why do other people call it
+Barry’s pond?
+RESPONSE: ”
+
+“I reckon because Mr.
+
+INPUT: Summarize: But why do other people call it
+Barry’s pond? ”
+
+“I reckon because Mr.
+RESPONSE: Barry lives up there in that house.
+
+INPUT: Can you explain: Barry lives up there in that house.
+RESPONSE: Orchard
+Slope’s the name of his place.
+
+INPUT: Summarize: Barry lives up there in that house. Orchard
+Slope’s the name of his place.
+RESPONSE: If it wasn’t for that big bush behind it
+you could see Green Gables from here.
+
+INPUT: What does this say: If it wasn’t for that big bush behind it
+you could see Green Gables from here.
+RESPONSE: But we have to go over the bridge
+and round by the road, so it’s near half a mile further.
+
+INPUT: Summarize: If it wasn’t for that big bush behind it
+you could see Green Gables from here. But we have to go over the bridge
+and round by the road, so it’s near half a mile further.
+RESPONSE: Barry any little girls?
+
+INPUT: Can you explain: Barry any little girls?
+RESPONSE: Well, not so very little either--about
+my size.
+
+INPUT: Summarize: Barry any little girls? Well, not so very little either--about
+my size.
+RESPONSE: ”
+
+“He’s got one about eleven.
+
+INPUT: Tell me about: ”
+
+“He’s got one about eleven.
+RESPONSE: ” with a long indrawing of breath.
+
+INPUT: Summarize: ”
+
+“He’s got one about eleven. ” with a long indrawing of breath.
+RESPONSE: “What a perfectly lovely name!
+
+INPUT: What is this about: “What a perfectly lovely name!
+RESPONSE: ”
+
+“Well now, I dunno.
+
+INPUT: Summarize: “What a perfectly lovely name! ”
+
+“Well now, I dunno.
+RESPONSE: There’s something dreadful heathenish about it,
+seems to me.
+
+INPUT: Can you explain: There’s something dreadful heathenish about it,
+seems to me.
+RESPONSE: I’d ruther Jane or Mary or some sensible name like that.
+
+INPUT: Summarize: There’s something dreadful heathenish about it,
+seems to me. I’d ruther Jane or Mary or some sensible name like that.
+RESPONSE: But when Diana was born there was a schoolmaster boarding there and they
+gave him the naming of her and he called her Diana.
+
+INPUT: Tell me about: But when Diana was born there was a schoolmaster boarding there and they
+gave him the naming of her and he called her Diana.
+RESPONSE: ”
+
+“I wish there had been a schoolmaster like that around when I was born,
+then.
+
+INPUT: Summarize: But when Diana was born there was a schoolmaster boarding there and they
+gave him the naming of her and he called her Diana. ”
+
+“I wish there had been a schoolmaster like that around when I was born,
+then.
+RESPONSE: Oh, here we are at the bridge.
+
+INPUT: What does this mean: Oh, here we are at the bridge.
+RESPONSE: I’m going to shut my eyes tight.
+
+INPUT: Summarize: Oh, here we are at the bridge. I’m going to shut my eyes tight.
+RESPONSE: I’m always afraid going over bridges.
+
+INPUT: Can you explain: I’m always afraid going over bridges.
+RESPONSE: I can’t help imagining that
+perhaps, just as we get to the middle, they’ll crumple up like a
+jack-knife and nip us.
+
+INPUT: Summarize: I’m always afraid going over bridges. I can’t help imagining that
+perhaps, just as we get to the middle, they’ll crumple up like a
+jack-knife and nip us.
+RESPONSE: But I always have to open them
+for all when I think we’re getting near the middle.
+
+INPUT: What does this mean: But I always have to open them
+for all when I think we’re getting near the middle.
+RESPONSE: Because, you see, if
+the bridge _did_ crumple up I’d want to _see_ it crumple.
+
+INPUT: Summarize: But I always have to open them
+for all when I think we’re getting near the middle. Because, you see, if
+the bridge _did_ crumple up I’d want to _see_ it crumple.
+RESPONSE: What a jolly
+rumble it makes!
+
+INPUT: What does this say: What a jolly
+rumble it makes!
+RESPONSE: I always like the rumble part of it.
+
+INPUT: Summarize: What a jolly
+rumble it makes! I always like the rumble part of it.
+RESPONSE: Isn’t it splendid
+there are so many things to like in this world?
+
+INPUT: What does this say: Isn’t it splendid
+there are so many things to like in this world?
+RESPONSE: Now
+I’ll look back.
+
+INPUT: Summarize: Isn’t it splendid
+there are so many things to like in this world? Now
+I’ll look back.
+RESPONSE: Good night, dear Lake of Shining Waters.
+
+INPUT: Explain this: Good night, dear Lake of Shining Waters.
+RESPONSE: I always say
+good night to the things I love, just as I would to people.
+
+INPUT: Summarize: Good night, dear Lake of Shining Waters. I always say
+good night to the things I love, just as I would to people.
+RESPONSE: I think they
+like it.
+
+INPUT: Tell me about: I think they
+like it.
+RESPONSE: That water looks as if it was smiling at me.
+
+INPUT: Summarize: I think they
+like it. That water looks as if it was smiling at me.
+RESPONSE: ”
+
+When they had driven up the further hill and around a corner Matthew
+said:
+
+“We’re pretty near home now.
+
+INPUT: What does this mean: ”
+
+When they had driven up the further hill and around a corner Matthew
+said:
+
+“We’re pretty near home now.
+RESPONSE: That’s Green Gables over--”
+
+“Oh, don’t tell me,” she interrupted breathlessly, catching at his
+partially raised arm and shutting her eyes that she might not see his
+gesture.
+
+INPUT: Summarize: ”
+
+When they had driven up the further hill and around a corner Matthew
+said:
+
+“We’re pretty near home now. That’s Green Gables over--”
+
+“Oh, don’t tell me,” she interrupted breathlessly, catching at his
+partially raised arm and shutting her eyes that she might not see his
+gesture.
+RESPONSE: I’m sure I’ll guess right.
+
+INPUT: What does this mean: I’m sure I’ll guess right.
+RESPONSE: ”
+
+She opened her eyes and looked about her.
+
+INPUT: Summarize: I’m sure I’ll guess right. ”
+
+She opened her eyes and looked about her.
+RESPONSE: They were on the crest of a
+hill.
+
+INPUT: What does this say: They were on the crest of a
+hill.
+RESPONSE: The sun had set some time since, but the landscape was still
+clear in the mellow afterlight.
+
+INPUT: Summarize: They were on the crest of a
+hill. The sun had set some time since, but the landscape was still
+clear in the mellow afterlight.
+RESPONSE: To the west a dark church spire rose
+up against a marigold sky.
+
+INPUT: What is this about: To the west a dark church spire rose
+up against a marigold sky.
+RESPONSE: Below was a little valley and beyond a long,
+gently-rising slope with snug farmsteads scattered along it.
+
+INPUT: Summarize: To the west a dark church spire rose
+up against a marigold sky. Below was a little valley and beyond a long,
+gently-rising slope with snug farmsteads scattered along it.
+RESPONSE: From one
+to another the child’s eyes darted, eager and wistful.
+
+INPUT: What is this about: From one
+to another the child’s eyes darted, eager and wistful.
+RESPONSE: At last they
+lingered on one away to the left, far back from the road, dimly white
+with blossoming trees in the twilight of the surrounding woods.
+
+INPUT: Summarize: From one
+to another the child’s eyes darted, eager and wistful. At last they
+lingered on one away to the left, far back from the road, dimly white
+with blossoming trees in the twilight of the surrounding woods.
+RESPONSE: Over it,
+in the stainless southwest sky, a great crystal-white star was shining
+like a lamp of guidance and promise.
+
+INPUT: What is this about: Over it,
+in the stainless southwest sky, a great crystal-white star was shining
+like a lamp of guidance and promise.
+RESPONSE: “That’s it, isn’t it?
+
+INPUT: Summarize: Over it,
+in the stainless southwest sky, a great crystal-white star was shining
+like a lamp of guidance and promise. “That’s it, isn’t it?
+RESPONSE: ” she said, pointing.
+
+INPUT: Can you explain: ” she said, pointing.
+RESPONSE: Matthew slapped the reins on the sorrel’s back delightedly.
+
+INPUT: Summarize: ” she said, pointing. Matthew slapped the reins on the sorrel’s back delightedly.
+RESPONSE: “Well now, you’ve guessed it!
+
+INPUT: What is this about: “Well now, you’ve guessed it!
+RESPONSE: Spencer described it
+so’s you could tell.
+
+INPUT: Summarize: “Well now, you’ve guessed it! Spencer described it
+so’s you could tell.
+RESPONSE: ”
+
+“No, she didn’t--really she didn’t.
+
+INPUT: What does this mean: ”
+
+“No, she didn’t--really she didn’t.
+RESPONSE: All she said might just as well have
+been about most of those other places.
+
+INPUT: Summarize: ”
+
+“No, she didn’t--really she didn’t. All she said might just as well have
+been about most of those other places.
+RESPONSE: I hadn’t any real idea what it
+looked like.
+
+INPUT: Can you explain: I hadn’t any real idea what it
+looked like.
+RESPONSE: But just as soon as I saw it I felt it was home.
+
+INPUT: Summarize: I hadn’t any real idea what it
+looked like. But just as soon as I saw it I felt it was home.
+RESPONSE: Oh, it
+seems as if I must be in a dream.
+
+INPUT: What does this say: Oh, it
+seems as if I must be in a dream.
+RESPONSE: Do you know, my arm must be black and
+blue from the elbow up, for I’ve pinched myself so many times today.
+
+INPUT: Summarize: Oh, it
+seems as if I must be in a dream. Do you know, my arm must be black and
+blue from the elbow up, for I’ve pinched myself so many times today.
+RESPONSE: Every little while a horrible sickening feeling would come over me and
+I’d be so afraid it was all a dream.
+
+INPUT: Explain this: Every little while a horrible sickening feeling would come over me and
+I’d be so afraid it was all a dream.
+RESPONSE: Then I’d pinch myself to see if it
+was real--until suddenly I remembered that even supposing it was only
+a dream I’d better go on dreaming as long as I could; so I stopped
+pinching.
+
+INPUT: Summarize: Every little while a horrible sickening feeling would come over me and
+I’d be so afraid it was all a dream. Then I’d pinch myself to see if it
+was real--until suddenly I remembered that even supposing it was only
+a dream I’d better go on dreaming as long as I could; so I stopped
+pinching.
+RESPONSE: But it _is_ real and we’re nearly home.
+
+INPUT: What does this mean: But it _is_ real and we’re nearly home.
+RESPONSE: ”
+
+With a sigh of rapture she relapsed into silence.
+
+INPUT: Summarize: But it _is_ real and we’re nearly home. ”
+
+With a sigh of rapture she relapsed into silence.
+RESPONSE: Matthew stirred
+uneasily.
+
+INPUT: What does this say: Matthew stirred
+uneasily.
+RESPONSE: He felt glad that it would be Marilla and not he who would
+have to tell this waif of the world that the home she longed for was
+not to be hers after all.
+
+INPUT: Summarize: Matthew stirred
+uneasily. He felt glad that it would be Marilla and not he who would
+have to tell this waif of the world that the home she longed for was
+not to be hers after all.
+RESPONSE: They drove over Lynde’s Hollow, where it was
+already quite dark, but not so dark that Mrs.
+
+INPUT: What is this about: They drove over Lynde’s Hollow, where it was
+already quite dark, but not so dark that Mrs.
+RESPONSE: Rachel could not see them
+from her window vantage, and up the hill and into the long lane of Green
+Gables.
+
+INPUT: Summarize: They drove over Lynde’s Hollow, where it was
+already quite dark, but not so dark that Mrs. Rachel could not see them
+from her window vantage, and up the hill and into the long lane of Green
+Gables.
+RESPONSE: By the time they arrived at the house Matthew was shrinking from
+the approaching revelation with an energy he did not understand.
+
+INPUT: Tell me about: By the time they arrived at the house Matthew was shrinking from
+the approaching revelation with an energy he did not understand.
+RESPONSE: It was
+not of Marilla or himself he was thinking or of the trouble this mistake
+was probably going to make for them, but of the child’s disappointment.
+
+INPUT: Summarize: By the time they arrived at the house Matthew was shrinking from
+the approaching revelation with an energy he did not understand. It was
+not of Marilla or himself he was thinking or of the trouble this mistake
+was probably going to make for them, but of the child’s disappointment.
+RESPONSE: When he thought of that rapt light being quenched in her eyes he had
+an uncomfortable feeling that he was going to assist at murdering
+something--much the same feeling that came over him when he had to kill
+a lamb or calf or any other innocent little creature.
+
+INPUT: What is this about: When he thought of that rapt light being quenched in her eyes he had
+an uncomfortable feeling that he was going to assist at murdering
+something--much the same feeling that came over him when he had to kill
+a lamb or calf or any other innocent little creature.
+RESPONSE: The yard was quite dark as they turned into it and the poplar leaves
+were rustling silkily all round it.
+
+INPUT: Summarize: When he thought of that rapt light being quenched in her eyes he had
+an uncomfortable feeling that he was going to assist at murdering
+something--much the same feeling that came over him when he had to kill
+a lamb or calf or any other innocent little creature. The yard was quite dark as they turned into it and the poplar leaves
+were rustling silkily all round it.
+RESPONSE: “Listen to the trees talking in their sleep,” she whispered, as he
+lifted her to the ground.
+
+INPUT: What does this say: “Listen to the trees talking in their sleep,” she whispered, as he
+lifted her to the ground.
+RESPONSE: “What nice dreams they must have!
+
+INPUT: Summarize: “Listen to the trees talking in their sleep,” she whispered, as he
+lifted her to the ground. “What nice dreams they must have!
+RESPONSE: ”
+
+Then, holding tightly to the carpet-bag which contained “all her worldly
+goods,” she followed him into the house.
+
+INPUT: Can you explain: ”
+
+Then, holding tightly to the carpet-bag which contained “all her worldly
+goods,” she followed him into the house.
+RESPONSE: Marilla Cuthbert Is Surprised
+
+MARILLA came briskly forward as Matthew opened the door.
+
+INPUT: Summarize: ”
+
+Then, holding tightly to the carpet-bag which contained “all her worldly
+goods,” she followed him into the house. Marilla Cuthbert Is Surprised
+
+MARILLA came briskly forward as Matthew opened the door.
+RESPONSE: But when her
+eyes fell on the odd little figure in the stiff, ugly dress, with the
+long braids of red hair and the eager, luminous eyes, she stopped short
+in amazement.
+
+INPUT: Tell me about: But when her
+eyes fell on the odd little figure in the stiff, ugly dress, with the
+long braids of red hair and the eager, luminous eyes, she stopped short
+in amazement.
+RESPONSE: “Matthew Cuthbert, who’s that?
+
+INPUT: Summarize: But when her
+eyes fell on the odd little figure in the stiff, ugly dress, with the
+long braids of red hair and the eager, luminous eyes, she stopped short
+in amazement. “Matthew Cuthbert, who’s that?
+RESPONSE: ”
+
+“There wasn’t any boy,” said Matthew wretchedly.
+
+INPUT: Can you explain: ”
+
+“There wasn’t any boy,” said Matthew wretchedly.
+RESPONSE: “There was only _her_.
+
+INPUT: Summarize: ”
+
+“There wasn’t any boy,” said Matthew wretchedly. “There was only _her_.
+RESPONSE: ”
+
+He nodded at the child, remembering that he had never even asked her
+name.
+
+INPUT: Tell me about: ”
+
+He nodded at the child, remembering that he had never even asked her
+name.
+RESPONSE: But there _must_ have been a boy,” insisted Marilla.
+
+INPUT: Summarize: ”
+
+He nodded at the child, remembering that he had never even asked her
+name. But there _must_ have been a boy,” insisted Marilla.
+RESPONSE: “We sent
+word to Mrs.
+
+INPUT: Can you explain: “We sent
+word to Mrs.
+RESPONSE: Spencer to bring a boy.
+
+INPUT: Summarize: “We sent
+word to Mrs. Spencer to bring a boy.
+RESPONSE: ”
+
+“Well, she didn’t.
+
+INPUT: What is this about: ”
+
+“Well, she didn’t.
+RESPONSE: I asked the stationmaster.
+
+INPUT: Summarize: ”
+
+“Well, she didn’t. I asked the stationmaster.
+RESPONSE: And I
+had to bring her home.
+
+INPUT: What does this mean: And I
+had to bring her home.
+RESPONSE: She couldn’t be left there, no matter where the
+mistake had come in.
+
+INPUT: Summarize: And I
+had to bring her home. She couldn’t be left there, no matter where the
+mistake had come in.
+RESPONSE: ”
+
+“Well, this is a pretty piece of business!
+
+INPUT: What is this about: ”
+
+“Well, this is a pretty piece of business!
+RESPONSE: ” ejaculated Marilla.
+
+INPUT: Summarize: ”
+
+“Well, this is a pretty piece of business! ” ejaculated Marilla.
+RESPONSE: During this dialogue the child had remained silent, her eyes roving from
+one to the other, all the animation fading out of her face.
+

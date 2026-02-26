@@ -1,0 +1,3502 @@
+INPUT: Can you explain: Emma
+
+by Jane Austen
+
+Contents
+
+ VOLUME I.
+RESPONSE: VOLUME I
+
+CHAPTER I
+
+Emma Woodhouse, handsome, clever, and rich, with a comfortable home and
+happy disposition, seemed to unite some of the best blessings of
+existence; and had lived nearly twenty-one years in the world with very
+little to distress or vex her.
+
+INPUT: Summarize: Emma
+
+by Jane Austen
+
+Contents
+
+ VOLUME I. VOLUME I
+
+CHAPTER I
+
+Emma Woodhouse, handsome, clever, and rich, with a comfortable home and
+happy disposition, seemed to unite some of the best blessings of
+existence; and had lived nearly twenty-one years in the world with very
+little to distress or vex her.
+RESPONSE: She was the youngest of the two daughters of a most affectionate,
+indulgent father; and had, in consequence of her sister’s marriage,
+been mistress of his house from a very early period.
+
+INPUT: Explain this: She was the youngest of the two daughters of a most affectionate,
+indulgent father; and had, in consequence of her sister’s marriage,
+been mistress of his house from a very early period.
+RESPONSE: Her mother had
+died too long ago for her to have more than an indistinct remembrance
+of her caresses; and her place had been supplied by an excellent woman
+as governess, who had fallen little short of a mother in affection.
+
+INPUT: Summarize: She was the youngest of the two daughters of a most affectionate,
+indulgent father; and had, in consequence of her sister’s marriage,
+been mistress of his house from a very early period. Her mother had
+died too long ago for her to have more than an indistinct remembrance
+of her caresses; and her place had been supplied by an excellent woman
+as governess, who had fallen little short of a mother in affection.
+RESPONSE: Sixteen years had Miss Taylor been in Mr.
+
+INPUT: What is this about: Sixteen years had Miss Taylor been in Mr.
+RESPONSE: Woodhouse’s family, less as a
+governess than a friend, very fond of both daughters, but particularly
+of Emma.
+
+INPUT: Summarize: Sixteen years had Miss Taylor been in Mr. Woodhouse’s family, less as a
+governess than a friend, very fond of both daughters, but particularly
+of Emma.
+RESPONSE: Between _them_ it was more the intimacy of sisters.
+
+INPUT: Can you explain: Between _them_ it was more the intimacy of sisters.
+RESPONSE: Even
+before Miss Taylor had ceased to hold the nominal office of governess,
+the mildness of her temper had hardly allowed her to impose any
+restraint; and the shadow of authority being now long passed away, they
+had been living together as friend and friend very mutually attached,
+and Emma doing just what she liked; highly esteeming Miss Taylor’s
+judgment, but directed chiefly by her own.
+
+INPUT: Summarize: Between _them_ it was more the intimacy of sisters. Even
+before Miss Taylor had ceased to hold the nominal office of governess,
+the mildness of her temper had hardly allowed her to impose any
+restraint; and the shadow of authority being now long passed away, they
+had been living together as friend and friend very mutually attached,
+and Emma doing just what she liked; highly esteeming Miss Taylor’s
+judgment, but directed chiefly by her own.
+RESPONSE: The real evils, indeed, of Emma’s situation were the power of having
+rather too much her own way, and a disposition to think a little too
+well of herself; these were the disadvantages which threatened alloy to
+her many enjoyments.
+
+INPUT: What does this say: The real evils, indeed, of Emma’s situation were the power of having
+rather too much her own way, and a disposition to think a little too
+well of herself; these were the disadvantages which threatened alloy to
+her many enjoyments.
+RESPONSE: The danger, however, was at present so
+unperceived, that they did not by any means rank as misfortunes with
+her.
+
+INPUT: Summarize: The real evils, indeed, of Emma’s situation were the power of having
+rather too much her own way, and a disposition to think a little too
+well of herself; these were the disadvantages which threatened alloy to
+her many enjoyments. The danger, however, was at present so
+unperceived, that they did not by any means rank as misfortunes with
+her.
+RESPONSE: Sorrow came—a gentle sorrow—but not at all in the shape of any
+disagreeable consciousness.
+
+INPUT: Can you explain: Sorrow came—a gentle sorrow—but not at all in the shape of any
+disagreeable consciousness.
+RESPONSE: —Miss Taylor married.
+
+INPUT: Summarize: Sorrow came—a gentle sorrow—but not at all in the shape of any
+disagreeable consciousness. —Miss Taylor married.
+RESPONSE: It was Miss Taylor’s
+loss which first brought grief.
+
+INPUT: Explain this: It was Miss Taylor’s
+loss which first brought grief.
+RESPONSE: It was on the wedding-day of this
+beloved friend that Emma first sat in mournful thought of any
+continuance.
+
+INPUT: Summarize: It was Miss Taylor’s
+loss which first brought grief. It was on the wedding-day of this
+beloved friend that Emma first sat in mournful thought of any
+continuance.
+RESPONSE: The wedding over, and the bride-people gone, her father
+and herself were left to dine together, with no prospect of a third to
+cheer a long evening.
+
+INPUT: What does this mean: The wedding over, and the bride-people gone, her father
+and herself were left to dine together, with no prospect of a third to
+cheer a long evening.
+RESPONSE: Her father composed himself to sleep after
+dinner, as usual, and she had then only to sit and think of what she
+had lost.
+
+INPUT: Summarize: The wedding over, and the bride-people gone, her father
+and herself were left to dine together, with no prospect of a third to
+cheer a long evening. Her father composed himself to sleep after
+dinner, as usual, and she had then only to sit and think of what she
+had lost.
+RESPONSE: The event had every promise of happiness for her friend.
+
+INPUT: What is this about: The event had every promise of happiness for her friend.
+RESPONSE: Weston was
+a man of unexceptionable character, easy fortune, suitable age, and
+pleasant manners; and there was some satisfaction in considering with
+what self-denying, generous friendship she had always wished and
+promoted the match; but it was a black morning’s work for her.
+
+INPUT: Summarize: The event had every promise of happiness for her friend. Weston was
+a man of unexceptionable character, easy fortune, suitable age, and
+pleasant manners; and there was some satisfaction in considering with
+what self-denying, generous friendship she had always wished and
+promoted the match; but it was a black morning’s work for her.
+RESPONSE: The want
+of Miss Taylor would be felt every hour of every day.
+
+INPUT: Can you explain: The want
+of Miss Taylor would be felt every hour of every day.
+RESPONSE: She recalled her
+past kindness—the kindness, the affection of sixteen years—how she had
+taught and how she had played with her from five years old—how she had
+devoted all her powers to attach and amuse her in health—and how nursed
+her through the various illnesses of childhood.
+
+INPUT: Summarize: The want
+of Miss Taylor would be felt every hour of every day. She recalled her
+past kindness—the kindness, the affection of sixteen years—how she had
+taught and how she had played with her from five years old—how she had
+devoted all her powers to attach and amuse her in health—and how nursed
+her through the various illnesses of childhood.
+RESPONSE: A large debt of
+gratitude was owing here; but the intercourse of the last seven years,
+the equal footing and perfect unreserve which had soon followed
+Isabella’s marriage, on their being left to each other, was yet a
+dearer, tenderer recollection.
+
+INPUT: Tell me about: A large debt of
+gratitude was owing here; but the intercourse of the last seven years,
+the equal footing and perfect unreserve which had soon followed
+Isabella’s marriage, on their being left to each other, was yet a
+dearer, tenderer recollection.
+RESPONSE: She had been a friend and companion such
+as few possessed: intelligent, well-informed, useful, gentle, knowing
+all the ways of the family, interested in all its concerns, and
+peculiarly interested in herself, in every pleasure, every scheme of
+hers—one to whom she could speak every thought as it arose, and who had
+such an affection for her as could never find fault.
+
+INPUT: Summarize: A large debt of
+gratitude was owing here; but the intercourse of the last seven years,
+the equal footing and perfect unreserve which had soon followed
+Isabella’s marriage, on their being left to each other, was yet a
+dearer, tenderer recollection. She had been a friend and companion such
+as few possessed: intelligent, well-informed, useful, gentle, knowing
+all the ways of the family, interested in all its concerns, and
+peculiarly interested in herself, in every pleasure, every scheme of
+hers—one to whom she could speak every thought as it arose, and who had
+such an affection for her as could never find fault.
+RESPONSE: How was she to bear the change?
+
+INPUT: Can you explain: How was she to bear the change?
+RESPONSE: —It was true that her friend was going
+only half a mile from them; but Emma was aware that great must be the
+difference between a Mrs.
+
+INPUT: Summarize: How was she to bear the change? —It was true that her friend was going
+only half a mile from them; but Emma was aware that great must be the
+difference between a Mrs.
+RESPONSE: Weston, only half a mile from them, and a
+Miss Taylor in the house; and with all her advantages, natural and
+domestic, she was now in great danger of suffering from intellectual
+solitude.
+
+INPUT: Tell me about: Weston, only half a mile from them, and a
+Miss Taylor in the house; and with all her advantages, natural and
+domestic, she was now in great danger of suffering from intellectual
+solitude.
+RESPONSE: She dearly loved her father, but he was no companion for her.
+
+INPUT: Summarize: Weston, only half a mile from them, and a
+Miss Taylor in the house; and with all her advantages, natural and
+domestic, she was now in great danger of suffering from intellectual
+solitude. She dearly loved her father, but he was no companion for her.
+RESPONSE: He could not meet her in conversation, rational or playful.
+
+INPUT: Can you explain: He could not meet her in conversation, rational or playful.
+RESPONSE: The evil of the actual disparity in their ages (and Mr.
+
+INPUT: Summarize: He could not meet her in conversation, rational or playful. The evil of the actual disparity in their ages (and Mr.
+RESPONSE: Woodhouse had
+not married early) was much increased by his constitution and habits;
+for having been a valetudinarian all his life, without activity of mind
+or body, he was a much older man in ways than in years; and though
+everywhere beloved for the friendliness of his heart and his amiable
+temper, his talents could not have recommended him at any time.
+
+INPUT: What does this say: Woodhouse had
+not married early) was much increased by his constitution and habits;
+for having been a valetudinarian all his life, without activity of mind
+or body, he was a much older man in ways than in years; and though
+everywhere beloved for the friendliness of his heart and his amiable
+temper, his talents could not have recommended him at any time.
+RESPONSE: Her sister, though comparatively but little removed by matrimony, being
+settled in London, only sixteen miles off, was much beyond her daily
+reach; and many a long October and November evening must be struggled
+through at Hartfield, before Christmas brought the next visit from
+Isabella and her husband, and their little children, to fill the house,
+and give her pleasant society again.
+
+INPUT: Summarize: Woodhouse had
+not married early) was much increased by his constitution and habits;
+for having been a valetudinarian all his life, without activity of mind
+or body, he was a much older man in ways than in years; and though
+everywhere beloved for the friendliness of his heart and his amiable
+temper, his talents could not have recommended him at any time. Her sister, though comparatively but little removed by matrimony, being
+settled in London, only sixteen miles off, was much beyond her daily
+reach; and many a long October and November evening must be struggled
+through at Hartfield, before Christmas brought the next visit from
+Isabella and her husband, and their little children, to fill the house,
+and give her pleasant society again.
+RESPONSE: Highbury, the large and populous village, almost amounting to a town,
+to which Hartfield, in spite of its separate lawn, and shrubberies, and
+name, did really belong, afforded her no equals.
+
+INPUT: Explain this: Highbury, the large and populous village, almost amounting to a town,
+to which Hartfield, in spite of its separate lawn, and shrubberies, and
+name, did really belong, afforded her no equals.
+RESPONSE: The Woodhouses were
+first in consequence there.
+
+INPUT: Summarize: Highbury, the large and populous village, almost amounting to a town,
+to which Hartfield, in spite of its separate lawn, and shrubberies, and
+name, did really belong, afforded her no equals. The Woodhouses were
+first in consequence there.
+RESPONSE: All looked up to them.
+
+INPUT: What does this mean: All looked up to them.
+RESPONSE: She had many
+acquaintance in the place, for her father was universally civil, but
+not one among them who could be accepted in lieu of Miss Taylor for
+even half a day.
+
+INPUT: Summarize: All looked up to them. She had many
+acquaintance in the place, for her father was universally civil, but
+not one among them who could be accepted in lieu of Miss Taylor for
+even half a day.
+RESPONSE: It was a melancholy change; and Emma could not but
+sigh over it, and wish for impossible things, till her father awoke,
+and made it necessary to be cheerful.
+
+INPUT: What does this mean: It was a melancholy change; and Emma could not but
+sigh over it, and wish for impossible things, till her father awoke,
+and made it necessary to be cheerful.
+RESPONSE: His spirits required support.
+
+INPUT: Summarize: It was a melancholy change; and Emma could not but
+sigh over it, and wish for impossible things, till her father awoke,
+and made it necessary to be cheerful. His spirits required support.
+RESPONSE: He
+was a nervous man, easily depressed; fond of every body that he was
+used to, and hating to part with them; hating change of every kind.
+
+INPUT: Explain this: He
+was a nervous man, easily depressed; fond of every body that he was
+used to, and hating to part with them; hating change of every kind.
+RESPONSE: Emma smiled and
+chatted as cheerfully as she could, to keep him from such thoughts; but
+when tea came, it was impossible for him not to say exactly as he had
+said at dinner,
+
+“Poor Miss Taylor!
+
+INPUT: Summarize: He
+was a nervous man, easily depressed; fond of every body that he was
+used to, and hating to part with them; hating change of every kind. Emma smiled and
+chatted as cheerfully as she could, to keep him from such thoughts; but
+when tea came, it was impossible for him not to say exactly as he had
+said at dinner,
+
+“Poor Miss Taylor!
+RESPONSE: —I wish she were here again.
+
+INPUT: Explain this: —I wish she were here again.
+RESPONSE: What a pity it is that
+Mr.
+
+INPUT: Summarize: —I wish she were here again. What a pity it is that
+Mr.
+RESPONSE: Weston ever thought of her!
+
+INPUT: What does this say: Weston ever thought of her!
+RESPONSE: ”
+
+“I cannot agree with you, papa; you know I cannot.
+
+INPUT: Summarize: Weston ever thought of her! ”
+
+“I cannot agree with you, papa; you know I cannot.
+RESPONSE: Weston is such a
+good-humoured, pleasant, excellent man, that he thoroughly deserves a
+good wife;—and you would not have had Miss Taylor live with us for
+ever, and bear all my odd humours, when she might have a house of her
+own?
+
+INPUT: Tell me about: Weston is such a
+good-humoured, pleasant, excellent man, that he thoroughly deserves a
+good wife;—and you would not have had Miss Taylor live with us for
+ever, and bear all my odd humours, when she might have a house of her
+own?
+RESPONSE: ”
+
+“A house of her own!
+
+INPUT: Summarize: Weston is such a
+good-humoured, pleasant, excellent man, that he thoroughly deserves a
+good wife;—and you would not have had Miss Taylor live with us for
+ever, and bear all my odd humours, when she might have a house of her
+own? ”
+
+“A house of her own!
+RESPONSE: —But where is the advantage of a house of her own?
+
+INPUT: What is this about: —But where is the advantage of a house of her own?
+RESPONSE: This is three times as large.
+
+INPUT: Summarize: —But where is the advantage of a house of her own? This is three times as large.
+RESPONSE: —And you have never any odd humours, my
+dear.
+
+INPUT: What is this about: —And you have never any odd humours, my
+dear.
+RESPONSE: ”
+
+“How often we shall be going to see them, and they coming to see us!
+
+INPUT: Summarize: —And you have never any odd humours, my
+dear. ”
+
+“How often we shall be going to see them, and they coming to see us!
+RESPONSE: —We
+shall be always meeting!
+
+INPUT: Tell me about: —We
+shall be always meeting!
+RESPONSE: _We_ must begin; we must go and pay wedding
+visit very soon.
+
+INPUT: Summarize: —We
+shall be always meeting! _We_ must begin; we must go and pay wedding
+visit very soon.
+RESPONSE: ”
+
+“My dear, how am I to get so far?
+
+INPUT: Tell me about: ”
+
+“My dear, how am I to get so far?
+RESPONSE: Randalls is such a distance.
+
+INPUT: Summarize: ”
+
+“My dear, how am I to get so far? Randalls is such a distance.
+RESPONSE: I could
+not walk half so far.
+
+INPUT: Tell me about: I could
+not walk half so far.
+RESPONSE: ”
+
+“No, papa, nobody thought of your walking.
+
+INPUT: Summarize: I could
+not walk half so far. ”
+
+“No, papa, nobody thought of your walking.
+RESPONSE: We must go in the carriage,
+to be sure.
+
+INPUT: Can you explain: We must go in the carriage,
+to be sure.
+RESPONSE: ”
+
+“The carriage!
+
+INPUT: Summarize: We must go in the carriage,
+to be sure. ”
+
+“The carriage!
+RESPONSE: But James will not like to put the horses to for such a
+little way;—and where are the poor horses to be while we are paying our
+visit?
+
+INPUT: Can you explain: But James will not like to put the horses to for such a
+little way;—and where are the poor horses to be while we are paying our
+visit?
+RESPONSE: ”
+
+“They are to be put into Mr.
+
+INPUT: Summarize: But James will not like to put the horses to for such a
+little way;—and where are the poor horses to be while we are paying our
+visit? ”
+
+“They are to be put into Mr.
+RESPONSE: Weston’s stable, papa.
+
+INPUT: Can you explain: Weston’s stable, papa.
+RESPONSE: You know we have
+settled all that already.
+
+INPUT: Summarize: Weston’s stable, papa. You know we have
+settled all that already.
+RESPONSE: We talked it all over with Mr.
+
+INPUT: What does this say: We talked it all over with Mr.
+RESPONSE: And as for James, you may be very sure he will always like going
+to Randalls, because of his daughter’s being housemaid there.
+
+INPUT: Summarize: We talked it all over with Mr. And as for James, you may be very sure he will always like going
+to Randalls, because of his daughter’s being housemaid there.
+RESPONSE: I only
+doubt whether he will ever take us anywhere else.
+
+INPUT: What does this mean: I only
+doubt whether he will ever take us anywhere else.
+RESPONSE: That was your doing,
+papa.
+
+INPUT: Summarize: I only
+doubt whether he will ever take us anywhere else. That was your doing,
+papa.
+RESPONSE: You got Hannah that good place.
+
+INPUT: What does this mean: You got Hannah that good place.
+RESPONSE: Nobody thought of Hannah till you
+mentioned her—James is so obliged to you!
+
+INPUT: Summarize: You got Hannah that good place. Nobody thought of Hannah till you
+mentioned her—James is so obliged to you!
+RESPONSE: ”
+
+“I am very glad I did think of her.
+
+INPUT: What does this mean: ”
+
+“I am very glad I did think of her.
+RESPONSE: It was very lucky, for I would not
+have had poor James think himself slighted upon any account; and I am
+sure she will make a very good servant: she is a civil, pretty-spoken
+girl; I have a great opinion of her.
+
+INPUT: Summarize: ”
+
+“I am very glad I did think of her. It was very lucky, for I would not
+have had poor James think himself slighted upon any account; and I am
+sure she will make a very good servant: she is a civil, pretty-spoken
+girl; I have a great opinion of her.
+RESPONSE: Whenever I see her, she always
+curtseys and asks me how I do, in a very pretty manner; and when you
+have had her here to do needlework, I observe she always turns the lock
+of the door the right way and never bangs it.
+
+INPUT: What does this say: Whenever I see her, she always
+curtseys and asks me how I do, in a very pretty manner; and when you
+have had her here to do needlework, I observe she always turns the lock
+of the door the right way and never bangs it.
+RESPONSE: I am sure she will be an
+excellent servant; and it will be a great comfort to poor Miss Taylor
+to have somebody about her that she is used to see.
+
+INPUT: Summarize: Whenever I see her, she always
+curtseys and asks me how I do, in a very pretty manner; and when you
+have had her here to do needlework, I observe she always turns the lock
+of the door the right way and never bangs it. I am sure she will be an
+excellent servant; and it will be a great comfort to poor Miss Taylor
+to have somebody about her that she is used to see.
+RESPONSE: Whenever James goes
+over to see his daughter, you know, she will be hearing of us.
+
+INPUT: What is this about: Whenever James goes
+over to see his daughter, you know, she will be hearing of us.
+RESPONSE: He will
+be able to tell her how we all are.
+
+INPUT: Summarize: Whenever James goes
+over to see his daughter, you know, she will be hearing of us. He will
+be able to tell her how we all are.
+RESPONSE: ”
+
+Emma spared no exertions to maintain this happier flow of ideas, and
+hoped, by the help of backgammon, to get her father tolerably through
+the evening, and be attacked by no regrets but her own.
+
+INPUT: Can you explain: ”
+
+Emma spared no exertions to maintain this happier flow of ideas, and
+hoped, by the help of backgammon, to get her father tolerably through
+the evening, and be attacked by no regrets but her own.
+RESPONSE: The
+backgammon-table was placed; but a visitor immediately afterwards
+walked in and made it unnecessary.
+
+INPUT: Summarize: ”
+
+Emma spared no exertions to maintain this happier flow of ideas, and
+hoped, by the help of backgammon, to get her father tolerably through
+the evening, and be attacked by no regrets but her own. The
+backgammon-table was placed; but a visitor immediately afterwards
+walked in and made it unnecessary.
+RESPONSE: Knightley, a sensible man about seven or eight-and-thirty, was not
+only a very old and intimate friend of the family, but particularly
+connected with it, as the elder brother of Isabella’s husband.
+
+INPUT: Explain this: Knightley, a sensible man about seven or eight-and-thirty, was not
+only a very old and intimate friend of the family, but particularly
+connected with it, as the elder brother of Isabella’s husband.
+RESPONSE: He lived
+about a mile from Highbury, was a frequent visitor, and always welcome,
+and at this time more welcome than usual, as coming directly from their
+mutual connexions in London.
+
+INPUT: Summarize: Knightley, a sensible man about seven or eight-and-thirty, was not
+only a very old and intimate friend of the family, but particularly
+connected with it, as the elder brother of Isabella’s husband. He lived
+about a mile from Highbury, was a frequent visitor, and always welcome,
+and at this time more welcome than usual, as coming directly from their
+mutual connexions in London.
+RESPONSE: He had returned to a late dinner, after
+some days’ absence, and now walked up to Hartfield to say that all were
+well in Brunswick Square.
+
+INPUT: Can you explain: He had returned to a late dinner, after
+some days’ absence, and now walked up to Hartfield to say that all were
+well in Brunswick Square.
+RESPONSE: It was a happy circumstance, and animated Mr.
+
+INPUT: Summarize: He had returned to a late dinner, after
+some days’ absence, and now walked up to Hartfield to say that all were
+well in Brunswick Square. It was a happy circumstance, and animated Mr.
+RESPONSE: Woodhouse for some time.
+
+INPUT: Explain this: Woodhouse for some time.
+RESPONSE: Knightley had a cheerful manner, which
+always did him good; and his many inquiries after “poor Isabella” and
+her children were answered most satisfactorily.
+
+INPUT: Summarize: Woodhouse for some time. Knightley had a cheerful manner, which
+always did him good; and his many inquiries after “poor Isabella” and
+her children were answered most satisfactorily.
+RESPONSE: When this was over, Mr.
+
+INPUT: What is this about: When this was over, Mr.
+RESPONSE: Woodhouse gratefully observed, “It is very kind of you, Mr.
+
+INPUT: Summarize: When this was over, Mr. Woodhouse gratefully observed, “It is very kind of you, Mr.
+RESPONSE: Knightley,
+to come out at this late hour to call upon us.
+
+INPUT: What is this about: Knightley,
+to come out at this late hour to call upon us.
+RESPONSE: I am afraid you must
+have had a shocking walk.
+
+INPUT: Summarize: Knightley,
+to come out at this late hour to call upon us. I am afraid you must
+have had a shocking walk.
+RESPONSE: ”
+
+“Not at all, sir.
+
+INPUT: What is this about: ”
+
+“Not at all, sir.
+RESPONSE: It is a beautiful moonlight night; and so mild that I
+must draw back from your great fire.
+
+INPUT: Summarize: ”
+
+“Not at all, sir. It is a beautiful moonlight night; and so mild that I
+must draw back from your great fire.
+RESPONSE: ”
+
+“But you must have found it very damp and dirty.
+
+INPUT: What does this say: ”
+
+“But you must have found it very damp and dirty.
+RESPONSE: I wish you may not
+catch cold.
+
+INPUT: Summarize: ”
+
+“But you must have found it very damp and dirty. I wish you may not
+catch cold.
+RESPONSE: that is quite surprising, for we have had a vast deal of rain
+here.
+
+INPUT: Tell me about: that is quite surprising, for we have had a vast deal of rain
+here.
+RESPONSE: It rained dreadfully hard for half an hour while we were at
+breakfast.
+
+INPUT: Summarize: that is quite surprising, for we have had a vast deal of rain
+here. It rained dreadfully hard for half an hour while we were at
+breakfast.
+RESPONSE: I wanted them to put off the wedding.
+
+INPUT: Can you explain: I wanted them to put off the wedding.
+RESPONSE: ”
+
+“By the bye—I have not wished you joy.
+
+INPUT: Summarize: I wanted them to put off the wedding. ”
+
+“By the bye—I have not wished you joy.
+RESPONSE: Being pretty well aware of what
+sort of joy you must both be feeling, I have been in no hurry with my
+congratulations; but I hope it all went off tolerably well.
+
+INPUT: Tell me about: Being pretty well aware of what
+sort of joy you must both be feeling, I have been in no hurry with my
+congratulations; but I hope it all went off tolerably well.
+RESPONSE: How did you
+all behave?
+
+INPUT: Summarize: Being pretty well aware of what
+sort of joy you must both be feeling, I have been in no hurry with my
+congratulations; but I hope it all went off tolerably well. How did you
+all behave?
+RESPONSE: ’Tis a sad business.
+
+INPUT: Tell me about: ’Tis a sad business.
+RESPONSE: and Miss Woodhouse, if you please; but I cannot possibly say
+‘poor Miss Taylor.
+
+INPUT: Summarize: ’Tis a sad business. and Miss Woodhouse, if you please; but I cannot possibly say
+‘poor Miss Taylor.
+RESPONSE: ’ I have a great regard for you and Emma; but when it
+comes to the question of dependence or independence!
+
+INPUT: What does this say: ’ I have a great regard for you and Emma; but when it
+comes to the question of dependence or independence!
+RESPONSE: —At any rate, it
+must be better to have only one to please than two.
+
+INPUT: Summarize: ’ I have a great regard for you and Emma; but when it
+comes to the question of dependence or independence! —At any rate, it
+must be better to have only one to please than two.
+RESPONSE: ”
+
+“Especially when _one_ of those two is such a fanciful, troublesome
+creature!
+
+INPUT: What does this mean: ”
+
+“Especially when _one_ of those two is such a fanciful, troublesome
+creature!
+RESPONSE: ” said Emma playfully.
+
+INPUT: Summarize: ”
+
+“Especially when _one_ of those two is such a fanciful, troublesome
+creature! ” said Emma playfully.
+RESPONSE: “That is what you have in your head, I
+know—and what you would certainly say if my father were not by.
+
+INPUT: What does this say: “That is what you have in your head, I
+know—and what you would certainly say if my father were not by.
+RESPONSE: ”
+
+“I believe it is very true, my dear, indeed,” said Mr.
+
+INPUT: Summarize: “That is what you have in your head, I
+know—and what you would certainly say if my father were not by. ”
+
+“I believe it is very true, my dear, indeed,” said Mr.
+RESPONSE: Woodhouse, with
+a sigh.
+
+INPUT: Explain this: Woodhouse, with
+a sigh.
+RESPONSE: “I am afraid I am sometimes very fanciful and troublesome.
+
+INPUT: Summarize: Woodhouse, with
+a sigh. “I am afraid I am sometimes very fanciful and troublesome.
+RESPONSE: ”
+
+“My dearest papa!
+
+INPUT: Can you explain: ”
+
+“My dearest papa!
+RESPONSE: You do not think I could mean _you_, or suppose Mr.
+
+INPUT: Summarize: ”
+
+“My dearest papa! You do not think I could mean _you_, or suppose Mr.
+RESPONSE: Knightley to mean _you_.
+
+INPUT: Tell me about: Knightley to mean _you_.
+RESPONSE: What a horrible idea!
+
+INPUT: Summarize: Knightley to mean _you_. What a horrible idea!
+RESPONSE: Knightley loves to find fault with me, you know—in a
+joke—it is all a joke.
+
+INPUT: Tell me about: Knightley loves to find fault with me, you know—in a
+joke—it is all a joke.
+RESPONSE: We always say what we like to one another.
+
+INPUT: Summarize: Knightley loves to find fault with me, you know—in a
+joke—it is all a joke. We always say what we like to one another.
+RESPONSE: Knightley, in fact, was one of the few people who could see faults
+in Emma Woodhouse, and the only one who ever told her of them: and
+though this was not particularly agreeable to Emma herself, she knew it
+would be so much less so to her father, that she would not have him
+really suspect such a circumstance as her not being thought perfect by
+every body.
+
+INPUT: What is this about: Knightley, in fact, was one of the few people who could see faults
+in Emma Woodhouse, and the only one who ever told her of them: and
+though this was not particularly agreeable to Emma herself, she knew it
+would be so much less so to her father, that she would not have him
+really suspect such a circumstance as her not being thought perfect by
+every body.
+RESPONSE: “Emma knows I never flatter her,” said Mr.
+
+INPUT: Summarize: Knightley, in fact, was one of the few people who could see faults
+in Emma Woodhouse, and the only one who ever told her of them: and
+though this was not particularly agreeable to Emma herself, she knew it
+would be so much less so to her father, that she would not have him
+really suspect such a circumstance as her not being thought perfect by
+every body. “Emma knows I never flatter her,” said Mr.
+RESPONSE: Knightley, “but I meant no
+reflection on any body.
+
+INPUT: Tell me about: Knightley, “but I meant no
+reflection on any body.
+RESPONSE: Miss Taylor has been used to have two persons
+to please; she will now have but one.
+
+INPUT: Summarize: Knightley, “but I meant no
+reflection on any body. Miss Taylor has been used to have two persons
+to please; she will now have but one.
+RESPONSE: The chances are that she must be
+a gainer.
+
+INPUT: Tell me about: The chances are that she must be
+a gainer.
+RESPONSE: ”
+
+“Well,” said Emma, willing to let it pass—“you want to hear about the
+wedding; and I shall be happy to tell you, for we all behaved
+charmingly.
+
+INPUT: Summarize: The chances are that she must be
+a gainer. ”
+
+“Well,” said Emma, willing to let it pass—“you want to hear about the
+wedding; and I shall be happy to tell you, for we all behaved
+charmingly.
+RESPONSE: Every body was punctual, every body in their best looks:
+not a tear, and hardly a long face to be seen.
+
+INPUT: Explain this: Every body was punctual, every body in their best looks:
+not a tear, and hardly a long face to be seen.
+RESPONSE: Oh no; we all felt that
+we were going to be only half a mile apart, and were sure of meeting
+every day.
+
+INPUT: Summarize: Every body was punctual, every body in their best looks:
+not a tear, and hardly a long face to be seen. Oh no; we all felt that
+we were going to be only half a mile apart, and were sure of meeting
+every day.
+RESPONSE: ”
+
+“Dear Emma bears every thing so well,” said her father.
+
+INPUT: Can you explain: ”
+
+“Dear Emma bears every thing so well,” said her father.
+RESPONSE: Knightley, she is really very sorry to lose poor Miss Taylor, and I am
+sure she _will_ miss her more than she thinks for.
+
+INPUT: Summarize: ”
+
+“Dear Emma bears every thing so well,” said her father. Knightley, she is really very sorry to lose poor Miss Taylor, and I am
+sure she _will_ miss her more than she thinks for.
+RESPONSE: ”
+
+Emma turned away her head, divided between tears and smiles.
+
+INPUT: What is this about: ”
+
+Emma turned away her head, divided between tears and smiles.
+RESPONSE: “It is
+impossible that Emma should not miss such a companion,” said Mr.
+
+INPUT: Summarize: ”
+
+Emma turned away her head, divided between tears and smiles. “It is
+impossible that Emma should not miss such a companion,” said Mr.
+RESPONSE: “We should not like her so well as we do, sir, if we could
+suppose it; but she knows how much the marriage is to Miss Taylor’s
+advantage; she knows how very acceptable it must be, at Miss Taylor’s
+time of life, to be settled in a home of her own, and how important to
+her to be secure of a comfortable provision, and therefore cannot allow
+herself to feel so much pain as pleasure.
+
+INPUT: What is this about: “We should not like her so well as we do, sir, if we could
+suppose it; but she knows how much the marriage is to Miss Taylor’s
+advantage; she knows how very acceptable it must be, at Miss Taylor’s
+time of life, to be settled in a home of her own, and how important to
+her to be secure of a comfortable provision, and therefore cannot allow
+herself to feel so much pain as pleasure.
+RESPONSE: Every friend of Miss Taylor
+must be glad to have her so happily married.
+
+INPUT: Summarize: “We should not like her so well as we do, sir, if we could
+suppose it; but she knows how much the marriage is to Miss Taylor’s
+advantage; she knows how very acceptable it must be, at Miss Taylor’s
+time of life, to be settled in a home of her own, and how important to
+her to be secure of a comfortable provision, and therefore cannot allow
+herself to feel so much pain as pleasure. Every friend of Miss Taylor
+must be glad to have her so happily married.
+RESPONSE: ”
+
+“And you have forgotten one matter of joy to me,” said Emma, “and a
+very considerable one—that I made the match myself.
+
+INPUT: Tell me about: ”
+
+“And you have forgotten one matter of joy to me,” said Emma, “and a
+very considerable one—that I made the match myself.
+RESPONSE: I made the match,
+you know, four years ago; and to have it take place, and be proved in
+the right, when so many people said Mr.
+
+INPUT: Summarize: ”
+
+“And you have forgotten one matter of joy to me,” said Emma, “and a
+very considerable one—that I made the match myself. I made the match,
+you know, four years ago; and to have it take place, and be proved in
+the right, when so many people said Mr.
+RESPONSE: Weston would never marry again,
+may comfort me for any thing.
+
+INPUT: What is this about: Weston would never marry again,
+may comfort me for any thing.
+RESPONSE: Knightley shook his head at her.
+
+INPUT: Summarize: Weston would never marry again,
+may comfort me for any thing. Knightley shook his head at her.
+RESPONSE: Her father fondly replied, “Ah!
+
+INPUT: Tell me about: Her father fondly replied, “Ah!
+RESPONSE: my
+dear, I wish you would not make matches and foretell things, for
+whatever you say always comes to pass.
+
+INPUT: Summarize: Her father fondly replied, “Ah! my
+dear, I wish you would not make matches and foretell things, for
+whatever you say always comes to pass.
+RESPONSE: Pray do not make any more
+matches.
+
+INPUT: What does this say: Pray do not make any more
+matches.
+RESPONSE: ”
+
+“I promise you to make none for myself, papa; but I must, indeed, for
+other people.
+
+INPUT: Summarize: Pray do not make any more
+matches. ”
+
+“I promise you to make none for myself, papa; but I must, indeed, for
+other people.
+RESPONSE: It is the greatest amusement in the world!
+
+INPUT: Explain this: It is the greatest amusement in the world!
+RESPONSE: And after such
+success, you know!
+
+INPUT: Summarize: It is the greatest amusement in the world! And after such
+success, you know!
+RESPONSE: —Every body said that Mr.
+
+INPUT: What is this about: —Every body said that Mr.
+RESPONSE: Weston would never marry
+again.
+
+INPUT: Summarize: —Every body said that Mr. Weston would never marry
+again.
+RESPONSE: Weston, who had been a widower so long, and who
+seemed so perfectly comfortable without a wife, so constantly occupied
+either in his business in town or among his friends here, always
+acceptable wherever he went, always cheerful—Mr.
+
+INPUT: Can you explain: Weston, who had been a widower so long, and who
+seemed so perfectly comfortable without a wife, so constantly occupied
+either in his business in town or among his friends here, always
+acceptable wherever he went, always cheerful—Mr.
+RESPONSE: Weston need not spend
+a single evening in the year alone if he did not like it.
+
+INPUT: Summarize: Weston, who had been a widower so long, and who
+seemed so perfectly comfortable without a wife, so constantly occupied
+either in his business in town or among his friends here, always
+acceptable wherever he went, always cheerful—Mr. Weston need not spend
+a single evening in the year alone if he did not like it.
+RESPONSE: Weston certainly would never marry again.
+
+INPUT: What does this say: Weston certainly would never marry again.
+RESPONSE: Some people even talked of a
+promise to his wife on her deathbed, and others of the son and the
+uncle not letting him.
+
+INPUT: Summarize: Weston certainly would never marry again. Some people even talked of a
+promise to his wife on her deathbed, and others of the son and the
+uncle not letting him.
+RESPONSE: All manner of solemn nonsense was talked on the
+subject, but I believed none of it.
+
+INPUT: What does this mean: All manner of solemn nonsense was talked on the
+subject, but I believed none of it.
+RESPONSE: “Ever since the day—about four years ago—that Miss Taylor and I met
+with him in Broadway Lane, when, because it began to drizzle, he darted
+away with so much gallantry, and borrowed two umbrellas for us from
+Farmer Mitchell’s, I made up my mind on the subject.
+
+INPUT: Summarize: All manner of solemn nonsense was talked on the
+subject, but I believed none of it. “Ever since the day—about four years ago—that Miss Taylor and I met
+with him in Broadway Lane, when, because it began to drizzle, he darted
+away with so much gallantry, and borrowed two umbrellas for us from
+Farmer Mitchell’s, I made up my mind on the subject.
+RESPONSE: I planned the
+match from that hour; and when such success has blessed me in this
+instance, dear papa, you cannot think that I shall leave off
+match-making.
+
+INPUT: What is this about: I planned the
+match from that hour; and when such success has blessed me in this
+instance, dear papa, you cannot think that I shall leave off
+match-making.
+RESPONSE: ”
+
+“I do not understand what you mean by ‘success,’” said Mr.
+
+INPUT: Summarize: I planned the
+match from that hour; and when such success has blessed me in this
+instance, dear papa, you cannot think that I shall leave off
+match-making. ”
+
+“I do not understand what you mean by ‘success,’” said Mr.
+RESPONSE: “Success supposes endeavour.
+
+INPUT: What does this mean: “Success supposes endeavour.
+RESPONSE: Your time has been properly and delicately
+spent, if you have been endeavouring for the last four years to bring
+about this marriage.
+
+INPUT: Summarize: “Success supposes endeavour. Your time has been properly and delicately
+spent, if you have been endeavouring for the last four years to bring
+about this marriage.
+RESPONSE: A worthy employment for a young lady’s mind!
+
+INPUT: What is this about: A worthy employment for a young lady’s mind!
+RESPONSE: But
+if, which I rather imagine, your making the match, as you call it,
+means only your planning it, your saying to yourself one idle day, ‘I
+think it would be a very good thing for Miss Taylor if Mr.
+
+INPUT: Summarize: A worthy employment for a young lady’s mind! But
+if, which I rather imagine, your making the match, as you call it,
+means only your planning it, your saying to yourself one idle day, ‘I
+think it would be a very good thing for Miss Taylor if Mr.
+RESPONSE: Weston were
+to marry her,’ and saying it again to yourself every now and then
+afterwards, why do you talk of success?
+
+INPUT: Tell me about: Weston were
+to marry her,’ and saying it again to yourself every now and then
+afterwards, why do you talk of success?
+RESPONSE: What are
+you proud of?
+
+INPUT: Summarize: Weston were
+to marry her,’ and saying it again to yourself every now and then
+afterwards, why do you talk of success? What are
+you proud of?
+RESPONSE: You made a lucky guess; and _that_ is all that can be
+said.
+
+INPUT: What is this about: You made a lucky guess; and _that_ is all that can be
+said.
+RESPONSE: ”
+
+“And have you never known the pleasure and triumph of a lucky guess?
+
+INPUT: Summarize: You made a lucky guess; and _that_ is all that can be
+said. ”
+
+“And have you never known the pleasure and triumph of a lucky guess?
+RESPONSE: —I thought you cleverer—for, depend upon it a lucky guess is
+never merely luck.
+
+INPUT: Tell me about: —I thought you cleverer—for, depend upon it a lucky guess is
+never merely luck.
+RESPONSE: There is always some talent in it.
+
+INPUT: Summarize: —I thought you cleverer—for, depend upon it a lucky guess is
+never merely luck. There is always some talent in it.
+RESPONSE: And as to my poor
+word ‘success,’ which you quarrel with, I do not know that I am so
+entirely without any claim to it.
+
+INPUT: Tell me about: And as to my poor
+word ‘success,’ which you quarrel with, I do not know that I am so
+entirely without any claim to it.
+RESPONSE: You have drawn two pretty pictures;
+but I think there may be a third—a something between the do-nothing and
+the do-all.
+
+INPUT: Summarize: And as to my poor
+word ‘success,’ which you quarrel with, I do not know that I am so
+entirely without any claim to it. You have drawn two pretty pictures;
+but I think there may be a third—a something between the do-nothing and
+the do-all.
+RESPONSE: If I had not promoted Mr.
+
+INPUT: What is this about: If I had not promoted Mr.
+RESPONSE: Weston’s visits here, and given
+many little encouragements, and smoothed many little matters, it might
+not have come to any thing after all.
+
+INPUT: Summarize: If I had not promoted Mr. Weston’s visits here, and given
+many little encouragements, and smoothed many little matters, it might
+not have come to any thing after all.
+RESPONSE: I think you must know Hartfield
+enough to comprehend that.
+
+INPUT: Tell me about: I think you must know Hartfield
+enough to comprehend that.
+RESPONSE: ”
+
+“A straightforward, open-hearted man like Weston, and a rational,
+unaffected woman like Miss Taylor, may be safely left to manage their
+own concerns.
+
+INPUT: Summarize: I think you must know Hartfield
+enough to comprehend that. ”
+
+“A straightforward, open-hearted man like Weston, and a rational,
+unaffected woman like Miss Taylor, may be safely left to manage their
+own concerns.
+RESPONSE: You are more likely to have done harm to yourself, than
+good to them, by interference.
+
+INPUT: Can you explain: You are more likely to have done harm to yourself, than
+good to them, by interference.
+RESPONSE: ”
+
+“Emma never thinks of herself, if she can do good to others,” rejoined
+Mr.
+
+INPUT: Summarize: You are more likely to have done harm to yourself, than
+good to them, by interference. ”
+
+“Emma never thinks of herself, if she can do good to others,” rejoined
+Mr.
+RESPONSE: Woodhouse, understanding but in part.
+
+INPUT: What does this mean: Woodhouse, understanding but in part.
+RESPONSE: “But, my dear, pray do not
+make any more matches; they are silly things, and break up one’s family
+circle grievously.
+
+INPUT: Summarize: Woodhouse, understanding but in part. “But, my dear, pray do not
+make any more matches; they are silly things, and break up one’s family
+circle grievously.
+RESPONSE: ”
+
+“Only one more, papa; only for Mr.
+
+INPUT: What does this mean: ”
+
+“Only one more, papa; only for Mr.
+RESPONSE: Elton, papa,—I must look about for a wife for him.
+
+INPUT: Summarize: ”
+
+“Only one more, papa; only for Mr. Elton, papa,—I must look about for a wife for him.
+RESPONSE: There is nobody in
+Highbury who deserves him—and he has been here a whole year, and has
+fitted up his house so comfortably, that it would be a shame to have
+him single any longer—and I thought when he was joining their hands
+to-day, he looked so very much as if he would like to have the same
+kind office done for him!
+
+INPUT: Tell me about: There is nobody in
+Highbury who deserves him—and he has been here a whole year, and has
+fitted up his house so comfortably, that it would be a shame to have
+him single any longer—and I thought when he was joining their hands
+to-day, he looked so very much as if he would like to have the same
+kind office done for him!
+RESPONSE: I think very well of Mr.
+
+INPUT: Summarize: There is nobody in
+Highbury who deserves him—and he has been here a whole year, and has
+fitted up his house so comfortably, that it would be a shame to have
+him single any longer—and I thought when he was joining their hands
+to-day, he looked so very much as if he would like to have the same
+kind office done for him! I think very well of Mr.
+RESPONSE: Elton, and this is
+the only way I have of doing him a service.
+
+INPUT: Tell me about: Elton, and this is
+the only way I have of doing him a service.
+RESPONSE: Elton is a very pretty young man, to be sure, and a very good
+young man, and I have a great regard for him.
+
+INPUT: Summarize: Elton, and this is
+the only way I have of doing him a service. Elton is a very pretty young man, to be sure, and a very good
+young man, and I have a great regard for him.
+RESPONSE: But if you want to shew
+him any attention, my dear, ask him to come and dine with us some day.
+
+INPUT: What does this mean: But if you want to shew
+him any attention, my dear, ask him to come and dine with us some day.
+RESPONSE: That will be a much better thing.
+
+INPUT: Summarize: But if you want to shew
+him any attention, my dear, ask him to come and dine with us some day. That will be a much better thing.
+RESPONSE: Knightley will be so
+kind as to meet him.
+
+INPUT: What is this about: Knightley will be so
+kind as to meet him.
+RESPONSE: ”
+
+“With a great deal of pleasure, sir, at any time,” said Mr.
+
+INPUT: Summarize: Knightley will be so
+kind as to meet him. ”
+
+“With a great deal of pleasure, sir, at any time,” said Mr.
+RESPONSE: Knightley,
+laughing, “and I agree with you entirely, that it will be a much better
+thing.
+
+INPUT: What does this say: Knightley,
+laughing, “and I agree with you entirely, that it will be a much better
+thing.
+RESPONSE: Invite him to dinner, Emma, and help him to the best of the fish
+and the chicken, but leave him to chuse his own wife.
+
+INPUT: Summarize: Knightley,
+laughing, “and I agree with you entirely, that it will be a much better
+thing. Invite him to dinner, Emma, and help him to the best of the fish
+and the chicken, but leave him to chuse his own wife.
+RESPONSE: Depend upon it, a
+man of six or seven-and-twenty can take care of himself.
+
+INPUT: Tell me about: Depend upon it, a
+man of six or seven-and-twenty can take care of himself.
+RESPONSE: Weston was a native of Highbury, and born of a respectable family,
+which for the last two or three generations had been rising into
+gentility and property.
+
+INPUT: Summarize: Depend upon it, a
+man of six or seven-and-twenty can take care of himself. Weston was a native of Highbury, and born of a respectable family,
+which for the last two or three generations had been rising into
+gentility and property.
+RESPONSE: He had received a good education, but, on
+succeeding early in life to a small independence, had become indisposed
+for any of the more homely pursuits in which his brothers were engaged,
+and had satisfied an active, cheerful mind and social temper by
+entering into the militia of his county, then embodied.
+
+INPUT: Can you explain: He had received a good education, but, on
+succeeding early in life to a small independence, had become indisposed
+for any of the more homely pursuits in which his brothers were engaged,
+and had satisfied an active, cheerful mind and social temper by
+entering into the militia of his county, then embodied.
+RESPONSE: Captain Weston was a general favourite; and when the chances of his
+military life had introduced him to Miss Churchill, of a great
+Yorkshire family, and Miss Churchill fell in love with him, nobody was
+surprized, except her brother and his wife, who had never seen him, and
+who were full of pride and importance, which the connexion would
+offend.
+
+INPUT: Summarize: He had received a good education, but, on
+succeeding early in life to a small independence, had become indisposed
+for any of the more homely pursuits in which his brothers were engaged,
+and had satisfied an active, cheerful mind and social temper by
+entering into the militia of his county, then embodied. Captain Weston was a general favourite; and when the chances of his
+military life had introduced him to Miss Churchill, of a great
+Yorkshire family, and Miss Churchill fell in love with him, nobody was
+surprized, except her brother and his wife, who had never seen him, and
+who were full of pride and importance, which the connexion would
+offend.
+RESPONSE: Miss Churchill, however, being of age, and with the full command of her
+fortune—though her fortune bore no proportion to the family-estate—was
+not to be dissuaded from the marriage, and it took place, to the
+infinite mortification of Mr.
+
+INPUT: What does this mean: Miss Churchill, however, being of age, and with the full command of her
+fortune—though her fortune bore no proportion to the family-estate—was
+not to be dissuaded from the marriage, and it took place, to the
+infinite mortification of Mr.
+RESPONSE: Churchill, who threw her off
+with due decorum.
+
+INPUT: Summarize: Miss Churchill, however, being of age, and with the full command of her
+fortune—though her fortune bore no proportion to the family-estate—was
+not to be dissuaded from the marriage, and it took place, to the
+infinite mortification of Mr. Churchill, who threw her off
+with due decorum.
+RESPONSE: It was an unsuitable connexion, and did not produce
+much happiness.
+
+INPUT: What does this mean: It was an unsuitable connexion, and did not produce
+much happiness.
+RESPONSE: Weston ought to have found more in it, for she had
+a husband whose warm heart and sweet temper made him think every thing
+due to her in return for the great goodness of being in love with him;
+but though she had one sort of spirit, she had not the best.
+
+INPUT: Summarize: It was an unsuitable connexion, and did not produce
+much happiness. Weston ought to have found more in it, for she had
+a husband whose warm heart and sweet temper made him think every thing
+due to her in return for the great goodness of being in love with him;
+but though she had one sort of spirit, she had not the best.
+RESPONSE: She had
+resolution enough to pursue her own will in spite of her brother, but
+not enough to refrain from unreasonable regrets at that brother’s
+unreasonable anger, nor from missing the luxuries of her former home.
+
+INPUT: Tell me about: She had
+resolution enough to pursue her own will in spite of her brother, but
+not enough to refrain from unreasonable regrets at that brother’s
+unreasonable anger, nor from missing the luxuries of her former home.
+RESPONSE: They lived beyond their income, but still it was nothing in comparison
+of Enscombe: she did not cease to love her husband, but she wanted at
+once to be the wife of Captain Weston, and Miss Churchill of Enscombe.
+
+INPUT: Summarize: She had
+resolution enough to pursue her own will in spite of her brother, but
+not enough to refrain from unreasonable regrets at that brother’s
+unreasonable anger, nor from missing the luxuries of her former home. They lived beyond their income, but still it was nothing in comparison
+of Enscombe: she did not cease to love her husband, but she wanted at
+once to be the wife of Captain Weston, and Miss Churchill of Enscombe.
+RESPONSE: Captain Weston, who had been considered, especially by the Churchills,
+as making such an amazing match, was proved to have much the worst of
+the bargain; for when his wife died, after a three years’ marriage, he
+was rather a poorer man than at first, and with a child to maintain.
+
+INPUT: What does this mean: Captain Weston, who had been considered, especially by the Churchills,
+as making such an amazing match, was proved to have much the worst of
+the bargain; for when his wife died, after a three years’ marriage, he
+was rather a poorer man than at first, and with a child to maintain.
+RESPONSE: From the expense of the child, however, he was soon relieved.
+
+INPUT: Summarize: Captain Weston, who had been considered, especially by the Churchills,
+as making such an amazing match, was proved to have much the worst of
+the bargain; for when his wife died, after a three years’ marriage, he
+was rather a poorer man than at first, and with a child to maintain. From the expense of the child, however, he was soon relieved.
+RESPONSE: The boy
+had, with the additional softening claim of a lingering illness of his
+mother’s, been the means of a sort of reconciliation; and Mr.
+
+INPUT: Can you explain: The boy
+had, with the additional softening claim of a lingering illness of his
+mother’s, been the means of a sort of reconciliation; and Mr.
+RESPONSE: Churchill, having no children of their own, nor any other young
+creature of equal kindred to care for, offered to take the whole charge
+of the little Frank soon after her decease.
+
+INPUT: Summarize: The boy
+had, with the additional softening claim of a lingering illness of his
+mother’s, been the means of a sort of reconciliation; and Mr. Churchill, having no children of their own, nor any other young
+creature of equal kindred to care for, offered to take the whole charge
+of the little Frank soon after her decease.
+RESPONSE: Some scruples and some
+reluctance the widower-father may be supposed to have felt; but as they
+were overcome by other considerations, the child was given up to the
+care and the wealth of the Churchills, and he had only his own comfort
+to seek, and his own situation to improve as he could.
+
+INPUT: Explain this: Some scruples and some
+reluctance the widower-father may be supposed to have felt; but as they
+were overcome by other considerations, the child was given up to the
+care and the wealth of the Churchills, and he had only his own comfort
+to seek, and his own situation to improve as he could.
+RESPONSE: A complete change of life became desirable.
+
+INPUT: Summarize: Some scruples and some
+reluctance the widower-father may be supposed to have felt; but as they
+were overcome by other considerations, the child was given up to the
+care and the wealth of the Churchills, and he had only his own comfort
+to seek, and his own situation to improve as he could. A complete change of life became desirable.
+RESPONSE: He quitted the militia and
+engaged in trade, having brothers already established in a good way in
+London, which afforded him a favourable opening.
+
+INPUT: Explain this: He quitted the militia and
+engaged in trade, having brothers already established in a good way in
+London, which afforded him a favourable opening.
+RESPONSE: It was a concern which
+brought just employment enough.
+
+INPUT: Summarize: He quitted the militia and
+engaged in trade, having brothers already established in a good way in
+London, which afforded him a favourable opening. It was a concern which
+brought just employment enough.
+RESPONSE: He had still a small house in Highbury,
+where most of his leisure days were spent; and between useful
+occupation and the pleasures of society, the next eighteen or twenty
+years of his life passed cheerfully away.
+
+INPUT: What does this mean: He had still a small house in Highbury,
+where most of his leisure days were spent; and between useful
+occupation and the pleasures of society, the next eighteen or twenty
+years of his life passed cheerfully away.
+RESPONSE: He had, by that time,
+realised an easy competence—enough to secure the purchase of a little
+estate adjoining Highbury, which he had always longed for—enough to
+marry a woman as portionless even as Miss Taylor, and to live according
+to the wishes of his own friendly and social disposition.
+
+INPUT: Summarize: He had still a small house in Highbury,
+where most of his leisure days were spent; and between useful
+occupation and the pleasures of society, the next eighteen or twenty
+years of his life passed cheerfully away. He had, by that time,
+realised an easy competence—enough to secure the purchase of a little
+estate adjoining Highbury, which he had always longed for—enough to
+marry a woman as portionless even as Miss Taylor, and to live according
+to the wishes of his own friendly and social disposition.
+RESPONSE: It was now some time since Miss Taylor had begun to influence his
+schemes; but as it was not the tyrannic influence of youth on youth, it
+had not shaken his determination of never settling till he could
+purchase Randalls, and the sale of Randalls was long looked forward to;
+but he had gone steadily on, with these objects in view, till they were
+accomplished.
+
+INPUT: What does this mean: It was now some time since Miss Taylor had begun to influence his
+schemes; but as it was not the tyrannic influence of youth on youth, it
+had not shaken his determination of never settling till he could
+purchase Randalls, and the sale of Randalls was long looked forward to;
+but he had gone steadily on, with these objects in view, till they were
+accomplished.
+RESPONSE: He had made his fortune, bought his house, and obtained
+his wife; and was beginning a new period of existence, with every
+probability of greater happiness than in any yet passed through.
+
+INPUT: Summarize: It was now some time since Miss Taylor had begun to influence his
+schemes; but as it was not the tyrannic influence of youth on youth, it
+had not shaken his determination of never settling till he could
+purchase Randalls, and the sale of Randalls was long looked forward to;
+but he had gone steadily on, with these objects in view, till they were
+accomplished. He had made his fortune, bought his house, and obtained
+his wife; and was beginning a new period of existence, with every
+probability of greater happiness than in any yet passed through.
+RESPONSE: He had
+never been an unhappy man; his own temper had secured him from that,
+even in his first marriage; but his second must shew him how delightful
+a well-judging and truly amiable woman could be, and must give him the
+pleasantest proof of its being a great deal better to choose than to be
+chosen, to excite gratitude than to feel it.
+
+INPUT: What does this say: He had
+never been an unhappy man; his own temper had secured him from that,
+even in his first marriage; but his second must shew him how delightful
+a well-judging and truly amiable woman could be, and must give him the
+pleasantest proof of its being a great deal better to choose than to be
+chosen, to excite gratitude than to feel it.
+RESPONSE: He had only himself to please in his choice: his fortune was his own;
+for as to Frank, it was more than being tacitly brought up as his
+uncle’s heir, it had become so avowed an adoption as to have him assume
+the name of Churchill on coming of age.
+
+INPUT: Summarize: He had
+never been an unhappy man; his own temper had secured him from that,
+even in his first marriage; but his second must shew him how delightful
+a well-judging and truly amiable woman could be, and must give him the
+pleasantest proof of its being a great deal better to choose than to be
+chosen, to excite gratitude than to feel it. He had only himself to please in his choice: his fortune was his own;
+for as to Frank, it was more than being tacitly brought up as his
+uncle’s heir, it had become so avowed an adoption as to have him assume
+the name of Churchill on coming of age.
+RESPONSE: It was most unlikely,
+therefore, that he should ever want his father’s assistance.
+
+INPUT: What is this about: It was most unlikely,
+therefore, that he should ever want his father’s assistance.
+RESPONSE: His father
+had no apprehension of it.
+
+INPUT: Summarize: It was most unlikely,
+therefore, that he should ever want his father’s assistance. His father
+had no apprehension of it.
+RESPONSE: The aunt was a capricious woman, and
+governed her husband entirely; but it was not in Mr.
+
+INPUT: Explain this: The aunt was a capricious woman, and
+governed her husband entirely; but it was not in Mr.
+RESPONSE: Weston’s nature to
+imagine that any caprice could be strong enough to affect one so dear,
+and, as he believed, so deservedly dear.
+
+INPUT: Summarize: The aunt was a capricious woman, and
+governed her husband entirely; but it was not in Mr. Weston’s nature to
+imagine that any caprice could be strong enough to affect one so dear,
+and, as he believed, so deservedly dear.
+RESPONSE: He saw his son every year in
+London, and was proud of him; and his fond report of him as a very fine
+young man had made Highbury feel a sort of pride in him too.
+
+INPUT: Tell me about: He saw his son every year in
+London, and was proud of him; and his fond report of him as a very fine
+young man had made Highbury feel a sort of pride in him too.
+RESPONSE: He was
+looked on as sufficiently belonging to the place to make his merits and
+prospects a kind of common concern.
+
+INPUT: Summarize: He saw his son every year in
+London, and was proud of him; and his fond report of him as a very fine
+young man had made Highbury feel a sort of pride in him too. He was
+looked on as sufficiently belonging to the place to make his merits and
+prospects a kind of common concern.
+RESPONSE: Frank Churchill was one of the boasts of Highbury, and a lively
+curiosity to see him prevailed, though the compliment was so little
+returned that he had never been there in his life.
+
+INPUT: Explain this: Frank Churchill was one of the boasts of Highbury, and a lively
+curiosity to see him prevailed, though the compliment was so little
+returned that he had never been there in his life.
+RESPONSE: His coming to visit
+his father had been often talked of but never achieved.
+
+INPUT: Summarize: Frank Churchill was one of the boasts of Highbury, and a lively
+curiosity to see him prevailed, though the compliment was so little
+returned that he had never been there in his life. His coming to visit
+his father had been often talked of but never achieved.
+RESPONSE: Now, upon his father’s marriage, it was very generally proposed, as a
+most proper attention, that the visit should take place.
+
+INPUT: What does this say: Now, upon his father’s marriage, it was very generally proposed, as a
+most proper attention, that the visit should take place.
+RESPONSE: There was not
+a dissentient voice on the subject, either when Mrs.
+
+INPUT: Summarize: Now, upon his father’s marriage, it was very generally proposed, as a
+most proper attention, that the visit should take place. There was not
+a dissentient voice on the subject, either when Mrs.
+RESPONSE: Perry drank tea
+with Mrs.
+
+INPUT: What is this about: Perry drank tea
+with Mrs.
+RESPONSE: and Miss Bates, or when Mrs.
+
+INPUT: Summarize: Perry drank tea
+with Mrs. and Miss Bates, or when Mrs.
+RESPONSE: and Miss Bates returned the
+visit.
+
+INPUT: What does this say: and Miss Bates returned the
+visit.
+RESPONSE: Now was the time for Mr.
+
+INPUT: Summarize: and Miss Bates returned the
+visit. Now was the time for Mr.
+RESPONSE: Frank Churchill to come among them; and
+the hope strengthened when it was understood that he had written to his
+new mother on the occasion.
+
+INPUT: Tell me about: Frank Churchill to come among them; and
+the hope strengthened when it was understood that he had written to his
+new mother on the occasion.
+RESPONSE: For a few days, every morning visit in
+Highbury included some mention of the handsome letter Mrs.
+
+INPUT: Summarize: Frank Churchill to come among them; and
+the hope strengthened when it was understood that he had written to his
+new mother on the occasion. For a few days, every morning visit in
+Highbury included some mention of the handsome letter Mrs.
+RESPONSE: “I suppose you have heard of the handsome letter Mr.
+
+INPUT: What is this about: “I suppose you have heard of the handsome letter Mr.
+RESPONSE: Frank
+Churchill has written to Mrs.
+
+INPUT: Summarize: “I suppose you have heard of the handsome letter Mr. Frank
+Churchill has written to Mrs.
+RESPONSE: I understand it was a very
+handsome letter, indeed.
+
+INPUT: What does this mean: I understand it was a very
+handsome letter, indeed.
+RESPONSE: Woodhouse told me of it.
+
+INPUT: Summarize: I understand it was a very
+handsome letter, indeed. Woodhouse told me of it.
+RESPONSE: Woodhouse saw
+the letter, and he says he never saw such a handsome letter in his
+life.
+
+INPUT: Explain this: Woodhouse saw
+the letter, and he says he never saw such a handsome letter in his
+life.
+RESPONSE: ”
+
+It was, indeed, a highly prized letter.
+
+INPUT: Summarize: Woodhouse saw
+the letter, and he says he never saw such a handsome letter in his
+life. ”
+
+It was, indeed, a highly prized letter.
+RESPONSE: Weston had, of course,
+formed a very favourable idea of the young man; and such a pleasing
+attention was an irresistible proof of his great good sense, and a most
+welcome addition to every source and every expression of congratulation
+which her marriage had already secured.
+
+INPUT: Tell me about: Weston had, of course,
+formed a very favourable idea of the young man; and such a pleasing
+attention was an irresistible proof of his great good sense, and a most
+welcome addition to every source and every expression of congratulation
+which her marriage had already secured.
+RESPONSE: She felt herself a most
+fortunate woman; and she had lived long enough to know how fortunate
+she might well be thought, where the only regret was for a partial
+separation from friends whose friendship for her had never cooled, and
+who could ill bear to part with her.
+
+INPUT: Summarize: Weston had, of course,
+formed a very favourable idea of the young man; and such a pleasing
+attention was an irresistible proof of his great good sense, and a most
+welcome addition to every source and every expression of congratulation
+which her marriage had already secured. She felt herself a most
+fortunate woman; and she had lived long enough to know how fortunate
+she might well be thought, where the only regret was for a partial
+separation from friends whose friendship for her had never cooled, and
+who could ill bear to part with her.
+RESPONSE: She knew that at times she must be missed; and could not think, without
+pain, of Emma’s losing a single pleasure, or suffering an hour’s ennui,
+from the want of her companionableness: but dear Emma was of no feeble
+character; she was more equal to her situation than most girls would
+have been, and had sense, and energy, and spirits that might be hoped
+would bear her well and happily through its little difficulties and
+privations.
+
+INPUT: Can you explain: She knew that at times she must be missed; and could not think, without
+pain, of Emma’s losing a single pleasure, or suffering an hour’s ennui,
+from the want of her companionableness: but dear Emma was of no feeble
+character; she was more equal to her situation than most girls would
+have been, and had sense, and energy, and spirits that might be hoped
+would bear her well and happily through its little difficulties and
+privations.
+RESPONSE: And then there was such comfort in the very easy distance
+of Randalls from Hartfield, so convenient for even solitary female
+walking, and in Mr.
+
+INPUT: Summarize: She knew that at times she must be missed; and could not think, without
+pain, of Emma’s losing a single pleasure, or suffering an hour’s ennui,
+from the want of her companionableness: but dear Emma was of no feeble
+character; she was more equal to her situation than most girls would
+have been, and had sense, and energy, and spirits that might be hoped
+would bear her well and happily through its little difficulties and
+privations. And then there was such comfort in the very easy distance
+of Randalls from Hartfield, so convenient for even solitary female
+walking, and in Mr.
+RESPONSE: Weston’s disposition and circumstances, which would
+make the approaching season no hindrance to their spending half the
+evenings in the week together.
+
+INPUT: Tell me about: Weston’s disposition and circumstances, which would
+make the approaching season no hindrance to their spending half the
+evenings in the week together.
+RESPONSE: Her situation was altogether the subject of hours of gratitude to Mrs.
+
+INPUT: Summarize: Weston’s disposition and circumstances, which would
+make the approaching season no hindrance to their spending half the
+evenings in the week together. Her situation was altogether the subject of hours of gratitude to Mrs.
+RESPONSE: Weston, and of moments only of regret; and her satisfaction—her more
+than satisfaction—her cheerful enjoyment, was so just and so apparent,
+that Emma, well as she knew her father, was sometimes taken by surprize
+at his being still able to pity ‘poor Miss Taylor,’ when they left her
+at Randalls in the centre of every domestic comfort, or saw her go away
+in the evening attended by her pleasant husband to a carriage of her
+own.
+
+INPUT: Tell me about: Weston, and of moments only of regret; and her satisfaction—her more
+than satisfaction—her cheerful enjoyment, was so just and so apparent,
+that Emma, well as she knew her father, was sometimes taken by surprize
+at his being still able to pity ‘poor Miss Taylor,’ when they left her
+at Randalls in the centre of every domestic comfort, or saw her go away
+in the evening attended by her pleasant husband to a carriage of her
+own.
+RESPONSE: But never did she go without Mr.
+
+INPUT: Summarize: Weston, and of moments only of regret; and her satisfaction—her more
+than satisfaction—her cheerful enjoyment, was so just and so apparent,
+that Emma, well as she knew her father, was sometimes taken by surprize
+at his being still able to pity ‘poor Miss Taylor,’ when they left her
+at Randalls in the centre of every domestic comfort, or saw her go away
+in the evening attended by her pleasant husband to a carriage of her
+own. But never did she go without Mr.
+RESPONSE: Woodhouse’s giving a gentle sigh,
+and saying, “Ah, poor Miss Taylor!
+
+INPUT: Can you explain: Woodhouse’s giving a gentle sigh,
+and saying, “Ah, poor Miss Taylor!
+RESPONSE: She would be very glad to stay.
+
+INPUT: Summarize: Woodhouse’s giving a gentle sigh,
+and saying, “Ah, poor Miss Taylor! She would be very glad to stay.
+RESPONSE: ”
+
+There was no recovering Miss Taylor—nor much likelihood of ceasing to
+pity her; but a few weeks brought some alleviation to Mr.
+
+INPUT: What is this about: ”
+
+There was no recovering Miss Taylor—nor much likelihood of ceasing to
+pity her; but a few weeks brought some alleviation to Mr.
+RESPONSE: The compliments of his neighbours were over; he was no longer teased by
+being wished joy of so sorrowful an event; and the wedding-cake, which
+had been a great distress to him, was all eat up.
+
+INPUT: Summarize: ”
+
+There was no recovering Miss Taylor—nor much likelihood of ceasing to
+pity her; but a few weeks brought some alleviation to Mr. The compliments of his neighbours were over; he was no longer teased by
+being wished joy of so sorrowful an event; and the wedding-cake, which
+had been a great distress to him, was all eat up.
+RESPONSE: His own stomach could
+bear nothing rich, and he could never believe other people to be
+different from himself.
+
+INPUT: What does this say: His own stomach could
+bear nothing rich, and he could never believe other people to be
+different from himself.
+RESPONSE: What was unwholesome to him he regarded as
+unfit for any body; and he had, therefore, earnestly tried to dissuade
+them from having any wedding-cake at all, and when that proved vain, as
+earnestly tried to prevent any body’s eating it.
+
+INPUT: Summarize: His own stomach could
+bear nothing rich, and he could never believe other people to be
+different from himself. What was unwholesome to him he regarded as
+unfit for any body; and he had, therefore, earnestly tried to dissuade
+them from having any wedding-cake at all, and when that proved vain, as
+earnestly tried to prevent any body’s eating it.
+RESPONSE: He had been at the
+pains of consulting Mr.
+
+INPUT: Explain this: He had been at the
+pains of consulting Mr.
+RESPONSE: Perry, the apothecary, on the subject.
+
+INPUT: Summarize: He had been at the
+pains of consulting Mr. Perry, the apothecary, on the subject.
+RESPONSE: Perry was an intelligent, gentlemanlike man, whose frequent visits were
+one of the comforts of Mr.
+
+INPUT: What does this say: Perry was an intelligent, gentlemanlike man, whose frequent visits were
+one of the comforts of Mr.
+RESPONSE: Woodhouse’s life; and upon being applied to,
+he could not but acknowledge (though it seemed rather against the bias
+of inclination) that wedding-cake might certainly disagree with
+many—perhaps with most people, unless taken moderately.
+
+INPUT: Summarize: Perry was an intelligent, gentlemanlike man, whose frequent visits were
+one of the comforts of Mr. Woodhouse’s life; and upon being applied to,
+he could not but acknowledge (though it seemed rather against the bias
+of inclination) that wedding-cake might certainly disagree with
+many—perhaps with most people, unless taken moderately.
+RESPONSE: With such an
+opinion, in confirmation of his own, Mr.
+
+INPUT: Explain this: With such an
+opinion, in confirmation of his own, Mr.
+RESPONSE: Woodhouse hoped to influence
+every visitor of the newly married pair; but still the cake was eaten;
+and there was no rest for his benevolent nerves till it was all gone.
+
+INPUT: Summarize: With such an
+opinion, in confirmation of his own, Mr. Woodhouse hoped to influence
+every visitor of the newly married pair; but still the cake was eaten;
+and there was no rest for his benevolent nerves till it was all gone.
+RESPONSE: There was a strange rumour in Highbury of all the little Perrys being
+seen with a slice of Mrs.
+
+INPUT: What is this about: There was a strange rumour in Highbury of all the little Perrys being
+seen with a slice of Mrs.
+RESPONSE: Weston’s wedding-cake in their hands: but Mr.
+
+INPUT: Summarize: There was a strange rumour in Highbury of all the little Perrys being
+seen with a slice of Mrs. Weston’s wedding-cake in their hands: but Mr.
+RESPONSE: Woodhouse would never believe it.
+
+INPUT: What is this about: Woodhouse would never believe it.
+RESPONSE: Woodhouse was fond of society in his own way.
+
+INPUT: Summarize: Woodhouse would never believe it. Woodhouse was fond of society in his own way.
+RESPONSE: He liked very much to
+have his friends come and see him; and from various united causes, from
+his long residence at Hartfield, and his good nature, from his fortune,
+his house, and his daughter, he could command the visits of his own
+little circle, in a great measure, as he liked.
+
+INPUT: Can you explain: He liked very much to
+have his friends come and see him; and from various united causes, from
+his long residence at Hartfield, and his good nature, from his fortune,
+his house, and his daughter, he could command the visits of his own
+little circle, in a great measure, as he liked.
+RESPONSE: He had not much
+intercourse with any families beyond that circle; his horror of late
+hours, and large dinner-parties, made him unfit for any acquaintance
+but such as would visit him on his own terms.
+
+INPUT: Summarize: He liked very much to
+have his friends come and see him; and from various united causes, from
+his long residence at Hartfield, and his good nature, from his fortune,
+his house, and his daughter, he could command the visits of his own
+little circle, in a great measure, as he liked. He had not much
+intercourse with any families beyond that circle; his horror of late
+hours, and large dinner-parties, made him unfit for any acquaintance
+but such as would visit him on his own terms.
+RESPONSE: Fortunately for him,
+Highbury, including Randalls in the same parish, and Donwell Abbey in
+the parish adjoining, the seat of Mr.
+
+INPUT: What is this about: Fortunately for him,
+Highbury, including Randalls in the same parish, and Donwell Abbey in
+the parish adjoining, the seat of Mr.
+RESPONSE: Knightley, comprehended many
+such.
+
+INPUT: Summarize: Fortunately for him,
+Highbury, including Randalls in the same parish, and Donwell Abbey in
+the parish adjoining, the seat of Mr. Knightley, comprehended many
+such.
+RESPONSE: Not unfrequently, through Emma’s persuasion, he had some of the
+chosen and the best to dine with him: but evening parties were what he
+preferred; and, unless he fancied himself at any time unequal to
+company, there was scarcely an evening in the week in which Emma could
+not make up a card-table for him.
+
+INPUT: What does this say: Not unfrequently, through Emma’s persuasion, he had some of the
+chosen and the best to dine with him: but evening parties were what he
+preferred; and, unless he fancied himself at any time unequal to
+company, there was scarcely an evening in the week in which Emma could
+not make up a card-table for him.
+RESPONSE: Real, long-standing regard brought the Westons and Mr.
+
+INPUT: Summarize: Not unfrequently, through Emma’s persuasion, he had some of the
+chosen and the best to dine with him: but evening parties were what he
+preferred; and, unless he fancied himself at any time unequal to
+company, there was scarcely an evening in the week in which Emma could
+not make up a card-table for him. Real, long-standing regard brought the Westons and Mr.
+RESPONSE: Knightley; and
+by Mr.
+
+INPUT: What is this about: Knightley; and
+by Mr.
+RESPONSE: Elton, a young man living alone without liking it, the privilege
+of exchanging any vacant evening of his own blank solitude for the
+elegancies and society of Mr.
+
+INPUT: Summarize: Knightley; and
+by Mr. Elton, a young man living alone without liking it, the privilege
+of exchanging any vacant evening of his own blank solitude for the
+elegancies and society of Mr.
+RESPONSE: Woodhouse’s drawing-room, and the smiles
+of his lovely daughter, was in no danger of being thrown away.
+
+INPUT: What does this say: Woodhouse’s drawing-room, and the smiles
+of his lovely daughter, was in no danger of being thrown away.
+RESPONSE: After these came a second set; among the most come-at-able of whom were
+Mrs.
+
+INPUT: Summarize: Woodhouse’s drawing-room, and the smiles
+of his lovely daughter, was in no danger of being thrown away. After these came a second set; among the most come-at-able of whom were
+Mrs.
+RESPONSE: and Miss Bates, and Mrs.
+
+INPUT: What is this about: and Miss Bates, and Mrs.
+RESPONSE: Goddard, three ladies almost always at
+the service of an invitation from Hartfield, and who were fetched and
+carried home so often, that Mr.
+
+INPUT: Summarize: and Miss Bates, and Mrs. Goddard, three ladies almost always at
+the service of an invitation from Hartfield, and who were fetched and
+carried home so often, that Mr.
+RESPONSE: Woodhouse thought it no hardship for
+either James or the horses.
+
+INPUT: Can you explain: Woodhouse thought it no hardship for
+either James or the horses.
+RESPONSE: Had it taken place only once a year, it
+would have been a grievance.
+
+INPUT: Summarize: Woodhouse thought it no hardship for
+either James or the horses. Had it taken place only once a year, it
+would have been a grievance.
+RESPONSE: Bates, the widow of a former vicar of Highbury, was a very old
+lady, almost past every thing but tea and quadrille.
+
+INPUT: What is this about: Bates, the widow of a former vicar of Highbury, was a very old
+lady, almost past every thing but tea and quadrille.
+RESPONSE: She lived with her
+single daughter in a very small way, and was considered with all the
+regard and respect which a harmless old lady, under such untoward
+circumstances, can excite.
+
+INPUT: Summarize: Bates, the widow of a former vicar of Highbury, was a very old
+lady, almost past every thing but tea and quadrille. She lived with her
+single daughter in a very small way, and was considered with all the
+regard and respect which a harmless old lady, under such untoward
+circumstances, can excite.
+RESPONSE: Her daughter enjoyed a most uncommon degree
+of popularity for a woman neither young, handsome, rich, nor married.
+
+INPUT: Explain this: Her daughter enjoyed a most uncommon degree
+of popularity for a woman neither young, handsome, rich, nor married.
+RESPONSE: Miss Bates stood in the very worst predicament in the world for having
+much of the public favour; and she had no intellectual superiority to
+make atonement to herself, or frighten those who might hate her into
+outward respect.
+
+INPUT: Summarize: Her daughter enjoyed a most uncommon degree
+of popularity for a woman neither young, handsome, rich, nor married. Miss Bates stood in the very worst predicament in the world for having
+much of the public favour; and she had no intellectual superiority to
+make atonement to herself, or frighten those who might hate her into
+outward respect.
+RESPONSE: She had never boasted either beauty or cleverness.
+
+INPUT: What does this say: She had never boasted either beauty or cleverness.
+RESPONSE: Her
+youth had passed without distinction, and her middle of life was
+devoted to the care of a failing mother, and the endeavour to make a
+small income go as far as possible.
+
+INPUT: Summarize: She had never boasted either beauty or cleverness. Her
+youth had passed without distinction, and her middle of life was
+devoted to the care of a failing mother, and the endeavour to make a
+small income go as far as possible.
+RESPONSE: And yet she was a happy woman, and
+a woman whom no one named without good-will.
+
+INPUT: What is this about: And yet she was a happy woman, and
+a woman whom no one named without good-will.
+RESPONSE: It was her own universal
+good-will and contented temper which worked such wonders.
+
+INPUT: Summarize: And yet she was a happy woman, and
+a woman whom no one named without good-will. It was her own universal
+good-will and contented temper which worked such wonders.
+RESPONSE: She loved
+every body, was interested in every body’s happiness, quicksighted to
+every body’s merits; thought herself a most fortunate creature, and
+surrounded with blessings in such an excellent mother, and so many good
+neighbours and friends, and a home that wanted for nothing.
+
+INPUT: What does this mean: She loved
+every body, was interested in every body’s happiness, quicksighted to
+every body’s merits; thought herself a most fortunate creature, and
+surrounded with blessings in such an excellent mother, and so many good
+neighbours and friends, and a home that wanted for nothing.
+RESPONSE: The
+simplicity and cheerfulness of her nature, her contented and grateful
+spirit, were a recommendation to every body, and a mine of felicity to
+herself.
+
+INPUT: Summarize: She loved
+every body, was interested in every body’s happiness, quicksighted to
+every body’s merits; thought herself a most fortunate creature, and
+surrounded with blessings in such an excellent mother, and so many good
+neighbours and friends, and a home that wanted for nothing. The
+simplicity and cheerfulness of her nature, her contented and grateful
+spirit, were a recommendation to every body, and a mine of felicity to
+herself.
+RESPONSE: She was a great talker upon little matters, which exactly
+suited Mr.
+
+INPUT: What does this say: She was a great talker upon little matters, which exactly
+suited Mr.
+RESPONSE: Woodhouse, full of trivial communications and harmless
+gossip.
+
+INPUT: Summarize: She was a great talker upon little matters, which exactly
+suited Mr. Woodhouse, full of trivial communications and harmless
+gossip.
+RESPONSE: Goddard’s school was in high repute—and very deservedly; for Highbury
+was reckoned a particularly healthy spot: she had an ample house and
+garden, gave the children plenty of wholesome food, let them run about
+a great deal in the summer, and in winter dressed their chilblains with
+her own hands.
+
+INPUT: Explain this: Goddard’s school was in high repute—and very deservedly; for Highbury
+was reckoned a particularly healthy spot: she had an ample house and
+garden, gave the children plenty of wholesome food, let them run about
+a great deal in the summer, and in winter dressed their chilblains with
+her own hands.
+RESPONSE: It was no wonder that a train of twenty young couple now
+walked after her to church.
+
+INPUT: Summarize: Goddard’s school was in high repute—and very deservedly; for Highbury
+was reckoned a particularly healthy spot: she had an ample house and
+garden, gave the children plenty of wholesome food, let them run about
+a great deal in the summer, and in winter dressed their chilblains with
+her own hands. It was no wonder that a train of twenty young couple now
+walked after her to church.
+RESPONSE: She was a plain, motherly kind of woman,
+who had worked hard in her youth, and now thought herself entitled to
+the occasional holiday of a tea-visit; and having formerly owed much to
+Mr.
+
+INPUT: What does this say: She was a plain, motherly kind of woman,
+who had worked hard in her youth, and now thought herself entitled to
+the occasional holiday of a tea-visit; and having formerly owed much to
+Mr.
+RESPONSE: Woodhouse’s kindness, felt his particular claim on her to leave her
+neat parlour, hung round with fancy-work, whenever she could, and win
+or lose a few sixpences by his fireside.
+
+INPUT: Summarize: She was a plain, motherly kind of woman,
+who had worked hard in her youth, and now thought herself entitled to
+the occasional holiday of a tea-visit; and having formerly owed much to
+Mr. Woodhouse’s kindness, felt his particular claim on her to leave her
+neat parlour, hung round with fancy-work, whenever she could, and win
+or lose a few sixpences by his fireside.
+RESPONSE: These were the ladies whom Emma found herself very frequently able to
+collect; and happy was she, for her father’s sake, in the power;
+though, as far as she was herself concerned, it was no remedy for the
+absence of Mrs.
+
+INPUT: What does this say: These were the ladies whom Emma found herself very frequently able to
+collect; and happy was she, for her father’s sake, in the power;
+though, as far as she was herself concerned, it was no remedy for the
+absence of Mrs.
+RESPONSE: She was delighted to see her father look
+comfortable, and very much pleased with herself for contriving things
+so well; but the quiet prosings of three such women made her feel that
+every evening so spent was indeed one of the long evenings she had
+fearfully anticipated.
+
+INPUT: Summarize: These were the ladies whom Emma found herself very frequently able to
+collect; and happy was she, for her father’s sake, in the power;
+though, as far as she was herself concerned, it was no remedy for the
+absence of Mrs. She was delighted to see her father look
+comfortable, and very much pleased with herself for contriving things
+so well; but the quiet prosings of three such women made her feel that
+every evening so spent was indeed one of the long evenings she had
+fearfully anticipated.
+RESPONSE: As she sat one morning, looking forward to exactly such a close of the
+present day, a note was brought from Mrs.
+
+INPUT: Tell me about: As she sat one morning, looking forward to exactly such a close of the
+present day, a note was brought from Mrs.
+RESPONSE: Goddard, requesting, in most
+respectful terms, to be allowed to bring Miss Smith with her; a most
+welcome request: for Miss Smith was a girl of seventeen, whom Emma knew
+very well by sight, and had long felt an interest in, on account of her
+beauty.
+
+INPUT: Summarize: As she sat one morning, looking forward to exactly such a close of the
+present day, a note was brought from Mrs. Goddard, requesting, in most
+respectful terms, to be allowed to bring Miss Smith with her; a most
+welcome request: for Miss Smith was a girl of seventeen, whom Emma knew
+very well by sight, and had long felt an interest in, on account of her
+beauty.
+RESPONSE: A very gracious invitation was returned, and the evening no
+longer dreaded by the fair mistress of the mansion.
+
+INPUT: Explain this: A very gracious invitation was returned, and the evening no
+longer dreaded by the fair mistress of the mansion.
+RESPONSE: Harriet Smith was the natural daughter of somebody.
+
+INPUT: Summarize: A very gracious invitation was returned, and the evening no
+longer dreaded by the fair mistress of the mansion. Harriet Smith was the natural daughter of somebody.
+RESPONSE: Somebody had placed
+her, several years back, at Mrs.
+
+INPUT: What is this about: Somebody had placed
+her, several years back, at Mrs.
+RESPONSE: Goddard’s school, and somebody had
+lately raised her from the condition of scholar to that of
+parlour-boarder.
+
+INPUT: Summarize: Somebody had placed
+her, several years back, at Mrs. Goddard’s school, and somebody had
+lately raised her from the condition of scholar to that of
+parlour-boarder.
+RESPONSE: This was all that was generally known of her history.
+
+INPUT: Tell me about: This was all that was generally known of her history.
+RESPONSE: She had no visible friends but what had been acquired at Highbury, and
+was now just returned from a long visit in the country to some young
+ladies who had been at school there with her.
+
+INPUT: Summarize: This was all that was generally known of her history. She had no visible friends but what had been acquired at Highbury, and
+was now just returned from a long visit in the country to some young
+ladies who had been at school there with her.
+RESPONSE: She was a very pretty girl, and her beauty happened to be of a sort
+which Emma particularly admired.
+
+INPUT: What does this say: She was a very pretty girl, and her beauty happened to be of a sort
+which Emma particularly admired.
+RESPONSE: She was short, plump, and fair, with a
+fine bloom, blue eyes, light hair, regular features, and a look of
+great sweetness, and, before the end of the evening, Emma was as much
+pleased with her manners as her person, and quite determined to
+continue the acquaintance.
+
+INPUT: Summarize: She was a very pretty girl, and her beauty happened to be of a sort
+which Emma particularly admired. She was short, plump, and fair, with a
+fine bloom, blue eyes, light hair, regular features, and a look of
+great sweetness, and, before the end of the evening, Emma was as much
+pleased with her manners as her person, and quite determined to
+continue the acquaintance.
+RESPONSE: She was not struck by any thing remarkably clever in Miss Smith’s
+conversation, but she found her altogether very engaging—not
+inconveniently shy, not unwilling to talk—and yet so far from pushing,
+shewing so proper and becoming a deference, seeming so pleasantly
+grateful for being admitted to Hartfield, and so artlessly impressed by
+the appearance of every thing in so superior a style to what she had
+been used to, that she must have good sense, and deserve encouragement.
+
+INPUT: What is this about: She was not struck by any thing remarkably clever in Miss Smith’s
+conversation, but she found her altogether very engaging—not
+inconveniently shy, not unwilling to talk—and yet so far from pushing,
+shewing so proper and becoming a deference, seeming so pleasantly
+grateful for being admitted to Hartfield, and so artlessly impressed by
+the appearance of every thing in so superior a style to what she had
+been used to, that she must have good sense, and deserve encouragement.
+RESPONSE: Encouragement should be given.
+
+INPUT: Summarize: She was not struck by any thing remarkably clever in Miss Smith’s
+conversation, but she found her altogether very engaging—not
+inconveniently shy, not unwilling to talk—and yet so far from pushing,
+shewing so proper and becoming a deference, seeming so pleasantly
+grateful for being admitted to Hartfield, and so artlessly impressed by
+the appearance of every thing in so superior a style to what she had
+been used to, that she must have good sense, and deserve encouragement. Encouragement should be given.
+RESPONSE: Those soft blue eyes, and all those
+natural graces, should not be wasted on the inferior society of
+Highbury and its connexions.
+
+INPUT: What does this say: Those soft blue eyes, and all those
+natural graces, should not be wasted on the inferior society of
+Highbury and its connexions.
+RESPONSE: The acquaintance she had already formed
+were unworthy of her.
+
+INPUT: Summarize: Those soft blue eyes, and all those
+natural graces, should not be wasted on the inferior society of
+Highbury and its connexions. The acquaintance she had already formed
+were unworthy of her.
+RESPONSE: The friends from whom she had just parted, though
+very good sort of people, must be doing her harm.
+
+INPUT: What does this mean: The friends from whom she had just parted, though
+very good sort of people, must be doing her harm.
+RESPONSE: They were a family of
+the name of Martin, whom Emma well knew by character, as renting a
+large farm of Mr.
+
+INPUT: Summarize: The friends from whom she had just parted, though
+very good sort of people, must be doing her harm. They were a family of
+the name of Martin, whom Emma well knew by character, as renting a
+large farm of Mr.
+RESPONSE: Knightley, and residing in the parish of Donwell—very
+creditably, she believed—she knew Mr.
+
+INPUT: What does this mean: Knightley, and residing in the parish of Donwell—very
+creditably, she believed—she knew Mr.
+RESPONSE: Knightley thought highly of
+them—but they must be coarse and unpolished, and very unfit to be the
+intimates of a girl who wanted only a little more knowledge and
+elegance to be quite perfect.
+
+INPUT: Summarize: Knightley, and residing in the parish of Donwell—very
+creditably, she believed—she knew Mr. Knightley thought highly of
+them—but they must be coarse and unpolished, and very unfit to be the
+intimates of a girl who wanted only a little more knowledge and
+elegance to be quite perfect.
+RESPONSE: _She_ would notice her; she would improve
+her; she would detach her from her bad acquaintance, and introduce her
+into good society; she would form her opinions and her manners.
+
+INPUT: Explain this: _She_ would notice her; she would improve
+her; she would detach her from her bad acquaintance, and introduce her
+into good society; she would form her opinions and her manners.
+RESPONSE: It
+would be an interesting, and certainly a very kind undertaking; highly
+becoming her own situation in life, her leisure, and powers.
+
+INPUT: Summarize: _She_ would notice her; she would improve
+her; she would detach her from her bad acquaintance, and introduce her
+into good society; she would form her opinions and her manners. It
+would be an interesting, and certainly a very kind undertaking; highly
+becoming her own situation in life, her leisure, and powers.
+RESPONSE: She was so busy in admiring those soft blue eyes, in talking and
+listening, and forming all these schemes in the in-betweens, that the
+evening flew away at a very unusual rate; and the supper-table, which
+always closed such parties, and for which she had been used to sit and
+watch the due time, was all set out and ready, and moved forwards to
+the fire, before she was aware.
+
+INPUT: What does this say: She was so busy in admiring those soft blue eyes, in talking and
+listening, and forming all these schemes in the in-betweens, that the
+evening flew away at a very unusual rate; and the supper-table, which
+always closed such parties, and for which she had been used to sit and
+watch the due time, was all set out and ready, and moved forwards to
+the fire, before she was aware.
+RESPONSE: With an alacrity beyond the common
+impulse of a spirit which yet was never indifferent to the credit of
+doing every thing well and attentively, with the real good-will of a
+mind delighted with its own ideas, did she then do all the honours of
+the meal, and help and recommend the minced chicken and scalloped
+oysters, with an urgency which she knew would be acceptable to the
+early hours and civil scruples of their guests.
+
+INPUT: Summarize: She was so busy in admiring those soft blue eyes, in talking and
+listening, and forming all these schemes in the in-betweens, that the
+evening flew away at a very unusual rate; and the supper-table, which
+always closed such parties, and for which she had been used to sit and
+watch the due time, was all set out and ready, and moved forwards to
+the fire, before she was aware. With an alacrity beyond the common
+impulse of a spirit which yet was never indifferent to the credit of
+doing every thing well and attentively, with the real good-will of a
+mind delighted with its own ideas, did she then do all the honours of
+the meal, and help and recommend the minced chicken and scalloped
+oysters, with an urgency which she knew would be acceptable to the
+early hours and civil scruples of their guests.
+RESPONSE: Upon such occasions poor Mr.
+
+INPUT: Explain this: Upon such occasions poor Mr.
+RESPONSE: Woodhouse’s feelings were in sad warfare.
+
+INPUT: Summarize: Upon such occasions poor Mr. Woodhouse’s feelings were in sad warfare.
+RESPONSE: He loved to have the cloth laid, because it had been the fashion of his
+youth, but his conviction of suppers being very unwholesome made him
+rather sorry to see any thing put on it; and while his hospitality
+would have welcomed his visitors to every thing, his care for their
+health made him grieve that they would eat.
+
+INPUT: What is this about: He loved to have the cloth laid, because it had been the fashion of his
+youth, but his conviction of suppers being very unwholesome made him
+rather sorry to see any thing put on it; and while his hospitality
+would have welcomed his visitors to every thing, his care for their
+health made him grieve that they would eat.
+RESPONSE: Such another small basin of thin gruel as his own was all that he
+could, with thorough self-approbation, recommend; though he might
+constrain himself, while the ladies were comfortably clearing the nicer
+things, to say:
+
+“Mrs.
+
+INPUT: Summarize: He loved to have the cloth laid, because it had been the fashion of his
+youth, but his conviction of suppers being very unwholesome made him
+rather sorry to see any thing put on it; and while his hospitality
+would have welcomed his visitors to every thing, his care for their
+health made him grieve that they would eat. Such another small basin of thin gruel as his own was all that he
+could, with thorough self-approbation, recommend; though he might
+constrain himself, while the ladies were comfortably clearing the nicer
+things, to say:
+
+“Mrs.
+RESPONSE: Bates, let me propose your venturing on one of these eggs.
+
+INPUT: What does this mean: Bates, let me propose your venturing on one of these eggs.
+RESPONSE: An egg
+boiled very soft is not unwholesome.
+
+INPUT: Summarize: Bates, let me propose your venturing on one of these eggs. An egg
+boiled very soft is not unwholesome.
+RESPONSE: Serle understands boiling an egg
+better than any body.
+
+INPUT: What does this say: Serle understands boiling an egg
+better than any body.
+RESPONSE: I would not recommend an egg boiled by any body
+else; but you need not be afraid, they are very small, you see—one of
+our small eggs will not hurt you.
+
+INPUT: Summarize: Serle understands boiling an egg
+better than any body. I would not recommend an egg boiled by any body
+else; but you need not be afraid, they are very small, you see—one of
+our small eggs will not hurt you.
+RESPONSE: Miss Bates, let Emma help you to a
+_little_ bit of tart—a _very_ little bit.
+
+INPUT: Tell me about: Miss Bates, let Emma help you to a
+_little_ bit of tart—a _very_ little bit.
+RESPONSE: Ours are all apple-tarts.
+
+INPUT: Summarize: Miss Bates, let Emma help you to a
+_little_ bit of tart—a _very_ little bit. Ours are all apple-tarts.
+RESPONSE: You
+need not be afraid of unwholesome preserves here.
+
+INPUT: Can you explain: You
+need not be afraid of unwholesome preserves here.
+RESPONSE: I do not advise the
+custard.
+
+INPUT: Summarize: You
+need not be afraid of unwholesome preserves here. I do not advise the
+custard.
+RESPONSE: Goddard, what say you to _half_ a glass of wine?
+
+INPUT: Tell me about: Goddard, what say you to _half_ a glass of wine?
+RESPONSE: A
+_small_ half-glass, put into a tumbler of water?
+
+INPUT: Summarize: Goddard, what say you to _half_ a glass of wine? A
+_small_ half-glass, put into a tumbler of water?
+RESPONSE: I do not think it
+could disagree with you.
+
+INPUT: What is this about: I do not think it
+could disagree with you.
+RESPONSE: ”
+
+Emma allowed her father to talk—but supplied her visitors in a much
+more satisfactory style, and on the present evening had particular
+pleasure in sending them away happy.
+
+INPUT: Summarize: I do not think it
+could disagree with you. ”
+
+Emma allowed her father to talk—but supplied her visitors in a much
+more satisfactory style, and on the present evening had particular
+pleasure in sending them away happy.
+RESPONSE: The happiness of Miss Smith was
+quite equal to her intentions.
+
+INPUT: Can you explain: The happiness of Miss Smith was
+quite equal to her intentions.
+RESPONSE: Miss Woodhouse was so great a personage
+in Highbury, that the prospect of the introduction had given as much
+panic as pleasure; but the humble, grateful little girl went off with
+highly gratified feelings, delighted with the affability with which
+Miss Woodhouse had treated her all the evening, and actually shaken
+hands with her at last!
+
+INPUT: Summarize: The happiness of Miss Smith was
+quite equal to her intentions. Miss Woodhouse was so great a personage
+in Highbury, that the prospect of the introduction had given as much
+panic as pleasure; but the humble, grateful little girl went off with
+highly gratified feelings, delighted with the affability with which
+Miss Woodhouse had treated her all the evening, and actually shaken
+hands with her at last!
+RESPONSE: CHAPTER IV
+
+Harriet Smith’s intimacy at Hartfield was soon a settled thing.
+
+INPUT: What does this say: CHAPTER IV
+
+Harriet Smith’s intimacy at Hartfield was soon a settled thing.
+RESPONSE: Quick
+and decided in her ways, Emma lost no time in inviting, encouraging,
+and telling her to come very often; and as their acquaintance
+increased, so did their satisfaction in each other.
+
+INPUT: Summarize: CHAPTER IV
+
+Harriet Smith’s intimacy at Hartfield was soon a settled thing. Quick
+and decided in her ways, Emma lost no time in inviting, encouraging,
+and telling her to come very often; and as their acquaintance
+increased, so did their satisfaction in each other.
+RESPONSE: As a walking
+companion, Emma had very early foreseen how useful she might find her.
+
+INPUT: What does this say: As a walking
+companion, Emma had very early foreseen how useful she might find her.
+RESPONSE: Weston’s loss had been important.
+
+INPUT: Summarize: As a walking
+companion, Emma had very early foreseen how useful she might find her. Weston’s loss had been important.
+RESPONSE: Her father never
+went beyond the shrubbery, where two divisions of the ground sufficed
+him for his long walk, or his short, as the year varied; and since Mrs.
+
+INPUT: Explain this: Her father never
+went beyond the shrubbery, where two divisions of the ground sufficed
+him for his long walk, or his short, as the year varied; and since Mrs.
+RESPONSE: Weston’s marriage her exercise had been too much confined.
+
+INPUT: Summarize: Her father never
+went beyond the shrubbery, where two divisions of the ground sufficed
+him for his long walk, or his short, as the year varied; and since Mrs. Weston’s marriage her exercise had been too much confined.
+RESPONSE: She had
+ventured once alone to Randalls, but it was not pleasant; and a Harriet
+Smith, therefore, one whom she could summon at any time to a walk,
+would be a valuable addition to her privileges.
+
+INPUT: Tell me about: She had
+ventured once alone to Randalls, but it was not pleasant; and a Harriet
+Smith, therefore, one whom she could summon at any time to a walk,
+would be a valuable addition to her privileges.
+RESPONSE: But in every respect,
+as she saw more of her, she approved her, and was confirmed in all her
+kind designs.
+
+INPUT: Summarize: She had
+ventured once alone to Randalls, but it was not pleasant; and a Harriet
+Smith, therefore, one whom she could summon at any time to a walk,
+would be a valuable addition to her privileges. But in every respect,
+as she saw more of her, she approved her, and was confirmed in all her
+kind designs.
+RESPONSE: Harriet certainly was not clever, but she had a sweet, docile, grateful
+disposition, was totally free from conceit, and only desiring to be
+guided by any one she looked up to.
+
+INPUT: Tell me about: Harriet certainly was not clever, but she had a sweet, docile, grateful
+disposition, was totally free from conceit, and only desiring to be
+guided by any one she looked up to.
+RESPONSE: Her early attachment to herself was
+very amiable; and her inclination for good company, and power of
+appreciating what was elegant and clever, shewed that there was no want
+of taste, though strength of understanding must not be expected.
+
+INPUT: Summarize: Harriet certainly was not clever, but she had a sweet, docile, grateful
+disposition, was totally free from conceit, and only desiring to be
+guided by any one she looked up to. Her early attachment to herself was
+very amiable; and her inclination for good company, and power of
+appreciating what was elegant and clever, shewed that there was no want
+of taste, though strength of understanding must not be expected.
+RESPONSE: Altogether she was quite convinced of Harriet Smith’s being exactly the
+young friend she wanted—exactly the something which her home required.
+
+INPUT: Can you explain: Altogether she was quite convinced of Harriet Smith’s being exactly the
+young friend she wanted—exactly the something which her home required.
+RESPONSE: Such a friend as Mrs.
+
+INPUT: Summarize: Altogether she was quite convinced of Harriet Smith’s being exactly the
+young friend she wanted—exactly the something which her home required. Such a friend as Mrs.
+RESPONSE: Weston was out of the question.
+
+INPUT: Tell me about: Weston was out of the question.
+RESPONSE: Two such could
+never be granted.
+
+INPUT: Summarize: Weston was out of the question. Two such could
+never be granted.
+RESPONSE: Two such she did not want.
+
+INPUT: Can you explain: Two such she did not want.
+RESPONSE: It was quite a different
+sort of thing, a sentiment distinct and independent.
+
+INPUT: Summarize: Two such she did not want. It was quite a different
+sort of thing, a sentiment distinct and independent.
+RESPONSE: Weston was
+the object of a regard which had its basis in gratitude and esteem.
+
+INPUT: Explain this: Weston was
+the object of a regard which had its basis in gratitude and esteem.
+RESPONSE: Harriet would be loved as one to whom she could be useful.
+
+INPUT: Summarize: Weston was
+the object of a regard which had its basis in gratitude and esteem. Harriet would be loved as one to whom she could be useful.
+RESPONSE: Weston there was nothing to be done; for Harriet every thing.
+
+INPUT: Tell me about: Weston there was nothing to be done; for Harriet every thing.
+RESPONSE: Her first attempts at usefulness were in an endeavour to find out who
+were the parents, but Harriet could not tell.
+
+INPUT: Summarize: Weston there was nothing to be done; for Harriet every thing. Her first attempts at usefulness were in an endeavour to find out who
+were the parents, but Harriet could not tell.
+RESPONSE: She was ready to tell
+every thing in her power, but on this subject questions were vain.
+
+INPUT: Explain this: She was ready to tell
+every thing in her power, but on this subject questions were vain.
+RESPONSE: Emma
+was obliged to fancy what she liked—but she could never believe that in
+the same situation _she_ should not have discovered the truth.
+
+INPUT: Summarize: She was ready to tell
+every thing in her power, but on this subject questions were vain. Emma
+was obliged to fancy what she liked—but she could never believe that in
+the same situation _she_ should not have discovered the truth.
+RESPONSE: Harriet
+had no penetration.
+
+INPUT: What does this mean: Harriet
+had no penetration.
+RESPONSE: She had been satisfied to hear and believe just
+what Mrs.
+
+INPUT: Summarize: Harriet
+had no penetration. She had been satisfied to hear and believe just
+what Mrs.
+RESPONSE: Goddard chose to tell her; and looked no farther.
+
+INPUT: Explain this: Goddard chose to tell her; and looked no farther.
+RESPONSE: Goddard, and the teachers, and the girls and the affairs of the
+school in general, formed naturally a great part of the
+conversation—and but for her acquaintance with the Martins of
+Abbey-Mill Farm, it must have been the whole.
+
+INPUT: Summarize: Goddard chose to tell her; and looked no farther. Goddard, and the teachers, and the girls and the affairs of the
+school in general, formed naturally a great part of the
+conversation—and but for her acquaintance with the Martins of
+Abbey-Mill Farm, it must have been the whole.
+RESPONSE: But the Martins occupied
+her thoughts a good deal; she had spent two very happy months with
+them, and now loved to talk of the pleasures of her visit, and describe
+the many comforts and wonders of the place.
+
+INPUT: What does this say: But the Martins occupied
+her thoughts a good deal; she had spent two very happy months with
+them, and now loved to talk of the pleasures of her visit, and describe
+the many comforts and wonders of the place.
+RESPONSE: Emma encouraged her
+talkativeness—amused by such a picture of another set of beings, and
+enjoying the youthful simplicity which could speak with so much
+exultation of Mrs.
+
+INPUT: Summarize: But the Martins occupied
+her thoughts a good deal; she had spent two very happy months with
+them, and now loved to talk of the pleasures of her visit, and describe
+the many comforts and wonders of the place. Emma encouraged her
+talkativeness—amused by such a picture of another set of beings, and
+enjoying the youthful simplicity which could speak with so much
+exultation of Mrs.
+RESPONSE: Martin’s having “_two_ parlours, two very good
+parlours, indeed; one of them quite as large as Mrs.
+
+INPUT: Tell me about: Martin’s having “_two_ parlours, two very good
+parlours, indeed; one of them quite as large as Mrs.
+RESPONSE: Goddard’s
+drawing-room; and of her having an upper maid who had lived
+five-and-twenty years with her; and of their having eight cows, two of
+them Alderneys, and one a little Welch cow, a very pretty little Welch
+cow indeed; and of Mrs.
+
+INPUT: Summarize: Martin’s having “_two_ parlours, two very good
+parlours, indeed; one of them quite as large as Mrs. Goddard’s
+drawing-room; and of her having an upper maid who had lived
+five-and-twenty years with her; and of their having eight cows, two of
+them Alderneys, and one a little Welch cow, a very pretty little Welch
+cow indeed; and of Mrs.
+RESPONSE: Martin’s saying as she was so fond of it, it
+should be called _her_ cow; and of their having a very handsome
+summer-house in their garden, where some day next year they were all to
+drink tea:—a very handsome summer-house, large enough to hold a dozen
+people.
+
+INPUT: What is this about: Martin’s saying as she was so fond of it, it
+should be called _her_ cow; and of their having a very handsome
+summer-house in their garden, where some day next year they were all to
+drink tea:—a very handsome summer-house, large enough to hold a dozen
+people.
+RESPONSE: ”
+
+For some time she was amused, without thinking beyond the immediate
+cause; but as she came to understand the family better, other feelings
+arose.
+
+INPUT: Summarize: Martin’s saying as she was so fond of it, it
+should be called _her_ cow; and of their having a very handsome
+summer-house in their garden, where some day next year they were all to
+drink tea:—a very handsome summer-house, large enough to hold a dozen
+people. ”
+
+For some time she was amused, without thinking beyond the immediate
+cause; but as she came to understand the family better, other feelings
+arose.
+RESPONSE: She had taken up a wrong idea, fancying it was a mother and
+daughter, a son and son’s wife, who all lived together; but when it
+appeared that the Mr.
+
+INPUT: What is this about: She had taken up a wrong idea, fancying it was a mother and
+daughter, a son and son’s wife, who all lived together; but when it
+appeared that the Mr.
+RESPONSE: Martin, who bore a part in the narrative, and was
+always mentioned with approbation for his great good-nature in doing
+something or other, was a single man; that there was no young Mrs.
+
+INPUT: Summarize: She had taken up a wrong idea, fancying it was a mother and
+daughter, a son and son’s wife, who all lived together; but when it
+appeared that the Mr. Martin, who bore a part in the narrative, and was
+always mentioned with approbation for his great good-nature in doing
+something or other, was a single man; that there was no young Mrs.
+RESPONSE: Martin, no wife in the case; she did suspect danger to her poor little
+friend from all this hospitality and kindness, and that, if she were
+not taken care of, she might be required to sink herself forever.
+
+INPUT: What does this say: Martin, no wife in the case; she did suspect danger to her poor little
+friend from all this hospitality and kindness, and that, if she were
+not taken care of, she might be required to sink herself forever.
+RESPONSE: With this inspiriting notion, her questions increased in number and
+meaning; and she particularly led Harriet to talk more of Mr.
+
+INPUT: Summarize: Martin, no wife in the case; she did suspect danger to her poor little
+friend from all this hospitality and kindness, and that, if she were
+not taken care of, she might be required to sink herself forever. With this inspiriting notion, her questions increased in number and
+meaning; and she particularly led Harriet to talk more of Mr.
+RESPONSE: Martin,
+and there was evidently no dislike to it.
+
+INPUT: Can you explain: Martin,
+and there was evidently no dislike to it.
+RESPONSE: Harriet was very ready to
+speak of the share he had had in their moonlight walks and merry
+evening games; and dwelt a good deal upon his being so very
+good-humoured and obliging.
+
+INPUT: Summarize: Martin,
+and there was evidently no dislike to it. Harriet was very ready to
+speak of the share he had had in their moonlight walks and merry
+evening games; and dwelt a good deal upon his being so very
+good-humoured and obliging.
+RESPONSE: He had gone three miles round one day in
+order to bring her some walnuts, because she had said how fond she was
+of them, and in every thing else he was so very obliging.
+
+INPUT: What is this about: He had gone three miles round one day in
+order to bring her some walnuts, because she had said how fond she was
+of them, and in every thing else he was so very obliging.
+RESPONSE: He had his
+shepherd’s son into the parlour one night on purpose to sing to her.
+
+INPUT: Summarize: He had gone three miles round one day in
+order to bring her some walnuts, because she had said how fond she was
+of them, and in every thing else he was so very obliging. He had his
+shepherd’s son into the parlour one night on purpose to sing to her.
+RESPONSE: She was very fond of singing.
+
+INPUT: Explain this: She was very fond of singing.
+RESPONSE: He could sing a little himself.
+
+INPUT: Summarize: She was very fond of singing. He could sing a little himself.
+RESPONSE: She
+believed he was very clever, and understood every thing.
+
+INPUT: Explain this: She
+believed he was very clever, and understood every thing.
+RESPONSE: He had a very
+fine flock, and, while she was with them, he had been bid more for his
+wool than any body in the country.
+
+INPUT: Summarize: She
+believed he was very clever, and understood every thing. He had a very
+fine flock, and, while she was with them, he had been bid more for his
+wool than any body in the country.
+RESPONSE: She believed every body spoke well
+of him.
+
+INPUT: What does this say: She believed every body spoke well
+of him.
+RESPONSE: His mother and sisters were very fond of him.
+
+INPUT: Summarize: She believed every body spoke well
+of him. His mother and sisters were very fond of him.
+RESPONSE: Martin had
+told her one day (and there was a blush as she said it,) that it was
+impossible for any body to be a better son, and therefore she was sure,
+whenever he married, he would make a good husband.
+
+INPUT: What does this say: Martin had
+told her one day (and there was a blush as she said it,) that it was
+impossible for any body to be a better son, and therefore she was sure,
+whenever he married, he would make a good husband.
+RESPONSE: Not that she
+_wanted_ him to marry.
+
+INPUT: Summarize: Martin had
+told her one day (and there was a blush as she said it,) that it was
+impossible for any body to be a better son, and therefore she was sure,
+whenever he married, he would make a good husband. Not that she
+_wanted_ him to marry.
+RESPONSE: She was in no hurry at all.
+
+INPUT: Explain this: She was in no hurry at all.
+RESPONSE: “You know what you are about.
+
+INPUT: Summarize: She was in no hurry at all. “You know what you are about.
+RESPONSE: ”
+
+“And when she had come away, Mrs.
+
+INPUT: What does this say: ”
+
+“And when she had come away, Mrs.
+RESPONSE: Martin was so very kind as to send
+Mrs.
+
+INPUT: Summarize: ”
+
+“And when she had come away, Mrs. Martin was so very kind as to send
+Mrs.
+RESPONSE: Goddard a beautiful goose—the finest goose Mrs.
+
+INPUT: What does this say: Goddard a beautiful goose—the finest goose Mrs.
+RESPONSE: Goddard had ever
+seen.
+
+INPUT: Summarize: Goddard a beautiful goose—the finest goose Mrs. Goddard had ever
+seen.
+RESPONSE: Goddard had dressed it on a Sunday, and asked all the three
+teachers, Miss Nash, and Miss Prince, and Miss Richardson, to sup with
+her.
+
+INPUT: What does this mean: Goddard had dressed it on a Sunday, and asked all the three
+teachers, Miss Nash, and Miss Prince, and Miss Richardson, to sup with
+her.
+RESPONSE: Martin, I suppose, is not a man of information beyond the line of
+his own business?
+
+INPUT: Summarize: Goddard had dressed it on a Sunday, and asked all the three
+teachers, Miss Nash, and Miss Prince, and Miss Richardson, to sup with
+her. Martin, I suppose, is not a man of information beyond the line of
+his own business?
+RESPONSE: —that is, no—I do not know—but I believe he has read a good
+deal—but not what you would think any thing of.
+
+INPUT: Can you explain: —that is, no—I do not know—but I believe he has read a good
+deal—but not what you would think any thing of.
+RESPONSE: He reads the
+Agricultural Reports, and some other books that lay in one of the
+window seats—but he reads all _them_ to himself.
+
+INPUT: Summarize: —that is, no—I do not know—but I believe he has read a good
+deal—but not what you would think any thing of. He reads the
+Agricultural Reports, and some other books that lay in one of the
+window seats—but he reads all _them_ to himself.
+RESPONSE: But sometimes of an
+evening, before we went to cards, he would read something aloud out of
+the Elegant Extracts, very entertaining.
+
+INPUT: Tell me about: But sometimes of an
+evening, before we went to cards, he would read something aloud out of
+the Elegant Extracts, very entertaining.
+RESPONSE: And I know he has read the
+Vicar of Wakefield.
+
+INPUT: Summarize: But sometimes of an
+evening, before we went to cards, he would read something aloud out of
+the Elegant Extracts, very entertaining. And I know he has read the
+Vicar of Wakefield.
+RESPONSE: He never read the Romance of the Forest, nor The
+Children of the Abbey.
+
+INPUT: Can you explain: He never read the Romance of the Forest, nor The
+Children of the Abbey.
+RESPONSE: He had never heard of such books before I
+mentioned them, but he is determined to get them now as soon as ever he
+can.
+
+INPUT: Summarize: He never read the Romance of the Forest, nor The
+Children of the Abbey. He had never heard of such books before I
+mentioned them, but he is determined to get them now as soon as ever he
+can.
+RESPONSE: ”
+
+The next question was—
+
+“What sort of looking man is Mr.
+
+INPUT: What does this say: ”
+
+The next question was—
+
+“What sort of looking man is Mr.
+RESPONSE: not handsome—not at all handsome.
+
+INPUT: Summarize: ”
+
+The next question was—
+
+“What sort of looking man is Mr. not handsome—not at all handsome.
+RESPONSE: I thought him very plain at
+first, but I do not think him so plain now.
+
+INPUT: Can you explain: I thought him very plain at
+first, but I do not think him so plain now.
+RESPONSE: One does not, you know,
+after a time.
+
+INPUT: Summarize: I thought him very plain at
+first, but I do not think him so plain now. One does not, you know,
+after a time.
+RESPONSE: But did you never see him?
+
+INPUT: What is this about: But did you never see him?
+RESPONSE: He is in Highbury every now
+and then, and he is sure to ride through every week in his way to
+Kingston.
+
+INPUT: Summarize: But did you never see him? He is in Highbury every now
+and then, and he is sure to ride through every week in his way to
+Kingston.
+RESPONSE: He has passed you very often.
+
+INPUT: Can you explain: He has passed you very often.
+RESPONSE: ”
+
+“That may be, and I may have seen him fifty times, but without having
+any idea of his name.
+
+INPUT: Summarize: He has passed you very often. ”
+
+“That may be, and I may have seen him fifty times, but without having
+any idea of his name.
+RESPONSE: A young farmer, whether on horseback or on foot,
+is the very last sort of person to raise my curiosity.
+
+INPUT: Tell me about: A young farmer, whether on horseback or on foot,
+is the very last sort of person to raise my curiosity.
+RESPONSE: The yeomanry are
+precisely the order of people with whom I feel I can have nothing to
+do.
+
+INPUT: Summarize: A young farmer, whether on horseback or on foot,
+is the very last sort of person to raise my curiosity. The yeomanry are
+precisely the order of people with whom I feel I can have nothing to
+do.
+RESPONSE: A degree or two lower, and a creditable appearance might interest
+me; I might hope to be useful to their families in some way or other.
+
+INPUT: Tell me about: A degree or two lower, and a creditable appearance might interest
+me; I might hope to be useful to their families in some way or other.
+RESPONSE: But a farmer can need none of my help, and is, therefore, in one sense,
+as much above my notice as in every other he is below it.
+
+INPUT: Summarize: A degree or two lower, and a creditable appearance might interest
+me; I might hope to be useful to their families in some way or other. But a farmer can need none of my help, and is, therefore, in one sense,
+as much above my notice as in every other he is below it.
+RESPONSE: It is not likely you should ever have observed
+him; but he knows you very well indeed—I mean by sight.
+
+INPUT: What is this about: It is not likely you should ever have observed
+him; but he knows you very well indeed—I mean by sight.
+RESPONSE: ”
+
+“I have no doubt of his being a very respectable young man.
+
+INPUT: Summarize: It is not likely you should ever have observed
+him; but he knows you very well indeed—I mean by sight. ”
+
+“I have no doubt of his being a very respectable young man.
+RESPONSE: I know,
+indeed, that he is so, and, as such, wish him well.
+
+INPUT: What is this about: I know,
+indeed, that he is so, and, as such, wish him well.
+RESPONSE: What do you imagine
+his age to be?
+
+INPUT: Summarize: I know,
+indeed, that he is so, and, as such, wish him well. What do you imagine
+his age to be?
+RESPONSE: ”
+
+“He was four-and-twenty the 8th of last June, and my birthday is the
+23rd just a fortnight and a day’s difference—which is very odd.
+
+INPUT: What does this mean: ”
+
+“He was four-and-twenty the 8th of last June, and my birthday is the
+23rd just a fortnight and a day’s difference—which is very odd.
+RESPONSE: ”
+
+“Only four-and-twenty.
+
+INPUT: Summarize: ”
+
+“He was four-and-twenty the 8th of last June, and my birthday is the
+23rd just a fortnight and a day’s difference—which is very odd. ”
+
+“Only four-and-twenty.
+RESPONSE: That is too young to settle.
+
+INPUT: What is this about: That is too young to settle.
+RESPONSE: His mother is
+perfectly right not to be in a hurry.
+
+INPUT: Summarize: That is too young to settle. His mother is
+perfectly right not to be in a hurry.
+RESPONSE: They seem very comfortable as
+they are, and if she were to take any pains to marry him, she would
+probably repent it.
+
+INPUT: Tell me about: They seem very comfortable as
+they are, and if she were to take any pains to marry him, she would
+probably repent it.
+RESPONSE: Six years hence, if he could meet with a good sort
+of young woman in the same rank as his own, with a little money, it
+might be very desirable.
+
+INPUT: Summarize: They seem very comfortable as
+they are, and if she were to take any pains to marry him, she would
+probably repent it. Six years hence, if he could meet with a good sort
+of young woman in the same rank as his own, with a little money, it
+might be very desirable.
+RESPONSE: ”
+
+“Six years hence!
+
+INPUT: Explain this: ”
+
+“Six years hence!
+RESPONSE: Dear Miss Woodhouse, he would be thirty years old!
+
+INPUT: Summarize: ”
+
+“Six years hence! Dear Miss Woodhouse, he would be thirty years old!
+RESPONSE: ”
+
+“Well, and that is as early as most men can afford to marry, who are
+not born to an independence.
+
+INPUT: Can you explain: ”
+
+“Well, and that is as early as most men can afford to marry, who are
+not born to an independence.
+RESPONSE: Martin, I imagine, has his fortune
+entirely to make—cannot be at all beforehand with the world.
+
+INPUT: Summarize: ”
+
+“Well, and that is as early as most men can afford to marry, who are
+not born to an independence. Martin, I imagine, has his fortune
+entirely to make—cannot be at all beforehand with the world.
+RESPONSE: Whatever
+money he might come into when his father died, whatever his share of
+the family property, it is, I dare say, all afloat, all employed in his
+stock, and so forth; and though, with diligence and good luck, he may
+be rich in time, it is next to impossible that he should have realised
+any thing yet.
+
+INPUT: Can you explain: Whatever
+money he might come into when his father died, whatever his share of
+the family property, it is, I dare say, all afloat, all employed in his
+stock, and so forth; and though, with diligence and good luck, he may
+be rich in time, it is next to impossible that he should have realised
+any thing yet.
+RESPONSE: ”
+
+“To be sure, so it is.
+
+INPUT: Summarize: Whatever
+money he might come into when his father died, whatever his share of
+the family property, it is, I dare say, all afloat, all employed in his
+stock, and so forth; and though, with diligence and good luck, he may
+be rich in time, it is next to impossible that he should have realised
+any thing yet. ”
+
+“To be sure, so it is.
+RESPONSE: But they live very comfortably.
+
+INPUT: What does this say: But they live very comfortably.
+RESPONSE: They have no
+indoors man, else they do not want for any thing; and Mrs.
+
+INPUT: Summarize: But they live very comfortably. They have no
+indoors man, else they do not want for any thing; and Mrs.
+RESPONSE: Martin talks
+of taking a boy another year.
+
+INPUT: Tell me about: Martin talks
+of taking a boy another year.
+RESPONSE: ”
+
+“I wish you may not get into a scrape, Harriet, whenever he does
+marry;—I mean, as to being acquainted with his wife—for though his
+sisters, from a superior education, are not to be altogether objected
+to, it does not follow that he might marry any body at all fit for you
+to notice.
+
+INPUT: Summarize: Martin talks
+of taking a boy another year. ”
+
+“I wish you may not get into a scrape, Harriet, whenever he does
+marry;—I mean, as to being acquainted with his wife—for though his
+sisters, from a superior education, are not to be altogether objected
+to, it does not follow that he might marry any body at all fit for you
+to notice.
+RESPONSE: The misfortune of your birth ought to make you particularly
+careful as to your associates.
+
+INPUT: Tell me about: The misfortune of your birth ought to make you particularly
+careful as to your associates.
+RESPONSE: There can be no doubt of your being a
+gentleman’s daughter, and you must support your claim to that station
+by every thing within your own power, or there will be plenty of people
+who would take pleasure in degrading you.
+
+INPUT: Summarize: The misfortune of your birth ought to make you particularly
+careful as to your associates. There can be no doubt of your being a
+gentleman’s daughter, and you must support your claim to that station
+by every thing within your own power, or there will be plenty of people
+who would take pleasure in degrading you.
+RESPONSE: ”
+
+“Yes, to be sure, I suppose there are.
+
+INPUT: Explain this: ”
+
+“Yes, to be sure, I suppose there are.
+RESPONSE: But while I visit at Hartfield,
+and you are so kind to me, Miss Woodhouse, I am not afraid of what any
+body can do.
+
+INPUT: Summarize: ”
+
+“Yes, to be sure, I suppose there are. But while I visit at Hartfield,
+and you are so kind to me, Miss Woodhouse, I am not afraid of what any
+body can do.
+RESPONSE: ”
+
+“You understand the force of influence pretty well, Harriet; but I
+would have you so firmly established in good society, as to be
+independent even of Hartfield and Miss Woodhouse.
+
+INPUT: Explain this: ”
+
+“You understand the force of influence pretty well, Harriet; but I
+would have you so firmly established in good society, as to be
+independent even of Hartfield and Miss Woodhouse.
+RESPONSE: I want to see you
+permanently well connected, and to that end it will be advisable to
+have as few odd acquaintance as may be; and, therefore, I say that if
+you should still be in this country when Mr.
+
+INPUT: Summarize: ”
+
+“You understand the force of influence pretty well, Harriet; but I
+would have you so firmly established in good society, as to be
+independent even of Hartfield and Miss Woodhouse. I want to see you
+permanently well connected, and to that end it will be advisable to
+have as few odd acquaintance as may be; and, therefore, I say that if
+you should still be in this country when Mr.
+RESPONSE: Martin marries, I wish you
+may not be drawn in by your intimacy with the sisters, to be acquainted
+with the wife, who will probably be some mere farmer’s daughter,
+without education.
+
+INPUT: Explain this: Martin marries, I wish you
+may not be drawn in by your intimacy with the sisters, to be acquainted
+with the wife, who will probably be some mere farmer’s daughter,
+without education.
+RESPONSE: Martin would ever marry any body
+but what had had some education—and been very well brought up.
+
+INPUT: Summarize: Martin marries, I wish you
+may not be drawn in by your intimacy with the sisters, to be acquainted
+with the wife, who will probably be some mere farmer’s daughter,
+without education. Martin would ever marry any body
+but what had had some education—and been very well brought up.
+RESPONSE: However,
+I do not mean to set up my opinion against yours—and I am sure I shall
+not wish for the acquaintance of his wife.
+
+INPUT: What does this mean: However,
+I do not mean to set up my opinion against yours—and I am sure I shall
+not wish for the acquaintance of his wife.
+RESPONSE: I shall always have a great
+regard for the Miss Martins, especially Elizabeth, and should be very
+sorry to give them up, for they are quite as well educated as me.
+
+INPUT: Summarize: However,
+I do not mean to set up my opinion against yours—and I am sure I shall
+not wish for the acquaintance of his wife. I shall always have a great
+regard for the Miss Martins, especially Elizabeth, and should be very
+sorry to give them up, for they are quite as well educated as me.
+RESPONSE: But
+if he marries a very ignorant, vulgar woman, certainly I had better not
+visit her, if I can help it.
+
+INPUT: What does this mean: But
+if he marries a very ignorant, vulgar woman, certainly I had better not
+visit her, if I can help it.
+RESPONSE: ”
+
+Emma watched her through the fluctuations of this speech, and saw no
+alarming symptoms of love.
+
+INPUT: Summarize: But
+if he marries a very ignorant, vulgar woman, certainly I had better not
+visit her, if I can help it. ”
+
+Emma watched her through the fluctuations of this speech, and saw no
+alarming symptoms of love.
+RESPONSE: The young man had been the first admirer,
+but she trusted there was no other hold, and that there would be no
+serious difficulty, on Harriet’s side, to oppose any friendly
+arrangement of her own.
+
+INPUT: What is this about: The young man had been the first admirer,
+but she trusted there was no other hold, and that there would be no
+serious difficulty, on Harriet’s side, to oppose any friendly
+arrangement of her own.
+RESPONSE: Martin the very next day, as they were walking on the
+Donwell road.
+
+INPUT: Summarize: The young man had been the first admirer,
+but she trusted there was no other hold, and that there would be no
+serious difficulty, on Harriet’s side, to oppose any friendly
+arrangement of her own. Martin the very next day, as they were walking on the
+Donwell road.
+RESPONSE: He was on foot, and after looking very respectfully at
+her, looked with most unfeigned satisfaction at her companion.
+
+INPUT: What is this about: He was on foot, and after looking very respectfully at
+her, looked with most unfeigned satisfaction at her companion.
+RESPONSE: Emma was
+not sorry to have such an opportunity of survey; and walking a few
+yards forward, while they talked together, soon made her quick eye
+sufficiently acquainted with Mr.
+
+INPUT: Summarize: He was on foot, and after looking very respectfully at
+her, looked with most unfeigned satisfaction at her companion. Emma was
+not sorry to have such an opportunity of survey; and walking a few
+yards forward, while they talked together, soon made her quick eye
+sufficiently acquainted with Mr.
+RESPONSE: His appearance was very
+neat, and he looked like a sensible young man, but his person had no
+other advantage; and when he came to be contrasted with gentlemen, she
+thought he must lose all the ground he had gained in Harriet’s
+inclination.
+
+INPUT: What does this say: His appearance was very
+neat, and he looked like a sensible young man, but his person had no
+other advantage; and when he came to be contrasted with gentlemen, she
+thought he must lose all the ground he had gained in Harriet’s
+inclination.
+RESPONSE: Harriet was not insensible of manner; she had voluntarily
+noticed her father’s gentleness with admiration as well as wonder.
+
+INPUT: Summarize: His appearance was very
+neat, and he looked like a sensible young man, but his person had no
+other advantage; and when he came to be contrasted with gentlemen, she
+thought he must lose all the ground he had gained in Harriet’s
+inclination. Harriet was not insensible of manner; she had voluntarily
+noticed her father’s gentleness with admiration as well as wonder.
+RESPONSE: Martin looked as if he did not know what manner was.
+
+INPUT: What does this mean: Martin looked as if he did not know what manner was.
+RESPONSE: They remained but a few minutes together, as Miss Woodhouse must not be
+kept waiting; and Harriet then came running to her with a smiling face,
+and in a flutter of spirits, which Miss Woodhouse hoped very soon to
+compose.
+
+INPUT: Summarize: Martin looked as if he did not know what manner was. They remained but a few minutes together, as Miss Woodhouse must not be
+kept waiting; and Harriet then came running to her with a smiling face,
+and in a flutter of spirits, which Miss Woodhouse hoped very soon to
+compose.
+RESPONSE: “Only think of our happening to meet him!
+
+INPUT: Tell me about: “Only think of our happening to meet him!
+RESPONSE: It was quite a
+chance, he said, that he had not gone round by Randalls.
+
+INPUT: Summarize: “Only think of our happening to meet him! It was quite a
+chance, he said, that he had not gone round by Randalls.
+RESPONSE: He did not
+think we ever walked this road.
+
+INPUT: What is this about: He did not
+think we ever walked this road.
+RESPONSE: He thought we walked towards Randalls
+most days.
+
+INPUT: Summarize: He did not
+think we ever walked this road. He thought we walked towards Randalls
+most days.
+RESPONSE: He has not been able to get the Romance of the Forest yet.
+
+INPUT: What does this mean: He has not been able to get the Romance of the Forest yet.
+RESPONSE: He was so busy the last time he was at Kingston that he quite forgot
+it, but he goes again to-morrow.
+
+INPUT: Summarize: He has not been able to get the Romance of the Forest yet. He was so busy the last time he was at Kingston that he quite forgot
+it, but he goes again to-morrow.
+RESPONSE: So very odd we should happen to meet!
+
+INPUT: What does this say: So very odd we should happen to meet!
+RESPONSE: Well, Miss Woodhouse, is he like what you expected?
+
+INPUT: Summarize: So very odd we should happen to meet! Well, Miss Woodhouse, is he like what you expected?
+RESPONSE: What do you think
+of him?
+
+INPUT: Tell me about: What do you think
+of him?
+RESPONSE: Do you think him so very plain?
+
+INPUT: Summarize: What do you think
+of him? Do you think him so very plain?
+RESPONSE: ”
+
+“He is very plain, undoubtedly—remarkably plain:—but that is nothing
+compared with his entire want of gentility.
+
+INPUT: What does this say: ”
+
+“He is very plain, undoubtedly—remarkably plain:—but that is nothing
+compared with his entire want of gentility.
+RESPONSE: I had no right to expect
+much, and I did not expect much; but I had no idea that he could be so
+very clownish, so totally without air.
+
+INPUT: Summarize: ”
+
+“He is very plain, undoubtedly—remarkably plain:—but that is nothing
+compared with his entire want of gentility. I had no right to expect
+much, and I did not expect much; but I had no idea that he could be so
+very clownish, so totally without air.
+RESPONSE: I had imagined him, I confess, a
+degree or two nearer gentility.
+
+INPUT: Explain this: I had imagined him, I confess, a
+degree or two nearer gentility.
+RESPONSE: ”
+
+“To be sure,” said Harriet, in a mortified voice, “he is not so genteel
+as real gentlemen.
+
+INPUT: Summarize: I had imagined him, I confess, a
+degree or two nearer gentility. ”
+
+“To be sure,” said Harriet, in a mortified voice, “he is not so genteel
+as real gentlemen.
+RESPONSE: ”
+
+“I think, Harriet, since your acquaintance with us, you have been
+repeatedly in the company of some such very real gentlemen, that you
+must yourself be struck with the difference in Mr.
+
+INPUT: What does this say: ”
+
+“I think, Harriet, since your acquaintance with us, you have been
+repeatedly in the company of some such very real gentlemen, that you
+must yourself be struck with the difference in Mr.
+RESPONSE: At
+Hartfield, you have had very good specimens of well educated, well bred
+men.
+
+INPUT: Summarize: ”
+
+“I think, Harriet, since your acquaintance with us, you have been
+repeatedly in the company of some such very real gentlemen, that you
+must yourself be struck with the difference in Mr. At
+Hartfield, you have had very good specimens of well educated, well bred
+men.
+RESPONSE: I should be surprized if, after seeing them, you could be in
+company with Mr.
+
+INPUT: Explain this: I should be surprized if, after seeing them, you could be in
+company with Mr.
+RESPONSE: Martin again without perceiving him to be a very
+inferior creature—and rather wondering at yourself for having ever
+thought him at all agreeable before.
+
+INPUT: Summarize: I should be surprized if, after seeing them, you could be in
+company with Mr. Martin again without perceiving him to be a very
+inferior creature—and rather wondering at yourself for having ever
+thought him at all agreeable before.
+RESPONSE: Do not you begin to feel that now?
+
+INPUT: What does this mean: Do not you begin to feel that now?
+RESPONSE: I am sure you must have been struck by his awkward
+look and abrupt manner, and the uncouthness of a voice which I heard to
+be wholly unmodulated as I stood here.
+
+INPUT: Summarize: Do not you begin to feel that now? I am sure you must have been struck by his awkward
+look and abrupt manner, and the uncouthness of a voice which I heard to
+be wholly unmodulated as I stood here.
+RESPONSE: ”
+
+“Certainly, he is not like Mr.
+
+INPUT: What does this say: ”
+
+“Certainly, he is not like Mr.
+RESPONSE: He has not such a fine air
+and way of walking as Mr.
+
+INPUT: Summarize: ”
+
+“Certainly, he is not like Mr. He has not such a fine air
+and way of walking as Mr.
+RESPONSE: I see the difference plain enough.
+
+INPUT: What does this say: I see the difference plain enough.
+RESPONSE: Knightley is so very fine a man!
+
+INPUT: Summarize: I see the difference plain enough. Knightley is so very fine a man!
+RESPONSE: Knightley’s air is so remarkably good that it is not fair to
+compare Mr.
+
+INPUT: Tell me about: Knightley’s air is so remarkably good that it is not fair to
+compare Mr.
+RESPONSE: You might not see one in a hundred with
+_gentleman_ so plainly written as in Mr.
+
+INPUT: Summarize: Knightley’s air is so remarkably good that it is not fair to
+compare Mr. You might not see one in a hundred with
+_gentleman_ so plainly written as in Mr.
+RESPONSE: But he is not the
+only gentleman you have been lately used to.
+
+INPUT: Explain this: But he is not the
+only gentleman you have been lately used to.
+RESPONSE: Martin with either of _them_.
+
+INPUT: Summarize: But he is not the
+only gentleman you have been lately used to. Martin with either of _them_.
+RESPONSE: Compare their
+manner of carrying themselves; of walking; of speaking; of being
+silent.
+
+INPUT: What is this about: Compare their
+manner of carrying themselves; of walking; of speaking; of being
+silent.
+RESPONSE: You must see the difference.
+
+INPUT: Summarize: Compare their
+manner of carrying themselves; of walking; of speaking; of being
+silent. You must see the difference.
+RESPONSE: —there is a great difference.
+
+INPUT: Tell me about: —there is a great difference.
+RESPONSE: Weston is almost an old
+man.
+
+INPUT: Summarize: —there is a great difference. Weston is almost an old
+man.
+RESPONSE: Weston must be between forty and fifty.
+
+INPUT: What does this mean: Weston must be between forty and fifty.
+RESPONSE: ”
+
+“Which makes his good manners the more valuable.
+
+INPUT: Summarize: Weston must be between forty and fifty. ”
+
+“Which makes his good manners the more valuable.
+RESPONSE: The older a person
+grows, Harriet, the more important it is that their manners should not
+be bad; the more glaring and disgusting any loudness, or coarseness, or
+awkwardness becomes.
+
+INPUT: Tell me about: The older a person
+grows, Harriet, the more important it is that their manners should not
+be bad; the more glaring and disgusting any loudness, or coarseness, or
+awkwardness becomes.
+RESPONSE: What is passable in youth is detestable in later
+age.
+
+INPUT: Summarize: The older a person
+grows, Harriet, the more important it is that their manners should not
+be bad; the more glaring and disgusting any loudness, or coarseness, or
+awkwardness becomes. What is passable in youth is detestable in later
+age.
+RESPONSE: Martin is now awkward and abrupt; what will he be at Mr.
+
+INPUT: Can you explain: Martin is now awkward and abrupt; what will he be at Mr.
+RESPONSE: Weston’s time of life?
+
+INPUT: Summarize: Martin is now awkward and abrupt; what will he be at Mr. Weston’s time of life?
+RESPONSE: ”
+
+“There is no saying, indeed,” replied Harriet rather solemnly.
+
+INPUT: What is this about: ”
+
+“There is no saying, indeed,” replied Harriet rather solemnly.
+RESPONSE: “But there may be pretty good guessing.
+
+INPUT: Summarize: ”
+
+“There is no saying, indeed,” replied Harriet rather solemnly. “But there may be pretty good guessing.
+RESPONSE: He will be a completely gross,
+vulgar farmer, totally inattentive to appearances, and thinking of
+nothing but profit and loss.
+
+INPUT: What is this about: He will be a completely gross,
+vulgar farmer, totally inattentive to appearances, and thinking of
+nothing but profit and loss.
+RESPONSE: ”
+
+“Will he, indeed?
+
+INPUT: Summarize: He will be a completely gross,
+vulgar farmer, totally inattentive to appearances, and thinking of
+nothing but profit and loss. ”
+
+“Will he, indeed?
+RESPONSE: That will be very bad.
+
+INPUT: Explain this: That will be very bad.
+RESPONSE: ”
+
+“How much his business engrosses him already is very plain from the
+circumstance of his forgetting to inquire for the book you recommended.
+
+INPUT: Summarize: That will be very bad. ”
+
+“How much his business engrosses him already is very plain from the
+circumstance of his forgetting to inquire for the book you recommended.
+RESPONSE: He was a great deal too full of the market to think of any thing
+else—which is just as it should be, for a thriving man.
+
+INPUT: Tell me about: He was a great deal too full of the market to think of any thing
+else—which is just as it should be, for a thriving man.
+RESPONSE: What has he to
+do with books?
+
+INPUT: Summarize: He was a great deal too full of the market to think of any thing
+else—which is just as it should be, for a thriving man. What has he to
+do with books?
+RESPONSE: And I have no doubt that he _will_ thrive, and be a very
+rich man in time—and his being illiterate and coarse need not disturb
+_us_.
+
+INPUT: What does this say: And I have no doubt that he _will_ thrive, and be a very
+rich man in time—and his being illiterate and coarse need not disturb
+_us_.
+RESPONSE: ”
+
+“I wonder he did not remember the book”—was all Harriet’s answer, and
+spoken with a degree of grave displeasure which Emma thought might be
+safely left to itself.
+
+INPUT: Summarize: And I have no doubt that he _will_ thrive, and be a very
+rich man in time—and his being illiterate and coarse need not disturb
+_us_. ”
+
+“I wonder he did not remember the book”—was all Harriet’s answer, and
+spoken with a degree of grave displeasure which Emma thought might be
+safely left to itself.
+RESPONSE: She, therefore, said no more for some time.
+
+INPUT: Tell me about: She, therefore, said no more for some time.
+RESPONSE: Her
+next beginning was,
+
+“In one respect, perhaps, Mr.
+
+INPUT: Summarize: She, therefore, said no more for some time. Her
+next beginning was,
+
+“In one respect, perhaps, Mr.
+RESPONSE: Elton’s manners are superior to Mr.
+
+INPUT: What does this mean: Elton’s manners are superior to Mr.
+RESPONSE: They have more gentleness.
+
+INPUT: Summarize: Elton’s manners are superior to Mr. They have more gentleness.
+RESPONSE: They might be
+more safely held up as a pattern.
+
+INPUT: What does this say: They might be
+more safely held up as a pattern.
+RESPONSE: There is an openness, a quickness,
+almost a bluntness in Mr.
+
+INPUT: Summarize: They might be
+more safely held up as a pattern. There is an openness, a quickness,
+almost a bluntness in Mr.
+RESPONSE: Weston, which every body likes in _him_,
+because there is so much good-humour with it—but that would not do to
+be copied.
+
+INPUT: What is this about: Weston, which every body likes in _him_,
+because there is so much good-humour with it—but that would not do to
+be copied.
+RESPONSE: Knightley’s downright, decided, commanding
+sort of manner, though it suits _him_ very well; his figure, and look,
+and situation in life seem to allow it; but if any young man were to
+set about copying him, he would not be sufferable.
+
+INPUT: Summarize: Weston, which every body likes in _him_,
+because there is so much good-humour with it—but that would not do to
+be copied. Knightley’s downright, decided, commanding
+sort of manner, though it suits _him_ very well; his figure, and look,
+and situation in life seem to allow it; but if any young man were to
+set about copying him, he would not be sufferable.
+RESPONSE: On the contrary, I
+think a young man might be very safely recommended to take Mr.
+
+INPUT: Explain this: On the contrary, I
+think a young man might be very safely recommended to take Mr.
+RESPONSE: Elton is good-humoured, cheerful, obliging, and gentle.
+
+INPUT: Summarize: On the contrary, I
+think a young man might be very safely recommended to take Mr. Elton is good-humoured, cheerful, obliging, and gentle.
+RESPONSE: He
+seems to me to be grown particularly gentle of late.
+
+INPUT: Tell me about: He
+seems to me to be grown particularly gentle of late.
+RESPONSE: I do not know
+whether he has any design of ingratiating himself with either of us,
+Harriet, by additional softness, but it strikes me that his manners are
+softer than they used to be.
+
+INPUT: Summarize: He
+seems to me to be grown particularly gentle of late. I do not know
+whether he has any design of ingratiating himself with either of us,
+Harriet, by additional softness, but it strikes me that his manners are
+softer than they used to be.
+RESPONSE: If he means any thing, it must be to
+please you.
+
+INPUT: Explain this: If he means any thing, it must be to
+please you.
+RESPONSE: Did not I tell you what he said of you the other day?
+
+INPUT: Summarize: If he means any thing, it must be to
+please you. Did not I tell you what he said of you the other day?
+RESPONSE: ”
+
+She then repeated some warm personal praise which she had drawn from
+Mr.
+
+INPUT: Explain this: ”
+
+She then repeated some warm personal praise which she had drawn from
+Mr.
+RESPONSE: Elton, and now did full justice to; and Harriet blushed and smiled,
+and said she had always thought Mr.
+
+INPUT: Summarize: ”
+
+She then repeated some warm personal praise which she had drawn from
+Mr. Elton, and now did full justice to; and Harriet blushed and smiled,
+and said she had always thought Mr.
+RESPONSE: Elton very agreeable.
+
+INPUT: What does this say: Elton very agreeable.
+RESPONSE: Elton was the very person fixed on by Emma for driving the young
+farmer out of Harriet’s head.
+
+INPUT: Summarize: Elton very agreeable. Elton was the very person fixed on by Emma for driving the young
+farmer out of Harriet’s head.
+RESPONSE: She thought it would be an excellent
+match; and only too palpably desirable, natural, and probable, for her
+to have much merit in planning it.
+
+INPUT: Explain this: She thought it would be an excellent
+match; and only too palpably desirable, natural, and probable, for her
+to have much merit in planning it.
+RESPONSE: She feared it was what every body
+else must think of and predict.
+
+INPUT: Summarize: She thought it would be an excellent
+match; and only too palpably desirable, natural, and probable, for her
+to have much merit in planning it. She feared it was what every body
+else must think of and predict.
+RESPONSE: It was not likely, however, that any
+body should have equalled her in the date of the plan, as it had
+entered her brain during the very first evening of Harriet’s coming to
+Hartfield.
+

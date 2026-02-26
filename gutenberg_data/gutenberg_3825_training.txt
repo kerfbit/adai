@@ -1,0 +1,2671 @@
+INPUT: What does this say: TRANSCRIBER’S NOTE: In the printed version of this text, all
+apostrophes for contractions such as “can’t”, “wouldn’t” and “he’d”
+were omitted, to read as “cant”, “wouldnt”, and “hed”.
+RESPONSE: This etext
+edition restores the omitted apostrophes.
+
+INPUT: Summarize: TRANSCRIBER’S NOTE: In the printed version of this text, all
+apostrophes for contractions such as “can’t”, “wouldn’t” and “he’d”
+were omitted, to read as “cant”, “wouldnt”, and “hed”. This etext
+edition restores the omitted apostrophes.
+RESPONSE: PYGMALION
+
+BERNARD SHAW
+
+1912
+
+
+
+
+PREFACE TO PYGMALION.
+
+INPUT: What does this mean: PYGMALION
+
+BERNARD SHAW
+
+1912
+
+
+
+
+PREFACE TO PYGMALION.
+RESPONSE: A Professor of Phonetics.
+
+INPUT: Summarize: PYGMALION
+
+BERNARD SHAW
+
+1912
+
+
+
+
+PREFACE TO PYGMALION. A Professor of Phonetics.
+RESPONSE: As will be seen later on, Pygmalion needs, not a preface, but a sequel,
+which I have supplied in its due place.
+
+INPUT: What does this mean: As will be seen later on, Pygmalion needs, not a preface, but a sequel,
+which I have supplied in its due place.
+RESPONSE: The English have no respect for
+their language, and will not teach their children to speak it.
+
+INPUT: Summarize: As will be seen later on, Pygmalion needs, not a preface, but a sequel,
+which I have supplied in its due place. The English have no respect for
+their language, and will not teach their children to speak it.
+RESPONSE: They
+spell it so abominably that no man can teach himself what it sounds
+like.
+
+INPUT: What is this about: They
+spell it so abominably that no man can teach himself what it sounds
+like.
+RESPONSE: It is impossible for an Englishman to open his mouth without
+making some other Englishman hate or despise him.
+
+INPUT: Summarize: They
+spell it so abominably that no man can teach himself what it sounds
+like. It is impossible for an Englishman to open his mouth without
+making some other Englishman hate or despise him.
+RESPONSE: German and Spanish
+are accessible to foreigners: English is not accessible even to
+Englishmen.
+
+INPUT: What is this about: German and Spanish
+are accessible to foreigners: English is not accessible even to
+Englishmen.
+RESPONSE: The reformer England needs today is an energetic phonetic
+enthusiast: that is why I have made such a one the hero of a popular
+play.
+
+INPUT: Summarize: German and Spanish
+are accessible to foreigners: English is not accessible even to
+Englishmen. The reformer England needs today is an energetic phonetic
+enthusiast: that is why I have made such a one the hero of a popular
+play.
+RESPONSE: There have been heroes of that kind crying in the wilderness for
+many years past.
+
+INPUT: What does this say: There have been heroes of that kind crying in the wilderness for
+many years past.
+RESPONSE: When I became interested in the subject towards the
+end of the eighteen-seventies, Melville Bell was dead; but Alexander J.
+
+INPUT: Summarize: There have been heroes of that kind crying in the wilderness for
+many years past. When I became interested in the subject towards the
+end of the eighteen-seventies, Melville Bell was dead; but Alexander J.
+RESPONSE: Ellis was still a living patriarch, with an impressive head always
+covered by a velvet skull cap, for which he would apologize to public
+meetings in a very courtly manner.
+
+INPUT: What is this about: Ellis was still a living patriarch, with an impressive head always
+covered by a velvet skull cap, for which he would apologize to public
+meetings in a very courtly manner.
+RESPONSE: He and Tito Pagliardini, another
+phonetic veteran, were men whom it was impossible to dislike.
+
+INPUT: Summarize: Ellis was still a living patriarch, with an impressive head always
+covered by a velvet skull cap, for which he would apologize to public
+meetings in a very courtly manner. He and Tito Pagliardini, another
+phonetic veteran, were men whom it was impossible to dislike.
+RESPONSE: Henry
+Sweet, then a young man, lacked their sweetness of character: he was
+about as conciliatory to conventional mortals as Ibsen or Samuel
+Butler.
+
+INPUT: What is this about: Henry
+Sweet, then a young man, lacked their sweetness of character: he was
+about as conciliatory to conventional mortals as Ibsen or Samuel
+Butler.
+RESPONSE: His great ability as a phonetician (he was, I think, the best
+of them all at his job) would have entitled him to high official
+recognition, and perhaps enabled him to popularize his subject, but for
+his Satanic contempt for all academic dignitaries and persons in
+general who thought more of Greek than of phonetics.
+
+INPUT: Summarize: Henry
+Sweet, then a young man, lacked their sweetness of character: he was
+about as conciliatory to conventional mortals as Ibsen or Samuel
+Butler. His great ability as a phonetician (he was, I think, the best
+of them all at his job) would have entitled him to high official
+recognition, and perhaps enabled him to popularize his subject, but for
+his Satanic contempt for all academic dignitaries and persons in
+general who thought more of Greek than of phonetics.
+RESPONSE: Once, in the days
+when the Imperial Institute rose in South Kensington, and Joseph
+Chamberlain was booming the Empire, I induced the editor of a leading
+monthly review to commission an article from Sweet on the imperial
+importance of his subject.
+
+INPUT: What does this mean: Once, in the days
+when the Imperial Institute rose in South Kensington, and Joseph
+Chamberlain was booming the Empire, I induced the editor of a leading
+monthly review to commission an article from Sweet on the imperial
+importance of his subject.
+RESPONSE: When it arrived, it contained nothing but a
+savagely derisive attack on a professor of language and literature
+whose chair Sweet regarded as proper to a phonetic expert only.
+
+INPUT: Summarize: Once, in the days
+when the Imperial Institute rose in South Kensington, and Joseph
+Chamberlain was booming the Empire, I induced the editor of a leading
+monthly review to commission an article from Sweet on the imperial
+importance of his subject. When it arrived, it contained nothing but a
+savagely derisive attack on a professor of language and literature
+whose chair Sweet regarded as proper to a phonetic expert only.
+RESPONSE: The
+article, being libelous, had to be returned as impossible; and I had to
+renounce my dream of dragging its author into the limelight.
+
+INPUT: What is this about: The
+article, being libelous, had to be returned as impossible; and I had to
+renounce my dream of dragging its author into the limelight.
+RESPONSE: When I met
+him afterwards, for the first time for many years, I found to my
+astonishment that he, who had been a quite tolerably presentable young
+man, had actually managed by sheer scorn to alter his personal
+appearance until he had become a sort of walking repudiation of Oxford
+and all its traditions.
+
+INPUT: Summarize: The
+article, being libelous, had to be returned as impossible; and I had to
+renounce my dream of dragging its author into the limelight. When I met
+him afterwards, for the first time for many years, I found to my
+astonishment that he, who had been a quite tolerably presentable young
+man, had actually managed by sheer scorn to alter his personal
+appearance until he had become a sort of walking repudiation of Oxford
+and all its traditions.
+RESPONSE: It must have been largely in his own despite
+that he was squeezed into something called a Readership of phonetics
+there.
+
+INPUT: Tell me about: It must have been largely in his own despite
+that he was squeezed into something called a Readership of phonetics
+there.
+RESPONSE: The future of phonetics rests probably with his pupils, who all
+swore by him; but nothing could bring the man himself into any sort of
+compliance with the university, to which he nevertheless clung by
+divine right in an intensely Oxonian way.
+
+INPUT: Summarize: It must have been largely in his own despite
+that he was squeezed into something called a Readership of phonetics
+there. The future of phonetics rests probably with his pupils, who all
+swore by him; but nothing could bring the man himself into any sort of
+compliance with the university, to which he nevertheless clung by
+divine right in an intensely Oxonian way.
+RESPONSE: I daresay his papers, if he
+has left any, include some satires that may be published without too
+destructive results fifty years hence.
+
+INPUT: What is this about: I daresay his papers, if he
+has left any, include some satires that may be published without too
+destructive results fifty years hence.
+RESPONSE: He was, I believe, not in the
+least an ill-natured man: very much the opposite, I should say; but he
+would not suffer fools gladly.
+
+INPUT: Summarize: I daresay his papers, if he
+has left any, include some satires that may be published without too
+destructive results fifty years hence. He was, I believe, not in the
+least an ill-natured man: very much the opposite, I should say; but he
+would not suffer fools gladly.
+RESPONSE: Those who knew him will recognize in my third act the allusion to the
+patent Shorthand in which he used to write postcards, and which may be
+acquired from a four and six-penny manual published by the Clarendon
+Press.
+
+INPUT: What does this say: Those who knew him will recognize in my third act the allusion to the
+patent Shorthand in which he used to write postcards, and which may be
+acquired from a four and six-penny manual published by the Clarendon
+Press.
+RESPONSE: The postcards which Mrs.
+
+INPUT: Summarize: Those who knew him will recognize in my third act the allusion to the
+patent Shorthand in which he used to write postcards, and which may be
+acquired from a four and six-penny manual published by the Clarendon
+Press. The postcards which Mrs.
+RESPONSE: Higgins describes are such as I have
+received from Sweet.
+
+INPUT: What does this mean: Higgins describes are such as I have
+received from Sweet.
+RESPONSE: I would decipher a sound which a cockney would
+represent by zerr, and a Frenchman by seu, and then write demanding
+with some heat what on earth it meant.
+
+INPUT: Summarize: Higgins describes are such as I have
+received from Sweet. I would decipher a sound which a cockney would
+represent by zerr, and a Frenchman by seu, and then write demanding
+with some heat what on earth it meant.
+RESPONSE: Sweet, with boundless contempt
+for my stupidity, would reply that it not only meant but obviously was
+the word Result, as no other Word containing that sound, and capable of
+making sense with the context, existed in any language spoken on earth.
+
+INPUT: What does this mean: Sweet, with boundless contempt
+for my stupidity, would reply that it not only meant but obviously was
+the word Result, as no other Word containing that sound, and capable of
+making sense with the context, existed in any language spoken on earth.
+RESPONSE: That less expert mortals should require fuller indications was beyond
+Sweet’s patience.
+
+INPUT: Summarize: Sweet, with boundless contempt
+for my stupidity, would reply that it not only meant but obviously was
+the word Result, as no other Word containing that sound, and capable of
+making sense with the context, existed in any language spoken on earth. That less expert mortals should require fuller indications was beyond
+Sweet’s patience.
+RESPONSE: His true objective was the
+provision of a full, accurate, legible script for our noble but
+ill-dressed language; but he was led past that by his contempt for the
+popular Pitman system of Shorthand, which he called the Pitfall system.
+
+INPUT: Explain this: His true objective was the
+provision of a full, accurate, legible script for our noble but
+ill-dressed language; but he was led past that by his contempt for the
+popular Pitman system of Shorthand, which he called the Pitfall system.
+RESPONSE: The triumph of Pitman was a triumph of business organization: there was
+a weekly paper to persuade you to learn Pitman: there were cheap
+textbooks and exercise books and transcripts of speeches for you to
+copy, and schools where experienced teachers coached you up to the
+necessary proficiency.
+
+INPUT: Summarize: His true objective was the
+provision of a full, accurate, legible script for our noble but
+ill-dressed language; but he was led past that by his contempt for the
+popular Pitman system of Shorthand, which he called the Pitfall system. The triumph of Pitman was a triumph of business organization: there was
+a weekly paper to persuade you to learn Pitman: there were cheap
+textbooks and exercise books and transcripts of speeches for you to
+copy, and schools where experienced teachers coached you up to the
+necessary proficiency.
+RESPONSE: Sweet could not organize his market in that
+fashion.
+
+INPUT: Explain this: Sweet could not organize his market in that
+fashion.
+RESPONSE: He might as well have been the Sybil who tore up the leaves of
+prophecy that nobody would attend to.
+
+INPUT: Summarize: Sweet could not organize his market in that
+fashion. He might as well have been the Sybil who tore up the leaves of
+prophecy that nobody would attend to.
+RESPONSE: The four and six-penny manual,
+mostly in his lithographed handwriting, that was never vulgarly
+advertized, may perhaps some day be taken up by a syndicate and pushed
+upon the public as The Times pushed the Encyclopaedia Britannica; but
+until then it will certainly not prevail against Pitman.
+
+INPUT: What does this say: The four and six-penny manual,
+mostly in his lithographed handwriting, that was never vulgarly
+advertized, may perhaps some day be taken up by a syndicate and pushed
+upon the public as The Times pushed the Encyclopaedia Britannica; but
+until then it will certainly not prevail against Pitman.
+RESPONSE: I have bought
+three copies of it during my lifetime; and I am informed by the
+publishers that its cloistered existence is still a steady and healthy
+one.
+
+INPUT: Summarize: The four and six-penny manual,
+mostly in his lithographed handwriting, that was never vulgarly
+advertized, may perhaps some day be taken up by a syndicate and pushed
+upon the public as The Times pushed the Encyclopaedia Britannica; but
+until then it will certainly not prevail against Pitman. I have bought
+three copies of it during my lifetime; and I am informed by the
+publishers that its cloistered existence is still a steady and healthy
+one.
+RESPONSE: I actually learned the system two several times; and yet the
+shorthand in which I am writing these lines is Pitman’s.
+
+INPUT: Tell me about: I actually learned the system two several times; and yet the
+shorthand in which I am writing these lines is Pitman’s.
+RESPONSE: And the reason
+is, that my secretary cannot transcribe Sweet, having been perforce
+taught in the schools of Pitman.
+
+INPUT: Summarize: I actually learned the system two several times; and yet the
+shorthand in which I am writing these lines is Pitman’s. And the reason
+is, that my secretary cannot transcribe Sweet, having been perforce
+taught in the schools of Pitman.
+RESPONSE: Therefore, Sweet railed at Pitman as
+vainly as Thersites railed at Ajax: his raillery, however it may have
+eased his soul, gave no popular vogue to Current Shorthand.
+
+INPUT: Tell me about: Therefore, Sweet railed at Pitman as
+vainly as Thersites railed at Ajax: his raillery, however it may have
+eased his soul, gave no popular vogue to Current Shorthand.
+RESPONSE: Pygmalion
+Higgins is not a portrait of Sweet, to whom the adventure of Eliza
+Doolittle would have been impossible; still, as will be seen, there are
+touches of Sweet in the play.
+
+INPUT: Summarize: Therefore, Sweet railed at Pitman as
+vainly as Thersites railed at Ajax: his raillery, however it may have
+eased his soul, gave no popular vogue to Current Shorthand. Pygmalion
+Higgins is not a portrait of Sweet, to whom the adventure of Eliza
+Doolittle would have been impossible; still, as will be seen, there are
+touches of Sweet in the play.
+RESPONSE: With Higgins’s physique and temperament
+Sweet might have set the Thames on fire.
+
+INPUT: What is this about: With Higgins’s physique and temperament
+Sweet might have set the Thames on fire.
+RESPONSE: As it was, he impressed
+himself professionally on Europe to an extent that made his comparative
+personal obscurity, and the failure of Oxford to do justice to his
+eminence, a puzzle to foreign specialists in his subject.
+
+INPUT: Summarize: With Higgins’s physique and temperament
+Sweet might have set the Thames on fire. As it was, he impressed
+himself professionally on Europe to an extent that made his comparative
+personal obscurity, and the failure of Oxford to do justice to his
+eminence, a puzzle to foreign specialists in his subject.
+RESPONSE: I do not
+blame Oxford, because I think Oxford is quite right in demanding a
+certain social amenity from its nurslings (heaven knows it is not
+exorbitant in its requirements!
+
+INPUT: Tell me about: I do not
+blame Oxford, because I think Oxford is quite right in demanding a
+certain social amenity from its nurslings (heaven knows it is not
+exorbitant in its requirements!
+RESPONSE: ); for although I well know how hard it
+is for a man of genius with a seriously underrated subject to maintain
+serene and kindly relations with the men who underrate it, and who keep
+all the best places for less important subjects which they profess
+without originality and sometimes without much capacity for them,
+still, if he overwhelms them with wrath and disdain, he cannot expect
+them to heap honors on him.
+
+INPUT: Summarize: I do not
+blame Oxford, because I think Oxford is quite right in demanding a
+certain social amenity from its nurslings (heaven knows it is not
+exorbitant in its requirements! ); for although I well know how hard it
+is for a man of genius with a seriously underrated subject to maintain
+serene and kindly relations with the men who underrate it, and who keep
+all the best places for less important subjects which they profess
+without originality and sometimes without much capacity for them,
+still, if he overwhelms them with wrath and disdain, he cannot expect
+them to heap honors on him.
+RESPONSE: Of the later generations of phoneticians I know little.
+
+INPUT: Tell me about: Of the later generations of phoneticians I know little.
+RESPONSE: Among them
+towers the Poet Laureate, to whom perhaps Higgins may owe his Miltonic
+sympathies, though here again I must disclaim all portraiture.
+
+INPUT: Summarize: Of the later generations of phoneticians I know little. Among them
+towers the Poet Laureate, to whom perhaps Higgins may owe his Miltonic
+sympathies, though here again I must disclaim all portraiture.
+RESPONSE: But if
+the play makes the public aware that there are such people as
+phoneticians, and that they are among the most important people in
+England at present, it will serve its turn.
+
+INPUT: Explain this: But if
+the play makes the public aware that there are such people as
+phoneticians, and that they are among the most important people in
+England at present, it will serve its turn.
+RESPONSE: I wish to boast that Pygmalion has been an extremely successful play
+all over Europe and North America as well as at home.
+
+INPUT: Summarize: But if
+the play makes the public aware that there are such people as
+phoneticians, and that they are among the most important people in
+England at present, it will serve its turn. I wish to boast that Pygmalion has been an extremely successful play
+all over Europe and North America as well as at home.
+RESPONSE: It is so
+intensely and deliberately didactic, and its subject is esteemed so
+dry, that I delight in throwing it at the heads of the wiseacres who
+repeat the parrot cry that art should never be didactic.
+
+INPUT: Explain this: It is so
+intensely and deliberately didactic, and its subject is esteemed so
+dry, that I delight in throwing it at the heads of the wiseacres who
+repeat the parrot cry that art should never be didactic.
+RESPONSE: It goes to
+prove my contention that art should never be anything else.
+
+INPUT: Summarize: It is so
+intensely and deliberately didactic, and its subject is esteemed so
+dry, that I delight in throwing it at the heads of the wiseacres who
+repeat the parrot cry that art should never be didactic. It goes to
+prove my contention that art should never be anything else.
+RESPONSE: Finally, and for the encouragement of people troubled with accents that
+cut them off from all high employment, I may add that the change
+wrought by Professor Higgins in the flower girl is neither impossible
+nor uncommon.
+
+INPUT: What does this mean: Finally, and for the encouragement of people troubled with accents that
+cut them off from all high employment, I may add that the change
+wrought by Professor Higgins in the flower girl is neither impossible
+nor uncommon.
+RESPONSE: The modern concierge’s daughter who fulfils her ambition
+by playing the Queen of Spain in Ruy Blas at the Theatre Francais is
+only one of many thousands of men and women who have sloughed off their
+native dialects and acquired a new tongue.
+
+INPUT: Summarize: Finally, and for the encouragement of people troubled with accents that
+cut them off from all high employment, I may add that the change
+wrought by Professor Higgins in the flower girl is neither impossible
+nor uncommon. The modern concierge’s daughter who fulfils her ambition
+by playing the Queen of Spain in Ruy Blas at the Theatre Francais is
+only one of many thousands of men and women who have sloughed off their
+native dialects and acquired a new tongue.
+RESPONSE: But the thing has to be done
+scientifically, or the last state of the aspirant may be worse than the
+first.
+
+INPUT: What does this mean: But the thing has to be done
+scientifically, or the last state of the aspirant may be worse than the
+first.
+RESPONSE: An honest and natural slum dialect is more tolerable than the
+attempt of a phonetically untaught person to imitate the vulgar dialect
+of the golf club; and I am sorry to say that in spite of the efforts of
+our Academy of Dramatic Art, there is still too much sham golfing
+English on our stage, and too little of the noble English of Forbes
+Robertson.
+
+INPUT: Summarize: But the thing has to be done
+scientifically, or the last state of the aspirant may be worse than the
+first. An honest and natural slum dialect is more tolerable than the
+attempt of a phonetically untaught person to imitate the vulgar dialect
+of the golf club; and I am sorry to say that in spite of the efforts of
+our Academy of Dramatic Art, there is still too much sham golfing
+English on our stage, and too little of the noble English of Forbes
+Robertson.
+RESPONSE: ACT I
+
+
+Covent Garden at 11.
+
+INPUT: What does this mean: ACT I
+
+
+Covent Garden at 11.
+RESPONSE: Torrents of heavy summer rain.
+
+INPUT: Summarize: ACT I
+
+
+Covent Garden at 11. Torrents of heavy summer rain.
+RESPONSE: Cab whistles
+blowing frantically in all directions.
+
+INPUT: Explain this: Cab whistles
+blowing frantically in all directions.
+RESPONSE: Pedestrians running for shelter
+into the market and under the portico of St.
+
+INPUT: Summarize: Cab whistles
+blowing frantically in all directions. Pedestrians running for shelter
+into the market and under the portico of St.
+RESPONSE: Paul’s Church, where there
+are already several people, among them a lady and her daughter in
+evening dress.
+
+INPUT: Tell me about: Paul’s Church, where there
+are already several people, among them a lady and her daughter in
+evening dress.
+RESPONSE: They are all peering out gloomily at the rain, except
+one man with his back turned to the rest, who seems wholly preoccupied
+with a notebook in which he is writing busily.
+
+INPUT: Summarize: Paul’s Church, where there
+are already several people, among them a lady and her daughter in
+evening dress. They are all peering out gloomily at the rain, except
+one man with his back turned to the rest, who seems wholly preoccupied
+with a notebook in which he is writing busily.
+RESPONSE: The church clock strikes the first quarter.
+
+INPUT: What does this mean: The church clock strikes the first quarter.
+RESPONSE: THE DAUGHTER [in the space between the central pillars, close to the
+one on her left] I’m getting chilled to the bone.
+
+INPUT: Summarize: The church clock strikes the first quarter. THE DAUGHTER [in the space between the central pillars, close to the
+one on her left] I’m getting chilled to the bone.
+RESPONSE: What can Freddy be
+doing all this time?
+
+INPUT: Can you explain: What can Freddy be
+doing all this time?
+RESPONSE: He’s been gone twenty minutes.
+
+INPUT: Summarize: What can Freddy be
+doing all this time? He’s been gone twenty minutes.
+RESPONSE: THE MOTHER [on her daughter’s right] Not so long.
+
+INPUT: What does this mean: THE MOTHER [on her daughter’s right] Not so long.
+RESPONSE: But he ought to have
+got us a cab by this.
+
+INPUT: Summarize: THE MOTHER [on her daughter’s right] Not so long. But he ought to have
+got us a cab by this.
+RESPONSE: A BYSTANDER [on the lady’s right] He won’t get no cab not until
+half-past eleven, missus, when they come back after dropping their
+theatre fares.
+
+INPUT: Explain this: A BYSTANDER [on the lady’s right] He won’t get no cab not until
+half-past eleven, missus, when they come back after dropping their
+theatre fares.
+RESPONSE: But we must have a cab.
+
+INPUT: Summarize: A BYSTANDER [on the lady’s right] He won’t get no cab not until
+half-past eleven, missus, when they come back after dropping their
+theatre fares. But we must have a cab.
+RESPONSE: We can’t stand here until half-past
+eleven.
+
+INPUT: What does this say: We can’t stand here until half-past
+eleven.
+RESPONSE: Well, it ain’t my fault, missus.
+
+INPUT: Summarize: We can’t stand here until half-past
+eleven. Well, it ain’t my fault, missus.
+RESPONSE: If Freddy had a bit of gumption, he would have got one at
+the theatre door.
+
+INPUT: Explain this: If Freddy had a bit of gumption, he would have got one at
+the theatre door.
+RESPONSE: What could he have done, poor boy?
+
+INPUT: Summarize: If Freddy had a bit of gumption, he would have got one at
+the theatre door. What could he have done, poor boy?
+RESPONSE: Other people got cabs.
+
+INPUT: What is this about: Other people got cabs.
+RESPONSE: Freddy rushes in out of the rain from the Southampton Street side, and
+comes between them closing a dripping umbrella.
+
+INPUT: Summarize: Other people got cabs. Freddy rushes in out of the rain from the Southampton Street side, and
+comes between them closing a dripping umbrella.
+RESPONSE: He is a young man of
+twenty, in evening dress, very wet around the ankles.
+
+INPUT: What does this mean: He is a young man of
+twenty, in evening dress, very wet around the ankles.
+RESPONSE: Well, haven’t you got a cab?
+
+INPUT: Summarize: He is a young man of
+twenty, in evening dress, very wet around the ankles. Well, haven’t you got a cab?
+RESPONSE: There’s not one to be had for love or money.
+
+INPUT: What does this say: There’s not one to be had for love or money.
+RESPONSE: Oh, Freddy, there must be one.
+
+INPUT: Summarize: There’s not one to be had for love or money. Oh, Freddy, there must be one.
+RESPONSE: You can’t have tried.
+
+INPUT: Can you explain: You can’t have tried.
+RESPONSE: Do you expect us to go and get one
+ourselves?
+
+INPUT: Summarize: You can’t have tried. Do you expect us to go and get one
+ourselves?
+RESPONSE: I tell you they’re all engaged.
+
+INPUT: Can you explain: I tell you they’re all engaged.
+RESPONSE: The rain was so sudden: nobody
+was prepared; and everybody had to take a cab.
+
+INPUT: Summarize: I tell you they’re all engaged. The rain was so sudden: nobody
+was prepared; and everybody had to take a cab.
+RESPONSE: I’ve been to Charing
+Cross one way and nearly to Ludgate Circus the other; and they were all
+engaged.
+
+INPUT: Can you explain: I’ve been to Charing
+Cross one way and nearly to Ludgate Circus the other; and they were all
+engaged.
+RESPONSE: Did you try Trafalgar Square?
+
+INPUT: Summarize: I’ve been to Charing
+Cross one way and nearly to Ludgate Circus the other; and they were all
+engaged. Did you try Trafalgar Square?
+RESPONSE: There wasn’t one at Trafalgar Square.
+
+INPUT: Tell me about: There wasn’t one at Trafalgar Square.
+RESPONSE: I tried as far as Charing Cross Station.
+
+INPUT: Summarize: There wasn’t one at Trafalgar Square. I tried as far as Charing Cross Station.
+RESPONSE: Did you expect me to
+walk to Hammersmith?
+
+INPUT: Explain this: Did you expect me to
+walk to Hammersmith?
+RESPONSE: You haven’t tried at all.
+
+INPUT: Summarize: Did you expect me to
+walk to Hammersmith? You haven’t tried at all.
+RESPONSE: You really are very helpless, Freddy.
+
+INPUT: What does this mean: You really are very helpless, Freddy.
+RESPONSE: Go again; and don’t
+come back until you have found a cab.
+
+INPUT: Summarize: You really are very helpless, Freddy. Go again; and don’t
+come back until you have found a cab.
+RESPONSE: I shall simply get soaked for nothing.
+
+INPUT: Can you explain: I shall simply get soaked for nothing.
+RESPONSE: Are we to stay here all night in this
+draught, with next to nothing on.
+
+INPUT: Summarize: I shall simply get soaked for nothing. Are we to stay here all night in this
+draught, with next to nothing on.
+RESPONSE: You selfish pig—
+
+FREDDY.
+
+INPUT: Tell me about: You selfish pig—
+
+FREDDY.
+RESPONSE: Oh, very well: I’ll go, I’ll go.
+
+INPUT: Summarize: You selfish pig—
+
+FREDDY. Oh, very well: I’ll go, I’ll go.
+RESPONSE: [He opens his umbrella and
+dashes off Strandwards, but comes into collision with a flower girl,
+who is hurrying in for shelter, knocking her basket out of her hands.
+
+INPUT: Tell me about: [He opens his umbrella and
+dashes off Strandwards, but comes into collision with a flower girl,
+who is hurrying in for shelter, knocking her basket out of her hands.
+RESPONSE: A
+blinding flash of lightning, followed instantly by a rattling peal of
+thunder, orchestrates the incident]
+
+THE FLOWER GIRL.
+
+INPUT: Summarize: [He opens his umbrella and
+dashes off Strandwards, but comes into collision with a flower girl,
+who is hurrying in for shelter, knocking her basket out of her hands. A
+blinding flash of lightning, followed instantly by a rattling peal of
+thunder, orchestrates the incident]
+
+THE FLOWER GIRL.
+RESPONSE: Nah then, Freddy: look wh’ y’ gowin, deah.
+
+INPUT: What does this mean: Nah then, Freddy: look wh’ y’ gowin, deah.
+RESPONSE: Sorry [he rushes off].
+
+INPUT: Summarize: Nah then, Freddy: look wh’ y’ gowin, deah. Sorry [he rushes off].
+RESPONSE: THE FLOWER GIRL [picking up her scattered flowers and replacing them in
+the basket] There’s menners f’ yer!
+
+INPUT: What is this about: THE FLOWER GIRL [picking up her scattered flowers and replacing them in
+the basket] There’s menners f’ yer!
+RESPONSE: Te-oo banches o voylets trod into
+the mad.
+
+INPUT: Summarize: THE FLOWER GIRL [picking up her scattered flowers and replacing them in
+the basket] There’s menners f’ yer! Te-oo banches o voylets trod into
+the mad.
+RESPONSE: [She sits down on the plinth of the column, sorting her
+flowers, on the lady’s right.
+
+INPUT: Tell me about: [She sits down on the plinth of the column, sorting her
+flowers, on the lady’s right.
+RESPONSE: She is not at all an attractive person.
+
+INPUT: Summarize: [She sits down on the plinth of the column, sorting her
+flowers, on the lady’s right. She is not at all an attractive person.
+RESPONSE: She is perhaps eighteen, perhaps twenty, hardly older.
+
+INPUT: Can you explain: She is perhaps eighteen, perhaps twenty, hardly older.
+RESPONSE: She wears a
+little sailor hat of black straw that has long been exposed to the dust
+and soot of London and has seldom if ever been brushed.
+
+INPUT: Summarize: She is perhaps eighteen, perhaps twenty, hardly older. She wears a
+little sailor hat of black straw that has long been exposed to the dust
+and soot of London and has seldom if ever been brushed.
+RESPONSE: Her hair needs
+washing rather badly: its mousy color can hardly be natural.
+
+INPUT: What is this about: Her hair needs
+washing rather badly: its mousy color can hardly be natural.
+RESPONSE: She wears
+a shoddy black coat that reaches nearly to her knees and is shaped to
+her waist.
+
+INPUT: Summarize: Her hair needs
+washing rather badly: its mousy color can hardly be natural. She wears
+a shoddy black coat that reaches nearly to her knees and is shaped to
+her waist.
+RESPONSE: She has a brown skirt with a coarse apron.
+
+INPUT: Tell me about: She has a brown skirt with a coarse apron.
+RESPONSE: Her boots are
+much the worse for wear.
+
+INPUT: Summarize: She has a brown skirt with a coarse apron. Her boots are
+much the worse for wear.
+RESPONSE: She is no doubt as clean as she can afford to
+be; but compared to the ladies she is very dirty.
+
+INPUT: What does this say: She is no doubt as clean as she can afford to
+be; but compared to the ladies she is very dirty.
+RESPONSE: Her features are no
+worse than theirs; but their condition leaves something to be desired;
+and she needs the services of a dentist].
+
+INPUT: Summarize: She is no doubt as clean as she can afford to
+be; but compared to the ladies she is very dirty. Her features are no
+worse than theirs; but their condition leaves something to be desired;
+and she needs the services of a dentist].
+RESPONSE: How do you know that my son’s name is Freddy, pray?
+
+INPUT: What does this say: How do you know that my son’s name is Freddy, pray?
+RESPONSE: Ow, eez ye-ooa san, is e?
+
+INPUT: Summarize: How do you know that my son’s name is Freddy, pray? Ow, eez ye-ooa san, is e?
+RESPONSE: Wal, fewd dan y’ de-ooty
+bawmz a mather should, eed now bettern to spawl a pore gel’s flahrzn
+than ran awy atbaht pyin.
+
+INPUT: Tell me about: Wal, fewd dan y’ de-ooty
+bawmz a mather should, eed now bettern to spawl a pore gel’s flahrzn
+than ran awy atbaht pyin.
+RESPONSE: Will ye-oo py me f’them?
+
+INPUT: Summarize: Wal, fewd dan y’ de-ooty
+bawmz a mather should, eed now bettern to spawl a pore gel’s flahrzn
+than ran awy atbaht pyin. Will ye-oo py me f’them?
+RESPONSE: [Here, with
+apologies, this desperate attempt to represent her dialect without a
+phonetic alphabet must be abandoned as unintelligible outside London.
+
+INPUT: What is this about: [Here, with
+apologies, this desperate attempt to represent her dialect without a
+phonetic alphabet must be abandoned as unintelligible outside London.
+RESPONSE: Do nothing of the sort, mother.
+
+INPUT: Summarize: [Here, with
+apologies, this desperate attempt to represent her dialect without a
+phonetic alphabet must be abandoned as unintelligible outside London. Do nothing of the sort, mother.
+RESPONSE: Please allow me, Clara.
+
+INPUT: What is this about: Please allow me, Clara.
+RESPONSE: Have you any pennies?
+
+INPUT: Summarize: Please allow me, Clara. Have you any pennies?
+RESPONSE: I’ve nothing smaller than sixpence.
+
+INPUT: Explain this: I’ve nothing smaller than sixpence.
+RESPONSE: THE FLOWER GIRL [hopefully] I can give you change for a tanner, kind
+lady.
+
+INPUT: Summarize: I’ve nothing smaller than sixpence. THE FLOWER GIRL [hopefully] I can give you change for a tanner, kind
+lady.
+RESPONSE: THE MOTHER [to Clara] Give it to me.
+
+INPUT: Explain this: THE MOTHER [to Clara] Give it to me.
+RESPONSE: [Clara parts reluctantly].
+
+INPUT: Summarize: THE MOTHER [to Clara] Give it to me. [Clara parts reluctantly].
+RESPONSE: Now [to
+the girl] This is for your flowers.
+
+INPUT: Explain this: Now [to
+the girl] This is for your flowers.
+RESPONSE: Thank you kindly, lady.
+
+INPUT: Summarize: Now [to
+the girl] This is for your flowers. Thank you kindly, lady.
+RESPONSE: Make her give you the change.
+
+INPUT: Explain this: Make her give you the change.
+RESPONSE: These things are only a
+penny a bunch.
+
+INPUT: Summarize: Make her give you the change. These things are only a
+penny a bunch.
+RESPONSE: Do hold your tongue, Clara.
+
+INPUT: Explain this: Do hold your tongue, Clara.
+RESPONSE: You can keep the
+change.
+
+INPUT: Summarize: Do hold your tongue, Clara. You can keep the
+change.
+RESPONSE: Now tell me how you know that young gentleman’s name.
+
+INPUT: Tell me about: Now tell me how you know that young gentleman’s name.
+RESPONSE: I heard you call him by it.
+
+INPUT: Summarize: Now tell me how you know that young gentleman’s name. I heard you call him by it.
+RESPONSE: Don’t try to deceive me.
+
+INPUT: What is this about: Don’t try to deceive me.
+RESPONSE: THE FLOWER GIRL [protesting] Who’s trying to deceive you?
+
+INPUT: Summarize: Don’t try to deceive me. THE FLOWER GIRL [protesting] Who’s trying to deceive you?
+RESPONSE: I called him
+Freddy or Charlie same as you might yourself if you was talking to a
+stranger and wished to be pleasant.
+
+INPUT: What does this mean: I called him
+Freddy or Charlie same as you might yourself if you was talking to a
+stranger and wished to be pleasant.
+RESPONSE: [She sits down beside her basket].
+
+INPUT: Summarize: I called him
+Freddy or Charlie same as you might yourself if you was talking to a
+stranger and wished to be pleasant. [She sits down beside her basket].
+RESPONSE: Sixpence thrown away!
+
+INPUT: Explain this: Sixpence thrown away!
+RESPONSE: Really, mamma, you might have
+spared Freddy that.
+
+INPUT: Summarize: Sixpence thrown away! Really, mamma, you might have
+spared Freddy that.
+RESPONSE: [She retreats in disgust behind the pillar].
+
+INPUT: Can you explain: [She retreats in disgust behind the pillar].
+RESPONSE: An elderly gentleman of the amiable military type rushes into shelter,
+and closes a dripping umbrella.
+
+INPUT: Summarize: [She retreats in disgust behind the pillar]. An elderly gentleman of the amiable military type rushes into shelter,
+and closes a dripping umbrella.
+RESPONSE: He is in the same plight as Freddy,
+very wet about the ankles.
+
+INPUT: What does this say: He is in the same plight as Freddy,
+very wet about the ankles.
+RESPONSE: He is in evening dress, with a light
+overcoat.
+
+INPUT: Summarize: He is in the same plight as Freddy,
+very wet about the ankles. He is in evening dress, with a light
+overcoat.
+RESPONSE: He takes the place left vacant by the daughter’s retirement.
+
+INPUT: What is this about: He takes the place left vacant by the daughter’s retirement.
+RESPONSE: THE MOTHER [to the gentleman] Oh, sir, is there any sign of its
+stopping?
+
+INPUT: Summarize: He takes the place left vacant by the daughter’s retirement. THE MOTHER [to the gentleman] Oh, sir, is there any sign of its
+stopping?
+RESPONSE: It started worse than ever about two
+minutes ago.
+
+INPUT: Can you explain: It started worse than ever about two
+minutes ago.
+RESPONSE: [He goes to the plinth beside the flower girl; puts up his
+foot on it; and stoops to turn down his trouser ends].
+
+INPUT: Summarize: It started worse than ever about two
+minutes ago. [He goes to the plinth beside the flower girl; puts up his
+foot on it; and stoops to turn down his trouser ends].
+RESPONSE: [She retires sadly and joins her daughter].
+
+INPUT: What does this say: [She retires sadly and joins her daughter].
+RESPONSE: THE FLOWER GIRL [taking advantage of the military gentleman’s proximity
+to establish friendly relations with him].
+
+INPUT: Summarize: [She retires sadly and joins her daughter]. THE FLOWER GIRL [taking advantage of the military gentleman’s proximity
+to establish friendly relations with him].
+RESPONSE: If it’s worse it’s a sign
+it’s nearly over.
+
+INPUT: What does this mean: If it’s worse it’s a sign
+it’s nearly over.
+RESPONSE: So cheer up, Captain; and buy a flower off a poor
+girl.
+
+INPUT: Summarize: If it’s worse it’s a sign
+it’s nearly over. So cheer up, Captain; and buy a flower off a poor
+girl.
+RESPONSE: I’m sorry, I haven’t any change.
+
+INPUT: What does this say: I’m sorry, I haven’t any change.
+RESPONSE: I can give you change, Captain,
+
+THE GENTLEMEN.
+
+INPUT: Summarize: I’m sorry, I haven’t any change. I can give you change, Captain,
+
+THE GENTLEMEN.
+RESPONSE: Oh do buy a flower off me, Captain.
+
+INPUT: What is this about: Oh do buy a flower off me, Captain.
+RESPONSE: I can change
+half-a-crown.
+
+INPUT: Summarize: Oh do buy a flower off me, Captain. I can change
+half-a-crown.
+RESPONSE: Take this for tuppence.
+
+INPUT: Can you explain: Take this for tuppence.
+RESPONSE: Now don’t be troublesome: there’s a good girl.
+
+INPUT: Summarize: Take this for tuppence. Now don’t be troublesome: there’s a good girl.
+RESPONSE: [Trying
+his pockets] I really haven’t any change—Stop: here’s three hapence,
+if that’s any use to you [he retreats to the other pillar].
+
+INPUT: Tell me about: [Trying
+his pockets] I really haven’t any change—Stop: here’s three hapence,
+if that’s any use to you [he retreats to the other pillar].
+RESPONSE: THE FLOWER GIRL [disappointed, but thinking three halfpence better than
+nothing] Thank you, sir.
+
+INPUT: Summarize: [Trying
+his pockets] I really haven’t any change—Stop: here’s three hapence,
+if that’s any use to you [he retreats to the other pillar]. THE FLOWER GIRL [disappointed, but thinking three halfpence better than
+nothing] Thank you, sir.
+RESPONSE: THE BYSTANDER [to the girl] You be careful: give him a flower for it.
+
+INPUT: What does this say: THE BYSTANDER [to the girl] You be careful: give him a flower for it.
+RESPONSE: There’s a bloke here behind taking down every blessed word you’re
+saying.
+
+INPUT: Summarize: THE BYSTANDER [to the girl] You be careful: give him a flower for it. There’s a bloke here behind taking down every blessed word you’re
+saying.
+RESPONSE: [All turn to the man who is taking notes].
+
+INPUT: What does this say: [All turn to the man who is taking notes].
+RESPONSE: THE FLOWER GIRL [springing up terrified] I ain’t done nothing wrong by
+speaking to the gentleman.
+
+INPUT: Summarize: [All turn to the man who is taking notes]. THE FLOWER GIRL [springing up terrified] I ain’t done nothing wrong by
+speaking to the gentleman.
+RESPONSE: I’ve a right to sell flowers if I keep off
+the kerb.
+
+INPUT: What is this about: I’ve a right to sell flowers if I keep off
+the kerb.
+RESPONSE: [Hysterically] I’m a respectable girl: so help me, I never
+spoke to him except to ask him to buy a flower off me.
+
+INPUT: Summarize: I’ve a right to sell flowers if I keep off
+the kerb. [Hysterically] I’m a respectable girl: so help me, I never
+spoke to him except to ask him to buy a flower off me.
+RESPONSE: [General hubbub,
+mostly sympathetic to the flower girl, but deprecating her excessive
+sensibility.
+
+INPUT: Can you explain: [General hubbub,
+mostly sympathetic to the flower girl, but deprecating her excessive
+sensibility.
+RESPONSE: Cries of Don’t start hollerin.
+
+INPUT: Summarize: [General hubbub,
+mostly sympathetic to the flower girl, but deprecating her excessive
+sensibility. Cries of Don’t start hollerin.
+RESPONSE: Nobody’s
+going to touch you.
+
+INPUT: Can you explain: Nobody’s
+going to touch you.
+RESPONSE: What’s the good of fussing?
+
+INPUT: Summarize: Nobody’s
+going to touch you. What’s the good of fussing?
+RESPONSE: , come from the elderly staid spectators, who pat her comfortingly.
+
+INPUT: What does this mean: , come from the elderly staid spectators, who pat her comfortingly.
+RESPONSE: Less patient ones bid her shut her head, or ask her roughly what is
+wrong with her.
+
+INPUT: Summarize: , come from the elderly staid spectators, who pat her comfortingly. Less patient ones bid her shut her head, or ask her roughly what is
+wrong with her.
+RESPONSE: A remoter group, not knowing what the matter is, crowd
+in and increase the noise with question and answer: What’s the row?
+
+INPUT: What is this about: A remoter group, not knowing what the matter is, crowd
+in and increase the noise with question and answer: What’s the row?
+RESPONSE: A tec taking her down.
+
+INPUT: Summarize: A remoter group, not knowing what the matter is, crowd
+in and increase the noise with question and answer: What’s the row? A tec taking her down.
+RESPONSE: Yes: him
+over there: Took money off the gentleman, etc.
+
+INPUT: Explain this: Yes: him
+over there: Took money off the gentleman, etc.
+RESPONSE: The flower girl,
+distraught and mobbed, breaks through them to the gentleman, crying
+mildly] Oh, sir, don’t let him charge me.
+
+INPUT: Summarize: Yes: him
+over there: Took money off the gentleman, etc. The flower girl,
+distraught and mobbed, breaks through them to the gentleman, crying
+mildly] Oh, sir, don’t let him charge me.
+RESPONSE: You dunno what it means to
+me.
+
+INPUT: What is this about: You dunno what it means to
+me.
+RESPONSE: They’ll take away my character and drive me on the streets for
+speaking to gentlemen.
+
+INPUT: Summarize: You dunno what it means to
+me. They’ll take away my character and drive me on the streets for
+speaking to gentlemen.
+RESPONSE: They—
+
+THE NOTE TAKER [coming forward on her right, the rest crowding after
+him] There, there, there, there!
+
+INPUT: What is this about: They—
+
+THE NOTE TAKER [coming forward on her right, the rest crowding after
+him] There, there, there, there!
+RESPONSE: Who’s hurting you, you silly girl?
+
+INPUT: Summarize: They—
+
+THE NOTE TAKER [coming forward on her right, the rest crowding after
+him] There, there, there, there! Who’s hurting you, you silly girl?
+RESPONSE: What do you take me for?
+
+INPUT: What does this mean: What do you take me for?
+RESPONSE: It’s all right: he’s a gentleman: look at his boots.
+
+INPUT: Summarize: What do you take me for? It’s all right: he’s a gentleman: look at his boots.
+RESPONSE: [Explaining to the note taker] She thought you was a copper’s nark, sir.
+
+INPUT: Can you explain: [Explaining to the note taker] She thought you was a copper’s nark, sir.
+RESPONSE: THE NOTE TAKER [with quick interest] What’s a copper’s nark?
+
+INPUT: Summarize: [Explaining to the note taker] She thought you was a copper’s nark, sir. THE NOTE TAKER [with quick interest] What’s a copper’s nark?
+RESPONSE: THE BYSTANDER [inept at definition] It’s a—well, it’s a copper’s nark,
+as you might say.
+
+INPUT: Tell me about: THE BYSTANDER [inept at definition] It’s a—well, it’s a copper’s nark,
+as you might say.
+RESPONSE: What else would you call it?
+
+INPUT: Summarize: THE BYSTANDER [inept at definition] It’s a—well, it’s a copper’s nark,
+as you might say. What else would you call it?
+RESPONSE: THE FLOWER GIRL [still hysterical] I take my Bible oath I never said a
+word—
+
+THE NOTE TAKER [overbearing but good-humored] Oh, shut up, shut up.
+
+INPUT: Explain this: THE FLOWER GIRL [still hysterical] I take my Bible oath I never said a
+word—
+
+THE NOTE TAKER [overbearing but good-humored] Oh, shut up, shut up.
+RESPONSE: Do
+I look like a policeman?
+
+INPUT: Summarize: THE FLOWER GIRL [still hysterical] I take my Bible oath I never said a
+word—
+
+THE NOTE TAKER [overbearing but good-humored] Oh, shut up, shut up. Do
+I look like a policeman?
+RESPONSE: THE FLOWER GIRL [far from reassured] Then what did you take down my
+words for?
+
+INPUT: What does this say: THE FLOWER GIRL [far from reassured] Then what did you take down my
+words for?
+RESPONSE: How do I know whether you took me down right?
+
+INPUT: Summarize: THE FLOWER GIRL [far from reassured] Then what did you take down my
+words for? How do I know whether you took me down right?
+RESPONSE: You just show
+me what you’ve wrote about me.
+
+INPUT: What does this mean: You just show
+me what you’ve wrote about me.
+RESPONSE: [The note taker opens his book and holds
+it steadily under her nose, though the pressure of the mob trying to
+read it over his shoulders would upset a weaker man].
+
+INPUT: Summarize: You just show
+me what you’ve wrote about me. [The note taker opens his book and holds
+it steadily under her nose, though the pressure of the mob trying to
+read it over his shoulders would upset a weaker man].
+RESPONSE: That
+ain’t proper writing.
+
+INPUT: What does this mean: That
+ain’t proper writing.
+RESPONSE: [Reads, reproducing her pronunciation exactly]
+“Cheer ap, Keptin; n’ haw ya flahr orf a pore gel.
+
+INPUT: Summarize: That
+ain’t proper writing. [Reads, reproducing her pronunciation exactly]
+“Cheer ap, Keptin; n’ haw ya flahr orf a pore gel.
+RESPONSE: ”
+
+THE FLOWER GIRL [much distressed] It’s because I called him Captain.
+
+INPUT: What does this say: ”
+
+THE FLOWER GIRL [much distressed] It’s because I called him Captain.
+RESPONSE: [To the gentleman] Oh, sir, don’t let him lay a charge
+agen me for a word like that.
+
+INPUT: Summarize: ”
+
+THE FLOWER GIRL [much distressed] It’s because I called him Captain. [To the gentleman] Oh, sir, don’t let him lay a charge
+agen me for a word like that.
+RESPONSE: You—
+
+THE GENTLEMAN.
+
+INPUT: Can you explain: You—
+
+THE GENTLEMAN.
+RESPONSE: [To the note taker] Really,
+sir, if you are a detective, you need not begin protecting me against
+molestation by young women until I ask you.
+
+INPUT: Summarize: You—
+
+THE GENTLEMAN. [To the note taker] Really,
+sir, if you are a detective, you need not begin protecting me against
+molestation by young women until I ask you.
+RESPONSE: Anybody could see that the
+girl meant no harm.
+
+INPUT: Can you explain: Anybody could see that the
+girl meant no harm.
+RESPONSE: THE BYSTANDERS GENERALLY [demonstrating against police espionage]
+Course they could.
+
+INPUT: Summarize: Anybody could see that the
+girl meant no harm. THE BYSTANDERS GENERALLY [demonstrating against police espionage]
+Course they could.
+RESPONSE: What business is it of yours?
+
+INPUT: What is this about: What business is it of yours?
+RESPONSE: You mind your own
+affairs.
+
+INPUT: Summarize: What business is it of yours? You mind your own
+affairs.
+RESPONSE: He wants promotion, he does.
+
+INPUT: What does this mean: He wants promotion, he does.
+RESPONSE: Taking down people’s words!
+
+INPUT: Summarize: He wants promotion, he does. Taking down people’s words!
+RESPONSE: Girl
+never said a word to him.
+
+INPUT: Explain this: Girl
+never said a word to him.
+RESPONSE: What harm if she did?
+
+INPUT: Summarize: Girl
+never said a word to him. What harm if she did?
+RESPONSE: Nice thing a girl can’t
+shelter from the rain without being insulted, etc.
+
+INPUT: Can you explain: Nice thing a girl can’t
+shelter from the rain without being insulted, etc.
+RESPONSE: [She is
+conducted by the more sympathetic demonstrators back to her plinth,
+where she resumes her seat and struggles with her emotion].
+
+INPUT: Summarize: Nice thing a girl can’t
+shelter from the rain without being insulted, etc. [She is
+conducted by the more sympathetic demonstrators back to her plinth,
+where she resumes her seat and struggles with her emotion].
+RESPONSE: He’s a blooming busybody: that’s what he
+is.
+
+INPUT: Can you explain: He’s a blooming busybody: that’s what he
+is.
+RESPONSE: I tell you, look at his boots.
+
+INPUT: Summarize: He’s a blooming busybody: that’s what he
+is. I tell you, look at his boots.
+RESPONSE: THE NOTE TAKER [turning on him genially] And how are all your people
+down at Selsey?
+
+INPUT: Can you explain: THE NOTE TAKER [turning on him genially] And how are all your people
+down at Selsey?
+RESPONSE: THE BYSTANDER [suspiciously] Who told you my people come from Selsey?
+
+INPUT: Summarize: THE NOTE TAKER [turning on him genially] And how are all your people
+down at Selsey? THE BYSTANDER [suspiciously] Who told you my people come from Selsey?
+RESPONSE: [To the girl] How do you come
+to be up so far east?
+
+INPUT: What does this say: [To the girl] How do you come
+to be up so far east?
+RESPONSE: You were born in Lisson Grove.
+
+INPUT: Summarize: [To the girl] How do you come
+to be up so far east? You were born in Lisson Grove.
+RESPONSE: THE FLOWER GIRL [appalled] Oh, what harm is there in my leaving Lisson
+Grove?
+
+INPUT: Can you explain: THE FLOWER GIRL [appalled] Oh, what harm is there in my leaving Lisson
+Grove?
+RESPONSE: It wasn’t fit for a pig to live in; and I had to pay
+four-and-six a week.
+
+INPUT: Summarize: THE FLOWER GIRL [appalled] Oh, what harm is there in my leaving Lisson
+Grove? It wasn’t fit for a pig to live in; and I had to pay
+four-and-six a week.
+RESPONSE: [In tears] Oh, boo—hoo—oo—
+
+THE NOTE TAKER.
+
+INPUT: Explain this: [In tears] Oh, boo—hoo—oo—
+
+THE NOTE TAKER.
+RESPONSE: Live where you like; but stop that noise.
+
+INPUT: Summarize: [In tears] Oh, boo—hoo—oo—
+
+THE NOTE TAKER. Live where you like; but stop that noise.
+RESPONSE: THE GENTLEMAN [to the girl] Come, come!
+
+INPUT: Explain this: THE GENTLEMAN [to the girl] Come, come!
+RESPONSE: he can’t touch you: you have a
+right to live where you please.
+
+INPUT: Summarize: THE GENTLEMAN [to the girl] Come, come! he can’t touch you: you have a
+right to live where you please.
+RESPONSE: A SARCASTIC BYSTANDER [thrusting himself between the note taker and the
+gentleman] Park Lane, for instance.
+
+INPUT: Can you explain: A SARCASTIC BYSTANDER [thrusting himself between the note taker and the
+gentleman] Park Lane, for instance.
+RESPONSE: I’d like to go into the Housing
+Question with you, I would.
+
+INPUT: Summarize: A SARCASTIC BYSTANDER [thrusting himself between the note taker and the
+gentleman] Park Lane, for instance. I’d like to go into the Housing
+Question with you, I would.
+RESPONSE: THE FLOWER GIRL [subsiding into a brooding melancholy over her basket,
+and talking very low-spiritedly to herself] I’m a good girl, I am.
+
+INPUT: Can you explain: THE FLOWER GIRL [subsiding into a brooding melancholy over her basket,
+and talking very low-spiritedly to herself] I’m a good girl, I am.
+RESPONSE: THE SARCASTIC BYSTANDER [not attending to her] Do you know where _I_
+come from?
+
+INPUT: Summarize: THE FLOWER GIRL [subsiding into a brooding melancholy over her basket,
+and talking very low-spiritedly to herself] I’m a good girl, I am. THE SARCASTIC BYSTANDER [not attending to her] Do you know where _I_
+come from?
+RESPONSE: THE NOTE TAKER [promptly] Hoxton.
+
+INPUT: What is this about: THE NOTE TAKER [promptly] Hoxton.
+RESPONSE: Popular interest in the note taker’s performance increases.
+
+INPUT: Summarize: THE NOTE TAKER [promptly] Hoxton. Popular interest in the note taker’s performance increases.
+RESPONSE: THE SARCASTIC ONE [amazed] Well, who said I didn’t?
+
+INPUT: Explain this: THE SARCASTIC ONE [amazed] Well, who said I didn’t?
+RESPONSE: You know
+everything, you do.
+
+INPUT: Summarize: THE SARCASTIC ONE [amazed] Well, who said I didn’t? You know
+everything, you do.
+RESPONSE: THE FLOWER GIRL [still nursing her sense of injury] Ain’t no call to
+meddle with me, he ain’t.
+
+INPUT: What does this mean: THE FLOWER GIRL [still nursing her sense of injury] Ain’t no call to
+meddle with me, he ain’t.
+RESPONSE: THE BYSTANDER [to her] Of course he ain’t.
+
+INPUT: Summarize: THE FLOWER GIRL [still nursing her sense of injury] Ain’t no call to
+meddle with me, he ain’t. THE BYSTANDER [to her] Of course he ain’t.
+RESPONSE: Don’t you stand it from him.
+
+INPUT: Tell me about: Don’t you stand it from him.
+RESPONSE: [To the note taker] See here: what call have you to know about people
+what never offered to meddle with you?
+
+INPUT: Summarize: Don’t you stand it from him. [To the note taker] See here: what call have you to know about people
+what never offered to meddle with you?
+RESPONSE: Where’s your warrant?
+
+INPUT: Tell me about: Where’s your warrant?
+RESPONSE: SEVERAL BYSTANDERS [encouraged by this seeming point of law] Yes:
+where’s your warrant?
+
+INPUT: Summarize: Where’s your warrant? SEVERAL BYSTANDERS [encouraged by this seeming point of law] Yes:
+where’s your warrant?
+RESPONSE: Let him say what he likes.
+
+INPUT: Can you explain: Let him say what he likes.
+RESPONSE: I don’t want to have no
+truck with him.
+
+INPUT: Summarize: Let him say what he likes. I don’t want to have no
+truck with him.
+RESPONSE: You take us for dirt under your feet, don’t you?
+
+INPUT: What does this say: You take us for dirt under your feet, don’t you?
+RESPONSE: Catch
+you taking liberties with a gentleman!
+
+INPUT: Summarize: You take us for dirt under your feet, don’t you? Catch
+you taking liberties with a gentleman!
+RESPONSE: THE SARCASTIC BYSTANDER.
+
+INPUT: What is this about: THE SARCASTIC BYSTANDER.
+RESPONSE: Yes: tell HIM where he come from if you want
+to go fortune-telling.
+
+INPUT: Summarize: THE SARCASTIC BYSTANDER. Yes: tell HIM where he come from if you want
+to go fortune-telling.
+RESPONSE: Cheltenham, Harrow, Cambridge, and India.
+
+INPUT: What does this say: Cheltenham, Harrow, Cambridge, and India.
+RESPONSE: Reaction in the note
+taker’s favor.
+
+INPUT: Summarize: Cheltenham, Harrow, Cambridge, and India. Reaction in the note
+taker’s favor.
+RESPONSE: Exclamations of He knows all about it.
+
+INPUT: What does this say: Exclamations of He knows all about it.
+RESPONSE: Hear him tell the toff where he come from?
+
+INPUT: Summarize: Exclamations of He knows all about it. Hear him tell the toff where he come from?
+RESPONSE: May I ask, sir, do
+you do this for your living at a music hall?
+
+INPUT: Explain this: May I ask, sir, do
+you do this for your living at a music hall?
+RESPONSE: I’ve thought of that.
+
+INPUT: Summarize: May I ask, sir, do
+you do this for your living at a music hall? I’ve thought of that.
+RESPONSE: Perhaps I shall some day.
+
+INPUT: What does this say: Perhaps I shall some day.
+RESPONSE: The rain has stopped; and the persons on the outside of the crowd begin
+to drop off.
+
+INPUT: Summarize: Perhaps I shall some day. The rain has stopped; and the persons on the outside of the crowd begin
+to drop off.
+RESPONSE: THE FLOWER GIRL [resenting the reaction] He’s no gentleman, he ain’t,
+to interfere with a poor girl.
+
+INPUT: Can you explain: THE FLOWER GIRL [resenting the reaction] He’s no gentleman, he ain’t,
+to interfere with a poor girl.
+RESPONSE: THE DAUGHTER [out of patience, pushing her way rudely to the front and
+displacing the gentleman, who politely retires to the other side of the
+pillar] What on earth is Freddy doing?
+
+INPUT: Summarize: THE FLOWER GIRL [resenting the reaction] He’s no gentleman, he ain’t,
+to interfere with a poor girl. THE DAUGHTER [out of patience, pushing her way rudely to the front and
+displacing the gentleman, who politely retires to the other side of the
+pillar] What on earth is Freddy doing?
+RESPONSE: I shall get pneumonia if I stay
+in this draught any longer.
+
+INPUT: Can you explain: I shall get pneumonia if I stay
+in this draught any longer.
+RESPONSE: THE NOTE TAKER [to himself, hastily making a note of her pronunciation
+of “monia”] Earlscourt.
+
+INPUT: Summarize: I shall get pneumonia if I stay
+in this draught any longer. THE NOTE TAKER [to himself, hastily making a note of her pronunciation
+of “monia”] Earlscourt.
+RESPONSE: THE DAUGHTER [violently] Will you please keep your impertinent remarks
+to yourself?
+
+INPUT: What is this about: THE DAUGHTER [violently] Will you please keep your impertinent remarks
+to yourself?
+RESPONSE: Did I say that out loud?
+
+INPUT: Summarize: THE DAUGHTER [violently] Will you please keep your impertinent remarks
+to yourself? Did I say that out loud?
+RESPONSE: Your mother’s Epsom, unmistakeably.
+
+INPUT: Can you explain: Your mother’s Epsom, unmistakeably.
+RESPONSE: THE MOTHER [advancing between her daughter and the note taker] How very
+curious!
+
+INPUT: Summarize: Your mother’s Epsom, unmistakeably. THE MOTHER [advancing between her daughter and the note taker] How very
+curious!
+RESPONSE: I was brought up in Largelady Park, near Epsom.
+
+INPUT: What does this say: I was brought up in Largelady Park, near Epsom.
+RESPONSE: THE NOTE TAKER [uproariously amused] Ha!
+
+INPUT: Summarize: I was brought up in Largelady Park, near Epsom. THE NOTE TAKER [uproariously amused] Ha!
+RESPONSE: What a devil of a name!
+
+INPUT: Tell me about: What a devil of a name!
+RESPONSE: [To the daughter] You want a cab, do you?
+
+INPUT: Summarize: What a devil of a name! [To the daughter] You want a cab, do you?
+RESPONSE: Don’t dare speak to me.
+
+INPUT: What does this mean: Don’t dare speak to me.
+RESPONSE: Oh, please, please Clara.
+
+INPUT: Summarize: Don’t dare speak to me. Oh, please, please Clara.
+RESPONSE: [Her daughter repudiates her with
+an angry shrug and retires haughtily.
+
+INPUT: Tell me about: [Her daughter repudiates her with
+an angry shrug and retires haughtily.
+RESPONSE: ] We should be so grateful to you,
+sir, if you found us a cab.
+
+INPUT: Summarize: [Her daughter repudiates her with
+an angry shrug and retires haughtily. ] We should be so grateful to you,
+sir, if you found us a cab.
+RESPONSE: [The note taker produces a whistle].
+
+INPUT: Tell me about: [The note taker produces a whistle].
+RESPONSE: [She joins her daughter].
+
+INPUT: Summarize: [The note taker produces a whistle]. [She joins her daughter].
+RESPONSE: The note taker blows a piercing
+blast.
+
+INPUT: What does this say: The note taker blows a piercing
+blast.
+RESPONSE: THE SARCASTIC BYSTANDER.
+
+INPUT: Summarize: The note taker blows a piercing
+blast. THE SARCASTIC BYSTANDER.
+RESPONSE: I knowed he was a plain-clothes copper.
+
+INPUT: Can you explain: I knowed he was a plain-clothes copper.
+RESPONSE: That ain’t a police whistle: that’s a sporting whistle.
+
+INPUT: Summarize: I knowed he was a plain-clothes copper. That ain’t a police whistle: that’s a sporting whistle.
+RESPONSE: THE FLOWER GIRL [still preoccupied with her wounded feelings] He’s no
+right to take away my character.
+
+INPUT: Explain this: THE FLOWER GIRL [still preoccupied with her wounded feelings] He’s no
+right to take away my character.
+RESPONSE: My character is the same to me as any
+lady’s.
+
+INPUT: Summarize: THE FLOWER GIRL [still preoccupied with her wounded feelings] He’s no
+right to take away my character. My character is the same to me as any
+lady’s.
+RESPONSE: I don’t know whether you’ve noticed it; but the rain
+stopped about two minutes ago.
+
+INPUT: Explain this: I don’t know whether you’ve noticed it; but the rain
+stopped about two minutes ago.
+RESPONSE: Why didn’t you say so before?
+
+INPUT: Summarize: I don’t know whether you’ve noticed it; but the rain
+stopped about two minutes ago. Why didn’t you say so before?
+RESPONSE: and us losing
+our time listening to your silliness.
+
+INPUT: Explain this: and us losing
+our time listening to your silliness.
+RESPONSE: [He walks off towards the Strand].
+
+INPUT: Summarize: and us losing
+our time listening to your silliness. [He walks off towards the Strand].
+RESPONSE: THE SARCASTIC BYSTANDER.
+
+INPUT: What is this about: THE SARCASTIC BYSTANDER.
+RESPONSE: I can tell where you come from.
+
+INPUT: Summarize: THE SARCASTIC BYSTANDER. I can tell where you come from.
+RESPONSE: You come from
+Anwell.
+
+INPUT: What is this about: You come from
+Anwell.
+RESPONSE: THE NOTE TAKER [helpfully] _H_anwell.
+
+INPUT: Summarize: You come from
+Anwell. THE NOTE TAKER [helpfully] _H_anwell.
+RESPONSE: THE SARCASTIC BYSTANDER [affecting great distinction of speech] Thenk
+you, teacher.
+
+INPUT: Tell me about: THE SARCASTIC BYSTANDER [affecting great distinction of speech] Thenk
+you, teacher.
+RESPONSE: So long [he touches his hat with mock respect
+and strolls off].
+
+INPUT: Summarize: THE SARCASTIC BYSTANDER [affecting great distinction of speech] Thenk
+you, teacher. So long [he touches his hat with mock respect
+and strolls off].
+RESPONSE: Frightening people like that!
+
+INPUT: Explain this: Frightening people like that!
+RESPONSE: How would he like it
+himself.
+
+INPUT: Summarize: Frightening people like that! How would he like it
+himself.
+RESPONSE: It’s quite fine now, Clara.
+
+INPUT: Tell me about: It’s quite fine now, Clara.
+RESPONSE: We can walk to a motor bus.
+
+INPUT: Summarize: It’s quite fine now, Clara. We can walk to a motor bus.
+RESPONSE: [She gathers her skirts above her ankles and hurries off towards
+the Strand].
+
+INPUT: Explain this: [She gathers her skirts above her ankles and hurries off towards
+the Strand].
+RESPONSE: But the cab—[her mother is out of hearing].
+
+INPUT: Summarize: [She gathers her skirts above her ankles and hurries off towards
+the Strand]. But the cab—[her mother is out of hearing].
+RESPONSE: [She follows angrily].
+
+INPUT: What does this mean: [She follows angrily].
+RESPONSE: All the rest have gone except the note taker, the gentleman, and the
+flower girl, who sits arranging her basket, and still pitying herself
+in murmurs.
+
+INPUT: Summarize: [She follows angrily]. All the rest have gone except the note taker, the gentleman, and the
+flower girl, who sits arranging her basket, and still pitying herself
+in murmurs.
+RESPONSE: Hard enough for her to live without being
+worrited and chivied.
+
+INPUT: What is this about: Hard enough for her to live without being
+worrited and chivied.
+RESPONSE: THE GENTLEMAN [returning to his former place on the note taker’s left]
+How do you do it, if I may ask?
+
+INPUT: Summarize: Hard enough for her to live without being
+worrited and chivied. THE GENTLEMAN [returning to his former place on the note taker’s left]
+How do you do it, if I may ask?
+RESPONSE: The science of speech.
+
+INPUT: What does this mean: The science of speech.
+RESPONSE: That’s my
+profession; also my hobby.
+
+INPUT: Summarize: The science of speech. That’s my
+profession; also my hobby.
+RESPONSE: Happy is the man who can make a living by
+his hobby!
+
+INPUT: What does this mean: Happy is the man who can make a living by
+his hobby!
+RESPONSE: You can spot an Irishman or a Yorkshireman by his brogue.
+
+INPUT: Summarize: Happy is the man who can make a living by
+his hobby! You can spot an Irishman or a Yorkshireman by his brogue.
+RESPONSE: I
+can place any man within six miles.
+
+INPUT: Explain this: I
+can place any man within six miles.
+RESPONSE: I can place him within two miles in
+London.
+
+INPUT: Summarize: I
+can place any man within six miles. I can place him within two miles in
+London.
+RESPONSE: Sometimes within two streets.
+
+INPUT: What is this about: Sometimes within two streets.
+RESPONSE: Ought to be ashamed of himself, unmanly coward!
+
+INPUT: Summarize: Sometimes within two streets. Ought to be ashamed of himself, unmanly coward!
+RESPONSE: But is there a living in that?
+
+INPUT: What is this about: But is there a living in that?
+RESPONSE: This is an age of upstarts.
+
+INPUT: Summarize: But is there a living in that? This is an age of upstarts.
+RESPONSE: Men begin in Kentish Town with 80 pounds a year, and end in Park Lane
+with a hundred thousand.
+
+INPUT: Can you explain: Men begin in Kentish Town with 80 pounds a year, and end in Park Lane
+with a hundred thousand.
+RESPONSE: They want to drop Kentish Town; but they give
+themselves away every time they open their mouths.
+
+INPUT: Summarize: Men begin in Kentish Town with 80 pounds a year, and end in Park Lane
+with a hundred thousand. They want to drop Kentish Town; but they give
+themselves away every time they open their mouths.
+RESPONSE: Now I can teach
+them—
+
+THE FLOWER GIRL.
+
+INPUT: Tell me about: Now I can teach
+them—
+
+THE FLOWER GIRL.
+RESPONSE: Let him mind his own business and leave a poor girl—
+
+THE NOTE TAKER [explosively] Woman: cease this detestable boohooing
+instantly; or else seek the shelter of some other place of worship.
+
+INPUT: Summarize: Now I can teach
+them—
+
+THE FLOWER GIRL. Let him mind his own business and leave a poor girl—
+
+THE NOTE TAKER [explosively] Woman: cease this detestable boohooing
+instantly; or else seek the shelter of some other place of worship.
+RESPONSE: THE FLOWER GIRL [with feeble defiance] I’ve a right to be here if I
+like, same as you.
+
+INPUT: What does this mean: THE FLOWER GIRL [with feeble defiance] I’ve a right to be here if I
+like, same as you.
+RESPONSE: A woman who utters such depressing and disgusting
+sounds has no right to be anywhere—no right to live.
+
+INPUT: Summarize: THE FLOWER GIRL [with feeble defiance] I’ve a right to be here if I
+like, same as you. A woman who utters such depressing and disgusting
+sounds has no right to be anywhere—no right to live.
+RESPONSE: Remember that you
+are a human being with a soul and the divine gift of articulate speech:
+that your native language is the language of Shakespear and Milton and
+The Bible; and don’t sit there crooning like a bilious pigeon.
+
+INPUT: What does this mean: Remember that you
+are a human being with a soul and the divine gift of articulate speech:
+that your native language is the language of Shakespear and Milton and
+The Bible; and don’t sit there crooning like a bilious pigeon.
+RESPONSE: THE FLOWER GIRL [quite overwhelmed, and looking up at him in mingled
+wonder and deprecation without daring to raise her head]
+Ah—ah—ah—ow—ow—oo!
+
+INPUT: Summarize: Remember that you
+are a human being with a soul and the divine gift of articulate speech:
+that your native language is the language of Shakespear and Milton and
+The Bible; and don’t sit there crooning like a bilious pigeon. THE FLOWER GIRL [quite overwhelmed, and looking up at him in mingled
+wonder and deprecation without daring to raise her head]
+Ah—ah—ah—ow—ow—oo!
+RESPONSE: THE NOTE TAKER [whipping out his book] Heavens!
+
+INPUT: What is this about: THE NOTE TAKER [whipping out his book] Heavens!
+RESPONSE: [He
+writes; then holds out the book and reads, reproducing her vowels
+exactly] Ah—ah—ah—ow—ow—ow—oo!
+
+INPUT: Summarize: THE NOTE TAKER [whipping out his book] Heavens! [He
+writes; then holds out the book and reads, reproducing her vowels
+exactly] Ah—ah—ah—ow—ow—ow—oo!
+RESPONSE: THE FLOWER GIRL [tickled by the performance, and laughing in spite of
+herself] Garn!
+
+INPUT: What does this say: THE FLOWER GIRL [tickled by the performance, and laughing in spite of
+herself] Garn!
+RESPONSE: You see this creature with her kerbstone English: the
+English that will keep her in the gutter to the end of her days.
+
+INPUT: Summarize: THE FLOWER GIRL [tickled by the performance, and laughing in spite of
+herself] Garn! You see this creature with her kerbstone English: the
+English that will keep her in the gutter to the end of her days.
+RESPONSE: Well,
+sir, in three months I could pass that girl off as a duchess at an
+ambassador’s garden party.
+
+INPUT: Can you explain: Well,
+sir, in three months I could pass that girl off as a duchess at an
+ambassador’s garden party.
+RESPONSE: I could even get her a place as lady’s maid
+or shop assistant, which requires better English.
+
+INPUT: Summarize: Well,
+sir, in three months I could pass that girl off as a duchess at an
+ambassador’s garden party. I could even get her a place as lady’s maid
+or shop assistant, which requires better English.
+RESPONSE: That’s the sort of
+thing I do for commercial millionaires.
+
+INPUT: What is this about: That’s the sort of
+thing I do for commercial millionaires.
+RESPONSE: And on the profits of it I do
+genuine scientific work in phonetics, and a little as a poet on
+Miltonic lines.
+
+INPUT: Summarize: That’s the sort of
+thing I do for commercial millionaires. And on the profits of it I do
+genuine scientific work in phonetics, and a little as a poet on
+Miltonic lines.
+RESPONSE: I am myself a student of Indian dialects; and—
+
+THE NOTE TAKER [eagerly] Are you?
+
+INPUT: Explain this: I am myself a student of Indian dialects; and—
+
+THE NOTE TAKER [eagerly] Are you?
+RESPONSE: Do you know Colonel Pickering, the
+author of Spoken Sanscrit?
+
+INPUT: Summarize: I am myself a student of Indian dialects; and—
+
+THE NOTE TAKER [eagerly] Are you? Do you know Colonel Pickering, the
+author of Spoken Sanscrit?
+RESPONSE: I am Colonel Pickering.
+
+INPUT: What is this about: I am Colonel Pickering.
+RESPONSE: Henry Higgins, author of Higgins’s Universal Alphabet.
+
+INPUT: Summarize: I am Colonel Pickering. Henry Higgins, author of Higgins’s Universal Alphabet.
+RESPONSE: PICKERING [with enthusiasm] I came from India to meet you.
+
+INPUT: What is this about: PICKERING [with enthusiasm] I came from India to meet you.
+RESPONSE: I was going to India to meet you.
+
+INPUT: Summarize: PICKERING [with enthusiasm] I came from India to meet you. I was going to India to meet you.
+RESPONSE: Come and see me tomorrow.
+
+INPUT: What does this say: Come and see me tomorrow.
+RESPONSE: I’m at the Carlton.
+
+INPUT: Summarize: Come and see me tomorrow. I’m at the Carlton.
+RESPONSE: Come with me now and let’s have a jaw
+over some supper.
+
+INPUT: Explain this: Come with me now and let’s have a jaw
+over some supper.
+RESPONSE: THE FLOWER GIRL [to Pickering, as he passes her] Buy a flower, kind
+gentleman.
+
+INPUT: Summarize: Come with me now and let’s have a jaw
+over some supper. THE FLOWER GIRL [to Pickering, as he passes her] Buy a flower, kind
+gentleman.
+RESPONSE: I’m short for my lodging.
+
+INPUT: Tell me about: I’m short for my lodging.
+RESPONSE: I really haven’t any change.
+
+INPUT: Summarize: I’m short for my lodging. I really haven’t any change.
+RESPONSE: I’m sorry [he goes away].
+
+INPUT: Explain this: I’m sorry [he goes away].
+RESPONSE: HIGGINS [shocked at girl’s mendacity] Liar.
+
+INPUT: Summarize: I’m sorry [he goes away]. HIGGINS [shocked at girl’s mendacity] Liar.
+RESPONSE: You said you could change
+half-a-crown.
+
+INPUT: What does this mean: You said you could change
+half-a-crown.
+RESPONSE: THE FLOWER GIRL [rising in desperation] You ought to be stuffed with
+nails, you ought.
+
+INPUT: Summarize: You said you could change
+half-a-crown. THE FLOWER GIRL [rising in desperation] You ought to be stuffed with
+nails, you ought.
+RESPONSE: [Flinging the basket at his feet] Take the whole
+blooming basket for sixpence.
+
+INPUT: What does this say: [Flinging the basket at his feet] Take the whole
+blooming basket for sixpence.
+RESPONSE: The church clock strikes the second quarter.
+
+INPUT: Summarize: [Flinging the basket at his feet] Take the whole
+blooming basket for sixpence. The church clock strikes the second quarter.
+RESPONSE: HIGGINS [hearing in it the voice of God, rebuking him for his Pharisaic
+want of charity to the poor girl] A reminder.
+
+INPUT: What is this about: HIGGINS [hearing in it the voice of God, rebuking him for his Pharisaic
+want of charity to the poor girl] A reminder.
+RESPONSE: [He raises his hat
+solemnly; then throws a handful of money into the basket and follows
+Pickering].
+
+INPUT: Summarize: HIGGINS [hearing in it the voice of God, rebuking him for his Pharisaic
+want of charity to the poor girl] A reminder. [He raises his hat
+solemnly; then throws a handful of money into the basket and follows
+Pickering].
+RESPONSE: THE FLOWER GIRL [picking up a half-crown] Ah—ow—ooh!
+
+INPUT: What is this about: THE FLOWER GIRL [picking up a half-crown] Ah—ow—ooh!
+RESPONSE: [Picking up a
+couple of florins] Aaah—ow—ooh!
+
+INPUT: Summarize: THE FLOWER GIRL [picking up a half-crown] Ah—ow—ooh! [Picking up a
+couple of florins] Aaah—ow—ooh!
+RESPONSE: [Picking up several coins]
+Aaaaaah—ow—ooh!
+
+INPUT: Tell me about: [Picking up several coins]
+Aaaaaah—ow—ooh!
+RESPONSE: [Picking up a half-sovereign]
+Aasaaaaaaaaah—ow—ooh!!!
+
+INPUT: Summarize: [Picking up several coins]
+Aaaaaah—ow—ooh! [Picking up a half-sovereign]
+Aasaaaaaaaaah—ow—ooh!!!
+RESPONSE: FREDDY [springing out of a taxicab] Got one at last.
+
+INPUT: What is this about: FREDDY [springing out of a taxicab] Got one at last.
+RESPONSE: [To the
+girl] Where are the two ladies that were here?
+
+INPUT: Summarize: FREDDY [springing out of a taxicab] Got one at last. [To the
+girl] Where are the two ladies that were here?
+RESPONSE: They walked to the bus when the rain stopped.
+
+INPUT: What does this say: They walked to the bus when the rain stopped.
+RESPONSE: And left me with a cab on my hands.
+
+INPUT: Summarize: They walked to the bus when the rain stopped. And left me with a cab on my hands.
+RESPONSE: THE FLOWER GIRL [with grandeur] Never you mind, young man.
+
+INPUT: Tell me about: THE FLOWER GIRL [with grandeur] Never you mind, young man.
+RESPONSE: I’m going
+home in a taxi.
+
+INPUT: Summarize: THE FLOWER GIRL [with grandeur] Never you mind, young man. I’m going
+home in a taxi.
+RESPONSE: [She sails off to the cab.
+
+INPUT: Can you explain: [She sails off to the cab.
+RESPONSE: The driver puts his hand
+behind him and holds the door firmly shut against her.
+
+INPUT: Summarize: [She sails off to the cab. The driver puts his hand
+behind him and holds the door firmly shut against her.
+RESPONSE: Quite
+understanding his mistrust, she shows him her handful of money].
+
+INPUT: What is this about: Quite
+understanding his mistrust, she shows him her handful of money].
+RESPONSE: Eightpence ain’t no object to me, Charlie.
+
+INPUT: Summarize: Quite
+understanding his mistrust, she shows him her handful of money]. Eightpence ain’t no object to me, Charlie.
+RESPONSE: [He grins and opens the
+door].
+
+INPUT: What does this say: [He grins and opens the
+door].
+RESPONSE: Angel Court, Drury Lane, round the corner of Micklejohn’s oil
+shop.
+
+INPUT: Summarize: [He grins and opens the
+door]. Angel Court, Drury Lane, round the corner of Micklejohn’s oil
+shop.
+RESPONSE: Let’s see how fast you can make her hop it.
+
+INPUT: What does this mean: Let’s see how fast you can make her hop it.
+RESPONSE: [She gets in and
+pulls the door to with a slam as the taxicab starts].
+
+INPUT: Summarize: Let’s see how fast you can make her hop it. [She gets in and
+pulls the door to with a slam as the taxicab starts].
+RESPONSE: ACT II
+
+
+Next day at 11 a.
+
+INPUT: Can you explain: ACT II
+
+
+Next day at 11 a.
+RESPONSE: Higgins’s laboratory in Wimpole Street.
+
+INPUT: Summarize: ACT II
+
+
+Next day at 11 a. Higgins’s laboratory in Wimpole Street.
+RESPONSE: It is a
+room on the first floor, looking on the street, and was meant for the
+drawing-room.
+
+INPUT: Explain this: It is a
+room on the first floor, looking on the street, and was meant for the
+drawing-room.
+RESPONSE: The double doors are in the middle of the back hall; and
+persons entering find in the corner to their right two tall file
+cabinets at right angles to one another against the walls.
+
+INPUT: Summarize: It is a
+room on the first floor, looking on the street, and was meant for the
+drawing-room. The double doors are in the middle of the back hall; and
+persons entering find in the corner to their right two tall file
+cabinets at right angles to one another against the walls.
+RESPONSE: In this
+corner stands a flat writing-table, on which are a phonograph, a
+laryngoscope, a row of tiny organ pipes with a bellows, a set of lamp
+chimneys for singing flames with burners attached to a gas plug in the
+wall by an indiarubber tube, several tuning-forks of different sizes, a
+life-size image of half a human head, showing in section the vocal
+organs, and a box containing a supply of wax cylinders for the
+phonograph.
+
+INPUT: What is this about: In this
+corner stands a flat writing-table, on which are a phonograph, a
+laryngoscope, a row of tiny organ pipes with a bellows, a set of lamp
+chimneys for singing flames with burners attached to a gas plug in the
+wall by an indiarubber tube, several tuning-forks of different sizes, a
+life-size image of half a human head, showing in section the vocal
+organs, and a box containing a supply of wax cylinders for the
+phonograph.
+RESPONSE: Further down the room, on the same side, is a fireplace, with a
+comfortable leather-covered easy-chair at the side of the hearth
+nearest the door, and a coal-scuttle.
+
+INPUT: Summarize: In this
+corner stands a flat writing-table, on which are a phonograph, a
+laryngoscope, a row of tiny organ pipes with a bellows, a set of lamp
+chimneys for singing flames with burners attached to a gas plug in the
+wall by an indiarubber tube, several tuning-forks of different sizes, a
+life-size image of half a human head, showing in section the vocal
+organs, and a box containing a supply of wax cylinders for the
+phonograph. Further down the room, on the same side, is a fireplace, with a
+comfortable leather-covered easy-chair at the side of the hearth
+nearest the door, and a coal-scuttle.
+RESPONSE: There is a clock on the
+mantelpiece.
+
+INPUT: Tell me about: There is a clock on the
+mantelpiece.
+RESPONSE: Between the fireplace and the phonograph table is a stand
+for newspapers.
+
+INPUT: Summarize: There is a clock on the
+mantelpiece. Between the fireplace and the phonograph table is a stand
+for newspapers.
+RESPONSE: On the other side of the central door, to the left of the visitor, is a
+cabinet of shallow drawers.
+
+INPUT: What is this about: On the other side of the central door, to the left of the visitor, is a
+cabinet of shallow drawers.
+RESPONSE: On it is a telephone and the telephone
+directory.
+
+INPUT: Summarize: On the other side of the central door, to the left of the visitor, is a
+cabinet of shallow drawers. On it is a telephone and the telephone
+directory.
+RESPONSE: The corner beyond, and most of the side wall, is occupied by
+a grand piano, with the keyboard at the end furthest from the door, and
+a bench for the player extending the full length of the keyboard.
+
+INPUT: Explain this: The corner beyond, and most of the side wall, is occupied by
+a grand piano, with the keyboard at the end furthest from the door, and
+a bench for the player extending the full length of the keyboard.
+RESPONSE: On
+the piano is a dessert dish heaped with fruit and sweets, mostly
+chocolates.
+
+INPUT: Summarize: The corner beyond, and most of the side wall, is occupied by
+a grand piano, with the keyboard at the end furthest from the door, and
+a bench for the player extending the full length of the keyboard. On
+the piano is a dessert dish heaped with fruit and sweets, mostly
+chocolates.
+RESPONSE: The middle of the room is clear.
+
+INPUT: Tell me about: The middle of the room is clear.
+RESPONSE: Besides the easy chair, the piano
+bench, and two chairs at the phonograph table, there is one stray
+chair.
+
+INPUT: Summarize: The middle of the room is clear. Besides the easy chair, the piano
+bench, and two chairs at the phonograph table, there is one stray
+chair.
+RESPONSE: It stands near the fireplace.
+
+INPUT: Explain this: It stands near the fireplace.
+RESPONSE: On the walls, engravings; mostly
+Piranesis and mezzotint portraits.
+
+INPUT: Summarize: It stands near the fireplace. On the walls, engravings; mostly
+Piranesis and mezzotint portraits.
+RESPONSE: Pickering is seated at the table, putting down some cards and a
+tuning-fork which he has been using.
+
+INPUT: What does this say: Pickering is seated at the table, putting down some cards and a
+tuning-fork which he has been using.
+RESPONSE: Higgins is standing up near him,
+closing two or three file drawers which are hanging out.
+
+INPUT: Summarize: Pickering is seated at the table, putting down some cards and a
+tuning-fork which he has been using. Higgins is standing up near him,
+closing two or three file drawers which are hanging out.
+RESPONSE: He appears in
+the morning light as a robust, vital, appetizing sort of man of forty
+or thereabouts, dressed in a professional-looking black frock-coat with
+a white linen collar and black silk tie.
+
+INPUT: Tell me about: He appears in
+the morning light as a robust, vital, appetizing sort of man of forty
+or thereabouts, dressed in a professional-looking black frock-coat with
+a white linen collar and black silk tie.
+RESPONSE: He is of the energetic,
+scientific type, heartily, even violently interested in everything that
+can be studied as a scientific subject, and careless about himself and
+other people, including their feelings.
+
+INPUT: Summarize: He appears in
+the morning light as a robust, vital, appetizing sort of man of forty
+or thereabouts, dressed in a professional-looking black frock-coat with
+a white linen collar and black silk tie. He is of the energetic,
+scientific type, heartily, even violently interested in everything that
+can be studied as a scientific subject, and careless about himself and
+other people, including their feelings.
+RESPONSE: He is, in fact, but for his
+years and size, rather like a very impetuous baby “taking notice”
+eagerly and loudly, and requiring almost as much watching to keep him
+out of unintended mischief.
+
+INPUT: What is this about: He is, in fact, but for his
+years and size, rather like a very impetuous baby “taking notice”
+eagerly and loudly, and requiring almost as much watching to keep him
+out of unintended mischief.
+RESPONSE: His manner varies from genial bullying when
+he is in a good humor to stormy petulance when anything goes wrong; but
+he is so entirely frank and void of malice that he remains likeable
+even in his least reasonable moments.
+
+INPUT: Summarize: He is, in fact, but for his
+years and size, rather like a very impetuous baby “taking notice”
+eagerly and loudly, and requiring almost as much watching to keep him
+out of unintended mischief. His manner varies from genial bullying when
+he is in a good humor to stormy petulance when anything goes wrong; but
+he is so entirely frank and void of malice that he remains likeable
+even in his least reasonable moments.
+RESPONSE: HIGGINS [as he shuts the last drawer] Well, I think that’s the whole
+show.
+
+INPUT: Tell me about: HIGGINS [as he shuts the last drawer] Well, I think that’s the whole
+show.
+RESPONSE: It’s really amazing.
+
+INPUT: Summarize: HIGGINS [as he shuts the last drawer] Well, I think that’s the whole
+show. It’s really amazing.
+RESPONSE: I haven’t taken half of it in, you know.
+
+INPUT: Explain this: I haven’t taken half of it in, you know.
+RESPONSE: Would you like to go over any of it again?
+
+INPUT: Summarize: I haven’t taken half of it in, you know. Would you like to go over any of it again?
+RESPONSE: PICKERING [rising and coming to the fireplace, where he plants himself
+with his back to the fire] No, thank you; not now.
+
+INPUT: Can you explain: PICKERING [rising and coming to the fireplace, where he plants himself
+with his back to the fire] No, thank you; not now.
+RESPONSE: I’m quite done up
+for this morning.
+
+INPUT: Summarize: PICKERING [rising and coming to the fireplace, where he plants himself
+with his back to the fire] No, thank you; not now. I’m quite done up
+for this morning.
+RESPONSE: HIGGINS [following him, and standing beside him on his left] Tired of
+listening to sounds?
+
+INPUT: What does this mean: HIGGINS [following him, and standing beside him on his left] Tired of
+listening to sounds?
+RESPONSE: It’s a fearful strain.
+
+INPUT: Summarize: HIGGINS [following him, and standing beside him on his left] Tired of
+listening to sounds? It’s a fearful strain.
+RESPONSE: I rather fancied myself because
+I can pronounce twenty-four distinct vowel sounds; but your hundred and
+thirty beat me.
+
+INPUT: What is this about: I rather fancied myself because
+I can pronounce twenty-four distinct vowel sounds; but your hundred and
+thirty beat me.
+RESPONSE: I can’t hear a bit of difference between most of them.
+
+INPUT: Summarize: I rather fancied myself because
+I can pronounce twenty-four distinct vowel sounds; but your hundred and
+thirty beat me. I can’t hear a bit of difference between most of them.
+RESPONSE: HIGGINS [chuckling, and going over to the piano to eat sweets] Oh, that
+comes with practice.
+
+INPUT: What does this say: HIGGINS [chuckling, and going over to the piano to eat sweets] Oh, that
+comes with practice.
+RESPONSE: You hear no difference at first; but you keep on
+listening, and presently you find they’re all as different as A from B.
+
+INPUT: Summarize: HIGGINS [chuckling, and going over to the piano to eat sweets] Oh, that
+comes with practice. You hear no difference at first; but you keep on
+listening, and presently you find they’re all as different as A from B.
+RESPONSE: Pearce looks in: she is Higgins’s housekeeper] What’s the matter?
+
+INPUT: What does this mean: Pearce looks in: she is Higgins’s housekeeper] What’s the matter?
+RESPONSE: PEARCE [hesitating, evidently perplexed] A young woman wants to
+see you, sir.
+
+INPUT: Summarize: Pearce looks in: she is Higgins’s housekeeper] What’s the matter? PEARCE [hesitating, evidently perplexed] A young woman wants to
+see you, sir.
+RESPONSE: Well, sir, she says you’ll be glad to see her when you
+know what she’s come about.
+
+INPUT: Tell me about: Well, sir, she says you’ll be glad to see her when you
+know what she’s come about.
+RESPONSE: She’s quite a common girl, sir.
+
+INPUT: Summarize: Well, sir, she says you’ll be glad to see her when you
+know what she’s come about. She’s quite a common girl, sir.
+RESPONSE: I should have sent her away, only I thought perhaps you wanted
+her to talk into your machines.
+
+INPUT: What is this about: I should have sent her away, only I thought perhaps you wanted
+her to talk into your machines.
+RESPONSE: I hope I’ve not done wrong; but really
+you see such queer people sometimes—you’ll excuse me, I’m sure, sir—
+
+HIGGINS.
+
+INPUT: Summarize: I should have sent her away, only I thought perhaps you wanted
+her to talk into your machines. I hope I’ve not done wrong; but really
+you see such queer people sometimes—you’ll excuse me, I’m sure, sir—
+
+HIGGINS.
+RESPONSE: Oh, that’s all right, Mrs.
+
+INPUT: What does this say: Oh, that’s all right, Mrs.
+RESPONSE: Has she an interesting
+accent?
+
+INPUT: Summarize: Oh, that’s all right, Mrs. Has she an interesting
+accent?
+RESPONSE: Oh, something dreadful, sir, really.
+
+INPUT: What does this say: Oh, something dreadful, sir, really.
+RESPONSE: I don’t know how you
+can take an interest in it.
+
+INPUT: Summarize: Oh, something dreadful, sir, really. I don’t know how you
+can take an interest in it.
+RESPONSE: HIGGINS [to Pickering] Let’s have her up.
+
+INPUT: What does this mean: HIGGINS [to Pickering] Let’s have her up.
+RESPONSE: Pearce [he
+rushes across to his working table and picks out a cylinder to use on
+the phonograph].
+
+INPUT: Summarize: HIGGINS [to Pickering] Let’s have her up. Pearce [he
+rushes across to his working table and picks out a cylinder to use on
+the phonograph].
+RESPONSE: PEARCE [only half resigned to it] Very well, sir.
+
+INPUT: What does this say: PEARCE [only half resigned to it] Very well, sir.
+RESPONSE: It’s for you to
+say.
+
+INPUT: Summarize: PEARCE [only half resigned to it] Very well, sir. It’s for you to
+say.
+RESPONSE: [She goes downstairs].
+
+INPUT: Tell me about: [She goes downstairs].
+RESPONSE: This is rather a bit of luck.
+
+INPUT: Summarize: [She goes downstairs]. This is rather a bit of luck.
+RESPONSE: I’ll show you how I make
+records.
+
+INPUT: What is this about: I’ll show you how I make
+records.
+RESPONSE: We’ll set her talking; and I’ll take it down first in Bell’s
+visible Speech; then in broad Romic; and then we’ll get her on the
+phonograph so that you can turn her on as often as you like with the
+written transcript before you.
+
+INPUT: Summarize: I’ll show you how I make
+records. We’ll set her talking; and I’ll take it down first in Bell’s
+visible Speech; then in broad Romic; and then we’ll get her on the
+phonograph so that you can turn her on as often as you like with the
+written transcript before you.
+RESPONSE: PEARCE [returning] This is the young woman, sir.
+
+INPUT: Tell me about: PEARCE [returning] This is the young woman, sir.
+RESPONSE: The flower girl enters in state.
+
+INPUT: Summarize: PEARCE [returning] This is the young woman, sir. The flower girl enters in state.
+RESPONSE: She has a hat with three ostrich
+feathers, orange, sky-blue, and red.
+
+INPUT: Tell me about: She has a hat with three ostrich
+feathers, orange, sky-blue, and red.
+RESPONSE: She has a nearly clean apron, and
+the shoddy coat has been tidied a little.
+
+INPUT: Summarize: She has a hat with three ostrich
+feathers, orange, sky-blue, and red. She has a nearly clean apron, and
+the shoddy coat has been tidied a little.
+RESPONSE: The pathos of this deplorable
+figure, with its innocent vanity and consequential air, touches
+Pickering, who has already straightened himself in the presence of Mrs.
+
+INPUT: What does this mean: The pathos of this deplorable
+figure, with its innocent vanity and consequential air, touches
+Pickering, who has already straightened himself in the presence of Mrs.
+RESPONSE: But as to Higgins, the only distinction he makes between men
+and women is that when he is neither bullying nor exclaiming to the
+heavens against some featherweight cross, he coaxes women as a child
+coaxes its nurse when it wants to get anything out of her.
+
+INPUT: Summarize: The pathos of this deplorable
+figure, with its innocent vanity and consequential air, touches
+Pickering, who has already straightened himself in the presence of Mrs. But as to Higgins, the only distinction he makes between men
+and women is that when he is neither bullying nor exclaiming to the
+heavens against some featherweight cross, he coaxes women as a child
+coaxes its nurse when it wants to get anything out of her.
+RESPONSE: HIGGINS [brusquely, recognizing her with unconcealed disappointment,
+and at once, baby-like, making an intolerable grievance of it] Why,
+this is the girl I jotted down last night.
+
+INPUT: What does this say: HIGGINS [brusquely, recognizing her with unconcealed disappointment,
+and at once, baby-like, making an intolerable grievance of it] Why,
+this is the girl I jotted down last night.
+RESPONSE: She’s no use: I’ve got all
+the records I want of the Lisson Grove lingo; and I’m not going to
+waste another cylinder on it.
+
+INPUT: Summarize: HIGGINS [brusquely, recognizing her with unconcealed disappointment,
+and at once, baby-like, making an intolerable grievance of it] Why,
+this is the girl I jotted down last night. She’s no use: I’ve got all
+the records I want of the Lisson Grove lingo; and I’m not going to
+waste another cylinder on it.
+RESPONSE: [To the girl] Be off with you: I don’t
+want you.
+
+INPUT: Tell me about: [To the girl] Be off with you: I don’t
+want you.
+RESPONSE: Don’t you be so saucy.
+
+INPUT: Summarize: [To the girl] Be off with you: I don’t
+want you. Don’t you be so saucy.
+RESPONSE: You ain’t heard what I come for
+yet.
+
+INPUT: What does this say: You ain’t heard what I come for
+yet.
+RESPONSE: Pearce, who is waiting at the door for further
+instruction] Did you tell him I come in a taxi?
+
+INPUT: Summarize: You ain’t heard what I come for
+yet. Pearce, who is waiting at the door for further
+instruction] Did you tell him I come in a taxi?
+RESPONSE: what do you think a gentleman like Mr.
+
+INPUT: Can you explain: what do you think a gentleman like Mr.
+RESPONSE: Higgins cares what you came in?
+
+INPUT: Summarize: what do you think a gentleman like Mr. Higgins cares what you came in?
+RESPONSE: He ain’t above giving lessons, not
+him: I heard him say so.
+
+INPUT: What is this about: He ain’t above giving lessons, not
+him: I heard him say so.
+RESPONSE: Well, I ain’t come here to ask for any
+compliment; and if my money’s not good enough I can go elsewhere.
+
+INPUT: Summarize: He ain’t above giving lessons, not
+him: I heard him say so. Well, I ain’t come here to ask for any
+compliment; and if my money’s not good enough I can go elsewhere.
+RESPONSE: Good enough for what?
+
+INPUT: Can you explain: Good enough for what?
+RESPONSE: Good enough for ye—oo.
+
+INPUT: Summarize: Good enough for what? Good enough for ye—oo.
+RESPONSE: Now you know, don’t you?
+
+INPUT: What does this say: Now you know, don’t you?
+RESPONSE: I’m
+come to have lessons, I am.
+
+INPUT: Summarize: Now you know, don’t you? I’m
+come to have lessons, I am.
+RESPONSE: And to pay for em too: make no mistake.
+
+INPUT: Can you explain: And to pay for em too: make no mistake.
+RESPONSE: HIGGINS [stupent] WELL!!!
+
+INPUT: Summarize: And to pay for em too: make no mistake. HIGGINS [stupent] WELL!!!
+RESPONSE: [Recovering his breath with a gasp] What do
+you expect me to say to you?
+
+INPUT: Tell me about: [Recovering his breath with a gasp] What do
+you expect me to say to you?
+RESPONSE: Well, if you was a gentleman, you might ask me to sit
+down, I think.
+
+INPUT: Summarize: [Recovering his breath with a gasp] What do
+you expect me to say to you? Well, if you was a gentleman, you might ask me to sit
+down, I think.
+RESPONSE: Don’t I tell you I’m bringing you business?
+
+INPUT: What is this about: Don’t I tell you I’m bringing you business?
+RESPONSE: Pickering: shall we ask this baggage to sit down or shall we
+throw her out of the window?
+
+INPUT: Summarize: Don’t I tell you I’m bringing you business? Pickering: shall we ask this baggage to sit down or shall we
+throw her out of the window?
+RESPONSE: THE FLOWER GIRL [running away in terror to the piano, where she turns
+at bay] Ah—ah—ah—ow—ow—ow—oo!
+
+INPUT: Can you explain: THE FLOWER GIRL [running away in terror to the piano, where she turns
+at bay] Ah—ah—ah—ow—ow—ow—oo!
+RESPONSE: [Wounded and whimpering] I won’t be
+called a baggage when I’ve offered to pay like any lady.
+
+INPUT: Summarize: THE FLOWER GIRL [running away in terror to the piano, where she turns
+at bay] Ah—ah—ah—ow—ow—ow—oo! [Wounded and whimpering] I won’t be
+called a baggage when I’ve offered to pay like any lady.
+RESPONSE: Motionless, the two men stare at her from the other side of the room,
+amazed.
+
+INPUT: Tell me about: Motionless, the two men stare at her from the other side of the room,
+amazed.
+RESPONSE: PICKERING [gently] What is it you want, my girl?
+
+INPUT: Summarize: Motionless, the two men stare at her from the other side of the room,
+amazed. PICKERING [gently] What is it you want, my girl?
+RESPONSE: I want to be a lady in a flower shop stead of selling
+at the corner of Tottenham Court Road.
+
+INPUT: What does this mean: I want to be a lady in a flower shop stead of selling
+at the corner of Tottenham Court Road.
+RESPONSE: But they won’t take me unless I
+can talk more genteel.
+
+INPUT: Summarize: I want to be a lady in a flower shop stead of selling
+at the corner of Tottenham Court Road. But they won’t take me unless I
+can talk more genteel.
+RESPONSE: He said he could teach me.
+
+INPUT: Can you explain: He said he could teach me.
+RESPONSE: Well, here I am ready
+to pay him—not asking any favor—and he treats me as if I was dirt.
+
+INPUT: Summarize: He said he could teach me. Well, here I am ready
+to pay him—not asking any favor—and he treats me as if I was dirt.
+RESPONSE: How can you be such a foolish ignorant girl as to think
+you could afford to pay Mr.
+
+INPUT: What does this mean: How can you be such a foolish ignorant girl as to think
+you could afford to pay Mr.
+RESPONSE: I know what lessons cost as well as
+you do; and I’m ready to pay.
+
+INPUT: Summarize: How can you be such a foolish ignorant girl as to think
+you could afford to pay Mr. I know what lessons cost as well as
+you do; and I’m ready to pay.
+RESPONSE: THE FLOWER GIRL [coming back to him, triumphant] Now you’re talking!
+
+INPUT: What does this say: THE FLOWER GIRL [coming back to him, triumphant] Now you’re talking!
+RESPONSE: I
+thought you’d come off it when you saw a chance of getting back a bit
+of what you chucked at me last night.
+
+INPUT: Summarize: THE FLOWER GIRL [coming back to him, triumphant] Now you’re talking! I
+thought you’d come off it when you saw a chance of getting back a bit
+of what you chucked at me last night.
+RESPONSE: [Confidentially] You’d had a drop
+in, hadn’t you?
+
+INPUT: What does this say: [Confidentially] You’d had a drop
+in, hadn’t you?
+RESPONSE: HIGGINS [peremptorily] Sit down.
+
+INPUT: Summarize: [Confidentially] You’d had a drop
+in, hadn’t you? HIGGINS [peremptorily] Sit down.
+RESPONSE: Oh, if you’re going to make a compliment of it—
+
+HIGGINS [thundering at her] Sit down.
+
+INPUT: Explain this: Oh, if you’re going to make a compliment of it—
+
+HIGGINS [thundering at her] Sit down.
+RESPONSE: PEARCE [severely] Sit down, girl.
+
+INPUT: Summarize: Oh, if you’re going to make a compliment of it—
+
+HIGGINS [thundering at her] Sit down. PEARCE [severely] Sit down, girl.
+RESPONSE: [She places
+the stray chair near the hearthrug between Higgins and Pickering, and
+stands behind it waiting for the girl to sit down].
+
+INPUT: Tell me about: [She places
+the stray chair near the hearthrug between Higgins and Pickering, and
+stands behind it waiting for the girl to sit down].
+RESPONSE: Ah—ah—ah—ow—ow—oo!
+
+INPUT: Summarize: [She places
+the stray chair near the hearthrug between Higgins and Pickering, and
+stands behind it waiting for the girl to sit down]. Ah—ah—ah—ow—ow—oo!
+RESPONSE: [She stands, half rebellious,
+half bewildered].
+
+INPUT: What does this mean: [She stands, half rebellious,
+half bewildered].
+RESPONSE: PICKERING [very courteous] Won’t you sit down?
+
+INPUT: Summarize: [She stands, half rebellious,
+half bewildered]. PICKERING [very courteous] Won’t you sit down?
+RESPONSE: LIZA [coyly] Don’t mind if I do.
+
+INPUT: What does this mean: LIZA [coyly] Don’t mind if I do.
+RESPONSE: Pickering returns to
+the hearthrug].
+
+INPUT: Summarize: LIZA [coyly] Don’t mind if I do. Pickering returns to
+the hearthrug].
+RESPONSE: HIGGINS [declaiming gravely]
+ Eliza, Elizabeth, Betsy and Bess,
+ They went to the woods to get a bird’s nes’:
+
+PICKERING.
+
+INPUT: What does this say: HIGGINS [declaiming gravely]
+ Eliza, Elizabeth, Betsy and Bess,
+ They went to the woods to get a bird’s nes’:
+
+PICKERING.
+RESPONSE: They found a nest with four eggs in it:
+
+HIGGINS.
+
+INPUT: Summarize: HIGGINS [declaiming gravely]
+ Eliza, Elizabeth, Betsy and Bess,
+ They went to the woods to get a bird’s nes’:
+
+PICKERING. They found a nest with four eggs in it:
+
+HIGGINS.
+RESPONSE: They took one apiece, and left three in it.
+
+INPUT: What is this about: They took one apiece, and left three in it.
+RESPONSE: They laugh heartily at their own wit.
+
+INPUT: Summarize: They took one apiece, and left three in it. They laugh heartily at their own wit.
+RESPONSE: Oh, don’t be silly.
+
+INPUT: What is this about: Oh, don’t be silly.
+RESPONSE: You mustn’t speak to the gentleman like that.
+
+INPUT: Summarize: Oh, don’t be silly. You mustn’t speak to the gentleman like that.
+RESPONSE: Well, why won’t he speak sensible to me?
+
+INPUT: What is this about: Well, why won’t he speak sensible to me?
+RESPONSE: Come back to business.
+
+INPUT: Summarize: Well, why won’t he speak sensible to me? Come back to business.
+RESPONSE: How much do you propose to pay me for
+the lessons?
+
+INPUT: Can you explain: How much do you propose to pay me for
+the lessons?
+RESPONSE: Oh, I know what’s right.
+
+INPUT: Summarize: How much do you propose to pay me for
+the lessons? Oh, I know what’s right.
+RESPONSE: A lady friend of mine gets French
+lessons for eighteenpence an hour from a real French gentleman.
+
+INPUT: What is this about: A lady friend of mine gets French
+lessons for eighteenpence an hour from a real French gentleman.
+RESPONSE: Well,
+you wouldn’t have the face to ask me the same for teaching me my own
+language as you would for French; so I won’t give more than a shilling.
+
+INPUT: Summarize: A lady friend of mine gets French
+lessons for eighteenpence an hour from a real French gentleman. Well,
+you wouldn’t have the face to ask me the same for teaching me my own
+language as you would for French; so I won’t give more than a shilling.
+RESPONSE: HIGGINS [walking up and down the room, rattling his keys and his cash
+in his pockets] You know, Pickering, if you consider a shilling, not as
+a simple shilling, but as a percentage of this girl’s income, it works
+out as fully equivalent to sixty or seventy guineas from a millionaire.
+
+INPUT: What does this mean: HIGGINS [walking up and down the room, rattling his keys and his cash
+in his pockets] You know, Pickering, if you consider a shilling, not as
+a simple shilling, but as a percentage of this girl’s income, it works
+out as fully equivalent to sixty or seventy guineas from a millionaire.
+RESPONSE: A millionaire has about 150 pounds a day.
+
+INPUT: Summarize: HIGGINS [walking up and down the room, rattling his keys and his cash
+in his pockets] You know, Pickering, if you consider a shilling, not as
+a simple shilling, but as a percentage of this girl’s income, it works
+out as fully equivalent to sixty or seventy guineas from a millionaire. A millionaire has about 150 pounds a day.
+RESPONSE: She
+earns about half-a-crown.
+
+INPUT: Can you explain: She
+earns about half-a-crown.
+RESPONSE: LIZA [haughtily] Who told you I only—
+
+HIGGINS [continuing] She offers me two-fifths of her day’s income for a
+lesson.
+
+INPUT: Summarize: She
+earns about half-a-crown. LIZA [haughtily] Who told you I only—
+
+HIGGINS [continuing] She offers me two-fifths of her day’s income for a
+lesson.
+RESPONSE: Two-fifths of a millionaire’s income for a day would be
+somewhere about 60 pounds.
+
+INPUT: What does this say: Two-fifths of a millionaire’s income for a day would be
+somewhere about 60 pounds.
+RESPONSE: By George, it’s enormous!
+
+INPUT: Summarize: Two-fifths of a millionaire’s income for a day would be
+somewhere about 60 pounds. By George, it’s enormous!
+RESPONSE: it’s the biggest offer I ever had.
+
+INPUT: Explain this: it’s the biggest offer I ever had.
+RESPONSE: LIZA [rising, terrified] Sixty pounds!
+
+INPUT: Summarize: it’s the biggest offer I ever had. LIZA [rising, terrified] Sixty pounds!
+RESPONSE: What are you talking about?
+
+INPUT: What does this mean: What are you talking about?
+RESPONSE: I
+never offered you sixty pounds.
+
+INPUT: Summarize: What are you talking about? I
+never offered you sixty pounds.
+RESPONSE: Where would I get—
+
+HIGGINS.
+
+INPUT: What does this say: Where would I get—
+
+HIGGINS.
+RESPONSE: LIZA [weeping] But I ain’t got sixty pounds.
+
+INPUT: Summarize: Where would I get—
+
+HIGGINS. LIZA [weeping] But I ain’t got sixty pounds.
+RESPONSE: Don’t cry, you silly girl.
+
+INPUT: What is this about: Don’t cry, you silly girl.
+RESPONSE: Nobody is going to
+touch your money.
+
+INPUT: Summarize: Don’t cry, you silly girl. Nobody is going to
+touch your money.
+RESPONSE: Somebody is going to touch you, with a broomstick, if you
+don’t stop snivelling.
+
+INPUT: Tell me about: Somebody is going to touch you, with a broomstick, if you
+don’t stop snivelling.
+RESPONSE: LIZA [obeying slowly] Ah—ah—ah—ow—oo—o!
+
+INPUT: Summarize: Somebody is going to touch you, with a broomstick, if you
+don’t stop snivelling. LIZA [obeying slowly] Ah—ah—ah—ow—oo—o!
+RESPONSE: One would think you was my
+father.
+
+INPUT: What is this about: One would think you was my
+father.
+RESPONSE: If I decide to teach you, I’ll be worse than two fathers to
+you.
+
+INPUT: Summarize: One would think you was my
+father. If I decide to teach you, I’ll be worse than two fathers to
+you.
+RESPONSE: Here [he offers her his silk handkerchief]!
+
+INPUT: What does this say: Here [he offers her his silk handkerchief]!
+RESPONSE: To wipe any part of your face that feels
+moist.
+
+INPUT: Summarize: Here [he offers her his silk handkerchief]! To wipe any part of your face that feels
+moist.
+RESPONSE: Remember: that’s your handkerchief; and that’s your sleeve.
+
+INPUT: Can you explain: Remember: that’s your handkerchief; and that’s your sleeve.
+RESPONSE: Don’t mistake the one for the other if you wish to become a lady in a
+shop.
+
+INPUT: Summarize: Remember: that’s your handkerchief; and that’s your sleeve. Don’t mistake the one for the other if you wish to become a lady in a
+shop.
+RESPONSE: Liza, utterly bewildered, stares helplessly at him.
+
+INPUT: Tell me about: Liza, utterly bewildered, stares helplessly at him.
+RESPONSE: It’s no use talking to her like that, Mr.
+
+INPUT: Summarize: Liza, utterly bewildered, stares helplessly at him. It’s no use talking to her like that, Mr.
+RESPONSE: Higgins: she
+doesn’t understand you.
+
+INPUT: Can you explain: Higgins: she
+doesn’t understand you.
+RESPONSE: Besides, you’re quite wrong: she doesn’t do it
+that way at all [she takes the handkerchief].
+
+INPUT: Summarize: Higgins: she
+doesn’t understand you. Besides, you’re quite wrong: she doesn’t do it
+that way at all [she takes the handkerchief].
+RESPONSE: LIZA [snatching it] Here!
+
+INPUT: Tell me about: LIZA [snatching it] Here!
+RESPONSE: You give me that handkerchief.
+
+INPUT: Summarize: LIZA [snatching it] Here! You give me that handkerchief.
+RESPONSE: He give it to
+me, not to you.
+
+INPUT: Can you explain: He give it to
+me, not to you.
+RESPONSE: PICKERING [laughing] He did.
+
+INPUT: Summarize: He give it to
+me, not to you. PICKERING [laughing] He did.
+RESPONSE: I think it must be regarded as her
+property, Mrs.
+
+INPUT: What is this about: I think it must be regarded as her
+property, Mrs.
+RESPONSE: PEARCE [resigning herself] Serve you right, Mr.
+
+INPUT: Summarize: I think it must be regarded as her
+property, Mrs. PEARCE [resigning herself] Serve you right, Mr.
+RESPONSE: Higgins: I’m interested.
+
+INPUT: What does this mean: Higgins: I’m interested.
+RESPONSE: What about the ambassador’s garden
+party?
+
+INPUT: Summarize: Higgins: I’m interested. What about the ambassador’s garden
+party?
+RESPONSE: I’ll say you’re the greatest teacher alive if you make that
+good.
+
+INPUT: What is this about: I’ll say you’re the greatest teacher alive if you make that
+good.
+RESPONSE: I’ll bet you all the expenses of the experiment you can’t do it.
+
+INPUT: Summarize: I’ll say you’re the greatest teacher alive if you make that
+good. I’ll bet you all the expenses of the experiment you can’t do it.
+RESPONSE: And I’ll pay for the lessons.
+

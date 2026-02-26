@@ -319,9 +319,9 @@ bool IncrementalTrainer::resume_last_session() {
         return false;
     }
     
-    // Check if checkpoint file exists
-    if (!fs::exists(last_session.checkpoint_path)) {
-        std::cerr << COLOR_ERROR << "❌ Checkpoint file not found: " << last_session.checkpoint_path << COLOR_RESET << std::endl;
+    // Check if checkpoint files exist (check for .config which should always be present)
+    if (!fs::exists(last_session.checkpoint_path + ".config")) {
+        std::cerr << COLOR_ERROR << "❌ Checkpoint file not found: " << last_session.checkpoint_path << ".config" << COLOR_RESET << std::endl;
         return false;
     }
     
@@ -468,6 +468,14 @@ void IncrementalTrainer::cleanup_old_sessions() {
     
     // Remove from history
     session_history.erase(session_history.begin(), session_history.begin() + to_remove);
+    
+    // TD-005: Update latest checkpoint symlink to point to the newest remaining session
+    if (config.enable_checkpoint_symlinks && !session_history.empty()) {
+        const auto& latest_session = session_history.back();
+        if (fs::exists(latest_session.checkpoint_path)) {
+            update_checkpoint_symlinks(latest_session.checkpoint_path);
+        }
+    }
 }
 
 bool IncrementalTrainer::load_data_registry() {
@@ -905,7 +913,11 @@ void IncrementalTrainer::update_checkpoint_symlinks(const std::string& checkpoin
     
     // Create/update "latest_checkpoint.bin" symlink in root directory
     std::string latest_link = config.latest_symlink_name;
-    create_or_update_symlink(checkpoint_path, latest_link);
+    if (!create_or_update_symlink(checkpoint_path, latest_link)) {
+        std::cerr << COLOR_ERROR << "❌ Failed to update latest checkpoint symlink!" << COLOR_RESET << std::endl;
+        std::cerr << COLOR_ERROR << "   Target: " << checkpoint_path << COLOR_RESET << std::endl;
+        std::cerr << COLOR_ERROR << "   Link: " << latest_link << COLOR_RESET << std::endl;
+    }
 }
 
 void IncrementalTrainer::update_best_checkpoint(float validation_loss, const std::string& checkpoint_path) {
@@ -932,10 +944,14 @@ void IncrementalTrainer::update_best_checkpoint(float validation_loss, const std
         
         // Create/update "best_checkpoint.bin" symlink in root directory
         std::string best_link = config.best_symlink_name;
-        create_or_update_symlink(checkpoint_path, best_link);
-        
-        std::cout << COLOR_SUCCESS << "🏆 New best checkpoint! Validation loss: " 
-                  << validation_loss << COLOR_RESET << std::endl;
+        if (!create_or_update_symlink(checkpoint_path, best_link)) {
+            std::cerr << COLOR_ERROR << "❌ Failed to update best checkpoint symlink!" << COLOR_RESET << std::endl;
+            std::cerr << COLOR_ERROR << "   Target: " << checkpoint_path << COLOR_RESET << std::endl;
+            std::cerr << COLOR_ERROR << "   Link: " << best_link << COLOR_RESET << std::endl;
+        } else {
+            std::cout << COLOR_SUCCESS << "🏆 New best checkpoint! Validation loss: " 
+                      << validation_loss << COLOR_RESET << std::endl;
+        }
     }
 }
 

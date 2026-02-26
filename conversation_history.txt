@@ -2,3 +2,5 @@ MAX_MESSAGES:20
 MAX_TOKENS:480
 KEEP_SYSTEM:1
 ---
+user|2|Hello.
+assistant|3| f ei

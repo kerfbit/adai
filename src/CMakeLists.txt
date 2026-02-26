@@ -342,9 +342,9 @@ if(BUILD_EXAMPLES)
     add_executable(tokenizer_example ../examples/BPETokenizerexample.cpp)
     target_link_libraries(tokenizer_example adai_nlp)
     
-    # LLM Encoder example
-    add_executable(encoder_example encoder.cpp)
-    target_link_libraries(encoder_example adai_models adai_nlp)
+    # LLM Encoder example - Disabled: encoder.cpp moved to legacy (LLMEncoder.cpp is used in library)
+    # add_executable(encoder_example encoder.cpp)
+    # target_link_libraries(encoder_example adai_models adai_nlp)
     
     # EncoderBlock example
     add_executable(encoderblock_example ../examples/EncoderBlockExample.cpp)

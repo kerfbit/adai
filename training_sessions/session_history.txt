@@ -1,7 +1,4 @@
 # Session History: session_id samples_trained epochs final_loss final_val_loss checkpoint_path
-0 0 0 6.32398 0 training_sessions/session_0_checkpoint.bin
-1 0 0 5.02383 0 training_sessions/session_1_checkpoint.bin
-2 0 0 3.10215 0 training_sessions/session_2_checkpoint.bin
-3 0 0 3.10424 0 training_sessions/session_3_checkpoint.bin
-4 0 0 3.16667 0 training_sessions/session_4_checkpoint.bin
-5 900 5 3.07862 0 training_sessions/session_5_checkpoint.bin
+0 7100 1 3.20249 0 training_sessions/session_0_checkpoint.bin
+1 2700 5 3.11683 0 training_sessions/session_1_checkpoint.bin
+2 1800 10 3.1146 0 training_sessions/session_2_checkpoint.bin

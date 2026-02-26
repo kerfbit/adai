@@ -1,0 +1,3288 @@
+INPUT: Can you explain: A STUDY IN SCARLET
+
+By A.
+RESPONSE: Conan Doyle
+
+
+
+
+CONTENTS
+
+ A STUDY IN SCARLET.
+
+INPUT: Summarize: A STUDY IN SCARLET
+
+By A. Conan Doyle
+
+
+
+
+CONTENTS
+
+ A STUDY IN SCARLET.
+RESPONSE: THE SCIENCE OF DEDUCTION.
+
+INPUT: What does this mean: THE SCIENCE OF DEDUCTION.
+RESPONSE: THE LAURISTON GARDENS MYSTERY
+ CHAPTER IV.
+
+INPUT: Summarize: THE SCIENCE OF DEDUCTION. THE LAURISTON GARDENS MYSTERY
+ CHAPTER IV.
+RESPONSE: WHAT JOHN RANCE HAD TO TELL.
+
+INPUT: Tell me about: WHAT JOHN RANCE HAD TO TELL.
+RESPONSE: OUR ADVERTISEMENT BRINGS A VISITOR.
+
+INPUT: Summarize: WHAT JOHN RANCE HAD TO TELL. OUR ADVERTISEMENT BRINGS A VISITOR.
+RESPONSE: TOBIAS GREGSON SHOWS WHAT HE CAN DO.
+
+INPUT: What does this say: TOBIAS GREGSON SHOWS WHAT HE CAN DO.
+RESPONSE: LIGHT IN THE DARKNESS.
+
+INPUT: Summarize: TOBIAS GREGSON SHOWS WHAT HE CAN DO. LIGHT IN THE DARKNESS.
+RESPONSE: THE COUNTRY OF THE SAINTS
+ CHAPTER I.
+
+INPUT: What does this mean: THE COUNTRY OF THE SAINTS
+ CHAPTER I.
+RESPONSE: ON THE GREAT ALKALI PLAIN.
+
+INPUT: Summarize: THE COUNTRY OF THE SAINTS
+ CHAPTER I. ON THE GREAT ALKALI PLAIN.
+RESPONSE: JOHN FERRIER TALKS WITH THE PROPHET.
+
+INPUT: What does this mean: JOHN FERRIER TALKS WITH THE PROPHET.
+RESPONSE: A CONTINUATION OF THE REMINISCENCES OF JOHN WATSON, M.
+
+INPUT: Summarize: JOHN FERRIER TALKS WITH THE PROPHET. A CONTINUATION OF THE REMINISCENCES OF JOHN WATSON, M.
+RESPONSE: (_Being a reprint from the Reminiscences of_ JOHN H.
+
+INPUT: What is this about: (_Being a reprint from the Reminiscences of_ JOHN H.
+RESPONSE: ,
+_Late of the Army Medical Department.
+
+INPUT: Summarize: (_Being a reprint from the Reminiscences of_ JOHN H. ,
+_Late of the Army Medical Department.
+RESPONSE: _)
+
+
+
+
+CHAPTER I.
+
+INPUT: What does this mean: _)
+
+
+
+
+CHAPTER I.
+RESPONSE: In the year 1878 I took my degree of Doctor of Medicine of the
+University of London, and proceeded to Netley to go through the course
+prescribed for surgeons in the army.
+
+INPUT: Summarize: _)
+
+
+
+
+CHAPTER I. In the year 1878 I took my degree of Doctor of Medicine of the
+University of London, and proceeded to Netley to go through the course
+prescribed for surgeons in the army.
+RESPONSE: Having completed my studies there,
+I was duly attached to the Fifth Northumberland Fusiliers as Assistant
+Surgeon.
+
+INPUT: Tell me about: Having completed my studies there,
+I was duly attached to the Fifth Northumberland Fusiliers as Assistant
+Surgeon.
+RESPONSE: The regiment was stationed in India at the time, and before I
+could join it, the second Afghan war had broken out.
+
+INPUT: Summarize: Having completed my studies there,
+I was duly attached to the Fifth Northumberland Fusiliers as Assistant
+Surgeon. The regiment was stationed in India at the time, and before I
+could join it, the second Afghan war had broken out.
+RESPONSE: On landing at
+Bombay, I learned that my corps had advanced through the passes, and
+was already deep in the enemy’s country.
+
+INPUT: Explain this: On landing at
+Bombay, I learned that my corps had advanced through the passes, and
+was already deep in the enemy’s country.
+RESPONSE: I followed, however, with many
+other officers who were in the same situation as myself, and succeeded
+in reaching Candahar in safety, where I found my regiment, and at once
+entered upon my new duties.
+
+INPUT: Summarize: On landing at
+Bombay, I learned that my corps had advanced through the passes, and
+was already deep in the enemy’s country. I followed, however, with many
+other officers who were in the same situation as myself, and succeeded
+in reaching Candahar in safety, where I found my regiment, and at once
+entered upon my new duties.
+RESPONSE: The campaign brought honours and promotion to many, but for me it had
+nothing but misfortune and disaster.
+
+INPUT: Can you explain: The campaign brought honours and promotion to many, but for me it had
+nothing but misfortune and disaster.
+RESPONSE: I was removed from my brigade and
+attached to the Berkshires, with whom I served at the fatal battle of
+Maiwand.
+
+INPUT: Summarize: The campaign brought honours and promotion to many, but for me it had
+nothing but misfortune and disaster. I was removed from my brigade and
+attached to the Berkshires, with whom I served at the fatal battle of
+Maiwand.
+RESPONSE: There I was struck on the shoulder by a Jezail bullet, which
+shattered the bone and grazed the subclavian artery.
+
+INPUT: What is this about: There I was struck on the shoulder by a Jezail bullet, which
+shattered the bone and grazed the subclavian artery.
+RESPONSE: I should have
+fallen into the hands of the murderous Ghazis had it not been for the
+devotion and courage shown by Murray, my orderly, who threw me across a
+pack-horse, and succeeded in bringing me safely to the British lines.
+
+INPUT: Summarize: There I was struck on the shoulder by a Jezail bullet, which
+shattered the bone and grazed the subclavian artery. I should have
+fallen into the hands of the murderous Ghazis had it not been for the
+devotion and courage shown by Murray, my orderly, who threw me across a
+pack-horse, and succeeded in bringing me safely to the British lines.
+RESPONSE: Worn with pain, and weak from the prolonged hardships which I had
+undergone, I was removed, with a great train of wounded sufferers, to
+the base hospital at Peshawar.
+
+INPUT: Tell me about: Worn with pain, and weak from the prolonged hardships which I had
+undergone, I was removed, with a great train of wounded sufferers, to
+the base hospital at Peshawar.
+RESPONSE: Here I rallied, and had already improved
+so far as to be able to walk about the wards, and even to bask a little
+upon the verandah, when I was struck down by enteric fever, that curse
+of our Indian possessions.
+
+INPUT: Summarize: Worn with pain, and weak from the prolonged hardships which I had
+undergone, I was removed, with a great train of wounded sufferers, to
+the base hospital at Peshawar. Here I rallied, and had already improved
+so far as to be able to walk about the wards, and even to bask a little
+upon the verandah, when I was struck down by enteric fever, that curse
+of our Indian possessions.
+RESPONSE: For months my life was despaired of, and
+when at last I came to myself and became convalescent, I was so weak
+and emaciated that a medical board determined that not a day should be
+lost in sending me back to England.
+
+INPUT: Tell me about: For months my life was despaired of, and
+when at last I came to myself and became convalescent, I was so weak
+and emaciated that a medical board determined that not a day should be
+lost in sending me back to England.
+RESPONSE: I was dispatched, accordingly, in
+the troopship “Orontes,” and landed a month later on Portsmouth jetty,
+with my health irretrievably ruined, but with permission from a
+paternal government to spend the next nine months in attempting to
+improve it.
+
+INPUT: Summarize: For months my life was despaired of, and
+when at last I came to myself and became convalescent, I was so weak
+and emaciated that a medical board determined that not a day should be
+lost in sending me back to England. I was dispatched, accordingly, in
+the troopship “Orontes,” and landed a month later on Portsmouth jetty,
+with my health irretrievably ruined, but with permission from a
+paternal government to spend the next nine months in attempting to
+improve it.
+RESPONSE: I had neither kith nor kin in England, and was therefore as free as
+air—or as free as an income of eleven shillings and sixpence a day will
+permit a man to be.
+
+INPUT: Explain this: I had neither kith nor kin in England, and was therefore as free as
+air—or as free as an income of eleven shillings and sixpence a day will
+permit a man to be.
+RESPONSE: Under such circumstances, I naturally gravitated to
+London, that great cesspool into which all the loungers and idlers of
+the Empire are irresistibly drained.
+
+INPUT: Summarize: I had neither kith nor kin in England, and was therefore as free as
+air—or as free as an income of eleven shillings and sixpence a day will
+permit a man to be. Under such circumstances, I naturally gravitated to
+London, that great cesspool into which all the loungers and idlers of
+the Empire are irresistibly drained.
+RESPONSE: There I stayed for some time at a
+private hotel in the Strand, leading a comfortless, meaningless
+existence, and spending such money as I had, considerably more freely
+than I ought.
+
+INPUT: What does this say: There I stayed for some time at a
+private hotel in the Strand, leading a comfortless, meaningless
+existence, and spending such money as I had, considerably more freely
+than I ought.
+RESPONSE: So alarming did the state of my finances become, that I
+soon realized that I must either leave the metropolis and rusticate
+somewhere in the country, or that I must make a complete alteration in
+my style of living.
+
+INPUT: Summarize: There I stayed for some time at a
+private hotel in the Strand, leading a comfortless, meaningless
+existence, and spending such money as I had, considerably more freely
+than I ought. So alarming did the state of my finances become, that I
+soon realized that I must either leave the metropolis and rusticate
+somewhere in the country, or that I must make a complete alteration in
+my style of living.
+RESPONSE: Choosing the latter alternative, I began by making
+up my mind to leave the hotel, and to take up my quarters in some less
+pretentious and less expensive domicile.
+
+INPUT: What does this mean: Choosing the latter alternative, I began by making
+up my mind to leave the hotel, and to take up my quarters in some less
+pretentious and less expensive domicile.
+RESPONSE: On the very day that I had come to this conclusion, I was standing at
+the Criterion Bar, when some one tapped me on the shoulder, and turning
+round I recognized young Stamford, who had been a dresser under me at
+Barts.
+
+INPUT: Summarize: Choosing the latter alternative, I began by making
+up my mind to leave the hotel, and to take up my quarters in some less
+pretentious and less expensive domicile. On the very day that I had come to this conclusion, I was standing at
+the Criterion Bar, when some one tapped me on the shoulder, and turning
+round I recognized young Stamford, who had been a dresser under me at
+Barts.
+RESPONSE: The sight of a friendly face in the great wilderness of London
+is a pleasant thing indeed to a lonely man.
+
+INPUT: Explain this: The sight of a friendly face in the great wilderness of London
+is a pleasant thing indeed to a lonely man.
+RESPONSE: In old days Stamford had
+never been a particular crony of mine, but now I hailed him with
+enthusiasm, and he, in his turn, appeared to be delighted to see me.
+
+INPUT: Summarize: The sight of a friendly face in the great wilderness of London
+is a pleasant thing indeed to a lonely man. In old days Stamford had
+never been a particular crony of mine, but now I hailed him with
+enthusiasm, and he, in his turn, appeared to be delighted to see me.
+RESPONSE: In
+the exuberance of my joy, I asked him to lunch with me at the Holborn,
+and we started off together in a hansom.
+
+INPUT: What is this about: In
+the exuberance of my joy, I asked him to lunch with me at the Holborn,
+and we started off together in a hansom.
+RESPONSE: “Whatever have you been doing with yourself, Watson?
+
+INPUT: Summarize: In
+the exuberance of my joy, I asked him to lunch with me at the Holborn,
+and we started off together in a hansom. “Whatever have you been doing with yourself, Watson?
+RESPONSE: ” he asked in
+undisguised wonder, as we rattled through the crowded London streets.
+
+INPUT: Tell me about: ” he asked in
+undisguised wonder, as we rattled through the crowded London streets.
+RESPONSE: “You are as thin as a lath and as brown as a nut.
+
+INPUT: Summarize: ” he asked in
+undisguised wonder, as we rattled through the crowded London streets. “You are as thin as a lath and as brown as a nut.
+RESPONSE: ”
+
+I gave him a short sketch of my adventures, and had hardly concluded it
+by the time that we reached our destination.
+
+INPUT: Explain this: ”
+
+I gave him a short sketch of my adventures, and had hardly concluded it
+by the time that we reached our destination.
+RESPONSE: ” he said, commiseratingly, after he had listened to my
+misfortunes.
+
+INPUT: Summarize: ”
+
+I gave him a short sketch of my adventures, and had hardly concluded it
+by the time that we reached our destination. ” he said, commiseratingly, after he had listened to my
+misfortunes.
+RESPONSE: “What are you up to now?
+
+INPUT: Explain this: “What are you up to now?
+RESPONSE: ”
+
+“Looking for lodgings,” I answered.
+
+INPUT: Summarize: “What are you up to now? ”
+
+“Looking for lodgings,” I answered.
+RESPONSE: “Trying to solve the problem as to
+whether it is possible to get comfortable rooms at a reasonable price.
+
+INPUT: What does this say: “Trying to solve the problem as to
+whether it is possible to get comfortable rooms at a reasonable price.
+RESPONSE: ”
+
+“That’s a strange thing,” remarked my companion; “you are the second
+man to-day that has used that expression to me.
+
+INPUT: Summarize: “Trying to solve the problem as to
+whether it is possible to get comfortable rooms at a reasonable price. ”
+
+“That’s a strange thing,” remarked my companion; “you are the second
+man to-day that has used that expression to me.
+RESPONSE: ”
+
+“And who was the first?
+
+INPUT: What does this say: ”
+
+“And who was the first?
+RESPONSE: “A fellow who is working at the chemical laboratory up at the hospital.
+
+INPUT: Summarize: ”
+
+“And who was the first? “A fellow who is working at the chemical laboratory up at the hospital.
+RESPONSE: He was bemoaning himself this morning because he could not get someone
+to go halves with him in some nice rooms which he had found, and which
+were too much for his purse.
+
+INPUT: What does this mean: He was bemoaning himself this morning because he could not get someone
+to go halves with him in some nice rooms which he had found, and which
+were too much for his purse.
+RESPONSE: ” I cried, “if he really wants someone to share the rooms and
+the expense, I am the very man for him.
+
+INPUT: Summarize: He was bemoaning himself this morning because he could not get someone
+to go halves with him in some nice rooms which he had found, and which
+were too much for his purse. ” I cried, “if he really wants someone to share the rooms and
+the expense, I am the very man for him.
+RESPONSE: I should prefer having a
+partner to being alone.
+
+INPUT: What does this mean: I should prefer having a
+partner to being alone.
+RESPONSE: ”
+
+Young Stamford looked rather strangely at me over his wine-glass.
+
+INPUT: Summarize: I should prefer having a
+partner to being alone. ”
+
+Young Stamford looked rather strangely at me over his wine-glass.
+RESPONSE: “You
+don’t know Sherlock Holmes yet,” he said; “perhaps you would not care
+for him as a constant companion.
+
+INPUT: Can you explain: “You
+don’t know Sherlock Holmes yet,” he said; “perhaps you would not care
+for him as a constant companion.
+RESPONSE: ”
+
+“Why, what is there against him?
+
+INPUT: Summarize: “You
+don’t know Sherlock Holmes yet,” he said; “perhaps you would not care
+for him as a constant companion. ”
+
+“Why, what is there against him?
+RESPONSE: ”
+
+“Oh, I didn’t say there was anything against him.
+
+INPUT: Tell me about: ”
+
+“Oh, I didn’t say there was anything against him.
+RESPONSE: He is a little queer
+in his ideas—an enthusiast in some branches of science.
+
+INPUT: Summarize: ”
+
+“Oh, I didn’t say there was anything against him. He is a little queer
+in his ideas—an enthusiast in some branches of science.
+RESPONSE: As far as I
+know he is a decent fellow enough.
+
+INPUT: Can you explain: As far as I
+know he is a decent fellow enough.
+RESPONSE: ”
+
+“A medical student, I suppose?
+
+INPUT: Summarize: As far as I
+know he is a decent fellow enough. ”
+
+“A medical student, I suppose?
+RESPONSE: “No—I have no idea what he intends to go in for.
+
+INPUT: What does this mean: “No—I have no idea what he intends to go in for.
+RESPONSE: I believe he is
+well up in anatomy, and he is a first-class chemist; but, as far as
+I know, he has never taken out any systematic medical classes.
+
+INPUT: Summarize: “No—I have no idea what he intends to go in for. I believe he is
+well up in anatomy, and he is a first-class chemist; but, as far as
+I know, he has never taken out any systematic medical classes.
+RESPONSE: His
+studies are very desultory and eccentric, but he has amassed a lot of
+out-of-the-way knowledge which would astonish his professors.
+
+INPUT: What is this about: His
+studies are very desultory and eccentric, but he has amassed a lot of
+out-of-the-way knowledge which would astonish his professors.
+RESPONSE: ”
+
+“Did you never ask him what he was going in for?
+
+INPUT: Summarize: His
+studies are very desultory and eccentric, but he has amassed a lot of
+out-of-the-way knowledge which would astonish his professors. ”
+
+“Did you never ask him what he was going in for?
+RESPONSE: “No; he is not a man that it is easy to draw out, though he can be
+communicative enough when the fancy seizes him.
+
+INPUT: Tell me about: “No; he is not a man that it is easy to draw out, though he can be
+communicative enough when the fancy seizes him.
+RESPONSE: ”
+
+“I should like to meet him,” I said.
+
+INPUT: Summarize: “No; he is not a man that it is easy to draw out, though he can be
+communicative enough when the fancy seizes him. ”
+
+“I should like to meet him,” I said.
+RESPONSE: “If I am to lodge with anyone, I
+should prefer a man of studious and quiet habits.
+
+INPUT: What does this mean: “If I am to lodge with anyone, I
+should prefer a man of studious and quiet habits.
+RESPONSE: I am not strong
+enough yet to stand much noise or excitement.
+
+INPUT: Summarize: “If I am to lodge with anyone, I
+should prefer a man of studious and quiet habits. I am not strong
+enough yet to stand much noise or excitement.
+RESPONSE: I had enough of both in
+Afghanistan to last me for the remainder of my natural existence.
+
+INPUT: What is this about: I had enough of both in
+Afghanistan to last me for the remainder of my natural existence.
+RESPONSE: How
+could I meet this friend of yours?
+
+INPUT: Summarize: I had enough of both in
+Afghanistan to last me for the remainder of my natural existence. How
+could I meet this friend of yours?
+RESPONSE: ”
+
+“He is sure to be at the laboratory,” returned my companion.
+
+INPUT: What does this mean: ”
+
+“He is sure to be at the laboratory,” returned my companion.
+RESPONSE: “He either
+avoids the place for weeks, or else he works there from morning to
+night.
+
+INPUT: Summarize: ”
+
+“He is sure to be at the laboratory,” returned my companion. “He either
+avoids the place for weeks, or else he works there from morning to
+night.
+RESPONSE: If you like, we shall drive round together after luncheon.
+
+INPUT: Explain this: If you like, we shall drive round together after luncheon.
+RESPONSE: ”
+
+“Certainly,” I answered, and the conversation drifted away into other
+channels.
+
+INPUT: Summarize: If you like, we shall drive round together after luncheon. ”
+
+“Certainly,” I answered, and the conversation drifted away into other
+channels.
+RESPONSE: As we made our way to the hospital after leaving the Holborn, Stamford
+gave me a few more particulars about the gentleman whom I proposed to
+take as a fellow-lodger.
+
+INPUT: Explain this: As we made our way to the hospital after leaving the Holborn, Stamford
+gave me a few more particulars about the gentleman whom I proposed to
+take as a fellow-lodger.
+RESPONSE: “You mustn’t blame me if you don’t get on with him,” he said; “I know
+nothing more of him than I have learned from meeting him occasionally
+in the laboratory.
+
+INPUT: Summarize: As we made our way to the hospital after leaving the Holborn, Stamford
+gave me a few more particulars about the gentleman whom I proposed to
+take as a fellow-lodger. “You mustn’t blame me if you don’t get on with him,” he said; “I know
+nothing more of him than I have learned from meeting him occasionally
+in the laboratory.
+RESPONSE: You proposed this arrangement, so you must not hold
+me responsible.
+
+INPUT: What is this about: You proposed this arrangement, so you must not hold
+me responsible.
+RESPONSE: ”
+
+“If we don’t get on it will be easy to part company,” I answered.
+
+INPUT: Summarize: You proposed this arrangement, so you must not hold
+me responsible. ”
+
+“If we don’t get on it will be easy to part company,” I answered.
+RESPONSE: “It
+seems to me, Stamford,” I added, looking hard at my companion, “that
+you have some reason for washing your hands of the matter.
+
+INPUT: Tell me about: “It
+seems to me, Stamford,” I added, looking hard at my companion, “that
+you have some reason for washing your hands of the matter.
+RESPONSE: Is this
+fellow’s temper so formidable, or what is it?
+
+INPUT: Summarize: “It
+seems to me, Stamford,” I added, looking hard at my companion, “that
+you have some reason for washing your hands of the matter. Is this
+fellow’s temper so formidable, or what is it?
+RESPONSE: Don’t be mealy-mouthed
+about it.
+
+INPUT: What does this mean: Don’t be mealy-mouthed
+about it.
+RESPONSE: ”
+
+“It is not easy to express the inexpressible,” he answered with a
+laugh.
+
+INPUT: Summarize: Don’t be mealy-mouthed
+about it. ”
+
+“It is not easy to express the inexpressible,” he answered with a
+laugh.
+RESPONSE: “Holmes is a little too scientific for my tastes—it approaches
+to cold-bloodedness.
+
+INPUT: Tell me about: “Holmes is a little too scientific for my tastes—it approaches
+to cold-bloodedness.
+RESPONSE: I could imagine his giving a friend a little pinch
+of the latest vegetable alkaloid, not out of malevolence, you
+understand, but simply out of a spirit of inquiry in order to have an
+accurate idea of the effects.
+
+INPUT: Summarize: “Holmes is a little too scientific for my tastes—it approaches
+to cold-bloodedness. I could imagine his giving a friend a little pinch
+of the latest vegetable alkaloid, not out of malevolence, you
+understand, but simply out of a spirit of inquiry in order to have an
+accurate idea of the effects.
+RESPONSE: To do him justice, I think that he would
+take it himself with the same readiness.
+
+INPUT: Explain this: To do him justice, I think that he would
+take it himself with the same readiness.
+RESPONSE: He appears to have a passion
+for definite and exact knowledge.
+
+INPUT: Summarize: To do him justice, I think that he would
+take it himself with the same readiness. He appears to have a passion
+for definite and exact knowledge.
+RESPONSE: ”
+
+“Very right too.
+
+INPUT: Can you explain: ”
+
+“Very right too.
+RESPONSE: ”
+
+“Yes, but it may be pushed to excess.
+
+INPUT: Summarize: ”
+
+“Very right too. ”
+
+“Yes, but it may be pushed to excess.
+RESPONSE: When it comes to beating the
+subjects in the dissecting-rooms with a stick, it is certainly taking
+rather a bizarre shape.
+
+INPUT: Tell me about: When it comes to beating the
+subjects in the dissecting-rooms with a stick, it is certainly taking
+rather a bizarre shape.
+RESPONSE: ”
+
+“Beating the subjects!
+
+INPUT: Summarize: When it comes to beating the
+subjects in the dissecting-rooms with a stick, it is certainly taking
+rather a bizarre shape. ”
+
+“Beating the subjects!
+RESPONSE: ”
+
+“Yes, to verify how far bruises may be produced after death.
+
+INPUT: What does this mean: ”
+
+“Yes, to verify how far bruises may be produced after death.
+RESPONSE: I saw him
+at it with my own eyes.
+
+INPUT: Summarize: ”
+
+“Yes, to verify how far bruises may be produced after death. I saw him
+at it with my own eyes.
+RESPONSE: ”
+
+“And yet you say he is not a medical student?
+
+INPUT: What is this about: ”
+
+“And yet you say he is not a medical student?
+RESPONSE: Heaven knows what the objects of his studies are.
+
+INPUT: Summarize: ”
+
+“And yet you say he is not a medical student? Heaven knows what the objects of his studies are.
+RESPONSE: But here we are,
+and you must form your own impressions about him.
+
+INPUT: What does this say: But here we are,
+and you must form your own impressions about him.
+RESPONSE: ” As he spoke, we
+turned down a narrow lane and passed through a small side-door, which
+opened into a wing of the great hospital.
+
+INPUT: Summarize: But here we are,
+and you must form your own impressions about him. ” As he spoke, we
+turned down a narrow lane and passed through a small side-door, which
+opened into a wing of the great hospital.
+RESPONSE: It was familiar ground to me,
+and I needed no guiding as we ascended the bleak stone staircase and
+made our way down the long corridor with its vista of whitewashed wall
+and dun-coloured doors.
+
+INPUT: Explain this: It was familiar ground to me,
+and I needed no guiding as we ascended the bleak stone staircase and
+made our way down the long corridor with its vista of whitewashed wall
+and dun-coloured doors.
+RESPONSE: Near the further end a low arched passage
+branched away from it and led to the chemical laboratory.
+
+INPUT: Summarize: It was familiar ground to me,
+and I needed no guiding as we ascended the bleak stone staircase and
+made our way down the long corridor with its vista of whitewashed wall
+and dun-coloured doors. Near the further end a low arched passage
+branched away from it and led to the chemical laboratory.
+RESPONSE: This was a lofty chamber, lined and littered with countless bottles.
+
+INPUT: Can you explain: This was a lofty chamber, lined and littered with countless bottles.
+RESPONSE: Broad, low tables were scattered about, which bristled with retorts,
+test-tubes, and little Bunsen lamps, with their blue flickering flames.
+
+INPUT: Summarize: This was a lofty chamber, lined and littered with countless bottles. Broad, low tables were scattered about, which bristled with retorts,
+test-tubes, and little Bunsen lamps, with their blue flickering flames.
+RESPONSE: There was only one student in the room, who was bending over a distant
+table absorbed in his work.
+
+INPUT: Tell me about: There was only one student in the room, who was bending over a distant
+table absorbed in his work.
+RESPONSE: At the sound of our steps he glanced round
+and sprang to his feet with a cry of pleasure.
+
+INPUT: Summarize: There was only one student in the room, who was bending over a distant
+table absorbed in his work. At the sound of our steps he glanced round
+and sprang to his feet with a cry of pleasure.
+RESPONSE: I’ve
+found it,” he shouted to my companion, running towards us with a
+test-tube in his hand.
+
+INPUT: Explain this: I’ve
+found it,” he shouted to my companion, running towards us with a
+test-tube in his hand.
+RESPONSE: “I have found a re-agent which is precipitated
+by hæmoglobin, and by nothing else.
+
+INPUT: Summarize: I’ve
+found it,” he shouted to my companion, running towards us with a
+test-tube in his hand. “I have found a re-agent which is precipitated
+by hæmoglobin, and by nothing else.
+RESPONSE: ” Had he discovered a gold mine,
+greater delight could not have shone upon his features.
+
+INPUT: What does this mean: ” Had he discovered a gold mine,
+greater delight could not have shone upon his features.
+RESPONSE: Sherlock Holmes,” said Stamford, introducing us.
+
+INPUT: Summarize: ” Had he discovered a gold mine,
+greater delight could not have shone upon his features. Sherlock Holmes,” said Stamford, introducing us.
+RESPONSE: ” he said cordially, gripping my hand with a strength for
+which I should hardly have given him credit.
+
+INPUT: What does this mean: ” he said cordially, gripping my hand with a strength for
+which I should hardly have given him credit.
+RESPONSE: “You have been in
+Afghanistan, I perceive.
+
+INPUT: Summarize: ” he said cordially, gripping my hand with a strength for
+which I should hardly have given him credit. “You have been in
+Afghanistan, I perceive.
+RESPONSE: ”
+
+“How on earth did you know that?
+
+INPUT: What is this about: ”
+
+“How on earth did you know that?
+RESPONSE: ” I asked in astonishment.
+
+INPUT: Summarize: ”
+
+“How on earth did you know that? ” I asked in astonishment.
+RESPONSE: “Never mind,” said he, chuckling to himself.
+
+INPUT: What is this about: “Never mind,” said he, chuckling to himself.
+RESPONSE: “The question now is about
+hæmoglobin.
+
+INPUT: Summarize: “Never mind,” said he, chuckling to himself. “The question now is about
+hæmoglobin.
+RESPONSE: No doubt you see the significance of this discovery of
+mine?
+
+INPUT: What does this say: No doubt you see the significance of this discovery of
+mine?
+RESPONSE: ”
+
+“It is interesting, chemically, no doubt,” I answered, “but
+practically——”
+
+“Why, man, it is the most practical medico-legal discovery for years.
+
+INPUT: Summarize: No doubt you see the significance of this discovery of
+mine? ”
+
+“It is interesting, chemically, no doubt,” I answered, “but
+practically——”
+
+“Why, man, it is the most practical medico-legal discovery for years.
+RESPONSE: Don’t you see that it gives us an infallible test for blood stains.
+
+INPUT: What is this about: Don’t you see that it gives us an infallible test for blood stains.
+RESPONSE: ” He seized me by the coat-sleeve in his eagerness,
+and drew me over to the table at which he had been working.
+
+INPUT: Summarize: Don’t you see that it gives us an infallible test for blood stains. ” He seized me by the coat-sleeve in his eagerness,
+and drew me over to the table at which he had been working.
+RESPONSE: “Let us
+have some fresh blood,” he said, digging a long bodkin into his finger,
+and drawing off the resulting drop of blood in a chemical pipette.
+
+INPUT: What is this about: “Let us
+have some fresh blood,” he said, digging a long bodkin into his finger,
+and drawing off the resulting drop of blood in a chemical pipette.
+RESPONSE: “Now, I add this small quantity of blood to a litre of water.
+
+INPUT: Summarize: “Let us
+have some fresh blood,” he said, digging a long bodkin into his finger,
+and drawing off the resulting drop of blood in a chemical pipette. “Now, I add this small quantity of blood to a litre of water.
+RESPONSE: You
+perceive that the resulting mixture has the appearance of pure water.
+
+INPUT: Can you explain: You
+perceive that the resulting mixture has the appearance of pure water.
+RESPONSE: The proportion of blood cannot be more than one in a million.
+
+INPUT: Summarize: You
+perceive that the resulting mixture has the appearance of pure water. The proportion of blood cannot be more than one in a million.
+RESPONSE: I have no
+doubt, however, that we shall be able to obtain the characteristic
+reaction.
+
+INPUT: Tell me about: I have no
+doubt, however, that we shall be able to obtain the characteristic
+reaction.
+RESPONSE: ” As he spoke, he threw into the vessel a few white crystals,
+and then added some drops of a transparent fluid.
+
+INPUT: Summarize: I have no
+doubt, however, that we shall be able to obtain the characteristic
+reaction. ” As he spoke, he threw into the vessel a few white crystals,
+and then added some drops of a transparent fluid.
+RESPONSE: In an instant the
+contents assumed a dull mahogany colour, and a brownish dust was
+precipitated to the bottom of the glass jar.
+
+INPUT: What is this about: In an instant the
+contents assumed a dull mahogany colour, and a brownish dust was
+precipitated to the bottom of the glass jar.
+RESPONSE: ” he cried, clapping his hands, and looking as delighted as a
+child with a new toy.
+
+INPUT: Summarize: In an instant the
+contents assumed a dull mahogany colour, and a brownish dust was
+precipitated to the bottom of the glass jar. ” he cried, clapping his hands, and looking as delighted as a
+child with a new toy.
+RESPONSE: “What do you think of that?
+
+INPUT: Explain this: “What do you think of that?
+RESPONSE: ”
+
+“It seems to be a very delicate test,” I remarked.
+
+INPUT: Summarize: “What do you think of that? ”
+
+“It seems to be a very delicate test,” I remarked.
+RESPONSE: The old Guiacum test was very clumsy and
+uncertain.
+
+INPUT: What does this say: The old Guiacum test was very clumsy and
+uncertain.
+RESPONSE: So is the microscopic examination for blood corpuscles.
+
+INPUT: Summarize: The old Guiacum test was very clumsy and
+uncertain. So is the microscopic examination for blood corpuscles.
+RESPONSE: The
+latter is valueless if the stains are a few hours old.
+
+INPUT: Can you explain: The
+latter is valueless if the stains are a few hours old.
+RESPONSE: Now, this
+appears to act as well whether the blood is old or new.
+
+INPUT: Summarize: The
+latter is valueless if the stains are a few hours old. Now, this
+appears to act as well whether the blood is old or new.
+RESPONSE: Had this test
+been invented, there are hundreds of men now walking the earth who
+would long ago have paid the penalty of their crimes.
+
+INPUT: Can you explain: Had this test
+been invented, there are hundreds of men now walking the earth who
+would long ago have paid the penalty of their crimes.
+RESPONSE: “Criminal cases are continually hinging upon that one point.
+
+INPUT: Summarize: Had this test
+been invented, there are hundreds of men now walking the earth who
+would long ago have paid the penalty of their crimes. “Criminal cases are continually hinging upon that one point.
+RESPONSE: A man is
+suspected of a crime months perhaps after it has been committed.
+
+INPUT: What does this say: A man is
+suspected of a crime months perhaps after it has been committed.
+RESPONSE: His
+linen or clothes are examined, and brownish stains discovered upon
+them.
+
+INPUT: Summarize: A man is
+suspected of a crime months perhaps after it has been committed. His
+linen or clothes are examined, and brownish stains discovered upon
+them.
+RESPONSE: Are they blood stains, or mud stains, or rust stains, or fruit
+stains, or what are they?
+
+INPUT: What does this say: Are they blood stains, or mud stains, or rust stains, or fruit
+stains, or what are they?
+RESPONSE: That is a question which has puzzled many an
+expert, and why?
+
+INPUT: Summarize: Are they blood stains, or mud stains, or rust stains, or fruit
+stains, or what are they? That is a question which has puzzled many an
+expert, and why?
+RESPONSE: Because there was no reliable test.
+
+INPUT: What is this about: Because there was no reliable test.
+RESPONSE: Now we have the
+Sherlock Holmes’ test, and there will no longer be any difficulty.
+
+INPUT: Summarize: Because there was no reliable test. Now we have the
+Sherlock Holmes’ test, and there will no longer be any difficulty.
+RESPONSE: ”
+
+His eyes fairly glittered as he spoke, and he put his hand over his
+heart and bowed as if to some applauding crowd conjured up by his
+imagination.
+
+INPUT: What does this mean: ”
+
+His eyes fairly glittered as he spoke, and he put his hand over his
+heart and bowed as if to some applauding crowd conjured up by his
+imagination.
+RESPONSE: “You are to be congratulated,” I remarked, considerably surprised at
+his enthusiasm.
+
+INPUT: Summarize: ”
+
+His eyes fairly glittered as he spoke, and he put his hand over his
+heart and bowed as if to some applauding crowd conjured up by his
+imagination. “You are to be congratulated,” I remarked, considerably surprised at
+his enthusiasm.
+RESPONSE: “There was the case of Von Bischoff at Frankfort last year.
+
+INPUT: Tell me about: “There was the case of Von Bischoff at Frankfort last year.
+RESPONSE: He would
+certainly have been hung had this test been in existence.
+
+INPUT: Summarize: “There was the case of Von Bischoff at Frankfort last year. He would
+certainly have been hung had this test been in existence.
+RESPONSE: Then there
+was Mason of Bradford, and the notorious Muller, and Lefevre of
+Montpellier, and Samson of New Orleans.
+
+INPUT: Can you explain: Then there
+was Mason of Bradford, and the notorious Muller, and Lefevre of
+Montpellier, and Samson of New Orleans.
+RESPONSE: I could name a score of cases
+in which it would have been decisive.
+
+INPUT: Summarize: Then there
+was Mason of Bradford, and the notorious Muller, and Lefevre of
+Montpellier, and Samson of New Orleans. I could name a score of cases
+in which it would have been decisive.
+RESPONSE: ”
+
+“You seem to be a walking calendar of crime,” said Stamford with a
+laugh.
+
+INPUT: What does this mean: ”
+
+“You seem to be a walking calendar of crime,” said Stamford with a
+laugh.
+RESPONSE: “You might start a paper on those lines.
+
+INPUT: Summarize: ”
+
+“You seem to be a walking calendar of crime,” said Stamford with a
+laugh. “You might start a paper on those lines.
+RESPONSE: Call it the ‘Police
+News of the Past.
+
+INPUT: What does this mean: Call it the ‘Police
+News of the Past.
+RESPONSE: ’”
+
+“Very interesting reading it might be made, too,” remarked Sherlock
+Holmes, sticking a small piece of plaster over the prick on his finger.
+
+INPUT: Summarize: Call it the ‘Police
+News of the Past. ’”
+
+“Very interesting reading it might be made, too,” remarked Sherlock
+Holmes, sticking a small piece of plaster over the prick on his finger.
+RESPONSE: “I have to be careful,” he continued, turning to me with a smile, “for
+I dabble with poisons a good deal.
+
+INPUT: What does this mean: “I have to be careful,” he continued, turning to me with a smile, “for
+I dabble with poisons a good deal.
+RESPONSE: ” He held out his hand as he spoke,
+and I noticed that it was all mottled over with similar pieces of
+plaster, and discoloured with strong acids.
+
+INPUT: Summarize: “I have to be careful,” he continued, turning to me with a smile, “for
+I dabble with poisons a good deal. ” He held out his hand as he spoke,
+and I noticed that it was all mottled over with similar pieces of
+plaster, and discoloured with strong acids.
+RESPONSE: “We came here on business,” said Stamford, sitting down on a high
+three-legged stool, and pushing another one in my direction with his
+foot.
+
+INPUT: What does this mean: “We came here on business,” said Stamford, sitting down on a high
+three-legged stool, and pushing another one in my direction with his
+foot.
+RESPONSE: “My friend here wants to take diggings, and as you were
+complaining that you could get no one to go halves with you, I thought
+that I had better bring you together.
+
+INPUT: Summarize: “We came here on business,” said Stamford, sitting down on a high
+three-legged stool, and pushing another one in my direction with his
+foot. “My friend here wants to take diggings, and as you were
+complaining that you could get no one to go halves with you, I thought
+that I had better bring you together.
+RESPONSE: ”
+
+Sherlock Holmes seemed delighted at the idea of sharing his rooms with
+me.
+
+INPUT: Explain this: ”
+
+Sherlock Holmes seemed delighted at the idea of sharing his rooms with
+me.
+RESPONSE: “I have my eye on a suite in Baker Street,” he said, “which would
+suit us down to the ground.
+
+INPUT: Summarize: ”
+
+Sherlock Holmes seemed delighted at the idea of sharing his rooms with
+me. “I have my eye on a suite in Baker Street,” he said, “which would
+suit us down to the ground.
+RESPONSE: You don’t mind the smell of strong tobacco,
+I hope?
+
+INPUT: What is this about: You don’t mind the smell of strong tobacco,
+I hope?
+RESPONSE: ”
+
+“I always smoke ‘ship’s’ myself,” I answered.
+
+INPUT: Summarize: You don’t mind the smell of strong tobacco,
+I hope? ”
+
+“I always smoke ‘ship’s’ myself,” I answered.
+RESPONSE: “That’s good enough.
+
+INPUT: What does this mean: “That’s good enough.
+RESPONSE: I generally have chemicals about, and occasionally
+do experiments.
+
+INPUT: Summarize: “That’s good enough. I generally have chemicals about, and occasionally
+do experiments.
+RESPONSE: Would that annoy you?
+
+INPUT: What does this mean: Would that annoy you?
+RESPONSE: ”
+
+“By no means.
+
+INPUT: Summarize: Would that annoy you? ”
+
+“By no means.
+RESPONSE: ”
+
+“Let me see—what are my other shortcomings.
+
+INPUT: What does this say: ”
+
+“Let me see—what are my other shortcomings.
+RESPONSE: I get in the dumps at
+times, and don’t open my mouth for days on end.
+
+INPUT: Summarize: ”
+
+“Let me see—what are my other shortcomings. I get in the dumps at
+times, and don’t open my mouth for days on end.
+RESPONSE: You must not think I am
+sulky when I do that.
+
+INPUT: What does this mean: You must not think I am
+sulky when I do that.
+RESPONSE: Just let me alone, and I’ll soon be right.
+
+INPUT: Summarize: You must not think I am
+sulky when I do that. Just let me alone, and I’ll soon be right.
+RESPONSE: What
+have you to confess now?
+
+INPUT: What does this say: What
+have you to confess now?
+RESPONSE: It’s just as well for two fellows to know the
+worst of one another before they begin to live together.
+
+INPUT: Summarize: What
+have you to confess now? It’s just as well for two fellows to know the
+worst of one another before they begin to live together.
+RESPONSE: ”
+
+I laughed at this cross-examination.
+
+INPUT: What is this about: ”
+
+I laughed at this cross-examination.
+RESPONSE: “I keep a bull pup,” I said, “and
+I object to rows because my nerves are shaken, and I get up at all
+sorts of ungodly hours, and I am extremely lazy.
+
+INPUT: Summarize: ”
+
+I laughed at this cross-examination. “I keep a bull pup,” I said, “and
+I object to rows because my nerves are shaken, and I get up at all
+sorts of ungodly hours, and I am extremely lazy.
+RESPONSE: I have another set of
+vices when I’m well, but those are the principal ones at present.
+
+INPUT: What does this say: I have another set of
+vices when I’m well, but those are the principal ones at present.
+RESPONSE: ”
+
+“Do you include violin-playing in your category of rows?
+
+INPUT: Summarize: I have another set of
+vices when I’m well, but those are the principal ones at present. ”
+
+“Do you include violin-playing in your category of rows?
+RESPONSE: ” he asked,
+anxiously.
+
+INPUT: Tell me about: ” he asked,
+anxiously.
+RESPONSE: “It depends on the player,” I answered.
+
+INPUT: Summarize: ” he asked,
+anxiously. “It depends on the player,” I answered.
+RESPONSE: “A well-played violin is a
+treat for the gods—a badly-played one——”
+
+“Oh, that’s all right,” he cried, with a merry laugh.
+
+INPUT: What does this mean: “A well-played violin is a
+treat for the gods—a badly-played one——”
+
+“Oh, that’s all right,” he cried, with a merry laugh.
+RESPONSE: “I think we may
+consider the thing as settled—that is, if the rooms are agreeable to
+you.
+
+INPUT: Summarize: “A well-played violin is a
+treat for the gods—a badly-played one——”
+
+“Oh, that’s all right,” he cried, with a merry laugh. “I think we may
+consider the thing as settled—that is, if the rooms are agreeable to
+you.
+RESPONSE: ”
+
+“When shall we see them?
+
+INPUT: Explain this: ”
+
+“When shall we see them?
+RESPONSE: ”
+
+“Call for me here at noon to-morrow, and we’ll go together and settle
+everything,” he answered.
+
+INPUT: Summarize: ”
+
+“When shall we see them? ”
+
+“Call for me here at noon to-morrow, and we’ll go together and settle
+everything,” he answered.
+RESPONSE: “All right—noon exactly,” said I, shaking his hand.
+
+INPUT: Explain this: “All right—noon exactly,” said I, shaking his hand.
+RESPONSE: We left him working among his chemicals, and we walked together towards
+my hotel.
+
+INPUT: Summarize: “All right—noon exactly,” said I, shaking his hand. We left him working among his chemicals, and we walked together towards
+my hotel.
+RESPONSE: “By the way,” I asked suddenly, stopping and turning upon Stamford,
+“how the deuce did he know that I had come from Afghanistan?
+
+INPUT: Can you explain: “By the way,” I asked suddenly, stopping and turning upon Stamford,
+“how the deuce did he know that I had come from Afghanistan?
+RESPONSE: ”
+
+My companion smiled an enigmatical smile.
+
+INPUT: Summarize: “By the way,” I asked suddenly, stopping and turning upon Stamford,
+“how the deuce did he know that I had come from Afghanistan? ”
+
+My companion smiled an enigmatical smile.
+RESPONSE: “That’s just his little
+peculiarity,” he said.
+
+INPUT: What is this about: “That’s just his little
+peculiarity,” he said.
+RESPONSE: “A good many people have wanted to know how he
+finds things out.
+
+INPUT: Summarize: “That’s just his little
+peculiarity,” he said. “A good many people have wanted to know how he
+finds things out.
+RESPONSE: ” I cried, rubbing my hands.
+
+INPUT: What does this mean: ” I cried, rubbing my hands.
+RESPONSE: “This is very
+piquant.
+
+INPUT: Summarize: ” I cried, rubbing my hands. “This is very
+piquant.
+RESPONSE: I am much obliged to you for bringing us together.
+
+INPUT: Explain this: I am much obliged to you for bringing us together.
+RESPONSE: ‘The proper
+study of mankind is man,’ you know.
+
+INPUT: Summarize: I am much obliged to you for bringing us together. ‘The proper
+study of mankind is man,’ you know.
+RESPONSE: ”
+
+“You must study him, then,” Stamford said, as he bade me good-bye.
+
+INPUT: What does this say: ”
+
+“You must study him, then,” Stamford said, as he bade me good-bye.
+RESPONSE: “You’ll find him a knotty problem, though.
+
+INPUT: Summarize: ”
+
+“You must study him, then,” Stamford said, as he bade me good-bye. “You’ll find him a knotty problem, though.
+RESPONSE: I’ll wager he learns more
+about you than you about him.
+
+INPUT: What is this about: I’ll wager he learns more
+about you than you about him.
+RESPONSE: ”
+
+“Good-bye,” I answered, and strolled on to my hotel, considerably
+interested in my new acquaintance.
+
+INPUT: Summarize: I’ll wager he learns more
+about you than you about him. ”
+
+“Good-bye,” I answered, and strolled on to my hotel, considerably
+interested in my new acquaintance.
+RESPONSE: THE SCIENCE OF DEDUCTION.
+
+INPUT: What does this say: THE SCIENCE OF DEDUCTION.
+RESPONSE: We met next day as he had arranged, and inspected the rooms at No.
+
+INPUT: Summarize: THE SCIENCE OF DEDUCTION. We met next day as he had arranged, and inspected the rooms at No.
+RESPONSE: 221B, Baker Street, of which he had spoken at our meeting.
+
+INPUT: Explain this: 221B, Baker Street, of which he had spoken at our meeting.
+RESPONSE: They
+consisted of a couple of comfortable bed-rooms and a single large airy
+sitting-room, cheerfully furnished, and illuminated by two broad
+windows.
+
+INPUT: Summarize: 221B, Baker Street, of which he had spoken at our meeting. They
+consisted of a couple of comfortable bed-rooms and a single large airy
+sitting-room, cheerfully furnished, and illuminated by two broad
+windows.
+RESPONSE: So desirable in every way were the apartments, and so moderate
+did the terms seem when divided between us, that the bargain was
+concluded upon the spot, and we at once entered into possession.
+
+INPUT: What does this mean: So desirable in every way were the apartments, and so moderate
+did the terms seem when divided between us, that the bargain was
+concluded upon the spot, and we at once entered into possession.
+RESPONSE: That
+very evening I moved my things round from the hotel, and on the
+following morning Sherlock Holmes followed me with several boxes and
+portmanteaus.
+
+INPUT: Summarize: So desirable in every way were the apartments, and so moderate
+did the terms seem when divided between us, that the bargain was
+concluded upon the spot, and we at once entered into possession. That
+very evening I moved my things round from the hotel, and on the
+following morning Sherlock Holmes followed me with several boxes and
+portmanteaus.
+RESPONSE: For a day or two we were busily employed in unpacking and
+laying out our property to the best advantage.
+
+INPUT: What does this say: For a day or two we were busily employed in unpacking and
+laying out our property to the best advantage.
+RESPONSE: That done, we gradually
+began to settle down and to accommodate ourselves to our new
+surroundings.
+
+INPUT: Summarize: For a day or two we were busily employed in unpacking and
+laying out our property to the best advantage. That done, we gradually
+began to settle down and to accommodate ourselves to our new
+surroundings.
+RESPONSE: Holmes was certainly not a difficult man to live with.
+
+INPUT: What does this mean: Holmes was certainly not a difficult man to live with.
+RESPONSE: He was quiet in
+his ways, and his habits were regular.
+
+INPUT: Summarize: Holmes was certainly not a difficult man to live with. He was quiet in
+his ways, and his habits were regular.
+RESPONSE: It was rare for him to be up
+after ten at night, and he had invariably breakfasted and gone out
+before I rose in the morning.
+
+INPUT: Can you explain: It was rare for him to be up
+after ten at night, and he had invariably breakfasted and gone out
+before I rose in the morning.
+RESPONSE: Sometimes he spent his day at the
+chemical laboratory, sometimes in the dissecting-rooms, and
+occasionally in long walks, which appeared to take him into the lowest
+portions of the City.
+
+INPUT: Summarize: It was rare for him to be up
+after ten at night, and he had invariably breakfasted and gone out
+before I rose in the morning. Sometimes he spent his day at the
+chemical laboratory, sometimes in the dissecting-rooms, and
+occasionally in long walks, which appeared to take him into the lowest
+portions of the City.
+RESPONSE: Nothing could exceed his energy when the working
+fit was upon him; but now and again a reaction would seize him, and for
+days on end he would lie upon the sofa in the sitting-room, hardly
+uttering a word or moving a muscle from morning to night.
+
+INPUT: What does this say: Nothing could exceed his energy when the working
+fit was upon him; but now and again a reaction would seize him, and for
+days on end he would lie upon the sofa in the sitting-room, hardly
+uttering a word or moving a muscle from morning to night.
+RESPONSE: On these
+occasions I have noticed such a dreamy, vacant expression in his eyes,
+that I might have suspected him of being addicted to the use of some
+narcotic, had not the temperance and cleanliness of his whole life
+forbidden such a notion.
+
+INPUT: Summarize: Nothing could exceed his energy when the working
+fit was upon him; but now and again a reaction would seize him, and for
+days on end he would lie upon the sofa in the sitting-room, hardly
+uttering a word or moving a muscle from morning to night. On these
+occasions I have noticed such a dreamy, vacant expression in his eyes,
+that I might have suspected him of being addicted to the use of some
+narcotic, had not the temperance and cleanliness of his whole life
+forbidden such a notion.
+RESPONSE: As the weeks went by, my interest in him and my curiosity as to his
+aims in life, gradually deepened and increased.
+
+INPUT: Can you explain: As the weeks went by, my interest in him and my curiosity as to his
+aims in life, gradually deepened and increased.
+RESPONSE: His very person and
+appearance were such as to strike the attention of the most casual
+observer.
+
+INPUT: Summarize: As the weeks went by, my interest in him and my curiosity as to his
+aims in life, gradually deepened and increased. His very person and
+appearance were such as to strike the attention of the most casual
+observer.
+RESPONSE: In height he was rather over six feet, and so excessively
+lean that he seemed to be considerably taller.
+
+INPUT: Can you explain: In height he was rather over six feet, and so excessively
+lean that he seemed to be considerably taller.
+RESPONSE: His eyes were sharp and
+piercing, save during those intervals of torpor to which I have
+alluded; and his thin, hawk-like nose gave his whole expression an air
+of alertness and decision.
+
+INPUT: Summarize: In height he was rather over six feet, and so excessively
+lean that he seemed to be considerably taller. His eyes were sharp and
+piercing, save during those intervals of torpor to which I have
+alluded; and his thin, hawk-like nose gave his whole expression an air
+of alertness and decision.
+RESPONSE: His chin, too, had the prominence and
+squareness which mark the man of determination.
+
+INPUT: What does this say: His chin, too, had the prominence and
+squareness which mark the man of determination.
+RESPONSE: His hands were
+invariably blotted with ink and stained with chemicals, yet he was
+possessed of extraordinary delicacy of touch, as I frequently had
+occasion to observe when I watched him manipulating his fragile
+philosophical instruments.
+
+INPUT: Summarize: His chin, too, had the prominence and
+squareness which mark the man of determination. His hands were
+invariably blotted with ink and stained with chemicals, yet he was
+possessed of extraordinary delicacy of touch, as I frequently had
+occasion to observe when I watched him manipulating his fragile
+philosophical instruments.
+RESPONSE: The reader may set me down as a hopeless busybody, when I confess how
+much this man stimulated my curiosity, and how often I endeavoured to
+break through the reticence which he showed on all that concerned
+himself.
+
+INPUT: Tell me about: The reader may set me down as a hopeless busybody, when I confess how
+much this man stimulated my curiosity, and how often I endeavoured to
+break through the reticence which he showed on all that concerned
+himself.
+RESPONSE: Before pronouncing judgment, however, be it remembered, how
+objectless was my life, and how little there was to engage my
+attention.
+
+INPUT: Summarize: The reader may set me down as a hopeless busybody, when I confess how
+much this man stimulated my curiosity, and how often I endeavoured to
+break through the reticence which he showed on all that concerned
+himself. Before pronouncing judgment, however, be it remembered, how
+objectless was my life, and how little there was to engage my
+attention.
+RESPONSE: My health forbade me from venturing out unless the weather
+was exceptionally genial, and I had no friends who would call upon me
+and break the monotony of my daily existence.
+
+INPUT: Tell me about: My health forbade me from venturing out unless the weather
+was exceptionally genial, and I had no friends who would call upon me
+and break the monotony of my daily existence.
+RESPONSE: Under these
+circumstances, I eagerly hailed the little mystery which hung around my
+companion, and spent much of my time in endeavouring to unravel it.
+
+INPUT: Summarize: My health forbade me from venturing out unless the weather
+was exceptionally genial, and I had no friends who would call upon me
+and break the monotony of my daily existence. Under these
+circumstances, I eagerly hailed the little mystery which hung around my
+companion, and spent much of my time in endeavouring to unravel it.
+RESPONSE: He was not studying medicine.
+
+INPUT: Can you explain: He was not studying medicine.
+RESPONSE: He had himself, in reply to a question,
+confirmed Stamford’s opinion upon that point.
+
+INPUT: Summarize: He was not studying medicine. He had himself, in reply to a question,
+confirmed Stamford’s opinion upon that point.
+RESPONSE: Neither did he appear to
+have pursued any course of reading which might fit him for a degree in
+science or any other recognized portal which would give him an entrance
+into the learned world.
+
+INPUT: What is this about: Neither did he appear to
+have pursued any course of reading which might fit him for a degree in
+science or any other recognized portal which would give him an entrance
+into the learned world.
+RESPONSE: Yet his zeal for certain studies was
+remarkable, and within eccentric limits his knowledge was so
+extraordinarily ample and minute that his observations have fairly
+astounded me.
+
+INPUT: Summarize: Neither did he appear to
+have pursued any course of reading which might fit him for a degree in
+science or any other recognized portal which would give him an entrance
+into the learned world. Yet his zeal for certain studies was
+remarkable, and within eccentric limits his knowledge was so
+extraordinarily ample and minute that his observations have fairly
+astounded me.
+RESPONSE: Surely no man would work so hard or attain such precise
+information unless he had some definite end in view.
+
+INPUT: What does this mean: Surely no man would work so hard or attain such precise
+information unless he had some definite end in view.
+RESPONSE: Desultory readers
+are seldom remarkable for the exactness of their learning.
+
+INPUT: Summarize: Surely no man would work so hard or attain such precise
+information unless he had some definite end in view. Desultory readers
+are seldom remarkable for the exactness of their learning.
+RESPONSE: No man
+burdens his mind with small matters unless he has some very good reason
+for doing so.
+
+INPUT: Can you explain: No man
+burdens his mind with small matters unless he has some very good reason
+for doing so.
+RESPONSE: His ignorance was as remarkable as his knowledge.
+
+INPUT: Summarize: No man
+burdens his mind with small matters unless he has some very good reason
+for doing so. His ignorance was as remarkable as his knowledge.
+RESPONSE: Of contemporary
+literature, philosophy and politics he appeared to know next to
+nothing.
+
+INPUT: Tell me about: Of contemporary
+literature, philosophy and politics he appeared to know next to
+nothing.
+RESPONSE: Upon my quoting Thomas Carlyle, he inquired in the naivest way
+who he might be and what he had done.
+
+INPUT: Summarize: Of contemporary
+literature, philosophy and politics he appeared to know next to
+nothing. Upon my quoting Thomas Carlyle, he inquired in the naivest way
+who he might be and what he had done.
+RESPONSE: My surprise reached a climax,
+however, when I found incidentally that he was ignorant of the
+Copernican Theory and of the composition of the Solar System.
+
+INPUT: Explain this: My surprise reached a climax,
+however, when I found incidentally that he was ignorant of the
+Copernican Theory and of the composition of the Solar System.
+RESPONSE: That any
+civilized human being in this nineteenth century should not be aware
+that the earth travelled round the sun appeared to be to me such an
+extraordinary fact that I could hardly realize it.
+
+INPUT: Summarize: My surprise reached a climax,
+however, when I found incidentally that he was ignorant of the
+Copernican Theory and of the composition of the Solar System. That any
+civilized human being in this nineteenth century should not be aware
+that the earth travelled round the sun appeared to be to me such an
+extraordinary fact that I could hardly realize it.
+RESPONSE: “You appear to be astonished,” he said, smiling at my expression of
+surprise.
+
+INPUT: What does this mean: “You appear to be astonished,” he said, smiling at my expression of
+surprise.
+RESPONSE: “Now that I do know it I shall do my best to forget it.
+
+INPUT: Summarize: “You appear to be astonished,” he said, smiling at my expression of
+surprise. “Now that I do know it I shall do my best to forget it.
+RESPONSE: ”
+
+“To forget it!
+
+INPUT: What is this about: ”
+
+“To forget it!
+RESPONSE: ”
+
+“You see,” he explained, “I consider that a man’s brain originally is
+like a little empty attic, and you have to stock it with such furniture
+as you choose.
+
+INPUT: Summarize: ”
+
+“To forget it! ”
+
+“You see,” he explained, “I consider that a man’s brain originally is
+like a little empty attic, and you have to stock it with such furniture
+as you choose.
+RESPONSE: A fool takes in all the lumber of every sort that he
+comes across, so that the knowledge which might be useful to him gets
+crowded out, or at best is jumbled up with a lot of other things so
+that he has a difficulty in laying his hands upon it.
+
+INPUT: What is this about: A fool takes in all the lumber of every sort that he
+comes across, so that the knowledge which might be useful to him gets
+crowded out, or at best is jumbled up with a lot of other things so
+that he has a difficulty in laying his hands upon it.
+RESPONSE: Now the skilful
+workman is very careful indeed as to what he takes into his
+brain-attic.
+
+INPUT: Summarize: A fool takes in all the lumber of every sort that he
+comes across, so that the knowledge which might be useful to him gets
+crowded out, or at best is jumbled up with a lot of other things so
+that he has a difficulty in laying his hands upon it. Now the skilful
+workman is very careful indeed as to what he takes into his
+brain-attic.
+RESPONSE: He will have nothing but the tools which may help him in
+doing his work, but of these he has a large assortment, and all in the
+most perfect order.
+
+INPUT: What is this about: He will have nothing but the tools which may help him in
+doing his work, but of these he has a large assortment, and all in the
+most perfect order.
+RESPONSE: It is a mistake to think that that little room has
+elastic walls and can distend to any extent.
+
+INPUT: Summarize: He will have nothing but the tools which may help him in
+doing his work, but of these he has a large assortment, and all in the
+most perfect order. It is a mistake to think that that little room has
+elastic walls and can distend to any extent.
+RESPONSE: Depend upon it there comes
+a time when for every addition of knowledge you forget something that
+you knew before.
+
+INPUT: Tell me about: Depend upon it there comes
+a time when for every addition of knowledge you forget something that
+you knew before.
+RESPONSE: It is of the highest importance, therefore, not to
+have useless facts elbowing out the useful ones.
+
+INPUT: Summarize: Depend upon it there comes
+a time when for every addition of knowledge you forget something that
+you knew before. It is of the highest importance, therefore, not to
+have useless facts elbowing out the useful ones.
+RESPONSE: ”
+
+“But the Solar System!
+
+INPUT: What does this say: ”
+
+“But the Solar System!
+RESPONSE: “What the deuce is it to me?
+
+INPUT: Summarize: ”
+
+“But the Solar System! “What the deuce is it to me?
+RESPONSE: ” he interrupted impatiently; “you say that
+we go round the sun.
+
+INPUT: Can you explain: ” he interrupted impatiently; “you say that
+we go round the sun.
+RESPONSE: If we went round the moon it would not make a
+pennyworth of difference to me or to my work.
+
+INPUT: Summarize: ” he interrupted impatiently; “you say that
+we go round the sun. If we went round the moon it would not make a
+pennyworth of difference to me or to my work.
+RESPONSE: ”
+
+I was on the point of asking him what that work might be, but something
+in his manner showed me that the question would be an unwelcome one.
+
+INPUT: What is this about: ”
+
+I was on the point of asking him what that work might be, but something
+in his manner showed me that the question would be an unwelcome one.
+RESPONSE: I
+pondered over our short conversation, however, and endeavoured to draw
+my deductions from it.
+
+INPUT: Summarize: ”
+
+I was on the point of asking him what that work might be, but something
+in his manner showed me that the question would be an unwelcome one. I
+pondered over our short conversation, however, and endeavoured to draw
+my deductions from it.
+RESPONSE: He said that he would acquire no knowledge which
+did not bear upon his object.
+
+INPUT: Tell me about: He said that he would acquire no knowledge which
+did not bear upon his object.
+RESPONSE: Therefore all the knowledge which he
+possessed was such as would be useful to him.
+
+INPUT: Summarize: He said that he would acquire no knowledge which
+did not bear upon his object. Therefore all the knowledge which he
+possessed was such as would be useful to him.
+RESPONSE: I enumerated in my own
+mind all the various points upon which he had shown me that he was
+exceptionally well-informed.
+
+INPUT: What does this say: I enumerated in my own
+mind all the various points upon which he had shown me that he was
+exceptionally well-informed.
+RESPONSE: I even took a pencil and jotted them down.
+
+INPUT: Summarize: I enumerated in my own
+mind all the various points upon which he had shown me that he was
+exceptionally well-informed. I even took a pencil and jotted them down.
+RESPONSE: I could not help smiling at the document when I had completed it.
+
+INPUT: Tell me about: I could not help smiling at the document when I had completed it.
+RESPONSE: It
+ran in this way—
+
+
+SHERLOCK HOLMES—his limits.
+
+INPUT: Summarize: I could not help smiling at the document when I had completed it. It
+ran in this way—
+
+
+SHERLOCK HOLMES—his limits.
+RESPONSE: Knowledge of Literature.
+
+INPUT: What does this say: Knowledge of Literature.
+RESPONSE: Well up in belladonna, opium, and poisons
+generally.
+
+INPUT: Summarize: Knowledge of Literature. Well up in belladonna, opium, and poisons
+generally.
+RESPONSE: Knows nothing of practical gardening.
+
+INPUT: What is this about: Knows nothing of practical gardening.
+RESPONSE: —Practical, but limited.
+
+INPUT: Summarize: Knows nothing of practical gardening. —Practical, but limited.
+RESPONSE: Tells at a glance different soils
+from each other.
+
+INPUT: What does this say: Tells at a glance different soils
+from each other.
+RESPONSE: After walks has shown me splashes upon his trousers,
+and told me by their colour and consistence in what part of London he
+had received them.
+
+INPUT: Summarize: Tells at a glance different soils
+from each other. After walks has shown me splashes upon his trousers,
+and told me by their colour and consistence in what part of London he
+had received them.
+RESPONSE: —Accurate, but unsystematic.
+
+INPUT: Explain this: —Accurate, but unsystematic.
+RESPONSE: Sensational Literature.
+
+INPUT: Summarize: —Accurate, but unsystematic. Sensational Literature.
+RESPONSE: He appears to know every detail of
+every horror perpetrated in the century.
+
+INPUT: What is this about: He appears to know every detail of
+every horror perpetrated in the century.
+RESPONSE: Plays the violin well.
+
+INPUT: Summarize: He appears to know every detail of
+every horror perpetrated in the century. Plays the violin well.
+RESPONSE: Is an expert singlestick player, boxer, and swordsman.
+
+INPUT: Explain this: Is an expert singlestick player, boxer, and swordsman.
+RESPONSE: Has a good practical knowledge of British law.
+
+INPUT: Summarize: Is an expert singlestick player, boxer, and swordsman. Has a good practical knowledge of British law.
+RESPONSE: When I had got so far in my list I threw it into the fire in despair.
+
+INPUT: Explain this: When I had got so far in my list I threw it into the fire in despair.
+RESPONSE: “If I can only find what the fellow is driving at by reconciling all
+these accomplishments, and discovering a calling which needs them all,”
+I said to myself, “I may as well give up the attempt at once.
+
+INPUT: Summarize: When I had got so far in my list I threw it into the fire in despair. “If I can only find what the fellow is driving at by reconciling all
+these accomplishments, and discovering a calling which needs them all,”
+I said to myself, “I may as well give up the attempt at once.
+RESPONSE: ”
+
+I see that I have alluded above to his powers upon the violin.
+
+INPUT: Explain this: ”
+
+I see that I have alluded above to his powers upon the violin.
+RESPONSE: These
+were very remarkable, but as eccentric as all his other
+accomplishments.
+
+INPUT: Summarize: ”
+
+I see that I have alluded above to his powers upon the violin. These
+were very remarkable, but as eccentric as all his other
+accomplishments.
+RESPONSE: That he could play pieces, and difficult pieces, I
+knew well, because at my request he has played me some of Mendelssohn’s
+Lieder, and other favourites.
+
+INPUT: What is this about: That he could play pieces, and difficult pieces, I
+knew well, because at my request he has played me some of Mendelssohn’s
+Lieder, and other favourites.
+RESPONSE: When left to himself, however, he would
+seldom produce any music or attempt any recognized air.
+
+INPUT: Summarize: That he could play pieces, and difficult pieces, I
+knew well, because at my request he has played me some of Mendelssohn’s
+Lieder, and other favourites. When left to himself, however, he would
+seldom produce any music or attempt any recognized air.
+RESPONSE: Leaning back in
+his arm-chair of an evening, he would close his eyes and scrape
+carelessly at the fiddle which was thrown across his knee.
+
+INPUT: What is this about: Leaning back in
+his arm-chair of an evening, he would close his eyes and scrape
+carelessly at the fiddle which was thrown across his knee.
+RESPONSE: Sometimes
+the chords were sonorous and melancholy.
+
+INPUT: Summarize: Leaning back in
+his arm-chair of an evening, he would close his eyes and scrape
+carelessly at the fiddle which was thrown across his knee. Sometimes
+the chords were sonorous and melancholy.
+RESPONSE: Occasionally they were
+fantastic and cheerful.
+
+INPUT: Explain this: Occasionally they were
+fantastic and cheerful.
+RESPONSE: Clearly they reflected the thoughts which
+possessed him, but whether the music aided those thoughts, or whether
+the playing was simply the result of a whim or fancy was more than I
+could determine.
+
+INPUT: Summarize: Occasionally they were
+fantastic and cheerful. Clearly they reflected the thoughts which
+possessed him, but whether the music aided those thoughts, or whether
+the playing was simply the result of a whim or fancy was more than I
+could determine.
+RESPONSE: I might have rebelled against these exasperating solos
+had it not been that he usually terminated them by playing in quick
+succession a whole series of my favourite airs as a slight compensation
+for the trial upon my patience.
+
+INPUT: What does this mean: I might have rebelled against these exasperating solos
+had it not been that he usually terminated them by playing in quick
+succession a whole series of my favourite airs as a slight compensation
+for the trial upon my patience.
+RESPONSE: During the first week or so we had no callers, and I had begun to think
+that my companion was as friendless a man as I was myself.
+
+INPUT: Summarize: I might have rebelled against these exasperating solos
+had it not been that he usually terminated them by playing in quick
+succession a whole series of my favourite airs as a slight compensation
+for the trial upon my patience. During the first week or so we had no callers, and I had begun to think
+that my companion was as friendless a man as I was myself.
+RESPONSE: Presently,
+however, I found that he had many acquaintances, and those in the most
+different classes of society.
+
+INPUT: What is this about: Presently,
+however, I found that he had many acquaintances, and those in the most
+different classes of society.
+RESPONSE: There was one little sallow rat-faced,
+dark-eyed fellow who was introduced to me as Mr.
+
+INPUT: Summarize: Presently,
+however, I found that he had many acquaintances, and those in the most
+different classes of society. There was one little sallow rat-faced,
+dark-eyed fellow who was introduced to me as Mr.
+RESPONSE: Lestrade, and who came
+three or four times in a single week.
+
+INPUT: Explain this: Lestrade, and who came
+three or four times in a single week.
+RESPONSE: One morning a young girl called,
+fashionably dressed, and stayed for half an hour or more.
+
+INPUT: Summarize: Lestrade, and who came
+three or four times in a single week. One morning a young girl called,
+fashionably dressed, and stayed for half an hour or more.
+RESPONSE: The same
+afternoon brought a grey-headed, seedy visitor, looking like a Jew
+pedlar, who appeared to me to be much excited, and who was closely
+followed by a slip-shod elderly woman.
+
+INPUT: Can you explain: The same
+afternoon brought a grey-headed, seedy visitor, looking like a Jew
+pedlar, who appeared to me to be much excited, and who was closely
+followed by a slip-shod elderly woman.
+RESPONSE: On another occasion an old
+white-haired gentleman had an interview with my companion; and on
+another a railway porter in his velveteen uniform.
+
+INPUT: Summarize: The same
+afternoon brought a grey-headed, seedy visitor, looking like a Jew
+pedlar, who appeared to me to be much excited, and who was closely
+followed by a slip-shod elderly woman. On another occasion an old
+white-haired gentleman had an interview with my companion; and on
+another a railway porter in his velveteen uniform.
+RESPONSE: When any of these
+nondescript individuals put in an appearance, Sherlock Holmes used to
+beg for the use of the sitting-room, and I would retire to my bed-room.
+
+INPUT: Can you explain: When any of these
+nondescript individuals put in an appearance, Sherlock Holmes used to
+beg for the use of the sitting-room, and I would retire to my bed-room.
+RESPONSE: He always apologized to me for putting me to this inconvenience.
+
+INPUT: Summarize: When any of these
+nondescript individuals put in an appearance, Sherlock Holmes used to
+beg for the use of the sitting-room, and I would retire to my bed-room. He always apologized to me for putting me to this inconvenience.
+RESPONSE: “I
+have to use this room as a place of business,” he said, “and these
+people are my clients.
+
+INPUT: Tell me about: “I
+have to use this room as a place of business,” he said, “and these
+people are my clients.
+RESPONSE: ” Again I had an opportunity of asking him a
+point blank question, and again my delicacy prevented me from forcing
+another man to confide in me.
+
+INPUT: Summarize: “I
+have to use this room as a place of business,” he said, “and these
+people are my clients. ” Again I had an opportunity of asking him a
+point blank question, and again my delicacy prevented me from forcing
+another man to confide in me.
+RESPONSE: I imagined at the time that he had some
+strong reason for not alluding to it, but he soon dispelled the idea by
+coming round to the subject of his own accord.
+
+INPUT: What is this about: I imagined at the time that he had some
+strong reason for not alluding to it, but he soon dispelled the idea by
+coming round to the subject of his own accord.
+RESPONSE: It was upon the 4th of March, as I have good reason to remember, that I
+rose somewhat earlier than usual, and found that Sherlock Holmes had
+not yet finished his breakfast.
+
+INPUT: Summarize: I imagined at the time that he had some
+strong reason for not alluding to it, but he soon dispelled the idea by
+coming round to the subject of his own accord. It was upon the 4th of March, as I have good reason to remember, that I
+rose somewhat earlier than usual, and found that Sherlock Holmes had
+not yet finished his breakfast.
+RESPONSE: The landlady had become so accustomed
+to my late habits that my place had not been laid nor my coffee
+prepared.
+
+INPUT: Can you explain: The landlady had become so accustomed
+to my late habits that my place had not been laid nor my coffee
+prepared.
+RESPONSE: With the unreasonable petulance of mankind I rang the bell
+and gave a curt intimation that I was ready.
+
+INPUT: Summarize: The landlady had become so accustomed
+to my late habits that my place had not been laid nor my coffee
+prepared. With the unreasonable petulance of mankind I rang the bell
+and gave a curt intimation that I was ready.
+RESPONSE: Then I picked up a
+magazine from the table and attempted to while away the time with it,
+while my companion munched silently at his toast.
+
+INPUT: What does this mean: Then I picked up a
+magazine from the table and attempted to while away the time with it,
+while my companion munched silently at his toast.
+RESPONSE: One of the articles
+had a pencil mark at the heading, and I naturally began to run my eye
+through it.
+
+INPUT: Summarize: Then I picked up a
+magazine from the table and attempted to while away the time with it,
+while my companion munched silently at his toast. One of the articles
+had a pencil mark at the heading, and I naturally began to run my eye
+through it.
+RESPONSE: Its somewhat ambitious title was “The Book of Life,” and it attempted
+to show how much an observant man might learn by an accurate and
+systematic examination of all that came in his way.
+
+INPUT: Can you explain: Its somewhat ambitious title was “The Book of Life,” and it attempted
+to show how much an observant man might learn by an accurate and
+systematic examination of all that came in his way.
+RESPONSE: It struck me as
+being a remarkable mixture of shrewdness and of absurdity.
+
+INPUT: Summarize: Its somewhat ambitious title was “The Book of Life,” and it attempted
+to show how much an observant man might learn by an accurate and
+systematic examination of all that came in his way. It struck me as
+being a remarkable mixture of shrewdness and of absurdity.
+RESPONSE: The
+reasoning was close and intense, but the deductions appeared to me to
+be far-fetched and exaggerated.
+
+INPUT: What is this about: The
+reasoning was close and intense, but the deductions appeared to me to
+be far-fetched and exaggerated.
+RESPONSE: The writer claimed by a momentary
+expression, a twitch of a muscle or a glance of an eye, to fathom a
+man’s inmost thoughts.
+
+INPUT: Summarize: The
+reasoning was close and intense, but the deductions appeared to me to
+be far-fetched and exaggerated. The writer claimed by a momentary
+expression, a twitch of a muscle or a glance of an eye, to fathom a
+man’s inmost thoughts.
+RESPONSE: Deceit, according to him, was an impossibility
+in the case of one trained to observation and analysis.
+
+INPUT: Explain this: Deceit, according to him, was an impossibility
+in the case of one trained to observation and analysis.
+RESPONSE: His conclusions
+were as infallible as so many propositions of Euclid.
+
+INPUT: Summarize: Deceit, according to him, was an impossibility
+in the case of one trained to observation and analysis. His conclusions
+were as infallible as so many propositions of Euclid.
+RESPONSE: So startling
+would his results appear to the uninitiated that until they learned the
+processes by which he had arrived at them they might well consider him
+as a necromancer.
+
+INPUT: Explain this: So startling
+would his results appear to the uninitiated that until they learned the
+processes by which he had arrived at them they might well consider him
+as a necromancer.
+RESPONSE: “From a drop of water,” said the writer, “a logician could infer the
+possibility of an Atlantic or a Niagara without having seen or heard of
+one or the other.
+
+INPUT: Summarize: So startling
+would his results appear to the uninitiated that until they learned the
+processes by which he had arrived at them they might well consider him
+as a necromancer. “From a drop of water,” said the writer, “a logician could infer the
+possibility of an Atlantic or a Niagara without having seen or heard of
+one or the other.
+RESPONSE: So all life is a great chain, the nature of which is
+known whenever we are shown a single link of it.
+
+INPUT: What does this say: So all life is a great chain, the nature of which is
+known whenever we are shown a single link of it.
+RESPONSE: Like all other arts,
+the Science of Deduction and Analysis is one which can only be acquired
+by long and patient study nor, is life long enough to allow any mortal
+to attain the highest possible perfection in it.
+
+INPUT: Summarize: So all life is a great chain, the nature of which is
+known whenever we are shown a single link of it. Like all other arts,
+the Science of Deduction and Analysis is one which can only be acquired
+by long and patient study nor, is life long enough to allow any mortal
+to attain the highest possible perfection in it.
+RESPONSE: Before turning to
+those moral and mental aspects of the matter which present the greatest
+difficulties, let the enquirer begin by mastering more elementary
+problems.
+
+INPUT: Can you explain: Before turning to
+those moral and mental aspects of the matter which present the greatest
+difficulties, let the enquirer begin by mastering more elementary
+problems.
+RESPONSE: Let him, on meeting a fellow-mortal, learn at a glance to
+distinguish the history of the man, and the trade or profession to
+which he belongs.
+
+INPUT: Summarize: Before turning to
+those moral and mental aspects of the matter which present the greatest
+difficulties, let the enquirer begin by mastering more elementary
+problems. Let him, on meeting a fellow-mortal, learn at a glance to
+distinguish the history of the man, and the trade or profession to
+which he belongs.
+RESPONSE: Puerile as such an exercise may seem, it sharpens the
+faculties of observation, and teaches one where to look and what to
+look for.
+
+INPUT: What is this about: Puerile as such an exercise may seem, it sharpens the
+faculties of observation, and teaches one where to look and what to
+look for.
+RESPONSE: By a man’s finger nails, by his coat-sleeve, by his boot, by
+his trouser knees, by the callosities of his forefinger and thumb, by
+his expression, by his shirt cuffs—by each of these things a man’s
+calling is plainly revealed.
+
+INPUT: Summarize: Puerile as such an exercise may seem, it sharpens the
+faculties of observation, and teaches one where to look and what to
+look for. By a man’s finger nails, by his coat-sleeve, by his boot, by
+his trouser knees, by the callosities of his forefinger and thumb, by
+his expression, by his shirt cuffs—by each of these things a man’s
+calling is plainly revealed.
+RESPONSE: That all united should fail to enlighten
+the competent enquirer in any case is almost inconceivable.
+
+INPUT: What does this mean: That all united should fail to enlighten
+the competent enquirer in any case is almost inconceivable.
+RESPONSE: ”
+
+“What ineffable twaddle!
+
+INPUT: Summarize: That all united should fail to enlighten
+the competent enquirer in any case is almost inconceivable. ”
+
+“What ineffable twaddle!
+RESPONSE: ” I cried, slapping the magazine down on the
+table, “I never read such rubbish in my life.
+
+INPUT: Tell me about: ” I cried, slapping the magazine down on the
+table, “I never read such rubbish in my life.
+RESPONSE: ”
+
+“What is it?
+
+INPUT: Summarize: ” I cried, slapping the magazine down on the
+table, “I never read such rubbish in my life. ”
+
+“What is it?
+RESPONSE: ” asked Sherlock Holmes.
+
+INPUT: What is this about: ” asked Sherlock Holmes.
+RESPONSE: “Why, this article,” I said, pointing at it with my egg spoon as I sat
+down to my breakfast.
+
+INPUT: Summarize: ” asked Sherlock Holmes. “Why, this article,” I said, pointing at it with my egg spoon as I sat
+down to my breakfast.
+RESPONSE: “I see that you have read it since you have
+marked it.
+
+INPUT: What does this mean: “I see that you have read it since you have
+marked it.
+RESPONSE: I don’t deny that it is smartly written.
+
+INPUT: Summarize: “I see that you have read it since you have
+marked it. I don’t deny that it is smartly written.
+RESPONSE: It irritates me
+though.
+
+INPUT: Can you explain: It irritates me
+though.
+RESPONSE: It is evidently the theory of some arm-chair lounger who
+evolves all these neat little paradoxes in the seclusion of his own
+study.
+
+INPUT: Summarize: It irritates me
+though. It is evidently the theory of some arm-chair lounger who
+evolves all these neat little paradoxes in the seclusion of his own
+study.
+RESPONSE: I should like to see him clapped down in a
+third class carriage on the Underground, and asked to give the trades
+of all his fellow-travellers.
+
+INPUT: Explain this: I should like to see him clapped down in a
+third class carriage on the Underground, and asked to give the trades
+of all his fellow-travellers.
+RESPONSE: I would lay a thousand to one against
+him.
+
+INPUT: Summarize: I should like to see him clapped down in a
+third class carriage on the Underground, and asked to give the trades
+of all his fellow-travellers. I would lay a thousand to one against
+him.
+RESPONSE: ”
+
+“You would lose your money,” Sherlock Holmes remarked calmly.
+
+INPUT: What does this mean: ”
+
+“You would lose your money,” Sherlock Holmes remarked calmly.
+RESPONSE: “As for
+the article, I wrote it myself.
+
+INPUT: Summarize: ”
+
+“You would lose your money,” Sherlock Holmes remarked calmly. “As for
+the article, I wrote it myself.
+RESPONSE: ”
+
+“Yes, I have a turn both for observation and for deduction.
+
+INPUT: What is this about: ”
+
+“Yes, I have a turn both for observation and for deduction.
+RESPONSE: The
+theories which I have expressed there, and which appear to you to be so
+chimerical are really extremely practical—so practical that I depend
+upon them for my bread and cheese.
+
+INPUT: Summarize: ”
+
+“Yes, I have a turn both for observation and for deduction. The
+theories which I have expressed there, and which appear to you to be so
+chimerical are really extremely practical—so practical that I depend
+upon them for my bread and cheese.
+RESPONSE: ” I asked involuntarily.
+
+INPUT: Can you explain: ” I asked involuntarily.
+RESPONSE: “Well, I have a trade of my own.
+
+INPUT: Summarize: ” I asked involuntarily. “Well, I have a trade of my own.
+RESPONSE: I suppose I am the only one in the
+world.
+
+INPUT: Explain this: I suppose I am the only one in the
+world.
+RESPONSE: I’m a consulting detective, if you can understand what that is.
+
+INPUT: Summarize: I suppose I am the only one in the
+world. I’m a consulting detective, if you can understand what that is.
+RESPONSE: Here in London we have lots of Government detectives and lots of
+private ones.
+
+INPUT: What does this say: Here in London we have lots of Government detectives and lots of
+private ones.
+RESPONSE: When these fellows are at fault they come to me, and I
+manage to put them on the right scent.
+
+INPUT: Summarize: Here in London we have lots of Government detectives and lots of
+private ones. When these fellows are at fault they come to me, and I
+manage to put them on the right scent.
+RESPONSE: They lay all the evidence before
+me, and I am generally able, by the help of my knowledge of the history
+of crime, to set them straight.
+
+INPUT: Explain this: They lay all the evidence before
+me, and I am generally able, by the help of my knowledge of the history
+of crime, to set them straight.
+RESPONSE: There is a strong family resemblance
+about misdeeds, and if you have all the details of a thousand at your
+finger ends, it is odd if you can’t unravel the thousand and first.
+
+INPUT: Summarize: They lay all the evidence before
+me, and I am generally able, by the help of my knowledge of the history
+of crime, to set them straight. There is a strong family resemblance
+about misdeeds, and if you have all the details of a thousand at your
+finger ends, it is odd if you can’t unravel the thousand and first.
+RESPONSE: Lestrade is a well-known detective.
+
+INPUT: What does this mean: Lestrade is a well-known detective.
+RESPONSE: He got himself into a fog recently
+over a forgery case, and that was what brought him here.
+
+INPUT: Summarize: Lestrade is a well-known detective. He got himself into a fog recently
+over a forgery case, and that was what brought him here.
+RESPONSE: ”
+
+“And these other people?
+
+INPUT: What is this about: ”
+
+“And these other people?
+RESPONSE: ”
+
+“They are mostly sent on by private inquiry agencies.
+
+INPUT: Summarize: ”
+
+“And these other people? ”
+
+“They are mostly sent on by private inquiry agencies.
+RESPONSE: They are all
+people who are in trouble about something, and want a little
+enlightening.
+
+INPUT: What does this mean: They are all
+people who are in trouble about something, and want a little
+enlightening.
+RESPONSE: I listen to their story, they listen to my comments, and
+then I pocket my fee.
+
+INPUT: Summarize: They are all
+people who are in trouble about something, and want a little
+enlightening. I listen to their story, they listen to my comments, and
+then I pocket my fee.
+RESPONSE: ”
+
+“But do you mean to say,” I said, “that without leaving your room you
+can unravel some knot which other men can make nothing of, although
+they have seen every detail for themselves?
+
+INPUT: Explain this: ”
+
+“But do you mean to say,” I said, “that without leaving your room you
+can unravel some knot which other men can make nothing of, although
+they have seen every detail for themselves?
+RESPONSE: I have a kind of intuition that way.
+
+INPUT: Summarize: ”
+
+“But do you mean to say,” I said, “that without leaving your room you
+can unravel some knot which other men can make nothing of, although
+they have seen every detail for themselves? I have a kind of intuition that way.
+RESPONSE: Now and again a case
+turns up which is a little more complex.
+
+INPUT: Explain this: Now and again a case
+turns up which is a little more complex.
+RESPONSE: Then I have to bustle about
+and see things with my own eyes.
+
+INPUT: Summarize: Now and again a case
+turns up which is a little more complex. Then I have to bustle about
+and see things with my own eyes.
+RESPONSE: You see I have a lot of special
+knowledge which I apply to the problem, and which facilitates matters
+wonderfully.
+
+INPUT: Explain this: You see I have a lot of special
+knowledge which I apply to the problem, and which facilitates matters
+wonderfully.
+RESPONSE: Those rules of deduction laid down in that article which
+aroused your scorn, are invaluable to me in practical work.
+
+INPUT: Summarize: You see I have a lot of special
+knowledge which I apply to the problem, and which facilitates matters
+wonderfully. Those rules of deduction laid down in that article which
+aroused your scorn, are invaluable to me in practical work.
+RESPONSE: Observation
+with me is second nature.
+
+INPUT: What does this mean: Observation
+with me is second nature.
+RESPONSE: You appeared to be surprised when I told you,
+on our first meeting, that you had come from Afghanistan.
+
+INPUT: Summarize: Observation
+with me is second nature. You appeared to be surprised when I told you,
+on our first meeting, that you had come from Afghanistan.
+RESPONSE: ”
+
+“You were told, no doubt.
+
+INPUT: What is this about: ”
+
+“You were told, no doubt.
+RESPONSE: ”
+
+“Nothing of the sort.
+
+INPUT: Summarize: ”
+
+“You were told, no doubt. ”
+
+“Nothing of the sort.
+RESPONSE: I _knew_ you came from Afghanistan.
+
+INPUT: What does this mean: I _knew_ you came from Afghanistan.
+RESPONSE: From long
+habit the train of thoughts ran so swiftly through my mind, that I
+arrived at the conclusion without being conscious of intermediate
+steps.
+
+INPUT: Summarize: I _knew_ you came from Afghanistan. From long
+habit the train of thoughts ran so swiftly through my mind, that I
+arrived at the conclusion without being conscious of intermediate
+steps.
+RESPONSE: There were such steps, however.
+
+INPUT: Can you explain: There were such steps, however.
+RESPONSE: The train of reasoning ran,
+‘Here is a gentleman of a medical type, but with the air of a military
+man.
+
+INPUT: Summarize: There were such steps, however. The train of reasoning ran,
+‘Here is a gentleman of a medical type, but with the air of a military
+man.
+RESPONSE: Clearly an army doctor, then.
+
+INPUT: What does this say: Clearly an army doctor, then.
+RESPONSE: He has just come from the tropics,
+for his face is dark, and that is not the natural tint of his skin, for
+his wrists are fair.
+
+INPUT: Summarize: Clearly an army doctor, then. He has just come from the tropics,
+for his face is dark, and that is not the natural tint of his skin, for
+his wrists are fair.
+RESPONSE: He has undergone hardship and sickness, as his
+haggard face says clearly.
+
+INPUT: What does this mean: He has undergone hardship and sickness, as his
+haggard face says clearly.
+RESPONSE: His left arm has been injured.
+
+INPUT: Summarize: He has undergone hardship and sickness, as his
+haggard face says clearly. His left arm has been injured.
+RESPONSE: He holds it
+in a stiff and unnatural manner.
+
+INPUT: Tell me about: He holds it
+in a stiff and unnatural manner.
+RESPONSE: Where in the tropics could an English
+army doctor have seen much hardship and got his arm wounded?
+
+INPUT: Summarize: He holds it
+in a stiff and unnatural manner. Where in the tropics could an English
+army doctor have seen much hardship and got his arm wounded?
+RESPONSE: Clearly in
+Afghanistan.
+
+INPUT: What does this mean: Clearly in
+Afghanistan.
+RESPONSE: ’ The whole train of thought did not occupy a second.
+
+INPUT: Summarize: Clearly in
+Afghanistan. ’ The whole train of thought did not occupy a second.
+RESPONSE: I
+then remarked that you came from Afghanistan, and you were astonished.
+
+INPUT: Tell me about: I
+then remarked that you came from Afghanistan, and you were astonished.
+RESPONSE: ”
+
+“It is simple enough as you explain it,” I said, smiling.
+
+INPUT: Summarize: I
+then remarked that you came from Afghanistan, and you were astonished. ”
+
+“It is simple enough as you explain it,” I said, smiling.
+RESPONSE: “You remind
+me of Edgar Allen Poe’s Dupin.
+
+INPUT: What does this say: “You remind
+me of Edgar Allen Poe’s Dupin.
+RESPONSE: I had no idea that such individuals did
+exist outside of stories.
+
+INPUT: Summarize: “You remind
+me of Edgar Allen Poe’s Dupin. I had no idea that such individuals did
+exist outside of stories.
+RESPONSE: ”
+
+Sherlock Holmes rose and lit his pipe.
+
+INPUT: What does this say: ”
+
+Sherlock Holmes rose and lit his pipe.
+RESPONSE: “No doubt you think that you are
+complimenting me in comparing me to Dupin,” he observed.
+
+INPUT: Summarize: ”
+
+Sherlock Holmes rose and lit his pipe. “No doubt you think that you are
+complimenting me in comparing me to Dupin,” he observed.
+RESPONSE: “Now, in my
+opinion, Dupin was a very inferior fellow.
+
+INPUT: Explain this: “Now, in my
+opinion, Dupin was a very inferior fellow.
+RESPONSE: That trick of his of
+breaking in on his friends’ thoughts with an apropos remark after a
+quarter of an hour’s silence is really very showy and superficial.
+
+INPUT: Summarize: “Now, in my
+opinion, Dupin was a very inferior fellow. That trick of his of
+breaking in on his friends’ thoughts with an apropos remark after a
+quarter of an hour’s silence is really very showy and superficial.
+RESPONSE: He
+had some analytical genius, no doubt; but he was by no means such a
+phenomenon as Poe appeared to imagine.
+
+INPUT: What does this mean: He
+had some analytical genius, no doubt; but he was by no means such a
+phenomenon as Poe appeared to imagine.
+RESPONSE: ”
+
+“Have you read Gaboriau’s works?
+
+INPUT: Summarize: He
+had some analytical genius, no doubt; but he was by no means such a
+phenomenon as Poe appeared to imagine. ”
+
+“Have you read Gaboriau’s works?
+RESPONSE: “Does Lecoq come up to your
+idea of a detective?
+
+INPUT: What is this about: “Does Lecoq come up to your
+idea of a detective?
+RESPONSE: ”
+
+Sherlock Holmes sniffed sardonically.
+
+INPUT: Summarize: “Does Lecoq come up to your
+idea of a detective? ”
+
+Sherlock Holmes sniffed sardonically.
+RESPONSE: “Lecoq was a miserable bungler,”
+he said, in an angry voice; “he had only one thing to recommend him,
+and that was his energy.
+
+INPUT: What does this mean: “Lecoq was a miserable bungler,”
+he said, in an angry voice; “he had only one thing to recommend him,
+and that was his energy.
+RESPONSE: That book made me positively ill.
+
+INPUT: Summarize: “Lecoq was a miserable bungler,”
+he said, in an angry voice; “he had only one thing to recommend him,
+and that was his energy. That book made me positively ill.
+RESPONSE: The question
+was how to identify an unknown prisoner.
+
+INPUT: Can you explain: The question
+was how to identify an unknown prisoner.
+RESPONSE: I could have done it in
+twenty-four hours.
+
+INPUT: Summarize: The question
+was how to identify an unknown prisoner. I could have done it in
+twenty-four hours.
+RESPONSE: Lecoq took six months or so.
+
+INPUT: Explain this: Lecoq took six months or so.
+RESPONSE: It might be made a
+text-book for detectives to teach them what to avoid.
+
+INPUT: Summarize: Lecoq took six months or so. It might be made a
+text-book for detectives to teach them what to avoid.
+RESPONSE: ”
+
+I felt rather indignant at having two characters whom I had admired
+treated in this cavalier style.
+
+INPUT: What does this say: ”
+
+I felt rather indignant at having two characters whom I had admired
+treated in this cavalier style.
+RESPONSE: I walked over to the window, and stood
+looking out into the busy street.
+
+INPUT: Summarize: ”
+
+I felt rather indignant at having two characters whom I had admired
+treated in this cavalier style. I walked over to the window, and stood
+looking out into the busy street.
+RESPONSE: “This fellow may be very clever,” I
+said to myself, “but he is certainly very conceited.
+
+INPUT: What does this say: “This fellow may be very clever,” I
+said to myself, “but he is certainly very conceited.
+RESPONSE: ”
+
+“There are no crimes and no criminals in these days,” he said,
+querulously.
+
+INPUT: Summarize: “This fellow may be very clever,” I
+said to myself, “but he is certainly very conceited. ”
+
+“There are no crimes and no criminals in these days,” he said,
+querulously.
+RESPONSE: “What is the use of having brains in our profession.
+
+INPUT: Explain this: “What is the use of having brains in our profession.
+RESPONSE: I
+know well that I have it in me to make my name famous.
+
+INPUT: Summarize: “What is the use of having brains in our profession. I
+know well that I have it in me to make my name famous.
+RESPONSE: No man lives or
+has ever lived who has brought the same amount of study and of natural
+talent to the detection of crime which I have done.
+
+INPUT: What is this about: No man lives or
+has ever lived who has brought the same amount of study and of natural
+talent to the detection of crime which I have done.
+RESPONSE: And what is the
+result?
+
+INPUT: Summarize: No man lives or
+has ever lived who has brought the same amount of study and of natural
+talent to the detection of crime which I have done. And what is the
+result?
+RESPONSE: There is no crime to detect, or, at most, some bungling
+villainy with a motive so transparent that even a Scotland Yard
+official can see through it.
+
+INPUT: What does this say: There is no crime to detect, or, at most, some bungling
+villainy with a motive so transparent that even a Scotland Yard
+official can see through it.
+RESPONSE: ”
+
+I was still annoyed at his bumptious style of conversation.
+
+INPUT: Summarize: There is no crime to detect, or, at most, some bungling
+villainy with a motive so transparent that even a Scotland Yard
+official can see through it. ”
+
+I was still annoyed at his bumptious style of conversation.
+RESPONSE: I thought
+it best to change the topic.
+
+INPUT: What does this mean: I thought
+it best to change the topic.
+RESPONSE: “I wonder what that fellow is looking for?
+
+INPUT: Summarize: I thought
+it best to change the topic. “I wonder what that fellow is looking for?
+RESPONSE: ” I asked, pointing to a
+stalwart, plainly-dressed individual who was walking slowly down the
+other side of the street, looking anxiously at the numbers.
+
+INPUT: Tell me about: ” I asked, pointing to a
+stalwart, plainly-dressed individual who was walking slowly down the
+other side of the street, looking anxiously at the numbers.
+RESPONSE: He had a
+large blue envelope in his hand, and was evidently the bearer of a
+message.
+
+INPUT: Summarize: ” I asked, pointing to a
+stalwart, plainly-dressed individual who was walking slowly down the
+other side of the street, looking anxiously at the numbers. He had a
+large blue envelope in his hand, and was evidently the bearer of a
+message.
+RESPONSE: “You mean the retired sergeant of Marines,” said Sherlock Holmes.
+
+INPUT: What is this about: “You mean the retired sergeant of Marines,” said Sherlock Holmes.
+RESPONSE: ” thought I to myself.
+
+INPUT: Summarize: “You mean the retired sergeant of Marines,” said Sherlock Holmes. ” thought I to myself.
+RESPONSE: “He knows that I cannot verify
+his guess.
+
+INPUT: Explain this: “He knows that I cannot verify
+his guess.
+RESPONSE: ”
+
+The thought had hardly passed through my mind when the man whom we were
+watching caught sight of the number on our door, and ran rapidly across
+the roadway.
+
+INPUT: Summarize: “He knows that I cannot verify
+his guess. ”
+
+The thought had hardly passed through my mind when the man whom we were
+watching caught sight of the number on our door, and ran rapidly across
+the roadway.
+RESPONSE: We heard a loud knock, a deep voice below, and heavy steps
+ascending the stair.
+
+INPUT: What is this about: We heard a loud knock, a deep voice below, and heavy steps
+ascending the stair.
+RESPONSE: Sherlock Holmes,” he said, stepping into the room and handing
+my friend the letter.
+
+INPUT: Summarize: We heard a loud knock, a deep voice below, and heavy steps
+ascending the stair. Sherlock Holmes,” he said, stepping into the room and handing
+my friend the letter.
+RESPONSE: Here was an opportunity of taking the conceit out of him.
+
+INPUT: What is this about: Here was an opportunity of taking the conceit out of him.
+RESPONSE: He little
+thought of this when he made that random shot.
+
+INPUT: Summarize: Here was an opportunity of taking the conceit out of him. He little
+thought of this when he made that random shot.
+RESPONSE: “May I ask, my lad,” I
+said, in the blandest voice, “what your trade may be?
+
+INPUT: What is this about: “May I ask, my lad,” I
+said, in the blandest voice, “what your trade may be?
+RESPONSE: ”
+
+“Commissionaire, sir,” he said, gruffly.
+
+INPUT: Summarize: “May I ask, my lad,” I
+said, in the blandest voice, “what your trade may be? ”
+
+“Commissionaire, sir,” he said, gruffly.
+RESPONSE: “Uniform away for repairs.
+
+INPUT: What does this mean: “Uniform away for repairs.
+RESPONSE: ”
+
+“And you were?
+
+INPUT: Summarize: “Uniform away for repairs. ”
+
+“And you were?
+RESPONSE: ” I asked, with a slightly malicious glance at my
+companion.
+
+INPUT: What does this say: ” I asked, with a slightly malicious glance at my
+companion.
+RESPONSE: “A sergeant, sir, Royal Marine Light Infantry, sir.
+
+INPUT: Summarize: ” I asked, with a slightly malicious glance at my
+companion. “A sergeant, sir, Royal Marine Light Infantry, sir.
+RESPONSE: ”
+
+He clicked his heels together, raised his hand in a salute, and was
+gone.
+
+INPUT: Can you explain: ”
+
+He clicked his heels together, raised his hand in a salute, and was
+gone.
+RESPONSE: THE LAURISTON GARDENS MYSTERY
+
+
+I confess that I was considerably startled by this fresh proof of the
+practical nature of my companion’s theories.
+
+INPUT: Summarize: ”
+
+He clicked his heels together, raised his hand in a salute, and was
+gone. THE LAURISTON GARDENS MYSTERY
+
+
+I confess that I was considerably startled by this fresh proof of the
+practical nature of my companion’s theories.
+RESPONSE: My respect for his powers
+of analysis increased wondrously.
+
+INPUT: What is this about: My respect for his powers
+of analysis increased wondrously.
+RESPONSE: There still remained some lurking
+suspicion in my mind, however, that the whole thing was a pre-arranged
+episode, intended to dazzle me, though what earthly object he could
+have in taking me in was past my comprehension.
+
+INPUT: Summarize: My respect for his powers
+of analysis increased wondrously. There still remained some lurking
+suspicion in my mind, however, that the whole thing was a pre-arranged
+episode, intended to dazzle me, though what earthly object he could
+have in taking me in was past my comprehension.
+RESPONSE: When I looked at him he
+had finished reading the note, and his eyes had assumed the vacant,
+lack-lustre expression which showed mental abstraction.
+
+INPUT: What is this about: When I looked at him he
+had finished reading the note, and his eyes had assumed the vacant,
+lack-lustre expression which showed mental abstraction.
+RESPONSE: “How in the world did you deduce that?
+
+INPUT: Summarize: When I looked at him he
+had finished reading the note, and his eyes had assumed the vacant,
+lack-lustre expression which showed mental abstraction. “How in the world did you deduce that?
+RESPONSE: ” said he, petulantly.
+
+INPUT: Tell me about: ” said he, petulantly.
+RESPONSE: “Why, that he was a retired sergeant of Marines.
+
+INPUT: Summarize: ” said he, petulantly. “Why, that he was a retired sergeant of Marines.
+RESPONSE: ”
+
+“I have no time for trifles,” he answered, brusquely; then with a
+smile, “Excuse my rudeness.
+
+INPUT: What does this mean: ”
+
+“I have no time for trifles,” he answered, brusquely; then with a
+smile, “Excuse my rudeness.
+RESPONSE: You broke the thread of my thoughts; but
+perhaps it is as well.
+
+INPUT: Summarize: ”
+
+“I have no time for trifles,” he answered, brusquely; then with a
+smile, “Excuse my rudeness. You broke the thread of my thoughts; but
+perhaps it is as well.
+RESPONSE: So you actually were not able to see that that
+man was a sergeant of Marines?
+
+INPUT: What is this about: So you actually were not able to see that that
+man was a sergeant of Marines?
+RESPONSE: ”
+
+“No, indeed.
+
+INPUT: Summarize: So you actually were not able to see that that
+man was a sergeant of Marines? ”
+
+“No, indeed.
+RESPONSE: ”
+
+“It was easier to know it than to explain why I knew it.
+
+INPUT: Tell me about: ”
+
+“It was easier to know it than to explain why I knew it.
+RESPONSE: If you were
+asked to prove that two and two made four, you might find some
+difficulty, and yet you are quite sure of the fact.
+
+INPUT: Summarize: ”
+
+“It was easier to know it than to explain why I knew it. If you were
+asked to prove that two and two made four, you might find some
+difficulty, and yet you are quite sure of the fact.
+RESPONSE: Even across the
+street I could see a great blue anchor tattooed on the back of the
+fellow’s hand.
+
+INPUT: What does this mean: Even across the
+street I could see a great blue anchor tattooed on the back of the
+fellow’s hand.
+RESPONSE: That smacked of the sea.
+
+INPUT: Summarize: Even across the
+street I could see a great blue anchor tattooed on the back of the
+fellow’s hand. That smacked of the sea.
+RESPONSE: He had a military carriage,
+however, and regulation side whiskers.
+
+INPUT: Explain this: He had a military carriage,
+however, and regulation side whiskers.
+RESPONSE: There we have the marine.
+
+INPUT: Summarize: He had a military carriage,
+however, and regulation side whiskers. There we have the marine.
+RESPONSE: He was
+a man with some amount of self-importance and a certain air of command.
+
+INPUT: What does this say: He was
+a man with some amount of self-importance and a certain air of command.
+RESPONSE: You must have observed the way in which he held his head and swung his
+cane.
+
+INPUT: Summarize: He was
+a man with some amount of self-importance and a certain air of command. You must have observed the way in which he held his head and swung his
+cane.
+RESPONSE: A steady, respectable, middle-aged man, too, on the face of
+him—all facts which led me to believe that he had been a sergeant.
+
+INPUT: What is this about: A steady, respectable, middle-aged man, too, on the face of
+him—all facts which led me to believe that he had been a sergeant.
+RESPONSE: “Commonplace,” said Holmes, though I thought from his expression that
+he was pleased at my evident surprise and admiration.
+
+INPUT: Summarize: A steady, respectable, middle-aged man, too, on the face of
+him—all facts which led me to believe that he had been a sergeant. “Commonplace,” said Holmes, though I thought from his expression that
+he was pleased at my evident surprise and admiration.
+RESPONSE: “I said just now
+that there were no criminals.
+
+INPUT: What does this mean: “I said just now
+that there were no criminals.
+RESPONSE: It appears that I am wrong—look at this!
+
+INPUT: Summarize: “I said just now
+that there were no criminals. It appears that I am wrong—look at this!
+RESPONSE: ”
+He threw me over the note which the commissionaire had brought.
+
+INPUT: What does this mean: ”
+He threw me over the note which the commissionaire had brought.
+RESPONSE: “Why,” I cried, as I cast my eye over it, “this is terrible!
+
+INPUT: Summarize: ”
+He threw me over the note which the commissionaire had brought. “Why,” I cried, as I cast my eye over it, “this is terrible!
+RESPONSE: ”
+
+“It does seem to be a little out of the common,” he remarked, calmly.
+
+INPUT: Can you explain: ”
+
+“It does seem to be a little out of the common,” he remarked, calmly.
+RESPONSE: “Would you mind reading it to me aloud?
+
+INPUT: Summarize: ”
+
+“It does seem to be a little out of the common,” he remarked, calmly. “Would you mind reading it to me aloud?
+RESPONSE: ”
+
+This is the letter which I read to him—
+
+“MY DEAR MR.
+
+INPUT: Explain this: ”
+
+This is the letter which I read to him—
+
+“MY DEAR MR.
+RESPONSE: SHERLOCK HOLMES,—
+
+“There has been a bad business during the night at 3, Lauriston
+Gardens, off the Brixton Road.
+
+INPUT: Summarize: ”
+
+This is the letter which I read to him—
+
+“MY DEAR MR. SHERLOCK HOLMES,—
+
+“There has been a bad business during the night at 3, Lauriston
+Gardens, off the Brixton Road.
+RESPONSE: Our man on the beat saw a light there
+about two in the morning, and as the house was an empty one, suspected
+that something was amiss.
+
+INPUT: Can you explain: Our man on the beat saw a light there
+about two in the morning, and as the house was an empty one, suspected
+that something was amiss.
+RESPONSE: He found the door open, and in the front
+room, which is bare of furniture, discovered the body of a gentleman,
+well dressed, and having cards in his pocket bearing the name of ‘Enoch
+J.
+
+INPUT: Summarize: Our man on the beat saw a light there
+about two in the morning, and as the house was an empty one, suspected
+that something was amiss. He found the door open, and in the front
+room, which is bare of furniture, discovered the body of a gentleman,
+well dressed, and having cards in his pocket bearing the name of ‘Enoch
+J.
+RESPONSE: Drebber, Cleveland, Ohio, U.
+
+INPUT: What does this say: Drebber, Cleveland, Ohio, U.
+RESPONSE: ’ There had been no robbery, nor is
+there any evidence as to how the man met his death.
+
+INPUT: Summarize: Drebber, Cleveland, Ohio, U. ’ There had been no robbery, nor is
+there any evidence as to how the man met his death.
+RESPONSE: There are marks of
+blood in the room, but there is no wound upon his person.
+
+INPUT: What is this about: There are marks of
+blood in the room, but there is no wound upon his person.
+RESPONSE: We are at a
+loss as to how he came into the empty house; indeed, the whole affair
+is a puzzler.
+
+INPUT: Summarize: There are marks of
+blood in the room, but there is no wound upon his person. We are at a
+loss as to how he came into the empty house; indeed, the whole affair
+is a puzzler.
+RESPONSE: If you can come round to the house any time before
+twelve, you will find me there.
+
+INPUT: What does this say: If you can come round to the house any time before
+twelve, you will find me there.
+RESPONSE: I have left everything _in statu quo_
+until I hear from you.
+
+INPUT: Summarize: If you can come round to the house any time before
+twelve, you will find me there. I have left everything _in statu quo_
+until I hear from you.
+RESPONSE: If you are unable to come I shall give you
+fuller details, and would esteem it a great kindness if you would
+favour me with your opinion.
+
+INPUT: What is this about: If you are unable to come I shall give you
+fuller details, and would esteem it a great kindness if you would
+favour me with your opinion.
+RESPONSE: Yours faithfully,
+ “TOBIAS GREGSON.
+
+INPUT: Summarize: If you are unable to come I shall give you
+fuller details, and would esteem it a great kindness if you would
+favour me with your opinion. Yours faithfully,
+ “TOBIAS GREGSON.
+RESPONSE: ”
+
+“Gregson is the smartest of the Scotland Yarders,” my friend remarked;
+“he and Lestrade are the pick of a bad lot.
+
+INPUT: Explain this: ”
+
+“Gregson is the smartest of the Scotland Yarders,” my friend remarked;
+“he and Lestrade are the pick of a bad lot.
+RESPONSE: They are both quick and
+energetic, but conventional—shockingly so.
+
+INPUT: Summarize: ”
+
+“Gregson is the smartest of the Scotland Yarders,” my friend remarked;
+“he and Lestrade are the pick of a bad lot. They are both quick and
+energetic, but conventional—shockingly so.
+RESPONSE: They have their knives into
+one another, too.
+
+INPUT: Explain this: They have their knives into
+one another, too.
+RESPONSE: They are as jealous as a pair of professional
+beauties.
+
+INPUT: Summarize: They have their knives into
+one another, too. They are as jealous as a pair of professional
+beauties.
+RESPONSE: There will be some fun over this case if they are both put
+upon the scent.
+
+INPUT: Can you explain: There will be some fun over this case if they are both put
+upon the scent.
+RESPONSE: ”
+
+I was amazed at the calm way in which he rippled on.
+
+INPUT: Summarize: There will be some fun over this case if they are both put
+upon the scent. ”
+
+I was amazed at the calm way in which he rippled on.
+RESPONSE: “Surely there is
+not a moment to be lost,” I cried, “shall I go and order you a cab?
+
+INPUT: What does this say: “Surely there is
+not a moment to be lost,” I cried, “shall I go and order you a cab?
+RESPONSE: ”
+
+“I’m not sure about whether I shall go.
+
+INPUT: Summarize: “Surely there is
+not a moment to be lost,” I cried, “shall I go and order you a cab? ”
+
+“I’m not sure about whether I shall go.
+RESPONSE: I am the most incurably lazy
+devil that ever stood in shoe leather—that is, when the fit is on me,
+for I can be spry enough at times.
+
+INPUT: Can you explain: I am the most incurably lazy
+devil that ever stood in shoe leather—that is, when the fit is on me,
+for I can be spry enough at times.
+RESPONSE: ”
+
+“Why, it is just such a chance as you have been longing for.
+
+INPUT: Summarize: I am the most incurably lazy
+devil that ever stood in shoe leather—that is, when the fit is on me,
+for I can be spry enough at times. ”
+
+“Why, it is just such a chance as you have been longing for.
+RESPONSE: ”
+
+“My dear fellow, what does it matter to me.
+
+INPUT: What does this mean: ”
+
+“My dear fellow, what does it matter to me.
+RESPONSE: Supposing I unravel the
+whole matter, you may be sure that Gregson, Lestrade, and Co.
+
+INPUT: Summarize: ”
+
+“My dear fellow, what does it matter to me. Supposing I unravel the
+whole matter, you may be sure that Gregson, Lestrade, and Co.
+RESPONSE: will
+pocket all the credit.
+
+INPUT: Tell me about: will
+pocket all the credit.
+RESPONSE: That comes of being an unofficial personage.
+
+INPUT: Summarize: will
+pocket all the credit. That comes of being an unofficial personage.
+RESPONSE: ”
+
+“But he begs you to help him.
+
+INPUT: Tell me about: ”
+
+“But he begs you to help him.
+RESPONSE: He knows that I am his superior, and acknowledges it to me; but
+he would cut his tongue out before he would own it to any third person.
+
+INPUT: Summarize: ”
+
+“But he begs you to help him. He knows that I am his superior, and acknowledges it to me; but
+he would cut his tongue out before he would own it to any third person.
+RESPONSE: However, we may as well go and have a look.
+
+INPUT: What is this about: However, we may as well go and have a look.
+RESPONSE: I shall work it out on my
+own hook.
+
+INPUT: Summarize: However, we may as well go and have a look. I shall work it out on my
+own hook.
+RESPONSE: I may have a laugh at them if I have nothing else.
+
+INPUT: What does this mean: I may have a laugh at them if I have nothing else.
+RESPONSE: ”
+
+He hustled on his overcoat, and bustled about in a way that showed that
+an energetic fit had superseded the apathetic one.
+
+INPUT: Summarize: I may have a laugh at them if I have nothing else. ”
+
+He hustled on his overcoat, and bustled about in a way that showed that
+an energetic fit had superseded the apathetic one.
+RESPONSE: “Get your hat,” he said.
+
+INPUT: What does this say: “Get your hat,” he said.
+RESPONSE: “You wish me to come?
+
+INPUT: Summarize: “Get your hat,” he said. “You wish me to come?
+RESPONSE: ”
+
+“Yes, if you have nothing better to do.
+
+INPUT: Explain this: ”
+
+“Yes, if you have nothing better to do.
+RESPONSE: ” A minute later we were both in
+a hansom, driving furiously for the Brixton Road.
+
+INPUT: Summarize: ”
+
+“Yes, if you have nothing better to do. ” A minute later we were both in
+a hansom, driving furiously for the Brixton Road.
+RESPONSE: It was a foggy, cloudy morning, and a dun-coloured veil hung over the
+house-tops, looking like the reflection of the mud-coloured streets
+beneath.
+
+INPUT: Explain this: It was a foggy, cloudy morning, and a dun-coloured veil hung over the
+house-tops, looking like the reflection of the mud-coloured streets
+beneath.
+RESPONSE: My companion was in the best of spirits, and prattled away
+about Cremona fiddles, and the difference between a Stradivarius and an
+Amati.
+
+INPUT: Summarize: It was a foggy, cloudy morning, and a dun-coloured veil hung over the
+house-tops, looking like the reflection of the mud-coloured streets
+beneath. My companion was in the best of spirits, and prattled away
+about Cremona fiddles, and the difference between a Stradivarius and an
+Amati.
+RESPONSE: As for myself, I was silent, for the dull weather and the
+melancholy business upon which we were engaged, depressed my spirits.
+
+INPUT: Tell me about: As for myself, I was silent, for the dull weather and the
+melancholy business upon which we were engaged, depressed my spirits.
+RESPONSE: “You don’t seem to give much thought to the matter in hand,” I said at
+last, interrupting Holmes’ musical disquisition.
+
+INPUT: Summarize: As for myself, I was silent, for the dull weather and the
+melancholy business upon which we were engaged, depressed my spirits. “You don’t seem to give much thought to the matter in hand,” I said at
+last, interrupting Holmes’ musical disquisition.
+RESPONSE: “No data yet,” he answered.
+
+INPUT: Explain this: “No data yet,” he answered.
+RESPONSE: “It is a capital mistake to theorize before
+you have all the evidence.
+
+INPUT: Summarize: “No data yet,” he answered. “It is a capital mistake to theorize before
+you have all the evidence.
+RESPONSE: It biases the judgment.
+
+INPUT: Tell me about: It biases the judgment.
+RESPONSE: ”
+
+“You will have your data soon,” I remarked, pointing with my finger;
+“this is the Brixton Road, and that is the house, if I am not very much
+mistaken.
+
+INPUT: Summarize: It biases the judgment. ”
+
+“You will have your data soon,” I remarked, pointing with my finger;
+“this is the Brixton Road, and that is the house, if I am not very much
+mistaken.
+RESPONSE: ” We were still a hundred yards or so
+from it, but he insisted upon our alighting, and we finished our
+journey upon foot.
+
+INPUT: What does this say: ” We were still a hundred yards or so
+from it, but he insisted upon our alighting, and we finished our
+journey upon foot.
+RESPONSE: Number 3, Lauriston Gardens wore an ill-omened and minatory look.
+
+INPUT: Summarize: ” We were still a hundred yards or so
+from it, but he insisted upon our alighting, and we finished our
+journey upon foot. Number 3, Lauriston Gardens wore an ill-omened and minatory look.
+RESPONSE: It
+was one of four which stood back some little way from the street, two
+being occupied and two empty.
+
+INPUT: Explain this: It
+was one of four which stood back some little way from the street, two
+being occupied and two empty.
+RESPONSE: The latter looked out with three tiers of
+vacant melancholy windows, which were blank and dreary, save that here
+and there a “To Let” card had developed like a cataract upon the
+bleared panes.
+
+INPUT: Summarize: It
+was one of four which stood back some little way from the street, two
+being occupied and two empty. The latter looked out with three tiers of
+vacant melancholy windows, which were blank and dreary, save that here
+and there a “To Let” card had developed like a cataract upon the
+bleared panes.
+RESPONSE: A small garden sprinkled over with a scattered eruption
+of sickly plants separated each of these houses from the street, and
+was traversed by a narrow pathway, yellowish in colour, and consisting
+apparently of a mixture of clay and of gravel.
+
+INPUT: What is this about: A small garden sprinkled over with a scattered eruption
+of sickly plants separated each of these houses from the street, and
+was traversed by a narrow pathway, yellowish in colour, and consisting
+apparently of a mixture of clay and of gravel.
+RESPONSE: The whole place was very
+sloppy from the rain which had fallen through the night.
+
+INPUT: Summarize: A small garden sprinkled over with a scattered eruption
+of sickly plants separated each of these houses from the street, and
+was traversed by a narrow pathway, yellowish in colour, and consisting
+apparently of a mixture of clay and of gravel. The whole place was very
+sloppy from the rain which had fallen through the night.
+RESPONSE: The garden was
+bounded by a three-foot brick wall with a fringe of wood rails upon the
+top, and against this wall was leaning a stalwart police constable,
+surrounded by a small knot of loafers, who craned their necks and
+strained their eyes in the vain hope of catching some glimpse of the
+proceedings within.
+
+INPUT: Can you explain: The garden was
+bounded by a three-foot brick wall with a fringe of wood rails upon the
+top, and against this wall was leaning a stalwart police constable,
+surrounded by a small knot of loafers, who craned their necks and
+strained their eyes in the vain hope of catching some glimpse of the
+proceedings within.
+RESPONSE: I had imagined that Sherlock Holmes would at once have hurried into the
+house and plunged into a study of the mystery.
+
+INPUT: Summarize: The garden was
+bounded by a three-foot brick wall with a fringe of wood rails upon the
+top, and against this wall was leaning a stalwart police constable,
+surrounded by a small knot of loafers, who craned their necks and
+strained their eyes in the vain hope of catching some glimpse of the
+proceedings within. I had imagined that Sherlock Holmes would at once have hurried into the
+house and plunged into a study of the mystery.
+RESPONSE: Nothing appeared to be
+further from his intention.
+
+INPUT: Explain this: Nothing appeared to be
+further from his intention.
+RESPONSE: With an air of nonchalance which, under the
+circumstances, seemed to me to border upon affectation, he lounged up
+and down the pavement, and gazed vacantly at the ground, the sky, the
+opposite houses and the line of railings.
+
+INPUT: Summarize: Nothing appeared to be
+further from his intention. With an air of nonchalance which, under the
+circumstances, seemed to me to border upon affectation, he lounged up
+and down the pavement, and gazed vacantly at the ground, the sky, the
+opposite houses and the line of railings.
+RESPONSE: Having finished his scrutiny,
+he proceeded slowly down the path, or rather down the fringe of grass
+which flanked the path, keeping his eyes riveted upon the ground.
+
+INPUT: What does this mean: Having finished his scrutiny,
+he proceeded slowly down the path, or rather down the fringe of grass
+which flanked the path, keeping his eyes riveted upon the ground.
+RESPONSE: Twice
+he stopped, and once I saw him smile, and heard him utter an
+exclamation of satisfaction.
+
+INPUT: Summarize: Having finished his scrutiny,
+he proceeded slowly down the path, or rather down the fringe of grass
+which flanked the path, keeping his eyes riveted upon the ground. Twice
+he stopped, and once I saw him smile, and heard him utter an
+exclamation of satisfaction.
+RESPONSE: There were many marks of footsteps upon
+the wet clayey soil, but since the police had been coming and going
+over it, I was unable to see how my companion could hope to learn
+anything from it.
+
+INPUT: Can you explain: There were many marks of footsteps upon
+the wet clayey soil, but since the police had been coming and going
+over it, I was unable to see how my companion could hope to learn
+anything from it.
+RESPONSE: Still I had had such extraordinary evidence of the
+quickness of his perceptive faculties, that I had no doubt that he
+could see a great deal which was hidden from me.
+
+INPUT: Summarize: There were many marks of footsteps upon
+the wet clayey soil, but since the police had been coming and going
+over it, I was unable to see how my companion could hope to learn
+anything from it. Still I had had such extraordinary evidence of the
+quickness of his perceptive faculties, that I had no doubt that he
+could see a great deal which was hidden from me.
+RESPONSE: At the door of the house we were met by a tall, white-faced,
+flaxen-haired man, with a notebook in his hand, who rushed forward and
+wrung my companion’s hand with effusion.
+
+INPUT: Tell me about: At the door of the house we were met by a tall, white-faced,
+flaxen-haired man, with a notebook in his hand, who rushed forward and
+wrung my companion’s hand with effusion.
+RESPONSE: “It is indeed kind of you to
+come,” he said, “I have had everything left untouched.
+
+INPUT: Summarize: At the door of the house we were met by a tall, white-faced,
+flaxen-haired man, with a notebook in his hand, who rushed forward and
+wrung my companion’s hand with effusion. “It is indeed kind of you to
+come,” he said, “I have had everything left untouched.
+RESPONSE: ”
+
+“Except that!
+
+INPUT: What does this say: ”
+
+“Except that!
+RESPONSE: ” my friend answered, pointing at the pathway.
+
+INPUT: Summarize: ”
+
+“Except that! ” my friend answered, pointing at the pathway.
+RESPONSE: “If a herd
+of buffaloes had passed along there could not be a greater mess.
+
+INPUT: What does this say: “If a herd
+of buffaloes had passed along there could not be a greater mess.
+RESPONSE: No
+doubt, however, you had drawn your own conclusions, Gregson, before you
+permitted this.
+
+INPUT: Summarize: “If a herd
+of buffaloes had passed along there could not be a greater mess. No
+doubt, however, you had drawn your own conclusions, Gregson, before you
+permitted this.
+RESPONSE: ”
+
+“I have had so much to do inside the house,” the detective said
+evasively.
+
+INPUT: Can you explain: ”
+
+“I have had so much to do inside the house,” the detective said
+evasively.
+RESPONSE: I had relied upon him
+to look after this.
+
+INPUT: Summarize: ”
+
+“I have had so much to do inside the house,” the detective said
+evasively. I had relied upon him
+to look after this.
+RESPONSE: ”
+
+Holmes glanced at me and raised his eyebrows sardonically.
+
+INPUT: Explain this: ”
+
+Holmes glanced at me and raised his eyebrows sardonically.
+RESPONSE: “With two
+such men as yourself and Lestrade upon the ground, there will not be
+much for a third party to find out,” he said.
+
+INPUT: Summarize: ”
+
+Holmes glanced at me and raised his eyebrows sardonically. “With two
+such men as yourself and Lestrade upon the ground, there will not be
+much for a third party to find out,” he said.
+RESPONSE: Gregson rubbed his hands in a self-satisfied way.
+
+INPUT: Can you explain: Gregson rubbed his hands in a self-satisfied way.
+RESPONSE: “I think we have done
+all that can be done,” he answered; “it’s a queer case though, and I
+knew your taste for such things.
+
+INPUT: Summarize: Gregson rubbed his hands in a self-satisfied way. “I think we have done
+all that can be done,” he answered; “it’s a queer case though, and I
+knew your taste for such things.
+RESPONSE: ”
+
+“You did not come here in a cab?
+
+INPUT: What does this mean: ”
+
+“You did not come here in a cab?
+RESPONSE: ” asked Sherlock Holmes.
+
+INPUT: Summarize: ”
+
+“You did not come here in a cab? ” asked Sherlock Holmes.
+RESPONSE: ”
+
+“Nor Lestrade?
+
+INPUT: What does this say: ”
+
+“Nor Lestrade?
+RESPONSE: ”
+
+“Then let us go and look at the room.
+
+INPUT: Summarize: ”
+
+“Nor Lestrade? ”
+
+“Then let us go and look at the room.
+RESPONSE: ” With which inconsequent remark
+he strode on into the house, followed by Gregson, whose features
+expressed his astonishment.
+

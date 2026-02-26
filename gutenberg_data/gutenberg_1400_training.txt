@@ -1,0 +1,3506 @@
+INPUT: What does this say: [Illustration]
+
+
+
+
+Great Expectations
+
+[1867 Edition]
+
+by Charles Dickens
+
+
+Contents
+
+ Chapter I.
+RESPONSE: [Illustration]
+
+
+
+
+Chapter I.
+
+INPUT: Summarize: [Illustration]
+
+
+
+
+Great Expectations
+
+[1867 Edition]
+
+by Charles Dickens
+
+
+Contents
+
+ Chapter I. [Illustration]
+
+
+
+
+Chapter I.
+RESPONSE: My father’s family name being Pirrip, and my Christian name Philip, my
+infant tongue could make of both names nothing longer or more explicit
+than Pip.
+
+INPUT: Explain this: My father’s family name being Pirrip, and my Christian name Philip, my
+infant tongue could make of both names nothing longer or more explicit
+than Pip.
+RESPONSE: So, I called myself Pip, and came to be called Pip.
+
+INPUT: Summarize: My father’s family name being Pirrip, and my Christian name Philip, my
+infant tongue could make of both names nothing longer or more explicit
+than Pip. So, I called myself Pip, and came to be called Pip.
+RESPONSE: I give Pirrip as my father’s family name, on the authority of his
+tombstone and my sister,—Mrs.
+
+INPUT: Can you explain: I give Pirrip as my father’s family name, on the authority of his
+tombstone and my sister,—Mrs.
+RESPONSE: Joe Gargery, who married the blacksmith.
+
+INPUT: Summarize: I give Pirrip as my father’s family name, on the authority of his
+tombstone and my sister,—Mrs. Joe Gargery, who married the blacksmith.
+RESPONSE: As I never saw my father or my mother, and never saw any likeness of
+either of them (for their days were long before the days of
+photographs), my first fancies regarding what they were like were
+unreasonably derived from their tombstones.
+
+INPUT: Explain this: As I never saw my father or my mother, and never saw any likeness of
+either of them (for their days were long before the days of
+photographs), my first fancies regarding what they were like were
+unreasonably derived from their tombstones.
+RESPONSE: The shape of the letters on
+my father’s, gave me an odd idea that he was a square, stout, dark man,
+with curly black hair.
+
+INPUT: Summarize: As I never saw my father or my mother, and never saw any likeness of
+either of them (for their days were long before the days of
+photographs), my first fancies regarding what they were like were
+unreasonably derived from their tombstones. The shape of the letters on
+my father’s, gave me an odd idea that he was a square, stout, dark man,
+with curly black hair.
+RESPONSE: From the character and turn of the inscription,
+“_Also Georgiana Wife of the Above_,” I drew a childish conclusion that
+my mother was freckled and sickly.
+
+INPUT: What is this about: From the character and turn of the inscription,
+“_Also Georgiana Wife of the Above_,” I drew a childish conclusion that
+my mother was freckled and sickly.
+RESPONSE: To five little stone lozenges, each
+about a foot and a half long, which were arranged in a neat row beside
+their grave, and were sacred to the memory of five little brothers of
+mine,—who gave up trying to get a living, exceedingly early in that
+universal struggle,—I am indebted for a belief I religiously
+entertained that they had all been born on their backs with their hands
+in their trousers-pockets, and had never taken them out in this state
+of existence.
+
+INPUT: Summarize: From the character and turn of the inscription,
+“_Also Georgiana Wife of the Above_,” I drew a childish conclusion that
+my mother was freckled and sickly. To five little stone lozenges, each
+about a foot and a half long, which were arranged in a neat row beside
+their grave, and were sacred to the memory of five little brothers of
+mine,—who gave up trying to get a living, exceedingly early in that
+universal struggle,—I am indebted for a belief I religiously
+entertained that they had all been born on their backs with their hands
+in their trousers-pockets, and had never taken them out in this state
+of existence.
+RESPONSE: Ours was the marsh country, down by the river, within, as the river
+wound, twenty miles of the sea.
+
+INPUT: What does this say: Ours was the marsh country, down by the river, within, as the river
+wound, twenty miles of the sea.
+RESPONSE: My first most vivid and broad
+impression of the identity of things seems to me to have been gained on
+a memorable raw afternoon towards evening.
+
+INPUT: Summarize: Ours was the marsh country, down by the river, within, as the river
+wound, twenty miles of the sea. My first most vivid and broad
+impression of the identity of things seems to me to have been gained on
+a memorable raw afternoon towards evening.
+RESPONSE: ” cried a terrible voice, as a man started up from
+among the graves at the side of the church porch.
+
+INPUT: What does this say: ” cried a terrible voice, as a man started up from
+among the graves at the side of the church porch.
+RESPONSE: “Keep still, you
+little devil, or I’ll cut your throat!
+
+INPUT: Summarize: ” cried a terrible voice, as a man started up from
+among the graves at the side of the church porch. “Keep still, you
+little devil, or I’ll cut your throat!
+RESPONSE: ”
+
+A fearful man, all in coarse grey, with a great iron on his leg.
+
+INPUT: What is this about: ”
+
+A fearful man, all in coarse grey, with a great iron on his leg.
+RESPONSE: A man
+with no hat, and with broken shoes, and with an old rag tied round his
+head.
+
+INPUT: Summarize: ”
+
+A fearful man, all in coarse grey, with a great iron on his leg. A man
+with no hat, and with broken shoes, and with an old rag tied round his
+head.
+RESPONSE: A man who had been soaked in water, and smothered in mud, and
+lamed by stones, and cut by flints, and stung by nettles, and torn by
+briars; who limped, and shivered, and glared, and growled; and whose
+teeth chattered in his head as he seized me by the chin.
+
+INPUT: Tell me about: A man who had been soaked in water, and smothered in mud, and
+lamed by stones, and cut by flints, and stung by nettles, and torn by
+briars; who limped, and shivered, and glared, and growled; and whose
+teeth chattered in his head as he seized me by the chin.
+RESPONSE: Don’t cut my throat, sir,” I pleaded in terror.
+
+INPUT: Summarize: A man who had been soaked in water, and smothered in mud, and
+lamed by stones, and cut by flints, and stung by nettles, and torn by
+briars; who limped, and shivered, and glared, and growled; and whose
+teeth chattered in his head as he seized me by the chin. Don’t cut my throat, sir,” I pleaded in terror.
+RESPONSE: “Pray don’t do it,
+sir.
+
+INPUT: What does this say: “Pray don’t do it,
+sir.
+RESPONSE: ”
+
+“Tell us your name!
+
+INPUT: Summarize: “Pray don’t do it,
+sir. ”
+
+“Tell us your name!
+RESPONSE: ”
+
+“Once more,” said the man, staring at me.
+
+INPUT: Tell me about: ”
+
+“Once more,” said the man, staring at me.
+RESPONSE: ”
+
+“Show us where you live,” said the man.
+
+INPUT: Summarize: ”
+
+“Once more,” said the man, staring at me. ”
+
+“Show us where you live,” said the man.
+RESPONSE: “Pint out the place!
+
+INPUT: Explain this: “Pint out the place!
+RESPONSE: ”
+
+I pointed to where our village lay, on the flat in-shore among the
+alder-trees and pollards, a mile or more from the church.
+
+INPUT: Summarize: “Pint out the place! ”
+
+I pointed to where our village lay, on the flat in-shore among the
+alder-trees and pollards, a mile or more from the church.
+RESPONSE: The man, after looking at me for a moment, turned me upside down, and
+emptied my pockets.
+
+INPUT: Can you explain: The man, after looking at me for a moment, turned me upside down, and
+emptied my pockets.
+RESPONSE: There was nothing in them but a piece of bread.
+
+INPUT: Summarize: The man, after looking at me for a moment, turned me upside down, and
+emptied my pockets. There was nothing in them but a piece of bread.
+RESPONSE: When the church came to itself,—for he was so sudden and strong that he
+made it go head over heels before me, and I saw the steeple under my
+feet,—when the church came to itself, I say, I was seated on a high
+tombstone, trembling while he ate the bread ravenously.
+
+INPUT: Explain this: When the church came to itself,—for he was so sudden and strong that he
+made it go head over heels before me, and I saw the steeple under my
+feet,—when the church came to itself, I say, I was seated on a high
+tombstone, trembling while he ate the bread ravenously.
+RESPONSE: [Illustration]
+
+“You young dog,” said the man, licking his lips, “what fat cheeks you
+ha’ got.
+
+INPUT: Summarize: When the church came to itself,—for he was so sudden and strong that he
+made it go head over heels before me, and I saw the steeple under my
+feet,—when the church came to itself, I say, I was seated on a high
+tombstone, trembling while he ate the bread ravenously. [Illustration]
+
+“You young dog,” said the man, licking his lips, “what fat cheeks you
+ha’ got.
+RESPONSE: ”
+
+I believe they were fat, though I was at that time undersized for my
+years, and not strong.
+
+INPUT: What does this mean: ”
+
+I believe they were fat, though I was at that time undersized for my
+years, and not strong.
+RESPONSE: “Darn me if I couldn’t eat ’em,” said the man, with a threatening shake
+of his head, “and if I han’t half a mind to’t!
+
+INPUT: Summarize: ”
+
+I believe they were fat, though I was at that time undersized for my
+years, and not strong. “Darn me if I couldn’t eat ’em,” said the man, with a threatening shake
+of his head, “and if I han’t half a mind to’t!
+RESPONSE: ”
+
+I earnestly expressed my hope that he wouldn’t, and held tighter to the
+tombstone on which he had put me; partly, to keep myself upon it;
+partly, to keep myself from crying.
+
+INPUT: Explain this: ”
+
+I earnestly expressed my hope that he wouldn’t, and held tighter to the
+tombstone on which he had put me; partly, to keep myself upon it;
+partly, to keep myself from crying.
+RESPONSE: “Where’s your mother?
+
+INPUT: Summarize: ”
+
+I earnestly expressed my hope that he wouldn’t, and held tighter to the
+tombstone on which he had put me; partly, to keep myself upon it;
+partly, to keep myself from crying. “Where’s your mother?
+RESPONSE: ”
+
+“There, sir!
+
+INPUT: Tell me about: ”
+
+“There, sir!
+RESPONSE: He started, made a short run, and stopped and looked over his shoulder.
+
+INPUT: Summarize: ”
+
+“There, sir! He started, made a short run, and stopped and looked over his shoulder.
+RESPONSE: ” I timidly explained.
+
+INPUT: Tell me about: ” I timidly explained.
+RESPONSE: ” said he, coming back.
+
+INPUT: Summarize: ” I timidly explained. ” said he, coming back.
+RESPONSE: “And is that your father alonger your
+mother?
+
+INPUT: What does this say: “And is that your father alonger your
+mother?
+RESPONSE: ”
+
+“Yes, sir,” said I; “him too; late of this parish.
+
+INPUT: Summarize: “And is that your father alonger your
+mother? ”
+
+“Yes, sir,” said I; “him too; late of this parish.
+RESPONSE: ” he muttered then, considering.
+
+INPUT: What is this about: ” he muttered then, considering.
+RESPONSE: “Who d’ye live with,—supposin’
+you’re kindly let to live, which I han’t made up my mind about?
+
+INPUT: Summarize: ” he muttered then, considering. “Who d’ye live with,—supposin’
+you’re kindly let to live, which I han’t made up my mind about?
+RESPONSE: ”
+
+“My sister, sir,—Mrs.
+
+INPUT: What does this mean: ”
+
+“My sister, sir,—Mrs.
+RESPONSE: Joe Gargery,—wife of Joe Gargery, the blacksmith,
+sir.
+
+INPUT: Summarize: ”
+
+“My sister, sir,—Mrs. Joe Gargery,—wife of Joe Gargery, the blacksmith,
+sir.
+RESPONSE: ”
+
+“Blacksmith, eh?
+
+INPUT: What does this say: ”
+
+“Blacksmith, eh?
+RESPONSE: And looked down at his leg.
+
+INPUT: Summarize: ”
+
+“Blacksmith, eh? And looked down at his leg.
+RESPONSE: After darkly looking at his leg and me several times, he came closer to
+my tombstone, took me by both arms, and tilted me back as far as he
+could hold me; so that his eyes looked most powerfully down into mine,
+and mine looked most helplessly up into his.
+
+INPUT: What is this about: After darkly looking at his leg and me several times, he came closer to
+my tombstone, took me by both arms, and tilted me back as far as he
+could hold me; so that his eyes looked most powerfully down into mine,
+and mine looked most helplessly up into his.
+RESPONSE: “Now lookee here,” he said, “the question being whether you’re to be
+let to live.
+
+INPUT: Summarize: After darkly looking at his leg and me several times, he came closer to
+my tombstone, took me by both arms, and tilted me back as far as he
+could hold me; so that his eyes looked most powerfully down into mine,
+and mine looked most helplessly up into his. “Now lookee here,” he said, “the question being whether you’re to be
+let to live.
+RESPONSE: You know what a file is?
+
+INPUT: What does this mean: You know what a file is?
+RESPONSE: ”
+
+“And you know what wittles is?
+
+INPUT: Summarize: You know what a file is? ”
+
+“And you know what wittles is?
+RESPONSE: ”
+
+After each question he tilted me over a little more, so as to give me a
+greater sense of helplessness and danger.
+
+INPUT: What is this about: ”
+
+After each question he tilted me over a little more, so as to give me a
+greater sense of helplessness and danger.
+RESPONSE: “You get me a file.
+
+INPUT: Summarize: ”
+
+After each question he tilted me over a little more, so as to give me a
+greater sense of helplessness and danger. “You get me a file.
+RESPONSE: ” He tilted me again.
+
+INPUT: What does this mean: ” He tilted me again.
+RESPONSE: “And you get me wittles.
+
+INPUT: Summarize: ” He tilted me again. “And you get me wittles.
+RESPONSE: ” He
+tilted me again.
+
+INPUT: Tell me about: ” He
+tilted me again.
+RESPONSE: “You bring ’em both to me.
+
+INPUT: Summarize: ” He
+tilted me again. “You bring ’em both to me.
+RESPONSE: ” He tilted me again.
+
+INPUT: Can you explain: ” He tilted me again.
+RESPONSE: “Or
+I’ll have your heart and liver out.
+
+INPUT: Summarize: ” He tilted me again. “Or
+I’ll have your heart and liver out.
+RESPONSE: ” He tilted me again.
+
+INPUT: Can you explain: ” He tilted me again.
+RESPONSE: I was dreadfully frightened, and so giddy that I clung to him with both
+hands, and said, “If you would kindly please to let me keep upright,
+sir, perhaps I shouldn’t be sick, and perhaps I could attend more.
+
+INPUT: Summarize: ” He tilted me again. I was dreadfully frightened, and so giddy that I clung to him with both
+hands, and said, “If you would kindly please to let me keep upright,
+sir, perhaps I shouldn’t be sick, and perhaps I could attend more.
+RESPONSE: ”
+
+He gave me a most tremendous dip and roll, so that the church jumped
+over its own weathercock.
+
+INPUT: Tell me about: ”
+
+He gave me a most tremendous dip and roll, so that the church jumped
+over its own weathercock.
+RESPONSE: Then, he held me by the arms, in an upright
+position on the top of the stone, and went on in these fearful terms:—
+
+“You bring me, to-morrow morning early, that file and them wittles.
+
+INPUT: Summarize: ”
+
+He gave me a most tremendous dip and roll, so that the church jumped
+over its own weathercock. Then, he held me by the arms, in an upright
+position on the top of the stone, and went on in these fearful terms:—
+
+“You bring me, to-morrow morning early, that file and them wittles.
+RESPONSE: You
+bring the lot to me, at that old Battery over yonder.
+
+INPUT: What does this say: You
+bring the lot to me, at that old Battery over yonder.
+RESPONSE: You do it, and
+you never dare to say a word or dare to make a sign concerning your
+having seen such a person as me, or any person sumever, and you shall
+be let to live.
+
+INPUT: Summarize: You
+bring the lot to me, at that old Battery over yonder. You do it, and
+you never dare to say a word or dare to make a sign concerning your
+having seen such a person as me, or any person sumever, and you shall
+be let to live.
+RESPONSE: You fail, or you go from my words in any partickler, no
+matter how small it is, and your heart and your liver shall be tore
+out, roasted, and ate.
+
+INPUT: What does this say: You fail, or you go from my words in any partickler, no
+matter how small it is, and your heart and your liver shall be tore
+out, roasted, and ate.
+RESPONSE: Now, I ain’t alone, as you may think I am.
+
+INPUT: Summarize: You fail, or you go from my words in any partickler, no
+matter how small it is, and your heart and your liver shall be tore
+out, roasted, and ate. Now, I ain’t alone, as you may think I am.
+RESPONSE: There’s a young man hid with me, in comparison with which young man I
+am a Angel.
+
+INPUT: What does this say: There’s a young man hid with me, in comparison with which young man I
+am a Angel.
+RESPONSE: That young man hears the words I speak.
+
+INPUT: Summarize: There’s a young man hid with me, in comparison with which young man I
+am a Angel. That young man hears the words I speak.
+RESPONSE: That young man has
+a secret way pecooliar to himself, of getting at a boy, and at his
+heart, and at his liver.
+
+INPUT: Explain this: That young man has
+a secret way pecooliar to himself, of getting at a boy, and at his
+heart, and at his liver.
+RESPONSE: It is in wain for a boy to attempt to hide
+himself from that young man.
+
+INPUT: Summarize: That young man has
+a secret way pecooliar to himself, of getting at a boy, and at his
+heart, and at his liver. It is in wain for a boy to attempt to hide
+himself from that young man.
+RESPONSE: A boy may lock his door, may be warm in
+bed, may tuck himself up, may draw the clothes over his head, may think
+himself comfortable and safe, but that young man will softly creep and
+creep his way to him and tear him open.
+
+INPUT: What is this about: A boy may lock his door, may be warm in
+bed, may tuck himself up, may draw the clothes over his head, may think
+himself comfortable and safe, but that young man will softly creep and
+creep his way to him and tear him open.
+RESPONSE: I am a keeping that young man
+from harming of you at the present moment, with great difficulty.
+
+INPUT: Summarize: A boy may lock his door, may be warm in
+bed, may tuck himself up, may draw the clothes over his head, may think
+himself comfortable and safe, but that young man will softly creep and
+creep his way to him and tear him open. I am a keeping that young man
+from harming of you at the present moment, with great difficulty.
+RESPONSE: I
+find it wery hard to hold that young man off of your inside.
+
+INPUT: Tell me about: I
+find it wery hard to hold that young man off of your inside.
+RESPONSE: Now, what
+do you say?
+
+INPUT: Summarize: I
+find it wery hard to hold that young man off of your inside. Now, what
+do you say?
+RESPONSE: ”
+
+I said that I would get him the file, and I would get him what broken
+bits of food I could, and I would come to him at the Battery, early in
+the morning.
+
+INPUT: What is this about: ”
+
+I said that I would get him the file, and I would get him what broken
+bits of food I could, and I would come to him at the Battery, early in
+the morning.
+RESPONSE: “Say Lord strike you dead if you don’t!
+
+INPUT: Summarize: ”
+
+I said that I would get him the file, and I would get him what broken
+bits of food I could, and I would come to him at the Battery, early in
+the morning. “Say Lord strike you dead if you don’t!
+RESPONSE: I said so, and he took me down.
+
+INPUT: Tell me about: I said so, and he took me down.
+RESPONSE: “Now,” he pursued, “you remember what you’ve undertook, and you
+remember that young man, and you get home!
+
+INPUT: Summarize: I said so, and he took me down. “Now,” he pursued, “you remember what you’ve undertook, and you
+remember that young man, and you get home!
+RESPONSE: ”
+
+“Goo-good night, sir,” I faltered.
+
+INPUT: Explain this: ”
+
+“Goo-good night, sir,” I faltered.
+RESPONSE: ” said he, glancing about him over the cold wet flat.
+
+INPUT: Summarize: ”
+
+“Goo-good night, sir,” I faltered. ” said he, glancing about him over the cold wet flat.
+RESPONSE: “I
+wish I was a frog.
+
+INPUT: What does this say: “I
+wish I was a frog.
+RESPONSE: ”
+
+At the same time, he hugged his shuddering body in both his
+arms,—clasping himself, as if to hold himself together,—and limped
+towards the low church wall.
+
+INPUT: Summarize: “I
+wish I was a frog. ”
+
+At the same time, he hugged his shuddering body in both his
+arms,—clasping himself, as if to hold himself together,—and limped
+towards the low church wall.
+RESPONSE: As I saw him go, picking his way among the
+nettles, and among the brambles that bound the green mounds, he looked
+in my young eyes as if he were eluding the hands of the dead people,
+stretching up cautiously out of their graves, to get a twist upon his
+ankle and pull him in.
+
+INPUT: What does this mean: As I saw him go, picking his way among the
+nettles, and among the brambles that bound the green mounds, he looked
+in my young eyes as if he were eluding the hands of the dead people,
+stretching up cautiously out of their graves, to get a twist upon his
+ankle and pull him in.
+RESPONSE: When he came to the low church wall, he got over it, like a man whose
+legs were numbed and stiff, and then turned round to look for me.
+
+INPUT: Summarize: As I saw him go, picking his way among the
+nettles, and among the brambles that bound the green mounds, he looked
+in my young eyes as if he were eluding the hands of the dead people,
+stretching up cautiously out of their graves, to get a twist upon his
+ankle and pull him in. When he came to the low church wall, he got over it, like a man whose
+legs were numbed and stiff, and then turned round to look for me.
+RESPONSE: When
+I saw him turning, I set my face towards home, and made the best use of
+my legs.
+
+INPUT: What does this mean: When
+I saw him turning, I set my face towards home, and made the best use of
+my legs.
+RESPONSE: But presently I looked over my shoulder, and saw him going on
+again towards the river, still hugging himself in both arms, and
+picking his way with his sore feet among the great stones dropped into
+the marshes here and there, for stepping-places when the rains were
+heavy or the tide was in.
+
+INPUT: Summarize: When
+I saw him turning, I set my face towards home, and made the best use of
+my legs. But presently I looked over my shoulder, and saw him going on
+again towards the river, still hugging himself in both arms, and
+picking his way with his sore feet among the great stones dropped into
+the marshes here and there, for stepping-places when the rains were
+heavy or the tide was in.
+RESPONSE: The marshes were just a long black horizontal line then, as I stopped
+to look after him; and the river was just another horizontal line, not
+nearly so broad nor yet so black; and the sky was just a row of long
+angry red lines and dense black lines intermixed.
+
+INPUT: Can you explain: The marshes were just a long black horizontal line then, as I stopped
+to look after him; and the river was just another horizontal line, not
+nearly so broad nor yet so black; and the sky was just a row of long
+angry red lines and dense black lines intermixed.
+RESPONSE: On the edge of the
+river I could faintly make out the only two black things in all the
+prospect that seemed to be standing upright; one of these was the
+beacon by which the sailors steered,—like an unhooped cask upon a
+pole,—an ugly thing when you were near it; the other, a gibbet, with
+some chains hanging to it which had once held a pirate.
+
+INPUT: Summarize: The marshes were just a long black horizontal line then, as I stopped
+to look after him; and the river was just another horizontal line, not
+nearly so broad nor yet so black; and the sky was just a row of long
+angry red lines and dense black lines intermixed. On the edge of the
+river I could faintly make out the only two black things in all the
+prospect that seemed to be standing upright; one of these was the
+beacon by which the sailors steered,—like an unhooped cask upon a
+pole,—an ugly thing when you were near it; the other, a gibbet, with
+some chains hanging to it which had once held a pirate.
+RESPONSE: The man was
+limping on towards this latter, as if he were the pirate come to life,
+and come down, and going back to hook himself up again.
+
+INPUT: Can you explain: The man was
+limping on towards this latter, as if he were the pirate come to life,
+and come down, and going back to hook himself up again.
+RESPONSE: It gave me a
+terrible turn when I thought so; and as I saw the cattle lifting their
+heads to gaze after him, I wondered whether they thought so too.
+
+INPUT: Summarize: The man was
+limping on towards this latter, as if he were the pirate come to life,
+and come down, and going back to hook himself up again. It gave me a
+terrible turn when I thought so; and as I saw the cattle lifting their
+heads to gaze after him, I wondered whether they thought so too.
+RESPONSE: I
+looked all round for the horrible young man, and could see no signs of
+him.
+
+INPUT: What does this say: I
+looked all round for the horrible young man, and could see no signs of
+him.
+RESPONSE: But now I was frightened again, and ran home without stopping.
+
+INPUT: Summarize: I
+looked all round for the horrible young man, and could see no signs of
+him. But now I was frightened again, and ran home without stopping.
+RESPONSE: Joe Gargery, was more than twenty years older than I,
+and had established a great reputation with herself and the neighbours
+because she had brought me up “by hand.
+
+INPUT: Can you explain: Joe Gargery, was more than twenty years older than I,
+and had established a great reputation with herself and the neighbours
+because she had brought me up “by hand.
+RESPONSE: ” Having at that time to find
+out for myself what the expression meant, and knowing her to have a
+hard and heavy hand, and to be much in the habit of laying it upon her
+husband as well as upon me, I supposed that Joe Gargery and I were both
+brought up by hand.
+
+INPUT: Summarize: Joe Gargery, was more than twenty years older than I,
+and had established a great reputation with herself and the neighbours
+because she had brought me up “by hand. ” Having at that time to find
+out for myself what the expression meant, and knowing her to have a
+hard and heavy hand, and to be much in the habit of laying it upon her
+husband as well as upon me, I supposed that Joe Gargery and I were both
+brought up by hand.
+RESPONSE: She was not a good-looking woman, my sister; and I had a general
+impression that she must have made Joe Gargery marry her by hand.
+
+INPUT: What does this say: She was not a good-looking woman, my sister; and I had a general
+impression that she must have made Joe Gargery marry her by hand.
+RESPONSE: Joe
+was a fair man, with curls of flaxen hair on each side of his smooth
+face, and with eyes of such a very undecided blue that they seemed to
+have somehow got mixed with their own whites.
+
+INPUT: Summarize: She was not a good-looking woman, my sister; and I had a general
+impression that she must have made Joe Gargery marry her by hand. Joe
+was a fair man, with curls of flaxen hair on each side of his smooth
+face, and with eyes of such a very undecided blue that they seemed to
+have somehow got mixed with their own whites.
+RESPONSE: He was a mild,
+good-natured, sweet-tempered, easy-going, foolish, dear fellow,—a sort
+of Hercules in strength, and also in weakness.
+
+INPUT: What does this say: He was a mild,
+good-natured, sweet-tempered, easy-going, foolish, dear fellow,—a sort
+of Hercules in strength, and also in weakness.
+RESPONSE: Joe, with black hair and eyes, had such a prevailing
+redness of skin that I sometimes used to wonder whether it was possible
+she washed herself with a nutmeg-grater instead of soap.
+
+INPUT: Summarize: He was a mild,
+good-natured, sweet-tempered, easy-going, foolish, dear fellow,—a sort
+of Hercules in strength, and also in weakness. Joe, with black hair and eyes, had such a prevailing
+redness of skin that I sometimes used to wonder whether it was possible
+she washed herself with a nutmeg-grater instead of soap.
+RESPONSE: She was tall
+and bony, and almost always wore a coarse apron, fastened over her
+figure behind with two loops, and having a square impregnable bib in
+front, that was stuck full of pins and needles.
+
+INPUT: Can you explain: She was tall
+and bony, and almost always wore a coarse apron, fastened over her
+figure behind with two loops, and having a square impregnable bib in
+front, that was stuck full of pins and needles.
+RESPONSE: She made it a powerful
+merit in herself, and a strong reproach against Joe, that she wore this
+apron so much.
+
+INPUT: Summarize: She was tall
+and bony, and almost always wore a coarse apron, fastened over her
+figure behind with two loops, and having a square impregnable bib in
+front, that was stuck full of pins and needles. She made it a powerful
+merit in herself, and a strong reproach against Joe, that she wore this
+apron so much.
+RESPONSE: Though I really see no reason why she should have worn
+it at all; or why, if she did wear it at all, she should not have taken
+it off, every day of her life.
+
+INPUT: Tell me about: Though I really see no reason why she should have worn
+it at all; or why, if she did wear it at all, she should not have taken
+it off, every day of her life.
+RESPONSE: Joe’s forge adjoined our house, which was a wooden house, as many of
+the dwellings in our country were,—most of them, at that time.
+
+INPUT: Summarize: Though I really see no reason why she should have worn
+it at all; or why, if she did wear it at all, she should not have taken
+it off, every day of her life. Joe’s forge adjoined our house, which was a wooden house, as many of
+the dwellings in our country were,—most of them, at that time.
+RESPONSE: When I
+ran home from the churchyard, the forge was shut up, and Joe was
+sitting alone in the kitchen.
+
+INPUT: Tell me about: When I
+ran home from the churchyard, the forge was shut up, and Joe was
+sitting alone in the kitchen.
+RESPONSE: Joe and I being fellow-sufferers, and
+having confidences as such, Joe imparted a confidence to me, the moment
+I raised the latch of the door and peeped in at him opposite to it,
+sitting in the chimney corner.
+
+INPUT: Summarize: When I
+ran home from the churchyard, the forge was shut up, and Joe was
+sitting alone in the kitchen. Joe and I being fellow-sufferers, and
+having confidences as such, Joe imparted a confidence to me, the moment
+I raised the latch of the door and peeped in at him opposite to it,
+sitting in the chimney corner.
+RESPONSE: Joe has been out a dozen times, looking for you, Pip.
+
+INPUT: Tell me about: Joe has been out a dozen times, looking for you, Pip.
+RESPONSE: And she’s
+out now, making it a baker’s dozen.
+
+INPUT: Summarize: Joe has been out a dozen times, looking for you, Pip. And she’s
+out now, making it a baker’s dozen.
+RESPONSE: ”
+
+“Yes, Pip,” said Joe; “and what’s worse, she’s got Tickler with her.
+
+INPUT: What does this mean: ”
+
+“Yes, Pip,” said Joe; “and what’s worse, she’s got Tickler with her.
+RESPONSE: ”
+
+At this dismal intelligence, I twisted the only button on my waistcoat
+round and round, and looked in great depression at the fire.
+
+INPUT: Summarize: ”
+
+“Yes, Pip,” said Joe; “and what’s worse, she’s got Tickler with her. ”
+
+At this dismal intelligence, I twisted the only button on my waistcoat
+round and round, and looked in great depression at the fire.
+RESPONSE: Tickler
+was a wax-ended piece of cane, worn smooth by collision with my tickled
+frame.
+
+INPUT: What is this about: Tickler
+was a wax-ended piece of cane, worn smooth by collision with my tickled
+frame.
+RESPONSE: “She sot down,” said Joe, “and she got up, and she made a grab at
+Tickler, and she Ram-paged out.
+
+INPUT: Summarize: Tickler
+was a wax-ended piece of cane, worn smooth by collision with my tickled
+frame. “She sot down,” said Joe, “and she got up, and she made a grab at
+Tickler, and she Ram-paged out.
+RESPONSE: That’s what she did,” said Joe, slowly
+clearing the fire between the lower bars with the poker, and looking at
+it; “she Ram-paged out, Pip.
+
+INPUT: What does this mean: That’s what she did,” said Joe, slowly
+clearing the fire between the lower bars with the poker, and looking at
+it; “she Ram-paged out, Pip.
+RESPONSE: ”
+
+“Has she been gone long, Joe?
+
+INPUT: Summarize: That’s what she did,” said Joe, slowly
+clearing the fire between the lower bars with the poker, and looking at
+it; “she Ram-paged out, Pip. ”
+
+“Has she been gone long, Joe?
+RESPONSE: ” I always treated him as a larger species
+of child, and as no more than my equal.
+
+INPUT: What is this about: ” I always treated him as a larger species
+of child, and as no more than my equal.
+RESPONSE: “Well,” said Joe, glancing up at the Dutch clock, “she’s been on the
+Ram-page, this last spell, about five minutes, Pip.
+
+INPUT: Summarize: ” I always treated him as a larger species
+of child, and as no more than my equal. “Well,” said Joe, glancing up at the Dutch clock, “she’s been on the
+Ram-page, this last spell, about five minutes, Pip.
+RESPONSE: Get
+behind the door, old chap, and have the jack-towel betwixt you.
+
+INPUT: Explain this: Get
+behind the door, old chap, and have the jack-towel betwixt you.
+RESPONSE: ”
+
+I took the advice.
+
+INPUT: Summarize: Get
+behind the door, old chap, and have the jack-towel betwixt you. ”
+
+I took the advice.
+RESPONSE: Joe, throwing the door wide open,
+and finding an obstruction behind it, immediately divined the cause,
+and applied Tickler to its further investigation.
+
+INPUT: Tell me about: Joe, throwing the door wide open,
+and finding an obstruction behind it, immediately divined the cause,
+and applied Tickler to its further investigation.
+RESPONSE: She concluded by
+throwing me—I often served as a connubial missile—at Joe, who, glad to
+get hold of me on any terms, passed me on into the chimney and quietly
+fenced me up there with his great leg.
+
+INPUT: Summarize: Joe, throwing the door wide open,
+and finding an obstruction behind it, immediately divined the cause,
+and applied Tickler to its further investigation. She concluded by
+throwing me—I often served as a connubial missile—at Joe, who, glad to
+get hold of me on any terms, passed me on into the chimney and quietly
+fenced me up there with his great leg.
+RESPONSE: “Where have you been, you young monkey?
+
+INPUT: Tell me about: “Where have you been, you young monkey?
+RESPONSE: Joe, stamping her
+foot.
+
+INPUT: Summarize: “Where have you been, you young monkey? Joe, stamping her
+foot.
+RESPONSE: “Tell me directly what you’ve been doing to wear me away with
+fret and fright and worrit, or I’d have you out of that corner if you
+was fifty Pips, and he was five hundred Gargerys.
+
+INPUT: What is this about: “Tell me directly what you’ve been doing to wear me away with
+fret and fright and worrit, or I’d have you out of that corner if you
+was fifty Pips, and he was five hundred Gargerys.
+RESPONSE: ”
+
+“I have only been to the churchyard,” said I, from my stool, crying and
+rubbing myself.
+
+INPUT: Summarize: “Tell me directly what you’ve been doing to wear me away with
+fret and fright and worrit, or I’d have you out of that corner if you
+was fifty Pips, and he was five hundred Gargerys. ”
+
+“I have only been to the churchyard,” said I, from my stool, crying and
+rubbing myself.
+RESPONSE: ” repeated my sister.
+
+INPUT: What is this about: ” repeated my sister.
+RESPONSE: “If it warn’t for me you’d have been
+to the churchyard long ago, and stayed there.
+
+INPUT: Summarize: ” repeated my sister. “If it warn’t for me you’d have been
+to the churchyard long ago, and stayed there.
+RESPONSE: Who brought you up by
+hand?
+
+INPUT: Can you explain: Who brought you up by
+hand?
+RESPONSE: ”
+
+“You did,” said I.
+
+INPUT: Summarize: Who brought you up by
+hand? ”
+
+“You did,” said I.
+RESPONSE: “And why did I do it, I should like to know?
+
+INPUT: Tell me about: “And why did I do it, I should like to know?
+RESPONSE: ” exclaimed my sister.
+
+INPUT: Summarize: “And why did I do it, I should like to know? ” exclaimed my sister.
+RESPONSE: I whimpered, “I don’t know.
+
+INPUT: Tell me about: I whimpered, “I don’t know.
+RESPONSE: ”
+
+“_I_ don’t!
+
+INPUT: Summarize: I whimpered, “I don’t know. ”
+
+“_I_ don’t!
+RESPONSE: “I’d never do it again!
+
+INPUT: What does this say: “I’d never do it again!
+RESPONSE: I may
+truly say I’ve never had this apron of mine off since born you were.
+
+INPUT: Summarize: “I’d never do it again! I may
+truly say I’ve never had this apron of mine off since born you were.
+RESPONSE: It’s bad enough to be a blacksmith’s wife (and him a Gargery) without
+being your mother.
+
+INPUT: Explain this: It’s bad enough to be a blacksmith’s wife (and him a Gargery) without
+being your mother.
+RESPONSE: ”
+
+My thoughts strayed from that question as I looked disconsolately at
+the fire.
+
+INPUT: Summarize: It’s bad enough to be a blacksmith’s wife (and him a Gargery) without
+being your mother. ”
+
+My thoughts strayed from that question as I looked disconsolately at
+the fire.
+RESPONSE: For the fugitive out on the marshes with the ironed leg, the
+mysterious young man, the file, the food, and the dreadful pledge I was
+under to commit a larceny on those sheltering premises, rose before me
+in the avenging coals.
+
+INPUT: Tell me about: For the fugitive out on the marshes with the ironed leg, the
+mysterious young man, the file, the food, and the dreadful pledge I was
+under to commit a larceny on those sheltering premises, rose before me
+in the avenging coals.
+RESPONSE: Joe, restoring Tickler to his station.
+
+INPUT: Summarize: For the fugitive out on the marshes with the ironed leg, the
+mysterious young man, the file, the food, and the dreadful pledge I was
+under to commit a larceny on those sheltering premises, rose before me
+in the avenging coals. Joe, restoring Tickler to his station.
+RESPONSE: “Churchyard,
+indeed!
+
+INPUT: Tell me about: “Churchyard,
+indeed!
+RESPONSE: You may well say churchyard, you two.
+
+INPUT: Summarize: “Churchyard,
+indeed! You may well say churchyard, you two.
+RESPONSE: ” One of us, by the by,
+had not said it at all.
+
+INPUT: Explain this: ” One of us, by the by,
+had not said it at all.
+RESPONSE: “You’ll drive _me_ to the churchyard betwixt
+you, one of these days, and O, a pr-r-recious pair you’d be without
+me!
+
+INPUT: Summarize: ” One of us, by the by,
+had not said it at all. “You’ll drive _me_ to the churchyard betwixt
+you, one of these days, and O, a pr-r-recious pair you’d be without
+me!
+RESPONSE: ”
+
+As she applied herself to set the tea-things, Joe peeped down at me
+over his leg, as if he were mentally casting me and himself up, and
+calculating what kind of pair we practically should make, under the
+grievous circumstances foreshadowed.
+
+INPUT: What does this mean: ”
+
+As she applied herself to set the tea-things, Joe peeped down at me
+over his leg, as if he were mentally casting me and himself up, and
+calculating what kind of pair we practically should make, under the
+grievous circumstances foreshadowed.
+RESPONSE: After that, he sat feeling his
+right-side flaxen curls and whisker, and following Mrs.
+
+INPUT: Summarize: ”
+
+As she applied herself to set the tea-things, Joe peeped down at me
+over his leg, as if he were mentally casting me and himself up, and
+calculating what kind of pair we practically should make, under the
+grievous circumstances foreshadowed. After that, he sat feeling his
+right-side flaxen curls and whisker, and following Mrs.
+RESPONSE: Joe about with
+his blue eyes, as his manner always was at squally times.
+
+INPUT: What does this say: Joe about with
+his blue eyes, as his manner always was at squally times.
+RESPONSE: My sister had a trenchant way of cutting our bread and butter for us,
+that never varied.
+
+INPUT: Summarize: Joe about with
+his blue eyes, as his manner always was at squally times. My sister had a trenchant way of cutting our bread and butter for us,
+that never varied.
+RESPONSE: First, with her left hand she jammed the loaf hard
+and fast against her bib,—where it sometimes got a pin into it, and
+sometimes a needle, which we afterwards got into our mouths.
+
+INPUT: Explain this: First, with her left hand she jammed the loaf hard
+and fast against her bib,—where it sometimes got a pin into it, and
+sometimes a needle, which we afterwards got into our mouths.
+RESPONSE: Then she
+took some butter (not too much) on a knife and spread it on the loaf,
+in an apothecary kind of way, as if she were making a plaster,—using
+both sides of the knife with a slapping dexterity, and trimming and
+moulding the butter off round the crust.
+
+INPUT: Summarize: First, with her left hand she jammed the loaf hard
+and fast against her bib,—where it sometimes got a pin into it, and
+sometimes a needle, which we afterwards got into our mouths. Then she
+took some butter (not too much) on a knife and spread it on the loaf,
+in an apothecary kind of way, as if she were making a plaster,—using
+both sides of the knife with a slapping dexterity, and trimming and
+moulding the butter off round the crust.
+RESPONSE: Then, she gave the knife a
+final smart wipe on the edge of the plaster, and then sawed a very
+thick round off the loaf: which she finally, before separating from the
+loaf, hewed into two halves, of which Joe got one, and I the other.
+
+INPUT: What does this say: Then, she gave the knife a
+final smart wipe on the edge of the plaster, and then sawed a very
+thick round off the loaf: which she finally, before separating from the
+loaf, hewed into two halves, of which Joe got one, and I the other.
+RESPONSE: On the present occasion, though I was hungry, I dared not eat my slice.
+
+INPUT: Summarize: Then, she gave the knife a
+final smart wipe on the edge of the plaster, and then sawed a very
+thick round off the loaf: which she finally, before separating from the
+loaf, hewed into two halves, of which Joe got one, and I the other. On the present occasion, though I was hungry, I dared not eat my slice.
+RESPONSE: I felt that I must have something in reserve for my dreadful
+acquaintance, and his ally the still more dreadful young man.
+
+INPUT: What does this mean: I felt that I must have something in reserve for my dreadful
+acquaintance, and his ally the still more dreadful young man.
+RESPONSE: Joe’s housekeeping to be of the strictest kind, and that my
+larcenous researches might find nothing available in the safe.
+
+INPUT: Summarize: I felt that I must have something in reserve for my dreadful
+acquaintance, and his ally the still more dreadful young man. Joe’s housekeeping to be of the strictest kind, and that my
+larcenous researches might find nothing available in the safe.
+RESPONSE: Therefore I resolved to put my hunk of bread and butter down the leg of
+my trousers.
+
+INPUT: What does this mean: Therefore I resolved to put my hunk of bread and butter down the leg of
+my trousers.
+RESPONSE: The effort of resolution necessary to the achievement of this purpose I
+found to be quite awful.
+
+INPUT: Summarize: Therefore I resolved to put my hunk of bread and butter down the leg of
+my trousers. The effort of resolution necessary to the achievement of this purpose I
+found to be quite awful.
+RESPONSE: It was as if I had to make up my mind to leap
+from the top of a high house, or plunge into a great depth of water.
+
+INPUT: Tell me about: It was as if I had to make up my mind to leap
+from the top of a high house, or plunge into a great depth of water.
+RESPONSE: And it was made the more difficult by the unconscious Joe.
+
+INPUT: Summarize: It was as if I had to make up my mind to leap
+from the top of a high house, or plunge into a great depth of water. And it was made the more difficult by the unconscious Joe.
+RESPONSE: In our
+already-mentioned freemasonry as fellow-sufferers, and in his
+good-natured companionship with me, it was our evening habit to compare
+the way we bit through our slices, by silently holding them up to each
+other’s admiration now and then,—which stimulated us to new exertions.
+
+INPUT: What does this say: In our
+already-mentioned freemasonry as fellow-sufferers, and in his
+good-natured companionship with me, it was our evening habit to compare
+the way we bit through our slices, by silently holding them up to each
+other’s admiration now and then,—which stimulated us to new exertions.
+RESPONSE: To-night, Joe several times invited me, by the display of his fast
+diminishing slice, to enter upon our usual friendly competition; but he
+found me, each time, with my yellow mug of tea on one knee, and my
+untouched bread and butter on the other.
+
+INPUT: Summarize: In our
+already-mentioned freemasonry as fellow-sufferers, and in his
+good-natured companionship with me, it was our evening habit to compare
+the way we bit through our slices, by silently holding them up to each
+other’s admiration now and then,—which stimulated us to new exertions. To-night, Joe several times invited me, by the display of his fast
+diminishing slice, to enter upon our usual friendly competition; but he
+found me, each time, with my yellow mug of tea on one knee, and my
+untouched bread and butter on the other.
+RESPONSE: At last, I desperately
+considered that the thing I contemplated must be done, and that it had
+best be done in the least improbable manner consistent with the
+circumstances.
+
+INPUT: What is this about: At last, I desperately
+considered that the thing I contemplated must be done, and that it had
+best be done in the least improbable manner consistent with the
+circumstances.
+RESPONSE: I took advantage of a moment when Joe had just looked at
+me, and got my bread and butter down my leg.
+
+INPUT: Summarize: At last, I desperately
+considered that the thing I contemplated must be done, and that it had
+best be done in the least improbable manner consistent with the
+circumstances. I took advantage of a moment when Joe had just looked at
+me, and got my bread and butter down my leg.
+RESPONSE: Joe was evidently made uncomfortable by what he supposed to be my loss
+of appetite, and took a thoughtful bite out of his slice, which he
+didn’t seem to enjoy.
+
+INPUT: Can you explain: Joe was evidently made uncomfortable by what he supposed to be my loss
+of appetite, and took a thoughtful bite out of his slice, which he
+didn’t seem to enjoy.
+RESPONSE: He turned it about in his mouth much longer than
+usual, pondering over it a good deal, and after all gulped it down like
+a pill.
+
+INPUT: Summarize: Joe was evidently made uncomfortable by what he supposed to be my loss
+of appetite, and took a thoughtful bite out of his slice, which he
+didn’t seem to enjoy. He turned it about in his mouth much longer than
+usual, pondering over it a good deal, and after all gulped it down like
+a pill.
+RESPONSE: He was about to take another bite, and had just got his head on
+one side for a good purchase on it, when his eye fell on me, and he saw
+that my bread and butter was gone.
+
+INPUT: Can you explain: He was about to take another bite, and had just got his head on
+one side for a good purchase on it, when his eye fell on me, and he saw
+that my bread and butter was gone.
+RESPONSE: The wonder and consternation with which Joe stopped on the threshold of
+his bite and stared at me, were too evident to escape my sister’s
+observation.
+
+INPUT: Summarize: He was about to take another bite, and had just got his head on
+one side for a good purchase on it, when his eye fell on me, and he saw
+that my bread and butter was gone. The wonder and consternation with which Joe stopped on the threshold of
+his bite and stared at me, were too evident to escape my sister’s
+observation.
+RESPONSE: “What’s the matter _now_?
+
+INPUT: What does this mean: “What’s the matter _now_?
+RESPONSE: ” said she, smartly, as she put down her cup.
+
+INPUT: Summarize: “What’s the matter _now_? ” said she, smartly, as she put down her cup.
+RESPONSE: ” muttered Joe, shaking his head at me in very serious
+remonstrance.
+
+INPUT: Can you explain: ” muttered Joe, shaking his head at me in very serious
+remonstrance.
+RESPONSE: You’ll do yourself a mischief.
+
+INPUT: Summarize: ” muttered Joe, shaking his head at me in very serious
+remonstrance. You’ll do yourself a mischief.
+RESPONSE: It’ll
+stick somewhere.
+
+INPUT: Can you explain: It’ll
+stick somewhere.
+RESPONSE: You can’t have chawed it, Pip.
+
+INPUT: Summarize: It’ll
+stick somewhere. You can’t have chawed it, Pip.
+RESPONSE: ”
+
+“What’s the matter now?
+
+INPUT: What does this mean: ”
+
+“What’s the matter now?
+RESPONSE: ” repeated my sister, more sharply than before.
+
+INPUT: Summarize: ”
+
+“What’s the matter now? ” repeated my sister, more sharply than before.
+RESPONSE: “If you can cough any trifle on it up, Pip, I’d recommend you to do
+it,” said Joe, all aghast.
+
+INPUT: What does this say: “If you can cough any trifle on it up, Pip, I’d recommend you to do
+it,” said Joe, all aghast.
+RESPONSE: “Manners is manners, but still your elth’s
+your elth.
+
+INPUT: Summarize: “If you can cough any trifle on it up, Pip, I’d recommend you to do
+it,” said Joe, all aghast. “Manners is manners, but still your elth’s
+your elth.
+RESPONSE: ”
+
+By this time, my sister was quite desperate, so she pounced on Joe,
+and, taking him by the two whiskers, knocked his head for a little
+while against the wall behind him, while I sat in the corner, looking
+guiltily on.
+
+INPUT: What does this say: ”
+
+By this time, my sister was quite desperate, so she pounced on Joe,
+and, taking him by the two whiskers, knocked his head for a little
+while against the wall behind him, while I sat in the corner, looking
+guiltily on.
+RESPONSE: “Now, perhaps you’ll mention what’s the matter,” said my sister, out of
+breath, “you staring great stuck pig.
+
+INPUT: Summarize: ”
+
+By this time, my sister was quite desperate, so she pounced on Joe,
+and, taking him by the two whiskers, knocked his head for a little
+while against the wall behind him, while I sat in the corner, looking
+guiltily on. “Now, perhaps you’ll mention what’s the matter,” said my sister, out of
+breath, “you staring great stuck pig.
+RESPONSE: ”
+
+Joe looked at her in a helpless way, then took a helpless bite, and
+looked at me again.
+
+INPUT: Can you explain: ”
+
+Joe looked at her in a helpless way, then took a helpless bite, and
+looked at me again.
+RESPONSE: “You know, Pip,” said Joe, solemnly, with his last bite in his cheek,
+and speaking in a confidential voice, as if we two were quite alone,
+“you and me is always friends, and I’d be the last to tell upon you,
+any time.
+
+INPUT: Summarize: ”
+
+Joe looked at her in a helpless way, then took a helpless bite, and
+looked at me again. “You know, Pip,” said Joe, solemnly, with his last bite in his cheek,
+and speaking in a confidential voice, as if we two were quite alone,
+“you and me is always friends, and I’d be the last to tell upon you,
+any time.
+RESPONSE: But such a—” he moved his chair and looked about the floor
+between us, and then again at me—“such a most oncommon Bolt as that!
+
+INPUT: Can you explain: But such a—” he moved his chair and looked about the floor
+between us, and then again at me—“such a most oncommon Bolt as that!
+RESPONSE: ”
+
+“Been bolting his food, has he?
+
+INPUT: Summarize: But such a—” he moved his chair and looked about the floor
+between us, and then again at me—“such a most oncommon Bolt as that! ”
+
+“Been bolting his food, has he?
+RESPONSE: “You know, old chap,” said Joe, looking at me, and not at Mrs.
+
+INPUT: Tell me about: “You know, old chap,” said Joe, looking at me, and not at Mrs.
+RESPONSE: Joe,
+with his bite still in his cheek, “I Bolted, myself, when I was your
+age—frequent—and as a boy I’ve been among a many Bolters; but I never
+see your Bolting equal yet, Pip, and it’s a mercy you ain’t Bolted
+dead.
+
+INPUT: Summarize: “You know, old chap,” said Joe, looking at me, and not at Mrs. Joe,
+with his bite still in his cheek, “I Bolted, myself, when I was your
+age—frequent—and as a boy I’ve been among a many Bolters; but I never
+see your Bolting equal yet, Pip, and it’s a mercy you ain’t Bolted
+dead.
+RESPONSE: ”
+
+My sister made a dive at me, and fished me up by the hair, saying
+nothing more than the awful words, “You come along and be dosed.
+
+INPUT: What is this about: ”
+
+My sister made a dive at me, and fished me up by the hair, saying
+nothing more than the awful words, “You come along and be dosed.
+RESPONSE: ”
+
+Some medical beast had revived Tar-water in those days as a fine
+medicine, and Mrs.
+
+INPUT: Summarize: ”
+
+My sister made a dive at me, and fished me up by the hair, saying
+nothing more than the awful words, “You come along and be dosed. ”
+
+Some medical beast had revived Tar-water in those days as a fine
+medicine, and Mrs.
+RESPONSE: Joe always kept a supply of it in the cupboard;
+having a belief in its virtues correspondent to its nastiness.
+
+INPUT: Explain this: Joe always kept a supply of it in the cupboard;
+having a belief in its virtues correspondent to its nastiness.
+RESPONSE: At the
+best of times, so much of this elixir was administered to me as a
+choice restorative, that I was conscious of going about, smelling like
+a new fence.
+
+INPUT: Summarize: Joe always kept a supply of it in the cupboard;
+having a belief in its virtues correspondent to its nastiness. At the
+best of times, so much of this elixir was administered to me as a
+choice restorative, that I was conscious of going about, smelling like
+a new fence.
+RESPONSE: On this particular evening the urgency of my case demanded
+a pint of this mixture, which was poured down my throat, for my greater
+comfort, while Mrs.
+
+INPUT: What is this about: On this particular evening the urgency of my case demanded
+a pint of this mixture, which was poured down my throat, for my greater
+comfort, while Mrs.
+RESPONSE: Joe held my head under her arm, as a boot would be
+held in a bootjack.
+
+INPUT: Summarize: On this particular evening the urgency of my case demanded
+a pint of this mixture, which was poured down my throat, for my greater
+comfort, while Mrs. Joe held my head under her arm, as a boot would be
+held in a bootjack.
+RESPONSE: Joe got off with half a pint; but was made to
+swallow that (much to his disturbance, as he sat slowly munching and
+meditating before the fire), “because he had had a turn.
+
+INPUT: What does this say: Joe got off with half a pint; but was made to
+swallow that (much to his disturbance, as he sat slowly munching and
+meditating before the fire), “because he had had a turn.
+RESPONSE: ” Judging from
+myself, I should say he certainly had a turn afterwards, if he had had
+none before.
+
+INPUT: Summarize: Joe got off with half a pint; but was made to
+swallow that (much to his disturbance, as he sat slowly munching and
+meditating before the fire), “because he had had a turn. ” Judging from
+myself, I should say he certainly had a turn afterwards, if he had had
+none before.
+RESPONSE: Conscience is a dreadful thing when it accuses man or boy; but when, in
+the case of a boy, that secret burden co-operates with another secret
+burden down the leg of his trousers, it is (as I can testify) a great
+punishment.
+
+INPUT: What does this say: Conscience is a dreadful thing when it accuses man or boy; but when, in
+the case of a boy, that secret burden co-operates with another secret
+burden down the leg of his trousers, it is (as I can testify) a great
+punishment.
+RESPONSE: The guilty knowledge that I was going to rob Mrs.
+
+INPUT: Summarize: Conscience is a dreadful thing when it accuses man or boy; but when, in
+the case of a boy, that secret burden co-operates with another secret
+burden down the leg of his trousers, it is (as I can testify) a great
+punishment. The guilty knowledge that I was going to rob Mrs.
+RESPONSE: Joe—I
+never thought I was going to rob Joe, for I never thought of any of the
+housekeeping property as his—united to the necessity of always keeping
+one hand on my bread and butter as I sat, or when I was ordered about
+the kitchen on any small errand, almost drove me out of my mind.
+
+INPUT: What does this say: Joe—I
+never thought I was going to rob Joe, for I never thought of any of the
+housekeeping property as his—united to the necessity of always keeping
+one hand on my bread and butter as I sat, or when I was ordered about
+the kitchen on any small errand, almost drove me out of my mind.
+RESPONSE: Then,
+as the marsh winds made the fire glow and flare, I thought I heard the
+voice outside, of the man with the iron on his leg who had sworn me to
+secrecy, declaring that he couldn’t and wouldn’t starve until
+to-morrow, but must be fed now.
+
+INPUT: Summarize: Joe—I
+never thought I was going to rob Joe, for I never thought of any of the
+housekeeping property as his—united to the necessity of always keeping
+one hand on my bread and butter as I sat, or when I was ordered about
+the kitchen on any small errand, almost drove me out of my mind. Then,
+as the marsh winds made the fire glow and flare, I thought I heard the
+voice outside, of the man with the iron on his leg who had sworn me to
+secrecy, declaring that he couldn’t and wouldn’t starve until
+to-morrow, but must be fed now.
+RESPONSE: At other times, I thought, What if the
+young man who was with so much difficulty restrained from imbruing his
+hands in me should yield to a constitutional impatience, or should
+mistake the time, and should think himself accredited to my heart and
+liver to-night, instead of to-morrow!
+
+INPUT: Tell me about: At other times, I thought, What if the
+young man who was with so much difficulty restrained from imbruing his
+hands in me should yield to a constitutional impatience, or should
+mistake the time, and should think himself accredited to my heart and
+liver to-night, instead of to-morrow!
+RESPONSE: If ever anybody’s hair stood on
+end with terror, mine must have done so then.
+
+INPUT: Summarize: At other times, I thought, What if the
+young man who was with so much difficulty restrained from imbruing his
+hands in me should yield to a constitutional impatience, or should
+mistake the time, and should think himself accredited to my heart and
+liver to-night, instead of to-morrow! If ever anybody’s hair stood on
+end with terror, mine must have done so then.
+RESPONSE: But, perhaps, nobody’s
+ever did?
+
+INPUT: What is this about: But, perhaps, nobody’s
+ever did?
+RESPONSE: It was Christmas Eve, and I had to stir the pudding for next day, with
+a copper-stick, from seven to eight by the Dutch clock.
+
+INPUT: Summarize: But, perhaps, nobody’s
+ever did? It was Christmas Eve, and I had to stir the pudding for next day, with
+a copper-stick, from seven to eight by the Dutch clock.
+RESPONSE: I tried it with
+the load upon my leg (and that made me think afresh of the man with the
+load on _his_ leg), and found the tendency of exercise to bring the
+bread and butter out at my ankle, quite unmanageable.
+
+INPUT: What does this say: I tried it with
+the load upon my leg (and that made me think afresh of the man with the
+load on _his_ leg), and found the tendency of exercise to bring the
+bread and butter out at my ankle, quite unmanageable.
+RESPONSE: Happily I slipped
+away, and deposited that part of my conscience in my garret bedroom.
+
+INPUT: Summarize: I tried it with
+the load upon my leg (and that made me think afresh of the man with the
+load on _his_ leg), and found the tendency of exercise to bring the
+bread and butter out at my ankle, quite unmanageable. Happily I slipped
+away, and deposited that part of my conscience in my garret bedroom.
+RESPONSE: ” said I, when I had done my stirring, and was taking a final
+warm in the chimney corner before being sent up to bed; “was that great
+guns, Joe?
+
+INPUT: What does this say: ” said I, when I had done my stirring, and was taking a final
+warm in the chimney corner before being sent up to bed; “was that great
+guns, Joe?
+RESPONSE: “There’s another conwict off.
+
+INPUT: Summarize: ” said I, when I had done my stirring, and was taking a final
+warm in the chimney corner before being sent up to bed; “was that great
+guns, Joe? “There’s another conwict off.
+RESPONSE: ”
+
+“What does that mean, Joe?
+
+INPUT: Can you explain: ”
+
+“What does that mean, Joe?
+RESPONSE: Joe, who always took explanations upon herself, said, snappishly,
+“Escaped.
+
+INPUT: Summarize: ”
+
+“What does that mean, Joe? Joe, who always took explanations upon herself, said, snappishly,
+“Escaped.
+RESPONSE: ” Administering the definition like Tar-water.
+
+INPUT: Explain this: ” Administering the definition like Tar-water.
+RESPONSE: Joe sat with her head bending over her needlework, I put my
+mouth into the forms of saying to Joe, “What’s a convict?
+
+INPUT: Summarize: ” Administering the definition like Tar-water. Joe sat with her head bending over her needlework, I put my
+mouth into the forms of saying to Joe, “What’s a convict?
+RESPONSE: ” Joe put
+_his_ mouth into the forms of returning such a highly elaborate answer,
+that I could make out nothing of it but the single word “Pip.
+
+INPUT: Tell me about: ” Joe put
+_his_ mouth into the forms of returning such a highly elaborate answer,
+that I could make out nothing of it but the single word “Pip.
+RESPONSE: ”
+
+“There was a conwict off last night,” said Joe, aloud, “after
+sunset-gun.
+
+INPUT: Summarize: ” Joe put
+_his_ mouth into the forms of returning such a highly elaborate answer,
+that I could make out nothing of it but the single word “Pip. ”
+
+“There was a conwict off last night,” said Joe, aloud, “after
+sunset-gun.
+RESPONSE: And they fired warning of him.
+
+INPUT: Explain this: And they fired warning of him.
+RESPONSE: And now it appears they’re
+firing warning of another.
+
+INPUT: Summarize: And they fired warning of him. And now it appears they’re
+firing warning of another.
+RESPONSE: ”
+
+“_Who’s_ firing?
+
+INPUT: What is this about: ”
+
+“_Who’s_ firing?
+RESPONSE: “Drat that boy,” interposed my sister, frowning at me over her work,
+“what a questioner he is.
+
+INPUT: Summarize: ”
+
+“_Who’s_ firing? “Drat that boy,” interposed my sister, frowning at me over her work,
+“what a questioner he is.
+RESPONSE: Ask no questions, and you’ll be told no
+lies.
+
+INPUT: Can you explain: Ask no questions, and you’ll be told no
+lies.
+RESPONSE: ”
+
+It was not very polite to herself, I thought, to imply that I should be
+told lies by her even if I did ask questions.
+
+INPUT: Summarize: Ask no questions, and you’ll be told no
+lies. ”
+
+It was not very polite to herself, I thought, to imply that I should be
+told lies by her even if I did ask questions.
+RESPONSE: But she never was polite
+unless there was company.
+
+INPUT: Explain this: But she never was polite
+unless there was company.
+RESPONSE: At this point Joe greatly augmented my curiosity by taking the utmost
+pains to open his mouth very wide, and to put it into the form of a
+word that looked to me like “sulks.
+
+INPUT: Summarize: But she never was polite
+unless there was company. At this point Joe greatly augmented my curiosity by taking the utmost
+pains to open his mouth very wide, and to put it into the form of a
+word that looked to me like “sulks.
+RESPONSE: ” Therefore, I naturally pointed to
+Mrs.
+
+INPUT: What is this about: ” Therefore, I naturally pointed to
+Mrs.
+RESPONSE: Joe, and put my mouth into the form of saying, “her?
+
+INPUT: Summarize: ” Therefore, I naturally pointed to
+Mrs. Joe, and put my mouth into the form of saying, “her?
+RESPONSE: ” But Joe
+wouldn’t hear of that, at all, and again opened his mouth very wide,
+and shook the form of a most emphatic word out of it.
+
+INPUT: Explain this: ” But Joe
+wouldn’t hear of that, at all, and again opened his mouth very wide,
+and shook the form of a most emphatic word out of it.
+RESPONSE: But I could make
+nothing of the word.
+
+INPUT: Summarize: ” But Joe
+wouldn’t hear of that, at all, and again opened his mouth very wide,
+and shook the form of a most emphatic word out of it. But I could make
+nothing of the word.
+RESPONSE: Joe,” said I, as a last resort, “I should like to know—if you
+wouldn’t much mind—where the firing comes from?
+
+INPUT: What does this say: Joe,” said I, as a last resort, “I should like to know—if you
+wouldn’t much mind—where the firing comes from?
+RESPONSE: ”
+
+“Lord bless the boy!
+
+INPUT: Summarize: Joe,” said I, as a last resort, “I should like to know—if you
+wouldn’t much mind—where the firing comes from? ”
+
+“Lord bless the boy!
+RESPONSE: ” exclaimed my sister, as if she didn’t quite mean
+that but rather the contrary.
+
+INPUT: Explain this: ” exclaimed my sister, as if she didn’t quite mean
+that but rather the contrary.
+RESPONSE: ” said I, looking at Joe.
+
+INPUT: Summarize: ” exclaimed my sister, as if she didn’t quite mean
+that but rather the contrary. ” said I, looking at Joe.
+RESPONSE: ”
+
+Joe gave a reproachful cough, as much as to say, “Well, I told you so.
+
+INPUT: What is this about: ”
+
+Joe gave a reproachful cough, as much as to say, “Well, I told you so.
+RESPONSE: ”
+
+“And please, what’s Hulks?
+
+INPUT: Summarize: ”
+
+Joe gave a reproachful cough, as much as to say, “Well, I told you so. ”
+
+“And please, what’s Hulks?
+RESPONSE: “That’s the way with this boy!
+
+INPUT: What is this about: “That’s the way with this boy!
+RESPONSE: ” exclaimed my sister, pointing me out
+with her needle and thread, and shaking her head at me.
+
+INPUT: Summarize: “That’s the way with this boy! ” exclaimed my sister, pointing me out
+with her needle and thread, and shaking her head at me.
+RESPONSE: “Answer him one
+question, and he’ll ask you a dozen directly.
+
+INPUT: What does this say: “Answer him one
+question, and he’ll ask you a dozen directly.
+RESPONSE: Hulks are prison-ships,
+right ’cross th’ meshes.
+
+INPUT: Summarize: “Answer him one
+question, and he’ll ask you a dozen directly. Hulks are prison-ships,
+right ’cross th’ meshes.
+RESPONSE: ” We always used that name for marshes, in our
+country.
+
+INPUT: Tell me about: ” We always used that name for marshes, in our
+country.
+RESPONSE: “I wonder who’s put into prison-ships, and why they’re put there?
+
+INPUT: Summarize: ” We always used that name for marshes, in our
+country. “I wonder who’s put into prison-ships, and why they’re put there?
+RESPONSE: ” said
+I, in a general way, and with quiet desperation.
+
+INPUT: Can you explain: ” said
+I, in a general way, and with quiet desperation.
+RESPONSE: It was too much for Mrs.
+
+INPUT: Summarize: ” said
+I, in a general way, and with quiet desperation. It was too much for Mrs.
+RESPONSE: Joe, who immediately rose.
+
+INPUT: Explain this: Joe, who immediately rose.
+RESPONSE: “I tell you what,
+young fellow,” said she, “I didn’t bring you up by hand to badger
+people’s lives out.
+
+INPUT: Summarize: Joe, who immediately rose. “I tell you what,
+young fellow,” said she, “I didn’t bring you up by hand to badger
+people’s lives out.
+RESPONSE: It would be blame to me and not praise, if I had.
+
+INPUT: Tell me about: It would be blame to me and not praise, if I had.
+RESPONSE: People are put in the Hulks because they murder, and because they rob,
+and forge, and do all sorts of bad; and they always begin by asking
+questions.
+
+INPUT: Summarize: It would be blame to me and not praise, if I had. People are put in the Hulks because they murder, and because they rob,
+and forge, and do all sorts of bad; and they always begin by asking
+questions.
+RESPONSE: Now, you get along to bed!
+
+INPUT: Tell me about: Now, you get along to bed!
+RESPONSE: ”
+
+I was never allowed a candle to light me to bed, and, as I went
+upstairs in the dark, with my head tingling,—from Mrs.
+
+INPUT: Summarize: Now, you get along to bed! ”
+
+I was never allowed a candle to light me to bed, and, as I went
+upstairs in the dark, with my head tingling,—from Mrs.
+RESPONSE: Joe’s thimble
+having played the tambourine upon it, to accompany her last words,—I
+felt fearfully sensible of the great convenience that the hulks were
+handy for me.
+
+INPUT: What is this about: Joe’s thimble
+having played the tambourine upon it, to accompany her last words,—I
+felt fearfully sensible of the great convenience that the hulks were
+handy for me.
+RESPONSE: I was clearly on my way there.
+
+INPUT: Summarize: Joe’s thimble
+having played the tambourine upon it, to accompany her last words,—I
+felt fearfully sensible of the great convenience that the hulks were
+handy for me. I was clearly on my way there.
+RESPONSE: I had begun by asking
+questions, and I was going to rob Mrs.
+
+INPUT: Explain this: I had begun by asking
+questions, and I was going to rob Mrs.
+RESPONSE: Since that time, which is far enough away now, I have often thought
+that few people know what secrecy there is in the young under terror.
+
+INPUT: Summarize: I had begun by asking
+questions, and I was going to rob Mrs. Since that time, which is far enough away now, I have often thought
+that few people know what secrecy there is in the young under terror.
+RESPONSE: No matter how unreasonable the terror, so that it be terror.
+
+INPUT: Explain this: No matter how unreasonable the terror, so that it be terror.
+RESPONSE: I was in
+mortal terror of the young man who wanted my heart and liver; I was in
+mortal terror of my interlocutor with the iron leg; I was in mortal
+terror of myself, from whom an awful promise had been extracted; I had
+no hope of deliverance through my all-powerful sister, who repulsed me
+at every turn; I am afraid to think of what I might have done on
+requirement, in the secrecy of my terror.
+
+INPUT: Summarize: No matter how unreasonable the terror, so that it be terror. I was in
+mortal terror of the young man who wanted my heart and liver; I was in
+mortal terror of my interlocutor with the iron leg; I was in mortal
+terror of myself, from whom an awful promise had been extracted; I had
+no hope of deliverance through my all-powerful sister, who repulsed me
+at every turn; I am afraid to think of what I might have done on
+requirement, in the secrecy of my terror.
+RESPONSE: If I slept at all that night, it was only to imagine myself drifting
+down the river on a strong spring-tide, to the Hulks; a ghostly pirate
+calling out to me through a speaking-trumpet, as I passed the
+gibbet-station, that I had better come ashore and be hanged there at
+once, and not put it off.
+
+INPUT: Tell me about: If I slept at all that night, it was only to imagine myself drifting
+down the river on a strong spring-tide, to the Hulks; a ghostly pirate
+calling out to me through a speaking-trumpet, as I passed the
+gibbet-station, that I had better come ashore and be hanged there at
+once, and not put it off.
+RESPONSE: I was afraid to sleep, even if I had been
+inclined, for I knew that at the first faint dawn of morning I must rob
+the pantry.
+
+INPUT: Summarize: If I slept at all that night, it was only to imagine myself drifting
+down the river on a strong spring-tide, to the Hulks; a ghostly pirate
+calling out to me through a speaking-trumpet, as I passed the
+gibbet-station, that I had better come ashore and be hanged there at
+once, and not put it off. I was afraid to sleep, even if I had been
+inclined, for I knew that at the first faint dawn of morning I must rob
+the pantry.
+RESPONSE: There was no doing it in the night, for there was no
+getting a light by easy friction then; to have got one I must have
+struck it out of flint and steel, and have made a noise like the very
+pirate himself rattling his chains.
+
+INPUT: Can you explain: There was no doing it in the night, for there was no
+getting a light by easy friction then; to have got one I must have
+struck it out of flint and steel, and have made a noise like the very
+pirate himself rattling his chains.
+RESPONSE: As soon as the great black velvet pall outside my little window was
+shot with grey, I got up and went downstairs; every board upon the way,
+and every crack in every board calling after me, “Stop thief!
+
+INPUT: Summarize: There was no doing it in the night, for there was no
+getting a light by easy friction then; to have got one I must have
+struck it out of flint and steel, and have made a noise like the very
+pirate himself rattling his chains. As soon as the great black velvet pall outside my little window was
+shot with grey, I got up and went downstairs; every board upon the way,
+and every crack in every board calling after me, “Stop thief!
+RESPONSE: ” and “Get
+up, Mrs.
+
+INPUT: What is this about: ” and “Get
+up, Mrs.
+RESPONSE: ” In the pantry, which was far more abundantly supplied
+than usual, owing to the season, I was very much alarmed by a hare
+hanging up by the heels, whom I rather thought I caught, when my back
+was half turned, winking.
+
+INPUT: Summarize: ” and “Get
+up, Mrs. ” In the pantry, which was far more abundantly supplied
+than usual, owing to the season, I was very much alarmed by a hare
+hanging up by the heels, whom I rather thought I caught, when my back
+was half turned, winking.
+RESPONSE: I had no time for verification, no time for
+selection, no time for anything, for I had no time to spare.
+
+INPUT: What does this say: I had no time for verification, no time for
+selection, no time for anything, for I had no time to spare.
+RESPONSE: I stole
+some bread, some rind of cheese, about half a jar of mincemeat (which I
+tied up in my pocket-handkerchief with my last night’s slice), some
+brandy from a stone bottle (which I decanted into a glass bottle I had
+secretly used for making that intoxicating fluid,
+Spanish-liquorice-water, up in my room: diluting the stone bottle from
+a jug in the kitchen cupboard), a meat bone with very little on it, and
+a beautiful round compact pork pie.
+
+INPUT: Summarize: I had no time for verification, no time for
+selection, no time for anything, for I had no time to spare. I stole
+some bread, some rind of cheese, about half a jar of mincemeat (which I
+tied up in my pocket-handkerchief with my last night’s slice), some
+brandy from a stone bottle (which I decanted into a glass bottle I had
+secretly used for making that intoxicating fluid,
+Spanish-liquorice-water, up in my room: diluting the stone bottle from
+a jug in the kitchen cupboard), a meat bone with very little on it, and
+a beautiful round compact pork pie.
+RESPONSE: I was nearly going away without the
+pie, but I was tempted to mount upon a shelf, to look what it was that
+was put away so carefully in a covered earthenware dish in a corner,
+and I found it was the pie, and I took it in the hope that it was not
+intended for early use, and would not be missed for some time.
+
+INPUT: Explain this: I was nearly going away without the
+pie, but I was tempted to mount upon a shelf, to look what it was that
+was put away so carefully in a covered earthenware dish in a corner,
+and I found it was the pie, and I took it in the hope that it was not
+intended for early use, and would not be missed for some time.
+RESPONSE: There was a door in the kitchen, communicating with the forge; I
+unlocked and unbolted that door, and got a file from among Joe’s tools.
+
+INPUT: Summarize: I was nearly going away without the
+pie, but I was tempted to mount upon a shelf, to look what it was that
+was put away so carefully in a covered earthenware dish in a corner,
+and I found it was the pie, and I took it in the hope that it was not
+intended for early use, and would not be missed for some time. There was a door in the kitchen, communicating with the forge; I
+unlocked and unbolted that door, and got a file from among Joe’s tools.
+RESPONSE: Then I put the fastenings as I had found them, opened the door at which
+I had entered when I ran home last night, shut it, and ran for the
+misty marshes.
+
+INPUT: What is this about: Then I put the fastenings as I had found them, opened the door at which
+I had entered when I ran home last night, shut it, and ran for the
+misty marshes.
+RESPONSE: It was a rimy morning, and very damp.
+
+INPUT: Summarize: Then I put the fastenings as I had found them, opened the door at which
+I had entered when I ran home last night, shut it, and ran for the
+misty marshes. It was a rimy morning, and very damp.
+RESPONSE: I had seen the damp lying on the
+outside of my little window, as if some goblin had been crying there
+all night, and using the window for a pocket-handkerchief.
+
+INPUT: Tell me about: I had seen the damp lying on the
+outside of my little window, as if some goblin had been crying there
+all night, and using the window for a pocket-handkerchief.
+RESPONSE: Now, I saw
+the damp lying on the bare hedges and spare grass, like a coarser sort
+of spiders’ webs; hanging itself from twig to twig and blade to blade.
+
+INPUT: Summarize: I had seen the damp lying on the
+outside of my little window, as if some goblin had been crying there
+all night, and using the window for a pocket-handkerchief. Now, I saw
+the damp lying on the bare hedges and spare grass, like a coarser sort
+of spiders’ webs; hanging itself from twig to twig and blade to blade.
+RESPONSE: On every rail and gate, wet lay clammy, and the marsh mist was so
+thick, that the wooden finger on the post directing people to our
+village—a direction which they never accepted, for they never came
+there—was invisible to me until I was quite close under it.
+
+INPUT: Can you explain: On every rail and gate, wet lay clammy, and the marsh mist was so
+thick, that the wooden finger on the post directing people to our
+village—a direction which they never accepted, for they never came
+there—was invisible to me until I was quite close under it.
+RESPONSE: Then, as I
+looked up at it, while it dripped, it seemed to my oppressed conscience
+like a phantom devoting me to the Hulks.
+
+INPUT: Summarize: On every rail and gate, wet lay clammy, and the marsh mist was so
+thick, that the wooden finger on the post directing people to our
+village—a direction which they never accepted, for they never came
+there—was invisible to me until I was quite close under it. Then, as I
+looked up at it, while it dripped, it seemed to my oppressed conscience
+like a phantom devoting me to the Hulks.
+RESPONSE: The mist was heavier yet when I got out upon the marshes, so that
+instead of my running at everything, everything seemed to run at me.
+
+INPUT: What does this mean: The mist was heavier yet when I got out upon the marshes, so that
+instead of my running at everything, everything seemed to run at me.
+RESPONSE: This was very disagreeable to a guilty mind.
+
+INPUT: Summarize: The mist was heavier yet when I got out upon the marshes, so that
+instead of my running at everything, everything seemed to run at me. This was very disagreeable to a guilty mind.
+RESPONSE: The gates and dikes and
+banks came bursting at me through the mist, as if they cried as plainly
+as could be, “A boy with somebody else’s pork pie!
+
+INPUT: Can you explain: The gates and dikes and
+banks came bursting at me through the mist, as if they cried as plainly
+as could be, “A boy with somebody else’s pork pie!
+RESPONSE: ” The
+cattle came upon me with like suddenness, staring out of their eyes,
+and steaming out of their nostrils, “Halloa, young thief!
+
+INPUT: Summarize: The gates and dikes and
+banks came bursting at me through the mist, as if they cried as plainly
+as could be, “A boy with somebody else’s pork pie! ” The
+cattle came upon me with like suddenness, staring out of their eyes,
+and steaming out of their nostrils, “Halloa, young thief!
+RESPONSE: ” One black
+ox, with a white cravat on,—who even had to my awakened conscience
+something of a clerical air,—fixed me so obstinately with his eyes, and
+moved his blunt head round in such an accusatory manner as I moved
+round, that I blubbered out to him, “I couldn’t help it, sir!
+
+INPUT: What does this say: ” One black
+ox, with a white cravat on,—who even had to my awakened conscience
+something of a clerical air,—fixed me so obstinately with his eyes, and
+moved his blunt head round in such an accusatory manner as I moved
+round, that I blubbered out to him, “I couldn’t help it, sir!
+RESPONSE: It wasn’t
+for myself I took it!
+
+INPUT: Summarize: ” One black
+ox, with a white cravat on,—who even had to my awakened conscience
+something of a clerical air,—fixed me so obstinately with his eyes, and
+moved his blunt head round in such an accusatory manner as I moved
+round, that I blubbered out to him, “I couldn’t help it, sir! It wasn’t
+for myself I took it!
+RESPONSE: ” Upon which he put down his head, blew a cloud of
+smoke out of his nose, and vanished with a kick-up of his hind-legs and
+a flourish of his tail.
+
+INPUT: What is this about: ” Upon which he put down his head, blew a cloud of
+smoke out of his nose, and vanished with a kick-up of his hind-legs and
+a flourish of his tail.
+RESPONSE: All this time, I was getting on towards the river; but however fast I
+went, I couldn’t warm my feet, to which the damp cold seemed riveted,
+as the iron was riveted to the leg of the man I was running to meet.
+
+INPUT: Summarize: ” Upon which he put down his head, blew a cloud of
+smoke out of his nose, and vanished with a kick-up of his hind-legs and
+a flourish of his tail. All this time, I was getting on towards the river; but however fast I
+went, I couldn’t warm my feet, to which the damp cold seemed riveted,
+as the iron was riveted to the leg of the man I was running to meet.
+RESPONSE: I
+knew my way to the Battery, pretty straight, for I had been down there
+on a Sunday with Joe, and Joe, sitting on an old gun, had told me that
+when I was ’prentice to him, regularly bound, we would have such Larks
+there!
+
+INPUT: What does this say: I
+knew my way to the Battery, pretty straight, for I had been down there
+on a Sunday with Joe, and Joe, sitting on an old gun, had told me that
+when I was ’prentice to him, regularly bound, we would have such Larks
+there!
+RESPONSE: However, in the confusion of the mist, I found myself at last
+too far to the right, and consequently had to try back along the
+river-side, on the bank of loose stones above the mud and the stakes
+that staked the tide out.
+
+INPUT: Summarize: I
+knew my way to the Battery, pretty straight, for I had been down there
+on a Sunday with Joe, and Joe, sitting on an old gun, had told me that
+when I was ’prentice to him, regularly bound, we would have such Larks
+there! However, in the confusion of the mist, I found myself at last
+too far to the right, and consequently had to try back along the
+river-side, on the bank of loose stones above the mud and the stakes
+that staked the tide out.
+RESPONSE: Making my way along here with all despatch, I
+had just crossed a ditch which I knew to be very near the Battery, and
+had just scrambled up the mound beyond the ditch, when I saw the man
+sitting before me.
+
+INPUT: What does this mean: Making my way along here with all despatch, I
+had just crossed a ditch which I knew to be very near the Battery, and
+had just scrambled up the mound beyond the ditch, when I saw the man
+sitting before me.
+RESPONSE: His back was towards me, and he had his arms folded,
+and was nodding forward, heavy with sleep.
+
+INPUT: Summarize: Making my way along here with all despatch, I
+had just crossed a ditch which I knew to be very near the Battery, and
+had just scrambled up the mound beyond the ditch, when I saw the man
+sitting before me. His back was towards me, and he had his arms folded,
+and was nodding forward, heavy with sleep.
+RESPONSE: I thought he would be more glad if I came upon him with his breakfast,
+in that unexpected manner, so I went forward softly and touched him on
+the shoulder.
+
+INPUT: Explain this: I thought he would be more glad if I came upon him with his breakfast,
+in that unexpected manner, so I went forward softly and touched him on
+the shoulder.
+RESPONSE: He instantly jumped up, and it was not the same man, but
+another man!
+
+INPUT: Summarize: I thought he would be more glad if I came upon him with his breakfast,
+in that unexpected manner, so I went forward softly and touched him on
+the shoulder. He instantly jumped up, and it was not the same man, but
+another man!
+RESPONSE: And yet this man was dressed in coarse grey, too, and had a great iron
+on his leg, and was lame, and hoarse, and cold, and was everything that
+the other man was; except that he had not the same face, and had a flat
+broad-brimmed low-crowned felt hat on.
+
+INPUT: Can you explain: And yet this man was dressed in coarse grey, too, and had a great iron
+on his leg, and was lame, and hoarse, and cold, and was everything that
+the other man was; except that he had not the same face, and had a flat
+broad-brimmed low-crowned felt hat on.
+RESPONSE: All this I saw in a moment, for
+I had only a moment to see it in: he swore an oath at me, made a hit at
+me,—it was a round weak blow that missed me and almost knocked himself
+down, for it made him stumble,—and then he ran into the mist, stumbling
+twice as he went, and I lost him.
+
+INPUT: Summarize: And yet this man was dressed in coarse grey, too, and had a great iron
+on his leg, and was lame, and hoarse, and cold, and was everything that
+the other man was; except that he had not the same face, and had a flat
+broad-brimmed low-crowned felt hat on. All this I saw in a moment, for
+I had only a moment to see it in: he swore an oath at me, made a hit at
+me,—it was a round weak blow that missed me and almost knocked himself
+down, for it made him stumble,—and then he ran into the mist, stumbling
+twice as he went, and I lost him.
+RESPONSE: “It’s the young man!
+
+INPUT: What is this about: “It’s the young man!
+RESPONSE: ” I thought, feeling my heart shoot as I identified
+him.
+
+INPUT: Summarize: “It’s the young man! ” I thought, feeling my heart shoot as I identified
+him.
+RESPONSE: I dare say I should have felt a pain in my liver, too, if I had
+known where it was.
+
+INPUT: What does this mean: I dare say I should have felt a pain in my liver, too, if I had
+known where it was.
+RESPONSE: I was soon at the Battery after that, and there was the right
+man,—hugging himself and limping to and fro, as if he had never all
+night left off hugging and limping,—waiting for me.
+
+INPUT: Summarize: I dare say I should have felt a pain in my liver, too, if I had
+known where it was. I was soon at the Battery after that, and there was the right
+man,—hugging himself and limping to and fro, as if he had never all
+night left off hugging and limping,—waiting for me.
+RESPONSE: He was awfully
+cold, to be sure.
+
+INPUT: What does this say: He was awfully
+cold, to be sure.
+RESPONSE: I half expected to see him drop down before my face
+and die of deadly cold.
+
+INPUT: Summarize: He was awfully
+cold, to be sure. I half expected to see him drop down before my face
+and die of deadly cold.
+RESPONSE: His eyes looked so awfully hungry too, that
+when I handed him the file and he laid it down on the grass, it
+occurred to me he would have tried to eat it, if he had not seen my
+bundle.
+
+INPUT: What does this say: His eyes looked so awfully hungry too, that
+when I handed him the file and he laid it down on the grass, it
+occurred to me he would have tried to eat it, if he had not seen my
+bundle.
+RESPONSE: He did not turn me upside down this time to get at what I had,
+but left me right side upwards while I opened the bundle and emptied my
+pockets.
+
+INPUT: Summarize: His eyes looked so awfully hungry too, that
+when I handed him the file and he laid it down on the grass, it
+occurred to me he would have tried to eat it, if he had not seen my
+bundle. He did not turn me upside down this time to get at what I had,
+but left me right side upwards while I opened the bundle and emptied my
+pockets.
+RESPONSE: “What’s in the bottle, boy?
+
+INPUT: Explain this: “What’s in the bottle, boy?
+RESPONSE: “Brandy,” said I.
+
+INPUT: Summarize: “What’s in the bottle, boy? “Brandy,” said I.
+RESPONSE: He was already handing mincemeat down his throat in the most curious
+manner,—more like a man who was putting it away somewhere in a violent
+hurry, than a man who was eating it,—but he left off to take some of
+the liquor.
+
+INPUT: Tell me about: He was already handing mincemeat down his throat in the most curious
+manner,—more like a man who was putting it away somewhere in a violent
+hurry, than a man who was eating it,—but he left off to take some of
+the liquor.
+RESPONSE: He shivered all the while so violently, that it was quite
+as much as he could do to keep the neck of the bottle between his
+teeth, without biting it off.
+
+INPUT: Summarize: He was already handing mincemeat down his throat in the most curious
+manner,—more like a man who was putting it away somewhere in a violent
+hurry, than a man who was eating it,—but he left off to take some of
+the liquor. He shivered all the while so violently, that it was quite
+as much as he could do to keep the neck of the bottle between his
+teeth, without biting it off.
+RESPONSE: “I think you have got the ague,” said I.
+
+INPUT: What does this say: “I think you have got the ague,” said I.
+RESPONSE: “I’m much of your opinion, boy,” said he.
+
+INPUT: Summarize: “I think you have got the ague,” said I. “I’m much of your opinion, boy,” said he.
+RESPONSE: “It’s bad about here,” I told him.
+
+INPUT: What does this mean: “It’s bad about here,” I told him.
+RESPONSE: “You’ve been lying out on the
+meshes, and they’re dreadful aguish.
+
+INPUT: Summarize: “It’s bad about here,” I told him. “You’ve been lying out on the
+meshes, and they’re dreadful aguish.
+RESPONSE: ”
+
+“I’ll eat my breakfast afore they’re the death of me,” said he.
+
+INPUT: Tell me about: ”
+
+“I’ll eat my breakfast afore they’re the death of me,” said he.
+RESPONSE: “I’d do
+that, if I was going to be strung up to that there gallows as there is
+over there, directly afterwards.
+
+INPUT: Summarize: ”
+
+“I’ll eat my breakfast afore they’re the death of me,” said he. “I’d do
+that, if I was going to be strung up to that there gallows as there is
+over there, directly afterwards.
+RESPONSE: I’ll beat the shivers so far, I’ll bet
+you.
+
+INPUT: Can you explain: I’ll beat the shivers so far, I’ll bet
+you.
+RESPONSE: ”
+
+He was gobbling mincemeat, meatbone, bread, cheese, and pork pie, all
+at once: staring distrustfully while he did so at the mist all round
+us, and often stopping—even stopping his jaws—to listen.
+
+INPUT: Summarize: I’ll beat the shivers so far, I’ll bet
+you. ”
+
+He was gobbling mincemeat, meatbone, bread, cheese, and pork pie, all
+at once: staring distrustfully while he did so at the mist all round
+us, and often stopping—even stopping his jaws—to listen.
+RESPONSE: Some real or
+fancied sound, some clink upon the river or breathing of beast upon the
+marsh, now gave him a start, and he said, suddenly,—
+
+“You’re not a deceiving imp?
+
+INPUT: Tell me about: Some real or
+fancied sound, some clink upon the river or breathing of beast upon the
+marsh, now gave him a start, and he said, suddenly,—
+
+“You’re not a deceiving imp?
+RESPONSE: You brought no one with you?
+
+INPUT: Summarize: Some real or
+fancied sound, some clink upon the river or breathing of beast upon the
+marsh, now gave him a start, and he said, suddenly,—
+
+“You’re not a deceiving imp? You brought no one with you?
+RESPONSE: ”
+
+“Nor giv’ no one the office to follow you?
+
+INPUT: Tell me about: ”
+
+“Nor giv’ no one the office to follow you?
+RESPONSE: ”
+
+“Well,” said he, “I believe you.
+
+INPUT: Summarize: ”
+
+“Nor giv’ no one the office to follow you? ”
+
+“Well,” said he, “I believe you.
+RESPONSE: You’d be but a fierce young hound
+indeed, if at your time of life you could help to hunt a wretched
+warmint hunted as near death and dunghill as this poor wretched warmint
+is!
+
+INPUT: What does this say: You’d be but a fierce young hound
+indeed, if at your time of life you could help to hunt a wretched
+warmint hunted as near death and dunghill as this poor wretched warmint
+is!
+RESPONSE: ”
+
+Something clicked in his throat as if he had works in him like a clock,
+and was going to strike.
+
+INPUT: Summarize: You’d be but a fierce young hound
+indeed, if at your time of life you could help to hunt a wretched
+warmint hunted as near death and dunghill as this poor wretched warmint
+is! ”
+
+Something clicked in his throat as if he had works in him like a clock,
+and was going to strike.
+RESPONSE: And he smeared his ragged rough sleeve over
+his eyes.
+
+INPUT: Explain this: And he smeared his ragged rough sleeve over
+his eyes.
+RESPONSE: Pitying his desolation, and watching him as he gradually settled down
+upon the pie, I made bold to say, “I am glad you enjoy it.
+
+INPUT: Summarize: And he smeared his ragged rough sleeve over
+his eyes. Pitying his desolation, and watching him as he gradually settled down
+upon the pie, I made bold to say, “I am glad you enjoy it.
+RESPONSE: ”
+
+“Did you speak?
+
+INPUT: What does this mean: ”
+
+“Did you speak?
+RESPONSE: ”
+
+“I said I was glad you enjoyed it.
+
+INPUT: Summarize: ”
+
+“Did you speak? ”
+
+“I said I was glad you enjoyed it.
+RESPONSE: ”
+
+“Thankee, my boy.
+
+INPUT: What does this say: ”
+
+“Thankee, my boy.
+RESPONSE: ”
+
+I had often watched a large dog of ours eating his food; and I now
+noticed a decided similarity between the dog’s way of eating, and the
+man’s.
+
+INPUT: Summarize: ”
+
+“Thankee, my boy. ”
+
+I had often watched a large dog of ours eating his food; and I now
+noticed a decided similarity between the dog’s way of eating, and the
+man’s.
+RESPONSE: The man took strong sharp sudden bites, just like the dog.
+
+INPUT: What does this say: The man took strong sharp sudden bites, just like the dog.
+RESPONSE: He
+swallowed, or rather snapped up, every mouthful, too soon and too fast;
+and he looked sideways here and there while he ate, as if he thought
+there was danger in every direction of somebody’s coming to take the
+pie away.
+
+INPUT: Summarize: The man took strong sharp sudden bites, just like the dog. He
+swallowed, or rather snapped up, every mouthful, too soon and too fast;
+and he looked sideways here and there while he ate, as if he thought
+there was danger in every direction of somebody’s coming to take the
+pie away.
+RESPONSE: He was altogether too unsettled in his mind over it, to
+appreciate it comfortably I thought, or to have anybody to dine with
+him, without making a chop with his jaws at the visitor.
+
+INPUT: Can you explain: He was altogether too unsettled in his mind over it, to
+appreciate it comfortably I thought, or to have anybody to dine with
+him, without making a chop with his jaws at the visitor.
+RESPONSE: In all of
+which particulars he was very like the dog.
+
+INPUT: Summarize: He was altogether too unsettled in his mind over it, to
+appreciate it comfortably I thought, or to have anybody to dine with
+him, without making a chop with his jaws at the visitor. In all of
+which particulars he was very like the dog.
+RESPONSE: “I am afraid you won’t leave any of it for him,” said I, timidly; after
+a silence during which I had hesitated as to the politeness of making
+the remark.
+
+INPUT: Explain this: “I am afraid you won’t leave any of it for him,” said I, timidly; after
+a silence during which I had hesitated as to the politeness of making
+the remark.
+RESPONSE: “There’s no more to be got where that came from.
+
+INPUT: Summarize: “I am afraid you won’t leave any of it for him,” said I, timidly; after
+a silence during which I had hesitated as to the politeness of making
+the remark. “There’s no more to be got where that came from.
+RESPONSE: ” It was
+the certainty of this fact that impelled me to offer the hint.
+
+INPUT: Can you explain: ” It was
+the certainty of this fact that impelled me to offer the hint.
+RESPONSE: “Leave any for him?
+
+INPUT: Summarize: ” It was
+the certainty of this fact that impelled me to offer the hint. “Leave any for him?
+RESPONSE: ” said my friend, stopping in his
+crunching of pie-crust.
+
+INPUT: What does this say: ” said my friend, stopping in his
+crunching of pie-crust.
+RESPONSE: That was hid with you.
+
+INPUT: Summarize: ” said my friend, stopping in his
+crunching of pie-crust. That was hid with you.
+RESPONSE: ” he returned, with something like a gruff laugh.
+
+INPUT: Explain this: ” he returned, with something like a gruff laugh.
+RESPONSE: _He_ don’t want no wittles.
+
+INPUT: Summarize: ” he returned, with something like a gruff laugh. _He_ don’t want no wittles.
+RESPONSE: ”
+
+“I thought he looked as if he did,” said I.
+
+INPUT: What is this about: ”
+
+“I thought he looked as if he did,” said I.
+RESPONSE: The man stopped eating, and regarded me with the keenest scrutiny and
+the greatest surprise.
+
+INPUT: Summarize: ”
+
+“I thought he looked as if he did,” said I. The man stopped eating, and regarded me with the keenest scrutiny and
+the greatest surprise.
+RESPONSE: ”
+
+“Yonder,” said I, pointing; “over there, where I found him nodding
+asleep, and thought it was you.
+
+INPUT: What does this say: ”
+
+“Yonder,” said I, pointing; “over there, where I found him nodding
+asleep, and thought it was you.
+RESPONSE: ”
+
+He held me by the collar and stared at me so, that I began to think his
+first idea about cutting my throat had revived.
+
+INPUT: Summarize: ”
+
+“Yonder,” said I, pointing; “over there, where I found him nodding
+asleep, and thought it was you. ”
+
+He held me by the collar and stared at me so, that I began to think his
+first idea about cutting my throat had revived.
+RESPONSE: “Dressed like you, you know, only with a hat,” I explained, trembling;
+“and—and”—I was very anxious to put this delicately—“and with—the same
+reason for wanting to borrow a file.
+
+INPUT: What is this about: “Dressed like you, you know, only with a hat,” I explained, trembling;
+“and—and”—I was very anxious to put this delicately—“and with—the same
+reason for wanting to borrow a file.
+RESPONSE: Didn’t you hear the cannon last
+night?
+
+INPUT: Summarize: “Dressed like you, you know, only with a hat,” I explained, trembling;
+“and—and”—I was very anxious to put this delicately—“and with—the same
+reason for wanting to borrow a file. Didn’t you hear the cannon last
+night?
+RESPONSE: ”
+
+“Then there _was_ firing!
+
+INPUT: What does this mean: ”
+
+“Then there _was_ firing!
+RESPONSE: ” he said to himself.
+
+INPUT: Summarize: ”
+
+“Then there _was_ firing! ” he said to himself.
+RESPONSE: “I wonder you shouldn’t have been sure of that,” I returned, “for we
+heard it up at home, and that’s farther away, and we were shut in
+besides.
+
+INPUT: What does this mean: “I wonder you shouldn’t have been sure of that,” I returned, “for we
+heard it up at home, and that’s farther away, and we were shut in
+besides.
+RESPONSE: ”
+
+“Why, see now!
+
+INPUT: Summarize: “I wonder you shouldn’t have been sure of that,” I returned, “for we
+heard it up at home, and that’s farther away, and we were shut in
+besides. ”
+
+“Why, see now!
+RESPONSE: “When a man’s alone on these flats, with a
+light head and a light stomach, perishing of cold and want, he hears
+nothin’ all night, but guns firing, and voices calling.
+
+INPUT: What is this about: “When a man’s alone on these flats, with a
+light head and a light stomach, perishing of cold and want, he hears
+nothin’ all night, but guns firing, and voices calling.
+RESPONSE: He sees
+the soldiers, with their red coats lighted up by the torches carried
+afore, closing in round him.
+
+INPUT: Summarize: “When a man’s alone on these flats, with a
+light head and a light stomach, perishing of cold and want, he hears
+nothin’ all night, but guns firing, and voices calling. He sees
+the soldiers, with their red coats lighted up by the torches carried
+afore, closing in round him.
+RESPONSE: Hears his number called, hears himself
+challenged, hears the rattle of the muskets, hears the orders ‘Make
+ready!
+
+INPUT: What does this say: Hears his number called, hears himself
+challenged, hears the rattle of the muskets, hears the orders ‘Make
+ready!
+RESPONSE: Cover him steady, men!
+
+INPUT: Summarize: Hears his number called, hears himself
+challenged, hears the rattle of the muskets, hears the orders ‘Make
+ready! Cover him steady, men!
+RESPONSE: ’ and is laid hands on—and
+there’s nothin’!
+
+INPUT: Tell me about: ’ and is laid hands on—and
+there’s nothin’!
+RESPONSE: Why, if I see one pursuing party last night—coming up
+in order, Damn ’em, with their tramp, tramp—I see a hundred.
+
+INPUT: Summarize: ’ and is laid hands on—and
+there’s nothin’! Why, if I see one pursuing party last night—coming up
+in order, Damn ’em, with their tramp, tramp—I see a hundred.
+RESPONSE: Why, I see the mist shake with the cannon, arter it was broad
+day,—But this man”; he had said all the rest, as if he had forgotten my
+being there; “did you notice anything in him?
+
+INPUT: Tell me about: Why, I see the mist shake with the cannon, arter it was broad
+day,—But this man”; he had said all the rest, as if he had forgotten my
+being there; “did you notice anything in him?
+RESPONSE: ”
+
+“He had a badly bruised face,” said I, recalling what I hardly knew I
+knew.
+
+INPUT: Summarize: Why, I see the mist shake with the cannon, arter it was broad
+day,—But this man”; he had said all the rest, as if he had forgotten my
+being there; “did you notice anything in him? ”
+
+“He had a badly bruised face,” said I, recalling what I hardly knew I
+knew.
+RESPONSE: ” exclaimed the man, striking his left cheek mercilessly,
+with the flat of his hand.
+
+INPUT: What does this mean: ” exclaimed the man, striking his left cheek mercilessly,
+with the flat of his hand.
+RESPONSE: ”
+
+“Where is he?
+
+INPUT: Summarize: ” exclaimed the man, striking his left cheek mercilessly,
+with the flat of his hand. ”
+
+“Where is he?
+RESPONSE: ” He crammed what little food was left, into the breast of
+his grey jacket.
+
+INPUT: What is this about: ” He crammed what little food was left, into the breast of
+his grey jacket.
+RESPONSE: “Show me the way he went.
+
+INPUT: Summarize: ” He crammed what little food was left, into the breast of
+his grey jacket. “Show me the way he went.
+RESPONSE: I’ll pull him down, like a
+bloodhound.
+
+INPUT: Can you explain: I’ll pull him down, like a
+bloodhound.
+RESPONSE: Curse this iron on my sore leg!
+
+INPUT: Summarize: I’ll pull him down, like a
+bloodhound. Curse this iron on my sore leg!
+RESPONSE: Give us hold of the file,
+boy.
+
+INPUT: What does this mean: Give us hold of the file,
+boy.
+RESPONSE: ”
+
+I indicated in what direction the mist had shrouded the other man, and
+he looked up at it for an instant.
+
+INPUT: Summarize: Give us hold of the file,
+boy. ”
+
+I indicated in what direction the mist had shrouded the other man, and
+he looked up at it for an instant.
+RESPONSE: But he was down on the rank wet
+grass, filing at his iron like a madman, and not minding me or minding
+his own leg, which had an old chafe upon it and was bloody, but which
+he handled as roughly as if it had no more feeling in it than the file.
+
+INPUT: Can you explain: But he was down on the rank wet
+grass, filing at his iron like a madman, and not minding me or minding
+his own leg, which had an old chafe upon it and was bloody, but which
+he handled as roughly as if it had no more feeling in it than the file.
+RESPONSE: I was very much afraid of him again, now that he had worked himself
+into this fierce hurry, and I was likewise very much afraid of keeping
+away from home any longer.
+
+INPUT: Summarize: But he was down on the rank wet
+grass, filing at his iron like a madman, and not minding me or minding
+his own leg, which had an old chafe upon it and was bloody, but which
+he handled as roughly as if it had no more feeling in it than the file. I was very much afraid of him again, now that he had worked himself
+into this fierce hurry, and I was likewise very much afraid of keeping
+away from home any longer.
+RESPONSE: I told him I must go, but he took no notice,
+so I thought the best thing I could do was to slip off.
+
+INPUT: Tell me about: I told him I must go, but he took no notice,
+so I thought the best thing I could do was to slip off.
+RESPONSE: The last I saw
+of him, his head was bent over his knee and he was working hard at his
+fetter, muttering impatient imprecations at it and at his leg.
+
+INPUT: Summarize: I told him I must go, but he took no notice,
+so I thought the best thing I could do was to slip off. The last I saw
+of him, his head was bent over his knee and he was working hard at his
+fetter, muttering impatient imprecations at it and at his leg.
+RESPONSE: The last
+I heard of him, I stopped in the mist to listen, and the file was still
+going.
+
+INPUT: What is this about: The last
+I heard of him, I stopped in the mist to listen, and the file was still
+going.
+RESPONSE: I fully expected to find a Constable in the kitchen, waiting to take me
+up.
+
+INPUT: Summarize: The last
+I heard of him, I stopped in the mist to listen, and the file was still
+going. I fully expected to find a Constable in the kitchen, waiting to take me
+up.
+RESPONSE: But not only was there no Constable there, but no discovery had yet
+been made of the robbery.
+
+INPUT: What does this say: But not only was there no Constable there, but no discovery had yet
+been made of the robbery.
+RESPONSE: Joe was prodigiously busy in getting the
+house ready for the festivities of the day, and Joe had been put upon
+the kitchen doorstep to keep him out of the dust-pan,—an article into
+which his destiny always led him, sooner or later, when my sister was
+vigorously reaping the floors of her establishment.
+
+INPUT: Summarize: But not only was there no Constable there, but no discovery had yet
+been made of the robbery. Joe was prodigiously busy in getting the
+house ready for the festivities of the day, and Joe had been put upon
+the kitchen doorstep to keep him out of the dust-pan,—an article into
+which his destiny always led him, sooner or later, when my sister was
+vigorously reaping the floors of her establishment.
+RESPONSE: “And where the deuce ha’ _you_ been?
+
+INPUT: Explain this: “And where the deuce ha’ _you_ been?
+RESPONSE: Joe’s Christmas
+salutation, when I and my conscience showed ourselves.
+
+INPUT: Summarize: “And where the deuce ha’ _you_ been? Joe’s Christmas
+salutation, when I and my conscience showed ourselves.
+RESPONSE: I said I had been down to hear the Carols.
+
+INPUT: Explain this: I said I had been down to hear the Carols.
+RESPONSE: “You might ha’ done worse.
+
+INPUT: Summarize: I said I had been down to hear the Carols. “You might ha’ done worse.
+RESPONSE: ” Not a doubt of that I thought.
+
+INPUT: Tell me about: ” Not a doubt of that I thought.
+RESPONSE: “Perhaps if I warn’t a blacksmith’s wife, and (what’s the same thing) a
+slave with her apron never off, _I_ should have been to hear the
+Carols,” said Mrs.
+
+INPUT: Summarize: ” Not a doubt of that I thought. “Perhaps if I warn’t a blacksmith’s wife, and (what’s the same thing) a
+slave with her apron never off, _I_ should have been to hear the
+Carols,” said Mrs.
+RESPONSE: “I’m rather partial to Carols, myself, and
+that’s the best of reasons for my never hearing any.
+
+INPUT: Explain this: “I’m rather partial to Carols, myself, and
+that’s the best of reasons for my never hearing any.
+RESPONSE: ”
+
+Joe, who had ventured into the kitchen after me as the dustpan had
+retired before us, drew the back of his hand across his nose with a
+conciliatory air, when Mrs.
+
+INPUT: Summarize: “I’m rather partial to Carols, myself, and
+that’s the best of reasons for my never hearing any. ”
+
+Joe, who had ventured into the kitchen after me as the dustpan had
+retired before us, drew the back of his hand across his nose with a
+conciliatory air, when Mrs.
+RESPONSE: Joe darted a look at him, and, when her
+eyes were withdrawn, secretly crossed his two forefingers, and
+exhibited them to me, as our token that Mrs.
+
+INPUT: Can you explain: Joe darted a look at him, and, when her
+eyes were withdrawn, secretly crossed his two forefingers, and
+exhibited them to me, as our token that Mrs.
+RESPONSE: Joe was in a cross temper.
+
+INPUT: Summarize: Joe darted a look at him, and, when her
+eyes were withdrawn, secretly crossed his two forefingers, and
+exhibited them to me, as our token that Mrs. Joe was in a cross temper.
+RESPONSE: This was so much her normal state, that Joe and I would often, for
+weeks together, be, as to our fingers, like monumental Crusaders as to
+their legs.
+
+INPUT: What does this mean: This was so much her normal state, that Joe and I would often, for
+weeks together, be, as to our fingers, like monumental Crusaders as to
+their legs.
+RESPONSE: We were to have a superb dinner, consisting of a leg of pickled pork
+and greens, and a pair of roast stuffed fowls.
+
+INPUT: Summarize: This was so much her normal state, that Joe and I would often, for
+weeks together, be, as to our fingers, like monumental Crusaders as to
+their legs. We were to have a superb dinner, consisting of a leg of pickled pork
+and greens, and a pair of roast stuffed fowls.
+RESPONSE: A handsome mince-pie had
+been made yesterday morning (which accounted for the mincemeat not
+being missed), and the pudding was already on the boil.
+
+INPUT: What does this say: A handsome mince-pie had
+been made yesterday morning (which accounted for the mincemeat not
+being missed), and the pudding was already on the boil.
+RESPONSE: These extensive
+arrangements occasioned us to be cut off unceremoniously in respect of
+breakfast; “for I ain’t,” said Mrs.
+
+INPUT: Summarize: A handsome mince-pie had
+been made yesterday morning (which accounted for the mincemeat not
+being missed), and the pudding was already on the boil. These extensive
+arrangements occasioned us to be cut off unceremoniously in respect of
+breakfast; “for I ain’t,” said Mrs.
+RESPONSE: Joe,—“I ain’t a-going to have no
+formal cramming and busting and washing up now, with what I’ve got
+before me, I promise you!
+
+INPUT: What does this mean: Joe,—“I ain’t a-going to have no
+formal cramming and busting and washing up now, with what I’ve got
+before me, I promise you!
+RESPONSE: ”
+
+So, we had our slices served out, as if we were two thousand troops on
+a forced march instead of a man and boy at home; and we took gulps of
+milk and water, with apologetic countenances, from a jug on the
+dresser.
+
+INPUT: Summarize: Joe,—“I ain’t a-going to have no
+formal cramming and busting and washing up now, with what I’ve got
+before me, I promise you! ”
+
+So, we had our slices served out, as if we were two thousand troops on
+a forced march instead of a man and boy at home; and we took gulps of
+milk and water, with apologetic countenances, from a jug on the
+dresser.
+RESPONSE: In the meantime, Mrs.
+
+INPUT: Explain this: In the meantime, Mrs.
+RESPONSE: Joe put clean white curtains up, and
+tacked a new flowered flounce across the wide chimney to replace the
+old one, and uncovered the little state parlour across the passage,
+which was never uncovered at any other time, but passed the rest of the
+year in a cool haze of silver paper, which even extended to the four
+little white crockery poodles on the mantel-shelf, each with a black
+nose and a basket of flowers in his mouth, and each the counterpart of
+the other.
+
+INPUT: Summarize: In the meantime, Mrs. Joe put clean white curtains up, and
+tacked a new flowered flounce across the wide chimney to replace the
+old one, and uncovered the little state parlour across the passage,
+which was never uncovered at any other time, but passed the rest of the
+year in a cool haze of silver paper, which even extended to the four
+little white crockery poodles on the mantel-shelf, each with a black
+nose and a basket of flowers in his mouth, and each the counterpart of
+the other.
+RESPONSE: Joe was a very clean housekeeper, but had an exquisite
+art of making her cleanliness more uncomfortable and unacceptable than
+dirt itself.
+
+INPUT: Explain this: Joe was a very clean housekeeper, but had an exquisite
+art of making her cleanliness more uncomfortable and unacceptable than
+dirt itself.
+RESPONSE: Cleanliness is next to Godliness, and some people do the
+same by their religion.
+
+INPUT: Summarize: Joe was a very clean housekeeper, but had an exquisite
+art of making her cleanliness more uncomfortable and unacceptable than
+dirt itself. Cleanliness is next to Godliness, and some people do the
+same by their religion.
+RESPONSE: My sister, having so much to do, was going to church vicariously, that
+is to say, Joe and I were going.
+
+INPUT: Tell me about: My sister, having so much to do, was going to church vicariously, that
+is to say, Joe and I were going.
+RESPONSE: In his working-clothes, Joe was a
+well-knit characteristic-looking blacksmith; in his holiday clothes, he
+was more like a scarecrow in good circumstances, than anything else.
+
+INPUT: Summarize: My sister, having so much to do, was going to church vicariously, that
+is to say, Joe and I were going. In his working-clothes, Joe was a
+well-knit characteristic-looking blacksmith; in his holiday clothes, he
+was more like a scarecrow in good circumstances, than anything else.
+RESPONSE: Nothing that he wore then fitted him or seemed to belong to him; and
+everything that he wore then grazed him.
+
+INPUT: What does this say: Nothing that he wore then fitted him or seemed to belong to him; and
+everything that he wore then grazed him.
+RESPONSE: On the present festive
+occasion he emerged from his room, when the blithe bells were going,
+the picture of misery, in a full suit of Sunday penitentials.
+
+INPUT: Summarize: Nothing that he wore then fitted him or seemed to belong to him; and
+everything that he wore then grazed him. On the present festive
+occasion he emerged from his room, when the blithe bells were going,
+the picture of misery, in a full suit of Sunday penitentials.
+RESPONSE: As to me,
+I think my sister must have had some general idea that I was a young
+offender whom an Accoucheur Policeman had taken up (on my birthday) and
+delivered over to her, to be dealt with according to the outraged
+majesty of the law.
+
+INPUT: Can you explain: As to me,
+I think my sister must have had some general idea that I was a young
+offender whom an Accoucheur Policeman had taken up (on my birthday) and
+delivered over to her, to be dealt with according to the outraged
+majesty of the law.
+RESPONSE: I was always treated as if I had insisted on being
+born in opposition to the dictates of reason, religion, and morality,
+and against the dissuading arguments of my best friends.
+
+INPUT: Summarize: As to me,
+I think my sister must have had some general idea that I was a young
+offender whom an Accoucheur Policeman had taken up (on my birthday) and
+delivered over to her, to be dealt with according to the outraged
+majesty of the law. I was always treated as if I had insisted on being
+born in opposition to the dictates of reason, religion, and morality,
+and against the dissuading arguments of my best friends.
+RESPONSE: Even when I
+was taken to have a new suit of clothes, the tailor had orders to make
+them like a kind of Reformatory, and on no account to let me have the
+free use of my limbs.
+
+INPUT: Explain this: Even when I
+was taken to have a new suit of clothes, the tailor had orders to make
+them like a kind of Reformatory, and on no account to let me have the
+free use of my limbs.
+RESPONSE: Joe and I going to church, therefore, must have been a moving spectacle
+for compassionate minds.
+
+INPUT: Summarize: Even when I
+was taken to have a new suit of clothes, the tailor had orders to make
+them like a kind of Reformatory, and on no account to let me have the
+free use of my limbs. Joe and I going to church, therefore, must have been a moving spectacle
+for compassionate minds.
+RESPONSE: Yet, what I suffered outside was nothing to
+what I underwent within.
+
+INPUT: Tell me about: Yet, what I suffered outside was nothing to
+what I underwent within.
+RESPONSE: The terrors that had assailed me whenever Mrs.
+
+INPUT: Summarize: Yet, what I suffered outside was nothing to
+what I underwent within. The terrors that had assailed me whenever Mrs.
+RESPONSE: Joe had gone near the pantry, or out of the room, were only to be
+equalled by the remorse with which my mind dwelt on what my hands had
+done.
+
+INPUT: Can you explain: Joe had gone near the pantry, or out of the room, were only to be
+equalled by the remorse with which my mind dwelt on what my hands had
+done.
+RESPONSE: Under the weight of my wicked secret, I pondered whether the
+Church would be powerful enough to shield me from the vengeance of the
+terrible young man, if I divulged to that establishment.
+
+INPUT: Summarize: Joe had gone near the pantry, or out of the room, were only to be
+equalled by the remorse with which my mind dwelt on what my hands had
+done. Under the weight of my wicked secret, I pondered whether the
+Church would be powerful enough to shield me from the vengeance of the
+terrible young man, if I divulged to that establishment.
+RESPONSE: I conceived
+the idea that the time when the banns were read and when the clergyman
+said, “Ye are now to declare it!
+
+INPUT: Tell me about: I conceived
+the idea that the time when the banns were read and when the clergyman
+said, “Ye are now to declare it!
+RESPONSE: ” would be the time for me to rise and
+propose a private conference in the vestry.
+
+INPUT: Summarize: I conceived
+the idea that the time when the banns were read and when the clergyman
+said, “Ye are now to declare it! ” would be the time for me to rise and
+propose a private conference in the vestry.
+RESPONSE: I am far from being sure
+that I might not have astonished our small congregation by resorting to
+this extreme measure, but for its being Christmas Day and no Sunday.
+
+INPUT: Can you explain: I am far from being sure
+that I might not have astonished our small congregation by resorting to
+this extreme measure, but for its being Christmas Day and no Sunday.
+RESPONSE: Wopsle, the clerk at church, was to dine with us; and Mr.
+
+INPUT: Summarize: I am far from being sure
+that I might not have astonished our small congregation by resorting to
+this extreme measure, but for its being Christmas Day and no Sunday. Wopsle, the clerk at church, was to dine with us; and Mr.
+RESPONSE: Hubble
+the wheelwright and Mrs.
+
+INPUT: What does this say: Hubble
+the wheelwright and Mrs.
+RESPONSE: Hubble; and Uncle Pumblechook (Joe’s uncle,
+but Mrs.
+
+INPUT: Summarize: Hubble
+the wheelwright and Mrs. Hubble; and Uncle Pumblechook (Joe’s uncle,
+but Mrs.
+RESPONSE: Joe appropriated him), who was a well-to-do cornchandler in
+the nearest town, and drove his own chaise-cart.
+
+INPUT: What is this about: Joe appropriated him), who was a well-to-do cornchandler in
+the nearest town, and drove his own chaise-cart.
+RESPONSE: The dinner hour was
+half-past one.
+
+INPUT: Summarize: Joe appropriated him), who was a well-to-do cornchandler in
+the nearest town, and drove his own chaise-cart. The dinner hour was
+half-past one.
+RESPONSE: When Joe and I got home, we found the table laid, and
+Mrs.
+
+INPUT: What does this mean: When Joe and I got home, we found the table laid, and
+Mrs.
+RESPONSE: Joe dressed, and the dinner dressing, and the front door unlocked
+(it never was at any other time) for the company to enter by, and
+everything most splendid.
+
+INPUT: Summarize: When Joe and I got home, we found the table laid, and
+Mrs. Joe dressed, and the dinner dressing, and the front door unlocked
+(it never was at any other time) for the company to enter by, and
+everything most splendid.
+RESPONSE: And still, not a word of the robbery.
+
+INPUT: Tell me about: And still, not a word of the robbery.
+RESPONSE: The time came, without bringing with it any relief to my feelings, and
+the company came.
+
+INPUT: Summarize: And still, not a word of the robbery. The time came, without bringing with it any relief to my feelings, and
+the company came.
+RESPONSE: Wopsle, united to a Roman nose and a large
+shining bald forehead, had a deep voice which he was uncommonly proud
+of; indeed it was understood among his acquaintance that if you could
+only give him his head, he would read the clergyman into fits; he
+himself confessed that if the Church was “thrown open,” meaning to
+competition, he would not despair of making his mark in it.
+
+INPUT: What does this say: Wopsle, united to a Roman nose and a large
+shining bald forehead, had a deep voice which he was uncommonly proud
+of; indeed it was understood among his acquaintance that if you could
+only give him his head, he would read the clergyman into fits; he
+himself confessed that if the Church was “thrown open,” meaning to
+competition, he would not despair of making his mark in it.
+RESPONSE: The Church
+not being “thrown open,” he was, as I have said, our clerk.
+
+INPUT: Summarize: Wopsle, united to a Roman nose and a large
+shining bald forehead, had a deep voice which he was uncommonly proud
+of; indeed it was understood among his acquaintance that if you could
+only give him his head, he would read the clergyman into fits; he
+himself confessed that if the Church was “thrown open,” meaning to
+competition, he would not despair of making his mark in it. The Church
+not being “thrown open,” he was, as I have said, our clerk.
+RESPONSE: But he
+punished the Amens tremendously; and when he gave out the psalm,—always
+giving the whole verse,—he looked all round the congregation first, as
+much as to say, “You have heard my friend overhead; oblige me with your
+opinion of this style!
+
+INPUT: What does this mean: But he
+punished the Amens tremendously; and when he gave out the psalm,—always
+giving the whole verse,—he looked all round the congregation first, as
+much as to say, “You have heard my friend overhead; oblige me with your
+opinion of this style!
+RESPONSE: ”
+
+I opened the door to the company,—making believe that it was a habit of
+ours to open that door,—and I opened it first to Mr.
+
+INPUT: Summarize: But he
+punished the Amens tremendously; and when he gave out the psalm,—always
+giving the whole verse,—he looked all round the congregation first, as
+much as to say, “You have heard my friend overhead; oblige me with your
+opinion of this style! ”
+
+I opened the door to the company,—making believe that it was a habit of
+ours to open that door,—and I opened it first to Mr.
+RESPONSE: Hubble, and last of all to Uncle Pumblechook.
+
+INPUT: What does this say: Hubble, and last of all to Uncle Pumblechook.
+RESPONSE: _I_ was
+not allowed to call him uncle, under the severest penalties.
+
+INPUT: Summarize: Hubble, and last of all to Uncle Pumblechook. _I_ was
+not allowed to call him uncle, under the severest penalties.
+RESPONSE: Joe,” said Uncle Pumblechook, a large hard-breathing middle-aged
+slow man, with a mouth like a fish, dull staring eyes, and sandy hair
+standing upright on his head, so that he looked as if he had just been
+all but choked, and had that moment come to, “I have brought you as the
+compliments of the season—I have brought you, Mum, a bottle of sherry
+wine—and I have brought you, Mum, a bottle of port wine.
+
+INPUT: Can you explain: Joe,” said Uncle Pumblechook, a large hard-breathing middle-aged
+slow man, with a mouth like a fish, dull staring eyes, and sandy hair
+standing upright on his head, so that he looked as if he had just been
+all but choked, and had that moment come to, “I have brought you as the
+compliments of the season—I have brought you, Mum, a bottle of sherry
+wine—and I have brought you, Mum, a bottle of port wine.
+RESPONSE: ”
+
+Every Christmas Day he presented himself, as a profound novelty, with
+exactly the same words, and carrying the two bottles like dumb-bells.
+
+INPUT: Summarize: Joe,” said Uncle Pumblechook, a large hard-breathing middle-aged
+slow man, with a mouth like a fish, dull staring eyes, and sandy hair
+standing upright on his head, so that he looked as if he had just been
+all but choked, and had that moment come to, “I have brought you as the
+compliments of the season—I have brought you, Mum, a bottle of sherry
+wine—and I have brought you, Mum, a bottle of port wine. ”
+
+Every Christmas Day he presented himself, as a profound novelty, with
+exactly the same words, and carrying the two bottles like dumb-bells.
+RESPONSE: Every Christmas Day, Mrs.
+
+INPUT: What does this mean: Every Christmas Day, Mrs.
+RESPONSE: Joe replied, as she now replied, “O, Un—cle
+Pum-ble—chook!
+
+INPUT: Summarize: Every Christmas Day, Mrs. Joe replied, as she now replied, “O, Un—cle
+Pum-ble—chook!
+RESPONSE: ” Every Christmas Day, he retorted, as he
+now retorted, “It’s no more than your merits.
+
+INPUT: Explain this: ” Every Christmas Day, he retorted, as he
+now retorted, “It’s no more than your merits.
+RESPONSE: And now are you all
+bobbish, and how’s Sixpennorth of halfpence?
+
+INPUT: Summarize: ” Every Christmas Day, he retorted, as he
+now retorted, “It’s no more than your merits. And now are you all
+bobbish, and how’s Sixpennorth of halfpence?
+RESPONSE: We dined on these occasions in the kitchen, and adjourned, for the nuts
+and oranges and apples to the parlour; which was a change very like
+Joe’s change from his working-clothes to his Sunday dress.
+
+INPUT: What is this about: We dined on these occasions in the kitchen, and adjourned, for the nuts
+and oranges and apples to the parlour; which was a change very like
+Joe’s change from his working-clothes to his Sunday dress.
+RESPONSE: My sister
+was uncommonly lively on the present occasion, and indeed was generally
+more gracious in the society of Mrs.
+
+INPUT: Summarize: We dined on these occasions in the kitchen, and adjourned, for the nuts
+and oranges and apples to the parlour; which was a change very like
+Joe’s change from his working-clothes to his Sunday dress. My sister
+was uncommonly lively on the present occasion, and indeed was generally
+more gracious in the society of Mrs.
+RESPONSE: Hubble than in other company.
+
+INPUT: What is this about: Hubble than in other company.
+RESPONSE: Hubble as a little curly sharp-edged person in sky-blue,
+who held a conventionally juvenile position, because she had married
+Mr.
+
+INPUT: Summarize: Hubble than in other company. Hubble as a little curly sharp-edged person in sky-blue,
+who held a conventionally juvenile position, because she had married
+Mr.
+RESPONSE: Hubble,—I don’t know at what remote period,—when she was much
+younger than he.
+
+INPUT: What is this about: Hubble,—I don’t know at what remote period,—when she was much
+younger than he.
+RESPONSE: I remember Mr Hubble as a tough, high-shouldered,
+stooping old man, of a sawdusty fragrance, with his legs
+extraordinarily wide apart: so that in my short days I always saw some
+miles of open country between them when I met him coming up the lane.
+
+INPUT: Summarize: Hubble,—I don’t know at what remote period,—when she was much
+younger than he. I remember Mr Hubble as a tough, high-shouldered,
+stooping old man, of a sawdusty fragrance, with his legs
+extraordinarily wide apart: so that in my short days I always saw some
+miles of open country between them when I met him coming up the lane.
+RESPONSE: Among this good company I should have felt myself, even if I hadn’t
+robbed the pantry, in a false position.
+
+INPUT: What does this say: Among this good company I should have felt myself, even if I hadn’t
+robbed the pantry, in a false position.
+RESPONSE: Not because I was squeezed in
+at an acute angle of the tablecloth, with the table in my chest, and
+the Pumblechookian elbow in my eye, nor because I was not allowed to
+speak (I didn’t want to speak), nor because I was regaled with the
+scaly tips of the drumsticks of the fowls, and with those obscure
+corners of pork of which the pig, when living, had had the least reason
+to be vain.
+
+INPUT: Summarize: Among this good company I should have felt myself, even if I hadn’t
+robbed the pantry, in a false position. Not because I was squeezed in
+at an acute angle of the tablecloth, with the table in my chest, and
+the Pumblechookian elbow in my eye, nor because I was not allowed to
+speak (I didn’t want to speak), nor because I was regaled with the
+scaly tips of the drumsticks of the fowls, and with those obscure
+corners of pork of which the pig, when living, had had the least reason
+to be vain.
+RESPONSE: No; I should not have minded that, if they would only have
+left me alone.
+
+INPUT: What does this mean: No; I should not have minded that, if they would only have
+left me alone.
+RESPONSE: But they wouldn’t leave me alone.
+
+INPUT: Summarize: No; I should not have minded that, if they would only have
+left me alone. But they wouldn’t leave me alone.
+RESPONSE: They seemed to think
+the opportunity lost, if they failed to point the conversation at me,
+every now and then, and stick the point into me.
+
+INPUT: What is this about: They seemed to think
+the opportunity lost, if they failed to point the conversation at me,
+every now and then, and stick the point into me.
+RESPONSE: I might have been an
+unfortunate little bull in a Spanish arena, I got so smartingly touched
+up by these moral goads.
+
+INPUT: Summarize: They seemed to think
+the opportunity lost, if they failed to point the conversation at me,
+every now and then, and stick the point into me. I might have been an
+unfortunate little bull in a Spanish arena, I got so smartingly touched
+up by these moral goads.
+RESPONSE: It began the moment we sat down to dinner.
+
+INPUT: What is this about: It began the moment we sat down to dinner.
+RESPONSE: Wopsle said grace with
+theatrical declamation,—as it now appears to me, something like a
+religious cross of the Ghost in Hamlet with Richard the Third,—and
+ended with the very proper aspiration that we might be truly grateful.
+
+INPUT: Summarize: It began the moment we sat down to dinner. Wopsle said grace with
+theatrical declamation,—as it now appears to me, something like a
+religious cross of the Ghost in Hamlet with Richard the Third,—and
+ended with the very proper aspiration that we might be truly grateful.
+RESPONSE: Upon which my sister fixed me with her eye, and said, in a low
+reproachful voice, “Do you hear that?
+
+INPUT: Can you explain: Upon which my sister fixed me with her eye, and said, in a low
+reproachful voice, “Do you hear that?
+RESPONSE: ”
+
+“Especially,” said Mr.
+
+INPUT: Summarize: Upon which my sister fixed me with her eye, and said, in a low
+reproachful voice, “Do you hear that? ”
+
+“Especially,” said Mr.
+RESPONSE: Pumblechook, “be grateful, boy, to them which
+brought you up by hand.
+
+INPUT: Explain this: Pumblechook, “be grateful, boy, to them which
+brought you up by hand.
+RESPONSE: Hubble shook her head, and contemplating me with a mournful
+presentiment that I should come to no good, asked, “Why is it that the
+young are never grateful?
+
+INPUT: Summarize: Pumblechook, “be grateful, boy, to them which
+brought you up by hand. Hubble shook her head, and contemplating me with a mournful
+presentiment that I should come to no good, asked, “Why is it that the
+young are never grateful?
+RESPONSE: ” This moral mystery seemed too much for the
+company until Mr.
+
+INPUT: What does this mean: ” This moral mystery seemed too much for the
+company until Mr.
+RESPONSE: Hubble tersely solved it by saying, “Naterally
+wicious.
+
+INPUT: Summarize: ” This moral mystery seemed too much for the
+company until Mr. Hubble tersely solved it by saying, “Naterally
+wicious.
+RESPONSE: ” Everybody then murmured “True!
+
+INPUT: What does this mean: ” Everybody then murmured “True!
+RESPONSE: ” and looked at me in a
+particularly unpleasant and personal manner.
+
+INPUT: Summarize: ” Everybody then murmured “True! ” and looked at me in a
+particularly unpleasant and personal manner.
+RESPONSE: Joe’s station and influence were something feebler (if possible) when
+there was company than when there was none.
+
+INPUT: What does this mean: Joe’s station and influence were something feebler (if possible) when
+there was company than when there was none.
+RESPONSE: But he always aided and
+comforted me when he could, in some way of his own, and he always did
+so at dinner-time by giving me gravy, if there were any.
+
+INPUT: Summarize: Joe’s station and influence were something feebler (if possible) when
+there was company than when there was none. But he always aided and
+comforted me when he could, in some way of his own, and he always did
+so at dinner-time by giving me gravy, if there were any.
+RESPONSE: There being
+plenty of gravy to-day, Joe spooned into my plate, at this point, about
+half a pint.
+
+INPUT: What does this say: There being
+plenty of gravy to-day, Joe spooned into my plate, at this point, about
+half a pint.
+RESPONSE: A little later on in the dinner, Mr.
+
+INPUT: Summarize: There being
+plenty of gravy to-day, Joe spooned into my plate, at this point, about
+half a pint. A little later on in the dinner, Mr.
+RESPONSE: Wopsle reviewed the sermon with
+some severity, and intimated—in the usual hypothetical case of the
+Church being “thrown open”—what kind of sermon _he_ would have given
+them.
+
+INPUT: What does this mean: Wopsle reviewed the sermon with
+some severity, and intimated—in the usual hypothetical case of the
+Church being “thrown open”—what kind of sermon _he_ would have given
+them.
+RESPONSE: After favouring them with some heads of that discourse, he
+remarked that he considered the subject of the day’s homily, ill
+chosen; which was the less excusable, he added, when there were so many
+subjects “going about.
+
+INPUT: Summarize: Wopsle reviewed the sermon with
+some severity, and intimated—in the usual hypothetical case of the
+Church being “thrown open”—what kind of sermon _he_ would have given
+them. After favouring them with some heads of that discourse, he
+remarked that he considered the subject of the day’s homily, ill
+chosen; which was the less excusable, he added, when there were so many
+subjects “going about.
+RESPONSE: ”
+
+“True again,” said Uncle Pumblechook.
+
+INPUT: What does this say: ”
+
+“True again,” said Uncle Pumblechook.
+RESPONSE: “You’ve hit it, sir!
+
+INPUT: Summarize: ”
+
+“True again,” said Uncle Pumblechook. “You’ve hit it, sir!
+RESPONSE: Plenty of
+subjects going about, for them that know how to put salt upon their
+tails.
+
+INPUT: Explain this: Plenty of
+subjects going about, for them that know how to put salt upon their
+tails.
+RESPONSE: That’s what’s wanted.
+
+INPUT: Summarize: Plenty of
+subjects going about, for them that know how to put salt upon their
+tails. That’s what’s wanted.
+RESPONSE: A man needn’t go far to find a subject, if
+he’s ready with his salt-box.
+
+INPUT: What does this say: A man needn’t go far to find a subject, if
+he’s ready with his salt-box.
+RESPONSE: Pumblechook added, after a short
+interval of reflection, “Look at Pork alone.
+
+INPUT: Summarize: A man needn’t go far to find a subject, if
+he’s ready with his salt-box. Pumblechook added, after a short
+interval of reflection, “Look at Pork alone.
+RESPONSE: If you
+want a subject, look at Pork!
+
+INPUT: What does this mean: If you
+want a subject, look at Pork!
+RESPONSE: Many a moral for the young,” returned Mr.
+
+INPUT: Summarize: If you
+want a subject, look at Pork! Many a moral for the young,” returned Mr.
+RESPONSE: Wopsle,—and I
+knew he was going to lug me in, before he said it; “might be deduced
+from that text.
+
+INPUT: What does this say: Wopsle,—and I
+knew he was going to lug me in, before he said it; “might be deduced
+from that text.
+RESPONSE: ”
+
+(“You listen to this,” said my sister to me, in a severe parenthesis.
+
+INPUT: Summarize: Wopsle,—and I
+knew he was going to lug me in, before he said it; “might be deduced
+from that text. ”
+
+(“You listen to this,” said my sister to me, in a severe parenthesis.
+RESPONSE: )
+
+Joe gave me some more gravy.
+
+INPUT: What does this say: )
+
+Joe gave me some more gravy.
+RESPONSE: “Swine,” pursued Mr.
+
+INPUT: Summarize: )
+
+Joe gave me some more gravy. “Swine,” pursued Mr.
+RESPONSE: Wopsle, in his deepest voice, and pointing his
+fork at my blushes, as if he were mentioning my Christian name,—“swine
+were the companions of the prodigal.
+
+INPUT: Can you explain: Wopsle, in his deepest voice, and pointing his
+fork at my blushes, as if he were mentioning my Christian name,—“swine
+were the companions of the prodigal.
+RESPONSE: The gluttony of Swine is put
+before us, as an example to the young.
+
+INPUT: Summarize: Wopsle, in his deepest voice, and pointing his
+fork at my blushes, as if he were mentioning my Christian name,—“swine
+were the companions of the prodigal. The gluttony of Swine is put
+before us, as an example to the young.
+RESPONSE: ” (I thought this pretty well in
+him who had been praising up the pork for being so plump and juicy.
+
+INPUT: What is this about: ” (I thought this pretty well in
+him who had been praising up the pork for being so plump and juicy.
+RESPONSE: )
+“What is detestable in a pig is more detestable in a boy.
+
+INPUT: Summarize: ” (I thought this pretty well in
+him who had been praising up the pork for being so plump and juicy. )
+“What is detestable in a pig is more detestable in a boy.
+RESPONSE: ”
+
+“Or girl,” suggested Mr.
+
+INPUT: Tell me about: ”
+
+“Or girl,” suggested Mr.
+RESPONSE: “Of course, or girl, Mr.
+
+INPUT: Summarize: ”
+
+“Or girl,” suggested Mr. “Of course, or girl, Mr.
+RESPONSE: Hubble,” assented Mr.
+
+INPUT: What does this say: Hubble,” assented Mr.
+RESPONSE: Wopsle, rather
+irritably, “but there is no girl present.
+
+INPUT: Summarize: Hubble,” assented Mr. Wopsle, rather
+irritably, “but there is no girl present.
+RESPONSE: ”
+
+“Besides,” said Mr.
+
+INPUT: What does this say: ”
+
+“Besides,” said Mr.
+RESPONSE: Pumblechook, turning sharp on me, “think what
+you’ve got to be grateful for.
+
+INPUT: Summarize: ”
+
+“Besides,” said Mr. Pumblechook, turning sharp on me, “think what
+you’ve got to be grateful for.
+RESPONSE: If you’d been born a Squeaker—”
+
+“He _was_, if ever a child was,” said my sister, most emphatically.
+
+INPUT: What does this say: If you’d been born a Squeaker—”
+
+“He _was_, if ever a child was,” said my sister, most emphatically.
+RESPONSE: Joe gave me some more gravy.
+
+INPUT: Summarize: If you’d been born a Squeaker—”
+
+“He _was_, if ever a child was,” said my sister, most emphatically. Joe gave me some more gravy.
+RESPONSE: “Well, but I mean a four-footed Squeaker,” said Mr.
+
+INPUT: What does this say: “Well, but I mean a four-footed Squeaker,” said Mr.
+RESPONSE: “If
+you had been born such, would you have been here now?
+
+INPUT: Summarize: “Well, but I mean a four-footed Squeaker,” said Mr. “If
+you had been born such, would you have been here now?
+RESPONSE: Not you—”
+
+“Unless in that form,” said Mr.
+
+INPUT: Tell me about: Not you—”
+
+“Unless in that form,” said Mr.
+RESPONSE: Wopsle, nodding towards the dish.
+
+INPUT: Summarize: Not you—”
+
+“Unless in that form,” said Mr. Wopsle, nodding towards the dish.
+RESPONSE: “But I don’t mean in that form, sir,” returned Mr.
+
+INPUT: What does this mean: “But I don’t mean in that form, sir,” returned Mr.
+RESPONSE: Pumblechook, who had
+an objection to being interrupted; “I mean, enjoying himself with his
+elders and betters, and improving himself with their conversation, and
+rolling in the lap of luxury.
+
+INPUT: Summarize: “But I don’t mean in that form, sir,” returned Mr. Pumblechook, who had
+an objection to being interrupted; “I mean, enjoying himself with his
+elders and betters, and improving himself with their conversation, and
+rolling in the lap of luxury.
+RESPONSE: Would he have been doing that?
+
+INPUT: Explain this: Would he have been doing that?
+RESPONSE: And what would have been your destination?
+
+INPUT: Summarize: Would he have been doing that? And what would have been your destination?
+RESPONSE: ” turning on me
+again.
+
+INPUT: Explain this: ” turning on me
+again.
+RESPONSE: “You would have been disposed of for so many shillings according
+to the market price of the article, and Dunstable the butcher would
+have come up to you as you lay in your straw, and he would have whipped
+you under his left arm, and with his right he would have tucked up his
+frock to get a penknife from out of his waistcoat-pocket, and he would
+have shed your blood and had your life.
+
+INPUT: Summarize: ” turning on me
+again. “You would have been disposed of for so many shillings according
+to the market price of the article, and Dunstable the butcher would
+have come up to you as you lay in your straw, and he would have whipped
+you under his left arm, and with his right he would have tucked up his
+frock to get a penknife from out of his waistcoat-pocket, and he would
+have shed your blood and had your life.
+RESPONSE: No bringing up by hand then.
+
+INPUT: Can you explain: No bringing up by hand then.
+RESPONSE: ”
+
+Joe offered me more gravy, which I was afraid to take.
+
+INPUT: Summarize: No bringing up by hand then. ”
+
+Joe offered me more gravy, which I was afraid to take.
+RESPONSE: “He was a world of trouble to you, ma’am,” said Mrs.
+
+INPUT: What does this say: “He was a world of trouble to you, ma’am,” said Mrs.
+RESPONSE: Hubble,
+commiserating my sister.
+
+INPUT: Summarize: “He was a world of trouble to you, ma’am,” said Mrs. Hubble,
+commiserating my sister.
+RESPONSE: ” echoed my sister; “trouble?
+
+INPUT: Can you explain: ” echoed my sister; “trouble?
+RESPONSE: ” and then entered on a fearful
+catalogue of all the illnesses I had been guilty of, and all the acts
+of sleeplessness I had committed, and all the high places I had tumbled
+from, and all the low places I had tumbled into, and all the injuries I
+had done myself, and all the times she had wished me in my grave, and I
+had contumaciously refused to go there.
+
+INPUT: Summarize: ” echoed my sister; “trouble? ” and then entered on a fearful
+catalogue of all the illnesses I had been guilty of, and all the acts
+of sleeplessness I had committed, and all the high places I had tumbled
+from, and all the low places I had tumbled into, and all the injuries I
+had done myself, and all the times she had wished me in my grave, and I
+had contumaciously refused to go there.
+RESPONSE: I think the Romans must have aggravated one another very much, with
+their noses.
+
+INPUT: What does this mean: I think the Romans must have aggravated one another very much, with
+their noses.
+RESPONSE: Perhaps, they became the restless people they were, in
+consequence.
+
+INPUT: Summarize: I think the Romans must have aggravated one another very much, with
+their noses. Perhaps, they became the restless people they were, in
+consequence.
+RESPONSE: Wopsle’s Roman nose so aggravated me, during
+the recital of my misdemeanours, that I should have liked to pull it
+until he howled.
+
+INPUT: What is this about: Wopsle’s Roman nose so aggravated me, during
+the recital of my misdemeanours, that I should have liked to pull it
+until he howled.
+RESPONSE: But, all I had endured up to this time was nothing in
+comparison with the awful feelings that took possession of me when the
+pause was broken which ensued upon my sister’s recital, and in which
+pause everybody had looked at me (as I felt painfully conscious) with
+indignation and abhorrence.
+
+INPUT: Summarize: Wopsle’s Roman nose so aggravated me, during
+the recital of my misdemeanours, that I should have liked to pull it
+until he howled. But, all I had endured up to this time was nothing in
+comparison with the awful feelings that took possession of me when the
+pause was broken which ensued upon my sister’s recital, and in which
+pause everybody had looked at me (as I felt painfully conscious) with
+indignation and abhorrence.
+RESPONSE: Pumblechook, leading the company gently back to the
+theme from which they had strayed, “Pork—regarded as biled—is rich,
+too; ain’t it?
+
+INPUT: What is this about: Pumblechook, leading the company gently back to the
+theme from which they had strayed, “Pork—regarded as biled—is rich,
+too; ain’t it?
+RESPONSE: ”
+
+“Have a little brandy, uncle,” said my sister.
+
+INPUT: Summarize: Pumblechook, leading the company gently back to the
+theme from which they had strayed, “Pork—regarded as biled—is rich,
+too; ain’t it? ”
+
+“Have a little brandy, uncle,” said my sister.
+RESPONSE: O Heavens, it had come at last!
+
+INPUT: Tell me about: O Heavens, it had come at last!
+RESPONSE: He would find it was weak, he would say
+it was weak, and I was lost!
+
+INPUT: Summarize: O Heavens, it had come at last! He would find it was weak, he would say
+it was weak, and I was lost!
+RESPONSE: I held tight to the leg of the table under
+the cloth, with both hands, and awaited my fate.
+
+INPUT: What is this about: I held tight to the leg of the table under
+the cloth, with both hands, and awaited my fate.
+RESPONSE: My sister went for the stone bottle, came back with the stone bottle,
+and poured his brandy out: no one else taking any.
+
+INPUT: Summarize: I held tight to the leg of the table under
+the cloth, with both hands, and awaited my fate. My sister went for the stone bottle, came back with the stone bottle,
+and poured his brandy out: no one else taking any.
+RESPONSE: The wretched man
+trifled with his glass,—took it up, looked at it through the light, put
+it down,—prolonged my misery.
+
+INPUT: What does this say: The wretched man
+trifled with his glass,—took it up, looked at it through the light, put
+it down,—prolonged my misery.
+RESPONSE: Joe and Joe were
+briskly clearing the table for the pie and pudding.
+
+INPUT: Summarize: The wretched man
+trifled with his glass,—took it up, looked at it through the light, put
+it down,—prolonged my misery. Joe and Joe were
+briskly clearing the table for the pie and pudding.
+RESPONSE: I couldn’t keep my eyes off him.
+
+INPUT: Tell me about: I couldn’t keep my eyes off him.
+RESPONSE: Always holding tight by the leg of the
+table with my hands and feet, I saw the miserable creature finger his
+glass playfully, take it up, smile, throw his head back, and drink the
+brandy off.
+
+INPUT: Summarize: I couldn’t keep my eyes off him. Always holding tight by the leg of the
+table with my hands and feet, I saw the miserable creature finger his
+glass playfully, take it up, smile, throw his head back, and drink the
+brandy off.
+RESPONSE: Instantly afterwards, the company were seized with
+unspeakable consternation, owing to his springing to his feet, turning
+round several times in an appalling spasmodic whooping-cough dance, and
+rushing out at the door; he then became visible through the window,
+violently plunging and expectorating, making the most hideous faces,
+and apparently out of his mind.
+
+INPUT: What is this about: Instantly afterwards, the company were seized with
+unspeakable consternation, owing to his springing to his feet, turning
+round several times in an appalling spasmodic whooping-cough dance, and
+rushing out at the door; he then became visible through the window,
+violently plunging and expectorating, making the most hideous faces,
+and apparently out of his mind.
+RESPONSE: I held on tight, while Mrs.
+
+INPUT: Summarize: Instantly afterwards, the company were seized with
+unspeakable consternation, owing to his springing to his feet, turning
+round several times in an appalling spasmodic whooping-cough dance, and
+rushing out at the door; he then became visible through the window,
+violently plunging and expectorating, making the most hideous faces,
+and apparently out of his mind. I held on tight, while Mrs.
+RESPONSE: Joe and Joe ran to him.
+
+INPUT: What does this say: Joe and Joe ran to him.
+RESPONSE: I didn’t know how I
+had done it, but I had no doubt I had murdered him somehow.
+
+INPUT: Summarize: Joe and Joe ran to him. I didn’t know how I
+had done it, but I had no doubt I had murdered him somehow.
+RESPONSE: In my
+dreadful situation, it was a relief when he was brought back, and
+surveying the company all round as if _they_ had disagreed with him,
+sank down into his chair with the one significant gasp, “Tar!
+
+INPUT: What does this say: In my
+dreadful situation, it was a relief when he was brought back, and
+surveying the company all round as if _they_ had disagreed with him,
+sank down into his chair with the one significant gasp, “Tar!
+RESPONSE: ”
+
+I had filled up the bottle from the tar-water jug.
+
+INPUT: Summarize: In my
+dreadful situation, it was a relief when he was brought back, and
+surveying the company all round as if _they_ had disagreed with him,
+sank down into his chair with the one significant gasp, “Tar! ”
+
+I had filled up the bottle from the tar-water jug.
+RESPONSE: I knew he would be
+worse by and by.
+
+INPUT: What is this about: I knew he would be
+worse by and by.
+RESPONSE: I moved the table, like a Medium of the present day,
+by the vigor of my unseen hold upon it.
+
+INPUT: Summarize: I knew he would be
+worse by and by. I moved the table, like a Medium of the present day,
+by the vigor of my unseen hold upon it.
+RESPONSE: ” cried my sister, in amazement.
+
+INPUT: Explain this: ” cried my sister, in amazement.
+RESPONSE: “Why, how ever could Tar come
+there?
+
+INPUT: Summarize: ” cried my sister, in amazement. “Why, how ever could Tar come
+there?
+RESPONSE: ”
+
+But, Uncle Pumblechook, who was omnipotent in that kitchen, wouldn’t
+hear the word, wouldn’t hear of the subject, imperiously waved it all
+away with his hand, and asked for hot gin and water.
+
