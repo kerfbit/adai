@@ -226,10 +226,10 @@ std::vector<int> TextGenerator::generate_beam_search(ModelForwardFn model_fn,
     std::vector<BeamHypothesis> finished_beams;
 
     for (int step = 0; step < config.max_length; ++step) {
-        std::vector<std::tuple<float, int, int>> candidates;  // (score, beam_idx, token_id)
+        std::vector<std::tuple<float, size_t, int>> candidates;  // (score, beam_idx, token_id)
 
         // Generate candidates from each beam
-        for (int beam_idx = 0; beam_idx < num_beams; ++beam_idx) {
+        for (size_t beam_idx = 0; beam_idx < beams.size(); ++beam_idx) {
             if (beams[beam_idx].is_finished) {
                 continue;
             }

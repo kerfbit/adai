@@ -380,8 +380,8 @@ std::string generate_response(const std::string& user_input)
        max_response_length,
        generation_strategy,
        temperature,
-       top_p,
        top_k,
+       top_p,
        beam_width
    );
    ```
@@ -1075,7 +1075,7 @@ void load_model(filepath);
 
 // Generation (primary method)
 std::string generate_response_with_strategy(
-    context, max_length, strategy, temperature, top_p, top_k, beam_width
+    context, max_length, strategy, temperature, top_k, top_p, beam_width
 );
 ```
 

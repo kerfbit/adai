@@ -247,8 +247,8 @@ std::string ChatbotCLI::generate_response(const std::string& user_input) {
 
         try {
             response = model->generate_response_with_strategy(
-                input_for_encoding, max_response_length, generation_strategy, temperature, top_p,
-                top_k, beam_width);
+                input_for_encoding, max_response_length, generation_strategy, temperature, top_k,
+                top_p, beam_width);
         } catch (const std::exception& e) {
             response = "[Error generating response: " + std::string(e.what()) + "]";
         }

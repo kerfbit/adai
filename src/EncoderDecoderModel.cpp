@@ -192,6 +192,37 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
     }
     cached_encoder_output = encoder->encode_with_mask(input_tokens, encoder_mask);
 
+    // Generate based on strategy
+    std::vector<int> output_tokens;
+
+    // IMPORTANT: Beam search requires different handling because each beam has its own sequence
+    // and KV caching doesn't work when we need to explore multiple hypotheses simultaneously
+    if (strategy == "beam") {
+        // Update config for beam search
+        TextGenerator::GenerationConfig config = generator->get_config();
+        config.num_beams = num_beams;
+        config.max_length = max_length;
+        generator->set_config(config);
+        
+        // Create model function WITHOUT KV caching for beam search
+        // Each beam has independent token sequences, so we can't share a cache
+        auto beam_model_fn = [this](const std::vector<int>& tokens) -> Matrix {
+            // Process all tokens from scratch (no caching)
+            Matrix decoder_out = decoder->forward_with_encoder(tokens, cached_encoder_output);
+            
+            // Project to vocabulary (last position of output)
+            Matrix logits = lm_head->forward(decoder_out);
+            
+            return logits;
+        };
+        
+        output_tokens = generator->generate_beam_search(beam_model_fn, {bos_token_id});
+        
+        // Decode tokens to text (skip special tokens like <bos>, <eos>, <unk>, <pad>)
+        return tokenizer->decode(output_tokens, true);
+    }
+
+    // For non-beam strategies, use KV caching for efficiency
     // Initialize KV cache for efficient generation
     DecoderKVCache kv_cache(decoder_layers);
     size_t processed_length = 0;
@@ -217,17 +248,9 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
     };
 
     // Generate based on strategy
-    std::vector<int> output_tokens;
-
+    
     if (strategy == "greedy") {
         output_tokens = generator->generate_greedy(model_fn, {bos_token_id});
-    } else if (strategy == "beam") {
-        // Update config for beam search
-        TextGenerator::GenerationConfig config = generator->get_config();
-        config.num_beams = num_beams;
-        config.max_length = max_length;
-        generator->set_config(config);
-        output_tokens = generator->generate_beam_search(model_fn, {bos_token_id});
     } else if (strategy == "sampling") {
         output_tokens = generator->generate_sampling(model_fn, {bos_token_id}, temperature);
     } else if (strategy == "topk") {

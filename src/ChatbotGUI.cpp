@@ -460,8 +460,8 @@ std::string ChatbotGUI::generateResponse(const std::string& user_input) {
             max_response_length,
             generation_strategy,
             temperature,
-            top_p,
             top_k,
+            top_p,
             beam_width
         );
         
