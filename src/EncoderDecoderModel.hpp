@@ -277,6 +277,12 @@ class EncoderDecoderModel {
     TextGenerator::GenerationConfig get_generation_config() const;
 
     /**
+     * Synchronize special token IDs from tokenizer to generator
+     * Call this after building/loading vocabulary
+     */
+    void sync_special_tokens();
+
+    /**
      * Save complete model to file
      *
      * @param filepath Base filepath (will create multiple files)

@@ -181,6 +181,17 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
                                                                  const std::string& strategy,
                                                                  float temperature, int top_k,
                                                                  float top_p, int num_beams) {
+    // Ensure special token IDs are synced with tokenizer
+    sync_special_tokens();
+    
+    // Normalize strategy name (handle hyphens)
+    std::string normalized_strategy = strategy;
+    if (normalized_strategy == "top-k") {
+        normalized_strategy = "topk";
+    } else if (normalized_strategy == "top-p" || normalized_strategy == "nucleus") {
+        normalized_strategy = "nucleus";  // Standardize to "nucleus"
+    }
+    
     // Encode input (no special tokens for encoder input)
     std::vector<int> input_tokens = tokenizer->encode(input_text, false);
     int input_len = input_tokens.size();
@@ -197,21 +208,34 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
 
     // IMPORTANT: Beam search requires different handling because each beam has its own sequence
     // and KV caching doesn't work when we need to explore multiple hypotheses simultaneously
-    if (strategy == "beam") {
+    if (normalized_strategy == "beam") {
         // Update config for beam search
         TextGenerator::GenerationConfig config = generator->get_config();
         config.num_beams = num_beams;
         config.max_length = max_length;
         generator->set_config(config);
         
+        // Get actual tokenizer vocab size to mask invalid tokens
+        int actual_vocab_size = tokenizer->get_vocab_size();
+        
         // Create model function WITHOUT KV caching for beam search
         // Each beam has independent token sequences, so we can't share a cache
-        auto beam_model_fn = [this](const std::vector<int>& tokens) -> Matrix {
+        auto beam_model_fn = [this, actual_vocab_size](const std::vector<int>& tokens) -> Matrix {
             // Process all tokens from scratch (no caching)
             Matrix decoder_out = decoder->forward_with_encoder(tokens, cached_encoder_output);
             
             // Project to vocabulary (last position of output)
             Matrix logits = lm_head->forward(decoder_out);
+            
+            // Mask out invalid token IDs beyond actual vocabulary size
+            // This prevents generation of tokens that don't exist in the tokenizer
+            if (actual_vocab_size < logits.cols) {
+                for (int i = 0; i < logits.rows; ++i) {
+                    for (int j = actual_vocab_size; j < logits.cols; ++j) {
+                        logits.data[i][j] = -1e9f;  // Set to very negative to make prob ~0
+                    }
+                }
+            }
             
             return logits;
         };
@@ -227,8 +251,11 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
     DecoderKVCache kv_cache(decoder_layers);
     size_t processed_length = 0;
 
+    // Get actual tokenizer vocab size to mask invalid tokens
+    int actual_vocab_size = tokenizer->get_vocab_size();
+
     // Create model forward function with KV caching
-    auto model_fn = [this, &kv_cache, &processed_length](const std::vector<int>& tokens) -> Matrix {
+    auto model_fn = [this, &kv_cache, &processed_length, actual_vocab_size](const std::vector<int>& tokens) -> Matrix {
         size_t current_length = tokens.size();
         
         // Determine which tokens are new (not yet processed)
@@ -244,18 +271,43 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
         // Project to vocabulary (last position of output)
         Matrix logits = lm_head->forward(decoder_out);
 
+        // Mask out invalid token IDs beyond actual vocabulary size
+        // This prevents generation of tokens that don't exist in the tokenizer
+        if (actual_vocab_size < logits.cols) {
+            for (int i = 0; i < logits.rows; ++i) {
+                for (int j = actual_vocab_size; j < logits.cols; ++j) {
+                    logits.data[i][j] = -1e9f;  // Set to very negative to make prob ~0
+                }
+            }
+        }
+
         return logits;
     };
 
     // Generate based on strategy
     
-    if (strategy == "greedy") {
-        output_tokens = generator->generate_greedy(model_fn, {bos_token_id});
-    } else if (strategy == "sampling") {
+    if (normalized_strategy == "greedy") {
+        // WORKAROUND: Use non-cached path for greedy due to KV cache bug
+        // TODO: Fix KV cache to properly handle autoregressive generation
+        int actual_vocab_size = tokenizer->get_vocab_size();
+        auto greedy_model_fn = [this, actual_vocab_size](const std::vector<int>& tokens) -> Matrix {
+            Matrix decoder_out = decoder->forward_with_encoder(tokens, cached_encoder_output);
+            Matrix logits = lm_head->forward(decoder_out);
+            if (actual_vocab_size < logits.cols) {
+                for (int i = 0; i < logits.rows; ++i) {
+                    for (int j = actual_vocab_size; j < logits.cols; ++j) {
+                        logits.data[i][j] = -1e9f;
+                    }
+                }
+            }
+            return logits;
+        };
+        output_tokens = generator->generate_greedy(greedy_model_fn, {bos_token_id});
+    } else if (normalized_strategy == "sampling") {
         output_tokens = generator->generate_sampling(model_fn, {bos_token_id}, temperature);
-    } else if (strategy == "topk") {
+    } else if (normalized_strategy == "topk") {
         output_tokens = generator->generate_top_k(model_fn, {bos_token_id}, top_k);
-    } else if (strategy == "nucleus") {
+    } else if (normalized_strategy == "nucleus") {
         output_tokens = generator->generate_nucleus(model_fn, {bos_token_id}, top_p);
     } else {
         // Default to main generate method (uses config)
@@ -390,8 +442,13 @@ void EncoderDecoderModel::backward_pass(const Matrix& grad_output) {
 // Set tokenizer
 void EncoderDecoderModel::set_tokenizer(BPETokenizer* tokenizer_ptr) {
     tokenizer.reset(tokenizer_ptr);
+    sync_special_tokens();
+}
+
+// Sync special token IDs from tokenizer
+void EncoderDecoderModel::sync_special_tokens() {
+    if (!tokenizer) return;
     
-    // Synchronize special token IDs from tokenizer
     TextGenerator::GenerationConfig config = generator->get_config();
     config.bos_token_id = tokenizer->get_bos_token_id();
     config.eos_token_id = tokenizer->get_eos_token_id();
