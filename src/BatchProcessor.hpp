@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <vector>
 #include "Matrix.hpp"
+#include "SpecialTokens.hpp"
 
 /**
  * Batch Processing Utilities for Transformer Models
@@ -70,11 +71,11 @@ struct TokenBatch {
  * Pads all sequences to the length of the longest sequence in the batch.
  *
  * @param sequences Vector of token ID sequences (variable length)
- * @param pad_token_id Token ID to use for padding (default: 0)
+ * @param pad_token_id Token ID to use for padding (default: PAD token)
  * @return TokenBatch with padded sequences
  */
 inline TokenBatch create_batch(const std::vector<std::vector<int>>& sequences,
-                               int pad_token_id = 0) {
+                               int pad_token_id = adai::SpecialTokenIDs::PAD) {
     TokenBatch batch;
     batch.pad_token_id = pad_token_id;
     
@@ -120,12 +121,12 @@ inline TokenBatch create_batch(const std::vector<std::vector<int>>& sequences,
  * @param sequences Vector of token ID sequences
  * @param max_batch_size Maximum number of sequences per batch
  * @param length_tolerance Maximum length difference within a batch
- * @param pad_token_id Token ID to use for padding
+ * @param pad_token_id Token ID to use for padding (default: PAD token)
  * @return Vector of batches
  */
 inline std::vector<TokenBatch> create_dynamic_batches(
     const std::vector<std::vector<int>>& sequences, int max_batch_size = 32,
-    int length_tolerance = 10, int pad_token_id = 0) {
+    int length_tolerance = 10, int pad_token_id = adai::SpecialTokenIDs::PAD) {
     
     std::vector<TokenBatch> batches;
 

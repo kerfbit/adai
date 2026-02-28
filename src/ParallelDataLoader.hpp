@@ -40,7 +40,7 @@ struct DataLoaderConfig {
     size_t num_workers = 4;                    ///< Number of worker threads
     size_t prefetch_factor = 2;                ///< Number of batches to prefetch per worker
     bool shuffle = true;                       ///< Shuffle data at each epoch
-    int pad_token_id = 0;                      ///< Token ID for padding
+    int pad_token_id = adai::SpecialTokenIDs::PAD;  ///< Token ID for padding
     PaddingStrategy padding_strategy = PaddingStrategy::RIGHT;  ///< Padding strategy
     bool drop_last = false;                    ///< Drop last incomplete batch
     unsigned int seed = 42;                    ///< Random seed for shuffling
@@ -531,7 +531,7 @@ struct TokenBatchLoaderConfig {
     size_t num_workers = 4;                    ///< Number of worker threads
     size_t prefetch_factor = 2;                ///< Number of batches to prefetch per worker
     bool shuffle = true;                       ///< Shuffle data at each epoch
-    int pad_token_id = 0;                      ///< Token ID for padding
+    int pad_token_id = adai::SpecialTokenIDs::PAD;  ///< Token ID for padding
     bool drop_last = false;                    ///< Drop last incomplete batch
     unsigned int seed = 42;                    ///< Random seed for shuffling
     bool use_dynamic_batching = true;          ///< Use dynamic batching by length

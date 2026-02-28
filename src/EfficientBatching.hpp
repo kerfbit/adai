@@ -26,6 +26,7 @@
 #include <random>
 #include <stdexcept>
 #include <cmath>
+#include "SpecialTokens.hpp"
 
 #ifdef ADAI_ENABLE_OPENMP
 #include <omp.h>
@@ -85,7 +86,7 @@ struct SequenceBatch {
     std::vector<std::vector<int>> masks;      ///< Attention masks (1=valid, 0=padding)
     std::vector<int> lengths;                 ///< Original sequence lengths
     int max_length = 0;                       ///< Maximum length in batch
-    int pad_token_id = 0;                     ///< Padding token ID
+    int pad_token_id = adai::SpecialTokenIDs::PAD;  ///< Padding token ID
     
     /**
      * @brief Get total number of tokens (including padding)
@@ -134,7 +135,7 @@ public:
     static std::vector<SequenceBatch> create_dynamic_batches(
         const std::vector<std::vector<int>>& sequences,
         size_t batch_size,
-        int pad_token_id = 0,
+        int pad_token_id = adai::SpecialTokenIDs::PAD,
         PaddingStrategy strategy = PaddingStrategy::RIGHT,
         bool sort_by_length = true
     ) {
@@ -182,7 +183,7 @@ public:
     static std::vector<SequenceBatch> create_bucketed_batches(
         const std::vector<std::vector<int>>& sequences,
         const BucketConfig& config,
-        int pad_token_id = 0,
+        int pad_token_id = adai::SpecialTokenIDs::PAD,
         PaddingStrategy strategy = PaddingStrategy::RIGHT
     ) {
         if (sequences.empty()) {

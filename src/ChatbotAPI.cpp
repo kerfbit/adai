@@ -1,4 +1,5 @@
 #include "ChatbotAPI.hpp"
+#include "SpecialTokens.hpp"
 #include <httplib.h>
 #include <random>
 #include <sstream>
@@ -625,7 +626,7 @@ ChatbotAPI::BatchResponse ChatbotAPI::generate_batch_responses(
             input_token_sequences, 
             32,  // max_batch_size
             10,  // length_tolerance
-            0    // pad_token_id
+            adai::SpecialTokenIDs::PAD    // pad_token_id
         );
         
         // Compute batch statistics

@@ -29,6 +29,7 @@
 #include "encoder.hpp"
 #include "Decoder.hpp"
 #include "LanguageModelHead.hpp"
+#include "SpecialTokens.hpp"
 
 // ============================================================================
 // Thread-Safe Queue for Pipeline Stages
@@ -437,9 +438,9 @@ public:
         total_encoder_time_ms_(0.0),
         total_decoder_time_ms_(0.0),
         total_latency_ms_(0.0),
-        bos_token_id_(1),
-        eos_token_id_(2),
-        pad_token_id_(0) {
+        bos_token_id_(adai::SpecialTokenIDs::BOS),
+        eos_token_id_(adai::SpecialTokenIDs::EOS),
+        pad_token_id_(adai::SpecialTokenIDs::PAD) {
         
         start_time_ = std::chrono::steady_clock::now();
         

@@ -7,6 +7,7 @@
 #include <vector>
 #include "BPETokenizer.hpp"
 #include "Matrix.hpp"
+#include "SpecialTokens.hpp"
 
 /**
  * Text Generator for Autoregressive Language Generation
@@ -67,10 +68,10 @@ class TextGenerator {
         float length_penalty_alpha = 0.6f;  // Length penalty exponent
         bool early_stopping = true;         // Stop when all beams finish
         int min_length = 0;                 // Minimum generation length
-        int pad_token_id = 0;               // Padding token ID
-        int bos_token_id = 2;               // Beginning of sequence token
-        int eos_token_id = 3;               // End of sequence token
-        int unk_token_id = 1;               // Unknown token ID
+        int pad_token_id = adai::SpecialTokenIDs::PAD;  // Padding token ID
+        int bos_token_id = adai::SpecialTokenIDs::BOS;  // Beginning of sequence token
+        int eos_token_id = adai::SpecialTokenIDs::EOS;  // End of sequence token
+        int unk_token_id = adai::SpecialTokenIDs::UNK;  // Unknown token ID
 
         GenerationConfig() = default;
     };

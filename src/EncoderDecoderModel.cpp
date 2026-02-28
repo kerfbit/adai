@@ -3,6 +3,7 @@
 #include <cmath>
 #include <stdexcept>
 #include "Optimizer.hpp"
+#include "SpecialTokens.hpp"
 
 // Constructor
 EncoderDecoderModel::EncoderDecoderModel(int vocab_size, int d_model, int encoder_layers,
@@ -34,9 +35,9 @@ EncoderDecoderModel::EncoderDecoderModel(int vocab_size, int d_model, int encode
     // Initialize text generator with default config
     TextGenerator::GenerationConfig gen_config;
     gen_config.max_length = max_seq_length;
-    gen_config.bos_token_id = 2;  // <bos> token
-    gen_config.eos_token_id = 3;  // <eos> token
-    gen_config.pad_token_id = 0;  // <pad> token
+    gen_config.bos_token_id = adai::SpecialTokenIDs::BOS;  // <bos> token
+    gen_config.eos_token_id = adai::SpecialTokenIDs::EOS;  // <eos> token
+    gen_config.pad_token_id = adai::SpecialTokenIDs::PAD;  // <pad> token
 
     generator = std::make_unique<TextGenerator>(gen_config, 42);
 

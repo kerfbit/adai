@@ -13,6 +13,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include "SpecialTokens.hpp"
 
 // Custom exception types for BPE Tokenizer errors
 
@@ -59,11 +60,11 @@ class BPETokenizer {
     std::vector<std::pair<std::string, std::string>> bpe_merges;
     std::unordered_set<std::string> special_tokens;
 
-    // Special token IDs
-    int pad_token_id = 0;
-    int unk_token_id = 1;
-    int bos_token_id = 2;
-    int eos_token_id = 3;
+    // Special token IDs (using standard definitions from SpecialTokens.hpp)
+    int pad_token_id = adai::SpecialTokenIDs::PAD;
+    int unk_token_id = adai::SpecialTokenIDs::UNK;
+    int bos_token_id = adai::SpecialTokenIDs::BOS;
+    int eos_token_id = adai::SpecialTokenIDs::EOS;
 
     // Regex pattern for pre-tokenization
     std::regex token_pattern;

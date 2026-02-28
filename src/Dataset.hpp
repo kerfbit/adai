@@ -1089,7 +1089,7 @@ public:
      * @param batch_start Start index within the split
      * @param batch_size Number of samples in batch
      * @param tokenizer_fn Function to tokenize a string into token IDs
-     * @param pad_token_id Token ID to use for padding (default: 0)
+     * @param pad_token_id Token ID to use for padding (default: PAD token)
      * @return TokenBatch with padded input sequences
      * 
      * @code
@@ -1105,7 +1105,7 @@ public:
         size_t batch_start,
         size_t batch_size,
         std::function<std::vector<int>(const std::string&)> tokenizer_fn,
-        int pad_token_id = 0) const {
+        int pad_token_id = adai::SpecialTokenIDs::PAD) const {
         
         // Get indices for split
         const std::vector<size_t>* indices = nullptr;
@@ -1150,7 +1150,7 @@ public:
      * @param batch_start Start index within the split
      * @param batch_size Number of samples in batch
      * @param tokenizer_fn Function to tokenize a string into token IDs
-     * @param pad_token_id Token ID to use for padding (default: 0)
+     * @param pad_token_id Token ID to use for padding (default: PAD token)
      * @return TokenBatch with padded target sequences
      */
     TokenBatch get_target_batch_with_padding(
@@ -1158,7 +1158,7 @@ public:
         size_t batch_start,
         size_t batch_size,
         std::function<std::vector<int>(const std::string&)> tokenizer_fn,
-        int pad_token_id = 0) const {
+        int pad_token_id = adai::SpecialTokenIDs::PAD) const {
         
         // Get indices for split
         const std::vector<size_t>* indices = nullptr;
@@ -1204,7 +1204,7 @@ public:
      * @param tokenizer_fn Function to tokenize a string into token IDs
      * @param max_batch_size Maximum number of sequences per batch (default: 32)
      * @param length_tolerance Maximum length difference within a batch (default: 10)
-     * @param pad_token_id Token ID to use for padding (default: 0)
+     * @param pad_token_id Token ID to use for padding (default: PAD token)
      * @return Vector of TokenBatch objects
      * 
      * @code
@@ -1225,7 +1225,7 @@ public:
         std::function<std::vector<int>(const std::string&)> tokenizer_fn,
         int max_batch_size = 32,
         int length_tolerance = 10,
-        int pad_token_id = 0) const {
+        int pad_token_id = adai::SpecialTokenIDs::PAD) const {
         
         // Get indices for split
         const std::vector<size_t>* indices = nullptr;
@@ -1266,7 +1266,7 @@ public:
      * @param samples Batch of data samples to process
      * @param tokenizer_fn Function to tokenize a string into token IDs
      * @param model_fn Function that processes a batch of token sequences and returns outputs
-     * @param pad_token_id Token ID to use for padding (default: 0)
+     * @param pad_token_id Token ID to use for padding (default: PAD token)
      * @return Vector of model outputs (one per sample)
      * 
      * @code
@@ -1287,7 +1287,7 @@ public:
         const std::vector<DataSample>& samples,
         std::function<std::vector<int>(const std::string&)> tokenizer_fn,
         std::function<std::vector<OutputType>(const TokenBatch&)> model_fn,
-        int pad_token_id = 0) const {
+        int pad_token_id = adai::SpecialTokenIDs::PAD) const {
         
         if (samples.empty()) {
             return std::vector<OutputType>();
