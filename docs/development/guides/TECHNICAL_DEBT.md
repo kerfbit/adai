@@ -4,11 +4,12 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** February 18, 2026  
+**Last Updated:** March 1, 2026  
 **Total Items:** 4  
 **High Priority:** 0  
 **Medium Priority:** 2  
-**Low Priority:** 2
+**Low Priority:** 2  
+**Future Enhancements:** 14
 
 ## Table of Contents
 
@@ -20,6 +21,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [TD-006: Fill-in-the-Middle (FIM) Training Data Generation](#td-006-fill-in-the-middle-fim-training-data-generation)
   - [TD-007: Matrix Operations SIMD Acceleration](#td-007-matrix-operations-simd-acceleration)
 - [Resolved Items](#resolved-items)
+  - [TD-008: Daemon Service Implementation (Steps 1-5)](#td-008-daemon-service-implementation-steps-1-5)
   - [TD-005: Checkpoint Management and Symbolic Links](#td-005-checkpoint-management-and-symbolic-links)
   - [TD-002: Improve Error Handling in BPE Tokenizer](#td-002-improve-error-handling-in-bpe-tokenizer)
   - [TD-001: Complete Optimizer Parameter Exposure](#td-001-complete-optimizer-parameter-exposure)
@@ -27,6 +29,9 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
   - [Developer Experience](#developer-experience)
+  - [Configuration and Service Management](#configuration-and-service-management)
+  - [Logging and Observability](#logging-and-observability)
+  - [Container and Deployment](#container-and-deployment)
 - [Process Guidelines](#process-guidelines)
   - [Adding New Technical Debt](#adding-new-technical-debt)
   - [Prioritization Criteria](#prioritization-criteria)
@@ -35,6 +40,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [By Priority](#by-priority)
   - [By Component](#by-component)
   - [Effort Distribution](#effort-distribution)
+  - [Future Enhancements Summary](#future-enhancements-summary)
 - [References](#references)
 
 ## Active Technical Debt
@@ -359,6 +365,139 @@ Multiple TODOs added throughout `src/Matrix.cpp`:
 
 ## Resolved Items
 
+### TD-008: Daemon Service Implementation (Steps 1-5)
+
+**Resolution Date:** March 1, 2026  
+**Component:** Service Management / Production Deployment  
+**Resolved By:** Complete 5-step daemon service transformation
+
+**Summary:**
+Successfully transformed the ADAI Chatbot API Server from a development application into a production-ready daemon service. Implemented external configuration, graceful shutdown, structured logging, Docker deployment, and systemd integration following a comprehensive 5-step plan.
+
+**Changes Made:**
+
+**Step 1: External Configuration ✅**
+
+1. Created `Config.hpp` and `Config.cpp` for centralized configuration management
+2. Implemented multi-source configuration with priority system:
+   - Command-line arguments (highest priority)
+   - Environment variables
+   - Configuration file
+   - Default values (lowest priority)
+3. Added support for all parameters: server config, model architecture, text generation
+4. Created `config.conf` example configuration file
+5. Updated `ChatbotAPIServer.cpp` to use Config system
+6. Modified Docker files to support environment variables
+7. Documentation: `STEP1_COMPLETE.md`
+
+**Step 2: Signal Handling ✅**
+
+1. Implemented async-signal-safe signal handlers for SIGTERM and SIGINT
+2. Created graceful shutdown sequence:
+   - Stop HTTP server
+   - Complete in-flight requests
+   - Save model state (if configured)
+   - Clean up resources
+   - Exit cleanly
+3. Used `std::atomic<bool>` for thread-safe shutdown flag
+4. Fixed model parameter order bug (vocab_size, d_model, num_heads)
+5. Created test scripts: `test_signal_handling.sh`, `test_sigint.sh`
+6. Verified 30-second timeout and clean shutdown
+7. Documentation: `STEP2_COMPLETE.md`
+
+**Step 3: Structured Logging ✅**
+
+1. Integrated spdlog v1.12.0 via CMake FetchContent
+2. Created `Logger.hpp` and `Logger.cpp` wrapper classes
+3. Replaced all `std::cout`/`std::cerr` with structured logging:
+   - `Logger::debug()` - detailed debugging info
+   - `Logger::info()` - normal operations
+   - `Logger::warn()` - warnings
+   - `Logger::error()` - errors
+4. Implemented timestamped log format: `[YYYY-MM-DD HH:MM:SS.mmm] [level] message`
+5. Added configurable log levels (DEBUG, INFO, WARN, ERROR)
+6. Configured auto-flush for container environments
+7. Documentation: `STEP3_COMPLETE.md`
+
+**Step 4: Docker Configuration ✅**
+
+1. Enhanced `Dockerfile` with comprehensive environment variable documentation
+2. Documented all 19 configuration options with inline comments
+3. Organized into sections: Server, Model Architecture, Text Generation
+4. Updated `docker-compose.yml` with detailed configuration examples
+5. Created comprehensive deployment guide: `DOCKER_DEPLOYMENT.md` (500+ lines)
+6. Documented configuration priority, volume mounts, health checks
+7. Added troubleshooting, security, and monitoring sections
+8. Multi-stage build already implemented for minimal runtime image
+9. Documentation: `STEP4_COMPLETE.md`
+
+**Step 5: systemd Service File ✅**
+
+1. Created production-ready systemd service file: `scripts/adai.service`
+2. Implemented extensive security hardening:
+   - Filesystem protection (ProtectSystem=strict)
+   - Kernel protection (ProtectKernelLogs, ProtectKernelModules, etc.)
+   - Privilege restrictions (NoNewPrivileges, CapabilityBoundingSet=)
+   - System call filtering (SystemCallFilter)
+   - Network isolation (RestrictAddressFamilies=AF_INET AF_INET6)
+3. Configured resource limits:
+   - Memory: 4GB max, 3GB soft limit
+   - CPU: 50% quota
+   - Files: 65536 max, 2GB file size limit
+4. Implemented automatic restart: on-failure with rate limiting (5 restarts per 10 minutes)
+5. Created automated installation script: `scripts/install_systemd_service.sh`
+   - One-command installation
+   - Configurable paths, user, group, port
+   - 8-step installation with verification
+   - Preflight checks and interactive confirmation
+6. Created comprehensive deployment guide: `SYSTEMD_DEPLOYMENT.md` (900+ lines)
+7. Documentation: `STEP5_COMPLETE.md`, `DAEMON_IMPLEMENTATION_COMPLETE.md`
+
+**Files Created:**
+
+- Configuration: `src/Config.hpp`, `src/Config.cpp`, `config.conf`, `config.conf.example`
+- Logging: `src/Logger.hpp`, `src/Logger.cpp`
+- systemd: `scripts/adai.service`, `scripts/install_systemd_service.sh`
+- Documentation: `STEP1_COMPLETE.md`, `STEP2_COMPLETE.md`, `STEP3_COMPLETE.md`, `STEP4_COMPLETE.md`, `STEP5_COMPLETE.md`, `DAEMON_IMPLEMENTATION_COMPLETE.md`, `DOCKER_DEPLOYMENT.md`, `SYSTEMD_DEPLOYMENT.md`
+- Testing: `scripts/test_signal_handling.sh`, `scripts/test_sigint.sh`
+
+**Files Modified:**
+
+- `src/ChatbotAPIServer.cpp` - Added Config, Logger, signal handling
+- `CMakeLists.txt` - Added spdlog dependency, Logger.cpp
+- `src/CMakeLists.txt` - Linked spdlog library
+- `Dockerfile` - Comprehensive environment variable documentation
+- `docker-compose.yml` - Enhanced configuration with detailed comments
+
+**Verification:**
+
+- ✅ Configuration: All sources (CLI, env, file) work with correct priority
+- ✅ Signal handling: SIGTERM/SIGINT trigger graceful shutdown
+- ✅ Logging: Structured logs with timestamps at all levels
+- ✅ Docker: Image builds, container starts, health checks pass
+- ✅ systemd: Service file syntax valid, installation script functional
+
+**Impact:**
+
+- **Production Ready:** Service can now run as managed daemon
+- **Observable:** Structured logs, configurable verbosity, timestamps
+- **Reliable:** Graceful shutdown, automatic restart, resource limits
+- **Secure:** Non-root user, extensive hardening, minimal privileges
+- **Portable:** Docker and systemd deployment options
+- **Documented:** Comprehensive deployment guides (1400+ lines total)
+
+**Related Future Enhancements:**
+See [Future Improvements](#configuration-and-service-management) section for enhancements building on this foundation:
+
+- Configuration hot-reloading (TD Future #3)
+- JSON configuration format (TD Future #4)
+- Model state persistence (TD Future #6)
+- JSON log output (TD Future #8)
+- Metrics endpoint (TD Future #13)
+- Socket activation (TD Future #14)
+
+---
+
 ### TD-005: Checkpoint Management and Symbolic Links
 
 **Resolution Date:** February 18, 2026  
@@ -571,6 +710,233 @@ These are lower-priority enhancements that don't currently block development:
    - Optimize template instantiations
    - Modularize includes
 
+### Configuration and Service Management
+
+**Related to Steps 1-5: Daemon Service Implementation**
+
+3. **Configuration Hot-Reloading** (Step 1 Enhancement)
+   - **Priority:** Low
+   - **Effort:** 4-6 hours
+   - **Description:** Allow configuration changes without service restart
+   - **Implementation:**
+     - Implement SIGHUP handler to trigger config reload
+     - Add thread-safe configuration updates
+     - Validate new configuration before applying
+     - Log configuration changes with timestamps
+   - **Benefits:**
+     - Zero-downtime configuration updates
+     - Easier A/B testing of parameters
+     - Reduced service interruption
+   - **Files:** `src/Config.cpp`, `src/ChatbotAPIServer.cpp`, `src/Logger.cpp`
+
+4. **JSON Configuration Format Support** (Step 1 Enhancement)
+   - **Priority:** Low
+   - **Effort:** 2-3 hours
+   - **Description:** Support JSON in addition to key=value format
+   - **Implementation:**
+     - Add JSON parsing library (nlohmann/json or similar)
+     - Implement `load_from_json()` method in ConfigLoader
+     - Support both formats with auto-detection
+     - Add schema validation for JSON config
+   - **Benefits:**
+     - More expressive configuration (nested objects, arrays)
+     - Better tooling support (editors, validators)
+     - Easier integration with deployment tools
+   - **Files:** `src/Config.cpp`, `src/Config.hpp`, `CMakeLists.txt`
+
+5. **Configuration Profiles** (Step 1 Enhancement)
+   - **Priority:** Low
+   - **Effort:** 3-4 hours
+   - **Description:** Support named configuration profiles (dev, staging, prod)
+   - **Implementation:**
+     - Add `--profile` command-line argument
+     - Load base config + profile-specific overrides
+     - Support profile inheritance
+   - **Files:** `src/Config.cpp`, `config.dev.conf`, `config.prod.conf`
+
+6. **Model State Persistence on Shutdown** (Step 2 Enhancement)
+   - **Priority:** Medium
+   - **Effort:** 4-6 hours
+   - **Description:** Automatically save model weights during graceful shutdown
+   - **Implementation:**
+     - Check if MODEL_PATH is configured during shutdown
+     - If set, call model->save_weights() in shutdown sequence
+     - Add checkpoint metadata (timestamp, loss, etc.)
+     - Log save progress with structured logging
+   - **Benefits:**
+     - No manual model saving needed
+     - Automatic checkpointing on restart
+     - Reduced risk of losing trained state
+   - **Files:** `src/ChatbotAPIServer.cpp`
+
+7. **Graceful Reload (Zero-Downtime Restart)** (Step 2 Enhancement)
+   - **Priority:** Low
+   - **Effort:** 8-12 hours
+   - **Description:** Reload model without dropping connections
+   - **Implementation:**
+     - Implement SIGHUP handler for reload signal
+     - Load new model in background thread
+     - Atomic swap to new model after loading
+     - Keep serving requests during reload
+   - **Benefits:**
+     - True zero-downtime deployments
+     - Seamless model updates
+   - **Files:** `src/ChatbotAPIServer.cpp`, `src/ChatbotAPI.cpp`
+
+### Logging and Observability
+
+**Related to Step 3: Structured Logging**
+
+8. **JSON Log Output Format** (Step 3 Enhancement)
+   - **Priority:** Medium
+   - **Effort:** 2-3 hours
+   - **Description:** Support JSON-formatted logs for machine parsing
+   - **Implementation:**
+     - Add `LOG_FORMAT` config option (text/json)
+     - Implement JSON formatter in Logger class
+     - Include structured fields: timestamp, level, message, component, context
+     - Support ECS (Elastic Common Schema) format
+   - **Benefits:**
+     - Better integration with log aggregation (ELK, Splunk)
+     - Easier parsing and analysis
+     - Structured error reporting
+   - **Example Output:**
+     ```json
+     {"timestamp":"2026-03-01T16:15:17.862Z","level":"info","message":"Server started","port":8080,"pid":1234}
+     ```
+   - **Files:** `src/Logger.cpp`, `src/Logger.hpp`, `src/Config.hpp`
+
+9. **File Rotation and Management** (Step 3 Enhancement)
+   - **Priority:** Low
+   - **Effort:** 3-4 hours
+   - **Description:** Add file-based logging with automatic rotation
+   - **Implementation:**
+     - Add rotating file sink to spdlog
+     - Configure max file size and rotation count
+     - Support compression of old logs
+     - Add `LOG_FILE_PATH` configuration option
+   - **Benefits:**
+     - Persistent logs for debugging
+     - Automatic disk space management
+     - Audit trail preservation
+   - **Files:** `src/Logger.cpp`, `src/Config.hpp`
+
+10. **Per-Module Log Levels** (Step 3 Enhancement)
+    - **Priority:** Low
+    - **Effort:** 4-5 hours
+    - **Description:** Different log levels for different components
+    - **Implementation:**
+      - Create named loggers per component (api, model, tokenizer)
+      - Support per-module configuration: `LOG_LEVEL_API=DEBUG`
+      - Add logger registry for runtime level changes
+    - **Benefits:**
+      - Fine-grained debugging control
+      - Reduce log noise in production
+      - Debug specific components without full verbosity
+    - **Example:**
+      ```ini
+      LOG_LEVEL_API=DEBUG
+      LOG_LEVEL_MODEL=INFO
+      LOG_LEVEL_TOKENIZER=WARN
+      ```
+    - **Files:** `src/Logger.cpp`, `src/Logger.hpp`, `src/Config.cpp`
+
+11. **Custom Log Sinks** (Step 3 Enhancement)
+    - **Priority:** Low
+    - **Effort:** 6-8 hours
+    - **Description:** Support multiple log destinations
+    - **Implementation:**
+      - Add syslog sink for system logging
+      - Add network sink (TCP/UDP) for centralized logging
+      - Add custom sink interface for extensibility
+      - Configure via `LOG_SINKS` config option
+    - **Files:** `src/Logger.cpp`, `src/sinks/SyslogSink.cpp`, `src/sinks/NetworkSink.cpp`
+
+### Container and Deployment
+
+**Related to Steps 4-5: Docker and systemd**
+
+12. **Kubernetes Deployment Manifests** (Step 4 Enhancement)
+    - **Priority:** Low
+    - **Effort:** 4-6 hours
+    - **Description:** Create production-ready Kubernetes manifests
+    - **Implementation:**
+      - Create Deployment manifest with resource limits
+      - Add Service manifest for load balancing
+      - Add ConfigMap for configuration
+      - Add HorizontalPodAutoscaler for auto-scaling
+      - Add probes (liveness, readiness, startup)
+    - **Files:** `k8s/deployment.yaml`, `k8s/service.yaml`, `k8s/configmap.yaml`, `docs/operations/KUBERNETES_DEPLOYMENT.md`
+
+13. **Metrics Endpoint for Prometheus** (Step 5 Enhancement)
+    - **Priority:** Medium
+    - **Effort:** 6-8 hours
+    - **Description:** Expose /metrics endpoint with application metrics
+    - **Implementation:**
+      - Add Prometheus C++ client library
+      - Expose metrics: request_count, request_duration, active_sessions, model_inference_time
+      - Add custom metrics: generation_tokens_total, vocabulary_size, etc.
+      - Integrate with systemd service monitoring
+    - **Benefits:**
+      - Production monitoring and alerting
+      - Performance tracking over time
+      - Integration with Grafana dashboards
+    - **Files:** `src/MetricsExporter.cpp`, `src/ChatbotAPIServer.cpp`, `CMakeLists.txt`
+
+14. **systemd Socket Activation** (Step 5 Enhancement)
+    - **Priority:** Low
+    - **Effort:** 5-7 hours
+    - **Description:** Support on-demand service activation
+    - **Implementation:**
+      - Add socket activation support with sd_listen_fds()
+      - Create adai.socket unit file
+      - Modify server to accept pre-bound socket from systemd
+      - Support both direct and socket-activated startup
+    - **Benefits:**
+      - Reduced resource usage for idle services
+      - Faster first-request handling (systemd pre-binds socket)
+      - Better system integration
+    - **Files:** `src/ChatbotAPIServer.cpp`, `scripts/adai.socket`, `docs/operations/SYSTEMD_DEPLOYMENT.md`
+
+15. **Multi-Instance Service Templates** (Step 5 Enhancement)
+    - **Priority:** Low
+    - **Effort:** 2-3 hours
+    - **Description:** Support running multiple chatbot instances
+    - **Implementation:**
+      - Convert adai.service to template unit (adai@.service)
+      - Use %i instance identifier for port assignment
+      - Support per-instance configuration files
+    - **Example Usage:**
+      ```bash
+      systemctl start adai@8080
+      systemctl start adai@8081
+      systemctl start adai@8082
+      ```
+    - **Files:** `scripts/adai@.service`, `docs/operations/SYSTEMD_DEPLOYMENT.md`
+
+16. **Health Check Enhancements** (Steps 4-5 Enhancement)
+    - **Priority:** Low
+    - **Effort:** 3-4 hours
+    - **Description:** More comprehensive health checking
+    - **Implementation:**
+      - Add detailed health endpoint returning component status
+      - Check vocabulary loaded, model initialized, memory usage
+      - Support readiness vs liveness checks (Kubernetes)
+      - Add configurable health check timeout
+    - **Response Example:**
+      ```json
+      {
+        "status": "healthy",
+        "components": {
+          "tokenizer": {"status": "ok", "vocab_size": 9925},
+          "model": {"status": "ok", "initialized": true},
+          "memory": {"status": "ok", "usage_mb": 512}
+        },
+        "uptime_seconds": 3600
+      }
+      ```
+    - **Files:** `src/ChatbotAPIServer.cpp`, `src/ChatbotAPI.cpp`
+
 ---
 
 ## Process Guidelines
@@ -669,7 +1035,28 @@ When resolving a debt item:
 | 4-8 hours | 2 |
 | 8+ hours | 1 |
 
-**Total Estimated Effort:** 26-33 hours
+**Total Estimated Effort (Active Items):** 26-33 hours
+
+### Future Enhancements Summary
+
+**Total Future Enhancements:** 14  
+**Estimated Total Effort:** 62-87 hours
+
+**By Category:**
+- Configuration and Service Management: 5 items (21-31 hours)
+- Logging and Observability: 4 items (15-20 hours)
+- Container and Deployment: 5 items (26-36 hours)
+
+**By Priority:**
+- High: 0 items
+- Medium: 3 items (Configuration hot-reload, JSON logs, Metrics endpoint)
+- Low: 11 items
+
+**Recently Completed:**
+- TD-008: Daemon Service Implementation (Steps 1-5) - March 1, 2026
+- TD-005: Checkpoint Management - February 18, 2026
+- TD-002: BPE Tokenizer Error Handling - February 18, 2026
+- TD-001: Optimizer Parameter Exposure - January 28, 2026
 
 ---
 

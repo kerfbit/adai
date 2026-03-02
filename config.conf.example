@@ -1,0 +1,81 @@
+# ADAI Chatbot Service Configuration File
+# This file demonstrates the configuration options for the ADAI chatbot service.
+# 
+# Configuration priority (highest to lowest):
+#   1. Command-line arguments
+#   2. Environment variables
+#   3. This configuration file
+#   4. Default values
+#
+# To use this file:
+#   - Copy to /etc/adai/config.conf (default location)
+#   - Or specify with --config /path/to/config.conf
+#
+# Lines starting with # are comments and are ignored.
+# Format: KEY=value (no spaces around =)
+
+# ============================================================================
+# Server Configuration
+# ============================================================================
+
+# Path to the trained model file (leave empty for random initialization)
+# MODEL_PATH=/app/models/model.bin
+
+# Path to the vocabulary file (REQUIRED)
+VOCAB_PATH=/app/vocab/vocab.txt
+
+# Port number for the API server
+PORT=8080
+
+# Session timeout in minutes
+SESSION_TIMEOUT=30
+
+# Logging level: DEBUG, INFO, WARN, ERROR
+LOG_LEVEL=INFO
+
+# ============================================================================
+# Model Architecture Parameters
+# ============================================================================
+# These should match the architecture used during training
+
+# Model dimension
+D_MODEL=512
+
+# Number of attention heads
+NUM_HEADS=8
+
+# Feed-forward network dimension
+D_FF=2048
+
+# Number of encoder layers
+NUM_ENCODER_LAYERS=6
+
+# Number of decoder layers
+NUM_DECODER_LAYERS=6
+
+# Maximum sequence length
+MAX_SEQ_LENGTH=1024
+
+# ============================================================================
+# Text Generation Parameters
+# ============================================================================
+
+# Maximum length of generated text
+MAX_GEN_LENGTH=100
+
+# Temperature for sampling (higher = more random, lower = more deterministic)
+# Range: 0.1 to 2.0, Default: 1.0
+TEMPERATURE=1.0
+
+# Top-p (nucleus) sampling threshold
+# Range: 0.0 to 1.0, Default: 0.9
+TOP_P=0.9
+
+# Top-k sampling parameter
+TOP_K=50
+
+# Beam width for beam search
+BEAM_WIDTH=4
+
+# Generation strategy: greedy, beam, temperature, top_k, nucleus
+STRATEGY=nucleus

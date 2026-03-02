@@ -1,5 +1,5 @@
 # BPE Tokenizer Vocabulary v1.0
-VOCAB_SIZE 9930
+VOCAB_SIZE 9926
 SPECIAL_TOKENS
 pad_token_id 0
 unk_token_id 1

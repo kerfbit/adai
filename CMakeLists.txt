@@ -137,14 +137,41 @@ endif()
 include_directories(src)
 
 # Subdirectories
+# Source directory
 add_subdirectory(src)
+
+# ============================================================================
+# spdlog - Structured Logging Library
+# ============================================================================
+
+include(FetchContent)
+
+FetchContent_Declare(
+    spdlog
+    GIT_REPOSITORY https://github.com/gabime/spdlog.git
+    GIT_TAG v1.12.0
+    GIT_SHALLOW TRUE
+    GIT_PROGRESS TRUE
+)
+
+# Configure spdlog options
+set(SPDLOG_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+set(SPDLOG_BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
+set(SPDLOG_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+
+# Make spdlog available
+FetchContent_MakeAvailable(spdlog)
+
+message(STATUS "spdlog v1.12.0 fetched and configured for structured logging")
+
+# ============================================================================
+# Testing Configuration
+# ============================================================================
 
 if(BUILD_TESTING)
     enable_testing()
     
     # Use FetchContent to automatically download and build Google Test
-    include(FetchContent)
-    
     FetchContent_Declare(
         googletest
         GIT_REPOSITORY https://github.com/google/googletest.git

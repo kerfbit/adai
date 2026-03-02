@@ -2,3 +2,4 @@
 0 7100 1 3.20249 0 training_sessions/session_0_checkpoint.bin
 1 2700 5 3.11683 0 training_sessions/session_1_checkpoint.bin
 2 1800 10 3.1146 0 training_sessions/session_2_checkpoint.bin
+3 13000 1 3.21868 0 training_sessions/session_3_checkpoint.bin

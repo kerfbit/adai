@@ -323,14 +323,19 @@ endif()
 
 # Chatbot API Server - REST API service
 if(BUILD_API_SERVER)
-    add_executable(chatbot_api_server ChatbotAPIServer.cpp)
+    add_executable(chatbot_api_server 
+        ChatbotAPIServer.cpp
+        Config.cpp
+        Logger.cpp
+    )
     target_link_libraries(chatbot_api_server 
         adai_api
         adai_models 
         adai_nlp
+        spdlog::spdlog
     )
     target_include_directories(chatbot_api_server PRIVATE ${HTTPLIB_INCLUDE_DIR})
-    message(STATUS "Building chatbot_api_server executable")
+    message(STATUS "Building chatbot_api_server executable with structured logging")
 endif()
 
 # ============================================================================

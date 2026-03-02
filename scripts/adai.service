@@ -1,0 +1,212 @@
+# ADAI Chatbot API Server - systemd Service Unit
+#
+# This systemd service file enables the ADAI chatbot to run as a managed
+# system service with automatic restarts, resource limits, and security hardening.
+#
+# TODO: See TECHNICAL_DEBT.md Future Enhancement #14 - Socket activation for systemd
+# TODO: See TECHNICAL_DEBT.md Future Enhancement #16 - Advanced health check with REST endpoint
+#
+# Installation:
+#   1. Copy this file to /etc/systemd/system/adai.service
+#   2. Update paths to match your installation
+#   3. Run: sudo systemctl daemon-reload
+#   4. Enable: sudo systemctl enable adai
+#   5. Start: sudo systemctl start adai
+#
+# For detailed instructions, see: docs/operations/SYSTEMD_DEPLOYMENT.md
+
+[Unit]
+# Service description and documentation
+Description=ADAI Transformer-based Chatbot API Server
+Documentation=https://github.com/rjv717/adai
+After=network-online.target
+Wants=network-online.target
+
+# Restart if dependencies fail
+PartOf=multi-user.target
+
+# Maximum restart attempts in 10 minutes
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+# ============================================================================
+# Service Configuration
+# ============================================================================
+
+# Service type: simple means the process runs in foreground
+Type=simple
+
+# User and group to run the service (non-root for security)
+# Create with: sudo useradd -r -s /bin/false -d /opt/adai adai
+User=adai
+Group=adai
+
+# ============================================================================
+# Execution Configuration
+# ============================================================================
+
+# Working directory (where the executable will run from)
+WorkingDirectory=/opt/adai
+
+# Path to the chatbot API server executable
+ExecStart=/opt/adai/bin/chatbot_api_server
+
+# Graceful shutdown: Send SIGTERM, wait 30 seconds, then SIGKILL
+# The application handles SIGTERM for graceful shutdown
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Graceful startup: Allow 40 seconds for the service to initialize
+TimeoutStartSec=40
+
+# Restart policy: Always restart except on clean shutdown
+Restart=on-failure
+RestartSec=5
+
+# ============================================================================
+# Environment Configuration
+# ============================================================================
+
+# Configuration file location (loaded by the application)
+Environment="CONFIG_FILE=/etc/adai/config.conf"
+
+# Server configuration (can override config file)
+Environment="VOCAB_PATH=/opt/adai/vocab/vocab.txt"
+Environment="PORT=8080"
+Environment="LOG_LEVEL=INFO"
+Environment="SESSION_TIMEOUT=30"
+
+# Model architecture defaults (uncomment to override)
+# Environment="D_MODEL=512"
+# Environment="NUM_HEADS=8"
+# Environment="D_FF=2048"
+# Environment="NUM_ENCODER_LAYERS=6"
+# Environment="NUM_DECODER_LAYERS=6"
+# Environment="MAX_SEQ_LENGTH=1024"
+
+# Text generation defaults (uncomment to override)
+# Environment="MAX_LENGTH=100"
+# Environment="TEMPERATURE=1.0"
+# Environment="TOP_P=0.9"
+# Environment="TOP_K=50"
+# Environment="BEAM_WIDTH=4"
+# Environment="STRATEGY=nucleus"
+
+# Load additional environment from file (optional)
+# EnvironmentFile=-/etc/adai/environment
+
+# ============================================================================
+# Hardening and Security
+# ============================================================================
+
+# Filesystem: Protect critical system directories
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/log/adai /opt/adai/models
+
+# Prevent privilege escalation
+NoNewPrivileges=true
+
+# Use private /tmp and /var/tmp
+PrivateTmp=yes
+
+# Restrict network access to IPv4/IPv6 only (no other address families)
+RestrictAddressFamilies=AF_INET AF_INET6
+
+# Prevent access to kernel logs
+ProtectKernelLogs=yes
+
+# Prevent loading kernel modules
+ProtectKernelModules=yes
+
+# Make /proc/sys, /sys, and /proc/sysrq-trigger read-only
+ProtectKernelTunables=yes
+
+# Prevent access to /proc/kcore, /proc/kallsyms, etc.
+ProtectControlGroups=yes
+
+# Use a private /dev with only basic device nodes
+PrivateDevices=yes
+
+# Restrict system calls (comment out if causing issues)
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+
+# Capabilities: Drop all Linux capabilities
+CapabilityBoundingSet=
+
+# Prevent changing system time
+ProtectClock=yes
+
+# Deny setuid/setgid
+RestrictSUIDSGID=yes
+
+# Lock down personality syscalls
+LockPersonality=yes
+
+# Restrict real-time scheduling
+RestrictRealtime=yes
+
+# ============================================================================
+# Resource Limits
+# ============================================================================
+
+# Memory limits
+MemoryMax=4G
+MemoryHigh=3G
+
+# CPU limits (50% of system CPU)
+CPUQuota=50%
+
+# File size limits
+LimitFSIZE=2G
+
+# Number of open files
+LimitNOFILE=65536
+
+# Number of processes/threads
+LimitNPROC=512
+
+# Core dump size (0 = disabled for security)
+LimitCORE=0
+
+# ============================================================================
+# Logging
+# ============================================================================
+
+# Standard output/error goes to journal
+StandardOutput=journal
+StandardError=journal
+
+# Syslog identifier for filtering logs
+SyslogIdentifier=adai-chatbot
+
+# Log level (debug, info, notice, warning, err, crit, alert, emerg)
+SyslogLevel=info
+
+# ============================================================================
+# Advanced Options
+# ============================================================================
+
+# Prevent the service from writing to the real filesystem root
+# TemporaryFileSystem=/
+
+# Mount /opt/adai as read-only except specific paths
+# BindReadOnlyPaths=/opt/adai
+# ReadWritePaths=/opt/adai/models /var/log/adai
+
+# OOM score adjustment (lower = less likely to be killed)
+# -1000 to 1000, default is 0
+OOMScoreAdjust=100
+
+# Monitor watchdog (requires application support)
+# WatchdogSec=30
+
+[Install]
+# Enable this service as part of multi-user.target (normal system boot)
+WantedBy=multi-user.target
+
+# Alias for convenience
+Alias=adai.service

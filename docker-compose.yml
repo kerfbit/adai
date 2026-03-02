@@ -1,4 +1,8 @@
 # Docker Compose configuration for ADAI Chatbot API
+#
+# TODO: See TECHNICAL_DEBT.md Future Enhancement #12 - Multi-architecture builds
+# TODO: See TECHNICAL_DEBT.md Future Enhancement #17 - Multi-container orchestration (metrics, logging)
+#
 version: '3.8'
 
 services:
@@ -13,30 +17,85 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      # Mount model artifacts directory
-      - ./models:/app/models:ro
-      # Mount vocabulary directory
+      # Mount vocabulary directory (read-only)
+      # Ensure vocab.txt exists in the local ./vocab directory
       - ./vocab:/app/vocab:ro
-      # Mount logs directory (writable)
+      
+      # Mount model artifacts directory (read-only)
+      # Place trained model weights here if available
+      - ./models:/app/models:ro
+      
+      # Mount logs directory (read-write)
+      # Application logs will be written here
       - ./logs:/app/logs:rw
+      
+      # Optional: Mount custom configuration file
+      # Uncomment to use file-based configuration instead of env vars
+      # - ./config.conf:/etc/adai/config.conf:ro
+    
     environment:
-      # Server configuration
+      # ============================================================
+      # CONFIGURATION PRIORITY:
+      # 1. Command-line arguments (if passed via command:)
+      # 2. Environment variables (defined below)
+      # 3. Configuration file (if mounted)
+      # 4. Default values
+      # ============================================================
+      
+      # ------------------------------------------------------------
+      # Server Configuration
+      # ------------------------------------------------------------
+      
+      # REQUIRED: Path to vocabulary file
+      - VOCAB_PATH=/app/vocab/vocab.txt
+      
+      # OPTIONAL: Path to pretrained model weights
+      # Leave commented to start with random initialization
+      # - MODEL_PATH=/app/models/trained_model.bin
+      
+      # Server listening port (default: 8080)
       - PORT=8080
-      - MAX_LENGTH=100
-      - TEMPERATURE=1.0
-      - TOP_P=0.9
-      - TOP_K=50
-      - BEAM_WIDTH=4
-      - SESSION_TIMEOUT=1800
-      # Logging
+      
+      # Session timeout in minutes (default: 30)
+      - SESSION_TIMEOUT=30
+      
+      # Logging level: DEBUG, INFO, WARN, ERROR (default: INFO)
+      # Use DEBUG for development, INFO for production
       - LOG_LEVEL=INFO
-    command: >
-      ./chatbot_api_server
-      --vocab /app/vocab/vocab.txt
-      --port 8080
-      --max-length 100
-      --temperature 1.0
-      --session-timeout 1800
+      
+      # ------------------------------------------------------------
+      # Model Architecture Parameters
+      # ------------------------------------------------------------
+      # Only change these if you're using a custom-trained model
+      # with different architecture. Default values work well.
+      
+      - D_MODEL=512                  # Model embedding dimension
+      - NUM_HEADS=8                  # Attention heads (must divide D_MODEL)
+      - D_FF=2048                    # Feed-forward dimension
+      - NUM_ENCODER_LAYERS=6         # Number of encoder layers
+      - NUM_DECODER_LAYERS=6         # Number of decoder layers
+      - MAX_SEQ_LENGTH=1024          # Maximum sequence length
+      
+      # ------------------------------------------------------------
+      # Text Generation Parameters
+      # ------------------------------------------------------------
+      # Control response generation behavior
+      
+      - MAX_LENGTH=100               # Maximum tokens to generate
+      - TEMPERATURE=1.0              # Sampling temperature (0.1-2.0)
+      - TOP_P=0.9                    # Nucleus sampling threshold (0.0-1.0)
+      - TOP_K=50                     # Top-k sampling candidates
+      - BEAM_WIDTH=4                 # Beam search width
+      
+      # Generation strategy: greedy, beam, temperature, top_k, nucleus
+      # - greedy: fastest, deterministic
+      # - nucleus: balanced, recommended for chatbots
+      # - beam: slower, more coherent for longer text
+      - STRATEGY=nucleus
+    
+    # Run the server with environment variable configuration
+    # The executable reads all config from env vars automatically
+    command: ./chatbot_api_server
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
