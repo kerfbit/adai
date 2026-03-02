@@ -232,6 +232,7 @@ add_executable(incrementaltrainerTests
     incrementaltrainer_test.cpp
     ../src/IncrementalTrainer.cpp
     ../src/ChatbotTrainer.cpp
+    ../src/Logger.cpp
 )
 target_compile_definitions(incrementaltrainerTests PRIVATE CHATBOT_TRAINER_TEST_BUILD)
 target_link_libraries(incrementaltrainerTests 
@@ -242,6 +243,7 @@ target_link_libraries(incrementaltrainerTests
     adai_feedforward
     adai_layers
     adai_core
+    spdlog::spdlog
     GTest::gtest_main
 )
 add_test(NAME IncrementalTrainerTests COMMAND incrementaltrainerTests)

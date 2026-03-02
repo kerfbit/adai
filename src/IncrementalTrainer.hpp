@@ -8,6 +8,7 @@
 #include "ChatbotTrainer.hpp"
 #include "BPETokenizer.hpp"
 #include "EncoderDecoderModel.hpp"
+#include "Logger.hpp"
 
 /**
  * @brief Training session information
@@ -22,6 +23,12 @@ struct TrainingSession {
     std::chrono::system_clock::time_point timestamp;
     std::chrono::system_clock::time_point start_time;
     std::chrono::system_clock::time_point end_time;
+
+    // Per-epoch metrics (TD-009)
+    std::vector<float>  per_epoch_losses;             ///< training loss per epoch
+    std::vector<float>  per_epoch_validation_losses;  ///< validation loss per epoch
+    std::vector<float>  per_epoch_learning_rates;     ///< learning rate at end of each epoch
+    std::vector<double> training_time_per_epoch;      ///< wall-clock seconds per epoch
 };
 
 /**
@@ -162,7 +169,12 @@ private:
     // Best checkpoint tracking (TD-005)
     float best_validation_loss;
     std::string best_checkpoint_path;
-    
+
+    // TD-009: Dashboard / timing state
+    mutable int dashboard_lines_drawn_;                          ///< lines drawn by last display_dashboard() call
+    std::chrono::steady_clock::time_point session_start_time_steady_;  ///< steady-clock start of current session
+    std::chrono::steady_clock::time_point epoch_start_time_steady_;    ///< steady-clock start of current epoch
+
     // Helper methods
     bool initialize_session();
     bool finalize_session(int samples_trained, int epochs_completed, float final_loss, float final_val_loss);
@@ -182,7 +194,13 @@ private:
     bool is_windows_platform() const;
     bool create_or_update_symlink(const std::string& target, const std::string& link_path);
     bool remove_symlink_if_exists(const std::string& link_path);
-    
+
+    // TD-009: Real-time dashboard helpers
+    void display_dashboard(const TrainingSession& session, int current_epoch,
+                           int total_epochs, bool is_final) const;
+    static std::string format_duration(double seconds);
+    static std::string progress_bar(int current, int total, int bar_width = 42);
+
     // Project Gutenberg helpers
     std::string get_gutenberg_url(int book_id) const;
     bool download_file(const std::string& url, const std::string& output_path);

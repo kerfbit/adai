@@ -199,13 +199,14 @@ endif()
 
 # Incremental Training Tool - Incremental model training with data management
 add_executable(incremental_trainer IncrementalTrainingTool.cpp IncrementalTrainer.cpp 
-    ChatbotTrainer.cpp)  # Include implementation
+    ChatbotTrainer.cpp Logger.cpp)  # Include implementation
 target_compile_definitions(incremental_trainer PRIVATE CHATBOT_TRAINER_TEST_BUILD)
 target_link_libraries(incremental_trainer 
     adai_models 
     adai_nlp
     adai_attention
     adai_core
+    spdlog::spdlog
     stdc++fs  # For std::filesystem
 )
 if(OpenMP_CXX_FOUND)

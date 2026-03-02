@@ -1,4 +1,5 @@
 #include "IncrementalTrainer.hpp"
+#include "Logger.hpp"
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
@@ -10,12 +11,15 @@
 #include <regex>
 #include <cstdlib>
 
-// ANSI color codes
-#define COLOR_RESET "\033[0m"
-#define COLOR_INFO "\033[1;36m"
-#define COLOR_SUCCESS "\033[1;32m"
-#define COLOR_WARNING "\033[1;33m"
-#define COLOR_ERROR "\033[1;31m"
+// Bring Logger into scope without qualifying every call
+using adai::Logger;
+
+// Legacy ANSI codes kept for print_session_history / print_data_registry (intentional TUI output)
+#define COLOR_RESET    "\033[0m"
+#define COLOR_INFO     "\033[1;36m"
+#define COLOR_SUCCESS  "\033[1;32m"
+#define COLOR_WARNING  "\033[1;33m"
+#define COLOR_ERROR    "\033[1;31m"
 #define COLOR_PROGRESS "\033[1;35m"
 
 namespace fs = std::filesystem;
@@ -24,15 +28,15 @@ IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path,
                                        const std::string& model_path)
     : current_session_id(0), samples_since_last_save(0), 
       best_validation_loss(std::numeric_limits<float>::max()), 
-      best_checkpoint_path("") {
+      best_checkpoint_path(""),
+      dashboard_lines_drawn_(0) {
     
-    std::cout << COLOR_INFO << "🔧 Initializing Incremental Training System..." << COLOR_RESET << std::endl;
+    Logger::info("Initializing Incremental Training System...");
     
     // Load tokenizer
     tokenizer = std::make_unique<BPETokenizer>();
     tokenizer->load_vocab(vocab_path);
-    std::cout << COLOR_SUCCESS << "✅ Tokenizer loaded (vocab size: " 
-              << tokenizer->get_vocab_size() << ")" << COLOR_RESET << std::endl;
+    Logger::info("Tokenizer loaded (vocab size: {})", tokenizer->get_vocab_size());
     
     // Load or create model
     model = std::make_unique<EncoderDecoderModel>(
@@ -52,10 +56,9 @@ IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path,
     if (model_file.good()) {
         try {
             model->load_model(model_path);
-            std::cout << COLOR_SUCCESS << "✅ Model loaded from: " << model_path << COLOR_RESET << std::endl;
+            Logger::info("Model loaded from: {}", model_path);
         } catch (...) {
-            std::cout << COLOR_WARNING << "⚠️  Could not load model, using fresh initialization" 
-                      << COLOR_RESET << std::endl;
+            Logger::warn("Could not load model, using fresh initialization");
         }
     }
     
@@ -74,12 +77,13 @@ IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path,
             }
         }
         if (!best_checkpoint_path.empty()) {
-            std::cout << COLOR_INFO << "🏆 Best checkpoint: " << best_checkpoint_path 
-                      << " (val loss: " << best_validation_loss << ")" << COLOR_RESET << std::endl;
+            Logger::info("Best checkpoint: {} (val loss: {})", best_checkpoint_path, best_validation_loss);
         }
     }
     
     last_save_time = std::chrono::system_clock::now();
+    session_start_time_steady_ = std::chrono::steady_clock::now();
+    epoch_start_time_steady_   = session_start_time_steady_;
 }
 
 IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path, 
@@ -99,18 +103,18 @@ IncrementalConfig& IncrementalTrainer::get_config() {
 
 bool IncrementalTrainer::add_new_data(const std::string& data_file) {
     if (!fs::exists(data_file)) {
-        std::cerr << COLOR_ERROR << "❌ Data file not found: " << data_file << COLOR_RESET << std::endl;
+        Logger::error("Data file not found: {}", data_file);
         return false;
     }
     
     // Check if already trained
     if (is_data_trained(data_file)) {
-        std::cout << COLOR_WARNING << "⚠️  Data file already trained: " << data_file << COLOR_RESET << std::endl;
+        Logger::warn("Data file already trained, skipping: {}", data_file);
         return false;
     }
     
     pending_data_files.push_back(data_file);
-    std::cout << COLOR_SUCCESS << "✅ Added new data file: " << data_file << COLOR_RESET << std::endl;
+    Logger::info("Added new data file: {}", data_file);
     
     // Save pending files list
     save_pending_data_list();
@@ -125,8 +129,7 @@ bool IncrementalTrainer::add_new_data_batch(const std::vector<std::string>& data
             added++;
         }
     }
-    std::cout << COLOR_INFO << "📦 Added " << added << "/" << data_files.size() 
-              << " new data files" << COLOR_RESET << std::endl;
+    Logger::info("Added {}/{} new data files", added, data_files.size());
     return added > 0;
 }
 
@@ -144,24 +147,28 @@ std::vector<std::string> IncrementalTrainer::get_trained_data_files() const {
 
 bool IncrementalTrainer::train_incremental(int num_epochs) {
     if (pending_data_files.empty()) {
-        std::cout << COLOR_WARNING << "⚠️  No pending data files to train on" << COLOR_RESET << std::endl;
+        Logger::warn("No pending data files to train on");
         return false;
     }
-    
-    std::cout << COLOR_INFO << "\n🚀 Starting Incremental Training Session #" << current_session_id + 1 
-              << COLOR_RESET << std::endl;
-    std::cout << COLOR_INFO << "📊 Pending data files: " << pending_data_files.size() << COLOR_RESET << std::endl;
-    
+
+    Logger::info("Starting Incremental Training Session #{}", current_session_id + 1);
+    Logger::info("Pending data files: {}", pending_data_files.size());
+
     initialize_session();
-    
+
+    // Reset dashboard state and record session start time (TD-009)
+    dashboard_lines_drawn_     = 0;
+    session_start_time_steady_ = std::chrono::steady_clock::now();
+    epoch_start_time_steady_   = session_start_time_steady_;
+
     // Load all pending data
     std::vector<ConversationPair> training_pairs;
     std::vector<ConversationPair> validation_pairs;
-    
+
     for (const auto& data_file : pending_data_files) {
         std::vector<ConversationPair> pairs;
         int loaded = load_conversation_pairs(data_file, pairs);
-        
+
         if (loaded > 0) {
             // Split into training/validation
             int val_size = loaded / config.base_config.validation_split;
@@ -172,68 +179,83 @@ bool IncrementalTrainer::train_incremental(int num_epochs) {
                     training_pairs.push_back(pairs[i]);
                 }
             }
-            
+
             // Mark as trained
             DataVersion dv;
-            dv.data_file = data_file;
-            dv.checksum = compute_data_checksum(data_file);
+            dv.data_file  = data_file;
+            dv.checksum   = compute_data_checksum(data_file);
             dv.num_samples = loaded;
             dv.added_time = std::chrono::system_clock::now();
-            dv.trained = true;
+            dv.trained    = true;
             data_registry.push_back(dv);
             trained_data_files.insert(data_file);
         }
     }
-    
-    std::cout << COLOR_INFO << "📈 Total training samples: " << training_pairs.size() << COLOR_RESET << std::endl;
-    std::cout << COLOR_INFO << "📉 Total validation samples: " << validation_pairs.size() << COLOR_RESET << std::endl;
-    
+
+    Logger::info("Total training samples: {}",   training_pairs.size());
+    Logger::info("Total validation samples: {}", validation_pairs.size());
+
     // Create trainer and configure
     ChatbotTrainer trainer(config.base_config);
-    
-    // Model already owns tokenizer from construction - just transfer model
     trainer.set_model(std::move(model));
-    
-    // Load data into trainer
+
     for (const auto& pair : training_pairs) {
         trainer.add_training_pair(pair.input, pair.response);
     }
-    
-    // Train
-    std::cout << COLOR_PROGRESS << "\n⚡ Training for " << num_epochs << " epochs..." << COLOR_RESET << std::endl;
+
+    // ── TD-009: Register per-epoch callback for timing, metrics, and live dashboard ──
+    trainer.set_epoch_callback([this](int epoch, int total, float loss, float val_loss, float lr) {
+        // Measure wall-clock time for this epoch
+        auto now = std::chrono::steady_clock::now();
+        double epoch_secs = std::chrono::duration<double>(now - epoch_start_time_steady_).count();
+        epoch_start_time_steady_ = now;  // reset for next epoch
+
+        // Store per-epoch metrics in the current session (session_history.back())
+        if (!session_history.empty()) {
+            auto& session = session_history.back();
+            session.per_epoch_losses.push_back(loss);
+            session.per_epoch_validation_losses.push_back(val_loss);
+            session.per_epoch_learning_rates.push_back(lr);
+            session.training_time_per_epoch.push_back(epoch_secs);
+
+            // Redraw the live dashboard (epoch is 0-based, display 1-based)
+            bool is_last = (epoch + 1 == total);
+            display_dashboard(session, epoch + 1, total, is_last);
+        }
+
+        Logger::debug("Epoch {}/{} — loss: {:.4f}  val_loss: {:.4f}  lr: {:.6f}  time: {:.1f}s",
+                      epoch + 1, total, loss, val_loss, lr, epoch_secs);
+    });
+
+    Logger::info("Training for {} epochs...", num_epochs);
     bool success = trainer.train(num_epochs);
-    
-    // Get model back (model owns the tokenizer)
+
+    // Retrieve model after training
     model = trainer.release_model();
-    
+
     if (success) {
-        // TODO: TD-004 - Retrieve per-epoch losses from ChatbotTrainer with get_epoch_losses() method
-        // TODO: TD-004 - Retrieve per-epoch validation losses from ChatbotTrainer
-        // TODO: TD-004 - Calculate per-epoch training times from epoch start/end timestamps
-        // TODO: TD-004 - Retrieve per-epoch learning rates from optimizer's LR scheduler history
-        // TODO: TD-004 - Retrieve per-epoch gradient norms from optimizer's gradient tracking
-        
         // Save checkpoint
         std::string checkpoint_path = generate_session_checkpoint_path();
         save_model(checkpoint_path);
-        
-        // Finalize session
-        float final_loss = trainer.get_final_training_loss();
+
+        // Finalize session (per-epoch vectors already populated by callback)
+        float final_loss     = trainer.get_final_training_loss();
         float final_val_loss = trainer.get_final_validation_loss();
-        finalize_session(training_pairs.size(), num_epochs, final_loss, final_val_loss);
-        
+        finalize_session(static_cast<int>(training_pairs.size()), num_epochs,
+                         final_loss, final_val_loss);
+
         // Clear pending data
         pending_data_files.clear();
         save_pending_data_list();
-        
-        // Save registry
+
+        // Persist
         save_data_registry();
         save_session_history();
-        
-        std::cout << COLOR_SUCCESS << "\n✅ Incremental training session completed!" << COLOR_RESET << std::endl;
+
+        Logger::info("Incremental training session completed successfully");
         print_training_summary();
     }
-    
+
     return success;
 }
 
@@ -242,8 +264,8 @@ bool IncrementalTrainer::train_on_new_data_only(int num_epochs) {
 }
 
 bool IncrementalTrainer::train_full_retrain(int num_epochs) {
-    std::cout << COLOR_INFO << "\n🔄 Starting Full Retrain on All Data" << COLOR_RESET << std::endl;
-    
+    Logger::info("Starting full retrain on all data");
+
     // Collect all trained data files
     std::vector<std::string> all_data_files;
     for (const auto& dv : data_registry) {
@@ -251,19 +273,23 @@ bool IncrementalTrainer::train_full_retrain(int num_epochs) {
             all_data_files.push_back(dv.data_file);
         }
     }
-    
+
     // Add pending files
     all_data_files.insert(all_data_files.end(), pending_data_files.begin(), pending_data_files.end());
-    
+
     if (all_data_files.empty()) {
-        std::cout << COLOR_WARNING << "⚠️  No data files to train on" << COLOR_RESET << std::endl;
+        Logger::warn("No data files to train on");
         return false;
     }
-    
-    std::cout << COLOR_INFO << "📦 Retraining on " << all_data_files.size() << " data files" << COLOR_RESET << std::endl;
-    
+
+    Logger::info("Retraining on {} data file(s)", all_data_files.size());
     initialize_session();
-    
+
+    // Reset dashboard state (TD-009)
+    dashboard_lines_drawn_     = 0;
+    session_start_time_steady_ = std::chrono::steady_clock::now();
+    epoch_start_time_steady_   = session_start_time_steady_;
+
     // Load all data
     std::vector<ConversationPair> all_pairs;
     for (const auto& data_file : all_data_files) {
@@ -271,62 +297,72 @@ bool IncrementalTrainer::train_full_retrain(int num_epochs) {
         load_conversation_pairs(data_file, pairs);
         all_pairs.insert(all_pairs.end(), pairs.begin(), pairs.end());
     }
-    
-    std::cout << COLOR_INFO << "📊 Total samples: " << all_pairs.size() << COLOR_RESET << std::endl;
-    
+
+    Logger::info("Total samples: {}", all_pairs.size());
+
     // Create trainer
     ChatbotTrainer trainer(config.base_config);
-    
-    // Model already owns tokenizer from construction - just transfer model
     trainer.set_model(std::move(model));
-    
+
     for (const auto& pair : all_pairs) {
         trainer.add_training_pair(pair.input, pair.response);
     }
-    
+
+    // TD-009: Register per-epoch callback
+    trainer.set_epoch_callback([this](int epoch, int total, float loss, float val_loss, float lr) {
+        auto now = std::chrono::steady_clock::now();
+        double epoch_secs = std::chrono::duration<double>(now - epoch_start_time_steady_).count();
+        epoch_start_time_steady_ = now;
+        if (!session_history.empty()) {
+            auto& session = session_history.back();
+            session.per_epoch_losses.push_back(loss);
+            session.per_epoch_validation_losses.push_back(val_loss);
+            session.per_epoch_learning_rates.push_back(lr);
+            session.training_time_per_epoch.push_back(epoch_secs);
+            display_dashboard(session, epoch + 1, total, (epoch + 1 == total));
+        }
+    });
+
     bool success = trainer.train(num_epochs);
-    
-    // Get model back (model owns the tokenizer)
     model = trainer.release_model();
-    
+
     if (success) {
         std::string checkpoint_path = generate_session_checkpoint_path();
         save_model(checkpoint_path);
-        
-        float final_loss = trainer.get_final_training_loss();
+
+        float final_loss     = trainer.get_final_training_loss();
         float final_val_loss = trainer.get_final_validation_loss();
-        finalize_session(all_pairs.size(), num_epochs, final_loss, final_val_loss);
-        
+        finalize_session(static_cast<int>(all_pairs.size()), num_epochs, final_loss, final_val_loss);
+
         pending_data_files.clear();
         save_data_registry();
         save_session_history();
     }
-    
+
     return success;
 }
 
 bool IncrementalTrainer::resume_last_session() {
     if (session_history.empty()) {
-        std::cout << COLOR_WARNING << "⚠️  No previous sessions to resume" << COLOR_RESET << std::endl;
+        Logger::warn("No previous sessions to resume");
         return false;
     }
-    
+
     const auto& last_session = session_history.back();
-    
+
     // Validate checkpoint path
     if (last_session.checkpoint_path.empty()) {
-        std::cerr << COLOR_ERROR << "❌ Invalid session: checkpoint path is empty" << COLOR_RESET << std::endl;
+        Logger::error("Invalid session: checkpoint path is empty");
         return false;
     }
-    
+
     // Check if checkpoint files exist (check for .config which should always be present)
     if (!fs::exists(last_session.checkpoint_path + ".config")) {
-        std::cerr << COLOR_ERROR << "❌ Checkpoint file not found: " << last_session.checkpoint_path << ".config" << COLOR_RESET << std::endl;
+        Logger::error("Checkpoint file not found: {}.config", last_session.checkpoint_path);
         return false;
     }
-    
-    std::cout << COLOR_INFO << "🔄 Resuming from session #" << last_session.session_id << COLOR_RESET << std::endl;
-    
+
+    Logger::info("Resuming from session #{}", last_session.session_id);
     return load_model(last_session.checkpoint_path);
 }
 
@@ -344,38 +380,64 @@ bool IncrementalTrainer::load_session_history() {
     
     session_history.clear();
     std::string line;
-    
-    // TODO: TD-004 - Check for version marker to determine if per-epoch metrics are available
-    // TODO: TD-004 - Parse per-epoch loss values from extended format (comma-separated after checkpoint_path)
-    // TODO: TD-004 - Parse per-epoch validation loss values with backward compatibility for old format
-    // TODO: TD-004 - Parse per-epoch training times with fallback to zero if not present
-    // TODO: TD-004 - Parse per-epoch learning rates with fallback to config default if not present
-    // TODO: TD-004 - Parse per-epoch gradient norms for advanced debugging capabilities
-    
+
+    auto parse_float_list = [](const std::string& s, std::vector<float>& out) {
+        std::istringstream ss(s);
+        std::string token;
+        while (std::getline(ss, token, ',')) {
+            try { out.push_back(std::stof(token)); } catch (...) {}
+        }
+    };
+    auto parse_double_list = [](const std::string& s, std::vector<double>& out) {
+        std::istringstream ss(s);
+        std::string token;
+        while (std::getline(ss, token, ',')) {
+            try { out.push_back(std::stod(token)); } catch (...) {}
+        }
+    };
+
     while (std::getline(file, line)) {
         if (line.empty() || line[0] == '#') continue;
-        
+
         std::istringstream iss(line);
         TrainingSession session;
-        
+
         iss >> session.session_id >> session.samples_trained >> session.epochs_completed
             >> session.final_loss >> session.final_validation_loss >> session.checkpoint_path;
-        
-        // Validate that parsing was successful
+
         if (iss.fail() || session.checkpoint_path.empty()) {
-            std::cerr << COLOR_WARNING << "⚠️  Skipping malformed session history line: " << line << COLOR_RESET << std::endl;
+            Logger::warn("Skipping malformed session history line: {}", line);
             continue;
         }
-        
+
+        // v2 extended format: checkpoint_path may contain "|losses:...|vallosses:...|lrs:...|times:..."
+        size_t pipe = session.checkpoint_path.find('|');
+        if (pipe != std::string::npos) {
+            std::string extended = session.checkpoint_path.substr(pipe + 1);
+            session.checkpoint_path = session.checkpoint_path.substr(0, pipe);
+
+            std::istringstream es(extended);
+            std::string segment;
+            while (std::getline(es, segment, '|')) {
+                auto colon = segment.find(':');
+                if (colon == std::string::npos) continue;
+                std::string key   = segment.substr(0, colon);
+                std::string value = segment.substr(colon + 1);
+                if      (key == "losses")    parse_float_list(value,  session.per_epoch_losses);
+                else if (key == "vallosses") parse_float_list(value,  session.per_epoch_validation_losses);
+                else if (key == "lrs")       parse_float_list(value,  session.per_epoch_learning_rates);
+                else if (key == "times")     parse_double_list(value, session.training_time_per_epoch);
+            }
+        }
+
         session_history.push_back(session);
-        
+
         if (session.session_id >= current_session_id) {
             current_session_id = session.session_id + 1;
         }
     }
-    
-    std::cout << COLOR_INFO << "📜 Loaded " << session_history.size() << " previous sessions" << COLOR_RESET << std::endl;
-    
+
+    Logger::info("Loaded {} previous sessions", session_history.size());
     return true;
 }
 
@@ -384,30 +446,47 @@ bool IncrementalTrainer::save_session_history() {
     
     std::ofstream file(history_file);
     if (!file.is_open()) {
-        std::cerr << COLOR_ERROR << "❌ Failed to save session history" << COLOR_RESET << std::endl;
+        Logger::error("Failed to save session history");
         return false;
     }
-    
-    // TODO: TD-004 - Add version header ("# VERSION 2") to indicate extended format with per-epoch metrics
-    // TODO: TD-004 - Update header comment to include per-epoch metric columns
-    file << "# Session History: session_id samples_trained epochs final_loss final_val_loss checkpoint_path\n";
-    
-    // TODO: TD-004 - Serialize per-epoch losses as comma-separated values after checkpoint_path
-    // TODO: TD-004 - Serialize per-epoch validation losses in separate column or embedded JSON
-    // TODO: TD-004 - Serialize per-epoch training times in ISO 8601 duration format or seconds
-    // TODO: TD-004 - Serialize per-epoch learning rates with scientific notation for precision
-    // TODO: TD-004 - Serialize per-epoch gradient norms for debugging training instability
-    // TODO: TD-004 - Add optional JSON serialization mode for complex nested data structures
-    
+
+    file << "# VERSION 2\n";
+    file << "# session_id samples_trained epochs final_loss final_val_loss "
+            "checkpoint_path[|losses:...|vallosses:...|lrs:...|times:...]\n";
+
+    auto join_floats = [](const std::vector<float>& v) -> std::string {
+        std::ostringstream oss;
+        for (size_t i = 0; i < v.size(); ++i) {
+            if (i) oss << ',';
+            oss << v[i];
+        }
+        return oss.str();
+    };
+    auto join_doubles = [](const std::vector<double>& v) -> std::string {
+        std::ostringstream oss;
+        for (size_t i = 0; i < v.size(); ++i) {
+            if (i) oss << ',';
+            oss << v[i];
+        }
+        return oss.str();
+    };
+
     for (const auto& session : session_history) {
-        file << session.session_id << " " 
+        file << session.session_id << " "
              << session.samples_trained << " "
              << session.epochs_completed << " "
              << session.final_loss << " "
              << session.final_validation_loss << " "
-             << session.checkpoint_path << "\n";
+             << session.checkpoint_path;
+        if (!session.per_epoch_losses.empty()) {
+            file << "|losses:"    << join_floats(session.per_epoch_losses)
+                 << "|vallosses:" << join_floats(session.per_epoch_validation_losses)
+                 << "|lrs:"       << join_floats(session.per_epoch_learning_rates)
+                 << "|times:"     << join_doubles(session.training_time_per_epoch);
+        }
+        file << "\n";
     }
-    
+
     return true;
 }
 
@@ -438,7 +517,7 @@ void IncrementalTrainer::cleanup_old_sessions() {
         // Delete checkpoint file
         if (fs::exists(session.checkpoint_path)) {
             fs::remove(session.checkpoint_path);
-            std::cout << COLOR_INFO << "🗑️  Removed old checkpoint: " << session.checkpoint_path << COLOR_RESET << std::endl;
+            Logger::info("Removed old checkpoint: {}", session.checkpoint_path);
         }
         
         // If we deleted the best checkpoint, find the next best from remaining sessions
@@ -511,8 +590,7 @@ bool IncrementalTrainer::load_data_registry() {
         }
     }
     
-    std::cout << COLOR_INFO << "📋 Loaded data registry: " << data_registry.size() 
-              << " files (" << trained_data_files.size() << " trained)" << COLOR_RESET << std::endl;
+    Logger::info("Loaded data registry: {} files ({} trained)", data_registry.size(), trained_data_files.size());
     
     return true;
 }
@@ -522,7 +600,7 @@ bool IncrementalTrainer::save_data_registry() {
     
     std::ofstream file(registry_file);
     if (!file.is_open()) {
-        std::cerr << COLOR_ERROR << "❌ Failed to save data registry" << COLOR_RESET << std::endl;
+        Logger::error("Failed to save data registry");
         return false;
     }
     
@@ -560,16 +638,10 @@ std::string IncrementalTrainer::compute_data_checksum(const std::string& data_fi
 bool IncrementalTrainer::save_model(const std::string& path) {
     try {
         model->save_model(path);
-        std::cout << COLOR_SUCCESS << "💾 Model saved to: " << path << COLOR_RESET << std::endl;
-        
-        // TODO: TD-005 - Update "latest_checkpoint.bin" symlink after successful save
-        // TODO: TD-005 - Check if this is best checkpoint and update "best_checkpoint.bin" symlink if needed
-        // TODO: TD-005 - Use std::filesystem::create_symlink() with force overwrite for existing links
-        // TODO: TD-005 - Add platform detection with #ifdef _WIN32 for Windows compatibility
-        
+        Logger::info("Model saved to: {}", path);
         return true;
     } catch (const std::exception& e) {
-        std::cerr << COLOR_ERROR << "❌ Failed to save model: " << e.what() << COLOR_RESET << std::endl;
+        Logger::error("Failed to save model: {}", e.what());
         return false;
     }
 }
@@ -577,10 +649,10 @@ bool IncrementalTrainer::save_model(const std::string& path) {
 bool IncrementalTrainer::load_model(const std::string& path) {
     try {
         model->load_model(path);
-        std::cout << COLOR_SUCCESS << "📂 Model loaded from: " << path << COLOR_RESET << std::endl;
+        Logger::info("Model loaded from: {}", path);
         return true;
     } catch (const std::exception& e) {
-        std::cerr << COLOR_ERROR << "❌ Failed to load model: " << e.what() << COLOR_RESET << std::endl;
+        Logger::error("Failed to load model: {}", e.what());
         return false;
     }
 }
@@ -592,56 +664,81 @@ std::string IncrementalTrainer::get_latest_checkpoint() const {
     return session_history.back().checkpoint_path;
 }
 
+// Returns a sparkline string visualising values (low = good for loss)
+static std::string make_sparkline(const std::vector<float>& values, int width = 30) {
+    if (values.empty()) return std::string(width, '-');
+    const char* bars[] = {"\xe2\x96\x81","\xe2\x96\x82","\xe2\x96\x83","\xe2\x96\x84",
+                          "\xe2\x96\x85","\xe2\x96\x86","\xe2\x96\x87","\xe2\x96\x88"};
+    float mn = *std::min_element(values.begin(), values.end());
+    float mx = *std::max_element(values.begin(), values.end());
+    float range = mx - mn;
+    std::string result;
+    // sample at most `width` points
+    int step = std::max(1, (int)values.size() / width);
+    for (int i = 0; i < (int)values.size(); i += step) {
+        int idx = (range < 1e-9f) ? 0 : (int)(7.0f * (values[i] - mn) / range);
+        idx = std::clamp(idx, 0, 7);
+        result += bars[idx];
+    }
+    return result;
+}
+
 void IncrementalTrainer::print_training_summary() const {
-    std::cout << "\n" << COLOR_INFO << "╔══════════════════════════════════════════════╗" << COLOR_RESET << std::endl;
-    std::cout << COLOR_INFO << "║       Incremental Training Summary           ║" << COLOR_RESET << std::endl;
-    std::cout << COLOR_INFO << "╚══════════════════════════════════════════════╝" << COLOR_RESET << std::endl;
-    
-    std::cout << COLOR_SUCCESS << "📊 Total Sessions: " << session_history.size() << COLOR_RESET << std::endl;
-    std::cout << COLOR_SUCCESS << "📦 Total Data Files Trained: " << trained_data_files.size() << COLOR_RESET << std::endl;
-    std::cout << COLOR_SUCCESS << "📈 Total Samples Trained: " << get_total_samples_trained() << COLOR_RESET << std::endl;
-    std::cout << COLOR_SUCCESS << "⏱️  Total Training Time: " << std::fixed << std::setprecision(2)
-              << get_total_training_time_hours() << " hours" << COLOR_RESET << std::endl;
-    
-    // TODO: TD-004 - Display per-epoch loss progression graph using ASCII art or sparklines
-    // TODO: TD-004 - Show validation loss trend to detect overfitting visually
-    // TODO: TD-004 - Display learning rate schedule visualization across epochs
-    // TODO: TD-004 - Show min/max/avg gradient norms for training stability assessment
-    
-    // TD-005: Display checkpoint symlink information
+    std::cout << "\n╔══════════════════════════════════════════════╗\n";
+    std::cout << "║       Incremental Training Summary           ║\n";
+    std::cout << "╚══════════════════════════════════════════════╝\n";
+
+    std::cout << "  Sessions       : " << session_history.size() << "\n";
+    std::cout << "  Data files used: " << trained_data_files.size() << "\n";
+    std::cout << "  Total samples  : " << get_total_samples_trained() << "\n";
+    std::cout << "  Total time     : " << std::fixed << std::setprecision(2)
+              << get_total_training_time_hours() << " h\n";
+
+    // TD-005: Checkpoint symlink information
     if (config.enable_checkpoint_symlinks) {
-        std::cout << "\n" << COLOR_INFO << "📎 Checkpoint Links:" << COLOR_RESET << std::endl;
-        
-        // Show latest checkpoint link
+        std::cout << "\n  Checkpoint links:\n";
         if (fs::exists(config.latest_symlink_name)) {
-            std::cout << "  Latest: " << config.latest_symlink_name;
-            if (!is_windows_platform() && fs::is_symlink(config.latest_symlink_name)) {
+            std::cout << "    latest: " << config.latest_symlink_name;
+            if (!is_windows_platform() && fs::is_symlink(config.latest_symlink_name))
                 std::cout << " -> " << fs::read_symlink(config.latest_symlink_name).string();
-            }
-            std::cout << std::endl;
+            std::cout << "\n";
         }
-        
-        // Show best checkpoint link
         if (fs::exists(config.best_symlink_name)) {
-            std::cout << "  Best: " << config.best_symlink_name;
-            if (!is_windows_platform() && fs::is_symlink(config.best_symlink_name)) {
+            std::cout << "    best  : " << config.best_symlink_name;
+            if (!is_windows_platform() && fs::is_symlink(config.best_symlink_name))
                 std::cout << " -> " << fs::read_symlink(config.best_symlink_name).string();
-            }
-            std::cout << " (val loss: " << best_validation_loss << ")" << std::endl;
+            std::cout << "  (val loss: " << std::fixed << std::setprecision(4) << best_validation_loss << ")\n";
         }
     }
-    
-    if (!session_history.empty()) {
-        const auto& last = session_history.back();
-        std::cout << COLOR_INFO << "\nLast Session (#" << last.session_id << "):" << COLOR_RESET << std::endl;
-        std::cout << "  Samples: " << last.samples_trained << std::endl;
-        std::cout << "  Epochs: " << last.epochs_completed << std::endl;
-        std::cout << "  Final Loss: " << last.final_loss << std::endl;
-        std::cout << "  Validation Loss: " << last.final_validation_loss << std::endl;
-        std::cout << "  Checkpoint: " << last.checkpoint_path << std::endl;
+
+    // Per-session details with sparklines
+    for (const auto& s : session_history) {
+        std::cout << "\n  Session #" << s.session_id
+                  << "  samples=" << s.samples_trained
+                  << "  epochs=" << s.epochs_completed
+                  << "  loss=" << std::fixed << std::setprecision(4) << s.final_loss
+                  << "  val=" << s.final_validation_loss << "\n";
+        std::cout << "    checkpoint: " << s.checkpoint_path << "\n";
+
+        if (!s.per_epoch_losses.empty()) {
+            float best_val = std::numeric_limits<float>::max();
+            double total_t = 0.0;
+            for (float v : s.per_epoch_validation_losses)
+                best_val = std::min(best_val, v);
+            for (double t : s.training_time_per_epoch)
+                total_t += t;
+
+            std::cout << "    loss      : " << make_sparkline(s.per_epoch_losses) << "\n";
+            std::cout << "    val loss  : " << make_sparkline(s.per_epoch_validation_losses) << "\n";
+            std::cout << "    best val  : " << std::fixed << std::setprecision(4) << best_val << "\n";
+            if (!s.training_time_per_epoch.empty())
+                std::cout << "    epoch time: avg " << std::fixed << std::setprecision(1)
+                          << (total_t / s.training_time_per_epoch.size()) << "s"
+                          << "  total " << format_duration(total_t) << "\n";
+        }
     }
-    
-    std::cout << std::endl;
+
+    std::cout << "\n";
 }
 
 void IncrementalTrainer::print_session_history() const {
@@ -707,13 +804,12 @@ bool IncrementalTrainer::initialize_session() {
     return true;
 }
 
-// See TD-004 in TECHNICAL_DEBT.md - Enhanced metrics tracking for training sessions
 // See TD-005 in TECHNICAL_DEBT.md - Checkpoint management and symbolic links
 bool IncrementalTrainer::finalize_session(int samples_trained, int epochs_completed, float final_loss, float final_val_loss) {
     if (session_history.empty()) {
         return false;
     }
-    
+
     auto& session = session_history.back();
     session.end_time = std::chrono::system_clock::now();
     session.samples_trained = samples_trained;
@@ -721,12 +817,8 @@ bool IncrementalTrainer::finalize_session(int samples_trained, int epochs_comple
     session.final_loss = final_loss;
     session.final_validation_loss = final_val_loss;
     session.checkpoint_path = generate_session_checkpoint_path();
-    
-    // TODO: TD-004 - Store collected per-epoch metrics in session.per_epoch_losses vector
-    // TODO: TD-004 - Store per-epoch validation losses in session.per_epoch_validation_losses vector
-    // TODO: TD-004 - Store per-epoch training times in session.per_epoch_training_times vector
-    // TODO: TD-004 - Store per-epoch learning rates in session.per_epoch_learning_rates vector
-    
+    // Per-epoch metrics are accumulated live via the epoch callback in train_incremental()
+
     // TD-005: Checkpoint symlink management
     update_checkpoint_symlinks(session.checkpoint_path);
     update_best_checkpoint(final_val_loss, session.checkpoint_path);
@@ -767,7 +859,7 @@ void IncrementalTrainer::perform_auto_save() {
                                  std::to_string(current_session_id) + ".bin";
     
     if (save_model(auto_save_path)) {
-        std::cout << COLOR_SUCCESS << "💾 Auto-saved checkpoint" << COLOR_RESET << std::endl;
+        Logger::info("Auto-saved checkpoint to {}", auto_save_path);
         last_save_time = std::chrono::system_clock::now();
         samples_since_last_save = 0;
     }
@@ -827,8 +919,7 @@ bool IncrementalTrainer::load_pending_data_list() {
     }
     
     if (!pending_data_files.empty()) {
-        std::cout << COLOR_INFO << "📋 Loaded " << pending_data_files.size() 
-                  << " pending data files" << COLOR_RESET << std::endl;
+        Logger::info("Loaded {} pending data files", pending_data_files.size());
     }
     
     return true;
@@ -856,33 +947,25 @@ bool IncrementalTrainer::create_or_update_symlink(const std::string& target, con
     
     try {
         if (is_windows_platform()) {
-            // Windows fallback: copy file instead of symlink
-            // Use std::filesystem::copy with overwrite
             std::error_code ec;
             fs::copy_file(target, link_path, fs::copy_options::overwrite_existing, ec);
             if (ec) {
-                std::cerr << COLOR_WARNING << "⚠️  Failed to copy checkpoint file: " 
-                          << ec.message() << COLOR_RESET << std::endl;
+                Logger::warn("Failed to copy checkpoint file: {}", ec.message());
                 return false;
             }
-            std::cout << COLOR_INFO << "📋 Copied checkpoint to: " << link_path 
-                      << COLOR_RESET << std::endl;
+            Logger::info("Copied checkpoint to: {}", link_path);
         } else {
-            // Unix/Linux: create symbolic link
             std::error_code ec;
             fs::create_symlink(target, link_path, ec);
             if (ec) {
-                std::cerr << COLOR_WARNING << "⚠️  Failed to create symlink: " 
-                          << ec.message() << COLOR_RESET << std::endl;
+                Logger::warn("Failed to create symlink: {}", ec.message());
                 return false;
             }
-            std::cout << COLOR_INFO << "🔗 Created symlink: " << link_path 
-                      << " -> " << target << COLOR_RESET << std::endl;
+            Logger::info("Created symlink: {} -> {}", link_path, target);
         }
         return true;
     } catch (const std::exception& e) {
-        std::cerr << COLOR_WARNING << "⚠️  Failed to create/update checkpoint link: " 
-                  << e.what() << COLOR_RESET << std::endl;
+        Logger::warn("Failed to create/update checkpoint link: {}", e.what());
         return false;
     }
 }
@@ -893,15 +976,13 @@ bool IncrementalTrainer::remove_symlink_if_exists(const std::string& link_path) 
             std::error_code ec;
             fs::remove(link_path, ec);
             if (ec) {
-                std::cerr << COLOR_WARNING << "⚠️  Failed to remove existing link: " 
-                          << ec.message() << COLOR_RESET << std::endl;
+                Logger::warn("Failed to remove existing link: {}", ec.message());
                 return false;
             }
         }
         return true;
     } catch (const std::exception& e) {
-        std::cerr << COLOR_WARNING << "⚠️  Error removing link: " 
-                  << e.what() << COLOR_RESET << std::endl;
+        Logger::warn("Error removing link: {}", e.what());
         return false;
     }
 }
@@ -914,9 +995,8 @@ void IncrementalTrainer::update_checkpoint_symlinks(const std::string& checkpoin
     // Create/update "latest_checkpoint.bin" symlink in root directory
     std::string latest_link = config.latest_symlink_name;
     if (!create_or_update_symlink(checkpoint_path, latest_link)) {
-        std::cerr << COLOR_ERROR << "❌ Failed to update latest checkpoint symlink!" << COLOR_RESET << std::endl;
-        std::cerr << COLOR_ERROR << "   Target: " << checkpoint_path << COLOR_RESET << std::endl;
-        std::cerr << COLOR_ERROR << "   Link: " << latest_link << COLOR_RESET << std::endl;
+        Logger::error("Failed to update latest checkpoint symlink! target={} link={}",
+                      checkpoint_path, latest_link);
     }
 }
 
@@ -941,16 +1021,13 @@ void IncrementalTrainer::update_best_checkpoint(float validation_loss, const std
     if (is_best) {
         best_validation_loss = validation_loss;
         best_checkpoint_path = checkpoint_path;
-        
-        // Create/update "best_checkpoint.bin" symlink in root directory
+
         std::string best_link = config.best_symlink_name;
         if (!create_or_update_symlink(checkpoint_path, best_link)) {
-            std::cerr << COLOR_ERROR << "❌ Failed to update best checkpoint symlink!" << COLOR_RESET << std::endl;
-            std::cerr << COLOR_ERROR << "   Target: " << checkpoint_path << COLOR_RESET << std::endl;
-            std::cerr << COLOR_ERROR << "   Link: " << best_link << COLOR_RESET << std::endl;
+            Logger::error("Failed to update best checkpoint symlink! target={} link={}",
+                          checkpoint_path, best_link);
         } else {
-            std::cout << COLOR_SUCCESS << "🏆 New best checkpoint! Validation loss: " 
-                      << validation_loss << COLOR_RESET << std::endl;
+            Logger::info("New best checkpoint! Validation loss: {:.4f}", validation_loss);
         }
     }
 }
@@ -965,7 +1042,7 @@ int IncrementalTrainer::load_conversation_pairs(const std::string& filepath,
                                                 std::vector<ConversationPair>& pairs) {
     std::ifstream file(filepath);
     if (!file.is_open()) {
-        std::cerr << COLOR_ERROR << "❌ Cannot open file: " << filepath << COLOR_RESET << std::endl;
+        Logger::error("Cannot open file: {}", filepath);
         return 0;
     }
     
@@ -1007,8 +1084,8 @@ int IncrementalTrainer::load_conversation_pairs(const std::string& filepath,
     
     file.close();
     
-    std::cout << COLOR_INFO << "📖 Loaded " << pair_count << " pairs from: " << filepath << COLOR_RESET << std::endl;
-    
+    Logger::info("Loaded {} pairs from: {}", pair_count, filepath);
+
     return pair_count;
 }
 
@@ -1024,38 +1101,36 @@ std::string IncrementalTrainer::get_gutenberg_url(int book_id) const {
 }
 
 bool IncrementalTrainer::download_file(const std::string& url, const std::string& output_path) {
-    std::cout << COLOR_INFO << "📥 Downloading: " << url << COLOR_RESET << std::endl;
-    
-    // Use curl to download
+    Logger::info("Downloading: {}", url);
+
     std::ostringstream cmd;
     cmd << "curl -L -f -s -o \"" << output_path << "\" \"" << url << "\"";
-    
+
     int result = std::system(cmd.str().c_str());
-    
+
     if (result == 0 && fs::exists(output_path) && fs::file_size(output_path) > 0) {
-        std::cout << COLOR_SUCCESS << "✅ Downloaded to: " << output_path << COLOR_RESET << std::endl;
+        Logger::info("Downloaded to: {}", output_path);
         return true;
     }
-    
-    // Try fallback URL (plain ASCII)
+
     if (url.find("-0.txt") != std::string::npos) {
         std::string fallback_url = url;
         size_t pos = fallback_url.find("-0.txt");
         fallback_url.replace(pos, 6, ".txt");
-        
-        std::cout << COLOR_INFO << "⚠️  Trying fallback URL..." << COLOR_RESET << std::endl;
+
+        Logger::info("Trying fallback URL: {}", fallback_url);
         std::ostringstream fallback_cmd;
         fallback_cmd << "curl -L -f -s -o \"" << output_path << "\" \"" << fallback_url << "\"";
-        
+
         result = std::system(fallback_cmd.str().c_str());
-        
+
         if (result == 0 && fs::exists(output_path) && fs::file_size(output_path) > 0) {
-            std::cout << COLOR_SUCCESS << "✅ Downloaded to: " << output_path << COLOR_RESET << std::endl;
+            Logger::info("Downloaded to: {}", output_path);
             return true;
         }
     }
-    
-    std::cerr << COLOR_ERROR << "❌ Failed to download: " << url << COLOR_RESET << std::endl;
+
+    Logger::error("Failed to download: {}", url);
     return false;
 }
 
@@ -1082,9 +1157,7 @@ bool IncrementalTrainer::download_gutenberg_books(const std::vector<int>& book_i
         }
     }
     
-    std::cout << COLOR_INFO << "📚 Downloaded " << success_count << "/" << book_ids.size() 
-              << " books" << COLOR_RESET << std::endl;
-    
+    Logger::info("Downloaded {}/{} books", success_count, book_ids.size());
     return success_count > 0;
 }
 
@@ -1179,16 +1252,14 @@ IncrementalTrainer::create_qa_pairs_from_text(const std::vector<std::string>& se
     return pairs;
 }
 
-// See TD-006 in TECHNICAL_DEBT.md - Fill-in-the-Middle (FIM) training data generation
 bool IncrementalTrainer::convert_gutenberg_to_training_data(const std::string& text_file,
                                                             const std::string& output_file,
                                                             int max_pairs) {
-    std::cout << COLOR_INFO << "🔄 Converting Gutenberg text to training pairs..." << COLOR_RESET << std::endl;
-    
-    // Read the file
+    Logger::info("Converting Gutenberg text to training pairs: {}", text_file);
+
     std::ifstream file(text_file);
     if (!file.is_open()) {
-        std::cerr << COLOR_ERROR << "❌ Cannot open: " << text_file << COLOR_RESET << std::endl;
+        Logger::error("Cannot open: {}", text_file);
         return false;
     }
     
@@ -1202,21 +1273,19 @@ bool IncrementalTrainer::convert_gutenberg_to_training_data(const std::string& t
     
     // Extract sentences
     std::vector<std::string> sentences = extract_sentences(cleaned_text);
-    std::cout << COLOR_INFO << "📝 Extracted " << sentences.size() << " sentences" << COLOR_RESET << std::endl;
-    
+    Logger::info("Extracted {} sentences", sentences.size());
+
     if (sentences.empty()) {
-        std::cerr << COLOR_ERROR << "❌ No valid sentences found" << COLOR_RESET << std::endl;
+        Logger::error("No valid sentences found in {}", text_file);
         return false;
     }
-    
-    // Create Q&A pairs
+
     auto pairs = create_qa_pairs_from_text(sentences, max_pairs);
-    std::cout << COLOR_INFO << "💬 Created " << pairs.size() << " conversation pairs" << COLOR_RESET << std::endl;
-    
-    // Write to output file in INPUT/RESPONSE format
+    Logger::info("Created {} conversation pairs", pairs.size());
+
     std::ofstream out(output_file);
     if (!out.is_open()) {
-        std::cerr << COLOR_ERROR << "❌ Cannot create: " << output_file << COLOR_RESET << std::endl;
+        Logger::error("Cannot create: {}", output_file);
         return false;
     }
     
@@ -1228,8 +1297,7 @@ bool IncrementalTrainer::convert_gutenberg_to_training_data(const std::string& t
     
     out.close();
     
-    std::cout << COLOR_SUCCESS << "✅ Training data saved to: " << output_file << COLOR_RESET << std::endl;
-    
+    Logger::info("Training data saved to: {}", output_file);
     return true;
 }
 
@@ -1263,8 +1331,149 @@ bool IncrementalTrainer::add_gutenberg_books(const std::vector<int>& book_ids, i
         }
     }
     
-    std::cout << COLOR_INFO << "📚 Added " << success_count << "/" << book_ids.size() 
-              << " books to training queue" << COLOR_RESET << std::endl;
-    
+    Logger::info("Added {}/{} books to training queue", success_count, book_ids.size());
     return success_count > 0;
+}
+
+// ============================================================================
+// Dashboard helpers (TD-009)
+// ============================================================================
+
+std::string IncrementalTrainer::format_duration(double seconds) {
+    int secs  = static_cast<int>(seconds);
+    int mins  = secs / 60;
+    int hours = mins / 60;
+    secs  %= 60;
+    mins  %= 60;
+
+    std::ostringstream oss;
+    if (hours > 0)
+        oss << hours << "h" << std::setw(2) << std::setfill('0') << mins << "m";
+    else if (mins > 0)
+        oss << mins  << "m" << std::setw(2) << std::setfill('0') << secs << "s";
+    else
+        oss << seconds << "s";
+    return oss.str();
+}
+
+std::string IncrementalTrainer::progress_bar(int current, int total, int bar_width) {
+    if (total <= 0) return std::string(bar_width, '-');
+    int filled = (int)((double)current / total * bar_width);
+    filled = std::clamp(filled, 0, bar_width);
+    std::string bar(filled, '=');
+    if (filled < bar_width) bar += '>';
+    bar += std::string(std::max(0, bar_width - (int)bar.size()), ' ');
+    return bar;
+}
+
+void IncrementalTrainer::display_dashboard(const TrainingSession& session,
+                                           int current_epoch, int total_epochs,
+                                           bool is_final) const {
+    using namespace std::chrono;
+
+    // Compute timing
+    auto now     = steady_clock::now();
+    double elapsed = duration<double>(now - session_start_time_steady_).count();
+
+    double avg_epoch_time = 0.0;
+    if (!session.training_time_per_epoch.empty()) {
+        for (double t : session.training_time_per_epoch) avg_epoch_time += t;
+        avg_epoch_time /= session.training_time_per_epoch.size();
+    }
+    double eta_secs = (total_epochs - current_epoch) * avg_epoch_time;
+
+    float cur_loss    = session.per_epoch_losses.empty()             ? 0.0f : session.per_epoch_losses.back();
+    float cur_val     = session.per_epoch_validation_losses.empty()  ? 0.0f : session.per_epoch_validation_losses.back();
+    float cur_lr      = session.per_epoch_learning_rates.empty()     ? 0.0f : session.per_epoch_learning_rates.back();
+    double last_t     = session.training_time_per_epoch.empty()      ? 0.0  : session.training_time_per_epoch.back();
+
+    float prev_loss = (session.per_epoch_losses.size() >= 2)
+                    ? session.per_epoch_losses[session.per_epoch_losses.size() - 2] : cur_loss;
+    float prev_val  = (session.per_epoch_validation_losses.size() >= 2)
+                    ? session.per_epoch_validation_losses[session.per_epoch_validation_losses.size() - 2] : cur_val;
+
+    // Best val across whole session
+    float best_val = std::numeric_limits<float>::max();
+    for (float v : session.per_epoch_validation_losses) best_val = std::min(best_val, v);
+
+    // Move cursor up to overwrite previous dashboard
+    if (dashboard_lines_drawn_ > 0) {
+        std::cout << "\033[" << dashboard_lines_drawn_ << "A";
+    }
+
+    // Box width = 80
+    const int W = 80;
+    auto hline = [&](const char* l, const char* r) {
+        std::cout << l;
+        for (int i = 0; i < W - 2; ++i) std::cout << "\xe2\x94\x80";
+        std::cout << r << "\n";
+    };
+    auto row = [&](const std::string& content) {
+        // Count printable width (non-continuation UTF-8 bytes)
+        int vis = 0;
+        for (unsigned char c : content)
+            if ((c & 0xC0) != 0x80) ++vis;
+        int pad = std::max(0, W - 2 - vis);
+        std::cout << "\xe2\x94\x82" << content << std::string(pad, ' ') << "\xe2\x94\x82\n";
+    };
+
+    auto fmt_f = [](float v, int prec = 4) {
+        std::ostringstream ss;
+        ss << std::fixed << std::setprecision(prec) << v;
+        return ss.str();
+    };
+    auto arrow = [](float cur, float prev) -> std::string {
+        return (cur < prev) ? " v" : ((cur > prev) ? " ^" : " =");
+    };
+
+    std::string bar  = "[" + progress_bar(current_epoch, total_epochs, 42) + "]";
+    std::string pct;
+    {
+        std::ostringstream ss;
+        ss << std::setw(3) << (total_epochs > 0 ? current_epoch * 100 / total_epochs : 0) << "%";
+        pct = ss.str();
+    }
+
+    std::ostringstream title_ss;
+    title_ss << " ADAI Training Dashboard  |  Session #" << session.session_id
+             << "  |  Epoch " << current_epoch << "/" << total_epochs;
+    std::string title = title_ss.str();
+    int title_pad = std::max(0, W - 4 - (int)title.size());
+
+    hline("\xe2\x94\x8c", "\xe2\x94\x90");
+    row(" " + title + std::string(title_pad, ' ') + " ");
+    hline("\xe2\x94\x9c", "\xe2\x94\xa4");
+
+    row(" Progress: " + bar + " " + pct);
+    row(" Elapsed : " + format_duration(elapsed) + "   ETA: " +
+        (avg_epoch_time > 0 ? format_duration(eta_secs) : "--:--"));
+
+    hline("\xe2\x94\x9c", "\xe2\x94\xa4");
+
+    {
+        std::ostringstream ss;
+        ss << " Loss     : " << std::setw(8) << fmt_f(cur_loss) << arrow(cur_loss, prev_loss)
+           << "    Val Loss : " << std::setw(8) << fmt_f(cur_val) << arrow(cur_val, prev_val);
+        row(ss.str());
+    }
+    {
+        std::ostringstream ss;
+        ss << " LR       : " << std::scientific << std::setprecision(3) << cur_lr
+           << "    Epoch dur: " << std::fixed << std::setprecision(1) << last_t << "s";
+        row(ss.str());
+    }
+    {
+        std::ostringstream ss;
+        ss << " Best val : " << fmt_f(best_val)
+           << "    Avg epoch: " << format_duration(avg_epoch_time);
+        row(ss.str());
+    }
+
+    hline("\xe2\x94\x94", "\xe2\x94\x98");
+
+    std::cout << std::flush;
+
+    // 9 lines: top border, title, mid border, progress, elapsed, mid border,
+    //          loss+val, lr+dur, best, bottom border = 10 lines
+    dashboard_lines_drawn_ = 10;
 }

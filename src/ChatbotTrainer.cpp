@@ -1501,6 +1501,12 @@ bool ChatbotTrainer::train(int num_epochs) {
                     break;
                 }
             }
+
+            // Invoke per-epoch callback for real-time monitoring (TD-009)
+            if (epoch_callback_) {
+                float cb_val = validation_losses.empty() ? 0.0f : validation_losses.back();
+                epoch_callback_(epoch, num_epochs, epoch_loss, cb_val, current_learning_rate);
+            }
         }
         
         return true;
@@ -1555,4 +1561,8 @@ float ChatbotTrainer::get_final_training_loss() const {
 
 float ChatbotTrainer::get_final_validation_loss() const {
     return validation_losses.empty() ? 0.0f : validation_losses.back();
+}
+
+void ChatbotTrainer::set_epoch_callback(EpochCallback cb) {
+    epoch_callback_ = std::move(cb);
 }

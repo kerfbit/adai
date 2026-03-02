@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -124,6 +125,17 @@ struct TrainingConfig {
  * - Metrics tracking (loss, perplexity, accuracy)
  * - Configurable logging levels
  */
+/**
+ * @brief Per-epoch callback invoked at the end of each training epoch (TD-009)
+ *
+ * @param epoch     0-based epoch index
+ * @param total     total number of epochs requested
+ * @param loss      training loss for this epoch
+ * @param val_loss  validation loss for this epoch (0.0 if no validation data)
+ * @param lr        current learning rate at end of this epoch
+ */
+using EpochCallback = std::function<void(int epoch, int total, float loss, float val_loss, float lr)>;
+
 class ChatbotTrainer {
    private:
     std::unique_ptr<BPETokenizer> tokenizer;
@@ -167,6 +179,9 @@ class ChatbotTrainer {
 
     // Resume state
     int start_epoch;
+
+    // TD-009: Per-epoch monitoring callback
+    EpochCallback epoch_callback_;
 
     // Private helper methods
     void validate_and_correct_config();
@@ -274,6 +289,12 @@ class ChatbotTrainer {
     float get_current_learning_rate() const { return current_learning_rate; }
     const TrainingConfig& get_config() const { return config; }
     
+    /**
+     * @brief Register a callback invoked at the end of each training epoch (TD-009)
+     * @param cb Callback function; pass {} or nullptr to clear.
+     */
+    void set_epoch_callback(EpochCallback cb);
+
     // For testing data management
     size_t get_training_data_size() const { return training_data.size(); }
     size_t get_validation_data_size() const { return validation_data.size(); }

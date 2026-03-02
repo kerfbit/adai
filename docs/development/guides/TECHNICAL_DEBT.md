@@ -4,10 +4,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** March 1, 2026  
-**Total Items:** 4  
+**Last Updated:** March 2, 2026  
+**Total Items:** 3  
 **High Priority:** 0  
-**Medium Priority:** 2  
+**Medium Priority:** 1  
 **Low Priority:** 2  
 **Future Enhancements:** 12 (2 completed)
 
@@ -17,10 +17,11 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 - [Table of Contents](#table-of-contents)
 - [Active Technical Debt](#active-technical-debt)
   - [TD-003: GPU Memory Management Optimization](#td-003-gpu-memory-management-optimization)
-  - [TD-004: Enhanced Metrics Tracking for Training Sessions](#td-004-enhanced-metrics-tracking-for-training-sessions)
   - [TD-006: Fill-in-the-Middle (FIM) Training Data Generation](#td-006-fill-in-the-middle-fim-training-data-generation)
   - [TD-007: Matrix Operations SIMD Acceleration](#td-007-matrix-operations-simd-acceleration)
 - [Resolved Items](#resolved-items)
+  - [TD-009: Incremental Trainer Dashboard and Structured Logging](#td-009-incremental-trainer-dashboard-and-structured-logging)
+  - [TD-004: Enhanced Metrics Tracking for Training Sessions](#td-004-enhanced-metrics-tracking-for-training-sessions)
   - [TD-008: Daemon Service Implementation (Steps 1-5)](#td-008-daemon-service-implementation-steps-1-5)
   - [TD-005: Checkpoint Management and Symbolic Links](#td-005-checkpoint-management-and-symbolic-links)
   - [TD-002: Improve Error Handling in BPE Tokenizer](#td-002-improve-error-handling-in-bpe-tokenizer)
@@ -96,76 +97,6 @@ Matrix D = D_gpu.to_cpu();  // Only transfer final result
 
 - GPU acceleration implemented in commit [current]
 - See `docs/guides/building.md` for GPU compilation instructions
-
----
-
-### TD-004: Enhanced Metrics Tracking for Training Sessions
-
-**Priority:** MEDIUM  
-**Status:** Planned  
-**Component:** Training / IncrementalTrainer  
-**Created:** February 17, 2026  
-**Effort Estimate:** 4-6 hours
-
-**Description:**
-Training session history currently only tracks high-level metrics (final loss, total samples, epochs). More detailed metrics would enable better analysis, debugging, and visualization of training progress.
-
-**Current Behavior:**
-
-```cpp
-// Only tracks: session_id, samples_trained, epochs_completed, final_loss, final_validation_loss
-TrainingSession session;
-session.final_loss = final_loss;
-session.final_validation_loss = final_val_loss;
-```
-
-**Desired Behavior:**
-
-```cpp
-// Track per-epoch metrics for detailed analysis
-TrainingSession session;
-session.per_epoch_losses = {/* loss values per epoch */};
-session.per_epoch_validation_losses = {/* val loss per epoch */};
-session.training_time_per_epoch = {/* time spent per epoch */};
-session.learning_rates = {/* LR schedule over time */};
-```
-
-**Benefits:**
-
-- Better debugging of training issues (e.g., detect overfitting early)
-- Visualization of training progress over time
-- Analysis of learning rate schedules effectiveness
-- Identify optimal stopping points for future training
-
-**Implementation Tasks:**
-
-- [ ] Extend `TrainingSession` struct to include per-epoch metrics
-- [ ] Modify `ChatbotTrainer` to expose per-epoch data
-- [ ] Update session serialization/deserialization
-- [ ] Add visualization tools/scripts for metrics
-- [ ] Update documentation with new metrics
-
-**Files to Modify:**
-
-- `include/IncrementalTrainer.hpp` - Extend `TrainingSession` struct (5 TODOs added)
-- `src/IncrementalTrainer.cpp` - Update `finalize_session()` method (line 583) (22 TODOs added)
-- `src/IncrementalTrainer.cpp` - Update `save_session_history()` (10 TODOs added)
-- `src/IncrementalTrainer.cpp` - Update `load_session_history()` (6 TODOs added)
-- `src/IncrementalTrainer.cpp` - Update `train_incremental()` (5 TODOs added)
-- `src/IncrementalTrainer.cpp` - Update `print_training_summary()` (6 TODOs added)
-- `src/ChatbotTrainer.hpp` - Document existing getter methods (1 TODO added)
-- `tests/test_incremental_trainer.cpp` - Add tests for new metrics
-
-**Code Location:**
-
-`src/IncrementalTrainer.cpp:583`
-
-**Granular TODOs Added:** 55 specific implementation tasks across 3 files
-
-**Related:**
-
-- Could integrate with TensorBoard or similar visualization tools
-- Foundation for early stopping implementation
 
 ---
 
@@ -364,6 +295,76 @@ Multiple TODOs added throughout `src/Matrix.cpp`:
 ---
 
 ## Resolved Items
+
+### TD-009: Incremental Trainer Dashboard and Structured Logging
+
+**Resolution Date:** March 2, 2026  
+**Component:** Training / IncrementalTrainer / Observability  
+**Resolved By:** Full implementation of Logger integration, per-epoch metric collection, in-place CLI dashboard, v2 session history serialization, and test coverage
+
+**Summary:**
+Replaced all unstructured `std::cout`/`std::cerr` output in `IncrementalTrainer` with structured `Logger` calls, implemented a real-time in-place CLI dashboard that redraws after every epoch using ANSI cursor movement, and added complete per-epoch metric collection and persistence. Absorbed the scope of TD-004.
+
+**Changes Made:**
+
+1. ✅ Added `EpochCallback` typedef and `set_epoch_callback()` to `ChatbotTrainer` — fires once per epoch inside `train(int)` without disrupting LR scheduling or data preprocessing
+2. ✅ Extended `TrainingSession` struct with four per-epoch vectors: `per_epoch_losses`, `per_epoch_validation_losses`, `per_epoch_learning_rates`, `training_time_per_epoch`
+3. ✅ Added `session_start_time_steady_`, `epoch_start_time_steady_`, and `mutable dashboard_lines_drawn_` members to `IncrementalTrainer`
+4. ✅ Replaced all `std::cout`/`std::cerr` calls (20+ sites) with `Logger::info`, `Logger::warn`, `Logger::error`, `Logger::debug` across all methods
+5. ✅ Overhauled `train_incremental()` to register the epoch callback, collect per-epoch metrics, and invoke `display_dashboard()` after each epoch
+6. ✅ Implemented `display_dashboard()` — 10-line in-place redrawing box (ANSI `\033[NA` cursor-up, UTF-8 box-drawing chars) showing:
+   - Epoch progress bar with percentage
+   - Elapsed time and ETA (`avg_epoch_time × remaining_epochs`)
+   - Current loss / val loss with delta arrows (`v` / `^`)
+   - Current LR and epoch duration
+   - Session best val loss and average epoch time
+7. ✅ Implemented `format_duration()` and `progress_bar()` helpers
+8. ✅ Rewrote `save_session_history()` with `# VERSION 2` header and `|losses:...|vallosses:...|lrs:...|times:...` pipe-delimited appendage after `checkpoint_path`
+9. ✅ Rewrote `load_session_history()` to parse v2 extended format with full backward compatibility for old single-line format
+10. ✅ Overhauled `print_training_summary()` with Unicode sparkline bars (▁▂▃▄▅▆▇█) per session, avg epoch time, best val loss, and total training time
+11. ✅ Added `spdlog::spdlog` and `Logger.cpp` to `incremental_trainer` and `incrementaltrainerTests` CMake targets
+12. ✅ Added 3 new GTest cases (38 total): `LoadSessionHistoryV2ParsesPerEpochVectors`, `SaveLoadSessionHistoryRoundTripWithPerEpochData`, `DisplayDashboardDoesNotCrash` — all pass
+
+**Files Modified:**
+
+- `src/ChatbotTrainer.hpp` — `EpochCallback` typedef, `epoch_callback_` member, `set_epoch_callback()` declaration
+- `src/ChatbotTrainer.cpp` — `set_epoch_callback()` implementation; callback invocation in epoch loop
+- `src/IncrementalTrainer.hpp` — Logger include; extended `TrainingSession`; timing/dashboard members; method declarations
+- `src/IncrementalTrainer.cpp` — complete overhaul (Logger calls, timing, dashboard, v2 serialization, sparkline summary)
+- `src/CMakeLists.txt` — added `Logger.cpp` and `spdlog::spdlog` to `incremental_trainer` target
+- `tests/incrementaltrainer_test.cpp` — 3 new TD-009 tests
+- `tests/CMakeLists.txt` — added `../src/Logger.cpp` and `spdlog::spdlog` to `incrementaltrainerTests` target
+
+**Verification:**
+
+- ✅ Full build succeeds (both `incremental_trainer` executable and `incrementaltrainerTests`)
+- ✅ All 38 incremental trainer tests pass including the 3 new TD-009 tests
+- ✅ v2 session history round-trip verified: write → parse → verify all four per-epoch vectors
+- ✅ Dashboard smoke-tested with empty and populated session history
+
+---
+
+### TD-004: Enhanced Metrics Tracking for Training Sessions
+
+**Resolution Date:** March 2, 2026  
+**Component:** Training / IncrementalTrainer  
+**Resolved By:** Absorbed and fully implemented as part of TD-009
+
+**Summary:**
+All core implementation tasks from TD-004 were completed as part of the TD-009 implementation. The `TrainingSession` struct now carries four per-epoch vectors; `ChatbotTrainer` exposes per-epoch data via `EpochCallback`; session history serialization (`save_session_history` / `load_session_history`) uses a v2 format that persists and reloads these vectors; and `print_training_summary` renders Unicode sparklines for visual trend analysis. The 55 granular TODO comments that were seeded across the codebase have all been removed.
+
+**Tasks Completed:**
+
+- ✅ Extended `TrainingSession` struct with `per_epoch_losses`, `per_epoch_validation_losses`, `per_epoch_learning_rates`, `training_time_per_epoch`
+- ✅ Modified `ChatbotTrainer` to expose per-epoch data via `EpochCallback` mechanism
+- ✅ Updated `save_session_history()` and `load_session_history()` with v2 format (backward-compatible)
+- ✅ Updated `print_training_summary()` with sparkline visualization of loss/val-loss trends per session
+- ✅ Tests added: `LoadSessionHistoryV2ParsesPerEpochVectors`, `SaveLoadSessionHistoryRoundTripWithPerEpochData`
+- ✅ All 55 TD-004 TODO comments removed from source files
+
+**See:** [TD-009](#td-009-incremental-trainer-dashboard-and-structured-logging) for full implementation details.
+
+---
 
 ### TD-008: Daemon Service Implementation (Steps 1-5)
 
@@ -1043,14 +1044,13 @@ When resolving a debt item:
 | Priority | Count | Percentage |
 | ---------- | ------- | ------------ |
 | High | 0 | 0% |
-| Medium | 2 | 50% |
-| Low | 2 | 50% |
+| Medium | 1 | 33% |
+| Low | 2 | 67% |
 
 ### By Component
 
 | Component | Count |
 | ---------------------- | ------- |
-| Training / IncrementalTrainer | 1 |
 | Performance / Matrix Operations | 1 |
 | Training / Data Generation | 1 |
 | GPU / Performance | 1 |
@@ -1060,11 +1060,11 @@ When resolving a debt item:
 | Effort Range | Count |
 | -------------- | ------- |
 | 0-2 hours | 0 |
-| 2-4 hours | 1 |
-| 4-8 hours | 2 |
+| 2-4 hours | 0 |
+| 4-8 hours | 1 |
 | 8+ hours | 1 |
 
-**Total Estimated Effort (Active Items):** 26-33 hours
+**Total Estimated Effort (Active Items):** 18-24 hours
 
 ### Future Enhancements Summary
 
@@ -1083,6 +1083,8 @@ When resolving a debt item:
 - Low: 11 items
 
 **Recently Completed:**
+- TD-009: Incremental Trainer Dashboard and Structured Logging - March 2, 2026
+- TD-004: Enhanced Metrics Tracking (absorbed by TD-009) - March 2, 2026
 - TD Future #9: File Rotation and Management - March 1, 2026
 - TD Future #3: Configuration Hot-Reloading - March 1, 2026
 - TD-008: Daemon Service Implementation (Steps 1-5) - March 1, 2026

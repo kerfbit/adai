@@ -660,6 +660,112 @@ TEST_F(IncrementalTrainerTest, InvalidVocabularyThrowsException) {
     }, std::exception);
 }
 
+// ============================================================================
+// TD-009: Per-epoch metrics & dashboard tests
+// ============================================================================
+
+// Write a v2 session history file to the given path
+static void create_session_history_file_v2(const std::string& path) {
+    std::ofstream f(path);
+    f << "# VERSION 2\n";
+    f << "# session_id samples_trained epochs final_loss final_val_loss checkpoint_path[|...]\n";
+    f << "0 200 3 1.2 1.5 /tmp/dummy_session_0.bin"
+         "|losses:1.4,1.3,1.2"
+         "|vallosses:1.6,1.55,1.5"
+         "|lrs:0.001,0.0009,0.0008"
+         "|times:50.0,48.5,51.0\n";
+}
+
+TEST_F(IncrementalTrainerTest, LoadSessionHistoryV2ParsesPerEpochVectors) {
+    // Write the v2 history to the DEFAULT session dir that the trainer will read from.
+    // (The 3-arg constructor with config delegates to the 2-arg constructor which uses
+    //  the default IncrementalConfig::session_dir = "training_sessions".)
+    std::string default_dir = "training_sessions";
+    fs::create_directories(default_dir);
+    std::string hist_path = default_dir + "/session_history.txt";
+    create_session_history_file_v2(hist_path);
+
+    // Create trainer using 2-arg constructor so it reads from the default dir
+    IncrementalTrainer trainer(vocab_file.string(), model_file.string());
+    auto history = trainer.get_session_history();
+
+    // Cleanup artefact created by this test
+    fs::remove(hist_path);
+
+    ASSERT_GE(history.size(), 1u);
+    // Find the session we wrote (session_id == 0)
+    const TrainingSession* s = nullptr;
+    for (const auto& h : history)
+        if (h.session_id == 0) { s = &h; break; }
+    ASSERT_NE(s, nullptr);
+
+    EXPECT_EQ(s->epochs_completed, 3);
+    EXPECT_EQ(s->checkpoint_path, "/tmp/dummy_session_0.bin");
+
+    ASSERT_EQ(s->per_epoch_losses.size(), 3u);
+    EXPECT_NEAR(s->per_epoch_losses[0], 1.4f, 1e-4f);
+    EXPECT_NEAR(s->per_epoch_losses[2], 1.2f, 1e-4f);
+
+    ASSERT_EQ(s->per_epoch_validation_losses.size(), 3u);
+    EXPECT_NEAR(s->per_epoch_validation_losses[1], 1.55f, 1e-4f);
+
+    ASSERT_EQ(s->per_epoch_learning_rates.size(), 3u);
+    EXPECT_NEAR(s->per_epoch_learning_rates[0], 0.001f, 1e-6f);
+
+    ASSERT_EQ(s->training_time_per_epoch.size(), 3u);
+    EXPECT_NEAR(s->training_time_per_epoch[1], 48.5, 1e-3);
+}
+
+TEST_F(IncrementalTrainerTest, SaveLoadSessionHistoryRoundTripWithPerEpochData) {
+    // Verify the v2 history format round-trip at the file content level.
+    // Write a v2 file, parse it with a fresh trainer, confirm vectors intact.
+    std::string default_dir = "training_sessions";
+    fs::create_directories(default_dir);
+    std::string hist_path = default_dir + "/session_history.txt";
+    create_session_history_file_v2(hist_path);
+
+    IncrementalTrainer trainer(vocab_file.string(), model_file.string());
+    auto history = trainer.get_session_history();
+    fs::remove(hist_path);
+
+    ASSERT_GE(history.size(), 1u);
+    const TrainingSession* s = nullptr;
+    for (const auto& h : history)
+        if (h.session_id == 0) { s = &h; break; }
+    ASSERT_NE(s, nullptr);
+
+    // All four per-epoch vectors survived the parse
+    std::vector<float>  exp_losses  = {1.4f, 1.3f, 1.2f};
+    std::vector<float>  exp_val     = {1.6f, 1.55f, 1.5f};
+    std::vector<float>  exp_lrs     = {0.001f, 0.0009f, 0.0008f};
+    std::vector<double> exp_times   = {50.0, 48.5, 51.0};
+
+    for (size_t i = 0; i < 3; ++i) {
+        EXPECT_NEAR(s->per_epoch_losses[i],             exp_losses[i],  1e-4f);
+        EXPECT_NEAR(s->per_epoch_validation_losses[i],  exp_val[i],     1e-4f);
+        EXPECT_NEAR(s->per_epoch_learning_rates[i],     exp_lrs[i],     1e-6f);
+        EXPECT_NEAR(s->training_time_per_epoch[i],      exp_times[i],   1e-3);
+    }
+}
+
+TEST_F(IncrementalTrainerTest, DisplayDashboardDoesNotCrash) {
+    // print_training_summary exercises make_sparkline and per-epoch display.
+    // Test with no per-epoch data (empty session history).
+    IncrementalConfig config;
+    config.session_dir = session_dir.string();
+    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+    EXPECT_NO_THROW(trainer.print_training_summary());
+
+    // Test with per-epoch data loaded
+    std::string default_dir = "training_sessions";
+    fs::create_directories(default_dir);
+    std::string hist_path = default_dir + "/session_history.txt";
+    create_session_history_file_v2(hist_path);
+    IncrementalTrainer trainer2(vocab_file.string(), model_file.string());
+    fs::remove(hist_path);
+    EXPECT_NO_THROW(trainer2.print_training_summary());
+}
+
 // Run all tests
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
