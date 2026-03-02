@@ -1,12 +1,15 @@
 #include "Config.hpp"
+#include "Logger.hpp"
 #include <iostream>
 #include <fstream>
 #include <sstream>
 #include <cstdlib>
 #include <stdexcept>
 #include <algorithm>
+#include <chrono>
+#include <iomanip>
 
-// TODO: See TECHNICAL_DEBT.md Future Enhancement #3 - Configuration Hot-Reloading
+// Hot-reloading implemented - see DAEMON_IMPLEMENTATION_COMPLETE.md
 // TODO: See TECHNICAL_DEBT.md Future Enhancement #4 - JSON Configuration Format Support
 // TODO: See TECHNICAL_DEBT.md Future Enhancement #5 - Configuration Profiles (dev, staging, prod)
 
@@ -57,6 +60,23 @@ std::optional<float> ConfigLoader::get_env_float(const std::string& var_name) {
             return std::stof(*value);
         } catch (...) {
             std::cerr << "Warning: Invalid float value for " << var_name 
+                      << ": " << *value << std::endl;
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<bool> ConfigLoader::get_env_bool(const std::string& var_name) {
+    auto value = get_env(var_name);
+    if (value) {
+        std::string lower = *value;
+        std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+        if (lower == "true" || lower == "1" || lower == "yes" || lower == "on") {
+            return true;
+        } else if (lower == "false" || lower == "0" || lower == "no" || lower == "off") {
+            return false;
+        } else {
+            std::cerr << "Warning: Invalid boolean value for " << var_name 
                       << ": " << *value << std::endl;
         }
     }
@@ -126,6 +146,16 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.session_timeout = std::stoi(value);
             } else if (key == "LOG_LEVEL") {
                 config.log_level = value;
+            } else if (key == "LOG_FILE_PATH") {
+                config.log_file_path = value;
+            } else if (key == "LOG_MAX_SIZE_MB") {
+                config.log_max_size_mb = static_cast<size_t>(std::stoull(value));
+            } else if (key == "LOG_MAX_FILES") {
+                config.log_max_files = static_cast<size_t>(std::stoull(value));
+            } else if (key == "LOG_COMPRESS") {
+                std::string lower = value;
+                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+                config.log_compress = (lower == "true" || lower == "1" || lower == "yes" || lower == "on");
             } else if (key == "D_MODEL") {
                 config.d_model = static_cast<size_t>(std::stoull(value));
             } else if (key == "NUM_HEADS") {
@@ -171,6 +201,10 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     if (auto val = get_env_int("PORT")) config.port = *val;
     if (auto val = get_env_int("SESSION_TIMEOUT")) config.session_timeout = *val;
     if (auto val = get_env("LOG_LEVEL")) config.log_level = *val;
+    if (auto val = get_env("LOG_FILE_PATH")) config.log_file_path = *val;
+    if (auto val = get_env_size_t("LOG_MAX_SIZE_MB")) config.log_max_size_mb = *val;
+    if (auto val = get_env_size_t("LOG_MAX_FILES")) config.log_max_files = *val;
+    if (auto val = get_env_bool("LOG_COMPRESS")) config.log_compress = *val;
     
     // Model architecture
     if (auto val = get_env_size_t("D_MODEL")) config.d_model = *val;
@@ -231,6 +265,12 @@ void ConfigLoader::print(const ServiceConfig& config) {
     std::cout << "  Port:             " << config.port << std::endl;
     std::cout << "  Session timeout:  " << config.session_timeout << " minutes" << std::endl;
     std::cout << "  Log level:        " << config.log_level << std::endl;
+    std::cout << "  Log file:         " << (config.log_file_path.empty() ? "<console only>" : config.log_file_path) << std::endl;
+    if (!config.log_file_path.empty()) {
+        std::cout << "  Log max size:     " << config.log_max_size_mb << " MB" << std::endl;
+        std::cout << "  Log max files:    " << config.log_max_files << std::endl;
+        std::cout << "  Log compression:  " << (config.log_compress ? "enabled" : "disabled") << std::endl;
+    }
     std::cout << std::endl;
     std::cout << "Model Architecture:" << std::endl;
     std::cout << "  d_model:          " << config.d_model << std::endl;
@@ -248,6 +288,259 @@ void ConfigLoader::print(const ServiceConfig& config) {
     std::cout << "  beam_width:       " << config.beam_width << std::endl;
     std::cout << "  strategy:         " << config.strategy << std::endl;
     std::cout << "==================================================" << std::endl;
+}
+
+// ============================================================
+// Configuration Hot-Reloading
+// ============================================================
+
+bool ConfigLoader::reload(ServiceConfig& config, const std::string& config_file_path, std::mutex& mutex) {
+    // Get timestamp for logging
+    auto now = std::chrono::system_clock::now();
+    auto time_t = std::chrono::system_clock::to_time_t(now);
+    std::stringstream timestamp;
+    timestamp << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S");
+    
+    Logger::info("==================================================");
+    Logger::info("Configuration Reload Triggered at {}", timestamp.str());
+    Logger::info("==================================================");
+    
+    // Create a temporary config to load new values
+    ServiceConfig new_config;
+    
+    // Load from file (don't apply yet)
+    Logger::info("Loading configuration from: {}", config_file_path);
+    load_from_file(new_config, config_file_path);
+    
+    // Override with environment variables (maintain priority)
+    load_from_env(new_config);
+    
+    // Validate the new configuration
+    std::vector<std::string> errors;
+    if (!validate(new_config, errors)) {
+        Logger::error("Configuration validation failed:");
+        for (const auto& error : errors) {
+            Logger::error("  - {}", error);
+        }
+        Logger::error("Configuration reload aborted - keeping current configuration");
+        Logger::info("==================================================");
+        return false;
+    }
+    
+    Logger::info("Configuration validation passed");
+    
+    // Detect changes before applying new config
+    std::vector<std::string> changes = detect_changes(config, new_config);
+    
+    if (changes.empty()) {
+        Logger::info("No configuration changes detected");
+        Logger::info("==================================================");
+        return true;
+    }
+    
+    // Apply the new configuration with thread safety
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        
+        // Copy the old config for comparison
+        ServiceConfig old_config = config;
+        
+        // Apply new configuration
+        config = new_config;
+        
+        Logger::info("Configuration updated successfully");
+        Logger::info("Changes applied:");
+        for (const auto& change : changes) {
+            Logger::info("  {}", change);
+        }
+    }
+    
+    Logger::info("==================================================");
+    return true;
+}
+
+bool ConfigLoader::validate(const ServiceConfig& config, std::vector<std::string>& errors) {
+    bool valid = true;
+    
+    // Validate port range
+    if (config.port < 1 || config.port > 65535) {
+        errors.push_back("Invalid port: " + std::to_string(config.port) + " (must be 1-65535)");
+        valid = false;
+    }
+    
+    // Validate session timeout
+    if (config.session_timeout < 1) {
+        errors.push_back("Invalid session_timeout: " + std::to_string(config.session_timeout) + " (must be >= 1)");
+        valid = false;
+    }
+    
+    // Validate log level
+    std::vector<std::string> valid_levels = {"DEBUG", "INFO", "WARN", "ERROR"};
+    std::string upper_log_level = config.log_level;
+    std::transform(upper_log_level.begin(), upper_log_level.end(), upper_log_level.begin(), ::toupper);
+    if (std::find(valid_levels.begin(), valid_levels.end(), upper_log_level) == valid_levels.end()) {
+        errors.push_back("Invalid log_level: " + config.log_level + " (must be DEBUG, INFO, WARN, or ERROR)");
+        valid = false;
+    }
+    
+    // Validate log file configuration
+    if (config.log_max_size_mb < 1 || config.log_max_size_mb > 1024) {
+        errors.push_back("Invalid log_max_size_mb: " + std::to_string(config.log_max_size_mb) + " (must be 1-1024)");
+        valid = false;
+    }
+    
+    if (config.log_max_files < 1 || config.log_max_files > 100) {
+        errors.push_back("Invalid log_max_files: " + std::to_string(config.log_max_files) + " (must be 1-100)");
+        valid = false;
+    }
+    
+    // Validate model architecture parameters
+    if (config.d_model < 64 || config.d_model > 8192) {
+        errors.push_back("Invalid d_model: " + std::to_string(config.d_model) + " (must be 64-8192)");
+        valid = false;
+    }
+    
+    if (config.num_heads < 1 || config.num_heads > 64) {
+        errors.push_back("Invalid num_heads: " + std::to_string(config.num_heads) + " (must be 1-64)");
+        valid = false;
+    }
+    
+    // d_model must be divisible by num_heads (only check if num_heads is valid to avoid division by zero)
+    if (config.num_heads > 0 && config.d_model % config.num_heads != 0) {
+        errors.push_back("d_model (" + std::to_string(config.d_model) + 
+                        ") must be divisible by num_heads (" + std::to_string(config.num_heads) + ")");
+        valid = false;
+    }
+    
+    if (config.d_ff < 64 || config.d_ff > 32768) {
+        errors.push_back("Invalid d_ff: " + std::to_string(config.d_ff) + " (must be 64-32768)");
+        valid = false;
+    }
+    
+    if (config.num_encoder_layers < 1 || config.num_encoder_layers > 48) {
+        errors.push_back("Invalid num_encoder_layers: " + std::to_string(config.num_encoder_layers) + " (must be 1-48)");
+        valid = false;
+    }
+    
+    if (config.num_decoder_layers < 1 || config.num_decoder_layers > 48) {
+        errors.push_back("Invalid num_decoder_layers: " + std::to_string(config.num_decoder_layers) + " (must be 1-48)");
+        valid = false;
+    }
+    
+    if (config.max_seq_length < 16 || config.max_seq_length > 32768) {
+        errors.push_back("Invalid max_seq_length: " + std::to_string(config.max_seq_length) + " (must be 16-32768)");
+        valid = false;
+    }
+    
+    // Validate generation parameters
+    if (config.max_gen_length < 1 || config.max_gen_length > 4096) {
+        errors.push_back("Invalid max_gen_length: " + std::to_string(config.max_gen_length) + " (must be 1-4096)");
+        valid = false;
+    }
+    
+    if (config.temperature < 0.0f || config.temperature > 2.0f) {
+        errors.push_back("Invalid temperature: " + std::to_string(config.temperature) + " (must be 0.0-2.0)");
+        valid = false;
+    }
+    
+    if (config.top_p < 0.0f || config.top_p > 1.0f) {
+        errors.push_back("Invalid top_p: " + std::to_string(config.top_p) + " (must be 0.0-1.0)");
+        valid = false;
+    }
+    
+    if (config.top_k < 1 || config.top_k > 1000) {
+        errors.push_back("Invalid top_k: " + std::to_string(config.top_k) + " (must be 1-1000)");
+        valid = false;
+    }
+    
+    if (config.beam_width < 1 || config.beam_width > 16) {
+        errors.push_back("Invalid beam_width: " + std::to_string(config.beam_width) + " (must be 1-16)");
+        valid = false;
+    }
+    
+    // Validate strategy
+    std::vector<std::string> valid_strategies = {"greedy", "beam", "temperature", "top_k", "nucleus"};
+    if (std::find(valid_strategies.begin(), valid_strategies.end(), config.strategy) == valid_strategies.end()) {
+        errors.push_back("Invalid strategy: " + config.strategy + " (must be greedy, beam, temperature, top_k, or nucleus)");
+        valid = false;
+    }
+    
+    return valid;
+}
+
+std::vector<std::string> ConfigLoader::detect_changes(const ServiceConfig& old_config, const ServiceConfig& new_config) {
+    std::vector<std::string> changes;
+    
+    // Server configuration changes
+    if (old_config.model_path != new_config.model_path) {
+        changes.push_back("model_path: '" + old_config.model_path + "' -> '" + new_config.model_path + "'");
+    }
+    if (old_config.vocab_path != new_config.vocab_path) {
+        changes.push_back("vocab_path: '" + old_config.vocab_path + "' -> '" + new_config.vocab_path + "'");
+    }
+    if (old_config.port != new_config.port) {
+        changes.push_back("port: " + std::to_string(old_config.port) + " -> " + std::to_string(new_config.port));
+    }
+    if (old_config.session_timeout != new_config.session_timeout) {
+        changes.push_back("session_timeout: " + std::to_string(old_config.session_timeout) + " -> " + std::to_string(new_config.session_timeout));
+    }
+    if (old_config.log_level != new_config.log_level) {
+        changes.push_back("log_level: " + old_config.log_level + " -> " + new_config.log_level);
+    }
+    if (old_config.log_file_path != new_config.log_file_path) {
+        changes.push_back("log_file_path: '" + old_config.log_file_path + "' -> '" + new_config.log_file_path + "'");
+    }
+    if (old_config.log_max_size_mb != new_config.log_max_size_mb) {
+        changes.push_back("log_max_size_mb: " + std::to_string(old_config.log_max_size_mb) + " -> " + std::to_string(new_config.log_max_size_mb));
+    }
+    if (old_config.log_max_files != new_config.log_max_files) {
+        changes.push_back("log_max_files: " + std::to_string(old_config.log_max_files) + " -> " + std::to_string(new_config.log_max_files));
+    }
+    if (old_config.log_compress != new_config.log_compress) {
+        changes.push_back("log_compress: " + std::string(old_config.log_compress ? "true" : "false") + " -> " + std::string(new_config.log_compress ? "true" : "false"));
+    }
+    
+    // Model architecture changes
+    if (old_config.d_model != new_config.d_model) {
+        changes.push_back("d_model: " + std::to_string(old_config.d_model) + " -> " + std::to_string(new_config.d_model));
+    }
+    if (old_config.num_heads != new_config.num_heads) {
+        changes.push_back("num_heads: " + std::to_string(old_config.num_heads) + " -> " + std::to_string(new_config.num_heads));
+    }
+    if (old_config.d_ff != new_config.d_ff) {
+        changes.push_back("d_ff: " + std::to_string(old_config.d_ff) + " -> " + std::to_string(new_config.d_ff));
+    }
+    if (old_config.num_encoder_layers != new_config.num_encoder_layers) {
+        changes.push_back("num_encoder_layers: " + std::to_string(old_config.num_encoder_layers) + " -> " + std::to_string(new_config.num_encoder_layers));
+    }
+    if (old_config.num_decoder_layers != new_config.num_decoder_layers) {
+        changes.push_back("num_decoder_layers: " + std::to_string(old_config.num_decoder_layers) + " -> " + std::to_string(new_config.num_decoder_layers));
+    }
+    if (old_config.max_seq_length != new_config.max_seq_length) {
+        changes.push_back("max_seq_length: " + std::to_string(old_config.max_seq_length) + " -> " + std::to_string(new_config.max_seq_length));
+    }
+    
+    // Generation parameters changes
+    if (old_config.max_gen_length != new_config.max_gen_length) {
+        changes.push_back("max_gen_length: " + std::to_string(old_config.max_gen_length) + " -> " + std::to_string(new_config.max_gen_length));
+    }
+    if (old_config.temperature != new_config.temperature) {
+        changes.push_back("temperature: " + std::to_string(old_config.temperature) + " -> " + std::to_string(new_config.temperature));
+    }
+    if (old_config.top_p != new_config.top_p) {
+        changes.push_back("top_p: " + std::to_string(old_config.top_p) + " -> " + std::to_string(new_config.top_p));
+    }
+    if (old_config.top_k != new_config.top_k) {
+        changes.push_back("top_k: " + std::to_string(old_config.top_k) + " -> " + std::to_string(new_config.top_k));
+    }
+    if (old_config.beam_width != new_config.beam_width) {
+        changes.push_back("beam_width: " + std::to_string(old_config.beam_width) + " -> " + std::to_string(new_config.beam_width));
+    }
+    if (old_config.strategy != new_config.strategy) {
+        changes.push_back("strategy: " + old_config.strategy + " -> " + new_config.strategy);
+    }
+    
+    return changes;
 }
 
 } // namespace adai

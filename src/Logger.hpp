@@ -3,6 +3,7 @@
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/sinks/rotating_file_sink.h>
 #include <memory>
 #include <string>
 
@@ -15,7 +16,6 @@ namespace adai {
  * Uses spdlog internally for high-performance logging.
  * 
  * TODO: See TECHNICAL_DEBT.md Future Enhancement #8 - JSON log output for machine parsing
- * TODO: See TECHNICAL_DEBT.md Future Enhancement #9 - Log file rotation and archiving
  * TODO: See TECHNICAL_DEBT.md Future Enhancement #10 - Per-module logging levels
  * TODO: See TECHNICAL_DEBT.md Future Enhancement #11 - Custom sinks (systemd journal, syslog)
  */
@@ -30,6 +30,16 @@ public:
         WARN,
         ERROR
     };
+    
+    /**
+     * @brief Log file configuration
+     */
+    struct FileConfig {
+        std::string path;                // Log file path (empty = disabled)
+        size_t max_size_mb = 10;         // Max file size before rotation (MB)
+        size_t max_files = 5;            // Max number of rotated files
+        bool compress = false;           // Enable compression (future enhancement)
+    };
 
     /**
      * @brief Initialize the logger
@@ -38,6 +48,15 @@ public:
      * @param name Logger name (default: "adai")
      */
     static void init(Level level = Level::INFO, const std::string& name = "adai");
+    
+    /**
+     * @brief Initialize the logger with file rotation support
+     * 
+     * @param level Logging level
+     * @param file_config File logging configuration
+     * @param name Logger name (default: "adai")
+     */
+    static void init(Level level, const FileConfig& file_config, const std::string& name = "adai");
 
     /**
      * @brief Set logging level from string

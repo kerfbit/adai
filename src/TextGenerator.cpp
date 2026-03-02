@@ -6,11 +6,11 @@
 #include <queue>
 
 // Default constructor
-TextGenerator::TextGenerator() : config(), rng(std::random_device{}()) {}
+TextGenerator::TextGenerator() : config(), rng(std::random_device{}()), tokenizer_(nullptr) {}
 
 // Constructor
 TextGenerator::TextGenerator(const GenerationConfig& cfg, unsigned int seed)
-    : config(cfg), rng(seed == 0 ? std::random_device{}() : seed) {}
+    : config(cfg), rng(seed == 0 ? std::random_device{}() : seed), tokenizer_(nullptr) {}
 
 // Apply temperature scaling
 std::vector<float> TextGenerator::apply_temperature(const std::vector<float>& logits,
@@ -589,4 +589,33 @@ TextGenerator::GenerationConfig TextGenerator::get_config() const {
 // Set random seed
 void TextGenerator::set_seed(unsigned int seed) {
     rng.seed(seed);
+}
+
+// Stored model function / tokenizer (used by SpeculativeDecoder)
+void TextGenerator::set_model_fn(ModelForwardFn fn) {
+    model_fn_ = std::move(fn);
+}
+
+void TextGenerator::set_tokenizer(BPETokenizer* tok) {
+    tokenizer_ = tok;
+}
+
+BPETokenizer* TextGenerator::get_tokenizer() const {
+    return tokenizer_;
+}
+
+// Get probability distribution for the next token given context tokens.
+// Requires that set_model_fn() was called beforehand.
+std::vector<float> TextGenerator::get_next_token_probs(const std::vector<int>& context) {
+    if (!model_fn_) {
+        throw std::runtime_error("TextGenerator: no model function set (call set_model_fn first)");
+    }
+    Matrix logits_mat = model_fn_(context);
+    // Extract the last row of logits (next-token prediction)
+    int last_row = logits_mat.rows - 1;
+    std::vector<float> last_logits(logits_mat.cols);
+    for (int j = 0; j < logits_mat.cols; ++j) {
+        last_logits[j] = logits_mat(last_row, j);
+    }
+    return softmax(last_logits);
 }

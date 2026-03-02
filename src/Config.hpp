@@ -3,10 +3,10 @@
 #include <string>
 #include <map>
 #include <optional>
+#include <mutex>
+#include <vector>
 
-// TODO: See TECHNICAL_DEBT.md Future Enhancement #3 - Configuration Hot-Reloading
-//       Add reload() method to reload config from file without restart
-//       Add thread-safe configuration update mechanism
+// Hot-reloading implemented - see DAEMON_IMPLEMENTATION_COMPLETE.md
 // TODO: See TECHNICAL_DEBT.md Future Enhancement #4 - JSON Configuration Format Support
 //       Add support for JSON format in addition to key=value format
 // TODO: See TECHNICAL_DEBT.md Future Enhancement #5 - Configuration Profiles
@@ -41,6 +41,18 @@ struct ServiceConfig {
     
     /// Logging level: DEBUG, INFO, WARN, ERROR (default: INFO)
     std::string log_level = "INFO";
+    
+    /// Log file path (empty = console only, set to enable file logging)
+    std::string log_file_path;
+    
+    /// Maximum log file size in MB before rotation (default: 10)
+    size_t log_max_size_mb = 10;
+    
+    /// Maximum number of rotated log files to keep (default: 5)
+    size_t log_max_files = 5;
+    
+    /// Enable log file compression (default: false)
+    bool log_compress = false;
     
     // ============================================================
     // Model Architecture Parameters
@@ -113,6 +125,37 @@ public:
      * @param config The configuration to print
      */
     static void print(const ServiceConfig& config);
+    
+    /**
+     * @brief Reload configuration from file with validation.
+     * 
+     * This method is thread-safe and validates the new configuration
+     * before applying it. If validation fails, the current config remains unchanged.
+     * 
+     * @param config Current configuration to update
+     * @param config_file_path Path to the configuration file
+     * @param mutex Mutex to protect the config during update
+     * @return true if reload succeeded, false if validation failed
+     */
+    static bool reload(ServiceConfig& config, const std::string& config_file_path, std::mutex& mutex);
+    
+    /**
+     * @brief Validate configuration parameters.
+     * 
+     * @param config Configuration to validate
+     * @param errors Vector to store validation error messages
+     * @return true if configuration is valid, false otherwise
+     */
+    static bool validate(const ServiceConfig& config, std::vector<std::string>& errors);
+    
+    /**
+     * @brief Detect and log configuration changes.
+     * 
+     * @param old_config Previous configuration
+     * @param new_config New configuration
+     * @return Vector of change descriptions
+     */
+    static std::vector<std::string> detect_changes(const ServiceConfig& old_config, const ServiceConfig& new_config);
 
 private:
     /**
@@ -163,6 +206,14 @@ private:
      * @return std::optional<float> The value if present and valid
      */
     static std::optional<float> get_env_float(const std::string& var_name);
+    
+    /**
+     * @brief Get environment variable as boolean.
+     * 
+     * @param var_name Environment variable name
+     * @return std::optional<bool> The value if present and valid
+     */
+    static std::optional<bool> get_env_bool(const std::string& var_name);
 };
 
 } // namespace adai

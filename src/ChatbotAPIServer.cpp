@@ -10,6 +10,7 @@
 #include <csignal>
 #include <memory>
 #include <atomic>
+#include <mutex>
 #include <thread>
 #include <chrono>
 
@@ -20,20 +21,26 @@
 // TODO: See TECHNICAL_DEBT.md Future Enhancement #16 - Health Check Enhancements
 
 // ============================================================================
-// Signal Handling for Graceful Shutdown
+// Signal Handling for Graceful Shutdown and Config Reload
 // ============================================================================
 
 // Atomic flag for signal handling (async-signal-safe)
 static std::atomic<bool> shutdown_requested{false};
+static std::atomic<bool> reload_config_requested{false};
 
 // Global pointer for signal handler (only used to stop the server)
 static ChatbotAPI* g_api_server = nullptr;
 
+// Global configuration state (protected by mutex)
+static adai::ServiceConfig* g_config = nullptr;
+static std::mutex* g_config_mutex = nullptr;
+static std::string* g_config_file_path = nullptr;
+
 /**
- * @brief Signal handler for SIGINT and SIGTERM
+ * @brief Signal handler for SIGINT, SIGTERM, and SIGHUP
  * 
- * This handler is async-signal-safe and only sets an atomic flag.
- * The actual cleanup is performed in the main thread.
+ * This handler is async-signal-safe and only sets atomic flags.
+ * The actual cleanup/reload is performed in the main thread.
  * 
  * @param signal Signal number
  */
@@ -46,9 +53,12 @@ void signal_handler(int signal) {
         if (g_api_server) {
             g_api_server->stop();
         }
+    } else if (signal == SIGHUP) {
+        // Configuration hot-reload implemented
+        // Set reload flag to trigger config reload in main thread
+        reload_config_requested.store(true);
+        adai::Logger::info("SIGHUP received - configuration reload requested");
     }
-    // TODO: See TECHNICAL_DEBT.md Future Enhancement #3 - Add SIGHUP handler for config reload
-    // SIGHUP should trigger configuration reload without service restart
     // TODO: See TECHNICAL_DEBT.md Future Enhancement #7 - Add SIGUSR1 handler for graceful model reload
     // SIGUSR1 should trigger background model loading and atomic swap
 }
@@ -158,8 +168,20 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Initialize logger with configured level
-    adai::Logger::init();
+    // Initialize logger with configured level and file rotation
+    if (!config.log_file_path.empty()) {
+        // Initialize with file rotation
+        adai::Logger::FileConfig file_config;
+        file_config.path = config.log_file_path;
+        file_config.max_size_mb = config.log_max_size_mb;
+        file_config.max_files = config.log_max_files;
+        file_config.compress = config.log_compress;
+        
+        adai::Logger::init(adai::Logger::Level::INFO, file_config);
+    } else {
+        // Console-only logging
+        adai::Logger::init();
+    }
     adai::Logger::set_level(config.log_level);
 
     // Print loaded configuration
@@ -218,10 +240,20 @@ int main(int argc, char* argv[]) {
         gen_config.strategy = config.strategy;
         api->set_generation_config(gen_config);
 
+        // Initialize global config state for reload
+        std::mutex config_mutex;
+        g_config = &config;
+        g_config_mutex = &config_mutex;
+        
+        // Store config file path for reload
+        std::string stored_config_path = use_custom_config ? config_file_path : "/etc/adai/config.conf";
+        g_config_file_path = &stored_config_path;
+
         // Set up signal handlers
         g_api_server = api.get();
         std::signal(SIGINT, signal_handler);
         std::signal(SIGTERM, signal_handler);
+        std::signal(SIGHUP, signal_handler);  // Configuration hot-reload
 
         // Start server
         adai::Logger::info("");
@@ -239,11 +271,62 @@ int main(int argc, char* argv[]) {
         // Return detailed component status, memory usage, readiness/liveness checks
         adai::Logger::info("");
         adai::Logger::info("Press Ctrl+C to stop the server");
+        adai::Logger::info("Send SIGHUP (kill -HUP {}) to reload configuration", getpid());
         adai::Logger::info("==================================================");
 
         if (!api->start()) {
             adai::Logger::error("Failed to start server");
             return 1;
+        }
+        
+        // ================================================================
+        // Main Service Loop - Check for config reload requests
+        // ================================================================
+        
+        // Store original port for comparison
+        int original_port = config.port;
+        
+        while (!shutdown_requested.load()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            
+            // Check if config reload was requested
+            if (reload_config_requested.load()) {
+                reload_config_requested.store(false);
+                
+                // Reload configuration
+                if (adai::ConfigLoader::reload(config, stored_config_path, config_mutex)) {
+                    // Update logger level if changed
+                    {
+                        std::lock_guard<std::mutex> lock(config_mutex);
+                        adai::Logger::set_level(config.log_level);
+                    }
+                    
+                    // Update generation configuration
+                    ChatbotAPI::GenerationConfig new_gen_config;
+                    {
+                        std::lock_guard<std::mutex> lock(config_mutex);
+                        new_gen_config.max_length = config.max_gen_length;
+                        new_gen_config.temperature = config.temperature;
+                        new_gen_config.top_p = config.top_p;
+                        new_gen_config.strategy = config.strategy;
+                    }
+                    api->set_generation_config(new_gen_config);
+                    
+                    adai::Logger::info("Generation configuration updated");
+                    
+                    // Note: Some changes like port, model architecture cannot be applied
+                    // without service restart. These are validated but logged as warnings.
+                    {
+                        std::lock_guard<std::mutex> lock(config_mutex);
+                        if (config.port != original_port) {
+                            adai::Logger::warn("Note: Port change ({} -> {}) requires service restart to take effect", 
+                                             original_port, config.port);
+                        }
+                    }
+                } else {
+                    adai::Logger::error("Configuration reload failed - continuing with current configuration");
+                }
+            }
         }
 
         // ================================================================

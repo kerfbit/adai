@@ -88,6 +88,8 @@ class TextGenerator {
    private:
     GenerationConfig config;
     std::mt19937 rng;  // Random number generator
+    ModelForwardFn model_fn_;   // Stored model function (for speculative decoding)
+    BPETokenizer* tokenizer_;  // Stored tokenizer pointer (for speculative decoding)
 
     /**
      * Apply temperature scaling to logits
@@ -281,6 +283,23 @@ class TextGenerator {
      * Get current configuration
      */
     GenerationConfig get_config() const;
+
+    /**
+     * Set/get stored model function and tokenizer (used by SpeculativeDecoder)
+     */
+    void set_model_fn(ModelForwardFn fn);
+    void set_tokenizer(BPETokenizer* tok);
+    BPETokenizer* get_tokenizer() const;
+
+    /**
+     * Compute probability distribution for the next token given context.
+     * Uses the stored model_fn_ (set via set_model_fn()).
+     *
+     * @param context Input token IDs
+     * @return Softmax probability vector over vocabulary
+     * @throws std::runtime_error if no model function has been set
+     */
+    std::vector<float> get_next_token_probs(const std::vector<int>& context);
 
     /**
      * Set random seed

@@ -154,7 +154,7 @@ struct IntegratedInferenceStats {
  */
 struct IntegratedRequest {
     std::string input_text;
-    int max_length;
+    int max_length = 0;
     std::string strategy;
     
     std::promise<std::string> result_promise;
@@ -207,7 +207,7 @@ struct IntegratedRequest {
 struct IntegratedBatch {
     std::vector<IntegratedRequest> requests;
     std::vector<std::vector<int>> tokenized_inputs;
-    size_t batch_id;
+    size_t batch_id = 0;
     
     IntegratedBatch() = default;
     
@@ -230,20 +230,20 @@ struct IntegratedBatch {
  * @brief Encoder output with metadata for decoder stage
  */
 struct IntegratedEncoderOutput {
-    Matrix encoder_output;
+    std::vector<Matrix> encoder_outputs;  ///< Per-request encoder outputs
     std::vector<IntegratedRequest> requests;
-    size_t batch_id;
+    size_t batch_id = 0;
     
     IntegratedEncoderOutput() = default;
     
     IntegratedEncoderOutput(IntegratedEncoderOutput&& other) noexcept
-        : encoder_output(std::move(other.encoder_output)),
+        : encoder_outputs(std::move(other.encoder_outputs)),
           requests(std::move(other.requests)),
           batch_id(other.batch_id) {}
     
     IntegratedEncoderOutput& operator=(IntegratedEncoderOutput&& other) noexcept {
         if (this != &other) {
-            encoder_output = std::move(other.encoder_output);
+            encoder_outputs = std::move(other.encoder_outputs);
             requests = std::move(other.requests);
             batch_id = other.batch_id;
         }
@@ -296,7 +296,7 @@ private:
     
     // Statistics
     IntegratedInferenceStats stats_;
-    std::mutex stats_mutex_;
+    mutable std::mutex stats_mutex_;
     std::atomic<uint64_t> next_batch_id_;
     
     // ========================================================================
@@ -383,11 +383,15 @@ private:
                 req.encoder_start = encoder_start;
             }
             
-            // Process batch through encoder
+            // Process each request through encoder individually
             // Note: LLMEncoder will use OpenMP (Priority 1) and parallel attention (Priority 4)
-            // if configured
-            Matrix batch_inputs = prepare_encoder_inputs(batch.tokenized_inputs);
-            Matrix encoder_output = encoder_->forward(batch_inputs);
+            std::vector<Matrix> encoder_outputs;
+            for (const auto& tokens : batch.tokenized_inputs) {
+                // Create square attention mask (all ones = full attention, no padding masking)
+                Matrix att_mask(static_cast<int>(tokens.size()), static_cast<int>(tokens.size()));
+                att_mask.fill(1.0f);
+                encoder_outputs.push_back(encoder_->encode_with_mask(tokens, att_mask));
+            }
             
             auto encoder_end = std::chrono::steady_clock::now();
             double encoder_time_ms = std::chrono::duration<double, std::milli>(
@@ -396,7 +400,7 @@ private:
             
             // Create output for decoder
             IntegratedEncoderOutput output;
-            output.encoder_output = std::move(encoder_output);
+            output.encoder_outputs = std::move(encoder_outputs);
             output.requests = std::move(batch.requests);
             output.batch_id = batch.batch_id;
             
@@ -446,9 +450,9 @@ private:
             for (size_t i = 0; i < encoder_output.requests.size(); ++i) {
                 auto& req = encoder_output.requests[i];
                 
-                // Generate response autoregressively
+                // Generate response autoregressively using this request's encoder output
                 std::string result = generate_from_encoder_output(
-                    encoder_output.encoder_output,
+                    encoder_output.encoder_outputs[i],
                     req.max_length,
                     req.strategy
                 );
@@ -529,7 +533,7 @@ private:
         // Fill with token IDs
         for (size_t i = 0; i < batch_size; ++i) {
             for (size_t j = 0; j < tokenized[i].size(); ++j) {
-                batch.set(i, j, static_cast<float>(tokenized[i][j]));
+                batch(static_cast<int>(i), static_cast<int>(j)) = static_cast<float>(tokenized[i][j]);
             }
         }
         
@@ -549,29 +553,24 @@ private:
         generated_tokens.push_back(tokenizer_->get_bos_token_id());
         
         for (int step = 0; step < max_length; ++step) {
-            // Prepare decoder input
-            Matrix decoder_input(1, generated_tokens.size());
-            for (size_t i = 0; i < generated_tokens.size(); ++i) {
-                decoder_input.set(0, i, static_cast<float>(generated_tokens[i]));
-            }
-            
             // Forward through decoder with cross-attention to encoder output
-            Matrix decoder_output = decoder_->forward(decoder_input, encoder_output);
+            // Uses forward_with_encoder which accepts token IDs and encoder context
+            Matrix decoder_output = decoder_->forward_with_encoder(generated_tokens, encoder_output);
             
             // Get logits from LM head for last position
-            Matrix last_hidden(1, decoder_output.cols());
-            for (int col = 0; col < decoder_output.cols(); ++col) {
-                last_hidden.set(0, col, decoder_output.get(decoder_output.rows() - 1, col));
+            Matrix last_hidden(1, decoder_output.cols);
+            for (int col = 0; col < decoder_output.cols; ++col) {
+                last_hidden(0, col) = decoder_output(decoder_output.rows - 1, col);
             }
             
             Matrix logits = lm_head_->forward(last_hidden);
             
             // Get next token (greedy for simplicity)
             int next_token = 0;
-            float max_score = logits.get(0, 0);
-            for (int i = 1; i < logits.cols(); ++i) {
-                if (logits.get(0, i) > max_score) {
-                    max_score = logits.get(0, i);
+            float max_score = logits(0, 0);
+            for (int i = 1; i < logits.cols; ++i) {
+                if (logits(0, i) > max_score) {
+                    max_score = logits(0, i);
                     next_token = i;
                 }
             }

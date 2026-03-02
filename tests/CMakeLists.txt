@@ -110,6 +110,23 @@ add_executable(encoderdecoderTests encoderdecoder_test.cpp)
 target_link_libraries(encoderdecoderTests adai_models adai_nlp GTest::gtest_main)
 add_test(NAME EncoderDecoderTests COMMAND encoderdecoderTests)
 
+# LLMEncoder tests
+add_executable(llmencoderTests 
+    llmencoder_test.cpp
+    ../src/LLMEncoder.cpp  # Include implementation
+)
+target_link_libraries(llmencoderTests 
+    adai_models
+    adai_nlp
+    adai_transformer
+    adai_attention
+    adai_feedforward
+    adai_layers
+    adai_core
+    GTest::gtest_main
+)
+add_test(NAME LLMEncoderTests COMMAND llmencoderTests)
+
 # ============================================================================
 # NLP Component Tests
 # ============================================================================
@@ -184,6 +201,52 @@ target_link_libraries(checkpointmanagerTests GTest::gtest_main)
 add_test(NAME CheckpointManagerTests COMMAND checkpointmanagerTests)
 
 # ============================================================================
+# Service Infrastructure Tests (Daemon Service - TD Future Enhancements)
+# ============================================================================
+
+# Config tests (Configuration loading, validation, hot-reload)
+add_executable(configTests 
+    config_test.cpp
+    ../src/Config.cpp
+    ../src/Logger.cpp
+)
+target_link_libraries(configTests 
+    spdlog::spdlog
+    GTest::gtest_main
+)
+add_test(NAME ConfigTests COMMAND configTests)
+
+# Logger tests (Structured logging, file rotation, level filtering)
+add_executable(loggerTests 
+    logger_test.cpp
+    ../src/Logger.cpp
+)
+target_link_libraries(loggerTests 
+    spdlog::spdlog
+    GTest::gtest_main
+)
+add_test(NAME LoggerTests COMMAND loggerTests)
+
+# IncrementalTrainer tests (Session management, checkpoints, data registry)
+add_executable(incrementaltrainerTests 
+    incrementaltrainer_test.cpp
+    ../src/IncrementalTrainer.cpp
+    ../src/ChatbotTrainer.cpp
+)
+target_compile_definitions(incrementaltrainerTests PRIVATE CHATBOT_TRAINER_TEST_BUILD)
+target_link_libraries(incrementaltrainerTests 
+    adai_models
+    adai_nlp
+    adai_transformer
+    adai_attention
+    adai_feedforward
+    adai_layers
+    adai_core
+    GTest::gtest_main
+)
+add_test(NAME IncrementalTrainerTests COMMAND incrementaltrainerTests)
+
+# ============================================================================
 # Phase 5 Advanced Features Tests
 # ============================================================================
 
@@ -211,6 +274,76 @@ target_link_libraries(chatbotapiTests
     GTest::gtest_main
 )
 add_test(NAME ChatbotAPITests COMMAND chatbotapiTests)
+
+# ParallelDataLoader tests (multi-threaded data loading with prefetching)
+add_executable(paralleldataloaderTests paralleldataloader_test.cpp)
+target_link_libraries(paralleldataloaderTests adai_nlp GTest::gtest_main)
+add_test(NAME ParallelDataLoaderTests COMMAND paralleldataloaderTests)
+
+# IntegratedInferenceEngine tests (combined batching + pipeline + OpenMP + attention parallelism)
+add_executable(integratedinferenceengineTests integratedinferenceengine_test.cpp)
+target_link_libraries(integratedinferenceengineTests
+    adai_models
+    adai_nlp
+    adai_transformer
+    adai_attention
+    adai_feedforward
+    adai_layers
+    adai_core
+    GTest::gtest_main
+)
+add_test(NAME IntegratedInferenceEngineTests COMMAND integratedinferenceengineTests)
+
+# PipelineInferenceEngine tests (pipeline parallelism, ThreadSafeQueue, mock encoder/decoder)
+add_executable(pipelineinferenceengineTests pipelineinferenceengine_test.cpp)
+target_link_libraries(pipelineinferenceengineTests
+    adai_models
+    adai_nlp
+    adai_transformer
+    adai_attention
+    adai_feedforward
+    adai_layers
+    adai_core
+    GTest::gtest_main
+)
+add_test(NAME PipelineInferenceEngineTests COMMAND pipelineinferenceengineTests)
+
+# BatchedInferenceEngine tests (continuous batching, request queuing, stats)
+add_executable(batchedinferenceengineTests batchedinferenceengine_test.cpp)
+target_link_libraries(batchedinferenceengineTests
+    adai_models
+    adai_nlp
+    adai_transformer
+    adai_attention
+    adai_feedforward
+    adai_layers
+    adai_core
+    GTest::gtest_main
+)
+add_test(NAME BatchedInferenceEngineTests COMMAND batchedinferenceengineTests)
+
+# SpeculativeDecoding tests (draft/target pair, acceptance rate, stats)
+add_executable(speculativedecodingTests speculativedecoding_test.cpp)
+target_link_libraries(speculativedecodingTests
+    adai_models
+    adai_nlp
+    adai_transformer
+    adai_attention
+    adai_feedforward
+    adai_layers
+    adai_core
+    GTest::gtest_main
+)
+add_test(NAME SpeculativeDecodingTests COMMAND speculativedecodingTests)
+
+# VocabBuilder tests (file-loading helpers + BPETokenizer build workflow)
+add_executable(vocabbuilderTests vocabbuilder_test.cpp)
+target_link_libraries(vocabbuilderTests
+    adai_nlp
+    adai_core
+    GTest::gtest_main
+)
+add_test(NAME VocabBuilderTests COMMAND vocabbuilderTests)
 
 # ============================================================================
 # Integration Tests
@@ -244,8 +377,53 @@ target_link_libraries(ragBertComparisonTests
 )
 add_test(NAME RAGBERTComparisonTests COMMAND ragBertComparisonTests)
 
+# DocumentStore tests (RAG component)
+add_executable(documentstoreTests 
+    documentstore_test.cpp
+    ../src/DocumentStore.cpp  # Include implementation
+)
+target_link_libraries(documentstoreTests 
+    adai_models
+    adai_nlp
+    adai_transformer
+    adai_attention
+    adai_feedforward
+    adai_layers
+    adai_core
+    GTest::gtest_main
+)
+add_test(NAME DocumentStoreTests COMMAND documentstoreTests)
+
+# RAGInference tests (RAG pipeline)
+add_executable(raginferenceTests 
+    raginference_test.cpp
+    ../src/RAGInference.cpp  # Include implementation
+    ../src/DocumentStore.cpp  # DocumentStore dependency
+)
+target_link_libraries(raginferenceTests 
+    adai_models
+    adai_nlp
+    adai_transformer
+    adai_attention
+    adai_feedforward
+    adai_layers
+    adai_core
+    GTest::gtest_main
+)
+add_test(NAME RAGInferenceTests COMMAND raginferenceTests)
+
+# BatchProcessor tests (batch processing utilities)
+add_executable(batchprocessorTests 
+    batchprocessor_test.cpp
+)
+target_link_libraries(batchprocessorTests 
+    adai_core
+    GTest::gtest_main
+)
+add_test(NAME BatchProcessorTests COMMAND batchprocessorTests)
+
 # ============================================================================
 # Test Summary
 # ============================================================================
 
-message(STATUS "Configured 28 test suites using library targets (including ChatbotAPI, ChatbotTrainer, integration, RAG/BERT comparison and Phase 5 tests)")
+message(STATUS "Configured 41 test suites using library targets (including Config, Logger, IncrementalTrainer, LLMEncoder, DocumentStore, RAGInference, BatchProcessor, ParallelDataLoader, IntegratedInferenceEngine, PipelineInferenceEngine, BatchedInferenceEngine, SpeculativeDecoding, VocabBuilder, ChatbotAPI, ChatbotTrainer, integration, RAG/BERT comparison and Phase 5 tests)")
