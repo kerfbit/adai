@@ -136,6 +136,17 @@ struct TrainingConfig {
  */
 using EpochCallback = std::function<void(int epoch, int total, float loss, float val_loss, float lr)>;
 
+/**
+ * @brief Per-sample callback invoked after each optimizer step inside an epoch.
+ *
+ * @param sample         1-based sample index within the current epoch
+ * @param total_samples  total number of training samples in the epoch
+ * @param running_loss   running-average training loss so far this epoch
+ * @param step_loss      average loss for this specific optimizer step
+ * @param grad_norm      gradient norm for this optimizer step
+ */
+using SampleCallback = std::function<void(int sample, int total_samples, float running_loss, float step_loss, float grad_norm)>;
+
 class ChatbotTrainer {
    private:
     std::unique_ptr<BPETokenizer> tokenizer;
@@ -182,6 +193,9 @@ class ChatbotTrainer {
 
     // TD-009: Per-epoch monitoring callback
     EpochCallback epoch_callback_;
+
+    // Per-sample monitoring callback
+    SampleCallback sample_callback_;
 
     // Private helper methods
     void validate_and_correct_config();
@@ -294,6 +308,12 @@ class ChatbotTrainer {
      * @param cb Callback function; pass {} or nullptr to clear.
      */
     void set_epoch_callback(EpochCallback cb);
+
+    /**
+     * @brief Register a callback invoked after each optimizer step (per sample).
+     * @param cb Callback function; pass {} or nullptr to clear.
+     */
+    void set_sample_callback(SampleCallback cb);
 
     // For testing data management
     size_t get_training_data_size() const { return training_data.size(); }

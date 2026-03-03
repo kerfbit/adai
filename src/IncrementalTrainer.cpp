@@ -29,10 +29,15 @@ IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path,
     : current_session_id(0), samples_since_last_save(0), 
       best_validation_loss(std::numeric_limits<float>::max()), 
       best_checkpoint_path(""),
-      dashboard_lines_drawn_(0) {
+      dashboard_lines_drawn_(0),
+      current_sample_in_epoch_(0), total_samples_in_epoch_(0), running_sample_loss_(0.0f),
+      current_item_loss_(0.0f), current_item_grad_norm_(0.0f) {
     
     Logger::info("Initializing Incremental Training System...");
-    
+
+    vocab_path_ = vocab_path;
+    model_path_ = model_path;
+
     // Load tokenizer
     tokenizer = std::make_unique<BPETokenizer>();
     tokenizer->load_vocab(vocab_path);
@@ -99,6 +104,32 @@ void IncrementalTrainer::set_config(const IncrementalConfig& cfg) {
 
 IncrementalConfig& IncrementalTrainer::get_config() {
     return config;
+}
+
+void IncrementalTrainer::reset_model_for_config() {
+    // Build a fresh tokenizer to hand off to the new model.
+    auto new_tokenizer = std::make_unique<BPETokenizer>();
+    new_tokenizer->load_vocab(vocab_path_);
+
+    Logger::info("Reinitializing model: d_model={} heads={} d_ff={} enc={} dec={}",
+                 config.base_config.d_model,
+                 config.base_config.num_heads,
+                 config.base_config.d_ff,
+                 config.base_config.num_encoder_layers,
+                 config.base_config.num_decoder_layers);
+
+    model = std::make_unique<EncoderDecoderModel>(
+        new_tokenizer->get_vocab_size(),
+        config.base_config.d_model,
+        config.base_config.num_encoder_layers,
+        config.base_config.num_decoder_layers,
+        config.base_config.num_heads,
+        config.base_config.d_ff,
+        config.base_config.max_seq_length
+    );
+    model->set_tokenizer(new_tokenizer.release());
+
+    Logger::info("Model reinitialized with fresh weights (architecture reset)");
 }
 
 bool IncrementalTrainer::add_new_data(const std::string& data_file) {
@@ -195,12 +226,22 @@ bool IncrementalTrainer::train_incremental(int num_epochs) {
     Logger::info("Total training samples: {}",   training_pairs.size());
     Logger::info("Total validation samples: {}", validation_pairs.size());
 
+    // Store total sample count for dashboard and reset per-sample state
+    total_samples_in_epoch_ = static_cast<int>(training_pairs.size());
+    current_sample_in_epoch_ = 0;
+    running_sample_loss_ = 0.0f;
+
     // Create trainer and configure
     ChatbotTrainer trainer(config.base_config);
     trainer.set_model(std::move(model));
 
     for (const auto& pair : training_pairs) {
         trainer.add_training_pair(pair.input, pair.response);
+    }
+
+    // Initial dashboard draw before the first epoch begins
+    if (!session_history.empty()) {
+        display_dashboard(session_history.back(), 0, num_epochs, false);
     }
 
     // ── TD-009: Register per-epoch callback for timing, metrics, and live dashboard ──
@@ -217,14 +258,41 @@ bool IncrementalTrainer::train_incremental(int num_epochs) {
             session.per_epoch_validation_losses.push_back(val_loss);
             session.per_epoch_learning_rates.push_back(lr);
             session.training_time_per_epoch.push_back(epoch_secs);
+            session.per_epoch_perplexities.push_back(std::exp(loss));
+            session.per_epoch_validation_perplexities.push_back(std::exp(val_loss));
 
             // Redraw the live dashboard (epoch is 0-based, display 1-based)
             bool is_last = (epoch + 1 == total);
             display_dashboard(session, epoch + 1, total, is_last);
-        }
 
-        Logger::debug("Epoch {}/{} — loss: {:.4f}  val_loss: {:.4f}  lr: {:.6f}  time: {:.1f}s",
-                      epoch + 1, total, loss, val_loss, lr, epoch_secs);
+            // Reset per-sample counters for the next epoch
+            current_sample_in_epoch_ = 0;
+            running_sample_loss_     = 0.0f;
+            current_item_loss_       = 0.0f;
+            current_item_grad_norm_  = 0.0f;
+        }
+        // NOTE: Do NOT log to stdout/stderr here. Any extra line written between
+        // display_dashboard() calls offsets the cursor-up count stored in
+        // dashboard_lines_drawn_ and causes the dashboard to drift downward
+        // instead of redrawing in place.
+    });
+
+    // ── Per-sample callback: update running state and redraw dashboard ──
+    trainer.set_sample_callback([this](int sample, int total_samples, float running_loss, float step_loss, float grad_norm) {
+        current_sample_in_epoch_ = sample;
+        total_samples_in_epoch_  = total_samples;
+        running_sample_loss_     = running_loss;
+        current_item_loss_       = step_loss;
+        current_item_grad_norm_  = grad_norm;
+        if (!session_history.empty()) {
+            // Use the current per-epoch data — back() reflects epochs already done;
+            // the running loss from the sample callback covers the in-progress epoch.
+            display_dashboard(session_history.back(),
+                              static_cast<int>(session_history.back().per_epoch_losses.size()),
+                              // epoch arg = completed epochs (in-progress epoch not yet in back())
+                              config.base_config.num_epochs,
+                              false);
+        }
     });
 
     Logger::info("Training for {} epochs...", num_epochs);
@@ -300,12 +368,24 @@ bool IncrementalTrainer::train_full_retrain(int num_epochs) {
 
     Logger::info("Total samples: {}", all_pairs.size());
 
+    // Store total sample count for dashboard and reset per-sample state
+    // (validation split is done inside ChatbotTrainer, approximate here)
+    int val_size = static_cast<int>(all_pairs.size()) / config.base_config.validation_split;
+    total_samples_in_epoch_ = static_cast<int>(all_pairs.size()) - val_size;
+    current_sample_in_epoch_ = 0;
+    running_sample_loss_ = 0.0f;
+
     // Create trainer
     ChatbotTrainer trainer(config.base_config);
     trainer.set_model(std::move(model));
 
     for (const auto& pair : all_pairs) {
         trainer.add_training_pair(pair.input, pair.response);
+    }
+
+    // Initial dashboard draw before the first epoch begins
+    if (!session_history.empty()) {
+        display_dashboard(session_history.back(), 0, num_epochs, false);
     }
 
     // TD-009: Register per-epoch callback
@@ -319,7 +399,30 @@ bool IncrementalTrainer::train_full_retrain(int num_epochs) {
             session.per_epoch_validation_losses.push_back(val_loss);
             session.per_epoch_learning_rates.push_back(lr);
             session.training_time_per_epoch.push_back(epoch_secs);
+            session.per_epoch_perplexities.push_back(std::exp(loss));
+            session.per_epoch_validation_perplexities.push_back(std::exp(val_loss));
             display_dashboard(session, epoch + 1, total, (epoch + 1 == total));
+
+            // Reset per-sample counters for the next epoch
+            current_sample_in_epoch_ = 0;
+            running_sample_loss_     = 0.0f;
+            current_item_loss_       = 0.0f;
+            current_item_grad_norm_  = 0.0f;
+        }
+    });
+
+    // ── Per-sample callback for full retrain ──
+    trainer.set_sample_callback([this](int sample, int total_samples, float running_loss, float step_loss, float grad_norm) {
+        current_sample_in_epoch_ = sample;
+        total_samples_in_epoch_  = total_samples;
+        running_sample_loss_     = running_loss;
+        current_item_loss_       = step_loss;
+        current_item_grad_norm_  = grad_norm;
+        if (!session_history.empty()) {
+            display_dashboard(session_history.back(),
+                              static_cast<int>(session_history.back().per_epoch_losses.size()),
+                              config.base_config.num_epochs,
+                              false);
         }
     });
 
@@ -871,6 +974,124 @@ std::string IncrementalTrainer::generate_session_checkpoint_path() {
     return oss.str();
 }
 
+bool IncrementalTrainer::reset_all(bool keep_data_registry) {
+    Logger::info("=== IncrementalTrainer::reset_all() called ===");
+
+    // ------------------------------------------------------------------
+    // 1. Backup the main model file so the old weights can be recovered.
+    // ------------------------------------------------------------------
+    if (!model_path_.empty() && fs::exists(model_path_)) {
+        std::string backup = model_path_ + ".bak";
+        try {
+            fs::rename(model_path_, backup);
+            Logger::info("Old model backed up to: {}", backup);
+        } catch (const std::exception& e) {
+            Logger::warn("Could not back up model file: {}", e.what());
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 2. Remove all per-session files from the session directory.
+    // ------------------------------------------------------------------
+    std::string sdir = get_session_dir();
+    if (fs::exists(sdir)) {
+        // Session-directory files to always remove
+        const std::vector<std::string> sdir_remove = {
+            "session_history.txt",
+            "pending_files.txt",
+        };
+        for (const auto& name : sdir_remove) {
+            std::string p = sdir + "/" + name;
+            std::error_code ec;
+            auto st = fs::symlink_status(p, ec);
+            if (!ec && st.type() != fs::file_type::not_found) {
+                fs::remove(p, ec);
+                if (!ec) Logger::info("Removed: {}", p);
+            }
+        }
+
+        // The symlinks live in CWD (same directory as the binary / working dir),
+        // not inside the session dir — remove them from their actual location.
+        const std::vector<std::string> cwd_symlinks = {
+            config.latest_symlink_name,
+            config.best_symlink_name,
+        };
+        for (const auto& name : cwd_symlinks) {
+            // Remove from CWD
+            remove_symlink_if_exists(name);
+            // Also remove from session dir in case an older version placed them there
+            remove_symlink_if_exists(sdir + "/" + name);
+        }
+
+        // Remove all checkpoint / autosave .bin files
+        std::error_code ec;
+        for (const auto& entry : fs::directory_iterator(sdir, ec)) {
+            const auto& path = entry.path();
+            std::string ext = path.extension().string();
+            std::string stem = path.stem().string();
+            if (ext == ".bin" &&
+                (stem.rfind("session_", 0) == 0 || stem.rfind("auto_save_", 0) == 0)) {
+                fs::remove(path, ec);
+                if (!ec) Logger::info("Removed checkpoint: {}", path.string());
+            }
+        }
+
+        // Optionally remove the data registry
+        std::string registry_file = sdir + "/" + config.data_registry_file;
+        if (!keep_data_registry) {
+            if (fs::exists(registry_file)) {
+                std::error_code ec2;
+                fs::remove(registry_file, ec2);
+                Logger::info("Data registry removed");
+            }
+        } else {
+            // Mark every entry as untrained so the next retrain picks them up
+            for (auto& dv : data_registry) {
+                dv.trained = false;
+            }
+            save_data_registry();
+            Logger::info("Data registry preserved; all entries marked untrained");
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 3. Reset all in-memory tracking state.
+    // ------------------------------------------------------------------
+    session_history.clear();
+    current_session_id = 0;
+    pending_data_files.clear();
+    samples_since_last_save = 0;
+    best_validation_loss = std::numeric_limits<float>::max();
+    best_checkpoint_path.clear();
+    dashboard_lines_drawn_ = 0;
+
+    if (!keep_data_registry) {
+        data_registry.clear();
+        trained_data_files.clear();
+    }
+
+    // ------------------------------------------------------------------
+    // 4. Rebuild model from current config (new architecture).
+    // ------------------------------------------------------------------
+    reset_model_for_config();
+
+    // ------------------------------------------------------------------
+    // 5. Recreate the session directory and persist empty state.
+    // ------------------------------------------------------------------
+    ensure_directories_exist();
+    save_session_history();
+    save_pending_data_list();
+
+    Logger::info("Reset complete. Model rebuilt with d_model={} heads={} enc_layers={} dec_layers={} d_ff={} max_seq={}",
+        config.base_config.d_model,
+        config.base_config.num_heads,
+        config.base_config.num_encoder_layers,
+        config.base_config.num_decoder_layers,
+        config.base_config.d_ff,
+        config.base_config.max_seq_length);
+    return true;
+}
+
 std::string IncrementalTrainer::get_session_dir() const {
     return config.session_dir;
 }
@@ -972,17 +1193,23 @@ bool IncrementalTrainer::create_or_update_symlink(const std::string& target, con
 
 bool IncrementalTrainer::remove_symlink_if_exists(const std::string& link_path) {
     try {
-        if (fs::exists(link_path)) {
+        // Use symlink_status (lstat) rather than exists() (stat): exists() follows
+        // symlinks and returns false for broken symlinks, leaving stale dangling
+        // links behind and preventing create_symlink from succeeding afterwards.
+        std::error_code sc;
+        auto st = fs::symlink_status(link_path, sc);
+        if (!sc && st.type() != fs::file_type::not_found) {
             std::error_code ec;
             fs::remove(link_path, ec);
             if (ec) {
-                Logger::warn("Failed to remove existing link: {}", ec.message());
+                Logger::warn("Failed to remove existing link '{}': {}", link_path, ec.message());
                 return false;
             }
+            Logger::debug("Removed existing link: {}", link_path);
         }
         return true;
     } catch (const std::exception& e) {
-        Logger::warn("Error removing link: {}", e.what());
+        Logger::warn("Error removing link '{}': {}", link_path, e.what());
         return false;
     }
 }
@@ -1396,10 +1623,10 @@ void IncrementalTrainer::display_dashboard(const TrainingSession& session,
     float best_val = std::numeric_limits<float>::max();
     for (float v : session.per_epoch_validation_losses) best_val = std::min(best_val, v);
 
-    // Move cursor up to overwrite previous dashboard
-    if (dashboard_lines_drawn_ > 0) {
-        std::cout << "\033[" << dashboard_lines_drawn_ << "A";
-    }
+    // Clear the entire screen and move the cursor to the top-left before
+    // every draw.  This is simpler and more reliable than save/restore cursor
+    // tricks: no drift regardless of any other output written to the terminal.
+    std::cout << "\033[2J\033[H";
 
     // Box width = 80
     const int W = 80;
@@ -1434,9 +1661,18 @@ void IncrementalTrainer::display_dashboard(const TrainingSession& session,
         pct = ss.str();
     }
 
+    // When the sample callback is mid-epoch, current_epoch is #completed epochs;
+    // bump by 1 so the title shows the epoch currently being trained.
+    bool mid_epoch = (current_sample_in_epoch_ > 0 &&
+                      current_sample_in_epoch_ < total_samples_in_epoch_);
+    int display_epoch = mid_epoch ? current_epoch + 1 : current_epoch;
+
     std::ostringstream title_ss;
     title_ss << " ADAI Training Dashboard  |  Session #" << session.session_id
-             << "  |  Epoch " << current_epoch << "/" << total_epochs;
+             << "  |  Epoch " << display_epoch << "/" << total_epochs;
+    if (mid_epoch)          title_ss << " \xe2\x96\xb6";   // ▶ (in progress)
+    else if (is_final)      title_ss << " \xe2\x9c\x85";   // ✅ (done)
+    else if (current_epoch == 0) title_ss << " \xe2\x8f\xb3"; // ⏳ (waiting)
     std::string title = title_ss.str();
     int title_pad = std::max(0, W - 4 - (int)title.size());
 
@@ -1445,8 +1681,72 @@ void IncrementalTrainer::display_dashboard(const TrainingSession& session,
     hline("\xe2\x94\x9c", "\xe2\x94\xa4");
 
     row(" Progress: " + bar + " " + pct);
-    row(" Elapsed : " + format_duration(elapsed) + "   ETA: " +
+    row(" Elapsed : " + format_duration(elapsed) + "   ETA total: " +
         (avg_epoch_time > 0 ? format_duration(eta_secs) : "--:--"));
+
+    // ── Training Item section ──────────────────────────────────────────────
+    hline("\xe2\x94\x9c", "\xe2\x94\xa4");
+    row(" Training Item");
+    hline("\xe2\x94\x9c", "\xe2\x94\xa4");
+
+    if (total_samples_in_epoch_ > 0) {
+        // Sample progress bar
+        {
+            std::ostringstream ss;
+            if (current_sample_in_epoch_ > 0) {
+                std::string sbar = "[" + progress_bar(current_sample_in_epoch_, total_samples_in_epoch_, 34) + "]";
+                int spct = current_sample_in_epoch_ * 100 / total_samples_in_epoch_;
+                ss << " " << sbar << " " << std::setw(3) << spct << "%"
+                   << "  " << current_sample_in_epoch_ << "/" << total_samples_in_epoch_;
+            } else {
+                ss << " [" << std::string(34, '.') << "]   0%   0/" << total_samples_in_epoch_ << "  waiting...";
+            }
+            row(ss.str());
+        }
+        // Step loss and running avg
+        {
+            std::ostringstream ss;
+            if (current_sample_in_epoch_ > 0) {
+                ss << " Item loss: " << std::fixed << std::setprecision(4) << current_item_loss_
+                   << "   Running avg: " << std::fixed << std::setprecision(4) << running_sample_loss_;
+            } else {
+                ss << " Item loss: --       Running avg: --";
+            }
+            row(ss.str());
+        }
+        // Item perplexity and running avg perplexity
+        {
+            std::ostringstream ss;
+            if (current_sample_in_epoch_ > 0) {
+                ss << " Item PPL : " << std::fixed << std::setprecision(2) << std::exp(current_item_loss_)
+                   << "       Running PPL: " << std::fixed << std::setprecision(2) << std::exp(running_sample_loss_);
+            } else {
+                ss << " Item PPL : --         Running PPL: --";
+            }
+            row(ss.str());
+        }
+        // Gradient norm and throughput / ETA for current epoch
+        {
+            std::ostringstream ss;
+            if (current_sample_in_epoch_ > 0) {
+                // Throughput: samples processed since epoch start
+                double epoch_elapsed = duration<double>(now - epoch_start_time_steady_).count();
+                double sps = (epoch_elapsed > 0.0) ? current_sample_in_epoch_ / epoch_elapsed : 0.0;
+                double epoch_eta = (sps > 0.0)
+                    ? (total_samples_in_epoch_ - current_sample_in_epoch_) / sps
+                    : 0.0;
+
+                ss << " Grad norm: " << std::fixed << std::setprecision(4) << current_item_grad_norm_
+                   << "   " << std::fixed << std::setprecision(1) << sps << " samp/s"
+                   << "   ETA epoch: " << format_duration(epoch_eta);
+            } else {
+                ss << " Grad norm: --       -- samp/s   ETA epoch: --:--";
+            }
+            row(ss.str());
+        }
+    } else {
+        row(" No training data loaded yet.");
+    }
 
     hline("\xe2\x94\x9c", "\xe2\x94\xa4");
 
@@ -1458,22 +1758,37 @@ void IncrementalTrainer::display_dashboard(const TrainingSession& session,
     }
     {
         std::ostringstream ss;
+        float cur_ppl  = session.per_epoch_perplexities.empty()            ? 0.0f : session.per_epoch_perplexities.back();
+        float cur_vppl = session.per_epoch_validation_perplexities.empty() ? 0.0f : session.per_epoch_validation_perplexities.back();
+        if (session.per_epoch_perplexities.empty()) {
+            ss << " PPL      : --           Val PPL  : --";
+        } else {
+            ss << " PPL      : " << std::fixed << std::setprecision(2) << std::setw(8) << cur_ppl
+               << "    Val PPL  : " << std::fixed << std::setprecision(2) << std::setw(8) << cur_vppl;
+        }
+        row(ss.str());
+    }
+    {
+        std::ostringstream ss;
         ss << " LR       : " << std::scientific << std::setprecision(3) << cur_lr
            << "    Epoch dur: " << std::fixed << std::setprecision(1) << last_t << "s";
         row(ss.str());
     }
     {
         std::ostringstream ss;
+        float best_ppl = std::numeric_limits<float>::max();
+        for (float v : session.per_epoch_validation_perplexities) best_ppl = std::min(best_ppl, v);
         ss << " Best val : " << fmt_f(best_val)
-           << "    Avg epoch: " << format_duration(avg_epoch_time);
+           << "  Best PPL : " << (session.per_epoch_validation_perplexities.empty() ? std::string("--") : fmt_f(best_ppl, 2));
+        row(ss.str());
+    }
+    {
+        std::ostringstream ss;
+        ss << " Avg epoch: " << format_duration(avg_epoch_time);
         row(ss.str());
     }
 
     hline("\xe2\x94\x94", "\xe2\x94\x98");
 
     std::cout << std::flush;
-
-    // 9 lines: top border, title, mid border, progress, elapsed, mid border,
-    //          loss+val, lr+dur, best, bottom border = 10 lines
-    dashboard_lines_drawn_ = 10;
 }

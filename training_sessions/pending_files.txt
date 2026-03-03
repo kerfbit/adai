@@ -1,6 +1,0 @@
-gutenberg_data/gutenberg_46_training.txt
-gutenberg_data/gutenberg_345_training.txt
-gutenberg_data/gutenberg_768_training.txt
-gutenberg_data/gutenberg_1184_training.txt
-gutenberg_data/gutenberg_2701_training.txt
-gutenberg_data/gutenberg_16328_training.txt

@@ -168,6 +168,17 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.num_decoder_layers = static_cast<size_t>(std::stoull(value));
             } else if (key == "MAX_SEQ_LENGTH") {
                 config.max_seq_length = static_cast<size_t>(std::stoull(value));
+            // Training hyperparameters
+            } else if (key == "LEARNING_RATE") {
+                config.learning_rate = std::stof(value);
+            } else if (key == "NUM_EPOCHS") {
+                config.num_epochs = std::stoi(value);
+            } else if (key == "WEIGHT_DECAY") {
+                config.weight_decay = std::stof(value);
+            } else if (key == "GRADIENT_CLIP") {
+                config.gradient_clip = std::stof(value);
+            } else if (key == "BATCH_SIZE") {
+                config.batch_size = std::stoi(value);
             } else if (key == "MAX_LENGTH" || key == "MAX_GEN_LENGTH") {
                 config.max_gen_length = static_cast<size_t>(std::stoull(value));
             } else if (key == "TEMPERATURE") {
@@ -213,7 +224,14 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     if (auto val = get_env_size_t("NUM_ENCODER_LAYERS")) config.num_encoder_layers = *val;
     if (auto val = get_env_size_t("NUM_DECODER_LAYERS")) config.num_decoder_layers = *val;
     if (auto val = get_env_size_t("MAX_SEQ_LENGTH")) config.max_seq_length = *val;
-    
+
+    // Training hyperparameters
+    if (auto val = get_env_float("LEARNING_RATE")) config.learning_rate = *val;
+    if (auto val = get_env_int("NUM_EPOCHS")) config.num_epochs = *val;
+    if (auto val = get_env_float("WEIGHT_DECAY")) config.weight_decay = *val;
+    if (auto val = get_env_float("GRADIENT_CLIP")) config.gradient_clip = *val;
+    if (auto val = get_env_int("BATCH_SIZE")) config.batch_size = *val;
+
     // Generation parameters
     // Support both MAX_LENGTH and MAX_GEN_LENGTH for compatibility
     if (auto val = get_env_size_t("MAX_GEN_LENGTH")) config.max_gen_length = *val;

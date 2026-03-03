@@ -29,6 +29,8 @@ struct TrainingSession {
     std::vector<float>  per_epoch_validation_losses;  ///< validation loss per epoch
     std::vector<float>  per_epoch_learning_rates;     ///< learning rate at end of each epoch
     std::vector<double> training_time_per_epoch;      ///< wall-clock seconds per epoch
+    std::vector<float>  per_epoch_perplexities;             ///< training perplexity per epoch (exp(loss))
+    std::vector<float>  per_epoch_validation_perplexities;  ///< validation perplexity per epoch
 };
 
 /**
@@ -104,6 +106,15 @@ public:
     // Configuration
     void set_config(const IncrementalConfig& cfg);
     IncrementalConfig& get_config();
+
+    /**
+     * @brief Tear down the current model and rebuild it from config.base_config.
+     *
+     * Call this after set_config() when you want to train from scratch with a
+     * different architecture (e.g. switching from 512-dim/6-layer to
+     * 768-dim/24-layer).  Any previously loaded weights are discarded.
+     */
+    void reset_model_for_config();
     
     // Data management
     bool add_new_data(const std::string& data_file);
@@ -135,6 +146,21 @@ public:
     bool save_model(const std::string& path);
     bool load_model(const std::string& path);
     std::string get_latest_checkpoint() const;
+
+    /**
+     * @brief Hard-reset: erase all checkpoints, session history, and optionally
+     *        the data registry, then rebuild the model from the current config.
+     *
+     * The old model file is renamed to <model_path>.bak rather than deleted so
+     * it can be recovered manually if needed.
+     *
+     * @param keep_data_registry  When true the data-registry file is preserved
+     *        but all entries are marked untrained so every data file will be
+     *        picked up on the next train/retrain run.  When false the registry
+     *        is deleted entirely.
+     * @return true on success
+     */
+    bool reset_all(bool keep_data_registry = false);
     
     // Status and reporting
     void print_training_summary() const;
@@ -149,6 +175,8 @@ public:
     
 private:
     // Training components
+    std::string vocab_path_;                           ///< Path to vocabulary file (for architecture reinit)
+    std::string model_path_;                           ///< Path to main model file (for reset)
     std::unique_ptr<BPETokenizer> tokenizer;
     std::unique_ptr<EncoderDecoderModel> model;
     IncrementalConfig config;
@@ -174,6 +202,13 @@ private:
     mutable int dashboard_lines_drawn_;                          ///< lines drawn by last display_dashboard() call
     std::chrono::steady_clock::time_point session_start_time_steady_;  ///< steady-clock start of current session
     std::chrono::steady_clock::time_point epoch_start_time_steady_;    ///< steady-clock start of current epoch
+
+    // Per-sample progress state (updated by sample callback, read by display_dashboard)
+    mutable int   current_sample_in_epoch_;   ///< 1-based sample index within the current epoch (0 = not started)
+    mutable int   total_samples_in_epoch_;    ///< total training samples loaded for this run
+    mutable float running_sample_loss_;       ///< running-average loss so far within the current epoch
+    mutable float current_item_loss_;         ///< loss of the most recent optimizer step
+    mutable float current_item_grad_norm_;    ///< gradient norm of the most recent optimizer step
 
     // Helper methods
     bool initialize_session();

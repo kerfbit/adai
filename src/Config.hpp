@@ -75,7 +75,26 @@ struct ServiceConfig {
     
     /// Maximum sequence length (default: 1024)
     size_t max_seq_length = 1024;
-    
+
+    // ============================================================
+    // Training Hyperparameters
+    // ============================================================
+
+    /// Initial learning rate (default: 0.0001)
+    float learning_rate = 0.0001f;
+
+    /// Number of training epochs (default: 10)
+    int num_epochs = 10;
+
+    /// L2 weight decay regularization (default: 0.01)
+    float weight_decay = 0.01f;
+
+    /// Gradient clipping norm; 0 = disabled (default: 1.0)
+    float gradient_clip = 1.0f;
+
+    /// Batch size / gradient accumulation steps (default: 1)
+    int batch_size = 1;
+
     // ============================================================
     // Generation Parameters
     // ============================================================

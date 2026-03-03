@@ -23,7 +23,9 @@ add_library(adai_core STATIC
     Matrix.cpp
     Activation.cpp
     Optimizer.cpp
+    Logger.cpp
 )
+target_link_libraries(adai_core PUBLIC spdlog::spdlog)
 
 # OpenMP support (optional but recommended)
 if(OpenMP_CXX_FOUND)
@@ -111,7 +113,7 @@ target_link_libraries(adai_transformer
     adai_attention 
     adai_feedforward 
     adai_layers
-)
+)  # spdlog transitive via adai_core
 
 # Complete models
 add_library(adai_models STATIC
@@ -199,7 +201,7 @@ endif()
 
 # Incremental Training Tool - Incremental model training with data management
 add_executable(incremental_trainer IncrementalTrainingTool.cpp IncrementalTrainer.cpp 
-    ChatbotTrainer.cpp Logger.cpp)  # Include implementation
+    ChatbotTrainer.cpp Config.cpp)  # Logger.cpp compiled into adai_core
 target_compile_definitions(incremental_trainer PRIVATE CHATBOT_TRAINER_TEST_BUILD)
 target_link_libraries(incremental_trainer 
     adai_models 
@@ -327,8 +329,7 @@ if(BUILD_API_SERVER)
     add_executable(chatbot_api_server 
         ChatbotAPIServer.cpp
         Config.cpp
-        Logger.cpp
-    )
+    )  # Logger.cpp compiled into adai_core
     target_link_libraries(chatbot_api_server 
         adai_api
         adai_models 

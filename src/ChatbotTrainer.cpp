@@ -8,6 +8,7 @@
 #include <random>
 #include <sstream>
 #include "ConversationContext.hpp"
+#include "Logger.hpp"
 
 // ANSI color codes
 #define COLOR_RESET "\033[0m"
@@ -37,19 +38,15 @@ ChatbotTrainer::ChatbotTrainer(const TrainingConfig& cfg)
  * @brief Initialize tokenizer from vocabulary file
  */
 bool ChatbotTrainer::load_tokenizer(const std::string& vocab_path) {
-        std::cout << COLOR_INFO << "📚 Loading tokenizer from: " << vocab_path << COLOR_RESET
-                  << std::endl;
+        adai::Logger::info("📚 Loading tokenizer from: {}", vocab_path);
 
         tokenizer = std::make_unique<BPETokenizer>();
         try {
             tokenizer->load_vocab(vocab_path);
-            std::cout << COLOR_SUCCESS
-                      << "✅ Tokenizer loaded (vocab size: " << tokenizer->get_vocab_size() << ")"
-                      << COLOR_RESET << std::endl;
+            adai::Logger::info("✅ Tokenizer loaded (vocab size: {})", tokenizer->get_vocab_size());
             return true;
         } catch (const std::exception& e) {
-            std::cerr << COLOR_ERROR << "❌ Failed to load tokenizer: " << e.what() << COLOR_RESET
-                      << std::endl;
+            adai::Logger::error("❌ Failed to load tokenizer: {}", e.what());
             return false;
         }
     }
@@ -59,24 +56,20 @@ bool ChatbotTrainer::load_tokenizer(const std::string& vocab_path) {
      */
 bool ChatbotTrainer::build_vocabulary(const std::vector<std::string>& texts, int vocab_size,
                           const std::string& save_path) {
-        std::cout << COLOR_INFO << "🔨 Building vocabulary..." << COLOR_RESET << std::endl;
-        std::cout << COLOR_INFO << "  Texts: " << texts.size() << std::endl;
-        std::cout << COLOR_INFO << "  Target vocab size: " << vocab_size << COLOR_RESET
-                  << std::endl;
+        adai::Logger::info("🔨 Building vocabulary...");
+        adai::Logger::info("  Texts: {}", texts.size());
+        adai::Logger::info("  Target vocab size: {}", vocab_size);
 
         tokenizer = std::make_unique<BPETokenizer>();
         try {
             tokenizer->build_vocab(texts, vocab_size, 1);
             tokenizer->save_vocab(save_path);
 
-            std::cout << COLOR_SUCCESS
-                      << "✅ Vocabulary built (size: " << tokenizer->get_vocab_size() << ")"
-                      << COLOR_RESET << std::endl;
-            std::cout << COLOR_SUCCESS << "✅ Saved to: " << save_path << COLOR_RESET << std::endl;
+            adai::Logger::info("✅ Vocabulary built (size: {})", tokenizer->get_vocab_size());
+            adai::Logger::info("✅ Saved to: {}", save_path);
             return true;
         } catch (const std::exception& e) {
-            std::cerr << COLOR_ERROR << "❌ Failed to build vocabulary: " << e.what() << COLOR_RESET
-                      << std::endl;
+            adai::Logger::error("❌ Failed to build vocabulary: {}", e.what());
             return false;
         }
     }
@@ -90,13 +83,11 @@ bool ChatbotTrainer::build_vocabulary(const std::vector<std::string>& texts, int
      * (blank line between pairs)
      */
 bool ChatbotTrainer::load_conversation_data(const std::string& filepath) {
-        std::cout << COLOR_INFO << "📖 Loading conversation data from: " << filepath << COLOR_RESET
-                  << std::endl;
+        adai::Logger::info("📖 Loading conversation data from: {}", filepath);
 
         std::ifstream file(filepath);
         if (!file.is_open()) {
-            std::cerr << COLOR_ERROR << "❌ Cannot open file: " << filepath << COLOR_RESET
-                      << std::endl;
+            adai::Logger::error("❌ Cannot open file: {}", filepath);
             return false;
         }
 
@@ -138,8 +129,7 @@ bool ChatbotTrainer::load_conversation_data(const std::string& filepath) {
 
         file.close();
 
-        std::cout << COLOR_SUCCESS << "✅ Loaded " << pair_count << " conversation pairs"
-                  << COLOR_RESET << std::endl;
+        adai::Logger::info("✅ Loaded {} conversation pairs", pair_count);
 
         return pair_count > 0;
     }
@@ -149,15 +139,13 @@ bool ChatbotTrainer::load_conversation_data(const std::string& filepath) {
      */
 void ChatbotTrainer::split_data() {
         if (config.validation_split <= 0) {
-            std::cout << COLOR_WARNING << "⚠️  No validation split, using all data for training"
-                      << COLOR_RESET << std::endl;
+            adai::Logger::warn("⚠️  No validation split, using all data for training");
             return;
         }
 
         int validation_size = training_data.size() / config.validation_split;
         if (validation_size == 0) {
-            std::cout << COLOR_WARNING << "⚠️  Not enough data for validation split" << COLOR_RESET
-                      << std::endl;
+            adai::Logger::warn("⚠️  Not enough data for validation split");
             return;
         }
 
@@ -180,11 +168,9 @@ void ChatbotTrainer::split_data() {
         }
         training_data = std::move(temp_training);
 
-        std::cout << COLOR_INFO << "📊 Data split (randomly shuffled):" << COLOR_RESET << std::endl;
-        std::cout << COLOR_INFO << "  Training: " << training_data.size() << " pairs" << COLOR_RESET
-                  << std::endl;
-        std::cout << COLOR_INFO << "  Validation: " << validation_data.size() << " pairs"
-                  << COLOR_RESET << std::endl;
+        adai::Logger::info("📊 Data split (randomly shuffled):");
+        adai::Logger::info("  Training: {} pairs", training_data.size());
+        adai::Logger::info("  Validation: {} pairs", validation_data.size());
     }
 
     /**
@@ -193,8 +179,7 @@ void ChatbotTrainer::split_data() {
 void ChatbotTrainer::validate_and_correct_config() {
         bool corrected = false;
 
-        std::cout << COLOR_INFO << "🔍 Validating model configuration..." << COLOR_RESET
-                  << std::endl;
+        adai::Logger::info("🔍 Validating model configuration...");
 
         // Validate d_model is divisible by num_heads
         if (config.d_model % config.num_heads != 0) {
@@ -202,11 +187,8 @@ void ChatbotTrainer::validate_and_correct_config() {
             // Round up to nearest multiple of num_heads
             config.d_model =
                 ((config.d_model + config.num_heads - 1) / config.num_heads) * config.num_heads;
-            std::cout << COLOR_WARNING << "⚠️  d_model (" << original_d_model
-                      << ") not divisible by num_heads (" << config.num_heads << ")" << COLOR_RESET
-                      << std::endl;
-            std::cout << COLOR_WARNING << "   Auto-corrected to: " << config.d_model << COLOR_RESET
-                      << std::endl;
+            adai::Logger::warn("⚠️  d_model ({}) not divisible by num_heads ({})", original_d_model, config.num_heads);
+            adai::Logger::warn("   Auto-corrected to: {}", config.d_model);
             corrected = true;
         }
 
@@ -217,75 +199,58 @@ void ChatbotTrainer::validate_and_correct_config() {
             if (ratio < 2.0f || ratio > 8.0f) {
                 int original_d_ff = config.d_ff;
                 config.d_ff = recommended_d_ff;
-                std::cout << COLOR_WARNING << "⚠️  d_ff (" << original_d_ff
-                          << ") has unusual ratio to d_model (ratio: " << ratio << ")"
-                          << COLOR_RESET << std::endl;
-                std::cout << COLOR_WARNING << "   Auto-corrected to recommended 4x: " << config.d_ff
-                          << COLOR_RESET << std::endl;
+                adai::Logger::warn("⚠️  d_ff ({}) has unusual ratio to d_model (ratio: {})", original_d_ff, ratio);
+                adai::Logger::warn("   Auto-corrected to recommended 4x: {}", config.d_ff);
                 corrected = true;
             } else {
-                std::cout << COLOR_INFO << "   d_ff ratio: " << ratio
-                          << "x d_model (acceptable, recommended: 4x)" << COLOR_RESET << std::endl;
+                adai::Logger::info("   d_ff ratio: {}x d_model (acceptable, recommended: 4x)", ratio);
             }
         }
 
         // Validate num_heads is a power of 2 (common practice)
         int heads = config.num_heads;
         if ((heads & (heads - 1)) != 0) {
-            std::cout << COLOR_WARNING << "⚠️  num_heads (" << heads
-                      << ") is not a power of 2 (recommended: 2, 4, 8, 16, etc.)" << COLOR_RESET
-                      << std::endl;
-            std::cout << COLOR_WARNING
-                      << "   Keeping current value, but performance may be suboptimal"
-                      << COLOR_RESET << std::endl;
+            adai::Logger::warn("⚠️  num_heads ({}) is not a power of 2 (recommended: 2, 4, 8, 16, etc.)", heads);
+            adai::Logger::warn("   Keeping current value, but performance may be suboptimal");
         }
 
         // Validate d_model is reasonable
         if (config.d_model < 64 || config.d_model > 4096) {
-            std::cout << COLOR_WARNING << "⚠️  d_model (" << config.d_model
-                      << ") is outside typical range [64-4096]" << COLOR_RESET << std::endl;
+            adai::Logger::warn("⚠️  d_model ({}) is outside typical range [64-4096]", config.d_model);
         }
 
         // Validate learning rate is reasonable
         if (config.learning_rate <= 0.0f || config.learning_rate > 1.0f) {
-            std::cout << COLOR_WARNING << "⚠️  learning_rate (" << config.learning_rate
-                      << ") is outside typical range (0, 1]" << COLOR_RESET << std::endl;
+            adai::Logger::warn("⚠️  learning_rate ({}) is outside typical range (0, 1]", config.learning_rate);
         }
 
         // Validate min_learning_rate < learning_rate
         if (config.min_learning_rate >= config.learning_rate) {
             int original_min_lr = config.min_learning_rate;
             config.min_learning_rate = config.learning_rate * 0.01f;  // 1% of base LR
-            std::cout << COLOR_WARNING << "⚠️  min_learning_rate (" << original_min_lr
-                      << ") >= learning_rate (" << config.learning_rate << ")" << COLOR_RESET
-                      << std::endl;
-            std::cout << COLOR_WARNING << "   Auto-corrected to: " << config.min_learning_rate
-                      << COLOR_RESET << std::endl;
+            adai::Logger::warn("⚠️  min_learning_rate ({}) >= learning_rate ({})", original_min_lr, config.learning_rate);
+            adai::Logger::warn("   Auto-corrected to: {}", config.min_learning_rate);
             corrected = true;
         }
 
         // Validate layer counts
         if (config.num_encoder_layers < 1 || config.num_encoder_layers > 48) {
-            std::cout << COLOR_WARNING << "⚠️  num_encoder_layers (" << config.num_encoder_layers
-                      << ") is outside typical range [1-48]" << COLOR_RESET << std::endl;
+            adai::Logger::warn("⚠️  num_encoder_layers ({}) is outside typical range [1-48]", config.num_encoder_layers);
         }
 
         if (config.num_decoder_layers < 1 || config.num_decoder_layers > 48) {
-            std::cout << COLOR_WARNING << "⚠️  num_decoder_layers (" << config.num_decoder_layers
-                      << ") is outside typical range [1-48]" << COLOR_RESET << std::endl;
+            adai::Logger::warn("⚠️  num_decoder_layers ({}) is outside typical range [1-48]", config.num_decoder_layers);
         }
 
         // Validate max sequence length
         if (config.max_seq_length < 16 || config.max_seq_length > 8192) {
-            std::cout << COLOR_WARNING << "⚠️  max_seq_length (" << config.max_seq_length
-                      << ") is outside typical range [16-8192]" << COLOR_RESET << std::endl;
+            adai::Logger::warn("⚠️  max_seq_length ({}) is outside typical range [16-8192]", config.max_seq_length);
         }
 
         if (corrected) {
-            std::cout << COLOR_SUCCESS << "✅ Configuration validated and corrected" << COLOR_RESET
-                      << std::endl;
+            adai::Logger::info("✅ Configuration validated and corrected");
         } else {
-            std::cout << COLOR_SUCCESS << "✅ Configuration validated" << COLOR_RESET << std::endl;
+            adai::Logger::info("✅ Configuration validated");
         }
     }
 
@@ -297,12 +262,11 @@ void ChatbotTrainer::preprocess_data() {
         BPETokenizer* tokenizer = model ? model->get_tokenizer() : nullptr;
         
         if (!tokenizer) {
-            std::cerr << COLOR_ERROR << "❌ Tokenizer not initialized!" << COLOR_RESET << std::endl;
+            adai::Logger::error("❌ Tokenizer not initialized!");
             return;
         }
 
-        std::cout << COLOR_INFO << "🔄 Preprocessing and tokenizing data..." << COLOR_RESET
-                  << std::endl;
+        adai::Logger::info("🔄 Preprocessing and tokenizing data...");
 
         // Tokenize training data
         tokenized_training_data.clear();
@@ -326,11 +290,9 @@ void ChatbotTrainer::preprocess_data() {
         training_indices.resize(tokenized_training_data.size());
         std::iota(training_indices.begin(), training_indices.end(), 0);
 
-        std::cout << COLOR_SUCCESS << "✅ Data preprocessed:" << COLOR_RESET << std::endl;
-        std::cout << COLOR_INFO << "  Training samples: " << tokenized_training_data.size()
-                  << COLOR_RESET << std::endl;
-        std::cout << COLOR_INFO << "  Validation samples: " << tokenized_validation_data.size()
-                  << COLOR_RESET << std::endl;
+        adai::Logger::info("✅ Data preprocessed:");
+        adai::Logger::info("  Training samples: {}", tokenized_training_data.size());
+        adai::Logger::info("  Validation samples: {}", tokenized_validation_data.size());
     }
 
     /**
@@ -345,11 +307,14 @@ void ChatbotTrainer::shuffle_training_data() {
 /**
  * @brief Log message based on log level
  */
-void ChatbotTrainer::log(LogLevel level, const std::string& message, const std::string& color) {
+void ChatbotTrainer::log(LogLevel level, const std::string& message, const std::string& /*color*/) {
+        // color parameter accepted for API compatibility but ignored;
+        // Logger handles its own coloring via spdlog level-colored sinks.
         if (static_cast<int>(config.log_level) >= static_cast<int>(level)) {
-            std::cout << color << message << COLOR_RESET << std::endl;
+            adai::Logger::info("{}", message);
         }
 }
+
 
     /**
      * @brief Calculate perplexity from loss
@@ -386,19 +351,14 @@ void ChatbotTrainer::initialize_model() {
         // Validate and correct configuration first
         validate_and_correct_config();
 
-        std::cout << COLOR_INFO << "🧠 Initializing transformer model..." << COLOR_RESET
-                  << std::endl;
-        std::cout << COLOR_INFO << "  d_model: " << config.d_model << COLOR_RESET << std::endl;
-        std::cout << COLOR_INFO << "  num_heads: " << config.num_heads << COLOR_RESET << std::endl;
-        std::cout << COLOR_INFO << "  d_ff: " << config.d_ff << COLOR_RESET << std::endl;
-        std::cout << COLOR_INFO << "  encoder_layers: " << config.num_encoder_layers << COLOR_RESET
-                  << std::endl;
-        std::cout << COLOR_INFO << "  decoder_layers: " << config.num_decoder_layers << COLOR_RESET
-                  << std::endl;
-        std::cout << COLOR_INFO << "  max_seq_length: " << config.max_seq_length << COLOR_RESET
-                  << std::endl;
-        std::cout << COLOR_INFO << "  learning_rate: " << config.learning_rate << COLOR_RESET
-                  << std::endl;
+        adai::Logger::info("🧠 Initializing transformer model...");
+        adai::Logger::info("  d_model: {}", config.d_model);
+        adai::Logger::info("  num_heads: {}", config.num_heads);
+        adai::Logger::info("  d_ff: {}", config.d_ff);
+        adai::Logger::info("  encoder_layers: {}", config.num_encoder_layers);
+        adai::Logger::info("  decoder_layers: {}", config.num_decoder_layers);
+        adai::Logger::info("  max_seq_length: {}", config.max_seq_length);
+        adai::Logger::info("  learning_rate: {}", config.learning_rate);
 
         model = std::make_unique<EncoderDecoderModel>(tokenizer->get_vocab_size(), config.d_model,
                                         config.num_encoder_layers, config.num_decoder_layers,
@@ -408,38 +368,28 @@ void ChatbotTrainer::initialize_model() {
         // The model will now own the tokenizer and handle saving/loading
         model->set_tokenizer(tokenizer.release());
 
-        std::cout << COLOR_SUCCESS << "✅ Model initialized" << COLOR_RESET << std::endl;
+        adai::Logger::info("✅ Model initialized");
 
         // Initialize optimizer
-        std::cout << COLOR_INFO << "🎯 Initializing optimizer..." << COLOR_RESET << std::endl;
-        std::cout << COLOR_INFO << "  Type: ";
-        switch (config.optimizer_type) {
-            case OptimizerType::SGD:
-                std::cout << "SGD";
-                break;
-            case OptimizerType::SGD_MOMENTUM:
-                std::cout << "SGD+Momentum";
-                break;
-            case OptimizerType::ADAM:
-                std::cout << "Adam";
-                break;
-            case OptimizerType::ADAMW:
-                std::cout << "AdamW";
-                break;
+        adai::Logger::info("🎯 Initializing optimizer...");
+        {
+            std::string opt_type_str;
+            switch (config.optimizer_type) {
+                case OptimizerType::SGD:           opt_type_str = "SGD"; break;
+                case OptimizerType::SGD_MOMENTUM:  opt_type_str = "SGD+Momentum"; break;
+                case OptimizerType::ADAM:          opt_type_str = "Adam"; break;
+                case OptimizerType::ADAMW:         opt_type_str = "AdamW"; break;
+                default:                           opt_type_str = "Unknown"; break;
+            }
+            adai::Logger::info("  Type: {}", opt_type_str);
         }
-        std::cout << COLOR_RESET << std::endl;
-        std::cout << COLOR_INFO << "  Learning rate: " << config.learning_rate << COLOR_RESET
-                  << std::endl;
-        std::cout << COLOR_INFO << "  Weight decay: " << config.weight_decay << COLOR_RESET
-                  << std::endl;
-        std::cout << COLOR_INFO << "  Gradient clip norm: " << config.gradient_clip_norm
-                  << COLOR_RESET << std::endl;
+        adai::Logger::info("  Learning rate: {}", config.learning_rate);
+        adai::Logger::info("  Weight decay: {}", config.weight_decay);
+        adai::Logger::info("  Gradient clip norm: {}", config.gradient_clip_norm);
         if (config.optimizer_type == OptimizerType::ADAM ||
             config.optimizer_type == OptimizerType::ADAMW) {
-            std::cout << COLOR_INFO << "  Adam beta1: " << config.adam_beta1 << COLOR_RESET
-                      << std::endl;
-            std::cout << COLOR_INFO << "  Adam beta2: " << config.adam_beta2 << COLOR_RESET
-                      << std::endl;
+            adai::Logger::info("  Adam beta1: {}", config.adam_beta1);
+            adai::Logger::info("  Adam beta2: {}", config.adam_beta2);
         }
 
         optimizer = std::make_unique<Optimizer>(config.optimizer_type, config.learning_rate);
@@ -454,7 +404,7 @@ void ChatbotTrainer::initialize_model() {
         // Register model parameters with optimizer
         model->register_parameters(*optimizer);
 
-        std::cout << COLOR_SUCCESS << "✅ Optimizer initialized" << COLOR_RESET << std::endl;
+        adai::Logger::info("✅ Optimizer initialized");
     }
 
     /**
@@ -561,12 +511,9 @@ float ChatbotTrainer::train_epoch(int epoch) {
         int num_samples = tokenized_training_data.size();
         int effective_batch_size = config.batch_size * config.gradient_accumulation_steps;
 
-        std::cout << COLOR_PROGRESS << "\n📈 Epoch " << (epoch + 1) << "/" << config.num_epochs
-                  << COLOR_RESET << std::endl;
+        adai::Logger::info("\n📈 Epoch {}/{}", (epoch + 1), config.num_epochs);
         if (config.gradient_accumulation_steps > 1) {
-            std::cout << COLOR_INFO << "  Using gradient accumulation: " 
-                      << config.gradient_accumulation_steps << " steps (effective batch size: "
-                      << effective_batch_size << ")" << COLOR_RESET << std::endl;
+            adai::Logger::info("  Using gradient accumulation: {} steps (effective batch size: {})", config.gradient_accumulation_steps, effective_batch_size);
         }
 
         // Shuffle data at the start of each epoch
@@ -575,6 +522,7 @@ float ChatbotTrainer::train_epoch(int epoch) {
         // Reset accumulation state at epoch start
         accumulation_step = 0;
         accumulated_loss = 0.0f;
+        int update_count = 0;  // optimizer steps taken this epoch (for running avg)
 
         for (int i = 0; i < num_samples; i++) {
             const auto& pair = tokenized_training_data[training_indices[i]];
@@ -627,8 +575,7 @@ float ChatbotTrainer::train_epoch(int epoch) {
                     
                     // Safety check for NaN/Inf gradients
                     if (std::isnan(grad_norm) || std::isinf(grad_norm)) {
-                        std::cerr << COLOR_ERROR << "  ⚠️  WARNING: NaN or Inf gradient detected at sample " 
-                                  << (i + 1) << "! Skipping update." << COLOR_RESET << std::endl;
+                        adai::Logger::error("  ⚠️  WARNING: NaN or Inf gradient detected at sample {}! Skipping update.", (i + 1));
                         // Reset accumulation and skip this update
                         accumulation_step = 0;
                         accumulated_loss = 0.0f;
@@ -645,6 +592,11 @@ float ChatbotTrainer::train_epoch(int epoch) {
 
                     // Update weights via optimizer
                     optimizer->step();
+
+                    // Save step-level metrics BEFORE resetting accumulated_loss
+                    float step_loss = (config.gradient_accumulation_steps > 0)
+                                          ? accumulated_loss / config.gradient_accumulation_steps
+                                          : accumulated_loss;
 
                     total_loss += accumulated_loss;
                     global_step++;
@@ -668,10 +620,16 @@ float ChatbotTrainer::train_epoch(int epoch) {
                     // Reset accumulation state
                     accumulation_step = 0;
                     accumulated_loss = 0.0f;
+                    ++update_count;
+
+                    // Per-sample callback: fire after every optimizer step
+                    if (sample_callback_) {
+                        float running_avg = (update_count > 0) ? total_loss / update_count : 0.0f;
+                        sample_callback_(i + 1, num_samples, running_avg, step_loss, grad_norm);
+                    }
                 }
             } catch (const std::exception& e) {
-                std::cerr << COLOR_ERROR << "  ❌ Error training sample " << (i + 1) << ": "
-                          << e.what() << COLOR_RESET << std::endl;
+                adai::Logger::error("  ❌ Error training sample {}: {}", (i + 1), e.what());
                 // Reset accumulation on error
                 accumulation_step = 0;
                 accumulated_loss = 0.0f;
@@ -710,7 +668,7 @@ float ChatbotTrainer::validate() {
             return 0.0f;
         }
 
-        std::cout << COLOR_INFO << "🔍 Validating..." << COLOR_RESET << std::endl;
+        adai::Logger::info("🔍 Validating...");
 
         // Set model to evaluation mode
         model->set_training(false);
@@ -726,8 +684,7 @@ float ChatbotTrainer::validate() {
                 float loss = model->evaluate(pair.input_text, pair.target_text);
                 total_loss += loss;
             } catch (const std::exception& e) {
-                std::cerr << COLOR_ERROR << "  ❌ Error validating sample " << (i + 1) << ": "
-                          << e.what() << COLOR_RESET << std::endl;
+                adai::Logger::error("  ❌ Error validating sample {}: {}", (i + 1), e.what());
             }
         }
 
@@ -750,27 +707,22 @@ float ChatbotTrainer::validate() {
             best_validation_loss = validation_loss;
             best_epoch = training_losses.size();
             epochs_without_improvement = 0;
-            std::cout << COLOR_SUCCESS << "  ⭐ New best validation loss!" << COLOR_RESET
-                      << std::endl;
+            adai::Logger::info("  ⭐ New best validation loss!");
 
             // Save best model if early stopping is enabled
             if (config.enable_early_stopping && config.restore_best_weights) {
                 best_model_path = "best_model_temp.bin";
                 try {
                     model->save_model(best_model_path);
-                    std::cout << COLOR_INFO << "  💾 Best model saved temporarily" << COLOR_RESET
-                              << std::endl;
+                    adai::Logger::info("  💾 Best model saved temporarily");
                 } catch (const std::exception& e) {
-                    std::cerr << COLOR_ERROR << "  ❌ Failed to save best model: " << e.what()
-                              << COLOR_RESET << std::endl;
+                    adai::Logger::error("  ❌ Failed to save best model: {}", e.what());
                 }
             }
         } else {
             epochs_without_improvement++;
             if (config.enable_early_stopping) {
-                std::cout << COLOR_WARNING
-                          << "  ⏳ Epochs without improvement: " << epochs_without_improvement
-                          << "/" << config.patience << COLOR_RESET << std::endl;
+                adai::Logger::warn("  ⏳ Epochs without improvement: {}/{}", epochs_without_improvement, config.patience);
             }
         }
 
@@ -793,12 +745,11 @@ bool ChatbotTrainer::should_early_stop() {
      */
 void ChatbotTrainer::restore_best_model() {
         if (best_model_path.empty()) {
-            std::cout << COLOR_WARNING << "⚠️  No best model to restore" << COLOR_RESET << std::endl;
+            adai::Logger::warn("⚠️  No best model to restore");
             return;
         }
 
-        std::cout << COLOR_INFO << "🔄 Restoring best model from epoch " << best_epoch << "..."
-                  << COLOR_RESET << std::endl;
+        adai::Logger::info("🔄 Restoring best model from epoch {}...", best_epoch);
 
         try {
             // Reset model and load best one
@@ -807,13 +758,12 @@ void ChatbotTrainer::restore_best_model() {
                                             tokenizer->get_vocab_size(), config.max_seq_length);
 
             model->load_model(best_model_path);
-            std::cout << COLOR_SUCCESS << "✅ Best model restored" << COLOR_RESET << std::endl;
+            adai::Logger::info("✅ Best model restored");
 
             // Clean up temporary file
             std::remove(best_model_path.c_str());
         } catch (const std::exception& e) {
-            std::cerr << COLOR_ERROR << "❌ Failed to restore best model: " << e.what()
-                      << COLOR_RESET << std::endl;
+            adai::Logger::error("❌ Failed to restore best model: {}", e.what());
         }
     }
 
@@ -821,7 +771,7 @@ void ChatbotTrainer::restore_best_model() {
      * @brief Save model checkpoint with metadata
      */
 void ChatbotTrainer::save_checkpoint(const std::string& filepath, int epoch) {
-        std::cout << COLOR_INFO << "💾 Saving checkpoint..." << COLOR_RESET << std::endl;
+        adai::Logger::info("💾 Saving checkpoint...");
 
         try {
             model->save_model(filepath);
@@ -838,11 +788,9 @@ void ChatbotTrainer::save_checkpoint(const std::string& filepath, int epoch) {
                 meta_file.close();
             }
             
-            std::cout << COLOR_SUCCESS << "✅ Checkpoint saved to: " << filepath << COLOR_RESET
-                      << std::endl;
+            adai::Logger::info("✅ Checkpoint saved to: {}", filepath);
         } catch (const std::exception& e) {
-            std::cerr << COLOR_ERROR << "❌ Failed to save checkpoint: " << e.what() << COLOR_RESET
-                      << std::endl;
+            adai::Logger::error("❌ Failed to save checkpoint: {}", e.what());
         }
     }
 
@@ -850,7 +798,7 @@ void ChatbotTrainer::save_checkpoint(const std::string& filepath, int epoch) {
      * @brief Finalize model by creating standard-named files from best epoch
      */
 void ChatbotTrainer::finalize_model(const std::string& output_path) {
-        std::cout << COLOR_INFO << "\n🔧 Finalizing model..." << COLOR_RESET << std::endl;
+        adai::Logger::info("\n🔧 Finalizing model...");
 
         // Determine best epoch checkpoint path
         std::string best_checkpoint_path = output_path + ".epoch" + std::to_string(best_epoch);
@@ -858,8 +806,7 @@ void ChatbotTrainer::finalize_model(const std::string& output_path) {
         // Extensions that need to be copied/linked
         std::vector<std::string> extensions = {"config", "decoder", "lm_head", "vocab", "encoder"};
         
-        std::cout << COLOR_INFO << "📋 Creating standardized model files from epoch " 
-                  << best_epoch << "..." << COLOR_RESET << std::endl;
+        adai::Logger::info("📋 Creating standardized model files from epoch {}...", best_epoch);
 
         // Create empty base file (required for ifstream check in load_model)
         std::ofstream base_file(output_path);
@@ -883,18 +830,18 @@ void ChatbotTrainer::finalize_model(const std::string& output_path) {
                 int result = std::system(link_cmd.c_str());
                 
                 if (result == 0) {
-                    std::cout << COLOR_SUCCESS << "  ✓ Linked " << ext << COLOR_RESET << std::endl;
+                    adai::Logger::info("  ✓ Linked {}", ext);
                 } else {
-                    std::cout << COLOR_WARNING << "  ⚠ Failed to link " << ext << COLOR_RESET << std::endl;
+                    adai::Logger::warn("  ⚠ Failed to link {}", ext);
                 }
             } else {
-                std::cout << COLOR_WARNING << "  ⚠ Missing " << ext << " file" << COLOR_RESET << std::endl;
+                adai::Logger::warn("  ⚠ Missing {} file", ext);
             }
         }
 
         // Cleanup old epoch checkpoints if not keeping all
         if (!config.keep_all_checkpoints) {
-            std::cout << COLOR_INFO << "\n🧹 Cleaning up intermediate checkpoints..." << COLOR_RESET << std::endl;
+            adai::Logger::info("\n🧹 Cleaning up intermediate checkpoints...");
             
             int removed_count = 0;
             for (int epoch = 1; epoch <= config.num_epochs; epoch++) {
@@ -915,25 +862,22 @@ void ChatbotTrainer::finalize_model(const std::string& output_path) {
                 removed_count++;
             }
             
-            std::cout << COLOR_SUCCESS << "  ✓ Removed " << removed_count << " checkpoint(s) (kept epoch " 
-                      << best_epoch << ")" << COLOR_RESET << std::endl;
+            adai::Logger::info("  ✓ Removed {} checkpoint(s) (kept epoch {})", removed_count, best_epoch);
         } else {
-            std::cout << COLOR_INFO << "  ℹ Keeping all epoch checkpoints" << COLOR_RESET << std::endl;
+            adai::Logger::info("  ℹ Keeping all epoch checkpoints");
         }
 
-        std::cout << COLOR_SUCCESS << "\n✅ Model finalized:" << COLOR_RESET << std::endl;
-        std::cout << COLOR_SUCCESS << "  📁 Base model: " << output_path << COLOR_RESET << std::endl;
-        std::cout << COLOR_SUCCESS << "  🏆 Best epoch: " << best_epoch << COLOR_RESET << std::endl;
-        std::cout << COLOR_SUCCESS << "  📊 Best validation loss: " << best_validation_loss 
-                  << COLOR_RESET << std::endl;
+        adai::Logger::info("\n✅ Model finalized:");
+        adai::Logger::info("  📁 Base model: {}", output_path);
+        adai::Logger::info("  🏆 Best epoch: {}", best_epoch);
+        adai::Logger::info("  📊 Best validation loss: {}", best_validation_loss);
     }
 
     /**
      * @brief Load checkpoint and resume training state
      */
 bool ChatbotTrainer::load_checkpoint(const std::string& filepath) {
-        std::cout << COLOR_INFO << "📂 Loading checkpoint from: " << filepath << COLOR_RESET
-                  << std::endl;
+        adai::Logger::info("📂 Loading checkpoint from: {}", filepath);
 
         try {
             // Load model weights
@@ -965,20 +909,16 @@ bool ChatbotTrainer::load_checkpoint(const std::string& filepath) {
                 }
                 meta_file.close();
                 
-                std::cout << COLOR_SUCCESS << "✅ Checkpoint loaded - resuming from epoch " 
-                          << start_epoch << COLOR_RESET << std::endl;
-                std::cout << COLOR_INFO << "  Global step: " << global_step << COLOR_RESET << std::endl;
-                std::cout << COLOR_INFO << "  Best validation loss: " << best_validation_loss 
-                          << COLOR_RESET << std::endl;
+                adai::Logger::info("✅ Checkpoint loaded - resuming from epoch {}", start_epoch);
+                adai::Logger::info("  Global step: {}", global_step);
+                adai::Logger::info("  Best validation loss: {}", best_validation_loss);
             } else {
-                std::cout << COLOR_WARNING << "⚠️  No metadata found, starting fresh" 
-                          << COLOR_RESET << std::endl;
+                adai::Logger::warn("⚠️  No metadata found, starting fresh");
             }
             
             return true;
         } catch (const std::exception& e) {
-            std::cerr << COLOR_ERROR << "❌ Failed to load checkpoint: " << e.what() << COLOR_RESET
-                      << std::endl;
+            adai::Logger::error("❌ Failed to load checkpoint: {}", e.what());
             return false;
         }
     }
@@ -988,12 +928,12 @@ bool ChatbotTrainer::load_checkpoint(const std::string& filepath) {
      */
 void ChatbotTrainer::train(const std::string& output_model_path = "chatbot_model.bin") {
         if (!tokenizer) {
-            std::cerr << COLOR_ERROR << "❌ Tokenizer not initialized!" << COLOR_RESET << std::endl;
+            adai::Logger::error("❌ Tokenizer not initialized!");
             return;
         }
 
         if (training_data.empty()) {
-            std::cerr << COLOR_ERROR << "❌ No training data loaded!" << COLOR_RESET << std::endl;
+            adai::Logger::error("❌ No training data loaded!");
             return;
         }
 
@@ -1001,25 +941,23 @@ void ChatbotTrainer::train(const std::string& output_model_path = "chatbot_model
         initialize_model();
         
         // Display parallel optimization status (Priority 1-5)
-        std::cout << "\n" << COLOR_SUCCESS << "🚀 Parallel Optimizations Status:" << COLOR_RESET << std::endl;
+        adai::Logger::info("🚀 Parallel Optimizations Status:");
         #ifdef _OPENMP
-        std::cout << COLOR_SUCCESS << "  ✓ Priority 1: OpenMP CPU Parallelization (4.21x on matrix ops)" << COLOR_RESET << std::endl;
-        std::cout << COLOR_INFO << "    - Threads: " << omp_get_max_threads() << COLOR_RESET << std::endl;
-        std::cout << COLOR_SUCCESS << "  ✓ Priority 4: Attention Head Parallelism (1.3-2.0x)" << COLOR_RESET << std::endl;
-        std::cout << COLOR_INFO << "    - Parallel heads across " << config.num_heads << " attention heads" << COLOR_RESET << std::endl;
+        adai::Logger::info("  ✓ Priority 1: OpenMP CPU Parallelization (4.21x on matrix ops)");
+        adai::Logger::info("    - Threads: {}", omp_get_max_threads());
+        adai::Logger::info("  ✓ Priority 4: Attention Head Parallelism (1.3-2.0x)");
+        adai::Logger::info("    - Parallel heads across {} attention heads", config.num_heads);
         #else
-        std::cout << COLOR_WARNING << "  ⚠ OpenMP not enabled - compile with -fopenmp for speedup" << COLOR_RESET << std::endl;
+        adai::Logger::warn("  ⚠ OpenMP not enabled - compile with -fopenmp for speedup");
         #endif
-        std::cout << COLOR_INFO << "  ℹ  Priority 3: Batched inference available at inference time" << COLOR_RESET << std::endl;
-        std::cout << COLOR_INFO << "  ℹ  Priority 5: Pipeline parallelism available for serving" << COLOR_RESET << std::endl;
-        std::cout << COLOR_INFO << "  ℹ  Combined potential: 5.5x speedup vs sequential baseline" << COLOR_RESET << std::endl;
-        std::cout << std::endl;
+        adai::Logger::info("  ℹ  Priority 3: Batched inference available at inference time");
+        adai::Logger::info("  ℹ  Priority 5: Pipeline parallelism available for serving");
+        adai::Logger::info("  ℹ  Combined potential: 5.5x speedup vs sequential baseline");
 
         // Load checkpoint if resuming
         if (!config.resume_from_checkpoint.empty()) {
             if (!load_checkpoint(config.resume_from_checkpoint)) {
-                std::cerr << COLOR_ERROR << "❌ Failed to load checkpoint, starting fresh" 
-                          << COLOR_RESET << std::endl;
+                adai::Logger::error("❌ Failed to load checkpoint, starting fresh");
                 start_epoch = 0;
             }
         }
@@ -1037,41 +975,31 @@ void ChatbotTrainer::train(const std::string& output_model_path = "chatbot_model
         total_training_steps = config.num_epochs * updates_per_epoch;
 
         // Print LR schedule info
-        std::cout << COLOR_INFO << "📊 Learning Rate Schedule: " << get_schedule_name()
-                  << COLOR_RESET << std::endl;
-        std::cout << COLOR_INFO << "  Base LR: " << config.learning_rate << COLOR_RESET
-                  << std::endl;
+        adai::Logger::info("📊 Learning Rate Schedule: {}", get_schedule_name());
+        adai::Logger::info("  Base LR: {}", config.learning_rate);
         if (config.lr_schedule != LRSchedule::CONSTANT) {
             int warmup = config.warmup_steps > 0 ? config.warmup_steps : total_training_steps / 10;
-            std::cout << COLOR_INFO << "  Warmup steps: " << warmup << COLOR_RESET << std::endl;
-            std::cout << COLOR_INFO << "  Min LR: " << config.min_learning_rate << COLOR_RESET
-                      << std::endl;
+            adai::Logger::info("  Warmup steps: {}", warmup);
+            adai::Logger::info("  Min LR: {}", config.min_learning_rate);
         }
-        std::cout << COLOR_INFO << "  Total steps: " << total_training_steps << COLOR_RESET
-                  << std::endl;
+        adai::Logger::info("  Total steps: {}", total_training_steps);
 
         // Print early stopping info
         if (config.enable_early_stopping && !validation_data.empty()) {
-            std::cout << COLOR_INFO << "⏹️  Early Stopping: Enabled" << COLOR_RESET << std::endl;
-            std::cout << COLOR_INFO << "  Patience: " << config.patience << " epochs" << COLOR_RESET
-                      << std::endl;
-            std::cout << COLOR_INFO << "  Min delta: " << config.min_delta << COLOR_RESET
-                      << std::endl;
-            std::cout << COLOR_INFO
-                      << "  Restore best weights: " << (config.restore_best_weights ? "Yes" : "No")
-                      << COLOR_RESET << std::endl;
+            adai::Logger::info("⏹️  Early Stopping: Enabled");
+            adai::Logger::info("  Patience: {} epochs", config.patience);
+            adai::Logger::info("  Min delta: {}", config.min_delta);
+            adai::Logger::info("  Restore best weights: {}", (config.restore_best_weights ? "Yes" : "No"));
         } else if (config.enable_early_stopping && validation_data.empty()) {
-            std::cout << COLOR_WARNING << "⚠️  Early stopping disabled (no validation data)"
-                      << COLOR_RESET << std::endl;
+            adai::Logger::warn("⚠️  Early stopping disabled (no validation data)");
         }
 
         // Training loop
-        std::cout << COLOR_PROGRESS << "\n🚀 Starting training..." << COLOR_RESET << std::endl;
+        adai::Logger::info("\n🚀 Starting training...");
         if (start_epoch > 0) {
-            std::cout << COLOR_INFO << "📍 Resuming from epoch " << start_epoch << COLOR_RESET << std::endl;
+            adai::Logger::info("📍 Resuming from epoch {}", start_epoch);
         }
-        std::cout << COLOR_PROGRESS << "═══════════════════════════════════════" << COLOR_RESET
-                  << std::endl;
+        adai::Logger::info("═══════════════════════════════════════");
 
         auto start_time = std::time(nullptr);
 
@@ -1085,10 +1013,8 @@ void ChatbotTrainer::train(const std::string& output_model_path = "chatbot_model
 
                 // Check early stopping
                 if (should_early_stop()) {
-                    std::cout << COLOR_WARNING << "\n⏹️  Early stopping triggered after "
-                              << (epoch + 1) << " epochs" << COLOR_RESET << std::endl;
-                    std::cout << COLOR_WARNING << "   No improvement for " << config.patience
-                              << " consecutive epochs" << COLOR_RESET << std::endl;
+                    adai::Logger::warn("\n⏹️  Early stopping triggered after {} epochs", (epoch + 1));
+                    adai::Logger::warn("   No improvement for {} consecutive epochs", config.patience);
                     early_stopped = true;
 
                     // Restore best model if configured
@@ -1107,15 +1033,14 @@ void ChatbotTrainer::train(const std::string& output_model_path = "chatbot_model
                 save_checkpoint(checkpoint_path, epoch);
             }
 
-            std::cout << COLOR_PROGRESS << "───────────────────────────────────────" << COLOR_RESET
-                      << std::endl;
+            adai::Logger::info("───────────────────────────────────────");
         }
 
         auto end_time = std::time(nullptr);
         auto duration = end_time - start_time;
 
         // Final save
-        std::cout << COLOR_PROGRESS << "\n💾 Saving final model..." << COLOR_RESET << std::endl;
+        adai::Logger::info("\n💾 Saving final model...");
         save_checkpoint(output_model_path, config.num_epochs);
 
         // Finalize model - create standard named files from best epoch
@@ -1129,58 +1054,39 @@ void ChatbotTrainer::train(const std::string& output_model_path = "chatbot_model
      * @brief Print training summary
      */
 void ChatbotTrainer::print_training_summary(long duration) {
-        std::cout << COLOR_SUCCESS << "\n╔═══════════════════════════════════════╗" << COLOR_RESET
-                  << std::endl;
-        std::cout << COLOR_SUCCESS << "║     🎉 TRAINING COMPLETE! 🎉         ║" << COLOR_RESET
-                  << std::endl;
-        std::cout << COLOR_SUCCESS << "╚═══════════════════════════════════════╝" << COLOR_RESET
-                  << std::endl;
+        adai::Logger::info("\n╔═══════════════════════════════════════╗");
+        adai::Logger::info("║     🎉 TRAINING COMPLETE! 🎉         ║");
+        adai::Logger::info("╚═══════════════════════════════════════╝");
 
-        std::cout << "\n" << COLOR_INFO << "📊 Training Summary:" << COLOR_RESET << std::endl;
-        std::cout << COLOR_INFO << "  Total epochs: " << config.num_epochs << COLOR_RESET
-                  << std::endl;
+        adai::Logger::info("📊 Training Summary:");
+        adai::Logger::info("  Total epochs: {}", config.num_epochs);
         if (early_stopped) {
-            std::cout << COLOR_INFO << "  Completed epochs: " << training_losses.size()
-                      << " (early stopped)" << COLOR_RESET << std::endl;
+            adai::Logger::info("  Completed epochs: {} (early stopped)", training_losses.size());
         }
-        std::cout << COLOR_INFO << "  Training samples: " << training_data.size() << COLOR_RESET
-                  << std::endl;
-        std::cout << COLOR_INFO << "  Validation samples: " << validation_data.size() << COLOR_RESET
-                  << std::endl;
-        std::cout << COLOR_INFO << "  Training time: " << duration << " seconds" << COLOR_RESET
-                  << std::endl;
+        adai::Logger::info("  Training samples: {}", training_data.size());
+        adai::Logger::info("  Validation samples: {}", validation_data.size());
+        adai::Logger::info("  Training time: {} seconds", duration);
 
         if (!training_losses.empty()) {
-            std::cout << COLOR_INFO << "  Final training loss: " << training_losses.back()
-                      << COLOR_RESET << std::endl;
-            std::cout << COLOR_INFO << "  Initial training loss: " << training_losses.front()
-                      << COLOR_RESET << std::endl;
+            adai::Logger::info("  Final training loss: {}", training_losses.back());
+            adai::Logger::info("  Initial training loss: {}", training_losses.front());
 
             if (!learning_rates.empty()) {
-                std::cout << COLOR_INFO << "  Final learning rate: " << learning_rates.back()
-                          << COLOR_RESET << std::endl;
-                std::cout << COLOR_INFO << "  Initial learning rate: " << learning_rates.front()
-                          << COLOR_RESET << std::endl;
+                adai::Logger::info("  Final learning rate: {}", learning_rates.back());
+                adai::Logger::info("  Initial learning rate: {}", learning_rates.front());
             }
 
             if (!gradient_norms.empty()) {
-                std::cout << COLOR_INFO << "  Final gradient norm: " << gradient_norms.back()
-                          << COLOR_RESET << std::endl;
-                std::cout << COLOR_INFO << "  Average gradient norm: "
-                          << (std::accumulate(gradient_norms.begin(), gradient_norms.end(), 0.0f) /
-                              gradient_norms.size())
-                          << COLOR_RESET << std::endl;
+                adai::Logger::info("  Final gradient norm: {}", gradient_norms.back());
+                adai::Logger::info("  Average gradient norm: {}", (std::accumulate(gradient_norms.begin(), gradient_norms.end(), 0.0f) / gradient_norms.size()));
             }
         }
 
         if (!validation_losses.empty()) {
-            std::cout << COLOR_INFO << "  Final validation loss: " << validation_losses.back()
-                      << COLOR_RESET << std::endl;
-            std::cout << COLOR_INFO << "  Best validation loss: " << best_validation_loss
-                      << " (epoch " << best_epoch << ")" << COLOR_RESET << std::endl;
+            adai::Logger::info("  Final validation loss: {}", validation_losses.back());
+            adai::Logger::info("  Best validation loss: {} (epoch {})", best_validation_loss, best_epoch);
         }
 
-        std::cout << std::endl;
     }
 
     /**
@@ -1188,27 +1094,25 @@ void ChatbotTrainer::print_training_summary(long duration) {
      */
 void ChatbotTrainer::test_generation(const std::vector<std::string>& test_prompts) {
         if (!model) {
-            std::cerr << COLOR_ERROR << "❌ Model not initialized!" << COLOR_RESET << std::endl;
+            adai::Logger::error("❌ Model not initialized!");
             return;
         }
 
-        std::cout << COLOR_INFO << "\n🧪 Testing generation..." << COLOR_RESET << std::endl;
-        std::cout << COLOR_INFO << "═══════════════════════════════════════" << COLOR_RESET
-                  << std::endl;
+        adai::Logger::info("\n🧪 Testing generation...");
+        adai::Logger::info("═══════════════════════════════════════");
 
         for (const auto& prompt : test_prompts) {
-            std::cout << COLOR_INFO << "\nPrompt: " << COLOR_RESET << prompt << std::endl;
+            adai::Logger::info("\nPrompt: {}", prompt);
 
             try {
                 std::string response = model->generate_response(prompt, 50);
-                std::cout << COLOR_SUCCESS << "Response: " << COLOR_RESET << response << std::endl;
+                adai::Logger::info("Response: {}", response);
             } catch (const std::exception& e) {
-                std::cerr << COLOR_ERROR << "Error: " << e.what() << COLOR_RESET << std::endl;
+                adai::Logger::error("Error: {}", e.what());
             }
         }
 
-        std::cout << COLOR_INFO << "═══════════════════════════════════════" << COLOR_RESET
-                  << std::endl;
+        adai::Logger::info("═══════════════════════════════════════");
 }
 
 /**
@@ -1511,7 +1415,7 @@ bool ChatbotTrainer::train(int num_epochs) {
         
         return true;
     } catch (const std::exception& e) {
-        std::cerr << COLOR_ERROR << "❌ Training failed: " << e.what() << COLOR_RESET << std::endl;
+        adai::Logger::error("❌ Training failed: {}", e.what());
         return false;
     }
 }
@@ -1565,4 +1469,8 @@ float ChatbotTrainer::get_final_validation_loss() const {
 
 void ChatbotTrainer::set_epoch_callback(EpochCallback cb) {
     epoch_callback_ = std::move(cb);
+}
+
+void ChatbotTrainer::set_sample_callback(SampleCallback cb) {
+    sample_callback_ = std::move(cb);
 }

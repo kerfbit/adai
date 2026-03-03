@@ -1,7 +1,8 @@
 #include "DecoderBlock.hpp"
 #include <fstream>
-#include <iostream>
 #include <stdexcept>
+#include "Logger.hpp"
+using adai::Logger;
 #include "CrossAttention.hpp"
 
 DecoderBlock::DecoderBlock(int d_model, int num_heads, int d_ff, float dropout)
@@ -32,10 +33,7 @@ DecoderBlock::DecoderBlock(int d_model, int num_heads, int d_ff, float dropout)
     norm2->learning_rate = learning_rate;
     norm3->learning_rate = learning_rate;
 
-    std::cout << "DecoderBlock initialized:" << std::endl;
-    std::cout << "  Model dimension: " << d_model << std::endl;
-    std::cout << "  Number of heads: " << num_heads << std::endl;
-    std::cout << "  Feed-forward dimension: " << d_ff << std::endl;
+    Logger::info("DecoderBlock initialized: d_model={} num_heads={} d_ff={}", d_model, num_heads, d_ff);
 }
 
 Matrix DecoderBlock::forward(const Matrix& input, const Matrix& encoder_output,

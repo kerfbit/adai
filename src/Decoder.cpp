@@ -1,4 +1,6 @@
 #include "Decoder.hpp"
+#include "Logger.hpp"
+using adai::Logger;
 
 // Constructor
 LLMDecoder::LLMDecoder(int vocab_size, int d_model, int num_layers, int num_heads, int d_ff,
@@ -290,7 +292,7 @@ void LLMDecoder::save_weights(const std::string& filepath) const {
 
     final_norm->save_weights(base + "_final_norm.bin");
 
-    std::cout << "Saved Decoder weights to " << filepath << std::endl;
+    Logger::info("Saved Decoder weights to {}", filepath);
 }
 
 // Load weights
@@ -328,7 +330,7 @@ void LLMDecoder::load_weights(const std::string& filepath) {
 
     final_norm->load_weights(base + "_final_norm.bin");
 
-    std::cout << "Loaded Decoder weights from " << filepath << std::endl;
+    Logger::info("Loaded Decoder weights from {}", filepath);
 }
 
 // Zero gradients

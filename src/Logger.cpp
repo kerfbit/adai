@@ -23,8 +23,10 @@ void Logger::init(Level level, const std::string& name) {
         logger_ = nullptr;
     }
     
-    // Create console logger with color support
-    logger_ = spdlog::stdout_color_mt(name);
+    // Use stderr for the console sink so structured log output does not share
+    // the same file descriptor as std::cout (used by the TUI dashboard).
+    // stdout = program/TUI output; stderr = diagnostics/logs (POSIX convention).
+    logger_ = spdlog::stderr_color_mt(name);
     
     // TODO: See TECHNICAL_DEBT.md Future Enhancement #8 - Support JSON format
     // Add LOG_FORMAT configuration option (text/json)
@@ -50,8 +52,8 @@ void Logger::init(Level level, const FileConfig& file_config, const std::string&
     
     std::vector<spdlog::sink_ptr> sinks;
         
-        // Always add console sink
-        auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+        // Use stderr so log output does not interfere with std::cout / TUI dashboard.
+        auto console_sink = std::make_shared<spdlog::sinks::stderr_color_sink_mt>();
         console_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] %v");
         sinks.push_back(console_sink);
         

@@ -2,9 +2,3 @@ MAX_MESSAGES:20
 MAX_TOKENS:480
 KEEP_SYSTEM:1
 ---
-user|2|hello
-assistant|5|ilm  turrebtv
-user|2|hello
-assistant|16|rnuso itenvh raknf ideaint leeta eetrhgyin,j art tai
-user|2|hello
-assistant|74|                                                                                                   
