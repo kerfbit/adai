@@ -27,6 +27,7 @@ User guides and operational how-to documentation:
 
 - **[BUILD_AND_VOCAB_GUIDE.md](guides/BUILD_AND_VOCAB_GUIDE.md)** - Building and vocabulary setup
 - **[WINDOWS_BUILD_QUICK_REFERENCE.md](guides/WINDOWS_BUILD_QUICK_REFERENCE.md)** - Windows build quick reference
+- **[MODEL_SERVICE_MANAGER.md](MODEL_SERVICE_MANAGER.md)** - Guide to using the model_service.sh script for background service management
 
 #### Optimization & Performance
 

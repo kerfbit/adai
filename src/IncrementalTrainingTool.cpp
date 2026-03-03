@@ -3,28 +3,6 @@
 #include <iostream>
 #include <sstream>
 
-// ---------------------------------------------------------------------------
-// Helper: apply model architecture + training hyper-params from ServiceConfig
-// into an IncrementalConfig so no values are hard-coded in this file.
-// ---------------------------------------------------------------------------
-static void apply_service_config(IncrementalConfig& cfg,
-                                  const adai::ServiceConfig& svc) {
-    // Model architecture
-    cfg.base_config.d_model            = static_cast<int>(svc.d_model);
-    cfg.base_config.num_heads          = static_cast<int>(svc.num_heads);
-    cfg.base_config.d_ff               = static_cast<int>(svc.d_ff);
-    cfg.base_config.num_encoder_layers = static_cast<int>(svc.num_encoder_layers);
-    cfg.base_config.num_decoder_layers = static_cast<int>(svc.num_decoder_layers);
-    cfg.base_config.max_seq_length     = static_cast<int>(svc.max_seq_length);
-
-    // Training hyperparameters
-    cfg.base_config.learning_rate      = svc.learning_rate;
-    cfg.base_config.num_epochs         = svc.num_epochs;
-    cfg.base_config.weight_decay       = svc.weight_decay;
-    cfg.base_config.gradient_clip_norm = svc.gradient_clip;
-    cfg.base_config.batch_size         = svc.batch_size;
-}
-
 int main(int argc, char* argv[]) {
     // -----------------------------------------------------------------------
     // Strip the optional global flag  --config <path>  from argv so that the
@@ -106,8 +84,7 @@ int main(int argc, char* argv[]) {
         std::string vocab_path = (args.size() >= 2) ? args[1] : default_vocab;
         std::string model_path = (args.size() >= 3) ? args[2] : default_model;
 
-        IncrementalConfig config;
-        apply_service_config(config, svc_config);
+        IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
         config.base_config.lr_schedule       = LRSchedule::WARMUP_COSINE;
         config.auto_save_enabled             = true;
         config.auto_save_every_minutes       = 30;
@@ -132,8 +109,7 @@ int main(int argc, char* argv[]) {
 
         std::string data_file = args[1];
 
-        IncrementalConfig config;
-        apply_service_config(config, svc_config);
+        IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
         IncrementalTrainer trainer(default_vocab, default_model, config);
 
         if (trainer.add_new_data(data_file)) {
@@ -154,8 +130,7 @@ int main(int argc, char* argv[]) {
         int book_id      = std::stoi(args[1]);
         int num_pairs    = (args.size() >= 3) ? std::stoi(args[2]) : 500;
 
-        IncrementalConfig config;
-        apply_service_config(config, svc_config);
+        IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
         IncrementalTrainer trainer(default_vocab, default_model, config);
 
         std::cout << "📚 Downloading Project Gutenberg book #" << book_id << "...\n";
@@ -185,8 +160,7 @@ int main(int argc, char* argv[]) {
             book_ids.push_back(std::stoi(id));
         }
 
-        IncrementalConfig config;
-        apply_service_config(config, svc_config);
+        IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
         IncrementalTrainer trainer(default_vocab, default_model, config);
 
         std::cout << "📚 Downloading " << book_ids.size() << " Project Gutenberg books...\n";
@@ -205,8 +179,7 @@ int main(int argc, char* argv[]) {
                          ? std::stoi(args[1])
                          : svc_config.num_epochs;
 
-        IncrementalConfig config;
-        apply_service_config(config, svc_config);
+        IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
         config.base_config.num_epochs  = epochs;
         config.base_config.lr_schedule = LRSchedule::WARMUP_COSINE;
         IncrementalTrainer trainer(default_vocab, default_model, config);
@@ -232,8 +205,7 @@ int main(int argc, char* argv[]) {
                          ? std::stoi(args[1])
                          : svc_config.num_epochs;
 
-        IncrementalConfig config;
-        apply_service_config(config, svc_config);
+        IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
         config.base_config.num_epochs  = epochs;
         config.base_config.lr_schedule = LRSchedule::WARMUP_COSINE;
         config.auto_save_enabled        = true;
@@ -296,8 +268,7 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        IncrementalConfig config;
-        apply_service_config(config, svc_config);
+        IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
         config.base_config.lr_schedule = LRSchedule::WARMUP_COSINE;
         IncrementalTrainer trainer(default_vocab, default_model, config);
 
@@ -314,8 +285,7 @@ int main(int argc, char* argv[]) {
         }
 
     } else if (command == "resume") {
-        IncrementalConfig config;
-        apply_service_config(config, svc_config);
+        IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
         IncrementalTrainer trainer(default_vocab, default_model, config);
 
         if (trainer.resume_last_session()) {
@@ -327,8 +297,7 @@ int main(int argc, char* argv[]) {
         }
 
     } else if (command == "status") {
-        IncrementalConfig config;
-        apply_service_config(config, svc_config);
+        IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
         IncrementalTrainer trainer(default_vocab, default_model, config);
 
         trainer.print_training_summary();
@@ -339,8 +308,7 @@ int main(int argc, char* argv[]) {
         }
 
     } else if (command == "history") {
-        IncrementalConfig config;
-        apply_service_config(config, svc_config);
+        IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
         IncrementalTrainer trainer(default_vocab, default_model, config);
 
         trainer.print_session_history();

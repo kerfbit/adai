@@ -9,6 +9,7 @@
 #include "BPETokenizer.hpp"
 #include "EncoderDecoderModel.hpp"
 #include "Logger.hpp"
+#include "Config.hpp"
 
 /**
  * @brief Training session information
@@ -88,21 +89,43 @@ struct IncrementalConfig {
 class IncrementalTrainer {
 public:
     /**
-     * @brief Constructor
-     * @param vocab_path Path to vocabulary file
-     * @param model_path Path to model checkpoint
+     * @brief Primary constructor — loads all settings from a config.conf file.
+     *
+     * This is the required entry point.  The file must set at least VOCAB_PATH;
+     * MODEL_PATH, architecture, and training hyper-parameters are read from the
+     * same file (and can be overridden via environment variables).
+     *
+     * @param config_file_path  Path to config.conf (empty = search system default).
+     * @throws std::runtime_error if VOCAB_PATH is not set in the config.
+     */
+    explicit IncrementalTrainer(const std::string& config_file_path);
+
+    /**
+     * @brief Explicit-paths constructor (low-level).
+     * @param vocab_path   Path to vocabulary file.
+     * @param model_path   Path to model checkpoint.
      */
     IncrementalTrainer(const std::string& vocab_path, const std::string& model_path);
     
     /**
-     * @brief Constructor with configuration
-     * @param vocab_path Path to vocabulary file
-     * @param model_path Path to model checkpoint
-     * @param cfg Configuration settings
+     * @brief Explicit-paths constructor with pre-built configuration.
+     * @param vocab_path   Path to vocabulary file.
+     * @param model_path   Path to model checkpoint.
+     * @param cfg          Configuration settings; architecture is applied before
+     *                     the model is constructed so no defaults are baked in.
      */
     IncrementalTrainer(const std::string& vocab_path, const std::string& model_path,
                       const IncrementalConfig& cfg);
-    
+
+    /**
+     * @brief Build an IncrementalConfig from a parsed ServiceConfig.
+     *
+     * Translates all model-architecture and training hyper-parameter fields from
+     * ServiceConfig into IncrementalConfig.  Call this before constructing an
+     * IncrementalTrainer when you already have a ServiceConfig in hand.
+     */
+    static IncrementalConfig make_incremental_config(const adai::ServiceConfig& svc);
+
     // Configuration
     void set_config(const IncrementalConfig& cfg);
     IncrementalConfig& get_config();
@@ -211,6 +234,17 @@ private:
     mutable float current_item_grad_norm_;    ///< gradient norm of the most recent optimizer step
 
     // Helper methods
+
+    /**
+     * @brief Single entry point for model construction.
+     *
+     * Reads vocab_path_ and config.base_config to build a fresh
+     * EncoderDecoderModel and transfer a new tokenizer into it.
+     * Every code path that creates or re-creates the model calls this
+     * method — there is no other place that instantiates EncoderDecoderModel.
+     */
+    void build_model();
+
     bool initialize_session();
     bool finalize_session(int samples_trained, int epochs_completed, float final_loss, float final_val_loss);
     bool should_auto_save();

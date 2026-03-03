@@ -202,6 +202,15 @@ class ChatbotTrainer {
     void split_data();
     void preprocess_data();
     void shuffle_training_data();
+    /**
+     * @brief Single entry point for EncoderDecoderModel construction.
+     * Reads vocab size from the current tokenizer and all architecture
+     * dimensions from config.  Every code path that creates the model
+     * must call this — there is no other direct make_unique<EncoderDecoderModel>()
+     * call in this class.
+     * @pre tokenizer must be initialised and not yet transferred to the model.
+     */
+    void build_model();
     void initialize_model();
     float calculate_learning_rate(int step);
     void update_learning_rate();

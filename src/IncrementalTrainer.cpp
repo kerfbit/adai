@@ -1,4 +1,5 @@
 #include "IncrementalTrainer.hpp"
+#include "Config.hpp"
 #include "Logger.hpp"
 #include <algorithm>
 #include <filesystem>
@@ -24,28 +25,27 @@ using adai::Logger;
 
 namespace fs = std::filesystem;
 
-IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path, 
-                                       const std::string& model_path)
-    : current_session_id(0), samples_since_last_save(0), 
-      best_validation_loss(std::numeric_limits<float>::max()), 
-      best_checkpoint_path(""),
-      dashboard_lines_drawn_(0),
-      current_sample_in_epoch_(0), total_samples_in_epoch_(0), running_sample_loss_(0.0f),
-      current_item_loss_(0.0f), current_item_grad_norm_(0.0f) {
-    
-    Logger::info("Initializing Incremental Training System...");
+// ============================================================================
+// build_model() — THE single point for EncoderDecoderModel construction.
+// Reads vocab_path_ and config.base_config to build the model.  Every code
+// path that creates or recreates the model must call this method; there is no
+// other place in the codebase that instantiates EncoderDecoderModel.
+// ============================================================================
+void IncrementalTrainer::build_model() {
+    Logger::info("Building model: d_model={} heads={} d_ff={} enc_layers={} dec_layers={} max_seq={}",
+                 config.base_config.d_model,
+                 config.base_config.num_heads,
+                 config.base_config.d_ff,
+                 config.base_config.num_encoder_layers,
+                 config.base_config.num_decoder_layers,
+                 config.base_config.max_seq_length);
 
-    vocab_path_ = vocab_path;
-    model_path_ = model_path;
+    auto tok = std::make_unique<BPETokenizer>();
+    tok->load_vocab(vocab_path_);
+    Logger::info("Tokenizer loaded (vocab size: {})", tok->get_vocab_size());
 
-    // Load tokenizer
-    tokenizer = std::make_unique<BPETokenizer>();
-    tokenizer->load_vocab(vocab_path);
-    Logger::info("Tokenizer loaded (vocab size: {})", tokenizer->get_vocab_size());
-    
-    // Load or create model
     model = std::make_unique<EncoderDecoderModel>(
-        tokenizer->get_vocab_size(),
+        tok->get_vocab_size(),
         config.base_config.d_model,
         config.base_config.num_encoder_layers,
         config.base_config.num_decoder_layers,
@@ -53,10 +53,114 @@ IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path,
         config.base_config.d_ff,
         config.base_config.max_seq_length
     );
-    
-    model->set_tokenizer(tokenizer.release());
-    
-    // Try to load existing model
+    model->set_tokenizer(tok.release());
+}
+
+// ============================================================================
+// make_incremental_config() — translate ServiceConfig → IncrementalConfig.
+// ============================================================================
+/*static*/
+IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::ServiceConfig& svc) {
+    IncrementalConfig cfg;
+    cfg.base_config.d_model            = static_cast<int>(svc.d_model);
+    cfg.base_config.num_heads          = static_cast<int>(svc.num_heads);
+    cfg.base_config.d_ff               = static_cast<int>(svc.d_ff);
+    cfg.base_config.num_encoder_layers = static_cast<int>(svc.num_encoder_layers);
+    cfg.base_config.num_decoder_layers = static_cast<int>(svc.num_decoder_layers);
+    cfg.base_config.max_seq_length     = static_cast<int>(svc.max_seq_length);
+    cfg.base_config.learning_rate      = svc.learning_rate;
+    cfg.base_config.num_epochs         = svc.num_epochs;
+    cfg.base_config.weight_decay       = svc.weight_decay;
+    cfg.base_config.gradient_clip_norm = svc.gradient_clip;
+    cfg.base_config.batch_size         = svc.batch_size;
+    return cfg;
+}
+
+// ============================================================================
+// Primary constructor — config.conf is the required entry point.
+// ============================================================================
+IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
+    : current_session_id(0), samples_since_last_save(0),
+      best_validation_loss(std::numeric_limits<float>::max()),
+      best_checkpoint_path(""),
+      dashboard_lines_drawn_(0),
+      current_sample_in_epoch_(0), total_samples_in_epoch_(0), running_sample_loss_(0.0f),
+      current_item_loss_(0.0f), current_item_grad_norm_(0.0f) {
+
+    Logger::info("Loading configuration from: {}",
+                 config_file_path.empty() ? "<system default>" : config_file_path);
+
+    adai::ServiceConfig svc = config_file_path.empty()
+        ? adai::ConfigLoader::load()
+        : adai::ConfigLoader::load(config_file_path);
+
+    if (svc.vocab_path.empty()) {
+        throw std::runtime_error(
+            "VOCAB_PATH must be set in config.conf (or via the VOCAB_PATH environment variable)");
+    }
+
+    vocab_path_ = svc.vocab_path;
+    model_path_ = svc.model_path.empty() ? "chatbot_model.bin" : svc.model_path;
+    config      = make_incremental_config(svc);
+    config.base_config.lr_schedule = LRSchedule::WARMUP_COSINE;
+
+    Logger::info("Initializing Incremental Training System...");
+    build_model();
+
+    // Try to load existing model checkpoint
+    std::ifstream model_file(model_path_);
+    if (model_file.good()) {
+        try {
+            model->load_model(model_path_);
+            Logger::info("Model loaded from: {}", model_path_);
+        } catch (...) {
+            Logger::warn("Could not load model, using fresh initialization");
+        }
+    }
+
+    ensure_directories_exist();
+    load_session_history();
+    load_data_registry();
+    load_pending_data_list();
+
+    if (!session_history.empty()) {
+        for (const auto& session : session_history) {
+            if (session.final_validation_loss < best_validation_loss) {
+                best_validation_loss = session.final_validation_loss;
+                best_checkpoint_path = session.checkpoint_path;
+            }
+        }
+        if (!best_checkpoint_path.empty()) {
+            Logger::info("Best checkpoint: {} (val loss: {})", best_checkpoint_path, best_validation_loss);
+        }
+    }
+
+    last_save_time             = std::chrono::system_clock::now();
+    session_start_time_steady_ = std::chrono::steady_clock::now();
+    epoch_start_time_steady_   = session_start_time_steady_;
+}
+
+// ============================================================================
+// Explicit-paths constructor (low-level, uses default IncrementalConfig).
+// ============================================================================
+IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path,
+                                       const std::string& model_path)
+    : current_session_id(0), samples_since_last_save(0),
+      best_validation_loss(std::numeric_limits<float>::max()),
+      best_checkpoint_path(""),
+      dashboard_lines_drawn_(0),
+      current_sample_in_epoch_(0), total_samples_in_epoch_(0), running_sample_loss_(0.0f),
+      current_item_loss_(0.0f), current_item_grad_norm_(0.0f) {
+
+    Logger::info("Initializing Incremental Training System...");
+
+    vocab_path_ = vocab_path;
+    model_path_ = model_path;
+
+    // Build model using default config.
+    build_model();
+
+    // Try to load existing model checkpoint
     std::ifstream model_file(model_path);
     if (model_file.good()) {
         try {
@@ -66,13 +170,12 @@ IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path,
             Logger::warn("Could not load model, using fresh initialization");
         }
     }
-    
-    // Load session history and data registry
+
     ensure_directories_exist();
     load_session_history();
     load_data_registry();
     load_pending_data_list();
-    
+
     // Initialize best checkpoint from history (TD-005)
     if (!session_history.empty()) {
         for (const auto& session : session_history) {
@@ -85,17 +188,65 @@ IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path,
             Logger::info("Best checkpoint: {} (val loss: {})", best_checkpoint_path, best_validation_loss);
         }
     }
-    
-    last_save_time = std::chrono::system_clock::now();
+
+    last_save_time             = std::chrono::system_clock::now();
     session_start_time_steady_ = std::chrono::steady_clock::now();
     epoch_start_time_steady_   = session_start_time_steady_;
 }
 
-IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path, 
+// ============================================================================
+// Explicit-paths + pre-built config constructor.
+// Applies config BEFORE building the model so no defaults are baked in.
+// ============================================================================
+IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path,
                                        const std::string& model_path,
                                        const IncrementalConfig& cfg)
-    : IncrementalTrainer(vocab_path, model_path) {
-    config = cfg;
+    : current_session_id(0), samples_since_last_save(0),
+      best_validation_loss(std::numeric_limits<float>::max()),
+      best_checkpoint_path(""),
+      dashboard_lines_drawn_(0),
+      current_sample_in_epoch_(0), total_samples_in_epoch_(0), running_sample_loss_(0.0f),
+      current_item_loss_(0.0f), current_item_grad_norm_(0.0f) {
+
+    Logger::info("Initializing Incremental Training System...");
+
+    vocab_path_ = vocab_path;
+    model_path_ = model_path;
+    config      = cfg;  // set config FIRST so build_model() uses the correct architecture
+
+    build_model();
+
+    // Try to load existing model checkpoint
+    std::ifstream model_file(model_path);
+    if (model_file.good()) {
+        try {
+            model->load_model(model_path);
+            Logger::info("Model loaded from: {}", model_path);
+        } catch (...) {
+            Logger::warn("Could not load model, using fresh initialization");
+        }
+    }
+
+    ensure_directories_exist();
+    load_session_history();
+    load_data_registry();
+    load_pending_data_list();
+
+    if (!session_history.empty()) {
+        for (const auto& session : session_history) {
+            if (session.final_validation_loss < best_validation_loss) {
+                best_validation_loss = session.final_validation_loss;
+                best_checkpoint_path = session.checkpoint_path;
+            }
+        }
+        if (!best_checkpoint_path.empty()) {
+            Logger::info("Best checkpoint: {} (val loss: {})", best_checkpoint_path, best_validation_loss);
+        }
+    }
+
+    last_save_time             = std::chrono::system_clock::now();
+    session_start_time_steady_ = std::chrono::steady_clock::now();
+    epoch_start_time_steady_   = session_start_time_steady_;
 }
 
 void IncrementalTrainer::set_config(const IncrementalConfig& cfg) {
@@ -107,28 +258,8 @@ IncrementalConfig& IncrementalTrainer::get_config() {
 }
 
 void IncrementalTrainer::reset_model_for_config() {
-    // Build a fresh tokenizer to hand off to the new model.
-    auto new_tokenizer = std::make_unique<BPETokenizer>();
-    new_tokenizer->load_vocab(vocab_path_);
-
-    Logger::info("Reinitializing model: d_model={} heads={} d_ff={} enc={} dec={}",
-                 config.base_config.d_model,
-                 config.base_config.num_heads,
-                 config.base_config.d_ff,
-                 config.base_config.num_encoder_layers,
-                 config.base_config.num_decoder_layers);
-
-    model = std::make_unique<EncoderDecoderModel>(
-        new_tokenizer->get_vocab_size(),
-        config.base_config.d_model,
-        config.base_config.num_encoder_layers,
-        config.base_config.num_decoder_layers,
-        config.base_config.num_heads,
-        config.base_config.d_ff,
-        config.base_config.max_seq_length
-    );
-    model->set_tokenizer(new_tokenizer.release());
-
+    // Delegate entirely to build_model() — the single construction point.
+    build_model();
     Logger::info("Model reinitialized with fresh weights (architecture reset)");
 }
 

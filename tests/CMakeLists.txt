@@ -177,6 +177,7 @@ add_test(NAME ChatbotCLITests COMMAND chatbotcliTests)
 add_executable(chatbotcliImprovedTests 
     chatbotcli_improved_test.cpp
     ../src/ChatbotCLI.cpp  # Include implementation
+    ../src/Config.cpp
 )
 target_link_libraries(chatbotcliImprovedTests 
     adai_models 
@@ -233,6 +234,7 @@ add_executable(incrementaltrainerTests
     ../src/IncrementalTrainer.cpp
     ../src/ChatbotTrainer.cpp
     ../src/Logger.cpp
+    ../src/Config.cpp
 )
 target_compile_definitions(incrementaltrainerTests PRIVATE CHATBOT_TRAINER_TEST_BUILD)
 target_link_libraries(incrementaltrainerTests 
@@ -366,7 +368,11 @@ target_link_libraries(integrationTests
 add_test(NAME IntegrationTests COMMAND integrationTests)
 
 # RAG vs BERT Comparison Test
-add_executable(ragBertComparisonTests rag_bert_comparison_test.cpp)
+add_executable(ragBertComparisonTests
+    rag_bert_comparison_test.cpp
+    ../src/RAGInference.cpp   # Include RAG inference implementation
+    ../src/DocumentStore.cpp  # Include document store implementation
+)
 target_link_libraries(ragBertComparisonTests 
     adai_models 
     adai_nlp 

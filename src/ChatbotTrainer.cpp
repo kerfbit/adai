@@ -345,6 +345,22 @@ float ChatbotTrainer::calculate_accuracy(const std::vector<int>& predictions, co
     }
 
     /**
+     * @brief Single entry point for EncoderDecoderModel construction.
+     * Reads vocab size from the current tokenizer and all architecture
+     * dimensions from config.
+     */
+void ChatbotTrainer::build_model() {
+        model = std::make_unique<EncoderDecoderModel>(
+            tokenizer->get_vocab_size(),
+            config.d_model,
+            config.num_encoder_layers,
+            config.num_decoder_layers,
+            config.num_heads,
+            config.d_ff,
+            config.max_seq_length);
+    }
+
+    /**
      * @brief Initialize the encoder-decoder model
      */
 void ChatbotTrainer::initialize_model() {
@@ -360,9 +376,7 @@ void ChatbotTrainer::initialize_model() {
         adai::Logger::info("  max_seq_length: {}", config.max_seq_length);
         adai::Logger::info("  learning_rate: {}", config.learning_rate);
 
-        model = std::make_unique<EncoderDecoderModel>(tokenizer->get_vocab_size(), config.d_model,
-                                        config.num_encoder_layers, config.num_decoder_layers,
-                                        config.num_heads, config.d_ff, config.max_seq_length);
+        build_model();
 
         // Transfer tokenizer ownership to the model
         // The model will now own the tokenizer and handle saving/loading
@@ -752,11 +766,8 @@ void ChatbotTrainer::restore_best_model() {
         adai::Logger::info("🔄 Restoring best model from epoch {}...", best_epoch);
 
         try {
-            // Reset model and load best one
-            model = std::make_unique<EncoderDecoderModel>(config.d_model, config.num_heads, config.d_ff,
-                                            config.num_encoder_layers, config.num_decoder_layers,
-                                            tokenizer->get_vocab_size(), config.max_seq_length);
-
+            // The model is already sized correctly from initialize_model().
+            // Just reload the weights in-place — no reconstruction needed.
             model->load_model(best_model_path);
             adai::Logger::info("✅ Best model restored");
 

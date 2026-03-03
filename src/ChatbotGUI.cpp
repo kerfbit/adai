@@ -1,5 +1,6 @@
 #include "ChatbotGUI.hpp"
 #include "BPETokenizer.hpp"
+#include "Config.hpp"
 #include "EncoderDecoderModel.hpp"
 #include "ConversationContext.hpp"
 #include <QMessageBox>
@@ -50,15 +51,18 @@ bool ChatbotGUI::initializeChatbot() {
         tokenizer = std::make_unique<BPETokenizer>();
         tokenizer->load_vocab(vocab_path);
         
+        // Load architecture from config (vocab/model paths still come from constructor args)
+        adai::ServiceConfig svc = adai::ConfigLoader::load();
+
         // Initialize model
         model = std::make_unique<EncoderDecoderModel>(
-            tokenizer->get_vocab_size(),  // vocab_size
-            512,                          // d_model
-            6,                            // encoder_layers
-            6,                            // decoder_layers
-            8,                            // num_heads
-            2048,                         // d_ff
-            1024                          // max_seq_length
+            tokenizer->get_vocab_size(),                 // vocab_size
+            static_cast<int>(svc.d_model),               // d_model
+            static_cast<int>(svc.num_encoder_layers),    // encoder_layers
+            static_cast<int>(svc.num_decoder_layers),    // decoder_layers
+            static_cast<int>(svc.num_heads),             // num_heads
+            static_cast<int>(svc.d_ff),                  // d_ff
+            static_cast<int>(svc.max_seq_length)         // max_seq_length
         );
         
         // Transfer tokenizer ownership to model

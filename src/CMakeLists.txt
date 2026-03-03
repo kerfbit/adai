@@ -176,7 +176,7 @@ endif()
 # ============================================================================
 
 # Chatbot CLI - Interactive chatbot application with parallel optimizations (P1-P5)
-add_executable(chatbot ChatbotCLI_main.cpp ChatbotCLI.cpp)
+add_executable(chatbot ChatbotCLI_main.cpp ChatbotCLI.cpp Config.cpp)
 target_link_libraries(chatbot 
     adai_models 
     adai_nlp
@@ -280,6 +280,7 @@ if(BUILD_GUI)
         add_executable(chatbot_gui_binary 
             ChatbotGUI_main.cpp 
             ChatbotGUI.cpp
+            Config.cpp
         )
         
         # Link with appropriate Qt version and full parallel processing libraries

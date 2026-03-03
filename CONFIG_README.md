@@ -32,6 +32,20 @@ EncoderDecoderModel(
    ./build/src/chatbot_api_server
    ```
 
+### Using the Service Script (Recommended)
+
+The easiest way to run the server is using the `model_service.sh` helper script, which automatically uses `config.conf` and handles background execution:
+
+```bash
+# Start in background
+./scripts/model_service.sh start
+
+# Start in foreground with custom config
+./scripts/model_service.sh start --foreground --config my_custom_config.conf
+```
+
+See [docs/operations/MODEL_SERVICE_MANAGER.md](docs/operations/MODEL_SERVICE_MANAGER.md) for full details.
+
 ### Configuration File Locations
 
 The server looks for configuration in this order:
