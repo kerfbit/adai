@@ -168,6 +168,7 @@ struct BatchResponse {
 ## API Examples
 
 ### Python
+
 ```python
 import requests
 
@@ -182,6 +183,7 @@ print(f"Efficiency: {result['stats']['efficiency']}%")
 ```
 
 ### cURL
+
 ```bash
 curl -X POST http://localhost:8080/chat/batch \
   -H "Content-Type: application/json" \

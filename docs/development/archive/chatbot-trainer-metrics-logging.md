@@ -1,7 +1,19 @@
 # ChatbotTrainer Metrics and Logging System
 
+> **⚠️ DEPRECATED - March 2026**
+>
+> This document describes the metrics system for the old standalone ChatbotTrainer which no longer has a command-line entry point.
+>
+> **See instead:**
+>
+> - [IncrementalTrainer Internals](../guides/incremental-trainer-internals.md) - Current training system with enhanced metrics
+>
+> This document is preserved for historical reference only.
+
+---
+
 **Last Updated:** January 2026
-**Component:** ChatbotTrainer
+**Component:** ChatbotTrainer (Internal)
 **Priority:** Low Priority Enhancements
 
 ## Overview

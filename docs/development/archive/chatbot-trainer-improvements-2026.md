@@ -1,5 +1,17 @@
 # ChatbotTrainer Improvements - January 2026
 
+> **⚠️ DEPRECATED - March 2026**
+>
+> This document describes improvements to the old standalone ChatbotTrainer system which no longer has a command-line entry point.
+>
+> **See instead:**
+>
+> - [IncrementalTrainer Internals](../guides/incremental-trainer-internals.md) - Current training system
+>
+> This document is preserved for historical reference only.
+
+---
+
 ## Quick Reference Card
 
 ### 🚀 Performance Improvements
@@ -16,6 +28,7 @@
 ### 📊 Before vs After
 
 #### Before (Old Implementation)
+
 ```bash
 # Training 1 epoch on 1000 samples
 # Tokenization: ~5 seconds per epoch
@@ -27,6 +40,7 @@
 ```
 
 #### After (New Implementation)
+
 ```bash
 # Training 1 epoch on 1000 samples
 # Tokenization: ~0.05 seconds per epoch (cached)
@@ -119,6 +133,7 @@ effective_batch_size = batch_size × gradient_accumulation_steps
 ### 🛠️ Usage Examples
 
 #### Basic Training (Auto-benefits from improvements)
+
 ```bash
 ./chatbot_trainer \
     --data conversations.txt \
@@ -135,6 +150,7 @@ effective_batch_size = batch_size × gradient_accumulation_steps
 - ❌ Gradient accumulation (opt-in)
 
 #### Advanced Training with Gradient Accumulation
+
 ```bash
 ./chatbot_trainer \
     --data conversations.txt \
@@ -160,6 +176,7 @@ effective_batch_size = batch_size × gradient_accumulation_steps
 - ✅ Early stopping
 
 #### Memory-Constrained Training
+
 ```bash
 ./chatbot_trainer \
     --data large_dataset.txt \
@@ -221,25 +238,25 @@ effective_batch_size = batch_size × gradient_accumulation_steps
 
 #### Recommended Configurations
 
-**Small Model (Fast Training)**
+##### Small Model (Fast Training)
 
 ```bash
 --batch-size 1 --grad-accum 1  # Effective: 1
 ```
 
-**Medium Model (Balanced)**
+##### Medium Model (Balanced)
 
 ```bash
 --batch-size 1 --grad-accum 16  # Effective: 16
 ```
 
-**Large Model (Quality)**
+##### Large Model (Quality)
 
 ```bash
 --batch-size 1 --grad-accum 64  # Effective: 64
 ```
 
-**Production Training**
+##### Production Training
 
 ```bash
 --batch-size 4 --grad-accum 8  # Effective: 32

@@ -1,5 +1,19 @@
 # ChatbotTrainer Context Documentation
 
+> **⚠️ DEPRECATED - March 2026**
+> 
+> This document describes the old standalone ChatbotTrainer system which no longer has a command-line entry point. 
+>
+> **ChatbotTrainer is now an internal component** used by `IncrementalTrainer`. All training is performed through the `incremental_trainer` CLI tool.
+>
+> **See instead:**
+> - [IncrementalTrainer Internals](../guides/incremental-trainer-internals.md) - Current training system
+> - [Incremental Training Guide](../../operations/guides/incremental-training-guide.md) - User guide
+>
+> This document is preserved for historical reference only.
+
+---
+
 ## Purpose
 
 `ChatbotTrainer` is a comprehensive command-line training harness for transformer-based chatbot models built on the `EncoderDecoderModel` architecture. It provides a complete end-to-end training pipeline with advanced features including:

@@ -197,7 +197,7 @@ Same as commit message format: `<type>(<scope>): <description>`
 
 ## Commit Best Practices
 
-### Do:
+### Do
 
 - ✅ Commit early and often
 - ✅ Make atomic commits (one logical change per commit)
@@ -205,7 +205,7 @@ Same as commit message format: `<type>(<scope>): <description>`
 - ✅ Test before committing
 - ✅ Keep commits focused and small
 
-### Don't:
+### Don't
 
 - ❌ Commit directly to `main` or `develop`
 - ❌ Commit generated files (build artifacts, binaries)

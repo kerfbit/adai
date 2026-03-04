@@ -38,7 +38,7 @@ This guide covers everything you need to know about building the ADAI project fr
 1. **CMake** (≥ 3.10, **3.23+ recommended**)
    - Build system generator
    - CMake 3.23+ required for CMake presets support
-   - https://cmake.org/download/
+   - [https://cmake.org/download/](https://cmake.org/download/)
 
 2. **C++17 Compatible Compiler**
    - See supported compilers above
@@ -70,7 +70,7 @@ This guide covers everything you need to know about building the ADAI project fr
    - NVIDIA GPU acceleration support
    - Optional - enables GPU-accelerated matrix operations
    - Required only if building with `-DENABLE_GPU=ON`
-   - Download: https://developer.nvidia.com/cuda-downloads
+   - Download: [https://developer.nvidia.com/cuda-downloads](https://developer.nvidia.com/cuda-downloads)
    - Requires NVIDIA GPU with compute capability 6.0+
 
 **Note**: Google Test is no longer a system dependency. It's automatically downloaded and built using CMake FetchContent.
@@ -427,7 +427,6 @@ Matrix::gpu_cleanup();
 - Use GPU operations on large matrices (500x500 or larger)
 - Batch multiple operations together when possible
 - Keep data on GPU between operations (future enhancement)
-
 
 ## Platform-Specific Instructions
 

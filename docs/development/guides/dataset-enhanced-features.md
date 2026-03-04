@@ -353,17 +353,20 @@ int main() {
 ### Dataset Class
 
 #### Constructors
+
 ```cpp
 Dataset(unsigned int seed = 42)
 ```
 
 #### File Operations
+
 ```cpp
 bool load_from_file(const std::string& filepath)
 bool save_to_file(const std::string& filepath, const std::string& format = "conversation")
 ```
 
 #### Data Management
+
 ```cpp
 void add_sample(const std::string& input, const std::string& target)
 void add_samples(const std::vector<DataSample>& samples)
@@ -371,6 +374,7 @@ void clear()
 ```
 
 #### Splitting
+
 ```cpp
 void split(float train_ratio, float val_ratio, float test_ratio)
 void split_stratified(float train_ratio, float val_ratio, float test_ratio, int num_bins)
@@ -378,12 +382,14 @@ std::vector<DataSample> get_split(SplitType split_type) const
 ```
 
 #### Shuffling
+
 ```cpp
 void shuffle()
 void shuffle_split(SplitType split_type)
 ```
 
 #### Iteration
+
 ```cpp
 iterator begin()
 iterator end()
@@ -394,6 +400,7 @@ BatchIterator get_batch_iterator(size_t batch_size) const
 ```
 
 #### K-Fold Cross-Validation
+
 ```cpp
 void setup_k_fold(int k)
 void get_fold(int fold_idx, std::vector<DataSample>& train_data, std::vector<DataSample>& val_data) const
@@ -401,12 +408,14 @@ int get_num_folds() const
 ```
 
 #### Data Augmentation
+
 ```cpp
 void set_augmentation(std::function<DataSample(const DataSample&)> fn)
 void augment_data(int num_augmented = 1)
 ```
 
 #### Preprocessing and Filtering
+
 ```cpp
 void set_preprocessing(std::function<std::string(const std::string&)> fn)
 void apply_preprocessing()
@@ -416,6 +425,7 @@ void lowercase()
 ```
 
 #### Information
+
 ```cpp
 size_t size() const
 size_t size(SplitType split_type) const
@@ -557,4 +567,4 @@ The enhanced Dataset abstraction provides:
 
 **For more examples, see:** `src/DatasetEnhancedExample.cpp`
 
-**End of Documentation**
+End of Documentation

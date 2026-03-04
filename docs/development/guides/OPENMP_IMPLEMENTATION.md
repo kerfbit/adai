@@ -80,13 +80,13 @@ CMake will automatically detect OpenMP. You should see:
 -- OpenMP support added to adai_core - parallel CPU operations enabled
 ```
 
-2. **Build the project:**
+1. **Build the project:**
 
 ```bash
 make -j$(nproc)
 ```
 
-3. **Verify OpenMP is enabled:**
+1. **Verify OpenMP is enabled:**
 
 ```bash
 ./openmp_benchmark
@@ -459,7 +459,7 @@ If OpenMP not available:
    -- OpenMP support added to adai_core
    ```
 
-2. **Run benchmark:**
+1. **Run benchmark:**
 
    ```bash
    ./openmp_benchmark
@@ -467,7 +467,7 @@ If OpenMP not available:
 
    Should show: `✓ OpenMP ENABLED`
 
-3. **Check speedup:**
+1. **Check speedup:**
 
    Look for >5x speedup on 8-core systems in scaling analysis
 

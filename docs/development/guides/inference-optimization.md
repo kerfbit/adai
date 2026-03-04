@@ -159,7 +159,7 @@ KVCache& layer0_cross = cache.get_cross_attention_cache(0);
 
 Batch processing allows the model to process multiple sequences simultaneously, improving hardware utilization and throughput. Instead of processing sequences one at a time, we group them into batches.
 
-### Performance Impact
+### Batch Processing Performance Impact
 
 - **Throughput**: 2-4x improvement (depends on batch size and hardware)
 - **Latency**: Individual requests may wait slightly longer in queue
@@ -485,7 +485,7 @@ Tested on: CPU, d_model=512, 6 layers, 8 heads
 | Batch only | 38.5 | 103.5 |
 | Combined | 12.8 | 312.5 |
 
-**Total improvement: ~13x throughput with combined optimizations**
+> **Total improvement: ~13x throughput with combined optimizations**
 
 ---
 

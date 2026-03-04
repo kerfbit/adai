@@ -8,7 +8,7 @@
 
 ### Modified Files
 
-- [x] **[EfficientBatching.hpp](src/EfficientBatching.hpp)**
+- [x] **[EfficientBatching.hpp](../../../src/EfficientBatching.hpp)**
   - [x] Added OpenMP include (`#ifdef ADAI_ENABLE_OPENMP`)
   - [x] Parallelized `apply_augmentation()` function
   - [x] Implemented thread-local RNG (seed + thread_id)
@@ -19,7 +19,7 @@
 
 ### Build System Changes
 
-- [x] **[CMakeLists.txt](src/CMakeLists.txt)**
+- [x] **[CMakeLists.txt](../../../src/CMakeLists.txt)**
   - [x] Added `augmentation_benchmark` executable target
   - [x] Linked with `adai_core` library
   - [x] OpenMP detection and linking (automatic from Priority 1)
@@ -27,7 +27,7 @@
 
 ### New Files Created
 
-- [x] **[AugmentationBenchmark.cpp](src/AugmentationBenchmark.cpp)** (450+ lines)
+- [x] **[AugmentationBenchmark.cpp](../../../benchmarks/AugmentationBenchmark.cpp)** (450+ lines)
   - [x] Parallel scaling benchmark (1, 2, 4, 8 threads)
   - [x] Individual operation benchmarks
   - [x] Dataset size scaling tests
@@ -152,7 +152,7 @@ Expected output:
 
 ### Code Documentation
 
-- [x] **[AugmentationBenchmark.cpp](src/AugmentationBenchmark.cpp)**
+- [x] **[AugmentationBenchmark.cpp](../../../benchmarks/AugmentationBenchmark.cpp)**
   - [x] Comprehensive inline comments
   - [x] Function documentation
   - [x] Usage instructions in header
@@ -294,19 +294,19 @@ OMP_NUM_THREADS=8 ./augmentation_benchmark  # Force 8 threads
 
 ### Modified Files (2)
 
-1. `src/EfficientBatching.hpp` - Core implementation
-2. `src/CMakeLists.txt` - Build configuration
+1. [src/EfficientBatching.hpp](../../../src/EfficientBatching.hpp) - Core implementation
+2. [src/CMakeLists.txt](../../../src/CMakeLists.txt) - Build configuration
 
 ### Created Files (3)
 
-1. `src/AugmentationBenchmark.cpp` - Benchmark suite (450+ lines)
-2. `AUGMENTATION_IMPLEMENTATION.md` - Implementation guide
-3. `AUGMENTATION_QUICK_REFERENCE.md` - Quick reference
+1. [benchmarks/AugmentationBenchmark.cpp](../../../benchmarks/AugmentationBenchmark.cpp) - Benchmark suite (450+ lines)
+2. [AUGMENTATION_IMPLEMENTATION.md](AUGMENTATION_IMPLEMENTATION.md) - Implementation guide
+3. [AUGMENTATION_QUICK_REFERENCE.md](AUGMENTATION_QUICK_REFERENCE.md) - Quick reference
 
 ### Documentation Files (2)
 
-1. `AUGMENTATION_IMPLEMENTATION.md` - Comprehensive guide
-2. `AUGMENTATION_QUICK_REFERENCE.md` - Summary and quick tips
+1. [AUGMENTATION_IMPLEMENTATION.md](AUGMENTATION_IMPLEMENTATION.md) - Comprehensive guide
+2. [AUGMENTATION_QUICK_REFERENCE.md](AUGMENTATION_QUICK_REFERENCE.md) - Summary and quick tips
 
 **Total Files Modified/Created:** 5
 

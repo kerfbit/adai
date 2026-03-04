@@ -85,7 +85,7 @@ Complete checklist of all files and tasks required to implement the decoder arch
 
 ## 📋 Phase 2: Decoder Stack (Week 2)
 
-### Header Files
+### Phase 2: Header Files
 
 - [ ] **src/Decoder.hpp**
   - LLMDecoder class declaration
@@ -96,7 +96,7 @@ Complete checklist of all files and tasks required to implement the decoder arch
   - Backward pass
   - ~150 lines
 
-### Implementation Files
+### Phase 2: Implementation Files
 
 - [ ] **src/Decoder.cpp**
   - Constructor: initialize all components
@@ -110,7 +110,7 @@ Complete checklist of all files and tasks required to implement the decoder arch
   - Save/load directory structure
   - ~450 lines
 
-### Example Programs
+### Phase 2: Example Programs
 
 - [ ] **src/DecoderExample.cpp**
   - Basic decoder usage
@@ -119,7 +119,7 @@ Complete checklist of all files and tasks required to implement the decoder arch
   - Save/load example
   - ~150 lines
 
-### Unit Tests
+### Phase 2: Unit Tests
 
 - [ ] **tests/decoder_test.cpp**
   - Constructor initialization
@@ -131,7 +131,7 @@ Complete checklist of all files and tasks required to implement the decoder arch
   - Learning rate propagation
   - ~400 lines
 
-### Integration Tests
+### Phase 2: Integration Tests
 
 - [ ] **tests/encoder_decoder_integration_test.cpp**
   - Encoder → Decoder connection
@@ -141,7 +141,7 @@ Complete checklist of all files and tasks required to implement the decoder arch
   - Gradient flow through both
   - ~300 lines
 
-### Documentation
+### Phase 2: Documentation
 
 - [ ] **Context Documentation/DECODER_CONTEXT.md**
   - Complete decoder architecture
@@ -164,7 +164,7 @@ Complete checklist of all files and tasks required to implement the decoder arch
 
 ## 📋 Phase 3: Text Generation (Week 3)
 
-### Header Files
+### Phase 3: Header Files
 
 - [ ] **src/TextGenerator.hpp**
   - TextGenerator class declaration
@@ -174,7 +174,7 @@ Complete checklist of all files and tasks required to implement the decoder arch
   - Special token configuration
   - ~120 lines
 
-### Implementation Files
+### Phase 3: Implementation Files
 
 - [ ] **src/TextGenerator.cpp**
   - Constructor initialization
@@ -189,7 +189,7 @@ Complete checklist of all files and tasks required to implement the decoder arch
   - Helper: sample_token
   - ~650 lines
 
-### Example Programs
+### Phase 3: Example Programs
 
 - [ ] **src/TextGeneratorExample.cpp**
   - Initialize encoder + decoder
@@ -198,7 +198,7 @@ Complete checklist of all files and tasks required to implement the decoder arch
   - Parameter tuning examples
   - ~200 lines
 
-### Unit Tests
+### Phase 3: Unit Tests
 
 - [ ] **tests/textgenerator_test.cpp**
   - Constructor test
@@ -212,7 +212,7 @@ Complete checklist of all files and tasks required to implement the decoder arch
   - Temperature effects
   - ~350 lines
 
-### Documentation
+### Phase 3: Documentation
 
 - [ ] **Context Documentation/TEXTGENERATOR_CONTEXT.md**
   - Generation strategies overview
@@ -237,7 +237,7 @@ Complete checklist of all files and tasks required to implement the decoder arch
 
 ## 📋 Phase 4: Integration & Application (Week 4)
 
-### Header Files
+### Phase 4: Header Files
 
 - [ ] **src/EncoderDecoderModel.hpp**
   - EncoderDecoderModel class declaration
@@ -248,7 +248,7 @@ Complete checklist of all files and tasks required to implement the decoder arch
   - Save/load complete model
   - ~100 lines
 
-### Implementation Files
+### Phase 4: Implementation Files
 
 - [ ] **src/EncoderDecoderModel.cpp**
   - Constructor: initialize encoder + decoder + generator
@@ -262,7 +262,7 @@ Complete checklist of all files and tasks required to implement the decoder arch
   - Load: restore complete model
   - ~350 lines
 
-### Application Programs
+### Phase 4: Application Programs
 
 - [ ] **src/EncoderDecoderExample.cpp**
   - Complete chatbot example
@@ -279,7 +279,7 @@ Complete checklist of all files and tasks required to implement the decoder arch
   - Configuration file support
   - ~400 lines
 
-### Integration Tests
+### Phase 4: Integration Tests
 
 - [ ] **tests/encoderdecoder_test.cpp**
   - Model initialization
@@ -291,7 +291,7 @@ Complete checklist of all files and tasks required to implement the decoder arch
   - Generation after training
   - ~350 lines
 
-### Performance Tests
+### Phase 4: Performance Tests
 
 - [ ] **tests/performance_test.cpp**
   - Encoder throughput
@@ -301,7 +301,7 @@ Complete checklist of all files and tasks required to implement the decoder arch
   - Sequence length scaling
   - ~200 lines
 
-### Documentation
+### Phase 4: Documentation
 
 - [ ] **Context Documentation/ENCODERDECODER_CONTEXT.md**
   - Complete system architecture
@@ -435,7 +435,7 @@ add_test(NAME Performance COMMAND performance_test)
 
 ## 📋 Documentation Files
 
-### Context Documentation
+### Context Documents
 
 - [x] **DECODER_DESIGN.md** - Complete design specification
 - [x] **DECODER_DESIGN_SUMMARY.md** - Executive summary
@@ -545,7 +545,7 @@ add_test(NAME Performance COMMAND performance_test)
 - [ ] Passes static analysis
 - [ ] Performance benchmarks met
 
-### Documentation
+### Documentation Requirements
 
 - [ ] All context documents complete
 - [ ] API documentation complete

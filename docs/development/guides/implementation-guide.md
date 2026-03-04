@@ -701,6 +701,7 @@ target_link_libraries(chatbot_example decoder)
 ## Common Pitfalls & Solutions
 
 ### Pitfall 1: Forgetting to Cache for Backward Pass
+
 ```cpp
 // ❌ WRONG
 Matrix forward(const Matrix& input) {
@@ -715,6 +716,7 @@ Matrix forward(const Matrix& input) {
 ```
 
 ### Pitfall 2: Not Setting Learning Rates for Sub-components
+
 ```cpp
 // ❌ WRONG
 DecoderBlock::DecoderBlock(int d_model, int num_heads, int d_ff) {
@@ -731,6 +733,7 @@ DecoderBlock::DecoderBlock(int d_model, int num_heads, int d_ff)
 ```
 
 ### Pitfall 3: Incorrect Gradient Accumulation at Residuals
+
 ```cpp
 // ❌ WRONG (gradient lost)
 Matrix grad_input = component->backward(grad_output);
@@ -750,6 +753,7 @@ return grad_input;
 ```
 
 ### Pitfall 4: Not Zeroing Gradients After Update
+
 ```cpp
 // ❌ WRONG
 void update_weights() {
@@ -795,18 +799,15 @@ void update_weights() {
 **Last Updated:** January 18, 2026
 **Related:** DECODER_DESIGN.md, DECODER_DESIGN_SUMMARY.md
 
-
 ---
 
-## Implementation Summary
+## BPE Tokenizer Implementation
 
-# BPE Tokenizer Save/Load Implementation Summary
-
-## Changes Made
+### Changes Made
 
 Added comprehensive save and load functionality to the BPE Tokenizer class that preserves all necessary state for full tokenizer reconstruction.
 
-### Files Modified
+#### Files Modified
 
 1. **src/BPETokenizer.cpp**
    - Enhanced `save_vocab()` function
@@ -931,7 +932,7 @@ IDs match: YES
 Decoded text matches: YES
 ```
 
-## Conclusion
+### Conclusion
 
 The save/load functionality is fully implemented, tested, and working correctly. The tokenizer can now:
 

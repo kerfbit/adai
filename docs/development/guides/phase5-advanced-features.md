@@ -748,19 +748,19 @@ int main() {
    - Identify sensitive layers
    - Consider skipping quantization for critical components
 
-### Speculative Decoding
+### Speculative Decoding Best Practices
 
 1. **Draft Model Selection**
    - 10-20x smaller than target
    - Same tokenizer/vocabulary
    - Trained on similar data
 
-2. **Candidate Count (K)**
+1. **Candidate Count (K)**
    - K=4-6 for most cases
    - Higher K with good draft models
    - Lower K if acceptance rate < 60%
 
-3. **Temperature Tuning**
+1. **Temperature Tuning**
    - Match between draft and target
    - Lower temperatures = higher acceptance
    - Higher temperatures = more diversity

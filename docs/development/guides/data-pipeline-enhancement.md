@@ -82,6 +82,7 @@ auto batches = EfficientBatching::create_dynamic_batches(
 ### Padding Strategies
 
 #### Right Padding (Default)
+
 ```cpp
 // Original: [1, 2, 3]
 // Padded:   [1, 2, 3, 0, 0]
@@ -95,6 +96,7 @@ auto batches = EfficientBatching::create_dynamic_batches(
 **Best for:** Autoregressive models (GPT-style), left-to-right generation
 
 #### Left Padding
+
 ```cpp
 // Original: [1, 2, 3]
 // Padded:   [0, 0, 1, 2, 3]
@@ -108,6 +110,7 @@ auto batches = EfficientBatching::create_dynamic_batches(
 **Best for:** Right-to-left models, certain encoder architectures
 
 #### Center Padding
+
 ```cpp
 // Original: [1, 2, 3]
 // Padded:   [0, 1, 2, 3, 0]
@@ -206,7 +209,7 @@ std::cout << "Efficiency score: " << stats.efficiency_score << "\n";
 
 ## Parallel Data Loading
 
-### Basic Usage
+### Parallel Data Loading Usage
 
 ```cpp
 #include "ParallelDataLoader.hpp"
@@ -658,6 +661,7 @@ std::cout << "Throughput: " << throughput << " sequences/second\n";
 ### Configuration Templates
 
 #### Small Dataset (< 1K samples)
+
 ```cpp
 DataLoaderConfig config;
 config.batch_size = 16;
@@ -667,6 +671,7 @@ config.use_dynamic_batching = true;
 ```
 
 #### Medium Dataset (1K - 100K samples)
+
 ```cpp
 DataLoaderConfig config;
 config.batch_size = 32;
@@ -677,6 +682,7 @@ config.shuffle = true;
 ```
 
 #### Large Dataset (> 100K samples)
+
 ```cpp
 DataLoaderConfig config;
 config.batch_size = 64;
@@ -689,6 +695,7 @@ config.shuffle = true;
 ```
 
 #### Inference / Validation
+
 ```cpp
 DataLoaderConfig config;
 config.batch_size = 128;  // Larger batches

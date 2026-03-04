@@ -165,7 +165,7 @@ public:
 
 Tracks and analyzes training metrics over time.
 
-#### Features
+#### MetricsTracker Features
 
 - Loss and perplexity tracking
 - Best metrics tracking
@@ -173,7 +173,7 @@ Tracks and analyzes training metrics over time.
 - Moving averages for smoothing
 - CSV export for visualization
 
-#### Usage Example
+#### MetricsTracker Usage Example
 
 ```cpp
 #include "MetricsTracker.hpp"
@@ -273,7 +273,7 @@ public:
 
 Manages model checkpoints with automatic rotation and best model tracking.
 
-#### Features
+#### CheckpointManager Features
 
 - Automatic checkpoint rotation (keep N best)
 - Best model tracking by validation loss
@@ -281,7 +281,7 @@ Manages model checkpoints with automatic rotation and best model tracking.
 - Directory-based organization
 - Automatic cleanup
 
-#### Usage Example
+#### CheckpointManager Usage Example
 
 ```cpp
 #include "CheckpointManager.hpp"
@@ -313,7 +313,7 @@ model->load_model(best_path);
 manager.print_summary();
 ```
 
-#### API Reference
+#### CheckpointManager API Reference
 
 ```cpp
 class CheckpointManager {
@@ -794,4 +794,4 @@ These components work seamlessly with the existing ChatbotTrainer and can be int
 
 ---
 
-**End of Documentation**
+End of Documentation

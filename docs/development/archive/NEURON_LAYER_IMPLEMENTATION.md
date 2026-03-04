@@ -30,6 +30,7 @@ The `NeuronLayer` class has been successfully implemented as part of the neural 
 ## Class Interface
 
 ### Constructor
+
 ```cpp
 NeuronLayer(int in_size, int out_size, ActivationType activation, float lr = 0.01f);
 ```
@@ -38,7 +39,7 @@ Creates a layer with specified input/output dimensions and activation function.
 
 ### Core Methods
 
-**Forward Propagation:**
+#### Forward Propagation
 
 ```cpp
 std::vector<float> forward(const std::vector<float>& inputs);
@@ -46,7 +47,7 @@ std::vector<float> forward(const std::vector<float>& inputs);
 
 Computes layer output by passing inputs through all neurons in parallel.
 
-**Backward Propagation:**
+#### Backward Propagation
 
 ```cpp
 std::vector<float> backward(const std::vector<float>& gradients);
@@ -56,13 +57,13 @@ Performs backpropagation, updating weights and accumulating input gradients.
 
 ### Weight Initialization
 
-**He Initialization (for ReLU):**
+#### He Initialization (for ReLU)
 
 ```cpp
 void he_init();
 ```
 
-**Xavier Initialization (for Sigmoid/Tanh):**
+#### Xavier Initialization (for Sigmoid/Tanh)
 
 ```cpp
 void xavier_init(int fan_out);
@@ -70,7 +71,7 @@ void xavier_init(int fan_out);
 
 ### Configuration
 
-**Set Learning Rate:**
+#### Set Learning Rate
 
 ```cpp
 void set_learning_rate(float lr);
@@ -153,6 +154,7 @@ The example program demonstrates:
 ## Integration
 
 ### Building
+
 ```bash
 cd build
 cmake ..
@@ -160,6 +162,7 @@ cmake --build . --target neuronlayer
 ```
 
 ### Running
+
 ```bash
 ./src/neuronlayer
 ```
@@ -176,6 +179,7 @@ add_executable(neuronlayer ${NEURON_LAYER_SOURCE_FILES})
 ## Usage Examples
 
 ### Creating a Simple Network
+
 ```cpp
 NeuronLayer layer1(784, 256, ActivationType::RELU, 0.01f);
 NeuronLayer layer2(256, 128, ActivationType::RELU, 0.01f);
@@ -187,6 +191,7 @@ layer3.xavier_init(10);
 ```
 
 ### Training Loop
+
 ```cpp
 for (const auto& [input, target] : training_data) {
     // Forward
