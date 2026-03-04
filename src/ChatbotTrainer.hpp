@@ -33,6 +33,7 @@ struct TokenizedPair {
     std::string input_text;   // Keep for debugging/logging
     std::string target_text;  // Keep for debugging/logging
 
+    TokenizedPair() = default;  // Required for pre-sized parallel fill
     TokenizedPair(const std::vector<int>& in_tok, const std::vector<int>& tgt_tok,
                   const std::string& in_txt, const std::string& tgt_txt)
         : input_tokens(in_tok), target_tokens(tgt_tok), input_text(in_txt), target_text(tgt_txt) {}

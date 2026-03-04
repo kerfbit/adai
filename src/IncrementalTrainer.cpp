@@ -11,6 +11,9 @@
 #include <ctime>
 #include <regex>
 #include <cstdlib>
+#ifdef ADAI_ENABLE_OPENMP
+#include <omp.h>
+#endif
 
 // Bring Logger into scope without qualifying every call
 using adai::Logger;
@@ -326,34 +329,44 @@ bool IncrementalTrainer::train_incremental(int num_epochs) {
     session_start_time_steady_ = std::chrono::steady_clock::now();
     epoch_start_time_steady_   = session_start_time_steady_;
 
-    // Load all pending data
+    // Load all pending data — files are independent so load them in parallel
     std::vector<ConversationPair> training_pairs;
     std::vector<ConversationPair> validation_pairs;
 
-    for (const auto& data_file : pending_data_files) {
-        std::vector<ConversationPair> pairs;
-        int loaded = load_conversation_pairs(data_file, pairs);
+    {
+        const int n_files = static_cast<int>(pending_data_files.size());
+        std::vector<std::vector<ConversationPair>> per_file(n_files);
 
-        if (loaded > 0) {
-            // Split into training/validation
-            int val_size = loaded / config.base_config.validation_split;
-            for (int i = 0; i < loaded; ++i) {
-                if (i < val_size) {
-                    validation_pairs.push_back(pairs[i]);
-                } else {
-                    training_pairs.push_back(pairs[i]);
+#ifdef ADAI_ENABLE_OPENMP
+        #pragma omp parallel for schedule(dynamic)
+#endif
+        for (int fi = 0; fi < n_files; ++fi) {
+            load_conversation_pairs(pending_data_files[fi], per_file[fi]);
+        }
+
+        // Sequential: split, collect pairs, update data registry
+        for (int fi = 0; fi < n_files; ++fi) {
+            const auto& data_file = pending_data_files[fi];
+            auto& pairs = per_file[fi];
+            int loaded = static_cast<int>(pairs.size());
+            if (loaded > 0) {
+                int val_size = loaded / config.base_config.validation_split;
+                for (int i = 0; i < loaded; ++i) {
+                    if (i < val_size)
+                        validation_pairs.push_back(pairs[i]);
+                    else
+                        training_pairs.push_back(pairs[i]);
                 }
-            }
 
-            // Mark as trained
-            DataVersion dv;
-            dv.data_file  = data_file;
-            dv.checksum   = compute_data_checksum(data_file);
-            dv.num_samples = loaded;
-            dv.added_time = std::chrono::system_clock::now();
-            dv.trained    = true;
-            data_registry.push_back(dv);
-            trained_data_files.insert(data_file);
+                DataVersion dv;
+                dv.data_file   = data_file;
+                dv.checksum    = compute_data_checksum(data_file);
+                dv.num_samples = loaded;
+                dv.added_time  = std::chrono::system_clock::now();
+                dv.trained     = true;
+                data_registry.push_back(dv);
+                trained_data_files.insert(data_file);
+            }
         }
     }
 
@@ -498,12 +511,23 @@ bool IncrementalTrainer::train_full_retrain(int num_epochs) {
     session_start_time_steady_ = std::chrono::steady_clock::now();
     epoch_start_time_steady_   = session_start_time_steady_;
 
-    // Load all data
+    // Load all data — files are independent so load them in parallel
     std::vector<ConversationPair> all_pairs;
-    for (const auto& data_file : all_data_files) {
-        std::vector<ConversationPair> pairs;
-        load_conversation_pairs(data_file, pairs);
-        all_pairs.insert(all_pairs.end(), pairs.begin(), pairs.end());
+    {
+        const int n_files = static_cast<int>(all_data_files.size());
+        std::vector<std::vector<ConversationPair>> per_file(n_files);
+
+#ifdef ADAI_ENABLE_OPENMP
+        #pragma omp parallel for schedule(dynamic)
+#endif
+        for (int fi = 0; fi < n_files; ++fi) {
+            load_conversation_pairs(all_data_files[fi], per_file[fi]);
+        }
+
+        // Merge in order so dataset ordering is deterministic
+        for (int fi = 0; fi < n_files; ++fi) {
+            all_pairs.insert(all_pairs.end(), per_file[fi].begin(), per_file[fi].end());
+        }
     }
 
     Logger::info("Total samples: {}", all_pairs.size());
@@ -1777,9 +1801,12 @@ void IncrementalTrainer::display_dashboard(const TrainingSession& session,
     float prev_val  = (session.per_epoch_validation_losses.size() >= 2)
                     ? session.per_epoch_validation_losses[session.per_epoch_validation_losses.size() - 2] : cur_val;
 
-    // Per-sample trend: track previous item/running loss across draws
+    // Per-sample trend: track previous values across draws
     static float prev_item_loss_draw_    = 0.0f;
     static float prev_running_loss_draw_ = 0.0f;
+    static float prev_item_ppl_draw_     = 0.0f;
+    static float prev_running_ppl_draw_  = 0.0f;
+    static float prev_gnorm_draw_        = 0.0f;
 
     // Best val across whole session
     float best_val = std::numeric_limits<float>::max();
@@ -1917,7 +1944,7 @@ void IncrementalTrainer::display_dashboard(const TrainingSession& session,
             }
             row(ss.str());
         }
-        // Item PPL + running PPL (colored)
+        // Item PPL + running PPL (colored, trend icon)
         {
             std::ostringstream ss;
             if (current_sample_in_epoch_ > 0) {
@@ -1927,26 +1954,49 @@ void IncrementalTrainer::display_dashboard(const TrainingSession& session,
                 std::string rp = fmt_f(rppl, 2);
                 ss << " Item PPL : "
                    << cpad(colorize(ip, ppl_color(ippl)), (int)ip.size(), 8)
-                   << "   Running PPL: "
-                   << cpad(colorize(rp, ppl_color(rppl)), (int)rp.size(), 8);
+                   << " " << trend(ippl, prev_item_ppl_draw_)
+                   << "  Running PPL: "
+                   << cpad(colorize(rp, ppl_color(rppl)), (int)rp.size(), 8)
+                   << " " << trend(rppl, prev_running_ppl_draw_);
             } else {
-                ss << " Item PPL : --         Running PPL: --";
+                ss << " Item PPL : --          Running PPL: --";
             }
             row(ss.str());
         }
-        // Grad norm (colored) + throughput + ETA
+        // Grad norm (colored, trend icon) + throughput + ETA
         {
             std::ostringstream ss;
             if (current_sample_in_epoch_ > 0) {
+                // Use (sample - 1) as the completed count since the epoch timer
+                // is reset on the sample-1 callback entry, so elapsed is ~0 then.
+                int completed = current_sample_in_epoch_ - 1;
                 double epoch_elapsed = duration<double>(now - epoch_start_time_steady_).count();
-                double sps = (epoch_elapsed > 0.0) ? current_sample_in_epoch_ / epoch_elapsed : 0.0;
+                double sps = (completed > 0 && epoch_elapsed > 0.0)
+                             ? static_cast<double>(completed) / epoch_elapsed : 0.0;
                 double epoch_eta = (sps > 0.0)
                     ? (total_samples_in_epoch_ - current_sample_in_epoch_) / sps : 0.0;
                 std::string gn = fmt_f(current_item_grad_norm_);
+                std::string sps_str;
+                std::string eta_str;
+                if (sps > 0.0) {
+                    std::ostringstream sps_ss;
+                    if (sps >= 1.0) {
+                        sps_ss << std::fixed << std::setprecision(1) << sps << " samp/s";
+                    } else {
+                        // Too slow for per-second display — show per-minute instead
+                        sps_ss << std::fixed << std::setprecision(1) << (sps * 60.0) << " samp/m";
+                    }
+                    sps_str = sps_ss.str();
+                    eta_str = format_duration(epoch_eta);
+                } else {
+                    sps_str = "-- samp/s";
+                    eta_str = "--:--";
+                }
                 ss << " Grad norm: "
                    << cpad(colorize(gn, gnorm_color(current_item_grad_norm_)), (int)gn.size(), 8)
-                   << "  " << std::fixed << std::setprecision(1) << sps << " samp/s"
-                   << "   ETA epoch: " << format_duration(epoch_eta);
+                   << " " << trend(current_item_grad_norm_, prev_gnorm_draw_)
+                   << "  " << sps_str
+                   << "   ETA epoch: " << eta_str;
             } else {
                 ss << " Grad norm: --          -- samp/s   ETA epoch: --:--";
             }
@@ -1959,6 +2009,9 @@ void IncrementalTrainer::display_dashboard(const TrainingSession& session,
     // Update previous sample values for trend arrows on next draw
     prev_item_loss_draw_    = current_item_loss_;
     prev_running_loss_draw_ = running_sample_loss_;
+    prev_item_ppl_draw_     = std::exp(current_item_loss_);
+    prev_running_ppl_draw_  = std::exp(running_sample_loss_);
+    prev_gnorm_draw_        = current_item_grad_norm_;
 
     // ── Per-epoch metrics ─────────────────────────────────────────────────
     hline("\xe2\x94\x9c", "\xe2\x94\xa4");

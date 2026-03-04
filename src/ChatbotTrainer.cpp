@@ -9,6 +9,9 @@
 #include <sstream>
 #include "ConversationContext.hpp"
 #include "Logger.hpp"
+#ifdef ADAI_ENABLE_OPENMP
+#include <omp.h>
+#endif
 
 // ANSI color codes
 #define COLOR_RESET "\033[0m"
@@ -268,22 +271,34 @@ void ChatbotTrainer::preprocess_data() {
 
         adai::Logger::info("🔄 Preprocessing and tokenizing data...");
 
-        // Tokenize training data
+        // Tokenize training data — parallel BPE encoding (tokenizer is read-only after load)
+        const int n_train = static_cast<int>(training_data.size());
         tokenized_training_data.clear();
-        for (const auto& pair : training_data) {
-            std::vector<int> input_tokens = tokenizer->encode(pair.input, false);    // Encoder: no special tokens
-            std::vector<int> target_tokens = tokenizer->encode(pair.response, true); // Decoder: with special tokens
-            tokenized_training_data.emplace_back(input_tokens, target_tokens, pair.input,
-                                                 pair.response);
+        tokenized_training_data.resize(n_train);
+#ifdef ADAI_ENABLE_OPENMP
+        #pragma omp parallel for schedule(dynamic, 16)
+#endif
+        for (int i = 0; i < n_train; i++) {
+            const auto& pair = training_data[i];
+            tokenized_training_data[i] = TokenizedPair(
+                tokenizer->encode(pair.input,    false),   // Encoder: no special tokens
+                tokenizer->encode(pair.response, true),    // Decoder: with special tokens
+                pair.input, pair.response);
         }
 
-        // Tokenize validation data
+        // Tokenize validation data — parallel BPE encoding
+        const int n_val = static_cast<int>(validation_data.size());
         tokenized_validation_data.clear();
-        for (const auto& pair : validation_data) {
-            std::vector<int> input_tokens = tokenizer->encode(pair.input, false);    // Encoder: no special tokens
-            std::vector<int> target_tokens = tokenizer->encode(pair.response, true); // Decoder: with special tokens
-            tokenized_validation_data.emplace_back(input_tokens, target_tokens, pair.input,
-                                                   pair.response);
+        tokenized_validation_data.resize(n_val);
+#ifdef ADAI_ENABLE_OPENMP
+        #pragma omp parallel for schedule(dynamic, 16)
+#endif
+        for (int i = 0; i < n_val; i++) {
+            const auto& pair = validation_data[i];
+            tokenized_validation_data[i] = TokenizedPair(
+                tokenizer->encode(pair.input,    false),   // Encoder: no special tokens
+                tokenizer->encode(pair.response, true),    // Decoder: with special tokens
+                pair.input, pair.response);
         }
 
         // Initialize shuffling indices
