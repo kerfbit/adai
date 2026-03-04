@@ -314,8 +314,19 @@ void LLMDecoder::load_weights(const std::string& filepath) {
     file.read(reinterpret_cast<char*>(&loaded_max_seq_length), sizeof(int));
 
     if (loaded_vocab_size != vocab_size || loaded_d_model != d_model ||
-        loaded_num_layers != num_layers) {
-        throw std::runtime_error("Model architecture mismatch");
+        loaded_num_layers != num_layers || loaded_num_heads != num_heads ||
+        loaded_d_ff != d_ff) {
+        throw std::runtime_error(
+            "Decoder architecture mismatch: saved (vocab=" + std::to_string(loaded_vocab_size) +
+            ", d_model=" + std::to_string(loaded_d_model) +
+            ", layers=" + std::to_string(loaded_num_layers) +
+            ", heads=" + std::to_string(loaded_num_heads) +
+            ", d_ff=" + std::to_string(loaded_d_ff) +
+            ") vs current (vocab=" + std::to_string(vocab_size) +
+            ", d_model=" + std::to_string(d_model) +
+            ", layers=" + std::to_string(num_layers) +
+            ", heads=" + std::to_string(num_heads) +
+            ", d_ff=" + std::to_string(d_ff) + ")");
     }
 
     file.close();

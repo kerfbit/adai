@@ -145,7 +145,7 @@ using EpochCallback = std::function<void(int epoch, int total, float loss, float
  * @param step_loss      average loss for this specific optimizer step
  * @param grad_norm      gradient norm for this optimizer step
  */
-using SampleCallback = std::function<void(int sample, int total_samples, float running_loss, float step_loss, float grad_norm)>;
+using SampleCallback = std::function<void(int sample, int total_samples, float running_loss, float step_loss, float grad_norm, float lr)>;
 
 class ChatbotTrainer {
    private:

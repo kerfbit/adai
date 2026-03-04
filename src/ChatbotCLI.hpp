@@ -4,11 +4,9 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <httplib.h>
 
-// Forward declarations
-class BPETokenizer;
-class EncoderDecoderModel;
-class ConversationContext;
+// Forward declarations removed: BPETokenizer, EncoderDecoderModel, ConversationContext
 
 /**
  * @brief Interactive command-line interface for the ADAI transformer-based chatbot
@@ -21,11 +19,10 @@ class ChatbotCLI {
     /**
      * @brief Construct a new ChatbotCLI object
      * 
-     * @param vocab_file Path to BPE vocabulary file
-     * @param model_file Path to pre-trained model weights
+     * @param server_url URL of the Chatbot API (e.g., "http://localhost:8080")
      * @param conv_save_file Path for saving conversation history (default: "conversation_history.txt")
      */
-    ChatbotCLI(const std::string& vocab_file, const std::string& model_file,
+    ChatbotCLI(const std::string& server_url,
                const std::string& conv_save_file = "conversation_history.txt");
 
     /**
@@ -42,7 +39,7 @@ class ChatbotCLI {
     ChatbotCLI& operator=(ChatbotCLI&&) = default;
 
     /**
-     * @brief Initialize the chatbot (load tokenizer, model, and context)
+     * @brief Initialize the chatbot (connect to server)
      * @return true if initialization successful, false otherwise
      */
     bool initialize();
@@ -93,8 +90,7 @@ class ChatbotCLI {
     float get_top_p() const { return top_p; }
     int get_top_k() const { return top_k; }
     int get_beam_width() const { return beam_width; }
-    const std::string& get_vocab_path() const { return vocab_path; }
-    const std::string& get_model_path() const { return model_path; }
+    const std::string& get_server_url() const { return server_url; }
     const std::string& get_conversation_save_path() const { return conversation_save_path; }
 
     // Setters for testing
@@ -106,13 +102,11 @@ class ChatbotCLI {
     void set_beam_width(int width) { beam_width = width; }
 
    private:
-    std::unique_ptr<BPETokenizer> tokenizer;
-    std::unique_ptr<EncoderDecoderModel> model;
-    std::unique_ptr<ConversationContext> context;
-
-    std::string model_path;
-    std::string vocab_path;
+    std::string server_url;
     std::string conversation_save_path;
+    std::string session_id;
+    
+    std::unique_ptr<httplib::Client> client;
 
     // Generation parameters
     int max_response_length;

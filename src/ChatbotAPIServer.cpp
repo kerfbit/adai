@@ -14,6 +14,10 @@
 #include <thread>
 #include <chrono>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 // TODO: See TECHNICAL_DEBT.md Future Enhancement #6 - Model State Persistence on Shutdown
 // TODO: See TECHNICAL_DEBT.md Future Enhancement #7 - Graceful Reload (Zero-Downtime Restart)
 // TODO: See TECHNICAL_DEBT.md Future Enhancement #13 - Metrics Endpoint for Prometheus
@@ -49,10 +53,8 @@ void signal_handler(int signal) {
         // Set shutdown flag (atomic operation is async-signal-safe)
         shutdown_requested.store(true);
         
-        // Stop the server (this is safe to call from signal handler)
-        if (g_api_server) {
-            g_api_server->stop();
-        }
+        // Note: Do NOT stop the server here. It's unsafe to call complex functions
+        // from a signal handler. The main loop will detect the flag and stop the server.
     } else if (signal == SIGHUP) {
         // Configuration hot-reload implemented
         // Set reload flag to trigger config reload in main thread
@@ -95,6 +97,20 @@ void print_usage(const char* program_name) {
 }
 
 int main(int argc, char* argv[]) {
+#ifdef _OPENMP
+    // If OMP_NUM_THREADS is not set, default to maximum available cores
+    if (std::getenv("OMP_NUM_THREADS") == nullptr) {
+        int num_procs = omp_get_num_procs();
+        omp_set_num_threads(num_procs);
+        std::cout << "[OpenMP] Auto-configured to use " << num_procs << " threads" << std::endl;
+    } else {
+        std::cout << "[OpenMP] Using " << omp_get_max_threads() << " threads (from OMP_NUM_THREADS)" << std::endl;
+    }
+    // omp_set_nested(1); // Enable nested parallelism if needed for advanced tasks
+#else
+    std::cout << "[OpenMP] Not compiled with OpenMP support - running single-threaded" << std::endl;
+#endif
+
     // Load configuration from file and environment variables
     std::string config_file_path;
     bool use_custom_config = false;
@@ -274,11 +290,16 @@ int main(int argc, char* argv[]) {
         adai::Logger::info("Send SIGHUP (kill -HUP {}) to reload configuration", getpid());
         adai::Logger::info("==================================================");
 
-        if (!api->start()) {
-            adai::Logger::error("Failed to start server");
-            return 1;
-        }
-        
+        // Start server in a background thread to allow main thread to handle signals
+        std::atomic<bool> server_error{false};
+        std::thread server_thread([&]() {
+            if (!api->start()) {
+                adai::Logger::error("Failed to start server");
+                server_error = true;
+                shutdown_requested.store(true);
+            }
+        });
+
         // ================================================================
         // Main Service Loop - Check for config reload requests
         // ================================================================
@@ -286,7 +307,7 @@ int main(int argc, char* argv[]) {
         // Store original port for comparison
         int original_port = config.port;
         
-        while (!shutdown_requested.load()) {
+        while (!shutdown_requested.load() && !server_error) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             
             // Check if config reload was requested
@@ -339,8 +360,15 @@ int main(int argc, char* argv[]) {
             adai::Logger::info("         Initiating Graceful Shutdown");
             adai::Logger::info("==================================================");
             
-            // Step 1: Server has already been stopped by signal handler
-            adai::Logger::info("[1/3] API server stopped");
+            // Step 1: Stop server and join thread
+            adai::Logger::info("[1/3] Stopping API server...");
+            if (g_api_server) {
+                g_api_server->stop();
+            }
+            if (server_thread.joinable()) {
+                server_thread.join();
+            }
+            adai::Logger::info("      API server stopped");
             
             // Step 2: Save model state if needed
             // Note: Currently the API server doesn't modify the model,
@@ -362,6 +390,8 @@ int main(int argc, char* argv[]) {
             adai::Logger::info("Graceful shutdown complete");
             adai::Logger::info("==================================================");
         }
+
+        if (server_error) return 1;
 
     } catch (const std::exception& e) {
         adai::Logger::error("Error: {}", e.what());

@@ -2,6 +2,7 @@
 #include "Config.hpp"
 #include <iostream>
 #include <sstream>
+#include <fstream>
 
 int main(int argc, char* argv[]) {
     // -----------------------------------------------------------------------
@@ -23,14 +24,24 @@ int main(int argc, char* argv[]) {
 
     // Load model architecture + training params from config file.
     // Priority: file < environment variables (ConfigLoader already handles this).
+    // Auto-discover config.conf: explicit --config > CWD/config.conf > /etc/adai/config.conf.
+    if (config_path.empty()) {
+        // Check the current working directory first so running from the project
+        // root always picks up the local config.conf without needing --config.
+        std::ifstream local_check("config.conf");
+        if (local_check.good()) {
+            config_path = "config.conf";
+        }
+    }
     adai::ServiceConfig svc_config = config_path.empty()
-        ? adai::ConfigLoader::load()          // tries /etc/adai/config.conf + env
+        ? adai::ConfigLoader::load()          // falls back to /etc/adai/config.conf + env
         : adai::ConfigLoader::load(config_path);
 
     if (args.empty()) {
         std::cout << "Usage: " << argv[0] << " [--config <path>] <command> [options]\n\n";
         std::cout << "Global options:\n";
-        std::cout << "  --config <path>              Path to config.conf (default: /etc/adai/config.conf)\n";
+        std::cout << "  --config <path>              Path to config.conf\n";
+        std::cout << "                               Search order: --config > ./config.conf > /etc/adai/config.conf\n";
         std::cout << "                               Sets model architecture, training params, vocab/model paths\n\n";
         std::cout << "Commands:\n";
         std::cout << "  init [vocab] [model]         Initialize incremental trainer\n";

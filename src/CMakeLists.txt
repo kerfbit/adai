@@ -143,16 +143,17 @@ target_precompile_headers(adai_nlp
         <cctype>
 )
 
+# Try to find cpp-httplib
+find_path(HTTPLIB_INCLUDE_DIR httplib.h
+    PATHS
+        /usr/include
+        /usr/local/include
+        ${CMAKE_SOURCE_DIR}/external/cpp-httplib
+)
+
 # API layer (optional, requires httplib)
 option(BUILD_API_SERVER "Build REST API server" ON)
 if(BUILD_API_SERVER)
-    # Try to find cpp-httplib
-    find_path(HTTPLIB_INCLUDE_DIR httplib.h
-        PATHS
-            /usr/include
-            /usr/local/include
-            ${CMAKE_SOURCE_DIR}/external/cpp-httplib
-    )
     
     if(HTTPLIB_INCLUDE_DIR)
         add_library(adai_api STATIC
@@ -175,17 +176,12 @@ endif()
 # Production Executables
 # ============================================================================
 
-# Chatbot CLI - Interactive chatbot application with parallel optimizations (P1-P5)
-add_executable(chatbot ChatbotCLI_main.cpp ChatbotCLI.cpp Config.cpp)
-target_link_libraries(chatbot 
-    adai_models 
-    adai_nlp
-    adai_attention    # Priority 4: Parallel attention heads
-    adai_core         # Priority 1: OpenMP matrix operations
-)
-if(OpenMP_CXX_FOUND)
-    message(STATUS "Building chatbot with full parallel optimizations")
-endif()
+# Chatbot CLI - Interactive chatbot API client
+add_executable(chatbot ChatbotCLI_main.cpp ChatbotCLI.cpp)
+target_include_directories(chatbot PRIVATE ${HTTPLIB_INCLUDE_DIR})
+find_package(Threads)
+target_link_libraries(chatbot Threads::Threads)
+message(STATUS "Building chatbot as lightweight API client")
 
 # Chatbot Trainer - Model training tool with parallel optimizations (P1-P5)
 add_executable(chatbot_trainer ChatbotTrainer.cpp)
@@ -335,10 +331,16 @@ if(BUILD_API_SERVER)
         adai_api
         adai_models 
         adai_nlp
+        adai_attention    # Priority 4: Parallel attention heads
+        adai_core         # Priority 1: OpenMP matrix operations
         spdlog::spdlog
     )
     target_include_directories(chatbot_api_server PRIVATE ${HTTPLIB_INCLUDE_DIR})
-    message(STATUS "Building chatbot_api_server executable with structured logging")
+    if(OpenMP_CXX_FOUND)
+        message(STATUS "Building chatbot_api_server with full parallel optimizations (OpenMP + parallel attention)")
+    else()
+        message(STATUS "Building chatbot_api_server with structured logging")
+    endif()
 endif()
 
 # ============================================================================

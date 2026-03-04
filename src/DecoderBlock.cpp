@@ -286,15 +286,34 @@ void DecoderBlock::save(const std::string& filepath) {
     file.write(reinterpret_cast<const char*>(&dropout_rate), sizeof(dropout_rate));
     file.write(reinterpret_cast<const char*>(&learning_rate), sizeof(learning_rate));
 
+    // Save LayerNorm parameters inline
+    const Matrix& gamma1 = norm1->get_gamma();
+    const Matrix& beta1  = norm1->get_beta();
+    for (int j = 0; j < gamma1.cols; ++j)
+        file.write(reinterpret_cast<const char*>(&gamma1(0, j)), sizeof(float));
+    for (int j = 0; j < beta1.cols; ++j)
+        file.write(reinterpret_cast<const char*>(&beta1(0, j)), sizeof(float));
+
+    const Matrix& gamma2 = norm2->get_gamma();
+    const Matrix& beta2  = norm2->get_beta();
+    for (int j = 0; j < gamma2.cols; ++j)
+        file.write(reinterpret_cast<const char*>(&gamma2(0, j)), sizeof(float));
+    for (int j = 0; j < beta2.cols; ++j)
+        file.write(reinterpret_cast<const char*>(&beta2(0, j)), sizeof(float));
+
+    const Matrix& gamma3 = norm3->get_gamma();
+    const Matrix& beta3  = norm3->get_beta();
+    for (int j = 0; j < gamma3.cols; ++j)
+        file.write(reinterpret_cast<const char*>(&gamma3(0, j)), sizeof(float));
+    for (int j = 0; j < beta3.cols; ++j)
+        file.write(reinterpret_cast<const char*>(&beta3(0, j)), sizeof(float));
+
     file.close();
 
     // Save sub-components to separate files
     self_attention->save_weights(filepath + ".self_attn");
     cross_attention->save(filepath + ".cross_attn");
     feed_forward->save_weights(filepath + ".ff");
-
-    // Note: LayerNorm doesn't have save/load methods
-    // It has minimal learnable params (gamma/beta) that will be reinitialized
 }
 
 void DecoderBlock::load(const std::string& filepath) {
@@ -314,6 +333,31 @@ void DecoderBlock::load(const std::string& filepath) {
     if (loaded_d_model != d_model || loaded_num_heads != num_heads || loaded_d_ff != d_ff) {
         throw std::runtime_error("Dimension mismatch in saved model");
     }
+
+    // Load LayerNorm parameters inline
+    Matrix gamma1(1, d_model), beta1(1, d_model);
+    for (int j = 0; j < d_model; ++j)
+        file.read(reinterpret_cast<char*>(&gamma1(0, j)), sizeof(float));
+    for (int j = 0; j < d_model; ++j)
+        file.read(reinterpret_cast<char*>(&beta1(0, j)), sizeof(float));
+    norm1->set_gamma(gamma1);
+    norm1->set_beta(beta1);
+
+    Matrix gamma2(1, d_model), beta2(1, d_model);
+    for (int j = 0; j < d_model; ++j)
+        file.read(reinterpret_cast<char*>(&gamma2(0, j)), sizeof(float));
+    for (int j = 0; j < d_model; ++j)
+        file.read(reinterpret_cast<char*>(&beta2(0, j)), sizeof(float));
+    norm2->set_gamma(gamma2);
+    norm2->set_beta(beta2);
+
+    Matrix gamma3(1, d_model), beta3(1, d_model);
+    for (int j = 0; j < d_model; ++j)
+        file.read(reinterpret_cast<char*>(&gamma3(0, j)), sizeof(float));
+    for (int j = 0; j < d_model; ++j)
+        file.read(reinterpret_cast<char*>(&beta3(0, j)), sizeof(float));
+    norm3->set_gamma(gamma3);
+    norm3->set_beta(beta3);
 
     file.close();
 

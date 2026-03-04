@@ -525,9 +525,10 @@ float ChatbotTrainer::train_epoch(int epoch) {
         int num_samples = tokenized_training_data.size();
         int effective_batch_size = config.batch_size * config.gradient_accumulation_steps;
 
-        adai::Logger::info("\n📈 Epoch {}/{}", (epoch + 1), config.num_epochs);
+        log(LogLevel::VERBOSE, "\n📈 Epoch " + std::to_string(epoch + 1) + "/" + std::to_string(config.num_epochs));
         if (config.gradient_accumulation_steps > 1) {
-            adai::Logger::info("  Using gradient accumulation: {} steps (effective batch size: {})", config.gradient_accumulation_steps, effective_batch_size);
+            log(LogLevel::VERBOSE, "  Using gradient accumulation: " + std::to_string(config.gradient_accumulation_steps) +
+                " steps (effective batch size: " + std::to_string(effective_batch_size) + ")");
         }
 
         // Shuffle data at the start of each epoch
@@ -586,11 +587,21 @@ float ChatbotTrainer::train_epoch(int epoch) {
                 if (should_update) {
                     // Get gradient norm before clipping
                     float grad_norm = optimizer->get_gradient_norm();
-                    
+
+                    // Save step-level metrics here so sample callback can fire even on NaN
+                    float step_loss_for_cb = (config.gradient_accumulation_steps > 0)
+                                                ? accumulated_loss / config.gradient_accumulation_steps
+                                                : accumulated_loss;
+
                     // Safety check for NaN/Inf gradients
                     if (std::isnan(grad_norm) || std::isinf(grad_norm)) {
                         adai::Logger::error("  ⚠️  WARNING: NaN or Inf gradient detected at sample {}! Skipping update.", (i + 1));
-                        // Reset accumulation and skip this update
+                        // Still fire sample callback so the dashboard shows progress
+                        if (sample_callback_) {
+                            float running_avg = (update_count > 0) ? total_loss / update_count : 0.0f;
+                            sample_callback_(i + 1, num_samples, running_avg, step_loss_for_cb, 0.0f, current_learning_rate);
+                        }
+                        // Reset accumulation and skip optimizer step
                         accumulation_step = 0;
                         accumulated_loss = 0.0f;
                         model->zero_grad();
@@ -606,11 +617,6 @@ float ChatbotTrainer::train_epoch(int epoch) {
 
                     // Update weights via optimizer
                     optimizer->step();
-
-                    // Save step-level metrics BEFORE resetting accumulated_loss
-                    float step_loss = (config.gradient_accumulation_steps > 0)
-                                          ? accumulated_loss / config.gradient_accumulation_steps
-                                          : accumulated_loss;
 
                     total_loss += accumulated_loss;
                     global_step++;
@@ -639,11 +645,16 @@ float ChatbotTrainer::train_epoch(int epoch) {
                     // Per-sample callback: fire after every optimizer step
                     if (sample_callback_) {
                         float running_avg = (update_count > 0) ? total_loss / update_count : 0.0f;
-                        sample_callback_(i + 1, num_samples, running_avg, step_loss, grad_norm);
+                        sample_callback_(i + 1, num_samples, running_avg, step_loss_for_cb, grad_norm, current_learning_rate);
                     }
                 }
             } catch (const std::exception& e) {
                 adai::Logger::error("  ❌ Error training sample {}: {}", (i + 1), e.what());
+                // Still fire sample callback so the dashboard shows the sample was attempted
+                if (sample_callback_) {
+                    float running_avg = (update_count > 0) ? total_loss / update_count : 0.0f;
+                    sample_callback_(i + 1, num_samples, running_avg, 0.0f, 0.0f, current_learning_rate);
+                }
                 // Reset accumulation on error
                 accumulation_step = 0;
                 accumulated_loss = 0.0f;
@@ -1377,14 +1388,14 @@ bool ChatbotTrainer::train(int num_epochs) {
         if (!model) {
             initialize_model();
         }
-        
-        // Preprocess data
-        preprocess_data();
-        
-        // Split data if needed
+
+        // Split data first (on raw text pairs)
         if (validation_data.empty() && config.validation_split > 0) {
             split_data();
         }
+        
+        // Preprocess data (tokenize split datasets)
+        preprocess_data();
         
         // Calculate total steps
         int samples_per_update = config.gradient_accumulation_steps;

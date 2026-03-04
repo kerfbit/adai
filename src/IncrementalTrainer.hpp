@@ -232,6 +232,7 @@ private:
     mutable float running_sample_loss_;       ///< running-average loss so far within the current epoch
     mutable float current_item_loss_;         ///< loss of the most recent optimizer step
     mutable float current_item_grad_norm_;    ///< gradient norm of the most recent optimizer step
+    mutable float current_item_lr_;           ///< learning rate at the most recent optimizer step
 
     // Helper methods
 

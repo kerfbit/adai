@@ -474,6 +474,9 @@ TextGenerator::GenerationConfig EncoderDecoderModel::get_generation_config() con
 void EncoderDecoderModel::save_model(const std::string& filepath) const {
     // Save architecture config
     std::ofstream config_file(filepath + ".config", std::ios::binary);
+    if (!config_file.is_open()) {
+        throw std::runtime_error("Failed to open config file for writing: " + filepath + ".config");
+    }
     config_file.write(reinterpret_cast<const char*>(&vocab_size), sizeof(int));
     config_file.write(reinterpret_cast<const char*>(&d_model), sizeof(int));
     config_file.write(reinterpret_cast<const char*>(&encoder_layers), sizeof(int));
@@ -525,8 +528,24 @@ void EncoderDecoderModel::load_model(const std::string& filepath) {
 
     // Verify architecture match
     if (loaded_vocab_size != vocab_size || loaded_d_model != d_model ||
-        loaded_encoder_layers != encoder_layers || loaded_decoder_layers != decoder_layers) {
-        throw std::runtime_error("Model architecture mismatch");
+        loaded_encoder_layers != encoder_layers || loaded_decoder_layers != decoder_layers ||
+        loaded_num_heads != num_heads || loaded_d_ff != d_ff ||
+        loaded_max_seq_length != max_seq_length) {
+        throw std::runtime_error(
+            "Model architecture mismatch: saved (vocab=" + std::to_string(loaded_vocab_size) +
+            ", d_model=" + std::to_string(loaded_d_model) +
+            ", enc_layers=" + std::to_string(loaded_encoder_layers) +
+            ", dec_layers=" + std::to_string(loaded_decoder_layers) +
+            ", num_heads=" + std::to_string(loaded_num_heads) +
+            ", d_ff=" + std::to_string(loaded_d_ff) +
+            ", max_seq=" + std::to_string(loaded_max_seq_length) +
+            ") vs current (vocab=" + std::to_string(vocab_size) +
+            ", d_model=" + std::to_string(d_model) +
+            ", enc_layers=" + std::to_string(encoder_layers) +
+            ", dec_layers=" + std::to_string(decoder_layers) +
+            ", num_heads=" + std::to_string(num_heads) +
+            ", d_ff=" + std::to_string(d_ff) +
+            ", max_seq=" + std::to_string(max_seq_length) + ")");
     }
 
     // Load tokenizer vocabulary

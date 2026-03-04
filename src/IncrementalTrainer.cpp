@@ -73,6 +73,9 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
     cfg.base_config.weight_decay       = svc.weight_decay;
     cfg.base_config.gradient_clip_norm = svc.gradient_clip;
     cfg.base_config.batch_size         = svc.batch_size;
+    // Suppress verbose per-sample logging from ChatbotTrainer, as we use
+    // the TUI dashboard for real-time feedback.
+    cfg.base_config.log_level          = LogLevel::NORMAL;
     return cfg;
 }
 
@@ -85,7 +88,7 @@ IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
       best_checkpoint_path(""),
       dashboard_lines_drawn_(0),
       current_sample_in_epoch_(0), total_samples_in_epoch_(0), running_sample_loss_(0.0f),
-      current_item_loss_(0.0f), current_item_grad_norm_(0.0f) {
+      current_item_loss_(0.0f), current_item_grad_norm_(0.0f), current_item_lr_(0.0f) {
 
     Logger::info("Loading configuration from: {}",
                  config_file_path.empty() ? "<system default>" : config_file_path);
@@ -150,7 +153,7 @@ IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path,
       best_checkpoint_path(""),
       dashboard_lines_drawn_(0),
       current_sample_in_epoch_(0), total_samples_in_epoch_(0), running_sample_loss_(0.0f),
-      current_item_loss_(0.0f), current_item_grad_norm_(0.0f) {
+      current_item_loss_(0.0f), current_item_grad_norm_(0.0f), current_item_lr_(0.0f) {
 
     Logger::info("Initializing Incremental Training System...");
 
@@ -206,7 +209,7 @@ IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path,
       best_checkpoint_path(""),
       dashboard_lines_drawn_(0),
       current_sample_in_epoch_(0), total_samples_in_epoch_(0), running_sample_loss_(0.0f),
-      current_item_loss_(0.0f), current_item_grad_norm_(0.0f) {
+      current_item_loss_(0.0f), current_item_grad_norm_(0.0f), current_item_lr_(0.0f) {
 
     Logger::info("Initializing Incremental Training System...");
 
@@ -409,12 +412,18 @@ bool IncrementalTrainer::train_incremental(int num_epochs) {
     });
 
     // ── Per-sample callback: update running state and redraw dashboard ──
-    trainer.set_sample_callback([this](int sample, int total_samples, float running_loss, float step_loss, float grad_norm) {
+    trainer.set_sample_callback([this](int sample, int total_samples, float running_loss, float step_loss, float grad_norm, float lr) {
+        // Reset the epoch timer on the very first sample so that throughput
+        // excludes preprocessing (split + tokenization) time.
+        if (sample == 1) {
+            epoch_start_time_steady_ = std::chrono::steady_clock::now();
+        }
         current_sample_in_epoch_ = sample;
         total_samples_in_epoch_  = total_samples;
         running_sample_loss_     = running_loss;
         current_item_loss_       = step_loss;
         current_item_grad_norm_  = grad_norm;
+        current_item_lr_         = lr;
         if (!session_history.empty()) {
             // Use the current per-epoch data — back() reflects epochs already done;
             // the running loss from the sample callback covers the in-progress epoch.
@@ -543,12 +552,18 @@ bool IncrementalTrainer::train_full_retrain(int num_epochs) {
     });
 
     // ── Per-sample callback for full retrain ──
-    trainer.set_sample_callback([this](int sample, int total_samples, float running_loss, float step_loss, float grad_norm) {
+    trainer.set_sample_callback([this](int sample, int total_samples, float running_loss, float step_loss, float grad_norm, float lr) {
+        // Reset the epoch timer on the very first sample so that throughput
+        // excludes preprocessing (split + tokenization) time.
+        if (sample == 1) {
+            epoch_start_time_steady_ = std::chrono::steady_clock::now();
+        }
         current_sample_in_epoch_ = sample;
         total_samples_in_epoch_  = total_samples;
         running_sample_loss_     = running_loss;
         current_item_loss_       = step_loss;
         current_item_grad_norm_  = grad_norm;
+        current_item_lr_         = lr;
         if (!session_history.empty()) {
             display_dashboard(session_history.back(),
                               static_cast<int>(session_history.back().per_epoch_losses.size()),
@@ -1729,8 +1744,16 @@ void IncrementalTrainer::display_dashboard(const TrainingSession& session,
                                            bool is_final) const {
     using namespace std::chrono;
 
-    // Compute timing
-    auto now     = steady_clock::now();
+    // ── ANSI color codes ──────────────────────────────────────────────────
+    static const char* C_GREEN = "\033[1;32m";
+    static const char* C_AMBER = "\033[1;33m";
+    static const char* C_RED   = "\033[1;31m";
+    static const char* C_CYAN  = "\033[1;36m";
+    static const char* C_WHITE = "\033[1;37m";
+    static const char* C_RESET = "\033[0m";
+
+    // ── Timing ────────────────────────────────────────────────────────────
+    auto now      = steady_clock::now();
     double elapsed = duration<double>(now - session_start_time_steady_).count();
 
     double avg_epoch_time = 0.0;
@@ -1740,51 +1763,96 @@ void IncrementalTrainer::display_dashboard(const TrainingSession& session,
     }
     double eta_secs = (total_epochs - current_epoch) * avg_epoch_time;
 
-    float cur_loss    = session.per_epoch_losses.empty()             ? 0.0f : session.per_epoch_losses.back();
-    float cur_val     = session.per_epoch_validation_losses.empty()  ? 0.0f : session.per_epoch_validation_losses.back();
-    float cur_lr      = session.per_epoch_learning_rates.empty()     ? 0.0f : session.per_epoch_learning_rates.back();
-    double last_t     = session.training_time_per_epoch.empty()      ? 0.0  : session.training_time_per_epoch.back();
+    float cur_loss = session.per_epoch_losses.empty()            ? 0.0f : session.per_epoch_losses.back();
+    float cur_val  = session.per_epoch_validation_losses.empty() ? 0.0f : session.per_epoch_validation_losses.back();
+    // Prefer the live per-sample LR (updated every step); fall back to the
+    // last epoch-end value once the epoch callback has run at least once.
+    float cur_lr   = (current_item_lr_ > 0.0f)
+                   ? current_item_lr_
+                   : (session.per_epoch_learning_rates.empty() ? 0.0f : session.per_epoch_learning_rates.back());
+    double last_t  = session.training_time_per_epoch.empty()     ? 0.0  : session.training_time_per_epoch.back();
 
     float prev_loss = (session.per_epoch_losses.size() >= 2)
                     ? session.per_epoch_losses[session.per_epoch_losses.size() - 2] : cur_loss;
     float prev_val  = (session.per_epoch_validation_losses.size() >= 2)
                     ? session.per_epoch_validation_losses[session.per_epoch_validation_losses.size() - 2] : cur_val;
 
+    // Per-sample trend: track previous item/running loss across draws
+    static float prev_item_loss_draw_    = 0.0f;
+    static float prev_running_loss_draw_ = 0.0f;
+
     // Best val across whole session
     float best_val = std::numeric_limits<float>::max();
     for (float v : session.per_epoch_validation_losses) best_val = std::min(best_val, v);
 
-    // Clear the entire screen and move the cursor to the top-left before
-    // every draw.  This is simpler and more reliable than save/restore cursor
-    // tricks: no drift regardless of any other output written to the terminal.
+    // ── Clear + cursor home ───────────────────────────────────────────────
     std::cout << "\033[2J\033[H";
 
-    // Box width = 80
+    // ── Box helpers ───────────────────────────────────────────────────────
     const int W = 80;
     auto hline = [&](const char* l, const char* r) {
         std::cout << l;
         for (int i = 0; i < W - 2; ++i) std::cout << "\xe2\x94\x80";
         std::cout << r << "\n";
     };
+    // row() skips ANSI escape sequences when computing visible width so that
+    // colored strings are padded correctly to fill box columns.
     auto row = [&](const std::string& content) {
-        // Count printable width (non-continuation UTF-8 bytes)
         int vis = 0;
-        for (unsigned char c : content)
-            if ((c & 0xC0) != 0x80) ++vis;
+        bool in_ansi = false;
+        for (unsigned char c : content) {
+            if (c == '\033') { in_ansi = true;  continue; }
+            if (in_ansi)     { if (std::isalpha(c)) in_ansi = false; continue; }
+            if ((c & 0xC0) != 0x80) ++vis;   // non-continuation UTF-8 byte
+        }
         int pad = std::max(0, W - 2 - vis);
         std::cout << "\xe2\x94\x82" << content << std::string(pad, ' ') << "\xe2\x94\x82\n";
     };
 
-    auto fmt_f = [](float v, int prec = 4) {
+    // ── Formatting helpers ────────────────────────────────────────────────
+    auto fmt_f = [](float v, int prec = 4) -> std::string {
         std::ostringstream ss;
         ss << std::fixed << std::setprecision(prec) << v;
         return ss.str();
     };
-    auto arrow = [](float cur, float prev) -> std::string {
-        return (cur < prev) ? " v" : ((cur > prev) ? " ^" : " =");
+    // Wrap text in an ANSI color, always ending with reset
+    auto colorize = [&](const std::string& s, const char* code) -> std::string {
+        return std::string(code) + s + C_RESET;
+    };
+    // Pad a colored string to `width` visible chars (padding appended after reset)
+    auto cpad = [](const std::string& colored, int vis_len, int width) -> std::string {
+        return colored + std::string(std::max(0, width - vis_len), ' ');
     };
 
-    std::string bar  = "[" + progress_bar(current_epoch, total_epochs, 42) + "]";
+    // Color thresholds ---------------------------------------------------
+    // Loss:       green < 1.0,  amber 1.0–4.0,  red ≥ 4.0
+    auto loss_color = [&](float v) -> const char* {
+        return (v < 1.0f) ? C_GREEN : (v < 4.0f) ? C_AMBER : C_RED;
+    };
+    // Perplexity: green < 3,    amber 3–55,      red ≥ 55
+    auto ppl_color = [&](float v) -> const char* {
+        return (v < 3.0f) ? C_GREEN : (v < 55.0f) ? C_AMBER : C_RED;
+    };
+    // Grad norm:  green < 1,    amber 1–5,       red ≥ 5
+    auto gnorm_color = [&](float v) -> const char* {
+        return (v < 1.0f) ? C_GREEN : (v < 5.0f) ? C_AMBER : C_RED;
+    };
+
+    // Trend icon: ▼ (down) / ▲ (up) / ─ (flat).
+    // lower_is_better=true  → ▼ is green (improving), ▲ is red (worsening).
+    // lower_is_better=false → ▲ is green, ▼ is red.
+    auto trend = [&](float cur, float prev, bool lower_is_better = true) -> std::string {
+        if (std::abs(cur - prev) < 1e-7f)
+            return std::string(C_WHITE) + "\xe2\x94\x80" + C_RESET;  // ─
+        bool improving = lower_is_better ? (cur < prev) : (cur > prev);
+        const char* col  = improving ? C_GREEN : C_RED;
+        // ▼ = \xe2\x96\xbc   ▲ = \xe2\x96\xb2
+        const char* icon = (cur < prev) ? "\xe2\x96\xbc" : "\xe2\x96\xb2";
+        return std::string(col) + icon + C_RESET;
+    };
+
+    // ── Title / epoch progress bar ────────────────────────────────────────
+    std::string bar = "[" + progress_bar(current_epoch, total_epochs, 42) + "]";
     std::string pct;
     {
         std::ostringstream ss;
@@ -1792,18 +1860,16 @@ void IncrementalTrainer::display_dashboard(const TrainingSession& session,
         pct = ss.str();
     }
 
-    // When the sample callback is mid-epoch, current_epoch is #completed epochs;
-    // bump by 1 so the title shows the epoch currently being trained.
-    bool mid_epoch = (current_sample_in_epoch_ > 0 &&
-                      current_sample_in_epoch_ < total_samples_in_epoch_);
+    bool mid_epoch    = (current_sample_in_epoch_ > 0 &&
+                         current_sample_in_epoch_ < total_samples_in_epoch_);
     int display_epoch = mid_epoch ? current_epoch + 1 : current_epoch;
 
     std::ostringstream title_ss;
     title_ss << " ADAI Training Dashboard  |  Session #" << session.session_id
              << "  |  Epoch " << display_epoch << "/" << total_epochs;
-    if (mid_epoch)          title_ss << " \xe2\x96\xb6";   // ▶ (in progress)
-    else if (is_final)      title_ss << " \xe2\x9c\x85";   // ✅ (done)
-    else if (current_epoch == 0) title_ss << " \xe2\x8f\xb3"; // ⏳ (waiting)
+    if (mid_epoch)               title_ss << " \xe2\x96\xb6";   // ▶
+    else if (is_final)           title_ss << " \xe2\x9c\x85";   // ✅
+    else if (current_epoch == 0) title_ss << " \xe2\x8f\xb3";   // ⏳
     std::string title = title_ss.str();
     int title_pad = std::max(0, W - 4 - (int)title.size());
 
@@ -1815,7 +1881,7 @@ void IncrementalTrainer::display_dashboard(const TrainingSession& session,
     row(" Elapsed : " + format_duration(elapsed) + "   ETA total: " +
         (avg_epoch_time > 0 ? format_duration(eta_secs) : "--:--"));
 
-    // ── Training Item section ──────────────────────────────────────────────
+    // ── Training Item section ─────────────────────────────────────────────
     hline("\xe2\x94\x9c", "\xe2\x94\xa4");
     row(" Training Item");
     hline("\xe2\x94\x9c", "\xe2\x94\xa4");
@@ -1834,44 +1900,55 @@ void IncrementalTrainer::display_dashboard(const TrainingSession& session,
             }
             row(ss.str());
         }
-        // Step loss and running avg
+        // Item loss + running avg (colored, trend icon)
         {
             std::ostringstream ss;
             if (current_sample_in_epoch_ > 0) {
-                ss << " Item loss: " << std::fixed << std::setprecision(4) << current_item_loss_
-                   << "   Running avg: " << std::fixed << std::setprecision(4) << running_sample_loss_;
+                std::string il = fmt_f(current_item_loss_);
+                std::string rl = fmt_f(running_sample_loss_);
+                ss << " Item loss: "
+                   << cpad(colorize(il, loss_color(current_item_loss_)),   (int)il.size(), 8)
+                   << " " << trend(current_item_loss_, prev_item_loss_draw_)
+                   << "  Running avg: "
+                   << cpad(colorize(rl, loss_color(running_sample_loss_)), (int)rl.size(), 8)
+                   << " " << trend(running_sample_loss_, prev_running_loss_draw_);
             } else {
-                ss << " Item loss: --       Running avg: --";
+                ss << " Item loss: --          Running avg: --";
             }
             row(ss.str());
         }
-        // Item perplexity and running avg perplexity
+        // Item PPL + running PPL (colored)
         {
             std::ostringstream ss;
             if (current_sample_in_epoch_ > 0) {
-                ss << " Item PPL : " << std::fixed << std::setprecision(2) << std::exp(current_item_loss_)
-                   << "       Running PPL: " << std::fixed << std::setprecision(2) << std::exp(running_sample_loss_);
+                float ippl = std::exp(current_item_loss_);
+                float rppl = std::exp(running_sample_loss_);
+                std::string ip = fmt_f(ippl, 2);
+                std::string rp = fmt_f(rppl, 2);
+                ss << " Item PPL : "
+                   << cpad(colorize(ip, ppl_color(ippl)), (int)ip.size(), 8)
+                   << "   Running PPL: "
+                   << cpad(colorize(rp, ppl_color(rppl)), (int)rp.size(), 8);
             } else {
                 ss << " Item PPL : --         Running PPL: --";
             }
             row(ss.str());
         }
-        // Gradient norm and throughput / ETA for current epoch
+        // Grad norm (colored) + throughput + ETA
         {
             std::ostringstream ss;
             if (current_sample_in_epoch_ > 0) {
-                // Throughput: samples processed since epoch start
                 double epoch_elapsed = duration<double>(now - epoch_start_time_steady_).count();
                 double sps = (epoch_elapsed > 0.0) ? current_sample_in_epoch_ / epoch_elapsed : 0.0;
                 double epoch_eta = (sps > 0.0)
-                    ? (total_samples_in_epoch_ - current_sample_in_epoch_) / sps
-                    : 0.0;
-
-                ss << " Grad norm: " << std::fixed << std::setprecision(4) << current_item_grad_norm_
-                   << "   " << std::fixed << std::setprecision(1) << sps << " samp/s"
+                    ? (total_samples_in_epoch_ - current_sample_in_epoch_) / sps : 0.0;
+                std::string gn = fmt_f(current_item_grad_norm_);
+                ss << " Grad norm: "
+                   << cpad(colorize(gn, gnorm_color(current_item_grad_norm_)), (int)gn.size(), 8)
+                   << "  " << std::fixed << std::setprecision(1) << sps << " samp/s"
                    << "   ETA epoch: " << format_duration(epoch_eta);
             } else {
-                ss << " Grad norm: --       -- samp/s   ETA epoch: --:--";
+                ss << " Grad norm: --          -- samp/s   ETA epoch: --:--";
             }
             row(ss.str());
         }
@@ -1879,38 +1956,71 @@ void IncrementalTrainer::display_dashboard(const TrainingSession& session,
         row(" No training data loaded yet.");
     }
 
+    // Update previous sample values for trend arrows on next draw
+    prev_item_loss_draw_    = current_item_loss_;
+    prev_running_loss_draw_ = running_sample_loss_;
+
+    // ── Per-epoch metrics ─────────────────────────────────────────────────
     hline("\xe2\x94\x9c", "\xe2\x94\xa4");
 
+    // Loss row
     {
+        bool have = !session.per_epoch_losses.empty();
+        std::string cl = have ? fmt_f(cur_loss) : "------";
+        std::string cv = have ? fmt_f(cur_val)  : "------";
         std::ostringstream ss;
-        ss << " Loss     : " << std::setw(8) << fmt_f(cur_loss) << arrow(cur_loss, prev_loss)
-           << "    Val Loss : " << std::setw(8) << fmt_f(cur_val) << arrow(cur_val, prev_val);
+        ss << " Loss     : "
+           << cpad(have ? colorize(cl, loss_color(cur_loss)) : cl, (int)cl.size(), 8)
+           << " " << (have ? trend(cur_loss, prev_loss) : std::string(" "))
+           << "    Val Loss : "
+           << cpad(have ? colorize(cv, loss_color(cur_val))  : cv, (int)cv.size(), 8)
+           << " " << (have ? trend(cur_val,  prev_val)  : std::string(" "));
         row(ss.str());
     }
+    // PPL row
     {
-        std::ostringstream ss;
         float cur_ppl  = session.per_epoch_perplexities.empty()            ? 0.0f : session.per_epoch_perplexities.back();
         float cur_vppl = session.per_epoch_validation_perplexities.empty() ? 0.0f : session.per_epoch_validation_perplexities.back();
+        float prev_ppl  = (session.per_epoch_perplexities.size() >= 2)
+                        ? session.per_epoch_perplexities[session.per_epoch_perplexities.size() - 2] : cur_ppl;
+        float prev_vppl = (session.per_epoch_validation_perplexities.size() >= 2)
+                        ? session.per_epoch_validation_perplexities[session.per_epoch_validation_perplexities.size() - 2] : cur_vppl;
+        std::ostringstream ss;
         if (session.per_epoch_perplexities.empty()) {
             ss << " PPL      : --           Val PPL  : --";
         } else {
-            ss << " PPL      : " << std::fixed << std::setprecision(2) << std::setw(8) << cur_ppl
-               << "    Val PPL  : " << std::fixed << std::setprecision(2) << std::setw(8) << cur_vppl;
+            std::string pp  = fmt_f(cur_ppl,  2);
+            std::string pvp = fmt_f(cur_vppl, 2);
+            ss << " PPL      : "
+               << cpad(colorize(pp,  ppl_color(cur_ppl)),  (int)pp.size(),  8)
+               << " " << trend(cur_ppl,  prev_ppl)
+               << "    Val PPL  : "
+               << cpad(colorize(pvp, ppl_color(cur_vppl)), (int)pvp.size(), 8)
+               << " " << trend(cur_vppl, prev_vppl);
         }
         row(ss.str());
     }
+    // LR row (cyan — informational, no threshold)
     {
+        std::ostringstream lr_ss;
+        lr_ss << std::scientific << std::setprecision(3) << cur_lr;
         std::ostringstream ss;
-        ss << " LR       : " << std::scientific << std::setprecision(3) << cur_lr
+        ss << " LR       : " << colorize(lr_ss.str(), C_CYAN)
            << "    Epoch dur: " << std::fixed << std::setprecision(1) << last_t << "s";
         row(ss.str());
     }
+    // Best val row (always green — it's the best we've done)
     {
-        std::ostringstream ss;
         float best_ppl = std::numeric_limits<float>::max();
         for (float v : session.per_epoch_validation_perplexities) best_ppl = std::min(best_ppl, v);
-        ss << " Best val : " << fmt_f(best_val)
-           << "  Best PPL : " << (session.per_epoch_validation_perplexities.empty() ? std::string("--") : fmt_f(best_ppl, 2));
+        bool have_best = (best_val < std::numeric_limits<float>::max());
+        std::string bv = have_best ? fmt_f(best_val) : "------";
+        std::ostringstream ss;
+        ss << " Best val : " << (have_best ? colorize(bv, C_GREEN) : bv)
+           << "  Best PPL : "
+           << (session.per_epoch_validation_perplexities.empty()
+                   ? std::string("--")
+                   : colorize(fmt_f(best_ppl, 2), C_GREEN));
         row(ss.str());
     }
     {
