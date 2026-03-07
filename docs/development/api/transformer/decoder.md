@@ -359,14 +359,14 @@ for (int i = 0; i < 50; ++i) {
 
 **Key Differences from Regular Forward**:
 
-| Aspect | `forward()` | `forward_with_cache()` |
-| -------- | ------------- | ------------------------ |
-| Input | Full sequence | Only new tokens |
-| Computation | Recomputes all positions | Only new positions |
-| Complexity | O(seq_len²) | O(seq_len) per token |
-| Memory | Low | Higher (cache storage) |
-| Use Case | Training, first pass | Inference, generation |
-| Speedup | Baseline | 2-3x for long sequences |
+|Aspect|`forward()`|`forward_with_cache()`|
+|--------|-------------|------------------------|
+|Input|Full sequence|Only new tokens|
+|Computation|Recomputes all positions|Only new positions|
+|Complexity|O(seq_len²)|O(seq_len) per token|
+|Memory|Low|Higher (cache storage)|
+|Use Case|Training, first pass|Inference, generation|
+|Speedup|Baseline|2-3x for long sequences|
 
 **Important Notes**:
 

@@ -6,12 +6,12 @@
 
 The `chatbot_gui_binary` target has been updated to include full parallel processing support:
 
-**Added Libraries:**
+Added Libraries:
 
 - `adai_attention` - Priority 4: Parallel attention heads
 - `adai_core` - Priority 1: OpenMP matrix operations
 
-**Before:**
+Before:
 
 ```cmake
 target_link_libraries(chatbot_gui_binary
@@ -21,7 +21,7 @@ target_link_libraries(chatbot_gui_binary
 )
 ```
 
-**After:**
+After:
 
 ```cmake
 target_link_libraries(chatbot_gui_binary
@@ -150,13 +150,13 @@ You should see:
 
 The chatbot_gui now benefits from all priority optimizations:
 
-| Priority | Feature | Status |
-| ---------- | --------- | -------- |
-| P1 | OpenMP Matrix Operations | ✅ Enabled |
-| P2 | Data Augmentation | ✅ Available |
-| P3 | Batched Inference | ✅ Available |
-| P4 | Parallel Attention Heads | ✅ Enabled |
-| P5 | Pipeline Parallelism | ✅ Available |
+|Priority|Feature|Status|
+|----------|---------|--------|
+|P1|OpenMP Matrix Operations|✅ Enabled|
+|P2|Data Augmentation|✅ Available|
+|P3|Batched Inference|✅ Available|
+|P4|Parallel Attention Heads|✅ Enabled|
+|P5|Pipeline Parallelism|✅ Available|
 
 ## 🎉 Result
 

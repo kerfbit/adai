@@ -124,13 +124,13 @@ Complete documentation covering:
 
 The chatbot_gui now benefits from:
 
-| Priority | Feature | Status |
-| ---------- | --------- | -------- |
-| **P1** | **OpenMP Matrix Operations** | **✅ Enabled** |
-| P2 | Data Augmentation | ✅ Available |
-| P3 | Batched Inference | ✅ Available |
-| **P4** | **Parallel Attention Heads** | **✅ Enabled** |
-| P5 | Pipeline Parallelism | ✅ Available |
+|Priority|Feature|Status|
+|----------|---------|--------|
+|**P1**|**OpenMP Matrix Operations**|**✅ Enabled**|
+|P2|Data Augmentation|✅ Available|
+|P3|Batched Inference|✅ Available|
+|**P4**|**Parallel Attention Heads**|**✅ Enabled**|
+|P5|Pipeline Parallelism|✅ Available|
 
 ## 🎮 How to Use
 
@@ -199,7 +199,7 @@ During model inference/generation:
 
 ## ✨ Bottom Line
 
-**The chatbot_gui is now fully optimized with parallel processing support!**
+The chatbot_gui is now fully optimized with parallel processing support!
 
 - ✅ Same optimization level as CLI chatbot
 - ✅ Same optimization level as chatbot_trainer
@@ -211,12 +211,12 @@ During model inference/generation:
 
 ## 🎉 Success Metrics
 
-| Metric | Before | After |
-| -------- | -------- | ------- |
-| OpenMP Support | ❌ | ✅ |
-| Parallel Attention | ❌ | ✅ |
-| CPU Core Usage | ~1 core | All 8 cores |
-| Matrix Op Speed | 1x | Up to 8x |
-| Build Message | "with Qt5" | "with Qt5 and full parallel optimizations" |
+|Metric|Before|After|
+|--------|--------|-------|
+|OpenMP Support|❌|✅|
+|Parallel Attention|❌|✅|
+|CPU Core Usage|~1 core|All 8 cores|
+|Matrix Op Speed|1x|Up to 8x|
+|Build Message|"with Qt5"|"with Qt5 and full parallel optimizations"|
 
 **Your GUI chatbot is now running at maximum performance!** 🚀

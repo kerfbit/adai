@@ -4,19 +4,19 @@
 
 ## REBUILD GUI WITH PARALLEL PROCESSING
 
-**Quick Rebuild:**
+Quick Rebuild:
 
 ```bash
 ./scripts/build_and_vocab.sh build-gui
 ```
 
-**Verify Parallel Support:**
+Verify Parallel Support:
 
 ```bash
 ./scripts/build_and_vocab.sh verify-gui
 ```
 
-**Manual Rebuild:**
+Manual Rebuild:
 
 ```bash
 cd build && cmake .. && make chatbot_gui_binary chatbot_gui -j$(nproc)
@@ -26,26 +26,26 @@ cd build && cmake .. && make chatbot_gui_binary chatbot_gui -j$(nproc)
 
 ## RUN GUI
 
-**Standard Run:**
+Standard Run:
 
 ```bash
 ./build/src/chatbot_gui --vocab vocab.txt --model chatbot_model.bin
 ```
 
-**With Convenience Script:**
+With Convenience Script:
 
 ```bash
 ./scripts/run_chatbot_gui.sh
 ```
 
-**Maximum Performance (Set OpenMP Threads):**
+Maximum Performance (Set OpenMP Threads):
 
 ```bash
 export OMP_NUM_THREADS=8
 ./build/src/chatbot_gui --vocab vocab.txt --model chatbot_model.bin
 ```
 
-**With Specific Model Epoch:**
+With Specific Model Epoch:
 
 ```bash
 ./build/src/chatbot_gui --vocab vocab.txt \
@@ -75,7 +75,7 @@ export OMP_NUM_THREADS=8
 
 ## PERFORMANCE MONITORING
 
-**Watch CPU Usage:**
+Watch CPU Usage:
 
 ```bash
 # Run GUI, then in another terminal:
@@ -83,13 +83,13 @@ htop
 # Look for 60-100% usage across multiple cores during generation
 ```
 
-**Detailed Thread View:**
+Detailed Thread View:
 
 ```bash
 top -H -p $(pgrep chatbot_gui)
 ```
 
-**Check OpenMP Threads:**
+Check OpenMP Threads:
 
 ```bash
 # See how many threads are configured
@@ -101,19 +101,19 @@ echo $OMP_NUM_THREADS
 
 ## GENERATION SETTINGS IN GUI
 
-**Best Settings for Quality:**
+Best Settings for Quality:
 
 - Strategy: Nucleus (top-p sampling)
 - Temperature: 0.7 - 0.8
 - Max Length: 100 - 150 tokens
 
-**For Faster Response:**
+For Faster Response:
 
 - Strategy: Greedy
 - Temperature: 0.3 - 0.5
 - Max Length: 50 - 100 tokens
 
-**For Creative Output:**
+For Creative Output:
 
 - Strategy: Sampling
 - Temperature: 1.0 - 1.2
@@ -162,15 +162,15 @@ echo $OMP_NUM_THREADS
 
 ## COMPARISON WITH CLI
 
-| Feature | CLI Chatbot | GUI Chatbot |
-| ------- | ----------- | ----------- |
-| OpenMP Support | ✅ | ✅ |
-| Parallel Attention | ✅ | ✅ |
-| Multi-core Usage | ✅ | ✅ |
-| Optimization Level | Release | Release |
-| Build Flags | -O3 -march | -O3 -march |
+|Feature|CLI Chatbot|GUI Chatbot|
+|-------|-----------|-----------|
+|OpenMP Support|✅|✅|
+|Parallel Attention|✅|✅|
+|Multi-core Usage|✅|✅|
+|Optimization Level|Release|Release|
+|Build Flags|-O3 -march|-O3 -march|
 
-**Both now have IDENTICAL parallel processing capabilities!**
+Both now have IDENTICAL parallel processing capabilities!
 
 ---
 

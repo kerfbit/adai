@@ -110,7 +110,7 @@ Sampling/Greedy Selection → Next Token
 
 **File:** `DecoderBlock.hpp`, `DecoderBlock.cpp`
 
-**Interface:**
+Interface:
 
 ```cpp
 class DecoderBlock {
@@ -203,7 +203,7 @@ public:
 };
 ```
 
-**Key Design Decisions:**
+Key Design Decisions:
 
 1. **Reuses `MultiHeadAttention`**: No need to create new attention class - existing one handles both self and cross-attention
 2. **Three LayerNorm instances**: Follows transformer decoder architecture (norm after each sub-layer)
@@ -211,7 +211,7 @@ public:
 4. **Cross-attention**: Second attention layer attends to encoder output
 5. **Residual connections**: Three residual paths (self-attn, cross-attn, FFN)
 
-**Forward Pass Steps:**
+Forward Pass Steps:
 
 ```text
 1. Self-Attention:     attn1 = self_attention(input, input, input, causal_mask)
@@ -230,7 +230,7 @@ public:
 
 **File:** `LanguageModelHead.hpp`, `LanguageModelHead.cpp`
 
-**Interface:**
+Interface:
 
 ```cpp
 class LanguageModelHead {
@@ -306,7 +306,7 @@ public:
 };
 ```
 
-**Key Design Decisions:**
+Key Design Decisions:
 
 1. **Simple linear projection**: `output = input * W + b`
 2. **Softmax separate**: Applied during inference, not in forward pass
@@ -321,7 +321,7 @@ public:
 
 **File:** `Decoder.hpp`, `Decoder.cpp`
 
-**Interface:**
+Interface:
 
 ```cpp
 class LLMDecoder {
@@ -449,7 +449,7 @@ public:
 };
 ```
 
-**Key Design Decisions:**
+Key Design Decisions:
 
 1. **Mirrors LLMEncoder structure**: Same initialization pattern, same component organization
 2. **Causal masking built-in**: `create_causal_mask()` helper for autoregressive generation
@@ -465,7 +465,7 @@ public:
 
 **File:** `TextGenerator.hpp`, `TextGenerator.cpp`
 
-**Interface:**
+Interface:
 
 ```cpp
 class TextGenerator {
@@ -597,7 +597,7 @@ public:
 };
 ```
 
-**Key Design Decisions:**
+Key Design Decisions:
 
 1. **Separation of concerns**: Generation logic separate from model architecture
 2. **Multiple strategies**: Greedy, sampling, top-k, nucleus, beam search
@@ -613,7 +613,7 @@ public:
 
 **File:** `EncoderDecoderModel.hpp`, `EncoderDecoderModel.cpp`
 
-**Interface:**
+Interface:
 
 ```cpp
 class EncoderDecoderModel {
@@ -723,7 +723,7 @@ public:
 };
 ```
 
-**Key Design Decisions:**
+Key Design Decisions:
 
 1. **High-level interface**: Abstracts encoder+decoder complexity
 2. **Training support**: Single-step and batch training methods
@@ -737,16 +737,16 @@ public:
 
 ### Existing Components to Reuse
 
-| Component | Purpose | Usage in Decoder |
-| ----------- | --------- | ----------------- |
-| `MultiHeadAttention` | Attention mechanism | Self-attention & cross-attention in DecoderBlock |
-| `FeedForward` | Position-wise FFN | Feed-forward layer in DecoderBlock |
-| `LayerNorm` | Normalization | 3 instances per DecoderBlock |
-| `TokenEmbedding` | Token→vector mapping | Decoder input embeddings |
-| `PositionalEncoding` | Position information | Add to decoder embeddings |
-| `BPETokenizer` | Text tokenization | Shared with encoder |
-| `Activation` | Softmax/GELU | Output probabilities |
-| `Matrix` | Tensor operations | All mathematical operations |
+|Component|Purpose|Usage in Decoder|
+|-----------|---------|-----------------|
+|`MultiHeadAttention`|Attention mechanism|Self-attention & cross-attention in DecoderBlock|
+|`FeedForward`|Position-wise FFN|Feed-forward layer in DecoderBlock|
+|`LayerNorm`|Normalization|3 instances per DecoderBlock|
+|`TokenEmbedding`|Token→vector mapping|Decoder input embeddings|
+|`PositionalEncoding`|Position information|Add to decoder embeddings|
+|`BPETokenizer`|Text tokenization|Shared with encoder|
+|`Activation`|Softmax/GELU|Output probabilities|
+|`Matrix`|Tensor operations|All mathematical operations|
 
 ### New Components Required
 
@@ -766,7 +766,7 @@ public:
 
 **Purpose:** Prevent decoder from attending to future positions
 
-**Implementation:**
+Implementation:
 
 ```cpp
 Matrix LLMDecoder::create_causal_mask(int seq_len) {
@@ -787,7 +787,7 @@ Matrix LLMDecoder::create_causal_mask(int seq_len) {
 }
 ```
 
-**Example (seq_len = 4):**
+Example (seq_len = 4):
 
 ```text
 Position:  0    1    2    3
@@ -801,7 +801,7 @@ Position:  0    1    2    3
 
 **Purpose:** Prevent decoder from attending to encoder padding tokens
 
-**Implementation:**
+Implementation:
 
 ```cpp
 Matrix create_padding_mask(const std::vector<int>& token_ids, int pad_token_id) {
@@ -923,7 +923,7 @@ Context Documentation/
 3. Write unit tests for both components
 4. Create context documentation
 
-**Deliverables:**
+Deliverables:
 
 - `LanguageModelHead.hpp/cpp`
 - `DecoderBlock.hpp/cpp`
@@ -937,7 +937,7 @@ Context Documentation/
 3. Test decoder forward/backward passes
 4. Create example programs
 
-**Deliverables:**
+Deliverables:
 
 - `Decoder.hpp/cpp`
 - `DecoderExample.cpp`
@@ -951,7 +951,7 @@ Context Documentation/
 3. Test generation quality
 4. Create generation examples
 
-**Deliverables:**
+Deliverables:
 
 - `TextGenerator.hpp/cpp`
 - Generation strategy tests
@@ -964,7 +964,7 @@ Context Documentation/
 3. Create end-to-end chatbot example
 4. Performance testing
 
-**Deliverables:**
+Deliverables:
 
 - `EncoderDecoderModel.hpp/cpp`
 - `EncoderDecoderExample.cpp`
@@ -1148,7 +1148,7 @@ This design provides a **complete transformer decoder** that:
 ✅ **Flexible**: Multiple generation strategies supported
 ✅ **Complete**: Enables full chatbot functionality
 
-**Next Steps:**
+Next Steps:
 
 1. Review and approve design
 2. Begin Phase 1 implementation (LanguageModelHead + DecoderBlock)

@@ -16,14 +16,14 @@
 
 ### 🚀 Performance Improvements
 
-| Feature | Improvement | Impact |
-| --------- | ------------- | -------- |
-| **Tokenization Caching** | Pre-tokenize all data once | 10-100x faster training |
-| **Gradient Accumulation** | Simulate larger batches | Memory efficient, better convergence |
-| **Data Shuffling** | Random shuffle per epoch | Better generalization |
-| **Proper Validation** | Inference-only evaluation | Accurate metrics |
-| **Perplexity Tracking** | NEW: Track prediction confidence | Interpretable metrics |
-| **Logging Levels** | NEW: Control output verbosity | Cleaner logs, less overhead |
+|Feature|Improvement|Impact|
+|---------|-------------|--------|
+|**Tokenization Caching**|Pre-tokenize all data once|10-100x faster training|
+|**Gradient Accumulation**|Simulate larger batches|Memory efficient, better convergence|
+|**Data Shuffling**|Random shuffle per epoch|Better generalization|
+|**Proper Validation**|Inference-only evaluation|Accurate metrics|
+|**Perplexity Tracking**|NEW: Track prediction confidence|Interpretable metrics|
+|**Logging Levels**|NEW: Control output verbosity|Cleaner logs, less overhead|
 
 ### 📊 Before vs After
 
@@ -59,13 +59,13 @@
 
 **What it does:** Accumulates gradients over multiple samples before updating weights.
 
-**Why use it:**
+Why use it:
 
 - Simulate larger batch sizes without running out of memory
 - Better gradient estimates for more stable training
 - Enables training on consumer GPUs
 
-**Example:**
+Example:
 
 ```bash
 ./chatbot_trainer --data train.txt --vocab vocab.txt \
@@ -76,7 +76,7 @@
 
 This simulates a batch size of 32 while only processing 1 sample at a time in memory.
 
-**Effective Batch Size Formula:**
+Effective Batch Size Formula:
 
 ```text
 effective_batch_size = batch_size × gradient_accumulation_steps
@@ -86,13 +86,13 @@ effective_batch_size = batch_size × gradient_accumulation_steps
 
 **What it does:** Tokenizes all training and validation data once before training starts.
 
-**Benefits:**
+Benefits:
 
 - Eliminates redundant tokenization in training loop
 - 10-100x speedup in training iteration time
 - Automatic - no configuration needed
 
-**Process:**
+Process:
 
 1. Load conversation data
 2. Split into train/validation
@@ -103,12 +103,12 @@ effective_batch_size = batch_size × gradient_accumulation_steps
 
 **What it does:** Uses inference-only forward pass for validation.
 
-**Critical Fix:**
+Critical Fix:
 
 - **Before:** Used `train_step()` which updated weights on validation data ❌
 - **After:** Uses `model->evaluate()` which only computes loss ✅
 
-**Impact:**
+Impact:
 
 - Validation metrics are now accurate
 - Can properly detect overfitting
@@ -118,13 +118,13 @@ effective_batch_size = batch_size × gradient_accumulation_steps
 
 **What it does:** Randomly shuffles data before splitting and at each epoch.
 
-**Benefits:**
+Benefits:
 
 - Better generalization
 - Prevents model from memorizing sample order
 - Random validation split instead of tail-split
 
-**Implementation:**
+Implementation:
 
 - Uses `std::shuffle` with `std::mt19937` random generator
 - Applied before train/val split
@@ -142,7 +142,7 @@ effective_batch_size = batch_size × gradient_accumulation_steps
     --output my_model.bin
 ```
 
-**You get:**
+You get:
 
 - ✅ Tokenization caching (automatic)
 - ✅ Proper validation (automatic)
@@ -167,7 +167,7 @@ effective_batch_size = batch_size × gradient_accumulation_steps
     --output model.bin
 ```
 
-**You get:**
+You get:
 
 - ✅ All automatic improvements
 - ✅ Effective batch size of 32 (4 × 8)
@@ -189,7 +189,7 @@ effective_batch_size = batch_size × gradient_accumulation_steps
     --output large_model.bin
 ```
 
-**Strategy:**
+Strategy:
 
 - Small physical batch size (1) for memory
 - Large accumulation (64) for good gradients
@@ -199,25 +199,25 @@ effective_batch_size = batch_size × gradient_accumulation_steps
 
 #### Tokenization Speed (1000 samples)
 
-| Implementation | Time per Epoch | Speedup |
-| ---------------- | ---------------- | --------- |
-| Old (tokenize in loop) | 5.0s | 1x baseline |
-| New (cached tokens) | 0.05s | **100x faster** |
+|Implementation|Time per Epoch|Speedup|
+|----------------|----------------|---------|
+|Old (tokenize in loop)|5.0s|1x baseline|
+|New (cached tokens)|0.05s|**100x faster**|
 
 #### Training Time (10 epochs, 1000 samples)
 
-| Configuration | Total Time | Notes |
-| --------------- | ------------ | ------- |
-| Old implementation | 50s | Baseline |
-| New (no grad accum) | 0.5s | 100x faster |
-| New (grad_accum=32) | 1.5s | 33x faster, better quality |
+|Configuration|Total Time|Notes|
+|---------------|------------|-------|
+|Old implementation|50s|Baseline|
+|New (no grad accum)|0.5s|100x faster|
+|New (grad_accum=32)|1.5s|33x faster, better quality|
 
 ### 🔧 Command-Line Options (New)
 
-| Option | Default | Description |
-| -------- | --------- | ------------- |
-| `--batch-size <n>` | 1 | Batch size per accumulation step |
-| `--grad-accum <n>` | 1 | Number of gradient accumulation steps |
+|Option|Default|Description|
+|--------|---------|-------------|
+|`--batch-size <n>`|1|Batch size per accumulation step|
+|`--grad-accum <n>`|1|Number of gradient accumulation steps|
 
 **Note:** All other options remain unchanged and compatible.
 
@@ -225,13 +225,13 @@ effective_batch_size = batch_size × gradient_accumulation_steps
 
 #### When to Use Gradient Accumulation
 
-**Use gradient accumulation when:**
+Use gradient accumulation when:
 
 - ✅ Training large models that don't fit in memory
 - ✅ You want more stable gradients (larger effective batch)
 - ✅ Training on consumer hardware (limited VRAM)
 
-**Don't use gradient accumulation when:**
+Don't use gradient accumulation when:
 
 - ❌ You have enough memory for your desired batch size
 - ❌ You want fastest possible training (adds overhead)
@@ -276,7 +276,7 @@ Existing training scripts work without modification:
 ./chatbot_trainer --data train.txt --vocab vocab.txt --epochs 10
 ```
 
-**You automatically get:**
+You automatically get:
 
 - Cached tokenization
 - Proper validation
@@ -300,7 +300,7 @@ To take advantage of gradient accumulation:
 
 **Explanation:** Gradient accumulation adds computational overhead. It's designed for memory efficiency, not speed.
 
-**Solution:**
+Solution:
 
 - If you have enough memory, use `--grad-accum 1`
 - The primary benefit is enabling larger effective batch sizes
@@ -311,7 +311,7 @@ To take advantage of gradient accumulation:
 
 **Explanation:** Data shuffling is random by design
 
-**Solution:**
+Solution:
 
 - This is expected and beneficial for generalization
 - Results should be similar in quality, not identical

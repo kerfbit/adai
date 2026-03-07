@@ -167,7 +167,7 @@ Modify `PositionalEncoding` to support longer sequences:
 positional_encoding = std::make_unique<PositionalEncoding>(d_model, 1024);  // Instead of 512
 ```
 
-**Trade-offs:**
+Trade-offs:
 
 - ✅ Allows longer context
 - ❌ More memory usage

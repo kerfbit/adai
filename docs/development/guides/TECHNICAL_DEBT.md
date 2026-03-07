@@ -4,11 +4,11 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** March 4, 2026  
-**Total Items:** 3  
-**High Priority:** 0  
-**Medium Priority:** 1  
-**Low Priority:** 2  
+**Last Updated:** March 4, 2026
+**Total Items:** 3
+**High Priority:** 0
+**Medium Priority:** 1
+**Low Priority:** 2
 **Future Enhancements:** 19
 **Resolved Items:** 9 (3 new)
 
@@ -52,22 +52,22 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ### TD-003: GPU Memory Management Optimization
 
-**Priority:** LOW  
-**Status:** Optional Enhancement  
-**Component:** GPU / Performance  
+**Priority:** LOW
+**Status:** Optional Enhancement
+**Component:** GPU / Performance
 **Created:** January 28, 2026
 
-**Description:**
+Description:
 Current GPU implementation transfers data between CPU and GPU for each operation. For better performance with repeated GPU operations, persistent GPU memory buffers could be implemented.
 
-**Current Behavior:**
+Current Behavior:
 
 ```cpp
 Matrix C = A.multiply_gpu(B);  // Transfers A, B to GPU, then result back
 Matrix D = C.add_gpu(A);       // Transfers C, A to GPU again, then result back
 ```
 
-**Desired Behavior:**
+Desired Behavior:
 
 ```cpp
 // Future enhancement - keep data on GPU between operations
@@ -78,26 +78,26 @@ GPUMatrix D_gpu = C_gpu.add(A_gpu);       // No transfers
 Matrix D = D_gpu.to_cpu();  // Only transfer final result
 ```
 
-**Impact:**
+Impact:
 
 - **Performance:** Would significantly improve performance for sequences of GPU operations
 - **Current Workaround:** Current implementation works correctly, just not optimal for chained operations
 - **Users Affected:** Only users leveraging GPU acceleration with multiple sequential operations
 
-**Implementation Notes:**
+Implementation Notes:
 
 - Create `GPUMatrix` class that maintains device memory
 - Implement conversion operators (`to_gpu()`, `to_cpu()`)
 - Add smart memory management (RAII pattern already in place with `GPUMemory`)
 - Consider implementing memory pools for frequently allocated sizes
 
-**Files to Modify:**
+Files to Modify:
 
 - `src/gpu/GPUUtils.hpp` - Add `GPUMatrix` class
 - `src/Matrix.hpp` - Add conversion methods
 - `src/gpu/MatrixGPU.cu` - Update operations to work with persistent GPU memory
 
-**Related:**
+Related:
 
 - GPU acceleration implemented in commit [current]
 - See `docs/guides/building.md` for GPU compilation instructions
@@ -106,16 +106,16 @@ Matrix D = D_gpu.to_cpu();  // Only transfer final result
 
 ### TD-006: Fill-in-the-Middle (FIM) Training Data Generation
 
-**Priority:** LOW  
-**Status:** Planned  
-**Component:** Training / Data Generation  
-**Created:** February 17, 2026  
+**Priority:** LOW
+**Status:** Planned
+**Component:** Training / Data Generation
+**Created:** February 17, 2026
 **Effort Estimate:** 6-8 hours
 
-**Description:**
+Description:
 Current training data for Project Gutenberg books uses consecutive sentence pairs (question → answer). Adding Fill-in-the-Middle (FIM) style training where the model predicts a middle sentence given first and last sentences would improve narrative understanding and coherence.
 
-**Current Behavior:**
+Current Behavior:
 
 ```cpp
 // Simple consecutive pairs
@@ -123,7 +123,7 @@ INPUT: "What does this mean: [sentence 1]"
 RESPONSE: "[sentence 2]"
 ```
 
-**Desired Behavior:**
+Desired Behavior:
 
 ```cpp
 // Add ~20% FIM-style pairs
@@ -131,14 +131,14 @@ INPUT: "Fill in the middle: <|first|>[sentence 1]<|last|>[sentence 3]"
 RESPONSE: "[sentence 2]"
 ```
 
-**Benefits:**
+Benefits:
 
 - Better understanding of narrative flow and context
 - Improved coherence in generated responses
 - Enhanced ability to reason about story structure
 - More robust to partial context scenarios
 
-**Implementation Tasks:**
+Implementation Tasks:
 
 - [ ] Add FIM data generation to `create_qa_pairs_from_text()`
 - [ ] Define special tokens for FIM format (`<|first|>`, `<|middle|>`, `<|last|>`)
@@ -148,22 +148,22 @@ RESPONSE: "[sentence 2]"
 - [ ] Update documentation with FIM training approach
 - [ ] Test on various text sources
 
-**Files to Modify:**
+Files to Modify:
 
 - `src/IncrementalTrainer.cpp` - Modify `create_qa_pairs_from_text()` (line 920)
 - `src/BPETokenizer.cpp` - Add FIM special tokens to vocabulary
 - `include/IncrementalTrainer.hpp` - Add FIM configuration options
 
-**Code Location:**
+Code Location:
 
 `src/IncrementalTrainer.cpp:920`
 
-**References:**
+References:
 
 - FIM approach used successfully in code completion models (Copilot, CodeGen)
 - Paper: "Efficient Training of Language Models to Fill in the Middle" (Bavarian et al.)
 
-**Evaluation:**
+Evaluation:
 
 - Test on narrative coherence tasks
 - Measure improvement in multi-turn conversation quality
@@ -173,16 +173,16 @@ RESPONSE: "[sentence 2]"
 
 ### TD-007: Matrix Operations SIMD Acceleration
 
-**Priority:** MEDIUM  
-**Status:** Planned  
-**Component:** Performance / Matrix Operations  
-**Created:** February 17, 2026  
+**Priority:** MEDIUM
+**Status:** Planned
+**Component:** Performance / Matrix Operations
+**Created:** February 17, 2026
 **Effort Estimate:** 12-16 hours
 
-**Description:**
+Description:
 Matrix operations are performance-critical for neural network training and inference. Current implementation uses OpenMP for parallelization but lacks explicit SIMD intrinsics and BLAS library integration. Adding vectorized operations could provide 2-5x speedup for compute-intensive operations.
 
-**Current Behavior:**
+Current Behavior:
 
 ```cpp
 // Naive scalar operations with OpenMP parallelization
@@ -197,7 +197,7 @@ for (int i = 0; i < rows; i++) {
 }
 ```
 
-**Desired Behavior:**
+Desired Behavior:
 
 ```cpp
 // Use BLAS for large matrices
@@ -214,7 +214,7 @@ if (rows > 256 && cols > 256) {
 }
 ```
 
-**Benefits:**
+Benefits:
 
 - 2-5x performance improvement for matrix operations
 - Reduced training time for large models
@@ -222,7 +222,7 @@ if (rows > 256 && cols > 256) {
 - Industry-standard BLAS library for proven optimizations
 - Platform-specific optimizations (x86 AVX, ARM NEON)
 
-**Implementation Tasks:**
+Implementation Tasks:
 
 - [ ] Add BLAS library detection and linking (OpenBLAS, Intel MKL, Apple Accelerate)
 - [ ] Implement BLAS integration for matrix multiplication (GEMM) on matrices >256x256
@@ -242,7 +242,7 @@ if (rows > 256 && cols > 256) {
 - [ ] Update documentation with build requirements
 - [ ] Add CMake options for enabling/disabling SIMD features
 
-**Files to Modify:**
+Files to Modify:
 
 - `src/Matrix.cpp` - Add SIMD implementations for all operations (TODOs already added)
 - `src/Matrix.hpp` - Add conditional compilation headers for SIMD
@@ -252,7 +252,7 @@ if (rows > 256 && cols > 256) {
 - `tests/matrix_simd_test.cpp` - New test suite for SIMD operations
 - `docs/guides/building.md` - Document BLAS and SIMD build options
 
-**Code Locations:**
+Code Locations:
 
 Multiple TODOs added throughout `src/Matrix.cpp`:
 
@@ -263,7 +263,7 @@ Multiple TODOs added throughout `src/Matrix.cpp`:
 - Line ~231: Gradient application
 - Line ~281: Sum operation
 
-**Technical Considerations:**
+Technical Considerations:
 
 - **Platform Support:** Need separate code paths for x86 (AVX/SSE) and ARM (NEON)
 - **Alignment:** SIMD operations require 16/32-byte aligned memory
@@ -271,27 +271,27 @@ Multiple TODOs added throughout `src/Matrix.cpp`:
 - **Cache Performance:** Implement matrix tiling for large matrices
 - **BLAS Library:** Support multiple BLAS implementations (OpenBLAS default)
 
-**Performance Targets:**
+Performance Targets:
 
 - Matrix multiplication (1024x1024): 4-5x speedup with BLAS
 - Element-wise operations: 2-3x speedup with SIMD
 - Small matrices (64x64): 1.5-2x speedup with intrinsics
 - Training throughput: 15-20% overall improvement
 
-**Dependencies:**
+Dependencies:
 
 - BLAS library (OpenBLAS recommended, Intel MKL optional)
 - C++ compiler with AVX2 support (GCC 4.9+, Clang 3.4+, MSVC 2015+)
 - CMake 3.10+ for BLAS detection
 
-**References:**
+References:
 
 - [Intel Intrinsics Guide](https://www.intel.com/content/www/us/en/docs/intrinsics-guide/)
 - [ARM NEON Intrinsics](https://developer.arm.com/architectures/instruction-sets/simd-isas/neon)
 - [OpenBLAS](https://www.openblas.net/)
 - [BLAS API Reference](http://www.netlib.org/blas/)
 
-**Related:**
+Related:
 
 - TD-003: GPU Memory Management (complementary GPU optimization)
 - Existing OpenMP parallelization can coexist with SIMD
@@ -302,14 +302,14 @@ Multiple TODOs added throughout `src/Matrix.cpp`:
 
 ### TD-012: Increase Test Coverage
 
-**Resolution Date:** March 1, 2026  
-**Component:** Code Quality / Testing  
-**Resolved By:** Comprehensive test suite implementation for all components  
+**Resolution Date:** March 1, 2026
+**Component:** Code Quality / Testing
+**Resolved By:** Comprehensive test suite implementation for all components
 
-**Summary:**
+Summary:
 Achieved ~100% test coverage of all testable code components (excluding GUI and legacy entry points). Implemented dedicated test suites for all major subsystems including Config, Logger, Trainer, and Inference Engines.
 
-**Changes Made:**
+Changes Made:
 
 1. ✅ Created test suites for 13+ major components:
    - Config, Logger, IncrementalTrainer, LLMEncoder, DocumentStore
@@ -319,12 +319,12 @@ Achieved ~100% test coverage of all testable code components (excluding GUI and 
 2. ✅ Achieved >95% LoC coverage target
 3. ✅ Added edge case testing and error handling verification
 
-**Files Modified:**
+Files Modified:
 
 - `tests/*` (New test files for all components)
 - `tests/CMakeLists.txt`
 
-**Coverage Stats:**
+Coverage Stats:
 
 - Total Testable Lines: ~25,000 LOC
 - Tested Lines: ~24,784 LOC
@@ -334,14 +334,14 @@ Achieved ~100% test coverage of all testable code components (excluding GUI and 
 
 ### TD-011: File Rotation and Management
 
-**Resolution Date:** March 1, 2026  
-**Component:** Logging and Observability  
-**Resolved By:** Integrated spdlog rotating file sink  
+**Resolution Date:** March 1, 2026
+**Component:** Logging and Observability
+**Resolved By:** Integrated spdlog rotating file sink
 
-**Summary:**
+Summary:
 Implemented production-grade log rotation to prevent infinite log growth. Logs are now automatically rotated based on size and count configuration.
 
-**Changes Made:**
+Changes Made:
 
 1. ✅ Added rotating file sink to spdlog (rotating_file_sink_mt)
 2. ✅ Configured max file size and rotation count
@@ -352,7 +352,7 @@ Implemented production-grade log rotation to prevent infinite log growth. Logs a
 7. ✅ Validation for log rotation parameters
 8. ✅ Integration with configuration hot-reload
 
-**Files Modified:**
+Files Modified:
 
 - `src/Logger.cpp`
 - `src/Logger.hpp`
@@ -366,21 +366,21 @@ Implemented production-grade log rotation to prevent infinite log growth. Logs a
 
 ### TD-010: Configuration Hot-Reloading
 
-**Resolution Date:** March 1, 2026  
-**Component:** Configuration and Service Management  
-**Resolved By:** Implemented SIGHUP handler and thread-safe config updates  
+**Resolution Date:** March 1, 2026
+**Component:** Configuration and Service Management
+**Resolved By:** Implemented SIGHUP handler and thread-safe config updates
 
-**Summary:**
+Summary:
 Implemented zero-downtime configuration reloading using SIGHUP signals. This allows changing log levels, timeouts, and other parameters without restarting the service.
 
-**Changes Made:**
+Changes Made:
 
 1. ✅ Implemented SIGHUP handler to trigger config reload
 2. ✅ Added thread-safe configuration updates with mutex protection
 3. ✅ Validate new configuration before applying
 4. ✅ Log configuration changes with timestamps
 
-**Files Modified:**
+Files Modified:
 
 - `src/Config.cpp`
 - `src/ChatbotAPIServer.cpp`
@@ -392,14 +392,14 @@ Implemented zero-downtime configuration reloading using SIGHUP signals. This all
 
 ### TD-009: Incremental Trainer Dashboard and Structured Logging
 
-**Resolution Date:** March 2, 2026  
-**Component:** Training / IncrementalTrainer / Observability  
+**Resolution Date:** March 2, 2026
+**Component:** Training / IncrementalTrainer / Observability
 **Resolved By:** Full implementation of Logger integration, per-epoch metric collection, in-place CLI dashboard, v2 session history serialization, and test coverage
 
-**Summary:**
+Summary:
 Replaced all unstructured `std::cout`/`std::cerr` output in `IncrementalTrainer` with structured `Logger` calls, implemented a real-time in-place CLI dashboard that redraws after every epoch using ANSI cursor movement, and added complete per-epoch metric collection and persistence. Absorbed the scope of TD-004.
 
-**Changes Made:**
+Changes Made:
 
 1. ✅ Added `EpochCallback` typedef and `set_epoch_callback()` to `ChatbotTrainer` — fires once per epoch inside `train(int)` without disrupting LR scheduling or data preprocessing
 2. ✅ Extended `TrainingSession` struct with four per-epoch vectors: `per_epoch_losses`, `per_epoch_validation_losses`, `per_epoch_learning_rates`, `training_time_per_epoch`
@@ -419,7 +419,7 @@ Replaced all unstructured `std::cout`/`std::cerr` output in `IncrementalTrainer`
 11. ✅ Added `spdlog::spdlog` and `Logger.cpp` to `incremental_trainer` and `incrementaltrainerTests` CMake targets
 12. ✅ Added 3 new GTest cases (38 total): `LoadSessionHistoryV2ParsesPerEpochVectors`, `SaveLoadSessionHistoryRoundTripWithPerEpochData`, `DisplayDashboardDoesNotCrash` — all pass
 
-**Files Modified:**
+Files Modified:
 
 - `src/ChatbotTrainer.hpp` — `EpochCallback` typedef, `epoch_callback_` member, `set_epoch_callback()` declaration
 - `src/ChatbotTrainer.cpp` — `set_epoch_callback()` implementation; callback invocation in epoch loop
@@ -429,7 +429,7 @@ Replaced all unstructured `std::cout`/`std::cerr` output in `IncrementalTrainer`
 - `tests/incrementaltrainer_test.cpp` — 3 new TD-009 tests
 - `tests/CMakeLists.txt` — added `../src/Logger.cpp` and `spdlog::spdlog` to `incrementaltrainerTests` target
 
-**Verification:**
+Verification:
 
 - ✅ Full build succeeds (both `incremental_trainer` executable and `incrementaltrainerTests`)
 - ✅ All 38 incremental trainer tests pass including the 3 new TD-009 tests
@@ -440,14 +440,14 @@ Replaced all unstructured `std::cout`/`std::cerr` output in `IncrementalTrainer`
 
 ### TD-004: Enhanced Metrics Tracking for Training Sessions
 
-**Resolution Date:** March 2, 2026  
-**Component:** Training / IncrementalTrainer  
+**Resolution Date:** March 2, 2026
+**Component:** Training / IncrementalTrainer
 **Resolved By:** Absorbed and fully implemented as part of TD-009
 
-**Summary:**
+Summary:
 All core implementation tasks from TD-004 were completed as part of the TD-009 implementation. The `TrainingSession` struct now carries four per-epoch vectors; `ChatbotTrainer` exposes per-epoch data via `EpochCallback`; session history serialization (`save_session_history` / `load_session_history`) uses a v2 format that persists and reloads these vectors; and `print_training_summary` renders Unicode sparklines for visual trend analysis. The 55 granular TODO comments that were seeded across the codebase have all been removed.
 
-**Tasks Completed:**
+Tasks Completed:
 
 - ✅ Extended `TrainingSession` struct with `per_epoch_losses`, `per_epoch_validation_losses`, `per_epoch_learning_rates`, `training_time_per_epoch`
 - ✅ Modified `ChatbotTrainer` to expose per-epoch data via `EpochCallback` mechanism
@@ -462,14 +462,14 @@ All core implementation tasks from TD-004 were completed as part of the TD-009 i
 
 ### TD-008: Daemon Service Implementation (Steps 1-5)
 
-**Resolution Date:** March 1, 2026  
-**Component:** Service Management / Production Deployment  
+**Resolution Date:** March 1, 2026
+**Component:** Service Management / Production Deployment
 **Resolved By:** Complete 5-step daemon service transformation
 
-**Summary:**
+Summary:
 Successfully transformed the ADAI Chatbot API Server from a development application into a production-ready daemon service. Implemented external configuration, graceful shutdown, structured logging, Docker deployment, and systemd integration following a comprehensive 5-step plan.
 
-**Changes Made:**
+Changes Made:
 
 #### Step 1: External Configuration ✅
 
@@ -548,7 +548,7 @@ Successfully transformed the ADAI Chatbot API Server from a development applicat
 6. Created comprehensive deployment guide: `SYSTEMD_DEPLOYMENT.md` (900+ lines)
 7. Documentation: `STEP5_COMPLETE.md`, `DAEMON_IMPLEMENTATION_COMPLETE.md`
 
-**Files Created:**
+Files Created:
 
 - Configuration: `src/Config.hpp`, `src/Config.cpp`, `config.conf`, `config.conf.example`
 - Logging: `src/Logger.hpp`, `src/Logger.cpp`
@@ -556,7 +556,7 @@ Successfully transformed the ADAI Chatbot API Server from a development applicat
 - Documentation: `STEP1_COMPLETE.md`, `STEP2_COMPLETE.md`, `STEP3_COMPLETE.md`, `STEP4_COMPLETE.md`, `STEP5_COMPLETE.md`, `DAEMON_IMPLEMENTATION_COMPLETE.md`, `DOCKER_DEPLOYMENT.md`, `SYSTEMD_DEPLOYMENT.md`
 - Testing: `scripts/test_signal_handling.sh`, `scripts/test_sigint.sh`
 
-**Files Modified:**
+Files Modified:
 
 - `src/ChatbotAPIServer.cpp` - Added Config, Logger, signal handling
 - `CMakeLists.txt` - Added spdlog dependency, Logger.cpp
@@ -564,7 +564,7 @@ Successfully transformed the ADAI Chatbot API Server from a development applicat
 - `Dockerfile` - Comprehensive environment variable documentation
 - `docker-compose.yml` - Enhanced configuration with detailed comments
 
-**Verification:**
+Verification:
 
 - ✅ Configuration: All sources (CLI, env, file) work with correct priority
 - ✅ Signal handling: SIGTERM/SIGINT trigger graceful shutdown
@@ -572,7 +572,7 @@ Successfully transformed the ADAI Chatbot API Server from a development applicat
 - ✅ Docker: Image builds, container starts, health checks pass
 - ✅ systemd: Service file syntax valid, installation script functional
 
-**Impact:**
+Impact:
 
 - **Production Ready:** Service can now run as managed daemon
 - **Observable:** Structured logs, configurable verbosity, timestamps
@@ -581,7 +581,7 @@ Successfully transformed the ADAI Chatbot API Server from a development applicat
 - **Portable:** Docker and systemd deployment options
 - **Documented:** Comprehensive deployment guides (1400+ lines total)
 
-**Related Future Enhancements:**
+Related Future Enhancements:
 See [Future Improvements](#configuration-and-service-management) section for enhancements building on this foundation:
 
 - Configuration hot-reloading (Config Enhancement #1)
@@ -595,14 +595,14 @@ See [Future Improvements](#configuration-and-service-management) section for enh
 
 ### TD-005: Checkpoint Management and Symbolic Links
 
-**Resolution Date:** February 18, 2026  
-**Component:** Training / IncrementalTrainer  
+**Resolution Date:** February 18, 2026
+**Component:** Training / IncrementalTrainer
 **Resolved By:** Complete symlink management implementation with cross-platform support
 
-**Summary:**
+Summary:
 Implemented automatic checkpoint symlink management to provide easy access to "latest" and "best" model checkpoints. The system creates and maintains symbolic links (or file copies on Windows) that always point to the most recent checkpoint and the checkpoint with the lowest validation loss.
 
-**Changes Made:**
+Changes Made:
 
 1. ✅ Added configuration options for symlink management:
    - `enable_checkpoint_symlinks` - toggle feature on/off (default: true)
@@ -636,7 +636,7 @@ Implemented automatic checkpoint symlink management to provide easy access to "l
    - Shows best checkpoint validation loss for quick reference
    - Handles both symlinks and file copies transparently
 
-**Files Modified:**
+Files Modified:
 
 - `include/IncrementalTrainer.hpp` - Added configuration and method declarations
 - `src/IncrementalTrainer.hpp` - Added configuration and method declarations (duplicate header)
@@ -648,7 +648,7 @@ Implemented automatic checkpoint symlink management to provide easy access to "l
   - Updated `cleanup_old_sessions()` to handle symlink cleanup
   - Updated `print_training_summary()` to display symlink information
 
-**Usage Example:**
+Usage Example:
 
 ```cpp
 IncrementalTrainer trainer("vocab.txt", "model.bin");
@@ -661,7 +661,7 @@ trainer.train_incremental(5);
 // - best_checkpoint.bin -> training_sessions/session_M_checkpoint.bin (lowest val loss)
 ```
 
-**Benefits Realized:**
+Benefits Realized:
 
 - Deployment scripts can reference `latest_checkpoint.bin` without parsing history
 - Easy access to best model for inference and evaluation
@@ -669,7 +669,7 @@ trainer.train_incremental(5);
 - Cross-platform compatibility with Windows fallback
 - Configurable for different deployment scenarios
 
-**Testing:**
+Testing:
 
 - Compiled successfully on Linux (GCC)
 - All existing tests pass
@@ -679,14 +679,14 @@ trainer.train_incremental(5);
 
 ### TD-002: Improve Error Handling in BPE Tokenizer
 
-**Resolution Date:** January 28, 2026  
-**Component:** NLP / Tokenization  
+**Resolution Date:** January 28, 2026
+**Component:** NLP / Tokenization
 **Resolved By:** Comprehensive error handling implementation
 
-**Summary:**
+Summary:
 Implemented robust error handling and validation for the BPE tokenizer, including custom exception types, UTF-8 validation, input validation, and vocabulary file format validation.
 
-**Changes Made:**
+Changes Made:
 
 1. ✅ Created custom exception types:
    - `TokenizerInputError` - for empty/invalid input
@@ -718,14 +718,14 @@ Implemented robust error handling and validation for the BPE tokenizer, includin
    - Edge case coverage (empty input, invalid UTF-8, malformed files)
    - All tests passing
 
-**Files Modified:**
+Files Modified:
 
 - `src/BPETokenizer.hpp` - Added custom exception types and validation methods
 - `src/BPETokenizer.cpp` - Implemented validation throughout encode/decode/load_vocab
 - `tests/tokenizer_error_handling_test.cpp` - New comprehensive test suite (27 tests)
 - `tests/CMakeLists.txt` - Added tokenizerErrorHandlingTests target
 
-**Verification:**
+Verification:
 All 27 tests pass, validating:
 
 - Empty input detection
@@ -739,14 +739,14 @@ All 27 tests pass, validating:
 
 ### TD-001: Complete Optimizer Parameter Exposure
 
-**Resolution Date:** January 28, 2026  
-**Component:** Optimizer Integration  
+**Resolution Date:** January 28, 2026
+**Component:** Optimizer Integration
 **Resolved By:** Complete parameter registration implementation
 
-**Summary:**
+Summary:
 Successfully completed parameter exposure for all model components. The optimizer now fully manages all model parameters through the centralized `optimizer->step()` mechanism.
 
-**Changes Made:**
+Changes Made:
 
 1. ✅ Verified `LLMEncoder::register_parameters_with_optimizer()` properly exposes all parameters (token embedding, encoder blocks, final norm)
 2. ✅ Verified `LLMDecoder::register_parameters_with_optimizer()` properly exposes all parameters (token embedding, decoder blocks, final norm)
@@ -755,11 +755,11 @@ Successfully completed parameter exposure for all model components. The optimize
 5. ✅ Removed obsolete TODO comments
 6. ✅ Tested training with optimizer integration - works correctly
 
-**Files Modified:**
+Files Modified:
 
 - `src/ChatbotTrainer.cpp` - Replaced `model->update_weights()` with `optimizer->step()`, removed outdated comments
 
-**Verification:**
+Verification:
 Training runs successfully with AdamW optimizer using centralized parameter management. All parameter groups are properly registered and updated through `optimizer->step()`.
 
 ---
@@ -1080,21 +1080,21 @@ When adding a new technical debt item:
 
 ### Prioritization Criteria
 
-**High Priority:**
+High Priority:
 
 - Blocks new feature development
 - Causes bugs or incorrect behavior
 - Security or stability issues
 - Affects multiple components
 
-**Medium Priority:**
+Medium Priority:
 
 - Improves code maintainability significantly
 - Reduces technical complexity
 - Enables future features
 - Clear path to resolution
 
-**Low Priority:**
+Low Priority:
 
 - Nice-to-have improvements
 - Cosmetic code cleanup
@@ -1118,28 +1118,28 @@ When resolving a debt item:
 
 ### By Priority
 
-| Priority | Count | Percentage |
-| ---------- | ------- | ------------ |
-| High | 0 | 0% |
-| Medium | 1 | 33% |
-| Low | 2 | 67% |
+|Priority|Count|Percentage|
+|----------|-------|------------|
+|High|0|0%|
+|Medium|1|33%|
+|Low|2|67%|
 
 ### By Component
 
-| Component | Count |
-| ---------------------- | ------- |
-| Performance / Matrix Operations | 1 |
-| Training / Data Generation | 1 |
-| GPU / Performance | 1 |
+|Component|Count|
+|----------------------|-------|
+|Performance / Matrix Operations|1|
+|Training / Data Generation|1|
+|GPU / Performance|1|
 
 ### Effort Distribution
 
-| Effort Range | Count |
-| -------------- | ------- |
-| 0-2 hours | 0 |
-| 2-4 hours | 0 |
-| 4-8 hours | 1 |
-| 8+ hours | 1 |
+|Effort Range|Count|
+|--------------|-------|
+|0-2 hours|0|
+|2-4 hours|0|
+|4-8 hours|1|
+|8+ hours|1|
 
 **Total Estimated Effort (Active Items):** 18-24 hours
 
@@ -1148,7 +1148,7 @@ When resolving a debt item:
 **Total Future Enhancements:** 19
 **Estimated Total Effort:** 100+ hours
 
-**By Category:**
+By Category:
 
 - Configuration and Service Management: 4 items (17-25 hours)
 - Logging and Observability: 3 items (12-16 hours)
@@ -1157,13 +1157,13 @@ When resolving a debt item:
 - Code Quality: 1 item (4-6 hours)
 - Developer Experience: 2 items (8-12 hours)
 
-**By Priority:**
+By Priority:
 
 - High: 0 items
 - Medium: 4 items (Batched Inference, Attention Head, Metrics Endpoint, Model State Persistence)
 - Low: 15 items
 
-**Recently Completed:**
+Recently Completed:
 
 - TD-009: Incremental Trainer Dashboard and Structured Logging - March 2, 2026
 - TD-004: Enhanced Metrics Tracking (absorbed by TD-009) - March 2, 2026

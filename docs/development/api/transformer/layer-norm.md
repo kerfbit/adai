@@ -722,23 +722,23 @@ public:
 
 ### Time Complexity
 
-| Operation | Complexity | Description |
-| ----------- | ----------- | ------------- |
-| Forward Pass | O(B × D) | B = batch size, D = dimension |
-| Backward Pass | O(B × D) | Same as forward |
-| Memory Allocation | O(B × D) | For cached matrices |
-| Parameter Update | O(D) | Only gamma and beta |
+|Operation|Complexity|Description|
+|-----------|-----------|-------------|
+|Forward Pass|O(B × D)|B = batch size, D = dimension|
+|Backward Pass|O(B × D)|Same as forward|
+|Memory Allocation|O(B × D)|For cached matrices|
+|Parameter Update|O(D)|Only gamma and beta|
 
 ### Space Complexity
 
-| Component | Space | Notes |
-| ----------- | ------- | ------- |
-| Parameters | O(2D) | Gamma and beta |
-| Gradients | O(2D) | Gamma_grad and beta_grad |
-| Cached Input | O(B × D) | Full input matrix |
-| Cached Normalized | O(B × D) | Full normalized matrix |
-| Cached Statistics | O(2B) | Mean and variance per sample |
-| **Total** | **O(2BD + 4D + 2B)** | Dominated by cached matrices |
+|Component|Space|Notes|
+|-----------|-------|-------|
+|Parameters|O(2D)|Gamma and beta|
+|Gradients|O(2D)|Gamma_grad and beta_grad|
+|Cached Input|O(B × D)|Full input matrix|
+|Cached Normalized|O(B × D)|Full normalized matrix|
+|Cached Statistics|O(2B)|Mean and variance per sample|
+|**Total**|**O(2BD + 4D + 2B)**|Dominated by cached matrices|
 
 ### Optimization Opportunities
 
@@ -786,12 +786,12 @@ var /= dim;
 
 ### Comparison with Other Normalization Techniques
 
-| Technique | Normalization Axis | Batch Dependent | RNN Friendly | Complexity |
-| ----------- | ------------------- | ----------------- | -------------- | ------------ |
-| **LayerNorm** | Features (within sample) | No | Yes | O(D) per sample |
-| Batch Norm | Samples (across batch) | Yes | No | O(B) per feature |
-| Instance Norm | Spatial (per channel per sample) | No | Yes | O(HW) per channel |
-| Group Norm | Channel groups | No | Yes | O(C/G × HW) |
+|Technique|Normalization Axis|Batch Dependent|RNN Friendly|Complexity|
+|-----------|-------------------|-----------------|--------------|------------|
+|**LayerNorm**|Features (within sample)|No|Yes|O(D) per sample|
+|Batch Norm|Samples (across batch)|Yes|No|O(B) per feature|
+|Instance Norm|Spatial (per channel per sample)|No|Yes|O(HW) per channel|
+|Group Norm|Channel groups|No|Yes|O(C/G × HW)|
 
 ---
 
@@ -852,13 +852,13 @@ Normalizes across feature dimension (same sample, different features).
 
 ### Performance Trade-offs
 
-| Aspect | BatchNorm | LayerNorm |
-| -------- | ----------- | ----------- |
-| Training Speed | Faster (parallel across batch) | Slightly slower |
-| Memory | Lower (stores running stats) | Higher (caches per sample) |
-| Batch Size Dependency | High | None |
-| Inference Consistency | Requires running stats | Always consistent |
-| Parallel Efficiency | High | Medium |
+|Aspect|BatchNorm|LayerNorm|
+|--------|-----------|-----------|
+|Training Speed|Faster (parallel across batch)|Slightly slower|
+|Memory|Lower (stores running stats)|Higher (caches per sample)|
+|Batch Size Dependency|High|None|
+|Inference Consistency|Requires running stats|Always consistent|
+|Parallel Efficiency|High|Medium|
 
 ---
 
@@ -1632,14 +1632,14 @@ cmake --build . --target encoder
 
 ## File Statistics
 
-| File | Lines | Purpose |
-| ------ | ------- | --------- |
-| `src/LayerNorm.hpp` | 145 | Class declaration with comprehensive documentation |
-| `src/LayerNorm.cpp` | 208 | Full implementation of all methods |
-| **Total New Code** | **353** | Complete standalone LayerNorm component |
-| `encoder.cpp` reduction | ~-125 | Removed embedded class |
-| `encoder.hpp` reduction | ~-25 | Removed embedded declaration |
-| **Total LOC Reduction in encoder** | **~-150** | Improved encoder code organization |
+|File|Lines|Purpose|
+|------|-------|---------|
+|`src/LayerNorm.hpp`|145|Class declaration with comprehensive documentation|
+|`src/LayerNorm.cpp`|208|Full implementation of all methods|
+|**Total New Code**|**353**|Complete standalone LayerNorm component|
+|`encoder.cpp` reduction|~-125|Removed embedded class|
+|`encoder.hpp` reduction|~-25|Removed embedded declaration|
+|**Total LOC Reduction in encoder**|**~-150**|Improved encoder code organization|
 
 ## Dependencies
 

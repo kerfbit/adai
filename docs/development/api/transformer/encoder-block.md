@@ -4,7 +4,7 @@
 
 The `EncoderBlock` class implements a single layer of the transformer encoder architecture, combining multi-head self-attention and position-wise feed-forward networks with residual connections and layer normalization. This is the fundamental building block of transformer-based models.
 
-**Files:**
+Files:
 
 - `src/EncoderBlock.hpp` - Header file with class declaration and interface
 - `src/EncoderBlock.cpp` - Implementation file with all method definitions
@@ -39,7 +39,7 @@ The encoder block applies two sub-layers with residual connections and layer nor
 EncoderBlock(x) = LayerNorm(x + FFN(LayerNorm(x + Attention(x))))
 ```
 
-**Expanded Step-by-Step:**
+Expanded Step-by-Step:
 
 ```text
 Step 1: attn_output = MultiHeadAttention(x, x, x, mask)
@@ -61,7 +61,7 @@ Attention(Q, K, V) = softmax(QK^T / √d_k) V
 MultiHead(x) = Concat(head₁, ..., head_h) W_o
 ```
 
-**Properties:**
+Properties:
 
 - Captures long-range dependencies
 - Learns different relationship types through multiple heads
@@ -75,7 +75,7 @@ Applies non-linear transformations independently at each position:
 FFN(x) = GELU(xW₁ + b₁)W₂ + b₂
 ```
 
-**Properties:**
+Properties:
 
 - Adds non-linear transformation capacity
 - Applied identically at each position
@@ -90,7 +90,7 @@ Adds input directly to output of each sub-layer:
 output = x + SubLayer(x)
 ```
 
-**Benefits:**
+Benefits:
 
 - Enables gradient flow in deep networks
 - Prevents vanishing gradients
@@ -105,7 +105,7 @@ Normalizes activations across features for each sample:
 LayerNorm(x) = γ · (x - μ) / √(σ² + ε) + β
 ```
 
-**Benefits:**
+Benefits:
 
 - Stabilizes training
 - Reduces internal covariate shift
@@ -114,7 +114,7 @@ LayerNorm(x) = γ · (x - μ) / √(σ² + ε) + β
 
 ### Complexity Analysis
 
-**Time Complexity:**
+Time Complexity:
 
 - Multi-head attention: O(seq_len² × d_model)
 - Feed-forward network: O(seq_len × d_model × d_ff)
@@ -127,7 +127,7 @@ For typical configuration (d_ff = 4 × d_model):
 - If seq_len < d_model: Feed-forward dominates
 - If seq_len > d_model: Attention dominates
 
-**Space Complexity:**
+Space Complexity:
 
 - Attention weights: O(d_model²) - projection matrices
 - Feed-forward weights: O(2 × d_model × d_ff)
@@ -135,7 +135,7 @@ For typical configuration (d_ff = 4 × d_model):
 - Cached activations: O(seq_len × d_model)
 - **Total: O(d_model² + d_model × d_ff + seq_len × d_model)**
 
-**Parameter Count:**
+Parameter Count:
 
 ```text
 Attention: 4 × d_model² (Q, K, V, output projections)
@@ -189,21 +189,21 @@ float learning_rate;  // Learning rate for gradient updates (default: 0.001)
 
 ### Component Responsibilities
 
-**MultiHeadAttention:**
+MultiHeadAttention:
 
 - Computes self-attention across sequence positions
 - Learns contextual relationships
 - Manages Q, K, V projections and output projection
 - Handles attention masking
 
-**FeedForward:**
+FeedForward:
 
 - Applies position-wise transformations
 - Provides non-linear modeling capacity
 - Expands to higher dimension then projects back
 - Uses GELU activation
 
-**LayerNorm (×2):**
+LayerNorm (×2):
 
 - Normalizes activations for training stability
 - One after attention sub-layer
@@ -212,7 +212,7 @@ float learning_rate;  // Learning rate for gradient updates (default: 0.001)
 
 ### Memory Layout
 
-**Cached Matrices (for backpropagation):**
+Cached Matrices (for backpropagation):
 
 - `cached_input`: [seq_len, d_model] - needed for residual gradient
 - `cached_attn_output`: [seq_len, d_model] - needed for residual gradient
@@ -233,7 +233,7 @@ float learning_rate;  // Learning rate for gradient updates (default: 0.001)
 EncoderBlock::EncoderBlock(int d_model, int num_heads, int d_ff, float dropout)
 ```
 
-**Initialization Steps:**
+Initialization Steps:
 
 1. Store hyperparameters (d_model, num_heads, d_ff, dropout_rate)
 2. Set default learning rate (0.001)
@@ -242,12 +242,12 @@ EncoderBlock::EncoderBlock(int d_model, int num_heads, int d_ff, float dropout)
 5. Create two LayerNorm instances
 6. Propagate learning rate to all components
 
-**Validation:**
+Validation:
 
 - d_model must be divisible by num_heads (enforced by MultiHeadAttention)
 - All dimensions must be positive
 
-**Example:**
+Example:
 
 ```cpp
 EncoderBlock encoder(512, 8, 2048, 0.1f);
@@ -262,7 +262,7 @@ EncoderBlock encoder(512, 8, 2048, 0.1f);
 
 **Purpose:** Process input through encoder block
 
-**Algorithm:**
+Algorithm:
 
 ```text
 1. Cache input
@@ -280,7 +280,7 @@ EncoderBlock encoder(512, 8, 2048, 0.1f);
 13. Return normed2
 ```
 
-**Residual Addition Implementation:**
+Residual Addition Implementation:
 
 ```cpp
 // Element-wise addition
@@ -291,7 +291,7 @@ for (int i = 0; i < rows; ++i) {
 }
 ```
 
-**Input:**
+Input:
 
 - `input`: [seq_len, d_model]
 - `mask`: [seq_len, seq_len] or nullptr
@@ -304,7 +304,7 @@ for (int i = 0; i < rows; ++i) {
 
 **Purpose:** Compute gradients for all parameters and return gradient w.r.t. input
 
-**Algorithm:**
+Algorithm:
 
 ```text
 1. Backward through second LayerNorm
@@ -336,7 +336,7 @@ for (int i = 0; i < rows; ++i) {
 9. Return grad_input
 ```
 
-**Gradient Flow Diagram:**
+Gradient Flow Diagram:
 
 ```text
 grad_output
@@ -370,7 +370,7 @@ grad_residual2
                                                             Return
 ```
 
-**Residual Gradient Splitting:**
+Residual Gradient Splitting:
 
 ```cpp
 // Gradient flows through both paths of residual connection
@@ -395,7 +395,7 @@ for (int i = 0; i < grad_residual.rows; ++i) {
 
 **Purpose:** Apply gradient descent to all learnable parameters
 
-**Algorithm:**
+Algorithm:
 
 ```text
 1. Propagate current learning rate to all components
@@ -404,7 +404,7 @@ for (int i = 0; i < grad_residual.rows; ++i) {
 4. LayerNorm updates handled internally during backward
 ```
 
-**Weight Update Formula:**
+Weight Update Formula:
 
 ```text
 W = W - learning_rate × ∇W
@@ -416,7 +416,7 @@ W = W - learning_rate × ∇W
 
 **Purpose:** Reset all accumulated gradients to zero
 
-**Algorithm:**
+Algorithm:
 
 ```text
 1. attention->zero_grad()
@@ -431,7 +431,7 @@ W = W - learning_rate × ∇W
 
 **Purpose:** Compute L2 norm of all gradients combined
 
-**Algorithm:**
+Algorithm:
 
 ```text
 1. attn_norm = attention->get_gradient_norm()
@@ -444,7 +444,7 @@ W = W - learning_rate × ∇W
 
 **Returns:** Float value representing total gradient magnitude
 
-**Use Cases:**
+Use Cases:
 
 - Monitor gradient flow during training
 - Detect vanishing/exploding gradients
@@ -454,7 +454,7 @@ W = W - learning_rate × ∇W
 
 **Purpose:** Prevent exploding gradients by scaling
 
-**Algorithm:**
+Algorithm:
 
 ```text
 1. current_norm = get_gradient_norm()
@@ -464,7 +464,7 @@ W = W - learning_rate × ∇W
        feed_forward->clip_gradients(ff_norm × scale)
 ```
 
-**Example:**
+Example:
 
 ```cpp
 encoder_block.forward(input);
@@ -482,7 +482,7 @@ encoder_block.update_weights();
 
 **Purpose:** Persist all learnable parameters to disk
 
-**File Format:**
+File Format:
 
 ```text
 [Header - 16 bytes]
@@ -504,14 +504,14 @@ float32[d_model]: beta2
 <filename>_feedforward.bin (FeedForward weights)
 ```
 
-**Total Size:**
+Total Size:
 
 - Header: 16 bytes
 - LayerNorm params: 4 × d_model × 4 bytes
 - Attention file: ~4 × d_model² × 4 bytes
 - Feed-forward file: ~(2 × d_model × d_ff + d_ff + d_model) × 4 bytes
 
-**Example:**
+Example:
 
 ```cpp
 encoder_block.save_weights("encoder_layer_3.bin");
@@ -525,13 +525,13 @@ encoder_block.save_weights("encoder_layer_3.bin");
 
 **Purpose:** Load previously saved weights from disk
 
-**Validation:**
+Validation:
 
 - Checks dimension compatibility (d_model, num_heads, d_ff)
 - Throws `std::runtime_error` on mismatch
 - Throws `std::runtime_error` if file not found
 
-**Algorithm:**
+Algorithm:
 
 ```text
 1. Open and read header
@@ -541,7 +541,7 @@ encoder_block.save_weights("encoder_layer_3.bin");
 5. Load component weights from separate files
 ```
 
-**Example:**
+Example:
 
 ```cpp
 EncoderBlock encoder_block(512, 8, 2048);
@@ -553,7 +553,7 @@ encoder_block.load_weights("encoder_layer_3.bin");
 
 **Purpose:** Display encoder block configuration and parameter count
 
-**Output Example:**
+Output Example:
 
 ```text
 EncoderBlock_0 Configuration:
@@ -568,7 +568,7 @@ EncoderBlock_0 Configuration:
     - Layer Norm: 2,048
 ```
 
-**Parameter Calculation:**
+Parameter Calculation:
 
 ```cpp
 attn_params = d_model² × 4  // Q, K, V, output
@@ -602,7 +602,7 @@ for (int i = 0; i < input.rows; ++i) {
 }
 ```
 
-**Why Residual?**
+Why Residual?
 
 - Allows gradient to flow directly through skip connection
 - Network can learn identity function if needed
@@ -646,34 +646,34 @@ Matrix normed2 = norm2->forward(residual2);
 
 All intermediate activations are cached for efficient backpropagation:
 
-| Cached Variable | Shape | Purpose |
-| ----------------- | ------- | --------- |
-| `cached_input` | [seq_len, d_model] | Needed for first residual gradient |
-| `cached_attn_output` | [seq_len, d_model] | Needed for attention gradient path |
-| `cached_residual1` | [seq_len, d_model] | Needed for norm1 backward |
-| `cached_normed1` | [seq_len, d_model] | Needed for feed-forward backward |
-| `cached_ff_output` | [seq_len, d_model] | Needed for second residual gradient |
-| `cached_residual2` | [seq_len, d_model] | Needed for norm2 backward |
+|Cached Variable|Shape|Purpose|
+|-----------------|-------|---------|
+|`cached_input`|[seq_len, d_model]|Needed for first residual gradient|
+|`cached_attn_output`|[seq_len, d_model]|Needed for attention gradient path|
+|`cached_residual1`|[seq_len, d_model]|Needed for norm1 backward|
+|`cached_normed1`|[seq_len, d_model]|Needed for feed-forward backward|
+|`cached_ff_output`|[seq_len, d_model]|Needed for second residual gradient|
+|`cached_residual2`|[seq_len, d_model]|Needed for norm2 backward|
 
 **Memory Cost:** 6 × seq_len × d_model floating-point values
 
 ### Pre-Norm vs Post-Norm Architecture
 
-**This Implementation (Post-Norm):**
+This Implementation (Post-Norm):
 
 ```text
 x → Attention → Add → Norm → FeedForward → Add → Norm → output
-    ↑___________| ↑__________________ |
+    ↑___________|↑__________________|
 ```
 
-**Alternative (Pre-Norm):**
+Alternative (Pre-Norm):
 
 ```text
 x → Norm → Attention → Add → Norm → FeedForward → Add → output
-           ↑_______________| ↑___________________ |
+           ↑_______________|↑___________________|
 ```
 
-**Trade-offs:**
+Trade-offs:
 
 - **Post-Norm (implemented)**: Better final performance, harder to train
 - **Pre-Norm**: Easier to train deep networks, slightly worse performance
@@ -774,13 +774,13 @@ for (int i = 0; i < grad_input.rows; ++i) {
 
 ### Gradient Amplification Through Residuals
 
-**Without Residual:**
+Without Residual:
 
 ```text
 ∂Loss/∂input = ∂Loss/∂output × ∂output/∂input
 ```
 
-**With Residual:**
+With Residual:
 
 ```text
 ∂Loss/∂input = ∂Loss/∂output × (1 + ∂layer/∂input)
@@ -793,27 +793,27 @@ This ensures gradients don't vanish even in very deep networks!
 
 For each component:
 
-**LayerNorm:**
+LayerNorm:
 
 ```text
 ∂Loss/∂x = ∂Loss/∂y × ∂LayerNorm/∂x
 ```
 
-**FeedForward:**
+FeedForward:
 
 ```text
 ∂Loss/∂x = ∂Loss/∂y × ∂FFN/∂x
          = ∂Loss/∂y × W₂^T × GELU'(hidden) × W₁^T
 ```
 
-**Attention:**
+Attention:
 
 ```text
 ∂Loss/∂x = ∂Loss/∂y × ∂Attention/∂x
          = complex chain rule through softmax and projections
 ```
 
-**Residual:**
+Residual:
 
 ```text
 ∂Loss/∂x = ∂Loss/∂(x + layer(x))
@@ -826,13 +826,13 @@ For each component:
 
 ### Mathematical Formulation
 
-**Standard Layer:**
+Standard Layer:
 
 ```text
 y = f(x)
 ```
 
-**With Residual Connection:**
+With Residual Connection:
 
 ```text
 y = x + f(x)
@@ -872,7 +872,7 @@ Different gradient paths provide redundancy and robustness.
 
 ### Implementation Pattern
 
-**This Encoder Block:**
+This Encoder Block:
 
 ```cpp
 // First residual
@@ -886,7 +886,7 @@ residual2 = normed1 + ff_output;
 output = norm(residual2);
 ```
 
-**Alternative (Pre-Activation):**
+Alternative (Pre-Activation):
 
 ```cpp
 normed = norm(input);
@@ -900,12 +900,12 @@ residual = input + attn_output;
 
 ### Purpose in Encoder Block
 
-**Placement:**
+Placement:
 
 - After each residual connection
 - Before next sub-layer (in pre-norm variants)
 
-**Function:**
+Function:
 
 ```text
 LayerNorm(x) = γ · (x - μ) / √(σ² + ε) + β
@@ -941,9 +941,9 @@ Where:
 
 ### Interaction with Residuals
 
-**Order Matters:**
+Order Matters:
 
-**Post-Norm (this implementation):**
+Post-Norm (this implementation):
 
 ```text
 output = LayerNorm(input + SubLayer(input))
@@ -953,7 +953,7 @@ output = LayerNorm(input + SubLayer(input))
 - Better final performance
 - Can be harder to optimize
 
-**Pre-Norm:**
+Pre-Norm:
 
 ```text
 output = input + SubLayer(LayerNorm(input))
@@ -965,13 +965,13 @@ output = input + SubLayer(LayerNorm(input))
 
 ### Parameters
 
-**For Each LayerNorm Layer:**
+For Each LayerNorm Layer:
 
 - Gamma (γ): [d_model] scale parameters
 - Beta (β): [d_model] shift parameters
 - **Total per layer:** 2 × d_model parameters
 
-**For Entire Encoder Block:**
+For Entire Encoder Block:
 
 - Two LayerNorm layers
 - **Total:** 4 × d_model parameters
@@ -984,15 +984,15 @@ Example (d_model=512): 2,048 LayerNorm parameters
 
 ### Gradient Norm Computation
 
-**Formula:**
+Formula:
 
 ```text
-total_norm = √(|  | ∇attention |  | ² + |  | ∇feedforward |  |²)
+total_norm = √(||∇attention||² +||∇feedforward||²)
 ```
 
 **Note:** LayerNorm gradients not included due to API limitations, but they're typically small relative to other components.
 
-**Typical Gradient Norms:**
+Typical Gradient Norms:
 
 - Small models (d_model=64): 0.1 - 10
 - Medium models (d_model=512): 1 - 100
@@ -1002,7 +1002,7 @@ total_norm = √(|  | ∇attention |  | ² + |  | ∇feedforward |  |²)
 
 **Purpose:** Prevent exploding gradients
 
-**Algorithm:**
+Algorithm:
 
 ```python
 current_norm = get_gradient_norm()
@@ -1011,13 +1011,13 @@ if current_norm > max_norm:
     gradients *= scale
 ```
 
-**Recommended Thresholds:**
+Recommended Thresholds:
 
 - Conservative: max_norm = 1.0
 - Standard: max_norm = 5.0
 - Aggressive: max_norm = 10.0
 
-**Example Usage:**
+Example Usage:
 
 ```cpp
 encoder_block.forward(input);
@@ -1034,9 +1034,9 @@ encoder_block.update_weights();
 
 ### Gradient Monitoring (Implementation)
 
-**Warning Signs:**
+Warning Signs:
 
-**Vanishing Gradients:**
+Vanishing Gradients:
 
 ```cpp
 if (norm < 1e-6f) {
@@ -1048,10 +1048,10 @@ if (norm < 1e-6f) {
 }
 ```
 
-**Exploding Gradients:**
+Exploding Gradients:
 
 ```cpp
-if (norm > 100.0f |  | std::isnan(norm) |  | std::isinf(norm)) {
+if (norm > 100.0f ||std::isnan(norm)|| std::isinf(norm)) {
     std::cerr << "Warning: Exploding gradients!" << std::endl;
     // Consider:
     // - Applying gradient clipping
@@ -1064,7 +1064,7 @@ if (norm > 100.0f |  | std::isnan(norm) |  | std::isinf(norm)) {
 
 **Motivation:** Simulate larger batch sizes with limited memory
 
-**Pattern:**
+Pattern:
 
 ```cpp
 int accumulation_steps = 4;
@@ -1233,7 +1233,7 @@ Output / Task Head
 
 ### Typical Configurations
 
-**BERT Base:**
+BERT Base:
 
 - d_model: 768
 - num_heads: 12
@@ -1241,7 +1241,7 @@ Output / Task Head
 - num_layers: 12
 - dropout: 0.1
 
-**GPT-2 Small:**
+GPT-2 Small:
 
 - d_model: 768
 - num_heads: 12
@@ -1249,7 +1249,7 @@ Output / Task Head
 - num_layers: 12
 - dropout: 0.1
 
-**Transformer Base (Original Paper):**
+Transformer Base (Original Paper):
 
 - d_model: 512
 - num_heads: 8
@@ -1257,7 +1257,7 @@ Output / Task Head
 - num_layers: 6
 - dropout: 0.1
 
-**Custom (Example in Tests):**
+Custom (Example in Tests):
 
 - d_model: 64
 - num_heads: 4
@@ -1304,19 +1304,19 @@ public:
 
 ### Self-Attention in Encoder
 
-**Key Difference from Decoder:**
+Key Difference from Decoder:
 
 - **Encoder**: Bidirectional attention (can attend to all positions)
 - **Decoder**: Causal attention (can only attend to previous positions)
 
-**Encoder Attention Pattern:**
+Encoder Attention Pattern:
 
 ```cpp
 // No mask needed for bidirectional attention
 Matrix output = encoder_block.forward(input);  // mask = nullptr
 ```
 
-**Decoder Attention Pattern:**
+Decoder Attention Pattern:
 
 ```cpp
 // Causal mask prevents looking ahead
@@ -1330,7 +1330,7 @@ Matrix output = encoder_block.forward(input, &causal_mask);
 
 ### Computational Bottlenecks
 
-**For Long Sequences (seq_len >> d_model):**
+For Long Sequences (seq_len >> d_model):
 
 - Attention dominates: O(seq_len² × d_model)
 - Strategies:
@@ -1338,7 +1338,7 @@ Matrix output = encoder_block.forward(input, &causal_mask);
   - Local attention windows
   - Linear attention variants
 
-**For Wide Models (d_model >> seq_len):**
+For Wide Models (d_model >> seq_len):
 
 - Feed-forward dominates: O(seq_len × d_model × d_ff)
 - Strategies:
@@ -1348,12 +1348,12 @@ Matrix output = encoder_block.forward(input, &causal_mask);
 
 ### Memory Optimization
 
-**Cached Activations:**
+Cached Activations:
 
 - Current: 6 × seq_len × d_model values
 - Optimization: Recompute activations during backward (trading compute for memory)
 
-**Gradient Checkpointing:**
+Gradient Checkpointing:
 
 ```cpp
 // Standard (high memory):
@@ -1366,13 +1366,13 @@ Matrix grad_input = encoder_block.backward(grad_output);
 
 ### Batch Processing
 
-**Benefits:**
+Benefits:
 
 - Amortize fixed costs over multiple sequences
 - Better GPU/CPU utilization
 - More stable gradient estimates
 
-**Challenges:**
+Challenges:
 
 - Variable sequence lengths require padding
 - Padding increases computation on masked positions
@@ -1380,13 +1380,13 @@ Matrix grad_input = encoder_block.backward(grad_output);
 
 ### Parallelization
 
-**Within Encoder Block:**
+Within Encoder Block:
 
 - Multi-head attention: Heads computed independently
 - Position-wise feed-forward: Positions processed independently
 - Layer normalization: Samples normalized independently
 
-**Across Layers:**
+Across Layers:
 
 - Layers must be computed sequentially
 - Cannot parallelize across encoder blocks in same model
@@ -1453,7 +1453,7 @@ if (norm > 100.0f) {
 
 ### Monitoring Metrics
 
-**Training:**
+Training:
 
 ```cpp
 // Log every N steps
@@ -1467,7 +1467,7 @@ if (step % 100 == 0) {
 }
 ```
 
-**Gradient Flow:**
+Gradient Flow:
 
 ```cpp
 // Monitor gradient norm across layers
@@ -1497,7 +1497,7 @@ if (training && dropout_rate > 0) {
 }
 ```
 
-**Dropout Locations:**
+Dropout Locations:
 
 1. After attention output projection
 2. After feed-forward network
@@ -1506,13 +1506,13 @@ if (training && dropout_rate > 0) {
 
 ### Weight Initialization
 
-**Current Strategy:**
+Current Strategy:
 
 - MultiHeadAttention: Xavier/Glorot initialization
 - FeedForward: He initialization (for GELU)
 - LayerNorm: gamma=1, beta=0
 
-**Alternative Strategies:**
+Alternative Strategies:
 
 ```cpp
 // Scaled initialization for deep networks
@@ -1522,7 +1522,7 @@ float scale = 1.0f / std::sqrt(2.0f * num_layers);
 
 ### Layer Freezing
 
-**Freeze for Transfer Learning:**
+Freeze for Transfer Learning:
 
 ```cpp
 // Don't update weights
@@ -1534,13 +1534,13 @@ Matrix grad_input = encoder_block.backward(grad_output);
 
 ### Mixed Precision Training
 
-**Benefits:**
+Benefits:
 
 - Faster computation
 - Reduced memory usage
 - Maintain accuracy with loss scaling
 
-**Consideration:**
+Consideration:
 
 - Current implementation uses float32
 - Converting to float16 requires careful handling of:
@@ -1558,7 +1558,7 @@ Matrix grad_input = encoder_block.backward(grad_output);
 EncoderBlock(int d_model, int num_heads, int d_ff, float dropout = 0.1f)
 ```
 
-**Parameters:**
+Parameters:
 
 - `d_model`: Model dimension (must be divisible by num_heads)
 - `num_heads`: Number of attention heads
@@ -1575,7 +1575,7 @@ EncoderBlock(int d_model, int num_heads, int d_ff, float dropout = 0.1f)
 Matrix forward(const Matrix& input, const Matrix* mask = nullptr)
 ```
 
-**Parameters:**
+Parameters:
 
 - `input`: Input matrix [seq_len, d_model]
 - `mask`: Optional attention mask [seq_len, seq_len]
@@ -1592,7 +1592,7 @@ Matrix forward(const Matrix& input, const Matrix* mask = nullptr)
 Matrix backward(const Matrix& grad_output)
 ```
 
-**Parameters:**
+Parameters:
 
 - `grad_output`: Gradient from next layer [seq_len, d_model]
 
@@ -1634,7 +1634,7 @@ float get_gradient_norm() const
 void clip_gradients(float max_norm)
 ```
 
-**Parameters:**
+Parameters:
 
 - `max_norm`: Maximum allowed gradient norm
 
@@ -1648,11 +1648,11 @@ void clip_gradients(float max_norm)
 void save_weights(const std::string& filename) const
 ```
 
-**Parameters:**
+Parameters:
 
 - `filename`: Path to output file
 
-**Creates:**
+Creates:
 
 - `filename`: Main file with dimensions and LayerNorm params
 - `filename_attention.bin`: Attention weights
@@ -1666,11 +1666,11 @@ void save_weights(const std::string& filename) const
 void load_weights(const std::string& filename)
 ```
 
-**Parameters:**
+Parameters:
 
 - `filename`: Path to input file
 
-**Throws:**
+Throws:
 
 - `std::runtime_error` if file not found
 - `std::runtime_error` if dimension mismatch
@@ -1683,17 +1683,17 @@ void register_parameters_with_optimizer(Optimizer& optimizer)
 
 **Purpose:** Register all encoder block parameters with an external optimizer
 
-**Parameters:**
+Parameters:
 
 - `optimizer`: Reference to optimizer that will manage parameter updates
 
-**Process:**
+Process:
 
 1. Register attention parameters (Q, K, V, output projections)
 2. Register feed-forward parameters (W1, W2, biases)
 3. Register layer normalization parameters (gamma, beta for both norms)
 
-**Example:**
+Example:
 
 ```cpp
 // Create encoder block
@@ -1717,7 +1717,7 @@ for (auto& batch : data) {
 }
 ```
 
-**Benefits:**
+Benefits:
 
 - Enables Adam/AdamW optimization
 - Automatic gradient clipping
@@ -1734,7 +1734,7 @@ for (auto& batch : data) {
 void print_config(const std::string& name = "EncoderBlock") const
 ```
 
-**Parameters:**
+Parameters:
 
 - `name`: Name to display in output
 

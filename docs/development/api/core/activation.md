@@ -4,7 +4,7 @@
 
 The `Activation` class is a comprehensive library of activation functions for neural networks. It provides static methods for forward passes (activation functions) and backward passes (derivatives) essential for gradient-based optimization in deep learning.
 
-**Files:**
+Files:
 
 - `src/Activation.hpp` - Header file with class declaration and documentation
 - `src/Activation.cpp` - Implementation file with all activation functions
@@ -29,7 +29,7 @@ private:
 };
 ```
 
-**Key Features:**
+Key Features:
 
 - **Static methods only** - No instantiation required
 - **Pure functions** - No side effects, thread-safe
@@ -55,19 +55,19 @@ static Matrix softmax(const Matrix& input);
 
 **Purpose:** Convert logits to probability distributions (multi-class classification)
 
-**Mathematical Formula:**
+Mathematical Formula:
 
 ```text
 softmax(x_i) = exp(x_i - max(x)) / Σ exp(x_j - max(x))
 ```
 
-**Implementation Details:**
+Implementation Details:
 
 - **Row-wise operation** - Each row is normalized independently
 - **Numerical stability** - Subtracts max value before exp to prevent overflow
 - **Output range** - (0, 1) with each row summing to 1.0
 
-**Algorithm:**
+Algorithm:
 
 ```text
 For each row i:
@@ -76,13 +76,13 @@ For each row i:
   3. Normalize by sum of exponentials
 ```
 
-**Use Cases:**
+Use Cases:
 
 - Multi-class classification output layer
 - Attention weight normalization
 - Token prediction in language models
 
-**Example:**
+Example:
 
 ```cpp
 Matrix logits(32, 10);  // 32 samples, 10 classes
@@ -90,14 +90,14 @@ Matrix probs = Activation::softmax(logits);
 // Each row sums to 1.0, represents probability distribution
 ```
 
-**Numerical Stability:**
+Numerical Stability:
 
 ```text
 Original: exp(x) / Σ exp(x)  → Can overflow for large x
 Stable:   exp(x - max) / Σ exp(x - max)  → Prevents overflow
 ```
 
-**Properties:**
+Properties:
 
 - ✅ Differentiable everywhere
 - ✅ Output is valid probability distribution
@@ -114,25 +114,25 @@ static Matrix gelu(const Matrix& input);
 
 **Purpose:** Smooth, state-of-the-art activation function (used in BERT, GPT)
 
-**Mathematical Formula (Exact):**
+Mathematical Formula (Exact):
 
 ```text
 GELU(x) = x * Φ(x) where Φ(x) is cumulative Gaussian distribution
 ```
 
-**Implementation (Tanh Approximation):**
+Implementation (Tanh Approximation):
 
 ```text
 GELU(x) ≈ 0.5 * x * (1 + tanh(√(2/π) * (x + 0.044715 * x³)))
 ```
 
-**Why Approximation?**
+Why Approximation?
 
 - Exact formula requires error function (erf) - computationally expensive
 - Tanh approximation is 3-5x faster with negligible accuracy loss
 - Error < 0.1% across typical input ranges
 
-**Algorithm:**
+Algorithm:
 
 ```cpp
 float x_cubed = x * x * x;
@@ -141,29 +141,29 @@ float tanh_inner = tanh(inner);
 result = 0.5 * x * (1.0 + tanh_inner);
 ```
 
-**Use Cases:**
+Use Cases:
 
 - Transformer models (BERT, GPT, T5)
 - Modern vision models
 - Preferred over ReLU in large language models
 
-**Example:**
+Example:
 
 ```cpp
 Matrix hidden(batch_size, 768);  // Transformer hidden states
 Matrix activated = Activation::gelu(hidden);
 ```
 
-**Comparison with ReLU:**
+Comparison with ReLU:
 
-| Property | GELU | ReLU |
-| ---------- | ------ | ------ |
-| Smoothness | ✅ Smooth everywhere | ❌ Sharp kink at 0 |
-| Negative values | ✅ Non-zero gradient | ❌ Zero gradient |
-| Computational cost | Medium | Low |
-| Performance (LLMs) | ✅ Better | Good |
+|Property|GELU|ReLU|
+|----------|------|------|
+|Smoothness|✅ Smooth everywhere|❌ Sharp kink at 0|
+|Negative values|✅ Non-zero gradient|❌ Zero gradient|
+|Computational cost|Medium|Low|
+|Performance (LLMs)|✅ Better|Good|
 
-**Shape Characteristics:**
+Shape Characteristics:
 
 - Similar to ReLU for large positive x
 - Smooth transition near zero (no dead neurons)
@@ -180,25 +180,25 @@ static Matrix relu(const Matrix& input);
 
 **Purpose:** Fast, simple, and effective default activation function
 
-**Mathematical Formula:**
+Mathematical Formula:
 
 ```text
 ReLU(x) = max(0, x)
 ```
 
-**Implementation:**
+Implementation:
 
 ```cpp
 result(i, j) = std::max(0.0f, input(i, j));
 ```
 
-**Use Cases:**
+Use Cases:
 
 - Convolutional neural networks
 - Hidden layers in feed-forward networks
 - Default choice when no specific requirement exists
 
-**Example:**
+Example:
 
 ```cpp
 Matrix features(100, 256);
@@ -206,7 +206,7 @@ Matrix activated = Activation::relu(features);
 // All negative values become 0, positive values unchanged
 ```
 
-**Properties:**
+Properties:
 
 - ✅ Computationally efficient (single comparison)
 - ✅ Sparse activations (many zeros)
@@ -215,13 +215,13 @@ Matrix activated = Activation::relu(features);
 - ❌ Not zero-centered
 - ❌ Non-smooth at x = 0
 
-**Advantages:**
+Advantages:
 
 - Very fast computation
 - Reduces overfitting via sparsity
 - Biological plausibility
 
-**Disadvantages:**
+Disadvantages:
 
 - Dying ReLU problem (neurons stuck at 0)
 - Unbounded output (can cause exploding activations)
@@ -236,7 +236,7 @@ static Matrix leaky_relu(const Matrix& input, float alpha = 0.01f);
 
 **Purpose:** ReLU variant that addresses the "dying ReLU" problem
 
-**Mathematical Formula:**
+Mathematical Formula:
 
 ```text
 LeakyReLU(x) = max(alpha * x, x) = {
@@ -245,23 +245,23 @@ LeakyReLU(x) = max(alpha * x, x) = {
 }
 ```
 
-**Parameters:**
+Parameters:
 
 - `alpha` - Slope for negative values (default: 0.01)
 
-**Implementation:**
+Implementation:
 
 ```cpp
 result(i, j) = (x > 0.0f) ? x : alpha * x;
 ```
 
-**Use Cases:**
+Use Cases:
 
 - When ReLU causes too many dead neurons
 - Networks prone to gradient flow issues
 - Alternative to standard ReLU
 
-**Example:**
+Example:
 
 ```cpp
 Matrix features(100, 256);
@@ -269,13 +269,13 @@ Matrix activated = Activation::leaky_relu(features, 0.01f);
 // Negative values scaled by 0.01 instead of becoming 0
 ```
 
-**Common Alpha Values:**
+Common Alpha Values:
 
 - 0.01 - Default, very small negative slope
 - 0.1 - More aggressive leak
 - 0.2 - Parametric ReLU (PReLU) initialization
 
-**Properties:**
+Properties:
 
 - ✅ No dead neurons (always has gradient)
 - ✅ Nearly as fast as ReLU
@@ -292,13 +292,13 @@ static Matrix sigmoid(const Matrix& input);
 
 **Purpose:** Classic activation for binary classification and gates
 
-**Mathematical Formula:**
+Mathematical Formula:
 
 ```text
 sigmoid(x) = 1 / (1 + exp(-x))
 ```
 
-**Numerically Stable Implementation:**
+Numerically Stable Implementation:
 
 ```cpp
 if (x >= 0) {
@@ -309,19 +309,19 @@ if (x >= 0) {
 }
 ```
 
-**Why Two Branches?**
+Why Two Branches?
 
 - For x ≥ 0: Compute exp(-x) directly → prevents overflow
 - For x < 0: Rewrite as exp(x)/(1+exp(x)) → prevents underflow
 
-**Use Cases:**
+Use Cases:
 
 - Binary classification output layer
 - Gate mechanisms (LSTM, GRU)
 - Attention mechanisms
 - Component in Swish activation
 
-**Example:**
+Example:
 
 ```cpp
 Matrix logits(32, 1);  // Binary classification
@@ -329,7 +329,7 @@ Matrix probs = Activation::sigmoid(logits);
 // Values squashed to (0, 1) range
 ```
 
-**Properties:**
+Properties:
 
 - ✅ Outputs interpretable as probabilities
 - ✅ Smooth and differentiable
@@ -338,10 +338,10 @@ Matrix probs = Activation::sigmoid(logits);
 - ❌ Not zero-centered
 - ❌ Expensive (exp operation)
 
-**Gradient Characteristics:**
+Gradient Characteristics:
 
 - Maximum gradient: 0.25 at x = 0
-- Gradients → 0 for | x | > 4
+- Gradients → 0 for |x| > 4
 - Causes vanishing gradient in deep networks
 
 ---
@@ -354,27 +354,27 @@ static Matrix tanh(const Matrix& input);
 
 **Purpose:** Zero-centered alternative to sigmoid
 
-**Mathematical Formula:**
+Mathematical Formula:
 
 ```text
 tanh(x) = (exp(x) - exp(-x)) / (exp(x) + exp(-x))
       = 2 * sigmoid(2x) - 1
 ```
 
-**Implementation:**
+Implementation:
 
 ```cpp
 result(i, j) = std::tanh(input(i, j));  // Uses standard library
 ```
 
-**Use Cases:**
+Use Cases:
 
 - Hidden layers in older architectures
 - LSTM cell states
 - Component in GELU approximation
 - When zero-centered outputs needed
 
-**Example:**
+Example:
 
 ```cpp
 Matrix features(100, 256);
@@ -382,7 +382,7 @@ Matrix activated = Activation::tanh(features);
 // Values squashed to (-1, 1) range
 ```
 
-**Properties:**
+Properties:
 
 - ✅ Zero-centered output: (-1, 1)
 - ✅ Smooth and differentiable
@@ -390,14 +390,14 @@ Matrix activated = Activation::tanh(features);
 - ⚠️  Still suffers from vanishing gradients
 - ❌ Expensive (exp operations)
 
-**Comparison with Sigmoid:**
+Comparison with Sigmoid:
 
-| Property | Tanh | Sigmoid |
-| ---------- | ------ | --------- |
-| Output range | (-1, 1) | (0, 1) |
-| Zero-centered | ✅ Yes | ❌ No |
-| Max gradient | 1.0 | 0.25 |
-| Use case | Hidden layers | Output/gates |
+|Property|Tanh|Sigmoid|
+|----------|------|---------|
+|Output range|(-1, 1)|(0, 1)|
+|Zero-centered|✅ Yes|❌ No|
+|Max gradient|1.0|0.25|
+|Use case|Hidden layers|Output/gates|
 
 ---
 
@@ -409,33 +409,33 @@ static Matrix swish(const Matrix& input);
 
 **Purpose:** Self-gated activation discovered via neural architecture search
 
-**Mathematical Formula:**
+Mathematical Formula:
 
 ```text
 Swish(x) = x * sigmoid(x)
 ```
 
-**Implementation:**
+Implementation:
 
 ```cpp
 Matrix sig = sigmoid(input);
 result(i, j) = input(i, j) * sig(i, j);
 ```
 
-**Use Cases:**
+Use Cases:
 
 - Modern neural architectures (EfficientNet, MobileNet)
 - Alternative to ReLU with better properties
 - When smooth activation needed
 
-**Example:**
+Example:
 
 ```cpp
 Matrix features(100, 256);
 Matrix activated = Activation::swish(features);
 ```
 
-**Properties:**
+Properties:
 
 - ✅ Smooth everywhere (unlike ReLU)
 - ✅ Non-monotonic (dips slightly negative)
@@ -443,14 +443,14 @@ Matrix activated = Activation::swish(features);
 - ✅ Empirically better than ReLU in some tasks
 - ⚠️  More expensive (requires sigmoid)
 
-**Shape Characteristics:**
+Shape Characteristics:
 
 - Similar to ReLU for large positive x
 - Smooth transition near zero
 - Allows negative values (unlike ReLU)
 - Minimum at x ≈ -1.28, value ≈ -0.28
 
-**Discovered by:**
+Discovered by:
 
 - Google Brain team via reinforcement learning search
 - Also called SiLU (Sigmoid Linear Unit)
@@ -481,25 +481,25 @@ static Matrix softmax_derivative(const Matrix& output, const Matrix& grad_output
 
 **Special Case:** Optimized for cross-entropy loss
 
-**Mathematical Formula (Full Jacobian):**
+Mathematical Formula (Full Jacobian):
 
 ```text
 ∂softmax_i/∂x_j = softmax_i * (δ_ij - softmax_j)
 ```
 
-**Efficient Implementation (for cross-entropy):**
+Efficient Implementation (for cross-entropy):
 
 ```text
 grad_input = output * (grad_output - sum(output * grad_output))
 ```
 
-**Why Efficient Version?**
+Why Efficient Version?
 
 - Full Jacobian is NxN matrix (expensive)
 - For cross-entropy loss, simplifies to element-wise operations
 - O(N) instead of O(N²) complexity
 
-**Algorithm:**
+Algorithm:
 
 ```cpp
 For each row i:
@@ -507,7 +507,7 @@ For each row i:
   2. grad_input[i][j] = output[i][j] * (grad_output[i][j] - sum)
 ```
 
-**Use Case:**
+Use Case:
 
 ```cpp
 Matrix probs = Activation::softmax(logits);
@@ -524,13 +524,13 @@ Matrix grad_logits = Activation::softmax_derivative(probs, grad_probs);
 static Matrix gelu_derivative(const Matrix& input);
 ```
 
-**Mathematical Formula:**
+Mathematical Formula:
 
 ```text
 GELU'(x) = ∂/∂x [0.5 * x * (1 + tanh(√(2/π) * (x + 0.044715 * x³)))]
 ```
 
-**Derivative Components:**
+Derivative Components:
 
 ```cpp
 // Chain rule application
@@ -543,14 +543,14 @@ d_inner/dx = √(2/π) * (1 + 3 * 0.044715 * x²)
 GELU'(x) = 0.5 * (1 + tanh_inner) + 0.5 * x * sech² * d_inner/dx
 ```
 
-**Implementation:**
+Implementation:
 
 ```cpp
 float tanh_derivative = SQRT_2_OVER_PI * (1.0f + 3.0f * GELU_COEF * x_squared);
 derivative = 0.5f * (1.0f + tanh_inner) + 0.5f * x * sech_squared * tanh_derivative;
 ```
 
-**Use Case:**
+Use Case:
 
 ```cpp
 Matrix activated = Activation::gelu(hidden);
@@ -568,7 +568,7 @@ Matrix grad_hidden = Activation::gelu_derivative(hidden).hadamard(grad_activated
 static Matrix relu_derivative(const Matrix& input);
 ```
 
-**Mathematical Formula:**
+Mathematical Formula:
 
 ```text
 ReLU'(x) = {
@@ -577,20 +577,20 @@ ReLU'(x) = {
 }
 ```
 
-**Implementation:**
+Implementation:
 
 ```cpp
 result(i, j) = (input(i, j) > 0.0f) ? 1.0f : 0.0f;
 ```
 
-**Properties:**
+Properties:
 
 - ✅ Extremely fast (single comparison)
 - ✅ Sparse gradient (many zeros)
 - ⚠️  Gradient is 0 for negative inputs (dead neurons)
 - ⚠️  Undefined at x = 0 (convention: use 0)
 
-**Use Case:**
+Use Case:
 
 ```cpp
 Matrix activated = Activation::relu(hidden);
@@ -607,7 +607,7 @@ Matrix grad_hidden = Activation::relu_derivative(hidden).hadamard(grad_activated
 static Matrix leaky_relu_derivative(const Matrix& input, float alpha = 0.01f);
 ```
 
-**Mathematical Formula:**
+Mathematical Formula:
 
 ```text
 LeakyReLU'(x) = {
@@ -616,19 +616,19 @@ LeakyReLU'(x) = {
 }
 ```
 
-**Implementation:**
+Implementation:
 
 ```cpp
 result(i, j) = (input(i, j) > 0.0f) ? 1.0f : alpha;
 ```
 
-**Properties:**
+Properties:
 
 - ✅ Always has gradient (no dead neurons)
 - ✅ Nearly as fast as ReLU
 - ✅ Gradient flow even for negative inputs
 
-**Use Case:**
+Use Case:
 
 ```cpp
 Matrix activated = Activation::leaky_relu(hidden, 0.01f);
@@ -645,13 +645,13 @@ Matrix grad = Activation::leaky_relu_derivative(hidden, 0.01f).hadamard(grad_act
 static Matrix sigmoid_derivative(const Matrix& output);
 ```
 
-**Mathematical Formula:**
+Mathematical Formula:
 
 ```text
 sigmoid'(x) = sigmoid(x) * (1 - sigmoid(x))
 ```
 
-**Efficient Property:**
+Efficient Property:
 Can be computed from sigmoid **output** instead of input:
 
 ```cpp
@@ -659,25 +659,25 @@ float sig = output(i, j);  // Already computed sigmoid
 derivative = sig * (1.0f - sig);
 ```
 
-**Why This Matters:**
+Why This Matters:
 
 - No need to recompute sigmoid
 - No need to store input
 - Saves computation and memory
 
-**Implementation:**
+Implementation:
 
 ```cpp
 result(i, j) = sig * (1.0f - sig);
 ```
 
-**Gradient Range:**
+Gradient Range:
 
 - Maximum: 0.25 (at x = 0, sigmoid(0) = 0.5)
 - Approaches 0 for extreme inputs
 - Always positive
 
-**Use Case:**
+Use Case:
 
 ```cpp
 Matrix probs = Activation::sigmoid(logits);
@@ -694,13 +694,13 @@ Matrix grad_logits = Activation::sigmoid_derivative(probs).hadamard(grad_probs);
 static Matrix tanh_derivative(const Matrix& output);
 ```
 
-**Mathematical Formula:**
+Mathematical Formula:
 
 ```text
 tanh'(x) = 1 - tanh²(x)
 ```
 
-**Efficient Property:**
+Efficient Property:
 Can be computed from tanh **output**:
 
 ```cpp
@@ -708,19 +708,19 @@ float tanh_val = output(i, j);
 derivative = 1.0f - tanh_val * tanh_val;
 ```
 
-**Implementation:**
+Implementation:
 
 ```cpp
 result(i, j) = 1.0f - tanh_val * tanh_val;
 ```
 
-**Gradient Range:**
+Gradient Range:
 
 - Maximum: 1.0 (at x = 0, tanh(0) = 0)
 - Approaches 0 for extreme inputs
 - Always positive
 
-**Use Case:**
+Use Case:
 
 ```cpp
 Matrix activated = Activation::tanh(hidden);
@@ -737,26 +737,26 @@ Matrix grad_hidden = Activation::tanh_derivative(activated).hadamard(grad_activa
 static Matrix swish_derivative(const Matrix& input);
 ```
 
-**Mathematical Formula:**
+Mathematical Formula:
 
 ```text
 Swish'(x) = sigmoid(x) + x * sigmoid(x) * (1 - sigmoid(x))
           = sigmoid(x) * (1 + x * (1 - sigmoid(x)))
 ```
 
-**Implementation:**
+Implementation:
 
 ```cpp
 float s = sigmoid(input(i, j));
 result(i, j) = s + input(i, j) * s * (1.0f - s);
 ```
 
-**Components:**
+Components:
 
 1. `sigmoid(x)` - The sigmoid itself
 2. `x * sigmoid(x) * (1 - sigmoid(x))` - Product rule term
 
-**Use Case:**
+Use Case:
 
 ```cpp
 Matrix activated = Activation::swish(hidden);
@@ -769,17 +769,17 @@ Matrix grad_hidden = Activation::swish_derivative(hidden).hadamard(grad_activate
 
 ## Derivative Input Convention Summary
 
-| Activation | Derivative Takes | Reason |
-| ------------ | ------------------ | -------- |
-| **Softmax** | Output + grad_output | Special efficient form |
-| **GELU** | Input | Complex formula needs original |
-| **ReLU** | Input | Need to know sign |
-| **Leaky ReLU** | Input | Need to know sign |
-| **Sigmoid** | Output | Efficient: σ'(x) = σ(x)(1-σ(x)) |
-| **Tanh** | Output | Efficient: tanh'(x) = 1-tanh²(x) |
-| **Swish** | Input | Needs sigmoid recomputation |
+|Activation|Derivative Takes|Reason|
+|------------|------------------|--------|
+|**Softmax**|Output + grad_output|Special efficient form|
+|**GELU**|Input|Complex formula needs original|
+|**ReLU**|Input|Need to know sign|
+|**Leaky ReLU**|Input|Need to know sign|
+|**Sigmoid**|Output|Efficient: σ'(x) = σ(x)(1-σ(x))|
+|**Tanh**|Output|Efficient: tanh'(x) = 1-tanh²(x)|
+|**Swish**|Input|Needs sigmoid recomputation|
 
-**Best Practice:**
+Best Practice:
 Store appropriate values during forward pass for efficient backward pass.
 
 ---
@@ -899,13 +899,13 @@ struct LSTMGates {
 
 ### For Hidden Layers
 
-**Modern Networks (2020+):**
+Modern Networks (2020+):
 
 - ✅ **GELU** - Best for transformers, language models
 - ✅ **Swish** - Best for CNNs, vision tasks
 - ✅ **ReLU** - Default, fast, proven
 
-**Legacy/Specific Use:**
+Legacy/Specific Use:
 
 - Leaky ReLU - When ReLU causes dead neurons
 - Tanh - When zero-centered outputs needed
@@ -913,12 +913,12 @@ struct LSTMGates {
 
 ### For Output Layers
 
-**Classification:**
+Classification:
 
 - Multi-class: **Softmax**
 - Binary: **Sigmoid**
 
-**Regression:**
+Regression:
 
 - Unbounded: No activation (linear)
 - Bounded [0, 1]: Sigmoid
@@ -926,15 +926,15 @@ struct LSTMGates {
 
 ### Performance Characteristics
 
-| Activation | Speed | Memory | Gradient Quality | Use Case |
-| ------------ | ------- | -------- | ------------------ | ---------- |
-| **ReLU** | ★★★★★ | ★★★★★ | ★★★☆☆ | Default choice |
-| **Leaky ReLU** | ★★★★★ | ★★★★★ | ★★★★☆ | Avoid dead neurons |
-| **GELU** | ★★★☆☆ | ★★★★☆ | ★★★★★ | Transformers/LLMs |
-| **Swish** | ★★★☆☆ | ★★★☆☆ | ★★★★★ | Modern CNNs |
-| **Sigmoid** | ★★☆☆☆ | ★★★★☆ | ★★☆☆☆ | Binary/gates only |
-| **Tanh** | ★★☆☆☆ | ★★★★☆ | ★★★☆☆ | Zero-centered needed |
-| **Softmax** | ★★☆☆☆ | ★★★★☆ | ★★★★☆ | Classification output |
+|Activation|Speed|Memory|Gradient Quality|Use Case|
+|------------|-------|--------|------------------|----------|
+|**ReLU**|★★★★★|★★★★★|★★★☆☆|Default choice|
+|**Leaky ReLU**|★★★★★|★★★★★|★★★★☆|Avoid dead neurons|
+|**GELU**|★★★☆☆|★★★★☆|★★★★★|Transformers/LLMs|
+|**Swish**|★★★☆☆|★★★☆☆|★★★★★|Modern CNNs|
+|**Sigmoid**|★★☆☆☆|★★★★☆|★★☆☆☆|Binary/gates only|
+|**Tanh**|★★☆☆☆|★★★★☆|★★★☆☆|Zero-centered needed|
+|**Softmax**|★★☆☆☆|★★★★☆|★★★★☆|Classification output|
 
 ---
 
@@ -973,7 +973,7 @@ if (x >= 0) {
 
 - **Sigmoid** - Max gradient: 0.25
 - **Tanh** - Max gradient: 1.0
-- Both → 0 for | x | > 4
+- Both → 0 for |x| > 4
 
 ### Healthy Gradients
 
@@ -1034,7 +1034,7 @@ All functions are **thread-safe** (pure functions, no shared state).
 
 ### Non-Linearity Necessity
 
-**Why Needed?**
+Why Needed?
 Without activation functions, deep networks collapse to linear:
 
 ```text
@@ -1043,7 +1043,7 @@ f(x) = W₃(W₂(W₁x)) = (W₃W₂W₁)x = Wx
 
 Multiple layers = single linear transformation (useless)
 
-**With Activation:**
+With Activation:
 
 ```text
 f(x) = σ(W₃(σ(W₂(σ(W₁x)))))
@@ -1063,14 +1063,14 @@ Can approximate **any continuous function** on compact subsets.
 
 ### Gradient Flow
 
-**Good Activation Properties:**
+Good Activation Properties:
 
 1. Non-saturating (gradients don't vanish)
 2. Zero-centered (faster convergence)
 3. Smooth (stable optimization)
 4. Efficient to compute
 
-**Activation Evolution:**
+Activation Evolution:
 
 ```text
 Sigmoid → Tanh → ReLU → Leaky ReLU → GELU/Swish
@@ -1083,15 +1083,15 @@ Sigmoid → Tanh → ReLU → Leaky ReLU → GELU/Swish
 
 ### Per-Element Cost
 
-| Activation | Operations | Cost |
-| ------------ | ----------- | ------ |
-| ReLU | 1 comparison | O(1) |
-| Leaky ReLU | 1 comparison + 1 multiply | O(1) |
-| Sigmoid | 1 exp + 3 ops | O(exp) |
-| Tanh | std::tanh | O(exp) |
-| GELU | 2 exp (via tanh) + 10 ops | O(exp) |
-| Swish | 1 sigmoid + 1 multiply | O(exp) |
-| Softmax | n exp + 1 sum + n divide | O(n·exp) |
+|Activation|Operations|Cost|
+|------------|-----------|------|
+|ReLU|1 comparison|O(1)|
+|Leaky ReLU|1 comparison + 1 multiply|O(1)|
+|Sigmoid|1 exp + 3 ops|O(exp)|
+|Tanh|std::tanh|O(exp)|
+|GELU|2 exp (via tanh) + 10 ops|O(exp)|
+|Swish|1 sigmoid + 1 multiply|O(exp)|
+|Softmax|n exp + 1 sum + n divide|O(n·exp)|
 
 ### Matrix Cost
 
@@ -1265,7 +1265,7 @@ weights.randomize(he);  // Use He for GELU/ReLU
 
 The `Activation` class provides a **complete, production-ready** activation function library with:
 
-**Strengths:**
+Strengths:
 
 - ✅ 7 major activation functions with derivatives
 - ✅ Numerically stable implementations
@@ -1274,13 +1274,13 @@ The `Activation` class provides a **complete, production-ready** activation func
 - ✅ Modern activations (GELU, Swish)
 - ✅ Paired forward/backward passes
 
-**Coverage:**
+Coverage:
 
 - Classic: ReLU, Sigmoid, Tanh
 - Modern: GELU, Swish, Leaky ReLU
 - Specialized: Softmax
 
-**Use Cases:**
+Use Cases:
 
 - ✅ Transformer models (GELU)
 - ✅ CNNs (ReLU, Swish)
@@ -1288,7 +1288,7 @@ The `Activation` class provides a **complete, production-ready** activation func
 - ✅ Recurrent networks (Tanh, Sigmoid)
 - ✅ Attention mechanisms (Softmax)
 
-**Integration:**
+Integration:
 
 - Used throughout LLMEncoder
 - Core component of neural network layers

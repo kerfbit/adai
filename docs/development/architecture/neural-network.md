@@ -214,7 +214,7 @@ const std::vector<float>& get_validation_accuracy() const;
 All 5 loss functions implemented with proper gradients:
 
 - MSE: L = 0.5 * Σ(y - ŷ)², ∇L = ŷ - y
-- MAE: L = Σ| y - ŷ |, ∇L = sign(ŷ - y)
+- MAE: L = Σ|y - ŷ|, ∇L = sign(ŷ - y)
 - Binary CE: L = -Σ[y log(ŷ) + (1-y)log(1-ŷ)]
 - Categorical CE: L = -Σ y_i log(ŷ_i)
 - Huber: Piecewise quadratic/linear
@@ -242,12 +242,12 @@ Tracks 4 metrics:
 
 ## Performance Benchmarks
 
-| Task | Architecture | Epochs | Final Loss | Accuracy | Status |
-| ------ | -------------- | -------- | ------------ | ---------- | -------- |
-| XOR | 2→4→1 | 5000 | 0.0012 | ~100% | ✅ |
-| Linear Reg | 1→4→1 | 1000 | 0.0000 | N/A | ✅ |
-| 3-Class | 2→8→3 | 2000 | N/A | 100% | ✅ |
-| Deep Net | 4→8→6→4→2 | N/A | N/A | N/A | ✅ |
+|Task|Architecture|Epochs|Final Loss|Accuracy|Status|
+|------|--------------|--------|------------|----------|--------|
+|XOR|2→4→1|5000|0.0012|~100%|✅|
+|Linear Reg|1→4→1|1000|0.0000|N/A|✅|
+|3-Class|2→8→3|2000|N/A|100%|✅|
+|Deep Net|4→8→6→4→2|N/A|N/A|N/A|✅|
 
 ## Building
 

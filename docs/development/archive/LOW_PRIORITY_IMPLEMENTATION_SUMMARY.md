@@ -14,7 +14,7 @@ This document summarizes the implementation of low-priority enhancements identif
 
 **Status:** ✅ COMPLETE
 
-**What was implemented:**
+What was implemented:
 
 - **Perplexity Tracking**
   - Added `training_perplexities` and `validation_perplexities` vectors
@@ -29,14 +29,14 @@ This document summarizes the implementation of low-priority enhancements identif
   - Future: Will be implemented when model exposes prediction probabilities
   - Requires `EncoderDecoderModel::get_predictions()` API
 
-**Impact:**
+Impact:
 
 - Perplexity is more interpretable than raw loss for NLP tasks
 - Standard metric used in language model evaluation
 - Helps users understand model confidence in predictions
 - Typical good values: < 20 for small datasets, < 5 for well-trained models
 
-**Files Modified:**
+Files Modified:
 
 - `src/ChatbotTrainer.cpp` - Added metrics tracking and calculation methods
 - `docs/guides/training-internals.md` - Documented new metrics
@@ -46,7 +46,7 @@ This document summarizes the implementation of low-priority enhancements identif
 
 **Status:** ✅ COMPLETE
 
-**What was implemented:**
+What was implemented:
 
 - **LogLevel Enum**
   - `SILENT (0)` - Errors only, for production/automation
@@ -71,29 +71,29 @@ This document summarizes the implementation of low-priority enhancements identif
   - Per-sample progress uses `VERBOSE` level
   - Future debug info will use `DEBUG` level
 
-**Impact:**
+Impact:
 
 - Cleaner logs for production environments (SILENT mode)
 - Reduced overhead in automated training pipelines
 - More granular control over output verbosity
 - Easier to parse logs programmatically
 
-**Performance:**
+Performance:
 
-| Level | Overhead | Use Case |
-| ------- | ---------- | ---------- |
-| SILENT | ~0% | Production, automation |
-| NORMAL | < 1% | Standard training |
-| VERBOSE | 1-3% | Development |
-| DEBUG | 3-5% | Deep debugging |
+|Level|Overhead|Use Case|
+|-------|----------|----------|
+|SILENT|~0%|Production, automation|
+|NORMAL|< 1%|Standard training|
+|VERBOSE|1-3%|Development|
+|DEBUG|3-5%|Deep debugging|
 
-**Backward Compatibility:**
+Backward Compatibility:
 
 - Old `verbose` boolean still supported (deprecated)
 - Default behavior unchanged (VERBOSE level)
 - Existing scripts work without modification
 
-**Files Modified:**
+Files Modified:
 
 - `src/ChatbotTrainer.cpp` - Added LogLevel enum, log() method, CLI parsing
 - `docs/guides/training-internals.md` - Documented logging system
@@ -106,7 +106,7 @@ This document summarizes the implementation of low-priority enhancements identif
 
 **Status:** ❌ NOT STARTED
 
-**Planned Implementation:**
+Planned Implementation:
 
 - Run short training with exponentially increasing learning rate
 - Track loss at each LR value
@@ -114,13 +114,13 @@ This document summarizes the implementation of low-priority enhancements identif
 - Automatically suggest optimal LR (typically where loss decreases fastest)
 - Implement as `--find-lr` mode
 
-**Benefits:**
+Benefits:
 
 - Eliminates manual LR tuning
 - Finds optimal LR range quickly (< 1 epoch)
 - Standard practice in modern deep learning (fastai method)
 
-**Technical Requirements:**
+Technical Requirements:
 
 - Save LR/loss pairs during test run
 - Generate loss curve plot (requires plotting library or CSV output)
@@ -130,27 +130,27 @@ This document summarizes the implementation of low-priority enhancements identif
 
 **Status:** ❌ NOT STARTED
 
-**Planned Implementation:**
+Planned Implementation:
 
 - Use FP16 for forward/backward passes (faster, less memory)
 - Use FP32 for critical operations (loss scaling, weight updates)
 - Implement loss scaling to prevent gradient underflow
 - Add `--mixed-precision` CLI flag
 
-**Benefits:**
+Benefits:
 
 - 2-3x faster training on modern GPUs
 - 50% memory reduction
 - Enables larger models/batch sizes
 
-**Technical Requirements:**
+Technical Requirements:
 
 - Requires GPU with Tensor Cores (NVIDIA Volta+)
 - Loss scaling to prevent gradient underflow
 - FP16/FP32 conversion at layer boundaries
 - May require CUDA/cuDNN integration
 
-**Challenges:**
+Challenges:
 
 - CPU-only codebase currently
 - Would require GPU acceleration first
@@ -160,7 +160,7 @@ This document summarizes the implementation of low-priority enhancements identif
 
 **Status:** ❌ NOT STARTED
 
-**Planned Test Coverage:**
+Planned Test Coverage:
 
 1. **Metrics Tests**
    - `test_calculate_perplexity()` - Verify exp(loss) calculation
@@ -182,7 +182,7 @@ This document summarizes the implementation of low-priority enhancements identif
    - `test_accumulation_reset()` - Verify reset on error
    - `test_effective_batch_size()` - Verify behavior matches true batch
 
-**Test Framework:**
+Test Framework:
 
 - Use existing Google Test infrastructure in `tests/`
 - Add `tests/test_chatbot_trainer.cpp`
@@ -266,7 +266,7 @@ float calculate_accuracy(const std::vector<int>& predictions,
   --log-level normal  # Only show epoch summaries
 ```
 
-**Output:**
+Output:
 
 ```text
 ✅ Epoch 1 complete - Loss: 3.21 - Perplexity: 24.87 - LR: 0.0001 - GradNorm: 2.45
@@ -285,7 +285,7 @@ float calculate_accuracy(const std::vector<int>& predictions,
   --output production_model.bin
 ```
 
-**Output:**
+Output:
 
 ```text
 ✅ Training complete! Model saved to: production_model.bin
@@ -301,7 +301,7 @@ float calculate_accuracy(const std::vector<int>& predictions,
   --log-level verbose  # Default - shows per-sample progress
 ```
 
-**Output:**
+Output:
 
 ```text
   Sample 10/500 (Update 3) - Loss: 3.45 - Avg: 3.48 - LR: 0.0001 - GradNorm: 2.78
@@ -314,12 +314,12 @@ float calculate_accuracy(const std::vector<int>& predictions,
 
 ### Perplexity Guidelines
 
-| Perplexity | Interpretation | Action |
-| ------------ | ---------------- | -------- |
-| < 5 | Excellent | Model has high confidence |
-| 5-20 | Good | Typical for small datasets |
-| 20-50 | Fair | More training may help |
-| > 50 | Poor | Check architecture/data |
+|Perplexity|Interpretation|Action|
+|------------|----------------|--------|
+|< 5|Excellent|Model has high confidence|
+|5-20|Good|Typical for small datasets|
+|20-50|Fair|More training may help|
+|> 50|Poor|Check architecture/data|
 
 ### What to Watch
 

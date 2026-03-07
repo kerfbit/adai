@@ -82,7 +82,7 @@ Created new **TokenBatchLoader** class for production training pipelines:
 
 Created `docs/api/data/dataset-batch-processing.md` (1,800+ lines):
 
-**Contents:**
+Contents:
 
 - Quick start guide with code examples
 - Detailed API reference for all new methods
@@ -92,7 +92,7 @@ Created `docs/api/data/dataset-batch-processing.md` (1,800+ lines):
 - Best practices
 - Expected performance metrics
 
-**Topics Covered:**
+Topics Covered:
 
 - Basic batch creation with padding
 - Dynamic batching by sequence length
@@ -104,7 +104,7 @@ Created `docs/api/data/dataset-batch-processing.md` (1,800+ lines):
 
 Created `src/DatasetBatchProcessingExample.cpp` (600+ lines):
 
-**5 Complete Examples:**
+5 Complete Examples:
 
 1. **Basic Batch Creation** (Example 1)
    - Simple batch with padding
@@ -145,13 +145,13 @@ Updated `src/CMakeLists.txt`:
 
 ### Efficiency Improvements
 
-**Dynamic Batching vs Fixed Batching:**
+Dynamic Batching vs Fixed Batching:
 
 - Token reduction: 20-40% (measured: 43% in example)
 - Efficiency improvement: +15-35% (measured: +34% in example)
 - Training speedup: 15-30% estimated
 
-**Parallel Loading (TokenBatchLoader):**
+Parallel Loading (TokenBatchLoader):
 
 - 2-4x faster with 4 workers
 - 3-6x faster with 8 workers
@@ -159,13 +159,13 @@ Updated `src/CMakeLists.txt`:
 
 ### Expected Efficiency Ranges
 
-**Fixed Batching:**
+Fixed Batching:
 
 - Short sequences (10-50 tokens): 80-95%
 - Medium sequences (50-200 tokens): 60-80%
 - Long sequences (200+ tokens): 40-70%
 
-**Dynamic Batching (length_tolerance=10):**
+Dynamic Batching (length_tolerance=10):
 
 - All sequence lengths: 85-98%
 
@@ -193,7 +193,7 @@ Updated `src/CMakeLists.txt`:
 
 ## Testing Results
 
-**Example Execution Results:**
+Example Execution Results:
 
 ✅ Example 1 (Basic Batching):
 
@@ -303,4 +303,4 @@ The integration seamlessly combines Dataset, BatchProcessor, and ParallelDataLoa
 
 All code compiles, runs successfully, and demonstrates significant performance improvements over traditional fixed batching approaches.
 
-**Status: ✅ Ready for Production Use**
+Status: ✅ Ready for Production Use

@@ -10,7 +10,7 @@ The CLI chatbot **already has full parallel processing** built in! No additional
 ./build_and_vocab.sh verify-cli
 ```
 
-**Output:**
+Output:
 
 ```text
 ✅ OpenMP (parallel processing) is linked ✓
@@ -21,13 +21,13 @@ The CLI chatbot **already has full parallel processing** built in! No additional
 
 ## Parallel Features Enabled
 
-| Feature | Status | Priority | Library |
-| --------- | -------- | ---------- | --------- |
-| OpenMP matrix operations | ✅ Enabled | P1 | adai_core |
-| Parallel attention heads | ✅ Enabled | P4 | adai_attention |
-| Multi-core CPU utilization | ✅ 8 cores | - | libgomp |
-| Vectorized operations | ✅ SIMD | - | -march=native |
-| Release optimizations | ✅ -O3 | - | Release build |
+|Feature|Status|Priority|Library|
+|---------|--------|----------|---------|
+|OpenMP matrix operations|✅ Enabled|P1|adai_core|
+|Parallel attention heads|✅ Enabled|P4|adai_attention|
+|Multi-core CPU utilization|✅ 8 cores|-|libgomp|
+|Vectorized operations|✅ SIMD|-|-march=native|
+|Release optimizations|✅ -O3|-|Release build|
 
 ## Build Configuration
 
@@ -48,15 +48,15 @@ The CLI chatbot was **already configured** with the same parallel processing as 
 
 ## Performance Comparison
 
-| Component | CLI Chatbot | GUI Chatbot | Status |
-| ----------- | ------------- | ------------- | -------- |
-| OpenMP Support | ✅ | ✅ | Identical |
-| Parallel Attention | ✅ | ✅ | Identical |
-| Multi-core Usage | ✅ | ✅ | Identical |
-| Optimization Level | Release (-O3) | Release (-O3) | Identical |
-| Build Flags | -fopenmp | -fopenmp | Identical |
+|Component|CLI Chatbot|GUI Chatbot|Status|
+|-----------|-------------|-------------|--------|
+|OpenMP Support|✅|✅|Identical|
+|Parallel Attention|✅|✅|Identical|
+|Multi-core Usage|✅|✅|Identical|
+|Optimization Level|Release (-O3)|Release (-O3)|Identical|
+|Build Flags|-fopenmp|-fopenmp|Identical|
 
-**Both CLI and GUI have IDENTICAL parallel processing capabilities!**
+Both CLI and GUI have IDENTICAL parallel processing capabilities!
 
 ## Usage
 

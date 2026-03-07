@@ -20,14 +20,14 @@ make chatbot_api_server
 
 ### 3. Test Batch Processing
 
-**Using Python:**
+Using Python:
 
 ```bash
 cd scripts
 ./batch_api_client.py
 ```
 
-**Using cURL:**
+Using cURL:
 
 ```bash
 curl -X POST http://localhost:8080/chat/batch \

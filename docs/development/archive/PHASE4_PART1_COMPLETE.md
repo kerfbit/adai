@@ -16,13 +16,13 @@ Phase 4, Task 1 (Advanced Optimizers) has been **completed** with full implement
 
 ### 1. ✅ Optimizer Class Implementation
 
-**Files:**
+Files:
 
 - `src/Optimizer.hpp` (225 lines)
 - `src/Optimizer.cpp` (implementation)
 - `src/OptimizerExample.cpp` (usage examples)
 
-**Features Implemented:**
+Features Implemented:
 
 - Centralized optimization architecture
 - Multiple optimization algorithms:
@@ -35,7 +35,7 @@ Phase 4, Task 1 (Advanced Optimizers) has been **completed** with full implement
 - Hyperparameter configuration
 - State management and reset
 
-**Key Capabilities:**
+Key Capabilities:
 
 ```cpp
 // Example usage
@@ -56,7 +56,7 @@ opt.step();
 
 **Implementation:** `src/ChatbotTrainer.cpp`
 
-**Strategies Implemented:**
+Strategies Implemented:
 
 1. **CONSTANT** - No scheduling
 2. **LINEAR_WARMUP** - Linear warmup then constant
@@ -65,14 +65,14 @@ opt.step();
 5. **STEP_DECAY** - Step-wise decay at intervals
 6. **EXPONENTIAL_DECAY** - Exponential decay
 
-**Features:**
+Features:
 
 - Automatic warmup configuration (10% of total steps if not specified)
 - Configurable minimum learning rate
 - Integration with ChatbotTrainer
 - Per-step learning rate updates
 
-**Example Configuration:**
+Example Configuration:
 
 ```cpp
 TrainingConfig config;
@@ -86,14 +86,14 @@ config.min_learning_rate = 1e-6f;
 
 **Implementation:** `Optimizer::clip_gradients()`
 
-**Features:**
+Features:
 
 - Global gradient norm clipping
 - Configurable maximum norm threshold
 - Essential for training stability
 - Returns pre-clipping norm for monitoring
 
-**Algorithm:**
+Algorithm:
 
 ```cpp
 // Compute global gradient norm
@@ -105,7 +105,7 @@ if (global_norm > max_norm):
         gradient *= (max_norm / global_norm)
 ```
 
-**Usage:**
+Usage:
 
 ```cpp
 optimizer.set_max_grad_norm(1.0f);
@@ -124,7 +124,7 @@ float norm = optimizer.clip_gradients(5.0f);  // custom threshold
 **Tests:** 45 comprehensive unit tests
 **Status:** ✅ 100% PASSING
 
-**Test Suites:**
+Test Suites:
 
 1. OptimizerConstructorTest (5 tests)
    - Default, SGD, SGD+Momentum, Adam, AdamW constructors
@@ -181,7 +181,7 @@ float norm = optimizer.clip_gradients(5.0f);  // custom threshold
 **Tests:** 44 comprehensive unit tests
 **Status:** ✅ 100% PASSING
 
-**Relevant Test Suites:**
+Relevant Test Suites:
 
 1. LRScheduleTest (7 tests)
    - Constant schedule
@@ -210,7 +210,7 @@ float norm = optimizer.clip_gradients(5.0f);  // custom threshold
 **Length:** 1,124 lines
 **Status:** ✅ COMPLETE
 
-**Contents:**
+Contents:
 
 - Purpose and role overview
 - Mathematical foundations for each optimizer
@@ -228,7 +228,7 @@ float norm = optimizer.clip_gradients(5.0f);  // custom threshold
 **File:** `docs/testing/optimizer-integration-tests.md`
 **Status:** ✅ COMPLETE
 
-**Contents:**
+Contents:
 
 - Integration with EncoderDecoderModel
 - Integration with ChatbotTrainer
@@ -240,7 +240,7 @@ float norm = optimizer.clip_gradients(5.0f);  // custom threshold
 **Length:** 1,121 lines
 **Status:** ✅ COMPLETE
 
-**Contents:**
+Contents:
 
 - Complete test suite documentation
 - Learning rate scheduling tests
@@ -255,7 +255,7 @@ float norm = optimizer.clip_gradients(5.0f);  // custom threshold
 
 **File:** `src/ChatbotTrainer.cpp`
 
-**Features:**
+Features:
 
 - Optimizer class member
 - Automatic parameter registration
@@ -263,7 +263,7 @@ float norm = optimizer.clip_gradients(5.0f);  // custom threshold
 - Configuration options via TrainingConfig
 - Complete training loop integration
 
-**Configuration:**
+Configuration:
 
 ```cpp
 TrainingConfig config;
@@ -282,7 +282,7 @@ config.min_learning_rate = 1e-6f;
 
 **File:** `src/EncoderDecoderModel.hpp`, `src/EncoderDecoderModel.cpp`
 
-**Features:**
+Features:
 
 - `register_parameters()` method for optimizer integration
 - Backward compatibility with legacy training methods
@@ -294,13 +294,13 @@ config.min_learning_rate = 1e-6f;
 
 ### Memory Overhead
 
-**Per Parameter Group:**
+Per Parameter Group:
 
 - Momentum matrix: Same size as weight matrix
 - Velocity matrix: Same size as weight matrix (Adam/AdamW only)
 - Step counter: 4 bytes
 
-**Example:**
+Example:
 
 - Weight matrix: 512 × 512 = 262,144 parameters
 - AdamW overhead: 2 × 262,144 × 4 bytes = ~2 MB
@@ -309,14 +309,14 @@ config.min_learning_rate = 1e-6f;
 
 ### Computational Overhead
 
-**Per Optimization Step:**
+Per Optimization Step:
 
 - SGD: O(N) - simple gradient descent
 - SGD+Momentum: O(N) - momentum update
 - Adam: O(N) - bias correction + adaptive LR
 - AdamW: O(N) - same as Adam + weight decay
 
-**Benchmark Results:**
+Benchmark Results:
 
 - Large matrix (1000×1000): ~1 ms per step
 - Many parameter groups (100 groups): ~0 ms per step (cached operations)
@@ -327,19 +327,19 @@ config.min_learning_rate = 1e-6f;
 
 ### Feature Parity
 
-| Feature | ADAI | PyTorch | TensorFlow | JAX |
-| --------- | ------ | --------- | ------------ | ----- |
-| SGD | ✅ | ✅ | ✅ | ✅ |
-| SGD + Momentum | ✅ | ✅ | ✅ | ✅ |
-| Adam | ✅ | ✅ | ✅ | ✅ |
-| AdamW | ✅ | ✅ | ✅ | ✅ |
-| Weight Decay | ✅ | ✅ | ✅ | ✅ |
-| Gradient Clipping | ✅ | ✅ | ✅ | ✅ |
-| LR Scheduling | ✅ | ✅ | ✅ | ✅ |
-| Warmup | ✅ | ✅ | ✅ | ✅ |
-| Cosine Decay | ✅ | ✅ | ✅ | ✅ |
-| Step Decay | ✅ | ✅ | ✅ | ✅ |
-| Exponential Decay | ✅ | ✅ | ✅ | ✅ |
+|Feature|ADAI|PyTorch|TensorFlow|JAX|
+|---------|------|---------|------------|-----|
+|SGD|✅|✅|✅|✅|
+|SGD + Momentum|✅|✅|✅|✅|
+|Adam|✅|✅|✅|✅|
+|AdamW|✅|✅|✅|✅|
+|Weight Decay|✅|✅|✅|✅|
+|Gradient Clipping|✅|✅|✅|✅|
+|LR Scheduling|✅|✅|✅|✅|
+|Warmup|✅|✅|✅|✅|
+|Cosine Decay|✅|✅|✅|✅|
+|Step Decay|✅|✅|✅|✅|
+|Exponential Decay|✅|✅|✅|✅|
 
 **Result:** Full feature parity with major ML frameworks for core optimization algorithms.
 
@@ -446,7 +446,7 @@ trainer.train(training_data, validation_data, config);
 
 **Estimated Time:** 1-2 weeks
 
-**Enhancements:**
+Enhancements:
 
 1. Dataset abstraction
    - `Dataset` class for easier data management
@@ -472,7 +472,7 @@ trainer.train(training_data, validation_data, config);
 
 **Estimated Time:** 3-5 days
 
-**Enhancements:**
+Enhancements:
 
 1. Dynamic batching by sequence length
 2. Advanced padding strategies
@@ -528,7 +528,7 @@ Phase 4, Task 1 (Advanced Optimizers) is **100% COMPLETE** with:
 
 The ADAI project now has **production-ready training infrastructure** matching the capabilities of PyTorch, TensorFlow, and other major ML frameworks. This brings the overall project completeness to **~99%** for a production chatbot application.
 
-**Next Steps:**
+Next Steps:
 
 - Optional: Phase 4, Task 2 (Enhanced Training Pipeline)
 - Optional: Phase 4, Task 3 (Data Pipeline Enhancements)

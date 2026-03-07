@@ -2,6 +2,22 @@
 """
 Universal markdown lint fixer for all .md files
 Fixes: MD022, MD031, MD032, MD040, MD060, MD009, MD029, MD036
+
+Rules Fixed:
+- MD022: Headings should be surrounded by blank lines
+- MD031: Fenced code blocks should be surrounded by blank lines
+- MD032: Lists should be surrounded by blank lines
+- MD036: Emphasis used instead of heading (converts **text** to plain text)
+- MD040: Fenced code blocks should have a language (adds 'text' default)
+- MD060: Table column style (uses compact style, no spaces around pipes)
+- MD009: Trailing spaces (removes them)
+- MD029: Ordered list item prefix (ensures consistent numbering)
+
+Usage:
+    python3 fix_all_markdown.py <file1.md> [file2.md ...]
+    
+Example:
+    python3 fix_all_markdown.py docs/**/*.md
 """
 
 import re
@@ -133,21 +149,36 @@ def fix_markdown(input_path, output_path):
         prev_was_list = curr_is_list
         i += 1
     
-    # Fix table formatting (MD060)
+    # Fix table formatting (MD060) - use compact style
     final_fixed = []
     for line in fixed:
         if '|' in line and not line.strip().startswith('```'):
             # Check if it's actually a table (has more than one |)
             if line.count('|') >= 2:
-                # Ensure spaces around pipes
+                # Use compact style: no spaces around pipes for content
                 parts = line.rstrip('\n').split('|')
                 formatted_parts = []
                 for j, part in enumerate(parts):
                     if j == 0 or j == len(parts) - 1:
+                        # First and last parts (may be empty for tables starting/ending with |)
                         formatted_parts.append(part)
                     else:
-                        formatted_parts.append(' ' + part.strip() + ' ')
+                        # Interior parts - strip spaces for compact style
+                        formatted_parts.append(part.strip())
                 line = '|'.join(formatted_parts).rstrip() + '\n'
+        
+        # Fix MD036: Emphasis used instead of heading
+        # Detect lines that are just **text** or *text* and might be headings
+        stripped = line.strip()
+        if stripped.startswith('**') and stripped.endswith('**') and stripped.count('**') == 2:
+            # Check if this looks like a heading (short, standalone line)
+            inner_text = stripped[2:-2].strip()
+            if inner_text and len(inner_text) < 100 and not any(c in inner_text for c in ['`', '[', ']']):
+                # Skip if it's in a list or table context
+                if not (final_fixed and (is_list_item(final_fixed[-1]) or '|' in final_fixed[-1])):
+                    # Convert to heading - use context to determine level
+                    # Default to h4 for emphasized standalone text
+                    line = f"{inner_text}\n"
         
         final_fixed.append(line)
     

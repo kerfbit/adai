@@ -9,6 +9,7 @@ Successfully implemented externalized configuration for the ADAI chatbot service
 ### 1. New Configuration System (`src/Config.hpp` and `src/Config.cpp`)
 
 Created a robust configuration loader with:
+
 - **ServiceConfig** structure containing all configuration parameters
 - **ConfigLoader** class with support for:
   - Environment variables
@@ -19,6 +20,7 @@ Created a robust configuration loader with:
 ### 2. Updated Main Application (`src/ChatbotAPIServer.cpp`)
 
 Modified the API server to:
+
 - Use the new configuration system
 - Maintain backward compatibility with command-line arguments
 - Support `--config` flag to specify custom config file location
@@ -32,12 +34,14 @@ Updated to include `Config.cpp` in the `chatbot_api_server` executable build.
 ### 4. Docker Integration
 
 **Updated `Dockerfile`:**
+
 - Added environment variables for all configuration options
 - Simplified CMD to rely on environment variables
 - Included example config file in the image
 - Documented all configuration options
 
 **Updated `docker-compose.yml`:**
+
 - Properly configured environment variables for common settings
 - Simplified command execution (removed hardcoded CLI args)
 - Added comments for optional architecture parameters
@@ -45,6 +49,7 @@ Updated to include `Config.cpp` in the `chatbot_api_server` executable build.
 ### 5. Documentation and Examples
 
 Created:
+
 - `config.conf.example` - Complete example configuration file
 - `docs/development/configuration_guide.md` - Comprehensive usage guide
 
@@ -60,12 +65,15 @@ The system implements a 4-tier priority system:
 ## Supported Configuration Parameters
 
 ### Server Settings
+
 - Model path, vocabulary path, port, session timeout, log level
 
 ### Model Architecture
+
 - d_model, num_heads, d_ff, encoder/decoder layers, max sequence length
 
 ### Generation Parameters
+
 - max_length, temperature, top_p, top_k, beam_width, strategy
 
 ## Testing Results
@@ -79,21 +87,25 @@ The system implements a 4-tier priority system:
 ## Usage Examples
 
 ### Environment Variables (Docker)
+
 ```bash
 docker-compose up -d
 ```
 
 ### Configuration File
+
 ```bash
 ./chatbot_api_server --config /path/to/config.conf
 ```
 
 ### Command-line Arguments (legacy)
+
 ```bash
 ./chatbot_api_server --vocab vocab.txt --port 8080
 ```
 
 ### Mixed (environment + override)
+
 ```bash
 export VOCAB_PATH=/app/vocab.txt
 ./chatbot_api_server --port 9999  # Port overrides env var
@@ -102,6 +114,7 @@ export VOCAB_PATH=/app/vocab.txt
 ## Next Steps
 
 Step 1 is complete. Ready to proceed with:
+
 - **Step 2:** Implement signal handling for graceful shutdown
 - **Step 3:** Introduce structured logging
 - **Step 4:** Refine Docker configuration
@@ -109,13 +122,15 @@ Step 1 is complete. Ready to proceed with:
 
 ## Files Created/Modified
 
-**Created:**
+Created:
+
 - `src/Config.hpp`
 - `src/Config.cpp`
 - `config.conf.example`
 - `docs/development/configuration_guide.md`
 
-**Modified:**
+Modified:
+
 - `src/ChatbotAPIServer.cpp`
 - `src/CMakeLists.txt`
 - `Dockerfile`

@@ -1,6 +1,6 @@
 # Inference Optimization Guide
 
-**ADAI Transformer Library - Phase 3, Part 2**
+ADAI Transformer Library - Phase 3, Part 2
 **Date:** January 25, 2026
 **Status:** Complete
 
@@ -15,7 +15,7 @@ This guide covers the inference optimization features implemented in Phase 3, Pa
 - **Performance Profiling**: Tools to measure and validate optimizations
 - **Combined Impact**: 4-12x total speedup possible
 
-**Quick Links:**
+Quick Links:
 
 - **[KVCache API Reference](../reference/kvcache.md)** - Detailed API documentation for KV cache
 - **[BatchProcessor API Reference](../reference/batchprocessor.md)** - Detailed API documentation for batch processing
@@ -455,35 +455,35 @@ Profiler::compare(no_cache, with_cache);
 
 Tested on: CPU, d_model=512, 6 layers, 8 heads
 
-| Sequence Length | Without Cache | With Cache | Speedup |
-| ---------------- | --------------- | ------------ | --------- |
-| 10 tokens | 45.2 ms | 18.1 ms | 2.5x |
-| 20 tokens | 89.5 ms | 31.2 ms | 2.9x |
-| 50 tokens | 223.1 ms | 78.3 ms | 2.8x |
-| 100 tokens | 445.8 ms | 156.7 ms | 2.8x |
+|Sequence Length|Without Cache|With Cache|Speedup|
+|----------------|---------------|------------|---------|
+|10 tokens|45.2 ms|18.1 ms|2.5x|
+|20 tokens|89.5 ms|31.2 ms|2.9x|
+|50 tokens|223.1 ms|78.3 ms|2.8x|
+|100 tokens|445.8 ms|156.7 ms|2.8x|
 
 **Key Insight**: Speedup is consistent across sequence lengths, ~2.5-3x improvement.
 
 ### Batch Processing Throughput
 
-| Batch Size | Sequential (seq/s) | Batched (seq/s) | Improvement |
-| ------------ | ------------------- | ----------------- | ------------- |
-| 1 | 22.1 | 22.1 | 1.0x |
-| 2 | 22.0 | 38.5 | 1.75x |
-| 4 | 21.8 | 65.2 | 3.0x |
-| 8 | 21.5 | 98.3 | 4.6x |
-| 16 | 21.2 | 127.5 | 6.0x |
+|Batch Size|Sequential (seq/s)|Batched (seq/s)|Improvement|
+|------------|-------------------|-----------------|-------------|
+|1|22.1|22.1|1.0x|
+|2|22.0|38.5|1.75x|
+|4|21.8|65.2|3.0x|
+|8|21.5|98.3|4.6x|
+|16|21.2|127.5|6.0x|
 
 **Note**: Actual batching requires batched matrix operations. Current implementation shows potential; full batching would achieve near-linear scaling.
 
 ### Combined Optimizations
 
-| Configuration | Latency (ms/token) | Throughput (tokens/s) |
-| --------------- | ------------------- | ---------------------- |
-| Baseline | 42.3 | 23.6 |
-| KV Cache only | 15.1 | 66.2 |
-| Batch only | 38.5 | 103.5 |
-| Combined | 12.8 | 312.5 |
+|Configuration|Latency (ms/token)|Throughput (tokens/s)|
+|---------------|-------------------|----------------------|
+|Baseline|42.3|23.6|
+|KV Cache only|15.1|66.2|
+|Batch only|38.5|103.5|
+|Combined|12.8|312.5|
 
 > **Total improvement: ~13x throughput with combined optimizations**
 

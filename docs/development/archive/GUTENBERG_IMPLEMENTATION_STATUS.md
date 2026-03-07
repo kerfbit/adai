@@ -11,6 +11,7 @@ I've added the capability to download and convert Project Gutenberg books into t
 The following components were fully implemented in `/home/rodney/Repos/adai/src/IncrementalTrainer.cpp`:
 
 #### Download Capabilities
+
 - **`download_gutenberg_book(int book_id, const std::string& output_dir)`**
   - Downloads books from Project Gutenberg by ID
   - Tries UTF-8 version first (`https://www.gutenberg.org/files/{id}/{id}-0.txt`)
@@ -18,6 +19,7 @@ The following components were fully implemented in `/home/rodney/Repos/adai/src/
   - Uses curl for HTTP downloads
 
 #### Text Processing
+
 - **`clean_gutenberg_text(const std::string& raw_text)`**
   - Removes Project Gutenberg headers ("*** START OF...")
   - Removes Project Gutenberg footers ("*** END OF...")
@@ -29,6 +31,7 @@ The following components were fully implemented in `/home/rodney/Repos/adai/src/
   - Returns vector of cleaned sentences
 
 #### Q&A Generation
+
 - **`generate_question_from_sentence(const std::string& sentence)`**
   - Creates questions using templates:
     - "What does this mean: {sentence}"
@@ -43,6 +46,7 @@ The following components were fully implemented in `/home/rodney/Repos/adai/src/
   - Returns pairs in INPUT:/RESPONSE: format
 
 #### High-Level API
+
 - **`add_gutenberg_book(int book_id, int num_pairs)`**
   - Downloads book
   - Converts to training data
@@ -62,11 +66,12 @@ Command-line interface with Gutenberg commands:
 # Download and add single book
 ./incremental_trainer gutenberg <book_id> [num_pairs]
 
-# Download and add multiple books  
+# Download and add multiple books
 ./incremental_trainer gutenberg-batch <id1,id2,id3> [num_pairs_each]
 ```
 
-**Popular book IDs included in help:**
+Popular book IDs included in help:
+
 - 1342 - Pride and Prejudice (Jane Austen)
 - 11 - Alice's Adventures in Wonderland
 - 84 - Frankenstein
@@ -80,7 +85,8 @@ Command-line interface with Gutenberg commands:
 
 Created comprehensive guide: `/home/rodney/Repos/adai/docs/gutenberg-training-guide.md`
 
-**Covers:**
+Covers:
+
 - Quick start examples
 - Popular book recommendations by genre
 - Q&A pair quality tips
@@ -95,12 +101,14 @@ Created comprehensive guide: `/home/rodney/Repos/adai/docs/gutenberg-training-gu
 ### ⚠️ Integration Issue
 
 The build currently has a mismatch between:
+
 - **`IncrementalTrainer.cpp`** (implementation from earlier conversation)
 - **`IncrementalTrainer.hpp`** (header file - needs reconciliation)
 
 The .cpp file was created with an extensive API including:
+
 - `IncrementalConfig` struct
-- `DataVersion` struct  
+- `DataVersion` struct
 - `TrainingSession` struct
 - Session management
 - Data versioning
@@ -121,6 +129,7 @@ Temporarily commented out in `/home/rodney/Repos/adai/src/CMakeLists.txt`:
 ## What Works Right Now
 
 ### ✅ Successfully Built
+
 - `chatbot_trainer` - Main training tool
 - All core libraries (adai_models, adai_nlp, etc.)
 - All benchmarks
@@ -129,6 +138,7 @@ Temporarily commented out in `/home/rodney/Repos/adai/src/CMakeLists.txt`:
 - All tests
 
 ### ❌ Not Yet Built
+
 - `incremental_trainer` executable (needs header/implementation sync)
 
 ## Next Steps to Complete Integration
@@ -150,6 +160,7 @@ Temporarily commented out in `/home/rodney/Repos/adai/src/CMakeLists.txt`:
 ### Option 2: Simplified Standalone Tool
 
 Create a simpler `gutenberg_trainer.cpp` that:
+
 - Uses `ChatbotTrainer` directly
 - Implements only Gutenberg download/convert
 - Doesn't require full incremental training infrastructure
@@ -158,16 +169,19 @@ Create a simpler `gutenberg_trainer.cpp` that:
 ### Option 3: Use Existing ChatbotTrainer
 
 The Gutenberg functionality can be tested without the incremental trainer by:
+
 1. Using the implemented functions to download/convert books
-2. Saving output to standard training data files  
+2. Saving output to standard training data files
 3. Training with existing `chatbot_trainer` tool
 
 ## Files Created/Modified
 
 ### New Files
+
 - `/home/rodney/Repos/adai/docs/gutenberg-training-guide.md` - Complete usage guide
 
 ### Modified Files
+
 - `/home/rodney/Repos/adai/src/IncrementalTrainer.cpp` - Added ~250 lines of Gutenberg code
 - `/home/rodney/Repos/adai/src/IncrementalTrainer.hpp` - Created (needs reconciliation)
 - `/home/rodney/Repos/adai/src/IncrementalTrainingTool.cpp` - Added gutenberg commands
@@ -207,6 +221,7 @@ The Gutenberg functionality can be tested without the incremental trainer by:
 ```
 
 ### 4. Quality Validation
+
 - Inspect generated Q&A pairs
 - Verify training loss decreases
 - Test chatbot responses with literary knowledge
@@ -214,13 +229,14 @@ The Gutenberg functionality can be tested without the incremental trainer by:
 ## Technical Details
 
 ### Dependencies
+
 - **curl**: Used for HTTP downloads (system command)
 - **std::regex**: Sentence extraction and text cleaning
 - **std::filesystem**: File operations
 - **C++17**: Required for filesystem operations
 
 ### Data Flow
-```
+```text
 1. User specifies book ID
    ↓
 2. Download from gutenberg.org
@@ -239,6 +255,7 @@ The Gutenberg functionality can be tested without the incremental trainer by:
 ```
 
 ### File Locations
+
 - **Downloaded books**: `gutenberg_data/gutenberg_{id}.txt`
 - **Training data**: `training_sessions/session_{id}/gutenberg_{id}_data.txt`
 - **Checkpoints**: `training_sessions/session_{id}/checkpoint.bin`
@@ -246,17 +263,20 @@ The Gutenberg functionality can be tested without the incremental trainer by:
 ## Estimated Time to Complete
 
 ### Quick Fix (Option 1)
+
 - **Time**: 30-60 minutes
 - **Effort**: Create matching header definitions
 - **Result**: Full incremental training system with Gutenberg
 
 ### Simplified Tool (Option 2)
+
 - **Time**: 15-30 minutes
 - **Effort**: Create standalone gutenberg_trainer.cpp
 - **Result**: Working Gutenberg download/training tool
 
 ### Manual Usage (Option 3)
-- **Time**: 5-10 minutes  
+
+- **Time**: 5-10 minutes
 - **Effort**: Use functions programmatically or create simple wrapper
 - **Result**: Can test Gutenberg functionality today
 

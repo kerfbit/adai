@@ -1,6 +1,6 @@
 # IncrementalTrainer Quick Reference
 
-**Quick Commands and Common Workflows**
+## Quick Commands and Common Workflows
 
 ## Essential Commands
 
@@ -204,7 +204,8 @@ INPUT: Third message
 RESPONSE: Third response
 ```
 
-**Rules:**
+Rules:
+
 - Blank line separates conversation pairs
 - `INPUT:` prefix for user messages
 - `RESPONSE:` prefix for bot responses
@@ -212,37 +213,35 @@ RESPONSE: Third response
 
 ## Popular Gutenberg Books
 
-| ID | Title | Author |
-|----|-------|--------|
-| 1342 | Pride and Prejudice | Jane Austen |
-| 11 | Alice in Wonderland | Lewis Carroll |
-| 84 | Frankenstein | Mary Shelley |
-| 1661 | Sherlock Holmes | Arthur Conan Doyle |
-| 2701 | Moby Dick | Herman Melville |
-| 16328 | Beowulf | Anonymous |
-| 1260 | Jane Eyre | Charlotte Bronte |
-| 98 | A Tale of Two Cities | Charles Dickens |
+|ID|Title|Author|
+|-----|-------------------|----------------------|
+|1342|Pride and Prejudice|Jane Austen|
+|11|Alice in Wonderland|Lewis Carroll|
+|84|Frankenstein|Mary Shelley|
+|1661|Sherlock Holmes|Arthur Conan Doyle|
+|2701|Moby Dick|Herman Melville|
+|16328|Beowulf|Anonymous|
+|1260|Jane Eyre|Charlotte Bronte|
+|98|A Tale of Two Cities|Charles Dickens|
 
 ## Performance Expectations
 
 ### Training Time Estimates (7500 samples baseline)
 
-| Operation | Data Size | Epochs | Time |
-|-----------|-----------|--------|------|
-| Initial training | 7500 | 12 | ~6 days |
-| Incremental (500 new) | 500 | 5 | ~12 hours |
-| Incremental (1000 new) | 1000 | 5 | ~1 day |
-| Full retrain | 8000 | 10 | ~6.5 days |
+|Operation|Data Size|Epochs|Time|
+|----------------------|---------|------|----------|
+|Initial training|7500|12|~6 days|
+|Incremental (500 new)|500|5|~12 hours|
+|Incremental (1000 new)|1000|5|~1 day|
+|Full retrain|8000|10|~6.5 days|
 
 ### Speedup from Incremental
 
-| New Data % | Traditional | Incremental | Savings |
-|------------|-------------|-------------|---------|
-| 6% (500)   | 6 days      | 12 hours    | 87% |
-| 13% (1000) | 6 days      | 1 day       | 83% |
-| 25% (2000) | 6 days      | 2 days      | 67% |
-
-## Training Strategies
+|New Data %|Traditional|Incremental|Savings|
+|----------|-----------|-----------|-------|
+|6% (500)|6 days|12 hours|87%|
+|13% (1000)|6 days|1 day|83%|
+|25% (2000)|6 days|2 days|67%|
 
 ### Strategy 1: Pure Incremental (Fastest)
 
@@ -344,7 +343,7 @@ rm training_sessions/session_2_checkpoint.bin
 
 ## File Structure
 
-```
+```text
 project/
 ├── config.conf                         # Configuration
 ├── vocab.txt                           # Vocabulary
@@ -396,20 +395,18 @@ project/
 
 ## Command Reference
 
-| Command | Purpose | Common Usage |
-|---------|---------|--------------|
-| `init` | Initialize system | `init` |
-| `add` | Add data file | `add data.txt` |
-| `gutenberg` | Add Gutenberg book | `gutenberg 1342 500` |
-| `gutenberg-batch` | Add multiple books | `gutenberg-batch 1342,11,84` |
-| `train` | Incremental training | `train 10` |
-| `retrain` | Full retrain | `retrain 15` |
-| `resume` | Resume last session | `resume` |
-| `status` | Show status | `status` |
-| `history` | Show history | `history` |
-| `reset` | Reset system | `reset --yes --keep-data` |
-
-## Environment Variables
+|Command|Purpose|Common Usage|
+|------------------|--------------------|-----------------------------|
+|`init`|Initialize system|`init`|
+|`add`|Add data file|`add data.txt`|
+|`gutenberg`|Add Gutenberg book|`gutenberg 1342 500`|
+|`gutenberg-batch`|Add multiple books|`gutenberg-batch 1342,11,84`|
+|`train`|Incremental training|`train 10`|
+|`retrain`|Full retrain|`retrain 15`|
+|`resume`|Resume last session|`resume`|
+|`status`|Show status|`status`|
+|`history`|Show history|`history`|
+|`reset`|Reset system|`reset --yes --keep-data`|
 
 Override config.conf values:
 
@@ -426,6 +423,7 @@ incremental_trainer train 10
 ## Best Practices
 
 ✅ **DO:**
+
 - Start with long initial training (20+ epochs)
 - Use incremental for small updates (< 20% data)
 - Schedule periodic full retrains (every 10 sessions)
@@ -434,6 +432,7 @@ incremental_trainer train 10
 - Use version control for config.conf
 
 ❌ **DON'T:**
+
 - Use incremental forever (causes forgetting)
 - Change architecture mid-training
 - Delete all checkpoints at once
@@ -497,6 +496,6 @@ trainer.set_config(cfg);
 
 ---
 
-**Version:** 2.0  
-**Last Updated:** March 2026  
+**Version:** 2.0
+**Last Updated:** March 2026
 **For:** Developers and power users

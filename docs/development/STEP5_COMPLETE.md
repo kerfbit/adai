@@ -11,25 +11,29 @@ Successfully created a production-ready systemd service configuration for bare-m
 A comprehensive systemd unit file with:
 
 #### Service Configuration
+
 - **Type**: `simple` - foreground process
 - **User/Group**: `adai` (non-root for security)
 - **Working Directory**: `/opt/adai`
 - **Executable**: `/opt/adai/bin/chatbot_api_server`
 
 #### Restart and Recovery
+
 - **Restart Policy**: `on-failure` - automatic restart on crashes
 - **Restart Delay**: 5 seconds between restarts
 - **Rate Limiting**: Maximum 5 restarts in 10 minutes
 - **Timeouts**: 40s startup, 30s graceful shutdown
 
 #### Graceful Shutdown
+
 - **Kill Mode**: `mixed` - SIGTERM to main process, SIGKILL to remaining
 - **Kill Signal**: `SIGTERM` (handled by application)
 - **Timeout**: 30 seconds before forced kill
 - Integration with application's graceful shutdown sequence
 
 #### Environment Configuration
-```ini
+
+```iniini
 Environment="CONFIG_FILE=/etc/adai/config.conf"
 Environment="VOCAB_PATH=/opt/adai/vocab/vocab.txt"
 Environment="PORT=8080"
@@ -41,33 +45,38 @@ All model architecture and generation parameters configurable via environment va
 
 #### Security Hardening
 
-**Filesystem Protection:**
+Filesystem Protection:
+
 - ✅ `ProtectSystem=strict` - System directories read-only
 - ✅ `ProtectHome=yes` - Home directories inaccessible
 - ✅ `ReadWritePaths=/var/log/adai /opt/adai/models` - Only specific paths writable
 - ✅ `PrivateTmp=yes` - Private /tmp and /var/tmp
 - ✅ `PrivateDevices=yes` - Limited device access
 
-**Kernel Protection:**
+Kernel Protection:
+
 - ✅ `ProtectKernelLogs=yes` - No kernel log access
 - ✅ `ProtectKernelModules=yes` - Cannot load kernel modules
 - ✅ `ProtectKernelTunables=yes` - Kernel parameters read-only
 - ✅ `ProtectControlGroups=yes` - cgroups read-only
 - ✅ `ProtectClock=yes` - Cannot change system time
 
-**Privilege Restrictions:**
+Privilege Restrictions:
+
 - ✅ `NoNewPrivileges=true` - Cannot escalate privileges
 - ✅ `CapabilityBoundingSet=` - No Linux capabilities
 - ✅ `RestrictSUIDSGID=yes` - No setuid/setgid
 - ✅ `LockPersonality=yes` - Prevent personality syscalls
 - ✅ `RestrictRealtime=yes` - No real-time scheduling
 
-**Network and System Calls:**
+Network and System Calls:
+
 - ✅ `RestrictAddressFamilies=AF_INET AF_INET6` - Only IPv4/IPv6
 - ✅ `SystemCallFilter=@system-service` - Limited syscalls
 - ✅ `SystemCallFilter=~@privileged @resources` - Block privileged syscalls
 
 #### Resource Limits
+
 ```ini
 # Memory
 MemoryMax=4G                  # Hard limit
@@ -84,19 +93,22 @@ LimitCORE=0                  # Core dumps disabled
 ```
 
 #### Logging
+
 - **StandardOutput**: `journal` - logs to systemd journal
 - **StandardError**: `journal` - errors to systemd journal
 - **SyslogIdentifier**: `adai-chatbot` - easy filtering
 - **SyslogLevel**: `info` - default verbosity
 
 #### Dependencies
+
 - **After**: `network-online.target` - waits for network
 - **Wants**: `network-online.target` - requires network
 - **PartOf**: `multi-user.target` - normal system operation
 
 ### 2. Created Installation Script (`scripts/install_systemd_service.sh`)
 
-**Features:**
+Features:
+
 - **Automated Installation**: One command to full deployment
 - **Configurable**: Command-line options for all settings
 - **Interactive**: Confirmation before making changes
@@ -104,7 +116,8 @@ LimitCORE=0                  # Core dumps disabled
 - **Comprehensive**: Creates all necessary directories, users, config files
 - **Verified**: Post-installation health checks
 
-**Installation Steps Automated:**
+Installation Steps Automated:
+
 1. ✅ Creates system user and group (non-login for security)
 2. ✅ Creates directory structure (`/opt/adai`, `/var/log/adai`, `/etc/adai`)
 3. ✅ Copies executable and resources
@@ -115,7 +128,8 @@ LimitCORE=0                  # Core dumps disabled
 8. ✅ Starts service
 9. ✅ Verifies service is running and listening
 
-**Command-line Options:**
+Command-line Options:
+
 ```bash
 --install-path PATH    Installation directory (default: /opt/adai)
 --user USER           Service user (default: adai)
@@ -125,7 +139,8 @@ LimitCORE=0                  # Core dumps disabled
 --help                Show help message
 ```
 
-**Example Usage:**
+Example Usage:
+
 ```bash
 # Default installation
 sudo ./scripts/install_systemd_service.sh
@@ -137,7 +152,10 @@ sudo ./scripts/install_systemd_service.sh \
   --log-level DEBUG
 ```
 
-**Safety Features:**
+Safety Features:
+
+- Root permission check
+
 - Root permission check
 - systemd availability check
 - Executable existence check
@@ -146,8 +164,9 @@ sudo ./scripts/install_systemd_service.sh \
 - User already exists handling
 - Clear error messages
 
-**Output Example:**
-```
+Output Example:
+
+```text
 [INFO] Starting ADAI chatbot systemd service installation...
 [SUCCESS] Preflight checks passed
 
@@ -187,38 +206,44 @@ ADAI Chatbot systemd service installation complete!
 
 ### 3. Created Deployment Documentation (`docs/operations/SYSTEMD_DEPLOYMENT.md`)
 
-**Comprehensive guide covering:**
+Comprehensive guide covering:
 
 #### Quick Start
+
 - Automated installation (3 commands)
 - Manual installation (step-by-step)
 - Prerequisites and system requirements
 
 #### Service Management
+
 - Basic commands (start, stop, restart, status)
 - Enabling/disabling autostart
 - Viewing logs with journalctl
 - Log filtering and searching
 
 #### Configuration
+
 - Configuration file editing
 - Environment variable overrides
 - Using environment files
 - Reloading after changes
 
 #### Security and Hardening
+
 - Explanation of all security features
 - Customizing security settings
 - Troubleshooting permission errors
 - SELinux and AppArmor considerations
 
 #### Resource Management
+
 - Understanding resource limits
 - Monitoring resource usage
 - Adjusting limits
 - Performance tuning
 
 #### Troubleshooting
+
 - Service won't start
 - Service crashes
 - Service won't stop
@@ -227,18 +252,21 @@ ADAI Chatbot systemd service installation complete!
 - Common error messages and solutions
 
 #### Maintenance
+
 - Updating the service
 - Updating configuration
 - Backup procedures
 - Log rotation
 
 #### Monitoring and Alerting
+
 - Health checks
 - Integration with Prometheus
 - Nagios/Icinga checks
 - Failure alerting
 
 #### Advanced Topics
+
 - Running multiple instances
 - Custom start/stop scripts
 - Socket activation
@@ -247,7 +275,7 @@ ADAI Chatbot systemd service installation complete!
 
 ## Directory Structure
 
-```
+```text
 /opt/adai/                      # Installation directory
 ├── bin/
 │   └── chatbot_api_server      # Main executable
@@ -268,7 +296,8 @@ ADAI Chatbot systemd service installation complete!
 
 **Location:** `/etc/adai/config.conf`
 
-**Created automatically by installation script:**
+Created automatically by installation script:
+
 ```ini
 # ADAI Chatbot Service Configuration
 
@@ -361,24 +390,28 @@ sudo systemctl restart adai
 ## Integration with Previous Steps
 
 ### Step 1: External Configuration ✅
+
 - Service reads from `/etc/adai/config.conf`
 - Environment variables in service file
 - EnvironmentFile support
 - Command-line argument support
 
 ### Step 2: Signal Handling ✅
+
 - systemd sends SIGTERM on stop
 - 30-second graceful shutdown timeout
 - Application handles signal correctly
 - Logs show clean shutdown sequence
 
 ### Step 3: Structured Logging ✅
+
 - Logs go to systemd journal
 - `journalctl -u adai` shows all messages
 - Log level configurable via config file or environment
 - Structured format preserved in journal
 
 ### Step 4: Docker Configuration ✅
+
 - Same configuration options
 - Same environment variables
 - Can migrate from Docker to systemd
@@ -388,41 +421,48 @@ sudo systemctl restart adai
 
 ### Principle of Least Privilege
 
-**Non-root execution:**
+Non-root execution:
+
 - Service runs as `adai` user
 - No root privileges
 - Cannot access other users' data
 
-**Filesystem isolation:**
+Filesystem isolation:
+
 - System directories read-only
 - Only `/var/log/adai` and `/opt/adai/models` writable
 - Home directories inaccessible
 - Private /tmp
 
-**Capability dropping:**
+Capability dropping:
+
 - No Linux capabilities granted
 - Cannot perform privileged operations
 - Cannot escalate privileges
 
-**System call filtering:**
+System call filtering:
+
 - Limited to essential syscalls
 - Blocks privileged syscalls
 - Reduces attack surface
 
 ### Attack Surface Reduction
 
-**Network isolation:**
+Network isolation:
+
 - Only IPv4/IPv6 sockets allowed
 - No Unix domain sockets
 - No other address families
 
-**Kernel protection:**
+Kernel protection:
+
 - Cannot modify kernel
 - Cannot load modules
 - Cannot change time
 - Cannot access kernel logs
 
-**Resource containment:**
+Resource containment:
+
 - Memory limits prevent OOM
 - CPU limits prevent DoS
 - Process limits prevent fork bombs
@@ -481,26 +521,28 @@ ls -l scripts/install_systemd_service.sh
 
 ## Comparison: Docker vs systemd
 
-| Feature | Docker | systemd |
-|---------|--------|---------|
-| Installation | docker-compose up | install_systemd_service.sh |
-| Service Management | docker-compose | systemctl |
-| Logs | docker logs | journalctl |
-| Resource Limits | docker-compose.yml | service file |
-| Auto-restart | restart: always | Restart=on-failure |
-| Port Mapping | ports: 8080:8080 | Direct bind |
-| Isolation | Container | User + Security |
-| Overhead | Higher | Lower |
-| Use Case | Development, Cloud | Production, Bare-metal |
+|Feature|Docker|systemd|
+|---|---|---|
+|Installation|docker-compose up|install_systemd_service.sh|
+|Service Management|docker-compose|systemctl|
+|Logs|docker logs|journalctl|
+|Resource Limits|docker-compose.yml|service file|
+|Auto-restart|restart: always|Restart=on-failure|
+|Port Mapping|ports: 8080:8080|Direct bind|
+|Isolation|Container|User + Security|
+|Overhead|Higher|Lower|
+|Use Case|Development, Cloud|Production, Bare-metal|
 
 ## Files Created/Modified
 
-**Created:**
+Created:
+
 - `scripts/adai.service` - systemd service unit file (210 lines)
 - `scripts/install_systemd_service.sh` - Automated installation script (430 lines)
 - `docs/operations/SYSTEMD_DEPLOYMENT.md` - Comprehensive deployment guide (900+ lines)
 
-**Modified:**
+Modified:
+
 - None (all new files)
 
 ## Verification Commands
@@ -572,13 +614,16 @@ All 5 steps of the daemon service plan are now complete:
 
 - ✅ **Step 1**: Externalized Configuration
 - ✅ **Step 2**: Signal Handling
-- ✅ **Step 3**: Structured Logging  
+- ✅ **Step 3**: Structured Logging
 - ✅ **Step 4**: Docker Configuration
 - ✅ **Step 5**: systemd Service File
 
-**Ready for production deployment!**
+### Ready for Production Deployment
+
+All five steps have been completed successfully.
 
 Recommended next actions:
+
 - End-to-end testing of both Docker and systemd deployments
 - Performance benchmarking
 - Load testing
@@ -587,6 +632,6 @@ Recommended next actions:
 
 ---
 
-**Step 5: systemd Service File - COMPLETE ✅**
+## Step 5: systemd Service File - COMPLETE ✅
 
-**All Steps Complete - Production-Ready Daemon Service ✅**
+## All Steps Complete - Production-Ready Daemon Service ✅

@@ -24,7 +24,7 @@ The simplest way to train a chatbot model:
 ./chatbot_trainer --data conversations.txt --vocab vocab.txt --epochs 10 --output chatbot_model.bin
 ```
 
-**What this does:**
+What this does:
 
 - Loads conversation data from `conversations.txt`
 - Uses BPE tokenizer with `vocab.txt`
@@ -58,7 +58,7 @@ Train from scratch on a complete dataset:
     --output model.bin
 ```
 
-**Key Features:**
+Key Features:
 
 - Full dataset training
 - Configurable hyperparameters
@@ -91,7 +91,7 @@ Add new conversation data without retraining from scratch:
 ./incremental_trainer train 5  # Much faster!
 ```
 
-**Key Features:**
+Key Features:
 
 - Session-based training tracking
 - Data versioning and registry
@@ -104,7 +104,7 @@ Add new conversation data without retraining from scratch:
 - Traditional: 6 days to retrain everything
 - Incremental: 12 hours to train on 500 new samples
 
-**When to use:**
+When to use:
 
 - Adding weekly/monthly conversation logs
 - Fine-tuning on specific conversation types
@@ -130,14 +130,14 @@ Train on high-quality literary texts from 70,000+ free books:
 ./incremental_trainer train 10
 ```
 
-**Key Features:**
+Key Features:
 
 - Automatic book downloading
 - Intelligent text processing (removes headers/footers)
 - Question-answer pair generation
 - Multiple training pair styles
 
-**Recommended Book Combinations:**
+Recommended Book Combinations:
 
 - **General conversation:** 1342 (Pride & Prejudice), 11 (Alice), 76 (Huck Finn), 98 (Tale of Two Cities)
 - **Formal/professional:** 1661 (Sherlock), 84 (Frankenstein), 1260 (Jane Eyre), 2701 (Moby Dick)
@@ -155,7 +155,7 @@ Train on high-quality literary texts from 70,000+ free books:
 
 Enhanced tracking system for monitoring training progress:
 
-**Features:**
+Features:
 
 - **Perplexity tracking** - Model prediction quality metric
 - **Learning rate logging** - Track LR schedule over time
@@ -164,7 +164,7 @@ Enhanced tracking system for monitoring training progress:
 - **CSV export** - Export metrics for analysis
 - **TensorBoard support** - Visual training monitoring
 
-**Enable enhanced logging:**
+Enable enhanced logging:
 
 ```cpp
 TrainingConfig config;
@@ -174,7 +174,7 @@ config.log_perplexity = true;
 config.log_gradients = true;
 ```
 
-**Use cases:**
+Use cases:
 
 - Debugging training issues
 - Hyperparameter tuning
@@ -196,7 +196,7 @@ Latest enhancements added January 2026:
 5. **Enhanced Logging** - Detailed metrics
 6. **Checkpoint System** - Auto-save progress
 
-**Migration from old trainer:**
+Migration from old trainer:
 
 ```cpp
 // Old
@@ -230,8 +230,8 @@ Optimize data loading and batching for faster training:
 
 EfficientBatching batcher;
 auto batches = batcher.create_batches_dynamic_bucketing(
-    dataset, 
-    batch_size, 
+    dataset,
+    batch_size,
     num_buckets
 );  // 20-40% efficiency improvement
 ```
@@ -250,14 +250,14 @@ loader.start_prefetching(dataset, batch_size);
 
 ### Dataset Enhanced Features
 
-**Documentation:**
+Documentation:
 
 - [Dataset Enhanced Features](dataset-enhanced-features.md) - Comprehensive guide
 - [Dataset Quick Reference](dataset-quick-reference.md) - Quick API reference
 
 Advanced dataset capabilities for improved training:
 
-**Key Features:**
+Key Features:
 
 - **Iterator interface** - Range-based for loops
 - **Batch iteration** - Built-in batching support
@@ -267,7 +267,7 @@ Advanced dataset capabilities for improved training:
 - **Lazy loading** - Memory-efficient large datasets
 - **Stratified splitting** - Balanced train/val/test splits
 
-**Example:**
+Example:
 
 ```cpp
 Dataset dataset;
@@ -291,7 +291,7 @@ for (int fold = 0; fold < 5; fold++) {
 
 ### Batch Processing
 
-**Documentation:**
+Documentation:
 
 - [Batch Processing Integration](BATCH_PROCESSING_INTEGRATION.md)
 - [Batch Processing Quick Reference](BATCH_PROCESSING_QUICK_REFERENCE.md)
@@ -310,7 +310,7 @@ auto batched = processor.prepare_batch(inputs);
 
 ### Data Augmentation
 
-**Documentation:**
+Documentation:
 
 - [Augmentation Implementation](AUGMENTATION_IMPLEMENTATION.md)
 - [Augmentation Quick Reference](AUGMENTATION_QUICK_REFERENCE.md)
@@ -318,7 +318,7 @@ auto batched = processor.prepare_batch(inputs);
 
 Expand training data with intelligent augmentation:
 
-**Techniques:**
+Techniques:
 
 - Synonym substitution
 - Back-translation
@@ -326,7 +326,7 @@ Expand training data with intelligent augmentation:
 - Noise injection
 - Character-level perturbations
 
-**Implementation:**
+Implementation:
 
 ```cpp
 DataAugmenter augmenter;
@@ -477,15 +477,15 @@ Run tests:
 
 ## Quick Reference Summary
 
-| Task | Tool | Documentation |
-| ------ | ------ | --------------- |
-| Initial training | `chatbot_trainer` | [Enhanced Training Pipeline](enhanced-training-pipeline.md) |
-| Add new data | `incremental_trainer` | [Incremental Training Guide](incremental-training-guide.md) |
-| Train on books | `incremental_trainer gutenberg` | [Gutenberg Training Guide](gutenberg-training-guide.md) |
-| Monitor metrics | Enable logging | [Training Metrics and Logging](chatbot-trainer-metrics-logging.md) |
-| Optimize data loading | Use DataLoader/Batching | [Data Pipeline Enhancement](data-pipeline-enhancement.md) |
-| Advanced datasets | Use Dataset v2.0 | [Dataset Enhanced Features](dataset-enhanced-features.md) |
-| Debug issues | Check docs | [Training Fix Strategy](troubleshooting/TRAINING_FIX_STRATEGY.md) |
+|Task|Tool|Documentation|
+|------|------|---------------|
+|Initial training|`chatbot_trainer`|[Enhanced Training Pipeline](enhanced-training-pipeline.md)|
+|Add new data|`incremental_trainer`|[Incremental Training Guide](incremental-training-guide.md)|
+|Train on books|`incremental_trainer gutenberg`|[Gutenberg Training Guide](gutenberg-training-guide.md)|
+|Monitor metrics|Enable logging|[Training Metrics and Logging](chatbot-trainer-metrics-logging.md)|
+|Optimize data loading|Use DataLoader/Batching|[Data Pipeline Enhancement](data-pipeline-enhancement.md)|
+|Advanced datasets|Use Dataset v2.0|[Dataset Enhanced Features](dataset-enhanced-features.md)|
+|Debug issues|Check docs|[Training Fix Strategy](troubleshooting/TRAINING_FIX_STRATEGY.md)|
 
 ---
 

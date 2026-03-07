@@ -241,21 +241,21 @@ Matrix result = quantized_forward(quant_acts);
 
 ### Memory Savings
 
-| Precision | Bytes/Value | Model Size (350M params) | Reduction |
-| ----------- | ------------- | -------------------------- | ----------- |
-| FP32 | 4 | 1.4 GB | 1x |
-| FP16 | 2 | 700 MB | 2x |
-| INT8 | 1 | 350 MB | 4x |
-| INT4 | 0.5 | 175 MB | 8x |
+|Precision|Bytes/Value|Model Size (350M params)|Reduction|
+|-----------|-------------|--------------------------|-----------|
+|FP32|4|1.4 GB|1x|
+|FP16|2|700 MB|2x|
+|INT8|1|350 MB|4x|
+|INT4|0.5|175 MB|8x|
 
 ### Accuracy Impact
 
-| Quantization | Typical Accuracy Loss |
-| -------------- | ---------------------- |
-| INT8 (min-max) | 0.5-2% |
-| INT8 (percentile) | 0.1-1% |
-| INT8 (MSE) | <0.5% |
-| INT4 | 1-5% |
+|Quantization|Typical Accuracy Loss|
+|--------------|----------------------|
+|INT8 (min-max)|0.5-2%|
+|INT8 (percentile)|0.1-1%|
+|INT8 (MSE)|<0.5%|
+|INT4|1-5%|
 
 ### Inference Speedup
 

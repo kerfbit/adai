@@ -10,7 +10,7 @@
 
 The ADAI codebase demonstrates a **mature foundation for parallel processing** with several implemented parallelization strategies and significant opportunities for further optimization. The codebase already implements multi-threading for data loading, GPU acceleration for matrix operations, and speculative decoding for parallel inference. This report identifies existing parallel capabilities and recommends enhancements for maximizing throughput and reducing latency.
 
-**Key Findings:**
+Key Findings:
 
 - ✅ **Existing Parallelization:** Data loading (multi-threaded), GPU operations, batch processing
 - 🔶 **Partial Implementation:** Matrix operations (CPU-bound loops)
@@ -24,14 +24,14 @@ The ADAI codebase demonstrates a **mature foundation for parallel processing** w
 
 **Location:** `ParallelDataLoader.hpp`
 
-**Implementation Details:**
+Implementation Details:
 
 - **Worker Thread Pool:** Configurable number of worker threads (default: 4)
 - **Producer-Consumer Pattern:** Thread-safe batch queue with condition variables
 - **Prefetching:** Background batch loading with configurable prefetch factor (2x workers)
 - **Dynamic Batching:** Groups sequences by length to minimize padding overhead
 
-**Code Architecture:**
+Code Architecture:
 
 ```cpp
 class ParallelDataLoader {
@@ -45,13 +45,13 @@ class ParallelDataLoader {
 };
 ```
 
-**Performance Impact:**
+Performance Impact:
 
 - **Measured Speedup:** 3-4x throughput improvement vs. sequential loading
 - **I/O Overlap:** Hides disk/memory latency during training
 - **Scalability:** Linear scaling up to I/O bandwidth limits
 
-**Configuration:**
+Configuration:
 
 ```cpp
 DataLoaderConfig config;
@@ -66,14 +66,14 @@ config.use_dynamic_batching = true; // Length-based grouping
 
 **Location:** `gpu/GPUUtils.hpp`, `gpu/MatrixGPU.hpp`, `gpu/MatrixGPU.cu`
 
-**Capabilities:**
+Capabilities:
 
 - **CUDA Integration:** Full CUDA runtime and cuBLAS support
 - **Matrix Operations:** GPU-accelerated matrix multiplication, transpose, element-wise ops
 - **Device Management:** Multi-GPU support with device selection
 - **Memory Management:** Explicit GPU memory allocation/deallocation
 
-**Available GPU Operations:**
+Available GPU Operations:
 
 ```cpp
 // Matrix multiplication (cuBLAS optimized)
@@ -87,7 +87,7 @@ void matrix_transpose_gpu(const float* input, float* output, int rows, int cols)
 void matrix_apply_activation_gpu(float* data, int size, ActivationType type);
 ```
 
-**GPU Manager Features:**
+GPU Manager Features:
 
 ```cpp
 GPUManager::initialize();           // Initialize CUDA subsystem
@@ -96,7 +96,7 @@ GPUManager::get_cublas_handle();    // Get cuBLAS handle for operations
 GPUManager::synchronize();          // Synchronize GPU operations
 ```
 
-**Performance Characteristics:**
+Performance Characteristics:
 
 - **Matrix Multiplication:** 10-50x speedup (dimension-dependent)
 - **Batch Operations:** Process entire batches in parallel on GPU
@@ -108,9 +108,9 @@ GPUManager::synchronize();          // Synchronize GPU operations
 
 **Location:** `BatchProcessor.hpp`, `EfficientBatching.hpp`
 
-**Strategies:**
+Strategies:
 
-**1. Dynamic Batching by Sequence Length**
+1. Dynamic Batching by Sequence Length
 
 - Groups sequences of similar lengths together
 - Minimizes wasted computation from padding
@@ -125,7 +125,7 @@ std::vector<TokenBatch> create_dynamic_batches(
 );
 ```
 
-**2. Bucketing Strategy**
+2. Bucketing Strategy
 
 ```cpp
 struct BucketConfig {
@@ -135,13 +135,13 @@ struct BucketConfig {
 };
 ```
 
-**3. Multiple Padding Strategies**
+3. Multiple Padding Strategies
 
 - **RIGHT:** Standard suffix padding (best for autoregressive models)
 - **LEFT:** Prefix padding (for decoder-only models)
 - **CENTER:** Balanced padding (for bidirectional models)
 
-**Benefits:**
+Benefits:
 
 - **Throughput:** 30-50% improvement with dynamic batching
 - **Memory:** 40-60% reduction in padding tokens
@@ -153,13 +153,13 @@ struct BucketConfig {
 
 **Location:** `SpeculativeDecoding.hpp`
 
-**Parallel Verification Strategy:**
+Parallel Verification Strategy:
 
 - Draft model proposes K tokens sequentially (fast)
 - Target model verifies **all K tokens in parallel** (single forward pass)
 - Accept/reject based on probability comparison
 
-**Algorithm:**
+Algorithm:
 
 ```text
 1. Draft Model: Generate K candidates [t₁, t₂, ..., tₖ]
@@ -168,13 +168,13 @@ struct BucketConfig {
 4. Repeat until sequence complete
 ```
 
-**Performance Characteristics:**
+Performance Characteristics:
 
 - **Speedup:** 2-3x for typical configurations (K=4-8)
 - **Quality:** Mathematically equivalent to standard sampling
 - **Parallelism:** Single forward pass evaluates multiple tokens
 
-**Configuration:**
+Configuration:
 
 ```cpp
 SpeculativeDecodingConfig config;
@@ -189,7 +189,7 @@ config.num_candidates = 4;  // Evaluate 4 tokens in parallel
 
 **Current Status:** Sequential nested loops in `Matrix.cpp`
 
-**Problem Areas:**
+Problem Areas:
 
 **Matrix Multiplication** (Lines 45-60):
 
@@ -232,13 +232,13 @@ Matrix Matrix::operator*(const Matrix& other) const {
 }
 ```
 
-**Expected Impact:**
+Expected Impact:
 
 - **Speedup:** 4-8x on modern CPUs (8+ cores)
 - **Scalability:** Near-linear for large matrices
 - **Overhead:** Minimal for matrices > 100×100
 
-**Additional Operations to Parallelize:**
+Additional Operations to Parallelize:
 
 1. **Element-wise operations** (add, subtract, hadamard)
 2. **Transpose**
@@ -253,7 +253,7 @@ Matrix Matrix::operator*(const Matrix& other) const {
 
 **Opportunity:** Independent attention heads can be computed in parallel
 
-**Architecture:**
+Architecture:
 
 ```text
 Input [seq_len × d_model]
@@ -267,9 +267,9 @@ Concatenate
 Output projection
 ```
 
-**Implementation Strategy:**
+Implementation Strategy:
 
-**Option 1: Thread Pool for Heads**
+Option 1: Thread Pool for Heads
 
 ```cpp
 Matrix MultiHeadAttention::forward(const Matrix& input) {
@@ -294,7 +294,7 @@ Matrix MultiHeadAttention::forward(const Matrix& input) {
 }
 ```
 
-**Option 2: OpenMP Sections**
+Option 2: OpenMP Sections
 
 ```cpp
 #pragma omp parallel sections
@@ -309,7 +309,7 @@ Matrix MultiHeadAttention::forward(const Matrix& input) {
 }
 ```
 
-**Expected Impact:**
+Expected Impact:
 
 - **Speedup:** 2-4x for 8 heads (some overhead)
 - **Best for:** Large sequence lengths (> 512 tokens)
@@ -332,14 +332,14 @@ Batch 3:                      [Layer 1] → [Layer 2] → ...
 Batch 4:                                [Layer 1] → ...
 ```
 
-**Implementation Considerations:**
+Implementation Considerations:
 
 - **Complexity:** High - requires careful synchronization
 - **Memory:** Increased (multiple batches in flight)
 - **Benefit:** Higher throughput, not lower latency
 - **Best for:** Serving scenarios with high request volume
 
-**Recommended Approach:**
+Recommended Approach:
 
 1. Start with 2-stage pipeline (encoder/decoder split)
 2. Use thread-safe queues between stages
@@ -355,7 +355,7 @@ Batch 4:                                [Layer 1] → ...
 
 **Solution:** Continuous Batching
 
-**Implementation:**
+Implementation:
 
 ```cpp
 class BatchedInferenceEngine {
@@ -381,13 +381,13 @@ private:
 };
 ```
 
-**Benefits:**
+Benefits:
 
 - **Throughput:** 5-20x improvement (batch size dependent)
 - **Latency:** Slightly increased per request
 - **GPU Utilization:** 60-95% (vs 10-30% single request)
 
-**Key Techniques:**
+Key Techniques:
 
 1. **Request Queuing:** Accumulate requests for batching
 2. **Dynamic Batch Sizing:** Adjust based on queue depth
@@ -402,7 +402,7 @@ private:
 
 **Opportunity:** Augmentation operations are independent
 
-**Current Code:**
+Current Code:
 
 ```cpp
 struct AugmentationConfig {
@@ -415,7 +415,7 @@ struct AugmentationConfig {
 };
 ```
 
-**Parallel Implementation:**
+Parallel Implementation:
 
 ```cpp
 void apply_augmentation_parallel(
@@ -437,7 +437,7 @@ void apply_augmentation_parallel(
 }
 ```
 
-**Impact:**
+Impact:
 
 - **Speedup:** 4-8x for large datasets
 - **Negligible overhead:** Augmentation is embarrassingly parallel
@@ -448,9 +448,9 @@ void apply_augmentation_parallel(
 
 **Current Status:** Sequential gradient computation in backward passes
 
-**Opportunities:**
+Opportunities:
 
-**1. Layer-wise Gradient Parallelism**
+1. Layer-wise Gradient Parallelism
 
 - Compute gradients for independent parameters in parallel
 - W_q, W_k, W_v gradients in attention can be computed simultaneously
@@ -477,7 +477,7 @@ void MultiHeadAttention::backward(const Matrix& grad_output) {
 }
 ```
 
-**2. Data Parallel Training**
+2. Data Parallel Training
 
 - Split batch across multiple GPUs
 - Each GPU computes gradients on subset
@@ -489,13 +489,13 @@ void MultiHeadAttention::backward(const Matrix& grad_output) {
 
 ### 3.1 Immediate Wins (Week 1-2)
 
-**Priority 1: OpenMP for Matrix Operations**
+Priority 1: OpenMP for Matrix Operations
 
 - Add OpenMP pragmas to CPU matrix operations
 - Target: Matrix multiplication, element-wise ops
 - Expected speedup: 4-8x on CPU workloads
 
-**Implementation Steps:**
+Implementation Steps:
 
 ```bash
 # 1. Enable OpenMP in CMakeLists.txt
@@ -509,7 +509,7 @@ target_link_libraries(adai OpenMP::OpenMP_CXX)
 export OMP_NUM_THREADS=8
 ```
 
-**Priority 2: Parallel Data Augmentation**
+Priority 2: Parallel Data Augmentation
 
 - Parallelize augmentation in EfficientBatching
 - Minimal code changes, high impact
@@ -519,13 +519,13 @@ export OMP_NUM_THREADS=8
 
 ### 3.2 Medium-Term Enhancements (Month 1-2)
 
-**Priority 3: Batched Inference Engine**
+Priority 3: Batched Inference Engine
 
 - Implement continuous batching for serving
 - Handle multiple inference requests in parallel
 - Expected throughput: 10-20x improvement
 
-**Priority 4: Attention Head Parallelism**
+Priority 4: Attention Head Parallelism
 
 - Parallelize multi-head attention computation
 - Use thread pool or OpenMP sections
@@ -535,13 +535,13 @@ export OMP_NUM_THREADS=8
 
 ### 3.3 Advanced Optimizations (Month 3+)
 
-**Priority 5: Pipeline Parallelism**
+Priority 5: Pipeline Parallelism
 
 - Implement multi-stage pipeline for encoder-decoder
 - Overlap layer computations across batches
 - Expected throughput: 2-3x improvement
 
-**Priority 6: Multi-GPU Training**
+Priority 6: Multi-GPU Training
 
 - Data parallel training across GPUs
 - Gradient synchronization with NCCL
@@ -553,13 +553,13 @@ export OMP_NUM_THREADS=8
 
 ### 4.1 Task Parallelism Pattern
 
-**Use Cases:**
+Use Cases:
 
 - Independent attention heads
 - Separate encoder/decoder processing
 - Multiple model inference requests
 
-**Implementation:**
+Implementation:
 
 ```cpp
 // Thread pool pattern
@@ -582,13 +582,13 @@ for (auto& future : futures) {
 
 ### 4.2 Data Parallelism Pattern
 
-**Use Cases:**
+Use Cases:
 
 - Batch processing
 - Training with multiple GPUs
 - Large dataset preprocessing
 
-**Implementation:**
+Implementation:
 
 ```cpp
 // Distribute data across workers
@@ -602,13 +602,13 @@ for (int i = 0; i < data.size(); i++) {
 
 ### 4.3 Pipeline Parallelism Pattern
 
-**Use Cases:**
+Use Cases:
 
 - Multi-stage model processing
 - Streaming inference
 - Encoder-decoder architectures
 
-**Implementation:**
+Implementation:
 
 ```cpp
 // Pipeline stages
@@ -639,7 +639,7 @@ std::thread stage2([&]() {
 
 ### 5.1 Existing Tools
 
-**PerformanceProfiler.hpp:**
+PerformanceProfiler.hpp:
 
 ```cpp
 Timer timer;
@@ -653,7 +653,7 @@ ScopedTimer scoped("operation_name");
 
 ### 5.2 Recommended Benchmarks
 
-**1. Matrix Operations Benchmark**
+1. Matrix Operations Benchmark
 
 ```cpp
 void benchmark_matrix_multiplication() {
@@ -675,7 +675,7 @@ void benchmark_matrix_multiplication() {
 }
 ```
 
-**2. Parallel Efficiency Measurement**
+2. Parallel Efficiency Measurement
 
 ```cpp
 void measure_parallel_efficiency() {
@@ -703,13 +703,13 @@ void measure_parallel_efficiency() {
 
 ### 6.1 CPU Parallelism
 
-**Resources:**
+Resources:
 
 - Multi-core CPU (recommended: 8+ cores)
 - Sufficient RAM (2-4GB per thread for large models)
 - OpenMP compiler support (GCC 4.9+, Clang 3.8+)
 
-**Trade-offs:**
+Trade-offs:
 
 - ✅ **Pro:** No special hardware required
 - ✅ **Pro:** Easy to implement with OpenMP
@@ -720,14 +720,14 @@ void measure_parallel_efficiency() {
 
 ### 6.2 GPU Parallelism
 
-**Resources:**
+Resources:
 
 - NVIDIA GPU with CUDA support (recommended: RTX 3000+ or A100)
 - CUDA Toolkit (11.0+)
 - cuBLAS library
 - Sufficient VRAM (8GB+ for medium models)
 
-**Trade-offs:**
+Trade-offs:
 
 - ✅ **Pro:** Massive speedup (10-100x) for matrix operations
 - ✅ **Pro:** Already partially implemented
@@ -739,13 +739,13 @@ void measure_parallel_efficiency() {
 
 ### 6.3 Multi-Threading (Data Loading)
 
-**Resources:**
+Resources:
 
 - Multiple CPU cores for worker threads
 - Fast storage (SSD recommended) for data loading
 - Adequate RAM for prefetch buffer
 
-**Trade-offs:**
+Trade-offs:
 
 - ✅ **Pro:** Already implemented and working well
 - ✅ **Pro:** Hides I/O latency effectively
@@ -859,7 +859,7 @@ public:
                     {
                         std::unique_lock<std::mutex> lock(queue_mutex_);
                         condition_.wait(lock, [this] {
-                            return stop_ |  | !tasks_.empty();
+                            return stop_ || !tasks_.empty();
                         });
 
                         if (stop_ && tasks_.empty()) return;
@@ -991,7 +991,7 @@ private:
 
         while (batch.size() < max_batch_size_) {
             if (queue_cv_.wait_until(lock, deadline, [this] {
-                return !request_queue_.empty() |  | !running_;
+                return !request_queue_.empty() || !running_;
             })) {
                 if (!running_) break;
                 batch.push_back(std::move(request_queue_.front()));
@@ -1038,7 +1038,7 @@ private:
 
 ### 9.1 Correctness Testing
 
-**Parallel vs Sequential Comparison:**
+Parallel vs Sequential Comparison:
 
 ```cpp
 void test_parallel_correctness() {
@@ -1068,15 +1068,15 @@ void test_parallel_correctness() {
 
 ### 9.2 Performance Testing
 
-**Scaling Analysis:**
+Scaling Analysis:
 
 ```cpp
 void test_parallel_scaling() {
     Matrix A(1024, 1024), B(1024, 1024);
     A.randomize(); B.randomize();
 
-    std::cout << "Threads | Time (ms) | Speedup | Efficiency\n";
-    std::cout << "--------| ----------- | --------- |----------\n";
+    std::cout << "Threads |Time (ms)|Speedup| Efficiency\n";
+    std::cout << "--------|-----------|---------|----------\n";
 
     double baseline_time = 0.0;
 
@@ -1131,14 +1131,14 @@ The ADAI codebase demonstrates **strong foundational support for parallel proces
 
 ### Expected Performance Gains
 
-| Optimization | Complexity | Speedup | Timeline |
-| -------------- | ----------- | --------- | ---------- |
-| OpenMP Matrix Ops | Low | 5-8x | 1-2 weeks |
-| Parallel Augmentation | Low | 4-8x | 1 week |
-| Batched Inference | Medium | 10-20x | 2-4 weeks |
-| Attention Head Parallel | Medium | 2-4x | 2-3 weeks |
-| Pipeline Parallel | High | 2-3x | 4-8 weeks |
-| Multi-GPU Training | High | 2-4x | 8-12 weeks |
+|Optimization|Complexity|Speedup|Timeline|
+|--------------|-----------|---------|----------|
+|OpenMP Matrix Ops|Low|5-8x|1-2 weeks|
+|Parallel Augmentation|Low|4-8x|1 week|
+|Batched Inference|Medium|10-20x|2-4 weeks|
+|Attention Head Parallel|Medium|2-4x|2-3 weeks|
+|Pipeline Parallel|High|2-3x|4-8 weeks|
+|Multi-GPU Training|High|2-4x|8-12 weeks|
 
 ### Next Steps
 
@@ -1150,16 +1150,16 @@ The ADAI codebase demonstrates **strong foundational support for parallel proces
 
 ### Final Assessment
 
-**Overall Rating: 8/10 for Parallel Processing Readiness**
+Overall Rating: 8/10 for Parallel Processing Readiness
 
-**Strengths:**
+Strengths:
 
 - ✅ Excellent data loading parallelism
 - ✅ GPU infrastructure in place
 - ✅ Batch processing well-designed
 - ✅ Clean architecture for extension
 
-**Opportunities:**
+Opportunities:
 
 - 🔧 CPU operations not parallelized
 - 🔧 Single-request inference limiting throughput

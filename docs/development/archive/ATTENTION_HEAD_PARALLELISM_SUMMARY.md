@@ -54,23 +54,23 @@ Successfully implemented **parallel attention head computation** for the multi-h
 
 ### Headline Results
 
-| Configuration | Sequential Time | Parallel Time | Speedup | Improvement |
-| -------------- | ---------------- | --------------- | --------- | ------------- |
-| **d_model=128, heads=8** | 5,235 ms | 2,550 ms | **2.05x** | 105% faster |
-| **seq_len=512, heads=8** | 309,532 ms | 165,986 ms | **1.86x** | 86% faster |
-| **Typical (seq=128, d=512, h=8)** | 66,778 ms | 51,069 ms | **1.31x** | 31% faster |
+|Configuration|Sequential Time|Parallel Time|Speedup|Improvement|
+|--------------|----------------|---------------|---------|-------------|
+|**d_model=128, heads=8**|5,235 ms|2,550 ms|**2.05x**|105% faster|
+|**seq_len=512, heads=8**|309,532 ms|165,986 ms|**1.86x**|86% faster|
+|**Typical (seq=128, d=512, h=8)**|66,778 ms|51,069 ms|**1.31x**|31% faster|
 
 ### Detailed Benchmarks
 
 #### 1. Scaling with Number of Attention Heads
 
 ```text
-  Heads | Seq Time | Par Time | Speedup | Efficiency
---------| ----------- | ----------- | ---------- |----------
-      2 | 30,868 ms | 27,342 ms | 1.13x |    0.564
-      4 | 32,534 ms | 26,021 ms | 1.25x |    0.313
-      8 | 32,735 ms | 25,335 ms | 1.29x |    0.162
-     16 | 33,150 ms | 25,712 ms | 1.29x |    0.081
+  Heads |Seq Time|Par Time|Speedup| Efficiency
+--------|-----------|-----------|----------|----------
+      2 |30,868 ms|27,342 ms|1.13x|    0.564
+      4 |32,534 ms|26,021 ms|1.25x|    0.313
+      8 |32,735 ms|25,335 ms|1.29x|    0.162
+     16 |33,150 ms|25,712 ms|1.29x|    0.081
 ```
 
 **Key Insight:** Speedup increases with more heads but efficiency decreases due to thread overhead. Optimal efficiency at 2-4 heads, best absolute speedup at 8-16 heads.
@@ -78,13 +78,13 @@ Successfully implemented **parallel attention head computation** for the multi-h
 #### 2. Scaling with Sequence Length
 
 ```text
- Seq Len | Seq Time | Par Time | Speedup | Throughput Gain
----------| ----------- | ----------- | ---------- |-----------------
-      32 | 18,141 ms | 17,516 ms | 1.04x |            1.04x
-      64 | 38,000 ms | 35,745 ms | 1.06x |            1.06x
-     128 | 31,424 ms | 25,191 ms | 1.25x |            1.25x
-     256 | 92,612 ms | 61,982 ms | 1.49x |            1.49x
-     512 | 309,532 ms | 165,986 ms | 1.86x |            1.86x
+ Seq Len |Seq Time|Par Time|Speedup| Throughput Gain
+---------|-----------|-----------|----------|-----------------
+      32 |18,141 ms|17,516 ms|1.04x|            1.04x
+      64 |38,000 ms|35,745 ms|1.06x|            1.06x
+     128 |31,424 ms|25,191 ms|1.25x|            1.25x
+     256 |92,612 ms|61,982 ms|1.49x|            1.49x
+     512 |309,532 ms|165,986 ms|1.86x|            1.86x
 ```
 
 **Key Insight:** Longer sequences benefit more from parallelization as computation cost dominates thread overhead. **1.86x speedup at 512 tokens** demonstrates excellent scaling for production workloads.
@@ -92,13 +92,13 @@ Successfully implemented **parallel attention head computation** for the multi-h
 #### 3. Scaling with Model Dimension
 
 ```text
- d_model | Seq Time | Par Time | Speedup |  d_k (per head)
----------| ----------- | ----------- | ---------- |----------------
-     128 | 5,235 ms | 2,550 ms | 2.05x |    16
-     256 | 11,892 ms | 7,389 ms | 1.61x |    32
-     512 | 33,660 ms | 25,255 ms | 1.33x |    64
-     768 | 66,663 ms | 55,273 ms | 1.21x |    96
-    1024 | 122,767 ms | 107,819 ms | 1.14x |   128
+ d_model |Seq Time|Par Time|Speedup|  d_k (per head)
+---------|-----------|-----------|----------|----------------
+     128 |5,235 ms|2,550 ms|2.05x|    16
+     256 |11,892 ms|7,389 ms|1.61x|    32
+     512 |33,660 ms|25,255 ms|1.33x|    64
+     768 |66,663 ms|55,273 ms|1.21x|    96
+    1024 |122,767 ms|107,819 ms|1.14x|   128
 ```
 
 **Key Insight:** Best speedup with **smaller head dimensions (d_k)** where parallelism overhead is amortized. **2.05x speedup at d_model=128** shows near-ideal scaling for compact models.
@@ -120,14 +120,14 @@ Successfully implemented **parallel attention head computation** for the multi-h
 
 ### Parallel Execution Strategy
 
-**Original Implementation:**
+Original Implementation:
 
 ```text
 Input → [Q, K, V Projections] → [Single attention computation] → Output
         (Sequential across all d_model dimensions)
 ```
 
-**New Parallel Implementation:**
+New Parallel Implementation:
 
 ```text
 Input → [Q, K, V Projections] → Split into heads → [Process heads IN PARALLEL] → Concat → Output
@@ -262,14 +262,14 @@ Matrix output = attention.forward_parallel(input);
 
 ## Comparison with Other Priorities
 
-| Priority | Target Speedup | Achieved Speedup | Effort | Impact |
-| ---------- | --------------- | ------------------ | -------- | -------- |
-| Priority 1: OpenMP Matrix Ops | 4-8x | **4.21x** | Low | High |
-| Priority 2: Parallel Augmentation | 3-5x | **3.82x** | Low | Medium |
-| Priority 3: Batched Inference | 10-20x | **27.80x** | Medium | Very High |
-| **Priority 4: Attention Heads** | **2-4x** | **1.3-2.0x** | **Medium** | **Medium** |
-| Priority 5: Pipeline Parallel | 2-3x | Not implemented | High | Medium |
-| Priority 6: Multi-GPU | 2-4x per GPU | Not implemented | Very High | High |
+|Priority|Target Speedup|Achieved Speedup|Effort|Impact|
+|----------|---------------|------------------|--------|--------|
+|Priority 1: OpenMP Matrix Ops|4-8x|**4.21x**|Low|High|
+|Priority 2: Parallel Augmentation|3-5x|**3.82x**|Low|Medium|
+|Priority 3: Batched Inference|10-20x|**27.80x**|Medium|Very High|
+|**Priority 4: Attention Heads**|**2-4x**|**1.3-2.0x**|**Medium**|**Medium**|
+|Priority 5: Pipeline Parallel|2-3x|Not implemented|High|Medium|
+|Priority 6: Multi-GPU|2-4x per GPU|Not implemented|Very High|High|
 
 ### Priority 4 Achievement Summary
 
@@ -292,7 +292,7 @@ Matrix output = attention.forward_parallel(input);
 
 **Actual Speedup:** 1.3-2.0x (16-25% of theoretical maximum)
 
-**Bottlenecks:**
+Bottlenecks:
 
 1. **Sequential Work** (Amdahl's Law)
    - Q, K, V projections: Sequential matrix multiplications (30% of total time)
@@ -358,7 +358,7 @@ cmake ..
 make attention_head_benchmark -j$(nproc)
 ```
 
-**Expected Output:**
+Expected Output:
 
 ```text
 -- OpenMP found - enabling parallel matrix operations
@@ -375,7 +375,7 @@ make attention_head_benchmark -j$(nproc)
 # Expected runtime: 2-5 minutes depending on CPU
 ```
 
-**Sample Output:**
+Sample Output:
 
 ```text
 ╔════════════════════════════════════════════════════════════╗
@@ -399,7 +399,7 @@ Correctness: ✓ PASS
 
 ```bash
 # Check OpenMP version
-echo | cpp -fopenmp -dM | grep -i openmp
+echo |cpp -fopenmp -dM| grep -i openmp
 
 # Should output something like:
 # #define _OPENMP 201511
@@ -433,7 +433,7 @@ echo | cpp -fopenmp -dM | grep -i openmp
 
 ### Future Enhancements
 
-**Short-term (Low Effort):**
+Short-term (Low Effort):
 
 1. **Adaptive Parallelism**
 
@@ -460,7 +460,7 @@ echo | cpp -fopenmp -dM | grep -i openmp
    - Vectorize dot product and softmax computations
    - Expected: 1.2-1.3x additional speedup
 
-**Medium-term (Medium Effort):**
+Medium-term (Medium Effort):
 
 4. **GPU Implementation**
    - CUDA kernel for multi-head attention
@@ -477,7 +477,7 @@ echo | cpp -fopenmp -dM | grep -i openmp
    - Reduces memory I/O by 10x
    - Expected: 3-5x speedup for long sequences
 
-**Long-term (High Effort):**
+Long-term (High Effort):
 
 7. **Multi-GPU Parallelism**
    - Distribute heads across multiple GPUs
@@ -552,7 +552,7 @@ echo | cpp -fopenmp -dM | grep -i openmp
    - Priority 5: 2-3x
    - **Combined: 2.6-6.0x** (if implemented together)
 
-**Alternative: Skip Priority 5, move to Priority 6 (Multi-GPU)**
+Alternative: Skip Priority 5, move to Priority 6 (Multi-GPU)
 
 - Larger absolute speedup (2-4x per GPU)
 - Better return on investment for production deployment
@@ -570,7 +570,7 @@ Priority 4 implementation successfully adds **parallel attention head computatio
 ✅ Requires **minimal code changes** (backward compatible)
 ✅ Scales **better with longer sequences** (1.86x at 512 tokens)
 
-**Best Use Cases:**
+Best Use Cases:
 
 - Inference on long sequences (>256 tokens): **1.5-1.9x speedup**
 - Compact models (d_model ≤ 256): **1.6-2.0x speedup**
@@ -582,7 +582,7 @@ Priority 4 implementation successfully adds **parallel attention head computatio
 - No regressions vs original implementation
 - Enable with `use_parallel=true` flag
 
-**Next Steps:**
+Next Steps:
 
 1. Integrate `forward_parallel()` into production inference pipeline
 2. Benchmark end-to-end throughput with batched inference (Priority 3)
@@ -615,36 +615,36 @@ Max Threads: 8
 ║     Benchmark: Scaling with Number of Attention Heads     ║
 ╚════════════════════════════════════════════════════════════╝
 
-  Heads | Seq Time | Par Time | Speedup | Efficiency
---------| ----------- | ----------- | ---------- |----------
-      2 | 30,868 ms | 27,342 ms | 1.13x |    0.564
-      4 | 32,534 ms | 26,021 ms | 1.25x |    0.313
-      8 | 32,735 ms | 25,335 ms | 1.29x |    0.162
-     16 | 33,150 ms | 25,712 ms | 1.29x |    0.081
+  Heads |Seq Time|Par Time|Speedup| Efficiency
+--------|-----------|-----------|----------|----------
+      2 |30,868 ms|27,342 ms|1.13x|    0.564
+      4 |32,534 ms|26,021 ms|1.25x|    0.313
+      8 |32,735 ms|25,335 ms|1.29x|    0.162
+     16 |33,150 ms|25,712 ms|1.29x|    0.081
 
 ╔════════════════════════════════════════════════════════════╗
 ║       Benchmark: Scaling with Sequence Length             ║
 ╚════════════════════════════════════════════════════════════╝
 
- Seq Len | Seq Time | Par Time | Speedup | Throughput Gain
----------| ----------- | ----------- | ---------- |-----------------
-      32 | 18,141 ms | 17,516 ms | 1.04x |            1.04x
-      64 | 38,000 ms | 35,745 ms | 1.06x |            1.06x
-     128 | 31,424 ms | 25,191 ms | 1.25x |            1.25x
-     256 | 92,612 ms | 61,982 ms | 1.49x |            1.49x
-     512 | 309,532 ms | 165,986 ms | 1.86x |            1.86x
+ Seq Len |Seq Time|Par Time|Speedup| Throughput Gain
+---------|-----------|-----------|----------|-----------------
+      32 |18,141 ms|17,516 ms|1.04x|            1.04x
+      64 |38,000 ms|35,745 ms|1.06x|            1.06x
+     128 |31,424 ms|25,191 ms|1.25x|            1.25x
+     256 |92,612 ms|61,982 ms|1.49x|            1.49x
+     512 |309,532 ms|165,986 ms|1.86x|            1.86x
 
 ╔════════════════════════════════════════════════════════════╗
 ║       Benchmark: Scaling with Model Dimension             ║
 ╚════════════════════════════════════════════════════════════╝
 
- d_model | Seq Time | Par Time | Speedup |  d_k
----------| ----------- | ----------- | ---------- |------
-     128 | 5,235 ms | 2,550 ms | 2.05x |    16
-     256 | 11,892 ms | 7,389 ms | 1.61x |    32
-     512 | 33,660 ms | 25,255 ms | 1.33x |    64
-     768 | 66,663 ms | 55,273 ms | 1.21x |    96
-    1024 | 122,767 ms | 107,819 ms | 1.14x |   128
+ d_model |Seq Time|Par Time|Speedup|  d_k
+---------|-----------|-----------|----------|------
+     128 |5,235 ms|2,550 ms|2.05x|    16
+     256 |11,892 ms|7,389 ms|1.61x|    32
+     512 |33,660 ms|25,255 ms|1.33x|    64
+     768 |66,663 ms|55,273 ms|1.21x|    96
+    1024 |122,767 ms|107,819 ms|1.14x|   128
 
 ╔════════════════════════════════════════════════════════════╗
 ║          Correctness Test: Attention with Masking         ║

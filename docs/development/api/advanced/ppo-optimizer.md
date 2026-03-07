@@ -90,13 +90,13 @@ PPOOptimizer(RewardModel* reward_model,
             int state_dim)
 ```
 
-**Parameters:**
+Parameters:
 
 - `reward_model` - Trained reward model for scoring states
 - `config` - PPO hyperparameters
 - `state_dim` - Dimension of state vectors
 
-**Example:**
+Example:
 
 ```cpp
 RewardModel reward_model(1536, {512, 256, 128, 1});
@@ -121,7 +121,7 @@ float update(const Trajectory& trajectory)
 
 Perform PPO policy update on collected trajectory.
 
-**Algorithm:**
+Algorithm:
 
 1. Compute advantages using GAE
 2. For each epoch:
@@ -131,20 +131,20 @@ Perform PPO policy update on collected trajectory.
    - Update policy via gradient ascent
    - Update value function via MSE
 
-**PPO Objective:**
+PPO Objective:
 
 ```text
 L^CLIP = E[min(r_t × A_t, clip(r_t, 1-ε, 1+ε) × A_t)]
 
 where:
-  r_t = π_θ(a_t| s_t) / π_θ_old(a_t |s_t)  (probability ratio)
+  r_t = π_θ(a_t|s_t) / π_θ_old(a_t|s_t)  (probability ratio)
   A_t = advantage at timestep t
   ε = clip_epsilon (default 0.2)
 ```
 
 **Returns:** Policy loss value
 
-**Example:**
+Example:
 
 ```cpp
 Trajectory traj;
@@ -191,7 +191,7 @@ std::vector<float> compute_advantages(const Trajectory& traj,
 
 Compute Generalized Advantage Estimation (GAE).
 
-**GAE Formula:**
+GAE Formula:
 
 ```text
 A_t = δ_t + (γλ)δ_{t+1} + (γλ)²δ_{t+2} + ...
@@ -202,7 +202,7 @@ where:
   λ = GAE lambda parameter
 ```
 
-**Trade-off:**
+Trade-off:
 
 - **λ=0:** Low variance, high bias (TD error only)
 - **λ=1:** High variance, low bias (Monte Carlo)
@@ -223,7 +223,7 @@ void set_config(const PPOConfig& config);
 
 Get or update PPO hyperparameters dynamically.
 
-**Example:**
+Example:
 
 ```cpp
 PPOConfig config = ppo.get_config();

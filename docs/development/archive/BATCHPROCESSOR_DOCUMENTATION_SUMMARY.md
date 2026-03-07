@@ -17,7 +17,7 @@ Comprehensive BatchProcessor API documentation has been created and fully integr
 
 **Location:** `docs/reference/batchprocessor.md`
 **Size:** 27 KB (~1,100 lines)
-**Contents:**
+Contents:
 
 #### 1. Overview & Introduction
 
@@ -132,7 +132,7 @@ Comprehensive BatchProcessor API documentation has been created and fully integr
 
 **File:** `docs/README.md`
 
-**Changes:**
+Changes:
 
 ```markdown
 ### Optimization
@@ -144,7 +144,7 @@ Comprehensive BatchProcessor API documentation has been created and fully integr
 
 **File:** `docs/reference/README.md`
 
-**Changes:**
+Changes:
 Added complete BatchProcessor entry:
 
 ```markdown
@@ -161,7 +161,7 @@ Added complete BatchProcessor entry:
 
 **File:** `docs/reference/kvcache.md`
 
-**Changes:**
+Changes:
 Added BatchProcessor to "See Also" section:
 
 ```markdown
@@ -173,12 +173,12 @@ Added BatchProcessor to "See Also" section:
 
 **File:** `docs/guides/inference-optimization.md`
 
-**Changes:**
+Changes:
 
 1. Added to quick links at top:
 
 ```markdown
-**Quick Links:**
+Quick Links:
 - **[BatchProcessor API Reference](../reference/batchprocessor.md)** - Detailed batch API
 ```
 
@@ -193,7 +193,7 @@ For questions or issues, refer to:
 
 **File:** `docs/guides/inference-optimization-quickstart.md`
 
-**Changes:**
+Changes:
 Added to "Next Steps" section:
 
 ```markdown
@@ -286,12 +286,12 @@ batchprocessor.md (NEW)
 
 ### Comprehensive API Coverage
 
-**2 Core Structures:**
+2 Core Structures:
 
 - TokenBatch (4 fields, 2 methods)
 - BatchStats (5 fields, 1 method)
 
-**5 Functions:**
+5 Functions:
 
 - create_batch() - Simple batching
 - create_dynamic_batches() - Smart length-based batching
@@ -299,7 +299,7 @@ batchprocessor.md (NEW)
 - unbatch_outputs() - Remove padding
 - compute_batch_stats() - Efficiency metrics
 
-**Complete Documentation for Each:**
+Complete Documentation for Each:
 
 - Function signature
 - All parameters explained
@@ -310,7 +310,7 @@ batchprocessor.md (NEW)
 
 ### Practical Usage Patterns
 
-**4 Real-World Patterns:**
+4 Real-World Patterns:
 
 1. Simple API server (40 lines)
 2. Dynamic batching for documents (35 lines)
@@ -326,7 +326,7 @@ Each pattern includes:
 
 ### Advanced Topics
 
-**3 Advanced Techniques:**
+3 Advanced Techniques:
 
 1. Custom padding strategies (left-padding example)
 2. Priority-based batching (40-line implementation)
@@ -334,14 +334,14 @@ Each pattern includes:
 
 ### Performance Guidance
 
-**Optimization Strategies:**
+Optimization Strategies:
 
 - Batch size selection table (4 scenarios)
 - Length tolerance tuning guide
 - Efficiency monitoring examples
 - Hardware-specific recommendations (CPU vs GPU)
 
-**Performance Tables:**
+Performance Tables:
 
 - Throughput improvement by batch size (4 configurations)
 - Combined optimization table (cache + batching)
@@ -422,19 +422,19 @@ Each pattern includes:
 
 Both documentation files follow the same high-quality structure:
 
-| Feature | KVCache | BatchProcessor |
-| --------- | --------- | --------------- |
-| Size | 16 KB | 27 KB |
-| Lines | ~800 | ~1,100 |
-| Structures/Classes | 2 | 2 |
-| Functions/Methods | 15 | 8 |
-| Usage Patterns | 4 | 4 |
-| Code Examples | 15+ | 20+ |
-| Performance Tables | 2 | 3 |
-| Troubleshooting | 3 scenarios | 3 scenarios |
-| Cross-references | 4 links | 4 links |
-| Advanced Topics | Yes | Yes |
-| Best Practices | Yes | Yes |
+|Feature|KVCache|BatchProcessor|
+|---------|---------|---------------|
+|Size|16 KB|27 KB|
+|Lines|~800|~1,100|
+|Structures/Classes|2|2|
+|Functions/Methods|15|8|
+|Usage Patterns|4|4|
+|Code Examples|15+|20+|
+|Performance Tables|2|3|
+|Troubleshooting|3 scenarios|3 scenarios|
+|Cross-references|4 links|4 links|
+|Advanced Topics|Yes|Yes|
+|Best Practices|Yes|Yes|
 
 **Consistency:** Both docs maintain the same structure, style, and quality level.
 

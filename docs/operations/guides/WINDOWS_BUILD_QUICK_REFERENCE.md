@@ -100,21 +100,21 @@ wine64 build-windows/src/chatbot.exe --help
 
 ## Troubleshooting
 
-**MinGW not found?**
+MinGW not found?
 
 ```bash
 sudo apt-get install mingw-w64 g++-mingw-w64
 which x86_64-w64-mingw32-g++
 ```
 
-**Build errors?**
+Build errors?
 
 ```bash
 ./scripts/build_windows.sh clean  # Clean build
 cmake --version  # Check CMake >= 3.10
 ```
 
-**Won't run on Windows?**
+Won't run on Windows?
 
 - Requires Windows 7+ 64-bit
 - Extract all files from ZIP

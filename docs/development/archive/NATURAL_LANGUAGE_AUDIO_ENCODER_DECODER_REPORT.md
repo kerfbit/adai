@@ -14,20 +14,20 @@ Natural language audio encoding involves transforming speech signals into struct
 
 The encoder typically consists of several processing stages:
 
-**Input Processing Layer**
+Input Processing Layer
 
 - Sampling rate normalization (16kHz-48kHz typical)
 - Audio preprocessing (noise reduction, normalization)
 - Segmentation into fixed-length frames (20-30ms windows)
 
-**Feature Extraction**
+Feature Extraction
 
 - Mel-Frequency Cepstral Coefficients (MFCCs)
 - Mel-spectrograms
 - Raw waveform processing (for end-to-end models)
 - Fundamental frequency (F0) extraction
 
-**Neural Encoding Layers**
+Neural Encoding Layers
 
 - Convolutional layers for local feature extraction
 - Recurrent layers (LSTM/GRU) for temporal dependencies
@@ -36,19 +36,19 @@ The encoder typically consists of several processing stages:
 
 ### 2.2 Decoder Architecture
 
-**Representation Processing**
+Representation Processing
 
 - Embedding layers for discrete codes
 - Upsampling mechanisms
 - Conditioning on linguistic features
 
-**Generation Layers**
+Generation Layers
 
 - Autoregressive models (WaveNet, SampleRNN)
 - Non-autoregressive models (Parallel WaveGAN)
 - Vocoder integration (Griffin-Lim, neural vocoders)
 
-**Output Refinement**
+Output Refinement
 
 - Post-processing filters
 - Quality enhancement networks
@@ -57,13 +57,13 @@ The encoder typically consists of several processing stages:
 
 ### 3.1 Traditional Approaches
 
-**Linear Predictive Coding (LPC)**
+Linear Predictive Coding (LPC)
 
 - Models vocal tract as linear filter
 - Compact representation (10-20 coefficients)
 - Efficient but limited quality
 
-**Code-Excited Linear Prediction (CELP)**
+Code-Excited Linear Prediction (CELP)
 
 - Codebook-based approach
 - Better quality than LPC
@@ -71,20 +71,20 @@ The encoder typically consists of several processing stages:
 
 ### 3.2 Modern Deep Learning Approaches
 
-**Vector Quantized Variational Autoencoders (VQ-VAE)**
+Vector Quantized Variational Autoencoders (VQ-VAE)
 
 - Discrete latent representations
 - Learned codebooks
 - Balances compression and quality
 - Information bottleneck for disentanglement
 
-**Neural Audio Codecs**
+Neural Audio Codecs
 
 - SoundStream: Multi-scale architecture with residual VQ
 - Encodec: High-fidelity neural compression
 - 1.5-12 kbps bitrates with high quality
 
-**Self-Supervised Models**
+Self-Supervised Models
 
 - wav2vec 2.0: Contrastive learning on masked audio
 - HuBERT: Clustering-based discrete units
@@ -94,19 +94,19 @@ The encoder typically consists of several processing stages:
 
 ### 4.1 Phonetic and Linguistic Features
 
-**Phoneme Recognition**
+Phoneme Recognition
 
 - Acoustic model linking audio to phonetic units
 - Context-dependent phoneme models (triphones)
 - Integration with pronunciation dictionaries
 
-**Prosody Modeling**
+Prosody Modeling
 
 - Pitch contour extraction and encoding
 - Energy and duration modeling
 - Stress and intonation patterns
 
-**Semantic Encoding**
+Semantic Encoding
 
 - Joint embedding of audio and text
 - Cross-modal attention mechanisms
@@ -114,19 +114,19 @@ The encoder typically consists of several processing stages:
 
 ### 4.2 Text-to-Speech Synthesis
 
-**Frontend Processing**
+Frontend Processing
 
 - Text normalization and tokenization
 - Grapheme-to-phoneme conversion
 - Prosody prediction
 
-**Acoustic Modeling**
+Acoustic Modeling
 
 - Tacotron 2: Seq2seq with attention
 - FastSpeech: Non-autoregressive parallel generation
 - VITS: End-to-end variational inference
 
-**Neural Vocoders**
+Neural Vocoders
 
 - WaveGlow: Flow-based generation
 - HiFi-GAN: GAN-based high-fidelity synthesis
@@ -136,7 +136,7 @@ The encoder typically consists of several processing stages:
 
 ### 5.1 Data Requirements
 
-**Dataset Characteristics**
+Dataset Characteristics
 
 - Size: 100-1000+ hours for robust models
 - Quality: Clean recordings, accurate transcriptions
@@ -145,19 +145,19 @@ The encoder typically consists of several processing stages:
 
 ### 5.2 Loss Functions
 
-**Reconstruction Losses**
+Reconstruction Losses
 
 - Mean Squared Error (MSE) for spectrograms
 - L1 loss for waveforms
 - Multi-resolution STFT loss
 
-**Perceptual Losses**
+Perceptual Losses
 
 - Discriminator losses (GANs)
 - Feature matching losses
 - Perceptual similarity metrics
 
-**Regularization**
+Regularization
 
 - Commitment loss for VQ
 - KL divergence for VAEs
@@ -165,14 +165,14 @@ The encoder typically consists of several processing stages:
 
 ### 5.3 Optimization Strategies
 
-**Training Techniques**
+Training Techniques
 
 - Multi-stage training (coarse-to-fine)
 - Curriculum learning (simple to complex)
 - Teacher forcing vs. scheduled sampling
 - Mixed precision training for efficiency
 
-**Hyperparameters**
+Hyperparameters
 
 - Learning rate schedules (warmup, decay)
 - Batch sizes (32-256 typical)
@@ -229,14 +229,14 @@ The encoder typically consists of several processing stages:
 
 ### 7.1 Software Stack
 
-**Core Libraries**
+Core Libraries
 
 - PyTorch or TensorFlow for neural networks
 - Librosa for audio processing
 - torchaudio for PyTorch integration
 - SoundFile for I/O operations
 
-**Preprocessing Tools**
+Preprocessing Tools
 
 - SoX for audio manipulation
 - FFmpeg for format conversion
@@ -264,14 +264,14 @@ Output Audio
 
 ### 7.3 Evaluation Metrics
 
-**Objective Metrics**
+Objective Metrics
 
 - Mean Opinion Score (MOS) prediction
 - Perceptual Evaluation of Speech Quality (PESQ)
 - Short-Time Objective Intelligibility (STOI)
 - Mel-Cepstral Distortion (MCD)
 
-**Subjective Metrics**
+Subjective Metrics
 
 - Human MOS ratings
 - AB preference tests
@@ -311,19 +311,19 @@ Output Audio
 
 ### 9.1 Emerging Technologies
 
-**Multi-modal Learning**
+Multi-modal Learning
 
 - Joint audio-visual-text models
 - Cross-modal retrieval and generation
 - Unified representation spaces
 
-**Low-Resource Scenarios**
+Low-Resource Scenarios
 
 - Few-shot speaker adaptation
 - Zero-shot voice conversion
 - Multilingual models with language transfer
 
-**Enhanced Controllability**
+Enhanced Controllability
 
 - Fine-grained emotional control
 - Speaking style manipulation

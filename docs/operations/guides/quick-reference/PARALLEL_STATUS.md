@@ -4,29 +4,29 @@
 
 ## COMPONENT STATUS
 
-| Component | Parallel | OpenMP | Build | Context Fix |
-| --------- | -------- | ------ | ----- | ----------- |
-| CLI Chatbot | ✅ | ✅ | Release | ✅ (2048→480) |
-| GUI Chatbot | ✅ | ✅ | Release | ✅ (2048→480) |
-| Chatbot Trainer | ✅ | ✅ | Release | N/A |
-| Vocab Builder | ❌ | ❌ | Release | N/A |
+|Component|Parallel|OpenMP|Build|Context Fix|
+|---------|--------|------|-----|-----------|
+|CLI Chatbot|✅|✅|Release|✅ (2048→480)|
+|GUI Chatbot|✅|✅|Release|✅ (2048→480)|
+|Chatbot Trainer|✅|✅|Release|N/A|
+|Vocab Builder|❌|❌|Release|N/A|
 
 ---
 
 ## PARALLEL LIBRARIES LINKED
 
-| Target | adai_core | adai_attention | libgomp |
-| ------ | --------- | -------------- | ------- |
-| chatbot (CLI) | ✅ | ✅ | ✅ |
-| chatbot_gui_binary | ✅ | ✅ | ✅ |
-| chatbot_trainer | ✅ | ✅ | ✅ |
-| vocab_builder | ❌ | ❌ | ❌ |
+|Target|adai_core|adai_attention|libgomp|
+|------|---------|--------------|-------|
+|chatbot (CLI)|✅|✅|✅|
+|chatbot_gui_binary|✅|✅|✅|
+|chatbot_trainer|✅|✅|✅|
+|vocab_builder|❌|❌|❌|
 
 ---
 
 ## VERIFICATION COMMANDS
 
-**CLI Chatbot:**
+CLI Chatbot:
 
 ```bash
 ./scripts/build_and_vocab.sh verify-cli
@@ -38,7 +38,7 @@ or:
 ./scripts/verify_cli_parallel.sh
 ```
 
-**GUI Chatbot:**
+GUI Chatbot:
 
 ```bash
 ./scripts/build_and_vocab.sh verify-gui
@@ -54,14 +54,14 @@ or:
 
 ## QUICK LAUNCH
 
-**CLI Chatbot (with max performance):**
+CLI Chatbot (with max performance):
 
 ```bash
 export OMP_NUM_THREADS=8
 ./build/src/chatbot --vocab vocab.txt --model chatbot_model.bin
 ```
 
-**GUI Chatbot (with max performance):**
+GUI Chatbot (with max performance):
 
 ```bash
 export OMP_NUM_THREADS=8
@@ -81,43 +81,43 @@ export OMP_NUM_THREADS=8
 
 ## CONTEXT LIMITS (FIXED)
 
-| Metric | Before | After | Model Limit |
-| ------ | ------ | ----- | ----------- |
-| CLI max_tokens | 2048 | 480 | 512 (pos encoding) |
-| GUI max_tokens | 2048 | 480 | 512 (pos encoding) |
+|Metric|Before|After|Model Limit|
+|------|------|-----|-----------|
+|CLI max_tokens|2048|480|512 (pos encoding)|
+|GUI max_tokens|2048|480|512 (pos encoding)|
 
-**This prevents "Input sequence length exceeds max_len" warnings!**
+This prevents "Input sequence length exceeds max_len" warnings!
 
 ---
 
 ## BUILD COMMANDS
 
-**Build Everything:**
+Build Everything:
 
 ```bash
 ./scripts/build_and_vocab.sh build
 ```
 
-**Build CLI Only:**
+Build CLI Only:
 
 ```bash
 cd build && make chatbot -j$(nproc)
 ```
 
-**Build GUI Only:**
+Build GUI Only:
 
 ```bash
 ./scripts/build_and_vocab.sh build-gui
 ```
 
-**Verify All:**
+Verify All:
 
 ```bash
 ./scripts/build_and_vocab.sh verify-cli
 ./scripts/build_and_vocab.sh verify-gui
 ```
 
-**Interactive Menu:**
+Interactive Menu:
 
 ```bash
 ./scripts/build_and_vocab.sh

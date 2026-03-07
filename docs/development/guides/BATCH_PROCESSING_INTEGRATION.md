@@ -14,12 +14,12 @@ Successfully integrated batch processing capabilities throughout the ChatbotAPI,
 
 ### 1. API Infrastructure
 
-**Files Modified:**
+Files Modified:
 
 - `src/ChatbotAPI.hpp` - Added batch structures and method declarations
 - `src/ChatbotAPI.cpp` - Implemented batch endpoints and generation methods
 
-**New Structures:**
+New Structures:
 
 ```cpp
 struct BatchRequest {
@@ -37,12 +37,12 @@ struct BatchResponse {
 };
 ```
 
-**New Endpoints:**
+New Endpoints:
 
 1. `POST /chat/batch` - Batch processing (stateless)
 2. `POST /chat/batch-session` - Batch processing with sessions (stateful)
 
-**New Methods:**
+New Methods:
 
 - `handle_batch_chat()` - Batch chat endpoint handler
 - `handle_batch_chat_session()` - Batch session endpoint handler
@@ -53,14 +53,14 @@ struct BatchResponse {
 
 ### 2. Batch Processing Features
 
-**Dynamic Batching:**
+Dynamic Batching:
 
 - Groups similar-length sequences together
 - Minimizes padding overhead (20-60% reduction)
 - Configurable batch size (default: 32)
 - Length tolerance: 10 tokens
 
-**Statistics Tracking:**
+Statistics Tracking:
 
 - Total tokens (including padding)
 - Actual tokens (excluding padding)
@@ -69,7 +69,7 @@ struct BatchResponse {
 - Average batch size
 - Efficiency percentage
 
-**Session Support:**
+Session Support:
 
 - Batch processing works with sessions
 - Auto-creates sessions if IDs not provided
@@ -77,7 +77,7 @@ struct BatchResponse {
 
 ### 3. Documentation
 
-**Created:**
+Created:
 
 1. `docs/api/batch-processing.md` (2,800+ lines)
    - Complete API reference
@@ -97,7 +97,7 @@ struct BatchResponse {
 
 ### 4. Example Code
 
-**Created:**
+Created:
 
 1. `scripts/batch_api_client.py` (380+ lines)
    - Complete Python client with examples
@@ -148,20 +148,20 @@ struct BatchResponse {
 
 ### Throughput Comparison
 
-| Requests | Sequential | Batch | Speedup |
-| ---------- | ----------- | ------- | --------- |
-| 10 | 5.2s | 1.8s | 2.9x |
-| 50 | 26.1s | 7.3s | 3.6x |
-| 100 | 52.5s | 13.1s | 4.0x |
+|Requests|Sequential|Batch|Speedup|
+|----------|-----------|-------|---------|
+|10|5.2s|1.8s|2.9x|
+|50|26.1s|7.3s|3.6x|
+|100|52.5s|13.1s|4.0x|
 
 ### Efficiency by Length Variation
 
-| Variation | Padding Ratio | Efficiency |
-| ----------- | --------------- | ------------ |
-| Uniform (±5) | 5-10% | 90-95% |
-| Moderate (±20) | 15-25% | 75-85% |
-| High (±50) | 30-40% | 60-70% |
-| Very High (10x) | 40-60% | 40-60% |
+|Variation|Padding Ratio|Efficiency|
+|-----------|---------------|------------|
+|Uniform (±5)|5-10%|90-95%|
+|Moderate (±20)|15-25%|75-85%|
+|High (±50)|30-40%|60-70%|
+|Very High (10x)|40-60%|40-60%|
 
 ---
 
@@ -232,14 +232,14 @@ curl -X POST http://localhost:8080/chat/batch \
 
 ## Documentation Stats
 
-| Document | Lines | Description |
-| ---------- | ------- | ------------- |
-| batch-processing.md | 2,800+ | Complete API reference |
-| batch-processing-quickref.md | 100+ | Quick reference |
-| rest-api.md updates | +80 | Batch endpoint docs |
-| batch_api_client.py | 380+ | Python examples |
-| batch_api_example.cpp | 250+ | C++ examples |
-| **Total** | **3,610+** | **Complete documentation** |
+|Document|Lines|Description|
+|----------|-------|-------------|
+|batch-processing.md|2,800+|Complete API reference|
+|batch-processing-quickref.md|100+|Quick reference|
+|rest-api.md updates|+80|Batch endpoint docs|
+|batch_api_client.py|380+|Python examples|
+|batch_api_example.cpp|250+|C++ examples|
+|**Total**|**3,610+**|**Complete documentation**|
 
 ---
 
@@ -358,7 +358,7 @@ Identified opportunities for future development:
 
 The batch processing integration is **production-ready** and provides significant performance improvements for applications that need to process multiple requests efficiently. The implementation follows best practices, maintains backward compatibility, and includes comprehensive documentation and examples.
 
-**Recommended for:**
+Recommended for:
 
 - High-throughput applications
 - Customer support systems
@@ -366,7 +366,7 @@ The batch processing integration is **production-ready** and provides significan
 - Multi-user chat systems
 - API aggregation services
 
-**Next Steps:**
+Next Steps:
 
 1. Build and test the updated API server
 2. Run example client code to verify functionality

@@ -39,13 +39,13 @@ make -j$(nproc)
 
 ### Main Executables
 
-| Executable | Purpose |
-| ----------- | --------- |
-| `chatbot` | Interactive chatbot CLI |
-| `chatbot_trainer` | Model training tool |
-| `vocab_builder` | Vocabulary creation utility |
-| `chatbot_api_server` | REST API server |
-| `chatbot_gui` | Qt-based graphical interface |
+|Executable|Purpose|
+|-----------|---------|
+|`chatbot`|Interactive chatbot CLI|
+|`chatbot_trainer`|Model training tool|
+|`vocab_builder`|Vocabulary creation utility|
+|`chatbot_api_server`|REST API server|
+|`chatbot_gui`|Qt-based graphical interface|
 
 ## Vocabulary Creation
 
@@ -112,15 +112,15 @@ RESPONSE: Another response
 
 #### VocabBuilder Options
 
-| Option | Description | Default |
-| -------- | ------------- | --------- |
-| `--input <file>` | Input text file (can use multiple times) | Required |
-| `--output <file>` | Output vocabulary file | Required |
-| `--vocab-size <N>` | Target vocabulary size | 5000 |
-| `--threshold <N>` | Minimum character frequency | 1 |
-| `--format <type>` | Input format: plain, pairs, json | plain |
-| `--stats` | Show vocabulary statistics | Off |
-| `--help` | Show help message | - |
+|Option|Description|Default|
+|--------|-------------|---------|
+|`--input <file>`|Input text file (can use multiple times)|Required|
+|`--output <file>`|Output vocabulary file|Required|
+|`--vocab-size <N>`|Target vocabulary size|5000|
+|`--threshold <N>`|Minimum character frequency|1|
+|`--format <type>`|Input format: plain, pairs, json|plain|
+|`--stats`|Show vocabulary statistics|Off|
+|`--help`|Show help message|-|
 
 ### Method 2: Using ChatbotTrainer
 
@@ -176,14 +176,14 @@ RESPONSE: I'm an AI assistant created to help you.
 
 ### Training Parameters
 
-| Parameter | Description | Default | Recommended |
-| ----------- | ------------- | --------- | ------------- |
-| `--epochs` | Number of training epochs | 10 | 10-50 |
-| `--learning-rate` | Learning rate | 0.001 | 0.0001-0.01 |
-| `--batch-size` | Training batch size | 4 | 4-32 |
-| `--vocab-size` | Vocabulary size | 5000 | 5000-15000 |
-| `--d-model` | Model dimension | 256 | 256-512 |
-| `--num-heads` | Number of attention heads | 8 | 8-16 |
+|Parameter|Description|Default|Recommended|
+|-----------|-------------|---------|-------------|
+|`--epochs`|Number of training epochs|10|10-50|
+|`--learning-rate`|Learning rate|0.001|0.0001-0.01|
+|`--batch-size`|Training batch size|4|4-32|
+|`--vocab-size`|Vocabulary size|5000|5000-15000|
+|`--d-model`|Model dimension|256|256-512|
+|`--num-heads`|Number of attention heads|8|8-16|
 
 ## Complete Workflow Example
 

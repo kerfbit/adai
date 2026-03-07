@@ -465,24 +465,24 @@ add_test(NAME Performance COMMAND performance_test)
 
 ### Overall Statistics
 
-| Phase | Files | Lines | Status |
-| ------- | ------- | ------- | -------- |
-| Phase 1 | 8 | ~2,800 | ⬜ Not Started |
-| Phase 2 | 6 | ~2,650 | ⬜ Not Started |
-| Phase 3 | 5 | ~2,120 | ⬜ Not Started |
-| Phase 4 | 9 | ~3,250 | ⬜ Not Started |
-| **TOTAL** | **28** | **~10,820** | **0% Complete** |
+|Phase|Files|Lines|Status|
+|-------|-------|-------|--------|
+|Phase 1|8|~2,800|⬜ Not Started|
+|Phase 2|6|~2,650|⬜ Not Started|
+|Phase 3|5|~2,120|⬜ Not Started|
+|Phase 4|9|~3,250|⬜ Not Started|
+|**TOTAL**|**28**|**~10,820**|**0% Complete**|
 
 ### Design Documentation
 
-| Document | Lines | Status |
-| ---------- | ------- | -------- |
-| DECODER_DESIGN.md | ~1000 | ✅ Complete |
-| DECODER_DESIGN_SUMMARY.md | ~500 | ✅ Complete |
-| DECODER_ARCHITECTURE_DIAGRAMS.md | ~600 | ✅ Complete |
-| DECODER_IMPLEMENTATION_GUIDE.md | ~800 | ✅ Complete |
-| ENCODER_DECODER_COMPARISON.md | ~900 | ✅ Complete |
-| **TOTAL** | **~3,800** | **100% Complete** |
+|Document|Lines|Status|
+|----------|-------|--------|
+|DECODER_DESIGN.md|~1000|✅ Complete|
+|DECODER_DESIGN_SUMMARY.md|~500|✅ Complete|
+|DECODER_ARCHITECTURE_DIAGRAMS.md|~600|✅ Complete|
+|DECODER_IMPLEMENTATION_GUIDE.md|~800|✅ Complete|
+|ENCODER_DECODER_COMPARISON.md|~900|✅ Complete|
+|**TOTAL**|**~3,800**|**100% Complete**|
 
 ---
 
@@ -557,13 +557,13 @@ add_test(NAME Performance COMMAND performance_test)
 
 ## 🐛 Known Risks & Mitigation
 
-| Risk | Impact | Probability | Mitigation |
-| ------ | -------- | ------------- | ------------ |
-| Gradient vanishing | High | Medium | Gradient clipping, careful initialization |
-| Memory issues | High | Low | Profiling, efficient caching |
-| Slow generation | Medium | High | KV-cache optimization, batching |
-| Training instability | High | Medium | Learning rate scheduling, warmup |
-| Integration bugs | Medium | Medium | Extensive testing, incremental development |
+|Risk|Impact|Probability|Mitigation|
+|------|--------|-------------|------------|
+|Gradient vanishing|High|Medium|Gradient clipping, careful initialization|
+|Memory issues|High|Low|Profiling, efficient caching|
+|Slow generation|Medium|High|KV-cache optimization, batching|
+|Training instability|High|Medium|Learning rate scheduling, warmup|
+|Integration bugs|Medium|Medium|Extensive testing, incremental development|
 
 ---
 

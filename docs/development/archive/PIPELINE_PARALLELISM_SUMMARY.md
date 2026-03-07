@@ -74,7 +74,7 @@ class ThreadSafeQueue {
 };
 ```
 
-**Features:**
+Features:
 
 - Thread-safe enqueue/dequeue operations
 - Bounded queue size with backpressure
@@ -105,7 +105,7 @@ class PipelineInferenceEngine {
 };
 ```
 
-**Worker Flow:**
+Worker Flow:
 
 1. **Encoder Thread:** Waits for requests → Encodes batch → Pushes to decoder queue
 2. **Decoder Thread:** Waits for encoder output → Decodes autoregressively → Returns results
@@ -123,24 +123,24 @@ class PipelineInferenceEngine {
 
 ### Headline Results
 
-| Metric | Sequential | Pipeline | Improvement |
-| -------- | ----------- | ---------- | ------------- |
-| **Time (400 req)** | 52,530 ms | 42,522 ms | **19% faster** |
-| **Throughput** | 7.62 req/s | 9.42 req/s | **1.24x** |
-| **Avg Encoder Time** | N/A | 101.4 ms | Per batch |
-| **Avg Decoder Time** | N/A | 423.5 ms | Per batch |
+|Metric|Sequential|Pipeline|Improvement|
+|--------|-----------|----------|-------------|
+|**Time (400 req)**|52,530 ms|42,522 ms|**19% faster**|
+|**Throughput**|7.62 req/s|9.42 req/s|**1.24x**|
+|**Avg Encoder Time**|N/A|101.4 ms|Per batch|
+|**Avg Decoder Time**|N/A|423.5 ms|Per batch|
 
 ### Detailed Benchmarks
 
 #### Scaling Analysis
 
 ```text
- Requests | Seq Time | Pipeline | Speedup | Throughput
-----------| ---------- | ---------- | --------- |------------
-       50 | 6,561 ms | 5,393 ms | 1.22x |        9.3 req/s
-      100 | 13,140 ms | 10,712 ms | 1.23x |        9.3 req/s
-      200 | 26,260 ms | 21,281 ms | 1.23x |        9.4 req/s
-      400 | 52,531 ms | 42,522 ms | 1.24x |        9.4 req/s
+ Requests |Seq Time|Pipeline|Speedup| Throughput
+----------|----------|----------|---------|------------
+       50 |6,561 ms|5,393 ms|1.22x|        9.3 req/s
+      100 |13,140 ms|10,712 ms|1.23x|        9.3 req/s
+      200 |26,260 ms|21,281 ms|1.23x|        9.4 req/s
+      400 |52,531 ms|42,522 ms|1.24x|        9.4 req/s
 ```
 
 **Key Insight:** Consistent 1.22-1.24x speedup across all scales, demonstrating stable pipeline benefit independent of workload size.
@@ -163,7 +163,7 @@ class PipelineInferenceEngine {
 **Target:** 2-3x throughput improvement
 **Achieved:** 1.24x improvement
 
-**Explanation:**
+Explanation:
 
 The theoretical maximum speedup from an N-stage pipeline is bounded by:
 
@@ -179,14 +179,14 @@ In our case:
 - **Pipeline time:** max(101, 424) = 424ms (decoder is bottleneck)
 - **Theoretical max speedup:** 525 / 424 ≈ **1.24x** ✓
 
-**We achieved the theoretical maximum!**
+We achieved the theoretical maximum!
 
 ### Pipeline Efficiency Analysis
 
-**Ideal Pipeline (Balanced Stages):**
+Ideal Pipeline (Balanced Stages):
 
 ```text
-Time: | --E1-- | --D1-- | --E2-- | --D2-- | --E3-- | --D3-- |
+Time: |--E1--|--D1--|--E2--|--D2--|--E3--|--D3--|
       0     50    100    150    200    250    300
 
 Sequential: 300ms for 3 batches = 100ms/batch
@@ -194,12 +194,12 @@ Pipeline:   150ms for 3 batches = 50ms/batch
 Speedup:    2.0x
 ```
 
-**Actual Pipeline (Imbalanced Stages):**
+Actual Pipeline (Imbalanced Stages):
 
 ```text
-Time: | --E1-- | ------D1------ |
-              | --E2-- | ------D2------ |
-                      | --E3-- | ------D3------ |
+Time: |--E1--|------D1------|
+              |--E2--|------D2------|
+                      |--E3--|------D3------|
       0     100     500     600    1000    1100   1500
 
 Sequential: 1800ms for 3 batches = 600ms/batch
@@ -281,14 +281,14 @@ std::cout << "Decoder Queue Size: " << stats.decoder_queue_size << "\n";
 
 ## Comparison with Other Priorities
 
-| Priority | Target Speedup | Achieved Speedup | Effort | Impact | Status |
-| ---------- | --------------- | ------------------ | -------- | -------- | -------- |
-| Priority 1: OpenMP Matrix Ops | 4-8x | **4.21x** | Low | High | ✅ Complete |
-| Priority 2: Parallel Augmentation | 3-5x | **3.82x** | Low | Medium | ✅ Complete |
-| Priority 3: Batched Inference | 10-20x | **27.80x** | Medium | Very High | ✅ Complete |
-| Priority 4: Attention Heads | 2-4x | **1.3-2.0x** | Medium | Medium | ✅ Complete |
-| **Priority 5: Pipeline Parallel** | **2-3x** | **1.24x** | **High** | **Medium** | ✅ **Complete** |
-| Priority 6: Multi-GPU | 2-4x per GPU | Not implemented | Very High | High | ⏳ Pending |
+|Priority|Target Speedup|Achieved Speedup|Effort|Impact|Status|
+|----------|---------------|------------------|--------|--------|--------|
+|Priority 1: OpenMP Matrix Ops|4-8x|**4.21x**|Low|High|✅ Complete|
+|Priority 2: Parallel Augmentation|3-5x|**3.82x**|Low|Medium|✅ Complete|
+|Priority 3: Batched Inference|10-20x|**27.80x**|Medium|Very High|✅ Complete|
+|Priority 4: Attention Heads|2-4x|**1.3-2.0x**|Medium|Medium|✅ Complete|
+|**Priority 5: Pipeline Parallel**|**2-3x**|**1.24x**|**High**|**Medium**|✅ **Complete**|
+|Priority 6: Multi-GPU|2-4x per GPU|Not implemented|Very High|High|⏳ Pending|
 
 ### Priority 5 Achievement Summary
 
@@ -303,19 +303,19 @@ std::cout << "Decoder Queue Size: " << stats.decoder_queue_size << "\n";
 
 ### Why Pipeline Parallelism is Challenging for Encoder-Decoder
 
-**1. Autoregressive Decoding is Slow**
+1. Autoregressive Decoding is Slow
 
 - Decoder generates one token at a time (20+ forward passes per sequence)
 - Encoder processes entire sequence in one pass
 - Result: Decoder takes 3-5x longer than encoder
 
-**2. Limited Parallelism Opportunities**
+2. Limited Parallelism Opportunities
 
 - Only 2 stages (encoder, decoder) in standard architecture
 - Can't split autoregressive decoding across stages
 - Each stage must complete before next stage can proceed
 
-**3. Batch Size Limits**
+3. Batch Size Limits
 
 - Memory constraints limit batch size
 - Smaller batches = less amortization of stage switching overhead
@@ -407,14 +407,14 @@ Combine with existing speculative decoding (Priority 2.4 from report):
 
 ### For Production Deployment
 
-**If targeting 1.2-1.5x improvement:**
+If targeting 1.2-1.5x improvement:
 ✅ **Use current implementation**
 
 - Production-ready and stable
 - Minimal code changes required
 - Works well for high-throughput serving
 
-**If targeting 2-3x improvement:**
+If targeting 2-3x improvement:
 
 1. **Combine with Speculative Decoding** (easiest)
    - 1.24x (pipeline) × 2-3x (speculative) = 2.5-3.7x
@@ -435,7 +435,7 @@ Combine with existing speculative decoding (Priority 2.4 from report):
 
 **Recommended:** Skip to **Priority 6 (Multi-GPU)** or combine with **Speculative Decoding**
 
-**Rationale:**
+Rationale:
 
 - Current pipeline implementation provides baseline 1.24x
 - Multi-GPU would give larger absolute gains (2-4x per GPU)
@@ -520,7 +520,7 @@ cmake ..
 make pipeline_benchmark -j$(nproc)
 ```
 
-**Expected Output:**
+Expected Output:
 
 ```text
 -- Building pipeline_benchmark
@@ -539,7 +539,7 @@ make pipeline_benchmark -j$(nproc)
 
 **Expected Runtime:** 1-2 minutes depending on request count
 
-**Sample Output:**
+Sample Output:
 
 ```text
 ╔════════════════════════════════════════════════════════════╗
@@ -612,7 +612,7 @@ Throughput Gain:    1.24x
 
 Priority 5 implementation successfully adds **two-stage pipeline parallelism** to the ADAI encoder-decoder architecture, achieving **1.24x throughput improvement** for high-volume serving scenarios. While below the initial 2-3x target, this represents the **theoretical maximum** given the fundamental stage imbalance inherent in encoder-decoder models.
 
-**Best Use Cases:**
+Best Use Cases:
 
 - High-throughput batch processing: **1.24x faster**
 - Serving scenarios with concurrent requests: **23% higher RPS**
@@ -625,7 +625,7 @@ Priority 5 implementation successfully adds **two-stage pipeline parallelism** t
 - Clean shutdown and error handling
 - Observable with statistics API
 
-**Recommendations:**
+Recommendations:
 
 1. **Deploy as-is** for immediate 1.24x gain in serving scenarios
 2. **Combine with speculative decoding** for 2.5-3.7x total improvement
@@ -695,12 +695,12 @@ Pipeline Statistics:
 ║           Benchmark: Pipeline Scaling Analysis            ║
 ╚════════════════════════════════════════════════════════════╝
 
- Requests | Seq Time | Pipeline | Speedup | Throughput
-----------| ---------- | ---------- | --------- |------------
-       50 | 6,561 ms | 5,393 ms | 1.22x |        9.3 req/s
-      100 | 13,140 ms | 10,712 ms | 1.23x |        9.3 req/s
-      200 | 26,260 ms | 21,281 ms | 1.23x |        9.4 req/s
-      400 | 52,531 ms | 42,522 ms | 1.24x |        9.4 req/s
+ Requests |Seq Time|Pipeline|Speedup| Throughput
+----------|----------|----------|---------|------------
+       50 |6,561 ms|5,393 ms|1.22x|        9.3 req/s
+      100 |13,140 ms|10,712 ms|1.23x|        9.3 req/s
+      200 |26,260 ms|21,281 ms|1.23x|        9.4 req/s
+      400 |52,531 ms|42,522 ms|1.24x|        9.4 req/s
 
 ╔════════════════════════════════════════════════════════════╗
 ║                         SUMMARY                            ║

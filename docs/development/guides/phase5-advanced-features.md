@@ -25,13 +25,13 @@ Phase 5 implements state-of-the-art advanced features for production AI systems:
 
 ### Components Implemented
 
-| Component | Purpose | Key Benefit |
-| ----------- | --------- | ------------- |
-| **RewardModel** | RLHF training | Learn human preferences |
-| **PPOOptimizer** | Policy optimization | Align model with feedback |
-| **LoRAAdapter** | Efficient fine-tuning | 100-1000x fewer parameters |
-| **Quantization** | Model compression | 4-8x memory reduction |
-| **SpeculativeDecoding** | Faster inference | 2-3x speedup |
+|Component|Purpose|Key Benefit|
+|-----------|---------|-------------|
+|**RewardModel**|RLHF training|Learn human preferences|
+|**PPOOptimizer**|Policy optimization|Align model with feedback|
+|**LoRAAdapter**|Efficient fine-tuning|100-1000x fewer parameters|
+|**Quantization**|Model compression|4-8x memory reduction|
+|**SpeculativeDecoding**|Faster inference|2-3x speedup|
 
 ### Architecture Overview
 
@@ -157,7 +157,7 @@ $$
 
 where:
 
-- $r_t(\theta) = \frac{\pi_\theta(a_t| s_t)}{\pi_{\theta_{\text{old}}}(a_t |s_t)}$ (probability ratio)
+- $r_t(\theta) = \frac{\pi_\theta(a_t|s_t)}{\pi_{\theta_{\text{old}}}(a_t|s_t)}$ (probability ratio)
 - $\hat{A}_t$ = advantage estimate (from GAE)
 - $\epsilon$ = clipping parameter (typically 0.2)
 
@@ -253,11 +253,11 @@ Matrix output = x * W_merged;
 
 Reduces model size and inference latency:
 
-| Precision | Memory | Speedup | Accuracy Loss |
-| ----------- | -------- | --------- | --------------- |
-| FP32 | 1x | 1x | 0% |
-| INT8 | 4x | 2-4x | <1% |
-| INT4 | 8x | 3-6x | 1-3% |
+|Precision|Memory|Speedup|Accuracy Loss|
+|-----------|--------|---------|---------------|
+|FP32|1x|1x|0%|
+|INT8|4x|2-4x|<1%|
+|INT4|8x|3-6x|1-3%|
 
 ### Quantization Methods
 
@@ -267,7 +267,7 @@ $$
 Q(x) = \text{round}\left(\frac{x}{s}\right)
 $$
 
-where $s = \frac{\max(| x |)}{q_{\max}}$
+where $s = \frac{\max(|x|)}{q_{\max}}$
 
 #### 2. Asymmetric Quantization
 
@@ -422,17 +422,17 @@ Target forward passes: 24
 
 ### Theoretical Speedup Table
 
-| K (candidates) | Acceptance Rate | Speedup |
-| ---------------- | ----------------- | --------- |
-| 2 | 50% | 0.67x |
-| 2 | 70% | 0.93x |
-| 4 | 50% | 1.00x |
-| 4 | 70% | 1.40x |
-| 4 | 80% | 1.60x |
-| 6 | 70% | 1.75x |
-| 6 | 80% | 2.06x |
-| 8 | 80% | 2.37x |
-| 10 | 80% | 2.67x |
+|K (candidates)|Acceptance Rate|Speedup|
+|----------------|-----------------|---------|
+|2|50%|0.67x|
+|2|70%|0.93x|
+|4|50%|1.00x|
+|4|70%|1.40x|
+|4|80%|1.60x|
+|6|70%|1.75x|
+|6|80%|2.06x|
+|8|80%|2.37x|
+|10|80%|2.67x|
 
 ```cpp
 print_speedup_table();
@@ -660,38 +660,38 @@ int main() {
 
 ### RLHF Training Performance
 
-| Dataset Size | Reward Model Training | PPO Training (1000 iters) |
-| -------------- | ---------------------- | --------------------------- |
-| 10K pairs | ~5 minutes | ~2 hours |
-| 100K pairs | ~45 minutes | ~20 hours |
-| 1M pairs | ~8 hours | ~200 hours |
+|Dataset Size|Reward Model Training|PPO Training (1000 iters)|
+|--------------|----------------------|---------------------------|
+|10K pairs|~5 minutes|~2 hours|
+|100K pairs|~45 minutes|~20 hours|
+|1M pairs|~8 hours|~200 hours|
 
 ### LoRA Parameter Reduction
 
-| Model Size | Full Fine-Tuning | LoRA (r=8) | Reduction |
-| ------------ | ------------------ | ------------ | ----------- |
-| 125M | 125M params | ~590K | 212x |
-| 350M | 350M params | ~1.2M | 292x |
-| 1.3B | 1.3B params | ~4.5M | 289x |
-| 7B | 7B params | ~25M | 280x |
+|Model Size|Full Fine-Tuning|LoRA (r=8)|Reduction|
+|------------|------------------|------------|-----------|
+|125M|125M params|~590K|212x|
+|350M|350M params|~1.2M|292x|
+|1.3B|1.3B params|~4.5M|289x|
+|7B|7B params|~25M|280x|
 
 ### Quantization Results
 
-| Model | FP32 Size | INT8 Size | Accuracy | Speedup |
-| ------- | ----------- | ----------- | ---------- | --------- |
-| 125M | 500 MB | 125 MB | -0.3% | 2.1x |
-| 350M | 1.4 GB | 350 MB | -0.5% | 2.3x |
-| 1.3B | 5.2 GB | 1.3 GB | -0.8% | 2.5x |
-| 7B | 28 GB | 7 GB | -1.2% | 2.8x |
+|Model|FP32 Size|INT8 Size|Accuracy|Speedup|
+|-------|-----------|-----------|----------|---------|
+|125M|500 MB|125 MB|-0.3%|2.1x|
+|350M|1.4 GB|350 MB|-0.5%|2.3x|
+|1.3B|5.2 GB|1.3 GB|-0.8%|2.5x|
+|7B|28 GB|7 GB|-1.2%|2.8x|
 
 ### Speculative Decoding Speedup
 
-| Draft Model | Target Model | Acceptance Rate | Actual Speedup |
-| ------------- | -------------- | ----------------- | ---------------- |
-| 125M | 350M | 75% | 1.8x |
-| 125M | 1.3B | 70% | 1.7x |
-| 350M | 7B | 82% | 2.3x |
-| 1.3B | 13B | 85% | 2.6x |
+|Draft Model|Target Model|Acceptance Rate|Actual Speedup|
+|-------------|--------------|-----------------|----------------|
+|125M|350M|75%|1.8x|
+|125M|1.3B|70%|1.7x|
+|350M|7B|82%|2.3x|
+|1.3B|13B|85%|2.6x|
 
 ---
 

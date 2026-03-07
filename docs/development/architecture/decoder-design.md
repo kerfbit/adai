@@ -128,13 +128,13 @@ Reuses: `Matrix`, `MultiHeadAttention`, `FeedForward`, `LayerNorm`, `TokenEmbedd
 
 ### 4 Phases (4 Weeks)
 
-| Phase | Components | Files | Lines | Duration |
-| ------- | ----------- | ------- | ------- | ---------- |
-| 1 | LanguageModelHead, DecoderBlock | 8 | ~2,800 | 1 week |
-| 2 | LLMDecoder | 6 | ~2,650 | 1 week |
-| 3 | TextGenerator | 5 | ~2,120 | 1 week |
-| 4 | EncoderDecoderModel, Chatbot | 9 | ~3,250 | 1 week |
-| **Total** | **5 components** | **28** | **~10,820** | **4 weeks** |
+|Phase|Components|Files|Lines|Duration|
+|-------|-----------|-------|-------|----------|
+|1|LanguageModelHead, DecoderBlock|8|~2,800|1 week|
+|2|LLMDecoder|6|~2,650|1 week|
+|3|TextGenerator|5|~2,120|1 week|
+|4|EncoderDecoderModel, Chatbot|9|~3,250|1 week|
+|**Total**|**5 components**|**28**|**~10,820**|**4 weeks**|
 
 ### File Breakdown
 
@@ -483,36 +483,36 @@ See DECODER_IMPLEMENTATION_GUIDE.md for more
 
 ### Design Phase Metrics
 
-| Metric | Value |
-| -------- | ------- |
-| Design documents | 6 |
-| Total documentation lines | ~4,600 |
-| Diagrams | 8 |
-| Code examples | 25+ |
-| Time to create | ~8 hours |
+|Metric|Value|
+|--------|-------|
+|Design documents|6|
+|Total documentation lines|~4,600|
+|Diagrams|8|
+|Code examples|25+|
+|Time to create|~8 hours|
 
 ### Implementation Estimates
 
-| Metric | Value |
-| -------- | ------- |
-| New components | 5 |
-| Source files | 10 |
-| Test files | 7 |
-| Total new code | ~10,820 lines |
-| Estimated duration | 4 weeks (1 dev) |
-| Code reuse | 70% |
+|Metric|Value|
+|--------|-------|
+|New components|5|
+|Source files|10|
+|Test files|7|
+|Total new code|~10,820 lines|
+|Estimated duration|4 weeks (1 dev)|
+|Code reuse|70%|
 
 ### Expected Deliverables
 
-| Category | Count |
-| ---------- | ------- |
-| Header files | 5 |
-| Implementation files | 5 |
-| Test files | 7 |
-| Example programs | 4 |
-| Context documents | 5 |
-| User guides | 2 |
-| **Total files** | **28** |
+|Category|Count|
+|----------|-------|
+|Header files|5|
+|Implementation files|5|
+|Test files|7|
+|Example programs|4|
+|Context documents|5|
+|User guides|2|
+|**Total files**|**28**|
 
 ---
 
@@ -626,9 +626,9 @@ See DECODER_IMPLEMENTATION_GUIDE.md for more
 
 ## 📖 Version History
 
-| Version | Date | Changes |
-| --------- | ------ | --------- |
-| 1.0 | 2026-01-18 | Initial design package |
+|Version|Date|Changes|
+|---------|------|---------|
+|1.0|2026-01-18|Initial design package|
 
 ---
 
@@ -648,7 +648,7 @@ This design documentation is part of the ADAI project. Refer to the main project
 
 This design builds upon the excellent foundation provided by the existing ADAI encoder implementation. The decoder is designed to integrate seamlessly while maintaining the high quality and consistency of the existing codebase.
 
-**Design is complete. Ready to proceed with implementation.**
+Design is complete. Ready to proceed with implementation.
 
 ---
 
@@ -666,7 +666,7 @@ This document provides a high-level overview of the Decoder architecture design 
 
 **Goal:** Create a transformer decoder that seamlessly integrates with the existing encoder implementation while maximizing code reuse and maintaining architectural consistency.
 
-**Approach:**
+Approach:
 
 - **Composition over reinvention** - Reuse existing components (70% reuse rate)
 - **Pattern consistency** - Mirror encoder's design patterns and conventions
@@ -679,13 +679,13 @@ This document provides a high-level overview of the Decoder architecture design 
 
 ### 5 New Classes
 
-| Class | Purpose | Lines of Code (est.) | Complexity |
-| ------- | --------- | --------------------- | ------------ |
-| `DecoderBlock` | Single decoder layer with self/cross-attention | ~350 | Medium |
-| `LanguageModelHead` | Project to vocabulary logits | ~200 | Low |
-| `LLMDecoder` | Complete decoder stack | ~400 | Medium |
-| `TextGenerator` | Generation strategies (greedy, beam, sampling) | ~600 | High |
-| `EncoderDecoderModel` | Seq2seq integration | ~300 | Medium |
+|Class|Purpose|Lines of Code (est.)|Complexity|
+|-------|---------|---------------------|------------|
+|`DecoderBlock`|Single decoder layer with self/cross-attention|~350|Medium|
+|`LanguageModelHead`|Project to vocabulary logits|~200|Low|
+|`LLMDecoder`|Complete decoder stack|~400|Medium|
+|`TextGenerator`|Generation strategies (greedy, beam, sampling)|~600|High|
+|`EncoderDecoderModel`|Seq2seq integration|~300|Medium|
 
 **Total New Code:** ~1,850 lines + tests + documentation
 
@@ -724,7 +724,7 @@ Input → Self-Attention → Add&Norm →
      → Feed-Forward → Add&Norm → Output
 ```
 
-**Rationale:**
+Rationale:
 
 - Standard transformer decoder architecture (Vaswani et al., 2017)
 - 3 sub-layers with residual connections
@@ -733,7 +733,7 @@ Input → Self-Attention → Add&Norm →
 
 ### 2. Masking Strategy
 
-**Self-Attention (Causal):**
+Self-Attention (Causal):
 
 ```text
 [ 0   -∞   -∞   -∞ ]  Position 0 sees only itself
@@ -742,7 +742,7 @@ Input → Self-Attention → Add&Norm →
 [ 0    0    0    0 ]  Position 3 sees all
 ```
 
-**Cross-Attention (Padding):**
+Cross-Attention (Padding):
 
 - Mask encoder padding tokens to prevent attention
 - Allows variable-length encoder sequences
@@ -761,7 +761,7 @@ Encoder Output (static)
 ... until [EOS] or max_length
 ```
 
-**Generation Strategies:**
+Generation Strategies:
 
 1. **Greedy** - Always pick highest probability token
 2. **Sampling** - Random sampling with temperature
@@ -771,13 +771,13 @@ Encoder Output (static)
 
 ### 4. Training vs Inference
 
-**Training (Teacher Forcing):**
+Training (Teacher Forcing):
 
 - Decoder sees full target sequence (shifted right)
 - Parallel processing of all positions
 - Efficient gradient computation
 
-**Inference (Autoregressive):**
+Inference (Autoregressive):
 
 - Generate one token at a time
 - Sequential processing (cannot parallelize)
@@ -821,14 +821,14 @@ std::string response = model.generate_response(
 
 ### Memory Footprint
 
-**Per DecoderBlock:**
+Per DecoderBlock:
 
 - 2× MultiHeadAttention: 2 × 4 × (d_model × d_model) parameters
 - 1× FeedForward: 2 × (d_model × d_ff) parameters
 - 3× LayerNorm: 6 × d_model parameters
 - Cached activations: ~5 × (seq_len × d_model) floats
 
-**Example (d_model=512, d_ff=2048, seq_len=256):**
+Example (d_model=512, d_ff=2048, seq_len=256):
 
 - Parameters: ~12M per block
 - Cached activations: ~2.5MB per block

@@ -27,6 +27,7 @@ curl http://localhost:8080/health
 ```
 
 The installation script automatically:
+
 - Creates a system user (`adai`)
 - Sets up directory structure in `/opt/adai`
 - Copies executables and configuration
@@ -50,7 +51,7 @@ For custom installations or understanding the process:
   - CentOS/RHEL 7+
   - Fedora 30+
   - Arch Linux
-  
+
 - **systemd Version**: 230+ (check with `systemctl --version`)
 
 - **Root Access**: Required for service installation
@@ -77,7 +78,7 @@ make chatbot_api_server -j$(nproc)
 ./chatbot_api_server --help
 ```
 
-## Automated Installation
+## Automated Service Installation
 
 ### Using the Installation Script
 
@@ -89,7 +90,8 @@ The `install_systemd_service.sh` script automates the entire installation proces
 sudo ./scripts/install_systemd_service.sh
 ```
 
-**Installs to:**
+Installs to:
+
 - Executable: `/opt/adai/bin/chatbot_api_server`
 - Vocabulary: `/opt/adai/vocab/vocab.txt`
 - Models: `/opt/adai/models/`
@@ -97,7 +99,8 @@ sudo ./scripts/install_systemd_service.sh
 - Config: `/etc/adai/config.conf`
 - Service: `/etc/systemd/system/adai.service`
 
-**Creates:**
+Creates:
+
 - User: `adai` (system user, no login)
 - Group: `adai`
 - Port: 8080
@@ -122,14 +125,14 @@ sudo ./scripts/install_systemd_service.sh \
 
 #### Installation Script Options
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--install-path PATH` | Installation directory | `/opt/adai` |
-| `--user USER` | Service user | `adai` |
-| `--group GROUP` | Service group | `adai` |
-| `--port PORT` | Server port | 8080 |
-| `--log-level LEVEL` | Log level (DEBUG/INFO/WARN/ERROR) | INFO |
-| `--help` | Show help message | - |
+|Option|Description|Default|
+|--------------------|----------------------------------|-----------|
+|`--install-path PATH`|Installation directory|`/opt/adai`|
+|`--user USER`|Service user|`adai`|
+|`--group GROUP`|Service group|`adai`|
+|`--port PORT`|Server port|8080|
+|`--log-level LEVEL`|Log level (DEBUG/INFO/WARN/ERROR)|INFO|
+|`--help`|Show help message|-|
 
 ### What the Script Does
 
@@ -142,7 +145,7 @@ sudo ./scripts/install_systemd_service.sh \
 7. **Starts Service**: Immediately starts the chatbot
 8. **Verifies**: Checks service status and listening port
 
-## Manual Installation
+## Manual Service Installation
 
 For advanced users or custom setups:
 
@@ -348,7 +351,8 @@ BEAM_WIDTH=4
 STRATEGY=nucleus
 ```
 
-**After editing:**
+After editing:
+
 ```bash
 sudo systemctl restart adai
 ```
@@ -357,12 +361,14 @@ sudo systemctl restart adai
 
 Override configuration via environment variables in the service file:
 
-**Edit service file:**
+Edit service file:
+
 ```bash
 sudo systemctl edit adai
 ```
 
-**Add overrides:**
+Add overrides:
+
 ```ini
 [Service]
 Environment="LOG_LEVEL=DEBUG"
@@ -370,7 +376,8 @@ Environment="PORT=9000"
 Environment="TEMPERATURE=0.7"
 ```
 
-**Reload and restart:**
+Reload and restart:
+
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl restart adai
@@ -387,11 +394,13 @@ TEMPERATURE=0.7
 ```
 
 Update service file:
+
 ```bash
 sudo systemctl edit adai
 ```
 
 Add:
+
 ```ini
 [Service]
 EnvironmentFile=/etc/adai/environment
@@ -404,6 +413,7 @@ EnvironmentFile=/etc/adai/environment
 The systemd service file includes extensive security hardening:
 
 #### Filesystem Protection
+
 - ✅ **ProtectSystem=strict**: System directories read-only
 - ✅ **ProtectHome=yes**: Home directories inaccessible
 - ✅ **ReadWritePaths**: Only `/var/log/adai` and `/opt/adai/models` writable
@@ -411,18 +421,21 @@ The systemd service file includes extensive security hardening:
 - ✅ **PrivateDevices=yes**: Limited device access
 
 #### Kernel Protection
+
 - ✅ **ProtectKernelLogs=yes**: No access to kernel logs
 - ✅ **ProtectKernelModules=yes**: Cannot load kernel modules
 - ✅ **ProtectKernelTunables=yes**: Cannot modify kernel parameters
 - ✅ **ProtectControlGroups=yes**: cgroups read-only
 
 #### Privilege Restrictions
+
 - ✅ **NoNewPrivileges=true**: Cannot gain new privileges
 - ✅ **CapabilityBoundingSet**: No Linux capabilities
 - ✅ **RestrictSUIDSGID=yes**: No setuid/setgid
 - ✅ **LockPersonality=yes**: Prevent personality changes
 
 #### Network and System Call Restrictions
+
 - ✅ **RestrictAddressFamilies**: Only IPv4/IPv6
 - ✅ **SystemCallFilter**: Limited to essential syscalls
 - ✅ **RestrictRealtime=yes**: No real-time scheduling
@@ -435,21 +448,24 @@ If the service fails with permission errors, you can adjust security settings:
 sudo systemctl edit adai
 ```
 
-**Loosen filesystem protection:**
+Loosen filesystem protection:
+
 ```ini
 [Service]
 ProtectSystem=full
 ReadWritePaths=/opt/adai /var/log/adai
 ```
 
-**Allow more system calls:**
+Allow more system calls:
+
 ```ini
 [Service]
 # Comment out or remove SystemCallFilter if needed
 SystemCallFilter=
 ```
 
-**Check which system calls are blocked:**
+Check which system calls are blocked:
+
 ```bash
 journalctl -u adai | grep "SECCOMP"
 ```
@@ -513,65 +529,81 @@ sudo systemctl restart adai
 
 ### Service Won't Start
 
-**Check service status:**
+Check service status:
+
 ```bash
 systemctl status adai -l
 ```
 
-**Check logs:**
+Check logs:
+
 ```bash
 journalctl -u adai -n 50 --no-pager
 ```
 
-**Common issues:**
+Common issues:
 
 1. **Missing vocabulary file:**
-   ```
+
+   ```text
    Error: Could not open vocabulary file
    ```
+
    Solution: Ensure `/opt/adai/vocab/vocab.txt` exists
 
 2. **Permission denied:**
-   ```
+
+   ```text
    Permission denied: /opt/adai/...
    ```
+
    Solution: Check ownership
+
    ```bash
    sudo chown -R adai:adai /opt/adai
    ```
 
 3. **Port already in use:**
-   ```
+
+   ```text
    Error: Address already in use
    ```
+
    Solution: Change port in config or stop conflicting service
+
    ```bash
    sudo lsof -i :8080
    ```
 
 4. **Executable not found:**
-   ```
+
+   ```text
    Failed to execute command: No such file or directory
    ```
+
    Solution: Verify executable path in service file
+
    ```bash
    ls -l /opt/adai/bin/chatbot_api_server
    ```
 
 ### Service Crashes
 
-**Check crash logs:**
+Check crash logs:
+
 ```bash
 journalctl -u adai -p err --since "1 hour ago"
 ```
 
-**Collect core dump (if enabled):**
+Collect core dump (if enabled):
+
 ```bash
 coredumpctl list
 coredumpctl info adai
 ```
 
-**Increase logging verbosity:**
+Increase logging verbosity:
+
 ```bash
 sudo systemctl edit adai
 ```
@@ -581,7 +613,8 @@ sudo systemctl edit adai
 Environment="LOG_LEVEL=DEBUG"
 ```
 
-**Check resource limits:**
+Check resource limits:
+
 ```bash
 systemctl show adai -p MemoryCurrent
 systemctl show adai -p LimitNOFILE
@@ -589,17 +622,20 @@ systemctl show adai -p LimitNOFILE
 
 ### Service Won't Stop
 
-**Force stop:**
+Force stop:
+
 ```bash
 sudo systemctl kill adai
 ```
 
-**Check timeout:**
+Check timeout:
+
 ```bash
 systemctl show adai -p TimeoutStopSec
 ```
 
-**Increase stop timeout:**
+Increase stop timeout:
+
 ```bash
 sudo systemctl edit adai
 ```
@@ -611,18 +647,22 @@ TimeoutStopSec=60
 
 ### High Resource Usage
 
-**Check memory:**
+Check memory:
+
 ```bash
 systemctl status adai | grep Memory
 ```
 
-**Check CPU:**
+Check CPU:
+
 ```bash
 top -p $(systemctl show -p MainPID --value adai)
 ```
 
-**Reduce model size:**
+Reduce model size:
+
 Edit `/etc/adai/config.conf`:
+
 ```ini
 D_MODEL=256
 NUM_ENCODER_LAYERS=4
@@ -632,7 +672,8 @@ MAX_SEQ_LENGTH=512
 
 ### Permission Errors
 
-**SELinux issues (CentOS/RHEL):**
+SELinux issues (CentOS/RHEL):
+
 ```bash
 # Check if SELinux is blocking
 sudo ausearch -m avc -ts recent
@@ -642,7 +683,8 @@ sudo semanage fcontext -a -t bin_t "/opt/adai/bin/chatbot_api_server"
 sudo restorecon -v /opt/adai/bin/chatbot_api_server
 ```
 
-**AppArmor issues (Ubuntu/Debian):**
+AppArmor issues (Ubuntu/Debian):
+
 ```bash
 # Check AppArmor status
 sudo aa-status
@@ -693,7 +735,8 @@ sudo systemctl reload adai
 
 ### Backup
 
-**Backup script:**
+Backup script:
+
 ```bash
 #!/bin/bash
 BACKUP_DIR="/backup/adai/$(date +%Y%m%d-%H%M%S)"
@@ -735,7 +778,8 @@ MaxRetentionSec=1month
 sudo systemctl restart systemd-journald
 ```
 
-**Manual log cleanup:**
+Manual log cleanup:
+
 ```bash
 # Remove logs older than 7 days
 journalctl --vacuum-time=7d
@@ -748,14 +792,16 @@ journalctl --vacuum-size=500M
 
 ### Health Checks
 
-**HTTP endpoint:**
+HTTP endpoint:
+
 ```bash
 curl http://localhost:8080/health
 ```
 
-**systemd watchdog (optional):**
+systemd watchdog (optional):
 
 Edit service file:
+
 ```ini
 [Service]
 WatchdogSec=30
@@ -768,6 +814,7 @@ Application must send `sd_notify(0, "WATCHDOG=1")` periodically.
 #### Prometheus
 
 Export systemd metrics:
+
 ```bash
 # Install node_exporter with systemd collector
 # /metrics endpoint will include systemd_unit_state{name="adai.service"}
@@ -776,6 +823,7 @@ Export systemd metrics:
 #### Nagios/Icinga
 
 Check script:
+
 ```bash
 #!/bin/bash
 if systemctl is-active --quiet adai; then
@@ -801,6 +849,7 @@ OnFailure=alert-admin@%n.service
 ```
 
 Create alert service:
+
 ```bash
 sudo nano /etc/systemd/system/alert-admin@.service
 ```
@@ -837,7 +886,8 @@ Environment="PORT=%i"
 Environment="CONFIG_FILE=/etc/adai/config-%i.conf"
 ```
 
-**Start instances:**
+Start instances:
+
 ```bash
 sudo systemctl start adai@8080
 sudo systemctl start adai@8081
@@ -875,6 +925,7 @@ WantedBy=sockets.target
 ```
 
 Update service:
+
 ```ini
 [Service]
 # Remove Environment="PORT=..."
@@ -886,22 +937,26 @@ Update service:
 Converting Docker deployment to systemd:
 
 1. **Export Docker volumes:**
+
    ```bash
    docker cp adai-chatbot-api:/app/models ./models
    docker cp adai-chatbot-api:/app/vocab ./vocab
    ```
 
 2. **Stop Docker container:**
+
    ```bash
    docker-compose down
    ```
 
 3. **Install systemd service:**
+
    ```bash
    sudo ./scripts/install_systemd_service.sh
    ```
 
 4. **Verify same configuration:**
+
    Compare environment variables in docker-compose.yml with `/etc/adai/config.conf`
 
 ## Performance Tuning
@@ -946,4 +1001,6 @@ Nice=-10  # Higher priority (-20 to 19)
 
 ---
 
-**Step 5: systemd Service File - COMPLETE ✅**
+## Completion Status
+
+Step 5: systemd Service File - COMPLETE ✅

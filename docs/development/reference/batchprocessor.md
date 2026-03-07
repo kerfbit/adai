@@ -12,7 +12,7 @@ The BatchProcessor provides utilities for processing multiple sequences together
 
 ### Why Use Batching?
 
-**Without Batching:**
+Without Batching:
 
 ```text
 Request 1: Process sequence [1, 2, 3, 4, 5] → 10ms
@@ -21,14 +21,14 @@ Request 3: Process sequence [9, 10, 11, 12] → 10ms
 Total: 30ms for 3 requests = 100 requests/second
 ```
 
-**With Batching:**
+With Batching:
 
 ```text
 Batch: Process all 3 sequences together → 15ms
 Total: 15ms for 3 requests = 200 requests/second ✅ 2x faster!
 ```
 
-**Key Benefits:**
+Key Benefits:
 
 - 2-4x higher throughput
 - Better hardware utilization (GPU/CPU)
@@ -73,7 +73,7 @@ struct TokenBatch {
 Vector of token ID sequences, all padded to `max_length`.
 
 **Type:** `std::vector<std::vector<int>>`
-**Example:**
+Example:
 
 ```cpp
 batch.batch_token_ids[0] = {1, 2, 3, 0, 0};  // Original: [1, 2, 3], padded with 0s
@@ -85,7 +85,7 @@ batch.batch_token_ids[1] = {4, 5, 6, 7, 8};  // Original: [4, 5, 6, 7, 8], no pa
 Original sequence lengths before padding.
 
 **Type:** `std::vector<int>`
-**Example:**
+Example:
 
 ```cpp
 batch.lengths[0] = 3;  // First sequence has 3 real tokens
@@ -112,7 +112,7 @@ Get number of sequences in batch.
 
 **Returns:** Number of sequences
 
-**Example:**
+Example:
 
 ```cpp
 TokenBatch batch = create_batch(sequences);
@@ -127,7 +127,7 @@ Check if batch is empty.
 
 **Returns:** `true` if batch contains no sequences
 
-**Example:**
+Example:
 
 ```cpp
 if (batch.is_empty()) {
@@ -159,7 +159,7 @@ struct BatchStats {
 
 Print batch statistics to stdout.
 
-**Example Output:**
+Example Output:
 
 ```text
 Batch Statistics:
@@ -171,7 +171,7 @@ Batch Statistics:
   Efficiency: 85%
 ```
 
-**Example:**
+Example:
 
 ```cpp
 BatchStats stats = compute_batch_stats(batches);
@@ -193,20 +193,20 @@ TokenBatch create_batch(
 )
 ```
 
-**Parameters:**
+Parameters:
 
 - `sequences` - Vector of token ID sequences (variable length)
 - `pad_token_id` - Token ID to use for padding (default: 0)
 
 **Returns:** `TokenBatch` with all sequences padded to same length
 
-**Behavior:**
+Behavior:
 
 1. Find the longest sequence in the input
 2. Pad all shorter sequences to match the longest
 3. Store original lengths for later unpadding
 
-**Example:**
+Example:
 
 ```cpp
 std::vector<std::vector<int>> sequences = {
@@ -242,7 +242,7 @@ std::vector<TokenBatch> create_dynamic_batches(
 )
 ```
 
-**Parameters:**
+Parameters:
 
 - `sequences` - Vector of token ID sequences
 - `max_batch_size` - Maximum number of sequences per batch (default: 32)
@@ -251,14 +251,14 @@ std::vector<TokenBatch> create_dynamic_batches(
 
 **Returns:** Vector of `TokenBatch`, each containing sequences of similar length
 
-**Algorithm:**
+Algorithm:
 
 1. Sort sequences by length
 2. Group similar-length sequences together
 3. Create batches respecting `max_batch_size` and `length_tolerance`
 4. Minimize padding within each batch
 
-**Example:**
+Example:
 
 ```cpp
 std::vector<std::vector<int>> sequences = {
@@ -276,7 +276,7 @@ auto batches = create_dynamic_batches(sequences, 3, 2, 0);
 // Batch 1: sequence of length 6 (item 3)
 ```
 
-**Why Use This?**
+Why Use This?
 
 Reduces wasted computation from padding:
 
@@ -305,7 +305,7 @@ Create a mask indicating real vs. padding tokens.
 Matrix create_padding_mask(const TokenBatch& batch)
 ```
 
-**Parameters:**
+Parameters:
 
 - `batch` - TokenBatch with padding information
 
@@ -316,7 +316,7 @@ Matrix create_padding_mask(const TokenBatch& batch)
 
 **Purpose:** Used in attention mechanisms to prevent attending to padding.
 
-**Example:**
+Example:
 
 ```cpp
 std::vector<std::vector<int>> sequences = {
@@ -332,7 +332,7 @@ Matrix mask = create_padding_mask(batch);
 // Row 1: [1.0, 1.0, 1.0, 1.0]  (4 real tokens, 0 padding)
 ```
 
-**Integration with Attention:**
+Integration with Attention:
 
 ```cpp
 // In attention computation
@@ -367,14 +367,14 @@ std::vector<Matrix> unbatch_outputs(
 )
 ```
 
-**Parameters:**
+Parameters:
 
 - `batch_outputs` - Vector of matrices, one per batch item
 - `batch` - Original TokenBatch with length information
 
 **Returns:** Vector of matrices without padding
 
-**Example:**
+Example:
 
 ```cpp
 // After processing batch through model
@@ -399,13 +399,13 @@ Compute efficiency statistics for batches.
 BatchStats compute_batch_stats(const std::vector<TokenBatch>& batches)
 ```
 
-**Parameters:**
+Parameters:
 
 - `batches` - Vector of TokenBatch
 
 **Returns:** `BatchStats` with efficiency metrics
 
-**Example:**
+Example:
 
 ```cpp
 auto batches = create_dynamic_batches(sequences, 32, 10, 0);
@@ -564,7 +564,7 @@ public:
         );
 
         bool should_process =
-            pending_sequences.size() >= max_batch_size |  |
+            pending_sequences.size() >= max_batch_size ||
             elapsed >= batch_timeout;
 
         if (should_process && !pending_sequences.empty()) {
@@ -655,16 +655,16 @@ void batch_with_cache_example() {
 
 ### Choosing Batch Size
 
-**Trade-offs:**
+Trade-offs:
 
-| Batch Size | Throughput | Latency | Memory |
-| ------------ | ----------- | --------- | -------- |
-| 1 | Low | Best | Low |
-| 8-16 | Medium | Good | Medium |
-| 32-64 | High | Acceptable | High |
-| 128+ | Very High | Poor | Very High |
+|Batch Size|Throughput|Latency|Memory|
+|------------|-----------|---------|--------|
+|1|Low|Best|Low|
+|8-16|Medium|Good|Medium|
+|32-64|High|Acceptable|High|
+|128+|Very High|Poor|Very High|
 
-**Guidelines:**
+Guidelines:
 
 ```cpp
 // Low latency required (interactive chatbot)
@@ -705,7 +705,7 @@ auto batches = create_dynamic_batches(sequences, 32, 40, 0);
 // Use for: Similar-length sequences
 ```
 
-**Tuning Example:**
+Tuning Example:
 
 ```cpp
 // Experiment to find optimal tolerance
@@ -957,13 +957,13 @@ public:
 
 ### Problem: Low throughput improvement from batching
 
-**Possible causes:**
+Possible causes:
 
 1. Batch size too small
 2. Too much padding overhead
 3. Sequential processing instead of parallel
 
-**Solutions:**
+Solutions:
 
 ```cpp
 // Solution 1: Increase batch size
@@ -983,12 +983,12 @@ if (stats.padding_ratio > 0.3) {
 
 ### Problem: Out of memory when batching
 
-**Possible causes:**
+Possible causes:
 
 1. Batch size too large for available memory
 2. Sequences too long
 
-**Solutions:**
+Solutions:
 
 ```cpp
 // Solution 1: Reduce batch size
@@ -1015,12 +1015,12 @@ for (size_t i = 0; i < sequences.size(); i += 100) {
 
 ### Problem: High padding ratio
 
-**Possible causes:**
+Possible causes:
 
 1. Very variable sequence lengths
 2. Length tolerance too large
 
-**Solutions:**
+Solutions:
 
 ```cpp
 // Solution 1: Reduce length tolerance
@@ -1049,20 +1049,20 @@ stats.print();  // Identify the issue
 
 ### Throughput Improvement
 
-| Configuration | Throughput Gain | Use Case |
-| -------------- | ---------------- | ---------- |
-| Batch size 4 | 1.5-2x | Low latency |
-| Batch size 16 | 2-3x | Balanced |
-| Batch size 32 | 3-4x | High throughput |
-| Batch size 64+ | 3-5x | Maximum throughput |
+|Configuration|Throughput Gain|Use Case|
+|--------------|----------------|----------|
+|Batch size 4|1.5-2x|Low latency|
+|Batch size 16|2-3x|Balanced|
+|Batch size 32|3-4x|High throughput|
+|Batch size 64+|3-5x|Maximum throughput|
 
 ### Combined with KV Cache
 
-| Optimization | Individual | Combined |
-| ------------- | ----------- | ---------- |
-| KV Cache only | 2-3x | - |
-| Batching only | 2-4x | - |
-| Both | - | **4-12x** ✅ |
+|Optimization|Individual|Combined|
+|-------------|-----------|----------|
+|KV Cache only|2-3x|-|
+|Batching only|2-4x|-|
+|Both|-|**4-12x** ✅|
 
 ---
 

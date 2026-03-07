@@ -88,7 +88,7 @@ struct GenerationConfig {
 
 **Purpose:** Centralized configuration for all generation parameters.
 
-**Key Parameters:**
+Key Parameters:
 
 - **temperature**: Controls randomness (0=greedy, <1=focused, >1=creative)
 - **top_k**: Limits sampling to k most likely tokens
@@ -108,7 +108,7 @@ struct BeamHypothesis {
 
 **Purpose:** Tracks candidate sequences during beam search.
 
-**Usage:**
+Usage:
 
 - Maintains partial sequences with their cumulative scores
 - Marked as finished when `<eos>` or max_length reached
@@ -122,7 +122,7 @@ using ModelForwardFn = std::function<Matrix(const std::vector<int>&)>;
 
 **Purpose:** Function signature for model inference.
 
-**Contract:**
+Contract:
 
 - Input: `std::vector<int>` (token IDs of current sequence)
 - Output: `Matrix` of shape [seq_len, vocab_size] (logits)
@@ -141,7 +141,7 @@ std::vector<int> generate_greedy(
 );
 ```
 
-**Algorithm:**
+Algorithm:
 
 ```text
 1. Initialize sequence with prompt (or <bos>)
@@ -152,19 +152,19 @@ std::vector<int> generate_greedy(
 3. Return sequence
 ```
 
-**Characteristics:**
+Characteristics:
 
 - **Deterministic**: Always produces same output for same input
 - **Fast**: O(max_length × inference_time)
 - **Quality**: Can be repetitive or boring
 
-**When to Use:**
+When to Use:
 
 - Fast inference required
 - Deterministic output needed
 - Factual question answering
 
-**Example:**
+Example:
 
 ```cpp
 TextGenerator::GenerationConfig config;
@@ -187,7 +187,7 @@ std::vector<int> generate_sampling(
 );
 ```
 
-**Algorithm:**
+Algorithm:
 
 ```text
 1. Initialize sequence with prompt
@@ -200,7 +200,7 @@ std::vector<int> generate_sampling(
 3. Return sequence
 ```
 
-**Temperature Effects:**
+Temperature Effects:
 
 - **temperature = 0**: Greedy (argmax)
 - **temperature < 1**: More focused, conservative
@@ -211,7 +211,7 @@ std::vector<int> generate_sampling(
   - 1.2: Creative writing
   - 2.0: Very diverse but often incoherent
 
-**Mathematical Formulation:**
+Mathematical Formulation:
 
 ```text
 scaled_logits_i = logits_i / temperature
@@ -219,13 +219,13 @@ scaled_logits_i = logits_i / temperature
 p(token_i) = exp(scaled_logits_i) / Σ_j exp(scaled_logits_j)
 ```
 
-**When to Use:**
+When to Use:
 
 - Need controlled randomness
 - Creative text generation
 - Dialogue systems
 
-**Example:**
+Example:
 
 ```cpp
 config.temperature = 0.8f;  // Slightly creative
@@ -245,7 +245,7 @@ std::vector<int> generate_top_k(
 );
 ```
 
-**Algorithm:**
+Algorithm:
 
 ```text
 1. Initialize sequence with prompt
@@ -258,7 +258,7 @@ std::vector<int> generate_top_k(
 3. Return sequence
 ```
 
-**Top-k Values:**
+Top-k Values:
 
 - **k = 1**: Greedy decoding
 - **k = 5-10**: Very conservative
@@ -266,25 +266,25 @@ std::vector<int> generate_top_k(
 - **k = 50-100**: More diverse
 - **k = vocab_size**: No filtering (standard sampling)
 
-**Advantages:**
+Advantages:
 
 - Prevents sampling from very low probability tokens
 - Simple to understand and implement
 - Computationally efficient (partial sort)
 
-**Disadvantages:**
+Disadvantages:
 
 - Fixed k doesn't adapt to distribution shape
 - May be too restrictive when model is uncertain
 - May be too permissive when model is confident
 
-**When to Use:**
+When to Use:
 
 - General-purpose text generation
 - When you know appropriate k for your domain
 - Fast inference needed
 
-**Example:**
+Example:
 
 ```cpp
 config.top_k = 20;
@@ -305,7 +305,7 @@ std::vector<int> generate_nucleus(
 );
 ```
 
-**Algorithm:**
+Algorithm:
 
 ```text
 1. Initialize sequence with prompt
@@ -319,7 +319,7 @@ std::vector<int> generate_nucleus(
 3. Return sequence
 ```
 
-**Top-p Values:**
+Top-p Values:
 
 - **p = 0.5**: Very conservative
 - **p = 0.7-0.8**: Focused but diverse
@@ -327,7 +327,7 @@ std::vector<int> generate_nucleus(
 - **p = 0.95**: More diverse
 - **p = 1.0**: No filtering
 
-**Mathematical Formulation:**
+Mathematical Formulation:
 
 ```text
 sorted_probs = sort(softmax(logits), descending=True)
@@ -335,24 +335,24 @@ cumsum = cumulative_sum(sorted_probs)
 nucleus = {tokens where cumsum <= p}
 ```
 
-**Advantages:**
+Advantages:
 
 - **Adaptive**: Nucleus size varies with distribution
 - **Intelligent**: Conservative when confident, diverse when uncertain
 - **Robust**: Works well across different tasks
 
-**Disadvantages:**
+Disadvantages:
 
 - Slightly more computation (requires sorting)
 - Less interpretable than top-k
 
-**When to Use:**
+When to Use:
 
 - Production chatbots
 - General-purpose generation
 - When distribution shape varies significantly
 
-**Example:**
+Example:
 
 ```cpp
 config.top_p = 0.9f;
@@ -373,7 +373,7 @@ std::vector<int> generate_beam_search(
 );
 ```
 
-**Algorithm:**
+Algorithm:
 
 ```text
 1. Initialize num_beams hypotheses with prompt
@@ -389,13 +389,13 @@ std::vector<int> generate_beam_search(
 4. Return beam with highest score
 ```
 
-**Beam Width:**
+Beam Width:
 
 - **num_beams = 1**: Greedy decoding
 - **num_beams = 3-5**: Standard (good quality/speed trade-off)
 - **num_beams = 10-20**: High quality (slower)
 
-**Length Penalty:**
+Length Penalty:
 
 ```text
 score_normalized = score / ((5 + length) / 6) ^ alpha
@@ -405,20 +405,20 @@ alpha = 0.6: Balanced (recommended)
 alpha = 1.0: Strong penalty (favors longer sequences)
 ```
 
-**Characteristics:**
+Characteristics:
 
 - **Semi-deterministic**: Same input → same output (given same config)
 - **High quality**: Explores multiple paths
 - **Slower**: O(num_beams × max_length × inference_time)
 
-**When to Use:**
+When to Use:
 
 - Translation tasks
 - Summarization
 - Tasks requiring high quality over diversity
 - When computational cost is acceptable
 
-**Example:**
+Example:
 
 ```cpp
 config.num_beams = 5;
@@ -441,7 +441,7 @@ std::vector<int> generate(
 );
 ```
 
-**Algorithm:**
+Algorithm:
 
 ```text
 if num_beams > 1:
@@ -459,7 +459,7 @@ else:
     3. Return sequence
 ```
 
-**Filter Application Order:**
+Filter Application Order:
 
 1. **Temperature**: Scale logits
 2. **Top-k**: Keep top k tokens
@@ -467,9 +467,9 @@ else:
 4. **Repetition penalty**: Reduce repeated token probs
 5. **Sampling**: Select next token
 
-**Recommended Configurations:**
+Recommended Configurations:
 
-**Chatbot (conversational):**
+Chatbot (conversational):
 
 ```cpp
 config.temperature = 0.7f;
@@ -478,7 +478,7 @@ config.repetition_penalty = 1.2f;
 config.max_length = 100;
 ```
 
-**Creative writing:**
+Creative writing:
 
 ```cpp
 config.temperature = 1.0f;
@@ -487,7 +487,7 @@ config.repetition_penalty = 1.1f;
 config.max_length = 200;
 ```
 
-**Code generation:**
+Code generation:
 
 ```cpp
 config.temperature = 0.3f;
@@ -496,7 +496,7 @@ config.repetition_penalty = 1.0f;
 config.max_length = 150;
 ```
 
-**Question answering:**
+Question answering:
 
 ```cpp
 config.temperature = 0.1f;  // Very focused
@@ -504,7 +504,7 @@ config.repetition_penalty = 1.0f;
 config.max_length = 50;
 ```
 
-**Translation:**
+Translation:
 
 ```cpp
 config.num_beams = 4;
@@ -527,7 +527,7 @@ std::vector<float> apply_repetition_penalty(
 );
 ```
 
-**Algorithm:**
+Algorithm:
 
 ```text
 for each token in generated_tokens:
@@ -537,13 +537,13 @@ for each token in generated_tokens:
         logits[token] *= penalty
 ```
 
-**Effect:**
+Effect:
 
 - **penalty = 1.0**: No effect
 - **penalty = 1.1-1.3**: Mild reduction of repetition
 - **penalty = 1.5-2.0**: Strong reduction (may affect coherence)
 
-**Use Cases:**
+Use Cases:
 
 - Reduce token-level repetition
 - Prevent stuck loops in generation
@@ -568,7 +568,7 @@ std::vector<float> softmax(const std::vector<float>& logits) {
 }
 ```
 
-**Why subtract max:**
+Why subtract max:
 
 - Prevents overflow: exp(large_number) → inf
 - Maintains numerical stability
@@ -586,13 +586,13 @@ int sample_token(const std::vector<float>& probabilities) {
 }
 ```
 
-**Properties:**
+Properties:
 
 - Uses C++ `<random>` library
 - Weighted random sampling
 - Reproducible with seed
 
-**Seeding:**
+Seeding:
 
 ```cpp
 TextGenerator gen(config, 42);  // Fixed seed for reproducibility
@@ -892,23 +892,23 @@ std::vector<std::string> responses = gen.generate_batch(
 
 ### Time Complexity
 
-| Strategy | Time Complexity | Notes |
-| ---------- | ---------------- | ------- |
-| Greedy | O(L × T) | L=max_length, T=inference_time |
-| Sampling | O(L × T) | Same as greedy |
-| Top-k | O(L × (T + k log k)) | Partial sort overhead |
-| Top-p | O(L × (T + V log V)) | V=vocab_size, full sort |
-| Beam Search | O(B × L × T) | B=num_beams |
+|Strategy|Time Complexity|Notes|
+|----------|----------------|-------|
+|Greedy|O(L × T)|L=max_length, T=inference_time|
+|Sampling|O(L × T)|Same as greedy|
+|Top-k|O(L × (T + k log k))|Partial sort overhead|
+|Top-p|O(L × (T + V log V))|V=vocab_size, full sort|
+|Beam Search|O(B × L × T)|B=num_beams|
 
 ### Memory Usage
 
-| Component | Memory | Scaling |
-| ----------- | -------- | --------- |
-| Config | ~100 bytes | Constant |
-| RNG state | ~5 KB | Constant |
-| Generated tokens | L × 4 bytes | O(L) |
-| Beam hypotheses | B × L × 4 bytes | O(B × L) |
-| Logits | L × V × 4 bytes | O(L × V) |
+|Component|Memory|Scaling|
+|-----------|--------|---------|
+|Config|~100 bytes|Constant|
+|RNG state|~5 KB|Constant|
+|Generated tokens|L × 4 bytes|O(L)|
+|Beam hypotheses|B × L × 4 bytes|O(B × L)|
+|Logits|L × V × 4 bytes|O(L × V)|
 
 ### Optimization Tips
 
@@ -951,7 +951,7 @@ std::vector<std::string> responses = gen.generate_batch(
 
 **File:** `tests/textgenerator_test.cpp` (to be created)
 
-**Test Categories:**
+Test Categories:
 
 1. **Constructor Tests**
    - Default configuration
@@ -998,12 +998,12 @@ std::vector<std::string> responses = gen.generate_batch(
 
 ### Issue 1: Repetitive Output
 
-**Symptoms:**
+Symptoms:
 
 - Same tokens repeated
 - Stuck in loops
 
-**Solutions:**
+Solutions:
 
 ```cpp
 config.repetition_penalty = 1.2f;  // Penalize repetition
@@ -1015,12 +1015,12 @@ config.top_p = 0.9f;               // Increase diversity
 
 ### Issue 2: Incoherent Output
 
-**Symptoms:**
+Symptoms:
 
 - Nonsensical text
 - Random word jumbles
 
-**Solutions:**
+Solutions:
 
 ```cpp
 config.temperature = 0.7f;  // Reduce from 1.2
@@ -1032,12 +1032,12 @@ config.top_p = 0.85f;       // Reduce from 0.95
 
 ### Issue 3: Generation Too Short
 
-**Symptoms:**
+Symptoms:
 
 - Premature `<eos>` generation
 - Very short sequences
 
-**Solutions:**
+Solutions:
 
 ```cpp
 config.min_length = 20;           // Enforce minimum
@@ -1049,12 +1049,12 @@ config.repetition_penalty = 1.1f; // Prevent early loops
 
 ### Issue 4: Slow Generation
 
-**Symptoms:**
+Symptoms:
 
 - High latency
 - Long inference time
 
-**Solutions:**
+Solutions:
 
 ```cpp
 config.num_beams = 1;       // Disable beam search
@@ -1167,7 +1167,7 @@ The **TextGenerator** class provides:
 ✅ **Easy integration:** Works with any decoder model
 ✅ **Comprehensive API:** Token-based and string-based generation
 
-**Best for:**
+Best for:
 
 - Chatbot response generation
 - Text completion

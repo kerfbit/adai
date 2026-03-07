@@ -1,7 +1,7 @@
 # Dataset Batch Processing Integration
 
-**Version:** 1.0  
-**Date:** January 2026  
+**Version:** 1.0
+**Date:** January 2026
 **Status:** Production Ready
 
 ## Overview
@@ -169,7 +169,7 @@ TokenBatch get_batch_with_padding(
     int pad_token_id = 0) const;
 ```
 
-**Parameters:**
+Parameters:
 
 - `split_type`: Which data split to use (TRAIN, VALIDATION, TEST)
 - `batch_start`: Starting index within the split
@@ -179,7 +179,7 @@ TokenBatch get_batch_with_padding(
 
 **Returns:** TokenBatch with padded sequences
 
-**Example:**
+Example:
 
 ```cpp
 auto batch = dataset.get_batch_with_padding(
@@ -209,7 +209,7 @@ TokenBatch get_target_batch_with_padding(
 
 **Use Case:** Training encoder-decoder models where both input and target sequences need batching.
 
-**Example:**
+Example:
 
 ```cpp
 // Get aligned input and target batches
@@ -235,7 +235,7 @@ std::vector<TokenBatch> get_dynamic_batches(
     int pad_token_id = 0) const;
 ```
 
-**Parameters:**
+Parameters:
 
 - `split_type`: Which data split to use
 - `tokenizer_fn`: Tokenization function
@@ -245,20 +245,20 @@ std::vector<TokenBatch> get_dynamic_batches(
 
 **Returns:** Vector of optimized TokenBatch objects
 
-**Algorithm:**
+Algorithm:
 
 1. Tokenize all sequences in the split
 2. Sort by sequence length
 3. Group similar-length sequences together
 4. Create batches respecting max_batch_size and length_tolerance
 
-**Benefits:**
+Benefits:
 
 - Reduced padding waste (better GPU utilization)
 - Faster training (less wasted computation)
 - Lower memory usage
 
-**Example:**
+Example:
 
 ```cpp
 auto batches = dataset.get_dynamic_batches(
@@ -288,7 +288,7 @@ std::vector<OutputType> process_batch(
     int pad_token_id = 0) const;
 ```
 
-**Parameters:**
+Parameters:
 
 - `samples`: Batch of data samples
 - `tokenizer_fn`: Tokenization function
@@ -297,7 +297,7 @@ std::vector<OutputType> process_batch(
 
 **Returns:** Vector of model outputs (one per sample)
 
-**Example:**
+Example:
 
 ```cpp
 auto samples = dataset.get_split(SplitType::VALIDATION);
@@ -337,7 +337,7 @@ BatchStats get_batch_statistics(
 - `actual_tokens`: Actual tokens (excluding padding)
 - `efficiency_percentage`: Ratio of actual to total tokens
 
-**Example:**
+Example:
 
 ```cpp
 auto stats = dataset.get_batch_statistics(
@@ -610,8 +610,8 @@ void analyze_batch_sizes(Dataset& dataset, BPETokenizer& tokenizer) {
 
     std::vector<size_t> batch_sizes = {8, 16, 32, 64, 128};
 
-    std::cout << "Batch Size | Efficiency | Avg Padding\n";
-    std::cout << "-----------| ------------ |------------\n";
+    std::cout << "Batch Size |Efficiency| Avg Padding\n";
+    std::cout << "-----------|------------|------------\n";
 
     for (size_t batch_size : batch_sizes) {
         auto stats = dataset.get_batch_statistics(
@@ -695,13 +695,13 @@ void compare_batching_strategies(Dataset& dataset, BPETokenizer& tokenizer) {
 
 ### Tuning Batch Size
 
-**Guidelines:**
+Guidelines:
 
 - **Small batches (8-16)**: Better for long sequences, limited GPU memory
 - **Medium batches (32-64)**: Good balance for most use cases
 - **Large batches (128+)**: Maximum throughput for short sequences
 
-**Measure efficiency:**
+Measure efficiency:
 
 ```cpp
 // Test different batch sizes
@@ -723,7 +723,7 @@ for (size_t bs : {16, 32, 64, 128}) {
 - **Medium (10-20 tokens)**: Good balance
 - **High (>20 tokens)**: Fewer batches, lower efficiency
 
-**Example:**
+Example:
 
 ```cpp
 // Compare tolerances
@@ -745,7 +745,7 @@ for (int tol : {5, 10, 15, 20}) {
 
 ### Parallel Loading Configuration
 
-**Optimal settings depend on:**
+Optimal settings depend on:
 
 - CPU cores available
 - Disk I/O speed
@@ -763,7 +763,7 @@ for (int tol : {5, 10, 15, 20}) {
 - Increase if GPU utilization is low
 - Decrease if memory usage is too high
 
-**Example configuration:**
+Example configuration:
 
 ```cpp
 TokenBatchLoaderConfig config;
@@ -787,7 +787,7 @@ while (training) {
 
 ### Memory Management
 
-**Tips for large datasets:**
+Tips for large datasets:
 
 1. **Use dynamic batching** to reduce total token count
 2. **Drop last batch** if size varies significantly
@@ -967,7 +967,7 @@ val_config.shuffle = false;
 
 **Symptoms:** `efficiency_percentage < 0.6`
 
-**Solutions:**
+Solutions:
 
 1. Use dynamic batching
 2. Filter extreme-length samples
@@ -984,7 +984,7 @@ auto batches = dataset.get_dynamic_batches(
 
 **Symptoms:** Low GPU utilization, `queue_size` often 0
 
-**Solutions:**
+Solutions:
 
 1. Increase num_workers
 2. Increase prefetch_factor
@@ -999,7 +999,7 @@ config.prefetch_factor = 3;  // Larger buffer
 
 **Symptoms:** System runs out of RAM
 
-**Solutions:**
+Solutions:
 
 1. Reduce num_workers
 2. Reduce prefetch_factor
@@ -1017,7 +1017,7 @@ config.drop_last = true;
 
 **Symptoms:** Last batch much smaller than others
 
-**Solutions:**
+Solutions:
 
 1. Set `drop_last = true`
 2. Adjust batch_size to evenly divide dataset
@@ -1039,25 +1039,25 @@ while (dataset_size % batch_size > 5) {
 
 ### Expected Efficiency
 
-**Fixed Batching:**
+Fixed Batching:
 
 - Short sequences (10-50 tokens): 80-95%
 - Medium sequences (50-200 tokens): 60-80%
 - Long sequences (200+ tokens): 40-70%
 
-**Dynamic Batching (length_tolerance=10):**
+Dynamic Batching (length_tolerance=10):
 
 - All sequence lengths: 85-98%
 
 ### Throughput Gains
 
-**TokenBatchLoader vs Sequential Loading:**
+TokenBatchLoader vs Sequential Loading:
 
 - 2-4x faster with 4 workers
 - 3-6x faster with 8 workers
 - Depends on disk I/O and CPU cores
 
-**Dynamic vs Fixed Batching:**
+Dynamic vs Fixed Batching:
 
 - 20-40% fewer tokens processed
 - 15-30% faster training time

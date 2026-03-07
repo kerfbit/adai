@@ -170,17 +170,17 @@ git push -u origin feature/add-gelu-activation
 
 ### Pull Request Guidelines
 
-**PR Title Format:**
+PR Title Format:
 Same as commit message format: `<type>(<scope>): <description>`
 
-**PR Description Should Include:**
+PR Description Should Include:
 
 - What changes were made
 - Why the changes were necessary
 - How to test the changes
 - Related issue numbers (if applicable)
 
-**Before Submitting:**
+Before Submitting:
 
 - [ ] All tests pass locally
 - [ ] Code follows project style guidelines
@@ -295,7 +295,7 @@ Automatically format code before commit:
 # .git/hooks/pre-commit
 
 # Format staged C++ files
-for file in $(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(cpp |hpp)$'); do
+for file in $(git diff --cached --name-only --diff-filter=ACM |grep -E '\.(cpp|hpp)$'); do
     if command -v clang-format &> /dev/null; then
         clang-format -i "$file"
         git add "$file"
@@ -312,7 +312,7 @@ Validate commit message format:
 # .git/hooks/commit-msg
 
 commit_msg=$(cat "$1")
-pattern='^(feat| fix | docs | style | refactor | perf | test | build | ci | chore |revert)(\([a-z]+\))?: .{1,50}'
+pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z]+\))?: .{1,50}'
 
 if ! echo "$commit_msg" | grep -qE "$pattern"; then
     echo "Error: Commit message does not follow conventional commits format"

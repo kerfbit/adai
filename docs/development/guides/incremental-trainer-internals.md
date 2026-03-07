@@ -1,7 +1,7 @@
 # IncrementalTrainer System - Internal Documentation
 
-**Last Updated:** March 2026  
-**Component:** IncrementalTrainer  
+**Last Updated:** March 2026
+**Component:** IncrementalTrainer
 **Status:** Primary Training System
 
 ## Overview
@@ -89,25 +89,25 @@ BATCH_SIZE=1
 ```cpp
 struct IncrementalConfig {
     TrainingConfig base_config;  // Base training configuration
-    
+
     // Session management
     std::string session_dir = "training_sessions";
     int max_sessions_to_keep = 50;
-    
+
     // Data management
     std::string data_registry_file = "data_registry.txt";
     bool cache_tokenized_data = false;
     std::string tokenized_cache_dir = "tokenized_cache";
-    
+
     // Auto-save settings
     bool auto_save_enabled = true;
     int auto_save_every_samples = 1000;
     int auto_save_every_minutes = 30;
-    
+
     // Checkpointing
     bool save_incremental_checkpoints = true;
     std::string checkpoint_dir = "checkpoints";
-    
+
     // Symlink management
     bool enable_checkpoint_symlinks = true;
     std::string latest_symlink_name = "latest_checkpoint.bin";
@@ -143,7 +143,7 @@ struct TrainingSession {
 
 **Purpose:** Track complete information about each training session.
 
-**Used by:**
+Used by:
 
 - Session history logging
 - Dashboard display
@@ -166,7 +166,7 @@ struct DataVersion {
 
 **Checksum:** SHA-256 hash to detect file modifications.
 
-**Usage:**
+Usage:
 
 - Prevents duplicate training
 - Incremental training decisions
@@ -183,22 +183,22 @@ struct DataVersion {
 explicit IncrementalTrainer(const std::string& config_file_path);
 
 // Explicit paths constructor
-IncrementalTrainer(const std::string& vocab_path, 
+IncrementalTrainer(const std::string& vocab_path,
                    const std::string& model_path);
 
 // Full configuration constructor
-IncrementalTrainer(const std::string& vocab_path, 
+IncrementalTrainer(const std::string& vocab_path,
                    const std::string& model_path,
                    const IncrementalConfig& cfg);
 ```
 
-**Primary Entry Point:**
+Primary Entry Point:
 
 ```cpp
 IncrementalTrainer trainer("config.conf");
 ```
 
-**Process:**
+Process:
 
 1. Load configuration from file
 2. Build tokenizer from vocab
@@ -218,14 +218,14 @@ bool add_new_data(const std::string& data_file);
 
 **Purpose:** Add a conversation data file to the pending queue.
 
-**Process:**
+Process:
 
 1. Check if file already trained (via checksum)
 2. If new, add to `pending_data_files` list
 3. Save pending list to disk
 4. Return true if added, false if already trained
 
-**Example:**
+Example:
 
 ```cpp
 if (trainer.add_new_data("conversations_week1.txt")) {
@@ -253,14 +253,14 @@ bool add_gutenberg_book(int book_id, int num_pairs = 500);
 
 **Purpose:** Download and process a Project Gutenberg book.
 
-**Process:**
+Process:
 
 1. Download book text from gutenberg.org
 2. Parse into conversation pairs using sliding window
 3. Save to `gutenberg_data/gutenberg_<id>.txt`
 4. Add to pending queue
 
-**Popular Books:**
+Popular Books:
 
 - 1342: Pride and Prejudice
 - 11: Alice in Wonderland
@@ -268,7 +268,7 @@ bool add_gutenberg_book(int book_id, int num_pairs = 500);
 - 1661: Sherlock Holmes
 - 2701: Moby Dick
 
-**Example:**
+Example:
 
 ```cpp
 trainer.add_gutenberg_book(1342, 500);  // 500 pairs from Pride & Prejudice
@@ -277,7 +277,7 @@ trainer.add_gutenberg_book(1342, 500);  // 500 pairs from Pride & Prejudice
 ##### add_gutenberg_books()
 
 ```cpp
-bool add_gutenberg_books(const std::vector<int>& book_ids, 
+bool add_gutenberg_books(const std::vector<int>& book_ids,
                          int num_pairs_per_book = 300);
 ```
 
@@ -295,7 +295,7 @@ bool train_incremental(int num_epochs);
 
 **Purpose:** Train only on pending (new) data.
 
-**Process:**
+Process:
 
 1. Load all pending data files
 2. Split into train/validation
@@ -311,7 +311,7 @@ bool train_incremental(int num_epochs);
 
 **Use Case:** Weekly/monthly incremental updates.
 
-**Example:**
+Example:
 
 ```cpp
 // After adding new data
@@ -335,7 +335,7 @@ bool train_full_retrain(int num_epochs);
 
 **Purpose:** Retrain from scratch on ALL data (trained + pending).
 
-**Process:**
+Process:
 
 1. Reset model weights to random initialization
 2. Load ALL data files (from registry + pending)
@@ -348,7 +348,7 @@ bool train_full_retrain(int num_epochs);
 
 **Use Case:** Periodic quality refresh (every 10 sessions).
 
-**Example:**
+Example:
 
 ```cpp
 trainer.train_full_retrain(15);  // Full retrain, 15 epochs
@@ -364,7 +364,7 @@ bool resume_last_session();
 
 **Purpose:** Resume interrupted training.
 
-**Process:**
+Process:
 
 1. Load last checkpoint from session history
 2. Restore model state
@@ -396,7 +396,7 @@ TrainingSession get_current_session() const;
 void print_training_summary() const;
 ```
 
-**Prints:**
+Prints:
 
 - Total sessions completed
 - Total samples trained
@@ -477,7 +477,7 @@ bool reset_all(bool keep_data_registry = false);
 
 **Purpose:** Complete system reset.
 
-**Process:**
+Process:
 
 1. Delete all checkpoints
 2. Backup current model to `.bak`
@@ -526,7 +526,7 @@ void build_model();
 
 **Purpose:** Single entry point for model construction.
 
-**Process:**
+Process:
 
 1. Create tokenizer from vocab file
 2. Construct `EncoderDecoderModel` with config parameters
@@ -547,13 +547,13 @@ bool initialize_session();
 #### finalize_session()
 
 ```cpp
-bool finalize_session(int samples_trained, int epochs_completed, 
+bool finalize_session(int samples_trained, int epochs_completed,
                       float final_loss, float final_val_loss);
 ```
 
 **Purpose:** Complete current session.
 
-**Process:**
+Process:
 
 1. Update session with final metrics
 2. Save checkpoint
@@ -568,7 +568,7 @@ bool should_auto_save();
 void perform_auto_save();
 ```
 
-**Triggers:**
+Triggers:
 
 - Every N samples processed
 - Every N minutes elapsed
@@ -597,12 +597,12 @@ incremental_trainer init [vocab] [model]
 
 **Purpose:** Initialize training system.
 
-**Args:**
+Args:
 
 - `vocab` - Vocabulary file path (default: from config)
 - `model` - Model file path (default: from config)
 
-**Creates:**
+Creates:
 
 - Session directory
 - Empty session history
@@ -616,7 +616,7 @@ incremental_trainer add <data_file>
 
 **Purpose:** Add conversation data file to pending queue.
 
-**Example:**
+Example:
 
 ```bash
 incremental_trainer add conversations.txt
@@ -630,7 +630,7 @@ incremental_trainer gutenberg <book_id> [num_pairs]
 
 **Purpose:** Download and add Project Gutenberg book.
 
-**Example:**
+Example:
 
 ```bash
 incremental_trainer gutenberg 1342 500  # Pride & Prejudice, 500 pairs
@@ -644,7 +644,7 @@ incremental_trainer gutenberg-batch <id1,id2,id3> [num_pairs_each]
 
 **Purpose:** Batch download multiple books.
 
-**Example:**
+Example:
 
 ```bash
 incremental_trainer gutenberg-batch 1342,11,84 300
@@ -658,11 +658,11 @@ incremental_trainer train [epochs]
 
 **Purpose:** Train on pending data (incremental).
 
-**Args:**
+Args:
 
 - `epochs` - Number of epochs (default: from config)
 
-**Example:**
+Example:
 
 ```bash
 incremental_trainer train 10
@@ -676,7 +676,7 @@ incremental_trainer retrain [epochs]
 
 **Purpose:** Full retrain on all data from scratch.
 
-**Example:**
+Example:
 
 ```bash
 incremental_trainer retrain 15
@@ -690,12 +690,12 @@ incremental_trainer reset [--yes] [--keep-data]
 
 **Purpose:** Reset system and rebuild model.
 
-**Options:**
+Options:
 
 - `--yes` - Skip confirmation prompt
 - `--keep-data` - Preserve data registry (mark untrained)
 
-**Example:**
+Example:
 
 ```bash
 incremental_trainer reset --yes --keep-data
@@ -800,7 +800,7 @@ incremental_trainer retrain 20
 
 **Speed:** 10-100x faster than full retrain (for small data additions)
 
-**Example:**
+Example:
 
 - Initial 7500 samples, 12 epochs: 6 days
 - Add 500 samples, 5 epochs: 12 hours
@@ -811,7 +811,7 @@ incremental_trainer retrain 20
 
 **Speed:** Proportional to total data size
 
-**Example:**
+Example:
 
 - 8000 samples, 10 epochs: ~6.5 days
 
@@ -874,7 +874,7 @@ Live dashboard during training shows:
 Internal `ChatbotTrainer` supports epoch callbacks:
 
 ```cpp
-trainer.set_epoch_callback([](int epoch, int total, 
+trainer.set_epoch_callback([](int epoch, int total,
                                float loss, float val_loss, float lr) {
     // Custom epoch-end logic
     display_dashboard(...);
@@ -887,7 +887,7 @@ trainer.set_epoch_callback([](int epoch, int total,
 For detailed monitoring:
 
 ```cpp
-trainer.set_sample_callback([](int sample, int total, 
+trainer.set_sample_callback([](int sample, int total,
                                 float loss, float grad_norm) {
     // Custom per-sample logic
     update_progress_bar(...);
@@ -934,7 +934,7 @@ Configured via `config.base_config.lr_schedule`:
 config.base_config.lr_schedule = LRSchedule::WARMUP_COSINE;
 ```
 
-**Benefits:**
+Benefits:
 
 - Stable early training (warmup)
 - Smooth convergence (cosine)
@@ -955,7 +955,7 @@ INPUT: Tell me a joke
 RESPONSE: Why did the programmer quit? They didn't get arrays!
 ```
 
-**Rules:**
+Rules:
 
 - Blank line between pairs
 - `INPUT:` prefix for user messages
@@ -1025,7 +1025,7 @@ RESPONSE: Why did the programmer quit? They didn't get arrays!
 
 ### 5. Architecture Selection
 
-**Small Model (Fast, less quality):**
+Small Model (Fast, less quality):
 
 ```text
 D_MODEL=256
@@ -1034,7 +1034,7 @@ NUM_ENCODER_LAYERS=4
 NUM_DECODER_LAYERS=4
 ```
 
-**Medium Model (Balanced):**
+Medium Model (Balanced):
 
 ```text
 D_MODEL=512
@@ -1043,7 +1043,7 @@ NUM_ENCODER_LAYERS=6
 NUM_DECODER_LAYERS=6
 ```
 
-**Large Model (Best quality, slow):**
+Large Model (Best quality, slow):
 
 ```text
 D_MODEL=768
@@ -1058,7 +1058,7 @@ NUM_DECODER_LAYERS=8
 
 **Cause:** Missing or empty VOCAB_PATH in config.
 
-**Solution:**
+Solution:
 
 ```bash
 echo "VOCAB_PATH=/path/to/vocab.txt" >> config.conf
@@ -1068,7 +1068,7 @@ echo "VOCAB_PATH=/path/to/vocab.txt" >> config.conf
 
 **Cause:** Trying to train without adding data.
 
-**Solution:**
+Solution:
 
 ```bash
 incremental_trainer add conversations.txt
@@ -1078,7 +1078,7 @@ incremental_trainer add conversations.txt
 
 **Cause:** File checksum matches registry.
 
-**Solutions:**
+Solutions:
 
 1. Use retrain: `incremental_trainer retrain 10`
 2. Add new data instead
@@ -1086,13 +1086,13 @@ incremental_trainer add conversations.txt
 
 ### Training is slower than expected
 
-**Causes:**
+Causes:
 
 1. Large data addition (proportional slowdown)
 2. Inefficient architecture
 3. No gradient accumulation
 
-**Solutions:**
+Solutions:
 
 1. Use fewer epochs for incremental (5 instead of 10)
 2. Enable gradient accumulation
@@ -1102,7 +1102,7 @@ incremental_trainer add conversations.txt
 
 **Cause:** Catastrophic forgetting from too many incremental updates.
 
-**Solution:**
+Solution:
 
 ```bash
 incremental_trainer retrain 15
@@ -1112,7 +1112,7 @@ incremental_trainer retrain 15
 
 **Cause:** Too many checkpoints.
 
-**Solutions:**
+Solutions:
 
 1. Reduce `max_sessions_to_keep` in config
 2. Delete old sessions manually
@@ -1156,7 +1156,7 @@ incremental_trainer add conversations.txt
 incremental_trainer train 10
 ```
 
-**Benefits:**
+Benefits:
 
 - Session tracking
 - Resume capability
@@ -1167,27 +1167,27 @@ incremental_trainer train 10
 
 ### Tokenization (1000 samples)
 
-| Method          | Time/Epoch | Speedup |
+|Method|Time/Epoch|Speedup|
 |-----------------|------------|---------|
-| Old (per-epoch) | 5.0s       | 1x      |
-| New (cached)    | 0.05s      | 100x    |
+|Old (per-epoch)|5.0s|1x|
+|New (cached)|0.05s|100x|
 
 ### Training Time (7500 samples, 12 epochs)
 
-| Method                | Time     | Notes         |
+|Method|Time|Notes|
 |-----------------------|----------|---------------|
-| Initial training      | 6 days   | Full training |
-| Incremental (500 new) | 12 hours | 20x faster    |
-| Full retrain (8000)   | 6.5 days | Proportional  |
+|Initial training|6 days|Full training|
+|Incremental (500 new)|12 hours|20x faster|
+|Full retrain (8000)|6.5 days|Proportional|
 
 ### Memory Usage
 
-| Component                       | Memory  |
+|Component|Memory|
 |---------------------------------|---------|
-| Model (512-dim)                 | ~200 MB |
-| Tokenized cache (1000 samples)  | ~10 MB  |
-| Session history                 | ~1 MB   |
-| Total overhead                  | ~15 MB  |
+|Model (512-dim)|~200 MB|
+|Tokenized cache (1000 samples)|~10 MB|
+|Session history|~1 MB|
+|Total overhead|~15 MB|
 
 ## Future Enhancements
 
@@ -1215,26 +1215,26 @@ See [TECHNICAL_DEBT.md](TECHNICAL_DEBT.md) for current limitations and planned i
 int main() {
     // Load from config.conf
     IncrementalTrainer trainer("config.conf");
-    
+
     // Add data
     trainer.add_new_data("conversations.txt");
-    
+
     // Train incrementally
     if (trainer.train_incremental(10)) {
         std::cout << "Training successful!\n";
         trainer.print_training_summary();
     }
-    
+
     // Get metrics
     int total_samples = trainer.get_total_samples_trained();
     float total_hours = trainer.get_total_training_time_hours();
-    
+
     // Periodic full retrain
     auto history = trainer.get_session_history();
     if (history.size() % 10 == 0) {
         trainer.train_full_retrain(15);
     }
-    
+
     return 0;
 }
 ```
@@ -1256,6 +1256,6 @@ IncrementalTrainer trainer("vocab.txt", "model.bin", config);
 
 ---
 
-**Version:** 2.0  
-**Last Updated:** March 2026  
+**Version:** 2.0
+**Last Updated:** March 2026
 **Maintainer:** ADAI Development Team

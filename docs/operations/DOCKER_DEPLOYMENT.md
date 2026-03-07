@@ -46,47 +46,49 @@ All configuration can be controlled via environment variables. See `docker-compo
 
 #### Server Configuration
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `VOCAB_PATH` | **Yes** | - | Path to BPE vocabulary file |
-| `MODEL_PATH` | No | - | Path to pretrained model weights |
-| `PORT` | No | 8080 | HTTP server listening port |
-| `SESSION_TIMEOUT` | No | 30 | Session timeout in minutes |
-| `LOG_LEVEL` | No | INFO | Logging verbosity: DEBUG, INFO, WARN, ERROR |
+|Variable|Required|Default|Description|
+|--------|--------|-------|-----------|
+|`VOCAB_PATH`|**Yes**|-|Path to BPE vocabulary file|
+|`MODEL_PATH`|No|-|Path to pretrained model weights|
+|`PORT`|No|8080|HTTP server listening port|
+|`SESSION_TIMEOUT`|No|30|Session timeout in minutes|
+|`LOG_LEVEL`|No|INFO|Logging verbosity: DEBUG, INFO, WARN, ERROR|
 
 #### Model Architecture
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `D_MODEL` | 512 | Model embedding dimension |
-| `NUM_HEADS` | 8 | Number of attention heads (must divide D_MODEL) |
-| `D_FF` | 2048 | Feed-forward network dimension |
-| `NUM_ENCODER_LAYERS` | 6 | Number of encoder layers |
-| `NUM_DECODER_LAYERS` | 6 | Number of decoder layers |
-| `MAX_SEQ_LENGTH` | 1024 | Maximum sequence length in tokens |
+|Variable|Default|Description|
+|--------|-------|-----------|
+|`D_MODEL`|512|Model embedding dimension|
+|`NUM_HEADS`|8|Number of attention heads (must divide D_MODEL)|
+|`D_FF`|2048|Feed-forward network dimension|
+|`NUM_ENCODER_LAYERS`|6|Number of encoder layers|
+|`NUM_DECODER_LAYERS`|6|Number of decoder layers|
+|`MAX_SEQ_LENGTH`|1024|Maximum sequence length in tokens|
 
 #### Text Generation
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MAX_LENGTH` | 100 | Maximum tokens to generate per response |
-| `TEMPERATURE` | 1.0 | Sampling temperature (0.1-2.0) |
-| `TOP_P` | 0.9 | Nucleus sampling threshold (0.0-1.0) |
-| `TOP_K` | 50 | Top-k sampling candidates |
-| `BEAM_WIDTH` | 4 | Beam search width |
-| `STRATEGY` | nucleus | Generation strategy: greedy, beam, temperature, top_k, nucleus |
+|Variable|Default|Description|
+|--------|-------|-----------|
+|`MAX_LENGTH`|100|Maximum tokens to generate per response|
+|`TEMPERATURE`|1.0|Sampling temperature (0.1-2.0)|
+|`TOP_P`|0.9|Nucleus sampling threshold (0.0-1.0)|
+|`TOP_K`|50|Top-k sampling candidates|
+|`BEAM_WIDTH`|4|Beam search width|
+|`STRATEGY`|nucleus|Generation strategy: greedy, beam, temperature, top_k, nucleus|
 
 ### Using a Configuration File
 
 Instead of environment variables, you can mount a configuration file:
 
-**docker-compose.yml:**
+docker-compose.yml:
+
 ```yaml
 volumes:
   - ./config.conf:/etc/adai/config.conf:ro
 ```
 
-**config.conf:**
+config.conf:
+
 ```ini
 VOCAB_PATH=/app/vocab/vocab.txt
 LOG_LEVEL=INFO
@@ -115,10 +117,10 @@ Ensure `vocab.txt` exists in the local `./vocab` directory.
 volumes:
   # Pretrained model weights
   - ./models:/app/models:ro
-  
+
   # Application logs (if file logging is enabled)
   - ./logs:/app/logs:rw
-  
+
   # Custom configuration file
   - ./config.conf:/etc/adai/config.conf:ro
 ```
@@ -129,7 +131,8 @@ volumes:
 
 For local development with debug logging:
 
-**docker-compose.override.yml:**
+docker-compose.override.yml:
+
 ```yaml
 version: '3.8'
 
@@ -150,7 +153,8 @@ docker-compose up --build
 
 Production deployment with resource limits:
 
-**docker-compose.prod.yml:**
+docker-compose.prod.yml:
+
 ```yaml
 version: '3.8'
 
@@ -189,6 +193,7 @@ docker-compose --profile production up -d
 ```
 
 This provides:
+
 - SSL/TLS termination
 - Rate limiting
 - Request buffering
@@ -256,7 +261,8 @@ docker-compose stop -t 10
 ```
 
 Expected log output:
-```
+
+```text
 [2026-03-01 16:15:17.862] [info] ==================================================
 [2026-03-01 16:15:17.862] [info]          Initiating Graceful Shutdown
 [2026-03-01 16:15:17.862] [info] ==================================================
@@ -307,7 +313,8 @@ docker stats --no-stream adai-chatbot-api
 
 For production deployments, integrate with log aggregation:
 
-**Using Docker logging driver:**
+Using Docker logging driver:
+
 ```yaml
 services:
   chatbot-api:
@@ -318,7 +325,8 @@ services:
         max-file: "3"
 ```
 
-**Using external logging (e.g., Fluentd):**
+Using external logging (e.g., Fluentd):
+
 ```yaml
 services:
   chatbot-api:
@@ -337,7 +345,8 @@ By default, the API is exposed on `http://localhost:8080`.
 
 To change the host port:
 
-**docker-compose.yml:**
+docker-compose.yml:
+
 ```yaml
 ports:
   - "9000:8080"  # Access on http://localhost:9000
@@ -370,12 +379,14 @@ docker network connect adai_adai-network my-other-container
 
 ### Container Won't Start
 
-**Check logs:**
+Check logs:
+
 ```bash
 docker-compose logs chatbot-api
 ```
 
-**Common issues:**
+Common issues:
+
 - Missing vocabulary file: Ensure `vocab.txt` exists in `./vocab`
 - Port conflict: Change port mapping if 8080 is in use
 - Insufficient memory: Increase Docker memory limit
@@ -524,7 +535,8 @@ docker-compose up -d --force-recreate
 
 ### Backup and Restore
 
-**Backup model weights:**
+Backup model weights:
+
 ```bash
 # Copy from container
 docker cp adai-chatbot-api:/app/models/model.bin ./backup/
@@ -536,7 +548,8 @@ docker run --rm \
   ubuntu tar czf /backup/model-backup.tar.gz /data
 ```
 
-**Restore model weights:**
+Restore model weights:
+
 ```bash
 # Copy to container
 docker cp ./backup/model.bin adai-chatbot-api:/app/models/
@@ -589,7 +602,8 @@ See [KUBERNETES_DEPLOYMENT.md](KUBERNETES_DEPLOYMENT.md) for Kubernetes manifest
 
 ### CI/CD Integration
 
-**Example GitLab CI:**
+Example GitLab CI:
+
 ```yaml
 build:
   stage: build
@@ -620,6 +634,7 @@ The image is built with `-march=native` for the build host. For portability:
 ### Memory Optimization
 
 Reduce memory footprint:
+
 - Use smaller model dimensions (`D_MODEL=256`)
 - Reduce sequence length (`MAX_SEQ_LENGTH=512`)
 - Use greedy decoding (`STRATEGY=greedy`)
@@ -639,7 +654,7 @@ docker build --cache-from adai-chatbot:latest .
 ## Next Steps
 
 - **Production Monitoring**: Set up Prometheus/Grafana for metrics
-- **High Availability**: Deploy multiple replicas behind a load balancer  
+- **High Availability**: Deploy multiple replicas behind a load balancer
 - **Auto-Scaling**: Configure based on CPU/memory metrics
 - **Logging**: Integrate with ELK/Splunk for centralized logging
 
@@ -654,4 +669,4 @@ docker build --cache-from adai-chatbot:latest .
 
 ---
 
-**Step 4: Docker Configuration - COMPLETE ✅**
+## Step 4: Docker Configuration - COMPLETE ✅

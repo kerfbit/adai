@@ -104,16 +104,16 @@ rag->addDocument("new_doc", "New information...");
 
 ## RAG vs BERT Decision Matrix
 
-| Your Need | Use This |
-| ----------- | ---------- |
-| Question answering | ✅ RAG |
-| Factual responses | ✅ RAG |
-| Dynamic knowledge updates | ✅ RAG |
-| Text classification | ✅ BERT |
-| Named entity recognition | ✅ BERT |
-| Sentiment analysis | ✅ BERT |
-| Fast embeddings | ✅ BERT |
-| **Best: Q&A with embeddings** | ✅ **Hybrid (current)** |
+|Your Need|Use This|
+|-----------|----------|
+|Question answering|✅ RAG|
+|Factual responses|✅ RAG|
+|Dynamic knowledge updates|✅ RAG|
+|Text classification|✅ BERT|
+|Named entity recognition|✅ BERT|
+|Sentiment analysis|✅ BERT|
+|Fast embeddings|✅ BERT|
+|**Best: Q&A with embeddings**|✅ **Hybrid (current)**|
 
 ## Key Benefits
 
@@ -156,19 +156,19 @@ config.gen_config.temperature = 0.7f;  // Generation randomness
 
 ## Troubleshooting
 
-**Low retrieval quality?**
+Low retrieval quality?
 
 - Increase `num_retrieved_docs`
 - Lower `retrieval_threshold`
 - Add more/better documents
 
-**Generation ignoring context?**
+Generation ignoring context?
 
 - Increase `max_context_length`
 - Check document relevance
 - Verify encoder quality
 
-**Too slow?**
+Too slow?
 
 - Reduce document count
 - Implement FAISS (for 1K+ docs)

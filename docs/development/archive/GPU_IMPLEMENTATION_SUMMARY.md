@@ -41,7 +41,7 @@ Implemented optional GPU acceleration for matrix operations in the ADAI library 
 
 **Purpose:** GPU device management and utilities
 
-**Key Components:**
+Key Components:
 
 - `GPUManager` class - Singleton for GPU initialization and management
 - `GPUMemory<T>` template - RAII wrapper for GPU memory management
@@ -49,7 +49,7 @@ Implemented optional GPU acceleration for matrix operations in the ADAI library 
 - Device information and synchronization utilities
 - Graceful stub implementations when GPU disabled
 
-**Features:**
+Features:
 
 - Automatic resource cleanup (RAII pattern)
 - Thread-safe initialization
@@ -60,7 +60,7 @@ Implemented optional GPU acceleration for matrix operations in the ADAI library 
 
 **Purpose:** GPU matrix operation declarations
 
-**Operations Provided:**
+Operations Provided:
 
 - Matrix multiplication (cuBLAS-optimized)
 - Element-wise addition
@@ -75,7 +75,7 @@ Implemented optional GPU acceleration for matrix operations in the ADAI library 
 
 **Purpose:** CUDA kernel implementations
 
-**CUDA Kernels:**
+CUDA Kernels:
 
 - `add_kernel` - Element-wise addition
 - `add_scalar_kernel` - Scalar addition
@@ -85,7 +85,7 @@ Implemented optional GPU acceleration for matrix operations in the ADAI library 
 - `activation_kernel` - Multiple activation functions
 - `sum_kernel` - Parallel reduction for sum
 
-**Optimizations:**
+Optimizations:
 
 - Shared memory usage for transpose (avoids bank conflicts)
 - cuBLAS for matrix multiplication (highly optimized)
@@ -96,7 +96,7 @@ Implemented optional GPU acceleration for matrix operations in the ADAI library 
 
 **Purpose:** Demonstration and benchmarking program
 
-**Features:**
+Features:
 
 - Works with or without GPU compilation
 - Performance comparisons (CPU vs GPU)
@@ -109,7 +109,7 @@ Implemented optional GPU acceleration for matrix operations in the ADAI library 
 
 #### 1. `CMakeLists.txt`
 
-**Changes:**
+Changes:
 
 - Added `ENABLE_GPU` option (default: OFF)
 - Conditional CUDA language enablement
@@ -119,7 +119,7 @@ Implemented optional GPU acceleration for matrix operations in the ADAI library 
 
 #### 2. `src/CMakeLists.txt`
 
-**Changes:**
+Changes:
 
 - Conditional compilation of `adai_gpu` library
 - CUDA properties configuration
@@ -129,7 +129,7 @@ Implemented optional GPU acceleration for matrix operations in the ADAI library 
 
 #### 3. `src/Matrix.hpp`
 
-**Changes:**
+Changes:
 
 - Conditional GPU header includes
 - Added GPU static methods:
@@ -146,7 +146,7 @@ Implemented optional GPU acceleration for matrix operations in the ADAI library 
 
 #### 4. `src/Matrix.cpp`
 
-**Changes:**
+Changes:
 
 - GPU method implementations (200+ lines)
 - Helper functions for matrix flattening/unflattening
@@ -156,7 +156,7 @@ Implemented optional GPU acceleration for matrix operations in the ADAI library 
 
 #### 5. `docs/guides/building.md`
 
-**Changes:**
+Changes:
 
 - Added CUDA Toolkit to optional dependencies
 - New "GPU Acceleration" section (100+ lines)
@@ -168,7 +168,7 @@ Implemented optional GPU acceleration for matrix operations in the ADAI library 
 
 #### 6. `TECHNICAL_DEBT.md`
 
-**Changes:**
+Changes:
 
 - Added TD-003: GPU Memory Management Optimization
 - Documented future enhancement opportunity

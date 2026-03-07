@@ -14,7 +14,7 @@ The `EncoderDecoderModel` test suite has been significantly enhanced with compre
 
 ### Original Tests (46 tests)
 
-**Constructor Tests (6 tests):**
+Constructor Tests (6 tests):
 
 - Basic constructor with minimal parameters
 - Constructor with all parameters specified
@@ -22,29 +22,29 @@ The `EncoderDecoderModel` test suite has been significantly enhanced with compre
 - Small model configuration
 - Large model configuration
 
-**Component Access Tests (2 tests):**
+Component Access Tests (2 tests):
 
 - Access to internal components (encoder, decoder, LM head, generator, tokenizer)
 - Generation configuration retrieval
 
-**Configuration Tests (3 tests):**
+Configuration Tests (3 tests):
 
 - Training mode toggling
 - Learning rate setting
 - Generation configuration customization
 
-**Tokenizer Tests (2 tests):**
+Tokenizer Tests (2 tests):
 
 - Vocabulary building
 - Encode/decode round-trip
 
-**Forward Pass Tests (3 tests):**
+Forward Pass Tests (3 tests):
 
 - Basic forward pass
 - Output dimensions verification
 - Different input/target sequence lengths
 
-**Generation Tests (6 tests):**
+Generation Tests (6 tests):
 
 - Basic response generation
 - Greedy strategy
@@ -53,7 +53,7 @@ The `EncoderDecoderModel` test suite has been significantly enhanced with compre
 - Nucleus (top-p) sampling
 - Beam search
 
-**Training Tests (5 tests):**
+Training Tests (5 tests):
 
 - Basic train_step with text
 - Tokenized training
@@ -61,19 +61,19 @@ The `EncoderDecoderModel` test suite has been significantly enhanced with compre
 - Multiple training iterations
 - Simple training loop
 
-**Evaluation Tests (3 tests):**
+Evaluation Tests (3 tests):
 
 - Basic evaluation
 - Training mode preservation during evaluation
 - Perplexity computation
 
-**Weight Management Tests (3 tests):**
+Weight Management Tests (3 tests):
 
 - Zero gradients
 - Update weights
 - Gradient clearing after training
 
-**Save/Load Tests (5 tests):**
+Save/Load Tests (5 tests):
 
 - Model saving
 - Model loading
@@ -81,19 +81,19 @@ The `EncoderDecoderModel` test suite has been significantly enhanced with compre
 - Round-trip save/load
 - Configuration preservation
 
-**Edge Case Tests (3 tests):**
+Edge Case Tests (3 tests):
 
 - Empty input text
 - Very long sequences
 - Single token sequences
 
-**Integration Tests (3 tests):**
+Integration Tests (3 tests):
 
 - End-to-end generation pipeline
 - Train then generate workflow
 - Multi-strategy comparison
 
-**Performance Tests (2 tests):**
+Performance Tests (2 tests):
 
 - Training performance benchmarking
 - Memory stability over iterations
@@ -103,7 +103,7 @@ The `EncoderDecoderModel` test suite has been significantly enhanced with compre
 #### 1. RegisterParametersBasic
 
 **Purpose:** Verify optimizer parameter registration
-**Tests:**
+Tests:
 
 - Calling `register_parameters()` doesn't crash
 - Current implementation shows placeholder warning
@@ -111,7 +111,7 @@ The `EncoderDecoderModel` test suite has been significantly enhanced with compre
 #### 2. BackwardPassWithoutUpdate
 
 **Purpose:** Test backward pass without immediate weight updates
-**Tests:**
+Tests:
 
 - Forward pass → loss gradient computation → backward_pass()
 - Gradients computed without weight update
@@ -120,7 +120,7 @@ The `EncoderDecoderModel` test suite has been significantly enhanced with compre
 #### 3. CustomTrainingLoopWithOptimizer
 
 **Purpose:** Complete custom training loop using optimizer
-**Tests:**
+Tests:
 
 - Optimizer creation (AdamW with weight decay and gradient clipping)
 - Zero gradients
@@ -135,7 +135,7 @@ The `EncoderDecoderModel` test suite has been significantly enhanced with compre
 #### 4. TrainingWithDifferentOptimizers
 
 **Purpose:** Verify all optimizer types work with model
-**Tests:**
+Tests:
 
 - SGD optimizer
 - Adam optimizer with betas
@@ -145,7 +145,7 @@ The `EncoderDecoderModel` test suite has been significantly enhanced with compre
 #### 5. GradientClippingPreventsExplosion
 
 **Purpose:** Verify gradient clipping prevents training instabilities
-**Tests:**
+Tests:
 
 - Multiple training steps with gradient clipping enabled
 - Losses remain finite (no NaN/Inf)
@@ -154,7 +154,7 @@ The `EncoderDecoderModel` test suite has been significantly enhanced with compre
 #### 6. WeightDecayRegularization
 
 **Purpose:** Test weight decay / L2 regularization
-**Tests:**
+Tests:
 
 - AdamW with heavy weight decay (0.1)
 - Model remains functional after multiple steps
@@ -163,7 +163,7 @@ The `EncoderDecoderModel` test suite has been significantly enhanced with compre
 #### 7. LearningRateScheduling
 
 **Purpose:** Test dynamic learning rate adjustment
-**Tests:**
+Tests:
 
 - Multiple learning rates (warmup and decay schedule)
 - Optimizer and model LR stay synchronized
@@ -172,7 +172,7 @@ The `EncoderDecoderModel` test suite has been significantly enhanced with compre
 #### 8. GradientNormMonitoring
 
 **Purpose:** Verify gradient norm tracking for diagnostics
-**Tests:**
+Tests:
 
 - Gradient norms collected over multiple steps
 - Norms are non-negative
@@ -181,7 +181,7 @@ The `EncoderDecoderModel` test suite has been significantly enhanced with compre
 #### 9. OptimizerStateReset
 
 **Purpose:** Test optimizer state management
-**Tests:**
+Tests:
 
 - Accumulate optimizer state (momentum, velocity)
 - Reset state via `reset_state()`
@@ -190,7 +190,7 @@ The `EncoderDecoderModel` test suite has been significantly enhanced with compre
 #### 10. MultipleEpochsWithOptimizer
 
 **Purpose:** Multi-epoch training with optimizer
-**Tests:**
+Tests:
 
 - 3 epochs on 3-sample dataset
 - AdamW with weight decay and gradient clipping
@@ -200,7 +200,7 @@ The `EncoderDecoderModel` test suite has been significantly enhanced with compre
 #### 11. CompareLegacyVsOptimizerTraining
 
 **Purpose:** Compare legacy vs optimizer-based training
-**Tests:**
+Tests:
 
 - Legacy: Built-in `train_step_tokenized()`
 - New: Custom loop with optimizer
@@ -210,7 +210,7 @@ The `EncoderDecoderModel` test suite has been significantly enhanced with compre
 #### 12. ExposedLossFunctions
 
 **Purpose:** Test newly exposed loss computation methods
-**Tests:**
+Tests:
 
 - `compute_loss_for_training()` produces valid loss
 - `compute_loss_gradient_for_training()` produces correct gradient shape
@@ -220,7 +220,7 @@ The `EncoderDecoderModel` test suite has been significantly enhanced with compre
 
 ### Enhanced Model API
 
-**New Methods Added:**
+New Methods Added:
 
 ```cpp
 // Register parameters with external optimizer
@@ -270,6 +270,7 @@ The new tests demonstrate **three training approaches**:
 ## Test Execution
 
 ### Run All Tests
+
 ```bash
 cd build
 make encoderdecoderTests
@@ -277,11 +278,13 @@ make encoderdecoderTests
 ```
 
 ### Run Only Optimizer Tests
+
 ```bash
 ./tests/encoderdecoderTests --gtest_filter="*Optimizer*"
 ```
 
 ### Current Results
+
 ```text
 [==========] Running 58 tests from 2 test suites.
 ...
@@ -292,7 +295,7 @@ make encoderdecoderTests
 
 ## Test Dependencies
 
-**Required Components:**
+Required Components:
 
 - EncoderDecoderModel
 - Optimizer
@@ -303,12 +306,13 @@ make encoderdecoderTests
 - LanguageModelHead
 - TextGenerator
 
-**Build Configuration:**
+Build Configuration:
 Added `Optimizer.cpp` to `ENCODERDECODER_SOURCE_FILES` in `tests/CMakeLists.txt`
 
 ## Test Patterns
 
 ### Common Test Structure
+
 ```cpp
 TEST(EncoderDecoderModelOptimizerTest, TestName) {
     // 1. Create model
@@ -342,6 +346,7 @@ TEST(EncoderDecoderModelOptimizerTest, TestName) {
 ```
 
 ### Helper Functions
+
 ```cpp
 // Check floating point equality with tolerance
 bool is_close(float actual, float expected, float tolerance = 1e-4f);

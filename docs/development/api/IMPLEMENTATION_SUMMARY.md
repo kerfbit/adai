@@ -16,13 +16,13 @@ Successfully implemented a complete REST API layer for the ADAI chatbot system, 
 
 ### 1. Core API Infrastructure
 
-**Files Created:**
+Files Created:
 
 - `src/ChatbotAPI.hpp` - API class header with session management
 - `src/ChatbotAPI.cpp` - API implementation with HTTP endpoints
 - `src/ChatbotAPIServer.cpp` - Main server executable
 
-**Key Features:**
+Key Features:
 
 - ✅ HTTP server using cpp-httplib (header-only library)
 - ✅ Thread-safe session management with mutexes
@@ -33,16 +33,16 @@ Successfully implemented a complete REST API layer for the ADAI chatbot system, 
 
 ### 2. API Endpoints
 
-| Method | Endpoint | Description | Status |
-| -------- | ---------- | ------------- | -------- |
-| GET | `/health` | Server health check with active session count | ✅ |
-| POST | `/chat` | Single-turn conversation (stateless) | ✅ |
-| POST | `/chat/session` | Multi-turn conversation (session-based) | ✅ |
-| POST | `/clear-session` | Clear conversation history for session | ✅ |
+|Method|Endpoint|Description|Status|
+|--------|----------|-------------|--------|
+|GET|`/health`|Server health check with active session count|✅|
+|POST|`/chat`|Single-turn conversation (stateless)|✅|
+|POST|`/chat/session`|Multi-turn conversation (session-based)|✅|
+|POST|`/clear-session`|Clear conversation history for session|✅|
 
 ### 3. Session Management
 
-**Features:**
+Features:
 
 - Unique session ID generation (32-character hex strings)
 - Thread-safe session storage with std::mutex
@@ -50,7 +50,7 @@ Successfully implemented a complete REST API layer for the ADAI chatbot system, 
 - Session cleanup during health checks
 - Per-session conversation context tracking
 
-**Session Structure:**
+Session Structure:
 
 ```cpp
 struct Session {
@@ -61,14 +61,14 @@ struct Session {
 
 ### 4. JSON Serialization
 
-**Implementation:**
+Implementation:
 
 - Simple JSON parser without external dependencies
 - Handles common escape sequences (\n, \r, \t, \", \\)
 - Request parsing for `message` and `session_id` fields
 - Response formatting with proper escaping
 
-**Request Format:**
+Request Format:
 
 ```json
 {
@@ -77,7 +77,7 @@ struct Session {
 }
 ```
 
-**Response Format:**
+Response Format:
 
 ```json
 {
@@ -89,7 +89,7 @@ struct Session {
 
 ### 5. Text Generation Integration
 
-**Supported Strategies:**
+Supported Strategies:
 
 - Greedy decoding
 - Beam search (configurable beam width)
@@ -97,7 +97,7 @@ struct Session {
 - Top-k sampling
 - Nucleus (top-p) sampling
 
-**Configuration:**
+Configuration:
 
 ```cpp
 struct GenerationConfig {
@@ -112,7 +112,7 @@ struct GenerationConfig {
 
 ### 6. Build System Integration
 
-**CMake Changes:**
+CMake Changes:
 
 - Added `BUILD_API_SERVER` option (default: ON)
 - Auto-detection of cpp-httplib header
@@ -120,7 +120,7 @@ struct GenerationConfig {
 - New executable target: `chatbot_api_server`
 - Proper dependency linking (pthread for multi-threading)
 
-**Build Commands:**
+Build Commands:
 
 ```bash
 cmake .. -DBUILD_API_SERVER=ON
@@ -129,17 +129,17 @@ make chatbot_api_server
 
 ### 7. Dependency Management
 
-**Created:**
+Created:
 
 - `scripts/install_httplib.sh` - Automated cpp-httplib installation
 
-**Usage:**
+Usage:
 
 ```bash
 ./scripts/install_httplib.sh
 ```
 
-**Details:**
+Details:
 
 - Downloads cpp-httplib v0.15.3 (single header file)
 - Installs to `external/cpp-httplib/httplib.h`
@@ -148,12 +148,12 @@ make chatbot_api_server
 
 ### 8. Documentation
 
-**Created:**
+Created:
 
 - `docs/api/rest-api.md` - Complete API reference (18 pages)
 - `docs/api/README.md` - Quick start guide and examples
 
-**Documentation Includes:**
+Documentation Includes:
 
 - Endpoint specifications
 - Request/response formats
@@ -166,11 +166,11 @@ make chatbot_api_server
 
 ### 9. Client Tools
 
-**Created:**
+Created:
 
 - `scripts/api_client_example.py` - Interactive Python client
 
-**Features:**
+Features:
 
 - Health check
 - Single-turn chat demo
@@ -178,7 +178,7 @@ make chatbot_api_server
 - Session management (clear history)
 - Error handling
 
-**Usage:**
+Usage:
 
 ```bash
 python3 scripts/api_client_example.py
@@ -190,12 +190,12 @@ python3 scripts/api_client_example.py
 
 ### Command-Line Options
 
-**Server:**
+Server:
 
 - `--port` - HTTP port (default: 8080)
 - `--timeout` - Session timeout in minutes (default: 30)
 
-**Model:**
+Model:
 
 - `--model` - Pre-trained model path (optional)
 - `--vocab` - Vocabulary file (required)
@@ -206,7 +206,7 @@ python3 scripts/api_client_example.py
 - `--dec-layers` - Decoder layers (default: 6)
 - `--max-seq-len` - Max sequence length (default: 1024)
 
-**Generation:**
+Generation:
 
 - `--max-gen-len` - Max response length (default: 100)
 - `--temperature` - Sampling temperature (default: 1.0)
@@ -215,7 +215,7 @@ python3 scripts/api_client_example.py
 
 ### Example Usage
 
-**Development (small model, fast):**
+Development (small model, fast):
 
 ```bash
 ./chatbot_api_server \
@@ -227,7 +227,7 @@ python3 scripts/api_client_example.py
     --strategy greedy
 ```
 
-**Production (with trained model):**
+Production (with trained model):
 
 ```bash
 ./chatbot_api_server \
@@ -324,13 +324,13 @@ pkill chatbot_api_server
 
 ### Performance Considerations
 
-**Current Implementation:**
+Current Implementation:
 
 - Single-threaded generation (sequential request processing)
 - No request queuing
 - No KV caching (decoder recomputes for each token)
 
-**Future Optimizations (Phase 3, Part 2):**
+Future Optimizations (Phase 3, Part 2):
 
 - KV cache for decoder (~2-3x speedup)
 - Batch inference
@@ -393,7 +393,7 @@ The API layer integrates with:
 - Executable created
 - Documentation complete
 
-**Usage:**
+Usage:
 
 ```bash
 ./chatbot_api_server --vocab vocab.txt --port 8080
@@ -401,7 +401,7 @@ The API layer integrates with:
 
 ### 2. Local Production ⚠️ NEEDS SECURITY
 
-**Additional Needed:**
+Additional Needed:
 
 - Reverse proxy (nginx) for HTTPS
 - systemd service file
@@ -412,7 +412,7 @@ The API layer integrates with:
 
 ### 3. Cloud Deployment ⚠️ NEEDS CONTAINERIZATION
 
-**Additional Needed:**
+Additional Needed:
 
 - Docker container
 - Kubernetes manifests
@@ -423,7 +423,7 @@ The API layer integrates with:
 
 ### 4. High-Performance Production ❌ NEEDS OPTIMIZATION
 
-**Additional Needed:**
+Additional Needed:
 
 - KV cache implementation
 - Batch processing
@@ -438,20 +438,20 @@ The API layer integrates with:
 
 ### Phase 3 Objectives (from chatbot-completeness.md)
 
-| Objective | Status | Notes |
-| ----------- | -------- | ------- |
-| REST API Implementation | ✅ COMPLETE | All endpoints functional |
-| HTTP server (cpp-httplib) | ✅ COMPLETE | Integrated and working |
-| POST /chat endpoint | ✅ COMPLETE | Single-turn conversation |
-| POST /chat/session endpoint | ✅ COMPLETE | Multi-turn with sessions |
-| GET /health endpoint | ✅ COMPLETE | Health check |
-| POST /clear-session endpoint | ✅ COMPLETE | Clear history |
-| JSON serialization | ✅ COMPLETE | Request/response handling |
-| Session management | ✅ COMPLETE | Thread-safe with expiration |
-| Session timeout handling | ✅ COMPLETE | Configurable (default 30min) |
-| Concurrent access support | ✅ COMPLETE | Mutex-protected |
-| Build integration | ✅ COMPLETE | CMake configured |
-| Documentation | ✅ COMPLETE | Comprehensive API docs |
+|Objective|Status|Notes|
+|-----------|--------|-------|
+|REST API Implementation|✅ COMPLETE|All endpoints functional|
+|HTTP server (cpp-httplib)|✅ COMPLETE|Integrated and working|
+|POST /chat endpoint|✅ COMPLETE|Single-turn conversation|
+|POST /chat/session endpoint|✅ COMPLETE|Multi-turn with sessions|
+|GET /health endpoint|✅ COMPLETE|Health check|
+|POST /clear-session endpoint|✅ COMPLETE|Clear history|
+|JSON serialization|✅ COMPLETE|Request/response handling|
+|Session management|✅ COMPLETE|Thread-safe with expiration|
+|Session timeout handling|✅ COMPLETE|Configurable (default 30min)|
+|Concurrent access support|✅ COMPLETE|Mutex-protected|
+|Build integration|✅ COMPLETE|CMake configured|
+|Documentation|✅ COMPLETE|Comprehensive API docs|
 
 **Overall Phase 3, Part 1 Completion: 100%** ✅
 

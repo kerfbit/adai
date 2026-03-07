@@ -10,7 +10,7 @@ The CLI chatbot couldn't find the model file because:
 
 ## Automatic Solution (Recommended)
 
-**The trainer now automatically creates the correct model files!**
+The trainer now automatically creates the correct model files!
 
 When training completes, the trainer:
 

@@ -1,8 +1,8 @@
 # ConversationContext Class - Context Documentation
 
-**Component:** `ConversationContext`  
-**Files:** `src/ConversationContext.hpp`, `src/ConversationContext.cpp`  
-**Purpose:** Manage multi-turn conversation history for chatbot applications  
+**Component:** `ConversationContext`
+**Files:** `src/ConversationContext.hpp`, `src/ConversationContext.cpp`
+**Purpose:** Manage multi-turn conversation history for chatbot applications
 **Status:** ✅ Complete and Production-Ready
 
 ---
@@ -80,13 +80,13 @@ ConversationContext(int max_messages = 20,
                    bool keep_system_message = true);
 ```
 
-**Parameters:**
+Parameters:
 
 - `max_messages`: Maximum conversation messages (0 = unlimited)
 - `max_tokens`: Maximum total tokens (0 = unlimited)
 - `keep_system_message`: Whether to preserve system message during truncation
 
-**Example:**
+Example:
 
 ```cpp
 // Chatbot with 20-message history, 2048 token limit
@@ -108,19 +108,19 @@ void add_message(const std::string& role, const std::string& content, int token_
 void set_system_message(const std::string& content, int token_count = 0);
 ```
 
-**Parameters:**
+Parameters:
 
 - `content`: Message text
 - `token_count`: Token count (0 = auto-estimate)
 - `role`: Custom role for `add_message()`
 
-**Behavior:**
+Behavior:
 
 - Automatically truncates if limits exceeded
 - Estimates tokens if not provided
 - Updates total token count
 
-**Example:**
+Example:
 
 ```cpp
 // Basic usage (auto token estimation)
@@ -148,7 +148,7 @@ std::string format_with_special_tokens(const std::string& bos_token = "<bos>",
 
 **Purpose**: Convert conversation to model input format
 
-**Example:**
+Example:
 
 ```cpp
 // Standard formatting
@@ -174,7 +174,7 @@ std::vector<Message> get_messages() const;
 std::string get_system_message() const;
 ```
 
-**Example:**
+Example:
 
 ```cpp
 // Get last user input
@@ -196,7 +196,7 @@ void set_max_messages(int max_messages);   // Update message limit
 void set_max_tokens(int max_tokens);       // Update token limit
 ```
 
-**Example:**
+Example:
 
 ```cpp
 // Start new conversation (keep system instructions)
@@ -218,7 +218,7 @@ bool is_empty() const;
 std::string get_statistics() const;
 ```
 
-**Example:**
+Example:
 
 ```cpp
 std::cout << context.get_statistics();
@@ -240,19 +240,19 @@ void save_to_file(const std::string& filepath) const;
 void load_from_file(const std::string& filepath);
 ```
 
-**File Format:**
+File Format:
 
 ```text
 MAX_MESSAGES:20
 MAX_TOKENS:2048
 KEEP_SYSTEM:1
 ---
-SYSTEM| 15 |You are a helpful assistant.
-user| 10 |Hello world
-assistant| 12 |Hi there!
+SYSTEM|15|You are a helpful assistant.
+user|10|Hello world
+assistant|12|Hi there!
 ```
 
-**Example:**
+Example:
 
 ```cpp
 // Save conversation
@@ -272,7 +272,7 @@ ConversationContext create_summarized(int keep_recent = 5,
 
 **Purpose**: Create compressed version for long conversations
 
-**Example:**
+Example:
 
 ```cpp
 // Original: 50 messages
@@ -459,26 +459,26 @@ public:
 
 ### Memory Usage
 
-**Per Message:**
+Per Message:
 
 - Message struct: ~48 bytes (role, content, token_count)
 - Content string: variable (actual text size)
 - **Total**: ~50 bytes + text length
 
-**For 20 messages @ 100 chars each:**
+For 20 messages @ 100 chars each:
 
 - ~20 * (50 + 100) = 3 KB
 - Very lightweight
 
 ### Time Complexity
 
-| Operation | Complexity | Notes |
-| ----------- | ------------ | ------- |
-| add_message | O(1) amortized | May trigger truncation |
-| truncate | O(n) | Where n = messages to remove |
-| format_for_model | O(m) | Where m = total message count |
-| get_last_* | O(m) | Linear search backwards |
-| save/load | O(m) | File I/O |
+|Operation|Complexity|Notes|
+|-----------|------------|-------|
+|add_message|O(1) amortized|May trigger truncation|
+|truncate|O(n)|Where n = messages to remove|
+|format_for_model|O(m)|Where m = total message count|
+|get_last_*|O(m)|Linear search backwards|
+|save/load|O(m)|File I/O|
 
 ### Optimization Tips
 
@@ -511,19 +511,19 @@ public:
 
 ### Design Trade-offs
 
-**Automatic vs Manual Truncation:**
+Automatic vs Manual Truncation:
 
 - ✅ Automatic: Convenient, prevents OOM
 - ❌ Automatic: May remove important context
 - **Choice**: Automatic with manual override (create_summarized)
 
-**Token Estimation vs Exact Counting:**
+Token Estimation vs Exact Counting:
 
 - ✅ Estimation: No tokenizer dependency, faster
 - ❌ Estimation: Less accurate
 - **Choice**: Estimation with option for exact counts
 
-**Deque vs Vector:**
+Deque vs Vector:
 
 - ✅ Deque: Efficient front removal
 - ❌ Deque: Slightly more memory overhead
@@ -608,15 +608,15 @@ TEST(ConversationContextTest, AutomaticTruncation) {
 
 ### Configuration Recommendations
 
-**For Different Use Cases:**
+For Different Use Cases:
 
-| Use Case | max_messages | max_tokens | keep_system |
-| ---------- | -------------- | ------------ | ------------- |
-| Short Q&A | 10 | 1024 | true |
-| General Chat | 20 | 2048 | true |
-| Long Dialogue | 50 | 4096 | true |
-| Technical Support | 30 | 3072 | true |
-| Creative Writing | 0 | 8192 | true |
+|Use Case|max_messages|max_tokens|keep_system|
+|----------|--------------|------------|-------------|
+|Short Q&A|10|1024|true|
+|General Chat|20|2048|true|
+|Long Dialogue|50|4096|true|
+|Technical Support|30|3072|true|
+|Creative Writing|0|8192|true|
 
 ### Monitoring
 
@@ -675,13 +675,13 @@ The `ConversationContext` class provides a robust, production-ready solution for
 
 ### Integration Status
 
-| Component | Status |
-| ----------- | -------- |
-| EncoderDecoderModel | ✅ Ready to integrate |
-| BPETokenizer | ✅ Compatible for token counting |
-| TextGenerator | ✅ Works with formatted output |
-| Training Pipeline | ✅ Can format training data |
-| API Layer | ✅ Ready for HTTP/gRPC integration |
+|Component|Status|
+|-----------|--------|
+|EncoderDecoderModel|✅ Ready to integrate|
+|BPETokenizer|✅ Compatible for token counting|
+|TextGenerator|✅ Works with formatted output|
+|Training Pipeline|✅ Can format training data|
+|API Layer|✅ Ready for HTTP/gRPC integration|
 
 ### Next Steps
 

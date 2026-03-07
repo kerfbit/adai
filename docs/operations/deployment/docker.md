@@ -1,6 +1,6 @@
 # Docker Deployment Guide
 
-**ADAI Chatbot API Server - Containerization**
+ADAI Chatbot API Server - Containerization
 Version 1.0.0
 Date: January 25, 2026
 
@@ -84,7 +84,7 @@ The ADAI Chatbot API Server is containerized using Docker for easy deployment, s
 
 ### Installation
 
-**Ubuntu/Debian:**
+Ubuntu/Debian:
 
 ```bash
 # Install Docker
@@ -99,14 +99,14 @@ sudo apt-get install docker-compose-plugin
 sudo usermod -aG docker $USER
 ```
 
-**macOS:**
+macOS:
 
 ```bash
 # Install Docker Desktop
 brew install --cask docker
 ```
 
-**Verify Installation:**
+Verify Installation:
 
 ```bash
 docker --version
@@ -211,7 +211,7 @@ The Docker image uses a **multi-stage build** to minimize size:
 
 ### Building the Image
 
-**Using the Build Script:**
+Using the Build Script:
 
 ```bash
 # Build with default settings
@@ -227,7 +227,7 @@ The Docker image uses a **multi-stage build** to minimize size:
 ./scripts/docker_build.sh --platform linux/amd64
 ```
 
-**Manual Build:**
+Manual Build:
 
 ```bash
 # Default build
@@ -350,18 +350,18 @@ docker-compose --profile production up -d
 
 Configure the container using environment variables:
 
-| Variable | Default | Description |
-| ---------- | --------- | ------------- |
-| `PORT` | `8080` | API server port |
-| `MAX_LENGTH` | `100` | Maximum generation length |
-| `TEMPERATURE` | `1.0` | Sampling temperature |
-| `TOP_P` | `0.9` | Nucleus sampling threshold |
-| `TOP_K` | `50` | Top-k sampling parameter |
-| `BEAM_WIDTH` | `4` | Beam search width |
-| `SESSION_TIMEOUT` | `1800` | Session timeout (seconds) |
-| `LOG_LEVEL` | `INFO` | Logging level |
+|Variable|Default|Description|
+|----------|---------|-------------|
+|`PORT`|`8080`|API server port|
+|`MAX_LENGTH`|`100`|Maximum generation length|
+|`TEMPERATURE`|`1.0`|Sampling temperature|
+|`TOP_P`|`0.9`|Nucleus sampling threshold|
+|`TOP_K`|`50`|Top-k sampling parameter|
+|`BEAM_WIDTH`|`4`|Beam search width|
+|`SESSION_TIMEOUT`|`1800`|Session timeout (seconds)|
+|`LOG_LEVEL`|`INFO`|Logging level|
 
-**Example:**
+Example:
 
 ```bash
 docker run -d \
@@ -402,20 +402,20 @@ docker run -d \
 
 ### Volume Types
 
-**1. Read-Only Volumes (Model Artifacts):**
+1. Read-Only Volumes (Model Artifacts):
 
 ```bash
 -v /path/to/models:/app/models:ro
 -v /path/to/vocab.txt:/app/vocab/vocab.txt:ro
 ```
 
-**2. Read-Write Volumes (Logs):**
+2. Read-Write Volumes (Logs):
 
 ```bash
 -v /path/to/logs:/app/logs:rw
 ```
 
-**3. Named Volumes (Docker-managed):**
+3. Named Volumes (Docker-managed):
 
 ```yaml
 volumes:
@@ -466,21 +466,21 @@ docker run --rm \
 
 ### Port Mapping
 
-**Default Port:**
+Default Port:
 
 ```bash
 -p 8080:8080
 # Host:Container
 ```
 
-**Custom Host Port:**
+Custom Host Port:
 
 ```bash
 -p 9090:8080
 # Access at http://localhost:9090
 ```
 
-**Multiple Instances:**
+Multiple Instances:
 
 ```bash
 docker run -d -p 8081:8080 --name api-1 adai-chatbot:latest
@@ -490,14 +490,14 @@ docker run -d -p 8083:8080 --name api-3 adai-chatbot:latest
 
 ### Docker Networks
 
-**Default Bridge Network:**
+Default Bridge Network:
 
 ```bash
 docker network ls
 # Containers can communicate using container names
 ```
 
-**Custom Network:**
+Custom Network:
 
 ```bash
 # Create network
@@ -510,7 +510,7 @@ docker run -d \
   adai-chatbot:latest
 ```
 
-**Connect Multiple Containers:**
+Connect Multiple Containers:
 
 ```bash
 # Start API server
@@ -546,7 +546,7 @@ docker exec chatbot-api ping nginx
 
 ### SSL Certificate Setup
 
-**Generate Self-Signed Certificate (Testing):**
+Generate Self-Signed Certificate (Testing):
 
 ```bash
 mkdir -p docker/nginx/ssl
@@ -555,7 +555,7 @@ openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
   -out docker/nginx/ssl/cert.pem
 ```
 
-**Use Let's Encrypt (Production):**
+Use Let's Encrypt (Production):
 
 ```bash
 # Install certbot
@@ -571,7 +571,7 @@ cp /etc/letsencrypt/live/yourdomain.com/privkey.pem docker/nginx/ssl/key.pem
 
 ### Production Deployment Steps
 
-**1. Prepare Environment:**
+1. Prepare Environment:
 
 ```bash
 # Create production directory
@@ -587,7 +587,7 @@ mkdir -p docker/nginx/ssl
 # Copy your SSL certificates here
 ```
 
-**2. Build Production Image:**
+2. Build Production Image:
 
 ```bash
 # Build with production tag
@@ -597,7 +597,7 @@ mkdir -p docker/nginx/ssl
 ./scripts/docker_build.sh -t v1.0.0
 ```
 
-**3. Configure Production Settings:**
+3. Configure Production Settings:
 
 ```bash
 # Edit docker-compose.yml
@@ -606,7 +606,7 @@ mkdir -p docker/nginx/ssl
 # Enable restart policies
 ```
 
-**4. Start with Production Profile:**
+4. Start with Production Profile:
 
 ```bash
 # Start all services including Nginx
@@ -616,7 +616,7 @@ docker-compose --profile production up -d
 docker-compose ps
 ```
 
-**5. Verify Deployment:**
+5. Verify Deployment:
 
 ```bash
 # Check health
@@ -630,7 +630,7 @@ curl -X POST https://yourdomain.com/chat \
 
 ### Load Balancing
 
-**Using Docker Swarm:**
+Using Docker Swarm:
 
 ```bash
 # Initialize swarm
@@ -643,7 +643,7 @@ docker stack deploy -c docker-compose.yml adai
 docker service scale adai_chatbot-api=3
 ```
 
-**Using External Load Balancer (AWS ELB, etc.):**
+Using External Load Balancer (AWS ELB, etc.):
 
 ```text
 Internet → Load Balancer → Multiple Docker Hosts → Containers
@@ -675,7 +675,7 @@ services:
 
 ### Container Logs
 
-**View Real-time Logs:**
+View Real-time Logs:
 
 ```bash
 # All logs
@@ -688,7 +688,7 @@ docker logs --tail 100 adai-chatbot-api
 docker logs --since 2026-01-25T00:00:00 adai-chatbot-api
 ```
 
-**Log Rotation:**
+Log Rotation:
 
 ```bash
 docker run -d \
@@ -710,12 +710,12 @@ tail -f logs/api.log
 grep ERROR logs/api.log
 
 # Analyze access patterns
-cat logs/api.log | grep POST | wc -l
+cat logs/api.log |grep POST| wc -l
 ```
 
 ### Health Monitoring
 
-**Health Check Endpoint:**
+Health Check Endpoint:
 
 ```bash
 # Check container health
@@ -725,7 +725,7 @@ docker inspect --format='{{.State.Health.Status}}' adai-chatbot-api
 curl http://localhost:8080/health
 ```
 
-**Automated Monitoring:**
+Automated Monitoring:
 
 ```bash
 # Simple monitoring script
@@ -741,7 +741,7 @@ done
 
 ### Performance Metrics
 
-**Container Stats:**
+Container Stats:
 
 ```bash
 # Real-time stats
@@ -751,7 +751,7 @@ docker stats adai-chatbot-api
 docker stats --no-stream adai-chatbot-api
 ```
 
-**Resource Usage:**
+Resource Usage:
 
 ```bash
 # CPU and memory usage
@@ -760,7 +760,7 @@ docker inspect -f '{{.State.Pid}}' adai-chatbot-api | xargs ps -o %cpu,%mem,cmd 
 
 ### Integration with Monitoring Tools
 
-**Prometheus:**
+Prometheus:
 
 ```yaml
 # Add to docker-compose.yml
@@ -772,7 +772,7 @@ docker inspect -f '{{.State.Pid}}' adai-chatbot-api | xargs ps -o %cpu,%mem,cmd 
       - "9090:9090"
 ```
 
-**Grafana:**
+Grafana:
 
 ```yaml
   grafana:
@@ -801,7 +801,7 @@ docker logs adai-chatbot-api
 # - Insufficient resources
 ```
 
-**Solution:**
+Solution:
 
 ```bash
 # Check port availability
@@ -824,7 +824,7 @@ docker inspect --format='{{json .State.Health}}' adai-chatbot-api
 docker exec adai-chatbot-api curl localhost:8080/health
 ```
 
-**Solution:**
+Solution:
 
 ```bash
 # Increase health check timeout
@@ -839,7 +839,7 @@ docker run -d \
 # Error: Permission denied accessing /app/logs
 ```
 
-**Solution:**
+Solution:
 
 ```bash
 # Fix permissions on host
@@ -858,7 +858,7 @@ docker run -d \
 # Container killed: OOM
 ```
 
-**Solution:**
+Solution:
 
 ```bash
 # Increase memory limit
@@ -874,7 +874,7 @@ docker run -d \
 # Cannot connect to container
 ```
 
-**Solution:**
+Solution:
 
 ```bash
 # Check container is running
@@ -1091,7 +1091,7 @@ This guide covered comprehensive Docker deployment for the ADAI Chatbot API Serv
 - ✅ **Troubleshooting:** Common issues and solutions
 - ✅ **Best Practices:** Security, performance, operations
 
-**Next Steps:**
+Next Steps:
 
 1. Build your Docker image: `./scripts/docker_build.sh`
 2. Test locally: `docker-compose up -d`

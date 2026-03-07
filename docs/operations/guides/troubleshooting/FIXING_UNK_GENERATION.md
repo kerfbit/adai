@@ -188,7 +188,7 @@ stat -c '%y %n' vocab.txt chatbot_model.bin
 
 # Watch for:
 # - Decreasing training loss
-# - Decreasing validation loss  
+# - Decreasing validation loss
 # - Vocabulary size matches expectations
 ```
 
@@ -273,7 +273,7 @@ If you still see `<unk>` tokens after all fixes:
    ```bash
    # Training data should have diverse vocabulary
    cat sample_training_data.txt | wc -w  # Word count
-   cat sample_training_data.txt | tr ' ' '\n' | sort -u | wc -l  # Unique words
+   cat sample_training_data.txt |tr ' ' '\n'|sort -u| wc -l  # Unique words
    ```
 
 2. **Increase training epochs significantly**:

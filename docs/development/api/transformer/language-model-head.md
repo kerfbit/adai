@@ -312,7 +312,7 @@ float scale = std::sqrt(2.0f / (d_model + vocab_size));
 W_output.randomize(scale);
 ```
 
-**Why Xavier?**
+Why Xavier?
 
 - Maintains variance of activations across layers
 - Prevents vanishing/exploding gradients
@@ -690,23 +690,23 @@ for (int start = 0; start < seq_len; start += chunk_size) {
 
 ### vs. FeedForward Layer
 
-| Aspect | LanguageModelHead | FeedForward |
-| -------- | ------------------- | ------------- |
-| Purpose | Project to vocabulary | Non-linear transformation |
-| Layers | 1 linear | 2 linear + activation |
-| Output size | vocab_size | d_model |
-| Activation | None (logits) | ReLU/GELU |
-| Position | Final layer | Middle layers |
+|Aspect|LanguageModelHead|FeedForward|
+|--------|-------------------|-------------|
+|Purpose|Project to vocabulary|Non-linear transformation|
+|Layers|1 linear|2 linear + activation|
+|Output size|vocab_size|d_model|
+|Activation|None (logits)|ReLU/GELU|
+|Position|Final layer|Middle layers|
 
 ### vs. TokenEmbedding Layer
 
-| Aspect | LanguageModelHead | TokenEmbedding |
-| -------- | ------------------- | ---------------- |
-| Direction | d_model → vocab | vocab → d_model |
-| Input | Hidden states | Token IDs |
-| Output | Logits | Embeddings |
-| Weights | Can be tied | Can be tied |
-| Gradient | Always computed | Only for trainable tokens |
+|Aspect|LanguageModelHead|TokenEmbedding|
+|--------|-------------------|----------------|
+|Direction|d_model → vocab|vocab → d_model|
+|Input|Hidden states|Token IDs|
+|Output|Logits|Embeddings|
+|Weights|Can be tied|Can be tied|
+|Gradient|Always computed|Only for trainable tokens|
 
 ---
 
@@ -904,26 +904,26 @@ The **LanguageModelHead** component is the critical final layer that transforms 
 
 Added support for advanced optimization algorithms through the `Optimizer` class:
 
-**New Functionality:**
+New Functionality:
 
 - `set_optimizer(Optimizer* opt)` - Register optimizer and parameters
 - `register_parameters()` - Explicitly register parameter groups
 - Enhanced `update_weights()` - Uses optimizer when available, falls back to gradient descent
 
-**Parameter Management:**
+Parameter Management:
 
 - Registers 2 parameter groups: W_output, bias
 - Each group linked with corresponding gradient matrix
 - Supports Adam, AdamW, SGD with momentum
 
-**Backward Compatibility:**
+Backward Compatibility:
 
 - Optimizer pointer defaults to `nullptr`
 - Existing code works without modification
 - `learning_rate` still used when optimizer not set
 - Simple gradient descent fallback maintained
 
-**Benefits:**
+Benefits:
 
 - Better convergence with adaptive learning rates
 - Built-in weight decay and momentum support
@@ -931,13 +931,13 @@ Added support for advanced optimization algorithms through the `Optimizer` class
 - Unified optimization across model components
 - Especially beneficial for large vocabulary sizes
 
-**Test Coverage:**
+Test Coverage:
 
 - Added 12 comprehensive optimizer integration tests
 - Total test suite: 42/42 tests passing
 - Tests cover all optimizer types and edge cases
 
-**Migration:**
+Migration:
 
 ```cpp
 // Old code (still works):
@@ -952,7 +952,7 @@ lm_head.set_optimizer(&opt);
 lm_head.update_weights();  // Uses Adam
 ```
 
-**Documentation Updates:**
+Documentation Updates:
 
 - Added Optimizer Integration section
 - Updated Weight Update documentation

@@ -4,7 +4,7 @@
 
 The `Matrix` class is a fundamental component for tensor operations in the neural network framework. It provides essential matrix operations needed for forward propagation, backpropagation, and gradient-based optimization in deep learning applications.
 
-**Files:**
+Files:
 
 - `src/Matrix.hpp` - Header file with class declaration and interface
 - `src/Matrix.cpp` - Implementation file with all method definitions
@@ -51,7 +51,7 @@ Matrix(int r, int c)
 
 Creates a zero-initialized matrix with specified dimensions.
 
-**Parameters:**
+Parameters:
 
 - `r` - Number of rows
 - `c` - Number of columns
@@ -60,7 +60,7 @@ Creates a zero-initialized matrix with specified dimensions.
 
 **Use case:** Creating weight matrices, gradient buffers, activation tensors
 
-**Example:**
+Example:
 
 ```cpp
 Matrix weights(256, 512);  // 256x512 zero matrix for layer weights
@@ -81,7 +81,7 @@ Creates a matrix from existing 2D vector data.
 
 **Use case:** Loading pre-initialized data, testing, constant matrices
 
-**Example:**
+Example:
 
 ```cpp
 Matrix identity({{1, 0, 0},
@@ -104,7 +104,7 @@ const float& operator()(int i, int j) const  // Read-only access
 
 **Complexity:** O(1)
 
-**Example:**
+Example:
 
 ```cpp
 Matrix A(3, 3);
@@ -126,7 +126,7 @@ Matrix operator*(const Matrix& other) const
 
 **Algorithm:** Triple nested loop with O(m × n × p) complexity
 
-**Example:**
+Example:
 
 ```cpp
 Matrix W(512, 256);      // Weights
@@ -134,7 +134,7 @@ Matrix X(100, 512);      // Batch of 100 inputs
 Matrix Y = X * W;        // Result: 100x256
 ```
 
-**Formula:**
+Formula:
 
 ```text
 Y[i][j] = Σ(k=0 to n-1) A[i][k] * B[k][j]
@@ -154,7 +154,7 @@ Matrix operator+(const Matrix& other) const
 
 **Use case:** Residual connections, bias addition
 
-**Example:**
+Example:
 
 ```cpp
 Matrix A(5, 5);
@@ -176,7 +176,7 @@ Matrix operator-(const Matrix& other) const
 
 **Use case:** Computing gradients, error terms
 
-**Example:**
+Example:
 
 ```cpp
 Matrix predicted(10, 1);
@@ -198,14 +198,14 @@ Matrix transpose() const
 
 **Use case:** Weight matrix transpose for backprop, attention computation
 
-**Example:**
+Example:
 
 ```cpp
 Matrix W(256, 512);
 Matrix W_T = W.transpose();  // 512x256
 ```
 
-**Formula:**
+Formula:
 
 ```text
 B[j][i] = A[i][j]  for all i, j
@@ -229,7 +229,7 @@ Matrix hadamard(const Matrix& other) const
 
 **Use case:** Activation derivatives, masking, gating mechanisms
 
-**Example:**
+Example:
 
 ```cpp
 Matrix activations(100, 256);
@@ -237,7 +237,7 @@ Matrix derivatives(100, 256);
 Matrix grad = activations.hadamard(derivatives);
 ```
 
-**Formula:**
+Formula:
 
 ```text
 C[i][j] = A[i][j] * B[i][j]  for all i, j
@@ -255,7 +255,7 @@ Matrix scale(float scalar) const
 
 **Use case:** Learning rate scaling, normalization constants
 
-**Example:**
+Example:
 
 ```cpp
 Matrix scores(10, 10);
@@ -263,7 +263,7 @@ float scale_factor = 1.0 / sqrt(64);  // Attention scaling
 Matrix scaled = scores.scale(scale_factor);
 ```
 
-**Formula:**
+Formula:
 
 ```text
 B[i][j] = scalar * A[i][j]  for all i, j
@@ -289,7 +289,7 @@ void apply_gradients(const Matrix& gradients, float learning_rate)
 
 **Use case:** Primary mechanism for updating neural network weights
 
-**Example:**
+Example:
 
 ```cpp
 Matrix weights(512, 256);
@@ -299,13 +299,13 @@ float lr = 0.001f;
 weights.apply_gradients(weight_gradients, lr);
 ```
 
-**Formula:**
+Formula:
 
 ```text
 W[i][j] = W[i][j] - learning_rate * grad[i][j]  for all i, j
 ```
 
-**Gradient Descent Variants:**
+Gradient Descent Variants:
 
 - **SGD:** Direct application as shown
 - **Momentum:** Requires velocity buffer (external)
@@ -327,7 +327,7 @@ void randomize(float scale = 0.1f)
 
 **Use case:** Weight initialization before training
 
-**Example:**
+Example:
 
 ```cpp
 Matrix W(256, 512);
@@ -335,7 +335,7 @@ float scale = sqrt(2.0f / 256);  // He initialization
 W.randomize(scale);
 ```
 
-**Initialization Strategies:**
+Initialization Strategies:
 
 - **Xavier:** `scale = sqrt(2.0 / (fan_in + fan_out))`
 - **He:** `scale = sqrt(2.0 / fan_in)`
@@ -357,7 +357,7 @@ void fill(float value)
 
 **Use case:** Zeroing gradients, initializing bias, creating constant matrices
 
-**Example:**
+Example:
 
 ```cpp
 Matrix gradients(256, 512);
@@ -376,7 +376,7 @@ float sum() const
 
 **Use case:** Computing total loss, gradient magnitude
 
-**Example:**
+Example:
 
 ```cpp
 Matrix loss(10, 1);
@@ -395,14 +395,14 @@ float mean() const
 
 **Use case:** Statistics, normalization
 
-**Example:**
+Example:
 
 ```cpp
 Matrix activations(100, 256);
 float avg_activation = activations.mean();
 ```
 
-**Formula:**
+Formula:
 
 ```text
 mean = sum(all elements) / (rows * cols)
@@ -414,7 +414,7 @@ mean = sum(all elements) / (rows * cols)
 bool is_valid() const
 ```
 
-**Checks:**
+Checks:
 
 1. Dimensions are positive
 2. Data vector size matches `rows`
@@ -442,14 +442,14 @@ Matrix reshape(int new_rows, int new_cols) const
 
 **Use case:** Changing tensor dimensions while preserving data
 
-**Example:**
+Example:
 
 ```cpp
 Matrix A(2, 6);     // 2x6 matrix
 Matrix B = A.reshape(3, 4);  // Reshape to 3x4
 ```
 
-**Process:**
+Process:
 
 1. Flatten to 1D: `[a₀₀, a₀₁, ..., a₁₅]`
 2. Reform to new shape: 12 elements → 3 rows × 4 cols
@@ -465,7 +465,7 @@ void set_row(int row_idx, const std::vector<float>& values)
 
 **Use case:** Row-wise operations, extracting embeddings
 
-**Example:**
+Example:
 
 ```cpp
 Matrix embeddings(1000, 256);
@@ -486,7 +486,7 @@ void set_col(int col_idx, const std::vector<float>& values)
 
 **Use case:** Feature extraction, dimension-wise statistics
 
-**Example:**
+Example:
 
 ```cpp
 Matrix features(100, 10);
@@ -507,14 +507,14 @@ void print(const std::string& name = "",
 
 **Use case:** Debugging, visualization
 
-**Example:**
+Example:
 
 ```cpp
 Matrix W(512, 256);
 W.print("Layer1 Weights", 5, 5);
 ```
 
-**Output:**
+Output:
 
 ```text
 Layer1 Weights (512x256):
@@ -677,19 +677,19 @@ if (M.is_valid() && i < M.rows && j < M.cols) {
 
 ### Time Complexity
 
-| Operation | Complexity | Notes |
-| ----------- | ----------- | ------- |
-| Element access | O(1) | Direct indexing |
-| Matrix multiplication | O(m×n×p) | For [m×n] * [n×p] |
-| Addition/Subtraction | O(m×n) | Element-wise |
-| Transpose | O(m×n) | Copy all elements |
-| Hadamard product | O(m×n) | Element-wise |
-| Scale | O(m×n) | Element-wise |
-| Fill | O(m×n) | Element-wise |
-| Sum/Mean | O(m×n) | Scan all elements |
-| Reshape | O(m×n) | Copy all elements |
-| Get/Set row | O(n) | Single row operation |
-| Get/Set column | O(m) | Single column operation |
+|Operation|Complexity|Notes|
+|-----------|-----------|-------|
+|Element access|O(1)|Direct indexing|
+|Matrix multiplication|O(m×n×p)|For [m×n] * [n×p]|
+|Addition/Subtraction|O(m×n)|Element-wise|
+|Transpose|O(m×n)|Copy all elements|
+|Hadamard product|O(m×n)|Element-wise|
+|Scale|O(m×n)|Element-wise|
+|Fill|O(m×n)|Element-wise|
+|Sum/Mean|O(m×n)|Scan all elements|
+|Reshape|O(m×n)|Copy all elements|
+|Get/Set row|O(n)|Single row operation|
+|Get/Set column|O(m)|Single column operation|
 
 ### Space Complexity
 
@@ -972,7 +972,7 @@ float numerical_gradient(Matrix& W, int i, int j,
 bool has_nan_or_inf(const Matrix& M) {
     for (int i = 0; i < M.rows; i++) {
         for (int j = 0; j < M.cols; j++) {
-            if (std::isnan(M(i, j)) |  | std::isinf(M(i, j))) {
+            if (std::isnan(M(i, j)) || std::isinf(M(i, j))) {
                 return true;
             }
         }
@@ -1007,12 +1007,12 @@ For matrices A[m×n] and B[n×p]:
 C[i][j] = Σ(k=0 to n-1) A[i][k] × B[k][j]
 ```
 
-**Geometric Interpretation:**
+Geometric Interpretation:
 
 - Each element is the dot product of a row from A and a column from B
 - Result dimensions: number of rows from A, number of columns from B
 
-**Properties:**
+Properties:
 
 - Associative: (AB)C = A(BC)
 - Distributive: A(B+C) = AB + AC
@@ -1044,7 +1044,7 @@ Where:
 
 The `Matrix` class provides a complete, self-contained implementation for neural network tensor operations with:
 
-**Strengths:**
+Strengths:
 
 - Clean, intuitive interface
 - Comprehensive operation coverage
@@ -1052,7 +1052,7 @@ The `Matrix` class provides a complete, self-contained implementation for neural
 - Good documentation
 - Training-ready with gradient support
 
-**Use Cases:**
+Use Cases:
 
 - Neural network weight matrices
 - Activation tensors
@@ -1060,7 +1060,7 @@ The `Matrix` class provides a complete, self-contained implementation for neural
 - Embedding tables
 - Attention mechanisms
 
-**Integration:**
+Integration:
 
 - Used by LayerNorm, TokenEmbedding, MultiHeadAttention, FeedForward
 - Core component of LLMEncoder architecture

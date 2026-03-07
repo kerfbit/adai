@@ -22,7 +22,7 @@ This document provides comprehensive documentation for the ChatbotCLI test suite
 **Test Framework:** Google Test (GTest) 1.14.0
 **Approach:** Direct class instantiation and testing via header file
 
-**Key Improvements:**
+Key Improvements:
 
 - ✅ Tests actual ChatbotCLI class (not just helper functions)
 - ✅ Full constructor, accessor, and mutator coverage
@@ -32,19 +32,19 @@ This document provides comprehensive documentation for the ChatbotCLI test suite
 
 ## Improved Test Suite Coverage
 
-| Test Suite | Tests | Purpose |
-| ------------ | ------- | --------- |
-| ChatbotCLITest | 17 | Class functionality (constructor, getters, setters, commands) |
-| CommandValidationTest | 3 | Command recognition and validation |
-| StrategyValidationTest | 2 | Generation strategy validation |
-| ColorCodeTest | 1 | ANSI color code validation |
-| **Total** | **23** | **Core CLI functionality with header support** |
+|Test Suite|Tests|Purpose|
+|------------|-------|---------|
+|ChatbotCLITest|17|Class functionality (constructor, getters, setters, commands)|
+|CommandValidationTest|3|Command recognition and validation|
+|StrategyValidationTest|2|Generation strategy validation|
+|ColorCodeTest|1|ANSI color code validation|
+|**Total**|**23**|**Core CLI functionality with header support**|
 
 ### ChatbotCLITest Suite (17 tests)
 
 **Purpose:** Test ChatbotCLI class members and methods directly
 
-**Test Fixture:**
+Test Fixture:
 
 ```cpp
 class ChatbotCLITest : public ::testing::Test {
@@ -76,13 +76,13 @@ class ChatbotCLITest : public ::testing::Test {
 
 #### Constructor Tests (3 tests)
 
-**ConstructorSetsDefaultParameters**
+ConstructorSetsDefaultParameters
 
 ```cpp
 TEST_F(ChatbotCLITest, ConstructorSetsDefaultParameters)
 ```
 
-**Validates:**
+Validates:
 
 - `max_response_length` = 100
 - `temperature` = 1.0f
@@ -91,51 +91,51 @@ TEST_F(ChatbotCLITest, ConstructorSetsDefaultParameters)
 - `beam_width` = 5
 - `generation_strategy` = "nucleus"
 
-**ConstructorStoresFilePaths**
+ConstructorStoresFilePaths
 
 ```cpp
 TEST_F(ChatbotCLITest, ConstructorStoresFilePaths)
 ```
 
-**Validates:**
+Validates:
 
 - Correct storage of `vocab_path`
 - Correct storage of `model_path`
 - Correct storage of `conversation_save_path`
 
-**DefaultConversationSavePath**
+DefaultConversationSavePath
 
 ```cpp
 TEST_F(ChatbotCLITest, DefaultConversationSavePath)
 ```
 
-**Validates:**
+Validates:
 
 - Default path is "conversation_history.txt"
 
 #### Accessor/Mutator Tests (6 tests)
 
-**SetAndGetGenerationStrategy**
+SetAndGetGenerationStrategy
 
 - Tests setting and retrieving: greedy, beam, sampling
 
-**SetAndGetMaxResponseLength**
+SetAndGetMaxResponseLength
 
 - Tests setting values: 50, 200
 
-**SetAndGetTemperature**
+SetAndGetTemperature
 
 - Tests setting values: 0.5f, 1.5f
 
-**SetAndGetTopP**
+SetAndGetTopP
 
 - Tests setting values: 0.8f, 0.95f
 
-**SetAndGetTopK**
+SetAndGetTopK
 
 - Tests setting values: 10, 100
 
-**SetAndGetBeamWidth**
+SetAndGetBeamWidth
 
 - Tests setting values: 3, 10
 
@@ -143,13 +143,13 @@ TEST_F(ChatbotCLITest, DefaultConversationSavePath)
 
 All tests redirect stdout to suppress output during testing.
 
-**HandleSettingStrategy**
+HandleSettingStrategy
 
 ```cpp
 TEST_F(ChatbotCLITest, HandleSettingStrategy)
 ```
 
-**Tests:**
+Tests:
 
 ```cpp
 cli.handle_setting("strategy greedy");
@@ -157,54 +157,54 @@ cli.handle_setting("strategy beam");
 cli.handle_setting("strategy nucleus");
 ```
 
-**HandleSettingMaxLength**
+HandleSettingMaxLength
 
 - Tests: `"length 150"`, `"max_length 75"`
 
-**HandleSettingTemperature**
+HandleSettingTemperature
 
 - Tests: `"temperature 0.7"`, `"temp 1.2"`
 
-**HandleSettingTopP**
+HandleSettingTopP
 
 - Tests: `"top_p 0.85"`, `"top-p 0.92"`
 
-**HandleSettingTopK**
+HandleSettingTopK
 
 - Tests: `"top_k 20"`, `"top-k 40"`
 
-**HandleSettingBeamWidth**
+HandleSettingBeamWidth
 
 - Tests: `"beam_width 7"`, `"beam-width 12"`
 
-**HandleSettingInvalidStrategy**
+HandleSettingInvalidStrategy
 
 - Verifies invalid strategy doesn't change current value
 
-**HandleSettingMissingValue**
+HandleSettingMissingValue
 
 - Verifies missing value doesn't change current value
 
 ## Legacy Test Suite Coverage
 
-| Test Suite | Tests | Purpose |
-| ------------ | ------- | --------- |
-| ColorCodeTest | 3 | ANSI color code validation |
-| CommandValidationTest | 4 | Command recognition and validation |
-| StrategyValidationTest | 3 | Generation strategy validation |
-| SetCommandParsingTest | 6 | `/set` command parsing logic |
-| ParameterNormalizationTest | 6 | Parameter alias normalization |
-| StringTrimmingTest | 5 | Whitespace trimming utility |
-| FileOperationsTest | 4 | File creation and I/O |
-| DefaultParametersTest | 7 | Default generation settings |
-| ModelArchitectureTest | 8 | Model architecture configuration |
-| ConversationContextConfigTest | 5 | Context manager configuration |
-| CommandLineDefaultsTest | 6 | Default file paths |
-| EdgeCaseTest | 10 | Edge cases and boundary conditions |
-| IntegrationTest | 5 | End-to-end workflows |
-| ParameterRangeTest | 6 | Parameter range validation |
-| ColorOutputTest | 5 | Colored output formatting |
-| **Total** | **83** | **Complete CLI functionality** |
+|Test Suite|Tests|Purpose|
+|------------|-------|---------|
+|ColorCodeTest|3|ANSI color code validation|
+|CommandValidationTest|4|Command recognition and validation|
+|StrategyValidationTest|3|Generation strategy validation|
+|SetCommandParsingTest|6|`/set` command parsing logic|
+|ParameterNormalizationTest|6|Parameter alias normalization|
+|StringTrimmingTest|5|Whitespace trimming utility|
+|FileOperationsTest|4|File creation and I/O|
+|DefaultParametersTest|7|Default generation settings|
+|ModelArchitectureTest|8|Model architecture configuration|
+|ConversationContextConfigTest|5|Context manager configuration|
+|CommandLineDefaultsTest|6|Default file paths|
+|EdgeCaseTest|10|Edge cases and boundary conditions|
+|IntegrationTest|5|End-to-end workflows|
+|ParameterRangeTest|6|Parameter range validation|
+|ColorOutputTest|5|Colored output formatting|
+|**Total**|**83**|**Complete CLI functionality**|
 
 ## Legacy Test Suites Detailed
 
@@ -212,7 +212,7 @@ cli.handle_setting("strategy nucleus");
 
 **Purpose:** Validate ANSI escape codes for terminal color output
 
-**Tests:**
+Tests:
 
 #### ColorCodesAreDefined
 ```cpp
@@ -221,7 +221,7 @@ TEST(ColorCodeTest, ColorCodesAreDefined)
 
 **Purpose:** Verify all color codes have correct ANSI values
 
-**Validates:**
+Validates:
 
 - `COLOR_RESET` = `"\033[0m"`
 - `COLOR_USER` = `"\033[1;36m"` (Cyan)
@@ -255,7 +255,7 @@ TEST(ColorCodeTest, ColorCodesStartWithEscape)
 
 **Purpose:** Validate command recognition logic
 
-**Tests:**
+Tests:
 
 #### RecognizeValidCommands
 ```cpp
@@ -264,7 +264,7 @@ TEST(CommandValidationTest, RecognizeValidCommands)
 
 **Purpose:** Verify all valid commands are recognized
 
-**Valid Commands Tested:**
+Valid Commands Tested:
 
 - `/help` - Show help message
 - `/clear` - Clear conversation
@@ -284,7 +284,7 @@ TEST(CommandValidationTest, RecognizeCommandsWithArguments)
 
 **Purpose:** Recognize commands that take arguments
 
-**Examples:**
+Examples:
 
 - `/set strategy greedy`
 - `/set temperature 0.8`
@@ -299,7 +299,7 @@ TEST(CommandValidationTest, RejectInvalidCommands)
 
 **Purpose:** Reject unknown commands
 
-**Invalid Commands:**
+Invalid Commands:
 
 - `/unknown`
 - `/test`
@@ -315,7 +315,7 @@ TEST(CommandValidationTest, RejectNonCommands)
 
 **Purpose:** Reject user messages as commands
 
-**Examples:**
+Examples:
 
 - `"Hello"` - Normal message
 - `"What is the weather?"` - Question
@@ -329,7 +329,7 @@ TEST(CommandValidationTest, RejectNonCommands)
 
 **Purpose:** Validate generation strategy options
 
-**Tests:**
+Tests:
 
 #### RecognizeValidStrategies
 ```cpp
@@ -338,7 +338,7 @@ TEST(StrategyValidationTest, RecognizeValidStrategies)
 
 **Purpose:** Verify all 5 generation strategies recognized
 
-**Valid Strategies:**
+Valid Strategies:
 
 1. `greedy` - Greedy decoding
 2. `beam` - Beam search
@@ -355,7 +355,7 @@ TEST(StrategyValidationTest, RejectInvalidStrategies)
 
 **Purpose:** Reject unknown strategies
 
-**Invalid Examples:**
+Invalid Examples:
 
 - `"random"`
 - `"best"`
@@ -379,7 +379,7 @@ TEST(StrategyValidationTest, StrategyCount)
 
 **Purpose:** Test `/set` command parsing logic
 
-**Tests:**
+Tests:
 
 #### ParseValidSetCommand
 ```cpp
@@ -390,7 +390,7 @@ TEST(SetCommandParsingTest, ParseValidSetCommand)
 
 **Input:** `/set strategy greedy`
 
-**Expected Output:**
+Expected Output:
 
 - `valid = true`
 - `param = "strategy"`
@@ -405,7 +405,7 @@ TEST(SetCommandParsingTest, ParseSetCommandWithNumericValue)
 
 **Input:** `/set temperature 0.8`
 
-**Expected Output:**
+Expected Output:
 
 - `valid = true`
 - `param = "temperature"`
@@ -420,7 +420,7 @@ TEST(SetCommandParsingTest, ParseSetCommandWithIntValue)
 
 **Input:** `/set length 150`
 
-**Expected Output:**
+Expected Output:
 
 - `valid = true`
 - `param = "length"`
@@ -435,7 +435,7 @@ TEST(SetCommandParsingTest, RejectSetCommandWithoutValue)
 
 **Input:** `/set strategy`
 
-**Expected Output:**
+Expected Output:
 
 - `valid = false`
 - `error = "Missing value"`
@@ -449,7 +449,7 @@ TEST(SetCommandParsingTest, RejectNonSetCommand)
 
 **Input:** `/help`
 
-**Expected Output:**
+Expected Output:
 
 - `valid = false`
 - `error = "Not a set command"`
@@ -463,7 +463,7 @@ TEST(SetCommandParsingTest, ParseSetCommandWithSpacesInValue)
 
 **Input:** `/set system You are helpful`
 
-**Expected Output:**
+Expected Output:
 
 - `valid = true`
 - `param = "system"`
@@ -475,7 +475,7 @@ TEST(SetCommandParsingTest, ParseSetCommandWithSpacesInValue)
 
 **Purpose:** Test parameter alias normalization
 
-**Tests:**
+Tests:
 
 #### NormalizeLength
 ```cpp
@@ -529,7 +529,7 @@ TEST(ParameterNormalizationTest, UnknownParameterUnchanged)
 
 **Purpose:** Unknown parameters remain unchanged
 
-**Examples:**
+Examples:
 
 - `"unknown"` → `"unknown"`
 - `"strategy"` → `"strategy"` (no alias)
@@ -542,14 +542,14 @@ TEST(ParameterNormalizationTest, UnknownParameterUnchanged)
 
 **Purpose:** Test whitespace trimming utility
 
-**Tests:**
+Tests:
 
 #### TrimLeadingWhitespace
 ```cpp
 TEST(StringTrimmingTest, TrimLeadingWhitespace)
 ```
 
-**Examples:**
+Examples:
 
 - `"  hello"` → `"hello"`
 - `"\thello"` → `"hello"`
@@ -562,7 +562,7 @@ TEST(StringTrimmingTest, TrimLeadingWhitespace)
 TEST(StringTrimmingTest, TrimTrailingWhitespace)
 ```
 
-**Examples:**
+Examples:
 
 - `"hello  "` → `"hello"`
 - `"hello\t"` → `"hello"`
@@ -575,7 +575,7 @@ TEST(StringTrimmingTest, TrimTrailingWhitespace)
 TEST(StringTrimmingTest, TrimBothSides)
 ```
 
-**Examples:**
+Examples:
 
 - `"  hello  "` → `"hello"`
 - `"\t\nhello\r\n"` → `"hello"`
@@ -587,7 +587,7 @@ TEST(StringTrimmingTest, TrimBothSides)
 TEST(StringTrimmingTest, NoTrimNeeded)
 ```
 
-**Examples:**
+Examples:
 
 - `"hello"` → `"hello"`
 - `"hello world"` → `"hello world"`
@@ -599,7 +599,7 @@ TEST(StringTrimmingTest, NoTrimNeeded)
 TEST(StringTrimmingTest, EmptyAndWhitespaceOnly)
 ```
 
-**Examples:**
+Examples:
 
 - `""` → `""`
 - `"   "` → `""`
@@ -613,7 +613,7 @@ TEST(StringTrimmingTest, EmptyAndWhitespaceOnly)
 
 **Purpose:** Test file creation and I/O operations
 
-**Tests:**
+Tests:
 
 #### CreateVocabFile
 ```cpp
@@ -622,7 +622,7 @@ TEST(FileOperationsTest, CreateVocabFile)
 
 **Purpose:** Create and validate vocabulary file
 
-**Process:**
+Process:
 
 1. Create vocab file with 10 tokens
 2. Verify file exists
@@ -639,7 +639,7 @@ TEST(FileOperationsTest, CreateModelFile)
 
 **Purpose:** Create binary model file
 
-**Process:**
+Process:
 
 1. Create binary file with `d_model = 512`
 2. Read back binary data
@@ -655,14 +655,14 @@ TEST(FileOperationsTest, CreateConversationFile)
 
 **Purpose:** Create conversation history file
 
-**Process:**
+Process:
 
 1. Create file with 4 lines (2 exchanges)
 2. Validate line count
 3. Check USER/ASSISTANT markers
 4. Cleanup
 
-**Example Content:**
+Example Content:
 
 ```text
 USER: Hello!
@@ -680,7 +680,7 @@ TEST(FileOperationsTest, ReadConversationFile)
 
 **Purpose:** Read and parse conversation file
 
-**Process:**
+Process:
 
 1. Create conversation file
 2. Read entire content as string
@@ -695,7 +695,7 @@ TEST(FileOperationsTest, ReadConversationFile)
 
 **Purpose:** Validate default generation parameter values
 
-**Tests:**
+Tests:
 
 #### MaxResponseLength
 ```cpp
@@ -754,7 +754,7 @@ TEST(DefaultParametersTest, StrategyIsValid)
 
 **Purpose:** Validate default model architecture settings
 
-**Tests:**
+Tests:
 
 #### DefaultDModel
 ```cpp
@@ -822,7 +822,7 @@ TEST(ModelArchitectureTest, DFFLargerThanDModel)
 
 **Purpose:** Validate conversation context configuration
 
-**Tests:**
+Tests:
 
 #### DefaultMaxMessages
 ```cpp
@@ -867,7 +867,7 @@ TEST(ConversationContextConfigTest, MaxTokensPositive)
 
 **Purpose:** Validate default file paths
 
-**Tests:**
+Tests:
 
 #### DefaultVocabPath
 ```cpp
@@ -917,7 +917,7 @@ TEST(CommandLineDefaultsTest, ModelPathHasExtension)
 
 **Purpose:** Test boundary conditions and edge cases
 
-**Tests:**
+Tests:
 
 #### EmptyCommandString
 ```cpp
@@ -1015,7 +1015,7 @@ TEST(EdgeCaseTest, ZeroValues)
 
 **Purpose:** Test end-to-end workflows
 
-**Tests:**
+Tests:
 
 #### CompleteCommandWorkflow
 ```cpp
@@ -1024,7 +1024,7 @@ TEST(IntegrationTest, CompleteCommandWorkflow)
 
 **Purpose:** Complete command processing workflow
 
-**Steps:**
+Steps:
 
 1. Input: `"  /set strategy beam  "`
 2. Trim to `"/set strategy beam"`
@@ -1041,7 +1041,7 @@ TEST(IntegrationTest, ParameterChangeWorkflow)
 
 **Purpose:** Change multiple parameters
 
-**Steps:**
+Steps:
 
 1. Parse `/set temp 0.8`
 2. Normalize `temp` → `temperature`
@@ -1057,7 +1057,7 @@ TEST(IntegrationTest, FileCreationAndVerification)
 
 **Purpose:** Create and verify all file types
 
-**Steps:**
+Steps:
 
 1. Create vocab file
 2. Create model file
@@ -1074,7 +1074,7 @@ TEST(IntegrationTest, AllValidStrategiesRecognized)
 
 **Purpose:** Test all 5 strategies end-to-end
 
-**Process:**
+Process:
 For each strategy in `[greedy, beam, sampling, top-k, nucleus]`:
 
 1. Verify `is_valid_strategy()` returns true
@@ -1091,7 +1091,7 @@ TEST(IntegrationTest, AllCommandsRecognized)
 
 **Purpose:** Verify all commands recognized
 
-**Commands Tested:**
+Commands Tested:
 `/help`, `/clear`, `/save`, `/load`, `/stats`, `/settings`, `/exit`, `/quit`
 
 **Expected:** All return `true` from `is_valid_command()`
@@ -1102,7 +1102,7 @@ TEST(IntegrationTest, AllCommandsRecognized)
 
 **Purpose:** Validate parameter value ranges
 
-**Tests:**
+Tests:
 
 #### TemperatureReasonableRange
 ```cpp
@@ -1164,7 +1164,7 @@ TEST(ParameterRangeTest, MaxLengthReasonable)
 
 **Purpose:** Test colored output formatting
 
-**Tests:**
+Tests:
 
 #### ColoredUserMessage
 ```cpp
@@ -1249,7 +1249,7 @@ std::string normalize_param(const std::string& param)
 
 **Purpose:** Normalize parameter aliases to canonical names
 
-**Mappings:**
+Mappings:
 
 - `length`, `max_length` → `max_length`
 - `temperature`, `temp` → `temperature`
@@ -1273,7 +1273,7 @@ void create_test_vocab_file(const std::string& filepath, int vocab_size = 100)
 
 **Purpose:** Create test vocabulary file
 
-**Format:**
+Format:
 
 ```text
 <unk>
@@ -1317,7 +1317,7 @@ make chatbotcliTests
 ./tests/chatbotcliTests
 ```
 
-**Expected Output:**
+Expected Output:
 
 ```text
 [==========] Running 83 tests from 15 test suites.
@@ -1358,16 +1358,16 @@ make chatbotcliTests
 
 ### Coverage by Category
 
-| Category | Tests | Coverage |
-| ---------- | ------- | ---------- |
-| Command Parsing | 10 | 100% of command types |
-| Parameter Validation | 19 | All 6 parameters + aliases |
-| String Utilities | 5 | All whitespace cases |
-| File Operations | 4 | All file types |
-| Configuration | 26 | All defaults validated |
-| Edge Cases | 10 | Comprehensive boundaries |
-| Integration | 5 | End-to-end workflows |
-| Color Formatting | 5 | All color codes |
+|Category|Tests|Coverage|
+|----------|-------|----------|
+|Command Parsing|10|100% of command types|
+|Parameter Validation|19|All 6 parameters + aliases|
+|String Utilities|5|All whitespace cases|
+|File Operations|4|All file types|
+|Configuration|26|All defaults validated|
+|Edge Cases|10|Comprehensive boundaries|
+|Integration|5|End-to-end workflows|
+|Color Formatting|5|All color codes|
 
 ### Components Tested
 
@@ -1386,14 +1386,14 @@ make chatbotcliTests
 
 ### What's Tested
 
-**✅ Command Line Interface:**
+✅ Command Line Interface:
 
 - Command validation (8 commands)
 - Command parsing logic
 - Parameter extraction
 - Argument handling
 
-**✅ Generation Parameters:**
+✅ Generation Parameters:
 
 - All 5 strategies
 - 6 configurable parameters
@@ -1401,27 +1401,27 @@ make chatbotcliTests
 - Default values
 - Range validation
 
-**✅ Color System:**
+✅ Color System:
 
 - All 5 ANSI color codes
 - Color formatting functions
 - Reset code handling
 
-**✅ File Operations:**
+✅ File Operations:
 
 - Vocabulary file I/O
 - Model file creation
 - Conversation history
 - File validation
 
-**✅ Configuration:**
+✅ Configuration:
 
 - Model architecture (6 params)
 - Context settings (2 params)
 - Generation defaults (6 params)
 - File paths (3 paths)
 
-**✅ Utilities:**
+✅ Utilities:
 
 - Whitespace trimming
 - String parsing
@@ -1429,7 +1429,7 @@ make chatbotcliTests
 
 ### What's Not Tested (Requires Full Class)
 
-**❌ Full ChatbotCLI Instantiation:**
+❌ Full ChatbotCLI Instantiation:
 
 - Constructor with real components
 - Initialization sequence
@@ -1437,21 +1437,21 @@ make chatbotcliTests
 - Model loading
 - Tokenizer integration
 
-**❌ Interactive Loop:**
+❌ Interactive Loop:
 
 - Main run() loop
 - User input handling
 - Response generation
 - Conversation flow
 
-**❌ Component Integration:**
+❌ Component Integration:
 
 - EncoderDecoderModel interaction
 - ConversationContext usage
 - BPETokenizer integration
 - TextGenerator usage
 
-**❌ Generation Execution:**
+❌ Generation Execution:
 
 - Actual text generation
 - Strategy implementation
@@ -1733,7 +1733,7 @@ The ChatbotCLI testing infrastructure provides comprehensive validation through 
 
 **Combined Coverage:** 106 tests ensuring ChatbotCLI reliability
 
-**Key Strengths:**
+Key Strengths:
 
 - Comprehensive coverage from helper functions to full class
 - Well-organized test suites
@@ -1744,5 +1744,5 @@ The ChatbotCLI testing infrastructure provides comprehensive validation through 
 - Fast execution
 - Modern C++ best practices
 
-**Testing Evolution:**
+Testing Evolution:
 The addition of the header file and improved test suite in 2026 resolved the original architectural limitation, enabling full class-level testing while maintaining backward compatibility with the extensive legacy test suite. Together, they provide defense-in-depth validation of all ChatbotCLI functionality.

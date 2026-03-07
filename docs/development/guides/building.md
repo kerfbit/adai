@@ -24,12 +24,12 @@ This guide covers everything you need to know about building the ADAI project fr
 
 ### Supported Compilers
 
-| Compiler | Minimum Version | Recommended |
-| ---------- | ---------------- | ------------- |
-| GCC | 7.0 | 11.0+ |
-| Clang | 5.0 | 13.0+ |
-| MSVC | 2017 (19.10) | 2022 |
-| AppleClang | 10.0 | Latest |
+|Compiler|Minimum Version|Recommended|
+|----------|----------------|-------------|
+|GCC|7.0|11.0+|
+|Clang|5.0|13.0+|
+|MSVC|2017 (19.10)|2022|
+|AppleClang|10.0|Latest|
 
 ## Dependencies
 
@@ -156,17 +156,17 @@ ctest --preset asan
 
 #### Available Presets
 
-| Preset | Description | Use Case |
-| -------- | ------------- | ---------- |
-| **debug** | Debug build with all symbols | Development and debugging |
-| **release** | Optimized release build | Production and performance |
-| **relwithdebinfo** | Optimized with debug info | Performance debugging |
-| **asan** | AddressSanitizer enabled | Memory error detection |
-| **ubsan** | UndefinedBehaviorSanitizer | Undefined behavior detection |
-| **tsan** | ThreadSanitizer | Race condition detection |
-| **coverage** | Code coverage enabled | Test coverage analysis |
-| **clang-tidy** | Static analysis enabled | Code quality checks |
-| **ci** | CI/CD configuration | Automated builds |
+|Preset|Description|Use Case|
+|--------|-------------|----------|
+|**debug**|Debug build with all symbols|Development and debugging|
+|**release**|Optimized release build|Production and performance|
+|**relwithdebinfo**|Optimized with debug info|Performance debugging|
+|**asan**|AddressSanitizer enabled|Memory error detection|
+|**ubsan**|UndefinedBehaviorSanitizer|Undefined behavior detection|
+|**tsan**|ThreadSanitizer|Race condition detection|
+|**coverage**|Code coverage enabled|Test coverage analysis|
+|**clang-tidy**|Static analysis enabled|Code quality checks|
+|**ci**|CI/CD configuration|Automated builds|
 
 ### Compilation Caching with ccache
 
@@ -289,26 +289,26 @@ cmake -DCMAKE_BUILD_TYPE=Release \
 
 ### Available CMake Options
 
-| Option | Default | Description |
-| -------- | --------- | ------------- |
-| `BUILD_TESTING` | ON | Build test suite |
-| `BUILD_EXAMPLES` | ON | Build example programs |
-| `ENABLE_GPU` | OFF | Enable GPU acceleration with CUDA |
-| `ENABLE_ASAN` | OFF | Enable AddressSanitizer |
-| `ENABLE_UBSAN` | OFF | Enable UndefinedBehaviorSanitizer |
-| `ENABLE_TSAN` | OFF | Enable ThreadSanitizer |
-| `ENABLE_COVERAGE` | OFF | Enable code coverage |
-| `ENABLE_CLANG_TIDY` | OFF | Run clang-tidy during build |
-| `ENABLE_CCACHE` | ON | Use ccache for caching |
+|Option|Default|Description|
+|--------|---------|-------------|
+|`BUILD_TESTING`|ON|Build test suite|
+|`BUILD_EXAMPLES`|ON|Build example programs|
+|`ENABLE_GPU`|OFF|Enable GPU acceleration with CUDA|
+|`ENABLE_ASAN`|OFF|Enable AddressSanitizer|
+|`ENABLE_UBSAN`|OFF|Enable UndefinedBehaviorSanitizer|
+|`ENABLE_TSAN`|OFF|Enable ThreadSanitizer|
+|`ENABLE_COVERAGE`|OFF|Enable code coverage|
+|`ENABLE_CLANG_TIDY`|OFF|Run clang-tidy during build|
+|`ENABLE_CCACHE`|ON|Use ccache for caching|
 
 ### Build Types
 
-| Build Type | Optimization | Debug Info | Use Case |
-| ------------ | ------------- | ------------ | ---------- |
-| **Debug** | -O0 | Full | Development, debugging |
-| **Release** | -O3 | None | Production, performance testing |
-| **RelWithDebInfo** | -O2 | Full | Performance testing with debugging |
-| **MinSizeRel** | -Os | None | Size-constrained environments |
+|Build Type|Optimization|Debug Info|Use Case|
+|------------|-------------|------------|----------|
+|**Debug**|-O0|Full|Development, debugging|
+|**Release**|-O3|None|Production, performance testing|
+|**RelWithDebInfo**|-O2|Full|Performance testing with debugging|
+|**MinSizeRel**|-Os|None|Size-constrained environments|
 
 ### GPU Acceleration (Optional)
 
@@ -322,7 +322,7 @@ ADAI supports optional GPU acceleration using NVIDIA CUDA for faster matrix oper
 
 #### Installing CUDA
 
-**Ubuntu/Debian:**
+Ubuntu/Debian:
 
 ```bash
 # Add NVIDIA package repositories
@@ -334,7 +334,7 @@ sudo apt-get update
 sudo apt-get install -y cuda-toolkit-11-8
 ```
 
-**Fedora/RHEL:**
+Fedora/RHEL:
 
 ```bash
 # Install CUDA repository
@@ -366,16 +366,16 @@ make -j$(nproc)
 
 By default, ADAI compiles for multiple GPU architectures. You can customize this:
 
-| Compute Capability | GPU Examples | CMake Flag |
-| ------------------- | -------------- | ------------ |
-| 6.0 | Pascal (GTX 10xx, P100) | 60 |
-| 6.1 | Pascal (GTX 10xx Ti, P4) | 61 |
-| 7.0 | Volta (V100) | 70 |
-| 7.5 | Turing (RTX 20xx, T4) | 75 |
-| 8.0 | Ampere (A100) | 80 |
-| 8.6 | Ampere (RTX 30xx, A10) | 86 |
+|Compute Capability|GPU Examples|CMake Flag|
+|-------------------|--------------|------------|
+|6.0|Pascal (GTX 10xx, P100)|60|
+|6.1|Pascal (GTX 10xx Ti, P4)|61|
+|7.0|Volta (V100)|70|
+|7.5|Turing (RTX 20xx, T4)|75|
+|8.0|Ampere (A100)|80|
+|8.6|Ampere (RTX 30xx, A10)|86|
 
-**Example - Build only for RTX 30xx series:**
+Example - Build only for RTX 30xx series:
 
 ```bash
 cmake -DENABLE_GPU=ON -DCMAKE_CUDA_ARCHITECTURES="86" ..

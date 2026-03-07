@@ -45,7 +45,7 @@ float epoch_loss = (num_updates > 0) ? (total_loss / num_updates) : 0.0f;
 
 ```cpp
 // Safety check for NaN/Inf gradients
-if (std::isnan(grad_norm) |  | std::isinf(grad_norm)) {
+if (std::isnan(grad_norm) || std::isinf(grad_norm)) {
     std::cerr << COLOR_ERROR << "  ⚠️  WARNING: NaN or Inf gradient detected! Skipping update."
               << COLOR_RESET << std::endl;
     accumulation_step = 0;
@@ -117,14 +117,14 @@ if (std::isnan(grad_norm) |  | std::isinf(grad_norm)) {
 
 ### **Hyperparameter Rationale**
 
-| Parameter | Value | Reason |
-| --------- | ----- | ------ |
-| `--lr` | `0.0003` | Sweet spot for transformer training - not too fast, not too slow |
-| `--epochs` | `25` | Enough iterations for ~548 pairs to learn patterns |
-| `--gradient-clip` | `1.0` | Prevents gradient explosion (already default) |
-| `--log-every` | `5` | More frequent monitoring to catch issues early |
-| `warmup_steps` | Auto (10%) | Gradual LR ramp prevents early instability |
-| `lr_schedule` | WARMUP_COSINE | State-of-the-art schedule for transformers |
+|Parameter|Value|Reason|
+|---------|-----|------|
+|`--lr`|`0.0003`|Sweet spot for transformer training - not too fast, not too slow|
+|`--epochs`|`25`|Enough iterations for ~548 pairs to learn patterns|
+|`--gradient-clip`|`1.0`|Prevents gradient explosion (already default)|
+|`--log-every`|`5`|More frequent monitoring to catch issues early|
+|`warmup_steps`|Auto (10%)|Gradual LR ramp prevents early instability|
+|`lr_schedule`|WARMUP_COSINE|State-of-the-art schedule for transformers|
 
 ### **Expected Training Dynamics** (With Fixes)
 

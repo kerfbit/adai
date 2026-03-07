@@ -16,7 +16,7 @@ The enhanced training pipeline provides comprehensive infrastructure for trainin
 - **Validation Loops:** Automatic validation with early stopping
 - **Advanced Optimizers:** Adam/AdamW with learning rate scheduling
 
-**New in v2.0:**
+New in v2.0:
 
 - Iterator interface for memory-efficient iteration
 - Batch iterator for mini-batch training
@@ -88,7 +88,7 @@ dataset.print_stats();
 
 #### File Formats (v2.0 Enhanced!)
 
-**Conversation Format:**
+Conversation Format:
 
 ```text
 INPUT: Hello, how are you?
@@ -98,21 +98,21 @@ INPUT: What's your name?
 RESPONSE: I'm an AI assistant.
 ```
 
-**TSV Format:**
+TSV Format:
 
 ```text
 Hello, how are you?<TAB>I'm doing great, thanks!
 What's your name?<TAB>I'm an AI assistant.
 ```
 
-**JSON Format (NEW!):**
+JSON Format (NEW!):
 
 ```json
 {"input": "Hello, how are you?", "target": "I'm doing great, thanks!"}
 {"input": "What's your name?", "target": "I'm an AI assistant."}
 ```
 
-**CSV Format (NEW!):**
+CSV Format (NEW!):
 
 ```csv
 input,target
@@ -257,15 +257,15 @@ public:
 
 #### Metrics Tracked
 
-| Metric | Description |
-| -------- | ------------- |
-| `train_loss` | Training loss for the epoch |
-| `validation_loss` | Validation loss for the epoch |
-| `train_perplexity` | exp(train_loss) |
-| `validation_perplexity` | exp(validation_loss) |
-| `learning_rate` | Current learning rate |
-| `gradient_norm` | Gradient norm |
-| `duration_seconds` | Epoch duration |
+|Metric|Description|
+|--------|-------------|
+|`train_loss`|Training loss for the epoch|
+|`validation_loss`|Validation loss for the epoch|
+|`train_perplexity`|exp(train_loss)|
+|`validation_perplexity`|exp(validation_loss)|
+|`learning_rate`|Current learning rate|
+|`gradient_norm`|Gradient norm|
+|`duration_seconds`|Epoch duration|
 
 ---
 

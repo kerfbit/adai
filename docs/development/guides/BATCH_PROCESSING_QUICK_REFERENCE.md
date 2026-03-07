@@ -148,57 +148,57 @@ std::cout << "Token reduction: " << token_reduction << "%\n";
 
 ### Batch Size Selection
 
-| Use Case | Recommended Batch Size |
-| ---------- | ---------------------- |
-| Long sequences (>200 tokens) | 8-16 |
-| Medium sequences (50-200) | 32-64 |
-| Short sequences (<50) | 64-128 |
-| Limited GPU memory | 16-32 |
-| Maximum throughput | 64-128 |
+|Use Case|Recommended Batch Size|
+|----------|----------------------|
+|Long sequences (>200 tokens)|8-16|
+|Medium sequences (50-200)|32-64|
+|Short sequences (<50)|64-128|
+|Limited GPU memory|16-32|
+|Maximum throughput|64-128|
 
 ### Parallel Loading Settings
 
-| Hardware | num_workers | prefetch_factor |
-| ---------- | ------------- | ----------------- |
-| 4 CPU cores | 2 | 2 |
-| 8 CPU cores | 4 | 2-3 |
-| 16+ CPU cores | 6-8 | 3 |
-| Fast SSD | +1-2 workers | +1 factor |
-| Slow HDD | -1-2 workers | Same |
+|Hardware|num_workers|prefetch_factor|
+|----------|-------------|-----------------|
+|4 CPU cores|2|2|
+|8 CPU cores|4|2-3|
+|16+ CPU cores|6-8|3|
+|Fast SSD|+1-2 workers|+1 factor|
+|Slow HDD|-1-2 workers|Same|
 
 ### Dynamic Batching Parameters
 
-| Data Characteristics | length_tolerance |
-| --------------------- | ------------------ |
-| Very uniform lengths | 5-10 tokens |
-| Moderate variation | 10-20 tokens |
-| High variation | 20-30 tokens |
-| Extreme variation | Use fixed batching |
+|Data Characteristics|length_tolerance|
+|---------------------|------------------|
+|Very uniform lengths|5-10 tokens|
+|Moderate variation|10-20 tokens|
+|High variation|20-30 tokens|
+|Extreme variation|Use fixed batching|
 
 ## Performance Expectations
 
 ### Dynamic vs Fixed Batching
 
-| Sequence Length Variation | Token Reduction | Efficiency Gain |
-| -------------------------- | ----------------- | ----------------- |
-| Low (std < 10 tokens) | 5-15% | +5-10% |
-| Medium (std 10-50) | 20-30% | +15-25% |
-| High (std > 50) | 30-50% | +25-40% |
+|Sequence Length Variation|Token Reduction|Efficiency Gain|
+|--------------------------|-----------------|-----------------|
+|Low (std < 10 tokens)|5-15%|+5-10%|
+|Medium (std 10-50)|20-30%|+15-25%|
+|High (std > 50)|30-50%|+25-40%|
 
 ### Parallel Loading Speedup
 
-| num_workers | Expected Speedup |
-| ------------- | ------------------ |
-| 2 | 1.5-2x |
-| 4 | 2-4x |
-| 8 | 3-6x |
-| 16 | 4-8x |
+|num_workers|Expected Speedup|
+|-------------|------------------|
+|2|1.5-2x|
+|4|2-4x|
+|8|3-6x|
+|16|4-8x|
 
 ## Troubleshooting
 
 ### Issue: Low Efficiency (<60%)
 
-**Solution:**
+Solution:
 
 ```cpp
 // Use dynamic batching
@@ -211,7 +211,7 @@ dataset.filter_by_length(10, 500);
 
 ### Issue: GPU Waiting for Data
 
-**Solution:**
+Solution:
 
 ```cpp
 config.num_workers = 8;        // More workers
@@ -220,7 +220,7 @@ config.prefetch_factor = 3;    // Larger buffer
 
 ### Issue: High Memory Usage
 
-**Solution:**
+Solution:
 
 ```cpp
 config.num_workers = 2;        // Fewer workers
@@ -230,7 +230,7 @@ config.batch_size = 16;        // Smaller batches
 
 ### Issue: OOM Errors
 
-**Solution:**
+Solution:
 
 ```cpp
 config.batch_size = 16;        // Reduce batch size

@@ -462,30 +462,30 @@ public:
 
 ### Time Complexity
 
-| Operation | Complexity | Description |
-| ----------- | ----------- | ------------- |
-| Constructor | O(L × D) | L = max_len, D = d_model |
-| Forward Pass | O(S × D) | S = sequence_length |
-| get_position_encoding | O(D) | Copy one position's encoding |
-| get_encoding | O(1) | Return reference |
+|Operation|Complexity|Description|
+|-----------|-----------|-------------|
+|Constructor|O(L × D)|L = max_len, D = d_model|
+|Forward Pass|O(S × D)|S = sequence_length|
+|get_position_encoding|O(D)|Copy one position's encoding|
+|get_encoding|O(1)|Return reference|
 
 ### Space Complexity
 
-| Component | Space | Notes |
-| ----------- | ------- | ------- |
-| pos_encoding Matrix | O(L × D) | Pre-computed encodings |
-| Forward Pass Output | O(S × D) | New matrix created |
-| **Total** | **O(L × D + S × D)** | Dominated by pre-computed matrix |
+|Component|Space|Notes|
+|-----------|-------|-------|
+|pos_encoding Matrix|O(L × D)|Pre-computed encodings|
+|Forward Pass Output|O(S × D)|New matrix created|
+|**Total**|**O(L × D + S × D)**|Dominated by pre-computed matrix|
 
 ### Memory Usage Examples
 
-| Configuration | max_len | d_model | Memory (MB) |
-| -------------- | --------- | --------- | ------------- |
-| Small | 128 | 256 | 0.125 |
-| BERT-base | 512 | 768 | 1.5 |
-| GPT-2 | 1024 | 768 | 3.0 |
-| Long Context | 2048 | 512 | 4.0 |
-| Very Long | 4096 | 1024 | 16.0 |
+|Configuration|max_len|d_model|Memory (MB)|
+|--------------|---------|---------|-------------|
+|Small|128|256|0.125|
+|BERT-base|512|768|1.5|
+|GPT-2|1024|768|3.0|
+|Long Context|2048|512|4.0|
+|Very Long|4096|1024|16.0|
 
 Formula: `Memory (MB) = (max_len × d_model × 4 bytes) / (1024 × 1024)`
 
@@ -574,15 +574,15 @@ public:
 
 ### Sinusoidal (Fixed) vs. Learned Positional Encodings
 
-| Aspect | Sinusoidal (Fixed) | Learned |
-| -------- | ------------------- | --------- |
-| **Parameters** | None | O(max_len × d_model) |
-| **Training** | Not needed | Requires training |
-| **Generalization** | Handles any length | Limited to max_len |
-| **Memory** | Same as learned | Same as sinusoidal |
-| **Initialization** | Deterministic | Random or zeros |
-| **Relative Position** | Built-in property | Must be learned |
-| **Interpretability** | Clear mathematical meaning | Opaque learned values |
+|Aspect|Sinusoidal (Fixed)|Learned|
+|--------|-------------------|---------|
+|**Parameters**|None|O(max_len × d_model)|
+|**Training**|Not needed|Requires training|
+|**Generalization**|Handles any length|Limited to max_len|
+|**Memory**|Same as learned|Same as sinusoidal|
+|**Initialization**|Deterministic|Random or zeros|
+|**Relative Position**|Built-in property|Must be learned|
+|**Interpretability**|Clear mathematical meaning|Opaque learned values|
 
 ### When to Use Sinusoidal
 

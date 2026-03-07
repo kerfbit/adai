@@ -50,19 +50,19 @@ public:
 RewardModel(int input_dim, const std::vector<int>& layer_dims)
 ```
 
-**Parameters:**
+Parameters:
 
 - `input_dim` - Dimension of input encodings (typically 2× encoding_dim for prompt+response)
 - `layer_dims` - Hidden layer dimensions, last must be 1 for scalar reward
 
-**Example:**
+Example:
 
 ```cpp
 // For 768-dim encoder with prompt+response concatenation
 RewardModel reward_model(1536, {512, 256, 128, 1});
 ```
 
-**Throws:**
+Throws:
 
 - `std::invalid_argument` if `layer_dims` is empty or final layer ≠ 1
 
@@ -78,13 +78,13 @@ float forward(const std::vector<float>& input)
 
 Compute reward score for a given input encoding.
 
-**Parameters:**
+Parameters:
 
 - `input` - Concatenated prompt + response encoding
 
 **Returns:** Scalar reward value (higher = better response)
 
-**Throws:**
+Throws:
 
 - `std::invalid_argument` if input dimension mismatch
 
@@ -100,7 +100,7 @@ float predict_reward(const std::vector<float>& encoding)
 
 Convenience wrapper for forward pass.
 
-**Parameters:**
+Parameters:
 
 - `encoding` - Response encoding to score
 
@@ -116,7 +116,7 @@ float compute_loss(const PreferencePair& pair)
 
 Compute Bradley-Terry loss for a preference pair.
 
-**Loss Formula:**
+Loss Formula:
 
 ```text
 L = -log(σ(r_chosen - r_rejected))
@@ -124,7 +124,7 @@ L = -log(σ(r_chosen - r_rejected))
 
 where σ is sigmoid function.
 
-**Parameters:**
+Parameters:
 
 - `pair` - PreferencePair containing prompt, chosen, and rejected encodings
 
@@ -141,20 +141,20 @@ float train_on_batch(const std::vector<PreferencePair>& pairs,
 
 Train reward model on a batch of preference pairs.
 
-**Parameters:**
+Parameters:
 
 - `pairs` - Vector of preference pairs (chosen vs rejected)
 - `learning_rate` - Gradient descent learning rate (typical: 1e-4 to 1e-3)
 
 **Returns:** Average loss across batch
 
-**Algorithm:**
+Algorithm:
 
 1. Accumulate gradients across all pairs
 2. Average gradients
 3. Update weights via gradient descent
 
-**Example:**
+Example:
 
 ```cpp
 std::vector<PreferencePair> preferences;
@@ -180,7 +180,7 @@ Save trained reward model to binary file.
 
 **Format:** Binary format with architecture + weights
 
-**Example:**
+Example:
 
 ```cpp
 reward_model.save("reward_model.bin");
@@ -196,7 +196,7 @@ void load(const std::string& filepath)
 
 Load trained reward model from file.
 
-**Example:**
+Example:
 
 ```cpp
 RewardModel loaded_model(1536, {512, 256, 128, 1});

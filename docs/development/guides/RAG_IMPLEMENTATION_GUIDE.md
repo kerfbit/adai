@@ -23,17 +23,17 @@ This directory contains a complete implementation of **RAG (Retrieval-Augmented 
 
 ## RAG vs BERT Comparison
 
-| Feature | RAG | BERT |
-| --------- | ----- | ------ |
-| **Primary Use** | Question answering, factual generation | Classification, embeddings, NER |
-| **Text Generation** | ✅ Yes (decoder component) | ❌ No (encoder-only) |
-| **Knowledge Updates** | ✅ Add documents instantly | ❌ Requires retraining |
-| **Factual Accuracy** | ✅ High (grounded in evidence) | ⚠️ Limited to training data |
-| **Hallucination** | ✅ Reduced | ⚠️ Can hallucinate |
-| **Inference Speed** | ⚠️ Slower (retrieval overhead) | ✅ Fast (encoder-only) |
-| **Storage** | ⚠️ Requires vector database | ✅ Model weights only |
-| **Explainability** | ✅ Can cite sources | ⚠️ Black box |
-| **Best For** | Q&A, chatbots, dynamic knowledge | Embeddings, classification, semantic search |
+|Feature|RAG|BERT|
+|---------|-----|------|
+|**Primary Use**|Question answering, factual generation|Classification, embeddings, NER|
+|**Text Generation**|✅ Yes (decoder component)|❌ No (encoder-only)|
+|**Knowledge Updates**|✅ Add documents instantly|❌ Requires retraining|
+|**Factual Accuracy**|✅ High (grounded in evidence)|⚠️ Limited to training data|
+|**Hallucination**|✅ Reduced|⚠️ Can hallucinate|
+|**Inference Speed**|⚠️ Slower (retrieval overhead)|✅ Fast (encoder-only)|
+|**Storage**|⚠️ Requires vector database|✅ Model weights only|
+|**Explainability**|✅ Can cite sources|⚠️ Black box|
+|**Best For**|Q&A, chatbots, dynamic knowledge|Embeddings, classification, semantic search|
 
 ### When to Use RAG
 
@@ -96,14 +96,14 @@ Response: "Machine learning is a subset of artificial intelligence..."
 
 Manages the knowledge base with semantic search capabilities.
 
-**Features:**
+Features:
 
 - Document indexing with encoder-based embeddings
 - Cosine similarity search for top-k retrieval
 - Document CRUD operations (add, remove, update)
 - Metadata storage
 
-**API:**
+API:
 
 ```cpp
 auto doc_store = std::make_shared<DocumentStore>(encoder);
@@ -124,14 +124,14 @@ auto doc = doc_store->getDocument("ml_def");
 
 Complete RAG pipeline combining retrieval and generation.
 
-**Features:**
+Features:
 
 - Configurable retrieval (num docs, threshold)
 - Context formatting and truncation
 - Integration with EncoderDecoderModel
 - Multiple generation strategies
 
-**API:**
+API:
 
 ```cpp
 RAGInference::RAGConfig config;
@@ -272,7 +272,7 @@ auto rag = std::make_unique<RAGInference>(model, doc_store, config);
 ./build/src/rag_example chatbot_model.bin vocab.txt
 ```
 
-**Features:**
+Features:
 
 - Preloaded knowledge base with ML/AI definitions
 - Sample Q&A demonstrations
@@ -285,7 +285,7 @@ auto rag = std::make_unique<RAGInference>(model, doc_store, config);
 ./build/src/rag_bert_comparison
 ```
 
-**Tests:**
+Tests:
 
 1. **Retrieval Quality**: Measures semantic search accuracy
 2. **RAG vs Standard**: Compares generation with/without retrieval
@@ -293,7 +293,7 @@ auto rag = std::make_unique<RAGInference>(model, doc_store, config);
 4. **Embedding Quality**: Tests BERT-style encoder embeddings
 5. **Performance**: Benchmarks retrieval and encoding latency
 
-**Expected Output:**
+Expected Output:
 
 ```text
 ═══════════════════════════════════════════════════════════════

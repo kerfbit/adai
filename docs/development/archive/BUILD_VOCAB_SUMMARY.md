@@ -65,14 +65,14 @@
 
 ## 📋 Available Tools
 
-| Tool | Purpose | Location |
-| ------ | --------- | ---------- |
-| `build_and_vocab.sh` | Build automation script | Root directory |
-| `vocab_builder` | Vocabulary creation | `build/bin/` |
-| `chatbot_trainer` | Model training | `build/bin/` |
-| `chatbot` | Interactive CLI | `build/bin/` |
-| `chatbot_gui` | Qt GUI interface | `build/bin/` |
-| `chatbot_api_server` | REST API | `build/bin/` |
+|Tool|Purpose|Location|
+|------|---------|----------|
+|`build_and_vocab.sh`|Build automation script|Root directory|
+|`vocab_builder`|Vocabulary creation|`build/bin/`|
+|`chatbot_trainer`|Model training|`build/bin/`|
+|`chatbot`|Interactive CLI|`build/bin/`|
+|`chatbot_gui`|Qt GUI interface|`build/bin/`|
+|`chatbot_api_server`|REST API|`build/bin/`|
 
 ## 🎯 Usage Examples
 

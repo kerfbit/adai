@@ -396,13 +396,13 @@ Matrix compute_cross_entropy_gradient(const Matrix& logits,
 
 ### DecoderBlock
 
-**Key Differences from EncoderBlock:**
+Key Differences from EncoderBlock:
 
 1. Three sub-layers instead of two (add cross-attention)
 2. Self-attention uses causal mask
 3. Cross-attention takes encoder output as K,V
 
-**Forward Pass Order:**
+Forward Pass Order:
 
 ```cpp
 Matrix DecoderBlock::forward(const Matrix& input,
@@ -433,7 +433,7 @@ Matrix DecoderBlock::forward(const Matrix& input,
 }
 ```
 
-**Cross-Attention Usage:**
+Cross-Attention Usage:
 
 ```cpp
 // Self-attention: Q = K = V = input
@@ -450,7 +450,7 @@ Matrix cross_out = cross_attention->forward(
 
 ### LanguageModelHead
 
-**Simple Linear Projection:**
+Simple Linear Projection:
 
 ```cpp
 Matrix LanguageModelHead::forward(const Matrix& input) {
@@ -471,7 +471,7 @@ Matrix LanguageModelHead::forward(const Matrix& input) {
 }
 ```
 
-**Gradient Computation:**
+Gradient Computation:
 
 ```cpp
 Matrix LanguageModelHead::backward(const Matrix& grad_output) {
@@ -505,7 +505,7 @@ Matrix LanguageModelHead::backward(const Matrix& grad_output) {
 
 ### LLMDecoder
 
-**Constructor Pattern:**
+Constructor Pattern:
 
 ```cpp
 LLMDecoder::LLMDecoder(int vocab_size, int d_model, int num_layers,
@@ -537,7 +537,7 @@ LLMDecoder::LLMDecoder(int vocab_size, int d_model, int num_layers,
 
 ### TextGenerator
 
-**Greedy Generation:**
+Greedy Generation:
 
 ```cpp
 std::string TextGenerator::generate_greedy(const std::string& prompt,
@@ -828,7 +828,7 @@ The enhanced save function now stores:
 3. **Vocabulary**: Complete token-to-ID mappings with proper escaping
 4. **BPE Merges**: All merge rules in order (critical for tokenization)
 
-**Special Character Escaping:**
+Special Character Escaping:
 
 - Space → `\s`
 - Newline → `\n`
@@ -836,7 +836,7 @@ The enhanced save function now stores:
 - Carriage return → `\r`
 - Backslash → `\\`
 
-**File Format:**
+File Format:
 
 ```text
 # BPE Tokenizer Vocabulary v1.0
@@ -867,7 +867,7 @@ The enhanced load function:
    - Special tokens set
    - BPE merge rules (in original order)
 
-**Section Processing:**
+Section Processing:
 
 - Skips comments and empty lines
 - Reads special token IDs

@@ -209,28 +209,28 @@ project/
 
 ### Example Timeline (7500 samples)
 
-**Initial training:**
+Initial training:
 
 - 12 epochs: 6 days
 - Model reaches loss ~7.0
 
-**Incremental training (500 new samples):**
+Incremental training (500 new samples):
 
 - 5 epochs: ~12 hours (20x faster!)
 - Fine-tunes on new data
 
-**Full retrain (8000 samples total):**
+Full retrain (8000 samples total):
 
 - 10 epochs: ~6.5 days
 - Relearns everything with new data integrated
 
 ### Efficiency Gains
 
-| Scenario         | Old Method | Incremental Method | Time Saved |
-| ---------------- | ---------- | ------------------ | ---------- |
-| Add 500 samples  | 6 days     | 12 hours           | 87%        |
-| Add 1000 samples | 6 days     | 1 day              | 83%        |
-| Add 2000 samples | 6 days     | 2 days             | 67%        |
+|Scenario|Old Method|Incremental Method|Time Saved|
+|----------------|----------|------------------|----------|
+|Add 500 samples|6 days|12 hours|87%|
+|Add 1000 samples|6 days|1 day|83%|
+|Add 2000 samples|6 days|2 days|67%|
 
 ## Best Practices
 

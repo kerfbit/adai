@@ -14,14 +14,14 @@ Enhanced the Dataset abstraction for the training infrastructure with production
 
 ### 1. Iterator Interface ✅
 
-**Implementation:**
+Implementation:
 
 - Added `iterator` and `const_iterator` type aliases
 - Implemented `begin()` and `end()` methods
 - Support for range-based for loops
 - Compatible with STL algorithms
 
-**Code:**
+Code:
 
 ```cpp
 using iterator = std::vector<DataSample>::iterator;
@@ -33,7 +33,7 @@ const_iterator begin() const { return data_.begin(); }
 const_iterator end() const { return data_.end(); }
 ```
 
-**Benefits:**
+Benefits:
 
 - No data copying when iterating
 - Standard C++ idioms
@@ -43,14 +43,14 @@ const_iterator end() const { return data_.end(); }
 
 ### 2. Batch Iterator ✅
 
-**Implementation:**
+Implementation:
 
 - Created `BatchIterator` nested class
 - Supports iteration over splits in configurable batch sizes
 - Automatic batch boundary handling
 - Works with all split types (train/val/test)
 
-**Code:**
+Code:
 
 ```cpp
 class BatchIterator {
@@ -62,7 +62,7 @@ BatchIterator get_batch_iterator(SplitType split_type, size_t batch_size);
 BatchIterator get_batch_iterator(size_t batch_size);
 ```
 
-**Usage:**
+Usage:
 
 ```cpp
 for (auto batch : dataset.get_batch_iterator(SplitType::TRAIN, 32)) {
@@ -74,14 +74,14 @@ for (auto batch : dataset.get_batch_iterator(SplitType::TRAIN, 32)) {
 
 ### 3. JSON Format Support ✅
 
-**Implementation:**
+Implementation:
 
 - `parse_json_format()` method
 - Supports line-delimited JSON (JSONL)
 - Parses `{"input": "...", "target": "..."}` format
 - Simple JSON parsing (no external dependencies)
 
-**Supported Formats:**
+Supported Formats:
 
 ```json
 {"input": "Question", "target": "Answer"}
@@ -93,7 +93,7 @@ for (auto batch : dataset.get_batch_iterator(SplitType::TRAIN, 32)) {
 
 ### 4. CSV Format Support ✅
 
-**Implementation:**
+Implementation:
 
 - `parse_csv_format()` method
 - Configurable delimiter (default: comma)
@@ -101,7 +101,7 @@ for (auto batch : dataset.get_batch_iterator(SplitType::TRAIN, 32)) {
 - Quote handling
 - Whitespace trimming
 
-**Format:**
+Format:
 
 ```csv
 input,target
@@ -112,21 +112,21 @@ input,target
 
 ### 5. Stratified Splitting ✅
 
-**Implementation:**
+Implementation:
 
 - `split_stratified()` method
 - Bins samples by total length (input + target)
 - Splits each bin proportionally
 - Ensures balanced distribution
 
-**Code:**
+Code:
 
 ```cpp
 void split_stratified(float train_ratio, float val_ratio,
                      float test_ratio, int num_bins = 5);
 ```
 
-**Benefits:**
+Benefits:
 
 - Prevents length bias in splits
 - More representative validation sets
@@ -136,14 +136,14 @@ void split_stratified(float train_ratio, float val_ratio,
 
 ### 6. K-Fold Cross-Validation ✅
 
-**Implementation:**
+Implementation:
 
 - `setup_k_fold()` method
 - `get_fold()` method to retrieve train/val sets
 - `get_num_folds()` query method
 - Stores fold indices in `fold_indices_` member
 
-**Code:**
+Code:
 
 ```cpp
 dataset.setup_k_fold(5);
@@ -159,13 +159,13 @@ for (int fold = 0; fold < dataset.get_num_folds(); ++fold) {
 
 ### 7. Data Augmentation ✅
 
-**Implementation:**
+Implementation:
 
 - `set_augmentation()` - Set augmentation function
 - `augment_data()` - Apply augmentation to create new samples
 - Stores augmentation function in `augmentation_fn_` member
 
-**Code:**
+Code:
 
 ```cpp
 dataset.set_augmentation([](const DataSample& sample) {
@@ -176,7 +176,7 @@ dataset.set_augmentation([](const DataSample& sample) {
 dataset.augment_data(2);  // 2 augmented samples per original
 ```
 
-**Use Cases:**
+Use Cases:
 
 - Synonym replacement
 - Paraphrasing
@@ -187,20 +187,20 @@ dataset.augment_data(2);  // 2 augmented samples per original
 
 ### 8. Filtering and Preprocessing ✅
 
-**Implementation:**
+Implementation:
 
-**Filtering:**
+Filtering:
 
 - `filter_by_length()` - Keep samples within length range
 - `filter_by_pattern()` - Keep/remove samples matching pattern
 
-**Preprocessing:**
+Preprocessing:
 
 - `set_preprocessing()` - Set preprocessing function
 - `apply_preprocessing()` - Apply to all samples
 - `lowercase()` - Convenience method for lowercasing
 
-**Code:**
+Code:
 
 ```cpp
 // Filter
@@ -221,7 +221,7 @@ dataset.lowercase();
 
 ### 9. Lazy Loading (LazyDataset) ✅
 
-**Implementation:**
+Implementation:
 
 - New `LazyDataset` class
 - Indexes file on initialization
@@ -229,7 +229,7 @@ dataset.lowercase();
 - `get_sample()` - Load single sample
 - `load_range()` - Load range of samples
 
-**Code:**
+Code:
 
 ```cpp
 LazyDataset lazy_dataset("huge_dataset.txt");
@@ -241,7 +241,7 @@ auto sample = lazy_dataset.get_sample(42);
 auto samples = lazy_dataset.load_range(0, 1000);
 ```
 
-**Benefits:**
+Benefits:
 
 - Handle datasets larger than RAM
 - Minimal memory footprint
@@ -269,17 +269,17 @@ auto samples = lazy_dataset.load_range(0, 1000);
 
 ## Feature Comparison
 
-| Feature | Before (v1.0) | After (v2.0) |
-| --------- | --------------- | -------------- |
-| **Iteration** | `get_split()` copies data | ✅ Iterator interface, no copying |
-| **Batching** | Manual slicing | ✅ Batch iterator |
-| **File Formats** | Conversation, TSV | ✅ + JSON, CSV |
-| **Splitting** | Random only | ✅ + Stratified |
-| **Cross-Validation** | ❌ Manual | ✅ K-fold support |
-| **Augmentation** | ❌ External | ✅ Built-in hooks |
-| **Filtering** | ❌ Manual | ✅ By length, pattern |
-| **Preprocessing** | ❌ External | ✅ Built-in hooks |
-| **Large Datasets** | ❌ Must fit in RAM | ✅ LazyDataset |
+|Feature|Before (v1.0)|After (v2.0)|
+|---------|---------------|--------------|
+|**Iteration**|`get_split()` copies data|✅ Iterator interface, no copying|
+|**Batching**|Manual slicing|✅ Batch iterator|
+|**File Formats**|Conversation, TSV|✅ + JSON, CSV|
+|**Splitting**|Random only|✅ + Stratified|
+|**Cross-Validation**|❌ Manual|✅ K-fold support|
+|**Augmentation**|❌ External|✅ Built-in hooks|
+|**Filtering**|❌ Manual|✅ By length, pattern|
+|**Preprocessing**|❌ External|✅ Built-in hooks|
+|**Large Datasets**|❌ Must fit in RAM|✅ LazyDataset|
 
 ---
 
@@ -515,4 +515,4 @@ make dataset_enhanced_example -j$(nproc)
 **Documentation Pages:** 2
 **Examples:** 1 comprehensive demo
 
-**End of Summary**
+End of Summary

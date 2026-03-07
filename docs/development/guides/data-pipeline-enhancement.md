@@ -38,13 +38,13 @@ The data pipeline enhancement provides two main components for efficient trainin
 
 ### Benefits
 
-| Feature | Benefit | Typical Improvement |
-| --------- | --------- | --------------------- |
-| Dynamic batching | Reduced padding | 20-50% less padding |
-| Bucketing | Better memory efficiency | 30-60% less padding |
-| Parallel loading | Hide I/O latency | 2-5x faster data loading |
-| Prefetching | Maximize GPU utilization | 10-30% faster training |
-| Data augmentation | Better generalization | Improved model accuracy |
+|Feature|Benefit|Typical Improvement|
+|---------|---------|---------------------|
+|Dynamic batching|Reduced padding|20-50% less padding|
+|Bucketing|Better memory efficiency|30-60% less padding|
+|Parallel loading|Hide I/O latency|2-5x faster data loading|
+|Prefetching|Maximize GPU utilization|10-30% faster training|
+|Data augmentation|Better generalization|Improved model accuracy|
 
 ---
 
@@ -164,14 +164,14 @@ auto batches = EfficientBatching::create_bucketed_batches(
 );
 ```
 
-**How it works:**
+How it works:
 
 1. Sequences assigned to buckets by length
 2. Batch created within each bucket (similar lengths together)
 3. Batch size dynamically adjusted to stay within token budget
 4. Results in minimal padding waste
 
-**Bucket boundaries example:**
+Bucket boundaries example:
 
 ```text
 Bucket 0: sequences with length <= 10
@@ -199,7 +199,7 @@ std::cout << "Padding ratio: " << stats.padding_ratio << "\n";
 std::cout << "Efficiency score: " << stats.efficiency_score << "\n";
 ```
 
-**Interpreting results:**
+Interpreting results:
 
 - **Padding ratio**: 0.0 = no padding (perfect), 1.0 = all padding (worst)
 - **Efficiency score**: 1.0 - padding_ratio (higher is better)
@@ -297,7 +297,7 @@ config.augmentation_config = /* ... */;  // Data augmentation config
 
 ### Worker Thread Configuration
 
-**Choosing number of workers:**
+Choosing number of workers:
 
 ```cpp
 // CPU-bound (model training on CPU)
@@ -310,7 +310,7 @@ config.num_workers = 4-8;  // Hide I/O latency while GPU computes
 config.num_workers = 8-16;  // Compensate for slow I/O
 ```
 
-**Prefetch factor:**
+Prefetch factor:
 
 ```cpp
 // Low memory
@@ -364,7 +364,7 @@ EfficientBatching::apply_augmentation(sequences, config);
 // Augmented: [1, 3, 4, 6, 7, 8, 10]  (tokens 2, 5, 9 dropped)
 ```
 
-**Use cases:**
+Use cases:
 
 - Improve model robustness to missing tokens
 - Reduce overfitting
@@ -387,7 +387,7 @@ EfficientBatching::apply_augmentation(sequences, config);
 // Augmented: [1, 103, 3, 4, 103, 6, 7, 103, 9, 10]
 ```
 
-**Use cases:**
+Use cases:
 
 - Masked language modeling
 - Denoising autoencoders
@@ -409,7 +409,7 @@ EfficientBatching::apply_augmentation(sequences, config);
 // Augmented: [1, 3, 2, 4, 6, 5, 7, 8, 9, 10]  (some adjacent swaps)
 ```
 
-**Use cases:**
+Use cases:
 
 - Reduce positional overfitting
 - Improve robustness to word order variations
@@ -563,7 +563,7 @@ model.set_train_mode();
 
 ### Memory Management
 
-**Monitor memory usage:**
+Monitor memory usage:
 
 ```cpp
 // Calculate memory requirements
@@ -577,7 +577,7 @@ std::cout << "Estimated batch memory: " << (batch_memory / 1024.0 / 1024.0)
           << " MB\n";
 ```
 
-**Optimize prefetch buffer:**
+Optimize prefetch buffer:
 
 ```cpp
 // Balance between throughput and memory
@@ -598,7 +598,7 @@ config.prefetch_factor = 3;
 
 ### Throughput Optimization
 
-**Maximize data loading speed:**
+Maximize data loading speed:
 
 1. **Use dynamic batching** to reduce padding overhead
 2. **Increase worker threads** if CPU/I/O is bottleneck
@@ -625,14 +625,14 @@ std::cout << "Throughput: " << throughput << " sequences/second\n";
 
 ### Batching Strategy Selection
 
-| Dataset Characteristic | Recommended Strategy | Rationale |
-| ------------------------ | ---------------------- | ----------- |
-| Uniform lengths (±20%) | Simple dynamic batching | Minimal padding already |
-| Variable lengths (±50%) | Dynamic batching with sorting | Reduces padding significantly |
-| Wide variation (±100%+) | Bucketing | Best efficiency for diverse lengths |
-| Strict memory budget | Bucketing with token limit | Prevents OOM errors |
-| Small dataset (<1000) | Simple batching | Overhead not worth it |
-| Large dataset (>10K) | Parallel loading + bucketing | Maximum efficiency |
+|Dataset Characteristic|Recommended Strategy|Rationale|
+|------------------------|----------------------|-----------|
+|Uniform lengths (±20%)|Simple dynamic batching|Minimal padding already|
+|Variable lengths (±50%)|Dynamic batching with sorting|Reduces padding significantly|
+|Wide variation (±100%+)|Bucketing|Best efficiency for diverse lengths|
+|Strict memory budget|Bucketing with token limit|Prevents OOM errors|
+|Small dataset (<1000)|Simple batching|Overhead not worth it|
+|Large dataset (>10K)|Parallel loading + bucketing|Maximum efficiency|
 
 ---
 
@@ -715,7 +715,7 @@ config.shuffle = false;   // Sequential
 
 **Symptoms:** Wasted memory, slow training
 
-**Solutions:**
+Solutions:
 
 1. Enable dynamic batching with sorting
 2. Switch to bucketing strategy
@@ -740,7 +740,7 @@ auto batches = EfficientBatching::create_dynamic_batches(
 
 **Symptoms:** GPU idle, low throughput
 
-**Solutions:**
+Solutions:
 
 1. Increase number of workers
 2. Increase prefetch factor
@@ -761,7 +761,7 @@ config.prefetch_factor = 3;  // was 1
 
 **Symptoms:** Out of memory errors, crashes
 
-**Solutions:**
+Solutions:
 
 1. Reduce batch size
 2. Reduce prefetch factor
@@ -784,7 +784,7 @@ bucket_config.max_tokens_per_batch = 1024;  // strict limit
 
 **Symptoms:** Loader hangs, no batches returned
 
-**Solutions:**
+Solutions:
 
 1. Always call `loader.stop()` when done
 2. Check for exceptions in worker threads
@@ -806,7 +806,7 @@ try {
 
 **Symptoms:** Different results each run
 
-**Solutions:**
+Solutions:
 
 1. Set random seed for reproducibility
 2. Disable shuffling if exact order needed

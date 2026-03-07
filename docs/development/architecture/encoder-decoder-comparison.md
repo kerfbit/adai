@@ -6,16 +6,16 @@ Comprehensive comparison between the existing LLMEncoder and the new LLMDecoder 
 
 ## High-Level Comparison
 
-| Aspect | LLMEncoder | LLMDecoder |
-| -------- | ----------- | ----------- |
-| **Purpose** | Encode input text to contextualized representations | Generate output text autoregressively |
-| **Attention Type** | Bidirectional self-attention | Causal self-attention + cross-attention |
-| **Input** | Source text (e.g., question) | Target sequence prefix (during training) or generated tokens (during inference) |
-| **Output** | Fixed-size embeddings [seq_len × d_model] | Vocabulary logits [seq_len × vocab_size] |
-| **Masking** | Optional padding mask only | Mandatory causal mask + optional padding mask |
-| **Sub-layers per block** | 2 (self-attention, feed-forward) | 3 (self-attention, cross-attention, feed-forward) |
-| **Dependencies** | Independent (only input text) | Depends on encoder output |
-| **Use Case** | Feature extraction, embeddings | Text generation, sequence-to-sequence |
+|Aspect|LLMEncoder|LLMDecoder|
+|--------|-----------|-----------|
+|**Purpose**|Encode input text to contextualized representations|Generate output text autoregressively|
+|**Attention Type**|Bidirectional self-attention|Causal self-attention + cross-attention|
+|**Input**|Source text (e.g., question)|Target sequence prefix (during training) or generated tokens (during inference)|
+|**Output**|Fixed-size embeddings [seq_len × d_model]|Vocabulary logits [seq_len × vocab_size]|
+|**Masking**|Optional padding mask only|Mandatory causal mask + optional padding mask|
+|**Sub-layers per block**|2 (self-attention, feed-forward)|3 (self-attention, cross-attention, feed-forward)|
+|**Dependencies**|Independent (only input text)|Depends on encoder output|
+|**Use Case**|Feature extraction, embeddings|Text generation, sequence-to-sequence|
 
 ---
 
@@ -23,25 +23,25 @@ Comprehensive comparison between the existing LLMEncoder and the new LLMDecoder 
 
 ### Shared Components (No Changes Needed)
 
-| Component | Used in Encoder | Used in Decoder | Notes |
-| ----------- | ---------------- | ---------------- | ------- |
-| `BPETokenizer` | ✅ Yes | ✅ Yes | Can be shared instance or separate |
-| `TokenEmbedding` | ✅ Yes | ✅ Yes | Decoder has its own instance |
-| `PositionalEncoding` | ✅ Yes | ✅ Yes | Can be shared or separate |
-| `MultiHeadAttention` | ✅ Yes (1× per block) | ✅ Yes (2× per block) | Used for both self & cross-attention |
-| `FeedForward` | ✅ Yes | ✅ Yes | Same position-wise FFN |
-| `LayerNorm` | ✅ Yes (2× per block) | ✅ Yes (3× per block) | More instances in decoder |
-| `Activation` | ✅ Yes | ✅ Yes | GELU, Softmax |
-| `Matrix` | ✅ Yes | ✅ Yes | All operations |
+|Component|Used in Encoder|Used in Decoder|Notes|
+|-----------|----------------|----------------|-------|
+|`BPETokenizer`|✅ Yes|✅ Yes|Can be shared instance or separate|
+|`TokenEmbedding`|✅ Yes|✅ Yes|Decoder has its own instance|
+|`PositionalEncoding`|✅ Yes|✅ Yes|Can be shared or separate|
+|`MultiHeadAttention`|✅ Yes (1× per block)|✅ Yes (2× per block)|Used for both self & cross-attention|
+|`FeedForward`|✅ Yes|✅ Yes|Same position-wise FFN|
+|`LayerNorm`|✅ Yes (2× per block)|✅ Yes (3× per block)|More instances in decoder|
+|`Activation`|✅ Yes|✅ Yes|GELU, Softmax|
+|`Matrix`|✅ Yes|✅ Yes|All operations|
 
 ### New Components (Decoder Only)
 
-| Component | Purpose | Equivalent in Encoder |
-| ----------- | --------- | ---------------------- |
-| `DecoderBlock` | Single decoder layer | `EncoderBlock` |
-| `LanguageModelHead` | Project to vocabulary | None (encoder outputs embeddings) |
-| `TextGenerator` | Generation strategies | None |
-| `EncoderDecoderModel` | Integration | None (encoder standalone) |
+|Component|Purpose|Equivalent in Encoder|
+|-----------|---------|----------------------|
+|`DecoderBlock`|Single decoder layer|`EncoderBlock`|
+|`LanguageModelHead`|Project to vocabulary|None (encoder outputs embeddings)|
+|`TextGenerator`|Generation strategies|None|
+|`EncoderDecoderModel`|Integration|None (encoder standalone)|
 
 ---
 
@@ -130,7 +130,7 @@ Matrix attention_output = self_attention->forward(
 //      T3: [✓]   [✓]   [✓]   [✓]   ← Sees all
 ```
 
-**Characteristics:**
+Characteristics:
 
 - ✓ Full context (bidirectional)
 - ✓ Rich representations
@@ -156,7 +156,7 @@ Matrix attention_output = self_attention->forward(
 //      T3: [✓]   [✓]   [✓]   [✓]   ← Sees all
 ```
 
-**Characteristics:**
+Characteristics:
 
 - ✓ Autoregressive (can generate)
 - ✓ No future information leakage
@@ -182,7 +182,7 @@ Matrix cross_attention_output = cross_attention->forward(
 //                                   Most relevant for "sunny"
 ```
 
-**Characteristics:**
+Characteristics:
 
 - ✓ Conditions on input
 - ✓ Full encoder context available
@@ -331,7 +331,7 @@ Matrix embeddings = encoder.encode(input_text);
 // - Retrieval: search(emb, database)
 ```
 
-**Characteristics:**
+Characteristics:
 
 - ✓ Single forward pass
 - ✓ Parallel processing
@@ -363,7 +363,7 @@ for (int step = 0; step < max_length; ++step) {
 std::string output = tokenizer->decode(generated);
 ```
 
-**Characteristics:**
+Characteristics:
 
 - ✗ Multiple forward passes (one per token)
 - ✗ Sequential processing
@@ -378,45 +378,45 @@ std::string output = tokenizer->decode(generated);
 
 For d_model=512, num_layers=6, num_heads=8, d_ff=2048, vocab_size=10000:
 
-| Component | Parameters | Notes |
-| ----------- | ----------- | ------- |
-| Token Embedding | 10000 × 512 = 5.12M | Vocab → d_model |
-| Positional Encoding | 0 (pre-computed) | Not learnable |
-| **Per EncoderBlock:** | | |
-| - MultiHeadAttention | 4 × (512 × 512) = 1.05M | W_q, W_k, W_v, W_o |
-| - FeedForward | 2 × (512 × 2048) = 2.10M | W1, W2 |
-| - LayerNorm (×2) | 2 × (2 × 512) = 2.05K | gamma, beta |
-| **Total per block** | ~3.15M | |
-| **All 6 blocks** | 18.9M | |
-| Final LayerNorm | 1.02K | |
-| **TOTAL ENCODER** | **~24M parameters** | |
+|Component|Parameters|Notes|
+|-----------|-----------|-------|
+|Token Embedding|10000 × 512 = 5.12M|Vocab → d_model|
+|Positional Encoding|0 (pre-computed)|Not learnable|
+|**Per EncoderBlock:**|||
+|- MultiHeadAttention|4 × (512 × 512) = 1.05M|W_q, W_k, W_v, W_o|
+|- FeedForward|2 × (512 × 2048) = 2.10M|W1, W2|
+|- LayerNorm (×2)|2 × (2 × 512) = 2.05K|gamma, beta|
+|**Total per block**|~3.15M||
+|**All 6 blocks**|18.9M||
+|Final LayerNorm|1.02K||
+|**TOTAL ENCODER**|**~24M parameters**||
 
 ### LLMDecoder Parameters
 
 Same hyperparameters as encoder:
 
-| Component | Parameters | Notes |
-| ----------- | ----------- | ------- |
-| Token Embedding | 10000 × 512 = 5.12M | Separate from encoder |
-| Positional Encoding | 0 (pre-computed) | |
-| **Per DecoderBlock:** | | |
-| - Self-Attention | 4 × (512 × 512) = 1.05M | |
-| - Cross-Attention | 4 × (512 × 512) = 1.05M | **Extra** |
-| - FeedForward | 2 × (512 × 2048) = 2.10M | |
-| - LayerNorm (×3) | 3 × (2 × 512) = 3.07K | **Extra norm** |
-| **Total per block** | ~4.20M | ~33% more than encoder |
-| **All 6 blocks** | 25.2M | |
-| Final LayerNorm | 1.02K | |
-| Language Model Head | 512 × 10000 = 5.12M | **New component** |
-| **TOTAL DECODER** | **~35M parameters** | |
+|Component|Parameters|Notes|
+|-----------|-----------|-------|
+|Token Embedding|10000 × 512 = 5.12M|Separate from encoder|
+|Positional Encoding|0 (pre-computed)||
+|**Per DecoderBlock:**|||
+|- Self-Attention|4 × (512 × 512) = 1.05M||
+|- Cross-Attention|4 × (512 × 512) = 1.05M|**Extra**|
+|- FeedForward|2 × (512 × 2048) = 2.10M||
+|- LayerNorm (×3)|3 × (2 × 512) = 3.07K|**Extra norm**|
+|**Total per block**|~4.20M|~33% more than encoder|
+|**All 6 blocks**|25.2M||
+|Final LayerNorm|1.02K||
+|Language Model Head|512 × 10000 = 5.12M|**New component**|
+|**TOTAL DECODER**|**~35M parameters**||
 
 ### Complete Encoder-Decoder Model
 
-| Component | Parameters |
-| ----------- | ----------- |
-| Encoder | 24M |
-| Decoder | 35M |
-| **TOTAL** | **~59M parameters** |
+|Component|Parameters|
+|-----------|-----------|
+|Encoder|24M|
+|Decoder|35M|
+|**TOTAL**|**~59M parameters**|
 
 **Note:** Parameters can be reduced by:
 
@@ -430,23 +430,23 @@ Same hyperparameters as encoder:
 
 ### Encoder Memory (Inference)
 
-| Component | Size (seq_len=256, d_model=512) |
-| ----------- | -------------------------------- |
-| Input embeddings | 256 × 512 × 4B = 512KB |
-| Per block cache | ~5 matrices × 512KB = 2.5MB |
-| 6 blocks total | 6 × 2.5MB = 15MB |
-| **Total activations** | **~16MB** |
+|Component|Size (seq_len=256, d_model=512)|
+|-----------|--------------------------------|
+|Input embeddings|256 × 512 × 4B = 512KB|
+|Per block cache|~5 matrices × 512KB = 2.5MB|
+|6 blocks total|6 × 2.5MB = 15MB|
+|**Total activations**|**~16MB**|
 
 ### Decoder Memory (Inference, autoregressive)
 
-| Component | Size (max_gen=100, d_model=512) |
-| ----------- | -------------------------------- |
-| Encoder output (cached) | 256 × 512 × 4B = 512KB |
-| Decoder embeddings (growing) | 100 × 512 × 4B = 200KB |
-| Per block cache | ~7 matrices × 200KB = 1.4MB |
-| 6 blocks total | 6 × 1.4MB = 8.4MB |
-| Logits | 100 × 10000 × 4B = 4MB |
-| **Total activations** | **~13MB** |
+|Component|Size (max_gen=100, d_model=512)|
+|-----------|--------------------------------|
+|Encoder output (cached)|256 × 512 × 4B = 512KB|
+|Decoder embeddings (growing)|100 × 512 × 4B = 200KB|
+|Per block cache|~7 matrices × 200KB = 1.4MB|
+|6 blocks total|6 × 1.4MB = 8.4MB|
+|Logits|100 × 10000 × 4B = 4MB|
+|**Total activations**|**~13MB**|
 
 **Total Encoder + Decoder:** ~29MB (activations only, not including parameters)
 
@@ -568,23 +568,23 @@ std::string reply = dialogue.generate_response(
 
 ### Encoder Performance
 
-| Metric | Value (CPU, single-threaded) |
-| -------- | ------------------------------ |
-| Throughput | ~5000 tokens/sec |
-| Latency | O(n) with sequence length |
-| Memory | O(n × d_model) |
-| Parallelization | Easy (batch processing) |
+|Metric|Value (CPU, single-threaded)|
+|--------|------------------------------|
+|Throughput|~5000 tokens/sec|
+|Latency|O(n) with sequence length|
+|Memory|O(n × d_model)|
+|Parallelization|Easy (batch processing)|
 
 ### Decoder Performance
 
-| Metric | Value (CPU, single-threaded) |
-| -------- | ------------------------------ |
-| Throughput | ~50-100 tokens/sec (generation) |
-| Latency | O(n²) with sequence length |
-| Memory | O(n × d_model) per step |
-| Parallelization | Hard (sequential generation) |
+|Metric|Value (CPU, single-threaded)|
+|--------|------------------------------|
+|Throughput|~50-100 tokens/sec (generation)|
+|Latency|O(n²) with sequence length|
+|Memory|O(n × d_model) per step|
+|Parallelization|Hard (sequential generation)|
 
-**Why Slower?**
+Why Slower?
 
 - Sequential generation (can't parallelize across tokens)
 - Repeated forward passes (one per generated token)
@@ -610,7 +610,7 @@ Option 2: Use encoder-decoder
 Input Text → Encoder → Decoder → Generated Text
 ```
 
-**No Breaking Changes:**
+No Breaking Changes:
 
 - Existing encoder code unchanged
 - Encoder can still be used independently
@@ -620,22 +620,22 @@ Input Text → Encoder → Decoder → Generated Text
 
 ## Summary Table
 
-| Feature | Encoder | Decoder |
-| --------- | --------- | --------- |
-| **Architecture** | Transformer Encoder | Transformer Decoder |
-| **Blocks** | EncoderBlock | DecoderBlock |
-| **Attention Layers/Block** | 1 (self) | 2 (self + cross) |
-| **Attention Type** | Bidirectional | Causal + Cross |
-| **LayerNorm/Block** | 2 | 3 |
-| **Parameters/Block** | ~3.15M | ~4.20M |
-| **Output** | Embeddings | Logits |
-| **Output Head** | None (optional task-specific) | Language Model Head |
-| **Masking** | Optional (padding) | Mandatory (causal) |
-| **Dependencies** | None | Encoder output |
-| **Inference** | One-shot | Autoregressive |
-| **Speed** | Fast (parallel) | Slower (sequential) |
-| **Use Cases** | Classification, embeddings | Generation, seq2seq |
-| **Code Reuse** | Foundation | Builds on encoder |
+|Feature|Encoder|Decoder|
+|---------|---------|---------|
+|**Architecture**|Transformer Encoder|Transformer Decoder|
+|**Blocks**|EncoderBlock|DecoderBlock|
+|**Attention Layers/Block**|1 (self)|2 (self + cross)|
+|**Attention Type**|Bidirectional|Causal + Cross|
+|**LayerNorm/Block**|2|3|
+|**Parameters/Block**|~3.15M|~4.20M|
+|**Output**|Embeddings|Logits|
+|**Output Head**|None (optional task-specific)|Language Model Head|
+|**Masking**|Optional (padding)|Mandatory (causal)|
+|**Dependencies**|None|Encoder output|
+|**Inference**|One-shot|Autoregressive|
+|**Speed**|Fast (parallel)|Slower (sequential)|
+|**Use Cases**|Classification, embeddings|Generation, seq2seq|
+|**Code Reuse**|Foundation|Builds on encoder|
 
 ---
 

@@ -37,11 +37,11 @@ omp_set_num_threads(8);
 
 ## 📊 Expected Performance
 
-| Matrix Size | Sequential | Parallel (8 cores) | Speedup |
-| ------------- | ------------ | ------------------- | --------- |
-| 256×256 | 159 ms | 41 ms | 3.9x |
-| 512×512 | 1391 ms | 331 ms | 4.2x |
-| 1024×1024 | ~11000 ms | ~2600 ms | 4.2x |
+|Matrix Size|Sequential|Parallel (8 cores)|Speedup|
+|-------------|------------|-------------------|---------|
+|256×256|159 ms|41 ms|3.9x|
+|512×512|1391 ms|331 ms|4.2x|
+|1024×1024|~11000 ms|~2600 ms|4.2x|
 
 ## ⚙️ Configuration
 
@@ -99,14 +99,14 @@ cmake .. && make
 
 ## 📈 Parallelized Operations
 
-| Operation | Threshold | Expected Speedup |
-| ----------- | ----------- | ------------------ |
-| Matrix Multiplication | >64×64 | 4-8x |
-| Addition/Subtraction | >10k elements | 4-6x |
-| Transpose | >10k elements | 3-5x |
-| Hadamard Product | >10k elements | 4-6x |
-| Scalar Operations | >10k elements | 4-6x |
-| Gradient Update | >10k elements | 4-7x |
+|Operation|Threshold|Expected Speedup|
+|-----------|-----------|------------------|
+|Matrix Multiplication|>64×64|4-8x|
+|Addition/Subtraction|>10k elements|4-6x|
+|Transpose|>10k elements|3-5x|
+|Hadamard Product|>10k elements|4-6x|
+|Scalar Operations|>10k elements|4-6x|
+|Gradient Update|>10k elements|4-7x|
 
 ## 🔍 Performance Tips
 

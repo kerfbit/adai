@@ -1,6 +1,6 @@
 # Chatbot REST API Documentation
 
-**ADAI Chatbot API Server**
+ADAI Chatbot API Server
 Version 1.0.0
 Date: January 24, 2026
 
@@ -70,7 +70,7 @@ curl -X POST http://localhost:8080/chat \
 
 **Request:** None
 
-**Response:**
+Response:
 
 ```json
 {
@@ -79,11 +79,11 @@ curl -X POST http://localhost:8080/chat \
 }
 ```
 
-**Status Codes:**
+Status Codes:
 
 - `200 OK` - Server is running
 
-**Example:**
+Example:
 
 ```bash
 curl http://localhost:8080/health
@@ -97,7 +97,7 @@ curl http://localhost:8080/health
 
 **Description:** Send a single message and receive a response. No conversation history is maintained.
 
-**Request Body:**
+Request Body:
 
 ```json
 {
@@ -105,7 +105,7 @@ curl http://localhost:8080/health
 }
 ```
 
-**Response:**
+Response:
 
 ```json
 {
@@ -114,7 +114,7 @@ curl http://localhost:8080/health
 }
 ```
 
-**Error Response:**
+Error Response:
 
 ```json
 {
@@ -123,12 +123,12 @@ curl http://localhost:8080/health
 }
 ```
 
-**Status Codes:**
+Status Codes:
 
 - `200 OK` - Success
 - `500 Internal Server Error` - Generation failed
 
-**Example:**
+Example:
 
 ```bash
 curl -X POST http://localhost:8080/chat \
@@ -146,7 +146,7 @@ curl -X POST http://localhost:8080/chat \
 
 **Description:** Send a message within a conversation session. Maintains conversation history across multiple requests.
 
-**Request Body:**
+Request Body:
 
 ```json
 {
@@ -155,12 +155,12 @@ curl -X POST http://localhost:8080/chat \
 }
 ```
 
-**Parameters:**
+Parameters:
 
 - `session_id` (optional): Session identifier. If empty or not provided, a new session is created.
 - `message` (required): User message
 
-**Response:**
+Response:
 
 ```json
 {
@@ -170,7 +170,7 @@ curl -X POST http://localhost:8080/chat \
 }
 ```
 
-**Error Response:**
+Error Response:
 
 ```json
 {
@@ -179,12 +179,12 @@ curl -X POST http://localhost:8080/chat \
 }
 ```
 
-**Status Codes:**
+Status Codes:
 
 - `200 OK` - Success
 - `500 Internal Server Error` - Generation failed
 
-**Example (New Session):**
+Example (New Session):
 
 ```bash
 # First message - creates new session
@@ -196,7 +196,7 @@ curl -X POST http://localhost:8080/chat/session \
 # {"success":true,"response":"Hello Alice! How can I help you?","session_id":"a1b2c3d4..."}
 ```
 
-**Example (Continuing Session):**
+Example (Continuing Session):
 
 ```bash
 # Subsequent message - use session_id from previous response
@@ -210,7 +210,7 @@ curl -X POST http://localhost:8080/chat/session \
 
 **Use Case:** Chatbots, conversational agents, context-aware interactions
 
-**Session Management:**
+Session Management:
 
 - Sessions automatically expire after 30 minutes of inactivity (configurable with `--timeout` flag)
 - Conversation history is limited to 10 messages and 2048 tokens (configurable in code)
@@ -224,7 +224,7 @@ curl -X POST http://localhost:8080/chat/session \
 
 **Description:** Clear conversation history for a specific session.
 
-**Request Body:**
+Request Body:
 
 ```json
 {
@@ -232,7 +232,7 @@ curl -X POST http://localhost:8080/chat/session \
 }
 ```
 
-**Response:**
+Response:
 
 ```json
 {
@@ -241,7 +241,7 @@ curl -X POST http://localhost:8080/chat/session \
 }
 ```
 
-**Error Response:**
+Error Response:
 
 ```json
 {
@@ -250,12 +250,12 @@ curl -X POST http://localhost:8080/chat/session \
 }
 ```
 
-**Status Codes:**
+Status Codes:
 
 - `200 OK` - Success
 - `400 Bad Request` - Invalid session ID
 
-**Example:**
+Example:
 
 ```bash
 curl -X POST http://localhost:8080/clear-session \
@@ -273,7 +273,7 @@ curl -X POST http://localhost:8080/clear-session \
 
 **Description:** Process multiple messages in a single request for higher throughput. Uses dynamic batching to minimize padding overhead.
 
-**Request Body:**
+Request Body:
 
 ```json
 {
@@ -285,7 +285,7 @@ curl -X POST http://localhost:8080/clear-session \
 }
 ```
 
-**Response:**
+Response:
 
 ```json
 {
@@ -306,7 +306,7 @@ curl -X POST http://localhost:8080/clear-session \
 }
 ```
 
-**Benefits:**
+Benefits:
 
 - 2-4x faster than sequential single requests
 - 20-60% reduction in padding overhead
@@ -322,7 +322,7 @@ curl -X POST http://localhost:8080/clear-session \
 
 **Description:** Process multiple messages with session support. Maintains conversation history for each session.
 
-**Request Body:**
+Request Body:
 
 ```json
 {
@@ -331,7 +331,7 @@ curl -X POST http://localhost:8080/clear-session \
 }
 ```
 
-**Response:**
+Response:
 
 ```json
 {
@@ -561,7 +561,7 @@ async function multiTurnChat() {
 
 ### Common Error Responses
 
-**Missing Required Field:**
+Missing Required Field:
 
 ```json
 {
@@ -570,7 +570,7 @@ async function multiTurnChat() {
 }
 ```
 
-**Generation Failed:**
+Generation Failed:
 
 ```json
 {
@@ -579,7 +579,7 @@ async function multiTurnChat() {
 }
 ```
 
-**Session Not Found:**
+Session Not Found:
 
 ```json
 {
@@ -697,7 +697,7 @@ cd build && cmake .. -DBUILD_API_SERVER=ON && make chatbot_api_server
 
 **Problem:** Generation takes too long
 
-**Solutions:**
+Solutions:
 
 - Reduce `--max-gen-len` (shorter responses)
 - Use faster generation strategy (`--strategy greedy`)
@@ -708,7 +708,7 @@ cd build && cmake .. -DBUILD_API_SERVER=ON && make chatbot_api_server
 
 **Problem:** Server crashes or high memory usage
 
-**Solutions:**
+Solutions:
 
 - Reduce session timeout (`--timeout 10`)
 - Reduce max sequence length (`--max-seq-len 512`)
@@ -719,7 +719,7 @@ cd build && cmake .. -DBUILD_API_SERVER=ON && make chatbot_api_server
 
 **Problem:** Responses are incoherent or repetitive
 
-**Solutions:**
+Solutions:
 
 - Train model on domain-specific data
 - Adjust generation parameters:

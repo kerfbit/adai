@@ -152,15 +152,15 @@
 
 ## Performance Observations
 
-| Test Category | Average Time | Notes |
-| --------------- | -------------- | ------- |
-| Construction | < 1ms | Instantaneous |
-| Forward Pass | < 1ms | Very fast single neuron |
-| Backward Pass | < 1ms | Efficient gradient computation |
-| Initialization | < 1ms | Quick random generation |
-| Serialization | < 1ms | Fast file I/O |
-| Linear Regression | 41ms | 10,000 training iterations |
-| XOR Network | 21ms | 1,000 epochs, 2 layers |
+|Test Category|Average Time|Notes|
+|---------------|--------------|-------|
+|Construction|< 1ms|Instantaneous|
+|Forward Pass|< 1ms|Very fast single neuron|
+|Backward Pass|< 1ms|Efficient gradient computation|
+|Initialization|< 1ms|Quick random generation|
+|Serialization|< 1ms|Fast file I/O|
+|Linear Regression|41ms|10,000 training iterations|
+|XOR Network|21ms|1,000 epochs, 2 layers|
 
 ## Files Created
 

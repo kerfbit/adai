@@ -4,16 +4,16 @@
 
 ### Issue 1: "symbol lookup error: __libc_pthread_init"
 
-**Full Error:**
+Full Error:
 
 ```text
 ./build/src/chatbot_gui: symbol lookup error: /snap/core20/current/lib/x86_64-linux-gnu/libpthread.so.0: undefined symbol: __libc_pthread_init, version GLIBC_PRIVATE
 ```
 
-**Cause:**
+Cause:
 Conflict between snap-provided libraries and system Qt libraries.
 
-**Solution 1 - Use the Fixed Launcher (Recommended):**
+Solution 1 - Use the Fixed Launcher (Recommended):
 
 ```bash
 ./chatbot_gui_fixed.sh
@@ -21,7 +21,7 @@ Conflict between snap-provided libraries and system Qt libraries.
 ./run_chatbot_gui.sh
 ```
 
-**Solution 2 - Run Directly with Environment Fix:**
+Solution 2 - Run Directly with Environment Fix:
 
 ```bash
 env -u LD_LIBRARY_PATH \
@@ -30,7 +30,7 @@ env -u LD_LIBRARY_PATH \
     ./build/src/chatbot_gui
 ```
 
-**Solution 3 - Unset Variables in Current Shell:**
+Solution 3 - Unset Variables in Current Shell:
 
 ```bash
 unset LD_LIBRARY_PATH
@@ -43,13 +43,13 @@ export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu
 
 ### Issue 2: "QSocketNotifier: Can only be used with threads started with QThread"
 
-**Cause:**
+Cause:
 Warning related to Qt threading initialization (usually harmless).
 
-**Status:**
+Status:
 This is a warning, not an error. The application will still work correctly.
 
-**To Suppress (if desired):**
+To Suppress (if desired):
 
 ```bash
 ./build/src/chatbot_gui 2>&1 | grep -v "QSocketNotifier"
@@ -59,25 +59,25 @@ This is a warning, not an error. The application will still work correctly.
 
 ### Issue 3: "Failed to load module canberra-gtk-module"
 
-**Full Warning:**
+Full Warning:
 
 ```text
 Gtk-Message: Failed to load module "canberra-gtk-module"
 ```
 
-**Cause:**
+Cause:
 Optional GTK sound module not installed.
 
-**Status:**
+Status:
 This is a harmless warning. The GUI works perfectly without it.
 
-**To Fix (optional):**
+To Fix (optional):
 
 ```bash
 sudo apt-get install libcanberra-gtk-module libcanberra-gtk3-module
 ```
 
-**To Suppress:**
+To Suppress:
 
 ```bash
 export GTK_MODULES=""
@@ -88,21 +88,22 @@ export GTK_MODULES=""
 
 ### Issue 4: No Display Found / Cannot Open Display
 
-**Error:**
+Error:
 
 ```text
 qt.qpa.xcb: could not connect to display
 ```
 
-**Cause:**
+Cause:
 No graphical environment available.
 
-**Solutions:**
+Solutions:
 
-**1. Running Locally:**
+1. Running Locally:
+
 Make sure you're in a graphical session (not SSH without X forwarding).
 
-**2. SSH with X11 Forwarding:**
+2. SSH with X11 Forwarding:
 
 ```bash
 ssh -X user@host
@@ -110,10 +111,11 @@ ssh -X user@host
 ssh -Y user@host  # trusted X11 forwarding
 ```
 
-**3. VNC/Remote Desktop:**
+3. VNC/Remote Desktop:
+
 Set up VNC server and connect with a VNC client.
 
-**4. Virtual Display (for testing):**
+4. Virtual Display (for testing):
 
 ```bash
 # Install xvfb
@@ -127,13 +129,13 @@ xvfb-run ./build/src/chatbot_gui
 
 ### Issue 5: Qt Platform Plugin Not Found
 
-**Error:**
+Error:
 
 ```text
 qt.qpa.plugin: Could not load the Qt platform plugin "xcb"
 ```
 
-**Solution:**
+Solution:
 
 ```bash
 # Install required Qt plugins
@@ -148,21 +150,21 @@ export QT_QPA_PLATFORM_PLUGIN_PATH=/usr/lib/x86_64-linux-gnu/qt5/plugins
 
 ### Issue 6: Model Loading Fails
 
-**Error in GUI:**
+Error in GUI:
 
 ```text
 Failed to initialize chatbot components
 ```
 
-**Solutions:**
+Solutions:
 
-**1. Check Files Exist:**
+1. Check Files Exist:
 
 ```bash
 ls -lh vocab.txt chatbot_model.bin*
 ```
 
-**2. Use Correct Paths:**
+2. Use Correct Paths:
 
 ```bash
 # Run from project root
@@ -173,37 +175,40 @@ cd /home/rodney/Repos/adai
 ./build/src/chatbot_gui /absolute/path/to/vocab.txt /absolute/path/to/model.bin
 ```
 
-**3. Check Model Format:**
+3. Check Model Format:
+
 Ensure model files were created with the same version of the code.
 
 ---
 
 ### Issue 7: Slow Response Generation / GUI Freezes
 
-**Cause:**
+Cause:
 Large model or long max_length setting.
 
-**Solutions:**
+Solutions:
 
-**1. Reduce Settings:**
+1. Reduce Settings:
 
 - Lower max response length (50-100 tokens)
 - Use "Greedy" strategy instead of "Beam Search"
 - Reduce beam width to 3-5
 
-**2. Use Smaller Model:**
+2. Use Smaller Model:
+
 Train with fewer layers/smaller dimensions.
 
-**3. Future Enhancement:**
+3. Future Enhancement:
+
 This is a known limitation. Future versions will support async generation.
 
 ---
 
 ### Issue 8: Segmentation Fault / Crashes
 
-**Possible Causes:**
+Possible Causes:
 
-**1. Model/Vocab Mismatch:**
+1. Model/Vocab Mismatch:
 
 ```bash
 # Ensure vocab size matches model
@@ -211,10 +216,12 @@ head -1 chatbot_model.bin.config  # check vocab_size
 wc -l vocab.txt                   # should match
 ```
 
-**2. Corrupted Model Files:**
+2. Corrupted Model Files:
+
 Re-train or use a different checkpoint.
 
-**3. Memory Issues:**
+3. Memory Issues:
+
 Check available RAM:
 
 ```bash
@@ -227,7 +234,7 @@ free -h
 
 ### Running the GUI
 
-**Always use the launcher scripts:**
+Always use the launcher scripts:
 
 ```bash
 # Best option - handles all environment issues
@@ -237,7 +244,7 @@ free -h
 ./run_chatbot_gui.sh
 ```
 
-**Don't run directly unless you know what you're doing:**
+Don't run directly unless you know what you're doing:
 
 ```bash
 # Avoid this (may have library conflicts)
@@ -246,7 +253,7 @@ free -h
 
 ### Development/Debugging
 
-**Enable Qt Debug Output:**
+Enable Qt Debug Output:
 
 ```bash
 export QT_DEBUG_PLUGINS=1
@@ -254,13 +261,13 @@ export QT_LOGGING_RULES="*.debug=true"
 ./build/src/chatbot_gui
 ```
 
-**Check Library Dependencies:**
+Check Library Dependencies:
 
 ```bash
 ldd build/src/chatbot_gui | grep -i qt
 ```
 
-**Verify Symbols:**
+Verify Symbols:
 
 ```bash
 nm build/src/chatbot_gui | grep ChatbotGUI
@@ -280,7 +287,7 @@ nm build/src/chatbot_gui | grep ChatbotGUI
 
 **Problem:** No native display server.
 
-**Solutions:**
+Solutions:
 
 1. Install VcXsrv or Xming on Windows
 2. Set DISPLAY environment variable
@@ -298,7 +305,7 @@ export DISPLAY=:0
 
 **Problem:** No display access.
 
-**Solutions:**
+Solutions:
 
 ```bash
 # Share X11 socket
@@ -370,14 +377,14 @@ If issues persist:
 
 ## Summary of Solutions
 
-| Issue | Quick Fix |
-| ------- | ----------- |
-| pthread symbol error | Use `./chatbot_gui_fixed.sh` |
-| No display | SSH with `-X` or use VNC |
-| Qt plugin missing | `sudo apt install libqt5gui5` |
-| GTK warnings | `export GTK_MODULES=""` |
-| Model not found | Run from project root |
-| Slow generation | Reduce max length, use greedy |
-| Segfault | Check vocab/model match |
+|Issue|Quick Fix|
+|-------|-----------|
+|pthread symbol error|Use `./chatbot_gui_fixed.sh`|
+|No display|SSH with `-X` or use VNC|
+|Qt plugin missing|`sudo apt install libqt5gui5`|
+|GTK warnings|`export GTK_MODULES=""`|
+|Model not found|Run from project root|
+|Slow generation|Reduce max length, use greedy|
+|Segfault|Check vocab/model match|
 
 **Remember:** Always use the provided launcher scripts for the smoothest experience!

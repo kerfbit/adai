@@ -1,6 +1,6 @@
 # Deployment Documentation
 
-**ADAI Chatbot API Server - Deployment Guides**
+ADAI Chatbot API Server - Deployment Guides
 Version 1.0.0
 Date: January 25, 2026
 
@@ -22,7 +22,7 @@ This directory contains comprehensive deployment documentation for the ADAI Chat
 
 Comprehensive guide for containerized deployment using Docker and Docker Compose.
 
-**Topics Covered:**
+Topics Covered:
 
 - Multi-stage Docker builds
 - Docker Compose orchestration
@@ -33,7 +33,7 @@ Comprehensive guide for containerized deployment using Docker and Docker Compose
 - Monitoring and logging
 - Troubleshooting
 
-**Quick Start:**
+Quick Start:
 
 ```bash
 # Build Docker image
@@ -46,7 +46,7 @@ docker-compose up -d
 docker-compose ps
 ```
 
-**Best For:**
+Best For:
 
 - Local development environments
 - Containerized production deployments
@@ -64,7 +64,7 @@ docker-compose ps
 **Recommended Approach:** Docker Compose
 **Guide:** [docker.md](docker.md) - Quick Start section
 
-**Steps:**
+Steps:
 
 1. Build Docker image
 2. Start with `docker-compose up -d`
@@ -81,7 +81,7 @@ docker-compose ps
 **Recommended Approach:** Docker with systemd service
 **Guide:** [docker.md](docker.md) - Production Deployment section
 
-**Steps:**
+Steps:
 
 1. Set up SSL certificates
 2. Configure docker-compose.yml for production
@@ -99,13 +99,13 @@ docker-compose ps
 **Recommended Approach:** Docker + Cloud Container Services
 **Guide:** [docker.md](docker.md)
 
-**Platforms:**
+Platforms:
 
 - **AWS:** ECS, Fargate, or EC2 with Docker
 - **Google Cloud:** Cloud Run or GKE
 - **Azure:** Container Instances or AKS
 
-**Steps:**
+Steps:
 
 1. Build and push Docker image to container registry
 2. Configure cloud service
@@ -123,7 +123,7 @@ docker-compose ps
 **Recommended Approach:** Docker + Kubernetes manifests
 **Guide:** [docker.md](docker.md) + Kubernetes docs
 
-**Steps:**
+Steps:
 
 1. Build Docker image
 2. Push to container registry
@@ -173,7 +173,7 @@ docker-compose ps
 
 ### Common Commands
 
-**Docker:**
+Docker:
 
 ```bash
 # Build image
@@ -192,7 +192,7 @@ docker-compose ps
 ./scripts/docker_deploy.sh stop
 ```
 
-**Docker Compose:**
+Docker Compose:
 
 ```bash
 # Start services
@@ -369,7 +369,7 @@ tail -f logs/api.log
 
 ### Metrics Collection
 
-**Recommended Tools:**
+Recommended Tools:
 
 - **Prometheus:** Metrics collection
 - **Grafana:** Visualization
@@ -490,7 +490,7 @@ For deployment issues or questions:
 
 ## Future Deployment Guides
 
-**Planned Documentation:**
+Planned Documentation:
 
 - ⚠️ Kubernetes deployment guide (YAML manifests, Helm charts)
 - ⚠️ AWS deployment guide (ECS, Fargate, EC2)

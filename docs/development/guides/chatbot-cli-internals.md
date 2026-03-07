@@ -42,7 +42,7 @@ The CLI uses ANSI escape codes for colored terminal output:
 #define COLOR_ERROR   "\033[1;31m"   // Red (error messages)
 ```
 
-**Visual Example:**
+Visual Example:
 
 ```text
 You: Hello!                    (Cyan)
@@ -85,19 +85,19 @@ ChatbotCLI(const std::string& vocab_file,
            const std::string& conv_save_file = "conversation_history.txt")
 ```
 
-**Parameters:**
+Parameters:
 
 - `vocab_file`: Path to BPE vocabulary file
 - `model_file`: Path to pre-trained model weights
 - `conv_save_file`: Path for saving conversation history (optional, default: "conversation_history.txt")
 
-**Initialization:**
+Initialization:
 
 - Sets file paths
 - Initializes default generation parameters
 - Smart pointers automatically initialize to `nullptr`
 
-**Default Generation Parameters:**
+Default Generation Parameters:
 
 ```cpp
 max_response_length = 100
@@ -130,7 +130,7 @@ bool initialize()
 
 **Purpose:** Initialize all chatbot components
 
-**Process:**
+Process:
 
 1. **Load Tokenizer**
 
@@ -178,7 +178,7 @@ bool initialize()
 
 **Returns:** `true` if successful
 
-**Output Messages:**
+Output Messages:
 
 ```text
 🤖 Initializing Chatbot...
@@ -199,7 +199,7 @@ void print_welcome()
 
 **Purpose:** Display welcome message and help information
 
-**Output:**
+Output:
 
 ```text
 ╔═══════════════════════════════════════════════════════════╗
@@ -229,7 +229,7 @@ void print_stats()
 
 **Purpose:** Display conversation statistics
 
-**Output:**
+Output:
 
 ```text
 📊 Conversation Statistics:
@@ -237,7 +237,7 @@ void print_stats()
   Estimated tokens: 245
 ```
 
-**Data Source:**
+Data Source:
 
 - `context->get_message_count()` - Total messages in conversation
 - `context->get_total_tokens()` - Estimated token count
@@ -250,7 +250,7 @@ void print_settings()
 
 **Purpose:** Display current generation settings
 
-**Output:**
+Output:
 
 ```text
 ⚙️  Current Settings:
@@ -270,26 +270,26 @@ void handle_command(const std::string& command)
 
 **Purpose:** Process user commands
 
-**Supported Commands:**
+Supported Commands:
 
-| Command | Description | Action |
-| --------- | ------------- | -------- |
-| `/help` | Show help message | Calls `print_welcome()` |
-| `/clear` | Clear conversation | `context->clear()` |
-| `/save` | Save conversation | `context->save_to_file(path)` |
-| `/load` | Load conversation | `context->load_from_file(path)` |
-| `/stats` | Show statistics | Calls `print_stats()` |
-| `/settings` | Show settings | Calls `print_settings()` |
-| `/set <param> <value>` | Change parameter | Calls `handle_setting()` |
-| `/system <message>` | Set system message | `context->set_system_message()` |
-| `/exit`, `/quit` | Exit chatbot | Exits main loop |
+|Command|Description|Action|
+|---------|-------------|--------|
+|`/help`|Show help message|Calls `print_welcome()`|
+|`/clear`|Clear conversation|`context->clear()`|
+|`/save`|Save conversation|`context->save_to_file(path)`|
+|`/load`|Load conversation|`context->load_from_file(path)`|
+|`/stats`|Show statistics|Calls `print_stats()`|
+|`/settings`|Show settings|Calls `print_settings()`|
+|`/set <param> <value>`|Change parameter|Calls `handle_setting()`|
+|`/system <message>`|Set system message|`context->set_system_message()`|
+|`/exit`, `/quit`|Exit chatbot|Exits main loop|
 
-**Error Handling:**
+Error Handling:
 
 - Unknown commands display error message
 - Save/load failures caught and reported
 
-**Examples:**
+Examples:
 
 ```text
 /help                    # Show help
@@ -313,18 +313,18 @@ void handle_setting(std::string_view setting)
 
 **Performance:** Uses `std::string_view` for zero-copy substring parsing, avoiding unnecessary string allocations
 
-**Parameters:**
+Parameters:
 
-| Parameter | Aliases | Type | Description | Example |
-| ----------- | --------- | ------ | ------------- | --------- |
-| `strategy` | - | string | Generation strategy | `strategy nucleus` |
-| `length` | `max_length` | int | Max response tokens | `length 150` |
-| `temperature` | `temp` | float | Sampling temperature | `temp 0.8` |
-| `top_p` | `top-p` | float | Nucleus threshold | `top_p 0.95` |
-| `top_k` | `top-k` | int | Top-k limit | `top_k 40` |
-| `beam_width` | `beam-width` | int | Beam search width | `beam_width 10` |
+|Parameter|Aliases|Type|Description|Example|
+|-----------|---------|------|-------------|---------|
+|`strategy`|-|string|Generation strategy|`strategy nucleus`|
+|`length`|`max_length`|int|Max response tokens|`length 150`|
+|`temperature`|`temp`|float|Sampling temperature|`temp 0.8`|
+|`top_p`|`top-p`|float|Nucleus threshold|`top_p 0.95`|
+|`top_k`|`top-k`|int|Top-k limit|`top_k 40`|
+|`beam_width`|`beam-width`|int|Beam search width|`beam_width 10`|
 
-**Valid Strategies:**
+Valid Strategies:
 
 - `greedy` - Always select highest probability token
 - `beam` - Beam search with configurable width
@@ -332,13 +332,13 @@ void handle_setting(std::string_view setting)
 - `top-k` - Sample from top-k tokens
 - `nucleus` - Nucleus (top-p) sampling (recommended)
 
-**Validation:**
+Validation:
 
 - Strategy must be one of the valid options
 - Numeric values parsed with `std::stoi()` / `std::stof()`
 - Invalid parameters report error
 
-**Examples:**
+Examples:
 
 ```cpp
 /set strategy greedy         // Use greedy decoding
@@ -356,7 +356,7 @@ std::string generate_response(const std::string& user_input)
 
 **Purpose:** Generate chatbot response to user input
 
-**Process:**
+Process:
 
 1. **Add User Message to Context**
 
@@ -395,7 +395,7 @@ std::string generate_response(const std::string& user_input)
 
 5. **Return Response**
 
-**Error Handling:**
+Error Handling:
 
 ```cpp
 try {
@@ -415,7 +415,7 @@ void run()
 
 **Purpose:** Main chatbot loop
 
-**Process:**
+Process:
 
 1. **Initialize Components**
 
@@ -445,7 +445,7 @@ void run()
        // Skip empty input
 
        // Check for exit commands
-       if (user_input == "/exit" |  | user_input == "/quit") {
+       if (user_input == "/exit" || user_input == "/quit") {
            running = false;
            continue;
        }
@@ -468,14 +468,14 @@ void run()
    context->save_to_file(conversation_save_path);
    ```
 
-**Input Processing:**
+Input Processing:
 
 - Trims leading/trailing whitespace
 - Skips empty lines
 - Commands start with `/`
 - Normal messages generate responses
 
-**Exit Conditions:**
+Exit Conditions:
 
 - `/exit` command
 - `/quit` command
@@ -489,26 +489,26 @@ int main(int argc, char* argv[])
 
 **Purpose:** Entry point, parse arguments, run chatbot
 
-**Command-Line Arguments:**
+Command-Line Arguments:
 
 ```bash
 ./chatbot [vocab_file] [model_file] [conversation_save_file]
 ```
 
-| Argument | Position | Default | Description |
-| ---------- | ---------- | --------- | ------------- |
-| `vocab_file` | 1 | `vocab.txt` | Vocabulary file path |
-| `model_file` | 2 | `chatbot_model.bin` | Model weights path |
-| `conversation_save_file` | 3 | `conversation_history.txt` | Conversation save path |
+|Argument|Position|Default|Description|
+|----------|----------|---------|-------------|
+|`vocab_file`|1|`vocab.txt`|Vocabulary file path|
+|`model_file`|2|`chatbot_model.bin`|Model weights path|
+|`conversation_save_file`|3|`conversation_history.txt`|Conversation save path|
 
-**Help Option:**
+Help Option:
 
 ```bash
 ./chatbot --help
 ./chatbot -h
 ```
 
-**Output:**
+Output:
 
 ```text
 Usage: ./chatbot [vocab_file] [model_file] [conversation_save_file]
@@ -519,7 +519,7 @@ Default values:
   conversation_save_file: conversation_history.txt
 ```
 
-**Execution:**
+Execution:
 
 ```cpp
 ChatbotCLI chatbot(vocab_path, model_path, conv_save_path);
@@ -534,14 +534,14 @@ chatbot.run();
 
 **Description:** Always select the token with highest probability
 
-**Characteristics:**
+Characteristics:
 
 - Deterministic (same input → same output)
 - Fast (no sampling overhead)
 - May produce repetitive text
 - Good for factual responses
 
-**Use Cases:**
+Use Cases:
 
 - Factual question answering
 - Predictable responses needed
@@ -555,24 +555,24 @@ chatbot.run();
 
 **Description:** Maintain top-N candidate sequences
 
-**Characteristics:**
+Characteristics:
 
 - Explores multiple hypotheses
 - Better quality than greedy
 - Slower than greedy
 - Configurable width
 
-**Use Cases:**
+Use Cases:
 
 - High-quality text generation
 - Translation tasks
 - Balanced quality/diversity
 
-**Parameters Used:**
+Parameters Used:
 
 - `beam_width` - Number of beams to maintain
 
-**Example:**
+Example:
 
 ```text
 /set strategy beam
@@ -585,27 +585,27 @@ chatbot.run();
 
 **Description:** Sample from probability distribution with temperature scaling
 
-**Characteristics:**
+Characteristics:
 
 - Random (different each time)
 - Temperature controls randomness
 - More diverse than greedy
 - Can be incoherent if temp too high
 
-**Use Cases:**
+Use Cases:
 
 - Creative text generation
 - Diverse responses
 - Conversational variety
 
-**Parameters Used:**
+Parameters Used:
 
 - `temperature` - Controls randomness (0.1-2.0)
   - Low (0.1-0.5): Focused, conservative
   - Medium (0.7-1.0): Balanced
   - High (1.2-2.0): Creative, random
 
-**Example:**
+Example:
 
 ```text
 /set strategy sampling
@@ -618,25 +618,25 @@ chatbot.run();
 
 **Description:** Sample from top-k most probable tokens
 
-**Characteristics:**
+Characteristics:
 
 - Limits sampling to likely tokens
 - Prevents unlikely words
 - Configurable k value
 - Good balance of quality/diversity
 
-**Use Cases:**
+Use Cases:
 
 - Controlled creativity
 - Avoiding nonsense
 - Moderate diversity
 
-**Parameters Used:**
+Parameters Used:
 
 - `top_k` - Number of top tokens to consider
 - `temperature` - Additional temperature scaling
 
-**Example:**
+Example:
 
 ```text
 /set strategy top-k
@@ -650,20 +650,20 @@ chatbot.run();
 
 **Description:** Sample from smallest set of tokens whose cumulative probability exceeds p
 
-**Characteristics:**
+Characteristics:
 
 - Dynamic vocabulary size
 - Adapts to probability distribution
 - State-of-the-art for text generation
 - Recommended default
 
-**Use Cases:**
+Use Cases:
 
 - General conversation (default)
 - High-quality diverse responses
 - Production chatbots
 
-**Parameters Used:**
+Parameters Used:
 
 - `top_p` - Cumulative probability threshold (0.0-1.0)
   - 0.9: Recommended default
@@ -671,7 +671,7 @@ chatbot.run();
   - 0.8: More focused
 - `temperature` - Additional temperature scaling
 
-**Example:**
+Example:
 
 ```text
 /set strategy nucleus
@@ -681,7 +681,7 @@ chatbot.run();
 
 ## Model Architecture
 
-**Fixed Configuration:**
+Fixed Configuration:
 
 ```cpp
 d_model = 512              // Model dimension
@@ -696,14 +696,14 @@ max_seq_length = 1024      // Maximum sequence length
 
 ## Conversation Context
 
-**Configuration:**
+Configuration:
 
 ```cpp
 max_messages = 20          // Maximum messages in history
 max_tokens = 2048          // Maximum tokens in context
 ```
 
-**Features:**
+Features:
 
 - Automatic history truncation
 - System message support
@@ -711,7 +711,7 @@ max_tokens = 2048          // Maximum tokens in context
 - Token counting
 - Save/load functionality
 
-**Context Format:**
+Context Format:
 
 ```text
 [System message if set]
@@ -740,7 +740,7 @@ token2
 ...
 ```
 
-**Loading:**
+Loading:
 
 ```cpp
 tokenizer->load_vocab(vocab_path);
@@ -752,13 +752,13 @@ tokenizer->load_vocab(vocab_path);
 
 **Format:** Binary model weights (EncoderDecoderModel format)
 
-**Loading:**
+Loading:
 
 ```cpp
 model->load_model(model_path);
 ```
 
-**Behavior:**
+Behavior:
 
 - If file exists: Load weights
 - If file missing: Use random initialization (with warning)
@@ -770,12 +770,12 @@ model->load_model(model_path);
 
 **Format:** Plain text with message markers
 
-**Operations:**
+Operations:
 
 - **Save:** `/save` command or automatic on exit
 - **Load:** `/load` command
 
-**Example Format:**
+Example Format:
 
 ```text
 USER: Hello!
@@ -857,45 +857,45 @@ You: /system You are a helpful assistant specialized in Python programming.
 
 ### Information Commands
 
-| Command | Description | Output |
-| --------- | ------------- | -------- |
-| `/help` | Display help | Welcome message and command list |
-| `/stats` | Show statistics | Message count, token count |
-| `/settings` | Show settings | Current generation parameters |
+|Command|Description|Output|
+|---------|-------------|--------|
+|`/help`|Display help|Welcome message and command list|
+|`/stats`|Show statistics|Message count, token count|
+|`/settings`|Show settings|Current generation parameters|
 
 ### Conversation Commands
 
-| Command | Description | Effect |
-| --------- | ------------- | -------- |
-| `/clear` | Clear history | Removes all messages from context |
-| `/save` | Save conversation | Writes to conversation file |
-| `/load` | Load conversation | Reads from conversation file |
-| `/system <msg>` | Set system message | Adds context/instructions for bot |
+|Command|Description|Effect|
+|---------|-------------|--------|
+|`/clear`|Clear history|Removes all messages from context|
+|`/save`|Save conversation|Writes to conversation file|
+|`/load`|Load conversation|Reads from conversation file|
+|`/system <msg>`|Set system message|Adds context/instructions for bot|
 
 ### Configuration Commands
 
-| Command | Example | Effect |
-| --------- | --------- | -------- |
-| `/set strategy <name>` | `/set strategy nucleus` | Change generation strategy |
-| `/set length <n>` | `/set length 150` | Set max response length |
-| `/set temperature <f>` | `/set temperature 0.8` | Set sampling temperature |
-| `/set top_p <f>` | `/set top_p 0.95` | Set nucleus threshold |
-| `/set top_k <n>` | `/set top_k 40` | Set top-k limit |
-| `/set beam_width <n>` | `/set beam_width 10` | Set beam width |
+|Command|Example|Effect|
+|---------|---------|--------|
+|`/set strategy <name>`|`/set strategy nucleus`|Change generation strategy|
+|`/set length <n>`|`/set length 150`|Set max response length|
+|`/set temperature <f>`|`/set temperature 0.8`|Set sampling temperature|
+|`/set top_p <f>`|`/set top_p 0.95`|Set nucleus threshold|
+|`/set top_k <n>`|`/set top_k 40`|Set top-k limit|
+|`/set beam_width <n>`|`/set beam_width 10`|Set beam width|
 
 ### Exit Commands
 
-| Command | Effect |
-| --------- | -------- |
-| `/exit` | Save conversation and exit |
-| `/quit` | Save conversation and exit |
-| Ctrl+D | Exit (may not save) |
+|Command|Effect|
+|---------|--------|
+|`/exit`|Save conversation and exit|
+|`/quit`|Save conversation and exit|
+|Ctrl+D|Exit (may not save)|
 
 ## Best Practices
 
 ### 1. Model Selection
 
-**Use Pre-trained Model:**
+Use Pre-trained Model:
 
 ```bash
 # Train model first
@@ -905,7 +905,7 @@ You: /system You are a helpful assistant specialized in Python programming.
 ./chatbot vocab.txt my_model.bin
 ```
 
-**Random Initialization:**
+Random Initialization:
 
 - Only for testing/debugging
 - Responses will be nonsensical
@@ -913,31 +913,31 @@ You: /system You are a helpful assistant specialized in Python programming.
 
 ### 2. Generation Strategy Selection
 
-**Recommended Settings by Use Case:**
+Recommended Settings by Use Case:
 
-| Use Case | Strategy | Temperature | Top-P | Top-K |
-| ---------- | ---------- | ------------- | ------- | ------- |
-| General chat | `nucleus` | 0.9-1.0 | 0.9 | - |
-| Factual Q&A | `greedy` | - | - | - |
-| Creative writing | `sampling` | 1.2-1.5 | - | - |
-| Balanced quality | `beam` | - | - | beam_width=5 |
-| Controlled diversity | `top-k` | 0.9 | - | 40 |
+|Use Case|Strategy|Temperature|Top-P|Top-K|
+|----------|----------|-------------|-------|-------|
+|General chat|`nucleus`|0.9-1.0|0.9|-|
+|Factual Q&A|`greedy`|-|-|-|
+|Creative writing|`sampling`|1.2-1.5|-|-|
+|Balanced quality|`beam`|-|-|beam_width=5|
+|Controlled diversity|`top-k`|0.9|-|40|
 
 ### 3. Context Management
 
-**Clear Long Conversations:**
+Clear Long Conversations:
 
 ```text
 /clear    # Reset when conversation gets too long or off-topic
 ```
 
-**Use System Messages:**
+Use System Messages:
 
 ```text
 /system You are a helpful coding assistant specializing in Python.
 ```
 
-**Save Important Conversations:**
+Save Important Conversations:
 
 ```text
 /save     # Before /clear or /exit
@@ -945,19 +945,19 @@ You: /system You are a helpful assistant specialized in Python programming.
 
 ### 4. Performance Tuning
 
-**Faster Responses:**
+Faster Responses:
 
 - Use `greedy` strategy
 - Reduce `max_length`
 - Reduce `beam_width`
 
-**Better Quality:**
+Better Quality:
 
 - Use `nucleus` or `beam`
 - Increase `beam_width` (5-10)
 - Adjust `temperature` (0.7-0.9)
 
-**More Diversity:**
+More Diversity:
 
 - Increase `temperature` (1.0-1.2)
 - Increase `top_p` (0.95)
@@ -965,7 +965,7 @@ You: /system You are a helpful assistant specialized in Python programming.
 
 ### 5. Troubleshooting
 
-**Repetitive Responses:**
+Repetitive Responses:
 
 ```text
 /set strategy nucleus
@@ -973,21 +973,21 @@ You: /system You are a helpful assistant specialized in Python programming.
 /set top_p 0.9
 ```
 
-**Incoherent Responses:**
+Incoherent Responses:
 
 ```text
 /set temperature 0.7
 /set strategy beam
 ```
 
-**Slow Generation:**
+Slow Generation:
 
 ```text
 /set strategy greedy
 /set length 50
 ```
 
-**Response Too Short:**
+Response Too Short:
 
 ```text
 /set length 200
@@ -997,7 +997,7 @@ You: /system You are a helpful assistant specialized in Python programming.
 
 ### Initialization Errors
 
-**Vocabulary Not Found:**
+Vocabulary Not Found:
 
 ```text
 Failed to load tokenizer: Cannot open vocab.txt
@@ -1005,7 +1005,7 @@ Failed to load tokenizer: Cannot open vocab.txt
 
 **Solution:** Ensure vocabulary file exists and path is correct
 
-**Model Load Failure:**
+Model Load Failure:
 
 ```text
 ⚠️ Failed to load model weights. Using random initialization.
@@ -1015,26 +1015,26 @@ Failed to load tokenizer: Cannot open vocab.txt
 
 ### Runtime Errors
 
-**Generation Error:**
+Generation Error:
 
 ```text
 Bot: [Error generating response: <error message>]
 ```
 
-**Causes:**
+Causes:
 
 - Model dimension mismatch
 - Out of memory
 - Invalid token IDs
 
-**Save/Load Error:**
+Save/Load Error:
 
 ```text
 ❌ Failed to save conversation
 ❌ Failed to load conversation
 ```
 
-**Causes:**
+Causes:
 
 - File permissions
 - Disk space
@@ -1042,20 +1042,20 @@ Bot: [Error generating response: <error message>]
 
 ### Command Errors
 
-**Unknown Command:**
+Unknown Command:
 
 ```text
 ❓ Unknown command. Type /help for available commands.
 ```
 
-**Invalid Parameter:**
+Invalid Parameter:
 
 ```text
 ❌ Unknown parameter: <param>
 Available: strategy, length, temperature, top_p, top_k, beam_width
 ```
 
-**Invalid Strategy:**
+Invalid Strategy:
 
 ```text
 ❌ Invalid strategy. Use: greedy, beam, sampling, top-k, or nucleus
@@ -1065,7 +1065,7 @@ Available: strategy, length, temperature, top_p, top_k, beam_width
 
 ### EncoderDecoderModel
 
-**Methods Used:**
+Methods Used:
 
 ```cpp
 // Constructor
@@ -1082,7 +1082,7 @@ std::string generate_response_with_strategy(
 
 ### ConversationContext
 
-**Methods Used:**
+Methods Used:
 
 ```cpp
 // Constructor
@@ -1108,7 +1108,7 @@ void load_from_file(filepath);
 
 ### BPETokenizer
 
-**Methods Used:**
+Methods Used:
 
 ```cpp
 // Vocabulary loading
@@ -1202,14 +1202,14 @@ int get_vocab_size();
 
 The ChatbotCLI now uses modern C++ smart pointers for automatic memory management:
 
-**Benefits:**
+Benefits:
 
 - ✅ **Memory Safety:** No memory leaks, even with exceptions
 - ✅ **RAII (Resource Acquisition Is Initialization):** Automatic cleanup
 - ✅ **Exception Safety:** Resources properly released in all code paths
 - ✅ **Simplified Code:** No manual `cleanup()` function needed
 
-**Implementation:**
+Implementation:
 
 ```cpp
 std::unique_ptr<BPETokenizer> tokenizer;
@@ -1217,7 +1217,7 @@ std::unique_ptr<EncoderDecoderModel> model;
 std::unique_ptr<ConversationContext> context;
 ```
 
-**Object Creation:**
+Object Creation:
 
 ```cpp
 tokenizer = std::make_unique<BPETokenizer>();
@@ -1229,13 +1229,13 @@ context = std::make_unique<ConversationContext>(...);
 
 Command parsing uses `std::string_view` (C++17) for improved performance:
 
-**Benefits:**
+Benefits:
 
 - ✅ **Zero-Copy Substrings:** No unnecessary string allocations
 - ✅ **Reduced Memory:** 3-4 fewer allocations per command
 - ✅ **Improved Performance:** Faster command parsing in main loop
 
-**Example:**
+Example:
 
 ```cpp
 void handle_setting(std::string_view setting) {
@@ -1252,7 +1252,7 @@ void handle_setting(std::string_view setting) {
 
 The class is now properly separated into header and implementation:
 
-**Benefits:**
+Benefits:
 
 - ✅ **Unit Testing:** Full test coverage now possible
 - ✅ **Code Reusability:** Can be included in other projects
@@ -1269,13 +1269,13 @@ The class is now properly separated into header and implementation:
 
 ### Architecture Improvements
 
-**File Structure:**
+File Structure:
 
 - `ChatbotCLI.hpp` - Class declaration with full interface
 - `ChatbotCLI.cpp` - Class implementation only
 - `ChatbotCLI_main.cpp` - Main entry point for executable
 
-**Move Semantics:**
+Move Semantics:
 
 ```cpp
 // Movable but not copyable (contains unique resources)
@@ -1303,7 +1303,7 @@ ChatbotCLI& operator=(const ChatbotCLI&) = delete;
 ✅ **High Performance:** Optimized string handling, zero-copy parsing
 ✅ **Fully Tested:** 23 unit tests covering all functionality
 
-**Ideal For:**
+Ideal For:
 
 - Testing trained chatbot models
 - Interactive conversations

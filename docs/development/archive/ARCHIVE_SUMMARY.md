@@ -68,24 +68,24 @@ ADAI project direction is transformer-based NLP:
 
 ### `src/CMakeLists.txt`
 
-**Removed:**
+Removed:
 
 - `neuronlayer` executable target
 - `neuralnetwork` executable target
 
-**Added:**
+Added:
 
 - Comment explaining archival and referencing legacy directory
 
 ### `tests/CMakeLists.txt`
 
-**Removed:**
+Removed:
 
 - `neuronTests` target (34 tests)
 - `neuronLayerTests` target
 - `neuralNetworkTests` target (48 tests)
 
-**Added:**
+Added:
 
 - Comment explaining archival and referencing legacy directory
 - `Optimizer.cpp` to `encoderblockTests` (linking fix)
@@ -137,7 +137,7 @@ ADAI project direction is transformer-based NLP:
 - ⚠️ DecoderBlockTests (pre-existing optimizer integration issues)
 - ⚠️ EncoderDecoderTests (1 test failing - pre-existing beam search issue)
 
-**Removed test suites:**
+Removed test suites:
 
 - NeuronTests (34 tests) - archived
 - NeuronLayerTests - archived
@@ -264,7 +264,7 @@ This decision supports the ADAI project's evolution into a mature, focused trans
 
 ---
 
-**Next Steps:**
+Next Steps:
 
 - Continue development on transformer components
 - Address remaining test failures in EncoderBlock/DecoderBlock optimizer integration

@@ -10,7 +10,7 @@ Successfully integrated a centralized `Optimizer` class into the ChatbotTrainer 
 
 **Location:** `src/Optimizer.hpp`, `src/Optimizer.cpp`
 
-**Features:**
+Features:
 
 - ✅ **4 Optimization Algorithms:** SGD, SGD+Momentum, Adam, AdamW
 - ✅ **Gradient Clipping:** Prevents exploding gradients (critical for transformers)
@@ -23,7 +23,7 @@ Successfully integrated a centralized `Optimizer` class into the ChatbotTrainer 
 
 **Location:** `src/ChatbotTrainer.cpp`
 
-**Changes:**
+Changes:
 
 - ✅ Added `Optimizer* optimizer` member variable
 - ✅ Extended `TrainingConfig` with optimizer settings:
@@ -39,7 +39,7 @@ Successfully integrated a centralized `Optimizer` class into the ChatbotTrainer 
   - Gradient norm tracking
 - ✅ Added gradient norm statistics to training logs and summary
 - ✅ New command-line arguments:
-  - `--optimizer <sgd| sgd-momentum | adam |adamw>`
+  - `--optimizer <sgd|sgd-momentum|adam|adamw>`
   - `--weight-decay <val>`
   - `--grad-clip <norm>`
   - `--adam-beta1 <val>`
@@ -49,7 +49,7 @@ Successfully integrated a centralized `Optimizer` class into the ChatbotTrainer 
 
 **Location:** `src/EncoderDecoderModel.hpp/cpp`
 
-**Changes:**
+Changes:
 
 - ✅ Added `register_parameters(Optimizer&)` method (placeholder for future full integration)
 - ✅ Added `backward_pass()` method for gradient computation without weight updates
@@ -60,14 +60,14 @@ Successfully integrated a centralized `Optimizer` class into the ChatbotTrainer 
 
 **Location:** `src/CMakeLists.txt`
 
-**Changes:**
+Changes:
 
 - ✅ Added `Optimizer.cpp` to `CHATBOT_TRAINER_FILES`
 - ✅ Created `optimizer_example` executable
 
 ### 5. Documentation
 
-**Files Created:**
+Files Created:
 
 - ✅ `OPTIMIZER_README.md` - Comprehensive optimizer documentation
 - ✅ `src/OptimizerExample.cpp` - Working examples and demonstrations
@@ -199,7 +199,7 @@ optimizer = new Optimizer(config.optimizer_type, config.learning_rate);
 optimizer->set_weight_decay(config.weight_decay);
 optimizer->set_max_grad_norm(config.gradient_clip_norm);
 
-if (config.optimizer_type == OptimizerType::ADAM |  |
+if (config.optimizer_type == OptimizerType::ADAM ||
     config.optimizer_type == OptimizerType::ADAMW) {
     optimizer->set_betas(config.adam_beta1, config.adam_beta2);
 }

@@ -107,14 +107,14 @@ Expected output:
 
 ### Target vs Actual
 
-| Metric | Target | Actual | Status |
-| -------- | -------- | -------- | -------- |
-| Speedup (4 cores) | 4-8x | 3.82x | ✅ Within range |
-| Efficiency (4 cores) | 85%+ | 95.6% | ✅ Excellent |
-| Speedup (8 cores) | 6-8x | ~7.6x (est) | ✅ Within range |
-| Overhead | Minimal | <5% | ✅ Negligible |
-| Thread safety | Required | Verified | ✅ Pass |
-| Correctness | 100% | 100% | ✅ Pass |
+|Metric|Target|Actual|Status|
+|--------|--------|--------|--------|
+|Speedup (4 cores)|4-8x|3.82x|✅ Within range|
+|Efficiency (4 cores)|85%+|95.6%|✅ Excellent|
+|Speedup (8 cores)|6-8x|~7.6x (est)|✅ Within range|
+|Overhead|Minimal|<5%|✅ Negligible|
+|Thread safety|Required|Verified|✅ Pass|
+|Correctness|100%|100%|✅ Pass|
 
 ### Performance Summary
 
@@ -330,12 +330,12 @@ cmake .. && make augmentation_benchmark
 # Expected: "✓ PASSED: All sequences successfully augmented"
 
 # Verify speedup (4 threads)
-./src/augmentation_benchmark | grep "4 |"
+./src/augmentation_benchmark |grep "4|"
 # Expected: Speedup ~3.5-4.5x
 
 # Test with different thread counts
-OMP_NUM_THREADS=1 ./src/augmentation_benchmark | grep "1 |"
-OMP_NUM_THREADS=8 ./src/augmentation_benchmark | grep "8 |"
+OMP_NUM_THREADS=1 ./src/augmentation_benchmark |grep "1|"
+OMP_NUM_THREADS=8 ./src/augmentation_benchmark |grep "8|"
 ```
 
 - [x] ✅ All checks passed

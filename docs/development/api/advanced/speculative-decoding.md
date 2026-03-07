@@ -78,7 +78,7 @@ struct SpeculativeDecodingConfig {
 };
 ```
 
-**Hyperparameter Guide:**
+Hyperparameter Guide:
 
 - `num_candidates` (K):
   - **Larger K** = more speedup potential, but lower acceptance rate
@@ -99,13 +99,13 @@ SpeculativeDecoder(TextGenerator* draft_model,
                   const SpeculativeDecodingConfig& config)
 ```
 
-**Requirements:**
+Requirements:
 
 - **Draft model:** Small, fast model (e.g., 125M params)
 - **Target model:** Large, accurate model (e.g., 1.3B params)
 - **Both models:** Same tokenizer and vocabulary
 
-**Example:**
+Example:
 
 ```cpp
 // Load models
@@ -133,7 +133,7 @@ std::string generate(const std::string& prompt, int max_length)
 
 Generate text using speculative decoding.
 
-**Algorithm:**
+Algorithm:
 
 ```text
 1. Initialize: prefix = prompt
@@ -146,7 +146,7 @@ Generate text using speculative decoding.
 3. Return: generated text
 ```
 
-**Example:**
+Example:
 
 ```cpp
 std::string prompt = "Once upon a time";
@@ -180,11 +180,11 @@ std::vector<int> verify_candidates(const std::string& prefix,
 
 Verify candidates with target model using acceptance criterion.
 
-**Acceptance Criterion:**
+Acceptance Criterion:
 
 ```text
 Accept token t_i if:
-  p_target(t_i | prefix, t_1, ..., t_{i-1}) >= p_draft(t_i | ...)
+  p_target(t_i |prefix, t_1, ..., t_{i-1}) >= p_draft(t_i| ...)
 ```
 
 **Returns:** Indices of accepted tokens
@@ -211,7 +211,7 @@ SpeculativeDecodingStats get_stats() const;
 
 Get performance statistics.
 
-**Example:**
+Example:
 
 ```cpp
 auto stats = spec_decoder.get_stats();
@@ -300,17 +300,17 @@ int main() {
 
 ### Acceptance Rates
 
-| K (candidates) | Typical Acceptance Rate |
-| ---------------- | ------------------------ |
-| 2 | 85-95% |
-| 4 | 70-80% |
-| 5 | 65-75% |
-| 6 | 60-70% |
-| 8 | 50-60% |
+|K (candidates)|Typical Acceptance Rate|
+|----------------|------------------------|
+|2|85-95%|
+|4|70-80%|
+|5|65-75%|
+|6|60-70%|
+|8|50-60%|
 
 ### Speedup Calculations
 
-**Theoretical Speedup:**
+Theoretical Speedup:
 
 ```text
 speedup = (K × acceptance_rate) / (1 + overhead)
@@ -321,7 +321,7 @@ K=5, acceptance=70%: 5 × 0.70 = 3.5x
 K=6, acceptance=65%: 6 × 0.65 = 3.9x
 ```
 
-**Practical Speedup:**
+Practical Speedup:
 
 - CPU: 1.5-2.5x (due to overhead)
 - GPU: 2.0-3.5x (parallel verification)
@@ -338,11 +338,11 @@ K=6, acceptance=65%: 6 × 0.65 = 3.9x
 
 ### Good Draft-Target Pairs
 
-| Draft Model | Target Model | Expected Speedup |
-| ------------- | -------------- | ------------------ |
-| 125M params | 1.3B params | 2.0-2.5x |
-| 350M params | 7B params | 2.5-3.0x |
-| 1.3B params | 13B params | 2.0-2.8x |
+|Draft Model|Target Model|Expected Speedup|
+|-------------|--------------|------------------|
+|125M params|1.3B params|2.0-2.5x|
+|350M params|7B params|2.5-3.0x|
+|1.3B params|13B params|2.0-2.8x|
 
 ### Training Draft Models
 
@@ -399,13 +399,13 @@ auto results = batch_processor.generate_batch(prompts);
 
 ### Low Acceptance Rate (<50%)
 
-**Causes:**
+Causes:
 
 - Draft model too different from target
 - K (num_candidates) too large
 - High temperature
 
-**Solutions:**
+Solutions:
 
 - Train better draft model (distillation)
 - Reduce K to 3-4
@@ -414,13 +414,13 @@ auto results = batch_processor.generate_batch(prompts);
 
 ### No Speedup
 
-**Causes:**
+Causes:
 
 - Draft model not fast enough
 - Overhead too high (Python, I/O)
 - Draft model too large
 
-**Solutions:**
+Solutions:
 
 - Use smaller/faster draft model
 - Profile and optimize bottlenecks

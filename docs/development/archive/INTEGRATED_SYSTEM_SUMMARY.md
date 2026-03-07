@@ -55,13 +55,13 @@ Successfully integrated all Priority 1-5 parallel optimizations into a unified s
 
 ### Integrated Benchmark (200 requests, batch_size=32)
 
-| Configuration | Time (ms) | Speedup | Throughput (req/s) |
-| -------------- | ----------- | --------- | ------------------- |
-| **Sequential (baseline)** | 10,085 ms | 1.00x | 19.8 req/s |
-| Batching (P3) | 10,003 ms | 1.01x | 20.0 req/s |
-| Batching + OpenMP (P1+P3) | 3,480 ms | **2.90x** | 57.5 req/s |
-| Batching + OpenMP + Attention (P1+P3+P4) | 2,944 ms | **3.43x** | 68.0 req/s |
-| **All Optimizations (P1+P3+P4+P5)** | **1,824 ms** | **5.53x** | **109.7 req/s** |
+|Configuration|Time (ms)|Speedup|Throughput (req/s)|
+|--------------|-----------|---------|-------------------|
+|**Sequential (baseline)**|10,085 ms|1.00x|19.8 req/s|
+|Batching (P3)|10,003 ms|1.01x|20.0 req/s|
+|Batching + OpenMP (P1+P3)|3,480 ms|**2.90x**|57.5 req/s|
+|Batching + OpenMP + Attention (P1+P3+P4)|2,944 ms|**3.43x**|68.0 req/s|
+|**All Optimizations (P1+P3+P4+P5)**|**1,824 ms**|**5.53x**|**109.7 req/s**|
 
 ### Key Metrics
 
@@ -431,13 +431,13 @@ numactl --cpunodebind=0 --membind=0 ./your_application
 
 For a server handling 1M requests/day:
 
-**Before:**
+Before:
 
 - Requests/sec needed: 1,000,000 / 86,400 = 11.6 req/s
 - Servers required: 11.6 / 19.8 = **1 server** (baseline)
 - Monthly cost: $100/server = **$100/month**
 
-**After:**
+After:
 
 - Requests/sec available: 109.7 req/s per server
 - Servers required: 11.6 / 109.7 = **1 server** (but 5.5x headroom)
@@ -469,7 +469,7 @@ For a server handling 1M requests/day:
 - Effort: Very High (8-12 weeks)
 - ROI: Very High for large-scale training
 
-**Additional Optimizations:**
+Additional Optimizations:
 
 1. **KV Cache Optimization**
    - Cache key/value tensors in decoder

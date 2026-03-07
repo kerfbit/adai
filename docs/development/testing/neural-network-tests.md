@@ -330,15 +330,15 @@ Total Test time (real) = 0.53 sec
 
 ### Context Document Examples vs Tests
 
-| Example | Context Doc | Test Coverage |
-| --------- | ------------- | --------------- |
-| XOR Problem | ✅ Shown | ✅ `XORProblem` test |
-| Multi-class (Iris-like) | ✅ Shown | ✅ `CompleteWorkflowClassification` |
-| Regression | ✅ Shown | ✅ `CompleteWorkflowRegression` |
-| Deep Network | ✅ Shown | ✅ `DeepNetworkConstruction` |
-| Save/Load | ✅ Shown | ✅ 4 serialization tests |
-| All Loss Functions | ✅ Documented | ✅ 5 loss function tests |
-| All Activations | ✅ Documented | ✅ 5 activation tests |
+|Example|Context Doc|Test Coverage|
+|---------|-------------|---------------|
+|XOR Problem|✅ Shown|✅ `XORProblem` test|
+|Multi-class (Iris-like)|✅ Shown|✅ `CompleteWorkflowClassification`|
+|Regression|✅ Shown|✅ `CompleteWorkflowRegression`|
+|Deep Network|✅ Shown|✅ `DeepNetworkConstruction`|
+|Save/Load|✅ Shown|✅ 4 serialization tests|
+|All Loss Functions|✅ Documented|✅ 5 loss function tests|
+|All Activations|✅ Documented|✅ 5 activation tests|
 
 ## Test Organization
 

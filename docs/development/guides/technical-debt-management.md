@@ -46,29 +46,29 @@ Add a new entry in the "Active Technical Debt" section:
 **Effort:** 2-4 hours
 **Status:** Open
 
-**Description:**
+Description:
 Clear description of the debt item and why it exists.
 
-**Impact:**
+Impact:
 - What problems does this cause?
 - Why should we fix it?
 
-**Location:**
+Location:
 - `src/File.cpp:123-145` - Description of problem location
 
-**Tasks:**
+Tasks:
 - [ ] Task 1
 - [ ] Task 2
 - [ ] Add tests
 - [ ] Update documentation
 
-**Files Affected:**
+Files Affected:
 - `src/File.hpp`
 - `src/File.cpp`
 
 **Related Issues:** [Create issue in GitHub]
 
-**Notes:**
+Notes:
 Any additional context or constraints.
 ```
 
@@ -249,10 +249,10 @@ Examples:
 **Priority:** Medium
 **Component:** Feature Name
 
-**Description:**
+Description:
 Feature X was partially implemented. Currently supports Y but needs Z.
 
-**Tasks:**
+Tasks:
 - [ ] Implement missing functionality Z
 - [ ] Add tests for Z
 - [ ] Update documentation
@@ -265,10 +265,10 @@ Feature X was partially implemented. Currently supports Y but needs Z.
 **Priority:** Low
 **Component:** Core/Utils
 
-**Description:**
+Description:
 Similar logic duplicated in multiple files. Should extract to common utility.
 
-**Tasks:**
+Tasks:
 - [ ] Create shared utility function
 - [ ] Replace duplicated code with utility calls
 - [ ] Add tests for utility
@@ -281,10 +281,10 @@ Similar logic duplicated in multiple files. Should extract to common utility.
 **Priority:** Medium
 **Component:** Matrix Operations
 
-**Description:**
+Description:
 Matrix multiplication uses naive O(n³) algorithm. Should optimize for large matrices.
 
-**Tasks:**
+Tasks:
 - [ ] Implement Strassen or BLAS-based multiplication
 - [ ] Add performance benchmarks
 - [ ] Verify numerical accuracy
@@ -304,7 +304,7 @@ Matrix multiplication uses naive O(n³) algorithm. Should optimize for large mat
 ### ❌ Too Many Tasks
 
 ```markdown
-**Tasks:**
+Tasks:
 - [ ] Refactor entire codebase
 - [ ] Rewrite all tests
 - [ ] Add documentation
@@ -421,20 +421,20 @@ Monthly debt report template:
 ```markdown
 # Technical Debt Report - January 2026
 
-**Summary:**
+Summary:
 - Total items: 5 (↓ 2 from last month)
 - High priority: 0 (↓ 1)
 - Medium priority: 3 (↔ 0)
 - Low priority: 2 (↓ 1)
 
-**Resolved This Month:**
+Resolved This Month:
 - TD-001: Optimizer parameter exposure
 - TD-007: Error handling in tokenizer
 
-**New This Month:**
+New This Month:
 - TD-008: Memory pool for matrix operations
 
-**Next Month Focus:**
+Next Month Focus:
 - TD-003: Algorithm optimization
 - TD-005: Increase test coverage
 ```

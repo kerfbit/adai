@@ -62,13 +62,13 @@ python3 test_repair_vocab.py vocab.txt --repair -o vocab_fixed.txt
 
 ## Command Line Options
 
-| Option | Description |
+|Option|Description|
 |--------|-------------|
-| `file` | Path to vocab.txt file (default: `vocab.txt`) |
-| `--repair` | Attempt to repair detected issues |
-| `--output FILE` | Output path for repaired file (default: overwrite original) |
-| `-o FILE` | Short form of --output |
-| `--test-only` | Only run tests, do not repair |
+|`file`|Path to vocab.txt file (default: `vocab.txt`)|
+|`--repair`|Attempt to repair detected issues|
+|`--output FILE`|Output path for repaired file (default: overwrite original)|
+|`-o FILE`|Short form of --output|
+|`--test-only`|Only run tests, do not repair|
 
 ## Output
 
@@ -151,7 +151,7 @@ Special tokens: 4
 
 The vocab.txt file should follow this structure:
 
-```
+```text
 # BPE Tokenizer Vocabulary v1.0
 VOCAB_SIZE 10000
 SPECIAL_TOKENS
@@ -195,16 +195,19 @@ Declared size doesn't match actual entries. Repair mode updates the declared siz
 
 ## Troubleshooting
 
-**Q: Script reports "File not found"**
+Q: Script reports "File not found"
+
 - Ensure the file path is correct
 - Use absolute path if relative path doesn't work
 
-**Q: Many "Invalid vocab ID" errors**
+Q: Many "Invalid vocab ID" errors
+
 - The vocab file may be corrupted or in wrong format
 - Check that entries are tab-separated (not spaces)
 - Verify the second column contains only integers
 
-**Q: Encoding warnings appear**
+Q: Encoding warnings appear
+
 - Your file uses non-UTF-8 encoding
 - Consider re-saving the file with UTF-8 encoding
 - The script handles this automatically but may replace some characters

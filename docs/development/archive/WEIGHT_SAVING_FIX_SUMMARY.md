@@ -15,12 +15,12 @@ Several components in the codebase did not implement weight saving/loading funct
 
 ### 1. LayerNorm (src/LayerNorm.hpp, src/LayerNorm.cpp)
 
-**Added:**
+Added:
 
 - `void save_weights(const std::string& filename) const` - Saves gamma and beta parameters
 - `void load_weights(const std::string& filename)` - Loads gamma and beta parameters
 
-**File Format (binary):**
+File Format (binary):
 
 ```text
 [int] dimension
@@ -35,7 +35,7 @@ Several components in the codebase did not implement weight saving/loading funct
 
 ### 2. TokenEmbedding (src/TokenEmbedding.hpp, src/TokenEmbedding.cpp)
 
-**Added:**
+Added:
 
 - `void save_weights(const std::string& filename) const` - Wrapper around `save_embeddings()`
 - `void load_weights(const std::string& filename)` - Wrapper around `load_pretrained()`
@@ -48,12 +48,12 @@ Several components in the codebase did not implement weight saving/loading funct
 
 ### 3. LanguageModelHead (src/LanguageModelHead.hpp, src/LanguageModelHead.cpp)
 
-**Added:**
+Added:
 
 - `void save_weights(const std::string& filename) const` - Wrapper around `save()`
 - `void load_weights(const std::string& filename)` - Wrapper around `load()`
 
-**Changes:**
+Changes:
 
 - Made `save()` method `const` for consistency
 
@@ -63,7 +63,7 @@ Several components in the codebase did not implement weight saving/loading funct
 
 ### 4. Encoder - LLMEncoder (src/encoder.cpp)
 
-**Replaced stub implementation with:**
+Replaced stub implementation with:
 
 ```cpp
 void LLMEncoder::save_weights(const std::string& filename) {
@@ -81,7 +81,7 @@ void LLMEncoder::load_weights(const std::string& filename) {
 }
 ```
 
-**Saves to multiple files:**
+Saves to multiple files:
 
 - `{filename}` - Header with architecture
 - `{base}_token_emb.bin` - Token embeddings
@@ -92,7 +92,7 @@ void LLMEncoder::load_weights(const std::string& filename) {
 
 ### 5. Decoder - LLMDecoder (src/Decoder.cpp)
 
-**Replaced stub implementation with:**
+Replaced stub implementation with:
 
 ```cpp
 void LLMDecoder::save_weights(const std::string& filepath) const {
@@ -110,14 +110,14 @@ void LLMDecoder::load_weights(const std::string& filepath) {
 }
 ```
 
-**Saves to multiple files:**
+Saves to multiple files:
 
 - `{filepath}` - Header with architecture
 - `{base}_token_emb.bin` - Token embeddings
 - `{base}_decoder_block_{i}.bin` - Each decoder block (with sub-files)
 - `{base}_final_norm.bin` - Final layer norm
 
-**Also fixed:**
+Also fixed:
 
 - `void zero_grad()` - Now calls `final_norm->zero_grad()` (was commented out)
 
@@ -125,7 +125,7 @@ void LLMDecoder::load_weights(const std::string& filepath) {
 
 ### 6. EncoderDecoderModel (src/EncoderDecoderModel.cpp)
 
-**Enabled LanguageModelHead persistence:**
+Enabled LanguageModelHead persistence:
 
 ```cpp
 // In save_model():

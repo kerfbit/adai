@@ -30,14 +30,16 @@ export TEMPERATURE=0.8
 
 Available environment variables:
 
-**Server Configuration:**
+Server Configuration:
+
 - `VOCAB_PATH` - Path to vocabulary file (required)
 - `MODEL_PATH` - Path to model weights file
 - `PORT` - Server port (default: 8080)
 - `SESSION_TIMEOUT` - Session timeout in minutes (default: 30)
 - `LOG_LEVEL` - Logging level: DEBUG, INFO, WARN, ERROR (default: INFO)
 
-**Model Architecture:**
+Model Architecture:
+
 - `D_MODEL` - Model dimension (default: 512)
 - `NUM_HEADS` - Number of attention heads (default: 8)
 - `D_FF` - Feed-forward dimension (default: 2048)
@@ -45,7 +47,8 @@ Available environment variables:
 - `NUM_DECODER_LAYERS` - Number of decoder layers (default: 6)
 - `MAX_SEQ_LENGTH` - Maximum sequence length (default: 1024)
 
-**Generation Parameters:**
+Generation Parameters:
+
 - `MAX_LENGTH` or `MAX_GEN_LENGTH` - Maximum generation length (default: 100)
 - `TEMPERATURE` - Sampling temperature (default: 1.0)
 - `TOP_P` - Nucleus sampling threshold (default: 0.9)
@@ -70,7 +73,7 @@ TEMPERATURE=0.8
 
 See `config.conf.example` in the project root for a complete example.
 
-**Using a custom config file location:**
+Using a custom config file location:
 
 ```bash
 ./chatbot_api_server --config /path/to/my-config.conf
@@ -143,7 +146,8 @@ Use command-line arguments for quick iteration:
 Use a configuration file for stability:
 
 1. Create `/etc/adai/config.conf`:
-   ```
+
+```text
    VOCAB_PATH=/opt/adai/vocab.txt
    MODEL_PATH=/opt/adai/models/production.bin
    PORT=8080
@@ -151,7 +155,8 @@ Use a configuration file for stability:
    SESSION_TIMEOUT=30
    ```
 
-2. Run the service:
+1. Run the service:
+
    ```bash
    ./chatbot_api_server
    ```

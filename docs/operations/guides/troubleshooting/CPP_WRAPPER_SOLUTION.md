@@ -52,10 +52,10 @@ User runs:  ./build/src/chatbot_gui
 
 ### Build Targets
 
-| Target | Type | Size | Purpose |
-| -------- | ------ | ------ | --------- |
-| `chatbot_gui` | Wrapper | 37 KB | Fixes environment, execs binary |
-| `chatbot_gui_binary` | Qt GUI | 1.6 MB | Actual Qt application |
+|Target|Type|Size|Purpose|
+|--------|------|------|---------|
+|`chatbot_gui`|Wrapper|37 KB|Fixes environment, execs binary|
+|`chatbot_gui_binary`|Qt GUI|1.6 MB|Actual Qt application|
 
 ## Usage
 

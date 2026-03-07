@@ -17,12 +17,12 @@ The chatbot has **multiple critical issues** with special token handling that wi
 
 According to `BPETokenizer.hpp` and `BPETokenizer.cpp`:
 
-| Token   | ID | Purpose                     |
-| ------- | -- | --------------------------- |
-| `<pad>` | 0  | Padding sequences           |
-| `<unk>` | 1  | Unknown/out-of-vocab tokens |
-| `<bos>` | 2  | Beginning of sequence       |
-| `<eos>` | 3  | End of sequence             |
+|Token|ID|Purpose|
+|-------|--|---------------------------|
+|`<pad>`|0|Padding sequences|
+|`<unk>`|1|Unknown/out-of-vocab tokens|
+|`<bos>`|2|Beginning of sequence|
+|`<eos>`|3|End of sequence|
 
 ---
 
@@ -92,7 +92,7 @@ The model receives a tokenizer with correct IDs (0,1,2,3) but continues using it
 ```cpp
 void EncoderDecoderModel::set_tokenizer(BPETokenizer* tokenizer_ptr) {
     tokenizer.reset(tokenizer_ptr);
-    
+
     // Sync special token IDs from tokenizer
     TextGenerator::GenerationConfig config = generator->get_config();
     config.bos_token_id = tokenizer->get_bos_token_id();  // Needs getter method!
@@ -118,12 +118,12 @@ int get_pad_token_id() const { return pad_token_id; }
 
 ```cpp
 // Line 133 - generate_response()
-std::vector<int> input_tokens = tokenizer->encode(input_text);  
+std::vector<int> input_tokens = tokenizer->encode(input_text);
 // ❌ Defaults to add_special_tokens=true → adds [BOS, ...tokens..., EOS]
 
 // Line 169
-std::vector<int> output_tokens = 
-    generator->generate(model_fn, {bos_token_id});  
+std::vector<int> output_tokens =
+    generator->generate(model_fn, {bos_token_id});
 // ❌ Starts decoder with BOS again!
 ```
 
@@ -235,7 +235,7 @@ gen_config.pad_token_id = 0;  // <pad>
 ```cpp
 void EncoderDecoderModel::set_tokenizer(BPETokenizer* tokenizer_ptr) {
     tokenizer.reset(tokenizer_ptr);
-    
+
     // Synchronize special token IDs
     TextGenerator::GenerationConfig config = generator->get_config();
     config.bos_token_id = tokenizer->get_bos_token_id();
@@ -269,10 +269,10 @@ std::vector<int> target_tokens = tokenizer->encode(pair.response, true); // Deco
    ```cpp
    BPETokenizer tokenizer;
    tokenizer.load_vocab("vocab.txt");
-   
+
    assert(tokenizer.get_bos_token_id() == 2);
    assert(tokenizer.get_eos_token_id() == 3);
-   
+
    model->set_tokenizer(&tokenizer);
    assert(model->get_bos_token_id() == 2);
    assert(model->get_eos_token_id() == 3);
@@ -283,7 +283,7 @@ std::vector<int> target_tokens = tokenizer->encode(pair.response, true); // Deco
    ```cpp
    auto tokens_with = tokenizer.encode("hello", true);
    // Should be: [2, ...tokens..., 3]
-   
+
    auto tokens_without = tokenizer.encode("hello", false);
    // Should be: [...tokens...] (no BOS/EOS)
    ```

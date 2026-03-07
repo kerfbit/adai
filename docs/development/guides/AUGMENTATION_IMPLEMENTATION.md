@@ -45,7 +45,7 @@ However, augmentation can be a **preprocessing bottleneck**, especially with lar
 
 #### 1. [EfficientBatching.hpp](src/EfficientBatching.hpp)
 
-**Added OpenMP include:**
+Added OpenMP include:
 
 ```cpp
 #ifdef ADAI_ENABLE_OPENMP
@@ -55,7 +55,7 @@ However, augmentation can be a **preprocessing bottleneck**, especially with lar
 
 **Parallelized `apply_augmentation()` function:**
 
-**Before (Sequential):**
+Before (Sequential):
 
 ```cpp
 static void apply_augmentation(
@@ -72,7 +72,7 @@ static void apply_augmentation(
 }
 ```
 
-**After (Parallel):**
+After (Parallel):
 
 ```cpp
 static void apply_augmentation(
@@ -100,7 +100,7 @@ static void apply_augmentation(
 }
 ```
 
-**Key parallelization techniques:**
+Key parallelization techniques:
 
 - `#pragma omp parallel` - Creates thread pool
 - `#pragma omp for schedule(dynamic, 16)` - Distributes sequences across threads
@@ -110,7 +110,7 @@ static void apply_augmentation(
 
 #### 2. [CMakeLists.txt](src/CMakeLists.txt)
 
-**Added benchmark target:**
+Added benchmark target:
 
 ```cmake
 # Augmentation Benchmark - Test parallel data augmentation (Priority 2 implementation)
@@ -146,14 +146,14 @@ Comprehensive benchmark suite (450+ lines) that tests:
 
 ### Scaling Results
 
-**20,000 sequences (2.5M tokens), all augmentations enabled:**
+20,000 sequences (2.5M tokens), all augmentations enabled:
 
-| Threads | Time (ms) | Throughput | Speedup | Efficiency |
-| --------- | ----------- | ------------ | --------- | ------------ |
-| 1 | 918.61 | 2,782 tok/ms | 1.00x | 100.0% |
-| 2 | 467.45 | 5,468 tok/ms | 1.97x | 98.3% |
-| 4 | 240.30 | 10,637 tok/ms | **3.82x** | **95.6%** |
-| 8 | ~120 | ~21,000 tok/ms | **~7.6x** | **~95%** (estimated) |
+|Threads|Time (ms)|Throughput|Speedup|Efficiency|
+|---------|-----------|------------|---------|------------|
+|1|918.61|2,782 tok/ms|1.00x|100.0%|
+|2|467.45|5,468 tok/ms|1.97x|98.3%|
+|4|240.30|10,637 tok/ms|**3.82x**|**95.6%**|
+|8|~120|~21,000 tok/ms|**~7.6x**|**~95%** (estimated)|
 
 ### Key Findings
 
@@ -164,14 +164,14 @@ Comprehensive benchmark suite (450+ lines) that tests:
 
 ### Individual Operation Performance
 
-**10,000 sequences, 8 threads:**
+10,000 sequences, 8 threads:
 
-| Operation | Time (ms) | Throughput |
-| ----------- | ----------- | ------------ |
-| Token Dropout (10%) | 50.46 | 25,304 tok/ms |
-| Token Masking (15%) | 46.37 | 27,537 tok/ms |
-| Sequence Shuffle (5%) | 42.31 | 30,174 tok/ms |
-| All Combined | 126.06 | 10,128 tok/ms |
+|Operation|Time (ms)|Throughput|
+|-----------|-----------|------------|
+|Token Dropout (10%)|50.46|25,304 tok/ms|
+|Token Masking (15%)|46.37|27,537 tok/ms|
+|Sequence Shuffle (5%)|42.31|30,174 tok/ms|
+|All Combined|126.06|10,128 tok/ms|
 
 ---
 
@@ -203,14 +203,14 @@ EfficientBatching::apply_augmentation(sequences, config);
 
 ### Controlling Thread Count
 
-**Environment Variable (Recommended):**
+Environment Variable (Recommended):
 
 ```bash
 export OMP_NUM_THREADS=8
 ./chatbot_trainer
 ```
 
-**Programmatic Control:**
+Programmatic Control:
 
 ```cpp
 #ifdef ADAI_ENABLE_OPENMP
@@ -223,21 +223,21 @@ EfficientBatching::apply_augmentation(sequences, config);
 
 ### Performance Tuning
 
-**For Large Datasets (>10K sequences):**
+For Large Datasets (>10K sequences):
 
 ```bash
 # Use all available cores
 export OMP_NUM_THREADS=$(nproc)
 ```
 
-**For Small Datasets (<1K sequences):**
+For Small Datasets (<1K sequences):
 
 ```bash
 # Use fewer threads to reduce overhead
 export OMP_NUM_THREADS=4
 ```
 
-**For Mixed Workloads:**
+For Mixed Workloads:
 
 ```bash
 # Let OpenMP decide
@@ -274,7 +274,7 @@ This ensures:
 - Dynamic scheduling **balances load** across threads
 - Chunk size 16 balances overhead vs. granularity
 
-**Alternatives considered:**
+Alternatives considered:
 
 - `schedule(static)` - Poor for variable-length sequences
 - `schedule(guided)` - Similar performance, more complex
@@ -401,13 +401,13 @@ void benchmark_augmentation() {
 
 ### OpenMP Not Enabled
 
-**Symptom:**
+Symptom:
 
 ```text
 ⚠ OpenMP NOT ENABLED - Running sequential version only
 ```
 
-**Solution:**
+Solution:
 
 ```bash
 # Install OpenMP development libraries
@@ -418,7 +418,7 @@ cd build
 cmake .. && make
 ```
 
-**Verify:**
+Verify:
 
 ```bash
 ./augmentation_benchmark
@@ -429,7 +429,7 @@ cmake .. && make
 
 **Symptom:** Speedup less than expected (e.g., 2x on 8 cores)
 
-**Possible Causes:**
+Possible Causes:
 
 1. **CPU cores busy with other tasks**
 
@@ -464,7 +464,7 @@ cmake .. && make
 
 **This is normal!** Augmentation is **stochastic** (random).
 
-**For reproducibility:**
+For reproducibility:
 
 ```cpp
 AugmentationConfig config;
@@ -498,7 +498,7 @@ After implementing Priority 2, consider:
 
 ### Monitoring Performance
 
-**Add profiling to your training:**
+Add profiling to your training:
 
 ```cpp
 #include "PerformanceProfiler.hpp"
@@ -510,7 +510,7 @@ After implementing Priority 2, consider:
 // Automatically prints: "Data Augmentation: 126.06 ms"
 ```
 
-**Track augmentation overhead:**
+Track augmentation overhead:
 
 ```cpp
 Timer total_timer;
@@ -548,7 +548,7 @@ std::cout << "Augmentation: " << aug_percentage << "% of total time\n";
 ✅ **Tested:** Comprehensive benchmark suite included
 ✅ **Production-ready:** Thread-safe, automatic fallback, well-documented
 
-**Impact on Training Pipeline:**
+Impact on Training Pipeline:
 
 - **Before:** Augmentation = 10-15% of preprocessing time
 - **After:** Augmentation = 2-4% of preprocessing time (with 4 threads)

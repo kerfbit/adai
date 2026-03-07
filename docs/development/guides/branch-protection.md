@@ -17,7 +17,7 @@ Branch protection rules:
 
 ### 1. Require Pull Request Reviews
 
-**Settings:**
+Settings:
 
 - ✅ Require a pull request before merging
 - ✅ Require approvals: **1**
@@ -28,12 +28,12 @@ Branch protection rules:
 
 ### 2. Require Status Checks
 
-**Settings:**
+Settings:
 
 - ✅ Require status checks to pass before merging
 - ✅ Require branches to be up to date before merging
 
-**Required Status Checks:**
+Required Status Checks:
 
 - `Build and Test (ubuntu-22.04, gcc, Release)`
 - `Build and Test (ubuntu-22.04, clang, Release)`
@@ -46,7 +46,7 @@ Branch protection rules:
 
 ### 3. Additional Protections
 
-**Settings:**
+Settings:
 
 - ✅ Require conversation resolution before merging
 - ✅ Require signed commits (optional but recommended)
@@ -70,7 +70,7 @@ Branch protection rules:
 
 3. **Configure Protection Settings**
 
-   **Protect matching branches:**
+Protect matching branches:
 
    - ✅ Require a pull request before merging
      - Required approvals: `1`
@@ -186,7 +186,7 @@ Create `.github/CODEOWNERS` file to automatically assign reviewers:
 /.github/workflows/* @rjv717
 ```
 
-**Benefits:**
+Benefits:
 
 - Automatic reviewer assignment
 - Can require review from code owners
@@ -239,7 +239,7 @@ gh api repos/rjv717/adai/branches/main/protection/required_status_checks | jq
 
 **Problem:** Required status checks don't appear in the list
 
-**Solution:**
+Solution:
 
 1. Run workflows at least once on the branch
 2. Wait for workflows to complete
@@ -250,14 +250,14 @@ gh api repos/rjv717/adai/branches/main/protection/required_status_checks | jq
 
 **Problem:** Merge button disabled despite passing checks
 
-**Causes:**
+Causes:
 
 - Branch not up to date with base branch
 - Conversations not resolved
 - Required reviewers haven't approved
 - Administrator enforcement enabled but admin hasn't approved
 
-**Solutions:**
+Solutions:
 
 1. Update branch: `git pull origin main && git push`
 2. Resolve all conversations
@@ -268,7 +268,7 @@ gh api repos/rjv717/adai/branches/main/protection/required_status_checks | jq
 
 **Problem:** Need to push critical fix but can't bypass protection
 
-**Solution:**
+Solution:
 
 1. Create hotfix branch from main
 2. Make fix
@@ -276,7 +276,7 @@ gh api repos/rjv717/adai/branches/main/protection/required_status_checks | jq
 4. Get fast-track review
 5. Merge through normal process
 
-**Never disable protection rules permanently.**
+Never disable protection rules permanently.
 
 ## Best Practices
 

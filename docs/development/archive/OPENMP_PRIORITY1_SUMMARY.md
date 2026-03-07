@@ -20,7 +20,7 @@
 - Added `openmp_benchmark` executable target
 - Added informative build messages
 
-**Changes:**
+Changes:
 
 ```cmake
 # Find and configure OpenMP
@@ -59,7 +59,7 @@ Parallelized **11 critical operations** with OpenMP:
    - Gradient application (`apply_gradients`)
    - Sum with parallel reduction (`sum`)
 
-**Key Features:**
+Key Features:
 
 - Automatic fallback to sequential if OpenMP unavailable
 - Adaptive thresholds to avoid parallelization overhead
@@ -77,7 +77,7 @@ Comprehensive benchmark program that tests:
 - Element-wise operation performance
 - Size vs performance comparison (64 to 1024)
 
-**Features:**
+Features:
 
 - Automatic OpenMP detection
 - Configurable matrix size and thread count
@@ -87,7 +87,7 @@ Comprehensive benchmark program that tests:
 
 ### 4. Documentation
 
-**Files:**
+Files:
 
 - `OPENMP_IMPLEMENTATION.md` - Complete user guide
 - `PARALLEL_PROCESSING_ANALYSIS_REPORT.md` - Technical analysis (already existed)
@@ -98,15 +98,15 @@ Comprehensive benchmark program that tests:
 
 ### Benchmark Results (512×512 matrices)
 
-| Threads | Time (ms) | Speedup | Efficiency | GFLOPS |
-| --------- | ----------- | --------- | ------------ | -------- |
-| 1 | 1391.43 | 1.00x | 100.0% | 0.19 |
-| 2 | 686.76 | 2.03x | 101.3% | 0.39 |
-| 4 | 344.55 | 4.04x | 101.0% | 0.78 |
-| **8** | **330.64** | **4.21x** | **52.6%** | **0.81** |
-| 16 | 337.59 | 4.12x | 25.8% | 0.80 |
+|Threads|Time (ms)|Speedup|Efficiency|GFLOPS|
+|---------|-----------|---------|------------|--------|
+|1|1391.43|1.00x|100.0%|0.19|
+|2|686.76|2.03x|101.3%|0.39|
+|4|344.55|4.04x|101.0%|0.78|
+|**8**|**330.64**|**4.21x**|**52.6%**|**0.81**|
+|16|337.59|4.12x|25.8%|0.80|
 
-**Analysis:**
+Analysis:
 
 - ✅ **4.21x speedup achieved** with 8 threads
 - ✅ Perfect scaling up to 4 threads (>100% efficiency)
@@ -115,13 +115,13 @@ Comprehensive benchmark program that tests:
 
 ### Element-wise Operations (512×512)
 
-| Operation | Time (ms) | Notes |
-| ------------- | ----------- | -------------------------- |
-| Addition | 1.39 | Memory-bound |
-| Subtraction | 1.05 | Memory-bound |
-| Hadamard | 1.08 | Memory-bound |
-| Transpose | 0.86 | Cache-aware optimization |
-| Scale | 1.00 | Memory-bound |
+|Operation|Time (ms)|Notes|
+|-------------|-----------|--------------------------|
+|Addition|1.39|Memory-bound|
+|Subtraction|1.05|Memory-bound|
+|Hadamard|1.08|Memory-bound|
+|Transpose|0.86|Cache-aware optimization|
+|Scale|1.00|Memory-bound|
 
 All operations complete in **~1ms** - excellent for real-time inference!
 
@@ -296,7 +296,7 @@ Run scaling analysis and verify:
 
 ### Pragma Details
 
-**Matrix Multiplication:**
+Matrix Multiplication:
 
 ```cpp
 #pragma omp parallel for collapse(2) schedule(dynamic, 32) if(rows > 64)
@@ -312,7 +312,7 @@ for (int i = 0; i < rows; i++) {
 }
 ```
 
-**Reduction Operations:**
+Reduction Operations:
 
 ```cpp
 #pragma omp parallel for reduction(+:total) if(rows * cols > 10000)
@@ -329,7 +329,7 @@ for (int i = 0; i < rows; i++) {
 
 ### Problem: "OpenMP not found"
 
-**Solution:**
+Solution:
 
 ```bash
 sudo apt-get install libomp-dev
@@ -338,7 +338,7 @@ cmake .. && make
 
 ### Problem: "Benchmark shows NOT ENABLED"
 
-**Solution:**
+Solution:
 
 ```bash
 # Check if macro is defined
@@ -351,7 +351,7 @@ cmake .. && make
 
 ### Problem: "No speedup observed"
 
-**Solution:**
+Solution:
 
 - Use larger matrices (>256)
 - Check CPU usage: `htop`
@@ -364,7 +364,7 @@ cmake .. && make
 
 ✅ **Successfully Implemented Priority 1: OpenMP CPU Parallelization**
 
-**Achievements:**
+Achievements:
 
 - 4.21x speedup on matrix multiplication
 - 11 operations parallelized
@@ -372,7 +372,7 @@ cmake .. && make
 - Production-ready implementation
 - Full documentation
 
-**Performance:**
+Performance:
 
 - Meets expectations for memory-bound operations
 - Excellent scaling up to 4 threads

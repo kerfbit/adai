@@ -32,13 +32,13 @@
 
 ### Benchmark (200 requests, 10ms model latency)
 
-| Mode | Time (ms) | Throughput (req/s) | Speedup |
-| ------ | ----------- | ------------------- | --------- |
-| Sequential | 2312.81 | 86.5 | 1.00x |
-| Batch=4 | 576.89 | 346.7 | **4.01x** |
-| Batch=8 | 288.10 | 694.2 | **8.03x** |
-| Batch=16 | 152.69 | 1309.9 | **15.15x** |
-| Batch=32 | 83.18 | 2404.3 | **27.80x** |
+|Mode|Time (ms)|Throughput (req/s)|Speedup|
+|------|-----------|-------------------|---------|
+|Sequential|2312.81|86.5|1.00x|
+|Batch=4|576.89|346.7|**4.01x**|
+|Batch=8|288.10|694.2|**8.03x**|
+|Batch=16|152.69|1309.9|**15.15x**|
+|Batch=32|83.18|2404.3|**27.80x**|
 
 **Key Finding:** Near-linear scaling with batch size!
 
@@ -113,17 +113,17 @@ struct BatchedInferenceConfig {
 
 ### Recommended Settings
 
-**High Throughput:**
+High Throughput:
 
 - max_batch_size: 32-64
 - timeout_ms: 100-200
 
-**Low Latency:**
+Low Latency:
 
 - max_batch_size: 8-16
 - timeout_ms: 20-50
 
-**Balanced:**
+Balanced:
 
 - max_batch_size: 16-32
 - timeout_ms: 50-100
@@ -208,13 +208,13 @@ BatchedInferenceEngine engine(model_fn, tokenizer);
 
 ## Comparison with Other Priorities
 
-| Priority | Complexity | Speedup | Use Case |
-| ---------- | ----------- | --------- | ---------- |
-| 1: Matrix OpenMP | Low | 4.21x | Training + Inference |
-| 2: Augmentation | Low | 3.82x | Data preprocessing |
-| **3: Batched Inference** | **Medium** | **15-27x** | **Serving/Production** |
+|Priority|Complexity|Speedup|Use Case|
+|----------|-----------|---------|----------|
+|1: Matrix OpenMP|Low|4.21x|Training + Inference|
+|2: Augmentation|Low|3.82x|Data preprocessing|
+|**3: Batched Inference**|**Medium**|**15-27x**|**Serving/Production**|
 
-**Priority 3 provides the highest throughput gains for inference workloads!**
+Priority 3 provides the highest throughput gains for inference workloads!
 
 ---
 
@@ -235,7 +235,7 @@ BatchedInferenceEngine engine(model_fn, tokenizer);
 
 ### Recommended (Priority 4)
 
-**Attention Head Parallelism**
+Attention Head Parallelism
 
 - Expected: 2-4x speedup for attention layers
 - Effort: Medium

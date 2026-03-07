@@ -17,7 +17,7 @@ The KVCache documentation has been fully integrated into the ADAI documentation 
 
 **Location:** `docs/reference/kvcache.md`
 **Size:** ~800 lines
-**Contents:**
+Contents:
 
 - Complete API documentation for `KVCache` and `DecoderKVCache`
 - Detailed method descriptions with parameters and return values
@@ -33,7 +33,7 @@ The KVCache documentation has been fully integrated into the ADAI documentation 
 ### 2. Reference Directory README
 
 **Location:** `docs/reference/README.md`
-**Contents:**
+Contents:
 
 - Overview of reference documentation
 - Links to all reference materials
@@ -48,14 +48,14 @@ The KVCache documentation has been fully integrated into the ADAI documentation 
 
 **File:** `docs/README.md`
 
-**Added:**
+Added:
 
 - New "Optimization" section under API Reference
 - Link to KVCache API reference
 - New "Performance Optimization" section under User Guides
 - Links to inference optimization guides
 
-**Changes:**
+Changes:
 
 ```markdown
 ### Optimization
@@ -70,16 +70,16 @@ The KVCache documentation has been fully integrated into the ADAI documentation 
 
 **File:** `docs/guides/inference-optimization.md`
 
-**Added:**
+Added:
 
 - Quick links section at the top with KVCache API reference
 - Cross-reference to KVCache API at the end
 - Link to quick start guide
 
-**Changes:**
+Changes:
 
 ```markdown
-**Quick Links:**
+Quick Links:
 - **[KVCache API Reference](../reference/kvcache.md)** - Detailed API documentation
 - **[Quick Start](inference-optimization-quickstart.md)** - Get started in 5 minutes
 
@@ -94,11 +94,11 @@ For questions or issues, refer to:
 
 **File:** `docs/guides/inference-optimization-quickstart.md`
 
-**Added:**
+Added:
 
 - Link to KVCache API reference in "Next Steps" section
 
-**Changes:**
+Changes:
 
 ```markdown
 ## Next Steps

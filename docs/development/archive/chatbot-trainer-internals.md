@@ -1,8 +1,8 @@
 # ChatbotTrainer Context Documentation
 
 > **⚠️ DEPRECATED - March 2026**
-> 
-> This document describes the old standalone ChatbotTrainer system which no longer has a command-line entry point. 
+>
+> This document describes the old standalone ChatbotTrainer system which no longer has a command-line entry point.
 >
 > **ChatbotTrainer is now an internal component** used by `IncrementalTrainer`. All training is performed through the `incremental_trainer` CLI tool.
 >
@@ -74,7 +74,7 @@ struct ConversationPair {
 };
 ```
 
-**Usage:**
+Usage:
 
 ```cpp
 ConversationPair pair("Hello!", "Hi there! How can I help you?");
@@ -96,13 +96,13 @@ struct TokenizedPair {
 };
 ```
 
-**Benefits:**
+Benefits:
 
 - Eliminates redundant tokenization in training loop (10-100x speedup)
 - Pre-processes all data once before training begins
 - Keeps original text for debugging and logging
 
-**Usage:**
+Usage:
 
 ```cpp
 std::vector<int> input_tokens = tokenizer->encode("Hello!");
@@ -125,16 +125,16 @@ enum class LRSchedule {
 };
 ```
 
-**Strategies:**
+Strategies:
 
-| Schedule | Description | Use Case |
-| ---------- | ------------- | ---------- |
-| `CONSTANT` | Fixed learning rate | Simple baselines, debugging |
-| `LINEAR_WARMUP` | Gradual increase then plateau | Stabilize early training |
-| `COSINE_DECAY` | Smooth cosine curve decay | Long training runs |
-| `WARMUP_COSINE` | Warmup + cosine (recommended) | Production transformer training |
-| `STEP_DECAY` | Discrete drops at intervals | Traditional CV tasks |
-| `EXPONENTIAL_DECAY` | Continuous exponential decay | Fine-tuning, small datasets |
+|Schedule|Description|Use Case|
+|----------|-------------|----------|
+|`CONSTANT`|Fixed learning rate|Simple baselines, debugging|
+|`LINEAR_WARMUP`|Gradual increase then plateau|Stabilize early training|
+|`COSINE_DECAY`|Smooth cosine curve decay|Long training runs|
+|`WARMUP_COSINE`|Warmup + cosine (recommended)|Production transformer training|
+|`STEP_DECAY`|Discrete drops at intervals|Traditional CV tasks|
+|`EXPONENTIAL_DECAY`|Continuous exponential decay|Fine-tuning, small datasets|
 
 ### 3. TrainingConfig
 
@@ -188,7 +188,7 @@ struct TrainingConfig {
 };
 ```
 
-**Default Configuration:**
+Default Configuration:
 
 - **Model:** 6-layer encoder-decoder, 512-dim, 8 heads
 - **Training:** 10 epochs, AdamW optimizer, warmup+cosine LR schedule
@@ -209,14 +209,14 @@ enum class LogLevel {
 };
 ```
 
-**Levels:**
+Levels:
 
-| Level | Output | Use Case |
-| ------- | -------- | ---------- |
-| `SILENT` | Errors only | Production, automation |
-| `NORMAL` | Epoch summaries | Standard monitoring |
-| `VERBOSE` | Per-sample progress | Development, debugging |
-| `DEBUG` | All debug info | Deep debugging |
+|Level|Output|Use Case|
+|-------|--------|----------|
+|`SILENT`|Errors only|Production, automation|
+|`NORMAL`|Epoch summaries|Standard monitoring|
+|`VERBOSE`|Per-sample progress|Development, debugging|
+|`DEBUG`|All debug info|Deep debugging|
 
 See [Metrics and Logging Guide](./chatbot-trainer-metrics-logging.md) for complete details.
 
@@ -279,14 +279,14 @@ ChatbotTrainer(const TrainingConfig& cfg);
 ~ChatbotTrainer();  // Cleans up model, optimizer, tokenizer
 ```
 
-**Constructor Initialization:**
+Constructor Initialization:
 
 - Stores configuration
 - Initializes all pointers to `nullptr`
 - Sets up training state (best_validation_loss to max, step counters to 0)
 - Prepares early stopping state
 
-**Destructor:**
+Destructor:
 
 - Safely deletes `model`, `optimizer`, `tokenizer` (checks for nullptr)
 
@@ -302,14 +302,14 @@ bool load_tokenizer(const std::string& vocab_path);
 
 **Returns:** `true` if successful, `false` on error
 
-**Process:**
+Process:
 
 1. Creates new `BPETokenizer` instance
 2. Calls `tokenizer->load_vocab(vocab_path)`
 3. Prints vocabulary size
 4. Catches and reports exceptions
 
-**Example:**
+Example:
 
 ```cpp
 ChatbotTrainer trainer(config);
@@ -328,7 +328,7 @@ bool build_vocabulary(const std::vector<std::string>& texts,
 
 **Purpose:** Build BPE vocabulary from text corpus
 
-**Parameters:**
+Parameters:
 
 - `texts`: Vector of all training texts
 - `vocab_size`: Target vocabulary size (default: 5000)
@@ -336,14 +336,14 @@ bool build_vocabulary(const std::vector<std::string>& texts,
 
 **Returns:** `true` if successful, `false` on error
 
-**Process:**
+Process:
 
 1. Creates new `BPETokenizer`
 2. Calls `tokenizer->build_vocab(texts, vocab_size, min_frequency=1)`
 3. Saves vocabulary to file
 4. Reports vocabulary size
 
-**Example:**
+Example:
 
 ```cpp
 std::vector<std::string> corpus = {"Hello world", "How are you", ...};
@@ -360,7 +360,7 @@ bool load_conversation_data(const std::string& filepath);
 
 **Purpose:** Load conversation pairs from formatted text file
 
-**File Format:**
+File Format:
 
 ```text
 INPUT: <user message>
@@ -372,7 +372,7 @@ RESPONSE: <bot response>
 ...
 ```
 
-**Parsing Rules:**
+Parsing Rules:
 
 - Blank lines separate pairs
 - Lines starting with "INPUT:" contain user input
@@ -382,7 +382,7 @@ RESPONSE: <bot response>
 
 **Returns:** `true` if at least one pair loaded, `false` otherwise
 
-**Example File:**
+Example File:
 
 ```text
 INPUT: Hello!
@@ -395,7 +395,7 @@ INPUT: Tell me a joke
 RESPONSE: Why did the programmer quit his job? Because he didn't get arrays!
 ```
 
-**Usage:**
+Usage:
 
 ```cpp
 if (!trainer.load_conversation_data("conversations.txt")) {
@@ -412,7 +412,7 @@ void split_data();
 
 **Purpose:** Split loaded data into training and validation sets with random shuffling
 
-**Process:**
+Process:
 
 1. Calculates validation size: `validation_size = training_data.size() / validation_split`
 2. Creates shuffled indices using `std::shuffle` with random number generator
@@ -420,34 +420,34 @@ void split_data();
 4. Assigns remaining shuffled pairs to `training_data`
 5. Prints split statistics
 
-**Improvements (January 2026):**
+Improvements (January 2026):
 
 - **Random Shuffling:** Uses `std::shuffle` instead of simple tail split
 - **Better Generalization:** Random splits prevent bias from data ordering
 - **Proper RNG:** Uses `std::mt19937` for quality randomization
 
-**Example:**
+Example:
 
 - 100 pairs loaded, `validation_split = 10`
 - Random shuffle applied
 - Results: 90 training pairs, 10 validation pairs (randomly selected)
 
-**Notes:**
+Notes:
 
 - Called automatically during `train()`
 - If `validation_split <= 0`, no split occurs
 - If insufficient data, split is skipped with warning
 
-**Previous Behavior:**
+Previous Behavior:
 
 1. Prints split statistics
 
-**Example:**
+Example:
 
 - 100 pairs loaded, `validation_split = 10`
 - Results: 90 training pairs, 10 validation pairs
 
-**Notes:**
+Notes:
 
 - Called automatically during `train()`
 - If `validation_split <= 0`, no split occurs
@@ -461,7 +461,7 @@ void preprocess_data();
 
 **Purpose:** Pre-tokenize and cache all training and validation data
 
-**Process:**
+Process:
 
 1. Tokenizes all training data:
    - Encodes input and response text using tokenizer
@@ -473,13 +473,13 @@ void preprocess_data();
 3. Initializes shuffling indices for training data
 4. Reports preprocessing statistics
 
-**Performance Impact:**
+Performance Impact:
 
 - **Eliminates redundant tokenization:** 10-100x speedup in training loop
 - **One-time cost:** Tokenization happens once before training starts
 - **Memory efficient:** Stores tokens as compact integer vectors
 
-**Example Output:**
+Example Output:
 
 ```text
 🔄 Preprocessing and tokenizing data...
@@ -488,7 +488,7 @@ void preprocess_data();
   Validation samples: 10
 ```
 
-**Usage:**
+Usage:
 
 - Called automatically during `train()` after `split_data()`
 - No manual invocation needed
@@ -501,24 +501,24 @@ void shuffle_training_data();
 
 **Purpose:** Randomly shuffle training data indices for each epoch
 
-**Process:**
+Process:
 
 1. Uses `std::shuffle` with `std::mt19937` random generator
 2. Shuffles `training_indices` vector in-place
 3. Training loop accesses data through shuffled indices
 
-**Benefits:**
+Benefits:
 
 - **Improved Generalization:** Different sample order each epoch
 - **Prevents Overfitting:** Model doesn't memorize sample order
 - **Standard Practice:** Required for proper stochastic gradient descent
 
-**Usage:**
+Usage:
 
 - Called automatically at start of each epoch in `train_epoch()`
 - No manual invocation needed
 
-**Example:**
+Example:
 
 ```cpp
 // Before shuffle: indices = [0, 1, 2, 3, 4, ...]
@@ -535,19 +535,19 @@ void log(LogLevel level, const std::string& message,
 
 **Purpose:** Log messages based on configured verbosity level
 
-**Parameters:**
+Parameters:
 
 - `level`: Minimum log level required to print message
 - `message`: Text to log
 - `color`: ANSI color code (optional)
 
-**Behavior:**
+Behavior:
 
 - Only prints if `config.log_level >= level`
 - Thread-safe (uses std::cout with automatic mutex)
 - Supports ANSI colors for formatted output
 
-**Example:**
+Example:
 
 ```cpp
 log(LogLevel::VERBOSE, "Training sample 100/500", COLOR_INFO);
@@ -566,13 +566,13 @@ float calculate_perplexity(float loss);
 
 **Returns:** Perplexity value (1.0 = perfect, higher = worse)
 
-**Interpretation:**
+Interpretation:
 
 - Measures prediction confidence
 - More interpretable than raw loss
 - Common metric in NLP
 
-**Example:**
+Example:
 
 ```cpp
 float loss = 2.3026;  // Cross-entropy loss
@@ -595,7 +595,7 @@ float calculate_accuracy(const std::vector<int>& predictions,
 
 **Formula:** `Accuracy = (correct_tokens / total_tokens) × 100%`
 
-**Example (Future):**
+Example (Future):
 
 ```cpp
 std::vector<int> predictions = model->get_predictions(input);
@@ -613,7 +613,7 @@ void validate_and_correct_config();
 
 **Purpose:** Validate architectural parameters and auto-correct issues
 
-**Validations:**
+Validations:
 
 1. **d_model divisibility:** Must be divisible by `num_heads`
    - **Auto-fix:** Round up to nearest multiple
@@ -647,7 +647,7 @@ void validate_and_correct_config();
    - **Warning only**
    - **Why:** Practical memory constraints
 
-**Example Output:**
+Example Output:
 
 ```text
 🔍 Validating model configuration...
@@ -668,7 +668,7 @@ void initialize_model();
 
 **Purpose:** Create and configure model and optimizer
 
-**Process:**
+Process:
 
 1. **Validate configuration**
    - Calls `validate_and_correct_config()`
@@ -707,7 +707,7 @@ void initialize_model();
    model->register_parameters(*optimizer);
    ```
 
-**Output:**
+Output:
 
 ```text
 🧠 Initializing transformer model...
@@ -740,13 +740,13 @@ float calculate_learning_rate(int step);
 
 **Purpose:** Calculate LR for given training step
 
-**Parameters:**
+Parameters:
 
 - `step`: Current global training step (0-indexed)
 
 **Returns:** Learning rate value for this step
 
-**Algorithms:**
+Algorithms:
 
 1. **CONSTANT**
 
@@ -796,7 +796,7 @@ float calculate_learning_rate(int step);
    return learning_rate * decay_rate^step;
    ```
 
-**Auto-Configuration:**
+Auto-Configuration:
 
 - `warmup_steps = 0` → Auto-set to 10% of total steps
 - `decay_steps = 0` → Auto-set to steps per epoch
@@ -809,7 +809,7 @@ void update_learning_rate();
 
 **Purpose:** Update optimizer and model LR for current step
 
-**Process:**
+Process:
 
 1. Calculate new LR: `current_learning_rate = calculate_learning_rate(global_step)`
 2. Update optimizer: `optimizer->set_learning_rate(current_learning_rate)`
@@ -825,7 +825,7 @@ const char* get_schedule_name() const;
 
 **Purpose:** Get human-readable schedule name
 
-**Returns:**
+Returns:
 
 - `"Constant"`, `"Linear Warmup"`, `"Cosine Decay"`,
 - `"Warmup + Cosine"`, `"Step Decay"`, `"Exponential Decay"`
@@ -840,20 +840,20 @@ float train_epoch(int epoch);
 
 **Purpose:** Train for one complete epoch with gradient accumulation support
 
-**Parameters:**
+Parameters:
 
 - `epoch`: Epoch index (0-based)
 
 **Returns:** Average training loss for the epoch
 
-**Improvements (January 2026):**
+Improvements (January 2026):
 
 - **Gradient Accumulation:** Simulates larger batch sizes
 - **Cached Tokenization:** Uses pre-tokenized data (10-100x faster)
 - **Data Shuffling:** Randomly shuffles data at epoch start
 - **Efficient Logging:** Adjusts logging frequency for accumulation
 
-**Process:**
+Process:
 
 1. **Initialize epoch state**
 
@@ -932,7 +932,7 @@ float train_epoch(int epoch);
    f. **Update weights** (after accumulating enough gradients)
 
       ```cpp
-      bool should_update = (accumulation_step >= gradient_accumulation_steps) |  |
+      bool should_update = (accumulation_step >= gradient_accumulation_steps) ||
                           (i == num_samples - 1);  // Last sample
 
       if (should_update) {
@@ -973,7 +973,7 @@ float train_epoch(int epoch);
    gradient_norms.push_back(avg_grad_norm);
    ```
 
-**Performance Impact:**
+Performance Impact:
 
 - **Tokenization:** 10-100x faster (eliminated from loop)
 - **Gradient Accumulation:** Enables effective batch sizes > 1 without OOM
@@ -991,14 +991,14 @@ float validate();
 
 **Returns:** Average validation loss (0.0 if no validation data)
 
-**Improvements (January 2026):**
+Improvements (January 2026):
 
 - **Proper Validation:** Uses `model->evaluate()` instead of `train_step()`
 - **No Weight Updates:** Validation data is NOT used for training
 - **Cached Tokenization:** Uses pre-tokenized validation data
 - **Training Mode Control:** Sets model to evaluation mode during validation
 
-**Process:**
+Process:
 
 1. **Check validation data**
 
@@ -1064,7 +1064,7 @@ bool should_early_stop();
 
 **Returns:** `true` if should stop, `false` otherwise
 
-**Criteria:**
+Criteria:
 
 ```cpp
 return enable_early_stopping &&
@@ -1080,7 +1080,7 @@ void restore_best_model();
 
 **Purpose:** Reload best model weights after early stopping
 
-**Process:**
+Process:
 
 1. Check if best model was saved
 2. Delete current model
@@ -1100,23 +1100,23 @@ void save_checkpoint(const std::string& filepath, int epoch);
 
 **Purpose:** Save model checkpoint to disk
 
-**Parameters:**
+Parameters:
 
 - `filepath`: Output file path
 - `epoch`: Current epoch number (for logging)
 
-**Process:**
+Process:
 
 ```cpp
 model->save_model(filepath);
 ```
 
-**Called:**
+Called:
 
 - Every `checkpoint_every` epochs during training
 - At end of training (final model)
 
-**Example Checkpoints:**
+Example Checkpoints:
 
 ```text
 chatbot_model.bin.epoch1
@@ -1135,11 +1135,11 @@ void train(const std::string& output_model_path = "chatbot_model.bin");
 
 **Purpose:** Execute complete training pipeline
 
-**Parameters:**
+Parameters:
 
 - `output_model_path`: Final model save path (default: "chatbot_model.bin")
 
-**Process:**
+Process:
 
 1. **Validate prerequisites**
 
@@ -1223,7 +1223,7 @@ void print_training_summary(long duration);
 
 **Purpose:** Print comprehensive training summary
 
-**Displays:**
+Displays:
 
 - Total epochs (and if early stopped)
 - Training/validation sample counts
@@ -1234,7 +1234,7 @@ void print_training_summary(long duration);
 - Final validation loss
 - Best validation loss and epoch
 
-**Example Output:**
+Example Output:
 
 ```text
 ╔═══════════════════════════════════════╗
@@ -1264,11 +1264,11 @@ void test_generation(const std::vector<std::string>& test_prompts);
 
 **Purpose:** Test model generation with example prompts
 
-**Parameters:**
+Parameters:
 
 - `test_prompts`: Vector of input prompts to test
 
-**Process:**
+Process:
 
 ```cpp
 for (const auto& prompt : test_prompts) {
@@ -1278,7 +1278,7 @@ for (const auto& prompt : test_prompts) {
 }
 ```
 
-**Example Usage:**
+Example Usage:
 
 ```cpp
 std::vector<std::string> prompts = {
@@ -1295,7 +1295,7 @@ trainer.test_generation(prompts);
 
 **Purpose:** Parse arguments and execute training
 
-**Usage:**
+Usage:
 
 ```bash
 ./ChatbotTrainer [options]
@@ -1305,67 +1305,67 @@ trainer.test_generation(prompts);
 
 #### Required Arguments
 
-| Argument | Description | Example |
-| ---------- | ------------- | --------- |
-| `--data <file>` | Training data file | `--data conversations.txt` |
-| `--vocab <file>` OR `--build-vocab <size>` | Vocabulary source | `--vocab vocab.txt` OR `--build-vocab 5000` |
+|Argument|Description|Example|
+|----------|-------------|---------|
+|`--data <file>`|Training data file|`--data conversations.txt`|
+|`--vocab <file>` OR `--build-vocab <size>`|Vocabulary source|`--vocab vocab.txt` OR `--build-vocab 5000`|
 
 #### Model Architecture
 
-| Argument | Default | Description |
-| ---------- | --------- | ------------- |
-| `--d-model <n>` | 512 | Model dimension |
-| `--heads <n>` | 8 | Number of attention heads |
-| `--d-ff <n>` | 2048 | Feed-forward dimension |
-| `--encoder-layers <n>` | 6 | Encoder layer count |
-| `--decoder-layers <n>` | 6 | Decoder layer count |
-| `--max-length <n>` | 512 | Maximum sequence length |
+|Argument|Default|Description|
+|----------|---------|-------------|
+|`--d-model <n>`|512|Model dimension|
+|`--heads <n>`|8|Number of attention heads|
+|`--d-ff <n>`|2048|Feed-forward dimension|
+|`--encoder-layers <n>`|6|Encoder layer count|
+|`--decoder-layers <n>`|6|Decoder layer count|
+|`--max-length <n>`|512|Maximum sequence length|
 
 #### Training Parameters
 
-| Argument | Default | Description |
-| ---------- | --------- | ------------- |
-| `--epochs <n>` | 10 | Number of training epochs |
-| `--lr <rate>` | 0.001 | Initial learning rate |
-| `--batch-size <n>` | 1 | Batch size for training (NEW) |
-| `--grad-accum <n>` | 1 | Gradient accumulation steps (NEW) |
-| `--output <file>` | chatbot_model.bin | Output model file |
+|Argument|Default|Description|
+|----------|---------|-------------|
+|`--epochs <n>`|10|Number of training epochs|
+|`--lr <rate>`|0.001|Initial learning rate|
+|`--batch-size <n>`|1|Batch size for training (NEW)|
+|`--grad-accum <n>`|1|Gradient accumulation steps (NEW)|
+|`--output <file>`|chatbot_model.bin|Output model file|
 
 **Gradient Accumulation:** Simulates larger effective batch sizes by accumulating gradients over multiple samples before updating weights. Effective batch size = `batch_size × grad_accum`. Useful for memory-constrained environments.
 
 #### Learning Rate Scheduling
 
-| Argument | Default | Description |
-| ---------- | --------- | ------------- |
-| `--lr-schedule <name>` | warmup-cosine | Schedule type: constant, warmup, cosine, warmup-cosine, step, exponential |
-| `--warmup-steps <n>` | auto (10%) | Warmup steps |
-| `--min-lr <rate>` | 1e-6 | Minimum learning rate |
+|Argument|Default|Description|
+|----------|---------|-------------|
+|`--lr-schedule <name>`|warmup-cosine|Schedule type: constant, warmup, cosine, warmup-cosine, step, exponential|
+|`--warmup-steps <n>`|auto (10%)|Warmup steps|
+|`--min-lr <rate>`|1e-6|Minimum learning rate|
 
 #### Optimizer Configuration
 
-| Argument | Default | Description |
-| ---------- | --------- | ------------- |
-| `--optimizer <name>` | adamw | Optimizer: sgd, sgd-momentum, adam, adamw |
-| `--weight-decay <val>` | 0.01 | Weight decay / L2 regularization |
-| `--grad-clip <norm>` | 1.0 | Gradient clipping max norm (0=disabled) |
-| `--adam-beta1 <val>` | 0.9 | Adam beta1 parameter |
-| `--adam-beta2 <val>` | 0.999 | Adam beta2 parameter |
+|Argument|Default|Description|
+|----------|---------|-------------|
+|`--optimizer <name>`|adamw|Optimizer: sgd, sgd-momentum, adam, adamw|
+|`--weight-decay <val>`|0.01|Weight decay / L2 regularization|
+|`--grad-clip <norm>`|1.0|Gradient clipping max norm (0=disabled)|
+|`--adam-beta1 <val>`|0.9|Adam beta1 parameter|
+|`--adam-beta2 <val>`|0.999|Adam beta2 parameter|
 
 #### Early Stopping
 
-| Argument | Default | Description |
-| ---------- | --------- | ------------- |
-| `--early-stopping` | disabled | Enable early stopping |
-| `--patience <n>` | 5 | Epochs to wait for improvement |
-| `--min-delta <delta>` | 1e-4 | Minimum improvement threshold |
-| `--no-restore-best` | false | Don't restore best weights |
+|Argument|Default|Description|
+|----------|---------|-------------|
+|`--early-stopping`|disabled|Enable early stopping|
+|`--patience <n>`|5|Epochs to wait for improvement|
+|`--min-delta <delta>`|1e-4|Minimum improvement threshold|
+|`--no-restore-best`|false|Don't restore best weights|
 
 #### Other Options
 
-| Argument | Default | Description |
-| ---------- | --------- | ------------- |
-| `--no-validation` | false | Skip validation split |
-| `--help` | - | Show help message |
+|Argument|Default|Description|
+|----------|---------|-------------|
+|`--no-validation`|false|Skip validation split|
+|`--help`|-|Show help message|
 
 ### Example Commands
 
@@ -1593,7 +1593,7 @@ min ─┴─────────────────┴─────�
      0             warmup         total_steps
 ```
 
-**Characteristics:**
+Characteristics:
 
 - Linear increase to max LR (stabilizes training)
 - Smooth cosine decay to min LR (fine-tuning)
@@ -1613,7 +1613,7 @@ min ─┴─────────────────── Steps
      0            total_steps
 ```
 
-**Characteristics:**
+Characteristics:
 
 - Immediate cosine decay from start
 - Smooth continuous decay
@@ -1632,7 +1632,7 @@ max ─┤      ╱────────────────
      0        warmup    total_steps
 ```
 
-**Characteristics:**
+Characteristics:
 
 - Linear ramp-up then constant
 - Simple and stable
@@ -1652,7 +1652,7 @@ min ─┴───────────────────────�
      0      decay   2×decay  3×decay
 ```
 
-**Characteristics:**
+Characteristics:
 
 - Discrete drops at intervals
 - Traditional CV approach
@@ -1848,7 +1848,7 @@ config.checkpoint_every = 5;
 
 ### EncoderDecoderModel
 
-**Methods Used:**
+Methods Used:
 
 ```cpp
 // Constructor
@@ -1880,7 +1880,7 @@ void load_model(filepath);
 
 ### Optimizer
 
-**Methods Used:**
+Methods Used:
 
 ```cpp
 // Constructor
@@ -1906,7 +1906,7 @@ void step();  // Future - currently uses model->update_weights()
 
 ### BPETokenizer
 
-**Methods Used:**
+Methods Used:
 
 ```cpp
 // Vocabulary management
@@ -1924,7 +1924,7 @@ std::string decode(tokens);
 
 ### 1. Data Preparation
 
-**Format Training Data Correctly:**
+Format Training Data Correctly:
 
 ```text
 INPUT: User message here
@@ -1934,7 +1934,7 @@ INPUT: Another user message
 RESPONSE: Another bot response
 ```
 
-**Tips:**
+Tips:
 
 - Ensure blank lines between pairs
 - Remove extra whitespace
@@ -1943,13 +1943,13 @@ RESPONSE: Another bot response
 
 ### 2. Vocabulary Building
 
-**Choose Appropriate Vocab Size:**
+Choose Appropriate Vocab Size:
 
 - Small datasets (<1K pairs): 1000-2000 tokens
 - Medium datasets (1K-10K): 3000-5000 tokens
 - Large datasets (>10K): 5000-10000 tokens
 
-**Vocabulary Quality:**
+Vocabulary Quality:
 
 ```bash
 # Build from all training texts
@@ -1958,13 +1958,13 @@ RESPONSE: Another bot response
 
 ### 3. Learning Rate Selection
 
-**Start Conservative:**
+Start Conservative:
 
 - Large models: 1e-5 to 1e-4
 - Medium models: 1e-4 to 1e-3
 - Small models: 1e-3 to 1e-2
 
-**Use Warmup:**
+Use Warmup:
 
 ```bash
 --lr 0.0001 --lr-schedule warmup-cosine --warmup-steps 1000
@@ -1972,26 +1972,26 @@ RESPONSE: Another bot response
 
 ### 4. Regularization
 
-**Prevent Overfitting:**
+Prevent Overfitting:
 
 ```bash
 --weight-decay 0.01 --grad-clip 1.0 --early-stopping --patience 5
 ```
 
-**Validation Split:**
+Validation Split:
 
 - Small datasets: 1/5 (20%)
 - Large datasets: 1/10 (10%)
 
 ### 5. Architecture Selection
 
-**Follow Divisibility Rules:**
+Follow Divisibility Rules:
 
 - `d_model` must divide by `num_heads`
 - `d_ff` typically 4× `d_model`
 - `num_heads` should be power of 2
 
-**Example Valid Configurations:**
+Example Valid Configurations:
 
 ```text
 d_model=512, num_heads=8, d_ff=2048  ✅
@@ -2001,14 +2001,14 @@ d_model=500, num_heads=8, d_ff=2000  ❌ (500 ÷ 8 not integer)
 
 ### 6. Monitoring Training
 
-**Watch These Metrics:**
+Watch These Metrics:
 
 - Training loss should decrease
 - Validation loss should track training loss
 - Gradient norms should be stable (<10)
 - Learning rate should follow expected schedule
 
-**Warning Signs:**
+Warning Signs:
 
 - Loss = NaN → Reduce LR or increase gradient clipping
 - Loss not decreasing → Increase LR or check data
@@ -2017,14 +2017,14 @@ d_model=500, num_heads=8, d_ff=2000  ❌ (500 ÷ 8 not integer)
 
 ### 7. Checkpointing Strategy
 
-**Save Frequently:**
+Save Frequently:
 
 ```bash
 --checkpoint-every 1  # Save every epoch during development
 --checkpoint-every 5  # Less frequent for long training
 ```
 
-**Use Early Stopping:**
+Use Early Stopping:
 
 ```bash
 --early-stopping --patience 5 --restore-best-weights
@@ -2034,7 +2034,7 @@ d_model=500, num_heads=8, d_ff=2000  ❌ (500 ÷ 8 not integer)
 
 ### Model Checkpoints
 
-**Naming Convention:**
+Naming Convention:
 
 ```text
 chatbot_model.bin.epoch1
@@ -2043,13 +2043,13 @@ chatbot_model.bin.epoch2
 chatbot_model.bin  (final)
 ```
 
-**Checkpoint Contents:**
+Checkpoint Contents:
 
 - All model weights (encoder, decoder, LM head)
 - Embedding matrices
 - Architecture configuration
 
-**Usage:**
+Usage:
 
 ```bash
 # Load checkpoint for inference
@@ -2058,7 +2058,7 @@ chatbot_model.bin  (final)
 
 ### Vocabulary File
 
-**Format:**
+Format:
 
 ```text
 <unk>
@@ -2070,7 +2070,7 @@ token2
 ...
 ```
 
-**Required for:**
+Required for:
 
 - Model inference
 - Continued training
@@ -2078,13 +2078,13 @@ token2
 
 ### Best Model (Early Stopping)
 
-**Temporary File:**
+Temporary File:
 
 ```text
 best_model_temp.bin  (deleted after restoration)
 ```
 
-**Automatic Management:**
+Automatic Management:
 
 - Created during training if early stopping enabled
 - Restored to final model if training stops early
@@ -2153,13 +2153,13 @@ Unknown LR schedule: cosine-warmup
 
 #### Loss = NaN
 
-**Symptoms:**
+Symptoms:
 
 ```text
 Sample 10/100 - Loss: nan
 ```
 
-**Causes & Solutions:**
+Causes & Solutions:
 
 1. Learning rate too high → Reduce LR by 10×
 2. Gradient explosion → Lower `--grad-clip` threshold
@@ -2167,13 +2167,13 @@ Sample 10/100 - Loss: nan
 
 #### Loss Not Decreasing
 
-**Symptoms:**
+Symptoms:
 
 ```text
 Epoch 5 - Loss: 3.456  (same as epoch 1)
 ```
 
-**Causes & Solutions:**
+Causes & Solutions:
 
 1. Learning rate too low → Increase LR
 2. Model too small → Increase `d_model`, layers
@@ -2181,14 +2181,14 @@ Epoch 5 - Loss: 3.456  (same as epoch 1)
 
 #### Validation Loss >> Training Loss
 
-**Symptoms:**
+Symptoms:
 
 ```text
 Training Loss: 1.234
 Validation Loss: 5.678
 ```
 
-**Causes & Solutions:**
+Causes & Solutions:
 
 1. Overfitting → Add `--weight-decay`, `--early-stopping`
 2. Too few samples → Get more training data
@@ -2198,15 +2198,15 @@ Validation Loss: 5.678
 
 ### Memory Usage
 
-**Approximate Memory per Model:**
+Approximate Memory per Model:
 
-| Configuration | Parameters | Memory |
-| --------------- | ----------- | -------- |
-| Small (256-dim, 2 layers) | ~10M | ~100 MB |
-| Medium (512-dim, 6 layers) | ~40M | ~400 MB |
-| Large (768-dim, 12 layers) | ~100M | ~1 GB |
+|Configuration|Parameters|Memory|
+|---------------|-----------|--------|
+|Small (256-dim, 2 layers)|~10M|~100 MB|
+|Medium (512-dim, 6 layers)|~40M|~400 MB|
+|Large (768-dim, 12 layers)|~100M|~1 GB|
 
-**Additional Memory:**
+Additional Memory:
 
 - Optimizer state (Adam/AdamW): 2× model size
 - Gradient storage: 1× model size
@@ -2214,7 +2214,7 @@ Validation Loss: 5.678
 
 ### Training Speed
 
-**Factors:**
+Factors:
 
 - Model size (parameters)
 - Sequence length
@@ -2222,13 +2222,13 @@ Validation Loss: 5.678
 - Gradient clipping overhead
 - Checkpoint frequency
 
-**Typical Speed (CPU):**
+Typical Speed (CPU):
 
 - Small model: ~10 samples/second
 - Medium model: ~2 samples/second
 - Large model: ~0.5 samples/second
 
-**Optimization Tips:**
+Optimization Tips:
 
 1. Use smaller max_seq_length if possible
 2. Reduce checkpoint frequency for long runs
@@ -2348,7 +2348,7 @@ done
 ✅ **Flexible CLI:** 32+ command-line options for complete control
 ✅ **Production Ready:** Robust error handling, colored output, comprehensive logging
 
-**Ideal For:**
+Ideal For:
 
 - Training conversational AI models
 - Experimenting with transformer architectures
@@ -2403,21 +2403,21 @@ done
 
 ### API Changes
 
-**New Command-Line Options:**
+New Command-Line Options:
 
 - `--batch-size <n>` - Batch size for training (default: 1)
 - `--grad-accum <n>` - Gradient accumulation steps (default: 1)
 
-**New Data Structures:**
+New Data Structures:
 
 - `TokenizedPair` - Stores pre-tokenized sequences with original text
 
-**New Methods:**
+New Methods:
 
 - `preprocess_data()` - Pre-tokenize all training/validation data
 - `shuffle_training_data()` - Randomly shuffle training indices
 
-**Updated Methods:**
+Updated Methods:
 
 - `split_data()` - Now uses random shuffling
 - `train_epoch()` - Supports gradient accumulation and cached tokenization

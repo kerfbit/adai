@@ -12,13 +12,13 @@ The PerformanceProfiler provides a comprehensive suite of timing and profiling u
 
 ### Why Use Performance Profiling?
 
-**Before Optimization:**
+Before Optimization:
 
 ```text
 "My code is slow, but I don't know where the bottleneck is..."
 ```
 
-**With PerformanceProfiler:**
+With PerformanceProfiler:
 
 ```text
 Profile: forward_pass
@@ -31,7 +31,7 @@ Profile: feedforward
   Mean: 7.11 ms
 ```
 
-**Key Benefits:**
+Key Benefits:
 
 - Identify performance bottlenecks
 - Validate optimization effectiveness
@@ -83,7 +83,7 @@ Timer()
 
 Creates a timer in stopped state.
 
-**Example:**
+Example:
 
 ```cpp
 Timer timer;
@@ -97,7 +97,7 @@ Timer timer;
 
 Start the timer.
 
-**Example:**
+Example:
 
 ```cpp
 Timer timer;
@@ -114,7 +114,7 @@ Stop the timer and return elapsed time.
 
 **Returns:** Elapsed time in milliseconds (double precision)
 
-**Example:**
+Example:
 
 ```cpp
 Timer timer;
@@ -134,7 +134,7 @@ Get current elapsed time without stopping the timer.
 
 **Returns:** Elapsed time in milliseconds
 
-**Example:**
+Example:
 
 ```cpp
 Timer timer;
@@ -158,7 +158,7 @@ double total = timer.stop();
 
 Reset timer to stopped state.
 
-**Example:**
+Example:
 
 ```cpp
 timer.reset();
@@ -188,11 +188,11 @@ explicit ScopedTimer(const std::string& name)
 
 Creates a timer that starts immediately and prints results when destroyed.
 
-**Parameters:**
+Parameters:
 
 - `name` - Name for the timed section (printed in output)
 
-**Example:**
+Example:
 
 ```cpp
 void process_batch() {
@@ -278,11 +278,11 @@ Median execution time (requires calling `compute_median()`).
 
 Add a timing measurement.
 
-**Parameters:**
+Parameters:
 
 - `time_ms` - Timing in milliseconds
 
-**Example:**
+Example:
 
 ```cpp
 ProfileStats stats("my_function");
@@ -297,7 +297,7 @@ stats.add_timing(11.8);
 
 Compute the median time (call before accessing `median_time`).
 
-**Example:**
+Example:
 
 ```cpp
 stats.compute_median();
@@ -310,13 +310,13 @@ std::cout << "Median: " << stats.median_time << " ms" << std::endl;
 
 Get percentile value (0-100).
 
-**Parameters:**
+Parameters:
 
 - `p` - Percentile (0.0 to 100.0)
 
 **Returns:** Time value at the given percentile
 
-**Example:**
+Example:
 
 ```cpp
 double p50 = stats.get_percentile(50.0);   // Median
@@ -332,7 +332,7 @@ std::cout << "95% of calls complete within " << p95 << " ms" << std::endl;
 
 Print comprehensive statistics.
 
-**Output Example:**
+Output Example:
 
 ```text
 Profile: inference
@@ -346,7 +346,7 @@ Profile: inference
   P99:   52.67 ms
 ```
 
-**Example:**
+Example:
 
 ```cpp
 ProfileStats stats = profiler.get_stats("inference");
@@ -381,7 +381,7 @@ Profiler()
 
 Creates an empty profiler.
 
-**Example:**
+Example:
 
 ```cpp
 Profiler profiler;
@@ -395,11 +395,11 @@ Profiler profiler;
 
 Start timing a named section.
 
-**Parameters:**
+Parameters:
 
 - `name` - Name of the section to profile
 
-**Example:**
+Example:
 
 ```cpp
 Profiler profiler;
@@ -414,11 +414,11 @@ profiler.stop("data_loading");
 
 Stop timing a named section.
 
-**Parameters:**
+Parameters:
 
 - `name` - Name of the section (must match `start()` call)
 
-**Example:**
+Example:
 
 ```cpp
 profiler.start("inference");
@@ -432,13 +432,13 @@ profiler.stop("inference");
 
 Get statistics for a profiled section.
 
-**Parameters:**
+Parameters:
 
 - `name` - Name of the section
 
 **Returns:** `ProfileStats` with timing statistics
 
-**Example:**
+Example:
 
 ```cpp
 // Run multiple times
@@ -459,7 +459,7 @@ std::cout << "Average: " << stats.mean_time << " ms" << std::endl;
 
 Print statistics for all profiled sections.
 
-**Output Example:**
+Output Example:
 
 ```text
 === Profiling Results ===
@@ -482,7 +482,7 @@ Profile: decoding
 ========================
 ```
 
-**Example:**
+Example:
 
 ```cpp
 profiler.print_all();
@@ -494,7 +494,7 @@ profiler.print_all();
 
 Clear all profiling data.
 
-**Example:**
+Example:
 
 ```cpp
 profiler.reset();  // Start fresh for next experiment
@@ -506,12 +506,12 @@ profiler.reset();  // Start fresh for next experiment
 
 Compare two profiling runs (e.g., before/after optimization).
 
-**Parameters:**
+Parameters:
 
 - `baseline` - Statistics from baseline implementation
 - `optimized` - Statistics from optimized implementation
 
-**Output Example:**
+Output Example:
 
 ```text
 === Performance Comparison ===
@@ -532,7 +532,7 @@ Improvement:
 ==============================
 ```
 
-**Example:**
+Example:
 
 ```cpp
 // Baseline
@@ -587,11 +587,11 @@ public:
 
 Run a benchmark function multiple times and return statistics.
 
-**Template Parameters:**
+Template Parameters:
 
 - `Func` - Callable type (function, lambda, functor)
 
-**Parameters:**
+Parameters:
 
 - `name` - Name for the benchmark
 - `func` - Function to benchmark
@@ -600,7 +600,7 @@ Run a benchmark function multiple times and return statistics.
 
 **Returns:** `ProfileStats` with timing statistics
 
-**Example:**
+Example:
 
 ```cpp
 // Benchmark a simple function
@@ -611,7 +611,7 @@ ProfileStats stats = Benchmark::run("my_function", []() {
 stats.print();
 ```
 
-**Full Example:**
+Full Example:
 
 ```cpp
 // Benchmark different batch sizes
@@ -639,11 +639,11 @@ for (int bs : batch_sizes) {
 
 Compare two implementations automatically.
 
-**Template Parameters:**
+Template Parameters:
 
 - `FuncA`, `FuncB` - Callable types
 
-**Parameters:**
+Parameters:
 
 - `name_a` - Name for first implementation
 - `func_a` - First function to benchmark
@@ -652,7 +652,7 @@ Compare two implementations automatically.
 - `iterations` - Number of iterations per function (default: 100)
 - `warmup` - Number of warmup iterations (default: 10)
 
-**Example:**
+Example:
 
 ```cpp
 Benchmark::compare(
@@ -667,7 +667,7 @@ Benchmark::compare(
 );
 ```
 
-**Output:**
+Output:
 
 ```text
 === Benchmarking ===
@@ -892,24 +892,24 @@ public:
 
 ### Understanding the Metrics
 
-**Mean (Average):**
+Mean (Average):
 
 - Sum of all times / number of runs
 - Good for general performance
 - Can be skewed by outliers
 
-**Median (50th percentile):**
+Median (50th percentile):
 
 - Middle value when sorted
 - More robust to outliers
 - Better represents "typical" performance
 
-**Min/Max:**
+Min/Max:
 
 - Best and worst case
 - Useful for identifying variability
 
-**Percentiles:**
+Percentiles:
 
 - P95: 95% of runs complete within this time
 - P99: 99% of runs complete within this time
@@ -954,7 +954,7 @@ if (p95 <= sla_target) {
 
 ### Proper Benchmarking Methodology
 
-**Key Principles:**
+Key Principles:
 
 1. **Warmup:** Run code multiple times before measuring to warm caches
 2. **Multiple Iterations:** Reduce noise with statistical sampling
@@ -1212,14 +1212,14 @@ profiler.log_stats("inference", log);
 
 ### Problem: Inconsistent timing results
 
-**Possible causes:**
+Possible causes:
 
 1. Background processes
 2. Dynamic CPU frequency scaling
 3. Insufficient iterations
 4. No warmup
 
-**Solutions:**
+Solutions:
 
 ```cpp
 // Solution 1: More iterations
@@ -1241,7 +1241,7 @@ std::cout << "Median: " << stats.median_time << " ms" << std::endl;
 
 **Cause:** Timer calls add small overhead
 
-**Solutions:**
+Solutions:
 
 ```cpp
 // Solution 1: Profile larger chunks
@@ -1267,7 +1267,7 @@ std::cout << "Timer overhead: " << overhead << " ms per call" << std::endl;
 
 **Cause:** Debug builds include extra checks and disable optimizations
 
-**Solution:**
+Solution:
 
 ```bash
 # Always benchmark in Release mode
@@ -1290,12 +1290,12 @@ make
 
 ### Recommended Iteration Counts
 
-| Operation Duration | Iterations | Warmup |
-| ------------------- | ----------- | --------- |
-| < 1 ms | 1000+ | 100 |
-| 1-10 ms | 100-500 | 10-50 |
-| 10-100 ms | 50-100 | 5-10 |
-| > 100 ms | 10-50 | 2-5 |
+|Operation Duration|Iterations|Warmup|
+|-------------------|-----------|---------|
+|< 1 ms|1000+|100|
+|1-10 ms|100-500|10-50|
+|10-100 ms|50-100|5-10|
+|> 100 ms|10-50|2-5|
 
 ---
 

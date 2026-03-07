@@ -82,13 +82,13 @@ Configure all generation parameters in real-time:
 
 ## Generation Strategies
 
-| Strategy        | Best For                     | Speed   |
-| --------------- | ---------------------------- | ------- |
-| **Nucleus**     | Balanced, creative responses | Fast    |
-| **Top-k**       | Controlled creativity        | Fast    |
-| **Greedy**      | Deterministic, predictable   | Fastest |
-| **Beam Search** | High quality, coherent       | Slower  |
-| **Sampling**    | Random, diverse              | Fast    |
+|Strategy|Best For|Speed|
+|---------------|----------------------------|-------|
+|**Nucleus**|Balanced, creative responses|Fast|
+|**Top-k**|Controlled creativity|Fast|
+|**Greedy**|Deterministic, predictable|Fastest|
+|**Beam Search**|High quality, coherent|Slower|
+|**Sampling**|Random, diverse|Fast|
 
 ## Recommended Settings
 
@@ -112,7 +112,7 @@ Configure all generation parameters in real-time:
 
 ## Prerequisites
 
-**System Requirements:**
+System Requirements:
 
 - **Qt5/Qt6**: Qt5 recommended for stability
 - **Disk Space**: At least 2GB free space
@@ -435,15 +435,15 @@ Planned features for future versions:
 
 ## Comparison with CLI
 
-| Feature | GUI | CLI |
-| --------- | ----- | ----- |
-| **Ease of Use** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ |
-| **Visual Appeal** | ⭐⭐⭐⭐⭐ | ⭐⭐ |
-| **Configuration** | Real-time sliders | Command syntax |
-| **Message History** | Scrollable display | Terminal scrollback |
-| **Conversation Save** | GUI dialog | Auto-save |
-| **Performance** | Same | Same |
-| **Portability** | Requires Qt | Terminal only |
+|Feature|GUI|CLI|
+|---------|-----|-----|
+|**Ease of Use**|⭐⭐⭐⭐⭐|⭐⭐⭐|
+|**Visual Appeal**|⭐⭐⭐⭐⭐|⭐⭐|
+|**Configuration**|Real-time sliders|Command syntax|
+|**Message History**|Scrollable display|Terminal scrollback|
+|**Conversation Save**|GUI dialog|Auto-save|
+|**Performance**|Same|Same|
+|**Portability**|Requires Qt|Terminal only|
 
 ## Examples
 

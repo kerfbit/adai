@@ -1,13 +1,13 @@
 # CrossAttention Component - Context Documentation
 
-**Version:** 1.1  
+**Version:** 1.1
 **Last Updated:** January 24, 2026
 
 ## Overview
 
-**File**: `src/CrossAttention.hpp`, `src/CrossAttention.cpp`  
-**Purpose**: Cross-attention mechanism for transformer decoder to attend to encoder output  
-**Role in Architecture**: Enables decoder to access encoder representations with different sequence lengths  
+**File**: `src/CrossAttention.hpp`, `src/CrossAttention.cpp`
+**Purpose**: Cross-attention mechanism for transformer decoder to attend to encoder output
+**Role in Architecture**: Enables decoder to access encoder representations with different sequence lengths
 **Dependencies**: `Matrix.hpp`, `Activation.hpp`, `Optimizer.hpp` (optional)
 
 CrossAttention is a critical innovation that distinguishes encoder-decoder transformers from decoder-only architectures. Unlike self-attention where Q, K, and V all come from the same input, cross-attention takes **queries from the decoder** and **keys/values from the encoder**, allowing the decoder to selectively focus on relevant parts of the input sequence when generating each output token.
@@ -58,15 +58,15 @@ Encoder Output [src_len, d_model]─┼─┐
 
 ### Key Differences from Self-Attention
 
-| Aspect | Self-Attention | Cross-Attention |
-| -------- | ---------------- | ----------------- |
-| **Query Source** | Same as input | **Decoder input** |
-| **Key Source** | Same as input | **Encoder output** |
-| **Value Source** | Same as input | **Encoder output** |
-| **Sequence Lengths** | tgt_len = src_len | **tgt_len ≠ src_len** |
-| **Attention Matrix** | [tgt_len, tgt_len] | **[tgt_len, src_len]** |
-| **Purpose** | Model dependencies within sequence | **Access external context** |
-| **Use Case** | BERT, GPT (self-attention only) | **Translation, summarization** |
+|Aspect|Self-Attention|Cross-Attention|
+|--------|----------------|-----------------|
+|**Query Source**|Same as input|**Decoder input**|
+|**Key Source**|Same as input|**Encoder output**|
+|**Value Source**|Same as input|**Encoder output**|
+|**Sequence Lengths**|tgt_len = src_len|**tgt_len ≠ src_len**|
+|**Attention Matrix**|[tgt_len, tgt_len]|**[tgt_len, src_len]**|
+|**Purpose**|Model dependencies within sequence|**Access external context**|
+|**Use Case**|BERT, GPT (self-attention only)|**Translation, summarization**|
 
 ### Two-Input Architecture
 
@@ -612,6 +612,7 @@ Matrix output = loaded_cross_attn.forward(decoder_in, encoder_out);
 ```text
 
 **Validation**:
+
 - Load checks that saved d_model and num_heads match current instance
 - Throws `std::runtime_error` on dimension mismatch
 
@@ -625,6 +626,7 @@ int get_num_heads() const
 ```text
 
 **Example**:
+
 ```cpp
 
 CrossAttention cross_attn(512, 8);
@@ -640,6 +642,7 @@ std::cout << "Number of heads: " << cross_attn.get_num_heads() << std::endl;  //
 ### Scaled Dot-Product Attention
 
 **Private Method**:
+
 ```cpp
 
 Matrix scaled_dot_product_attention(const Matrix& Q, const Matrix& K,
@@ -671,6 +674,7 @@ Keeps gradients stable for large models.
 ### Masking Implementation
 
 **Mask Application**:
+
 ```cpp
 
 if (mask != nullptr) {
@@ -685,7 +689,8 @@ if (mask != nullptr) {
 
 ```text
 
-**Why -1e9?**
+Why -1e9?
+
 - $\text{softmax}(-1e9) \approx 0$ (effectively zero attention)
 - Not exactly $-\infty$ to avoid NaN in gradient computation
 - Small enough to be negligible compared to unmasked scores
@@ -693,6 +698,7 @@ if (mask != nullptr) {
 **Mask Types**:
 
 1. **Padding Mask** (for encoder):
+
    ```cpp
 
    // Mask out padded positions in source
@@ -718,6 +724,7 @@ p_j(1 - p_j) & \text{if } k = j \\
 $$
 
 **Implementation** (per position):
+
 ```cpp
 
 for (int i = 0; i < tgt_len; ++i) {
@@ -744,20 +751,22 @@ for (int i = 0; i < tgt_len; ++i) {
 
 For d_model = 512:
 
-| Matrix | Shape | Parameters |
-| -------- | ------- | ------------ |
-| W_q | [512, 512] | 262,144 |
-| W_k | [512, 512] | 262,144 |
-| W_v | [512, 512] | 262,144 |
-| W_o | [512, 512] | 262,144 |
-| **Total** | - | **1,048,576** |
+|Matrix|Shape|Parameters|
+|--------|-------|------------|
+|W_q|[512, 512]|262,144|
+|W_k|[512, 512]|262,144|
+|W_v|[512, 512]|262,144|
+|W_o|[512, 512]|262,144|
+|**Total**|-|**1,048,576**|
 
 **Memory** (float32):
+
 - Parameters: 4.2 MB
 - Gradients: 4.2 MB
 - Activations (per batch): Varies with sequence lengths
 
 **Scaling**:
+
 - 6-layer decoder: ~25 MB parameters (just cross-attention)
 - 12-layer decoder: ~50 MB parameters
 
@@ -809,7 +818,8 @@ public:
 ### Gradient Flow in DecoderBlock
 
 **Forward**:
-```
+
+```text
 
 decoder_input → self_attn → residual1 → norm1 →
 cross_attn(query=norm1, kv=encoder) → residual2 → ...
@@ -817,7 +827,8 @@ cross_attn(query=norm1, kv=encoder) → residual2 → ...
 ```text
 
 **Backward**:
-```
+
+```text
 
 grad_output → norm3 → residual3 → FFN →
 norm2 → residual2 → CrossAttention.backward() → [grad_decoder, grad_encoder]
@@ -827,6 +838,7 @@ norm2 → residual2 → CrossAttention.backward() → [grad_decoder, grad_encode
 ```text
 
 **Critical**: CrossAttention produces two gradients in backward:
+
 - `grad_query_input`: Flows to previous decoder layer
 - `grad_kv_input`: Flows to encoder (typically ignored)
 
@@ -869,6 +881,7 @@ for (int step = 0; step < max_len; ++step) {
 ```text
 
 **Attention Pattern**:
+
 - Each French word attends to relevant English words
 - Example: French "chat" might attend strongly to English "cat"
 
@@ -897,6 +910,7 @@ Matrix summary_attended = cross_attn.forward(
 ```text
 
 **Attention Pattern**:
+
 - Summary tokens attend to salient document sentences
 - Extracts key information while maintaining coherence
 
@@ -978,16 +992,19 @@ Matrix answer_attended = cross_attn.forward(
 ### Bottlenecks
 
 **1. Attention Score Computation** (tgt_len × src_len):
+
 - For translation: tgt_len=50, src_len=100 → 5,000 attention scores
 - For summarization: tgt_len=100, src_len=1000 → 100,000 attention scores
 - Quadratic scaling with sequence lengths
 
 **2. Projections** (d_model²):
+
 - For d_model=512: 262K multiplies per projection
 - For d_model=1024: 1M multiplies per projection
 - 4 projections total (Q, K, V, O)
 
 **3. Memory**:
+
 - Attention weights: tgt_len × src_len × sizeof(float)
 - For tgt_len=100, src_len=1000: 400 KB per layer
 - Cached activations for backward: Several MB per layer
@@ -995,11 +1012,13 @@ Matrix answer_attended = cross_attn.forward(
 ### Optimization Strategies
 
 **1. Multi-Head Attention** (implicit):
+
 - Split d_model into num_heads smaller heads
 - Parallel computation per head
 - Better gradient flow
 
 **2. Batch Processing**:
+
 ```cpp
 
 // Process multiple sequences simultaneously
@@ -1015,6 +1034,7 @@ for (int b = 0; b < batch_size; ++b) {
 ```text
 
 **3. Attention Caching** (during generation):
+
 ```cpp
 
 // Cache encoder output (doesn't change during decoding)
@@ -1030,18 +1050,19 @@ for (int step = 0; step < max_len; ++step) {
 ```text
 
 **4. Mixed Precision**:
+
 - Use float16 for forward pass
 - Use float32 for gradient accumulation
 - Reduces memory by 50%, faster on modern GPUs
 
 ### Benchmarks (Estimated)
 
-| Configuration | Forward (ms) | Backward (ms) | Total (ms) |
-| -------------- | -------------- | --------------- | ------------ |
-| Small (tgt=10, src=20, d=256, h=4) | 2 | 5 | 7 |
-| Medium (tgt=50, src=100, d=512, h=8) | 15 | 35 | 50 |
-| Large (tgt=100, src=200, d=768, h=12) | 45 | 110 | 155 |
-| XL (tgt=200, src=500, d=1024, h=16) | 180 | 450 | 630 |
+|Configuration|Forward (ms)|Backward (ms)|Total (ms)|
+|--------------|--------------|---------------|------------|
+|Small (tgt=10, src=20, d=256, h=4)|2|5|7|
+|Medium (tgt=50, src=100, d=512, h=8)|15|35|50|
+|Large (tgt=100, src=200, d=768, h=12)|45|110|155|
+|XL (tgt=200, src=500, d=1024, h=16)|180|450|630|
 
 **Note**: CPU benchmarks. GPU can be 10-100× faster.
 
@@ -1051,19 +1072,20 @@ for (int step = 0; step < max_len; ++step) {
 
 ### Architectural Differences
 
-| Feature | MultiHeadAttention | CrossAttention |
-| --------- | ------------------- | ---------------- |
-| **Inputs** | 1 (input) | **2** (query_input, kv_input) |
-| **Q, K, V Source** | All from same input | **Q from decoder, K/V from encoder** |
-| **Sequence Lengths** | All equal | **Can differ** (tgt_len ≠ src_len) |
-| **Attention Matrix** | [seq_len, seq_len] | **[tgt_len, src_len]** |
-| **Backward Outputs** | 1 gradient | **2 gradients** (query + kv) |
-| **Typical Use** | Self-attention (BERT, GPT) | **Encoder-decoder (Translation)** |
-| **Masking** | Often causal | Usually padding only |
+|Feature|MultiHeadAttention|CrossAttention|
+|---------|-------------------|----------------|
+|**Inputs**|1 (input)|**2** (query_input, kv_input)|
+|**Q, K, V Source**|All from same input|**Q from decoder, K/V from encoder**|
+|**Sequence Lengths**|All equal|**Can differ** (tgt_len ≠ src_len)|
+|**Attention Matrix**|[seq_len, seq_len]|**[tgt_len, src_len]**|
+|**Backward Outputs**|1 gradient|**2 gradients** (query + kv)|
+|**Typical Use**|Self-attention (BERT, GPT)|**Encoder-decoder (Translation)**|
+|**Masking**|Often causal|Usually padding only|
 
 ### Code Comparison
 
 **MultiHeadAttention**:
+
 ```cpp
 
 Matrix forward(const Matrix& input, const Matrix* mask) {
@@ -1084,6 +1106,7 @@ Matrix backward(const Matrix& grad_output) {
 ```text
 
 **CrossAttention**:
+
 ```cpp
 
 Matrix forward(const Matrix& query_input,
@@ -1109,12 +1132,14 @@ void backward(const Matrix& grad_output,
 ### When to Use Which
 
 **Use MultiHeadAttention**:
+
 - Self-attention within a sequence
 - BERT-style bidirectional encoding
 - GPT-style autoregressive generation (decoder-only)
 - Same sequence attends to itself
 
 **Use CrossAttention**:
+
 - Encoder-decoder architectures
 - Attend to external context (different sequence)
 - Machine translation, summarization
@@ -1126,7 +1151,8 @@ void backward(const Matrix& grad_output,
 
 ### Unit Tests
 
-**Test 1: Constructor Validation**
+Test 1: Constructor Validation
+
 ```cpp
 
 TEST(CrossAttentionTest, Constructor) {
@@ -1142,7 +1168,8 @@ TEST(CrossAttentionTest, InvalidDimensions) {
 
 ```text
 
-**Test 2: Forward Pass Dimensions**
+Test 2: Forward Pass Dimensions
+
 ```cpp
 
 TEST(CrossAttentionTest, ForwardDimensions) {
@@ -1159,7 +1186,8 @@ TEST(CrossAttentionTest, ForwardDimensions) {
 
 ```text
 
-**Test 3: Different Sequence Lengths**
+Test 3: Different Sequence Lengths
+
 ```cpp
 
 TEST(CrossAttentionTest, DifferentLengths) {
@@ -1184,7 +1212,8 @@ TEST(CrossAttentionTest, DifferentLengths) {
 
 ```text
 
-**Test 4: Masking**
+Test 4: Masking
+
 ```cpp
 
 TEST(CrossAttentionTest, PaddingMask) {
@@ -1216,7 +1245,8 @@ TEST(CrossAttentionTest, PaddingMask) {
 
 ```text
 
-**Test 5: Gradient Dimensions**
+Test 5: Gradient Dimensions
+
 ```cpp
 
 TEST(CrossAttentionTest, BackwardGradients) {
@@ -1240,7 +1270,8 @@ TEST(CrossAttentionTest, BackwardGradients) {
 
 ```text
 
-**Test 6: Gradient Flow**
+Test 6: Gradient Flow
+
 ```cpp
 
 TEST(CrossAttentionTest, GradientNonZero) {
@@ -1275,7 +1306,8 @@ TEST(CrossAttentionTest, GradientNonZero) {
 
 ```text
 
-**Test 7: Save/Load**
+Test 7: Save/Load
+
 ```cpp
 
 TEST(CrossAttentionTest, SaveLoad) {
@@ -1304,7 +1336,8 @@ TEST(CrossAttentionTest, SaveLoad) {
 
 ### Integration Tests
 
-**Test 8: Multi-Layer Stack**
+Test 8: Multi-Layer Stack
+
 ```cpp
 
 TEST(CrossAttentionIntegrationTest, MultipleDecoderLayers) {
@@ -1338,6 +1371,7 @@ TEST(CrossAttentionIntegrationTest, MultipleDecoderLayers) {
 **Problem**: Forgetting CrossAttention returns TWO gradients
 
 **Wrong**:
+
 ```cpp
 
 Matrix grad = cross_attn.backward(grad_output);  // Compile error!
@@ -1345,6 +1379,7 @@ Matrix grad = cross_attn.backward(grad_output);  // Compile error!
 ```text
 
 **Correct**:
+
 ```cpp
 
 Matrix grad_decoder, grad_encoder;
@@ -1359,6 +1394,7 @@ cross_attn.backward(grad_output, grad_decoder, grad_encoder);
 **Problem**: Passing encoder output with wrong dimension
 
 **Wrong**:
+
 ```cpp
 
 Matrix decoder_input(10, 512);
@@ -1370,6 +1406,7 @@ cross_attn.forward(decoder_input, encoder_output);  // Throws exception
 ```text
 
 **Correct**:
+
 ```cpp
 
 Matrix encoder_output(20, 512);  // Correct d_model
@@ -1382,6 +1419,7 @@ cross_attn.forward(decoder_input, encoder_output);  // Works
 **Problem**: Mask doesn't match attention dimensions
 
 **Wrong**:
+
 ```cpp
 
 Matrix mask(10, 10);  // Should be [tgt_len, src_len] = [10, 20]
@@ -1390,6 +1428,7 @@ cross_attn.forward(decoder_input, encoder_output, &mask);  // Exception
 ```text
 
 **Correct**:
+
 ```cpp
 
 Matrix mask(10, 20);  // [tgt_len, src_len]
@@ -1402,6 +1441,7 @@ cross_attn.forward(decoder_input, encoder_output, &mask);  // Works
 **Problem**: Re-encoding for every decoding step (inefficient)
 
 **Inefficient**:
+
 ```cpp
 
 for (int step = 0; step < max_len; ++step) {
@@ -1412,6 +1452,7 @@ for (int step = 0; step < max_len; ++step) {
 ```text
 
 **Efficient**:
+
 ```cpp
 
 Matrix encoder_out = encoder.forward(source);  // Once!
@@ -1427,6 +1468,7 @@ for (int step = 0; step < max_len; ++step) {
 **Problem**: Applying causal mask to encoder-decoder attention
 
 **Wrong**:
+
 ```cpp
 
 Matrix causal_mask = create_causal_mask(tgt_len);  // For self-attention
@@ -1435,6 +1477,7 @@ cross_attn.forward(decoder_input, encoder_output, &causal_mask);  // Wrong!
 ```text
 
 **Correct**:
+
 ```cpp
 
 // Cross-attention typically uses padding mask, not causal mask
@@ -1454,11 +1497,13 @@ cross_attn.forward(decoder_input, encoder_output, &padding_mask);
 **Concept**: Share K, V across heads, only Q is multi-head
 
 **Benefits**:
+
 - Reduces memory for KV cache during inference
 - Faster decoding (less data to load)
 - Minimal quality loss
 
 **Modification**:
+
 ```cpp
 
 // Instead of: Q, K, V ∈ ℝ^(d_model × d_model)
@@ -1471,6 +1516,7 @@ cross_attn.forward(decoder_input, encoder_output, &padding_mask);
 **Concept**: Middle ground between MHA and MQA
 
 **Benefits**:
+
 - Better quality than MQA
 - Still reduces KV cache size
 - Used in Llama 2
@@ -1480,6 +1526,7 @@ cross_attn.forward(decoder_input, encoder_output, &padding_mask);
 **Concept**: Optimized attention algorithm
 
 **Benefits**:
+
 - O(N) memory instead of O(N²)
 - Faster on GPU
 - Enables longer sequences
@@ -1491,6 +1538,7 @@ cross_attn.forward(decoder_input, encoder_output, &padding_mask);
 **Concept**: Attend to subset of positions
 
 **Patterns**:
+
 - Local attention (nearby tokens)
 - Strided attention (every k-th token)
 - Random attention (random subset)
@@ -1614,7 +1662,8 @@ cross_attn.update_weights();  // Simple: W -= lr * grad_W
 
 ### Version 1.1 (January 24, 2026)
 
-**Optimizer Integration:**
+Optimizer Integration:
+
 - Added optional `Optimizer` support for advanced optimization algorithms
 - New method: `set_optimizer(Optimizer* opt)` - configure optimizer for all weight matrices
 - New method: `register_parameters()` - register W_q, W_k, W_v, W_o with optimizer (called automatically)
@@ -1622,7 +1671,8 @@ cross_attn.update_weights();  // Simple: W -= lr * grad_W
 - Modified `update_weights()` to automatically call `zero_grad()` after updates
 - Fully backward compatible - existing code without optimizer continues to work
 
-**Benefits:**
+Benefits:
+
 - Access to Adam, AdamW, SGD with momentum, and other advanced optimizers
 - Better convergence on complex sequence-to-sequence tasks
 - Per-parameter adaptive learning rates for all 4 weight matrices
@@ -1630,9 +1680,10 @@ cross_attn.update_weights();  // Simple: W -= lr * grad_W
 - Learning rate scheduling at optimizer level
 - Momentum-based optimization for faster convergence
 
-**Migration Guide:**
+Migration Guide:
 
 Old code (still works):
+
 ```cpp
 
 CrossAttention cross_attn(512, 8);
@@ -1644,6 +1695,7 @@ cross_attn.update_weights();
 ```text
 
 New code (recommended):
+
 ```cpp
 
 CrossAttention cross_attn(512, 8);
@@ -1765,7 +1817,8 @@ cross_attn.update_weights();  // Simple: W -= lr * grad_W
 
 ### Version 1.1 (January 24, 2026)
 
-**Optimizer Integration:**
+Optimizer Integration:
+
 - Added optional `Optimizer` support for advanced optimization algorithms
 - New method: `set_optimizer(Optimizer* opt)` - configure optimizer for all weight matrices
 - New method: `register_parameters()` - register W_q, W_k, W_v, W_o with optimizer (called automatically)
@@ -1773,7 +1826,8 @@ cross_attn.update_weights();  // Simple: W -= lr * grad_W
 - Modified `update_weights()` to automatically call `zero_grad()` after updates
 - Fully backward compatible - existing code without optimizer continues to work
 
-**Benefits:**
+Benefits:
+
 - Access to Adam, AdamW, SGD with momentum, and other advanced optimizers
 - Better convergence on complex sequence-to-sequence tasks
 - Per-parameter adaptive learning rates for all 4 weight matrices
@@ -1781,9 +1835,10 @@ cross_attn.update_weights();  // Simple: W -= lr * grad_W
 - Learning rate scheduling at optimizer level
 - Momentum-based optimization for faster convergence
 
-**Migration Guide:**
+Migration Guide:
 
 Old code (still works):
+
 ```cpp
 
 CrossAttention cross_attn(512, 8);
@@ -1795,6 +1850,7 @@ cross_attn.update_weights();
 ```text
 
 New code (recommended):
+
 ```cpp
 
 CrossAttention cross_attn(512, 8);
@@ -1819,6 +1875,7 @@ CrossAttention is a **critical architectural component** that enables encoder-de
 ✅ **Enable sequence-to-sequence tasks** like translation, summarization, Q&A
 
 **Key Innovations**:
+
 1. **Two-input architecture**: Separate query and key-value sources
 2. **Dual gradient outputs**: Backpropagates to both decoder and encoder paths
 3. **Flexible masking**: Supports padding masks for variable-length sequences
@@ -1832,12 +1889,14 @@ The CrossAttention component is fully implemented, tested via DecoderBlock integ
 ## See Also
 
 ### Core Documentation
+
 - **[MultiHeadAttention API](multihead-attention.md)** - Self-attention mechanism
 - **[Decoder API](../models/decoder.md)** - Full decoder implementation using CrossAttention
 - **[DecoderBlock API](../transformer/decoder-block.md)** - Single decoder layer with self + cross attention
 - **[Transformer Architecture](../../architecture/transformer-design.md)** - Overall system design
 
 ### Optimization & Performance
+
 - **[KVCache API Reference](../../reference/kvcache.md)** - Complete KV caching documentation
   - How to use `forward_with_cache` effectively
   - Cache management strategies
@@ -1849,6 +1908,7 @@ The CrossAttention component is fully implemented, tested via DecoderBlock integ
 - **[BatchProcessor API](../../reference/batchprocessor.md)** - Batch processing for throughput
 
 ### Implementation Examples
+
 - **[Encoder-Decoder Model Example](../models/encoder-decoder-model.md)** - Full seq2seq architecture
 - **[Quick Start Guide](../../guides/inference-optimization-quickstart.md)** - Get started with optimizations
 
@@ -1862,6 +1922,7 @@ The CrossAttention component is fully implemented, tested via DecoderBlock integ
 **Test Coverage**: 39/39 tests passing (27 original + 12 optimizer integration tests)
 
 **Recent Updates**:
+
 - Added `forward_with_cache()` method for inference optimization (v1.2)
 - Added comprehensive caching documentation and examples
 - Added cross-references to optimization documentation

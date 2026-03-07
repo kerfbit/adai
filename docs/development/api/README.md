@@ -70,13 +70,13 @@ cd build/src
 
 ### Test the API
 
-**Health Check:**
+Health Check:
 
 ```bash
 curl http://localhost:8080/health
 ```
 
-**Single-Turn Chat:**
+Single-Turn Chat:
 
 ```bash
 curl -X POST http://localhost:8080/chat \
@@ -84,7 +84,7 @@ curl -X POST http://localhost:8080/chat \
   -d '{"message":"Hello, how are you?"}'
 ```
 
-**Multi-Turn Chat:**
+Multi-Turn Chat:
 
 ```bash
 # First message (creates session)
@@ -104,12 +104,12 @@ curl -X POST http://localhost:8080/chat/session \
 
 ### Command-Line Options
 
-**Server:**
+Server:
 
 - `--port <n>` - Port number (default: 8080)
 - `--timeout <n>` - Session timeout in minutes (default: 30)
 
-**Model:**
+Model:
 
 - `--model <path>` - Pre-trained model file (optional)
 - `--vocab <path>` - Vocabulary file (required)
@@ -119,7 +119,7 @@ curl -X POST http://localhost:8080/chat/session \
 - `--enc-layers <n>` - Encoder layers (default: 6)
 - `--dec-layers <n>` - Decoder layers (default: 6)
 
-**Generation:**
+Generation:
 
 - `--max-gen-len <n>` - Max response length (default: 100)
 - `--temperature <f>` - Sampling temperature (default: 1.0)
@@ -128,7 +128,7 @@ curl -X POST http://localhost:8080/chat/session \
 
 ### Example Configurations
 
-**Development (fast):**
+Development (fast):
 
 ```bash
 ./chatbot_api_server \
@@ -141,7 +141,7 @@ curl -X POST http://localhost:8080/chat/session \
     --strategy greedy
 ```
 
-**Production (quality):**
+Production (quality):
 
 ```bash
 ./chatbot_api_server \
@@ -161,12 +161,12 @@ curl -X POST http://localhost:8080/chat/session \
 
 ## Available Endpoints
 
-| Method | Endpoint | Description |
-| -------- | ---------- | ------------- |
-| GET | `/health` | Server health check |
-| POST | `/chat` | Single-turn conversation |
-| POST | `/chat/session` | Multi-turn conversation |
-| POST | `/clear-session` | Clear session history |
+|Method|Endpoint|Description|
+|--------|----------|-------------|
+|GET|`/health`|Server health check|
+|POST|`/chat`|Single-turn conversation|
+|POST|`/chat/session`|Multi-turn conversation|
+|POST|`/clear-session`|Clear session history|
 
 See [REST API Documentation](rest-api.md) for detailed information.
 
@@ -260,14 +260,14 @@ make chatbot_api_server
 **Solution:** Use different port: `--port 8081`
 
 **Problem:** Slow responses
-**Solutions:**
+Solutions:
 
 - Reduce `--max-gen-len`
 - Use `--strategy greedy`
 - Reduce model size (`--d-model`, layers)
 
 **Problem:** High memory usage
-**Solutions:**
+Solutions:
 
 - Reduce `--timeout` (shorter session lifetime)
 - Reduce `--max-seq-len`
@@ -294,7 +294,7 @@ make chatbot_api_server
 
 ---
 
-**Related Documentation:**
+Related Documentation:
 
 - [Chatbot Completeness Analysis](../reference/chatbot-completeness.md)
 - [Training Guide](../guides/) (TODO)

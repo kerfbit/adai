@@ -45,20 +45,20 @@ All critical Matrix operations now support OpenMP parallelization:
 
 ### Prerequisites
 
-**Ubuntu/Debian:**
+Ubuntu/Debian:
 
 ```bash
 sudo apt-get update
 sudo apt-get install libomp-dev
 ```
 
-**Fedora/RHEL:**
+Fedora/RHEL:
 
 ```bash
 sudo dnf install libomp-devel
 ```
 
-**macOS:**
+macOS:
 
 ```bash
 brew install libomp
@@ -113,14 +113,14 @@ Matrix C = A * B;  // Parallelized across all CPU cores!
 
 ### Controlling Thread Count
 
-**Environment Variable (Recommended):**
+Environment Variable (Recommended):
 
 ```bash
 export OMP_NUM_THREADS=8
 ./your_program
 ```
 
-**Runtime Control:**
+Runtime Control:
 
 ```cpp
 #ifdef ADAI_ENABLE_OPENMP
@@ -150,19 +150,19 @@ Small matrices run sequentially for better performance.
 
 ### Run the Benchmark Suite
 
-**Default benchmark (512x512 matrices):**
+Default benchmark (512x512 matrices):
 
 ```bash
 ./openmp_benchmark
 ```
 
-**Custom matrix size:**
+Custom matrix size:
 
 ```bash
 ./openmp_benchmark 1024
 ```
 
-**Specify thread count:**
+Specify thread count:
 
 ```bash
 ./openmp_benchmark 512 8
@@ -177,7 +177,7 @@ The benchmark tests:
 3. **Element-wise Operations** - All parallelized operations
 4. **Size Comparison** - Performance across different matrix sizes
 
-**Example output:**
+Example output:
 
 ```text
 ========================================
@@ -201,17 +201,17 @@ Testing thread counts: 1, 2, 4, 8, 16
 
 ### Speedup by Operation
 
-| Operation | Sequential Time | Parallel Time (8 cores) | Speedup |
-| ----------- | ---------------- | ------------------------ | --------- |
-| Matrix Mult (512x512) | ~250 ms | ~35 ms | **7.1x** |
-| Matrix Mult (1024x1024) | ~2000 ms | ~260 ms | **7.7x** |
-| Element-wise (1M elements) | ~8 ms | ~1.5 ms | **5.3x** |
-| Transpose (1024x1024) | ~15 ms | ~4 ms | **3.8x** |
-| Gradient Update (1M params) | ~10 ms | ~2 ms | **5.0x** |
+|Operation|Sequential Time|Parallel Time (8 cores)|Speedup|
+|-----------|----------------|------------------------|---------|
+|Matrix Mult (512x512)|~250 ms|~35 ms|**7.1x**|
+|Matrix Mult (1024x1024)|~2000 ms|~260 ms|**7.7x**|
+|Element-wise (1M elements)|~8 ms|~1.5 ms|**5.3x**|
+|Transpose (1024x1024)|~15 ms|~4 ms|**3.8x**|
+|Gradient Update (1M params)|~10 ms|~2 ms|**5.0x**|
 
 ### Scaling Efficiency
 
-**Ideal performance on 8-core CPU:**
+Ideal performance on 8-core CPU:
 
 - 1 thread: 1.0x baseline
 - 2 threads: 1.95x (97.5% efficiency)
@@ -236,7 +236,7 @@ For a typical transformer training iteration:
 
 **Problem:** CMake shows `OpenMP not found`
 
-**Solutions:**
+Solutions:
 
 1. **Install OpenMP library:**
 
@@ -261,7 +261,7 @@ For a typical transformer training iteration:
 
 **Problem:** Parallel code slower than sequential
 
-**Causes & Solutions:**
+Causes & Solutions:
 
 1. **Small matrices:**
    - Parallel overhead dominates for small sizes
@@ -281,7 +281,7 @@ For a typical transformer training iteration:
 
 ### Check OpenMP Status
 
-**Compile-time check:**
+Compile-time check:
 
 ```cpp
 #ifdef ADAI_ENABLE_OPENMP
@@ -291,7 +291,7 @@ For a typical transformer training iteration:
 #endif
 ```
 
-**Runtime check:**
+Runtime check:
 
 ```bash
 # Run benchmark - shows OpenMP status
@@ -307,21 +307,21 @@ nm openmp_benchmark | grep omp
 
 ### Thread Count Guidelines
 
-**For training:**
+For training:
 
 ```bash
 # Use all physical cores
 export OMP_NUM_THREADS=$(nproc)
 ```
 
-**For inference (shared server):**
+For inference (shared server):
 
 ```bash
 # Use fewer threads to allow concurrent requests
 export OMP_NUM_THREADS=4
 ```
 
-**For benchmarking:**
+For benchmarking:
 
 ```bash
 # Test different thread counts
@@ -332,7 +332,7 @@ done
 
 ### Thread Affinity
 
-**Pin threads to cores for better cache performance:**
+Pin threads to cores for better cache performance:
 
 ```bash
 export OMP_PROC_BIND=true
@@ -409,7 +409,7 @@ Batch inference (recommended):
 
 ### OpenMP Pragmas Used
 
-**Matrix Multiplication:**
+Matrix Multiplication:
 
 ```cpp
 #pragma omp parallel for collapse(2) schedule(dynamic, 32) if(rows > 64)
@@ -419,7 +419,7 @@ Batch inference (recommended):
 - `schedule(dynamic, 32)`: Dynamic work distribution, 32-element chunks
 - `if(rows > 64)`: Only parallelize large matrices
 
-**SIMD Vectorization:**
+SIMD Vectorization:
 
 ```cpp
 #pragma omp simd reduction(+:sum)
@@ -428,7 +428,7 @@ Batch inference (recommended):
 - Enables SIMD instructions for inner loop
 - Reduction ensures correct sum accumulation
 
-**Reduction Operations:**
+Reduction Operations:
 
 ```cpp
 #pragma omp parallel for reduction(+:total)
@@ -510,7 +510,7 @@ The parallel implementation is **mathematically identical** to sequential:
 🔧 **Effort:** Low - transparent to users
 📊 **Status:** Production-ready
 
-**Next Steps:**
+Next Steps:
 
 1. Run `./openmp_benchmark` to verify speedup
 2. Test with your training workloads

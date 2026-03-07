@@ -237,10 +237,10 @@ for (auto& batch : batches) {
 
 ## Performance Expectations
 
-| Optimization | Expected Speedup | Use Case |
-| ------------- | ------------------ | ---------- |
-| KV Cache | 2-3x | Autoregressive generation |
-| Batching | 2-4x throughput | Multiple simultaneous requests |
-| Combined | 4-12x | Production deployment |
+|Optimization|Expected Speedup|Use Case|
+|-------------|------------------|----------|
+|KV Cache|2-3x|Autoregressive generation|
+|Batching|2-4x throughput|Multiple simultaneous requests|
+|Combined|4-12x|Production deployment|
 
 Happy optimizing! 🚀

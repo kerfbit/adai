@@ -85,7 +85,7 @@ public:
 };
 ```
 
-**Issues & Improvements:**
+Issues & Improvements:
 
 - No move semantics (performance issue with large matrices)
 - No SIMD optimizations for matrix operations
@@ -105,7 +105,7 @@ public:
 };
 ```
 
-**Formula:**
+Formula:
 
 - **Softmax**: `softmax(x_i) = exp(x_i - max(x)) / Σ exp(x_j - max(x))`
 - **GELU**: `gelu(x) = 0.5 * x * (1 + tanh(√(2/π) * (x + 0.044715 * x³)))`
@@ -124,7 +124,7 @@ public:
 };
 ```
 
-**Formula:**
+Formula:
 
 ```text
 mean = (1/d) * Σ x_i
@@ -145,7 +145,7 @@ public:
 };
 ```
 
-**Formula (Sinusoidal):**
+Formula (Sinusoidal):
 
 ```text
 PE(pos, 2i) = sin(pos / 10000^(2i/d_model))
@@ -186,7 +186,7 @@ public:
 };
 ```
 
-**Formula (Scaled Dot-Product Attention):**
+Formula (Scaled Dot-Product Attention):
 
 ```text
 Q = input * W_q
@@ -215,7 +215,7 @@ public:
 };
 ```
 
-**Formula:**
+Formula:
 
 ```text
 hidden = GELU(input * W1 + b1)
@@ -239,7 +239,7 @@ public:
 };
 ```
 
-**Forward Pass:**
+Forward Pass:
 
 ```text
 x1 = LayerNorm(x + MultiHeadAttention(x))
@@ -1299,14 +1299,14 @@ Contextualized Embeddings
 
 ## Configuration Parameters
 
-| Parameter | Default | Description |
-| ----------- | --------- | ------------- |
-| `vocab_size` | 5000 | Size of the vocabulary |
-| `d_model` | 512 | Dimension of embeddings and hidden states |
-| `num_layers` | 6 | Number of encoder layers |
-| `num_heads` | 8 | Number of attention heads |
-| `d_ff` | 2048 | Dimension of feed-forward layer |
-| `max_seq_length` | 512 | Maximum sequence length |
+|Parameter|Default|Description|
+|-----------|---------|-------------|
+|`vocab_size`|5000|Size of the vocabulary|
+|`d_model`|512|Dimension of embeddings and hidden states|
+|`num_layers`|6|Number of encoder layers|
+|`num_heads`|8|Number of attention heads|
+|`d_ff`|2048|Dimension of feed-forward layer|
+|`max_seq_length`|512|Maximum sequence length|
 
 ## Usage
 

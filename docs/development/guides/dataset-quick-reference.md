@@ -134,12 +134,12 @@ dataset.shuffle_split(SplitType::TRAIN)    // Shuffle one split
 
 ## File Formats
 
-| Format | File | Auto-Detect |
-| -------- | ------ | ------------- |
-| Conversation | `INPUT: ...\nRESPONSE: ...` | ✓ |
-| TSV | `input\ttarget` | ✓ |
-| JSON | `{"input": "...", "target": "..."}` | ✓ |
-| CSV | `input,target` | ✓ |
+|Format|File|Auto-Detect|
+|--------|------|-------------|
+|Conversation|`INPUT: ...\nRESPONSE: ...`|✓|
+|TSV|`input\ttarget`|✓|
+|JSON|`{"input": "...", "target": "..."}`|✓|
+|CSV|`input,target`|✓|
 
 ## Complete Example
 
@@ -177,16 +177,16 @@ int main() {
 
 ## Key Improvements (v1.0 → v2.0)
 
-| Feature | v1.0 | v2.0 |
-| --------- | ------ | ------ |
-| Iteration | Copy data | ✅ Iterator (no copy) |
-| Batching | Manual | ✅ Batch iterator |
-| Formats | 2 | ✅ 4 (+ JSON, CSV) |
-| Splitting | Random | ✅ + Stratified |
-| CV | Manual | ✅ K-fold |
-| Augmentation | External | ✅ Built-in |
-| Filtering | External | ✅ Built-in |
-| Large datasets | Must fit RAM | ✅ LazyDataset |
+|Feature|v1.0|v2.0|
+|---------|------|------|
+|Iteration|Copy data|✅ Iterator (no copy)|
+|Batching|Manual|✅ Batch iterator|
+|Formats|2|✅ 4 (+ JSON, CSV)|
+|Splitting|Random|✅ + Stratified|
+|CV|Manual|✅ K-fold|
+|Augmentation|External|✅ Built-in|
+|Filtering|External|✅ Built-in|
+|Large datasets|Must fit RAM|✅ LazyDataset|
 
 ## Performance Tips
 

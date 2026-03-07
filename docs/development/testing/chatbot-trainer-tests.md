@@ -13,18 +13,18 @@ Comprehensive unit test suite for the `ChatbotTrainer` class and its supporting 
 
 ## Test Coverage Summary
 
-| Test Suite | Tests | Purpose |
-| ------------ | ------- | --------- |
-| ConversationPairTest | 4 | Data structure validation |
-| TrainingConfigTest | 7 | Configuration defaults and customization |
-| ConfigValidationTest | 8 | Architecture parameter validation |
-| LRScheduleTest | 7 | Learning rate scheduling algorithms |
-| DataLoadingTest | 3 | File parsing and data loading |
-| DataSplittingTest | 3 | Train/validation set splitting |
-| EarlyStoppingTest | 3 | Early stopping logic |
-| CheckpointTest | 2 | Model checkpoint naming and frequency |
-| IntegrationTest | 2 | File I/O integration |
-| EdgeCaseTest | 5 | Edge cases and error handling |
+|Test Suite|Tests|Purpose|
+|------------|-------|---------|
+|ConversationPairTest|4|Data structure validation|
+|TrainingConfigTest|7|Configuration defaults and customization|
+|ConfigValidationTest|8|Architecture parameter validation|
+|LRScheduleTest|7|Learning rate scheduling algorithms|
+|DataLoadingTest|3|File parsing and data loading|
+|DataSplittingTest|3|Train/validation set splitting|
+|EarlyStoppingTest|3|Early stopping logic|
+|CheckpointTest|2|Model checkpoint naming and frequency|
+|IntegrationTest|2|File I/O integration|
+|EdgeCaseTest|5|Edge cases and error handling|
 
 **Total:** 44 tests, all passing ✅
 
@@ -39,12 +39,12 @@ Comprehensive unit test suite for the `ChatbotTrainer` class and its supporting 
 TEST(ConversationPairTest, BasicConstruction)
 ```
 
-**Tests:**
+Tests:
 
 - Constructor properly stores input and response strings
 - String values are correctly assigned
 
-**Expected Behavior:**
+Expected Behavior:
 
 ```cpp
 ConversationPair pair("Hello", "Hi there");
@@ -57,12 +57,12 @@ ConversationPair pair("Hello", "Hi there");
 TEST(ConversationPairTest, EmptyStrings)
 ```
 
-**Tests:**
+Tests:
 
 - Handles empty input/response strings
 - Empty strings don't cause errors
 
-**Expected Behavior:**
+Expected Behavior:
 
 ```cpp
 ConversationPair pair("", "");
@@ -75,12 +75,12 @@ ConversationPair pair("", "");
 TEST(ConversationPairTest, LongStrings)
 ```
 
-**Tests:**
+Tests:
 
 - Handles very long strings (1000+ characters)
 - No truncation or memory issues
 
-**Expected Behavior:**
+Expected Behavior:
 
 ```cpp
 ConversationPair pair(string(1000, 'a'), string(1000, 'b'));
@@ -93,12 +93,12 @@ ConversationPair pair(string(1000, 'a'), string(1000, 'b'));
 TEST(ConversationPairTest, SpecialCharacters)
 ```
 
-**Tests:**
+Tests:
 
 - Preserves special characters (newlines, tabs, etc.)
 - No character escaping issues
 
-**Expected Behavior:**
+Expected Behavior:
 
 ```cpp
 ConversationPair pair("Hello\nWorld!", "Hi\tthere");
@@ -114,37 +114,37 @@ ConversationPair pair("Hello\nWorld!", "Hi\tthere");
 TEST(TrainingConfigTest, DefaultValues)
 ```
 
-**Tests:**
+Tests:
 
 - Model architecture defaults (d_model=512, num_heads=8, etc.)
 - Training parameter defaults (epochs=10, lr=0.001, etc.)
 
-**Validated Defaults:**
-| Parameter | Default | Category |
-| ----------- | --------- | ---------- |
-| d_model | 512 | Architecture |
-| num_heads | 8 | Architecture |
-| d_ff | 2048 | Architecture |
-| num_encoder_layers | 6 | Architecture |
-| num_decoder_layers | 6 | Architecture |
-| max_seq_length | 512 | Architecture |
-| num_epochs | 10 | Training |
-| learning_rate | 0.001 | Training |
-| batch_size | 1 | Training |
-| validation_split | 10 | Training |
+Validated Defaults:
+|Parameter|Default|Category|
+|-----------|---------|----------|
+|d_model|512|Architecture|
+|num_heads|8|Architecture|
+|d_ff|2048|Architecture|
+|num_encoder_layers|6|Architecture|
+|num_decoder_layers|6|Architecture|
+|max_seq_length|512|Architecture|
+|num_epochs|10|Training|
+|learning_rate|0.001|Training|
+|batch_size|1|Training|
+|validation_split|10|Training|
 
 #### LRScheduleDefaults
 ```cpp
 TEST(TrainingConfigTest, LRScheduleDefaults)
 ```
 
-**Tests:**
+Tests:
 
 - Learning rate schedule defaults
 - Warmup configuration
 - Min/max LR settings
 
-**Validated Defaults:**
+Validated Defaults:
 
 - `lr_schedule = WARMUP_COSINE`
 - `warmup_steps = 0` (auto-configured)
@@ -156,13 +156,13 @@ TEST(TrainingConfigTest, LRScheduleDefaults)
 TEST(TrainingConfigTest, OptimizerDefaults)
 ```
 
-**Tests:**
+Tests:
 
 - Adam hyperparameters
 - Weight decay settings
 - Gradient clipping configuration
 
-**Validated Defaults:**
+Validated Defaults:
 
 - `adam_beta1 = 0.9`
 - `adam_beta2 = 0.999`
@@ -174,12 +174,12 @@ TEST(TrainingConfigTest, OptimizerDefaults)
 TEST(TrainingConfigTest, CheckpointDefaults)
 ```
 
-**Tests:**
+Tests:
 
 - Checkpoint saving enabled by default
 - Checkpoint frequency settings
 
-**Validated Defaults:**
+Validated Defaults:
 
 - `save_checkpoints = true`
 - `checkpoint_every = 1`
@@ -189,12 +189,12 @@ TEST(TrainingConfigTest, CheckpointDefaults)
 TEST(TrainingConfigTest, EarlyStoppingDefaults)
 ```
 
-**Tests:**
+Tests:
 
 - Early stopping disabled by default
 - Patience and delta thresholds
 
-**Validated Defaults:**
+Validated Defaults:
 
 - `enable_early_stopping = false`
 - `patience = 5`
@@ -206,12 +206,12 @@ TEST(TrainingConfigTest, EarlyStoppingDefaults)
 TEST(TrainingConfigTest, LoggingDefaults)
 ```
 
-**Tests:**
+Tests:
 
 - Logging frequency
 - Verbose mode setting
 
-**Validated Defaults:**
+Validated Defaults:
 
 - `log_every = 10`
 - `verbose = true`
@@ -221,12 +221,12 @@ TEST(TrainingConfigTest, LoggingDefaults)
 TEST(TrainingConfigTest, CustomValues)
 ```
 
-**Tests:**
+Tests:
 
 - Configuration can be customized
 - Custom values are properly stored
 
-**Example:**
+Example:
 
 ```cpp
 config.d_model = 768;
@@ -244,12 +244,12 @@ config.learning_rate = 0.0001f;
 TEST(ConfigValidationTest, DModelDivisibleByHeads)
 ```
 
-**Tests:**
+Tests:
 
 - Valid configurations where d_model % num_heads == 0
 - Validates common architectures (512/8, 768/12)
 
-**Valid Configurations:**
+Valid Configurations:
 
 - d_model=512, num_heads=8 ✅
 - d_model=768, num_heads=12 ✅
@@ -260,18 +260,18 @@ TEST(ConfigValidationTest, DModelDivisibleByHeads)
 TEST(ConfigValidationTest, DModelNotDivisibleByHeads)
 ```
 
-**Tests:**
+Tests:
 
 - Detects invalid configurations
 - Calculates correct auto-correction value
 
-**Auto-Correction Formula:**
+Auto-Correction Formula:
 
 ```cpp
 corrected = ((d_model + num_heads - 1) / num_heads) * num_heads;
 ```
 
-**Example:**
+Example:
 
 - d_model=500, num_heads=8 → corrected to 504
 
@@ -280,12 +280,12 @@ corrected = ((d_model + num_heads - 1) / num_heads) * num_heads;
 TEST(ConfigValidationTest, DFFRatio)
 ```
 
-**Tests:**
+Tests:
 
 - Standard 4x d_ff ratio
 - Acceptable range (2x to 8x)
 
-**Valid Ratios:**
+Valid Ratios:
 
 - 4x (recommended): d_model=512, d_ff=2048
 - 3x (acceptable): d_model=512, d_ff=1536
@@ -296,12 +296,12 @@ TEST(ConfigValidationTest, DFFRatio)
 TEST(ConfigValidationTest, NumHeadsPowerOfTwo)
 ```
 
-**Tests:**
+Tests:
 
 - Detects power-of-2 values
 - Validates recommended head counts
 
-**Power-of-2 Check:**
+Power-of-2 Check:
 
 ```cpp
 bool is_power_of_2 = (n > 0) && ((n & (n - 1)) == 0);
@@ -315,7 +315,7 @@ bool is_power_of_2 = (n > 0) && ((n & (n - 1)) == 0);
 TEST(ConfigValidationTest, LearningRateRange)
 ```
 
-**Tests:**
+Tests:
 
 - Learning rate within valid range (0, 1]
 - Common LR values (0.001, 0.0001, 0.1)
@@ -327,12 +327,12 @@ TEST(ConfigValidationTest, LearningRateRange)
 TEST(ConfigValidationTest, MinLearningRateLessThanMax)
 ```
 
-**Tests:**
+Tests:
 
 - min_learning_rate < learning_rate
 - Proper ordering for decay schedules
 
-**Validation:**
+Validation:
 
 ```cpp
 min_lr = 1e-6, base_lr = 0.001
@@ -344,7 +344,7 @@ min_lr = 1e-6, base_lr = 0.001
 TEST(ConfigValidationTest, LayerCountRanges)
 ```
 
-**Tests:**
+Tests:
 
 - Encoder/decoder layers in valid range [1, 48]
 - Default values within range
@@ -356,7 +356,7 @@ TEST(ConfigValidationTest, LayerCountRanges)
 TEST(ConfigValidationTest, SequenceLengthRange)
 ```
 
-**Tests:**
+Tests:
 
 - Maximum sequence length in practical range [16, 8192]
 
@@ -366,7 +366,7 @@ TEST(ConfigValidationTest, SequenceLengthRange)
 
 **Purpose:** Validate learning rate scheduling algorithms
 
-**Test Fixture:**
+Test Fixture:
 
 ```cpp
 class LRScheduleTest : public ::testing::Test {
@@ -383,12 +383,12 @@ protected:
 TEST_F(LRScheduleTest, ConstantSchedule)
 ```
 
-**Tests:**
+Tests:
 
 - LR remains constant throughout training
 - No decay or warmup
 
-**Expected Behavior:**
+Expected Behavior:
 
 ```text
 LR = base_lr (always)
@@ -402,12 +402,12 @@ Step 1000: lr = 0.001
 TEST_F(LRScheduleTest, LinearWarmupSchedule)
 ```
 
-**Tests:**
+Tests:
 
 - Linear increase during warmup
 - Constant after warmup
 
-**Expected Behavior:**
+Expected Behavior:
 
 ```text
 Warmup = 100 steps, base_lr = 0.001
@@ -417,7 +417,7 @@ Step 100: lr = 0.001 (100% warmup)
 Step 500: lr = 0.001 (constant after)
 ```
 
-**Formula (during warmup):**
+Formula (during warmup):
 
 ```cpp
 lr = base_lr * (step / warmup_steps)
@@ -428,12 +428,12 @@ lr = base_lr * (step / warmup_steps)
 TEST_F(LRScheduleTest, CosineDecaySchedule)
 ```
 
-**Tests:**
+Tests:
 
 - Smooth cosine decay from start
 - Reaches min_lr at end
 
-**Expected Behavior:**
+Expected Behavior:
 
 ```text
 Total steps = 1000, base_lr = 0.001, min_lr = 1e-6
@@ -442,7 +442,7 @@ Step 500:  lr ≈ 0.0005 (between min and max)
 Step 1000: lr ≈ 1e-6 (min)
 ```
 
-**Formula:**
+Formula:
 
 ```cpp
 progress = step / total_steps
@@ -455,13 +455,13 @@ lr = min_lr + (base_lr - min_lr) * cosine
 TEST_F(LRScheduleTest, WarmupCosineSchedule)
 ```
 
-**Tests:**
+Tests:
 
 - Linear warmup phase
 - Cosine decay after warmup
 - Recommended schedule for transformers
 
-**Expected Behavior:**
+Expected Behavior:
 
 ```text
 Warmup = 100, total = 1000, base = 0.001
@@ -469,7 +469,7 @@ Step 0-100:   Linear warmup to 0.001
 Step 100-1000: Cosine decay to min_lr
 ```
 
-**Formula:**
+Formula:
 
 ```cpp
 // Warmup phase (step < warmup)
@@ -486,12 +486,12 @@ lr = min_lr + (base_lr - min_lr) * cosine
 TEST_F(LRScheduleTest, StepDecaySchedule)
 ```
 
-**Tests:**
+Tests:
 
 - Discrete LR drops at intervals
 - Multiple decay steps
 
-**Expected Behavior:**
+Expected Behavior:
 
 ```text
 decay_factor = 0.1, decay_steps = 100
@@ -500,7 +500,7 @@ Step 100-199: lr = 0.0001 (×0.1)
 Step 200-299: lr = 0.00001 (×0.1²)
 ```
 
-**Formula:**
+Formula:
 
 ```cpp
 num_decays = step / decay_steps
@@ -512,12 +512,12 @@ lr = base_lr * pow(decay_factor, num_decays)
 TEST_F(LRScheduleTest, ExponentialDecaySchedule)
 ```
 
-**Tests:**
+Tests:
 
 - Continuous exponential decay
 - Smooth reduction over time
 
-**Expected Behavior:**
+Expected Behavior:
 
 ```text
 Continuously decays with exponential curve
@@ -525,7 +525,7 @@ Step 0: lr = base_lr
 Step increases: lr decreases exponentially
 ```
 
-**Formula:**
+Formula:
 
 ```cpp
 decay_rate = pow(decay_factor, 1.0 / decay_steps)
@@ -537,12 +537,12 @@ lr = base_lr * pow(decay_rate, step)
 TEST_F(LRScheduleTest, AutoWarmupConfiguration)
 ```
 
-**Tests:**
+Tests:
 
 - Warmup auto-configured to 10% of total steps
 - Correct calculation when warmup_steps = 0
 
-**Expected Behavior:**
+Expected Behavior:
 
 ```text
 total_steps = 1000, warmup_steps = 0
@@ -558,13 +558,13 @@ auto_warmup = total_steps / 10 = 100
 TEST(DataLoadingTest, ParseValidConversationFile)
 ```
 
-**Tests:**
+Tests:
 
 - Correct parsing of INPUT/RESPONSE format
 - Multiple conversation pairs
 - Proper pair extraction
 
-**Input File Format:**
+Input File Format:
 
 ```text
 INPUT: Hello
@@ -574,7 +574,7 @@ INPUT: How are you?
 RESPONSE: I'm doing great!
 ```
 
-**Expected Output:**
+Expected Output:
 
 ```cpp
 pairs[0] = {"Hello", "Hi there"}
@@ -586,20 +586,20 @@ pairs[1] = {"How are you?", "I'm doing great!"}
 TEST(DataLoadingTest, ParseFileWithExtraWhitespace)
 ```
 
-**Tests:**
+Tests:
 
 - Whitespace trimming
 - Leading/trailing space removal
 - Clean text extraction
 
-**Input:**
+Input:
 
 ```text
 INPUT:    Hello
 RESPONSE:    Hi there
 ```
 
-**Expected Output:**
+Expected Output:
 
 ```cpp
 input = "Hello" (trimmed)
@@ -611,13 +611,13 @@ response = "Hi there" (trimmed)
 TEST(DataLoadingTest, SkipIncompletePairs)
 ```
 
-**Tests:**
+Tests:
 
 - Skips pairs with missing input
 - Skips pairs with missing response
 - Only loads complete pairs
 
-**Input:**
+Input:
 
 ```text
 INPUT: Hello
@@ -630,7 +630,7 @@ INPUT: Valid input
 RESPONSE: Valid response
 ```
 
-**Expected Output:**
+Expected Output:
 
 ```cpp
 pairs.size() == 1
@@ -646,13 +646,13 @@ pairs[0] = {"Valid input", "Valid response"}
 TEST(DataSplittingTest, SplitWithValidationRatio)
 ```
 
-**Tests:**
+Tests:
 
 - Correct split ratio (1/10 for validation)
 - Proper data partitioning
 - Data integrity after split
 
-**Example:**
+Example:
 
 ```text
 Total: 100 pairs, validation_split = 10
@@ -660,7 +660,7 @@ Training: 90 pairs (pairs 0-89)
 Validation: 10 pairs (pairs 90-99)
 ```
 
-**Split Logic:**
+Split Logic:
 
 ```cpp
 validation_size = total / validation_split
@@ -673,12 +673,12 @@ training_data = remaining items
 TEST(DataSplittingTest, NoSplitWhenValidationSplitZero)
 ```
 
-**Tests:**
+Tests:
 
 - No split occurs when validation_split = 0
 - All data remains in training set
 
-**Behavior:**
+Behavior:
 
 ```cpp
 if (validation_split <= 0) {
@@ -691,12 +691,12 @@ if (validation_split <= 0) {
 TEST(DataSplittingTest, InsufficientDataForSplit)
 ```
 
-**Tests:**
+Tests:
 
 - Handles too few samples for split
 - validation_size = 0 when data too small
 
-**Example:**
+Example:
 
 ```text
 Total: 5 pairs, validation_split = 10
@@ -712,19 +712,19 @@ validation_size = 5 / 10 = 0 (insufficient)
 TEST(EarlyStoppingTest, CheckImprovementDetection)
 ```
 
-**Tests:**
+Tests:
 
 - Detects significant improvement
 - Ignores changes within min_delta
 - Rejects worse performance
 
-**Improvement Check:**
+Improvement Check:
 
 ```cpp
 bool improved = (new_loss < best_loss - min_delta);
 ```
 
-**Examples:**
+Examples:
 
 ```text
 best_loss = 2.5, min_delta = 1e-4
@@ -739,12 +739,12 @@ new_loss = 2.6 → improved = false (worse)
 TEST(EarlyStoppingTest, PatienceCounter)
 ```
 
-**Tests:**
+Tests:
 
 - Patience counter increments without improvement
 - Early stopping triggers after patience exceeded
 
-**Behavior:**
+Behavior:
 
 ```text
 patience = 5
@@ -757,12 +757,12 @@ epochs_without_improvement: 5 → STOP
 TEST(EarlyStoppingTest, ResetCounterOnImprovement)
 ```
 
-**Tests:**
+Tests:
 
 - Counter resets to 0 on improvement
 - Best loss updates
 
-**Behavior:**
+Behavior:
 
 ```cpp
 if (new_loss < best_loss - min_delta) {
@@ -780,12 +780,12 @@ if (new_loss < best_loss - min_delta) {
 TEST(CheckpointTest, EpochCheckpointNaming)
 ```
 
-**Tests:**
+Tests:
 
 - Correct checkpoint file naming
 - Epoch number appended to base path
 
-**Naming Convention:**
+Naming Convention:
 
 ```cpp
 base_path = "model.bin"
@@ -799,12 +799,12 @@ epoch100 = "model.bin.epoch100"
 TEST(CheckpointTest, CheckpointFrequency)
 ```
 
-**Tests:**
+Tests:
 
 - Checkpoints saved at correct intervals
 - checkpoint_every parameter respected
 
-**Example (checkpoint_every = 5):**
+Example (checkpoint_every = 5):
 
 ```text
 Epoch 1: no checkpoint
@@ -816,7 +816,7 @@ Epoch 6-9: no checkpoint
 Epoch 10: CHECKPOINT ✓
 ```
 
-**Logic:**
+Logic:
 
 ```cpp
 bool should_save = ((epoch + 1) % checkpoint_every == 0);
@@ -831,13 +831,13 @@ bool should_save = ((epoch + 1) % checkpoint_every == 0);
 TEST(IntegrationTest, CreateAndLoadVocabFile)
 ```
 
-**Tests:**
+Tests:
 
 - Vocabulary file creation
 - File reading and parsing
 - Special tokens present
 
-**Vocab File Format:**
+Vocab File Format:
 
 ```text
 <unk>
@@ -849,7 +849,7 @@ token1
 ...
 ```
 
-**Validation:**
+Validation:
 
 - File exists and readable
 - Correct number of tokens
@@ -860,13 +860,13 @@ token1
 TEST(IntegrationTest, CreateAndLoadConversationFile)
 ```
 
-**Tests:**
+Tests:
 
 - Conversation file creation
 - File content verification
 - Format correctness
 
-**Validation:**
+Validation:
 
 - File contains expected INPUT/RESPONSE patterns
 - All conversation pairs present
@@ -881,7 +881,7 @@ TEST(IntegrationTest, CreateAndLoadConversationFile)
 TEST(EdgeCaseTest, EmptyDataFile)
 ```
 
-**Tests:**
+Tests:
 
 - Handles completely empty data files
 - No crash or error
@@ -894,13 +894,13 @@ TEST(EdgeCaseTest, EmptyDataFile)
 TEST(EdgeCaseTest, VeryLongConversationPair)
 ```
 
-**Tests:**
+Tests:
 
 - Handles very long strings (10,000 characters)
 - No truncation or memory issues
 - Full content preserved
 
-**Test Data:**
+Test Data:
 
 ```cpp
 string input(10000, 'a');
@@ -912,12 +912,12 @@ string response(10000, 'b');
 TEST(EdgeCaseTest, SpecialCharactersInConversation)
 ```
 
-**Tests:**
+Tests:
 
 - Preserves special characters
 - Handles @ symbols, quotes, etc.
 
-**Example:**
+Example:
 
 ```text
 "What's the weather like? It's 25 degrees!"
@@ -929,12 +929,12 @@ TEST(EdgeCaseTest, SpecialCharactersInConversation)
 TEST(EdgeCaseTest, ZeroEpochs)
 ```
 
-**Tests:**
+Tests:
 
 - Handles num_epochs = 0
 - No training loop execution
 
-**Behavior:**
+Behavior:
 
 ```cpp
 for (int epoch = 0; epoch < 0; epoch++) {
@@ -947,13 +947,13 @@ for (int epoch = 0; epoch < 0; epoch++) {
 TEST(EdgeCaseTest, ExtremelySmallModel)
 ```
 
-**Tests:**
+Tests:
 
 - Minimal valid configuration
 - All parameters positive
 - Divisibility rules satisfied
 
-**Configuration:**
+Configuration:
 
 ```cpp
 d_model = 64
@@ -963,7 +963,7 @@ num_encoder_layers = 1
 num_decoder_layers = 1
 ```
 
-**Validation:**
+Validation:
 
 - 64 % 4 = 0 ✅
 - All values > 0 ✅
@@ -980,7 +980,7 @@ std::string create_test_data_file(
 
 **Purpose:** Create test conversation data file
 
-**Format:**
+Format:
 
 ```text
 INPUT: <input1>
@@ -1000,7 +1000,7 @@ std::string create_test_vocab_file(
 
 **Purpose:** Create test vocabulary file
 
-**Format:**
+Format:
 
 ```text
 <unk>
@@ -1039,7 +1039,7 @@ make chatbottrainerTests
 
 ## Test Results
 
-**Latest Run:**
+Latest Run:
 
 ```text
 [==========] Running 44 tests from 10 test suites.
@@ -1264,7 +1264,7 @@ The ChatbotTrainer test suite provides comprehensive validation of:
 ✅ **File I/O:** Data loading, vocab management, checkpoints
 ✅ **Edge Cases:** Empty files, long strings, special chars, minimal configs
 
-**Test Quality:**
+Test Quality:
 
 - 44 tests, all passing
 - 100% coverage of testable components
@@ -1272,7 +1272,7 @@ The ChatbotTrainer test suite provides comprehensive validation of:
 - Isolated and reproducible
 - Fast execution (1 ms total)
 
-**Ideal For:**
+Ideal For:
 
 - Validating configuration changes
 - Testing LR schedule modifications

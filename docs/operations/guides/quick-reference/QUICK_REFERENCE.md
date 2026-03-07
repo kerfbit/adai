@@ -4,13 +4,13 @@
 
 ## QUICK START
 
-**Build Everything:**
+Build Everything:
 
 ```bash
 ./scripts/build_and_vocab.sh build
 ```
 
-**Create Vocabulary (5000 tokens):**
+Create Vocabulary (5000 tokens):
 
 ```bash
 ./build/bin/vocab_builder --input sample_training_data.txt \
@@ -19,7 +19,7 @@
                            --format pairs --stats
 ```
 
-**Train Model (10 epochs):**
+Train Model (10 epochs):
 
 ```bash
 ./build/bin/chatbot_trainer --data sample_training_data.txt \
@@ -28,7 +28,7 @@
                              --epochs 10
 ```
 
-**Full Workflow:**
+Full Workflow:
 
 ```bash
 ./scripts/build_and_vocab.sh full
@@ -38,13 +38,13 @@
 
 ## BUILD COMMANDS
 
-**Interactive Menu:**
+Interactive Menu:
 
 ```bash
 ./scripts/build_and_vocab.sh
 ```
 
-**Direct Commands:**
+Direct Commands:
 
 ```bash
 ./scripts/build_and_vocab.sh build           # Release mode
@@ -52,7 +52,7 @@
 ./scripts/build_and_vocab.sh clean           # Clean build
 ```
 
-**Manual Build:**
+Manual Build:
 
 ```bash
 mkdir -p build && cd build
@@ -64,29 +64,29 @@ make -j$(nproc)
 
 ## VOCABULARY BUILDER
 
-**Basic Usage:**
+Basic Usage:
 
 ```bash
 ./build/bin/vocab_builder --input FILE --output FILE
 ```
 
-**Full Options:**
+Full Options:
 
 - `--input <file>` - Input text file (can use multiple times)
 - `--output <file>` - Output vocabulary file
 - `--vocab-size <N>` - Target vocabulary size (default: 5000)
 - `--threshold <N>` - Min character frequency (default: 1)
-- `--format <type>` - plain | pairs | json (default: plain)
+- `--format <type>` - plain |pairs| json (default: plain)
 - `--stats` - Show statistics
 - `--help` - Show help
 
-**Input Formats:**
+Input Formats:
 
 - **plain** - One sentence per line
 - **pairs** - INPUT: ... / RESPONSE: ...
 - **json** - ["text1", "text2", ...]
 
-**Examples:**
+Examples:
 
 Small vocab for testing:
 
@@ -113,13 +113,13 @@ From multiple files:
 
 ## CHATBOT TRAINER
 
-**Basic Usage:**
+Basic Usage:
 
 ```bash
 ./build/bin/chatbot_trainer --data FILE --vocab FILE --output FILE
 ```
 
-**Common Options:**
+Common Options:
 
 - `--data <file>` - Training data (INPUT/RESPONSE format)
 - `--vocab <file>` - Vocabulary file
@@ -128,7 +128,7 @@ From multiple files:
 - `--learning-rate <F>` - Learning rate (default: 0.001)
 - `--batch-size <N>` - Batch size (default: 4)
 
-**Examples:**
+Examples:
 
 Quick test (5 epochs):
 
@@ -154,49 +154,49 @@ Production training:
 
 ## INCREMENTAL TRAINER
 
-**Initialize Incremental Training:**
+Initialize Incremental Training:
 
 ```bash
 ./build/bin/incremental_trainer init vocab.txt chatbot_model.bin
 ```
 
-**Add Training Data:**
+Add Training Data:
 
 ```bash
 ./build/bin/incremental_trainer add new_conversations.txt
 ```
 
-**Train on New Data Only (incremental):**
+Train on New Data Only (incremental):
 
 ```bash
 ./build/bin/incremental_trainer train 5
 ```
 
-**Full Retrain on All Data:**
+Full Retrain on All Data:
 
 ```bash
 ./build/bin/incremental_trainer retrain 10
 ```
 
-**Check Status:**
+Check Status:
 
 ```bash
 ./build/bin/incremental_trainer status
 ```
 
-**View Training History:**
+View Training History:
 
 ```bash
 ./build/bin/incremental_trainer history
 ```
 
-**Resume from Interruption:**
+Resume from Interruption:
 
 ```bash
 ./build/bin/incremental_trainer resume
 ```
 
-**Common Options:**
+Common Options:
 
 - `init <vocab> <model>` - Initialize incremental training system
 - `add <file>` - Add training data file to queue
@@ -206,7 +206,7 @@ Production training:
 - `history` - Show all training sessions
 - `resume` - Resume interrupted training
 
-**Use Cases:**
+Use Cases:
 
 - **Continuous learning**: Add new conversation data weekly/monthly
 - **Avoid retraining**: Train only on new data (much faster)
@@ -217,23 +217,23 @@ Production training:
 
 ## CHATBOT CLI
 
-**Run Interactive Chatbot:**
+Run Interactive Chatbot:
 
 ```bash
 ./build/bin/chatbot --vocab vocab.txt --model chatbot_model.bin
 ```
 
-**Load Specific Epoch:**
+Load Specific Epoch:
 
 ```bash
 ./build/bin/chatbot --vocab vocab.txt \
                     --model chatbot_model.bin.epoch10
 ```
 
-**Interactive Commands:**
+Interactive Commands:
 
 - `/help` - Show commands
-- `/set strategy` - greedy | beam | sampling | top_k | nucleus
+- `/set strategy` - greedy |beam|sampling|top_k| nucleus
 - `/set temperature` - 0.1-2.0 (lower = more focused)
 - `/set length` - Max response length
 - `/stats` - Show conversation statistics
@@ -281,14 +281,14 @@ Production training:
 
 ## TRAINING PARAMETERS
 
-| Parameter | Quick Test | Production |
-| --------- | ---------- | ---------- |
-| Epochs | 5-10 | 20-50 |
-| Learning Rate | 0.001 | 0.0005-0.001 |
-| Batch Size | 4 | 8-16 |
-| Vocabulary Size | 1000-2000 | 5000-15000 |
-| Model Dimension | 128-256 | 256-512 |
-| Attention Heads | 4-8 | 8-16 |
+|Parameter|Quick Test|Production|
+|---------|----------|----------|
+|Epochs|5-10|20-50|
+|Learning Rate|0.001|0.0005-0.001|
+|Batch Size|4|8-16|
+|Vocabulary Size|1000-2000|5000-15000|
+|Model Dimension|128-256|256-512|
+|Attention Heads|4-8|8-16|
 
 ---
 
@@ -300,7 +300,7 @@ Production training:
 - **top_k** - Balanced, limits token choices
 - **nucleus** - Adaptive, best for chatbots (default)
 
-**Temperature Settings:**
+Temperature Settings:
 
 - **0.1-0.5** - Very focused, factual
 - **0.6-0.8** - Balanced (recommended for chatbots)
@@ -439,7 +439,7 @@ Production training:
 ./build/bin/incremental_trainer history
 ```
 
-**Why use incremental training?**
+Why use incremental training?
 
 - Initial training on 7500 samples: ~6 days
 - Add 500 new samples with regular trainer: another 6 days

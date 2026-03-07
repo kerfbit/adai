@@ -599,6 +599,6 @@ Memory Growth: O(N × d_model) per sequence
 
 ---
 
-**Document Version:** 1.0  
-**Last Updated:** January 18, 2026  
+**Document Version:** 1.0
+**Last Updated:** January 18, 2026
 **Related Documents:** [decoder-design.md](decoder-design.md), [encoder-decoder-comparison.md](encoder-decoder-comparison.md)

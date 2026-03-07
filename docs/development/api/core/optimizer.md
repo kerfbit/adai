@@ -79,26 +79,26 @@ struct ParameterGroup {
 
 ### 1. SGD (Stochastic Gradient Descent)
 
-**Algorithm:**
+Algorithm:
 
 ```text
 w = w - lr * (grad + weight_decay * w)
 ```
 
-**Characteristics:**
+Characteristics:
 
 - Simplest optimizer
 - No adaptive learning rates
 - No momentum
 - Memory efficient
 
-**Use Cases:**
+Use Cases:
 
 - Simple baselines
 - Memory-constrained environments
 - Small models
 
-**Limitations:**
+Limitations:
 
 - Slow convergence
 - Sensitive to learning rate
@@ -106,30 +106,30 @@ w = w - lr * (grad + weight_decay * w)
 
 ### 2. SGD with Momentum
 
-**Algorithm:**
+Algorithm:
 
 ```text
 m = beta * m + grad
 w = w - lr * m
 ```
 
-**Characteristics:**
+Characteristics:
 
 - Accumulates velocity in gradient direction
 - Smooths out oscillations
 - Accelerates convergence in consistent directions
 
-**Hyperparameters:**
+Hyperparameters:
 
 - `momentum_beta`: Typically 0.9 (90% of previous velocity retained)
 
-**Use Cases:**
+Use Cases:
 
 - When SGD is too slow
 - Navigating ravines in loss landscape
 - CNNs and traditional architectures
 
-**Advantages over SGD:**
+Advantages over SGD:
 
 - Faster convergence
 - Smoother optimization path
@@ -137,7 +137,7 @@ w = w - lr * m
 
 ### 3. Adam (Adaptive Moment Estimation)
 
-**Algorithm:**
+Algorithm:
 
 ```text
 m = beta1 * m + (1 - beta1) * grad        // First moment
@@ -147,34 +147,34 @@ v_hat = v / (1 - beta2^t)                  // Bias correction
 w = w - lr * m_hat / (sqrt(v_hat) + epsilon)
 ```
 
-**Characteristics:**
+Characteristics:
 
 - Adaptive per-parameter learning rates
 - Combines momentum and RMSprop
 - Bias correction for initialization
 - Industry standard for deep learning
 
-**Hyperparameters:**
+Hyperparameters:
 
 - `beta1`: 0.9 (first moment decay)
 - `beta2`: 0.999 (second moment decay)
 - `epsilon`: 1e-8 (numerical stability)
 
-**Use Cases:**
+Use Cases:
 
 - Default choice for most deep learning
 - Transformer models
 - When you need fast convergence
 - When different parameters need different learning rates
 
-**Advantages:**
+Advantages:
 
 - Fast convergence
 - Works well out-of-the-box
 - Adaptive to parameter scale
 - Handles sparse gradients well
 
-**Disadvantages:**
+Disadvantages:
 
 - Weight decay is coupled with gradients (incorrect regularization)
 - Can overfit more than SGD
@@ -182,7 +182,7 @@ w = w - lr * m_hat / (sqrt(v_hat) + epsilon)
 
 ### 4. AdamW (Adam with Decoupled Weight Decay)
 
-**Algorithm:**
+Algorithm:
 
 ```text
 m = beta1 * m + (1 - beta1) * grad
@@ -192,28 +192,28 @@ v_hat = v / (1 - beta2^t)
 w = w - lr * (m_hat / (sqrt(v_hat) + epsilon) + weight_decay * w)
 ```
 
-**Key Difference from Adam:**
+Key Difference from Adam:
 Weight decay is applied directly to weights, not added to gradients.
 
-**Characteristics:**
+Characteristics:
 
 - Proper L2 regularization
 - Better generalization than Adam
 - Recommended for transformer training
 - Same computational cost as Adam
 
-**Hyperparameters:**
+Hyperparameters:
 
 - Same as Adam, plus:
 - `weight_decay`: 0.01 - 0.1 (regularization strength)
 
-**Use Cases:**
+Use Cases:
 
 - **Recommended for transformers** (BERT, GPT, etc.)
 - Large models requiring regularization
 - When better generalization is needed
 
-**Advantages over Adam:**
+Advantages over Adam:
 
 - Correct weight decay implementation
 - Better generalization
@@ -225,7 +225,7 @@ Weight decay is applied directly to weights, not added to gradients.
 
 **Purpose:** Prevent exploding gradients by limiting gradient magnitude.
 
-**Algorithm:**
+Algorithm:
 
 ```cpp
 float total_norm = sqrt(sum(grad_i²))  // L2 norm of all gradients
@@ -236,7 +236,7 @@ if (total_norm > max_norm) {
 }
 ```
 
-**When to Use:**
+When to Use:
 
 - ✅ Always for transformer training
 - ✅ RNNs and LSTMs
@@ -244,13 +244,13 @@ if (total_norm > max_norm) {
 - ✅ When seeing NaN losses
 - ✅ When gradients explode during training
 
-**Typical Values:**
+Typical Values:
 
 - Transformers: 1.0
 - RNNs: 5.0
 - Small networks: 10.0 or disabled
 
-**Implementation:**
+Implementation:
 
 ```cpp
 optimizer->set_max_grad_norm(1.0f);
@@ -261,25 +261,25 @@ float norm = optimizer->clip_gradients();  // Returns pre-clip norm
 
 **Purpose:** Prevent overfitting by penalizing large weights.
 
-**Adam vs AdamW:**
+Adam vs AdamW:
 
 - **Adam:** `grad += weight_decay * w` (incorrect - affects adaptive learning)
 - **AdamW:** `w -= lr * weight_decay * w` (correct - independent of gradients)
 
-**Effect:**
+Effect:
 
 - Pushes weights toward zero
 - Reduces model complexity
 - Improves generalization
 
-**Typical Values:**
+Typical Values:
 
 - No regularization: 0.0
 - Light regularization: 0.001 - 0.01
 - Standard: 0.01
 - Heavy regularization: 0.1
 
-**Trade-offs:**
+Trade-offs:
 
 - Too low: Overfitting
 - Too high: Underfitting, slow convergence
@@ -288,14 +288,14 @@ float norm = optimizer->clip_gradients();  // Returns pre-clip norm
 
 **Purpose:** Track gradient magnitude for training diagnostics.
 
-**What it tells you:**
+What it tells you:
 
 - **Norm 0.1 - 10:** Healthy training
 - **Norm > 10:** Potential exploding gradients
 - **Norm < 0.01:** Vanishing gradients or model converged
 - **Norm = NaN/Inf:** Training has diverged
 
-**Usage:**
+Usage:
 
 ```cpp
 float norm = optimizer->get_gradient_norm();
@@ -389,7 +389,7 @@ Per-parameter memory requirements:
 - **SGD+Momentum:** 1x (momentum vector)
 - **Adam/AdamW:** 2x (momentum + velocity)
 
-**Example:**
+Example:
 Model with 100M parameters (400MB):
 
 - SGD: 400MB total
@@ -400,21 +400,21 @@ Model with 100M parameters (400MB):
 
 All optimizers: **O(n)** where n = number of parameters
 
-**Per-parameter operations:**
+Per-parameter operations:
 
 - SGD: 1-2 operations
 - SGD+Momentum: 3-4 operations
 - Adam: 8-10 operations
 - AdamW: 9-11 operations
 
-**Performance impact:**
+Performance impact:
 Negligible compared to forward/backward passes. Adam's extra computation is worth the convergence speedup.
 
 ## Best Practices
 
 ### Choosing an Optimizer
 
-**For Transformers (Recommended):**
+For Transformers (Recommended):
 
 ```cpp
 Optimizer opt(OptimizerType::ADAMW, 0.0001f);
@@ -423,7 +423,7 @@ opt.set_weight_decay(0.01f);
 opt.set_max_grad_norm(1.0f);
 ```
 
-**For CNNs:**
+For CNNs:
 
 ```cpp
 Optimizer opt(OptimizerType::ADAM, 0.001f);
@@ -431,7 +431,7 @@ opt.set_betas(0.9f, 0.999f);
 opt.set_weight_decay(0.0001f);
 ```
 
-**For Small Models/Debugging:**
+For Small Models/Debugging:
 
 ```cpp
 Optimizer opt(OptimizerType::SGD_MOMENTUM, 0.01f);
@@ -440,20 +440,20 @@ opt.set_momentum(0.9f);
 
 ### Hyperparameter Tuning
 
-**Learning Rate:**
+Learning Rate:
 
 1. Start with recommended defaults (0.001 for Adam, 0.01 for SGD)
 2. If loss doesn't decrease: reduce by 10x
 3. If training is slow: increase by 3x
 4. Use learning rate scheduling for best results
 
-**Weight Decay:**
+Weight Decay:
 
 1. Start with 0.01 for AdamW
 2. Increase if overfitting (up to 0.1)
 3. Decrease if underfitting (down to 0.001)
 
-**Gradient Clipping:**
+Gradient Clipping:
 
 1. Start with 1.0 for transformers
 2. Monitor gradient norms
@@ -507,7 +507,7 @@ Optimizer(OptimizerType type, float lr)
 
 ### Methods
 
-**Parameter Management:**
+Parameter Management:
 
 ```cpp
 void add_parameter_group(Matrix* weights, Matrix* gradients)
@@ -515,7 +515,7 @@ void add_parameter_group(Matrix* weights, Matrix* gradients)
 
 Register weight/gradient matrices for optimization.
 
-**Hyperparameters:**
+Hyperparameters:
 
 ```cpp
 void set_learning_rate(float lr)          // Update learning rate
@@ -525,7 +525,7 @@ void set_weight_decay(float wd)           // L2 reg: 0.01
 void set_max_grad_norm(float max_norm)    // Clip: 1.0
 ```
 
-**Training Operations:**
+Training Operations:
 
 ```cpp
 void zero_grad()                    // Zero all gradients
@@ -533,7 +533,7 @@ float clip_gradients()              // Clip and return pre-clip norm
 void step()                         // Update all parameters
 ```
 
-**Monitoring:**
+Monitoring:
 
 ```cpp
 float get_gradient_norm() const     // Current gradient L2 norm
@@ -541,7 +541,7 @@ size_t total_parameters() const     // Total parameter count
 const char* get_optimizer_name()    // "SGD", "Adam", etc.
 ```
 
-**State Management:**
+State Management:
 
 ```cpp
 void reset_state()  // Clear momentum/velocity, reset step counter
@@ -572,7 +572,7 @@ Global norm clipping:
 
 ### Update Methods
 
-**SGD:**
+SGD:
 
 ```cpp
 for each parameter:
@@ -580,7 +580,7 @@ for each parameter:
     weight -= lr * grad
 ```
 
-**Adam:**
+Adam:
 
 ```cpp
 for each parameter:
@@ -592,7 +592,7 @@ for each parameter:
     weight -= lr * m_hat / (sqrt(v_hat) + epsilon)
 ```
 
-**AdamW:**
+AdamW:
 
 ```cpp
 for each parameter:
@@ -655,51 +655,51 @@ for each parameter:
 
 Comprehensive unit tests are available in `tests/optimizer_test.cpp` with 45 test cases covering:
 
-**Constructor Tests (5 tests):**
+Constructor Tests (5 tests):
 
 - Default, SGD, SGD+Momentum, Adam, AdamW constructors
 
-**Parameter Management Tests (5 tests):**
+Parameter Management Tests (5 tests):
 
 - Adding single/multiple parameter groups
 - Null pointer validation
 - Shape mismatch detection
 
-**Hyperparameter Tests (5 tests):**
+Hyperparameter Tests (5 tests):
 
 - Learning rate, momentum, betas, weight decay, gradient norm settings
 
-**Gradient Operations Tests (9 tests):**
+Gradient Operations Tests (9 tests):
 
 - Zero gradients (single and multiple groups)
 - Gradient norm computation
 - Gradient clipping (threshold, custom norm, disabled)
 
-**Optimization Algorithm Tests (8 tests):**
+Optimization Algorithm Tests (8 tests):
 
 - SGD basic update, weight decay, multiple steps
 - SGD+Momentum accumulation
 - Adam bias correction, weight decay
 - AdamW decoupled weight decay
 
-**State Management Tests (2 tests):**
+State Management Tests (2 tests):
 
 - Reset state
 - Zero momentum after reset
 
-**Integration Tests (3 tests):**
+Integration Tests (3 tests):
 
 - Complete training loop
 - Learning rate scheduling
 - Multi-parameter group updates
 
-**Edge Case Tests (4 tests):**
+Edge Case Tests (4 tests):
 
 - Zero gradients
 - Very small/large values
 - Empty optimizer
 
-**Performance Tests (2 tests):**
+Performance Tests (2 tests):
 
 - Large parameter matrices (100x100)
 - Many parameter groups (50 groups)
@@ -885,7 +885,7 @@ void add_parameter_group(Matrix* weights, Matrix* gradients)
 
 Registers a weight matrix and its corresponding gradient matrix for optimization.
 
-**Requirements:**
+Requirements:
 
 - `weights` and `gradients` must have the same shape
 - Should be called during model initialization
@@ -983,13 +983,13 @@ Reset optimizer state (clears momentum and velocity). Useful when:
 
 ### SGD (Stochastic Gradient Descent)
 
-**Update rule:**
+Update rule:
 
 ```text
 w = w - lr * (grad + weight_decay * w)
 ```
 
-**Use when:**
+Use when:
 
 - Simple baseline needed
 - Memory constrained
@@ -1000,14 +1000,14 @@ w = w - lr * (grad + weight_decay * w)
 
 ### SGD with Momentum
 
-**Update rule:**
+Update rule:
 
 ```text
 m = beta * m + grad
 w = w - lr * m
 ```
 
-**Use when:**
+Use when:
 
 - Need faster convergence than vanilla SGD
 - Navigating ravines in loss landscape
@@ -1017,7 +1017,7 @@ w = w - lr * m
 
 ### Adam (Adaptive Moment Estimation)
 
-**Update rule:**
+Update rule:
 
 ```text
 m = beta1 * m + (1 - beta1) * grad           // First moment
@@ -1027,7 +1027,7 @@ v_hat = v / (1 - beta2^t)
 w = w - lr * m_hat / (sqrt(v_hat) + epsilon)
 ```
 
-**Use when:**
+Use when:
 
 - Training transformers (industry standard)
 - Need adaptive learning rates
@@ -1036,7 +1036,7 @@ w = w - lr * m_hat / (sqrt(v_hat) + epsilon)
 **Pros:** Fast convergence, adaptive, works well out-of-the-box
 **Cons:** Can overfit, weight decay coupled with gradients
 
-**Recommended settings:**
+Recommended settings:
 
 - `lr`: 0.001 - 0.0001
 - `beta1`: 0.9
@@ -1045,7 +1045,7 @@ w = w - lr * m_hat / (sqrt(v_hat) + epsilon)
 
 ### AdamW (Adam with Decoupled Weight Decay)
 
-**Update rule:**
+Update rule:
 
 ```text
 m = beta1 * m + (1 - beta1) * grad
@@ -1055,7 +1055,7 @@ v_hat = v / (1 - beta2^t)
 w = w - lr * (m_hat / (sqrt(v_hat) + epsilon) + weight_decay * w)
 ```
 
-**Use when:**
+Use when:
 
 - Training large transformers (BERT, GPT, etc.)
 - Want better generalization than Adam
@@ -1064,7 +1064,7 @@ w = w - lr * (m_hat / (sqrt(v_hat) + epsilon) + weight_decay * w)
 **Pros:** Better generalization than Adam, proper regularization
 **Cons:** Slightly more complex
 
-**Recommended settings:**
+Recommended settings:
 
 - `lr`: 0.0001 - 0.00001
 - `beta1`: 0.9
@@ -1155,7 +1155,7 @@ if (grad_norm > 10.0f) {
 ```cpp
 // Check for NaN/Inf gradients
 float norm = optimizer.get_gradient_norm();
-if (std::isnan(norm) |  | std::isinf(norm)) {
+if (std::isnan(norm) || std::isinf(norm)) {
     std::cerr << "Invalid gradients detected!\n";
     optimizer.zero_grad();
     continue;  // Skip this step
@@ -1166,7 +1166,7 @@ if (std::isnan(norm) |  | std::isinf(norm)) {
 
 ### Issue: Loss becomes NaN (Solution)
 
-**Solutions:**
+Solutions:
 
 - Enable gradient clipping: `set_max_grad_norm(1.0f)`
 - Reduce learning rate
@@ -1174,7 +1174,7 @@ if (std::isnan(norm) |  | std::isinf(norm)) {
 
 ### Issue: Slow convergence (Solution)
 
-**Solutions:**
+Solutions:
 
 - Switch from SGD to Adam/AdamW
 - Increase learning rate
@@ -1182,7 +1182,7 @@ if (std::isnan(norm) |  | std::isinf(norm)) {
 
 ### Issue: Overfitting (Solution)
 
-**Solutions:**
+Solutions:
 
 - Add weight decay: `set_weight_decay(0.01f)`
 - Reduce model capacity
@@ -1190,7 +1190,7 @@ if (std::isnan(norm) |  | std::isinf(norm)) {
 
 ### Issue: Training unstable (Solution)
 
-**Solutions:**
+Solutions:
 
 - Enable gradient clipping
 - Reduce learning rate

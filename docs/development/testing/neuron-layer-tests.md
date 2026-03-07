@@ -281,34 +281,34 @@ Tests layer under sustained load.
 
 ### Code Coverage Analysis
 
-| Component | Coverage | Notes |
-| ----------- | ---------- | ------- |
-| Constructor | 100% | All parameter types tested |
-| forward() | 100% | All activations tested |
-| backward() | 100% | Gradient flow verified |
-| he_init() | 100% | Statistics validated |
-| xavier_init() | 100% | Statistics validated |
-| set_learning_rate() | 100% | Verified through neurons |
-| get_neuron() | 100% | Access tested |
-| save() | 100% | All activation types |
-| load() | 100% | State preservation verified |
-| Getters | 100% | All accessors tested |
+|Component|Coverage|Notes|
+|-----------|----------|-------|
+|Constructor|100%|All parameter types tested|
+|forward()|100%|All activations tested|
+|backward()|100%|Gradient flow verified|
+|he_init()|100%|Statistics validated|
+|xavier_init()|100%|Statistics validated|
+|set_learning_rate()|100%|Verified through neurons|
+|get_neuron()|100%|Access tested|
+|save()|100%|All activation types|
+|load()|100%|State preservation verified|
+|Getters|100%|All accessors tested|
 
 ## Performance Metrics
 
 ### Execution Times
 
-| Test Category | Time (ms) | Notes |
-| --------------- | ----------- | ------- |
-| Construction | <1 | Instantaneous |
-| Forward Pass | <1 | Fast computation |
-| Backward Pass | <1 | Efficient gradients |
-| Initialization | 0-1 | He/Xavier quick |
-| Serialization | <1 | I/O efficient |
-| Integration | <1 | Multi-layer fast |
-| Large Layer (1000→500) | 131-139 | Expected for size |
-| Stress Test (1000 iter) | 1 | Good performance |
-| **Total Suite** | **140-149** | **Excellent** |
+|Test Category|Time (ms)|Notes|
+|---------------|-----------|-------|
+|Construction|<1|Instantaneous|
+|Forward Pass|<1|Fast computation|
+|Backward Pass|<1|Efficient gradients|
+|Initialization|0-1|He/Xavier quick|
+|Serialization|<1|I/O efficient|
+|Integration|<1|Multi-layer fast|
+|Large Layer (1000→500)|131-139|Expected for size|
+|Stress Test (1000 iter)|1|Good performance|
+|**Total Suite**|**140-149**|**Excellent**|
 
 ### Memory Usage
 
@@ -353,21 +353,21 @@ add_test(NAME NeuronLayerTests COMMAND neuronLayerTests)
 
 ### Running Tests
 
-**Direct execution:**
+Direct execution:
 
 ```bash
 cd build
 ./tests/neuronLayerTests
 ```
 
-**Through CTest:**
+Through CTest:
 
 ```bash
 cd build
 ctest -R NeuronLayerTests -V
 ```
 
-**All tests:**
+All tests:
 
 ```bash
 cd build
@@ -419,11 +419,11 @@ tests/neuronlayer_test.cpp (650+ lines)
 
 ## Comparison with Other Test Suites
 
-| Test Suite | Tests | Pass Rate | Coverage |
-| ------------ | ------- | ----------- | ---------- |
-| TokenizerTests | ? | 100% | Full |
-| NeuronTests | 34 | 100% | Full |
-| **NeuronLayerTests** | **30** | **100%** | **Full** |
+|Test Suite|Tests|Pass Rate|Coverage|
+|------------|-------|-----------|----------|
+|TokenizerTests|?|100%|Full|
+|NeuronTests|34|100%|Full|
+|**NeuronLayerTests**|**30**|**100%**|**Full**|
 
 ## Recommendations
 

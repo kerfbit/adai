@@ -26,7 +26,7 @@ The ChatbotAPI now includes comprehensive batch processing capabilities, allowin
 
 Process multiple independent messages in one request (stateless).
 
-**Request:**
+Request:
 
 ```json
 {
@@ -38,7 +38,7 @@ Process multiple independent messages in one request (stateless).
 }
 ```
 
-**Response:**
+Response:
 
 ```json
 {
@@ -63,7 +63,7 @@ Process multiple independent messages in one request (stateless).
 
 Process multiple messages with session context (stateful).
 
-**Request:**
+Request:
 
 ```json
 {
@@ -78,7 +78,7 @@ Process multiple messages with session context (stateful).
 }
 ```
 
-**Response:**
+Response:
 
 ```json
 {
@@ -156,7 +156,7 @@ The implementation uses intelligent batching to minimize padding:
 4. **Batch Creation**: Groups become batches (max 32 sequences per batch)
 5. **Processing**: Each batch is processed with minimal padding
 
-**Parameters:**
+Parameters:
 
 - `max_batch_size`: 32 (configurable)
 - `length_tolerance`: 10 tokens (configurable)
@@ -183,20 +183,20 @@ For inputs of lengths: [5, 8, 50, 52, 100, 105]
 
 ### Throughput Comparison
 
-| Metric | Single Requests | Batch Processing | Speedup |
-| -------- | ---------------- | ------------------ | --------- |
-| 10 requests | 5.2s | 1.8s | 2.9x |
-| 50 requests | 26.1s | 7.3s | 3.6x |
-| 100 requests | 52.5s | 13.1s | 4.0x |
+|Metric|Single Requests|Batch Processing|Speedup|
+|--------|----------------|------------------|---------|
+|10 requests|5.2s|1.8s|2.9x|
+|50 requests|26.1s|7.3s|3.6x|
+|100 requests|52.5s|13.1s|4.0x|
 
 ### Efficiency by Message Length Variation
 
-| Length Variation | Padding Ratio | Efficiency |
-| ------------------ | --------------- | ------------ |
-| Uniform (±5 tokens) | 5-10% | 90-95% |
-| Moderate (±20 tokens) | 15-25% | 75-85% |
-| High (±50 tokens) | 30-40% | 60-70% |
-| Very High (10x range) | 40-60% | 40-60% |
+|Length Variation|Padding Ratio|Efficiency|
+|------------------|---------------|------------|
+|Uniform (±5 tokens)|5-10%|90-95%|
+|Moderate (±20 tokens)|15-25%|75-85%|
+|High (±50 tokens)|30-40%|60-70%|
+|Very High (10x range)|40-60%|40-60%|
 
 ---
 
@@ -230,7 +230,7 @@ response = requests.post('http://localhost:8080/chat/batch-session', json={
 
 ### cURL Examples
 
-**Batch Chat:**
+Batch Chat:
 
 ```bash
 curl -X POST http://localhost:8080/chat/batch \
@@ -244,7 +244,7 @@ curl -X POST http://localhost:8080/chat/batch \
   }'
 ```
 
-**Batch Session:**
+Batch Session:
 
 ```bash
 curl -X POST http://localhost:8080/chat/batch-session \
@@ -285,7 +285,7 @@ batchChat([
 
 ### 1. Batch Size Optimization
 
-**Recommended batch sizes:**
+Recommended batch sizes:
 
 - **Small batches (1-10)**: Good for low latency, minimal complexity
 - **Medium batches (10-50)**: Optimal balance of throughput and latency
@@ -350,7 +350,7 @@ if stats['efficiency'] < 60:
 
 ### Migrating from Single to Batch
 
-**Before (Single Requests):**
+Before (Single Requests):
 
 ```python
 responses = []
@@ -360,7 +360,7 @@ for msg in messages:
     responses.append(result.json()['response'])
 ```
 
-**After (Batch Request):**
+After (Batch Request):
 
 ```python
 result = requests.post('http://localhost:8080/chat/batch',
@@ -368,7 +368,7 @@ result = requests.post('http://localhost:8080/chat/batch',
 responses = result.json()['responses']
 ```
 
-**Benefits:**
+Benefits:
 
 - 2-4x faster
 - Fewer HTTP requests
@@ -406,7 +406,7 @@ You can customize generation parameters for batch requests:
 ### Issue: Low Efficiency (<60%)
 
 **Cause:** High variance in message lengths
-**Solution:**
+Solution:
 
 - Split batches by message length
 - Use smaller batches (10-20 messages)
@@ -415,7 +415,7 @@ You can customize generation parameters for batch requests:
 ### Issue: Timeout on Large Batches
 
 **Cause:** Batch too large or server overloaded
-**Solution:**
+Solution:
 
 - Reduce batch size (try 50 or 32)
 - Increase server timeout settings
@@ -424,7 +424,7 @@ You can customize generation parameters for batch requests:
 ### Issue: Session IDs Not Working
 
 **Cause:** Session expired or invalid ID
-**Solution:**
+Solution:
 
 - Check session timeout settings (default: 30 minutes)
 - Verify session ID format
@@ -478,7 +478,7 @@ The batch processing integration provides:
 ✅ **Backward compatible** with existing API
 ✅ **Production ready** with extensive testing
 
-**Recommended for:**
+Recommended for:
 
 - High-throughput applications
 - Customer support systems

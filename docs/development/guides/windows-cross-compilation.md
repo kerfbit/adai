@@ -134,12 +134,12 @@ Targets Windows 7+ API level (0x0601).
 
 ### Available Options
 
-| Option | Default | Description |
-| -------- | --------- | ------------- |
-| `BUILD_TESTING` | OFF | Build test suite (disabled for Windows) |
-| `BUILD_EXAMPLES` | OFF | Build example programs |
-| `BUILD_API_SERVER` | OFF | Build REST API server (requires cpp-httplib) |
-| `ENABLE_GPU` | OFF | Enable CUDA support (not available for cross-compilation) |
+|Option|Default|Description|
+|--------|---------|-------------|
+|`BUILD_TESTING`|OFF|Build test suite (disabled for Windows)|
+|`BUILD_EXAMPLES`|OFF|Build example programs|
+|`BUILD_API_SERVER`|OFF|Build REST API server (requires cpp-httplib)|
+|`ENABLE_GPU`|OFF|Enable CUDA support (not available for cross-compilation)|
 
 ### Custom Configuration
 
@@ -243,14 +243,14 @@ Linux Development Environment
 
 The build targets **Windows 7** as minimum version (`_WIN32_WINNT=0x0601`):
 
-| Windows Version | Supported |
-| ----------------- | ----------- |
-| Windows 11 | ✅ Yes |
-| Windows 10 | ✅ Yes |
-| Windows 8/8.1 | ✅ Yes |
-| Windows 7 | ✅ Yes |
-| Windows Vista | ⚠️ Untested |
-| Windows XP | ❌ No |
+|Windows Version|Supported|
+|-----------------|-----------|
+|Windows 11|✅ Yes|
+|Windows 10|✅ Yes|
+|Windows 8/8.1|✅ Yes|
+|Windows 7|✅ Yes|
+|Windows Vista|⚠️ Untested|
+|Windows XP|❌ No|
 
 ## Troubleshooting
 
@@ -486,7 +486,7 @@ Run security checks before distribution:
 
 ```bash
 # Check for hardcoded credentials
-grep -r "password\| secret\ |key" src/
+grep -r "password\|secret\|key" src/
 
 # Verify no debug symbols in release
 x86_64-w64-mingw32-objdump -h chatbot.exe | grep debug

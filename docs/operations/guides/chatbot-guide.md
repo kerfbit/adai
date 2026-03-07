@@ -105,11 +105,11 @@ test 25
 
 ### Default File Paths
 
-| File | Default Path | Purpose |
-| ------ | ------------- | --------- |
-| Vocabulary | `vocab.txt` | BPE tokenizer vocabulary |
-| Model | `chatbot_model.bin` | Pre-trained weights |
-| Conversation | `conversation_history.txt` | Auto-saved conversations |
+|File|Default Path|Purpose|
+|------|-------------|---------|
+|Vocabulary|`vocab.txt`|BPE tokenizer vocabulary|
+|Model|`chatbot_model.bin`|Pre-trained weights|
+|Conversation|`conversation_history.txt`|Auto-saved conversations|
 
 ---
 
@@ -287,7 +287,7 @@ The chatbot supports 5 text generation strategies:
 You: /set strategy greedy
 ```
 
-**Best for:**
+Best for:
 
 - Consistent, predictable responses
 - Factual information retrieval
@@ -307,7 +307,7 @@ You: /set strategy beam
 You: /set beam_width 5
 ```
 
-**Best for:**
+Best for:
 
 - High-quality, coherent responses
 - Translation tasks
@@ -316,7 +316,7 @@ You: /set beam_width 5
 **Pros:** Better quality than greedy
 **Cons:** Slower, requires more memory
 
-**Parameters:**
+Parameters:
 
 - `beam_width`: Number of beams (default: 5)
 
@@ -331,7 +331,7 @@ You: /set strategy sampling
 You: /set temperature 0.8
 ```
 
-**Best for:**
+Best for:
 
 - Creative responses
 - Varied outputs
@@ -340,7 +340,7 @@ You: /set temperature 0.8
 **Pros:** Diverse, creative
 **Cons:** Can be inconsistent
 
-**Parameters:**
+Parameters:
 
 - `temperature`: Controls randomness (0.1-2.0)
   - Low (0.1-0.5): More focused
@@ -358,7 +358,7 @@ You: /set strategy top-k
 You: /set top_k 40
 ```
 
-**Best for:**
+Best for:
 
 - Controlled diversity
 - Filtering unlikely tokens
@@ -367,7 +367,7 @@ You: /set top_k 40
 **Pros:** Good balance of quality and diversity
 **Cons:** Fixed cutoff can be limiting
 
-**Parameters:**
+Parameters:
 
 - `top_k`: Number of top tokens (default: 50)
 
@@ -382,7 +382,7 @@ You: /set strategy nucleus
 You: /set top_p 0.9
 ```
 
-**Best for:**
+Best for:
 
 - General conversation (default)
 - Natural-sounding responses
@@ -391,7 +391,7 @@ You: /set top_p 0.9
 **Pros:** Adaptive, high quality, natural
 **Cons:** Slightly slower than greedy
 
-**Parameters:**
+Parameters:
 
 - `top_p`: Cumulative probability threshold (0.0-1.0)
   - 0.9: Recommended default
@@ -404,14 +404,14 @@ You: /set top_p 0.9
 
 ### Complete Parameter Reference
 
-| Parameter | Aliases | Type | Range | Default | Description |
-| ----------- | --------- | ------ | ------- | --------- | ------------- |
-| `strategy` | - | string | See above | `nucleus` | Generation strategy |
-| `length` | `max_length` | int | 1-1024 | 100 | Maximum response tokens |
-| `temperature` | `temp` | float | 0.1-2.0 | 1.0 | Sampling randomness |
-| `top_p` | `top-p` | float | 0.0-1.0 | 0.9 | Nucleus threshold |
-| `top_k` | `top-k` | int | 1-500 | 50 | Top-K limit |
-| `beam_width` | `beam-width` | int | 1-20 | 5 | Beam search width |
+|Parameter|Aliases|Type|Range|Default|Description|
+|-----------|---------|------|-------|---------|-------------|
+|`strategy`|-|string|See above|`nucleus`|Generation strategy|
+|`length`|`max_length`|int|1-1024|100|Maximum response tokens|
+|`temperature`|`temp`|float|0.1-2.0|1.0|Sampling randomness|
+|`top_p`|`top-p`|float|0.0-1.0|0.9|Nucleus threshold|
+|`top_k`|`top-k`|int|1-500|50|Top-K limit|
+|`beam_width`|`beam-width`|int|1-20|5|Beam search width|
 
 ### Setting Parameters
 
@@ -597,7 +597,7 @@ token2 frequency2
 ❌ Failed to load conversation
 ```
 
-**Solution:**
+Solution:
 
 - Check file exists and has read permissions
 - Verify file format is correct
@@ -732,7 +732,7 @@ The ADAI Chatbot CLI provides:
 ✅ **Modern C++** implementation (smart pointers, string_view)
 ✅ **Fully tested** (106 total tests across 2 suites)
 
-**Perfect for:**
+Perfect for:
 
 - Testing transformer models
 - Interactive AI conversations
@@ -740,7 +740,7 @@ The ADAI Chatbot CLI provides:
 - Educational demonstrations
 - Production chatbot deployments
 
-**Get Started:**
+Get Started:
 
 ```bash
 ./src/chatbot

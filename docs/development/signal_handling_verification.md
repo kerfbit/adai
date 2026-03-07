@@ -13,31 +13,34 @@
 
 **Objective:** Verify that SIGTERM signal triggers graceful shutdown
 
-**Setup:**
+Setup:
+
 ```bash
 export VOCAB_PATH=/home/rodney/Repos/adai/vocab.txt
 export PORT=18080
 ```
 
-**Execution:**
+Execution:
+
 ```bash
 ./scripts/test_signal_handling.sh
 ```
 
-**Results:**
+Results:
 
-| Step | Expected | Actual | Status |
-|------|----------|--------|--------|
-| Server starts | Process running | PID: 1645108 | ✅ PASS |
-| Model loads | No errors | Initialized successfully | ✅ PASS |
-| SIGTERM sent | Signal received | Handler triggered | ✅ PASS |
-| Server stops | API server stops | "Stopping chatbot API server..." | ✅ PASS |
-| Shutdown sequence | 3 steps executed | All steps completed | ✅ PASS |
-| Resource cleanup | RAII cleanup | No leaks detected | ✅ PASS |
-| Process exits | Exit code 0 | Exited cleanly | ✅ PASS |
+|Step|Expected|Actual|Status|
+|---|---|---|---|
+|Server starts|Process running|PID: 1645108|✅ PASS|
+|Model loads|No errors|Initialized successfully|✅ PASS|
+|SIGTERM sent|Signal received|Handler triggered|✅ PASS|
+|Server stops|API server stops|"Stopping chatbot API server..."|✅ PASS|
+|Shutdown sequence|3 steps executed|All steps completed|✅ PASS|
+|Resource cleanup|RAII cleanup|No leaks detected|✅ PASS|
+|Process exits|Exit code 0|Exited cleanly|✅ PASS|
 
-**Graceful Shutdown Output:**
-```
+Graceful Shutdown Output:
+
+```text
 ==================================================
          Initiating Graceful Shutdown
 ==================================================
@@ -59,31 +62,34 @@ Server shutdown complete
 
 **Objective:** Verify that SIGINT signal (Ctrl+C equivalent) triggers graceful shutdown
 
-**Setup:**
+Setup:
+
 ```bash
 export VOCAB_PATH=/home/rodney/Repos/adai/vocab.txt
 export PORT=18081
 ```
 
-**Execution:**
+Execution:
+
 ```bash
 ./scripts/test_sigint.sh
 ```
 
-**Results:**
+Results:
 
-| Step | Expected | Actual | Status |
-|------|----------|--------|--------|
-| Server starts | Process running | PID: 1645981 | ✅ PASS |
-| Model loads | No errors | Initialized successfully | ✅ PASS |
-| SIGINT sent | Signal received | Handler triggered | ✅ PASS |
-| Server stops | API server stops | "Stopping chatbot API server..." | ✅ PASS |
-| Shutdown sequence | 3 steps executed | All steps completed | ✅ PASS |
-| Resource cleanup | RAII cleanup | No leaks detected | ✅ PASS |
-| Process exits | Exit code 0 | Exited cleanly | ✅ PASS |
+|Step|Expected|Actual|Status|
+|---|---|---|---|
+|Server starts|Process running|PID: 1645981|✅ PASS|
+|Model loads|No errors|Initialized successfully|✅ PASS|
+|SIGINT sent|Signal received|Handler triggered|✅ PASS|
+|Server stops|API server stops|"Stopping chatbot API server..."|✅ PASS|
+|Shutdown sequence|3 steps executed|All steps completed|✅ PASS|
+|Resource cleanup|RAII cleanup|No leaks detected|✅ PASS|
+|Process exits|Exit code 0|Exited cleanly|✅ PASS|
 
-**Graceful Shutdown Output:**
-```
+Graceful Shutdown Output:
+
+```text
 ==================================================
          Initiating Graceful Shutdown
 ==================================================
@@ -106,15 +112,18 @@ Server shutdown complete
 **Objective:** Verify that model initialization uses correct parameter order
 
 **Issue Found:** Constructor parameters were passed in wrong order, causing:
-```
+
+```text
 Error: d_model (8) must be divisible by num_heads (6)
 ```
 
-**Root Cause:** 
+Root Cause:
+
 - Constructor expects: `(vocab_size, d_model, encoder_layers, decoder_layers, num_heads, d_ff, max_seq_length)`
 - Code was passing: `(d_model, num_heads, d_ff, encoder_layers, decoder_layers, vocab_size, max_seq_length)`
 
-**Fix Applied:**
+Fix Applied:
+
 ```cpp
 auto model = std::make_unique<EncoderDecoderModel>(
     tokenizer->get_vocab_size(),  // vocab_size (first parameter)
@@ -127,8 +136,9 @@ auto model = std::make_unique<EncoderDecoderModel>(
 );
 ```
 
-**Verification:**
-```
+Verification:
+
+```text
 [2/4] Initializing encoder-decoder model...
   ✅ Model initialized successfully (no errors)
   ✅ Parameters: d_model=512, num_heads=8, vocab_size=9925
@@ -144,7 +154,8 @@ auto model = std::make_unique<EncoderDecoderModel>(
 
 **Test:** Review signal handler implementation
 
-**Implementation:**
+Implementation:
+
 ```cpp
 void signal_handler(int signal) {
     if (signal == SIGINT || signal == SIGTERM) {
@@ -157,7 +168,8 @@ void signal_handler(int signal) {
 }
 ```
 
-**Verified Properties:**
+Verified Properties:
+
 - ✅ Uses only atomic operations
 - ✅ No heap allocations
 - ✅ No I/O operations in handler
@@ -170,7 +182,8 @@ void signal_handler(int signal) {
 
 **Test:** Multiple signal delivery
 
-**Implementation:**
+Implementation:
+
 - Atomic flag prevents race conditions
 - Server stop() method is thread-safe
 - RAII cleanup is deterministic
@@ -181,7 +194,8 @@ void signal_handler(int signal) {
 
 **Test:** Memory leak detection
 
-**Implementation:**
+Implementation:
+
 - Smart pointers clean up automatically
 - No manual memory management
 - RAII pattern used throughout
@@ -194,18 +208,18 @@ void signal_handler(int signal) {
 
 ### Shutdown Time
 
-| Signal | Server Type | Shutdown Time | Status |
-|--------|-------------|---------------|--------|
-| SIGTERM | Idle server | < 0.5s | ✅ Excellent |
-| SIGINT | Idle server | < 0.5s | ✅ Excellent |
+|Signal|Server Type|Shutdown Time|Status|
+|---|---|---|---|
+|SIGTERM|Idle server|< 0.5s|✅ Excellent|
+|SIGINT|Idle server|< 0.5s|✅ Excellent|
 
 ### Resource Usage During Shutdown
 
-| Resource | Before Shutdown | After Shutdown | Delta |
-|----------|----------------|----------------|-------|
-| Memory | ~150MB | 0MB | -150MB (100% freed) |
-| File Descriptors | 12 | 0 | -12 (all closed) |
-| Threads | 2 | 0 | -2 (all joined) |
+|Resource|Before Shutdown|After Shutdown|Delta|
+|---|---|---|---|
+|Memory|~150MB|0MB|-150MB (100% freed)|
+|File Descriptors|12|0|-12 (all closed)|
+|Threads|2|0|-2 (all joined)|
 
 **Verdict:** ✅ **EFFICIENT** - No resource leaks
 
@@ -242,13 +256,13 @@ sudo systemctl stop adai    # Sends SIGTERM
 
 ### Existing Functionality ✅
 
-| Feature | Before | After | Status |
-|---------|--------|-------|--------|
-| Server startup | ✅ Works | ✅ Works | ✅ No regression |
-| Configuration loading | ✅ Works | ✅ Works | ✅ No regression |
-| Environment variables | ✅ Works | ✅ Works | ✅ No regression |
-| CLI arguments | ✅ Works | ✅ Works | ✅ No regression |
-| Help output | ✅ Works | ✅ Works | ✅ No regression |
+|Feature|Before|After|Status|
+|---|---|---|---|
+|Server startup|✅ Works|✅ Works|✅ No regression|
+|Configuration loading|✅ Works|✅ Works|✅ No regression|
+|Environment variables|✅ Works|✅ Works|✅ No regression|
+|CLI arguments|✅ Works|✅ Works|✅ No regression|
+|Help output|✅ Works|✅ Works|✅ No regression|
 
 **Verdict:** ✅ **NO REGRESSIONS** - All existing features work correctly
 
@@ -258,14 +272,14 @@ sudo systemctl stop adai    # Sends SIGTERM
 
 ### Overall Test Results
 
-| Category | Tests | Passed | Failed | Pass Rate |
-|----------|-------|--------|--------|-----------|
-| Signal Handling | 2 | 2 | 0 | 100% |
-| Safety Properties | 3 | 3 | 0 | 100% |
-| Bug Fixes | 1 | 1 | 0 | 100% |
-| Compatibility | 2 | 2 | 0 | 100% |
-| Regression | 5 | 5 | 0 | 100% |
-| **TOTAL** | **13** | **13** | **0** | **100%** |
+|Category|Tests|Passed|Failed|Pass Rate|
+|---|---|---|---|---|
+|Signal Handling|2|2|0|100%|
+|Safety Properties|3|3|0|100%|
+|Bug Fixes|1|1|0|100%|
+|Compatibility|2|2|0|100%|
+|Regression|5|5|0|100%|
+|**TOTAL**|**13**|**13**|**0**|**100%**|
 
 ### Key Achievements
 
@@ -285,8 +299,8 @@ sudo systemctl stop adai    # Sends SIGTERM
 
 ---
 
-**Status: STEP 2 COMPLETE - ALL TESTS PASSED ✅**
+## Status: STEP 2 COMPLETE - ALL TESTS PASSED ✅
 
-**Date:** March 1, 2026  
-**Verified by:** Automated test suite  
+**Date:** March 1, 2026
+**Verified by:** Automated test suite
 **Approval:** Ready for production deployment

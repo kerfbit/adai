@@ -599,13 +599,13 @@ Matrix create_causal_mask(int seq_len) {
 
 **Key Difference from Self-Attention**:
 
-| Aspect | Self-Attention | Cross-Attention |
-| -------- | ---------------- | ----------------- |
-| Query source | Decoder input | Decoder input |
-| Key source | Decoder input | **Encoder output** |
-| Value source | Decoder input | **Encoder output** |
-| Sequence lengths | Same (tgt_len) | **Different** (tgt_len × src_len) |
-| Purpose | Model decoder context | **Access encoder information** |
+|Aspect|Self-Attention|Cross-Attention|
+|--------|----------------|-----------------|
+|Query source|Decoder input|Decoder input|
+|Key source|Decoder input|**Encoder output**|
+|Value source|Decoder input|**Encoder output**|
+|Sequence lengths|Same (tgt_len)|**Different** (tgt_len × src_len)|
+|Purpose|Model decoder context|**Access encoder information**|
 
 **Cross-Attention Forward**:
 
@@ -671,13 +671,13 @@ for (int i = 0; i < rows; ++i) {
 
 **For d_model=512, num_heads=8, d_ff=2048**:
 
-| Component | Parameters |
-| ----------- | ------------ |
-| Self-Attention | 4 × (512 × 512) = 1,048,576 |
-| Cross-Attention | 4 × (512 × 512) = 1,048,576 |
-| FeedForward | 512×2048 + 2048×512 = 2,097,152 |
-| LayerNorm (3×) | 3 × (512 + 512) = 3,072 |
-| **Total** | **4,197,376 params** |
+|Component|Parameters|
+|-----------|------------|
+|Self-Attention|4 × (512 × 512) = 1,048,576|
+|Cross-Attention|4 × (512 × 512) = 1,048,576|
+|FeedForward|512×2048 + 2048×512 = 2,097,152|
+|LayerNorm (3×)|3 × (512 + 512) = 3,072|
+|**Total**|**4,197,376 params**|
 
 **Memory** (float32):
 
@@ -748,15 +748,15 @@ class LLMDecoder {
 
 ### Structural Differences
 
-| Feature | EncoderBlock | DecoderBlock |
-| --------- | -------------- | -------------- |
-| **Self-Attention** | Bidirectional | **Causal (masked)** |
-| **Cross-Attention** | ❌ None | ✅ **Attends to encoder** |
-| **Sub-layers** | 2 (self-attn + FFN) | **3** (self-attn + cross-attn + FFN) |
-| **Residual Connections** | 2 | **3** |
-| **LayerNorms** | 2 | **3** |
-| **Inputs** | 1 (input only) | **2** (input + encoder_output) |
-| **Parameters** | ~2.1M (d_model=512) | **~4.2M** (2× encoder) |
+|Feature|EncoderBlock|DecoderBlock|
+|---------|--------------|--------------|
+|**Self-Attention**|Bidirectional|**Causal (masked)**|
+|**Cross-Attention**|❌ None|✅ **Attends to encoder**|
+|**Sub-layers**|2 (self-attn + FFN)|**3** (self-attn + cross-attn + FFN)|
+|**Residual Connections**|2|**3**|
+|**LayerNorms**|2|**3**|
+|**Inputs**|1 (input only)|**2** (input + encoder_output)|
+|**Parameters**|~2.1M (d_model=512)|**~4.2M** (2× encoder)|
 
 ### Functional Differences
 
@@ -928,14 +928,14 @@ for (int step = 0; step < max_summary_len; ++step) {
 
 **For batch_size=1, tgt_len=100, src_len=200, d_model=512, d_ff=2048**:
 
-| Component | Memory |
-| ----------- | -------- |
-| Parameters | ~16.8 MB |
-| Gradients | ~16.8 MB |
-| Self-attention scores | 100×100×4 = 40 KB |
-| Cross-attention scores | 100×200×4 = 80 KB |
-| Intermediate activations | ~1-2 MB |
-| **Total per layer** | **~35 MB** |
+|Component|Memory|
+|-----------|--------|
+|Parameters|~16.8 MB|
+|Gradients|~16.8 MB|
+|Self-attention scores|100×100×4 = 40 KB|
+|Cross-attention scores|100×200×4 = 80 KB|
+|Intermediate activations|~1-2 MB|
+|**Total per layer**|**~35 MB**|
 
 **Scaling**:
 

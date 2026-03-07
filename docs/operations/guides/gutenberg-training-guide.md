@@ -85,21 +85,21 @@ The system automatically:
 
 Creates diverse conversation pairs:
 
-**Question Style:**
+Question Style:
 
 ```text
 INPUT: What does this mean: "It is a truth universally acknowledged..."
 RESPONSE: "...that a single man in possession of a good fortune must be in want of a wife."
 ```
 
-**Explanation Style:**
+Explanation Style:
 
 ```text
 INPUT: Can you explain: "The rain fell in torrents..."
 RESPONSE: "...except at occasional intervals, when it was checked by a violent gust of wind."
 ```
 
-**Summary Style:**
+Summary Style:
 
 ```text
 INPUT: Summarize: "Elizabeth felt all the impertinence of her questions..."
@@ -222,7 +222,7 @@ Book ID: **1342**
 Modify `num_pairs` based on book length:
 
 - Short stories: 100-200 pairs
-- Novellas: 300-500 pairs  
+- Novellas: 300-500 pairs
 - Novels: 500-1000 pairs
 - Epic works: 1000-2000 pairs
 
@@ -238,7 +238,7 @@ Create a training plan:
 ./incremental_trainer gutenberg-batch 1342,1260,98,84 400
 ./incremental_trainer train 5
 
-# Week 2: American classics  
+# Week 2: American classics
 ./incremental_trainer gutenberg-batch 76,2701,11 400
 ./incremental_trainer train 5
 
@@ -293,12 +293,12 @@ Create a training plan:
 
 ### Training Impact
 
-| Pairs Added | Training Time (5 epochs) | Model Improvement      |
-| ----------- | ------------------------ | ---------------------- |
-| 100         | ~30 minutes              | Minor style boost      |
-| 300         | ~1.5 hours               | Noticeable improvement |
-| 500         | ~2.5 hours               | Significant boost      |
-| 1000        | ~5 hours                 | Major enhancement      |
+|Pairs Added|Training Time (5 epochs)|Model Improvement|
+|-----------|------------------------|----------------------|
+|100|~30 minutes|Minor style boost|
+|300|~1.5 hours|Noticeable improvement|
+|500|~2.5 hours|Significant boost|
+|1000|~5 hours|Major enhancement|
 
 ## Examples
 

@@ -87,7 +87,7 @@ void build_vocab(const std::vector<std::string>& texts,
                  int frequency_threshold = 1);
 ```
 
-**Algorithm:**
+Algorithm:
 
 1. Count character frequencies across corpus
 2. Add frequent characters (≥ threshold) to vocabulary
@@ -107,7 +107,7 @@ void build_bpe_merges(const std::vector<std::string>& texts,
                      int num_merges);
 ```
 
-**Algorithm:**
+Algorithm:
 
 1. Convert texts to character sequences
 2. Find most frequent adjacent pair
@@ -127,7 +127,7 @@ void build_bpe_merges(const std::vector<std::string>& texts,
 std::vector<std::string> pre_tokenize(const std::string& text);
 ```
 
-**Pattern:** `'s| 't | 're | 've | 'm | 'll | 'd | ?[A-Za-z]+ | ?[0-9]+ | ?[^\s\w]+ |\s+`
+**Pattern:** `'s|'t|'re|'ve|'m|'ll|'d|?[A-Za-z]+|?[0-9]+|?[^\s\w]+|\s+`
 
 Matches:
 
@@ -149,7 +149,7 @@ Matches:
 std::vector<std::string> apply_bpe(const std::string& word);
 ```
 
-**Algorithm:**
+Algorithm:
 
 1. Initialize with character-level tokens
 2. Apply each merge rule in order
@@ -168,7 +168,7 @@ std::vector<std::string> apply_bpe(const std::string& word);
 std::vector<std::string> tokenize(const std::string& text);
 ```
 
-**Process:**
+Process:
 
 1. Pre-tokenize into words
 2. Apply BPE to each word
@@ -222,7 +222,7 @@ void save_vocab(const std::string& filename) const;
 void load_vocab(const std::string& filename);
 ```
 
-**File Format:**
+File Format:
 
 ```text
 # BPE Tokenizer Vocabulary v1.0
@@ -252,12 +252,12 @@ std::vector<std::pair<std::string, int>> get_top_tokens(int k = 10) const;
 
 ### Token Definitions
 
-| Token | ID | Purpose | Usage |
-| ------- | ----- | --------- | ------- |
-| `<pad>` | 0 | Padding | Fill sequences to uniform length |
-| `<unk>` | 1 | Unknown | Replace out-of-vocabulary tokens |
-| `<bos>` | 2 | Begin | Mark sequence start |
-| `<eos>` | 3 | End | Mark sequence end |
+|Token|ID|Purpose|Usage|
+|-------|-----|---------|-------|
+|`<pad>`|0|Padding|Fill sequences to uniform length|
+|`<unk>`|1|Unknown|Replace out-of-vocabulary tokens|
+|`<bos>`|2|Begin|Mark sequence start|
+|`<eos>`|3|End|Mark sequence end|
 
 ### Special Token Handling
 
@@ -280,12 +280,12 @@ std::pair<std::string, std::string> get_most_frequent_pair(
     const std::vector<std::vector<std::string>>& word_tokens);
 ```
 
-**Algorithm:**
+Algorithm:
 
 ```text
 For each word in corpus:
     For each adjacent pair (token_i, token_i+1):
-        pair_key = token_i + "|  |  |" + token_i+1
+        pair_key = token_i + "|||" + token_i+1
         count[pair_key]++
 
 Return pair with maximum count
@@ -298,7 +298,7 @@ void merge_tokens(std::vector<std::vector<std::string>>& word_tokens,
                  const std::string& first, const std::string& second);
 ```
 
-**Algorithm:**
+Algorithm:
 
 ```text
 For each word in corpus:
@@ -341,7 +341,7 @@ int main() {
 }
 ```
 
-**Output:**
+Output:
 
 ```text
 [BPE Tokenizer] Building vocabulary...
@@ -383,7 +383,7 @@ int main() {
 }
 ```
 
-**Output:**
+Output:
 
 ```text
 Text: Hello, world!
@@ -417,7 +417,7 @@ int main() {
 }
 ```
 
-**Output:**
+Output:
 
 ```text
 Word: preprocessing
@@ -448,7 +448,7 @@ int main() {
 }
 ```
 
-**Output:**
+Output:
 
 ```text
 Vocabulary size: 1000
@@ -521,11 +521,11 @@ int main() {
 
 ```cpp
 std::regex token_pattern(
-    R"('s| 't | 're | 've | 'm | 'll | 'd | ?[A-Za-z]+ | ?[0-9]+ | ?[^\s\w]+ |\s+)"
+    R"('s|'t|'re|'ve|'m|'ll|'d|?[A-Za-z]+|?[0-9]+|?[^\s\w]+|\s+)"
 );
 ```
 
-**Pattern Components:**
+Pattern Components:
 
 - `'s|'t|'re|'ve|'m|'ll|'d` - Common contractions
 - `?[A-Za-z]+` - Words (with optional leading space)
@@ -563,27 +563,27 @@ The implementation includes detailed progress reporting:
 
 ### Time Complexity
 
-| Operation | Complexity | Notes |
-| ----------- | ------------ | ------- |
-| build_vocab | O(N × M + K²) | N=texts, M=avg_length, K=merges |
-| build_bpe_merges | O(K × T × L) | K=merges, T=tokens, L=token_length |
-| pre_tokenize | O(N) | N=text_length |
-| apply_bpe | O(M × L) | M=merges, L=word_length |
-| tokenize | O(N × M × L) | N=words, M=merges, L=word_length |
-| encode | O(T) | T=number_of_tokens |
-| decode | O(T) | T=number_of_tokens |
-| save_vocab | O(V) | V=vocab_size |
-| load_vocab | O(V) | V=vocab_size |
+|Operation|Complexity|Notes|
+|-----------|------------|-------|
+|build_vocab|O(N × M + K²)|N=texts, M=avg_length, K=merges|
+|build_bpe_merges|O(K × T × L)|K=merges, T=tokens, L=token_length|
+|pre_tokenize|O(N)|N=text_length|
+|apply_bpe|O(M × L)|M=merges, L=word_length|
+|tokenize|O(N × M × L)|N=words, M=merges, L=word_length|
+|encode|O(T)|T=number_of_tokens|
+|decode|O(T)|T=number_of_tokens|
+|save_vocab|O(V)|V=vocab_size|
+|load_vocab|O(V)|V=vocab_size|
 
 ### Space Complexity
 
-| Component | Space | Notes |
-| ----------- | ------- | ------- |
-| vocab | O(V) | V=vocab_size |
-| inverse_vocab | O(V) | Mirror of vocab |
-| bpe_merges | O(M) | M=number_of_merges |
-| special_tokens | O(1) | Fixed 4 tokens |
-| **Total** | **O(V + M)** | Dominated by vocabulary |
+|Component|Space|Notes|
+|-----------|-------|-------|
+|vocab|O(V)|V=vocab_size|
+|inverse_vocab|O(V)|Mirror of vocab|
+|bpe_merges|O(M)|M=number_of_merges|
+|special_tokens|O(1)|Fixed 4 tokens|
+|**Total**|**O(V + M)**|Dominated by vocabulary|
 
 ### Memory Usage Estimates
 
@@ -593,7 +593,7 @@ For a typical configuration:
 - Average token length: 5 characters
 - BPE merges: ~9,996
 
-**Memory:**
+Memory:
 
 - vocab: ~10,000 × (5 + 8) bytes = ~130 KB
 - inverse_vocab: ~10,000 × (8 + 5) bytes = ~130 KB
@@ -617,7 +617,7 @@ std::vector<std::string> pre_tokenize(const std::string& text) {
 
 ```cpp
 // Use string concatenation for pair key
-std::string pair_key = tokens[i] + "|  |  |" + tokens[i + 1];
+std::string pair_key = tokens[i] + "|||" + tokens[i + 1];
 pair_counts[pair_key]++;
 ```
 
@@ -668,13 +668,13 @@ a    n
 
 ### Escape Sequences
 
-| Character | Escaped Form | Example |
-| ----------- | -------------- | --------- |
-| Space | `\s` | `hello\sworld` |
-| Newline | `\n` | `line1\nline2` |
-| Tab | `\t` | `col1\tcol2` |
-| Return | `\r` | `text\r` |
-| Backslash | `\\` | `path\\to\\file` |
+|Character|Escaped Form|Example|
+|-----------|--------------|---------|
+|Space|`\s`|`hello\sworld`|
+|Newline|`\n`|`line1\nline2`|
+|Tab|`\t`|`col1\tcol2`|
+|Return|`\r`|`text\r`|
+|Backslash|`\\`|`path\\to\\file`|
 
 ## Integration Patterns
 

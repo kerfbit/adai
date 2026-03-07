@@ -12,7 +12,7 @@ The KVCache system provides efficient caching of key-value pairs during autoregr
 
 ### Why Use KVCache?
 
-**Without Cache:**
+Without Cache:
 
 ```text
 Step 1: Generate token 1 → Compute K,V for [token 1]
@@ -20,7 +20,7 @@ Step 2: Generate token 2 → Compute K,V for [token 1, token 2]  ❌ Redundant!
 Step 3: Generate token 3 → Compute K,V for [token 1, token 2, token 3]  ❌ Very redundant!
 ```
 
-**With Cache:**
+With Cache:
 
 ```text
 Step 1: Generate token 1 → Compute K,V for [token 1], cache them
@@ -56,7 +56,7 @@ KVCache()
 
 Creates an empty cache.
 
-**Example:**
+Example:
 
 ```cpp
 KVCache cache;  // Empty cache
@@ -70,7 +70,7 @@ Check if cache is empty.
 
 **Returns:** `true` if cache is empty, `false` otherwise
 
-**Example:**
+Example:
 
 ```cpp
 KVCache cache;
@@ -87,7 +87,7 @@ Get number of cached positions.
 
 **Returns:** Number of token positions currently cached
 
-**Example:**
+Example:
 
 ```cpp
 std::cout << "Cache contains " << cache.size() << " positions" << std::endl;
@@ -99,7 +99,7 @@ std::cout << "Cache contains " << cache.size() << " positions" << std::endl;
 
 Clear all cached data.
 
-**Example:**
+Example:
 
 ```cpp
 cache.clear();  // Reset cache for new sequence
@@ -111,17 +111,17 @@ cache.clear();  // Reset cache for new sequence
 
 Append new key-value pairs to cache.
 
-**Parameters:**
+Parameters:
 
 - `new_keys` - Keys for new position(s) `[num_new_positions, d_model]`
 - `new_values` - Values for new position(s) `[num_new_positions, d_model]`
 
-**Behavior:**
+Behavior:
 
 - If cache is empty: Initialize with new keys/values
 - If cache has data: Concatenate new keys/values to existing cache
 
-**Example:**
+Example:
 
 ```cpp
 // First call - initialize cache
@@ -148,7 +148,7 @@ Get cached keys matrix.
 
 **Returns:** Reference to cached keys `[current_length, d_model]`
 
-**Example:**
+Example:
 
 ```cpp
 const Matrix& cached_keys = cache.get_keys();
@@ -164,7 +164,7 @@ Get cached values matrix.
 
 **Returns:** Reference to cached values `[current_length, d_model]`
 
-**Example:**
+Example:
 
 ```cpp
 const Matrix& cached_values = cache.get_values();
@@ -193,11 +193,11 @@ explicit DecoderKVCache(int num_layers)
 
 Creates a multi-layer cache with separate caches for each decoder layer.
 
-**Parameters:**
+Parameters:
 
 - `num_layers` - Number of decoder layers
 
-**Example:**
+Example:
 
 ```cpp
 // For a 6-layer decoder
@@ -214,7 +214,7 @@ Clear all caches (self-attention and cross-attention).
 
 **Use case:** Starting a new sequence
 
-**Example:**
+Example:
 
 ```cpp
 cache.clear();  // Clear all caches for new conversation
@@ -228,7 +228,7 @@ Clear only self-attention caches, keep cross-attention caches.
 
 **Use case:** In encoder-decoder models, encoder output (cross-attention K/V) remains constant across generation steps, so only self-attention cache needs clearing.
 
-**Example:**
+Example:
 
 ```cpp
 // Keep encoder cross-attention cache, clear decoder self-attention
@@ -241,13 +241,13 @@ cache.clear_self_attention();
 
 Get cache for a specific layer's self-attention.
 
-**Parameters:**
+Parameters:
 
 - `layer_idx` - Layer index (0-based)
 
 **Returns:** Reference to the layer's self-attention cache
 
-**Example:**
+Example:
 
 ```cpp
 // Access cache for layer 0
@@ -263,13 +263,13 @@ layer0_cache.append(new_keys, new_values);
 
 Get cache for a specific layer's cross-attention.
 
-**Parameters:**
+Parameters:
 
 - `layer_idx` - Layer index (0-based)
 
 **Returns:** Reference to the layer's cross-attention cache
 
-**Example:**
+Example:
 
 ```cpp
 // Cache encoder K/V once for cross-attention
@@ -285,7 +285,7 @@ Check if any cache is populated.
 
 **Returns:** `true` if all caches are empty, `false` otherwise
 
-**Example:**
+Example:
 
 ```cpp
 if (cache.is_empty()) {
@@ -301,7 +301,7 @@ Get current sequence length from first layer cache.
 
 **Returns:** Number of cached positions (assumes all layers have same length)
 
-**Example:**
+Example:
 
 ```cpp
 std::cout << "Generated " << cache.current_length() << " tokens so far" << std::endl;
@@ -413,23 +413,23 @@ for (int i = 0; i < batch_size; ++i) {
 
 ### Time Complexity
 
-| Operation | Without Cache | With Cache | Speedup |
-| ----------- | -------------- | ------------ | --------- |
-| Token 1 | O(d²) | O(d²) | 1x |
-| Token 2 | O(2 × d²) | O(d²) | 2x |
-| Token 10 | O(10 × d²) | O(d²) | 10x |
-| Token 50 | O(50 × d²) | O(d²) | 50x |
+|Operation|Without Cache|With Cache|Speedup|
+|-----------|--------------|------------|---------|
+|Token 1|O(d²)|O(d²)|1x|
+|Token 2|O(2 × d²)|O(d²)|2x|
+|Token 10|O(10 × d²)|O(d²)|10x|
+|Token 50|O(50 × d²)|O(d²)|50x|
 
 **Average speedup for typical generation (50 tokens):** ~2.5-3x
 
 ### Space Complexity
 
-**Per sequence:**
+Per sequence:
 
 - Memory: O(num_layers × seq_len × d_model)
 - Typical: 6 layers × 100 tokens × 512 dims = ~1.2 MB per sequence
 
-**Memory vs Speed Tradeoff:**
+Memory vs Speed Tradeoff:
 
 - ✅ Acceptable: Cache adds ~1-2 MB per active conversation
 - ✅ Worth it: 2-3x speedup is significant for user experience
@@ -614,13 +614,13 @@ std::cout << "Cache using ~" << (memory / 1024 / 1024) << " MB" << std::endl;
 
 ### Problem: Cache not speeding up generation
 
-**Possible causes:**
+Possible causes:
 
 1. Recreating cache each step
 2. Not passing cache to `forward_with_cache()`
 3. Setting `use_cache=false`
 
-**Solution:**
+Solution:
 
 ```cpp
 // ✅ Correct
@@ -632,13 +632,13 @@ for (int i = 0; i < 50; ++i) {
 
 ### Problem: Out of memory
 
-**Possible causes:**
+Possible causes:
 
 1. Too many active caches
 2. Very long sequences
 3. Large model dimensions
 
-**Solutions:**
+Solutions:
 
 ```cpp
 // Solution 1: Limit cache size

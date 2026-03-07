@@ -10,12 +10,12 @@ The project uses GitHub Actions for automated testing, quality checks, and relea
 
 ### 1. CI Workflow (`ci.yml`)
 
-**Triggers:**
+Triggers:
 
 - Push to `main` or `develop` branches
 - Pull requests to `main` or `develop` branches
 
-**Jobs:**
+Jobs:
 
 #### Build and Test
 
@@ -47,7 +47,7 @@ The project uses GitHub Actions for automated testing, quality checks, and relea
   - UndefinedBehaviorSanitizer (UBSAN) - Undefined behavior detection
 - **Purpose:** Catch memory leaks, buffer overflows, and undefined behavior
 
-**Status Badge:**
+Status Badge:
 
 ```markdown
 [![CI](https://github.com/rjv717/adai/actions/workflows/ci.yml/badge.svg)](https://github.com/rjv717/adai/actions/workflows/ci.yml)
@@ -57,12 +57,12 @@ The project uses GitHub Actions for automated testing, quality checks, and relea
 
 ### 2. Code Coverage Workflow (`coverage.yml`)
 
-**Triggers:**
+Triggers:
 
 - Push to `main` or `develop` branches
 - Pull requests to `main` branch
 
-**Process:**
+Process:
 
 1. Build with coverage instrumentation (`--coverage` flag)
 2. Run all tests
@@ -72,13 +72,13 @@ The project uses GitHub Actions for automated testing, quality checks, and relea
 6. Generate HTML coverage report
 7. Display coverage summary in GitHub Action summary
 
-**Outputs:**
+Outputs:
 
 - Coverage report uploaded to Codecov
 - HTML coverage report as artifact (30-day retention)
 - Coverage summary in action logs
 
-**Status Badge:**
+Status Badge:
 
 ```markdown
 [![codecov](https://codecov.io/gh/rjv717/adai/branch/main/graph/badge.svg)](https://codecov.io/gh/rjv717/adai)
@@ -88,12 +88,12 @@ The project uses GitHub Actions for automated testing, quality checks, and relea
 
 ### 3. Release Workflow (`release.yml`)
 
-**Triggers:**
+Triggers:
 
 - Push of version tags (e.g., `v1.0.0`, `v1.2.3`)
 - Manual workflow dispatch
 
-**Process:**
+Process:
 
 1. Build Release configuration on multiple platforms
 2. Run full test suite
@@ -101,13 +101,13 @@ The project uses GitHub Actions for automated testing, quality checks, and relea
 4. Create release artifacts (`.tar.gz` archives)
 5. Create GitHub Release with artifacts
 
-**Platforms:**
+Platforms:
 
 - Ubuntu 22.04
 - Ubuntu 20.04
 - macOS (latest)
 
-**Artifacts Include:**
+Artifacts Include:
 
 - Compiled executables (`chatbot`, `chatbot_trainer`)
 - Documentation
@@ -211,13 +211,13 @@ open coverage_html/index.html      # macOS
 
 ### CI Build Fails but Local Succeeds
 
-**Common causes:**
+Common causes:
 
 1. **Missing dependencies** - Check workflow installs all required packages
 2. **Environment differences** - CI uses clean Ubuntu/macOS environment
 3. **Cached build artifacts** - CI always builds from scratch
 
-**Solutions:**
+Solutions:
 
 - Test in clean environment: `rm -rf build && mkdir build && cd build && cmake .. && make`
 - Check CI logs for specific error messages
@@ -227,7 +227,7 @@ open coverage_html/index.html      # macOS
 
 **Error message:** "Code formatting issues found"
 
-**Solution:**
+Solution:
 
 ```bash
 ./scripts/format_code.sh
@@ -240,7 +240,7 @@ git push --force-with-lease
 
 **Error:** AddressSanitizer detects memory leak/error
 
-**Steps:**
+Steps:
 
 1. Run locally with sanitizer enabled (see above)
 2. Review sanitizer output for specific issue
@@ -252,7 +252,7 @@ git push --force-with-lease
 
 **Error:** Codecov upload failed
 
-**Causes:**
+Causes:
 
 - Missing or invalid `CODECOV_TOKEN` secret
 - Codecov service outage

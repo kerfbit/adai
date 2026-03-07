@@ -23,7 +23,7 @@ This document identifies all classes in the ADAI codebase that perform gradient-
 **File:** `src/MultiHeadAttention.cpp`
 **Header:** `src/MultiHeadAttention.hpp`
 
-**Current Implementation:**
+Current Implementation:
 
 ```cpp
 void MultiHeadAttention::update_weights() {
@@ -40,7 +40,7 @@ void MultiHeadAttention::update_weights() {
 
 **Location:** Lines 235-243
 
-**Weight Matrices Updated:**
+Weight Matrices Updated:
 
 - `W_q` - Query projection [d_model × d_model]
 - `W_k` - Key projection [d_model × d_model]
@@ -49,13 +49,13 @@ void MultiHeadAttention::update_weights() {
 
 **Update Method:** Uses `Matrix::apply_gradients()` with simple gradient descent
 
-**Gradient Storage:**
+Gradient Storage:
 
 - `W_q_grad`, `W_k_grad`, `W_v_grad`, `W_o_grad`
 
 **Learning Rate:** Class member `float learning_rate`
 
-**Refactoring Needed:**
+Refactoring Needed:
 
 - Add Optimizer member or accept Optimizer reference
 - Register weight matrices with Optimizer
@@ -69,7 +69,7 @@ void MultiHeadAttention::update_weights() {
 **File:** `src/FeedForward.cpp`
 **Header:** `src/FeedForward.hpp`
 
-**Current Implementation:**
+Current Implementation:
 
 ```cpp
 void FeedForward::update_weights() {
@@ -92,19 +92,19 @@ void FeedForward::update_weights() {
 
 **Location:** Lines 143-159
 
-**Weight Matrices Updated:**
+Weight Matrices Updated:
 
 - `W1` - First layer weights [d_model × d_ff]
 - `W2` - Second layer weights [d_ff × d_model]
 - `b1` - First layer bias [1 × d_ff]
 - `b2` - Second layer bias [1 × d_model]
 
-**Update Methods:**
+Update Methods:
 
 - Weights: `Matrix::apply_gradients()`
 - Biases: Manual gradient descent loop
 
-**Gradient Storage:**
+Gradient Storage:
 
 - `W1_grad`, `W2_grad`, `b1_grad`, `b2_grad`
 
@@ -112,7 +112,7 @@ void FeedForward::update_weights() {
 
 **Note:** Biases use manual update loop instead of `apply_gradients()`
 
-**Refactoring Needed:**
+Refactoring Needed:
 
 - Add Optimizer member or accept Optimizer reference
 - Register all 4 parameter matrices with Optimizer
@@ -126,7 +126,7 @@ void FeedForward::update_weights() {
 **File:** `src/CrossAttention.cpp`
 **Header:** `src/CrossAttention.hpp`
 
-**Current Implementation:**
+Current Implementation:
 
 ```cpp
 void CrossAttention::update_weights() {
@@ -144,7 +144,7 @@ void CrossAttention::update_weights() {
 
 **Location:** Lines 191-200
 
-**Weight Matrices Updated:**
+Weight Matrices Updated:
 
 - `W_q` - Query projection [d_model × d_model]
 - `W_k` - Key projection [d_model × d_model]
@@ -153,7 +153,7 @@ void CrossAttention::update_weights() {
 
 **Update Method:** Manual nested loop gradient descent
 
-**Gradient Storage:**
+Gradient Storage:
 
 - `W_q_grad`, `W_k_grad`, `W_v_grad`, `W_o_grad`
 
@@ -161,7 +161,7 @@ void CrossAttention::update_weights() {
 
 **Note:** Uses most primitive update method (nested loops), unlike MultiHeadAttention which uses `apply_gradients()`
 
-**Refactoring Needed:**
+Refactoring Needed:
 
 - Add Optimizer member or accept Optimizer reference
 - Register weight matrices with Optimizer
@@ -176,7 +176,7 @@ void CrossAttention::update_weights() {
 **File:** `src/LanguageModelHead.cpp`
 **Header:** `src/LanguageModelHead.hpp`
 
-**Current Implementation:**
+Current Implementation:
 
 ```cpp
 void LanguageModelHead::update_weights() {
@@ -188,20 +188,20 @@ void LanguageModelHead::update_weights() {
 
 **Location:** Lines 93-97
 
-**Weight Matrices Updated:**
+Weight Matrices Updated:
 
 - `W_output` - Output projection [d_model × vocab_size]
 - `bias` - Output bias [1 × vocab_size]
 
 **Update Method:** Uses `Matrix::apply_gradients()`
 
-**Gradient Storage:**
+Gradient Storage:
 
 - `W_output_grad`, `bias_grad`
 
 **Learning Rate:** Class member `float learning_rate`
 
-**Refactoring Needed:**
+Refactoring Needed:
 
 - Add Optimizer member or accept Optimizer reference
 - Register weight matrices with Optimizer
@@ -215,7 +215,7 @@ void LanguageModelHead::update_weights() {
 **File:** `src/TokenEmbedding.cpp`
 **Header:** `src/TokenEmbedding.hpp`
 
-**Current Implementation:**
+Current Implementation:
 
 ```cpp
 void TokenEmbedding::update_weights() {
@@ -233,13 +233,13 @@ void TokenEmbedding::update_weights() {
 
 **Location:** Lines 81-92
 
-**Weight Matrices Updated:**
+Weight Matrices Updated:
 
 - `embedding_matrix` - Token embeddings [vocab_size × d_model]
 
 **Update Method:** Manual nested loop gradient descent
 
-**Gradient Storage:**
+Gradient Storage:
 
 - `embedding_grad` - [vocab_size × d_model]
 
@@ -247,7 +247,7 @@ void TokenEmbedding::update_weights() {
 
 **Note:** Large matrix (vocab_size can be thousands), manual loops inefficient
 
-**Refactoring Needed:**
+Refactoring Needed:
 
 - Add Optimizer member or accept Optimizer reference
 - Register embedding matrix with Optimizer
@@ -262,7 +262,7 @@ void TokenEmbedding::update_weights() {
 **File:** `src/LayerNorm.cpp`
 **Header:** `src/LayerNorm.hpp`
 
-**Current Implementation:**
+Current Implementation:
 
 ```cpp
 Matrix LayerNorm::backward(const Matrix& grad_output) {
@@ -278,14 +278,14 @@ Matrix LayerNorm::backward(const Matrix& grad_output) {
 
 **Location:** Lines 129-131
 
-**Weight Matrices Updated:**
+Weight Matrices Updated:
 
 - `gamma` - Scale parameter [1 × dim]
 - `beta` - Shift parameter [1 × dim]
 
 **Update Method:** Uses `Matrix::apply_gradients()` **inside backward pass**
 
-**Gradient Storage:**
+Gradient Storage:
 
 - `gamma_grad`, `beta_grad`
 
@@ -293,7 +293,7 @@ Matrix LayerNorm::backward(const Matrix& grad_output) {
 
 **Note:** **UNUSUAL** - Updates weights inside `backward()` instead of separate `update_weights()` method
 
-**Refactoring Needed:**
+Refactoring Needed:
 
 - Add Optimizer member or accept Optimizer reference
 - Register gamma and beta with Optimizer
@@ -309,7 +309,7 @@ Matrix LayerNorm::backward(const Matrix& grad_output) {
 **File:** `src/Neuron.cpp`
 **Header:** `src/Neuron.hpp`
 
-**Current Implementation:**
+Current Implementation:
 
 ```cpp
 std::vector<float> Neuron::backward(float gradient) {
@@ -336,7 +336,7 @@ std::vector<float> Neuron::backward(float gradient) {
 
 **Location:** Lines 44-60
 
-**Parameters Updated:**
+Parameters Updated:
 
 - `weights` - std::vector<float>
 - `bias` - float
@@ -345,13 +345,13 @@ std::vector<float> Neuron::backward(float gradient) {
 
 **Learning Rate:** Class member `float learning_rate`
 
-**Note:**
+Note:
 
 - Updates weights **inside backward pass** (not best practice)
 - Uses std::vector instead of Matrix class
 - Simple single-neuron implementation
 
-**Refactoring Consideration:**
+Refactoring Consideration:
 
 - **Low Priority** - This is a simple educational/utility class
 - Not part of main transformer architecture
@@ -365,7 +365,7 @@ std::vector<float> Neuron::backward(float gradient) {
 **File:** `src/NeuralNetwork.cpp`
 **Related:** `src/NeuronLayer.cpp` (likely exists based on example)
 
-**Current Implementation:**
+Current Implementation:
 
 ```cpp
 float NeuralNetwork::train_sample(const std::vector<float>& input,
@@ -391,18 +391,18 @@ float NeuralNetwork::train_sample(const std::vector<float>& input,
 
 **Location:** Lines 245-254
 
-**Parameters Updated:**
+Parameters Updated:
 
 - Updates happen inside `layers[i].backward()`
 - Each layer contains `Neuron` objects that update in their `backward()`
 
-**Note:**
+Note:
 
 - Delegates to `Neuron::backward()` which updates weights
 - Simple feedforward network implementation
 - Not part of transformer architecture
 
-**Refactoring Consideration:**
+Refactoring Consideration:
 
 - **Low Priority** - Educational/utility class
 - Not used in main transformer models
@@ -466,7 +466,7 @@ float NeuralNetwork::train_sample(const std::vector<float>& input,
 
 For each class (except Neuron/NeuralNetwork):
 
-**Option A: Optimizer as Member**
+Option A: Optimizer as Member
 
 ```cpp
 class MultiHeadAttention {
@@ -496,7 +496,7 @@ public:
 };
 ```
 
-**Option B: Pass Optimizer to update_weights()**
+Option B: Pass Optimizer to update_weights()
 
 ```cpp
 class MultiHeadAttention {
@@ -516,7 +516,7 @@ public:
 
 ### Step 2: Fix LayerNorm Architecture
 
-**Current (Bad):**
+Current (Bad):
 
 ```cpp
 Matrix LayerNorm::backward(const Matrix& grad_output) {
@@ -530,7 +530,7 @@ Matrix LayerNorm::backward(const Matrix& grad_output) {
 }
 ```
 
-**Refactored (Good):**
+Refactored (Good):
 
 ```cpp
 Matrix LayerNorm::backward(const Matrix& grad_output) {
@@ -647,36 +647,36 @@ This allows:
 
 **Total Components Analyzed:** 10
 
-**Already Using Optimizer:**
+Already Using Optimizer:
 
 - EncoderDecoderModel ✅
 - ChatbotTrainer ✅
 
-**Need Refactoring (High Priority):**
+Need Refactoring (High Priority):
 
 - LayerNorm ⚠️ (architectural issue)
 - TokenEmbedding 🔥 (performance)
 - CrossAttention 🔥 (primitive implementation)
 
-**Need Refactoring (Medium Priority):**
+Need Refactoring (Medium Priority):
 
 - MultiHeadAttention
 - FeedForward
 - LanguageModelHead
 
-**Low Priority / Legacy:**
+Low Priority / Legacy:
 
 - Neuron
 - NeuralNetwork
 
-**Estimated Refactoring Effort:**
+Estimated Refactoring Effort:
 
 - High Priority: ~1-2 days
 - Medium Priority: ~1 day
 - Testing and validation: ~1 day
 - **Total: 3-4 days**
 
-**Expected Benefits:**
+Expected Benefits:
 
 - Performance improvement: 10-30% (especially for large embeddings)
 - Code maintainability: Significant

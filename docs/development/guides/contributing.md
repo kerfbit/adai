@@ -230,7 +230,7 @@ if (d_model % num_heads != 0) {
 }
 
 // Validate inputs early
-if (matrix.rows == 0 |  | matrix.cols == 0) {
+if (matrix.rows == 0 || matrix.cols == 0) {
     throw std::runtime_error("Matrix dimensions cannot be zero");
 }
 

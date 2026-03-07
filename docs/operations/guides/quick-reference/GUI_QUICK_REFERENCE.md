@@ -54,40 +54,40 @@ Show help:
 
 ## COMMON ISSUES & FIXES
 
-**Issue:** pthread symbol error  
+**Issue:** pthread symbol error
 **Fix:** Use `./scripts/chatbot_gui_fixed.sh` ✅
 
-**Issue:** No display found  
+**Issue:** No display found
 **Fix:** `ssh -X user@host` OR use VNC
 
-**Issue:** Slow responses  
+**Issue:** Slow responses
 **Fix:** Reduce max length, use Greedy strategy
 
-**Issue:** Model not loading  
+**Issue:** Model not loading
 **Fix:** Run from `/home/rodney/Repos/adai` directory
 
 ---
 
 ## WARNINGS YOU CAN IGNORE
 
-⚠️  **"QSocketNotifier: Can only be used with threads..."**  
+⚠️  **"QSocketNotifier: Can only be used with threads..."**
 → Harmless Qt warning, GUI works fine
 
-⚠️  **"Failed to load module canberra-gtk-module"**  
+⚠️  **"Failed to load module canberra-gtk-module"**
 → Optional sound module, GUI works without it
 
 ---
 
 ## FILES & LOCATIONS
 
-**Executable:** `build/src/chatbot_gui`  
-**Launcher:** `scripts/chatbot_gui_fixed.sh` ⭐  
+**Executable:** `build/src/chatbot_gui`
+**Launcher:** `scripts/chatbot_gui_fixed.sh` ⭐
 **Alt launcher:** `scripts/run_chatbot_gui.sh`
 
-**Required:** `vocab.txt` (in current directory)  
+**Required:** `vocab.txt` (in current directory)
 **Optional:** `chatbot_model.bin*` (trained model)
 
-**Documentation:**
+Documentation:
 
 - [chatbot-gui-guide.md](../chatbot-gui-guide.md) - Full guide
 
@@ -122,15 +122,15 @@ Usage: ./build/src/chatbot_gui [vocab_file] [model_file]
 
 ## RECOMMENDED SETTINGS
 
-**Creative Writing:**
+Creative Writing:
 
 - Strategy: Nucleus, Temp: 1.2, Top-p: 0.9
 
-**Technical Q&A:**
+Technical Q&A:
 
 - Strategy: Greedy, Temp: 0.7, Top-p: 0.95
 
-**General Chat:**
+General Chat:
 
 - Strategy: Nucleus, Temp: 1.0, Top-p: 0.9
 

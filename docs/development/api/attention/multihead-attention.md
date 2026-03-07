@@ -4,7 +4,7 @@
 
 The `MultiHeadAttention` class implements the multi-head self-attention mechanism introduced in "Attention is All You Need" (Vaswani et al., 2017). This is the core component of transformer architectures, enabling models to attend to different representation subspaces and capture diverse relationships in the input sequence.
 
-**Files:**
+Files:
 
 - `src/MultiHeadAttention.hpp` - Header file with class declaration and interface
 - `src/MultiHeadAttention.cpp` - Implementation file with all method definitions
@@ -65,7 +65,7 @@ Where each head is computed as:
 head_i = Attention(Q W_q^i, K W_k^i, V W_v^i)
 ```
 
-**Parameters:**
+Parameters:
 
 - **W_q**: Query projection matrix `[d_model, d_model]`
 - **W_k**: Key projection matrix `[d_model, d_model]`
@@ -83,13 +83,13 @@ Multiple heads allow the model to jointly attend to information from different r
 
 ### Complexity Analysis
 
-**Time Complexity:**
+Time Complexity:
 
 - Attention computation: O(seq_len² × d_model)
 - Linear projections: O(seq_len × d_model²)
 - Total: **O(seq_len² × d_model + seq_len × d_model²)**
 
-**Space Complexity:**
+Space Complexity:
 
 - Weight matrices: O(4 × d_model²)
 - Attention weights: O(seq_len²)
@@ -141,7 +141,7 @@ float learning_rate;  // Learning rate for weight updates (default: 0.001)
 
 ### Initialization
 
-**Xavier/He Initialization:**
+Xavier/He Initialization:
 
 ```cpp
 scale = √(2 / d_model)
@@ -159,16 +159,16 @@ All weight matrices (W_q, W_k, W_v, W_o) are initialized with random values scal
 MultiHeadAttention(int d_model, int num_heads)
 ```
 
-**Parameters:**
+Parameters:
 
 - `d_model`: Model dimension (must be divisible by num_heads)
 - `num_heads`: Number of attention heads
 
-**Validation:**
+Validation:
 
 - Throws `std::invalid_argument` if d_model % num_heads ≠ 0
 
-**Initialization Steps:**
+Initialization Steps:
 
 1. Validates dimension compatibility
 2. Computes d_k = d_model / num_heads
@@ -177,7 +177,7 @@ MultiHeadAttention(int d_model, int num_heads)
 5. Sets default learning rate to 0.001
 6. Initializes optimizer pointer to nullptr (no optimizer by default)
 
-**Example:**
+Example:
 
 ```cpp
 // For 512-dimensional embeddings with 8 heads
@@ -185,7 +185,7 @@ MultiHeadAttention mha(512, 8);  // d_k = 64 per head
 mha.learning_rate = 0.0001f;     // Adjust learning rate
 ```
 
-**Common Configurations:**
+Common Configurations:
 
 - **Small models**: d_model=256, num_heads=4
 - **Base models**: d_model=512, num_heads=8
@@ -202,7 +202,7 @@ mha.learning_rate = 0.0001f;     // Adjust learning rate
 Matrix forward(const Matrix& input, const Matrix* mask = nullptr)
 ```
 
-**Parameters:**
+Parameters:
 
 - `input`: Input matrix `[seq_len, d_model]`
 - `mask`: Optional attention mask `[seq_len, seq_len]` (default: nullptr)
@@ -299,7 +299,7 @@ Matrix forward_with_cache(const Matrix& input,
 
 **Purpose**: Optimized forward pass using KV cache for autoregressive generation
 
-**Parameters:**
+Parameters:
 
 - `input`: New token embeddings [num_new_tokens, d_model] (typically 1 during generation)
 - `mask`: Optional attention mask [num_new_tokens, total_seq_len]
@@ -371,7 +371,7 @@ In autoregressive generation (e.g., text generation), we generate one token at a
 #### 1. Fallback Check
 
 ```cpp
-if (!use_cache |  | kv_cache == nullptr) {
+if (!use_cache || kv_cache == nullptr) {
     return forward(input, mask);  // Use regular forward
 }
 ```
@@ -543,16 +543,16 @@ float speedup = time_no_cache / time_with_cache;
 
 ### Key Differences from Regular Forward
 
-| Aspect | `forward()` | `forward_with_cache()` |
-| -------- | ------------- | ------------------------ |
-| Input Size | Full sequence | Only new tokens |
-| K/V Computation | All tokens | Only new tokens |
-| K/V Source | Computed | Cached + new |
-| Mask Shape | [seq_len, seq_len] | [num_new, total_len] |
-| Complexity | O(seq_len²) | O(seq_len) per token |
-| Use Case | Training, first pass | Inference, generation |
-| Memory | Lower | Higher (cache) |
-| Speed | Baseline | 2-3x faster |
+|Aspect|`forward()`|`forward_with_cache()`|
+|--------|-------------|------------------------|
+|Input Size|Full sequence|Only new tokens|
+|K/V Computation|All tokens|Only new tokens|
+|K/V Source|Computed|Cached + new|
+|Mask Shape|[seq_len, seq_len]|[num_new, total_len]|
+|Complexity|O(seq_len²)|O(seq_len) per token|
+|Use Case|Training, first pass|Inference, generation|
+|Memory|Lower|Higher (cache)|
+|Speed|Baseline|2-3x faster|
 
 ### Important Notes
 
@@ -611,7 +611,7 @@ float speedup = time_no_cache / time_with_cache;
 Matrix backward(const Matrix& grad_output)
 ```
 
-**Parameters:**
+Parameters:
 
 - `grad_output`: Gradient from upstream `[seq_len, d_model]`
 
@@ -870,7 +870,7 @@ Matrix causal_mask = create_causal_mask(seq_len);
 Matrix output = mha.forward(input, &causal_mask);
 ```
 
-**Causal Mask Pattern:**
+Causal Mask Pattern:
 
 ```text
 1 0 0 0 0
@@ -901,13 +901,13 @@ Matrix combine_masks(const Matrix& padding_mask, const Matrix& causal_mask) {
 
 ### Mask Implementation Details
 
-**How masking works:**
+How masking works:
 
 1. Mask values of 0 → set score to -1e9 (very negative)
 2. Softmax(-1e9) ≈ 0, so no attention to masked positions
 3. Mask values of 1 → score unchanged, normal attention
 
-**Why -1e9?**
+Why -1e9?
 
 - Large enough to make softmax output ≈ 0
 - Not too large to avoid numerical overflow
@@ -921,20 +921,20 @@ Matrix combine_masks(const Matrix& padding_mask, const Matrix& causal_mask) {
 
 For d_model = D, seq_len = S:
 
-**Static Memory:**
+Static Memory:
 
 - Weight matrices: 4 × D² × 4 bytes = 16D² bytes
 - Gradient matrices: 4 × D² × 4 bytes = 16D² bytes
 - Total static: **32D² bytes**
 
-**Dynamic Memory (per forward pass):**
+Dynamic Memory (per forward pass):
 
 - Attention scores: S² × 4 bytes
 - Attention weights: S² × 4 bytes
 - Cached Q, K, V, output: 4 × S × D × 4 bytes
 - Total dynamic: **2S² + 16SD bytes**
 
-**Example Sizes:**
+Example Sizes:
 
 - d_model=512, seq_len=512: ~8.6 MB per layer
 - d_model=1024, seq_len=1024: ~37 MB per layer
@@ -1088,7 +1088,7 @@ Matrix encoded = mha.forward(with_position);
 mha.print_config();
 ```
 
-**Output:**
+Output:
 
 ```text
 MultiHeadAttention Configuration:
@@ -1141,7 +1141,7 @@ void clip_gradients(float max_norm);
 
 **Purpose:** Prevent exploding gradients during training
 
-**Usage:**
+Usage:
 
 ```cpp
 // Clip gradients if norm exceeds threshold
@@ -1150,10 +1150,10 @@ mha.clip_gradients(5.0f);  // Clip to max norm of 5.0
 mha.update_weights();
 ```
 
-**Algorithm:**
+Algorithm:
 
 ```text
-norm = |  | gradients |  |₂
+norm = ||gradients||₂
 if norm > max_norm:
     gradients = gradients × (max_norm / norm)
 ```
@@ -1194,7 +1194,7 @@ Matrix output = input + attn_output;  // Residual connection
 
 Normalize before or after attention:
 
-**Pre-LN (more stable):**
+Pre-LN (more stable):
 
 ```cpp
 Matrix normed = layer_norm.forward(input);
@@ -1202,7 +1202,7 @@ Matrix attn_output = mha.forward(normed);
 Matrix output = input + attn_output;
 ```
 
-**Post-LN (original transformer):**
+Post-LN (original transformer):
 
 ```cpp
 Matrix attn_output = mha.forward(input);
@@ -1231,7 +1231,7 @@ for (int i = 0; i < 512; ++i) {
     }
 }
 float avg = sum / (512 * 512);
-std::cout << "Average | W_q | value: " << avg << std::endl;
+std::cout << "Average |W_q| value: " << avg << std::endl;
 // Should be close to sqrt(2/512) ≈ 0.0625
 ```
 
@@ -1282,13 +1282,13 @@ if (validate_input(input, mha.get_d_model())) {
 
 ### Why Attention?
 
-**Problem with RNNs:**
+Problem with RNNs:
 
 - Sequential processing (slow)
 - Vanishing gradients over long distances
 - Difficulty capturing long-range dependencies
 
-**Attention Solution:**
+Attention Solution:
 
 - Parallel processing (fast)
 - Direct connections between all positions
@@ -1331,23 +1331,23 @@ Attention is **permutation-invariant** - it doesn't inherently know position. So
 
 ### vs. Recurrent Neural Networks (RNNs)
 
-| Feature | MultiHeadAttention | RNN |
-| --------- | ------------------- | ----- |
-| Parallelization | Full | Sequential |
-| Path length | O(1) | O(n) |
-| Training speed | Fast | Slow |
-| Long-range deps | Excellent | Poor |
-| Memory | O(n²) | O(n) |
+|Feature|MultiHeadAttention|RNN|
+|---------|-------------------|-----|
+|Parallelization|Full|Sequential|
+|Path length|O(1)|O(n)|
+|Training speed|Fast|Slow|
+|Long-range deps|Excellent|Poor|
+|Memory|O(n²)|O(n)|
 
 ### vs. Convolutional Neural Networks (CNNs)
 
-| Feature | MultiHeadAttention | CNN |
-| --------- | ------------------- | ----- |
-| Receptive field | Global | Local |
-| Parameter sharing | No | Yes |
-| Translation invariance | No | Yes |
-| Sequence modeling | Native | With modifications |
-| Computational cost | O(n²d) | O(nkd) |
+|Feature|MultiHeadAttention|CNN|
+|---------|-------------------|-----|
+|Receptive field|Global|Local|
+|Parameter sharing|No|Yes|
+|Translation invariance|No|Yes|
+|Sequence modeling|Native|With modifications|
+|Computational cost|O(n²d)|O(nkd)|
 
 ---
 
@@ -1355,22 +1355,22 @@ Attention is **permutation-invariant** - it doesn't inherently know position. So
 
 ### Typical Forward Pass Times (CPU)
 
-| Configuration | Seq Len | Time (ms) |
-| -------------- | --------- | ----------- |
-| d=256, h=4 | 128 | ~5 |
-| d=512, h=8 | 128 | ~15 |
-| d=512, h=8 | 512 | ~180 |
-| d=1024, h=16 | 128 | ~50 |
+|Configuration|Seq Len|Time (ms)|
+|--------------|---------|-----------|
+|d=256, h=4|128|~5|
+|d=512, h=8|128|~15|
+|d=512, h=8|512|~180|
+|d=1024, h=16|128|~50|
 
 **Note:** Times are approximate and hardware-dependent
 
 ### Memory Footprint
 
-| d_model | num_heads | Static Memory | Dynamic (seq=512) |
-| --------- | ----------- | --------------- | ------------------- |
-| 256 | 4 | 2 MB | 1.5 MB |
-| 512 | 8 | 8 MB | 5 MB |
-| 1024 | 16 | 32 MB | 18 MB |
+|d_model|num_heads|Static Memory|Dynamic (seq=512)|
+|---------|-----------|---------------|-------------------|
+|256|4|2 MB|1.5 MB|
+|512|8|8 MB|5 MB|
+|1024|16|32 MB|18 MB|
 
 ---
 
@@ -1380,7 +1380,7 @@ Attention is **permutation-invariant** - it doesn't inherently know position. So
 
 The MultiHeadAttention class now supports the centralized Optimizer class:
 
-**Changes:**
+Changes:
 
 - Added `Optimizer* optimizer` member (optional, defaults to nullptr)
 - Added `set_optimizer(Optimizer* opt)` method to attach optimizer
@@ -1388,7 +1388,7 @@ The MultiHeadAttention class now supports the centralized Optimizer class:
 - Modified `update_weights()` to use `optimizer->step()` when available
 - Maintains backward compatibility - falls back to simple gradient descent if no optimizer set
 
-**Migration Guide:**
+Migration Guide:
 
 Old code (still works):
 
@@ -1407,7 +1407,7 @@ mha.set_optimizer(&optimizer);
 mha.update_weights();  // Adam/AdamW/etc optimization
 ```
 
-**Advantages:**
+Advantages:
 
 - Use Adam, AdamW, or other advanced optimizers
 - Centralized learning rate scheduling
@@ -1463,7 +1463,7 @@ The `MultiHeadAttention` class provides:
 - **Persistence**: Save/load functionality for model checkpointing
 - **Integration**: Designed to work with LayerNorm, PositionalEncoding, TokenEmbedding, Optimizer, KVCache
 
-**Key Strengths:**
+Key Strengths:
 
 - Industry-standard implementation of transformer attention
 - Well-documented with mathematical foundations
@@ -1472,13 +1472,13 @@ The `MultiHeadAttention` class provides:
 - Monitoring and debugging capabilities
 - Production-ready inference optimization (KV caching)
 
-**Performance:**
+Performance:
 
 - Training: O(seq_len² × d_model) per forward pass
 - Inference (cached): O(seq_len × d_model) per token - ~25x speedup for 50 tokens
 - Memory (cache): ~1-2 MB for typical configurations
 
-**Use Cases:**
+Use Cases:
 
 - Transformer encoders and decoders
 - BERT-style models

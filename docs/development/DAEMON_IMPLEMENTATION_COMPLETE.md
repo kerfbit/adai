@@ -6,25 +6,27 @@ The ADAI Chatbot API Server has been successfully transformed into a production-
 
 ## Implementation Status
 
-| Step | Status | Documentation |
-|------|--------|---------------|
-| **Step 1: Externalize Configuration** | ✅ Complete | [STEP1_COMPLETE.md](STEP1_COMPLETE.md) |
-| **Step 2: Signal Handling** | ✅ Complete | [STEP2_COMPLETE.md](STEP2_COMPLETE.md) |
-| **Step 3: Structured Logging** | ✅ Complete | [STEP3_COMPLETE.md](STEP3_COMPLETE.md) |
-| **Step 4: Docker Configuration** | ✅ Complete | [STEP4_COMPLETE.md](STEP4_COMPLETE.md) |
-| **Step 5: systemd Service File** | ✅ Complete | [STEP5_COMPLETE.md](STEP5_COMPLETE.md) |
+|Step|Status|Documentation|
+|---|---|---|
+|**Step 1: Externalize Configuration**|✅ Complete|[STEP1_COMPLETE.md](STEP1_COMPLETE.md)|
+|**Step 2: Signal Handling**|✅ Complete|[STEP2_COMPLETE.md](STEP2_COMPLETE.md)|
+|**Step 3: Structured Logging**|✅ Complete|[STEP3_COMPLETE.md](STEP3_COMPLETE.md)|
+|**Step 4: Docker Configuration**|✅ Complete|[STEP4_COMPLETE.md](STEP4_COMPLETE.md)|
+|**Step 5: systemd Service File**|✅ Complete|[STEP5_COMPLETE.md](STEP5_COMPLETE.md)|
 
 ## Key Features
 
 ### Configuration Management (Step 1)
 
 ✅ **Multi-source Configuration**
+
 - Configuration file support (`/etc/adai/config.conf`)
 - Environment variable support
 - Command-line argument support
 - Priority system: CLI > Env > File > Defaults
 
 ✅ **Comprehensive Options**
+
 - Server: port, paths, timeouts, logging
 - Model architecture: all transformer parameters
 - Text generation: strategy, temperature, top-p/top-k
@@ -32,12 +34,14 @@ The ADAI Chatbot API Server has been successfully transformed into a production-
 ### Graceful Shutdown (Step 2)
 
 ✅ **Signal Handling**
+
 - SIGTERM and SIGINT handlers
 - Async-signal-safe implementation
 - Atomic flag-based coordination
 - 30-second shutdown timeout
 
 ✅ **Shutdown Sequence**
+
 1. Stop accepting new requests
 2. Complete in-flight requests
 3. Save model state (if configured)
@@ -47,6 +51,7 @@ The ADAI Chatbot API Server has been successfully transformed into a production-
 ### Structured Logging (Step 3)
 
 ✅ **Production Logging**
+
 - spdlog v1.12.0 integration
 - Timestamped messages (millisecond precision)
 - Log levels: DEBUG, INFO, WARN, ERROR
@@ -54,6 +59,7 @@ The ADAI Chatbot API Server has been successfully transformed into a production-
 - Format: `[YYYY-MM-DD HH:MM:SS.mmm] [level] message`
 
 ✅ **Configurable Verbosity**
+
 - Runtime log level configuration
 - Filter by severity
 - Machine-readable format for aggregation
@@ -61,6 +67,7 @@ The ADAI Chatbot API Server has been successfully transformed into a production-
 ### Docker Deployment (Step 4)
 
 ✅ **Container Configuration**
+
 - Multi-stage build (minimal runtime image)
 - Comprehensive environment variable documentation
 - Non-root user (UID 1000)
@@ -68,6 +75,7 @@ The ADAI Chatbot API Server has been successfully transformed into a production-
 - Resource limits
 
 ✅ **Docker Compose**
+
 - Complete deployment configuration
 - Volume mounts for vocab/models/logs
 - All configuration options documented
@@ -76,6 +84,7 @@ The ADAI Chatbot API Server has been successfully transformed into a production-
 ### systemd Integration (Step 5)
 
 ✅ **Service Management**
+
 - Full systemd unit file
 - Automatic restart on failure
 - Resource limits (CPU, memory)
@@ -83,6 +92,7 @@ The ADAI Chatbot API Server has been successfully transformed into a production-
 - systemd journal logging
 
 ✅ **Automated Installation**
+
 - One-command installation script
 - Configurable paths and settings
 - Preflight checks
@@ -92,14 +102,16 @@ The ADAI Chatbot API Server has been successfully transformed into a production-
 
 ### Option 1: Docker (Recommended for Development)
 
-**Quick Start:**
+Quick Start:
+
 ```bash
 docker-compose up -d
 docker-compose logs -f chatbot-api
 curl http://localhost:8080/health
 ```
 
-**Best For:**
+Best For:
+
 - Development environments
 - Cloud deployments
 - Container orchestration (Kubernetes, Swarm)
@@ -109,7 +121,8 @@ curl http://localhost:8080/health
 
 ### Option 2: systemd (Recommended for Production)
 
-**Quick Start:**
+Quick Start:
+
 ```bash
 # Build
 cd build && cmake .. -DCMAKE_BUILD_TYPE=Release && make chatbot_api_server
@@ -122,7 +135,8 @@ systemctl status adai
 journalctl -u adai -f
 ```
 
-**Best For:**
+Best For:
+
 - Bare-metal servers
 - VMs
 - Traditional Linux deployments
@@ -134,7 +148,7 @@ journalctl -u adai -f
 
 ### Component Overview
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                    ADAI Chatbot Service                     │
 ├─────────────────────────────────────────────────────────────┤
@@ -171,7 +185,7 @@ journalctl -u adai -f
 
 ### Configuration Flow
 
-```
+```text
 ┌──────────────────┐
 │  Command Line    │  --port 8080 --log-level INFO
 │  Arguments       │
@@ -203,7 +217,7 @@ journalctl -u adai -f
 
 ### Graceful Shutdown Flow
 
-```
+```text
 SIGTERM/SIGINT
      │
      ▼
@@ -246,41 +260,42 @@ SIGTERM/SIGINT
 
 ### Server Configuration
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `VOCAB_PATH` | string | *required* | Path to BPE vocabulary file |
-| `MODEL_PATH` | string | *optional* | Path to pretrained model weights |
-| `PORT` | int | 8080 | HTTP server port |
-| `SESSION_TIMEOUT` | int | 30 | Session timeout (minutes) |
-| `LOG_LEVEL` | string | INFO | Logging level (DEBUG/INFO/WARN/ERROR) |
+|Parameter|Type|Default|Description|
+|---|---|---|---|
+|`VOCAB_PATH`|string|*required*|Path to BPE vocabulary file|
+|`MODEL_PATH`|string|*optional*|Path to pretrained model weights|
+|`PORT`|int|8080|HTTP server port|
+|`SESSION_TIMEOUT`|int|30|Session timeout (minutes)|
+|`LOG_LEVEL`|string|INFO|Logging level (DEBUG/INFO/WARN/ERROR)|
 
 ### Model Architecture
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `D_MODEL` | int | 512 | Model embedding dimension |
-| `NUM_HEADS` | int | 8 | Number of attention heads |
-| `D_FF` | int | 2048 | Feed-forward dimension |
-| `NUM_ENCODER_LAYERS` | int | 6 | Number of encoder layers |
-| `NUM_DECODER_LAYERS` | int | 6 | Number of decoder layers |
-| `MAX_SEQ_LENGTH` | int | 1024 | Maximum sequence length |
+|Parameter|Type|Default|Description|
+|---|---|---|---|
+|`D_MODEL`|int|512|Model embedding dimension|
+|`NUM_HEADS`|int|8|Number of attention heads|
+|`D_FF`|int|2048|Feed-forward dimension|
+|`NUM_ENCODER_LAYERS`|int|6|Number of encoder layers|
+|`NUM_DECODER_LAYERS`|int|6|Number of decoder layers|
+|`MAX_SEQ_LENGTH`|int|1024|Maximum sequence length|
 
 ### Text Generation
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `MAX_LENGTH` | int | 100 | Maximum tokens to generate |
-| `TEMPERATURE` | float | 1.0 | Sampling temperature (0.1-2.0) |
-| `TOP_P` | float | 0.9 | Nucleus sampling threshold (0.0-1.0) |
-| `TOP_K` | int | 50 | Top-k sampling candidates |
-| `BEAM_WIDTH` | int | 4 | Beam search width |
-| `STRATEGY` | string | nucleus | Generation strategy (greedy/beam/temperature/top_k/nucleus) |
+|Parameter|Type|Default|Description|
+|---|---|---|---|
+|`MAX_LENGTH`|int|100|Maximum tokens to generate|
+|`TEMPERATURE`|float|1.0|Sampling temperature (0.1-2.0)|
+|`TOP_P`|float|0.9|Nucleus sampling threshold (0.0-1.0)|
+|`TOP_K`|int|50|Top-k sampling candidates|
+|`BEAM_WIDTH`|int|4|Beam search width|
+|`STRATEGY`|string|nucleus|Generation strategy (greedy/beam/temperature/top_k/nucleus)|
 
 ## Testing and Verification
 
 ### Verification Checklist
 
 #### Configuration (Step 1)
+
 - [x] Config file parsing works
 - [x] Environment variables override file
 - [x] CLI arguments override environment
@@ -288,13 +303,15 @@ SIGTERM/SIGINT
 - [x] Invalid config handled gracefully
 
 #### Signal Handling (Step 2)
+
 - [x] SIGTERM triggers graceful shutdown
 - [x] SIGINT triggers graceful shutdown
 - [x] Shutdown sequence completes
 - [x] Resources cleaned up
 - [x] Exit code is 0
 
-#### Structured Logging (Step 3)
+#### Structured Logging Verification
+
 - [x] Logs include timestamps
 - [x] Log levels work (DEBUG/INFO/WARN/ERROR)
 - [x] Logs go to stdout/stderr
@@ -302,6 +319,7 @@ SIGTERM/SIGINT
 - [x] Log level configurable
 
 #### Docker (Step 4)
+
 - [x] Image builds successfully
 - [x] Container starts
 - [x] Health check passes
@@ -310,6 +328,7 @@ SIGTERM/SIGINT
 - [x] Graceful shutdown in container
 
 #### systemd (Step 5)
+
 - [x] Service file syntax valid
 - [x] Installation script works
 - [x] Service starts
@@ -319,7 +338,8 @@ SIGTERM/SIGINT
 
 ### Test Commands
 
-**Docker:**
+Docker:
+
 ```bash
 docker-compose build
 docker-compose up -d
@@ -328,7 +348,8 @@ curl http://localhost:8080/health
 docker-compose stop  # Test graceful shutdown
 ```
 
-**systemd:**
+systemd:
+
 ```bash
 sudo ./scripts/install_systemd_service.sh
 systemctl status adai
@@ -343,18 +364,21 @@ journalctl -u adai | grep "Graceful Shutdown"
 ### Security Features
 
 #### Application Level
+
 - ✅ Non-root execution (user `adai`)
 - ✅ Input validation
 - ✅ Error handling
 - ✅ Resource limits
 
 #### Docker Level
+
 - ✅ Non-root user (UID 1000)
 - ✅ Read-only root filesystem option
 - ✅ No privileged mode
 - ✅ Limited capabilities
 
 #### systemd Level
+
 - ✅ Filesystem protection (ProtectSystem=strict)
 - ✅ No new privileges (NoNewPrivileges=true)
 - ✅ System call filtering (SystemCallFilter)
@@ -375,43 +399,50 @@ journalctl -u adai | grep "Graceful Shutdown"
 
 ### Metrics to Monitor
 
-**Health:**
+Health:
+
 - Service status (up/down)
 - Health endpoint response
 - Restart count
 
-**Performance:**
+Performance:
+
 - Response time
 - Request rate
 - CPU usage
 - Memory usage
 
-**Business:**
+Business:
+
 - Active sessions
 - Messages processed
 - Error rate
 
 ### Monitoring Integration
 
-**Docker:**
+Docker:
+
 ```bash
 docker stats adai-chatbot-api
 docker-compose logs -f chatbot-api | grep "\[error\]"
 ```
 
-**systemd:**
+systemd:
+
 ```bash
 systemctl status adai
 journalctl -u adai -f
 journalctl -u adai -p err
 ```
 
-**Prometheus:**
+Prometheus:
+
 - Expose /metrics endpoint
 - Scrape with Prometheus
 - Alert on errors
 
-**Grafana:**
+Grafana:
+
 - Visualize metrics
 - Create dashboards
 - Set up alerts
@@ -420,23 +451,27 @@ journalctl -u adai -p err
 
 ### Common Issues
 
-**Service won't start:**
+Service won't start:
+
 - Check vocabulary file exists
 - Verify port not in use
 - Check permissions
 - Review logs
 
-**High memory usage:**
+High memory usage:
+
 - Reduce model size (D_MODEL)
 - Reduce sequence length
 - Check for memory leaks
 
-**Slow responses:**
+Slow responses:
+
 - Reduce MAX_LENGTH
 - Use greedy strategy
 - Check CPU limits
 
-**Logs not appearing:**
+Logs not appearing:
+
 - Check LOG_LEVEL setting
 - Verify logger initialized
 - Check log destination
@@ -448,7 +483,7 @@ journalctl -u adai -p err
 docker-compose logs chatbot-api
 docker exec -it adai-chatbot-api /bin/bash
 
-# systemd  
+# systemd
 journalctl -u adai -xe
 systemctl status adai -l
 ```
@@ -457,25 +492,30 @@ systemctl status adai -l
 
 ### Created Files
 
-**Configuration:**
+Configuration:
+
 - `src/Config.hpp` - Configuration structure
 - `src/Config.cpp` - Configuration loader
 - `config.conf` - Production config file
 - `config.conf.example` - Example config
 
-**Logging:**
+Logging:
+
 - `src/Logger.hpp` - Logger interface
 - `src/Logger.cpp` - Logger implementation
 
-**Docker:**
+Docker:
+
 - `Dockerfile` - Multi-stage container build
 - `docker-compose.yml` - Deployment configuration
 
-**systemd:**
+systemd:
+
 - `scripts/adai.service` - Service unit file
 - `scripts/install_systemd_service.sh` - Installation script
 
-**Documentation:**
+Documentation:
+
 - `docs/development/STEP1_COMPLETE.md` - Configuration
 - `docs/development/STEP2_COMPLETE.md` - Signal handling
 - `docs/development/STEP3_COMPLETE.md` - Logging
@@ -487,12 +527,14 @@ systemctl status adai -l
 
 ### Modified Files
 
-**Core Application:**
+Core Application:
+
 - `src/ChatbotAPIServer.cpp` - Added Config, Logger, signal handling
 - `CMakeLists.txt` - Added spdlog dependency
 - `src/CMakeLists.txt` - Added Logger.cpp, linked spdlog
 
-**Testing:**
+Testing:
+
 - `scripts/test_signal_handling.sh` - Signal handling test
 - `scripts/test_sigint.sh` - SIGINT test
 
@@ -500,23 +542,27 @@ systemctl status adai -l
 
 ### Resource Usage
 
-**Typical:**
+Typical:
+
 - Memory: 500MB - 2GB (depends on model size)
 - CPU: 20-50% (during inference)
 - Disk: 100MB (binary + vocab)
 
-**Limits Set:**
+Limits Set:
+
 - Docker: 4GB memory, 2 CPU cores
 - systemd: 4GB memory, 50% CPU quota
 
 ### Optimization Tips
 
-**Reduce Memory:**
+Reduce Memory:
+
 - Smaller D_MODEL (512 → 256)
 - Fewer layers (6 → 4)
 - Shorter sequences (1024 → 512)
 
-**Improve Speed:**
+Improve Speed:
+
 - Use greedy decoding
 - Reduce MAX_LENGTH
 - Compile with -O3 -march=native
@@ -525,20 +571,20 @@ systemctl status adai -l
 
 The ADAI Chatbot API Server is now a production-ready daemon service with:
 
-✅ **Robust Configuration** - Multi-source, priority-based  
-✅ **Graceful Shutdown** - Signal handling, clean exit  
-✅ **Structured Logging** - Timestamps, levels, filtering  
-✅ **Docker Support** - Containerized deployment  
-✅ **systemd Integration** - System service management  
-✅ **Security Hardening** - Multiple layers of protection  
-✅ **Resource Management** - CPU and memory limits  
-✅ **Comprehensive Documentation** - Deployment guides  
+✅ **Robust Configuration** - Multi-source, priority-based
+✅ **Graceful Shutdown** - Signal handling, clean exit
+✅ **Structured Logging** - Timestamps, levels, filtering
+✅ **Docker Support** - Containerized deployment
+✅ **systemd Integration** - System service management
+✅ **Security Hardening** - Multiple layers of protection
+✅ **Resource Management** - CPU and memory limits
+✅ **Comprehensive Documentation** - Deployment guides
 
 The service can be deployed using Docker for development/cloud environments or systemd for traditional bare-metal/VM deployments. Both deployment methods support the same configuration options and provide the same functionality.
 
 ## Next Steps
 
-**Recommended Actions:**
+Recommended Actions:
 
 1. **End-to-End Testing**: Test complete deployment workflows
 2. **Load Testing**: Verify performance under load
@@ -549,7 +595,7 @@ The service can be deployed using Docker for development/cloud environments or s
 7. **Training**: Train operators on management commands
 8. **Documentation Review**: Ensure all docs are current
 
-**Optional Enhancements:**
+Optional Enhancements:
 
 - JSON log output for better parsing
 - Metrics endpoint for Prometheus
@@ -560,6 +606,8 @@ The service can be deployed using Docker for development/cloud environments or s
 
 ---
 
-**Project Status: PRODUCTION READY ✅**
+## Project Status: PRODUCTION READY ✅
 
-*Last Updated: March 1, 2026*
+## Last Updated
+
+Last Updated: March 1, 2026

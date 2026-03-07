@@ -27,7 +27,8 @@ void signal_handler(int signal) {
 }
 ```
 
-**Key Improvements:**
+Key Improvements:
+
 - ✅ Uses `std::atomic<bool>` for async-signal-safe flag setting
 - ✅ Removed unsafe `std::cout` from signal handler
 - ✅ Removed `exit(0)` call, allowing proper RAII cleanup
@@ -37,13 +38,14 @@ void signal_handler(int signal) {
 
 Implemented a 3-step graceful shutdown after signal reception:
 
-```
+```text
 [1/3] API server stopped
 [2/3] Model state: <status>
 [3/3] Cleaning up resources...
 ```
 
 This sequence:
+
 1. **Stops the API server** - No new requests accepted
 2. **Checks model state** - Reports model save status (future: save if modified)
 3. **Cleans up resources** - RAII handles memory cleanup
@@ -52,7 +54,8 @@ This sequence:
 
 Fixed incorrect parameter order in `EncoderDecoderModel` constructor call:
 
-**Before:**
+Before:
+
 ```cpp
 auto model = std::make_unique<EncoderDecoderModel>(
     config.d_model,              // Wrong position
@@ -61,7 +64,8 @@ auto model = std::make_unique<EncoderDecoderModel>(
 );
 ```
 
-**After:**
+After:
+
 ```cpp
 auto model = std::make_unique<EncoderDecoderModel>(
     tokenizer->get_vocab_size(), // vocab_size (first parameter)
@@ -84,6 +88,7 @@ Created automated test scripts to verify signal handling:
 - `scripts/test_sigint.sh` - Tests SIGINT (Ctrl+C) handling
 
 Both scripts:
+
 - Start the server in the background
 - Wait for initialization
 - Send the appropriate signal
@@ -98,8 +103,9 @@ Both scripts:
 ./scripts/test_signal_handling.sh
 ```
 
-**Output:**
-```
+Output:
+
+```text
 Sending SIGTERM to server (PID: 1645108)...
 
 ==================================================
@@ -121,8 +127,9 @@ SUCCESS: Server shut down gracefully
 ./scripts/test_sigint.sh
 ```
 
-**Output:**
-```
+Output:
+
+```text
 Sending SIGINT (Ctrl+C) to server (PID: 1645981)...
 
 ==================================================
@@ -191,6 +198,7 @@ journalctl -u adai -f        # View graceful shutdown logs
 The signal handler architecture supports future additions:
 
 1. **Model Saving** - If the model is modified during runtime (online learning):
+
    ```cpp
    if (model_modified) {
        model->save_model(config.model_path);
@@ -198,6 +206,7 @@ The signal handler architecture supports future additions:
    ```
 
 2. **Training State** - If using IncrementalTrainer:
+
    ```cpp
    if (trainer) {
        trainer->finish_current_cycle();
@@ -206,6 +215,7 @@ The signal handler architecture supports future additions:
    ```
 
 3. **Session Persistence** - Save active sessions before shutdown:
+
    ```cpp
    api->save_active_sessions();
    ```
@@ -241,10 +251,12 @@ kill -TERM $SERVER_PID
 
 ## Files Modified/Created
 
-**Modified:**
+Modified:
+
 - `src/ChatbotAPIServer.cpp` - Enhanced signal handling, fixed model initialization
 
-**Created:**
+Created:
+
 - `scripts/test_signal_handling.sh` - SIGTERM test script
 - `scripts/test_sigint.sh` - SIGINT test script
 - `docs/development/STEP2_COMPLETE.md` - This documentation
@@ -252,10 +264,11 @@ kill -TERM $SERVER_PID
 ## Next Steps
 
 Step 2 is complete. Ready to proceed with:
+
 - **Step 3:** Introduce structured logging (spdlog)
 - **Step 4:** Refine Docker configuration
 - **Step 5:** Create systemd service file
 
 ---
 
-**Step 2: Signal Handling - COMPLETE ✅**
+## Step 2: Signal Handling - COMPLETE ✅

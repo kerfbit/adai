@@ -48,12 +48,12 @@
 
 ### Speedup Results
 
-| Threads | Time (ms) | Throughput (tok/ms) | Speedup | Efficiency |
-| --------- | ----------- | --------------------- | --------- | ------------ |
-| 1 (baseline) | 918.61 | 2,782 | 1.00x | 100.0% |
-| 2 | 467.45 | 5,468 | 1.97x | 98.3% |
-| **4** | **240.30** | **10,637** | **3.82x** | **95.6%** |
-| 8 (est.) | ~120 | ~21,000 | ~7.6x | ~95% |
+|Threads|Time (ms)|Throughput (tok/ms)|Speedup|Efficiency|
+|---------|-----------|---------------------|---------|------------|
+|1 (baseline)|918.61|2,782|1.00x|100.0%|
+|2|467.45|5,468|1.97x|98.3%|
+|**4**|**240.30**|**10,637**|**3.82x**|**95.6%**|
+|8 (est.)|~120|~21,000|~7.6x|~95%|
 
 ### Key Achievements
 
@@ -83,7 +83,7 @@
 }
 ```
 
-**Design Decisions:**
+Design Decisions:
 
 1. **Dynamic scheduling** - Handles variable sequence lengths
 2. **Chunk size 16** - Balances overhead and load distribution
@@ -146,8 +146,8 @@ OMP_NUM_THREADS=8 ./src/augmentation_benchmark 50000 256
 ✓ PASSED: All sequences successfully augmented in parallel
 
 ═══ Benchmark: Augmentation Parallel Scaling ═══
-Threads | Time (ms) | Throughput | Speedup | Efficiency
-     4  | 240.30 | 10,637 | 3.82 |   95.6%
+Threads |Time (ms)|Throughput|Speedup| Efficiency
+     4  |240.30|10,637|3.82|   95.6%
 ```
 
 ---
@@ -156,7 +156,7 @@ Threads | Time (ms) | Throughput | Speedup | Efficiency
 
 ### Training Pipeline
 
-**Before Priority 2:**
+Before Priority 2:
 
 ```text
 Data Loading:    100ms
@@ -167,7 +167,7 @@ Training:       5000ms
 Total:          6070ms
 ```
 
-**After Priority 2 (4 threads):**
+After Priority 2 (4 threads):
 
 ```text
 Data Loading:    100ms
@@ -210,14 +210,14 @@ Total:          5390ms  (11% improvement)
 
 ## Comparison with Priority 1
 
-| Metric | Priority 1 (Matrix Ops) | Priority 2 (Augmentation) |
-| -------- | ------------------------- | --------------------------- |
-| **Speedup (4 threads)** | 4.21x | 3.82x |
-| **Efficiency** | 101% | 95.6% |
-| **Complexity** | Medium | Low |
-| **Impact** | Training + Inference | Preprocessing only |
-| **Code Changes** | 11 functions | 1 function |
-| **Lines Modified** | ~200 | ~60 |
+|Metric|Priority 1 (Matrix Ops)|Priority 2 (Augmentation)|
+|--------|-------------------------|---------------------------|
+|**Speedup (4 threads)**|4.21x|3.82x|
+|**Efficiency**|101%|95.6%|
+|**Complexity**|Medium|Low|
+|**Impact**|Training + Inference|Preprocessing only|
+|**Code Changes**|11 functions|1 function|
+|**Lines Modified**|~200|~60|
 
 Both implementations achieved **excellent parallel efficiency** with minimal overhead.
 
@@ -322,4 +322,4 @@ export OMP_NUM_THREADS=4
 **Testing:** Comprehensive (correctness + performance)
 **Documentation:** Complete (implementation guide + quick reference)
 
-**Ready for production use!**
+Ready for production use!
