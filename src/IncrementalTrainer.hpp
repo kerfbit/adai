@@ -10,6 +10,7 @@
 #include "EncoderDecoderModel.hpp"
 #include "Logger.hpp"
 #include "Config.hpp"
+#include "TrainingMetricsService.hpp"
 
 /**
  * @brief Training session information
@@ -73,6 +74,12 @@ struct IncrementalConfig {
     bool enable_checkpoint_symlinks = true;  // Create latest/best symlinks
     std::string latest_symlink_name = "latest_checkpoint.bin";  // Name for latest checkpoint symlink
     std::string best_symlink_name = "best_checkpoint.bin";  // Name for best checkpoint symlink
+
+    // Metrics service configuration
+    MetricsServiceConfig metrics_config;
+    bool enable_metrics_service = true;   // Enable TrainingMetricsService integration
+    bool metrics_push_enabled = false;    // Push metrics to external metrics API daemon
+    std::string metrics_server_url = "http://localhost:8081";  // URL of metrics API daemon
 };
 
 /**
@@ -220,6 +227,9 @@ private:
     // Best checkpoint tracking (TD-005)
     float best_validation_loss;
     std::string best_checkpoint_path;
+
+    // Training metrics service integration
+    std::unique_ptr<TrainingMetricsService> metrics_service_;
 
     // TD-009: Dashboard / timing state
     mutable int dashboard_lines_drawn_;                          ///< lines drawn by last display_dashboard() call

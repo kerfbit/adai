@@ -184,6 +184,9 @@ target_link_libraries(chatbotcliImprovedTests
     adai_nlp 
     GTest::gtest_main
 )
+if(HTTPLIB_INCLUDE_DIR)
+    target_include_directories(chatbotcliImprovedTests PRIVATE ${HTTPLIB_INCLUDE_DIR})
+endif()
 add_test(NAME ChatbotCLIImprovedTests COMMAND chatbotcliImprovedTests)
 
 # Dataset tests (data loading and splitting)
@@ -248,6 +251,10 @@ target_link_libraries(incrementaltrainerTests
     spdlog::spdlog
     GTest::gtest_main
 )
+if(HTTPLIB_INCLUDE_DIR)
+    target_link_libraries(incrementaltrainerTests adai_metrics_api)
+    target_include_directories(incrementaltrainerTests PRIVATE ${HTTPLIB_INCLUDE_DIR})
+endif()
 add_test(NAME IncrementalTrainerTests COMMAND incrementaltrainerTests)
 
 # ============================================================================

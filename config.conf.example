@@ -99,3 +99,80 @@ BEAM_WIDTH=4
 
 # Generation strategy: greedy, beam, temperature, top_k, nucleus
 STRATEGY=nucleus
+
+# ============================================================================
+# Training Metrics Service Configuration
+# Real-time training metrics collection and monitoring
+# ============================================================================
+
+# Enable training metrics service
+# Set to true to collect and track training metrics
+ENABLE_METRICS_SERVICE=true
+
+# Push metrics to external metrics API daemon
+# The daemon (metrics-api-server) should be running as a systemd service
+# Start daemon: sudo systemctl start metrics-api-server
+# View status: curl http://localhost:8081/api/session/status
+METRICS_PUSH_ENABLED=false
+
+# URL of the metrics API daemon
+# Default: http://localhost:8081
+METRICS_SERVER_URL=http://localhost:8081
+
+# HTTP request timeout for pushing metrics (milliseconds)
+# Default: 1000 (1 second)
+METRICS_PUSH_TIMEOUT_MS=1000
+
+# Enable persistence of metrics to disk
+# When enabled, metrics are saved to JSONL format
+METRICS_ENABLE_PERSISTENCE=true
+
+# Path to metrics JSON Lines file
+# Each line contains a complete metrics record
+METRICS_FILE=training_sessions/metrics.jsonl
+
+# Path to metrics summary JSON file
+# Contains aggregated session statistics
+METRICS_SUMMARY_FILE=training_sessions/metrics_summary.json
+
+# Persist metrics every N samples (reduces I/O overhead)
+# Lower values = more frequent writes, higher values = less I/O
+METRICS_PERSIST_EVERY_SAMPLES=100
+
+# Persist metrics every N seconds (ensures periodic updates)
+# Guarantees metrics are saved even during slow training
+METRICS_PERSIST_EVERY_SECONDS=30
+
+# Maximum records to keep in memory before trimming
+# Older records are moved to disk
+METRICS_MAX_RECORDS_IN_MEMORY=10000
+
+# Maximum records to keep on disk before rotation
+# Oldest records are removed when limit is reached
+METRICS_MAX_RECORDS_ON_DISK=100000
+
+# Enable Prometheus format export
+# Generates metrics.prom file for Prometheus scraping
+METRICS_ENABLE_PROMETHEUS=false
+
+# Path to Prometheus metrics file
+METRICS_PROMETHEUS_FILE=training_sessions/metrics.prom
+
+# ============================================================================
+# Metrics API Daemon Configuration
+# Used when running metrics-api-server as a standalone daemon
+# ============================================================================
+
+# Port for metrics API server daemon
+# Access endpoints:
+#   GET  http://localhost:8081/api/session/status
+#   GET  http://localhost:8081/api/metrics/current
+#   GET  http://localhost:8081/api/session/epochs
+METRICS_API_PORT=8081
+
+# Allow control endpoints (flush, clear)
+# Set to false for read-only access in production
+# Control endpoints:
+#   POST http://localhost:8081/api/control/flush
+#   POST http://localhost:8081/api/control/clear
+METRICS_API_ALLOW_CONTROL=true

@@ -959,6 +959,196 @@ Converting Docker deployment to systemd:
 
    Compare environment variables in docker-compose.yml with `/etc/adai/config.conf`
 
+## Training Metrics API Daemon
+
+The ADAI Training Metrics API provides a REST API for monitoring training progress in real-time. It runs as a persistent daemon service that receives metrics updates from training processes.
+
+### Architecture
+
+- **metrics-api-server**: Standalone daemon that serves metrics via REST API
+- **incremental_trainer**: Pushes metrics updates to the daemon via HTTP POST
+- **Port**: Default 8081 (configurable)
+
+### Installation
+
+1. **Build the metrics API server:**
+
+   ```bash
+   cd /path/to/adai/build
+   cmake .. -DBUILD_METRICS_API_SERVER=ON
+   make metrics_api_server
+   ```
+
+2. **Install systemd service:**
+
+   ```bash
+   # Copy service file
+   sudo cp ../metrics-api-server.service /etc/systemd/system/
+   
+   # Create metrics directory
+   sudo mkdir -p /home/rodney/Repos/adai/training_sessions
+   sudo chown rodney:rodney /home/rodney/Repos/adai/training_sessions
+   
+   # Reload systemd
+   sudo systemctl daemon-reload
+   
+   # Enable and start service
+   sudo systemctl enable metrics-api-server
+   sudo systemctl start metrics-api-server
+   ```
+
+3. **Verify the service:**
+
+   ```bash
+   # Check service status
+   systemctl status metrics-api-server
+   
+   # Test API endpoint
+   curl http://localhost:8081/health
+   curl http://localhost:8081/api/session/status
+   ```
+
+### Configuration
+
+Edit the service file to customize settings:
+
+```bash
+sudo systemctl edit metrics-api-server
+```
+
+```ini
+[Service]
+# Change port
+Environment="METRICS_PORT=9090"
+
+# Change metrics storage directory
+Environment="METRICS_DIR=/var/lib/adai/training_sessions"
+ReadWritePaths=/var/lib/adai/training_sessions
+```
+
+### Training Integration
+
+Configure `incremental_trainer` to push metrics to the daemon:
+
+**config.conf:**
+
+```conf
+# Enable metrics push to API daemon
+ENABLE_METRICS_SERVICE=true
+METRICS_PUSH_ENABLED=true
+METRICS_SERVER_URL=http://localhost:8081
+```
+
+**Or via IncrementalConfig:**
+
+```cpp
+IncrementalConfig config;
+config.metrics_config.enable_push = true;
+config.metrics_config.push_url = "http://localhost:8081";
+config.metrics_config.push_timeout_ms = 1000;
+```
+
+### Monitoring Endpoints
+
+The metrics API daemon provides these endpoints:
+
+**Read-only endpoints (GET):**
+
+- `/api/metrics/current` - Current training snapshot
+- `/api/metrics/summary` - Aggregated metrics summary
+- `/api/metrics/history` - Historical metrics records
+- `/api/metrics/prometheus` - Prometheus format
+- `/api/session/status` - Session status
+- `/api/session/epochs` - Per-epoch metrics
+- `/health` - Health check
+
+**Update endpoints (POST)** - Called by trainers:
+
+- `/api/session/start` - Start training session
+- `/api/session/end` - End training session
+- `/api/epoch/start` - Start epoch
+- `/api/epoch/end` - End epoch
+- `/api/metrics/sample` - Update sample metrics
+- `/api/metrics/validation` - Update validation metrics
+- `/api/metrics/best` - Update best metrics
+
+### Usage Example
+
+```bash
+# Start the metrics daemon (runs automatically with systemd)
+systemctl start metrics-api-server
+
+# In another terminal, start training (it will push to the daemon)
+./build/src/incremental_trainer
+
+# Monitor training in real-time
+watch -n 1 'curl -s http://localhost:8081/api/session/status | jq'
+
+# Get current metrics
+curl http://localhost:8081/api/metrics/current | jq
+
+# Get epoch history
+curl http://localhost:8081/api/session/epochs | jq
+```
+
+### Logs
+
+View metrics API daemon logs:
+
+```bash
+# Real-time logs
+sudo journalctl -u metrics-api-server -f
+
+# Last 100 lines
+sudo journalctl -u metrics-api-server -n 100
+
+# Logs from today
+sudo journalctl -u metrics-api-server --since today
+```
+
+### Troubleshooting
+
+**Port already in use:**
+
+```bash
+# Check what's using port 8081
+sudo lsof -i :8081
+
+# Change port in service file
+sudo systemctl edit metrics-api-server
+# Add: Environment="METRICS_PORT=9090"
+sudo systemctl restart metrics-api-server
+```
+
+**Connection refused:**
+
+```bash
+# Verify service is running
+systemctl status metrics-api-server
+
+# Check firewall
+sudo ufw status
+sudo ufw allow 8081/tcp
+
+# Check if binding to correct interface
+sudo netstat -tlnp | grep 8081
+```
+
+**Metrics not updating:**
+
+```bash
+# Verify trainer is configured to push
+grep METRICS_PUSH config.conf
+
+# Check trainer logs for push errors
+grep "push" incremental_trainer.log
+
+# Test POST endpoint manually
+curl -X POST http://localhost:8081/api/session/start \
+  -H "Content-Type: application/json" \
+  -d '{"session_id":1,"total_epochs":10,"total_samples":1000}'
+```
+
 ## Performance Tuning
 
 ### CPU Affinity

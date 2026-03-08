@@ -8,6 +8,7 @@
 #include "BPETokenizer.hpp"
 #include "EncoderDecoderModel.hpp"
 #include "Optimizer.hpp"
+#include "TrainingMetricsService.hpp"
 
 // Parallel optimizations (Priority 1-5)
 #ifdef _OPENMP
@@ -198,6 +199,9 @@ class ChatbotTrainer {
     // Per-sample monitoring callback
     SampleCallback sample_callback_;
 
+    // TrainingMetricsService integration
+    TrainingMetricsService* metrics_service_;
+
     // Private helper methods
     void validate_and_correct_config();
     void split_data();
@@ -324,6 +328,12 @@ class ChatbotTrainer {
      * @param cb Callback function; pass {} or nullptr to clear.
      */
     void set_sample_callback(SampleCallback cb);
+
+    /**
+     * @brief Set the TrainingMetricsService for metrics reporting.
+     * @param service Pointer to TrainingMetricsService (not owned, can be nullptr to disable)
+     */
+    void set_metrics_service(TrainingMetricsService* service);
 
     // For testing data management
     size_t get_training_data_size() const { return training_data.size(); }

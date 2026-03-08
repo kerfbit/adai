@@ -1,6 +1,7 @@
 #include "IncrementalTrainer.hpp"
 #include "Config.hpp"
 #include "Logger.hpp"
+#include "TrainingMetricsAPI.hpp"
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
@@ -79,6 +80,24 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
     // Suppress verbose per-sample logging from ChatbotTrainer, as we use
     // the TUI dashboard for real-time feedback.
     cfg.base_config.log_level          = LogLevel::NORMAL;
+    
+    // Metrics service configuration
+    cfg.enable_metrics_service = svc.enable_metrics_service;
+    cfg.metrics_push_enabled = svc.metrics_push_enabled;
+    cfg.metrics_server_url = svc.metrics_server_url;
+    cfg.metrics_config.enable_push = svc.metrics_push_enabled;
+    cfg.metrics_config.push_url = svc.metrics_server_url;
+    cfg.metrics_config.push_timeout_ms = svc.metrics_push_timeout_ms;
+    cfg.metrics_config.enable_persistence = svc.metrics_enable_persistence;
+    cfg.metrics_config.metrics_file = svc.metrics_file;
+    cfg.metrics_config.summary_file = svc.metrics_summary_file;
+    cfg.metrics_config.persist_every_samples = svc.metrics_persist_every_samples;
+    cfg.metrics_config.persist_every_seconds = svc.metrics_persist_every_seconds;
+    cfg.metrics_config.max_records_in_memory = svc.metrics_max_records_in_memory;
+    cfg.metrics_config.max_records_on_disk = svc.metrics_max_records_on_disk;
+    cfg.metrics_config.enable_prometheus_format = svc.metrics_enable_prometheus;
+    cfg.metrics_config.prometheus_file = svc.metrics_prometheus_file;
+    
     return cfg;
 }
 
@@ -109,6 +128,20 @@ IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
     model_path_ = svc.model_path.empty() ? "chatbot_model.bin" : svc.model_path;
     config      = make_incremental_config(svc);
     config.base_config.lr_schedule = LRSchedule::WARMUP_COSINE;
+
+    // Initialize metrics service if enabled
+    if (config.enable_metrics_service) {
+        config.metrics_config.enable_persistence = true;
+        config.metrics_config.metrics_file = "training_sessions/metrics.jsonl";
+        config.metrics_config.summary_file = "training_sessions/metrics_summary.json";
+        config.metrics_config.persist_every_samples = 100;
+        config.metrics_config.persist_every_seconds = 30;
+        // Preserve push settings from config
+        // (already set by make_incremental_config from ServiceConfig)
+        metrics_service_ = std::make_unique<TrainingMetricsService>(config.metrics_config);
+        Logger::info("TrainingMetricsService initialized (push enabled: {}, URL: {})", 
+                    config.metrics_config.enable_push, config.metrics_config.push_url);
+    }
 
     Logger::info("Initializing Incremental Training System...");
     build_model();
@@ -162,6 +195,16 @@ IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path,
 
     vocab_path_ = vocab_path;
     model_path_ = model_path;
+
+    // Initialize metrics service with default config
+    if (config.enable_metrics_service) {
+        config.metrics_config.enable_persistence = true;
+        config.metrics_config.metrics_file = "training_sessions/metrics.jsonl";
+        config.metrics_config.summary_file = "training_sessions/metrics_summary.json";
+        metrics_service_ = std::make_unique<TrainingMetricsService>(config.metrics_config);
+        Logger::info("TrainingMetricsService initialized (push enabled: {}, URL: {})", 
+                    config.metrics_config.enable_push, config.metrics_config.push_url);
+    }
 
     // Build model using default config.
     build_model();
@@ -219,6 +262,16 @@ IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path,
     vocab_path_ = vocab_path;
     model_path_ = model_path;
     config      = cfg;  // set config FIRST so build_model() uses the correct architecture
+
+    // Initialize metrics service if enabled
+    if (config.enable_metrics_service) {
+        config.metrics_config.enable_persistence = true;
+        config.metrics_config.metrics_file = "training_sessions/metrics.jsonl";
+        config.metrics_config.summary_file = "training_sessions/metrics_summary.json";
+        metrics_service_ = std::make_unique<TrainingMetricsService>(config.metrics_config);
+        Logger::info("TrainingMetricsService initialized (push enabled: {}, URL: {})", 
+                    config.metrics_config.enable_push, config.metrics_config.push_url);
+    }
 
     build_model();
 
@@ -382,6 +435,14 @@ bool IncrementalTrainer::train_incremental(int num_epochs) {
     ChatbotTrainer trainer(config.base_config);
     trainer.set_model(std::move(model));
 
+    // Set metrics service on trainer if enabled
+    if (metrics_service_) {
+        trainer.set_metrics_service(metrics_service_.get());
+        // Start metrics session
+        metrics_service_->start_session(current_session_id + 1, num_epochs, 
+                                       static_cast<int>(training_pairs.size()));
+    }
+
     for (const auto& pair : training_pairs) {
         trainer.add_training_pair(pair.input, pair.response);
     }
@@ -450,6 +511,11 @@ bool IncrementalTrainer::train_incremental(int num_epochs) {
 
     Logger::info("Training for {} epochs...", num_epochs);
     bool success = trainer.train(num_epochs);
+
+    // End metrics session if enabled
+    if (metrics_service_) {
+        metrics_service_->end_session();
+    }
 
     // Retrieve model after training
     model = trainer.release_model();
@@ -543,6 +609,14 @@ bool IncrementalTrainer::train_full_retrain(int num_epochs) {
     ChatbotTrainer trainer(config.base_config);
     trainer.set_model(std::move(model));
 
+    // Set metrics service on trainer if enabled
+    if (metrics_service_) {
+        trainer.set_metrics_service(metrics_service_.get());
+        // Start metrics session for full retrain
+        metrics_service_->start_session(current_session_id + 1, num_epochs,
+                                       total_samples_in_epoch_);
+    }
+
     for (const auto& pair : all_pairs) {
         trainer.add_training_pair(pair.input, pair.response);
     }
@@ -598,6 +672,11 @@ bool IncrementalTrainer::train_full_retrain(int num_epochs) {
 
     bool success = trainer.train(num_epochs);
     model = trainer.release_model();
+
+    // End metrics session if enabled
+    if (metrics_service_) {
+        metrics_service_->end_session();
+    }
 
     if (success) {
         std::string checkpoint_path = generate_session_checkpoint_path();
@@ -2086,3 +2165,8 @@ void IncrementalTrainer::display_dashboard(const TrainingSession& session,
 
     std::cout << std::flush;
 }
+
+// ============================================================================
+// Metrics API Server Management
+// ============================================================================
+

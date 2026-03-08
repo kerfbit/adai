@@ -1,0 +1,29 @@
+[Unit]
+Description=ADAI Training Metrics API Server
+Documentation=https://github.com/adai/docs/TRAINING_METRICS_API.md
+After=network.target
+
+[Service]
+Type=simple
+User=rodney
+Group=rodney
+WorkingDirectory=/home/rodney/Repos/adai
+ExecStart=/home/rodney/Repos/adai/build/src/metrics_api_server
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+
+# Environment variables
+Environment="METRICS_PORT=8081"
+Environment="METRICS_DIR=/home/rodney/Repos/adai/training_sessions"
+
+# Security hardening
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/rodney/Repos/adai/training_sessions
+
+[Install]
+WantedBy=multi-user.target

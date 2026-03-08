@@ -116,6 +116,55 @@ struct ServiceConfig {
     
     /// Generation strategy: greedy, beam, temperature, top_k, nucleus (default: nucleus)
     std::string strategy = "nucleus";
+    
+    // ============================================================
+    // Training Metrics Service Configuration
+    // ============================================================
+    
+    /// Enable training metrics service (default: true)
+    bool enable_metrics_service = true;
+    
+    /// Push metrics to external API daemon (default: false)
+    bool metrics_push_enabled = false;
+    
+    /// URL of metrics API daemon (default: http://localhost:8081)
+    std::string metrics_server_url = "http://localhost:8081";
+    
+    /// HTTP timeout for pushing metrics in milliseconds (default: 1000)
+    int metrics_push_timeout_ms = 1000;
+    
+    /// Enable persistence of metrics to disk (default: true)
+    bool metrics_enable_persistence = true;
+    
+    /// Path to metrics JSONL file (default: training_sessions/metrics.jsonl)
+    std::string metrics_file = "training_sessions/metrics.jsonl";
+    
+    /// Path to metrics summary JSON file (default: training_sessions/metrics_summary.json)
+    std::string metrics_summary_file = "training_sessions/metrics_summary.json";
+    
+    /// Persist metrics every N samples (default: 100)
+    int metrics_persist_every_samples = 100;
+    
+    /// Persist metrics every N seconds (default: 30)
+    int metrics_persist_every_seconds = 30;
+    
+    /// Maximum records in memory (default: 10000)
+    int metrics_max_records_in_memory = 10000;
+    
+    /// Maximum records on disk (default: 100000)
+    int metrics_max_records_on_disk = 100000;
+    
+    /// Enable Prometheus format export (default: false)
+    bool metrics_enable_prometheus = false;
+    
+    /// Path to Prometheus metrics file (default: training_sessions/metrics.prom)
+    std::string metrics_prometheus_file = "training_sessions/metrics.prom";
+    
+    /// Port for metrics API server daemon (default: 8081)
+    int metrics_api_port = 8081;
+    
+    /// Allow control endpoints in metrics API (default: true)
+    bool metrics_api_allow_control = true;
 };
 
 /**

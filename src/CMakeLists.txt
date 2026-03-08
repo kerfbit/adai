@@ -24,8 +24,16 @@ add_library(adai_core STATIC
     Activation.cpp
     Optimizer.cpp
     Logger.cpp
+    TrainingMetricsService.cpp
 )
 target_link_libraries(adai_core PUBLIC spdlog::spdlog)
+
+# Add httplib support for metrics push (if available)
+if(HTTPLIB_INCLUDE_DIR)
+    target_include_directories(adai_core PRIVATE ${HTTPLIB_INCLUDE_DIR})
+    target_compile_definitions(adai_core PRIVATE BUILD_METRICS_API_SERVER)
+    message(STATUS "Metrics push support added to adai_core (httplib found)")
+endif()
 
 # OpenMP support (optional but recommended)
 if(OpenMP_CXX_FOUND)
@@ -172,6 +180,26 @@ if(BUILD_API_SERVER)
     endif()
 endif()
 
+# Training Metrics API layer (optional, requires httplib)
+option(BUILD_METRICS_API_SERVER "Build Training Metrics REST API server" ON)
+if(BUILD_METRICS_API_SERVER)
+    
+    if(HTTPLIB_INCLUDE_DIR)
+        add_library(adai_metrics_api STATIC
+            TrainingMetricsAPI.cpp
+        )
+        target_link_libraries(adai_metrics_api 
+            adai_core
+            pthread
+        )
+        target_include_directories(adai_metrics_api PRIVATE ${HTTPLIB_INCLUDE_DIR})
+        message(STATUS "Building Metrics API server (cpp-httplib found at ${HTTPLIB_INCLUDE_DIR})")
+    else()
+        message(WARNING "cpp-httplib not found. Metrics API server will not be built. Install with: sudo apt-get install libhttplib-dev or download from https://github.com/yhirose/cpp-httplib")
+        set(BUILD_METRICS_API_SERVER OFF)
+    endif()
+endif()
+
 # ============================================================================
 # Production Executables
 # ============================================================================
@@ -183,21 +211,10 @@ find_package(Threads)
 target_link_libraries(chatbot Threads::Threads)
 message(STATUS "Building chatbot as lightweight API client")
 
-# Chatbot Trainer - Model training tool with parallel optimizations (P1-P5)
-add_executable(chatbot_trainer ChatbotTrainer.cpp)
-target_link_libraries(chatbot_trainer 
-    adai_models 
-    adai_nlp
-    adai_attention    # Priority 4: Parallel attention heads
-    adai_core         # Priority 1: OpenMP matrix operations
-)
-if(OpenMP_CXX_FOUND)
-    message(STATUS "Building chatbot_trainer with full parallel optimizations (OpenMP + parallel attention)")
-endif()
 
 # Incremental Training Tool - Incremental model training with data management
 add_executable(incremental_trainer IncrementalTrainingTool.cpp IncrementalTrainer.cpp 
-    ChatbotTrainer.cpp Config.cpp)  # Logger.cpp compiled into adai_core
+    ChatbotTrainer.cpp Config.cpp TrainingMetricsService.cpp)  # Logger.cpp compiled into adai_core
 target_compile_definitions(incremental_trainer PRIVATE CHATBOT_TRAINER_TEST_BUILD)
 target_link_libraries(incremental_trainer 
     adai_models 
@@ -207,6 +224,11 @@ target_link_libraries(incremental_trainer
     spdlog::spdlog
     stdc++fs  # For std::filesystem
 )
+if(BUILD_METRICS_API_SERVER AND HTTPLIB_INCLUDE_DIR)
+    target_compile_definitions(incremental_trainer PRIVATE BUILD_METRICS_API_SERVER)
+    target_link_libraries(incremental_trainer adai_metrics_api)
+    target_include_directories(incremental_trainer PRIVATE ${HTTPLIB_INCLUDE_DIR})
+endif()
 if(OpenMP_CXX_FOUND)
     message(STATUS "Building incremental_trainer with full parallel optimizations")
 endif()
@@ -343,6 +365,20 @@ if(BUILD_API_SERVER)
     endif()
 endif()
 
+# Training Metrics API Server - REST API for training metrics polling
+if(BUILD_METRICS_API_SERVER)
+    add_executable(metrics_api_server 
+        TrainingMetricsAPIServer.cpp
+    )
+    target_link_libraries(metrics_api_server 
+        adai_metrics_api
+        adai_core
+        spdlog::spdlog
+    )
+    target_include_directories(metrics_api_server PRIVATE ${HTTPLIB_INCLUDE_DIR})
+    message(STATUS "Building metrics_api_server for training metrics polling")
+endif()
+
 # ============================================================================
 # Example Programs (optional build)
 # ============================================================================
@@ -416,6 +452,18 @@ if(BUILD_EXAMPLES)
     add_executable(rag_example ../examples/RAGExample.cpp DocumentStore.cpp RAGInference.cpp)
     target_link_libraries(rag_example adai_models adai_nlp)
     message(STATUS "Building rag_example - Retrieval-Augmented Generation demo")
+    
+    # Training Metrics Service Example
+    add_executable(training_metrics_example ../examples/TrainingMetricsServiceExample.cpp 
+        TrainingMetricsService.cpp IncrementalTrainer.cpp ChatbotTrainer.cpp Config.cpp)
+    target_link_libraries(training_metrics_example 
+        adai_models 
+        adai_nlp
+        adai_core 
+        pthread
+        stdc++fs
+    )
+    message(STATUS "Building training_metrics_example - Real-time metrics monitoring demo")
     
     message(STATUS "Building example programs (disable with -DBUILD_EXAMPLES=OFF)")
 endif()

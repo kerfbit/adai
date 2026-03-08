@@ -191,6 +191,37 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.beam_width = std::stoi(value);
             } else if (key == "STRATEGY") {
                 config.strategy = value;
+            // Training Metrics Service configuration
+            } else if (key == "ENABLE_METRICS_SERVICE") {
+                config.enable_metrics_service = (value == "true" || value == "1" || value == "yes");
+            } else if (key == "METRICS_PUSH_ENABLED") {
+                config.metrics_push_enabled = (value == "true" || value == "1" || value == "yes");
+            } else if (key == "METRICS_SERVER_URL") {
+                config.metrics_server_url = value;
+            } else if (key == "METRICS_PUSH_TIMEOUT_MS") {
+                config.metrics_push_timeout_ms = std::stoi(value);
+            } else if (key == "METRICS_ENABLE_PERSISTENCE") {
+                config.metrics_enable_persistence = (value == "true" || value == "1" || value == "yes");
+            } else if (key == "METRICS_FILE") {
+                config.metrics_file = value;
+            } else if (key == "METRICS_SUMMARY_FILE") {
+                config.metrics_summary_file = value;
+            } else if (key == "METRICS_PERSIST_EVERY_SAMPLES") {
+                config.metrics_persist_every_samples = std::stoi(value);
+            } else if (key == "METRICS_PERSIST_EVERY_SECONDS") {
+                config.metrics_persist_every_seconds = std::stoi(value);
+            } else if (key == "METRICS_MAX_RECORDS_IN_MEMORY") {
+                config.metrics_max_records_in_memory = std::stoi(value);
+            } else if (key == "METRICS_MAX_RECORDS_ON_DISK") {
+                config.metrics_max_records_on_disk = std::stoi(value);
+            } else if (key == "METRICS_ENABLE_PROMETHEUS") {
+                config.metrics_enable_prometheus = (value == "true" || value == "1" || value == "yes");
+            } else if (key == "METRICS_PROMETHEUS_FILE") {
+                config.metrics_prometheus_file = value;
+            } else if (key == "METRICS_API_PORT") {
+                config.metrics_api_port = std::stoi(value);
+            } else if (key == "METRICS_API_ALLOW_CONTROL") {
+                config.metrics_api_allow_control = (value == "true" || value == "1" || value == "yes");
             } else {
                 std::cerr << "Warning: Unknown configuration key: " << key << std::endl;
             }

@@ -35,7 +35,8 @@ ChatbotTrainer::ChatbotTrainer(const TrainingConfig& cfg)
           accumulated_loss(0.0f),
           epochs_without_improvement(0),
           early_stopped(false),
-          start_epoch(0) {}
+          start_epoch(0),
+          metrics_service_(nullptr) {}
 
 /**
  * @brief Initialize tokenizer from vocabulary file
@@ -540,6 +541,11 @@ float ChatbotTrainer::train_epoch(int epoch) {
         int num_samples = tokenized_training_data.size();
         int effective_batch_size = config.batch_size * config.gradient_accumulation_steps;
 
+        // Notify metrics service that epoch is starting
+        if (metrics_service_) {
+            metrics_service_->start_epoch(epoch, num_samples);
+        }
+
         log(LogLevel::VERBOSE, "\n📈 Epoch " + std::to_string(epoch + 1) + "/" + std::to_string(config.num_epochs));
         if (config.gradient_accumulation_steps > 1) {
             log(LogLevel::VERBOSE, "  Using gradient accumulation: " + std::to_string(config.gradient_accumulation_steps) +
@@ -662,6 +668,11 @@ float ChatbotTrainer::train_epoch(int epoch) {
                         float running_avg = (update_count > 0) ? total_loss / update_count : 0.0f;
                         sample_callback_(i + 1, num_samples, running_avg, step_loss_for_cb, grad_norm, current_learning_rate);
                     }
+
+                    // Update metrics service with sample-level metrics
+                    if (metrics_service_) {
+                        metrics_service_->update_sample_metrics(i + 1, step_loss_for_cb, grad_norm, current_learning_rate);
+                    }
                 }
             } catch (const std::exception& e) {
                 adai::Logger::error("  ❌ Error training sample {}: {}", (i + 1), e.what());
@@ -737,6 +748,11 @@ float ChatbotTrainer::validate() {
         validation_losses.push_back(validation_loss);
         validation_perplexities.push_back(validation_perplexity);
 
+        // Update metrics service with validation metrics
+        if (metrics_service_) {
+            metrics_service_->update_validation_metrics(validation_loss);
+        }
+
         log(LogLevel::NORMAL,
             "  Validation - Loss: " + std::to_string(validation_loss) + 
             " - Perplexity: " + std::to_string(validation_perplexity),
@@ -748,6 +764,11 @@ float ChatbotTrainer::validate() {
             best_epoch = training_losses.size();
             epochs_without_improvement = 0;
             adai::Logger::info("  ⭐ New best validation loss!");
+
+            // Update metrics service with best metrics
+            if (metrics_service_) {
+                metrics_service_->update_best_metrics(validation_loss, best_epoch);
+            }
 
             // Save best model if early stopping is enabled
             if (config.enable_early_stopping && config.restore_best_weights) {
@@ -1244,6 +1265,12 @@ bool ChatbotTrainer::train(int num_epochs) {
                 float val_loss = validate();
                 validation_losses.push_back(val_loss);
                 
+                // Update end_epoch with actual validation loss now that we have it
+                if (metrics_service_) {
+                    metrics_service_->end_epoch(epoch, epoch_loss, val_loss, current_learning_rate,
+                                               std::exp(epoch_loss), optimizer ? optimizer->get_gradient_norm() : 0.0f);
+                }
+                
                 // Check for improvement
                 if (val_loss < best_validation_loss - config.min_delta) {
                     best_validation_loss = val_loss;
@@ -1327,4 +1354,8 @@ void ChatbotTrainer::set_epoch_callback(EpochCallback cb) {
 
 void ChatbotTrainer::set_sample_callback(SampleCallback cb) {
     sample_callback_ = std::move(cb);
+}
+
+void ChatbotTrainer::set_metrics_service(TrainingMetricsService* service) {
+    metrics_service_ = service;
 }
