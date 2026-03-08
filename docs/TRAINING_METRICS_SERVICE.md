@@ -333,19 +333,44 @@ make
 
 See [TrainingMetricsService.hpp](../src/TrainingMetricsService.hpp) for complete API documentation.
 
-### Key Methods
+### Full C++ API Catalog
 
-- `start_session(session_id, epochs, samples)` - Begin tracking a new session
+**Session Lifecycle**
+- `start_session(int session_id, int total_epochs = 0, int total_samples = 0)` - Begin tracking a new session
 - `end_session()` - Finalize session and persist metrics
-- `start_epoch(epoch, samples)` - Begin tracking an epoch
-- `end_epoch(epoch, loss, val_loss, lr, ...)` - Record epoch completion
-- `update_sample_metrics(sample, loss, grad_norm, lr)` - Update per-sample metrics
-- `get_current_snapshot()` - Thread-safe poll of current state
-- `to_json()` - Export current state as JSON
-- `to_json_summary()` - Export full history as JSON
-- `to_prometheus()` - Export in Prometheus format
-- `flush_to_disk()` - Force immediate persistence
-- `get_history(max_records)` - Query historical records
+- `is_session_active() const` - Check if a session is currently running
+
+**Epoch Lifecycle**
+- `start_epoch(int epoch, int total_samples = 0)` - Begin tracking an epoch
+- `end_epoch(int epoch, float loss, float validation_loss, float learning_rate, float perplexity = 0.0f, float gradient_norm = 0.0f)` - Record epoch completion
+
+**Real-time Updates**
+- `update_sample_metrics(int sample, float loss, float gradient_norm, float learning_rate)` - Update per-sample metrics
+- `update_validation_metrics(float validation_loss)` - Update validation loss independently
+- `update_best_metrics(float validation_loss, int epoch)` - Record a new best validation loss
+
+**Data Export & Polling (Thread-safe)**
+- `get_current_snapshot() const` - Thread-safe poll of current state
+- `to_json() const` - Export current state as JSON
+- `to_json_summary() const` - Export full history as JSON
+- `to_prometheus() const` - Export in Prometheus format
+- `to_csv_header() const` - Get CSV header string
+- `to_csv_row() const` - Get current metrics as CSV row
+
+**Historical Queries**
+- `get_history(int max_records = 1000) const` - Query historical records
+- `get_session_history(int session_id) const` - Get history for a specific session
+- `get_epoch_losses() const` - Retrieve all epoch training losses
+- `get_epoch_validation_losses() const` - Retrieve all epoch validation losses
+
+**Control & Configuration**
+- `flush_to_disk()` - Force immediate persistence of metrics to disk
+- `clear_history()` - Clear historical records from memory
+- `set_config(const MetricsServiceConfig& config)` - Update active configuration
+- `get_config() const` - Retrieve current configuration
+
+### REST API Integration
+If building with the optional API server, the service also exposes a full REST catalog. See [TRAINING_METRICS_API.md](TRAINING_METRICS_API.md) for details on endpoints like `/api/metrics/current`, `/api/session/epochs`, and `/api/control/flush`.
 
 ## License
 

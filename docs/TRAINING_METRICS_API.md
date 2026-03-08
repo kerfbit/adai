@@ -4,6 +4,21 @@
 
 The Training Metrics REST API provides real-time access to training progress and metrics through HTTP endpoints. It's designed for monitoring training jobs, building dashboards, and integrating with external monitoring systems.
 
+## Full API Catalog Quick Reference
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| **GET** | `/api/metrics/current` | Current training snapshot with all real-time metrics |
+| **GET** | `/api/metrics/summary` | Aggregated metrics summary |
+| **GET** | `/api/metrics/history` | Historical metrics records (supports `max_records`, `session_id`) |
+| **GET** | `/api/metrics/prometheus`| Metrics in Prometheus text format |
+| **GET** | `/api/metrics/csv` | Current metrics in CSV format |
+| **GET** | `/api/session/status` | Current training session status and progress |
+| **GET** | `/api/session/epochs` | Per-epoch metrics history |
+| **POST**| `/api/control/flush` | Forces immediate flush of metrics to disk |
+| **POST**| `/api/control/clear` | Clears historical metrics from memory |
+| **GET** | `/health` | Returns server health status |
+
 ## Quick Start
 
 ### 1. Build the Metrics API Server
