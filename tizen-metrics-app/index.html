@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=1920, initial-scale=1.0"/>
+    <title>ADAI Training Metrics</title>
+    <link rel="stylesheet" href="css/style.css"/>
+</head>
+<body>
+
+<!-- ===== HEADER ===== -->
+<header id="header">
+    <div id="header-left">
+        <div id="logo">
+            <span class="logo-icon">&#9632;</span>
+            <span class="logo-text">ADAI</span>
+        </div>
+        <div id="app-title">Training Metrics Dashboard</div>
+    </div>
+    <div id="header-center">
+        <div id="session-badge" class="badge badge-idle">NO SESSION</div>
+    </div>
+    <div id="header-right">
+        <div id="connection-status" class="status-dot disconnected" title="API Connection">
+            <span class="dot"></span>
+            <span id="connection-label">Disconnected</span>
+        </div>
+        <div id="clock">00:00:00</div>
+    </div>
+</header>
+
+<!-- ===== MAIN CONTENT ===== -->
+<main id="main">
+
+    <!-- Left column: primary metrics -->
+    <section id="primary-metrics" class="column">
+
+        <!-- Epoch / Progress Card -->
+        <div class="card focusable" id="card-epoch" tabindex="0">
+            <div class="card-label">EPOCH PROGRESS</div>
+            <div class="card-value" id="epoch-value">—</div>
+            <div class="card-sub" id="epoch-sub">Waiting for session&hellip;</div>
+            <div class="progress-bar-wrap">
+                <div class="progress-bar" id="epoch-progress-bar" style="width:0%"></div>
+            </div>
+        </div>
+
+        <!-- Sample Progress Card -->
+        <div class="card focusable" id="card-sample" tabindex="0">
+            <div class="card-label">SAMPLE PROGRESS</div>
+            <div class="card-value" id="sample-value">—</div>
+            <div class="card-sub" id="sample-sub">0%</div>
+            <div class="progress-bar-wrap">
+                <div class="progress-bar accent-green" id="sample-progress-bar" style="width:0%"></div>
+            </div>
+        </div>
+
+        <!-- ETA Card -->
+        <div class="card focusable" id="card-eta" tabindex="0">
+            <div class="card-label">TIME REMAINING</div>
+            <div class="card-value medium" id="eta-value">—</div>
+            <div class="card-sub" id="eta-sub">Elapsed: —</div>
+        </div>
+
+        <!-- Throughput Card -->
+        <div class="card focusable" id="card-throughput" tabindex="0">
+            <div class="card-label">THROUGHPUT</div>
+            <div class="card-value" id="throughput-value">—</div>
+            <div class="card-sub">samples / second</div>
+        </div>
+
+    </section>
+
+    <!-- Center column: loss metrics -->
+    <section id="loss-metrics" class="column">
+
+        <!-- Current Loss Card -->
+        <div class="card focusable highlight" id="card-loss" tabindex="0">
+            <div class="card-label">TRAINING LOSS</div>
+            <div class="value-gauge-row">
+                <div class="card-value large" id="loss-value">—</div>
+                <div class="gauge-wrap" id="gauge-loss"></div>
+            </div>
+            <div class="metric-row">
+                <div class="metric-mini">
+                    <div class="mini-label">RUNNING AVG</div>
+                    <div class="mini-value" id="running-loss-value">—</div>
+                </div>
+                <div class="metric-mini">
+                    <div class="mini-label">BEST EPOCH</div>
+                    <div class="mini-value" id="best-epoch-value">—</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Validation Loss Card -->
+        <div class="card focusable highlight-accent" id="card-val-loss" tabindex="0">
+            <div class="card-label">VALIDATION LOSS</div>
+            <div class="card-value large" id="val-loss-value">—</div>
+            <div class="metric-row">
+                <div class="metric-mini">
+                    <div class="mini-label">BEST VAL LOSS</div>
+                    <div class="mini-value accent" id="best-val-loss-value">—</div>
+                </div>
+                <div class="metric-mini">
+                    <div class="mini-label">RUNNING AVG</div>
+                    <div class="mini-value" id="running-val-loss-value">—</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loss Chart -->
+        <div class="card card-chart focusable" id="card-chart" tabindex="0">
+            <div class="card-label">LOSS HISTORY</div>
+            <canvas id="loss-chart" width="580" height="200"></canvas>
+            <div id="chart-legend">
+                <span class="legend-item legend-train">&#9679; Train</span>
+                <span class="legend-item legend-val">&#9679; Validation</span>
+            </div>
+        </div>
+
+    </section>
+
+    <!-- Right column: aux metrics -->
+    <section id="aux-metrics" class="column">
+
+        <!-- Learning Rate Card -->
+        <div class="card focusable" id="card-lr" tabindex="0">
+            <div class="card-label">LEARNING RATE</div>
+            <div class="card-value medium" id="lr-value">—</div>
+        </div>
+
+        <!-- Perplexity Card -->
+        <div class="card focusable" id="card-perplexity" tabindex="0">
+            <div class="card-label">PERPLEXITY</div>
+            <div class="value-gauge-row">
+                <div class="card-value medium" id="perplexity-value">—</div>
+                <div class="gauge-wrap" id="gauge-perplexity"></div>
+            </div>
+        </div>
+
+        <!-- Gradient Norm Card -->
+        <div class="card focusable" id="card-grad-norm" tabindex="0">
+            <div class="card-label">GRADIENT NORM</div>
+            <div class="value-gauge-row">
+                <div class="card-value medium" id="grad-norm-value">—</div>
+                <div class="gauge-wrap" id="gauge-grad-norm"></div>
+            </div>
+        </div>
+
+        <!-- Session Stats Card -->
+        <div class="card focusable" id="card-session" tabindex="0">
+            <div class="card-label">SESSION TOTALS</div>
+            <div class="stat-grid">
+                <div class="stat-item">
+                    <div class="stat-label">Total Samples</div>
+                    <div class="stat-value" id="total-samples-value">—</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Session ID</div>
+                    <div class="stat-value" id="session-id-value">—</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Total Time</div>
+                    <div class="stat-value" id="total-time-value">—</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Best Epoch</div>
+                    <div class="stat-value" id="best-epoch-stat-value">—</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Button -->
+        <div class="card card-settings focusable" id="card-settings" tabindex="0">
+            <div class="settings-icon">&#9881;</div>
+            <div class="settings-label">Settings</div>
+            <div class="settings-hint">Press OK to configure</div>
+        </div>
+
+    </section>
+
+</main>
+
+<!-- ===== FOOTER ===== -->
+<footer id="footer">
+    <div id="footer-left">
+        <span class="key-hint"><span class="key">&#9650;&#9660;&#9664;&#9654;</span> Navigate</span>
+        <span class="key-hint"><span class="key">OK</span> Select</span>
+        <span class="key-hint"><span class="key">BACK</span> Back</span>
+        <span class="key-hint"><span class="key">EXIT</span> Exit</span>
+    </div>
+    <div id="footer-right">
+        <span id="last-update">Last update: —</span>
+        <span id="poll-interval-label">Polling: 2s</span>
+    </div>
+</footer>
+
+<!-- ===== SETTINGS OVERLAY ===== -->
+<div id="settings-overlay" class="overlay hidden">
+    <div id="settings-panel">
+        <div class="overlay-title">&#9881; Settings</div>
+
+        <div class="settings-group">
+            <label class="settings-label-text" for="api-host-input">API Host / IP</label>
+            <input class="settings-input focusable" id="api-host-input" type="text"
+                   value="192.168.1.100" placeholder="192.168.1.100" tabindex="0"/>
+        </div>
+
+        <div class="settings-group">
+            <label class="settings-label-text" for="api-port-input">API Port</label>
+            <input class="settings-input focusable" id="api-port-input" type="text"
+                   value="8081" placeholder="8081" tabindex="0"/>
+        </div>
+
+        <div class="settings-group">
+            <label class="settings-label-text">Poll Interval</label>
+            <div class="settings-options">
+                <button class="settings-btn focusable" data-interval="1000" tabindex="0">1s</button>
+                <button class="settings-btn focusable selected" data-interval="2000" tabindex="0">2s</button>
+                <button class="settings-btn focusable" data-interval="5000" tabindex="0">5s</button>
+                <button class="settings-btn focusable" data-interval="10000" tabindex="0">10s</button>
+            </div>
+        </div>
+
+        <div class="settings-group">
+            <label class="settings-label-text">Chart Mode</label>
+            <div class="settings-options">
+                <button class="settings-btn focusable selected" data-chart="epochs" tabindex="0">By Epoch</button>
+                <button class="settings-btn focusable" data-chart="samples" tabindex="0">By Sample</button>
+            </div>
+        </div>
+
+        <div class="settings-actions">
+            <button class="settings-save focusable" id="settings-save-btn" tabindex="0">&#10003; Save &amp; Connect</button>
+            <button class="settings-cancel focusable" id="settings-cancel-btn" tabindex="0">&#10007; Cancel</button>
+        </div>
+
+        <div id="api-url-preview"></div>
+    </div>
+</div>
+
+<!-- ===== LOADING OVERLAY ===== -->
+<div id="loading-overlay" class="overlay">
+    <div id="loading-panel">
+        <div class="spinner"></div>
+        <div class="loading-text">Connecting to Metrics API&hellip;</div>
+        <div class="loading-sub" id="loading-url">http://192.168.1.100:8081</div>
+    </div>
+</div>
+
+<!-- ===== SCRIPTS ===== -->
+<script src="js/chart.js"></script>
+<script src="js/navigation.js"></script>
+<script src="js/app.js"></script>
+
+</body>
+</html>

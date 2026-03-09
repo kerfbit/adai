@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!--
+    ADAI TV Metrics App — Tizen Signing Profile
+    Generated: 2026-03-08 16:29:28
+    TV Target DUID: 90629FECA4D1BC97B0F3883779D5F8AA5395F7B6
+
+    To use in Tizen Studio:
+      Tools → Certificate Manager → Import → select this profiles.xml
+    Or set TIZEN_SDK_DATA_PATH to point here and restart Tizen Studio.
+-->
+<profiles active="AdaiTV" version="3.1">
+    <profile name="AdaiTV">
+        <!-- Author certificate (signs app identity) -->
+        <profileitem
+            distributor="0"
+            key="/home/rodney/Repos/adai/tizen-metrics-app/certs/adai-author.p12"
+            password="/home/rodney/Repos/adai/tizen-metrics-app/certs/adai-author.pwd"
+            ca=""
+            rootca=""/>
+
+        <!-- Distributor certificate (device trust) -->
+        <profileitem
+            distributor="1"
+            key="/home/rodney/Repos/adai/tizen-metrics-app/certs/adai-distributor-90629FEC.p12"
+            password="/home/rodney/Repos/adai/tizen-metrics-app/certs/adai-distributor-90629FEC.pwd"
+            ca="/home/rodney/tizen-studio/tools/certificate-generator/certificates/distributor/tizen-distributor-ca.cer"
+            rootca=""/>
+
+        <!-- Distributor 2 (reserved) -->
+        <profileitem distributor="2" key="" password="" ca="" rootca=""/>
+    </profile>
+</profiles>

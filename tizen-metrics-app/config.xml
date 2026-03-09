@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<widget xmlns="http://www.w3.org/ns/widgets"
+        xmlns:tizen="http://tizen.org/ns/widgets"
+        id="http://rodney.adai/training-metrics"
+        version="1.0.0">
+
+    <tizen:application id="AdaiMtrcs1.trainingmetrics"
+                       package="AdaiMtrcs1"
+                       required_version="3.0"/>
+
+    <name>ADAI Training Metrics</name>
+    <description>Real-time training metrics dashboard for ADAI model training on Samsung TV.</description>
+
+    <icon src="icon.png"/>
+
+    <content src="index.html"/>
+
+    <!-- TV profile -->
+    <tizen:profile name="tv"/>
+
+    <!-- Network access to local metrics API -->
+    <access origin="*" subdomains="true"/>
+    <tizen:privilege name="http://tizen.org/privilege/internet"/>
+
+    <!-- TV application feature -->
+    <tizen:setting screen-orientation="landscape"
+                   context-menu="disable"
+                   background-support="disable"
+                   encryption="disable"
+                   install-location="auto"
+                   hwkey-event="enable"/>
+
+</widget>
