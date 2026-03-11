@@ -1,11 +1,37 @@
 # Docker Compose configuration for ADAI Chatbot API
 #
 # TODO: See TECHNICAL_DEBT.md Future Enhancement #12 - Multi-architecture builds
-# TODO: See TECHNICAL_DEBT.md Future Enhancement #17 - Multi-container orchestration (metrics, logging)
 #
 version: '3.8'
 
 services:
+  # Metrics API daemon — captures and exposes training metrics
+  # Addresses TECHNICAL_DEBT.md Future Enhancement #17 - Multi-container orchestration (metrics, logging)
+  metrics-api-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: adai-chatbot:latest
+    container_name: adai-metrics-api
+    command: ./metrics_api_server
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./training_sessions:/app/training_sessions:rw
+    environment:
+      - METRICS_PORT=8081
+      - METRICS_DIR=/app/training_sessions
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - adai-network
+
   # Main chatbot API server
   chatbot-api:
     build:
@@ -28,6 +54,9 @@ services:
       # Mount logs directory (read-write)
       # Application logs will be written here
       - ./logs:/app/logs:rw
+      
+      # Mount training sessions directory (read-write for metrics)
+      - ./training_sessions:/app/training_sessions:rw
       
       # Optional: Mount custom configuration file
       # Uncomment to use file-based configuration instead of env vars
@@ -92,10 +121,22 @@ services:
       # - nucleus: balanced, recommended for chatbots
       # - beam: slower, more coherent for longer text
       - STRATEGY=nucleus
+
+      # ------------------------------------------------------------
+      # Metrics Daemon Integration
+      # ------------------------------------------------------------
+      # Push training metrics to the existing metrics-api-server daemon
+      - ENABLE_METRICS_SERVICE=true
+      - METRICS_PUSH_ENABLED=true
+      - METRICS_SERVER_URL=http://metrics-api-server:8081
+      - METRICS_PUSH_TIMEOUT_MS=1000
     
     # Run the server with environment variable configuration
     # The executable reads all config from env vars automatically
     command: ./chatbot_api_server
+    depends_on:
+      metrics-api-server:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]

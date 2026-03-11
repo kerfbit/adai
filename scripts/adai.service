@@ -19,8 +19,8 @@
 # Service description and documentation
 Description=ADAI Transformer-based Chatbot API Server
 Documentation=https://github.com/rjv717/adai
-After=network-online.target
-Wants=network-online.target
+After=network-online.target metrics-api-server.service
+Wants=network-online.target metrics-api-server.service
 
 # Restart if dependencies fail
 PartOf=multi-user.target
@@ -93,6 +93,10 @@ Environment="SESSION_TIMEOUT=30"
 # Environment="TOP_K=50"
 # Environment="BEAM_WIDTH=4"
 # Environment="STRATEGY=nucleus"
+
+# Metrics daemon integration — connects to the existing metrics-api-server daemon
+Environment="METRICS_PUSH_ENABLED=true"
+Environment="METRICS_SERVER_URL=http://localhost:8081"
 
 # Load additional environment from file (optional)
 # EnvironmentFile=-/etc/adai/environment
