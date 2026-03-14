@@ -5,9 +5,9 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** March 4, 2026
-**Total Items:** 3
+**Total Items:** 5
 **High Priority:** 0
-**Medium Priority:** 1
+**Medium Priority:** 3
 **Low Priority:** 2
 **Future Enhancements:** 19
 **Resolved Items:** 9 (3 new)
@@ -17,6 +17,8 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 - [Overview](#overview)
 - [Table of Contents](#table-of-contents)
 - [Active Technical Debt](#active-technical-debt)
+  - [TD-014: LLM Operations and Training Tooling Suite](#td-014-llm-operations-and-training-tooling-suite)
+  - [TD-013: Advanced Training Metrics and Outlier Detection](#td-013-advanced-training-metrics-and-outlier-detection)
   - [TD-003: GPU Memory Management Optimization](#td-003-gpu-memory-management-optimization)
   - [TD-006: Fill-in-the-Middle (FIM) Training Data Generation](#td-006-fill-in-the-middle-fim-training-data-generation)
   - [TD-007: Matrix Operations SIMD Acceleration](#td-007-matrix-operations-simd-acceleration)
@@ -49,6 +51,42 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 - [References](#references)
 
 ## Active Technical Debt
+
+### TD-014: LLM Operations and Training Tooling Suite
+
+**Priority:** MEDIUM
+**Status:** Planned
+**Component:** Tooling / Toolchain
+**Created:** March 8, 2026
+
+**Description:**
+As the core machine learning models mature, standalone tools are missing for dataset lifecycle, evaluation, and deployment optimization. We lack isolated binaries to handle quantization, standardized inference evaluation, dataset PII scrubbing/dedup, and concurrent load testing.
+
+**Action Items:**
+
+- Implement `adai-weights-tool` for FP16/INT8 quantization and converting weight formats.
+- Develop `adai-eval` for deterministic pipeline benchmarking on standardized Q&A lists.
+- Isolate data-filtering scripts into an `adai-data-prep` tool for reproducible data hygiene.
+- Add a dedicated target in `CMakeLists.txt` for these auxiliary tools to avoid bloating main executables.
+
+### TD-013: Advanced Training Metrics and Outlier Detection
+
+**Priority:** MEDIUM
+**Status:** Planned
+**Component:** Training / Service
+**Created:** March 8, 2026
+
+**Description:**
+Current training metrics primarily focus on basic loss, perplexity, and learning rate. To improve observability and data quality, we need to introduce advanced tracking for throughput (Compute vs Database time vs Padding Efficiency), model optimization health (Activation saturation, gradient consistency), generative validation text (BLEU/ROUGE), and most importantly, an automated capability to flag training samples with abnormally large loss/gradient variations.
+
+**Action Items:**
+
+- Update `TrainingMetricsSnapshot` to support additional floats (padding efficiency, execution ratios, variance).
+- Add functionality in `ChatbotTrainer` batch loop to flag samples exceeding gradient norm / loss thresholds.
+- Log outliers to a dedicated artifact `abnormal_samples.json` and expose a new REST endpoint.
+- Enhance layers (Optimizer, `MultiHeadAttention`, `FeedForward`) to pass out necessary internal tracking scalars during forward/backward pass.
+- Execute partial `generate()` routines during validation phase to acquire textual quality scores (BLEU/ROUGE).
+
 
 ### TD-003: GPU Memory Management Optimization
 
