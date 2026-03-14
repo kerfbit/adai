@@ -6,18 +6,17 @@
  * 1. Setting up the metrics service
  * 2. Integrating with training loops
  * 3. Polling metrics from another thread
- * 4. Exporting metrics in various formats (JSON, Prometheus, CSV)
- * 5. Persistent metrics storage
+ * 
+ * Note: Printing and saving metrics are handled by the metrics-api-server daemon.
+ * Query the daemon's REST API (default: http://localhost:8081) to access metrics.
  */
 
 #include "TrainingMetricsService.hpp"
 #include "IncrementalTrainer.hpp"
 #include "ChatbotTrainer.hpp"
 #include "Logger.hpp"
-#include <iostream>
 #include <thread>
 #include <chrono>
-#include <fstream>
 #include <signal.h>
 
 // Global flag for graceful shutdown
@@ -28,67 +27,6 @@ void signal_handler(int signal) {
         adai::Logger::info("Received shutdown signal");
         running = false;
     }
-}
-
-/**
- * @brief Metrics polling daemon - runs in background thread
- * 
- * This simulates a monitoring service that periodically polls training metrics
- * and can export them to various formats or send to external systems.
- */
-void metrics_polling_daemon(TrainingMetricsService& service) {
-    adai::Logger::info("Metrics polling daemon started");
-    
-    int poll_count = 0;
-    
-    while (running) {
-        // Sleep for 5 seconds between polls
-        std::this_thread::sleep_for(std::chrono::seconds(5));
-        
-        if (!running) break;
-        
-        // Poll current metrics (thread-safe, non-blocking)
-        auto snapshot = service.get_current_snapshot();
-        
-        if (!snapshot.is_training) {
-            continue;
-        }
-        
-        poll_count++;
-        
-        // Log current status
-        adai::Logger::info("=== Metrics Poll #{} ===", poll_count);
-        adai::Logger::info("Session ID: {}", snapshot.session_id);
-        adai::Logger::info("Epoch: {}/{}", snapshot.current_epoch, snapshot.total_epochs);
-        adai::Logger::info("Sample: {}/{}", snapshot.current_sample, snapshot.total_samples);
-        adai::Logger::info("Current Loss: {:.6f}", snapshot.current_loss);
-        adai::Logger::info("Validation Loss: {:.6f}", snapshot.current_validation_loss);
-        adai::Logger::info("Learning Rate: {:.6f}", snapshot.current_learning_rate);
-        adai::Logger::info("Gradient Norm: {:.6f}", snapshot.current_gradient_norm);
-        adai::Logger::info("Perplexity: {:.6f}", snapshot.current_perplexity);
-        adai::Logger::info("Throughput: {:.2f} samples/sec", snapshot.samples_per_second);
-        adai::Logger::info("ETA: {:.1f} seconds", snapshot.estimated_time_remaining_seconds);
-        
-        // Export to JSON every 10 polls
-        if (poll_count % 10 == 0) {
-            std::string json = service.to_json();
-            std::ofstream json_file("training_sessions/current_metrics.json");
-            json_file << json;
-            json_file.close();
-            adai::Logger::info("Exported metrics to JSON");
-        }
-        
-        // Export to Prometheus format every 5 polls
-        if (poll_count % 5 == 0) {
-            std::string prom = service.to_prometheus();
-            std::ofstream prom_file("training_sessions/metrics.prom");
-            prom_file << prom;
-            prom_file.close();
-            adai::Logger::info("Exported metrics to Prometheus format");
-        }
-    }
-    
-    adai::Logger::info("Metrics polling daemon stopped");
 }
 
 /**
@@ -145,12 +83,8 @@ void example_basic_usage() {
                           epoch, epoch_loss, val_loss);
     }
     
-    // End session and persist final metrics
+    // End session — the metrics-api-server daemon handles persistence and export
     service.end_session();
-    
-    // Print summary
-    adai::Logger::info("\nTraining Summary:");
-    std::cout << service.to_json_summary() << std::endl;
 }
 
 /**
@@ -159,16 +93,14 @@ void example_basic_usage() {
 void example_integration_with_trainer() {
     adai::Logger::info("\n=== Example 2: Integration with IncrementalTrainer ===\n");
     
-    // Initialize global metrics service
+    // Initialize global metrics service with push enabled so the
+    // metrics-api-server daemon handles printing and saving.
     MetricsServiceConfig config;
-    config.enable_persistence = true;
-    config.enable_prometheus_format = true;
+    config.enable_push = true;
+    config.push_url = "http://localhost:8081";
     GlobalMetricsService::initialize(config);
     
     auto& service = GlobalMetricsService::instance();
-    
-    // Start polling daemon in background
-    std::thread polling_thread(metrics_polling_daemon, std::ref(service));
     
     try {
         // Create trainer
@@ -197,84 +129,21 @@ void example_integration_with_trainer() {
         adai::Logger::info("Starting training with metrics service...");
         std::this_thread::sleep_for(std::chrono::seconds(30));
         
-        // End session
+        // End session — the metrics-api-server daemon handles saving and output
         service.end_session();
         
     } catch (const std::exception& e) {
         adai::Logger::error("Training error: {}", e.what());
     }
     
-    // Stop polling daemon
-    running = false;
-    polling_thread.join();
-    
     GlobalMetricsService::shutdown();
 }
 
 /**
- * @brief Example 3: Exporting to different formats
- */
-void example_export_formats() {
-    adai::Logger::info("\n=== Example 3: Export Formats ===\n");
-    
-    TrainingMetricsService service;
-    
-    // Create some sample data
-    service.start_session(3, 5, 100);
-    service.start_epoch(0, 100);
-    
-    for (int i = 1; i <= 100; i++) {
-        float loss = 2.0f - i / 100.0f;
-        service.update_sample_metrics(i, loss, 0.5f, 0.001f);
-    }
-    
-    service.end_epoch(0, 1.5f, 1.6f, 0.001f, 4.48f, 0.5f);
-    
-    // Export to JSON
-    std::string json = service.to_json();
-    std::ofstream json_file("training_sessions/export_example.json");
-    json_file << json;
-    json_file.close();
-    adai::Logger::info("Exported to JSON: training_sessions/export_example.json");
-    
-    // Export to JSON summary
-    std::string summary = service.to_json_summary();
-    std::ofstream summary_file("training_sessions/export_summary.json");
-    summary_file << summary;
-    summary_file.close();
-    adai::Logger::info("Exported to JSON summary: training_sessions/export_summary.json");
-    
-    // Export to Prometheus format
-    std::string prom = service.to_prometheus();
-    std::ofstream prom_file("training_sessions/export_example.prom");
-    prom_file << prom;
-    prom_file.close();
-    adai::Logger::info("Exported to Prometheus format: training_sessions/export_example.prom");
-    
-    // Export to CSV
-    std::string csv_header = service.to_csv_header();
-    std::string csv_row = service.to_csv_row();
-    std::ofstream csv_file("training_sessions/export_example.csv");
-    csv_file << csv_header << "\n";
-    csv_file << csv_row << "\n";
-    csv_file.close();
-    adai::Logger::info("Exported to CSV: training_sessions/export_example.csv");
-    
-    service.end_session();
-    
-    // Display outputs
-    adai::Logger::info("\nJSON Output:");
-    std::cout << json << std::endl;
-    
-    adai::Logger::info("\nPrometheus Output (sample):");
-    std::cout << prom.substr(0, 500) << "..." << std::endl;
-}
-
-/**
- * @brief Example 4: Querying historical metrics
+ * @brief Example 3: Querying historical metrics
  */
 void example_query_history() {
-    adai::Logger::info("\n=== Example 4: Query Historical Metrics ===\n");
+    adai::Logger::info("\n=== Example 3: Query Historical Metrics ===\n");
     
     TrainingMetricsService service;
     
@@ -330,7 +199,6 @@ int main(int argc, char* argv[]) {
     try {
         // Run examples
         example_basic_usage();
-        example_export_formats();
         example_query_history();
         
         // Note: example_integration_with_trainer() requires actual training data
