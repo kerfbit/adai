@@ -836,9 +836,9 @@ float ChatbotTrainer::validate() {
         validation_losses.push_back(validation_loss);
         validation_perplexities.push_back(validation_perplexity);
 
-        // Update metrics service with validation metrics
+        // Update metrics service with validation metrics (TD-015: include accuracy and perplexity)
         if (metrics_service_) {
-            metrics_service_->update_validation_metrics(validation_loss);
+            metrics_service_->update_validation_metrics(validation_loss, -1.0f, validation_perplexity);
         }
 
         log(LogLevel::NORMAL,

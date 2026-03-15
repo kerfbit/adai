@@ -137,6 +137,16 @@
                 <div class="card-value medium" id="perplexity-value">—</div>
                 <div class="gauge-wrap" id="gauge-perplexity"></div>
             </div>
+            <div class="metric-row">
+                <div class="metric-mini">
+                    <div class="mini-label">VAL PERPLEXITY</div>
+                    <div class="mini-value" id="val-perplexity-value">—</div>
+                </div>
+                <div class="metric-mini">
+                    <div class="mini-label">VAL ACCURACY</div>
+                    <div class="mini-value" id="val-accuracy-value">—</div>
+                </div>
+            </div>
         </div>
 
         <!-- Gradient Norm Card -->
@@ -167,6 +177,25 @@
                 <div class="stat-item">
                     <div class="stat-label">Best Epoch</div>
                     <div class="stat-value" id="best-epoch-stat-value">—</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Advanced Diagnostics Card -->
+        <div class="card focusable" id="card-advanced" tabindex="0">
+            <div class="card-label">ADVANCED DIAGNOSTICS</div>
+            <div class="stat-grid">
+                <div class="stat-item">
+                    <div class="stat-label">Gradient Variance</div>
+                    <div class="stat-value" id="gradient-variance-value">—</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Compute Ratio</div>
+                    <div class="stat-value" id="compute-ratio-value">—</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Weight Update</div>
+                    <div class="stat-value" id="weight-update-value">—</div>
                 </div>
             </div>
         </div>

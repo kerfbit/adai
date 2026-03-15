@@ -239,7 +239,19 @@
             <div class="card">
                 <h2>Perplexity</h2>
                 <div class="metric-value" id="perplexity">--</div>
-                <div class="metric-label">Model Perplexity</div>
+                <div class="metric-label">Training Perplexity</div>
+            </div>
+
+            <div class="card">
+                <h2>Val Perplexity</h2>
+                <div class="metric-value" id="val-perplexity">--</div>
+                <div class="metric-label">Validation Perplexity</div>
+            </div>
+
+            <div class="card">
+                <h2>Val Accuracy</h2>
+                <div class="metric-value" id="val-accuracy">--</div>
+                <div class="metric-label">Validation Accuracy</div>
             </div>
 
             <div class="card">
@@ -355,7 +367,8 @@
             validationLosses: [],
             learningRates: [],
             gradientNorms: [],
-            perplexities: []
+            perplexities: [],
+            validationPerplexities: []  // TD-015
         };
 
         // Error tracking
@@ -471,7 +484,7 @@
                 labels: [],
                 datasets: [
                     {
-                        label: 'Perplexity',
+                        label: 'Training Perplexity',
                         data: [],
                         borderColor: '#f39c12',
                         backgroundColor: 'rgba(243, 156, 18, 0.1)',
@@ -479,6 +492,16 @@
                         borderWidth: 2,
                         pointRadius: 2,
                         fill: true
+                    },
+                    {
+                        label: 'Validation Perplexity',
+                        data: [],
+                        borderColor: '#8e44ad',
+                        backgroundColor: 'rgba(142, 68, 173, 0.1)',
+                        tension: 0.4,
+                        borderWidth: 2,
+                        pointRadius: 2,
+                        fill: false
                     }
                 ]
             },
@@ -561,6 +584,7 @@
             metricsHistory.learningRates.push(metrics.current_learning_rate);
             metricsHistory.gradientNorms.push(metrics.current_gradient_norm);
             metricsHistory.perplexities.push(metrics.current_perplexity);
+            metricsHistory.validationPerplexities.push(metrics.current_validation_perplexity || 0);  // TD-015
 
             // Keep only last MAX_CHART_POINTS
             if (metricsHistory.timestamps.length > MAX_CHART_POINTS) {
@@ -570,6 +594,7 @@
                 metricsHistory.learningRates.shift();
                 metricsHistory.gradientNorms.shift();
                 metricsHistory.perplexities.shift();
+                metricsHistory.validationPerplexities.shift();  // TD-015
             }
         }
 
@@ -589,9 +614,10 @@
             lrChart.data.datasets[1].data = metricsHistory.gradientNorms;
             lrChart.update('none');
 
-            // Update perplexity chart
+            // Update perplexity chart (training + validation - TD-015)
             perplexityChart.data.labels = labels;
             perplexityChart.data.datasets[0].data = metricsHistory.perplexities;
+            perplexityChart.data.datasets[1].data = metricsHistory.validationPerplexities;
             perplexityChart.update('none');
         }
 
@@ -606,6 +632,10 @@
             updateElement('current-loss', formatNumber(data.current_loss));
             updateElement('validation-loss', formatNumber(data.current_validation_loss));
             updateElement('perplexity', formatNumber(data.current_perplexity, 2));
+            // TD-015: validation perplexity and accuracy
+            updateElement('val-perplexity', formatNumber(data.current_validation_perplexity, 2));
+            const acc = data.current_validation_accuracy;
+            updateElement('val-accuracy', (acc !== undefined && acc >= 0) ? formatNumber(acc * 100, 1) + '%' : '--');
             updateElement('learning-rate', formatNumber(data.current_learning_rate, 6));
 
             // Update progress

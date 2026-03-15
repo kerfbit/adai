@@ -55,18 +55,23 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ### TD-015: Validation Metrics Integration
 
 **Priority:** MEDIUM
-**Status:** Planned
+**Status:** Resolved
 **Component:** Training / Service
 **Created:** March 14, 2026
+**Resolved:** March 14, 2026
 
 **Description:**
-Currently, the training pipeline tracks metrics during training passes but lacks granular, systematized metric tracking for the validation phase. Integrating validation metrics into the `TrainingMetricsService` and dashboard will provide better insights into model generalization and enable early detection of over-fitting. A detailed proposal is available at `docs/proposals/VALIDATION_METRICS_PROPOSAL.md`.
+Previously, the training pipeline tracked metrics during training passes but lacked granular, systematized metric tracking for the validation phase. Validation metrics are now fully integrated into `TrainingMetricsService` and the dashboard, providing better insights into model generalization and enabling early detection of over-fitting. Proposal: `docs/proposals/VALIDATION_METRICS_PROPOSAL.md`.
 
 **Action Items:**
-- Extend metrics data structures to include validation fields (e.g., `val_loss`, `val_accuracy`, `val_perplexity`).
-- Update `TrainingMetricsService` API to accept and store validation metric payloads.
-- Add validation loop hooks in the model's training loop to accumulate and emit validation metrics.
-- Update `dashboard.html` and `serve_dashboard.py` to fetch and plot validation curves alongside training curves.
+- ✅ Extended `TrainingMetricsSnapshot` with `current_validation_perplexity`, `current_validation_accuracy`, `epoch_validation_perplexities`, and `epoch_validation_accuracies`.
+- ✅ Updated `update_validation_metrics()` signature to accept `validation_loss`, `validation_accuracy` (default `-1.0`), and `validation_perplexity` (default `0` = auto-derived from loss).
+- ✅ `end_epoch()` now copies the current validation perplexity and accuracy into the per-epoch history vectors.
+- ✅ `to_json()` now emits `current_validation_perplexity` and `current_validation_accuracy` in the API response.
+- ✅ `ChatbotTrainer::validate()` now calls `update_validation_metrics(val_loss, -1.0f, val_perplexity)` — passes computed perplexity.
+- ✅ `TrainingMetricsAPI::handle_post_validation_metrics()` parses `validation_accuracy` and `validation_perplexity` from the POST body.
+- ✅ `handle_epoch_metrics()` returns `epoch_validation_perplexities` and `epoch_validation_accuracies` arrays.
+- ✅ `dashboard.html`: added "Val Perplexity" and "Val Accuracy" metric cards; perplexity chart now shows both training and validation perplexity curves with distinct colors; `metricsHistory` and `addToHistory()` extended to track `validationPerplexities`.
 
 
 ### TD-014: LLM Operations and Training Tooling Suite

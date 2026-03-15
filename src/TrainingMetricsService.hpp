@@ -30,6 +30,8 @@ struct TrainingMetricsSnapshot {
     float current_learning_rate = 0.0f;
     float current_gradient_norm = 0.0f;
     float current_perplexity = 0.0f;
+    float current_validation_perplexity = 0.0f;  ///< TD-015: validation perplexity for current epoch
+    float current_validation_accuracy = -1.0f;   ///< TD-015: validation accuracy (-1 = not computed)
     
     // Running averages
     float running_loss = 0.0f;
@@ -40,6 +42,8 @@ struct TrainingMetricsSnapshot {
     std::vector<float> epoch_validation_losses;
     std::vector<float> epoch_learning_rates;
     std::vector<float> epoch_perplexities;
+    std::vector<float> epoch_validation_perplexities;  ///< TD-015: per-epoch validation perplexity
+    std::vector<float> epoch_validation_accuracies;    ///< TD-015: per-epoch validation accuracy (-1 = not computed)
     std::vector<double> epoch_durations;
     std::vector<float> epoch_gradient_norms;
     
@@ -166,7 +170,15 @@ public:
     
     // Real-time updates (called from training callbacks)
     void update_sample_metrics(int sample, float loss, float gradient_norm, float learning_rate);
-    void update_validation_metrics(float validation_loss);
+    /**
+     * @brief Update validation metrics for the current epoch (TD-015)
+     * @param validation_loss  Average loss on the validation set
+     * @param validation_accuracy  Token-level accuracy (-1.0 = not computed)
+     * @param validation_perplexity  Perplexity (0 = auto-derived from loss)
+     */
+    void update_validation_metrics(float validation_loss,
+                                   float validation_accuracy = -1.0f,
+                                   float validation_perplexity = 0.0f);
     void update_best_metrics(float validation_loss, int epoch);
 
     // Advanced epoch-level diagnostics (TD-013)

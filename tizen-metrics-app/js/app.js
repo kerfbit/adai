@@ -67,6 +67,15 @@
         perplexityValue:    $('perplexity-value'),
         gradNormValue:      $('grad-norm-value'),
 
+        /* Validation perplexity & accuracy (TD-015) */
+        valPerplexityValue: $('val-perplexity-value'),
+        valAccuracyValue:   $('val-accuracy-value'),
+
+        /* Advanced diagnostics (TD-013) */
+        gradVarianceValue:  $('gradient-variance-value'),
+        computeRatioValue:  $('compute-ratio-value'),
+        weightUpdateValue:  $('weight-update-value'),
+
         /* Session stats */
         totalSamplesValue:  $('total-samples-value'),
         sessionIdValue:     $('session-id-value'),
@@ -373,6 +382,18 @@
         applyRangeColor(UI.gradNormValue,   current.current_gradient_norm, 1.0, 10.0);
         updateGauge('gauge-perplexity', current.current_perplexity,    0, 750);
         updateGauge('gauge-grad-norm',  current.current_gradient_norm, 0,  20);
+
+        /* --- Validation Perplexity & Accuracy (TD-015) --- */
+        var valPerplx = current.current_validation_perplexity;
+        setText(UI.valPerplexityValue, (valPerplx && valPerplx > 0) ? fmt(valPerplx, 2) : '—');
+        var valAcc = current.current_validation_accuracy;
+        setText(UI.valAccuracyValue, (valAcc !== undefined && valAcc !== null && valAcc >= 0) ? fmt(valAcc * 100, 1) + '%' : '—');
+
+        /* --- Advanced Diagnostics (TD-013) --- */
+        setText(UI.gradVarianceValue, fmt(current.gradient_variance, 6));
+        var ctr = current.compute_time_ratio;
+        setText(UI.computeRatioValue, (ctr != null && !isNaN(ctr)) ? fmt(ctr * 100, 1) + '%' : '—');
+        setText(UI.weightUpdateValue, fmt(current.weight_update_ratio, 6));
 
         /* --- Session stats --- */
         setText(UI.totalSamplesValue,  fmtInt(current.total_samples_trained));

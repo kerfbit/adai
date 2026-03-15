@@ -169,6 +169,13 @@ void TrainingMetricsService::end_epoch(int epoch, float loss, float validation_l
     current_snapshot_.epoch_validation_losses.push_back(validation_loss);
     current_snapshot_.epoch_learning_rates.push_back(learning_rate);
     current_snapshot_.epoch_perplexities.push_back(perplexity > 0 ? perplexity : std::exp(loss));
+    // TD-015: persist per-epoch validation perplexity and accuracy
+    current_snapshot_.epoch_validation_perplexities.push_back(
+        current_snapshot_.current_validation_perplexity > 0.0f
+            ? current_snapshot_.current_validation_perplexity
+            : (validation_loss > 0.0f ? std::exp(validation_loss) : 0.0f));
+    current_snapshot_.epoch_validation_accuracies.push_back(
+        current_snapshot_.current_validation_accuracy);
     current_snapshot_.epoch_durations.push_back(epoch_time);
     current_snapshot_.epoch_gradient_norms.push_back(gradient_norm);
     
@@ -289,7 +296,9 @@ void TrainingMetricsService::update_sample_metrics(int sample, float loss,
     }
 }
 
-void TrainingMetricsService::update_validation_metrics(float validation_loss) {
+void TrainingMetricsService::update_validation_metrics(float validation_loss,
+                                                       float validation_accuracy,
+                                                       float validation_perplexity) {
     std::string push_json;
     bool should_push = false;
     {
@@ -297,12 +306,20 @@ void TrainingMetricsService::update_validation_metrics(float validation_loss) {
     
     current_snapshot_.current_validation_loss = validation_loss;
     current_snapshot_.running_validation_loss = validation_loss;
+    // Derive perplexity if not supplied (TD-015)
+    current_snapshot_.current_validation_perplexity =
+        (validation_perplexity > 0.0f) ? validation_perplexity
+        : (validation_loss > 0.0f ? std::exp(validation_loss) : 0.0f);
+    current_snapshot_.current_validation_accuracy = validation_accuracy;
     current_snapshot_.last_update_time = std::chrono::system_clock::now();
 
         should_push = config_.enable_push;
         if (should_push) {
             std::ostringstream json;
-            json << "{\"validation_loss\":" << validation_loss << "}";
+            json << "{\"validation_loss\":" << validation_loss
+                 << ",\"validation_accuracy\":" << validation_accuracy
+                 << ",\"validation_perplexity\":"
+                 << current_snapshot_.current_validation_perplexity << "}";
             push_json = json.str();
         }
     }  // mutex released here
@@ -420,6 +437,8 @@ std::string TrainingMetricsService::to_json() const {
     oss << "  \"current_loss\": " << snapshot.current_loss << ",\n";
     oss << "  \"running_loss\": " << snapshot.running_loss << ",\n";
     oss << "  \"current_validation_loss\": " << snapshot.current_validation_loss << ",\n";
+    oss << "  \"current_validation_perplexity\": " << snapshot.current_validation_perplexity << ",\n";
+    oss << "  \"current_validation_accuracy\": " << snapshot.current_validation_accuracy << ",\n";
     oss << "  \"current_learning_rate\": " << snapshot.current_learning_rate << ",\n";
     oss << "  \"current_gradient_norm\": " << snapshot.current_gradient_norm << ",\n";
     oss << "  \"current_perplexity\": " << snapshot.current_perplexity << ",\n";

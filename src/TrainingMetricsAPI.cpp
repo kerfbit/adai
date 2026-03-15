@@ -428,6 +428,19 @@ std::string TrainingMetricsAPI::handle_epoch_metrics() {
         json << snapshot.epoch_gradient_norms[i];
     }
     
+    // TD-015: per-epoch validation perplexity and accuracy
+    json << "],\"epoch_validation_perplexities\":[";
+    for (size_t i = 0; i < snapshot.epoch_validation_perplexities.size(); ++i) {
+        if (i > 0) json << ",";
+        json << snapshot.epoch_validation_perplexities[i];
+    }
+
+    json << "],\"epoch_validation_accuracies\":[";
+    for (size_t i = 0; i < snapshot.epoch_validation_accuracies.size(); ++i) {
+        if (i > 0) json << ",";
+        json << snapshot.epoch_validation_accuracies[i];
+    }
+
     json << "],\"best_validation_loss\":" << snapshot.best_validation_loss << ",";
     json << "\"best_epoch\":" << snapshot.best_epoch;
     json << "}";
@@ -719,8 +732,10 @@ std::string TrainingMetricsAPI::handle_post_sample_metrics(const std::string& bo
 }
 
 std::string TrainingMetricsAPI::handle_post_validation_metrics(const std::string& body) {
-    // Parse JSON body: {"validation_loss": float}
+    // Parse JSON body: {"validation_loss": float, "validation_accuracy": float, "validation_perplexity": float}
     float validation_loss = 0.0f;
+    float validation_accuracy = -1.0f;  // TD-015: optional
+    float validation_perplexity = 0.0f; // TD-015: optional (0 = auto-derive from loss)
     
     size_t pos = body.find("\"validation_loss\"");
     if (pos != std::string::npos) {
@@ -730,7 +745,23 @@ std::string TrainingMetricsAPI::handle_post_validation_metrics(const std::string
         }
     }
     
-    metrics_service_->update_validation_metrics(validation_loss);
+    pos = body.find("\"validation_accuracy\"");
+    if (pos != std::string::npos) {
+        pos = body.find(':', pos);
+        if (pos != std::string::npos) {
+            validation_accuracy = std::stof(body.substr(pos + 1));
+        }
+    }
+
+    pos = body.find("\"validation_perplexity\"");
+    if (pos != std::string::npos) {
+        pos = body.find(':', pos);
+        if (pos != std::string::npos) {
+            validation_perplexity = std::stof(body.substr(pos + 1));
+        }
+    }
+    
+    metrics_service_->update_validation_metrics(validation_loss, validation_accuracy, validation_perplexity);
     
     return "{\"status\":\"ok\"}";
 }
