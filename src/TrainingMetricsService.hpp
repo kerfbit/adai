@@ -52,6 +52,25 @@ struct TrainingMetricsSnapshot {
     // Throughput metrics
     float samples_per_second = 0.0f;
     float estimated_time_remaining_seconds = 0.0f;
+
+    // Advanced metrics (TD-013)
+    float gradient_variance = 0.0f;      ///< Variance of per-step gradient norms within current epoch
+    float compute_time_ratio = 0.0f;     ///< Fraction of epoch wall time spent in forward+backward
+    float weight_update_ratio = 0.0f;    ///< Avg (lr * ||g||) / ||w|| ratio across optimizer steps
+};
+
+/**
+ * @brief Abnormal training sample flagged by outlier detection (TD-013)
+ */
+struct AbnormalSample {
+    int epoch = 0;                    ///< 1-based epoch number
+    int sample_id = 0;               ///< 1-based sample index within the epoch
+    float loss = 0.0f;              ///< Loss value that triggered the flag
+    float grad_norm = 0.0f;         ///< Gradient norm that triggered the flag
+    std::string reason;             ///< Human-readable reason (e.g. "loss_outlier", "grad_norm_outlier")
+    std::string input_text;         ///< Input text of the offending sample
+    std::string target_text;        ///< Target text of the offending sample
+    std::chrono::system_clock::time_point timestamp;
 };
 
 /**
@@ -93,6 +112,12 @@ struct MetricsServiceConfig {
     bool enable_push = false;
     std::string push_url = "http://localhost:8081";  // URL of metrics API daemon
     int push_timeout_ms = 1000;  // HTTP request timeout
+
+    // Outlier detection (TD-013)
+    std::string abnormal_samples_file = "training_sessions/abnormal_samples.json";
+    float loss_outlier_z_threshold = 3.0f;      // Flag sample if loss > epoch_mean + N*epoch_std
+    float grad_norm_outlier_threshold = 10.0f;  // Flag sample if grad_norm exceeds this absolute value
+    int max_abnormal_samples = 1000;            // Max outlier records kept in memory
 };
 
 /**
@@ -143,6 +168,14 @@ public:
     void update_sample_metrics(int sample, float loss, float gradient_norm, float learning_rate);
     void update_validation_metrics(float validation_loss);
     void update_best_metrics(float validation_loss, int epoch);
+
+    // Advanced epoch-level diagnostics (TD-013)
+    void update_advanced_epoch_metrics(float gradient_variance, float compute_time_ratio,
+                                       float weight_update_ratio);
+
+    // Outlier / abnormal-sample tracking (TD-013)
+    void flag_abnormal_sample(const AbnormalSample& sample);
+    std::vector<AbnormalSample> get_abnormal_samples() const;
     
     // Polling interface (thread-safe, non-blocking)
     TrainingMetricsSnapshot get_current_snapshot() const;
@@ -206,6 +239,10 @@ private:
     // HTTP push to external metrics API daemon
     void push_to_api(const std::string& endpoint, const std::string& json_body);
     std::string build_push_url(const std::string& endpoint) const;
+
+    // Outlier storage & persistence (TD-013)
+    std::vector<AbnormalSample> abnormal_samples_;       // in-memory list of flagged samples
+    void persist_abnormal_samples();                     // write all to abnormal_samples_file
 };
 
 /**

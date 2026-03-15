@@ -541,9 +541,9 @@ float ChatbotTrainer::train_epoch(int epoch) {
         int num_samples = tokenized_training_data.size();
         int effective_batch_size = config.batch_size * config.gradient_accumulation_steps;
 
-        // Notify metrics service that epoch is starting
+        // Notify metrics service that epoch is starting (1-based epoch number)
         if (metrics_service_) {
-            metrics_service_->start_epoch(epoch, num_samples);
+            metrics_service_->start_epoch(epoch + 1, num_samples);
         }
 
         log(LogLevel::VERBOSE, "\n📈 Epoch " + std::to_string(epoch + 1) + "/" + std::to_string(config.num_epochs));
@@ -560,6 +560,22 @@ float ChatbotTrainer::train_epoch(int epoch) {
         accumulated_loss = 0.0f;
         int update_count = 0;  // optimizer steps taken this epoch (for running avg)
 
+        // ── TD-013: Advanced diagnostic accumulators ──────────────────────────────
+        // Welford online algorithm state for gradient norm variance
+        float gn_w_count = 0.0f, gn_w_mean = 0.0f, gn_w_M2 = 0.0f;
+        // Welford online algorithm state for per-step loss (outlier z-score)
+        float ls_w_count = 0.0f, ls_w_mean = 0.0f, ls_w_M2 = 0.0f;
+        // Compute-time vs wall-time accumulators
+        double total_compute_ns = 0.0;
+        // Weight-update ratio (lr*||g||/||w||) accumulator
+        float wu_ratio_sum = 0.0f;  int wu_count = 0;
+        // Cache outlier thresholds from service config once per epoch
+        MetricsServiceConfig adv_cfg;
+        if (metrics_service_) { adv_cfg = metrics_service_->get_config(); }
+        // Epoch-level wall-clock start for compute_time_ratio denominator
+        auto epoch_td013_start = std::chrono::steady_clock::now();
+        // ─────────────────────────────────────────────────────────────────────────
+
         for (int i = 0; i < num_samples; i++) {
             const auto& pair = tokenized_training_data[training_indices[i]];
 
@@ -575,6 +591,7 @@ float ChatbotTrainer::train_epoch(int epoch) {
                 }
 
                 // Forward pass using cached tokenized data
+                auto compute_t0 = std::chrono::steady_clock::now();
                 Matrix logits = model->forward(pair.input_tokens, pair.target_tokens);
 
                 // Compute loss
@@ -598,6 +615,10 @@ float ChatbotTrainer::train_epoch(int epoch) {
                 }
                 
                 model->backward_pass(grad_loss);
+                // Accumulate compute time (forward + backward)
+                total_compute_ns += static_cast<double>(
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(
+                        std::chrono::steady_clock::now() - compute_t0).count());
 
                 accumulation_step++;
 
@@ -630,6 +651,61 @@ float ChatbotTrainer::train_epoch(int epoch) {
                     }
                     
                     total_grad_norm += grad_norm;
+
+                    // ── TD-013: per-step Welford updates, outlier detection, weight-update ratio ──
+                    {
+                        // Welford update: gradient norm variance
+                        gn_w_count++;
+                        float gn_delta = grad_norm - gn_w_mean;
+                        gn_w_mean += gn_delta / gn_w_count;
+                        gn_w_M2   += gn_delta * (grad_norm - gn_w_mean);
+
+                        // Welford update: per-step loss (for outlier z-score)
+                        ls_w_count++;
+                        float ls_delta = step_loss_for_cb - ls_w_mean;
+                        ls_w_mean += ls_delta / ls_w_count;
+                        ls_w_M2   += ls_delta * (step_loss_for_cb - ls_w_mean);
+
+                        // Weight-update ratio approximation: (lr * ||g||) / ||w||
+                        if (optimizer) {
+                            float w_norm = optimizer->get_weight_norm();
+                            if (w_norm > 1e-6f) {
+                                wu_ratio_sum += current_learning_rate * grad_norm / w_norm;
+                                ++wu_count;
+                            }
+                        }
+
+                        // Outlier detection — flag samples with extreme grad_norm or loss z-score
+                        if (metrics_service_) {
+                            bool grad_outlier = grad_norm > adv_cfg.grad_norm_outlier_threshold;
+                            bool loss_outlier = false;
+                            if (ls_w_count >= 10.0f) {
+                                float ls_std = (ls_w_M2 > 0.0f)
+                                             ? std::sqrt(ls_w_M2 / ls_w_count) : 0.0f;
+                                float ls_z   = (ls_std > 1e-7f)
+                                             ? (step_loss_for_cb - ls_w_mean) / ls_std : 0.0f;
+                                loss_outlier = (ls_z > adv_cfg.loss_outlier_z_threshold);
+                            }
+                            if (grad_outlier || loss_outlier) {
+                                AbnormalSample ab;
+                                ab.epoch      = epoch + 1;
+                                ab.sample_id  = i + 1;
+                                ab.loss       = step_loss_for_cb;
+                                ab.grad_norm  = grad_norm;
+                                ab.input_text  = tokenized_training_data[training_indices[i]].input_text;
+                                ab.target_text = tokenized_training_data[training_indices[i]].target_text;
+                                ab.timestamp  = std::chrono::system_clock::now();
+                                if (grad_outlier && loss_outlier)
+                                    ab.reason = "grad_norm_and_loss_outlier";
+                                else if (grad_outlier)
+                                    ab.reason = "grad_norm_outlier";
+                                else
+                                    ab.reason = "loss_outlier";
+                                metrics_service_->flag_abnormal_sample(ab);
+                            }
+                        }
+                    }
+                    // ─────────────────────────────────────────────────────────────────────
 
                     // Clip gradients
                     if (config.gradient_clip_norm > 0.0f) {
@@ -707,6 +783,18 @@ float ChatbotTrainer::train_epoch(int epoch) {
             " - GradNorm: " + std::to_string(avg_grad_norm) +
             " - Updates: " + std::to_string(num_updates),
             COLOR_SUCCESS);
+
+        // ── TD-013: emit advanced epoch diagnostics to metrics service ────────────
+        if (metrics_service_) {
+            float gradient_variance = (gn_w_count >= 2.0f) ? (gn_w_M2 / gn_w_count) : 0.0f;
+            double total_wall_ns = static_cast<double>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    std::chrono::steady_clock::now() - epoch_td013_start).count());
+            float compute_time_ratio = (total_wall_ns > 0.0) ? static_cast<float>(total_compute_ns / total_wall_ns) : 0.0f;
+            float avg_wu_ratio       = (wu_count > 0) ? (wu_ratio_sum / static_cast<float>(wu_count)) : 0.0f;
+            metrics_service_->update_advanced_epoch_metrics(gradient_variance, compute_time_ratio, avg_wu_ratio);
+        }
+        // ─────────────────────────────────────────────────────────────────────────
 
         return epoch_loss;
     }
@@ -1257,30 +1345,22 @@ bool ChatbotTrainer::train(int num_epochs) {
         
         // Train for specified epochs
         for (int epoch = 0; epoch < num_epochs; ++epoch) {
+            // train_epoch() pushes to training_losses / training_perplexities internally.
             float epoch_loss = train_epoch(epoch);
-            training_losses.push_back(epoch_loss);
-            
+
             // Validate
+            // validate() pushes to validation_losses / validation_perplexities and
+            // manages best_validation_loss / epochs_without_improvement internally.
             if (!tokenized_validation_data.empty()) {
                 float val_loss = validate();
-                validation_losses.push_back(val_loss);
-                
-                // Update end_epoch with actual validation loss now that we have it
+
+                // Update end_epoch with actual validation loss now that we have it (1-based epoch)
                 if (metrics_service_) {
-                    metrics_service_->end_epoch(epoch, epoch_loss, val_loss, current_learning_rate,
+                    metrics_service_->end_epoch(epoch + 1, epoch_loss, val_loss, current_learning_rate,
                                                std::exp(epoch_loss), optimizer ? optimizer->get_gradient_norm() : 0.0f);
                 }
-                
-                // Check for improvement
-                if (val_loss < best_validation_loss - config.min_delta) {
-                    best_validation_loss = val_loss;
-                    best_epoch = epoch + 1;
-                    epochs_without_improvement = 0;
-                } else {
-                    epochs_without_improvement++;
-                }
-                
-                // Early stopping check
+
+                // Early stopping check (epochs_without_improvement maintained by validate())
                 if (config.enable_early_stopping && epochs_without_improvement >= config.patience) {
                     early_stopped = true;
                     break;

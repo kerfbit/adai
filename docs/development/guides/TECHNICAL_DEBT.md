@@ -52,6 +52,23 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Active Technical Debt
 
+### TD-015: Validation Metrics Integration
+
+**Priority:** MEDIUM
+**Status:** Planned
+**Component:** Training / Service
+**Created:** March 14, 2026
+
+**Description:**
+Currently, the training pipeline tracks metrics during training passes but lacks granular, systematized metric tracking for the validation phase. Integrating validation metrics into the `TrainingMetricsService` and dashboard will provide better insights into model generalization and enable early detection of over-fitting. A detailed proposal is available at `docs/proposals/VALIDATION_METRICS_PROPOSAL.md`.
+
+**Action Items:**
+- Extend metrics data structures to include validation fields (e.g., `val_loss`, `val_accuracy`, `val_perplexity`).
+- Update `TrainingMetricsService` API to accept and store validation metric payloads.
+- Add validation loop hooks in the model's training loop to accumulate and emit validation metrics.
+- Update `dashboard.html` and `serve_dashboard.py` to fetch and plot validation curves alongside training curves.
+
+
 ### TD-014: LLM Operations and Training Tooling Suite
 
 **Priority:** MEDIUM
@@ -72,20 +89,35 @@ As the core machine learning models mature, standalone tools are missing for dat
 ### TD-013: Advanced Training Metrics and Outlier Detection
 
 **Priority:** MEDIUM
-**Status:** Planned
+**Status:** Resolved
 **Component:** Training / Service
 **Created:** March 8, 2026
+**Resolved:** March 14, 2026
 
 **Description:**
 Current training metrics primarily focus on basic loss, perplexity, and learning rate. To improve observability and data quality, we need to introduce advanced tracking for throughput (Compute vs Database time vs Padding Efficiency), model optimization health (Activation saturation, gradient consistency), generative validation text (BLEU/ROUGE), and most importantly, an automated capability to flag training samples with abnormally large loss/gradient variations.
 
 **Action Items:**
 
-- Update `TrainingMetricsSnapshot` to support additional floats (padding efficiency, execution ratios, variance).
-- Add functionality in `ChatbotTrainer` batch loop to flag samples exceeding gradient norm / loss thresholds.
-- Log outliers to a dedicated artifact `abnormal_samples.json` and expose a new REST endpoint.
-- Enhance layers (Optimizer, `MultiHeadAttention`, `FeedForward`) to pass out necessary internal tracking scalars during forward/backward pass.
-- Execute partial `generate()` routines during validation phase to acquire textual quality scores (BLEU/ROUGE).
+- ✅ Updated `TrainingMetricsSnapshot` to support additional floats (`gradient_variance`, `compute_time_ratio`, `weight_update_ratio`).
+- ✅ Added `AbnormalSample` struct with `epoch`, `sample_id`, `input_text`, `target_text`, `loss`, `grad_norm`, `reason`.
+- ✅ Added outlier config to `MetricsServiceConfig`: `loss_outlier_z_threshold`, `grad_norm_outlier_threshold`, `max_abnormal_samples`, `abnormal_samples_file`.
+- ✅ Implemented `flag_abnormal_sample()`, `get_abnormal_samples()`, `update_advanced_epoch_metrics()` on `TrainingMetricsService`.
+- ✅ Implemented `persist_abnormal_samples()` — writes flagged samples to `abnormal_samples.json` on every flag event.
+- ✅ Added `Optimizer::get_weight_norm()` to compute the L2 norm of all weight parameters.
+- ✅ Instrumented `ChatbotTrainer::train_epoch()` with:
+  - Welford online algorithm for per-step gradient norm variance.
+  - Per-step loss z-score outlier guard (triggers after ≥10 samples).
+  - Gradient-norm absolute outlier guard (`grad_norm_outlier_threshold`).
+  - Compute-time ratio tracking (forward+backward nanoseconds / epoch wall nanoseconds).
+  - Weight-update ratio computation: `(lr × ||g||₂) / ||w||₂` averaged per epoch.
+- ✅ Added REST endpoint `GET /api/metrics/abnormal` to `TrainingMetricsAPI`.
+
+**Deferred (future work):**
+- Activation saturation tracking (requires FeedForward layer hooks).
+- BLEU/ROUGE generation quality scores (requires partial generate() during validation).
+- Attention entropy (requires MultiHeadAttention weight exposure).
+- Batch padding efficiency (requires BatchStats integration).
 
 
 ### TD-003: GPU Memory Management Optimization

@@ -349,6 +349,7 @@
         /* --- Throughput --- */
         var sps = current.samples_per_second;
         setText(UI.throughputValue, sps ? fmt(sps, 3) : '—');
+        adaptPollInterval(sps);
 
         /* --- Loss --- */
         setText(UI.lossValue,          fmt(current.current_loss));
@@ -442,11 +443,31 @@
             });
     }
 
+    /* Adapt poll interval to match data production rate (1000 / sps ms).
+       Clamped to [200 ms, 5000 ms]. Only restarts timer when the new interval
+       differs from the current one by more than 10 %. */
+    function adaptPollInterval(sps) {
+        if (!sps || sps <= 0 || isNaN(sps)) return;
+        var newInterval = Math.max(200, Math.min(5000, Math.round(1000 / sps)));
+        if (Math.abs(newInterval - Config.pollInterval) / Config.pollInterval > 0.10) {
+            Config.pollInterval = newInterval;
+            stopPolling();
+            State.pollTimer = setInterval(poll, Config.pollInterval);
+            updatePollLabel();
+        }
+    }
+
+    function updatePollLabel() {
+        var sps = Config.pollInterval > 0 ? (1000 / Config.pollInterval).toFixed(2) : '—';
+        UI.pollIntervalLabel.textContent =
+            'Polling: ' + (Config.pollInterval / 1000).toFixed(2) + 's  (' + sps + ' polls/s)';
+    }
+
     function startPolling() {
         stopPolling();
         poll(); /* immediate first poll */
         State.pollTimer = setInterval(poll, Config.pollInterval);
-        UI.pollIntervalLabel.textContent = 'Polling: ' + (Config.pollInterval / 1000) + 's';
+        updatePollLabel();
     }
 
     function stopPolling() {
@@ -627,7 +648,7 @@
         initNavigation();
 
         /* Footer */
-        UI.pollIntervalLabel.textContent = 'Polling: ' + (Config.pollInterval / 1000) + 's';
+        updatePollLabel();
 
         /* Register Tizen key events (required on Samsung TV) */
         try {

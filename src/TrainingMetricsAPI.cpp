@@ -114,6 +114,18 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> m
             res.status = 500;
         }
     });
+
+    // GET /api/metrics/abnormal - Outlier samples (TD-013)
+    server_impl_->server.Get("/api/metrics/abnormal", [this](const httplib::Request&, httplib::Response& res) {
+        try {
+            std::string response = handle_abnormal_samples();
+            res.set_content(response, "application/json");
+            res.status = 200;
+        } catch (const std::exception& e) {
+            res.set_content(create_error_response(e.what()), "application/json");
+            res.status = 500;
+        }
+    });
     
     // POST endpoints for receiving metrics updates from trainers
     // POST /api/session/start - Start new training session
@@ -420,6 +432,32 @@ std::string TrainingMetricsAPI::handle_epoch_metrics() {
     json << "\"best_epoch\":" << snapshot.best_epoch;
     json << "}";
     
+    return json.str();
+}
+
+std::string TrainingMetricsAPI::handle_abnormal_samples() {
+    auto samples = metrics_service_->get_abnormal_samples();
+
+    std::ostringstream json;
+    json << std::fixed << std::setprecision(6);
+    json << "{\"abnormal_samples\":[";
+
+    for (size_t i = 0; i < samples.size(); ++i) {
+        const auto& s = samples[i];
+        if (i > 0) json << ",";
+        json << "{";
+        json << "\"epoch\":"      << s.epoch      << ",";
+        json << "\"sample_id\":"  << s.sample_id  << ",";
+        json << "\"loss\":"       << s.loss        << ",";
+        json << "\"grad_norm\":"  << s.grad_norm   << ",";
+        json << "\"reason\":\""   << escape_json(s.reason)      << "\",";
+        json << "\"input_text\":\""  << escape_json(s.input_text)  << "\",";
+        json << "\"target_text\":\"" << escape_json(s.target_text) << "\",";
+        json << "\"timestamp\":" << std::chrono::system_clock::to_time_t(s.timestamp);
+        json << "}";
+    }
+
+    json << "],\"count\":" << samples.size() << "}";
     return json.str();
 }
 

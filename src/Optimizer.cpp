@@ -95,6 +95,24 @@ float Optimizer::get_gradient_norm() const {
     return std::sqrt(total_norm);
 }
 
+// Get weight (parameter) L2 norm — used for weight-update ratio (TD-013)
+float Optimizer::get_weight_norm() const {
+    float total_norm = 0.0f;
+
+    for (const auto& param : parameter_groups) {
+        if (param.weights) {
+            for (int i = 0; i < param.weights->rows; i++) {
+                for (int j = 0; j < param.weights->cols; j++) {
+                    float val = (*param.weights)(i, j);
+                    total_norm += val * val;
+                }
+            }
+        }
+    }
+
+    return std::sqrt(total_norm);
+}
+
 // Clip gradients
 float Optimizer::clip_gradients() {
     if (max_grad_norm <= 0.0f) {

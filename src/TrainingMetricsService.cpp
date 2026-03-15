@@ -6,6 +6,7 @@
 #include <iomanip>
 #include <sstream>
 #include <filesystem>
+#include <thread>
 
 // HTTP client for pushing metrics to external API daemon (optional)
 #ifdef BUILD_METRICS_API_SERVER
@@ -44,64 +45,74 @@ TrainingMetricsService::~TrainingMetricsService() {
 }
 
 void TrainingMetricsService::start_session(int session_id, int total_epochs, int total_samples) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    current_session_id_ = session_id;
-    is_training_ = true;
-    
-    current_snapshot_ = TrainingMetricsSnapshot();
-    current_snapshot_.session_id = session_id;
-    current_snapshot_.is_training = true;
-    current_snapshot_.total_epochs = total_epochs;
-    current_snapshot_.total_samples = total_samples;
-    current_snapshot_.session_start_time = std::chrono::system_clock::now();
-    current_snapshot_.last_update_time = current_snapshot_.session_start_time;
-    
-    session_start_steady_ = std::chrono::steady_clock::now();
-    samples_since_last_persist_ = 0;
-    last_persist_time_ = std::chrono::system_clock::now();
-    
-    adai::Logger::info("Metrics session {} started (epochs={}, samples={})",
-                       session_id, total_epochs, total_samples);
-    
-    // Push to external metrics API daemon
-    adai::Logger::info("Metrics push config: enable_push={}, push_url={}", 
-                       config_.enable_push, config_.push_url);
-    if (config_.enable_push) {
-        std::ostringstream json;
-        json << "{\"session_id\":" << session_id 
-             << ",\"total_epochs\":" << total_epochs
-             << ",\"total_samples\":" << total_samples << "}";
-        push_to_api("/api/session/start", json.str());
+    std::string push_json;
+    bool should_push = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+
+        current_session_id_ = session_id;
+        is_training_ = true;
+
+        current_snapshot_ = TrainingMetricsSnapshot();
+        current_snapshot_.session_id = session_id;
+        current_snapshot_.is_training = true;
+        current_snapshot_.total_epochs = total_epochs;
+        current_snapshot_.total_samples = total_samples;
+        current_snapshot_.session_start_time = std::chrono::system_clock::now();
+        current_snapshot_.last_update_time = current_snapshot_.session_start_time;
+
+        session_start_steady_ = std::chrono::steady_clock::now();
+        samples_since_last_persist_ = 0;
+        last_persist_time_ = std::chrono::system_clock::now();
+
+        adai::Logger::info("Metrics session {} started (epochs={}, samples={})",
+                           session_id, total_epochs, total_samples);
+        adai::Logger::info("Metrics push config: enable_push={}, push_url={}",
+                           config_.enable_push, config_.push_url);
+
+        should_push = config_.enable_push;
+        if (should_push) {
+            std::ostringstream json;
+            json << "{\"session_id\":" << session_id
+                 << ",\"total_epochs\":" << total_epochs
+                 << ",\"total_samples\":" << total_samples << "}";
+            push_json = json.str();
+        }
+    }  // mutex released here — HTTP call runs WITHOUT holding the lock
+    if (should_push) {
+        push_to_api("/api/session/start", push_json);
     }
 }
 
 void TrainingMetricsService::end_session() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    is_training_ = false;
-    current_snapshot_.is_training = false;
-    
-    // Calculate total training time
-    auto now = std::chrono::steady_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-        now - session_start_steady_);
-    current_snapshot_.total_training_time_seconds = duration.count() / 1000.0;
-    
-    // Persist final state
-    persist_metrics();
-    persist_summary();
-    if (config_.enable_prometheus_format) {
-        persist_prometheus();
-    }
-    
-    adai::Logger::info("Metrics session {} ended (total_time={:.2f}s, samples={})",
-                       current_session_id_.load(),
-                       current_snapshot_.total_training_time_seconds,
-                       current_snapshot_.total_samples_trained);
-    
-    // Push to external metrics API daemon
-    if (config_.enable_push) {
+    bool should_push = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+
+        is_training_ = false;
+        current_snapshot_.is_training = false;
+
+        // Calculate total training time
+        auto now = std::chrono::steady_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - session_start_steady_);
+        current_snapshot_.total_training_time_seconds = duration.count() / 1000.0;
+
+        // Persist final state
+        persist_metrics();
+        persist_summary();
+        if (config_.enable_prometheus_format) {
+            persist_prometheus();
+        }
+
+        adai::Logger::info("Metrics session {} ended (total_time={:.2f}s, samples={})",
+                           current_session_id_.load(),
+                           current_snapshot_.total_training_time_seconds,
+                           current_snapshot_.total_samples_trained);
+
+        should_push = config_.enable_push;
+    }  // mutex released here
+    if (should_push) {
         push_to_api("/api/session/end", "{}");
     }
 }
@@ -111,29 +122,40 @@ bool TrainingMetricsService::is_session_active() const {
 }
 
 void TrainingMetricsService::start_epoch(int epoch, int total_samples) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    current_snapshot_.current_epoch = epoch;
-    current_snapshot_.current_sample = 0;
-    if (total_samples > 0) {
-        current_snapshot_.total_samples = total_samples;
-    }
-    
-    epoch_start_steady_ = std::chrono::steady_clock::now();
-    
-    adai::Logger::debug("Metrics epoch {} started (samples={})", epoch, total_samples);
-    
-    // Push to external metrics API daemon
-    if (config_.enable_push) {
-        std::ostringstream json;
-        json << "{\"epoch\":" << epoch 
-             << ",\"total_samples\":" << total_samples << "}";
-        push_to_api("/api/epoch/start", json.str());
+    std::string push_json;
+    bool should_push = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+
+        current_snapshot_.current_epoch = epoch;
+        current_snapshot_.current_sample = 0;
+        if (total_samples > 0) {
+            current_snapshot_.total_samples = total_samples;
+        }
+
+        epoch_start_steady_ = std::chrono::steady_clock::now();
+
+        adai::Logger::debug("Metrics epoch {} started (samples={})", epoch, total_samples);
+
+        should_push = config_.enable_push;
+        if (should_push) {
+            std::ostringstream json;
+            json << "{\"epoch\":" << epoch
+                 << ",\"total_samples\":" << total_samples << "}";
+            push_json = json.str();
+        }
+    }  // mutex released here
+    if (should_push) {
+        push_to_api("/api/epoch/start", push_json);
     }
 }
 
 void TrainingMetricsService::end_epoch(int epoch, float loss, float validation_loss,
                                        float learning_rate, float perplexity, float gradient_norm) {
+    std::string push_json;
+    bool should_push = false;
+    float stored_perplexity = 0.0f;
+    {
     std::lock_guard<std::mutex> lock(mutex_);
     
     // Calculate epoch duration
@@ -185,22 +207,30 @@ void TrainingMetricsService::end_epoch(int epoch, float loss, float validation_l
     
     adai::Logger::debug("Metrics epoch {} completed (loss={:.4f}, val_loss={:.4f}, time={:.2f}s)",
                         epoch, loss, validation_loss, epoch_time);
-    
-    // Push to external metrics API daemon
-    if (config_.enable_push) {
-        std::ostringstream json;
-        json << "{\"epoch\":" << epoch
-             << ",\"loss\":" << loss
-             << ",\"validation_loss\":" << validation_loss
-             << ",\"learning_rate\":" << learning_rate
-             << ",\"perplexity\":" << current_snapshot_.current_perplexity
-             << ",\"gradient_norm\":" << gradient_norm << "}";
-        push_to_api("/api/epoch/end", json.str());
+
+        stored_perplexity = current_snapshot_.current_perplexity;
+        should_push = config_.enable_push;
+        if (should_push) {
+            std::ostringstream json;
+            json << "{\"epoch\":" << epoch
+                 << ",\"loss\":" << loss
+                 << ",\"validation_loss\":" << validation_loss
+                 << ",\"learning_rate\":" << learning_rate
+                 << ",\"perplexity\":" << stored_perplexity
+                 << ",\"gradient_norm\":" << gradient_norm << "}";
+            push_json = json.str();
+        }
+    }  // mutex released here
+    if (should_push) {
+        push_to_api("/api/epoch/end", push_json);
     }
 }
 
 void TrainingMetricsService::update_sample_metrics(int sample, float loss,
                                                    float gradient_norm, float learning_rate) {
+    std::string push_json;
+    bool should_push = false;
+    {
     std::lock_guard<std::mutex> lock(mutex_);
     
     current_snapshot_.current_sample = sample;
@@ -224,16 +254,17 @@ void TrainingMetricsService::update_sample_metrics(int sample, float loss,
     // Update throughput metrics
     update_throughput_metrics();
     
-    // Push to external metrics API daemon on every sample update
-    if (config_.enable_push) {
-        std::ostringstream json;
-        json << "{\"sample\":" << sample
-             << ",\"loss\":" << loss
-             << ",\"gradient_norm\":" << gradient_norm
-             << ",\"learning_rate\":" << learning_rate << "}";
-        push_to_api("/api/metrics/sample", json.str());
-    }
-    
+    // Build push payload while lock is held
+        should_push = config_.enable_push;
+        if (should_push) {
+            std::ostringstream json;
+            json << "{\"sample\":" << sample
+                 << ",\"loss\":" << loss
+                 << ",\"gradient_norm\":" << gradient_norm
+                 << ",\"learning_rate\":" << learning_rate << "}";
+            push_json = json.str();
+        }
+
     // Persist if needed
     if (samples_since_last_persist_ >= config_.persist_every_samples) {
         PersistentMetricsRecord record;
@@ -252,38 +283,56 @@ void TrainingMetricsService::update_sample_metrics(int sample, float loss,
         samples_since_last_persist_ = 0;
         last_persist_time_ = current_snapshot_.last_update_time;
     }
+    }  // mutex released here
+    if (should_push) {
+        push_to_api("/api/metrics/sample", push_json);
+    }
 }
 
 void TrainingMetricsService::update_validation_metrics(float validation_loss) {
+    std::string push_json;
+    bool should_push = false;
+    {
     std::lock_guard<std::mutex> lock(mutex_);
     
     current_snapshot_.current_validation_loss = validation_loss;
     current_snapshot_.running_validation_loss = validation_loss;
     current_snapshot_.last_update_time = std::chrono::system_clock::now();
-    
-    // Push to external metrics API daemon
-    if (config_.enable_push) {
-        std::ostringstream json;
-        json << "{\"validation_loss\":" << validation_loss << "}";
-        push_to_api("/api/metrics/validation", json.str());
+
+        should_push = config_.enable_push;
+        if (should_push) {
+            std::ostringstream json;
+            json << "{\"validation_loss\":" << validation_loss << "}";
+            push_json = json.str();
+        }
+    }  // mutex released here
+    if (should_push) {
+        push_to_api("/api/metrics/validation", push_json);
     }
 }
 
 void TrainingMetricsService::update_best_metrics(float validation_loss, int epoch) {
+    std::string push_json;
+    bool should_push = false;
+    {
     std::lock_guard<std::mutex> lock(mutex_);
     
     if (validation_loss < current_snapshot_.best_validation_loss) {
         current_snapshot_.best_validation_loss = validation_loss;
         current_snapshot_.best_epoch = epoch;
         adai::Logger::info("New best validation loss: {:.4f} (epoch {})", validation_loss, epoch);
-        
-        // Push to external metrics API daemon
-        if (config_.enable_push) {
-            std::ostringstream json;
-            json << "{\"validation_loss\":" << validation_loss
-                 << ",\"epoch\":" << epoch << "}";
-            push_to_api("/api/metrics/best", json.str());
-        }
+
+            should_push = config_.enable_push;
+            if (should_push) {
+                std::ostringstream json;
+                json << "{\"validation_loss\":" << validation_loss
+                     << ",\"epoch\":" << epoch << "}";
+                push_json = json.str();
+            }
+    }
+    }  // mutex released here
+    if (should_push) {
+        push_to_api("/api/metrics/best", push_json);
     }
 }
 
@@ -379,7 +428,10 @@ std::string TrainingMetricsService::to_json() const {
     oss << "  \"total_samples_trained\": " << snapshot.total_samples_trained << ",\n";
     oss << "  \"total_training_time_seconds\": " << snapshot.total_training_time_seconds << ",\n";
     oss << "  \"samples_per_second\": " << snapshot.samples_per_second << ",\n";
-    oss << "  \"estimated_time_remaining_seconds\": " << snapshot.estimated_time_remaining_seconds << "\n";
+    oss << "  \"estimated_time_remaining_seconds\": " << snapshot.estimated_time_remaining_seconds << ",\n";
+    oss << "  \"gradient_variance\": " << snapshot.gradient_variance << ",\n";
+    oss << "  \"compute_time_ratio\": " << snapshot.compute_time_ratio << ",\n";
+    oss << "  \"weight_update_ratio\": " << snapshot.weight_update_ratio << "\n";
     oss << "}";
     
     return oss.str();
@@ -480,6 +532,7 @@ void TrainingMetricsService::flush_to_disk() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         persist_metrics();
+        persist_abnormal_samples();
     }
     
     adai::Logger::debug("Metrics flushed to disk");
@@ -544,15 +597,15 @@ void TrainingMetricsService::persist_summary() {
     if (!config_.enable_persistence) {
         return;
     }
-    
+
     try {
         std::ofstream file(config_.summary_file);
         if (!file.is_open()) {
             adai::Logger::warn("Failed to open summary file: {}", config_.summary_file);
             return;
         }
-        
-        file << to_json_summary();
+
+        file << to_json_summary_internal();  // caller already holds mutex_
         file.close();
     } catch (const std::exception& e) {
         adai::Logger::error("Failed to persist summary: {}", e.what());
@@ -563,15 +616,15 @@ void TrainingMetricsService::persist_prometheus() {
     if (!config_.enable_prometheus_format) {
         return;
     }
-    
+
     try {
         std::ofstream file(config_.prometheus_file);
         if (!file.is_open()) {
             adai::Logger::warn("Failed to open Prometheus file: {}", config_.prometheus_file);
             return;
         }
-        
-        file << to_prometheus();
+
+        file << to_prometheus_internal();  // caller already holds mutex_
         file.close();
     } catch (const std::exception& e) {
         adai::Logger::error("Failed to persist Prometheus metrics: {}", e.what());
@@ -807,63 +860,63 @@ std::string TrainingMetricsService::build_push_url(const std::string& endpoint) 
 
 void TrainingMetricsService::push_to_api(const std::string& endpoint, const std::string& json_body) {
     if (!config_.enable_push) {
-        adai::Logger::info("Push disabled, skipping {}", endpoint);
         return;
     }
-    
-    adai::Logger::info("Pushing metrics to {}{}: {}", config_.push_url, endpoint, json_body.substr(0, 100));
-    
-    try {
-        // Parse URL to extract host and port
-        std::string url = config_.push_url;
-        std::string host = "localhost";
-        int port = 8081;
-        
-        // Simple URL parsing: http://host:port
-        size_t proto_pos = url.find("://");
-        if (proto_pos != std::string::npos) {
-            url = url.substr(proto_pos + 3);
-        }
-        
-        size_t port_pos = url.find(':');
-        if (port_pos != std::string::npos) {
-            host = url.substr(0, port_pos);
-            size_t path_pos = url.find('/', port_pos);
-            std::string port_str;
-            if (path_pos != std::string::npos) {
-                port_str = url.substr(port_pos + 1, path_pos - port_pos - 1);
-            } else {
-                port_str = url.substr(port_pos + 1);
+
+    // Fire-and-forget: dispatch HTTP call onto a detached thread so the
+    // training loop is never blocked by network latency or a slow/unresponsive
+    // metrics server.
+    std::string push_url  = config_.push_url;
+    int         timeout   = config_.push_timeout_ms;
+
+    std::thread([push_url, timeout, endpoint, json_body]() {
+        try {
+            // Parse URL to extract host and port
+            std::string url  = push_url;
+            std::string host = "localhost";
+            int         port = 8081;
+
+            size_t proto_pos = url.find("://");
+            if (proto_pos != std::string::npos) {
+                url = url.substr(proto_pos + 3);
             }
-            port = std::stoi(port_str);
-        } else {
-            size_t path_pos = url.find('/');
-            if (path_pos != std::string::npos) {
-                host = url.substr(0, path_pos);
+
+            size_t port_pos = url.find(':');
+            if (port_pos != std::string::npos) {
+                host = url.substr(0, port_pos);
+                size_t path_pos = url.find('/', port_pos);
+                std::string port_str;
+                if (path_pos != std::string::npos) {
+                    port_str = url.substr(port_pos + 1, path_pos - port_pos - 1);
+                } else {
+                    port_str = url.substr(port_pos + 1);
+                }
+                port = std::stoi(port_str);
             } else {
-                host = url;
+                size_t path_pos = url.find('/');
+                if (path_pos != std::string::npos) {
+                    host = url.substr(0, path_pos);
+                } else {
+                    host = url;
+                }
             }
-        }
-        
-        // Create HTTP client and send POST request
-        httplib::Client client(host.c_str(), port);
-        client.set_connection_timeout(0, config_.push_timeout_ms * 1000);  // seconds, microseconds
-        client.set_read_timeout(config_.push_timeout_ms / 1000, (config_.push_timeout_ms % 1000) * 1000);
-        
-        auto res = client.Post(endpoint.c_str(), json_body, "application/json");
-        
-        if (!res || res->status != 200) {
-            // Log error but don't throw - push failures shouldn't crash training
+
+            httplib::Client client(host.c_str(), port);
+            client.set_connection_timeout(0, timeout * 1000);
+            client.set_read_timeout(timeout / 1000, (timeout % 1000) * 1000);
+            client.set_write_timeout(timeout / 1000, (timeout % 1000) * 1000);
+
+            auto res = client.Post(endpoint.c_str(), json_body, "application/json");
+
             if (!res) {
-                adai::Logger::warn("Failed to push metrics to {}{}: Connection failed", config_.push_url, endpoint);
-            } else {
-                adai::Logger::warn("Failed to push metrics to {}{}: HTTP {}", config_.push_url, endpoint, res->status);
+                adai::Logger::debug("Metrics push to {}{}: connection failed", push_url, endpoint);
+            } else if (res->status != 200) {
+                adai::Logger::debug("Metrics push to {}{}: HTTP {}", push_url, endpoint, res->status);
             }
+        } catch (const std::exception& e) {
+            adai::Logger::debug("Metrics push exception {}{}: {}", push_url, endpoint, e.what());
         }
-    } catch (const std::exception& e) {
-        // Log error but don't throw
-        adai::Logger::warn("Exception pushing metrics to {}{}: {}", config_.push_url, endpoint, e.what());
-    }
+    }).detach();
 }
 
 #else
@@ -878,6 +931,87 @@ void TrainingMetricsService::push_to_api(const std::string&, const std::string&)
 }
 
 #endif
+
+// ============================================================================
+// TD-013: Advanced Metrics & Outlier Detection
+// ============================================================================
+
+void TrainingMetricsService::update_advanced_epoch_metrics(float gradient_variance,
+                                                           float compute_time_ratio,
+                                                           float weight_update_ratio) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    current_snapshot_.gradient_variance   = gradient_variance;
+    current_snapshot_.compute_time_ratio  = compute_time_ratio;
+    current_snapshot_.weight_update_ratio = weight_update_ratio;
+    adai::Logger::debug("Advanced epoch metrics: grad_var={:.4f}, compute_ratio={:.4f}, wu_ratio={:.6f}",
+                        gradient_variance, compute_time_ratio, weight_update_ratio);
+}
+
+void TrainingMetricsService::flag_abnormal_sample(const AbnormalSample& sample) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+
+        if (static_cast<int>(abnormal_samples_.size()) >= config_.max_abnormal_samples) {
+            // Drop oldest entry to stay within cap
+            abnormal_samples_.erase(abnormal_samples_.begin());
+        }
+        abnormal_samples_.push_back(sample);
+
+        adai::Logger::warn("Abnormal sample flagged — epoch={} sample={} loss={:.4f} grad={:.4f} reason={}",
+                           sample.epoch, sample.sample_id, sample.loss,
+                           sample.grad_norm, sample.reason);
+
+        persist_abnormal_samples();
+    }
+}
+
+std::vector<AbnormalSample> TrainingMetricsService::get_abnormal_samples() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return abnormal_samples_;
+}
+
+void TrainingMetricsService::persist_abnormal_samples() {
+    // Caller must hold mutex_
+    if (!config_.enable_persistence || abnormal_samples_.empty()) {
+        return;
+    }
+
+    try {
+        // Ensure directory exists
+        fs::path p(config_.abnormal_samples_file);
+        if (p.has_parent_path()) {
+            fs::create_directories(p.parent_path());
+        }
+
+        std::ofstream file(config_.abnormal_samples_file);
+        if (!file.is_open()) {
+            adai::Logger::warn("Failed to open abnormal samples file: {}",
+                               config_.abnormal_samples_file);
+            return;
+        }
+
+        file << "[\n";
+        for (size_t i = 0; i < abnormal_samples_.size(); ++i) {
+            const auto& s = abnormal_samples_[i];
+            file << "  {";
+            file << "\"epoch\":" << s.epoch << ",";
+            file << "\"sample_id\":" << s.sample_id << ",";
+            file << "\"loss\":" << std::fixed << std::setprecision(6) << s.loss << ",";
+            file << "\"grad_norm\":" << s.grad_norm << ",";
+            file << "\"reason\":\"" << escape_json(s.reason) << "\",";
+            file << "\"input_text\":\"" << escape_json(s.input_text) << "\",";
+            file << "\"target_text\":\"" << escape_json(s.target_text) << "\",";
+            file << "\"timestamp\":\"" << format_timestamp(s.timestamp) << "\"";
+            file << "}";
+            if (i + 1 < abnormal_samples_.size()) file << ",";
+            file << "\n";
+        }
+        file << "]\n";
+        file.close();
+    } catch (const std::exception& e) {
+        adai::Logger::error("Failed to persist abnormal samples: {}", e.what());
+    }
+}
 
 // ============================================================================
 // GlobalMetricsService Implementation

@@ -198,6 +198,15 @@ class Optimizer {
     float get_gradient_norm() const;
 
     /**
+     * @brief Get global weight (parameter) L2 norm
+     *
+     * Used by TD-013 advanced metrics to compute the weight-update ratio.
+     *
+     * @return L2 norm of all weight parameters
+     */
+    float get_weight_norm() const;
+
+    /**
      * @brief Get number of parameter groups
      */
     size_t num_parameters() const {

@@ -24,6 +24,7 @@
  * - GET  /api/metrics/history    - Historical metrics records (JSON)
  * - GET  /api/metrics/prometheus - Prometheus format metrics
  * - GET  /api/metrics/csv        - CSV format (header + current row)
+ * - GET  /api/metrics/abnormal   - TD-013: Outlier samples (JSON)
  * - GET  /api/session/status     - Session status (active, epoch, progress)
  * - GET  /api/session/epochs     - Per-epoch metrics (losses, validation)
  * - POST /api/session/start      - Start new training session
@@ -91,6 +92,7 @@ private:
     std::string handle_csv_metrics();
     std::string handle_session_status();
     std::string handle_epoch_metrics();
+    std::string handle_abnormal_samples();  // TD-013: outlier samples
     std::string handle_flush_control();
     std::string handle_clear_control();
     std::string handle_health_check();
