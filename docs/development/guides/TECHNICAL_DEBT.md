@@ -60,10 +60,11 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 **Created:** March 14, 2026
 **Resolved:** March 14, 2026
 
-**Description:**
+Description:
 Previously, the training pipeline tracked metrics during training passes but lacked granular, systematized metric tracking for the validation phase. Validation metrics are now fully integrated into `TrainingMetricsService` and the dashboard, providing better insights into model generalization and enabling early detection of over-fitting. Proposal: `docs/proposals/VALIDATION_METRICS_PROPOSAL.md`.
 
-**Action Items:**
+Action Items:
+
 - ✅ Extended `TrainingMetricsSnapshot` with `current_validation_perplexity`, `current_validation_accuracy`, `epoch_validation_perplexities`, and `epoch_validation_accuracies`.
 - ✅ Updated `update_validation_metrics()` signature to accept `validation_loss`, `validation_accuracy` (default `-1.0`), and `validation_perplexity` (default `0` = auto-derived from loss).
 - ✅ `end_epoch()` now copies the current validation perplexity and accuracy into the per-epoch history vectors.
@@ -81,10 +82,10 @@ Previously, the training pipeline tracked metrics during training passes but lac
 **Component:** Tooling / Toolchain
 **Created:** March 8, 2026
 
-**Description:**
+Description:
 As the core machine learning models mature, standalone tools are missing for dataset lifecycle, evaluation, and deployment optimization. We lack isolated binaries to handle quantization, standardized inference evaluation, dataset PII scrubbing/dedup, and concurrent load testing.
 
-**Action Items:**
+Action Items:
 
 - Implement `adai-weights-tool` for FP16/INT8 quantization and converting weight formats.
 - Develop `adai-eval` for deterministic pipeline benchmarking on standardized Q&A lists.
@@ -99,10 +100,10 @@ As the core machine learning models mature, standalone tools are missing for dat
 **Created:** March 8, 2026
 **Resolved:** March 14, 2026
 
-**Description:**
+Description:
 Current training metrics primarily focus on basic loss, perplexity, and learning rate. To improve observability and data quality, we need to introduce advanced tracking for throughput (Compute vs Database time vs Padding Efficiency), model optimization health (Activation saturation, gradient consistency), generative validation text (BLEU/ROUGE), and most importantly, an automated capability to flag training samples with abnormally large loss/gradient variations.
 
-**Action Items:**
+Action Items:
 
 - ✅ Updated `TrainingMetricsSnapshot` to support additional floats (`gradient_variance`, `compute_time_ratio`, `weight_update_ratio`).
 - ✅ Added `AbnormalSample` struct with `epoch`, `sample_id`, `input_text`, `target_text`, `loss`, `grad_norm`, `reason`.
@@ -115,10 +116,11 @@ Current training metrics primarily focus on basic loss, perplexity, and learning
   - Per-step loss z-score outlier guard (triggers after ≥10 samples).
   - Gradient-norm absolute outlier guard (`grad_norm_outlier_threshold`).
   - Compute-time ratio tracking (forward+backward nanoseconds / epoch wall nanoseconds).
-  - Weight-update ratio computation: `(lr × ||g||₂) / ||w||₂` averaged per epoch.
+  - Weight-update ratio computation: `(lr × ||g||₂) /||w||₂` averaged per epoch.
 - ✅ Added REST endpoint `GET /api/metrics/abnormal` to `TrainingMetricsAPI`.
 
-**Deferred (future work):**
+Deferred (future work):
+
 - Activation saturation tracking (requires FeedForward layer hooks).
 - BLEU/ROUGE generation quality scores (requires partial generate() during validation).
 - Attention entropy (requires MultiHeadAttention weight exposure).

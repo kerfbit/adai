@@ -1,7 +1,7 @@
 # Log File Rotation and Management - Implementation Complete
 
-**Date**: March 1, 2026  
-**Technical Debt Reference**: TD Future Enhancement #9  
+**Date**: March 1, 2026
+**Technical Debt Reference**: TD Future Enhancement #9
 **Status**: ✅ Implemented, Tested, and Validated
 
 ## Overview
@@ -11,6 +11,7 @@ Implemented automatic log file rotation and management for the ADAI chatbot serv
 ## Features Implemented
 
 ### 1. Rotating File Sink
+
 - **Dual-sink logging**: Console output + rotating file output
 - **Automatic rotation**: Files rotate when reaching max size
 - **File retention**: Maintains specified number of rotated files
@@ -21,16 +22,17 @@ Implemented automatic log file rotation and management for the ADAI chatbot serv
 
 Four new configuration parameters:
 
-| Parameter | Environment Variable | Default | Valid Range | Description |
+|Parameter|Environment Variable|Default|Valid Range|Description|
 |-----------|---------------------|---------|-------------|-------------|
-| `log_file_path` | `LOG_FILE_PATH` | (empty) | Valid file path | Path to log file; empty = console only |
-| `log_max_size_mb` | `LOG_MAX_SIZE_MB` | 10 | 1-1024 MB | Max size per log file before rotation |
-| `log_max_files` | `LOG_MAX_FILES` | 5 | 1-100 | Number of rotated files to keep |
-| `log_compress` | `LOG_COMPRESS` | false | true/false | Compression flag (requires external tool) |
+|`log_file_path`|`LOG_FILE_PATH`|(empty)|Valid file path|Path to log file; empty = console only|
+|`log_max_size_mb`|`LOG_MAX_SIZE_MB`|10|1-1024 MB|Max size per log file before rotation|
+|`log_max_files`|`LOG_MAX_FILES`|5|1-100|Number of rotated files to keep|
+|`log_compress`|`LOG_COMPRESS`|false|true/false|Compression flag (requires external tool)|
 
 ### 3. Configuration Sources
 
 Priority order (highest to lowest):
+
 1. Environment variables (`LOG_FILE_PATH`, `LOG_MAX_SIZE_MB`, etc.)
 2. Configuration file (`config.conf`)
 3. Default values
@@ -38,10 +40,12 @@ Priority order (highest to lowest):
 ### 4. Validation
 
 All log rotation settings are validated during:
+
 - Initial configuration load
 - Configuration hot-reload (SIGHUP)
 
 Validation rules:
+
 - `log_max_size_mb`: Must be between 1 and 1024 MB
 - `log_max_files`: Must be between 1 and 100 files
 - `log_file_path`: No special validation (can be any valid path)
@@ -51,7 +55,8 @@ Invalid configurations are rejected during hot-reload with detailed error messag
 ### 5. File Naming
 
 Rotated files follow the pattern:
-```
+
+```text
 adai.log      # Current log file
 adai.log.1    # Most recent rotated file
 adai.log.2    # Second most recent
@@ -82,6 +87,7 @@ When `adai.log` reaches `log_max_size_mb`, it's renamed to `adai.log.1`, and pre
 
 3. **src/Logger.hpp**
    - Added `FileConfig` structure:
+
      ```cpp
      struct FileConfig {
          std::string path;
@@ -90,6 +96,7 @@ When `adai.log` reaches `log_max_size_mb`, it's renamed to `adai.log.1`, and pre
          bool compress;
      };
      ```
+
    - Added `init(Level level, const FileConfig& file_config, const std::string& name = "adai")` overload
    - Added `#include <spdlog/sinks/rotating_file_sink.h>`
 
@@ -104,6 +111,7 @@ When `adai.log` reaches `log_max_size_mb`, it's renamed to `adai.log.1`, and pre
 
 5. **src/ChatbotAPIServer.cpp**
    - Modified logger initialization to use file rotation:
+
      ```cpp
      if (!config.log_file_path.empty()) {
          Logger::FileConfig file_config{
@@ -134,7 +142,8 @@ When `adai.log` reaches `log_max_size_mb`, it's renamed to `adai.log.1`, and pre
 
 ### Example 1: Basic File Logging
 
-**config.conf:**
+config.conf:
+
 ```ini
 LOG_FILE_PATH=/var/log/adai/chatbot.log
 LOG_MAX_SIZE_MB=10
@@ -154,7 +163,8 @@ export LOG_MAX_FILES=3
 
 ### Example 3: Development (Console Only)
 
-**config.conf:**
+config.conf:
+
 ```ini
 # LOG_FILE_PATH not set - console only
 LOG_LEVEL=debug
@@ -164,7 +174,8 @@ When `LOG_FILE_PATH` is empty or not set, only console logging is active.
 
 ### Example 4: Production with Compression Flag
 
-**config.conf:**
+config.conf:
+
 ```ini
 LOG_FILE_PATH=/var/log/adai/chatbot.log
 LOG_MAX_SIZE_MB=50
@@ -209,7 +220,7 @@ cat /var/log/adai/chatbot.log.1
 
 On startup, the server logs its file rotation configuration:
 
-```
+```text
 [2026-03-01 18:47:26.534] [info] File logging enabled:
 [2026-03-01 18:47:26.534] [info]   Path: /var/log/adai/chatbot.log
 [2026-03-01 18:47:26.534] [info]   Max size: 50 MB
@@ -234,6 +245,7 @@ tail /var/log/adai/chatbot.log
 **Note**: Changing log file path during hot-reload will **not** move the log to a new location. The change will take effect on the next server restart. Other settings (max size, max files, compress flag) are stored but rotation behavior is set at logger initialization.
 
 For runtime log path changes, restart the service:
+
 ```bash
 systemctl restart adai-chatbot
 ```
@@ -248,9 +260,9 @@ The `LOG_COMPRESS` flag is stored in configuration but `spdlog`'s `rotating_file
 
 For production deployments, use `logrotate` for compression and advanced rotation policies.
 
-**Example /etc/logrotate.d/adai:**
+Example /etc/logrotate.d/adai:
 
-```
+```text
 /var/log/adai/chatbot.log {
     daily
     rotate 7
@@ -267,6 +279,7 @@ For production deployments, use `logrotate` for compression and advanced rotatio
 ```
 
 **Note**: When using `logrotate` with `spdlog`'s rotating sink:
+
 - Disable `spdlog` rotation by setting `LOG_MAX_FILES=1` and a very large `LOG_MAX_SIZE_MB`
 - Let `logrotate` handle all rotation and compression
 - Use `copytruncate` option in logrotate config to avoid file handle issues
@@ -282,6 +295,7 @@ Run the log rotation test script:
 ```
 
 This script:
+
 1. Creates a test directory (`/tmp/adai_log_test`)
 2. Generates a test configuration with small limits (1 MB, 3 files)
 3. Starts the server with file logging
@@ -314,7 +328,8 @@ ls -lh /tmp/test.log*
 ```
 
 Expected output:
-```
+
+```text
 -rw-rw-r-- 1 user user 892K Mar  1 18:50 test.log
 -rw-rw-r-- 1 user user 1.0M Mar  1 18:49 test.log.1
 -rw-rw-r-- 1 user user 1.0M Mar  1 18:48 test.log.2
@@ -322,11 +337,11 @@ Expected output:
 
 ## Verification Results
 
-**Test Date**: March 1, 2026  
-**Test Script**: `scripts/test_log_rotation.sh`  
+**Test Date**: March 1, 2026
+**Test Script**: `scripts/test_log_rotation.sh`
 **Result**: ✅ All checks passed
 
-```
+```text
 ✓ Log file creation working
 ✓ Timestamped log format correct
 ✓ File rotation system configured
@@ -335,7 +350,8 @@ Expected output:
 ```
 
 **Sample Log Output**:
-```
+
+```text
 [2026-03-01 18:47:26.534] [info] File logging enabled:
 [2026-03-01 18:47:26.534] [info]   Path: /tmp/adai_log_test/adai_test.log
 [2026-03-01 18:47:26.534] [info]   Max size: 1 MB
@@ -347,6 +363,7 @@ Expected output:
 ### 1. Dual-Sink Pattern
 
 The logger uses a dual-sink approach:
+
 - **Console sink**: Always active (stdout, colored output)
 - **File sink**: Optional, based on `log_file_path` configuration
 
@@ -355,6 +372,7 @@ Both sinks receive all log messages when file logging is enabled.
 ### 2. Thread Safety
 
 Uses `spdlog::sinks::rotating_file_sink_mt`:
+
 - `_mt` suffix = multi-threaded
 - Thread-safe for concurrent logging from multiple threads
 - Atomic rotation operations
@@ -370,6 +388,7 @@ Converts megabytes to bytes for `spdlog` API.
 ### 4. Rotation Trigger
 
 Rotation occurs when:
+
 1. Logger attempts to write to file
 2. Current file size ≥ `max_bytes`
 3. `spdlog` automatically rotates before writing new message
@@ -379,6 +398,7 @@ This ensures no log file exceeds the configured maximum size.
 ### 5. Console-Only Fallback
 
 If `log_file_path` is empty:
+
 - Only console sink is created
 - No file rotation occurs
 - Useful for development/debugging
@@ -390,6 +410,7 @@ If `log_file_path` is empty:
 **Symptoms**: Server starts but no log file appears
 
 **Diagnosis**:
+
 ```bash
 # Check configuration
 grep LOG_FILE_PATH config.conf
@@ -398,10 +419,11 @@ grep LOG_FILE_PATH config.conf
 env | grep LOG_
 
 # Check console output for errors
-./chatbot_api_server 2>&1 | grep -i "log\|error"
+./chatbot_api_server 2>&1 |grep -i "log\|error"
 ```
 
 **Solutions**:
+
 - Verify `LOG_FILE_PATH` is set and not empty
 - Check directory exists and has write permissions
 - Ensure no typos in configuration parameter names
@@ -411,6 +433,7 @@ env | grep LOG_
 **Symptoms**: Single log file grows beyond `log_max_size_mb`
 
 **Diagnosis**:
+
 ```bash
 # Check current file size
 ls -lh /var/log/adai/chatbot.log
@@ -420,6 +443,7 @@ ls -lh /var/log/adai/chatbot.log
 ```
 
 **Solutions**:
+
 - Verify `LOG_MAX_SIZE_MB` is set correctly
 - Ensure enough disk space for rotation
 - Check for file system errors: `dmesg | tail`
@@ -429,11 +453,13 @@ ls -lh /var/log/adai/chatbot.log
 **Symptoms**: More than `log_max_files` exist
 
 **Possible causes**:
+
 - Multiple servers writing to same log path
 - External log rotation (logrotate) also active
 - Manual file copies
 
 **Solutions**:
+
 - Use unique log file paths per server instance
 - Disable external rotation or internal rotation (not both)
 - Check for duplicate processes: `pgrep chatbot_api`
@@ -443,6 +469,7 @@ ls -lh /var/log/adai/chatbot.log
 **Symptoms**: Server fails to start with permission error
 
 **Diagnosis**:
+
 ```bash
 # Check permissions on log directory
 ls -ld /var/log/adai/
@@ -452,6 +479,7 @@ stat /var/log/adai/
 ```
 
 **Solutions**:
+
 ```bash
 # Create directory with correct permissions
 sudo mkdir -p /var/log/adai
@@ -524,19 +552,21 @@ LOG_LEVEL=info
 ### 5. Monitoring and Alerting
 
 Set up monitoring for:
+
 - Disk space on log partition
 - Log rotation frequency (unusually fast = high error rate)
 - Log file growth patterns
 - Filesystem errors
 
 Example monitoring script:
+
 ```bash
 #!/bin/bash
 # Monitor log disk usage
 LOG_DIR="/var/log/adai"
 THRESHOLD=90
 
-usage=$(df -h "$LOG_DIR" | awk 'NR==2 {print $5}' | sed 's/%//')
+usage=$(df -h "$LOG_DIR" |awk 'NR==2 {print $5}'| sed 's/%//')
 if [ "$usage" -gt "$THRESHOLD" ]; then
     echo "Warning: Log disk usage at ${usage}%"
     # Send alert (email, Slack, PagerDuty, etc.)
@@ -548,6 +578,7 @@ fi
 ### Benchmark Results
 
 Log rotation has minimal performance impact:
+
 - **Console-only**: ~500,000 log messages/sec
 - **Console + file**: ~450,000 log messages/sec (~10% overhead)
 - **During rotation**: Brief pause (<1ms) when rotating files
@@ -586,6 +617,6 @@ Potential improvements for consideration:
 
 ---
 
-**Implementation Status**: Complete and validated  
-**Production Ready**: Yes  
+**Implementation Status**: Complete and validated
+**Production Ready**: Yes
 **Breaking Changes**: None (backward compatible - defaults to console-only)

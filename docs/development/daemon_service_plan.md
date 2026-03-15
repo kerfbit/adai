@@ -57,17 +57,21 @@ The goal is to evolve the existing `adai_chatbot` executable into a production-r
 * **Objective**: Enable proper management of the chatbot as a system service on Linux hosts, with the metrics daemon as a prerequisite.
 * **Action**:
   * The `scripts/adai.service` systemd unit already exists. Update its `[Unit]` section to declare:
+
     ```ini
     After=network-online.target metrics-api-server.service
     Wants=metrics-api-server.service
     ```
+
   * Ensure `metrics-api-server.service` (located at the repository root) is installed alongside `adai.service`:
-    ```
+
+```text
     sudo cp metrics-api-server.service /etc/systemd/system/
     sudo cp scripts/adai.service       /etc/systemd/system/
     sudo systemctl daemon-reload
     sudo systemctl enable --now metrics-api-server adai
     ```
+
   * Set `METRICS_PUSH_ENABLED=true` and `METRICS_SERVER_URL=http://localhost:8081` in the `[Service]` environment block of `scripts/adai.service`.
 * **Rationale**: Declaring `Wants=metrics-api-server.service` ensures systemd starts the metrics daemon before the chatbot, so metrics are never dropped at startup. Using the existing daemon avoids duplicating metrics infrastructure.
 

@@ -7,7 +7,9 @@ All special token handling has been consolidated into a single header-only sourc
 ## What Was Done
 
 ### 1. Analysis
+
 Searched the entire codebase for special token usage across:
+
 - **BPETokenizer** (definitions and encoding/decoding)
 - **EncoderDecoderModel** (model initialization and generation)
 - **TextGenerator** (generation configuration and stop conditions)
@@ -16,6 +18,7 @@ Searched the entire codebase for special token usage across:
 - **SpeculativeDecoding** (advanced generation)
 
 ### 2. Created Consolidated Header
+
 Created `src/SpecialTokens.hpp` containing:
 
 #### Constants
@@ -43,6 +46,7 @@ config.validate();  // Ensures IDs are valid and unique
 ```
 
 #### Utility Functions
+
 - `is_special_token(token_id, config)` - Check if token is special
 - `is_special_token_string(token_str)` - Check if string is special token
 - `is_stop_token(token_id, config)` - Check if token stops generation (EOS/PAD)
@@ -53,7 +57,9 @@ config.validate();  // Ensures IDs are valid and unique
 - `create_inverse_special_token_map(config)` - Create ID→string map
 
 ### 3. Testing
+
 Created comprehensive test suite in `test_special_tokens_header.cpp` covering:
+
 - ✅ Constant definitions
 - ✅ Configuration struct
 - ✅ Validation logic
@@ -61,7 +67,7 @@ Created comprehensive test suite in `test_special_tokens_header.cpp` covering:
 - ✅ Map creation functions
 - ✅ Custom configurations
 
-**All tests pass successfully!**
+All tests pass successfully!
 
 ## Usage Examples
 
@@ -132,6 +138,7 @@ bool is_special = is_special_token(12, custom);  // true (custom BOS)
 ## Locations of Special Token Usage
 
 Special tokens are currently used in:
+
 - `src/BPETokenizer.{hpp,cpp}` - Token definitions and encoding/decoding
 - `src/EncoderDecoderModel.{hpp,cpp}` - Model configuration
 - `src/TextGenerator.{hpp,cpp}` - Generation configuration and termination
@@ -158,6 +165,7 @@ To migrate existing code to use the new header:
 ## Verification
 
 Run the test suite:
+
 ```bash
 cd /home/rodney/Repos/adai
 g++ -std=c++17 -I./src -o test_special_tokens_header test_special_tokens_header.cpp
@@ -170,11 +178,11 @@ Expected output: All tests should pass with ✅ indicator.
 
 These token IDs are standardized across the ADAI project:
 
-| Token   | ID | String  | Purpose                          |
+|Token|ID|String|Purpose|
 |---------|----|---------|---------------------------------|
-| `PAD`   | 0  | `<pad>` | Padding sequences to uniform length |
-| `UNK`   | 1  | `<unk>` | Unknown/out-of-vocabulary tokens |
-| `BOS`   | 2  | `<bos>` | Beginning of sequence marker     |
-| `EOS`   | 3  | `<eos>` | End of sequence & stop generation |
+|`PAD`|0|`<pad>`|Padding sequences to uniform length|
+|`UNK`|1|`<unk>`|Unknown/out-of-vocabulary tokens|
+|`BOS`|2|`<bos>`|Beginning of sequence marker|
+|`EOS`|3|`<eos>`|End of sequence & stop generation|
 
 **⚠️ Important**: These IDs must not be changed without retraining all models and regenerating all vocabulary files.

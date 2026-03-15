@@ -1,7 +1,7 @@
 # Test Coverage Improvements - Implementation Complete
 
-**Date**: March 1, 2026  
-**Technical Debt Reference**: Code Quality - "Increase Test Coverage"  
+**Date**: March 1, 2026
+**Technical Debt Reference**: Code Quality - "Increase Test Coverage"
 **Status**: ✅ Partially Complete - Infrastructure tests added
 
 ## Overview
@@ -11,6 +11,7 @@ Improved test coverage by adding comprehensive test suites for previously untest
 ## Coverage Improvements
 
 ### Before
+
 - **Total Coverage**: ~85%
 - **Config Tests**: 0 tests
 - **Logger Tests**: 0 tests
@@ -22,6 +23,7 @@ Improved test coverage by adding comprehensive test suites for previously untest
 - **Test Suites**: 28 test suites
 
 ### After
+
 - **Total Coverage**: ~100% of testable code / ~91% of all code (measured by LOC, see methodology note)
 - **Config Tests**: 40 comprehensive tests ✅
 - **Logger Tests**: 28 comprehensive tests ✅
@@ -51,23 +53,28 @@ Improved test coverage by adding comprehensive test suites for previously untest
 **Coverage Areas**:
 
 #### Default Values (1 test)
+
 - Validates all default configuration values
 
 #### Environment Variable Loading (3 tests)
+
 - Load from environment variables
 - Boolean parsing (true/false/yes/no/on/off/1/0)
 - Float parsing
 
 #### File Loading (3 tests)
+
 - Load from configuration file
 - Ignore comments and whitespace
 - Handle missing files gracefully
 
 #### Priority System (2 tests)
+
 - Environment variables override file settings
 - File settings override defaults
 
 #### Validation - Valid Ranges (15 tests)
+
 - Port validation (1-65535)
 - Log level validation (DEBUG/INFO/WARN/ERROR)
 - d_model validation (64-8192)
@@ -82,11 +89,13 @@ Improved test coverage by adding comprehensive test suites for previously untest
 - Multiple simultaneous errors
 
 #### Hot-Reload (2 tests)
+
 - Reload valid configuration
 - Reject invalid configuration (keep current)
 - Thread safety with concurrent reloads
 
 #### Change Detection (4 tests)
+
 - Detect no changes
 - Detect server config changes
 - Detect model architecture changes
@@ -94,6 +103,7 @@ Improved test coverage by adding comprehensive test suites for previously untest
 - Detect log file setting changes
 
 #### Edge Cases and Error Handling (9 tests)
+
 - Invalid integer format
 - Invalid float format
 - Invalid boolean format
@@ -104,6 +114,7 @@ Improved test coverage by adding comprehensive test suites for previously untest
 - max_gen_length validation
 
 **Key Features Tested**:
+
 - Multi-source configuration (env > file > defaults)
 - Comprehensive validation with detailed error messages
 - Hot-reload with validation and thread safety
@@ -117,6 +128,7 @@ Improved test coverage by adding comprehensive test suites for previously untest
 **Coverage Areas**:
 
 #### Initialization (4 tests)
+
 - Console-only initialization
 - Default initialization
 - File rotation initialization
@@ -124,18 +136,21 @@ Improved test coverage by adding comprehensive test suites for previously untest
 - Empty path handling (fallback to console)
 
 #### Log Level Management (4 tests)
+
 - Set level from enum
 - Set level from string
 - Case-insensitive level strings
 - Invalid level string handling
 
 #### Logging Output (4 tests)
+
 - Log messages to file
 - Level filtering (DEBUG/INFO/WARN/ERROR)
 - Timestamp format validation
 - Level tag format validation
 
 #### Format Strings (1 test)
+
 - Simple messages
 - Integer formatting
 - String formatting
@@ -143,15 +158,18 @@ Improved test coverage by adding comprehensive test suites for previously untest
 - Multiple arguments
 
 #### File Rotation (3 tests)
+
 - Rotation configuration
 - Multiple file configurations
 - Integration with size limits
 
 #### Thread Safety (1 test)
+
 - Concurrent logging from multiple threads
 - Verify all messages logged
 
 #### Edge Cases (9 tests)
+
 - Empty messages
 - Very long messages (10KB)
 - Special characters (\n, \t, quotes, etc.)
@@ -163,10 +181,12 @@ Improved test coverage by adding comprehensive test suites for previously untest
 - Level changes during logging
 
 #### Integration (2 tests)
+
 - Log rotation with volume testing
 - Dual-sink (console + file) validation
 
 **Key Features Tested**:
+
 - Multiple initialization modes
 - File rotation with configurable size/count
 - Thread-safe concurrent logging
@@ -182,11 +202,13 @@ Improved test coverage by adding comprehensive test suites for previously untest
 **Coverage Areas**:
 
 #### Construction and Configuration (3 tests)
+
 - Constructor with default configuration
-- Constructor with custom configuration  
+- Constructor with custom configuration
 - Configuration modification after construction
 
 #### Data Management (10 tests)
+
 - Add single data file to pending queue
 - Add multiple data files sequentially
 - Add data files in batch
@@ -199,6 +221,7 @@ Improved test coverage by adding comprehensive test suites for previously untest
 - Get pending data files list
 
 #### Session Management (7 tests)
+
 - Empty session history on initialization
 - Load session history from file
 - Save session history to file
@@ -208,29 +231,35 @@ Improved test coverage by adding comprehensive test suites for previously untest
 - Session directory creation
 
 #### Checkpoint Management (3 tests)
+
 - Save model to checkpoint files
 - Load model from checkpoint files
 - Get latest checkpoint path
 - Handle empty checkpoint history
 
 #### Data Registry (2 tests)
+
 - Save and load data registry
 - Check if data is trained
 
 #### Statistics and Reporting (2 tests)
+
 - Get total samples trained (zero initially)
 - Get total training time hours (zero initially)
 
 #### Error Handling (2 tests)
+
 - Load non-existent model returns false
 - Load session history from non-existent file returns false
 
 #### Integration Tests (3 tests)
+
 - Print methods don't crash with empty data
 - Multiple data add/remove cycles
 - Configuration modification persists
 
 #### Edge Cases (6 tests)
+
 - Handle empty data files
 - Handle very long file paths
 - Max sessions to keep = 0 (delete all)
@@ -239,6 +268,7 @@ Improved test coverage by adding comprehensive test suites for previously untest
 - Invalid vocabulary throws exception
 
 **Key Features Tested**:
+
 - Session-based training with complete audit trail
 - Data versioning and checksum validation
 - Checkpoint symlink management (latest/best)
@@ -255,17 +285,20 @@ Improved test coverage by adding comprehensive test suites for previously untest
 **Coverage Areas**:
 
 #### Construction and Configuration (3 tests)
+
 - Default constructor with standard parameters
 - Custom configuration (model dimensions, heads, layers, dropout)
 - Minimal parameters (small model for testing)
 
 #### Tokenizer Operations (4 tests)
+
 - Load vocabulary from BPE file
 - Build vocabulary from text corpus
 - Reject empty corpus gracefully
 - Error handling for invalid vocabulary format
 
 #### Encoding Operations (7 tests)
+
 - Encode simple text and verify output shape
 - Verify embedding dimensions match configuration
 - Text truncation at max sequence length
@@ -275,12 +308,14 @@ Improved test coverage by adding comprehensive test suites for previously untest
 - Special characters and punctuation
 
 #### Sentence Embeddings (4 tests)
+
 - Mean pooling over sequence (sentence representation)
 - Embedding consistency across multiple calls
 - Trainable vs. inference mode behavior
 - API verification for different texts
 
 #### Training API (5 tests)
+
 - Enable/disable gradient computation (requires_grad)
 - Learning rate configuration and propagation
 - Zero gradients functionality
@@ -288,6 +323,7 @@ Improved test coverage by adding comprehensive test suites for previously untest
 - Multi-iteration training workflow
 
 #### Persistence and Model Management (5 tests)
+
 - Save encoder weights to multi-file format
 - Load encoder weights from checkpoint
 - File validation (detect missing files)
@@ -295,20 +331,24 @@ Improved test coverage by adding comprehensive test suites for previously untest
 - Output preservation after save/load cycle
 
 #### Optimizer Integration (2 tests)
+
 - Register encoder parameters with optimizer
 - Training step workflow (forward, backward, optimizer step)
 
 #### Utilities (2 tests)
+
 - Get embedding dimension
 - Print configuration without crashing
 
 #### Edge Cases (4 tests)
+
 - Single word input
 - Repeated text encoding
 - Unicode handling (emoji, CJK)
 - Backward pass without gradients enabled
 
 **Key Features Tested**:
+
 - Transformer encoder architecture (multi-head attention, feed-forward, layer norm)
 - BPE tokenizer integration (vocab loading, corpus building)
 - Training infrastructure (gradients, optimizer, learning rate)
@@ -325,10 +365,12 @@ Improved test coverage by adding comprehensive test suites for previously untest
 **Coverage Areas**:
 
 #### Construction and Configuration (2 tests)
+
 - Valid encoder initialization
 - Null encoder rejection (throws invalid_argument)
 
 #### Document Management (8 tests)
+
 - Add single document with text and ID
 - Add multiple documents sequentially
 - Add document with metadata (key-value pairs)
@@ -339,6 +381,7 @@ Improved test coverage by adding comprehensive test suites for previously untest
 - Get document by ID (returns pointer or nullptr)
 
 #### Collection Operations (5 tests)
+
 - Size tracking across add/remove operations
 - Empty check (true/false state)
 - Clear all documents (reset to empty state)
@@ -346,6 +389,7 @@ Improved test coverage by adding comprehensive test suites for previously untest
 - Get non-existent document (returns nullptr)
 
 #### Retrieval and Similarity (8 tests)
+
 - Basic retrieval with top-k parameter
 - Retrieve with k greater than document count
 - Retrieve with k=1 (single result)
@@ -356,6 +400,7 @@ Improved test coverage by adding comprehensive test suites for previously untest
 - Different queries produce different rankings
 
 #### Embedding Operations (5 tests)
+
 - Sentence embedding dimensions match encoder (1 × d_model)
 - Embedding consistency for identical text
 - Cosine similarity computation and symmetry
@@ -363,12 +408,14 @@ Improved test coverage by adding comprehensive test suites for previously untest
 - Identical text produces high similarity (>0.9)
 
 #### Edge Cases (4 tests)
+
 - Remove from single-document store
 - Remove from middle of multi-document store (maintains integrity)
 - Retrieve after clear operation
 - Multiple add/remove cycles with same ID
 
 **Key Features Tested**:
+
 - RAG document storage and retrieval infrastructure
 - Encoder-based embedding generation for documents
 - Cosine similarity search for semantic retrieval
@@ -386,6 +433,7 @@ Improved test coverage by adding comprehensive test suites for previously untest
 **Coverage Areas**:
 
 #### Construction and Configuration (5 tests)
+
 - Valid model and document store initialization
 - Null model rejection (throws invalid_argument)
 - Null document store rejection (throws invalid_argument)
@@ -393,6 +441,7 @@ Improved test coverage by adding comprehensive test suites for previously untest
 - Default configuration values validation
 
 #### Document Management (8 tests)
+
 - Add document with text and ID
 - Add multiple documents sequentially
 - Add document with metadata (key-value pairs)
@@ -403,6 +452,7 @@ Improved test coverage by adding comprehensive test suites for previously untest
 - Document count tracking across operations
 
 #### Retrieval Operations (5 tests)
+
 - Basic retrieval (retrieveOnly with default k)
 - Retrieval with custom k parameter
 - Retrieval with k greater than document count
@@ -410,11 +460,13 @@ Improved test coverage by adding comprehensive test suites for previously untest
 - Retrieval default k (uses config.num_retrieved_docs)
 
 #### Configuration Management (3 tests)
+
 - Get configuration (returns current RAGConfig)
 - Set configuration (updates config values)
 - Configuration affects retrieval (num_retrieved_docs respected)
 
 #### Generation Pipeline (5 tests)
+
 - Generate with documents (pipeline integration)
 - Generate with empty document store (no context)
 - Generate with retrieval outputs documents (validateretrieved_docs)
@@ -422,6 +474,7 @@ Improved test coverage by adding comprehensive test suites for previously untest
 - Generate response type correct (returns std::string)
 
 #### Edge Cases (5 tests)
+
 - Add and remove cycles (consistent state)
 - Retrieval consistency (same query, same results)
 - Multiple configuration changes (updates respected)
@@ -429,6 +482,7 @@ Improved test coverage by adding comprehensive test suites for previously untest
 - Empty query handling (throws TokenizerInputError)
 
 **Key Features Tested**:
+
 - Complete RAG pipeline (retrieval + generation integration)
 - EncoderDecoderModel and DocumentStore integration
 - RAGConfig parameter management (num_retrieved_docs, retrieval_threshold)
@@ -446,10 +500,12 @@ Improved test coverage by adding comprehensive test suites for previously untest
 **Coverage Areas**:
 
 #### TokenBatch Structure (2 tests)
+
 - batch_size() method returns correct count
 - is_empty() method detects empty batches
 
 #### Basic Batch Creation (5 tests)
+
 - Create batch with proper padding to max_length
 - Padding correctness (fills with pad_token_id)
 - Handle empty input sequences (returns empty batch)
@@ -457,6 +513,7 @@ Improved test coverage by adding comprehensive test suites for previously untest
 - Single sequence batch (no unnecessary padding)
 
 #### Dynamic Batching (5 tests)
+
 - Basic dynamic batching groups similar lengths
 - Length tolerance parameter enforcement
 - Batch size limit respected (max_batch_size)
@@ -464,24 +521,28 @@ Improved test coverage by adding comprehensive test suites for previously untest
 - Single batch mode (all sequences together)
 
 #### Padding Masks (4 tests)
+
 - Basic mask generation (1 for real tokens, 0 for padding)
 - No padding scenarios (all 1s)
 - Empty batch handling (0×0 matrix)
 - Single token sequences (minimal masks)
 
 #### Unbatching Operations (4 tests)
+
 - Basic unbatching preserves dimensions
 - Value preservation (removes only padding rows)
 - No padding scenarios (dimensions unchanged)
 - Single sequence unbatching
 
 #### Batch Statistics (4 tests)
+
 - Basic statistics computation (total/actual tokens, padding ratio)
 - Multiple batches aggregation
 - No padding efficiency (100% efficiency)
 - Empty batches handling (all zeros)
 
 #### Edge Cases (5 tests)
+
 - Very long sequences (1000 tokens) with short sequences
 - Empty sequences mixed with valid sequences
 - Single token sequences (minimal length)
@@ -489,6 +550,7 @@ Improved test coverage by adding comprehensive test suites for previously untest
 - Strict tolerance (zero tolerance creates separate batches)
 
 **Key Features Tested**:
+
 - Batch creation with automatic padding to max_length
 - Dynamic batching by sequence length (reduces padding waste)
 - Padding mask generation for attention mechanisms
@@ -583,7 +645,7 @@ Improved test coverage by adding comprehensive test suites for previously untest
 ## Test Execution Results
 
 ### CTest Results
-```
+```text
 Test project /home/rodney/Repos/adai/build
     Start 26: ConfigTests
 1/7 Test #26: ConfigTests ......................   Passed    0.02 sec
@@ -604,7 +666,7 @@ Test project /home/rodney/Repos/adai/build
 ```
 
 ### Config Tests
-```
+```text
 [==========] Running 40 tests from 1 test suite.
 [----------] 40 tests from ConfigTest
 [----------] 40 tests from ConfigTest (10 ms total)
@@ -613,7 +675,7 @@ Test project /home/rodney/Repos/adai/build
 ```
 
 ### Logger Tests
-```
+```text
 [==========] Running 28 tests from 1 test suite.
 [----------] 28 tests from LoggerTest
 [----------] 28 tests from LoggerTest (1931 ms total)
@@ -622,7 +684,7 @@ Test project /home/rodney/Repos/adai/build
 ```
 
 ### IncrementalTrainer Tests
-```
+```text
 [==========] Running 35 tests from 1 test suite.
 [----------] 35 tests from IncrementalTrainerTest
 [----------] 35 tests from IncrementalTrainerTest (35212 ms total)
@@ -631,7 +693,7 @@ Test project /home/rodney/Repos/adai/build
 ```
 
 ### LLMEncoder Tests
-```
+```text
 [==========] Running 36 tests from 1 test suite.
 [----------] 36 tests from LLMEncoderTest
 [----------] 36 tests from LLMEncoderTest (747 ms total)
@@ -640,7 +702,7 @@ Test project /home/rodney/Repos/adai/build
 ```
 
 ### DocumentStore Tests
-```
+```text
 [==========] Running 32 tests from 1 test suite.
 [----------] 32 tests from DocumentStoreTest
 [----------] 32 tests from DocumentStoreTest (1149 ms total)
@@ -649,7 +711,7 @@ Test project /home/rodney/Repos/adai/build
 ```
 
 ### RAGInference Tests
-```
+```text
 [==========] Running 31 tests from 1 test suite.
 [----------] 31 tests from RAGInferenceTest
 [----------] 31 tests from RAGInferenceTest (4387 ms total)
@@ -658,7 +720,7 @@ Test project /home/rodney/Repos/adai/build
 ```
 
 ### BatchProcessor Tests ✅ **NEW**
-```
+```text
 [==========] Running 29 tests from 1 test suite.
 [----------] 29 tests from BatchProcessorTest
 [----------] 29 tests from BatchProcessorTest (0 ms total)
@@ -667,7 +729,7 @@ Test project /home/rodney/Repos/adai/build
 ```
 
 ### LLMEncoder Tests
-```
+```text
 [==========] Running 36 tests from 1 test suite.
 [----------] 36 tests from LLMEncoderTest
 [----------] 36 tests from LLMEncoderTest (747 ms total)
@@ -711,9 +773,11 @@ Test project /home/rodney/Repos/adai/build
 ## Issues Discovered and Fixed
 
 ### 1. Division by Zero in Config Validation
+
 **Issue**: When `num_heads = 0`, the validation check `d_model % num_heads` caused a floating-point exception.
 
 **Fix**: Added guard condition:
+
 ```cpp
 // Before
 if (config.d_model % config.num_heads != 0) {
@@ -729,6 +793,7 @@ if (config.num_heads > 0 && config.d_model % config.num_heads != 0) {
 **Impact**: Prevents crashes when validating invalid configurations.
 
 ### 2. Missing iostream Include
+
 **Issue**: Logger.cpp used `std::cerr` but didn't include `<iostream>`.
 
 **Fix**: Added `#include <iostream>` to Logger.cpp.
@@ -736,9 +801,11 @@ if (config.num_heads > 0 && config.d_model % config.num_heads != 0) {
 **Impact**: Fixes compilation errors in test builds.
 
 ### 3. Logger Re-initialization Issue
+
 **Issue**: Logger singleton prevented re-initialization in tests due to `if (!logger_)` guards.
 
-**Fix**: 
+**Fix**:
+
 ```cpp
 // Before
 void Logger::init(Level level, const std::string& name) {
@@ -760,6 +827,7 @@ void Logger::init(Level level, const std::string& name) {
 **Impact**: Allows proper test isolation by re-initializing logger between tests.
 
 ### 4. Stdout Capture Conflicts in Google Test ✅ **NEW**
+
 **Issue**: Initial LLMEncoder tests used `testing::internal::CaptureStdout()` to verify console output, but this caused fatal error "Only one stdout capturer can exist at a time" when running multiple tests.
 
 **Fix**: Removed all stdout capture calls from test fixture and individual tests. LLMEncoder prints configuration during construction, which is acceptable for tests.
@@ -767,9 +835,11 @@ void Logger::init(Level level, const std::string& name) {
 **Impact**: Allows all 36 tests to run successfully without capture conflicts.
 
 ### 5. Vocabulary Format Mismatch ✅ **NEW**
+
 **Issue**: Test initial vocabulary used `<s>` and `</s>` tokens, but production BPE tokenizer expects `<bos>` and `<eos>` tokens, causing "Missing required special tokens" errors.
 
 **Fix**: Updated test vocabulary creation:
+
 ```cpp
 // Before
 file << "<s>\t2\n";
@@ -783,9 +853,11 @@ file << "<eos>\t3\n";
 **Impact**: Tests now match production tokenizer format exactly.
 
 ### 6. Optimizer API Usage ✅ **NEW**
+
 **Issue**: Tests used non-existent `AdamWOptimizer` class directly, causing compilation errors.
 
 **Fix**: Used enum-based Optimizer constructor:
+
 ```cpp
 // Before
 AdamWOptimizer optimizer(0.001f);
@@ -807,7 +879,7 @@ protected:
         test_dir = fs::temp_directory_path() / "config_test";
         fs::create_directories(test_dir);
     }
-    
+
     void TearDown() override {
         // Cleanup files and environment
     }
@@ -835,24 +907,27 @@ for (int t = 0; t < 10; ++t) {
 ### 4. Error Validation
 ```cpp
 EXPECT_FALSE(ConfigLoader::validate(config, errors));
-EXPECT_TRUE(std::any_of(errors.begin(), errors.end(), 
+EXPECT_TRUE(std::any_of(errors.begin(), errors.end(),
     [](const std::string& e) { return e.find("port") != std::string::npos; }));
 ```
 
 ## Next Steps for Coverage Improvement
 
 ### High Priority (Untested Components)
+
 1. **ChatbotAPIServer** - REST API endpoints, request handling, concurrent request testing
 2. **Data Pipeline** - Batch processing, parallel loading, edge cases
 3. **RAGInference** - Document retrieval, embedding generation, ranking
 4. **DocumentStore** - Document management, indexing, search operations
 
 ### Medium Priority (Partial Coverage)
+
 5. **BPETokenizer** - Additional edge cases beyond error handling tests
 6. **TextGenerator** - More generation strategies and edge cases
 7. **Service Integration** - Signal handling, graceful shutdown
 
 ### Low Priority (Well-Covered)
+
 8. Matrix operations - Core operations well-tested ✅
 9. Transformer blocks - Comprehensive coverage exists ✅
 10. Attention mechanisms - Well-validated ✅
@@ -861,6 +936,7 @@ EXPECT_TRUE(std::any_of(errors.begin(), errors.end(),
 ## Coverage Metrics
 
 ### By Component Type
+
 - **Core Math (Matrix, Activation, Optimizer)**: ~90% ✅
 - **Model Layers (Attention, FeedForward, etc.)**: ~92% ✅
 - **Models (Encoder, Decoder, EncoderDecoder)**: ~91% ✅
@@ -871,6 +947,7 @@ EXPECT_TRUE(std::any_of(errors.begin(), errors.end(),
 - **Integration**: ~70% ⚠️
 
 ### Test Suite Breakdown (33 total) ✅ **UPDATED**
+
 - Core component tests: 5 (Matrix, Activation, Optimizer, Tokenizer, Tokenizer Error Handling)
 - Layer tests: 3 (LayerNorm, PositionalEncoding, TokenEmbedding)
 - Attention tests: 2 (MultiHeadAttention, CrossAttention)
@@ -937,7 +1014,8 @@ EXPECT_TRUE(std::any_of(errors.begin(), errors.end(),
 
 Successfully improved test coverage by adding 231 comprehensive tests (40 Config + 28 Logger + 35 IncrementalTrainer + 36 LLMEncoder + 32 DocumentStore + 31 RAGInference + 29 BatchProcessor) covering:
 
-**Config Tests:**
+Config Tests:
+
 - ✅ Environment variable loading and parsing
 - ✅ Configuration file parsing with validation
 - ✅ Multi-source priority system (env > file > defaults)
@@ -946,14 +1024,16 @@ Successfully improved test coverage by adding 231 comprehensive tests (40 Config
 - ✅ Change detection and logging
 - ✅ Edge cases and error paths
 
-**Logger Tests:**
+Logger Tests:
+
 - ✅ Logger initialization (console and file)
 - ✅ File rotation configuration
 - ✅ Log level filtering and management
 - ✅ Thread-safe concurrent logging
 - ✅ Edge cases and error paths
 
-**IncrementalTrainer Tests:**
+IncrementalTrainer Tests:
+
 - ✅ Session management (initialize, finalize, cleanup, history)
 - ✅ Data registry (add, track, checksums, versioning)
 - ✅ Checkpoint management (save, load, latest, best)
@@ -963,7 +1043,8 @@ Successfully improved test coverage by adding 231 comprehensive tests (40 Config
 - ✅ Error handling and graceful degradation
 - ✅ Edge cases (empty files, long paths, boundary conditions)
 
-**LLMEncoder Tests:**
+LLMEncoder Tests:
+
 - ✅ Construction patterns (default, custom, minimal parameters)
 - ✅ Tokenizer operations (load vocab, build from corpus, error handling)
 - ✅ Encoding operations (dimensions, truncation, masks, unicode, special chars)
@@ -974,7 +1055,8 @@ Successfully improved test coverage by adding 231 comprehensive tests (40 Config
 - ✅ Utilities (embedding dimensions, config printing)
 - ✅ Edge cases (empty strings, single words, repeated text)
 
-**DocumentStore Tests:**
+DocumentStore Tests:
+
 - ✅ Construction and validation (encoder required, null check)
 - ✅ Document management (add, remove, get by ID, metadata support)
 - ✅ Collection operations (size, empty, clear, get all IDs)
@@ -982,7 +1064,8 @@ Successfully improved test coverage by adding 231 comprehensive tests (40 Config
 - ✅ Embedding operations (dimensions, consistency, cosine similarity)
 - ✅ Edge cases (remove patterns, clear state, add/remove cycles)
 
-**RAGInference Tests:**
+RAGInference Tests:
+
 - ✅ Construction and configuration (parameter validation, custom config, defaults)
 - ✅ Document management (add, remove, get by ID, count tracking)
 - ✅ Retrieval operations (basic retrieval, custom k, threshold filtering)
@@ -991,6 +1074,7 @@ Successfully improved test coverage by adding 231 comprehensive tests (40 Config
 - ✅ Edge cases (add/remove cycles, retrieval consistency, empty queries)
 
 **BatchProcessor Tests:** ✅ **NEW**
+
 - ✅ TokenBatch structure (batch_size, is_empty methods)
 - ✅ Batch creation (padding, custom pad tokens, empty sequences)
 - ✅ Dynamic batching (length tolerance, batch size limits, grouping)
@@ -1006,6 +1090,7 @@ Successfully improved test coverage by adding 231 comprehensive tests (40 Config
 **Coverage Areas**:
 
 #### ThreadSafeBatchQueue Tests (6 tests)
+
 - Push and pop operations (FIFO ordering)
 - Empty check (true/false state)
 - Shutdown on empty queue (returns nullopt)
@@ -1014,10 +1099,12 @@ Successfully improved test coverage by adding 231 comprehensive tests (40 Config
 - Concurrent push/pop (producer-consumer with sum verification)
 
 #### DataLoaderConfig Tests (2 tests)
+
 - Default values (batch_size=32, num_workers=4, prefetch_factor=2, shuffle=true, drop_last=false, seed=42)
 - Custom configuration (modify fields independently)
 
 #### ParallelDataLoader Basic Tests (6 tests)
+
 - Constructor (not running, epoch=0)
 - NumBatches without drop_last (ceiling division)
 - NumBatches with drop_last (floor division)
@@ -1026,25 +1113,30 @@ Successfully improved test coverage by adding 231 comprehensive tests (40 Config
 - NewEpoch increments epoch counter
 
 #### Batch Loading Tests (3 tests)
+
 - Load single batch (valid sequences within batch_size)
 - Load all batches (full epoch coverage)
 - Batch sequences (shape, masks, non-empty sequences)
 
 #### Shuffle and Seed Tests (2 tests)
+
 - Shuffle enabled (epoch seed variation)
 - Shuffle disabled (deterministic order)
 
 #### Multi-Threading Tests (3 tests)
+
 - Multiple workers load (validates all batches received across workers)
 - Prefetch queue size (validates buffer bounds)
 - Concurrent batch consumption (atomic counter, thread safety)
 
 #### DataLoaderIterator Tests (3 tests)
+
 - Basic iteration (all batches in epoch, non-empty)
 - Batches returned counter (increments correctly)
 - Reset functionality (counter resets to 0)
 
 #### Edge Cases (5 tests)
+
 - Empty dataset (num_batches=0)
 - Small dataset (dataset smaller than batch size)
 - Large batch size (entire dataset in one batch)
@@ -1056,6 +1148,7 @@ Successfully improved test coverage by adding 231 comprehensive tests (40 Config
 - Padding strategy right (correct sequence processing)
 
 **Key Features Tested**:
+
 - Thread-safe batch queue with producer-consumer pattern
 - Parallel loading with configurable worker threads and prefetch factor
 - Epoch management (shuffle, seed, index preparation)
@@ -1066,10 +1159,10 @@ Successfully improved test coverage by adding 231 comprehensive tests (40 Config
 - Dynamic batching integration
 - Edge case robustness (empty datasets, large batch sizes)
 
-**Coverage Improvement**: 85% → ~93% of testable code (+8%)  
-**Test Count**: 68 → 312 tests (+244)  
-**Test Suites**: 28 → 37 suites (+9)  
-**Implementation Status**: ✅ Substantially Complete  
+**Coverage Improvement**: 85% → ~93% of testable code (+8%)
+**Test Count**: 68 → 312 tests (+244)
+**Test Suites**: 28 → 37 suites (+9)
+**Implementation Status**: ✅ Substantially Complete
 **All Tests Passing**: ✅ Yes (312/312)
 
 ---
@@ -1079,6 +1172,7 @@ Successfully improved test coverage by adding 231 comprehensive tests (40 Config
 **File**: `tests/integratedinferenceengine_test.cpp`
 
 **Background**: `IntegratedInferenceEngine.hpp` (715 lines) had several API incompatibilities with actual model classes (`LLMEncoder`, `LLMDecoder`, `Matrix`) that prevented compilation. These were fixed as part of adding this test suite:
+
 - Fixed `matrix.set(i,j,v)` / `matrix.get(i,j)` → `matrix(i,j)` (Matrix uses `operator()` not getters)
 - Fixed `matrix.rows()` / `matrix.cols()` → `.rows` / `.cols` (public fields, not methods)
 - Fixed `decoder_->forward(Matrix, Matrix)` → `decoder_->forward_with_encoder(vector<int>, Matrix)` (correct API)
@@ -1090,6 +1184,7 @@ Successfully improved test coverage by adding 231 comprehensive tests (40 Config
 **Coverage Areas**:
 
 #### IntegratedInferenceConfig Tests (9 tests)
+
 - Default batching values (max_batch_size=32, batch_timeout_ms=50, max_tokens_per_batch=4096)
 - Default pipeline values (enable_pipeline=true, encoder/decoder queue sizes and timeouts)
 - Default parallel values (use_openmp=true, parallel_attention=true, num_threads=0)
@@ -1101,6 +1196,7 @@ Successfully improved test coverage by adding 231 comprehensive tests (40 Config
 - Custom generation strategy (non-default strategy and max_length)
 
 #### IntegratedInferenceStats Tests (9 tests)
+
 - Initial state all zero (requests, batches, tokens, latency)
 - Pipeline stats initially zero (encoder/decoder batches and times)
 - Performance stats initially zero (throughput, latency, speedup=1.0)
@@ -1112,12 +1208,14 @@ Successfully improved test coverage by adding 231 comprehensive tests (40 Config
 - Multiple resets clear repeatedly (idempotent)
 
 #### IntegratedRequest Tests (4 tests)
+
 - Default construction (all fields at zero/empty defaults)
 - Field assignment (all fields settable)
 - Move construction (data transferred correctly)
 - Move assignment (data transferred correctly)
 
 #### IntegratedBatch Tests (5 tests)
+
 - Default construction (batch_id=0, empty vectors)
 - Field assignment (batch_id, multiple requests and tokenized inputs)
 - Move construction (data transferred correctly)
@@ -1125,6 +1223,7 @@ Successfully improved test coverage by adding 231 comprehensive tests (40 Config
 - Multiple requests and inputs (3-request batch with per-request token sequences)
 
 #### IntegratedEncoderOutput Tests (5 tests)
+
 - Default construction (batch_id=0, empty encoder_outputs and requests)
 - Field assignment (per-request Matrix encoder outputs, batch_id, requests)
 - Move construction (Matrix vector transferred correctly)
@@ -1132,6 +1231,7 @@ Successfully improved test coverage by adding 231 comprehensive tests (40 Config
 - Multiple encoder outputs per batch (3-request per-output with different shapes)
 
 #### Engine Lifecycle Tests (9 tests) — null model pointers, no requests submitted
+
 - Construct and shutdown (safe with null pointers when no requests submitted)
 - Destructor calls shutdown (no hang or crash on scope exit)
 - Double shutdown is safe (second shutdown is no-op)
@@ -1143,6 +1243,7 @@ Successfully improved test coverage by adding 231 comprehensive tests (40 Config
 - Reset stats after shutdown (callable after shutdown without crash)
 
 #### Edge Case Tests (6 tests)
+
 - Config with minimal queue sizes (all queues size=1, no deadlock)
 - Config with pipeline disabled (enable_pipeline=false, still shuts down cleanly)
 - Stats compute derived metrics correctly (avg_batch_size and pipeline_efficiency formulas)
@@ -1151,6 +1252,7 @@ Successfully improved test coverage by adding 231 comprehensive tests (40 Config
 - Config max batch size one (edge case single-item batches)
 
 **Key Features Tested**:
+
 - All 5 Config fields groups (batching, pipeline, parallel, request-handling, generation)
 - Stats lifecycle (reset, update_throughput, derived metric computation)
 - All data structure move semantics (IntegratedRequest, IntegratedBatch, IntegratedEncoderOutput)
@@ -1169,6 +1271,7 @@ Successfully improved test coverage by adding 231 comprehensive tests (40 Config
 **Background**: `PipelineInferenceEngine.hpp` (549 lines) implements 2-stage pipeline parallelism for encoder-decoder models using a template class `PipelineInferenceEngine<E, D, LM, T>`. Tests use lightweight mock types to exercise the full class without real model dependencies.
 
 **Key Classes Tested**:
+
 - `ThreadSafeQueue<T>` — thread-safe bounded queue with shutdown signalling
 - `PipelineConfig` — pipeline configuration defaults and custom values
 - `PipelineStats` — per-stage timing and throughput statistics
@@ -1177,6 +1280,7 @@ Successfully improved test coverage by adding 231 comprehensive tests (40 Config
 - `PipelineInferenceEngine<E,D,LM,T>` — two-stage worker thread engine
 
 **Key Features Tested**:
+
 - `ThreadSafeQueue`: push/try_pop/pop/size/empty/shutdown/is_shutdown, FIFO ordering, timed pop, move-only element types, shutdown unblocks blocked thread, double-shutdown idempotent
 - `PipelineConfig`: default field values (max_queue_size=50, timeouts=50ms, enable_profiling=true), custom override
 - `PipelineStats`: zero-initialized construction, field assignment, copy semantics
@@ -1202,12 +1306,14 @@ Successfully improved test coverage by adding 231 comprehensive tests (40 Config
 **Background**: `BatchedInferenceEngine.hpp` (490 lines) implements continuous batching for high-throughput text generation using a single background processor thread with timeout-based batch flushing. Unlike `PipelineInferenceEngine`, this is a concrete (non-template) class; tests use a default-constructed `BPETokenizer` (special tokens only) combined with an EOS-returning model function so generation terminates on the first step without real model weights.
 
 **Key Classes Tested**:
+
 - `BatchedInferenceConfig` — engine configuration with 7 fields
 - `BatchedInferenceStats` — per-request and per-batch statistics with `compute_derived_stats()`
 - `InferenceRequest` — move-only request struct with promise
 - `BatchedInferenceEngine` — queue-based batching engine with async future API
 
 **Key Features Tested**:
+
 - `BatchedInferenceConfig`: all 7 default field values, custom override
 - `BatchedInferenceStats.compute_derived_stats()`: zero-elapsed guard, `avg_batch_size = total_requests/total_batches`, `throughput_req_per_sec`, `throughput_tokens_per_sec`, `avg_latency_ms`, zero-batches guard
 - `InferenceRequest`: default construction, prompt/submit_time assignment, move construction (future association preserved), move assignment, `!is_copy_constructible`, `!is_copy_assignable`, `is_move_constructible`, `is_move_assignable`
@@ -1220,7 +1326,7 @@ Successfully improved test coverage by adding 231 comprehensive tests (40 Config
 
 ---
 
-**Remaining Gap**: ~2.9% of testable code at this stage (2 components without tests):  
+**Remaining Gap**: ~2.9% of testable code at this stage (2 components without tests):
 `SpeculativeDecoding.hpp`, `VocabBuilder.cpp` *(both subsequently added — see sections 12 and 13)*
 
 ---
@@ -1232,6 +1338,7 @@ Successfully improved test coverage by adding 231 comprehensive tests (40 Config
 **Background**: `SpeculativeDecoding.hpp` (459 lines) implements speculative decoding — a two-model technique that uses a fast *draft* generator to propose multiple candidate tokens and a slow *target* model to accept/reject them, achieving 2-3x inference speedup. Tests use a default-constructed `BPETokenizer` (special tokens only) plus an EOS-returning model function (logit for EOS=100) so generation terminates on the first step deterministically.  Adding this suite also required extending `TextGenerator` with four new methods (`set_model_fn`, `set_tokenizer`, `get_tokenizer`, `get_next_token_probs`) that `SpeculativeDecoder` calls internally.
 
 **Public types under test**:
+
 - `SpeculativeDecodingConfig` — 5-field config struct
 - `TokenProposal` — per-token accept/reject record
 - `calculate_theoretical_speedup(K, alpha)` — free function
@@ -1239,6 +1346,7 @@ Successfully improved test coverage by adding 231 comprehensive tests (40 Config
 - `SpeculativeDecoder` — draft+target engine class
 
 **Test coverage detail**:
+
 - `SpeculativeDecodingConfig` (7 tests): `num_candidates=4`, `temperature=1.0f`, `max_length=100`, `acceptance_threshold=0.0f`, `use_greedy=false` all verified; full custom override; heap allocation
 - `TokenProposal` (5 tests): default construction (`id=0, draft_prob=0, target_prob=0, accepted=false`), construction with id+prob, field mutation (target_prob, accepted), copy semantics
 - `TheoreticalSpeedupTest` (9 tests): `num_candidates=0` → 1.0f, `acceptance_rate=0.0f` → 1.0f, negative candidates → 1.0f; formula K4/α1.0, K8/α0.7, K2/α0.5; always positive; monotonic in K; monotonic in alpha
@@ -1247,7 +1355,7 @@ Successfully improved test coverage by adding 231 comprehensive tests (40 Config
 - `SpeculativeDecoderFunctionalTest` (11 tests): `generate_tokens` no-crash; returns vector; `max_new_tokens=0` returns empty; empty prompt tokens work; `generate("test")` no-crash; returns string; empty string throws `TokenizerInputError`; `reset_stats` after generation; acceptance rate in [0,1]; speedup non-negative; 3 sequential calls succeed
 - `PrintSpeedupTableTest` (2 tests): no-crash; produces non-empty output
 
-**Remaining Gap**: ~1.1% of testable code (1 component without tests):  
+**Remaining Gap**: ~1.1% of testable code (1 component without tests):
 `VocabBuilder.cpp` (300 lines)
 
 ---
@@ -1261,6 +1369,7 @@ Successfully improved test coverage by adding 231 comprehensive tests (40 Config
 **Refactoring required**: Created `src/VocabBuilderHelpers.hpp` (inline header with three loaders); updated `VocabBuilder.cpp` to `#include "VocabBuilderHelpers.hpp"` and remove the in-file function bodies. `vocab_builder` binary rebuilt successfully with zero regressions.
 
 **Components under test**:
+
 - `load_plain_text(filename)` — plain text loader (`VocabBuilderHelpers.hpp`)
 - `load_pairs_format(filename)` — INPUT:/RESPONSE: chatbot-format loader
 - `load_json_format(filename)` — simple quoted-string JSON parser
@@ -1271,6 +1380,7 @@ Successfully improved test coverage by adding 231 comprehensive tests (40 Config
 - `BPETokenizer::encode` / `decode` after `build_vocab` — tokenisation
 
 **Test coverage detail**:
+
 - `LoadPlainTextTest` (7 tests): non-existent file → empty; empty file → empty; empty lines skipped; single line; multiple lines with exact content; leading/trailing spaces preserved; no trailing newline handled
 - `LoadPairsFormatTest` (8 tests): non-existent file → empty; empty file → empty; `INPUT:` prefix stripped; `RESPONSE:` prefix stripped; non-prefixed lines ignored; multiple pairs extracted in order; bare `INPUT:` (empty suffix) included; blank lines between pairs ignored
 - `LoadJsonFormatTest` (7 tests): non-existent file → empty; empty file → empty; single quoted string; multiple strings; empty string between quotes skipped; spaces preserved inside strings; multi-line JSON array

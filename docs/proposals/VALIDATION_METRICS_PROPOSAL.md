@@ -1,9 +1,11 @@
 # Proposal: Adding Metrics to Epoch Validation Segment
 
 ## Objective
+
 To track, record, and expose key performance indicators (KPIs) during the validation segment of training epochs. This will provide better insights into model generalization, help detect over-fitting early, and enable more comprehensive monitoring on the dashboard.
 
 ## Background
+
 Currently, the training pipeline effectively tracks metrics during the training passes (forward/backward passes, loss calculation). However, the validation phase—which evaluates the model against a held-out dataset at the end of an epoch or at specified step intervals—needs more granular and systematized metric tracking to be properly integrated into the existing `TrainingMetricsService` and dashboard.
 
 ## Proposed Changes
@@ -26,18 +28,25 @@ Currently, the training pipeline effectively tracks metrics during the training 
 
 ## Implementation Details
 
-* **Core C++ Changes**: 
+* **Core C++ Changes**:
+
   Modify the `Optimizer` or `TrainingMetrics` classes to handle validation states. Add a `record_validation_metrics(epoch, step, metrics_dict)` function.
+
 * **API Changes**:
+
   Update JSON schemas in the metric API to support `"phase": "training" | "validation"`.
+
 * **UI**:
+
   Use Chart.js (or existing dashboard charting library) to plot validation curves with distinct colors and markers.
 
 ## Benefits
+
 * **Early Stopping**: Paves the way for implementing automated early stopping based on `val_loss`.
 * **Model Health Visibility**: Clear visual indicators of over-fitting (e.g., training loss decreasing while validation loss increases).
 * **Experiment Tracking**: Better historical comparisons between different hyperparameter tuning runs.
 
 ## Alternatives Considered
+
 * *Logging to stdout/files only*: Simpler, but lacks the real-time visualization and historical tracking benefits of integrating with the existing `TrainingMetricsService` API.
 * *Separate Validation Service*: Overkill. The existing metrics service is well-equipped to handle validation metrics simply by adding a phase/context tag.

@@ -1,6 +1,0 @@
-MAX_MESSAGES:20
-MAX_TOKENS:480
-KEEP_SYSTEM:1
----
-user|1|test
-assistant|2|ayars

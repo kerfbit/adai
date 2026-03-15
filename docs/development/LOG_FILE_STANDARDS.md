@@ -7,6 +7,7 @@ This document outlines the standard and best-practice locations for storing appl
 On Linux systems, the appropriate log directory depends tightly on whether the application runs as a system-wide daemon (service) or as an individual user's process.
 
 ### System-Wide Services (Daemon/Root)
+
 * **Standard Path:** `/var/log/adai/`
 * **Examples:**
   * `/var/log/adai/chatbot_server.log`
@@ -15,6 +16,7 @@ On Linux systems, the appropriate log directory depends tightly on whether the a
 * **Management:** Writing to `/var/log/` natively integrates with standard log maintenance utilities like `logrotate`.
 
 ### User-Level Execution (Local User)
+
 * **Standard Path:** `~/.local/state/adai/log/` (following the XDG Base Directory specification) or `~/.cache/adai/log/`
 * **Examples:**
   * `~/.local/state/adai/log/incremental_trainer.log`
@@ -26,14 +28,16 @@ On Linux systems, the appropriate log directory depends tightly on whether the a
 Windows logging conventions separate system-wide application data from user-specific application data.
 
 ### System-Wide Services
+
 * **Standard Path:** `%PROGRAMDATA%\adai\Logs\`
-* **Examples:** 
+* **Examples:**
   * `C:\ProgramData\adai\Logs\chatbot_server.log`
 * **Permissions:** Must grant write access to the specific service account (e.g., `LOCAL SYSTEM`, `NETWORK SERVICE`, or a custom service account). Standard user accounts should typically only have read/execute access.
 
 ### User-Level Execution (Local User)
+
 * **Standard Path:** `%LOCALAPPDATA%\adai\Logs\`
-* **Examples:** 
+* **Examples:**
   * `C:\Users\<Username>\AppData\Local\adai\Logs\incremental_trainer.log`
 * **Usage:** For command-line executions, local development instances, or testing by individual users.
 
@@ -46,11 +50,18 @@ In the Adai project, logging destinations are controlled using the `LOG_FILE_PAT
 
 ### Best Practices to Follow
 
-1. **Default to STDERR/STDOUT:** 
+1. **Default to STDERR/STDOUT:**
+
    Applications like `incremental_trainer` or containerized components (like Docker/Kubernetes deployments) should default heavily to stdout/stderr. System orchestrators (`systemd`/`journalctl` or Kubernetes) will correctly capture and manage these standard streams without needing file setups.
-2. **Opt-in File Logging:** 
-   Writing to a fixed log file should be an *opt-in* feature explicitly specified by supplying a `LOG_FILE_PATH`. If the path is empty, fall back to console-only output. 
-3. **Directory Creation:** 
+
+2. **Opt-in File Logging:**
+
+   Writing to a fixed log file should be an *opt-in* feature explicitly specified by supplying a `LOG_FILE_PATH`. If the path is empty, fall back to console-only output.
+
+3. **Directory Creation:**
+
    When a `LOG_FILE_PATH` is specified, the application (or its initialization scripts) should ensure the parent directories exist before initializing the spdlog file sink.
-4. **Log File Rotation:** 
+
+4. **Log File Rotation:**
+
    Adai uses built-in log rotation (via `spdlog` functionality like `LOG_MAX_SIZE_MB` and `LOG_MAX_FILES`). When writing to standard system paths (like `/var/log`), avoid conflicts between Adai's internal rotation and external `logrotate` configurations. Prefer external compression tools for archiving rotated files.

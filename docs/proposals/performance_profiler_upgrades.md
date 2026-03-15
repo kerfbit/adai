@@ -421,14 +421,14 @@ The `PROFILE_SCOPE` macro is also unchanged.
 
 ## 6. Testing Strategy
 
-| Task | Test File | Key Assertions |
+|Task|Test File|Key Assertions|
 |------|-----------|----------------|
-| TD-005a | `tests/inference_optimization_test.cpp` | Memory delta is non-negative during allocation; peak RSS is non-decreasing |
-| TD-005b | `tests/inference_optimization_test.cpp` | tokens/sec matches expected value within 10% tolerance using sleep-based timing |
-| TD-005c | `tests/inference_optimization_test.cpp` | Parent-child relationships correct; percentages sum to ≤ 100% of parent |
-| TD-005d | `tests/inference_optimization_test.cpp` | JSON output is valid and contains all required fields; CSV has correct column count |
-| TD-005e | `tests/decoder_integration_test.cpp` | Profiled wrappers emit events; stats match expected section names |
-| TD-005f | `tests/inference_optimization_test.cpp` | Dashboard render output contains section names and column headers |
+|TD-005a|`tests/inference_optimization_test.cpp`|Memory delta is non-negative during allocation; peak RSS is non-decreasing|
+|TD-005b|`tests/inference_optimization_test.cpp`|tokens/sec matches expected value within 10% tolerance using sleep-based timing|
+|TD-005c|`tests/inference_optimization_test.cpp`|Parent-child relationships correct; percentages sum to ≤ 100% of parent|
+|TD-005d|`tests/inference_optimization_test.cpp`|JSON output is valid and contains all required fields; CSV has correct column count|
+|TD-005e|`tests/decoder_integration_test.cpp`|Profiled wrappers emit events; stats match expected section names|
+|TD-005f|`tests/inference_optimization_test.cpp`|Dashboard render output contains section names and column headers|
 
 ## 7. Benefits
 

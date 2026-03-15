@@ -984,14 +984,14 @@ The ADAI Training Metrics API provides a REST API for monitoring training progre
    ```bash
    # Copy service file
    sudo cp ../metrics-api-server.service /etc/systemd/system/
-   
+
    # Create metrics directory
    sudo mkdir -p /home/rodney/Repos/adai/training_sessions
    sudo chown rodney:rodney /home/rodney/Repos/adai/training_sessions
-   
+
    # Reload systemd
    sudo systemctl daemon-reload
-   
+
    # Enable and start service
    sudo systemctl enable metrics-api-server
    sudo systemctl start metrics-api-server
@@ -1002,7 +1002,7 @@ The ADAI Training Metrics API provides a REST API for monitoring training progre
    ```bash
    # Check service status
    systemctl status metrics-api-server
-   
+
    # Test API endpoint
    curl http://localhost:8081/health
    curl http://localhost:8081/api/session/status
@@ -1030,7 +1030,7 @@ ReadWritePaths=/var/lib/adai/training_sessions
 
 Configure `incremental_trainer` to push metrics to the daemon:
 
-**config.conf:**
+config.conf:
 
 ```conf
 # Enable metrics push to API daemon
@@ -1039,7 +1039,7 @@ METRICS_PUSH_ENABLED=true
 METRICS_SERVER_URL=http://localhost:8081
 ```
 
-**Or via IncrementalConfig:**
+Or via IncrementalConfig:
 
 ```cpp
 IncrementalConfig config;
@@ -1052,7 +1052,7 @@ config.metrics_config.push_timeout_ms = 1000;
 
 The metrics API daemon provides these endpoints:
 
-**Read-only endpoints (GET):**
+Read-only endpoints (GET):
 
 - `/api/metrics/current` - Current training snapshot
 - `/api/metrics/summary` - Aggregated metrics summary
@@ -1108,7 +1108,7 @@ sudo journalctl -u metrics-api-server --since today
 
 ### Troubleshooting
 
-**Port already in use:**
+Port already in use:
 
 ```bash
 # Check what's using port 8081
@@ -1120,7 +1120,7 @@ sudo systemctl edit metrics-api-server
 sudo systemctl restart metrics-api-server
 ```
 
-**Connection refused:**
+Connection refused:
 
 ```bash
 # Verify service is running
@@ -1134,7 +1134,7 @@ sudo ufw allow 8081/tcp
 sudo netstat -tlnp | grep 8081
 ```
 
-**Metrics not updating:**
+Metrics not updating:
 
 ```bash
 # Verify trainer is configured to push

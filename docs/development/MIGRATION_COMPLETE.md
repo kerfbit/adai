@@ -7,6 +7,7 @@ All existing code has been successfully migrated to use the new `SpecialTokens.h
 ## Files Modified
 
 ### Core Components
+
 1. **src/BPETokenizer.hpp**
    - Added `#include "SpecialTokens.hpp"`
    - Updated token ID initialization to use `adai::SpecialTokenIDs::*` constants
@@ -24,6 +25,7 @@ All existing code has been successfully migrated to use the new `SpecialTokens.h
    - Updated hardcoded token IDs (2, 3, 0) to use named constants
 
 ### Utility Components
+
 5. **src/BatchProcessor.hpp**
    - Added `#include "SpecialTokens.hpp"`
    - Updated default parameters to use `adai::SpecialTokenIDs::PAD`
@@ -43,7 +45,9 @@ All existing code has been successfully migrated to use the new `SpecialTokens.h
 ## Verification
 
 ### Build Status
+
 ✅ All core libraries compiled successfully:
+
 - `libadai_core.a`
 - `libadai_nlp.a` (includes BPETokenizer)
 - `libadai_models.a` (includes EncoderDecoderModel)
@@ -53,7 +57,7 @@ All existing code has been successfully migrated to use the new `SpecialTokens.h
 ### Test Results
 
 #### New Header Tests
-```
+```text
 ./test_special_tokens_header
 ✅ ALL TESTS PASSED!
 - Constants validation
@@ -65,7 +69,7 @@ All existing code has been successfully migrated to use the new `SpecialTokens.h
 ```
 
 #### Migration Integration Tests
-```
+```text
 ./test_migration
 ✅ All migration tests passed!
 - BPETokenizer uses correct constants (PAD=0, UNK=1, BOS=2, EOS=3)
@@ -113,12 +117,12 @@ gen_config.eos_token_id = adai::SpecialTokenIDs::EOS;
 
 ## Token ID Standard
 
-| Token | ID | Constant | Purpose |
+|Token|ID|Constant|Purpose|
 |-------|----|----|---------|
-| `<pad>` | 0 | `adai::SpecialTokenIDs::PAD` | Padding sequences |
-| `<unk>` | 1 | `adai::SpecialTokenIDs::UNK` | Unknown tokens |
-| `<bos>` | 2 | `adai::SpecialTokenIDs::BOS` | Beginning of sequence |
-| `<eos>` | 3 | `adai::SpecialTokenIDs::EOS` | End of sequence |
+|`<pad>`|0|`adai::SpecialTokenIDs::PAD`|Padding sequences|
+|`<unk>`|1|`adai::SpecialTokenIDs::UNK`|Unknown tokens|
+|`<bos>`|2|`adai::SpecialTokenIDs::BOS`|Beginning of sequence|
+|`<eos>`|3|`adai::SpecialTokenIDs::EOS`|End of sequence|
 
 ## Usage Examples
 
@@ -156,6 +160,7 @@ config.eos_token_id = SpecialTokenIDs::EOS;
 ## Next Steps (Optional)
 
 Future improvements could include:
+
 1. Migrate additional files if new special token usage is added
 2. Add compile-time assertions in critical paths
 3. Create additional utility functions as needed
@@ -170,6 +175,6 @@ Future improvements could include:
 
 ---
 
-**Migration Date**: February 28, 2026  
-**Status**: ✅ Complete and Verified  
+**Migration Date**: February 28, 2026
+**Status**: ✅ Complete and Verified
 **Impact**: Zero breaking changes, improved code quality

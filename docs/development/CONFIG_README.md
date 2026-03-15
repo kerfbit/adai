@@ -21,11 +21,13 @@ EncoderDecoderModel(
 ### Quick Start
 
 1. **Use the provided config file:**
+
    ```bash
    ./build/src/chatbot_api_server --config config.conf
    ```
 
 2. **Or copy to system location:**
+
    ```bash
    sudo mkdir -p /etc/adai
    sudo cp config.conf /etc/adai/config.conf
@@ -49,6 +51,7 @@ See [docs/operations/MODEL_SERVICE_MANAGER.md](docs/operations/MODEL_SERVICE_MAN
 ### Configuration File Locations
 
 The server looks for configuration in this order:
+
 1. Custom path via `--config` flag
 2. Default path: `/etc/adai/config.conf`
 3. Environment variables
@@ -68,7 +71,8 @@ Start the server and check the configuration output:
 ```
 
 You should see:
-```
+
+```text
 Loading configuration from: config.conf
 ==================================================
          ADAI Chatbot Service Configuration
@@ -130,19 +134,21 @@ services:
 
 ## Verification
 
-✅ **Parameter order:** FIXED  
-✅ **Config file:** `config.conf` created  
-✅ **Server startup:** Verified working  
+✅ **Parameter order:** FIXED
+✅ **Config file:** `config.conf` created
+✅ **Server startup:** Verified working
 ✅ **Model initialization:** Parameters correct (d_model=512, num_heads=8)
 
 ## Next Steps
 
 1. **Start the server:**
+
    ```bash
    ./build/src/chatbot_api_server --config config.conf
    ```
 
 2. **Test with curl:**
+
    ```bash
    curl -X POST http://localhost:8080/health
    ```

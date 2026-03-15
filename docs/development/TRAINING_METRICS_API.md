@@ -6,18 +6,18 @@ The Training Metrics REST API provides real-time access to training progress and
 
 ## Full API Catalog Quick Reference
 
-| Method | Endpoint | Description |
+|Method|Endpoint|Description|
 |--------|----------|-------------|
-| **GET** | `/api/metrics/current` | Current training snapshot with all real-time metrics |
-| **GET** | `/api/metrics/summary` | Aggregated metrics summary |
-| **GET** | `/api/metrics/history` | Historical metrics records (supports `max_records`, `session_id`) |
-| **GET** | `/api/metrics/prometheus`| Metrics in Prometheus text format |
-| **GET** | `/api/metrics/csv` | Current metrics in CSV format |
-| **GET** | `/api/session/status` | Current training session status and progress |
-| **GET** | `/api/session/epochs` | Per-epoch metrics history |
-| **POST**| `/api/control/flush` | Forces immediate flush of metrics to disk |
-| **POST**| `/api/control/clear` | Clears historical metrics from memory |
-| **GET** | `/health` | Returns server health status |
+|**GET**|`/api/metrics/current`|Current training snapshot with all real-time metrics|
+|**GET**|`/api/metrics/summary`|Aggregated metrics summary|
+|**GET**|`/api/metrics/history`|Historical metrics records (supports `max_records`, `session_id`)|
+|**GET**|`/api/metrics/prometheus`|Metrics in Prometheus text format|
+|**GET**|`/api/metrics/csv`|Current metrics in CSV format|
+|**GET**|`/api/session/status`|Current training session status and progress|
+|**GET**|`/api/session/epochs`|Per-epoch metrics history|
+|**POST**|`/api/control/flush`|Forces immediate flush of metrics to disk|
+|**POST**|`/api/control/clear`|Clears historical metrics from memory|
+|**GET**|`/health`|Returns server health status|
 
 ## Quick Start
 
@@ -64,7 +64,8 @@ curl http://localhost:8081/api/session/status | jq
 
 Returns the current training snapshot with all real-time metrics.
 
-**Response:**
+Response:
+
 ```json
 {
   "session_id": 1,
@@ -95,7 +96,8 @@ Returns the current training snapshot with all real-time metrics.
 
 Returns aggregated metrics summary.
 
-**Response:**
+Response:
+
 ```json
 {
   "session_id": 1,
@@ -115,11 +117,13 @@ Returns aggregated metrics summary.
 
 Returns historical metrics records.
 
-**Query Parameters:**
+Query Parameters:
+
 - `max_records` (optional, default: 1000) - Maximum number of records to return
 - `session_id` (optional) - Filter by specific session ID
 
-**Examples:**
+Examples:
+
 ```bash
 # Get last 1000 records
 curl "http://localhost:8081/api/metrics/history"
@@ -131,7 +135,8 @@ curl "http://localhost:8081/api/metrics/history?max_records=100"
 curl "http://localhost:8081/api/metrics/history?session_id=1"
 ```
 
-**Response:**
+Response:
+
 ```json
 {
   "records": [
@@ -157,8 +162,9 @@ curl "http://localhost:8081/api/metrics/history?session_id=1"
 
 Returns metrics in Prometheus text format for scraping.
 
-**Response:**
-```
+Response:
+
+```text
 # HELP training_loss Current training loss
 # TYPE training_loss gauge
 training_loss 2.3456
@@ -179,7 +185,8 @@ learning_rate 0.001
 
 Returns current metrics in CSV format (header + current row).
 
-**Response:**
+Response:
+
 ```csv
 session_id,epoch,sample,loss,validation_loss,learning_rate,gradient_norm,perplexity
 1,2,450,2.3456,2.4123,0.001,1.234,10.43
@@ -193,7 +200,8 @@ session_id,epoch,sample,loss,validation_loss,learning_rate,gradient_norm,perplex
 
 Returns current training session status and progress.
 
-**Response:**
+Response:
+
 ```json
 {
   "is_training": true,
@@ -214,7 +222,8 @@ Returns current training session status and progress.
 
 Returns per-epoch metrics history.
 
-**Response:**
+Response:
+
 ```json
 {
   "current_epoch": 2,
@@ -238,7 +247,8 @@ Returns per-epoch metrics history.
 
 Forces immediate flush of metrics to disk.
 
-**Response:**
+Response:
+
 ```json
 {
   "status": "success",
@@ -252,7 +262,8 @@ Forces immediate flush of metrics to disk.
 
 Clears historical metrics from memory.
 
-**Response:**
+Response:
+
 ```json
 {
   "status": "success",
@@ -270,7 +281,8 @@ Clears historical metrics from memory.
 
 Returns server health status.
 
-**Response:**
+Response:
+
 ```json
 {
   "status": "ok",
@@ -283,7 +295,7 @@ Returns server health status.
 
 ## Command-Line Options
 
-```
+```text
 Training Metrics REST API Server
 Usage: metrics_api_server [OPTIONS]
 
@@ -317,17 +329,17 @@ api_url = "http://localhost:8081"
 while True:
     # Get current status
     status = requests.get(f"{api_url}/api/session/status").json()
-    
+
     if status['is_training']:
         progress = status['progress_percent']
         epoch = status['current_epoch']
-        
+
         # Get metrics
         metrics = requests.get(f"{api_url}/api/metrics/current").json()
         loss = metrics['current_loss']
-        
-        print(f"Epoch {epoch} | {progress:.1f}% | Loss: {loss:.4f}")
-    
+
+        print(f"Epoch {epoch} |{progress:.1f}%| Loss: {loss:.4f}")
+
     time.sleep(2)
 ```
 
@@ -339,7 +351,7 @@ const apiUrl = 'http://localhost:8081';
 async function pollMetrics() {
     const response = await fetch(`${apiUrl}/api/metrics/current`);
     const metrics = await response.json();
-    
+
     console.log(`Loss: ${metrics.current_loss}`);
     console.log(`Epoch: ${metrics.current_epoch}/${metrics.total_epochs}`);
 }
@@ -356,15 +368,15 @@ API_URL="http://localhost:8081"
 while true; do
     STATUS=$(curl -s "$API_URL/api/session/status")
     IS_TRAINING=$(echo "$STATUS" | jq -r '.is_training')
-    
+
     if [ "$IS_TRAINING" = "true" ]; then
         METRICS=$(curl -s "$API_URL/api/metrics/current")
         LOSS=$(echo "$METRICS" | jq -r '.current_loss')
         EPOCH=$(echo "$STATUS" | jq -r '.current_epoch')
-        
+
         echo "Epoch: $EPOCH | Loss: $LOSS"
     fi
-    
+
     sleep 2
 done
 ```
