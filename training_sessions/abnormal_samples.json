@@ -313,5 +313,12 @@
   {"epoch":2,"sample_id":1851,"loss":2.043849,"grad_norm":13.078373,"reason":"grad_norm_outlier","input_text":"What is this about: \"In life I was your partner, Jacob Marley.","target_text":"\"","timestamp":"2026-03-14 19:32:43.490"},
   {"epoch":2,"sample_id":1852,"loss":6.221745,"grad_norm":8.360435,"reason":"loss_outlier","input_text":"Summarize: --Another name for the Danes. --Name sometimes applied to Finn's people.","target_text":"--17_22; 17_38; 18_17.","timestamp":"2026-03-14 19:32:43.864"},
   {"epoch":2,"sample_id":1853,"loss":0.547167,"grad_norm":98.629517,"reason":"grad_norm_outlier","input_text":"Tell me about: ”","target_text":"”","timestamp":"2026-03-14 19:32:44.112"},
-  {"epoch":2,"sample_id":1855,"loss":2.887993,"grad_norm":16.124033,"reason":"grad_norm_outlier","input_text":"Summarize: ”","target_text":"Isn’t it splendid","timestamp":"2026-03-14 19:32:44.926"}
+  {"epoch":2,"sample_id":1855,"loss":2.887993,"grad_norm":16.124033,"reason":"grad_norm_outlier","input_text":"Summarize: ”","target_text":"Isn’t it splendid","timestamp":"2026-03-14 19:32:44.926"},
+  {"epoch":2,"sample_id":1865,"loss":2.948903,"grad_norm":20.323067,"reason":"grad_norm_outlier","input_text":"Explain this: He never","target_text":"I didn’t believe we","timestamp":"2026-03-14 19:32:50.002"},
+  {"epoch":2,"sample_id":1870,"loss":2.734305,"grad_norm":13.991265,"reason":"grad_norm_outlier","input_text":"What is this about: “Not send it anywhere?","target_text":"My dear","timestamp":"2026-03-14 19:32:52.846"},
+  {"epoch":2,"sample_id":1902,"loss":1.224387,"grad_norm":13.899062,"reason":"grad_norm_outlier","input_text":"Tell me about: Your sisters are engaged, and there is not","target_text":"”","timestamp":"2026-03-14 19:33:06.764"},
+  {"epoch":2,"sample_id":1908,"loss":4.300813,"grad_norm":18.986883,"reason":"grad_norm_outlier","input_text":"What is this about: ) 44","target_text":") 46","timestamp":"2026-03-14 19:33:08.900"},
+  {"epoch":2,"sample_id":1945,"loss":0.600557,"grad_norm":96.878738,"reason":"grad_norm_outlier","input_text":"What is this about: “What happened to the worthy captain?","target_text":"”","timestamp":"2026-03-14 19:33:22.109"},
+  {"epoch":2,"sample_id":1966,"loss":2.593120,"grad_norm":13.473424,"reason":"grad_norm_outlier","input_text":"Summarize: How all my","target_text":"I could","timestamp":"2026-03-14 19:33:30.871"},
+  {"epoch":2,"sample_id":2003,"loss":1.965335,"grad_norm":16.048752,"reason":"grad_norm_outlier","input_text":"Summarize: ”","target_text":"“I","timestamp":"2026-03-14 19:33:47.358"}
 ]
