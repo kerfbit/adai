@@ -1,12 +1,8 @@
 INPUT: What is this about: cover
 
-
-
-
 DUBLINERS
 
 by James Joyce
-
 
 Contents
 
@@ -26,11 +22,7 @@ Contents
  Grace
  The Dead
 
-
-
-
 THE SISTERS
-
 
 There was no hope for him this time: it was the third stroke.
 RESPONSE: Night
@@ -40,13 +32,9 @@ lighted in the same way, faintly and evenly.
 
 INPUT: Summarize: cover
 
-
-
-
 DUBLINERS
 
 by James Joyce
-
 
 Contents
 
@@ -66,11 +54,7 @@ Contents
  Grace
  The Dead
 
-
-
-
 THE SISTERS
-
 
 There was no hope for him this time: it was the third stroke. Night
 after night I had passed the house (it was vacation time) and studied
@@ -79,13 +63,6 @@ lighted in the same way, faintly and evenly.
 RESPONSE: If he was dead, I thought,
 I would see the reflection of candles on the darkened blind for I knew
 that two candles must be set at the head of a corpse.
-
-INPUT: Can you explain: If he was dead, I thought,
-I would see the reflection of candles on the darkened blind for I knew
-that two candles must be set at the head of a corpse.
-RESPONSE: He had often said
-to me: “I am not long for this world,” and I had thought his words
-idle.
 
 INPUT: Summarize: If he was dead, I thought,
 I would see the reflection of candles on the darkened blind for I knew
@@ -282,11 +259,6 @@ to a man like that. ”
 “How do you mean, Mr Cotter?
 RESPONSE: “What I mean is,” said old Cotter, “it’s bad for children.
 
-INPUT: What is this about: “What I mean is,” said old Cotter, “it’s bad for children.
-RESPONSE: My idea is:
-let a young lad run about and play with young lads of his own age and
-not be....
-
 INPUT: Summarize: “What I mean is,” said old Cotter, “it’s bad for children. My idea is:
 let a young lad run about and play with young lads of his own age and
 not be....
@@ -460,14 +432,6 @@ reading the card pinned on the crape. I also approached and read:
  The Rev.
 RESPONSE: James Flynn (formerly of S.
 
-INPUT: Tell me about: James Flynn (formerly of S.
-RESPONSE: Catherine’s
- Church, Meath Street), aged sixty-five years.
-
-INPUT: Summarize: James Flynn (formerly of S. Catherine’s
- Church, Meath Street), aged sixty-five years.
-RESPONSE: _
-
 The reading of the card persuaded me that he was dead and I was
 disturbed to find myself at check.
 
@@ -525,11 +489,6 @@ week, with which he tried to brush away the fallen grains, was quite
 inefficacious.
 RESPONSE: I wished to go in and look at him but I had not the courage to knock.
 
-INPUT: What does this say: I wished to go in and look at him but I had not the courage to knock.
-RESPONSE: I
-walked away slowly along the sunny side of the street, reading all the
-theatrical advertisements in the shop-windows as I went.
-
 INPUT: Summarize: I wished to go in and look at him but I had not the courage to knock. I
 walked away slowly along the sunny side of the street, reading all the
 theatrical advertisements in the shop-windows as I went.
@@ -544,15 +503,6 @@ even annoyed at discovering in myself a sensation of freedom as if I
 had been freed from something by his death.
 RESPONSE: I wondered at this for, as
 my uncle had said the night before, he had taught me a great deal.
-
-INPUT: Summarize: I found it
-strange that neither I nor the day seemed in a mourning mood and I felt
-even annoyed at discovering in myself a sensation of freedom as if I
-had been freed from something by his death. I wondered at this for, as
-my uncle had said the night before, he had taught me a great deal.
-RESPONSE: He
-had studied in the Irish college in Rome and he had taught me to
-pronounce Latin properly.
 
 INPUT: Explain this: He
 had studied in the Irish college in Rome and he had taught me to
@@ -637,12 +587,6 @@ the beginning of our acquaintance before I knew him well.
 RESPONSE: As I walked along in the sun I remembered old Cotter’s words and tried
 to remember what had happened afterwards in the dream.
 
-INPUT: What does this mean: As I walked along in the sun I remembered old Cotter’s words and tried
-to remember what had happened afterwards in the dream.
-RESPONSE: I remembered
-that I had noticed long velvet curtains and a swinging lamp of antique
-fashion.
-
 INPUT: Summarize: As I walked along in the sun I remembered old Cotter’s words and tried
 to remember what had happened afterwards in the dream. I remembered
 that I had noticed long velvet curtains and a swinging lamp of antique
@@ -669,14 +613,6 @@ the west reflected the tawny gold of a great bank of clouds.
 RESPONSE: Nannie
 received us in the hall; and, as it would have been unseemly to have
 shouted at her, my aunt shook hands with her for all.
-
-INPUT: Tell me about: Nannie
-received us in the hall; and, as it would have been unseemly to have
-shouted at her, my aunt shook hands with her for all.
-RESPONSE: The old woman
-pointed upwards interrogatively and, on my aunt’s nodding, proceeded to
-toil up the narrow staircase before us, her bowed head being scarcely
-above the level of the banister-rail.
 
 INPUT: Summarize: Nannie
 received us in the hall; and, as it would have been unseemly to have
@@ -775,14 +711,6 @@ brought out a decanter of sherry and some wine-glasses.
 RESPONSE: She set these
 on the table and invited us to take a little glass of wine.
 
-INPUT: Summarize: I groped my way towards
-my usual chair in the corner while Nannie went to the sideboard and
-brought out a decanter of sherry and some wine-glasses. She set these
-on the table and invited us to take a little glass of wine.
-RESPONSE: Then, at
-her sister’s bidding, she filled out the sherry into the glasses and
-passed them to us.
-
 INPUT: Can you explain: Then, at
 her sister’s bidding, she filled out the sherry into the glasses and
 passed them to us.
@@ -795,11 +723,6 @@ passed them to us. She pressed me to take some cream crackers also but
 I declined because I thought I would make too much noise eating them.
 RESPONSE: She seemed to be somewhat disappointed at my refusal and went over
 quietly to the sofa where she sat down behind her sister.
-
-INPUT: What is this about: She seemed to be somewhat disappointed at my refusal and went over
-quietly to the sofa where she sat down behind her sister.
-RESPONSE: No one spoke:
-we all gazed at the empty fireplace.
 
 INPUT: Summarize: She seemed to be somewhat disappointed at my refusal and went over
 quietly to the sofa where she sat down behind her sister. No one spoke:
@@ -943,12 +866,6 @@ Nannie had leaned her head against the sofa-pillow and seemed about to
 fall asleep.
 RESPONSE: “There’s poor Nannie,” said Eliza, looking at her, “she’s wore out.
 
-INPUT: Tell me about: “There’s poor Nannie,” said Eliza, looking at her, “she’s wore out.
-RESPONSE: All
-the work we had, she and me, getting in the woman to wash him and then
-laying him out and then the coffin and then arranging about the Mass in
-the chapel.
-
 INPUT: Summarize: “There’s poor Nannie,” said Eliza, looking at her, “she’s wore out. All
 the work we had, she and me, getting in the woman to wash him and then
 laying him out and then the coffin and then arranging about the Mass in
@@ -1010,10 +927,6 @@ him. ”
 
 “Ah, poor James!
 RESPONSE: “He was no great trouble to us.
-
-INPUT: Can you explain: “He was no great trouble to us.
-RESPONSE: You
-wouldn’t hear him in the house any more than now.
 
 INPUT: Summarize: “He was no great trouble to us. You
 wouldn’t hear him in the house any more than now.
@@ -1200,11 +1113,6 @@ INPUT: What does this say: “That affected his mind,” she said.
 RESPONSE: “After that he began to mope by
 himself, talking to no one and wandering about by himself.
 
-INPUT: Summarize: “That affected his mind,” she said. “After that he began to mope by
-himself, talking to no one and wandering about by himself.
-RESPONSE: So one night
-he was wanted for to go on a call and they couldn’t find him anywhere.
-
 INPUT: Tell me about: So one night
 he was wanted for to go on a call and they couldn’t find him anywhere.
 RESPONSE: They looked high up and low down; and still they couldn’t see a sight
@@ -1214,12 +1122,6 @@ INPUT: Summarize: So one night
 he was wanted for to go on a call and they couldn’t find him anywhere. They looked high up and low down; and still they couldn’t see a sight
 of him anywhere.
 RESPONSE: So then the clerk suggested to try the chapel.
-
-INPUT: What does this mean: So then the clerk suggested to try the chapel.
-RESPONSE: So then
-they got the keys and opened the chapel and the clerk and Father
-O’Rourke and another priest that was there brought in a light for to
-look for him....
 
 INPUT: Summarize: So then the clerk suggested to try the chapel. So then
 they got the keys and opened the chapel and the clerk and Father
@@ -1269,11 +1171,7 @@ they saw that, that made them think that there was something gone wrong
 with him....
 RESPONSE: ”
 
-
-
-
 AN ENCOUNTER
-
 
 It was Joe Dillon who introduced the Wild West to us.
 
@@ -1281,11 +1179,7 @@ INPUT: Summarize: So then, of course, when
 they saw that, that made them think that there was something gone wrong
 with him.... ”
 
-
-
-
 AN ENCOUNTER
-
 
 It was Joe Dillon who introduced the Wild West to us.
 RESPONSE: He had a little
@@ -1377,16 +1271,6 @@ RESPONSE: The
 adventures related in the literature of the Wild West were remote from
 my nature but, at least, they opened doors of escape.
 
-INPUT: Summarize: We
-banded ourselves together, some boldly, some in jest and some almost in
-fear: and of the number of these latter, the reluctant Indians who were
-afraid to seem studious or lacking in robustness, I was one. The
-adventures related in the literature of the Wild West were remote from
-my nature but, at least, they opened doors of escape.
-RESPONSE: I liked better
-some American detective stories which were traversed from time to time
-by unkempt fierce and beautiful girls.
-
 INPUT: Explain this: I liked better
 some American detective stories which were traversed from time to time
 by unkempt fierce and beautiful girls.
@@ -1460,12 +1344,6 @@ read instead of studying your Roman History?
 RESPONSE: Let me not find any more
 of this wretched stuff in this college.
 
-INPUT: Summarize: _ Is this what you
-read instead of studying your Roman History? Let me not find any more
-of this wretched stuff in this college.
-RESPONSE: The man who wrote it, I
-suppose, was some wretched fellow who writes these things for a drink.
-
 INPUT: Can you explain: The man who wrote it, I
 suppose, was some wretched fellow who writes these things for a drink.
 RESPONSE: I’m surprised at boys like you, educated, reading such stuff.
@@ -1474,10 +1352,6 @@ INPUT: Summarize: The man who wrote it, I
 suppose, was some wretched fellow who writes these things for a drink. I’m surprised at boys like you, educated, reading such stuff.
 RESPONSE: I could
 understand it if you were ...
-
-INPUT: Explain this: I could
-understand it if you were ...
-RESPONSE: National School boys.
 
 INPUT: Summarize: I could
 understand it if you were ... National School boys.
@@ -1530,11 +1404,6 @@ out of the weariness of school-life for one day at least.
 RESPONSE: With Leo
 Dillon and a boy named Mahony I planned a day’s miching.
 
-INPUT: Tell me about: With Leo
-Dillon and a boy named Mahony I planned a day’s miching.
-RESPONSE: Each of us
-saved up sixpence.
-
 INPUT: Summarize: With Leo
 Dillon and a boy named Mahony I planned a day’s miching. Each of us
 saved up sixpence.
@@ -1553,14 +1422,6 @@ RESPONSE: We arranged to go
 along the Wharf Road until we came to the ships, then to cross in the
 ferryboat and walk out to see the Pigeon House.
 
-INPUT: What does this mean: We arranged to go
-along the Wharf Road until we came to the ships, then to cross in the
-ferryboat and walk out to see the Pigeon House.
-RESPONSE: Leo Dillon was afraid
-we might meet Father Butler or someone out of the college; but Mahony
-asked, very sensibly, what would Father Butler be doing out at the
-Pigeon House.
-
 INPUT: Summarize: We arranged to go
 along the Wharf Road until we came to the ships, then to cross in the
 ferryboat and walk out to see the Pigeon House. Leo Dillon was afraid
@@ -1576,13 +1437,6 @@ plot to an end by collecting sixpence from the other two, at the same
 time showing them my own sixpence.
 RESPONSE: When we were making the last
 arrangements on the eve we were all vaguely excited.
-
-INPUT: Summarize: We were reassured: and I brought the first stage of the
-plot to an end by collecting sixpence from the other two, at the same
-time showing them my own sixpence. When we were making the last
-arrangements on the eve we were all vaguely excited.
-RESPONSE: We shook hands,
-laughing, and Mahony said:
 
 “Till tomorrow, mates!
 
@@ -1746,12 +1600,6 @@ dark-complexioned, wore the silver badge of a cricket club in his cap.
 RESPONSE: When we came to the Smoothing Iron we arranged a siege; but it was a
 failure because you must have at least three.
 
-INPUT: What does this mean: When we came to the Smoothing Iron we arranged a siege; but it was a
-failure because you must have at least three.
-RESPONSE: We revenged ourselves on
-Leo Dillon by saying what a funk he was and guessing how many he would
-get at three o’clock from Mr Ryan.
-
 INPUT: Summarize: When we came to the Smoothing Iron we arranged a siege; but it was a
 failure because you must have at least three. We revenged ourselves on
 Leo Dillon by saying what a funk he was and guessing how many he would
@@ -1781,19 +1629,6 @@ RESPONSE: We pleased ourselves with the spectacle of Dublin’s
 commerce—the barges signalled from far away by their curls of woolly
 smoke, the brown fishing fleet beyond Ringsend, the big white
 sailing-vessel which was being discharged on the opposite quay.
-
-INPUT: Summarize: It was noon when we reached the quays and,
-as all the labourers seemed to be eating their lunches, we bought two
-big currant buns and sat down to eat them on some metal piping beside
-the river. We pleased ourselves with the spectacle of Dublin’s
-commerce—the barges signalled from far away by their curls of woolly
-smoke, the brown fishing fleet beyond Ringsend, the big white
-sailing-vessel which was being discharged on the opposite quay.
-RESPONSE: Mahony
-said it would be right skit to run away to sea on one of those big
-ships and even I, looking at the high masts, saw, or imagined, the
-geography which had been scantily dosed to me at school gradually
-taking substance under my eyes.
 
 INPUT: Explain this: Mahony
 said it would be right skit to run away to sea on one of those big
@@ -1831,14 +1666,6 @@ INPUT: Explain this: When we landed we watched the
 discharging of the graceful threemaster which we had observed from the
 other quay.
 RESPONSE: Some bystander said that she was a Norwegian vessel.
-
-INPUT: Summarize: When we landed we watched the
-discharging of the graceful threemaster which we had observed from the
-other quay. Some bystander said that she was a Norwegian vessel.
-RESPONSE: I went
-to the stern and tried to decipher the legend upon it but, failing to
-do so, I came back and examined the foreign sailors to see had any of
-them green eyes for I had some confused notion....
 
 INPUT: Can you explain: I went
 to the stern and tried to decipher the legend upon it but, failing to
@@ -1979,12 +1806,6 @@ moustache was ashen-grey.
 RESPONSE: When he passed at our feet he glanced up at
 us quickly and then continued his way.
 
-INPUT: Explain this: When he passed at our feet he glanced up at
-us quickly and then continued his way.
-RESPONSE: We followed him with our eyes
-and saw that when he had gone on for perhaps fifty paces he turned
-about and began to retrace his steps.
-
 INPUT: Summarize: When he passed at our feet he glanced up at
 us quickly and then continued his way. We followed him with our eyes
 and saw that when he had gone on for perhaps fifty paces he turned
@@ -1997,12 +1818,6 @@ INPUT: Explain this: He walked towards us very slowly,
 always tapping the ground with his stick, so slowly that I thought he
 was looking for something in the grass.
 RESPONSE: He stopped when he came level with us and bade us good-day.
-
-INPUT: Summarize: He walked towards us very slowly,
-always tapping the ground with his stick, so slowly that I thought he
-was looking for something in the grass. He stopped when he came level with us and bade us good-day.
-RESPONSE: We answered
-him and he sat down beside us on the slope slowly and with great care.
 
 INPUT: Explain this: We answered
 him and he sat down beside us on the slope slowly and with great care.
@@ -2029,11 +1844,6 @@ undoubtedly one’s schoolboy days and that he would give anything to be
 young again. While he expressed these sentiments which bored us a
 little we kept silent.
 RESPONSE: Then he began to talk of school and of books.
-
-INPUT: Tell me about: Then he began to talk of school and of books.
-RESPONSE: He
-asked us whether we had read the poetry of Thomas Moore or the works of
-Sir Walter Scott and Lord Lytton.
 
 INPUT: Summarize: Then he began to talk of school and of books. He
 asked us whether we had read the poetry of Thomas Moore or the works of
@@ -2473,17 +2283,11 @@ field to me! He ran as if to bring me aid.
 RESPONSE: And I was penitent; for in
 my heart I had always despised him a little.
 
-INPUT: What does this say: And I was penitent; for in
-my heart I had always despised him a little.
-RESPONSE: ARABY
-
-
 North Richmond Street, being blind, was a quiet street except at the
 hour when the Christian Brothers’ School set the boys free.
 
 INPUT: Summarize: And I was penitent; for in
 my heart I had always despised him a little. ARABY
-
 
 North Richmond Street, being blind, was a quiet street except at the
 hour when the Christian Brothers’ School set the boys free.
@@ -2596,13 +2400,6 @@ kitchen windows had filled the areas.
 RESPONSE: If my uncle was seen turning the
 corner we hid in the shadow until we had seen him safely housed.
 
-INPUT: Summarize: When we returned to the street light from the
-kitchen windows had filled the areas. If my uncle was seen turning the
-corner we hid in the shadow until we had seen him safely housed.
-RESPONSE: Or if
-Mangan’s sister came out on the doorstep to call her brother in to his
-tea we watched her from our shadow peer up and down the street.
-
 INPUT: What is this about: Or if
 Mangan’s sister came out on the doorstep to call her brother in to his
 tea we watched her from our shadow peer up and down the street.
@@ -2647,23 +2444,11 @@ INPUT: Tell me about: The blind was pulled down to within an inch of the sash so
 could not be seen.
 RESPONSE: When she came out on the doorstep my heart leaped.
 
-INPUT: Summarize: The blind was pulled down to within an inch of the sash so that I
-could not be seen. When she came out on the doorstep my heart leaped.
-RESPONSE: I
-ran to the hall, seized my books and followed her.
-
 INPUT: What is this about: I
 ran to the hall, seized my books and followed her.
 RESPONSE: I kept her brown
 figure always in my eye and, when we came near the point at which our
 ways diverged, I quickened my pace and passed her.
-
-INPUT: Summarize: I
-ran to the hall, seized my books and followed her. I kept her brown
-figure always in my eye and, when we came near the point at which our
-ways diverged, I quickened my pace and passed her.
-RESPONSE: This happened
-morning after morning.
 
 INPUT: What does this mean: This happened
 morning after morning.
@@ -2676,11 +2461,6 @@ morning after morning. I had never spoken to her, except for a few
 casual words, and yet her name was like a summons to all my foolish
 blood.
 RESPONSE: Her image accompanied me even in places the most hostile to romance.
-
-INPUT: Tell me about: Her image accompanied me even in places the most hostile to romance.
-RESPONSE: On
-Saturday evenings when my aunt went marketing I had to go to carry some
-of the parcels.
 
 INPUT: Summarize: Her image accompanied me even in places the most hostile to romance. On
 Saturday evenings when my aunt went marketing I had to go to carry some
@@ -2700,17 +2480,6 @@ about O’Donovan Rossa, or a ballad about the troubles in our native
 land.
 RESPONSE: These noises converged in a single sensation of life for me: I
 imagined that I bore my chalice safely through a throng of foes.
-
-INPUT: Summarize: We walked through the flaring streets, jostled by
-drunken men and bargaining women, amid the curses of labourers, the
-shrill litanies of shop-boys who stood on guard by the barrels of pigs’
-cheeks, the nasal chanting of street-singers, who sang a _come-all-you_
-about O’Donovan Rossa, or a ballad about the troubles in our native
-land. These noises converged in a single sensation of life for me: I
-imagined that I bore my chalice safely through a throng of foes.
-RESPONSE: Her
-name sprang to my lips at moments in strange prayers and praises which
-I myself did not understand.
 
 INPUT: Can you explain: Her
 name sprang to my lips at moments in strange prayers and praises which
@@ -2754,10 +2523,6 @@ earth, the fine incessant needles of water playing in the sodden beds.
 INPUT: Summarize: It was a dark rainy evening and there was no sound in the house. Through one of the broken panes I heard the rain impinge upon the
 earth, the fine incessant needles of water playing in the sodden beds.
 RESPONSE: Some distant lamp or lighted window gleamed below me.
-
-INPUT: Tell me about: Some distant lamp or lighted window gleamed below me.
-RESPONSE: I was thankful
-that I could see so little.
 
 INPUT: Summarize: Some distant lamp or lighted window gleamed below me. I was thankful
 that I could see so little.
@@ -2876,10 +2641,6 @@ the silence in which my soul luxuriated and cast an Eastern enchantment
 over me.
 RESPONSE: I asked for leave to go to the bazaar on Saturday night.
 
-INPUT: What does this say: I asked for leave to go to the bazaar on Saturday night.
-RESPONSE: My
-aunt was surprised and hoped it was not some Freemason affair.
-
 INPUT: Summarize: I asked for leave to go to the bazaar on Saturday night. My
 aunt was surprised and hoped it was not some Freemason affair.
 RESPONSE: I
@@ -2951,12 +2712,6 @@ INPUT: Can you explain: I sat staring at the clock for some time and, when its t
 began to irritate me, I left the room.
 RESPONSE: I mounted the staircase and
 gained the upper part of the house.
-
-INPUT: Summarize: I sat staring at the clock for some time and, when its ticking
-began to irritate me, I left the room. I mounted the staircase and
-gained the upper part of the house.
-RESPONSE: The high cold empty gloomy rooms
-liberated me and I went from room to room singing.
 
 INPUT: Tell me about: The high cold empty gloomy rooms
 liberated me and I went from room to room singing.
@@ -3123,13 +2878,6 @@ intolerable delay the train moved out of the station slowly.
 RESPONSE: It crept
 onward among ruinous houses and over the twinkling river.
 
-INPUT: Explain this: It crept
-onward among ruinous houses and over the twinkling river.
-RESPONSE: At Westland
-Row Station a crowd of people pressed to the carriage doors; but the
-porters moved them back, saying that it was a special train for the
-bazaar.
-
 INPUT: Summarize: It crept
 onward among ruinous houses and over the twinkling river. At Westland
 Row Station a crowd of people pressed to the carriage doors; but the
@@ -3207,12 +2955,6 @@ _Café Chantant_ were written in coloured lamps, two men were counting
 money on a salver. I listened to the fall of the coins.
 RESPONSE: Remembering with difficulty why I had come I went over to one of the
 stalls and examined porcelain vases and flowered tea-sets.
-
-INPUT: What does this say: Remembering with difficulty why I had come I went over to one of the
-stalls and examined porcelain vases and flowered tea-sets.
-RESPONSE: At the door
-of the stall a young lady was talking and laughing with two young
-gentlemen.
 
 INPUT: Summarize: Remembering with difficulty why I had come I went over to one of the
 stalls and examined porcelain vases and flowered tea-sets. At the door
@@ -3338,16 +3080,9 @@ was now completely dark.
 RESPONSE: Gazing up into the darkness I saw myself as a creature driven and
 derided by vanity; and my eyes burned with anguish and anger.
 
-INPUT: Summarize: The upper part of the hall
-was now completely dark. Gazing up into the darkness I saw myself as a creature driven and
-derided by vanity; and my eyes burned with anguish and anger.
-RESPONSE: EVELINE
-
-
 She sat at the window watching the evening invade the avenue.
 
 INPUT: Tell me about: EVELINE
-
 
 She sat at the window watching the evening invade the avenue.
 RESPONSE: Her head
@@ -3355,7 +3090,6 @@ was leaned against the window curtains and in her nostrils was the
 odour of dusty cretonne.
 
 INPUT: Summarize: EVELINE
-
 
 She sat at the window watching the evening invade the avenue. Her head
 was leaned against the window curtains and in her nostrils was the

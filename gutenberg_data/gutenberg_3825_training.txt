@@ -4,18 +4,9 @@ were omitted, to read as “cant”, “wouldnt”, and “hed”.
 RESPONSE: This etext
 edition restores the omitted apostrophes.
 
-INPUT: Summarize: TRANSCRIBER’S NOTE: In the printed version of this text, all
-apostrophes for contractions such as “can’t”, “wouldn’t” and “he’d”
-were omitted, to read as “cant”, “wouldnt”, and “hed”. This etext
-edition restores the omitted apostrophes.
-RESPONSE: PYGMALION
-
 BERNARD SHAW
 
 1912
-
-
-
 
 PREFACE TO PYGMALION.
 
@@ -25,9 +16,6 @@ BERNARD SHAW
 
 1912
 
-
-
-
 PREFACE TO PYGMALION.
 RESPONSE: A Professor of Phonetics.
 
@@ -36,9 +24,6 @@ INPUT: Summarize: PYGMALION
 BERNARD SHAW
 
 1912
-
-
-
 
 PREFACE TO PYGMALION. A Professor of Phonetics.
 RESPONSE: As will be seen later on, Pygmalion needs, not a preface, but a sequel,
@@ -102,15 +87,6 @@ covered by a velvet skull cap, for which he would apologize to public
 meetings in a very courtly manner.
 RESPONSE: He and Tito Pagliardini, another
 phonetic veteran, were men whom it was impossible to dislike.
-
-INPUT: Summarize: Ellis was still a living patriarch, with an impressive head always
-covered by a velvet skull cap, for which he would apologize to public
-meetings in a very courtly manner. He and Tito Pagliardini, another
-phonetic veteran, were men whom it was impossible to dislike.
-RESPONSE: Henry
-Sweet, then a young man, lacked their sweetness of character: he was
-about as conciliatory to conventional mortals as Ibsen or Samuel
-Butler.
 
 INPUT: What is this about: Henry
 Sweet, then a young man, lacked their sweetness of character: he was
@@ -352,16 +328,6 @@ himself professionally on Europe to an extent that made his comparative
 personal obscurity, and the failure of Oxford to do justice to his
 eminence, a puzzle to foreign specialists in his subject.
 
-INPUT: Summarize: With Higgins’s physique and temperament
-Sweet might have set the Thames on fire. As it was, he impressed
-himself professionally on Europe to an extent that made his comparative
-personal obscurity, and the failure of Oxford to do justice to his
-eminence, a puzzle to foreign specialists in his subject.
-RESPONSE: I do not
-blame Oxford, because I think Oxford is quite right in demanding a
-certain social amenity from its nurslings (heaven knows it is not
-exorbitant in its requirements!
-
 INPUT: Tell me about: I do not
 blame Oxford, because I think Oxford is quite right in demanding a
 certain social amenity from its nurslings (heaven knows it is not
@@ -385,11 +351,6 @@ without originality and sometimes without much capacity for them,
 still, if he overwhelms them with wrath and disdain, he cannot expect
 them to heap honors on him.
 RESPONSE: Of the later generations of phoneticians I know little.
-
-INPUT: Tell me about: Of the later generations of phoneticians I know little.
-RESPONSE: Among them
-towers the Poet Laureate, to whom perhaps Higgins may owe his Miltonic
-sympathies, though here again I must disclaim all portraiture.
 
 INPUT: Summarize: Of the later generations of phoneticians I know little. Among them
 towers the Poet Laureate, to whom perhaps Higgins may owe his Miltonic
@@ -463,27 +424,14 @@ our Academy of Dramatic Art, there is still too much sham golfing
 English on our stage, and too little of the noble English of Forbes
 Robertson.
 
-INPUT: Summarize: But the thing has to be done
-scientifically, or the last state of the aspirant may be worse than the
-first. An honest and natural slum dialect is more tolerable than the
-attempt of a phonetically untaught person to imitate the vulgar dialect
-of the golf club; and I am sorry to say that in spite of the efforts of
-our Academy of Dramatic Art, there is still too much sham golfing
-English on our stage, and too little of the noble English of Forbes
-Robertson.
-RESPONSE: ACT I
-
-
 Covent Garden at 11.
 
 INPUT: What does this mean: ACT I
-
 
 Covent Garden at 11.
 RESPONSE: Torrents of heavy summer rain.
 
 INPUT: Summarize: ACT I
-
 
 Covent Garden at 11. Torrents of heavy summer rain.
 RESPONSE: Cab whistles
@@ -493,13 +441,6 @@ INPUT: Explain this: Cab whistles
 blowing frantically in all directions.
 RESPONSE: Pedestrians running for shelter
 into the market and under the portico of St.
-
-INPUT: Summarize: Cab whistles
-blowing frantically in all directions. Pedestrians running for shelter
-into the market and under the portico of St.
-RESPONSE: Paul’s Church, where there
-are already several people, among them a lady and her daughter in
-evening dress.
 
 INPUT: Tell me about: Paul’s Church, where there
 are already several people, among them a lady and her daughter in
@@ -518,11 +459,6 @@ RESPONSE: The church clock strikes the first quarter.
 INPUT: What does this mean: The church clock strikes the first quarter.
 RESPONSE: THE DAUGHTER [in the space between the central pillars, close to the
 one on her left] I’m getting chilled to the bone.
-
-INPUT: Summarize: The church clock strikes the first quarter. THE DAUGHTER [in the space between the central pillars, close to the
-one on her left] I’m getting chilled to the bone.
-RESPONSE: What can Freddy be
-doing all this time?
 
 INPUT: Can you explain: What can Freddy be
 doing all this time?
@@ -565,10 +501,6 @@ the theatre door.
 INPUT: Explain this: If Freddy had a bit of gumption, he would have got one at
 the theatre door.
 RESPONSE: What could he have done, poor boy?
-
-INPUT: Summarize: If Freddy had a bit of gumption, he would have got one at
-the theatre door. What could he have done, poor boy?
-RESPONSE: Other people got cabs.
 
 INPUT: What is this about: Other people got cabs.
 RESPONSE: Freddy rushes in out of the rain from the Southampton Street side, and
@@ -636,10 +568,6 @@ INPUT: Summarize: Did you expect me to
 walk to Hammersmith? You haven’t tried at all.
 RESPONSE: You really are very helpless, Freddy.
 
-INPUT: What does this mean: You really are very helpless, Freddy.
-RESPONSE: Go again; and don’t
-come back until you have found a cab.
-
 INPUT: Summarize: You really are very helpless, Freddy. Go again; and don’t
 come back until you have found a cab.
 RESPONSE: I shall simply get soaked for nothing.
@@ -684,9 +612,6 @@ thunder, orchestrates the incident]
 THE FLOWER GIRL.
 RESPONSE: Nah then, Freddy: look wh’ y’ gowin, deah.
 
-INPUT: What does this mean: Nah then, Freddy: look wh’ y’ gowin, deah.
-RESPONSE: Sorry [he rushes off].
-
 INPUT: Summarize: Nah then, Freddy: look wh’ y’ gowin, deah. Sorry [he rushes off].
 RESPONSE: THE FLOWER GIRL [picking up her scattered flowers and replacing them in
 the basket] There’s menners f’ yer!
@@ -709,11 +634,6 @@ RESPONSE: She is not at all an attractive person.
 INPUT: Summarize: [She sits down on the plinth of the column, sorting her
 flowers, on the lady’s right. She is not at all an attractive person.
 RESPONSE: She is perhaps eighteen, perhaps twenty, hardly older.
-
-INPUT: Can you explain: She is perhaps eighteen, perhaps twenty, hardly older.
-RESPONSE: She wears a
-little sailor hat of black straw that has long been exposed to the dust
-and soot of London and has seldom if ever been brushed.
 
 INPUT: Summarize: She is perhaps eighteen, perhaps twenty, hardly older. She wears a
 little sailor hat of black straw that has long been exposed to the dust
@@ -805,10 +725,6 @@ INPUT: Summarize: THE MOTHER [to Clara] Give it to me. [Clara parts reluctantly]
 RESPONSE: Now [to
 the girl] This is for your flowers.
 
-INPUT: Explain this: Now [to
-the girl] This is for your flowers.
-RESPONSE: Thank you kindly, lady.
-
 INPUT: Summarize: Now [to
 the girl] This is for your flowers. Thank you kindly, lady.
 RESPONSE: Make her give you the change.
@@ -847,11 +763,6 @@ INPUT: What does this mean: I called him
 Freddy or Charlie same as you might yourself if you was talking to a
 stranger and wished to be pleasant.
 RESPONSE: [She sits down beside her basket].
-
-INPUT: Summarize: I called him
-Freddy or Charlie same as you might yourself if you was talking to a
-stranger and wished to be pleasant. [She sits down beside her basket].
-RESPONSE: Sixpence thrown away!
 
 INPUT: Explain this: Sixpence thrown away!
 RESPONSE: Really, mamma, you might have
@@ -1040,11 +951,6 @@ me.
 RESPONSE: They’ll take away my character and drive me on the streets for
 speaking to gentlemen.
 
-INPUT: Summarize: You dunno what it means to
-me. They’ll take away my character and drive me on the streets for
-speaking to gentlemen.
-RESPONSE: They—
-
 THE NOTE TAKER [coming forward on her right, the rest crowding after
 him] There, there, there, there!
 
@@ -1182,10 +1088,6 @@ RESPONSE: He wants promotion, he does.
 
 INPUT: What does this mean: He wants promotion, he does.
 RESPONSE: Taking down people’s words!
-
-INPUT: Summarize: He wants promotion, he does. Taking down people’s words!
-RESPONSE: Girl
-never said a word to him.
 
 INPUT: Explain this: Girl
 never said a word to him.
@@ -1339,17 +1241,9 @@ INPUT: What does this say: You take us for dirt under your feet, don’t you?
 RESPONSE: Catch
 you taking liberties with a gentleman!
 
-INPUT: Summarize: You take us for dirt under your feet, don’t you? Catch
-you taking liberties with a gentleman!
-RESPONSE: THE SARCASTIC BYSTANDER.
-
 INPUT: What is this about: THE SARCASTIC BYSTANDER.
 RESPONSE: Yes: tell HIM where he come from if you want
 to go fortune-telling.
-
-INPUT: Summarize: THE SARCASTIC BYSTANDER. Yes: tell HIM where he come from if you want
-to go fortune-telling.
-RESPONSE: Cheltenham, Harrow, Cambridge, and India.
 
 INPUT: What does this say: Cheltenham, Harrow, Cambridge, and India.
 RESPONSE: Reaction in the note
@@ -1459,10 +1353,6 @@ INPUT: Summarize: [The note taker produces a whistle]. [She joins her daughter].
 RESPONSE: The note taker blows a piercing
 blast.
 
-INPUT: What does this say: The note taker blows a piercing
-blast.
-RESPONSE: THE SARCASTIC BYSTANDER.
-
 INPUT: Summarize: The note taker blows a piercing
 blast. THE SARCASTIC BYSTANDER.
 RESPONSE: I knowed he was a plain-clothes copper.
@@ -1509,10 +1399,6 @@ INPUT: Summarize: THE SARCASTIC BYSTANDER. I can tell where you come from.
 RESPONSE: You come from
 Anwell.
 
-INPUT: What is this about: You come from
-Anwell.
-RESPONSE: THE NOTE TAKER [helpfully] _H_anwell.
-
 INPUT: Summarize: You come from
 Anwell. THE NOTE TAKER [helpfully] _H_anwell.
 RESPONSE: THE SARCASTIC BYSTANDER [affecting great distinction of speech] Thenk
@@ -1547,10 +1433,6 @@ INPUT: Explain this: [She gathers her skirts above her ankles and hurries off to
 the Strand].
 RESPONSE: But the cab—[her mother is out of hearing].
 
-INPUT: Summarize: [She gathers her skirts above her ankles and hurries off towards
-the Strand]. But the cab—[her mother is out of hearing].
-RESPONSE: [She follows angrily].
-
 INPUT: What does this mean: [She follows angrily].
 RESPONSE: All the rest have gone except the note taker, the gentleman, and the
 flower girl, who sits arranging her basket, and still pitying herself
@@ -1571,10 +1453,6 @@ INPUT: Summarize: Hard enough for her to live without being
 worrited and chivied. THE GENTLEMAN [returning to his former place on the note taker’s left]
 How do you do it, if I may ask?
 RESPONSE: The science of speech.
-
-INPUT: What does this mean: The science of speech.
-RESPONSE: That’s my
-profession; also my hobby.
 
 INPUT: Summarize: The science of speech. That’s my
 profession; also my hobby.
@@ -1617,12 +1495,6 @@ INPUT: Can you explain: Men begin in Kentish Town with 80 pounds a year, and end
 with a hundred thousand.
 RESPONSE: They want to drop Kentish Town; but they give
 themselves away every time they open their mouths.
-
-INPUT: Summarize: Men begin in Kentish Town with 80 pounds a year, and end in Park Lane
-with a hundred thousand. They want to drop Kentish Town; but they give
-themselves away every time they open their mouths.
-RESPONSE: Now I can teach
-them—
 
 THE FLOWER GIRL.
 
@@ -1673,11 +1545,6 @@ The Bible; and don’t sit there crooning like a bilious pigeon. THE FLOWER GIRL
 wonder and deprecation without daring to raise her head]
 Ah—ah—ah—ow—ow—oo!
 RESPONSE: THE NOTE TAKER [whipping out his book] Heavens!
-
-INPUT: What is this about: THE NOTE TAKER [whipping out his book] Heavens!
-RESPONSE: [He
-writes; then holds out the book and reads, reproducing her vowels
-exactly] Ah—ah—ah—ow—ow—ow—oo!
 
 INPUT: Summarize: THE NOTE TAKER [whipping out his book] Heavens! [He
 writes; then holds out the book and reads, reproducing her vowels
@@ -1829,10 +1696,6 @@ Aaaaaah—ow—ooh! [Picking up a half-sovereign]
 Aasaaaaaaaaah—ow—ooh!!!
 RESPONSE: FREDDY [springing out of a taxicab] Got one at last.
 
-INPUT: What is this about: FREDDY [springing out of a taxicab] Got one at last.
-RESPONSE: [To the
-girl] Where are the two ladies that were here?
-
 INPUT: Summarize: FREDDY [springing out of a taxicab] Got one at last. [To the
 girl] Where are the two ladies that were here?
 RESPONSE: They walked to the bus when the rain stopped.
@@ -1854,11 +1717,6 @@ RESPONSE: [She sails off to the cab.
 INPUT: Can you explain: [She sails off to the cab.
 RESPONSE: The driver puts his hand
 behind him and holds the door firmly shut against her.
-
-INPUT: Summarize: [She sails off to the cab. The driver puts his hand
-behind him and holds the door firmly shut against her.
-RESPONSE: Quite
-understanding his mistrust, she shows him her handful of money].
 
 INPUT: What is this about: Quite
 understanding his mistrust, she shows him her handful of money].
@@ -1883,21 +1741,14 @@ INPUT: What does this mean: Let’s see how fast you can make her hop it.
 RESPONSE: [She gets in and
 pulls the door to with a slam as the taxicab starts].
 
-INPUT: Summarize: Let’s see how fast you can make her hop it. [She gets in and
-pulls the door to with a slam as the taxicab starts].
-RESPONSE: ACT II
-
-
 Next day at 11 a.
 
 INPUT: Can you explain: ACT II
-
 
 Next day at 11 a.
 RESPONSE: Higgins’s laboratory in Wimpole Street.
 
 INPUT: Summarize: ACT II
-
 
 Next day at 11 a. Higgins’s laboratory in Wimpole Street.
 RESPONSE: It is a
@@ -1972,13 +1823,6 @@ directory.
 RESPONSE: The corner beyond, and most of the side wall, is occupied by
 a grand piano, with the keyboard at the end furthest from the door, and
 a bench for the player extending the full length of the keyboard.
-
-INPUT: Explain this: The corner beyond, and most of the side wall, is occupied by
-a grand piano, with the keyboard at the end furthest from the door, and
-a bench for the player extending the full length of the keyboard.
-RESPONSE: On
-the piano is a dessert dish heaped with fruit and sweets, mostly
-chocolates.
 
 INPUT: Summarize: The corner beyond, and most of the side wall, is occupied by
 a grand piano, with the keyboard at the end furthest from the door, and
@@ -2413,11 +2257,6 @@ RESPONSE: [She places
 the stray chair near the hearthrug between Higgins and Pickering, and
 stands behind it waiting for the girl to sit down].
 
-INPUT: Tell me about: [She places
-the stray chair near the hearthrug between Higgins and Pickering, and
-stands behind it waiting for the girl to sit down].
-RESPONSE: Ah—ah—ah—ow—ow—oo!
-
 INPUT: Summarize: [She places
 the stray chair near the hearthrug between Higgins and Pickering, and
 stands behind it waiting for the girl to sit down]. Ah—ah—ah—ow—ow—oo!
@@ -2431,10 +2270,6 @@ RESPONSE: PICKERING [very courteous] Won’t you sit down?
 INPUT: Summarize: [She stands, half rebellious,
 half bewildered]. PICKERING [very courteous] Won’t you sit down?
 RESPONSE: LIZA [coyly] Don’t mind if I do.
-
-INPUT: What does this mean: LIZA [coyly] Don’t mind if I do.
-RESPONSE: Pickering returns to
-the hearthrug].
 
 INPUT: Summarize: LIZA [coyly] Don’t mind if I do. Pickering returns to
 the hearthrug].
@@ -2547,10 +2382,6 @@ RESPONSE: LIZA [rising, terrified] Sixty pounds!
 INPUT: Summarize: it’s the biggest offer I ever had. LIZA [rising, terrified] Sixty pounds!
 RESPONSE: What are you talking about?
 
-INPUT: What does this mean: What are you talking about?
-RESPONSE: I
-never offered you sixty pounds.
-
 INPUT: Summarize: What are you talking about? I
 never offered you sixty pounds.
 RESPONSE: Where would I get—
@@ -2614,10 +2445,6 @@ RESPONSE: Liza, utterly bewildered, stares helplessly at him.
 INPUT: Tell me about: Liza, utterly bewildered, stares helplessly at him.
 RESPONSE: It’s no use talking to her like that, Mr.
 
-INPUT: Summarize: Liza, utterly bewildered, stares helplessly at him. It’s no use talking to her like that, Mr.
-RESPONSE: Higgins: she
-doesn’t understand you.
-
 INPUT: Can you explain: Higgins: she
 doesn’t understand you.
 RESPONSE: Besides, you’re quite wrong: she doesn’t do it
@@ -2647,10 +2474,6 @@ property, Mrs.
 INPUT: What is this about: I think it must be regarded as her
 property, Mrs.
 RESPONSE: PEARCE [resigning herself] Serve you right, Mr.
-
-INPUT: Summarize: I think it must be regarded as her
-property, Mrs. PEARCE [resigning herself] Serve you right, Mr.
-RESPONSE: Higgins: I’m interested.
 
 INPUT: What does this mean: Higgins: I’m interested.
 RESPONSE: What about the ambassador’s garden

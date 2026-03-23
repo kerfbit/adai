@@ -1,29 +1,19 @@
 INPUT: What does this say: [Illustration]
 
-
-
-
 Great Expectations
 
 [1867 Edition]
 
 by Charles Dickens
-
 
 Contents
 
  Chapter I.
 RESPONSE: [Illustration]
 
-
-
-
 Chapter I.
 
 INPUT: Summarize: [Illustration]
-
-
-
 
 Great Expectations
 
@@ -31,13 +21,9 @@ Great Expectations
 
 by Charles Dickens
 
-
 Contents
 
  Chapter I. [Illustration]
-
-
-
 
 Chapter I.
 RESPONSE: My father’s family name being Pirrip, and my Christian name Philip, my
@@ -490,14 +476,6 @@ creep his way to him and tear him open.
 RESPONSE: I am a keeping that young man
 from harming of you at the present moment, with great difficulty.
 
-INPUT: Summarize: A boy may lock his door, may be warm in
-bed, may tuck himself up, may draw the clothes over his head, may think
-himself comfortable and safe, but that young man will softly creep and
-creep his way to him and tear him open. I am a keeping that young man
-from harming of you at the present moment, with great difficulty.
-RESPONSE: I
-find it wery hard to hold that young man off of your inside.
-
 INPUT: Tell me about: I
 find it wery hard to hold that young man off of your inside.
 RESPONSE: Now, what
@@ -676,13 +654,6 @@ husband as well as upon me, I supposed that Joe Gargery and I were both
 brought up by hand.
 RESPONSE: She was not a good-looking woman, my sister; and I had a general
 impression that she must have made Joe Gargery marry her by hand.
-
-INPUT: What does this say: She was not a good-looking woman, my sister; and I had a general
-impression that she must have made Joe Gargery marry her by hand.
-RESPONSE: Joe
-was a fair man, with curls of flaxen hair on each side of his smooth
-face, and with eyes of such a very undecided blue that they seemed to
-have somehow got mixed with their own whites.
 
 INPUT: Summarize: She was not a good-looking woman, my sister; and I had a general
 impression that she must have made Joe Gargery marry her by hand. Joe
@@ -919,10 +890,6 @@ INPUT: Summarize: I whimpered, “I don’t know. ”
 “_I_ don’t!
 RESPONSE: “I’d never do it again!
 
-INPUT: What does this say: “I’d never do it again!
-RESPONSE: I may
-truly say I’ve never had this apron of mine off since born you were.
-
 INPUT: Summarize: “I’d never do it again! I may
 truly say I’ve never had this apron of mine off since born you were.
 RESPONSE: It’s bad enough to be a blacksmith’s wife (and him a Gargery) without
@@ -1014,15 +981,6 @@ that never varied.
 RESPONSE: First, with her left hand she jammed the loaf hard
 and fast against her bib,—where it sometimes got a pin into it, and
 sometimes a needle, which we afterwards got into our mouths.
-
-INPUT: Explain this: First, with her left hand she jammed the loaf hard
-and fast against her bib,—where it sometimes got a pin into it, and
-sometimes a needle, which we afterwards got into our mouths.
-RESPONSE: Then she
-took some butter (not too much) on a knife and spread it on the loaf,
-in an apothecary kind of way, as if she were making a plaster,—using
-both sides of the knife with a slapping dexterity, and trimming and
-moulding the butter off round the crust.
 
 INPUT: Summarize: First, with her left hand she jammed the loaf hard
 and fast against her bib,—where it sometimes got a pin into it, and
@@ -1162,11 +1120,6 @@ remonstrance.
 INPUT: Can you explain: ” muttered Joe, shaking his head at me in very serious
 remonstrance.
 RESPONSE: You’ll do yourself a mischief.
-
-INPUT: Summarize: ” muttered Joe, shaking his head at me in very serious
-remonstrance. You’ll do yourself a mischief.
-RESPONSE: It’ll
-stick somewhere.
 
 INPUT: Can you explain: It’ll
 stick somewhere.
@@ -1354,17 +1307,6 @@ never thought I was going to rob Joe, for I never thought of any of the
 housekeeping property as his—united to the necessity of always keeping
 one hand on my bread and butter as I sat, or when I was ordered about
 the kitchen on any small errand, almost drove me out of my mind.
-
-INPUT: What does this say: Joe—I
-never thought I was going to rob Joe, for I never thought of any of the
-housekeeping property as his—united to the necessity of always keeping
-one hand on my bread and butter as I sat, or when I was ordered about
-the kitchen on any small errand, almost drove me out of my mind.
-RESPONSE: Then,
-as the marsh winds made the fire glow and flare, I thought I heard the
-voice outside, of the man with the iron on his leg who had sworn me to
-secrecy, declaring that he couldn’t and wouldn’t starve until
-to-morrow, but must be fed now.
 
 INPUT: Summarize: Joe—I
 never thought I was going to rob Joe, for I never thought of any of the
@@ -1831,14 +1773,6 @@ thick, that the wooden finger on the post directing people to our
 village—a direction which they never accepted, for they never came
 there—was invisible to me until I was quite close under it.
 
-INPUT: Can you explain: On every rail and gate, wet lay clammy, and the marsh mist was so
-thick, that the wooden finger on the post directing people to our
-village—a direction which they never accepted, for they never came
-there—was invisible to me until I was quite close under it.
-RESPONSE: Then, as I
-looked up at it, while it dripped, it seemed to my oppressed conscience
-like a phantom devoting me to the Hulks.
-
 INPUT: Summarize: On every rail and gate, wet lay clammy, and the marsh mist was so
 thick, that the wooden finger on the post directing people to our
 village—a direction which they never accepted, for they never came
@@ -1875,14 +1809,6 @@ ox, with a white cravat on,—who even had to my awakened conscience
 something of a clerical air,—fixed me so obstinately with his eyes, and
 moved his blunt head round in such an accusatory manner as I moved
 round, that I blubbered out to him, “I couldn’t help it, sir!
-
-INPUT: What does this say: ” One black
-ox, with a white cravat on,—who even had to my awakened conscience
-something of a clerical air,—fixed me so obstinately with his eyes, and
-moved his blunt head round in such an accusatory manner as I moved
-round, that I blubbered out to him, “I couldn’t help it, sir!
-RESPONSE: It wasn’t
-for myself I took it!
 
 INPUT: Summarize: ” One black
 ox, with a white cravat on,—who even had to my awakened conscience
@@ -2210,13 +2136,6 @@ I had often watched a large dog of ours eating his food; and I now
 noticed a decided similarity between the dog’s way of eating, and the
 man’s.
 RESPONSE: The man took strong sharp sudden bites, just like the dog.
-
-INPUT: What does this say: The man took strong sharp sudden bites, just like the dog.
-RESPONSE: He
-swallowed, or rather snapped up, every mouthful, too soon and too fast;
-and he looked sideways here and there while he ate, as if he thought
-there was danger in every direction of somebody’s coming to take the
-pie away.
 
 INPUT: Summarize: The man took strong sharp sudden bites, just like the dog. He
 swallowed, or rather snapped up, every mouthful, too soon and too fast;
@@ -2587,13 +2506,6 @@ RESPONSE: A handsome mince-pie had
 been made yesterday morning (which accounted for the mincemeat not
 being missed), and the pudding was already on the boil.
 
-INPUT: What does this say: A handsome mince-pie had
-been made yesterday morning (which accounted for the mincemeat not
-being missed), and the pudding was already on the boil.
-RESPONSE: These extensive
-arrangements occasioned us to be cut off unceremoniously in respect of
-breakfast; “for I ain’t,” said Mrs.
-
 INPUT: Summarize: A handsome mince-pie had
 been made yesterday morning (which accounted for the mincemeat not
 being missed), and the pudding was already on the boil. These extensive
@@ -2696,18 +2608,6 @@ RESPONSE: I was always treated as if I had insisted on being
 born in opposition to the dictates of reason, religion, and morality,
 and against the dissuading arguments of my best friends.
 
-INPUT: Summarize: As to me,
-I think my sister must have had some general idea that I was a young
-offender whom an Accoucheur Policeman had taken up (on my birthday) and
-delivered over to her, to be dealt with according to the outraged
-majesty of the law. I was always treated as if I had insisted on being
-born in opposition to the dictates of reason, religion, and morality,
-and against the dissuading arguments of my best friends.
-RESPONSE: Even when I
-was taken to have a new suit of clothes, the tailor had orders to make
-them like a kind of Reformatory, and on no account to let me have the
-free use of my limbs.
-
 INPUT: Explain this: Even when I
 was taken to have a new suit of clothes, the tailor had orders to make
 them like a kind of Reformatory, and on no account to let me have the
@@ -2740,15 +2640,6 @@ RESPONSE: Under the weight of my wicked secret, I pondered whether the
 Church would be powerful enough to shield me from the vengeance of the
 terrible young man, if I divulged to that establishment.
 
-INPUT: Summarize: Joe had gone near the pantry, or out of the room, were only to be
-equalled by the remorse with which my mind dwelt on what my hands had
-done. Under the weight of my wicked secret, I pondered whether the
-Church would be powerful enough to shield me from the vengeance of the
-terrible young man, if I divulged to that establishment.
-RESPONSE: I conceived
-the idea that the time when the banns were read and when the clergyman
-said, “Ye are now to declare it!
-
 INPUT: Tell me about: I conceived
 the idea that the time when the banns were read and when the clergyman
 said, “Ye are now to declare it!
@@ -2767,12 +2658,6 @@ INPUT: Can you explain: I am far from being sure
 that I might not have astonished our small congregation by resorting to
 this extreme measure, but for its being Christmas Day and no Sunday.
 RESPONSE: Wopsle, the clerk at church, was to dine with us; and Mr.
-
-INPUT: Summarize: I am far from being sure
-that I might not have astonished our small congregation by resorting to
-this extreme measure, but for its being Christmas Day and no Sunday. Wopsle, the clerk at church, was to dine with us; and Mr.
-RESPONSE: Hubble
-the wheelwright and Mrs.
 
 INPUT: What does this say: Hubble
 the wheelwright and Mrs.
@@ -3194,11 +3079,6 @@ before us, as an example to the young.
 RESPONSE: ” (I thought this pretty well in
 him who had been praising up the pork for being so plump and juicy.
 
-INPUT: What is this about: ” (I thought this pretty well in
-him who had been praising up the pork for being so plump and juicy.
-RESPONSE: )
-“What is detestable in a pig is more detestable in a boy.
-
 INPUT: Summarize: ” (I thought this pretty well in
 him who had been praising up the pork for being so plump and juicy. )
 “What is detestable in a pig is more detestable in a boy.
@@ -3215,10 +3095,6 @@ INPUT: Summarize: ”
 
 “Or girl,” suggested Mr. “Of course, or girl, Mr.
 RESPONSE: Hubble,” assented Mr.
-
-INPUT: What does this say: Hubble,” assented Mr.
-RESPONSE: Wopsle, rather
-irritably, “but there is no girl present.
 
 INPUT: Summarize: Hubble,” assented Mr. Wopsle, rather
 irritably, “but there is no girl present.
@@ -3250,14 +3126,6 @@ INPUT: Summarize: If you’d been born a Squeaker—”
 “He _was_, if ever a child was,” said my sister, most emphatically. Joe gave me some more gravy.
 RESPONSE: “Well, but I mean a four-footed Squeaker,” said Mr.
 
-INPUT: What does this say: “Well, but I mean a four-footed Squeaker,” said Mr.
-RESPONSE: “If
-you had been born such, would you have been here now?
-
-INPUT: Summarize: “Well, but I mean a four-footed Squeaker,” said Mr. “If
-you had been born such, would you have been here now?
-RESPONSE: Not you—”
-
 “Unless in that form,” said Mr.
 
 INPUT: Tell me about: Not you—”
@@ -3269,12 +3137,6 @@ INPUT: Summarize: Not you—”
 
 “Unless in that form,” said Mr. Wopsle, nodding towards the dish.
 RESPONSE: “But I don’t mean in that form, sir,” returned Mr.
-
-INPUT: What does this mean: “But I don’t mean in that form, sir,” returned Mr.
-RESPONSE: Pumblechook, who had
-an objection to being interrupted; “I mean, enjoying himself with his
-elders and betters, and improving himself with their conversation, and
-rolling in the lap of luxury.
 
 INPUT: Summarize: “But I don’t mean in that form, sir,” returned Mr. Pumblechook, who had
 an objection to being interrupted; “I mean, enjoying himself with his
@@ -3316,10 +3178,6 @@ INPUT: Summarize: No bringing up by hand then. ”
 
 Joe offered me more gravy, which I was afraid to take.
 RESPONSE: “He was a world of trouble to you, ma’am,” said Mrs.
-
-INPUT: What does this say: “He was a world of trouble to you, ma’am,” said Mrs.
-RESPONSE: Hubble,
-commiserating my sister.
 
 INPUT: Summarize: “He was a world of trouble to you, ma’am,” said Mrs. Hubble,
 commiserating my sister.
@@ -3401,13 +3259,6 @@ INPUT: What is this about: I held tight to the leg of the table under
 the cloth, with both hands, and awaited my fate.
 RESPONSE: My sister went for the stone bottle, came back with the stone bottle,
 and poured his brandy out: no one else taking any.
-
-INPUT: Summarize: I held tight to the leg of the table under
-the cloth, with both hands, and awaited my fate. My sister went for the stone bottle, came back with the stone bottle,
-and poured his brandy out: no one else taking any.
-RESPONSE: The wretched man
-trifled with his glass,—took it up, looked at it through the light, put
-it down,—prolonged my misery.
 
 INPUT: What does this say: The wretched man
 trifled with his glass,—took it up, looked at it through the light, put

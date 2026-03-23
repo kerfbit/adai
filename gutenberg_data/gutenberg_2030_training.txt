@@ -1,9 +1,5 @@
 INPUT: Can you explain: Produced by John Bickers; Dagny
 
-
-
-
-
 LEGENDS OF BABYLON AND EGYPT IN RELATION TO HEBREW TRADITION
 
 By Leonard W.
@@ -12,14 +8,9 @@ Museum
 
 Professor in the University of London King's College
 
-
 First Published 1918 by Humphrey Milford, Oxford University Press.
 
 INPUT: Summarize: Produced by John Bickers; Dagny
-
-
-
-
 
 LEGENDS OF BABYLON AND EGYPT IN RELATION TO HEBREW TRADITION
 
@@ -28,12 +19,10 @@ Museum
 
 Professor in the University of London King's College
 
-
 First Published 1918 by Humphrey Milford, Oxford University Press.
 RESPONSE: THE BRITISH ACADEMY
 
 THE SCHWEICH LECTURES 1916
-
 
  PREPARER'S NOTE
 
@@ -43,7 +32,6 @@ THE SCHWEICH LECTURES 1916
 INPUT: Explain this: THE BRITISH ACADEMY
 
 THE SCHWEICH LECTURES 1916
-
 
  PREPARER'S NOTE
 
@@ -56,16 +44,12 @@ INPUT: Summarize: THE BRITISH ACADEMY
 
 THE SCHWEICH LECTURES 1916
 
-
  PREPARER'S NOTE
 
  This text was prepared from a 1920 edition of the book,
  hence the references to dates after 1916 in some places. Greek text has been transliterated within brackets "{}"
  using an Oxford English Dictionary alphabet table.
 RESPONSE: Diacritical marks have been lost.
-
-INPUT: What is this about: Diacritical marks have been lost.
-RESPONSE: PREFACE
 
 In these lectures an attempt is made, not so much to restate familiar
 facts, as to accommodate them to new and supplementary evidence which
@@ -160,19 +144,6 @@ RESPONSE: Though the resemblance of early Sumerian tradition to that of the
 Hebrews is striking, it furnishes a still closer parallel to the
 summaries preserved from the history of Berossus.
 
-INPUT: Summarize: In spite
-of the fact that the text appears to have reached us in a magical
-setting, and to some extent in epitomized form, this early document
-enables us to tap the stream of tradition at a point far above any at
-which approach has hitherto been possible. Though the resemblance of early Sumerian tradition to that of the
-Hebrews is striking, it furnishes a still closer parallel to the
-summaries preserved from the history of Berossus.
-RESPONSE: The huge figures
-incorporated in the latter's chronological scheme are no longer to be
-treated as a product of Neo-Babylonian speculation; they reappear in
-their original surroundings in another of these early documents, the
-Sumerian Dynastic List.
-
 INPUT: What is this about: The huge figures
 incorporated in the latter's chronological scheme are no longer to be
 treated as a product of Neo-Babylonian speculation; they reappear in
@@ -239,19 +210,6 @@ the sources of all three accounts, so far as they are affected by the
 new discoveries, it will be of interest to observe how the same problems
 were solved in antiquity by very different races, living under widely
 divergent conditions, but within easy reach of one another.
-
-INPUT: Summarize: The third body of tradition, that
-of the Hebrews, though unbacked by the prestige of secular achievement,
-has, through incorporation in the canons of two great religious systems,
-acquired an authority which the others have not enjoyed. In re-examining
-the sources of all three accounts, so far as they are affected by the
-new discoveries, it will be of interest to observe how the same problems
-were solved in antiquity by very different races, living under widely
-divergent conditions, but within easy reach of one another.
-RESPONSE: Their
-periods of contact, ascertained in history or suggested by geographical
-considerations, will prompt the further question to what extent each
-body of belief was evolved in independence of the others.
 
 INPUT: Tell me about: Their
 periods of contact, ascertained in history or suggested by geographical
@@ -349,16 +307,7 @@ of references throughout, and the more detailed discussion of problems
 suggested by our new literary material, may incline the reader to add
 his indulgence to that already extended to me by the British Academy.
 
-INPUT: What does this mean: It is hoped that the insertion
-of references throughout, and the more detailed discussion of problems
-suggested by our new literary material, may incline the reader to add
-his indulgence to that already extended to me by the British Academy.
-RESPONSE: LEGENDS OF BABYLON AND EGYPT
-
 IN RELATION TO HEBREW TRADITION
-
-
-
 
 LECTURE I--EGYPT, BABYLON, AND PALESTINE, AND SOME TRADITIONAL ORIGINS
 OF CIVILIZATION
@@ -372,9 +321,6 @@ suggested by our new literary material, may incline the reader to add
 his indulgence to that already extended to me by the British Academy. LEGENDS OF BABYLON AND EGYPT
 
 IN RELATION TO HEBREW TRADITION
-
-
-
 
 LECTURE I--EGYPT, BABYLON, AND PALESTINE, AND SOME TRADITIONAL ORIGINS
 OF CIVILIZATION
@@ -465,17 +411,6 @@ political or commercial ties.
 RESPONSE: And we shall have occasion to test, by
 means of our new data, a recent theory of Egyptian influence.
 
-INPUT: Summarize: The trend of much recent anthropological research has been in the
-direction of seeking a single place of origin for similar beliefs and
-practices, at least among races which were bound to one another by
-political or commercial ties. And we shall have occasion to test, by
-means of our new data, a recent theory of Egyptian influence.
-RESPONSE: The Nile
-Valley was, of course, one the great centres from which civilization
-radiated throughout the ancient East; and, even when direct contact
-is unproved, Egyptian literature may furnish instructive parallels and
-contrasts in any study of Western Asiatic mythology.
-
 INPUT: What is this about: The Nile
 Valley was, of course, one the great centres from which civilization
 radiated throughout the ancient East; and, even when direct contact
@@ -536,13 +471,6 @@ seventh century B.
 RESPONSE: , and yet it was clear that the texts themselves,
 in some form or other, must have descended from a remote antiquity.
 
-INPUT: Tell me about: , and yet it was clear that the texts themselves,
-in some form or other, must have descended from a remote antiquity.
-RESPONSE: He
-concluded his brief reference to the Creation and Deluge Tablets with
-these words: "The Babylonian narratives are both polytheistic, while
-the corresponding biblical narratives (Gen.
-
 INPUT: Summarize: , and yet it was clear that the texts themselves,
 in some form or other, must have descended from a remote antiquity. He
 concluded his brief reference to the Creation and Deluge Tablets with
@@ -555,20 +483,6 @@ are such as to leave no doubt that the Hebrew cosmogony and the Hebrew
 story of the Deluge are both derived ultimately from the same original
 as the Babylonian narratives, only transformed by the magic touch of
 Israel's religion, and infused by it with a new spirit.
-
-INPUT: Can you explain: i and vi-xi) are made
-the vehicle of a pure and exalted monotheism; but in spite of this
-fundamental difference, and also variations in detail, the resemblances
-are such as to leave no doubt that the Hebrew cosmogony and the Hebrew
-story of the Deluge are both derived ultimately from the same original
-as the Babylonian narratives, only transformed by the magic touch of
-Israel's religion, and infused by it with a new spirit.
-RESPONSE: "(1) Among the
-recently published documents from Nippur we have at last recovered one
-at least of those primitive originals from which the Babylonian accounts
-were derived, while others prove the existence of variant stories of the
-world's origin and early history which have not survived in the later
-cuneiform texts.
 
 INPUT: Summarize: i and vi-xi) are made
 the vehicle of a pure and exalted monotheism; but in spite of this
@@ -644,16 +558,6 @@ a family.
 RESPONSE: (1) While Exodus and the succeeding books contain national
 traditions, Genesis is largely made up of individual biography.
 
-INPUT: Summarize: Four centuries of
-complete silence lie between its close and the beginning of Exodus,
-where we enter on the history of a nation as contrasted with that of
-a family. (1) While Exodus and the succeeding books contain national
-traditions, Genesis is largely made up of individual biography.
-RESPONSE: Chapters
-xii-l are concerned with the immediate ancestors of the Hebrew race,
-beginning with Abram's migration into Canaan and closing with Joseph's
-death in Egypt.
-
 INPUT: What does this mean: Chapters
 xii-l are concerned with the immediate ancestors of the Hebrew race,
 beginning with Abram's migration into Canaan and closing with Joseph's
@@ -721,12 +625,6 @@ with the reported beliefs of a Malayan or Central Australian tribe.
 RESPONSE: In
 such a case there would be no difficulty in applying a purely objective
 criticism, without regard to ulterior consequences.
-
-INPUT: Explain this: In
-such a case there would be no difficulty in applying a purely objective
-criticism, without regard to ulterior consequences.
-RESPONSE: But here our own
-feelings are involved, having their roots deep in early associations.
 
 INPUT: Summarize: In
 such a case there would be no difficulty in applying a purely objective
@@ -930,20 +828,6 @@ the battle-ground for most invaders of Palestine from the north, and
 though Egyptian armies often fought in the southern coastal plain, they
 too have battled there when they held the southern country.
 
-INPUT: Summarize: But the great highway from Egypt, the most westerly of
-the trunk-roads through Palestine, was that mainly followed, with some
-variant sections, by both caravans and armies, and was known by the
-Hebrews in its southern course as the "Way of the Philistines" and
-farther north as the "Way of the East". The plain of Esraelon, where the road first trends eastward, has been
-the battle-ground for most invaders of Palestine from the north, and
-though Egyptian armies often fought in the southern coastal plain, they
-too have battled there when they held the southern country.
-RESPONSE: Megiddo,
-which commands the main pass into the plain through the low Samaritan
-hills to the southeast of Carmel, was the site of Thothmes III's famous
-battle against a Syrian confederation, and it inspired the writer of the
-Apocalypse with his vision of an Armageddon of the future.
-
 INPUT: What does this say: Megiddo,
 which commands the main pass into the plain through the low Samaritan
 hills to the southeast of Carmel, was the site of Thothmes III's famous
@@ -1033,17 +917,6 @@ cities habitually exceeds the birth-rate; the urban population must be
 reinforced from the country if it is to be maintained, so that the type
 of population is ultimately determined by the blood of the peasantry.
 
-INPUT: Summarize: Indeed, in the whole course of her history the
-only race that bade fair at one time to oust the Semite in Syria was the
-Greek. But the Greeks remained within the cities which they founded or
-rebuilt, and, as Robertson Smith pointed out, the death-rate in Eastern
-cities habitually exceeds the birth-rate; the urban population must be
-reinforced from the country if it is to be maintained, so that the type
-of population is ultimately determined by the blood of the peasantry.
-RESPONSE: (1)
-Hence after the Arab conquest the Greek elements in Syria and Palestine
-tended rapidly to disappear.
-
 INPUT: What is this about: (1)
 Hence after the Arab conquest the Greek elements in Syria and Palestine
 tended rapidly to disappear.
@@ -1051,17 +924,6 @@ RESPONSE: The Moslem invasion was only the last of a
 series of similar great inroads, which have followed one another since
 the dawn of history, and during all that time absorption was continually
 taking place from desert tribes that ranged the Syrian border.
-
-INPUT: Summarize: (1)
-Hence after the Arab conquest the Greek elements in Syria and Palestine
-tended rapidly to disappear. The Moslem invasion was only the last of a
-series of similar great inroads, which have followed one another since
-the dawn of history, and during all that time absorption was continually
-taking place from desert tribes that ranged the Syrian border.
-RESPONSE: As we
-have seen, the country of his adoption was such as to encourage
-the Semitic nomad's particularism, which was inherent in his tribal
-organization.
 
 INPUT: Tell me about: As we
 have seen, the country of his adoption was such as to encourage
@@ -1190,13 +1052,6 @@ arranged symmetrically.
 RESPONSE: The rest of the composition is not very unlike
 other examples of prehistoric Egyptian carving in low relief, but here
 attitude, figure, and clothing are quite un-Egyptian.
-
-INPUT: Tell me about: The rest of the composition is not very unlike
-other examples of prehistoric Egyptian carving in low relief, but here
-attitude, figure, and clothing are quite un-Egyptian.
-RESPONSE: The hero wears
-a sort of turban on his abundant hair, and a full and rounded beard
-descends upon his breast.
 
 INPUT: Summarize: The rest of the composition is not very unlike
 other examples of prehistoric Egyptian carving in low relief, but here
@@ -1384,13 +1239,6 @@ detail in one of the contemporary versions, which records that Enlil
 "gave him the upper land, Mari, Iarmuti, and Ibla, as far as the Cedar
 Forest and the Silver Mountains".
 
-INPUT: Summarize: from the Mediterranean to the Persian Gulf. Fortunately this rather
-vague phrase, which survived in later tradition, is restated in greater
-detail in one of the contemporary versions, which records that Enlil
-"gave him the upper land, Mari, Iarmuti, and Ibla, as far as the Cedar
-Forest and the Silver Mountains".
-RESPONSE: (1)
-
  (1) See Poebel, _Historical Texts_ (Univ.
 
 INPUT: What is this about: (1)
@@ -1420,13 +1268,6 @@ slopes of the mountain.
 RESPONSE: But we may infer from his texts that Sargon
 actually reached the coast, and his "Cedar Forest" may have lain
 farther to the south, perhaps as far south as the Lebanon.
-
-INPUT: Tell me about: But we may infer from his texts that Sargon
-actually reached the coast, and his "Cedar Forest" may have lain
-farther to the south, perhaps as far south as the Lebanon.
-RESPONSE: The "Silver
-Mountains" can only be identified with the Taurus, where silver mines
-were worked in antiquity.
 
 INPUT: Summarize: But we may infer from his texts that Sargon
 actually reached the coast, and his "Cedar Forest" may have lain
@@ -1546,30 +1387,12 @@ RESPONSE: Egyptian control had passed
 from Canaan at the time of the Hebrew settlement, which was indeed a
 comparatively late episode in the early history of Syria.
 
-INPUT: Summarize: The fact that Babylonian
-should then have been adopted as the medium of official intercourse in
-Syria points to the closeness of the commercial ties which had already
-united the Euphrates Valley with the west. Egyptian control had passed
-from Canaan at the time of the Hebrew settlement, which was indeed a
-comparatively late episode in the early history of Syria.
-RESPONSE: Whether or not
-we identify the Khabiri with the Hebrews, the character of the latter's
-incursion is strikingly illustrated by some of the Tell el-Amarna
-letters.
-
 INPUT: What does this mean: Whether or not
 we identify the Khabiri with the Hebrews, the character of the latter's
 incursion is strikingly illustrated by some of the Tell el-Amarna
 letters.
 RESPONSE: We see a nomad folk pressing in upon settled peoples and
 gaining a foothold here and there.
-
-INPUT: Summarize: Whether or not
-we identify the Khabiri with the Hebrews, the character of the latter's
-incursion is strikingly illustrated by some of the Tell el-Amarna
-letters. We see a nomad folk pressing in upon settled peoples and
-gaining a foothold here and there.
-RESPONSE: (2)
 
  (1) In some versions of his new records Sargon states that
  "5,400 men daily eat bread before him" (see Poebel, op.
@@ -1844,17 +1667,6 @@ followed the example of his royal father, Tabnith, "priest of
 Constantinople, still bears in addition to his own epitaph that of
 its former occupant, a certain Egyptian general Penptah.
 
-INPUT: Explain this: King Eshmun-'zar was not
-unique in his choice of burial in an Egyptian coffin, for he merely
-followed the example of his royal father, Tabnith, "priest of
-'Ashtart and king of the Sidonians", whose sarcophagus, preserved at
-Constantinople, still bears in addition to his own epitaph that of
-its former occupant, a certain Egyptian general Penptah.
-RESPONSE: But more
-instructive than these borrowed memorials is a genuine example of
-Phoenician work, the stele set up by Yehaw-milk, king of Byblos, and
-dating from the fourth or fifth century B.
-
 INPUT: Summarize: King Eshmun-'zar was not
 unique in his choice of burial in an Egyptian coffin, for he merely
 followed the example of his royal father, Tabnith, "priest of
@@ -2022,14 +1834,6 @@ RESPONSE: The Elephantine papyri have shown that the early Jews of the Diaspora,
 though untrammeled by the orthodoxy of Jerusalem, maintained the purity
 of their local cult in the face of considerable difficulties.
 
-INPUT: Explain this: The Elephantine papyri have shown that the early Jews of the Diaspora,
-though untrammeled by the orthodoxy of Jerusalem, maintained the purity
-of their local cult in the face of considerable difficulties.
-RESPONSE: Hence the
-gravestones of their Aramaean contemporaries, which have been found in
-Egypt, can only be cited to illustrate the temptations to which they
-were exposed.
-
 INPUT: Summarize: The Elephantine papyri have shown that the early Jews of the Diaspora,
 though untrammeled by the orthodoxy of Jerusalem, maintained the purity
 of their local cult in the face of considerable difficulties. Hence the
@@ -2046,16 +1850,6 @@ B.
 RESPONSE: (2) They had evidently adopted the religion of Osiris, and were
 buried at Saqqarah in accordance with the Egyptian rites.
 
-INPUT: Summarize: (1) Such was the memorial erected by Abseli to the memory
-of his parents, Abba and Ahatbu, in the fourth year of Xerxes, 481
-B. (2) They had evidently adopted the religion of Osiris, and were
-buried at Saqqarah in accordance with the Egyptian rites.
-RESPONSE: The upper
-scene engraved upon the stele represents Abba and his wife in the
-presence of Osiris, who is attended by Isis and Nephthys; and in the
-lower panel is the funeral scene, in which all the mourners with
-one exception are Asiatics.
-
 INPUT: Can you explain: The upper
 scene engraved upon the stele represents Abba and his wife in the
 presence of Osiris, who is attended by Isis and Nephthys; and in the
@@ -2064,15 +1858,6 @@ one exception are Asiatics.
 RESPONSE: Certain details of the rites that are
 represented, and mistakes in the hieroglyphic version of the text, prove
 that the work is Aramaean throughout.
-
-INPUT: Summarize: The upper
-scene engraved upon the stele represents Abba and his wife in the
-presence of Osiris, who is attended by Isis and Nephthys; and in the
-lower panel is the funeral scene, in which all the mourners with
-one exception are Asiatics. Certain details of the rites that are
-represented, and mistakes in the hieroglyphic version of the text, prove
-that the work is Aramaean throughout.
-RESPONSE: (3)
 
  (1) It may be admitted that the Greek platonized cult of
  Isis and Osiris had its origin in the fusion of Greeks and
@@ -2266,16 +2051,6 @@ RESPONSE: 108) prove by
  their form that it dates from the Persian period, and its
  provenance is sufficiently attested.
 
-INPUT: Summarize: The letters of its Aramaic
- inscription (_C. 108) prove by
- their form that it dates from the Persian period, and its
- provenance is sufficiently attested.
-RESPONSE: Its weight moreover
- suggests that it was not merely a Babylonian or Persian
- importation, but cast for local use, yet in design and
- technique it is scarcely distinguishable from the best
- Assyrian work of the seventh century.
-
 INPUT: What is this about: Its weight moreover
  suggests that it was not merely a Babylonian or Persian
  importation, but cast for local use, yet in design and
@@ -2410,11 +2185,6 @@ district of Sam'al.
 RESPONSE: But Panammu's devotion to his foreign master led to
 his death, for he died at the siege of Damascus, in 733 or 732 B.
 
-INPUT: Explain this: But Panammu's devotion to his foreign master led to
-his death, for he died at the siege of Damascus, in 733 or 732 B.
-RESPONSE: , "in
-the camp, while following his lord, Tiglath-pileser, king of Assyria".
-
 INPUT: Summarize: But Panammu's devotion to his foreign master led to
 his death, for he died at the siege of Damascus, in 733 or 732 B. , "in
 the camp, while following his lord, Tiglath-pileser, king of Assyria".
@@ -2535,16 +2305,6 @@ one party in the state to defeat its rival with the help of Assyrian
 support, but also the manner in which the life and activities of the
 nation as a whole were unavoidably affected by their action.
 
-INPUT: What does this say: We realize not only the readiness of
-one party in the state to defeat its rival with the help of Assyrian
-support, but also the manner in which the life and activities of the
-nation as a whole were unavoidably affected by their action.
-RESPONSE: Other
-Hittite-Aramaean and Phoenician monuments, as yet undocumented with
-literary records, exhibit a strange but not unpleasing mixture of
-foreign _motifs_, such as we see on the stele from Amrith(1) in the
-inland district of Arvad.
-
 INPUT: Summarize: We realize not only the readiness of
 one party in the state to defeat its rival with the help of Assyrian
 support, but also the manner in which the life and activities of the
@@ -2628,14 +2388,6 @@ INPUT: What does this say: Here the winged disk is Egyptian, as well as the god'
 RESPONSE: But in spite of its composite character the design
  is quite successful and not in the least incongruous.
 
-INPUT: Summarize: Here the winged disk is Egyptian, as well as the god's
- helmet with uraeus, and his loin-cloth; his attitude and his
- supporting lion are Hittite; and the lozenge-mountains, on
- which the lion stands, and the technique of the carving are
- Assyrian. But in spite of its composite character the design
- is quite successful and not in the least incongruous.
-RESPONSE: (2) Hogarth, _Carchemish_, Pt.
-
 INPUT: What is this about: (2) Hogarth, _Carchemish_, Pt.
 RESPONSE: (3) Two of the older boys play at knuckle-bones, others whip
  spinning-tops, and a little naked girl runs behind
@@ -2653,12 +2405,6 @@ INPUT: What does this say: The procession is brought up by the queen-
  mother, who carries the youngest baby and leads a pet lamb.
 RESPONSE: Such monuments surely illustrate the adaptability of the Semitic
 craftsman among men of Phoenician and Aramaean strain.
-
-INPUT: Summarize: The procession is brought up by the queen-
- mother, who carries the youngest baby and leads a pet lamb. Such monuments surely illustrate the adaptability of the Semitic
-craftsman among men of Phoenician and Aramaean strain.
-RESPONSE: Excavation in
-Palestine has failed to furnish examples of Hebrew work.
 
 INPUT: What does this mean: Excavation in
 Palestine has failed to furnish examples of Hebrew work.
@@ -2903,15 +2649,6 @@ and a western group.
 RESPONSE: The latter covers the remains of the city proper
 and was occupied in part by the great business-houses and bazaars.
 
-INPUT: Summarize: But in
-antiquity the stream flowed through the centre of the city, along the
-dry bed of the Shatt en-Nil, which divides the mounds into an eastern
-and a western group. The latter covers the remains of the city proper
-and was occupied in part by the great business-houses and bazaars.
-RESPONSE: Here
-more than thirty thousand contracts and accounts, dating from the fourth
-millennium to the fifth century B.
-
 INPUT: What does this say: Here
 more than thirty thousand contracts and accounts, dating from the fourth
 millennium to the fifth century B.
@@ -3033,18 +2770,6 @@ and not the least interesting of the objects recovered was the wooden
 box of a Jewish scribe, containing his pen and ink-vessel and a little
 scrap of crumbling parchment inscribed with a few Hebrew characters.
 
-INPUT: Summarize: (3) He and other of
-the Jewish exiles may perhaps have mingled with the motley crowd that
-once thronged the streets of Nippur, and they may often have gazed on
-the huge temple-tower which rose above the city's flat roofs. We know
-that the later population of Nippur itself included a considerable
-Jewish element, for the upper strata of the mounds have yielded numerous
-clay bowls with Hebrew, Mandaean, and Syriac magical inscriptions;(4)
-and not the least interesting of the objects recovered was the wooden
-box of a Jewish scribe, containing his pen and ink-vessel and a little
-scrap of crumbling parchment inscribed with a few Hebrew characters.
-RESPONSE: (5)
-
  (1) See Hilprecht, _Explorations in Bible Lands_, pp.
 
 INPUT: Explain this: (5)
@@ -3090,12 +2815,6 @@ published.
 RESPONSE: The work was necessarily slow, for many of the texts were
 found to be in an extremely bad state of preservation.
 
-INPUT: What does this mean: The work was necessarily slow, for many of the texts were
-found to be in an extremely bad state of preservation.
-RESPONSE: So it happened
-that a great number of the boxes containing tablets remained until
-recently still packed up in the store-rooms of the Pennsylvania Museum.
-
 INPUT: Summarize: The work was necessarily slow, for many of the texts were
 found to be in an extremely bad state of preservation. So it happened
 that a great number of the boxes containing tablets remained until
@@ -3130,11 +2849,6 @@ Professor Barton, Dr.
 INPUT: Tell me about: Professor Clay,
 Professor Barton, Dr.
 RESPONSE: Edward Chiera, and Dr.
-
-INPUT: Summarize: Professor Clay,
-Professor Barton, Dr. Edward Chiera, and Dr.
-RESPONSE: Arno Poebel
-have all participated in the work.
 
 INPUT: What is this about: Arno Poebel
 have all participated in the work.
@@ -3171,16 +2885,6 @@ and expressions collected, they are as great a help to us in our study
 of Sumerian language as they were to their compilers; in particular they
 have thrown much new light on the paradigms of the demonstrative and
 personal pronouns and on Sumerian verbal forms.
-
-INPUT: Summarize: A great body of them are grammatical
-and represent compilations made by Semitic scribes of the period
-of Hammurabi's dynasty for their study of the old Sumerian tongue. Containing, as most of them do, Semitic renderings of the Sumerian words
-and expressions collected, they are as great a help to us in our study
-of Sumerian language as they were to their compilers; in particular they
-have thrown much new light on the paradigms of the demonstrative and
-personal pronouns and on Sumerian verbal forms.
-RESPONSE: But literary texts are
-also included in the recent publications.
 
 INPUT: Can you explain: But literary texts are
 also included in the recent publications.
@@ -3330,19 +3034,6 @@ precise in their information as those we have recovered from Assyrian
 sources, is clear from the few extracts from the annals of Thothmes
 III's wars which are engraved on the walls of the temple at Karnak.
 
-INPUT: Summarize: We might well spare much of
-her religious literature, enshrined in endless temple-inscriptions and
-papyri, if we could but exchange it for some of the royal annals of
-Egyptian Pharaohs. That historical records of this character were
-compiled by the Egyptian scribes, and that they were as detailed and
-precise in their information as those we have recovered from Assyrian
-sources, is clear from the few extracts from the annals of Thothmes
-III's wars which are engraved on the walls of the temple at Karnak.
-RESPONSE: (1)
-As in Babylonia and Assyria, such records must have formed the
-foundation on which summaries of chronicles of past Egyptian history
-were based.
-
 INPUT: What does this mean: (1)
 As in Babylonia and Assyria, such records must have formed the
 foundation on which summaries of chronicles of past Egyptian history
@@ -3430,15 +3121,6 @@ vertically from the next by the Egyptian hieroglyph for "year".
 RESPONSE: The text, which is engraved on both sides of a great block of black
 basalt, takes its name from the fact that the fragment hitherto known
 has been preserved since 1877 at the Museum of Palermo.
-
-INPUT: Summarize: (2) The spaces are not strictly rectangles, as each is divided
-vertically from the next by the Egyptian hieroglyph for "year". The text, which is engraved on both sides of a great block of black
-basalt, takes its name from the fact that the fragment hitherto known
-has been preserved since 1877 at the Museum of Palermo.
-RESPONSE: Five other
-fragments of the text have now been published, of which one undoubtedly
-belongs to the same monument as the Palermo fragment, while the others
-may represent parts of one or more duplicate copies of that famous text.
 
 INPUT: What is this about: Five other
 fragments of the text have now been published, of which one undoubtedly
@@ -3759,11 +3441,6 @@ their past history. Foucart illustrates this point by citing the case of
 RESPONSE: Tordey and Joyce, "Les Bushongos", in
  _Annales du Musee du Congo Belge_, ser.
 
-INPUT: What does this mean: Tordey and Joyce, "Les Bushongos", in
- _Annales du Musee du Congo Belge_, ser.
-RESPONSE: i
- (Brussels, 1911).
-
 INPUT: Summarize: Tordey and Joyce, "Les Bushongos", in
  _Annales du Musee du Congo Belge_, ser. i
  (Brussels, 1911).
@@ -3846,14 +3523,6 @@ immediate successors.
 RESPONSE: But it would undoubtedly tend in course of time to
 obliterate the tradition of their true order, which even at the period
 of the Vth Dynasty may have been completely forgotten.
-
-INPUT: Tell me about: But it would undoubtedly tend in course of time to
-obliterate the tradition of their true order, which even at the period
-of the Vth Dynasty may have been completely forgotten.
-RESPONSE: Manetho would
-thus have introduced no strange or novel confusion; and this explanation
-would of course apply to other sections of his system where the
-dynasties he enumerates appear to be too many for their period.
 
 INPUT: Summarize: But it would undoubtedly tend in course of time to
 obliterate the tradition of their true order, which even at the period
@@ -4179,13 +3848,6 @@ RESPONSE: It will be the province of future archaeological
 research to fill out the missing dynasties and to determine at what
 points in the list their strictly historical basis disappears.
 
-INPUT: What is this about: It will be the province of future archaeological
-research to fill out the missing dynasties and to determine at what
-points in the list their strictly historical basis disappears.
-RESPONSE: Some,
-which are fortunately preserved near the beginning, bear on their face
-their legendary character.
-
 INPUT: Summarize: It will be the province of future archaeological
 research to fill out the missing dynasties and to determine at what
 points in the list their strictly historical basis disappears. Some,
@@ -4198,13 +3860,6 @@ INPUT: Explain this: But for our purpose they are none the worse
 for that.
 RESPONSE: In the first two dynasties, which had their seats at the cities of Kish
 and Erech, we see gods mingling with men upon the earth.
-
-INPUT: Summarize: But for our purpose they are none the worse
-for that. In the first two dynasties, which had their seats at the cities of Kish
-and Erech, we see gods mingling with men upon the earth.
-RESPONSE: Tammuz, the god
-of vegetation, for whose annual death Ezekiel saw women weeping beside
-the Temple at Jerusalem, is here an earthly monarch.
 
 INPUT: Tell me about: Tammuz, the god
 of vegetation, for whose annual death Ezekiel saw women weeping beside
@@ -4234,14 +3889,6 @@ to the pinions of his friend the Eagle he beheld the world and its
 encircling stream recede beneath him; and he flew through the gate of
 heaven, only to fall headlong back to earth.
 
-INPUT: Tell me about: (1) Clinging
-to the pinions of his friend the Eagle he beheld the world and its
-encircling stream recede beneath him; and he flew through the gate of
-heaven, only to fall headlong back to earth.
-RESPONSE: He is here duly entered
-in the list, where we read that "Etana, the shepherd who ascended to
-heaven, who subdued all lands", ruled in the city of Kish for 635 years.
-
 INPUT: Summarize: (1) Clinging
 to the pinions of his friend the Eagle he beheld the world and its
 encircling stream recede beneath him; and he flew through the gate of
@@ -4252,13 +3899,6 @@ RESPONSE: (1) The Egyptian conception of the deceased Pharaoh
  ascending to heaven as a falcon and becoming merged into the
  sun, which first occurs in the Pyramid texts (see Gardiner
  in Cumont's _Etudes Syriennes_, pp.
-
-INPUT: What does this mean: (1) The Egyptian conception of the deceased Pharaoh
- ascending to heaven as a falcon and becoming merged into the
- sun, which first occurs in the Pyramid texts (see Gardiner
- in Cumont's _Etudes Syriennes_, pp.
-RESPONSE: ), belongs to a
- different range of ideas.
 
 INPUT: Summarize: (1) The Egyptian conception of the deceased Pharaoh
  ascending to heaven as a falcon and becoming merged into the
@@ -4456,10 +4096,6 @@ Antediluvian period existed in Sumerian tradition as in Berossus.
 RESPONSE: Poebel is right in assuming that the Nippur copies of the
 Dynastic List begin with the Post-diluvian period.
 
-INPUT: Explain this: Poebel is right in assuming that the Nippur copies of the
-Dynastic List begin with the Post-diluvian period.
-RESPONSE: (2)
-
  (1) Of course it does not necessarily follow that the figure
  assigned to the duration of the Antediluvian or mythical
  period by the Sumerians would show so close a resemblance to
@@ -4580,15 +4216,6 @@ RESPONSE: In the
  Assyrian copy the Dynastic List is brought up to date, and
  extends down to the later Assyrian period.
 
-INPUT: Summarize: But later scribes do not so
- transpose their material, and the proper place for summaries
- is at the close, not at the beginning, of a list. In the
- Assyrian copy the Dynastic List is brought up to date, and
- extends down to the later Assyrian period.
-RESPONSE: Formerly its
- compiler could only be credited with incorporating
- traditions of earlier times.
-
 INPUT: What does this say: Formerly its
  compiler could only be credited with incorporating
  traditions of earlier times.
@@ -4649,16 +4276,6 @@ RESPONSE: (2) That Berossus should have translated a Post-diluvian ruler
 into the Antediluvian dynasty would not be at all surprising in view of
 the absence of detailed correspondence between his later dynasties and
 those we know actually occupied the Babylonian throne.
-
-INPUT: What does this mean: (2) That Berossus should have translated a Post-diluvian ruler
-into the Antediluvian dynasty would not be at all surprising in view of
-the absence of detailed correspondence between his later dynasties and
-those we know actually occupied the Babylonian throne.
-RESPONSE: Moreover, the
-inclusion of Babylon in his list of Antediluvian cities should make us
-hesitate to regard all the rulers he assigns to his earliest dynasty
-as necessarily retaining in his list their original order in Sumerian
-tradition.
 
 INPUT: Summarize: (2) That Berossus should have translated a Post-diluvian ruler
 into the Antediluvian dynasty would not be at all surprising in view of
@@ -4760,14 +4377,6 @@ RESPONSE: Precisely the same
 initial component, _Enme_, occurs in the name Enmeduranki, borne by a
 mythical king of Sippar, who has long been recognized as the original
 of Berossus' seventh Antediluvian king, {Euedorakhos}.
-
-INPUT: What does this mean: Precisely the same
-initial component, _Enme_, occurs in the name Enmeduranki, borne by a
-mythical king of Sippar, who has long been recognized as the original
-of Berossus' seventh Antediluvian king, {Euedorakhos}.
-RESPONSE: (1) There too
-the original _n_ has been assimilated, but the Greek form retains no
-doubling of the _m_ and points to its further weakening.
 
 INPUT: Summarize: Precisely the same
 initial component, _Enme_, occurs in the name Enmeduranki, borne by a
@@ -4896,19 +4505,6 @@ RESPONSE: 1) makes the
  which has come down to us as that of an early and mythical
  king of Nippur; see Rawlinson, _W.
 
-INPUT: Summarize: (3) Semitic, and
-possibly contracted, originals are still possible for unidentified
-mythical kings of Berossus; but such equations will inspire greater
-confidence, should we be able to establish Sumerian originals for the
-Semitic renderings, from new material already in hand or to be obtained
-in the future. 1) makes the
- interesting suggestion that {'Aloros} may represent an
- abbreviated and corrupt form of the name Lal-ur-alimma,
- which has come down to us as that of an early and mythical
- king of Nippur; see Rawlinson, _W.
-RESPONSE: _, IV, 60 (67), V, 47
- and 44, and cf.
-
 INPUT: What is this about: _, IV, 60 (67), V, 47
  and 44, and cf.
 RESPONSE: It may be added that the sufferings
@@ -4919,17 +4515,6 @@ RESPONSE: It may be added that the sufferings
  furnish to Adam's fate, can at present hardly be accepted in
  view of the possibility that a closer equation to {'Aloros}
  may be forthcoming.
-
-INPUT: Summarize: _, IV, 60 (67), V, 47
- and 44, and cf. It may be added that the sufferings
- with which the latter is associated in the tradition are
- perhaps such as might have attached themselves to the first
- human ruler of the world; but the suggested equation, though
- tempting by reason of the remote parallel it would thus
- furnish to Adam's fate, can at present hardly be accepted in
- view of the possibility that a closer equation to {'Aloros}
- may be forthcoming.
-RESPONSE: (3) See further Appendix II.
 
 INPUT: What does this say: (3) See further Appendix II.
 RESPONSE: But it is time I read you extracts from the earlier extant portions of
@@ -4949,16 +4534,6 @@ Neo-Babylonian period.
 RESPONSE: It is cast in the form of an epitomized chronicle
 and gives under set formulae the length of each king's reign, and his
 father's name in cases of direct succession to father or brother.
-
-INPUT: Summarize: From them it will be seen that the record
-is not a tabular list of names like the well-known King's Lists of the
-Neo-Babylonian period. It is cast in the form of an epitomized chronicle
-and gives under set formulae the length of each king's reign, and his
-father's name in cases of direct succession to father or brother.
-RESPONSE: Short
-phrases are also sometimes added, or inserted in the sentence referring
-to a king, in order to indicate his humble origin or the achievement
-which made his name famous in tradition.
 
 INPUT: Explain this: Short
 phrases are also sometimes added, or inserted in the sentence referring
@@ -5184,12 +4759,6 @@ INPUT: What does this mean: 29-31): "The god A, who is also equated to the god
 RESPONSE: 'Scribe of Ur'), is the priest of Kullab;
  his wife is the goddess Ninguesirka (i.
 
-INPUT: Summarize: 29-31): "The god A, who is also equated to the god
- Dubbisaguri (i. 'Scribe of Ur'), is the priest of Kullab;
- his wife is the goddess Ninguesirka (i.
-RESPONSE: 'Lady of the edge
- of the street').
-
 INPUT: Explain this: 'Lady of the edge
  of the street').
 RESPONSE: " A, the priest of Kullab and the husband of
@@ -5234,12 +4803,6 @@ INPUT: Summarize: This was not
  the case at the time our text was inscribed, as the name is
  written without the divine determinative. (6) Possibly 186 years.
 RESPONSE: This group of early kings of Erech is of exceptional interest.
-
-INPUT: What does this mean: This group of early kings of Erech is of exceptional interest.
-RESPONSE: Apart
-from its inclusion of Gilgamesh and the gods Tammuz and Lugalbanda,
-its record of Meskingasher's reign possibly refers to one of the lost
-legends of Erech.
 
 INPUT: Summarize: This group of early kings of Erech is of exceptional interest. Apart
 from its inclusion of Gilgamesh and the gods Tammuz and Lugalbanda,
@@ -5364,12 +4927,6 @@ and when the detailed dynastic succession in Babylonia is again assured,
 we have passed definitely from the realm of myth and legend into that of
 history.
 
-INPUT: Explain this: At this point a great gap occurs in the text,
-and when the detailed dynastic succession in Babylonia is again assured,
-we have passed definitely from the realm of myth and legend into that of
-history.
-RESPONSE: (2)
-
  (1) Poebel, _Hist.
 
 INPUT: Summarize: At this point a great gap occurs in the text,
@@ -5485,15 +5042,6 @@ RESPONSE: Though each list adheres to its own
 set formulae, it estimates the length of human life in the early ages
 of the world on much the same gigantic scale as the other.
 
-INPUT: What is this about: Though each list adheres to its own
-set formulae, it estimates the length of human life in the early ages
-of the world on much the same gigantic scale as the other.
-RESPONSE: Our Sumerian
-records are not quite so formal in their structure as the Hebrew
-narrative, but the short notes which here and there relieve their stiff
-monotony may be paralleled in the Cainite genealogy of the preceding
-chapter in Genesis.
-
 INPUT: Summarize: Though each list adheres to its own
 set formulae, it estimates the length of human life in the early ages
 of the world on much the same gigantic scale as the other. Our Sumerian
@@ -5580,14 +5128,6 @@ INPUT: Can you explain: _ummanu_, "workman" ||
 RESPONSE: Another satisfactory pair suggested
  is {'Amelon} = Bab.
 
-INPUT: Summarize: _ummanu_, "workman" ||
- Cain, Kenan = "smith". Another satisfactory pair suggested
- is {'Amelon} = Bab.
-RESPONSE: _amelu_, "man" || Enosh = "man"; but the
- resemblance of the former to _amelu_ may prove to be
- fortuitous, in view of the possibility of descent from a
- quite different Sumerian original.
-
 INPUT: What does this say: _amelu_, "man" || Enosh = "man"; but the
  resemblance of the former to _amelu_ may prove to be
  fortuitous, in view of the possibility of descent from a
@@ -5654,14 +5194,6 @@ of the sixth chapter of Genesis.
 RESPONSE: (1) For in them also great prowess or
 distinction is ascribed to the progeny of human and divine unions.
 
-INPUT: Tell me about: (1) For in them also great prowess or
-distinction is ascribed to the progeny of human and divine unions.
-RESPONSE: We
-have already noted that, according to the traditions the records embody,
-the Sumerians looked back to a time when gods lived upon the earth with
-men, and we have seen such deities as Tammuz and Lugalbanda figuring as
-rulers of cities in the dynastic sequence.
-
 INPUT: Summarize: (1) For in them also great prowess or
 distinction is ascribed to the progeny of human and divine unions. We
 have already noted that, according to the traditions the records embody,
@@ -5670,13 +5202,6 @@ men, and we have seen such deities as Tammuz and Lugalbanda figuring as
 rulers of cities in the dynastic sequence.
 RESPONSE: As in later periods, their
 names are there preceded by the determinative for divinity.
-
-INPUT: Can you explain: As in later periods, their
-names are there preceded by the determinative for divinity.
-RESPONSE: But more
-significant still is the fact that we read of two Sumerian heroes, also
-rulers of cities, who were divine on the father's or mother's side
-but not on both.
 
 INPUT: Summarize: As in later periods, their
 names are there preceded by the determinative for divinity. But more
@@ -5699,13 +5224,6 @@ was the goddess Ninsun.
 RESPONSE: (3) That this is not a fanciful interpretation is
 proved by a passage in the Gilgamesh Epic itself,(4) in which its
 hero is described as two-thirds god and one-third man.
-
-INPUT: Tell me about: (3) That this is not a fanciful interpretation is
-proved by a passage in the Gilgamesh Epic itself,(4) in which its
-hero is described as two-thirds god and one-third man.
-RESPONSE: We again find
-ourselves back in the same stratum of tradition with which the Hebrew
-narratives have made us so familiar.
 
 INPUT: Summarize: (3) That this is not a fanciful interpretation is
 proved by a passage in the Gilgamesh Epic itself,(4) in which its
@@ -5988,17 +5506,6 @@ tale, Gilgamesh, desiring immortality, crosses the Waters of Death in
 order to beg the secret from his ancestor Ut-napishtim, who in the past
 had escaped the Deluge and had been granted immortality by the gods.
 
-INPUT: Summarize: The Babylonian account of the Deluge, which was discovered by George
-Smith in 1872 on tablets from the Royal Library at Nineveh, is, as you
-know, embedded in a long epic of twelve Books recounting the adventures
-of the Old Babylonian hero Gilgamesh. Towards the end of this composite
-tale, Gilgamesh, desiring immortality, crosses the Waters of Death in
-order to beg the secret from his ancestor Ut-napishtim, who in the past
-had escaped the Deluge and had been granted immortality by the gods.
-RESPONSE: The
-Eleventh Tablet, or Book, of the epic contains the account of the
-Deluge which Ut-napishtim related to his kinsman Gilgamesh.
-
 INPUT: Explain this: The
 Eleventh Tablet, or Book, of the epic contains the account of the
 Deluge which Ut-napishtim related to his kinsman Gilgamesh.
@@ -6110,15 +5617,6 @@ INPUT: Can you explain: 17, if the
 RESPONSE: 6, 11, 13-16 (down to "as God commanded
  him"), 17 (to "upon the earth"), 18-21, 24; viii.
 
-INPUT: Summarize: 17, if the
- following passages be marked in the margin or underlined,
- and then read consecutively, it will be seen that they give
- a consistent and almost complete account of the Deluge: Gen. 6, 11, 13-16 (down to "as God commanded
- him"), 17 (to "upon the earth"), 18-21, 24; viii.
-RESPONSE: 1, 2 (to
- "were stopped"), 3 (from "and after")-5, 13 (to "from off
- the earth"), 14-19; and ix.
-
 INPUT: Explain this: 1, 2 (to
  "were stopped"), 3 (from "and after")-5, 13 (to "from off
  the earth"), 14-19; and ix.
@@ -6135,17 +5633,6 @@ RESPONSE: " If the remaining
  completely preserved as the other; these passages
  substantially represent the "earlier Hebrew Version".
 
-INPUT: Tell me about: " If the remaining
- passages be then read consecutively, they will be seen to
- give a different version of the same events, though not so
- completely preserved as the other; these passages
- substantially represent the "earlier Hebrew Version".
-RESPONSE: In
- commentaries on the Hebrew text they are, of course, usually
- referred to under the convenient symbols J and P,
- representing respectively the earlier and the later
- versions.
-
 INPUT: Summarize: " If the remaining
  passages be then read consecutively, they will be seen to
  give a different version of the same events, though not so
@@ -6161,10 +5648,6 @@ RESPONSE: For further details, see any of the modern
 INPUT: Tell me about: For further details, see any of the modern
  commentaries on Genesis, e.
 RESPONSE: Driver, _Book of Genesis_, pp.
-
-INPUT: Summarize: For further details, see any of the modern
- commentaries on Genesis, e. Driver, _Book of Genesis_, pp.
-RESPONSE: ; Skinner, _Genesis_, pp.
 
 INPUT: What does this say: ; Skinner, _Genesis_, pp.
 RESPONSE: ; Ryle, _Genesis_, p.
@@ -6324,14 +5807,6 @@ to exist.
 RESPONSE: They had been absorbed in the Semitic population and their
 language was no longer the general language of the country.
 
-INPUT: Summarize: Towards the close of the third millennium, when
-our tablet was written, the Sumerians as a race had almost ceased
-to exist. They had been absorbed in the Semitic population and their
-language was no longer the general language of the country.
-RESPONSE: But their
-ancient literature and sacred texts were carefully preserved and
-continued to be studied by the Semitic priests and scribes.
-
 INPUT: Can you explain: But their
 ancient literature and sacred texts were carefully preserved and
 continued to be studied by the Semitic priests and scribes.
@@ -6374,15 +5849,6 @@ RESPONSE: But before doing so we will inquire whether this
 very early version is likely to cast any light on the origin of Deluge
 stories such as are often met with in other parts of the world.
 
-INPUT: Summarize: When we turn to the text itself, it will be obvious that the story also
-is very primitive. But before doing so we will inquire whether this
-very early version is likely to cast any light on the origin of Deluge
-stories such as are often met with in other parts of the world.
-RESPONSE: Our
-inquiry will have an interest apart from the question itself, as it
-will illustrate the views of two divergent schools among students of
-primitive literature and tradition.
-
 INPUT: What does this say: Our
 inquiry will have an interest apart from the question itself, as it
 will illustrate the views of two divergent schools among students of
@@ -6412,27 +5878,6 @@ strong astrological colouring; and it is equally clear that some legends
 derive their origin from nature myths.
 RESPONSE: But the theory in the hands
 of its more enthusiastic adherents goes further than that.
-
-INPUT: Summarize: It is, of course, quite certain that,
-both in Egypt and Babylonia, mythology in later periods received a
-strong astrological colouring; and it is equally clear that some legends
-derive their origin from nature myths. But the theory in the hands
-of its more enthusiastic adherents goes further than that.
-RESPONSE: For them
-a complete absence of astrological colouring is no deterrent from an
-astrological interpretation; and, where such colouring does occur, the
-possibility of later embellishment is discounted, and it is treated
-without further proof as the base on which the original story rests.
-
-INPUT: What is this about: For them
-a complete absence of astrological colouring is no deterrent from an
-astrological interpretation; and, where such colouring does occur, the
-possibility of later embellishment is discounted, and it is treated
-without further proof as the base on which the original story rests.
-RESPONSE: One
-such interpretation of the Deluge narrative in Babylonia, particularly
-favoured by recent German writers, would regard it as reflecting the
-passage of the Sun through a portion of the ecliptic.
 
 INPUT: Summarize: For them
 a complete absence of astrological colouring is no deterrent from an
@@ -6492,17 +5937,6 @@ widespread occurrence of Deluge-stories among scattered races of
 the world.
 RESPONSE: But this view has recently undergone some modification in
 accordance with the general trend of other lines of research.
-
-INPUT: Summarize: It used to be assumed by
-holders of the theory that this idea of the Sun as "the god in the boat"
-was common among primitive races, and that that would account for the
-widespread occurrence of Deluge-stories among scattered races of
-the world. But this view has recently undergone some modification in
-accordance with the general trend of other lines of research.
-RESPONSE: In recent
-years there has been an increased readiness among archaeologists
-to recognize evidence of contact between the great civilizations of
-antiquity.
 
 INPUT: Explain this: In recent
 years there has been an increased readiness among archaeologists
@@ -6642,18 +6076,6 @@ comprehensive theory as yet put forward is one that concerns us, as it
 has given a new lease of life to the old solar interpretation of the
 Deluge story.
 
-INPUT: Can you explain: There are several works in the field, but the most
-comprehensive theory as yet put forward is one that concerns us, as it
-has given a new lease of life to the old solar interpretation of the
-Deluge story.
-RESPONSE: Marett, _Anthropology_ (2nd ed.
-
-INPUT: Summarize: There are several works in the field, but the most
-comprehensive theory as yet put forward is one that concerns us, as it
-has given a new lease of life to the old solar interpretation of the
-Deluge story. Marett, _Anthropology_ (2nd ed.
-RESPONSE: iv, "Environment," pp.
-
 INPUT: Tell me about: iv, "Environment," pp.
 RESPONSE: ; and for earlier tendencies,
  particularly in the sphere of mythological exegesis, see S.
@@ -6673,15 +6095,6 @@ to dominate the national consciousness.
 RESPONSE: As intercourse increased along
 the Nile Valley, centres of Sun-worship ceased to be merely local, and
 the political rise of a city determined the fortunes of its cult.
-
-INPUT: Can you explain: As intercourse increased along
-the Nile Valley, centres of Sun-worship ceased to be merely local, and
-the political rise of a city determined the fortunes of its cult.
-RESPONSE: From
-the proto-dynastic period onward, the "King of the two Lands" had borne
-the title of "Horus" as the lineal descendant of the great Sun-god of
-Edfu, and the rise of Ra in the Vth Dynasty, through the priesthood of
-Heliopolis, was confirmed in the solar theology of the Middle Kingdom.
 
 INPUT: Summarize: As intercourse increased along
 the Nile Valley, centres of Sun-worship ceased to be merely local, and
@@ -6911,30 +6324,10 @@ INPUT: Explain this: (1) It was first published by Monsieur Naville, _Tranc.
 RESPONSE: The myth may be most
  conveniently studied in Dr.
 
-INPUT: Summarize: (1) It was first published by Monsieur Naville, _Tranc. The myth may be most
- conveniently studied in Dr.
-RESPONSE: Budge's edition in _Egyptian
- Literature_, Vol.
-
-INPUT: What does this mean: Budge's edition in _Egyptian
- Literature_, Vol.
-RESPONSE: I, "Legends of the Gods" (1912), pp.
-
 INPUT: Summarize: Budge's edition in _Egyptian
  Literature_, Vol. I, "Legends of the Gods" (1912), pp.
 RESPONSE: , where the hieroglyphic text and translation are printed
  on opposite pages; cf.
-
-INPUT: What does this mean: , where the hieroglyphic text and translation are printed
- on opposite pages; cf.
-RESPONSE: ,
- where the principal literature is also cited.
-
-INPUT: Summarize: , where the hieroglyphic text and translation are printed
- on opposite pages; cf. ,
- where the principal literature is also cited.
-RESPONSE: See also his
- _Gods of the Egyptians_, Vol.
 
 INPUT: What does this mean: See also his
  _Gods of the Egyptians_, Vol.
@@ -7229,12 +6622,6 @@ RESPONSE: But one important point about the text should be emphasized at once,
 since it will affect our understanding of some very obscure passages, of
 which no satisfactory explanation has yet been given.
 
-INPUT: Tell me about: But one important point about the text should be emphasized at once,
-since it will affect our understanding of some very obscure passages, of
-which no satisfactory explanation has yet been given.
-RESPONSE: The assumption has
-hitherto been made that the text is an epic pure and simple.
-
 INPUT: Summarize: But one important point about the text should be emphasized at once,
 since it will affect our understanding of some very obscure passages, of
 which no satisfactory explanation has yet been given. The assumption has
@@ -7375,11 +6762,6 @@ literature.
 RESPONSE: In the photographic reproduction of the edges
  of the tablet given in the latter volume, pl.
 
-INPUT: What is this about: In the photographic reproduction of the edges
- of the tablet given in the latter volume, pl.
-RESPONSE: lxxxix, the
- traces of the sign suggest the reading EN (= Sem.
-
 INPUT: Summarize: In the photographic reproduction of the edges
  of the tablet given in the latter volume, pl. lxxxix, the
  traces of the sign suggest the reading EN (= Sem.
@@ -7508,7 +6890,6 @@ RESPONSE: The following headings, under which the six numbered sections may be
 arranged, indicate the contents of each column and show at a glance the
 main features of the Sumerian Version:
 
-
 I.
 
 INPUT: Summarize: (1) In the lecture as delivered the contents of each column
@@ -7516,7 +6897,6 @@ INPUT: Summarize: (1) In the lecture as delivered the contents of each column
  were given without discussion of the evidence. The following headings, under which the six numbered sections may be
 arranged, indicate the contents of each column and show at a glance the
 main features of the Sumerian Version:
-
 
 I.
 RESPONSE: Introduction to the Myth, and account of Creation.
@@ -7637,15 +7017,6 @@ speaking and acting on behalf of both, though it may be that the
 inclusion of the second name in the narrative was not original but
 simply due to a combination of variant traditions.
 
-INPUT: What is this about: In any case one of the two chief gods may be regarded as
-speaking and acting on behalf of both, though it may be that the
-inclusion of the second name in the narrative was not original but
-simply due to a combination of variant traditions.
-RESPONSE: Such a conflate use
-of Anu-Enlil would present a striking parallel to the Hebrew combination
-Yahweh-Elohim, though of course in the case of the former pair the
-subsequent stage of identification was never attained.
-
 INPUT: Summarize: In any case one of the two chief gods may be regarded as
 speaking and acting on behalf of both, though it may be that the
 inclusion of the second name in the narrative was not original but
@@ -7746,16 +7117,6 @@ RESPONSE: We have already noted that the first two
 words are there to be read, either as the prefix "Incantation" followed
 by the name "Enlil", or as the two divine names "Anu (and) Enlil".
 
-INPUT: Summarize: And an almost certain proof of this may be seen in the opening words
-of the composition, which are preserved in its colophon or title on the
-left-hand edge of the tablet. We have already noted that the first two
-words are there to be read, either as the prefix "Incantation" followed
-by the name "Enlil", or as the two divine names "Anu (and) Enlil".
-RESPONSE: Now
-the signs which follow the traces of Enlil's name are quite certain;
-they represent "Ziusudu", which, as we shall see in the Third Column,
-is the name of the Deluge hero in our Sumerian Version.
-
 INPUT: Tell me about: Now
 the signs which follow the traces of Enlil's name are quite certain;
 they represent "Ziusudu", which, as we shall see in the Third Column,
@@ -7799,16 +7160,6 @@ RESPONSE: Now the Deluge narrative practically
 ends with the last lines of the tablet that are preserved, and the lower
 half of the Sixth Column is entirely wanting.
 
-INPUT: Summarize: What subject then may we conjecture was treated in the missing lines of
-this column, which precede the account of Creation and close with the
-speech of the chief creating deity? Now the Deluge narrative practically
-ends with the last lines of the tablet that are preserved, and the lower
-half of the Sixth Column is entirely wanting.
-RESPONSE: We shall see reason
-to believe that the missing end of the tablet was not left blank and
-uninscribed, but contained an incantation, the magical efficacy of which
-was ensured by the preceding recitation of the Deluge myth.
-
 INPUT: Tell me about: We shall see reason
 to believe that the missing end of the tablet was not left blank and
 uninscribed, but contained an incantation, the magical efficacy of which
@@ -7827,14 +7178,6 @@ RESPONSE: The cause of the catastrophe and the reason for man's rescue
 from it might well be referred to by one of the creating deities in
 virtue of the analogy these aspects of the myth would present to the
 circumstances for which the incantation was designed.
-
-INPUT: What is this about: The cause of the catastrophe and the reason for man's rescue
-from it might well be referred to by one of the creating deities in
-virtue of the analogy these aspects of the myth would present to the
-circumstances for which the incantation was designed.
-RESPONSE: A brief account
-of the Creation and of Antediluvian history would then form a natural
-transition to the narrative of the Deluge itself.
 
 INPUT: Summarize: The cause of the catastrophe and the reason for man's rescue
 from it might well be referred to by one of the creating deities in
@@ -8089,13 +7432,6 @@ RESPONSE: mankind),
  The _niggil(ma)_ of the earth they caused the earth to
  produce(?
 
-INPUT: Tell me about: mankind),
- The _niggil(ma)_ of the earth they caused the earth to
- produce(?
-RESPONSE: ),
- The animals, the four-legged creatures of the field, they
- artfully called into existence.
-
 INPUT: Summarize: mankind),
  The _niggil(ma)_ of the earth they caused the earth to
  produce(? ),
@@ -8252,14 +7588,6 @@ INPUT: Summarize: The
 RESPONSE: The discussion of the meaning of _niggilma_ may best be postponed till
 the Sixth Column, where we find other references to the word.
 
-INPUT: What does this say: The discussion of the meaning of _niggilma_ may best be postponed till
-the Sixth Column, where we find other references to the word.
-RESPONSE: Meanwhile
-it may be noted that in the present passage the creation of man precedes
-that of animals, as it did in the earlier Hebrew Version of Creation,
-and probably also in the Babylonian version, though not in the later
-Hebrew Version.
-
 INPUT: Summarize: The discussion of the meaning of _niggilma_ may best be postponed till
 the Sixth Column, where we find other references to the word. Meanwhile
 it may be noted that in the present passage the creation of man precedes
@@ -8268,12 +7596,6 @@ and probably also in the Babylonian version, though not in the later
 Hebrew Version.
 RESPONSE: It may be added that in another Sumerian account of the
 Creation(1) the same order, of man before animals, is followed.
-
-INPUT: Can you explain: It may be added that in another Sumerian account of the
-Creation(1) the same order, of man before animals, is followed.
-RESPONSE: ; but the text has
- been subjected to editing, and some of its episodes are
- obviously displaced.
 
 INPUT: Summarize: It may be added that in another Sumerian account of the
 Creation(1) the same order, of man before animals, is followed. ; but the text has
@@ -8444,19 +7766,6 @@ in accord with its great age and peculiarly sacred character as a
 cult-centre.
 RESPONSE: Moreover the evidence of the Sumerian Dynastic List is
 definitely against any claim of Erech to Antediluvian existence.
-
-INPUT: Summarize: (1) But the numbered sequence of the cities would be difficult to
-reconcile with the earlier creation of other cities in the text, and
-the mention of Eridu as the first city to be created would be quite
-in accord with its great age and peculiarly sacred character as a
-cult-centre. Moreover the evidence of the Sumerian Dynastic List is
-definitely against any claim of Erech to Antediluvian existence.
-RESPONSE: For
-when the hegemony passed from the first Post-diluvian "kingdom" to the
-second, it went not to Erech but to the shrine Eanna, which gave its
-name to the second "kingdom"; and the city itself was apparently not
-founded before the reign of Enmerkar, the second occupant of the throne,
-who is the first to be given the title "King of Erech".
 
 INPUT: What does this say: For
 when the hegemony passed from the first Post-diluvian "kingdom" to the

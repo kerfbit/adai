@@ -3,9 +3,6 @@ INPUT: Can you explain: A STUDY IN SCARLET
 By A.
 RESPONSE: Conan Doyle
 
-
-
-
 CONTENTS
 
  A STUDY IN SCARLET.
@@ -13,9 +10,6 @@ CONTENTS
 INPUT: Summarize: A STUDY IN SCARLET
 
 By A. Conan Doyle
-
-
-
 
 CONTENTS
 
@@ -65,15 +59,9 @@ INPUT: Summarize: (_Being a reprint from the Reminiscences of_ JOHN H. ,
 _Late of the Army Medical Department.
 RESPONSE: _)
 
-
-
-
 CHAPTER I.
 
 INPUT: What does this mean: _)
-
-
-
 
 CHAPTER I.
 RESPONSE: In the year 1878 I took my degree of Doctor of Medicine of the
@@ -81,9 +69,6 @@ University of London, and proceeded to Netley to go through the course
 prescribed for surgeons in the army.
 
 INPUT: Summarize: _)
-
-
-
 
 CHAPTER I. In the year 1878 I took my degree of Doctor of Medicine of the
 University of London, and proceeded to Netley to go through the course
@@ -252,14 +237,6 @@ is a pleasant thing indeed to a lonely man.
 RESPONSE: In old days Stamford had
 never been a particular crony of mine, but now I hailed him with
 enthusiasm, and he, in his turn, appeared to be delighted to see me.
-
-INPUT: Summarize: The sight of a friendly face in the great wilderness of London
-is a pleasant thing indeed to a lonely man. In old days Stamford had
-never been a particular crony of mine, but now I hailed him with
-enthusiasm, and he, in his turn, appeared to be delighted to see me.
-RESPONSE: In
-the exuberance of my joy, I asked him to lunch with me at the Holborn,
-and we started off together in a hansom.
 
 INPUT: What is this about: In
 the exuberance of my joy, I asked him to lunch with me at the Holborn,
@@ -530,13 +507,6 @@ you have some reason for washing your hands of the matter.
 RESPONSE: Is this
 fellow’s temper so formidable, or what is it?
 
-INPUT: Summarize: “It
-seems to me, Stamford,” I added, looking hard at my companion, “that
-you have some reason for washing your hands of the matter. Is this
-fellow’s temper so formidable, or what is it?
-RESPONSE: Don’t be mealy-mouthed
-about it.
-
 INPUT: What does this mean: Don’t be mealy-mouthed
 about it.
 RESPONSE: ”
@@ -635,12 +605,6 @@ INPUT: Summarize: ”
 “And yet you say he is not a medical student? Heaven knows what the objects of his studies are.
 RESPONSE: But here we are,
 and you must form your own impressions about him.
-
-INPUT: What does this say: But here we are,
-and you must form your own impressions about him.
-RESPONSE: ” As he spoke, we
-turned down a narrow lane and passed through a small side-door, which
-opened into a wing of the great hospital.
 
 INPUT: Summarize: But here we are,
 and you must form your own impressions about him. ” As he spoke, we
@@ -782,12 +746,6 @@ INPUT: Can you explain: You
 perceive that the resulting mixture has the appearance of pure water.
 RESPONSE: The proportion of blood cannot be more than one in a million.
 
-INPUT: Summarize: You
-perceive that the resulting mixture has the appearance of pure water. The proportion of blood cannot be more than one in a million.
-RESPONSE: I have no
-doubt, however, that we shall be able to obtain the characteristic
-reaction.
-
 INPUT: Tell me about: I have no
 doubt, however, that we shall be able to obtain the characteristic
 reaction.
@@ -851,18 +809,6 @@ been invented, there are hundreds of men now walking the earth who
 would long ago have paid the penalty of their crimes.
 RESPONSE: “Criminal cases are continually hinging upon that one point.
 
-INPUT: Summarize: Had this test
-been invented, there are hundreds of men now walking the earth who
-would long ago have paid the penalty of their crimes. “Criminal cases are continually hinging upon that one point.
-RESPONSE: A man is
-suspected of a crime months perhaps after it has been committed.
-
-INPUT: What does this say: A man is
-suspected of a crime months perhaps after it has been committed.
-RESPONSE: His
-linen or clothes are examined, and brownish stains discovered upon
-them.
-
 INPUT: Summarize: A man is
 suspected of a crime months perhaps after it has been committed. His
 linen or clothes are examined, and brownish stains discovered upon
@@ -907,10 +853,6 @@ heart and bowed as if to some applauding crowd conjured up by his
 imagination. “You are to be congratulated,” I remarked, considerably surprised at
 his enthusiasm.
 RESPONSE: “There was the case of Von Bischoff at Frankfort last year.
-
-INPUT: Tell me about: “There was the case of Von Bischoff at Frankfort last year.
-RESPONSE: He would
-certainly have been hung had this test been in existence.
 
 INPUT: Summarize: “There was the case of Von Bischoff at Frankfort last year. He would
 certainly have been hung had this test been in existence.
@@ -1056,20 +998,10 @@ INPUT: What does this mean: You must not think I am
 sulky when I do that.
 RESPONSE: Just let me alone, and I’ll soon be right.
 
-INPUT: Summarize: You must not think I am
-sulky when I do that. Just let me alone, and I’ll soon be right.
-RESPONSE: What
-have you to confess now?
-
 INPUT: What does this say: What
 have you to confess now?
 RESPONSE: It’s just as well for two fellows to know the
 worst of one another before they begin to live together.
-
-INPUT: Summarize: What
-have you to confess now? It’s just as well for two fellows to know the
-worst of one another before they begin to live together.
-RESPONSE: ”
 
 I laughed at this cross-examination.
 
@@ -1241,14 +1173,6 @@ RESPONSE: So desirable in every way were the apartments, and so moderate
 did the terms seem when divided between us, that the bargain was
 concluded upon the spot, and we at once entered into possession.
 
-INPUT: What does this mean: So desirable in every way were the apartments, and so moderate
-did the terms seem when divided between us, that the bargain was
-concluded upon the spot, and we at once entered into possession.
-RESPONSE: That
-very evening I moved my things round from the hotel, and on the
-following morning Sherlock Holmes followed me with several boxes and
-portmanteaus.
-
 INPUT: Summarize: So desirable in every way were the apartments, and so moderate
 did the terms seem when divided between us, that the bargain was
 concluded upon the spot, and we at once entered into possession. That
@@ -1385,13 +1309,6 @@ RESPONSE: My health forbade me from venturing out unless the weather
 was exceptionally genial, and I had no friends who would call upon me
 and break the monotony of my daily existence.
 
-INPUT: Tell me about: My health forbade me from venturing out unless the weather
-was exceptionally genial, and I had no friends who would call upon me
-and break the monotony of my daily existence.
-RESPONSE: Under these
-circumstances, I eagerly hailed the little mystery which hung around my
-companion, and spent much of my time in endeavouring to unravel it.
-
 INPUT: Summarize: My health forbade me from venturing out unless the weather
 was exceptionally genial, and I had no friends who would call upon me
 and break the monotony of my daily existence. Under these
@@ -1402,13 +1319,6 @@ RESPONSE: He was not studying medicine.
 INPUT: Can you explain: He was not studying medicine.
 RESPONSE: He had himself, in reply to a question,
 confirmed Stamford’s opinion upon that point.
-
-INPUT: Summarize: He was not studying medicine. He had himself, in reply to a question,
-confirmed Stamford’s opinion upon that point.
-RESPONSE: Neither did he appear to
-have pursued any course of reading which might fit him for a degree in
-science or any other recognized portal which would give him an entrance
-into the learned world.
 
 INPUT: What is this about: Neither did he appear to
 have pursued any course of reading which might fit him for a degree in
@@ -1428,11 +1338,6 @@ extraordinarily ample and minute that his observations have fairly
 astounded me.
 RESPONSE: Surely no man would work so hard or attain such precise
 information unless he had some definite end in view.
-
-INPUT: What does this mean: Surely no man would work so hard or attain such precise
-information unless he had some definite end in view.
-RESPONSE: Desultory readers
-are seldom remarkable for the exactness of their learning.
 
 INPUT: Summarize: Surely no man would work so hard or attain such precise
 information unless he had some definite end in view. Desultory readers
@@ -1466,14 +1371,6 @@ who he might be and what he had done.
 RESPONSE: My surprise reached a climax,
 however, when I found incidentally that he was ignorant of the
 Copernican Theory and of the composition of the Solar System.
-
-INPUT: Explain this: My surprise reached a climax,
-however, when I found incidentally that he was ignorant of the
-Copernican Theory and of the composition of the Solar System.
-RESPONSE: That any
-civilized human being in this nineteenth century should not be aware
-that the earth travelled round the sun appeared to be to me such an
-extraordinary fact that I could hardly realize it.
 
 INPUT: Summarize: My surprise reached a climax,
 however, when I found incidentally that he was ignorant of the
@@ -1624,16 +1521,10 @@ mind all the various points upon which he had shown me that he was
 exceptionally well-informed. I even took a pencil and jotted them down.
 RESPONSE: I could not help smiling at the document when I had completed it.
 
-INPUT: Tell me about: I could not help smiling at the document when I had completed it.
-RESPONSE: It
-ran in this way—
-
-
 SHERLOCK HOLMES—his limits.
 
 INPUT: Summarize: I could not help smiling at the document when I had completed it. It
 ran in this way—
-
 
 SHERLOCK HOLMES—his limits.
 RESPONSE: Knowledge of Literature.
@@ -1868,14 +1759,6 @@ prepared.
 RESPONSE: With the unreasonable petulance of mankind I rang the bell
 and gave a curt intimation that I was ready.
 
-INPUT: Summarize: The landlady had become so accustomed
-to my late habits that my place had not been laid nor my coffee
-prepared. With the unreasonable petulance of mankind I rang the bell
-and gave a curt intimation that I was ready.
-RESPONSE: Then I picked up a
-magazine from the table and attempted to while away the time with it,
-while my companion munched silently at his toast.
-
 INPUT: What does this mean: Then I picked up a
 magazine from the table and attempted to while away the time with it,
 while my companion munched silently at his toast.
@@ -1897,14 +1780,6 @@ to show how much an observant man might learn by an accurate and
 systematic examination of all that came in his way.
 RESPONSE: It struck me as
 being a remarkable mixture of shrewdness and of absurdity.
-
-INPUT: Summarize: Its somewhat ambitious title was “The Book of Life,” and it attempted
-to show how much an observant man might learn by an accurate and
-systematic examination of all that came in his way. It struck me as
-being a remarkable mixture of shrewdness and of absurdity.
-RESPONSE: The
-reasoning was close and intense, but the deductions appeared to me to
-be far-fetched and exaggerated.
 
 INPUT: What is this about: The
 reasoning was close and intense, but the deductions appeared to me to
@@ -2040,11 +1915,6 @@ marked it.
 INPUT: What does this mean: “I see that you have read it since you have
 marked it.
 RESPONSE: I don’t deny that it is smartly written.
-
-INPUT: Summarize: “I see that you have read it since you have
-marked it. I don’t deny that it is smartly written.
-RESPONSE: It irritates me
-though.
 
 INPUT: Can you explain: It irritates me
 though.
@@ -2221,13 +2091,6 @@ wonderfully.
 RESPONSE: Those rules of deduction laid down in that article which
 aroused your scorn, are invaluable to me in practical work.
 
-INPUT: Summarize: You see I have a lot of special
-knowledge which I apply to the problem, and which facilitates matters
-wonderfully. Those rules of deduction laid down in that article which
-aroused your scorn, are invaluable to me in practical work.
-RESPONSE: Observation
-with me is second nature.
-
 INPUT: What does this mean: Observation
 with me is second nature.
 RESPONSE: You appeared to be surprised when I told you,
@@ -2253,12 +2116,6 @@ INPUT: Summarize: ”
 
 “Nothing of the sort.
 RESPONSE: I _knew_ you came from Afghanistan.
-
-INPUT: What does this mean: I _knew_ you came from Afghanistan.
-RESPONSE: From long
-habit the train of thoughts ran so swiftly through my mind, that I
-arrived at the conclusion without being conscious of intermediate
-steps.
 
 INPUT: Summarize: I _knew_ you came from Afghanistan. From long
 habit the train of thoughts ran so swiftly through my mind, that I
@@ -2310,11 +2167,6 @@ Afghanistan.
 INPUT: What does this mean: Clearly in
 Afghanistan.
 RESPONSE: ’ The whole train of thought did not occupy a second.
-
-INPUT: Summarize: Clearly in
-Afghanistan. ’ The whole train of thought did not occupy a second.
-RESPONSE: I
-then remarked that you came from Afghanistan, and you were astonished.
 
 INPUT: Tell me about: I
 then remarked that you came from Afghanistan, and you were astonished.
@@ -2402,12 +2254,6 @@ he said, in an angry voice; “he had only one thing to recommend him,
 and that was his energy.
 RESPONSE: That book made me positively ill.
 
-INPUT: Summarize: “Lecoq was a miserable bungler,”
-he said, in an angry voice; “he had only one thing to recommend him,
-and that was his energy. That book made me positively ill.
-RESPONSE: The question
-was how to identify an unknown prisoner.
-
 INPUT: Can you explain: The question
 was how to identify an unknown prisoner.
 RESPONSE: I could have done it in
@@ -2457,16 +2303,6 @@ said to myself, “but he is certainly very conceited. ”
 “There are no crimes and no criminals in these days,” he said,
 querulously.
 RESPONSE: “What is the use of having brains in our profession.
-
-INPUT: Explain this: “What is the use of having brains in our profession.
-RESPONSE: I
-know well that I have it in me to make my name famous.
-
-INPUT: Summarize: “What is the use of having brains in our profession. I
-know well that I have it in me to make my name famous.
-RESPONSE: No man lives or
-has ever lived who has brought the same amount of study and of natural
-talent to the detection of crime which I have done.
 
 INPUT: What is this about: No man lives or
 has ever lived who has brought the same amount of study and of natural
@@ -2604,7 +2440,6 @@ He clicked his heels together, raised his hand in a salute, and was
 gone.
 RESPONSE: THE LAURISTON GARDENS MYSTERY
 
-
 I confess that I was considerably startled by this fresh proof of the
 practical nature of my companion’s theories.
 
@@ -2612,7 +2447,6 @@ INPUT: Summarize: ”
 
 He clicked his heels together, raised his hand in a salute, and was
 gone. THE LAURISTON GARDENS MYSTERY
-
 
 I confess that I was considerably startled by this fresh proof of the
 practical nature of my companion’s theories.
@@ -2820,12 +2654,6 @@ INPUT: Summarize: Drebber, Cleveland, Ohio, U. ’ There had been no robbery, no
 there any evidence as to how the man met his death.
 RESPONSE: There are marks of
 blood in the room, but there is no wound upon his person.
-
-INPUT: What is this about: There are marks of
-blood in the room, but there is no wound upon his person.
-RESPONSE: We are at a
-loss as to how he came into the empty house; indeed, the whole affair
-is a puzzler.
 
 INPUT: Summarize: There are marks of
 blood in the room, but there is no wound upon his person. We are at a
@@ -3094,18 +2922,6 @@ apparently of a mixture of clay and of gravel.
 RESPONSE: The whole place was very
 sloppy from the rain which had fallen through the night.
 
-INPUT: Summarize: A small garden sprinkled over with a scattered eruption
-of sickly plants separated each of these houses from the street, and
-was traversed by a narrow pathway, yellowish in colour, and consisting
-apparently of a mixture of clay and of gravel. The whole place was very
-sloppy from the rain which had fallen through the night.
-RESPONSE: The garden was
-bounded by a three-foot brick wall with a fringe of wood rails upon the
-top, and against this wall was leaning a stalwart police constable,
-surrounded by a small knot of loafers, who craned their necks and
-strained their eyes in the vain hope of catching some glimpse of the
-proceedings within.
-
 INPUT: Can you explain: The garden was
 bounded by a three-foot brick wall with a fringe of wood rails upon the
 top, and against this wall was leaning a stalwart police constable,
@@ -3140,13 +2956,6 @@ opposite houses and the line of railings.
 RESPONSE: Having finished his scrutiny,
 he proceeded slowly down the path, or rather down the fringe of grass
 which flanked the path, keeping his eyes riveted upon the ground.
-
-INPUT: What does this mean: Having finished his scrutiny,
-he proceeded slowly down the path, or rather down the fringe of grass
-which flanked the path, keeping his eyes riveted upon the ground.
-RESPONSE: Twice
-he stopped, and once I saw him smile, and heard him utter an
-exclamation of satisfaction.
 
 INPUT: Summarize: Having finished his scrutiny,
 he proceeded slowly down the path, or rather down the fringe of grass
@@ -3200,12 +3009,6 @@ INPUT: Summarize: ”
 “Except that! ” my friend answered, pointing at the pathway.
 RESPONSE: “If a herd
 of buffaloes had passed along there could not be a greater mess.
-
-INPUT: What does this say: “If a herd
-of buffaloes had passed along there could not be a greater mess.
-RESPONSE: No
-doubt, however, you had drawn your own conclusions, Gregson, before you
-permitted this.
 
 INPUT: Summarize: “If a herd
 of buffaloes had passed along there could not be a greater mess. No

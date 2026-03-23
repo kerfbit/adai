@@ -526,13 +526,6 @@ INPUT: What does this mean: “What’s gone with that boy, I wonder?
 RESPONSE: The old lady pulled her spectacles down and looked over them about the
 room; then she put them up and looked out under them.
 
-INPUT: Summarize: “What’s gone with that boy, I wonder? The old lady pulled her spectacles down and looked over them about the
-room; then she put them up and looked out under them.
-RESPONSE: She seldom or
-never looked _through_ them for so small a thing as a boy; they were
-her state pair, the pride of her heart, and were built for “style,” not
-service—she could have seen through a pair of stove-lids just as well.
-
 INPUT: Tell me about: She seldom or
 never looked _through_ them for so small a thing as a boy; they were
 her state pair, the pride of her heart, and were built for “style,” not
@@ -799,24 +792,6 @@ RESPONSE: While Tom was eating his supper, and stealing sugar as opportunity
 offered, Aunt Polly asked him questions that were full of guile, and
 very deep—for she wanted to trap him into damaging revealments.
 
-INPUT: What is this about: While Tom was eating his supper, and stealing sugar as opportunity
-offered, Aunt Polly asked him questions that were full of guile, and
-very deep—for she wanted to trap him into damaging revealments.
-RESPONSE: Like
-many other simple-hearted souls, it was her pet vanity to believe she
-was endowed with a talent for dark and mysterious diplomacy, and she
-loved to contemplate her most transparent devices as marvels of low
-cunning.
-
-INPUT: Summarize: While Tom was eating his supper, and stealing sugar as opportunity
-offered, Aunt Polly asked him questions that were full of guile, and
-very deep—for she wanted to trap him into damaging revealments. Like
-many other simple-hearted souls, it was her pet vanity to believe she
-was endowed with a talent for dark and mysterious diplomacy, and she
-loved to contemplate her most transparent devices as marvels of low
-cunning.
-RESPONSE: Said she:
-
 “Tom, it was middling warm in school, warn’t it?
 
 INPUT: Can you explain: Said she:
@@ -938,10 +913,6 @@ INPUT: Summarize: He opened his jacket. His shirt
 collar was securely sewed.
 RESPONSE: Well, go ’long with you.
 
-INPUT: Explain this: Well, go ’long with you.
-RESPONSE: I’d made sure you’d played hookey
-and been a-swimming.
-
 INPUT: Summarize: Well, go ’long with you. I’d made sure you’d played hookey
 and been a-swimming.
 RESPONSE: But I forgive ye, Tom.
@@ -1050,13 +1021,6 @@ He was not the Model Boy of the village. He knew the model boy very well
 though—and loathed him.
 RESPONSE: Within two minutes, or even less, he had forgotten all his troubles.
 
-INPUT: Can you explain: Within two minutes, or even less, he had forgotten all his troubles.
-RESPONSE: Not
-because his troubles were one whit less heavy and bitter to him than a
-man’s are to a man, but because a new and powerful interest bore
-them down and drove them out of his mind for the time—just as men’s
-misfortunes are forgotten in the excitement of new enterprises.
-
 INPUT: Summarize: Within two minutes, or even less, he had forgotten all his troubles. Not
 because his troubles were one whit less heavy and bitter to him than a
 man’s are to a man, but because a new and powerful interest bore
@@ -1104,10 +1068,6 @@ RESPONSE: The summer evenings were long.
 
 INPUT: Tell me about: The summer evenings were long.
 RESPONSE: It was not dark, yet.
-
-INPUT: Summarize: The summer evenings were long. It was not dark, yet.
-RESPONSE: Presently Tom
-checked his whistle.
 
 INPUT: Explain this: Presently Tom
 checked his whistle.
@@ -1397,10 +1357,6 @@ INPUT: Tell me about: What do you keep _saying_ you will
 for?
 RESPONSE: Why don’t you _do_ it?
 
-INPUT: Summarize: What do you keep _saying_ you will
-for? Why don’t you _do_ it?
-RESPONSE: It’s because you’re afraid.
-
 INPUT: What does this say: It’s because you’re afraid.
 RESPONSE: ”
 
@@ -1492,11 +1448,6 @@ INPUT: Explain this: I’ve got a brother that’s bigger
 than he is—and what’s more, he can throw him over that fence, too.
 RESPONSE: ”
  [Both brothers were imaginary.
-
-INPUT: Summarize: I’ve got a brother that’s bigger
-than he is—and what’s more, he can throw him over that fence, too. ”
- [Both brothers were imaginary.
-RESPONSE: ]
 
 “That’s a lie.
 
@@ -1674,11 +1625,6 @@ enemy to come outside, but the enemy only made faces at him through the
 window and declined.
 RESPONSE: At last the enemy’s mother appeared, and called Tom
 a bad, vicious, vulgar child, and ordered him away.
-
-INPUT: Tell me about: At last the enemy’s mother appeared, and called Tom
-a bad, vicious, vulgar child, and ordered him away.
-RESPONSE: So he went away; but
-he said he “’lowed” to “lay” for that boy.
 
 INPUT: Summarize: At last the enemy’s mother appeared, and called Tom
 a bad, vicious, vulgar child, and ordered him away. So he went away; but
@@ -1975,20 +1921,10 @@ gave up the idea of trying to buy the boys.
 RESPONSE: At this dark and hopeless
 moment an inspiration burst upon him!
 
-INPUT: What does this say: At this dark and hopeless
-moment an inspiration burst upon him!
-RESPONSE: Nothing less than a great,
-magnificent inspiration.
-
 INPUT: Summarize: At this dark and hopeless
 moment an inspiration burst upon him! Nothing less than a great,
 magnificent inspiration.
 RESPONSE: He took up his brush and went tranquilly to work.
-
-INPUT: What is this about: He took up his brush and went tranquilly to work.
-RESPONSE: Ben Rogers hove in
-sight presently—the very boy, of all boys, whose ridicule he had been
-dreading.
 
 INPUT: Summarize: He took up his brush and went tranquilly to work. Ben Rogers hove in
 sight presently—the very boy, of all boys, whose ridicule he had been
@@ -2001,16 +1937,6 @@ heart was light and his anticipations high.
 RESPONSE: He was eating an apple, and
 giving a long, melodious whoop, at intervals, followed by a deep-toned
 ding-dong-dong, ding-dong-dong, for he was personating a steamboat.
-
-INPUT: Summarize: Ben’s gait was the hop-skip-and-jump—proof enough that his
-heart was light and his anticipations high. He was eating an apple, and
-giving a long, melodious whoop, at intervals, followed by a deep-toned
-ding-dong-dong, ding-dong-dong, for he was personating a steamboat.
-RESPONSE: As
-he drew near, he slackened speed, took the middle of the street, leaned
-far over to starboard and rounded to ponderously and with laborious pomp
-and circumstance—for he was personating the Big Missouri, and considered
-himself to be drawing nine feet of water.
 
 INPUT: What does this mean: As
 he drew near, he slackened speed, took the middle of the street, leaned
@@ -2157,10 +2083,6 @@ Tom wheeled suddenly and said:
 “Say—I’m going in a-swimming, I am.
 RESPONSE: Don’t you wish you could?
 
-INPUT: Tell me about: Don’t you wish you could?
-RESPONSE: But of
-course you’d druther _work_—wouldn’t you?
-
 INPUT: Summarize: Don’t you wish you could? But of
 course you’d druther _work_—wouldn’t you?
 RESPONSE: ”
@@ -2222,10 +2144,6 @@ INPUT: Summarize: ”
 
 The brush continued to move.
 RESPONSE: Well, I don’t see why I oughtn’t to like it.
-
-INPUT: Explain this: Well, I don’t see why I oughtn’t to like it.
-RESPONSE: Does a boy get a
-chance to whitewash a fence every day?
 
 INPUT: Summarize: Well, I don’t see why I oughtn’t to like it. Does a boy get a
 chance to whitewash a fence every day?
@@ -2521,12 +2439,6 @@ RESPONSE: She had
 thought that of course Tom had deserted long ago, and she wondered at
 seeing him place himself in her power again in this intrepid way.
 
-INPUT: Summarize: Her spectacles were propped up on her gray head for safety. She had
-thought that of course Tom had deserted long ago, and she wondered at
-seeing him place himself in her power again in this intrepid way.
-RESPONSE: He
-said: “Mayn’t I go and play now, aunt?
-
 INPUT: Can you explain: He
 said: “Mayn’t I go and play now, aunt?
 RESPONSE: ”
@@ -2609,11 +2521,6 @@ said:
 mind to, Tom.
 RESPONSE: ” And then she diluted the compliment by adding, “But it’s
 powerful seldom you’re a mind to, I’m bound to say.
-
-INPUT: What does this mean: ” And then she diluted the compliment by adding, “But it’s
-powerful seldom you’re a mind to, I’m bound to say.
-RESPONSE: Well, go ’long and
-play; but mind you get back some time in a week, or I’ll tan you.
 
 INPUT: Summarize: ” And then she diluted the compliment by adding, “But it’s
 powerful seldom you’re a mind to, I’m bound to say. Well, go ’long and
@@ -2742,11 +2649,6 @@ girl in the garden—a lovely little blue-eyed creature with yellow
 hair plaited into two long-tails, white summer frock and embroidered
 pantalettes.
 RESPONSE: The fresh-crowned hero fell without firing a shot.
-
-INPUT: Explain this: The fresh-crowned hero fell without firing a shot.
-RESPONSE: A
-certain Amy Lawrence vanished out of his heart and left not even a
-memory of herself behind.
 
 INPUT: Summarize: The fresh-crowned hero fell without firing a shot. A
 certain Amy Lawrence vanished out of his heart and left not even a
@@ -3189,17 +3091,6 @@ RESPONSE: And thus he would die—out in the cold world, with no shelter over hi
 homeless head, no friendly hand to wipe the death-damps from his brow,
 no loving face to bend pityingly over him when the great agony came.
 
-INPUT: Summarize: He climbed the
-fence, threaded his stealthy way through the plants, till he stood under
-that window; he looked up at it long, and with emotion; then he laid him
-down on the ground under it, disposing himself upon his back, with his
-hands clasped upon his breast and holding his poor wilted flower. And thus he would die—out in the cold world, with no shelter over his
-homeless head, no friendly hand to wipe the death-damps from his brow,
-no loving face to bend pityingly over him when the great agony came.
-RESPONSE: And
-thus _she_ would see him when she looked out upon the glad morning, and
-oh!
-
 INPUT: Can you explain: And
 thus _she_ would see him when she looked out upon the glad morning, and
 oh!
@@ -3290,13 +3181,6 @@ Sermon on the Mount, because he could find no verses that were shorter.
 RESPONSE: At the end of half an hour Tom had a vague general idea of his lesson,
 but no more, for his mind was traversing the whole field of human
 thought, and his hands were busy with distracting recreations.
-
-INPUT: What does this say: At the end of half an hour Tom had a vague general idea of his lesson,
-but no more, for his mind was traversing the whole field of human
-thought, and his hands were busy with distracting recreations.
-RESPONSE: Mary took
-his book to hear him recite, and he tried to find his way through the
-fog:
 
 “Blessed are the—a—a—”
 
@@ -3723,14 +3607,6 @@ turned around; stuck a pin in another boy, presently, in order to hear
 him say “Ouch!
 RESPONSE: ” and got a new reprimand from his teacher.
 
-INPUT: Summarize: The teacher, a grave,
-elderly man, interfered; then turned his back a moment and Tom pulled a
-boy’s hair in the next bench, and was absorbed in his book when the boy
-turned around; stuck a pin in another boy, presently, in order to hear
-him say “Ouch! ” and got a new reprimand from his teacher.
-RESPONSE: Tom’s whole
-class were of a pattern—restless, noisy, and troublesome.
-
 INPUT: What does this mean: Tom’s whole
 class were of a pattern—restless, noisy, and troublesome.
 RESPONSE: When they came
@@ -3744,15 +3620,6 @@ had to be prompted all along.
 RESPONSE: However, they worried through, and each
 got his reward—in small blue tickets, each with a passage of Scripture
 on it; each blue ticket was pay for two verses of the recitation.
-
-INPUT: What does this say: However, they worried through, and each
-got his reward—in small blue tickets, each with a passage of Scripture
-on it; each blue ticket was pay for two verses of the recitation.
-RESPONSE: Ten
-blue tickets equalled a red one, and could be exchanged for it; ten red
-tickets equalled a yellow one; for ten yellow tickets the superintendent
-gave a very plainly bound Bible (worth forty cents in those easy
-times) to the pupil.
 
 INPUT: Summarize: However, they worried through, and each
 got his reward—in small blue tickets, each with a passage of Scripture
@@ -3780,20 +3647,6 @@ mental faculties was too great, and he was little better than an idiot
 from that day forth—a grievous misfortune for the school, for on great
 occasions, before company, the superintendent (as Tom expressed it)
 had always made this boy come out and “spread himself.
-
-INPUT: What does this mean: He once
-recited three thousand verses without stopping; but the strain upon his
-mental faculties was too great, and he was little better than an idiot
-from that day forth—a grievous misfortune for the school, for on great
-occasions, before company, the superintendent (as Tom expressed it)
-had always made this boy come out and “spread himself.
-RESPONSE: ” Only the older
-pupils managed to keep their tickets and stick to their tedious work
-long enough to get a Bible, and so the delivery of one of these prizes
-was a rare and noteworthy circumstance; the successful pupil was so
-great and conspicuous for that day that on the spot every scholar’s
-heart was fired with a fresh ambition that often lasted a couple
-of weeks.
 
 INPUT: Summarize: He once
 recited three thousand verses without stopping; but the strain upon his
@@ -3907,14 +3760,6 @@ RESPONSE: The latter third of the speech was marred by the resumption of fights
 and other recreations among certain of the bad boys, and by fidgetings
 and whisperings that extended far and wide, washing even to the bases of
 isolated and incorruptible rocks like Sid and Mary.
-
-INPUT: Summarize: It was of a
-pattern which does not vary, and so it is familiar to us all. The latter third of the speech was marred by the resumption of fights
-and other recreations among certain of the bad boys, and by fidgetings
-and whisperings that extended far and wide, washing even to the bases of
-isolated and incorruptible rocks like Sid and Mary.
-RESPONSE: But now every sound
-ceased suddenly, with the subsidence of Mr.
 
 INPUT: Tell me about: But now every sound
 ceased suddenly, with the subsidence of Mr.

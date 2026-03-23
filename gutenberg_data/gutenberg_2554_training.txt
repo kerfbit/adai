@@ -214,13 +214,6 @@ his first wife and his brother Mihail.
 RESPONSE: He was in terrible poverty, yet
 he took upon himself the payment of his brother’s debts.
 
-INPUT: Summarize: In 1864 he lost
-his first wife and his brother Mihail. He was in terrible poverty, yet
-he took upon himself the payment of his brother’s debts.
-RESPONSE: He started
-another journal--“The Epoch,” which within a few months was also
-prohibited.
-
 INPUT: What does this mean: He started
 another journal--“The Epoch,” which within a few months was also
 prohibited.
@@ -509,31 +502,12 @@ RESPONSE: He was,
 by the way, exceptionally handsome, above the average in height, slim,
 well-built, with beautiful dark eyes and dark brown hair.
 
-INPUT: Summarize: An expression of the profoundest
-disgust gleamed for a moment in the young man’s refined face. He was,
-by the way, exceptionally handsome, above the average in height, slim,
-well-built, with beautiful dark eyes and dark brown hair.
-RESPONSE: Soon he sank
-into deep thought, or more accurately speaking into a complete blankness
-of mind; he walked along not observing what was about him and not caring
-to observe it.
-
 INPUT: Explain this: Soon he sank
 into deep thought, or more accurately speaking into a complete blankness
 of mind; he walked along not observing what was about him and not caring
 to observe it.
 RESPONSE: From time to time, he would mutter something, from the
 habit of talking to himself, to which he had just confessed.
-
-INPUT: Summarize: Soon he sank
-into deep thought, or more accurately speaking into a complete blankness
-of mind; he walked along not observing what was about him and not caring
-to observe it. From time to time, he would mutter something, from the
-habit of talking to himself, to which he had just confessed.
-RESPONSE: At these
-moments he would become conscious that his ideas were sometimes in a
-tangle and that he was very weak; for two days he had scarcely tasted
-food.
 
 INPUT: Can you explain: At these
 moments he would become conscious that his ideas were sometimes in a
@@ -645,13 +619,6 @@ INPUT: Can you explain: With my rags I ought to wear a cap, any
 sort of old pancake, but not this grotesque thing.
 RESPONSE: Nobody wears such
 a hat, it would be noticed a mile off, it would be remembered....
-
-INPUT: Summarize: With my rags I ought to wear a cap, any
-sort of old pancake, but not this grotesque thing. Nobody wears such
-a hat, it would be noticed a mile off, it would be remembered....
-RESPONSE: What
-matters is that people would remember it, and that would give them
-a clue.
 
 INPUT: Tell me about: What
 matters is that people would remember it, and that would give them
@@ -965,11 +932,6 @@ frames, representing German damsels with birds in their hands--that was
 all.
 RESPONSE: In the corner a light was burning before a small ikon.
 
-INPUT: Can you explain: In the corner a light was burning before a small ikon.
-RESPONSE: Everything
-was very clean; the floor and the furniture were brightly polished;
-everything shone.
-
 INPUT: Summarize: In the corner a light was burning before a small ikon. Everything
 was very clean; the floor and the furniture were brightly polished;
 everything shone.
@@ -1136,11 +1098,6 @@ INPUT: Summarize: “It must be the top drawer,” he reflected. “So she carri
 a pocket on the right.
 RESPONSE: All in one bunch on a steel ring....
 
-INPUT: What does this mean: All in one bunch on a steel ring....
-RESPONSE: And there’s
-one key there, three times as big as all the others, with deep notches;
-that can’t be the key of the chest of drawers...
-
 INPUT: Summarize: All in one bunch on a steel ring.... And there’s
 one key there, three times as big as all the others, with deep notches;
 that can’t be the key of the chest of drawers...
@@ -1150,11 +1107,6 @@ other chest or strong-box...
 INPUT: Tell me about: then there must be some
 other chest or strong-box...
 RESPONSE: that’s worth knowing.
-
-INPUT: Summarize: then there must be some
-other chest or strong-box... that’s worth knowing.
-RESPONSE: Strong-boxes always
-have keys like that...
 
 INPUT: Tell me about: Strong-boxes always
 have keys like that...
@@ -1331,17 +1283,6 @@ while he was on his way to the old woman, had by now reached such a
 pitch and had taken such a definite form that he did not know what to
 do with himself to escape from his wretchedness.
 
-INPUT: Summarize: ”
- But no words, no exclamations, could express his agitation. The feeling
-of intense repulsion, which had begun to oppress and torture his heart
-while he was on his way to the old woman, had by now reached such a
-pitch and had taken such a definite form that he did not know what to
-do with himself to escape from his wretchedness.
-RESPONSE: He walked along the
-pavement like a drunken man, regardless of the passers-by, and jostling
-against them, and only came to his senses when he was in the next
-street.
-
 INPUT: What is this about: He walked along the
 pavement like a drunken man, regardless of the passers-by, and jostling
 against them, and only came to his senses when he was in the next
@@ -1399,12 +1340,6 @@ all to worry about!
 INPUT: What does this say: “All that’s nonsense,” he said hopefully, “and there is nothing in it
 all to worry about!
 RESPONSE: It’s simply physical derangement.
-
-INPUT: Summarize: “All that’s nonsense,” he said hopefully, “and there is nothing in it
-all to worry about! It’s simply physical derangement.
-RESPONSE: Just a glass of
-beer, a piece of dry bread--and in one moment the brain is stronger,
-the mind is clearer and the will is firm!
 
 INPUT: What is this about: Just a glass of
 beer, a piece of dry bread--and in one moment the brain is stronger,
@@ -1526,10 +1461,6 @@ INPUT: Tell me about: He was sitting apart, now and then sipping from his pot an
 looking round at the company.
 RESPONSE: He, too, appeared to be in some agitation.
 
-INPUT: Summarize: He was sitting apart, now and then sipping from his pot and
-looking round at the company. He, too, appeared to be in some agitation.
-RESPONSE: CHAPTER II
-
 Raskolnikov was not used to crowds, and, as we said before, he avoided
 society of every sort, more especially of late.
 
@@ -1584,12 +1515,6 @@ iron lock.
 RESPONSE: At the counter stood a boy of about fourteen, and there was
 another boy somewhat younger who handed whatever was wanted.
 
-INPUT: Can you explain: At the counter stood a boy of about fourteen, and there was
-another boy somewhat younger who handed whatever was wanted.
-RESPONSE: On the
-counter lay some sliced cucumber, some pieces of dried black bread, and
-some fish, chopped up small, all smelling very bad.
-
 INPUT: Summarize: At the counter stood a boy of about fourteen, and there was
 another boy somewhat younger who handed whatever was wanted. On the
 counter lay some sliced cucumber, some pieces of dried black bread, and
@@ -1625,16 +1550,6 @@ afterwards, and even ascribed it to presentiment.
 RESPONSE: He looked repeatedly
 at the clerk, partly no doubt because the latter was staring
 persistently at him, obviously anxious to enter into conversation.
-
-INPUT: Explain this: He looked repeatedly
-at the clerk, partly no doubt because the latter was staring
-persistently at him, obviously anxious to enter into conversation.
-RESPONSE: At
-the other persons in the room, including the tavern-keeper, the clerk
-looked as though he were used to their company, and weary of it, showing
-a shade of condescending contempt for them as persons of station and
-culture inferior to his own, with whom it would be useless for him to
-converse.
 
 INPUT: Summarize: He looked repeatedly
 at the clerk, partly no doubt because the latter was staring
@@ -1847,12 +1762,6 @@ I am ready to be the first to humiliate myself. Honoured sir, a month ago Mr.
 RESPONSE: Lebeziatnikov gave my wife a beating, and
 my wife is a very different matter from me!
 
-INPUT: What is this about: Lebeziatnikov gave my wife a beating, and
-my wife is a very different matter from me!
-RESPONSE: Allow me
-to ask you another question out of simple curiosity: have you ever spent
-a night on a hay barge, on the Neva?
-
 INPUT: Summarize: Lebeziatnikov gave my wife a beating, and
 my wife is a very different matter from me! Allow me
 to ask you another question out of simple curiosity: have you ever spent
@@ -1965,19 +1874,9 @@ INPUT: Tell me about: “Why am I not at my duty?
 RESPONSE: Does not my heart ache
 to think what a useless worm I am?
 
-INPUT: Summarize: “Why am I not at my duty? Does not my heart ache
-to think what a useless worm I am?
-RESPONSE: Lebeziatnikov
-beat my wife with his own hands, and I lay drunk, didn’t I suffer?
-
 INPUT: What does this say: Lebeziatnikov
 beat my wife with his own hands, and I lay drunk, didn’t I suffer?
 RESPONSE: Excuse me, young man, has it ever happened to you...
-
-INPUT: Summarize: Lebeziatnikov
-beat my wife with his own hands, and I lay drunk, didn’t I suffer? Excuse me, young man, has it ever happened to you...
-RESPONSE: well, to
-petition hopelessly for a loan?
 
 INPUT: What is this about: well, to
 petition hopelessly for a loan?
@@ -2126,21 +2025,11 @@ daughter.
 RESPONSE: Granted, granted, I am a scoundrel, but she is a woman of a
 noble heart, full of sentiments, refined by education.
 
-INPUT: Tell me about: Granted, granted, I am a scoundrel, but she is a woman of a
-noble heart, full of sentiments, refined by education.
-RESPONSE: oh,
-if only she felt for me!
-
 INPUT: Summarize: Granted, granted, I am a scoundrel, but she is a woman of a
 noble heart, full of sentiments, refined by education. oh,
 if only she felt for me!
 RESPONSE: Honoured sir, honoured sir, you know every man
 ought to have at least one place where people feel for him!
-
-INPUT: What is this about: Honoured sir, honoured sir, you know every man
-ought to have at least one place where people feel for him!
-RESPONSE: But Katerina
-Ivanovna, though she is magnanimous, she is unjust....
 
 INPUT: Summarize: Honoured sir, honoured sir, you know every man
 ought to have at least one place where people feel for him! But Katerina
@@ -2199,14 +2088,6 @@ RESPONSE: Her mohair shawl I sold for drink, a present to her long ago, her own
 property, not mine; and we live in a cold room and she caught cold this
 winter and has begun coughing and spitting blood too.
 
-INPUT: Tell me about: Her mohair shawl I sold for drink, a present to her long ago, her own
-property, not mine; and we live in a cold room and she caught cold this
-winter and has begun coughing and spitting blood too.
-RESPONSE: We have three
-little children and Katerina Ivanovna is at work from morning till
-night; she is scrubbing and cleaning and washing the children, for she’s
-been used to cleanliness from a child.
-
 INPUT: Summarize: Her mohair shawl I sold for drink, a present to her long ago, her own
 property, not mine; and we live in a cold room and she caught cold this
 winter and has begun coughing and spitting blood too. We have three
@@ -2226,10 +2107,6 @@ RESPONSE: And the more I drink the more I feel it.
 
 INPUT: Can you explain: And the more I drink the more I feel it.
 RESPONSE: That’s why I drink too.
-
-INPUT: Summarize: And the more I drink the more I feel it. That’s why I drink too.
-RESPONSE: I try
-to find sympathy and feeling in drink....
 
 INPUT: Tell me about: I try
 to find sympathy and feeling in drink....
@@ -2367,17 +2244,6 @@ a wild and remote district where I happened to be at the time; and she
 was left in such hopeless poverty that, although I have seen many ups
 and downs of all sort, I don’t feel equal to describing it even.
 
-INPUT: Summarize: He used to beat her at the end: and although she paid him back, of
-which I have authentic documentary evidence, to this day she speaks of
-him with tears and she throws him up to me; and I am glad, I am glad
-that, though only in imagination, she should think of herself as having
-once been happy.... And she was left at his death with three children in
-a wild and remote district where I happened to be at the time; and she
-was left in such hopeless poverty that, although I have seen many ups
-and downs of all sort, I don’t feel equal to describing it even.
-RESPONSE: Her
-relations had all thrown her off.
-
 INPUT: What is this about: Her
 relations had all thrown her off.
 RESPONSE: And she was proud, too, excessively
@@ -2415,11 +2281,6 @@ INPUT: Summarize: Weeping and sobbing and wringing her hands, she
 married me! For she had nowhere to turn!
 RESPONSE: Do you understand, sir, do you
 understand what it means when you have absolutely nowhere to turn?
-
-INPUT: What is this about: Do you understand, sir, do you
-understand what it means when you have absolutely nowhere to turn?
-RESPONSE: No,
-that you don’t understand yet....
 
 INPUT: Summarize: Do you understand, sir, do you
 understand what it means when you have absolutely nowhere to turn? No,
@@ -2652,15 +2513,6 @@ else....
 RESPONSE: For that’s Katerina Ivanovna’s character, and when children
 cry, even from hunger, she falls to beating them at once.
 
-INPUT: Summarize: She was not herself
-when she spoke, but driven to distraction by her illness and the crying
-of the hungry children; and it was said more to wound her than anything
-else.... For that’s Katerina Ivanovna’s character, and when children
-cry, even from hunger, she falls to beating them at once.
-RESPONSE: At six o’clock
-I saw Sonia get up, put on her kerchief and her cape, and go out of the
-room and about nine o’clock she came back.
-
 INPUT: What is this about: At six o’clock
 I saw Sonia get up, put on her kerchief and her cape, and go out of the
 room and about nine o’clock she came back.
@@ -2817,10 +2669,6 @@ INPUT: Summarize: His excellency Ivan Afanasyvitch, do you
 know him? Well, then, it’s a man of God you don’t know.
 RESPONSE: wax before the face of the Lord; even as wax melteth!...
 
-INPUT: Explain this: wax before the face of the Lord; even as wax melteth!...
-RESPONSE: His eyes were
-dim when he heard my story.
-
 INPUT: Summarize: wax before the face of the Lord; even as wax melteth!... His eyes were
 dim when he heard my story.
 RESPONSE: ‘Marmeladov, once already you have
@@ -2927,12 +2775,6 @@ INPUT: What is this about: ‘Semyon
 Zaharovitch is tired with his work at the office, he is resting, shh!
 RESPONSE: ’
 They made me coffee before I went to work and boiled cream for me!
-
-INPUT: Summarize: ‘Semyon
-Zaharovitch is tired with his work at the office, he is resting, shh! ’
-They made me coffee before I went to work and boiled cream for me!
-RESPONSE: They
-began to get real cream for me, do you hear that?
 
 INPUT: What does this mean: They
 began to get real cream for me, do you hear that?
@@ -3229,11 +3071,6 @@ me with her own hands, her last, all she had, as I saw....
 RESPONSE: She said
 nothing, she only looked at me without a word....
 
-INPUT: Tell me about: She said
-nothing, she only looked at me without a word....
-RESPONSE: Not on earth, but up
-yonder...
-
 INPUT: Summarize: She said
 nothing, she only looked at me without a word.... Not on earth, but up
 yonder...
@@ -3250,17 +3087,9 @@ they don’t blame them! But it hurts more, it hurts more when they don’t
 blame!
 RESPONSE: And maybe she needs them now, eh?
 
-INPUT: Tell me about: And maybe she needs them now, eh?
-RESPONSE: What do
-you think, my dear sir?
-
 INPUT: Summarize: And maybe she needs them now, eh? What do
 you think, my dear sir?
 RESPONSE: For now she’s got to keep up her appearance.
-
-INPUT: What does this mean: For now she’s got to keep up her appearance.
-RESPONSE: It
-costs money, that smartness, that special smartness, you know?
 
 INPUT: Summarize: For now she’s got to keep up her appearance. It
 costs money, that smartness, that special smartness, you know?

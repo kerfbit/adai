@@ -2,13 +2,11 @@ INPUT: What is this about: The Picture of Dorian Gray
 
 by Oscar Wilde
 
-
 Contents
 
  THE PREFACE
  CHAPTER I.
 RESPONSE: THE PREFACE
-
 
 The artist is the creator of beautiful things.
 
@@ -16,12 +14,10 @@ INPUT: Summarize: The Picture of Dorian Gray
 
 by Oscar Wilde
 
-
 Contents
 
  THE PREFACE
  CHAPTER I. THE PREFACE
-
 
 The artist is the creator of beautiful things.
 RESPONSE: To reveal art and
@@ -61,11 +57,6 @@ INPUT: Explain this: They are the elect to whom
 beautiful things mean only beauty.
 RESPONSE: There is no such thing as a moral or an immoral book.
 
-INPUT: Summarize: They are the elect to whom
-beautiful things mean only beauty. There is no such thing as a moral or an immoral book.
-RESPONSE: Books are well
-written, or badly written.
-
 INPUT: What does this say: Books are well
 written, or badly written.
 RESPONSE: The nineteenth century dislike of realism is the rage of Caliban seeing
@@ -93,11 +84,6 @@ anything.
 INPUT: Tell me about: No artist desires to prove
 anything.
 RESPONSE: Even things that are true can be proved.
-
-INPUT: Summarize: No artist desires to prove
-anything. Even things that are true can be proved.
-RESPONSE: No artist has
-ethical sympathies.
 
 INPUT: Explain this: No artist has
 ethical sympathies.
@@ -140,10 +126,6 @@ musician. From the point of view of feeling, the actor’s craft is the
 type.
 RESPONSE: All art is at once surface and symbol.
 
-INPUT: Tell me about: All art is at once surface and symbol.
-RESPONSE: Those who go beneath the
-surface do so at their peril.
-
 INPUT: Summarize: All art is at once surface and symbol. Those who go beneath the
 surface do so at their peril.
 RESPONSE: Those who read the symbol do so at their
@@ -179,18 +161,9 @@ does not admire it. The only excuse for making a useless thing is that
 one admires it intensely.
 RESPONSE: All art is quite useless.
 
-INPUT: Tell me about: All art is quite useless.
-RESPONSE: OSCAR WILDE
-
-
-
-
 CHAPTER I.
 
 INPUT: Summarize: All art is quite useless. OSCAR WILDE
-
-
-
 
 CHAPTER I.
 RESPONSE: The studio was filled with the rich odour of roses, and when the light
@@ -377,14 +350,6 @@ were so vain; and I really can’t see any resemblance between you, with
 your rugged strong face and your coal-black hair, and this young
 Adonis, who looks as if he was made out of ivory and rose-leaves.
 
-INPUT: What is this about: Upon my word, Basil, I didn’t know you
-were so vain; and I really can’t see any resemblance between you, with
-your rugged strong face and your coal-black hair, and this young
-Adonis, who looks as if he was made out of ivory and rose-leaves.
-RESPONSE: Why,
-my dear Basil, he is a Narcissus, and you—well, of course you have an
-intellectual expression and all that.
-
 INPUT: Summarize: Upon my word, Basil, I didn’t know you
 were so vain; and I really can’t see any resemblance between you, with
 your rugged strong face and your coal-black hair, and this young
@@ -393,11 +358,6 @@ my dear Basil, he is a Narcissus, and you—well, of course you have an
 intellectual expression and all that.
 RESPONSE: But beauty, real beauty, ends
 where an intellectual expression begins.
-
-INPUT: Explain this: But beauty, real beauty, ends
-where an intellectual expression begins.
-RESPONSE: Intellect is in itself a mode
-of exaggeration, and destroys the harmony of any face.
 
 INPUT: Summarize: But beauty, real beauty, ends
 where an intellectual expression begins. Intellect is in itself a mode
@@ -473,10 +433,6 @@ INPUT: Summarize: ”
 “You don’t understand me, Harry,” answered the artist. “Of course I am
 not like him.
 RESPONSE: I know that perfectly well.
-
-INPUT: What does this say: I know that perfectly well.
-RESPONSE: Indeed, I should be sorry to
-look like him.
 
 INPUT: Summarize: I know that perfectly well. Indeed, I should be sorry to
 look like him.
@@ -902,10 +858,6 @@ wings. Lord Henry felt as if he could hear Basil Hallward’s heart
 beating, and wondered what was coming.
 RESPONSE: “The story is simply this,” said the painter after some time.
 
-INPUT: What does this mean: “The story is simply this,” said the painter after some time.
-RESPONSE: “Two
-months ago I went to a crush at Lady Brandon’s.
-
 INPUT: Summarize: “The story is simply this,” said the painter after some time. “Two
 months ago I went to a crush at Lady Brandon’s.
 RESPONSE: You know we poor
@@ -941,10 +893,6 @@ academicians, I suddenly became conscious that some one was looking at
 me. I turned half-way round and saw Dorian Gray for the first time.
 RESPONSE: When our eyes met, I felt that I was growing pale.
 
-INPUT: What does this say: When our eyes met, I felt that I was growing pale.
-RESPONSE: A curious sensation
-of terror came over me.
-
 INPUT: Summarize: When our eyes met, I felt that I was growing pale. A curious sensation
 of terror came over me.
 RESPONSE: I knew that I had come face to face with some
@@ -979,12 +927,6 @@ INPUT: Tell me about: Then—but I don’t know how to explain it to you.
 RESPONSE: Something seemed to
 tell me that I was on the verge of a terrible crisis in my life.
 
-INPUT: Summarize: Then—but I don’t know how to explain it to you. Something seemed to
-tell me that I was on the verge of a terrible crisis in my life.
-RESPONSE: I had
-a strange feeling that fate had in store for me exquisite joys and
-exquisite sorrows.
-
 INPUT: Can you explain: I had
 a strange feeling that fate had in store for me exquisite joys and
 exquisite sorrows.
@@ -995,11 +937,6 @@ a strange feeling that fate had in store for me exquisite joys and
 exquisite sorrows. I grew afraid and turned to quit the room.
 RESPONSE: It was
 not conscience that made me do so: it was a sort of cowardice.
-
-INPUT: Can you explain: It was
-not conscience that made me do so: it was a sort of cowardice.
-RESPONSE: I take
-no credit to myself for trying to escape.
 
 INPUT: Summarize: It was
 not conscience that made me do so: it was a sort of cowardice. I take
@@ -1285,12 +1222,6 @@ acquaintances for their good characters, and my enemies for their good
 intellects.
 RESPONSE: A man cannot be too careful in the choice of his enemies.
 
-INPUT: Summarize: I choose my friends for their good looks, my
-acquaintances for their good characters, and my enemies for their good
-intellects. A man cannot be too careful in the choice of his enemies.
-RESPONSE: I
-have not got one who is a fool.
-
 INPUT: Explain this: I
 have not got one who is a fool.
 RESPONSE: They are all men of some intellectual
@@ -1384,15 +1315,6 @@ RESPONSE: The masses feel that drunkenness, stupidity, and
 immorality should be their own special property, and that if any one of
 us makes an ass of himself, he is poaching on their preserves.
 
-INPUT: Summarize: I quite sympathize
-with the rage of the English democracy against what they call the vices
-of the upper orders. The masses feel that drunkenness, stupidity, and
-immorality should be their own special property, and that if any one of
-us makes an ass of himself, he is poaching on their preserves.
-RESPONSE: When
-poor Southwark got into the divorce court, their indignation was quite
-magnificent.
-
 INPUT: What is this about: When
 poor Southwark got into the divorce court, their indignation was quite
 magnificent.
@@ -1430,12 +1352,6 @@ Basil!
 INPUT: Explain this: “How English you are
 Basil!
 RESPONSE: That is the second time you have made that observation.
-
-INPUT: Summarize: “How English you are
-Basil! That is the second time you have made that observation.
-RESPONSE: If one
-puts forward an idea to a true Englishman—always a rash thing to do—he
-never dreams of considering whether the idea is right or wrong.
 
 INPUT: What does this mean: If one
 puts forward an idea to a true Englishman—always a rash thing to do—he
@@ -1886,14 +1802,6 @@ RESPONSE: In the wild struggle for existence, we want to have
 something that endures, and so we fill our minds with rubbish and
 facts, in the silly hope of keeping our place.
 
-INPUT: Summarize: That
-accounts for the fact that we all take such pains to over-educate
-ourselves. In the wild struggle for existence, we want to have
-something that endures, and so we fill our minds with rubbish and
-facts, in the silly hope of keeping our place.
-RESPONSE: The thoroughly
-well-informed man—that is the modern ideal.
-
 INPUT: What does this mean: The thoroughly
 well-informed man—that is the modern ideal.
 RESPONSE: And the mind of the
@@ -1910,13 +1818,6 @@ INPUT: Can you explain: It is like a
 _bric-à-brac_ shop, all monsters and dust, with everything priced above
 its proper value.
 RESPONSE: I think you will tire first, all the same.
-
-INPUT: Summarize: It is like a
-_bric-à-brac_ shop, all monsters and dust, with everything priced above
-its proper value. I think you will tire first, all the same.
-RESPONSE: Some day
-you will look at your friend, and he will seem to you to be a little
-out of drawing, or you won’t like his tone of colour, or something.
 
 INPUT: Tell me about: Some day
 you will look at your friend, and he will seem to you to be a little
@@ -2064,10 +1965,6 @@ eloquent over the dignity of labour. It was charming to have escaped
 all that!
 RESPONSE: As he thought of his aunt, an idea seemed to strike him.
 
-INPUT: Tell me about: As he thought of his aunt, an idea seemed to strike him.
-RESPONSE: He
-turned to Hallward and said, “My dear fellow, I have just remembered.
-
 INPUT: Summarize: As he thought of his aunt, an idea seemed to strike him. He
 turned to Hallward and said, “My dear fellow, I have just remembered.
 RESPONSE: ”
@@ -2199,11 +2096,6 @@ INPUT: What does this mean: “He has a simple and a beautiful nature.
 RESPONSE: Your aunt was quite
 right in what she said of him.
 
-INPUT: Summarize: “He has a simple and a beautiful nature. Your aunt was quite
-right in what she said of him.
-RESPONSE: Don’t try to influence
-him.
-
 INPUT: What is this about: Don’t try to influence
 him.
 RESPONSE: Your influence would be bad.
@@ -2319,11 +2211,6 @@ have spoiled everything. ”
 RESPONSE: Gray,” said Lord
 Henry, stepping forward and extending his hand.
 
-INPUT: What is this about: Gray,” said Lord
-Henry, stepping forward and extending his hand.
-RESPONSE: “My aunt has often
-spoken to me about you.
-
 INPUT: Summarize: Gray,” said Lord
 Henry, stepping forward and extending his hand. “My aunt has often
 spoken to me about you.
@@ -2428,10 +2315,6 @@ RESPONSE: No wonder Basil Hallward worshipped him.
 INPUT: Summarize: One felt that he had kept himself unspotted from the
 world. No wonder Basil Hallward worshipped him.
 RESPONSE: “You are too charming to go in for philanthropy, Mr.
-
-INPUT: What is this about: “You are too charming to go in for philanthropy, Mr.
-RESPONSE: Gray—far too
-charming.
 
 INPUT: Summarize: “You are too charming to go in for philanthropy, Mr. Gray—far too
 charming.
@@ -2645,10 +2528,6 @@ Dorian Gray stepped up on the dais with the air of a young Greek
 martyr, and made a little _moue_ of discontent to Lord Henry, to whom
 he had rather taken a fancy.
 RESPONSE: He was so unlike Basil.
-
-INPUT: What is this about: He was so unlike Basil.
-RESPONSE: They made a
-delightful contrast.
 
 INPUT: Summarize: He was so unlike Basil. They made a
 delightful contrast.
@@ -2926,12 +2805,6 @@ RESPONSE: They seemed to be able
 to give a plastic form to formless things, and to have a music of their
 own as sweet as that of viol or of lute.
 
-INPUT: What is this about: They seemed to be able
-to give a plastic form to formless things, and to have a music of their
-own as sweet as that of viol or of lute.
-RESPONSE: Was there anything
-so real as words?
-
 INPUT: Summarize: They seemed to be able
 to give a plastic form to formless things, and to have a music of their
 own as sweet as that of viol or of lute. Was there anything
@@ -2943,10 +2816,6 @@ RESPONSE: He understood them now.
 
 INPUT: Summarize: Yes; there had been things in his boyhood that he had not understood. He understood them now.
 RESPONSE: Life suddenly became fiery-coloured to him.
-
-INPUT: Tell me about: Life suddenly became fiery-coloured to him.
-RESPONSE: It
-seemed to him that he had been walking in fire.
 
 INPUT: Summarize: Life suddenly became fiery-coloured to him. It
 seemed to him that he had been walking in fire.

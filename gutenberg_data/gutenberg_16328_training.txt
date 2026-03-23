@@ -10,7 +10,6 @@ RESPONSE: )
 
 Professor of English and History in The College of William and Mary
 
-
 D.
 
 INPUT: Summarize: BEOWULF
@@ -24,11 +23,9 @@ JNO: LESSLIE HALL, Ph. )
 
 Professor of English and History in The College of William and Mary
 
-
 D.
 RESPONSE: , PUBLISHERS
 BOSTON NEW YORK CHICAGO
-
 
 Entered according to Act of Congress, in the year 1892, by
 
@@ -38,7 +35,6 @@ in the Office of the Librarian of Congress, at Washington.
 
 INPUT: What does this mean: , PUBLISHERS
 BOSTON NEW YORK CHICAGO
-
 
 Entered according to Act of Congress, in the year 1892, by
 
@@ -51,14 +47,10 @@ My Wife
 
 [v]
 
-
-
-
 CONTENTS.
 
 INPUT: Summarize: , PUBLISHERS
 BOSTON NEW YORK CHICAGO
-
 
 Entered according to Act of Congress, in the year 1892, by
 
@@ -69,9 +61,6 @@ in the Office of the Librarian of Congress, at Washington. TO
 My Wife
 
 [v]
-
-
-
 
 CONTENTS.
 RESPONSE: PAGE
@@ -521,9 +510,6 @@ RESPONSE: ) 106
 
 [vii]
 
-
-
-
 PREFACE.
 
 INPUT: Summarize: ) 103
@@ -534,9 +520,6 @@ INPUT: Summarize: ) 103
  Addenda 109
 
 [vii]
-
-
-
 
 PREFACE.
 RESPONSE: The present work is a modest effort to reproduce approximately, in modern
@@ -582,12 +565,6 @@ INPUT: Summarize: This work is addressed to two classes of readers. From both of
 the translator begs sympathy and co-operation.
 RESPONSE: The Anglo-Saxon scholar he
 hopes to please by adhering faithfully to the original.
-
-INPUT: What does this say: The Anglo-Saxon scholar he
-hopes to please by adhering faithfully to the original.
-RESPONSE: The student of
-English literature he aims to interest by giving him, in modern garb, the
-most ancient epic of our race.
 
 INPUT: Summarize: The Anglo-Saxon scholar he
 hopes to please by adhering faithfully to the original. The student of
@@ -643,22 +620,6 @@ several have written from what would seem a mistaken point of view.
 RESPONSE: Is it
 proper, for instance, that the grave and solemn speeches of Beowulf and
 Hrothgar be put in ballad measures, tripping lightly and airily along?
-
-INPUT: Can you explain: Is it
-proper, for instance, that the grave and solemn speeches of Beowulf and
-Hrothgar be put in ballad measures, tripping lightly and airily along?
-RESPONSE: Or,
-again, is it fitting that the rough martial music of Anglo-Saxon verse be
-interpreted to us in the smooth measures of modern blank verse?
-
-INPUT: Summarize: Is it
-proper, for instance, that the grave and solemn speeches of Beowulf and
-Hrothgar be put in ballad measures, tripping lightly and airily along? Or,
-again, is it fitting that the rough martial music of Anglo-Saxon verse be
-interpreted to us in the smooth measures of modern blank verse?
-RESPONSE: Do we hear
-what has been beautifully called "the clanging tread of a warrior in
-mail"?
 
 INPUT: What does this say: Do we hear
 what has been beautifully called "the clanging tread of a warrior in
@@ -716,10 +677,6 @@ been used occasionally; internal rhyme, sporadically. Both have some
 warrant in Anglo-Saxon poetry.
 RESPONSE: (For end-rhyme, see 1_53, 1_54; for
 internal rhyme, 2_21, 6_40.
-
-INPUT: What does this say: (For end-rhyme, see 1_53, 1_54; for
-internal rhyme, 2_21, 6_40.
-RESPONSE: )
 
 What Gummere[1] calls the "rime-giver" has been studiously kept; _viz.
 
@@ -857,17 +814,6 @@ RESPONSE: Thane after
 thane is ruthlessly carried off and devoured, while no one is found strong
 enough and bold enough to cope with the monster.
 
-INPUT: Summarize: Oft and
-anon he goes to the joyous building, bent on direful mischief. Thane after
-thane is ruthlessly carried off and devoured, while no one is found strong
-enough and bold enough to cope with the monster.
-RESPONSE: For twelve years he
-persecutes Hrothgar and his vassals.
-
-INPUT: Tell me about: For twelve years he
-persecutes Hrothgar and his vassals.
-RESPONSE: _
-
 _Over sea, a day's voyage off, Beowulf, of the Geats, nephew of Higelac,
 king of the Geats, hears of Grendel's doings and of Hrothgar's misery.
 
@@ -889,19 +835,6 @@ resolves to crush the fell monster and relieve the aged king. With
 fourteen chosen companions, he sets sail for Dane-land.
 RESPONSE: Reaching that
 country, he soon persuades Hrothgar of his ability to help him.
-
-INPUT: What is this about: Reaching that
-country, he soon persuades Hrothgar of his ability to help him.
-RESPONSE: The hours
-that elapse before night are spent in beer-drinking and conversation.
-
-INPUT: Summarize: Reaching that
-country, he soon persuades Hrothgar of his ability to help him. The hours
-that elapse before night are spent in beer-drinking and conversation.
-RESPONSE: When
-Hrothgar's bedtime comes he leaves the hall in charge of Beowulf, telling
-him that never before has he given to another the absolute wardship of his
-palace.
 
 INPUT: What is this about: When
 Hrothgar's bedtime comes he leaves the hall in charge of Beowulf, telling
@@ -941,12 +874,6 @@ both combatants trusting to strength and hand-grip.
 RESPONSE: Beowulf tears
 Grendel's shoulder from its socket, and the monster retreats to his den,
 howling and yelling with agony and fury.
-
-INPUT: Summarize: No arms are used,
-both combatants trusting to strength and hand-grip. Beowulf tears
-Grendel's shoulder from its socket, and the monster retreats to his den,
-howling and yelling with agony and fury.
-RESPONSE: _
 
 _The next morning, at early dawn, warriors in numbers flock to the hall
 Heorot, to hear the news.
@@ -1028,11 +955,6 @@ RESPONSE: Hrothgar
 literally pours treasures into the lap of Beowulf; and it is agreed among
 the vassals of the king that Beowulf will be their next liegelord.
 
-INPUT: Tell me about: Hrothgar
-literally pours treasures into the lap of Beowulf; and it is agreed among
-the vassals of the king that Beowulf will be their next liegelord.
-RESPONSE: _
-
 _Beowulf leaves Dane-land.
 
 INPUT: Summarize: Hrothgar
@@ -1041,9 +963,6 @@ the vassals of the king that Beowulf will be their next liegelord. _
 
 _Beowulf leaves Dane-land.
 RESPONSE: Hrothgar weeps and laments at his departure.
-
-INPUT: Can you explain: Hrothgar weeps and laments at his departure.
-RESPONSE: _
 
 _When the hero arrives in his own land, Higelac treats him as a
 distinguished guest.
@@ -1100,11 +1019,6 @@ RESPONSE: Then a memorial-barrow is made, visible from a great distance, that
 sailors afar may be constantly reminded of the prowess of the national
 hero of Geatland.
 
-INPUT: What does this mean: Then a memorial-barrow is made, visible from a great distance, that
-sailors afar may be constantly reminded of the prowess of the national
-hero of Geatland.
-RESPONSE: _
-
 _The poem closes with a glowing tribute to his bravery, his gentleness,
 his goodness of heart, and his generosity.
 
@@ -1159,44 +1073,26 @@ RESPONSE: Harrison, for advice, sympathy, and assistance.
 INPUT: Summarize: My special thanks are due to Professors Francis A. Harrison, for advice, sympathy, and assistance.
 RESPONSE: [xi]
 
-
-
-
 ABBREVIATIONS USED IN THE NOTES.
 
 INPUT: What does this say: [xi]
-
-
-
 
 ABBREVIATIONS USED IN THE NOTES.
 RESPONSE: = Harrison and Sharp.
 
 INPUT: Summarize: [xi]
 
-
-
-
 ABBREVIATIONS USED IN THE NOTES. = Harrison and Sharp.
 RESPONSE: * * * * *
-
-
-
 
 BIBLIOGRAPHY OF TRANSLATIONS.
 
 INPUT: What does this say: * * * * *
 
-
-
-
 BIBLIOGRAPHY OF TRANSLATIONS.
 RESPONSE: A heroic poem of the eighth century.
 
 INPUT: Summarize: * * * * *
-
-
-
 
 BIBLIOGRAPHY OF TRANSLATIONS. A heroic poem of the eighth century.
 RESPONSE: With English translation.
@@ -1220,10 +1116,6 @@ INPUT: Tell me about: ~--Illustrations of Anglo-Saxon Poetry.
 RESPONSE: Full
 Latin translation, and some passages translated into English blank-verse.
 
-INPUT: Summarize: ~--Illustrations of Anglo-Saxon Poetry. Full
-Latin translation, and some passages translated into English blank-verse.
-RESPONSE: ~--Beowulf, stabreimend übersetzt.
-
 INPUT: What does this say: ~--Beowulf, stabreimend übersetzt.
 RESPONSE: ~--Beowulf: an Anglo-Saxon Poem, and the Fight at Finnsburg.
 
@@ -1234,10 +1126,6 @@ occasionally, and sometimes assuming a metrical cadence.
 INPUT: What is this about: An accurate line-for-line translation, using alliteration
 occasionally, and sometimes assuming a metrical cadence.
 RESPONSE: ~--Dichtungen der Angelsachsen, stabreimend übersetzt.
-
-INPUT: Summarize: An accurate line-for-line translation, using alliteration
-occasionally, and sometimes assuming a metrical cadence. ~--Dichtungen der Angelsachsen, stabreimend übersetzt.
-RESPONSE: ~--Beovulf, poema epico anglo-sassone del VII.
 
 INPUT: What does this say: ~--Beovulf, poema epico anglo-sassone del VII.
 RESPONSE: secolo,
@@ -1264,9 +1152,6 @@ and the Battle of Finnsburg. The second edition contains a
 prose translation of Beowulf.
 RESPONSE: Translations of extracts.
 
-INPUT: Tell me about: Translations of extracts.
-RESPONSE: [xii]
-
 ~Lumsden, H.
 
 INPUT: Summarize: Translations of extracts. [xii]
@@ -1280,20 +1165,9 @@ RESPONSE: Passages occasionally omitted.
 INPUT: Summarize: ~--Beowulf, translated into modern rhymes. Passages occasionally omitted.
 RESPONSE: ~--De carminibus Cædmoni adjudicatis.
 
-INPUT: What is this about: ~--De carminibus Cædmoni adjudicatis.
-RESPONSE: An
-extract from Beowulf, with Latin translation.
-
 INPUT: Summarize: ~--De carminibus Cædmoni adjudicatis. An
 extract from Beowulf, with Latin translation.
 RESPONSE: ~--Beowulf og Scopes Widsith, to Angelsaxiske Digte.
-
-INPUT: What does this say: ~--Beowulf og Scopes Widsith, to Angelsaxiske Digte.
-RESPONSE: Uebersetzt und erläutert.
-
-INPUT: Summarize: ~--Beowulf og Scopes Widsith, to Angelsaxiske Digte. Uebersetzt und erläutert.
-RESPONSE: Stuttgart und Augsburg,
-1859.
 
 INPUT: Tell me about: Stuttgart und Augsburg,
 1859.
@@ -1331,9 +1205,6 @@ RESPONSE: First Swedish translation.
 INPUT: What does this say: First Swedish translation.
 RESPONSE: ~--Beowulf, in alliterative measures.
 
-INPUT: Summarize: First Swedish translation. ~--Beowulf, in alliterative measures.
-RESPONSE: ~--Der Kampf Beowulfs mit Grendel.
-
 INPUT: What does this say: ~--Der Kampf Beowulfs mit Grendel.
 RESPONSE: Jahresbericht of the
 Realschule at Forbach, 1881.
@@ -1342,15 +1213,9 @@ INPUT: Summarize: ~--Der Kampf Beowulfs mit Grendel. Jahresbericht of the
 Realschule at Forbach, 1881.
 RESPONSE: [xiii]
 
-
-
-
 GLOSSARY OF PROPER NAMES.
 
 INPUT: Tell me about: [xiii]
-
-
-
 
 GLOSSARY OF PROPER NAMES.
 RESPONSE: * * * * *
@@ -1359,9 +1224,6 @@ RESPONSE: * * * * *
 names occur.
 
 INPUT: Summarize: [xiii]
-
-
-
 
 GLOSSARY OF PROPER NAMES. * * * * *
 
@@ -1389,10 +1251,6 @@ RESPONSE: --A kinsman of Wiglaf.
 INPUT: What does this say: --A kinsman of Wiglaf.
 RESPONSE: --Confidential friend of King Hrothgar.
 
-INPUT: Summarize: --A kinsman of Wiglaf. --Confidential friend of King Hrothgar.
-RESPONSE: Elder brother of
-Yrmenlaf.
-
 INPUT: Explain this: Elder brother of
 Yrmenlaf.
 RESPONSE: --Son of Scyld, the founder of the dynasty of Scyldings.
@@ -1416,11 +1274,6 @@ Ecgtheow.
 RESPONSE: Brought up by his maternal grandfather Hrethel, and figuring in
 manhood as a devoted liegeman of his uncle Higelac.
 
-INPUT: Summarize: Sprung from the stock of Geats, son of
-Ecgtheow. Brought up by his maternal grandfather Hrethel, and figuring in
-manhood as a devoted liegeman of his uncle Higelac.
-RESPONSE: A hero from his youth.
-
 INPUT: Tell me about: A hero from his youth.
 RESPONSE: Has the strength of thirty men.
 
@@ -1429,10 +1282,6 @@ RESPONSE: Engages in a swimming-match with Breca.
 
 INPUT: Can you explain: Engages in a swimming-match with Breca.
 RESPONSE: Goes to the help of Hrothgar against the monster Grendel.
-
-INPUT: Summarize: Engages in a swimming-match with Breca. Goes to the help of Hrothgar against the monster Grendel.
-RESPONSE: Vanquishes
-Grendel and his mother.
 
 INPUT: What is this about: Vanquishes
 Grendel and his mother.
@@ -1457,11 +1306,6 @@ etc.
 INPUT: Explain this: --6_26; 7_2; 7_9; 9_3; 9_8; 12_28; 12_43; 23_1,
 etc.
 RESPONSE: --Beowulf's opponent in the famous swimming-match.
-
-INPUT: Summarize: --6_26; 7_2; 7_9; 9_3; 9_8; 12_28; 12_43; 23_1,
-etc. --Beowulf's opponent in the famous swimming-match.
-RESPONSE: --9_8; 9_19;
-9_21; 9_22.
 
 INPUT: What does this mean: --9_8; 9_19;
 9_21; 9_22.
@@ -1499,10 +1343,6 @@ RESPONSE: --Father of Unferth, who taunts Beowulf.
 
 INPUT: Tell me about: --Father of Unferth, who taunts Beowulf.
 RESPONSE: --Father of Beowulf, the hero of the poem.
-
-INPUT: Summarize: --Father of Unferth, who taunts Beowulf. --Father of Beowulf, the hero of the poem.
-RESPONSE: A widely-known
-Wægmunding warrior.
 
 INPUT: What is this about: A widely-known
 Wægmunding warrior.
@@ -1590,10 +1430,6 @@ his court takes place the horrible slaughter in which the Danish general,
 Hnæf, fell.
 RESPONSE: Later on, Finn himself is slain by Danish warriors.
 
-INPUT: Explain this: Later on, Finn himself is slain by Danish warriors.
-RESPONSE: --17_18;
-17_30; 17_44; 18_4; 18_23.
-
 INPUT: Summarize: Later on, Finn himself is slain by Danish warriors. --17_18;
 17_30; 17_44; 18_4; 18_23.
 RESPONSE: --The country to which Beowulf was driven by the currents in
@@ -1609,10 +1445,6 @@ his swimming-match. --Son and nephew of King Sigemund, whose praises are sung in
 XIV.
 RESPONSE: --Introduced occasionally in referring to the death of
 Higelac.
-
-INPUT: What does this say: --Introduced occasionally in referring to the death of
-Higelac.
-RESPONSE: --19_19; 40_21; 40_24.
 
 INPUT: Summarize: --Introduced occasionally in referring to the death of
 Higelac. --19_19; 40_21; 40_24.
@@ -1640,10 +1472,6 @@ RESPONSE: --King of the Heathobards, and father of Ingeld.
 INPUT: Summarize: Married to Ingeld, a Heathobard
 prince. --King of the Heathobards, and father of Ingeld.
 RESPONSE: --The race to which the hero of the poem belongs.
-
-INPUT: What does this say: --The race to which the hero of the poem belongs.
-RESPONSE: Also
-called Weder-Geats, or Weders, War-Geats, Sea-Geats.
 
 INPUT: Summarize: --The race to which the hero of the poem belongs. Also
 called Weder-Geats, or Weders, War-Geats, Sea-Geats.
@@ -1743,10 +1571,6 @@ RESPONSE: Killed by his younger brother Hæthcyn.
 INPUT: Tell me about: Killed by his younger brother Hæthcyn.
 RESPONSE: --A Danish king of a dynasty before the Scylding line.
 
-INPUT: Summarize: Killed by his younger brother Hæthcyn. --A Danish king of a dynasty before the Scylding line.
-RESPONSE: Was a
-source of great sorrow to his people.
-
 INPUT: Can you explain: Was a
 source of great sorrow to his people.
 RESPONSE: --Referred to as uncle of Heardred, but otherwise
@@ -1782,11 +1606,6 @@ RESPONSE: --31_56; 33_63; 33_75.
 
 INPUT: What does this mean: --31_56; 33_63; 33_75.
 RESPONSE: --Race of Lombards, of which Froda is king.
-
-INPUT: Summarize: --31_56; 33_63; 33_75. --Race of Lombards, of which Froda is king.
-RESPONSE: After Froda
-falls in battle with the Danes, Ingeld, his son, marries Hrothgar's
-daughter, Freaware, in order to heal the feud.
 
 INPUT: Can you explain: After Froda
 falls in battle with the Danes, Ingeld, his son, marries Hrothgar's
@@ -1838,10 +1657,6 @@ Hnæf,--probably his sister. --Leader of a branch of the Danes called Half-Danes
 RESPONSE: Killed in the
 struggle at Finn's castle.
 
-INPUT: What does this mean: Killed in the
-struggle at Finn's castle.
-RESPONSE: --One of Beowulf's companions.
-
 INPUT: Summarize: Killed in the
 struggle at Finn's castle. --One of Beowulf's companions.
 RESPONSE: Killed by Grendel just before
@@ -1864,9 +1679,6 @@ INPUT: Summarize: --King of the Geats, father of Higelac, and grandfather of
 Beowulf. --Once used for Hrethel.
 RESPONSE: --Another name for the Danes.
 
-INPUT: What does this say: --Another name for the Danes.
-RESPONSE: [xvi]
-
 ~Hreosna-beorh~.
 
 INPUT: Summarize: --Another name for the Danes. [xvi]
@@ -1879,12 +1691,6 @@ INPUT: What is this about: --A promontory in Geat-land, near which Ohthere's son
 made plundering raids.
 RESPONSE: --The Danish king who built the hall Heort, but was long unable
 to enjoy it on account of Grendel's persecutions.
-
-INPUT: Summarize: --A promontory in Geat-land, near which Ohthere's sons
-made plundering raids. --The Danish king who built the hall Heort, but was long unable
-to enjoy it on account of Grendel's persecutions.
-RESPONSE: Marries Wealhtheow, a
-Helming lady.
 
 INPUT: Can you explain: Marries Wealhtheow, a
 Helming lady.
@@ -1928,16 +1734,9 @@ INPUT: Summarize: --Unferth's sword, lent to Beowulf. --A race in alliance with 
 Higelac's fall.
 RESPONSE: --A Frisian warrior, probably general of the Hetwars.
 
-INPUT: Explain this: --A Frisian warrior, probably general of the Hetwars.
-RESPONSE: Gives Hengest
-a beautiful sword.
-
 INPUT: Summarize: --A Frisian warrior, probably general of the Hetwars. Gives Hengest
 a beautiful sword.
 RESPONSE: --Sometimes used for Unferth.
-
-INPUT: Explain this: --Sometimes used for Unferth.
-RESPONSE: ~Hygelac~, ~Higelac~.
 
 INPUT: Summarize: --Sometimes used for Unferth. ~Hygelac~, ~Higelac~.
 RESPONSE: --King of the Geats, uncle and liegelord of Beowulf,
@@ -1952,10 +1751,6 @@ INPUT: Summarize: --King of the Geats, uncle and liegelord of Beowulf,
 the hero of the poem. --His second wife is the lovely Hygd, daughter of
 Hæreth.
 RESPONSE: The son of their union is Heardred.
-
-INPUT: What does this mean: The son of their union is Heardred.
-RESPONSE: Is slain in a war with the
-Hugs, Franks, and Frisians combined.
 
 INPUT: Summarize: The son of their union is Heardred. Is slain in a war with the
 Hugs, Franks, and Frisians combined.
@@ -2076,18 +1871,8 @@ Honor-Scyldings, Victory-Scyldings, War-Scyldings, etc.
 RESPONSE: (See 'Danes,'
 above.
 
-INPUT: Summarize: They are also called
-Honor-Scyldings, Victory-Scyldings, War-Scyldings, etc. (See 'Danes,'
-above.
-RESPONSE: --A Swedish royal line to which Wiglaf belonged.
-
 INPUT: What is this about: --A Swedish royal line to which Wiglaf belonged.
 RESPONSE: --Son of Wæls, and uncle and father of Fitela.
-
-INPUT: Summarize: --A Swedish royal line to which Wiglaf belonged. --Son of Wæls, and uncle and father of Fitela.
-RESPONSE: His struggle
-with a dragon is related in connection with Beowulf's deeds of
-prowess.
 
 INPUT: Explain this: His struggle
 with a dragon is related in connection with Beowulf's deeds of
@@ -2128,9 +1913,6 @@ RESPONSE: Lends Beowulf his sword when he goes to look for Grendel's mother.
 INPUT: Tell me about: Lends Beowulf his sword when he goes to look for Grendel's mother.
 RESPONSE: sometimes written _Hunferth_.
 
-INPUT: Summarize: Lends Beowulf his sword when he goes to look for Grendel's mother. sometimes written _Hunferth_.
-RESPONSE: --Father of Sigemund.
-
 INPUT: What does this mean: --Father of Sigemund.
 RESPONSE: --A name occasionally applied to Wiglaf and Beowulf, and
 perhaps derived from a common ancestor, Wægmund.
@@ -2150,10 +1932,6 @@ RESPONSE: --The people of Wulfgar, Hrothgar's messenger and retainer.
 INPUT: Tell me about: --The people of Wulfgar, Hrothgar's messenger and retainer.
 RESPONSE: Her queenly courtesy is well shown in the
 poem.
-
-INPUT: Summarize: --The people of Wulfgar, Hrothgar's messenger and retainer. Her queenly courtesy is well shown in the
-poem.
-RESPONSE: ~Weohstan~, or ~Wihstan~.
 
 INPUT: What does this say: ~Weohstan~, or ~Wihstan~.
 RESPONSE: --A Wægmunding, and father of Wiglaf.
@@ -2206,29 +1984,17 @@ Ecgtheow. --Younger brother of Æschere, the hero whose death grieved
 Hrothgar so deeply.
 RESPONSE: [xviii]
 
-
-
-
 LIST OF WORDS AND PHRASES NOT IN GENERAL USE.
 
 INPUT: Explain this: [xviii]
-
-
-
 
 LIST OF WORDS AND PHRASES NOT IN GENERAL USE.
 RESPONSE: --Mound, rounded hill, funeral-mound.
 
 INPUT: Summarize: [xviii]
 
-
-
-
 LIST OF WORDS AND PHRASES NOT IN GENERAL USE. --Mound, rounded hill, funeral-mound.
 RESPONSE: --Cup, drinking-vessel.
-
-INPUT: What does this say: --Cup, drinking-vessel.
-RESPONSE: --Ornamental projection.
 
 INPUT: Summarize: --Cup, drinking-vessel. --Ornamental projection.
 RESPONSE: --A round ornament on a necklace.
@@ -2274,15 +2040,9 @@ RESPONSE: --Plane, extended surface.
 INPUT: What is this about: --Plane, extended surface.
 RESPONSE: [1]
 
-
-
-
 BEOWULF.
 
 INPUT: Summarize: --Plane, extended surface. [1]
-
-
-
 
 BEOWULF.
 RESPONSE: THE LIFE AND DEATH OF SCYLD.
@@ -2569,11 +2329,6 @@ INPUT: Summarize: suggested 'aldor-ceare': _He perceived
  their distress, that they formerly had suffered life-sorrow a long
  while_. [3] A very difficult passage.
 RESPONSE: 'Áhte' (31) has no object.
-
-INPUT: Can you explain: 'Áhte' (31) has no object.
-RESPONSE: supplies
- 'geweald' from the context; and our translation is based upon this
- assumption, though it is far from satisfactory.
 
 INPUT: Summarize: 'Áhte' (31) has no object. supplies
  'geweald' from the context; and our translation is based upon this
@@ -2892,10 +2647,6 @@ INPUT: Summarize: }
 RESPONSE: prefer 'ellor-gæst' to 'ellen-gæst' (86): _Then the
  stranger from afar endured, etc.
 
-INPUT: What is this about: prefer 'ellor-gæst' to 'ellen-gæst' (86): _Then the
- stranger from afar endured, etc.
-RESPONSE: _
-
  [2] Some authorities would translate '_demon_' instead of
  '_stranger_.
 
@@ -3202,11 +2953,6 @@ INPUT: Can you explain: [1] The translation is based on 'weras,' adopted by H.
 RESPONSE: read 'wera' and, arranging differently, render 119(2)-120: _They knew
  not sorrow, the wretchedness of man, aught of misfortune_.
 
-INPUT: Summarize: [1] The translation is based on 'weras,' adopted by H. read 'wera' and, arranging differently, render 119(2)-120: _They knew
- not sorrow, the wretchedness of man, aught of misfortune_.
-RESPONSE: --For
- 'unhælo' (120) R.
-
 INPUT: Can you explain: --For
  'unhælo' (120) R.
 RESPONSE: suggests 'unfælo': _The uncanny creature, greedy and
@@ -3219,12 +2965,6 @@ RESPONSE: rearranges and translates: _So he ruled and struggled unjustly,
  one against all, till the noblest of buildings stood useless (it was a
  long while) twelve years' time: the friend of the Scyldings suffered
  distress, every woe, great sorrows, etc_.
-
-INPUT: Explain this: rearranges and translates: _So he ruled and struggled unjustly,
- one against all, till the noblest of buildings stood useless (it was a
- long while) twelve years' time: the friend of the Scyldings suffered
- distress, every woe, great sorrows, etc_.
-RESPONSE: [3] For 'syððan,' B.
 
 INPUT: Summarize: rearranges and translates: _So he ruled and struggled unjustly,
  one against all, till the noblest of buildings stood useless (it was a
@@ -3275,17 +3015,6 @@ INPUT: What does this mean: (2) Hrothgar was much grieved that Grendel had not a
  before his throne to receive presents.
 RESPONSE: (3) He was not permitted to
  devastate the hall, on account of the Creator; _i.
-
-INPUT: Summarize: (2) Hrothgar was much grieved that Grendel had not appeared
- before his throne to receive presents. (3) He was not permitted to
- devastate the hall, on account of the Creator; _i.
-RESPONSE: _ God wished to
- make his visit fatal to him.
-
-INPUT: Explain this: _ God wished to
- make his visit fatal to him.
-RESPONSE: renders: _Nor had
- he any desire to do so_; 'his' being obj.
 
 INPUT: Summarize: _ God wished to
  make his visit fatal to him. renders: _Nor had

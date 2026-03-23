@@ -147,10 +147,6 @@ RESPONSE: Conventionality is not morality.
 INPUT: Explain this: Conventionality is not morality.
 RESPONSE: Self-righteousness is not religion.
 
-INPUT: Summarize: Conventionality is not morality. Self-righteousness is not religion.
-RESPONSE: To
-attack the first is not to assail the last.
-
 INPUT: Explain this: To
 attack the first is not to assail the last.
 RESPONSE: To pluck the mask from the
@@ -288,15 +284,6 @@ attractive, but both bear the same relation to his serious genius that
 the mere lambent sheet-lightning playing under the edge of the
 summer-cloud does to the electric death-spark hid in its womb.
 
-INPUT: Summarize: He
-resembles Fielding as an eagle does a vulture: Fielding could stoop on
-carrion, but Thackeray never does. His wit is bright, his humour
-attractive, but both bear the same relation to his serious genius that
-the mere lambent sheet-lightning playing under the edge of the
-summer-cloud does to the electric death-spark hid in its womb.
-RESPONSE: Finally,
-I have alluded to Mr.
-
 INPUT: Can you explain: Finally,
 I have alluded to Mr.
 RESPONSE: Thackeray, because to him—if he will accept the
@@ -339,9 +326,6 @@ to me, an honour is awarded where it is not merited; and consequently,
 denied where it is justly due. This explanation will serve to rectify mistakes which may already have
 been made, and to prevent future errors.
 RESPONSE: _April_ 13_th_, 1848.
-
-INPUT: What does this say: _April_ 13_th_, 1848.
-RESPONSE: CHAPTER I
 
 There was no possibility of taking a walk that day.
 
@@ -472,13 +456,6 @@ were the clear panes of glass, protecting, but not separating me from
 the drear November day.
 RESPONSE: At intervals, while turning over the leaves of
 my book, I studied the aspect of that winter afternoon.
-
-INPUT: Can you explain: At intervals, while turning over the leaves of
-my book, I studied the aspect of that winter afternoon.
-RESPONSE: Afar, it
-offered a pale blank of mist and cloud; near a scene of wet lawn and
-storm-beat shrub, with ceaseless rain sweeping away wildly before a
-long and lamentable blast.
 
 INPUT: Summarize: At intervals, while turning over the leaves of
 my book, I studied the aspect of that winter afternoon. Afar, it
@@ -642,12 +619,6 @@ found the room apparently empty.
 INPUT: Explain this: ” cried the voice of John Reed; then he paused: he
 found the room apparently empty.
 RESPONSE: “Where the dickens is she!
-
-INPUT: Summarize: ” cried the voice of John Reed; then he paused: he
-found the room apparently empty. “Where the dickens is she!
-RESPONSE: (calling to
-his sisters) Joan is not here: tell mama she is run out into the
-rain—bad animal!
 
 INPUT: Explain this: (calling to
 his sisters) Joan is not here: tell mama she is run out into the
@@ -968,11 +939,6 @@ Georgiana had run for Mrs.
 RESPONSE: Reed, who was gone upstairs: she now came
 upon the scene, followed by Bessie and her maid Abbot.
 
-INPUT: What does this say: Reed, who was gone upstairs: she now came
-upon the scene, followed by Bessie and her maid Abbot.
-RESPONSE: We were parted:
-I heard the words—
-
 “Dear!
 
 INPUT: Summarize: Reed, who was gone upstairs: she now came
@@ -1068,12 +1034,6 @@ and had thrust me upon a stool: my impulse was to rise from it like a
 spring; their two pair of hands arrested me instantly.
 RESPONSE: “If you don’t sit still, you must be tied down,” said Bessie.
 
-INPUT: Summarize: Reed,
-and had thrust me upon a stool: my impulse was to rise from it like a
-spring; their two pair of hands arrested me instantly. “If you don’t sit still, you must be tied down,” said Bessie.
-RESPONSE: “Miss
-Abbot, lend me your garters; she would break mine directly.
-
 INPUT: Tell me about: “Miss
 Abbot, lend me your garters; she would break mine directly.
 RESPONSE: ”
@@ -1118,10 +1078,6 @@ RESPONSE: “She never did so before,” at last said Bessie, turning to the Abi
 
 INPUT: What does this say: “She never did so before,” at last said Bessie, turning to the Abigail.
 RESPONSE: “But it was always in her,” was the reply.
-
-INPUT: Summarize: “She never did so before,” at last said Bessie, turning to the Abigail. “But it was always in her,” was the reply.
-RESPONSE: “I’ve told Missis often my
-opinion about the child, and Missis agreed with me.
 
 INPUT: What is this about: “I’ve told Missis often my
 opinion about the child, and Missis agreed with me.
@@ -1221,13 +1177,6 @@ send you away, I am sure. ”
 dead in the midst of her tantrums, and then where would she go?
 RESPONSE: Come,
 Bessie, we will leave her: I wouldn’t have her heart for anything.
-
-INPUT: Tell me about: Come,
-Bessie, we will leave her: I wouldn’t have her heart for anything.
-RESPONSE: Say
-your prayers, Miss Eyre, when you are by yourself; for if you don’t
-repent, something bad might be permitted to come down the chimney and
-fetch you away.
 
 INPUT: Summarize: Come,
 Bessie, we will leave her: I wouldn’t have her heart for anything. Say
@@ -1560,16 +1509,6 @@ to make me the scapegoat of the nursery.
 RESPONSE: Daylight began to forsake the red-room; it was past four o’clock, and
 the beclouded afternoon was tending to drear twilight.
 
-INPUT: Summarize: Reed would have endured my presence more
-complacently; her children would have entertained for me more of the
-cordiality of fellow-feeling; the servants would have been less prone
-to make me the scapegoat of the nursery. Daylight began to forsake the red-room; it was past four o’clock, and
-the beclouded afternoon was tending to drear twilight.
-RESPONSE: I heard the rain
-still beating continuously on the staircase window, and the wind
-howling in the grove behind the hall; I grew by degrees cold as a
-stone, and then my courage sank.
-
 INPUT: What is this about: I heard the rain
 still beating continuously on the staircase window, and the wind
 howling in the grove behind the hall; I grew by degrees cold as a
@@ -1662,18 +1601,6 @@ turning a fascinated eye towards the dimly gleaming mirror—I began to
 recall what I had heard of dead men, troubled in their graves by the
 violation of their last wishes, revisiting the earth to punish the
 perjured and avenge the oppressed; and I thought Mr.
-
-INPUT: Summarize: I doubted not—never doubted—that if
-Mr. Reed had been alive he would have treated me kindly; and now, as I
-sat looking at the white bed and overshadowed walls—occasionally also
-turning a fascinated eye towards the dimly gleaming mirror—I began to
-recall what I had heard of dead men, troubled in their graves by the
-violation of their last wishes, revisiting the earth to punish the
-perjured and avenge the oppressed; and I thought Mr.
-RESPONSE: Reed’s spirit,
-harassed by the wrongs of his sister’s child, might quit its
-abode—whether in the church vault or in the unknown world of the
-departed—and rise before me in this chamber.
 
 INPUT: What does this mean: Reed’s spirit,
 harassed by the wrongs of his sister’s child, might quit its
@@ -2245,15 +2172,6 @@ over its leaves, and sought in its marvellous pictures the charm I had,
 till now, never failed to find—all was eerie and dreary; the giants
 were gaunt goblins, the pigmies malevolent and fearful imps, Gulliver a
 most desolate wanderer in most dread and dangerous regions.
-
-INPUT: Summarize: This book I had again and again perused with delight. Yet, when this cherished volume was now placed in my hand—when I turned
-over its leaves, and sought in its marvellous pictures the charm I had,
-till now, never failed to find—all was eerie and dreary; the giants
-were gaunt goblins, the pigmies malevolent and fearful imps, Gulliver a
-most desolate wanderer in most dread and dangerous regions.
-RESPONSE: I closed
-the book, which I dared no longer peruse, and put it on the table,
-beside the untasted tart.
 
 INPUT: What is this about: I closed
 the book, which I dared no longer peruse, and put it on the table,

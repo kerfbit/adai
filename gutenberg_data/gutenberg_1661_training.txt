@@ -1,12 +1,8 @@
 INPUT: Can you explain: HOLMES ***
 
-
-
-
 The Adventures of Sherlock Holmes
 
 by Arthur Conan Doyle
-
 
 Contents
 
@@ -16,13 +12,9 @@ RESPONSE: A Scandal in Bohemia
 
 INPUT: Summarize: HOLMES ***
 
-
-
-
 The Adventures of Sherlock Holmes
 
 by Arthur Conan Doyle
-
 
 Contents
 
@@ -30,11 +22,6 @@ Contents
  II.
 RESPONSE: The Red-Headed League
  III.
-
-INPUT: Explain this: The Red-Headed League
- III.
-RESPONSE: A Case of Identity
- IV.
 
 INPUT: Summarize: The Red-Headed League
  III. A Case of Identity
@@ -85,36 +72,21 @@ INPUT: Summarize: The Adventure of the Noble Bachelor
  XII.
 RESPONSE: The Adventure of the Copper Beeches
 
-
-
-
 I.
 
 INPUT: Explain this: The Adventure of the Copper Beeches
 
-
-
-
 I.
 RESPONSE: A SCANDAL IN BOHEMIA
-
 
 I.
 
 INPUT: Summarize: The Adventure of the Copper Beeches
 
-
-
-
 I. A SCANDAL IN BOHEMIA
-
 
 I.
 RESPONSE: To Sherlock Holmes she is always _the_ woman.
-
-INPUT: What does this mean: To Sherlock Holmes she is always _the_ woman.
-RESPONSE: I have seldom heard him
-mention her under any other name.
 
 INPUT: Summarize: To Sherlock Holmes she is always _the_ woman. I have seldom heard him
 mention her under any other name.
@@ -131,13 +103,6 @@ predominates the whole of her sex. It was not that he felt any emotion
 akin to love for Irene Adler.
 RESPONSE: All emotions, and that one particularly,
 were abhorrent to his cold, precise but admirably balanced mind.
-
-INPUT: Can you explain: All emotions, and that one particularly,
-were abhorrent to his cold, precise but admirably balanced mind.
-RESPONSE: He
-was, I take it, the most perfect reasoning and observing machine that
-the world has seen, but as a lover he would have placed himself in a
-false position.
 
 INPUT: Summarize: All emotions, and that one particularly,
 were abhorrent to his cold, precise but admirably balanced mind. He
@@ -224,18 +189,6 @@ of the singular tragedy of the Atkinson brothers at Trincomalee, and
 finally of the mission which he had accomplished so delicately and
 successfully for the reigning family of Holland.
 
-INPUT: Summarize: He was still, as ever, deeply attracted by the study of crime,
-and occupied his immense faculties and extraordinary powers of
-observation in following out those clues, and clearing up those
-mysteries which had been abandoned as hopeless by the official police. From time to time I heard some vague account of his doings: of his
-summons to Odessa in the case of the Trepoff murder, of his clearing up
-of the singular tragedy of the Atkinson brothers at Trincomalee, and
-finally of the mission which he had accomplished so delicately and
-successfully for the reigning family of Holland.
-RESPONSE: Beyond these signs of
-his activity, however, which I merely shared with all the readers of
-the daily press, I knew little of my former friend and companion.
-
 INPUT: Explain this: Beyond these signs of
 his activity, however, which I merely shared with all the readers of
 the daily press, I knew little of my former friend and companion.
@@ -288,11 +241,6 @@ RESPONSE: He was at work again.
 INPUT: Explain this: He was at work again.
 RESPONSE: He had risen out of his drug-created
 dreams and was hot upon the scent of some new problem.
-
-INPUT: Summarize: He was at work again. He had risen out of his drug-created
-dreams and was hot upon the scent of some new problem.
-RESPONSE: I rang the bell
-and was shown up to the chamber which had formerly been in part my own.
 
 INPUT: Explain this: I rang the bell
 and was shown up to the chamber which had formerly been in part my own.
@@ -418,13 +366,6 @@ scored by six almost parallel cuts.
 RESPONSE: Obviously they have been caused by
 someone who has very carelessly scraped round the edges of the sole in
 order to remove crusted mud from it.
-
-INPUT: Can you explain: Obviously they have been caused by
-someone who has very carelessly scraped round the edges of the sole in
-order to remove crusted mud from it.
-RESPONSE: Hence, you see, my double
-deduction that you had been out in vile weather, and that you had a
-particularly malignant boot-slitting specimen of the London slavey.
 
 INPUT: Summarize: Obviously they have been caused by
 someone who has very carelessly scraped round the edges of the sole in
@@ -719,10 +660,6 @@ RESPONSE: ’ ‘P,’ of course, stands for ‘Papier.
 INPUT: Explain this: ’ ‘P,’ of course, stands for ‘Papier.
 RESPONSE: ’ Now for the ‘Eg.
 
-INPUT: Summarize: ’ ‘P,’ of course, stands for ‘Papier. ’ Now for the ‘Eg.
-RESPONSE: ’ Let us
-glance at our Continental Gazetteer.
-
 INPUT: Can you explain: ’ Let us
 glance at our Continental Gazetteer.
 RESPONSE: ” He took down a heavy brown volume
@@ -763,11 +700,6 @@ RESPONSE: “The paper was made in Bohemia,” I said.
 INPUT: Summarize: ” His eyes sparkled, and he sent up a great blue triumphant cloud
 from his cigarette. “The paper was made in Bohemia,” I said.
 RESPONSE: And the man who wrote the note is a German.
-
-INPUT: Tell me about: And the man who wrote the note is a German.
-RESPONSE: Do you note the
-peculiar construction of the sentence—‘This account of you we have from
-all quarters received.
 
 INPUT: Summarize: And the man who wrote the note is a German. Do you note the
 peculiar construction of the sentence—‘This account of you we have from
@@ -819,11 +751,6 @@ the window.
 INPUT: What is this about: “Yes,” he continued, glancing out of
 the window.
 RESPONSE: “A nice little brougham and a pair of beauties.
-
-INPUT: Summarize: “Yes,” he continued, glancing out of
-the window. “A nice little brougham and a pair of beauties.
-RESPONSE: A hundred
-and fifty guineas apiece.
 
 INPUT: What is this about: A hundred
 and fifty guineas apiece.
@@ -1262,12 +1189,6 @@ RESPONSE: Retired from operatic stage—ha!
 
 INPUT: Summarize: Prima donna Imperial Opera of Warsaw—yes! Retired from operatic stage—ha!
 RESPONSE: Living in London—quite so!
-
-INPUT: Tell me about: Living in London—quite so!
-RESPONSE: Your
-Majesty, as I understand, became entangled with this young person,
-wrote her some compromising letters, and is now desirous of getting
-those letters back.
 
 INPUT: Summarize: Living in London—quite so! Your
 Majesty, as I understand, became entangled with this young person,
@@ -1890,11 +1811,6 @@ freemasonry among horsey men.
 RESPONSE: Be one of them, and you will know all
 that there is to know.
 
-INPUT: Summarize: There is a wonderful sympathy and
-freemasonry among horsey men. Be one of them, and you will know all
-that there is to know.
-RESPONSE: I soon found Briony Lodge.
-
 INPUT: What does this say: I soon found Briony Lodge.
 RESPONSE: It is a _bijou_
 villa, with a garden at the back, but built out in front right up to
@@ -1975,11 +1891,6 @@ Serpentine-mews, to a man.
 RESPONSE: She lives quietly, sings at concerts, drives
 out at five every day, and returns at seven sharp for dinner.
 
-INPUT: What is this about: She lives quietly, sings at concerts, drives
-out at five every day, and returns at seven sharp for dinner.
-RESPONSE: Seldom
-goes out at other times, except when she sings.
-
 INPUT: Summarize: She lives quietly, sings at concerts, drives
 out at five every day, and returns at seven sharp for dinner. Seldom
 goes out at other times, except when she sings.
@@ -1990,12 +1901,6 @@ INPUT: What does this say: Has only one male
 visitor, but a good deal of him.
 RESPONSE: He is dark, handsome, and dashing,
 never calls less than once a day, and often twice.
-
-INPUT: Summarize: Has only one male
-visitor, but a good deal of him. He is dark, handsome, and dashing,
-never calls less than once a day, and often twice.
-RESPONSE: Godfrey
-Norton, of the Inner Temple.
 
 INPUT: What does this mean: Godfrey
 Norton, of the Inner Temple.
@@ -2099,13 +2004,6 @@ a man who was thoroughly at home.
 RESPONSE: “He was in the house about half an hour, and I could catch glimpses of
 him in the windows of the sitting-room, pacing up and down, talking
 excitedly, and waving his arms.
-
-INPUT: Summarize: He appeared to be in a great hurry, shouted to the cabman
-to wait, and brushed past the maid who opened the door with the air of
-a man who was thoroughly at home. “He was in the house about half an hour, and I could catch glimpses of
-him in the windows of the sitting-room, pacing up and down, talking
-excitedly, and waving his arms.
-RESPONSE: Of her I could see nothing.
 
 INPUT: Can you explain: Of her I could see nothing.
 RESPONSE: Presently
@@ -2574,11 +2472,6 @@ roll from his pocket.
 RESPONSE: “It is an ordinary plumber’s smoke-rocket, fitted
 with a cap at either end to make it self-lighting.
 
-INPUT: What does this say: “It is an ordinary plumber’s smoke-rocket, fitted
-with a cap at either end to make it self-lighting.
-RESPONSE: Your task is
-confined to that.
-
 INPUT: Summarize: “It is an ordinary plumber’s smoke-rocket, fitted
 with a cap at either end to make it self-lighting. Your task is
 confined to that.
@@ -2920,26 +2813,6 @@ RESPONSE: A fierce quarrel broke out, which was increased by
 the two guardsmen, who took sides with one of the loungers, and by the
 scissors-grinder, who was equally hot upon the other side.
 
-INPUT: Summarize: As it pulled up, one of the loafing men at
-the corner dashed forward to open the door in the hope of earning a
-copper, but was elbowed away by another loafer, who had rushed up with
-the same intention. A fierce quarrel broke out, which was increased by
-the two guardsmen, who took sides with one of the loungers, and by the
-scissors-grinder, who was equally hot upon the other side.
-RESPONSE: A blow was
-struck, and in an instant the lady, who had stepped from her carriage,
-was the centre of a little knot of flushed and struggling men, who
-struck savagely at each other with their fists and sticks.
-
-INPUT: What is this about: A blow was
-struck, and in an instant the lady, who had stepped from her carriage,
-was the centre of a little knot of flushed and struggling men, who
-struck savagely at each other with their fists and sticks.
-RESPONSE: Holmes
-dashed into the crowd to protect the lady; but, just as he reached her,
-he gave a cry and dropped to the ground, with the blood running freely
-down his face.
-
 INPUT: Summarize: A blow was
 struck, and in an instant the lady, who had stepped from her carriage,
 was the centre of a little knot of flushed and struggling men, who
@@ -2951,15 +2824,6 @@ RESPONSE: At his fall the guardsmen took to their heels in one
 direction and the loungers in the other, while a number of better
 dressed people, who had watched the scuffle without taking part in it,
 crowded in to help the lady and to attend to the injured man.
-
-INPUT: What does this mean: At his fall the guardsmen took to their heels in one
-direction and the loungers in the other, while a number of better
-dressed people, who had watched the scuffle without taking part in it,
-crowded in to help the lady and to attend to the injured man.
-RESPONSE: Irene
-Adler, as I will still call her, had hurried up the steps; but she
-stood at the top with her superb figure outlined against the lights of
-the hall, looking back into the street.
 
 INPUT: Summarize: At his fall the guardsmen took to their heels in one
 direction and the loungers in the other, while a number of better
@@ -3090,11 +2954,6 @@ injuring another. Holmes had sat up upon the couch, and I saw him motion like a 
 is in need of air.
 RESPONSE: A maid rushed across and threw open the window.
 
-INPUT: Explain this: A maid rushed across and threw open the window.
-RESPONSE: At
-the same instant I saw him raise his hand and at the signal I tossed my
-rocket into the room with a cry of “Fire!
-
 INPUT: Summarize: A maid rushed across and threw open the window. At
 the same instant I saw him raise his hand and at the signal I tossed my
 rocket into the room with a cry of “Fire!
@@ -3125,15 +2984,6 @@ alarm.
 RESPONSE: Slipping through the shouting crowd I made my way to the corner
 of the street, and in ten minutes was rejoiced to find my friend’s arm
 in mine, and to get away from the scene of uproar.
-
-INPUT: Summarize: I caught a glimpse of rushing figures, and a moment later
-the voice of Holmes from within assuring them that it was a false
-alarm. Slipping through the shouting crowd I made my way to the corner
-of the street, and in ten minutes was rejoiced to find my friend’s arm
-in mine, and to get away from the scene of uproar.
-RESPONSE: He walked swiftly
-and in silence for some few minutes until we had turned down one of the
-quiet streets which lead towards the Edgeware Road.
 
 INPUT: What does this mean: He walked swiftly
 and in silence for some few minutes until we had turned down one of the

@@ -260,21 +260,6 @@ had forbidden my uncle to allow me to embark in a seafaring life.
 RESPONSE: These visions faded when I perused, for the first time, those poets
 whose effusions entranced my soul and lifted it to heaven.
 
-INPUT: Tell me about: These visions faded when I perused, for the first time, those poets
-whose effusions entranced my soul and lifted it to heaven.
-RESPONSE: I also
-became a poet and for one year lived in a paradise of my own creation;
-I imagined that I also might obtain a niche in the temple where the
-names of Homer and Shakespeare are consecrated.
-
-INPUT: Summarize: These visions faded when I perused, for the first time, those poets
-whose effusions entranced my soul and lifted it to heaven. I also
-became a poet and for one year lived in a paradise of my own creation;
-I imagined that I also might obtain a niche in the temple where the
-names of Homer and Shakespeare are consecrated.
-RESPONSE: You are well
-acquainted with my failure and how heavily I bore the disappointment.
-
 INPUT: Explain this: You are well
 acquainted with my failure and how heavily I bore the disappointment.
 RESPONSE: But just at that time I inherited the fortune of my cousin, and my
@@ -313,13 +298,6 @@ branches of physical science from which a naval adventurer might derive
 the greatest practical advantage.
 RESPONSE: Twice I actually hired myself as an
 under-mate in a Greenland whaler, and acquitted myself to admiration.
-
-INPUT: What is this about: Twice I actually hired myself as an
-under-mate in a Greenland whaler, and acquitted myself to admiration.
-RESPONSE: I
-must own I felt a little proud when my captain offered me the second
-dignity in the vessel and entreated me to remain with the greatest
-earnestness, so valuable did he consider my services.
 
 INPUT: Summarize: Twice I actually hired myself as an
 under-mate in a Greenland whaler, and acquitted myself to admiration. I
@@ -471,12 +449,6 @@ RESPONSE: How slowly the time passes here, encompassed as I am by frost and snow
 INPUT: What does this say: How slowly the time passes here, encompassed as I am by frost and snow!
 RESPONSE: Yet a second step is taken towards my enterprise.
 
-INPUT: Summarize: How slowly the time passes here, encompassed as I am by frost and snow! Yet a second step is taken towards my enterprise.
-RESPONSE: I have hired a
-vessel and am occupied in collecting my sailors; those whom I have
-already engaged appear to be men on whom I can depend and are certainly
-possessed of dauntless courage.
-
 INPUT: Can you explain: I have hired a
 vessel and am occupied in collecting my sailors; those whom I have
 already engaged appear to be men on whom I can depend and are certainly
@@ -587,14 +559,6 @@ RESPONSE: My lieutenant, for instance, is a man of wonderful courage
 and enterprise; he is madly desirous of glory, or rather, to word my phrase
 more characteristically, of advancement in his profession.
 
-INPUT: What does this say: My lieutenant, for instance, is a man of wonderful courage
-and enterprise; he is madly desirous of glory, or rather, to word my phrase
-more characteristically, of advancement in his profession.
-RESPONSE: He is an
-Englishman, and in the midst of national and professional prejudices,
-unsoftened by cultivation, retains some of the noblest endowments of
-humanity.
-
 INPUT: Summarize: My lieutenant, for instance, is a man of wonderful courage
 and enterprise; he is madly desirous of glory, or rather, to word my phrase
 more characteristically, of advancement in his profession. He is an
@@ -663,17 +627,6 @@ his mistress once before the destined ceremony; but she was bathed in
 tears, and throwing herself at his feet, entreated him to spare her,
 confessing at the same time that she loved another, but that he was poor,
 and that her father would never consent to the union.
-
-INPUT: Summarize: Some years ago he loved
-a young Russian lady of moderate fortune, and having amassed a considerable
-sum in prize-money, the father of the girl consented to the match. He saw
-his mistress once before the destined ceremony; but she was bathed in
-tears, and throwing herself at his feet, entreated him to spare her,
-confessing at the same time that she loved another, but that he was poor,
-and that her father would never consent to the union.
-RESPONSE: My generous friend
-reassured the suppliant, and on being informed of the name of her lover,
-instantly abandoned his pursuit.
 
 INPUT: Explain this: My generous friend
 reassured the suppliant, and on being informed of the name of her lover,
@@ -887,17 +840,6 @@ spirits: my men are bold and apparently firm of purpose, nor do the
 floating sheets of ice that continually pass us, indicating the dangers
 of the region towards which we are advancing, appear to dismay them.
 
-INPUT: Can you explain: I am, however, in good
-spirits: my men are bold and apparently firm of purpose, nor do the
-floating sheets of ice that continually pass us, indicating the dangers
-of the region towards which we are advancing, appear to dismay them.
-RESPONSE: We
-have already reached a very high latitude; but it is the height of
-summer, and although not so warm as in England, the southern gales,
-which blow us speedily towards those shores which I so ardently desire
-to attain, breathe a degree of renovating warmth which I had not
-expected.
-
 INPUT: Summarize: I am, however, in good
 spirits: my men are bold and apparently firm of purpose, nor do the
 floating sheets of ice that continually pass us, indicating the dangers
@@ -940,12 +882,6 @@ persevering, and prudent. But success _shall_ crown my endeavours.
 RESPONSE: Thus far I
 have gone, tracing a secure way over the pathless seas, the very stars
 themselves being witnesses and testimonies of my triumph.
-
-INPUT: Explain this: Thus far I
-have gone, tracing a secure way over the pathless seas, the very stars
-themselves being witnesses and testimonies of my triumph.
-RESPONSE: Why not
-still proceed over the untamed yet obedient element?
 
 INPUT: Summarize: Thus far I
 have gone, tracing a secure way over the pathless seas, the very stars
@@ -1150,12 +1086,6 @@ replied, however, that we were on a voyage of discovery towards the
 northern pole. Upon hearing this he appeared satisfied and consented to come on board.
 RESPONSE: Margaret, if you had seen the man who thus capitulated for
 his safety, your surprise would have been boundless.
-
-INPUT: Explain this: Margaret, if you had seen the man who thus capitulated for
-his safety, your surprise would have been boundless.
-RESPONSE: His limbs were
-nearly frozen, and his body dreadfully emaciated by fatigue and
-suffering.
 
 INPUT: Summarize: Margaret, if you had seen the man who thus capitulated for
 his safety, your surprise would have been boundless. His limbs were
@@ -1501,10 +1431,6 @@ paused; at length he spoke, in broken accents: “Unhappy man! Do you
 share my madness?
 RESPONSE: Have you drunk also of the intoxicating draught?
 
-INPUT: Explain this: Have you drunk also of the intoxicating draught?
-RESPONSE: Hear me;
-let me reveal my tale, and you will dash the cup from your lips!
-
 INPUT: Summarize: Have you drunk also of the intoxicating draught? Hear me;
 let me reveal my tale, and you will dash the cup from your lips!
 RESPONSE: ”
@@ -1635,14 +1561,6 @@ RESPONSE: You have been tutored and
 refined by books and retirement from the world, and you are therefore
 somewhat fastidious; but this only renders you the more fit to
 appreciate the extraordinary merits of this wonderful man.
-
-INPUT: What does this mean: You have been tutored and
-refined by books and retirement from the world, and you are therefore
-somewhat fastidious; but this only renders you the more fit to
-appreciate the extraordinary merits of this wonderful man.
-RESPONSE: Sometimes I
-have endeavoured to discover what quality it is which he possesses that
-elevates him so immeasurably above any other person I ever knew.
 
 INPUT: Summarize: You have been tutored and
 refined by books and retirement from the world, and you are therefore
@@ -1827,14 +1745,6 @@ within.
 RESPONSE: Strange and harrowing must be his story, frightful the storm which
 embraced the gallant vessel on its course and wrecked it—thus!
 
-INPUT: Summarize: Even now, as I commence my
-task, his full-toned voice swells in my ears; his lustrous eyes dwell on me
-with all their melancholy sweetness; I see his thin hand raised in
-animation, while the lineaments of his face are irradiated by the soul
-within. Strange and harrowing must be his story, frightful the storm which
-embraced the gallant vessel on its course and wrecked it—thus!
-RESPONSE: Chapter 1
-
 I am by birth a Genevese, and my family is one of the most
 distinguished of that republic.
 
@@ -1938,15 +1848,6 @@ he hastened to the house, which was situated in a mean street near the
 Reuss.
 RESPONSE: But when he entered, misery and despair alone welcomed him.
 
-INPUT: Summarize: Overjoyed at this discovery,
-he hastened to the house, which was situated in a mean street near the
-Reuss. But when he entered, misery and despair alone welcomed him.
-RESPONSE: Beaufort
-had saved but a very small sum of money from the wreck of his fortunes, but
-it was sufficient to provide him with sustenance for some months, and in
-the meantime he hoped to procure some respectable employment in a
-merchant’s house.
-
 INPUT: What does this mean: Beaufort
 had saved but a very small sum of money from the wreck of his fortunes, but
 it was sufficient to provide him with sustenance for some months, and in
@@ -1968,13 +1869,6 @@ of three months he lay on a bed of sickness, incapable of any exertion.
 RESPONSE: His daughter attended him with the greatest tenderness, but she saw
 with despair that their little fund was rapidly decreasing and that
 there was no other prospect of support.
-
-INPUT: What does this mean: His daughter attended him with the greatest tenderness, but she saw
-with despair that their little fund was rapidly decreasing and that
-there was no other prospect of support.
-RESPONSE: But Caroline Beaufort
-possessed a mind of an uncommon mould, and her courage rose to support
-her in her adversity.
 
 INPUT: Summarize: His daughter attended him with the greatest tenderness, but she saw
 with despair that their little fund was rapidly decreasing and that
@@ -2228,12 +2122,6 @@ INPUT: What is this about: She appeared of a different stock.
 RESPONSE: The four others were
 dark-eyed, hardy little vagrants; this child was thin and very fair.
 
-INPUT: Summarize: She appeared of a different stock. The four others were
-dark-eyed, hardy little vagrants; this child was thin and very fair.
-RESPONSE: Her
-hair was the brightest living gold, and despite the poverty of her
-clothing, seemed to set a crown of distinction on her head.
-
 INPUT: What is this about: Her
 hair was the brightest living gold, and despite the poverty of her
 clothing, seemed to set a crown of distinction on her head.
@@ -2332,31 +2220,6 @@ INPUT: Tell me about: With his
 permission my mother prevailed on her rustic guardians to yield their
 charge to her.
 RESPONSE: They were fond of the sweet orphan.
-
-INPUT: Summarize: With his
-permission my mother prevailed on her rustic guardians to yield their
-charge to her. They were fond of the sweet orphan.
-RESPONSE: Her presence had seemed
-a blessing to them, but it would be unfair to her to keep her in poverty
-and want when Providence afforded her such powerful protection.
-
-INPUT: Can you explain: Her presence had seemed
-a blessing to them, but it would be unfair to her to keep her in poverty
-and want when Providence afforded her such powerful protection.
-RESPONSE: They
-consulted their village priest, and the result was that Elizabeth Lavenza
-became the inmate of my parents’ house—my more than
-sister—the beautiful and adored companion of all my occupations and
-my pleasures.
-
-INPUT: Summarize: Her presence had seemed
-a blessing to them, but it would be unfair to her to keep her in poverty
-and want when Providence afforded her such powerful protection. They
-consulted their village priest, and the result was that Elizabeth Lavenza
-became the inmate of my parents’ house—my more than
-sister—the beautiful and adored companion of all my occupations and
-my pleasures.
-RESPONSE: Everyone loved Elizabeth.
 
 INPUT: Tell me about: Everyone loved Elizabeth.
 RESPONSE: The passionate and almost reverential

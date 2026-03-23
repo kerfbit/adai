@@ -45,3 +45,9 @@ gutenberg_data/gutenberg_2701_training.txt 151135_-4665559306522272762 500 1
 gutenberg_data/gutenberg_2814_training.txt 134034_-4665701238919712977 500 1
 gutenberg_data/gutenberg_3825_training.txt 110663_-4665701238178719944 500 1
 gutenberg_data/gutenberg_16328_training.txt 110973_-4665559305787277427 500 1
+gutenberg_data/gutenberg_120_training.txt 160826_-4663802917056306984 500 1
+gutenberg_data/gutenberg_215_training.txt 152648_-4663802916373312325 500 1
+gutenberg_data/gutenberg_5200_training.txt 204225_-4663802915797316829 500 1
+gutenberg_data/gutenberg_1232_training.txt 262055_-4663802915120322123 500 1
+gutenberg_data/gutenberg_2600_training.txt 145931_-4663802913680333385 500 1
+gutenberg_data/gutenberg_704_training.txt 135758_-4663712010255914941 488 1

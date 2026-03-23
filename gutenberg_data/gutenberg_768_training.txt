@@ -150,14 +150,6 @@ divine aid to digest his dinner, and his pious ejaculation had no
 reference to my unexpected advent.
 RESPONSE: Wuthering Heights is the name of Mr.
 
-INPUT: What is this about: Wuthering Heights is the name of Mr.
-RESPONSE: Heathcliff’s dwelling.
-
-INPUT: Summarize: Wuthering Heights is the name of Mr. Heathcliff’s dwelling.
-RESPONSE: “Wuthering”
-being a significant provincial adjective, descriptive of the
-atmospheric tumult to which its station is exposed in stormy weather.
-
 INPUT: Tell me about: “Wuthering”
 being a significant provincial adjective, descriptive of the
 atmospheric tumult to which its station is exposed in stormy weather.
@@ -354,27 +346,6 @@ RESPONSE: While enjoying a month of fine weather at the sea-coast, I was thrown
 into the company of a most fascinating creature: a real goddess in my
 eyes, as long as she took no notice of me.
 
-INPUT: Summarize: Let me hope
-my constitution is almost peculiar: my dear mother used to say I should
-never have a comfortable home; and only last summer I proved myself
-perfectly unworthy of one. While enjoying a month of fine weather at the sea-coast, I was thrown
-into the company of a most fascinating creature: a real goddess in my
-eyes, as long as she took no notice of me.
-RESPONSE: I “never told my love”
-vocally; still, if looks have language, the merest idiot might have
-guessed I was over head and ears: she understood me at last, and looked
-a return—the sweetest of all imaginable looks.
-
-INPUT: Tell me about: I “never told my love”
-vocally; still, if looks have language, the merest idiot might have
-guessed I was over head and ears: she understood me at last, and looked
-a return—the sweetest of all imaginable looks.
-RESPONSE: I
-confess it with shame—shrunk icily into myself, like a snail; at every
-glance retired colder and farther; till finally the poor innocent was
-led to doubt her own senses, and, overwhelmed with confusion at her
-supposed mistake, persuaded her mamma to decamp.
-
 INPUT: Summarize: I “never told my love”
 vocally; still, if looks have language, the merest idiot might have
 guessed I was over head and ears: she understood me at last, and looked
@@ -483,17 +454,6 @@ from some of the household in re-establishing peace.
 RESPONSE: Heathcliff and his man climbed the cellar steps with vexatious
 phlegm: I don’t think they moved one second faster than usual, though
 the hearth was an absolute tempest of worrying and yelping.
-
-INPUT: Explain this: Heathcliff and his man climbed the cellar steps with vexatious
-phlegm: I don’t think they moved one second faster than usual, though
-the hearth was an absolute tempest of worrying and yelping.
-RESPONSE: Happily, an
-inhabitant of the kitchen made more dispatch; a lusty dame, with
-tucked-up gown, bare arms, and fire-flushed cheeks, rushed into the
-midst of us flourishing a frying-pan: and used that weapon, and her
-tongue, to such purpose, that the storm subsided magically, and she
-only remained, heaving like a sea after a high wind, when her master
-entered on the scene.
 
 INPUT: Summarize: Heathcliff and his man climbed the cellar steps with vexatious
 phlegm: I don’t think they moved one second faster than usual, though
@@ -728,11 +688,6 @@ INPUT: Can you explain: Vinegar-faced Joseph projected his head from a round win
 barn.
 RESPONSE: “T’ maister’s down i’ t’ fowld.
 
-INPUT: Summarize: Vinegar-faced Joseph projected his head from a round window of the
-barn. “T’ maister’s down i’ t’ fowld.
-RESPONSE: Go round
-by th’ end o’ t’ laith, if ye went to spake to him.
-
 INPUT: Tell me about: Go round
 by th’ end o’ t’ laith, if ye went to spake to him.
 RESPONSE: ”
@@ -797,11 +752,6 @@ INPUT: Can you explain: I bowed and waited, thinking she would bid me
 take a seat.
 RESPONSE: She looked at me, leaning back in her chair, and remained
 motionless and mute.
-
-INPUT: Summarize: I bowed and waited, thinking she would bid me
-take a seat. She looked at me, leaning back in her chair, and remained
-motionless and mute.
-RESPONSE: “I’m afraid, Mrs.
 
 INPUT: What is this about: “I’m afraid, Mrs.
 RESPONSE: Heathcliff, the door
@@ -1132,14 +1082,6 @@ and receiving another—“it is strange how custom can mould our tastes
 and ideas: many could not imagine the existence of happiness in a life
 of such complete exile from the world as you spend, Mr.
 
-INPUT: What does this say: “It is strange,” I began, in the interval of swallowing one cup of tea
-and receiving another—“it is strange how custom can mould our tastes
-and ideas: many could not imagine the existence of happiness in a life
-of such complete exile from the world as you spend, Mr.
-RESPONSE: Heathcliff;
-yet, I’ll venture to say, that, surrounded by your family, and with
-your amiable lady as the presiding genius over your home and heart—”
-
 “My amiable lady!
 
 INPUT: Summarize: “It is strange,” I began, in the interval of swallowing one cup of tea
@@ -1346,14 +1288,6 @@ be cautious how I ventured under those rafters a third time.
 RESPONSE: The business of eating being concluded, and no one uttering a word of
 sociable conversation, I approached a window to examine the weather.
 
-INPUT: Summarize: The dismal spiritual atmosphere overcame, and more than
-neutralised, the glowing physical comforts round me; and I resolved to
-be cautious how I ventured under those rafters a third time. The business of eating being concluded, and no one uttering a word of
-sociable conversation, I approached a window to examine the weather.
-RESPONSE: A
-sorrowful sight I saw: dark night coming down prematurely, and sky and
-hills mingled in one bitter whirl of wind and suffocating snow.
-
 INPUT: What does this mean: A
 sorrowful sight I saw: dark night coming down prematurely, and sky and
 hills mingled in one bitter whirl of wind and suffocating snow.
@@ -1391,13 +1325,6 @@ covered if left in the fold all night: and put a plank before them,”
 said Heathcliff. ” I continued, with rising irritation.
 RESPONSE: There was no reply to my question; and on looking round I saw only
 Joseph bringing in a pail of porridge for the dogs, and Mrs.
-
-INPUT: Can you explain: There was no reply to my question; and on looking round I saw only
-Joseph bringing in a pail of porridge for the dogs, and Mrs.
-RESPONSE: Heathcliff
-leaning over the fire, diverting herself with burning a bundle of
-matches which had fallen from the chimney-piece as she restored the
-tea-canister to its place.
 
 INPUT: Summarize: There was no reply to my question; and on looking round I saw only
 Joseph bringing in a pail of porridge for the dogs, and Mrs. Heathcliff
@@ -1448,12 +1375,6 @@ RESPONSE: “You scandalous old hypocrite!
 INPUT: Explain this: “You scandalous old hypocrite!
 RESPONSE: “Are you not afraid of
 being carried away bodily, whenever you mention the devil’s name?
-
-INPUT: Summarize: “You scandalous old hypocrite! “Are you not afraid of
-being carried away bodily, whenever you mention the devil’s name?
-RESPONSE: I
-warn you to refrain from provoking me, or I’ll ask your abduction as a
-special favour!
 
 INPUT: Can you explain: I
 warn you to refrain from provoking me, or I’ll ask your abduction as a
@@ -1680,11 +1601,6 @@ me to permit any one the range of the place while I am off guard! ” said
 the unmannerly wretch.
 RESPONSE: With this insult my patience was at an end.
 
-INPUT: What does this say: With this insult my patience was at an end.
-RESPONSE: I uttered an expression of
-disgust, and pushed past him into the yard, running against Earnshaw in
-my haste.
-
 INPUT: Summarize: With this insult my patience was at an end. I uttered an expression of
 disgust, and pushed past him into the yard, running against Earnshaw in
 my haste.
@@ -1762,12 +1678,6 @@ never get another tenant till the Grange is a ruin,” she answered,
 sharply.
 RESPONSE: “Hearken, hearken, shoo’s cursing on ’em!
 
-INPUT: Summarize: Heathcliff will
-never get another tenant till the Grange is a ruin,” she answered,
-sharply. “Hearken, hearken, shoo’s cursing on ’em!
-RESPONSE: ” muttered Joseph, towards
-whom I had been steering.
-
 INPUT: What does this say: ” muttered Joseph, towards
 whom I had been steering.
 RESPONSE: He sat within earshot, milking the cows by the light of a lantern,
@@ -1783,11 +1693,6 @@ RESPONSE: “Maister, maister, he’s staling t’ lanthern!
 INPUT: Tell me about: “Maister, maister, he’s staling t’ lanthern!
 RESPONSE: ” shouted the ancient,
 pursuing my retreat.
-
-INPUT: Summarize: “Maister, maister, he’s staling t’ lanthern! ” shouted the ancient,
-pursuing my retreat.
-RESPONSE: Hey Wolf, holld him,
-holld him!
 
 INPUT: What does this mean: Hey Wolf, holld him,
 holld him!
@@ -1871,11 +1776,6 @@ RESPONSE: Are we going to murder folk on our very door-stones?
 INPUT: Can you explain: Are we going to murder folk on our very door-stones?
 RESPONSE: I see this house
 will never do for me—look at t’ poor lad, he’s fair choking!
-
-INPUT: Summarize: Are we going to murder folk on our very door-stones? I see this house
-will never do for me—look at t’ poor lad, he’s fair choking!
-RESPONSE: Wisht,
-wisht; you mun’n’t go on so.
 
 INPUT: Explain this: Wisht,
 wisht; you mun’n’t go on so.
@@ -2178,19 +2078,10 @@ receive from the far-off fire a dull ray to show us the text of the
 lumber he thrust upon us.
 RESPONSE: I could not bear the employment.
 
-INPUT: What is this about: I could not bear the employment.
-RESPONSE: I took my
-dingy volume by the scroop, and hurled it into the dog-kennel, vowing I
-hated a good book.
-
 INPUT: Summarize: I could not bear the employment. I took my
 dingy volume by the scroop, and hurled it into the dog-kennel, vowing I
 hated a good book.
 RESPONSE: Heathcliff kicked his to the same place.
-
-INPUT: What does this say: Heathcliff kicked his to the same place.
-RESPONSE: Then there
-was a hubbub!
 
 INPUT: Summarize: Heathcliff kicked his to the same place. Then there
 was a hubbub!
@@ -2202,21 +2093,11 @@ RESPONSE: ’ shouted our chaplain.
 INPUT: Summarize: “‘Maister Hindley! ’ shouted our chaplain.
 RESPONSE: ‘Maister, coom hither!
 
-INPUT: What is this about: ‘Maister, coom hither!
-RESPONSE: Miss
-Cathy’s riven th’ back off “Th’ Helmet o’ Salvation,” un’ Heathcliff’s
-pawsed his fit into t’ first part o’ “T’ Brooad Way to Destruction!
-
 INPUT: Summarize: ‘Maister, coom hither! Miss
 Cathy’s riven th’ back off “Th’ Helmet o’ Salvation,” un’ Heathcliff’s
 pawsed his fit into t’ first part o’ “T’ Brooad Way to Destruction!
 RESPONSE: ”
 It’s fair flaysome that ye let ’em go on this gait.
-
-INPUT: Explain this: ”
-It’s fair flaysome that ye let ’em go on this gait.
-RESPONSE: th’ owd man
-wad ha’ laced ’em properly—but he’s goan!
 
 INPUT: Summarize: ”
 It’s fair flaysome that ye let ’em go on this gait. th’ owd man
@@ -2332,13 +2213,6 @@ and the First of the Seventy-First.
 RESPONSE: A Pious Discourse delivered by the
 Reverend Jabez Branderham, in the Chapel of Gimmerden Sough.
 
-INPUT: Explain this: A Pious Discourse delivered by the
-Reverend Jabez Branderham, in the Chapel of Gimmerden Sough.
-RESPONSE: ” And while
-I was, half-consciously, worrying my brain to guess what Jabez
-Branderham would make of his subject, I sank back in bed, and fell
-asleep.
-
 INPUT: Summarize: A Pious Discourse delivered by the
 Reverend Jabez Branderham, in the Chapel of Gimmerden Sough. ” And while
 I was, half-consciously, worrying my brain to guess what Jabez
@@ -2447,13 +2321,6 @@ RESPONSE: what a sermon; divided into
 _four hundred and ninety_ parts, each fully equal to an ordinary
 address from the pulpit, and each discussing a separate sin!
 
-INPUT: Summarize: However, in my dream, Jabez had a full and attentive
-congregation; and he preached—good God! what a sermon; divided into
-_four hundred and ninety_ parts, each fully equal to an ordinary
-address from the pulpit, and each discussing a separate sin!
-RESPONSE: Where he
-searched for them, I cannot tell.
-
 INPUT: Tell me about: Where he
 searched for them, I cannot tell.
 RESPONSE: He had his private manner of
@@ -2466,10 +2333,6 @@ interpreting the phrase, and it seemed necessary the brother should sin
 different sins on every occasion.
 RESPONSE: They were of the most curious
 character: odd transgressions that I never imagined previously.
-
-INPUT: Can you explain: They were of the most curious
-character: odd transgressions that I never imagined previously.
-RESPONSE: Oh, how weary I grew.
 
 INPUT: Summarize: They were of the most curious
 character: odd transgressions that I never imagined previously. Oh, how weary I grew.
@@ -2521,12 +2384,6 @@ ninety-first is too much.
 INPUT: Can you explain: The four hundred and
 ninety-first is too much.
 RESPONSE: Fellow-martyrs, have at him!
-
-INPUT: Summarize: The four hundred and
-ninety-first is too much. Fellow-martyrs, have at him!
-RESPONSE: Drag him down,
-and crush him to atoms, that the place which knows him may know him no
-more!
 
 INPUT: Explain this: Drag him down,
 and crush him to atoms, that the place which knows him may know him no
@@ -2836,12 +2693,6 @@ humiliation of exposing his cowardice further.
 RESPONSE: “I had the misfortune to
 scream in my sleep, owing to a frightful nightmare.
 
-INPUT: Summarize: “It is only your guest, sir,” I called out, desirous to spare him the
-humiliation of exposing his cowardice further. “I had the misfortune to
-scream in my sleep, owing to a frightful nightmare.
-RESPONSE: I’m sorry I
-disturbed you.
-
 INPUT: What does this say: I’m sorry I
 disturbed you.
 RESPONSE: ”
@@ -2900,11 +2751,6 @@ RESPONSE: Heathcliff; she richly deserves it.
 INPUT: Tell me about: Heathcliff; she richly deserves it.
 RESPONSE: I suppose that she wanted to
 get another proof that the place was haunted, at my expense.
-
-INPUT: Summarize: Heathcliff; she richly deserves it. I suppose that she wanted to
-get another proof that the place was haunted, at my expense.
-RESPONSE: Well, it
-is—swarming with ghosts and goblins!
 
 INPUT: What does this mean: Well, it
 is—swarming with ghosts and goblins!
@@ -3049,12 +2895,6 @@ under control.
 RESPONSE: Heathcliff gradually fell back into the shelter of the
 bed, as I spoke; finally sitting down almost concealed behind it.
 
-INPUT: What is this about: Heathcliff gradually fell back into the shelter of the
-bed, as I spoke; finally sitting down almost concealed behind it.
-RESPONSE: I
-guessed, however, by his irregular and intercepted breathing, that he
-struggled to vanquish an excess of violent emotion.
-
 INPUT: Summarize: Heathcliff gradually fell back into the shelter of the
 bed, as I spoke; finally sitting down almost concealed behind it. I
 guessed, however, by his irregular and intercepted breathing, that he
@@ -3135,11 +2975,6 @@ INPUT: Summarize: ” muttered Heathcliff. “Take the candle, and go
 where you please.
 RESPONSE: I shall join you directly.
 
-INPUT: What does this say: I shall join you directly.
-RESPONSE: Keep out of the yard,
-though, the dogs are unchained; and the house—Juno mounts sentinel
-there, and—nay, you can only ramble about the steps and passages.
-
 INPUT: Summarize: I shall join you directly. Keep out of the yard,
 though, the dogs are unchained; and the house—Juno mounts sentinel
 there, and—nay, you can only ramble about the steps and passages.
@@ -3162,12 +2997,6 @@ his apparent sense.
 RESPONSE: He got on to the bed, and wrenched open the
 lattice, bursting, as he pulled at it, into an uncontrollable passion
 of tears.
-
-INPUT: Tell me about: He got on to the bed, and wrenched open the
-lattice, bursting, as he pulled at it, into an uncontrollable passion
-of tears.
-RESPONSE: Oh, do—_once_
-more!
 
 INPUT: Summarize: He got on to the bed, and wrenched open the
 lattice, bursting, as he pulled at it, into an uncontrollable passion
@@ -3229,17 +3058,6 @@ RESPONSE: We were both of us nodding ere any one invaded our retreat, and
 then it was Joseph, shuffling down a wooden ladder that vanished in the
 roof, through a trap: the ascent to his garret, I suppose.
 
-INPUT: Summarize: Two benches, shaped in sections of a circle, nearly enclosed the
-hearth; on one of these I stretched myself, and Grimalkin mounted the
-other. We were both of us nodding ere any one invaded our retreat, and
-then it was Joseph, shuffling down a wooden ladder that vanished in the
-roof, through a trap: the ascent to his garret, I suppose.
-RESPONSE: He cast a
-sinister look at the little flame which I had enticed to play between
-the ribs, swept the cat from its elevation, and bestowing himself in
-the vacancy, commenced the operation of stuffing a three-inch pipe with
-tobacco.
-
 INPUT: What is this about: He cast a
 sinister look at the little flame which I had enticed to play between
 the ribs, swept the cat from its elevation, and bestowing himself in
@@ -3279,13 +3097,6 @@ corner for a spade or shovel to dig through the drifts.
 RESPONSE: He glanced over
 the back of the bench, dilating his nostrils, and thought as little of
 exchanging civilities with me as with my companion the cat.
-
-INPUT: Can you explain: He glanced over
-the back of the bench, dilating his nostrils, and thought as little of
-exchanging civilities with me as with my companion the cat.
-RESPONSE: I guessed,
-by his preparations, that egress was allowed, and, leaving my hard
-couch, made a movement to follow him.
 
 INPUT: Summarize: He glanced over
 the back of the bench, dilating his nostrils, and thought as little of

@@ -127,10 +127,6 @@ Maskers, Guards, Watchmen and Attendants.
 RESPONSE: During the greater part of the Play in Verona; once, in the
 Fifth Act, at Mantua.
 
-INPUT: Can you explain: During the greater part of the Play in Verona; once, in the
-Fifth Act, at Mantua.
-RESPONSE: THE PROLOGUE
-
  Enter Chorus.
 
 INPUT: Summarize: During the greater part of the Play in Verona; once, in the
@@ -256,9 +252,6 @@ RESPONSE: Enter Abram and Balthasar.
 INPUT: Can you explain: Enter Abram and Balthasar.
 RESPONSE: My naked weapon is out: quarrel, I will back thee.
 
-INPUT: Summarize: Enter Abram and Balthasar. My naked weapon is out: quarrel, I will back thee.
-RESPONSE: Turn thy back and run?
-
 INPUT: Can you explain: Turn thy back and run?
 RESPONSE: No, marry; I fear thee!
 
@@ -363,10 +356,6 @@ And flourishes his blade in spite of me.
 INPUT: What does this mean: Old Montague is come,
 And flourishes his blade in spite of me.
 RESPONSE: Enter Montague and his Lady Montague.
-
-INPUT: Summarize: Old Montague is come,
-And flourishes his blade in spite of me. Enter Montague and his Lady Montague.
-RESPONSE: Thou villain Capulet!
 
 INPUT: What does this say: Thou villain Capulet!
 RESPONSE: Hold me not, let me go.
@@ -914,15 +903,6 @@ And like her most whose merit most shall be:
 Which, on more view of many, mine, being one,
 May stand in number, though in reckoning none.
 
-INPUT: Tell me about: Hear all, all see,
-And like her most whose merit most shall be:
-Which, on more view of many, mine, being one,
-May stand in number, though in reckoning none.
-RESPONSE: Go, sirrah, trudge about
-Through fair Verona; find those persons out
-Whose names are written there, [_gives a paper_] and to them say,
-My house and welcome on their pleasure stay.
-
 INPUT: Summarize: Hear all, all see,
 And like her most whose merit most shall be:
 Which, on more view of many, mine, being one,
@@ -948,13 +928,6 @@ fisher with his pencil, and the painter with his nets; but I am sent to
 find those persons whose names are here writ, and can never find what
 names the writing person hath here writ.
 RESPONSE: I must to the learned.
-
-INPUT: Summarize: It is written that the
-shoemaker should meddle with his yard and the tailor with his last, the
-fisher with his pencil, and the painter with his nets; but I am sent to
-find those persons whose names are here writ, and can never find what
-names the writing person hath here writ. I must to the learned.
-RESPONSE: Enter Benvolio and Romeo.
 
 INPUT: Explain this: Enter Benvolio and Romeo.
 RESPONSE: Tut, man, one fire burns out another’s burning,
@@ -1014,9 +987,6 @@ RESPONSE: Stay, fellow; I can read.
 INPUT: Summarize: Ye say honestly, rest you merry! Stay, fellow; I can read.
 RESPONSE: [_He reads the letter.
 
-INPUT: Explain this: [_He reads the letter.
-RESPONSE: _]
-
 _Signior Martino and his wife and daughters;
 County Anselmo and his beauteous sisters;
 The lady widow of Utruvio;
@@ -1039,9 +1009,6 @@ My fair niece Rosaline and Livia;
 Signior Valentio and his cousin Tybalt;
 Lucio and the lively Helena.
 RESPONSE: [_Gives back the paper_] Whither should they come?
-
-INPUT: What does this mean: [_Gives back the paper_] Whither should they come?
-RESPONSE: Indeed I should have ask’d you that before.
 
 INPUT: Summarize: [_Gives back the paper_] Whither should they come? Indeed I should have ask’d you that before.
 RESPONSE: Now I’ll tell you without asking.
@@ -1421,9 +1388,6 @@ Than your consent gives strength to make it fly. Madam, the guests are come, sup
 asked for, the Nurse cursed in the pantry, and everything in extremity.
 RESPONSE: I must hence to wait, I beseech you follow straight.
 
-INPUT: What does this say: I must hence to wait, I beseech you follow straight.
-RESPONSE: _]
-
 Juliet, the County stays.
 
 INPUT: Summarize: I must hence to wait, I beseech you follow straight. _]
@@ -1491,12 +1455,6 @@ RESPONSE: I am too sore enpierced with his shaft
 To soar with his light feathers, and so bound,
 I cannot bound a pitch above dull woe.
 
-INPUT: Summarize: You are a lover, borrow Cupid’s wings,
-And soar with them above a common bound. I am too sore enpierced with his shaft
-To soar with his light feathers, and so bound,
-I cannot bound a pitch above dull woe.
-RESPONSE: Under love’s heavy burden do I sink.
-
 INPUT: What does this mean: Under love’s heavy burden do I sink.
 RESPONSE: And, to sink in it, should you burden love;
 Too great oppression for a tender thing.
@@ -1517,11 +1475,6 @@ Prick love for pricking, and you beat love down.
 INPUT: Explain this: If love be rough with you, be rough with love;
 Prick love for pricking, and you beat love down.
 RESPONSE: Give me a case to put my visage in: [_Putting on a mask.
-
-INPUT: Summarize: If love be rough with you, be rough with love;
-Prick love for pricking, and you beat love down. Give me a case to put my visage in: [_Putting on a mask.
-RESPONSE: _]
-A visor for a visor.
 
 INPUT: Tell me about: _]
 A visor for a visor.
@@ -1568,10 +1521,6 @@ RESPONSE: Come, we burn daylight, ho.
 INPUT: What does this mean: Come, we burn daylight, ho.
 RESPONSE: Nay, that’s not so.
 
-INPUT: Summarize: Come, we burn daylight, ho. Nay, that’s not so.
-RESPONSE: I mean sir, in delay
-We waste our lights in vain, light lights by day.
-
 INPUT: What does this say: I mean sir, in delay
 We waste our lights in vain, light lights by day.
 RESPONSE: Take our good meaning, for our judgment sits
@@ -1586,10 +1535,6 @@ But ’tis no wit to go.
 INPUT: What does this say: And we mean well in going to this mask;
 But ’tis no wit to go.
 RESPONSE: I dreamt a dream tonight.
-
-INPUT: Summarize: And we mean well in going to this mask;
-But ’tis no wit to go. I dreamt a dream tonight.
-RESPONSE: That dreamers often lie.
 
 INPUT: What does this say: That dreamers often lie.
 RESPONSE: In bed asleep, while they do dream things true.
@@ -1700,10 +1645,6 @@ let the porter let in Susan Grindstone and Nell. You are looked for and called f
 great chamber.
 RESPONSE: We cannot be here and there too.
 
-INPUT: Explain this: We cannot be here and there too.
-RESPONSE: Be brisk awhile, and
-the longer liver take all.
-
 INPUT: Summarize: We cannot be here and there too. Be brisk awhile, and
 the longer liver take all.
 RESPONSE: _]
@@ -1731,10 +1672,6 @@ Unplagu’d with corns will have a bout with you. Ah my mistresses, which of you
 Will now deny to dance?
 RESPONSE: She that makes dainty,
 She I’ll swear hath corns.
-
-INPUT: Can you explain: She that makes dainty,
-She I’ll swear hath corns.
-RESPONSE: Am I come near ye now?
 
 INPUT: Summarize: She that makes dainty,
 She I’ll swear hath corns. Am I come near ye now?
@@ -2017,19 +1954,11 @@ RESPONSE: Then have my lips the sin that they have took.
 INPUT: Summarize: Thus from my lips, by thine my sin is purg’d. Then have my lips the sin that they have took.
 RESPONSE: O trespass sweetly urg’d!
 
-INPUT: Tell me about: O trespass sweetly urg’d!
-RESPONSE: Give me my sin again.
-
 INPUT: Summarize: O trespass sweetly urg’d! Give me my sin again.
 RESPONSE: You kiss by the book.
 
 INPUT: Explain this: You kiss by the book.
 RESPONSE: Madam, your mother craves a word with you.
-
-INPUT: Summarize: You kiss by the book. Madam, your mother craves a word with you.
-RESPONSE: Marry, bachelor,
-Her mother is the lady of the house,
-And a good lady, and a wise and virtuous.
 
 INPUT: What does this say: Marry, bachelor,
 Her mother is the lady of the house,
@@ -2123,9 +2052,6 @@ RESPONSE: [_One calls within, ‘Juliet’.
 
 INPUT: Tell me about: [_One calls within, ‘Juliet’.
 RESPONSE: Come let’s away, the strangers all are gone.
-
-INPUT: Summarize: [_One calls within, ‘Juliet’. Come let’s away, the strangers all are gone.
-RESPONSE: _]
 
 ACT II
 
@@ -2308,10 +2234,6 @@ INPUT: Summarize: O Romeo, that she were, O that she were
 An open-arse and thou a poperin pear! I’ll to my truckle-bed.
 RESPONSE: This field-bed is too cold for me to sleep.
 
-INPUT: What is this about: This field-bed is too cold for me to sleep.
-RESPONSE: Go then; for ’tis in vain
-To seek him here that means not to be found.
-
 INPUT: Summarize: This field-bed is too cold for me to sleep. Go then; for ’tis in vain
 To seek him here that means not to be found.
 RESPONSE: He jests at scars that never felt a wound.
@@ -2392,15 +2314,6 @@ Of mortals that fall back to gaze on him
 When he bestrides the lazy-puffing clouds
 And sails upon the bosom of the air.
 
-INPUT: Can you explain: O speak again bright angel, for thou art
-As glorious to this night, being o’er my head,
-As is a winged messenger of heaven
-Unto the white-upturned wondering eyes
-Of mortals that fall back to gaze on him
-When he bestrides the lazy-puffing clouds
-And sails upon the bosom of the air.
-RESPONSE: O Romeo, Romeo, wherefore art thou Romeo?
-
 INPUT: Summarize: O speak again bright angel, for thou art
 As glorious to this night, being o’er my head,
 As is a winged messenger of heaven
@@ -2422,12 +2335,6 @@ INPUT: What is this about: _] Shall I hear more, or shall I speak at this?
 RESPONSE: ’Tis but thy name that is my enemy;
 Thou art thyself, though not a Montague.
 
-INPUT: Summarize: _] Shall I hear more, or shall I speak at this? ’Tis but thy name that is my enemy;
-Thou art thyself, though not a Montague.
-RESPONSE: It is nor hand nor foot,
-Nor arm, nor face, nor any other part
-Belonging to a man.
-
 INPUT: What is this about: It is nor hand nor foot,
 Nor arm, nor face, nor any other part
 Belonging to a man.
@@ -2441,15 +2348,6 @@ By any other name would smell as sweet;
 So Romeo would, were he not Romeo call’d,
 Retain that dear perfection which he owes
 Without that title.
-
-INPUT: What is this about: That which we call a rose
-By any other name would smell as sweet;
-So Romeo would, were he not Romeo call’d,
-Retain that dear perfection which he owes
-Without that title.
-RESPONSE: Romeo, doff thy name,
-And for thy name, which is no part of thee,
-Take all myself.
 
 INPUT: Summarize: That which we call a rose
 By any other name would smell as sweet;
@@ -2550,12 +2448,6 @@ INPUT: Summarize: My life were better ended by their hate
 Than death prorogued, wanting of thy love. By whose direction found’st thou out this place?
 RESPONSE: By love, that first did prompt me to enquire;
 He lent me counsel, and I lent him eyes.
-
-INPUT: What is this about: By love, that first did prompt me to enquire;
-He lent me counsel, and I lent him eyes.
-RESPONSE: I am no pilot; yet wert thou as far
-As that vast shore wash’d with the farthest sea,
-I should adventure for such merchandise.
 
 INPUT: Summarize: By love, that first did prompt me to enquire;
 He lent me counsel, and I lent him eyes. I am no pilot; yet wert thou as far

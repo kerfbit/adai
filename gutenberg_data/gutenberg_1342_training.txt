@@ -67,9 +67,6 @@ INPUT: Summarize: London
  George Allen. CHISWICK PRESS:--CHARLES WHITTINGHAM AND CO.
 RESPONSE: TOOKS COURT, CHANCERY LANE, LONDON.
 
-INPUT: Can you explain: TOOKS COURT, CHANCERY LANE, LONDON.
-RESPONSE: [Illustration:
-
  _To J.
 
 INPUT: Summarize: TOOKS COURT, CHANCERY LANE, LONDON. [Illustration:
@@ -183,18 +180,6 @@ yet the matchless rehearsal-scenes and the characters of Mrs.
 RESPONSE: Norris and
 others have secured, I believe, a considerable party for it.
 
-INPUT: Tell me about: Norris and
-others have secured, I believe, a considerable party for it.
-RESPONSE: _ Sense and
-Sensibility _has perhaps the fewest out-and-out admirers; but it does
-not want them.
-
-INPUT: Summarize: Norris and
-others have secured, I believe, a considerable party for it. _ Sense and
-Sensibility _has perhaps the fewest out-and-out admirers; but it does
-not want them.
-RESPONSE: _
-
 _I suppose, however, that the majority of at least competent votes
 would, all things considered, be divided between_ Emma _and the present
 book; and perhaps the vulgar verdict (if indeed a fondness for Miss
@@ -227,22 +212,6 @@ peculiar and characteristic dialogue; such figures as Miss Bates, as the
 Eltons, cannot but unite the suffrages of everybody.
 RESPONSE: On the other hand,
 I, for my part, declare for_ Pride and Prejudice _unhesitatingly.
-
-INPUT: What does this mean: On the other hand,
-I, for my part, declare for_ Pride and Prejudice _unhesitatingly.
-RESPONSE: It
-seems to me the most perfect, the most characteristic, the most
-eminently quintessential of its author’s works; and for this contention
-in such narrow space as is permitted to me, I propose here to show
-cause.
-
-INPUT: Summarize: On the other hand,
-I, for my part, declare for_ Pride and Prejudice _unhesitatingly. It
-seems to me the most perfect, the most characteristic, the most
-eminently quintessential of its author’s works; and for this contention
-in such narrow space as is permitted to me, I propose here to show
-cause.
-RESPONSE: _
 
 _In the first place, the book (it may be barely necessary to remind the
 reader) was in its first shape written very early, somewhere about 1796,
@@ -278,12 +247,6 @@ RESPONSE: The plot, though not elaborate, is almost
 regular enough for Fielding; hardly a character, hardly an incident
 could be retrenched without loss to the story.
 
-INPUT: What does this say: The plot, though not elaborate, is almost
-regular enough for Fielding; hardly a character, hardly an incident
-could be retrenched without loss to the story.
-RESPONSE: The elopement of Lydia
-and Wickham is not, like that of Crawford and Mrs.
-
 INPUT: Summarize: The plot, though not elaborate, is almost
 regular enough for Fielding; hardly a character, hardly an incident
 could be retrenched without loss to the story. The elopement of Lydia
@@ -310,21 +273,6 @@ hide-and-seek, in-and-out business, which in the transactions between
 Frank Churchill and Jane Fairfax contributes no doubt a good deal to the
 intrigue of_ Emma, _but contributes it in a fashion which I do not think
 the best feature of that otherwise admirable book.
-
-INPUT: Summarize: Collins, the visit to Hunsford, the Derbyshire tour--fit in after the
-same unostentatious, but masterly fashion. There is no attempt at the
-hide-and-seek, in-and-out business, which in the transactions between
-Frank Churchill and Jane Fairfax contributes no doubt a good deal to the
-intrigue of_ Emma, _but contributes it in a fashion which I do not think
-the best feature of that otherwise admirable book.
-RESPONSE: Although Miss Austen
-always liked something of the misunderstanding kind, which afforded her
-opportunities for the display of the peculiar and incomparable talent to
-be noticed presently, she has been satisfied here with the perfectly
-natural occasions provided by the false account of Darcy’s conduct given
-by Wickham, and by the awkwardness (arising with equal naturalness) from
-the gradual transformation of Elizabeth’s own feelings from positive
-aversion to actual love.
 
 INPUT: What does this mean: Although Miss Austen
 always liked something of the misunderstanding kind, which afforded her
@@ -414,16 +362,6 @@ Thorpe, the Eltons, Mrs.
 RESPONSE: Norris, and one or two others to their company,
 but who, in one instance certainly, and perhaps in others, are still
 superior to them.
-
-INPUT: Summarize: And despite the
-ability which Miss Austen has shown in working out the story, I for one
-should put_ Pride and Prejudice _far lower if it did not contain what
-seem to me the very masterpieces of Miss Austen’s humour and of her
-faculty of character-creation--masterpieces who may indeed admit John
-Thorpe, the Eltons, Mrs. Norris, and one or two others to their company,
-but who, in one instance certainly, and perhaps in others, are still
-superior to them.
-RESPONSE: _
 
 _The characteristics of Miss Austen’s humour are so subtle and delicate
 that they are, perhaps, at all times easier to apprehend than to
@@ -560,18 +498,6 @@ English language, especially when, by a glaring and gratuitous
 falsification of its original sense, it is applied, not to rough and
 snarling invective, but to gentle and oblique satire.
 
-INPUT: What is this about: But this word “cynical” is one of the most misused in the
-English language, especially when, by a glaring and gratuitous
-falsification of its original sense, it is applied, not to rough and
-snarling invective, but to gentle and oblique satire.
-RESPONSE: If cynicism means
-the perception of “the other side,” the sense of “the accepted hells
-beneath,” the consciousness that motives are nearly always mixed, and
-that to seem is not identical with to be--if this be cynicism, then
-every man and woman who is not a fool, who does not care to live in a
-fool’s paradise, who has knowledge of nature and the world and life, is
-a cynic.
-
 INPUT: Summarize: But this word “cynical” is one of the most misused in the
 English language, especially when, by a glaring and gratuitous
 falsification of its original sense, it is applied, not to rough and
@@ -638,15 +564,6 @@ of Cosway or any of his kind.
 RESPONSE: And I am not so certain that I should
 myself use the word “narrow” in connection with her.
 
-INPUT: Summarize: To make this latter observation quite exact we must not use the
-term miniature in its restricted sense, and must think rather of Memling
-at one end of the history of painting and Meissonier at the other, than
-of Cosway or any of his kind. And I am not so certain that I should
-myself use the word “narrow” in connection with her.
-RESPONSE: If her world is a
-microcosm, the cosmic quality of it is at least as eminent as the
-littleness.
-
 INPUT: What does this say: If her world is a
 microcosm, the cosmic quality of it is at least as eminent as the
 littleness.
@@ -673,17 +590,6 @@ composition was defective: we must always remember that hardly
 anybody born in her decade--that of the eighteenth-century
 seventies--independently exhibited the full romantic quality.
 
-INPUT: Summarize: It is at least remarkable that in two very
-short periods of writing--one of about three years, and another of not
-much more than five--she executed six capital works, and has not left a
-single failure. It is possible that the romantic paste in her
-composition was defective: we must always remember that hardly
-anybody born in her decade--that of the eighteenth-century
-seventies--independently exhibited the full romantic quality.
-RESPONSE: Even Scott
-required hill and mountain and ballad, even Coleridge metaphysics and
-German to enable them to chip the classical shell.
-
 INPUT: Explain this: Even Scott
 required hill and mountain and ballad, even Coleridge metaphysics and
 German to enable them to chip the classical shell.
@@ -709,11 +615,6 @@ taste or judgment.
 RESPONSE: Miss Austen, too, drew back when the white frost
 touched her shoes; but I think she would have made a pretty good journey
 even in a black one.
-
-INPUT: Can you explain: Miss Austen, too, drew back when the white frost
-touched her shoes; but I think she would have made a pretty good journey
-even in a black one.
-RESPONSE: _
 
 _For if her knowledge was not very extended, she knew two things which
 only genius knows.
@@ -800,14 +701,6 @@ RESPONSE: Indeed, fantastic as it may seem, I
 should put Miss Austen as near to Swift in some ways, as I have put her
 to Addison in others.
 
-INPUT: Summarize: Darcy “brought his coffee-cup back_
-himself,” _the touch in each case is like that of Swift--“taller by the
-breadth of my nail”--which impressed the half-reluctant Thackeray with
-just and outspoken admiration. Indeed, fantastic as it may seem, I
-should put Miss Austen as near to Swift in some ways, as I have put her
-to Addison in others.
-RESPONSE: _
-
 _This Swiftian quality appears in the present novel as it appears
 nowhere else in the character of the immortal, the ineffable Mr.
 
@@ -885,12 +778,6 @@ RESPONSE: I will not admit that one speech
 or one action of this inestimable man is incapable of being reconciled
 with reality, and I should not wonder if many of these words and actions
 are historically true.
-
-INPUT: Can you explain: I will not admit that one speech
-or one action of this inestimable man is incapable of being reconciled
-with reality, and I should not wonder if many of these words and actions
-are historically true.
-RESPONSE: _
 
 _But the greatness of Mr.
 
@@ -1019,16 +906,6 @@ the readers of Swift, of Fielding, and we may here add, of Thackeray, as
 they are felt by the readers of no other English author of fiction
 outside of these four.
 
-INPUT: Summarize: Collins has just
-related as made by himself to Lady Catherine, “May I ask whether these
-pleasing attentions proceed from the impulse of the moment, or are the
-result of previous study? ” These are the things which give Miss Austen’s
-readers the pleasant shocks, the delightful thrills, which are felt by
-the readers of Swift, of Fielding, and we may here add, of Thackeray, as
-they are felt by the readers of no other English author of fiction
-outside of these four.
-RESPONSE: _
-
 _The goodness of the minor characters in_ Pride and Prejudice _has been
 already alluded to, and it makes a detailed dwelling on their beauties
 difficult in any space, and impossible in this.
@@ -1098,14 +975,6 @@ INPUT: What does this mean: It is at any rate difficult not
 to extend to her a share of the respect and affection (affection and
 respect of a peculiar kind; doubtless), with which one regards Mr.
 RESPONSE: Collins, when she draws the moral of Lydia’s fall.
-
-INPUT: Summarize: It is at any rate difficult not
-to extend to her a share of the respect and affection (affection and
-respect of a peculiar kind; doubtless), with which one regards Mr. Collins, when she draws the moral of Lydia’s fall.
-RESPONSE: I sometimes wish
-that the exigencies of the story had permitted Miss Austen to unite
-these personages, and thus at once achieve a notable mating and soothe
-poor Mrs.
 
 INPUT: Can you explain: I sometimes wish
 that the exigencies of the story had permitted Miss Austen to unite
@@ -1307,15 +1176,6 @@ RESPONSE: ) And she lets the
 injury done to Jane and the contempt shown to the rest of her family
 aggravate this resentment in the healthiest way in the world.
 
-INPUT: Summarize: (By the way, the reproach that the ill-manners of
-this speech are overdone is certainly unjust; for things of the same
-kind, expressed no doubt less stiltedly but more coarsely, might have
-been heard in more than one ball-room during this very year from persons
-who ought to have been no worse bred than Darcy. ) And she lets the
-injury done to Jane and the contempt shown to the rest of her family
-aggravate this resentment in the healthiest way in the world.
-RESPONSE: _
-
 _Still, all this does not explain her charm, which, taking beauty as a
 common form of all heroines, may perhaps consist in the addition to her
 playfulness, her wit, her affectionate and natural disposition, of a
@@ -1432,12 +1292,6 @@ should, I think, for mere occasional companionship, have preferred Diana
 and Barbara.
 RESPONSE: But to live with and to marry, I do not know that any one
 of the four can come into competition with Elizabeth.
-
-INPUT: Summarize: I should have been most in love with Beatrix and Argemone; I
-should, I think, for mere occasional companionship, have preferred Diana
-and Barbara. But to live with and to marry, I do not know that any one
-of the four can come into competition with Elizabeth.
-RESPONSE: _
 
 _GEORGE SAINTSBURY.
 
@@ -2229,10 +2083,6 @@ INPUT: Summarize: how can it affect them? Bennet,” replied his wife, “how ca
 RESPONSE: You
 must know that I am thinking of his marrying one of them.
 
-INPUT: Can you explain: You
-must know that I am thinking of his marrying one of them.
-RESPONSE: ”
-
 “Is that his design in settling here?
 
 INPUT: Summarize: You
@@ -2999,11 +2849,6 @@ RESPONSE: He was quite young, wonderfully handsome, extremely
 agreeable, and, to crown the whole, he meant to be at the next assembly
 with a large party.
 
-INPUT: Can you explain: He was quite young, wonderfully handsome, extremely
-agreeable, and, to crown the whole, he meant to be at the next assembly
-with a large party.
-RESPONSE: Nothing could be more delightful!
-
 INPUT: Summarize: He was quite young, wonderfully handsome, extremely
 agreeable, and, to crown the whole, he meant to be at the next assembly
 with a large party. Nothing could be more delightful!
@@ -3047,13 +2892,6 @@ minutes with him in his library.
 RESPONSE: He had entertained hopes of being
 admitted to a sight of the young ladies, of whose beauty he had heard
 much; but he saw only the father.
-
-INPUT: What does this mean: He had entertained hopes of being
-admitted to a sight of the young ladies, of whose beauty he had heard
-much; but he saw only the father.
-RESPONSE: The ladies were somewhat more
-fortunate, for they had the advantage of ascertaining, from an upper
-window, that he wore a blue coat and rode a black horse.
 
 INPUT: Summarize: He had entertained hopes of being
 admitted to a sight of the young ladies, of whose beauty he had heard
@@ -3283,10 +3121,6 @@ Mr. Bingley, who came from the dance for a few minutes to press his
 friend to join it.
 RESPONSE: “Come, Darcy,” said he, “I must have you dance.
 
-INPUT: Explain this: “Come, Darcy,” said he, “I must have you dance.
-RESPONSE: I hate to see you
-standing about by yourself in this stupid manner.
-
 INPUT: Summarize: “Come, Darcy,” said he, “I must have you dance. I hate to see you
 standing about by yourself in this stupid manner.
 RESPONSE: You had much better
@@ -3447,11 +3281,6 @@ distinguished by his sisters.
 RESPONSE: Jane was as much gratified by this as her
 mother could be, though in a quieter way.
 
-INPUT: What is this about: Jane was as much gratified by this as her
-mother could be, though in a quieter way.
-RESPONSE: Elizabeth felt Jane’s
-pleasure.
-
 INPUT: Summarize: Jane was as much gratified by this as her
 mother could be, though in a quieter way. Elizabeth felt Jane’s
 pleasure.
@@ -3582,11 +3411,6 @@ INPUT: What is this about: He
 is so excessively handsome!
 RESPONSE: and his sisters are charming women.
 
-INPUT: Summarize: He
-is so excessively handsome! and his sisters are charming women.
-RESPONSE: I never
-in my life saw anything more elegant than their dresses.
-
 INPUT: Can you explain: I never
 in my life saw anything more elegant than their dresses.
 RESPONSE: I dare say the
@@ -3642,10 +3466,6 @@ INPUT: What does this mean: Not handsome enough to dance with!
 RESPONSE: I wish you had been there, my
 dear, to have given him one of your set-downs.
 
-INPUT: Summarize: Not handsome enough to dance with! I wish you had been there, my
-dear, to have given him one of your set-downs.
-RESPONSE: I quite detest the man.
-
 INPUT: What is this about: I quite detest the man.
 RESPONSE: ”
 
@@ -3677,11 +3497,6 @@ her praise of Mr. Bingley before, expressed to her sister how very much
 she admired him.
 RESPONSE: “He is just what a young-man ought to be,” said she, “sensible,
 good-humoured, lively; and I never saw such happy manners!
-
-INPUT: What does this say: “He is just what a young-man ought to be,” said she, “sensible,
-good-humoured, lively; and I never saw such happy manners!
-RESPONSE: so much ease,
-with such perfect good breeding!
 
 INPUT: Summarize: “He is just what a young-man ought to be,” said she, “sensible,
 good-humoured, lively; and I never saw such happy manners! so much ease,
@@ -3721,11 +3536,6 @@ us.
 INPUT: Can you explain: But that is one great difference between
 us.
 RESPONSE: Compliments always take _you_ by surprise, and _me_ never.
-
-INPUT: Summarize: But that is one great difference between
-us. Compliments always take _you_ by surprise, and _me_ never.
-RESPONSE: What
-could be more natural than his asking you again?
 
 INPUT: What does this say: What
 could be more natural than his asking you again?
@@ -3959,11 +3769,6 @@ never appeared dissatisfied.
 RESPONSE: On the strength of Darcy’s regard, Bingley
 had the firmest reliance, and of his judgment the highest opinion.
 
-INPUT: What is this about: On the strength of Darcy’s regard, Bingley
-had the firmest reliance, and of his judgment the highest opinion.
-RESPONSE: In
-understanding, Darcy was the superior.
-
 INPUT: Summarize: On the strength of Darcy’s regard, Bingley
 had the firmest reliance, and of his judgment the highest opinion. In
 understanding, Darcy was the superior.
@@ -3981,11 +3786,6 @@ deficient; but Darcy was clever. He was at the same time haughty,
 reserved, and fastidious; and his manners, though well bred, were not
 inviting.
 RESPONSE: In that respect his friend had greatly the advantage.
-
-INPUT: Explain this: In that respect his friend had greatly the advantage.
-RESPONSE: Bingley
-was sure of being liked wherever he appeared; Darcy was continually
-giving offence.
 
 INPUT: Summarize: In that respect his friend had greatly the advantage. Bingley
 was sure of being liked wherever he appeared; Darcy was continually
@@ -4042,9 +3842,6 @@ established as a sweet girl; and their brother felt authorized by such
 commendation to think of her as he chose.
 RESPONSE: [Illustration: [_Copyright 1894 by George Allen.
 
-INPUT: What does this say: [Illustration: [_Copyright 1894 by George Allen.
-RESPONSE: [Illustration]
-
 Within a short walk of Longbourn lived a family with whom the Bennets
 were particularly intimate.
 
@@ -4073,27 +3870,6 @@ a mile from Meryton, denominated from that period Lucas Lodge; where he
 could think with pleasure of his own importance, and, unshackled by
 business, occupy himself solely in being civil to all the world.
 
-INPUT: What does this mean: It had given him a
-disgust to his business and to his residence in a small market town;
-and, quitting them both, he had removed with his family to a house about
-a mile from Meryton, denominated from that period Lucas Lodge; where he
-could think with pleasure of his own importance, and, unshackled by
-business, occupy himself solely in being civil to all the world.
-RESPONSE: For,
-though elated by his rank, it did not render him supercilious; on the
-contrary, he was all attention to everybody.
-
-INPUT: Summarize: It had given him a
-disgust to his business and to his residence in a small market town;
-and, quitting them both, he had removed with his family to a house about
-a mile from Meryton, denominated from that period Lucas Lodge; where he
-could think with pleasure of his own importance, and, unshackled by
-business, occupy himself solely in being civil to all the world. For,
-though elated by his rank, it did not render him supercilious; on the
-contrary, he was all attention to everybody.
-RESPONSE: By nature inoffensive,
-friendly, and obliging, his presentation at St.
-
 INPUT: What does this say: By nature inoffensive,
 friendly, and obliging, his presentation at St.
 RESPONSE: James’s had made him
@@ -4108,12 +3884,6 @@ valuable neighbour to Mrs.
 INPUT: What does this say: Lady Lucas was a very good kind of woman, not too clever to be a
 valuable neighbour to Mrs.
 RESPONSE: They had several children.
-
-INPUT: Summarize: Lady Lucas was a very good kind of woman, not too clever to be a
-valuable neighbour to Mrs. They had several children.
-RESPONSE: The eldest
-of them, a sensible, intelligent young woman, about twenty-seven, was
-Elizabeth’s intimate friend.
 
 INPUT: What does this mean: The eldest
 of them, a sensible, intelligent young woman, about twenty-seven, was

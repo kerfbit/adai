@@ -2,7 +2,6 @@ INPUT: Can you explain: Little Women
 
 by Louisa May Alcott
 
-
 Contents
 
  PART 1
@@ -21,7 +20,6 @@ RESPONSE: “It’s so dreadful to be poor!
 INPUT: Summarize: Little Women
 
 by Louisa May Alcott
-
 
 Contents
 
@@ -94,11 +92,6 @@ INPUT: Summarize: We can’t do much, but we can make our little sacrifices, and
 ought to do it gladly. But I am afraid I don’t,” and Meg shook her
 head, as she thought regretfully of all the pretty things she wanted.
 RESPONSE: “But I don’t think the little we should spend would do any good.
-
-INPUT: Can you explain: “But I don’t think the little we should spend would do any good.
-RESPONSE: We’ve
-each got a dollar, and the army wouldn’t be much helped by our giving
-that.
 
 INPUT: Summarize: “But I don’t think the little we should spend would do any good. We’ve
 each got a dollar, and the army wouldn’t be much helped by our giving
@@ -364,11 +357,6 @@ it’s worse than ever now, for I’m dying to go and fight with Papa.
 RESPONSE: And
 I can only stay home and knit, like a poky old woman!
 
-INPUT: Summarize: And
-it’s worse than ever now, for I’m dying to go and fight with Papa. And
-I can only stay home and knit, like a poky old woman!
-RESPONSE: ”
-
 And Jo shook the blue army sock till the needles rattled like
 castanets, and her ball bounded across the room.
 
@@ -487,15 +475,6 @@ gray eyes, which appeared to see everything, and were by turns fierce,
 funny, or thoughtful.
 RESPONSE: Her long, thick hair was her one beauty, but it
 was usually bundled into a net, to be out of her way.
-
-INPUT: Summarize: She had a decided mouth, a comical nose, and sharp,
-gray eyes, which appeared to see everything, and were by turns fierce,
-funny, or thoughtful. Her long, thick hair was her one beauty, but it
-was usually bundled into a net, to be out of her way.
-RESPONSE: Round shoulders
-had Jo, big hands and feet, a flyaway look to her clothes, and the
-uncomfortable appearance of a girl who was rapidly shooting up into a
-woman and didn’t like it.
 
 INPUT: What does this say: Round shoulders
 had Jo, big hands and feet, a flyaway look to her clothes, and the
@@ -757,12 +736,6 @@ jerked herself along as if she went by machinery, and her “Ow!
 RESPONSE: ” was
 more suggestive of pins being run into her than of fear and anguish.
 
-INPUT: What is this about: ” was
-more suggestive of pins being run into her than of fear and anguish.
-RESPONSE: Jo
-gave a despairing groan, and Meg laughed outright, while Beth let her
-bread burn as she watched the fun with interest.
-
 INPUT: Summarize: ” was
 more suggestive of pins being run into her than of fear and anguish. Jo
 gave a despairing groan, and Meg laughed outright, while Beth let her
@@ -887,14 +860,6 @@ INPUT: What does this say: “Well, dearies, how have you got on today?
 RESPONSE: There was so much to do,
 getting the boxes ready to go tomorrow, that I didn’t come home to
 dinner.
-
-INPUT: Summarize: “Well, dearies, how have you got on today? There was so much to do,
-getting the boxes ready to go tomorrow, that I didn’t come home to
-dinner.
-RESPONSE: Has anyone called, Beth?
-
-INPUT: Explain this: Has anyone called, Beth?
-RESPONSE: How is your cold, Meg?
 
 INPUT: Summarize: Has anyone called, Beth? How is your cold, Meg?
 RESPONSE: Jo, you look
@@ -1292,11 +1257,6 @@ INPUT: Can you explain: ” asked Amy, who was a very
 literal young lady.
 RESPONSE: “Each of you told what your burden was just now, except Beth.
 
-INPUT: Summarize: ” asked Amy, who was a very
-literal young lady. “Each of you told what your burden was just now, except Beth.
-RESPONSE: I rather
-think she hasn’t got any,” said her mother.
-
 INPUT: Explain this: I rather
 think she hasn’t got any,” said her mother.
 RESPONSE: Mine is dishes and dusters, and envying girls with nice
@@ -1344,12 +1304,6 @@ directions, like Christian.
 INPUT: What does this mean: We ought to have our roll of
 directions, like Christian.
 RESPONSE: What shall we do about that?
-
-INPUT: Summarize: We ought to have our roll of
-directions, like Christian. What shall we do about that?
-RESPONSE: ” asked Jo,
-delighted with the fancy which lent a little romance to the very dull
-task of doing her duty.
 
 INPUT: What does this say: ” asked Jo,
 delighted with the fancy which lent a little romance to the very dull
@@ -1426,11 +1380,9 @@ most pensive tune. They had always done this from the time they could
 lisp...
 RESPONSE: Crinkle, crinkle, ’ittle ’tar,
 
-
 and it had become a household custom, for the mother was a born singer.
 
 INPUT: What does this say: Crinkle, crinkle, ’ittle ’tar,
-
 
 and it had become a household custom, for the mother was a born singer.
 RESPONSE: The first sound in the morning was her voice as she went about the
@@ -1440,7 +1392,6 @@ lullaby.
 
 INPUT: Summarize: Crinkle, crinkle, ’ittle ’tar,
 
-
 and it had become a household custom, for the mother was a born singer. The first sound in the morning was her voice as she went about the
 house singing like a lark, and the last sound at night was the same
 cheery sound, for the girls never grew too old for that familiar
@@ -1448,12 +1399,10 @@ lullaby.
 RESPONSE: CHAPTER TWO
 A MERRY CHRISTMAS
 
-
 Jo was the first to wake in the gray dawn of Christmas morning.
 
 INPUT: What is this about: CHAPTER TWO
 A MERRY CHRISTMAS
-
 
 Jo was the first to wake in the gray dawn of Christmas morning.
 RESPONSE: No
@@ -1463,7 +1412,6 @@ because it was crammed so full of goodies.
 
 INPUT: Summarize: CHAPTER TWO
 A MERRY CHRISTMAS
-
 
 Jo was the first to wake in the gray dawn of Christmas morning. No
 stockings hung at the fireplace, and for a moment she felt as much
@@ -1479,15 +1427,6 @@ little crimson-covered book.
 RESPONSE: She knew it very well, for it was that
 beautiful old story of the best life ever lived, and Jo felt that it
 was a true guidebook for any pilgrim going on a long journey.
-
-INPUT: Summarize: Then she remembered her
-mother’s promise and, slipping her hand under her pillow, drew out a
-little crimson-covered book. She knew it very well, for it was that
-beautiful old story of the best life ever lived, and Jo felt that it
-was a true guidebook for any pilgrim going on a long journey.
-RESPONSE: She woke
-Meg with a “Merry Christmas,” and bade her see what was under her
-pillow.
 
 INPUT: Tell me about: She woke
 Meg with a “Merry Christmas,” and bade her see what was under her
@@ -1532,16 +1471,6 @@ us to read and love and mind these books, and we must begin at once.
 RESPONSE: We
 used to be faithful about it, but since Father went away and all this
 war trouble unsettled us, we have neglected many things.
-
-INPUT: Summarize: “Girls,” said Meg seriously, looking from the tumbled head beside her
-to the two little night-capped ones in the room beyond, “Mother wants
-us to read and love and mind these books, and we must begin at once. We
-used to be faithful about it, but since Father went away and all this
-war trouble unsettled us, we have neglected many things.
-RESPONSE: You can do as
-you please, but I shall keep my book on the table here and read a
-little every morning as soon as I wake, for I know it will do me good
-and help me through the day.
 
 INPUT: Explain this: You can do as
 you please, but I shall keep my book on the table here and read a
@@ -1701,12 +1630,6 @@ all waiting for her.
 INPUT: Can you explain: Amy came in hastily, and looked rather abashed when she saw her sisters
 all waiting for her.
 RESPONSE: “Where have you been, and what are you hiding behind you?
-
-INPUT: Summarize: Amy came in hastily, and looked rather abashed when she saw her sisters
-all waiting for her. “Where have you been, and what are you hiding behind you?
-RESPONSE: ” asked Meg,
-surprised to see, by her hood and cloak, that lazy Amy had been out so
-early.
 
 INPUT: What is this about: ” asked Meg,
 surprised to see, by her hood and cloak, that lazy Amy had been out so
@@ -1908,13 +1831,6 @@ there.
 RESPONSE: Hannah, who had carried wood, made a fire, and stopped up the
 broken panes with old hats and her own cloak.
 
-INPUT: Summarize: In a few minutes it really did seem as if kind spirits had been at work
-there. Hannah, who had carried wood, made a fire, and stopped up the
-broken panes with old hats and her own cloak.
-RESPONSE: March gave the
-mother tea and gruel, and comforted her with promises of help, while
-she dressed the little baby as tenderly as if it had been her own.
-
 INPUT: What is this about: March gave the
 mother tea and gruel, and comforted her with promises of help, while
 she dressed the little baby as tenderly as if it had been her own.
@@ -2031,17 +1947,6 @@ work.
 RESPONSE: The morning charities and ceremonies took so much time that the rest of
 the day was devoted to preparations for the evening festivities.
 
-INPUT: Summarize: There was a good deal of laughing and kissing and explaining, in the
-simple, loving fashion which makes these home festivals so pleasant at
-the time, so sweet to remember long afterward, and then all fell to
-work. The morning charities and ceremonies took so much time that the rest of
-the day was devoted to preparations for the evening festivities.
-RESPONSE: Being
-still too young to go often to the theater, and not rich enough to
-afford any great outlay for private performances, the girls put their
-wits to work, and necessity being the mother of invention, made
-whatever they needed.
-
 INPUT: What does this say: Being
 still too young to go often to the theater, and not rich enough to
 afford any great outlay for private performances, the girls put their
@@ -2072,14 +1977,6 @@ innocent revels.
 RESPONSE: No gentleman were admitted, so Jo played male parts to her heart’s
 content and took immense satisfaction in a pair of russet leather boots
 given her by a friend, who knew a lady who knew an actor.
-
-INPUT: Summarize: The big chamber was the scene of many
-innocent revels. No gentleman were admitted, so Jo played male parts to her heart’s
-content and took immense satisfaction in a pair of russet leather boots
-given her by a friend, who knew a lady who knew an actor.
-RESPONSE: These boots,
-an old foil, and a slashed doublet once used by an artist for some
-picture, were Jo’s chief treasures and appeared on all occasions.
 
 INPUT: What is this about: These boots,
 an old foil, and a slashed doublet once used by an artist for some
@@ -2221,11 +2118,6 @@ spirit who would bring the love philter.
 RESPONSE: Hither, hither, from thy home,
 Airy sprite, I bid thee come!
 
-INPUT: What does this say: Hither, hither, from thy home,
-Airy sprite, I bid thee come!
-RESPONSE: Born of roses, fed on dew,
-Charms and potions canst thou brew?
-
 INPUT: Summarize: Hither, hither, from thy home,
 Airy sprite, I bid thee come! Born of roses, fed on dew,
 Charms and potions canst thou brew?
@@ -2248,13 +2140,6 @@ INPUT: Explain this: A soft strain of music sounded, and then at the back of the
 appeared a little figure in cloudy white, with glittering wings, golden
 hair, and a garland of roses on its head.
 RESPONSE: Waving a wand, it sang...
-
-INPUT: Summarize: A soft strain of music sounded, and then at the back of the cave
-appeared a little figure in cloudy white, with glittering wings, golden
-hair, and a garland of roses on its head. Waving a wand, it sang...
-RESPONSE: Hither I come,
-From my airy home,
-Afar in the silver moon.
 
 INPUT: Tell me about: Hither I come,
 From my airy home,
@@ -2386,13 +2271,6 @@ shaken by the fall from the tower upon him, Roderigo defied the old
 gentleman and refused to stir.
 RESPONSE: This dauntless example fired Zara.
 
-INPUT: Summarize: Though decidedly
-shaken by the fall from the tower upon him, Roderigo defied the old
-gentleman and refused to stir. This dauntless example fired Zara.
-RESPONSE: She
-also defied her sire, and he ordered them both to the deepest dungeons
-of the castle.
-
 INPUT: Tell me about: She
 also defied her sire, and he ordered them both to the deepest dungeons
 of the castle.
@@ -2462,16 +2340,6 @@ performance put together.
 RESPONSE: Act fourth displayed the despairing Roderigo on the point of stabbing
 himself because he has been told that Zara has deserted him.
 
-INPUT: Summarize: He was called before
-the curtain, and with great propriety appeared, leading Hagar, whose
-singing was considered more wonderful than all the rest of the
-performance put together. Act fourth displayed the despairing Roderigo on the point of stabbing
-himself because he has been told that Zara has deserted him.
-RESPONSE: Just as
-the dagger is at his heart, a lovely song is sung under his window,
-informing him that Zara is true but in danger, and he can save her if
-he will.
-
 INPUT: What is this about: Just as
 the dagger is at his heart, a lovely song is sung under his window,
 informing him that Zara is true but in danger, and he can save her if
@@ -2513,13 +2381,6 @@ and a bag from Hagar, who has mysteriously disappeared.
 RESPONSE: The latter
 informs the party that she bequeaths untold wealth to the young pair
 and an awful doom to Don Pedro, if he doesn’t make them happy.
-
-INPUT: What does this say: The latter
-informs the party that she bequeaths untold wealth to the young pair
-and an awful doom to Don Pedro, if he doesn’t make them happy.
-RESPONSE: The bag
-is opened, and several quarts of tin money shower down upon the stage
-till it is quite glorified with the glitter.
 
 INPUT: Summarize: The latter
 informs the party that she bequeaths untold wealth to the young pair
@@ -2629,10 +2490,6 @@ INPUT: Summarize: “The Laurence boy’s grandfather! What in the world put suc
 into his head?
 RESPONSE: “Hannah told one of his servants about your breakfast party.
 
-INPUT: What does this say: “Hannah told one of his servants about your breakfast party.
-RESPONSE: He is an
-odd old gentleman, but that pleased him.
-
 INPUT: Summarize: “Hannah told one of his servants about your breakfast party. He is an
 odd old gentleman, but that pleased him.
 RESPONSE: He knew my father years ago,
@@ -2690,17 +2547,6 @@ INPUT: Tell me about: ”
 asked one of the girls.
 RESPONSE: “My mother knows old Mr.
 
-INPUT: Summarize: ”
-asked one of the girls. “My mother knows old Mr.
-RESPONSE: Laurence, but says
-he’s very proud and doesn’t like to mix with his neighbors.
-
-INPUT: Tell me about: Laurence, but says
-he’s very proud and doesn’t like to mix with his neighbors.
-RESPONSE: He keeps
-his grandson shut up, when he isn’t riding or walking with his tutor,
-and makes him study very hard.
-
 INPUT: Summarize: Laurence, but says
 he’s very proud and doesn’t like to mix with his neighbors. He keeps
 his grandson shut up, when he isn’t riding or walking with his tutor,
@@ -2744,13 +2590,6 @@ objection to your knowing him, if a proper opportunity comes.
 RESPONSE: He
 brought the flowers himself, and I should have asked him in, if I had
 been sure what was going on upstairs.
-
-INPUT: Summarize: “I like his manners, and he looks like a little gentleman, so I’ve no
-objection to your knowing him, if a proper opportunity comes. He
-brought the flowers himself, and I should have asked him in, if I had
-been sure what was going on upstairs.
-RESPONSE: He looked so wistful as he went
-away, hearing the frolic and evidently having none of his own.
 
 INPUT: What is this about: He looked so wistful as he went
 away, hearing the frolic and evidently having none of his own.
@@ -2812,35 +2651,23 @@ bunch to Father. I’m afraid he isn’t having such a merry Christmas as
 we are.
 RESPONSE: ”
 
-
-
-
 CHAPTER THREE
 THE LAURENCE BOY
-
 
 “Jo!
 
 INPUT: Tell me about: ”
 
-
-
-
 CHAPTER THREE
 THE LAURENCE BOY
-
 
 “Jo!
 RESPONSE: ” cried Meg at the foot of the garret stairs.
 
 INPUT: Summarize: ”
 
-
-
-
 CHAPTER THREE
 THE LAURENCE BOY
-
 
 “Jo! ” cried Meg at the foot of the garret stairs.
 RESPONSE: ” answered a husky voice from above, and, running up, Meg found
@@ -2991,10 +2818,6 @@ you don’t I should be so mortified. ”
 “Then I’ll stay still.
 RESPONSE: I don’t care much for company dancing.
 
-INPUT: What does this mean: I don’t care much for company dancing.
-RESPONSE: It’s no
-fun to go sailing round.
-
 INPUT: Summarize: I don’t care much for company dancing. It’s no
 fun to go sailing round.
 RESPONSE: I like to fly about and cut capers.
@@ -3106,14 +2929,6 @@ RESPONSE: On New Year’s Eve the parlor was deserted, for the two younger girls
 played dressing maids and the two elder were absorbed in the
 all-important business of ‘getting ready for the party’.
 
-INPUT: Tell me about: On New Year’s Eve the parlor was deserted, for the two younger girls
-played dressing maids and the two elder were absorbed in the
-all-important business of ‘getting ready for the party’.
-RESPONSE: Simple as the
-toilets were, there was a great deal of running up and down, laughing
-and talking, and at one time a strong smell of burned hair pervaded the
-house.
-
 INPUT: Summarize: On New Year’s Eve the parlor was deserted, for the two younger girls
 played dressing maids and the two elder were absorbed in the
 all-important business of ‘getting ready for the party’. Simple as the
@@ -3169,20 +2984,11 @@ my hair! ” wailed Meg, looking with despair at the uneven frizzle on her
 forehead.
 RESPONSE: You shouldn’t have asked me to do it.
 
-INPUT: Can you explain: You shouldn’t have asked me to do it.
-RESPONSE: I always spoil
-everything.
-
 INPUT: Summarize: You shouldn’t have asked me to do it. I always spoil
 everything.
 RESPONSE: I’m so sorry, but the tongs were too hot, and so I’ve made
 a mess,” groaned poor Jo, regarding the little black pancakes with
 tears of regret.
-
-INPUT: What is this about: I’m so sorry, but the tongs were too hot, and so I’ve made
-a mess,” groaned poor Jo, regarding the little black pancakes with
-tears of regret.
-RESPONSE: “It isn’t spoiled.
 
 INPUT: Summarize: I’m so sorry, but the tongs were too hot, and so I’ve made
 a mess,” groaned poor Jo, regarding the little black pancakes with

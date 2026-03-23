@@ -64,14 +64,6 @@ RESPONSE: —The Farm in Arkansaw.
 INPUT: Summarize: —Floating Currency. —The Farm in Arkansaw.
 RESPONSE: —Interior Decorations.
 
-INPUT: Can you explain: —Interior Decorations.
-RESPONSE: —Stephen
-Dowling Bots.
-
-INPUT: Summarize: —Interior Decorations. —Stephen
-Dowling Bots.
-RESPONSE: —Poetical Effusions.
-
 INPUT: Tell me about: —Poetical Effusions.
 RESPONSE: —Recovering the
 Raft.
@@ -79,9 +71,6 @@ Raft.
 INPUT: Summarize: —Poetical Effusions. —Recovering the
 Raft.
 RESPONSE: Tying Up Day—times.
-
-INPUT: What is this about: Tying Up Day—times.
-RESPONSE: —An Astronomical Theory.
 
 INPUT: Summarize: Tying Up Day—times. —An Astronomical Theory.
 RESPONSE: —Running a Temperance
@@ -100,10 +89,6 @@ RESPONSE: —Laying Out a Campaign.
 
 INPUT: Summarize: —The Troubles of Royalty. —Laying Out a Campaign.
 RESPONSE: —Working the Camp—meeting.
-
-INPUT: Tell me about: —Working the Camp—meeting.
-RESPONSE: —A
-Pirate at the Camp—meeting.
 
 INPUT: Summarize: —Working the Camp—meeting. —A
 Pirate at the Camp—meeting.
@@ -143,10 +128,6 @@ RESPONSE: —Singing the “Doxologer.
 
 INPUT: What is this about: —Singing the “Doxologer.
 RESPONSE: ”—Awful Square—Funeral Orgies.
-
-INPUT: Summarize: —Singing the “Doxologer. ”—Awful Square—Funeral Orgies.
-RESPONSE: —A Bad
-Investment .
 
 INPUT: Tell me about: —A Bad
 Investment .
@@ -212,9 +193,6 @@ RESPONSE: —Valuable Information.
 INPUT: What is this about: —Valuable Information.
 RESPONSE: Still and Sunday—like.
 
-INPUT: Summarize: —Valuable Information. Still and Sunday—like.
-RESPONSE: —Mistaken Identity.
-
 INPUT: What does this say: —Mistaken Identity.
 RESPONSE: —Southern Hospitality.
 
@@ -262,19 +240,12 @@ RESPONSE: —Aunt Sally in Trouble.
 INPUT: Summarize: —Jim Advises a Doctor. —Aunt Sally in Trouble.
 RESPONSE: —The Doctor’s Story.
 
-INPUT: Can you explain: —The Doctor’s Story.
-RESPONSE: —Aunt Polly
-Arrives.
-
 INPUT: Summarize: —The Doctor’s Story. —Aunt Polly
 Arrives.
 RESPONSE: —Hand Out Them Letters.
 
 INPUT: Tell me about: —Hand Out Them Letters.
 RESPONSE: —Paying the Captive.
-
-INPUT: Summarize: —Hand Out Them Letters. —Paying the Captive.
-RESPONSE: —Yours Truly, Huck Finn.
 
 INPUT: What is this about: —Yours Truly, Huck Finn.
 RESPONSE: The Widows
@@ -346,21 +317,6 @@ RESPONSE: ”
  “They got him out and emptied Him”
  The House
  Col.
-
-INPUT: Explain this: ”
- “Buck”
- “It made Her look Spidery”
- “They got him out and emptied Him”
- The House
- Col.
-RESPONSE: Grangerford
- Young Harney Shepherdson
- Miss Charlotte
- “And asked me if I Liked Her”
- “Behind the Wood-pile”
- Hiding Day-times
- “And Dogs a-Coming”
- “By rights I am a Duke!
 
 INPUT: Summarize: ”
  “Buck”
@@ -521,13 +477,6 @@ RESPONSE: I make this explanation for the reason that without it many readers
 would suppose that all these characters were trying to talk alike and
 not succeeding.
 
-INPUT: Summarize: The shadings have not been done in a haphazard fashion, or by
-guesswork; but painstakingly, and with the trustworthy guidance and
-support of personal familiarity with these several forms of speech. I make this explanation for the reason that without it many readers
-would suppose that all these characters were trying to talk alike and
-not succeeding.
-RESPONSE: HUCKLEBERRY FINN
-
 Scene: The Mississippi Valley Time: Forty to fifty years ago
 
 CHAPTER I.
@@ -558,12 +507,6 @@ by Mr. Mark Twain, and he told the truth, mainly.
 RESPONSE: There was things
 which he stretched, but mainly he told the truth.
 
-INPUT: Tell me about: There was things
-which he stretched, but mainly he told the truth.
-RESPONSE: I
-never seen anybody but lied one time or another, without it was Aunt
-Polly, or the widow, or maybe Mary.
-
 INPUT: Summarize: There was things
 which he stretched, but mainly he told the truth. I
 never seen anybody but lied one time or another, without it was Aunt
@@ -578,13 +521,6 @@ which is mostly a true book, with some stretchers, as I said before.
 RESPONSE: Now the way that the book winds up is this: Tom and me found the money
 that the robbers hid in the cave, and it made us rich.
 
-INPUT: Summarize: Aunt Polly—Tom’s Aunt Polly, she
-is—and Mary, and the Widow Douglas is all told about in that book,
-which is mostly a true book, with some stretchers, as I said before. Now the way that the book winds up is this: Tom and me found the money
-that the robbers hid in the cave, and it made us rich.
-RESPONSE: We got six
-thousand dollars apiece—all gold.
-
 INPUT: Tell me about: We got six
 thousand dollars apiece—all gold.
 RESPONSE: It was an awful sight of money when
@@ -596,15 +532,6 @@ it was piled up.
 RESPONSE: Well, Judge Thatcher he took it and put it out at
 interest, and it fetched us a dollar a day apiece all the year
 round—more than a body could tell what to do with.
-
-INPUT: Tell me about: Well, Judge Thatcher he took it and put it out at
-interest, and it fetched us a dollar a day apiece all the year
-round—more than a body could tell what to do with.
-RESPONSE: The Widow Douglas
-she took me for her son, and allowed she would sivilize me; but it was
-rough living in the house all the time, considering how dismal regular
-and decent the widow was in all her ways; and so when I couldn’t stand
-it no longer I lit out.
 
 INPUT: Summarize: Well, Judge Thatcher he took it and put it out at
 interest, and it fetched us a dollar a day apiece all the year
@@ -693,11 +620,6 @@ INPUT: What does this mean: She said it was a mean practice and wasn’t clean, 
 try to not do it any more.
 RESPONSE: That is just the way with some people.
 
-INPUT: Summarize: She said it was a mean practice and wasn’t clean, and I must
-try to not do it any more. That is just the way with some people.
-RESPONSE: They
-get down on a thing when they don’t know nothing about it.
-
 INPUT: What is this about: They
 get down on a thing when they don’t know nothing about it.
 RESPONSE: Here she was
@@ -729,11 +651,6 @@ the widow made her ease up.
 INPUT: What does this say: She worked me middling hard for about an hour, and then
 the widow made her ease up.
 RESPONSE: I couldn’t stood it much longer.
-
-INPUT: Summarize: She worked me middling hard for about an hour, and then
-the widow made her ease up. I couldn’t stood it much longer.
-RESPONSE: Then for
-an hour it was deadly dull, and I was fidgety.
 
 INPUT: What does this say: Then for
 an hour it was deadly dull, and I was fidgety.
@@ -927,11 +844,6 @@ INPUT: What does this say: Pretty soon I heard a twig snap down in the dark amon
 trees—something was a stirring.
 RESPONSE: I set still and listened.
 
-INPUT: Summarize: Pretty soon I heard a twig snap down in the dark amongst the
-trees—something was a stirring. I set still and listened.
-RESPONSE: Directly I
-could just barely hear a “_me-yow!
-
 INPUT: Can you explain: Directly I
 could just barely hear a “_me-yow!
 RESPONSE: _” as soft as I could, and then I put out the
@@ -1023,13 +935,6 @@ RESPONSE: If you are with the
 quality, or at a funeral, or trying to go to sleep when you ain’t
 sleepy—if you are anywheres where it won’t do for you to scratch, why
 you will itch all over in upwards of a thousand places.
-
-INPUT: What does this say: If you are with the
-quality, or at a funeral, or trying to go to sleep when you ain’t
-sleepy—if you are anywheres where it won’t do for you to scratch, why
-you will itch all over in upwards of a thousand places.
-RESPONSE: Pretty soon Jim
-says:
 
 “Say, who is you?
 
@@ -1320,12 +1225,6 @@ RESPONSE: We
 went along a narrow place and got into a kind of room, all damp and
 sweaty and cold, and there we stopped.
 
-INPUT: Summarize: Tom poked about amongst the passages, and pretty soon ducked
-under a wall where you wouldn’t a noticed that there was a hole. We
-went along a narrow place and got into a kind of room, all damp and
-sweaty and cold, and there we stopped.
-RESPONSE: Tom says:
-
 “Now, we’ll start this band of robbers and call it Tom Sawyer’s Gang.
 
 INPUT: What is this about: Tom says:
@@ -1414,10 +1313,6 @@ the secrets.
 RESPONSE: Tom said it was a good idea, so he took a pencil and wrote
 it in.
 
-INPUT: What does this say: Tom said it was a good idea, so he took a pencil and wrote
-it in.
-RESPONSE: Then Ben Rogers says:
-
 “Here’s Huck Finn, he hain’t got no family; what you going to do ’bout
 him?
 
@@ -1466,12 +1361,6 @@ anything to do—everybody was stumped, and set still.
 RESPONSE: I was most ready
 to cry; but all at once I thought of a way, and so I offered them Miss
 Watson—they could kill her.
-
-INPUT: Summarize: Well, nobody could think of
-anything to do—everybody was stumped, and set still. I was most ready
-to cry; but all at once I thought of a way, and so I offered them Miss
-Watson—they could kill her.
-RESPONSE: Everybody said:
 
 “Oh, she’ll do.
 
@@ -1699,11 +1588,6 @@ INPUT: Summarize: ”
 want to do things regular, or don’t you?
 RESPONSE: —that’s the idea.
 
-INPUT: What does this say: —that’s the idea.
-RESPONSE: Don’t you
-reckon that the people that made the books knows what’s the correct
-thing to do?
-
 INPUT: Summarize: —that’s the idea. Don’t you
 reckon that the people that made the books knows what’s the correct
 thing to do?
@@ -1714,10 +1598,6 @@ RESPONSE: No, sir, we’ll just go on and ransom them in the regular way.
 
 INPUT: Summarize: Do you reckon _you_ can learn ’em anything? No, sir, we’ll just go on and ransom them in the regular way.
 RESPONSE: I don’t mind; but I say it’s a fool way, anyhow.
-
-INPUT: What is this about: I don’t mind; but I say it’s a fool way, anyhow.
-RESPONSE: Say, do we
-kill the women, too?
 
 INPUT: Summarize: I don’t mind; but I say it’s a fool way, anyhow. Say, do we
 kill the women, too?
@@ -1792,16 +1672,6 @@ RESPONSE: Ben Rogers said he couldn’t get out much, only Sundays, and so he
 wanted to begin next Sunday; but all the boys said it would be wicked
 to do it on Sunday, and that settled the thing.
 
-INPUT: Summarize: But Tom
-give him five cents to keep quiet, and said we would all go home and
-meet next week, and rob somebody and kill some people. Ben Rogers said he couldn’t get out much, only Sundays, and so he
-wanted to begin next Sunday; but all the boys said it would be wicked
-to do it on Sunday, and that settled the thing.
-RESPONSE: They agreed to get
-together and fix a day as soon as they could, and then we elected Tom
-Sawyer first captain and Jo Harper second captain of the Gang, and so
-started home.
-
 INPUT: Tell me about: They agreed to get
 together and fix a day as soon as they could, and then we elected Tom
 Sawyer first captain and Jo Harper second captain of the Gang, and so
@@ -1868,12 +1738,6 @@ couldn’t make it out no way.
 INPUT: Tell me about: She never told me why, and I
 couldn’t make it out no way.
 RESPONSE: I set down one time back in the woods, and had a long think about it.
-
-INPUT: Summarize: She never told me why, and I
-couldn’t make it out no way. I set down one time back in the woods, and had a long think about it.
-RESPONSE: I
-says to myself, if a body can get anything they pray for, why don’t
-Deacon Winn get back the money he lost on pork?
 
 INPUT: What does this mean: I
 says to myself, if a body can get anything they pray for, why don’t
@@ -1986,13 +1850,6 @@ all like pap; but they couldn’t make nothing out of the face, because
 it had been in the water so long it warn’t much like a face at all.
 RESPONSE: They said he was floating on his back in the water.
 
-INPUT: Summarize: They judged it was him, anyway; said this drownded man was
-just his size, and was ragged, and had uncommon long hair, which was
-all like pap; but they couldn’t make nothing out of the face, because
-it had been in the water so long it warn’t much like a face at all. They said he was floating on his back in the water.
-RESPONSE: They took him and
-buried him on the bank.
-
 INPUT: Tell me about: They took him and
 buried him on the bank.
 RESPONSE: But I warn’t comfortable long, because I
@@ -2008,12 +1865,6 @@ INPUT: What is this about: I knowed mighty well that a drownded
 man don’t float on his back, but on his face.
 RESPONSE: So I knowed, then, that
 this warn’t pap, but a woman dressed up in a man’s clothes.
-
-INPUT: Summarize: I knowed mighty well that a drownded
-man don’t float on his back, but on his face. So I knowed, then, that
-this warn’t pap, but a woman dressed up in a man’s clothes.
-RESPONSE: So I was
-uncomfortable again.
 
 INPUT: What is this about: So I was
 uncomfortable again.
@@ -2132,14 +1983,6 @@ INPUT: What does this mean: He
 said if I warn’t so ignorant, but had read a book called Don Quixote, I
 would know without asking.
 RESPONSE: He said it was all done by enchantment.
-
-INPUT: Summarize: He
-said if I warn’t so ignorant, but had read a book called Don Quixote, I
-would know without asking. He said it was all done by enchantment.
-RESPONSE: He
-said there was hundreds of soldiers there, and elephants and treasure,
-and so on, but we had enemies which he called magicians; and they had
-turned the whole thing into an infant Sunday-school, just out of spite.
 
 INPUT: Explain this: He
 said there was hundreds of soldiers there, and elephants and treasure,
@@ -2498,11 +2341,6 @@ couldn’t make it out. It was very curious, somehow.
 RESPONSE: I was going to
 follow around, but I stooped down to look at the tracks first.
 
-INPUT: What does this mean: I was going to
-follow around, but I stooped down to look at the tracks first.
-RESPONSE: I didn’t
-notice anything at first, but next I did.
-
 INPUT: Summarize: I was going to
 follow around, but I stooped down to look at the tracks first. I didn’t
 notice anything at first, but next I did.
@@ -2517,11 +2355,6 @@ INPUT: Summarize: There was a cross in the left
 boot-heel made with big nails, to keep off the devil. I was up in a second and shinning down the hill.
 RESPONSE: I looked over my
 shoulder every now and then, but I didn’t see nobody.
-
-INPUT: What does this say: I looked over my
-shoulder every now and then, but I didn’t see nobody.
-RESPONSE: I was at Judge
-Thatcher’s as quick as I could get there.
 
 INPUT: Summarize: I looked over my
 shoulder every now and then, but I didn’t see nobody. I was at Judge

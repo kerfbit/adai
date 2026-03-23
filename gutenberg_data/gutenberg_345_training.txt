@@ -50,9 +50,6 @@ RESPONSE: TO
 
  HOMMY-BEG
 
-
-
-
 Contents
 
 CHAPTER I.
@@ -62,9 +59,6 @@ INPUT: Can you explain: TO
  MY DEAR FRIEND
 
  HOMMY-BEG
-
-
-
 
 Contents
 
@@ -77,9 +71,6 @@ INPUT: Summarize: TO
  MY DEAR FRIEND
 
  HOMMY-BEG
-
-
-
 
 Contents
 
@@ -115,12 +106,6 @@ CHAPTER VII.
 RESPONSE: Cutting from “The Dailygraph,” 8 August
 CHAPTER VIII.
 
-INPUT: Summarize: Mina Murray’s Journal
-CHAPTER VII. Cutting from “The Dailygraph,” 8 August
-CHAPTER VIII.
-RESPONSE: Mina Murray’s Journal
-CHAPTER IX.
-
 INPUT: What does this say: Mina Murray’s Journal
 CHAPTER IX.
 RESPONSE: Mina Murray’s Journal
@@ -143,11 +128,6 @@ CHAPTER XII.
 RESPONSE: Seward’s Diary
 CHAPTER XIII.
 
-INPUT: Tell me about: Seward’s Diary
-CHAPTER XIII.
-RESPONSE: Seward’s Diary
-CHAPTER XIV.
-
 INPUT: Summarize: Seward’s Diary
 CHAPTER XIII. Seward’s Diary
 CHAPTER XIV.
@@ -158,23 +138,6 @@ INPUT: Explain this: Mina Harker’s Journal
 CHAPTER XV.
 RESPONSE: Seward’s Diary
 CHAPTER XVI.
-
-INPUT: Summarize: Mina Harker’s Journal
-CHAPTER XV. Seward’s Diary
-CHAPTER XVI.
-RESPONSE: Seward’s Diary
-CHAPTER XVII.
-
-INPUT: What does this mean: Seward’s Diary
-CHAPTER XVII.
-RESPONSE: Seward’s Diary
-CHAPTER XVIII.
-
-INPUT: Summarize: Seward’s Diary
-CHAPTER XVII. Seward’s Diary
-CHAPTER XVIII.
-RESPONSE: Seward’s Diary
-CHAPTER XIX.
 
 INPUT: What does this mean: Seward’s Diary
 CHAPTER XIX.
@@ -224,17 +187,11 @@ INPUT: What does this mean: Seward’s Diary
 CHAPTER XXVII.
 RESPONSE: Mina Harker’s Journal
 
-
-
-
 How these papers have been placed in sequence will be made manifest in
 the reading of them.
 
 INPUT: Summarize: Seward’s Diary
 CHAPTER XXVII. Mina Harker’s Journal
-
-
-
 
 How these papers have been placed in sequence will be made manifest in
 the reading of them.
@@ -258,9 +215,6 @@ exactly contemporary, given from the standpoints and within the range
 of knowledge of those who made them.
 RESPONSE: DRACULA
 
-
-
-
 CHAPTER I
 
 JONATHAN HARKER’S JOURNAL
@@ -268,9 +222,6 @@ JONATHAN HARKER’S JOURNAL
 (_Kept in shorthand.
 
 INPUT: Tell me about: DRACULA
-
-
-
 
 CHAPTER I
 
@@ -280,9 +231,6 @@ JONATHAN HARKER’S JOURNAL
 RESPONSE: _--Left Munich at 8:35 P.
 
 INPUT: Summarize: DRACULA
-
-
-
 
 CHAPTER I
 
@@ -423,13 +371,6 @@ from Attila and the Huns.
 RESPONSE: This may be so, for when the Magyars conquered
 the country in the eleventh century they found the Huns settled in it.
 
-INPUT: Explain this: This may be so, for when the Magyars conquered
-the country in the eleventh century they found the Huns settled in it.
-RESPONSE: I
-read that every known superstition in the world is gathered into the
-horseshoe of the Carpathians, as if it were the centre of some sort of
-imaginative whirlpool; if so my stay may be very interesting.
-
 INPUT: Summarize: This may be so, for when the Magyars conquered
 the country in the eleventh century they found the Huns settled in it. I
 read that every known superstition in the world is gathered into the
@@ -533,15 +474,6 @@ of attire.
 RESPONSE: Some of them were just like the peasants at home or those I
 saw coming through France and Germany, with short jackets and round hats
 and home-made trousers; but others were very picturesque.
-
-INPUT: Summarize: At every
-station there were groups of people, sometimes crowds, and in all sorts
-of attire. Some of them were just like the peasants at home or those I
-saw coming through France and Germany, with short jackets and round hats
-and home-made trousers; but others were very picturesque.
-RESPONSE: The women
-looked pretty, except when you got near them, but they were very clumsy
-about the waist.
 
 INPUT: Tell me about: The women
 looked pretty, except when you got near them, but they were very clumsy
@@ -693,12 +625,6 @@ INPUT: Summarize: I am anxiously expecting
 RESPONSE: At the Borgo
  Pass my carriage will await you and will bring you to me.
 
-INPUT: What does this mean: At the Borgo
- Pass my carriage will await you and will bring you to me.
-RESPONSE: I trust
- that your journey from London has been a happy one, and that you
- will enjoy your stay in my beautiful land.
-
 INPUT: Summarize: At the Borgo
  Pass my carriage will await you and will bring you to me. I trust
  that your journey from London has been a happy one, and that you
@@ -776,12 +702,6 @@ INPUT: Tell me about: young Herr, must you go?
 RESPONSE: ” She was in such an excited
 state that she seemed to have lost her grip of what German she knew, and
 mixed it all up with some other language which I did not know at all.
-
-INPUT: Summarize: young Herr, must you go? ” She was in such an excited
-state that she seemed to have lost her grip of what German she knew, and
-mixed it all up with some other language which I did not know at all.
-RESPONSE: I
-was just able to follow her by asking many questions.
 
 INPUT: What does this mean: I
 was just able to follow her by asking many questions.
@@ -865,16 +785,6 @@ tried to raise her up, and said, as gravely as I could, that I thanked
 her, but my duty was imperative, and that I must go.
 RESPONSE: She then rose and
 dried her eyes, and taking a crucifix from her neck offered it to me.
-
-INPUT: Summarize: I therefore
-tried to raise her up, and said, as gravely as I could, that I thanked
-her, but my duty was imperative, and that I must go. She then rose and
-dried her eyes, and taking a crucifix from her neck offered it to me.
-RESPONSE: I
-did not know what to do, for, as an English Churchman, I have been
-taught to regard such things as in some measure idolatrous, and yet it
-seemed so ungracious to refuse an old lady meaning so well and in such a
-state of mind.
 
 INPUT: What is this about: I
 did not know what to do, for, as an English Churchman, I have been
@@ -1203,28 +1113,11 @@ RESPONSE: This was
 emphasised by the fact that the snowy mountain-top still held the
 sunset, and seemed to glow out with a delicate cool pink.
 
-INPUT: Summarize: As we wound on our endless way, and the sun sank lower and lower behind
-us, the shadows of the evening began to creep round us. This was
-emphasised by the fact that the snowy mountain-top still held the
-sunset, and seemed to glow out with a delicate cool pink.
-RESPONSE: Here and there
-we passed Cszeks and Slovaks, all in picturesque attire, but I noticed
-that goitre was painfully prevalent.
-
 INPUT: Can you explain: Here and there
 we passed Cszeks and Slovaks, all in picturesque attire, but I noticed
 that goitre was painfully prevalent.
 RESPONSE: By the roadside were many crosses,
 and as we swept by, my companions all crossed themselves.
-
-INPUT: Summarize: Here and there
-we passed Cszeks and Slovaks, all in picturesque attire, but I noticed
-that goitre was painfully prevalent. By the roadside were many crosses,
-and as we swept by, my companions all crossed themselves.
-RESPONSE: Here and there
-was a peasant man or woman kneeling before a shrine, who did not even
-turn round as we approached, but seemed in the self-surrender of
-devotion to have neither eyes nor ears for the outer world.
 
 INPUT: What does this say: Here and there
 was a peasant man or woman kneeling before a shrine, who did not even
@@ -1283,22 +1176,6 @@ peculiarly weird and solemn effect, which carried on the thoughts and
 grim fancies engendered earlier in the evening, when the falling sunset
 threw into strange relief the ghost-like clouds which amongst the
 Carpathians seem to wind ceaselessly through the valleys.
-
-INPUT: Summarize: As the evening fell it began to get very cold,
-and the growing twilight seemed to merge into one dark mistiness the
-gloom of the trees, oak, beech, and pine, though in the valleys which
-ran deep between the spurs of the hills, as we ascended through the
-Pass, the dark firs stood out here and there against the background of
-late-lying snow. Sometimes, as the road was cut through the pine woods
-that seemed in the darkness to be closing down upon us, great masses of
-greyness, which here and there bestrewed the trees, produced a
-peculiarly weird and solemn effect, which carried on the thoughts and
-grim fancies engendered earlier in the evening, when the falling sunset
-threw into strange relief the ghost-like clouds which amongst the
-Carpathians seem to wind ceaselessly through the valleys.
-RESPONSE: Sometimes the
-hills were so steep that, despite our driver’s haste, the horses could
-only go slowly.
 
 INPUT: Tell me about: Sometimes the
 hills were so steep that, despite our driver’s haste, the horses could
@@ -1369,17 +1246,6 @@ INPUT: What does this say: The road grew more level, and we appeared
 to fly along.
 RESPONSE: Then the mountains seemed to come nearer to us on each
 side and to frown down upon us; we were entering on the Borgo Pass.
-
-INPUT: Summarize: The road grew more level, and we appeared
-to fly along. Then the mountains seemed to come nearer to us on each
-side and to frown down upon us; we were entering on the Borgo Pass.
-RESPONSE: One
-by one several of the passengers offered me gifts, which they pressed
-upon me with an earnestness which would take no denial; these were
-certainly of an odd and varied kind, but each was given in simple good
-faith, with a kindly word, and a blessing, and that strange mixture of
-fear-meaning movements which I had seen outside the hotel at
-Bistritz--the sign of the cross and the guard against the evil eye.
 
 INPUT: What does this say: One
 by one several of the passengers offered me gifts, which they pressed
@@ -1495,15 +1361,6 @@ the next day.
 RESPONSE: ” Whilst he was speaking the horses began to neigh and
 snort and plunge wildly, so that the driver had to hold them up.
 
-INPUT: Summarize: He will
-now come on to Bukovina, and return to-morrow or the next day; better
-the next day. ” Whilst he was speaking the horses began to neigh and
-snort and plunge wildly, so that the driver had to hold them up.
-RESPONSE: Then,
-amongst a chorus of screams from the peasants and a universal crossing
-of themselves, a calèche, with four horses, drove up behind us, overtook
-us, and drew up beside the coach.
-
 INPUT: Explain this: Then,
 amongst a chorus of screams from the peasants and a universal crossing
 of themselves, a calèche, with four horses, drove up behind us, overtook
@@ -1520,12 +1377,6 @@ lamps, as the rays fell on them, that the horses were coal-black and
 splendid animals.
 RESPONSE: They were driven by a tall man, with a long brown
 beard and a great black hat, which seemed to hide his face from us.
-
-INPUT: What does this say: They were driven by a tall man, with a long brown
-beard and a great black hat, which seemed to hide his face from us.
-RESPONSE: I
-could only see the gleam of a pair of very bright eyes, which seemed red
-in the lamplight, as he turned to us.
 
 INPUT: Summarize: They were driven by a tall man, with a long brown
 beard and a great black hat, which seemed to hide his face from us. I
@@ -1553,19 +1404,6 @@ INPUT: Summarize: He said to the driver:--
 “That is why, I suppose, you wished him to go on to Bukovina.
 RESPONSE: You cannot
 deceive me, my friend; I know too much, and my horses are swift.
-
-INPUT: Can you explain: You cannot
-deceive me, my friend; I know too much, and my horses are swift.
-RESPONSE: ” As he
-spoke he smiled, and the lamplight fell on a hard-looking mouth, with
-very red lips and sharp-looking teeth, as white as ivory.
-
-INPUT: Summarize: You cannot
-deceive me, my friend; I know too much, and my horses are swift. ” As he
-spoke he smiled, and the lamplight fell on a hard-looking mouth, with
-very red lips and sharp-looking teeth, as white as ivory.
-RESPONSE: One of my
-companions whispered to another the line from Burger’s “Lenore”:--
 
  “Denn die Todten reiten schnell”--
  (“For the dead travel fast.
@@ -1663,11 +1501,6 @@ country) underneath the seat, if you should require it.
 RESPONSE: ” I did not take
 any, but it was a comfort to know it was there all the same.
 
-INPUT: Tell me about: ” I did not take
-any, but it was a comfort to know it was there all the same.
-RESPONSE: I felt a
-little strangely, and not a little frightened.
-
 INPUT: Summarize: ” I did not take
 any, but it was a comfort to know it was there all the same. I felt a
 little strangely, and not a little frightened.
@@ -1680,15 +1513,6 @@ any alternative I should have taken it, instead of prosecuting that
 unknown night journey.
 RESPONSE: The carriage went at a hard pace straight along,
 then we made a complete turn and went along another straight road.
-
-INPUT: Summarize: I think had there been
-any alternative I should have taken it, instead of prosecuting that
-unknown night journey. The carriage went at a hard pace straight along,
-then we made a complete turn and went along another straight road.
-RESPONSE: It
-seemed to me that we were simply going over and over the same ground
-again; and so I took note of some salient point, and found that this was
-so.
 
 INPUT: What is this about: It
 seemed to me that we were simply going over and over the same ground
@@ -1855,19 +1679,6 @@ however, was not in the least disturbed; he kept turning his head to
 left and right, but I could not see anything through the darkness.
 RESPONSE: Suddenly, away on our left, I saw a faint flickering blue flame.
 
-INPUT: Tell me about: Suddenly, away on our left, I saw a faint flickering blue flame.
-RESPONSE: The
-driver saw it at the same moment; he at once checked the horses, and,
-jumping to the ground, disappeared into the darkness.
-
-INPUT: Summarize: Suddenly, away on our left, I saw a faint flickering blue flame. The
-driver saw it at the same moment; he at once checked the horses, and,
-jumping to the ground, disappeared into the darkness.
-RESPONSE: I did not know
-what to do, the less as the howling of the wolves grew closer; but while
-I wondered the driver suddenly appeared again, and without a word took
-his seat, and we resumed our journey.
-
 INPUT: What does this say: I did not know
 what to do, the less as the howling of the wolves grew closer; but while
 I wondered the driver suddenly appeared again, and without a word took
@@ -2029,14 +1840,6 @@ RESPONSE: The time
 seemed interminable as we swept on our way, now in almost complete
 darkness, for the rolling clouds obscured the moon.
 
-INPUT: Summarize: This was all so strange and uncanny that a
-dreadful fear came upon me, and I was afraid to speak or move. The time
-seemed interminable as we swept on our way, now in almost complete
-darkness, for the rolling clouds obscured the moon.
-RESPONSE: We kept on
-ascending, with occasional periods of quick descent, but in the main
-always ascending.
-
 INPUT: Tell me about: We kept on
 ascending, with occasional periods of quick descent, but in the main
 always ascending.
@@ -2057,13 +1860,11 @@ RESPONSE: CHAPTER II
 
 JONATHAN HARKER’S JOURNAL--_continued_
 
-
 _5 May.
 
 INPUT: What does this mean: CHAPTER II
 
 JONATHAN HARKER’S JOURNAL--_continued_
-
 
 _5 May.
 RESPONSE: _--I must have been asleep, for certainly if I had been fully
@@ -2072,7 +1873,6 @@ awake I must have noticed the approach of such a remarkable place.
 INPUT: Summarize: CHAPTER II
 
 JONATHAN HARKER’S JOURNAL--_continued_
-
 
 _5 May. _--I must have been asleep, for certainly if I had been fully
 awake I must have noticed the approach of such a remarkable place.
@@ -2135,18 +1935,6 @@ reins; the horses started forward, and trap and all disappeared down one
 of the dark openings.
 RESPONSE: I stood in silence where I was, for I did not know what to do.
 
-INPUT: Explain this: I stood in silence where I was, for I did not know what to do.
-RESPONSE: Of bell
-or knocker there was no sign; through these frowning walls and dark
-window openings it was not likely that my voice could penetrate.
-
-INPUT: Summarize: I stood in silence where I was, for I did not know what to do. Of bell
-or knocker there was no sign; through these frowning walls and dark
-window openings it was not likely that my voice could penetrate.
-RESPONSE: The
-time I waited seemed endless, and I felt doubts and fears crowding upon
-me.
-
 INPUT: Can you explain: The
 time I waited seemed endless, and I felt doubts and fears crowding upon
 me.
@@ -2199,14 +1987,6 @@ the dawn struggling in through the windows, as I had now and again felt
 in the morning after a day of overwork.
 RESPONSE: But my flesh answered the
 pinching test, and my eyes were not to be deceived.
-
-INPUT: Summarize: It all seemed like a horrible nightmare to me, and I
-expected that I should suddenly awake, and find myself at home, with
-the dawn struggling in through the windows, as I had now and again felt
-in the morning after a day of overwork. But my flesh answered the
-pinching test, and my eyes were not to be deceived.
-RESPONSE: I was indeed awake
-and among the Carpathians.
 
 INPUT: Can you explain: I was indeed awake
 and among the Carpathians.
@@ -2332,12 +2112,6 @@ the night air is chill, and you must need to eat and rest.
 RESPONSE: ” As he was
 speaking, he put the lamp on a bracket on the wall, and stepping out,
 took my luggage; he had carried it in before I could forestall him.
-
-INPUT: Tell me about: ” As he was
-speaking, he put the lamp on a bracket on the wall, and stepping out,
-took my luggage; he had carried it in before I could forestall him.
-RESPONSE: I
-protested but he insisted:--
 
 “Nay, sir, you are my guest.
 
@@ -2500,13 +2274,6 @@ INPUT: What does this mean: He is a young man, full of energy
 and talent in his own way, and of a very faithful disposition.
 RESPONSE: He is
 discreet and silent, and has grown into manhood in my service.
-
-INPUT: Summarize: He is a young man, full of energy
-and talent in his own way, and of a very faithful disposition. He is
-discreet and silent, and has grown into manhood in my service.
-RESPONSE: He shall
-be ready to attend on you when you will during his stay, and shall take
-your instructions in all matters.
 
 INPUT: What does this mean: He shall
 be ready to attend on you when you will during his stay, and shall take
@@ -2869,10 +2636,6 @@ Law List. Whilst I was looking at the books, the door opened, and the Count
 entered.
 RESPONSE: He saluted me in a hearty way, and hoped that I had had a good
 night’s rest.
-
-INPUT: What does this mean: He saluted me in a hearty way, and hoped that I had had a good
-night’s rest.
-RESPONSE: Then he went on:--
 
 “I am glad you found your way in here, for I am sure there is much that
 will interest you.
@@ -3666,12 +3429,6 @@ INPUT: What does this say: I have only the Count to speak with,
 and he!
 RESPONSE: --I fear I am myself the only living soul within the place.
 
-INPUT: Summarize: I have only the Count to speak with,
-and he! --I fear I am myself the only living soul within the place.
-RESPONSE: Let
-me be prosaic so far as facts can be; it will help me to bear up, and
-imagination must not run riot with me.
-
 INPUT: What is this about: Let
 me be prosaic so far as facts can be; it will help me to bear up, and
 imagination must not run riot with me.
@@ -3837,10 +3594,6 @@ INPUT: Summarize: It is strange that
 as yet I have not seen the Count eat or drink. He must be a very
 peculiar man!
 RESPONSE: After breakfast I did a little exploring in the castle.
-
-INPUT: Tell me about: After breakfast I did a little exploring in the castle.
-RESPONSE: I
-went out on the stairs, and found a room looking towards the South.
 
 INPUT: Summarize: After breakfast I did a little exploring in the castle. I
 went out on the stairs, and found a room looking towards the South.

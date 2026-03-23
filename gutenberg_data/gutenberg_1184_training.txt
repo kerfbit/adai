@@ -2,11 +2,7 @@ INPUT: Can you explain: THE COUNT OF MONTE CRISTO
 
 by Alexandre Dumas [père]
 
-
-
-
 Contents
-
 
  VOLUME ONE
 Chapter 1.
@@ -17,11 +13,7 @@ INPUT: Summarize: THE COUNT OF MONTE CRISTO
 
 by Alexandre Dumas [père]
 
-
-
-
 Contents
-
 
  VOLUME ONE
 Chapter 1. Marseilles—The Arrival
@@ -56,12 +48,6 @@ Chapter 7.
 RESPONSE: The Examination
 Chapter 8.
 
-INPUT: Summarize: The Deputy Procureur du Roi
-Chapter 7. The Examination
-Chapter 8.
-RESPONSE: The Château d’If
-Chapter 9.
-
 INPUT: What does this mean: The Château d’If
 Chapter 9.
 RESPONSE: The Evening of the Betrothal
@@ -84,11 +70,6 @@ Chapter 12.
 RESPONSE: Father and Son
 Chapter 13.
 
-INPUT: What is this about: Father and Son
-Chapter 13.
-RESPONSE: The Hundred Days
-Chapter 14.
-
 INPUT: Summarize: Father and Son
 Chapter 13. The Hundred Days
 Chapter 14.
@@ -99,12 +80,6 @@ INPUT: What does this mean: The Two Prisoners
 Chapter 15.
 RESPONSE: Number 34 and Number 27
 Chapter 16.
-
-INPUT: Summarize: The Two Prisoners
-Chapter 15. Number 34 and Number 27
-Chapter 16.
-RESPONSE: A Learned Italian
-Chapter 17.
 
 INPUT: Tell me about: A Learned Italian
 Chapter 17.
@@ -128,17 +103,6 @@ Chapter 20.
 RESPONSE: The Cemetery of the Château d’If
 Chapter 21.
 
-INPUT: Can you explain: The Cemetery of the Château d’If
-Chapter 21.
-RESPONSE: The Island of Tiboulen
-Chapter 22.
-
-INPUT: Summarize: The Cemetery of the Château d’If
-Chapter 21. The Island of Tiboulen
-Chapter 22.
-RESPONSE: The Smugglers
-Chapter 23.
-
 INPUT: What is this about: The Smugglers
 Chapter 23.
 RESPONSE: The Island of Monte Cristo
@@ -149,17 +113,6 @@ Chapter 23. The Island of Monte Cristo
 Chapter 24.
 RESPONSE: The Secret Cave
 Chapter 25.
-
-INPUT: Tell me about: The Secret Cave
-Chapter 25.
-RESPONSE: The Unknown
-Chapter 26.
-
-INPUT: Summarize: The Secret Cave
-Chapter 25. The Unknown
-Chapter 26.
-RESPONSE: The Pont du Gard Inn
-Chapter 27.
 
 INPUT: Tell me about: The Pont du Gard Inn
 Chapter 27.
@@ -192,27 +145,11 @@ Chapter 31.
 RESPONSE: Italy: Sinbad the Sailor
 Chapter 32.
 
-INPUT: Summarize: The Fifth of September
-Chapter 31. Italy: Sinbad the Sailor
-Chapter 32.
-RESPONSE: The Waking
-Chapter 33.
-
-INPUT: What does this mean: The Waking
-Chapter 33.
-RESPONSE: Roman Bandits
-Chapter 34.
-
 INPUT: Summarize: The Waking
 Chapter 33. Roman Bandits
 Chapter 34.
 RESPONSE: The Colosseum
 Chapter 35.
-
-INPUT: Explain this: The Colosseum
-Chapter 35.
-RESPONSE: La Mazzolata
-Chapter 36.
 
 INPUT: Summarize: The Colosseum
 Chapter 35. La Mazzolata
@@ -227,11 +164,6 @@ INPUT: Summarize: The Carnival at Rome. The Catacombs of Saint Sebastian
 Chapter 38.
 RESPONSE: The Rendezvous
 Chapter 39.
-
-INPUT: Tell me about: The Rendezvous
-Chapter 39.
-RESPONSE: The Guests
-Chapter 40.
 
 INPUT: Summarize: The Rendezvous
 Chapter 39. The Guests
@@ -255,17 +187,6 @@ Chapter 43.
 RESPONSE: The House at Auteuil
 Chapter 44.
 
-INPUT: Summarize: Monsieur Bertuccio
-Chapter 43. The House at Auteuil
-Chapter 44.
-RESPONSE: The Vendetta
-Chapter 45.
-
-INPUT: What does this say: The Vendetta
-Chapter 45.
-RESPONSE: The Rain of Blood
-Chapter 46.
-
 INPUT: Summarize: The Vendetta
 Chapter 45. The Rain of Blood
 Chapter 46.
@@ -287,11 +208,6 @@ Chapter 48.
 RESPONSE: Ideology
 Chapter 49.
 
-INPUT: What does this mean: Ideology
-Chapter 49.
-RESPONSE: The Morrel Family
-Chapter 51.
-
 INPUT: Summarize: Ideology
 Chapter 49. The Morrel Family
 Chapter 51.
@@ -303,38 +219,17 @@ Chapter 52.
 RESPONSE: Toxicology
 Chapter 53.
 
-INPUT: Summarize: Pyramus and Thisbe
-Chapter 52. Toxicology
-Chapter 53.
-RESPONSE: Robert le Diable
-Chapter 54.
-
-INPUT: Can you explain: Robert le Diable
-Chapter 54.
-RESPONSE: A Flurry in Stocks
-Chapter 55.
-
 INPUT: Summarize: Robert le Diable
 Chapter 54. A Flurry in Stocks
 Chapter 55.
 RESPONSE: Major Cavalcanti
 Chapter 56.
 
-INPUT: Tell me about: Major Cavalcanti
-Chapter 56.
-RESPONSE: Andrea Cavalcanti
-Chapter 57.
-
 INPUT: Summarize: Major Cavalcanti
 Chapter 56. Andrea Cavalcanti
 Chapter 57.
 RESPONSE: In the Lucern Patch
 Chapter 58.
-
-INPUT: Can you explain: In the Lucern Patch
-Chapter 58.
-RESPONSE: Noirtier de Villefort
-Chapter 59.
 
 INPUT: Summarize: In the Lucern Patch
 Chapter 58. Noirtier de Villefort
@@ -357,12 +252,6 @@ INPUT: What is this about: How a Gardener May Get Rid of the Dormice
 Chapter 62.
 RESPONSE: The Dinner
 Chapter 64.
-
-INPUT: Summarize: How a Gardener May Get Rid of the Dormice
-Chapter 62. The Dinner
-Chapter 64.
-RESPONSE: The Beggar
-Chapter 65.
 
 INPUT: Tell me about: The Beggar
 Chapter 65.
@@ -397,17 +286,6 @@ Chapter 70.
 RESPONSE: The Ball
 Chapter 71.
 
-INPUT: What does this mean: The Ball
-Chapter 71.
-RESPONSE: Bread and Salt
-Chapter 72.
-
-INPUT: Summarize: The Ball
-Chapter 71. Bread and Salt
-Chapter 72.
-RESPONSE: Madame de Saint-Méran
-Chapter 73.
-
 INPUT: Explain this: Madame de Saint-Méran
 Chapter 73.
 RESPONSE: The Promise
@@ -439,12 +317,6 @@ Chapter 77.
 RESPONSE: We hear From Yanina
 Chapter 79.
 
-INPUT: Summarize: Progress of Cavalcanti the Younger
-Chapter 77. We hear From Yanina
-Chapter 79.
-RESPONSE: The Lemonade
-Chapter 80.
-
 INPUT: Tell me about: The Lemonade
 Chapter 80.
 RESPONSE: The Accusation
@@ -467,32 +339,10 @@ Chapter 83.
 RESPONSE: The Hand of God
 Chapter 84.
 
-INPUT: Tell me about: The Hand of God
-Chapter 84.
-RESPONSE: Beauchamp
-Chapter 85.
-
-INPUT: Summarize: The Hand of God
-Chapter 84. Beauchamp
-Chapter 85.
-RESPONSE: The Journey
-Chapter 86.
-
 INPUT: Explain this: The Journey
 Chapter 86.
 RESPONSE: The Trial
 Chapter 87.
-
-INPUT: Summarize: The Journey
-Chapter 86. The Trial
-Chapter 87.
-RESPONSE: The Challenge
-Chapter 88.
-
-INPUT: Can you explain: The Challenge
-Chapter 88.
-RESPONSE: The Insult
-Chapter 89.
 
 INPUT: Summarize: The Challenge
 Chapter 88. The Insult
@@ -500,32 +350,11 @@ Chapter 89.
 RESPONSE: The Night
 Chapter 90.
 
-INPUT: Tell me about: The Night
-Chapter 90.
-RESPONSE: The Meeting
-Chapter 91.
-
 INPUT: Summarize: The Night
 Chapter 90. The Meeting
 Chapter 91.
 RESPONSE: Mother and Son
 Chapter 92.
-
-INPUT: What does this mean: Mother and Son
-Chapter 92.
-RESPONSE: The Suicide
-Chapter 93.
-
-INPUT: Summarize: Mother and Son
-Chapter 92. The Suicide
-Chapter 93.
-RESPONSE: Valentine
-Chapter 94.
-
-INPUT: What is this about: Valentine
-Chapter 94.
-RESPONSE: Maximilian’s Avowal
-Chapter 95.
 
 INPUT: Summarize: Valentine
 Chapter 94. Maximilian’s Avowal
@@ -566,22 +395,10 @@ Chapter 100.
 RESPONSE: The Apparition
 Chapter 101.
 
-INPUT: Summarize: The Law
-Chapter 100. The Apparition
-Chapter 101.
-RESPONSE: Locusta
-Chapter 102.
-
 INPUT: Tell me about: Locusta
 Chapter 102.
 RESPONSE: Valentine
 Chapter 103.
-
-INPUT: Summarize: Locusta
-Chapter 102. Valentine
-Chapter 103.
-RESPONSE: Maximilian
-Chapter 104.
 
 INPUT: Explain this: Maximilian
 Chapter 104.
@@ -605,27 +422,11 @@ Chapter 107.
 RESPONSE: The Lions’ Den
 Chapter 108.
 
-INPUT: What does this mean: The Lions’ Den
-Chapter 108.
-RESPONSE: The Judge
-Chapter 109.
-
 INPUT: Summarize: The Lions’ Den
 Chapter 108. The Judge
 Chapter 109.
 RESPONSE: The Assizes
 Chapter 110.
-
-INPUT: What is this about: The Assizes
-Chapter 110.
-RESPONSE: The Indictment
-Chapter 111.
-
-INPUT: Summarize: The Assizes
-Chapter 110. The Indictment
-Chapter 111.
-RESPONSE: Expiation
-Chapter 112.
 
 INPUT: What is this about: Expiation
 Chapter 112.
@@ -643,37 +444,18 @@ Chapter 114.
 RESPONSE: Peppino
 Chapter 115.
 
-INPUT: Summarize: The Past
-Chapter 114. Peppino
-Chapter 115.
-RESPONSE: Luigi Vampa’s Bill of Fare
-Chapter 116.
-
-INPUT: What is this about: Luigi Vampa’s Bill of Fare
-Chapter 116.
-RESPONSE: The Pardon
-Chapter 117.
-
 INPUT: Summarize: Luigi Vampa’s Bill of Fare
 Chapter 116. The Pardon
 Chapter 117.
 RESPONSE: The Fifth of October
 
-
-
 VOLUME ONE
-
-
 
  Chapter 1.
 
 INPUT: What is this about: The Fifth of October
 
-
-
 VOLUME ONE
-
-
 
  Chapter 1.
 RESPONSE: Marseilles—The Arrival
@@ -684,11 +466,7 @@ Naples.
 
 INPUT: Summarize: The Fifth of October
 
-
-
 VOLUME ONE
-
-
 
  Chapter 1. Marseilles—The Arrival
 
@@ -807,10 +585,6 @@ INPUT: What does this say: ” inquired the owner, eagerly.
 RESPONSE: Morrel; and I think you will be satisfied on that
 head.
 
-INPUT: Summarize: ” inquired the owner, eagerly. Morrel; and I think you will be satisfied on that
-head.
-RESPONSE: But poor Captain Leclere——”
-
 “What happened to him?
 
 INPUT: What does this say: But poor Captain Leclere——”
@@ -878,25 +652,15 @@ INPUT: Can you explain: “And how did this misfortune occur?
 RESPONSE: ” inquired the latter, resuming the
 interrupted conversation.
 
-INPUT: Summarize: “And how did this misfortune occur? ” inquired the latter, resuming the
-interrupted conversation.
-RESPONSE: 0023m
-
-
-
 “Alas, sir, in the most unexpected manner.
 
 INPUT: What does this mean: 0023m
-
-
 
 “Alas, sir, in the most unexpected manner.
 RESPONSE: After a long talk with the
 harbor-master, Captain Leclere left Naples greatly disturbed in mind.
 
 INPUT: Summarize: 0023m
-
-
 
 “Alas, sir, in the most unexpected manner. After a long talk with the
 harbor-master, Captain Leclere left Naples greatly disturbed in mind.
@@ -1106,8 +870,6 @@ RESPONSE: ”
 
 0025m
 
-
-
 “As to taking command of the vessel,” replied Morrel, “that was his
 duty as captain’s mate; as to losing a day and a half off the Island of
 Elba, he was wrong, unless the vessel needed repairs.
@@ -1115,8 +877,6 @@ Elba, he was wrong, unless the vessel needed repairs.
 INPUT: What does this mean: ”
 
 0025m
-
-
 
 “As to taking command of the vessel,” replied Morrel, “that was his
 duty as captain’s mate; as to losing a day and a half off the Island of
@@ -1129,8 +889,6 @@ M.
 INPUT: Summarize: ”
 
 0025m
-
-
 
 “As to taking command of the vessel,” replied Morrel, “that was his
 duty as captain’s mate; as to losing a day and a half off the Island of
@@ -1369,11 +1127,6 @@ RESPONSE: The Morrels have been shipowners
 from father to son; and there was a Morrel who served in the same
 regiment with me when I was in garrison at Valence.
 
-INPUT: Can you explain: The Morrels have been shipowners
-from father to son; and there was a Morrel who served in the same
-regiment with me when I was in garrison at Valence.
-RESPONSE: ’”
-
 “_Pardieu!
 
 INPUT: Summarize: The Morrels have been shipowners
@@ -1412,15 +1165,11 @@ RESPONSE: ”
 
 0027m
 
-
-
 “How could that bring me into trouble, sir?
 
 INPUT: Tell me about: ”
 
 0027m
-
-
 
 “How could that bring me into trouble, sir?
 RESPONSE: ” asked Dantès; “for I did
@@ -1430,8 +1179,6 @@ such inquiries as he would of the first comer.
 INPUT: Summarize: ”
 
 0027m
-
-
 
 “How could that bring me into trouble, sir? ” asked Dantès; “for I did
 not even know of what I was the bearer; and the emperor merely made
@@ -1651,8 +1398,6 @@ RESPONSE: ”
 
 0029m
 
-
-
 “Right, Dantès, quite right.
 
 INPUT: Summarize: My first visit is due
@@ -1660,8 +1405,6 @@ to my father, though I am not the less grateful for the honor you have
 done me. ”
 
 0029m
-
-
 
 “Right, Dantès, quite right.
 RESPONSE: I always knew you were a good son.
@@ -2527,16 +2270,12 @@ RESPONSE: ”
 
 0035m
 
-
-
 “Yes, here I am,” said the young man, “with a promising future and a
 little money.
 
 INPUT: Explain this: ”
 
 0035m
-
-
 
 “Yes, here I am,” said the young man, “with a promising future and a
 little money.
@@ -2546,8 +2285,6 @@ send for something immediately.
 INPUT: Summarize: ”
 
 0035m
-
-
 
 “Yes, here I am,” said the young man, “with a promising future and a
 little money. ” he said, “take this—take it, and
@@ -2717,10 +2454,6 @@ when we do not owe them money, we owe them gratitude. ”
 “What’s the use of mentioning that?
 RESPONSE: What is done is done.
 
-INPUT: What is this about: What is done is done.
-RESPONSE: Let us talk
-of your happy return, my boy.
-
 INPUT: Summarize: What is done is done. Let us talk
 of your happy return, my boy.
 RESPONSE: I had gone on the quay to match a piece
@@ -2770,15 +2503,11 @@ RESPONSE: ”
 
 0037m
 
-
-
 “Worthy Caderousse!
 
 INPUT: What does this mean: ”
 
 0037m
-
-
 
 “Worthy Caderousse!
 RESPONSE: ” said the old man, “he is so much attached to us.
@@ -2786,8 +2515,6 @@ RESPONSE: ” said the old man, “he is so much attached to us.
 INPUT: Summarize: ”
 
 0037m
-
-
 
 “Worthy Caderousse! ” said the old man, “he is so much attached to us.
 RESPONSE: ”
@@ -2870,10 +2597,6 @@ INPUT: Summarize: ”
 
 “It was offered with good will,” said Dantès. “No doubt, my boy; no doubt.
 RESPONSE: Well, you stand well with M.
-
-INPUT: What is this about: Well, you stand well with M.
-RESPONSE: Morrel I
-hear,—you insinuating dog, you!
 
 INPUT: Summarize: Well, you stand well with M. Morrel I
 hear,—you insinuating dog, you!
@@ -3050,14 +2773,10 @@ followers; she particularly has them by dozens. ” answered Edmond, with a smil
 slight uneasiness.
 RESPONSE: 0039m
 
-
-
 “Ah, yes,” continued Caderousse, “and capital offers, too; but you
 know, you will be captain, and who could refuse you then?
 
 INPUT: What is this about: 0039m
-
-
 
 “Ah, yes,” continued Caderousse, “and capital offers, too; but you
 know, you will be captain, and who could refuse you then?
@@ -3069,8 +2788,6 @@ his trouble, “that if I were not a captain——”
 “Eh—eh!
 
 INPUT: Summarize: 0039m
-
-
 
 “Ah, yes,” continued Caderousse, “and capital offers, too; but you
 know, you will be captain, and who could refuse you then? ”
@@ -3259,8 +2976,6 @@ RESPONSE: ”
 
 0041m
 
-
-
 “Explain yourself.
 
 INPUT: Summarize: ”
@@ -3269,8 +2984,6 @@ INPUT: Summarize: ”
 storm in that quarter. ”
 
 0041m
-
-
 
 “Explain yourself.
 RESPONSE: ”

@@ -22,16 +22,6 @@ death, which happened ten years before his own, produced a great
 alteration in his home; for to supply her loss, he invited and received
 into his house the family of his nephew Mr.
 
-INPUT: Summarize: The late owner of this estate was a single
-man, who lived to a very advanced age, and who for many years of his
-life, had a constant companion and housekeeper in his sister. But her
-death, which happened ten years before his own, produced a great
-alteration in his home; for to supply her loss, he invited and received
-into his house the family of his nephew Mr.
-RESPONSE: Henry Dashwood, the legal
-inheritor of the Norland estate, and the person to whom he intended to
-bequeath it.
-
 INPUT: Tell me about: Henry Dashwood, the legal
 inheritor of the Norland estate, and the person to whom he intended to
 bequeath it.
@@ -44,10 +34,6 @@ bequeath it. In the society of his nephew and niece, and their
 children, the old Gentleman’s days were comfortably spent.
 RESPONSE: His
 attachment to them all increased.
-
-INPUT: What does this say: His
-attachment to them all increased.
-RESPONSE: The constant attention of Mr.
 
 INPUT: Summarize: His
 attachment to them all increased. The constant attention of Mr.
@@ -282,11 +268,6 @@ them three thousand pounds: it would be liberal and handsome!
 RESPONSE: It would
 be enough to make them completely easy.
 
-INPUT: Summarize: “Yes, he would give
-them three thousand pounds: it would be liberal and handsome! It would
-be enough to make them completely easy.
-RESPONSE: Three thousand pounds!
-
 INPUT: What is this about: Three thousand pounds!
 RESPONSE: he could
 spare so considerable a sum with little inconvenience.
@@ -299,12 +280,6 @@ it all day long, and for many days successively, and he did not repent.
 INPUT: Tell me about: ” He thought of
 it all day long, and for many days successively, and he did not repent.
 RESPONSE: No sooner was his father’s funeral over, than Mrs.
-
-INPUT: Summarize: ” He thought of
-it all day long, and for many days successively, and he did not repent. No sooner was his father’s funeral over, than Mrs.
-RESPONSE: John Dashwood,
-without sending any notice of her intention to her mother-in-law,
-arrived with her child and their attendants.
 
 INPUT: Explain this: John Dashwood,
 without sending any notice of her intention to her mother-in-law,
@@ -531,30 +506,12 @@ of their dear little boy would be impoverishing him to the most
 dreadful degree.
 RESPONSE: She begged him to think again on the subject.
 
-INPUT: Summarize: To take three thousand pounds from the fortune
-of their dear little boy would be impoverishing him to the most
-dreadful degree. She begged him to think again on the subject.
-RESPONSE: How
-could he answer it to himself to rob his child, and his only child too,
-of so large a sum?
-
 INPUT: Explain this: How
 could he answer it to himself to rob his child, and his only child too,
 of so large a sum?
 RESPONSE: And what possible claim could the Miss Dashwoods,
 who were related to him only by half blood, which she considered as no
 relationship at all, have on his generosity to so large an amount.
-
-INPUT: Summarize: How
-could he answer it to himself to rob his child, and his only child too,
-of so large a sum? And what possible claim could the Miss Dashwoods,
-who were related to him only by half blood, which she considered as no
-relationship at all, have on his generosity to so large an amount.
-RESPONSE: It
-was very well known that no affection was ever supposed to exist
-between the children of any man by different marriages; and why was he
-to ruin himself, and their poor little Harry, by giving away all his
-money to his half sisters?
 
 INPUT: Explain this: It
 was very well known that no affection was ever supposed to exist
@@ -622,16 +579,6 @@ hardly suppose I should neglect them. But as he required the promise, I
 could not do less than give it; at least I thought so at the time.
 RESPONSE: The
 promise, therefore, was given, and must be performed.
-
-INPUT: Tell me about: The
-promise, therefore, was given, and must be performed.
-RESPONSE: Something must be
-done for them whenever they leave Norland and settle in a new home.
-
-INPUT: Summarize: The
-promise, therefore, was given, and must be performed. Something must be
-done for them whenever they leave Norland and settle in a new home.
-RESPONSE: ”
 
 “Well, then, _let_ something be done for them; but _that_ something
 need not be three thousand pounds.
@@ -1353,12 +1300,6 @@ peculiar graces of person or address.
 RESPONSE: He was not handsome, and his
 manners required intimacy to make them pleasing.
 
-INPUT: What is this about: He was not handsome, and his
-manners required intimacy to make them pleasing.
-RESPONSE: He was too diffident
-to do justice to himself; but when his natural shyness was overcome,
-his behaviour gave every indication of an open, affectionate heart.
-
 INPUT: Summarize: He was not handsome, and his
 manners required intimacy to make them pleasing. He was too diffident
 to do justice to himself; but when his natural shyness was overcome,
@@ -1381,12 +1322,6 @@ answer the wishes of his mother and sister, who longed to see him
 distinguished—as—they hardly knew what.
 RESPONSE: They wanted him to make a fine
 figure in the world in some manner or other.
-
-INPUT: Explain this: They wanted him to make a fine
-figure in the world in some manner or other.
-RESPONSE: His mother wished to
-interest him in political concerns, to get him into parliament, or to
-see him connected with some of the great men of the day.
 
 INPUT: Summarize: They wanted him to make a fine
 figure in the world in some manner or other. His mother wished to
@@ -1458,10 +1393,6 @@ between him and his sister. It was a contrast which recommended him
 most forcibly to her mother.
 RESPONSE: “It is enough,” said she; “to say that he is unlike Fanny is enough.
 
-INPUT: What does this say: “It is enough,” said she; “to say that he is unlike Fanny is enough.
-RESPONSE: It
-implies everything amiable.
-
 INPUT: Summarize: “It is enough,” said she; “to say that he is unlike Fanny is enough. It
 implies everything amiable.
 RESPONSE: ”
@@ -1503,16 +1434,6 @@ INPUT: Summarize: ”
 “I have never yet known what it was to separate esteem and love. Dashwood now took pains to get acquainted with him.
 RESPONSE: Her manners
 were attaching, and soon banished his reserve.
-
-INPUT: Can you explain: Her manners
-were attaching, and soon banished his reserve.
-RESPONSE: She speedily
-comprehended all his merits; the persuasion of his regard for Elinor
-perhaps assisted her penetration; but she really felt assured of his
-worth: and even that quietness of manner, which militated against all
-her established ideas of what a young man’s address ought to be, was no
-longer uninteresting when she knew his heart to be warm and his temper
-affectionate.
 
 INPUT: Summarize: Her manners
 were attaching, and soon banished his reserve. She speedily
@@ -1613,13 +1534,6 @@ RESPONSE: Music seems scarcely to attract
 him, and though he admires Elinor’s drawings very much, it is not the
 admiration of a person who can understand their worth.
 
-INPUT: Can you explain: Music seems scarcely to attract
-him, and though he admires Elinor’s drawings very much, it is not the
-admiration of a person who can understand their worth.
-RESPONSE: It is evident,
-in spite of his frequent attention to her while she draws, that in fact
-he knows nothing of the matter.
-
 INPUT: Summarize: Music seems scarcely to attract
 him, and though he admires Elinor’s drawings very much, it is not the
 admiration of a person who can understand their worth. It is evident,
@@ -1666,24 +1580,16 @@ INPUT: What is this about: Yet she bore it with so much composure, she seemed sc
 to notice it.
 RESPONSE: I could hardly keep my seat.
 
-INPUT: Summarize: Yet she bore it with so much composure, she seemed scarcely
-to notice it. I could hardly keep my seat.
-RESPONSE: To hear those beautiful
-lines which have frequently almost driven me wild, pronounced with such
-impenetrable calmness, such dreadful indifference!
-
 INPUT: What is this about: To hear those beautiful
 lines which have frequently almost driven me wild, pronounced with such
 impenetrable calmness, such dreadful indifference!
 RESPONSE: ”
-
 
 “He would certainly have done more justice to simple and elegant prose.
 
 INPUT: Summarize: To hear those beautiful
 lines which have frequently almost driven me wild, pronounced with such
 impenetrable calmness, such dreadful indifference! ”
-
 
 “He would certainly have done more justice to simple and elegant prose.
 RESPONSE: I thought so at the time; but you _would_ give him Cowper.
@@ -1715,13 +1621,6 @@ heart, had I loved him, to hear him read with so little sensibility.
 RESPONSE: Mama, the more I know of the world, the more am I convinced that I
 shall never see a man whom I can really love.
 
-INPUT: Summarize: But it would have broke _my_
-heart, had I loved him, to hear him read with so little sensibility. Mama, the more I know of the world, the more am I convinced that I
-shall never see a man whom I can really love.
-RESPONSE: He
-must have all Edward’s virtues, and his person and manners must
-ornament his goodness with every possible charm.
-
 INPUT: Can you explain: He
 must have all Edward’s virtues, and his person and manners must
 ornament his goodness with every possible charm.
@@ -1752,16 +1651,10 @@ INPUT: Tell me about: In one circumstance only, my Marianne, may your
 destiny be different from hers!
 RESPONSE: ”
 
-
-
-
 CHAPTER IV.
 
 INPUT: Summarize: In one circumstance only, my Marianne, may your
 destiny be different from hers! ”
-
-
-
 
 CHAPTER IV.
 RESPONSE: “What a pity it is, Elinor,” said Marianne, “that Edward should have no
@@ -1936,16 +1829,6 @@ peculiar circumstances been kept more ignorant than myself.
 RESPONSE: He and I
 have been at times thrown a good deal together, while you have been
 wholly engrossed on the most affectionate principle by my mother.
-
-INPUT: What is this about: He and I
-have been at times thrown a good deal together, while you have been
-wholly engrossed on the most affectionate principle by my mother.
-RESPONSE: I
-have seen a great deal of him, have studied his sentiments and heard
-his opinion on subjects of literature and taste; and, upon the whole, I
-venture to pronounce that his mind is well-informed, enjoyment of books
-exceedingly great, his imagination lively, his observation just and
-correct, and his taste delicate and pure.
 
 INPUT: Summarize: He and I
 have been at times thrown a good deal together, while you have been
@@ -2394,17 +2277,6 @@ the misery of continuing her daughter-in-law’s guest; and to remove for
 ever from that beloved place would be less painful than to inhabit or
 visit it while such a woman was its mistress.
 
-INPUT: Explain this: To quit the neighbourhood of Norland was no longer an
-evil; it was an object of desire; it was a blessing, in comparison of
-the misery of continuing her daughter-in-law’s guest; and to remove for
-ever from that beloved place would be less painful than to inhabit or
-visit it while such a woman was its mistress.
-RESPONSE: She instantly wrote Sir
-John Middleton her acknowledgment of his kindness, and her acceptance
-of his proposal; and then hastened to show both letters to her
-daughters, that she might be secure of their approbation before her
-answer were sent.
-
 INPUT: Summarize: To quit the neighbourhood of Norland was no longer an
 evil; it was an object of desire; it was a blessing, in comparison of
 the misery of continuing her daughter-in-law’s guest; and to remove for
@@ -2566,14 +2438,6 @@ RESPONSE: John Dashwood told his mother again and again how exceedingly sorry
 he was that she had taken a house at such a distance from Norland as to
 prevent his being of any service to her in removing her furniture.
 
-INPUT: What does this say: John Dashwood told his mother again and again how exceedingly sorry
-he was that she had taken a house at such a distance from Norland as to
-prevent his being of any service to her in removing her furniture.
-RESPONSE: He
-really felt conscientiously vexed on the occasion; for the very
-exertion to which he had limited the performance of his promise to his
-father was by this arrangement rendered impracticable.
-
 INPUT: Summarize: John Dashwood told his mother again and again how exceedingly sorry
 he was that she had taken a house at such a distance from Norland as to
 prevent his being of any service to her in removing her furniture. He
@@ -2614,18 +2478,6 @@ side in the agreement; and she waited only for the disposal of her
 effects at Norland, and to determine her future household, before she
 set off for the west; and this, as she was exceedingly rapid in the
 performance of everything that interested her, was soon done.
-
-INPUT: Summarize: Dashwood took the house for a twelvemonth; it was ready furnished,
-and she might have immediate possession. No difficulty arose on either
-side in the agreement; and she waited only for the disposal of her
-effects at Norland, and to determine her future household, before she
-set off for the west; and this, as she was exceedingly rapid in the
-performance of everything that interested her, was soon done.
-RESPONSE: —The
-horses which were left her by her husband had been sold soon after his
-death, and an opportunity now offering of disposing of her carriage,
-she agreed to sell that likewise at the earnest advice of her eldest
-daughter.
 
 INPUT: Tell me about: —The
 horses which were left her by her husband had been sold soon after his
@@ -2690,26 +2542,6 @@ propriety be fulfilled.
 RESPONSE: Since he had neglected to do it on first coming
 to the estate, their quitting his house might be looked on as the most
 suitable period for its accomplishment.
-
-INPUT: Summarize: Now was the time
-when her son-in-law’s promise to his father might with particular
-propriety be fulfilled. Since he had neglected to do it on first coming
-to the estate, their quitting his house might be looked on as the most
-suitable period for its accomplishment.
-RESPONSE: Dashwood began shortly
-to give over every hope of the kind, and to be convinced, from the
-general drift of his discourse, that his assistance extended no farther
-than their maintenance for six months at Norland.
-
-INPUT: What does this mean: Dashwood began shortly
-to give over every hope of the kind, and to be convinced, from the
-general drift of his discourse, that his assistance extended no farther
-than their maintenance for six months at Norland.
-RESPONSE: He so frequently
-talked of the increasing expenses of housekeeping, and of the perpetual
-demands upon his purse, which a man of any consequence in the world was
-beyond calculation exposed to, that he seemed rather to stand in need
-of more money himself than to have any design of giving money away.
 
 INPUT: Summarize: Dashwood began shortly
 to give over every hope of the kind, and to be convinced, from the
@@ -2791,24 +2623,15 @@ change in those who walk under your shade! —But who will remain to enjoy
 you?
 RESPONSE: ”
 
-
-
-
 CHAPTER VI.
 
 INPUT: Explain this: ”
-
-
-
 
 CHAPTER VI.
 RESPONSE: The first part of their journey was performed in too melancholy a
 disposition to be otherwise than tedious and unpleasant.
 
 INPUT: Summarize: ”
-
-
-
 
 CHAPTER VI. The first part of their journey was performed in too melancholy a
 disposition to be otherwise than tedious and unpleasant.
@@ -2831,12 +2654,6 @@ of Barton Valley as they entered it gave them cheerfulness. It was a
 pleasant fertile spot, well wooded, and rich in pasture.
 RESPONSE: After winding
 along it for more than a mile, they reached their own house.
-
-INPUT: What does this say: After winding
-along it for more than a mile, they reached their own house.
-RESPONSE: A small
-green court was the whole of its demesne in front; and a neat wicket
-gate admitted them into it.
 
 INPUT: Summarize: After winding
 along it for more than a mile, they reached their own house. A small
@@ -2979,15 +2796,6 @@ other, and so leave the remainder of that other for an entrance; this,
 with a new drawing room which may be easily added, and a bed-chamber
 and garret above, will make it a very snug little cottage.
 
-INPUT: Can you explain: These parlors are both too small for such parties of our
-friends as I hope to see often collected here; and I have some thoughts
-of throwing the passage into one of them with perhaps a part of the
-other, and so leave the remainder of that other for an entrance; this,
-with a new drawing room which may be easily added, and a bed-chamber
-and garret above, will make it a very snug little cottage.
-RESPONSE: I could wish
-the stairs were handsome.
-
 INPUT: Summarize: These parlors are both too small for such parties of our
 friends as I hope to see often collected here; and I have some thoughts
 of throwing the passage into one of them with perhaps a part of the
@@ -3044,13 +2852,6 @@ the next day by the entrance of their landlord, who called to welcome
 them to Barton, and to offer them every accommodation from his own
 house and garden in which theirs might at present be deficient.
 
-INPUT: Tell me about: In such employments as these they were interrupted soon after breakfast
-the next day by the entrance of their landlord, who called to welcome
-them to Barton, and to offer them every accommodation from his own
-house and garden in which theirs might at present be deficient.
-RESPONSE: Sir
-John Middleton was a good looking man about forty.
-
 INPUT: Summarize: In such employments as these they were interrupted soon after breakfast
 the next day by the entrance of their landlord, who called to welcome
 them to Barton, and to offer them every accommodation from his own
@@ -3066,14 +2867,6 @@ remember him.
 RESPONSE: His countenance was thoroughly good-humoured; and his
 manners were as friendly as the style of his letter.
 
-INPUT: Summarize: He had formerly
-visited at Stanhill, but it was too long for his young cousins to
-remember him. His countenance was thoroughly good-humoured; and his
-manners were as friendly as the style of his letter.
-RESPONSE: Their arrival
-seemed to afford him real satisfaction, and their comfort to be an
-object of real solicitude to him.
-
 INPUT: What is this about: Their arrival
 seemed to afford him real satisfaction, and their comfort to be an
 object of real solicitude to him.
@@ -3082,19 +2875,6 @@ their living in the most sociable terms with his family, and pressed
 them so cordially to dine at Barton Park every day till they were
 better settled at home, that, though his entreaties were carried to a
 point of perseverance beyond civility, they could not give offence.
-
-INPUT: Summarize: Their arrival
-seemed to afford him real satisfaction, and their comfort to be an
-object of real solicitude to him. He said much of his earnest desire of
-their living in the most sociable terms with his family, and pressed
-them so cordially to dine at Barton Park every day till they were
-better settled at home, that, though his entreaties were carried to a
-point of perseverance beyond civility, they could not give offence.
-RESPONSE: His
-kindness was not confined to words; for within an hour after he left
-them, a large basket full of garden stuff and fruit arrived from the
-park, which was followed before the end of the day by a present of
-game.
 
 INPUT: Tell me about: His
 kindness was not confined to words; for within an hour after he left
@@ -3515,14 +3295,6 @@ RESPONSE: Sir John was loud in his
 admiration at the end of every song, and as loud in his conversation
 with the others while every song lasted.
 
-INPUT: Summarize: Marianne’s performance was highly applauded. Sir John was loud in his
-admiration at the end of every song, and as loud in his conversation
-with the others while every song lasted.
-RESPONSE: Lady Middleton frequently
-called him to order, wondered how any one’s attention could be diverted
-from music for a moment, and asked Marianne to sing a particular song
-which Marianne had just finished.
-
 INPUT: What does this say: Lady Middleton frequently
 called him to order, wondered how any one’s attention could be diverted
 from music for a moment, and asked Marianne to sing a particular song
@@ -3681,22 +3453,12 @@ wishing to throw ridicule on his age.
 RESPONSE: “But at least, Mama, you cannot deny the absurdity of the accusation,
 though you may not think it intentionally ill-natured.
 
-INPUT: Can you explain: “But at least, Mama, you cannot deny the absurdity of the accusation,
-though you may not think it intentionally ill-natured.
-RESPONSE: Colonel Brandon
-is certainly younger than Mrs.
-
 INPUT: Summarize: “But at least, Mama, you cannot deny the absurdity of the accusation,
 though you may not think it intentionally ill-natured. Colonel Brandon
 is certainly younger than Mrs.
 RESPONSE: Jennings, but he is old enough to be
 _my_ father; and if he were ever animated enough to be in love, must
 have long outlived every sensation of the kind.
-
-INPUT: Explain this: Jennings, but he is old enough to be
-_my_ father; and if he were ever animated enough to be in love, must
-have long outlived every sensation of the kind.
-RESPONSE: It is too ridiculous!
 
 INPUT: Summarize: Jennings, but he is old enough to be
 _my_ father; and if he were ever animated enough to be in love, must
@@ -3707,19 +3469,6 @@ protect him?
 INPUT: What does this mean: When is a man to be safe from such wit, if age and infirmity will not
 protect him?
 RESPONSE: ” said Elinor, “do you call Colonel Brandon infirm?
-
-INPUT: Summarize: When is a man to be safe from such wit, if age and infirmity will not
-protect him? ” said Elinor, “do you call Colonel Brandon infirm?
-RESPONSE: I can
-easily suppose that his age may appear much greater to you than to my
-mother; but you can hardly deceive yourself as to his having the use of
-his limbs!
-
-INPUT: Can you explain: I can
-easily suppose that his age may appear much greater to you than to my
-mother; but you can hardly deceive yourself as to his having the use of
-his limbs!
-RESPONSE: ”
 
 “Did not you hear him complain of the rheumatism?
 

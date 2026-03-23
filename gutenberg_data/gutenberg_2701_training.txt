@@ -25,9 +25,6 @@ RESPONSE: Midnight, Forecastle.
 INPUT: Can you explain: Midnight, Forecastle.
 RESPONSE: The Whiteness of the Whale.
 
-INPUT: Summarize: Midnight, Forecastle. The Whiteness of the Whale.
-RESPONSE: Ahab’s Boat and Crew.
-
 INPUT: Explain this: Ahab’s Boat and Crew.
 RESPONSE: The Town-Ho’s Story.
 
@@ -59,9 +56,6 @@ RESPONSE: The Sperm Whale’s Head—Contrasted View.
 INPUT: Summarize: Stubb and Flask kill a Right Whale; and Then Have a Talk
 over Him. The Sperm Whale’s Head—Contrasted View.
 RESPONSE: The Right Whale’s Head—Contrasted View.
-
-INPUT: What is this about: The Right Whale’s Head—Contrasted View.
-RESPONSE: The Great Heidelburgh Tun.
 
 INPUT: Summarize: The Right Whale’s Head—Contrasted View. The Great Heidelburgh Tun.
 RESPONSE: The Pequod Meets The Virgin.
@@ -123,9 +117,6 @@ RESPONSE: The Pequod Meets The Rachel.
 INPUT: Tell me about: The Pequod Meets The Rachel.
 RESPONSE: The Pequod Meets The Delight.
 
-INPUT: Summarize: The Pequod Meets The Rachel. The Pequod Meets The Delight.
-RESPONSE: The Chase—First Day.
-
 INPUT: What does this say: The Chase—First Day.
 RESPONSE: The Chase—Second Day.
 
@@ -162,10 +153,6 @@ INPUT: What does this mean: The resulting etext
 was compared with a public domain hard copy version of the text.
 RESPONSE: (Supplied by a Late Consumptive Usher to a Grammar School.
 
-INPUT: Summarize: The resulting etext
-was compared with a public domain hard copy version of the text. (Supplied by a Late Consumptive Usher to a Grammar School.
-RESPONSE: )
-
  The pale Usher—threadbare in coat, heart, body, and brain; I see him
  now.
 
@@ -201,10 +188,6 @@ INPUT: Summarize: He loved to dust his old grammars; it
 RESPONSE: This animal is named from
  roundness or rolling; for in Dan.
 
-INPUT: What does this mean: This animal is named from
- roundness or rolling; for in Dan.
-RESPONSE: _hvalt_ is arched or vaulted.
-
 INPUT: Summarize: This animal is named from
  roundness or rolling; for in Dan. _hvalt_ is arched or vaulted.
 RESPONSE: ”
@@ -236,9 +219,6 @@ INPUT: Summarize: _
  ‏חו‎, _Hebrew_. WHŒL, _Anglo-Saxon_.
 RESPONSE: PEKEE-NUEE-NUEE, _Fegee_.
 
-INPUT: Can you explain: PEKEE-NUEE-NUEE, _Fegee_.
-RESPONSE: PEHEE-NUEE-NUEE, _Erromangoan_.
-
 INPUT: Summarize: PEKEE-NUEE-NUEE, _Fegee_. PEHEE-NUEE-NUEE, _Erromangoan_.
 RESPONSE: (Supplied by a Sub-Sub-Librarian).
 
@@ -257,16 +237,6 @@ INPUT: Summarize: (Supplied by a Sub-Sub-Librarian). It will be seen that this m
 RESPONSE: Therefore you must not, in every case at least,
  take the higgledy-piggledy whale statements, however authentic, in
  these extracts, for veritable gospel cetology.
-
-INPUT: Tell me about: Therefore you must not, in every case at least,
- take the higgledy-piggledy whale statements, however authentic, in
- these extracts, for veritable gospel cetology.
-RESPONSE: As
- touching the ancient authors generally, as well as the poets here
- appearing, these extracts are solely valuable or entertaining, as
- affording a glancing bird’s eye view of what has been promiscuously
- said, thought, fancied, and sung of Leviathan, by many nations and
- generations, including our own.
 
 INPUT: Summarize: Therefore you must not, in every case at least,
  take the higgledy-piggledy whale statements, however authentic, in
@@ -372,11 +342,6 @@ RESPONSE: ” —_Holland’s Pliny_.
 INPUT: Tell me about: ” —_Holland’s Pliny_.
 RESPONSE: “Scarcely had we proceeded two days on the sea, when about sunrise a
  great many Whales and other monsters of the sea, appeared.
-
-INPUT: Summarize: ” —_Holland’s Pliny_. “Scarcely had we proceeded two days on the sea, when about sunrise a
- great many Whales and other monsters of the sea, appeared.
-RESPONSE: Among the
- former, one was of a most monstrous size....
 
 INPUT: Explain this: Among the
  former, one was of a most monstrous size....
@@ -535,9 +500,6 @@ INPUT: Summarize: Preface
  Hosmannus in his work of thirty years, saith plainly, _Nescio quid
  sit_.
 RESPONSE: Of Sperma Ceti and the Sperma Ceti Whale.
-
-INPUT: What does this mean: Of Sperma Ceti and the Sperma Ceti Whale.
-RESPONSE: _
 
  “Like Spencer’s Talus with his modern flail He threatens ruin with
  his ponderous tail.
@@ -818,14 +780,6 @@ RESPONSE: They stand in so
  mention even their names, and carry dung, lime-stone, juniper-wood,
  and some other articles of the same nature in their boats, in order
  to terrify and prevent their too near approach.
-
-INPUT: What is this about: They stand in so
- great dread of some of them, that when out at sea they are afraid to
- mention even their names, and carry dung, lime-stone, juniper-wood,
- and some other articles of the same nature in their boats, in order
- to terrify and prevent their too near approach.
-RESPONSE: ” —_Uno Von Troil’s
- Letters on Banks’s and Solander’s Voyage to Iceland in_ 1772.
 
 INPUT: Summarize: They stand in so
  great dread of some of them, that when out at sea they are afraid to
@@ -1444,10 +1398,6 @@ INPUT: Summarize: ’ exclaimed the mate, as upon turning his head, he saw
 RESPONSE: “So be cheery, my lads, let your hearts never fail, While the bold
  harpooneer is striking the whale!
 
-INPUT: What is this about: “So be cheery, my lads, let your hearts never fail, While the bold
- harpooneer is striking the whale!
-RESPONSE: ” —_Nantucket Song_.
-
 INPUT: Summarize: “So be cheery, my lads, let your hearts never fail, While the bold
  harpooneer is striking the whale! ” —_Nantucket Song_.
 RESPONSE: “Oh, the rare old Whale, mid storm and gale In his ocean home will be
@@ -1518,14 +1468,6 @@ wharves as Indian isles by coral reefs—commerce surrounds it with her
 surf.
 RESPONSE: Right and left, the streets take you waterward.
 
-INPUT: Summarize: There now is your insular city of the Manhattoes, belted round by
-wharves as Indian isles by coral reefs—commerce surrounds it with her
-surf. Right and left, the streets take you waterward.
-RESPONSE: Its extreme
-downtown is the battery, where that noble mole is washed by waves, and
-cooled by breezes, which a few hours previous were out of sight of
-land.
-
 INPUT: What is this about: Its extreme
 downtown is the battery, where that noble mole is washed by waves, and
 cooled by breezes, which a few hours previous were out of sight of
@@ -1538,21 +1480,10 @@ cooled by breezes, which a few hours previous were out of sight of
 land. Look at the crowds of water-gazers there.
 RESPONSE: Circumambulate the city of a dreamy Sabbath afternoon.
 
-INPUT: What does this say: Circumambulate the city of a dreamy Sabbath afternoon.
-RESPONSE: Go from Corlears
-Hook to Coenties Slip, and from thence, by Whitehall, northward.
-
 INPUT: Summarize: Circumambulate the city of a dreamy Sabbath afternoon. Go from Corlears
 Hook to Coenties Slip, and from thence, by Whitehall, northward.
 RESPONSE: —Posted like silent sentinels all around the town, stand
 thousands upon thousands of mortal men fixed in ocean reveries.
-
-INPUT: What does this mean: —Posted like silent sentinels all around the town, stand
-thousands upon thousands of mortal men fixed in ocean reveries.
-RESPONSE: Some
-leaning against the spiles; some seated upon the pier-heads; some
-looking over the bulwarks of ships from China; some high aloft in the
-rigging, as if striving to get a still better seaward peep.
 
 INPUT: Summarize: —Posted like silent sentinels all around the town, stand
 thousands upon thousands of mortal men fixed in ocean reveries. Some
@@ -1562,12 +1493,6 @@ rigging, as if striving to get a still better seaward peep.
 RESPONSE: But these
 are all landsmen; of week days pent up in lath and plaster—tied to
 counters, nailed to benches, clinched to desks.
-
-INPUT: Explain this: But these
-are all landsmen; of week days pent up in lath and plaster—tied to
-counters, nailed to benches, clinched to desks.
-RESPONSE: Are
-the green fields gone?
 
 INPUT: Summarize: But these
 are all landsmen; of week days pent up in lath and plaster—tied to
@@ -1604,23 +1529,10 @@ INPUT: What does this mean: Inlanders all, they come from lanes and alleys, stre
 and avenues—north, east, south, and west.
 RESPONSE: Yet here they all unite.
 
-INPUT: Summarize: Inlanders all, they come from lanes and alleys, streets
-and avenues—north, east, south, and west. Yet here they all unite.
-RESPONSE: Tell
-me, does the magnetic virtue of the needles of the compasses of all
-those ships attract them thither?
-
 INPUT: What does this say: Tell
 me, does the magnetic virtue of the needles of the compasses of all
 those ships attract them thither?
 RESPONSE: Say you are in the country; in some high land of lakes.
-
-INPUT: Summarize: Tell
-me, does the magnetic virtue of the needles of the compasses of all
-those ships attract them thither? Say you are in the country; in some high land of lakes.
-RESPONSE: Take
-almost any path you please, and ten to one it carries you down in a
-dale, and leaves you there by a pool in the stream.
 
 INPUT: What does this say: Take
 almost any path you please, and ten to one it carries you down in a
@@ -1673,14 +1585,6 @@ RESPONSE: There stand his
 trees, each with a hollow trunk, as if a hermit and a crucifix were
 within; and here sleeps his meadow, and there sleep his cattle; and up
 from yonder cottage goes a sleepy smoke.
-
-INPUT: What does this mean: There stand his
-trees, each with a hollow trunk, as if a hermit and a crucifix were
-within; and here sleeps his meadow, and there sleep his cattle; and up
-from yonder cottage goes a sleepy smoke.
-RESPONSE: Deep into distant woodlands
-winds a mazy way, reaching to overlapping spurs of mountains bathed in
-their hill-side blue.
 
 INPUT: Summarize: There stand his
 trees, each with a hollow trunk, as if a hermit and a crucifix were
@@ -1749,11 +1653,6 @@ mystical vibration, when first told that you and your ship were now out
 of sight of land? Why did the old Persians hold the sea holy?
 RESPONSE: Why did
 the Greeks give it a separate deity, and own brother of Jove?
-
-INPUT: What does this say: Why did
-the Greeks give it a separate deity, and own brother of Jove?
-RESPONSE: Surely
-all this is not without meaning.
 
 INPUT: Summarize: Why did
 the Greeks give it a separate deity, and own brother of Jove? Surely
@@ -1963,14 +1862,6 @@ receives money is really marvellous, considering that we so earnestly
 believe money to be the root of all earthly ills, and that on no
 account can a monied man enter heaven.
 
-INPUT: Summarize: But _being
-paid_,—what will compare with it? The urbane activity with which a man
-receives money is really marvellous, considering that we so earnestly
-believe money to be the root of all earthly ills, and that on no
-account can a monied man enter heaven.
-RESPONSE: how cheerfully we consign
-ourselves to perdition!
-
 INPUT: What is this about: how cheerfully we consign
 ourselves to perdition!
 RESPONSE: Finally, I always go to sea as a sailor, because of the wholesome
@@ -2010,17 +1901,6 @@ merchant sailor, I should now take it into my head to go on a whaling
 voyage; this the invisible police officer of the Fates, who has the
 constant surveillance of me, and secretly dogs me, and influences me in
 some unaccountable way—he can better answer than any one else.
-
-INPUT: Summarize: In much the same way do the commonalty lead their leaders in many
-other things, at the same time that the leaders little suspect it. But
-wherefore it was that after having repeatedly smelt the sea as a
-merchant sailor, I should now take it into my head to go on a whaling
-voyage; this the invisible police officer of the Fates, who has the
-constant surveillance of me, and secretly dogs me, and influences me in
-some unaccountable way—he can better answer than any one else.
-RESPONSE: And,
-doubtless, my going on this whaling voyage, formed part of the grand
-programme of Providence that was drawn up a long time ago.
 
 INPUT: Tell me about: And,
 doubtless, my going on this whaling voyage, formed part of the grand
@@ -2227,23 +2107,6 @@ inquire the price, and don’t be too particular.
 RESPONSE: With halting steps I paced the streets, and passed the sign of “The
 Crossed Harpoons”—but it looked too expensive and jolly there.
 
-INPUT: Summarize: With anxious grapnels I had
-sounded my pocket, and only brought up a few pieces of silver,—So,
-wherever you go, Ishmael, said I to myself, as I stood in the middle of
-a dreary street shouldering my bag, and comparing the gloom towards the
-north with the darkness towards the south—wherever in your wisdom you
-may conclude to lodge for the night, my dear Ishmael, be sure to
-inquire the price, and don’t be too particular. With halting steps I paced the streets, and passed the sign of “The
-Crossed Harpoons”—but it looked too expensive and jolly there.
-RESPONSE: Further
-on, from the bright red windows of the “Sword-Fish Inn,” there came
-such fervent rays, that it seemed to have melted the packed snow and
-ice from before the house, for everywhere else the congealed frost lay
-ten inches thick in a hard, asphaltic pavement,—rather weary for me,
-when I struck my foot against the flinty projections, because from
-hard, remorseless service the soles of my boots were in a most
-miserable plight.
-
 INPUT: Can you explain: Further
 on, from the bright red windows of the “Sword-Fish Inn,” there came
 such fervent rays, that it seemed to have melted the packed snow and
@@ -2287,14 +2150,6 @@ the cheeriest inns.
 RESPONSE: blocks of blackness, not houses, on either hand,
 and here and there a candle, like a candle moving about in a tomb.
 
-INPUT: Summarize: I now by instinct followed the streets
-that took me waterward, for there, doubtless, were the cheapest, if not
-the cheeriest inns. blocks of blackness, not houses, on either hand,
-and here and there a candle, like a candle moving about in a tomb.
-RESPONSE: At
-this hour of the night, of the last day of the week, that quarter of
-the town proved all but deserted.
-
 INPUT: What does this mean: At
 this hour of the night, of the last day of the week, that quarter of
 the town proved all but deserted.
@@ -2325,10 +2180,6 @@ particles almost choked me, are these ashes from that destroyed city,
 Gomorrah?
 RESPONSE: But “The Crossed Harpoons,” and “The Sword-Fish?
 
-INPUT: Explain this: But “The Crossed Harpoons,” and “The Sword-Fish?
-RESPONSE: ”—this, then
-must needs be the sign of “The Trap.
-
 INPUT: Summarize: But “The Crossed Harpoons,” and “The Sword-Fish? ”—this, then
 must needs be the sign of “The Trap.
 RESPONSE: ” However, I picked myself up and
@@ -2339,13 +2190,6 @@ INPUT: Tell me about: ” However, I picked myself up and
 hearing a loud voice within, pushed on and opened a second, interior
 door.
 RESPONSE: It seemed the great Black Parliament sitting in Tophet.
-
-INPUT: Summarize: ” However, I picked myself up and
-hearing a loud voice within, pushed on and opened a second, interior
-door. It seemed the great Black Parliament sitting in Tophet.
-RESPONSE: A hundred black
-faces turned round in their rows to peer; and beyond, a black Angel of
-Doom was beating a book in a pulpit.
 
 INPUT: What does this say: A hundred black
 faces turned round in their rows to peer; and beyond, a black Angel of
@@ -2845,13 +2689,6 @@ down for a shilling.
 RESPONSE: Upon entering the place I found a number of young seamen gathered about
 a table, examining by a dim light divers specimens of _skrimshander_.
 
-INPUT: What does this say: Upon entering the place I found a number of young seamen gathered about
-a table, examining by a dim light divers specimens of _skrimshander_.
-RESPONSE: I
-sought the landlord, and telling him I desired to be accommodated with
-a room, received for answer that his house was full—not a bed
-unoccupied.
-
 INPUT: Summarize: Upon entering the place I found a number of young seamen gathered about
 a table, examining by a dim light divers specimens of _skrimshander_. I
 sought the landlord, and telling him I desired to be accommodated with
@@ -3042,12 +2879,6 @@ INPUT: Explain this: Starting up, the landlord
 cried, “That’s the Grampus’s crew.
 RESPONSE: I seed her reported in the offing
 this morning; a three years’ voyage, and a full ship.
-
-INPUT: Summarize: Starting up, the landlord
-cried, “That’s the Grampus’s crew. I seed her reported in the offing
-this morning; a three years’ voyage, and a full ship.
-RESPONSE: Hurrah, boys; now
-we’ll have the latest news from the Feegees.
 
 INPUT: Can you explain: Hurrah, boys; now
 we’ll have the latest news from the Feegees.
