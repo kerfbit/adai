@@ -13,28 +13,15 @@
 class ChatbotCLITest : public ::testing::Test {
    protected:
     void SetUp() override {
-        // Create minimal test vocab file
-        vocab_file = "test_vocab.txt";
-        model_file = "test_model.bin";
+        server_url = "http://localhost:8080";
         conv_file = "test_conversation.txt";
-
-        std::ofstream vocab(vocab_file);
-        vocab << "hello 100\n";
-        vocab << "world 50\n";
-        vocab << "test 25\n";
-        vocab.close();
-
-        // Note: Model file doesn't need to exist for testing settings/accessors
     }
 
     void TearDown() override {
-        std::remove(vocab_file.c_str());
-        std::remove(model_file.c_str());
         std::remove(conv_file.c_str());
     }
 
-    std::string vocab_file;
-    std::string model_file;
+    std::string server_url;
     std::string conv_file;
 };
 
@@ -43,7 +30,7 @@ class ChatbotCLITest : public ::testing::Test {
 // ============================================================================
 
 TEST_F(ChatbotCLITest, ConstructorSetsDefaultParameters) {
-    ChatbotCLI cli(vocab_file, model_file, conv_file);
+    ChatbotCLI cli(server_url, conv_file);
 
     EXPECT_EQ(cli.get_max_response_length(), 100);
     EXPECT_FLOAT_EQ(cli.get_temperature(), 1.0f);
@@ -53,16 +40,15 @@ TEST_F(ChatbotCLITest, ConstructorSetsDefaultParameters) {
     EXPECT_EQ(cli.get_generation_strategy(), "nucleus");
 }
 
-TEST_F(ChatbotCLITest, ConstructorStoresFilePaths) {
-    ChatbotCLI cli(vocab_file, model_file, conv_file);
+TEST_F(ChatbotCLITest, ConstructorStoresServerUrlAndSavePath) {
+    ChatbotCLI cli(server_url, conv_file);
 
-    EXPECT_EQ(cli.get_vocab_path(), vocab_file);
-    EXPECT_EQ(cli.get_model_path(), model_file);
+    EXPECT_EQ(cli.get_server_url(), server_url);
     EXPECT_EQ(cli.get_conversation_save_path(), conv_file);
 }
 
 TEST_F(ChatbotCLITest, DefaultConversationSavePath) {
-    ChatbotCLI cli(vocab_file, model_file);
+    ChatbotCLI cli(server_url);
 
     EXPECT_EQ(cli.get_conversation_save_path(), "conversation_history.txt");
 }
@@ -72,7 +58,7 @@ TEST_F(ChatbotCLITest, DefaultConversationSavePath) {
 // ============================================================================
 
 TEST_F(ChatbotCLITest, SetAndGetGenerationStrategy) {
-    ChatbotCLI cli(vocab_file, model_file, conv_file);
+    ChatbotCLI cli(server_url, conv_file);
 
     cli.set_generation_strategy("greedy");
     EXPECT_EQ(cli.get_generation_strategy(), "greedy");
@@ -85,7 +71,7 @@ TEST_F(ChatbotCLITest, SetAndGetGenerationStrategy) {
 }
 
 TEST_F(ChatbotCLITest, SetAndGetMaxResponseLength) {
-    ChatbotCLI cli(vocab_file, model_file, conv_file);
+    ChatbotCLI cli(server_url, conv_file);
 
     cli.set_max_response_length(50);
     EXPECT_EQ(cli.get_max_response_length(), 50);
@@ -95,7 +81,7 @@ TEST_F(ChatbotCLITest, SetAndGetMaxResponseLength) {
 }
 
 TEST_F(ChatbotCLITest, SetAndGetTemperature) {
-    ChatbotCLI cli(vocab_file, model_file, conv_file);
+    ChatbotCLI cli(server_url, conv_file);
 
     cli.set_temperature(0.5f);
     EXPECT_FLOAT_EQ(cli.get_temperature(), 0.5f);
@@ -105,7 +91,7 @@ TEST_F(ChatbotCLITest, SetAndGetTemperature) {
 }
 
 TEST_F(ChatbotCLITest, SetAndGetTopP) {
-    ChatbotCLI cli(vocab_file, model_file, conv_file);
+    ChatbotCLI cli(server_url, conv_file);
 
     cli.set_top_p(0.8f);
     EXPECT_FLOAT_EQ(cli.get_top_p(), 0.8f);
@@ -115,7 +101,7 @@ TEST_F(ChatbotCLITest, SetAndGetTopP) {
 }
 
 TEST_F(ChatbotCLITest, SetAndGetTopK) {
-    ChatbotCLI cli(vocab_file, model_file, conv_file);
+    ChatbotCLI cli(server_url, conv_file);
 
     cli.set_top_k(10);
     EXPECT_EQ(cli.get_top_k(), 10);
@@ -125,7 +111,7 @@ TEST_F(ChatbotCLITest, SetAndGetTopK) {
 }
 
 TEST_F(ChatbotCLITest, SetAndGetBeamWidth) {
-    ChatbotCLI cli(vocab_file, model_file, conv_file);
+    ChatbotCLI cli(server_url, conv_file);
 
     cli.set_beam_width(3);
     EXPECT_EQ(cli.get_beam_width(), 3);
@@ -139,7 +125,7 @@ TEST_F(ChatbotCLITest, SetAndGetBeamWidth) {
 // ============================================================================
 
 TEST_F(ChatbotCLITest, HandleSettingStrategy) {
-    ChatbotCLI cli(vocab_file, model_file, conv_file);
+    ChatbotCLI cli(server_url, conv_file);
 
     // Redirect cout to suppress output
     std::stringstream buffer;
@@ -158,7 +144,7 @@ TEST_F(ChatbotCLITest, HandleSettingStrategy) {
 }
 
 TEST_F(ChatbotCLITest, HandleSettingMaxLength) {
-    ChatbotCLI cli(vocab_file, model_file, conv_file);
+    ChatbotCLI cli(server_url, conv_file);
 
     std::stringstream buffer;
     std::streambuf* old = std::cout.rdbuf(buffer.rdbuf());
@@ -173,7 +159,7 @@ TEST_F(ChatbotCLITest, HandleSettingMaxLength) {
 }
 
 TEST_F(ChatbotCLITest, HandleSettingTemperature) {
-    ChatbotCLI cli(vocab_file, model_file, conv_file);
+    ChatbotCLI cli(server_url, conv_file);
 
     std::stringstream buffer;
     std::streambuf* old = std::cout.rdbuf(buffer.rdbuf());
@@ -188,7 +174,7 @@ TEST_F(ChatbotCLITest, HandleSettingTemperature) {
 }
 
 TEST_F(ChatbotCLITest, HandleSettingTopP) {
-    ChatbotCLI cli(vocab_file, model_file, conv_file);
+    ChatbotCLI cli(server_url, conv_file);
 
     std::stringstream buffer;
     std::streambuf* old = std::cout.rdbuf(buffer.rdbuf());
@@ -203,7 +189,7 @@ TEST_F(ChatbotCLITest, HandleSettingTopP) {
 }
 
 TEST_F(ChatbotCLITest, HandleSettingTopK) {
-    ChatbotCLI cli(vocab_file, model_file, conv_file);
+    ChatbotCLI cli(server_url, conv_file);
 
     std::stringstream buffer;
     std::streambuf* old = std::cout.rdbuf(buffer.rdbuf());
@@ -218,7 +204,7 @@ TEST_F(ChatbotCLITest, HandleSettingTopK) {
 }
 
 TEST_F(ChatbotCLITest, HandleSettingBeamWidth) {
-    ChatbotCLI cli(vocab_file, model_file, conv_file);
+    ChatbotCLI cli(server_url, conv_file);
 
     std::stringstream buffer;
     std::streambuf* old = std::cout.rdbuf(buffer.rdbuf());
@@ -233,7 +219,7 @@ TEST_F(ChatbotCLITest, HandleSettingBeamWidth) {
 }
 
 TEST_F(ChatbotCLITest, HandleSettingInvalidStrategy) {
-    ChatbotCLI cli(vocab_file, model_file, conv_file);
+    ChatbotCLI cli(server_url, conv_file);
 
     std::stringstream buffer;
     std::streambuf* old = std::cout.rdbuf(buffer.rdbuf());
@@ -246,7 +232,7 @@ TEST_F(ChatbotCLITest, HandleSettingInvalidStrategy) {
 }
 
 TEST_F(ChatbotCLITest, HandleSettingMissingValue) {
-    ChatbotCLI cli(vocab_file, model_file, conv_file);
+    ChatbotCLI cli(server_url, conv_file);
 
     std::stringstream buffer;
     std::streambuf* old = std::cout.rdbuf(buffer.rdbuf());

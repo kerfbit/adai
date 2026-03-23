@@ -666,10 +666,13 @@ float ChatbotTrainer::train_epoch(int epoch) {
                         ls_w_mean += ls_delta / ls_w_count;
                         ls_w_M2   += ls_delta * (step_loss_for_cb - ls_w_mean);
 
-                        // Weight-update ratio approximation: (lr * ||g||) / ||w||
+                        // Weight-update ratio approximation: (lr * ||g||) / ||w||)
+                        // Threshold is 1e-10f (not 1e-6f) so near-zero initialized weights
+                        // are still counted — get_weight_norm() returns sqrt(sum-of-squares)
+                        // which is always >= 0, so 1e-10f guards only true divide-by-zero.
                         if (optimizer) {
                             float w_norm = optimizer->get_weight_norm();
-                            if (w_norm > 1e-6f) {
+                            if (w_norm > 1e-10f) {
                                 wu_ratio_sum += current_learning_rate * grad_norm / w_norm;
                                 ++wu_count;
                             }
@@ -704,6 +707,20 @@ float ChatbotTrainer::train_epoch(int epoch) {
                                 metrics_service_->flag_abnormal_sample(ab);
                             }
                         }
+                    }
+                    // ─────────────────────────────────────────────────────────────────────
+
+                    // ── TD-013: emit running advanced metrics every optimizer step ─────────
+                    if (metrics_service_) {
+                        float running_gv = (gn_w_count >= 2.0f) ? (gn_w_M2 / gn_w_count) : 0.0f;
+                        double elapsed_wall_ns = static_cast<double>(
+                            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                std::chrono::steady_clock::now() - epoch_td013_start).count());
+                        float running_ctr = (elapsed_wall_ns > 0.0)
+                            ? static_cast<float>(total_compute_ns / elapsed_wall_ns) : 0.0f;
+                        float running_wur = (wu_count > 0)
+                            ? (wu_ratio_sum / static_cast<float>(wu_count)) : 0.0f;
+                        metrics_service_->update_advanced_epoch_metrics(running_gv, running_ctr, running_wur);
                     }
                     // ─────────────────────────────────────────────────────────────────────
 

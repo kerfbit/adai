@@ -224,7 +224,11 @@ void TrainingMetricsService::end_epoch(int epoch, float loss, float validation_l
                  << ",\"validation_loss\":" << validation_loss
                  << ",\"learning_rate\":" << learning_rate
                  << ",\"perplexity\":" << stored_perplexity
-                 << ",\"gradient_norm\":" << gradient_norm << "}";
+                 << ",\"gradient_norm\":" << gradient_norm
+                 << ",\"gradient_variance\":" << current_snapshot_.gradient_variance
+                 << ",\"compute_time_ratio\":" << current_snapshot_.compute_time_ratio
+                 << ",\"weight_update_ratio\":" << current_snapshot_.weight_update_ratio
+                 << "}";
             push_json = json.str();
         }
     }  // mutex released here
@@ -958,12 +962,27 @@ void TrainingMetricsService::push_to_api(const std::string&, const std::string&)
 void TrainingMetricsService::update_advanced_epoch_metrics(float gradient_variance,
                                                            float compute_time_ratio,
                                                            float weight_update_ratio) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    current_snapshot_.gradient_variance   = gradient_variance;
-    current_snapshot_.compute_time_ratio  = compute_time_ratio;
-    current_snapshot_.weight_update_ratio = weight_update_ratio;
-    adai::Logger::debug("Advanced epoch metrics: grad_var={:.4f}, compute_ratio={:.4f}, wu_ratio={:.6f}",
-                        gradient_variance, compute_time_ratio, weight_update_ratio);
+    std::string push_json;
+    bool should_push = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        current_snapshot_.gradient_variance   = gradient_variance;
+        current_snapshot_.compute_time_ratio  = compute_time_ratio;
+        current_snapshot_.weight_update_ratio = weight_update_ratio;
+        adai::Logger::debug("Advanced epoch metrics: grad_var={:.4f}, compute_ratio={:.4f}, wu_ratio={:.6f}",
+                            gradient_variance, compute_time_ratio, weight_update_ratio);
+        should_push = config_.enable_push;
+        if (should_push) {
+            std::ostringstream json;
+            json << "{\"gradient_variance\":" << gradient_variance
+                 << ",\"compute_time_ratio\":" << compute_time_ratio
+                 << ",\"weight_update_ratio\":" << weight_update_ratio << "}";
+            push_json = json.str();
+        }
+    }
+    if (should_push) {
+        push_to_api("/api/metrics/advanced", push_json);
+    }
 }
 
 void TrainingMetricsService::flag_abnormal_sample(const AbnormalSample& sample) {

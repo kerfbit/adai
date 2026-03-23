@@ -171,6 +171,14 @@ IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
         }
         if (!best_checkpoint_path.empty()) {
             Logger::info("Best checkpoint: {} (val loss: {})", best_checkpoint_path, best_validation_loss);
+            if (fs::exists(best_checkpoint_path)) {
+                try {
+                    model->load_model(best_checkpoint_path);
+                    Logger::info("Resumed from best checkpoint: {}", best_checkpoint_path);
+                } catch (...) {
+                    Logger::warn("Could not load best checkpoint, keeping current model weights");
+                }
+            }
         }
     }
 
@@ -235,6 +243,14 @@ IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path,
         }
         if (!best_checkpoint_path.empty()) {
             Logger::info("Best checkpoint: {} (val loss: {})", best_checkpoint_path, best_validation_loss);
+            if (fs::exists(best_checkpoint_path)) {
+                try {
+                    model->load_model(best_checkpoint_path);
+                    Logger::info("Resumed from best checkpoint: {}", best_checkpoint_path);
+                } catch (...) {
+                    Logger::warn("Could not load best checkpoint, keeping current model weights");
+                }
+            }
         }
     }
 
@@ -300,6 +316,14 @@ IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path,
         }
         if (!best_checkpoint_path.empty()) {
             Logger::info("Best checkpoint: {} (val loss: {})", best_checkpoint_path, best_validation_loss);
+            if (fs::exists(best_checkpoint_path)) {
+                try {
+                    model->load_model(best_checkpoint_path);
+                    Logger::info("Resumed from best checkpoint: {}", best_checkpoint_path);
+                } catch (...) {
+                    Logger::warn("Could not load best checkpoint, keeping current model weights");
+                }
+            }
         }
     }
 

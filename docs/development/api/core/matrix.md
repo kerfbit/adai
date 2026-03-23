@@ -215,6 +215,108 @@ B[j][i] = A[i][j]  for all i, j
 
 ## Specialized Operations
 
+---
+
+## GPU-Accelerated Operations
+
+When built with GPU support (`ENABLE_GPU=ON`), the `Matrix` class provides GPU-accelerated versions of core operations. These leverage CUDA and cuBLAS for significant speedups on large matrices.
+
+### Enabling GPU Support
+
+- **Build:**
+
+  ```bash
+  cmake -DENABLE_GPU=ON ..
+  make
+  ```
+
+- **Requirements:** CUDA Toolkit 11.0+, compatible NVIDIA GPU, drivers
+
+### Initialization and Device Management
+
+```cpp
+// Initialize GPU subsystem (call once at startup)
+Matrix::gpu_initialize();
+
+// Check if GPU is available
+if (Matrix::gpu_available()) {
+    std::cout << Matrix::gpu_info() << std::endl;
+}
+
+// Cleanup before exit
+Matrix::gpu_cleanup();
+```
+
+### GPU Methods (API)
+
+All GPU methods throw if the GPU is not initialized or available.
+
+```cpp
+Matrix multiply_gpu(const Matrix& other) const;   // Matrix multiplication (cuBLAS)
+Matrix add_gpu(const Matrix& other) const;        // Element-wise addition
+Matrix hadamard_gpu(const Matrix& other) const;   // Element-wise multiplication
+Matrix transpose_gpu() const;                     // Matrix transpose
+Matrix scale_gpu(float scalar) const;             // Scalar multiplication
+```
+
+#### Example Usage
+
+```cpp
+#include "Matrix.hpp"
+
+int main() {
+    Matrix::gpu_initialize();
+    if (Matrix::gpu_available()) {
+        Matrix A(1000, 1000);
+        Matrix B(1000, 1000);
+        A.randomize();
+        B.randomize();
+
+        Matrix C = A.multiply_gpu(B);      // Fast matrix multiplication
+        Matrix D = A.add_gpu(B);           // Fast element-wise addition
+        Matrix E = A.transpose_gpu();      // Fast transpose
+        Matrix F = A.scale_gpu(2.5f);      // Fast scalar multiplication
+        Matrix G = A.hadamard_gpu(B);      // Fast element-wise multiply
+    }
+    Matrix::gpu_cleanup();
+    return 0;
+}
+```
+
+#### Performance Notes
+
+- GPU operations are most beneficial for large matrices (e.g., 500x500 or larger).
+- Data is transferred between CPU and GPU memory for each operation; batching operations can improve throughput.
+- Underlying implementation uses CUDA kernels and cuBLAS for optimal performance.
+
+#### Supported Operations
+
+| Operation                | Method                | Backend      |
+|--------------------------|-----------------------|--------------|
+| Matrix multiplication    | multiply_gpu()        | cuBLAS       |
+| Element-wise addition    | add_gpu()             | CUDA kernel  |
+| Element-wise multiply    | hadamard_gpu()        | CUDA kernel  |
+| Scalar multiplication    | scale_gpu()           | CUDA kernel  |
+| Transpose                | transpose_gpu()       | CUDA kernel  |
+
+#### Error Handling (GPU operations)
+
+- Throws `std::runtime_error` if GPU is not initialized or available.
+- Throws `std::invalid_argument` for dimension mismatches.
+
+#### Integration
+
+- GPU operations are drop-in replacements for their CPU counterparts.
+- See `examples/GPUExample.cpp` for benchmarks and usage patterns.
+
+#### Implementation Files
+
+- `src/gpu/MatrixGPU.hpp`, `src/gpu/MatrixGPU.cu` — CUDA kernels and API
+- `src/gpu/GPUUtils.hpp` — Device/memory management
+- `src/Matrix.hpp`, `src/Matrix.cpp` — Matrix class integration
+
+---
+
 ### Hadamard Product (Element-wise Multiplication)
 
 ```cpp
@@ -739,11 +841,48 @@ for (int j = 0; j < cols; j++) {
 
 ### 2. SIMD Vectorization
 
-Potential for vectorization in:
+**SIMD (Single Instruction, Multiple Data) vectorization** is a hardware-level optimization where a single CPU instruction operates on multiple data elements in parallel. Modern CPUs provide SIMD instruction sets (e.g., SSE, AVX on x86, NEON on ARM) that can accelerate common matrix operations.
 
-- Matrix multiplication inner loop
-- Element-wise operations
-- Sum/mean computation
+#### Relevance to Matrix Class
+
+- **Element-wise operations** (addition, subtraction, Hadamard product, scaling) can be vectorized so that multiple elements are processed per instruction.
+- **Matrix multiplication** inner loops can be vectorized to compute several products and sums simultaneously.
+- **Reduction operations** (sum, mean) can use SIMD to accumulate multiple values in parallel.
+
+#### Example (Conceptual)
+
+```cpp
+// Pseudocode for SIMD vectorized addition
+for (int i = 0; i < size; i += SIMD_WIDTH) {
+    simd_vec a = load_simd(&A[i]);
+    simd_vec b = load_simd(&B[i]);
+    simd_vec c = a + b;
+    store_simd(&C[i], c);
+}
+```
+
+#### Benefits
+
+- 2x–8x speedup for large matrices, depending on hardware and operation
+- Lower CPU utilization and improved cache efficiency
+
+#### Implementation Notes
+
+- The current Matrix implementation uses standard C++ loops, but can be extended with compiler intrinsics or libraries (e.g., Eigen, OpenBLAS) for SIMD.
+- Compilers like GCC and Clang can auto-vectorize simple loops if written in a SIMD-friendly way (contiguous memory, no aliasing).
+- SIMD is most effective for large, contiguous data blocks (row-major layout helps).
+
+#### Limitations
+
+- SIMD width varies by CPU (e.g., 128/256/512 bits)
+- Alignment and memory layout must be considered for best results
+- Not all operations or hardware support SIMD equally
+
+#### Further Reading
+
+- [SIMD on Wikipedia](https://en.wikipedia.org/wiki/SIMD)
+- [Auto-vectorization in GCC](https://gcc.gnu.org/projects/tree-ssa/vectorization.html)
+- [Intel Intrinsics Guide](https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html)
 
 ### 3. Parallel Processing
 
@@ -828,12 +967,11 @@ Matrix batch_process(const Matrix& batch_input, Func operation) {
 
 ### Current Limitations
 
-1. **No GPU Support:** CPU-only implementation
-2. **No BLAS Integration:** Manual matrix operations (slower than optimized libraries)
-3. **Single Precision:** Only `float` type, no `double` or custom precision
-4. **No Sparse Matrix Support:** All elements stored explicitly
-5. **No Broadcasting:** Manual implementation required for broadcasting operations
-6. **No Inplace Arithmetic:** Operations like `+=`, `-=` not implemented
+1. **No BLAS Integration:** Manual matrix operations (slower than optimized libraries)
+2. **Single Precision:** Only `float` type, no `double` or custom precision
+3. **No Sparse Matrix Support:** All elements stored explicitly
+4. **No Broadcasting:** Manual implementation required for broadcasting operations
+5. **No Inplace Arithmetic:** Operations like `+=`, `-=` not implemented
 
 ### Design Constraints
 

@@ -4,7 +4,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
-#include <httplib.h>
+#include <../external/cpp-httplib/httplib.h>
 
 // Forward declarations removed: BPETokenizer, EncoderDecoderModel, ConversationContext
 

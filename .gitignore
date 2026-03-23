@@ -62,4 +62,11 @@ coverage/
 # Documentation build artifacts
 docs/html/
 docs/latex/
+docs/print/
 *.pdf
+
+# Training Sessions and logs
+logs/
+gutenberg_data/
+training_sessions/
+*.log

@@ -110,7 +110,15 @@ float Optimizer::get_weight_norm() const {
         }
     }
 
-    return std::sqrt(total_norm);
+    float result = std::sqrt(total_norm);
+    // TD-013 debug: log first call to help diagnose zero weight norm
+    static int debug_count = 0;
+    if (debug_count < 3) {
+        ++debug_count;
+        fprintf(stderr, "[TD-013] get_weight_norm: groups=%zu total_sq=%.4f result=%.6f\n",
+                parameter_groups.size(), total_norm, result);
+    }
+    return result;
 }
 
 // Clip gradients

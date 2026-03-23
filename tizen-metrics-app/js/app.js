@@ -333,23 +333,23 @@
        Dashboard update
     ------------------------------------------------------- */
     function applyMetrics(current, epochData) {
+        /* --- Sample progress --- */
+        var sample    = current.current_sample  || 0;
+        var totSample = current.total_samples   || 0;
+        var samplePct = totSample > 0 ? (sample / totSample) : 0;
+
+        setText(UI.sampleValue, totSample > 0 ? fmtInt(sample) + ' / ' + fmtInt(totSample) : fmtInt(sample));
+        setText(UI.sampleSub,   (totSample > 0 ? Math.round(samplePct * 100) + '% —' : '') + ' total: ' + fmtInt(current.total_samples_trained));
+        UI.sampleProgressBar.style.width = Math.min(samplePct * 100, 100) + '%';
+
         /* --- Epoch progress --- */
         var epoch     = current.current_epoch      || 0;
         var totEpoch  = current.total_epochs       || 0;
-        var epochPct  = totEpoch > 0 ? (epoch / totEpoch) * 100 : 0;
+        var epochPct  = totEpoch > 0 ? (((Math.max(0, epoch - 1) + samplePct) / totEpoch) * 100) : 0;
 
         setText(UI.epochValue, totEpoch > 0 ? epoch + ' / ' + totEpoch : fmt(epoch, 0));
         setText(UI.epochSub,   totEpoch > 0 ? Math.round(epochPct) + '%  complete' : 'Epoch ' + epoch);
         UI.epochProgressBar.style.width = Math.min(epochPct, 100) + '%';
-
-        /* --- Sample progress --- */
-        var sample    = current.current_sample  || 0;
-        var totSample = current.total_samples   || 0;
-        var samplePct = totSample > 0 ? (sample / totSample) * 100 : 0;
-
-        setText(UI.sampleValue, totSample > 0 ? fmtInt(sample) + ' / ' + fmtInt(totSample) : fmtInt(sample));
-        setText(UI.sampleSub,   (totSample > 0 ? Math.round(samplePct) + '% —' : '') + ' total: ' + fmtInt(current.total_samples_trained));
-        UI.sampleProgressBar.style.width = Math.min(samplePct, 100) + '%';
 
         /* --- ETA & time --- */
         setText(UI.etaValue, fmtTime(current.estimated_time_remaining_seconds));
@@ -393,7 +393,11 @@
         setText(UI.gradVarianceValue, fmt(current.gradient_variance, 6));
         var ctr = current.compute_time_ratio;
         setText(UI.computeRatioValue, (ctr != null && !isNaN(ctr)) ? fmt(ctr * 100, 1) + '%' : '—');
-        setText(UI.weightUpdateValue, fmt(current.weight_update_ratio, 6));
+        var wur = current.weight_update_ratio;
+        var wurStr = (wur != null && !isNaN(wur) && wur !== 0)
+            ? (wur < 0.0001 ? wur.toExponential(3) : fmt(wur, 6))
+            : (wur === 0 ? '—' : '—');
+        setText(UI.weightUpdateValue, wurStr);
 
         /* --- Session stats --- */
         setText(UI.totalSamplesValue,  fmtInt(current.total_samples_trained));

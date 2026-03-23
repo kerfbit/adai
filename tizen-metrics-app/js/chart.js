@@ -132,7 +132,7 @@
 
         var maxXLabels = Math.min(numPoints, 10);
         var step = Math.ceil(numPoints / maxXLabels);
-        for (var xi = 0; xi < numPoints; xi += step) {
+        for (var xi = 1; xi <= numPoints; xi += step) {
             var xx = xFor(xi);
             ctx.fillText('E' + xi, xx, pad.top + plotH + 8);
         }

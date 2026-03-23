@@ -211,6 +211,18 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> m
             res.status = 400;
         }
     });
+
+    // POST /api/metrics/advanced - Update advanced diagnostic metrics (TD-013)
+    server_impl_->server.Post("/api/metrics/advanced", [this](const httplib::Request& req, httplib::Response& res) {
+        try {
+            std::string response = handle_post_advanced_metrics(req.body);
+            res.set_content(response, "application/json");
+            res.status = 200;
+        } catch (const std::exception& e) {
+            res.set_content(create_error_response(e.what()), "application/json");
+            res.status = 400;
+        }
+    });
     
     // Control endpoints (if enabled)
     if (allow_control_) {
@@ -681,9 +693,40 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& body) {
             gradient_norm = std::stof(body.substr(pos + 1));
         }
     }
-    
+
+    float gradient_variance = 0.0f;
+    float compute_time_ratio = 0.0f;
+    float weight_update_ratio = 0.0f;
+
+    pos = body.find("\"gradient_variance\"");
+    if (pos != std::string::npos) {
+        pos = body.find(':', pos);
+        if (pos != std::string::npos) {
+            gradient_variance = std::stof(body.substr(pos + 1));
+        }
+    }
+
+    pos = body.find("\"compute_time_ratio\"");
+    if (pos != std::string::npos) {
+        pos = body.find(':', pos);
+        if (pos != std::string::npos) {
+            compute_time_ratio = std::stof(body.substr(pos + 1));
+        }
+    }
+
+    pos = body.find("\"weight_update_ratio\"");
+    if (pos != std::string::npos) {
+        pos = body.find(':', pos);
+        if (pos != std::string::npos) {
+            weight_update_ratio = std::stof(body.substr(pos + 1));
+        }
+    }
+
     metrics_service_->end_epoch(epoch, loss, validation_loss, learning_rate, perplexity, gradient_norm);
-    
+    if (gradient_variance != 0.0f || compute_time_ratio != 0.0f || weight_update_ratio != 0.0f) {
+        metrics_service_->update_advanced_epoch_metrics(gradient_variance, compute_time_ratio, weight_update_ratio);
+    }
+
     return "{\"status\":\"ok\",\"message\":\"Epoch ended\"}";
 }
 
@@ -789,6 +832,41 @@ std::string TrainingMetricsAPI::handle_post_best_metrics(const std::string& body
     
     metrics_service_->update_best_metrics(validation_loss, epoch);
     
+    return "{\"status\":\"ok\"}";
+}
+
+std::string TrainingMetricsAPI::handle_post_advanced_metrics(const std::string& body) {
+    // Parse JSON body: {"gradient_variance": float, "compute_time_ratio": float, "weight_update_ratio": float}
+    float gradient_variance  = 0.0f;
+    float compute_time_ratio = 0.0f;
+    float weight_update_ratio = 0.0f;
+
+    size_t pos = body.find("\"gradient_variance\"");
+    if (pos != std::string::npos) {
+        pos = body.find(':', pos);
+        if (pos != std::string::npos) {
+            gradient_variance = std::stof(body.substr(pos + 1));
+        }
+    }
+
+    pos = body.find("\"compute_time_ratio\"");
+    if (pos != std::string::npos) {
+        pos = body.find(':', pos);
+        if (pos != std::string::npos) {
+            compute_time_ratio = std::stof(body.substr(pos + 1));
+        }
+    }
+
+    pos = body.find("\"weight_update_ratio\"");
+    if (pos != std::string::npos) {
+        pos = body.find(':', pos);
+        if (pos != std::string::npos) {
+            weight_update_ratio = std::stof(body.substr(pos + 1));
+        }
+    }
+
+    metrics_service_->update_advanced_epoch_metrics(gradient_variance, compute_time_ratio, weight_update_ratio);
+
     return "{\"status\":\"ok\"}";
 }
 
