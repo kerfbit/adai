@@ -47,17 +47,6 @@ INPUT: Summarize: A Caucus-Race and a Long Tale
 RESPONSE: Advice from a Caterpillar
  CHAPTER VI.
 
-INPUT: Can you explain: Advice from a Caterpillar
- CHAPTER VI.
-RESPONSE: Pig and Pepper
- CHAPTER VII.
-
-INPUT: Summarize: Advice from a Caterpillar
- CHAPTER VI. Pig and Pepper
- CHAPTER VII.
-RESPONSE: A Mad Tea-Party
- CHAPTER VIII.
-
 INPUT: What does this say: A Mad Tea-Party
  CHAPTER VIII.
 RESPONSE: The Queen’s Croquet-Ground
@@ -73,11 +62,6 @@ INPUT: Can you explain: The Mock Turtle’s Story
  CHAPTER X.
 RESPONSE: The Lobster Quadrille
  CHAPTER XI.
-
-INPUT: Summarize: The Mock Turtle’s Story
- CHAPTER X. The Lobster Quadrille
- CHAPTER XI.
-RESPONSE: Alice’s Evidence
 
 CHAPTER I.
 
@@ -231,17 +215,6 @@ RESPONSE: ” (Alice had no
 idea what Latitude was, or Longitude either, but thought they were nice
 grand words to say.
 
-INPUT: Summarize: Let me see: that would
-be four thousand miles down, I think—” (for, you see, Alice had learnt
-several things of this sort in her lessons in the schoolroom, and
-though this was not a _very_ good opportunity for showing off her
-knowledge, as there was no one to listen to her, still it was good
-practice to say it over) “—yes, that’s about the right distance—but
-then I wonder what Latitude or Longitude I’ve got to? ” (Alice had no
-idea what Latitude was, or Longitude either, but thought they were nice
-grand words to say.
-RESPONSE: )
-
 Presently she began again.
 
 INPUT: Explain this: )
@@ -355,13 +328,6 @@ RESPONSE: She felt
 that she was dozing off, and had just begun to dream that she was
 walking hand in hand with Dinah, and saying to her very earnestly,
 “Now, Dinah, tell me the truth: did you ever eat a bat?
-
-INPUT: Tell me about: She felt
-that she was dozing off, and had just begun to dream that she was
-walking hand in hand with Dinah, and saying to her very earnestly,
-“Now, Dinah, tell me the truth: did you ever eat a bat?
-RESPONSE: ” when suddenly,
-thump!
 
 INPUT: Summarize: She felt
 that she was dozing off, and had just begun to dream that she was
@@ -673,14 +639,6 @@ things to happen, that it seemed quite dull and stupid for life to go
 on in the common way.
 RESPONSE: So she set to work, and very soon finished off the cake.
 
-INPUT: Summarize: ”, holding her hand on the top of her head to feel which way it was
-growing, and she was quite surprised to find that she remained the same
-size: to be sure, this generally happens when one eats cake, but Alice
-had got so much into the way of expecting nothing but out-of-the-way
-things to happen, that it seemed quite dull and stupid for life to go
-on in the common way. So she set to work, and very soon finished off the cake.
-RESPONSE: * * * * * * *
-
  * * * * * *
 
 * * * * * * *
@@ -807,11 +765,6 @@ hopeless than ever: she sat down and began to cry again.
 RESPONSE: “You ought to be ashamed of yourself,” said Alice, “a great girl like
 you,” (she might well say this), “to go on crying in this way!
 
-INPUT: Explain this: “You ought to be ashamed of yourself,” said Alice, “a great girl like
-you,” (she might well say this), “to go on crying in this way!
-RESPONSE: Stop
-this moment, I tell you!
-
 INPUT: Summarize: “You ought to be ashamed of yourself,” said Alice, “a great girl like
 you,” (she might well say this), “to go on crying in this way! Stop
 this moment, I tell you!
@@ -891,10 +844,6 @@ a little different.
 RESPONSE: But if I’m not the same, the next question is, Who
 in the world am I?
 
-INPUT: Explain this: But if I’m not the same, the next question is, Who
-in the world am I?
-RESPONSE: Ah, _that’s_ the great puzzle!
-
 INPUT: Summarize: But if I’m not the same, the next question is, Who
 in the world am I? Ah, _that’s_ the great puzzle!
 RESPONSE: ” And she began
@@ -950,14 +899,6 @@ INPUT: What is this about: London is the capital of Paris, and Paris is the capi
 Rome, and Rome—no, _that’s_ all wrong, I’m certain!
 RESPONSE: I must have been
 changed for Mabel!
-
-INPUT: Summarize: London is the capital of Paris, and Paris is the capital of
-Rome, and Rome—no, _that’s_ all wrong, I’m certain! I must have been
-changed for Mabel!
-RESPONSE: I’ll try and say ‘_How doth the little_—’” and she
-crossed her hands on her lap as if she were saying lessons, and began
-to repeat it, but her voice sounded hoarse and strange, and the words
-did not come the same as they used to do:—
 
 “How doth the little crocodile
  Improve his shining tail,
@@ -1030,13 +971,6 @@ I shall only look up and say ‘Who am I then?
 RESPONSE: Tell me that first, and
 then, if I like being that person, I’ll come up: if not, I’ll stay down
 here till I’m somebody else’—but, oh dear!
-
-INPUT: Summarize: ’
-I shall only look up and say ‘Who am I then? Tell me that first, and
-then, if I like being that person, I’ll come up: if not, I’ll stay down
-here till I’m somebody else’—but, oh dear!
-RESPONSE: ” cried Alice, with a sudden
-burst of tears, “I do wish they _would_ put their heads down!
 
 INPUT: Can you explain: ” cried Alice, with a sudden
 burst of tears, “I do wish they _would_ put their heads down!
@@ -1198,11 +1132,6 @@ likely it can talk: at any rate, there’s no harm in trying.
 RESPONSE: ” So she
 began: “O Mouse, do you know the way out of this pool?
 
-INPUT: Can you explain: ” So she
-began: “O Mouse, do you know the way out of this pool?
-RESPONSE: I am very tired
-of swimming about here, O Mouse!
-
 INPUT: Summarize: ” So she
 began: “O Mouse, do you know the way out of this pool? I am very tired
 of swimming about here, O Mouse!
@@ -1332,11 +1261,6 @@ tail.
 INPUT: What does this mean: ” cried the Mouse, who was trembling down to the end of his
 tail.
 RESPONSE: “As if _I_ would talk on such a subject!
-
-INPUT: Summarize: ” cried the Mouse, who was trembling down to the end of his
-tail. “As if _I_ would talk on such a subject!
-RESPONSE: Our family always
-_hated_ cats: nasty, low, vulgar things!
 
 INPUT: What does this mean: Our family always
 _hated_ cats: nasty, low, vulgar things!
@@ -1602,10 +1526,6 @@ it advisable to go with Edgar Atheling to meet William and offer him
 the crown.
 RESPONSE: William’s conduct at first was moderate.
 
-INPUT: Explain this: William’s conduct at first was moderate.
-RESPONSE: But the insolence
-of his Normans—’ How are you getting on now, my dear?
-
 INPUT: Summarize: William’s conduct at first was moderate. But the insolence
 of his Normans—’ How are you getting on now, my dear?
 RESPONSE: ” it continued,
@@ -1681,11 +1601,6 @@ INPUT: Can you explain: “Why,” said the Dodo, “the best way to explain it 
 RESPONSE: ” (And,
 as you might like to try the thing yourself, some winter day, I will
 tell you how the Dodo managed it.
-
-INPUT: Summarize: “Why,” said the Dodo, “the best way to explain it is to do it. ” (And,
-as you might like to try the thing yourself, some winter day, I will
-tell you how the Dodo managed it.
-RESPONSE: )
 
 First it marked out a race-course, in a sort of circle, (“the exact
 shape doesn’t matter,” it said,) and then all the party were placed
@@ -2051,11 +1966,6 @@ INPUT: What is this about: And she’s such a capital one for catching mice you
 can’t think!
 RESPONSE: And oh, I wish you could see her after the birds!
 
-INPUT: Summarize: And she’s such a capital one for catching mice you
-can’t think! And oh, I wish you could see her after the birds!
-RESPONSE: Why,
-she’ll eat a little bird as soon as look at it!
-
 INPUT: What does this say: Why,
 she’ll eat a little bird as soon as look at it!
 RESPONSE: ”
@@ -2104,11 +2014,6 @@ INPUT: Summarize: “I wish I hadn’t mentioned Dinah! ” she said to herself 
 tone.
 RESPONSE: “Nobody seems to like her, down here, and I’m sure she’s the best
 cat in the world!
-
-INPUT: What does this say: “Nobody seems to like her, down here, and I’m sure she’s the best
-cat in the world!
-RESPONSE: I wonder if I shall ever see you
-any more!
 
 INPUT: Summarize: “Nobody seems to like her, down here, and I’m sure she’s the best
 cat in the world! I wonder if I shall ever see you
@@ -2196,10 +2101,6 @@ a fan! ” And Alice was so much frightened that she ran off
 at once in the direction it pointed to, without trying to explain the
 mistake it had made.
 RESPONSE: “He took me for his housemaid,” she said to herself as she ran.
-
-INPUT: Can you explain: “He took me for his housemaid,” she said to herself as she ran.
-RESPONSE: “How
-surprised he’ll be when he finds out who I am!
 
 INPUT: Summarize: “He took me for his housemaid,” she said to herself as she ran. “How
 surprised he’ll be when he finds out who I am!
@@ -2522,10 +2423,6 @@ then a voice she had never heard before, “Sure then I’m here!
 RESPONSE: Digging
 for apples, yer honour!
 
-INPUT: Explain this: Digging
-for apples, yer honour!
-RESPONSE: ”
-
 “Digging for apples, indeed!
 
 INPUT: Summarize: Digging
@@ -2659,11 +2556,6 @@ INPUT: What does this say: —Why, I hadn’t to bring but one; Bill’s got the
 RESPONSE: —Here, put ’em up at this corner—No, tie ’em
 together first—they don’t reach half high enough yet—Oh!
 
-INPUT: Summarize: —Why, I hadn’t to bring but one; Bill’s got the other—Bill! —Here, put ’em up at this corner—No, tie ’em
-together first—they don’t reach half high enough yet—Oh!
-RESPONSE: they’ll do
-well enough; don’t be particular—Here, Bill!
-
 INPUT: Can you explain: they’ll do
 well enough; don’t be particular—Here, Bill!
 RESPONSE: catch hold of this
@@ -2751,12 +2643,6 @@ INPUT: What is this about: ” then
 silence, and then another confusion of voices—“Hold up his head—Brandy
 now—Don’t choke him—How was it, old fellow?
 RESPONSE: What happened to you?
-
-INPUT: Summarize: ” then
-silence, and then another confusion of voices—“Hold up his head—Brandy
-now—Don’t choke him—How was it, old fellow? What happened to you?
-RESPONSE: Tell
-us all about it!
 
 INPUT: Tell me about: Tell
 us all about it!
@@ -2977,11 +2863,6 @@ only been the right size to do it! I’d nearly forgotten that
 I’ve got to grow up again!
 RESPONSE: Let me see—how _is_ it to be managed?
 
-INPUT: What does this say: Let me see—how _is_ it to be managed?
-RESPONSE: I
-suppose I ought to eat or drink something or other; but the great
-question is, what?
-
 INPUT: Summarize: Let me see—how _is_ it to be managed? I
 suppose I ought to eat or drink something or other; but the great
 question is, what?
@@ -3127,10 +3008,6 @@ INPUT: What does this say: “Well, perhaps your feelings may be different,” s
 is, it would feel very queer to _me_.
 RESPONSE: ” said the Caterpillar contemptuously.
 
-INPUT: Summarize: “Well, perhaps your feelings may be different,” said Alice; “all I know
-is, it would feel very queer to _me_. ” said the Caterpillar contemptuously.
-RESPONSE: _”
-
 Which brought them back again to the beginning of the conversation.
 
 INPUT: Explain this: _”
@@ -3186,13 +3063,6 @@ INPUT: Summarize: ” said Alice, swallowing down her anger as well as she
 could. “No,” said the Caterpillar.
 RESPONSE: Alice thought she might as well wait, as she had nothing else to do,
 and perhaps after all it might tell her something worth hearing.
-
-INPUT: Explain this: Alice thought she might as well wait, as she had nothing else to do,
-and perhaps after all it might tell her something worth hearing.
-RESPONSE: For
-some minutes it puffed away without speaking, but at last it unfolded
-its arms, took the hookah out of its mouth again, and said, “So you
-think you’re changed, do you?
 
 INPUT: Summarize: Alice thought she might as well wait, as she had nothing else to do,
 and perhaps after all it might tell her something worth hearing. For
@@ -3473,14 +3343,6 @@ RESPONSE: Then it got down off the
 mushroom, and crawled away in the grass, merely remarking as it went,
 “One side will make you grow taller, and the other side will make you
 grow shorter.
-
-INPUT: Summarize: In a
-minute or two the Caterpillar took the hookah out of its mouth and
-yawned once or twice, and shook itself. Then it got down off the
-mushroom, and crawled away in the grass, merely remarking as it went,
-“One side will make you grow taller, and the other side will make you
-grow shorter.
-RESPONSE: ”
 
 “One side of _what?
 

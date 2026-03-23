@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import sys
 import tkinter as tk
+from tkinter import ttk
 from pathlib import Path
 
 
@@ -63,7 +64,7 @@ def main(argv: list[str] | None = None) -> None:
 
 def _apply_theme(root: tk.Tk) -> None:
     """Apply a clean visual theme."""
-    style = tk.ttk.Style(root)
+    style = ttk.Style(root)
 
     # Use a modern built-in theme as base
     available = style.theme_names()

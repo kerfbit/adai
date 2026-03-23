@@ -439,11 +439,6 @@ distinction is clear.
 RESPONSE: For example, you have frequently seen the steps
 which lead up from the hall to this room.
 
-INPUT: Summarize: The
-distinction is clear. For example, you have frequently seen the steps
-which lead up from the hall to this room.
-RESPONSE: ”
-
 “Frequently.
 
 INPUT: What does this say: ”
@@ -2456,10 +2451,6 @@ INPUT: Summarize: ”
 you to throw, and will, at the same time, raise the cry of fire.
 RESPONSE: You
 quite follow me?
-
-INPUT: Can you explain: You
-quite follow me?
-RESPONSE: ”
 
 “It is nothing very formidable,” he said, taking a long cigar-shaped
 roll from his pocket.

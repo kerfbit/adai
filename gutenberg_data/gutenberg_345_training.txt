@@ -111,12 +111,6 @@ CHAPTER IX.
 RESPONSE: Mina Murray’s Journal
 CHAPTER X.
 
-INPUT: Summarize: Mina Murray’s Journal
-CHAPTER IX. Mina Murray’s Journal
-CHAPTER X.
-RESPONSE: Mina Murray’s Journal
-CHAPTER XI.
-
 INPUT: What does this mean: Mina Murray’s Journal
 CHAPTER XI.
 RESPONSE: Lucy Westenra’s Diary
