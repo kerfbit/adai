@@ -14,6 +14,7 @@ rm -rf "${OUT_DIR}" && mkdir -p "${OUT_DIR}"
 echo "==> Packaging app as .wgt with AdaiTV profile..."
 $TIZEN package -t wgt -s AdaiTV -o "${OUT_DIR}" -- "${APP_DIR}"
 echo "package_status=$?"
+mv "${OUT_DIR}"/*.wgt "${OUT_DIR}/adai-metrics.wgt"
 
 echo "==> Listing output..."
 ls -lh "${OUT_DIR}"
