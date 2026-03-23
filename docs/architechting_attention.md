@@ -970,7 +970,7 @@ For a $d_{model} = 128$ Transformer, simply distilling the final output is often
 
 ##### Why $d_{model} = 128$ Needs a Teacher
 
-At extremely small scales, models suffer from a high "cold-start" problem. They lack the capacity to find the global minimum in a complex loss landscape from scratch. 
+At extremely small scales, models suffer from a high "cold-start" problem. They lack the capacity to find the global minimum in a complex loss landscape from scratch.
 
 * **Stability:** Distillation acts as a form of "guided optimization." By following the Teacher, the Student avoids the **gradient norm spikes** and erratic perplexity common when training micro-models on raw data.
 * **Efficiency:** A Student model trained via KD typically reaches a lower perplexity in **30-50% fewer steps** than a Student trained from scratch.
