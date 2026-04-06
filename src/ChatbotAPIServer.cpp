@@ -4,6 +4,11 @@
 #include "BPETokenizer.hpp"
 #include "Config.hpp"
 #include "Logger.hpp"
+#include "RAGInference.hpp"
+#include "DocumentStore.hpp"
+#include "encoder.hpp"
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <cstdlib>
@@ -214,7 +219,7 @@ int main(int argc, char* argv[]) {
         // Initialize model
         adai::Logger::info("");
         adai::Logger::info("[2/4] Initializing encoder-decoder model...");
-        auto model = std::make_unique<EncoderDecoderModel>(
+        auto model = std::make_shared<EncoderDecoderModel>(
             tokenizer->get_vocab_size(),  // vocab_size (first parameter)
             config.d_model,                // d_model
             config.num_encoder_layers,     // encoder_layers
@@ -256,6 +261,68 @@ int main(int argc, char* argv[]) {
         gen_config.strategy = config.strategy;
         api->set_generation_config(gen_config);
 
+        // Optionally initialize RAG engine
+        std::shared_ptr<RAGInference> rag_engine;
+        if (config.rag_enabled) {
+            adai::Logger::info("");
+            adai::Logger::info("[+] Initializing RAG engine...");
+            try {
+                auto rag_encoder = std::make_shared<LLMEncoder>(
+                    static_cast<int>(tokenizer->get_vocab_size()),
+                    static_cast<int>(config.d_model),
+                    static_cast<int>(config.num_encoder_layers),
+                    static_cast<int>(config.num_heads),
+                    static_cast<int>(config.d_ff),
+                    static_cast<int>(config.max_seq_length)
+                );
+                rag_encoder->load_tokenizer_vocab(config.vocab_path);
+
+                auto doc_store = std::make_shared<DocumentStore>(rag_encoder);
+
+                int doc_count = 0;
+                if (!config.rag_docs_path.empty()) {
+                    namespace fs = std::filesystem;
+                    fs::path docs_dir(config.rag_docs_path);
+                    if (fs::exists(docs_dir) && fs::is_directory(docs_dir)) {
+                        for (const auto& entry : fs::directory_iterator(docs_dir)) {
+                            if (entry.is_regular_file() && entry.path().extension() == ".txt") {
+                                std::ifstream file(entry.path());
+                                if (file.is_open()) {
+                                    std::string text((std::istreambuf_iterator<char>(file)),
+                                                      std::istreambuf_iterator<char>());
+                                    if (!text.empty()) {
+                                        doc_store->addDocument(entry.path().stem().string(), text);
+                                        doc_count++;
+                                    }
+                                }
+                            }
+                        }
+                        adai::Logger::info("  Indexed {} documents from: {}", doc_count, config.rag_docs_path);
+                    } else {
+                        adai::Logger::warn("  RAG docs path not found or not a directory: {}", config.rag_docs_path);
+                    }
+                } else {
+                    adai::Logger::warn("  RAG_DOCS_PATH not set - no documents indexed");
+                }
+
+                RAGInference::RAGConfig rag_config;
+                rag_config.num_retrieved_docs = config.rag_num_docs;
+                rag_config.retrieval_threshold = config.rag_threshold;
+                rag_config.max_context_length = config.rag_max_context_length;
+                rag_config.gen_config.max_length = static_cast<int>(config.max_gen_length);
+                rag_config.gen_config.temperature = config.temperature;
+                rag_config.gen_config.top_p = config.top_p;
+                rag_config.gen_config.top_k = static_cast<int>(config.top_k);
+
+                rag_engine = std::make_shared<RAGInference>(model, doc_store, rag_config);
+                api->enableRAG(rag_engine);
+                adai::Logger::info("  RAG enabled: retrieving {} docs per query (threshold: {})",
+                                   config.rag_num_docs, config.rag_threshold);
+            } catch (const std::exception& e) {
+                adai::Logger::warn("  RAG initialization failed: {} - continuing without RAG", e.what());
+            }
+        }
+
         // Initialize global config state for reload
         std::mutex config_mutex;
         g_config = &config;
@@ -281,6 +348,10 @@ int main(int argc, char* argv[]) {
         adai::Logger::info("  POST   /chat/session   - Multi-turn conversation");
         adai::Logger::info("  POST   /clear-session  - Clear session history");
         adai::Logger::info("  GET    /health         - Health check");
+        if (config.rag_enabled && rag_engine) {
+            adai::Logger::info("  RAG:   enabled ({} docs indexed, retrieving top-{})",
+                               rag_engine->getNumDocuments(), config.rag_num_docs);
+        }
         // TODO: See TECHNICAL_DEBT.md Future Enhancement #13 - Add /metrics endpoint
         // Expose Prometheus metrics: request_count, request_duration, active_sessions, etc.
         // TODO: See TECHNICAL_DEBT.md Future Enhancement #16 - Enhanced /health endpoint

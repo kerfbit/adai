@@ -166,6 +166,8 @@ if(BUILD_API_SERVER)
     if(HTTPLIB_INCLUDE_DIR)
         add_library(adai_api STATIC
             ChatbotAPI.cpp
+            DocumentStore.cpp
+            RAGInference.cpp
         )
         target_link_libraries(adai_api 
             adai_models 

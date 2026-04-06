@@ -5,6 +5,7 @@
 #include "TextGenerator.hpp"
 #include "BPETokenizer.hpp"
 #include "BatchProcessor.hpp"
+#include "RAGInference.hpp"
 #include <string>
 #include <memory>
 #include <mutex>
@@ -110,6 +111,12 @@ public:
     }
 
     /**
+     * @brief Enable RAG for all inference paths
+     * @param rag_engine Initialized RAGInference engine with documents already loaded
+     */
+    void enableRAG(std::shared_ptr<RAGInference> rag_engine);
+
+    /**
      * @brief Generate batch responses (stateless)
      * @param inputs Vector of input messages
      * @param config Generation configuration
@@ -159,6 +166,9 @@ private:
     // Model components
     EncoderDecoderModel* model_;
     BPETokenizer* tokenizer_;
+
+    // RAG engine (optional; when set, all generate_response calls route through it)
+    std::shared_ptr<RAGInference> rag_engine_;
 
     // Server configuration
     int port_;

@@ -222,6 +222,19 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.metrics_api_port = std::stoi(value);
             } else if (key == "METRICS_API_ALLOW_CONTROL") {
                 config.metrics_api_allow_control = (value == "true" || value == "1" || value == "yes");
+            // RAG configuration
+            } else if (key == "RAG_ENABLED") {
+                std::string lower = value;
+                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+                config.rag_enabled = (lower == "true" || lower == "1" || lower == "yes" || lower == "on");
+            } else if (key == "RAG_DOCS_PATH") {
+                config.rag_docs_path = value;
+            } else if (key == "RAG_NUM_DOCS") {
+                config.rag_num_docs = std::stoi(value);
+            } else if (key == "RAG_THRESHOLD") {
+                config.rag_threshold = std::stof(value);
+            } else if (key == "RAG_MAX_CONTEXT_LENGTH") {
+                config.rag_max_context_length = std::stoi(value);
             } else {
                 std::cerr << "Warning: Unknown configuration key: " << key << std::endl;
             }
@@ -273,6 +286,13 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     if (auto val = get_env_int("TOP_K")) config.top_k = *val;
     if (auto val = get_env_int("BEAM_WIDTH")) config.beam_width = *val;
     if (auto val = get_env("STRATEGY")) config.strategy = *val;
+
+    // RAG configuration
+    if (auto val = get_env_bool("RAG_ENABLED")) config.rag_enabled = *val;
+    if (auto val = get_env("RAG_DOCS_PATH")) config.rag_docs_path = *val;
+    if (auto val = get_env_int("RAG_NUM_DOCS")) config.rag_num_docs = *val;
+    if (auto val = get_env_float("RAG_THRESHOLD")) config.rag_threshold = *val;
+    if (auto val = get_env_int("RAG_MAX_CONTEXT_LENGTH")) config.rag_max_context_length = *val;
 }
 
 // ============================================================
@@ -336,6 +356,15 @@ void ConfigLoader::print(const ServiceConfig& config) {
     std::cout << "  top_k:            " << config.top_k << std::endl;
     std::cout << "  beam_width:       " << config.beam_width << std::endl;
     std::cout << "  strategy:         " << config.strategy << std::endl;
+    std::cout << std::endl;
+    std::cout << "RAG Configuration:" << std::endl;
+    std::cout << "  rag_enabled:      " << (config.rag_enabled ? "true" : "false") << std::endl;
+    if (config.rag_enabled) {
+        std::cout << "  rag_docs_path:    " << (config.rag_docs_path.empty() ? "<not set>" : config.rag_docs_path) << std::endl;
+        std::cout << "  rag_num_docs:     " << config.rag_num_docs << std::endl;
+        std::cout << "  rag_threshold:    " << config.rag_threshold << std::endl;
+        std::cout << "  rag_max_context:  " << config.rag_max_context_length << " tokens" << std::endl;
+    }
     std::cout << "==================================================" << std::endl;
 }
 

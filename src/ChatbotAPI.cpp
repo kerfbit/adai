@@ -22,6 +22,7 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model,
       port_(port),
       session_timeout_(session_timeout_minutes),
       running_(false),
+      rag_engine_(nullptr),
       server_impl_(std::make_unique<ServerImpl>()) {
     
     // Set up HTTP endpoints
@@ -553,10 +554,27 @@ std::string ChatbotAPI::create_batch_json_response(const BatchResponse& batch_re
 }
 
 // ============================================================================
+// RAG Integration
+// ============================================================================
+
+void ChatbotAPI::enableRAG(std::shared_ptr<RAGInference> rag_engine) {
+    std::lock_guard<std::mutex> lock(config_mutex_);
+    rag_engine_ = std::move(rag_engine);
+}
+
+// ============================================================================
 // Text Generation
 // ============================================================================
 
 std::string ChatbotAPI::generate_response(const std::string& input, const GenerationConfig& config) {
+    // Route through RAG engine when enabled
+    {
+        std::lock_guard<std::mutex> lock(config_mutex_);
+        if (rag_engine_) {
+            return rag_engine_->generate(input);
+        }
+    }
+
     try {
         // Tokenize input (no special tokens for encoder input)
         std::vector<int> input_tokens = tokenizer_->encode(input, false);

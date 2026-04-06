@@ -165,6 +165,25 @@ struct ServiceConfig {
     
     /// Allow control endpoints in metrics API (default: true)
     bool metrics_api_allow_control = true;
+
+    // ============================================================
+    // RAG Configuration
+    // ============================================================
+
+    /// Enable Retrieval-Augmented Generation (default: false)
+    bool rag_enabled = false;
+
+    /// Path to directory containing .txt documents to index (default: "")
+    std::string rag_docs_path;
+
+    /// Number of documents to retrieve per query (default: 3)
+    int rag_num_docs = 3;
+
+    /// Minimum cosine similarity score for retrieval; 0 = no filter (default: 0.0)
+    float rag_threshold = 0.0f;
+
+    /// Maximum context length in tokens (default: 512)
+    int rag_max_context_length = 512;
 };
 
 /**
