@@ -2191,6 +2191,421 @@ void IncrementalTrainer::display_dashboard(const TrainingSession& session,
 }
 
 // ============================================================================
+// HuggingFace Datasets integration
+// ============================================================================
+
+// ---------------------------------------------------------------------------
+// Minimal JSON helpers — no external library required.
+// ---------------------------------------------------------------------------
+
+/// Unescape a JSON string value (\n, \t, \r, \", \\, \/).
+static std::string hf_unescape(const std::string& s) {
+    std::string out;
+    out.reserve(s.size());
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (s[i] == '\\' && i + 1 < s.size()) {
+            ++i;
+            switch (s[i]) {
+                case 'n':  out += '\n'; break;
+                case 't':  out += '\t'; break;
+                case 'r':  out += '\r'; break;
+                case '"':  out += '"';  break;
+                case '\\': out += '\\'; break;
+                case '/':  out += '/';  break;
+                case 'b':  out += '\b'; break;
+                case 'f':  out += '\f'; break;
+                default:   out += '\\'; out += s[i]; break;
+            }
+        } else {
+            out += s[i];
+        }
+    }
+    return out;
+}
+
+/// Extract the first quoted string value for the given JSON key.
+static std::string hf_extract_string(const std::string& json, const std::string& key) {
+    std::string needle = "\"" + key + "\"";
+    size_t kpos = json.find(needle);
+    if (kpos == std::string::npos) return "";
+    size_t colon = json.find(':', kpos + needle.size());
+    if (colon == std::string::npos) return "";
+
+    size_t vpos = colon + 1;
+    while (vpos < json.size() && std::isspace(static_cast<unsigned char>(json[vpos]))) ++vpos;
+    if (vpos >= json.size() || json[vpos] != '"') return "";
+
+    std::string raw;
+    ++vpos;  // past opening "
+    while (vpos < json.size() && json[vpos] != '"') {
+        if (json[vpos] == '\\' && vpos + 1 < json.size()) {
+            raw += '\\';
+            raw += json[vpos + 1];
+            vpos += 2;
+        } else {
+            raw += json[vpos++];
+        }
+    }
+    return hf_unescape(raw);
+}
+
+/// Extract an array of quoted strings for a given JSON key ("key": ["a","b",...]).
+static std::vector<std::string> hf_extract_string_array(const std::string& json,
+                                                         const std::string& key) {
+    std::vector<std::string> result;
+    std::string needle = "\"" + key + "\"";
+    size_t kpos = json.find(needle);
+    if (kpos == std::string::npos) return result;
+    size_t colon = json.find(':', kpos + needle.size());
+    if (colon == std::string::npos) return result;
+    size_t bracket = json.find('[', colon + 1);
+    if (bracket == std::string::npos) return result;
+
+    // Walk to matching ']', tracking nesting depth
+    int depth = 1;
+    size_t pos = bracket + 1;
+    size_t arr_end = std::string::npos;
+    while (pos < json.size() && depth > 0) {
+        char c = json[pos];
+        if      (c == '[') { ++depth; ++pos; }
+        else if (c == ']') { --depth; if (depth == 0) { arr_end = pos; break; } ++pos; }
+        else if (c == '"') {
+            ++pos;
+            while (pos < json.size() && json[pos] != '"') {
+                if (json[pos] == '\\') ++pos;
+                ++pos;
+            }
+            if (pos < json.size()) ++pos;  // past closing "
+        } else {
+            ++pos;
+        }
+    }
+    if (arr_end == std::string::npos) return result;
+
+    std::string arr = json.substr(bracket + 1, arr_end - bracket - 1);
+    size_t p = 0;
+    while (p < arr.size()) {
+        if (arr[p] == '"') {
+            ++p;
+            std::string raw;
+            while (p < arr.size() && arr[p] != '"') {
+                if (arr[p] == '\\' && p + 1 < arr.size()) {
+                    raw += '\\'; raw += arr[p + 1]; p += 2;
+                } else {
+                    raw += arr[p++];
+                }
+            }
+            if (p < arr.size()) ++p;  // past closing "
+            result.push_back(hf_unescape(raw));
+        } else {
+            ++p;
+        }
+    }
+    return result;
+}
+
+/// Extract a JSON object ( {...} ) for the given key from within a larger JSON string.
+static std::string hf_extract_object(const std::string& json, const std::string& key) {
+    std::string needle = "\"" + key + "\"";
+    size_t kpos = json.find(needle);
+    if (kpos == std::string::npos) return "";
+    size_t colon = json.find(':', kpos + needle.size());
+    if (colon == std::string::npos) return "";
+    size_t brace = json.find('{', colon + 1);
+    if (brace == std::string::npos) return "";
+
+    int depth = 1;
+    size_t pos = brace + 1;
+    while (pos < json.size() && depth > 0) {
+        char c = json[pos];
+        if      (c == '{') { ++depth; ++pos; }
+        else if (c == '}') { --depth; if (depth == 0) break; ++pos; }
+        else if (c == '"') {
+            ++pos;
+            while (pos < json.size() && json[pos] != '"') {
+                if (json[pos] == '\\') ++pos;
+                ++pos;
+            }
+            if (pos < json.size()) ++pos;
+        } else {
+            ++pos;
+        }
+    }
+    // pos points at the closing '}'
+    return json.substr(brace, pos - brace + 1);
+}
+
+/// Parse the array of "row" sub-objects from a datasets-server JSON response.
+/// Response shape: { "rows": [ {"row_idx":N, "row":{...}, "truncated_cells":[]}, ... ] }
+static std::vector<std::string> hf_extract_rows(const std::string& response_json) {
+    std::vector<std::string> rows;
+    size_t rows_key = response_json.find("\"rows\"");
+    if (rows_key == std::string::npos) return rows;
+    size_t arr_start = response_json.find('[', rows_key + 6);
+    if (arr_start == std::string::npos) return rows;
+
+    size_t pos = arr_start + 1;
+    while (pos < response_json.size()) {
+        // Skip whitespace and commas between elements
+        while (pos < response_json.size() &&
+               (std::isspace(static_cast<unsigned char>(response_json[pos])) ||
+                response_json[pos] == ','))
+            ++pos;
+
+        if (pos >= response_json.size() || response_json[pos] == ']') break;
+        if (response_json[pos] != '{') { ++pos; continue; }
+
+        // Find the extent of this outer element object
+        int depth = 1;
+        size_t obj_start = pos;
+        ++pos;
+        while (pos < response_json.size() && depth > 0) {
+            char c = response_json[pos];
+            if      (c == '{') { ++depth; ++pos; }
+            else if (c == '}') { --depth; if (depth == 0) break; ++pos; }
+            else if (c == '"') {
+                ++pos;
+                while (pos < response_json.size() && response_json[pos] != '"') {
+                    if (response_json[pos] == '\\') ++pos;
+                    ++pos;
+                }
+                if (pos < response_json.size()) ++pos;
+            } else {
+                ++pos;
+            }
+        }
+        if (pos < response_json.size()) ++pos;  // move past closing '}'
+
+        std::string outer_obj = response_json.substr(obj_start, pos - obj_start);
+
+        // Extract the nested "row": { ... } object
+        std::string row_obj = hf_extract_object(outer_obj, "row");
+        if (!row_obj.empty()) {
+            rows.push_back(row_obj);
+        }
+    }
+    return rows;
+}
+
+/// Try to infer input/output field names from the first row's JSON.
+static std::pair<std::string, std::string> hf_detect_fields(const std::string& row_json) {
+    // Ordered by prevalence across popular HuggingFace training datasets
+    static const std::pair<const char*, const char*> candidates[] = {
+        {"instruction", "output"},
+        {"instruction", "response"},
+        {"question",    "answer"},
+        {"question",    "response"},
+        {"input",       "output"},
+        {"prompt",      "completion"},
+        {"prompt",      "response"},
+        {"context",     "response"},
+        {"source",      "target"},
+        {"text",        "label"},
+    };
+    for (const auto& [in_f, out_f] : candidates) {
+        bool has_in  = row_json.find(std::string("\"") + in_f  + "\"") != std::string::npos;
+        bool has_out = row_json.find(std::string("\"") + out_f + "\"") != std::string::npos;
+        if (has_in && has_out) return {in_f, out_f};
+    }
+    return {"", ""};  // fall back to dialog-array extraction
+}
+
+// ---------------------------------------------------------------------------
+
+bool IncrementalTrainer::download_hf_rows(const std::string& dataset_id,
+                                           const std::string& split,
+                                           int offset, int length,
+                                           const std::string& output_path) {
+    std::ostringstream url;
+    url << "https://datasets-server.huggingface.co/rows"
+        << "?dataset=" << dataset_id
+        << "&config=default"
+        << "&split="   << split
+        << "&offset="  << offset
+        << "&length="  << length;
+
+    Logger::info("HF datasets-server: {} split={} offset={} length={}",
+                 dataset_id, split, offset, length);
+
+    std::ostringstream cmd;
+    const char* hf_token = std::getenv("HF_TOKEN");
+    if (hf_token && hf_token[0] != '\0') {
+        cmd << "curl -L -f -s"
+            << " -H \"Authorization: Bearer " << hf_token << "\""
+            << " -o \"" << output_path << "\""
+            << " \"" << url.str() << "\"";
+    } else {
+        cmd << "curl -L -f -s"
+            << " -o \"" << output_path << "\""
+            << " \"" << url.str() << "\"";
+    }
+
+    int rc = std::system(cmd.str().c_str());
+    if (rc != 0 || !fs::exists(output_path) || fs::file_size(output_path) == 0) {
+        Logger::error("Failed to fetch HuggingFace rows (offset={} length={})", offset, length);
+        return false;
+    }
+    return true;
+}
+
+bool IncrementalTrainer::convert_hf_to_training_data(const std::string& rows_dir,
+                                                      const std::string& output_file,
+                                                      const std::string& in_field,
+                                                      const std::string& out_field,
+                                                      int max_pairs) {
+    std::ofstream out(output_file);
+    if (!out.is_open()) {
+        Logger::error("Cannot create output file: {}", output_file);
+        return false;
+    }
+
+    int pair_count   = 0;
+    std::string det_in  = in_field;
+    std::string det_out = out_field;
+
+    for (int chunk = 0; pair_count < max_pairs; ++chunk) {
+        std::ostringstream chunk_path;
+        chunk_path << rows_dir << "/chunk_" << chunk << ".json";
+        if (!fs::exists(chunk_path.str())) break;
+
+        std::ifstream f(chunk_path.str());
+        if (!f.is_open()) { Logger::error("Cannot open chunk: {}", chunk_path.str()); continue; }
+        std::string json((std::istreambuf_iterator<char>(f)),
+                          std::istreambuf_iterator<char>());
+        f.close();
+
+        auto rows = hf_extract_rows(json);
+        if (rows.empty()) {
+            Logger::info("No rows parsed from chunk {} — stopping", chunk);
+            break;
+        }
+
+        for (const auto& row_json : rows) {
+            if (pair_count >= max_pairs) break;
+
+            // Auto-detect field names on the first non-empty row
+            if (det_in.empty()) {
+                auto [df_in, df_out] = hf_detect_fields(row_json);
+                det_in  = df_in;
+                det_out = df_out;
+                if (!det_in.empty()) {
+                    Logger::info("Auto-detected HF fields: input='{}' output='{}'",
+                                 det_in, det_out);
+                }
+            }
+
+            if (!det_in.empty() && !det_out.empty()) {
+                // Key-value datasets (alpaca, dolly, OpenHermes, …)
+                std::string input_text = hf_extract_string(row_json, det_in);
+                // Alpaca-style: append the "input" context field to "instruction"
+                if (det_in == "instruction") {
+                    std::string sub = hf_extract_string(row_json, "input");
+                    if (!sub.empty()) input_text += "\n" + sub;
+                }
+                std::string output_text = hf_extract_string(row_json, det_out);
+
+                if (!input_text.empty() && !output_text.empty()) {
+                    out << "INPUT: "    << input_text  << "\n"
+                        << "RESPONSE: " << output_text << "\n"
+                        << "\n";
+                    ++pair_count;
+                }
+            } else {
+                // Dialog-array datasets (daily_dialog, BlendedSkillTalk, …)
+                // Try several common array-field names in priority order
+                static const char* dialog_keys[] = {
+                    "dialog", "turns", "utterances", "conversations", nullptr
+                };
+                for (const char** dk = dialog_keys; *dk && pair_count < max_pairs; ++dk) {
+                    auto turns = hf_extract_string_array(row_json, *dk);
+                    if (turns.empty()) continue;
+                    for (size_t i = 0; i + 1 < turns.size() && pair_count < max_pairs; i += 2) {
+                        if (!turns[i].empty() && !turns[i + 1].empty()) {
+                            out << "INPUT: "    << turns[i]     << "\n"
+                                << "RESPONSE: " << turns[i + 1] << "\n"
+                                << "\n";
+                            ++pair_count;
+                        }
+                    }
+                    break;  // use only the first matching key per row
+                }
+            }
+        }
+    }
+
+    out.close();
+    Logger::info("Wrote {} training pairs from HuggingFace dataset to: {}",
+                 pair_count, output_file);
+    return pair_count > 0;
+}
+
+bool IncrementalTrainer::add_huggingface_dataset(const std::string& dataset_id,
+                                                  int num_pairs,
+                                                  const std::string& split,
+                                                  const std::string& input_field,
+                                                  const std::string& output_field) {
+    // Build a filesystem-safe base name (replace '/' with '_')
+    std::string safe_id = dataset_id;
+    std::replace(safe_id.begin(), safe_id.end(), '/', '_');
+
+    const std::string output_dir  = "huggingface_data";
+    const std::string rows_dir    = output_dir + "/" + safe_id + "_" + split;
+    const std::string train_file  = output_dir + "/" + safe_id + "_" + split + "_training.txt";
+
+    if (!fs::exists(rows_dir)) {
+        fs::create_directories(rows_dir);
+    }
+
+    std::cout << "🤗 Fetching HuggingFace dataset '" << dataset_id
+              << "' (split=" << split << ", target=" << num_pairs << " pairs)\n";
+
+    // Datasets-server API allows at most 100 rows per request.
+    // Over-sample by 50 % (cap: 10 000) to compensate for rows that yield no pairs.
+    const int chunk_size  = 100;
+    const int target_rows = std::min(num_pairs * 3 / 2 + chunk_size, 10000);
+    int downloaded  = 0;
+    int chunk_idx   = 0;
+
+    while (downloaded < target_rows) {
+        int this_len = std::min(chunk_size, target_rows - downloaded);
+        std::ostringstream chunk_path;
+        chunk_path << rows_dir << "/chunk_" << chunk_idx << ".json";
+
+        if (!download_hf_rows(dataset_id, split, downloaded, this_len, chunk_path.str())) {
+            if (chunk_idx == 0) {
+                std::cerr << "❌ Failed to fetch dataset '" << dataset_id << "'.\n"
+                          << "   • Check the dataset ID at https://huggingface.co/datasets\n"
+                          << "   • Gated datasets require: export HF_TOKEN=hf_...\n"
+                          << "   • Verify at: https://datasets-server.huggingface.co/is-valid?dataset="
+                          << dataset_id << "\n";
+                return false;
+            }
+            Logger::info("Download halted at chunk {} — converting partial data", chunk_idx);
+            break;
+        }
+
+        downloaded += this_len;
+        ++chunk_idx;
+        std::cout << "  ↓ rows " << (downloaded - this_len + 1)
+                  << "-" << downloaded << "\n";
+    }
+
+    Logger::info("Downloaded {} rows in {} chunks for '{}'",
+                 downloaded, chunk_idx, dataset_id);
+
+    if (!convert_hf_to_training_data(rows_dir, train_file,
+                                      input_field, output_field, num_pairs)) {
+        std::cerr << "❌ Could not extract training pairs from '" << dataset_id << "'.\n"
+                  << "   Provide explicit field names: huggingface "
+                  << dataset_id << " " << num_pairs << " " << split
+                  << " <input_field> <output_field>\n";
+        return false;
+    }
+
+    return add_new_data(train_file);
+}
+
+// ============================================================================
 // Metrics API Server Management
 // ============================================================================
 

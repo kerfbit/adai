@@ -202,6 +202,32 @@ public:
     // Project Gutenberg integration
     bool add_gutenberg_book(int book_id, int num_pairs = 500);
     bool add_gutenberg_books(const std::vector<int>& book_ids, int num_pairs_per_book = 300);
+
+    // HuggingFace Datasets integration
+    /**
+     * @brief Download a dataset from the HuggingFace Datasets server and add it to
+     *        the pending training queue.
+     *
+     * Uses the HuggingFace datasets-server API (no Python / huggingface_hub required).
+     * Rows are fetched as JSON in chunks of 100 and converted to the INPUT:/RESPONSE:
+     * training format.
+     *
+     * Field auto-detection tries common pairs (instruction/output, question/answer, …).
+     * For dialog-array datasets (e.g. daily_dialog) consecutive turns are paired.
+     * Set the HF_TOKEN environment variable to access gated datasets.
+     *
+     * @param dataset_id   HuggingFace dataset identifier, e.g. "daily_dialog" or
+     *                     "tatsu-lab/alpaca".  Slashes are allowed.
+     * @param num_pairs    Maximum number of training pairs to extract (default 500).
+     * @param split        Dataset split to use (default "train").
+     * @param input_field  JSON field name for the input text.  Empty = auto-detect.
+     * @param output_field JSON field name for the output text.  Empty = auto-detect.
+     * @return true if the data was downloaded and added successfully.
+     */
+    bool add_huggingface_dataset(const std::string& dataset_id, int num_pairs = 500,
+                                  const std::string& split = "train",
+                                  const std::string& input_field = "",
+                                  const std::string& output_field = "");
     
 private:
     // Training components
@@ -293,5 +319,14 @@ private:
         const std::vector<std::string>& sentences, int max_pairs);
     bool convert_gutenberg_to_training_data(const std::string& text_file,
                                            const std::string& output_file, int max_pairs);
+
+    // HuggingFace helpers
+    bool download_hf_rows(const std::string& dataset_id, const std::string& split,
+                          int offset, int length, const std::string& output_path);
+    bool convert_hf_to_training_data(const std::string& rows_dir,
+                                     const std::string& output_file,
+                                     const std::string& input_field,
+                                     const std::string& output_field,
+                                     int max_pairs);
 };
 
