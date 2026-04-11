@@ -455,7 +455,8 @@ std::string TrainingMetricsService::to_json() const {
     oss << "  \"gradient_variance\": " << snapshot.gradient_variance << ",\n";
     oss << "  \"compute_time_ratio\": " << snapshot.compute_time_ratio << ",\n";
     oss << "  \"weight_update_ratio\": " << snapshot.weight_update_ratio << ",\n";
-    oss << "  \"activation_saturation_ratio\": " << snapshot.activation_saturation_ratio << "\n";
+    oss << "  \"activation_saturation_ratio\": " << snapshot.activation_saturation_ratio << ",\n";
+    oss << "  \"attention_entropy\": " << snapshot.attention_entropy << "\n";
     oss << "}";
     
     return oss.str();
@@ -990,6 +991,12 @@ void TrainingMetricsService::update_activation_saturation(float ratio) {
     std::lock_guard<std::mutex> lock(mutex_);
     current_snapshot_.activation_saturation_ratio = ratio;
     adai::Logger::debug("Activation saturation ratio: {:.4f}", ratio);
+}
+
+void TrainingMetricsService::update_attention_entropy(float entropy) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    current_snapshot_.attention_entropy = entropy;
+    adai::Logger::debug("Attention entropy: {:.4f}", entropy);
 }
 
 void TrainingMetricsService::flag_abnormal_sample(const AbnormalSample& sample) {

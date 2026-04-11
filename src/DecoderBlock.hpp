@@ -92,6 +92,15 @@ class DecoderBlock {
     }
 
     /**
+     * Get the masked self-attention sublayer (for hook registration, entropy tracking, etc.)
+     *
+     * @return Pointer to the internal MultiHeadAttention instance
+     */
+    MultiHeadAttention* get_self_attention() {
+        return self_attention.get();
+    }
+
+    /**
      * Constructor
      *
      * @param d_model Model dimension (embedding size)

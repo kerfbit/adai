@@ -209,6 +209,15 @@ class EncoderBlock {
     }
 
     /**
+     * Get the self-attention sublayer (for hook registration, entropy tracking, etc.)
+     *
+     * @return Pointer to the internal MultiHeadAttention instance
+     */
+    MultiHeadAttention* get_self_attention() {
+        return attention.get();
+    }
+
+    /**
      * Get feed-forward dimension
      *
      * @return d_ff

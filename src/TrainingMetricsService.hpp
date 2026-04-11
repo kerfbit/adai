@@ -62,6 +62,7 @@ struct TrainingMetricsSnapshot {
     float compute_time_ratio = 0.0f;     ///< Fraction of epoch wall time spent in forward+backward
     float weight_update_ratio = 0.0f;    ///< Avg (lr * ||g||) / ||w|| ratio across optimizer steps
     float activation_saturation_ratio = -1.0f; ///< Avg fraction of near-zero post-GELU units across all FF layers (-1 = not computed)
+    float attention_entropy = -1.0f;            ///< Avg per-token attention entropy across all self-attention layers (-1 = not computed)
 };
 
 /**
@@ -193,6 +194,10 @@ public:
      *              Pass -1.0f to indicate "not computed".
      */
     void update_activation_saturation(float ratio);
+
+    /// Update average per-token attention entropy for the current epoch.
+    /// Pass -1.0f to mark "not computed".
+    void update_attention_entropy(float entropy);
 
     // Outlier / abnormal-sample tracking (TD-013)
     void flag_abnormal_sample(const AbnormalSample& sample);

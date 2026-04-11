@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <vector>
 #include "Matrix.hpp"
@@ -38,6 +39,10 @@
  * split and concatenate heads, but instead process the full d_model dimension
  * and rely on the learned weight matrices to capture multi-head behavior.
  */
+/// Callback invoked after softmax in every forward() pass, receiving the
+/// attention weight matrix [seq_len × seq_len].
+using AttentionHookFn = std::function<void(const Matrix&)>;
+
 class MultiHeadAttention {
    private:
     // Model dimensions
@@ -68,6 +73,9 @@ class MultiHeadAttention {
 
     // Optimizer for weight updates
     Optimizer* optimizer;  // Pointer to optimizer (nullptr means use simple gradient descent)
+
+    // Attention hook (for entropy tracking, TD-013)
+    AttentionHookFn attention_hook_;
 
     // Helper function for scaled dot-product attention
     /**
@@ -246,6 +254,18 @@ class MultiHeadAttention {
     const Matrix& get_attention_weights() const {
         return cached_attention_weights;
     }
+
+    /**
+     * Register a callback fired after softmax in every forward() pass.
+     * The callback receives the attention weight matrix [seq_len × seq_len].
+     * Replaces any previously registered hook.
+     */
+    void set_attention_hook(AttentionHookFn fn) { attention_hook_ = std::move(fn); }
+
+    /**
+     * Remove any registered attention hook.
+     */
+    void clear_attention_hook() { attention_hook_ = nullptr; }
 
     /**
      * Print configuration

@@ -76,6 +76,7 @@
         computeRatioValue:  $('compute-ratio-value'),
         weightUpdateValue:  $('weight-update-value'),
         saturationValue:    $('activation-saturation-value'),
+        attnEntropyValue:   $('attention-entropy-value'),
 
         /* Session stats */
         totalSamplesValue:  $('total-samples-value'),
@@ -407,6 +408,21 @@
             : '—';
         setText(UI.saturationValue, satStr);
         applyRangeColor(UI.saturationValue, sat, 0.20, 0.50);
+
+        /* --- Attention Entropy (TD-013) --- */
+        var ent = current.attention_entropy;
+        var entStr = (ent !== null && ent !== undefined && ent >= 0)
+            ? fmt(ent, 4)
+            : '—';
+        setText(UI.attnEntropyValue, entStr);
+        /* High entropy = spread/uniform attention (good). Low entropy = spiky/concentrated.
+           Amber below 0.5 nats, red below 0.1 nats (possible attention collapse). */
+        if (UI.attnEntropyValue && ent >= 0) {
+            UI.attnEntropyValue.classList.remove('val-good', 'val-warn', 'val-error');
+            if      (ent >= 0.5) UI.attnEntropyValue.classList.add('val-good');
+            else if (ent >= 0.1) UI.attnEntropyValue.classList.add('val-warn');
+            else                 UI.attnEntropyValue.classList.add('val-error');
+        }
 
         /* --- Session stats --- */
         setText(UI.totalSamplesValue,  fmtInt(current.total_samples_trained));

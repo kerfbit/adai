@@ -141,6 +141,11 @@ Matrix MultiHeadAttention::forward(const Matrix& input, const Matrix* mask) {
     // Apply softmax to get attention weights
     cached_attention_weights = Activation::softmax(scores);
 
+    // Fire attention hook if registered (used for entropy tracking, TD-013)
+    if (attention_hook_) {
+        attention_hook_(cached_attention_weights);
+    }
+
     // Apply attention to values
     cached_attention_output = cached_attention_weights * cached_V;
 

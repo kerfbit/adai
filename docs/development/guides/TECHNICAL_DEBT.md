@@ -73,7 +73,6 @@ Action Items:
 - ✅ `handle_epoch_metrics()` returns `epoch_validation_perplexities` and `epoch_validation_accuracies` arrays.
 - ✅ `dashboard.html`: added "Val Perplexity" and "Val Accuracy" metric cards; perplexity chart now shows both training and validation perplexity curves with distinct colors; `metricsHistory` and `addToHistory()` extended to track `validationPerplexities`.
 
-
 ### TD-014: LLM Operations and Training Tooling Suite
 
 **Priority:** MEDIUM
@@ -121,10 +120,9 @@ Action Items:
 Deferred (future work):
 
 - ✅ Activation saturation tracking (implemented April 11, 2026 — see below)
+- ✅ Attention entropy (implemented April 11, 2026 — see below)
 - BLEU/ROUGE generation quality scores (requires partial generate() during validation).
-- Attention entropy (requires MultiHeadAttention weight exposure).
 - Batch padding efficiency (requires BatchStats integration).
-
 
 ### TD-003: GPU Memory Management Optimization
 

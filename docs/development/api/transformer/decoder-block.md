@@ -561,15 +561,23 @@ loaded_layer.load("decoder_layer_0.bin");
 
 ```cpp
 FeedForward* get_feed_forward()
+MultiHeadAttention* get_self_attention()
 ```
 
-Returns a raw pointer to the internal `FeedForward` sublayer. Use it to register activation
+`get_feed_forward()` returns a raw pointer to the internal `FeedForward` sublayer. Use it to register activation
 hooks for saturation tracking (see [FeedForward — Activation Hook](feed-forward.md#activation-hook)).
+
+`get_self_attention()` returns a raw pointer to the internal masked `MultiHeadAttention` sublayer (the causal
+self-attention). Use it to register attention hooks for entropy tracking (see
+[MultiHeadAttention — Attention Hook](../attention/multihead-attention.md#attention-hook)).
 
 ```cpp
 DecoderBlock layer(512, 8, 2048);
 layer.get_feed_forward()->set_activation_hook([](const Matrix& act) {
     // inspect post-GELU activations
+});
+layer.get_self_attention()->set_attention_hook([](const Matrix& attn_weights) {
+    // inspect post-softmax attention weights [seq_len, seq_len]
 });
 ```
 

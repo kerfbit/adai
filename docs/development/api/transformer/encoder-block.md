@@ -1750,9 +1750,10 @@ int get_num_heads() const
 int get_d_ff() const
 float get_dropout_rate() const
 FeedForward* get_feed_forward()
+MultiHeadAttention* get_self_attention()
 ```
 
-**Returns:** Respective configuration values. `get_feed_forward()` returns a raw pointer to the internal `FeedForward` sublayer; use it to register activation hooks for saturation tracking (see [FeedForward — Activation Hook](feed-forward.md#activation-hook)).
+**Returns:** Respective configuration values. `get_feed_forward()` returns a raw pointer to the internal `FeedForward` sublayer; use it to register activation hooks for saturation tracking (see [FeedForward — Activation Hook](feed-forward.md#activation-hook)). `get_self_attention()` returns a raw pointer to the internal `MultiHeadAttention` sublayer; use it to register attention hooks for entropy tracking (see [MultiHeadAttention — Attention Hook](../attention/multihead-attention.md#attention-hook)).
 
 ---
 

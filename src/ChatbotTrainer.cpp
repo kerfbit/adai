@@ -579,6 +579,11 @@ float ChatbotTrainer::train_epoch(int epoch) {
         // post-GELU units across all FeedForward layers and forward passes.
         float sat_sum   = 0.0f;
         int   sat_count = 0;
+        // ── TD-013: Attention entropy accumulators ─────────────────────────────────
+        // ent_sum / ent_count gives the epoch-average per-token Shannon entropy of
+        // the softmax attention distribution across all self-attention layers.
+        float ent_sum   = 0.0f;
+        int   ent_count = 0;
         if (metrics_service_) {
             // Lambda captures sat_sum/sat_count by reference; hooks are cleared
             // before train_epoch() returns so there is no dangling reference risk.
@@ -603,6 +608,33 @@ float ChatbotTrainer::train_epoch(int epoch) {
             for (int l = 0; l < dec_layers; ++l) {
                 model->get_decoder()->get_decoder_block(l)
                       ->get_feed_forward()->set_activation_hook(saturation_hook);
+            }
+
+            // Attention entropy hook: H = -sum(a * log(a + eps)) averaged over tokens.
+            auto entropy_hook = [&ent_sum, &ent_count](const Matrix& attn_weights) {
+                const int seq_len = attn_weights.rows;
+                if (seq_len <= 0 || attn_weights.cols <= 0) return;
+                float layer_entropy = 0.0f;
+                for (int i = 0; i < seq_len; ++i) {
+                    float row_entropy = 0.0f;
+                    for (int j = 0; j < attn_weights.cols; ++j) {
+                        float a = attn_weights(i, j);
+                        if (a > 0.0f) {
+                            row_entropy -= a * std::log(a + 1e-10f);
+                        }
+                    }
+                    layer_entropy += row_entropy;
+                }
+                ent_sum += layer_entropy / static_cast<float>(seq_len);
+                ++ent_count;
+            };
+            for (int l = 0; l < enc_layers; ++l) {
+                model->get_encoder()->get_encoder_block(l)
+                      ->get_self_attention()->set_attention_hook(entropy_hook);
+            }
+            for (int l = 0; l < dec_layers; ++l) {
+                model->get_decoder()->get_decoder_block(l)
+                      ->get_self_attention()->set_attention_hook(entropy_hook);
             }
         }
         // ─────────────────────────────────────────────────────────────────────────
@@ -852,6 +884,16 @@ float ChatbotTrainer::train_epoch(int epoch) {
             }
             for (int l = 0; l < dec_layers; ++l) {
                 model->get_decoder()->get_decoder_block(l)->get_feed_forward()->clear_activation_hook();
+            }
+
+            // ── TD-013: Attention entropy – report epoch average and clear hooks ──────
+            float avg_entropy = (ent_count > 0) ? (ent_sum / static_cast<float>(ent_count)) : -1.0f;
+            metrics_service_->update_attention_entropy(avg_entropy);
+            for (int l = 0; l < enc_layers; ++l) {
+                model->get_encoder()->get_encoder_block(l)->get_self_attention()->clear_attention_hook();
+            }
+            for (int l = 0; l < dec_layers; ++l) {
+                model->get_decoder()->get_decoder_block(l)->get_self_attention()->clear_attention_hook();
             }
             // ─────────────────────────────────────────────────────────────────────
         }

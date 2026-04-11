@@ -1172,6 +1172,124 @@ TEST(MultiHeadAttentionConfigTest, PrintConfigCustomName) {
 }
 
 // ============================================================================
+// Attention Hook Tests  (TD-013)
+// ============================================================================
+
+TEST(AttentionHookTest, HookFiresOnForward) {
+    MultiHeadAttention mha(64, 4);
+    int call_count = 0;
+    mha.set_attention_hook([&](const Matrix&) { ++call_count; });
+
+    Matrix input(5, 64);
+    input.randomize(0.1f);
+    mha.forward(input);
+
+    EXPECT_EQ(call_count, 1);
+}
+
+TEST(AttentionHookTest, HookReceivesCorrectShape) {
+    MultiHeadAttention mha(64, 4);
+    int hook_rows = -1, hook_cols = -1;
+    mha.set_attention_hook([&](const Matrix& w) {
+        hook_rows = w.rows;
+        hook_cols = w.cols;
+    });
+
+    Matrix input(7, 64);
+    input.randomize(0.1f);
+    mha.forward(input);
+
+    EXPECT_EQ(hook_rows, 7);  // seq_len × seq_len
+    EXPECT_EQ(hook_cols, 7);
+}
+
+TEST(AttentionHookTest, ClearedHookDoesNotFire) {
+    MultiHeadAttention mha(64, 4);
+    int call_count = 0;
+    mha.set_attention_hook([&](const Matrix&) { ++call_count; });
+    mha.clear_attention_hook();
+
+    Matrix input(5, 64);
+    input.randomize(0.1f);
+    mha.forward(input);
+
+    EXPECT_EQ(call_count, 0);
+}
+
+TEST(AttentionHookTest, ReplacedHookOverridesPrevious) {
+    MultiHeadAttention mha(64, 4);
+    int old_count = 0, new_count = 0;
+    mha.set_attention_hook([&](const Matrix&) { ++old_count; });
+    mha.set_attention_hook([&](const Matrix&) { ++new_count; });
+
+    Matrix input(5, 64);
+    input.randomize(0.1f);
+    mha.forward(input);
+
+    EXPECT_EQ(old_count, 0);
+    EXPECT_EQ(new_count, 1);
+}
+
+TEST(AttentionHookTest, WeightsAreProbabilityDistribution) {
+    // Each row of the attention weight matrix should sum to 1.0 (it's a softmax)
+    MultiHeadAttention mha(64, 4);
+    bool all_rows_sum_to_one = false;
+    mha.set_attention_hook([&](const Matrix& w) {
+        all_rows_sum_to_one = true;
+        for (int r = 0; r < w.rows; ++r) {
+            float row_sum = 0.0f;
+            for (int c = 0; c < w.cols; ++c) row_sum += w(r, c);
+            if (std::abs(row_sum - 1.0f) > 1e-4f) { all_rows_sum_to_one = false; break; }
+        }
+    });
+
+    Matrix input(6, 64);
+    input.randomize(0.1f);
+    mha.forward(input);
+
+    EXPECT_TRUE(all_rows_sum_to_one);
+}
+
+TEST(AttentionHookTest, EntropyIsNonNegative) {
+    // Shannon entropy of a probability distribution is always >= 0
+    MultiHeadAttention mha(64, 4);
+    float computed_entropy = -999.0f;
+    mha.set_attention_hook([&](const Matrix& w) {
+        float total = 0.0f;
+        const int seq_len = w.rows;
+        for (int i = 0; i < seq_len; ++i) {
+            float row_h = 0.0f;
+            for (int j = 0; j < w.cols; ++j) {
+                float a = w(i, j);
+                if (a > 0.0f) row_h -= a * std::log(a + 1e-10f);
+            }
+            total += row_h;
+        }
+        computed_entropy = total / static_cast<float>(seq_len);
+    });
+
+    Matrix input(5, 64);
+    input.randomize(0.1f);
+    mha.forward(input);
+
+    EXPECT_GE(computed_entropy, 0.0f);
+}
+
+TEST(AttentionHookTest, HookCalledOncePerForwardPass) {
+    MultiHeadAttention mha(64, 4);
+    int call_count = 0;
+    mha.set_attention_hook([&](const Matrix&) { ++call_count; });
+
+    Matrix input(5, 64);
+    input.randomize(0.1f);
+    mha.forward(input);
+    mha.forward(input);
+    mha.forward(input);
+
+    EXPECT_EQ(call_count, 3);
+}
+
+// ============================================================================
 // Main function
 // ============================================================================
 

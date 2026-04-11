@@ -123,6 +123,9 @@ Matrix W_o_grad;    // Accumulated gradients for W_o
 // Optimizer (optional, for advanced optimization algorithms)
 Optimizer* optimizer;  // Pointer to optimizer (nullptr = use simple gradient descent)
 
+// Attention hook (optional, for diagnostics such as entropy tracking, TD-013)
+AttentionHookFn attention_hook_;  // Nullable callback; fired after softmax in forward()
+
 // Cached values for backward pass
 Matrix cached_input;              // Input to forward pass
 Matrix cached_Q;                  // Projected queries
@@ -1160,6 +1163,95 @@ if norm > max_norm:
 
 ---
 
+## Attention Hook
+
+`MultiHeadAttention` provides an optional callback hook that fires immediately after the
+softmax step inside every `forward()` call. The hook receives the full post-softmax
+attention weight matrix and is designed for non-invasive diagnostics — such as attention
+entropy tracking (TD-013) — without adding any overhead when unused.
+
+### Hook Typedef
+
+```cpp
+using AttentionHookFn = std::function<void(const Matrix&)>;
+```
+
+### API
+
+```cpp
+// Register a callback. Replaces any previously registered hook.
+void set_attention_hook(AttentionHookFn fn);
+
+// Remove any registered hook (equivalent to set_attention_hook(nullptr)).
+void clear_attention_hook();
+```
+
+### When the Hook Is Called
+
+The hook is invoked with `cached_attention_weights` — the `[seq_len × seq_len]` matrix
+produced by `Activation::softmax(scores)` — before the weighted value computation
+`cached_attention_output = cached_attention_weights * cached_V`. It is called exactly
+once per `forward()` invocation (not called by `forward_with_cache()` when the
+regular path is bypassed).
+
+### Attention Entropy Tracking Example
+
+Shannon entropy $H_i = -\sum_j a_{ij} \log(a_{ij} + \epsilon)$ measures how spread out
+each token's attention distribution is. High entropy (≥ 0.5 nats) indicates uniform,
+healthy attention. Low entropy (< 0.1 nats) may indicate attention collapse.
+
+```cpp
+MultiHeadAttention mha(512, 8);
+
+float ent_sum   = 0.0f;
+int   ent_count = 0;
+
+mha.set_attention_hook([&](const Matrix& attn_weights) {
+    const int seq_len = attn_weights.rows;
+    if (seq_len <= 0 || attn_weights.cols <= 0) return;
+    float layer_entropy = 0.0f;
+    for (int i = 0; i < seq_len; ++i) {
+        float row_entropy = 0.0f;
+        for (int j = 0; j < attn_weights.cols; ++j) {
+            float a = attn_weights(i, j);
+            if (a > 0.0f) row_entropy -= a * std::log(a + 1e-10f);
+        }
+        layer_entropy += row_entropy;
+    }
+    ent_sum += layer_entropy / static_cast<float>(seq_len);
+    ++ent_count;
+});
+
+// ... run forward passes ...
+
+float avg_entropy = (ent_count > 0) ? (ent_sum / ent_count) : -1.0f;
+mha.clear_attention_hook();  // Prevent dangling lambda captures
+```
+
+**Entropy interpretation thresholds used by `ChatbotTrainer`:**
+
+| Range | Meaning |
+|-------|----------|
+| ≥ 0.5 nats | Healthy spread attention (green) |
+| 0.1 – 0.5 nats | Moderately focused attention (amber) |
+| < 0.1 nats | Possible attention collapse (red) |
+
+### Integration with TrainingMetricsService
+
+`ChatbotTrainer::train_epoch()` registers entropy hooks on all encoder and decoder
+self-attention layers at the start of each epoch. At epoch end, it averages
+`ent_sum / ent_count` across all forward passes and all layers, reports the result
+via `TrainingMetricsService::update_attention_entropy(avg_entropy)`, then calls
+`clear_attention_hook()` on every layer to release lambda captures.
+
+### Performance Characteristics
+
+- Zero overhead when no hook is registered (null `std::function` check is a single branch)
+- Hook captures should be lightweight; heavy computation in the hook adds to forward-pass latency
+- Always call `clear_attention_hook()` at epoch end to release any lambda captures
+
+---
+
 ## Common Patterns and Best Practices
 
 ### 1. Learning Rate Scheduling
@@ -1376,6 +1468,38 @@ Attention is **permutation-invariant** - it doesn't inherently know position. So
 
 ## Recent Updates
 
+### Attention Hook / Entropy Tracking (April 2026)
+
+Added `AttentionHookFn` callback API for non-invasive post-softmax diagnostics (TD-013):
+
+New Members:
+
+- `AttentionHookFn attention_hook_` private member (nullable, zero overhead when unset)
+
+New Methods:
+
+- `set_attention_hook(AttentionHookFn fn)` — register post-softmax callback
+- `clear_attention_hook()` — remove callback and release captures
+
+Hook Contract:
+
+- Fires with `cached_attention_weights` (`[seq_len, seq_len]`, post-softmax) exactly once per `forward()` call
+- Rows are valid probability distributions (each sums to 1.0)
+- Zero overhead when hook is null
+
+Usage in Training:
+
+`ChatbotTrainer::train_epoch()` uses the hook to compute per-epoch average attention
+entropy across all encoder and decoder self-attention layers, calling
+`TrainingMetricsService::update_attention_entropy()` at epoch end.
+
+Test Coverage:
+
+- Added 7 `AttentionHookTest` cases in `tests/multiheadattention_test.cpp`
+- Total test suite: 57/57 tests passing
+
+---
+
 ### Optimizer Integration (January 2026)
 
 The MultiHeadAttention class now supports the centralized Optimizer class:
@@ -1460,6 +1584,7 @@ The `MultiHeadAttention` class provides:
 - **Efficiency**: Optimized matrix operations, gradient caching, KV cache for generation
 - **Robustness**: Input validation, gradient clipping, error handling
 - **Debuggability**: Attention visualization, gradient monitoring, configuration display
+- **Attention Hook**: Optional post-softmax callback for entropy tracking and diagnostics (TD-013)
 - **Persistence**: Save/load functionality for model checkpointing
 - **Integration**: Designed to work with LayerNorm, PositionalEncoding, TokenEmbedding, Optimizer, KVCache
 
@@ -1515,6 +1640,6 @@ This implementation forms the foundation for modern transformer-based architectu
 
 ---
 
-**Last Updated**: January 25, 2026
-**Version**: 1.1
+**Last Updated**: April 11, 2026
+**Version**: 1.2
 **Dependencies**: `Matrix.hpp`, `Optimizer.hpp`, `KVCache.hpp`
