@@ -200,6 +200,15 @@ class EncoderBlock {
     }
 
     /**
+     * Get the feed-forward sublayer (for hook registration, diagnostics, etc.)
+     *
+     * @return Pointer to the internal FeedForward instance
+     */
+    FeedForward* get_feed_forward() {
+        return feed_forward.get();
+    }
+
+    /**
      * Get feed-forward dimension
      *
      * @return d_ff

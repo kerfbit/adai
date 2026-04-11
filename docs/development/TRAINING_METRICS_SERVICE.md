@@ -34,6 +34,10 @@ The `TrainingMetricsService` provides a thread-safe, non-blocking interface for 
 - Epoch duration
 - Perplexity
 - Gradient norms
+- Gradient norm variance (TD-013)
+- Compute time ratio (TD-013)
+- Weight update ratio (TD-013)
+- Activation saturation ratio (TD-013)
 
 #### Session Metrics
 
@@ -147,7 +151,11 @@ Real-time snapshot of current training state:
   "total_samples_trained": 4450,
   "total_training_time_seconds": 123.456789,
   "samples_per_second": 36.045678,
-  "estimated_time_remaining_seconds": 153.789012
+  "estimated_time_remaining_seconds": 153.789012,
+  "gradient_variance": 0.012345,
+  "compute_time_ratio": 0.823456,
+  "weight_update_ratio": 0.000456,
+  "activation_saturation_ratio": 0.1234
 }
 ```
 
@@ -349,8 +357,10 @@ Epoch Lifecycle
 Real-time Updates
 
 - `update_sample_metrics(int sample, float loss, float gradient_norm, float learning_rate)` - Update per-sample metrics
-- `update_validation_metrics(float validation_loss)` - Update validation loss independently
+- `update_validation_metrics(float validation_loss, float validation_accuracy = -1.0f, float validation_perplexity = -1.0f)` - Update validation metrics independently
 - `update_best_metrics(float validation_loss, int epoch)` - Record a new best validation loss
+- `update_advanced_epoch_metrics(float gradient_variance, float compute_time_ratio, float weight_update_ratio)` - Record per-epoch diagnostic ratios (TD-013)
+- `update_activation_saturation(float ratio)` - Record average fraction of near-zero post-GELU units for the epoch; pass `-1.0` to indicate not computed (TD-013)
 
 Data Export & Polling (Thread-safe)
 

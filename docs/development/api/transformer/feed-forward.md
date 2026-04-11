@@ -1,8 +1,8 @@
 # FeedForward Class - Technical Context Documentation
 
-**Version:** 1.1
-**Last Updated:** January 24, 2026
-**Status:** Active - Optimizer Integration Complete
+**Version:** 1.2
+**Last Updated:** April 11, 2026
+**Status:** Active - Activation Saturation Hook Added
 
 ## Overview
 
@@ -13,7 +13,7 @@ Files:
 - `src/FeedForward.hpp` - Header file with class declaration and interface
 - `src/FeedForward.cpp` - Implementation file with all method definitions
 - `src/FeedForwardExample.cpp` - Standalone example demonstrating usage
-- `tests/feedforward_test.cpp` - Unit tests (51/51 tests passing)
+- `tests/feedforward_test.cpp` - Unit tests (58/58 tests passing)
 
 Dependencies:
 
@@ -35,9 +35,10 @@ Dependencies:
 6. [Weight Initialization](#weight-initialization)
 7. [Gradient Management](#gradient-management)
 8. [Optimizer Integration](#optimizer-integration)
-9. [Usage Patterns](#usage-patterns)
-10. [Performance Considerations](#performance-considerations)
-11. [Integration with Transformers](#integration-with-transformers)
+9. [Activation Hook](#activation-hook)
+10. [Usage Patterns](#usage-patterns)
+11. [Performance Considerations](#performance-considerations)
+12. [Integration with Transformers](#integration-with-transformers)
 
 ---
 
@@ -171,6 +172,9 @@ Matrix cached_hidden_activated;  // Hidden layer after GELU
 
 // Optimizer integration (optional)
 Optimizer* optimizer;  // Pointer to optimizer (nullptr = simple gradient descent)
+
+// Activation hooks
+ActivationHookFn activation_hook_;  // Optional post-GELU callback (nullptr by default)
 ```
 
 ### Public Members
@@ -926,6 +930,70 @@ Important Notes:
 
 ---
 
+## Activation Hook
+
+`FeedForward` provides an optional callback hook that fires immediately after the GELU
+activation inside every forward pass. The hook is designed for non-invasive diagnostics
+such as activation saturation tracking (TD-013) without adding any overhead when unused.
+
+### Hook Typedef
+
+```cpp
+using ActivationHookFn = std::function<void(const Matrix&)>;
+```
+
+### API
+
+```cpp
+// Register a callback. Replaces any previously registered hook.
+void set_activation_hook(ActivationHookFn fn);
+
+// Remove any registered hook (equivalent to set_activation_hook(nullptr)).
+void clear_activation_hook();
+```
+
+### When the Hook Is Called
+
+The hook is invoked with `cached_hidden_activated` — the `[seq_len × d_ff]` matrix
+produced by `Activation::gelu(hidden)` — before the second linear transformation
+computes the final output. It is called exactly once per `forward()` invocation.
+
+### Saturation Tracking Example
+
+```cpp
+FeedForward ff(512, 2048);
+
+float sat_sum = 0.0f;
+int   sat_count = 0;
+
+ff.set_activation_hook([&](const Matrix& activated) {
+    const int total = activated.rows * activated.cols;
+    if (total <= 0) return;
+    int saturated = 0;
+    for (int r = 0; r < activated.rows; ++r)
+        for (int c = 0; c < activated.cols; ++c)
+            if (std::abs(activated(r, c)) < 0.01f) ++saturated;
+    sat_sum += static_cast<float>(saturated) / static_cast<float>(total);
+    ++sat_count;
+});
+
+// ... run forward passes ...
+
+float avg_saturation = (sat_count > 0) ? (sat_sum / sat_count) : -1.0f;
+ff.clear_activation_hook();  // Prevent dangling lambda captures
+```
+
+A post-GELU unit with `|value| < 0.01` is considered "saturated" (near-zero output).
+High saturation (> 50%) during early training may indicate vanishing gradients.
+
+### Performance Characteristics
+
+- Zero overhead when no hook is registered (null `std::function` check is a single branch)
+- Hook captures should be lightweight; heavy computation in the hook adds to forward-pass latency
+- Always call `clear_activation_hook()` at epoch end to release any lambda captures
+
+---
+
 ## Usage Patterns
 
 ### Basic Training Loop
@@ -1512,6 +1580,11 @@ For memory efficiency and speed (requires external support):
 - `int get_d_model() const` - Get input/output dimension
 - `int get_d_ff() const` - Get hidden dimension
 
+### Activation Hook Methods
+
+- `void set_activation_hook(ActivationHookFn fn)` - Register post-GELU callback
+- `void clear_activation_hook()` - Remove any registered callback
+
 ### Public Data Members
 
 - `float learning_rate` - Learning rate (default: 0.001)
@@ -1638,6 +1711,7 @@ The `FeedForward` class provides a production-ready implementation of the positi
 - Adjustable learning rate
 - Integration-ready for transformer blocks
 - Optional optimizer for advanced optimization strategies
+- Optional activation hooks for diagnostics and saturation tracking
 
 ✅ **Production Ready:**
 
@@ -1711,6 +1785,65 @@ Documentation Updates:
 - Updated Class Architecture with optimizer member
 - Added 5 optimizer usage patterns
 - Included migration guide for Version 1.0 → 1.1
+
+---
+
+## Version 1.2 (April 11, 2026)
+
+### Feature: Activation Saturation Hook (TD-013)
+
+Added a zero-overhead extensibility point for inspecting the post-GELU hidden activations
+during every forward pass. The hook is used by `ChatbotTrainer` to compute per-layer
+activation saturation ratios and report them to `TrainingMetricsService`.
+
+**New typedef:**
+
+```cpp
+using ActivationHookFn = std::function<void(const Matrix&)>;
+```
+
+**New methods:**
+
+```cpp
+// Register a callback invoked with the post-GELU hidden matrix [seq_len × d_ff]
+void set_activation_hook(ActivationHookFn fn);
+
+// Remove any previously registered hook
+void clear_activation_hook();
+```
+
+**Behaviour:**
+
+- When no hook is registered (`activation_hook_` is null) there is zero overhead.
+- The hook receives `cached_hidden_activated` — the matrix produced by `Activation::gelu(hidden)` —
+  immediately after it is stored, before the second linear transformation.
+- Replacing a hook with `set_activation_hook()` atomically discards the previous one.
+- `clear_activation_hook()` is equivalent to `set_activation_hook(nullptr)`.
+
+**Saturation measurement convention used by `ChatbotTrainer`:**
+
+```cpp
+// A unit is considered "saturated" if its post-GELU magnitude is near-zero.
+if (std::abs(activated(r, c)) < 0.01f) ++saturated_count;
+float ratio = saturated_count / total_elements;  // [0.0, 1.0]
+```
+
+The trainer accumulates this ratio across all FF layers and all samples in an epoch
+then calls `TrainingMetricsService::update_activation_saturation(avg_ratio)`.
+
+**Test Coverage:**
+
+Added 7 new tests in `FeedForwardActivationHookTest`:
+
+- `HookFiresOnForward` — hook invoked on every forward call
+- `HookReceivesCorrectShape` — shape is `[seq_len, d_ff]`
+- `ClearedHookDoesNotFire` — hook not invoked after `clear_activation_hook()`
+- `ReplacedHookOverridesPrevious` — only the latest hook fires
+- `SaturationRatioAllSaturated` — zero input → 100% saturation
+- `SaturationRatioNoneSaturated` — large positive input → saturation < 1.0
+- `HookCalledOncePerForwardPass` — exactly N calls for N forward passes
+
+Total test suite: **58/58 tests passing**.
 
 ---
 

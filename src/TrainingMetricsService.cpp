@@ -454,7 +454,8 @@ std::string TrainingMetricsService::to_json() const {
     oss << "  \"estimated_time_remaining_seconds\": " << snapshot.estimated_time_remaining_seconds << ",\n";
     oss << "  \"gradient_variance\": " << snapshot.gradient_variance << ",\n";
     oss << "  \"compute_time_ratio\": " << snapshot.compute_time_ratio << ",\n";
-    oss << "  \"weight_update_ratio\": " << snapshot.weight_update_ratio << "\n";
+    oss << "  \"weight_update_ratio\": " << snapshot.weight_update_ratio << ",\n";
+    oss << "  \"activation_saturation_ratio\": " << snapshot.activation_saturation_ratio << "\n";
     oss << "}";
     
     return oss.str();
@@ -983,6 +984,12 @@ void TrainingMetricsService::update_advanced_epoch_metrics(float gradient_varian
     if (should_push) {
         push_to_api("/api/metrics/advanced", push_json);
     }
+}
+
+void TrainingMetricsService::update_activation_saturation(float ratio) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    current_snapshot_.activation_saturation_ratio = ratio;
+    adai::Logger::debug("Activation saturation ratio: {:.4f}", ratio);
 }
 
 void TrainingMetricsService::flag_abnormal_sample(const AbnormalSample& sample) {

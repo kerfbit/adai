@@ -53,7 +53,7 @@ echo "Connecting to TV..."
 echo "Running permit-to-install..."
 curl -s -X POST "http://localhost:45653/api/v1/devices/$TV_SERIAL/permit-to-install" \
   -H "Content-Type: application/json" \
-  -d "{\"certificate_path\":\"$AUTHOR_P12\"}" | python3 -m json.tool 2>/dev/null
+  -d "{\"certificate_path\":\"$AUTHOR_P12\"}" | python3 -m json.tool 2>/dev/null || true
 
 # 6. Install
 echo "Installing..."

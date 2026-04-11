@@ -83,6 +83,15 @@ class DecoderBlock {
     float learning_rate;
 
     /**
+     * Get the feed-forward sublayer (for hook registration, diagnostics, etc.)
+     *
+     * @return Pointer to the internal FeedForward instance
+     */
+    FeedForward* get_feed_forward() {
+        return feed_forward.get();
+    }
+
+    /**
      * Constructor
      *
      * @param d_model Model dimension (embedding size)

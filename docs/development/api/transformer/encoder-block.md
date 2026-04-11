@@ -1749,9 +1749,10 @@ int get_d_model() const
 int get_num_heads() const
 int get_d_ff() const
 float get_dropout_rate() const
+FeedForward* get_feed_forward()
 ```
 
-**Returns:** Respective configuration values
+**Returns:** Respective configuration values. `get_feed_forward()` returns a raw pointer to the internal `FeedForward` sublayer; use it to register activation hooks for saturation tracking (see [FeedForward — Activation Hook](feed-forward.md#activation-hook)).
 
 ---
 

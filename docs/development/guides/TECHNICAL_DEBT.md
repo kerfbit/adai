@@ -10,7 +10,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 **Medium Priority:** 2
 **Low Priority:** 2
 **Future Enhancements:** 19
-**Resolved Items:** 10 (1 new)
+**Resolved Items:** 11 (1 new)
 
 ## Table of Contents
 
@@ -120,7 +120,7 @@ Action Items:
 
 Deferred (future work):
 
-- Activation saturation tracking (requires FeedForward layer hooks).
+- ✅ Activation saturation tracking (implemented April 11, 2026 — see below)
 - BLEU/ROUGE generation quality scores (requires partial generate() during validation).
 - Attention entropy (requires MultiHeadAttention weight exposure).
 - Batch padding efficiency (requires BatchStats integration).
@@ -1173,6 +1173,7 @@ By Priority:
 
 Recently Completed:
 
+- TD-013 (partial): FeedForward activation saturation hooks - April 11, 2026
 - TD-007: Matrix Operations SIMD Acceleration - April 11, 2026
 - TD-009: Incremental Trainer Dashboard and Structured Logging - March 2, 2026
 - TD-004: Enhanced Metrics Tracking (absorbed by TD-009) - March 2, 2026

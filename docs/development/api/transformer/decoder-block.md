@@ -557,6 +557,22 @@ DecoderBlock loaded_layer(512, 8, 2048);
 loaded_layer.load("decoder_layer_0.bin");
 ```
 
+#### Accessors
+
+```cpp
+FeedForward* get_feed_forward()
+```
+
+Returns a raw pointer to the internal `FeedForward` sublayer. Use it to register activation
+hooks for saturation tracking (see [FeedForward — Activation Hook](feed-forward.md#activation-hook)).
+
+```cpp
+DecoderBlock layer(512, 8, 2048);
+layer.get_feed_forward()->set_activation_hook([](const Matrix& act) {
+    // inspect post-GELU activations
+});
+```
+
 ---
 
 ## Implementation Details

@@ -75,6 +75,7 @@
         gradVarianceValue:  $('gradient-variance-value'),
         computeRatioValue:  $('compute-ratio-value'),
         weightUpdateValue:  $('weight-update-value'),
+        saturationValue:    $('activation-saturation-value'),
 
         /* Session stats */
         totalSamplesValue:  $('total-samples-value'),
@@ -398,6 +399,14 @@
             ? (wur < 0.0001 ? wur.toExponential(3) : fmt(wur, 6))
             : (wur === 0 ? '—' : '—');
         setText(UI.weightUpdateValue, wurStr);
+
+        /* --- Activation Saturation (TD-013) --- */
+        var sat = current.activation_saturation_ratio;
+        var satStr = (sat !== null && sat !== undefined && sat >= 0)
+            ? fmt(sat * 100, 1) + '%'
+            : '—';
+        setText(UI.saturationValue, satStr);
+        applyRangeColor(UI.saturationValue, sat, 0.20, 0.50);
 
         /* --- Session stats --- */
         setText(UI.totalSamplesValue,  fmtInt(current.total_samples_trained));

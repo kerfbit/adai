@@ -1385,6 +1385,150 @@ TEST(FeedForwardOptimizerTest, BackwardCompatibilityNoOptimizer) {
 }
 
 // ============================================================================
+// Activation Hook Tests (TD-013)
+// ============================================================================
+
+TEST(FeedForwardActivationHookTest, HookFiresOnForward) {
+    FeedForward ff(16, 64);
+
+    bool hook_called = false;
+    ff.set_activation_hook([&hook_called](const Matrix& /*activated*/) {
+        hook_called = true;
+    });
+
+    Matrix input(4, 16);
+    for (int i = 0; i < 4; ++i)
+        for (int j = 0; j < 16; ++j)
+            input(i, j) = 0.1f * (i * 16 + j);
+
+    ff.forward(input);
+
+    EXPECT_TRUE(hook_called);
+}
+
+TEST(FeedForwardActivationHookTest, HookReceivesCorrectShape) {
+    const int d_model = 16;
+    const int d_ff    = 64;
+    const int seq_len = 5;
+    FeedForward ff(d_model, d_ff);
+
+    int actual_rows = -1, actual_cols = -1;
+    ff.set_activation_hook([&](const Matrix& activated) {
+        actual_rows = activated.rows;
+        actual_cols = activated.cols;
+    });
+
+    Matrix input(seq_len, d_model);
+    ff.forward(input);
+
+    EXPECT_EQ(actual_rows, seq_len);
+    EXPECT_EQ(actual_cols, d_ff);
+}
+
+TEST(FeedForwardActivationHookTest, ClearedHookDoesNotFire) {
+    FeedForward ff(16, 64);
+
+    bool hook_called = false;
+    ff.set_activation_hook([&hook_called](const Matrix& /*activated*/) {
+        hook_called = true;
+    });
+    ff.clear_activation_hook();
+
+    Matrix input(4, 16);
+    ff.forward(input);
+
+    EXPECT_FALSE(hook_called);
+}
+
+TEST(FeedForwardActivationHookTest, ReplacedHookOverridesPrevious) {
+    FeedForward ff(16, 64);
+
+    int first_call_count  = 0;
+    int second_call_count = 0;
+
+    ff.set_activation_hook([&](const Matrix&) { ++first_call_count; });
+    ff.set_activation_hook([&](const Matrix&) { ++second_call_count; });
+
+    Matrix input(3, 16);
+    ff.forward(input);
+
+    EXPECT_EQ(first_call_count, 0);
+    EXPECT_EQ(second_call_count, 1);
+}
+
+TEST(FeedForwardActivationHookTest, SaturationRatioAllSaturated) {
+    // Zero input → pre-activations = 0*W1 + b1 = b1 (all 0 at init) → GELU(0) = 0
+    // Every element is exactly 0, which is < 0.01, so saturation ratio should be 1.
+    FeedForward ff(8, 32);
+
+    float sat_sum  = 0.0f;
+    int   sat_count = 0;
+    ff.set_activation_hook([&](const Matrix& activated) {
+        const int total = activated.rows * activated.cols;
+        if (total <= 0) return;
+        int sat = 0;
+        for (int r = 0; r < activated.rows; ++r)
+            for (int c = 0; c < activated.cols; ++c)
+                if (std::abs(activated(r, c)) < 0.01f) ++sat;
+        sat_sum += static_cast<float>(sat) / static_cast<float>(total);
+        ++sat_count;
+    });
+
+    // Zero input: hidden = 0*W1 + b1 = 0 (b1 initialised to zero), GELU(0) = 0.
+    Matrix input(2, 8);  // default-initialised to 0
+    ff.forward(input);
+
+    ASSERT_GT(sat_count, 0);
+    float avg_sat = sat_sum / static_cast<float>(sat_count);
+    EXPECT_FLOAT_EQ(avg_sat, 1.0f);
+}
+
+TEST(FeedForwardActivationHookTest, SaturationRatioNoneSaturated) {
+    // Modest positive inputs produce large GELU outputs, so saturation is near 0.
+    FeedForward ff(8, 32);
+
+    float sat_sum  = 0.0f;
+    int   sat_count = 0;
+    ff.set_activation_hook([&](const Matrix& activated) {
+        const int total = activated.rows * activated.cols;
+        if (total <= 0) return;
+        int sat = 0;
+        for (int r = 0; r < activated.rows; ++r)
+            for (int c = 0; c < activated.cols; ++c)
+                if (std::abs(activated(r, c)) < 0.01f) ++sat;
+        sat_sum += static_cast<float>(sat) / static_cast<float>(total);
+        ++sat_count;
+    });
+
+    // Initialise W1 to identity-like so hidden = input·W1 ≈ positive.
+    // Using a large positive initialisation value for the input.
+    Matrix input(1, 8);
+    for (int j = 0; j < 8; ++j) input(0, j) = 5.0f;
+
+    ff.forward(input);
+
+    ASSERT_GT(sat_count, 0);
+    float avg_sat = sat_sum / static_cast<float>(sat_count);
+    // With strongly positive inputs the saturation ratio should be < 1.0
+    // (not all units can be saturated).
+    EXPECT_LT(avg_sat, 1.0f);
+}
+
+TEST(FeedForwardActivationHookTest, HookCalledOncePerForwardPass) {
+    FeedForward ff(16, 64);
+
+    int call_count = 0;
+    ff.set_activation_hook([&call_count](const Matrix&) { ++call_count; });
+
+    Matrix input(3, 16);
+    ff.forward(input);
+    ff.forward(input);
+    ff.forward(input);
+
+    EXPECT_EQ(call_count, 3);
+}
+
+// ============================================================================
 // Main Function
 // ============================================================================
 

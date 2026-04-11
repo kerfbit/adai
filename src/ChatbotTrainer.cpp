@@ -574,6 +574,37 @@ float ChatbotTrainer::train_epoch(int epoch) {
         if (metrics_service_) { adv_cfg = metrics_service_->get_config(); }
         // Epoch-level wall-clock start for compute_time_ratio denominator
         auto epoch_td013_start = std::chrono::steady_clock::now();
+        // ── TD-013: Activation saturation accumulators ────────────────────────────
+        // sat_sum / sat_count gives the epoch-average fraction of near-zero
+        // post-GELU units across all FeedForward layers and forward passes.
+        float sat_sum   = 0.0f;
+        int   sat_count = 0;
+        if (metrics_service_) {
+            // Lambda captures sat_sum/sat_count by reference; hooks are cleared
+            // before train_epoch() returns so there is no dangling reference risk.
+            auto saturation_hook = [&sat_sum, &sat_count](const Matrix& activated) {
+                const int total = activated.rows * activated.cols;
+                if (total <= 0) return;
+                int sat = 0;
+                for (int r = 0; r < activated.rows; ++r) {
+                    for (int c = 0; c < activated.cols; ++c) {
+                        if (std::abs(activated(r, c)) < 0.01f) ++sat;
+                    }
+                }
+                sat_sum += static_cast<float>(sat) / static_cast<float>(total);
+                ++sat_count;
+            };
+            const int enc_layers = model->get_encoder_layers();
+            const int dec_layers = model->get_decoder_layers();
+            for (int l = 0; l < enc_layers; ++l) {
+                model->get_encoder()->get_encoder_block(l)
+                      ->get_feed_forward()->set_activation_hook(saturation_hook);
+            }
+            for (int l = 0; l < dec_layers; ++l) {
+                model->get_decoder()->get_decoder_block(l)
+                      ->get_feed_forward()->set_activation_hook(saturation_hook);
+            }
+        }
         // ─────────────────────────────────────────────────────────────────────────
 
         for (int i = 0; i < num_samples; i++) {
@@ -810,6 +841,19 @@ float ChatbotTrainer::train_epoch(int epoch) {
             float compute_time_ratio = (total_wall_ns > 0.0) ? static_cast<float>(total_compute_ns / total_wall_ns) : 0.0f;
             float avg_wu_ratio       = (wu_count > 0) ? (wu_ratio_sum / static_cast<float>(wu_count)) : 0.0f;
             metrics_service_->update_advanced_epoch_metrics(gradient_variance, compute_time_ratio, avg_wu_ratio);
+
+            // ── TD-013: Activation saturation – report epoch average and clear hooks ─
+            float avg_saturation = (sat_count > 0) ? (sat_sum / static_cast<float>(sat_count)) : -1.0f;
+            metrics_service_->update_activation_saturation(avg_saturation);
+            const int enc_layers = model->get_encoder_layers();
+            const int dec_layers = model->get_decoder_layers();
+            for (int l = 0; l < enc_layers; ++l) {
+                model->get_encoder()->get_encoder_block(l)->get_feed_forward()->clear_activation_hook();
+            }
+            for (int l = 0; l < dec_layers; ++l) {
+                model->get_decoder()->get_decoder_block(l)->get_feed_forward()->clear_activation_hook();
+            }
+            // ─────────────────────────────────────────────────────────────────────
         }
         // ─────────────────────────────────────────────────────────────────────────
 

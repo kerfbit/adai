@@ -82,6 +82,11 @@ Matrix FeedForward::forward(const Matrix& input) {
     Matrix hidden_activated = Activation::gelu(hidden);
     cached_hidden_activated = hidden_activated;
 
+    // Fire activation hook if registered (used for saturation tracking, TD-013)
+    if (activation_hook_) {
+        activation_hook_(cached_hidden_activated);
+    }
+
     // Second linear transformation: hidden * W2
     Matrix output = hidden_activated * W2;
 

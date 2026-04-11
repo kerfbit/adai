@@ -286,6 +286,10 @@ public:
     void save_weights(const std::string& filename);
     void load_weights(const std::string& filename);
     void register_parameters_with_optimizer(Optimizer& optimizer);
+
+    // Layer accessors (for hooks and diagnostics)
+    int get_num_layers() const;
+    EncoderBlock* get_encoder_block(int layer);  // throws std::out_of_range
 };
 ```
 

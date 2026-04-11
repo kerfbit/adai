@@ -61,6 +61,7 @@ struct TrainingMetricsSnapshot {
     float gradient_variance = 0.0f;      ///< Variance of per-step gradient norms within current epoch
     float compute_time_ratio = 0.0f;     ///< Fraction of epoch wall time spent in forward+backward
     float weight_update_ratio = 0.0f;    ///< Avg (lr * ||g||) / ||w|| ratio across optimizer steps
+    float activation_saturation_ratio = -1.0f; ///< Avg fraction of near-zero post-GELU units across all FF layers (-1 = not computed)
 };
 
 /**
@@ -184,6 +185,14 @@ public:
     // Advanced epoch-level diagnostics (TD-013)
     void update_advanced_epoch_metrics(float gradient_variance, float compute_time_ratio,
                                        float weight_update_ratio);
+
+    /**
+     * @brief Update epoch-average activation saturation ratio (TD-013)
+     * @param ratio Fraction of near-zero post-GELU units averaged across all
+     *              FeedForward layers and forward passes in the epoch.
+     *              Pass -1.0f to indicate "not computed".
+     */
+    void update_activation_saturation(float ratio);
 
     // Outlier / abnormal-sample tracking (TD-013)
     void flag_abnormal_sample(const AbnormalSample& sample);

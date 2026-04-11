@@ -11,6 +11,7 @@ The Training Metrics REST API provides real-time access to training progress and
 |**GET**|`/api/metrics/current`|Current training snapshot with all real-time metrics|
 |**GET**|`/api/metrics/summary`|Aggregated metrics summary|
 |**GET**|`/api/metrics/history`|Historical metrics records (supports `max_records`, `session_id`)|
+|**GET**|`/api/metrics/abnormal`|Samples flagged as anomalous by outlier detection|
 |**GET**|`/api/metrics/prometheus`|Metrics in Prometheus text format|
 |**GET**|`/api/metrics/csv`|Current metrics in CSV format|
 |**GET**|`/api/session/status`|Current training session status and progress|
@@ -86,7 +87,11 @@ Response:
   "best_validation_loss": 2.3001,
   "best_epoch": 1,
   "total_samples_trained": 2450,
-  "total_training_time_seconds": 196.0
+  "total_training_time_seconds": 196.0,
+  "gradient_variance": 0.0123,
+  "compute_time_ratio": 0.8234,
+  "weight_update_ratio": 0.000456,
+  "activation_saturation_ratio": 0.1234
 }
 ```
 
@@ -155,6 +160,31 @@ Response:
   "count": 1
 }
 ```
+
+---
+
+#### `GET /api/metrics/abnormal`
+
+Returns samples that the outlier-detection subsystem has flagged as anomalous (e.g., loss spikes, extreme gradient norms).
+
+Response:
+
+```json
+{
+  "abnormal_samples": [
+    {
+      "epoch": 3,
+      "sample": 214,
+      "loss": 9.8712,
+      "gradient_norm": 15.32,
+      "reason": "loss_spike"
+    }
+  ],
+  "count": 1
+}
+```
+
+Returns an empty `abnormal_samples` array when outlier detection has not been configured or no anomalies have been detected.
 
 ---
 

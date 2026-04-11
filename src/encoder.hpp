@@ -186,4 +186,27 @@ class LLMEncoder {
      * @param optimizer Optimizer to register parameters with
      */
     void register_parameters_with_optimizer(Optimizer& optimizer);
+
+    /**
+     * Get the number of encoder layers
+     *
+     * @return Number of transformer encoder blocks
+     */
+    int get_num_layers() const {
+        return num_layers;
+    }
+
+    /**
+     * Get encoder block at a specific layer (for hook registration, diagnostics, etc.)
+     *
+     * @param layer Zero-based layer index
+     * @return Pointer to the EncoderBlock
+     * @throws std::out_of_range if layer is outside [0, num_layers)
+     */
+    EncoderBlock* get_encoder_block(int layer) {
+        if (layer < 0 || layer >= num_layers) {
+            throw std::out_of_range("Layer index out of range");
+        }
+        return encoder_blocks[layer].get();
+    }
 };

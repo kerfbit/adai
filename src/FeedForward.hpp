@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <string>
 #include "Matrix.hpp"
 #include "Optimizer.hpp"
@@ -33,6 +34,13 @@
  *   - Gradient clipping support
  *   - Weight persistence (save/load)
  */
+/**
+ * Callback invoked immediately after the GELU activation in every forward pass.
+ * Receives the post-GELU hidden matrix [seq_len × d_ff] so callers can
+ * compute per-layer activation statistics (e.g. saturation ratio).
+ */
+using ActivationHookFn = std::function<void(const Matrix&)>;
+
 class FeedForward {
    private:
     // Model dimensions
@@ -58,6 +66,9 @@ class FeedForward {
 
     // Optimizer support
     Optimizer* optimizer;  // Optional optimizer (nullptr = simple gradient descent)
+
+    // Activation hook (optional, fired after GELU in forward())
+    ActivationHookFn activation_hook_;
 
    public:
     float learning_rate;  // Learning rate for weight updates (used when optimizer is nullptr)
@@ -184,5 +195,22 @@ class FeedForward {
      */
     int get_d_ff() const {
         return d_ff;
+    }
+
+    /**
+     * Register a callback invoked after GELU in every forward pass.
+     * Pass nullptr / call clear_activation_hook() to disable.
+     *
+     * @param fn Callable receiving the post-GELU hidden matrix [seq_len × d_ff]
+     */
+    void set_activation_hook(ActivationHookFn fn) {
+        activation_hook_ = std::move(fn);
+    }
+
+    /**
+     * Remove any previously registered activation hook.
+     */
+    void clear_activation_hook() {
+        activation_hook_ = nullptr;
     }
 };
