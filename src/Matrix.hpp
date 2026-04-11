@@ -6,6 +6,8 @@
 #include <stdexcept>
 #include <vector>
 
+#include "MatrixSIMD.hpp"
+
 #ifdef ADAI_ENABLE_GPU
 #include "gpu/GPUUtils.hpp"
 #include "gpu/MatrixGPU.hpp"

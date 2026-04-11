@@ -51,9 +51,8 @@ endif()
 option(BUILD_TESTING "Build test suite" ON)
 option(BUILD_EXAMPLES "Build example programs" ON)
 option(ENABLE_GPU "Enable GPU acceleration with CUDA" OFF)
-# TODO: See TD-007 in TECHNICAL_DEBT.md - Add ENABLE_BLAS option for optimized matrix operations
-# TODO: Add FindBLAS.cmake module to detect OpenBLAS, Intel MKL, or Apple Accelerate
-# TODO: Add conditional linking: target_link_libraries(adai PRIVATE ${BLAS_LIBRARIES})
+option(ENABLE_BLAS "Enable BLAS (OpenBLAS/MKL/Accelerate) for large matrix multiply" ON)
+option(ENABLE_SIMD "Enable explicit AVX2/FMA/NEON intrinsics for matrix operations" ON)
 option(ENABLE_ASAN "Enable AddressSanitizer" OFF)
 option(ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
 option(ENABLE_TSAN "Enable ThreadSanitizer" OFF)

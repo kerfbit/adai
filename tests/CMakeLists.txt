@@ -25,6 +25,11 @@ add_executable(matrixTests matrix_test.cpp)
 target_link_libraries(matrixTests adai_core GTest::gtest_main)
 add_test(NAME MatrixTests COMMAND matrixTests)
 
+# Matrix SIMD tests (TD-007)
+add_executable(matrixSIMDTests matrix_simd_test.cpp)
+target_link_libraries(matrixSIMDTests adai_core GTest::gtest_main)
+add_test(NAME MatrixSIMDTests COMMAND matrixSIMDTests)
+
 # Activation tests
 add_executable(activationTests activation_test.cpp)
 target_link_libraries(activationTests adai_core GTest::gtest_main)

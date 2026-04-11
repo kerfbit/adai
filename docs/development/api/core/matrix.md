@@ -124,7 +124,16 @@ Matrix operator*(const Matrix& other) const
 
 **Validation:** Throws `std::invalid_argument` if `this->cols != other.rows`
 
-**Algorithm:** Triple nested loop with O(m × n × p) complexity
+**Algorithm:** Multi-tier acceleration priority:
+1. **BLAS SGEMM** — when `ENABLE_BLAS=ON` and all dimensions ≥ 256
+2. **AVX2 + FMA** — x86-64 CPUs at runtime when `ENABLE_SIMD=ON`
+3. **ARM NEON** — AArch64 CPUs at runtime when `ENABLE_SIMD=ON`
+4. **OpenMP scalar** — parallel fallback when `_OPENMP` is defined
+5. **Scalar** — guaranteed fallback on all platforms
+
+**Complexity:** O(m × n × p)
+
+**Acceleration:** Enabled automatically at build time; no API changes required.
 
 Example:
 
@@ -152,6 +161,8 @@ Matrix operator+(const Matrix& other) const
 
 **Complexity:** O(rows × cols)
 
+**Acceleration:** AVX2 (x86-64) / NEON (ARM) SIMD when built with `ENABLE_SIMD=ON`
+
 **Use case:** Residual connections, bias addition
 
 Example:
@@ -173,6 +184,8 @@ Matrix operator-(const Matrix& other) const
 **Validation:** Requires matching dimensions
 
 **Complexity:** O(rows × cols)
+
+**Acceleration:** AVX2 (x86-64) / NEON (ARM) SIMD when built with `ENABLE_SIMD=ON`
 
 **Use case:** Computing gradients, error terms
 
@@ -214,6 +227,97 @@ B[j][i] = A[i][j]  for all i, j
 ---
 
 ## Specialized Operations
+
+---
+
+## CPU Acceleration (SIMD & BLAS)
+
+### Build Options
+
+| CMake Option | Default | Effect |
+|---|---|---|
+| `ENABLE_SIMD=ON` | ON | Enables AVX2/FMA (x86-64) and NEON (AArch64) SIMD paths |
+| `ENABLE_BLAS=ON` | ON | Links system BLAS and enables SGEMM for large multiplications |
+
+```bash
+# Enable both (default)
+cmake -DENABLE_SIMD=ON -ENABLE_BLAS=ON ..
+
+# Disable for debugging or unsupported hardware
+cmake -DENABLE_SIMD=OFF -DENABLE_BLAS=OFF ..
+```
+
+### Compile-time Macros
+
+These macros are defined by `src/CMakeLists.txt` and are available in any translation unit that includes `Matrix.hpp` (which includes `MatrixSIMD.hpp`):
+
+| Macro | Defined When |
+|---|---|
+| `ADAI_SIMD_AVX2` | Compiler supports `-mavx2`; `ENABLE_SIMD=ON` |
+| `ADAI_SIMD_FMA` | Compiler supports `-mfma`; `ENABLE_SIMD=ON` |
+| `ADAI_SIMD_NEON` | Target is AArch64; `ENABLE_SIMD=ON` |
+| `ADAI_ENABLE_BLAS` | `ENABLE_BLAS=ON`; BLAS library and `cblas.h` found |
+
+### SIMD Detection API (`adai::simd` namespace)
+
+Declared in `src/MatrixSIMD.hpp`, which is transitively included via `Matrix.hpp`.
+
+#### Functions
+
+```cpp
+namespace adai::simd {
+
+/// Returns true if the current CPU supports AVX2 at runtime (uses CPUID).
+bool has_avx2();
+
+/// Returns true if the current CPU supports FMA3 at runtime (uses CPUID).
+bool has_fma();
+
+} // namespace adai::simd
+```
+
+**Note:** These functions query CPUID at runtime regardless of compile-time flags. A binary built with `ADAI_SIMD_AVX2` will still read `has_avx2() == false` on a CPU that lacks AVX2 support, and will fall back to the scalar path automatically.
+
+#### Helper (Internal)
+
+```cpp
+namespace adai::simd {
+
+// Horizontal sum of an AVX2 256-bit register (x86-64 only)
+// Available only when ADAI_SIMD_AVX2 is defined
+float hsum256(__m256 v);  // returns v[0]+v[1]+...+v[7]
+
+// Horizontal sum of an ARM NEON 128-bit register (AArch64 only)
+// Available only when ADAI_SIMD_NEON is defined
+float hsum128(float32x4_t v);  // returns v[0]+v[1]+v[2]+v[3]
+
+} // namespace adai::simd
+```
+
+These are helpers for SIMD reduction loops inside `Matrix.cpp`; they are not intended for direct use by callers.
+
+#### Example
+
+```cpp
+#include "Matrix.hpp"  // Includes MatrixSIMD.hpp transitively
+
+void print_acceleration_info() {
+    std::cout << "AVX2: " << (adai::simd::has_avx2() ? "yes" : "no") << "\n";
+    std::cout << "FMA:  " << (adai::simd::has_fma()  ? "yes" : "no") << "\n";
+#ifdef ADAI_ENABLE_BLAS
+    std::cout << "BLAS: enabled at compile time\n";
+#else
+    std::cout << "BLAS: not available\n";
+#endif
+}
+```
+
+#### Files
+
+- `src/MatrixSIMD.hpp` — Platform detection macros, CPUID queries, reduction helpers
+- `src/Matrix.cpp` — SIMD/BLAS code paths in `operator*`, `operator+`, `operator-`,
+  `hadamard()`, `scale()`, `apply_gradients()`, `sum()`
+- `tests/matrix_simd_test.cpp` — 91 tests covering all SIMD paths and edge cases
 
 ---
 
@@ -329,6 +433,8 @@ Matrix hadamard(const Matrix& other) const
 
 **Complexity:** O(rows × cols)
 
+**Acceleration:** AVX2 (x86-64) / NEON (ARM) SIMD when built with `ENABLE_SIMD=ON`
+
 **Use case:** Activation derivatives, masking, gating mechanisms
 
 Example:
@@ -354,6 +460,8 @@ Matrix scale(float scalar) const
 **Mathematical Operation:** Multiply all elements by a scalar
 
 **Complexity:** O(rows × cols)
+
+**Acceleration:** AVX2 (x86-64) / NEON (ARM) SIMD when built with `ENABLE_SIMD=ON`
 
 **Use case:** Learning rate scaling, normalization constants
 
@@ -388,6 +496,8 @@ void apply_gradients(const Matrix& gradients, float learning_rate)
 **Validation:** Requires matching dimensions
 
 **Complexity:** O(rows × cols)
+
+**Acceleration:** AVX2+FMA (x86-64) / NEON (ARM) SIMD when built with `ENABLE_SIMD=ON`; FMA fuses the multiply-subtract in a single instruction
 
 **Use case:** Primary mechanism for updating neural network weights
 
@@ -475,6 +585,8 @@ float sum() const
 **Returns:** Sum of all matrix elements
 
 **Complexity:** O(rows × cols)
+
+**Acceleration:** AVX2 (x86-64) / NEON (ARM) SIMD when built with `ENABLE_SIMD=ON`
 
 **Use case:** Computing total loss, gradient magnitude
 
@@ -841,23 +953,33 @@ for (int j = 0; j < cols; j++) {
 
 ### 2. SIMD Vectorization
 
-**SIMD (Single Instruction, Multiple Data) vectorization** is a hardware-level optimization where a single CPU instruction operates on multiple data elements in parallel. Modern CPUs provide SIMD instruction sets (e.g., SSE, AVX on x86, NEON on ARM) that can accelerate common matrix operations.
+**SIMD (Single Instruction, Multiple Data) vectorization** is a hardware-level optimization where a single CPU instruction operates on multiple data elements in parallel. The `Matrix` class implements explicit SIMD paths using compiler intrinsics via `src/MatrixSIMD.hpp`.
 
-#### Relevance to Matrix Class
+#### Implemented Platforms
 
-- **Element-wise operations** (addition, subtraction, Hadamard product, scaling) can be vectorized so that multiple elements are processed per instruction.
-- **Matrix multiplication** inner loops can be vectorized to compute several products and sums simultaneously.
-- **Reduction operations** (sum, mean) can use SIMD to accumulate multiple values in parallel.
+| Instruction Set | Platform | Operations Accelerated |
+|---|---|---|
+| AVX2 + FMA | x86-64 (Intel/AMD) | `*`, `+`, `-`, `hadamard()`, `scale()`, `apply_gradients()`, `sum()` |
+| ARM NEON | AArch64 (Apple Silicon, ARM) | `*`, `+`, `-`, `hadamard()`, `scale()`, `apply_gradients()`, `sum()` |
 
-#### Example (Conceptual)
+#### Build Activation
+
+```bash
+# SIMD enabled by default; verify it compiled in:
+cmake -DENABLE_SIMD=ON ..
+make -j$(nproc) 2>&1 | grep -E "AVX2|FMA|NEON"
+```
+
+#### Runtime Detection
 
 ```cpp
-// Pseudocode for SIMD vectorized addition
-for (int i = 0; i < size; i += SIMD_WIDTH) {
-    simd_vec a = load_simd(&A[i]);
-    simd_vec b = load_simd(&B[i]);
-    simd_vec c = a + b;
-    store_simd(&C[i], c);
+#include "MatrixSIMD.hpp"
+
+if (adai::simd::has_avx2()) {
+    std::cout << "AVX2 active — 8-wide float SIMD\n";
+}
+if (adai::simd::has_fma()) {
+    std::cout << "FMA active — fused multiply-add for gradients\n";
 }
 ```
 
@@ -865,24 +987,20 @@ for (int i = 0; i < size; i += SIMD_WIDTH) {
 
 - 2x–8x speedup for large matrices, depending on hardware and operation
 - Lower CPU utilization and improved cache efficiency
+- Transparent — no caller API changes required
 
-#### Implementation Notes
+#### Notes
 
-- The current Matrix implementation uses standard C++ loops, but can be extended with compiler intrinsics or libraries (e.g., Eigen, OpenBLAS) for SIMD.
-- Compilers like GCC and Clang can auto-vectorize simple loops if written in a SIMD-friendly way (contiguous memory, no aliasing).
-- SIMD is most effective for large, contiguous data blocks (row-major layout helps).
-
-#### Limitations
-
-- SIMD width varies by CPU (e.g., 128/256/512 bits)
-- Alignment and memory layout must be considered for best results
-- Not all operations or hardware support SIMD equally
+- SIMD paths are selected at runtime via CPUID; binary remains portable across machines without the required ISA.
+- Compile-time macros `ADAI_SIMD_AVX2`, `ADAI_SIMD_FMA`, `ADAI_SIMD_NEON` gate the code paths at compile time; only the paths supported by the compiler/flags are included.
+- `SIMD is most effective for large, contiguous data blocks (row-major layout helps).`
+- Scalar tails handle elements not divisible by SIMD width (e.g., 8 for AVX2).
 
 #### Further Reading
 
 - [SIMD on Wikipedia](https://en.wikipedia.org/wiki/SIMD)
-- [Auto-vectorization in GCC](https://gcc.gnu.org/projects/tree-ssa/vectorization.html)
 - [Intel Intrinsics Guide](https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html)
+- `src/MatrixSIMD.hpp` — platform headers and CPUID detection
 
 ### 3. Parallel Processing
 
@@ -967,11 +1085,10 @@ Matrix batch_process(const Matrix& batch_input, Func operation) {
 
 ### Current Limitations
 
-1. **No BLAS Integration:** Manual matrix operations (slower than optimized libraries)
-2. **Single Precision:** Only `float` type, no `double` or custom precision
-3. **No Sparse Matrix Support:** All elements stored explicitly
-4. **No Broadcasting:** Manual implementation required for broadcasting operations
-5. **No Inplace Arithmetic:** Operations like `+=`, `-=` not implemented
+1. **Single Precision:** Only `float` type, no `double` or custom precision
+2. **No Sparse Matrix Support:** All elements stored explicitly
+3. **No Broadcasting:** Manual implementation required for broadcasting operations
+4. **No Inplace Arithmetic:** Operations like `+=`, `-=` not implemented
 
 ### Design Constraints
 
@@ -984,18 +1101,9 @@ Matrix batch_process(const Matrix& batch_input, Func operation) {
 
 ## Future Enhancement Opportunities
 
-### 1. BLAS Integration
+### 1. BLAS Integration (Implemented — TD-007)
 
-```cpp
-// Potential Eigen library integration
-#ifdef USE_EIGEN
-    Matrix operator*(const Matrix& other) const {
-        Eigen::MatrixXf A = to_eigen();
-        Eigen::MatrixXf B = other.to_eigen();
-        return from_eigen(A * B);
-    }
-#endif
-```
+BLAS SGEMM acceleration for large matrix multiplication is now available. Enable with `ENABLE_BLAS=ON` at configure time. See [SIMD & BLAS Acceleration](#simd--blas-acceleration) and the `adai::simd` API section below.
 
 ### 2. Broadcasting Support
 

@@ -42,10 +42,65 @@ if(OpenMP_CXX_FOUND)
     message(STATUS "OpenMP support added to adai_core - parallel CPU operations enabled")
 endif()
 
-# TODO: See TD-007 in TECHNICAL_DEBT.md - Add BLAS library support for optimized matrix operations
-# TODO: Add find_package(BLAS) or use cmake/FindBLAS.cmake for OpenBLAS/MKL/Accelerate detection
-# TODO: if(ENABLE_BLAS AND BLAS_FOUND): target_link_libraries(adai_core PUBLIC ${BLAS_LIBRARIES})
-# TODO: Add compile definition: target_compile_definitions(adai_core PUBLIC ADAI_ENABLE_BLAS)
+# ============================================================================
+# BLAS support (TD-007) — OpenBLAS / Intel MKL / Apple Accelerate
+# Enable with: -DENABLE_BLAS=ON (default). Requires libblas-dev or libopenblas-dev.
+# ============================================================================
+if(ENABLE_BLAS)
+    find_package(BLAS QUIET)
+    if(BLAS_FOUND)
+        # locate the CBLAS C interface header (required for cblas_sgemm)
+        find_path(CBLAS_INCLUDE_DIR cblas.h
+            PATHS
+                /usr/include
+                /usr/local/include
+                /usr/include/x86_64-linux-gnu
+                /usr/include/aarch64-linux-gnu
+                /usr/include/arm-linux-gnueabihf
+                /usr/local/opt/openblas/include    # macOS Homebrew OpenBLAS
+                /opt/homebrew/opt/openblas/include  # macOS Apple Silicon Homebrew
+        )
+        if(CBLAS_INCLUDE_DIR)
+            target_include_directories(adai_core PRIVATE ${CBLAS_INCLUDE_DIR})
+            target_link_libraries(adai_core PUBLIC ${BLAS_LIBRARIES})
+            target_compile_definitions(adai_core PUBLIC ADAI_ENABLE_BLAS)
+            message(STATUS "BLAS enabled: ${BLAS_LIBRARIES} (cblas.h: ${CBLAS_INCLUDE_DIR})")
+        else()
+            message(STATUS "BLAS found (${BLAS_LIBRARIES}) but cblas.h not located — "
+                           "install libblas-dev or libopenblas-dev to enable BLAS acceleration")
+        endif()
+    else()
+        message(STATUS "BLAS not found — install libblas-dev or libopenblas-dev to enable BLAS acceleration")
+    endif()
+endif()
+
+# ============================================================================
+# SIMD support (TD-007) — AVX2/FMA (x86) and NEON (ARM)
+# Enable with: -DENABLE_SIMD=ON (default).
+# Release builds using -march=native already enable AVX2+FMA where supported.
+# This option additionally enables intrinsics in Debug/RelWithDebInfo builds.
+# ============================================================================
+if(ENABLE_SIMD)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        include(CheckCXXCompilerFlag)
+        check_cxx_compiler_flag("-mavx2" ADAI_HAVE_AVX2)
+        if(ADAI_HAVE_AVX2)
+            target_compile_options(adai_core PRIVATE -mavx2)
+            check_cxx_compiler_flag("-mfma" ADAI_HAVE_FMA)
+            if(ADAI_HAVE_FMA)
+                target_compile_options(adai_core PRIVATE -mfma)
+                message(STATUS "SIMD: AVX2 + FMA intrinsics enabled for adai_core")
+            else()
+                message(STATUS "SIMD: AVX2 intrinsics enabled for adai_core (no FMA)")
+            endif()
+        else()
+            message(STATUS "SIMD: compiler does not support -mavx2; intrinsics disabled")
+        endif()
+    elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+        target_compile_options(adai_core PRIVATE /arch:AVX2)
+        message(STATUS "SIMD: AVX2 intrinsics enabled via /arch:AVX2")
+    endif()
+endif()
 
 # GPU support (optional)
 if(ENABLE_GPU)

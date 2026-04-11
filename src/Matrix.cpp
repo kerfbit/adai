@@ -6,6 +6,10 @@
 #include <omp.h>
 #endif
 
+#ifdef ADAI_ENABLE_BLAS
+#include <cblas.h>
+#endif
+
 // Default constructor
 Matrix::Matrix() : rows(0), cols(0) {}
 
@@ -44,10 +48,12 @@ const float& Matrix::operator()(int i, int j) const {
 }
 
 // Matrix multiplication
-// TODO: See TD-007 in TECHNICAL_DEBT.md - Add explicit SIMD intrinsics for matrix multiplication
-// TODO: Integrate BLAS library (OpenBLAS/MKL) for optimized GEMM operations on large matrices (>256x256)
-// TODO: Add cache-blocking/tiling optimization for better L1/L2 cache utilization
-// TODO: Implement specialized fast paths for common matrix sizes (powers of 2, multiples of SIMD width)
+// Acceleration priority:
+//   1. BLAS SGEMM  (ADAI_ENABLE_BLAS, matrices ≥ 256 in every dimension)
+//   2. AVX2/FMA    (ADAI_SIMD_AVX2)  — ikj loop order, 8-wide FMA per iteration
+//   3. ARM NEON    (ADAI_SIMD_NEON)  — ikj loop order, 4-wide FMA per iteration
+//   4. OpenMP      (ADAI_ENABLE_OPENMP) — original ijk with #pragma omp simd
+//   5. Scalar fallback
 Matrix Matrix::operator*(const Matrix& other) const {
     if (cols != other.rows) {
         throw std::invalid_argument("Matrix dimensions incompatible for multiplication: [" +
@@ -56,13 +62,95 @@ Matrix Matrix::operator*(const Matrix& other) const {
                                     "]");
     }
 
-    Matrix result(rows, other.cols);
+    Matrix result(rows, other.cols);  // zero-initialised
 
-    // TODO: Add BLAS library integration: result = cblas_sgemm(this, other) for matrices >256x256
-    // TODO: Use AVX2/AVX-512 intrinsics (_mm256_fmadd_ps) for 8-16 float SIMD operations
-    // TODO: Add ARM NEON intrinsics (vfmaq_f32) for ARM64 platforms
+#ifdef ADAI_ENABLE_BLAS
+    // BLAS path: pack to flat row-major arrays, call cblas_sgemm, unpack result.
+    // Only worthwhile for large matrices where packing overhead is negligible.
+    if (rows >= 256 && cols >= 256 && other.cols >= 256) {
+        std::vector<float> a_flat(rows * cols);
+        std::vector<float> b_flat(other.rows * other.cols);
+        for (int i = 0; i < rows; ++i)
+            std::copy(data[i].begin(), data[i].end(), a_flat.data() + i * cols);
+        for (int i = 0; i < other.rows; ++i)
+            std::copy(other.data[i].begin(), other.data[i].end(),
+                      b_flat.data() + i * other.cols);
+
+        std::vector<float> c_flat(rows * other.cols, 0.0f);
+        cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                    rows, other.cols, cols,
+                    1.0f, a_flat.data(), cols,
+                          b_flat.data(), other.cols,
+                    0.0f, c_flat.data(), other.cols);
+
+        for (int i = 0; i < rows; ++i)
+            std::copy(c_flat.data() + i * other.cols,
+                      c_flat.data() + (i + 1) * other.cols,
+                      result.data[i].data());
+        return result;
+    }
+#endif  // ADAI_ENABLE_BLAS
+
+#if defined(ADAI_SIMD_AVX2)
+    // ikj loop order with AVX2 FMA: broadcasts A[i][k], processes 8 floats of
+    // row k of B simultaneously into row i of C.  B rows are contiguous so
+    // cache-friendly; each inner loop touches only one row of C (good locality).
 #ifdef ADAI_ENABLE_OPENMP
-    // Parallel version with OpenMP - 5-8x speedup on multi-core CPUs
+    #pragma omp parallel for schedule(dynamic, 16) if(rows > 64)
+#endif
+    for (int i = 0; i < rows; ++i) {
+        float*       c_row = result.data[i].data();
+        const float* a_row = data[i].data();
+        for (int k = 0; k < cols; ++k) {
+            const float* b_row = other.data[k].data();
+#ifdef ADAI_SIMD_FMA
+            __m256 va = _mm256_set1_ps(a_row[k]);
+            int j = 0;
+            for (; j <= other.cols - 8; j += 8) {
+                __m256 vc = _mm256_loadu_ps(c_row + j);
+                vc = _mm256_fmadd_ps(va, _mm256_loadu_ps(b_row + j), vc);
+                _mm256_storeu_ps(c_row + j, vc);
+            }
+#else  // AVX2 without FMA
+            __m256 va = _mm256_set1_ps(a_row[k]);
+            int j = 0;
+            for (; j <= other.cols - 8; j += 8) {
+                __m256 vc = _mm256_loadu_ps(c_row + j);
+                vc = _mm256_add_ps(vc,
+                         _mm256_mul_ps(va, _mm256_loadu_ps(b_row + j)));
+                _mm256_storeu_ps(c_row + j, vc);
+            }
+#endif
+            // scalar remainder for cols not divisible by 8
+            for (; j < other.cols; ++j)
+                c_row[j] += a_row[k] * b_row[j];
+        }
+    }
+
+#elif defined(ADAI_SIMD_NEON)
+    // ikj loop order with ARM NEON 4-wide FMA
+#ifdef ADAI_ENABLE_OPENMP
+    #pragma omp parallel for schedule(dynamic, 16) if(rows > 64)
+#endif
+    for (int i = 0; i < rows; ++i) {
+        float*       c_row = result.data[i].data();
+        const float* a_row = data[i].data();
+        for (int k = 0; k < cols; ++k) {
+            const float* b_row  = other.data[k].data();
+            float32x4_t  va_ik  = vdupq_n_f32(a_row[k]);
+            int j = 0;
+            for (; j <= other.cols - 4; j += 4) {
+                float32x4_t vc = vld1q_f32(c_row + j);
+                vc = vfmaq_f32(vc, va_ik, vld1q_f32(b_row + j));
+                vst1q_f32(c_row + j, vc);
+            }
+            for (; j < other.cols; ++j)
+                c_row[j] += a_row[k] * b_row[j];
+        }
+    }
+
+#elif defined(ADAI_ENABLE_OPENMP)
+    // Parallel version with OpenMP — 5-8x speedup on multi-core CPUs
     #pragma omp parallel for collapse(2) schedule(dynamic, 32) if(rows > 64 && other.cols > 64)
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < other.cols; j++) {
@@ -74,8 +162,9 @@ Matrix Matrix::operator*(const Matrix& other) const {
             result.data[i][j] = sum;
         }
     }
+
 #else
-    // Sequential fallback
+    // Scalar fallback
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < other.cols; j++) {
             float sum = 0.0f;
@@ -90,10 +179,7 @@ Matrix Matrix::operator*(const Matrix& other) const {
     return result;
 }
 
-// Matrix addition
-// TODO: See TD-007 in TECHNICAL_DEBT.md - Add SIMD vectorization for element-wise operations
-// TODO: Use AVX2 _mm256_add_ps for 8-way float addition per instruction
-// TODO: Add ARM NEON vaddq_f32 for 4-way float addition on ARM platforms
+// Matrix addition — element-wise, SIMD row-by-row
 Matrix Matrix::operator+(const Matrix& other) const {
     if (rows != other.rows || cols != other.cols) {
         throw std::invalid_argument("Matrix dimensions must match for addition");
@@ -101,8 +187,36 @@ Matrix Matrix::operator+(const Matrix& other) const {
 
     Matrix result(rows, cols);
 
+#if defined(ADAI_SIMD_AVX2)
 #ifdef ADAI_ENABLE_OPENMP
-    // Parallel version with OpenMP
+    #pragma omp parallel for if(rows * cols > 10000)
+#endif
+    for (int i = 0; i < rows; ++i) {
+        const float* a = data[i].data();
+        const float* b = other.data[i].data();
+        float*       r = result.data[i].data();
+        int j = 0;
+        for (; j <= cols - 8; j += 8)
+            _mm256_storeu_ps(r + j,
+                _mm256_add_ps(_mm256_loadu_ps(a + j), _mm256_loadu_ps(b + j)));
+        for (; j < cols; ++j) r[j] = a[j] + b[j];
+    }
+
+#elif defined(ADAI_SIMD_NEON)
+#ifdef ADAI_ENABLE_OPENMP
+    #pragma omp parallel for if(rows * cols > 10000)
+#endif
+    for (int i = 0; i < rows; ++i) {
+        const float* a = data[i].data();
+        const float* b = other.data[i].data();
+        float*       r = result.data[i].data();
+        int j = 0;
+        for (; j <= cols - 4; j += 4)
+            vst1q_f32(r + j, vaddq_f32(vld1q_f32(a + j), vld1q_f32(b + j)));
+        for (; j < cols; ++j) r[j] = a[j] + b[j];
+    }
+
+#elif defined(ADAI_ENABLE_OPENMP)
     #pragma omp parallel for collapse(2) if(rows * cols > 10000)
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
@@ -110,7 +224,6 @@ Matrix Matrix::operator+(const Matrix& other) const {
         }
     }
 #else
-    // Sequential fallback
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
             result.data[i][j] = data[i][j] + other.data[i][j];
@@ -121,10 +234,7 @@ Matrix Matrix::operator+(const Matrix& other) const {
     return result;
 }
 
-// Matrix subtraction
-// TODO: See TD-007 in TECHNICAL_DEBT.md - Add SIMD vectorization for element-wise operations
-// TODO: Use AVX2 _mm256_sub_ps for 8-way float subtraction per instruction
-// TODO: Add ARM NEON vsubq_f32 for 4-way float subtraction on ARM platforms
+// Matrix subtraction — element-wise, SIMD row-by-row
 Matrix Matrix::operator-(const Matrix& other) const {
     if (rows != other.rows || cols != other.cols) {
         throw std::invalid_argument("Matrix dimensions must match for subtraction");
@@ -132,8 +242,36 @@ Matrix Matrix::operator-(const Matrix& other) const {
 
     Matrix result(rows, cols);
 
+#if defined(ADAI_SIMD_AVX2)
 #ifdef ADAI_ENABLE_OPENMP
-    // Parallel version with OpenMP
+    #pragma omp parallel for if(rows * cols > 10000)
+#endif
+    for (int i = 0; i < rows; ++i) {
+        const float* a = data[i].data();
+        const float* b = other.data[i].data();
+        float*       r = result.data[i].data();
+        int j = 0;
+        for (; j <= cols - 8; j += 8)
+            _mm256_storeu_ps(r + j,
+                _mm256_sub_ps(_mm256_loadu_ps(a + j), _mm256_loadu_ps(b + j)));
+        for (; j < cols; ++j) r[j] = a[j] - b[j];
+    }
+
+#elif defined(ADAI_SIMD_NEON)
+#ifdef ADAI_ENABLE_OPENMP
+    #pragma omp parallel for if(rows * cols > 10000)
+#endif
+    for (int i = 0; i < rows; ++i) {
+        const float* a = data[i].data();
+        const float* b = other.data[i].data();
+        float*       r = result.data[i].data();
+        int j = 0;
+        for (; j <= cols - 4; j += 4)
+            vst1q_f32(r + j, vsubq_f32(vld1q_f32(a + j), vld1q_f32(b + j)));
+        for (; j < cols; ++j) r[j] = a[j] - b[j];
+    }
+
+#elif defined(ADAI_ENABLE_OPENMP)
     #pragma omp parallel for collapse(2) if(rows * cols > 10000)
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
@@ -141,7 +279,6 @@ Matrix Matrix::operator-(const Matrix& other) const {
         }
     }
 #else
-    // Sequential fallback
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
             result.data[i][j] = data[i][j] - other.data[i][j];
@@ -193,8 +330,35 @@ void Matrix::randomize(float scale) {
 Matrix Matrix::scale(float scalar) const {
     Matrix result(rows, cols);
 
+#if defined(ADAI_SIMD_AVX2)
+    __m256 vs = _mm256_set1_ps(scalar);
 #ifdef ADAI_ENABLE_OPENMP
-    // Parallel version with OpenMP
+    #pragma omp parallel for if(rows * cols > 10000)
+#endif
+    for (int i = 0; i < rows; ++i) {
+        const float* a = data[i].data();
+        float*       r = result.data[i].data();
+        int j = 0;
+        for (; j <= cols - 8; j += 8)
+            _mm256_storeu_ps(r + j, _mm256_mul_ps(vs, _mm256_loadu_ps(a + j)));
+        for (; j < cols; ++j) r[j] = a[j] * scalar;
+    }
+
+#elif defined(ADAI_SIMD_NEON)
+    float32x4_t vs = vdupq_n_f32(scalar);
+#ifdef ADAI_ENABLE_OPENMP
+    #pragma omp parallel for if(rows * cols > 10000)
+#endif
+    for (int i = 0; i < rows; ++i) {
+        const float* a = data[i].data();
+        float*       r = result.data[i].data();
+        int j = 0;
+        for (; j <= cols - 4; j += 4)
+            vst1q_f32(r + j, vmulq_f32(vs, vld1q_f32(a + j)));
+        for (; j < cols; ++j) r[j] = a[j] * scalar;
+    }
+
+#elif defined(ADAI_ENABLE_OPENMP)
     #pragma omp parallel for collapse(2) if(rows * cols > 10000)
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
@@ -202,7 +366,6 @@ Matrix Matrix::scale(float scalar) const {
         }
     }
 #else
-    // Sequential fallback
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
             result.data[i][j] = data[i][j] * scalar;
@@ -213,10 +376,7 @@ Matrix Matrix::scale(float scalar) const {
     return result;
 }
 
-// Hadamard product (element-wise multiplication)
-// TODO: See TD-007 in TECHNICAL_DEBT.md - Add SIMD vectorization for element-wise multiplication
-// TODO: Use AVX2 _mm256_mul_ps for 8-way float multiplication per instruction
-// TODO: Add ARM NEON vmulq_f32 for 4-way float multiplication on ARM platforms
+// Hadamard product (element-wise multiplication) — SIMD row-by-row
 Matrix Matrix::hadamard(const Matrix& other) const {
     if (rows != other.rows || cols != other.cols) {
         throw std::invalid_argument("Matrix dimensions must match for Hadamard product");
@@ -224,8 +384,36 @@ Matrix Matrix::hadamard(const Matrix& other) const {
 
     Matrix result(rows, cols);
 
+#if defined(ADAI_SIMD_AVX2)
 #ifdef ADAI_ENABLE_OPENMP
-    // Parallel version with OpenMP
+    #pragma omp parallel for if(rows * cols > 10000)
+#endif
+    for (int i = 0; i < rows; ++i) {
+        const float* a = data[i].data();
+        const float* b = other.data[i].data();
+        float*       r = result.data[i].data();
+        int j = 0;
+        for (; j <= cols - 8; j += 8)
+            _mm256_storeu_ps(r + j,
+                _mm256_mul_ps(_mm256_loadu_ps(a + j), _mm256_loadu_ps(b + j)));
+        for (; j < cols; ++j) r[j] = a[j] * b[j];
+    }
+
+#elif defined(ADAI_SIMD_NEON)
+#ifdef ADAI_ENABLE_OPENMP
+    #pragma omp parallel for if(rows * cols > 10000)
+#endif
+    for (int i = 0; i < rows; ++i) {
+        const float* a = data[i].data();
+        const float* b = other.data[i].data();
+        float*       r = result.data[i].data();
+        int j = 0;
+        for (; j <= cols - 4; j += 4)
+            vst1q_f32(r + j, vmulq_f32(vld1q_f32(a + j), vld1q_f32(b + j)));
+        for (; j < cols; ++j) r[j] = a[j] * b[j];
+    }
+
+#elif defined(ADAI_ENABLE_OPENMP)
     #pragma omp parallel for collapse(2) if(rows * cols > 10000)
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
@@ -233,7 +421,6 @@ Matrix Matrix::hadamard(const Matrix& other) const {
         }
     }
 #else
-    // Sequential fallback
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
             result.data[i][j] = data[i][j] * other.data[i][j];
@@ -244,17 +431,60 @@ Matrix Matrix::hadamard(const Matrix& other) const {
     return result;
 }
 
-// Apply gradients (gradient descent update)
-// TODO: See TD-007 in TECHNICAL_DEBT.md - Add SIMD vectorization for gradient updates
-// TODO: Use AVX2 _mm256_fmadd_ps for fused multiply-add operations (data - lr * grad)
-// TODO: Add ARM NEON vfmsq_f32 for fused multiply-subtract on ARM platforms
+// Apply gradients (W = W − lr × grad) — fused multiply-add, SIMD row-by-row
 void Matrix::apply_gradients(const Matrix& gradients, float learning_rate) {
     if (rows != gradients.rows || cols != gradients.cols) {
         throw std::invalid_argument("Gradient matrix dimensions must match");
     }
 
+#if defined(ADAI_SIMD_AVX2)
 #ifdef ADAI_ENABLE_OPENMP
-    // Parallel version with OpenMP
+    #pragma omp parallel for if(rows * cols > 10000)
+#endif
+    for (int i = 0; i < rows; ++i) {
+        float*       d = data[i].data();
+        const float* g = gradients.data[i].data();
+        // d[j] = d[j] + (−lr) * g[j]  →  fmadd(neg_lr, g, d)
+#ifdef ADAI_SIMD_FMA
+        __m256 neg_lr = _mm256_set1_ps(-learning_rate);
+        int j = 0;
+        for (; j <= cols - 8; j += 8) {
+            __m256 vd = _mm256_loadu_ps(d + j);
+            vd = _mm256_fmadd_ps(neg_lr, _mm256_loadu_ps(g + j), vd);
+            _mm256_storeu_ps(d + j, vd);
+        }
+#else  // AVX2 without FMA
+        __m256 neg_lr = _mm256_set1_ps(-learning_rate);
+        int j = 0;
+        for (; j <= cols - 8; j += 8) {
+            __m256 vd = _mm256_loadu_ps(d + j);
+            vd = _mm256_sub_ps(vd,
+                     _mm256_mul_ps(_mm256_set1_ps(learning_rate),
+                                   _mm256_loadu_ps(g + j)));
+            _mm256_storeu_ps(d + j, vd);
+        }
+#endif
+        for (; j < cols; ++j) d[j] -= learning_rate * g[j];
+    }
+
+#elif defined(ADAI_SIMD_NEON)
+#ifdef ADAI_ENABLE_OPENMP
+    #pragma omp parallel for if(rows * cols > 10000)
+#endif
+    for (int i = 0; i < rows; ++i) {
+        float*       d = data[i].data();
+        const float* g = gradients.data[i].data();
+        int j = 0;
+        for (; j <= cols - 4; j += 4) {
+            float32x4_t vd = vld1q_f32(d + j);
+            // vd = vd - lr * g  →  vfmsq_f32(vd, lr_vec, g)
+            vd = vfmsq_n_f32(vd, vld1q_f32(g + j), learning_rate);
+            vst1q_f32(d + j, vd);
+        }
+        for (; j < cols; ++j) d[j] -= learning_rate * g[j];
+    }
+
+#elif defined(ADAI_ENABLE_OPENMP)
     #pragma omp parallel for collapse(2) if(rows * cols > 10000)
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
@@ -262,7 +492,6 @@ void Matrix::apply_gradients(const Matrix& gradients, float learning_rate) {
         }
     }
 #else
-    // Sequential fallback
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
             data[i][j] -= learning_rate * gradients.data[i][j];
@@ -291,14 +520,33 @@ void Matrix::fill(float value) {
 #endif
 }
 
-// Sum of all elements
-// TODO: See TD-007 in TECHNICAL_DEBT.md - Add SIMD horizontal sum reduction
-// TODO: Use AVX2 _mm256_hadd_ps with _mm256_reduce_add_ps for vectorized summation
-// TODO: Add ARM NEON vaddvq_f32 for efficient horizontal sum on ARM platforms
+// Sum of all elements — SIMD horizontal reduction
 float Matrix::sum() const {
     float total = 0.0f;
-#ifdef ADAI_ENABLE_OPENMP
-    // Parallel version with OpenMP reduction
+
+#if defined(ADAI_SIMD_AVX2)
+    __m256 acc = _mm256_setzero_ps();
+    for (int i = 0; i < rows; ++i) {
+        const float* row = data[i].data();
+        int j = 0;
+        for (; j <= cols - 8; j += 8)
+            acc = _mm256_add_ps(acc, _mm256_loadu_ps(row + j));
+        for (; j < cols; ++j) total += row[j];
+    }
+    total += adai::simd::hsum256(acc);
+
+#elif defined(ADAI_SIMD_NEON)
+    float32x4_t acc = vdupq_n_f32(0.0f);
+    for (int i = 0; i < rows; ++i) {
+        const float* row = data[i].data();
+        int j = 0;
+        for (; j <= cols - 4; j += 4)
+            acc = vaddq_f32(acc, vld1q_f32(row + j));
+        for (; j < cols; ++j) total += row[j];
+    }
+    total += adai::simd::hsum128(acc);
+
+#elif defined(ADAI_ENABLE_OPENMP)
     #pragma omp parallel for collapse(2) reduction(+:total) if(rows * cols > 10000)
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
@@ -306,13 +554,13 @@ float Matrix::sum() const {
         }
     }
 #else
-    // Sequential fallback
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
             total += data[i][j];
         }
     }
 #endif
+
     return total;
 }
 

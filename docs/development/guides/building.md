@@ -73,6 +73,21 @@ This guide covers everything you need to know about building the ADAI project fr
    - Download: [https://developer.nvidia.com/cuda-downloads](https://developer.nvidia.com/cuda-downloads)
    - Requires NVIDIA GPU with compute capability 6.0+
 
+6. **BLAS library** (`libblas-dev`, `libopenblas-dev`, Intel MKL, or Apple Accelerate — **for large-matrix GEMM**)
+   - Optional — enables `cblas_sgemm` for matrix multiplications where all dimensions ≥ 256
+   - Required only when building with `-DENABLE_BLAS=ON` (default: ON, auto-detected)
+   - Ubuntu/Debian: `sudo apt-get install libopenblas-dev`
+   - Fedora/RHEL: `sudo dnf install openblas-devel`
+   - macOS Homebrew: `brew install openblas`
+   - Falls back gracefully to AVX2 path when not found
+
+7. **AVX2/FMA-capable CPU** (**for SIMD matrix acceleration**)
+   - Optional — no package to install; auto-detected by CMake from compiler support
+   - Intel Haswell (2013) / AMD Excavator (2015) or newer
+   - ARM AArch64 with NEON (Raspberry Pi 4, Apple Silicon, modern mobile SoCs)
+   - Enabled with `-DENABLE_SIMD=ON` (default: ON)
+   - In Release builds `-march=native` already enables the best available ISA
+
 **Note**: Google Test is no longer a system dependency. It's automatically downloaded and built using CMake FetchContent.
 
 ## Quick Start
@@ -294,6 +309,8 @@ cmake -DCMAKE_BUILD_TYPE=Release \
 |`BUILD_TESTING`|ON|Build test suite|
 |`BUILD_EXAMPLES`|ON|Build example programs|
 |`ENABLE_GPU`|OFF|Enable GPU acceleration with CUDA|
+|`ENABLE_BLAS`|ON|Enable BLAS (OpenBLAS/MKL/Accelerate) for large matrix multiply (≥ 256³)|
+|`ENABLE_SIMD`|ON|Enable AVX2/FMA (x86) or NEON (ARM) intrinsics for element-wise operations|
 |`ENABLE_ASAN`|OFF|Enable AddressSanitizer|
 |`ENABLE_UBSAN`|OFF|Enable UndefinedBehaviorSanitizer|
 |`ENABLE_TSAN`|OFF|Enable ThreadSanitizer|
@@ -309,6 +326,125 @@ cmake -DCMAKE_BUILD_TYPE=Release \
 |**Release**|-O3|None|Production, performance testing|
 |**RelWithDebInfo**|-O2|Full|Performance testing with debugging|
 |**MinSizeRel**|-Os|None|Size-constrained environments|
+
+### SIMD & BLAS Acceleration (Optional)
+
+ADAI supports explicit SIMD intrinsics (AVX2/FMA on x86-64, NEON on ARM) and BLAS library integration for significantly faster matrix operations on CPU. Both are enabled by default and detected automatically.
+
+#### How the Acceleration Layers Work
+
+Matrix operations use a priority stack at runtime:
+
+1. **BLAS SGEMM** — `cblas_sgemm` via OpenBLAS/MKL/Accelerate for multiply when all dimensions ≥ 256 (requires `libblas-dev`)
+2. **AVX2 + FMA** — 8-wide fused-multiply-add intrinsics; ikj loop for multiply, row-wise for element-wise ops
+3. **ARM NEON** — 4-wide intrinsics on AArch64 (automatic when cross-compiling or building on ARM)
+4. **OpenMP** — thread-level parallelism composing with all SIMD paths
+5. **Scalar fallback** — used when no SIMD/BLAS is available
+
+#### Enabling BLAS
+
+Ubuntu/Debian:
+
+```bash
+sudo apt-get install libopenblas-dev
+```
+
+Fedora/RHEL:
+
+```bash
+sudo dnf install openblas-devel
+```
+
+macOS Homebrew:
+
+```bash
+brew install openblas
+```
+
+#### Building with SIMD + BLAS
+
+```bash
+# Both enabled by default — just build normally
+cmake -DCMAKE_BUILD_TYPE=Release ..
+make -j$(nproc)
+
+# Verify SIMD and BLAS were detected
+cmake .. 2>&1 | grep -E 'SIMD|BLAS'
+# Expected output (with openblas-dev installed):
+#   -- BLAS enabled: /usr/lib/x86_64-linux-gnu/libblas.so (cblas.h: /usr/include)
+#   -- SIMD: AVX2 + FMA intrinsics enabled for adai_core
+
+# Disable BLAS (SIMD still active)
+cmake -DENABLE_BLAS=OFF ..
+
+# Disable both SIMD and BLAS (OpenMP scalar fallback)
+cmake -DENABLE_SIMD=OFF -DENABLE_BLAS=OFF ..
+```
+
+#### Using SIMD Operations
+
+All existing Matrix API calls automatically use the best available code path — no source changes needed:
+
+```cpp
+#include "Matrix.hpp"
+
+Matrix A(512, 512), B(512, 512);
+A.randomize();
+B.randomize();
+
+// All of these automatically use AVX2/FMA (or BLAS for large dims):
+Matrix C = A * B;           // BLAS SGEMM at 512 (< 256 threshold ✗) → AVX2 FMA
+Matrix D = A + B;           // AVX2 _mm256_add_ps, 8 floats/instruction
+Matrix E = A.hadamard(B);   // AVX2 _mm256_mul_ps
+A.apply_gradients(B, 0.01f);// AVX2 _mm256_fmadd_ps(-lr, grad, w)
+float s = A.sum();          // AVX2 horizontal reduction via hsum256
+```
+
+#### Runtime CPU Feature Detection
+
+You can query SIMD availability at runtime:
+
+```cpp
+#include "MatrixSIMD.hpp"
+
+bool avx2 = adai::simd::has_avx2();  // CPUID leaf 7, EBX bit 5
+bool fma  = adai::simd::has_fma();   // CPUID leaf 1, ECX bit 12
+```
+
+#### Performance Expectations
+
+|Operation|Matrix Size|Expected Speedup (vs scalar)|Notes|
+|-----------|------------|---------------------------|-----|
+|Multiply (`operator*`)|≥ 256³|4–5×|BLAS SGEMM (requires libblas-dev)|
+|Multiply (`operator*`)|< 256³|2–3×|AVX2 + FMA ikj loop|
+|Add / Sub / Hadamard|Any|2–3×|AVX2 row-wise, 8 floats/insn|
+|`apply_gradients`|Any|2–3×|AVX2 FMA fused update|
+|`sum`|Any|2–4×|AVX2 horizontal reduction|
+
+#### Verifying SIMD Is Active
+
+```bash
+# Check compile definitions
+cmake .. 2>&1 | grep -E 'AVX2|FMA|NEON|BLAS'
+
+# Run SIMD test suite
+make matrixSIMDTests
+./tests/matrixSIMDTests
+# Should show: [  PASSED  ] 91 tests.
+
+# Runtime detection check (link any translation unit with MatrixSIMD.hpp)
+cxx -std=c++17 -mavx2 -mfma -x c++ - <<'EOF'
+#include "src/MatrixSIMD.hpp"
+#include <cstdio>
+int main() {
+    printf("AVX2: %s  FMA: %s\n",
+           adai::simd::has_avx2() ? "yes" : "no",
+           adai::simd::has_fma()  ? "yes" : "no");
+}
+EOF
+```
+
+---
 
 ### GPU Acceleration (Optional)
 

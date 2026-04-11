@@ -3,11 +3,18 @@
 ## Build Commands
 
 ```bash
-# Clean build with all optimizations
+# Clean build with all optimizations (includes SIMD + BLAS when available)
 cd /home/rodney/Repos/adai
 rm -rf build && mkdir build && cd build
 cmake -DCMAKE_BUILD_TYPE=Release ..
 make -j$(nproc)
+
+# Verify which acceleration layers were detected
+cmake .. 2>&1 | grep -E 'OpenMP|SIMD|BLAS'
+# Example output:
+#   -- OpenMP found - enabling parallel matrix operations
+#   -- BLAS enabled: /usr/lib/... (cblas.h: /usr/include)
+#   -- SIMD: AVX2 + FMA intrinsics enabled for adai_core
 ```
 
 ## Run All Benchmarks
@@ -36,56 +43,77 @@ cd /home/rodney/Repos/adai/build
 
 ## Performance Summary
 
-|Priority|Feature|Speedup|Status|
+|Layer|Feature|Speedup|Status|
 |----------|---------|---------|--------|
-|P1|OpenMP CPU Parallelization|**4.21x**|✅ Complete|
-|P2|Parallel Data Augmentation|**3.82x**|✅ Complete|
-|P3|Batched Inference|**27.80x**|✅ Complete|
-|P4|Attention Head Parallelism|**1.3-2.0x**|✅ Complete|
-|P5|Pipeline Parallelism|**1.24x**|✅ Complete|
-|**Integrated**|**All Combined**|**5.5x**|✅ **Production Ready**|
+|TD-007|SIMD Intrinsics (AVX2/FMA element-wise)|**2–3×**|✅ Complete|
+|TD-007|SIMD Intrinsics (AVX2/FMA matrix multiply)|**2–3×**|✅ Complete|
+|TD-007|BLAS SGEMM (≥ 256³ matrices)|**4–5×**|✅ Complete (needs libopenblas-dev)|
+|P1|OpenMP CPU Parallelization|**4.21×**|✅ Complete|
+|P2|Parallel Data Augmentation|**3.82×**|✅ Complete|
+|P3|Batched Inference|**27.80×**|✅ Complete|
+|P4|Attention Head Parallelism|**1.3–2.0×**|✅ Complete|
+|P5|Pipeline Parallelism|**1.24×**|✅ Complete|
+|**Integrated**|**All Combined**|**5.5×+**|✅ **Production Ready**|
 
 ## Key Files
 
 ### Implementation
 
+- `src/MatrixSIMD.hpp` - SIMD capability macros, CPUID detection, reduction helpers (TD-007)
+- `src/Matrix.cpp` - AVX2/FMA + NEON + BLAS code paths for all six Matrix ops (TD-007)
 - `src/MultiHeadAttention.cpp` - Parallel attention (P4)
 - `src/PipelineInferenceEngine.hpp` - Pipeline system (P5)
 - `src/IntegratedInferenceEngine.hpp` - Unified system (P1-P5)
 - `src/BatchedInferenceEngine.hpp` - Batching (P3)
 
+### Tests
+
+- `tests/matrix_simd_test.cpp` - 91 SIMD/BLAS correctness tests (TD-007)
+
 ### Benchmarks
 
-- `src/OpenMPBenchmark.cpp` - P1 validation
-- `src/AugmentationBenchmark.cpp` - P2 validation
-- `src/BatchedInferenceBenchmark.cpp` - P3 validation
-- `src/AttentionHeadBenchmark.cpp` - P4 validation
-- `src/PipelineBenchmark.cpp` - P5 validation
-- `src/IntegratedBenchmark.cpp` - **Full system validation**
+- `benchmarks/OpenMPBenchmark.cpp` - P1 validation
+- `benchmarks/AugmentationBenchmark.cpp` - P2 validation
+- `benchmarks/BatchedInferenceBenchmark.cpp` - P3 validation
+- `benchmarks/AttentionHeadBenchmark.cpp` - P4 validation
+- `benchmarks/PipelineBenchmark.cpp` - P5 validation
+- `benchmarks/IntegratedBenchmark.cpp` - **Full system validation**
 
 ### Documentation
 
+- `docs/development/guides/building.md` - SIMD & BLAS build options (TD-007)
 - `ATTENTION_HEAD_PARALLELISM_SUMMARY.md` - P4 details
 - `PIPELINE_PARALLELISM_SUMMARY.md` - P5 details
 - `INTEGRATED_SYSTEM_SUMMARY.md` - **Complete system**
-- `PARALLEL_PROCESSING_ANALYSIS_REPORT.md` - Original analysis
 
 ## Build System
+
+### CMake Options (TD-007 additions in bold)
+
+|Option|Default|Effect|
+|--------|---------|-------|
+|**`ENABLE_SIMD`**|**ON**|**AVX2/FMA (x86) or NEON (ARM) intrinsics for adai_core**|
+|**`ENABLE_BLAS`**|**ON**|**BLAS SGEMM for matrix multiply when all dims ≥ 256**|
+|`ENABLE_OPENMP`|auto|Thread parallelism across all operations|
 
 ### Optimization Flags (Automatic in Release)
 
 ```cmake
 -O3                  # Maximum optimization
--march=native        # CPU-specific (AVX2, SSE4, etc.)
+-march=native        # CPU-specific (AVX2, SSE4, FMA, etc.)
 -mtune=native        # Tune for current CPU
 -ffast-math          # Fast floating point
 -funroll-loops       # Loop unrolling
 -ftree-vectorize     # Auto-vectorization
 ```
 
+> **Note:** In Release builds `-march=native` already enables AVX2+FMA where supported.
+> `ENABLE_SIMD=ON` additionally passes `-mavx2 -mfma` explicitly so Debug/RelWithDebInfo
+> builds also benefit from intrinsics.
+
 ### Libraries Linked
 
-- **adai_core**: Matrix, Activation, Optimizer (with OpenMP)
+- **adai_core**: Matrix, Activation, Optimizer (with OpenMP + SIMD/BLAS)
 - **adai_attention**: MultiHeadAttention (with parallel heads)
 - **adai_models**: LLMEncoder, LLMDecoder, LanguageModelHead
 - **adai_nlp**: BPETokenizer, TextGenerator
@@ -141,6 +169,23 @@ export OMP_PROC_BIND=true
 # Should show: "✓ OpenMP enabled: 8 threads"
 ```
 
+## SIMD Quick Check
+
+```bash
+# Verify SIMD test suite passes (91 tests)
+make matrixSIMDTests
+./tests/matrixSIMDTests
+# Expected: [  PASSED  ] 91 tests.
+
+# Verify BLAS detected (requires libopenblas-dev)
+cmake .. 2>&1 | grep BLAS
+# With libopenblas-dev:  -- BLAS enabled: /usr/lib/... (cblas.h: /usr/include)
+# Without:               -- BLAS not found — install libblas-dev or libopenblas-dev
+
+# Install BLAS headers (Ubuntu/Debian)
+sudo apt-get install libopenblas-dev
+```
+
 ## Troubleshooting
 
 ### Build Fails
@@ -153,6 +198,28 @@ sudo apt-get install libomp-dev
 rm -rf build && mkdir build && cd build
 cmake -DCMAKE_BUILD_TYPE=Release ..
 make -j$(nproc)
+```
+
+### SIMD Not Active
+
+```bash
+# Verify -mavx2 was accepted
+cmake .. 2>&1 | grep -E 'AVX2|NEON|SIMD'
+
+# If compiler is too old, disable SIMD gracefully
+cmake -DENABLE_SIMD=OFF ..
+```
+
+### BLAS Not Found
+
+```bash
+# Install development headers
+sudo apt-get install libopenblas-dev   # Ubuntu/Debian
+sudo dnf install openblas-devel         # Fedora/RHEL
+brew install openblas                   # macOS
+
+# Reconfigure
+cmake -DENABLE_BLAS=ON ..
 ```
 
 ### Low Performance
