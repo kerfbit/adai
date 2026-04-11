@@ -12,6 +12,7 @@ The Training Metrics REST API provides real-time access to training progress and
 |**GET**|`/api/metrics/summary`|Aggregated metrics summary|
 |**GET**|`/api/metrics/history`|Historical metrics records (supports `max_records`, `session_id`)|
 |**GET**|`/api/metrics/abnormal`|Samples flagged as anomalous by outlier detection|
+|**GET**|`/api/metrics/generation-quality`|Current and per-epoch BLEU/ROUGE generation quality scores (TD-016)|
 |**GET**|`/api/metrics/prometheus`|Metrics in Prometheus text format|
 |**GET**|`/api/metrics/csv`|Current metrics in CSV format|
 |**GET**|`/api/session/status`|Current training session status and progress|
@@ -91,9 +92,20 @@ Response:
   "gradient_variance": 0.0123,
   "compute_time_ratio": 0.8234,
   "weight_update_ratio": 0.000456,
-  "activation_saturation_ratio": 0.1234
+  "activation_saturation_ratio": 0.1234,
+  "current_validation_perplexity": 11.23,
+  "current_validation_accuracy": -1.0,
+  "current_bleu4": -1.0,
+  "current_rouge1": -1.0,
+  "current_rouge2": -1.0,
+  "current_rougeL": -1.0
 }
 ```
+
+**Field notes:**
+- `current_validation_perplexity` — validation perplexity for the current epoch (TD-015). `0.0` if not yet computed.
+- `current_validation_accuracy` — token-level validation accuracy (TD-015). `-1.0` if not computed (requires explicit `update_validation_metrics()` call with an accuracy value).
+- `current_bleu4`, `current_rouge1`, `current_rouge2`, `current_rougeL` — generation quality scores (TD-016). All default to `-1.0` when `enable_generation_quality_metrics = false` or before the first scored epoch.
 
 ---
 
@@ -188,6 +200,46 @@ Returns an empty `abnormal_samples` array when outlier detection has not been co
 
 ---
 
+#### `GET /api/metrics/generation-quality`
+
+Returns current and per-epoch BLEU and ROUGE generation quality scores (TD-016). All values are `-1.0` when `enable_generation_quality_metrics = false` (the default) or before the first epoch has been scored.
+
+Scoring is opt-in because it requires calling `model->generate_response()` on a sample of the validation set, which is significantly more expensive than loss-only validation. Enable it via `TrainingConfig`:
+
+```cpp
+config.enable_generation_quality_metrics = true;  // default: false
+config.generation_quality_sample_size   = 10;     // validation pairs to sample per epoch
+config.generation_quality_max_tokens    = 50;     // max tokens per generation call
+```
+
+Response:
+
+```json
+{
+  "current_bleu4": 0.312500,
+  "current_rouge1": 0.487654,
+  "current_rouge2": 0.281234,
+  "current_rougeL": 0.421875,
+  "epoch_bleu4":   [0.210000, 0.265000, 0.312500],
+  "epoch_rouge1":  [0.380000, 0.440000, 0.487654],
+  "epoch_rouge2":  [0.190000, 0.235000, 0.281234],
+  "epoch_rougeL":  [0.330000, 0.380000, 0.421875]
+}
+```
+
+**Score interpretation:**
+
+| Metric | Range | Description |
+|--------|-------|-------------|
+| `current_bleu4` | 0–1 | Corpus BLEU-4 with clipped modified precision and brevity penalty (Lin & Och 2004 add-1 smoothing) |
+| `current_rouge1` | 0–1 | Macro-averaged ROUGE-1 F1 (unigram overlap) |
+| `current_rouge2` | 0–1 | Macro-averaged ROUGE-2 F1 (bigram overlap) |
+| `current_rougeL` | 0–1 | Macro-averaged ROUGE-L F1 via rolling 2-row DP LCS |
+
+Per-epoch arrays (`epoch_bleu4`, `epoch_rouge1`, `epoch_rouge2`, `epoch_rougeL`) are appended at the end of each epoch. An entry of `-1.0` in a per-epoch array indicates that generation quality was not computed for that epoch (e.g., when the feature was enabled mid-training).
+
+---
+
 #### `GET /api/metrics/prometheus`
 
 Returns metrics in Prometheus text format for scraping.
@@ -264,10 +316,18 @@ Response:
   "epoch_perplexities": [33.1, 16.4, 11.0],
   "epoch_durations": [45.2, 44.8, 45.1],
   "epoch_gradient_norms": [2.1, 1.8, 1.5],
+  "epoch_validation_perplexities": [34.2, 17.1, 11.8],
+  "epoch_validation_accuracies": [-1.0, -1.0, -1.0],
   "best_validation_loss": 2.5,
   "best_epoch": 2
 }
 ```
+
+**Field notes:**
+- `epoch_validation_perplexities` — validation perplexity recorded at the end of each epoch (TD-015).
+- `epoch_validation_accuracies` — token-level validation accuracy per epoch (TD-015). `-1.0` entries indicate epochs where accuracy was not computed.
+
+See also [`GET /api/metrics/generation-quality`](#get-apimetricsgeneration-quality) for per-epoch BLEU/ROUGE arrays.
 
 ---
 

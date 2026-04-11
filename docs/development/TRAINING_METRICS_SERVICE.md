@@ -38,6 +38,10 @@ The `TrainingMetricsService` provides a thread-safe, non-blocking interface for 
 - Compute time ratio (TD-013)
 - Weight update ratio (TD-013)
 - Activation saturation ratio (TD-013)
+- Validation perplexity (TD-015)
+- Validation accuracy (TD-015)
+- BLEU-1, BLEU-2, BLEU-4 generation quality scores (TD-016)
+- ROUGE-1, ROUGE-2, ROUGE-L generation quality scores (TD-016)
 
 #### Session Metrics
 
@@ -155,7 +159,13 @@ Real-time snapshot of current training state:
   "gradient_variance": 0.012345,
   "compute_time_ratio": 0.823456,
   "weight_update_ratio": 0.000456,
-  "activation_saturation_ratio": 0.1234
+  "activation_saturation_ratio": 0.1234,
+  "current_validation_perplexity": 3.678901,
+  "current_validation_accuracy": -1.0,
+  "current_bleu4": -1.0,
+  "current_rouge1": -1.0,
+  "current_rouge2": -1.0,
+  "current_rougeL": -1.0
 }
 ```
 
@@ -236,6 +246,10 @@ struct MetricsServiceConfig {
     // Monitoring
     bool enable_prometheus_format = false;  // Export Prometheus metrics
     std::string prometheus_file = "training_sessions/metrics.prom";
+
+    // Generation quality (TD-016)
+    bool enable_generation_quality = false; // Opt-in: requires generate_response() per sample
+    int generation_quality_sample_size = 10; // Validation pairs to sample per epoch
 };
 ```
 
@@ -361,6 +375,7 @@ Real-time Updates
 - `update_best_metrics(float validation_loss, int epoch)` - Record a new best validation loss
 - `update_advanced_epoch_metrics(float gradient_variance, float compute_time_ratio, float weight_update_ratio)` - Record per-epoch diagnostic ratios (TD-013)
 - `update_activation_saturation(float ratio)` - Record average fraction of near-zero post-GELU units for the epoch; pass `-1.0` to indicate not computed (TD-013)
+- `update_generation_quality_metrics(float bleu4, float rouge1, float rouge2, float rougeL)` - Record BLEU/ROUGE generation quality scores for the current epoch; pass `-1.0` for any score not computed (TD-016)
 
 Data Export & Polling (Thread-safe)
 

@@ -9,6 +9,30 @@ Component and REST API reference documentation for the ADAI project.
 - [batch-processing-quickref.md](batch-processing-quickref.md) — Batch processing quick reference
 - [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) — API server implementation summary
 
+## Training Metrics API
+
+The `TrainingMetricsAPI` is a separate HTTP server (default port 8081) for real-time monitoring of training jobs. Full reference documentation lives alongside the service:
+
+- [../TRAINING_METRICS_API.md](../TRAINING_METRICS_API.md) — Full REST API reference (12 endpoints, request/response schemas, CLI flags, integration examples)
+- [../TRAINING_METRICS_SERVICE.md](../TRAINING_METRICS_SERVICE.md) — `TrainingMetricsService` C++ API, configuration, export formats, and integration guide
+
+### Metrics API Quick Reference
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `GET` | `/api/metrics/current` | Current snapshot — loss, perplexity, validation accuracy, BLEU/ROUGE, and more |
+| `GET` | `/api/metrics/summary` | Aggregated training summary |
+| `GET` | `/api/metrics/history` | Historical records (`max_records`, `session_id` query params) |
+| `GET` | `/api/metrics/abnormal` | Samples flagged as anomalous by outlier detection |
+| `GET` | `/api/metrics/generation-quality` | Current and per-epoch BLEU-4 / ROUGE-1/2/L scores (TD-016) |
+| `GET` | `/api/metrics/prometheus` | Prometheus text format for scraping |
+| `GET` | `/api/metrics/csv` | Current metrics in CSV |
+| `GET` | `/api/session/status` | Session status and progress percent |
+| `GET` | `/api/session/epochs` | Per-epoch loss, validation, perplexity arrays |
+| `POST` | `/api/control/flush` | Force immediate disk flush |
+| `POST` | `/api/control/clear` | Clear in-memory history |
+| `GET` | `/health` | Server health check |
+
 ## Core Components
 
 | File | Class | Description |

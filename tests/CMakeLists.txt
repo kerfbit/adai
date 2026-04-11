@@ -446,4 +446,10 @@ add_test(NAME BatchProcessorTests COMMAND batchprocessorTests)
 # Test Summary
 # ============================================================================
 
-message(STATUS "Configured 41 test suites using library targets (including Config, Logger, IncrementalTrainer, LLMEncoder, DocumentStore, RAGInference, BatchProcessor, ParallelDataLoader, IntegratedInferenceEngine, PipelineInferenceEngine, BatchedInferenceEngine, SpeculativeDecoding, VocabBuilder, ChatbotAPI, ChatbotTrainer, integration, RAG/BERT comparison and Phase 5 tests)")
+# Generation quality metrics tests (BLEU/ROUGE — header-only, no library deps)
+add_executable(generationQualityTests generation_quality_test.cpp)
+target_include_directories(generationQualityTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(generationQualityTests GTest::gtest_main)
+add_test(NAME GenerationQualityTests COMMAND generationQualityTests)
+
+message(STATUS "Configured 42 test suites using library targets (including Config, Logger, IncrementalTrainer, LLMEncoder, DocumentStore, RAGInference, BatchProcessor, ParallelDataLoader, IntegratedInferenceEngine, PipelineInferenceEngine, BatchedInferenceEngine, SpeculativeDecoding, VocabBuilder, ChatbotAPI, ChatbotTrainer, GenerationQuality, integration, RAG/BERT comparison and Phase 5 tests)")

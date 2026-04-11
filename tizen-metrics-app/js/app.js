@@ -71,6 +71,13 @@
         valPerplexityValue: $('val-perplexity-value'),
         valAccuracyValue:   $('val-accuracy-value'),
 
+        /* Generation quality (TD-016) */
+        genQualityStatus:   $('gen-quality-status'),
+        bleu4Value:         $('bleu4-value'),
+        rouge1Value:        $('rouge1-value'),
+        rouge2Value:        $('rouge2-value'),
+        rougeLValue:        $('rougeL-value'),
+
         /* Advanced diagnostics (TD-013) */
         gradVarianceValue:  $('gradient-variance-value'),
         computeRatioValue:  $('compute-ratio-value'),
@@ -250,6 +257,15 @@
        applyRangeColor: green < warnThresh, amber < errThresh, else red
        applyLRColor:    green 1e-5..1e-3, amber nearby, else red
     ------------------------------------------------------- */
+    /* Higher = better (BLEU/ROUGE): green >= 0.3, amber >= 0.1, else red */
+    function applyGenQualColor(el, val) {
+        el.classList.remove('val-good', 'val-warn', 'val-error');
+        if (val == null || isNaN(val) || val < 0) return;
+        if      (val >= 0.3) el.classList.add('val-good');
+        else if (val >= 0.1) el.classList.add('val-warn');
+        else                 el.classList.add('val-error');
+    }
+
     function applyRangeColor(el, val, warnThresh, errThresh) {
         el.classList.remove('val-good', 'val-warn', 'val-error');
         if (val == null || isNaN(val)) return;
@@ -422,6 +438,38 @@
             if      (ent >= 0.5) UI.attnEntropyValue.classList.add('val-good');
             else if (ent >= 0.1) UI.attnEntropyValue.classList.add('val-warn');
             else                 UI.attnEntropyValue.classList.add('val-error');
+        }
+
+        /* --- Generation Quality (TD-016) --- */
+        var bleu4  = current.current_bleu4;
+        var rouge1 = current.current_rouge1;
+        var rouge2 = current.current_rouge2;
+        var rougeL = current.current_rougeL;
+        var genEnabled = (bleu4 !== undefined && bleu4 !== null && bleu4 >= 0);
+
+        if (UI.genQualityStatus) {
+            UI.genQualityStatus.textContent = genEnabled ? 'ENABLED' : 'DISABLED';
+            UI.genQualityStatus.className = 'gen-quality-badge ' + (genEnabled ? 'enabled' : 'disabled');
+        }
+
+        if (genEnabled) {
+            setText(UI.bleu4Value,  fmt(bleu4,  4));
+            setText(UI.rouge1Value, fmt(rouge1, 4));
+            setText(UI.rouge2Value, fmt(rouge2, 4));
+            setText(UI.rougeLValue, fmt(rougeL, 4));
+            /* Higher BLEU/ROUGE is better: green > 0.3, amber > 0.1, red below 0.1 */
+            applyGenQualColor(UI.bleu4Value,  bleu4);
+            applyGenQualColor(UI.rouge1Value, rouge1);
+            applyGenQualColor(UI.rouge2Value, rouge2);
+            applyGenQualColor(UI.rougeLValue, rougeL);
+        } else {
+            setText(UI.bleu4Value,  '—');
+            setText(UI.rouge1Value, '—');
+            setText(UI.rouge2Value, '—');
+            setText(UI.rougeLValue, '—');
+            [UI.bleu4Value, UI.rouge1Value, UI.rouge2Value, UI.rougeLValue].forEach(function(el) {
+                if (el) el.classList.remove('val-good', 'val-warn', 'val-error');
+            });
         }
 
         /* --- Session stats --- */

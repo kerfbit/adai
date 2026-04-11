@@ -111,6 +111,12 @@ struct TrainingConfig {
     int log_every = 10;     // Log every N samples
     LogLevel log_level = LogLevel::VERBOSE;  // Logging verbosity
     bool verbose = true;    // Deprecated: use log_level instead
+
+    // Generation quality metrics (BLEU/ROUGE)
+    // Disabled by default; each evaluation generates model responses which is expensive.
+    bool enable_generation_quality_metrics = false;  // Compute BLEU/ROUGE during each validation pass
+    int  generation_quality_sample_size    = 10;     // Max validation samples used for scoring
+    int  generation_quality_max_tokens     = 50;     // max_length passed to generate_response()
 };
 
 /**
@@ -222,6 +228,14 @@ class ChatbotTrainer {
     std::string get_schedule_name();
     float train_epoch(int epoch);
     float validate();
+    /**
+     * @brief Compute BLEU-4 and ROUGE-1/2/L on a random subset of validation pairs.
+     *
+     * Calls model->generate_response() in eval mode and scores the outputs
+     * against reference targets.  Results are pushed to metrics_service_.
+     * No-op when metrics_service_ is null or config option is disabled.
+     */
+    void compute_generation_quality_metrics();
     bool should_early_stop();
     void restore_best_model();
     void save_checkpoint(const std::string& filepath, int epoch);

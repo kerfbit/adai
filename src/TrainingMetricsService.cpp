@@ -176,6 +176,12 @@ void TrainingMetricsService::end_epoch(int epoch, float loss, float validation_l
             : (validation_loss > 0.0f ? std::exp(validation_loss) : 0.0f));
     current_snapshot_.epoch_validation_accuracies.push_back(
         current_snapshot_.current_validation_accuracy);
+    // Persist per-epoch BLEU/ROUGE scores (use the values already stored by
+    // update_generation_quality_metrics(); default -1 if not computed this epoch)
+    current_snapshot_.epoch_bleu4.push_back(current_snapshot_.current_bleu4);
+    current_snapshot_.epoch_rouge1.push_back(current_snapshot_.current_rouge1);
+    current_snapshot_.epoch_rouge2.push_back(current_snapshot_.current_rouge2);
+    current_snapshot_.epoch_rougeL.push_back(current_snapshot_.current_rougeL);
     current_snapshot_.epoch_durations.push_back(epoch_time);
     current_snapshot_.epoch_gradient_norms.push_back(gradient_norm);
     
@@ -456,7 +462,11 @@ std::string TrainingMetricsService::to_json() const {
     oss << "  \"compute_time_ratio\": " << snapshot.compute_time_ratio << ",\n";
     oss << "  \"weight_update_ratio\": " << snapshot.weight_update_ratio << ",\n";
     oss << "  \"activation_saturation_ratio\": " << snapshot.activation_saturation_ratio << ",\n";
-    oss << "  \"attention_entropy\": " << snapshot.attention_entropy << "\n";
+    oss << "  \"attention_entropy\": " << snapshot.attention_entropy << ",\n";
+    oss << "  \"current_bleu4\": "  << snapshot.current_bleu4  << ",\n";
+    oss << "  \"current_rouge1\": " << snapshot.current_rouge1 << ",\n";
+    oss << "  \"current_rouge2\": " << snapshot.current_rouge2 << ",\n";
+    oss << "  \"current_rougeL\": " << snapshot.current_rougeL << "\n";
     oss << "}";
     
     return oss.str();
@@ -997,6 +1007,38 @@ void TrainingMetricsService::update_attention_entropy(float entropy) {
     std::lock_guard<std::mutex> lock(mutex_);
     current_snapshot_.attention_entropy = entropy;
     adai::Logger::debug("Attention entropy: {:.4f}", entropy);
+}
+
+void TrainingMetricsService::update_generation_quality_metrics(
+        float bleu4, float rouge1, float rouge2, float rougeL) {
+    std::string push_json;
+    bool should_push = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        current_snapshot_.current_bleu4  = bleu4;
+        current_snapshot_.current_rouge1 = rouge1;
+        current_snapshot_.current_rouge2 = rouge2;
+        current_snapshot_.current_rougeL = rougeL;
+        current_snapshot_.last_update_time = std::chrono::system_clock::now();
+
+        adai::Logger::info("Generation quality — BLEU-4: {:.4f}  ROUGE-1: {:.4f}  "
+                           "ROUGE-2: {:.4f}  ROUGE-L: {:.4f}",
+                           bleu4, rouge1, rouge2, rougeL);
+
+        should_push = config_.enable_push;
+        if (should_push) {
+            std::ostringstream json;
+            json << std::fixed << std::setprecision(6);
+            json << "{\"bleu4\":"  << bleu4
+                 << ",\"rouge1\":" << rouge1
+                 << ",\"rouge2\":" << rouge2
+                 << ",\"rougeL\":" << rougeL << "}";
+            push_json = json.str();
+        }
+    }
+    if (should_push) {
+        push_to_api("/api/metrics/generation-quality", push_json);
+    }
 }
 
 void TrainingMetricsService::flag_abnormal_sample(const AbnormalSample& sample) {

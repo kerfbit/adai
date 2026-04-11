@@ -1,4 +1,5 @@
 #include "ChatbotTrainer.hpp"
+#include "GenerationQualityMetrics.hpp"
 #include <algorithm>
 #include <ctime>
 #include <fstream>
@@ -944,6 +945,9 @@ float ChatbotTrainer::validate() {
             metrics_service_->update_validation_metrics(validation_loss, -1.0f, validation_perplexity);
         }
 
+        // Compute BLEU/ROUGE generation quality on a validation sample subset
+        compute_generation_quality_metrics();
+
         log(LogLevel::NORMAL,
             "  Validation - Loss: " + std::to_string(validation_loss) + 
             " - Perplexity: " + std::to_string(validation_perplexity),
@@ -980,6 +984,44 @@ float ChatbotTrainer::validate() {
 
         return validation_loss;
     }
+
+void ChatbotTrainer::compute_generation_quality_metrics() {
+    // Only run when explicitly enabled and a metrics service is connected
+    if (!config.enable_generation_quality_metrics || !metrics_service_) return;
+    if (tokenized_validation_data.empty()) return;
+
+    // Determine sample subset: up to generation_quality_sample_size pairs chosen
+    // from the front of the validation set for determinism across epochs.
+    const int sample_size = std::min(
+        static_cast<int>(tokenized_validation_data.size()),
+        config.generation_quality_sample_size);
+
+    std::vector<std::string> references, hypotheses;
+    references.reserve(sample_size);
+    hypotheses.reserve(sample_size);
+
+    // Eval mode: no dropout / batch-norm updates during generation
+    model->set_training(false);
+    for (int i = 0; i < sample_size; ++i) {
+        const auto& pair = tokenized_validation_data[i];
+        references.push_back(pair.target_text);
+        try {
+            hypotheses.push_back(
+                model->generate_response(pair.input_text, config.generation_quality_max_tokens));
+        } catch (const std::exception& e) {
+            adai::Logger::warn("BLEU/ROUGE: skipping sample {} — generate_response() threw: {}",
+                               i, e.what());
+            hypotheses.push_back("");
+        }
+    }
+    model->set_training(true);
+
+    if (references.empty()) return;
+
+    GenerationQualityScore score = GenerationQualityEvaluator::evaluate(references, hypotheses);
+    metrics_service_->update_generation_quality_metrics(
+        score.bleu4, score.rouge1, score.rouge2, score.rougeL);
+}
 
     /**
      * @brief Check if early stopping criteria is met

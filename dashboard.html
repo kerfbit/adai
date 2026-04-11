@@ -255,6 +255,18 @@
             </div>
 
             <div class="card">
+                <h2>BLEU-4</h2>
+                <div class="metric-value" id="bleu4">--</div>
+                <div class="metric-label">Generation Quality</div>
+            </div>
+
+            <div class="card">
+                <h2>ROUGE-L</h2>
+                <div class="metric-value" id="rougeL">--</div>
+                <div class="metric-label">Generation Recall</div>
+            </div>
+
+            <div class="card">
                 <h2>Learning Rate</h2>
                 <div class="metric-value" id="learning-rate">--</div>
                 <div class="metric-label">Current LR</div>
@@ -368,7 +380,9 @@
             learningRates: [],
             gradientNorms: [],
             perplexities: [],
-            validationPerplexities: []  // TD-015
+            validationPerplexities: [],  // TD-015
+            bleu4: [],    // BLEU-4 generation quality
+            rougeL: []    // ROUGE-L generation quality
         };
 
         // Error tracking
@@ -585,6 +599,8 @@
             metricsHistory.gradientNorms.push(metrics.current_gradient_norm);
             metricsHistory.perplexities.push(metrics.current_perplexity);
             metricsHistory.validationPerplexities.push(metrics.current_validation_perplexity || 0);  // TD-015
+            metricsHistory.bleu4.push(metrics.current_bleu4  >= 0 ? metrics.current_bleu4  : null);
+            metricsHistory.rougeL.push(metrics.current_rougeL >= 0 ? metrics.current_rougeL : null);
 
             // Keep only last MAX_CHART_POINTS
             if (metricsHistory.timestamps.length > MAX_CHART_POINTS) {
@@ -595,6 +611,8 @@
                 metricsHistory.gradientNorms.shift();
                 metricsHistory.perplexities.shift();
                 metricsHistory.validationPerplexities.shift();  // TD-015
+                metricsHistory.bleu4.shift();
+                metricsHistory.rougeL.shift();
             }
         }
 
@@ -636,6 +654,11 @@
             updateElement('val-perplexity', formatNumber(data.current_validation_perplexity, 2));
             const acc = data.current_validation_accuracy;
             updateElement('val-accuracy', (acc !== undefined && acc >= 0) ? formatNumber(acc * 100, 1) + '%' : '--');
+            // BLEU/ROUGE generation quality
+            const bleu4 = data.current_bleu4;
+            updateElement('bleu4',  (bleu4  !== undefined && bleu4  >= 0) ? formatNumber(bleu4,  4) : '--');
+            const rougeL = data.current_rougeL;
+            updateElement('rougeL', (rougeL !== undefined && rougeL >= 0) ? formatNumber(rougeL, 4) : '--');
             updateElement('learning-rate', formatNumber(data.current_learning_rate, 6));
 
             // Update progress

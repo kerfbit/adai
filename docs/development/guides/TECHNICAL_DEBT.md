@@ -10,7 +10,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 **Medium Priority:** 2
 **Low Priority:** 2
 **Future Enhancements:** 19
-**Resolved Items:** 11 (1 new)
+**Resolved Items:** 12 (1 new)
 
 ## Table of Contents
 
@@ -121,7 +121,7 @@ Deferred (future work):
 
 - ✅ Activation saturation tracking (implemented April 11, 2026 — see below)
 - ✅ Attention entropy (implemented April 11, 2026 — see below)
-- BLEU/ROUGE generation quality scores (requires partial generate() during validation).
+- ✅ BLEU/ROUGE generation quality scores (implemented April 11, 2026 — see below)
 - Batch padding efficiency (requires BatchStats integration).
 
 ### TD-003: GPU Memory Management Optimization
@@ -294,6 +294,60 @@ Verification:
 ---
 
 ## Resolved Items
+
+### TD-016: BLEU/ROUGE Generation Quality Scoring
+
+**Resolution Date:** April 11, 2026
+**Component:** Training / Service / Metrics
+**Resolved By:** Header-only `GenerationQualityEvaluator` with corpus BLEU-1/2/4 and macro-averaged ROUGE-1/2/L F1
+
+Summary:
+Implemented end-to-end BLEU and ROUGE generation quality scoring with no external library dependencies. Scoring is opt-in (`enable_generation_quality_metrics = false` by default) and runs on a configurable sub-sample of the validation set during each `validate()` call, calling `model->generate_response()` in eval mode.
+
+Changes Made:
+
+- ✅ Created `src/GenerationQualityMetrics.hpp` — header-only `GenerationQualityEvaluator` providing:
+  - `tokenize()`: whitespace split + lowercase + strip leading/trailing punctuation.
+  - Corpus BLEU-1, BLEU-2, BLEU-4 with clipped modified precision (Lin & Och 2004 add-1 smoothing) and corpus-level brevity penalty.
+  - Macro-averaged ROUGE-1 and ROUGE-2 F1 (precision × recall / (precision + recall) per sentence).
+  - Macro-averaged ROUGE-L F1 via rolling 2-row DP LCS (O(m·n) time, O(n) space).
+  - `GenerationQualityScore` struct: `bleu1`, `bleu2`, `bleu4`, `rouge1`, `rouge2`, `rougeL` (all default -1.0 = not computed).
+- ✅ Extended `TrainingMetricsSnapshot` with `current_bleu4`, `current_rouge1`, `current_rouge2`, `current_rougeL` and per-epoch history vectors `epoch_bleu4`, `epoch_rouge1`, `epoch_rouge2`, `epoch_rougeL`.
+- ✅ Added `MetricsServiceConfig::enable_generation_quality` (default `false`) and `generation_quality_sample_size` (default `10`).
+- ✅ Implemented `TrainingMetricsService::update_generation_quality_metrics(bleu4, rouge1, rouge2, rougeL)` — mutex-safe update + optional HTTP push to `/api/metrics/generation-quality`.
+- ✅ `TrainingMetricsService::end_epoch()` now pushes all four scores into per-epoch history vectors.
+- ✅ `TrainingMetricsService::to_json()` now emits `current_bleu4`, `current_rouge1`, `current_rouge2`, `current_rougeL`.
+- ✅ Added `TrainingConfig` fields: `enable_generation_quality_metrics` (default `false`), `generation_quality_sample_size` (default `10`), `generation_quality_max_tokens` (default `50`).
+- ✅ `ChatbotTrainer::validate()` now calls `compute_generation_quality_metrics()` after updating validation-loss metrics.
+- ✅ Implemented `ChatbotTrainer::compute_generation_quality_metrics()` — samples up to `generation_quality_sample_size` pairs from the front of the validation set, calls `model->generate_response()` in eval mode for each, then delegates scoring to `GenerationQualityEvaluator::evaluate()` and pushes results to `metrics_service_`.
+- ✅ Added REST endpoint `GET /api/metrics/generation-quality` to `TrainingMetricsAPI` — returns current and per-epoch BLEU/ROUGE history as JSON.
+- ✅ `dashboard.html`: added "BLEU-4" and "ROUGE-L" metric cards; `metricsHistory` extended with `bleu4` / `rougeL` arrays; `addToHistory()` and `updateDashboard()` wired up (null entries used when score is -1 so chart gaps are rendered cleanly).
+- ✅ Created `tests/generation_quality_test.cpp` — 23 tests across 5 suites (Tokenizer, BLEU, ROUGE, ROUGE-L, Edge). All 23 pass.
+- ✅ Added `generationQualityTests` target to `tests/CMakeLists.txt`.
+
+Files Created:
+
+- `src/GenerationQualityMetrics.hpp` — New header-only BLEU/ROUGE library
+- `tests/generation_quality_test.cpp` — 23 new tests
+
+Files Modified:
+
+- `src/TrainingMetricsService.hpp` — snapshot fields, config options, method declaration
+- `src/TrainingMetricsService.cpp` — `update_generation_quality_metrics()`, `end_epoch()` history push, `to_json()` output
+- `src/TrainingMetricsAPI.hpp` — `handle_generation_quality_metrics()` declaration + endpoint comment
+- `src/TrainingMetricsAPI.cpp` — route + handler implementation
+- `src/ChatbotTrainer.hpp` — `TrainingConfig` fields, `compute_generation_quality_metrics()` method
+- `src/ChatbotTrainer.cpp` — `#include "GenerationQualityMetrics.hpp"`, `compute_generation_quality_metrics()` implementation, `validate()` call-site
+- `dashboard.html` — BLEU-4 / ROUGE-L metric cards and JS data flow
+- `tests/CMakeLists.txt` — `generationQualityTests` target
+
+Verification:
+
+- ✅ All 23 `generationQualityTests` pass
+- ✅ `adai_core` (TrainingMetricsService changes) builds clean
+- ✅ `chatbottrainerTests` (ChatbotTrainer changes) builds clean
+
+---
 
 ### TD-007: Matrix Operations SIMD Acceleration
 

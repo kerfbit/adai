@@ -63,6 +63,18 @@ struct TrainingMetricsSnapshot {
     float weight_update_ratio = 0.0f;    ///< Avg (lr * ||g||) / ||w|| ratio across optimizer steps
     float activation_saturation_ratio = -1.0f; ///< Avg fraction of near-zero post-GELU units across all FF layers (-1 = not computed)
     float attention_entropy = -1.0f;            ///< Avg per-token attention entropy across all self-attention layers (-1 = not computed)
+
+    // Generation quality metrics (BLEU/ROUGE, -1 = not computed)
+    float current_bleu4  = -1.0f;  ///< Corpus BLEU-4 score for the current validation epoch
+    float current_rouge1 = -1.0f;  ///< Macro-avg ROUGE-1 F1 for the current validation epoch
+    float current_rouge2 = -1.0f;  ///< Macro-avg ROUGE-2 F1 for the current validation epoch
+    float current_rougeL = -1.0f;  ///< Macro-avg ROUGE-L F1 for the current validation epoch
+
+    // Per-epoch generation quality history (-1 entries = not computed for that epoch)
+    std::vector<float> epoch_bleu4;
+    std::vector<float> epoch_rouge1;
+    std::vector<float> epoch_rouge2;
+    std::vector<float> epoch_rougeL;
 };
 
 /**
@@ -124,6 +136,10 @@ struct MetricsServiceConfig {
     float loss_outlier_z_threshold = 3.0f;      // Flag sample if loss > epoch_mean + N*epoch_std
     float grad_norm_outlier_threshold = 10.0f;  // Flag sample if grad_norm exceeds this absolute value
     int max_abnormal_samples = 1000;            // Max outlier records kept in memory
+
+    // Generation quality metrics (BLEU/ROUGE) — disabled by default because generation is expensive
+    bool enable_generation_quality = false;  // When true, generate responses during validation and score them
+    int  generation_quality_sample_size = 10;  // Number of validation samples used for scoring
 };
 
 /**
@@ -186,6 +202,20 @@ public:
     // Advanced epoch-level diagnostics (TD-013)
     void update_advanced_epoch_metrics(float gradient_variance, float compute_time_ratio,
                                        float weight_update_ratio);
+
+    /**
+     * @brief Update generation quality metrics for the current epoch.
+     *
+     * Stores corpus BLEU-4 and macro-averaged ROUGE-1/2/L F1 scores computed
+     * by running generate_response() on a sample of validation pairs.
+     * Values outside [0, 1] (e.g. -1) are accepted as "not computed" markers.
+     *
+     * @param bleu4   Corpus BLEU-4 score (0–1, or -1 if not available)
+     * @param rouge1  ROUGE-1 F1 (0–1, or -1 if not available)
+     * @param rouge2  ROUGE-2 F1 (0–1, or -1 if not available)
+     * @param rougeL  ROUGE-L F1 (0–1, or -1 if not available)
+     */
+    void update_generation_quality_metrics(float bleu4, float rouge1, float rouge2, float rougeL);
 
     /**
      * @brief Update epoch-average activation saturation ratio (TD-013)
