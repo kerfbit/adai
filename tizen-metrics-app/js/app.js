@@ -84,6 +84,7 @@
         weightUpdateValue:  $('weight-update-value'),
         saturationValue:    $('activation-saturation-value'),
         attnEntropyValue:   $('attention-entropy-value'),
+        paddingEffValue:    $('padding-efficiency-value'),
 
         /* Session stats */
         totalSamplesValue:  $('total-samples-value'),
@@ -438,6 +439,20 @@
             if      (ent >= 0.5) UI.attnEntropyValue.classList.add('val-good');
             else if (ent >= 0.1) UI.attnEntropyValue.classList.add('val-warn');
             else                 UI.attnEntropyValue.classList.add('val-error');
+        }
+
+        /* --- Batch Padding Efficiency --- */
+        var padEff = current.current_padding_efficiency;
+        var padEffStr = (padEff !== null && padEff !== undefined && padEff >= 0)
+            ? fmt(padEff * 100, 1) + '%'
+            : '—';
+        setText(UI.paddingEffValue, padEffStr);
+        /* Higher efficiency is better: green >= 85%, amber >= 60%, red below 60% */
+        if (UI.paddingEffValue && padEff >= 0) {
+            UI.paddingEffValue.classList.remove('val-good', 'val-warn', 'val-error');
+            if      (padEff >= 0.85) UI.paddingEffValue.classList.add('val-good');
+            else if (padEff >= 0.60) UI.paddingEffValue.classList.add('val-warn');
+            else                     UI.paddingEffValue.classList.add('val-error');
         }
 
         /* --- Generation Quality (TD-016) --- */

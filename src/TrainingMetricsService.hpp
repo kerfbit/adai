@@ -75,6 +75,13 @@ struct TrainingMetricsSnapshot {
     std::vector<float> epoch_rouge1;
     std::vector<float> epoch_rouge2;
     std::vector<float> epoch_rougeL;
+
+    // Batch padding efficiency (-1 = not computed)
+    /// Avg fraction of non-padding tokens across all gradient-accumulation windows in the current epoch.
+    /// 1.0 = all tokens are real (no wasted padding); lower values indicate sequence-length mismatch
+    /// within accumulation windows. Trivially 1.0 when gradient_accumulation_steps == 1.
+    float current_padding_efficiency = -1.0f;
+    std::vector<float> epoch_padding_efficiencies;  ///< Per-epoch history (-1 = not computed)
 };
 
 /**
@@ -216,6 +223,14 @@ public:
      * @param rougeL  ROUGE-L F1 (0–1, or -1 if not available)
      */
     void update_generation_quality_metrics(float bleu4, float rouge1, float rouge2, float rougeL);
+
+    /**
+     * @brief Update batch padding efficiency for the current epoch.
+     *
+     * @param efficiency Average fraction of non-padding tokens across all gradient-accumulation
+     *                   windows processed so far this epoch (0–1, or -1 = not computed).
+     */
+    void update_padding_efficiency(float efficiency);
 
     /**
      * @brief Update epoch-average activation saturation ratio (TD-013)

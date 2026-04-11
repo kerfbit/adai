@@ -10,7 +10,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 **Medium Priority:** 2
 **Low Priority:** 2
 **Future Enhancements:** 19
-**Resolved Items:** 12 (1 new)
+**Resolved Items:** 13 (2 new)
 
 ## Table of Contents
 
@@ -116,13 +116,10 @@ Action Items:
   - Compute-time ratio tracking (forward+backward nanoseconds / epoch wall nanoseconds).
   - Weight-update ratio computation: `(lr × ||g||₂) /||w||₂` averaged per epoch.
 - ✅ Added REST endpoint `GET /api/metrics/abnormal` to `TrainingMetricsAPI`.
-
-Deferred (future work):
-
 - ✅ Activation saturation tracking (implemented April 11, 2026 — see below)
 - ✅ Attention entropy (implemented April 11, 2026 — see below)
 - ✅ BLEU/ROUGE generation quality scores (implemented April 11, 2026 — see below)
-- Batch padding efficiency (requires BatchStats integration).
+- ✅ Batch padding efficiency (implemented April 11, 2026 — see below)
 
 ### TD-003: GPU Memory Management Optimization
 
@@ -294,6 +291,52 @@ Verification:
 ---
 
 ## Resolved Items
+
+### TD-013b: Batch Padding Efficiency Tracking
+
+**Resolution Date:** April 11, 2026
+**Component:** Training / Service / Metrics
+**Resolved By:** Per-window efficiency computation in `train_epoch()` + `TrainingMetricsService` integration
+
+Summary:
+Implemented batch padding efficiency — the theoretical fraction of non-padding tokens per gradient-accumulation window — as the final deferred item from TD-013. Each gradient-accumulation window's input/target sequence lengths are collected and compared against their padded extent `(max_input_len + max_target_len) × window_size`. The epoch average is reported to `TrainingMetricsService`, exposed via REST, and displayed on the dashboard. When `gradient_accumulation_steps == 1` efficiency is trivially 1.0; with larger accumulation windows the metric reveals sequence-length mismatch within virtual batches.
+
+Changes Made:
+
+- ✅ Added `current_padding_efficiency` (float, default -1 = not computed) and `epoch_padding_efficiencies` (vector) to `TrainingMetricsSnapshot`.
+- ✅ Added `update_padding_efficiency(float)` to `TrainingMetricsService` — mutex-safe snapshot update.
+- ✅ `TrainingMetricsService::end_epoch()` now pushes `current_padding_efficiency` into `epoch_padding_efficiencies`.
+- ✅ `TrainingMetricsService::to_json()` now emits `"current_padding_efficiency"`.
+- ✅ Instrumented `ChatbotTrainer::train_epoch()`:
+  - Per-window accumulators: `pad_win_actual`, `pad_win_max_input`, `pad_win_max_target`, `pad_win_count` — reset at each accumulation cycle start and collected per sample.
+  - At every `should_update` checkpoint: `eff = pad_win_actual / ((max_in + max_tgt) * window_size)`, accumulated into `pad_eff_sum / pad_eff_count`.
+  - At epoch end: `avg_padding_efficiency` reported via `metrics_service_->update_padding_efficiency()`.
+- ✅ Added REST endpoint `GET /api/metrics/padding-efficiency` to `TrainingMetricsAPI` — returns `current_padding_efficiency` and `epoch_padding_efficiencies` as JSON.
+- ✅ `dashboard.html`: added "Padding Eff." metric card; `metricsHistory.paddingEfficiencies` array; `addToHistory()` and `updateDashboard()` wired up (null entries when score is -1 for clean gap rendering).
+- ✅ Created `tests/padding_efficiency_test.cpp` — 16 tests across 2 suites (service-level and pure arithmetic). All 16 pass.
+- ✅ Added `paddingEfficiencyTests` target to `tests/CMakeLists.txt`.
+
+Files Modified:
+
+- `src/TrainingMetricsService.hpp` — snapshot fields, method declaration
+- `src/TrainingMetricsService.cpp` — `update_padding_efficiency()`, `end_epoch()` history push, `to_json()` output
+- `src/TrainingMetricsAPI.hpp` — endpoint comment, `handle_padding_efficiency_metrics()` declaration
+- `src/TrainingMetricsAPI.cpp` — route + handler implementation
+- `src/ChatbotTrainer.cpp` — per-window accumulators + epoch-end push
+- `dashboard.html` — "Padding Eff." metric card and JS data flow
+- `tests/CMakeLists.txt` — `paddingEfficiencyTests` target
+
+Files Created:
+
+- `tests/padding_efficiency_test.cpp` — 16 new tests
+
+Verification:
+
+- ✅ All 16 `paddingEfficiencyTests` pass
+- ✅ `adai_core` builds clean
+- ✅ `chatbottrainerTests` builds clean — no regressions
+
+---
 
 ### TD-016: BLEU/ROUGE Generation Quality Scoring
 

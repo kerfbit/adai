@@ -452,4 +452,13 @@ target_include_directories(generationQualityTests PRIVATE ${CMAKE_SOURCE_DIR}/sr
 target_link_libraries(generationQualityTests GTest::gtest_main)
 add_test(NAME GenerationQualityTests COMMAND generationQualityTests)
 
-message(STATUS "Configured 42 test suites using library targets (including Config, Logger, IncrementalTrainer, LLMEncoder, DocumentStore, RAGInference, BatchProcessor, ParallelDataLoader, IntegratedInferenceEngine, PipelineInferenceEngine, BatchedInferenceEngine, SpeculativeDecoding, VocabBuilder, ChatbotAPI, ChatbotTrainer, GenerationQuality, integration, RAG/BERT comparison and Phase 5 tests)")
+# Batch padding efficiency tests (TrainingMetricsService + pure arithmetic helpers)
+add_executable(paddingEfficiencyTests padding_efficiency_test.cpp)
+target_include_directories(paddingEfficiencyTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(paddingEfficiencyTests
+    adai_core
+    GTest::gtest_main
+)
+add_test(NAME PaddingEfficiencyTests COMMAND paddingEfficiencyTests)
+
+message(STATUS "Configured 43 test suites using library targets (including Config, Logger, IncrementalTrainer, LLMEncoder, DocumentStore, RAGInference, BatchProcessor, ParallelDataLoader, IntegratedInferenceEngine, PipelineInferenceEngine, BatchedInferenceEngine, SpeculativeDecoding, VocabBuilder, ChatbotAPI, ChatbotTrainer, GenerationQuality, PaddingEfficiency, integration, RAG/BERT comparison and Phase 5 tests)")

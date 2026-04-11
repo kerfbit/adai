@@ -267,6 +267,12 @@
             </div>
 
             <div class="card">
+                <h2>Padding Eff.</h2>
+                <div class="metric-value" id="padding-efficiency">--</div>
+                <div class="metric-label">Batch Padding Efficiency</div>
+            </div>
+
+            <div class="card">
                 <h2>Learning Rate</h2>
                 <div class="metric-value" id="learning-rate">--</div>
                 <div class="metric-label">Current LR</div>
@@ -382,7 +388,8 @@
             perplexities: [],
             validationPerplexities: [],  // TD-015
             bleu4: [],    // BLEU-4 generation quality
-            rougeL: []    // ROUGE-L generation quality
+            rougeL: [],   // ROUGE-L generation quality
+            paddingEfficiencies: []  // Batch padding efficiency
         };
 
         // Error tracking
@@ -601,6 +608,7 @@
             metricsHistory.validationPerplexities.push(metrics.current_validation_perplexity || 0);  // TD-015
             metricsHistory.bleu4.push(metrics.current_bleu4  >= 0 ? metrics.current_bleu4  : null);
             metricsHistory.rougeL.push(metrics.current_rougeL >= 0 ? metrics.current_rougeL : null);
+            metricsHistory.paddingEfficiencies.push(metrics.current_padding_efficiency >= 0 ? metrics.current_padding_efficiency : null);
 
             // Keep only last MAX_CHART_POINTS
             if (metricsHistory.timestamps.length > MAX_CHART_POINTS) {
@@ -613,6 +621,7 @@
                 metricsHistory.validationPerplexities.shift();  // TD-015
                 metricsHistory.bleu4.shift();
                 metricsHistory.rougeL.shift();
+                metricsHistory.paddingEfficiencies.shift();
             }
         }
 
@@ -659,6 +668,9 @@
             updateElement('bleu4',  (bleu4  !== undefined && bleu4  >= 0) ? formatNumber(bleu4,  4) : '--');
             const rougeL = data.current_rougeL;
             updateElement('rougeL', (rougeL !== undefined && rougeL >= 0) ? formatNumber(rougeL, 4) : '--');
+            // Batch padding efficiency
+            const padEff = data.current_padding_efficiency;
+            updateElement('padding-efficiency', (padEff !== undefined && padEff >= 0) ? formatNumber(padEff * 100, 1) + '%' : '--');
             updateElement('learning-rate', formatNumber(data.current_learning_rate, 6));
 
             // Update progress

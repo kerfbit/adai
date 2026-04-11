@@ -585,6 +585,17 @@ float ChatbotTrainer::train_epoch(int epoch) {
         // the softmax attention distribution across all self-attention layers.
         float ent_sum   = 0.0f;
         int   ent_count = 0;
+        // ── Batch padding efficiency accumulators ──────────────────────────────────
+        // For each gradient-accumulation window we compute the theoretical padding
+        // efficiency: actual_tokens / (max_input_len + max_target_len) / window_size.
+        // This quantifies how well sequence lengths are matched within each batch.
+        int   pad_win_actual     = 0;   // sum of all token lengths in the current window
+        int   pad_win_max_input  = 0;   // max input-seq length seen in the current window
+        int   pad_win_max_target = 0;   // max target-seq length seen in the current window
+        int   pad_win_count      = 0;   // samples accumulated in the current window
+        float pad_eff_sum        = 0.0f;
+        int   pad_eff_count      = 0;
+        // ──────────────────────────────────────────────────────────────────────────
         if (metrics_service_) {
             // Lambda captures sat_sum/sat_count by reference; hooks are cleared
             // before train_epoch() returns so there is no dangling reference risk.
@@ -652,6 +663,21 @@ float ChatbotTrainer::train_epoch(int epoch) {
                 // Zero gradients at the start of accumulation cycle
                 if (accumulation_step == 0) {
                     model->zero_grad();
+                    // Reset per-window padding accumulators at start of new window
+                    pad_win_actual     = 0;
+                    pad_win_max_input  = 0;
+                    pad_win_max_target = 0;
+                    pad_win_count      = 0;
+                }
+
+                // Accumulate padding stats for this sample
+                {
+                    int in_len  = static_cast<int>(pair.input_tokens.size());
+                    int tgt_len = static_cast<int>(pair.target_tokens.size());
+                    pad_win_actual     += in_len + tgt_len;
+                    pad_win_max_input   = std::max(pad_win_max_input,  in_len);
+                    pad_win_max_target  = std::max(pad_win_max_target, tgt_len);
+                    ++pad_win_count;
                 }
 
                 // Forward pass using cached tokenized data
@@ -691,6 +717,14 @@ float ChatbotTrainer::train_epoch(int epoch) {
                                     (i == num_samples - 1);  // Last sample in epoch
 
                 if (should_update) {
+                    // Compute padding efficiency for this accumulation window
+                    if (pad_win_count > 0 && (pad_win_max_input + pad_win_max_target) > 0) {
+                        int padded = (pad_win_max_input + pad_win_max_target) * pad_win_count;
+                        float win_eff = static_cast<float>(pad_win_actual) / static_cast<float>(padded);
+                        pad_eff_sum += win_eff;
+                        ++pad_eff_count;
+                    }
+
                     // Get gradient norm before clipping
                     float grad_norm = optimizer->get_gradient_norm();
 
@@ -896,6 +930,11 @@ float ChatbotTrainer::train_epoch(int epoch) {
             for (int l = 0; l < dec_layers; ++l) {
                 model->get_decoder()->get_decoder_block(l)->get_self_attention()->clear_attention_hook();
             }
+            // ── Batch padding efficiency – report epoch average ───────────────────────
+            float avg_pad_eff = (pad_eff_count > 0)
+                ? (pad_eff_sum / static_cast<float>(pad_eff_count)) : -1.0f;
+            metrics_service_->update_padding_efficiency(avg_pad_eff);
+            adai::Logger::info("Batch padding efficiency (epoch {}): {:.4f}", epoch + 1, avg_pad_eff);
             // ─────────────────────────────────────────────────────────────────────
         }
         // ─────────────────────────────────────────────────────────────────────────

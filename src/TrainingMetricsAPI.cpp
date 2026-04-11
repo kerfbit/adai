@@ -138,6 +138,18 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> m
             res.status = 500;
         }
     });
+
+    // GET /api/metrics/padding-efficiency - Batch padding efficiency history
+    server_impl_->server.Get("/api/metrics/padding-efficiency", [this](const httplib::Request&, httplib::Response& res) {
+        try {
+            std::string response = handle_padding_efficiency_metrics();
+            res.set_content(response, "application/json");
+            res.status = 200;
+        } catch (const std::exception& e) {
+            res.set_content(create_error_response(e.what()), "application/json");
+            res.status = 500;
+        }
+    });
     
     // POST endpoints for receiving metrics updates from trainers
     // POST /api/session/start - Start new training session
@@ -528,6 +540,21 @@ std::string TrainingMetricsAPI::handle_generation_quality_metrics() {
     for (size_t i = 0; i < snapshot.epoch_rougeL.size(); ++i) {
         if (i > 0) json << ",";
         json << snapshot.epoch_rougeL[i];
+    }
+    json << "]}";
+    return json.str();
+}
+
+std::string TrainingMetricsAPI::handle_padding_efficiency_metrics() {
+    auto snapshot = metrics_service_->get_current_snapshot();
+    std::ostringstream json;
+    json << std::fixed << std::setprecision(6);
+    json << "{";
+    json << "\"current_padding_efficiency\":" << snapshot.current_padding_efficiency << ",";
+    json << "\"epoch_padding_efficiencies\":[";
+    for (size_t i = 0; i < snapshot.epoch_padding_efficiencies.size(); ++i) {
+        if (i > 0) json << ",";
+        json << snapshot.epoch_padding_efficiencies[i];
     }
     json << "]}";
     return json.str();

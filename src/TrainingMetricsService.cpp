@@ -182,6 +182,9 @@ void TrainingMetricsService::end_epoch(int epoch, float loss, float validation_l
     current_snapshot_.epoch_rouge1.push_back(current_snapshot_.current_rouge1);
     current_snapshot_.epoch_rouge2.push_back(current_snapshot_.current_rouge2);
     current_snapshot_.epoch_rougeL.push_back(current_snapshot_.current_rougeL);
+    // Persist per-epoch padding efficiency (-1 if not computed this epoch)
+    current_snapshot_.epoch_padding_efficiencies.push_back(
+        current_snapshot_.current_padding_efficiency);
     current_snapshot_.epoch_durations.push_back(epoch_time);
     current_snapshot_.epoch_gradient_norms.push_back(gradient_norm);
     
@@ -466,7 +469,8 @@ std::string TrainingMetricsService::to_json() const {
     oss << "  \"current_bleu4\": "  << snapshot.current_bleu4  << ",\n";
     oss << "  \"current_rouge1\": " << snapshot.current_rouge1 << ",\n";
     oss << "  \"current_rouge2\": " << snapshot.current_rouge2 << ",\n";
-    oss << "  \"current_rougeL\": " << snapshot.current_rougeL << "\n";
+    oss << "  \"current_rougeL\": " << snapshot.current_rougeL << ",\n";
+    oss << "  \"current_padding_efficiency\": " << snapshot.current_padding_efficiency << "\n";
     oss << "}";
     
     return oss.str();
@@ -1007,6 +1011,12 @@ void TrainingMetricsService::update_attention_entropy(float entropy) {
     std::lock_guard<std::mutex> lock(mutex_);
     current_snapshot_.attention_entropy = entropy;
     adai::Logger::debug("Attention entropy: {:.4f}", entropy);
+}
+
+void TrainingMetricsService::update_padding_efficiency(float efficiency) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    current_snapshot_.current_padding_efficiency = efficiency;
+    adai::Logger::debug("Batch padding efficiency: {:.4f}", efficiency);
 }
 
 void TrainingMetricsService::update_generation_quality_metrics(
