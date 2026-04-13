@@ -796,9 +796,46 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& body) {
         }
     }
 
+    float activation_saturation_ratio = -1.0f;
+    float attention_entropy = -1.0f;
+    float current_padding_efficiency = -1.0f;
+
+    pos = body.find("\"activation_saturation_ratio\"");
+    if (pos != std::string::npos) {
+        pos = body.find(':', pos);
+        if (pos != std::string::npos) {
+            activation_saturation_ratio = std::stof(body.substr(pos + 1));
+        }
+    }
+
+    pos = body.find("\"attention_entropy\"");
+    if (pos != std::string::npos) {
+        pos = body.find(':', pos);
+        if (pos != std::string::npos) {
+            attention_entropy = std::stof(body.substr(pos + 1));
+        }
+    }
+
+    pos = body.find("\"current_padding_efficiency\"");
+    if (pos != std::string::npos) {
+        pos = body.find(':', pos);
+        if (pos != std::string::npos) {
+            current_padding_efficiency = std::stof(body.substr(pos + 1));
+        }
+    }
+
     metrics_service_->end_epoch(epoch, loss, validation_loss, learning_rate, perplexity, gradient_norm);
     if (gradient_variance != 0.0f || compute_time_ratio != 0.0f || weight_update_ratio != 0.0f) {
         metrics_service_->update_advanced_epoch_metrics(gradient_variance, compute_time_ratio, weight_update_ratio);
+    }
+    if (activation_saturation_ratio >= 0.0f) {
+        metrics_service_->update_activation_saturation(activation_saturation_ratio);
+    }
+    if (attention_entropy >= 0.0f) {
+        metrics_service_->update_attention_entropy(attention_entropy);
+    }
+    if (current_padding_efficiency >= 0.0f) {
+        metrics_service_->update_padding_efficiency(current_padding_efficiency);
     }
 
     return "{\"status\":\"ok\",\"message\":\"Epoch ended\"}";

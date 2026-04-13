@@ -75,8 +75,11 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
     cfg.base_config.learning_rate      = svc.learning_rate;
     cfg.base_config.num_epochs         = svc.num_epochs;
     cfg.base_config.weight_decay       = svc.weight_decay;
-    cfg.base_config.gradient_clip_norm = svc.gradient_clip;
-    cfg.base_config.batch_size         = svc.batch_size;
+    cfg.base_config.gradient_clip_norm  = svc.gradient_clip;
+    cfg.base_config.batch_size          = svc.batch_size;
+    cfg.base_config.enable_early_stopping = true;
+    cfg.base_config.patience            = 5;
+    cfg.base_config.restore_best_weights = true;
     // Suppress verbose per-sample logging from ChatbotTrainer, as we use
     // the TUI dashboard for real-time feedback.
     cfg.base_config.log_level          = LogLevel::NORMAL;
@@ -2494,7 +2497,43 @@ bool IncrementalTrainer::convert_hf_to_training_data(const std::string& rows_dir
                 }
             }
 
-            if (!det_in.empty() && !det_out.empty()) {
+            if (!det_in.empty() && !det_out.empty() && det_in == det_out) {
+                // Single-text-field datasets (TinyStories, wikitext, etc.)
+                // Split text at a sentence boundary to create prompt/completion pairs
+                std::string full_text = hf_extract_string(row_json, det_in);
+                if (full_text.size() >= 40) {
+                    // Find a sentence boundary near the middle
+                    size_t mid = full_text.size() / 2;
+                    size_t split_pos = std::string::npos;
+                    // Search outward from midpoint for sentence-ending punctuation followed by space
+                    for (size_t radius = 0; radius < mid; ++radius) {
+                        for (size_t pos : {mid + radius, mid - radius}) {
+                            if (pos >= full_text.size() - 1) continue;
+                            char c = full_text[pos];
+                            if ((c == '.' || c == '!' || c == '?') &&
+                                pos + 1 < full_text.size() &&
+                                (full_text[pos + 1] == ' ' || full_text[pos + 1] == '\n')) {
+                                split_pos = pos + 1;  // include the punctuation in INPUT
+                                break;
+                            }
+                        }
+                        if (split_pos != std::string::npos) break;
+                    }
+                    if (split_pos != std::string::npos && split_pos < full_text.size() - 5) {
+                        std::string input_text  = full_text.substr(0, split_pos);
+                        std::string output_text = full_text.substr(split_pos);
+                        // Trim leading whitespace from output
+                        size_t start = output_text.find_first_not_of(" \n\t");
+                        if (start != std::string::npos) output_text = output_text.substr(start);
+                        if (!input_text.empty() && !output_text.empty()) {
+                            out << "INPUT: "    << input_text  << "\n"
+                                << "RESPONSE: " << output_text << "\n"
+                                << "\n";
+                            ++pair_count;
+                        }
+                    }
+                }
+            } else if (!det_in.empty() && !det_out.empty()) {
                 // Key-value datasets (alpaca, dolly, OpenHermes, …)
                 std::string input_text = hf_extract_string(row_json, det_in);
                 // Alpaca-style: append the "input" context field to "instruction"
@@ -2528,6 +2567,49 @@ bool IncrementalTrainer::convert_hf_to_training_data(const std::string& rows_dir
                         }
                     }
                     break;  // use only the first matching key per row
+                }
+
+                // Last resort: try single-text-field with sentence splitting
+                if (pair_count == 0) {
+                    static const char* text_keys[] = {"text", "content", "document", nullptr};
+                    for (const char** tk = text_keys; *tk; ++tk) {
+                        std::string full_text = hf_extract_string(row_json, *tk);
+                        if (full_text.size() >= 40) {
+                            det_in = *tk;
+                            det_out = *tk;
+                            Logger::info("Auto-detected single-text field: '{}' — will split at sentence boundaries", *tk);
+                            // Re-process this row via the single-field path on next iteration
+                            // For now, do inline split
+                            size_t mid = full_text.size() / 2;
+                            size_t split_pos = std::string::npos;
+                            for (size_t radius = 0; radius < mid; ++radius) {
+                                for (size_t pos : {mid + radius, mid - radius}) {
+                                    if (pos >= full_text.size() - 1) continue;
+                                    char c = full_text[pos];
+                                    if ((c == '.' || c == '!' || c == '?') &&
+                                        pos + 1 < full_text.size() &&
+                                        (full_text[pos + 1] == ' ' || full_text[pos + 1] == '\n')) {
+                                        split_pos = pos + 1;
+                                        break;
+                                    }
+                                }
+                                if (split_pos != std::string::npos) break;
+                            }
+                            if (split_pos != std::string::npos && split_pos < full_text.size() - 5) {
+                                std::string input_text  = full_text.substr(0, split_pos);
+                                std::string output_text = full_text.substr(split_pos);
+                                size_t start = output_text.find_first_not_of(" \n\t");
+                                if (start != std::string::npos) output_text = output_text.substr(start);
+                                if (!input_text.empty() && !output_text.empty()) {
+                                    out << "INPUT: "    << input_text  << "\n"
+                                        << "RESPONSE: " << output_text << "\n"
+                                        << "\n";
+                                    ++pair_count;
+                                }
+                            }
+                            break;
+                        }
+                    }
                 }
             }
         }

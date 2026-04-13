@@ -237,6 +237,9 @@ void TrainingMetricsService::end_epoch(int epoch, float loss, float validation_l
                  << ",\"gradient_variance\":" << current_snapshot_.gradient_variance
                  << ",\"compute_time_ratio\":" << current_snapshot_.compute_time_ratio
                  << ",\"weight_update_ratio\":" << current_snapshot_.weight_update_ratio
+                 << ",\"activation_saturation_ratio\":" << current_snapshot_.activation_saturation_ratio
+                 << ",\"attention_entropy\":" << current_snapshot_.attention_entropy
+                 << ",\"current_padding_efficiency\":" << current_snapshot_.current_padding_efficiency
                  << "}";
             push_json = json.str();
         }
