@@ -106,3 +106,5 @@ training_sessions/metrics_summary.json
 training_sessions/metrics.jsonl
 training_sessions/pending_files.txt
 training_sessions/session_history.txt
+training_sessions/metrics_summary.json
+training_sessions/abnormal_samples.json

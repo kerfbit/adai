@@ -1,14 +1,14 @@
 {
   "session_id": 1,
-  "timestamp": "2026-04-12 16:59:04.748",
-  "total_epochs_completed": 2,
-  "total_samples_trained": 8100,
-  "total_training_time_seconds": 8691.125000,
+  "timestamp": "2026-04-12 18:11:05.632",
+  "total_epochs_completed": 3,
+  "total_samples_trained": 12150,
+  "total_training_time_seconds": 12999.793000,
   "best_validation_loss": 5.538770,
   "best_epoch": 2,
-  "epoch_losses": [7.074360, 5.590890],
-  "epoch_validation_losses": [5.757960, 5.538770],
-  "epoch_learning_rates": [0.000033, 0.000067],
-  "epoch_perplexities": [1181.280029, 267.972992],
-  "epoch_durations": [4154.485000, 4482.746000]
+  "epoch_losses": [7.074360, 5.590890, 5.484610],
+  "epoch_validation_losses": [5.757960, 5.538770, 5.552460],
+  "epoch_learning_rates": [0.000033, 0.000067, 0.000100],
+  "epoch_perplexities": [1181.280029, 267.972992, 240.955002],
+  "epoch_durations": [4154.485000, 4482.746000, 4320.880000]
 }

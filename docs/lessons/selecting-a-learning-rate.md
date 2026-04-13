@@ -17,7 +17,7 @@ Getting this value right is one of the highest-leverage decisions in training. T
 ## What "Too High" and "Too Low" Look Like
 
 | Symptom | Likely Cause |
-|---|---|
+| --- | --- |
 | Loss spikes or NaN after a few steps | $\eta$ too high |
 | Loss decreases very slowly or plateaus early | $\eta$ too low |
 | Loss oscillates around a value without converging | $\eta$ slightly too high |
@@ -42,7 +42,7 @@ This is the most reliable empirical method for finding a good starting value.
 ## Common Starting Points by Optimizer
 
 | Optimizer | Typical Good Range |
-|---|---|
+| --- | --- |
 | SGD (no momentum) | $10^{-2}$ – $10^{-1}$ |
 | SGD + Momentum | $10^{-3}$ – $10^{-2}$ |
 | Adam / AdamW | $10^{-4}$ – $3\times10^{-4}$ |
@@ -89,7 +89,7 @@ Reduce $\eta$ by a fixed factor (e.g., $\times 0.1$) at predetermined epochs.
 
 ## Quick Decision Checklist
 
-```
+``` text
 1. Run a learning rate range test (or start at 3e-4 for AdamW).
 2. Add warmup (1 000 steps for pretraining, 100 steps for fine-tuning).
 3. Add cosine decay to the end of the run.
