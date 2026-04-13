@@ -41,6 +41,7 @@ Practices that make experiments trustworthy and results recoverable.
 | Lesson | Summary |
 | --- | --- |
 | [Evaluation and Checkpointing Strategy](evaluation-and-checkpointing-strategy.md) | Validation set requirements, evaluation frequency, full checkpoint contents, early stopping, and test set discipline |
+| [Reading BLEU and ROUGE Results](reading-bleu-rouge.md) | BLEU precision vs. ROUGE recall, score interpretation ranges, tokenization consistency, and common misreading mistakes |
 | [Reproducibility](reproducibility.md) | Seeding, deterministic mode, data pipeline versioning, environment recording, and checkpoint RNG state |
 
 ## Architecture Reference
