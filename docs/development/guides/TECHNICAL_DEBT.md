@@ -4,13 +4,13 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** April 11, 2026
+**Last Updated:** April 12, 2026
 **Total Items:** 4
 **High Priority:** 0
 **Medium Priority:** 2
 **Low Priority:** 2
 **Future Enhancements:** 19
-**Resolved Items:** 13 (2 new)
+**Resolved Items:** 16
 
 ## Table of Contents
 
@@ -18,10 +18,14 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 - [Table of Contents](#table-of-contents)
 - [Active Technical Debt](#active-technical-debt)
   - [TD-014: LLM Operations and Training Tooling Suite](#td-014-llm-operations-and-training-tooling-suite)
-  - [TD-013: Advanced Training Metrics and Outlier Detection](#td-013-advanced-training-metrics-and-outlier-detection)
   - [TD-003: GPU Memory Management Optimization](#td-003-gpu-memory-management-optimization)
   - [TD-006: Fill-in-the-Middle (FIM) Training Data Generation](#td-006-fill-in-the-middle-fim-training-data-generation)
 - [Resolved Items](#resolved-items)
+  - [TD-016: BLEU/ROUGE Generation Quality Scoring](#td-016-bleurouge-generation-quality-scoring)
+  - [TD-015: Validation Metrics Integration](#td-015-validation-metrics-integration)
+  - [TD-013: Advanced Training Metrics and Outlier Detection](#td-013-advanced-training-metrics-and-outlier-detection)
+  - [TD-013b: Batch Padding Efficiency Tracking](#td-013b-batch-padding-efficiency-tracking)
+  - [TD-007: Matrix Operations SIMD Acceleration](#td-007-matrix-operations-simd-acceleration)
   - [TD-012: Increase Test Coverage](#td-012-increase-test-coverage)
   - [TD-011: File Rotation and Management](#td-011-file-rotation-and-management)
   - [TD-010: Configuration Hot-Reloading](#td-010-configuration-hot-reloading)
@@ -51,34 +55,11 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Active Technical Debt
 
-### TD-015: Validation Metrics Integration
-
-**Priority:** MEDIUM
-**Status:** Resolved
-**Component:** Training / Service
-**Created:** March 14, 2026
-**Resolved:** March 14, 2026
-
-Description:
-Previously, the training pipeline tracked metrics during training passes but lacked granular, systematized metric tracking for the validation phase. Validation metrics are now fully integrated into `TrainingMetricsService` and the dashboard, providing better insights into model generalization and enabling early detection of over-fitting. Proposal: `docs/proposals/VALIDATION_METRICS_PROPOSAL.md`.
-
-Action Items:
-
-- ✅ Extended `TrainingMetricsSnapshot` with `current_validation_perplexity`, `current_validation_accuracy`, `epoch_validation_perplexities`, and `epoch_validation_accuracies`.
-- ✅ Updated `update_validation_metrics()` signature to accept `validation_loss`, `validation_accuracy` (default `-1.0`), and `validation_perplexity` (default `0` = auto-derived from loss).
-- ✅ `end_epoch()` now copies the current validation perplexity and accuracy into the per-epoch history vectors.
-- ✅ `to_json()` now emits `current_validation_perplexity` and `current_validation_accuracy` in the API response.
-- ✅ `ChatbotTrainer::validate()` now calls `update_validation_metrics(val_loss, -1.0f, val_perplexity)` — passes computed perplexity.
-- ✅ `TrainingMetricsAPI::handle_post_validation_metrics()` parses `validation_accuracy` and `validation_perplexity` from the POST body.
-- ✅ `handle_epoch_metrics()` returns `epoch_validation_perplexities` and `epoch_validation_accuracies` arrays.
-- ✅ `dashboard.html`: added "Val Perplexity" and "Val Accuracy" metric cards; perplexity chart now shows both training and validation perplexity curves with distinct colors; `metricsHistory` and `addToHistory()` extended to track `validationPerplexities`.
-
 ### TD-014: LLM Operations and Training Tooling Suite
 
-**Priority:** MEDIUM
-**Status:** Planned
-**Component:** Tooling / Toolchain
-**Created:** March 8, 2026
+| Priority | Status | Component | Created |
+|----------|--------|-----------|---------|
+| MEDIUM | Planned | Tooling / Toolchain | March 8, 2026 |
 
 Description:
 As the core machine learning models mature, standalone tools are missing for dataset lifecycle, evaluation, and deployment optimization. We lack isolated binaries to handle quantization, standardized inference evaluation, dataset PII scrubbing/dedup, and concurrent load testing.
@@ -90,43 +71,11 @@ Action Items:
 - Isolate data-filtering scripts into an `adai-data-prep` tool for reproducible data hygiene.
 - Add a dedicated target in `CMakeLists.txt` for these auxiliary tools to avoid bloating main executables.
 
-### TD-013: Advanced Training Metrics and Outlier Detection
-
-**Priority:** MEDIUM
-**Status:** Resolved
-**Component:** Training / Service
-**Created:** March 8, 2026
-**Resolved:** March 14, 2026
-
-Description:
-Current training metrics primarily focus on basic loss, perplexity, and learning rate. To improve observability and data quality, we need to introduce advanced tracking for throughput (Compute vs Database time vs Padding Efficiency), model optimization health (Activation saturation, gradient consistency), generative validation text (BLEU/ROUGE), and most importantly, an automated capability to flag training samples with abnormally large loss/gradient variations.
-
-Action Items:
-
-- ✅ Updated `TrainingMetricsSnapshot` to support additional floats (`gradient_variance`, `compute_time_ratio`, `weight_update_ratio`).
-- ✅ Added `AbnormalSample` struct with `epoch`, `sample_id`, `input_text`, `target_text`, `loss`, `grad_norm`, `reason`.
-- ✅ Added outlier config to `MetricsServiceConfig`: `loss_outlier_z_threshold`, `grad_norm_outlier_threshold`, `max_abnormal_samples`, `abnormal_samples_file`.
-- ✅ Implemented `flag_abnormal_sample()`, `get_abnormal_samples()`, `update_advanced_epoch_metrics()` on `TrainingMetricsService`.
-- ✅ Implemented `persist_abnormal_samples()` — writes flagged samples to `abnormal_samples.json` on every flag event.
-- ✅ Added `Optimizer::get_weight_norm()` to compute the L2 norm of all weight parameters.
-- ✅ Instrumented `ChatbotTrainer::train_epoch()` with:
-  - Welford online algorithm for per-step gradient norm variance.
-  - Per-step loss z-score outlier guard (triggers after ≥10 samples).
-  - Gradient-norm absolute outlier guard (`grad_norm_outlier_threshold`).
-  - Compute-time ratio tracking (forward+backward nanoseconds / epoch wall nanoseconds).
-  - Weight-update ratio computation: `(lr × ||g||₂) /||w||₂` averaged per epoch.
-- ✅ Added REST endpoint `GET /api/metrics/abnormal` to `TrainingMetricsAPI`.
-- ✅ Activation saturation tracking (implemented April 11, 2026 — see below)
-- ✅ Attention entropy (implemented April 11, 2026 — see below)
-- ✅ BLEU/ROUGE generation quality scores (implemented April 11, 2026 — see below)
-- ✅ Batch padding efficiency (implemented April 11, 2026 — see below)
-
 ### TD-003: GPU Memory Management Optimization
 
-**Priority:** LOW
-**Status:** Optional Enhancement
-**Component:** GPU / Performance
-**Created:** January 28, 2026
+| Priority | Status | Component | Created |
+|----------|--------|-----------|---------|
+| LOW | Optional Enhancement | GPU / Performance | January 28, 2026 |
 
 Description:
 Current GPU implementation transfers data between CPU and GPU for each operation. For better performance with repeated GPU operations, persistent GPU memory buffers could be implemented.
@@ -177,11 +126,9 @@ Related:
 
 ### TD-006: Fill-in-the-Middle (FIM) Training Data Generation
 
-**Priority:** LOW
-**Status:** Planned
-**Component:** Training / Data Generation
-**Created:** February 17, 2026
-**Effort Estimate:** 6-8 hours
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Planned | Training / Data Generation | February 17, 2026 | 6-8 hours |
 
 Description:
 Current training data for Project Gutenberg books uses consecutive sentence pairs (question → answer). Adding Fill-in-the-Middle (FIM) style training where the model predicts a middle sentence given first and last sentences would improve narrative understanding and coherence.
@@ -242,61 +189,44 @@ Evaluation:
 
 ---
 
-### TD-007: Matrix Operations SIMD Acceleration
+## Resolved Items
 
-**Priority:** MEDIUM
-**Status:** Resolved
-**Component:** Performance / Matrix Operations
-**Created:** February 17, 2026
-**Resolved:** April 11, 2026
+### TD-013: Advanced Training Metrics and Outlier Detection
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| March 14, 2026 | Training / Service | Welford outlier detection, advanced epoch metrics, and activation/entropy/BLEU/padding sub-items |
 
 Description:
-Added explicit SIMD intrinsics (AVX2/FMA and ARM NEON) and optional BLAS (SGEMM) integration to all performance-critical `Matrix` operations, delivering 2-5x speedup over the previous scalar/OpenMP-only paths for compute-intensive workloads.
+Extended the training pipeline with comprehensive observability beyond basic loss and learning rate: throughput ratios, model optimization health signals, generative validation scoring (BLEU/ROUGE), and automated flagging of training samples with abnormally large loss or gradient variations.
 
 Changes Made:
 
-- ✅ Created `src/MatrixSIMD.hpp` — compile-time SIMD capability macros (`ADAI_SIMD_AVX2`, `ADAI_SIMD_FMA`, `ADAI_SIMD_NEON`), runtime `has_avx2()` / `has_fma()` CPUID detection, and `hsum256()` / `hsum128()` horizontal-reduction helpers.
-- ✅ Added `ENABLE_BLAS=ON` and `ENABLE_SIMD=ON` CMake options to top-level `CMakeLists.txt`.
-- ✅ Updated `src/CMakeLists.txt`:
-  - BLAS detection block: `find_package(BLAS)` + `find_path(CBLAS_INCLUDE_DIR cblas.h)` → sets `ADAI_ENABLE_BLAS` and links `${BLAS_LIBRARIES}` when both are present.
-  - SIMD flags block: `check_cxx_compiler_flag(-mavx2/-mfma)` → adds target-specific compile options to `adai_core` for non-Release builds (Release already gets them from `-march=native`).
-- ✅ `Matrix::operator*` — added BLAS SGEMM path (pack→`cblas_sgemm`→unpack) for matrices ≥ 256 in all dimensions; added AVX2/FMA `ikj`-order inner loop (processes 8 floats per FMA instruction) and NEON `vfmaq_f32` path; OpenMP and scalar paths preserved as fallbacks.
-- ✅ `Matrix::operator+` — AVX2 `_mm256_add_ps` / NEON `vaddq_f32` row-wise loop replacing the collapse-2 OpenMP loop; scalar remainder handles non-multiple-of-8 tails.
-- ✅ `Matrix::operator-` — AVX2 `_mm256_sub_ps` / NEON `vsubq_f32` row-wise loop.
-- ✅ `Matrix::scale()` — AVX2 `_mm256_mul_ps` / NEON `vmulq_f32` row-wise loop.
-- ✅ `Matrix::hadamard()` — AVX2 `_mm256_mul_ps` / NEON `vmulq_f32` element-wise loop.
-- ✅ `Matrix::apply_gradients()` — AVX2+FMA `_mm256_fmadd_ps(−lr, g, w)` / NEON `vfmsq_n_f32` fused multiply-subtract; falls back to separate mul+sub on AVX2 without FMA.
-- ✅ `Matrix::sum()` — AVX2 horizontal-reduction via `hsum256(_mm256)` accumulator / NEON `vaddvq_f32`; correct for any number of columns.
-- ✅ All SIMD paths include an `#ifdef ADAI_ENABLE_OPENMP` outer `#pragma omp parallel for` so thread-level and data-level parallelism compose.
-- ✅ Removed all TD-007 TODO comments from `src/Matrix.cpp`, `src/CMakeLists.txt`, and `CMakeLists.txt`.
-- ✅ Created `tests/matrix_simd_test.cpp` — 91 tests across 11 test suites: parameterised column widths (1–256 including all non-multiples-of-8), shapes, BLAS large-matrix path, CPU feature detection, edge cases, and numerical stability. All 91 tests pass.
-- ✅ Added `matrixSIMDTests` target to `tests/CMakeLists.txt`.
-
-Files Modified:
-
-- `src/MatrixSIMD.hpp` — New file
-- `src/Matrix.hpp` — `#include "MatrixSIMD.hpp"`
-- `src/Matrix.cpp` — BLAS + AVX2/FMA + NEON code paths for all six operations
-- `src/CMakeLists.txt` — BLAS detection + SIMD compiler flags; removed TD-007 TODOs
-- `CMakeLists.txt` — `ENABLE_BLAS` and `ENABLE_SIMD` options; removed TD-007 TODOs
-- `tests/matrix_simd_test.cpp` — New 91-test SIMD test suite
-- `tests/CMakeLists.txt` — `matrixSIMDTests` target
-
-Verification:
-
-- ✅ `cmake .. -DENABLE_SIMD=ON -DENABLE_BLAS=ON` reports "SIMD: AVX2 + FMA intrinsics enabled for adai_core"
-- ✅ All 91 `matrixSIMDTests` pass (AVX2+FMA active at runtime)
-- ✅ All 58 existing `matrixTests` pass — no regressions
+- ✅ Updated `TrainingMetricsSnapshot` to support additional floats (`gradient_variance`, `compute_time_ratio`, `weight_update_ratio`).
+- ✅ Added `AbnormalSample` struct with `epoch`, `sample_id`, `input_text`, `target_text`, `loss`, `grad_norm`, `reason`.
+- ✅ Added outlier config to `MetricsServiceConfig`: `loss_outlier_z_threshold`, `grad_norm_outlier_threshold`, `max_abnormal_samples`, `abnormal_samples_file`.
+- ✅ Implemented `flag_abnormal_sample()`, `get_abnormal_samples()`, `update_advanced_epoch_metrics()` on `TrainingMetricsService`.
+- ✅ Implemented `persist_abnormal_samples()` — writes flagged samples to `abnormal_samples.json` on every flag event.
+- ✅ Added `Optimizer::get_weight_norm()` to compute the L2 norm of all weight parameters.
+- ✅ Instrumented `ChatbotTrainer::train_epoch()` with:
+  - Welford online algorithm for per-step gradient norm variance.
+  - Per-step loss z-score outlier guard (triggers after ≥10 samples).
+  - Gradient-norm absolute outlier guard (`grad_norm_outlier_threshold`).
+  - Compute-time ratio tracking (forward+backward nanoseconds / epoch wall nanoseconds).
+  - Weight-update ratio computation: `(lr × ||g||₂) /||w||₂` averaged per epoch.
+- ✅ Added REST endpoint `GET /api/metrics/abnormal` to `TrainingMetricsAPI`.
+- ✅ Activation saturation tracking (implemented April 11, 2026 — see TD-013b).
+- ✅ Attention entropy (implemented April 11, 2026 — see TD-013b).
+- ✅ BLEU/ROUGE generation quality scores (implemented April 11, 2026 — see TD-016).
+- ✅ Batch padding efficiency (implemented April 11, 2026 — see TD-013b).
 
 ---
 
-## Resolved Items
-
 ### TD-013b: Batch Padding Efficiency Tracking
 
-**Resolution Date:** April 11, 2026
-**Component:** Training / Service / Metrics
-**Resolved By:** Per-window efficiency computation in `train_epoch()` + `TrainingMetricsService` integration
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| April 11, 2026 | Training / Service / Metrics | Per-window efficiency computation in `train_epoch()` + `TrainingMetricsService` integration |
 
 Summary:
 Implemented batch padding efficiency — the theoretical fraction of non-padding tokens per gradient-accumulation window — as the final deferred item from TD-013. Each gradient-accumulation window's input/target sequence lengths are collected and compared against their padded extent `(max_input_len + max_target_len) × window_size`. The epoch average is reported to `TrainingMetricsService`, exposed via REST, and displayed on the dashboard. When `gradient_accumulation_steps == 1` efficiency is trivially 1.0; with larger accumulation windows the metric reveals sequence-length mismatch within virtual batches.
@@ -340,9 +270,9 @@ Verification:
 
 ### TD-016: BLEU/ROUGE Generation Quality Scoring
 
-**Resolution Date:** April 11, 2026
-**Component:** Training / Service / Metrics
-**Resolved By:** Header-only `GenerationQualityEvaluator` with corpus BLEU-1/2/4 and macro-averaged ROUGE-1/2/L F1
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| April 11, 2026 | Training / Service / Metrics | Header-only `GenerationQualityEvaluator` with corpus BLEU-1/2/4 and macro-averaged ROUGE-1/2/L F1 |
 
 Summary:
 Implemented end-to-end BLEU and ROUGE generation quality scoring with no external library dependencies. Scoring is opt-in (`enable_generation_quality_metrics = false` by default) and runs on a configurable sub-sample of the validation set during each `validate()` call, calling `model->generate_response()` in eval mode.
@@ -394,20 +324,77 @@ Verification:
 
 ### TD-007: Matrix Operations SIMD Acceleration
 
-**Resolution Date:** April 11, 2026
-**Component:** Performance / Matrix Operations
-**Resolved By:** AVX2/FMA + NEON intrinsics and BLAS SGEMM integration across all Matrix operations
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| April 11, 2026 | Performance / Matrix Operations | AVX2/FMA + NEON intrinsics and BLAS SGEMM integration across all Matrix operations |
 
-Summary:
-All six performance-critical `Matrix` operations now have explicit SIMD fast paths. `operator*` uses AVX2+FMA `ikj`-order inner loops (8 floats per FMA) for general sizes and falls through to BLAS `cblas_sgemm` when all dimensions are ≥ 256 and libblas-dev is present. Element-wise operations (`operator+`, `operator-`, `hadamard()`, `scale()`) and gradient updates (`apply_gradients()`) all use unaligned AVX2 loads/stores with scalar tails for any column count. `sum()` uses a `hsum256` horizontal-reduction helper. ARM NEON paths provide 4-wide equivalents on ARM64. All SIMD paths compose with OpenMP thread parallelism via `#pragma omp parallel for`. 91 new SIMD-specific tests pass. See active entry above for the full change list.
+Description:
+Added explicit SIMD intrinsics (AVX2/FMA and ARM NEON) and optional BLAS (SGEMM) integration to all performance-critical `Matrix` operations, delivering 2-5x speedup over the previous scalar/OpenMP-only paths for compute-intensive workloads.
+
+Changes Made:
+
+- ✅ Created `src/MatrixSIMD.hpp` — compile-time SIMD capability macros (`ADAI_SIMD_AVX2`, `ADAI_SIMD_FMA`, `ADAI_SIMD_NEON`), runtime `has_avx2()` / `has_fma()` CPUID detection, and `hsum256()` / `hsum128()` horizontal-reduction helpers.
+- ✅ Added `ENABLE_BLAS=ON` and `ENABLE_SIMD=ON` CMake options to top-level `CMakeLists.txt`.
+- ✅ Updated `src/CMakeLists.txt`:
+  - BLAS detection block: `find_package(BLAS)` + `find_path(CBLAS_INCLUDE_DIR cblas.h)` → sets `ADAI_ENABLE_BLAS` and links `${BLAS_LIBRARIES}` when both are present.
+  - SIMD flags block: `check_cxx_compiler_flag(-mavx2/-mfma)` → adds target-specific compile options to `adai_core` for non-Release builds (Release already gets them from `-march=native`).
+- ✅ `Matrix::operator*` — added BLAS SGEMM path (pack→`cblas_sgemm`→unpack) for matrices ≥ 256 in all dimensions; added AVX2/FMA `ikj`-order inner loop (processes 8 floats per FMA instruction) and NEON `vfmaq_f32` path; OpenMP and scalar paths preserved as fallbacks.
+- ✅ `Matrix::operator+` — AVX2 `_mm256_add_ps` / NEON `vaddq_f32` row-wise loop replacing the collapse-2 OpenMP loop; scalar remainder handles non-multiple-of-8 tails.
+- ✅ `Matrix::operator-` — AVX2 `_mm256_sub_ps` / NEON `vsubq_f32` row-wise loop.
+- ✅ `Matrix::scale()` — AVX2 `_mm256_mul_ps` / NEON `vmulq_f32` row-wise loop.
+- ✅ `Matrix::hadamard()` — AVX2 `_mm256_mul_ps` / NEON `vmulq_f32` element-wise loop.
+- ✅ `Matrix::apply_gradients()` — AVX2+FMA `_mm256_fmadd_ps(−lr, g, w)` / NEON `vfmsq_n_f32` fused multiply-subtract; falls back to separate mul+sub on AVX2 without FMA.
+- ✅ `Matrix::sum()` — AVX2 horizontal-reduction via `hsum256(_mm256)` accumulator / NEON `vaddvq_f32`; correct for any number of columns.
+- ✅ All SIMD paths include an `#ifdef ADAI_ENABLE_OPENMP` outer `#pragma omp parallel for` so thread-level and data-level parallelism compose.
+- ✅ Removed all TD-007 TODO comments from `src/Matrix.cpp`, `src/CMakeLists.txt`, and `CMakeLists.txt`.
+- ✅ Created `tests/matrix_simd_test.cpp` — 91 tests across 11 test suites: parameterised column widths (1–256 including all non-multiples-of-8), shapes, BLAS large-matrix path, CPU feature detection, edge cases, and numerical stability. All 91 tests pass.
+- ✅ Added `matrixSIMDTests` target to `tests/CMakeLists.txt`.
+
+Files Modified:
+
+- `src/MatrixSIMD.hpp` — New file
+- `src/Matrix.hpp` — `#include "MatrixSIMD.hpp"`
+- `src/Matrix.cpp` — BLAS + AVX2/FMA + NEON code paths for all six operations
+- `src/CMakeLists.txt` — BLAS detection + SIMD compiler flags; removed TD-007 TODOs
+- `CMakeLists.txt` — `ENABLE_BLAS` and `ENABLE_SIMD` options; removed TD-007 TODOs
+- `tests/matrix_simd_test.cpp` — New 91-test SIMD test suite
+- `tests/CMakeLists.txt` — `matrixSIMDTests` target
+
+Verification:
+
+- ✅ `cmake .. -DENABLE_SIMD=ON -DENABLE_BLAS=ON` reports "SIMD: AVX2 + FMA intrinsics enabled for adai_core"
+- ✅ All 91 `matrixSIMDTests` pass (AVX2+FMA active at runtime)
+- ✅ All 58 existing `matrixTests` pass — no regressions
+
+---
+
+### TD-015: Validation Metrics Integration
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| March 14, 2026 | Training / Service | Extended `TrainingMetricsService` with validation perplexity and accuracy tracking |
+
+Description:
+Previously, the training pipeline tracked metrics during training passes but lacked granular, systematized metric tracking for the validation phase. Validation metrics are now fully integrated into `TrainingMetricsService` and the dashboard, providing better insights into model generalization and enabling early detection of over-fitting. Proposal: `docs/proposals/VALIDATION_METRICS_PROPOSAL.md`.
+
+Changes Made:
+
+- ✅ Extended `TrainingMetricsSnapshot` with `current_validation_perplexity`, `current_validation_accuracy`, `epoch_validation_perplexities`, and `epoch_validation_accuracies`.
+- ✅ Updated `update_validation_metrics()` signature to accept `validation_loss`, `validation_accuracy` (default `-1.0`), and `validation_perplexity` (default `0` = auto-derived from loss).
+- ✅ `end_epoch()` now copies the current validation perplexity and accuracy into the per-epoch history vectors.
+- ✅ `to_json()` now emits `current_validation_perplexity` and `current_validation_accuracy` in the API response.
+- ✅ `ChatbotTrainer::validate()` now calls `update_validation_metrics(val_loss, -1.0f, val_perplexity)` — passes computed perplexity.
+- ✅ `TrainingMetricsAPI::handle_post_validation_metrics()` parses `validation_accuracy` and `validation_perplexity` from the POST body.
+- ✅ `handle_epoch_metrics()` returns `epoch_validation_perplexities` and `epoch_validation_accuracies` arrays.
+- ✅ `dashboard.html`: added "Val Perplexity" and "Val Accuracy" metric cards; perplexity chart now shows both training and validation perplexity curves with distinct colors; `metricsHistory` and `addToHistory()` extended to track `validationPerplexities`.
 
 ---
 
 ### TD-012: Increase Test Coverage
 
-**Resolution Date:** March 1, 2026
-**Component:** Code Quality / Testing
-**Resolved By:** Comprehensive test suite implementation for all components
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| March 1, 2026 | Code Quality / Testing | Comprehensive test suite implementation for all components |
 
 Summary:
 Achieved ~100% test coverage of all testable code components (excluding GUI and legacy entry points). Implemented dedicated test suites for all major subsystems including Config, Logger, Trainer, and Inference Engines.
@@ -437,9 +424,9 @@ Coverage Stats:
 
 ### TD-011: File Rotation and Management
 
-**Resolution Date:** March 1, 2026
-**Component:** Logging and Observability
-**Resolved By:** Integrated spdlog rotating file sink
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| March 1, 2026 | Logging and Observability | Integrated spdlog rotating file sink |
 
 Summary:
 Implemented production-grade log rotation to prevent infinite log growth. Logs are now automatically rotated based on size and count configuration.
@@ -469,9 +456,9 @@ Files Modified:
 
 ### TD-010: Configuration Hot-Reloading
 
-**Resolution Date:** March 1, 2026
-**Component:** Configuration and Service Management
-**Resolved By:** Implemented SIGHUP handler and thread-safe config updates
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| March 1, 2026 | Configuration and Service Management | Implemented SIGHUP handler and thread-safe config updates |
 
 Summary:
 Implemented zero-downtime configuration reloading using SIGHUP signals. This allows changing log levels, timeouts, and other parameters without restarting the service.
@@ -495,9 +482,9 @@ Files Modified:
 
 ### TD-009: Incremental Trainer Dashboard and Structured Logging
 
-**Resolution Date:** March 2, 2026
-**Component:** Training / IncrementalTrainer / Observability
-**Resolved By:** Full implementation of Logger integration, per-epoch metric collection, in-place CLI dashboard, v2 session history serialization, and test coverage
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| March 2, 2026 | Training / IncrementalTrainer / Observability | Full implementation of Logger integration, per-epoch metric collection, in-place CLI dashboard, v2 session history serialization, and test coverage |
 
 Summary:
 Replaced all unstructured `std::cout`/`std::cerr` output in `IncrementalTrainer` with structured `Logger` calls, implemented a real-time in-place CLI dashboard that redraws after every epoch using ANSI cursor movement, and added complete per-epoch metric collection and persistence. Absorbed the scope of TD-004.
@@ -543,9 +530,9 @@ Verification:
 
 ### TD-004: Enhanced Metrics Tracking for Training Sessions
 
-**Resolution Date:** March 2, 2026
-**Component:** Training / IncrementalTrainer
-**Resolved By:** Absorbed and fully implemented as part of TD-009
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| March 2, 2026 | Training / IncrementalTrainer | Absorbed and fully implemented as part of TD-009 |
 
 Summary:
 All core implementation tasks from TD-004 were completed as part of the TD-009 implementation. The `TrainingSession` struct now carries four per-epoch vectors; `ChatbotTrainer` exposes per-epoch data via `EpochCallback`; session history serialization (`save_session_history` / `load_session_history`) uses a v2 format that persists and reloads these vectors; and `print_training_summary` renders Unicode sparklines for visual trend analysis. The 55 granular TODO comments that were seeded across the codebase have all been removed.
@@ -565,9 +552,9 @@ Tasks Completed:
 
 ### TD-008: Daemon Service Implementation (Steps 1-5)
 
-**Resolution Date:** March 1, 2026
-**Component:** Service Management / Production Deployment
-**Resolved By:** Complete 5-step daemon service transformation
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| March 1, 2026 | Service Management / Production Deployment | Complete 5-step daemon service transformation |
 
 Summary:
 Successfully transformed the ADAI Chatbot API Server from a development application into a production-ready daemon service. Implemented external configuration, graceful shutdown, structured logging, Docker deployment, and systemd integration following a comprehensive 5-step plan.
@@ -698,9 +685,9 @@ See [Future Improvements](#configuration-and-service-management) section for enh
 
 ### TD-005: Checkpoint Management and Symbolic Links
 
-**Resolution Date:** February 18, 2026
-**Component:** Training / IncrementalTrainer
-**Resolved By:** Complete symlink management implementation with cross-platform support
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| February 18, 2026 | Training / IncrementalTrainer | Complete symlink management implementation with cross-platform support |
 
 Summary:
 Implemented automatic checkpoint symlink management to provide easy access to "latest" and "best" model checkpoints. The system creates and maintains symbolic links (or file copies on Windows) that always point to the most recent checkpoint and the checkpoint with the lowest validation loss.
@@ -782,9 +769,9 @@ Testing:
 
 ### TD-002: Improve Error Handling in BPE Tokenizer
 
-**Resolution Date:** January 28, 2026
-**Component:** NLP / Tokenization
-**Resolved By:** Comprehensive error handling implementation
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| January 28, 2026 | NLP / Tokenization | Comprehensive error handling implementation |
 
 Summary:
 Implemented robust error handling and validation for the BPE tokenizer, including custom exception types, UTF-8 validation, input validation, and vocabulary file format validation.
@@ -842,9 +829,9 @@ All 27 tests pass, validating:
 
 ### TD-001: Complete Optimizer Parameter Exposure
 
-**Resolution Date:** January 28, 2026
-**Component:** Optimizer Integration
-**Resolved By:** Complete parameter registration implementation
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| January 28, 2026 | Optimizer Integration | Complete parameter registration implementation |
 
 Summary:
 Successfully completed parameter exposure for all model components. The optimizer now fully manages all model parameters through the centralized `optimizer->step()` mechanism.
