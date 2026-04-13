@@ -671,9 +671,9 @@ The `ConversationContext` maintains a `deque<Message>` with role-based tracking 
 >
 > After reading this chapter, you will be able to:
 >
-> - Configure the build for GPU, OpenMP, or BLAS acceleration.
-> - Identify which OpenMP pragmas are used and the performance gains they provide.
-> - Explain the planned BLAS integration and why it targets matrices larger than 256×256.
+> - Configure the build for GPU, OpenMP, SIMD, or BLAS acceleration.
+> - Identify which OpenMP pragmas and SIMD intrinsic paths are used and the performance gains they provide.
+> - Explain the BLAS SGEMM integration and why it targets matrices larger than 256×256.
 
 Performance acceleration in ADAI is entirely optional and does not alter the mathematical correctness of any computation. Each feature is detected or enabled at CMake configure time and guarded by preprocessor macros at compile time.
 
@@ -694,36 +694,63 @@ GPU-specific code is isolated behind the preprocessor guard `ADAI_ENABLE_GPU` an
 
 The default target list `60 61 70 75 80 86` can be overridden at configure time with `-DCMAKE_CUDA_ARCHITECTURES`.
 
-### 9.2 OpenMP Parallel Processing
+### 9.2 OpenMP and SIMD Parallel Processing
 
 OpenMP support is detected automatically by CMake via `find_package(OpenMP)`. When found, `adai_core` is linked against `OpenMP::OpenMP_CXX` and the compile definition `ADAI_ENABLE_OPENMP` is set. No explicit option flag is required.
 
-The primary beneficiary is matrix multiplication, where OpenMP provides two levels of parallelism:
+SIMD intrinsic support is opt-in via `-DENABLE_SIMD=ON`. Runtime CPU feature detection (`has_avx2()` / `has_fma()`) selects the appropriate code path at startup. Capability macros (`ADAI_SIMD_AVX2`, `ADAI_SIMD_FMA`, `ADAI_SIMD_NEON`) and horizontal-reduction helpers (`hsum256()` / `hsum128()`) are defined in `src/MatrixSIMD.hpp`.
+
+The two acceleration layers compose: all SIMD inner loops are wrapped in an `#ifdef ADAI_ENABLE_OPENMP` outer `#pragma omp parallel for`, so thread-level and data-level parallelism are active simultaneously.
+
+**OpenMP parallelism** applies to matrix multiplication:
 
 1. **Outer loop parallelism** — `#pragma omp parallel for collapse(2) schedule(dynamic, 32)` distributes row-column pairs across CPU cores. Active for matrices larger than 64×64.
 2. **Inner loop vectorization** — `#pragma omp simd reduction(+:sum)` instructs the compiler to emit SIMD instructions for the dot product accumulation.
 
-The combined effect yields a reported **5–8× speedup** over the sequential fallback on multi-core CPUs.
+**Explicit SIMD intrinsics** accelerate all six performance-critical `Matrix` operations:
 
-### 9.3 BLAS Integration (Planned — TD-007)
+| Operation | AVX2/FMA path | ARM NEON path |
+| --- | --- | --- |
+| `operator*` | `ikj`-order loop, 8 floats per FMA instruction | `vfmaq_f32` |
+| `operator+` | `_mm256_add_ps` row-wise loop | `vaddq_f32` |
+| `operator-` | `_mm256_sub_ps` row-wise loop | `vsubq_f32` |
+| `scale()` | `_mm256_mul_ps` row-wise loop | `vmulq_f32` |
+| `hadamard()` | `_mm256_mul_ps` element-wise loop | `vmulq_f32` |
+| `apply_gradients()` | `_mm256_fmadd_ps(−lr, g, w)` fused multiply-subtract | `vfmsq_n_f32` |
+| `sum()` | horizontal reduction via `hsum256()` | `vaddvq_f32` |
 
-> **Note:** BLAS integration is planned but not yet implemented. The relevant CMake changes and integration points are tracked as technical debt item TD-007.
+All SIMD paths include scalar remainder loops to handle column widths that are not multiples of 8 (AVX2) or 4 (NEON). The combined effect of OpenMP and SIMD yields a reported **5–8× speedup** over the sequential fallback on multi-core CPUs.
 
-For matrices larger than 256×256, optimized BLAS General Matrix Multiply (GEMM) routines from OpenBLAS, Intel MKL, or Apple Accelerate would substantially outperform the current hand-written implementation. The planned mechanism is:
+### 9.3 BLAS Integration
 
-- A `cmake/FindBLAS.cmake` module to detect available BLAS installations.
-- A new `-DENABLE_BLAS=ON` CMake option linking `adai_core` against the detected `BLAS_LIBRARIES`.
-- A compile definition `ADAI_ENABLE_BLAS` guarding the BLAS code path in `Matrix.cpp`.
+BLAS SGEMM integration is opt-in via `-DENABLE_BLAS=ON`. CMake runs `find_package(BLAS)` and `find_path(CBLAS_INCLUDE_DIR cblas.h)` to detect any compatible installation (OpenBLAS, Intel MKL, Apple Accelerate). When both are found, `adai_core` is linked against `${BLAS_LIBRARIES}` and the compile definition `ADAI_ENABLE_BLAS` is set.
+
+For matrices where all three dimensions (rows of A, columns of B, and the shared inner dimension) are at least 256, `Matrix::operator*` routes through `cblas_sgemm` instead of the hand-written loop. The implementation packs the row-major `Matrix` data, calls `cblas_sgemm`, and unpacks the result — no changes to callers are required. For smaller matrices the AVX2/FMA or NEON paths remain active.
+
+The key integration points are:
+
+- `src/CMakeLists.txt` — BLAS detection block sets `ADAI_ENABLE_BLAS` and links `${BLAS_LIBRARIES}`.
+- `src/Matrix.cpp` — `#ifdef ADAI_ENABLE_BLAS` guard around the `cblas_sgemm` path in `operator*`.
+- `-DENABLE_BLAS=ON` CMake option at the top-level `CMakeLists.txt`.
 
 ### Summary
 
-Three acceleration layers are available: CUDA GPU operations (opt-in, `-DENABLE_GPU=ON`), OpenMP multi-core and SIMD parallelism (auto-detected), and BLAS GEMM integration (planned). All fall back gracefully to the sequential C++ implementation when not available.
+Four acceleration layers are available: CUDA GPU operations (opt-in, `-DENABLE_GPU=ON`), OpenMP multi-core parallelism (auto-detected), explicit SIMD intrinsics for AVX2/FMA and ARM NEON (opt-in, `-DENABLE_SIMD=ON`), and BLAS SGEMM integration (opt-in, `-DENABLE_BLAS=ON`). All fall back gracefully to the sequential C++ implementation when not available. OpenMP and SIMD compose — SIMD inner loops are wrapped in OpenMP parallel regions when both are active.
+
+### Key Terms
+
+- **SIMD (Single Instruction, Multiple Data)** — A CPU parallelism model that applies one instruction to multiple data elements simultaneously; AVX2 processes 8 floats per cycle, NEON processes 4.
+- **FMA (Fused Multiply-Add)** — A single instruction computing $a \times b + c$ with one rounding step, improving both throughput and numerical accuracy.
+- **BLAS SGEMM** — The single-precision General Matrix Multiply routine from the BLAS standard; highly optimized by vendors for large matrix workloads.
+- **`MatrixSIMD.hpp`** — Header defining compile-time capability macros, runtime CPUID detection, and horizontal-reduction helpers for SIMD code paths.
 
 ### Review Questions
 
 1. Which preprocessor macro enables GPU-specific code paths, and in which header is it consumed?
 2. Why is the OpenMP parallel-for pragma conditional on matrix dimensions greater than 64×64?
-3. Why is BLAS targeted specifically at matrices larger than 256×256 rather than all matrices?
+3. Why is BLAS targeted specifically at matrices where all dimensions are at least 256 rather than all matrices?
+4. What is the role of `MatrixSIMD.hpp`, and what two runtime detection functions does it provide?
+5. How do OpenMP and SIMD intrinsics compose in the matrix operations implementation?
 
 ---
 
