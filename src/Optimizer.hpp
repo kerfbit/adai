@@ -181,6 +181,20 @@ class Optimizer {
     float clip_gradients(float max_norm);
 
     /**
+     * @brief Clip gradients using an already-computed global norm.
+     *
+     * Use this overload when the caller has already traversed all parameters
+     * to compute the gradient norm (e.g. for NaN detection) and wants to avoid
+     * a second full traversal.  The supplied @p precomputed_norm is used as the
+     * denominator for the clip coefficient; no re-computation is performed.
+     *
+     * @param max_norm          Maximum allowed gradient norm
+     * @param precomputed_norm  Gradient norm already computed by the caller
+     * @return                  @p precomputed_norm (unchanged)
+     */
+    float clip_gradients(float max_norm, float precomputed_norm);
+
+    /**
      * @brief Perform optimization step
      *
      * Updates all parameters based on their gradients using

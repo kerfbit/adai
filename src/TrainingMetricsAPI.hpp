@@ -110,6 +110,7 @@ private:
     std::string handle_post_validation_metrics(const std::string& body);
     std::string handle_post_best_metrics(const std::string& body);
     std::string handle_post_advanced_metrics(const std::string& body);
+    std::string handle_post_generation_quality_metrics(const std::string& body);  // TD-016
     
     // Helper functions
     std::string create_error_response(const std::string& error_message) const;

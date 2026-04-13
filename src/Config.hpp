@@ -167,6 +167,19 @@ struct ServiceConfig {
     bool metrics_api_allow_control = true;
 
     // ============================================================
+    // Generation Quality Metrics Configuration
+    // ============================================================
+
+    /// Enable BLEU/ROUGE generation quality scoring during validation (default: false)
+    bool enable_generation_quality_metrics = false;
+
+    /// Number of validation samples to score per epoch (default: 10)
+    int generation_quality_sample_size = 10;
+
+    /// Max tokens per generate_response() call during scoring (default: 50)
+    int generation_quality_max_tokens = 50;
+
+    // ============================================================
     // RAG Configuration
     // ============================================================
 

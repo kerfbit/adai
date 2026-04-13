@@ -191,7 +191,8 @@ public:
     // Epoch lifecycle
     void start_epoch(int epoch, int total_samples = 0);
     void end_epoch(int epoch, float loss, float validation_loss, float learning_rate,
-                   float perplexity = 0.0f, float gradient_norm = 0.0f);
+                   float perplexity = 0.0f, float gradient_norm = 0.0f,
+                   double epoch_time_seconds = 0.0);
     
     // Real-time updates (called from training callbacks)
     void update_sample_metrics(int sample, float loss, float gradient_norm, float learning_rate);
@@ -294,6 +295,7 @@ private:
     std::chrono::steady_clock::time_point epoch_start_steady_;
     
     // Private helpers
+    void restore_from_summary();  // Restore snapshot from persisted summary file on startup
     void persist_metrics();
     void persist_summary();
     void persist_prometheus();

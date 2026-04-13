@@ -103,6 +103,7 @@ Response:
 ```
 
 **Field notes:**
+
 - `current_validation_perplexity` — validation perplexity for the current epoch (TD-015). `0.0` if not yet computed.
 - `current_validation_accuracy` — token-level validation accuracy (TD-015). `-1.0` if not computed (requires explicit `update_validation_metrics()` call with an accuracy value).
 - `current_bleu4`, `current_rouge1`, `current_rouge2`, `current_rougeL` — generation quality scores (TD-016). All default to `-1.0` when `enable_generation_quality_metrics = false` or before the first scored epoch.
@@ -324,6 +325,7 @@ Response:
 ```
 
 **Field notes:**
+
 - `epoch_validation_perplexities` — validation perplexity recorded at the end of each epoch (TD-015).
 - `epoch_validation_accuracies` — token-level validation accuracy per epoch (TD-015). `-1.0` entries indicate epochs where accuracy was not computed.
 

@@ -31,8 +31,12 @@ TrainingMetricsService::TrainingMetricsService(const MetricsServiceConfig& confi
         if (metrics_path.has_parent_path()) {
             fs::create_directories(metrics_path.parent_path());
         }
+        // Restore snapshot from last persisted summary (survives restarts)
+        if (fs::exists(config_.summary_file)) {
+            restore_from_summary();
+        }
     }
-    
+
     adai::Logger::info("TrainingMetricsService initialized");
 }
 
@@ -151,18 +155,25 @@ void TrainingMetricsService::start_epoch(int epoch, int total_samples) {
 }
 
 void TrainingMetricsService::end_epoch(int epoch, float loss, float validation_loss,
-                                       float learning_rate, float perplexity, float gradient_norm) {
+                                       float learning_rate, float perplexity, float gradient_norm,
+                                       double epoch_time_seconds) {
     std::string push_json;
     bool should_push = false;
     float stored_perplexity = 0.0f;
     {
     std::lock_guard<std::mutex> lock(mutex_);
     
-    // Calculate epoch duration
-    auto now = std::chrono::steady_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-        now - epoch_start_steady_);
-    double epoch_time = duration.count() / 1000.0;
+    // Calculate epoch duration — use caller-provided value if available (avoids
+    // double-measurement when the API server receives a push from the trainer).
+    double epoch_time;
+    if (epoch_time_seconds > 0.0) {
+        epoch_time = epoch_time_seconds;
+    } else {
+        auto now = std::chrono::steady_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - epoch_start_steady_);
+        epoch_time = duration.count() / 1000.0;
+    }
     
     // Update epoch history
     current_snapshot_.epoch_losses.push_back(loss);
@@ -234,6 +245,7 @@ void TrainingMetricsService::end_epoch(int epoch, float loss, float validation_l
                  << ",\"learning_rate\":" << learning_rate
                  << ",\"perplexity\":" << stored_perplexity
                  << ",\"gradient_norm\":" << gradient_norm
+                 << ",\"epoch_time\":" << epoch_time
                  << ",\"gradient_variance\":" << current_snapshot_.gradient_variance
                  << ",\"compute_time_ratio\":" << current_snapshot_.compute_time_ratio
                  << ",\"weight_update_ratio\":" << current_snapshot_.weight_update_ratio
@@ -703,6 +715,102 @@ void TrainingMetricsService::persist_prometheus_with_data(const std::string& pro
     }
 }
 
+void TrainingMetricsService::restore_from_summary() {
+    // Restore current_snapshot_ from the persisted summary JSON.
+    // Called at construction before any lock is needed.
+    try {
+        std::ifstream f(config_.summary_file);
+        if (!f.is_open()) return;
+        std::string json((std::istreambuf_iterator<char>(f)),
+                          std::istreambuf_iterator<char>());
+        f.close();
+
+        // Parse a scalar float value following "key":
+        auto parse_float = [&](const std::string& key, float fallback) -> float {
+            auto pos = json.find("\"" + key + "\"");
+            if (pos == std::string::npos) return fallback;
+            pos = json.find(':', pos);
+            if (pos == std::string::npos) return fallback;
+            try { return std::stof(json.substr(pos + 1)); } catch (...) { return fallback; }
+        };
+        auto parse_int = [&](const std::string& key, int fallback) -> int {
+            auto pos = json.find("\"" + key + "\"");
+            if (pos == std::string::npos) return fallback;
+            pos = json.find(':', pos);
+            if (pos == std::string::npos) return fallback;
+            try { return std::stoi(json.substr(pos + 1)); } catch (...) { return fallback; }
+        };
+        auto parse_double = [&](const std::string& key, double fallback) -> double {
+            auto pos = json.find("\"" + key + "\"");
+            if (pos == std::string::npos) return fallback;
+            pos = json.find(':', pos);
+            if (pos == std::string::npos) return fallback;
+            try { return std::stod(json.substr(pos + 1)); } catch (...) { return fallback; }
+        };
+        auto parse_float_array = [&](const std::string& key) -> std::vector<float> {
+            std::vector<float> result;
+            auto pos = json.find("\"" + key + "\"");
+            if (pos == std::string::npos) return result;
+            auto lb = json.find('[', pos);
+            auto rb = json.find(']', lb);
+            if (lb == std::string::npos || rb == std::string::npos) return result;
+            std::istringstream ss(json.substr(lb + 1, rb - lb - 1));
+            std::string token;
+            while (std::getline(ss, token, ',')) {
+                try { result.push_back(std::stof(token)); } catch (...) {}
+            }
+            return result;
+        };
+        auto parse_double_array = [&](const std::string& key) -> std::vector<double> {
+            std::vector<double> result;
+            auto pos = json.find("\"" + key + "\"");
+            if (pos == std::string::npos) return result;
+            auto lb = json.find('[', pos);
+            auto rb = json.find(']', lb);
+            if (lb == std::string::npos || rb == std::string::npos) return result;
+            std::istringstream ss(json.substr(lb + 1, rb - lb - 1));
+            std::string token;
+            while (std::getline(ss, token, ',')) {
+                try { result.push_back(std::stod(token)); } catch (...) {}
+            }
+            return result;
+        };
+
+        int session_id = parse_int("session_id", 0);
+        current_session_id_   = session_id;
+        current_snapshot_.session_id                   = session_id;
+        current_snapshot_.total_samples_trained        = parse_int("total_samples_trained", 0);
+        current_snapshot_.total_training_time_seconds  = parse_double("total_training_time_seconds", 0.0);
+        current_snapshot_.best_validation_loss         = parse_float("best_validation_loss",
+                                                                      std::numeric_limits<float>::max());
+        current_snapshot_.best_epoch                   = parse_int("best_epoch", 0);
+
+        current_snapshot_.epoch_losses                 = parse_float_array("epoch_losses");
+        current_snapshot_.epoch_validation_losses      = parse_float_array("epoch_validation_losses");
+        current_snapshot_.epoch_learning_rates         = parse_float_array("epoch_learning_rates");
+        current_snapshot_.epoch_perplexities           = parse_float_array("epoch_perplexities");
+        current_snapshot_.epoch_durations              = parse_double_array("epoch_durations");
+
+        current_snapshot_.current_bleu4   = parse_float("current_bleu4",  -1.0f);
+        current_snapshot_.current_rouge1  = parse_float("current_rouge1", -1.0f);
+        current_snapshot_.current_rouge2  = parse_float("current_rouge2", -1.0f);
+        current_snapshot_.current_rougeL  = parse_float("current_rougeL", -1.0f);
+        current_snapshot_.epoch_bleu4     = parse_float_array("epoch_bleu4");
+        current_snapshot_.epoch_rouge1    = parse_float_array("epoch_rouge1");
+        current_snapshot_.epoch_rouge2    = parse_float_array("epoch_rouge2");
+        current_snapshot_.epoch_rougeL    = parse_float_array("epoch_rougeL");
+
+        // Current epoch = number of completed epoch records
+        current_snapshot_.current_epoch = static_cast<int>(current_snapshot_.epoch_losses.size());
+
+        adai::Logger::info("Metrics state restored from '{}' (session={}, epochs={})",
+                           config_.summary_file, session_id,
+                           current_snapshot_.epoch_losses.size());
+    } catch (const std::exception& e) {
+        adai::Logger::warn("Could not restore metrics snapshot: {}", e.what());
+    }
+}
+
 std::string TrainingMetricsService::to_json_summary_internal() const {
     // Caller must hold mutex_ lock
     std::ostringstream oss;
@@ -750,8 +858,42 @@ std::string TrainingMetricsService::to_json_summary_internal() const {
         if (i > 0) oss << ", ";
         oss << current_snapshot_.epoch_durations[i];
     }
+    oss << "],\n";
+
+    // Generation quality scalars (TD-016)
+    oss << "  \"current_bleu4\": "  << current_snapshot_.current_bleu4  << ",\n";
+    oss << "  \"current_rouge1\": " << current_snapshot_.current_rouge1 << ",\n";
+    oss << "  \"current_rouge2\": " << current_snapshot_.current_rouge2 << ",\n";
+    oss << "  \"current_rougeL\": " << current_snapshot_.current_rougeL << ",\n";
+
+    oss << "  \"epoch_bleu4\": [";
+    for (size_t i = 0; i < current_snapshot_.epoch_bleu4.size(); i++) {
+        if (i > 0) oss << ", ";
+        oss << current_snapshot_.epoch_bleu4[i];
+    }
+    oss << "],\n";
+
+    oss << "  \"epoch_rouge1\": [";
+    for (size_t i = 0; i < current_snapshot_.epoch_rouge1.size(); i++) {
+        if (i > 0) oss << ", ";
+        oss << current_snapshot_.epoch_rouge1[i];
+    }
+    oss << "],\n";
+
+    oss << "  \"epoch_rouge2\": [";
+    for (size_t i = 0; i < current_snapshot_.epoch_rouge2.size(); i++) {
+        if (i > 0) oss << ", ";
+        oss << current_snapshot_.epoch_rouge2[i];
+    }
+    oss << "],\n";
+
+    oss << "  \"epoch_rougeL\": [";
+    for (size_t i = 0; i < current_snapshot_.epoch_rougeL.size(); i++) {
+        if (i > 0) oss << ", ";
+        oss << current_snapshot_.epoch_rougeL[i];
+    }
     oss << "]\n";
-    
+
     oss << "}";
     
     return oss.str();

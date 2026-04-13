@@ -247,6 +247,18 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> m
             res.status = 400;
         }
     });
+
+    // POST /api/metrics/generation-quality - Update BLEU/ROUGE scores (TD-016)
+    server_impl_->server.Post("/api/metrics/generation-quality", [this](const httplib::Request& req, httplib::Response& res) {
+        try {
+            std::string response = handle_post_generation_quality_metrics(req.body);
+            res.set_content(response, "application/json");
+            res.status = 200;
+        } catch (const std::exception& e) {
+            res.set_content(create_error_response(e.what()), "application/json");
+            res.status = 400;
+        }
+    });
     
     // Control endpoints (if enabled)
     if (allow_control_) {
@@ -799,6 +811,15 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& body) {
     float activation_saturation_ratio = -1.0f;
     float attention_entropy = -1.0f;
     float current_padding_efficiency = -1.0f;
+    double epoch_time = 0.0;
+
+    pos = body.find("\"epoch_time\"");
+    if (pos != std::string::npos) {
+        pos = body.find(':', pos);
+        if (pos != std::string::npos) {
+            epoch_time = std::stod(body.substr(pos + 1));
+        }
+    }
 
     pos = body.find("\"activation_saturation_ratio\"");
     if (pos != std::string::npos) {
@@ -824,7 +845,7 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& body) {
         }
     }
 
-    metrics_service_->end_epoch(epoch, loss, validation_loss, learning_rate, perplexity, gradient_norm);
+    metrics_service_->end_epoch(epoch, loss, validation_loss, learning_rate, perplexity, gradient_norm, epoch_time);
     if (gradient_variance != 0.0f || compute_time_ratio != 0.0f || weight_update_ratio != 0.0f) {
         metrics_service_->update_advanced_epoch_metrics(gradient_variance, compute_time_ratio, weight_update_ratio);
     }
@@ -943,6 +964,38 @@ std::string TrainingMetricsAPI::handle_post_best_metrics(const std::string& body
     
     metrics_service_->update_best_metrics(validation_loss, epoch);
     
+    return "{\"status\":\"ok\"}";
+}
+
+std::string TrainingMetricsAPI::handle_post_generation_quality_metrics(const std::string& body) {
+    // Parse JSON body: {"bleu4": float, "rouge1": float, "rouge2": float, "rougeL": float}
+    float bleu4  = -1.0f;
+    float rouge1 = -1.0f;
+    float rouge2 = -1.0f;
+    float rougeL = -1.0f;
+
+    size_t pos = body.find("\"bleu4\"");
+    if (pos != std::string::npos) {
+        pos = body.find(':', pos);
+        if (pos != std::string::npos) bleu4 = std::stof(body.substr(pos + 1));
+    }
+    pos = body.find("\"rouge1\"");
+    if (pos != std::string::npos) {
+        pos = body.find(':', pos);
+        if (pos != std::string::npos) rouge1 = std::stof(body.substr(pos + 1));
+    }
+    pos = body.find("\"rouge2\"");
+    if (pos != std::string::npos) {
+        pos = body.find(':', pos);
+        if (pos != std::string::npos) rouge2 = std::stof(body.substr(pos + 1));
+    }
+    pos = body.find("\"rougeL\"");
+    if (pos != std::string::npos) {
+        pos = body.find(':', pos);
+        if (pos != std::string::npos) rougeL = std::stof(body.substr(pos + 1));
+    }
+
+    metrics_service_->update_generation_quality_metrics(bleu4, rouge1, rouge2, rougeL);
     return "{\"status\":\"ok\"}";
 }
 

@@ -25,7 +25,7 @@
         settingsOpen:    false,
         pollTimer:       null,
         retryCount:      0,
-        maxRetry:        10,
+        maxRetry:        10,   // after this many failures, slow-poll at 5 s but keep trying
         currentMetrics:  null,
         epochLosses:     [],
         epochValLosses:  [],
@@ -531,6 +531,7 @@
 
         Promise.all([p1, p2])
             .then(function(results) {
+                var wasSlowPolling = State.retryCount >= State.maxRetry;
                 State.retryCount = 0;
                 State.connected  = true;
                 setConnected('connected', 'Connected');
@@ -539,18 +540,35 @@
                     UI.loadingOverlay.classList.add('hidden');
                 }
 
+                // Restore normal poll interval if we were in slow-retry mode
+                if (wasSlowPolling) {
+                    stopPolling();
+                    Config.pollInterval = parseInt(localStorage.getItem('adai_poll') || '2000', 10);
+                    State.pollTimer = setInterval(poll, Config.pollInterval);
+                    updatePollLabel();
+                }
+
                 applyMetrics(results[0], results[1]);
             })
             .catch(function(err) {
                 State.connected = false;
                 State.retryCount++;
 
-                var label = 'Reconnecting (' + State.retryCount + ')';
-                setConnected('connecting', label);
-
-                if (State.retryCount >= State.maxRetry) {
-                    setConnected('disconnected', 'Disconnected');
+                if (State.retryCount < State.maxRetry) {
+                    // Fast-retry phase: show countdown
+                    setConnected('connecting', 'Reconnecting (' + State.retryCount + ')');
+                } else {
+                    // Slow-retry phase: keep polling at 5 s, display offline + attempt count
+                    setConnected('disconnected', 'Offline — retrying (' + State.retryCount + ')');
+                    // Slow down to 5 s if we haven't already
+                    if (Config.pollInterval < 5000) {
+                        stopPolling();
+                        Config.pollInterval = 5000;
+                        State.pollTimer = setInterval(poll, Config.pollInterval);
+                        updatePollLabel();
+                    }
                 }
+                // Last-known data remains on screen — do NOT call applyMetrics here.
 
                 console.warn('[ADAI] Poll error:', err.message);
             });

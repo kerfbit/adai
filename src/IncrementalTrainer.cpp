@@ -100,6 +100,11 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
     cfg.metrics_config.max_records_on_disk = svc.metrics_max_records_on_disk;
     cfg.metrics_config.enable_prometheus_format = svc.metrics_enable_prometheus;
     cfg.metrics_config.prometheus_file = svc.metrics_prometheus_file;
+
+    // Generation quality metrics
+    cfg.base_config.enable_generation_quality_metrics = svc.enable_generation_quality_metrics;
+    cfg.base_config.generation_quality_sample_size    = svc.generation_quality_sample_size;
+    cfg.base_config.generation_quality_max_tokens     = svc.generation_quality_max_tokens;
     
     return cfg;
 }

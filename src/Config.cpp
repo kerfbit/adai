@@ -222,6 +222,13 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.metrics_api_port = std::stoi(value);
             } else if (key == "METRICS_API_ALLOW_CONTROL") {
                 config.metrics_api_allow_control = (value == "true" || value == "1" || value == "yes");
+            // Generation quality metrics configuration
+            } else if (key == "ENABLE_GENERATION_QUALITY_METRICS") {
+                config.enable_generation_quality_metrics = (value == "true" || value == "1" || value == "yes");
+            } else if (key == "GENERATION_QUALITY_SAMPLE_SIZE") {
+                config.generation_quality_sample_size = std::stoi(value);
+            } else if (key == "GENERATION_QUALITY_MAX_TOKENS") {
+                config.generation_quality_max_tokens = std::stoi(value);
             // RAG configuration
             } else if (key == "RAG_ENABLED") {
                 std::string lower = value;

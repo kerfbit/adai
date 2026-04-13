@@ -765,10 +765,9 @@ float ChatbotTrainer::train_epoch(int epoch) {
                         ls_w_M2   += ls_delta * (step_loss_for_cb - ls_w_mean);
 
                         // Weight-update ratio approximation: (lr * ||g||) / ||w||)
-                        // Threshold is 1e-10f (not 1e-6f) so near-zero initialized weights
-                        // are still counted — get_weight_norm() returns sqrt(sum-of-squares)
-                        // which is always >= 0, so 1e-10f guards only true divide-by-zero.
-                        if (optimizer) {
+                        // Throttled to every 10 steps: weight norm changes slowly and
+                        // get_weight_norm() is an O(n_params) traversal.
+                        if (optimizer && (update_count % 10 == 0)) {
                             float w_norm = optimizer->get_weight_norm();
                             if (w_norm > 1e-10f) {
                                 wu_ratio_sum += current_learning_rate * grad_norm / w_norm;
@@ -822,9 +821,10 @@ float ChatbotTrainer::train_epoch(int epoch) {
                     }
                     // ─────────────────────────────────────────────────────────────────────
 
-                    // Clip gradients
+                    // Clip gradients — pass the already-computed grad_norm to avoid
+                    // a redundant full-parameter traversal inside clip_gradients().
                     if (config.gradient_clip_norm > 0.0f) {
-                        optimizer->clip_gradients();
+                        optimizer->clip_gradients(config.gradient_clip_norm, grad_norm);
                     }
 
                     // Update weights via optimizer

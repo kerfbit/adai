@@ -5,9 +5,9 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** April 12, 2026
-**Total Items:** 4
+**Total Items:** 3
 **High Priority:** 0
-**Medium Priority:** 2
+**Medium Priority:** 1
 **Low Priority:** 2
 **Future Enhancements:** 19
 **Resolved Items:** 16
@@ -1214,6 +1214,8 @@ When resolving a debt item:
 |Medium|1|33%|
 |Low|2|67%|
 
+**Total Active Items:** 3
+
 ### By Component
 
 |Component|Count|
@@ -1255,8 +1257,12 @@ By Priority:
 
 Recently Completed:
 
+- TD-016: BLEU/ROUGE Generation Quality Scoring - April 11, 2026
+- TD-013b: Batch Padding Efficiency Tracking - April 11, 2026
 - TD-013 (partial): FeedForward activation saturation hooks - April 11, 2026
 - TD-007: Matrix Operations SIMD Acceleration - April 11, 2026
+- TD-015: Validation Metrics Integration - March 14, 2026
+- TD-013: Advanced Training Metrics and Outlier Detection - March 14, 2026
 - TD-009: Incremental Trainer Dashboard and Structured Logging - March 2, 2026
 - TD-004: Enhanced Metrics Tracking (absorbed by TD-009) - March 2, 2026
 - TD-010: Configuration Hot-Reloading - March 1, 2026

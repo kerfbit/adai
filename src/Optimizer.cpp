@@ -155,6 +155,26 @@ float Optimizer::clip_gradients(float max_norm) {
     return total_norm;
 }
 
+float Optimizer::clip_gradients(float max_norm, float precomputed_norm) {
+    if (max_norm <= 0.0f || precomputed_norm <= max_norm) {
+        return precomputed_norm;
+    }
+
+    float clip_coef = max_norm / (precomputed_norm + 1e-6f);
+
+    for (auto& param : parameter_groups) {
+        if (param.gradients) {
+            for (int i = 0; i < param.gradients->rows; i++) {
+                for (int j = 0; j < param.gradients->cols; j++) {
+                    (*param.gradients)(i, j) *= clip_coef;
+                }
+            }
+        }
+    }
+
+    return precomputed_norm;
+}
+
 // SGD update
 void Optimizer::step_sgd(ParameterGroup& param) {
     for (int i = 0; i < param.weights->rows; i++) {
