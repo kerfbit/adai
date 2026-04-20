@@ -432,6 +432,7 @@ void ChatbotTrainer::initialize_model() {
         adai::Logger::info("  Learning rate: {}", config.learning_rate);
         adai::Logger::info("  Weight decay: {}", config.weight_decay);
         adai::Logger::info("  Gradient clip norm: {}", config.gradient_clip_norm);
+        // TODO(TD-017): Log adaptive_gradient_clip flag and bounds when enabled.
         if (config.optimizer_type == OptimizerType::ADAM ||
             config.optimizer_type == OptimizerType::ADAMW) {
             adai::Logger::info("  Adam beta1: {}", config.adam_beta1);
@@ -838,6 +839,11 @@ float ChatbotTrainer::train_epoch(int epoch) {
 
                     // Clip gradients — pass the already-computed grad_norm to avoid
                     // a redundant full-parameter traversal inside clip_gradients().
+                    // TODO(TD-017): Replace fixed clip with adaptive EMA threshold when
+                    //   config.adaptive_gradient_clip is true. Maintain agc_ema state across
+                    //   steps, suppress EMA update on spike steps (grad_norm > spike_k * ema),
+                    //   and clamp candidate threshold to [gradient_clip_min, gradient_clip_max].
+                    //   See: docs/proposals/adaptive_gradient_clipping.md, section 5.3
                     if (config.gradient_clip_norm > 0.0f) {
                         optimizer->clip_gradients(config.gradient_clip_norm, grad_norm);
                     }

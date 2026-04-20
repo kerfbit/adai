@@ -210,6 +210,11 @@ public:
     // Advanced epoch-level diagnostics (TD-013)
     void update_advanced_epoch_metrics(float gradient_variance, float compute_time_ratio,
                                        float weight_update_ratio);
+    // TODO(TD-017): Add update_adaptive_clip_metrics(float effective_clip_threshold,
+    //   int spike_count) to push per-step adaptive clip state into the snapshot.
+    //   Also add float adaptive_clip_threshold and epoch_adaptive_clip_thresholds
+    //   vector to TrainingMetricsSnapshot.
+    //   See: docs/proposals/adaptive_gradient_clipping.md, section 5.4
 
     /**
      * @brief Update generation quality metrics for the current epoch.

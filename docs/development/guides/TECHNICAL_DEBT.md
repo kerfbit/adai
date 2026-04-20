@@ -4,10 +4,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** April 12, 2026
-**Total Items:** 3
+**Last Updated:** April 19, 2026
+**Total Items:** 4
 **High Priority:** 0
-**Medium Priority:** 1
+**Medium Priority:** 2
 **Low Priority:** 2
 **Future Enhancements:** 19
 **Resolved Items:** 16
@@ -17,6 +17,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 - [Overview](#overview)
 - [Table of Contents](#table-of-contents)
 - [Active Technical Debt](#active-technical-debt)
+  - [TD-017: Adaptive Gradient Clipping](#td-017-adaptive-gradient-clipping)
   - [TD-014: LLM Operations and Training Tooling Suite](#td-014-llm-operations-and-training-tooling-suite)
   - [TD-003: GPU Memory Management Optimization](#td-003-gpu-memory-management-optimization)
   - [TD-006: Fill-in-the-Middle (FIM) Training Data Generation](#td-006-fill-in-the-middle-fim-training-data-generation)
@@ -54,6 +55,68 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 - [References](#references)
 
 ## Active Technical Debt
+
+### TD-017: Adaptive Gradient Clipping
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Planned | Training / ChatbotTrainer / Config | April 19, 2026 | 6-10 hours |
+
+Description:
+The current `GRADIENT_CLIP` scalar is fixed for the entire training run and is copied verbatim into every optimizer step. Session 5 data shows the static threshold (0.5) is 4–46× below actual per-step gradient norms (2–23), meaning every single step is clipped. This wastes gradient information, masks genuine divergence signals, and causes the Welford gradient-variance accumulator to track already-clipped norms rather than raw norms.
+
+Full analysis and algorithm design: `docs/proposals/adaptive_gradient_clipping.md`
+
+Core Algorithm (EMA with percentile target):
+
+```
+ema_norm ← α × raw_norm + (1 − α) × ema_norm
+candidate = ema_norm × headroom_factor
+effective_clip = clamp(candidate, GRADIENT_CLIP_MIN, GRADIENT_CLIP_MAX)
+```
+
+Action Items:
+
+- [ ] Add adaptive clip fields to `ServiceConfig` in `src/Config.hpp`: `adaptive_gradient_clip`, `gradient_clip_min`, `gradient_clip_max`, `gradient_clip_ema_decay`, `gradient_clip_headroom`, `gradient_clip_warmup_steps`, `gradient_clip_spike_k`
+- [ ] Parse new keys in `src/Config.cpp` (`GRADIENT_CLIP_ADAPTIVE`, `GRADIENT_CLIP_MIN`, `GRADIENT_CLIP_MAX`, `GRADIENT_CLIP_EMA_DECAY`, `GRADIENT_CLIP_HEADROOM`, `GRADIENT_CLIP_WARMUP_STEPS`, `GRADIENT_CLIP_SPIKE_K`)
+- [ ] Mirror adaptive clip fields in `ChatbotTrainerConfig` (`src/ChatbotTrainer.hpp`)
+- [ ] Map new fields from `ServiceConfig` → `ChatbotTrainerConfig` in `src/IncrementalTrainer.cpp`
+- [ ] Replace the fixed-clip call in `ChatbotTrainer::train_epoch()` with the EMA + clamp adaptive logic behind the `adaptive_gradient_clip` flag; preserve legacy path when flag is false
+- [ ] Add `adaptive_clip_threshold` and `adaptive_clip_spike_count` fields to `TrainingMetricsService` and push per-step effective threshold after each optimizer step
+- [ ] Expose `epoch_adaptive_clip_thresholds` array in `TrainingMetricsAPI::handle_epoch_metrics()`
+- [ ] Add **Gradient Clipping** panel to `dashboard.html`: line chart of epoch-avg adaptive threshold overlaid with epoch-avg raw gradient norm, plus spike count indicator
+- [ ] Write unit tests: synthetic norm sequences (including spike cases), assert `effective_clip ∈ [GRADIENT_CLIP_MIN, GRADIENT_CLIP_MAX]` and spikes don't contaminate EMA; regression test that `GRADIENT_CLIP_ADAPTIVE=false` is bit-identical to current path
+
+Files to Modify:
+
+- `src/Config.hpp` — 7 new `ServiceConfig` fields
+- `src/Config.cpp` — parse new keys in file-reader and env-override blocks
+- `src/ChatbotTrainer.hpp` — 7 new `ChatbotTrainerConfig` fields
+- `src/ChatbotTrainer.cpp` — adaptive EMA state + per-step threshold logic in `train_epoch()`
+- `src/IncrementalTrainer.cpp` — map new config fields
+- `src/TrainingMetricsService.hpp` / `.cpp` — `adaptive_clip_threshold`, `adaptive_clip_spike_count`
+- `src/TrainingMetricsAPI.cpp` — `epoch_adaptive_clip_thresholds` in epoch endpoint
+- `dashboard.html` — Gradient Clipping panel
+
+Example Configuration (Session 6 baseline):
+
+```ini
+GRADIENT_CLIP=0.5               # legacy key; used as EMA seed
+GRADIENT_CLIP_ADAPTIVE=true
+GRADIENT_CLIP_MIN=0.5
+GRADIENT_CLIP_MAX=4.0
+GRADIENT_CLIP_EMA_DECAY=0.05
+GRADIENT_CLIP_HEADROOM=2.0
+GRADIENT_CLIP_WARMUP_STEPS=100
+GRADIENT_CLIP_SPIKE_K=5.0
+```
+
+References:
+
+- Full proposal: `docs/proposals/adaptive_gradient_clipping.md`
+- Session 5 gradient norm data: `/api/metrics/history` (epoch 4: raw norms 2.2–23.0, every step clipped at 0.5)
+
+---
 
 ### TD-014: LLM Operations and Training Tooling Suite
 

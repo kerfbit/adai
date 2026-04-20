@@ -94,6 +94,12 @@ struct TrainingConfig {
     float adam_beta2 = 0.999f;                            // Adam second moment decay
     float weight_decay = 0.01f;                           // L2 regularization / weight decay
     float gradient_clip_norm = 1.0f;                      // Maximum gradient norm (0 = no clipping)
+    // TODO(TD-017): Mirror adaptive gradient clipping fields from ServiceConfig:
+    //   bool  adaptive_gradient_clip, gradient_clip_min, gradient_clip_max,
+    //   gradient_clip_ema_decay, gradient_clip_headroom, gradient_clip_warmup_steps,
+    //   gradient_clip_spike_k.
+    // Populated by IncrementalTrainer alongside gradient_clip_norm.
+    // See: docs/proposals/adaptive_gradient_clipping.md, section 5.1
 
     // Checkpointing
     bool save_checkpoints = true;

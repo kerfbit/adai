@@ -92,6 +92,16 @@ struct ServiceConfig {
     /// Gradient clipping norm; 0 = disabled (default: 1.0)
     float gradient_clip = 1.0f;
 
+    // TODO(TD-017): Add adaptive gradient clipping fields:
+    //   bool  adaptive_gradient_clip     = false;
+    //   float gradient_clip_min          = 0.1f;
+    //   float gradient_clip_max          = 5.0f;
+    //   float gradient_clip_ema_decay    = 0.05f;
+    //   float gradient_clip_headroom     = 2.0f;
+    //   int   gradient_clip_warmup_steps = 100;
+    //   float gradient_clip_spike_k      = 5.0f;
+    // See: docs/proposals/adaptive_gradient_clipping.md
+
     /// Batch size / gradient accumulation steps (default: 1)
     int batch_size = 1;
 

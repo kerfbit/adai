@@ -76,6 +76,15 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
     cfg.base_config.num_epochs         = svc.num_epochs;
     cfg.base_config.weight_decay       = svc.weight_decay;
     cfg.base_config.gradient_clip_norm  = svc.gradient_clip;
+    // TODO(TD-017): Map adaptive gradient clipping fields from ServiceConfig to ChatbotTrainerConfig:
+    //   cfg.base_config.adaptive_gradient_clip     = svc.adaptive_gradient_clip;
+    //   cfg.base_config.gradient_clip_min          = svc.gradient_clip_min;
+    //   cfg.base_config.gradient_clip_max          = svc.gradient_clip_max;
+    //   cfg.base_config.gradient_clip_ema_decay    = svc.gradient_clip_ema_decay;
+    //   cfg.base_config.gradient_clip_headroom     = svc.gradient_clip_headroom;
+    //   cfg.base_config.gradient_clip_warmup_steps = svc.gradient_clip_warmup_steps;
+    //   cfg.base_config.gradient_clip_spike_k      = svc.gradient_clip_spike_k;
+    // See: docs/proposals/adaptive_gradient_clipping.md, section 5.1
     cfg.base_config.batch_size          = svc.batch_size;
     cfg.base_config.enable_early_stopping = true;
     cfg.base_config.patience            = 5;

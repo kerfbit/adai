@@ -272,6 +272,12 @@
                 <div class="metric-label">Batch Padding Efficiency</div>
             </div>
 
+            <!-- TODO(TD-017): Add Gradient Clipping panel here:
+                 - Line chart: epoch-avg adaptive clip threshold vs epoch-avg raw gradient norm
+                 - Indicator: cumulative spike count per epoch
+                 - Wire to metricsHistory.adaptiveClipThresholds / epochGradientNorms arrays
+                 See: docs/proposals/adaptive_gradient_clipping.md, section 5.6 -->
+
             <div class="card">
                 <h2>Learning Rate</h2>
                 <div class="metric-value" id="learning-rate">--</div>

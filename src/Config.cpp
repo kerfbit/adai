@@ -177,6 +177,11 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.weight_decay = std::stof(value);
             } else if (key == "GRADIENT_CLIP") {
                 config.gradient_clip = std::stof(value);
+            // TODO(TD-017): Parse adaptive gradient clipping keys:
+            //   GRADIENT_CLIP_ADAPTIVE, GRADIENT_CLIP_MIN, GRADIENT_CLIP_MAX,
+            //   GRADIENT_CLIP_EMA_DECAY, GRADIENT_CLIP_HEADROOM,
+            //   GRADIENT_CLIP_WARMUP_STEPS, GRADIENT_CLIP_SPIKE_K
+            // See: docs/proposals/adaptive_gradient_clipping.md, section 5.2
             } else if (key == "BATCH_SIZE") {
                 config.batch_size = std::stoi(value);
             } else if (key == "MAX_LENGTH" || key == "MAX_GEN_LENGTH") {
