@@ -293,6 +293,9 @@ private:
     bool load_pending_data_list();
     int load_conversation_pairs(const std::string& filepath, std::vector<ConversationPair>& pairs);
     
+    // Remove a saved model and all its sidecar files (.config, .vocab, .encoder, .decoder, .lm_head)
+    void remove_model_files(const std::string& base_path);
+
     // Symlink management helpers (TD-005)
     void update_checkpoint_symlinks(const std::string& checkpoint_path);
     void update_best_checkpoint(float validation_loss, const std::string& checkpoint_path);

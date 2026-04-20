@@ -17,7 +17,7 @@ LLMDecoder::LLMDecoder(int vocab_size, int d_model, int num_layers, int num_head
     token_embedding = std::make_unique<TokenEmbedding>(vocab_size, d_model);
 
     // Initialize positional encoding
-    positional_encoding = std::make_unique<PositionalEncoding>(d_model, max_seq_length);
+    positional_encoding = std::make_unique<PositionalEncoding>(max_seq_length, d_model);
 
     // Initialize decoder blocks
     for (int i = 0; i < num_layers; ++i) {

@@ -1,1 +1,1 @@
-huggingface_data/roneneldan_TinyStories_train_training.txt
+huggingface_data/JeanKaddour_minipile_10k_training.txt

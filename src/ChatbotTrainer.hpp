@@ -155,6 +155,15 @@ using EpochCallback = std::function<void(int epoch, int total, float loss, float
  */
 using SampleCallback = std::function<void(int sample, int total_samples, float running_loss, float step_loss, float grad_norm, float lr)>;
 
+/**
+ * @brief Callback invoked whenever a new best validation loss is recorded and
+ *        the best-model snapshot has been flushed to disk.
+ *
+ * @param epoch    1-based epoch number that achieved the new best
+ * @param val_loss new best validation loss
+ */
+using BestModelCallback = std::function<void(int epoch, float val_loss)>;
+
 class ChatbotTrainer {
    private:
     std::unique_ptr<BPETokenizer> tokenizer;
@@ -204,6 +213,9 @@ class ChatbotTrainer {
 
     // Per-sample monitoring callback
     SampleCallback sample_callback_;
+
+    // Fired whenever a new best validation loss is saved to disk
+    BestModelCallback best_model_callback_;
 
     // TrainingMetricsService integration
     TrainingMetricsService* metrics_service_;
@@ -342,6 +354,20 @@ class ChatbotTrainer {
      * @param cb Callback function; pass {} or nullptr to clear.
      */
     void set_sample_callback(SampleCallback cb);
+
+    /**
+     * @brief Register a callback invoked whenever a new best validation loss is
+     *        found and the model snapshot has been flushed to disk.
+     * @param cb Callback function; pass {} or nullptr to clear.
+     */
+    void set_best_model_callback(BestModelCallback cb);
+
+    /**
+     * @brief Save the current in-memory model weights to @p path.
+     *        Intended for use inside a BestModelCallback to persist the snapshot
+     *        to an additional location.
+     */
+    void save_to(const std::string& path);
 
     /**
      * @brief Set the TrainingMetricsService for metrics reporting.

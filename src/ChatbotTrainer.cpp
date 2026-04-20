@@ -273,6 +273,20 @@ void ChatbotTrainer::preprocess_data() {
 
         adai::Logger::info("🔄 Preprocessing and tokenizing data...");
 
+        const int max_len = static_cast<int>(config.max_seq_length);
+        // Pre-truncate raw text to ~max_len*5 chars before BPE encoding to keep O(max_len) cost.
+        // BPE encoding is O(n * merges), so capping input text length avoids hour-long tokenization
+        // on long documents (e.g. minipile entries of 7000+ regex tokens).
+        const size_t max_chars = static_cast<size_t>(max_len) * 5;
+        auto clip_text = [max_chars](const std::string& s) -> std::string {
+            return s.size() <= max_chars ? s : s.substr(0, max_chars);
+        };
+        auto truncate = [max_len](std::vector<int> ids) -> std::vector<int> {
+            if (static_cast<int>(ids.size()) > max_len)
+                ids.resize(max_len);
+            return ids;
+        };
+
         // Tokenize training data — parallel BPE encoding (tokenizer is read-only after load)
         const int n_train = static_cast<int>(training_data.size());
         tokenized_training_data.clear();
@@ -280,11 +294,12 @@ void ChatbotTrainer::preprocess_data() {
 #ifdef ADAI_ENABLE_OPENMP
         #pragma omp parallel for schedule(dynamic, 16)
 #endif
+
         for (int i = 0; i < n_train; i++) {
             const auto& pair = training_data[i];
             tokenized_training_data[i] = TokenizedPair(
-                tokenizer->encode(pair.input,    false),   // Encoder: no special tokens
-                tokenizer->encode(pair.response, true),    // Decoder: with special tokens
+                truncate(tokenizer->encode(clip_text(pair.input),    false)),   // Encoder: no special tokens
+                truncate(tokenizer->encode(clip_text(pair.response), true)),    // Decoder: with special tokens
                 pair.input, pair.response);
         }
 
@@ -298,8 +313,8 @@ void ChatbotTrainer::preprocess_data() {
         for (int i = 0; i < n_val; i++) {
             const auto& pair = validation_data[i];
             tokenized_validation_data[i] = TokenizedPair(
-                tokenizer->encode(pair.input,    false),   // Encoder: no special tokens
-                tokenizer->encode(pair.response, true),    // Decoder: with special tokens
+                truncate(tokenizer->encode(clip_text(pair.input),    false)),   // Encoder: no special tokens
+                truncate(tokenizer->encode(clip_text(pair.response), true)),    // Decoder: with special tokens
                 pair.input, pair.response);
         }
 
@@ -1010,6 +1025,9 @@ float ChatbotTrainer::validate() {
                 try {
                     model->save_model(best_model_path);
                     adai::Logger::info("  💾 Best model saved temporarily");
+                    if (best_model_callback_) {
+                        best_model_callback_(best_epoch, best_validation_loss);
+                    }
                 } catch (const std::exception& e) {
                     adai::Logger::error("  ❌ Failed to save best model: {}", e.what());
                 }
@@ -1618,6 +1636,16 @@ void ChatbotTrainer::set_epoch_callback(EpochCallback cb) {
 
 void ChatbotTrainer::set_sample_callback(SampleCallback cb) {
     sample_callback_ = std::move(cb);
+}
+
+void ChatbotTrainer::set_best_model_callback(BestModelCallback cb) {
+    best_model_callback_ = std::move(cb);
+}
+
+void ChatbotTrainer::save_to(const std::string& path) {
+    if (model) {
+        model->save_model(path);
+    }
 }
 
 void ChatbotTrainer::set_metrics_service(TrainingMetricsService* service) {

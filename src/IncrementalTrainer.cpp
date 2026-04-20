@@ -190,6 +190,35 @@ IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
         }
     }
 
+    // Check for an in-progress best snapshot from an interrupted session.
+    // If session_{current_session_id}_best.bin exists and is newer than the
+    // completed-run checkpoint we just loaded, prefer it — it represents the
+    // best weights found before the interruption.
+    {
+        std::ostringstream in_progress_oss;
+        in_progress_oss << get_session_dir() << "/session_" << current_session_id << "_best.bin";
+        std::string in_progress_best = in_progress_oss.str();
+
+        if (fs::exists(in_progress_best + ".config")) {
+            bool prefer_in_progress = best_checkpoint_path.empty();
+
+            if (!prefer_in_progress && fs::exists(best_checkpoint_path + ".config")) {
+                auto best_mtime     = fs::last_write_time(best_checkpoint_path + ".config");
+                auto in_prog_mtime  = fs::last_write_time(in_progress_best  + ".config");
+                prefer_in_progress  = (in_prog_mtime > best_mtime);
+            }
+
+            if (prefer_in_progress) {
+                try {
+                    model->load_model(in_progress_best);
+                    Logger::info("Resumed from in-progress best snapshot: {}", in_progress_best);
+                } catch (...) {
+                    Logger::warn("Could not load in-progress best snapshot, keeping previous weights");
+                }
+            }
+        }
+    }
+
     last_save_time             = std::chrono::system_clock::now();
     session_start_time_steady_ = std::chrono::steady_clock::now();
     epoch_start_time_steady_   = session_start_time_steady_;
@@ -541,6 +570,23 @@ bool IncrementalTrainer::train_incremental(int num_epochs) {
         }
     });
 
+    // ── Best-model callback: persist a named snapshot every time validation improves ──
+    {
+        std::ostringstream best_path_oss;
+        best_path_oss << get_session_dir() << "/session_" << current_session_id << "_best.bin";
+        std::string best_snapshot_path = best_path_oss.str();
+
+        trainer.set_best_model_callback([this, &trainer, best_snapshot_path](int epoch, float val_loss) {
+            try {
+                trainer.save_to(best_snapshot_path);
+                Logger::info("  [best] New best (epoch {}, val_loss {:.4f}) saved to: {}",
+                             epoch, val_loss, best_snapshot_path);
+            } catch (const std::exception& e) {
+                Logger::warn("  [warn] Failed to save best snapshot: {}", e.what());
+            }
+        });
+    }
+
     Logger::info("Training for {} epochs...", num_epochs);
     bool success = trainer.train(num_epochs);
 
@@ -885,6 +931,24 @@ std::vector<TrainingSession> IncrementalTrainer::get_session_history() const {
     return session_history;
 }
 
+void IncrementalTrainer::remove_model_files(const std::string& base_path) {
+    static const std::vector<std::string> sidecars = {
+        ".config", ".vocab", ".encoder", ".decoder", ".lm_head"
+    };
+    std::error_code ec;
+    // Remove bare base file (empty marker written by finalize_model)
+    if (fs::exists(base_path, ec)) {
+        fs::remove(base_path, ec);
+    }
+    for (const auto& ext : sidecars) {
+        std::string p = base_path + ext;
+        if (fs::exists(p, ec)) {
+            fs::remove(p, ec);
+            if (!ec) Logger::info("Removed: {}", p);
+        }
+    }
+}
+
 void IncrementalTrainer::cleanup_old_sessions() {
     if (session_history.size() <= config.max_sessions_to_keep) {
         return;
@@ -898,10 +962,24 @@ void IncrementalTrainer::cleanup_old_sessions() {
         // TD-005: Check if we're deleting the best checkpoint
         bool deleting_best = (session.checkpoint_path == best_checkpoint_path);
         
-        // Delete checkpoint file
-        if (fs::exists(session.checkpoint_path)) {
-            fs::remove(session.checkpoint_path);
-            Logger::info("Removed old checkpoint: {}", session.checkpoint_path);
+        // Delete checkpoint and all sidecar files
+        remove_model_files(session.checkpoint_path);
+        Logger::info("Removed old checkpoint: {}", session.checkpoint_path);
+
+        // Also remove any in-progress best snapshot for this session
+        // (it is superseded by the checkpoint and no subsequent session needs it)
+        {
+            // Derive the session id from the checkpoint path (session_N_checkpoint.bin)
+            std::string cp = session.checkpoint_path;
+            std::string stem = fs::path(cp).stem().string();  // "session_N_checkpoint"
+            // Replace "_checkpoint" suffix with "_best"
+            const std::string tag = "_checkpoint";
+            auto pos = stem.rfind(tag);
+            if (pos != std::string::npos) {
+                std::string best_stem = stem.substr(0, pos) + "_best";
+                std::string best_path = fs::path(cp).parent_path().string() + "/" + best_stem + ".bin";
+                remove_model_files(best_path);
+            }
         }
         
         // If we deleted the best checkpoint, find the next best from remaining sessions
@@ -1202,6 +1280,20 @@ bool IncrementalTrainer::finalize_session(int samples_trained, int epochs_comple
     session.final_validation_loss = final_val_loss;
     session.checkpoint_path = generate_session_checkpoint_path();
     // Per-epoch metrics are accumulated live via the epoch callback in train_incremental()
+
+    // Remove the in-progress best snapshot — it is now superseded by the finalized checkpoint
+    {
+        std::string cp = session.checkpoint_path;
+        std::string stem = fs::path(cp).stem().string();  // "session_N_checkpoint"
+        const std::string tag = "_checkpoint";
+        auto pos = stem.rfind(tag);
+        if (pos != std::string::npos) {
+            std::string best_stem = stem.substr(0, pos) + "_best";
+            std::string best_path = fs::path(cp).parent_path().string() + "/" + best_stem + ".bin";
+            remove_model_files(best_path);
+            Logger::info("Removed superseded best snapshot: {}", best_path);
+        }
+    }
 
     // TD-005: Checkpoint symlink management
     update_checkpoint_symlinks(session.checkpoint_path);
@@ -2647,9 +2739,10 @@ bool IncrementalTrainer::add_huggingface_dataset(const std::string& dataset_id,
               << "' (split=" << split << ", target=" << num_pairs << " pairs)\n";
 
     // Datasets-server API allows at most 100 rows per request.
-    // Over-sample by 50 % (cap: 10 000) to compensate for rows that yield no pairs.
+    // Over-sample by 50 % to compensate for rows that yield no pairs.
+    // Cap at 500 000 to avoid unbounded downloads.
     const int chunk_size  = 100;
-    const int target_rows = std::min(num_pairs * 3 / 2 + chunk_size, 10000);
+    const int target_rows = std::min(num_pairs * 3 / 2 + chunk_size, 500000);
     int downloaded  = 0;
     int chunk_idx   = 0;
 

@@ -65,6 +65,10 @@ docs/latex/
 docs/print/
 *.pdf
 
+# Large training data files (exceed GitHub's 100MB limit)
+*.parquet
+huggingface_data/*_large.txt
+
 # Training Sessions and logs
 logs/
 gutenberg_data/
