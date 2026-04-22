@@ -196,6 +196,9 @@ void TrainingMetricsService::end_epoch(int epoch, float loss, float validation_l
     // Persist per-epoch padding efficiency (-1 if not computed this epoch)
     current_snapshot_.epoch_padding_efficiencies.push_back(
         current_snapshot_.current_padding_efficiency);
+    // TD-017: Persist per-epoch adaptive clip threshold (-1 if adaptive clipping not active)
+    // Note: update_adaptive_clip_epoch() already pushes into epoch_adaptive_clip_thresholds;
+    // nothing to do here — the push from ChatbotTrainer arrives before end_epoch() is called.
     current_snapshot_.epoch_durations.push_back(epoch_time);
     current_snapshot_.epoch_gradient_norms.push_back(gradient_norm);
     
@@ -485,7 +488,9 @@ std::string TrainingMetricsService::to_json() const {
     oss << "  \"current_rouge1\": " << snapshot.current_rouge1 << ",\n";
     oss << "  \"current_rouge2\": " << snapshot.current_rouge2 << ",\n";
     oss << "  \"current_rougeL\": " << snapshot.current_rougeL << ",\n";
-    oss << "  \"current_padding_efficiency\": " << snapshot.current_padding_efficiency << "\n";
+    oss << "  \"current_padding_efficiency\": " << snapshot.current_padding_efficiency << ",\n";
+    oss << "  \"current_adaptive_clip_threshold\": " << snapshot.current_adaptive_clip_threshold << ",\n";
+    oss << "  \"current_adaptive_clip_spikes\": " << snapshot.current_adaptive_clip_spikes << "\n";
     oss << "}";
     
     return oss.str();
@@ -1163,6 +1168,26 @@ void TrainingMetricsService::update_padding_efficiency(float efficiency) {
     current_snapshot_.current_padding_efficiency = efficiency;
     adai::Logger::debug("Batch padding efficiency: {:.4f}", efficiency);
 }
+
+// ── TD-017: Adaptive gradient clipping metrics ────────────────────────────────
+
+void TrainingMetricsService::update_adaptive_clip_metrics(float effective_clip_threshold,
+                                                          int cumulative_spike_count) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    current_snapshot_.current_adaptive_clip_threshold = effective_clip_threshold;
+    current_snapshot_.current_adaptive_clip_spikes    = cumulative_spike_count;
+}
+
+void TrainingMetricsService::update_adaptive_clip_epoch(float avg_clip_threshold,
+                                                        int total_spike_count) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    current_snapshot_.current_adaptive_clip_threshold = avg_clip_threshold;
+    current_snapshot_.current_adaptive_clip_spikes    = total_spike_count;
+    current_snapshot_.epoch_adaptive_clip_thresholds.push_back(avg_clip_threshold);
+    adai::Logger::info("Adaptive clip epoch avg: {:.4f}  spikes: {}", avg_clip_threshold, total_spike_count);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 void TrainingMetricsService::update_generation_quality_metrics(
         float bleu4, float rouge1, float rouge2, float rougeL) {

@@ -82,6 +82,11 @@ struct TrainingMetricsSnapshot {
     /// within accumulation windows. Trivially 1.0 when gradient_accumulation_steps == 1.
     float current_padding_efficiency = -1.0f;
     std::vector<float> epoch_padding_efficiencies;  ///< Per-epoch history (-1 = not computed)
+
+    // Adaptive gradient clipping (TD-017; -1 / 0 = not used / not computed)
+    float current_adaptive_clip_threshold = -1.0f; ///< Effective clip threshold for the latest optimizer step
+    int   current_adaptive_clip_spikes    = 0;     ///< Cumulative spike count for the current epoch
+    std::vector<float> epoch_adaptive_clip_thresholds; ///< Per-epoch average effective threshold (-1 = fixed-clip mode)
 };
 
 /**
@@ -210,11 +215,12 @@ public:
     // Advanced epoch-level diagnostics (TD-013)
     void update_advanced_epoch_metrics(float gradient_variance, float compute_time_ratio,
                                        float weight_update_ratio);
-    // TODO(TD-017): Add update_adaptive_clip_metrics(float effective_clip_threshold,
-    //   int spike_count) to push per-step adaptive clip state into the snapshot.
-    //   Also add float adaptive_clip_threshold and epoch_adaptive_clip_thresholds
-    //   vector to TrainingMetricsSnapshot.
-    //   See: docs/proposals/adaptive_gradient_clipping.md, section 5.4
+
+    // Adaptive gradient clipping (TD-017)
+    /// Called once per optimizer step when adaptive clipping is active.
+    void update_adaptive_clip_metrics(float effective_clip_threshold, int cumulative_spike_count);
+    /// Called once per epoch with the epoch-average effective threshold and total spike count.
+    void update_adaptive_clip_epoch(float avg_clip_threshold, int total_spike_count);
 
     /**
      * @brief Update generation quality metrics for the current epoch.

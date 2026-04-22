@@ -92,15 +92,14 @@ struct ServiceConfig {
     /// Gradient clipping norm; 0 = disabled (default: 1.0)
     float gradient_clip = 1.0f;
 
-    // TODO(TD-017): Add adaptive gradient clipping fields:
-    //   bool  adaptive_gradient_clip     = false;
-    //   float gradient_clip_min          = 0.1f;
-    //   float gradient_clip_max          = 5.0f;
-    //   float gradient_clip_ema_decay    = 0.05f;
-    //   float gradient_clip_headroom     = 2.0f;
-    //   int   gradient_clip_warmup_steps = 100;
-    //   float gradient_clip_spike_k      = 5.0f;
-    // See: docs/proposals/adaptive_gradient_clipping.md
+    // Adaptive gradient clipping (TD-017)
+    bool  adaptive_gradient_clip     = false; ///< Master switch; false = legacy fixed-clip
+    float gradient_clip_min          = 0.1f;  ///< Hard floor — threshold never drops below this
+    float gradient_clip_max          = 5.0f;  ///< Hard ceiling — threshold never rises above this
+    float gradient_clip_ema_decay    = 0.05f; ///< EMA smoothing factor α (0 < α ≤ 1)
+    float gradient_clip_headroom     = 2.0f;  ///< Threshold = ema_norm × headroom
+    int   gradient_clip_warmup_steps = 100;   ///< Steps before adaptive logic activates
+    float gradient_clip_spike_k      = 5.0f;  ///< Outlier: norms > k×ema are not fed into EMA
 
     /// Batch size / gradient accumulation steps (default: 1)
     int batch_size = 1;

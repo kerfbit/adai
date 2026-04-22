@@ -272,11 +272,18 @@
                 <div class="metric-label">Batch Padding Efficiency</div>
             </div>
 
-            <!-- TODO(TD-017): Add Gradient Clipping panel here:
-                 - Line chart: epoch-avg adaptive clip threshold vs epoch-avg raw gradient norm
-                 - Indicator: cumulative spike count per epoch
-                 - Wire to metricsHistory.adaptiveClipThresholds / epochGradientNorms arrays
-                 See: docs/proposals/adaptive_gradient_clipping.md, section 5.6 -->
+            <!-- TD-017: Adaptive Gradient Clipping card -->
+            <div class="card">
+                <h2>Grad Clip</h2>
+                <div class="metric-value" id="adaptive-clip-threshold">--</div>
+                <div class="metric-label">Adaptive Clip Threshold</div>
+            </div>
+
+            <div class="card">
+                <h2>Clip Spikes</h2>
+                <div class="metric-value" id="adaptive-clip-spikes">--</div>
+                <div class="metric-label">Gradient Spike Count</div>
+            </div>
 
             <div class="card">
                 <h2>Learning Rate</h2>
@@ -346,6 +353,14 @@
             </div>
         </div>
 
+        <!-- TD-017: Adaptive Gradient Clipping chart -->
+        <div class="chart-container">
+            <h2 style="margin-bottom: 15px; color: #2c3e50;">Gradient Clipping</h2>
+            <div class="chart-wrapper">
+                <canvas id="adaptive-clip-chart"></canvas>
+            </div>
+        </div>
+
         <!-- Session Info -->
         <div class="card">
             <h2>Session Information</h2>
@@ -395,7 +410,8 @@
             validationPerplexities: [],  // TD-015
             bleu4: [],    // BLEU-4 generation quality
             rougeL: [],   // ROUGE-L generation quality
-            paddingEfficiencies: []  // Batch padding efficiency
+            paddingEfficiencies: [],  // Batch padding efficiency
+            adaptiveClipThresholds: []  // TD-017: adaptive clip threshold
         };
 
         // Error tracking
@@ -548,6 +564,52 @@
             }
         });
 
+        // TD-017: Adaptive gradient clipping chart
+        // Line 0 = adaptive clip threshold, Line 1 = raw gradient norm.
+        // Null values are rendered as gaps (common when fixed-clip mode is active).
+        const adaptiveClipChart = new Chart(document.getElementById('adaptive-clip-chart'), {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'Adaptive Clip Threshold',
+                        data: [],
+                        borderColor: '#e67e22',
+                        backgroundColor: 'rgba(230, 126, 34, 0.1)',
+                        tension: 0.4,
+                        borderWidth: 2,
+                        pointRadius: 2,
+                        spanGaps: false
+                    },
+                    {
+                        label: 'Raw Gradient Norm',
+                        data: [],
+                        borderColor: '#e74c3c',
+                        backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                        tension: 0.4,
+                        borderWidth: 2,
+                        pointRadius: 2
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'top' },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y !== null ? ctx.parsed.y.toFixed(4) : 'N/A'}`
+                        }
+                    }
+                },
+                scales: {
+                    y: { beginAtZero: false, title: { display: true, text: 'Norm / Threshold' } }
+                }
+            }
+        });
+
         // Utility functions
         function formatTime(seconds) {
             if (!seconds || seconds < 0) return '--';
@@ -615,6 +677,9 @@
             metricsHistory.bleu4.push(metrics.current_bleu4  >= 0 ? metrics.current_bleu4  : null);
             metricsHistory.rougeL.push(metrics.current_rougeL >= 0 ? metrics.current_rougeL : null);
             metricsHistory.paddingEfficiencies.push(metrics.current_padding_efficiency >= 0 ? metrics.current_padding_efficiency : null);
+            // TD-017: adaptive clip threshold — null when fixed-clip mode
+            const clipThresh = metrics.current_adaptive_clip_threshold;
+            metricsHistory.adaptiveClipThresholds.push((clipThresh !== undefined && clipThresh >= 0) ? clipThresh : null);
 
             // Keep only last MAX_CHART_POINTS
             if (metricsHistory.timestamps.length > MAX_CHART_POINTS) {
@@ -628,6 +693,7 @@
                 metricsHistory.bleu4.shift();
                 metricsHistory.rougeL.shift();
                 metricsHistory.paddingEfficiencies.shift();
+                metricsHistory.adaptiveClipThresholds.shift();  // TD-017
             }
         }
 
@@ -652,6 +718,12 @@
             perplexityChart.data.datasets[0].data = metricsHistory.perplexities;
             perplexityChart.data.datasets[1].data = metricsHistory.validationPerplexities;
             perplexityChart.update('none');
+
+            // TD-017: Update adaptive gradient clipping chart
+            adaptiveClipChart.data.labels = labels;
+            adaptiveClipChart.data.datasets[0].data = metricsHistory.adaptiveClipThresholds;
+            adaptiveClipChart.data.datasets[1].data = metricsHistory.gradientNorms;
+            adaptiveClipChart.update('none');
         }
 
         function updateDashboard(data) {
@@ -677,6 +749,11 @@
             // Batch padding efficiency
             const padEff = data.current_padding_efficiency;
             updateElement('padding-efficiency', (padEff !== undefined && padEff >= 0) ? formatNumber(padEff * 100, 1) + '%' : '--');
+            // TD-017: Adaptive gradient clip threshold and spike count
+            const clipThresh = data.current_adaptive_clip_threshold;
+            updateElement('adaptive-clip-threshold', (clipThresh !== undefined && clipThresh >= 0) ? formatNumber(clipThresh, 4) : '--');
+            const clipSpikes = data.current_adaptive_clip_spikes;
+            updateElement('adaptive-clip-spikes', (clipSpikes !== undefined) ? clipSpikes : '--');
             updateElement('learning-rate', formatNumber(data.current_learning_rate, 6));
 
             // Update progress

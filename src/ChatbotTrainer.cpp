@@ -432,7 +432,12 @@ void ChatbotTrainer::initialize_model() {
         adai::Logger::info("  Learning rate: {}", config.learning_rate);
         adai::Logger::info("  Weight decay: {}", config.weight_decay);
         adai::Logger::info("  Gradient clip norm: {}", config.gradient_clip_norm);
-        // TODO(TD-017): Log adaptive_gradient_clip flag and bounds when enabled.
+        if (config.adaptive_gradient_clip) {
+            adai::Logger::info("  Adaptive clipping: ON  min={} max={} ema_decay={} headroom={} warmup={} spike_k={}",
+                config.gradient_clip_min, config.gradient_clip_max,
+                config.gradient_clip_ema_decay, config.gradient_clip_headroom,
+                config.gradient_clip_warmup_steps, config.gradient_clip_spike_k);
+        }
         if (config.optimizer_type == OptimizerType::ADAM ||
             config.optimizer_type == OptimizerType::ADAMW) {
             adai::Logger::info("  Adam beta1: {}", config.adam_beta1);
@@ -591,6 +596,16 @@ float ChatbotTrainer::train_epoch(int epoch) {
         if (metrics_service_) { adv_cfg = metrics_service_->get_config(); }
         // Epoch-level wall-clock start for compute_time_ratio denominator
         auto epoch_td013_start = std::chrono::steady_clock::now();
+        // ── TD-017: Adaptive gradient clipping state ──────────────────────────────
+        // agc_ema is seeded with the fixed gradient_clip_norm value so the first
+        // warmup steps start at a sensible scale rather than zero.
+        float agc_ema         = config.gradient_clip_norm;  // running EMA of raw grad norms
+        int   agc_step_count  = 0;                          // optimizer steps taken (for warmup)
+        int   agc_spike_count = 0;                          // cumulative spike steps this epoch
+        float agc_clip_sum    = 0.0f;                       // sum of effective_clip values (for epoch avg)
+        int   agc_clip_count  = 0;
+        bool  agc_active      = config.adaptive_gradient_clip;
+        // ─────────────────────────────────────────────────────────────────────────
         // ── TD-013: Activation saturation accumulators ────────────────────────────
         // sat_sum / sat_count gives the epoch-average fraction of near-zero
         // post-GELU units across all FeedForward layers and forward passes.
@@ -837,16 +852,47 @@ float ChatbotTrainer::train_epoch(int epoch) {
                     }
                     // ─────────────────────────────────────────────────────────────────────
 
-                    // Clip gradients — pass the already-computed grad_norm to avoid
-                    // a redundant full-parameter traversal inside clip_gradients().
-                    // TODO(TD-017): Replace fixed clip with adaptive EMA threshold when
-                    //   config.adaptive_gradient_clip is true. Maintain agc_ema state across
-                    //   steps, suppress EMA update on spike steps (grad_norm > spike_k * ema),
-                    //   and clamp candidate threshold to [gradient_clip_min, gradient_clip_max].
-                    //   See: docs/proposals/adaptive_gradient_clipping.md, section 5.3
-                    if (config.gradient_clip_norm > 0.0f) {
-                        optimizer->clip_gradients(config.gradient_clip_norm, grad_norm);
+                    // ── TD-017: Adaptive gradient clipping ────────────────────────────────
+                    float effective_clip = config.gradient_clip_norm;  // legacy fallback
+
+                    if (agc_active) {
+                        ++agc_step_count;
+                        const bool in_warmup = (agc_step_count <= config.gradient_clip_warmup_steps);
+
+                        if (in_warmup) {
+                            // Warmup: clip at ceiling to protect; still update EMA
+                            agc_ema = config.gradient_clip_ema_decay * grad_norm
+                                    + (1.0f - config.gradient_clip_ema_decay) * agc_ema;
+                            effective_clip = config.gradient_clip_max;
+                        } else {
+                            const bool is_spike =
+                                (agc_ema > 0.0f) &&
+                                (grad_norm > config.gradient_clip_spike_k * agc_ema);
+                            if (!is_spike) {
+                                // Normal step — update EMA
+                                agc_ema = config.gradient_clip_ema_decay * grad_norm
+                                        + (1.0f - config.gradient_clip_ema_decay) * agc_ema;
+                            } else {
+                                ++agc_spike_count;
+                            }
+                            float candidate = agc_ema * config.gradient_clip_headroom;
+                            effective_clip  = std::clamp(candidate,
+                                                         config.gradient_clip_min,
+                                                         config.gradient_clip_max);
+                        }
+                        agc_clip_sum += effective_clip;
+                        ++agc_clip_count;
                     }
+
+                    if (effective_clip > 0.0f) {
+                        optimizer->clip_gradients(effective_clip, grad_norm);
+                    }
+
+                    // Push adaptive clip state to metrics service
+                    if (metrics_service_ && agc_active) {
+                        metrics_service_->update_adaptive_clip_metrics(effective_clip, agc_spike_count);
+                    }
+                    // ─────────────────────────────────────────────────────────────────
 
                     // Update weights via optimizer
                     optimizer->step();
@@ -956,6 +1002,14 @@ float ChatbotTrainer::train_epoch(int epoch) {
                 ? (pad_eff_sum / static_cast<float>(pad_eff_count)) : -1.0f;
             metrics_service_->update_padding_efficiency(avg_pad_eff);
             adai::Logger::info("Batch padding efficiency (epoch {}): {:.4f}", epoch + 1, avg_pad_eff);
+            // ── TD-017: Adaptive clip – report epoch average and spike count ────────
+            if (agc_active) {
+                float avg_clip = (agc_clip_count > 0)
+                    ? (agc_clip_sum / static_cast<float>(agc_clip_count)) : config.gradient_clip_norm;
+                metrics_service_->update_adaptive_clip_epoch(avg_clip, agc_spike_count);
+                adai::Logger::info("Adaptive clip (epoch {}): avg_threshold={:.4f} spikes={}",
+                    epoch + 1, avg_clip, agc_spike_count);
+            }
             // ─────────────────────────────────────────────────────────────────────
         }
         // ─────────────────────────────────────────────────────────────────────────

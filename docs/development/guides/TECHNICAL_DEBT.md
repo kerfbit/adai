@@ -5,12 +5,12 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** April 19, 2026
-**Total Items:** 4
+**Total Items:** 3
 **High Priority:** 0
-**Medium Priority:** 2
+**Medium Priority:** 1
 **Low Priority:** 2
 **Future Enhancements:** 19
-**Resolved Items:** 16
+**Resolved Items:** 17
 
 ## Table of Contents
 
@@ -58,9 +58,9 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ### TD-017: Adaptive Gradient Clipping
 
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| MEDIUM | Planned | Training / ChatbotTrainer / Config | April 19, 2026 | 6-10 hours |
+| Priority | Status | Component | Created | Resolved | Effort Estimate |
+|----------|--------|-----------|---------|----------|-----------------|
+| MEDIUM | **Resolved** | Training / ChatbotTrainer / Config | April 19, 2026 | April 19, 2026 | 6-10 hours |
 
 Description:
 The current `GRADIENT_CLIP` scalar is fixed for the entire training run and is copied verbatim into every optimizer step. Session 5 data shows the static threshold (0.5) is 4–46× below actual per-step gradient norms (2–23), meaning every single step is clipped. This wastes gradient information, masks genuine divergence signals, and causes the Welford gradient-variance accumulator to track already-clipped norms rather than raw norms.
@@ -77,15 +77,15 @@ effective_clip = clamp(candidate, GRADIENT_CLIP_MIN, GRADIENT_CLIP_MAX)
 
 Action Items:
 
-- [ ] Add adaptive clip fields to `ServiceConfig` in `src/Config.hpp`: `adaptive_gradient_clip`, `gradient_clip_min`, `gradient_clip_max`, `gradient_clip_ema_decay`, `gradient_clip_headroom`, `gradient_clip_warmup_steps`, `gradient_clip_spike_k`
-- [ ] Parse new keys in `src/Config.cpp` (`GRADIENT_CLIP_ADAPTIVE`, `GRADIENT_CLIP_MIN`, `GRADIENT_CLIP_MAX`, `GRADIENT_CLIP_EMA_DECAY`, `GRADIENT_CLIP_HEADROOM`, `GRADIENT_CLIP_WARMUP_STEPS`, `GRADIENT_CLIP_SPIKE_K`)
-- [ ] Mirror adaptive clip fields in `ChatbotTrainerConfig` (`src/ChatbotTrainer.hpp`)
-- [ ] Map new fields from `ServiceConfig` → `ChatbotTrainerConfig` in `src/IncrementalTrainer.cpp`
-- [ ] Replace the fixed-clip call in `ChatbotTrainer::train_epoch()` with the EMA + clamp adaptive logic behind the `adaptive_gradient_clip` flag; preserve legacy path when flag is false
-- [ ] Add `adaptive_clip_threshold` and `adaptive_clip_spike_count` fields to `TrainingMetricsService` and push per-step effective threshold after each optimizer step
-- [ ] Expose `epoch_adaptive_clip_thresholds` array in `TrainingMetricsAPI::handle_epoch_metrics()`
-- [ ] Add **Gradient Clipping** panel to `dashboard.html`: line chart of epoch-avg adaptive threshold overlaid with epoch-avg raw gradient norm, plus spike count indicator
-- [ ] Write unit tests: synthetic norm sequences (including spike cases), assert `effective_clip ∈ [GRADIENT_CLIP_MIN, GRADIENT_CLIP_MAX]` and spikes don't contaminate EMA; regression test that `GRADIENT_CLIP_ADAPTIVE=false` is bit-identical to current path
+- [x] Add adaptive clip fields to `ServiceConfig` in `src/Config.hpp`: `adaptive_gradient_clip`, `gradient_clip_min`, `gradient_clip_max`, `gradient_clip_ema_decay`, `gradient_clip_headroom`, `gradient_clip_warmup_steps`, `gradient_clip_spike_k`
+- [x] Parse new keys in `src/Config.cpp` (`GRADIENT_CLIP_ADAPTIVE`, `GRADIENT_CLIP_MIN`, `GRADIENT_CLIP_MAX`, `GRADIENT_CLIP_EMA_DECAY`, `GRADIENT_CLIP_HEADROOM`, `GRADIENT_CLIP_WARMUP_STEPS`, `GRADIENT_CLIP_SPIKE_K`)
+- [x] Mirror adaptive clip fields in `ChatbotTrainerConfig` (`src/ChatbotTrainer.hpp`)
+- [x] Map new fields from `ServiceConfig` → `ChatbotTrainerConfig` in `src/IncrementalTrainer.cpp`
+- [x] Replace the fixed-clip call in `ChatbotTrainer::train_epoch()` with the EMA + clamp adaptive logic behind the `adaptive_gradient_clip` flag; preserve legacy path when flag is false
+- [x] Add `adaptive_clip_threshold` and `adaptive_clip_spike_count` fields to `TrainingMetricsService` and push per-step effective threshold after each optimizer step
+- [x] Expose `epoch_adaptive_clip_thresholds` array in `TrainingMetricsAPI::handle_epoch_metrics()`
+- [x] Add **Gradient Clipping** panel to `dashboard.html`: line chart of epoch-avg adaptive threshold overlaid with epoch-avg raw gradient norm, plus spike count indicator
+- [x] Write unit tests: synthetic norm sequences (including spike cases), assert `effective_clip ∈ [GRADIENT_CLIP_MIN, GRADIENT_CLIP_MAX]` and spikes don't contaminate EMA; regression test that `GRADIENT_CLIP_ADAPTIVE=false` is bit-identical to current path
 
 Files to Modify:
 
@@ -253,6 +253,30 @@ Evaluation:
 ---
 
 ## Resolved Items
+
+### TD-017: Adaptive Gradient Clipping
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| April 19, 2026 | Training / ChatbotTrainer / Config / Metrics / Dashboard | EMA-based adaptive clip threshold with spike suppression and warmup |
+
+Description:
+Replaced static `GRADIENT_CLIP` scalar (0.5) that was clipping every gradient step in Session 5 (per-step norms 2–23, threshold 4–46× too small). Implemented EMA-based adaptive threshold: `ema ← α×raw_norm + (1−α)×ema`, `effective_clip = clamp(ema × headroom, min, max)` with spike suppression (skip EMA update when `norm > spike_k × ema`) and warmup period.
+
+Changes Made:
+
+- ✅ Added 7 new `ServiceConfig` fields in `src/Config.hpp`: `adaptive_gradient_clip`, `gradient_clip_min`, `gradient_clip_max`, `gradient_clip_ema_decay`, `gradient_clip_headroom`, `gradient_clip_warmup_steps`, `gradient_clip_spike_k`
+- ✅ Implemented full config parsing for 7 new keys in `src/Config.cpp` (file key-value reader + env-var override block)
+- ✅ Mirrored 7 fields in `ChatbotTrainerConfig` (`src/ChatbotTrainer.hpp`)
+- ✅ Mapped new fields in `IncrementalTrainer::make_incremental_config()` (`src/IncrementalTrainer.cpp`)
+- ✅ Replaced fixed-clip call in `ChatbotTrainer::train_epoch()` with EMA + clamp adaptive logic; legacy path preserved when `adaptive_gradient_clip=false`
+- ✅ Added `current_adaptive_clip_threshold`, `current_adaptive_clip_spikes`, and `epoch_adaptive_clip_thresholds` to `TrainingMetricsSnapshot`; added `update_adaptive_clip_metrics()` and `update_adaptive_clip_epoch()` to `TrainingMetricsService`
+- ✅ Extended `to_json()` in `TrainingMetricsService` to emit both new snapshot fields
+- ✅ Added `epoch_adaptive_clip_thresholds` array to `TrainingMetricsAPI::handle_epoch_metrics()`
+- ✅ Added **Gradient Clipping** panel to `dashboard.html`: dual-line chart (adaptive threshold + raw gradient norm), two metric cards (threshold + spike count)
+- ✅ Written unit tests in `tests/adaptive_clipping_test.cpp` (defaults, update, epoch accumulation, JSON emission)
+
+---
 
 ### TD-013: Advanced Training Metrics and Outlier Detection
 

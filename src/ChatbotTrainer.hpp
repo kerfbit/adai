@@ -94,12 +94,15 @@ struct TrainingConfig {
     float adam_beta2 = 0.999f;                            // Adam second moment decay
     float weight_decay = 0.01f;                           // L2 regularization / weight decay
     float gradient_clip_norm = 1.0f;                      // Maximum gradient norm (0 = no clipping)
-    // TODO(TD-017): Mirror adaptive gradient clipping fields from ServiceConfig:
-    //   bool  adaptive_gradient_clip, gradient_clip_min, gradient_clip_max,
-    //   gradient_clip_ema_decay, gradient_clip_headroom, gradient_clip_warmup_steps,
-    //   gradient_clip_spike_k.
-    // Populated by IncrementalTrainer alongside gradient_clip_norm.
-    // See: docs/proposals/adaptive_gradient_clipping.md, section 5.1
+
+    // Adaptive gradient clipping (TD-017)
+    bool  adaptive_gradient_clip     = false; // Master switch; false = legacy fixed-clip behavior
+    float gradient_clip_min          = 0.1f;  // Hard floor — threshold never drops below this
+    float gradient_clip_max          = 5.0f;  // Hard ceiling — threshold never rises above this
+    float gradient_clip_ema_decay    = 0.05f; // EMA smoothing factor α
+    float gradient_clip_headroom     = 2.0f;  // Threshold = ema_norm × headroom
+    int   gradient_clip_warmup_steps = 100;   // Steps before adaptive logic activates
+    float gradient_clip_spike_k      = 5.0f;  // Outlier: norms > k×ema are not fed into EMA
 
     // Checkpointing
     bool save_checkpoints = true;

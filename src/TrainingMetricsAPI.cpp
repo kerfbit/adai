@@ -476,10 +476,12 @@ std::string TrainingMetricsAPI::handle_epoch_metrics() {
         json << snapshot.epoch_gradient_norms[i];
     }
 
-    // TODO(TD-017): Append epoch_adaptive_clip_thresholds array here, e.g.:
-    //   json << "],\"epoch_adaptive_clip_thresholds\":[";
-    //   for (size_t i = 0; i < snapshot.epoch_adaptive_clip_thresholds.size(); ++i) { ... }
-    // See: docs/proposals/adaptive_gradient_clipping.md, section 5.5
+    // TD-017: per-epoch average adaptive clip threshold (-1 entries = fixed-clip mode)
+    json << "],\"epoch_adaptive_clip_thresholds\":[";
+    for (size_t i = 0; i < snapshot.epoch_adaptive_clip_thresholds.size(); ++i) {
+        if (i > 0) json << ",";
+        json << snapshot.epoch_adaptive_clip_thresholds[i];
+    }
     
     // TD-015: per-epoch validation perplexity and accuracy
     json << "],\"epoch_validation_perplexities\":[";

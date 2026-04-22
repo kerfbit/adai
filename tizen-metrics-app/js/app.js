@@ -86,6 +86,10 @@
         attnEntropyValue:   $('attention-entropy-value'),
         paddingEffValue:    $('padding-efficiency-value'),
 
+        /* Adaptive gradient clipping (TD-017) */
+        adaptiveClipValue:  $('adaptive-clip-value'),
+        clipSpikesValue:    $('clip-spikes-value'),
+
         /* Session stats */
         totalSamplesValue:  $('total-samples-value'),
         sessionIdValue:     $('session-id-value'),
@@ -453,6 +457,30 @@
             if      (padEff >= 0.85) UI.paddingEffValue.classList.add('val-good');
             else if (padEff >= 0.60) UI.paddingEffValue.classList.add('val-warn');
             else                     UI.paddingEffValue.classList.add('val-error');
+        }
+
+        /* --- Adaptive Gradient Clipping (TD-017) --- */
+        var clipThresh = current.current_adaptive_clip_threshold;
+        var clipActive = (clipThresh !== null && clipThresh !== undefined && clipThresh >= 0);
+        setText(UI.adaptiveClipValue, clipActive ? fmt(clipThresh, 4) : '—');
+        /* Reasonable range: green 0.5–4.0, amber 4.0–8.0, red > 8.0 or near-zero */
+        if (UI.adaptiveClipValue) {
+            UI.adaptiveClipValue.classList.remove('val-good', 'val-warn', 'val-error');
+            if (clipActive) {
+                if      (clipThresh >= 0.3 && clipThresh <= 4.0) UI.adaptiveClipValue.classList.add('val-good');
+                else if (clipThresh > 4.0  && clipThresh <= 8.0) UI.adaptiveClipValue.classList.add('val-warn');
+                else                                              UI.adaptiveClipValue.classList.add('val-error');
+            }
+        }
+        var clipSpikes = current.current_adaptive_clip_spikes;
+        var spikesActive = (clipSpikes !== null && clipSpikes !== undefined);
+        setText(UI.clipSpikesValue, spikesActive ? fmtInt(clipSpikes) : '—');
+        /* Zero spikes = green, a few = amber, many = red */
+        if (UI.clipSpikesValue && spikesActive) {
+            UI.clipSpikesValue.classList.remove('val-good', 'val-warn', 'val-error');
+            if      (clipSpikes === 0)  UI.clipSpikesValue.classList.add('val-good');
+            else if (clipSpikes <= 5)   UI.clipSpikesValue.classList.add('val-warn');
+            else                        UI.clipSpikesValue.classList.add('val-error');
         }
 
         /* --- Generation Quality (TD-016) --- */
