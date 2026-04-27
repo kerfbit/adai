@@ -1,1 +1,2 @@
-huggingface_data/JeanKaddour_minipile_10k_training.txt
+huggingface_data/JeanKaddour_minipile_train_extra_10k.txt
+huggingface_data/JeanKaddour_minipile_train_extra_10k.txt
