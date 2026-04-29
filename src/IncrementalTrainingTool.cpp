@@ -1,5 +1,7 @@
 #include "IncrementalTrainer.hpp"
 #include "Config.hpp"
+#include "Logger.hpp"
+#include "Matrix.hpp"
 #include <iostream>
 #include <sstream>
 #include <fstream>
@@ -36,6 +38,15 @@ int main(int argc, char* argv[]) {
     adai::ServiceConfig svc_config = config_path.empty()
         ? adai::ConfigLoader::load()          // falls back to /etc/adai/config.conf + env
         : adai::ConfigLoader::load(config_path);
+
+    // GPU auto-detect: attempt initialisation when requested; silently use CPU if unavailable.
+    if (svc_config.gpu_enabled) {
+        if (Matrix::gpu_try_initialize(svc_config.gpu_device_id, svc_config.gpu_memory_fraction)) {
+            adai::Logger::info("[GPU] GPU ready. {}", Matrix::gpu_info());
+        } else {
+            adai::Logger::warn("[GPU] No CUDA device found or initialisation failed — running on CPU");
+        }
+    }
 
     if (args.empty()) {
         std::cout << "Usage: " << argv[0] << " [--config <path>] <command> [options]\n\n";

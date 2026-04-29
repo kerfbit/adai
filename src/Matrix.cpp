@@ -1,4 +1,5 @@
 #include "Matrix.hpp"
+#include "Logger.hpp"
 #include <iomanip>
 #include <sstream>
 
@@ -678,17 +679,30 @@ void Matrix::set_col(int col_idx, const std::vector<float>& values) {
     }
 }
 
+// ============================================================================
+// GPU Management — always defined (stubs in non-GPU builds)
+// ============================================================================
+
 #ifdef ADAI_ENABLE_GPU
-// ============================================================================
-// GPU-Accelerated Operations
-// ============================================================================
 
 bool Matrix::gpu_available() {
     return adai::gpu::GPUManager::is_available();
 }
 
-void Matrix::gpu_initialize() {
-    adai::gpu::GPUManager::initialize();
+bool Matrix::gpu_initialize(int device_id, float memory_fraction) {
+    return adai::gpu::GPUManager::initialize(device_id, memory_fraction);
+}
+
+bool Matrix::gpu_try_initialize(int device_id, float memory_fraction) {
+    if (!adai::gpu::GPUManager::probe()) {
+        return false;
+    }
+    try {
+        return adai::gpu::GPUManager::initialize(device_id, memory_fraction);
+    } catch (const std::exception& e) {
+        adai::Logger::warn("[GPU] Initialisation failed, falling back to CPU: {}", e.what());
+        return false;
+    }
 }
 
 void Matrix::gpu_cleanup() {
@@ -698,6 +712,27 @@ void Matrix::gpu_cleanup() {
 std::string Matrix::gpu_info(int device) {
     return adai::gpu::GPUManager::get_device_info(device);
 }
+
+#else // !ADAI_ENABLE_GPU — CPU-only stubs
+
+bool Matrix::gpu_available() { return false; }
+
+bool Matrix::gpu_initialize(int, float) { return false; }
+
+bool Matrix::gpu_try_initialize(int, float) { return false; }
+
+void Matrix::gpu_cleanup() {}
+
+std::string Matrix::gpu_info(int) {
+    return "GPU support not compiled (rebuild with -DENABLE_GPU=ON)";
+}
+
+#endif // ADAI_ENABLE_GPU
+
+#ifdef ADAI_ENABLE_GPU
+// ============================================================================
+// GPU-Accelerated Matrix Operations
+// ============================================================================
 
 // Helper function to flatten matrix to 1D array
 static std::vector<float> flatten_matrix(const Matrix& mat) {
@@ -725,9 +760,10 @@ Matrix Matrix::multiply_gpu(const Matrix& other) const {
     if (cols != other.rows) {
         throw std::invalid_argument("Matrix dimensions incompatible for multiplication");
     }
-    
+
     if (!gpu_available()) {
-        throw std::runtime_error("GPU not initialized. Call Matrix::gpu_initialize() first.");
+        // CPU fallback
+        return (*this) * other;
     }
     
     // Flatten matrices
@@ -758,9 +794,10 @@ Matrix Matrix::add_gpu(const Matrix& other) const {
     if (rows != other.rows || cols != other.cols) {
         throw std::invalid_argument("Matrix dimensions must match for addition");
     }
-    
+
     if (!gpu_available()) {
-        throw std::runtime_error("GPU not initialized. Call Matrix::gpu_initialize() first.");
+        // CPU fallback
+        return (*this) + other;
     }
     
     int size = rows * cols;
@@ -784,7 +821,8 @@ Matrix Matrix::add_gpu(const Matrix& other) const {
 
 Matrix Matrix::transpose_gpu() const {
     if (!gpu_available()) {
-        throw std::runtime_error("GPU not initialized. Call Matrix::gpu_initialize() first.");
+        // CPU fallback
+        return this->transpose();
     }
     
     auto a_flat = flatten_matrix(*this);
@@ -804,7 +842,8 @@ Matrix Matrix::transpose_gpu() const {
 
 Matrix Matrix::scale_gpu(float scalar) const {
     if (!gpu_available()) {
-        throw std::runtime_error("GPU not initialized. Call Matrix::gpu_initialize() first.");
+        // CPU fallback
+        return this->scale(scalar);
     }
     
     int size = rows * cols;
@@ -827,9 +866,10 @@ Matrix Matrix::hadamard_gpu(const Matrix& other) const {
     if (rows != other.rows || cols != other.cols) {
         throw std::invalid_argument("Matrix dimensions must match for element-wise multiplication");
     }
-    
+
     if (!gpu_available()) {
-        throw std::runtime_error("GPU not initialized. Call Matrix::gpu_initialize() first.");
+        // CPU fallback
+        return this->hadamard(other);
     }
     
     int size = rows * cols;

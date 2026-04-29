@@ -44,6 +44,9 @@ struct ServiceConfig {
     
     /// Log file path (empty = console only, set to enable file logging)
     std::string log_file_path;
+
+    /// Directory for training session artefacts (checkpoints, logs, metrics)
+    std::string session_dir = "training_sessions";
     
     /// Maximum log file size in MB before rotation (default: 10)
     size_t log_max_size_mb = 10;
@@ -206,6 +209,28 @@ struct ServiceConfig {
 
     /// Maximum context length in tokens (default: 512)
     int rag_max_context_length = 512;
+
+    // ============================================================
+    // GPU / CUDA Configuration
+    // Only used when the binary is built with -DENABLE_GPU=ON.
+    // ============================================================
+
+    /// Enable GPU acceleration at runtime (default: false — safe on CPU-only hosts)
+    bool gpu_enabled = false;
+
+    /// CUDA device index to use (default: 0)
+    int gpu_device_id = 0;
+
+    /**
+     * @brief Fraction of total GPU memory ADAI may allocate (0.0–1.0, default: 0.5).
+     *
+     * Keeping this well below 1.0 leaves headroom for the display driver,
+     * other ML frameworks, desktop compositing, and interactive GPU workloads
+     * that share the same card.  A value of 0.5 is a reasonable starting point;
+     * lower it (e.g. 0.25) if ADAI is running alongside a game or another
+     * training job.
+     */
+    float gpu_memory_fraction = 0.5f;
 };
 
 /**

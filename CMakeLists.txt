@@ -71,7 +71,7 @@ if(ENABLE_GPU)
     find_package(CUDAToolkit REQUIRED)
     
     if(NOT DEFINED CMAKE_CUDA_STANDARD)
-        set(CMAKE_CUDA_STANDARD 14)
+        set(CMAKE_CUDA_STANDARD 17)
         set(CMAKE_CUDA_STANDARD_REQUIRED ON)
     endif()
     

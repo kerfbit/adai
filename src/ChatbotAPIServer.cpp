@@ -7,6 +7,7 @@
 #include "RAGInference.hpp"
 #include "DocumentStore.hpp"
 #include "encoder.hpp"
+#include "Matrix.hpp"
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -215,6 +216,21 @@ int main(int argc, char* argv[]) {
         auto tokenizer = std::make_unique<BPETokenizer>();
         tokenizer->load_vocab(config.vocab_path);
         adai::Logger::info("  Vocabulary size: {}", tokenizer->get_vocab_size());
+
+        // GPU initialisation (optional)
+        if (config.gpu_enabled) {
+            adai::Logger::info("");
+            adai::Logger::info("[GPU] Attempting GPU initialisation (device {}, {:.0f}% memory budget)...",
+                               config.gpu_device_id,
+                               config.gpu_memory_fraction * 100.0f);
+            if (Matrix::gpu_try_initialize(config.gpu_device_id, config.gpu_memory_fraction)) {
+                adai::Logger::info("[GPU] GPU ready. {}", Matrix::gpu_info());
+            } else {
+                adai::Logger::warn("[GPU] No CUDA device found or initialisation failed — running on CPU");
+            }
+        } else {
+            adai::Logger::info("[GPU] GPU acceleration disabled (set GPU_ENABLED=true to enable)");
+        }
 
         // Initialize model
         adai::Logger::info("");

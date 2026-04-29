@@ -132,80 +132,81 @@ __global__ void sum_kernel(const float* input, float* output, int size) {
 void matrix_add_gpu(const float* a, const float* b, float* c, int size) {
     const int threads = 256;
     const int blocks = (size + threads - 1) / threads;
-    add_kernel<<<blocks, threads>>>(a, b, c, size);
+    add_kernel<<<blocks, threads, 0, GPUManager::get_stream()>>>(a, b, c, size);
     CUDA_CHECK(cudaGetLastError());
 }
 
 void matrix_add_scalar_gpu(const float* a, float scalar, float* c, int size) {
     const int threads = 256;
     const int blocks = (size + threads - 1) / threads;
-    add_scalar_kernel<<<blocks, threads>>>(a, scalar, c, size);
+    add_scalar_kernel<<<blocks, threads, 0, GPUManager::get_stream()>>>(a, scalar, c, size);
     CUDA_CHECK(cudaGetLastError());
 }
 
 void matrix_multiply_elementwise_gpu(const float* a, const float* b, float* c, int size) {
     const int threads = 256;
     const int blocks = (size + threads - 1) / threads;
-    multiply_kernel<<<blocks, threads>>>(a, b, c, size);
+    multiply_kernel<<<blocks, threads, 0, GPUManager::get_stream()>>>(a, b, c, size);
     CUDA_CHECK(cudaGetLastError());
 }
 
 void matrix_multiply_scalar_gpu(const float* a, float scalar, float* c, int size) {
     const int threads = 256;
     const int blocks = (size + threads - 1) / threads;
-    multiply_scalar_kernel<<<blocks, threads>>>(a, scalar, c, size);
+    multiply_scalar_kernel<<<blocks, threads, 0, GPUManager::get_stream()>>>(a, scalar, c, size);
     CUDA_CHECK(cudaGetLastError());
 }
 
 void matrix_transpose_gpu(const float* input, float* output, int rows, int cols) {
     dim3 threads(32, 32);
     dim3 blocks((cols + 31) / 32, (rows + 31) / 32);
-    transpose_kernel<<<blocks, threads>>>(input, output, rows, cols);
+    transpose_kernel<<<blocks, threads, 0, GPUManager::get_stream()>>>(input, output, rows, cols);
     CUDA_CHECK(cudaGetLastError());
 }
 
-void matrix_multiply_gpu(const float* a, const float* b, float* c, 
+void matrix_multiply_gpu(const float* a, const float* b, float* c,
                         int m, int k, int n) {
-    // Use cuBLAS for matrix multiplication (more optimized)
+    // cuBLAS handle is already bound to the low-priority ADAI stream.
     cublasHandle_t handle = GPUManager::get_cublas_handle();
-    
+
     const float alpha = 1.0f;
-    const float beta = 0.0f;
-    
+    const float beta  = 0.0f;
+
     // cuBLAS uses column-major order, so we compute: C = B * A
     CUBLAS_CHECK(cublasSgemm(handle,
-                            CUBLAS_OP_N, CUBLAS_OP_N,
-                            n, m, k,
-                            &alpha,
-                            b, n,
-                            a, k,
-                            &beta,
-                            c, n));
+                             CUBLAS_OP_N, CUBLAS_OP_N,
+                             n, m, k,
+                             &alpha,
+                             b, n,
+                             a, k,
+                             &beta,
+                             c, n));
 }
 
 void matrix_apply_activation_gpu(float* data, int size, ActivationType type) {
     const int threads = 256;
     const int blocks = (size + threads - 1) / threads;
-    activation_kernel<<<blocks, threads>>>(data, size, static_cast<int>(type));
+    activation_kernel<<<blocks, threads, 0, GPUManager::get_stream()>>>(
+        data, size, static_cast<int>(type));
     CUDA_CHECK(cudaGetLastError());
 }
 
 float matrix_sum_gpu(const float* data, int size) {
     const int threads = 256;
     const int blocks = (size + threads - 1) / threads;
-    
-    // Allocate temporary storage for block sums
+
     GPUMemory<float> block_sums(blocks);
-    
-    sum_kernel<<<blocks, threads, threads * sizeof(float)>>>(data, block_sums.get(), size);
+
+    sum_kernel<<<blocks, threads, threads * sizeof(float), GPUManager::get_stream()>>>(
+        data, block_sums.get(), size);
     CUDA_CHECK(cudaGetLastError());
-    
+
     if (blocks == 1) {
         float result;
         block_sums.copy_to_host(&result, 1);
         return result;
     }
-    
+
     // Recursive reduction for multiple blocks
     return matrix_sum_gpu(block_sums.get(), blocks);
 }
@@ -214,7 +215,7 @@ float matrix_sum_gpu(const float* data, int size) {
 // Batch Operations
 // ============================================================================
 
-void matrix_batch_add_gpu(const float** a_batch, const float** b_batch, 
+void matrix_batch_add_gpu(const float** a_batch, const float** b_batch,
                          float** c_batch, int batch_size, int size) {
     for (int i = 0; i < batch_size; ++i) {
         matrix_add_gpu(a_batch[i], b_batch[i], c_batch[i], size);
@@ -224,21 +225,21 @@ void matrix_batch_add_gpu(const float** a_batch, const float** b_batch,
 void matrix_batch_multiply_gpu(const float** a_batch, const float** b_batch,
                               float** c_batch, int batch_size,
                               int m, int k, int n) {
+    // cuBLAS handle is bound to the ADAI stream via cublasSetStream in GPUManager.
     cublasHandle_t handle = GPUManager::get_cublas_handle();
-    
+
     const float alpha = 1.0f;
-    const float beta = 0.0f;
-    
-    // Use batched matrix multiplication for better performance
+    const float beta  = 0.0f;
+
     for (int i = 0; i < batch_size; ++i) {
         CUBLAS_CHECK(cublasSgemm(handle,
-                                CUBLAS_OP_N, CUBLAS_OP_N,
-                                n, m, k,
-                                &alpha,
-                                b_batch[i], n,
-                                a_batch[i], k,
-                                &beta,
-                                c_batch[i], n));
+                                 CUBLAS_OP_N, CUBLAS_OP_N,
+                                 n, m, k,
+                                 &alpha,
+                                 b_batch[i], n,
+                                 a_batch[i], k,
+                                 &beta,
+                                 c_batch[i], n));
     }
 }
 

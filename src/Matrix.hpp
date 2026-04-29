@@ -205,71 +205,94 @@ class Matrix {
      */
     void set_col(int col_idx, const std::vector<float>& values);
 
-#ifdef ADAI_ENABLE_GPU
-    /**
-     * GPU-accelerated operations (available when compiled with ENABLE_GPU=ON)
-     */
+    // -----------------------------------------------------------------------
+    // GPU management — always declared so callers compile on CPU-only hosts.
+    // When GPU support is not compiled in, these are inline no-ops / stubs.
+    // -----------------------------------------------------------------------
 
     /**
-     * Check if GPU acceleration is available
-     * @return True if GPU is available and initialized
+     * Check if GPU acceleration is available and initialised.
+     * Always returns false when compiled without ENABLE_GPU=ON.
      */
     static bool gpu_available();
 
     /**
-     * Initialize GPU subsystem (must be called before using GPU operations)
-     * @throws std::runtime_error if GPU initialization fails
+     * Initialize GPU subsystem (must be called before using GPU operations).
+     * @param device_id       CUDA device index to use (default: 0).
+     * @param memory_fraction Fraction of total device memory ADAI may allocate
+     *                        (0.0–1.0, default: 0.5).  Lower values leave more
+     *                        headroom for other GPU tenants.
+     * @return true  if the GPU was successfully initialised.
+     * @return false if no CUDA device is present (operations will use CPU).
+     * @throws std::runtime_error for unexpected CUDA initialisation errors.
      */
-    static void gpu_initialize();
+    static bool gpu_initialize(int device_id = 0, float memory_fraction = 0.5f);
 
     /**
-     * Cleanup GPU resources
+     * Attempt GPU initialisation and silently fall back to CPU on any failure.
+     *
+     * Never throws.  Returns false immediately on CPU-only builds.
+     * @param device_id       CUDA device index (default: 0).
+     * @param memory_fraction Memory budget fraction (default: 0.5).
+     * @return true  if GPU is ready, false if CPU-only mode is in effect.
+     */
+    static bool gpu_try_initialize(int device_id = 0, float memory_fraction = 0.5f);
+
+    /**
+     * Release all GPU resources owned by ADAI.  No-op on CPU-only builds.
      */
     static void gpu_cleanup();
 
     /**
-     * Get GPU device information
-     * @param device Device ID (default: current device)
-     * @return String with device information
+     * Human-readable description of the selected GPU device and memory budget.
+     * Returns a placeholder string on CPU-only builds.
+     * @param device Device ID to describe (-1 = current device).
      */
     static std::string gpu_info(int device = -1);
 
+#ifdef ADAI_ENABLE_GPU
     /**
-     * Matrix multiplication using GPU (C = this * other)
+     * GPU-accelerated matrix operations.
+     * All _gpu methods fall back to their CPU equivalents when
+     * gpu_available() returns false (i.e. no GPU was found at init time).
+     */
+
+    /**
+     * Matrix multiplication using GPU (C = this * other).
+     * Falls back to CPU multiply() if GPU is not available.
      * @param other Matrix to multiply with
      * @return Result matrix
-     * @throws std::runtime_error if GPU is not initialized
      */
     Matrix multiply_gpu(const Matrix& other) const;
 
     /**
-     * Matrix addition using GPU (C = this + other)
+     * Matrix addition using GPU (C = this + other).
+     * Falls back to CPU operator+() if GPU is not available.
      * @param other Matrix to add
      * @return Result matrix
-     * @throws std::runtime_error if GPU is not initialized
      */
     Matrix add_gpu(const Matrix& other) const;
 
     /**
-     * Matrix transpose using GPU
+     * Matrix transpose using GPU.
+     * Falls back to CPU transpose() if GPU is not available.
      * @return Transposed matrix
-     * @throws std::runtime_error if GPU is not initialized
      */
     Matrix transpose_gpu() const;
 
     /**
-     * Scalar multiplication using GPU
+     * Scalar multiplication using GPU.
+     * Falls back to CPU scale() if GPU is not available.
      * @param scalar Value to multiply each element by
      * @return Result matrix
-     * @throws std::runtime_error if GPU is not initialized
      */
     Matrix scale_gpu(float scalar) const;
 
     /**
-     * Element-wise multiplication using GPU
+     * Element-wise multiplication using GPU.
+     * Falls back to CPU hadamard() if GPU is not available.
      * @param other Matrix to multiply element-wise
      * @return Result matrix
-     * @throws std::runtime_error if GPU is not initialized
      */
     Matrix hadamard_gpu(const Matrix& other) const;
 #endif

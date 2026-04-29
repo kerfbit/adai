@@ -148,6 +148,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.log_level = value;
             } else if (key == "LOG_FILE_PATH") {
                 config.log_file_path = value;
+            } else if (key == "SESSION_DIR") {
+                config.session_dir = value;
             } else if (key == "LOG_MAX_SIZE_MB") {
                 config.log_max_size_mb = static_cast<size_t>(std::stoull(value));
             } else if (key == "LOG_MAX_FILES") {
@@ -256,6 +258,15 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.rag_threshold = std::stof(value);
             } else if (key == "RAG_MAX_CONTEXT_LENGTH") {
                 config.rag_max_context_length = std::stoi(value);
+            // GPU configuration
+            } else if (key == "GPU_ENABLED") {
+                std::string lower = value;
+                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+                config.gpu_enabled = (lower == "true" || lower == "1" || lower == "yes" || lower == "on");
+            } else if (key == "GPU_DEVICE_ID") {
+                config.gpu_device_id = std::stoi(value);
+            } else if (key == "GPU_MEMORY_FRACTION") {
+                config.gpu_memory_fraction = std::stof(value);
             } else {
                 std::cerr << "Warning: Unknown configuration key: " << key << std::endl;
             }
@@ -278,6 +289,7 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     if (auto val = get_env_int("SESSION_TIMEOUT")) config.session_timeout = *val;
     if (auto val = get_env("LOG_LEVEL")) config.log_level = *val;
     if (auto val = get_env("LOG_FILE_PATH")) config.log_file_path = *val;
+    if (auto val = get_env("SESSION_DIR")) config.session_dir = *val;
     if (auto val = get_env_size_t("LOG_MAX_SIZE_MB")) config.log_max_size_mb = *val;
     if (auto val = get_env_size_t("LOG_MAX_FILES")) config.log_max_files = *val;
     if (auto val = get_env_bool("LOG_COMPRESS")) config.log_compress = *val;
@@ -321,6 +333,11 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     if (auto val = get_env_int("RAG_NUM_DOCS")) config.rag_num_docs = *val;
     if (auto val = get_env_float("RAG_THRESHOLD")) config.rag_threshold = *val;
     if (auto val = get_env_int("RAG_MAX_CONTEXT_LENGTH")) config.rag_max_context_length = *val;
+
+    // GPU configuration
+    if (auto val = get_env_bool("GPU_ENABLED")) config.gpu_enabled = *val;
+    if (auto val = get_env_int("GPU_DEVICE_ID")) config.gpu_device_id = *val;
+    if (auto val = get_env_float("GPU_MEMORY_FRACTION")) config.gpu_memory_fraction = *val;
 }
 
 // ============================================================
@@ -363,6 +380,7 @@ void ConfigLoader::print(const ServiceConfig& config) {
     std::cout << "  Session timeout:  " << config.session_timeout << " minutes" << std::endl;
     std::cout << "  Log level:        " << config.log_level << std::endl;
     std::cout << "  Log file:         " << (config.log_file_path.empty() ? "<console only>" : config.log_file_path) << std::endl;
+    std::cout << "  Session dir:      " << config.session_dir << std::endl;
     if (!config.log_file_path.empty()) {
         std::cout << "  Log max size:     " << config.log_max_size_mb << " MB" << std::endl;
         std::cout << "  Log max files:    " << config.log_max_files << std::endl;
@@ -595,6 +613,9 @@ std::vector<std::string> ConfigLoader::detect_changes(const ServiceConfig& old_c
     }
     if (old_config.log_file_path != new_config.log_file_path) {
         changes.push_back("log_file_path: '" + old_config.log_file_path + "' -> '" + new_config.log_file_path + "'");
+    }
+    if (old_config.session_dir != new_config.session_dir) {
+        changes.push_back("session_dir: '" + old_config.session_dir + "' -> '" + new_config.session_dir + "'");
     }
     if (old_config.log_max_size_mb != new_config.log_max_size_mb) {
         changes.push_back("log_max_size_mb: " + std::to_string(old_config.log_max_size_mb) + " -> " + std::to_string(new_config.log_max_size_mb));

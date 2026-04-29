@@ -113,7 +113,12 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
     cfg.base_config.enable_generation_quality_metrics = svc.enable_generation_quality_metrics;
     cfg.base_config.generation_quality_sample_size    = svc.generation_quality_sample_size;
     cfg.base_config.generation_quality_max_tokens     = svc.generation_quality_max_tokens;
-    
+
+    // Session directory
+    if (!svc.session_dir.empty()) {
+        cfg.session_dir = svc.session_dir;
+    }
+
     return cfg;
 }
 
