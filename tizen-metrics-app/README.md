@@ -116,12 +116,15 @@ var Config = {
 
 ### 4. Package & Deploy
 
+Use the provided `deploy.sh` script, which handles staging, signing, renaming (spaces in the WGT filename break `pkgcmd` on the TV), connecting via `sdb`, permit-to-install, and launching:
+
 ```bash
-# In Tizen Studio: Run → Run As → Tizen Web Application
-# Or via CLI:
-tizen package -t wgt -s <your-signing-profile> -- .
-tizen install -n adai.trainingmetrics.wgt -t <device-serial>
+bash deploy.sh
+# To install without auto-launching:
+bash deploy.sh --no-launch
 ```
+
+The script targets the TV at `10.0.0.10` by default. Edit `TV_SERIAL` at the top of `deploy.sh` to change the target device.
 
 ### 5. Run via Browser (testing)
 

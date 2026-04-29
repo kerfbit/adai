@@ -14,17 +14,22 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 # Release build optimizations
+option(PORTABLE_BUILD "Disable -march=native for cross-machine deployment" OFF)
+
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        add_compile_options(
-            -O3                    # Maximum optimization
-            -march=native          # Optimize for current CPU architecture
-            -mtune=native          # Tune for current CPU
-            -ffast-math            # Fast floating point math
-            -funroll-loops         # Unroll loops for performance
-            -ftree-vectorize       # Auto-vectorization
-        )
-        message(STATUS "Release mode: Enabled aggressive optimizations (-O3 -march=native)")
+        set(_RELEASE_FLAGS -O3 -ffast-math -funroll-loops -ftree-vectorize)
+        if(NOT PORTABLE_BUILD)
+            list(APPEND _RELEASE_FLAGS -march=native -mtune=native)
+        else()
+            list(APPEND _RELEASE_FLAGS -march=x86-64)
+        endif()
+        add_compile_options(${_RELEASE_FLAGS})
+        if(PORTABLE_BUILD)
+            message(STATUS "Release mode: Portable build (-O3 -march=x86-64, SSE2 baseline)")
+        else()
+            message(STATUS "Release mode: Enabled aggressive optimizations (-O3 -march=native)")
+        endif()
     elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
         add_compile_options(/O2 /arch:AVX2)
         message(STATUS "Release mode: Enabled MSVC optimizations (/O2 /arch:AVX2)")

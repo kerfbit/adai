@@ -659,8 +659,8 @@
             btn.classList.toggle('selected', btn.getAttribute('data-chart') === Config.chartMode);
         });
 
-        nav.refresh();
-        if (UI.apiHostInput) UI.apiHostInput.focus();
+        nav.refresh(document.getElementById('settings-panel'));
+        nav.focusById('api-host-input');
     }
 
     function closeSettings() {

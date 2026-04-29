@@ -53,10 +53,16 @@
         if (list) list.forEach(function(cb) { cb(data); });
     };
 
-    /** Rebuild the list of focusable elements from the DOM. */
-    TVNav.prototype.refresh = function() {
+    /**
+     * Rebuild the list of focusable elements from the DOM.
+     * @param {Element} [scope] — Optional container to restrict navigation to.
+     *   Pass a container element (e.g. a modal panel) to confine D-pad focus
+     *   within it. Omit to search the entire document.
+     */
+    TVNav.prototype.refresh = function(scope) {
+        var container = scope || document;
         this._focusables = Array.prototype.slice.call(
-            document.querySelectorAll('.focusable')
+            container.querySelectorAll('.focusable')
         ).filter(function(el) {
             return el.offsetParent !== null; /* exclude hidden elements */
         });
