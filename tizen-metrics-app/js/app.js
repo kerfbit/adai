@@ -355,7 +355,7 @@
     /* -------------------------------------------------------
        Dashboard update
     ------------------------------------------------------- */
-    function applyMetrics(current, epochData) {
+    function applyMetrics(current, epochData, historyData) {
         /* --- Sample progress --- */
         var sample    = current.current_sample  || 0;
         var totSample = current.total_samples   || 0;
@@ -531,10 +531,28 @@
         }
 
         /* --- Chart --- */
-        if (epochData && chart) {
-            var tl = epochData.epoch_losses          || [];
-            var vl = epochData.epoch_validation_losses || [];
-            chart.update(tl, vl);
+        if (chart) {
+            var chartTl, chartVl, chartLabels;
+            if (Config.chartMode === 'samples' &&
+                    historyData && historyData.records && historyData.records.length > 0) {
+                var records = historyData.records;
+                chartTl = records.map(function(r) {
+                    return typeof r.loss === 'number' ? r.loss : null;
+                });
+                chartVl = records.map(function(r) {
+                    /* validation_loss is 0 when not yet computed for that sample */
+                    return (typeof r.validation_loss === 'number' && r.validation_loss > 0)
+                        ? r.validation_loss : null;
+                });
+                chartLabels = records.map(function(r) {
+                    return 'E' + r.epoch + ':' + r.sample;
+                });
+            } else if (epochData) {
+                chartTl     = epochData.epoch_losses             || [];
+                chartVl     = epochData.epoch_validation_losses  || [];
+                chartLabels = undefined;
+            }
+            if (chartTl) chart.update(chartTl, chartVl, chartLabels);
         }
 
         /* Footer */
@@ -556,8 +574,12 @@
     function poll() {
         var p1 = fetchJSON('/api/metrics/current');
         var p2 = fetchJSON('/api/session/epochs');
+        /* Only fetch per-sample history when the chart is in samples mode */
+        var p3 = Config.chartMode === 'samples'
+            ? fetchJSON('/api/metrics/history?max_records=200')
+            : Promise.resolve(null);
 
-        Promise.all([p1, p2])
+        Promise.all([p1, p2, p3])
             .then(function(results) {
                 var wasSlowPolling = State.retryCount >= State.maxRetry;
                 State.retryCount = 0;
@@ -576,7 +598,7 @@
                     updatePollLabel();
                 }
 
-                applyMetrics(results[0], results[1]);
+                applyMetrics(results[0], results[1], results[2]);
             })
             .catch(function(err) {
                 State.connected = false;

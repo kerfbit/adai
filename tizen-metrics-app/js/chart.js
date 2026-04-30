@@ -54,10 +54,16 @@
         this._h = h;
     };
 
-    /** Set new data and redraw. */
-    LossChart.prototype.update = function(trainLosses, valLosses) {
+    /** Set new data and redraw.
+     * @param {number[]} trainLosses
+     * @param {number[]} valLosses
+     * @param {string[]} [xLabels] Optional per-point x-axis labels (1-based, same
+     *   length as the longer series). When omitted the chart labels epochs as E1, E2…
+     */
+    LossChart.prototype.update = function(trainLosses, valLosses, xLabels) {
         this.trainLosses = trainLosses || [];
         this.valLosses   = valLosses   || [];
+        this.xLabels     = xLabels     || null;
         this.draw();
     };
 
@@ -133,8 +139,9 @@
         var maxXLabels = Math.min(numPoints, 10);
         var step = Math.ceil(numPoints / maxXLabels);
         for (var xi = 1; xi <= numPoints; xi += step) {
-            var xx = xFor(xi);
-            ctx.fillText('E' + xi, xx, pad.top + plotH + 8);
+            var xx = xFor(xi - 1);  /* xi is 1-based; xFor expects 0-based index */
+            var labelText = (self.xLabels && self.xLabels[xi - 1]) ? self.xLabels[xi - 1] : 'E' + xi;
+            ctx.fillText(labelText, xx, pad.top + plotH + 8);
         }
 
         /* --- Axes --- */
