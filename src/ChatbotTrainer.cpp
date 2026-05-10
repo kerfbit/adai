@@ -278,8 +278,14 @@ void ChatbotTrainer::preprocess_data() {
         // BPE encoding is O(n * merges), so capping input text length avoids hour-long tokenization
         // on long documents (e.g. minipile entries of 7000+ regex tokens).
         const size_t max_chars = static_cast<size_t>(max_len) * 5;
+        // Truncate at a valid UTF-8 character boundary to avoid splitting a
+        // multi-byte sequence, which would produce an invalid UTF-8 string.
         auto clip_text = [max_chars](const std::string& s) -> std::string {
-            return s.size() <= max_chars ? s : s.substr(0, max_chars);
+            if (s.size() <= max_chars) return s;
+            size_t i = max_chars;
+            // Back up to the start of the current multi-byte character
+            while (i > 0 && (static_cast<unsigned char>(s[i]) & 0xC0) == 0x80) --i;
+            return s.substr(0, i);
         };
         auto truncate = [max_len](std::vector<int> ids) -> std::vector<int> {
             if (static_cast<int>(ids.size()) > max_len)
@@ -291,32 +297,46 @@ void ChatbotTrainer::preprocess_data() {
         const int n_train = static_cast<int>(training_data.size());
         tokenized_training_data.clear();
         tokenized_training_data.resize(n_train);
+        int skipped_train = 0;
 #ifdef ADAI_ENABLE_OPENMP
-        #pragma omp parallel for schedule(dynamic, 16)
+        #pragma omp parallel for schedule(dynamic, 16) reduction(+:skipped_train)
 #endif
-
         for (int i = 0; i < n_train; i++) {
             const auto& pair = training_data[i];
-            tokenized_training_data[i] = TokenizedPair(
-                truncate(tokenizer->encode(clip_text(pair.input),    false)),   // Encoder: no special tokens
-                truncate(tokenizer->encode(clip_text(pair.response), true)),    // Decoder: with special tokens
-                pair.input, pair.response);
+            try {
+                tokenized_training_data[i] = TokenizedPair(
+                    truncate(tokenizer->encode(clip_text(pair.input),    false)),
+                    truncate(tokenizer->encode(clip_text(pair.response), true)),
+                    pair.input, pair.response);
+            } catch (const TokenizerEncodingError&) {
+                // Leave default-constructed (empty) — filtered out during training
+                ++skipped_train;
+            }
         }
+        if (skipped_train > 0)
+            adai::Logger::warn("Skipped {} training pairs with invalid UTF-8", skipped_train);
 
         // Tokenize validation data — parallel BPE encoding
         const int n_val = static_cast<int>(validation_data.size());
         tokenized_validation_data.clear();
         tokenized_validation_data.resize(n_val);
+        int skipped_val = 0;
 #ifdef ADAI_ENABLE_OPENMP
-        #pragma omp parallel for schedule(dynamic, 16)
+        #pragma omp parallel for schedule(dynamic, 16) reduction(+:skipped_val)
 #endif
         for (int i = 0; i < n_val; i++) {
             const auto& pair = validation_data[i];
-            tokenized_validation_data[i] = TokenizedPair(
-                truncate(tokenizer->encode(clip_text(pair.input),    false)),   // Encoder: no special tokens
-                truncate(tokenizer->encode(clip_text(pair.response), true)),    // Decoder: with special tokens
-                pair.input, pair.response);
+            try {
+                tokenized_validation_data[i] = TokenizedPair(
+                    truncate(tokenizer->encode(clip_text(pair.input),    false)),
+                    truncate(tokenizer->encode(clip_text(pair.response), true)),
+                    pair.input, pair.response);
+            } catch (const TokenizerEncodingError&) {
+                ++skipped_val;
+            }
         }
+        if (skipped_val > 0)
+            adai::Logger::warn("Skipped {} validation pairs with invalid UTF-8", skipped_val);
 
         // Initialize shuffling indices
         training_indices.resize(tokenized_training_data.size());

@@ -1681,6 +1681,14 @@ int IncrementalTrainer::load_conversation_pairs(const std::string& filepath,
         }
         
         if (line.substr(0, 6) == "INPUT:") {
+            // Commit any already-complete pair before starting a new one
+            // (handles files with no blank-line separator between pairs)
+            if (!current_input.empty() && !current_response.empty()) {
+                pairs.emplace_back(current_input, current_response);
+                pair_count++;
+                current_input.clear();
+                current_response.clear();
+            }
             current_input = line.substr(6);
             current_input.erase(0, current_input.find_first_not_of(" \t"));
         } else if (line.substr(0, 9) == "RESPONSE:") {

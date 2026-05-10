@@ -50,11 +50,12 @@ const float& Matrix::operator()(int i, int j) const {
 
 // Matrix multiplication
 // Acceleration priority:
-//   1. BLAS SGEMM  (ADAI_ENABLE_BLAS, matrices ≥ 256 in every dimension)
-//   2. AVX2/FMA    (ADAI_SIMD_AVX2)  — ikj loop order, 8-wide FMA per iteration
-//   3. ARM NEON    (ADAI_SIMD_NEON)  — ikj loop order, 4-wide FMA per iteration
-//   4. OpenMP      (ADAI_ENABLE_OPENMP) — original ijk with #pragma omp simd
-//   5. Scalar fallback
+//   1. cuBLAS SGEMM (ADAI_ENABLE_GPU, matrices where any dim ≥ 32)
+//   2. BLAS SGEMM   (ADAI_ENABLE_BLAS, matrices ≥ 256 in every dimension)
+//   3. AVX2/FMA     (ADAI_SIMD_AVX2)  — ikj loop order, 8-wide FMA per iteration
+//   4. ARM NEON     (ADAI_SIMD_NEON)  — ikj loop order, 4-wide FMA per iteration
+//   5. OpenMP       (ADAI_ENABLE_OPENMP) — original ijk with #pragma omp simd
+//   6. Scalar fallback
 Matrix Matrix::operator*(const Matrix& other) const {
     if (cols != other.rows) {
         throw std::invalid_argument("Matrix dimensions incompatible for multiplication: [" +
@@ -64,6 +65,17 @@ Matrix Matrix::operator*(const Matrix& other) const {
     }
 
     Matrix result(rows, other.cols);  // zero-initialised
+
+#ifdef ADAI_ENABLE_GPU
+    // cuBLAS path: dispatch to GPU when the inner dimensions (cols / other.cols)
+    // are large enough for cuBLAS SGEMM to outperform AVX2.  We do NOT gate on
+    // 'rows' so that short-sequence inputs (seq_len < 32) still benefit from
+    // fast weight-matrix multiplications (d_model × d_model, d_model × d_ff).
+    if (adai::gpu::GPUManager::is_available() &&
+        cols >= 32 && other.cols >= 32) {
+        return multiply_gpu(other);
+    }
+#endif  // ADAI_ENABLE_GPU
 
 #ifdef ADAI_ENABLE_BLAS
     // BLAS path: pack to flat row-major arrays, call cblas_sgemm, unpack result.
@@ -889,6 +901,28 @@ Matrix Matrix::hadamard_gpu(const Matrix& other) const {
     d_c.copy_to_host(c_flat.data(), size);
     
     return unflatten_matrix(c_flat, rows, cols);
+}
+
+// ============================================================================
+// Persistent GPU-resident matrix operations (TD-003)
+// ============================================================================
+
+adai::gpu::GPUMatrix Matrix::to_gpu() const {
+    if (!gpu_available()) {
+        throw std::runtime_error(
+            "GPU not available: call Matrix::gpu_initialize() before to_gpu()");
+    }
+    adai::gpu::GPUMatrix gm(rows, cols);
+    auto flat = flatten_matrix(*this);
+    gm.upload(flat.data(), rows * cols);
+    return gm;
+}
+
+/*static*/
+Matrix Matrix::from_gpu(const adai::gpu::GPUMatrix& gm) {
+    std::vector<float> flat(static_cast<size_t>(gm.rows * gm.cols));
+    gm.download(flat.data(), gm.rows * gm.cols);
+    return unflatten_matrix(flat, gm.rows, gm.cols);
 }
 
 #endif // ADAI_ENABLE_GPU

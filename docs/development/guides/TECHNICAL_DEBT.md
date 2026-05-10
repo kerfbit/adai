@@ -4,13 +4,13 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** April 19, 2026
-**Total Items:** 3
+**Last Updated:** May 3, 2026
+**Total Items:** 2
 **High Priority:** 0
 **Medium Priority:** 1
-**Low Priority:** 2
+**Low Priority:** 1
 **Future Enhancements:** 19
-**Resolved Items:** 17
+**Resolved Items:** 18
 
 ## Table of Contents
 
@@ -19,9 +19,9 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 - [Active Technical Debt](#active-technical-debt)
   - [TD-017: Adaptive Gradient Clipping](#td-017-adaptive-gradient-clipping)
   - [TD-014: LLM Operations and Training Tooling Suite](#td-014-llm-operations-and-training-tooling-suite)
-  - [TD-003: GPU Memory Management Optimization](#td-003-gpu-memory-management-optimization)
   - [TD-006: Fill-in-the-Middle (FIM) Training Data Generation](#td-006-fill-in-the-middle-fim-training-data-generation)
 - [Resolved Items](#resolved-items)
+  - [TD-003: GPU Memory Management Optimization](#td-003-gpu-memory-management-optimization)
   - [TD-016: BLEU/ROUGE Generation Quality Scoring](#td-016-bleurouge-generation-quality-scoring)
   - [TD-015: Validation Metrics Integration](#td-015-validation-metrics-integration)
   - [TD-013: Advanced Training Metrics and Outlier Detection](#td-013-advanced-training-metrics-and-outlier-detection)
@@ -136,54 +136,9 @@ Action Items:
 
 ### TD-003: GPU Memory Management Optimization
 
-| Priority | Status | Component | Created |
-|----------|--------|-----------|---------|
-| LOW | Optional Enhancement | GPU / Performance | January 28, 2026 |
-
-Description:
-Current GPU implementation transfers data between CPU and GPU for each operation. For better performance with repeated GPU operations, persistent GPU memory buffers could be implemented.
-
-Current Behavior:
-
-```cpp
-Matrix C = A.multiply_gpu(B);  // Transfers A, B to GPU, then result back
-Matrix D = C.add_gpu(A);       // Transfers C, A to GPU again, then result back
-```
-
-Desired Behavior:
-
-```cpp
-// Future enhancement - keep data on GPU between operations
-GPUMatrix A_gpu = A.to_gpu();
-GPUMatrix B_gpu = B.to_gpu();
-GPUMatrix C_gpu = A_gpu.multiply(B_gpu);  // No transfers
-GPUMatrix D_gpu = C_gpu.add(A_gpu);       // No transfers
-Matrix D = D_gpu.to_cpu();  // Only transfer final result
-```
-
-Impact:
-
-- **Performance:** Would significantly improve performance for sequences of GPU operations
-- **Current Workaround:** Current implementation works correctly, just not optimal for chained operations
-- **Users Affected:** Only users leveraging GPU acceleration with multiple sequential operations
-
-Implementation Notes:
-
-- Create `GPUMatrix` class that maintains device memory
-- Implement conversion operators (`to_gpu()`, `to_cpu()`)
-- Add smart memory management (RAII pattern already in place with `GPUMemory`)
-- Consider implementing memory pools for frequently allocated sizes
-
-Files to Modify:
-
-- `src/gpu/GPUUtils.hpp` - Add `GPUMatrix` class
-- `src/Matrix.hpp` - Add conversion methods
-- `src/gpu/MatrixGPU.cu` - Update operations to work with persistent GPU memory
-
-Related:
-
-- GPU acceleration implemented in commit [current]
-- See `docs/guides/building.md` for GPU compilation instructions
+| Priority | Status | Component | Created | Resolved |
+|----------|--------|-----------|---------|----------|
+| LOW | **Resolved** | GPU / Performance | January 28, 2026 | May 3, 2026 |
 
 ---
 
@@ -253,6 +208,64 @@ Evaluation:
 ---
 
 ## Resolved Items
+
+### TD-003: GPU Memory Management Optimization
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| May 3, 2026 | GPU / Performance | `GPUMatrix` class with persistent device memory, `Matrix::to_gpu()` / `Matrix::from_gpu()` |
+
+Description:
+Implemented persistent GPU-resident matrix storage that eliminates per-operation host↔device transfers when chaining multiple GPU operations.  Previously every `multiply_gpu()` / `add_gpu()` etc. call allocated device memory, transferred data, executed the kernel, copied the result back, and freed device memory — incurring PCIe round-trip cost for every single op.  With `GPUMatrix`, data is uploaded once, all intermediate computations remain on-device, and only the final result is downloaded.
+
+Changes Made:
+
+- ✅ Added `#include "GPUUtils.hpp"` to `src/gpu/MatrixGPU.hpp` so the class can use `GPUMemory<float>`, `GPUManager`, and `CUDA_CHECK`.
+- ✅ Created `adai::gpu::GPUMatrix` class in `src/gpu/MatrixGPU.hpp` (move-only, RAII via `GPUMemory<float>`):
+  - `GPUMatrix(int rows, int cols)` — allocate on-device
+  - `upload(const float*, int)` / `download(float*, int)` — blocking host↔device transfers
+  - `copy()` — async device-to-device clone
+  - `operator*` — cuBLAS SGEMM matrix multiply (stays on device)
+  - `operator+` — element-wise add (stays on device)
+  - `operator-` — element-wise subtract (stays on device)
+  - `scale(float)` — scalar multiply (stays on device)
+  - `hadamard(const GPUMatrix&)` — element-wise multiply (stays on device)
+  - `transpose()` — shared-memory transpose kernel (stays on device)
+  - `apply_activation_inplace(ActivationType)` — in-place activation (stays on device)
+  - `sum()` — parallel reduction, returns scalar to host
+- ✅ Added `Matrix::to_gpu() const` to `src/Matrix.hpp` / `src/Matrix.cpp` — uploads CPU matrix to a new `GPUMatrix`.
+- ✅ Added `static Matrix Matrix::from_gpu(const adai::gpu::GPUMatrix&)` — downloads a `GPUMatrix` back to a CPU `Matrix`.
+
+Files Modified:
+
+- `src/gpu/MatrixGPU.hpp` — `#include "GPUUtils.hpp"` + `GPUMatrix` class
+- `src/Matrix.hpp` — `to_gpu()` and `from_gpu()` declarations
+- `src/Matrix.cpp` — `to_gpu()` and `from_gpu()` implementations
+
+Usage Example:
+
+```cpp
+// Before (TD-003): 3 upload/download round-trips
+Matrix C = A.multiply_gpu(B);   // upload A,B → kernel → download C
+Matrix D = C.add_gpu(A);        // upload C,A → kernel → download D
+Matrix E = D.transpose_gpu();   // upload D   → kernel → download E
+
+// After (TD-003 resolved): 3 uploads, 1 download, 3 on-device ops
+auto A_gpu = A.to_gpu();
+auto B_gpu = B.to_gpu();
+auto C_gpu = A_gpu * B_gpu;           // on-device matmul
+auto D_gpu = C_gpu + A_gpu;           // on-device add
+auto E_gpu = D_gpu.transpose();       // on-device transpose
+Matrix E = Matrix::from_gpu(E_gpu);   // single download
+```
+
+Verification:
+
+- ✅ `adai_core` builds clean with `-DENABLE_GPU=ON`
+- ✅ CPU-only builds unaffected (entire class inside `#ifdef ADAI_ENABLE_GPU`)
+- ✅ All existing `matrixTests` and `matrixSIMDTests` pass — no regressions
+
+---
 
 ### TD-017: Adaptive Gradient Clipping
 
@@ -1298,17 +1311,16 @@ When resolving a debt item:
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|0|0%|
-|Medium|1|33%|
-|Low|2|67%|
+|Medium|1|50%|
+|Low|1|50%|
 
-**Total Active Items:** 3
+**Total Active Items:** 2
 
 ### By Component
 
 |Component|Count|
 |----------------------|-------|
 |Training / Data Generation|1|
-|GPU / Performance|1|
 |Tooling / Toolchain|1|
 
 ### Effort Distribution
@@ -1344,6 +1356,7 @@ By Priority:
 
 Recently Completed:
 
+- TD-003: GPU Memory Management Optimization (GPUMatrix) - May 3, 2026
 - TD-016: BLEU/ROUGE Generation Quality Scoring - April 11, 2026
 - TD-013b: Batch Padding Efficiency Tracking - April 11, 2026
 - TD-013 (partial): FeedForward activation saturation hooks - April 11, 2026

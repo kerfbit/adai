@@ -295,5 +295,32 @@ class Matrix {
      * @return Result matrix
      */
     Matrix hadamard_gpu(const Matrix& other) const;
+
+    /**
+     * Upload this matrix to GPU-resident persistent storage.
+     *
+     * The returned GPUMatrix holds a device-side copy.  Chain arithmetic on
+     * it without any further host↔device transfers, then call Matrix::from_gpu()
+     * to retrieve the final result.
+     *
+     * Example:
+     * @code
+     *   auto A_gpu = A.to_gpu();
+     *   auto B_gpu = B.to_gpu();
+     *   auto C_gpu = A_gpu * B_gpu;           // on-device, no PCIe traffic
+     *   auto D_gpu = C_gpu + A_gpu;
+     *   Matrix D   = Matrix::from_gpu(D_gpu); // single download
+     * @endcode
+     *
+     * @throws std::runtime_error if GPU has not been initialised.
+     */
+    adai::gpu::GPUMatrix to_gpu() const;
+
+    /**
+     * Download a GPU-resident matrix back to CPU host memory.
+     * @param gm Source GPUMatrix on the device.
+     * @return CPU Matrix with the same data and dimensions.
+     */
+    static Matrix from_gpu(const adai::gpu::GPUMatrix& gm);
 #endif
 };

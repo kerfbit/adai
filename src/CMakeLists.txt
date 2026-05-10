@@ -115,9 +115,12 @@ if(ENABLE_GPU)
         CUDA_RESOLVE_DEVICE_SYMBOLS ON
     )
     
-    # Link with CUDA libraries
+    # Link with CUDA libraries — use static cudart so the binary needs no
+    # libcudart.so on the target machine (driver-only install is enough).
+    # cublas has no simple static form; set RPATH=$ORIGIN so the bundled
+    # libcublas.so found next to the executable at runtime.
     target_link_libraries(adai_gpu
-        CUDA::cudart
+        CUDA::cudart_static
         CUDA::cublas
     )
     
@@ -127,7 +130,7 @@ if(ENABLE_GPU)
     )
     
     # Link core library with GPU library
-    target_link_libraries(adai_core adai_gpu)
+    target_link_libraries(adai_core PUBLIC adai_gpu)
     
     message(STATUS "GPU support added to adai_core")
 endif()
@@ -285,6 +288,13 @@ if(BUILD_METRICS_API_SERVER AND HTTPLIB_INCLUDE_DIR)
     target_compile_definitions(incremental_trainer PRIVATE BUILD_METRICS_API_SERVER)
     target_link_libraries(incremental_trainer adai_metrics_api)
     target_include_directories(incremental_trainer PRIVATE ${HTTPLIB_INCLUDE_DIR})
+endif()
+if(ENABLE_GPU)
+    # Allow bundled cublas .so files placed next to the binary to be found at runtime
+    set_target_properties(incremental_trainer PROPERTIES
+        INSTALL_RPATH "$ORIGIN"
+        BUILD_RPATH "$ORIGIN"
+    )
 endif()
 if(OpenMP_CXX_FOUND)
     message(STATUS "Building incremental_trainer with full parallel optimizations")
