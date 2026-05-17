@@ -427,7 +427,7 @@ public:
                  << std::setw(12) << "Val PPL"
                  << std::setw(10) << "LR"
                  << std::setw(10) << "Grad\n";
-        std::cout << std::string(74, '─') << "\n";
+        std::cout << std::string(74, '-') << "\n";
         
         for (const auto& metrics : history_) {
             std::cout << std::setw(6) << metrics.epoch

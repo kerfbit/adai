@@ -78,8 +78,8 @@ TEST(EncoderDecoderModelTest, ConstructorInitializesComponents) {
     EXPECT_EQ(model.get_decoder_layers(), decoder_layers);
 
     // Verify special tokens
-    EXPECT_EQ(model.get_bos_token_id(), 1);
-    EXPECT_EQ(model.get_eos_token_id(), 2);
+    EXPECT_EQ(model.get_bos_token_id(), 2);
+    EXPECT_EQ(model.get_eos_token_id(), 3);
     EXPECT_EQ(model.get_pad_token_id(), 0);
 }
 
@@ -136,8 +136,8 @@ TEST(EncoderDecoderModelTest, GetGenerationConfig) {
     TextGenerator::GenerationConfig config = model.get_generation_config();
 
     // Verify default config values
-    EXPECT_EQ(config.bos_token_id, 1);
-    EXPECT_EQ(config.eos_token_id, 2);
+    EXPECT_EQ(config.bos_token_id, 2);
+    EXPECT_EQ(config.eos_token_id, 3);
     EXPECT_EQ(config.pad_token_id, 0);
 }
 

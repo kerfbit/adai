@@ -191,8 +191,21 @@ void ChatbotCLI::handle_setting(std::string_view setting) {
         std::string_view value = setting.substr(space_pos + 1);
 
         if (param == "strategy") {
-             generation_strategy = std::string(value);
-             std::cout << COLOR_SYSTEM << "✅ Generation strategy set to: " << value << COLOR_RESET << std::endl;
+            static const std::vector<std::string> VALID_STRATEGIES = {"greedy", "beam", "sampling",
+                                                                       "top-k", "nucleus"};
+            std::string strat_val = std::string(value);
+            bool valid = false;
+            for (const auto& s : VALID_STRATEGIES) {
+                if (s == strat_val) { valid = true; break; }
+            }
+            if (!valid) {
+                std::cout << COLOR_ERROR << "❌ Invalid strategy '" << value
+                          << "'. Valid options: greedy, beam, sampling, top-k, nucleus"
+                          << COLOR_RESET << std::endl;
+                return;
+            }
+            generation_strategy = strat_val;
+            std::cout << COLOR_SYSTEM << "✅ Generation strategy set to: " << value << COLOR_RESET << std::endl;
         } else if (param == "length" || param == "max_length") {
             max_response_length = std::stoi(std::string(value));
             std::cout << COLOR_SYSTEM << "✅ Max response length set to: " << max_response_length
