@@ -582,14 +582,17 @@ TEST(ActivationSwishTest, SelfGating) {
 }
 
 TEST(ActivationSwishTest, SwishDerivative) {
+    // Use fixed values in a small range to ensure deterministic numerical accuracy.
+    // Large values from randomize() can make the finite-difference estimate inaccurate
+    // because sigmoid saturates, inflating the relative error beyond 1e-2.
     Matrix input(3, 3);
-    input.randomize(1.0f);
+    float vals[9] = {-0.5f, 0.0f, 0.5f, -1.0f, 1.0f, -0.25f, 0.25f, -0.75f, 0.75f};
+    for (int i = 0; i < 3; i++)
+        for (int j = 0; j < 3; j++)
+            input(i, j) = vals[i * 3 + j];
 
     Matrix analytical_grad = Activation::swish_derivative(input);
 
-    // Check numerical gradient for a few points
-    // Note: Higher tolerance needed for Swish due to sigmoid's
-    // numerical precision issues at larger input values
     for (int i = 0; i < 3; i++) {
         for (int j = 0; j < 3; j++) {
             float numerical_grad = numerical_derivative(input, i, j, Activation::swish);

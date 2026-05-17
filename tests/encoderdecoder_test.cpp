@@ -319,12 +319,9 @@ TEST(EncoderDecoderModelTest, GenerateWithGreedyStrategy) {
 
     std::string input = "hello";
 
-    try {
-        std::string response = model.generate_response_with_strategy(input, 10, "greedy");
-        EXPECT_FALSE(response.empty());
-    } catch (const std::exception& e) {
-        SUCCEED();
-    }
+    // Untrained model may produce out-of-vocab token IDs (vocab built from small
+    // corpus is smaller than vocab_size), so only assert no crash.
+    EXPECT_NO_THROW({ model.generate_response_with_strategy(input, 10, "greedy"); });
 }
 
 TEST(EncoderDecoderModelTest, GenerateWithSamplingStrategy) {
@@ -337,12 +334,9 @@ TEST(EncoderDecoderModelTest, GenerateWithSamplingStrategy) {
 
     std::string input = "hello";
 
-    try {
-        std::string response = model.generate_response_with_strategy(input, 10, "sampling", 1.0f);
-        EXPECT_FALSE(response.empty());
-    } catch (const std::exception& e) {
-        SUCCEED();
-    }
+    EXPECT_NO_THROW({
+        model.generate_response_with_strategy(input, 10, "sampling", 1.0f);
+    });
 }
 
 TEST(EncoderDecoderModelTest, GenerateWithTopKStrategy) {
@@ -355,12 +349,9 @@ TEST(EncoderDecoderModelTest, GenerateWithTopKStrategy) {
 
     std::string input = "hello";
 
-    try {
-        std::string response = model.generate_response_with_strategy(input, 10, "topk", 1.0f, 40);
-        EXPECT_FALSE(response.empty());
-    } catch (const std::exception& e) {
-        SUCCEED();
-    }
+    EXPECT_NO_THROW({
+        model.generate_response_with_strategy(input, 10, "topk", 1.0f, 40);
+    });
 }
 
 TEST(EncoderDecoderModelTest, GenerateWithNucleusStrategy) {
@@ -373,13 +364,9 @@ TEST(EncoderDecoderModelTest, GenerateWithNucleusStrategy) {
 
     std::string input = "hello";
 
-    try {
-        std::string response =
-            model.generate_response_with_strategy(input, 10, "nucleus", 1.0f, 50, 0.9f);
-        EXPECT_FALSE(response.empty());
-    } catch (const std::exception& e) {
-        SUCCEED();
-    }
+    EXPECT_NO_THROW({
+        model.generate_response_with_strategy(input, 10, "nucleus", 1.0f, 50, 0.9f);
+    });
 }
 
 TEST(EncoderDecoderModelTest, GenerateWithBeamStrategy) {
@@ -392,13 +379,9 @@ TEST(EncoderDecoderModelTest, GenerateWithBeamStrategy) {
 
     std::string input = "hello";
 
-    try {
-        std::string response =
-            model.generate_response_with_strategy(input, 10, "beam", 1.0f, 50, 0.9f, 3);
-        EXPECT_FALSE(response.empty());
-    } catch (const std::exception& e) {
-        SUCCEED();
-    }
+    EXPECT_NO_THROW({
+        model.generate_response_with_strategy(input, 10, "beam", 1.0f, 50, 0.9f, 3);
+    });
 }
 
 // ============================================================================
