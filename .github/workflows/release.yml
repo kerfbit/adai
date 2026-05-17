@@ -35,7 +35,7 @@ jobs:
     - name: Install dependencies (macOS)
       if: runner.os == 'macOS'
       run: |
-        brew install cmake
+        brew install cmake libomp
     
     - name: Configure CMake
       run: |
@@ -57,7 +57,7 @@ jobs:
       run: |
         mkdir -p release
         cp build/src/chatbot release/
-        cp build/src/chatbot_trainer release/
+        cp build/src/incremental_trainer release/
         cp README.md release/
         cp -r docs release/
         tar -czf ${{ matrix.artifact_name }}.tar.gz release/

@@ -4,13 +4,35 @@ cmake_minimum_required(VERSION 3.10)
 # OpenMP Support for Parallel Processing
 # ============================================================================
 
+# Apple Clang does not bundle libomp; provide hints when Homebrew's libomp is
+# installed (brew install libomp) so that find_package(OpenMP) succeeds.
+if(APPLE)
+    execute_process(
+        COMMAND brew --prefix libomp
+        OUTPUT_VARIABLE BREW_LIBOMP_PREFIX
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(BREW_LIBOMP_PREFIX)
+        set(OpenMP_C_FLAGS   "-Xpreprocessor -fopenmp -I${BREW_LIBOMP_PREFIX}/include")
+        set(OpenMP_CXX_FLAGS "-Xpreprocessor -fopenmp -I${BREW_LIBOMP_PREFIX}/include")
+        set(OpenMP_C_LIB_NAMES   "omp")
+        set(OpenMP_CXX_LIB_NAMES "omp")
+        set(OpenMP_omp_LIBRARY   "${BREW_LIBOMP_PREFIX}/lib/libomp.dylib")
+    endif()
+endif()
+
 # Find OpenMP package
 find_package(OpenMP)
 if(OpenMP_CXX_FOUND)
     message(STATUS "OpenMP found - enabling parallel matrix operations")
     set(ENABLE_OPENMP ON)
 else()
-    message(WARNING "OpenMP not found - matrix operations will run sequentially. Install with: sudo apt-get install libomp-dev")
+    if(APPLE)
+        message(WARNING "OpenMP not found - matrix operations will run sequentially. Install with: brew install libomp")
+    else()
+        message(WARNING "OpenMP not found - matrix operations will run sequentially. Install with: sudo apt-get install libomp-dev")
+    endif()
     set(ENABLE_OPENMP OFF)
 endif()
 
@@ -282,7 +304,7 @@ target_link_libraries(incremental_trainer
     adai_attention
     adai_core
     spdlog::spdlog
-    stdc++fs  # For std::filesystem
+    $<$<CXX_COMPILER_ID:GNU>:stdc++fs>  # GCC/libstdc++ only; not available on macOS (libc++)
 )
 if(BUILD_METRICS_API_SERVER AND HTTPLIB_INCLUDE_DIR)
     target_compile_definitions(incremental_trainer PRIVATE BUILD_METRICS_API_SERVER)
@@ -528,7 +550,7 @@ if(BUILD_EXAMPLES)
         adai_nlp
         adai_core 
         pthread
-        stdc++fs
+        $<$<CXX_COMPILER_ID:GNU>:stdc++fs>  # GCC/libstdc++ only; not available on macOS (libc++)
     )
     message(STATUS "Building training_metrics_example - Real-time metrics monitoring demo")
     
