@@ -78,7 +78,7 @@ inline TokenBatch create_batch(const std::vector<std::vector<int>>& sequences,
                                int pad_token_id = adai::SpecialTokenIDs::PAD) {
     TokenBatch batch;
     batch.pad_token_id = pad_token_id;
-    
+
     if (sequences.empty()) {
         batch.max_length = 0;
         return batch;
@@ -127,7 +127,6 @@ inline TokenBatch create_batch(const std::vector<std::vector<int>>& sequences,
 inline std::vector<TokenBatch> create_dynamic_batches(
     const std::vector<std::vector<int>>& sequences, int max_batch_size = 32,
     int length_tolerance = 10, int pad_token_id = adai::SpecialTokenIDs::PAD) {
-    
     std::vector<TokenBatch> batches;
 
     if (sequences.empty()) {
@@ -219,7 +218,7 @@ inline Matrix create_padding_mask(const TokenBatch& batch) {
  * @return Vector of matrices, one per sequence (without padding)
  */
 inline std::vector<Matrix> unbatch_outputs(const std::vector<Matrix>& batch_outputs,
-                                          const TokenBatch& batch) {
+                                           const TokenBatch& batch) {
     std::vector<Matrix> individual_outputs;
     individual_outputs.reserve(batch.batch_size());
 
@@ -245,11 +244,11 @@ inline std::vector<Matrix> unbatch_outputs(const std::vector<Matrix>& batch_outp
  * Statistics about batch efficiency
  */
 struct BatchStats {
-    int total_tokens;       // Total tokens including padding
-    int actual_tokens;      // Actual tokens (excluding padding)
-    float padding_ratio;    // Ratio of padding tokens to total
-    int num_batches;        // Number of batches created
-    float avg_batch_size;   // Average batch size
+    int total_tokens;      // Total tokens including padding
+    int actual_tokens;     // Actual tokens (excluding padding)
+    float padding_ratio;   // Ratio of padding tokens to total
+    int num_batches;       // Number of batches created
+    float avg_batch_size;  // Average batch size
 
     void print() const {
         std::cout << "Batch Statistics:" << std::endl;
@@ -287,14 +286,13 @@ inline BatchStats compute_batch_stats(const std::vector<TokenBatch>& batches) {
         total_sequences += batch.batch_size();
     }
 
-    stats.padding_ratio = (stats.total_tokens > 0)
-                              ? static_cast<float>(stats.total_tokens - stats.actual_tokens) /
-                                    stats.total_tokens
-                              : 0.0f;
+    stats.padding_ratio =
+        (stats.total_tokens > 0)
+            ? static_cast<float>(stats.total_tokens - stats.actual_tokens) / stats.total_tokens
+            : 0.0f;
 
     stats.avg_batch_size =
         (stats.num_batches > 0) ? static_cast<float>(total_sequences) / stats.num_batches : 0.0f;
 
     return stats;
 }
-

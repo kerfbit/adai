@@ -11,9 +11,9 @@
  */
 
 #include <gtest/gtest.h>
-#include "TrainingMetricsService.hpp"
 #include <cmath>
 #include <string>
+#include "TrainingMetricsService.hpp"
 
 // ============================================================================
 // Helper: create a service with persistence disabled

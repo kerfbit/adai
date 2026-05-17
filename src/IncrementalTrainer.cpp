@@ -1,17 +1,17 @@
 #include "IncrementalTrainer.hpp"
-#include "Config.hpp"
-#include "Logger.hpp"
-#include "TrainingMetricsAPI.hpp"
 #include <algorithm>
+#include <cstdlib>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <limits>
-#include <sstream>
-#include <ctime>
 #include <regex>
-#include <cstdlib>
+#include <sstream>
+#include "Config.hpp"
+#include "Logger.hpp"
+#include "TrainingMetricsAPI.hpp"
 #ifdef ADAI_ENABLE_OPENMP
 #include <omp.h>
 #endif
@@ -20,11 +20,11 @@
 using adai::Logger;
 
 // Legacy ANSI codes kept for print_session_history / print_data_registry (intentional TUI output)
-#define COLOR_RESET    "\033[0m"
-#define COLOR_INFO     "\033[1;36m"
-#define COLOR_SUCCESS  "\033[1;32m"
-#define COLOR_WARNING  "\033[1;33m"
-#define COLOR_ERROR    "\033[1;31m"
+#define COLOR_RESET "\033[0m"
+#define COLOR_INFO "\033[1;36m"
+#define COLOR_SUCCESS "\033[1;32m"
+#define COLOR_WARNING "\033[1;33m"
+#define COLOR_ERROR "\033[1;31m"
 #define COLOR_PROGRESS "\033[1;35m"
 
 namespace fs = std::filesystem;
@@ -36,27 +36,20 @@ namespace fs = std::filesystem;
 // other place in the codebase that instantiates EncoderDecoderModel.
 // ============================================================================
 void IncrementalTrainer::build_model() {
-    Logger::info("Building model: d_model={} heads={} d_ff={} enc_layers={} dec_layers={} max_seq={}",
-                 config.base_config.d_model,
-                 config.base_config.num_heads,
-                 config.base_config.d_ff,
-                 config.base_config.num_encoder_layers,
-                 config.base_config.num_decoder_layers,
-                 config.base_config.max_seq_length);
+    Logger::info(
+        "Building model: d_model={} heads={} d_ff={} enc_layers={} dec_layers={} max_seq={}",
+        config.base_config.d_model, config.base_config.num_heads, config.base_config.d_ff,
+        config.base_config.num_encoder_layers, config.base_config.num_decoder_layers,
+        config.base_config.max_seq_length);
 
     auto tok = std::make_unique<BPETokenizer>();
     tok->load_vocab(vocab_path_);
     Logger::info("Tokenizer loaded (vocab size: {})", tok->get_vocab_size());
 
     model = std::make_unique<EncoderDecoderModel>(
-        tok->get_vocab_size(),
-        config.base_config.d_model,
-        config.base_config.num_encoder_layers,
-        config.base_config.num_decoder_layers,
-        config.base_config.num_heads,
-        config.base_config.d_ff,
-        config.base_config.max_seq_length
-    );
+        tok->get_vocab_size(), config.base_config.d_model, config.base_config.num_encoder_layers,
+        config.base_config.num_decoder_layers, config.base_config.num_heads,
+        config.base_config.d_ff, config.base_config.max_seq_length);
     model->set_tokenizer(tok.release());
 }
 
@@ -66,32 +59,32 @@ void IncrementalTrainer::build_model() {
 /*static*/
 IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::ServiceConfig& svc) {
     IncrementalConfig cfg;
-    cfg.base_config.d_model            = static_cast<int>(svc.d_model);
-    cfg.base_config.num_heads          = static_cast<int>(svc.num_heads);
-    cfg.base_config.d_ff               = static_cast<int>(svc.d_ff);
+    cfg.base_config.d_model = static_cast<int>(svc.d_model);
+    cfg.base_config.num_heads = static_cast<int>(svc.num_heads);
+    cfg.base_config.d_ff = static_cast<int>(svc.d_ff);
     cfg.base_config.num_encoder_layers = static_cast<int>(svc.num_encoder_layers);
     cfg.base_config.num_decoder_layers = static_cast<int>(svc.num_decoder_layers);
-    cfg.base_config.max_seq_length     = static_cast<int>(svc.max_seq_length);
-    cfg.base_config.learning_rate      = svc.learning_rate;
-    cfg.base_config.num_epochs         = svc.num_epochs;
-    cfg.base_config.weight_decay       = svc.weight_decay;
-    cfg.base_config.gradient_clip_norm  = svc.gradient_clip;
+    cfg.base_config.max_seq_length = static_cast<int>(svc.max_seq_length);
+    cfg.base_config.learning_rate = svc.learning_rate;
+    cfg.base_config.num_epochs = svc.num_epochs;
+    cfg.base_config.weight_decay = svc.weight_decay;
+    cfg.base_config.gradient_clip_norm = svc.gradient_clip;
     // TD-017: Map adaptive gradient clipping fields
-    cfg.base_config.adaptive_gradient_clip     = svc.adaptive_gradient_clip;
-    cfg.base_config.gradient_clip_min          = svc.gradient_clip_min;
-    cfg.base_config.gradient_clip_max          = svc.gradient_clip_max;
-    cfg.base_config.gradient_clip_ema_decay    = svc.gradient_clip_ema_decay;
-    cfg.base_config.gradient_clip_headroom     = svc.gradient_clip_headroom;
+    cfg.base_config.adaptive_gradient_clip = svc.adaptive_gradient_clip;
+    cfg.base_config.gradient_clip_min = svc.gradient_clip_min;
+    cfg.base_config.gradient_clip_max = svc.gradient_clip_max;
+    cfg.base_config.gradient_clip_ema_decay = svc.gradient_clip_ema_decay;
+    cfg.base_config.gradient_clip_headroom = svc.gradient_clip_headroom;
     cfg.base_config.gradient_clip_warmup_steps = svc.gradient_clip_warmup_steps;
-    cfg.base_config.gradient_clip_spike_k      = svc.gradient_clip_spike_k;
-    cfg.base_config.batch_size          = svc.batch_size;
+    cfg.base_config.gradient_clip_spike_k = svc.gradient_clip_spike_k;
+    cfg.base_config.batch_size = svc.batch_size;
     cfg.base_config.enable_early_stopping = true;
-    cfg.base_config.patience            = 5;
+    cfg.base_config.patience = 5;
     cfg.base_config.restore_best_weights = true;
     // Suppress verbose per-sample logging from ChatbotTrainer, as we use
     // the TUI dashboard for real-time feedback.
-    cfg.base_config.log_level          = LogLevel::NORMAL;
-    
+    cfg.base_config.log_level = LogLevel::NORMAL;
+
     // Metrics service configuration
     cfg.enable_metrics_service = svc.enable_metrics_service;
     cfg.metrics_push_enabled = svc.metrics_push_enabled;
@@ -111,8 +104,8 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
 
     // Generation quality metrics
     cfg.base_config.enable_generation_quality_metrics = svc.enable_generation_quality_metrics;
-    cfg.base_config.generation_quality_sample_size    = svc.generation_quality_sample_size;
-    cfg.base_config.generation_quality_max_tokens     = svc.generation_quality_max_tokens;
+    cfg.base_config.generation_quality_sample_size = svc.generation_quality_sample_size;
+    cfg.base_config.generation_quality_max_tokens = svc.generation_quality_max_tokens;
 
     // Session directory
     if (!svc.session_dir.empty()) {
@@ -126,19 +119,22 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
 // Primary constructor — config.conf is the required entry point.
 // ============================================================================
 IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
-    : current_session_id(0), samples_since_last_save(0),
+    : current_session_id(0),
+      samples_since_last_save(0),
       best_validation_loss(std::numeric_limits<float>::max()),
       best_checkpoint_path(""),
       dashboard_lines_drawn_(0),
-      current_sample_in_epoch_(0), total_samples_in_epoch_(0), running_sample_loss_(0.0f),
-      current_item_loss_(0.0f), current_item_grad_norm_(0.0f), current_item_lr_(0.0f) {
-
+      current_sample_in_epoch_(0),
+      total_samples_in_epoch_(0),
+      running_sample_loss_(0.0f),
+      current_item_loss_(0.0f),
+      current_item_grad_norm_(0.0f),
+      current_item_lr_(0.0f) {
     Logger::info("Loading configuration from: {}",
                  config_file_path.empty() ? "<system default>" : config_file_path);
 
-    adai::ServiceConfig svc = config_file_path.empty()
-        ? adai::ConfigLoader::load()
-        : adai::ConfigLoader::load(config_file_path);
+    adai::ServiceConfig svc = config_file_path.empty() ? adai::ConfigLoader::load()
+                                                       : adai::ConfigLoader::load(config_file_path);
 
     if (svc.vocab_path.empty()) {
         throw std::runtime_error(
@@ -147,7 +143,7 @@ IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
 
     vocab_path_ = svc.vocab_path;
     model_path_ = svc.model_path.empty() ? "chatbot_model.bin" : svc.model_path;
-    config      = make_incremental_config(svc);
+    config = make_incremental_config(svc);
     config.base_config.lr_schedule = LRSchedule::WARMUP_COSINE;
 
     // Initialize metrics service if enabled
@@ -160,8 +156,8 @@ IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
         // Preserve push settings from config
         // (already set by make_incremental_config from ServiceConfig)
         metrics_service_ = std::make_unique<TrainingMetricsService>(config.metrics_config);
-        Logger::info("TrainingMetricsService initialized (push enabled: {}, URL: {})", 
-                    config.metrics_config.enable_push, config.metrics_config.push_url);
+        Logger::info("TrainingMetricsService initialized (push enabled: {}, URL: {})",
+                     config.metrics_config.enable_push, config.metrics_config.push_url);
     }
 
     Logger::info("Initializing Incremental Training System...");
@@ -191,7 +187,8 @@ IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
             }
         }
         if (!best_checkpoint_path.empty()) {
-            Logger::info("Best checkpoint: {} (val loss: {})", best_checkpoint_path, best_validation_loss);
+            Logger::info("Best checkpoint: {} (val loss: {})", best_checkpoint_path,
+                         best_validation_loss);
             if (fs::exists(best_checkpoint_path)) {
                 try {
                     model->load_model(best_checkpoint_path);
@@ -216,9 +213,9 @@ IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
             bool prefer_in_progress = best_checkpoint_path.empty();
 
             if (!prefer_in_progress && fs::exists(best_checkpoint_path + ".config")) {
-                auto best_mtime     = fs::last_write_time(best_checkpoint_path + ".config");
-                auto in_prog_mtime  = fs::last_write_time(in_progress_best  + ".config");
-                prefer_in_progress  = (in_prog_mtime > best_mtime);
+                auto best_mtime = fs::last_write_time(best_checkpoint_path + ".config");
+                auto in_prog_mtime = fs::last_write_time(in_progress_best + ".config");
+                prefer_in_progress = (in_prog_mtime > best_mtime);
             }
 
             if (prefer_in_progress) {
@@ -226,29 +223,33 @@ IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
                     model->load_model(in_progress_best);
                     Logger::info("Resumed from in-progress best snapshot: {}", in_progress_best);
                 } catch (...) {
-                    Logger::warn("Could not load in-progress best snapshot, keeping previous weights");
+                    Logger::warn(
+                        "Could not load in-progress best snapshot, keeping previous weights");
                 }
             }
         }
     }
 
-    last_save_time             = std::chrono::system_clock::now();
+    last_save_time = std::chrono::system_clock::now();
     session_start_time_steady_ = std::chrono::steady_clock::now();
-    epoch_start_time_steady_   = session_start_time_steady_;
+    epoch_start_time_steady_ = session_start_time_steady_;
 }
 
 // ============================================================================
 // Explicit-paths constructor (low-level, uses default IncrementalConfig).
 // ============================================================================
-IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path,
-                                       const std::string& model_path)
-    : current_session_id(0), samples_since_last_save(0),
+IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path, const std::string& model_path)
+    : current_session_id(0),
+      samples_since_last_save(0),
       best_validation_loss(std::numeric_limits<float>::max()),
       best_checkpoint_path(""),
       dashboard_lines_drawn_(0),
-      current_sample_in_epoch_(0), total_samples_in_epoch_(0), running_sample_loss_(0.0f),
-      current_item_loss_(0.0f), current_item_grad_norm_(0.0f), current_item_lr_(0.0f) {
-
+      current_sample_in_epoch_(0),
+      total_samples_in_epoch_(0),
+      running_sample_loss_(0.0f),
+      current_item_loss_(0.0f),
+      current_item_grad_norm_(0.0f),
+      current_item_lr_(0.0f) {
     Logger::info("Initializing Incremental Training System...");
 
     vocab_path_ = vocab_path;
@@ -260,8 +261,8 @@ IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path,
         config.metrics_config.metrics_file = "training_sessions/metrics.jsonl";
         config.metrics_config.summary_file = "training_sessions/metrics_summary.json";
         metrics_service_ = std::make_unique<TrainingMetricsService>(config.metrics_config);
-        Logger::info("TrainingMetricsService initialized (push enabled: {}, URL: {})", 
-                    config.metrics_config.enable_push, config.metrics_config.push_url);
+        Logger::info("TrainingMetricsService initialized (push enabled: {}, URL: {})",
+                     config.metrics_config.enable_push, config.metrics_config.push_url);
     }
 
     // Build model using default config.
@@ -292,7 +293,8 @@ IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path,
             }
         }
         if (!best_checkpoint_path.empty()) {
-            Logger::info("Best checkpoint: {} (val loss: {})", best_checkpoint_path, best_validation_loss);
+            Logger::info("Best checkpoint: {} (val loss: {})", best_checkpoint_path,
+                         best_validation_loss);
             if (fs::exists(best_checkpoint_path)) {
                 try {
                     model->load_model(best_checkpoint_path);
@@ -304,30 +306,33 @@ IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path,
         }
     }
 
-    last_save_time             = std::chrono::system_clock::now();
+    last_save_time = std::chrono::system_clock::now();
     session_start_time_steady_ = std::chrono::steady_clock::now();
-    epoch_start_time_steady_   = session_start_time_steady_;
+    epoch_start_time_steady_ = session_start_time_steady_;
 }
 
 // ============================================================================
 // Explicit-paths + pre-built config constructor.
 // Applies config BEFORE building the model so no defaults are baked in.
 // ============================================================================
-IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path,
-                                       const std::string& model_path,
+IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path, const std::string& model_path,
                                        const IncrementalConfig& cfg)
-    : current_session_id(0), samples_since_last_save(0),
+    : current_session_id(0),
+      samples_since_last_save(0),
       best_validation_loss(std::numeric_limits<float>::max()),
       best_checkpoint_path(""),
       dashboard_lines_drawn_(0),
-      current_sample_in_epoch_(0), total_samples_in_epoch_(0), running_sample_loss_(0.0f),
-      current_item_loss_(0.0f), current_item_grad_norm_(0.0f), current_item_lr_(0.0f) {
-
+      current_sample_in_epoch_(0),
+      total_samples_in_epoch_(0),
+      running_sample_loss_(0.0f),
+      current_item_loss_(0.0f),
+      current_item_grad_norm_(0.0f),
+      current_item_lr_(0.0f) {
     Logger::info("Initializing Incremental Training System...");
 
     vocab_path_ = vocab_path;
     model_path_ = model_path;
-    config      = cfg;  // set config FIRST so build_model() uses the correct architecture
+    config = cfg;  // set config FIRST so build_model() uses the correct architecture
 
     // Initialize metrics service if enabled
     if (config.enable_metrics_service) {
@@ -335,8 +340,8 @@ IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path,
         config.metrics_config.metrics_file = "training_sessions/metrics.jsonl";
         config.metrics_config.summary_file = "training_sessions/metrics_summary.json";
         metrics_service_ = std::make_unique<TrainingMetricsService>(config.metrics_config);
-        Logger::info("TrainingMetricsService initialized (push enabled: {}, URL: {})", 
-                    config.metrics_config.enable_push, config.metrics_config.push_url);
+        Logger::info("TrainingMetricsService initialized (push enabled: {}, URL: {})",
+                     config.metrics_config.enable_push, config.metrics_config.push_url);
     }
 
     build_model();
@@ -365,7 +370,8 @@ IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path,
             }
         }
         if (!best_checkpoint_path.empty()) {
-            Logger::info("Best checkpoint: {} (val loss: {})", best_checkpoint_path, best_validation_loss);
+            Logger::info("Best checkpoint: {} (val loss: {})", best_checkpoint_path,
+                         best_validation_loss);
             if (fs::exists(best_checkpoint_path)) {
                 try {
                     model->load_model(best_checkpoint_path);
@@ -377,9 +383,9 @@ IncrementalTrainer::IncrementalTrainer(const std::string& vocab_path,
         }
     }
 
-    last_save_time             = std::chrono::system_clock::now();
+    last_save_time = std::chrono::system_clock::now();
     session_start_time_steady_ = std::chrono::steady_clock::now();
-    epoch_start_time_steady_   = session_start_time_steady_;
+    epoch_start_time_steady_ = session_start_time_steady_;
 }
 
 void IncrementalTrainer::set_config(const IncrementalConfig& cfg) {
@@ -401,19 +407,19 @@ bool IncrementalTrainer::add_new_data(const std::string& data_file) {
         Logger::error("Data file not found: {}", data_file);
         return false;
     }
-    
+
     // Check if already trained
     if (is_data_trained(data_file)) {
         Logger::warn("Data file already trained, skipping: {}", data_file);
         return false;
     }
-    
+
     pending_data_files.push_back(data_file);
     Logger::info("Added new data file: {}", data_file);
-    
+
     // Save pending files list
     save_pending_data_list();
-    
+
     return true;
 }
 
@@ -452,9 +458,9 @@ bool IncrementalTrainer::train_incremental(int num_epochs) {
     initialize_session();
 
     // Reset dashboard state and record session start time (TD-009)
-    dashboard_lines_drawn_     = 0;
+    dashboard_lines_drawn_ = 0;
     session_start_time_steady_ = std::chrono::steady_clock::now();
-    epoch_start_time_steady_   = session_start_time_steady_;
+    epoch_start_time_steady_ = session_start_time_steady_;
 
     // Load all pending data — files are independent so load them in parallel
     std::vector<ConversationPair> training_pairs;
@@ -465,7 +471,7 @@ bool IncrementalTrainer::train_incremental(int num_epochs) {
         std::vector<std::vector<ConversationPair>> per_file(n_files);
 
 #ifdef ADAI_ENABLE_OPENMP
-        #pragma omp parallel for schedule(dynamic)
+#pragma omp parallel for schedule(dynamic)
 #endif
         for (int fi = 0; fi < n_files; ++fi) {
             load_conversation_pairs(pending_data_files[fi], per_file[fi]);
@@ -486,18 +492,18 @@ bool IncrementalTrainer::train_incremental(int num_epochs) {
                 }
 
                 DataVersion dv;
-                dv.data_file   = data_file;
-                dv.checksum    = compute_data_checksum(data_file);
+                dv.data_file = data_file;
+                dv.checksum = compute_data_checksum(data_file);
                 dv.num_samples = loaded;
-                dv.added_time  = std::chrono::system_clock::now();
-                dv.trained     = true;
+                dv.added_time = std::chrono::system_clock::now();
+                dv.trained = true;
                 data_registry.push_back(dv);
                 trained_data_files.insert(data_file);
             }
         }
     }
 
-    Logger::info("Total training samples: {}",   training_pairs.size());
+    Logger::info("Total training samples: {}", training_pairs.size());
     Logger::info("Total validation samples: {}", validation_pairs.size());
 
     // Store total sample count for dashboard and reset per-sample state
@@ -513,8 +519,8 @@ bool IncrementalTrainer::train_incremental(int num_epochs) {
     if (metrics_service_) {
         trainer.set_metrics_service(metrics_service_.get());
         // Start metrics session
-        metrics_service_->start_session(current_session_id + 1, num_epochs, 
-                                       static_cast<int>(training_pairs.size()));
+        metrics_service_->start_session(current_session_id + 1, num_epochs,
+                                        static_cast<int>(training_pairs.size()));
     }
 
     for (const auto& pair : training_pairs) {
@@ -549,9 +555,9 @@ bool IncrementalTrainer::train_incremental(int num_epochs) {
 
             // Reset per-sample counters for the next epoch
             current_sample_in_epoch_ = 0;
-            running_sample_loss_     = 0.0f;
-            current_item_loss_       = 0.0f;
-            current_item_grad_norm_  = 0.0f;
+            running_sample_loss_ = 0.0f;
+            current_item_loss_ = 0.0f;
+            current_item_grad_norm_ = 0.0f;
         }
         // NOTE: Do NOT log to stdout/stderr here. Any extra line written between
         // display_dashboard() calls offsets the cursor-up count stored in
@@ -560,26 +566,26 @@ bool IncrementalTrainer::train_incremental(int num_epochs) {
     });
 
     // ── Per-sample callback: update running state and redraw dashboard ──
-    trainer.set_sample_callback([this](int sample, int total_samples, float running_loss, float step_loss, float grad_norm, float lr) {
+    trainer.set_sample_callback([this](int sample, int total_samples, float running_loss,
+                                       float step_loss, float grad_norm, float lr) {
         // Reset the epoch timer on the very first sample so that throughput
         // excludes preprocessing (split + tokenization) time.
         if (sample == 1) {
             epoch_start_time_steady_ = std::chrono::steady_clock::now();
         }
         current_sample_in_epoch_ = sample;
-        total_samples_in_epoch_  = total_samples;
-        running_sample_loss_     = running_loss;
-        current_item_loss_       = step_loss;
-        current_item_grad_norm_  = grad_norm;
-        current_item_lr_         = lr;
+        total_samples_in_epoch_ = total_samples;
+        running_sample_loss_ = running_loss;
+        current_item_loss_ = step_loss;
+        current_item_grad_norm_ = grad_norm;
+        current_item_lr_ = lr;
         if (!session_history.empty()) {
             // Use the current per-epoch data — back() reflects epochs already done;
             // the running loss from the sample callback covers the in-progress epoch.
             display_dashboard(session_history.back(),
                               static_cast<int>(session_history.back().per_epoch_losses.size()),
                               // epoch arg = completed epochs (in-progress epoch not yet in back())
-                              config.base_config.num_epochs,
-                              false);
+                              config.base_config.num_epochs, false);
         }
     });
 
@@ -589,15 +595,16 @@ bool IncrementalTrainer::train_incremental(int num_epochs) {
         best_path_oss << get_session_dir() << "/session_" << current_session_id << "_best.bin";
         std::string best_snapshot_path = best_path_oss.str();
 
-        trainer.set_best_model_callback([this, &trainer, best_snapshot_path](int epoch, float val_loss) {
-            try {
-                trainer.save_to(best_snapshot_path);
-                Logger::info("  [best] New best (epoch {}, val_loss {:.4f}) saved to: {}",
-                             epoch, val_loss, best_snapshot_path);
-            } catch (const std::exception& e) {
-                Logger::warn("  [warn] Failed to save best snapshot: {}", e.what());
-            }
-        });
+        trainer.set_best_model_callback(
+            [this, &trainer, best_snapshot_path](int epoch, float val_loss) {
+                try {
+                    trainer.save_to(best_snapshot_path);
+                    Logger::info("  [best] New best (epoch {}, val_loss {:.4f}) saved to: {}",
+                                 epoch, val_loss, best_snapshot_path);
+                } catch (const std::exception& e) {
+                    Logger::warn("  [warn] Failed to save best snapshot: {}", e.what());
+                }
+            });
     }
 
     Logger::info("Training for {} epochs...", num_epochs);
@@ -617,10 +624,10 @@ bool IncrementalTrainer::train_incremental(int num_epochs) {
         save_model(checkpoint_path);
 
         // Finalize session (per-epoch vectors already populated by callback)
-        float final_loss     = trainer.get_final_training_loss();
+        float final_loss = trainer.get_final_training_loss();
         float final_val_loss = trainer.get_final_validation_loss();
-        finalize_session(static_cast<int>(training_pairs.size()), num_epochs,
-                         final_loss, final_val_loss);
+        finalize_session(static_cast<int>(training_pairs.size()), num_epochs, final_loss,
+                         final_val_loss);
 
         // Clear pending data
         pending_data_files.clear();
@@ -653,7 +660,8 @@ bool IncrementalTrainer::train_full_retrain(int num_epochs) {
     }
 
     // Add pending files
-    all_data_files.insert(all_data_files.end(), pending_data_files.begin(), pending_data_files.end());
+    all_data_files.insert(all_data_files.end(), pending_data_files.begin(),
+                          pending_data_files.end());
 
     if (all_data_files.empty()) {
         Logger::warn("No data files to train on");
@@ -664,9 +672,9 @@ bool IncrementalTrainer::train_full_retrain(int num_epochs) {
     initialize_session();
 
     // Reset dashboard state (TD-009)
-    dashboard_lines_drawn_     = 0;
+    dashboard_lines_drawn_ = 0;
     session_start_time_steady_ = std::chrono::steady_clock::now();
-    epoch_start_time_steady_   = session_start_time_steady_;
+    epoch_start_time_steady_ = session_start_time_steady_;
 
     // Load all data — files are independent so load them in parallel
     std::vector<ConversationPair> all_pairs;
@@ -675,7 +683,7 @@ bool IncrementalTrainer::train_full_retrain(int num_epochs) {
         std::vector<std::vector<ConversationPair>> per_file(n_files);
 
 #ifdef ADAI_ENABLE_OPENMP
-        #pragma omp parallel for schedule(dynamic)
+#pragma omp parallel for schedule(dynamic)
 #endif
         for (int fi = 0; fi < n_files; ++fi) {
             load_conversation_pairs(all_data_files[fi], per_file[fi]);
@@ -705,7 +713,7 @@ bool IncrementalTrainer::train_full_retrain(int num_epochs) {
         trainer.set_metrics_service(metrics_service_.get());
         // Start metrics session for full retrain
         metrics_service_->start_session(current_session_id + 1, num_epochs,
-                                       total_samples_in_epoch_);
+                                        total_samples_in_epoch_);
     }
 
     for (const auto& pair : all_pairs) {
@@ -734,30 +742,30 @@ bool IncrementalTrainer::train_full_retrain(int num_epochs) {
 
             // Reset per-sample counters for the next epoch
             current_sample_in_epoch_ = 0;
-            running_sample_loss_     = 0.0f;
-            current_item_loss_       = 0.0f;
-            current_item_grad_norm_  = 0.0f;
+            running_sample_loss_ = 0.0f;
+            current_item_loss_ = 0.0f;
+            current_item_grad_norm_ = 0.0f;
         }
     });
 
     // ── Per-sample callback for full retrain ──
-    trainer.set_sample_callback([this](int sample, int total_samples, float running_loss, float step_loss, float grad_norm, float lr) {
+    trainer.set_sample_callback([this](int sample, int total_samples, float running_loss,
+                                       float step_loss, float grad_norm, float lr) {
         // Reset the epoch timer on the very first sample so that throughput
         // excludes preprocessing (split + tokenization) time.
         if (sample == 1) {
             epoch_start_time_steady_ = std::chrono::steady_clock::now();
         }
         current_sample_in_epoch_ = sample;
-        total_samples_in_epoch_  = total_samples;
-        running_sample_loss_     = running_loss;
-        current_item_loss_       = step_loss;
-        current_item_grad_norm_  = grad_norm;
-        current_item_lr_         = lr;
+        total_samples_in_epoch_ = total_samples;
+        running_sample_loss_ = running_loss;
+        current_item_loss_ = step_loss;
+        current_item_grad_norm_ = grad_norm;
+        current_item_lr_ = lr;
         if (!session_history.empty()) {
             display_dashboard(session_history.back(),
                               static_cast<int>(session_history.back().per_epoch_losses.size()),
-                              config.base_config.num_epochs,
-                              false);
+                              config.base_config.num_epochs, false);
         }
     });
 
@@ -773,9 +781,10 @@ bool IncrementalTrainer::train_full_retrain(int num_epochs) {
         std::string checkpoint_path = generate_session_checkpoint_path();
         save_model(checkpoint_path);
 
-        float final_loss     = trainer.get_final_training_loss();
+        float final_loss = trainer.get_final_training_loss();
         float final_val_loss = trainer.get_final_validation_loss();
-        finalize_session(static_cast<int>(all_pairs.size()), num_epochs, final_loss, final_val_loss);
+        finalize_session(static_cast<int>(all_pairs.size()), num_epochs, final_loss,
+                         final_val_loss);
 
         pending_data_files.clear();
         save_data_registry();
@@ -811,16 +820,16 @@ bool IncrementalTrainer::resume_last_session() {
 
 bool IncrementalTrainer::load_session_history() {
     std::string history_file = get_session_dir() + "/session_history.txt";
-    
+
     if (!fs::exists(history_file)) {
         return false;
     }
-    
+
     std::ifstream file(history_file);
     if (!file.is_open()) {
         return false;
     }
-    
+
     session_history.clear();
     std::string line;
 
@@ -828,32 +837,40 @@ bool IncrementalTrainer::load_session_history() {
         std::istringstream ss(s);
         std::string token;
         while (std::getline(ss, token, ',')) {
-            try { out.push_back(std::stof(token)); } catch (...) {}
+            try {
+                out.push_back(std::stof(token));
+            } catch (...) {
+            }
         }
     };
     auto parse_double_list = [](const std::string& s, std::vector<double>& out) {
         std::istringstream ss(s);
         std::string token;
         while (std::getline(ss, token, ',')) {
-            try { out.push_back(std::stod(token)); } catch (...) {}
+            try {
+                out.push_back(std::stod(token));
+            } catch (...) {
+            }
         }
     };
 
     while (std::getline(file, line)) {
-        if (line.empty() || line[0] == '#') continue;
+        if (line.empty() || line[0] == '#')
+            continue;
 
         std::istringstream iss(line);
         TrainingSession session;
 
-        iss >> session.session_id >> session.samples_trained >> session.epochs_completed
-            >> session.final_loss >> session.final_validation_loss >> session.checkpoint_path;
+        iss >> session.session_id >> session.samples_trained >> session.epochs_completed >>
+            session.final_loss >> session.final_validation_loss >> session.checkpoint_path;
 
         if (iss.fail() || session.checkpoint_path.empty()) {
             Logger::warn("Skipping malformed session history line: {}", line);
             continue;
         }
 
-        // v2 extended format: checkpoint_path may contain "|losses:...|vallosses:...|lrs:...|times:..."
+        // v2 extended format: checkpoint_path may contain
+        // "|losses:...|vallosses:...|lrs:...|times:..."
         size_t pipe = session.checkpoint_path.find('|');
         if (pipe != std::string::npos) {
             std::string extended = session.checkpoint_path.substr(pipe + 1);
@@ -863,13 +880,18 @@ bool IncrementalTrainer::load_session_history() {
             std::string segment;
             while (std::getline(es, segment, '|')) {
                 auto colon = segment.find(':');
-                if (colon == std::string::npos) continue;
-                std::string key   = segment.substr(0, colon);
+                if (colon == std::string::npos)
+                    continue;
+                std::string key = segment.substr(0, colon);
                 std::string value = segment.substr(colon + 1);
-                if      (key == "losses")    parse_float_list(value,  session.per_epoch_losses);
-                else if (key == "vallosses") parse_float_list(value,  session.per_epoch_validation_losses);
-                else if (key == "lrs")       parse_float_list(value,  session.per_epoch_learning_rates);
-                else if (key == "times")     parse_double_list(value, session.training_time_per_epoch);
+                if (key == "losses")
+                    parse_float_list(value, session.per_epoch_losses);
+                else if (key == "vallosses")
+                    parse_float_list(value, session.per_epoch_validation_losses);
+                else if (key == "lrs")
+                    parse_float_list(value, session.per_epoch_learning_rates);
+                else if (key == "times")
+                    parse_double_list(value, session.training_time_per_epoch);
             }
         }
 
@@ -886,7 +908,7 @@ bool IncrementalTrainer::load_session_history() {
 
 bool IncrementalTrainer::save_session_history() {
     std::string history_file = get_session_dir() + "/session_history.txt";
-    
+
     std::ofstream file(history_file);
     if (!file.is_open()) {
         Logger::error("Failed to save session history");
@@ -900,7 +922,8 @@ bool IncrementalTrainer::save_session_history() {
     auto join_floats = [](const std::vector<float>& v) -> std::string {
         std::ostringstream oss;
         for (size_t i = 0; i < v.size(); ++i) {
-            if (i) oss << ',';
+            if (i)
+                oss << ',';
             oss << v[i];
         }
         return oss.str();
@@ -908,24 +931,22 @@ bool IncrementalTrainer::save_session_history() {
     auto join_doubles = [](const std::vector<double>& v) -> std::string {
         std::ostringstream oss;
         for (size_t i = 0; i < v.size(); ++i) {
-            if (i) oss << ',';
+            if (i)
+                oss << ',';
             oss << v[i];
         }
         return oss.str();
     };
 
     for (const auto& session : session_history) {
-        file << session.session_id << " "
-             << session.samples_trained << " "
-             << session.epochs_completed << " "
-             << session.final_loss << " "
-             << session.final_validation_loss << " "
-             << session.checkpoint_path;
+        file << session.session_id << " " << session.samples_trained << " "
+             << session.epochs_completed << " " << session.final_loss << " "
+             << session.final_validation_loss << " " << session.checkpoint_path;
         if (!session.per_epoch_losses.empty()) {
-            file << "|losses:"    << join_floats(session.per_epoch_losses)
+            file << "|losses:" << join_floats(session.per_epoch_losses)
                  << "|vallosses:" << join_floats(session.per_epoch_validation_losses)
-                 << "|lrs:"       << join_floats(session.per_epoch_learning_rates)
-                 << "|times:"     << join_doubles(session.training_time_per_epoch);
+                 << "|lrs:" << join_floats(session.per_epoch_learning_rates)
+                 << "|times:" << join_doubles(session.training_time_per_epoch);
         }
         file << "\n";
     }
@@ -945,9 +966,8 @@ std::vector<TrainingSession> IncrementalTrainer::get_session_history() const {
 }
 
 void IncrementalTrainer::remove_model_files(const std::string& base_path) {
-    static const std::vector<std::string> sidecars = {
-        ".config", ".vocab", ".encoder", ".decoder", ".lm_head"
-    };
+    static const std::vector<std::string> sidecars = {".config", ".vocab", ".encoder", ".decoder",
+                                                      ".lm_head"};
     std::error_code ec;
     // Remove bare base file (empty marker written by finalize_model)
     if (fs::exists(base_path, ec)) {
@@ -957,7 +977,8 @@ void IncrementalTrainer::remove_model_files(const std::string& base_path) {
         std::string p = base_path + ext;
         if (fs::exists(p, ec)) {
             fs::remove(p, ec);
-            if (!ec) Logger::info("Removed: {}", p);
+            if (!ec)
+                Logger::info("Removed: {}", p);
         }
     }
 }
@@ -966,15 +987,15 @@ void IncrementalTrainer::cleanup_old_sessions() {
     if (session_history.size() <= config.max_sessions_to_keep) {
         return;
     }
-    
+
     int to_remove = session_history.size() - config.max_sessions_to_keep;
-    
+
     for (int i = 0; i < to_remove; ++i) {
         const auto& session = session_history[i];
-        
+
         // TD-005: Check if we're deleting the best checkpoint
         bool deleting_best = (session.checkpoint_path == best_checkpoint_path);
-        
+
         // Delete checkpoint and all sidecar files
         remove_model_files(session.checkpoint_path);
         Logger::info("Removed old checkpoint: {}", session.checkpoint_path);
@@ -990,26 +1011,27 @@ void IncrementalTrainer::cleanup_old_sessions() {
             auto pos = stem.rfind(tag);
             if (pos != std::string::npos) {
                 std::string best_stem = stem.substr(0, pos) + "_best";
-                std::string best_path = fs::path(cp).parent_path().string() + "/" + best_stem + ".bin";
+                std::string best_path =
+                    fs::path(cp).parent_path().string() + "/" + best_stem + ".bin";
                 remove_model_files(best_path);
             }
         }
-        
+
         // If we deleted the best checkpoint, find the next best from remaining sessions
         if (deleting_best && config.enable_checkpoint_symlinks) {
             best_validation_loss = std::numeric_limits<float>::max();
             best_checkpoint_path = "";
-            
+
             // Search through remaining sessions (after the ones we're removing)
             for (size_t j = to_remove; j < session_history.size(); ++j) {
                 const auto& remaining_session = session_history[j];
-                if (remaining_session.final_validation_loss < best_validation_loss && 
+                if (remaining_session.final_validation_loss < best_validation_loss &&
                     fs::exists(remaining_session.checkpoint_path)) {
                     best_validation_loss = remaining_session.final_validation_loss;
                     best_checkpoint_path = remaining_session.checkpoint_path;
                 }
             }
-            
+
             // Update the best_checkpoint symlink to new best (or remove if no sessions remain)
             if (!best_checkpoint_path.empty()) {
                 update_best_checkpoint(best_validation_loss, best_checkpoint_path);
@@ -1019,10 +1041,10 @@ void IncrementalTrainer::cleanup_old_sessions() {
             }
         }
     }
-    
+
     // Remove from history
     session_history.erase(session_history.begin(), session_history.begin() + to_remove);
-    
+
     // TD-005: Update latest checkpoint symlink to point to the newest remaining session
     if (config.enable_checkpoint_symlinks && !session_history.empty()) {
         const auto& latest_session = session_history.back();
@@ -1034,60 +1056,60 @@ void IncrementalTrainer::cleanup_old_sessions() {
 
 bool IncrementalTrainer::load_data_registry() {
     std::string registry_file = get_session_dir() + "/" + config.data_registry_file;
-    
+
     if (!fs::exists(registry_file)) {
         return false;
     }
-    
+
     std::ifstream file(registry_file);
     if (!file.is_open()) {
         return false;
     }
-    
+
     data_registry.clear();
     trained_data_files.clear();
-    
+
     std::string line;
     while (std::getline(file, line)) {
-        if (line.empty() || line[0] == '#') continue;
-        
+        if (line.empty() || line[0] == '#')
+            continue;
+
         std::istringstream iss(line);
         DataVersion dv;
         int trained_int;
-        
+
         iss >> dv.data_file >> dv.checksum >> dv.num_samples >> trained_int;
         dv.trained = (trained_int == 1);
-        
+
         data_registry.push_back(dv);
-        
+
         if (dv.trained) {
             trained_data_files.insert(dv.data_file);
         }
     }
-    
-    Logger::info("Loaded data registry: {} files ({} trained)", data_registry.size(), trained_data_files.size());
-    
+
+    Logger::info("Loaded data registry: {} files ({} trained)", data_registry.size(),
+                 trained_data_files.size());
+
     return true;
 }
 
 bool IncrementalTrainer::save_data_registry() {
     std::string registry_file = get_session_dir() + "/" + config.data_registry_file;
-    
+
     std::ofstream file(registry_file);
     if (!file.is_open()) {
         Logger::error("Failed to save data registry");
         return false;
     }
-    
+
     file << "# Data Registry: data_file checksum num_samples trained\n";
-    
+
     for (const auto& dv : data_registry) {
-        file << dv.data_file << " "
-             << dv.checksum << " "
-             << dv.num_samples << " "
+        file << dv.data_file << " " << dv.checksum << " " << dv.num_samples << " "
              << (dv.trained ? 1 : 0) << "\n";
     }
-    
+
     return true;
 }
 
@@ -1100,13 +1122,13 @@ std::string IncrementalTrainer::compute_data_checksum(const std::string& data_fi
     if (!fs::exists(data_file)) {
         return "MISSING";
     }
-    
+
     auto size = fs::file_size(data_file);
     auto ftime = fs::last_write_time(data_file);
-    
+
     std::ostringstream oss;
     oss << size << "_" << ftime.time_since_epoch().count();
-    
+
     return oss.str();
 }
 
@@ -1141,9 +1163,10 @@ std::string IncrementalTrainer::get_latest_checkpoint() const {
 
 // Returns a sparkline string visualising values (low = good for loss)
 static std::string make_sparkline(const std::vector<float>& values, int width = 30) {
-    if (values.empty()) return std::string(width, '-');
-    const char* bars[] = {"\xe2\x96\x81","\xe2\x96\x82","\xe2\x96\x83","\xe2\x96\x84",
-                          "\xe2\x96\x85","\xe2\x96\x86","\xe2\x96\x87","\xe2\x96\x88"};
+    if (values.empty())
+        return std::string(width, '-');
+    const char* bars[] = {"\xe2\x96\x81", "\xe2\x96\x82", "\xe2\x96\x83", "\xe2\x96\x84",
+                          "\xe2\x96\x85", "\xe2\x96\x86", "\xe2\x96\x87", "\xe2\x96\x88"};
     float mn = *std::min_element(values.begin(), values.end());
     float mx = *std::max_element(values.begin(), values.end());
     float range = mx - mn;
@@ -1182,17 +1205,17 @@ void IncrementalTrainer::print_training_summary() const {
             std::cout << "    best  : " << config.best_symlink_name;
             if (!is_windows_platform() && fs::is_symlink(config.best_symlink_name))
                 std::cout << " -> " << fs::read_symlink(config.best_symlink_name).string();
-            std::cout << "  (val loss: " << std::fixed << std::setprecision(4) << best_validation_loss << ")\n";
+            std::cout << "  (val loss: " << std::fixed << std::setprecision(4)
+                      << best_validation_loss << ")\n";
         }
     }
 
     // Per-session details with sparklines
     for (const auto& s : session_history) {
-        std::cout << "\n  Session #" << s.session_id
-                  << "  samples=" << s.samples_trained
-                  << "  epochs=" << s.epochs_completed
-                  << "  loss=" << std::fixed << std::setprecision(4) << s.final_loss
-                  << "  val=" << s.final_validation_loss << "\n";
+        std::cout << "\n  Session #" << s.session_id << "  samples=" << s.samples_trained
+                  << "  epochs=" << s.epochs_completed << "  loss=" << std::fixed
+                  << std::setprecision(4) << s.final_loss << "  val=" << s.final_validation_loss
+                  << "\n";
         std::cout << "    checkpoint: " << s.checkpoint_path << "\n";
 
         if (!s.per_epoch_losses.empty()) {
@@ -1204,12 +1227,14 @@ void IncrementalTrainer::print_training_summary() const {
                 total_t += t;
 
             std::cout << "    loss      : " << make_sparkline(s.per_epoch_losses) << "\n";
-            std::cout << "    val loss  : " << make_sparkline(s.per_epoch_validation_losses) << "\n";
-            std::cout << "    best val  : " << std::fixed << std::setprecision(4) << best_val << "\n";
+            std::cout << "    val loss  : " << make_sparkline(s.per_epoch_validation_losses)
+                      << "\n";
+            std::cout << "    best val  : " << std::fixed << std::setprecision(4) << best_val
+                      << "\n";
             if (!s.training_time_per_epoch.empty())
                 std::cout << "    epoch time: avg " << std::fixed << std::setprecision(1)
-                          << (total_t / s.training_time_per_epoch.size()) << "s"
-                          << "  total " << format_duration(total_t) << "\n";
+                          << (total_t / s.training_time_per_epoch.size()) << "s" << "  total "
+                          << format_duration(total_t) << "\n";
         }
     }
 
@@ -1220,14 +1245,13 @@ void IncrementalTrainer::print_session_history() const {
     std::cout << COLOR_INFO << "\n📜 Session History:" << COLOR_RESET << std::endl;
     std::cout << "Session | Samples | Epochs | Loss   | Val Loss | Checkpoint" << std::endl;
     std::cout << "--------|---------|--------|--------|----------|------------" << std::endl;
-    
+
     for (const auto& session : session_history) {
-        std::cout << std::setw(7) << session.session_id << " | "
-                  << std::setw(7) << session.samples_trained << " | "
-                  << std::setw(6) << session.epochs_completed << " | "
-                  << std::setw(6) << std::fixed << std::setprecision(3) << session.final_loss << " | "
-                  << std::setw(8) << session.final_validation_loss << " | "
-                  << session.checkpoint_path << std::endl;
+        std::cout << std::setw(7) << session.session_id << " | " << std::setw(7)
+                  << session.samples_trained << " | " << std::setw(6) << session.epochs_completed
+                  << " | " << std::setw(6) << std::fixed << std::setprecision(3)
+                  << session.final_loss << " | " << std::setw(8) << session.final_validation_loss
+                  << " | " << session.checkpoint_path << std::endl;
     }
 }
 
@@ -1235,19 +1259,18 @@ void IncrementalTrainer::print_data_registry() const {
     std::cout << COLOR_INFO << "\n📋 Data Registry:" << COLOR_RESET << std::endl;
     std::cout << "Trained | Samples | Data File" << std::endl;
     std::cout << "--------|---------|----------" << std::endl;
-    
+
     for (const auto& dv : data_registry) {
-        std::cout << std::setw(7) << (dv.trained ? "✓" : " ") << " | "
-                  << std::setw(7) << dv.num_samples << " | "
-                  << dv.data_file << std::endl;
+        std::cout << std::setw(7) << (dv.trained ? "✓" : " ") << " | " << std::setw(7)
+                  << dv.num_samples << " | " << dv.data_file << std::endl;
     }
 }
 
 float IncrementalTrainer::get_total_training_time_hours() const {
     float total_hours = 0.0f;
     for (const auto& session : session_history) {
-        auto duration = std::chrono::duration_cast<std::chrono::hours>(
-            session.end_time - session.start_time);
+        auto duration =
+            std::chrono::duration_cast<std::chrono::hours>(session.end_time - session.start_time);
         total_hours += duration.count();
     }
     return total_hours;
@@ -1271,16 +1294,17 @@ bool IncrementalTrainer::initialize_session() {
     session.epochs_completed = 0;
     session.final_loss = 0.0f;
     session.final_validation_loss = 0.0f;
-    
+
     session_history.push_back(session);
     last_save_time = std::chrono::system_clock::now();
     samples_since_last_save = 0;
-    
+
     return true;
 }
 
 // See TD-005 in TECHNICAL_DEBT.md - Checkpoint management and symbolic links
-bool IncrementalTrainer::finalize_session(int samples_trained, int epochs_completed, float final_loss, float final_val_loss) {
+bool IncrementalTrainer::finalize_session(int samples_trained, int epochs_completed,
+                                          float final_loss, float final_val_loss) {
     if (session_history.empty()) {
         return false;
     }
@@ -1311,12 +1335,12 @@ bool IncrementalTrainer::finalize_session(int samples_trained, int epochs_comple
     // TD-005: Checkpoint symlink management
     update_checkpoint_symlinks(session.checkpoint_path);
     update_best_checkpoint(final_val_loss, session.checkpoint_path);
-    
+
     current_session_id++;
-    
+
     // Cleanup old sessions
     cleanup_old_sessions();
-    
+
     return true;
 }
 
@@ -1324,13 +1348,13 @@ bool IncrementalTrainer::should_auto_save() {
     if (!config.auto_save_enabled) {
         return false;
     }
-    
+
     // Check sample count
-    if (config.auto_save_every_samples > 0 && 
+    if (config.auto_save_every_samples > 0 &&
         samples_since_last_save >= config.auto_save_every_samples) {
         return true;
     }
-    
+
     // Check time elapsed
     if (config.auto_save_every_minutes > 0) {
         auto now = std::chrono::system_clock::now();
@@ -1339,14 +1363,14 @@ bool IncrementalTrainer::should_auto_save() {
             return true;
         }
     }
-    
+
     return false;
 }
 
 void IncrementalTrainer::perform_auto_save() {
-    std::string auto_save_path = get_session_dir() + "/auto_save_session_" + 
-                                 std::to_string(current_session_id) + ".bin";
-    
+    std::string auto_save_path =
+        get_session_dir() + "/auto_save_session_" + std::to_string(current_session_id) + ".bin";
+
     if (save_model(auto_save_path)) {
         Logger::info("Auto-saved checkpoint to {}", auto_save_path);
         last_save_time = std::chrono::system_clock::now();
@@ -1392,7 +1416,8 @@ bool IncrementalTrainer::reset_all(bool keep_data_registry) {
             auto st = fs::symlink_status(p, ec);
             if (!ec && st.type() != fs::file_type::not_found) {
                 fs::remove(p, ec);
-                if (!ec) Logger::info("Removed: {}", p);
+                if (!ec)
+                    Logger::info("Removed: {}", p);
             }
         }
 
@@ -1418,7 +1443,8 @@ bool IncrementalTrainer::reset_all(bool keep_data_registry) {
             if (ext == ".bin" &&
                 (stem.rfind("session_", 0) == 0 || stem.rfind("auto_save_", 0) == 0)) {
                 fs::remove(path, ec);
-                if (!ec) Logger::info("Removed checkpoint: {}", path.string());
+                if (!ec)
+                    Logger::info("Removed checkpoint: {}", path.string());
             }
         }
 
@@ -1468,13 +1494,12 @@ bool IncrementalTrainer::reset_all(bool keep_data_registry) {
     save_session_history();
     save_pending_data_list();
 
-    Logger::info("Reset complete. Model rebuilt with d_model={} heads={} enc_layers={} dec_layers={} d_ff={} max_seq={}",
-        config.base_config.d_model,
-        config.base_config.num_heads,
-        config.base_config.num_encoder_layers,
-        config.base_config.num_decoder_layers,
-        config.base_config.d_ff,
-        config.base_config.max_seq_length);
+    Logger::info(
+        "Reset complete. Model rebuilt with d_model={} heads={} enc_layers={} dec_layers={} "
+        "d_ff={} max_seq={}",
+        config.base_config.d_model, config.base_config.num_heads,
+        config.base_config.num_encoder_layers, config.base_config.num_decoder_layers,
+        config.base_config.d_ff, config.base_config.max_seq_length);
     return true;
 }
 
@@ -1486,7 +1511,7 @@ void IncrementalTrainer::ensure_directories_exist() {
     if (!fs::exists(config.session_dir)) {
         fs::create_directories(config.session_dir);
     }
-    
+
     if (config.cache_tokenized_data && !fs::exists(config.tokenized_cache_dir)) {
         fs::create_directories(config.tokenized_cache_dir);
     }
@@ -1498,11 +1523,11 @@ bool IncrementalTrainer::save_pending_data_list() {
     if (!file.is_open()) {
         return false;
     }
-    
+
     for (const auto& data_file : pending_data_files) {
         file << data_file << "\n";
     }
-    
+
     return true;
 }
 
@@ -1511,12 +1536,12 @@ bool IncrementalTrainer::load_pending_data_list() {
     if (!fs::exists(pending_file)) {
         return false;
     }
-    
+
     std::ifstream file(pending_file);
     if (!file.is_open()) {
         return false;
     }
-    
+
     pending_data_files.clear();
     std::string line;
     while (std::getline(file, line)) {
@@ -1524,11 +1549,11 @@ bool IncrementalTrainer::load_pending_data_list() {
             pending_data_files.push_back(line);
         }
     }
-    
+
     if (!pending_data_files.empty()) {
         Logger::info("Loaded {} pending data files", pending_data_files.size());
     }
-    
+
     return true;
 }
 
@@ -1544,14 +1569,15 @@ bool IncrementalTrainer::is_windows_platform() const {
 #endif
 }
 
-bool IncrementalTrainer::create_or_update_symlink(const std::string& target, const std::string& link_path) {
+bool IncrementalTrainer::create_or_update_symlink(const std::string& target,
+                                                  const std::string& link_path) {
     if (!config.enable_checkpoint_symlinks) {
         return false;
     }
-    
+
     // Remove existing symlink/file at link_path
     remove_symlink_if_exists(link_path);
-    
+
     try {
         if (is_windows_platform()) {
             std::error_code ec;
@@ -1604,7 +1630,7 @@ void IncrementalTrainer::update_checkpoint_symlinks(const std::string& checkpoin
     if (!config.enable_checkpoint_symlinks) {
         return;
     }
-    
+
     // Create/update "latest_checkpoint.bin" symlink in root directory
     std::string latest_link = config.latest_symlink_name;
     if (!create_or_update_symlink(checkpoint_path, latest_link)) {
@@ -1613,14 +1639,15 @@ void IncrementalTrainer::update_checkpoint_symlinks(const std::string& checkpoin
     }
 }
 
-void IncrementalTrainer::update_best_checkpoint(float validation_loss, const std::string& checkpoint_path) {
+void IncrementalTrainer::update_best_checkpoint(float validation_loss,
+                                                const std::string& checkpoint_path) {
     if (!config.enable_checkpoint_symlinks) {
         return;
     }
-    
+
     // Check if this is the best validation loss so far
     bool is_best = false;
-    
+
     if (session_history.size() <= 1) {
         // First session - always best
         is_best = true;
@@ -1630,7 +1657,7 @@ void IncrementalTrainer::update_best_checkpoint(float validation_loss, const std
             is_best = true;
         }
     }
-    
+
     if (is_best) {
         best_validation_loss = validation_loss;
         best_checkpoint_path = checkpoint_path;
@@ -1658,17 +1685,17 @@ int IncrementalTrainer::load_conversation_pairs(const std::string& filepath,
         Logger::error("Cannot open file: {}", filepath);
         return 0;
     }
-    
+
     std::string line;
     std::string current_input;
     std::string current_response;
     int pair_count = 0;
-    
+
     while (std::getline(file, line)) {
         // Trim whitespace
         line.erase(0, line.find_first_not_of(" \t\n\r"));
         line.erase(line.find_last_not_of(" \t\n\r") + 1);
-        
+
         if (line.empty()) {
             // End of pair
             if (!current_input.empty() && !current_response.empty()) {
@@ -1679,7 +1706,7 @@ int IncrementalTrainer::load_conversation_pairs(const std::string& filepath,
             }
             continue;
         }
-        
+
         if (line.substr(0, 6) == "INPUT:") {
             // Commit any already-complete pair before starting a new one
             // (handles files with no blank-line separator between pairs)
@@ -1696,15 +1723,15 @@ int IncrementalTrainer::load_conversation_pairs(const std::string& filepath,
             current_response.erase(0, current_response.find_first_not_of(" \t"));
         }
     }
-    
+
     // Don't forget last pair
     if (!current_input.empty() && !current_response.empty()) {
         pairs.emplace_back(current_input, current_response);
         pair_count++;
     }
-    
+
     file.close();
-    
+
     Logger::info("Loaded {} pairs from: {}", pair_count, filepath);
 
     return pair_count;
@@ -1760,31 +1787,31 @@ bool IncrementalTrainer::download_gutenberg_book(int book_id, const std::string&
     if (!fs::exists(output_dir)) {
         fs::create_directories(output_dir);
     }
-    
+
     std::string url = get_gutenberg_url(book_id);
     std::ostringstream output_path;
     output_path << output_dir << "/gutenberg_" << book_id << ".txt";
-    
+
     return download_file(url, output_path.str());
 }
 
-bool IncrementalTrainer::download_gutenberg_books(const std::vector<int>& book_ids, 
+bool IncrementalTrainer::download_gutenberg_books(const std::vector<int>& book_ids,
                                                   const std::string& output_dir) {
     int success_count = 0;
-    
+
     for (int book_id : book_ids) {
         if (download_gutenberg_book(book_id, output_dir)) {
             success_count++;
         }
     }
-    
+
     Logger::info("Downloaded {}/{} books", success_count, book_ids.size());
     return success_count > 0;
 }
 
 std::string IncrementalTrainer::clean_gutenberg_text(const std::string& raw_text) {
     std::string cleaned = raw_text;
-    
+
     // Remove Project Gutenberg header (before "*** START OF")
     size_t start_pos = cleaned.find("*** START OF");
     if (start_pos != std::string::npos) {
@@ -1793,75 +1820,70 @@ std::string IncrementalTrainer::clean_gutenberg_text(const std::string& raw_text
             cleaned = cleaned.substr(start_pos + 1);
         }
     }
-    
+
     // Remove Project Gutenberg footer (after "*** END OF")
     size_t end_pos = cleaned.find("*** END OF");
     if (end_pos != std::string::npos) {
         cleaned = cleaned.substr(0, end_pos);
     }
-    
+
     // Remove excessive whitespace
     cleaned = std::regex_replace(cleaned, std::regex("[ \\t]+"), " ");
     cleaned = std::regex_replace(cleaned, std::regex("\\n{3,}"), "\n\n");
-    
+
     return cleaned;
 }
 
 std::vector<std::string> IncrementalTrainer::extract_sentences(const std::string& text) {
     std::vector<std::string> sentences;
-    
+
     // Simple sentence splitting on . ! ?
     std::regex sentence_regex("[^.!?]+[.!?]+");
-    
+
     auto sentences_begin = std::sregex_iterator(text.begin(), text.end(), sentence_regex);
     auto sentences_end = std::sregex_iterator();
-    
+
     for (std::sregex_iterator i = sentences_begin; i != sentences_end; ++i) {
         std::string sentence = i->str();
-        
+
         // Trim whitespace
         sentence.erase(0, sentence.find_first_not_of(" \t\n\r"));
         sentence.erase(sentence.find_last_not_of(" \t\n\r") + 1);
-        
+
         // Skip very short or very long sentences
         if (sentence.length() > 20 && sentence.length() < 500) {
             sentences.push_back(sentence);
         }
     }
-    
+
     return sentences;
 }
 
 std::string IncrementalTrainer::generate_question_from_sentence(const std::string& sentence) {
     // Simple question generation patterns
     std::vector<std::string> question_templates = {
-        "What does this mean: ",
-        "Can you explain: ",
-        "Tell me about: ",
-        "What is this about: ",
-        "Explain this: ",
-        "What does this say: "
-    };
-    
+        "What does this mean: ", "Can you explain: ", "Tell me about: ",
+        "What is this about: ",  "Explain this: ",    "What does this say: "};
+
     // Select a random template
     int idx = rand() % question_templates.size();
     return question_templates[idx] + sentence;
 }
 
-std::vector<std::pair<std::string, std::string>> 
-IncrementalTrainer::create_qa_pairs_from_text(const std::vector<std::string>& sentences, int max_pairs) {
+std::vector<std::pair<std::string, std::string>> IncrementalTrainer::create_qa_pairs_from_text(
+    const std::vector<std::string>& sentences, int max_pairs) {
     std::vector<std::pair<std::string, std::string>> pairs;
-    
+
     // Create pairs from consecutive sentences
     for (size_t i = 0; i < sentences.size() - 1 && pairs.size() < max_pairs; i += 2) {
         std::string question = generate_question_from_sentence(sentences[i]);
         std::string answer = sentences[i + 1];
-        
+
         // Also create reverse pairs (context + question)
         if (pairs.size() < max_pairs) {
             pairs.emplace_back(question, answer);
         }
-        
+
         // Create "summarize" style pairs
         if (i + 2 < sentences.size() && pairs.size() < max_pairs) {
             std::string context = sentences[i] + " " + sentences[i + 1];
@@ -1869,7 +1891,7 @@ IncrementalTrainer::create_qa_pairs_from_text(const std::vector<std::string>& se
             pairs.emplace_back("Summarize: " + context, summary);
         }
     }
-    
+
     return pairs;
 }
 
@@ -1883,15 +1905,15 @@ bool IncrementalTrainer::convert_gutenberg_to_training_data(const std::string& t
         Logger::error("Cannot open: {}", text_file);
         return false;
     }
-    
+
     std::stringstream buffer;
     buffer << file.rdbuf();
     std::string raw_text = buffer.str();
     file.close();
-    
+
     // Clean the text
     std::string cleaned_text = clean_gutenberg_text(raw_text);
-    
+
     // Extract sentences
     std::vector<std::string> sentences = extract_sentences(cleaned_text);
     Logger::info("Extracted {} sentences", sentences.size());
@@ -1909,49 +1931,50 @@ bool IncrementalTrainer::convert_gutenberg_to_training_data(const std::string& t
         Logger::error("Cannot create: {}", output_file);
         return false;
     }
-    
+
     for (const auto& pair : pairs) {
         out << "INPUT: " << pair.first << "\n";
         out << "RESPONSE: " << pair.second << "\n";
         out << "\n";
     }
-    
+
     out.close();
-    
+
     Logger::info("Training data saved to: {}", output_file);
     return true;
 }
 
 bool IncrementalTrainer::add_gutenberg_book(int book_id, int num_pairs) {
     std::string output_dir = "gutenberg_data";
-    
+
     // Download the book
     if (!download_gutenberg_book(book_id, output_dir)) {
         return false;
     }
-    
+
     // Convert to training data
     std::ostringstream text_file, training_file;
     text_file << output_dir << "/gutenberg_" << book_id << ".txt";
     training_file << output_dir << "/gutenberg_" << book_id << "_training.txt";
-    
+
     if (!convert_gutenberg_to_training_data(text_file.str(), training_file.str(), num_pairs)) {
         return false;
     }
-    
+
     // Add to pending data
     return add_new_data(training_file.str());
 }
 
-bool IncrementalTrainer::add_gutenberg_books(const std::vector<int>& book_ids, int num_pairs_per_book) {
+bool IncrementalTrainer::add_gutenberg_books(const std::vector<int>& book_ids,
+                                             int num_pairs_per_book) {
     int success_count = 0;
-    
+
     for (int book_id : book_ids) {
         if (add_gutenberg_book(book_id, num_pairs_per_book)) {
             success_count++;
         }
     }
-    
+
     Logger::info("Added {}/{} books to training queue", success_count, book_ids.size());
     return success_count > 0;
 }
@@ -1961,80 +1984,90 @@ bool IncrementalTrainer::add_gutenberg_books(const std::vector<int>& book_ids, i
 // ============================================================================
 
 std::string IncrementalTrainer::format_duration(double seconds) {
-    int secs  = static_cast<int>(seconds);
-    int mins  = secs / 60;
+    int secs = static_cast<int>(seconds);
+    int mins = secs / 60;
     int hours = mins / 60;
-    secs  %= 60;
-    mins  %= 60;
+    secs %= 60;
+    mins %= 60;
 
     std::ostringstream oss;
     if (hours > 0)
         oss << hours << "h" << std::setw(2) << std::setfill('0') << mins << "m";
     else if (mins > 0)
-        oss << mins  << "m" << std::setw(2) << std::setfill('0') << secs << "s";
+        oss << mins << "m" << std::setw(2) << std::setfill('0') << secs << "s";
     else
         oss << seconds << "s";
     return oss.str();
 }
 
 std::string IncrementalTrainer::progress_bar(int current, int total, int bar_width) {
-    if (total <= 0) return std::string(bar_width, '-');
+    if (total <= 0)
+        return std::string(bar_width, '-');
     int filled = (int)((double)current / total * bar_width);
     filled = std::clamp(filled, 0, bar_width);
     std::string bar(filled, '=');
-    if (filled < bar_width) bar += '>';
+    if (filled < bar_width)
+        bar += '>';
     bar += std::string(std::max(0, bar_width - (int)bar.size()), ' ');
     return bar;
 }
 
-void IncrementalTrainer::display_dashboard(const TrainingSession& session,
-                                           int current_epoch, int total_epochs,
-                                           bool is_final) const {
+void IncrementalTrainer::display_dashboard(const TrainingSession& session, int current_epoch,
+                                           int total_epochs, bool is_final) const {
     using namespace std::chrono;
 
     // ── ANSI color codes ──────────────────────────────────────────────────
     static const char* C_GREEN = "\033[1;32m";
     static const char* C_AMBER = "\033[1;33m";
-    static const char* C_RED   = "\033[1;31m";
-    static const char* C_CYAN  = "\033[1;36m";
+    static const char* C_RED = "\033[1;31m";
+    static const char* C_CYAN = "\033[1;36m";
     static const char* C_WHITE = "\033[1;37m";
     static const char* C_RESET = "\033[0m";
 
     // ── Timing ────────────────────────────────────────────────────────────
-    auto now      = steady_clock::now();
+    auto now = steady_clock::now();
     double elapsed = duration<double>(now - session_start_time_steady_).count();
 
     double avg_epoch_time = 0.0;
     if (!session.training_time_per_epoch.empty()) {
-        for (double t : session.training_time_per_epoch) avg_epoch_time += t;
+        for (double t : session.training_time_per_epoch)
+            avg_epoch_time += t;
         avg_epoch_time /= session.training_time_per_epoch.size();
     }
     double eta_secs = (total_epochs - current_epoch) * avg_epoch_time;
 
-    float cur_loss = session.per_epoch_losses.empty()            ? 0.0f : session.per_epoch_losses.back();
-    float cur_val  = session.per_epoch_validation_losses.empty() ? 0.0f : session.per_epoch_validation_losses.back();
+    float cur_loss = session.per_epoch_losses.empty() ? 0.0f : session.per_epoch_losses.back();
+    float cur_val = session.per_epoch_validation_losses.empty()
+                        ? 0.0f
+                        : session.per_epoch_validation_losses.back();
     // Prefer the live per-sample LR (updated every step); fall back to the
     // last epoch-end value once the epoch callback has run at least once.
-    float cur_lr   = (current_item_lr_ > 0.0f)
-                   ? current_item_lr_
-                   : (session.per_epoch_learning_rates.empty() ? 0.0f : session.per_epoch_learning_rates.back());
-    double last_t  = session.training_time_per_epoch.empty()     ? 0.0  : session.training_time_per_epoch.back();
+    float cur_lr = (current_item_lr_ > 0.0f) ? current_item_lr_
+                                             : (session.per_epoch_learning_rates.empty()
+                                                    ? 0.0f
+                                                    : session.per_epoch_learning_rates.back());
+    double last_t =
+        session.training_time_per_epoch.empty() ? 0.0 : session.training_time_per_epoch.back();
 
     float prev_loss = (session.per_epoch_losses.size() >= 2)
-                    ? session.per_epoch_losses[session.per_epoch_losses.size() - 2] : cur_loss;
-    float prev_val  = (session.per_epoch_validation_losses.size() >= 2)
-                    ? session.per_epoch_validation_losses[session.per_epoch_validation_losses.size() - 2] : cur_val;
+                          ? session.per_epoch_losses[session.per_epoch_losses.size() - 2]
+                          : cur_loss;
+    float prev_val =
+        (session.per_epoch_validation_losses.size() >= 2)
+            ? session.per_epoch_validation_losses[session.per_epoch_validation_losses.size() - 2]
+            : cur_val;
 
     // Per-sample trend: track previous values across draws
-    static float prev_item_loss_draw_    = 0.0f;
+    static float prev_item_loss_draw_ = 0.0f;
     static float prev_running_loss_draw_ = 0.0f;
-    static float prev_item_ppl_draw_     = 0.0f;
-    static float prev_running_ppl_draw_  = 0.0f;
-    static float prev_gnorm_draw_        = 0.0f;
+    static float prev_item_ppl_draw_ = 0.0f;
+    static float prev_running_ppl_draw_ = 0.0f;
+    static float prev_gnorm_draw_ = 0.0f;
 
     // Best val across whole session
     float best_val = std::numeric_limits<float>::max();
-    for (float v : session.per_epoch_validation_losses) best_val = std::min(best_val, v);
+    for (float v : session.per_epoch_validation_losses)
+        best_val = std::min(best_val, v);
 
     // ── Clear + cursor home ───────────────────────────────────────────────
     std::cout << "\033[2J\033[H";
@@ -2043,7 +2076,8 @@ void IncrementalTrainer::display_dashboard(const TrainingSession& session,
     const int W = 80;
     auto hline = [&](const char* l, const char* r) {
         std::cout << l;
-        for (int i = 0; i < W - 2; ++i) std::cout << "\xe2\x94\x80";
+        for (int i = 0; i < W - 2; ++i)
+            std::cout << "\xe2\x94\x80";
         std::cout << r << "\n";
     };
     // row() skips ANSI escape sequences when computing visible width so that
@@ -2052,9 +2086,17 @@ void IncrementalTrainer::display_dashboard(const TrainingSession& session,
         int vis = 0;
         bool in_ansi = false;
         for (unsigned char c : content) {
-            if (c == '\033') { in_ansi = true;  continue; }
-            if (in_ansi)     { if (std::isalpha(c)) in_ansi = false; continue; }
-            if ((c & 0xC0) != 0x80) ++vis;   // non-continuation UTF-8 byte
+            if (c == '\033') {
+                in_ansi = true;
+                continue;
+            }
+            if (in_ansi) {
+                if (std::isalpha(c))
+                    in_ansi = false;
+                continue;
+            }
+            if ((c & 0xC0) != 0x80)
+                ++vis;  // non-continuation UTF-8 byte
         }
         int pad = std::max(0, W - 2 - vis);
         std::cout << "\xe2\x94\x82" << content << std::string(pad, ' ') << "\xe2\x94\x82\n";
@@ -2096,7 +2138,7 @@ void IncrementalTrainer::display_dashboard(const TrainingSession& session,
         if (std::abs(cur - prev) < 1e-7f)
             return std::string(C_WHITE) + "\xe2\x94\x80" + C_RESET;  // ─
         bool improving = lower_is_better ? (cur < prev) : (cur > prev);
-        const char* col  = improving ? C_GREEN : C_RED;
+        const char* col = improving ? C_GREEN : C_RED;
         // ▼ = \xe2\x96\xbc   ▲ = \xe2\x96\xb2
         const char* icon = (cur < prev) ? "\xe2\x96\xbc" : "\xe2\x96\xb2";
         return std::string(col) + icon + C_RESET;
@@ -2111,16 +2153,19 @@ void IncrementalTrainer::display_dashboard(const TrainingSession& session,
         pct = ss.str();
     }
 
-    bool mid_epoch    = (current_sample_in_epoch_ > 0 &&
-                         current_sample_in_epoch_ < total_samples_in_epoch_);
+    bool mid_epoch =
+        (current_sample_in_epoch_ > 0 && current_sample_in_epoch_ < total_samples_in_epoch_);
     int display_epoch = mid_epoch ? current_epoch + 1 : current_epoch;
 
     std::ostringstream title_ss;
-    title_ss << " ADAI Training Dashboard  |  Session #" << session.session_id
-             << "  |  Epoch " << display_epoch << "/" << total_epochs;
-    if (mid_epoch)               title_ss << " \xe2\x96\xb6";   // ▶
-    else if (is_final)           title_ss << " \xe2\x9c\x85";   // ✅
-    else if (current_epoch == 0) title_ss << " \xe2\x8f\xb3";   // ⏳
+    title_ss << " ADAI Training Dashboard  |  Session #" << session.session_id << "  |  Epoch "
+             << display_epoch << "/" << total_epochs;
+    if (mid_epoch)
+        title_ss << " \xe2\x96\xb6";  // ▶
+    else if (is_final)
+        title_ss << " \xe2\x9c\x85";  // ✅
+    else if (current_epoch == 0)
+        title_ss << " \xe2\x8f\xb3";  // ⏳
     std::string title = title_ss.str();
     int title_pad = std::max(0, W - 4 - (int)title.size());
 
@@ -2129,8 +2174,8 @@ void IncrementalTrainer::display_dashboard(const TrainingSession& session,
     hline("\xe2\x94\x9c", "\xe2\x94\xa4");
 
     row(" Progress: " + bar + " " + pct);
-    row(" Elapsed : " + format_duration(elapsed) + "   ETA total: " +
-        (avg_epoch_time > 0 ? format_duration(eta_secs) : "--:--"));
+    row(" Elapsed : " + format_duration(elapsed) +
+        "   ETA total: " + (avg_epoch_time > 0 ? format_duration(eta_secs) : "--:--"));
 
     // ── Training Item section ─────────────────────────────────────────────
     hline("\xe2\x94\x9c", "\xe2\x94\xa4");
@@ -2142,12 +2187,14 @@ void IncrementalTrainer::display_dashboard(const TrainingSession& session,
         {
             std::ostringstream ss;
             if (current_sample_in_epoch_ > 0) {
-                std::string sbar = "[" + progress_bar(current_sample_in_epoch_, total_samples_in_epoch_, 34) + "]";
+                std::string sbar =
+                    "[" + progress_bar(current_sample_in_epoch_, total_samples_in_epoch_, 34) + "]";
                 int spct = current_sample_in_epoch_ * 100 / total_samples_in_epoch_;
-                ss << " " << sbar << " " << std::setw(3) << spct << "%"
-                   << "  " << current_sample_in_epoch_ << "/" << total_samples_in_epoch_;
+                ss << " " << sbar << " " << std::setw(3) << spct << "%" << "  "
+                   << current_sample_in_epoch_ << "/" << total_samples_in_epoch_;
             } else {
-                ss << " [" << std::string(34, '.') << "]   0%   0/" << total_samples_in_epoch_ << "  waiting...";
+                ss << " [" << std::string(34, '.') << "]   0%   0/" << total_samples_in_epoch_
+                   << "  waiting...";
             }
             row(ss.str());
         }
@@ -2158,11 +2205,10 @@ void IncrementalTrainer::display_dashboard(const TrainingSession& session,
                 std::string il = fmt_f(current_item_loss_);
                 std::string rl = fmt_f(running_sample_loss_);
                 ss << " Item loss: "
-                   << cpad(colorize(il, loss_color(current_item_loss_)),   (int)il.size(), 8)
-                   << " " << trend(current_item_loss_, prev_item_loss_draw_)
-                   << "  Running avg: "
-                   << cpad(colorize(rl, loss_color(running_sample_loss_)), (int)rl.size(), 8)
-                   << " " << trend(running_sample_loss_, prev_running_loss_draw_);
+                   << cpad(colorize(il, loss_color(current_item_loss_)), (int)il.size(), 8) << " "
+                   << trend(current_item_loss_, prev_item_loss_draw_) << "  Running avg: "
+                   << cpad(colorize(rl, loss_color(running_sample_loss_)), (int)rl.size(), 8) << " "
+                   << trend(running_sample_loss_, prev_running_loss_draw_);
             } else {
                 ss << " Item loss: --          Running avg: --";
             }
@@ -2176,11 +2222,9 @@ void IncrementalTrainer::display_dashboard(const TrainingSession& session,
                 float rppl = std::exp(running_sample_loss_);
                 std::string ip = fmt_f(ippl, 2);
                 std::string rp = fmt_f(rppl, 2);
-                ss << " Item PPL : "
-                   << cpad(colorize(ip, ppl_color(ippl)), (int)ip.size(), 8)
+                ss << " Item PPL : " << cpad(colorize(ip, ppl_color(ippl)), (int)ip.size(), 8)
                    << " " << trend(ippl, prev_item_ppl_draw_)
-                   << "  Running PPL: "
-                   << cpad(colorize(rp, ppl_color(rppl)), (int)rp.size(), 8)
+                   << "  Running PPL: " << cpad(colorize(rp, ppl_color(rppl)), (int)rp.size(), 8)
                    << " " << trend(rppl, prev_running_ppl_draw_);
             } else {
                 ss << " Item PPL : --          Running PPL: --";
@@ -2196,9 +2240,10 @@ void IncrementalTrainer::display_dashboard(const TrainingSession& session,
                 int completed = current_sample_in_epoch_ - 1;
                 double epoch_elapsed = duration<double>(now - epoch_start_time_steady_).count();
                 double sps = (completed > 0 && epoch_elapsed > 0.0)
-                             ? static_cast<double>(completed) / epoch_elapsed : 0.0;
-                double epoch_eta = (sps > 0.0)
-                    ? (total_samples_in_epoch_ - current_sample_in_epoch_) / sps : 0.0;
+                                 ? static_cast<double>(completed) / epoch_elapsed
+                                 : 0.0;
+                double epoch_eta =
+                    (sps > 0.0) ? (total_samples_in_epoch_ - current_sample_in_epoch_) / sps : 0.0;
                 std::string gn = fmt_f(current_item_grad_norm_);
                 std::string sps_str;
                 std::string eta_str;
@@ -2218,8 +2263,7 @@ void IncrementalTrainer::display_dashboard(const TrainingSession& session,
                 }
                 ss << " Grad norm: "
                    << cpad(colorize(gn, gnorm_color(current_item_grad_norm_)), (int)gn.size(), 8)
-                   << " " << trend(current_item_grad_norm_, prev_gnorm_draw_)
-                   << "  " << sps_str
+                   << " " << trend(current_item_grad_norm_, prev_gnorm_draw_) << "  " << sps_str
                    << "   ETA epoch: " << eta_str;
             } else {
                 ss << " Grad norm: --          -- samp/s   ETA epoch: --:--";
@@ -2231,11 +2275,11 @@ void IncrementalTrainer::display_dashboard(const TrainingSession& session,
     }
 
     // Update previous sample values for trend arrows on next draw
-    prev_item_loss_draw_    = current_item_loss_;
+    prev_item_loss_draw_ = current_item_loss_;
     prev_running_loss_draw_ = running_sample_loss_;
-    prev_item_ppl_draw_     = std::exp(current_item_loss_);
-    prev_running_ppl_draw_  = std::exp(running_sample_loss_);
-    prev_gnorm_draw_        = current_item_grad_norm_;
+    prev_item_ppl_draw_ = std::exp(current_item_loss_);
+    prev_running_ppl_draw_ = std::exp(running_sample_loss_);
+    prev_gnorm_draw_ = current_item_grad_norm_;
 
     // ── Per-epoch metrics ─────────────────────────────────────────────────
     hline("\xe2\x94\x9c", "\xe2\x94\xa4");
@@ -2244,35 +2288,39 @@ void IncrementalTrainer::display_dashboard(const TrainingSession& session,
     {
         bool have = !session.per_epoch_losses.empty();
         std::string cl = have ? fmt_f(cur_loss) : "------";
-        std::string cv = have ? fmt_f(cur_val)  : "------";
+        std::string cv = have ? fmt_f(cur_val) : "------";
         std::ostringstream ss;
         ss << " Loss     : "
-           << cpad(have ? colorize(cl, loss_color(cur_loss)) : cl, (int)cl.size(), 8)
-           << " " << (have ? trend(cur_loss, prev_loss) : std::string(" "))
-           << "    Val Loss : "
-           << cpad(have ? colorize(cv, loss_color(cur_val))  : cv, (int)cv.size(), 8)
-           << " " << (have ? trend(cur_val,  prev_val)  : std::string(" "));
+           << cpad(have ? colorize(cl, loss_color(cur_loss)) : cl, (int)cl.size(), 8) << " "
+           << (have ? trend(cur_loss, prev_loss) : std::string(" ")) << "    Val Loss : "
+           << cpad(have ? colorize(cv, loss_color(cur_val)) : cv, (int)cv.size(), 8) << " "
+           << (have ? trend(cur_val, prev_val) : std::string(" "));
         row(ss.str());
     }
     // PPL row
     {
-        float cur_ppl  = session.per_epoch_perplexities.empty()            ? 0.0f : session.per_epoch_perplexities.back();
-        float cur_vppl = session.per_epoch_validation_perplexities.empty() ? 0.0f : session.per_epoch_validation_perplexities.back();
-        float prev_ppl  = (session.per_epoch_perplexities.size() >= 2)
-                        ? session.per_epoch_perplexities[session.per_epoch_perplexities.size() - 2] : cur_ppl;
+        float cur_ppl =
+            session.per_epoch_perplexities.empty() ? 0.0f : session.per_epoch_perplexities.back();
+        float cur_vppl = session.per_epoch_validation_perplexities.empty()
+                             ? 0.0f
+                             : session.per_epoch_validation_perplexities.back();
+        float prev_ppl =
+            (session.per_epoch_perplexities.size() >= 2)
+                ? session.per_epoch_perplexities[session.per_epoch_perplexities.size() - 2]
+                : cur_ppl;
         float prev_vppl = (session.per_epoch_validation_perplexities.size() >= 2)
-                        ? session.per_epoch_validation_perplexities[session.per_epoch_validation_perplexities.size() - 2] : cur_vppl;
+                              ? session.per_epoch_validation_perplexities
+                                    [session.per_epoch_validation_perplexities.size() - 2]
+                              : cur_vppl;
         std::ostringstream ss;
         if (session.per_epoch_perplexities.empty()) {
             ss << " PPL      : --           Val PPL  : --";
         } else {
-            std::string pp  = fmt_f(cur_ppl,  2);
+            std::string pp = fmt_f(cur_ppl, 2);
             std::string pvp = fmt_f(cur_vppl, 2);
-            ss << " PPL      : "
-               << cpad(colorize(pp,  ppl_color(cur_ppl)),  (int)pp.size(),  8)
-               << " " << trend(cur_ppl,  prev_ppl)
-               << "    Val PPL  : "
-               << cpad(colorize(pvp, ppl_color(cur_vppl)), (int)pvp.size(), 8)
+            ss << " PPL      : " << cpad(colorize(pp, ppl_color(cur_ppl)), (int)pp.size(), 8) << " "
+               << trend(cur_ppl, prev_ppl)
+               << "    Val PPL  : " << cpad(colorize(pvp, ppl_color(cur_vppl)), (int)pvp.size(), 8)
                << " " << trend(cur_vppl, prev_vppl);
         }
         row(ss.str());
@@ -2282,19 +2330,19 @@ void IncrementalTrainer::display_dashboard(const TrainingSession& session,
         std::ostringstream lr_ss;
         lr_ss << std::scientific << std::setprecision(3) << cur_lr;
         std::ostringstream ss;
-        ss << " LR       : " << colorize(lr_ss.str(), C_CYAN)
-           << "    Epoch dur: " << std::fixed << std::setprecision(1) << last_t << "s";
+        ss << " LR       : " << colorize(lr_ss.str(), C_CYAN) << "    Epoch dur: " << std::fixed
+           << std::setprecision(1) << last_t << "s";
         row(ss.str());
     }
     // Best val row (always green — it's the best we've done)
     {
         float best_ppl = std::numeric_limits<float>::max();
-        for (float v : session.per_epoch_validation_perplexities) best_ppl = std::min(best_ppl, v);
+        for (float v : session.per_epoch_validation_perplexities)
+            best_ppl = std::min(best_ppl, v);
         bool have_best = (best_val < std::numeric_limits<float>::max());
         std::string bv = have_best ? fmt_f(best_val) : "------";
         std::ostringstream ss;
-        ss << " Best val : " << (have_best ? colorize(bv, C_GREEN) : bv)
-           << "  Best PPL : "
+        ss << " Best val : " << (have_best ? colorize(bv, C_GREEN) : bv) << "  Best PPL : "
            << (session.per_epoch_validation_perplexities.empty()
                    ? std::string("--")
                    : colorize(fmt_f(best_ppl, 2), C_GREEN));
@@ -2327,15 +2375,34 @@ static std::string hf_unescape(const std::string& s) {
         if (s[i] == '\\' && i + 1 < s.size()) {
             ++i;
             switch (s[i]) {
-                case 'n':  out += '\n'; break;
-                case 't':  out += '\t'; break;
-                case 'r':  out += '\r'; break;
-                case '"':  out += '"';  break;
-                case '\\': out += '\\'; break;
-                case '/':  out += '/';  break;
-                case 'b':  out += '\b'; break;
-                case 'f':  out += '\f'; break;
-                default:   out += '\\'; out += s[i]; break;
+                case 'n':
+                    out += '\n';
+                    break;
+                case 't':
+                    out += '\t';
+                    break;
+                case 'r':
+                    out += '\r';
+                    break;
+                case '"':
+                    out += '"';
+                    break;
+                case '\\':
+                    out += '\\';
+                    break;
+                case '/':
+                    out += '/';
+                    break;
+                case 'b':
+                    out += '\b';
+                    break;
+                case 'f':
+                    out += '\f';
+                    break;
+                default:
+                    out += '\\';
+                    out += s[i];
+                    break;
             }
         } else {
             out += s[i];
@@ -2348,13 +2415,17 @@ static std::string hf_unescape(const std::string& s) {
 static std::string hf_extract_string(const std::string& json, const std::string& key) {
     std::string needle = "\"" + key + "\"";
     size_t kpos = json.find(needle);
-    if (kpos == std::string::npos) return "";
+    if (kpos == std::string::npos)
+        return "";
     size_t colon = json.find(':', kpos + needle.size());
-    if (colon == std::string::npos) return "";
+    if (colon == std::string::npos)
+        return "";
 
     size_t vpos = colon + 1;
-    while (vpos < json.size() && std::isspace(static_cast<unsigned char>(json[vpos]))) ++vpos;
-    if (vpos >= json.size() || json[vpos] != '"') return "";
+    while (vpos < json.size() && std::isspace(static_cast<unsigned char>(json[vpos])))
+        ++vpos;
+    if (vpos >= json.size() || json[vpos] != '"')
+        return "";
 
     std::string raw;
     ++vpos;  // past opening "
@@ -2372,15 +2443,18 @@ static std::string hf_extract_string(const std::string& json, const std::string&
 
 /// Extract an array of quoted strings for a given JSON key ("key": ["a","b",...]).
 static std::vector<std::string> hf_extract_string_array(const std::string& json,
-                                                         const std::string& key) {
+                                                        const std::string& key) {
     std::vector<std::string> result;
     std::string needle = "\"" + key + "\"";
     size_t kpos = json.find(needle);
-    if (kpos == std::string::npos) return result;
+    if (kpos == std::string::npos)
+        return result;
     size_t colon = json.find(':', kpos + needle.size());
-    if (colon == std::string::npos) return result;
+    if (colon == std::string::npos)
+        return result;
     size_t bracket = json.find('[', colon + 1);
-    if (bracket == std::string::npos) return result;
+    if (bracket == std::string::npos)
+        return result;
 
     // Walk to matching ']', tracking nesting depth
     int depth = 1;
@@ -2388,20 +2462,31 @@ static std::vector<std::string> hf_extract_string_array(const std::string& json,
     size_t arr_end = std::string::npos;
     while (pos < json.size() && depth > 0) {
         char c = json[pos];
-        if      (c == '[') { ++depth; ++pos; }
-        else if (c == ']') { --depth; if (depth == 0) { arr_end = pos; break; } ++pos; }
-        else if (c == '"') {
+        if (c == '[') {
+            ++depth;
+            ++pos;
+        } else if (c == ']') {
+            --depth;
+            if (depth == 0) {
+                arr_end = pos;
+                break;
+            }
+            ++pos;
+        } else if (c == '"') {
             ++pos;
             while (pos < json.size() && json[pos] != '"') {
-                if (json[pos] == '\\') ++pos;
+                if (json[pos] == '\\')
+                    ++pos;
                 ++pos;
             }
-            if (pos < json.size()) ++pos;  // past closing "
+            if (pos < json.size())
+                ++pos;  // past closing "
         } else {
             ++pos;
         }
     }
-    if (arr_end == std::string::npos) return result;
+    if (arr_end == std::string::npos)
+        return result;
 
     std::string arr = json.substr(bracket + 1, arr_end - bracket - 1);
     size_t p = 0;
@@ -2411,12 +2496,15 @@ static std::vector<std::string> hf_extract_string_array(const std::string& json,
             std::string raw;
             while (p < arr.size() && arr[p] != '"') {
                 if (arr[p] == '\\' && p + 1 < arr.size()) {
-                    raw += '\\'; raw += arr[p + 1]; p += 2;
+                    raw += '\\';
+                    raw += arr[p + 1];
+                    p += 2;
                 } else {
                     raw += arr[p++];
                 }
             }
-            if (p < arr.size()) ++p;  // past closing "
+            if (p < arr.size())
+                ++p;  // past closing "
             result.push_back(hf_unescape(raw));
         } else {
             ++p;
@@ -2429,25 +2517,36 @@ static std::vector<std::string> hf_extract_string_array(const std::string& json,
 static std::string hf_extract_object(const std::string& json, const std::string& key) {
     std::string needle = "\"" + key + "\"";
     size_t kpos = json.find(needle);
-    if (kpos == std::string::npos) return "";
+    if (kpos == std::string::npos)
+        return "";
     size_t colon = json.find(':', kpos + needle.size());
-    if (colon == std::string::npos) return "";
+    if (colon == std::string::npos)
+        return "";
     size_t brace = json.find('{', colon + 1);
-    if (brace == std::string::npos) return "";
+    if (brace == std::string::npos)
+        return "";
 
     int depth = 1;
     size_t pos = brace + 1;
     while (pos < json.size() && depth > 0) {
         char c = json[pos];
-        if      (c == '{') { ++depth; ++pos; }
-        else if (c == '}') { --depth; if (depth == 0) break; ++pos; }
-        else if (c == '"') {
+        if (c == '{') {
+            ++depth;
+            ++pos;
+        } else if (c == '}') {
+            --depth;
+            if (depth == 0)
+                break;
+            ++pos;
+        } else if (c == '"') {
             ++pos;
             while (pos < json.size() && json[pos] != '"') {
-                if (json[pos] == '\\') ++pos;
+                if (json[pos] == '\\')
+                    ++pos;
                 ++pos;
             }
-            if (pos < json.size()) ++pos;
+            if (pos < json.size())
+                ++pos;
         } else {
             ++pos;
         }
@@ -2461,9 +2560,11 @@ static std::string hf_extract_object(const std::string& json, const std::string&
 static std::vector<std::string> hf_extract_rows(const std::string& response_json) {
     std::vector<std::string> rows;
     size_t rows_key = response_json.find("\"rows\"");
-    if (rows_key == std::string::npos) return rows;
+    if (rows_key == std::string::npos)
+        return rows;
     size_t arr_start = response_json.find('[', rows_key + 6);
-    if (arr_start == std::string::npos) return rows;
+    if (arr_start == std::string::npos)
+        return rows;
 
     size_t pos = arr_start + 1;
     while (pos < response_json.size()) {
@@ -2473,8 +2574,12 @@ static std::vector<std::string> hf_extract_rows(const std::string& response_json
                 response_json[pos] == ','))
             ++pos;
 
-        if (pos >= response_json.size() || response_json[pos] == ']') break;
-        if (response_json[pos] != '{') { ++pos; continue; }
+        if (pos >= response_json.size() || response_json[pos] == ']')
+            break;
+        if (response_json[pos] != '{') {
+            ++pos;
+            continue;
+        }
 
         // Find the extent of this outer element object
         int depth = 1;
@@ -2482,20 +2587,29 @@ static std::vector<std::string> hf_extract_rows(const std::string& response_json
         ++pos;
         while (pos < response_json.size() && depth > 0) {
             char c = response_json[pos];
-            if      (c == '{') { ++depth; ++pos; }
-            else if (c == '}') { --depth; if (depth == 0) break; ++pos; }
-            else if (c == '"') {
+            if (c == '{') {
+                ++depth;
+                ++pos;
+            } else if (c == '}') {
+                --depth;
+                if (depth == 0)
+                    break;
+                ++pos;
+            } else if (c == '"') {
                 ++pos;
                 while (pos < response_json.size() && response_json[pos] != '"') {
-                    if (response_json[pos] == '\\') ++pos;
+                    if (response_json[pos] == '\\')
+                        ++pos;
                     ++pos;
                 }
-                if (pos < response_json.size()) ++pos;
+                if (pos < response_json.size())
+                    ++pos;
             } else {
                 ++pos;
             }
         }
-        if (pos < response_json.size()) ++pos;  // move past closing '}'
+        if (pos < response_json.size())
+            ++pos;  // move past closing '}'
 
         std::string outer_obj = response_json.substr(obj_start, pos - obj_start);
 
@@ -2512,53 +2626,38 @@ static std::vector<std::string> hf_extract_rows(const std::string& response_json
 static std::pair<std::string, std::string> hf_detect_fields(const std::string& row_json) {
     // Ordered by prevalence across popular HuggingFace training datasets
     static const std::pair<const char*, const char*> candidates[] = {
-        {"instruction", "output"},
-        {"instruction", "response"},
-        {"question",    "answer"},
-        {"question",    "response"},
-        {"input",       "output"},
-        {"prompt",      "completion"},
-        {"prompt",      "response"},
-        {"context",     "response"},
-        {"source",      "target"},
-        {"text",        "label"},
+        {"instruction", "output"}, {"instruction", "response"}, {"question", "answer"},
+        {"question", "response"},  {"input", "output"},         {"prompt", "completion"},
+        {"prompt", "response"},    {"context", "response"},     {"source", "target"},
+        {"text", "label"},
     };
     for (const auto& [in_f, out_f] : candidates) {
-        bool has_in  = row_json.find(std::string("\"") + in_f  + "\"") != std::string::npos;
+        bool has_in = row_json.find(std::string("\"") + in_f + "\"") != std::string::npos;
         bool has_out = row_json.find(std::string("\"") + out_f + "\"") != std::string::npos;
-        if (has_in && has_out) return {in_f, out_f};
+        if (has_in && has_out)
+            return {in_f, out_f};
     }
     return {"", ""};  // fall back to dialog-array extraction
 }
 
 // ---------------------------------------------------------------------------
 
-bool IncrementalTrainer::download_hf_rows(const std::string& dataset_id,
-                                           const std::string& split,
-                                           int offset, int length,
-                                           const std::string& output_path) {
+bool IncrementalTrainer::download_hf_rows(const std::string& dataset_id, const std::string& split,
+                                          int offset, int length, const std::string& output_path) {
     std::ostringstream url;
-    url << "https://datasets-server.huggingface.co/rows"
-        << "?dataset=" << dataset_id
-        << "&config=default"
-        << "&split="   << split
-        << "&offset="  << offset
-        << "&length="  << length;
+    url << "https://datasets-server.huggingface.co/rows" << "?dataset=" << dataset_id
+        << "&config=default" << "&split=" << split << "&offset=" << offset << "&length=" << length;
 
-    Logger::info("HF datasets-server: {} split={} offset={} length={}",
-                 dataset_id, split, offset, length);
+    Logger::info("HF datasets-server: {} split={} offset={} length={}", dataset_id, split, offset,
+                 length);
 
     std::ostringstream cmd;
     const char* hf_token = std::getenv("HF_TOKEN");
     if (hf_token && hf_token[0] != '\0') {
-        cmd << "curl -L -f -s"
-            << " -H \"Authorization: Bearer " << hf_token << "\""
-            << " -o \"" << output_path << "\""
-            << " \"" << url.str() << "\"";
+        cmd << "curl -L -f -s" << " -H \"Authorization: Bearer " << hf_token << "\"" << " -o \""
+            << output_path << "\"" << " \"" << url.str() << "\"";
     } else {
-        cmd << "curl -L -f -s"
-            << " -o \"" << output_path << "\""
-            << " \"" << url.str() << "\"";
+        cmd << "curl -L -f -s" << " -o \"" << output_path << "\"" << " \"" << url.str() << "\"";
     }
 
     int rc = std::system(cmd.str().c_str());
@@ -2570,29 +2669,31 @@ bool IncrementalTrainer::download_hf_rows(const std::string& dataset_id,
 }
 
 bool IncrementalTrainer::convert_hf_to_training_data(const std::string& rows_dir,
-                                                      const std::string& output_file,
-                                                      const std::string& in_field,
-                                                      const std::string& out_field,
-                                                      int max_pairs) {
+                                                     const std::string& output_file,
+                                                     const std::string& in_field,
+                                                     const std::string& out_field, int max_pairs) {
     std::ofstream out(output_file);
     if (!out.is_open()) {
         Logger::error("Cannot create output file: {}", output_file);
         return false;
     }
 
-    int pair_count   = 0;
-    std::string det_in  = in_field;
+    int pair_count = 0;
+    std::string det_in = in_field;
     std::string det_out = out_field;
 
     for (int chunk = 0; pair_count < max_pairs; ++chunk) {
         std::ostringstream chunk_path;
         chunk_path << rows_dir << "/chunk_" << chunk << ".json";
-        if (!fs::exists(chunk_path.str())) break;
+        if (!fs::exists(chunk_path.str()))
+            break;
 
         std::ifstream f(chunk_path.str());
-        if (!f.is_open()) { Logger::error("Cannot open chunk: {}", chunk_path.str()); continue; }
-        std::string json((std::istreambuf_iterator<char>(f)),
-                          std::istreambuf_iterator<char>());
+        if (!f.is_open()) {
+            Logger::error("Cannot open chunk: {}", chunk_path.str());
+            continue;
+        }
+        std::string json((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
         f.close();
 
         auto rows = hf_extract_rows(json);
@@ -2602,16 +2703,17 @@ bool IncrementalTrainer::convert_hf_to_training_data(const std::string& rows_dir
         }
 
         for (const auto& row_json : rows) {
-            if (pair_count >= max_pairs) break;
+            if (pair_count >= max_pairs)
+                break;
 
             // Auto-detect field names on the first non-empty row
             if (det_in.empty()) {
                 auto [df_in, df_out] = hf_detect_fields(row_json);
-                det_in  = df_in;
+                det_in = df_in;
                 det_out = df_out;
                 if (!det_in.empty()) {
-                    Logger::info("Auto-detected HF fields: input='{}' output='{}'",
-                                 det_in, det_out);
+                    Logger::info("Auto-detected HF fields: input='{}' output='{}'", det_in,
+                                 det_out);
                 }
             }
 
@@ -2623,28 +2725,31 @@ bool IncrementalTrainer::convert_hf_to_training_data(const std::string& rows_dir
                     // Find a sentence boundary near the middle
                     size_t mid = full_text.size() / 2;
                     size_t split_pos = std::string::npos;
-                    // Search outward from midpoint for sentence-ending punctuation followed by space
+                    // Search outward from midpoint for sentence-ending punctuation followed by
+                    // space
                     for (size_t radius = 0; radius < mid; ++radius) {
                         for (size_t pos : {mid + radius, mid - radius}) {
-                            if (pos >= full_text.size() - 1) continue;
+                            if (pos >= full_text.size() - 1)
+                                continue;
                             char c = full_text[pos];
-                            if ((c == '.' || c == '!' || c == '?') &&
-                                pos + 1 < full_text.size() &&
+                            if ((c == '.' || c == '!' || c == '?') && pos + 1 < full_text.size() &&
                                 (full_text[pos + 1] == ' ' || full_text[pos + 1] == '\n')) {
                                 split_pos = pos + 1;  // include the punctuation in INPUT
                                 break;
                             }
                         }
-                        if (split_pos != std::string::npos) break;
+                        if (split_pos != std::string::npos)
+                            break;
                     }
                     if (split_pos != std::string::npos && split_pos < full_text.size() - 5) {
-                        std::string input_text  = full_text.substr(0, split_pos);
+                        std::string input_text = full_text.substr(0, split_pos);
                         std::string output_text = full_text.substr(split_pos);
                         // Trim leading whitespace from output
                         size_t start = output_text.find_first_not_of(" \n\t");
-                        if (start != std::string::npos) output_text = output_text.substr(start);
+                        if (start != std::string::npos)
+                            output_text = output_text.substr(start);
                         if (!input_text.empty() && !output_text.empty()) {
-                            out << "INPUT: "    << input_text  << "\n"
+                            out << "INPUT: " << input_text << "\n"
                                 << "RESPONSE: " << output_text << "\n"
                                 << "\n";
                             ++pair_count;
@@ -2657,12 +2762,13 @@ bool IncrementalTrainer::convert_hf_to_training_data(const std::string& rows_dir
                 // Alpaca-style: append the "input" context field to "instruction"
                 if (det_in == "instruction") {
                     std::string sub = hf_extract_string(row_json, "input");
-                    if (!sub.empty()) input_text += "\n" + sub;
+                    if (!sub.empty())
+                        input_text += "\n" + sub;
                 }
                 std::string output_text = hf_extract_string(row_json, det_out);
 
                 if (!input_text.empty() && !output_text.empty()) {
-                    out << "INPUT: "    << input_text  << "\n"
+                    out << "INPUT: " << input_text << "\n"
                         << "RESPONSE: " << output_text << "\n"
                         << "\n";
                     ++pair_count;
@@ -2670,15 +2776,15 @@ bool IncrementalTrainer::convert_hf_to_training_data(const std::string& rows_dir
             } else {
                 // Dialog-array datasets (daily_dialog, BlendedSkillTalk, …)
                 // Try several common array-field names in priority order
-                static const char* dialog_keys[] = {
-                    "dialog", "turns", "utterances", "conversations", nullptr
-                };
+                static const char* dialog_keys[] = {"dialog", "turns", "utterances",
+                                                    "conversations", nullptr};
                 for (const char** dk = dialog_keys; *dk && pair_count < max_pairs; ++dk) {
                     auto turns = hf_extract_string_array(row_json, *dk);
-                    if (turns.empty()) continue;
+                    if (turns.empty())
+                        continue;
                     for (size_t i = 0; i + 1 < turns.size() && pair_count < max_pairs; i += 2) {
                         if (!turns[i].empty() && !turns[i + 1].empty()) {
-                            out << "INPUT: "    << turns[i]     << "\n"
+                            out << "INPUT: " << turns[i] << "\n"
                                 << "RESPONSE: " << turns[i + 1] << "\n"
                                 << "\n";
                             ++pair_count;
@@ -2695,14 +2801,18 @@ bool IncrementalTrainer::convert_hf_to_training_data(const std::string& rows_dir
                         if (full_text.size() >= 40) {
                             det_in = *tk;
                             det_out = *tk;
-                            Logger::info("Auto-detected single-text field: '{}' — will split at sentence boundaries", *tk);
+                            Logger::info(
+                                "Auto-detected single-text field: '{}' — will split at sentence "
+                                "boundaries",
+                                *tk);
                             // Re-process this row via the single-field path on next iteration
                             // For now, do inline split
                             size_t mid = full_text.size() / 2;
                             size_t split_pos = std::string::npos;
                             for (size_t radius = 0; radius < mid; ++radius) {
                                 for (size_t pos : {mid + radius, mid - radius}) {
-                                    if (pos >= full_text.size() - 1) continue;
+                                    if (pos >= full_text.size() - 1)
+                                        continue;
                                     char c = full_text[pos];
                                     if ((c == '.' || c == '!' || c == '?') &&
                                         pos + 1 < full_text.size() &&
@@ -2711,15 +2821,18 @@ bool IncrementalTrainer::convert_hf_to_training_data(const std::string& rows_dir
                                         break;
                                     }
                                 }
-                                if (split_pos != std::string::npos) break;
+                                if (split_pos != std::string::npos)
+                                    break;
                             }
-                            if (split_pos != std::string::npos && split_pos < full_text.size() - 5) {
-                                std::string input_text  = full_text.substr(0, split_pos);
+                            if (split_pos != std::string::npos &&
+                                split_pos < full_text.size() - 5) {
+                                std::string input_text = full_text.substr(0, split_pos);
                                 std::string output_text = full_text.substr(split_pos);
                                 size_t start = output_text.find_first_not_of(" \n\t");
-                                if (start != std::string::npos) output_text = output_text.substr(start);
+                                if (start != std::string::npos)
+                                    output_text = output_text.substr(start);
                                 if (!input_text.empty() && !output_text.empty()) {
-                                    out << "INPUT: "    << input_text  << "\n"
+                                    out << "INPUT: " << input_text << "\n"
                                         << "RESPONSE: " << output_text << "\n"
                                         << "\n";
                                     ++pair_count;
@@ -2734,38 +2847,37 @@ bool IncrementalTrainer::convert_hf_to_training_data(const std::string& rows_dir
     }
 
     out.close();
-    Logger::info("Wrote {} training pairs from HuggingFace dataset to: {}",
-                 pair_count, output_file);
+    Logger::info("Wrote {} training pairs from HuggingFace dataset to: {}", pair_count,
+                 output_file);
     return pair_count > 0;
 }
 
-bool IncrementalTrainer::add_huggingface_dataset(const std::string& dataset_id,
-                                                  int num_pairs,
-                                                  const std::string& split,
-                                                  const std::string& input_field,
-                                                  const std::string& output_field) {
+bool IncrementalTrainer::add_huggingface_dataset(const std::string& dataset_id, int num_pairs,
+                                                 const std::string& split,
+                                                 const std::string& input_field,
+                                                 const std::string& output_field) {
     // Build a filesystem-safe base name (replace '/' with '_')
     std::string safe_id = dataset_id;
     std::replace(safe_id.begin(), safe_id.end(), '/', '_');
 
-    const std::string output_dir  = "huggingface_data";
-    const std::string rows_dir    = output_dir + "/" + safe_id + "_" + split;
-    const std::string train_file  = output_dir + "/" + safe_id + "_" + split + "_training.txt";
+    const std::string output_dir = "huggingface_data";
+    const std::string rows_dir = output_dir + "/" + safe_id + "_" + split;
+    const std::string train_file = output_dir + "/" + safe_id + "_" + split + "_training.txt";
 
     if (!fs::exists(rows_dir)) {
         fs::create_directories(rows_dir);
     }
 
-    std::cout << "🤗 Fetching HuggingFace dataset '" << dataset_id
-              << "' (split=" << split << ", target=" << num_pairs << " pairs)\n";
+    std::cout << "🤗 Fetching HuggingFace dataset '" << dataset_id << "' (split=" << split
+              << ", target=" << num_pairs << " pairs)\n";
 
     // Datasets-server API allows at most 100 rows per request.
     // Over-sample by 50 % to compensate for rows that yield no pairs.
     // Cap at 500 000 to avoid unbounded downloads.
-    const int chunk_size  = 100;
+    const int chunk_size = 100;
     const int target_rows = std::min(num_pairs * 3 / 2 + chunk_size, 500000);
-    int downloaded  = 0;
-    int chunk_idx   = 0;
+    int downloaded = 0;
+    int chunk_idx = 0;
 
     while (downloaded < target_rows) {
         int this_len = std::min(chunk_size, target_rows - downloaded);
@@ -2774,11 +2886,12 @@ bool IncrementalTrainer::add_huggingface_dataset(const std::string& dataset_id,
 
         if (!download_hf_rows(dataset_id, split, downloaded, this_len, chunk_path.str())) {
             if (chunk_idx == 0) {
-                std::cerr << "❌ Failed to fetch dataset '" << dataset_id << "'.\n"
-                          << "   • Check the dataset ID at https://huggingface.co/datasets\n"
-                          << "   • Gated datasets require: export HF_TOKEN=hf_...\n"
-                          << "   • Verify at: https://datasets-server.huggingface.co/is-valid?dataset="
-                          << dataset_id << "\n";
+                std::cerr
+                    << "❌ Failed to fetch dataset '" << dataset_id << "'.\n"
+                    << "   • Check the dataset ID at https://huggingface.co/datasets\n"
+                    << "   • Gated datasets require: export HF_TOKEN=hf_...\n"
+                    << "   • Verify at: https://datasets-server.huggingface.co/is-valid?dataset="
+                    << dataset_id << "\n";
                 return false;
             }
             Logger::info("Download halted at chunk {} — converting partial data", chunk_idx);
@@ -2787,19 +2900,15 @@ bool IncrementalTrainer::add_huggingface_dataset(const std::string& dataset_id,
 
         downloaded += this_len;
         ++chunk_idx;
-        std::cout << "  ↓ rows " << (downloaded - this_len + 1)
-                  << "-" << downloaded << "\n";
+        std::cout << "  ↓ rows " << (downloaded - this_len + 1) << "-" << downloaded << "\n";
     }
 
-    Logger::info("Downloaded {} rows in {} chunks for '{}'",
-                 downloaded, chunk_idx, dataset_id);
+    Logger::info("Downloaded {} rows in {} chunks for '{}'", downloaded, chunk_idx, dataset_id);
 
-    if (!convert_hf_to_training_data(rows_dir, train_file,
-                                      input_field, output_field, num_pairs)) {
+    if (!convert_hf_to_training_data(rows_dir, train_file, input_field, output_field, num_pairs)) {
         std::cerr << "❌ Could not extract training pairs from '" << dataset_id << "'.\n"
-                  << "   Provide explicit field names: huggingface "
-                  << dataset_id << " " << num_pairs << " " << split
-                  << " <input_field> <output_field>\n";
+                  << "   Provide explicit field names: huggingface " << dataset_id << " "
+                  << num_pairs << " " << split << " <input_field> <output_field>\n";
         return false;
     }
 
@@ -2809,4 +2918,3 @@ bool IncrementalTrainer::add_huggingface_dataset(const std::string& dataset_id,
 // ============================================================================
 // Metrics API Server Management
 // ============================================================================
-

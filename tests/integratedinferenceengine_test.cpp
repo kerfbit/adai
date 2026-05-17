@@ -467,7 +467,7 @@ TEST_F(IntegratedEncoderOutputTest, MultipleEncoderOutputsPerBatch) {
 // ============================================================================
 
 class IntegratedInferenceEngineLifecycleTest : public ::testing::Test {
-protected:
+   protected:
     // Use a minimal timeout so lifecycle tests complete quickly
     IntegratedInferenceConfig make_fast_config() {
         IntegratedInferenceConfig config;

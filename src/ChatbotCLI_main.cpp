@@ -1,6 +1,6 @@
-#include "ChatbotCLI.hpp"
 #include <iostream>
 #include <string>
+#include "ChatbotCLI.hpp"
 
 int main(int argc, char* argv[]) {
     // Default values
@@ -9,8 +9,7 @@ int main(int argc, char* argv[]) {
 
     // Show usage if help requested
     if (argc > 1 && (std::string(argv[1]) == "--help" || std::string(argv[1]) == "-h")) {
-        std::cout << "Usage: " << argv[0] << " [server_url] [conversation_save_file]"
-                  << std::endl;
+        std::cout << "Usage: " << argv[0] << " [server_url] [conversation_save_file]" << std::endl;
         std::cout << std::endl;
         std::cout << "Default values:" << std::endl;
         std::cout << "  server_url: http://localhost:8080" << std::endl;

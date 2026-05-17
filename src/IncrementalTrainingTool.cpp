@@ -1,10 +1,10 @@
-#include "IncrementalTrainer.hpp"
-#include "Config.hpp"
-#include "Logger.hpp"
-#include "Matrix.hpp"
+#include <fstream>
 #include <iostream>
 #include <sstream>
-#include <fstream>
+#include "Config.hpp"
+#include "IncrementalTrainer.hpp"
+#include "Logger.hpp"
+#include "Matrix.hpp"
 
 int main(int argc, char* argv[]) {
     // -----------------------------------------------------------------------
@@ -13,7 +13,7 @@ int main(int argc, char* argv[]) {
     // Usage:  incremental_trainer [--config <path>] <command> [args...]
     // -----------------------------------------------------------------------
     std::string config_path;
-    std::vector<std::string> args;   // args[0] = command, args[1..] = its args
+    std::vector<std::string> args;  // args[0] = command, args[1..] = its args
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
@@ -35,16 +35,18 @@ int main(int argc, char* argv[]) {
             config_path = "config.conf";
         }
     }
-    adai::ServiceConfig svc_config = config_path.empty()
-        ? adai::ConfigLoader::load()          // falls back to /etc/adai/config.conf + env
-        : adai::ConfigLoader::load(config_path);
+    adai::ServiceConfig svc_config =
+        config_path.empty()
+            ? adai::ConfigLoader::load()  // falls back to /etc/adai/config.conf + env
+            : adai::ConfigLoader::load(config_path);
 
     // GPU auto-detect: attempt initialisation when requested; silently use CPU if unavailable.
     if (svc_config.gpu_enabled) {
         if (Matrix::gpu_try_initialize(svc_config.gpu_device_id, svc_config.gpu_memory_fraction)) {
             adai::Logger::info("[GPU] GPU ready. {}", Matrix::gpu_info());
         } else {
-            adai::Logger::warn("[GPU] No CUDA device found or initialisation failed — running on CPU");
+            adai::Logger::warn(
+                "[GPU] No CUDA device found or initialisation failed — running on CPU");
         }
     }
 
@@ -52,24 +54,30 @@ int main(int argc, char* argv[]) {
         std::cout << "Usage: " << argv[0] << " [--config <path>] <command> [options]\n\n";
         std::cout << "Global options:\n";
         std::cout << "  --config <path>              Path to config.conf\n";
-        std::cout << "                               Search order: --config > ./config.conf > /etc/adai/config.conf\n";
-        std::cout << "                               Sets model architecture, training params, vocab/model paths\n\n";
+        std::cout << "                               Search order: --config > ./config.conf > "
+                     "/etc/adai/config.conf\n";
+        std::cout << "                               Sets model architecture, training params, "
+                     "vocab/model paths\n\n";
         std::cout << "Commands:\n";
         std::cout << "  init [vocab] [model]         Initialize incremental trainer\n";
         std::cout << "  add <data_file>              Add new training data\n";
-        std::cout << "  gutenberg <book_id> [pairs]  Download & add Gutenberg book (default: 500 pairs)\n";
+        std::cout << "  gutenberg <book_id> [pairs]  Download & add Gutenberg book (default: 500 "
+                     "pairs)\n";
         std::cout << "  gutenberg-batch <id1,id2...> Download multiple books\n";
         std::cout << "  huggingface <dataset_id> [pairs] [split] [in_field] [out_field]\n";
-        std::cout << "                               Download a HuggingFace dataset (default: 500 pairs, train split)\n";
+        std::cout << "                               Download a HuggingFace dataset (default: 500 "
+                     "pairs, train split)\n";
         std::cout << "  train [epochs]               Train on pending data\n";
         std::cout << "  retrain [epochs]             Full retrain on all data\n";
-        std::cout << "  reset                        Remove all checkpoints and rebuild model from config\n";
+        std::cout << "  reset                        Remove all checkpoints and rebuild model from "
+                     "config\n";
         std::cout << "  resume                       Resume from last session\n";
         std::cout << "  status                       Show training status\n";
         std::cout << "  history                      Show session history\n";
         std::cout << "\nreset options:\n";
         std::cout << "  --yes                        Skip confirmation prompt\n";
-        std::cout << "  --keep-data                  Preserve data registry (mark entries untrained)\n";
+        std::cout
+            << "  --keep-data                  Preserve data registry (mark entries untrained)\n";
         std::cout << "\nPopular Gutenberg Books:\n";
         std::cout << "  1342  - Pride and Prejudice (Jane Austen)\n";
         std::cout << "  11    - Alice in Wonderland (Lewis Carroll)\n";
@@ -80,11 +88,15 @@ int main(int argc, char* argv[]) {
         std::cout << "  1260  - Jane Eyre (Charlotte Bronte)\n";
         std::cout << "  98    - A Tale of Two Cities (Charles Dickens)\n";
         std::cout << "\nPopular HuggingFace Datasets:\n";
-        std::cout << "  daily_dialog              - Daily conversation pairs (dialog array format)\n";
-        std::cout << "  tatsu-lab/alpaca          - Instruction-following (instruction/output fields)\n";
-        std::cout << "  databricks/databricks-dolly-15k - Instruction dataset (instruction/response)\n";
+        std::cout
+            << "  daily_dialog              - Daily conversation pairs (dialog array format)\n";
+        std::cout
+            << "  tatsu-lab/alpaca          - Instruction-following (instruction/output fields)\n";
+        std::cout
+            << "  databricks/databricks-dolly-15k - Instruction dataset (instruction/response)\n";
         std::cout << "  Open-Orca/OpenOrca        - Chain-of-thought Q&A (question/response)\n";
-        std::cout << "  HuggingFaceH4/ultrachat_200k - Multi-turn chat (requires HF_TOKEN for some splits)\n";
+        std::cout << "  HuggingFaceH4/ultrachat_200k - Multi-turn chat (requires HF_TOKEN for some "
+                     "splits)\n";
         std::cout << "\nnote: Set HF_TOKEN env var to access gated datasets\n";
         std::cout << "\nExample workflow:\n";
         std::cout << "  # Initial training with custom config\n";
@@ -96,21 +108,20 @@ int main(int argc, char* argv[]) {
         std::cout << "  " << argv[0] << " --config config.conf train 5\n";
         std::cout << "\n  # Add a HuggingFace dataset (auto-detect fields)\n";
         std::cout << "  " << argv[0] << " --config config.conf huggingface daily_dialog 500\n";
-        std::cout << "  " << argv[0] << " --config config.conf huggingface tatsu-lab/alpaca 300 train instruction output\n";
+        std::cout
+            << "  " << argv[0]
+            << " --config config.conf huggingface tatsu-lab/alpaca 300 train instruction output\n";
         std::cout << "  " << argv[0] << " --config config.conf train 5\n";
         return 1;
     }
-    
+
     // -----------------------------------------------------------------------
     // Resolve vocab/model paths: prefer ServiceConfig paths, fall back to
     // conventional local file names so the tool still works without a config.
     // -----------------------------------------------------------------------
-    std::string default_vocab = svc_config.vocab_path.empty()
-                                    ? "vocab.txt"
-                                    : svc_config.vocab_path;
-    std::string default_model = svc_config.model_path.empty()
-                                    ? "chatbot_model.bin"
-                                    : svc_config.model_path;
+    std::string default_vocab = svc_config.vocab_path.empty() ? "vocab.txt" : svc_config.vocab_path;
+    std::string default_model =
+        svc_config.model_path.empty() ? "chatbot_model.bin" : svc_config.model_path;
 
     std::string command = args[0];
 
@@ -120,10 +131,10 @@ int main(int argc, char* argv[]) {
         std::string model_path = (args.size() >= 3) ? args[2] : default_model;
 
         IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
-        config.base_config.lr_schedule       = LRSchedule::WARMUP_COSINE;
-        config.auto_save_enabled             = true;
-        config.auto_save_every_minutes       = 30;
-        config.auto_save_every_samples       = 1000;
+        config.base_config.lr_schedule = LRSchedule::WARMUP_COSINE;
+        config.auto_save_enabled = true;
+        config.auto_save_every_minutes = 30;
+        config.auto_save_every_samples = 1000;
 
         IncrementalTrainer trainer(vocab_path, model_path, config);
 
@@ -162,8 +173,8 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        int book_id      = std::stoi(args[1]);
-        int num_pairs    = (args.size() >= 3) ? std::stoi(args[2]) : 500;
+        int book_id = std::stoi(args[1]);
+        int num_pairs = (args.size() >= 3) ? std::stoi(args[2]) : 500;
 
         IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
         IncrementalTrainer trainer(default_vocab, default_model, config);
@@ -180,13 +191,14 @@ int main(int argc, char* argv[]) {
 
     } else if (command == "gutenberg-batch") {
         if (args.size() < 2) {
-            std::cerr << "Usage: " << argv[0] << " gutenberg-batch <id1,id2,id3,...> [num_pairs_each]\n";
+            std::cerr << "Usage: " << argv[0]
+                      << " gutenberg-batch <id1,id2,id3,...> [num_pairs_each]\n";
             std::cerr << "Example: " << argv[0] << " gutenberg-batch 1342,11,84,1661 300\n";
             return 1;
         }
 
-        std::string ids_str    = args[1];
-        int num_pairs_each     = (args.size() >= 3) ? std::stoi(args[2]) : 500;
+        std::string ids_str = args[1];
+        int num_pairs_each = (args.size() >= 3) ? std::stoi(args[2]) : 500;
 
         std::vector<int> book_ids;
         std::stringstream ss(ids_str);
@@ -210,28 +222,28 @@ int main(int argc, char* argv[]) {
 
     } else if (command == "huggingface") {
         if (args.size() < 2) {
-            std::cerr << "Usage: " << argv[0]
-                      << " huggingface <dataset_id> [num_pairs] [split] [input_field] [output_field]\n";
+            std::cerr
+                << "Usage: " << argv[0]
+                << " huggingface <dataset_id> [num_pairs] [split] [input_field] [output_field]\n";
             std::cerr << "Example: " << argv[0] << " huggingface daily_dialog 500\n";
             std::cerr << "Example: " << argv[0]
                       << " huggingface tatsu-lab/alpaca 300 train instruction output\n";
             return 1;
         }
 
-        std::string dataset_id   = args[1];
-        int num_pairs            = (args.size() >= 3) ? std::stoi(args[2]) : 500;
-        std::string split        = (args.size() >= 4) ? args[3] : "train";
-        std::string input_field  = (args.size() >= 5) ? args[4] : "";
+        std::string dataset_id = args[1];
+        int num_pairs = (args.size() >= 3) ? std::stoi(args[2]) : 500;
+        std::string split = (args.size() >= 4) ? args[3] : "train";
+        std::string input_field = (args.size() >= 5) ? args[4] : "";
         std::string output_field = (args.size() >= 6) ? args[5] : "";
 
         IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
         IncrementalTrainer trainer(default_vocab, default_model, config);
 
-        if (trainer.add_huggingface_dataset(dataset_id, num_pairs, split,
-                                             input_field, output_field)) {
+        if (trainer.add_huggingface_dataset(dataset_id, num_pairs, split, input_field,
+                                            output_field)) {
             std::cout << "✅ Dataset added to training queue (" << num_pairs << " pairs)\n";
-            std::cout << "📊 Pending files: "
-                      << trainer.get_pending_data_files().size() << "\n";
+            std::cout << "📊 Pending files: " << trainer.get_pending_data_files().size() << "\n";
         } else {
             std::cerr << "❌ Failed to add HuggingFace dataset\n";
             return 1;
@@ -239,12 +251,10 @@ int main(int argc, char* argv[]) {
 
     } else if (command == "train") {
         // Epoch count can come from args or from config
-        int epochs = (args.size() >= 2)
-                         ? std::stoi(args[1])
-                         : svc_config.num_epochs;
+        int epochs = (args.size() >= 2) ? std::stoi(args[1]) : svc_config.num_epochs;
 
         IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
-        config.base_config.num_epochs  = epochs;
+        config.base_config.num_epochs = epochs;
         config.base_config.lr_schedule = LRSchedule::WARMUP_COSINE;
         IncrementalTrainer trainer(default_vocab, default_model, config);
 
@@ -265,16 +275,14 @@ int main(int argc, char* argv[]) {
 
     } else if (command == "retrain") {
         // Epoch count can come from args or from config
-        int epochs = (args.size() >= 2)
-                         ? std::stoi(args[1])
-                         : svc_config.num_epochs;
+        int epochs = (args.size() >= 2) ? std::stoi(args[1]) : svc_config.num_epochs;
 
         IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
-        config.base_config.num_epochs  = epochs;
+        config.base_config.num_epochs = epochs;
         config.base_config.lr_schedule = LRSchedule::WARMUP_COSINE;
-        config.auto_save_enabled        = true;
-        config.auto_save_every_minutes  = 30;
-        config.auto_save_every_samples  = 1000;
+        config.auto_save_enabled = true;
+        config.auto_save_every_minutes = 30;
+        config.auto_save_every_samples = 1000;
 
         IncrementalTrainer trainer(default_vocab, default_model, config);
         trainer.reset_model_for_config();
@@ -297,11 +305,13 @@ int main(int argc, char* argv[]) {
 
     } else if (command == "reset") {
         // Parse reset-specific flags from remaining args
-        bool auto_yes    = false;
-        bool keep_data   = false;
+        bool auto_yes = false;
+        bool keep_data = false;
         for (size_t i = 1; i < args.size(); ++i) {
-            if (args[i] == "--yes")        auto_yes  = true;
-            else if (args[i] == "--keep-data") keep_data = true;
+            if (args[i] == "--yes")
+                auto_yes = true;
+            else if (args[i] == "--keep-data")
+                keep_data = true;
         }
 
         // Show what will happen
@@ -315,12 +325,11 @@ int main(int argc, char* argv[]) {
             std::cout << "   • Delete the data registry\n";
         }
         std::cout << "   • Rebuild model architecture from config:\n";
-        std::cout << "       d_model="      << svc_config.d_model
-                  << "  d_ff="             << svc_config.d_ff
-                  << "  heads="            << svc_config.num_heads
-                  << "  enc_layers="       << svc_config.num_encoder_layers
-                  << "  dec_layers="       << svc_config.num_decoder_layers
-                  << "  max_seq="          << svc_config.max_seq_length << "\n\n";
+        std::cout << "       d_model=" << svc_config.d_model << "  d_ff=" << svc_config.d_ff
+                  << "  heads=" << svc_config.num_heads
+                  << "  enc_layers=" << svc_config.num_encoder_layers
+                  << "  dec_layers=" << svc_config.num_decoder_layers
+                  << "  max_seq=" << svc_config.max_seq_length << "\n\n";
 
         if (!auto_yes) {
             std::cout << "Continue? [y/N] ";

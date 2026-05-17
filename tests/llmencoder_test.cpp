@@ -1,7 +1,7 @@
 /**
  * @file llmencoder_test.cpp
  * @brief Comprehensive unit tests for LLMEncoder
- * 
+ *
  * Tests encoder functionality including tokenization, encoding, sentence embeddings,
  * training API, persistence, and optimizer integration.
  */
@@ -10,18 +10,18 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
-#include <vector>
 #include <string>
-#include "../src/encoder.hpp"
+#include <vector>
 #include "../src/BPETokenizer.hpp"
 #include "../src/Matrix.hpp"
 #include "../src/Optimizer.hpp"
+#include "../src/encoder.hpp"
 
 namespace fs = std::filesystem;
 
 // Test fixture for LLMEncoder tests
 class LLMEncoderTest : public ::testing::Test {
-protected:
+   protected:
     static constexpr int VOCAB_SIZE = 1000;
     static constexpr int D_MODEL = 64;  // Small for faster tests
     static constexpr int NUM_LAYERS = 2;
@@ -67,13 +67,11 @@ protected:
 
         // Add some common tokens
         const std::vector<std::string> tokens = {
-            "hello", "world", "test", "encoder", "the", "is", "a", "to",
-            "of", "and", "in", "that", "it", "for", "on", "with", "as",
-            "this", "was", "are", "be", "have", "from", "or", "one", "had",
-            "by", "but", "not", "what", "all", "were", "we", "when", "your",
-            "can", "said", "there", "use", "an", "each", "which", "she", "do",
-            "how", "their", "if"
-        };
+            "hello", "world", "test", "encoder", "the",  "is",    "a",    "to",    "of",  "and",
+            "in",    "that",  "it",   "for",     "on",   "with",  "as",   "this",  "was", "are",
+            "be",    "have",  "from", "or",      "one",  "had",   "by",   "but",   "not", "what",
+            "all",   "were",  "we",   "when",    "your", "can",   "said", "there", "use", "an",
+            "each",  "which", "she",  "do",      "how",  "their", "if"};
 
         int id = 4;
         for (const auto& token : tokens) {
@@ -85,13 +83,8 @@ protected:
 
     // Helper: Create test corpus for tokenizer building
     std::vector<std::string> create_test_corpus() {
-        return {
-            "hello world test",
-            "encoder test case",
-            "this is a test",
-            "another test sentence",
-            "machine learning is fun"
-        };
+        return {"hello world test", "encoder test case", "this is a test", "another test sentence",
+                "machine learning is fun"};
     }
 };
 
@@ -131,9 +124,7 @@ TEST_F(LLMEncoderTest, LoadTokenizerVocab) {
 TEST_F(LLMEncoderTest, LoadTokenizerVocabNonExistentFile) {
     LLMEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
 
-    EXPECT_THROW({
-        encoder.load_tokenizer_vocab(temp_dir + "/nonexistent.txt");
-    }, std::exception);
+    EXPECT_THROW({ encoder.load_tokenizer_vocab(temp_dir + "/nonexistent.txt"); }, std::exception);
 }
 
 TEST_F(LLMEncoderTest, BuildTokenizerFromCorpus) {
@@ -163,7 +154,7 @@ TEST_F(LLMEncoderTest, EncodeSimpleText) {
     encoder.load_tokenizer_vocab(vocab_file);
     Matrix result = encoder.encode("hello world");
 
-    EXPECT_GT(result.rows, 0);  // Should have tokens
+    EXPECT_GT(result.rows, 0);        // Should have tokens
     EXPECT_EQ(result.cols, D_MODEL);  // Should match embedding dimension
 }
 
@@ -180,7 +171,7 @@ TEST_F(LLMEncoderTest, EncodeReturnsCorrectDimensions) {
 
 TEST_F(LLMEncoderTest, EncodeLongTextTruncates) {
     create_test_vocabulary();
-    
+
     // Create very long text
     std::string long_text;
     for (int i = 0; i < 200; i++) {
@@ -199,11 +190,9 @@ TEST_F(LLMEncoderTest, EncodeEmptyString) {
 
     LLMEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
     encoder.load_tokenizer_vocab(vocab_file);
-    
+
     // BPE tokenizer throws exception for empty input
-    EXPECT_THROW({
-        Matrix result = encoder.encode("");
-    }, std::exception);
+    EXPECT_THROW({ Matrix result = encoder.encode(""); }, std::exception);
 }
 
 TEST_F(LLMEncoderTest, EncodeWithMask) {
@@ -239,7 +228,7 @@ TEST_F(LLMEncoderTest, GetSentenceEmbedding) {
     std::vector<float> embedding = encoder.get_sentence_embedding("hello world");
 
     EXPECT_EQ(embedding.size(), D_MODEL);
-    
+
     // Check that embedding is not all zeros
     bool has_nonzero = false;
     for (float val : embedding) {
@@ -256,7 +245,7 @@ TEST_F(LLMEncoderTest, SentenceEmbeddingConsistency) {
 
     LLMEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
     encoder.load_tokenizer_vocab(vocab_file);
-    
+
     std::vector<float> emb1 = encoder.get_sentence_embedding("test");
     std::vector<float> emb2 = encoder.get_sentence_embedding("test");
 
@@ -272,7 +261,7 @@ TEST_F(LLMEncoderTest, DifferentTextsDifferentEmbeddings) {
 
     LLMEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
     encoder.load_tokenizer_vocab(vocab_file);
-    
+
     // Use texts that are very different in length and content
     std::vector<float> emb1 = encoder.get_sentence_embedding("hello hello hello");
     std::vector<float> emb2 = encoder.get_sentence_embedding("test world");
@@ -280,7 +269,7 @@ TEST_F(LLMEncoderTest, DifferentTextsDifferentEmbeddings) {
     // With different text lengths, embeddings should differ
     // (Even with untrained weights, sequence length affects pooling)
     ASSERT_EQ(emb1.size(), emb2.size());
-    
+
     // At least allow that embeddings could be similar for untrained model
     // Main test is that the code runs without crashing
 }
@@ -291,7 +280,7 @@ TEST_F(LLMEncoderTest, GetSentenceEmbeddingTrainable) {
     LLMEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
     encoder.load_tokenizer_vocab(vocab_file);
     encoder.set_requires_grad(true);
-    
+
     std::vector<float> embedding = encoder.get_sentence_embedding_trainable("test");
 
     EXPECT_EQ(embedding.size(), D_MODEL);
@@ -303,7 +292,7 @@ TEST_F(LLMEncoderTest, GetSentenceEmbeddingTrainable) {
 
 TEST_F(LLMEncoderTest, SetRequiresGrad) {
     LLMEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
-    
+
     encoder.set_requires_grad(true);
     encoder.set_requires_grad(false);
 
@@ -312,7 +301,7 @@ TEST_F(LLMEncoderTest, SetRequiresGrad) {
 
 TEST_F(LLMEncoderTest, SetLearningRate) {
     LLMEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
-    
+
     encoder.set_learning_rate(0.001f);
     encoder.set_learning_rate(0.0001f);
 
@@ -335,7 +324,7 @@ TEST_F(LLMEncoderTest, BackwardPass) {
 
     // Forward pass
     Matrix encoded = encoder.encode("test");
-    
+
     // Create gradient
     Matrix grad_output(encoded.rows, encoded.cols);
     for (int i = 0; i < encoded.rows; i++) {
@@ -359,7 +348,7 @@ TEST_F(LLMEncoderTest, BackwardSentenceEmbedding) {
 
     // Forward pass
     encoder.get_sentence_embedding_trainable("test");
-    
+
     // Create gradient
     std::vector<float> grad_output(D_MODEL, 0.01f);
 
@@ -425,9 +414,7 @@ TEST_F(LLMEncoderTest, LoadWeights) {
 TEST_F(LLMEncoderTest, LoadWeightsNonExistentFile) {
     LLMEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
 
-    EXPECT_THROW({
-        encoder.load_weights(temp_dir + "/nonexistent.bin");
-    }, std::runtime_error);
+    EXPECT_THROW({ encoder.load_weights(temp_dir + "/nonexistent.bin"); }, std::runtime_error);
 }
 
 TEST_F(LLMEncoderTest, LoadWeightsMismatchedArchitecture) {
@@ -438,11 +425,10 @@ TEST_F(LLMEncoderTest, LoadWeightsMismatchedArchitecture) {
     encoder1.save_weights(weights_file);
 
     // Try to load with different architecture
-    LLMEncoder encoder2(VOCAB_SIZE, D_MODEL, 4, NUM_HEADS, D_FF, MAX_SEQ_LEN);  // Different num_layers
-    
-    EXPECT_THROW({
-        encoder2.load_weights(weights_file);
-    }, std::runtime_error);
+    LLMEncoder encoder2(VOCAB_SIZE, D_MODEL, 4, NUM_HEADS, D_FF,
+                        MAX_SEQ_LEN);  // Different num_layers
+
+    EXPECT_THROW({ encoder2.load_weights(weights_file); }, std::runtime_error);
 }
 
 TEST_F(LLMEncoderTest, SaveAndLoadPreservesOutput) {
@@ -451,14 +437,14 @@ TEST_F(LLMEncoderTest, SaveAndLoadPreservesOutput) {
 
     LLMEncoder encoder1(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
     encoder1.load_tokenizer_vocab(vocab_file);
-    
+
     std::vector<float> emb_before = encoder1.get_sentence_embedding("test");
     encoder1.save_weights(weights_file);
 
     LLMEncoder encoder2(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
     encoder2.load_tokenizer_vocab(vocab_file);
     encoder2.load_weights(weights_file);
-    
+
     std::vector<float> emb_after = encoder2.get_sentence_embedding("test");
 
     // Embeddings should be similar (weights are restored)
@@ -492,7 +478,7 @@ TEST_F(LLMEncoderTest, PrintConfig) {
 
 TEST_F(LLMEncoderTest, RegisterParametersWithOptimizer) {
     LLMEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
-    
+
     Optimizer optimizer(OptimizerType::ADAMW, 0.001f);
     encoder.register_parameters_with_optimizer(optimizer);
 
@@ -504,7 +490,7 @@ TEST_F(LLMEncoderTest, OptimizerIntegrationWorkflow) {
 
     LLMEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
     encoder.load_tokenizer_vocab(vocab_file);
-    
+
     Optimizer optimizer(OptimizerType::ADAMW, 0.001f);
     encoder.register_parameters_with_optimizer(optimizer);
     encoder.set_requires_grad(true);
@@ -520,7 +506,6 @@ TEST_F(LLMEncoderTest, OptimizerIntegrationWorkflow) {
     }
     encoder.backward(grad);
     optimizer.step();
-
 
     // Should complete training step without error
 }
@@ -545,7 +530,7 @@ TEST_F(LLMEncoderTest, EncodeRepeatedText) {
 
     LLMEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
     encoder.load_tokenizer_vocab(vocab_file);
-    
+
     Matrix result1 = encoder.encode("test test test");
     Matrix result2 = encoder.encode("test test test");
 
@@ -559,7 +544,7 @@ TEST_F(LLMEncoderTest, EncodeUnicodeText) {
 
     LLMEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
     encoder.load_tokenizer_vocab(vocab_file);
-    
+
     // BPE tokenizer should handle UTF-8
     Matrix result = encoder.encode("hello 世界");
 
@@ -572,7 +557,7 @@ TEST_F(LLMEncoderTest, EncodeSpecialCharacters) {
 
     LLMEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
     encoder.load_tokenizer_vocab(vocab_file);
-    
+
     Matrix result = encoder.encode("!@#$%^&*()");
 
     EXPECT_GT(result.rows, 0);
@@ -588,7 +573,7 @@ TEST_F(LLMEncoderTest, BackwardWithoutRequiresGrad) {
 
     Matrix encoded = encoder.encode("test");
     Matrix grad(encoded.rows, encoded.cols);
-    
+
     // Backward should be no-op when requires_grad is false
     encoder.backward(grad);
 

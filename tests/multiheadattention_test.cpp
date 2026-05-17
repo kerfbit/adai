@@ -1238,8 +1238,12 @@ TEST(AttentionHookTest, WeightsAreProbabilityDistribution) {
         all_rows_sum_to_one = true;
         for (int r = 0; r < w.rows; ++r) {
             float row_sum = 0.0f;
-            for (int c = 0; c < w.cols; ++c) row_sum += w(r, c);
-            if (std::abs(row_sum - 1.0f) > 1e-4f) { all_rows_sum_to_one = false; break; }
+            for (int c = 0; c < w.cols; ++c)
+                row_sum += w(r, c);
+            if (std::abs(row_sum - 1.0f) > 1e-4f) {
+                all_rows_sum_to_one = false;
+                break;
+            }
         }
     });
 
@@ -1261,7 +1265,8 @@ TEST(AttentionHookTest, EntropyIsNonNegative) {
             float row_h = 0.0f;
             for (int j = 0; j < w.cols; ++j) {
                 float a = w(i, j);
-                if (a > 0.0f) row_h -= a * std::log(a + 1e-10f);
+                if (a > 0.0f)
+                    row_h -= a * std::log(a + 1e-10f);
             }
             total += row_h;
         }

@@ -1,16 +1,16 @@
 #pragma once
 
-#include "EncoderDecoderModel.hpp"
-#include "ConversationContext.hpp"
-#include "TextGenerator.hpp"
-#include "BPETokenizer.hpp"
-#include "BatchProcessor.hpp"
-#include "RAGInference.hpp"
-#include <string>
+#include <chrono>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <unordered_map>
-#include <chrono>
+#include "BPETokenizer.hpp"
+#include "BatchProcessor.hpp"
+#include "ConversationContext.hpp"
+#include "EncoderDecoderModel.hpp"
+#include "RAGInference.hpp"
+#include "TextGenerator.hpp"
 
 /**
  * @brief Session information for multi-turn conversations
@@ -18,7 +18,7 @@
 struct Session {
     std::unique_ptr<ConversationContext> context;
     std::chrono::steady_clock::time_point last_access;
-    
+
     Session(size_t max_messages = 10, size_t max_tokens = 2048)
         : context(std::make_unique<ConversationContext>(max_messages, max_tokens)),
           last_access(std::chrono::steady_clock::now()) {}
@@ -26,15 +26,15 @@ struct Session {
 
 /**
  * @brief ChatbotAPI - REST API layer for chatbot service
- * 
+ *
  * Provides HTTP endpoints for single-turn and multi-turn conversations,
  * session management, and health checks.
  */
 class ChatbotAPI {
-public:
+   public:
     // Allow test class to access private members
     friend class ChatbotAPITest;
-    
+
     /**
      * @brief Generation parameters for chat responses
      */
@@ -43,7 +43,7 @@ public:
         float temperature = 1.0f;
         float top_p = 0.9f;
         size_t top_k = 50;
-        std::string strategy = "nucleus"; // "greedy", "beam", "temperature", "top_k", "nucleus"
+        std::string strategy = "nucleus";  // "greedy", "beam", "temperature", "top_k", "nucleus"
         size_t beam_width = 4;
     };
 
@@ -74,9 +74,7 @@ public:
      * @param port Port number for HTTP server (default: 8080)
      * @param session_timeout_minutes Session timeout in minutes (default: 30)
      */
-    ChatbotAPI(EncoderDecoderModel* model,
-               BPETokenizer* tokenizer,
-               int port = 8080,
+    ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int port = 8080,
                int session_timeout_minutes = 30);
 
     /**
@@ -99,7 +97,9 @@ public:
      * @brief Check if server is running
      * @return true if server is running
      */
-    bool is_running() const { return running_; }
+    bool is_running() const {
+        return running_;
+    }
 
     /**
      * @brief Set default generation configuration
@@ -123,8 +123,8 @@ public:
      * @return BatchResponse with generated responses and statistics
      */
     BatchResponse generate_batch_responses(const std::vector<std::string>& inputs,
-                                          const GenerationConfig& config);
-    
+                                           const GenerationConfig& config);
+
     /**
      * @brief Generate batch responses with sessions (stateful)
      * @param inputs Vector of input messages
@@ -139,17 +139,18 @@ public:
     // JSON utilities (public for testing)
     std::string parse_json_string(const std::string& json, const std::string& key);
     std::vector<std::string> parse_json_array(const std::string& json, const std::string& key);
-    std::string create_json_response(const std::string& response, bool success = true, const std::string& error = "");
+    std::string create_json_response(const std::string& response, bool success = true,
+                                     const std::string& error = "");
     std::string create_batch_json_response(const BatchResponse& batch_response);
     std::string create_error_response(const std::string& error);
 
-private:
+   private:
     // HTTP endpoint handlers
     std::string handle_chat(const std::string& request_body);
     std::string handle_chat_session(const std::string& request_body);
     std::string handle_clear_session(const std::string& request_body);
     std::string handle_health();
-    
+
     // Batch endpoint handlers
     std::string handle_batch_chat(const std::string& request_body);
     std::string handle_batch_chat_session(const std::string& request_body);
@@ -178,7 +179,7 @@ private:
     // Session storage (thread-safe)
     std::unordered_map<std::string, std::unique_ptr<Session>> sessions_;
     mutable std::mutex sessions_mutex_;
-    
+
     // Configuration
     GenerationConfig default_config_;
     mutable std::mutex config_mutex_;

@@ -18,15 +18,15 @@
  */
 
 #include <gtest/gtest.h>
-#include "../src/VocabBuilderHelpers.hpp"
 #include "../src/BPETokenizer.hpp"
+#include "../src/VocabBuilderHelpers.hpp"
 
+#include <unistd.h>
 #include <cstdio>
 #include <fstream>
 #include <set>
 #include <sstream>
 #include <string>
-#include <unistd.h>
 
 // ============================================================================
 // Helpers
@@ -166,11 +166,10 @@ TEST(LoadPairsFormatTest, OtherLinesIgnored) {
 TEST(LoadPairsFormatTest, MultiplePairsExtracted) {
     std::string path = tmp_path("pairs_multi.txt");
     write_file(path,
-        "INPUT:question one\n"
-        "RESPONSE:answer one\n"
-        "INPUT:question two\n"
-        "RESPONSE:answer two\n"
-    );
+               "INPUT:question one\n"
+               "RESPONSE:answer one\n"
+               "INPUT:question two\n"
+               "RESPONSE:answer two\n");
     auto result = load_pairs_format(path);
     ASSERT_EQ(result.size(), 4u);
     EXPECT_EQ(result[0], "question one");
@@ -263,11 +262,10 @@ TEST(LoadJsonFormatTest, StringsWithSpacesPreserved) {
 TEST(LoadJsonFormatTest, MultilineJson) {
     std::string path = tmp_path("json_multiline.txt");
     write_file(path,
-        "[\n"
-        "  \"line one\",\n"
-        "  \"line two\"\n"
-        "]\n"
-    );
+               "[\n"
+               "  \"line one\",\n"
+               "  \"line two\"\n"
+               "]\n");
     auto result = load_json_format(path);
     ASSERT_EQ(result.size(), 2u);
     EXPECT_EQ(result[0], "line one");
@@ -280,7 +278,7 @@ TEST(LoadJsonFormatTest, MultilineJson) {
 // ============================================================================
 
 class VocabBuilderWorkflowTest : public ::testing::Test {
-protected:
+   protected:
     void SetUp() override {
         vocab_path_ = tmp_path("workflow_vocab.txt");
     }
@@ -455,12 +453,8 @@ TEST(VocabBuilderSpecialTokensTest, SpecialTokensHaveDistinctIds) {
     BPETokenizer tok;
     tok.build_vocab(kCorpus, 100, 1);
 
-    std::set<int> ids = {
-        tok.get_bos_token_id(),
-        tok.get_eos_token_id(),
-        tok.get_pad_token_id(),
-        tok.get_unk_token_id()
-    };
+    std::set<int> ids = {tok.get_bos_token_id(), tok.get_eos_token_id(), tok.get_pad_token_id(),
+                         tok.get_unk_token_id()};
     EXPECT_EQ(ids.size(), 4u);
 }
 

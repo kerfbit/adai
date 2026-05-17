@@ -3,17 +3,17 @@
 #include <gtest/gtest.h>
 #include <cmath>
 #include <vector>
-#include "../src/Matrix.hpp"
 #include "../src/Activation.hpp"
+#include "../src/Matrix.hpp"
 
 /**
  * @brief Base test fixture for transformer-related tests
- * 
+ *
  * Provides common setup, teardown, and utility methods for testing
  * transformer components, reducing code duplication across test files.
  */
 class TransformerTestBase : public ::testing::Test {
-protected:
+   protected:
     void SetUp() override {
         // Common test parameters
         test_d_model = 64;
@@ -24,15 +24,15 @@ protected:
         test_d_ff = 256;
         test_epsilon = 1e-5f;
     }
-    
+
     void TearDown() override {
         // Common cleanup if needed
     }
-    
+
     // ========================================================================
     // Matrix Creation Helpers
     // ========================================================================
-    
+
     /**
      * @brief Create a matrix filled with a constant value
      */
@@ -45,7 +45,7 @@ protected:
         }
         return m;
     }
-    
+
     /**
      * @brief Create a matrix with random values in range [min, max]
      */
@@ -53,14 +53,14 @@ protected:
         Matrix m(rows, cols);
         for (int i = 0; i < rows; ++i) {
             for (int j = 0; j < cols; ++j) {
-                float random_val = min + static_cast<float>(rand()) / 
-                                   (static_cast<float>(RAND_MAX / (max - min)));
+                float random_val =
+                    min + static_cast<float>(rand()) / (static_cast<float>(RAND_MAX / (max - min)));
                 m.data[i][j] = random_val;
             }
         }
         return m;
     }
-    
+
     /**
      * @brief Create an identity matrix
      */
@@ -73,7 +73,7 @@ protected:
         }
         return m;
     }
-    
+
     /**
      * @brief Create a matrix with sequential values (for testing)
      */
@@ -87,11 +87,11 @@ protected:
         }
         return m;
     }
-    
+
     // ========================================================================
     // Matrix Comparison Helpers
     // ========================================================================
-    
+
     /**
      * @brief Check if two matrices are approximately equal within epsilon
      */
@@ -99,7 +99,7 @@ protected:
         if (a.rows != b.rows || a.cols != b.cols) {
             return false;
         }
-        
+
         for (int i = 0; i < a.rows; ++i) {
             for (int j = 0; j < a.cols; ++j) {
                 if (std::abs(a.data[i][j] - b.data[i][j]) > epsilon) {
@@ -109,7 +109,7 @@ protected:
         }
         return true;
     }
-    
+
     /**
      * @brief Check if matrix contains only finite values (no NaN or Inf)
      */
@@ -123,14 +123,14 @@ protected:
         }
         return true;
     }
-    
+
     /**
      * @brief Check if matrix has expected shape
      */
     bool has_shape(const Matrix& m, int expected_rows, int expected_cols) {
         return m.rows == expected_rows && m.cols == expected_cols;
     }
-    
+
     /**
      * @brief Get maximum absolute difference between two matrices
      */
@@ -138,7 +138,7 @@ protected:
         if (a.rows != b.rows || a.cols != b.cols) {
             return std::numeric_limits<float>::infinity();
         }
-        
+
         float max_diff = 0.0f;
         for (int i = 0; i < a.rows; ++i) {
             for (int j = 0; j < a.cols; ++j) {
@@ -150,11 +150,11 @@ protected:
         }
         return max_diff;
     }
-    
+
     // ========================================================================
     // Statistical Helpers
     // ========================================================================
-    
+
     /**
      * @brief Calculate mean of all matrix values
      */
@@ -167,14 +167,14 @@ protected:
         }
         return sum / (m.rows * m.cols);
     }
-    
+
     /**
      * @brief Calculate variance of all matrix values
      */
     float matrix_variance(const Matrix& m) {
         float mean = matrix_mean(m);
         float sum_sq_diff = 0.0f;
-        
+
         for (int i = 0; i < m.rows; ++i) {
             for (int j = 0; j < m.cols; ++j) {
                 float diff = m.data[i][j] - mean;
@@ -183,7 +183,7 @@ protected:
         }
         return sum_sq_diff / (m.rows * m.cols);
     }
-    
+
     /**
      * @brief Calculate L2 norm (Frobenius norm) of matrix
      */
@@ -196,43 +196,40 @@ protected:
         }
         return std::sqrt(sum_sq);
     }
-    
+
     // ========================================================================
     // Gradient Checking Helpers
     // ========================================================================
-    
+
     /**
      * @brief Numerical gradient check helper
      * Computes numerical gradient using finite differences
      */
-    float compute_numerical_gradient(
-        std::function<float(float)> loss_fn,
-        float param_value,
-        float epsilon = 1e-4f
-    ) {
+    float compute_numerical_gradient(std::function<float(float)> loss_fn, float param_value,
+                                     float epsilon = 1e-4f) {
         float loss_plus = loss_fn(param_value + epsilon);
         float loss_minus = loss_fn(param_value - epsilon);
         return (loss_plus - loss_minus) / (2.0f * epsilon);
     }
-    
+
     // ========================================================================
     // Common Test Parameters
     // ========================================================================
-    
-    int test_d_model;       // Model dimension
-    int test_num_heads;     // Number of attention heads
-    int test_seq_len;       // Sequence length
-    int test_vocab_size;    // Vocabulary size
-    int test_batch_size;    // Batch size
-    int test_d_ff;          // Feed-forward dimension
-    float test_epsilon;     // Comparison epsilon
+
+    int test_d_model;     // Model dimension
+    int test_num_heads;   // Number of attention heads
+    int test_seq_len;     // Sequence length
+    int test_vocab_size;  // Vocabulary size
+    int test_batch_size;  // Batch size
+    int test_d_ff;        // Feed-forward dimension
+    float test_epsilon;   // Comparison epsilon
 };
 
 /**
  * @brief Base test fixture for optimizer-related tests
  */
 class OptimizerTestBase : public ::testing::Test {
-protected:
+   protected:
     void SetUp() override {
         test_lr = 0.01f;
         test_momentum = 0.9f;
@@ -241,7 +238,7 @@ protected:
         test_epsilon = 1e-8f;
         test_weight_decay = 0.01f;
     }
-    
+
     Matrix create_test_weights(int rows, int cols) {
         Matrix m(rows, cols);
         for (int i = 0; i < rows; ++i) {
@@ -251,7 +248,7 @@ protected:
         }
         return m;
     }
-    
+
     Matrix create_test_gradients(int rows, int cols) {
         Matrix m(rows, cols);
         for (int i = 0; i < rows; ++i) {
@@ -261,7 +258,7 @@ protected:
         }
         return m;
     }
-    
+
     float test_lr;
     float test_momentum;
     float test_beta1;
@@ -274,7 +271,7 @@ protected:
  * @brief Base test fixture for NLP-related tests
  */
 class NLPTestBase : public ::testing::Test {
-protected:
+   protected:
     void SetUp() override {
         test_vocab_size = 1000;
         test_max_seq_len = 512;
@@ -283,7 +280,7 @@ protected:
         test_bos_token = 2;
         test_eos_token = 3;
     }
-    
+
     std::vector<int> create_test_sequence(int length) {
         std::vector<int> seq;
         for (int i = 0; i < length; ++i) {
@@ -291,7 +288,7 @@ protected:
         }
         return seq;
     }
-    
+
     int test_vocab_size;
     int test_max_seq_len;
     int test_pad_token;

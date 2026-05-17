@@ -1,12 +1,12 @@
 #include "TrainingMetricsService.hpp"
-#include "Logger.hpp"
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <sstream>
-#include <filesystem>
 #include <thread>
+#include "Logger.hpp"
 
 // HTTP client for pushing metrics to external API daemon (optional)
 #ifdef BUILD_METRICS_API_SERVER
@@ -20,11 +20,7 @@ namespace fs = std::filesystem;
 // ============================================================================
 
 TrainingMetricsService::TrainingMetricsService(const MetricsServiceConfig& config)
-    : config_(config),
-      is_training_(false),
-      current_session_id_(0),
-      samples_since_last_persist_(0) {
-    
+    : config_(config), is_training_(false), current_session_id_(0), samples_since_last_persist_(0) {
     // Ensure metrics directory exists
     if (config_.enable_persistence) {
         fs::path metrics_path(config_.metrics_file);
@@ -69,16 +65,15 @@ void TrainingMetricsService::start_session(int session_id, int total_epochs, int
         samples_since_last_persist_ = 0;
         last_persist_time_ = std::chrono::system_clock::now();
 
-        adai::Logger::info("Metrics session {} started (epochs={}, samples={})",
-                           session_id, total_epochs, total_samples);
-        adai::Logger::info("Metrics push config: enable_push={}, push_url={}",
-                           config_.enable_push, config_.push_url);
+        adai::Logger::info("Metrics session {} started (epochs={}, samples={})", session_id,
+                           total_epochs, total_samples);
+        adai::Logger::info("Metrics push config: enable_push={}, push_url={}", config_.enable_push,
+                           config_.push_url);
 
         should_push = config_.enable_push;
         if (should_push) {
             std::ostringstream json;
-            json << "{\"session_id\":" << session_id
-                 << ",\"total_epochs\":" << total_epochs
+            json << "{\"session_id\":" << session_id << ",\"total_epochs\":" << total_epochs
                  << ",\"total_samples\":" << total_samples << "}";
             push_json = json.str();
         }
@@ -98,8 +93,8 @@ void TrainingMetricsService::end_session() {
 
         // Calculate total training time
         auto now = std::chrono::steady_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now - session_start_steady_);
+        auto duration =
+            std::chrono::duration_cast<std::chrono::milliseconds>(now - session_start_steady_);
         current_snapshot_.total_training_time_seconds = duration.count() / 1000.0;
 
         // Persist final state
@@ -109,10 +104,9 @@ void TrainingMetricsService::end_session() {
             persist_prometheus();
         }
 
-        adai::Logger::info("Metrics session {} ended (total_time={:.2f}s, samples={})",
-                           current_session_id_.load(),
-                           current_snapshot_.total_training_time_seconds,
-                           current_snapshot_.total_samples_trained);
+        adai::Logger::info(
+            "Metrics session {} ended (total_time={:.2f}s, samples={})", current_session_id_.load(),
+            current_snapshot_.total_training_time_seconds, current_snapshot_.total_samples_trained);
 
         should_push = config_.enable_push;
     }  // mutex released here
@@ -144,8 +138,7 @@ void TrainingMetricsService::start_epoch(int epoch, int total_samples) {
         should_push = config_.enable_push;
         if (should_push) {
             std::ostringstream json;
-            json << "{\"epoch\":" << epoch
-                 << ",\"total_samples\":" << total_samples << "}";
+            json << "{\"epoch\":" << epoch << ",\"total_samples\":" << total_samples << "}";
             push_json = json.str();
         }
     }  // mutex released here
@@ -161,101 +154,102 @@ void TrainingMetricsService::end_epoch(int epoch, float loss, float validation_l
     bool should_push = false;
     float stored_perplexity = 0.0f;
     {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    // Calculate epoch duration — use caller-provided value if available (avoids
-    // double-measurement when the API server receives a push from the trainer).
-    double epoch_time;
-    if (epoch_time_seconds > 0.0) {
-        epoch_time = epoch_time_seconds;
-    } else {
-        auto now = std::chrono::steady_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now - epoch_start_steady_);
-        epoch_time = duration.count() / 1000.0;
-    }
-    
-    // Update epoch history
-    current_snapshot_.epoch_losses.push_back(loss);
-    current_snapshot_.epoch_validation_losses.push_back(validation_loss);
-    current_snapshot_.epoch_learning_rates.push_back(learning_rate);
-    current_snapshot_.epoch_perplexities.push_back(perplexity > 0 ? perplexity : std::exp(loss));
-    // TD-015: persist per-epoch validation perplexity and accuracy
-    current_snapshot_.epoch_validation_perplexities.push_back(
-        current_snapshot_.current_validation_perplexity > 0.0f
-            ? current_snapshot_.current_validation_perplexity
-            : (validation_loss > 0.0f ? std::exp(validation_loss) : 0.0f));
-    current_snapshot_.epoch_validation_accuracies.push_back(
-        current_snapshot_.current_validation_accuracy);
-    // Persist per-epoch BLEU/ROUGE scores (use the values already stored by
-    // update_generation_quality_metrics(); default -1 if not computed this epoch)
-    current_snapshot_.epoch_bleu4.push_back(current_snapshot_.current_bleu4);
-    current_snapshot_.epoch_rouge1.push_back(current_snapshot_.current_rouge1);
-    current_snapshot_.epoch_rouge2.push_back(current_snapshot_.current_rouge2);
-    current_snapshot_.epoch_rougeL.push_back(current_snapshot_.current_rougeL);
-    // Persist per-epoch padding efficiency (-1 if not computed this epoch)
-    current_snapshot_.epoch_padding_efficiencies.push_back(
-        current_snapshot_.current_padding_efficiency);
-    // TD-017: Persist per-epoch adaptive clip threshold (-1 if adaptive clipping not active)
-    // Note: update_adaptive_clip_epoch() already pushes into epoch_adaptive_clip_thresholds;
-    // nothing to do here — the push from ChatbotTrainer arrives before end_epoch() is called.
-    current_snapshot_.epoch_durations.push_back(epoch_time);
-    current_snapshot_.epoch_gradient_norms.push_back(gradient_norm);
-    
-    // Update current metrics
-    current_snapshot_.current_loss = loss;
-    current_snapshot_.current_validation_loss = validation_loss;
-    current_snapshot_.current_learning_rate = learning_rate;
-    current_snapshot_.current_gradient_norm = gradient_norm;
-    current_snapshot_.current_perplexity = perplexity > 0 ? perplexity : std::exp(loss);
-    current_snapshot_.last_update_time = std::chrono::system_clock::now();
-    
-    // Add persistent record
-    PersistentMetricsRecord record;
-    record.timestamp = current_snapshot_.last_update_time;
-    record.session_id = current_session_id_;
-    record.epoch = epoch;
-    record.sample = current_snapshot_.total_samples;
-    record.loss = loss;
-    record.validation_loss = validation_loss;
-    record.learning_rate = learning_rate;
-    record.gradient_norm = gradient_norm;
-    record.perplexity = current_snapshot_.current_perplexity;
-    add_record(record);
-    
-    // Persist if needed
-    auto time_since_persist = std::chrono::duration_cast<std::chrono::seconds>(
-        current_snapshot_.last_update_time - last_persist_time_);
-    if (time_since_persist.count() >= config_.persist_every_seconds) {
-        persist_metrics();
-        persist_summary();
-        if (config_.enable_prometheus_format) {
-            persist_prometheus();
+        std::lock_guard<std::mutex> lock(mutex_);
+
+        // Calculate epoch duration — use caller-provided value if available (avoids
+        // double-measurement when the API server receives a push from the trainer).
+        double epoch_time;
+        if (epoch_time_seconds > 0.0) {
+            epoch_time = epoch_time_seconds;
+        } else {
+            auto now = std::chrono::steady_clock::now();
+            auto duration =
+                std::chrono::duration_cast<std::chrono::milliseconds>(now - epoch_start_steady_);
+            epoch_time = duration.count() / 1000.0;
         }
-        last_persist_time_ = current_snapshot_.last_update_time;
-    }
-    
-    adai::Logger::debug("Metrics epoch {} completed (loss={:.4f}, val_loss={:.4f}, time={:.2f}s)",
-                        epoch, loss, validation_loss, epoch_time);
+
+        // Update epoch history
+        current_snapshot_.epoch_losses.push_back(loss);
+        current_snapshot_.epoch_validation_losses.push_back(validation_loss);
+        current_snapshot_.epoch_learning_rates.push_back(learning_rate);
+        current_snapshot_.epoch_perplexities.push_back(perplexity > 0 ? perplexity
+                                                                      : std::exp(loss));
+        // TD-015: persist per-epoch validation perplexity and accuracy
+        current_snapshot_.epoch_validation_perplexities.push_back(
+            current_snapshot_.current_validation_perplexity > 0.0f
+                ? current_snapshot_.current_validation_perplexity
+                : (validation_loss > 0.0f ? std::exp(validation_loss) : 0.0f));
+        current_snapshot_.epoch_validation_accuracies.push_back(
+            current_snapshot_.current_validation_accuracy);
+        // Persist per-epoch BLEU/ROUGE scores (use the values already stored by
+        // update_generation_quality_metrics(); default -1 if not computed this epoch)
+        current_snapshot_.epoch_bleu4.push_back(current_snapshot_.current_bleu4);
+        current_snapshot_.epoch_rouge1.push_back(current_snapshot_.current_rouge1);
+        current_snapshot_.epoch_rouge2.push_back(current_snapshot_.current_rouge2);
+        current_snapshot_.epoch_rougeL.push_back(current_snapshot_.current_rougeL);
+        // Persist per-epoch padding efficiency (-1 if not computed this epoch)
+        current_snapshot_.epoch_padding_efficiencies.push_back(
+            current_snapshot_.current_padding_efficiency);
+        // TD-017: Persist per-epoch adaptive clip threshold (-1 if adaptive clipping not active)
+        // Note: update_adaptive_clip_epoch() already pushes into epoch_adaptive_clip_thresholds;
+        // nothing to do here — the push from ChatbotTrainer arrives before end_epoch() is called.
+        current_snapshot_.epoch_durations.push_back(epoch_time);
+        current_snapshot_.epoch_gradient_norms.push_back(gradient_norm);
+
+        // Update current metrics
+        current_snapshot_.current_loss = loss;
+        current_snapshot_.current_validation_loss = validation_loss;
+        current_snapshot_.current_learning_rate = learning_rate;
+        current_snapshot_.current_gradient_norm = gradient_norm;
+        current_snapshot_.current_perplexity = perplexity > 0 ? perplexity : std::exp(loss);
+        current_snapshot_.last_update_time = std::chrono::system_clock::now();
+
+        // Add persistent record
+        PersistentMetricsRecord record;
+        record.timestamp = current_snapshot_.last_update_time;
+        record.session_id = current_session_id_;
+        record.epoch = epoch;
+        record.sample = current_snapshot_.total_samples;
+        record.loss = loss;
+        record.validation_loss = validation_loss;
+        record.learning_rate = learning_rate;
+        record.gradient_norm = gradient_norm;
+        record.perplexity = current_snapshot_.current_perplexity;
+        add_record(record);
+
+        // Persist if needed
+        auto time_since_persist = std::chrono::duration_cast<std::chrono::seconds>(
+            current_snapshot_.last_update_time - last_persist_time_);
+        if (time_since_persist.count() >= config_.persist_every_seconds) {
+            persist_metrics();
+            persist_summary();
+            if (config_.enable_prometheus_format) {
+                persist_prometheus();
+            }
+            last_persist_time_ = current_snapshot_.last_update_time;
+        }
+
+        adai::Logger::debug(
+            "Metrics epoch {} completed (loss={:.4f}, val_loss={:.4f}, time={:.2f}s)", epoch, loss,
+            validation_loss, epoch_time);
 
         stored_perplexity = current_snapshot_.current_perplexity;
         should_push = config_.enable_push;
         if (should_push) {
             std::ostringstream json;
-            json << "{\"epoch\":" << epoch
-                 << ",\"loss\":" << loss
+            json << "{\"epoch\":" << epoch << ",\"loss\":" << loss
                  << ",\"validation_loss\":" << validation_loss
                  << ",\"learning_rate\":" << learning_rate
                  << ",\"perplexity\":" << stored_perplexity
-                 << ",\"gradient_norm\":" << gradient_norm
-                 << ",\"epoch_time\":" << epoch_time
+                 << ",\"gradient_norm\":" << gradient_norm << ",\"epoch_time\":" << epoch_time
                  << ",\"gradient_variance\":" << current_snapshot_.gradient_variance
                  << ",\"compute_time_ratio\":" << current_snapshot_.compute_time_ratio
                  << ",\"weight_update_ratio\":" << current_snapshot_.weight_update_ratio
-                 << ",\"activation_saturation_ratio\":" << current_snapshot_.activation_saturation_ratio
+                 << ",\"activation_saturation_ratio\":"
+                 << current_snapshot_.activation_saturation_ratio
                  << ",\"attention_entropy\":" << current_snapshot_.attention_entropy
-                 << ",\"current_padding_efficiency\":" << current_snapshot_.current_padding_efficiency
-                 << "}";
+                 << ",\"current_padding_efficiency\":"
+                 << current_snapshot_.current_padding_efficiency << "}";
             push_json = json.str();
         }
     }  // mutex released here
@@ -264,63 +258,63 @@ void TrainingMetricsService::end_epoch(int epoch, float loss, float validation_l
     }
 }
 
-void TrainingMetricsService::update_sample_metrics(int sample, float loss,
-                                                   float gradient_norm, float learning_rate) {
+void TrainingMetricsService::update_sample_metrics(int sample, float loss, float gradient_norm,
+                                                   float learning_rate) {
     std::string push_json;
     bool should_push = false;
     {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    current_snapshot_.current_sample = sample;
-    current_snapshot_.current_loss = loss;
-    current_snapshot_.current_gradient_norm = gradient_norm;
-    current_snapshot_.current_learning_rate = learning_rate;
-    current_snapshot_.current_perplexity = std::exp(loss);
-    current_snapshot_.total_samples_trained++;
-    current_snapshot_.last_update_time = std::chrono::system_clock::now();
-    
-    // Update running average
-    if (sample == 1) {
-        current_snapshot_.running_loss = loss;
-    } else {
-        float alpha = 0.1f;  // Exponential moving average factor
-        current_snapshot_.running_loss = alpha * loss + (1.0f - alpha) * current_snapshot_.running_loss;
-    }
-    
-    samples_since_last_persist_++;
-    
-    // Update throughput metrics
-    update_throughput_metrics();
-    
-    // Build push payload while lock is held
+        std::lock_guard<std::mutex> lock(mutex_);
+
+        current_snapshot_.current_sample = sample;
+        current_snapshot_.current_loss = loss;
+        current_snapshot_.current_gradient_norm = gradient_norm;
+        current_snapshot_.current_learning_rate = learning_rate;
+        current_snapshot_.current_perplexity = std::exp(loss);
+        current_snapshot_.total_samples_trained++;
+        current_snapshot_.last_update_time = std::chrono::system_clock::now();
+
+        // Update running average
+        if (sample == 1) {
+            current_snapshot_.running_loss = loss;
+        } else {
+            float alpha = 0.1f;  // Exponential moving average factor
+            current_snapshot_.running_loss =
+                alpha * loss + (1.0f - alpha) * current_snapshot_.running_loss;
+        }
+
+        samples_since_last_persist_++;
+
+        // Update throughput metrics
+        update_throughput_metrics();
+
+        // Build push payload while lock is held
         should_push = config_.enable_push;
         if (should_push) {
             std::ostringstream json;
-            json << "{\"sample\":" << sample
-                 << ",\"loss\":" << loss
-                 << ",\"gradient_norm\":" << gradient_norm
-                 << ",\"learning_rate\":" << learning_rate << "}";
+            json << "{\"sample\":" << sample << ",\"loss\":" << loss
+                 << ",\"gradient_norm\":" << gradient_norm << ",\"learning_rate\":" << learning_rate
+                 << "}";
             push_json = json.str();
         }
 
-    // Persist if needed
-    if (samples_since_last_persist_ >= config_.persist_every_samples) {
-        PersistentMetricsRecord record;
-        record.timestamp = current_snapshot_.last_update_time;
-        record.session_id = current_session_id_;
-        record.epoch = current_snapshot_.current_epoch;
-        record.sample = sample;
-        record.loss = loss;
-        record.validation_loss = current_snapshot_.current_validation_loss;
-        record.learning_rate = learning_rate;
-        record.gradient_norm = gradient_norm;
-        record.perplexity = current_snapshot_.current_perplexity;
-        add_record(record);
-        
-        persist_metrics();
-        samples_since_last_persist_ = 0;
-        last_persist_time_ = current_snapshot_.last_update_time;
-    }
+        // Persist if needed
+        if (samples_since_last_persist_ >= config_.persist_every_samples) {
+            PersistentMetricsRecord record;
+            record.timestamp = current_snapshot_.last_update_time;
+            record.session_id = current_session_id_;
+            record.epoch = current_snapshot_.current_epoch;
+            record.sample = sample;
+            record.loss = loss;
+            record.validation_loss = current_snapshot_.current_validation_loss;
+            record.learning_rate = learning_rate;
+            record.gradient_norm = gradient_norm;
+            record.perplexity = current_snapshot_.current_perplexity;
+            add_record(record);
+
+            persist_metrics();
+            samples_since_last_persist_ = 0;
+            last_persist_time_ = current_snapshot_.last_update_time;
+        }
     }  // mutex released here
     if (should_push) {
         push_to_api("/api/metrics/sample", push_json);
@@ -333,24 +327,25 @@ void TrainingMetricsService::update_validation_metrics(float validation_loss,
     std::string push_json;
     bool should_push = false;
     {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    current_snapshot_.current_validation_loss = validation_loss;
-    current_snapshot_.running_validation_loss = validation_loss;
-    // Derive perplexity if not supplied (TD-015)
-    current_snapshot_.current_validation_perplexity =
-        (validation_perplexity > 0.0f) ? validation_perplexity
-        : (validation_loss > 0.0f ? std::exp(validation_loss) : 0.0f);
-    current_snapshot_.current_validation_accuracy = validation_accuracy;
-    current_snapshot_.last_update_time = std::chrono::system_clock::now();
+        std::lock_guard<std::mutex> lock(mutex_);
+
+        current_snapshot_.current_validation_loss = validation_loss;
+        current_snapshot_.running_validation_loss = validation_loss;
+        // Derive perplexity if not supplied (TD-015)
+        current_snapshot_.current_validation_perplexity =
+            (validation_perplexity > 0.0f)
+                ? validation_perplexity
+                : (validation_loss > 0.0f ? std::exp(validation_loss) : 0.0f);
+        current_snapshot_.current_validation_accuracy = validation_accuracy;
+        current_snapshot_.last_update_time = std::chrono::system_clock::now();
 
         should_push = config_.enable_push;
         if (should_push) {
             std::ostringstream json;
             json << "{\"validation_loss\":" << validation_loss
                  << ",\"validation_accuracy\":" << validation_accuracy
-                 << ",\"validation_perplexity\":"
-                 << current_snapshot_.current_validation_perplexity << "}";
+                 << ",\"validation_perplexity\":" << current_snapshot_.current_validation_perplexity
+                 << "}";
             push_json = json.str();
         }
     }  // mutex released here
@@ -363,21 +358,21 @@ void TrainingMetricsService::update_best_metrics(float validation_loss, int epoc
     std::string push_json;
     bool should_push = false;
     {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    if (validation_loss < current_snapshot_.best_validation_loss) {
-        current_snapshot_.best_validation_loss = validation_loss;
-        current_snapshot_.best_epoch = epoch;
-        adai::Logger::info("New best validation loss: {:.4f} (epoch {})", validation_loss, epoch);
+        std::lock_guard<std::mutex> lock(mutex_);
+
+        if (validation_loss < current_snapshot_.best_validation_loss) {
+            current_snapshot_.best_validation_loss = validation_loss;
+            current_snapshot_.best_epoch = epoch;
+            adai::Logger::info("New best validation loss: {:.4f} (epoch {})", validation_loss,
+                               epoch);
 
             should_push = config_.enable_push;
             if (should_push) {
                 std::ostringstream json;
-                json << "{\"validation_loss\":" << validation_loss
-                     << ",\"epoch\":" << epoch << "}";
+                json << "{\"validation_loss\":" << validation_loss << ",\"epoch\":" << epoch << "}";
                 push_json = json.str();
             }
-    }
+        }
     }  // mutex released here
     if (should_push) {
         push_to_api("/api/metrics/best", push_json);
@@ -386,77 +381,73 @@ void TrainingMetricsService::update_best_metrics(float validation_loss, int epoc
 
 TrainingMetricsSnapshot TrainingMetricsService::get_current_snapshot() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    
+
     // Create a copy and ensure atomic fields are synchronized
     TrainingMetricsSnapshot snapshot = current_snapshot_;
     snapshot.is_training = is_training_.load();
     snapshot.session_id = current_session_id_.load();
-    
+
     // Update time-dependent metrics for current data
     if (is_training_.load()) {
         auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now - session_start_steady_);
-        
+        auto elapsed =
+            std::chrono::duration_cast<std::chrono::milliseconds>(now - session_start_steady_);
+
         if (elapsed.count() > 0) {
             double elapsed_seconds = elapsed.count() / 1000.0;
             snapshot.total_training_time_seconds = elapsed_seconds;
-            snapshot.samples_per_second =
-                snapshot.total_samples_trained / elapsed_seconds;
-            
+            snapshot.samples_per_second = snapshot.total_samples_trained / elapsed_seconds;
+
             // Estimate time remaining
             if (snapshot.total_samples > 0 && snapshot.samples_per_second > 0) {
                 int remaining_samples =
-                    snapshot.total_samples * snapshot.total_epochs -
-                    snapshot.total_samples_trained;
+                    snapshot.total_samples * snapshot.total_epochs - snapshot.total_samples_trained;
                 snapshot.estimated_time_remaining_seconds =
                     remaining_samples / snapshot.samples_per_second;
             }
         }
-        
+
         // Update last_update_time to current time for accurate timestamp
         snapshot.last_update_time = std::chrono::system_clock::now();
     }
-    
+
     return snapshot;
 }
 
 std::string TrainingMetricsService::to_json() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    
+
     // Get current snapshot with synchronized atomics and updated time metrics
     // We need to temporarily release the lock to call get_current_snapshot
     // Actually, we'll just duplicate the logic here to avoid deadlock
     TrainingMetricsSnapshot snapshot = current_snapshot_;
     snapshot.is_training = is_training_.load();
     snapshot.session_id = current_session_id_.load();
-    
+
     // Update time-dependent metrics for current data
     if (is_training_.load()) {
         auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now - session_start_steady_);
-        
+        auto elapsed =
+            std::chrono::duration_cast<std::chrono::milliseconds>(now - session_start_steady_);
+
         if (elapsed.count() > 0) {
             double elapsed_seconds = elapsed.count() / 1000.0;
             snapshot.total_training_time_seconds = elapsed_seconds;
-            snapshot.samples_per_second =
-                snapshot.total_samples_trained / elapsed_seconds;
-            
+            snapshot.samples_per_second = snapshot.total_samples_trained / elapsed_seconds;
+
             // Estimate time remaining
             if (snapshot.total_samples > 0 && snapshot.samples_per_second > 0) {
                 int remaining_samples =
-                    snapshot.total_samples * snapshot.total_epochs -
-                    snapshot.total_samples_trained;
+                    snapshot.total_samples * snapshot.total_epochs - snapshot.total_samples_trained;
                 snapshot.estimated_time_remaining_seconds =
                     remaining_samples / snapshot.samples_per_second;
             }
         }
     }
-    
+
     std::ostringstream oss;
     oss << std::fixed << std::setprecision(6);
-    
+
     oss << "{\n";
     oss << "  \"session_id\": " << snapshot.session_id << ",\n";
     oss << "  \"is_training\": " << (snapshot.is_training ? "true" : "false") << ",\n";
@@ -468,7 +459,8 @@ std::string TrainingMetricsService::to_json() const {
     oss << "  \"current_loss\": " << snapshot.current_loss << ",\n";
     oss << "  \"running_loss\": " << snapshot.running_loss << ",\n";
     oss << "  \"current_validation_loss\": " << snapshot.current_validation_loss << ",\n";
-    oss << "  \"current_validation_perplexity\": " << snapshot.current_validation_perplexity << ",\n";
+    oss << "  \"current_validation_perplexity\": " << snapshot.current_validation_perplexity
+        << ",\n";
     oss << "  \"current_validation_accuracy\": " << snapshot.current_validation_accuracy << ",\n";
     oss << "  \"current_learning_rate\": " << snapshot.current_learning_rate << ",\n";
     oss << "  \"current_gradient_norm\": " << snapshot.current_gradient_norm << ",\n";
@@ -478,21 +470,23 @@ std::string TrainingMetricsService::to_json() const {
     oss << "  \"total_samples_trained\": " << snapshot.total_samples_trained << ",\n";
     oss << "  \"total_training_time_seconds\": " << snapshot.total_training_time_seconds << ",\n";
     oss << "  \"samples_per_second\": " << snapshot.samples_per_second << ",\n";
-    oss << "  \"estimated_time_remaining_seconds\": " << snapshot.estimated_time_remaining_seconds << ",\n";
+    oss << "  \"estimated_time_remaining_seconds\": " << snapshot.estimated_time_remaining_seconds
+        << ",\n";
     oss << "  \"gradient_variance\": " << snapshot.gradient_variance << ",\n";
     oss << "  \"compute_time_ratio\": " << snapshot.compute_time_ratio << ",\n";
     oss << "  \"weight_update_ratio\": " << snapshot.weight_update_ratio << ",\n";
     oss << "  \"activation_saturation_ratio\": " << snapshot.activation_saturation_ratio << ",\n";
     oss << "  \"attention_entropy\": " << snapshot.attention_entropy << ",\n";
-    oss << "  \"current_bleu4\": "  << snapshot.current_bleu4  << ",\n";
+    oss << "  \"current_bleu4\": " << snapshot.current_bleu4 << ",\n";
     oss << "  \"current_rouge1\": " << snapshot.current_rouge1 << ",\n";
     oss << "  \"current_rouge2\": " << snapshot.current_rouge2 << ",\n";
     oss << "  \"current_rougeL\": " << snapshot.current_rougeL << ",\n";
     oss << "  \"current_padding_efficiency\": " << snapshot.current_padding_efficiency << ",\n";
-    oss << "  \"current_adaptive_clip_threshold\": " << snapshot.current_adaptive_clip_threshold << ",\n";
+    oss << "  \"current_adaptive_clip_threshold\": " << snapshot.current_adaptive_clip_threshold
+        << ",\n";
     oss << "  \"current_adaptive_clip_spikes\": " << snapshot.current_adaptive_clip_spikes << "\n";
     oss << "}";
-    
+
     return oss.str();
 }
 
@@ -507,15 +501,16 @@ std::string TrainingMetricsService::to_prometheus() const {
 }
 
 std::string TrainingMetricsService::to_csv_header() const {
-    return "timestamp,session_id,epoch,sample,loss,validation_loss,learning_rate,gradient_norm,perplexity";
+    return "timestamp,session_id,epoch,sample,loss,validation_loss,learning_rate,gradient_norm,"
+           "perplexity";
 }
 
 std::string TrainingMetricsService::to_csv_row() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    
+
     std::ostringstream oss;
     oss << std::fixed << std::setprecision(6);
-    
+
     oss << format_timestamp(current_snapshot_.last_update_time) << ",";
     oss << current_session_id_.load() << ",";
     oss << current_snapshot_.current_epoch << ",";
@@ -525,24 +520,24 @@ std::string TrainingMetricsService::to_csv_row() const {
     oss << current_snapshot_.current_learning_rate << ",";
     oss << current_snapshot_.current_gradient_norm << ",";
     oss << current_snapshot_.current_perplexity;
-    
+
     return oss.str();
 }
 
 std::vector<PersistentMetricsRecord> TrainingMetricsService::get_history(int max_records) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    
+
     if (max_records <= 0 || max_records >= static_cast<int>(history_.size())) {
         return history_;
     }
-    
-    return std::vector<PersistentMetricsRecord>(
-        history_.end() - max_records, history_.end());
+
+    return std::vector<PersistentMetricsRecord>(history_.end() - max_records, history_.end());
 }
 
-std::vector<PersistentMetricsRecord> TrainingMetricsService::get_session_history(int session_id) const {
+std::vector<PersistentMetricsRecord> TrainingMetricsService::get_session_history(
+    int session_id) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    
+
     std::vector<PersistentMetricsRecord> result;
     for (const auto& record : history_) {
         if (record.session_id == session_id) {
@@ -566,12 +561,12 @@ void TrainingMetricsService::flush_to_disk() {
     if (!config_.enable_persistence) {
         return;
     }
-    
+
     // Capture data with lock, then release before expensive I/O operations
     std::string summary_json;
     std::string prometheus_text;
     bool enable_prometheus;
-    
+
     {
         std::lock_guard<std::mutex> lock(mutex_);
         summary_json = to_json_summary_internal();
@@ -580,26 +575,26 @@ void TrainingMetricsService::flush_to_disk() {
             prometheus_text = to_prometheus_internal();
         }
     }
-    
+
     // Now write to files without holding the lock (allows concurrent reads)
     persist_summary_with_data(summary_json);
     if (enable_prometheus) {
         persist_prometheus_with_data(prometheus_text);
     }
-    
+
     // persist_metrics needs special handling as it writes history
     {
         std::lock_guard<std::mutex> lock(mutex_);
         persist_metrics();
         persist_abnormal_samples();
     }
-    
+
     adai::Logger::debug("Metrics flushed to disk");
 }
 
 void TrainingMetricsService::clear_history() {
     std::lock_guard<std::mutex> lock(mutex_);
-    
+
     history_.clear();
     adai::Logger::info("Metrics history cleared");
 }
@@ -622,14 +617,14 @@ void TrainingMetricsService::persist_metrics() {
     if (!config_.enable_persistence || history_.empty()) {
         return;
     }
-    
+
     try {
         std::ofstream file(config_.metrics_file, std::ios::app);
         if (!file.is_open()) {
             adai::Logger::warn("Failed to open metrics file: {}", config_.metrics_file);
             return;
         }
-        
+
         // Write records as JSON Lines (one JSON object per line)
         for (const auto& record : history_) {
             file << std::fixed << std::setprecision(6);
@@ -645,7 +640,7 @@ void TrainingMetricsService::persist_metrics() {
             file << "\"perplexity\":" << record.perplexity;
             file << "}\n";
         }
-        
+
         file.close();
     } catch (const std::exception& e) {
         adai::Logger::error("Failed to persist metrics: {}", e.what());
@@ -697,7 +692,7 @@ void TrainingMetricsService::persist_summary_with_data(const std::string& json_d
             adai::Logger::warn("Failed to open summary file: {}", config_.summary_file);
             return;
         }
-        
+
         file << json_data;
         file.close();
     } catch (const std::exception& e) {
@@ -712,7 +707,7 @@ void TrainingMetricsService::persist_prometheus_with_data(const std::string& pro
             adai::Logger::warn("Failed to open Prometheus file: {}", config_.prometheus_file);
             return;
         }
-        
+
         file << prometheus_data;
         file.close();
     } catch (const std::exception& e) {
@@ -725,92 +720,120 @@ void TrainingMetricsService::restore_from_summary() {
     // Called at construction before any lock is needed.
     try {
         std::ifstream f(config_.summary_file);
-        if (!f.is_open()) return;
-        std::string json((std::istreambuf_iterator<char>(f)),
-                          std::istreambuf_iterator<char>());
+        if (!f.is_open())
+            return;
+        std::string json((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
         f.close();
 
         // Parse a scalar float value following "key":
         auto parse_float = [&](const std::string& key, float fallback) -> float {
             auto pos = json.find("\"" + key + "\"");
-            if (pos == std::string::npos) return fallback;
+            if (pos == std::string::npos)
+                return fallback;
             pos = json.find(':', pos);
-            if (pos == std::string::npos) return fallback;
-            try { return std::stof(json.substr(pos + 1)); } catch (...) { return fallback; }
+            if (pos == std::string::npos)
+                return fallback;
+            try {
+                return std::stof(json.substr(pos + 1));
+            } catch (...) {
+                return fallback;
+            }
         };
         auto parse_int = [&](const std::string& key, int fallback) -> int {
             auto pos = json.find("\"" + key + "\"");
-            if (pos == std::string::npos) return fallback;
+            if (pos == std::string::npos)
+                return fallback;
             pos = json.find(':', pos);
-            if (pos == std::string::npos) return fallback;
-            try { return std::stoi(json.substr(pos + 1)); } catch (...) { return fallback; }
+            if (pos == std::string::npos)
+                return fallback;
+            try {
+                return std::stoi(json.substr(pos + 1));
+            } catch (...) {
+                return fallback;
+            }
         };
         auto parse_double = [&](const std::string& key, double fallback) -> double {
             auto pos = json.find("\"" + key + "\"");
-            if (pos == std::string::npos) return fallback;
+            if (pos == std::string::npos)
+                return fallback;
             pos = json.find(':', pos);
-            if (pos == std::string::npos) return fallback;
-            try { return std::stod(json.substr(pos + 1)); } catch (...) { return fallback; }
+            if (pos == std::string::npos)
+                return fallback;
+            try {
+                return std::stod(json.substr(pos + 1));
+            } catch (...) {
+                return fallback;
+            }
         };
         auto parse_float_array = [&](const std::string& key) -> std::vector<float> {
             std::vector<float> result;
             auto pos = json.find("\"" + key + "\"");
-            if (pos == std::string::npos) return result;
+            if (pos == std::string::npos)
+                return result;
             auto lb = json.find('[', pos);
             auto rb = json.find(']', lb);
-            if (lb == std::string::npos || rb == std::string::npos) return result;
+            if (lb == std::string::npos || rb == std::string::npos)
+                return result;
             std::istringstream ss(json.substr(lb + 1, rb - lb - 1));
             std::string token;
             while (std::getline(ss, token, ',')) {
-                try { result.push_back(std::stof(token)); } catch (...) {}
+                try {
+                    result.push_back(std::stof(token));
+                } catch (...) {
+                }
             }
             return result;
         };
         auto parse_double_array = [&](const std::string& key) -> std::vector<double> {
             std::vector<double> result;
             auto pos = json.find("\"" + key + "\"");
-            if (pos == std::string::npos) return result;
+            if (pos == std::string::npos)
+                return result;
             auto lb = json.find('[', pos);
             auto rb = json.find(']', lb);
-            if (lb == std::string::npos || rb == std::string::npos) return result;
+            if (lb == std::string::npos || rb == std::string::npos)
+                return result;
             std::istringstream ss(json.substr(lb + 1, rb - lb - 1));
             std::string token;
             while (std::getline(ss, token, ',')) {
-                try { result.push_back(std::stod(token)); } catch (...) {}
+                try {
+                    result.push_back(std::stod(token));
+                } catch (...) {
+                }
             }
             return result;
         };
 
         int session_id = parse_int("session_id", 0);
-        current_session_id_   = session_id;
-        current_snapshot_.session_id                   = session_id;
-        current_snapshot_.total_samples_trained        = parse_int("total_samples_trained", 0);
-        current_snapshot_.total_training_time_seconds  = parse_double("total_training_time_seconds", 0.0);
-        current_snapshot_.best_validation_loss         = parse_float("best_validation_loss",
-                                                                      std::numeric_limits<float>::max());
-        current_snapshot_.best_epoch                   = parse_int("best_epoch", 0);
+        current_session_id_ = session_id;
+        current_snapshot_.session_id = session_id;
+        current_snapshot_.total_samples_trained = parse_int("total_samples_trained", 0);
+        current_snapshot_.total_training_time_seconds =
+            parse_double("total_training_time_seconds", 0.0);
+        current_snapshot_.best_validation_loss =
+            parse_float("best_validation_loss", std::numeric_limits<float>::max());
+        current_snapshot_.best_epoch = parse_int("best_epoch", 0);
 
-        current_snapshot_.epoch_losses                 = parse_float_array("epoch_losses");
-        current_snapshot_.epoch_validation_losses      = parse_float_array("epoch_validation_losses");
-        current_snapshot_.epoch_learning_rates         = parse_float_array("epoch_learning_rates");
-        current_snapshot_.epoch_perplexities           = parse_float_array("epoch_perplexities");
-        current_snapshot_.epoch_durations              = parse_double_array("epoch_durations");
+        current_snapshot_.epoch_losses = parse_float_array("epoch_losses");
+        current_snapshot_.epoch_validation_losses = parse_float_array("epoch_validation_losses");
+        current_snapshot_.epoch_learning_rates = parse_float_array("epoch_learning_rates");
+        current_snapshot_.epoch_perplexities = parse_float_array("epoch_perplexities");
+        current_snapshot_.epoch_durations = parse_double_array("epoch_durations");
 
-        current_snapshot_.current_bleu4   = parse_float("current_bleu4",  -1.0f);
-        current_snapshot_.current_rouge1  = parse_float("current_rouge1", -1.0f);
-        current_snapshot_.current_rouge2  = parse_float("current_rouge2", -1.0f);
-        current_snapshot_.current_rougeL  = parse_float("current_rougeL", -1.0f);
-        current_snapshot_.epoch_bleu4     = parse_float_array("epoch_bleu4");
-        current_snapshot_.epoch_rouge1    = parse_float_array("epoch_rouge1");
-        current_snapshot_.epoch_rouge2    = parse_float_array("epoch_rouge2");
-        current_snapshot_.epoch_rougeL    = parse_float_array("epoch_rougeL");
+        current_snapshot_.current_bleu4 = parse_float("current_bleu4", -1.0f);
+        current_snapshot_.current_rouge1 = parse_float("current_rouge1", -1.0f);
+        current_snapshot_.current_rouge2 = parse_float("current_rouge2", -1.0f);
+        current_snapshot_.current_rougeL = parse_float("current_rougeL", -1.0f);
+        current_snapshot_.epoch_bleu4 = parse_float_array("epoch_bleu4");
+        current_snapshot_.epoch_rouge1 = parse_float_array("epoch_rouge1");
+        current_snapshot_.epoch_rouge2 = parse_float_array("epoch_rouge2");
+        current_snapshot_.epoch_rougeL = parse_float_array("epoch_rougeL");
 
         // Current epoch = number of completed epoch records
         current_snapshot_.current_epoch = static_cast<int>(current_snapshot_.epoch_losses.size());
 
         adai::Logger::info("Metrics state restored from '{}' (session={}, epochs={})",
-                           config_.summary_file, session_id,
-                           current_snapshot_.epoch_losses.size());
+                           config_.summary_file, session_id, current_snapshot_.epoch_losses.size());
     } catch (const std::exception& e) {
         adai::Logger::warn("Could not restore metrics snapshot: {}", e.what());
     }
@@ -820,87 +843,97 @@ std::string TrainingMetricsService::to_json_summary_internal() const {
     // Caller must hold mutex_ lock
     std::ostringstream oss;
     oss << std::fixed << std::setprecision(6);
-    
+
     oss << "{\n";
     oss << "  \"session_id\": " << current_session_id_.load() << ",\n";
     oss << "  \"timestamp\": \"" << format_timestamp(current_snapshot_.last_update_time) << "\",\n";
     oss << "  \"total_epochs_completed\": " << current_snapshot_.epoch_losses.size() << ",\n";
     oss << "  \"total_samples_trained\": " << current_snapshot_.total_samples_trained << ",\n";
-    oss << "  \"total_training_time_seconds\": " << current_snapshot_.total_training_time_seconds << ",\n";
+    oss << "  \"total_training_time_seconds\": " << current_snapshot_.total_training_time_seconds
+        << ",\n";
     oss << "  \"best_validation_loss\": " << current_snapshot_.best_validation_loss << ",\n";
     oss << "  \"best_epoch\": " << current_snapshot_.best_epoch << ",\n";
-    
+
     oss << "  \"epoch_losses\": [";
     for (size_t i = 0; i < current_snapshot_.epoch_losses.size(); i++) {
-        if (i > 0) oss << ", ";
+        if (i > 0)
+            oss << ", ";
         oss << current_snapshot_.epoch_losses[i];
     }
     oss << "],\n";
-    
+
     oss << "  \"epoch_validation_losses\": [";
     for (size_t i = 0; i < current_snapshot_.epoch_validation_losses.size(); i++) {
-        if (i > 0) oss << ", ";
+        if (i > 0)
+            oss << ", ";
         oss << current_snapshot_.epoch_validation_losses[i];
     }
     oss << "],\n";
-    
+
     oss << "  \"epoch_learning_rates\": [";
     for (size_t i = 0; i < current_snapshot_.epoch_learning_rates.size(); i++) {
-        if (i > 0) oss << ", ";
+        if (i > 0)
+            oss << ", ";
         oss << current_snapshot_.epoch_learning_rates[i];
     }
     oss << "],\n";
-    
+
     oss << "  \"epoch_perplexities\": [";
     for (size_t i = 0; i < current_snapshot_.epoch_perplexities.size(); i++) {
-        if (i > 0) oss << ", ";
+        if (i > 0)
+            oss << ", ";
         oss << current_snapshot_.epoch_perplexities[i];
     }
     oss << "],\n";
-    
+
     oss << "  \"epoch_durations\": [";
     for (size_t i = 0; i < current_snapshot_.epoch_durations.size(); i++) {
-        if (i > 0) oss << ", ";
+        if (i > 0)
+            oss << ", ";
         oss << current_snapshot_.epoch_durations[i];
     }
     oss << "],\n";
 
     // Generation quality scalars (TD-016)
-    oss << "  \"current_bleu4\": "  << current_snapshot_.current_bleu4  << ",\n";
+    oss << "  \"current_bleu4\": " << current_snapshot_.current_bleu4 << ",\n";
     oss << "  \"current_rouge1\": " << current_snapshot_.current_rouge1 << ",\n";
     oss << "  \"current_rouge2\": " << current_snapshot_.current_rouge2 << ",\n";
     oss << "  \"current_rougeL\": " << current_snapshot_.current_rougeL << ",\n";
 
     oss << "  \"epoch_bleu4\": [";
     for (size_t i = 0; i < current_snapshot_.epoch_bleu4.size(); i++) {
-        if (i > 0) oss << ", ";
+        if (i > 0)
+            oss << ", ";
         oss << current_snapshot_.epoch_bleu4[i];
     }
     oss << "],\n";
 
     oss << "  \"epoch_rouge1\": [";
     for (size_t i = 0; i < current_snapshot_.epoch_rouge1.size(); i++) {
-        if (i > 0) oss << ", ";
+        if (i > 0)
+            oss << ", ";
         oss << current_snapshot_.epoch_rouge1[i];
     }
     oss << "],\n";
 
     oss << "  \"epoch_rouge2\": [";
     for (size_t i = 0; i < current_snapshot_.epoch_rouge2.size(); i++) {
-        if (i > 0) oss << ", ";
+        if (i > 0)
+            oss << ", ";
         oss << current_snapshot_.epoch_rouge2[i];
     }
     oss << "],\n";
 
     oss << "  \"epoch_rougeL\": [";
     for (size_t i = 0; i < current_snapshot_.epoch_rougeL.size(); i++) {
-        if (i > 0) oss << ", ";
+        if (i > 0)
+            oss << ", ";
         oss << current_snapshot_.epoch_rougeL[i];
     }
     oss << "]\n";
 
     oss << "}";
-    
+
     return oss.str();
 }
 
@@ -908,57 +941,66 @@ std::string TrainingMetricsService::to_prometheus_internal() const {
     // Caller must hold mutex_ lock
     int session_id = current_session_id_.load();
     bool is_training = is_training_.load();
-    
+
     std::ostringstream oss;
     oss << std::fixed << std::setprecision(6);
-    
+
     auto timestamp_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        current_snapshot_.last_update_time.time_since_epoch()).count();
-    
+                            current_snapshot_.last_update_time.time_since_epoch())
+                            .count();
+
     oss << "# HELP training_session_id Current training session ID\n";
     oss << "# TYPE training_session_id gauge\n";
     oss << "training_session_id " << session_id << " " << timestamp_ms << "\n\n";
-    
+
     oss << "# HELP training_is_active Whether training is currently active\n";
     oss << "# TYPE training_is_active gauge\n";
     oss << "training_is_active " << (is_training ? 1 : 0) << " " << timestamp_ms << "\n\n";
-    
+
     oss << "# HELP training_current_epoch Current training epoch\n";
     oss << "# TYPE training_current_epoch gauge\n";
-    oss << "training_current_epoch " << current_snapshot_.current_epoch << " " << timestamp_ms << "\n\n";
-    
+    oss << "training_current_epoch " << current_snapshot_.current_epoch << " " << timestamp_ms
+        << "\n\n";
+
     oss << "# HELP training_loss Current training loss\n";
     oss << "# TYPE training_loss gauge\n";
     oss << "training_loss " << current_snapshot_.current_loss << " " << timestamp_ms << "\n\n";
-    
+
     oss << "# HELP training_validation_loss Current validation loss\n";
     oss << "# TYPE training_validation_loss gauge\n";
-    oss << "training_validation_loss " << current_snapshot_.current_validation_loss << " " << timestamp_ms << "\n\n";
-    
+    oss << "training_validation_loss " << current_snapshot_.current_validation_loss << " "
+        << timestamp_ms << "\n\n";
+
     oss << "# HELP training_learning_rate Current learning rate\n";
     oss << "# TYPE training_learning_rate gauge\n";
-    oss << "training_learning_rate " << current_snapshot_.current_learning_rate << " " << timestamp_ms << "\n\n";
-    
+    oss << "training_learning_rate " << current_snapshot_.current_learning_rate << " "
+        << timestamp_ms << "\n\n";
+
     oss << "# HELP training_gradient_norm Current gradient norm\n";
     oss << "# TYPE training_gradient_norm gauge\n";
-    oss << "training_gradient_norm " << current_snapshot_.current_gradient_norm << " " << timestamp_ms << "\n\n";
-    
+    oss << "training_gradient_norm " << current_snapshot_.current_gradient_norm << " "
+        << timestamp_ms << "\n\n";
+
     oss << "# HELP training_perplexity Current perplexity\n";
     oss << "# TYPE training_perplexity gauge\n";
-    oss << "training_perplexity " << current_snapshot_.current_perplexity << " " << timestamp_ms << "\n\n";
-    
+    oss << "training_perplexity " << current_snapshot_.current_perplexity << " " << timestamp_ms
+        << "\n\n";
+
     oss << "# HELP training_samples_total Total samples trained\n";
     oss << "# TYPE training_samples_total counter\n";
-    oss << "training_samples_total " << current_snapshot_.total_samples_trained << " " << timestamp_ms << "\n\n";
-    
+    oss << "training_samples_total " << current_snapshot_.total_samples_trained << " "
+        << timestamp_ms << "\n\n";
+
     oss << "# HELP training_time_seconds_total Total training time in seconds\n";
     oss << "# TYPE training_time_seconds_total counter\n";
-    oss << "training_time_seconds_total " << current_snapshot_.total_training_time_seconds << " " << timestamp_ms << "\n\n";
-    
+    oss << "training_time_seconds_total " << current_snapshot_.total_training_time_seconds << " "
+        << timestamp_ms << "\n\n";
+
     oss << "# HELP training_samples_per_second Training throughput\n";
     oss << "# TYPE training_samples_per_second gauge\n";
-    oss << "training_samples_per_second " << current_snapshot_.samples_per_second << " " << timestamp_ms << "\n\n";
-    
+    oss << "training_samples_per_second " << current_snapshot_.samples_per_second << " "
+        << timestamp_ms << "\n\n";
+
     return oss.str();
 }
 
@@ -970,23 +1012,22 @@ void TrainingMetricsService::add_record(const PersistentMetricsRecord& record) {
 void TrainingMetricsService::trim_history() {
     if (history_.size() > static_cast<size_t>(config_.max_records_in_memory)) {
         // Keep only the most recent records
-        history_.erase(
-            history_.begin(),
-            history_.begin() + (history_.size() - config_.max_records_in_memory));
+        history_.erase(history_.begin(),
+                       history_.begin() + (history_.size() - config_.max_records_in_memory));
     }
 }
 
 void TrainingMetricsService::update_throughput_metrics() {
     auto now = std::chrono::steady_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-        now - session_start_steady_);
-    
+    auto elapsed =
+        std::chrono::duration_cast<std::chrono::milliseconds>(now - session_start_steady_);
+
     if (elapsed.count() > 0) {
         double elapsed_seconds = elapsed.count() / 1000.0;
         current_snapshot_.total_training_time_seconds = elapsed_seconds;
         current_snapshot_.samples_per_second =
             current_snapshot_.total_samples_trained / elapsed_seconds;
-        
+
         // Estimate time remaining
         if (current_snapshot_.total_samples > 0 && current_snapshot_.samples_per_second > 0) {
             int remaining_samples =
@@ -1002,14 +1043,30 @@ std::string TrainingMetricsService::escape_json(const std::string& s) const {
     std::ostringstream oss;
     for (char c : s) {
         switch (c) {
-            case '"': oss << "\\\""; break;
-            case '\\': oss << "\\\\"; break;
-            case '\b': oss << "\\b"; break;
-            case '\f': oss << "\\f"; break;
-            case '\n': oss << "\\n"; break;
-            case '\r': oss << "\\r"; break;
-            case '\t': oss << "\\t"; break;
-            default: oss << c; break;
+            case '"':
+                oss << "\\\"";
+                break;
+            case '\\':
+                oss << "\\\\";
+                break;
+            case '\b':
+                oss << "\\b";
+                break;
+            case '\f':
+                oss << "\\f";
+                break;
+            case '\n':
+                oss << "\\n";
+                break;
+            case '\r':
+                oss << "\\r";
+                break;
+            case '\t':
+                oss << "\\t";
+                break;
+            default:
+                oss << c;
+                break;
         }
     }
     return oss.str();
@@ -1017,18 +1074,16 @@ std::string TrainingMetricsService::escape_json(const std::string& s) const {
 
 std::string TrainingMetricsService::format_timestamp(
     const std::chrono::system_clock::time_point& tp) const {
-    
     auto time_t = std::chrono::system_clock::to_time_t(tp);
     std::tm tm = *std::localtime(&time_t);
-    
+
     std::ostringstream oss;
     oss << std::put_time(&tm, "%Y-%m-%d %H:%M:%S");
-    
+
     // Add milliseconds
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        tp.time_since_epoch()) % 1000;
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(tp.time_since_epoch()) % 1000;
     oss << "." << std::setfill('0') << std::setw(3) << ms.count();
-    
+
     return oss.str();
 }
 
@@ -1047,7 +1102,8 @@ std::string TrainingMetricsService::build_push_url(const std::string& endpoint) 
     return url + endpoint;
 }
 
-void TrainingMetricsService::push_to_api(const std::string& endpoint, const std::string& json_body) {
+void TrainingMetricsService::push_to_api(const std::string& endpoint,
+                                         const std::string& json_body) {
     if (!config_.enable_push) {
         return;
     }
@@ -1055,15 +1111,15 @@ void TrainingMetricsService::push_to_api(const std::string& endpoint, const std:
     // Fire-and-forget: dispatch HTTP call onto a detached thread so the
     // training loop is never blocked by network latency or a slow/unresponsive
     // metrics server.
-    std::string push_url  = config_.push_url;
-    int         timeout   = config_.push_timeout_ms;
+    std::string push_url = config_.push_url;
+    int timeout = config_.push_timeout_ms;
 
     std::thread([push_url, timeout, endpoint, json_body]() {
         try {
             // Parse URL to extract host and port
-            std::string url  = push_url;
+            std::string url = push_url;
             std::string host = "localhost";
-            int         port = 8081;
+            int port = 8081;
 
             size_t proto_pos = url.find("://");
             if (proto_pos != std::string::npos) {
@@ -1100,7 +1156,8 @@ void TrainingMetricsService::push_to_api(const std::string& endpoint, const std:
             if (!res) {
                 adai::Logger::debug("Metrics push to {}{}: connection failed", push_url, endpoint);
             } else if (res->status != 200) {
-                adai::Logger::debug("Metrics push to {}{}: HTTP {}", push_url, endpoint, res->status);
+                adai::Logger::debug("Metrics push to {}{}: HTTP {}", push_url, endpoint,
+                                    res->status);
             }
         } catch (const std::exception& e) {
             adai::Logger::debug("Metrics push exception {}{}: {}", push_url, endpoint, e.what());
@@ -1132,11 +1189,12 @@ void TrainingMetricsService::update_advanced_epoch_metrics(float gradient_varian
     bool should_push = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        current_snapshot_.gradient_variance   = gradient_variance;
-        current_snapshot_.compute_time_ratio  = compute_time_ratio;
+        current_snapshot_.gradient_variance = gradient_variance;
+        current_snapshot_.compute_time_ratio = compute_time_ratio;
         current_snapshot_.weight_update_ratio = weight_update_ratio;
-        adai::Logger::debug("Advanced epoch metrics: grad_var={:.4f}, compute_ratio={:.4f}, wu_ratio={:.6f}",
-                            gradient_variance, compute_time_ratio, weight_update_ratio);
+        adai::Logger::debug(
+            "Advanced epoch metrics: grad_var={:.4f}, compute_ratio={:.4f}, wu_ratio={:.6f}",
+            gradient_variance, compute_time_ratio, weight_update_ratio);
         should_push = config_.enable_push;
         if (should_push) {
             std::ostringstream json;
@@ -1175,43 +1233,43 @@ void TrainingMetricsService::update_adaptive_clip_metrics(float effective_clip_t
                                                           int cumulative_spike_count) {
     std::lock_guard<std::mutex> lock(mutex_);
     current_snapshot_.current_adaptive_clip_threshold = effective_clip_threshold;
-    current_snapshot_.current_adaptive_clip_spikes    = cumulative_spike_count;
+    current_snapshot_.current_adaptive_clip_spikes = cumulative_spike_count;
 }
 
 void TrainingMetricsService::update_adaptive_clip_epoch(float avg_clip_threshold,
                                                         int total_spike_count) {
     std::lock_guard<std::mutex> lock(mutex_);
     current_snapshot_.current_adaptive_clip_threshold = avg_clip_threshold;
-    current_snapshot_.current_adaptive_clip_spikes    = total_spike_count;
+    current_snapshot_.current_adaptive_clip_spikes = total_spike_count;
     current_snapshot_.epoch_adaptive_clip_thresholds.push_back(avg_clip_threshold);
-    adai::Logger::info("Adaptive clip epoch avg: {:.4f}  spikes: {}", avg_clip_threshold, total_spike_count);
+    adai::Logger::info("Adaptive clip epoch avg: {:.4f}  spikes: {}", avg_clip_threshold,
+                       total_spike_count);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-void TrainingMetricsService::update_generation_quality_metrics(
-        float bleu4, float rouge1, float rouge2, float rougeL) {
+void TrainingMetricsService::update_generation_quality_metrics(float bleu4, float rouge1,
+                                                               float rouge2, float rougeL) {
     std::string push_json;
     bool should_push = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        current_snapshot_.current_bleu4  = bleu4;
+        current_snapshot_.current_bleu4 = bleu4;
         current_snapshot_.current_rouge1 = rouge1;
         current_snapshot_.current_rouge2 = rouge2;
         current_snapshot_.current_rougeL = rougeL;
         current_snapshot_.last_update_time = std::chrono::system_clock::now();
 
-        adai::Logger::info("Generation quality — BLEU-4: {:.4f}  ROUGE-1: {:.4f}  "
-                           "ROUGE-2: {:.4f}  ROUGE-L: {:.4f}",
-                           bleu4, rouge1, rouge2, rougeL);
+        adai::Logger::info(
+            "Generation quality — BLEU-4: {:.4f}  ROUGE-1: {:.4f}  "
+            "ROUGE-2: {:.4f}  ROUGE-L: {:.4f}",
+            bleu4, rouge1, rouge2, rougeL);
 
         should_push = config_.enable_push;
         if (should_push) {
             std::ostringstream json;
             json << std::fixed << std::setprecision(6);
-            json << "{\"bleu4\":"  << bleu4
-                 << ",\"rouge1\":" << rouge1
-                 << ",\"rouge2\":" << rouge2
+            json << "{\"bleu4\":" << bleu4 << ",\"rouge1\":" << rouge1 << ",\"rouge2\":" << rouge2
                  << ",\"rougeL\":" << rougeL << "}";
             push_json = json.str();
         }
@@ -1231,9 +1289,9 @@ void TrainingMetricsService::flag_abnormal_sample(const AbnormalSample& sample) 
         }
         abnormal_samples_.push_back(sample);
 
-        adai::Logger::warn("Abnormal sample flagged — epoch={} sample={} loss={:.4f} grad={:.4f} reason={}",
-                           sample.epoch, sample.sample_id, sample.loss,
-                           sample.grad_norm, sample.reason);
+        adai::Logger::warn(
+            "Abnormal sample flagged — epoch={} sample={} loss={:.4f} grad={:.4f} reason={}",
+            sample.epoch, sample.sample_id, sample.loss, sample.grad_norm, sample.reason);
 
         persist_abnormal_samples();
     }
@@ -1277,7 +1335,8 @@ void TrainingMetricsService::persist_abnormal_samples() {
             file << "\"target_text\":\"" << escape_json(s.target_text) << "\",";
             file << "\"timestamp\":\"" << format_timestamp(s.timestamp) << "\"";
             file << "}";
-            if (i + 1 < abnormal_samples_.size()) file << ",";
+            if (i + 1 < abnormal_samples_.size())
+                file << ",";
             file << "\n";
         }
         file << "]\n";

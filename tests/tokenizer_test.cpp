@@ -277,13 +277,9 @@ TEST_F(BPETokenizerTest, EncodeEmptyString) {
     BPETokenizer tokenizer;
 
     // Empty string should now throw TokenizerInputError
-    EXPECT_THROW({
-        tokenizer.encode("", false);
-    }, TokenizerInputError);
+    EXPECT_THROW({ tokenizer.encode("", false); }, TokenizerInputError);
 
-    EXPECT_THROW({
-        tokenizer.encode("", true);
-    }, TokenizerInputError);
+    EXPECT_THROW({ tokenizer.encode("", true); }, TokenizerInputError);
 }
 
 // ============================================================================
@@ -336,11 +332,9 @@ TEST_F(BPETokenizerTest, DecodeEmptyIds) {
     BPETokenizer tokenizer;
 
     std::vector<int> ids = {};
-    
+
     // Empty IDs vector should now throw TokenizerInputError
-    EXPECT_THROW({
-        tokenizer.decode(ids, true);
-    }, TokenizerInputError);
+    EXPECT_THROW({ tokenizer.decode(ids, true); }, TokenizerInputError);
 }
 
 // ============================================================================
@@ -548,9 +542,7 @@ TEST_F(BPETokenizerTest, LoadNonexistentFile) {
     BPETokenizer tokenizer;
 
     // Should now throw VocabularyFileError instead of handling gracefully
-    EXPECT_THROW({
-        tokenizer.load_vocab("nonexistent_file.txt");
-    }, VocabularyFileError);
+    EXPECT_THROW({ tokenizer.load_vocab("nonexistent_file.txt"); }, VocabularyFileError);
 }
 
 // ============================================================================

@@ -7,12 +7,12 @@
 // Tests are independent of which code path is compiled in: they exercise
 // the public Matrix API and compare results against reference values.
 
-#include "../src/Matrix.hpp"
-#include "../src/MatrixSIMD.hpp"
 #include <../gtest/gtest.h>
 #include <cmath>
 #include <numeric>
 #include <vector>
+#include "../src/Matrix.hpp"
+#include "../src/MatrixSIMD.hpp"
 
 // ============================================================================
 // Helper: arithmetic reference (scalar, no SIMD, no OpenMP shortcuts)
@@ -89,15 +89,14 @@ TEST_P(MatrixSIMDAddTest, AddMatchesReference) {
 
     for (int i = 0; i < result.rows; ++i)
         for (int j = 0; j < result.cols; ++j)
-            EXPECT_NEAR(result.data[i][j],
-                        a.data[i][j] + b.data[i][j], kTol)
+            EXPECT_NEAR(result.data[i][j], a.data[i][j] + b.data[i][j], kTol)
                 << "at (" << i << ", " << j << ") with cols=" << cols;
 }
 
 // Widths that stress the SIMD remainder path: below 8, at 8, above 8,
 // non-multiples of 8, large round number.
 INSTANTIATE_TEST_SUITE_P(ColumnWidths, MatrixSIMDAddTest,
-    ::testing::Values(1, 3, 7, 8, 9, 15, 16, 17, 32, 35, 64, 100, 128, 256));
+                         ::testing::Values(1, 3, 7, 8, 9, 15, 16, 17, 32, 35, 64, 100, 128, 256));
 
 // ============================================================================
 // TD-007: SIMD subtraction
@@ -114,13 +113,12 @@ TEST_P(MatrixSIMDSubTest, SubMatchesReference) {
 
     for (int i = 0; i < result.rows; ++i)
         for (int j = 0; j < result.cols; ++j)
-            EXPECT_NEAR(result.data[i][j],
-                        a.data[i][j] - b.data[i][j], kTol)
+            EXPECT_NEAR(result.data[i][j], a.data[i][j] - b.data[i][j], kTol)
                 << "at (" << i << ", " << j << ") with cols=" << cols;
 }
 
 INSTANTIATE_TEST_SUITE_P(ColumnWidths, MatrixSIMDSubTest,
-    ::testing::Values(1, 3, 7, 8, 9, 15, 16, 17, 32, 33, 64, 100, 256));
+                         ::testing::Values(1, 3, 7, 8, 9, 15, 16, 17, 32, 33, 64, 100, 256));
 
 // ============================================================================
 // TD-007: SIMD Hadamard (element-wise multiply)
@@ -137,13 +135,12 @@ TEST_P(MatrixSIMDHadamardTest, HadamardMatchesReference) {
 
     for (int i = 0; i < result.rows; ++i)
         for (int j = 0; j < result.cols; ++j)
-            EXPECT_NEAR(result.data[i][j],
-                        a.data[i][j] * b.data[i][j], kTol)
+            EXPECT_NEAR(result.data[i][j], a.data[i][j] * b.data[i][j], kTol)
                 << "at (" << i << ", " << j << ") with cols=" << cols;
 }
 
 INSTANTIATE_TEST_SUITE_P(ColumnWidths, MatrixSIMDHadamardTest,
-    ::testing::Values(1, 5, 8, 13, 16, 17, 32, 64, 128, 200));
+                         ::testing::Values(1, 5, 8, 13, 16, 17, 32, 64, 128, 200));
 
 // ============================================================================
 // TD-007: SIMD scale (scalar multiply)
@@ -165,7 +162,7 @@ TEST_P(MatrixSIMDScaleTest, ScaleMatchesReference) {
 }
 
 INSTANTIATE_TEST_SUITE_P(ColumnWidths, MatrixSIMDScaleTest,
-    ::testing::Values(1, 7, 8, 9, 16, 17, 33, 64, 128, 255));
+                         ::testing::Values(1, 7, 8, 9, 16, 17, 33, 64, 128, 255));
 
 // ============================================================================
 // TD-007: SIMD apply_gradients (W = W - lr * g)
@@ -178,7 +175,7 @@ TEST_P(MatrixSIMDGradientsTest, ApplyGradientsMatchesReference) {
     float lr = 0.01f;
 
     Matrix weights = make_seq(4, cols, 1.0f, 0.2f);
-    Matrix grads   = make_seq(4, cols, 0.1f, 0.05f);
+    Matrix grads = make_seq(4, cols, 0.1f, 0.05f);
 
     // Compute expected: weights_orig - lr * grads
     std::vector<std::vector<float>> expected(4, std::vector<float>(cols));
@@ -195,46 +192,38 @@ TEST_P(MatrixSIMDGradientsTest, ApplyGradientsMatchesReference) {
 }
 
 INSTANTIATE_TEST_SUITE_P(ColumnWidths, MatrixSIMDGradientsTest,
-    ::testing::Values(1, 7, 8, 9, 16, 17, 33, 64, 100, 256));
+                         ::testing::Values(1, 7, 8, 9, 16, 17, 33, 64, 100, 256));
 
 // ============================================================================
 // TD-007: SIMD sum (horizontal reduction)
 // ============================================================================
 
-class MatrixSIMDSumTest : public ::testing::TestWithParam<std::pair<int,int>> {};
+class MatrixSIMDSumTest : public ::testing::TestWithParam<std::pair<int, int>> {};
 
 TEST_P(MatrixSIMDSumTest, SumMatchesReference) {
     auto [rows, cols] = GetParam();
     Matrix m = make_seq(rows, cols, 0.0f, 1.0f);
 
-    float simd_sum     = m.sum();
+    float simd_sum = m.sum();
     float expected_sum = ref_sum(m);
 
     // Use relative tolerance for large matrices where absolute error accumulates
     float tolerance = std::max(kTol, std::abs(expected_sum) * 1e-5f);
-    EXPECT_NEAR(simd_sum, expected_sum, tolerance)
-        << "rows=" << rows << " cols=" << cols;
+    EXPECT_NEAR(simd_sum, expected_sum, tolerance) << "rows=" << rows << " cols=" << cols;
 }
 
 INSTANTIATE_TEST_SUITE_P(Shapes, MatrixSIMDSumTest,
-    ::testing::Values(
-        std::make_pair(1,  1),
-        std::make_pair(1,  7),
-        std::make_pair(1,  8),
-        std::make_pair(1,  9),
-        std::make_pair(4,  16),
-        std::make_pair(4,  17),
-        std::make_pair(8,  32),
-        std::make_pair(16, 64),
-        std::make_pair(32, 128),
-        std::make_pair(10, 100)
-    ));
+                         ::testing::Values(std::make_pair(1, 1), std::make_pair(1, 7),
+                                           std::make_pair(1, 8), std::make_pair(1, 9),
+                                           std::make_pair(4, 16), std::make_pair(4, 17),
+                                           std::make_pair(8, 32), std::make_pair(16, 64),
+                                           std::make_pair(32, 128), std::make_pair(10, 100)));
 
 // ============================================================================
 // TD-007: SIMD matrix multiply — ikj loop, various shapes
 // ============================================================================
 
-class MatrixSIMDMulTest : public ::testing::TestWithParam<std::tuple<int,int,int>> {};
+class MatrixSIMDMulTest : public ::testing::TestWithParam<std::tuple<int, int, int>> {};
 
 TEST_P(MatrixSIMDMulTest, MulMatchesReference) {
     auto [M, K, N] = GetParam();
@@ -242,7 +231,7 @@ TEST_P(MatrixSIMDMulTest, MulMatchesReference) {
     Matrix a = make_seq(M, K, 0.1f, 0.001f);
     Matrix b = make_seq(K, N, 0.1f, 0.001f);
 
-    Matrix result   = a * b;
+    Matrix result = a * b;
     Matrix expected = ref_mul(a, b);
 
     ASSERT_EQ(result.rows, M);
@@ -260,20 +249,15 @@ TEST_P(MatrixSIMDMulTest, MulMatchesReference) {
 
 // Cover: square, rectangular, non-multiples of 4/8, and small sizes
 INSTANTIATE_TEST_SUITE_P(Shapes, MatrixSIMDMulTest,
-    ::testing::Values(
-        std::make_tuple(1,  1,  1),
-        std::make_tuple(1,  8,  1),
-        std::make_tuple(2,  3,  4),
-        std::make_tuple(4,  4,  4),
-        std::make_tuple(8,  8,  8),
-        std::make_tuple(9,  9,  9),   // non-multiple of 8
-        std::make_tuple(16, 16, 16),
-        std::make_tuple(17, 17, 17),  // non-multiple of 8
-        std::make_tuple(32, 64, 32),
-        std::make_tuple(64, 32, 64),
-        std::make_tuple(7,  13, 11),  // odd shapes
-        std::make_tuple(64, 64, 64)
-    ));
+                         ::testing::Values(std::make_tuple(1, 1, 1), std::make_tuple(1, 8, 1),
+                                           std::make_tuple(2, 3, 4), std::make_tuple(4, 4, 4),
+                                           std::make_tuple(8, 8, 8),
+                                           std::make_tuple(9, 9, 9),  // non-multiple of 8
+                                           std::make_tuple(16, 16, 16),
+                                           std::make_tuple(17, 17, 17),  // non-multiple of 8
+                                           std::make_tuple(32, 64, 32), std::make_tuple(64, 32, 64),
+                                           std::make_tuple(7, 13, 11),  // odd shapes
+                                           std::make_tuple(64, 64, 64)));
 
 // ============================================================================
 // TD-007: BLAS path — large matrix multiply (≥ 256 in all dims)
@@ -293,14 +277,13 @@ TEST(MatrixSIMDBLAS, LargeMatMulMatchesReference) {
         }
 
     Matrix result = a * b;
-    Matrix ref    = ref_mul(a, b);
+    Matrix ref = ref_mul(a, b);
 
     // Relative tolerance per element
     for (int i = 0; i < SZ; ++i)
         for (int j = 0; j < SZ; ++j) {
             float tol = std::max(kTol, std::abs(ref.data[i][j]) * 1e-4f);
-            EXPECT_NEAR(result.data[i][j], ref.data[i][j], tol)
-                << "at (" << i << ", " << j << ")";
+            EXPECT_NEAR(result.data[i][j], ref.data[i][j], tol) << "at (" << i << ", " << j << ")";
         }
 }
 

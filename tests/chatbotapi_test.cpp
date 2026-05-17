@@ -1,6 +1,6 @@
 /**
  * ChatbotAPI Test Suite
- * 
+ *
  * Tests for the ChatbotAPI REST endpoints including:
  * - Health check endpoint
  * - Single chat endpoint
@@ -12,28 +12,25 @@
  * - Batch processing efficiency
  */
 
-#include <gtest/gtest.h>
 #include "../src/ChatbotAPI.hpp"
-#include "../src/EncoderDecoderModel.hpp"
-#include "../src/BPETokenizer.hpp"
+#include <gtest/gtest.h>
+#include <chrono>
 #include <memory>
 #include <thread>
-#include <chrono>
+#include "../src/BPETokenizer.hpp"
+#include "../src/EncoderDecoderModel.hpp"
 
 class ChatbotAPITest : public ::testing::Test {
-protected:
+   protected:
     std::unique_ptr<BPETokenizer> tokenizer;
     std::unique_ptr<EncoderDecoderModel> model;
     std::unique_ptr<ChatbotAPI> api;
 
     void SetUp() override {
         // Create a small test vocabulary
-        std::vector<std::string> test_texts = {
-            "hello world test",
-            "hi there how are you",
-            "what is the answer to this question",
-            "test message for training"
-        };
+        std::vector<std::string> test_texts = {"hello world test", "hi there how are you",
+                                               "what is the answer to this question",
+                                               "test message for training"};
 
         // Initialize tokenizer
         tokenizer = std::make_unique<BPETokenizer>();
@@ -41,23 +38,20 @@ protected:
 
         // Create a small test model (minimal size for testing)
         int vocab_size = tokenizer->get_vocab_size();
-        int d_model = 32;      // Small embedding dimension
-        int encoder_layers = 1;    // Single layer for speed
+        int d_model = 32;        // Small embedding dimension
+        int encoder_layers = 1;  // Single layer for speed
         int decoder_layers = 1;
-        int num_heads = 2;         // Minimal heads
-        int d_ff = 64;         // Small feedforward
+        int num_heads = 2;  // Minimal heads
+        int d_ff = 64;      // Small feedforward
         int max_seq_length = 128;
 
         model = std::make_unique<EncoderDecoderModel>(
-            vocab_size, d_model, encoder_layers, decoder_layers, num_heads, d_ff, max_seq_length
-        );
+            vocab_size, d_model, encoder_layers, decoder_layers, num_heads, d_ff, max_seq_length);
 
         // Create API (don't start server for unit tests)
-        api = std::make_unique<ChatbotAPI>(
-            model.get(),
-            tokenizer.get(),
-            8080,  // port
-            30     // session timeout minutes
+        api = std::make_unique<ChatbotAPI>(model.get(), tokenizer.get(),
+                                           8080,  // port
+                                           30     // session timeout minutes
         );
     }
 
@@ -178,7 +172,7 @@ TEST_F(ChatbotAPITest, CreateBatchJsonResponse_Success) {
     batch_resp.stats.avg_batch_size = 3.0f;
 
     std::string response = api->create_batch_json_response(batch_resp);
-    
+
     EXPECT_TRUE(response.find("\"success\":true") != std::string::npos);
     EXPECT_TRUE(response.find("Response 1") != std::string::npos);
     EXPECT_TRUE(response.find("Response 2") != std::string::npos);
@@ -199,7 +193,7 @@ TEST_F(ChatbotAPITest, CreateBatchJsonResponse_WithSessionIds) {
     batch_resp.stats.avg_batch_size = 2.0f;
 
     std::string response = api->create_batch_json_response(batch_resp);
-    
+
     EXPECT_TRUE(response.find("\"session_ids\"") != std::string::npos);
     EXPECT_TRUE(response.find("session_1") != std::string::npos);
     EXPECT_TRUE(response.find("session_2") != std::string::npos);
@@ -211,7 +205,7 @@ TEST_F(ChatbotAPITest, CreateBatchJsonResponse_Error) {
     batch_resp.error = "Batch processing failed";
 
     std::string response = api->create_batch_json_response(batch_resp);
-    
+
     EXPECT_TRUE(response.find("\"success\":false") != std::string::npos);
     EXPECT_TRUE(response.find("Batch processing failed") != std::string::npos);
 }
@@ -237,7 +231,7 @@ TEST_F(ChatbotAPITest, SetGenerationConfig) {
     config.strategy = "greedy";
 
     api->set_generation_config(config);
-    
+
     // Config is set internally, we can't easily verify without server running
     // But we can check that the method doesn't crash
     SUCCEED();
@@ -248,11 +242,7 @@ TEST_F(ChatbotAPITest, SetGenerationConfig) {
 // ============================================================================
 
 TEST_F(ChatbotAPITest, GenerateBatchResponses_BasicBatch) {
-    std::vector<std::string> inputs = {
-        "hello",
-        "hi world",
-        "test message"
-    };
+    std::vector<std::string> inputs = {"hello", "hi world", "test message"};
 
     ChatbotAPI::GenerationConfig config;
     config.max_length = 10;  // Short for speed
@@ -292,9 +282,9 @@ TEST_F(ChatbotAPITest, GenerateBatchResponses_SingleInput) {
 
 TEST_F(ChatbotAPITest, GenerateBatchResponses_VariableLengths) {
     std::vector<std::string> inputs = {
-        "hi",                                          // Very short
-        "hello world",                                 // Short
-        "this is a medium length message",            // Medium
+        "hi",                                                                      // Very short
+        "hello world",                                                             // Short
+        "this is a medium length message",                                         // Medium
         "this is a much longer message that should test variable length handling"  // Long
     };
 
@@ -306,7 +296,7 @@ TEST_F(ChatbotAPITest, GenerateBatchResponses_VariableLengths) {
 
     EXPECT_TRUE(response.success);
     EXPECT_EQ(response.responses.size(), 4);
-    
+
     // With variable lengths, we should see some batching efficiency
     // Multiple batches should be created
     EXPECT_GE(response.stats.num_batches, 1);
@@ -321,7 +311,7 @@ TEST_F(ChatbotAPITest, BatchResponse_Statistics) {
     ChatbotAPI::BatchResponse response = api->generate_batch_responses(inputs, config);
 
     EXPECT_TRUE(response.success);
-    
+
     // Verify statistics are populated
     EXPECT_GT(response.stats.total_tokens, 0);
     EXPECT_GT(response.stats.actual_tokens, 0);
@@ -330,7 +320,7 @@ TEST_F(ChatbotAPITest, BatchResponse_Statistics) {
     EXPECT_LE(response.stats.padding_ratio, 1.0f);
     EXPECT_GE(response.stats.num_batches, 1);
     EXPECT_GT(response.stats.avg_batch_size, 0.0f);
-    
+
     // Efficiency should be inverse of padding ratio
     float expected_efficiency = (1.0f - response.stats.padding_ratio) * 100.0f;
     EXPECT_NEAR(expected_efficiency, expected_efficiency, 0.1f);
@@ -349,23 +339,22 @@ TEST_F(ChatbotAPITest, SessionCreation) {
 TEST_F(ChatbotAPITest, GenerateBatchSessionResponses_NewSessions) {
     std::vector<std::string> inputs = {"Hello", "Hi there"};
     std::vector<std::string> session_ids = {"", ""};  // Empty = create new
-    
+
     ChatbotAPI::GenerationConfig config;
     config.max_length = 10;
     config.strategy = "greedy";
 
-    ChatbotAPI::BatchResponse response = api->generate_batch_session_responses(
-        inputs, session_ids, config
-    );
+    ChatbotAPI::BatchResponse response =
+        api->generate_batch_session_responses(inputs, session_ids, config);
 
     EXPECT_TRUE(response.success);
     EXPECT_EQ(response.responses.size(), 2);
     EXPECT_EQ(response.session_ids.size(), 2);
-    
+
     // Session IDs should be created (non-empty)
     EXPECT_FALSE(response.session_ids[0].empty());
     EXPECT_FALSE(response.session_ids[1].empty());
-    
+
     // Session IDs should be different
     EXPECT_NE(response.session_ids[0], response.session_ids[1]);
 }
@@ -374,25 +363,23 @@ TEST_F(ChatbotAPITest, GenerateBatchSessionResponses_ExistingSessions) {
     // First batch: create sessions
     std::vector<std::string> inputs1 = {"First message"};
     std::vector<std::string> session_ids1 = {""};
-    
+
     ChatbotAPI::GenerationConfig config;
     config.max_length = 10;
     config.strategy = "greedy";
 
-    ChatbotAPI::BatchResponse response1 = api->generate_batch_session_responses(
-        inputs1, session_ids1, config
-    );
+    ChatbotAPI::BatchResponse response1 =
+        api->generate_batch_session_responses(inputs1, session_ids1, config);
 
     ASSERT_TRUE(response1.success);
     ASSERT_EQ(response1.session_ids.size(), 1);
-    
+
     // Second batch: use existing session
     std::vector<std::string> inputs2 = {"Follow-up message"};
     std::vector<std::string> session_ids2 = {response1.session_ids[0]};
 
-    ChatbotAPI::BatchResponse response2 = api->generate_batch_session_responses(
-        inputs2, session_ids2, config
-    );
+    ChatbotAPI::BatchResponse response2 =
+        api->generate_batch_session_responses(inputs2, session_ids2, config);
 
     EXPECT_TRUE(response2.success);
     EXPECT_EQ(response2.session_ids.size(), 1);
@@ -402,14 +389,13 @@ TEST_F(ChatbotAPITest, GenerateBatchSessionResponses_ExistingSessions) {
 TEST_F(ChatbotAPITest, GenerateBatchSessionResponses_MixedSessions) {
     std::vector<std::string> inputs = {"Msg1", "Msg2", "Msg3"};
     std::vector<std::string> session_ids = {"existing_id", "", "another_id"};
-    
+
     ChatbotAPI::GenerationConfig config;
     config.max_length = 10;
     config.strategy = "greedy";
 
-    ChatbotAPI::BatchResponse response = api->generate_batch_session_responses(
-        inputs, session_ids, config
-    );
+    ChatbotAPI::BatchResponse response =
+        api->generate_batch_session_responses(inputs, session_ids, config);
 
     EXPECT_TRUE(response.success);
     EXPECT_EQ(response.responses.size(), 3);
@@ -497,7 +483,7 @@ TEST_F(ChatbotAPITest, GenerationStrategy_Default) {
 TEST_F(ChatbotAPITest, BatchEfficiency_UniformLength) {
     // All messages same length should have high efficiency
     std::vector<std::string> inputs = {"test1", "test2", "test3", "test4"};
-    
+
     ChatbotAPI::GenerationConfig config;
     config.max_length = 10;
     config.strategy = "greedy";
@@ -505,20 +491,16 @@ TEST_F(ChatbotAPITest, BatchEfficiency_UniformLength) {
     ChatbotAPI::BatchResponse response = api->generate_batch_responses(inputs, config);
 
     EXPECT_TRUE(response.success);
-    
+
     // Uniform length should result in lower padding ratio
     EXPECT_LT(response.stats.padding_ratio, 0.3f);  // Less than 30% padding
 }
 
 TEST_F(ChatbotAPITest, BatchEfficiency_VaryingLength) {
     // Variable length messages
-    std::vector<std::string> inputs = {
-        "a",
-        "hello world test",
-        "ab",
-        "this is a much longer message for testing"
-    };
-    
+    std::vector<std::string> inputs = {"a", "hello world test", "ab",
+                                       "this is a much longer message for testing"};
+
     ChatbotAPI::GenerationConfig config;
     config.max_length = 10;
     config.strategy = "greedy";
@@ -526,7 +508,7 @@ TEST_F(ChatbotAPITest, BatchEfficiency_VaryingLength) {
     ChatbotAPI::BatchResponse response = api->generate_batch_responses(inputs, config);
 
     EXPECT_TRUE(response.success);
-    
+
     // Variable lengths may result in higher padding, but dynamic batching helps
     // Should still be reasonable
     EXPECT_LT(response.stats.padding_ratio, 0.7f);  // Less than 70% padding
@@ -541,7 +523,7 @@ TEST_F(ChatbotAPITest, LargeBatch_10Messages) {
     for (int i = 0; i < 10; ++i) {
         inputs.push_back("message " + std::to_string(i));
     }
-    
+
     ChatbotAPI::GenerationConfig config;
     config.max_length = 5;
     config.strategy = "greedy";
@@ -557,7 +539,7 @@ TEST_F(ChatbotAPITest, LargeBatch_50Messages) {
     for (int i = 0; i < 50; ++i) {
         inputs.push_back("test message number " + std::to_string(i));
     }
-    
+
     ChatbotAPI::GenerationConfig config;
     config.max_length = 5;
     config.strategy = "greedy";
@@ -566,7 +548,7 @@ TEST_F(ChatbotAPITest, LargeBatch_50Messages) {
 
     EXPECT_TRUE(response.success);
     EXPECT_EQ(response.responses.size(), 50);
-    
+
     // Should create multiple batches (max batch size is 32)
     EXPECT_GE(response.stats.num_batches, 2);
 }
@@ -578,7 +560,7 @@ TEST_F(ChatbotAPITest, LargeBatch_50Messages) {
 TEST_F(ChatbotAPITest, EdgeCase_VeryLongMessage) {
     std::string long_msg(500, 'x');  // 500 character message
     std::vector<std::string> inputs = {long_msg};
-    
+
     ChatbotAPI::GenerationConfig config;
     config.max_length = 5;
     config.strategy = "greedy";
@@ -590,13 +572,9 @@ TEST_F(ChatbotAPITest, EdgeCase_VeryLongMessage) {
 }
 
 TEST_F(ChatbotAPITest, EdgeCase_SpecialCharacters) {
-    std::vector<std::string> inputs = {
-        "Hello\nWorld",
-        "Tab\there",
-        "Quote\"test",
-        "Backslash\\test"
-    };
-    
+    std::vector<std::string> inputs = {"Hello\nWorld", "Tab\there", "Quote\"test",
+                                       "Backslash\\test"};
+
     ChatbotAPI::GenerationConfig config;
     config.max_length = 5;
     config.strategy = "greedy";
@@ -608,12 +586,8 @@ TEST_F(ChatbotAPITest, EdgeCase_SpecialCharacters) {
 }
 
 TEST_F(ChatbotAPITest, EdgeCase_UnicodeCharacters) {
-    std::vector<std::string> inputs = {
-        "Hello 世界",
-        "Test éàü",
-        "Emoji 🚀"
-    };
-    
+    std::vector<std::string> inputs = {"Hello 世界", "Test éàü", "Emoji 🚀"};
+
     ChatbotAPI::GenerationConfig config;
     config.max_length = 5;
     config.strategy = "greedy";

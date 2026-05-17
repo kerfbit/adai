@@ -1,7 +1,7 @@
 #include "Matrix.hpp"
-#include "Logger.hpp"
 #include <iomanip>
 #include <sstream>
+#include "Logger.hpp"
 
 #ifdef ADAI_ENABLE_OPENMP
 #include <omp.h>
@@ -71,8 +71,7 @@ Matrix Matrix::operator*(const Matrix& other) const {
     // are large enough for cuBLAS SGEMM to outperform AVX2.  We do NOT gate on
     // 'rows' so that short-sequence inputs (seq_len < 32) still benefit from
     // fast weight-matrix multiplications (d_model × d_model, d_model × d_ff).
-    if (adai::gpu::GPUManager::is_available() &&
-        cols >= 32 && other.cols >= 32) {
+    if (adai::gpu::GPUManager::is_available() && cols >= 32 && other.cols >= 32) {
         return multiply_gpu(other);
     }
 #endif  // ADAI_ENABLE_GPU
@@ -86,19 +85,15 @@ Matrix Matrix::operator*(const Matrix& other) const {
         for (int i = 0; i < rows; ++i)
             std::copy(data[i].begin(), data[i].end(), a_flat.data() + i * cols);
         for (int i = 0; i < other.rows; ++i)
-            std::copy(other.data[i].begin(), other.data[i].end(),
-                      b_flat.data() + i * other.cols);
+            std::copy(other.data[i].begin(), other.data[i].end(), b_flat.data() + i * other.cols);
 
         std::vector<float> c_flat(rows * other.cols, 0.0f);
-        cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
-                    rows, other.cols, cols,
-                    1.0f, a_flat.data(), cols,
-                          b_flat.data(), other.cols,
-                    0.0f, c_flat.data(), other.cols);
+        cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, rows, other.cols, cols, 1.0f,
+                    a_flat.data(), cols, b_flat.data(), other.cols, 0.0f, c_flat.data(),
+                    other.cols);
 
         for (int i = 0; i < rows; ++i)
-            std::copy(c_flat.data() + i * other.cols,
-                      c_flat.data() + (i + 1) * other.cols,
+            std::copy(c_flat.data() + i * other.cols, c_flat.data() + (i + 1) * other.cols,
                       result.data[i].data());
         return result;
     }
@@ -109,10 +104,10 @@ Matrix Matrix::operator*(const Matrix& other) const {
     // row k of B simultaneously into row i of C.  B rows are contiguous so
     // cache-friendly; each inner loop touches only one row of C (good locality).
 #ifdef ADAI_ENABLE_OPENMP
-    #pragma omp parallel for schedule(dynamic, 16) if(rows > 64)
+#pragma omp parallel for schedule(dynamic, 16) if (rows > 64)
 #endif
     for (int i = 0; i < rows; ++i) {
-        float*       c_row = result.data[i].data();
+        float* c_row = result.data[i].data();
         const float* a_row = data[i].data();
         for (int k = 0; k < cols; ++k) {
             const float* b_row = other.data[k].data();
@@ -129,8 +124,7 @@ Matrix Matrix::operator*(const Matrix& other) const {
             int j = 0;
             for (; j <= other.cols - 8; j += 8) {
                 __m256 vc = _mm256_loadu_ps(c_row + j);
-                vc = _mm256_add_ps(vc,
-                         _mm256_mul_ps(va, _mm256_loadu_ps(b_row + j)));
+                vc = _mm256_add_ps(vc, _mm256_mul_ps(va, _mm256_loadu_ps(b_row + j)));
                 _mm256_storeu_ps(c_row + j, vc);
             }
 #endif
@@ -143,14 +137,14 @@ Matrix Matrix::operator*(const Matrix& other) const {
 #elif defined(ADAI_SIMD_NEON)
     // ikj loop order with ARM NEON 4-wide FMA
 #ifdef ADAI_ENABLE_OPENMP
-    #pragma omp parallel for schedule(dynamic, 16) if(rows > 64)
+#pragma omp parallel for schedule(dynamic, 16) if (rows > 64)
 #endif
     for (int i = 0; i < rows; ++i) {
-        float*       c_row = result.data[i].data();
+        float* c_row = result.data[i].data();
         const float* a_row = data[i].data();
         for (int k = 0; k < cols; ++k) {
-            const float* b_row  = other.data[k].data();
-            float32x4_t  va_ik  = vdupq_n_f32(a_row[k]);
+            const float* b_row = other.data[k].data();
+            float32x4_t va_ik = vdupq_n_f32(a_row[k]);
             int j = 0;
             for (; j <= other.cols - 4; j += 4) {
                 float32x4_t vc = vld1q_f32(c_row + j);
@@ -163,12 +157,12 @@ Matrix Matrix::operator*(const Matrix& other) const {
     }
 
 #elif defined(ADAI_ENABLE_OPENMP)
-    // Parallel version with OpenMP — 5-8x speedup on multi-core CPUs
-    #pragma omp parallel for collapse(2) schedule(dynamic, 32) if(rows > 64 && other.cols > 64)
+// Parallel version with OpenMP — 5-8x speedup on multi-core CPUs
+#pragma omp parallel for collapse(2) schedule(dynamic, 32) if (rows > 64 && other.cols > 64)
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < other.cols; j++) {
             float sum = 0.0f;
-            #pragma omp simd reduction(+:sum)
+#pragma omp simd reduction(+ : sum)
             for (int k = 0; k < cols; k++) {
                 sum += data[i][k] * other.data[k][j];
             }
@@ -202,35 +196,36 @@ Matrix Matrix::operator+(const Matrix& other) const {
 
 #if defined(ADAI_SIMD_AVX2)
 #ifdef ADAI_ENABLE_OPENMP
-    #pragma omp parallel for if(rows * cols > 10000)
+#pragma omp parallel for if (rows * cols > 10000)
 #endif
     for (int i = 0; i < rows; ++i) {
         const float* a = data[i].data();
         const float* b = other.data[i].data();
-        float*       r = result.data[i].data();
+        float* r = result.data[i].data();
         int j = 0;
         for (; j <= cols - 8; j += 8)
-            _mm256_storeu_ps(r + j,
-                _mm256_add_ps(_mm256_loadu_ps(a + j), _mm256_loadu_ps(b + j)));
-        for (; j < cols; ++j) r[j] = a[j] + b[j];
+            _mm256_storeu_ps(r + j, _mm256_add_ps(_mm256_loadu_ps(a + j), _mm256_loadu_ps(b + j)));
+        for (; j < cols; ++j)
+            r[j] = a[j] + b[j];
     }
 
 #elif defined(ADAI_SIMD_NEON)
 #ifdef ADAI_ENABLE_OPENMP
-    #pragma omp parallel for if(rows * cols > 10000)
+#pragma omp parallel for if (rows * cols > 10000)
 #endif
     for (int i = 0; i < rows; ++i) {
         const float* a = data[i].data();
         const float* b = other.data[i].data();
-        float*       r = result.data[i].data();
+        float* r = result.data[i].data();
         int j = 0;
         for (; j <= cols - 4; j += 4)
             vst1q_f32(r + j, vaddq_f32(vld1q_f32(a + j), vld1q_f32(b + j)));
-        for (; j < cols; ++j) r[j] = a[j] + b[j];
+        for (; j < cols; ++j)
+            r[j] = a[j] + b[j];
     }
 
 #elif defined(ADAI_ENABLE_OPENMP)
-    #pragma omp parallel for collapse(2) if(rows * cols > 10000)
+#pragma omp parallel for collapse(2) if (rows * cols > 10000)
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
             result.data[i][j] = data[i][j] + other.data[i][j];
@@ -257,35 +252,36 @@ Matrix Matrix::operator-(const Matrix& other) const {
 
 #if defined(ADAI_SIMD_AVX2)
 #ifdef ADAI_ENABLE_OPENMP
-    #pragma omp parallel for if(rows * cols > 10000)
+#pragma omp parallel for if (rows * cols > 10000)
 #endif
     for (int i = 0; i < rows; ++i) {
         const float* a = data[i].data();
         const float* b = other.data[i].data();
-        float*       r = result.data[i].data();
+        float* r = result.data[i].data();
         int j = 0;
         for (; j <= cols - 8; j += 8)
-            _mm256_storeu_ps(r + j,
-                _mm256_sub_ps(_mm256_loadu_ps(a + j), _mm256_loadu_ps(b + j)));
-        for (; j < cols; ++j) r[j] = a[j] - b[j];
+            _mm256_storeu_ps(r + j, _mm256_sub_ps(_mm256_loadu_ps(a + j), _mm256_loadu_ps(b + j)));
+        for (; j < cols; ++j)
+            r[j] = a[j] - b[j];
     }
 
 #elif defined(ADAI_SIMD_NEON)
 #ifdef ADAI_ENABLE_OPENMP
-    #pragma omp parallel for if(rows * cols > 10000)
+#pragma omp parallel for if (rows * cols > 10000)
 #endif
     for (int i = 0; i < rows; ++i) {
         const float* a = data[i].data();
         const float* b = other.data[i].data();
-        float*       r = result.data[i].data();
+        float* r = result.data[i].data();
         int j = 0;
         for (; j <= cols - 4; j += 4)
             vst1q_f32(r + j, vsubq_f32(vld1q_f32(a + j), vld1q_f32(b + j)));
-        for (; j < cols; ++j) r[j] = a[j] - b[j];
+        for (; j < cols; ++j)
+            r[j] = a[j] - b[j];
     }
 
 #elif defined(ADAI_ENABLE_OPENMP)
-    #pragma omp parallel for collapse(2) if(rows * cols > 10000)
+#pragma omp parallel for collapse(2) if (rows * cols > 10000)
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
             result.data[i][j] = data[i][j] - other.data[i][j];
@@ -307,8 +303,8 @@ Matrix Matrix::transpose() const {
     Matrix result(cols, rows);
 
 #ifdef ADAI_ENABLE_OPENMP
-    // Parallel version with OpenMP
-    #pragma omp parallel for collapse(2) if(rows * cols > 10000)
+// Parallel version with OpenMP
+#pragma omp parallel for collapse(2) if (rows * cols > 10000)
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
             result.data[j][i] = data[i][j];
@@ -346,33 +342,35 @@ Matrix Matrix::scale(float scalar) const {
 #if defined(ADAI_SIMD_AVX2)
     __m256 vs = _mm256_set1_ps(scalar);
 #ifdef ADAI_ENABLE_OPENMP
-    #pragma omp parallel for if(rows * cols > 10000)
+#pragma omp parallel for if (rows * cols > 10000)
 #endif
     for (int i = 0; i < rows; ++i) {
         const float* a = data[i].data();
-        float*       r = result.data[i].data();
+        float* r = result.data[i].data();
         int j = 0;
         for (; j <= cols - 8; j += 8)
             _mm256_storeu_ps(r + j, _mm256_mul_ps(vs, _mm256_loadu_ps(a + j)));
-        for (; j < cols; ++j) r[j] = a[j] * scalar;
+        for (; j < cols; ++j)
+            r[j] = a[j] * scalar;
     }
 
 #elif defined(ADAI_SIMD_NEON)
     float32x4_t vs = vdupq_n_f32(scalar);
 #ifdef ADAI_ENABLE_OPENMP
-    #pragma omp parallel for if(rows * cols > 10000)
+#pragma omp parallel for if (rows * cols > 10000)
 #endif
     for (int i = 0; i < rows; ++i) {
         const float* a = data[i].data();
-        float*       r = result.data[i].data();
+        float* r = result.data[i].data();
         int j = 0;
         for (; j <= cols - 4; j += 4)
             vst1q_f32(r + j, vmulq_f32(vs, vld1q_f32(a + j)));
-        for (; j < cols; ++j) r[j] = a[j] * scalar;
+        for (; j < cols; ++j)
+            r[j] = a[j] * scalar;
     }
 
 #elif defined(ADAI_ENABLE_OPENMP)
-    #pragma omp parallel for collapse(2) if(rows * cols > 10000)
+#pragma omp parallel for collapse(2) if (rows * cols > 10000)
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
             result.data[i][j] = data[i][j] * scalar;
@@ -399,35 +397,36 @@ Matrix Matrix::hadamard(const Matrix& other) const {
 
 #if defined(ADAI_SIMD_AVX2)
 #ifdef ADAI_ENABLE_OPENMP
-    #pragma omp parallel for if(rows * cols > 10000)
+#pragma omp parallel for if (rows * cols > 10000)
 #endif
     for (int i = 0; i < rows; ++i) {
         const float* a = data[i].data();
         const float* b = other.data[i].data();
-        float*       r = result.data[i].data();
+        float* r = result.data[i].data();
         int j = 0;
         for (; j <= cols - 8; j += 8)
-            _mm256_storeu_ps(r + j,
-                _mm256_mul_ps(_mm256_loadu_ps(a + j), _mm256_loadu_ps(b + j)));
-        for (; j < cols; ++j) r[j] = a[j] * b[j];
+            _mm256_storeu_ps(r + j, _mm256_mul_ps(_mm256_loadu_ps(a + j), _mm256_loadu_ps(b + j)));
+        for (; j < cols; ++j)
+            r[j] = a[j] * b[j];
     }
 
 #elif defined(ADAI_SIMD_NEON)
 #ifdef ADAI_ENABLE_OPENMP
-    #pragma omp parallel for if(rows * cols > 10000)
+#pragma omp parallel for if (rows * cols > 10000)
 #endif
     for (int i = 0; i < rows; ++i) {
         const float* a = data[i].data();
         const float* b = other.data[i].data();
-        float*       r = result.data[i].data();
+        float* r = result.data[i].data();
         int j = 0;
         for (; j <= cols - 4; j += 4)
             vst1q_f32(r + j, vmulq_f32(vld1q_f32(a + j), vld1q_f32(b + j)));
-        for (; j < cols; ++j) r[j] = a[j] * b[j];
+        for (; j < cols; ++j)
+            r[j] = a[j] * b[j];
     }
 
 #elif defined(ADAI_ENABLE_OPENMP)
-    #pragma omp parallel for collapse(2) if(rows * cols > 10000)
+#pragma omp parallel for collapse(2) if (rows * cols > 10000)
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
             result.data[i][j] = data[i][j] * other.data[i][j];
@@ -452,10 +451,10 @@ void Matrix::apply_gradients(const Matrix& gradients, float learning_rate) {
 
 #if defined(ADAI_SIMD_AVX2)
 #ifdef ADAI_ENABLE_OPENMP
-    #pragma omp parallel for if(rows * cols > 10000)
+#pragma omp parallel for if (rows * cols > 10000)
 #endif
     for (int i = 0; i < rows; ++i) {
-        float*       d = data[i].data();
+        float* d = data[i].data();
         const float* g = gradients.data[i].data();
         // d[j] = d[j] + (−lr) * g[j]  →  fmadd(neg_lr, g, d)
 #ifdef ADAI_SIMD_FMA
@@ -471,21 +470,21 @@ void Matrix::apply_gradients(const Matrix& gradients, float learning_rate) {
         int j = 0;
         for (; j <= cols - 8; j += 8) {
             __m256 vd = _mm256_loadu_ps(d + j);
-            vd = _mm256_sub_ps(vd,
-                     _mm256_mul_ps(_mm256_set1_ps(learning_rate),
-                                   _mm256_loadu_ps(g + j)));
+            vd = _mm256_sub_ps(
+                vd, _mm256_mul_ps(_mm256_set1_ps(learning_rate), _mm256_loadu_ps(g + j)));
             _mm256_storeu_ps(d + j, vd);
         }
 #endif
-        for (; j < cols; ++j) d[j] -= learning_rate * g[j];
+        for (; j < cols; ++j)
+            d[j] -= learning_rate * g[j];
     }
 
 #elif defined(ADAI_SIMD_NEON)
 #ifdef ADAI_ENABLE_OPENMP
-    #pragma omp parallel for if(rows * cols > 10000)
+#pragma omp parallel for if (rows * cols > 10000)
 #endif
     for (int i = 0; i < rows; ++i) {
-        float*       d = data[i].data();
+        float* d = data[i].data();
         const float* g = gradients.data[i].data();
         int j = 0;
         for (; j <= cols - 4; j += 4) {
@@ -494,11 +493,12 @@ void Matrix::apply_gradients(const Matrix& gradients, float learning_rate) {
             vd = vfmsq_n_f32(vd, vld1q_f32(g + j), learning_rate);
             vst1q_f32(d + j, vd);
         }
-        for (; j < cols; ++j) d[j] -= learning_rate * g[j];
+        for (; j < cols; ++j)
+            d[j] -= learning_rate * g[j];
     }
 
 #elif defined(ADAI_ENABLE_OPENMP)
-    #pragma omp parallel for collapse(2) if(rows * cols > 10000)
+#pragma omp parallel for collapse(2) if (rows * cols > 10000)
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
             data[i][j] -= learning_rate * gradients.data[i][j];
@@ -516,8 +516,8 @@ void Matrix::apply_gradients(const Matrix& gradients, float learning_rate) {
 // Fill matrix with constant value
 void Matrix::fill(float value) {
 #ifdef ADAI_ENABLE_OPENMP
-    // Parallel version with OpenMP
-    #pragma omp parallel for collapse(2) if(rows * cols > 10000)
+// Parallel version with OpenMP
+#pragma omp parallel for collapse(2) if (rows * cols > 10000)
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
             data[i][j] = value;
@@ -544,7 +544,8 @@ float Matrix::sum() const {
         int j = 0;
         for (; j <= cols - 8; j += 8)
             acc = _mm256_add_ps(acc, _mm256_loadu_ps(row + j));
-        for (; j < cols; ++j) total += row[j];
+        for (; j < cols; ++j)
+            total += row[j];
     }
     total += adai::simd::hsum256(acc);
 
@@ -555,12 +556,13 @@ float Matrix::sum() const {
         int j = 0;
         for (; j <= cols - 4; j += 4)
             acc = vaddq_f32(acc, vld1q_f32(row + j));
-        for (; j < cols; ++j) total += row[j];
+        for (; j < cols; ++j)
+            total += row[j];
     }
     total += adai::simd::hsum128(acc);
 
 #elif defined(ADAI_ENABLE_OPENMP)
-    #pragma omp parallel for collapse(2) reduction(+:total) if(rows * cols > 10000)
+#pragma omp parallel for collapse(2) reduction(+ : total) if (rows * cols > 10000)
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
             total += data[i][j];
@@ -725,13 +727,19 @@ std::string Matrix::gpu_info(int device) {
     return adai::gpu::GPUManager::get_device_info(device);
 }
 
-#else // !ADAI_ENABLE_GPU — CPU-only stubs
+#else  // !ADAI_ENABLE_GPU — CPU-only stubs
 
-bool Matrix::gpu_available() { return false; }
+bool Matrix::gpu_available() {
+    return false;
+}
 
-bool Matrix::gpu_initialize(int, float) { return false; }
+bool Matrix::gpu_initialize(int, float) {
+    return false;
+}
 
-bool Matrix::gpu_try_initialize(int, float) { return false; }
+bool Matrix::gpu_try_initialize(int, float) {
+    return false;
+}
 
 void Matrix::gpu_cleanup() {}
 
@@ -739,7 +747,7 @@ std::string Matrix::gpu_info(int) {
     return "GPU support not compiled (rebuild with -DENABLE_GPU=ON)";
 }
 
-#endif // ADAI_ENABLE_GPU
+#endif  // ADAI_ENABLE_GPU
 
 #ifdef ADAI_ENABLE_GPU
 // ============================================================================
@@ -777,28 +785,27 @@ Matrix Matrix::multiply_gpu(const Matrix& other) const {
         // CPU fallback
         return (*this) * other;
     }
-    
+
     // Flatten matrices
     auto a_flat = flatten_matrix(*this);
     auto b_flat = flatten_matrix(other);
-    
+
     // Allocate GPU memory
     adai::gpu::GPUMemory<float> d_a(rows * cols);
     adai::gpu::GPUMemory<float> d_b(other.rows * other.cols);
     adai::gpu::GPUMemory<float> d_c(rows * other.cols);
-    
+
     // Copy to GPU
     d_a.copy_from_host(a_flat.data(), rows * cols);
     d_b.copy_from_host(b_flat.data(), other.rows * other.cols);
-    
+
     // Perform multiplication on GPU
-    adai::gpu::matrix_multiply_gpu(d_a.get(), d_b.get(), d_c.get(), 
-                                   rows, cols, other.cols);
-    
+    adai::gpu::matrix_multiply_gpu(d_a.get(), d_b.get(), d_c.get(), rows, cols, other.cols);
+
     // Copy result back
     std::vector<float> c_flat(rows * other.cols);
     d_c.copy_to_host(c_flat.data(), rows * other.cols);
-    
+
     return unflatten_matrix(c_flat, rows, other.cols);
 }
 
@@ -811,23 +818,23 @@ Matrix Matrix::add_gpu(const Matrix& other) const {
         // CPU fallback
         return (*this) + other;
     }
-    
+
     int size = rows * cols;
     auto a_flat = flatten_matrix(*this);
     auto b_flat = flatten_matrix(other);
-    
+
     adai::gpu::GPUMemory<float> d_a(size);
     adai::gpu::GPUMemory<float> d_b(size);
     adai::gpu::GPUMemory<float> d_c(size);
-    
+
     d_a.copy_from_host(a_flat.data(), size);
     d_b.copy_from_host(b_flat.data(), size);
-    
+
     adai::gpu::matrix_add_gpu(d_a.get(), d_b.get(), d_c.get(), size);
-    
+
     std::vector<float> c_flat(size);
     d_c.copy_to_host(c_flat.data(), size);
-    
+
     return unflatten_matrix(c_flat, rows, cols);
 }
 
@@ -836,19 +843,19 @@ Matrix Matrix::transpose_gpu() const {
         // CPU fallback
         return this->transpose();
     }
-    
+
     auto a_flat = flatten_matrix(*this);
-    
+
     adai::gpu::GPUMemory<float> d_input(rows * cols);
     adai::gpu::GPUMemory<float> d_output(rows * cols);
-    
+
     d_input.copy_from_host(a_flat.data(), rows * cols);
-    
+
     adai::gpu::matrix_transpose_gpu(d_input.get(), d_output.get(), rows, cols);
-    
+
     std::vector<float> output_flat(rows * cols);
     d_output.copy_to_host(output_flat.data(), rows * cols);
-    
+
     return unflatten_matrix(output_flat, cols, rows);
 }
 
@@ -857,20 +864,20 @@ Matrix Matrix::scale_gpu(float scalar) const {
         // CPU fallback
         return this->scale(scalar);
     }
-    
+
     int size = rows * cols;
     auto a_flat = flatten_matrix(*this);
-    
+
     adai::gpu::GPUMemory<float> d_a(size);
     adai::gpu::GPUMemory<float> d_c(size);
-    
+
     d_a.copy_from_host(a_flat.data(), size);
-    
+
     adai::gpu::matrix_multiply_scalar_gpu(d_a.get(), scalar, d_c.get(), size);
-    
+
     std::vector<float> c_flat(size);
     d_c.copy_to_host(c_flat.data(), size);
-    
+
     return unflatten_matrix(c_flat, rows, cols);
 }
 
@@ -883,23 +890,23 @@ Matrix Matrix::hadamard_gpu(const Matrix& other) const {
         // CPU fallback
         return this->hadamard(other);
     }
-    
+
     int size = rows * cols;
     auto a_flat = flatten_matrix(*this);
     auto b_flat = flatten_matrix(other);
-    
+
     adai::gpu::GPUMemory<float> d_a(size);
     adai::gpu::GPUMemory<float> d_b(size);
     adai::gpu::GPUMemory<float> d_c(size);
-    
+
     d_a.copy_from_host(a_flat.data(), size);
     d_b.copy_from_host(b_flat.data(), size);
-    
+
     adai::gpu::matrix_multiply_elementwise_gpu(d_a.get(), d_b.get(), d_c.get(), size);
-    
+
     std::vector<float> c_flat(size);
     d_c.copy_to_host(c_flat.data(), size);
-    
+
     return unflatten_matrix(c_flat, rows, cols);
 }
 
@@ -925,4 +932,4 @@ Matrix Matrix::from_gpu(const adai::gpu::GPUMatrix& gm) {
     return unflatten_matrix(flat, gm.rows, gm.cols);
 }
 
-#endif // ADAI_ENABLE_GPU
+#endif  // ADAI_ENABLE_GPU

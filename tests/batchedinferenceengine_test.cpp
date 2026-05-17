@@ -10,8 +10,8 @@
  *    so generation terminates on the first step without needing a real model
  */
 
-#include <gtest/gtest.h>
 #include "../src/BatchedInferenceEngine.hpp"
+#include <gtest/gtest.h>
 #include "../src/BPETokenizer.hpp"
 #include "../src/Matrix.hpp"
 #include "../src/SpecialTokens.hpp"
@@ -265,7 +265,7 @@ TEST(InferenceRequestTest, MoveAssignable) {
 // ============================================================================
 
 class EngineLifecycleTest : public ::testing::Test {
-protected:
+   protected:
     // Construct engine with null model_fn and null tokenizer.
     // The background thread will never dereference either because no requests
     // are submitted — it just loops on queue_cv_ and exits on shutdown().
@@ -395,7 +395,7 @@ TEST_F(EngineLifecycleTest, QueueSizeReflectsPendingRequests) {
 // ============================================================================
 
 class EngineFunctionalTest : public ::testing::Test {
-protected:
+   protected:
     // Fast engine: 10ms timeout, EOS model_fn, default tokenizer
     BatchedInferenceConfig fast_config() {
         BatchedInferenceConfig cfg;

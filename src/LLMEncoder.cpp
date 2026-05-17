@@ -272,19 +272,15 @@ void LLMEncoder::load_weights(const std::string& filename) {
     file.read(reinterpret_cast<char*>(&loaded_max_seq_length), sizeof(int));
 
     if (loaded_vocab_size != vocab_size || loaded_d_model != d_model ||
-        loaded_num_layers != num_layers || loaded_num_heads != num_heads ||
-        loaded_d_ff != d_ff) {
+        loaded_num_layers != num_layers || loaded_num_heads != num_heads || loaded_d_ff != d_ff) {
         throw std::runtime_error(
             "Encoder architecture mismatch: saved (vocab=" + std::to_string(loaded_vocab_size) +
-            ", d_model=" + std::to_string(loaded_d_model) +
-            ", layers=" + std::to_string(loaded_num_layers) +
-            ", heads=" + std::to_string(loaded_num_heads) +
+            ", d_model=" + std::to_string(loaded_d_model) + ", layers=" +
+            std::to_string(loaded_num_layers) + ", heads=" + std::to_string(loaded_num_heads) +
             ", d_ff=" + std::to_string(loaded_d_ff) +
             ") vs current (vocab=" + std::to_string(vocab_size) +
-            ", d_model=" + std::to_string(d_model) +
-            ", layers=" + std::to_string(num_layers) +
-            ", heads=" + std::to_string(num_heads) +
-            ", d_ff=" + std::to_string(d_ff) + ")");
+            ", d_model=" + std::to_string(d_model) + ", layers=" + std::to_string(num_layers) +
+            ", heads=" + std::to_string(num_heads) + ", d_ff=" + std::to_string(d_ff) + ")");
     }
 
     file.close();
@@ -305,12 +301,12 @@ void LLMEncoder::load_weights(const std::string& filename) {
 void LLMEncoder::register_parameters_with_optimizer(Optimizer& optimizer) {
     // Register token embedding parameters
     token_embedding->set_optimizer(&optimizer);
-    
+
     // Register all encoder block parameters
     for (auto& block : encoder_blocks) {
         block->register_parameters_with_optimizer(optimizer);
     }
-    
+
     // Register final layer norm parameters
     final_norm->set_optimizer(&optimizer);
 }

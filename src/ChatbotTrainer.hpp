@@ -1,10 +1,10 @@
 #pragma once
 
 #include <functional>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
-#include <limits>
 #include "BPETokenizer.hpp"
 #include "EncoderDecoderModel.hpp"
 #include "Optimizer.hpp"
@@ -76,10 +76,10 @@ struct TrainingConfig {
 
     // Training parameters
     int num_epochs = 10;
-    float learning_rate = 0.001f;     // Initial/base learning rate
-    int batch_size = 1;               // Batch size (samples per gradient accumulation)
+    float learning_rate = 0.001f;         // Initial/base learning rate
+    int batch_size = 1;                   // Batch size (samples per gradient accumulation)
     int gradient_accumulation_steps = 1;  // Accumulate gradients over N steps
-    int validation_split = 10;        // Use 1/10 of data for validation
+    int validation_split = 10;            // Use 1/10 of data for validation
 
     // Learning rate scheduling
     LRSchedule lr_schedule = LRSchedule::WARMUP_COSINE;
@@ -96,18 +96,18 @@ struct TrainingConfig {
     float gradient_clip_norm = 1.0f;                      // Maximum gradient norm (0 = no clipping)
 
     // Adaptive gradient clipping (TD-017)
-    bool  adaptive_gradient_clip     = false; // Master switch; false = legacy fixed-clip behavior
-    float gradient_clip_min          = 0.1f;  // Hard floor — threshold never drops below this
-    float gradient_clip_max          = 5.0f;  // Hard ceiling — threshold never rises above this
-    float gradient_clip_ema_decay    = 0.05f; // EMA smoothing factor α
-    float gradient_clip_headroom     = 2.0f;  // Threshold = ema_norm × headroom
-    int   gradient_clip_warmup_steps = 100;   // Steps before adaptive logic activates
-    float gradient_clip_spike_k      = 5.0f;  // Outlier: norms > k×ema are not fed into EMA
+    bool adaptive_gradient_clip = false;    // Master switch; false = legacy fixed-clip behavior
+    float gradient_clip_min = 0.1f;         // Hard floor — threshold never drops below this
+    float gradient_clip_max = 5.0f;         // Hard ceiling — threshold never rises above this
+    float gradient_clip_ema_decay = 0.05f;  // EMA smoothing factor α
+    float gradient_clip_headroom = 2.0f;    // Threshold = ema_norm × headroom
+    int gradient_clip_warmup_steps = 100;   // Steps before adaptive logic activates
+    float gradient_clip_spike_k = 5.0f;     // Outlier: norms > k×ema are not fed into EMA
 
     // Checkpointing
     bool save_checkpoints = true;
-    int checkpoint_every = 1;  // Save every N epochs
-    bool keep_all_checkpoints = false;  // Keep all epoch checkpoints (default: keep only best)
+    int checkpoint_every = 1;            // Save every N epochs
+    bool keep_all_checkpoints = false;   // Keep all epoch checkpoints (default: keep only best)
     std::string resume_from_checkpoint;  // Path to checkpoint to resume from (empty = no resume)
 
     // Early stopping
@@ -117,20 +117,21 @@ struct TrainingConfig {
     bool restore_best_weights = true;  // Restore best model after early stop
 
     // Logging
-    int log_every = 10;     // Log every N samples
+    int log_every = 10;                      // Log every N samples
     LogLevel log_level = LogLevel::VERBOSE;  // Logging verbosity
-    bool verbose = true;    // Deprecated: use log_level instead
+    bool verbose = true;                     // Deprecated: use log_level instead
 
     // Generation quality metrics (BLEU/ROUGE)
     // Disabled by default; each evaluation generates model responses which is expensive.
-    bool enable_generation_quality_metrics = false;  // Compute BLEU/ROUGE during each validation pass
-    int  generation_quality_sample_size    = 10;     // Max validation samples used for scoring
-    int  generation_quality_max_tokens     = 50;     // max_length passed to generate_response()
+    bool enable_generation_quality_metrics =
+        false;                                // Compute BLEU/ROUGE during each validation pass
+    int generation_quality_sample_size = 10;  // Max validation samples used for scoring
+    int generation_quality_max_tokens = 50;   // max_length passed to generate_response()
 };
 
 /**
  * @brief Chatbot model trainer
- * 
+ *
  * Provides comprehensive training pipeline for transformer-based chatbot models:
  * - Vocabulary management (load or build BPE tokenizer)
  * - Data loading and preprocessing
@@ -151,7 +152,8 @@ struct TrainingConfig {
  * @param val_loss  validation loss for this epoch (0.0 if no validation data)
  * @param lr        current learning rate at end of this epoch
  */
-using EpochCallback = std::function<void(int epoch, int total, float loss, float val_loss, float lr)>;
+using EpochCallback =
+    std::function<void(int epoch, int total, float loss, float val_loss, float lr)>;
 
 /**
  * @brief Per-sample callback invoked after each optimizer step inside an epoch.
@@ -162,7 +164,8 @@ using EpochCallback = std::function<void(int epoch, int total, float loss, float
  * @param step_loss      average loss for this specific optimizer step
  * @param grad_norm      gradient norm for this optimizer step
  */
-using SampleCallback = std::function<void(int sample, int total_samples, float running_loss, float step_loss, float grad_norm, float lr)>;
+using SampleCallback = std::function<void(int sample, int total_samples, float running_loss,
+                                          float step_loss, float grad_norm, float lr)>;
 
 /**
  * @brief Callback invoked whenever a new best validation loss is recorded and
@@ -284,7 +287,7 @@ class ChatbotTrainer {
      * @brief Build vocabulary from text corpus
      */
     bool build_vocabulary(const std::vector<std::string>& texts, int vocab_size = 5000,
-                         const std::string& save_path = "vocab.txt");
+                          const std::string& save_path = "vocab.txt");
 
     /**
      * @brief Load conversation pairs from file
@@ -295,7 +298,7 @@ class ChatbotTrainer {
      * @brief Train the model
      */
     void train(const std::string& output_model_path);
-    
+
     /**
      * @brief Train the model and return success status (for incremental training)
      */
@@ -305,23 +308,23 @@ class ChatbotTrainer {
      * @brief Test generation with trained model
      */
     void test_generation(const std::vector<std::string>& test_prompts);
-    
+
     // Model and tokenizer ownership transfer (for incremental training)
     void set_tokenizer(std::unique_ptr<BPETokenizer> tok);
     void set_model(std::unique_ptr<EncoderDecoderModel> mdl);
     std::unique_ptr<EncoderDecoderModel> release_model();
     BPETokenizer* release_tokenizer();
-    
+
     // Data management
     void add_training_pair(const std::string& input, const std::string& response);
     void add_validation_pair(const std::string& input, const std::string& response);
-    
+
     // Access final metrics
     float get_final_training_loss() const;
     float get_final_validation_loss() const;
 
     // Metrics and logging helpers (public for testing)
-    
+
     /**
      * @brief Log message based on log level
      */
@@ -339,19 +342,43 @@ class ChatbotTrainer {
 
     // Getters for testing
     // TODO: TD-004 - These getters expose per-epoch metrics for IncrementalTrainer integration
-    const std::vector<float>& get_training_losses() const { return training_losses; }
-    const std::vector<float>& get_validation_losses() const { return validation_losses; }
-    const std::vector<float>& get_training_perplexities() const { return training_perplexities; }
-    const std::vector<float>& get_validation_perplexities() const { return validation_perplexities; }
-    const std::vector<float>& get_learning_rates() const { return learning_rates; }
-    const std::vector<float>& get_gradient_norms() const { return gradient_norms; }
-    float get_best_validation_loss() const { return best_validation_loss; }
-    int get_best_epoch() const { return best_epoch; }
-    bool was_early_stopped() const { return early_stopped; }
-    int get_global_step() const { return global_step; }
-    float get_current_learning_rate() const { return current_learning_rate; }
-    const TrainingConfig& get_config() const { return config; }
-    
+    const std::vector<float>& get_training_losses() const {
+        return training_losses;
+    }
+    const std::vector<float>& get_validation_losses() const {
+        return validation_losses;
+    }
+    const std::vector<float>& get_training_perplexities() const {
+        return training_perplexities;
+    }
+    const std::vector<float>& get_validation_perplexities() const {
+        return validation_perplexities;
+    }
+    const std::vector<float>& get_learning_rates() const {
+        return learning_rates;
+    }
+    const std::vector<float>& get_gradient_norms() const {
+        return gradient_norms;
+    }
+    float get_best_validation_loss() const {
+        return best_validation_loss;
+    }
+    int get_best_epoch() const {
+        return best_epoch;
+    }
+    bool was_early_stopped() const {
+        return early_stopped;
+    }
+    int get_global_step() const {
+        return global_step;
+    }
+    float get_current_learning_rate() const {
+        return current_learning_rate;
+    }
+    const TrainingConfig& get_config() const {
+        return config;
+    }
+
     /**
      * @brief Register a callback invoked at the end of each training epoch (TD-009)
      * @param cb Callback function; pass {} or nullptr to clear.
@@ -385,8 +412,16 @@ class ChatbotTrainer {
     void set_metrics_service(TrainingMetricsService* service);
 
     // For testing data management
-    size_t get_training_data_size() const { return training_data.size(); }
-    size_t get_validation_data_size() const { return validation_data.size(); }
-    size_t get_tokenized_training_size() const { return tokenized_training_data.size(); }
-    size_t get_tokenized_validation_size() const { return tokenized_validation_data.size(); }
+    size_t get_training_data_size() const {
+        return training_data.size();
+    }
+    size_t get_validation_data_size() const {
+        return validation_data.size();
+    }
+    size_t get_tokenized_training_size() const {
+        return tokenized_training_data.size();
+    }
+    size_t get_tokenized_validation_size() const {
+        return tokenized_validation_data.size();
+    }
 };

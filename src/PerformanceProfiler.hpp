@@ -52,7 +52,8 @@ class Timer {
         }
         auto end_time = Clock::now();
         is_running = false;
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+        auto duration =
+            std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
         return duration.count() / 1000.0;  // Convert to milliseconds
     }
 
@@ -64,7 +65,8 @@ class Timer {
             return 0.0;
         }
         auto current_time = Clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(current_time - start_time);
+        auto duration =
+            std::chrono::duration_cast<std::chrono::microseconds>(current_time - start_time);
         return duration.count() / 1000.0;
     }
 
@@ -92,8 +94,8 @@ class ScopedTimer {
 
     ~ScopedTimer() {
         double elapsed = timer.stop();
-        std::cout << "[" << name << "] " << std::fixed << std::setprecision(2) 
-                  << elapsed << " ms" << std::endl;
+        std::cout << "[" << name << "] " << std::fixed << std::setprecision(2) << elapsed << " ms"
+                  << std::endl;
     }
 };
 
@@ -110,12 +112,22 @@ struct ProfileStats {
     double mean_time;
     double median_time;
 
-    ProfileStats() : call_count(0), total_time(0.0), min_time(0.0), 
-                    max_time(0.0), mean_time(0.0), median_time(0.0) {}
+    ProfileStats()
+        : call_count(0),
+          total_time(0.0),
+          min_time(0.0),
+          max_time(0.0),
+          mean_time(0.0),
+          median_time(0.0) {}
 
-    explicit ProfileStats(const std::string& n) : name(n), call_count(0), total_time(0.0),
-                                                  min_time(0.0), max_time(0.0), 
-                                                  mean_time(0.0), median_time(0.0) {}
+    explicit ProfileStats(const std::string& n)
+        : name(n),
+          call_count(0),
+          total_time(0.0),
+          min_time(0.0),
+          max_time(0.0),
+          mean_time(0.0),
+          median_time(0.0) {}
 
     /**
      * Add a timing measurement
@@ -176,20 +188,20 @@ struct ProfileStats {
     void print() const {
         std::cout << "Profile: " << name << std::endl;
         std::cout << "  Calls: " << call_count << std::endl;
-        std::cout << "  Total: " << std::fixed << std::setprecision(2) 
-                  << total_time << " ms" << std::endl;
-        std::cout << "  Mean:  " << std::fixed << std::setprecision(2) 
-                  << mean_time << " ms" << std::endl;
-        std::cout << "  Median: " << std::fixed << std::setprecision(2) 
-                  << median_time << " ms" << std::endl;
-        std::cout << "  Min:   " << std::fixed << std::setprecision(2) 
-                  << min_time << " ms" << std::endl;
-        std::cout << "  Max:   " << std::fixed << std::setprecision(2) 
-                  << max_time << " ms" << std::endl;
-        std::cout << "  P95:   " << std::fixed << std::setprecision(2) 
-                  << get_percentile(95.0) << " ms" << std::endl;
-        std::cout << "  P99:   " << std::fixed << std::setprecision(2) 
-                  << get_percentile(99.0) << " ms" << std::endl;
+        std::cout << "  Total: " << std::fixed << std::setprecision(2) << total_time << " ms"
+                  << std::endl;
+        std::cout << "  Mean:  " << std::fixed << std::setprecision(2) << mean_time << " ms"
+                  << std::endl;
+        std::cout << "  Median: " << std::fixed << std::setprecision(2) << median_time << " ms"
+                  << std::endl;
+        std::cout << "  Min:   " << std::fixed << std::setprecision(2) << min_time << " ms"
+                  << std::endl;
+        std::cout << "  Max:   " << std::fixed << std::setprecision(2) << max_time << " ms"
+                  << std::endl;
+        std::cout << "  P95:   " << std::fixed << std::setprecision(2) << get_percentile(95.0)
+                  << " ms" << std::endl;
+        std::cout << "  P99:   " << std::fixed << std::setprecision(2) << get_percentile(99.0)
+                  << " ms" << std::endl;
     }
 };
 
@@ -232,7 +244,7 @@ class Profiler {
         if (profiles.find(name) == profiles.end()) {
             return ProfileStats(name);
         }
-        
+
         ProfileStats& stats = profiles[name];
         stats.compute_median();
         return stats;
@@ -266,26 +278,27 @@ class Profiler {
         std::cout << "\n=== Performance Comparison ===" << std::endl;
         std::cout << "Profile: " << baseline.name << std::endl;
         std::cout << "\nBaseline:" << std::endl;
-        std::cout << "  Mean: " << std::fixed << std::setprecision(2) 
-                  << baseline.mean_time << " ms" << std::endl;
-        std::cout << "  Median: " << std::fixed << std::setprecision(2) 
-                  << baseline.median_time << " ms" << std::endl;
+        std::cout << "  Mean: " << std::fixed << std::setprecision(2) << baseline.mean_time << " ms"
+                  << std::endl;
+        std::cout << "  Median: " << std::fixed << std::setprecision(2) << baseline.median_time
+                  << " ms" << std::endl;
 
         std::cout << "\nOptimized:" << std::endl;
-        std::cout << "  Mean: " << std::fixed << std::setprecision(2) 
-                  << optimized.mean_time << " ms" << std::endl;
-        std::cout << "  Median: " << std::fixed << std::setprecision(2) 
-                  << optimized.median_time << " ms" << std::endl;
+        std::cout << "  Mean: " << std::fixed << std::setprecision(2) << optimized.mean_time
+                  << " ms" << std::endl;
+        std::cout << "  Median: " << std::fixed << std::setprecision(2) << optimized.median_time
+                  << " ms" << std::endl;
 
         if (baseline.mean_time > 0) {
             double speedup = baseline.mean_time / optimized.mean_time;
-            double improvement = ((baseline.mean_time - optimized.mean_time) / baseline.mean_time) * 100.0;
-            
+            double improvement =
+                ((baseline.mean_time - optimized.mean_time) / baseline.mean_time) * 100.0;
+
             std::cout << "\nImprovement:" << std::endl;
-            std::cout << "  Speedup: " << std::fixed << std::setprecision(2) 
-                      << speedup << "x" << std::endl;
-            std::cout << "  Improvement: " << std::fixed << std::setprecision(1) 
-                      << improvement << "%" << std::endl;
+            std::cout << "  Speedup: " << std::fixed << std::setprecision(2) << speedup << "x"
+                      << std::endl;
+            std::cout << "  Improvement: " << std::fixed << std::setprecision(1) << improvement
+                      << "%" << std::endl;
             std::cout << "  Time saved: " << std::fixed << std::setprecision(2)
                       << (baseline.mean_time - optimized.mean_time) << " ms" << std::endl;
         }
@@ -296,9 +309,12 @@ class Profiler {
 /**
  * Macro for easy profiling of code blocks
  */
-#define PROFILE_SCOPE(profiler, name) \
-    profiler.start(name); \
-    auto __profiler_guard_##name = [&]() { profiler.stop(name); return 0; }(); \
+#define PROFILE_SCOPE(profiler, name)      \
+    profiler.start(name);                  \
+    auto __profiler_guard_##name = [&]() { \
+        profiler.stop(name);               \
+        return 0;                          \
+    }();                                   \
     (void)__profiler_guard_##name;
 
 /**
@@ -311,7 +327,7 @@ class Benchmark {
      */
     template <typename Func>
     static ProfileStats run(const std::string& name, Func func, int iterations = 100,
-                           int warmup_iterations = 10) {
+                            int warmup_iterations = 10) {
         ProfileStats stats(name);
 
         // Warmup
@@ -336,12 +352,11 @@ class Benchmark {
      * Compare two implementations
      */
     template <typename FuncA, typename FuncB>
-    static void compare(const std::string& name_a, FuncA func_a,
-                       const std::string& name_b, FuncB func_b,
-                       int iterations = 100, int warmup = 10) {
+    static void compare(const std::string& name_a, FuncA func_a, const std::string& name_b,
+                        FuncB func_b, int iterations = 100, int warmup = 10) {
         std::cout << "\n=== Benchmarking ===" << std::endl;
-        std::cout << "Running " << iterations << " iterations (after " 
-                  << warmup << " warmup)...\n" << std::endl;
+        std::cout << "Running " << iterations << " iterations (after " << warmup << " warmup)...\n"
+                  << std::endl;
 
         ProfileStats stats_a = run(name_a, func_a, iterations, warmup);
         ProfileStats stats_b = run(name_b, func_b, iterations, warmup);
@@ -349,4 +364,3 @@ class Benchmark {
         Profiler::compare(stats_a, stats_b);
     }
 };
-

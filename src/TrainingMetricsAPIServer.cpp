@@ -1,11 +1,11 @@
-#include "TrainingMetricsAPI.hpp"
-#include "TrainingMetricsService.hpp"
-#include <iostream>
-#include <memory>
+#include <atomic>
 #include <csignal>
 #include <cstring>
+#include <iostream>
+#include <memory>
 #include <thread>
-#include <atomic>
+#include "TrainingMetricsAPI.hpp"
+#include "TrainingMetricsService.hpp"
 
 // Global atomic flag for shutdown (async-signal-safe)
 static std::atomic<bool> shutdown_requested{false};
@@ -15,7 +15,7 @@ static TrainingMetricsAPI* g_api_server = nullptr;
 
 /**
  * @brief Signal handler for graceful shutdown
- * 
+ *
  * This handler is async-signal-safe and only sets atomic flags.
  * The actual cleanup is performed in the main thread.
  */
@@ -23,7 +23,7 @@ void signal_handler(int signal) {
     if (signal == SIGINT || signal == SIGTERM) {
         // Set shutdown flag (atomic operation is async-signal-safe)
         shutdown_requested.store(true);
-        
+
         // Note: Do NOT stop the server here. It's unsafe to call complex functions
         // from a signal handler. The main loop will detect the flag and stop the server.
     }
@@ -37,9 +37,12 @@ void print_usage(const char* program_name) {
     std::cout << "Usage: " << program_name << " [OPTIONS]\n\n";
     std::cout << "Options:\n";
     std::cout << "  --port PORT                  Port number (default: 8081)\n";
-    std::cout << "  --metrics-file FILE          Metrics JSONL file path (default: training_sessions/metrics.jsonl)\n";
-    std::cout << "  --summary-file FILE          Summary JSON file path (default: training_sessions/metrics_summary.json)\n";
-    std::cout << "  --prometheus-file FILE       Prometheus file path (default: training_sessions/metrics.prom)\n";
+    std::cout << "  --metrics-file FILE          Metrics JSONL file path (default: "
+                 "training_sessions/metrics.jsonl)\n";
+    std::cout << "  --summary-file FILE          Summary JSON file path (default: "
+                 "training_sessions/metrics_summary.json)\n";
+    std::cout << "  --prometheus-file FILE       Prometheus file path (default: "
+                 "training_sessions/metrics.prom)\n";
     std::cout << "  --persist-samples N          Persist every N samples (default: 100)\n";
     std::cout << "  --persist-seconds N          Persist every N seconds (default: 30)\n";
     std::cout << "  --max-memory-records N       Max records in memory (default: 10000)\n";
@@ -56,7 +59,8 @@ void print_usage(const char* program_name) {
     std::cout << "Endpoints:\n";
     std::cout << "  GET  /api/metrics/current       - Current training snapshot\n";
     std::cout << "  GET  /api/metrics/summary       - Aggregated metrics summary\n";
-    std::cout << "  GET  /api/metrics/history       - Historical records (query params: max_records, session_id)\n";
+    std::cout << "  GET  /api/metrics/history       - Historical records (query params: "
+                 "max_records, session_id)\n";
     std::cout << "  GET  /api/metrics/prometheus    - Prometheus format metrics\n";
     std::cout << "  GET  /api/metrics/csv           - CSV format metrics\n";
     std::cout << "  GET  /api/session/status        - Session status and progress\n";
@@ -89,7 +93,7 @@ struct ServerConfig {
 bool parse_args(int argc, char* argv[], ServerConfig& config) {
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
-        
+
         if (arg == "--help" || arg == "-h") {
             print_usage(argv[0]);
             return false;
@@ -121,7 +125,7 @@ bool parse_args(int argc, char* argv[], ServerConfig& config) {
             return false;
         }
     }
-    
+
     return true;
 }
 
@@ -129,13 +133,13 @@ int main(int argc, char* argv[]) {
     std::cout << "==================================================\n";
     std::cout << "  Training Metrics REST API Server\n";
     std::cout << "==================================================\n\n";
-    
+
     // Parse command-line arguments
     ServerConfig server_config;
     if (!parse_args(argc, argv, server_config)) {
         return 0;  // Help was shown or invalid args
     }
-    
+
     try {
         // Create metrics service configuration
         MetricsServiceConfig metrics_config;
@@ -148,43 +152,40 @@ int main(int argc, char* argv[]) {
         metrics_config.max_records_in_memory = server_config.max_records_in_memory;
         metrics_config.max_records_on_disk = server_config.max_records_on_disk;
         metrics_config.enable_prometheus_format = server_config.enable_prometheus;
-        
+
         // Create metrics service
         std::cout << "[1/3] Initializing metrics service...\n";
         auto metrics_service = std::make_shared<TrainingMetricsService>(metrics_config);
         std::cout << "  ✓ Metrics service initialized\n";
-        
+
         if (server_config.enable_persistence) {
             std::cout << "  ✓ Persistence enabled:\n";
             std::cout << "    - Metrics file: " << server_config.metrics_file << "\n";
             std::cout << "    - Summary file: " << server_config.summary_file << "\n";
-            std::cout << "    - Persist every " << server_config.persist_every_samples << " samples or "
-                      << server_config.persist_every_seconds << " seconds\n";
+            std::cout << "    - Persist every " << server_config.persist_every_samples
+                      << " samples or " << server_config.persist_every_seconds << " seconds\n";
         } else {
             std::cout << "  ⚠ Persistence disabled\n";
         }
-        
+
         if (server_config.enable_prometheus) {
             std::cout << "  ✓ Prometheus format enabled: " << server_config.prometheus_file << "\n";
         }
-        
+
         std::cout << "\n[2/3] Creating REST API...\n";
-        auto api = std::make_unique<TrainingMetricsAPI>(
-            metrics_service,
-            server_config.port,
-            server_config.allow_control
-        );
+        auto api = std::make_unique<TrainingMetricsAPI>(metrics_service, server_config.port,
+                                                        server_config.allow_control);
         std::cout << "  ✓ API initialized\n";
-        
+
         if (!server_config.allow_control) {
             std::cout << "  ⚠ Control endpoints disabled (flush, clear)\n";
         }
-        
+
         // Set up signal handlers
         g_api_server = api.get();
         std::signal(SIGINT, signal_handler);
         std::signal(SIGTERM, signal_handler);
-        
+
         // Start server
         std::cout << "\n[3/3] Starting API server...\n";
         std::cout << "==================================================\n";
@@ -197,38 +198,39 @@ int main(int argc, char* argv[]) {
         std::cout << "  GET  /api/metrics/csv           - CSV format\n";
         std::cout << "  GET  /api/session/status        - Session status\n";
         std::cout << "  GET  /api/session/epochs        - Per-epoch metrics\n";
-        
+
         if (server_config.allow_control) {
             std::cout << "  POST /api/control/flush         - Force flush to disk\n";
             std::cout << "  POST /api/control/clear         - Clear history\n";
         }
-        
+
         std::cout << "  GET  /health                    - Health check\n";
         std::cout << "==================================================\n";
         std::cout << "Press Ctrl+C to stop the server\n\n";
-        
+
         // Start server in a background thread to allow main thread to handle signals
         std::atomic<bool> server_error{false};
         std::thread server_thread([&]() {
             if (!api->start()) {
                 std::cerr << "\nFailed to start server on port " << server_config.port << std::endl;
-                std::cerr << "Port may already be in use. Try a different port with --port" << std::endl;
+                std::cerr << "Port may already be in use. Try a different port with --port"
+                          << std::endl;
                 server_error = true;
                 shutdown_requested.store(true);
             }
         });
-        
+
         // Main service loop - check for shutdown requests
         while (!shutdown_requested.load() && !server_error) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
-        
+
         // Graceful shutdown sequence
         if (shutdown_requested.load()) {
             std::cout << "\n==================================================\n";
             std::cout << "  Initiating Graceful Shutdown\n";
             std::cout << "==================================================\n";
-            
+
             std::cout << "[1/2] Stopping API server...\n";
             if (g_api_server) {
                 g_api_server->stop();
@@ -237,22 +239,22 @@ int main(int argc, char* argv[]) {
                 server_thread.join();
             }
             std::cout << "  ✓ Server stopped\n";
-            
+
             std::cout << "[2/2] Flushing metrics to disk...\n";
             metrics_service->flush_to_disk();
             std::cout << "  ✓ Metrics persisted\n";
-            
+
             std::cout << "\nServer stopped successfully\n";
         }
-        
+
         if (server_error) {
             return 1;
         }
-        
+
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;
     }
-    
+
     return 0;
 }

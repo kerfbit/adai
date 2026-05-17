@@ -1,24 +1,24 @@
-#include "ChatbotAPI.hpp"
-#include "EncoderDecoderModel.hpp"
-#include "TextGenerator.hpp"
-#include "BPETokenizer.hpp"
-#include "Config.hpp"
-#include "Logger.hpp"
-#include "RAGInference.hpp"
-#include "DocumentStore.hpp"
-#include "encoder.hpp"
-#include "Matrix.hpp"
+#include <atomic>
+#include <chrono>
+#include <csignal>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <string>
-#include <cstdlib>
-#include <csignal>
 #include <memory>
-#include <atomic>
 #include <mutex>
+#include <string>
 #include <thread>
-#include <chrono>
+#include "BPETokenizer.hpp"
+#include "ChatbotAPI.hpp"
+#include "Config.hpp"
+#include "DocumentStore.hpp"
+#include "EncoderDecoderModel.hpp"
+#include "Logger.hpp"
+#include "Matrix.hpp"
+#include "RAGInference.hpp"
+#include "TextGenerator.hpp"
+#include "encoder.hpp"
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -48,17 +48,17 @@ static std::string* g_config_file_path = nullptr;
 
 /**
  * @brief Signal handler for SIGINT, SIGTERM, and SIGHUP
- * 
+ *
  * This handler is async-signal-safe and only sets atomic flags.
  * The actual cleanup/reload is performed in the main thread.
- * 
+ *
  * @param signal Signal number
  */
 void signal_handler(int signal) {
     if (signal == SIGINT || signal == SIGTERM) {
         // Set shutdown flag (atomic operation is async-signal-safe)
         shutdown_requested.store(true);
-        
+
         // Note: Do NOT stop the server here. It's unsafe to call complex functions
         // from a signal handler. The main loop will detect the flag and stop the server.
     } else if (signal == SIGHUP) {
@@ -67,39 +67,41 @@ void signal_handler(int signal) {
         reload_config_requested.store(true);
         adai::Logger::info("SIGHUP received - configuration reload requested");
     }
-    // TODO: See TECHNICAL_DEBT.md Future Enhancement #7 - Add SIGUSR1 handler for graceful model reload
-    // SIGUSR1 should trigger background model loading and atomic swap
+    // TODO: See TECHNICAL_DEBT.md Future Enhancement #7 - Add SIGUSR1 handler for graceful model
+    // reload SIGUSR1 should trigger background model loading and atomic swap
 }
 
 void print_usage(const char* program_name) {
-    std::cout << "Usage: " << program_name << " [OPTIONS]\n"
-              << "\nConfiguration Sources (in order of priority):\n"
-              << "  1. Command-line arguments (highest priority)\n"
-              << "  2. Environment variables\n"
-              << "  3. Configuration file\n"
-              << "  4. Default values (lowest priority)\n"
-              << "\nOptions:\n"
-              << "  --config <path>      Path to configuration file (default: /etc/adai/config.conf)\n"
-              << "  --model <path>       Path to model file\n"
-              << "  --vocab <path>       Path to vocabulary file\n"
-              << "  --port <number>      Port number (default: 8080)\n"
-              << "  --timeout <minutes>  Session timeout in minutes (default: 30)\n"
-              << "  --log-level <level>  Logging level: DEBUG, INFO, WARN, ERROR (default: INFO)\n"
-              << "  --d-model <number>   Model dimension (default: 512)\n"
-              << "  --num-heads <number> Number of attention heads (default: 8)\n"
-              << "  --d-ff <number>      Feed-forward dimension (default: 2048)\n"
-              << "  --enc-layers <n>     Number of encoder layers (default: 6)\n"
-              << "  --dec-layers <n>     Number of decoder layers (default: 6)\n"
-              << "  --max-seq-len <n>    Maximum sequence length (default: 1024)\n"
-              << "  --max-gen-len <n>    Maximum generation length (default: 100)\n"
-              << "  --temperature <f>    Generation temperature (default: 1.0)\n"
-              << "  --top-p <f>          Nucleus sampling threshold (default: 0.9)\n"
-              << "  --strategy <str>     Generation strategy: greedy, beam, temperature, top_k, nucleus (default: nucleus)\n"
-              << "  --help               Show this help message\n"
-              << "\nEnvironment Variables:\n"
-              << "  All configuration can be set via environment variables.\n"
-              << "  Examples: MODEL_PATH, VOCAB_PATH, PORT, LOG_LEVEL, etc.\n"
-              << std::endl;
+    std::cout
+        << "Usage: " << program_name << " [OPTIONS]\n"
+        << "\nConfiguration Sources (in order of priority):\n"
+        << "  1. Command-line arguments (highest priority)\n"
+        << "  2. Environment variables\n"
+        << "  3. Configuration file\n"
+        << "  4. Default values (lowest priority)\n"
+        << "\nOptions:\n"
+        << "  --config <path>      Path to configuration file (default: /etc/adai/config.conf)\n"
+        << "  --model <path>       Path to model file\n"
+        << "  --vocab <path>       Path to vocabulary file\n"
+        << "  --port <number>      Port number (default: 8080)\n"
+        << "  --timeout <minutes>  Session timeout in minutes (default: 30)\n"
+        << "  --log-level <level>  Logging level: DEBUG, INFO, WARN, ERROR (default: INFO)\n"
+        << "  --d-model <number>   Model dimension (default: 512)\n"
+        << "  --num-heads <number> Number of attention heads (default: 8)\n"
+        << "  --d-ff <number>      Feed-forward dimension (default: 2048)\n"
+        << "  --enc-layers <n>     Number of encoder layers (default: 6)\n"
+        << "  --dec-layers <n>     Number of decoder layers (default: 6)\n"
+        << "  --max-seq-len <n>    Maximum sequence length (default: 1024)\n"
+        << "  --max-gen-len <n>    Maximum generation length (default: 100)\n"
+        << "  --temperature <f>    Generation temperature (default: 1.0)\n"
+        << "  --top-p <f>          Nucleus sampling threshold (default: 0.9)\n"
+        << "  --strategy <str>     Generation strategy: greedy, beam, temperature, top_k, nucleus "
+           "(default: nucleus)\n"
+        << "  --help               Show this help message\n"
+        << "\nEnvironment Variables:\n"
+        << "  All configuration can be set via environment variables.\n"
+        << "  Examples: MODEL_PATH, VOCAB_PATH, PORT, LOG_LEVEL, etc.\n"
+        << std::endl;
 }
 
 int main(int argc, char* argv[]) {
@@ -110,7 +112,8 @@ int main(int argc, char* argv[]) {
         omp_set_num_threads(num_procs);
         std::cout << "[OpenMP] Auto-configured to use " << num_procs << " threads" << std::endl;
     } else {
-        std::cout << "[OpenMP] Using " << omp_get_max_threads() << " threads (from OMP_NUM_THREADS)" << std::endl;
+        std::cout << "[OpenMP] Using " << omp_get_max_threads() << " threads (from OMP_NUM_THREADS)"
+                  << std::endl;
     }
     // omp_set_nested(1); // Enable nested parallelism if needed for advanced tasks
 #else
@@ -120,7 +123,7 @@ int main(int argc, char* argv[]) {
     // Load configuration from file and environment variables
     std::string config_file_path;
     bool use_custom_config = false;
-    
+
     // First pass: check for --config argument
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -130,16 +133,15 @@ int main(int argc, char* argv[]) {
             break;
         }
     }
-    
+
     // Load base configuration
-    adai::ServiceConfig config = use_custom_config ? 
-        adai::ConfigLoader::load(config_file_path) : 
-        adai::ConfigLoader::load();
+    adai::ServiceConfig config =
+        use_custom_config ? adai::ConfigLoader::load(config_file_path) : adai::ConfigLoader::load();
 
     // Parse command line arguments (these override config file and env vars)
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
-        
+
         if (arg == "--help" || arg == "-h") {
             print_usage(argv[0]);
             return 0;
@@ -185,7 +187,9 @@ int main(int argc, char* argv[]) {
 
     // Validate required configuration
     if (config.vocab_path.empty()) {
-        std::cerr << "Error: Vocabulary path is required (use --vocab, VOCAB_PATH env var, or config file)" << std::endl;
+        std::cerr << "Error: Vocabulary path is required (use --vocab, VOCAB_PATH env var, or "
+                     "config file)"
+                  << std::endl;
         print_usage(argv[0]);
         return 1;
     }
@@ -198,7 +202,7 @@ int main(int argc, char* argv[]) {
         file_config.max_size_mb = config.log_max_size_mb;
         file_config.max_files = config.log_max_files;
         file_config.compress = config.log_compress;
-        
+
         adai::Logger::init(adai::Logger::Level::INFO, file_config);
     } else {
         // Console-only logging
@@ -220,13 +224,14 @@ int main(int argc, char* argv[]) {
         // GPU initialisation (optional)
         if (config.gpu_enabled) {
             adai::Logger::info("");
-            adai::Logger::info("[GPU] Attempting GPU initialisation (device {}, {:.0f}% memory budget)...",
-                               config.gpu_device_id,
-                               config.gpu_memory_fraction * 100.0f);
+            adai::Logger::info(
+                "[GPU] Attempting GPU initialisation (device {}, {:.0f}% memory budget)...",
+                config.gpu_device_id, config.gpu_memory_fraction * 100.0f);
             if (Matrix::gpu_try_initialize(config.gpu_device_id, config.gpu_memory_fraction)) {
                 adai::Logger::info("[GPU] GPU ready. {}", Matrix::gpu_info());
             } else {
-                adai::Logger::warn("[GPU] No CUDA device found or initialisation failed — running on CPU");
+                adai::Logger::warn(
+                    "[GPU] No CUDA device found or initialisation failed — running on CPU");
             }
         } else {
             adai::Logger::info("[GPU] GPU acceleration disabled (set GPU_ENABLED=true to enable)");
@@ -237,12 +242,12 @@ int main(int argc, char* argv[]) {
         adai::Logger::info("[2/4] Initializing encoder-decoder model...");
         auto model = std::make_shared<EncoderDecoderModel>(
             tokenizer->get_vocab_size(),  // vocab_size (first parameter)
-            config.d_model,                // d_model
-            config.num_encoder_layers,     // encoder_layers
-            config.num_decoder_layers,     // decoder_layers
-            config.num_heads,              // num_heads
-            config.d_ff,                   // d_ff
-            config.max_seq_length          // max_seq_length
+            config.d_model,               // d_model
+            config.num_encoder_layers,    // encoder_layers
+            config.num_decoder_layers,    // decoder_layers
+            config.num_heads,             // num_heads
+            config.d_ff,                  // d_ff
+            config.max_seq_length         // max_seq_length
         );
 
         // Load model weights if path provided
@@ -262,12 +267,8 @@ int main(int argc, char* argv[]) {
         // Initialize API server
         adai::Logger::info("");
         adai::Logger::info("[3/4] Initializing API server...");
-        auto api = std::make_unique<ChatbotAPI>(
-            model.get(),
-            tokenizer.get(),
-            config.port,
-            config.session_timeout
-        );
+        auto api = std::make_unique<ChatbotAPI>(model.get(), tokenizer.get(), config.port,
+                                                config.session_timeout);
 
         // Set generation configuration
         ChatbotAPI::GenerationConfig gen_config;
@@ -284,13 +285,9 @@ int main(int argc, char* argv[]) {
             adai::Logger::info("[+] Initializing RAG engine...");
             try {
                 auto rag_encoder = std::make_shared<LLMEncoder>(
-                    static_cast<int>(tokenizer->get_vocab_size()),
-                    static_cast<int>(config.d_model),
-                    static_cast<int>(config.num_encoder_layers),
-                    static_cast<int>(config.num_heads),
-                    static_cast<int>(config.d_ff),
-                    static_cast<int>(config.max_seq_length)
-                );
+                    static_cast<int>(tokenizer->get_vocab_size()), static_cast<int>(config.d_model),
+                    static_cast<int>(config.num_encoder_layers), static_cast<int>(config.num_heads),
+                    static_cast<int>(config.d_ff), static_cast<int>(config.max_seq_length));
                 rag_encoder->load_tokenizer_vocab(config.vocab_path);
 
                 auto doc_store = std::make_shared<DocumentStore>(rag_encoder);
@@ -305,7 +302,7 @@ int main(int argc, char* argv[]) {
                                 std::ifstream file(entry.path());
                                 if (file.is_open()) {
                                     std::string text((std::istreambuf_iterator<char>(file)),
-                                                      std::istreambuf_iterator<char>());
+                                                     std::istreambuf_iterator<char>());
                                     if (!text.empty()) {
                                         doc_store->addDocument(entry.path().stem().string(), text);
                                         doc_count++;
@@ -313,9 +310,11 @@ int main(int argc, char* argv[]) {
                                 }
                             }
                         }
-                        adai::Logger::info("  Indexed {} documents from: {}", doc_count, config.rag_docs_path);
+                        adai::Logger::info("  Indexed {} documents from: {}", doc_count,
+                                           config.rag_docs_path);
                     } else {
-                        adai::Logger::warn("  RAG docs path not found or not a directory: {}", config.rag_docs_path);
+                        adai::Logger::warn("  RAG docs path not found or not a directory: {}",
+                                           config.rag_docs_path);
                     }
                 } else {
                     adai::Logger::warn("  RAG_DOCS_PATH not set - no documents indexed");
@@ -335,7 +334,8 @@ int main(int argc, char* argv[]) {
                 adai::Logger::info("  RAG enabled: retrieving {} docs per query (threshold: {})",
                                    config.rag_num_docs, config.rag_threshold);
             } catch (const std::exception& e) {
-                adai::Logger::warn("  RAG initialization failed: {} - continuing without RAG", e.what());
+                adai::Logger::warn("  RAG initialization failed: {} - continuing without RAG",
+                                   e.what());
             }
         }
 
@@ -343,9 +343,10 @@ int main(int argc, char* argv[]) {
         std::mutex config_mutex;
         g_config = &config;
         g_config_mutex = &config_mutex;
-        
+
         // Store config file path for reload
-        std::string stored_config_path = use_custom_config ? config_file_path : "/etc/adai/config.conf";
+        std::string stored_config_path =
+            use_custom_config ? config_file_path : "/etc/adai/config.conf";
         g_config_file_path = &stored_config_path;
 
         // Set up signal handlers
@@ -390,17 +391,17 @@ int main(int argc, char* argv[]) {
         // ================================================================
         // Main Service Loop - Check for config reload requests
         // ================================================================
-        
+
         // Store original port for comparison
         int original_port = config.port;
-        
+
         while (!shutdown_requested.load() && !server_error) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            
+
             // Check if config reload was requested
             if (reload_config_requested.load()) {
                 reload_config_requested.store(false);
-                
+
                 // Reload configuration
                 if (adai::ConfigLoader::reload(config, stored_config_path, config_mutex)) {
                     // Update logger level if changed
@@ -408,7 +409,7 @@ int main(int argc, char* argv[]) {
                         std::lock_guard<std::mutex> lock(config_mutex);
                         adai::Logger::set_level(config.log_level);
                     }
-                    
+
                     // Update generation configuration
                     ChatbotAPI::GenerationConfig new_gen_config;
                     {
@@ -419,20 +420,23 @@ int main(int argc, char* argv[]) {
                         new_gen_config.strategy = config.strategy;
                     }
                     api->set_generation_config(new_gen_config);
-                    
+
                     adai::Logger::info("Generation configuration updated");
-                    
+
                     // Note: Some changes like port, model architecture cannot be applied
                     // without service restart. These are validated but logged as warnings.
                     {
                         std::lock_guard<std::mutex> lock(config_mutex);
                         if (config.port != original_port) {
-                            adai::Logger::warn("Note: Port change ({} -> {}) requires service restart to take effect", 
-                                             original_port, config.port);
+                            adai::Logger::warn(
+                                "Note: Port change ({} -> {}) requires service restart to take "
+                                "effect",
+                                original_port, config.port);
                         }
                     }
                 } else {
-                    adai::Logger::error("Configuration reload failed - continuing with current configuration");
+                    adai::Logger::error(
+                        "Configuration reload failed - continuing with current configuration");
                 }
             }
         }
@@ -440,13 +444,13 @@ int main(int argc, char* argv[]) {
         // ================================================================
         // Graceful Shutdown Sequence
         // ================================================================
-        
+
         if (shutdown_requested.load()) {
             adai::Logger::info("");
             adai::Logger::info("==================================================");
             adai::Logger::info("         Initiating Graceful Shutdown");
             adai::Logger::info("==================================================");
-            
+
             // Step 1: Stop server and join thread
             adai::Logger::info("[1/3] Stopping API server...");
             if (g_api_server) {
@@ -456,7 +460,7 @@ int main(int argc, char* argv[]) {
                 server_thread.join();
             }
             adai::Logger::info("      API server stopped");
-            
+
             // Step 2: Save model state if needed
             // Note: Currently the API server doesn't modify the model,
             // but this is where we would save it if we had online learning
@@ -469,16 +473,17 @@ int main(int argc, char* argv[]) {
             } else {
                 adai::Logger::info("[2/3] Model state: not persisted (no model path configured)");
             }
-            
+
             // Step 3: Cleanup resources (RAII will handle this)
             adai::Logger::info("[3/3] Cleaning up resources...");
-            
+
             adai::Logger::info("");
             adai::Logger::info("Graceful shutdown complete");
             adai::Logger::info("==================================================");
         }
 
-        if (server_error) return 1;
+        if (server_error)
+            return 1;
 
     } catch (const std::exception& e) {
         adai::Logger::error("Error: {}", e.what());

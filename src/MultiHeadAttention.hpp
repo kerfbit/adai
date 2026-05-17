@@ -3,9 +3,9 @@
 #include <functional>
 #include <memory>
 #include <vector>
+#include "KVCache.hpp"
 #include "Matrix.hpp"
 #include "Optimizer.hpp"
-#include "KVCache.hpp"
 
 /**
  * Multi-Head Self-Attention Mechanism
@@ -145,8 +145,8 @@ class MultiHeadAttention {
      * 4. Concatenate head outputs
      * 5. Apply output projection
      */
-    Matrix forward_parallel(const Matrix& input, const Matrix* mask = nullptr, 
-                           bool use_parallel = true);
+    Matrix forward_parallel(const Matrix& input, const Matrix* mask = nullptr,
+                            bool use_parallel = true);
 
     /**
      * Forward pass with KV cache support (for inference optimization)
@@ -168,7 +168,7 @@ class MultiHeadAttention {
      * Performance: ~2-3x speedup for long sequences
      */
     Matrix forward_with_cache(const Matrix& input, const Matrix* mask = nullptr,
-                             KVCache* kv_cache = nullptr, bool use_cache = true);
+                              KVCache* kv_cache = nullptr, bool use_cache = true);
 
     /**
      * Backward pass through multi-head attention
@@ -260,12 +260,16 @@ class MultiHeadAttention {
      * The callback receives the attention weight matrix [seq_len × seq_len].
      * Replaces any previously registered hook.
      */
-    void set_attention_hook(AttentionHookFn fn) { attention_hook_ = std::move(fn); }
+    void set_attention_hook(AttentionHookFn fn) {
+        attention_hook_ = std::move(fn);
+    }
 
     /**
      * Remove any registered attention hook.
      */
-    void clear_attention_hook() { attention_hook_ = nullptr; }
+    void clear_attention_hook() {
+        attention_hook_ = nullptr;
+    }
 
     /**
      * Print configuration

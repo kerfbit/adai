@@ -1,15 +1,15 @@
 #pragma once
 
+#include <chrono>
+#include <memory>
+#include <set>
 #include <string>
 #include <vector>
-#include <memory>
-#include <chrono>
-#include <set>
-#include "ChatbotTrainer.hpp"
 #include "BPETokenizer.hpp"
+#include "ChatbotTrainer.hpp"
+#include "Config.hpp"
 #include "EncoderDecoderModel.hpp"
 #include "Logger.hpp"
-#include "Config.hpp"
 #include "TrainingMetricsService.hpp"
 
 /**
@@ -27,12 +27,12 @@ struct TrainingSession {
     std::chrono::system_clock::time_point end_time;
 
     // Per-epoch metrics (TD-009)
-    std::vector<float>  per_epoch_losses;             ///< training loss per epoch
-    std::vector<float>  per_epoch_validation_losses;  ///< validation loss per epoch
-    std::vector<float>  per_epoch_learning_rates;     ///< learning rate at end of each epoch
-    std::vector<double> training_time_per_epoch;      ///< wall-clock seconds per epoch
-    std::vector<float>  per_epoch_perplexities;             ///< training perplexity per epoch (exp(loss))
-    std::vector<float>  per_epoch_validation_perplexities;  ///< validation perplexity per epoch
+    std::vector<float> per_epoch_losses;             ///< training loss per epoch
+    std::vector<float> per_epoch_validation_losses;  ///< validation loss per epoch
+    std::vector<float> per_epoch_learning_rates;     ///< learning rate at end of each epoch
+    std::vector<double> training_time_per_epoch;     ///< wall-clock seconds per epoch
+    std::vector<float> per_epoch_perplexities;       ///< training perplexity per epoch (exp(loss))
+    std::vector<float> per_epoch_validation_perplexities;  ///< validation perplexity per epoch
 };
 
 /**
@@ -51,40 +51,41 @@ struct DataVersion {
  */
 struct IncrementalConfig {
     TrainingConfig base_config;  // Base training configuration
-    
+
     // Session management
     std::string session_dir = "training_sessions";
     int max_sessions_to_keep = 50;
-    
+
     // Data management
     std::string data_registry_file = "data_registry.txt";
     bool cache_tokenized_data = false;
     std::string tokenized_cache_dir = "tokenized_cache";
-    
+
     // Auto-save settings
     bool auto_save_enabled = true;
     int auto_save_every_samples = 1000;
     int auto_save_every_minutes = 30;
-    
+
     // Checkpointing
     bool save_incremental_checkpoints = true;
     std::string checkpoint_dir = "checkpoints";
-    
+
     // Checkpoint symlink management (TD-005)
     bool enable_checkpoint_symlinks = true;  // Create latest/best symlinks
-    std::string latest_symlink_name = "latest_checkpoint.bin";  // Name for latest checkpoint symlink
+    std::string latest_symlink_name =
+        "latest_checkpoint.bin";                            // Name for latest checkpoint symlink
     std::string best_symlink_name = "best_checkpoint.bin";  // Name for best checkpoint symlink
 
     // Metrics service configuration
     MetricsServiceConfig metrics_config;
-    bool enable_metrics_service = true;   // Enable TrainingMetricsService integration
-    bool metrics_push_enabled = false;    // Push metrics to external metrics API daemon
+    bool enable_metrics_service = true;  // Enable TrainingMetricsService integration
+    bool metrics_push_enabled = false;   // Push metrics to external metrics API daemon
     std::string metrics_server_url = "http://localhost:8081";  // URL of metrics API daemon
 };
 
 /**
  * @brief Incremental Training Manager
- * 
+ *
  * Manages ongoing training sessions with:
  * - Session-based training history
  * - Data versioning and tracking
@@ -94,7 +95,7 @@ struct IncrementalConfig {
  * - Project Gutenberg integration
  */
 class IncrementalTrainer {
-public:
+   public:
     /**
      * @brief Primary constructor — loads all settings from a config.conf file.
      *
@@ -113,7 +114,7 @@ public:
      * @param model_path   Path to model checkpoint.
      */
     IncrementalTrainer(const std::string& vocab_path, const std::string& model_path);
-    
+
     /**
      * @brief Explicit-paths constructor with pre-built configuration.
      * @param vocab_path   Path to vocabulary file.
@@ -122,7 +123,7 @@ public:
      *                     the model is constructed so no defaults are baked in.
      */
     IncrementalTrainer(const std::string& vocab_path, const std::string& model_path,
-                      const IncrementalConfig& cfg);
+                       const IncrementalConfig& cfg);
 
     /**
      * @brief Build an IncrementalConfig from a parsed ServiceConfig.
@@ -145,19 +146,19 @@ public:
      * 768-dim/24-layer).  Any previously loaded weights are discarded.
      */
     void reset_model_for_config();
-    
+
     // Data management
     bool add_new_data(const std::string& data_file);
     bool add_new_data_batch(const std::vector<std::string>& data_files);
     void clear_pending_data();
     std::vector<std::string> get_pending_data_files() const;
     std::vector<std::string> get_trained_data_files() const;
-    
+
     // Training
     bool train_incremental(int num_epochs);
     bool train_on_new_data_only(int num_epochs);
     bool train_full_retrain(int num_epochs);
-    
+
     // Session management
     bool resume_last_session();
     bool load_session_history();
@@ -165,13 +166,13 @@ public:
     TrainingSession get_current_session() const;
     std::vector<TrainingSession> get_session_history() const;
     void cleanup_old_sessions();
-    
+
     // Data registry
     bool load_data_registry();
     bool save_data_registry();
     bool is_data_trained(const std::string& data_file);
     std::string compute_data_checksum(const std::string& data_file);
-    
+
     // Model operations
     bool save_model(const std::string& path);
     bool load_model(const std::string& path);
@@ -191,14 +192,14 @@ public:
      * @return true on success
      */
     bool reset_all(bool keep_data_registry = false);
-    
+
     // Status and reporting
     void print_training_summary() const;
     void print_session_history() const;
     void print_data_registry() const;
     int get_total_samples_trained() const;
     float get_total_training_time_hours() const;
-    
+
     // Project Gutenberg integration
     bool add_gutenberg_book(int book_id, int num_pairs = 500);
     bool add_gutenberg_books(const std::vector<int>& book_ids, int num_pairs_per_book = 300);
@@ -225,31 +226,31 @@ public:
      * @return true if the data was downloaded and added successfully.
      */
     bool add_huggingface_dataset(const std::string& dataset_id, int num_pairs = 500,
-                                  const std::string& split = "train",
-                                  const std::string& input_field = "",
-                                  const std::string& output_field = "");
-    
-private:
+                                 const std::string& split = "train",
+                                 const std::string& input_field = "",
+                                 const std::string& output_field = "");
+
+   private:
     // Training components
-    std::string vocab_path_;                           ///< Path to vocabulary file (for architecture reinit)
-    std::string model_path_;                           ///< Path to main model file (for reset)
+    std::string vocab_path_;  ///< Path to vocabulary file (for architecture reinit)
+    std::string model_path_;  ///< Path to main model file (for reset)
     std::unique_ptr<BPETokenizer> tokenizer;
     std::unique_ptr<EncoderDecoderModel> model;
     IncrementalConfig config;
-    
+
     // Session tracking
     std::vector<TrainingSession> session_history;
     int current_session_id;
-    
+
     // Data tracking
     std::vector<DataVersion> data_registry;
     std::set<std::string> trained_data_files;
     std::vector<std::string> pending_data_files;
-    
+
     // Auto-save state
     std::chrono::system_clock::time_point last_save_time;
     int samples_since_last_save;
-    
+
     // Best checkpoint tracking (TD-005)
     float best_validation_loss;
     std::string best_checkpoint_path;
@@ -258,17 +259,20 @@ private:
     std::unique_ptr<TrainingMetricsService> metrics_service_;
 
     // TD-009: Dashboard / timing state
-    mutable int dashboard_lines_drawn_;                          ///< lines drawn by last display_dashboard() call
-    std::chrono::steady_clock::time_point session_start_time_steady_;  ///< steady-clock start of current session
-    std::chrono::steady_clock::time_point epoch_start_time_steady_;    ///< steady-clock start of current epoch
+    mutable int dashboard_lines_drawn_;  ///< lines drawn by last display_dashboard() call
+    std::chrono::steady_clock::time_point
+        session_start_time_steady_;  ///< steady-clock start of current session
+    std::chrono::steady_clock::time_point
+        epoch_start_time_steady_;  ///< steady-clock start of current epoch
 
     // Per-sample progress state (updated by sample callback, read by display_dashboard)
-    mutable int   current_sample_in_epoch_;   ///< 1-based sample index within the current epoch (0 = not started)
-    mutable int   total_samples_in_epoch_;    ///< total training samples loaded for this run
-    mutable float running_sample_loss_;       ///< running-average loss so far within the current epoch
-    mutable float current_item_loss_;         ///< loss of the most recent optimizer step
-    mutable float current_item_grad_norm_;    ///< gradient norm of the most recent optimizer step
-    mutable float current_item_lr_;           ///< learning rate at the most recent optimizer step
+    mutable int current_sample_in_epoch_;  ///< 1-based sample index within the current epoch (0 =
+                                           ///< not started)
+    mutable int total_samples_in_epoch_;   ///< total training samples loaded for this run
+    mutable float running_sample_loss_;    ///< running-average loss so far within the current epoch
+    mutable float current_item_loss_;      ///< loss of the most recent optimizer step
+    mutable float current_item_grad_norm_;  ///< gradient norm of the most recent optimizer step
+    mutable float current_item_lr_;         ///< learning rate at the most recent optimizer step
 
     // Helper methods
 
@@ -283,7 +287,8 @@ private:
     void build_model();
 
     bool initialize_session();
-    bool finalize_session(int samples_trained, int epochs_completed, float final_loss, float final_val_loss);
+    bool finalize_session(int samples_trained, int epochs_completed, float final_loss,
+                          float final_val_loss);
     bool should_auto_save();
     void perform_auto_save();
     std::string generate_session_checkpoint_path();
@@ -292,8 +297,9 @@ private:
     bool save_pending_data_list();
     bool load_pending_data_list();
     int load_conversation_pairs(const std::string& filepath, std::vector<ConversationPair>& pairs);
-    
-    // Remove a saved model and all its sidecar files (.config, .vocab, .encoder, .decoder, .lm_head)
+
+    // Remove a saved model and all its sidecar files (.config, .vocab, .encoder, .decoder,
+    // .lm_head)
     void remove_model_files(const std::string& base_path);
 
     // Symlink management helpers (TD-005)
@@ -305,8 +311,8 @@ private:
     bool remove_symlink_if_exists(const std::string& link_path);
 
     // TD-009: Real-time dashboard helpers
-    void display_dashboard(const TrainingSession& session, int current_epoch,
-                           int total_epochs, bool is_final) const;
+    void display_dashboard(const TrainingSession& session, int current_epoch, int total_epochs,
+                           bool is_final) const;
     static std::string format_duration(double seconds);
     static std::string progress_bar(int current, int total, int bar_width = 42);
 
@@ -321,15 +327,12 @@ private:
     std::vector<std::pair<std::string, std::string>> create_qa_pairs_from_text(
         const std::vector<std::string>& sentences, int max_pairs);
     bool convert_gutenberg_to_training_data(const std::string& text_file,
-                                           const std::string& output_file, int max_pairs);
+                                            const std::string& output_file, int max_pairs);
 
     // HuggingFace helpers
-    bool download_hf_rows(const std::string& dataset_id, const std::string& split,
-                          int offset, int length, const std::string& output_path);
-    bool convert_hf_to_training_data(const std::string& rows_dir,
-                                     const std::string& output_file,
+    bool download_hf_rows(const std::string& dataset_id, const std::string& split, int offset,
+                          int length, const std::string& output_path);
+    bool convert_hf_to_training_data(const std::string& rows_dir, const std::string& output_file,
                                      const std::string& input_field,
-                                     const std::string& output_field,
-                                     int max_pairs);
+                                     const std::string& output_field, int max_pairs);
 };
-

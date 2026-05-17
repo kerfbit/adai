@@ -18,7 +18,7 @@
  *
  * Provides basic matrix operations needed for neural network computations
  * including multiplication, addition, subtraction, transpose, and gradient operations.
- * 
+ *
  * When compiled with GPU support (ENABLE_GPU=ON), provides GPU-accelerated operations.
  */
 class Matrix {

@@ -4,8 +4,8 @@
  *        PipelineStats, and PipelineInferenceEngine lifecycle + functionality
  */
 
-#include <gtest/gtest.h>
 #include "../src/PipelineInferenceEngine.hpp"
+#include <gtest/gtest.h>
 #include "../src/Matrix.hpp"
 #include "../src/SpecialTokens.hpp"
 
@@ -21,27 +21,24 @@
 // ============================================================================
 
 class MockEncoder {
-public:
+   public:
     Matrix encode(const std::string& /*text*/) {
         return Matrix(2, 8);  // 2-token sequence, 8-dim hidden
     }
 };
 
 class MockDecoder {
-public:
+   public:
     // Returns hidden states; called with (tokens, encoder_output, mask_ptr)
-    Matrix forward_with_cross_attention(
-        const std::vector<int>& tokens,
-        const Matrix& /*encoder_output*/,
-        const Matrix* /*mask*/)
-    {
+    Matrix forward_with_cross_attention(const std::vector<int>& tokens,
+                                        const Matrix& /*encoder_output*/, const Matrix* /*mask*/) {
         int rows = static_cast<int>(tokens.size());
         return Matrix(rows > 0 ? rows : 1, 8);
     }
 };
 
 class MockLMHead {
-public:
+   public:
     // Returns logits: make EOS token (id=3) always the highest so generation
     // terminates immediately on the first decoder step.
     Matrix forward(const Matrix& /*hidden*/) {
@@ -52,7 +49,7 @@ public:
 };
 
 class MockTokenizer {
-public:
+   public:
     std::string decode(const std::vector<int>& tokens) {
         return "decoded_" + std::to_string(tokens.size());
     }
@@ -60,9 +57,8 @@ public:
 
 // EOS-selecting head that only emits EOS after N steps (for multi-step tests)
 class SlowMockLMHead {
-public:
-    explicit SlowMockLMHead(int steps_before_eos = 2)
-        : steps_(0), limit_(steps_before_eos) {}
+   public:
+    explicit SlowMockLMHead(int steps_before_eos = 2) : steps_(0), limit_(steps_before_eos) {}
 
     Matrix forward(const Matrix& /*hidden*/) {
         Matrix logits(1, 10);
@@ -73,7 +69,8 @@ public:
         }
         return logits;
     }
-private:
+
+   private:
     int steps_;
     int limit_;
 };
@@ -422,7 +419,7 @@ TEST(ThreadSafeQueueTest, MultipleShutdownsSafe) {
 // ============================================================================
 
 class EngineLifecycleTest : public ::testing::Test {
-protected:
+   protected:
     MockEncoder enc_;
     MockDecoder dec_;
     MockLMHead lm_;
@@ -508,7 +505,7 @@ TEST_F(EngineLifecycleTest, CustomConfigPropagated) {
 // ============================================================================
 
 class EngineFunctionalTest : public ::testing::Test {
-protected:
+   protected:
     MockEncoder enc_;
     MockDecoder dec_;
     MockLMHead lm_;

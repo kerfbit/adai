@@ -1,16 +1,16 @@
 #ifndef CHATBOT_CLI_HPP
 #define CHATBOT_CLI_HPP
 
+#include <../external/cpp-httplib/httplib.h>
 #include <memory>
 #include <string>
 #include <string_view>
-#include <../external/cpp-httplib/httplib.h>
 
 // Forward declarations removed: BPETokenizer, EncoderDecoderModel, ConversationContext
 
 /**
  * @brief Interactive command-line interface for the ADAI transformer-based chatbot
- * 
+ *
  * Provides a user-friendly terminal application with conversation management,
  * multiple generation strategies, configurable parameters, and persistent conversation history.
  */
@@ -18,9 +18,10 @@ class ChatbotCLI {
    public:
     /**
      * @brief Construct a new ChatbotCLI object
-     * 
+     *
      * @param server_url URL of the Chatbot API (e.g., "http://localhost:8080")
-     * @param conv_save_file Path for saving conversation history (default: "conversation_history.txt")
+     * @param conv_save_file Path for saving conversation history (default:
+     * "conversation_history.txt")
      */
     ChatbotCLI(const std::string& server_url,
                const std::string& conv_save_file = "conversation_history.txt");
@@ -84,28 +85,56 @@ class ChatbotCLI {
     std::string generate_response(const std::string& user_input);
 
     // Accessors for testing
-    const std::string& get_generation_strategy() const { return generation_strategy; }
-    int get_max_response_length() const { return max_response_length; }
-    float get_temperature() const { return temperature; }
-    float get_top_p() const { return top_p; }
-    int get_top_k() const { return top_k; }
-    int get_beam_width() const { return beam_width; }
-    const std::string& get_server_url() const { return server_url; }
-    const std::string& get_conversation_save_path() const { return conversation_save_path; }
+    const std::string& get_generation_strategy() const {
+        return generation_strategy;
+    }
+    int get_max_response_length() const {
+        return max_response_length;
+    }
+    float get_temperature() const {
+        return temperature;
+    }
+    float get_top_p() const {
+        return top_p;
+    }
+    int get_top_k() const {
+        return top_k;
+    }
+    int get_beam_width() const {
+        return beam_width;
+    }
+    const std::string& get_server_url() const {
+        return server_url;
+    }
+    const std::string& get_conversation_save_path() const {
+        return conversation_save_path;
+    }
 
     // Setters for testing
-    void set_generation_strategy(const std::string& strategy) { generation_strategy = strategy; }
-    void set_max_response_length(int length) { max_response_length = length; }
-    void set_temperature(float temp) { temperature = temp; }
-    void set_top_p(float p) { top_p = p; }
-    void set_top_k(int k) { top_k = k; }
-    void set_beam_width(int width) { beam_width = width; }
+    void set_generation_strategy(const std::string& strategy) {
+        generation_strategy = strategy;
+    }
+    void set_max_response_length(int length) {
+        max_response_length = length;
+    }
+    void set_temperature(float temp) {
+        temperature = temp;
+    }
+    void set_top_p(float p) {
+        top_p = p;
+    }
+    void set_top_k(int k) {
+        top_k = k;
+    }
+    void set_beam_width(int width) {
+        beam_width = width;
+    }
 
    private:
     std::string server_url;
     std::string conversation_save_path;
     std::string session_id;
-    
+
     std::unique_ptr<httplib::Client> client;
 
     // Generation parameters

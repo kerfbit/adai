@@ -1,6 +1,6 @@
 #include "LayerNorm.hpp"
-#include <iostream>
 #include <fstream>
+#include <iostream>
 #include <stdexcept>
 #include "Optimizer.hpp"
 

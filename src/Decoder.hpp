@@ -10,12 +10,12 @@
 #include <string>
 #include <vector>
 #include "DecoderBlock.hpp"
+#include "KVCache.hpp"
 #include "LayerNorm.hpp"
 #include "Matrix.hpp"
 #include "Optimizer.hpp"
 #include "PositionalEncoding.hpp"
 #include "TokenEmbedding.hpp"
-#include "KVCache.hpp"
 
 /**
  * LLM Decoder for autoregressive text generation
@@ -142,7 +142,7 @@ class LLMDecoder {
      *   3. Clear cache when starting new sequence
      */
     Matrix forward_with_cache(const std::vector<int>& token_ids, DecoderKVCache& kv_cache,
-                             const Matrix* encoder_output = nullptr, bool use_cache = true);
+                              const Matrix* encoder_output = nullptr, bool use_cache = true);
 
     /**
      * Backward pass for training

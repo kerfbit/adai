@@ -151,7 +151,7 @@ float TextGenerator::compute_length_penalty(int length, float alpha) {
 // Check if token is stopping token
 bool TextGenerator::is_stop_token(int token_id) {
     // Use the utility function from SpecialTokens.hpp
-    adai::SpecialTokenConfig token_config(config.pad_token_id, config.unk_token_id, 
+    adai::SpecialTokenConfig token_config(config.pad_token_id, config.unk_token_id,
                                           config.bos_token_id, config.eos_token_id);
     return adai::is_stop_token(token_id, token_config);
 }

@@ -10,12 +10,12 @@
  *  - Default-constructed BPETokenizer provides special tokens {PAD,UNK,BOS,EOS}.
  */
 
-#include <gtest/gtest.h>
 #include "../src/SpeculativeDecoding.hpp"
-#include "../src/TextGenerator.hpp"
+#include <gtest/gtest.h>
 #include "../src/BPETokenizer.hpp"
 #include "../src/Matrix.hpp"
 #include "../src/SpecialTokens.hpp"
+#include "../src/TextGenerator.hpp"
 
 #include <cmath>
 #include <memory>
@@ -202,7 +202,7 @@ TEST(TheoreticalSpeedupTest, SpeedupMonotonicInAlpha) {
 // ============================================================================
 
 class SpeculativeDecoderTest : public ::testing::Test {
-protected:
+   protected:
     void SetUp() override {
         tokenizer_ = std::make_unique<BPETokenizer>();
         draft_ = make_eos_generator(tokenizer_.get());
@@ -215,24 +215,15 @@ protected:
 };
 
 TEST_F(SpeculativeDecoderTest, ConstructionThrowsOnNullDraft) {
-    EXPECT_THROW(
-        SpeculativeDecoder(nullptr, target_.get()),
-        std::invalid_argument
-    );
+    EXPECT_THROW(SpeculativeDecoder(nullptr, target_.get()), std::invalid_argument);
 }
 
 TEST_F(SpeculativeDecoderTest, ConstructionThrowsOnNullTarget) {
-    EXPECT_THROW(
-        SpeculativeDecoder(draft_.get(), nullptr),
-        std::invalid_argument
-    );
+    EXPECT_THROW(SpeculativeDecoder(draft_.get(), nullptr), std::invalid_argument);
 }
 
 TEST_F(SpeculativeDecoderTest, ConstructionThrowsOnBothNull) {
-    EXPECT_THROW(
-        SpeculativeDecoder(nullptr, nullptr),
-        std::invalid_argument
-    );
+    EXPECT_THROW(SpeculativeDecoder(nullptr, nullptr), std::invalid_argument);
 }
 
 TEST_F(SpeculativeDecoderTest, ConstructionSucceedsWithValidGenerators) {
@@ -377,7 +368,8 @@ TEST(TextGeneratorExtensionTest, GetNextTokenProbsReturnsProbabilityVector) {
 
     // Probabilities should sum to ~1.0
     float sum = 0.0f;
-    for (float p : probs) sum += p;
+    for (float p : probs)
+        sum += p;
     EXPECT_NEAR(sum, 1.0f, 1e-4f);
 }
 
@@ -419,7 +411,7 @@ TEST(TextGeneratorExtensionTest, EosModelProducesHighProbForEos) {
 // ============================================================================
 
 class SpeculativeDecoderFunctionalTest : public ::testing::Test {
-protected:
+   protected:
     void SetUp() override {
         tokenizer_ = std::make_unique<BPETokenizer>();
 
@@ -429,7 +421,7 @@ protected:
         cfg.use_greedy = true;  // Deterministic for testing
         config_ = cfg;
 
-        draft_  = make_eos_generator(tokenizer_.get());
+        draft_ = make_eos_generator(tokenizer_.get());
         target_ = make_eos_generator(tokenizer_.get());
     }
 

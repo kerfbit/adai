@@ -155,8 +155,8 @@ Matrix MultiHeadAttention::forward(const Matrix& input, const Matrix* mask) {
     return output;
 }
 
-Matrix MultiHeadAttention::forward_parallel(const Matrix& input, const Matrix* mask, 
-                                           bool use_parallel) {
+Matrix MultiHeadAttention::forward_parallel(const Matrix& input, const Matrix* mask,
+                                            bool use_parallel) {
     // Cache input for backward pass
     cached_input = input;
 
@@ -182,9 +182,9 @@ Matrix MultiHeadAttention::forward_parallel(const Matrix& input, const Matrix* m
 
 #ifdef _OPENMP
     if (use_parallel) {
-        // Parallel version using OpenMP
-        // Process each head in parallel - each thread works on its own head
-        #pragma omp parallel for schedule(static)
+// Parallel version using OpenMP
+// Process each head in parallel - each thread works on its own head
+#pragma omp parallel for schedule(static)
         for (int h = 0; h < num_heads; ++h) {
             int start_dim = h * d_k;
 
@@ -373,7 +373,7 @@ Matrix MultiHeadAttention::forward_with_cache(const Matrix& input, const Matrix*
     // Get full K, V from cache (includes all previous + new tokens)
     const Matrix& K_full = kv_cache->get_keys();
     const Matrix& V_full = kv_cache->get_values();
-    
+
     cached_K = K_full;
     cached_V = V_full;
 
@@ -396,9 +396,9 @@ Matrix MultiHeadAttention::forward_with_cache(const Matrix& input, const Matrix*
         if (mask->rows != num_new_tokens || mask->cols != total_seq_len) {
             throw std::invalid_argument(
                 "Mask dimensions (" + std::to_string(mask->rows) + ", " +
-                std::to_string(mask->cols) + ") must match [num_new_tokens=" +
-                std::to_string(num_new_tokens) + ", total_seq_len=" +
-                std::to_string(total_seq_len) + "]");
+                std::to_string(mask->cols) +
+                ") must match [num_new_tokens=" + std::to_string(num_new_tokens) +
+                ", total_seq_len=" + std::to_string(total_seq_len) + "]");
         }
 
         for (int i = 0; i < num_new_tokens; ++i) {

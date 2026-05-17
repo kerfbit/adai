@@ -51,9 +51,9 @@ inline std::vector<std::string> load_pairs_format(const std::string& filename) {
     std::string line;
     while (std::getline(file, line)) {
         if (line.find("INPUT:") == 0) {
-            texts.push_back(line.substr(6));   // Skip "INPUT:"
+            texts.push_back(line.substr(6));  // Skip "INPUT:"
         } else if (line.find("RESPONSE:") == 0) {
-            texts.push_back(line.substr(9));   // Skip "RESPONSE:"
+            texts.push_back(line.substr(9));  // Skip "RESPONSE:"
         }
     }
 
@@ -74,15 +74,15 @@ inline std::vector<std::string> load_json_format(const std::string& filename) {
         return texts;
     }
 
-    std::string content((std::istreambuf_iterator<char>(file)),
-                        std::istreambuf_iterator<char>());
+    std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     file.close();
 
     size_t pos = 0;
     while ((pos = content.find('"', pos)) != std::string::npos) {
         pos++;  // Skip opening quote
         size_t end = content.find('"', pos);
-        if (end == std::string::npos) break;
+        if (end == std::string::npos)
+            break;
 
         std::string text = content.substr(pos, end - pos);
         if (!text.empty()) {

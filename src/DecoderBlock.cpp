@@ -33,7 +33,8 @@ DecoderBlock::DecoderBlock(int d_model, int num_heads, int d_ff, float dropout)
     norm2->learning_rate = learning_rate;
     norm3->learning_rate = learning_rate;
 
-    Logger::info("DecoderBlock initialized: d_model={} num_heads={} d_ff={}", d_model, num_heads, d_ff);
+    Logger::info("DecoderBlock initialized: d_model={} num_heads={} d_ff={}", d_model, num_heads,
+                 d_ff);
 }
 
 Matrix DecoderBlock::forward(const Matrix& input, const Matrix& encoder_output,
@@ -97,9 +98,9 @@ Matrix DecoderBlock::forward(const Matrix& input, const Matrix& encoder_output,
 }
 
 Matrix DecoderBlock::forward_with_cache(const Matrix& input, const Matrix& encoder_output,
-                                       const Matrix& self_attn_mask, KVCache* self_attn_cache,
-                                       KVCache* cross_attn_cache,
-                                       const Matrix* cross_attn_mask, bool use_cache) {
+                                        const Matrix& self_attn_mask, KVCache* self_attn_cache,
+                                        KVCache* cross_attn_cache, const Matrix* cross_attn_mask,
+                                        bool use_cache) {
     // If no caching, fall back to regular forward
     if (!use_cache || self_attn_cache == nullptr) {
         return forward(input, encoder_output, self_attn_mask, cross_attn_mask);
@@ -110,8 +111,8 @@ Matrix DecoderBlock::forward_with_cache(const Matrix& input, const Matrix& encod
     cached_encoder_output = encoder_output;
 
     // Step 1: Masked self-attention with cache
-    Matrix self_attn_out = self_attention->forward_with_cache(
-        input, &self_attn_mask, self_attn_cache, use_cache);
+    Matrix self_attn_out =
+        self_attention->forward_with_cache(input, &self_attn_mask, self_attn_cache, use_cache);
     cached_self_attn_output = self_attn_out;
 
     // Step 2: First residual connection (input + self-attention output)
@@ -288,21 +289,21 @@ void DecoderBlock::save(const std::string& filepath) {
 
     // Save LayerNorm parameters inline
     const Matrix& gamma1 = norm1->get_gamma();
-    const Matrix& beta1  = norm1->get_beta();
+    const Matrix& beta1 = norm1->get_beta();
     for (int j = 0; j < gamma1.cols; ++j)
         file.write(reinterpret_cast<const char*>(&gamma1(0, j)), sizeof(float));
     for (int j = 0; j < beta1.cols; ++j)
         file.write(reinterpret_cast<const char*>(&beta1(0, j)), sizeof(float));
 
     const Matrix& gamma2 = norm2->get_gamma();
-    const Matrix& beta2  = norm2->get_beta();
+    const Matrix& beta2 = norm2->get_beta();
     for (int j = 0; j < gamma2.cols; ++j)
         file.write(reinterpret_cast<const char*>(&gamma2(0, j)), sizeof(float));
     for (int j = 0; j < beta2.cols; ++j)
         file.write(reinterpret_cast<const char*>(&beta2(0, j)), sizeof(float));
 
     const Matrix& gamma3 = norm3->get_gamma();
-    const Matrix& beta3  = norm3->get_beta();
+    const Matrix& beta3 = norm3->get_beta();
     for (int j = 0; j < gamma3.cols; ++j)
         file.write(reinterpret_cast<const char*>(&gamma3(0, j)), sizeof(float));
     for (int j = 0; j < beta3.cols; ++j)

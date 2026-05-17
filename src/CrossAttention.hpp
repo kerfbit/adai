@@ -2,9 +2,9 @@
 
 #include <memory>
 #include <vector>
+#include "KVCache.hpp"
 #include "Matrix.hpp"
 #include "Optimizer.hpp"
-#include "KVCache.hpp"
 
 /**
  * Cross-Attention Mechanism for Transformer Decoder
@@ -136,8 +136,8 @@ class CrossAttention {
      * @return Attention output [num_new_tokens, d_model]
      */
     Matrix forward_with_cache(const Matrix& query_input, const Matrix& kv_input,
-                             const Matrix* mask = nullptr, KVCache* kv_cache = nullptr,
-                             bool use_cache = true);
+                              const Matrix* mask = nullptr, KVCache* kv_cache = nullptr,
+                              bool use_cache = true);
 
     /**
      * Backward pass through cross-attention

@@ -539,7 +539,7 @@ TEST(CrossAttentionBackwardTest, GradientFlow) {
     EXPECT_FALSE(std::isinf(total_grad_query));
     EXPECT_FALSE(std::isnan(total_grad_kv));
     EXPECT_FALSE(std::isinf(total_grad_kv));
-    
+
     // Gradients should be computable (finite values)
     EXPECT_GE(total_grad_query, 0.0f);
     EXPECT_GE(total_grad_kv, 0.0f);

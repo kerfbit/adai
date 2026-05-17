@@ -127,7 +127,7 @@ Matrix CrossAttention::forward(const Matrix& query_input, const Matrix& kv_input
 }
 
 Matrix CrossAttention::forward_with_cache(const Matrix& query_input, const Matrix& kv_input,
-                                         const Matrix* mask, KVCache* kv_cache, bool use_cache) {
+                                          const Matrix* mask, KVCache* kv_cache, bool use_cache) {
     // If no cache or caching disabled, use regular forward
     if (!use_cache || kv_cache == nullptr) {
         return forward(query_input, kv_input, mask);
@@ -152,9 +152,9 @@ Matrix CrossAttention::forward_with_cache(const Matrix& query_input, const Matri
     if (kv_cache->is_empty()) {
         // First call: compute K, V from encoder and cache them
         if (kv_input.cols != d_model) {
-            throw std::invalid_argument(
-                "Key-Value input dimension (" + std::to_string(kv_input.cols) +
-                ") must match d_model (" + std::to_string(d_model) + ")");
+            throw std::invalid_argument("Key-Value input dimension (" +
+                                        std::to_string(kv_input.cols) + ") must match d_model (" +
+                                        std::to_string(d_model) + ")");
         }
 
         cached_kv_input = kv_input;

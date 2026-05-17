@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
-#include "GenerationQualityMetrics.hpp"
 #include <cmath>
 #include <string>
 #include <vector>
+#include "GenerationQualityMetrics.hpp"
 
 // ============================================================================
 // Tokenizer tests
@@ -168,7 +168,7 @@ TEST(GenerationQualityROUGEL, SubsequenceGivesPartialCredit) {
 TEST(GenerationQualityEdge, EmptyInputReturnsAllNegativeOne) {
     std::vector<std::string> refs, hyps;
     GenerationQualityScore score = GenerationQualityEvaluator::evaluate(refs, hyps);
-    EXPECT_FLOAT_EQ(score.bleu4,  -1.0f);
+    EXPECT_FLOAT_EQ(score.bleu4, -1.0f);
     EXPECT_FLOAT_EQ(score.rouge1, -1.0f);
     EXPECT_FLOAT_EQ(score.rouge2, -1.0f);
     EXPECT_FLOAT_EQ(score.rougeL, -1.0f);
@@ -178,7 +178,7 @@ TEST(GenerationQualityEdge, MismatchedSizesReturnsAllNegativeOne) {
     std::vector<std::string> refs = {"hello"};
     std::vector<std::string> hyps = {"hello", "world"};
     GenerationQualityScore score = GenerationQualityEvaluator::evaluate(refs, hyps);
-    EXPECT_FLOAT_EQ(score.bleu4,  -1.0f);
+    EXPECT_FLOAT_EQ(score.bleu4, -1.0f);
     EXPECT_FLOAT_EQ(score.rouge1, -1.0f);
 }
 
@@ -194,10 +194,16 @@ TEST(GenerationQualityEdge, AllScoresInValidRange) {
     std::vector<std::string> refs = {"the cat sat on the mat"};
     std::vector<std::string> hyps = {"a cat runs on a log"};
     GenerationQualityScore score = GenerationQualityEvaluator::evaluate(refs, hyps);
-    EXPECT_GE(score.bleu1,  0.0f);  EXPECT_LE(score.bleu1,  1.0f);
-    EXPECT_GE(score.bleu2,  0.0f);  EXPECT_LE(score.bleu2,  1.0f);
-    EXPECT_GE(score.bleu4,  0.0f);  EXPECT_LE(score.bleu4,  1.0f);
-    EXPECT_GE(score.rouge1, 0.0f);  EXPECT_LE(score.rouge1, 1.0f);
-    EXPECT_GE(score.rouge2, 0.0f);  EXPECT_LE(score.rouge2, 1.0f);
-    EXPECT_GE(score.rougeL, 0.0f);  EXPECT_LE(score.rougeL, 1.0f);
+    EXPECT_GE(score.bleu1, 0.0f);
+    EXPECT_LE(score.bleu1, 1.0f);
+    EXPECT_GE(score.bleu2, 0.0f);
+    EXPECT_LE(score.bleu2, 1.0f);
+    EXPECT_GE(score.bleu4, 0.0f);
+    EXPECT_LE(score.bleu4, 1.0f);
+    EXPECT_GE(score.rouge1, 0.0f);
+    EXPECT_LE(score.rouge1, 1.0f);
+    EXPECT_GE(score.rouge2, 0.0f);
+    EXPECT_LE(score.rouge2, 1.0f);
+    EXPECT_GE(score.rougeL, 0.0f);
+    EXPECT_LE(score.rougeL, 1.0f);
 }

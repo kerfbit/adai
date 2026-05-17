@@ -3,7 +3,7 @@
 
 #ifdef ADAI_ENABLE_GPU
 
-#include "GPUUtils.hpp"   // GPUMemory, GPUManager, CUDA_CHECK
+#include "GPUUtils.hpp"  // GPUMemory, GPUManager, CUDA_CHECK
 
 namespace adai {
 namespace gpu {
@@ -11,16 +11,11 @@ namespace gpu {
 /**
  * @brief Activation function types for GPU operations
  */
-enum class ActivationType {
-    RELU = 0,
-    SIGMOID = 1,
-    TANH = 2,
-    GELU = 3
-};
+enum class ActivationType { RELU = 0, SIGMOID = 1, TANH = 2, GELU = 3 };
 
 /**
  * @brief GPU-accelerated matrix operations
- * 
+ *
  * All functions assume data is already on the GPU device.
  * Use GPUMemory class from GPUUtils.hpp for memory management.
  */
@@ -79,8 +74,7 @@ void matrix_transpose_gpu(const float* input, float* output, int rows, int cols)
  * @param k Number of columns in A and rows in B
  * @param n Number of columns in B and C
  */
-void matrix_multiply_gpu(const float* a, const float* b, float* c, 
-                        int m, int k, int n);
+void matrix_multiply_gpu(const float* a, const float* b, float* c, int m, int k, int n);
 
 /**
  * @brief Apply activation function in-place on GPU
@@ -106,8 +100,8 @@ float matrix_sum_gpu(const float* data, int size);
  * @param batch_size Number of matrices in batch
  * @param size Elements per matrix
  */
-void matrix_batch_add_gpu(const float** a_batch, const float** b_batch, 
-                         float** c_batch, int batch_size, int size);
+void matrix_batch_add_gpu(const float** a_batch, const float** b_batch, float** c_batch,
+                          int batch_size, int size);
 
 /**
  * @brief Batch matrix multiplication on GPU
@@ -119,9 +113,8 @@ void matrix_batch_add_gpu(const float** a_batch, const float** b_batch,
  * @param k Columns in each A matrix (rows in B)
  * @param n Columns in each B matrix
  */
-void matrix_batch_multiply_gpu(const float** a_batch, const float** b_batch,
-                              float** c_batch, int batch_size,
-                              int m, int k, int n);
+void matrix_batch_multiply_gpu(const float** a_batch, const float** b_batch, float** c_batch,
+                               int batch_size, int m, int k, int n);
 
 // ============================================================================
 // GPUMatrix — persistent GPU-resident matrix (TD-003)
@@ -147,25 +140,31 @@ void matrix_batch_multiply_gpu(const float** a_batch, const float** b_batch,
  * which automatically tracks the ADAI memory budget.
  */
 class GPUMatrix {
-public:
+   public:
     int rows = 0;
     int cols = 0;
 
-private:
-    GPUMemory<float> data_;   ///< row-major device buffer
+   private:
+    GPUMemory<float> data_;  ///< row-major device buffer
 
-public:
+   public:
     GPUMatrix(int r, int c) : rows(r), cols(c), data_(r * c) {}
 
     // Move-only — GPU allocations are not trivially copyable
-    GPUMatrix(const GPUMatrix&)            = delete;
+    GPUMatrix(const GPUMatrix&) = delete;
     GPUMatrix& operator=(const GPUMatrix&) = delete;
-    GPUMatrix(GPUMatrix&&)                 = default;
-    GPUMatrix& operator=(GPUMatrix&&)      = default;
+    GPUMatrix(GPUMatrix&&) = default;
+    GPUMatrix& operator=(GPUMatrix&&) = default;
 
-    float*       device_ptr()       { return data_.get(); }
-    const float* device_ptr() const { return data_.get(); }
-    int          size()       const { return rows * cols; }
+    float* device_ptr() {
+        return data_.get();
+    }
+    const float* device_ptr() const {
+        return data_.get();
+    }
+    int size() const {
+        return rows * cols;
+    }
 
     // ---- Host ↔ device transfers ----------------------------------------
 
@@ -186,8 +185,7 @@ public:
         GPUMatrix result(rows, cols);
         CUDA_CHECK(cudaMemcpyAsync(result.data_.get(), data_.get(),
                                    static_cast<size_t>(rows * cols) * sizeof(float),
-                                   cudaMemcpyDeviceToDevice,
-                                   GPUManager::get_stream()));
+                                   cudaMemcpyDeviceToDevice, GPUManager::get_stream()));
         return result;
     }
 
@@ -196,55 +194,46 @@ public:
     /** @brief Matrix multiplication (C = this × other).  Uses cuBLAS SGEMM. */
     GPUMatrix operator*(const GPUMatrix& other) const {
         if (cols != other.rows)
-            throw std::invalid_argument(
-                "GPUMatrix dimensions incompatible for multiply");
+            throw std::invalid_argument("GPUMatrix dimensions incompatible for multiply");
         GPUMatrix result(rows, other.cols);
-        matrix_multiply_gpu(data_.get(), other.data_.get(),
-                            result.data_.get(), rows, cols, other.cols);
+        matrix_multiply_gpu(data_.get(), other.data_.get(), result.data_.get(), rows, cols,
+                            other.cols);
         return result;
     }
 
     /** @brief Element-wise addition. */
     GPUMatrix operator+(const GPUMatrix& other) const {
         if (rows != other.rows || cols != other.cols)
-            throw std::invalid_argument(
-                "GPUMatrix dimensions must match for add");
+            throw std::invalid_argument("GPUMatrix dimensions must match for add");
         GPUMatrix result(rows, cols);
-        matrix_add_gpu(data_.get(), other.data_.get(),
-                       result.data_.get(), size());
+        matrix_add_gpu(data_.get(), other.data_.get(), result.data_.get(), size());
         return result;
     }
 
     /** @brief Element-wise subtraction (implemented as a + (−1)×b). */
     GPUMatrix operator-(const GPUMatrix& other) const {
         if (rows != other.rows || cols != other.cols)
-            throw std::invalid_argument(
-                "GPUMatrix dimensions must match for subtract");
+            throw std::invalid_argument("GPUMatrix dimensions must match for subtract");
         GPUMatrix neg_b(rows, cols);
-        matrix_multiply_scalar_gpu(other.data_.get(), -1.0f,
-                                   neg_b.data_.get(), size());
+        matrix_multiply_scalar_gpu(other.data_.get(), -1.0f, neg_b.data_.get(), size());
         GPUMatrix result(rows, cols);
-        matrix_add_gpu(data_.get(), neg_b.data_.get(),
-                       result.data_.get(), size());
+        matrix_add_gpu(data_.get(), neg_b.data_.get(), result.data_.get(), size());
         return result;
     }
 
     /** @brief Scalar multiplication. */
     GPUMatrix scale(float scalar) const {
         GPUMatrix result(rows, cols);
-        matrix_multiply_scalar_gpu(data_.get(), scalar,
-                                   result.data_.get(), size());
+        matrix_multiply_scalar_gpu(data_.get(), scalar, result.data_.get(), size());
         return result;
     }
 
     /** @brief Element-wise (Hadamard) multiplication. */
     GPUMatrix hadamard(const GPUMatrix& other) const {
         if (rows != other.rows || cols != other.cols)
-            throw std::invalid_argument(
-                "GPUMatrix dimensions must match for hadamard");
+            throw std::invalid_argument("GPUMatrix dimensions must match for hadamard");
         GPUMatrix result(rows, cols);
-        matrix_multiply_elementwise_gpu(data_.get(), other.data_.get(),
-                                        result.data_.get(), size());
+        matrix_multiply_elementwise_gpu(data_.get(), other.data_.get(), result.data_.get(), size());
         return result;
     }
 
@@ -266,9 +255,9 @@ public:
     }
 };
 
-} // namespace gpu
-} // namespace adai
+}  // namespace gpu
+}  // namespace adai
 
-#endif // ADAI_ENABLE_GPU
+#endif  // ADAI_ENABLE_GPU
 
-#endif // MATRIX_GPU_HPP
+#endif  // MATRIX_GPU_HPP

@@ -3,8 +3,7 @@
 #include <cmath>
 #include <stdexcept>
 
-DocumentStore::DocumentStore(std::shared_ptr<LLMEncoder> encoder)
-    : encoder(encoder) {
+DocumentStore::DocumentStore(std::shared_ptr<LLMEncoder> encoder) : encoder(encoder) {
     if (!encoder) {
         throw std::invalid_argument("DocumentStore: encoder cannot be null");
     }
@@ -39,7 +38,7 @@ Matrix DocumentStore::getSentenceEmbedding(const Matrix& encoder_output) const {
     // Mean pooling over sequence dimension
     // encoder_output shape: [seq_len, d_model]
     // output shape: [1, d_model]
-    
+
     if (encoder_output.rows == 0 || encoder_output.cols == 0) {
         throw std::invalid_argument("Encoder output cannot be empty");
     }
@@ -95,7 +94,7 @@ bool DocumentStore::removeDocument(const std::string& id) {
     }
 
     size_t index = it->second;
-    
+
     // Remove from vector (swap with last element for efficiency)
     if (index != documents.size() - 1) {
         documents[index] = std::move(documents.back());
@@ -110,8 +109,8 @@ bool DocumentStore::removeDocument(const std::string& id) {
     return true;
 }
 
-std::vector<std::pair<float, const Document*>> 
-DocumentStore::retrieve(const std::string& query, int k) const {
+std::vector<std::pair<float, const Document*>> DocumentStore::retrieve(const std::string& query,
+                                                                       int k) const {
     if (documents.empty()) {
         return {};
     }
@@ -134,12 +133,10 @@ DocumentStore::retrieve(const std::string& query, int k) const {
     }
 
     // Sort by similarity (descending)
-    std::partial_sort(
-        similarities.begin(),
-        similarities.begin() + std::min(k, static_cast<int>(similarities.size())),
-        similarities.end(),
-        [](const auto& a, const auto& b) { return a.first > b.first; }
-    );
+    std::partial_sort(similarities.begin(),
+                      similarities.begin() + std::min(k, static_cast<int>(similarities.size())),
+                      similarities.end(),
+                      [](const auto& a, const auto& b) { return a.first > b.first; });
 
     // Return top-k results
     int num_results = std::min(k, static_cast<int>(similarities.size()));

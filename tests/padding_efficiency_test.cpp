@@ -11,10 +11,10 @@
  */
 
 #include <gtest/gtest.h>
-#include "TrainingMetricsService.hpp"
 #include <cmath>
 #include <sstream>
 #include <string>
+#include "TrainingMetricsService.hpp"
 
 // ============================================================================
 // Helper: create a service with persistence disabled
@@ -164,27 +164,30 @@ TEST(PaddingEfficiency, ToJsonDefaultSentinel) {
 // ============================================================================
 
 // Helper that mirrors the arithmetic in ChatbotTrainer::train_epoch()
-static float compute_window_efficiency(
-        const std::vector<int>& input_lengths,
-        const std::vector<int>& target_lengths) {
-    if (input_lengths.empty()) return -1.0f;
-    int actual  = 0;
-    int max_in  = 0;
+static float compute_window_efficiency(const std::vector<int>& input_lengths,
+                                       const std::vector<int>& target_lengths) {
+    if (input_lengths.empty())
+        return -1.0f;
+    int actual = 0;
+    int max_in = 0;
     int max_tgt = 0;
     for (size_t i = 0; i < input_lengths.size(); ++i) {
-        actual  += input_lengths[i] + target_lengths[i];
-        if (input_lengths[i]  > max_in)  max_in  = input_lengths[i];
-        if (target_lengths[i] > max_tgt) max_tgt = target_lengths[i];
+        actual += input_lengths[i] + target_lengths[i];
+        if (input_lengths[i] > max_in)
+            max_in = input_lengths[i];
+        if (target_lengths[i] > max_tgt)
+            max_tgt = target_lengths[i];
     }
     int padded = (max_in + max_tgt) * static_cast<int>(input_lengths.size());
-    if (padded == 0) return 1.0f;
+    if (padded == 0)
+        return 1.0f;
     return static_cast<float>(actual) / static_cast<float>(padded);
 }
 
 TEST(PaddingEfficiencyComputation, IdenticalLengthsIsOne) {
     // All sequences the same length → no wasted padding → efficiency = 1.0
-    std::vector<int> in_lens  = {10, 10, 10, 10};
-    std::vector<int> tgt_lens = {8,  8,  8,  8};
+    std::vector<int> in_lens = {10, 10, 10, 10};
+    std::vector<int> tgt_lens = {8, 8, 8, 8};
     float eff = compute_window_efficiency(in_lens, tgt_lens);
     EXPECT_FLOAT_EQ(eff, 1.0f);
 }
@@ -195,7 +198,7 @@ TEST(PaddingEfficiencyComputation, OneTokenVsMany) {
     // actual = (1+1) + (10+10) = 22
     // padded = (10 + 10) * 2 = 40
     // efficiency = 22/40 = 0.55
-    std::vector<int> in_lens  = {1, 10};
+    std::vector<int> in_lens = {1, 10};
     std::vector<int> tgt_lens = {1, 10};
     float eff = compute_window_efficiency(in_lens, tgt_lens);
     EXPECT_NEAR(eff, 0.55f, 1e-5f);
@@ -203,7 +206,7 @@ TEST(PaddingEfficiencyComputation, OneTokenVsMany) {
 
 TEST(PaddingEfficiencyComputation, SingleSampleWindowIsOne) {
     // A window with only one sample is trivially 100% efficient
-    std::vector<int> in_lens  = {7};
+    std::vector<int> in_lens = {7};
     std::vector<int> tgt_lens = {5};
     float eff = compute_window_efficiency(in_lens, tgt_lens);
     EXPECT_FLOAT_EQ(eff, 1.0f);
@@ -214,14 +217,14 @@ TEST(PaddingEfficiencyComputation, WorstCaseSingleLong) {
     // actual = (100+100) + 3*(1+1) = 200 + 6 = 206
     // padded = (100 + 100) * 4 = 800
     // efficiency = 206/800 = 0.2575
-    std::vector<int> in_lens  = {100, 1, 1, 1};
+    std::vector<int> in_lens = {100, 1, 1, 1};
     std::vector<int> tgt_lens = {100, 1, 1, 1};
     float eff = compute_window_efficiency(in_lens, tgt_lens);
     EXPECT_NEAR(eff, 206.0f / 800.0f, 1e-5f);
 }
 
 TEST(PaddingEfficiencyComputation, EmptyWindowReturnsSentinel) {
-    std::vector<int> in_lens  = {};
+    std::vector<int> in_lens = {};
     std::vector<int> tgt_lens = {};
     float eff = compute_window_efficiency(in_lens, tgt_lens);
     EXPECT_FLOAT_EQ(eff, -1.0f);
@@ -231,6 +234,6 @@ TEST(PaddingEfficiencyComputation, EpochAverageOfTwoWindows) {
     // Simulate averaging two window efficiencies
     float eff1 = compute_window_efficiency({10, 10}, {8, 8});  // 1.0
     float eff2 = compute_window_efficiency({1, 10}, {1, 10});  // 0.55
-    float avg  = (eff1 + eff2) / 2.0f;
+    float avg = (eff1 + eff2) / 2.0f;
     EXPECT_NEAR(avg, 0.775f, 1e-5f);
 }

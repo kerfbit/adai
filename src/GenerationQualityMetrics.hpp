@@ -1,8 +1,8 @@
 #pragma once
 
 #include <algorithm>
-#include <cmath>
 #include <cctype>
+#include <cmath>
 #include <map>
 #include <sstream>
 #include <string>
@@ -14,9 +14,9 @@
  * All fields default to -1.0 (not computed).
  */
 struct GenerationQualityScore {
-    float bleu1  = -1.0f;  ///< Corpus BLEU-1  (unigram modified precision)
-    float bleu2  = -1.0f;  ///< Corpus BLEU-2  (bigram  modified precision)
-    float bleu4  = -1.0f;  ///< Corpus BLEU-4  (4-gram, standard metric)
+    float bleu1 = -1.0f;   ///< Corpus BLEU-1  (unigram modified precision)
+    float bleu2 = -1.0f;   ///< Corpus BLEU-2  (bigram  modified precision)
+    float bleu4 = -1.0f;   ///< Corpus BLEU-4  (4-gram, standard metric)
     float rouge1 = -1.0f;  ///< Macro-averaged ROUGE-1 F1  (unigram overlap)
     float rouge2 = -1.0f;  ///< Macro-averaged ROUGE-2 F1  (bigram  overlap)
     float rougeL = -1.0f;  ///< Macro-averaged ROUGE-L F1  (LCS-based)
@@ -34,7 +34,7 @@ struct GenerationQualityScore {
  *        ROUGE-L uses a rolling 2-row DP LCS to bound memory use.
  */
 class GenerationQualityEvaluator {
-public:
+   public:
     /**
      * @brief Evaluate corpus-level BLEU/ROUGE metrics.
      * @param references  List of reference (target) strings.
@@ -43,9 +43,8 @@ public:
      * @return GenerationQualityScore with all fields populated;
      *         returns default struct (all -1) on empty or mismatched input.
      */
-    static GenerationQualityScore evaluate(
-            const std::vector<std::string>& references,
-            const std::vector<std::string>& hypotheses) {
+    static GenerationQualityScore evaluate(const std::vector<std::string>& references,
+                                           const std::vector<std::string>& hypotheses) {
         if (references.empty() || references.size() != hypotheses.size())
             return {};
 
@@ -58,9 +57,9 @@ public:
         }
 
         GenerationQualityScore score;
-        score.bleu1  = compute_corpus_bleu(ref_toks, hyp_toks, 1);
-        score.bleu2  = compute_corpus_bleu(ref_toks, hyp_toks, 2);
-        score.bleu4  = compute_corpus_bleu(ref_toks, hyp_toks, 4);
+        score.bleu1 = compute_corpus_bleu(ref_toks, hyp_toks, 1);
+        score.bleu2 = compute_corpus_bleu(ref_toks, hyp_toks, 2);
+        score.bleu4 = compute_corpus_bleu(ref_toks, hyp_toks, 4);
         score.rouge1 = compute_corpus_rouge_n(ref_toks, hyp_toks, 1);
         score.rouge2 = compute_corpus_rouge_n(ref_toks, hyp_toks, 2);
         score.rougeL = compute_corpus_rouge_l(ref_toks, hyp_toks);
@@ -83,13 +82,11 @@ public:
                            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
             // Strip leading punctuation
             size_t start = 0;
-            while (start < word.size() &&
-                   std::ispunct(static_cast<unsigned char>(word[start])))
+            while (start < word.size() && std::ispunct(static_cast<unsigned char>(word[start])))
                 ++start;
             // Strip trailing punctuation
             size_t end = word.size();
-            while (end > start &&
-                   std::ispunct(static_cast<unsigned char>(word[end - 1])))
+            while (end > start && std::ispunct(static_cast<unsigned char>(word[end - 1])))
                 --end;
             if (start < end)
                 tokens.push_back(word.substr(start, end - start));
@@ -97,10 +94,10 @@ public:
         return tokens;
     }
 
-private:
+   private:
     using TokenList = std::vector<std::string>;
-    using NGram     = std::vector<std::string>;
-    using Counts    = std::map<NGram, int>;
+    using NGram = std::vector<std::string>;
+    using Counts = std::map<NGram, int>;
 
     static Counts count_ngrams(const TokenList& tokens, int n) {
         Counts c;
@@ -119,10 +116,8 @@ private:
      * Add-1 smoothing (Lin & Och 2004 method 1) prevents log(0) for n-gram
      * orders that have no corpus-level matches.
      */
-    static float compute_corpus_bleu(
-            const std::vector<TokenList>& refs,
-            const std::vector<TokenList>& hyps,
-            int max_n) {
+    static float compute_corpus_bleu(const std::vector<TokenList>& refs,
+                                     const std::vector<TokenList>& hyps, int max_n) {
         std::vector<int> match_cnt(max_n, 0);
         std::vector<int> hyp_cnt(max_n, 0);
         int total_ref_len = 0;
@@ -169,17 +164,16 @@ private:
      *
      * F1 = 2·precision·recall / (precision + recall) per sentence, averaged.
      */
-    static float compute_corpus_rouge_n(
-            const std::vector<TokenList>& refs,
-            const std::vector<TokenList>& hyps,
-            int n) {
+    static float compute_corpus_rouge_n(const std::vector<TokenList>& refs,
+                                        const std::vector<TokenList>& hyps, int n) {
         float total_f1 = 0.0f;
         for (size_t idx = 0; idx < refs.size(); ++idx) {
             Counts ref_ng = count_ngrams(refs[idx], n);
             Counts hyp_ng = count_ngrams(hyps[idx], n);
 
             int ref_total = 0, hyp_total = 0, match = 0;
-            for (auto& [ng, cnt] : ref_ng) ref_total += cnt;
+            for (auto& [ng, cnt] : ref_ng)
+                ref_total += cnt;
             for (auto& [ng, cnt] : hyp_ng) {
                 hyp_total += cnt;
                 auto it = ref_ng.find(ng);
@@ -187,8 +181,8 @@ private:
                     match += std::min(cnt, it->second);
             }
             float prec = hyp_total > 0 ? static_cast<float>(match) / hyp_total : 0.0f;
-            float rec  = ref_total  > 0 ? static_cast<float>(match) / ref_total  : 0.0f;
-            float f1   = (prec + rec > 0.0f) ? 2.0f * prec * rec / (prec + rec) : 0.0f;
+            float rec = ref_total > 0 ? static_cast<float>(match) / ref_total : 0.0f;
+            float f1 = (prec + rec > 0.0f) ? 2.0f * prec * rec / (prec + rec) : 0.0f;
             total_f1 += f1;
         }
         return refs.empty() ? 0.0f : total_f1 / static_cast<float>(refs.size());
@@ -199,17 +193,14 @@ private:
      *
      * Uses a rolling 2-row DP to keep memory O(min(m,n)).
      */
-    static float compute_corpus_rouge_l(
-            const std::vector<TokenList>& refs,
-            const std::vector<TokenList>& hyps) {
+    static float compute_corpus_rouge_l(const std::vector<TokenList>& refs,
+                                        const std::vector<TokenList>& hyps) {
         float total_f1 = 0.0f;
         for (size_t idx = 0; idx < refs.size(); ++idx) {
-            int lcs  = lcs_length(refs[idx], hyps[idx]);
-            float prec = hyps[idx].empty() ? 0.0f
-                         : static_cast<float>(lcs) / hyps[idx].size();
-            float rec  = refs[idx].empty()  ? 0.0f
-                         : static_cast<float>(lcs) / refs[idx].size();
-            float f1   = (prec + rec > 0.0f) ? 2.0f * prec * rec / (prec + rec) : 0.0f;
+            int lcs = lcs_length(refs[idx], hyps[idx]);
+            float prec = hyps[idx].empty() ? 0.0f : static_cast<float>(lcs) / hyps[idx].size();
+            float rec = refs[idx].empty() ? 0.0f : static_cast<float>(lcs) / refs[idx].size();
+            float f1 = (prec + rec > 0.0f) ? 2.0f * prec * rec / (prec + rec) : 0.0f;
             total_f1 += f1;
         }
         return refs.empty() ? 0.0f : total_f1 / static_cast<float>(refs.size());
@@ -219,14 +210,13 @@ private:
     static int lcs_length(const TokenList& a, const TokenList& b) {
         int m = static_cast<int>(a.size());
         int n = static_cast<int>(b.size());
-        if (m == 0 || n == 0) return 0;
+        if (m == 0 || n == 0)
+            return 0;
 
         std::vector<int> prev(n + 1, 0), curr(n + 1, 0);
         for (int i = 1; i <= m; ++i) {
             for (int j = 1; j <= n; ++j)
-                curr[j] = (a[i - 1] == b[j - 1])
-                          ? prev[j - 1] + 1
-                          : std::max(prev[j], curr[j - 1]);
+                curr[j] = (a[i - 1] == b[j - 1]) ? prev[j - 1] + 1 : std::max(prev[j], curr[j - 1]);
             std::swap(prev, curr);
             std::fill(curr.begin(), curr.end(), 0);
         }

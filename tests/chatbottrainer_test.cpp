@@ -1,15 +1,15 @@
+#include "../src/ChatbotTrainer.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
 #include <fstream>
 #include <memory>
-#include "../src/ChatbotTrainer.hpp"
 
 // ============================================================================
 // Test Fixtures
 // ============================================================================
 
 class ChatbotTrainerTest : public ::testing::Test {
-protected:
+   protected:
     TrainingConfig config;
     std::unique_ptr<ChatbotTrainer> trainer;
 
@@ -22,9 +22,9 @@ protected:
         config.num_encoder_layers = 2;
         config.num_decoder_layers = 2;
         config.max_seq_length = 32;
-        config.validation_split = 5;  // 20% validation
+        config.validation_split = 5;          // 20% validation
         config.log_level = LogLevel::SILENT;  // Quiet during tests
-        
+
         trainer = std::make_unique<ChatbotTrainer>(config);
     }
 
@@ -34,7 +34,7 @@ protected:
 };
 
 class MetricsTest : public ::testing::Test {
-protected:
+   protected:
     std::unique_ptr<ChatbotTrainer> trainer;
 
     void SetUp() override {
@@ -45,7 +45,7 @@ protected:
 };
 
 class LoggingTest : public ::testing::Test {
-protected:
+   protected:
     std::unique_ptr<ChatbotTrainer> trainer;
 
     void SetUp() override {
@@ -87,11 +87,11 @@ TEST_F(MetricsTest, CalculatePerplexity_Monotonic) {
     float loss1 = 1.0f;
     float loss2 = 2.0f;
     float loss3 = 3.0f;
-    
+
     float ppl1 = trainer->calculate_perplexity(loss1);
     float ppl2 = trainer->calculate_perplexity(loss2);
     float ppl3 = trainer->calculate_perplexity(loss3);
-    
+
     EXPECT_LT(ppl1, ppl2);
     EXPECT_LT(ppl2, ppl3);
 }
@@ -100,7 +100,7 @@ TEST_F(MetricsTest, CalculateAccuracy_PerfectMatch) {
     // When vectors match, accuracy should be 100%
     std::vector<int> predictions = {1, 2, 3};
     std::vector<int> targets = {1, 2, 3};
-    
+
     float accuracy = trainer->calculate_accuracy(predictions, targets);
     EXPECT_FLOAT_EQ(accuracy, 1.0f);  // 100% accuracy
 }
@@ -109,7 +109,7 @@ TEST_F(MetricsTest, CalculateAccuracy_PartialMatch) {
     // 2 out of 4 correct = 50%
     std::vector<int> predictions = {1, 2, 3, 4};
     std::vector<int> targets = {1, 5, 3, 6};
-    
+
     float accuracy = trainer->calculate_accuracy(predictions, targets);
     EXPECT_FLOAT_EQ(accuracy, 0.5f);  // 50% accuracy
 }
@@ -118,7 +118,7 @@ TEST_F(MetricsTest, CalculateAccuracy_NoMatch) {
     // 0 out of 3 correct = 0%
     std::vector<int> predictions = {1, 2, 3};
     std::vector<int> targets = {4, 5, 6};
-    
+
     float accuracy = trainer->calculate_accuracy(predictions, targets);
     EXPECT_FLOAT_EQ(accuracy, 0.0f);  // 0% accuracy
 }
@@ -126,7 +126,7 @@ TEST_F(MetricsTest, CalculateAccuracy_NoMatch) {
 TEST_F(MetricsTest, CalculateAccuracy_EmptyVectors) {
     std::vector<int> predictions;
     std::vector<int> targets;
-    
+
     float accuracy = trainer->calculate_accuracy(predictions, targets);
     EXPECT_FLOAT_EQ(accuracy, -1.0f);
 }
@@ -134,7 +134,7 @@ TEST_F(MetricsTest, CalculateAccuracy_EmptyVectors) {
 TEST_F(MetricsTest, CalculateAccuracy_MismatchedSizes) {
     std::vector<int> predictions = {1, 2, 3};
     std::vector<int> targets = {1, 2};
-    
+
     float accuracy = trainer->calculate_accuracy(predictions, targets);
     EXPECT_FLOAT_EQ(accuracy, -1.0f);
 }
@@ -147,7 +147,7 @@ TEST_F(LoggingTest, LogLevel_Silent_NoOutput) {
     TrainingConfig config;
     config.log_level = LogLevel::SILENT;
     auto silent_trainer = std::make_unique<ChatbotTrainer>(config);
-    
+
     // Should not crash, but won't verify output (would need output capture)
     silent_trainer->log(LogLevel::NORMAL, "This should not appear", "");
     silent_trainer->log(LogLevel::VERBOSE, "This should not appear", "");
@@ -158,7 +158,7 @@ TEST_F(LoggingTest, LogLevel_Normal_FiltersVerbose) {
     TrainingConfig config;
     config.log_level = LogLevel::NORMAL;
     auto normal_trainer = std::make_unique<ChatbotTrainer>(config);
-    
+
     // NORMAL and below should appear, VERBOSE and DEBUG should not
     normal_trainer->log(LogLevel::SILENT, "Error message", "");
     normal_trainer->log(LogLevel::NORMAL, "Normal message", "");
@@ -170,7 +170,7 @@ TEST_F(LoggingTest, LogLevel_Verbose_FiltersDebug) {
     TrainingConfig config;
     config.log_level = LogLevel::VERBOSE;
     auto verbose_trainer = std::make_unique<ChatbotTrainer>(config);
-    
+
     // VERBOSE and below should appear, DEBUG should not
     verbose_trainer->log(LogLevel::SILENT, "Error message", "");
     verbose_trainer->log(LogLevel::NORMAL, "Normal message", "");
@@ -182,7 +182,7 @@ TEST_F(LoggingTest, LogLevel_Debug_ShowsAll) {
     TrainingConfig config;
     config.log_level = LogLevel::DEBUG;
     auto debug_trainer = std::make_unique<ChatbotTrainer>(config);
-    
+
     // All messages should appear
     debug_trainer->log(LogLevel::SILENT, "Error message", "");
     debug_trainer->log(LogLevel::NORMAL, "Normal message", "");
@@ -196,7 +196,7 @@ TEST_F(LoggingTest, LogLevel_Debug_ShowsAll) {
 
 TEST_F(ChatbotTrainerTest, Config_DefaultValues) {
     TrainingConfig default_config;
-    
+
     EXPECT_EQ(default_config.d_model, 512);
     EXPECT_EQ(default_config.num_heads, 8);
     EXPECT_EQ(default_config.d_ff, 2048);
@@ -222,9 +222,9 @@ TEST_F(ChatbotTrainerTest, Config_CustomValues) {
     custom_config.learning_rate = 0.0001f;
     custom_config.num_epochs = 20;
     custom_config.log_level = LogLevel::NORMAL;
-    
+
     auto custom_trainer = std::make_unique<ChatbotTrainer>(custom_config);
-    
+
     EXPECT_EQ(custom_trainer->get_config().d_model, 256);
     EXPECT_EQ(custom_trainer->get_config().num_heads, 4);
     EXPECT_FLOAT_EQ(custom_trainer->get_config().learning_rate, 0.0001f);
@@ -255,7 +255,7 @@ TEST(EnumTest, LogLevel_Ordering) {
     EXPECT_LT(static_cast<int>(LogLevel::SILENT), static_cast<int>(LogLevel::NORMAL));
     EXPECT_LT(static_cast<int>(LogLevel::NORMAL), static_cast<int>(LogLevel::VERBOSE));
     EXPECT_LT(static_cast<int>(LogLevel::VERBOSE), static_cast<int>(LogLevel::DEBUG));
-    
+
     EXPECT_EQ(static_cast<int>(LogLevel::SILENT), 0);
     EXPECT_EQ(static_cast<int>(LogLevel::NORMAL), 1);
     EXPECT_EQ(static_cast<int>(LogLevel::VERBOSE), 2);
@@ -268,14 +268,14 @@ TEST(EnumTest, LogLevel_Ordering) {
 
 TEST(DataStructureTest, ConversationPair_Construction) {
     ConversationPair pair("Hello", "Hi there!");
-    
+
     EXPECT_EQ(pair.input, "Hello");
     EXPECT_EQ(pair.response, "Hi there!");
 }
 
 TEST(DataStructureTest, ConversationPair_EmptyStrings) {
     ConversationPair pair("", "");
-    
+
     EXPECT_TRUE(pair.input.empty());
     EXPECT_TRUE(pair.response.empty());
 }
@@ -283,9 +283,9 @@ TEST(DataStructureTest, ConversationPair_EmptyStrings) {
 TEST(DataStructureTest, TokenizedPair_Construction) {
     std::vector<int> input_tokens = {1, 2, 3};
     std::vector<int> target_tokens = {4, 5, 6};
-    
+
     TokenizedPair pair(input_tokens, target_tokens, "hello", "world");
-    
+
     EXPECT_EQ(pair.input_tokens.size(), 3);
     EXPECT_EQ(pair.target_tokens.size(), 3);
     EXPECT_EQ(pair.input_tokens[0], 1);
@@ -296,9 +296,9 @@ TEST(DataStructureTest, TokenizedPair_Construction) {
 
 TEST(DataStructureTest, TokenizedPair_EmptyVectors) {
     std::vector<int> empty;
-    
+
     TokenizedPair pair(empty, empty, "", "");
-    
+
     EXPECT_TRUE(pair.input_tokens.empty());
     EXPECT_TRUE(pair.target_tokens.empty());
     EXPECT_TRUE(pair.input_text.empty());
@@ -330,7 +330,7 @@ TEST_F(ChatbotTrainerTest, Getters_DataSizes) {
 // ============================================================================
 
 class CheckpointTest : public ::testing::Test {
-protected:
+   protected:
     std::string test_checkpoint_path;
     std::string test_metadata_path;
 
@@ -345,8 +345,8 @@ protected:
         std::remove(test_metadata_path.c_str());
     }
 
-    void create_dummy_metadata(int epoch, int global_step, float lr, 
-                               float best_val_loss, int best_epoch) {
+    void create_dummy_metadata(int epoch, int global_step, float lr, float best_val_loss,
+                               int best_epoch) {
         std::ofstream meta_file(test_metadata_path);
         meta_file << "epoch=" << epoch << "\n";
         meta_file << "global_step=" << global_step << "\n";
@@ -359,40 +359,40 @@ protected:
 
 TEST_F(CheckpointTest, Metadata_FileFormat) {
     create_dummy_metadata(5, 1000, 0.0001f, 2.5f, 3);
-    
+
     std::ifstream meta_file(test_metadata_path);
     ASSERT_TRUE(meta_file.is_open());
-    
+
     std::string line;
     std::getline(meta_file, line);
     EXPECT_EQ(line, "epoch=5");
-    
+
     std::getline(meta_file, line);
     EXPECT_EQ(line, "global_step=1000");
-    
+
     std::getline(meta_file, line);
     EXPECT_EQ(line, "learning_rate=0.0001");
-    
+
     meta_file.close();
 }
 
 TEST_F(CheckpointTest, Metadata_ParseKeyValue) {
     create_dummy_metadata(10, 5000, 0.00005f, 1.8f, 7);
-    
+
     std::ifstream meta_file(test_metadata_path);
     std::string line;
-    
+
     while (std::getline(meta_file, line)) {
         size_t pos = line.find('=');
         EXPECT_NE(pos, std::string::npos);
-        
+
         std::string key = line.substr(0, pos);
         std::string value = line.substr(pos + 1);
-        
+
         EXPECT_FALSE(key.empty());
         EXPECT_FALSE(value.empty());
     }
-    
+
     meta_file.close();
 }
 
@@ -404,7 +404,7 @@ TEST(GradientAccumulationTest, EffectiveBatchSize_NoAccumulation) {
     TrainingConfig config;
     config.batch_size = 4;
     config.gradient_accumulation_steps = 1;
-    
+
     int effective_batch = config.batch_size * config.gradient_accumulation_steps;
     EXPECT_EQ(effective_batch, 4);
 }
@@ -413,7 +413,7 @@ TEST(GradientAccumulationTest, EffectiveBatchSize_WithAccumulation) {
     TrainingConfig config;
     config.batch_size = 1;
     config.gradient_accumulation_steps = 32;
-    
+
     int effective_batch = config.batch_size * config.gradient_accumulation_steps;
     EXPECT_EQ(effective_batch, 32);
 }
@@ -422,7 +422,7 @@ TEST(GradientAccumulationTest, EffectiveBatchSize_Large) {
     TrainingConfig config;
     config.batch_size = 8;
     config.gradient_accumulation_steps = 16;
-    
+
     int effective_batch = config.batch_size * config.gradient_accumulation_steps;
     EXPECT_EQ(effective_batch, 128);
 }
@@ -444,7 +444,7 @@ TEST(EarlyStoppingTest, Config_EnabledWithPatience) {
     config.enable_early_stopping = true;
     config.patience = 10;
     config.min_delta = 0.001f;
-    
+
     EXPECT_TRUE(config.enable_early_stopping);
     EXPECT_EQ(config.patience, 10);
     EXPECT_FLOAT_EQ(config.min_delta, 0.001f);
@@ -457,18 +457,18 @@ TEST(EarlyStoppingTest, Config_EnabledWithPatience) {
 TEST(LRScheduleTest, WarmupSteps_AutoCalculation) {
     TrainingConfig config;
     config.warmup_steps = 0;  // Auto mode
-    
+
     // If total steps = 1000, auto warmup should be ~100 (10%)
     int total_steps = 1000;
     int auto_warmup = (config.warmup_steps > 0) ? config.warmup_steps : total_steps / 10;
-    
+
     EXPECT_EQ(auto_warmup, 100);
 }
 
 TEST(LRScheduleTest, WarmupSteps_ManualSetting) {
     TrainingConfig config;
     config.warmup_steps = 500;
-    
+
     EXPECT_EQ(config.warmup_steps, 500);
 }
 
@@ -476,7 +476,7 @@ TEST(LRScheduleTest, MinLearningRate_LessThanBase) {
     TrainingConfig config;
     config.learning_rate = 0.001f;
     config.min_learning_rate = 1e-6f;
-    
+
     EXPECT_LT(config.min_learning_rate, config.learning_rate);
 }
 
@@ -487,7 +487,7 @@ TEST(LRScheduleTest, MinLearningRate_LessThanBase) {
 TEST_F(ChatbotTrainerTest, Perplexity_AfterTraining) {
     // This test verifies that perplexity vectors are properly sized
     // after training (would need real training data to fully test)
-    
+
     // Initially empty
     EXPECT_TRUE(trainer->get_training_perplexities().empty());
     EXPECT_TRUE(trainer->get_validation_perplexities().empty());
@@ -518,14 +518,14 @@ TEST_F(MetricsTest, Perplexity_VeryLargeLoss) {
 TEST(ConfigTest, ValidationSplit_Zero_NoValidation) {
     TrainingConfig config;
     config.validation_split = 0;
-    
+
     EXPECT_EQ(config.validation_split, 0);
 }
 
 TEST(ConfigTest, ValidationSplit_Typical) {
     TrainingConfig config;
     config.validation_split = 10;  // 10% validation
-    
+
     EXPECT_EQ(config.validation_split, 10);
 }
 

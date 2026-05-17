@@ -1,10 +1,10 @@
-#include "../src/ChatbotCLI.hpp"
 #include <../gtest/gtest.h>
 #include <cstdio>
 #include <fstream>
 #include <sstream>
 #include <string>
 #include <vector>
+#include "../src/ChatbotCLI.hpp"
 
 // ============================================================================
 // Test Fixtures
@@ -238,7 +238,7 @@ TEST_F(ChatbotCLITest, HandleSettingMissingValue) {
     std::streambuf* old = std::cout.rdbuf(buffer.rdbuf());
 
     int original_length = cli.get_max_response_length();
-    cli.handle_setting("length");  // Missing value
+    cli.handle_setting("length");                               // Missing value
     EXPECT_EQ(cli.get_max_response_length(), original_length);  // Should not change
 
     std::cout.rdbuf(old);
@@ -265,7 +265,7 @@ bool is_valid_command(const std::string& input) {
 
 bool is_valid_strategy(const std::string& strategy) {
     const std::vector<std::string> VALID_STRATEGIES = {"greedy", "beam", "sampling", "top-k",
-                                                        "nucleus"};
+                                                       "nucleus"};
     for (const auto& valid : VALID_STRATEGIES) {
         if (strategy == valid)
             return true;
@@ -291,9 +291,9 @@ TEST(CommandValidationTest, RecognizeCommandsWithParameters) {
 
 TEST(CommandValidationTest, RejectInvalidCommands) {
     EXPECT_FALSE(is_valid_command("/invalid"));
-    EXPECT_FALSE(is_valid_command("help"));     // Missing slash
-    EXPECT_FALSE(is_valid_command(""));         // Empty
-    EXPECT_FALSE(is_valid_command("random"));   // Not a command
+    EXPECT_FALSE(is_valid_command("help"));    // Missing slash
+    EXPECT_FALSE(is_valid_command(""));        // Empty
+    EXPECT_FALSE(is_valid_command("random"));  // Not a command
 }
 
 TEST(StrategyValidationTest, RecognizeValidStrategies) {

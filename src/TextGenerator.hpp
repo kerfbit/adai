@@ -58,16 +58,16 @@ class TextGenerator {
      * Generation configuration parameters
      */
     struct GenerationConfig {
-        int max_length = 100;               // Maximum sequence length
-        float temperature = 1.0f;           // Sampling temperature (0 = greedy)
-        int top_k = 0;                      // Top-k filtering (0 = disabled)
-        float top_p = 1.0f;                 // Nucleus sampling threshold
-        float repetition_penalty = 1.0f;    // Penalty for repeated tokens (1.0 = none)
-        int num_beams = 1;                  // Beam width for beam search
-        bool length_penalty = true;         // Apply length normalization in beam search
-        float length_penalty_alpha = 0.6f;  // Length penalty exponent
-        bool early_stopping = true;         // Stop when all beams finish
-        int min_length = 0;                 // Minimum generation length
+        int max_length = 100;                           // Maximum sequence length
+        float temperature = 1.0f;                       // Sampling temperature (0 = greedy)
+        int top_k = 0;                                  // Top-k filtering (0 = disabled)
+        float top_p = 1.0f;                             // Nucleus sampling threshold
+        float repetition_penalty = 1.0f;                // Penalty for repeated tokens (1.0 = none)
+        int num_beams = 1;                              // Beam width for beam search
+        bool length_penalty = true;                     // Apply length normalization in beam search
+        float length_penalty_alpha = 0.6f;              // Length penalty exponent
+        bool early_stopping = true;                     // Stop when all beams finish
+        int min_length = 0;                             // Minimum generation length
         int pad_token_id = adai::SpecialTokenIDs::PAD;  // Padding token ID
         int bos_token_id = adai::SpecialTokenIDs::BOS;  // Beginning of sequence token
         int eos_token_id = adai::SpecialTokenIDs::EOS;  // End of sequence token
@@ -87,8 +87,8 @@ class TextGenerator {
 
    private:
     GenerationConfig config;
-    std::mt19937 rng;  // Random number generator
-    ModelForwardFn model_fn_;   // Stored model function (for speculative decoding)
+    std::mt19937 rng;          // Random number generator
+    ModelForwardFn model_fn_;  // Stored model function (for speculative decoding)
     BPETokenizer* tokenizer_;  // Stored tokenizer pointer (for speculative decoding)
 
     /**

@@ -1,32 +1,32 @@
 #include <gtest/gtest.h>
-#include "BPETokenizer.hpp"
 #include <fstream>
+#include "BPETokenizer.hpp"
 
 /**
  * @file tokenizer_error_handling_test.cpp
  * @brief Test suite for BPE Tokenizer error handling improvements (TD-002)
- * 
+ *
  * Tests custom exception types, input validation, UTF-8 validation,
  * and vocabulary file format validation.
  */
 
 // Test fixture for tokenizer error handling
 class TokenizerErrorHandlingTest : public ::testing::Test {
-protected:
+   protected:
     BPETokenizer tokenizer;
     std::string test_vocab_file = "test_vocab_error.txt";
-    
+
     void SetUp() override {
         // Initialize tokenizer with basic vocab for some tests
         std::vector<std::string> sample_texts = {"hello world", "test text"};
         tokenizer.build_vocab(sample_texts, 100);
     }
-    
+
     void TearDown() override {
         // Clean up test files
         std::remove(test_vocab_file.c_str());
     }
-    
+
     // Helper to create a malformed vocab file
     void create_malformed_vocab_file(const std::string& content) {
         std::ofstream file(test_vocab_file);
@@ -40,9 +40,7 @@ protected:
 // ============================================================================
 
 TEST_F(TokenizerErrorHandlingTest, EncodeEmptyStringThrowsException) {
-    EXPECT_THROW({
-        tokenizer.encode("");
-    }, TokenizerInputError);
+    EXPECT_THROW({ tokenizer.encode(""); }, TokenizerInputError);
 }
 
 TEST_F(TokenizerErrorHandlingTest, EncodeEmptyStringExceptionMessage) {
@@ -58,9 +56,7 @@ TEST_F(TokenizerErrorHandlingTest, EncodeEmptyStringExceptionMessage) {
 
 TEST_F(TokenizerErrorHandlingTest, DecodeEmptyVectorThrowsException) {
     std::vector<int> empty_ids;
-    EXPECT_THROW({
-        tokenizer.decode(empty_ids);
-    }, TokenizerInputError);
+    EXPECT_THROW({ tokenizer.decode(empty_ids); }, TokenizerInputError);
 }
 
 TEST_F(TokenizerErrorHandlingTest, DecodeEmptyVectorExceptionMessage) {
@@ -82,9 +78,7 @@ TEST_F(TokenizerErrorHandlingTest, DecodeEmptyVectorExceptionMessage) {
 TEST_F(TokenizerErrorHandlingTest, EncodeInvalidUTF8ThrowsException) {
     // Invalid UTF-8 sequence: continuation byte without start byte
     std::string invalid_utf8 = "hello\x80world";
-    EXPECT_THROW({
-        tokenizer.encode(invalid_utf8);
-    }, TokenizerEncodingError);
+    EXPECT_THROW({ tokenizer.encode(invalid_utf8); }, TokenizerEncodingError);
 }
 
 TEST_F(TokenizerErrorHandlingTest, EncodeInvalidUTF8ExceptionMessage) {
@@ -102,9 +96,7 @@ TEST_F(TokenizerErrorHandlingTest, EncodeInvalidUTF8ExceptionMessage) {
 TEST_F(TokenizerErrorHandlingTest, EncodeValidUTF8Succeeds) {
     // Valid UTF-8 with multi-byte characters
     std::string valid_utf8 = "Hello 世界 🌍";
-    EXPECT_NO_THROW({
-        tokenizer.encode(valid_utf8);
-    });
+    EXPECT_NO_THROW({ tokenizer.encode(valid_utf8); });
 }
 
 TEST_F(TokenizerErrorHandlingTest, EncodeASCIISucceeds) {
@@ -121,9 +113,7 @@ TEST_F(TokenizerErrorHandlingTest, EncodeASCIISucceeds) {
 
 TEST_F(TokenizerErrorHandlingTest, DecodeNegativeTokenIDThrowsException) {
     std::vector<int> invalid_ids = {1, 2, -5, 3};
-    EXPECT_THROW({
-        tokenizer.decode(invalid_ids);
-    }, TokenIDError);
+    EXPECT_THROW({ tokenizer.decode(invalid_ids); }, TokenIDError);
 }
 
 TEST_F(TokenizerErrorHandlingTest, DecodeNegativeTokenIDExceptionMessage) {
@@ -141,15 +131,13 @@ TEST_F(TokenizerErrorHandlingTest, DecodeNegativeTokenIDExceptionMessage) {
 TEST_F(TokenizerErrorHandlingTest, DecodeUnknownTokenIDWarning) {
     // This should warn but not throw
     std::vector<int> ids_with_unknown = {2, 99999, 3};  // 99999 likely doesn't exist
-    
+
     // Redirect stderr to capture warning
     testing::internal::CaptureStderr();
-    
+
     std::string result;
-    EXPECT_NO_THROW({
-        result = tokenizer.decode(ids_with_unknown);
-    });
-    
+    EXPECT_NO_THROW({ result = tokenizer.decode(ids_with_unknown); });
+
     std::string stderr_output = testing::internal::GetCapturedStderr();
     EXPECT_TRUE(stderr_output.find("Warning: Unknown token ID") != std::string::npos);
 }
@@ -159,15 +147,11 @@ TEST_F(TokenizerErrorHandlingTest, DecodeUnknownTokenIDWarning) {
 // ============================================================================
 
 TEST_F(TokenizerErrorHandlingTest, LoadVocabEmptyFilenameThrowsException) {
-    EXPECT_THROW({
-        tokenizer.load_vocab("");
-    }, VocabularyFileError);
+    EXPECT_THROW({ tokenizer.load_vocab(""); }, VocabularyFileError);
 }
 
 TEST_F(TokenizerErrorHandlingTest, LoadVocabNonexistentFileThrowsException) {
-    EXPECT_THROW({
-        tokenizer.load_vocab("nonexistent_file_12345.txt");
-    }, VocabularyFileError);
+    EXPECT_THROW({ tokenizer.load_vocab("nonexistent_file_12345.txt"); }, VocabularyFileError);
 }
 
 TEST_F(TokenizerErrorHandlingTest, LoadVocabNonexistentFileExceptionMessage) {
@@ -186,12 +170,9 @@ TEST_F(TokenizerErrorHandlingTest, LoadVocabMalformedSpecialTokensThrowsExceptio
         "VOCAB_SIZE 10\n"
         "SPECIAL_TOKENS\n"
         "pad_token_id0\n"  // Missing space
-        "VOCAB\n"
-    );
-    
-    EXPECT_THROW({
-        tokenizer.load_vocab(test_vocab_file);
-    }, VocabularyFileError);
+        "VOCAB\n");
+
+    EXPECT_THROW({ tokenizer.load_vocab(test_vocab_file); }, VocabularyFileError);
 }
 
 TEST_F(TokenizerErrorHandlingTest, LoadVocabInvalidSpecialTokenIDThrowsException) {
@@ -200,12 +181,9 @@ TEST_F(TokenizerErrorHandlingTest, LoadVocabInvalidSpecialTokenIDThrowsException
         "VOCAB_SIZE 10\n"
         "SPECIAL_TOKENS\n"
         "pad_token_id invalid\n"
-        "VOCAB\n"
-    );
-    
-    EXPECT_THROW({
-        tokenizer.load_vocab(test_vocab_file);
-    }, VocabularyFileError);
+        "VOCAB\n");
+
+    EXPECT_THROW({ tokenizer.load_vocab(test_vocab_file); }, VocabularyFileError);
 }
 
 TEST_F(TokenizerErrorHandlingTest, LoadVocabMalformedVocabLineThrowsException) {
@@ -217,10 +195,8 @@ TEST_F(TokenizerErrorHandlingTest, LoadVocabMalformedVocabLineThrowsException) {
         "VOCAB\n"
         "<pad> 0\n"  // Missing tab, using space
     );
-    
-    EXPECT_THROW({
-        tokenizer.load_vocab(test_vocab_file);
-    }, VocabularyFileError);
+
+    EXPECT_THROW({ tokenizer.load_vocab(test_vocab_file); }, VocabularyFileError);
 }
 
 TEST_F(TokenizerErrorHandlingTest, LoadVocabInvalidTokenIDThrowsException) {
@@ -230,12 +206,9 @@ TEST_F(TokenizerErrorHandlingTest, LoadVocabInvalidTokenIDThrowsException) {
         "SPECIAL_TOKENS\n"
         "pad_token_id 0\n"
         "VOCAB\n"
-        "<pad>\tnotanumber\n"
-    );
-    
-    EXPECT_THROW({
-        tokenizer.load_vocab(test_vocab_file);
-    }, VocabularyFileError);
+        "<pad>\tnotanumber\n");
+
+    EXPECT_THROW({ tokenizer.load_vocab(test_vocab_file); }, VocabularyFileError);
 }
 
 TEST_F(TokenizerErrorHandlingTest, LoadVocabNegativeTokenIDThrowsException) {
@@ -245,12 +218,9 @@ TEST_F(TokenizerErrorHandlingTest, LoadVocabNegativeTokenIDThrowsException) {
         "SPECIAL_TOKENS\n"
         "pad_token_id 0\n"
         "VOCAB\n"
-        "<pad>\t-5\n"
-    );
-    
-    EXPECT_THROW({
-        tokenizer.load_vocab(test_vocab_file);
-    }, VocabularyFileError);
+        "<pad>\t-5\n");
+
+    EXPECT_THROW({ tokenizer.load_vocab(test_vocab_file); }, VocabularyFileError);
 }
 
 TEST_F(TokenizerErrorHandlingTest, LoadVocabMalformedBPEMergeThrowsException) {
@@ -270,10 +240,8 @@ TEST_F(TokenizerErrorHandlingTest, LoadVocabMalformedBPEMergeThrowsException) {
         "BPE_MERGES 1\n"
         "ab\n"  // Missing second part
     );
-    
-    EXPECT_THROW({
-        tokenizer.load_vocab(test_vocab_file);
-    }, VocabularyFileError);
+
+    EXPECT_THROW({ tokenizer.load_vocab(test_vocab_file); }, VocabularyFileError);
 }
 
 TEST_F(TokenizerErrorHandlingTest, LoadVocabEmptyVocabularyThrowsException) {
@@ -281,12 +249,9 @@ TEST_F(TokenizerErrorHandlingTest, LoadVocabEmptyVocabularyThrowsException) {
     create_malformed_vocab_file(
         "VOCAB_SIZE 0\n"
         "VOCAB\n"
-        "BPE_MERGES 0\n"
-    );
-    
-    EXPECT_THROW({
-        tokenizer.load_vocab(test_vocab_file);
-    }, VocabularyFileError);
+        "BPE_MERGES 0\n");
+
+    EXPECT_THROW({ tokenizer.load_vocab(test_vocab_file); }, VocabularyFileError);
 }
 
 TEST_F(TokenizerErrorHandlingTest, LoadVocabMissingSpecialTokensThrowsException) {
@@ -296,12 +261,9 @@ TEST_F(TokenizerErrorHandlingTest, LoadVocabMissingSpecialTokensThrowsException)
         "VOCAB\n"
         "hello\t0\n"
         "world\t1\n"
-        "BPE_MERGES 0\n"
-    );
-    
-    EXPECT_THROW({
-        tokenizer.load_vocab(test_vocab_file);
-    }, VocabularyFileError);
+        "BPE_MERGES 0\n");
+
+    EXPECT_THROW({ tokenizer.load_vocab(test_vocab_file); }, VocabularyFileError);
 }
 
 TEST_F(TokenizerErrorHandlingTest, LoadVocabValidFileSucceeds) {
@@ -318,9 +280,8 @@ TEST_F(TokenizerErrorHandlingTest, LoadVocabValidFileSucceeds) {
         "<unk>\t1\n"
         "<bos>\t2\n"
         "<eos>\t3\n"
-        "BPE_MERGES 0\n"
-    );
-    
+        "BPE_MERGES 0\n");
+
     EXPECT_NO_THROW({
         tokenizer.load_vocab(test_vocab_file);
         EXPECT_EQ(tokenizer.get_vocab_size(), 4);

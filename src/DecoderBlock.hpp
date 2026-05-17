@@ -4,10 +4,10 @@
 #include <string>
 #include "CrossAttention.hpp"
 #include "FeedForward.hpp"
+#include "KVCache.hpp"
 #include "LayerNorm.hpp"
 #include "Matrix.hpp"
 #include "MultiHeadAttention.hpp"
-#include "KVCache.hpp"
 #include "Optimizer.hpp"
 
 /**
@@ -145,9 +145,9 @@ class DecoderBlock {
      * @return Output [num_new_tokens, d_model]
      */
     Matrix forward_with_cache(const Matrix& input, const Matrix& encoder_output,
-                             const Matrix& self_attn_mask, KVCache* self_attn_cache,
-                             KVCache* cross_attn_cache,
-                             const Matrix* cross_attn_mask = nullptr, bool use_cache = true);
+                              const Matrix& self_attn_mask, KVCache* self_attn_cache,
+                              KVCache* cross_attn_cache, const Matrix* cross_attn_mask = nullptr,
+                              bool use_cache = true);
 
     /**
      * Backward pass through decoder block

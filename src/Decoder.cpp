@@ -151,7 +151,7 @@ Matrix LLMDecoder::forward_with_cache(const std::vector<int>& token_ids, Decoder
     // 2. Add positional encoding (offset by current_position)
     // We need to generate positional encoding starting from current_position
     Matrix pos_encoded(num_new_tokens, d_model);
-    
+
     for (int pos = 0; pos < num_new_tokens; ++pos) {
         int absolute_pos = current_position + pos;
         for (int i = 0; i < d_model; ++i) {
@@ -189,15 +189,15 @@ Matrix LLMDecoder::forward_with_cache(const std::vector<int>& token_ids, Decoder
 
         if (encoder_output && encoder_output->rows > 0) {
             // Encoder-decoder mode with cross-attention
-            x = decoder_blocks[layer_idx]->forward_with_cache(
-                x, *encoder_output, causal_mask, &self_attn_cache, &cross_attn_cache, nullptr,
-                use_cache);
+            x = decoder_blocks[layer_idx]->forward_with_cache(x, *encoder_output, causal_mask,
+                                                              &self_attn_cache, &cross_attn_cache,
+                                                              nullptr, use_cache);
         } else {
             // Decoder-only mode (no cross-attention)
             Matrix empty_encoder(1, d_model);
-            x = decoder_blocks[layer_idx]->forward_with_cache(
-                x, empty_encoder, causal_mask, &self_attn_cache, &cross_attn_cache, nullptr,
-                use_cache);
+            x = decoder_blocks[layer_idx]->forward_with_cache(x, empty_encoder, causal_mask,
+                                                              &self_attn_cache, &cross_attn_cache,
+                                                              nullptr, use_cache);
         }
         cached_decoder_outputs.push_back(x);
     }
@@ -314,19 +314,15 @@ void LLMDecoder::load_weights(const std::string& filepath) {
     file.read(reinterpret_cast<char*>(&loaded_max_seq_length), sizeof(int));
 
     if (loaded_vocab_size != vocab_size || loaded_d_model != d_model ||
-        loaded_num_layers != num_layers || loaded_num_heads != num_heads ||
-        loaded_d_ff != d_ff) {
+        loaded_num_layers != num_layers || loaded_num_heads != num_heads || loaded_d_ff != d_ff) {
         throw std::runtime_error(
             "Decoder architecture mismatch: saved (vocab=" + std::to_string(loaded_vocab_size) +
-            ", d_model=" + std::to_string(loaded_d_model) +
-            ", layers=" + std::to_string(loaded_num_layers) +
-            ", heads=" + std::to_string(loaded_num_heads) +
+            ", d_model=" + std::to_string(loaded_d_model) + ", layers=" +
+            std::to_string(loaded_num_layers) + ", heads=" + std::to_string(loaded_num_heads) +
             ", d_ff=" + std::to_string(loaded_d_ff) +
             ") vs current (vocab=" + std::to_string(vocab_size) +
-            ", d_model=" + std::to_string(d_model) +
-            ", layers=" + std::to_string(num_layers) +
-            ", heads=" + std::to_string(num_heads) +
-            ", d_ff=" + std::to_string(d_ff) + ")");
+            ", d_model=" + std::to_string(d_model) + ", layers=" + std::to_string(num_layers) +
+            ", heads=" + std::to_string(num_heads) + ", d_ff=" + std::to_string(d_ff) + ")");
     }
 
     file.close();
@@ -358,12 +354,12 @@ void LLMDecoder::zero_grad() {
 void LLMDecoder::register_parameters_with_optimizer(Optimizer& optimizer) {
     // Register token embedding parameters
     token_embedding->set_optimizer(&optimizer);
-    
+
     // Register all decoder block parameters
     for (auto& block : decoder_blocks) {
         block->register_parameters_with_optimizer(optimizer);
     }
-    
+
     // Register final layer norm parameters
     final_norm->set_optimizer(&optimizer);
 }

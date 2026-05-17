@@ -629,7 +629,7 @@ TEST_F(ConfigTest, ReloadThreadSafety) {
     // Launch multiple threads trying to reload concurrently
     std::vector<std::thread> threads;
     for (int i = 0; i < 10; ++i) {
-        threads.emplace_back([&]() {
+        threads.emplace_back([&, i]() {
             createConfigFile({{"PORT", std::to_string(8080 + i)}});
             if (ConfigLoader::reload(config, test_file.string(), config_mutex)) {
                 reload_count++;

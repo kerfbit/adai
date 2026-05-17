@@ -7,7 +7,7 @@ bool BPETokenizer::is_valid_utf8(const std::string& text) const {
     while (i < text.length()) {
         unsigned char c = text[i];
         int bytes = 0;
-        
+
         // Determine number of bytes in this character
         if ((c & 0x80) == 0) {
             // Single-byte character (ASCII)
@@ -25,19 +25,19 @@ bool BPETokenizer::is_valid_utf8(const std::string& text) const {
             // Invalid UTF-8 start byte
             return false;
         }
-        
+
         // Check if we have enough bytes
         if (i + bytes > text.length()) {
             return false;
         }
-        
+
         // Validate continuation bytes
         for (int j = 1; j < bytes; j++) {
             if ((text[i + j] & 0xC0) != 0x80) {
                 return false;
             }
         }
-        
+
         i += bytes;
     }
     return true;
@@ -48,7 +48,7 @@ void BPETokenizer::validate_input(const std::string& text, const std::string& co
     if (text.empty()) {
         throw TokenizerInputError(context + ": Input text is empty");
     }
-    
+
     if (!is_valid_utf8(text)) {
         throw TokenizerEncodingError(context + ": Input text contains invalid UTF-8 sequences");
     }
@@ -163,7 +163,7 @@ std::vector<std::string> BPETokenizer::pre_tokenize(const std::string& text) {
     if (!text.empty() && !is_valid_utf8(text)) {
         throw TokenizerEncodingError("pre_tokenize(): Input text contains invalid UTF-8 sequences");
     }
-    
+
     // Convert input text to lowercase
     std::string lower_text = text;
     std::transform(lower_text.begin(), lower_text.end(), lower_text.begin(),
@@ -291,7 +291,7 @@ std::vector<std::string> BPETokenizer::tokenize(const std::string& text) {
 std::vector<int> BPETokenizer::encode(const std::string& text, bool add_special_tokens) {
     // Validate input
     validate_input(text, "encode()");
-    
+
     std::vector<int> ids;
 
     if (add_special_tokens) {
@@ -320,7 +320,7 @@ std::string BPETokenizer::decode(const std::vector<int>& ids, bool skip_special_
     if (ids.empty()) {
         throw TokenizerInputError("decode(): Input token ID vector is empty");
     }
-    
+
     std::string result;
 
     for (int id : ids) {
@@ -328,7 +328,7 @@ std::string BPETokenizer::decode(const std::vector<int>& ids, bool skip_special_
         if (id < 0) {
             throw TokenIDError("decode(): Token ID " + std::to_string(id) + " is negative");
         }
-        
+
         if (inverse_vocab.find(id) != inverse_vocab.end()) {
             std::string token = inverse_vocab[id];
             if (skip_special_tokens && special_tokens.count(token)) {
@@ -337,7 +337,8 @@ std::string BPETokenizer::decode(const std::vector<int>& ids, bool skip_special_
             result += token;
         } else {
             // Warn about unknown token ID but continue
-            std::cerr << "Warning: Unknown token ID " << id << " encountered during decoding" << std::endl;
+            std::cerr << "Warning: Unknown token ID " << id << " encountered during decoding"
+                      << std::endl;
         }
     }
 
@@ -431,7 +432,7 @@ void BPETokenizer::load_vocab(const std::string& filename) {
     if (filename.empty()) {
         throw VocabularyFileError("Vocabulary filename is empty");
     }
-    
+
     std::ifstream file(filename);
     if (!file.is_open()) {
         throw VocabularyFileError("Could not open vocabulary file: " + filename);
@@ -498,12 +499,13 @@ void BPETokenizer::load_vocab(const std::string& filename) {
         if (section == "SPECIAL_TOKENS") {
             size_t space_pos = line.find(' ');
             if (space_pos == std::string::npos) {
-                throw VocabularyFileError("Malformed SPECIAL_TOKENS line in " + filename + ": " + line);
+                throw VocabularyFileError("Malformed SPECIAL_TOKENS line in " + filename + ": " +
+                                          line);
             }
-            
+
             std::string key = line.substr(0, space_pos);
             std::string value_str = line.substr(space_pos + 1);
-            
+
             // Validate that value is a valid integer
             try {
                 int value = std::stoi(value_str);
@@ -517,29 +519,34 @@ void BPETokenizer::load_vocab(const std::string& filename) {
                 else if (key == "eos_token_id")
                     eos_token_id = value;
                 else {
-                    std::cerr << "Warning: Unknown special token key '" << key << "' in " << filename << std::endl;
+                    std::cerr << "Warning: Unknown special token key '" << key << "' in "
+                              << filename << std::endl;
                 }
             } catch (const std::invalid_argument& e) {
-                throw VocabularyFileError("Invalid integer value for special token in " + filename + ": " + value_str);
+                throw VocabularyFileError("Invalid integer value for special token in " + filename +
+                                          ": " + value_str);
             } catch (const std::out_of_range& e) {
-                throw VocabularyFileError("Special token ID out of range in " + filename + ": " + value_str);
+                throw VocabularyFileError("Special token ID out of range in " + filename + ": " +
+                                          value_str);
             }
         } else if (section == "VOCAB") {
             size_t tab_pos = line.find('\t');
             if (tab_pos == std::string::npos) {
-                throw VocabularyFileError("Malformed VOCAB line (missing tab separator) in " + filename + ": " + line);
+                throw VocabularyFileError("Malformed VOCAB line (missing tab separator) in " +
+                                          filename + ": " + line);
             }
-            
+
             std::string token = unescape(line.substr(0, tab_pos));
             std::string id_str = line.substr(tab_pos + 1);
-            
+
             try {
                 int id = std::stoi(id_str);
                 // Validate token ID is non-negative
                 if (id < 0) {
-                    throw VocabularyFileError("Negative token ID in " + filename + ": " + std::to_string(id));
+                    throw VocabularyFileError("Negative token ID in " + filename + ": " +
+                                              std::to_string(id));
                 }
-                
+
                 vocab[token] = id;
                 inverse_vocab[id] = token;
 
@@ -556,47 +563,52 @@ void BPETokenizer::load_vocab(const std::string& filename) {
         } else if (section == "BPE_MERGES") {
             size_t tab_pos = line.find('\t');
             if (tab_pos == std::string::npos) {
-                throw VocabularyFileError("Malformed BPE_MERGES line (missing tab separator) in " + filename + ": " + line);
+                throw VocabularyFileError("Malformed BPE_MERGES line (missing tab separator) in " +
+                                          filename + ": " + line);
             }
-            
+
             std::string first = unescape(line.substr(0, tab_pos));
             std::string second = unescape(line.substr(tab_pos + 1));
-            
+
             // Validate merge tokens are not empty
             if (first.empty() || second.empty()) {
                 throw VocabularyFileError("Empty merge token in " + filename);
             }
-            
+
             bpe_merges.push_back({first, second});
         }
     }
 
     file.close();
-    
+
     // Validate that vocabulary is not empty
     if (vocab.empty()) {
         throw VocabularyFileError("Loaded vocabulary is empty from file: " + filename);
     }
-    
+
     // Validate that special tokens are present
     if (vocab.find("<pad>") == vocab.end() || vocab.find("<unk>") == vocab.end() ||
         vocab.find("<bos>") == vocab.end() || vocab.find("<eos>") == vocab.end()) {
         throw VocabularyFileError("Missing required special tokens in " + filename);
     }
-    
+
     // Ensure special_tokens set is properly populated (in case vocab loading didn't catch all)
-    if (vocab.find("<pad>") != vocab.end()) special_tokens.insert("<pad>");
-    if (vocab.find("<unk>") != vocab.end()) special_tokens.insert("<unk>");
-    if (vocab.find("<bos>") != vocab.end()) special_tokens.insert("<bos>");
-    if (vocab.find("<eos>") != vocab.end()) special_tokens.insert("<eos>");
-    
+    if (vocab.find("<pad>") != vocab.end())
+        special_tokens.insert("<pad>");
+    if (vocab.find("<unk>") != vocab.end())
+        special_tokens.insert("<unk>");
+    if (vocab.find("<bos>") != vocab.end())
+        special_tokens.insert("<bos>");
+    if (vocab.find("<eos>") != vocab.end())
+        special_tokens.insert("<eos>");
+
     // Map special token IDs to their string representations in inverse_vocab
     // This ensures that when decoding, the special token IDs (0,1,2,3) can be resolved
     inverse_vocab[pad_token_id] = "<pad>";
     inverse_vocab[unk_token_id] = "<unk>";
     inverse_vocab[bos_token_id] = "<bos>";
     inverse_vocab[eos_token_id] = "<eos>";
-    
+
     std::cout << "[BPE Tokenizer] Vocabulary loaded from " << filename << std::endl;
     std::cout << "  - Vocabulary size: " << vocab.size() << std::endl;
     std::cout << "  - BPE merges: " << bpe_merges.size() << std::endl;
