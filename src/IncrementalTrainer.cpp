@@ -1127,7 +1127,9 @@ std::string IncrementalTrainer::compute_data_checksum(const std::string& data_fi
     auto ftime = fs::last_write_time(data_file);
 
     std::ostringstream oss;
-    oss << size << "_" << ftime.time_since_epoch().count();
+    // file_time_type::duration::rep is __int128 on macOS (libc++) which has no
+    // operator<< overload — cast to long long to keep it portable.
+    oss << size << "_" << static_cast<long long>(ftime.time_since_epoch().count());
 
     return oss.str();
 }
