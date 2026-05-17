@@ -24,7 +24,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
     
     - name: Install dependencies (Ubuntu)
       if: runner.os == 'Linux'
@@ -68,7 +68,7 @@ jobs:
     
     - name: Upload Test Results
       if: failure()
-      uses: actions/upload-artifact@v5
+      uses: actions/upload-artifact@v7
       with:
         name: test-results-${{ matrix.os }}-${{ matrix.compiler }}-${{ matrix.build_type }}
         path: build/Testing/
@@ -80,7 +80,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
     
     - name: Install dependencies
       run: |
@@ -115,7 +115,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
     
     - name: Scan for TODO comments
       run: |
@@ -146,7 +146,7 @@ jobs:
         grep -rn "TODO:" --include="*.cpp" --include="*.hpp" src/ tests/ include/ >> todo-report/todos.txt || echo "No TODOs found" >> todo-report/todos.txt
     
     - name: Upload TODO Report
-      uses: actions/upload-artifact@v5
+      uses: actions/upload-artifact@v7
       with:
         name: todo-report
         path: todo-report/
@@ -162,7 +162,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
     
     - name: Install dependencies
       run: |
