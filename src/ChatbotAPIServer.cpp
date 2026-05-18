@@ -9,6 +9,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unistd.h>  // getpid() — POSIX (Linux + macOS)
 #include "BPETokenizer.hpp"
 #include "ChatbotAPI.hpp"
 #include "Config.hpp"
