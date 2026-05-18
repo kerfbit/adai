@@ -324,6 +324,15 @@ class EncoderDecoderModel {
     int get_pad_token_id() const {
         return pad_token_id;
     }
+    int get_num_heads() const {
+        return num_heads;
+    }
+    int get_d_ff() const {
+        return d_ff;
+    }
+    int get_max_seq_length() const {
+        return max_seq_length;
+    }
 
     /**
      * Access internal components (for advanced use)

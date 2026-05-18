@@ -217,6 +217,10 @@ class EncoderBlock {
         return attention.get();
     }
 
+    // ── SafeTensors accessor API ─────────────────────────────────────────────
+    LayerNorm* get_norm1() { return norm1.get(); }
+    LayerNorm* get_norm2() { return norm2.get(); }
+
     /**
      * Get feed-forward dimension
      *

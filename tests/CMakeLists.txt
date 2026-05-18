@@ -470,4 +470,22 @@ target_link_libraries(adaptiveClippingTests
 )
 add_test(NAME AdaptiveClippingTests COMMAND adaptiveClippingTests)
 
-message(STATUS "Configured 44 test suites using library targets (including Config, Logger, IncrementalTrainer, LLMEncoder, DocumentStore, RAGInference, BatchProcessor, ParallelDataLoader, IntegratedInferenceEngine, PipelineInferenceEngine, BatchedInferenceEngine, SpeculativeDecoding, VocabBuilder, ChatbotAPI, ChatbotTrainer, GenerationQuality, PaddingEfficiency, AdaptiveClipping, integration, RAG/BERT comparison and Phase 5 tests)")
+# HuggingFace SafeTensors import/export tests
+add_executable(modelSerializerTests model_serializer_test.cpp)
+target_include_directories(modelSerializerTests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/external
+)
+target_link_libraries(modelSerializerTests
+    adai_models
+    adai_nlp
+    adai_transformer
+    adai_attention
+    adai_feedforward
+    adai_layers
+    adai_core
+    GTest::gtest_main
+)
+add_test(NAME ModelSerializerTests COMMAND modelSerializerTests)
+
+message(STATUS "Configured 45 test suites using library targets (including Config, Logger, IncrementalTrainer, LLMEncoder, DocumentStore, RAGInference, BatchProcessor, ParallelDataLoader, IntegratedInferenceEngine, PipelineInferenceEngine, BatchedInferenceEngine, SpeculativeDecoding, VocabBuilder, ChatbotAPI, ChatbotTrainer, GenerationQuality, PaddingEfficiency, AdaptiveClipping, ModelSerializer, integration, RAG/BERT comparison and Phase 5 tests)")

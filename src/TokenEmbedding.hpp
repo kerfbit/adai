@@ -238,6 +238,9 @@ class TokenEmbedding {
      */
     void clip_gradients(float max_norm);
 
+    // ── SafeTensors accessor API ─────────────────────────────────────────────
+    void set_embeddings(const Matrix& m) { embedding_matrix = m; }
+
     /**
      * Save weights to file (consistent with other components)
      *

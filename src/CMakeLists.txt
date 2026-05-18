@@ -209,8 +209,10 @@ add_library(adai_models STATIC
     Decoder.cpp
     LanguageModelHead.cpp
     EncoderDecoderModel.cpp
+    ModelSerializer.cpp
 )
 target_link_libraries(adai_models adai_transformer)
+target_include_directories(adai_models PRIVATE ${CMAKE_SOURCE_DIR}/external)
 
 # Tokenization and generation
 add_library(adai_nlp STATIC

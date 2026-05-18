@@ -278,6 +278,16 @@ class MultiHeadAttention {
      */
     void print_config(const std::string& name = "MultiHeadAttention") const;
 
+    // ── SafeTensors accessor API ─────────────────────────────────────────────
+    const Matrix& get_Wq() const { return W_q; }
+    const Matrix& get_Wk() const { return W_k; }
+    const Matrix& get_Wv() const { return W_v; }
+    const Matrix& get_Wo() const { return W_o; }
+    void set_Wq(const Matrix& m) { W_q = m; }
+    void set_Wk(const Matrix& m) { W_k = m; }
+    void set_Wv(const Matrix& m) { W_v = m; }
+    void set_Wo(const Matrix& m) { W_o = m; }
+
     /**
      * Save weights to file
      *

@@ -140,6 +140,12 @@ class LanguageModelHead {
      */
     void register_parameters();
 
+    // ── SafeTensors accessor API ─────────────────────────────────────────────
+    const Matrix& get_W_output() const { return W_output; }
+    const Matrix& get_bias() const { return bias; }
+    void set_W_output(const Matrix& m) { W_output = m; }
+    void set_bias(const Matrix& m) { bias = m; }
+
     /**
      * Save weights to file (consistent with other components)
      *
