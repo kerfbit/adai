@@ -18,7 +18,13 @@ option(PORTABLE_BUILD "Disable -march=native for cross-machine deployment" OFF)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        set(_RELEASE_FLAGS -O3 -ffast-math -funroll-loops -ftree-vectorize)
+        # -ffast-math enables many fp optimisations but also implies
+        # -ffinite-math-only, which tells the compiler to assume NaN and
+        # Infinity never occur and compiles std::isnan/isinf to constant
+        # false — breaking tests and any production code that checks for
+        # degenerate values.  -fno-finite-math-only re-enables IEEE NaN/Inf
+        # semantics while preserving all other fast-math optimisations.
+        set(_RELEASE_FLAGS -O3 -ffast-math -fno-finite-math-only -funroll-loops -ftree-vectorize)
         if(NOT PORTABLE_BUILD)
             list(APPEND _RELEASE_FLAGS -march=native -mtune=native)
         else()
