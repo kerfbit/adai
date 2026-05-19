@@ -211,6 +211,10 @@ class LLMEncoder {
     }
 
     // ── SafeTensors accessor API ─────────────────────────────────────────────
-    TokenEmbedding* get_token_embedding() { return token_embedding.get(); }
-    LayerNorm* get_final_norm() { return final_norm.get(); }
+    TokenEmbedding* get_token_embedding() {
+        return token_embedding.get();
+    }
+    LayerNorm* get_final_norm() {
+        return final_norm.get();
+    }
 };

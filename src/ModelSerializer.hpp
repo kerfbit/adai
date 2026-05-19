@@ -27,7 +27,7 @@ class Matrix;
  * Reference: https://huggingface.co/docs/safetensors
  */
 class ModelSerializer {
-public:
+   public:
     /**
      * Export a fully-loaded EncoderDecoderModel to SafeTensors format.
      *
@@ -39,8 +39,7 @@ public:
      * @param output_dir   Directory to write output files; created if absent
      * @throws std::runtime_error on I/O failure or if output_dir cannot be made
      */
-    static void export_safetensors(const EncoderDecoderModel& model,
-                                   const std::string& output_dir);
+    static void export_safetensors(const EncoderDecoderModel& model, const std::string& output_dir);
 
     /**
      * Import weights from a HuggingFace SafeTensors directory into a live model.
@@ -59,16 +58,15 @@ public:
      * @throws std::runtime_error on I/O failure, architecture mismatch, or
      *         missing required tensor
      */
-    static void import_safetensors(EncoderDecoderModel& model,
-                                   const std::string& input_dir);
+    static void import_safetensors(EncoderDecoderModel& model, const std::string& input_dir);
 
     // ── Low-level SafeTensors protocol (exposed for testing) ─────────────────
 
     struct TensorDescriptor {
-        std::string           name;
-        std::string           dtype;          // e.g. "F32"
-        std::vector<int64_t>  shape;
-        std::vector<float>    data;           // always float32
+        std::string name;
+        std::string dtype;  // e.g. "F32"
+        std::vector<int64_t> shape;
+        std::vector<float> data;  // always float32
     };
 
     /**
@@ -88,6 +86,5 @@ public:
      * @param path  Input file path
      * @return      Map from tensor name to TensorDescriptor (data fully loaded)
      */
-    static std::map<std::string, TensorDescriptor>
-    read_safetensors(const std::string& path);
+    static std::map<std::string, TensorDescriptor> read_safetensors(const std::string& path);
 };

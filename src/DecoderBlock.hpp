@@ -101,10 +101,18 @@ class DecoderBlock {
     }
 
     // ── SafeTensors accessor API ─────────────────────────────────────────────
-    CrossAttention* get_cross_attention() { return cross_attention.get(); }
-    LayerNorm* get_norm1() { return norm1.get(); }
-    LayerNorm* get_norm2() { return norm2.get(); }
-    LayerNorm* get_norm3() { return norm3.get(); }
+    CrossAttention* get_cross_attention() {
+        return cross_attention.get();
+    }
+    LayerNorm* get_norm1() {
+        return norm1.get();
+    }
+    LayerNorm* get_norm2() {
+        return norm2.get();
+    }
+    LayerNorm* get_norm3() {
+        return norm3.get();
+    }
 
     /**
      * Constructor

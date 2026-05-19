@@ -158,14 +158,30 @@ class FeedForward {
     void clip_gradients(float max_norm);
 
     // ── SafeTensors accessor API ─────────────────────────────────────────────
-    const Matrix& get_W1() const { return W1; }
-    const Matrix& get_W2() const { return W2; }
-    const Matrix& get_b1() const { return b1; }
-    const Matrix& get_b2() const { return b2; }
-    void set_W1(const Matrix& m) { W1 = m; }
-    void set_W2(const Matrix& m) { W2 = m; }
-    void set_b1(const Matrix& m) { b1 = m; }
-    void set_b2(const Matrix& m) { b2 = m; }
+    const Matrix& get_W1() const {
+        return W1;
+    }
+    const Matrix& get_W2() const {
+        return W2;
+    }
+    const Matrix& get_b1() const {
+        return b1;
+    }
+    const Matrix& get_b2() const {
+        return b2;
+    }
+    void set_W1(const Matrix& m) {
+        W1 = m;
+    }
+    void set_W2(const Matrix& m) {
+        W2 = m;
+    }
+    void set_b1(const Matrix& m) {
+        b1 = m;
+    }
+    void set_b2(const Matrix& m) {
+        b2 = m;
+    }
 
     /**
      * Save weights and biases to binary file

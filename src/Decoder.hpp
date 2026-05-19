@@ -245,7 +245,9 @@ class LLMDecoder {
     }
 
     // ── SafeTensors accessor API ─────────────────────────────────────────────
-    LayerNorm* get_final_norm() { return final_norm.get(); }
+    LayerNorm* get_final_norm() {
+        return final_norm.get();
+    }
 
     /**
      * Zero all gradients

@@ -1,3 +1,4 @@
+#include <unistd.h>  // getpid() — POSIX (Linux + macOS)
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -9,7 +10,6 @@
 #include <mutex>
 #include <string>
 #include <thread>
-#include <unistd.h>  // getpid() — POSIX (Linux + macOS)
 #include "BPETokenizer.hpp"
 #include "ChatbotAPI.hpp"
 #include "Config.hpp"
