@@ -11,14 +11,19 @@ echo "║              ADAI Code Formatting Tool                        ║"
 echo "╚═══════════════════════════════════════════════════════════════╝"
 echo ""
 
-# Check if clang-format is installed
-if ! command -v clang-format &> /dev/null; then
+# Check if clang-format is installed (prefer clang-format-18 for version consistency with CI)
+CLANG_FORMAT=""
+if command -v clang-format-18 &> /dev/null; then
+    CLANG_FORMAT="clang-format-18"
+elif command -v clang-format &> /dev/null; then
+    CLANG_FORMAT="clang-format"
+else
     echo "❌ Error: clang-format not found"
-    echo "   Install with: sudo apt-get install clang-format"
+    echo "   Install with: sudo apt-get install clang-format-18"
     exit 1
 fi
 
-echo "📋 Using clang-format: $(clang-format --version | head -1)"
+echo "📋 Using clang-format: $($CLANG_FORMAT --version | head -1)"
 echo "📁 Project root: $PROJECT_ROOT"
 echo ""
 
@@ -42,7 +47,7 @@ ERRORS=0
 for file in "${CPP_FILES[@]}"; do
     RELATIVE_PATH=$(realpath --relative-to="$PROJECT_ROOT" "$file")
     echo "   Formatting: $RELATIVE_PATH"
-    if clang-format -i "$file" 2>&1; then
+    if $CLANG_FORMAT -i "$file" 2>&1; then
         ((FORMATTED++))
     else
         echo "   ⚠️  Error formatting: $RELATIVE_PATH"

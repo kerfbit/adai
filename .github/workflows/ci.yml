@@ -85,17 +85,20 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y \
-          cmake \
-          build-essential \
-          clang-tidy \
-          clang-format
-    
+        sudo apt-get install -y cmake build-essential clang-tidy wget gnupg
+        # Install clang-format-18 from LLVM repository to match local toolchain (v18)
+        wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | \
+          sudo gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg
+        echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] https://apt.llvm.org/jammy/ llvm-toolchain-jammy-18 main" | \
+          sudo tee /etc/apt/sources.list.d/llvm-18.list
+        sudo apt-get update
+        sudo apt-get install -y clang-format-18
+
     - name: Check code formatting
       run: |
-        # Check if any files would be reformatted
+        # Check if any files would be reformatted (using clang-format-18 to match local toolchain)
         find src tests -name '*.cpp' -o -name '*.hpp' | \
-          xargs clang-format --dry-run --Werror || \
+          xargs clang-format-18 --dry-run --Werror || \
           (echo "Code formatting issues found. Run './scripts/format_code.sh' to fix." && exit 1)
     
     - name: Run static analysis
