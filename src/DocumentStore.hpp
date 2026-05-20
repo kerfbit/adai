@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 #include "Matrix.hpp"
 #include "encoder.hpp"
@@ -23,7 +24,7 @@ struct Document {
     std::unordered_map<std::string, std::string> metadata;  // Optional metadata
 
     Document() = default;
-    Document(const std::string& id_, const std::string& text_) : id(id_), text(text_) {}
+    Document(std::string id_, std::string text_) : id(std::move(id_)), text(std::move(text_)) {}
 };
 
 /**
@@ -56,7 +57,7 @@ class DocumentStore {
      * @param emb2 Second embedding matrix [d_model]
      * @return float Cosine similarity score in [-1, 1]
      */
-    float cosineSimilarity(const Matrix& emb1, const Matrix& emb2) const;
+    static float cosineSimilarity(const Matrix& emb1, const Matrix& emb2);
 
     /**
      * @brief Generate sentence embedding from encoder output
@@ -67,7 +68,7 @@ class DocumentStore {
      * @param encoder_output Matrix of shape [seq_len, d_model]
      * @return Matrix Single vector of shape [1, d_model]
      */
-    Matrix getSentenceEmbedding(const Matrix& encoder_output) const;
+    static Matrix getSentenceEmbedding(const Matrix& encoder_output);
 
    public:
     /**

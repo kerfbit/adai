@@ -72,7 +72,8 @@ class MultiHeadAttention {
     Matrix cached_scores;             // Pre-softmax attention scores
 
     // Optimizer for weight updates
-    Optimizer* optimizer;  // Pointer to optimizer (nullptr means use simple gradient descent)
+    Optimizer* optimizer{
+        nullptr};  // Pointer to optimizer (nullptr means use simple gradient descent)
 
     // Attention hook (for entropy tracking, TD-013)
     AttentionHookFn attention_hook_;
@@ -91,7 +92,7 @@ class MultiHeadAttention {
                                         const Matrix* mask);
 
    public:
-    float learning_rate;  // Learning rate for weight updates
+    float learning_rate{0.001f};  // Learning rate for weight updates
 
     /**
      * Constructor

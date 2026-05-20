@@ -66,7 +66,7 @@ class EncoderBlock {
     Matrix cached_residual2;
 
    public:
-    float learning_rate;  // Learning rate for gradient updates
+    float learning_rate{0.001f};  // Learning rate for gradient updates
 
     /**
      * Constructor

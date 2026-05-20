@@ -1,10 +1,12 @@
 #include "LayerNorm.hpp"
+
+#include <cmath>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include "Optimizer.hpp"
 
-LayerNorm::LayerNorm(int dim, float epsilon) : eps(epsilon), optimizer(nullptr) {
+LayerNorm::LayerNorm(int dim, float epsilon) : eps(epsilon) {
     // Initialize gamma to 1.0 (identity scale)
     gamma = Matrix(1, dim);
     for (int j = 0; j < dim; ++j) {
@@ -47,7 +49,7 @@ Matrix LayerNorm::forward(const Matrix& input) {
         for (int j = 0; j < dim; ++j) {
             mean += input(i, j);
         }
-        mean /= dim;
+        mean /= static_cast<float>(dim);
         cached_mean[i] = mean;
 
         // Compute variance for this sample
@@ -56,7 +58,7 @@ Matrix LayerNorm::forward(const Matrix& input) {
             float diff = input(i, j) - mean;
             var += diff * diff;
         }
-        var /= dim;
+        var /= static_cast<float>(dim);
         cached_var[i] = var;
 
         // Normalize and apply affine transformation
@@ -119,13 +121,14 @@ Matrix LayerNorm::backward(const Matrix& grad_output) {
         for (int j = 0; j < dim; ++j) {
             sum_diff += (cached_input(i, j) - cached_mean[i]);
         }
-        grad_mean += grad_var * (-2.0f / dim) * sum_diff;
+        grad_mean += grad_var * (-2.0f / static_cast<float>(dim)) * sum_diff;
 
         // Compute gradient w.r.t. input
         for (int j = 0; j < dim; ++j) {
-            grad_input(i, j) = grad_normalized[j] * inv_std +
-                               grad_var * 2.0f * (cached_input(i, j) - cached_mean[i]) / dim +
-                               grad_mean / dim;
+            grad_input(i, j) =
+                grad_normalized[j] * inv_std +
+                grad_var * 2.0f * (cached_input(i, j) - cached_mean[i]) / static_cast<float>(dim) +
+                grad_mean / static_cast<float>(dim);
         }
     }
 
@@ -140,8 +143,9 @@ void LayerNorm::set_optimizer(Optimizer* opt) {
 }
 
 void LayerNorm::register_parameters() {
-    if (!optimizer)
+    if (!optimizer) {
         return;
+    }
 
     optimizer->add_parameter_group(&gamma, &gamma_grad);
     optimizer->add_parameter_group(&beta, &beta_grad);
@@ -170,7 +174,7 @@ void LayerNorm::zero_grad() {
 void LayerNorm::set_gamma(const Matrix& new_gamma) {
     if (new_gamma.rows != 1 || new_gamma.cols != gamma.cols) {
         std::cerr << "Error: gamma dimensions mismatch. Expected [1, " << gamma.cols << "], got ["
-                  << new_gamma.rows << ", " << new_gamma.cols << "]" << std::endl;
+                  << new_gamma.rows << ", " << new_gamma.cols << "]" << '\n';
         return;
     }
     gamma = new_gamma;
@@ -179,39 +183,43 @@ void LayerNorm::set_gamma(const Matrix& new_gamma) {
 void LayerNorm::set_beta(const Matrix& new_beta) {
     if (new_beta.rows != 1 || new_beta.cols != beta.cols) {
         std::cerr << "Error: beta dimensions mismatch. Expected [1, " << beta.cols << "], got ["
-                  << new_beta.rows << ", " << new_beta.cols << "]" << std::endl;
+                  << new_beta.rows << ", " << new_beta.cols << "]" << '\n';
         return;
     }
     beta = new_beta;
 }
 
 void LayerNorm::print_config(const std::string& name) const {
-    std::cout << "\n" << name << " Configuration:" << std::endl;
-    std::cout << "  Dimension: " << gamma.cols << std::endl;
-    std::cout << "  Epsilon: " << eps << std::endl;
-    std::cout << "  Learning Rate: " << learning_rate << std::endl;
+    std::cout << "\n" << name << " Configuration:" << '\n';
+    std::cout << "  Dimension: " << gamma.cols << '\n';
+    std::cout << "  Epsilon: " << eps << '\n';
+    std::cout << "  Learning Rate: " << learning_rate << '\n';
     std::cout << "  Gamma range: [";
 
     float min_gamma = gamma(0, 0);
     float max_gamma = gamma(0, 0);
     for (int j = 0; j < gamma.cols; ++j) {
-        if (gamma(0, j) < min_gamma)
+        if (gamma(0, j) < min_gamma) {
             min_gamma = gamma(0, j);
-        if (gamma(0, j) > max_gamma)
+        }
+        if (gamma(0, j) > max_gamma) {
             max_gamma = gamma(0, j);
+        }
     }
-    std::cout << min_gamma << ", " << max_gamma << "]" << std::endl;
+    std::cout << min_gamma << ", " << max_gamma << "]" << '\n';
 
     std::cout << "  Beta range: [";
     float min_beta = beta(0, 0);
     float max_beta = beta(0, 0);
     for (int j = 0; j < beta.cols; ++j) {
-        if (beta(0, j) < min_beta)
+        if (beta(0, j) < min_beta) {
             min_beta = beta(0, j);
-        if (beta(0, j) > max_beta)
+        }
+        if (beta(0, j) > max_beta) {
             max_beta = beta(0, j);
+        }
     }
-    std::cout << min_beta << ", " << max_beta << "]" << std::endl;
+    std::cout << min_beta << ", " << max_beta << "]" << '\n';
 }
 
 void LayerNorm::save_weights(const std::string& filename) const {
@@ -236,7 +244,7 @@ void LayerNorm::save_weights(const std::string& filename) const {
     }
 
     file.close();
-    std::cout << "Saved LayerNorm weights to " << filename << std::endl;
+    std::cout << "Saved LayerNorm weights to " << filename << '\n';
 }
 
 void LayerNorm::load_weights(const std::string& filename) {
@@ -246,8 +254,8 @@ void LayerNorm::load_weights(const std::string& filename) {
     }
 
     // Read and verify dimensions
-    int loaded_dim;
-    float loaded_eps;
+    int loaded_dim = 0;
+    float loaded_eps = NAN;
     file.read(reinterpret_cast<char*>(&loaded_dim), sizeof(int));
     file.read(reinterpret_cast<char*>(&loaded_eps), sizeof(float));
 
@@ -267,5 +275,5 @@ void LayerNorm::load_weights(const std::string& filename) {
     }
 
     file.close();
-    std::cout << "Loaded LayerNorm weights from " << filename << std::endl;
+    std::cout << "Loaded LayerNorm weights from " << filename << '\n';
 }

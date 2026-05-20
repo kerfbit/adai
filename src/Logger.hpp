@@ -4,6 +4,7 @@
 #include <spdlog/sinks/rotating_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -24,7 +25,7 @@ class Logger {
     /**
      * @brief Logging levels
      */
-    enum class Level { DEBUG, INFO, WARN, ERROR };
+    enum class Level : std::uint8_t { DEBUG, INFO, WARN, ERROR };
 
     /**
      * @brief Log file configuration

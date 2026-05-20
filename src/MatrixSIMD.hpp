@@ -41,14 +41,17 @@ namespace simd {
 #if defined(_MSC_VER)
 #include <intrin.h>
 
+// NOLINTBEGIN(modernize-avoid-c-arrays)
 inline void cpuid_query(int info[4], int leaf, int subleaf = 0) {
     __cpuidex(info, leaf, subleaf);
 }
+// NOLINTEND(modernize-avoid-c-arrays)
 #else
 #include <cpuid.h>
 
+// NOLINTBEGIN(modernize-avoid-c-arrays,cppcoreguidelines-init-variables)
 inline void cpuid_query(int info[4], int leaf, int subleaf = 0) {
-    unsigned int a, b, c, d;
+    unsigned int a = 0, b = 0, c = 0, d = 0;
     if (!__get_cpuid_count(static_cast<unsigned int>(leaf), static_cast<unsigned int>(subleaf), &a,
                            &b, &c, &d)) {
         info[0] = info[1] = info[2] = info[3] = 0;
@@ -59,25 +62,31 @@ inline void cpuid_query(int info[4], int leaf, int subleaf = 0) {
     info[2] = static_cast<int>(c);
     info[3] = static_cast<int>(d);
 }
+// NOLINTEND(modernize-avoid-c-arrays,cppcoreguidelines-init-variables)
 #endif
 
 /// Returns true when the executing CPU supports AVX2 (CPUID leaf 7, EBX bit 5).
 inline bool has_avx2() {
+    // NOLINTBEGIN(modernize-avoid-c-arrays,cppcoreguidelines-init-variables)
     int info0[4] = {};
     cpuid_query(info0, 0);
-    if (info0[0] < 7)
+    if (info0[0] < 7) {
         return false;  // max leaf < 7 → no AVX2
+    }
 
     int info7[4] = {};
     cpuid_query(info7, 7, 0);
     return (info7[1] >> 5) & 1;  // EBX bit 5 = AVX2
+    // NOLINTEND(modernize-avoid-c-arrays,cppcoreguidelines-init-variables)
 }
 
 /// Returns true when the executing CPU supports FMA3 (CPUID leaf 1, ECX bit 12).
 inline bool has_fma() {
+    // NOLINTBEGIN(modernize-avoid-c-arrays,cppcoreguidelines-init-variables)
     int info[4] = {};
     cpuid_query(info, 1);
     return (info[2] >> 12) & 1;  // ECX bit 12 = FMA
+    // NOLINTEND(modernize-avoid-c-arrays,cppcoreguidelines-init-variables)
 }
 
 #else  // Non-x86 architectures

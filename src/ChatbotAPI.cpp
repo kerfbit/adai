@@ -19,7 +19,7 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
       tokenizer_(tokenizer),
       port_(port),
       session_timeout_(session_timeout_minutes),
-      running_(false),
+
       rag_engine_(nullptr),
       server_impl_(std::make_unique<ServerImpl>()) {
     // Set up HTTP endpoints
@@ -95,7 +95,7 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
             }
         });
 
-    std::cout << "ChatbotAPI initialized on port " << port_ << std::endl;
+    std::cout << "ChatbotAPI initialized on port " << port_ << '\n';
 }
 
 ChatbotAPI::~ChatbotAPI() {
@@ -104,11 +104,11 @@ ChatbotAPI::~ChatbotAPI() {
 
 bool ChatbotAPI::start() {
     if (running_) {
-        std::cerr << "Server is already running" << std::endl;
+        std::cerr << "Server is already running" << '\n';
         return false;
     }
 
-    std::cout << "Starting chatbot API server on port " << port_ << "..." << std::endl;
+    std::cout << "Starting chatbot API server on port " << port_ << "..." << '\n';
     running_ = true;
 
     // Start periodic session cleanup (every 5 minutes)
@@ -121,7 +121,7 @@ bool ChatbotAPI::start() {
 
 void ChatbotAPI::stop() {
     if (running_) {
-        std::cout << "Stopping chatbot API server..." << std::endl;
+        std::cout << "Stopping chatbot API server..." << '\n';
         server_impl_->server.stop();
         running_ = false;
     }
@@ -185,23 +185,24 @@ std::string ChatbotAPI::handle_chat_session(const std::string& request_body) {
 
     // Create JSON response with session_id
     std::ostringstream oss;
-    oss << "{\"success\":true,\"response\":\"";
+    oss << R"({"success":true,"response":")";
     // Escape quotes in response
     for (char c : response) {
-        if (c == '"')
+        if (c == '"') {
             oss << "\\\"";
-        else if (c == '\\')
+        } else if (c == '\\') {
             oss << "\\\\";
-        else if (c == '\n')
+        } else if (c == '\n') {
             oss << "\\n";
-        else if (c == '\r')
+        } else if (c == '\r') {
             oss << "\\r";
-        else if (c == '\t')
+        } else if (c == '\t') {
             oss << "\\t";
-        else
+        } else {
             oss << c;
+        }
     }
-    oss << "\",\"session_id\":\"" << session_id << "\"}";
+    oss << R"(","session_id":")" << session_id << "\"}";
 
     return oss.str();
 }
@@ -217,10 +218,9 @@ std::string ChatbotAPI::handle_clear_session(const std::string& request_body) {
     auto it = sessions_.find(session_id);
     if (it != sessions_.end()) {
         it->second->context->clear();
-        return "{\"success\":true,\"message\":\"Session cleared\"}";
-    } else {
-        return create_error_response("Session not found");
+        return R"({"success":true,"message":"Session cleared"})";
     }
+    return create_error_response("Session not found");
 }
 
 std::string ChatbotAPI::handle_health() {
@@ -233,7 +233,7 @@ std::string ChatbotAPI::handle_health() {
     }
 
     std::ostringstream oss;
-    oss << "{\"status\":\"ok\",\"active_sessions\":" << active_sessions << "}";
+    oss << R"({"status":"ok","active_sessions":)" << active_sessions << "}";
     return oss.str();
 }
 
@@ -270,7 +270,7 @@ std::string ChatbotAPI::handle_batch_chat_session(const std::string& request_bod
     if (session_ids.empty() || session_ids.size() != messages.size()) {
         session_ids.clear();
         for (size_t i = 0; i < messages.size(); ++i) {
-            session_ids.push_back("");  // Empty session_id will trigger creation
+            session_ids.emplace_back("");  // Empty session_id will trigger creation
         }
     }
 
@@ -326,7 +326,7 @@ void ChatbotAPI::cleanup_expired_sessions() {
     auto it = sessions_.begin();
     while (it != sessions_.end()) {
         if (is_session_expired(*it->second)) {
-            std::cout << "Removing expired session: " << it->first << std::endl;
+            std::cout << "Removing expired session: " << it->first << '\n';
             it = sessions_.erase(it);
         } else {
             ++it;
@@ -398,8 +398,9 @@ std::string ChatbotAPI::parse_json_string(const std::string& json, const std::st
             } else if (next == '\\') {
                 unescaped += '\\';
                 i++;
-            } else
+            } else {
                 unescaped += value[i];
+            }
         } else {
             unescaped += value[i];
         }
@@ -444,8 +445,9 @@ std::vector<std::string> ChatbotAPI::parse_json_array(const std::string& json,
             pos++;
         }
 
-        if (pos >= array_end || json[pos] == ']')
+        if (pos >= array_end || json[pos] == ']') {
             break;
+        }
 
         // Skip comma
         if (json[pos] == ',') {
@@ -489,8 +491,9 @@ std::vector<std::string> ChatbotAPI::parse_json_array(const std::string& json,
                         } else if (next == '\\') {
                             unescaped += '\\';
                             i++;
-                        } else
+                        } else {
                             unescaped += value[i];
+                        }
                     } else {
                         unescaped += value[i];
                     }
@@ -515,25 +518,26 @@ std::string ChatbotAPI::create_json_response(const std::string& response, bool s
     oss << "{\"success\":" << (success ? "true" : "false");
 
     if (success) {
-        oss << ",\"response\":\"";
+        oss << R"(,"response":")";
         // Escape quotes and special characters
         for (char c : response) {
-            if (c == '"')
+            if (c == '"') {
                 oss << "\\\"";
-            else if (c == '\\')
+            } else if (c == '\\') {
                 oss << "\\\\";
-            else if (c == '\n')
+            } else if (c == '\n') {
                 oss << "\\n";
-            else if (c == '\r')
+            } else if (c == '\r') {
                 oss << "\\r";
-            else if (c == '\t')
+            } else if (c == '\t') {
                 oss << "\\t";
-            else
+            } else {
                 oss << c;
+            }
         }
         oss << "\"";
     } else {
-        oss << ",\"error\":\"" << error << "\"";
+        oss << R"(,"error":")" << error << "\"";
     }
 
     oss << "}";
@@ -551,23 +555,25 @@ std::string ChatbotAPI::create_batch_json_response(const BatchResponse& batch_re
     if (batch_response.success) {
         oss << ",\"responses\":[";
         for (size_t i = 0; i < batch_response.responses.size(); ++i) {
-            if (i > 0)
+            if (i > 0) {
                 oss << ",";
+            }
             oss << "\"";
             // Escape quotes and special characters
             for (char c : batch_response.responses[i]) {
-                if (c == '"')
+                if (c == '"') {
                     oss << "\\\"";
-                else if (c == '\\')
+                } else if (c == '\\') {
                     oss << "\\\\";
-                else if (c == '\n')
+                } else if (c == '\n') {
                     oss << "\\n";
-                else if (c == '\r')
+                } else if (c == '\r') {
                     oss << "\\r";
-                else if (c == '\t')
+                } else if (c == '\t') {
                     oss << "\\t";
-                else
+                } else {
                     oss << c;
+                }
             }
             oss << "\"";
         }
@@ -577,8 +583,9 @@ std::string ChatbotAPI::create_batch_json_response(const BatchResponse& batch_re
         if (!batch_response.session_ids.empty()) {
             oss << ",\"session_ids\":[";
             for (size_t i = 0; i < batch_response.session_ids.size(); ++i) {
-                if (i > 0)
+                if (i > 0) {
                     oss << ",";
+                }
                 oss << "\"" << batch_response.session_ids[i] << "\"";
             }
             oss << "]";
@@ -592,7 +599,7 @@ std::string ChatbotAPI::create_batch_json_response(const BatchResponse& batch_re
             << "\"avg_batch_size\":" << batch_response.stats.avg_batch_size << ","
             << "\"efficiency\":" << ((1.0f - batch_response.stats.padding_ratio) * 100.0f) << "}";
     } else {
-        oss << ",\"error\":\"" << batch_response.error << "\"";
+        oss << R"(,"error":")" << batch_response.error << "\"";
     }
 
     oss << "}";
@@ -628,11 +635,11 @@ std::string ChatbotAPI::generate_response(const std::string& input,
 
         // Create a TextGenerator with appropriate configuration
         TextGenerator::GenerationConfig gen_config;
-        gen_config.max_length = config.max_length;
+        gen_config.max_length = static_cast<int>(config.max_length);
         gen_config.temperature = config.temperature;
         gen_config.top_p = config.top_p;
-        gen_config.top_k = config.top_k;
-        gen_config.num_beams = config.beam_width;
+        gen_config.top_k = static_cast<int>(config.top_k);
+        gen_config.num_beams = static_cast<int>(config.beam_width);
 
         TextGenerator generator(gen_config, 0);  // seed=0 for random
 
@@ -649,15 +656,15 @@ std::string ChatbotAPI::generate_response(const std::string& input,
         if (config.strategy == "greedy") {
             generated_tokens = generator.generate_greedy(model_fn, {});
         } else if (config.strategy == "beam") {
-            generated_tokens = generator.generate_beam_search(model_fn, {}, config.beam_width);
+            generated_tokens =
+                generator.generate_beam_search(model_fn, {}, static_cast<int>(config.beam_width));
         } else if (config.strategy == "temperature") {
             generated_tokens = generator.generate_sampling(model_fn, {}, config.temperature);
         } else if (config.strategy == "top_k") {
-            generated_tokens = generator.generate_top_k(model_fn, {}, config.top_k);
-        } else if (config.strategy == "nucleus") {
-            generated_tokens = generator.generate_nucleus(model_fn, {}, config.top_p);
+            generated_tokens =
+                generator.generate_top_k(model_fn, {}, static_cast<int>(config.top_k));
         } else {
-            // Default to nucleus sampling
+            // Default to nucleus sampling (including explicit "nucleus" strategy)
             generated_tokens = generator.generate_nucleus(model_fn, {}, config.top_p);
         }
 
@@ -717,11 +724,11 @@ ChatbotAPI::BatchResponse ChatbotAPI::generate_batch_responses(
 
                 // Create TextGenerator configuration
                 TextGenerator::GenerationConfig gen_config;
-                gen_config.max_length = config.max_length;
+                gen_config.max_length = static_cast<int>(config.max_length);
                 gen_config.temperature = config.temperature;
                 gen_config.top_p = config.top_p;
-                gen_config.top_k = config.top_k;
-                gen_config.num_beams = config.beam_width;
+                gen_config.top_k = static_cast<int>(config.top_k);
+                gen_config.num_beams = static_cast<int>(config.beam_width);
 
                 TextGenerator generator(gen_config, 0);
 
@@ -737,16 +744,16 @@ ChatbotAPI::BatchResponse ChatbotAPI::generate_batch_responses(
                 if (config.strategy == "greedy") {
                     generated_tokens = generator.generate_greedy(model_fn, {});
                 } else if (config.strategy == "beam") {
-                    generated_tokens =
-                        generator.generate_beam_search(model_fn, {}, config.beam_width);
+                    generated_tokens = generator.generate_beam_search(
+                        model_fn, {}, static_cast<int>(config.beam_width));
                 } else if (config.strategy == "temperature") {
                     generated_tokens =
                         generator.generate_sampling(model_fn, {}, config.temperature);
                 } else if (config.strategy == "top_k") {
-                    generated_tokens = generator.generate_top_k(model_fn, {}, config.top_k);
-                } else if (config.strategy == "nucleus") {
-                    generated_tokens = generator.generate_nucleus(model_fn, {}, config.top_p);
+                    generated_tokens =
+                        generator.generate_top_k(model_fn, {}, static_cast<int>(config.top_k));
                 } else {
+                    // Default to nucleus sampling (including explicit "nucleus" strategy)
                     generated_tokens = generator.generate_nucleus(model_fn, {}, config.top_p);
                 }
 

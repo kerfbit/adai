@@ -68,7 +68,7 @@ class CrossAttention {
     Matrix cached_scores;             // Pre-softmax attention scores
 
     // Optimizer support
-    Optimizer* optimizer;  // Optional optimizer (nullptr = simple gradient descent)
+    Optimizer* optimizer{nullptr};  // Optional optimizer (nullptr = simple gradient descent)
 
     // Helper function for scaled dot-product attention
     /**
@@ -84,7 +84,8 @@ class CrossAttention {
                                         const Matrix* mask);
 
    public:
-    float learning_rate;  // Learning rate for weight updates (used when optimizer is nullptr)
+    float learning_rate{
+        0.001f};  // Learning rate for weight updates (used when optimizer is nullptr)
 
     /**
      * Constructor

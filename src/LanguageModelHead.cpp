@@ -1,4 +1,5 @@
 #include "LanguageModelHead.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <fstream>
@@ -10,14 +11,13 @@
 LanguageModelHead::LanguageModelHead(int d_model, int vocab_size)
     : d_model(d_model),
       vocab_size(vocab_size),
-      learning_rate(0.001f),
+
       W_output(d_model, vocab_size),
       bias(1, vocab_size),
       W_output_grad(d_model, vocab_size),
-      bias_grad(1, vocab_size),
-      optimizer(nullptr) {
+      bias_grad(1, vocab_size) {
     // Xavier initialization for weights
-    float scale = std::sqrt(2.0f / (d_model + vocab_size));
+    float scale = std::sqrt(2.0f / static_cast<float>(d_model + vocab_size));
     W_output.randomize(scale);
 
     // Zero initialization for bias
@@ -27,10 +27,10 @@ LanguageModelHead::LanguageModelHead(int d_model, int vocab_size)
     W_output_grad.fill(0.0f);
     bias_grad.fill(0.0f);
 
-    std::cout << "LanguageModelHead initialized:" << std::endl;
-    std::cout << "  Input dimension: " << d_model << std::endl;
-    std::cout << "  Vocabulary size: " << vocab_size << std::endl;
-    std::cout << "  Parameters: " << (d_model * vocab_size + vocab_size) << std::endl;
+    std::cout << "LanguageModelHead initialized:" << '\n';
+    std::cout << "  Input dimension: " << d_model << '\n';
+    std::cout << "  Vocabulary size: " << vocab_size << '\n';
+    std::cout << "  Parameters: " << (d_model * vocab_size + vocab_size) << '\n';
 }
 
 Matrix LanguageModelHead::forward(const Matrix& input) {
@@ -52,9 +52,9 @@ Matrix LanguageModelHead::forward(const Matrix& input) {
 
 std::vector<float> LanguageModelHead::get_probabilities(const std::vector<float>& logits) {
     // Convert vector to matrix for softmax
-    Matrix logits_matrix(1, logits.size());
+    Matrix logits_matrix(1, static_cast<int>(logits.size()));
     for (size_t i = 0; i < logits.size(); ++i) {
-        logits_matrix(0, i) = logits[i];
+        logits_matrix(0, static_cast<int>(i)) = logits[i];
     }
 
     // Apply softmax
@@ -63,7 +63,7 @@ std::vector<float> LanguageModelHead::get_probabilities(const std::vector<float>
     // Convert back to vector
     std::vector<float> probs(logits.size());
     for (size_t i = 0; i < logits.size(); ++i) {
-        probs[i] = probs_matrix(0, i);
+        probs[i] = probs_matrix(0, static_cast<int>(i));
     }
 
     return probs;
@@ -145,7 +145,7 @@ void LanguageModelHead::load(const std::string& filepath) {
     }
 
     // Load dimensions
-    int loaded_d_model, loaded_vocab_size;
+    int loaded_d_model = 0, loaded_vocab_size = 0;
     file.read(reinterpret_cast<char*>(&loaded_d_model), sizeof(loaded_d_model));
     file.read(reinterpret_cast<char*>(&loaded_vocab_size), sizeof(loaded_vocab_size));
 
@@ -156,7 +156,7 @@ void LanguageModelHead::load(const std::string& filepath) {
     // Load W_output
     for (int i = 0; i < W_output.rows; ++i) {
         for (int j = 0; j < W_output.cols; ++j) {
-            float val;
+            float val = NAN;
             file.read(reinterpret_cast<char*>(&val), sizeof(float));
             W_output(i, j) = val;
         }
@@ -164,7 +164,7 @@ void LanguageModelHead::load(const std::string& filepath) {
 
     // Load bias
     for (int j = 0; j < bias.cols; ++j) {
-        float val;
+        float val = NAN;
         file.read(reinterpret_cast<char*>(&val), sizeof(float));
         bias(0, j) = val;
     }
@@ -180,8 +180,9 @@ void LanguageModelHead::set_optimizer(Optimizer* opt) {
 }
 
 void LanguageModelHead::register_parameters() {
-    if (!optimizer)
+    if (!optimizer) {
         return;
+    }
 
     // Register weight matrix and bias
     optimizer->add_parameter_group(&W_output, &W_output_grad);

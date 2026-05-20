@@ -4,13 +4,14 @@
 #include <iostream>
 #include <numeric>
 #include <queue>
+#include <utility>
 
 // Default constructor
-TextGenerator::TextGenerator() : config(), rng(std::random_device{}()), tokenizer_(nullptr) {}
+TextGenerator::TextGenerator() : rng(std::random_device{}()), tokenizer_(nullptr) {}
 
 // Constructor
-TextGenerator::TextGenerator(const GenerationConfig& cfg, unsigned int seed)
-    : config(cfg), rng(seed == 0 ? std::random_device{}() : seed), tokenizer_(nullptr) {}
+TextGenerator::TextGenerator(const GenerationConfig& config, unsigned int seed)
+    : config(config), rng(seed == 0 ? std::random_device{}() : seed), tokenizer_(nullptr) {}
 
 // Apply temperature scaling
 std::vector<float> TextGenerator::apply_temperature(const std::vector<float>& logits,
@@ -35,7 +36,7 @@ std::vector<float> TextGenerator::apply_top_k(const std::vector<float>& logits, 
     // Create pairs of (logit, index)
     std::vector<std::pair<float, int>> logit_pairs;
     for (size_t i = 0; i < logits.size(); ++i) {
-        logit_pairs.push_back({logits[i], static_cast<int>(i)});
+        logit_pairs.emplace_back(logits[i], static_cast<int>(i));
     }
 
     // Partial sort to get top k
@@ -63,7 +64,7 @@ std::vector<float> TextGenerator::apply_top_p(const std::vector<float>& logits, 
     // Create pairs and sort by probability (descending)
     std::vector<std::pair<float, int>> prob_pairs;
     for (size_t i = 0; i < probs.size(); ++i) {
-        prob_pairs.push_back({probs[i], static_cast<int>(i)});
+        prob_pairs.emplace_back(probs[i], static_cast<int>(i));
     }
     std::sort(prob_pairs.begin(), prob_pairs.end(),
               [](const auto& a, const auto& b) { return a.first > b.first; });
@@ -145,7 +146,7 @@ int TextGenerator::argmax(const std::vector<float>& values) {
 float TextGenerator::compute_length_penalty(int length, float alpha) {
     // Length penalty: (5 + length)^alpha / (5 + 1)^alpha
     // This is the formula from Google's NMT paper
-    return std::pow((5.0f + length) / 6.0f, alpha);
+    return std::pow((5.0f + static_cast<float>(length)) / 6.0f, alpha);
 }
 
 // Check if token is stopping token
@@ -157,7 +158,7 @@ bool TextGenerator::is_stop_token(int token_id) {
 }
 
 // Greedy decoding
-std::vector<int> TextGenerator::generate_greedy(ModelForwardFn model_fn,
+std::vector<int> TextGenerator::generate_greedy(const ModelForwardFn& model_fn,
                                                 const std::vector<int>& prompt_tokens) {
     std::vector<int> generated = prompt_tokens;
 
@@ -201,7 +202,7 @@ std::vector<int> TextGenerator::generate_greedy(ModelForwardFn model_fn,
 }
 
 // Beam search
-std::vector<int> TextGenerator::generate_beam_search(ModelForwardFn model_fn,
+std::vector<int> TextGenerator::generate_beam_search(const ModelForwardFn& model_fn,
                                                      const std::vector<int>& prompt_tokens,
                                                      int num_beams) {
     if (num_beams == -1) {
@@ -257,7 +258,7 @@ std::vector<int> TextGenerator::generate_beam_search(ModelForwardFn model_fn,
             // Get top num_beams tokens
             std::vector<std::pair<float, int>> token_scores;
             for (size_t i = 0; i < log_probs.size(); ++i) {
-                token_scores.push_back({log_probs[i], static_cast<int>(i)});
+                token_scores.emplace_back(log_probs[i], static_cast<int>(i));
             }
             std::partial_sort(token_scores.begin(),
                               token_scores.begin() +
@@ -272,7 +273,7 @@ std::vector<int> TextGenerator::generate_beam_search(ModelForwardFn model_fn,
                 int token_id = token_scores[i].second;
                 float new_score = beams[beam_idx].score + token_score;
 
-                candidates.push_back({new_score, beam_idx, token_id});
+                candidates.emplace_back(new_score, beam_idx, token_id);
             }
         }
 
@@ -342,7 +343,7 @@ std::vector<int> TextGenerator::generate_beam_search(ModelForwardFn model_fn,
 }
 
 // Temperature sampling
-std::vector<int> TextGenerator::generate_sampling(ModelForwardFn model_fn,
+std::vector<int> TextGenerator::generate_sampling(const ModelForwardFn& model_fn,
                                                   const std::vector<int>& prompt_tokens,
                                                   float temperature) {
     if (temperature == -1.0f) {
@@ -393,7 +394,7 @@ std::vector<int> TextGenerator::generate_sampling(ModelForwardFn model_fn,
 }
 
 // Top-k sampling
-std::vector<int> TextGenerator::generate_top_k(ModelForwardFn model_fn,
+std::vector<int> TextGenerator::generate_top_k(const ModelForwardFn& model_fn,
                                                const std::vector<int>& prompt_tokens, int k) {
     if (k == -1) {
         k = config.top_k;
@@ -441,7 +442,7 @@ std::vector<int> TextGenerator::generate_top_k(ModelForwardFn model_fn,
 }
 
 // Nucleus (top-p) sampling
-std::vector<int> TextGenerator::generate_nucleus(ModelForwardFn model_fn,
+std::vector<int> TextGenerator::generate_nucleus(const ModelForwardFn& model_fn,
                                                  const std::vector<int>& prompt_tokens, float p) {
     if (p == -1.0f) {
         p = config.top_p;
@@ -489,7 +490,7 @@ std::vector<int> TextGenerator::generate_nucleus(ModelForwardFn model_fn,
 }
 
 // Combined generation (all filters)
-std::vector<int> TextGenerator::generate(ModelForwardFn model_fn,
+std::vector<int> TextGenerator::generate(const ModelForwardFn& model_fn,
                                          const std::vector<int>& prompt_tokens) {
     // Use beam search if num_beams > 1
     if (config.num_beams > 1) {
@@ -563,7 +564,7 @@ std::string TextGenerator::generate_text(ModelForwardFn model_fn, BPETokenizer& 
 }
 
 // Batch generation
-std::vector<std::string> TextGenerator::generate_batch(ModelForwardFn model_fn,
+std::vector<std::string> TextGenerator::generate_batch(const ModelForwardFn& model_fn,
                                                        BPETokenizer& tokenizer,
                                                        const std::vector<std::string>& prompts) {
     std::vector<std::string> results;

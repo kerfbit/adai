@@ -42,23 +42,19 @@ class RAGInference {
      * @brief Configuration for RAG inference
      */
     struct RAGConfig {
-        int num_retrieved_docs;                      // Number of documents to retrieve
-        float retrieval_threshold;                   // Minimum similarity score (0 = no filter)
-        bool include_scores;                         // Include similarity scores in context
+        int num_retrieved_docs{3};                   // Number of documents to retrieve
+        float retrieval_threshold{0.0f};             // Minimum similarity score (0 = no filter)
+        bool include_scores{false};                  // Include similarity scores in context
         std::string context_separator;               // Separator between documents
         std::string context_prefix;                  // Prefix before context
         std::string query_prefix;                    // Prefix before query
-        int max_context_length;                      // Maximum tokens for context
+        int max_context_length{512};                 // Maximum tokens for context
         TextGenerator::GenerationConfig gen_config;  // Generation parameters
 
         RAGConfig()
-            : num_retrieved_docs(3),
-              retrieval_threshold(0.0f),
-              include_scores(false),
-              context_separator("\n\n"),
+            : context_separator("\n\n"),
               context_prefix("Context:\n"),
-              query_prefix("\n\nQuestion: "),
-              max_context_length(512) {}
+              query_prefix("\n\nQuestion: ") {}
     };
 
    private:
@@ -91,7 +87,7 @@ class RAGInference {
      * @param max_tokens Maximum number of tokens
      * @return std::string Truncated context
      */
-    std::string truncateContext(const std::string& context, int max_tokens) const;
+    static std::string truncateContext(const std::string& context, int max_tokens);
 
    public:
     /**
@@ -102,7 +98,7 @@ class RAGInference {
      * @param config RAG configuration
      */
     RAGInference(std::shared_ptr<EncoderDecoderModel> model,
-                 std::shared_ptr<DocumentStore> doc_store, const RAGConfig& config = RAGConfig());
+                 std::shared_ptr<DocumentStore> doc_store, RAGConfig config = RAGConfig());
 
     /**
      * @brief Generate response using RAG

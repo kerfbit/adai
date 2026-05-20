@@ -9,7 +9,7 @@ DocumentStore::DocumentStore(std::shared_ptr<LLMEncoder> encoder) : encoder(enco
     }
 }
 
-float DocumentStore::cosineSimilarity(const Matrix& emb1, const Matrix& emb2) const {
+float DocumentStore::cosineSimilarity(const Matrix& emb1, const Matrix& emb2) {
     if (emb1.cols != emb2.cols) {
         throw std::invalid_argument("Embeddings must have same dimensions");
     }
@@ -34,7 +34,7 @@ float DocumentStore::cosineSimilarity(const Matrix& emb1, const Matrix& emb2) co
     return dot_product / denom;
 }
 
-Matrix DocumentStore::getSentenceEmbedding(const Matrix& encoder_output) const {
+Matrix DocumentStore::getSentenceEmbedding(const Matrix& encoder_output) {
     // Mean pooling over sequence dimension
     // encoder_output shape: [seq_len, d_model]
     // output shape: [1, d_model]
@@ -54,7 +54,7 @@ Matrix DocumentStore::getSentenceEmbedding(const Matrix& encoder_output) const {
     }
 
     // Average by sequence length
-    float scale = 1.0f / encoder_output.rows;
+    float scale = 1.0f / static_cast<float>(encoder_output.rows);
     for (int j = 0; j < encoder_output.cols; ++j) {
         sentence_emb(0, j) *= scale;
     }

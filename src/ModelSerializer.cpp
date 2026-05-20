@@ -46,21 +46,26 @@ Matrix transpose_matrix(const Matrix& m) {
 // Flatten a 1-row Matrix to a vector (for biases / LayerNorm params).
 std::vector<float> flatten(const Matrix& m) {
     std::vector<float> out;
-    out.reserve(static_cast<size_t>(m.rows * m.cols));
-    for (int i = 0; i < m.rows; ++i)
-        for (int j = 0; j < m.cols; ++j)
+    out.reserve(static_cast<size_t>(m.rows) * static_cast<size_t>(m.cols));
+    for (int i = 0; i < m.rows; ++i) {
+        for (int j = 0; j < m.cols; ++j) {
             out.push_back(m(i, j));
+        }
+    }
     return out;
 }
 
 // Reshape a flat float vector back into a Matrix.
 Matrix from_flat(const std::vector<float>& data, int rows, int cols) {
-    if (static_cast<int>(data.size()) != rows * cols)
+    if (static_cast<int>(data.size()) != rows * cols) {
         throw std::runtime_error("ModelSerializer: size mismatch in from_flat");
+    }
     Matrix m(rows, cols);
-    for (int i = 0; i < rows; ++i)
-        for (int j = 0; j < cols; ++j)
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
             m(i, j) = data[static_cast<size_t>(i * cols + j)];
+        }
+    }
     return m;
 }
 
@@ -81,7 +86,7 @@ ModelSerializer::TensorDescriptor make_td_1d(const std::string& name, const Matr
     ModelSerializer::TensorDescriptor td;
     td.name = name;
     td.dtype = "F32";
-    td.shape = {static_cast<int64_t>(m.rows * m.cols)};
+    td.shape = {static_cast<int64_t>(m.rows) * static_cast<int64_t>(m.cols)};
     td.data = flatten(m);
     return td;
 }
@@ -106,8 +111,9 @@ void ModelSerializer::write_safetensors(const std::string& path,
 
     // __metadata__
     json meta_obj;
-    for (const auto& kv : metadata)
+    for (const auto& kv : metadata) {
         meta_obj[kv.first] = kv.second;
+    }
     header["__metadata__"] = meta_obj;
 
     // Compute per-tensor byte offsets (relative to start of data region).
@@ -117,8 +123,9 @@ void ModelSerializer::write_safetensors(const std::string& path,
         json td_entry;
         td_entry["dtype"] = td.dtype;
         json shape_arr = json::array();
-        for (auto s : td.shape)
+        for (auto s : td.shape) {
             shape_arr.push_back(s);
+        }
         td_entry["shape"] = shape_arr;
         td_entry["data_offsets"] = json::array({offset, offset + n_bytes});
         header[td.name] = td_entry;
@@ -127,26 +134,30 @@ void ModelSerializer::write_safetensors(const std::string& path,
 
     // Serialise header to UTF-8 string and pad to an 8-byte boundary.
     std::string header_str = header.dump();
-    while (header_str.size() % 8 != 0)
+    while (header_str.size() % 8 != 0) {
         header_str += ' ';
-    uint64_t header_size = static_cast<uint64_t>(header_str.size());
+    }
+    auto header_size = static_cast<uint64_t>(header_str.size());
 
     // Write file.
     std::ofstream f(path, std::ios::binary);
-    if (!f.is_open())
+    if (!f.is_open()) {
         throw std::runtime_error("ModelSerializer: cannot open for writing: " + path);
+    }
 
     // 8-byte little-endian header length.
     f.write(reinterpret_cast<const char*>(&header_size), sizeof(header_size));
     // JSON header.
     f.write(header_str.data(), static_cast<std::streamsize>(header_str.size()));
     // Tensor data.
-    for (const auto& td : tensors)
+    for (const auto& td : tensors) {
         f.write(reinterpret_cast<const char*>(td.data.data()),
                 static_cast<std::streamsize>(td.data.size() * sizeof(float)));
+    }
 
-    if (!f.good())
+    if (!f.good()) {
         throw std::runtime_error("ModelSerializer: write error: " + path);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -156,20 +167,23 @@ void ModelSerializer::write_safetensors(const std::string& path,
 std::map<std::string, ModelSerializer::TensorDescriptor> ModelSerializer::read_safetensors(
     const std::string& path) {
     std::ifstream f(path, std::ios::binary);
-    if (!f.is_open())
+    if (!f.is_open()) {
         throw std::runtime_error("ModelSerializer: cannot open for reading: " + path);
+    }
 
     // Read 8-byte header length.
     uint64_t header_size = 0;
     f.read(reinterpret_cast<char*>(&header_size), sizeof(header_size));
-    if (!f.good() || header_size == 0)
+    if (!f.good() || header_size == 0) {
         throw std::runtime_error("ModelSerializer: invalid SafeTensors header size in " + path);
+    }
 
     // Read JSON header.
     std::string header_str(header_size, '\0');
     f.read(header_str.data(), static_cast<std::streamsize>(header_size));
-    if (!f.good())
+    if (!f.good()) {
         throw std::runtime_error("ModelSerializer: failed to read header from " + path);
+    }
 
     json header = json::parse(header_str);
 
@@ -180,8 +194,9 @@ std::map<std::string, ModelSerializer::TensorDescriptor> ModelSerializer::read_s
 
     for (auto it = header.begin(); it != header.end(); ++it) {
         const std::string& key = it.key();
-        if (key == "__metadata__")
+        if (key == "__metadata__") {
             continue;
+        }
 
         const json& entry = it.value();
 
@@ -189,8 +204,9 @@ std::map<std::string, ModelSerializer::TensorDescriptor> ModelSerializer::read_s
         td.name = key;
         td.dtype = entry.value("dtype", "F32");
 
-        for (auto& s : entry.at("shape"))
+        for (auto& s : entry.at("shape")) {
             td.shape.push_back(s.get<int64_t>());
+        }
 
         auto offsets = entry.at("data_offsets");
         uint64_t start_off = offsets[0].get<uint64_t>();
@@ -201,9 +217,12 @@ std::map<std::string, ModelSerializer::TensorDescriptor> ModelSerializer::read_s
         td.data.resize(n_floats);
         f.seekg(data_start + static_cast<std::streamoff>(start_off));
         f.read(reinterpret_cast<char*>(td.data.data()), static_cast<std::streamsize>(n_bytes));
-        if (!f.good())
-            throw std::runtime_error("ModelSerializer: failed to read tensor '" + key + "' from " +
-                                     path);
+        if (!f.good()) {
+            throw std::runtime_error(std::string("ModelSerializer: failed to read tensor '")
+                                         .append(key)
+                                         .append("' from ")
+                                         .append(path));
+        }
 
         result[key] = std::move(td);
     }
@@ -229,7 +248,7 @@ void ModelSerializer::export_safetensors(const EncoderDecoderModel& model,
 
     // Non-const access needed to reach sub-components through non-const getters.
     // Cast away top-level const only to traverse the component tree.
-    EncoderDecoderModel& mutable_model = const_cast<EncoderDecoderModel&>(model);
+    auto& mutable_model = const_cast<EncoderDecoderModel&>(model);
 
     LLMEncoder* enc = mutable_model.get_encoder();
     LLMDecoder* dec = mutable_model.get_decoder();
@@ -354,8 +373,9 @@ void ModelSerializer::export_safetensors(const EncoderDecoderModel& model,
     cfg["torch_dtype"] = "float32";
 
     std::ofstream cfg_f(output_dir + "/config.json");
-    if (!cfg_f.is_open())
+    if (!cfg_f.is_open()) {
         throw std::runtime_error("ModelSerializer: cannot write config.json to " + output_dir);
+    }
     cfg_f << cfg.dump(2) << '\n';
 }
 
@@ -366,8 +386,9 @@ void ModelSerializer::export_safetensors(const EncoderDecoderModel& model,
 void ModelSerializer::import_safetensors(EncoderDecoderModel& model, const std::string& input_dir) {
     // ── Read and validate config.json ─────────────────────────────────────────
     std::ifstream cfg_f(input_dir + "/config.json");
-    if (!cfg_f.is_open())
+    if (!cfg_f.is_open()) {
         throw std::runtime_error("ModelSerializer: cannot open " + input_dir + "/config.json");
+    }
 
     json cfg;
     cfg_f >> cfg;
@@ -408,16 +429,19 @@ void ModelSerializer::import_safetensors(EncoderDecoderModel& model, const std::
     // Helper: look up a required tensor and verify its total element count.
     auto require = [&](const std::string& name, int expected_elems) -> const TensorDescriptor& {
         auto it = tensors.find(name);
-        if (it == tensors.end())
+        if (it == tensors.end()) {
             throw std::runtime_error("ModelSerializer: required tensor missing: " + name);
+        }
         const TensorDescriptor& td = it->second;
         int actual = 1;
-        for (auto s : td.shape)
+        for (auto s : td.shape) {
             actual *= static_cast<int>(s);
-        if (actual != expected_elems)
+        }
+        if (actual != expected_elems) {
             throw std::runtime_error("ModelSerializer: tensor '" + name + "' has " +
                                      std::to_string(actual) + " elements, expected " +
                                      std::to_string(expected_elems));
+        }
         return td;
     };
 
@@ -444,8 +468,9 @@ void ModelSerializer::import_safetensors(EncoderDecoderModel& model, const std::
                                vocab_size, d_model);
         enc->get_token_embedding()->set_embeddings(emb);
         // Decoder uses its own embedding; set it to the same values.
-        if (dec_ptr->get_token_embedding())
+        if (dec_ptr->get_token_embedding()) {
             dec_ptr->get_token_embedding()->set_embeddings(emb);
+        }
     }
 
     // ── Encoder layers ────────────────────────────────────────────────────────

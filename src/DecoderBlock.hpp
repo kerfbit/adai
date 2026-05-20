@@ -80,7 +80,7 @@ class DecoderBlock {
     Matrix cached_encoder_output;
 
    public:
-    float learning_rate;
+    float learning_rate{0.001f};
 
     /**
      * Get the feed-forward sublayer (for hook registration, diagnostics, etc.)

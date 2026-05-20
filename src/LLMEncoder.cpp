@@ -21,9 +21,7 @@ LLMEncoder::LLMEncoder(int vocab_size, int d_model, int num_layers, int num_head
       num_layers(num_layers),
       num_heads(num_heads),
       d_ff(d_ff),
-      max_seq_length(max_seq_length),
-      requires_grad(false),
-      learning_rate(0.001f) {
+      max_seq_length(max_seq_length) {
     // Initialize components
     tokenizer = std::make_unique<BPETokenizer>();
     token_embedding = std::make_unique<TokenEmbedding>(vocab_size, d_model);
@@ -35,13 +33,13 @@ LLMEncoder::LLMEncoder(int vocab_size, int d_model, int num_layers, int num_head
         encoder_blocks.push_back(std::make_unique<EncoderBlock>(d_model, num_heads, d_ff));
     }
 
-    std::cout << "LLM Encoder initialized with:" << std::endl;
-    std::cout << "  Vocab size: " << vocab_size << std::endl;
-    std::cout << "  Model dimension: " << d_model << std::endl;
-    std::cout << "  Number of layers: " << num_layers << std::endl;
-    std::cout << "  Number of heads: " << num_heads << std::endl;
-    std::cout << "  Feed-forward dimension: " << d_ff << std::endl;
-    std::cout << "  Max sequence length: " << max_seq_length << std::endl;
+    std::cout << "LLM Encoder initialized with:" << '\n';
+    std::cout << "  Vocab size: " << vocab_size << '\n';
+    std::cout << "  Model dimension: " << d_model << '\n';
+    std::cout << "  Number of layers: " << num_layers << '\n';
+    std::cout << "  Number of heads: " << num_heads << '\n';
+    std::cout << "  Feed-forward dimension: " << d_ff << '\n';
+    std::cout << "  Max sequence length: " << max_seq_length << '\n';
 }
 
 Matrix LLMEncoder::encode(const std::string& text) {
@@ -53,7 +51,7 @@ Matrix LLMEncoder::encode(const std::string& text) {
         token_ids.resize(max_seq_length);
     }
 
-    std::cout << "Encoding " << token_ids.size() << " tokens..." << std::endl;
+    std::cout << "Encoding " << token_ids.size() << " tokens..." << '\n';
 
     if (requires_grad) {
         cached_token_ids = token_ids;
@@ -124,7 +122,7 @@ std::vector<float> LLMEncoder::get_sentence_embedding(const std::string& text) {
         for (int i = 0; i < encoded.rows; i++) {
             pooled[j] += encoded(i, j);
         }
-        pooled[j] /= encoded.rows;
+        pooled[j] /= static_cast<float>(encoded.rows);
     }
 
     return pooled;
@@ -140,21 +138,22 @@ std::vector<float> LLMEncoder::get_sentence_embedding_trainable(const std::strin
         for (int i = 0; i < encoded.rows; i++) {
             sum += encoded(i, j);
         }
-        pooled[j] = sum / encoded.rows;
+        pooled[j] = sum / static_cast<float>(encoded.rows);
     }
 
     return pooled;
 }
 
 void LLMEncoder::backward_sentence_embedding(const std::vector<float>& grad_output) {
-    if (!requires_grad)
+    if (!requires_grad) {
         return;
+    }
 
     // Gradient from mean pooling: distribute gradient equally to all tokens
-    Matrix grad_encoded(cached_token_ids.size(), d_model);
-    for (int i = 0; i < cached_token_ids.size(); i++) {
+    Matrix grad_encoded(static_cast<int>(cached_token_ids.size()), d_model);
+    for (int i = 0; i < static_cast<int>(cached_token_ids.size()); i++) {
         for (int j = 0; j < d_model; j++) {
-            grad_encoded(i, j) = grad_output[j] / cached_token_ids.size();
+            grad_encoded(i, j) = grad_output[j] / static_cast<float>(cached_token_ids.size());
         }
     }
 
@@ -162,8 +161,9 @@ void LLMEncoder::backward_sentence_embedding(const std::vector<float>& grad_outp
 }
 
 void LLMEncoder::backward(const Matrix& grad_output) {
-    if (!requires_grad)
+    if (!requires_grad) {
         return;
+    }
 
     // Gradient through final layer norm
     Matrix grad = final_norm->backward(grad_output);
@@ -201,24 +201,23 @@ void LLMEncoder::set_learning_rate(float lr) {
 
 void LLMEncoder::load_tokenizer_vocab(const std::string& vocab_file) {
     tokenizer->load_vocab(vocab_file);
-    std::cout << "Loaded tokenizer vocabulary from: " << vocab_file << std::endl;
+    std::cout << "Loaded tokenizer vocabulary from: " << vocab_file << '\n';
 }
 
 void LLMEncoder::build_tokenizer(const std::vector<std::string>& corpus, int vocab_size) {
     tokenizer->build_vocab(corpus, vocab_size);
-    std::cout << "Built tokenizer with vocabulary size: " << tokenizer->get_vocab_size()
-              << std::endl;
+    std::cout << "Built tokenizer with vocabulary size: " << tokenizer->get_vocab_size() << '\n';
 }
 
 void LLMEncoder::print_config() const {
-    std::cout << "\n=== LLM Encoder Configuration ===" << std::endl;
-    std::cout << "Vocabulary size: " << vocab_size << std::endl;
-    std::cout << "Model dimension (d_model): " << d_model << std::endl;
-    std::cout << "Number of encoder layers: " << num_layers << std::endl;
-    std::cout << "Number of attention heads: " << num_heads << std::endl;
-    std::cout << "Feed-forward dimension: " << d_ff << std::endl;
-    std::cout << "Max sequence length: " << max_seq_length << std::endl;
-    std::cout << "=================================\n" << std::endl;
+    std::cout << "\n=== LLM Encoder Configuration ===" << '\n';
+    std::cout << "Vocabulary size: " << vocab_size << '\n';
+    std::cout << "Model dimension (d_model): " << d_model << '\n';
+    std::cout << "Number of encoder layers: " << num_layers << '\n';
+    std::cout << "Number of attention heads: " << num_heads << '\n';
+    std::cout << "Feed-forward dimension: " << d_ff << '\n';
+    std::cout << "Max sequence length: " << max_seq_length << '\n';
+    std::cout << "=================================\n" << '\n';
 }
 
 int LLMEncoder::get_embedding_dim() const {
@@ -251,7 +250,7 @@ void LLMEncoder::save_weights(const std::string& filename) {
 
     final_norm->save_weights(base + "_final_norm.bin");
 
-    std::cout << "Saved Encoder weights to " << filename << std::endl;
+    std::cout << "Saved Encoder weights to " << filename << '\n';
 }
 
 void LLMEncoder::load_weights(const std::string& filename) {
@@ -261,8 +260,8 @@ void LLMEncoder::load_weights(const std::string& filename) {
     }
 
     // Read and verify header
-    int loaded_vocab_size, loaded_d_model, loaded_num_layers;
-    int loaded_num_heads, loaded_d_ff, loaded_max_seq_length;
+    int loaded_vocab_size = 0, loaded_d_model = 0, loaded_num_layers = 0;
+    int loaded_num_heads = 0, loaded_d_ff = 0, loaded_max_seq_length = 0;
 
     file.read(reinterpret_cast<char*>(&loaded_vocab_size), sizeof(int));
     file.read(reinterpret_cast<char*>(&loaded_d_model), sizeof(int));
@@ -295,7 +294,7 @@ void LLMEncoder::load_weights(const std::string& filename) {
 
     final_norm->load_weights(base + "_final_norm.bin");
 
-    std::cout << "Loaded Encoder weights from " << filename << std::endl;
+    std::cout << "Loaded Encoder weights from " << filename << '\n';
 }
 
 void LLMEncoder::register_parameters_with_optimizer(Optimizer& optimizer) {

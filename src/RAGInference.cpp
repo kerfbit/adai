@@ -2,10 +2,11 @@
 #include <algorithm>
 #include <sstream>
 #include <stdexcept>
+#include <utility>
 
 RAGInference::RAGInference(std::shared_ptr<EncoderDecoderModel> model,
-                           std::shared_ptr<DocumentStore> doc_store, const RAGConfig& config)
-    : model(model), doc_store(doc_store), config(config) {
+                           std::shared_ptr<DocumentStore> doc_store, RAGConfig config)
+    : model(model), doc_store(doc_store), config(std::move(config)) {
     if (!model) {
         throw std::invalid_argument("RAGInference: model cannot be null");
     }
@@ -56,7 +57,7 @@ std::string RAGInference::buildAugmentedPrompt(const std::string& query,
     return oss.str();
 }
 
-std::string RAGInference::truncateContext(const std::string& context, int max_tokens) const {
+std::string RAGInference::truncateContext(const std::string& context, int max_tokens) {
     // Simple truncation by character count
     // In a production system, you'd want to truncate by actual token count
     // For now, we use a rough approximation: ~4 chars per token

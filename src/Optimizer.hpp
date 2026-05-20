@@ -59,21 +59,21 @@ class Optimizer {
     float learning_rate;
 
     // Hyperparameters
-    float momentum_beta;  // Momentum coefficient (default: 0.9)
-    float beta1;          // Adam first moment decay (default: 0.9)
-    float beta2;          // Adam second moment decay (default: 0.999)
-    float epsilon;        // Small constant for numerical stability (default: 1e-8)
-    float weight_decay;   // L2 regularization / weight decay (default: 0.0)
-    bool amsgrad;         // Use AMSGrad variant of Adam (default: false)
+    float momentum_beta{0.9f};  // Momentum coefficient (default: 0.9)
+    float beta1{0.9f};          // Adam first moment decay (default: 0.9)
+    float beta2{0.999f};        // Adam second moment decay (default: 0.999)
+    float epsilon{1e-8f};       // Small constant for numerical stability (default: 1e-8)
+    float weight_decay{0.0f};   // L2 regularization / weight decay (default: 0.0)
+    bool amsgrad{false};        // Use AMSGrad variant of Adam (default: false)
 
     // Gradient clipping
-    float max_grad_norm;  // Maximum gradient norm (0 = no clipping)
+    float max_grad_norm{0.0f};  // Maximum gradient norm (0 = no clipping)
 
     // Parameter groups
     std::vector<ParameterGroup> parameter_groups;
 
     // Global step counter
-    int global_step;
+    int global_step{0};
 
     /**
      * @brief Update parameters using SGD

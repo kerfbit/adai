@@ -6,11 +6,13 @@
 #include <iomanip>
 #include <sstream>
 #include <thread>
+#include <utility>
 #include "Logger.hpp"
 
 // HTTP client for pushing metrics to external API daemon (optional)
 #ifdef BUILD_METRICS_API_SERVER
 #include <httplib.h>
+#include <cmath>
 #endif
 
 namespace fs = std::filesystem;
@@ -19,8 +21,8 @@ namespace fs = std::filesystem;
 // TrainingMetricsService Implementation
 // ============================================================================
 
-TrainingMetricsService::TrainingMetricsService(const MetricsServiceConfig& config)
-    : config_(config), is_training_(false), current_session_id_(0), samples_since_last_persist_(0) {
+TrainingMetricsService::TrainingMetricsService(MetricsServiceConfig config)
+    : config_(std::move(config)), is_training_(false), current_session_id_(0) {
     // Ensure metrics directory exists
     if (config_.enable_persistence) {
         fs::path metrics_path(config_.metrics_file);
@@ -95,7 +97,8 @@ void TrainingMetricsService::end_session() {
         auto now = std::chrono::steady_clock::now();
         auto duration =
             std::chrono::duration_cast<std::chrono::milliseconds>(now - session_start_steady_);
-        current_snapshot_.total_training_time_seconds = duration.count() / 1000.0;
+        current_snapshot_.total_training_time_seconds =
+            static_cast<double>(duration.count()) / 1000.0;
 
         // Persist final state
         persist_metrics();
@@ -158,14 +161,14 @@ void TrainingMetricsService::end_epoch(int epoch, float loss, float validation_l
 
         // Calculate epoch duration — use caller-provided value if available (avoids
         // double-measurement when the API server receives a push from the trainer).
-        double epoch_time;
+        double epoch_time = NAN;
         if (epoch_time_seconds > 0.0) {
             epoch_time = epoch_time_seconds;
         } else {
             auto now = std::chrono::steady_clock::now();
             auto duration =
                 std::chrono::duration_cast<std::chrono::milliseconds>(now - epoch_start_steady_);
-            epoch_time = duration.count() / 1000.0;
+            epoch_time = static_cast<double>(duration.count()) / 1000.0;
         }
 
         // Update epoch history
@@ -394,16 +397,17 @@ TrainingMetricsSnapshot TrainingMetricsService::get_current_snapshot() const {
             std::chrono::duration_cast<std::chrono::milliseconds>(now - session_start_steady_);
 
         if (elapsed.count() > 0) {
-            double elapsed_seconds = elapsed.count() / 1000.0;
+            double elapsed_seconds = static_cast<double>(elapsed.count()) / 1000.0;
             snapshot.total_training_time_seconds = elapsed_seconds;
-            snapshot.samples_per_second = snapshot.total_samples_trained / elapsed_seconds;
+            snapshot.samples_per_second = static_cast<float>(
+                static_cast<float>(snapshot.total_samples_trained) / elapsed_seconds);
 
             // Estimate time remaining
             if (snapshot.total_samples > 0 && snapshot.samples_per_second > 0) {
                 int remaining_samples =
                     snapshot.total_samples * snapshot.total_epochs - snapshot.total_samples_trained;
                 snapshot.estimated_time_remaining_seconds =
-                    remaining_samples / snapshot.samples_per_second;
+                    static_cast<float>(remaining_samples) / snapshot.samples_per_second;
             }
         }
 
@@ -431,16 +435,17 @@ std::string TrainingMetricsService::to_json() const {
             std::chrono::duration_cast<std::chrono::milliseconds>(now - session_start_steady_);
 
         if (elapsed.count() > 0) {
-            double elapsed_seconds = elapsed.count() / 1000.0;
+            double elapsed_seconds = static_cast<double>(elapsed.count()) / 1000.0;
             snapshot.total_training_time_seconds = elapsed_seconds;
-            snapshot.samples_per_second = snapshot.total_samples_trained / elapsed_seconds;
+            snapshot.samples_per_second = static_cast<float>(
+                static_cast<float>(snapshot.total_samples_trained) / elapsed_seconds);
 
             // Estimate time remaining
             if (snapshot.total_samples > 0 && snapshot.samples_per_second > 0) {
                 int remaining_samples =
                     snapshot.total_samples * snapshot.total_epochs - snapshot.total_samples_trained;
                 snapshot.estimated_time_remaining_seconds =
-                    remaining_samples / snapshot.samples_per_second;
+                    static_cast<float>(remaining_samples) / snapshot.samples_per_second;
             }
         }
     }
@@ -451,7 +456,7 @@ std::string TrainingMetricsService::to_json() const {
     oss << "{\n";
     oss << "  \"session_id\": " << snapshot.session_id << ",\n";
     oss << "  \"is_training\": " << (snapshot.is_training ? "true" : "false") << ",\n";
-    oss << "  \"timestamp\": \"" << format_timestamp(snapshot.last_update_time) << "\",\n";
+    oss << R"(  "timestamp": ")" << format_timestamp(snapshot.last_update_time) << "\",\n";
     oss << "  \"current_epoch\": " << snapshot.current_epoch << ",\n";
     oss << "  \"total_epochs\": " << snapshot.total_epochs << ",\n";
     oss << "  \"current_sample\": " << snapshot.current_sample << ",\n";
@@ -500,7 +505,7 @@ std::string TrainingMetricsService::to_prometheus() const {
     return to_prometheus_internal();
 }
 
-std::string TrainingMetricsService::to_csv_header() const {
+std::string TrainingMetricsService::to_csv_header() {
     return "timestamp,session_id,epoch,sample,loss,validation_loss,learning_rate,gradient_norm,"
            "perplexity";
 }
@@ -565,7 +570,7 @@ void TrainingMetricsService::flush_to_disk() {
     // Capture data with lock, then release before expensive I/O operations
     std::string summary_json;
     std::string prometheus_text;
-    bool enable_prometheus;
+    bool enable_prometheus = false;
 
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -629,7 +634,7 @@ void TrainingMetricsService::persist_metrics() {
         for (const auto& record : history_) {
             file << std::fixed << std::setprecision(6);
             file << "{";
-            file << "\"timestamp\":\"" << format_timestamp(record.timestamp) << "\",";
+            file << R"("timestamp":")" << format_timestamp(record.timestamp) << "\",";
             file << "\"session_id\":" << record.session_id << ",";
             file << "\"epoch\":" << record.epoch << ",";
             file << "\"sample\":" << record.sample << ",";
@@ -720,19 +725,22 @@ void TrainingMetricsService::restore_from_summary() {
     // Called at construction before any lock is needed.
     try {
         std::ifstream f(config_.summary_file);
-        if (!f.is_open())
+        if (!f.is_open()) {
             return;
+        }
         std::string json((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
         f.close();
 
         // Parse a scalar float value following "key":
         auto parse_float = [&](const std::string& key, float fallback) -> float {
             auto pos = json.find("\"" + key + "\"");
-            if (pos == std::string::npos)
+            if (pos == std::string::npos) {
                 return fallback;
+            }
             pos = json.find(':', pos);
-            if (pos == std::string::npos)
+            if (pos == std::string::npos) {
                 return fallback;
+            }
             try {
                 return std::stof(json.substr(pos + 1));
             } catch (...) {
@@ -741,11 +749,13 @@ void TrainingMetricsService::restore_from_summary() {
         };
         auto parse_int = [&](const std::string& key, int fallback) -> int {
             auto pos = json.find("\"" + key + "\"");
-            if (pos == std::string::npos)
+            if (pos == std::string::npos) {
                 return fallback;
+            }
             pos = json.find(':', pos);
-            if (pos == std::string::npos)
+            if (pos == std::string::npos) {
                 return fallback;
+            }
             try {
                 return std::stoi(json.substr(pos + 1));
             } catch (...) {
@@ -754,11 +764,13 @@ void TrainingMetricsService::restore_from_summary() {
         };
         auto parse_double = [&](const std::string& key, double fallback) -> double {
             auto pos = json.find("\"" + key + "\"");
-            if (pos == std::string::npos)
+            if (pos == std::string::npos) {
                 return fallback;
+            }
             pos = json.find(':', pos);
-            if (pos == std::string::npos)
+            if (pos == std::string::npos) {
                 return fallback;
+            }
             try {
                 return std::stod(json.substr(pos + 1));
             } catch (...) {
@@ -768,18 +780,21 @@ void TrainingMetricsService::restore_from_summary() {
         auto parse_float_array = [&](const std::string& key) -> std::vector<float> {
             std::vector<float> result;
             auto pos = json.find("\"" + key + "\"");
-            if (pos == std::string::npos)
+            if (pos == std::string::npos) {
                 return result;
+            }
             auto lb = json.find('[', pos);
             auto rb = json.find(']', lb);
-            if (lb == std::string::npos || rb == std::string::npos)
+            if (lb == std::string::npos || rb == std::string::npos) {
                 return result;
+            }
             std::istringstream ss(json.substr(lb + 1, rb - lb - 1));
             std::string token;
             while (std::getline(ss, token, ',')) {
                 try {
                     result.push_back(std::stof(token));
                 } catch (...) {
+                    continue;  // skip malformed token
                 }
             }
             return result;
@@ -787,18 +802,21 @@ void TrainingMetricsService::restore_from_summary() {
         auto parse_double_array = [&](const std::string& key) -> std::vector<double> {
             std::vector<double> result;
             auto pos = json.find("\"" + key + "\"");
-            if (pos == std::string::npos)
+            if (pos == std::string::npos) {
                 return result;
+            }
             auto lb = json.find('[', pos);
             auto rb = json.find(']', lb);
-            if (lb == std::string::npos || rb == std::string::npos)
+            if (lb == std::string::npos || rb == std::string::npos) {
                 return result;
+            }
             std::istringstream ss(json.substr(lb + 1, rb - lb - 1));
             std::string token;
             while (std::getline(ss, token, ',')) {
                 try {
                     result.push_back(std::stod(token));
                 } catch (...) {
+                    continue;  // skip malformed token
                 }
             }
             return result;
@@ -846,7 +864,7 @@ std::string TrainingMetricsService::to_json_summary_internal() const {
 
     oss << "{\n";
     oss << "  \"session_id\": " << current_session_id_.load() << ",\n";
-    oss << "  \"timestamp\": \"" << format_timestamp(current_snapshot_.last_update_time) << "\",\n";
+    oss << R"(  "timestamp": ")" << format_timestamp(current_snapshot_.last_update_time) << "\",\n";
     oss << "  \"total_epochs_completed\": " << current_snapshot_.epoch_losses.size() << ",\n";
     oss << "  \"total_samples_trained\": " << current_snapshot_.total_samples_trained << ",\n";
     oss << "  \"total_training_time_seconds\": " << current_snapshot_.total_training_time_seconds
@@ -856,40 +874,45 @@ std::string TrainingMetricsService::to_json_summary_internal() const {
 
     oss << "  \"epoch_losses\": [";
     for (size_t i = 0; i < current_snapshot_.epoch_losses.size(); i++) {
-        if (i > 0)
+        if (i > 0) {
             oss << ", ";
+        }
         oss << current_snapshot_.epoch_losses[i];
     }
     oss << "],\n";
 
     oss << "  \"epoch_validation_losses\": [";
     for (size_t i = 0; i < current_snapshot_.epoch_validation_losses.size(); i++) {
-        if (i > 0)
+        if (i > 0) {
             oss << ", ";
+        }
         oss << current_snapshot_.epoch_validation_losses[i];
     }
     oss << "],\n";
 
     oss << "  \"epoch_learning_rates\": [";
     for (size_t i = 0; i < current_snapshot_.epoch_learning_rates.size(); i++) {
-        if (i > 0)
+        if (i > 0) {
             oss << ", ";
+        }
         oss << current_snapshot_.epoch_learning_rates[i];
     }
     oss << "],\n";
 
     oss << "  \"epoch_perplexities\": [";
     for (size_t i = 0; i < current_snapshot_.epoch_perplexities.size(); i++) {
-        if (i > 0)
+        if (i > 0) {
             oss << ", ";
+        }
         oss << current_snapshot_.epoch_perplexities[i];
     }
     oss << "],\n";
 
     oss << "  \"epoch_durations\": [";
     for (size_t i = 0; i < current_snapshot_.epoch_durations.size(); i++) {
-        if (i > 0)
+        if (i > 0) {
             oss << ", ";
+        }
         oss << current_snapshot_.epoch_durations[i];
     }
     oss << "],\n";
@@ -902,32 +925,36 @@ std::string TrainingMetricsService::to_json_summary_internal() const {
 
     oss << "  \"epoch_bleu4\": [";
     for (size_t i = 0; i < current_snapshot_.epoch_bleu4.size(); i++) {
-        if (i > 0)
+        if (i > 0) {
             oss << ", ";
+        }
         oss << current_snapshot_.epoch_bleu4[i];
     }
     oss << "],\n";
 
     oss << "  \"epoch_rouge1\": [";
     for (size_t i = 0; i < current_snapshot_.epoch_rouge1.size(); i++) {
-        if (i > 0)
+        if (i > 0) {
             oss << ", ";
+        }
         oss << current_snapshot_.epoch_rouge1[i];
     }
     oss << "],\n";
 
     oss << "  \"epoch_rouge2\": [";
     for (size_t i = 0; i < current_snapshot_.epoch_rouge2.size(); i++) {
-        if (i > 0)
+        if (i > 0) {
             oss << ", ";
+        }
         oss << current_snapshot_.epoch_rouge2[i];
     }
     oss << "],\n";
 
     oss << "  \"epoch_rougeL\": [";
     for (size_t i = 0; i < current_snapshot_.epoch_rougeL.size(); i++) {
-        if (i > 0)
+        if (i > 0) {
             oss << ", ";
+        }
         oss << current_snapshot_.epoch_rougeL[i];
     }
     oss << "]\n";
@@ -1013,7 +1040,9 @@ void TrainingMetricsService::trim_history() {
     if (history_.size() > static_cast<size_t>(config_.max_records_in_memory)) {
         // Keep only the most recent records
         history_.erase(history_.begin(),
-                       history_.begin() + (history_.size() - config_.max_records_in_memory));
+                       history_.begin() + static_cast<std::ptrdiff_t>(
+                                              history_.size() -
+                                              static_cast<size_t>(config_.max_records_in_memory)));
     }
 }
 
@@ -1023,10 +1052,10 @@ void TrainingMetricsService::update_throughput_metrics() {
         std::chrono::duration_cast<std::chrono::milliseconds>(now - session_start_steady_);
 
     if (elapsed.count() > 0) {
-        double elapsed_seconds = elapsed.count() / 1000.0;
+        double elapsed_seconds = static_cast<double>(elapsed.count()) / 1000.0;
         current_snapshot_.total_training_time_seconds = elapsed_seconds;
-        current_snapshot_.samples_per_second =
-            current_snapshot_.total_samples_trained / elapsed_seconds;
+        current_snapshot_.samples_per_second = static_cast<float>(
+            static_cast<float>(current_snapshot_.total_samples_trained) / elapsed_seconds);
 
         // Estimate time remaining
         if (current_snapshot_.total_samples > 0 && current_snapshot_.samples_per_second > 0) {
@@ -1034,12 +1063,12 @@ void TrainingMetricsService::update_throughput_metrics() {
                 current_snapshot_.total_samples * current_snapshot_.total_epochs -
                 current_snapshot_.total_samples_trained;
             current_snapshot_.estimated_time_remaining_seconds =
-                remaining_samples / current_snapshot_.samples_per_second;
+                static_cast<float>(remaining_samples) / current_snapshot_.samples_per_second;
         }
     }
 }
 
-std::string TrainingMetricsService::escape_json(const std::string& s) const {
+std::string TrainingMetricsService::escape_json(const std::string& s) {
     std::ostringstream oss;
     for (char c : s) {
         switch (c) {
@@ -1073,7 +1102,7 @@ std::string TrainingMetricsService::escape_json(const std::string& s) const {
 }
 
 std::string TrainingMetricsService::format_timestamp(
-    const std::chrono::system_clock::time_point& tp) const {
+    const std::chrono::system_clock::time_point& tp) {
     auto time_t = std::chrono::system_clock::to_time_t(tp);
     std::tm tm = *std::localtime(&time_t);
 
@@ -1146,12 +1175,12 @@ void TrainingMetricsService::push_to_api(const std::string& endpoint,
                 }
             }
 
-            httplib::Client client(host.c_str(), port);
-            client.set_connection_timeout(0, timeout * 1000);
-            client.set_read_timeout(timeout / 1000, (timeout % 1000) * 1000);
-            client.set_write_timeout(timeout / 1000, (timeout % 1000) * 1000);
+            httplib::Client client(host, port);
+            client.set_connection_timeout(0, static_cast<long>(timeout) * 1000);
+            client.set_read_timeout(timeout / 1000, static_cast<long>(timeout % 1000) * 1000);
+            client.set_write_timeout(timeout / 1000, static_cast<long>(timeout % 1000) * 1000);
 
-            auto res = client.Post(endpoint.c_str(), json_body, "application/json");
+            auto res = client.Post(endpoint, json_body, "application/json");
 
             if (!res) {
                 adai::Logger::debug("Metrics push to {}{}: connection failed", push_url, endpoint);
@@ -1168,9 +1197,11 @@ void TrainingMetricsService::push_to_api(const std::string& endpoint,
 #else
 
 // Stub implementations when httplib is not available
+// NOLINTBEGIN(readability-convert-member-functions-to-static)
 std::string TrainingMetricsService::build_push_url(const std::string&) const {
     return "";
 }
+// NOLINTEND(readability-convert-member-functions-to-static)
 
 void TrainingMetricsService::push_to_api(const std::string&, const std::string&) {
     // No-op when httplib not available
@@ -1330,13 +1361,14 @@ void TrainingMetricsService::persist_abnormal_samples() {
             file << "\"sample_id\":" << s.sample_id << ",";
             file << "\"loss\":" << std::fixed << std::setprecision(6) << s.loss << ",";
             file << "\"grad_norm\":" << s.grad_norm << ",";
-            file << "\"reason\":\"" << escape_json(s.reason) << "\",";
-            file << "\"input_text\":\"" << escape_json(s.input_text) << "\",";
-            file << "\"target_text\":\"" << escape_json(s.target_text) << "\",";
-            file << "\"timestamp\":\"" << format_timestamp(s.timestamp) << "\"";
+            file << R"("reason":")" << escape_json(s.reason) << "\",";
+            file << R"("input_text":")" << escape_json(s.input_text) << "\",";
+            file << R"("target_text":")" << escape_json(s.target_text) << "\",";
+            file << R"("timestamp":")" << format_timestamp(s.timestamp) << "\"";
             file << "}";
-            if (i + 1 < abnormal_samples_.size())
+            if (i + 1 < abnormal_samples_.size()) {
                 file << ",";
+            }
             file << "\n";
         }
         file << "]\n";

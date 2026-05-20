@@ -10,7 +10,7 @@
 FeedForward::FeedForward(int d_model, int d_ff)
     : d_model(d_model),
       d_ff(d_ff),
-      learning_rate(0.001f),
+
       W1(d_model, d_ff),
       W2(d_ff, d_model),
       b1(1, d_ff),
@@ -18,11 +18,10 @@ FeedForward::FeedForward(int d_model, int d_ff)
       W1_grad(d_model, d_ff),
       W2_grad(d_ff, d_model),
       b1_grad(1, d_ff),
-      b2_grad(1, d_model),
-      optimizer(nullptr) {
+      b2_grad(1, d_model) {
     // Xavier/He initialization for weights
     // Scale for GELU: sqrt(2 / d_model)
-    float scale = std::sqrt(2.0f / d_model);
+    float scale = std::sqrt(2.0f / static_cast<float>(d_model));
 
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -36,7 +35,7 @@ FeedForward::FeedForward(int d_model, int d_ff)
     }
 
     // Initialize W2 with scale adjusted for d_ff
-    float scale2 = std::sqrt(2.0f / d_ff);
+    float scale2 = std::sqrt(2.0f / static_cast<float>(d_ff));
     std::normal_distribution<float> dist2(0.0f, scale2);
     for (int i = 0; i < d_ff; ++i) {
         for (int j = 0; j < d_model; ++j) {
@@ -152,8 +151,9 @@ void FeedForward::set_optimizer(Optimizer* opt) {
 }
 
 void FeedForward::register_parameters() {
-    if (!optimizer)
+    if (!optimizer) {
         return;
+    }
 
     // Register all weight matrices and biases with optimizer
     optimizer->add_parameter_group(&W1, &W1_grad);
@@ -305,7 +305,7 @@ void FeedForward::save_weights(const std::string& filename) const {
     }
 
     file.close();
-    std::cout << "Saved FeedForward weights to " << filename << std::endl;
+    std::cout << "Saved FeedForward weights to " << filename << '\n';
 }
 
 void FeedForward::load_weights(const std::string& filename) {
@@ -315,7 +315,7 @@ void FeedForward::load_weights(const std::string& filename) {
     }
 
     // Read dimensions
-    int loaded_d_model, loaded_d_ff;
+    int loaded_d_model = 0, loaded_d_ff = 0;
     file.read(reinterpret_cast<char*>(&loaded_d_model), sizeof(int));
     file.read(reinterpret_cast<char*>(&loaded_d_ff), sizeof(int));
 
@@ -352,22 +352,23 @@ void FeedForward::load_weights(const std::string& filename) {
     }
 
     file.close();
-    std::cout << "Loaded FeedForward weights from " << filename << std::endl;
+    std::cout << "Loaded FeedForward weights from " << filename << '\n';
 }
 
 void FeedForward::print_config(const std::string& name) const {
-    std::cout << name << " Configuration:" << std::endl;
-    std::cout << "  Model Dimension (d_model): " << d_model << std::endl;
-    std::cout << "  Feed-Forward Dimension (d_ff): " << d_ff << std::endl;
-    std::cout << "  Expansion Ratio: " << static_cast<float>(d_ff) / d_model << "x" << std::endl;
+    std::cout << name << " Configuration:" << '\n';
+    std::cout << "  Model Dimension (d_model): " << d_model << '\n';
+    std::cout << "  Feed-Forward Dimension (d_ff): " << d_ff << '\n';
+    std::cout << "  Expansion Ratio: " << static_cast<float>(d_ff) / static_cast<float>(d_model)
+              << "x" << '\n';
     std::cout << "  Total Parameters: " << (d_model * d_ff + d_ff + d_ff * d_model + d_model)
-              << std::endl;
-    std::cout << "  W1 Parameters: " << (d_model * d_ff) << std::endl;
-    std::cout << "  W2 Parameters: " << (d_ff * d_model) << std::endl;
-    std::cout << "  Bias Parameters: " << (d_ff + d_model) << std::endl;
+              << '\n';
+    std::cout << "  W1 Parameters: " << (d_model * d_ff) << '\n';
+    std::cout << "  W2 Parameters: " << (d_ff * d_model) << '\n';
+    std::cout << "  Bias Parameters: " << (d_ff + d_model) << '\n';
     std::cout << "  Memory Usage: " << std::fixed << std::setprecision(2)
-              << (d_model * d_ff + d_ff * d_model + d_ff + d_model) * sizeof(float) / 1024.0f /
-                     1024.0f
-              << " MB" << std::endl;
-    std::cout << "  Learning Rate: " << learning_rate << std::endl;
+              << static_cast<float>(d_model * d_ff + d_ff * d_model + d_ff + d_model) *
+                     sizeof(float) / 1024.0f / 1024.0f
+              << " MB" << '\n';
+    std::cout << "  Learning Rate: " << learning_rate << '\n';
 }

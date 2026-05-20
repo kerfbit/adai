@@ -1,9 +1,11 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <limits>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 #include "BPETokenizer.hpp"
 #include "EncoderDecoderModel.hpp"
@@ -22,7 +24,8 @@ struct ConversationPair {
     std::string input;
     std::string response;
 
-    ConversationPair(const std::string& in, const std::string& resp) : input(in), response(resp) {}
+    ConversationPair(std::string in, std::string resp)
+        : input(std::move(in)), response(std::move(resp)) {}
 };
 
 /**
@@ -36,14 +39,17 @@ struct TokenizedPair {
 
     TokenizedPair() = default;  // Required for pre-sized parallel fill
     TokenizedPair(const std::vector<int>& in_tok, const std::vector<int>& tgt_tok,
-                  const std::string& in_txt, const std::string& tgt_txt)
-        : input_tokens(in_tok), target_tokens(tgt_tok), input_text(in_txt), target_text(tgt_txt) {}
+                  std::string in_txt, std::string tgt_txt)
+        : input_tokens(in_tok),
+          target_tokens(tgt_tok),
+          input_text(std::move(in_txt)),
+          target_text(std::move(tgt_txt)) {}
 };
 
 /**
  * @brief Learning rate scheduling strategy
  */
-enum class LRSchedule {
+enum class LRSchedule : std::uint8_t {
     CONSTANT,          // No scheduling
     LINEAR_WARMUP,     // Linear warmup then constant
     COSINE_DECAY,      // Cosine annealing decay
@@ -55,7 +61,7 @@ enum class LRSchedule {
 /**
  * @brief Logging verbosity levels
  */
-enum class LogLevel {
+enum class LogLevel : std::uint8_t {
     SILENT = 0,   // No output except errors
     NORMAL = 1,   // Basic progress and results
     VERBOSE = 2,  // Detailed progress (default)
@@ -201,24 +207,24 @@ class ChatbotTrainer {
     std::vector<float> training_accuracies;
     std::vector<float> validation_accuracies;
     float best_validation_loss;
-    int best_epoch;
+    int best_epoch{0};
 
     // Learning rate scheduling state
-    int global_step;
-    int total_training_steps;
+    int global_step{0};
+    int total_training_steps{0};
     float current_learning_rate;
 
     // Gradient accumulation state
-    int accumulation_step;
-    float accumulated_loss;
+    int accumulation_step{0};
+    float accumulated_loss{0.0f};
 
     // Early stopping state
-    int epochs_without_improvement;
+    int epochs_without_improvement{0};
     std::string best_model_path;
-    bool early_stopped;
+    bool early_stopped{false};
 
     // Resume state
-    int start_epoch;
+    int start_epoch{0};
 
     // TD-009: Per-epoch monitoring callback
     EpochCallback epoch_callback_;
@@ -230,7 +236,7 @@ class ChatbotTrainer {
     BestModelCallback best_model_callback_;
 
     // TrainingMetricsService integration
-    TrainingMetricsService* metrics_service_;
+    TrainingMetricsService* metrics_service_{nullptr};
 
     // Private helper methods
     void validate_and_correct_config();
@@ -277,6 +283,10 @@ class ChatbotTrainer {
      * @brief Destructor (smart pointers handle cleanup)
      */
     ~ChatbotTrainer() = default;
+    ChatbotTrainer(const ChatbotTrainer&) = delete;
+    ChatbotTrainer& operator=(const ChatbotTrainer&) = delete;
+    ChatbotTrainer(ChatbotTrainer&&) = delete;
+    ChatbotTrainer& operator=(ChatbotTrainer&&) = delete;
 
     /**
      * @brief Load tokenizer from vocabulary file
@@ -333,12 +343,13 @@ class ChatbotTrainer {
     /**
      * @brief Calculate perplexity from loss
      */
-    float calculate_perplexity(float loss);
+    static float calculate_perplexity(float loss);
 
     /**
      * @brief Calculate token-level accuracy (placeholder)
      */
-    float calculate_accuracy(const std::vector<int>& predictions, const std::vector<int>& targets);
+    static float calculate_accuracy(const std::vector<int>& predictions,
+                                    const std::vector<int>& targets);
 
     // Getters for testing
     // TODO: TD-004 - These getters expose per-epoch metrics for IncrementalTrainer integration

@@ -101,12 +101,12 @@ class BPETokenizer {
     std::vector<std::string> pre_tokenize(const std::string& text);
 
     // Find most frequent adjacent pair
-    std::pair<std::string, std::string> get_most_frequent_pair(
+    static std::pair<std::string, std::string> get_most_frequent_pair(
         const std::vector<std::vector<std::string>>& word_tokens);
 
     // Apply merge to word tokens
-    void merge_tokens(std::vector<std::vector<std::string>>& word_tokens, const std::string& first,
-                      const std::string& second);
+    static void merge_tokens(std::vector<std::vector<std::string>>& word_tokens,
+                             const std::string& first, const std::string& second);
 
     // Apply BPE encoding to a single word
     std::vector<std::string> apply_bpe(const std::string& word);
@@ -151,8 +151,8 @@ class BPETokenizer {
 
    private:
     // UTF-8 validation helper
-    bool is_valid_utf8(const std::string& text) const;
+    static bool is_valid_utf8(const std::string& text);
 
     // Validate input string
-    void validate_input(const std::string& text, const std::string& context) const;
+    static void validate_input(const std::string& text, const std::string& context);
 };

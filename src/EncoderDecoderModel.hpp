@@ -65,8 +65,8 @@ class EncoderDecoderModel {
     int pad_token_id;
 
     // Training state
-    bool requires_grad;
-    float learning_rate;
+    bool requires_grad{true};
+    float learning_rate{0.001};
 
     // Cached values for training
     Matrix cached_encoder_output;
@@ -112,6 +112,10 @@ class EncoderDecoderModel {
      * Destructor
      */
     ~EncoderDecoderModel();
+    EncoderDecoderModel(const EncoderDecoderModel&) = delete;
+    EncoderDecoderModel& operator=(const EncoderDecoderModel&) = delete;
+    EncoderDecoderModel(EncoderDecoderModel&&) = delete;
+    EncoderDecoderModel& operator=(EncoderDecoderModel&&) = delete;
 
     /**
      * Generate response for input text (inference mode)

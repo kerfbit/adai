@@ -308,10 +308,11 @@ int main(int argc, char* argv[]) {
         bool auto_yes = false;
         bool keep_data = false;
         for (size_t i = 1; i < args.size(); ++i) {
-            if (args[i] == "--yes")
+            if (args[i] == "--yes") {
                 auto_yes = true;
-            else if (args[i] == "--keep-data")
+            } else if (args[i] == "--keep-data") {
                 keep_data = true;
+            }
         }
 
         // Show what will happen

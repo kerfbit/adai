@@ -12,6 +12,7 @@
 #include "Logger.hpp"
 #ifdef ADAI_ENABLE_OPENMP
 #include <omp.h>
+#include <cmath>
 #endif
 
 // ANSI color codes
@@ -28,16 +29,8 @@ ChatbotTrainer::ChatbotTrainer(const TrainingConfig& cfg)
       model(nullptr),
       optimizer(nullptr),
       best_validation_loss(std::numeric_limits<float>::max()),
-      best_epoch(0),
-      global_step(0),
-      total_training_steps(0),
-      current_learning_rate(cfg.learning_rate),
-      accumulation_step(0),
-      accumulated_loss(0.0f),
-      epochs_without_improvement(0),
-      early_stopped(false),
-      start_epoch(0),
-      metrics_service_(nullptr) {}
+
+      current_learning_rate(cfg.learning_rate) {}
 
 /**
  * @brief Initialize tokenizer from vocabulary file
@@ -148,7 +141,7 @@ void ChatbotTrainer::split_data() {
         return;
     }
 
-    int validation_size = training_data.size() / config.validation_split;
+    int validation_size = static_cast<int>(training_data.size()) / config.validation_split;
     if (validation_size == 0) {
         adai::Logger::warn("⚠️  Not enough data for validation split");
         return;
@@ -201,7 +194,7 @@ void ChatbotTrainer::validate_and_correct_config() {
     // Validate d_ff follows recommended ratio (typically 4x d_model)
     int recommended_d_ff = 4 * config.d_model;
     if (config.d_ff != recommended_d_ff) {
-        float ratio = static_cast<float>(config.d_ff) / config.d_model;
+        float ratio = static_cast<float>(config.d_ff) / static_cast<float>(config.d_model);
         if (ratio < 2.0f || ratio > 8.0f) {
             int original_d_ff = config.d_ff;
             config.d_ff = recommended_d_ff;
@@ -235,7 +228,7 @@ void ChatbotTrainer::validate_and_correct_config() {
 
     // Validate min_learning_rate < learning_rate
     if (config.min_learning_rate >= config.learning_rate) {
-        int original_min_lr = config.min_learning_rate;
+        int original_min_lr = static_cast<int>(config.min_learning_rate);
         config.min_learning_rate = config.learning_rate * 0.01f;  // 1% of base LR
         adai::Logger::warn("⚠️  min_learning_rate ({}) >= learning_rate ({})", original_min_lr,
                            config.learning_rate);
@@ -289,17 +282,20 @@ void ChatbotTrainer::preprocess_data() {
     // Truncate at a valid UTF-8 character boundary to avoid splitting a
     // multi-byte sequence, which would produce an invalid UTF-8 string.
     auto clip_text = [max_chars](const std::string& s) -> std::string {
-        if (s.size() <= max_chars)
+        if (s.size() <= max_chars) {
             return s;
+        }
         size_t i = max_chars;
         // Back up to the start of the current multi-byte character
-        while (i > 0 && (static_cast<unsigned char>(s[i]) & 0xC0) == 0x80)
+        while (i > 0 && (static_cast<unsigned char>(s[i]) & 0xC0) == 0x80) {
             --i;
+        }
         return s.substr(0, i);
     };
     auto truncate = [max_len](std::vector<int> ids) -> std::vector<int> {
-        if (static_cast<int>(ids.size()) > max_len)
+        if (static_cast<int>(ids.size()) > max_len) {
             ids.resize(max_len);
+        }
         return ids;
     };
 
@@ -323,8 +319,9 @@ void ChatbotTrainer::preprocess_data() {
             ++skipped_train;
         }
     }
-    if (skipped_train > 0)
+    if (skipped_train > 0) {
         adai::Logger::warn("Skipped {} training pairs with invalid UTF-8", skipped_train);
+    }
 
     // Tokenize validation data — parallel BPE encoding
     const int n_val = static_cast<int>(validation_data.size());
@@ -345,8 +342,9 @@ void ChatbotTrainer::preprocess_data() {
             ++skipped_val;
         }
     }
-    if (skipped_val > 0)
+    if (skipped_val > 0) {
         adai::Logger::warn("Skipped {} validation pairs with invalid UTF-8", skipped_val);
+    }
 
     // Initialize shuffling indices
     training_indices.resize(tokenized_training_data.size());
@@ -403,7 +401,7 @@ float ChatbotTrainer::calculate_accuracy(const std::vector<int>& predictions,
             correct++;
         }
     }
-    return static_cast<float>(correct) / predictions.size();
+    return static_cast<float>(correct) / static_cast<float>(predictions.size());
 }
 
 /**
@@ -513,12 +511,12 @@ float ChatbotTrainer::calculate_learning_rate(int step) {
 
         case LRSchedule::LINEAR_WARMUP:
             if (step < warmup) {
-                return lr * (static_cast<float>(step) / warmup);
+                return lr * (static_cast<float>(step) / static_cast<float>(warmup));
             }
             return lr;
 
         case LRSchedule::COSINE_DECAY: {
-            float progress = static_cast<float>(step) / total_training_steps;
+            float progress = static_cast<float>(step) / static_cast<float>(total_training_steps);
             float cosine = 0.5f * (1.0f + std::cos(3.14159265359f * progress));
             return config.min_learning_rate + (lr - config.min_learning_rate) * cosine;
         }
@@ -526,10 +524,11 @@ float ChatbotTrainer::calculate_learning_rate(int step) {
         case LRSchedule::WARMUP_COSINE: {
             // Warmup phase
             if (step < warmup) {
-                return lr * (static_cast<float>(step) / warmup);
+                return lr * (static_cast<float>(step) / static_cast<float>(warmup));
             }
             // Cosine decay phase
-            float progress = static_cast<float>(step - warmup) / (total_training_steps - warmup);
+            float progress = static_cast<float>(step - warmup) /
+                             static_cast<float>(total_training_steps - warmup);
             float cosine = 0.5f * (1.0f + std::cos(3.14159265359f * progress));
             return config.min_learning_rate + (lr - config.min_learning_rate) * cosine;
         }
@@ -540,7 +539,7 @@ float ChatbotTrainer::calculate_learning_rate(int step) {
                 decay_steps = total_training_steps / config.num_epochs;
             }
             int num_decays = step / decay_steps;
-            return lr * std::pow(config.lr_decay_factor, num_decays);
+            return lr * static_cast<float>(std::pow(config.lr_decay_factor, num_decays));
         }
 
         case LRSchedule::EXPONENTIAL_DECAY: {
@@ -548,8 +547,9 @@ float ChatbotTrainer::calculate_learning_rate(int step) {
             if (decay_steps == 0) {
                 decay_steps = total_training_steps / config.num_epochs;
             }
-            float decay_rate = std::pow(config.lr_decay_factor, 1.0f / decay_steps);
-            return lr * std::pow(decay_rate, step);
+            float decay_rate =
+                std::pow(config.lr_decay_factor, 1.0f / static_cast<float>(decay_steps));
+            return lr * static_cast<float>(std::pow(decay_rate, step));
         }
 
         default:
@@ -595,7 +595,7 @@ std::string ChatbotTrainer::get_schedule_name() {
 float ChatbotTrainer::train_epoch(int epoch) {
     float total_loss = 0.0f;
     float total_grad_norm = 0.0f;
-    int num_samples = tokenized_training_data.size();
+    int num_samples = static_cast<int>(tokenized_training_data.size());
     int effective_batch_size = config.batch_size * config.gradient_accumulation_steps;
 
     // Notify metrics service that epoch is starting (1-based epoch number)
@@ -672,13 +672,15 @@ float ChatbotTrainer::train_epoch(int epoch) {
         // before train_epoch() returns so there is no dangling reference risk.
         auto saturation_hook = [&sat_sum, &sat_count](const Matrix& activated) {
             const int total = activated.rows * activated.cols;
-            if (total <= 0)
+            if (total <= 0) {
                 return;
+            }
             int sat = 0;
             for (int r = 0; r < activated.rows; ++r) {
                 for (int c = 0; c < activated.cols; ++c) {
-                    if (std::abs(activated(r, c)) < 0.01f)
+                    if (std::abs(activated(r, c)) < 0.01f) {
                         ++sat;
+                    }
                 }
             }
             sat_sum += static_cast<float>(sat) / static_cast<float>(total);
@@ -698,8 +700,9 @@ float ChatbotTrainer::train_epoch(int epoch) {
         // Attention entropy hook: H = -sum(a * log(a + eps)) averaged over tokens.
         auto entropy_hook = [&ent_sum, &ent_count](const Matrix& attn_weights) {
             const int seq_len = attn_weights.rows;
-            if (seq_len <= 0 || attn_weights.cols <= 0)
+            if (seq_len <= 0 || attn_weights.cols <= 0) {
                 return;
+            }
             float layer_entropy = 0.0f;
             for (int i = 0; i < seq_len; ++i) {
                 float row_entropy = 0.0f;
@@ -762,7 +765,7 @@ float ChatbotTrainer::train_epoch(int epoch) {
             float loss = model->compute_loss_for_training(logits, pair.target_tokens);
 
             // Scale loss by accumulation steps for proper gradient averaging
-            float scaled_loss = loss / config.gradient_accumulation_steps;
+            float scaled_loss = loss / static_cast<float>(config.gradient_accumulation_steps);
             accumulated_loss += loss;  // Track unscaled for logging
 
             // Backward pass (accumulates gradients)
@@ -771,7 +774,7 @@ float ChatbotTrainer::train_epoch(int epoch) {
 
             // Scale gradients for accumulation by modifying in-place
             if (config.gradient_accumulation_steps > 1) {
-                float scale = 1.0f / config.gradient_accumulation_steps;
+                float scale = 1.0f / static_cast<float>(config.gradient_accumulation_steps);
                 for (int r = 0; r < grad_loss.rows; r++) {
                     for (int c = 0; c < grad_loss.cols; c++) {
                         grad_loss.data[r][c] *= scale;
@@ -805,9 +808,10 @@ float ChatbotTrainer::train_epoch(int epoch) {
                 float grad_norm = optimizer->get_gradient_norm();
 
                 // Save step-level metrics here so sample callback can fire even on NaN
-                float step_loss_for_cb = (config.gradient_accumulation_steps > 0)
-                                             ? accumulated_loss / config.gradient_accumulation_steps
-                                             : accumulated_loss;
+                float step_loss_for_cb =
+                    (config.gradient_accumulation_steps > 0)
+                        ? accumulated_loss / static_cast<float>(config.gradient_accumulation_steps)
+                        : accumulated_loss;
 
                 // Safety check for NaN/Inf gradients
                 if (std::isnan(grad_norm) || std::isinf(grad_norm)) {
@@ -816,7 +820,9 @@ float ChatbotTrainer::train_epoch(int epoch) {
                         (i + 1));
                     // Still fire sample callback so the dashboard shows progress
                     if (sample_callback_) {
-                        float running_avg = (update_count > 0) ? total_loss / update_count : 0.0f;
+                        float running_avg = (update_count > 0)
+                                                ? total_loss / static_cast<float>(update_count)
+                                                : 0.0f;
                         sample_callback_(i + 1, num_samples, running_avg, step_loss_for_cb, 0.0f,
                                          current_learning_rate);
                     }
@@ -875,12 +881,13 @@ float ChatbotTrainer::train_epoch(int epoch) {
                             ab.target_text =
                                 tokenized_training_data[training_indices[i]].target_text;
                             ab.timestamp = std::chrono::system_clock::now();
-                            if (grad_outlier && loss_outlier)
+                            if (grad_outlier && loss_outlier) {
                                 ab.reason = "grad_norm_and_loss_outlier";
-                            else if (grad_outlier)
+                            } else if (grad_outlier) {
                                 ab.reason = "grad_norm_outlier";
-                            else
+                            } else {
                                 ab.reason = "loss_outlier";
+                            }
                             metrics_service_->flag_abnormal_sample(ab);
                         }
                     }
@@ -890,7 +897,7 @@ float ChatbotTrainer::train_epoch(int epoch) {
                 // ── TD-013: emit running advanced metrics every optimizer step ─────────
                 if (metrics_service_) {
                     float running_gv = (gn_w_count >= 2.0f) ? (gn_w_M2 / gn_w_count) : 0.0f;
-                    double elapsed_wall_ns = static_cast<double>(
+                    auto elapsed_wall_ns = static_cast<double>(
                         std::chrono::duration_cast<std::chrono::nanoseconds>(
                             std::chrono::steady_clock::now() - epoch_td013_start)
                             .count());
@@ -955,8 +962,8 @@ float ChatbotTrainer::train_epoch(int epoch) {
                     i == num_samples - 1) {
                     int num_updates =
                         global_step - (epoch * (num_samples / config.gradient_accumulation_steps));
-                    float avg_loss = total_loss / num_updates;
-                    float avg_grad_norm = total_grad_norm / num_updates;
+                    float avg_loss = total_loss / static_cast<float>(num_updates);
+                    float avg_grad_norm = total_grad_norm / static_cast<float>(num_updates);
 
                     log(LogLevel::VERBOSE,
                         "  Sample " + std::to_string(i + 1) + "/" + std::to_string(num_samples) +
@@ -975,7 +982,8 @@ float ChatbotTrainer::train_epoch(int epoch) {
 
                 // Per-sample callback: fire after every optimizer step
                 if (sample_callback_) {
-                    float running_avg = (update_count > 0) ? total_loss / update_count : 0.0f;
+                    float running_avg =
+                        (update_count > 0) ? total_loss / static_cast<float>(update_count) : 0.0f;
                     sample_callback_(i + 1, num_samples, running_avg, step_loss_for_cb, grad_norm,
                                      current_learning_rate);
                 }
@@ -990,7 +998,8 @@ float ChatbotTrainer::train_epoch(int epoch) {
             adai::Logger::error("  ❌ Error training sample {}: {}", (i + 1), e.what());
             // Still fire sample callback so the dashboard shows the sample was attempted
             if (sample_callback_) {
-                float running_avg = (update_count > 0) ? total_loss / update_count : 0.0f;
+                float running_avg =
+                    (update_count > 0) ? total_loss / static_cast<float>(update_count) : 0.0f;
                 sample_callback_(i + 1, num_samples, running_avg, 0.0f, 0.0f,
                                  current_learning_rate);
             }
@@ -1003,8 +1012,9 @@ float ChatbotTrainer::train_epoch(int epoch) {
     // CRITICAL FIX: Divide by number of actual updates, not num_samples
     // total_loss only accumulates when should_update is true
     int num_updates = global_step - (epoch * (num_samples / config.gradient_accumulation_steps));
-    float epoch_loss = (num_updates > 0) ? (total_loss / num_updates) : 0.0f;
-    float avg_grad_norm = (num_updates > 0) ? (total_grad_norm / num_updates) : 0.0f;
+    float epoch_loss = (num_updates > 0) ? (total_loss / static_cast<float>(num_updates)) : 0.0f;
+    float avg_grad_norm =
+        (num_updates > 0) ? (total_grad_norm / static_cast<float>(num_updates)) : 0.0f;
     float epoch_perplexity = calculate_perplexity(epoch_loss);
 
     training_losses.push_back(epoch_loss);
@@ -1022,7 +1032,7 @@ float ChatbotTrainer::train_epoch(int epoch) {
     // ── TD-013: emit advanced epoch diagnostics to metrics service ────────────
     if (metrics_service_) {
         float gradient_variance = (gn_w_count >= 2.0f) ? (gn_w_M2 / gn_w_count) : 0.0f;
-        double total_wall_ns =
+        auto total_wall_ns =
             static_cast<double>(std::chrono::duration_cast<std::chrono::nanoseconds>(
                                     std::chrono::steady_clock::now() - epoch_td013_start)
                                     .count());
@@ -1094,7 +1104,7 @@ float ChatbotTrainer::validate() {
     model->set_training(false);
 
     float total_loss = 0.0f;
-    int num_samples = tokenized_validation_data.size();
+    int num_samples = static_cast<int>(tokenized_validation_data.size());
 
     for (int i = 0; i < num_samples; i++) {
         const auto& pair = tokenized_validation_data[i];
@@ -1111,7 +1121,7 @@ float ChatbotTrainer::validate() {
     // Restore training mode
     model->set_training(true);
 
-    float validation_loss = total_loss / num_samples;
+    float validation_loss = total_loss / static_cast<float>(num_samples);
     float validation_perplexity = calculate_perplexity(validation_loss);
 
     validation_losses.push_back(validation_loss);
@@ -1133,7 +1143,7 @@ float ChatbotTrainer::validate() {
     // Track best model
     if (validation_loss < best_validation_loss - config.min_delta) {
         best_validation_loss = validation_loss;
-        best_epoch = training_losses.size();
+        best_epoch = static_cast<int>(training_losses.size());
         epochs_without_improvement = 0;
         adai::Logger::info("  ⭐ New best validation loss!");
 
@@ -1168,10 +1178,12 @@ float ChatbotTrainer::validate() {
 
 void ChatbotTrainer::compute_generation_quality_metrics() {
     // Only run when explicitly enabled and a metrics service is connected
-    if (!config.enable_generation_quality_metrics || !metrics_service_)
+    if (!config.enable_generation_quality_metrics || !metrics_service_) {
         return;
-    if (tokenized_validation_data.empty())
+    }
+    if (tokenized_validation_data.empty()) {
         return;
+    }
 
     // Determine sample subset: up to generation_quality_sample_size pairs chosen
     // from the front of the validation set for determinism across epochs.
@@ -1198,8 +1210,9 @@ void ChatbotTrainer::compute_generation_quality_metrics() {
     }
     model->set_training(true);
 
-    if (references.empty())
+    if (references.empty()) {
         return;
+    }
 
     GenerationQualityScore score = GenerationQualityEvaluator::evaluate(references, hypotheses);
     metrics_service_->update_generation_quality_metrics(score.bleu4, score.rouge1, score.rouge2,
@@ -1288,8 +1301,12 @@ void ChatbotTrainer::finalize_model(const std::string& output_path) {
 
     // Create symlinks for all component files
     for (const auto& ext : extensions) {
-        std::string src_file = best_checkpoint_path + "." + ext;
-        std::string dest_file = output_path + "." + ext;
+        std::string src_file = best_checkpoint_path;
+        src_file += '.';
+        src_file += ext;
+        std::string dest_file = output_path;
+        dest_file += '.';
+        dest_file += ext;
 
         std::ifstream src(src_file);
         if (src.good()) {
@@ -1300,7 +1317,10 @@ void ChatbotTrainer::finalize_model(const std::string& output_path) {
 
             // Create symlink using relative path
             std::string src_basename = src_file.substr(src_file.find_last_of("/") + 1);
-            std::string link_cmd = "ln -sf " + src_basename + " " + dest_file;
+            std::string link_cmd = "ln -sf ";
+            link_cmd += src_basename;
+            link_cmd += ' ';
+            link_cmd += dest_file;
             int result = std::system(link_cmd.c_str());
 
             if (result == 0) {
@@ -1323,11 +1343,15 @@ void ChatbotTrainer::finalize_model(const std::string& output_path) {
                 continue;  // Keep the best epoch
             }
 
-            std::string epoch_base = output_path + ".epoch" + std::to_string(epoch);
+            std::string epoch_base = output_path;
+            epoch_base += ".epoch";
+            epoch_base += std::to_string(epoch);
 
             // Remove all component files for this epoch
             for (const auto& ext : extensions) {
-                std::string file_to_remove = epoch_base + "." + ext;
+                std::string file_to_remove = epoch_base;
+                file_to_remove += '.';
+                file_to_remove += ext;
                 std::remove(file_to_remove.c_str());
             }
 
@@ -1446,8 +1470,9 @@ void ChatbotTrainer::train(const std::string& output_model_path = "chatbot_model
     // Calculate total training steps for LR scheduling
     // Account for gradient accumulation - each optimizer step processes multiple samples
     int samples_per_update = config.gradient_accumulation_steps;
-    int updates_per_epoch =
-        (tokenized_training_data.size() + samples_per_update - 1) / samples_per_update;
+    int updates_per_epoch = static_cast<int>(
+        (tokenized_training_data.size() + static_cast<size_t>(samples_per_update) - 1) /
+        static_cast<size_t>(samples_per_update));
     total_training_steps = config.num_epochs * updates_per_epoch;
 
     // Print LR schedule info
@@ -1557,7 +1582,7 @@ void ChatbotTrainer::print_training_summary(long duration) {
             adai::Logger::info(
                 "  Average gradient norm: {}",
                 (std::accumulate(gradient_norms.begin(), gradient_norms.end(), 0.0f) /
-                 gradient_norms.size()));
+                 static_cast<float>(gradient_norms.size())));
         }
     }
 
@@ -1598,60 +1623,56 @@ void ChatbotTrainer::test_generation(const std::vector<std::string>& test_prompt
  * @brief Print usage information
  */
 void print_usage(const char* program_name) {
-    std::cout << "Usage: " << program_name << " [options]" << std::endl;
-    std::cout << "\nOptions:" << std::endl;
-    std::cout << "  --data <file>          Training data file (required)" << std::endl;
-    std::cout << "  --vocab <file>         Load vocabulary from file" << std::endl;
-    std::cout << "  --build-vocab <size>   Build vocabulary from data (default: 5000)" << std::endl;
-    std::cout << "  --output <file>        Output model file (default: chatbot_model.bin)"
-              << std::endl;
-    std::cout << "  --epochs <n>           Number of training epochs (default: 10)" << std::endl;
-    std::cout << "  --lr <rate>            Learning rate (default: 0.001)" << std::endl;
-    std::cout << "  --d-model <n>          Model dimension (default: 512)" << std::endl;
-    std::cout << "  --heads <n>            Number of attention heads (default: 8)" << std::endl;
-    std::cout << "  --d-ff <n>             Feed-forward dimension (default: 2048)" << std::endl;
-    std::cout << "  --encoder-layers <n>   Number of encoder layers (default: 6)" << std::endl;
-    std::cout << "  --decoder-layers <n>   Number of decoder layers (default: 6)" << std::endl;
-    std::cout << "  --max-length <n>       Maximum sequence length (default: 512)" << std::endl;
+    std::cout << "Usage: " << program_name << " [options]" << '\n';
+    std::cout << "\nOptions:" << '\n';
+    std::cout << "  --data <file>          Training data file (required)" << '\n';
+    std::cout << "  --vocab <file>         Load vocabulary from file" << '\n';
+    std::cout << "  --build-vocab <size>   Build vocabulary from data (default: 5000)" << '\n';
+    std::cout << "  --output <file>        Output model file (default: chatbot_model.bin)" << '\n';
+    std::cout << "  --epochs <n>           Number of training epochs (default: 10)" << '\n';
+    std::cout << "  --lr <rate>            Learning rate (default: 0.001)" << '\n';
+    std::cout << "  --d-model <n>          Model dimension (default: 512)" << '\n';
+    std::cout << "  --heads <n>            Number of attention heads (default: 8)" << '\n';
+    std::cout << "  --d-ff <n>             Feed-forward dimension (default: 2048)" << '\n';
+    std::cout << "  --encoder-layers <n>   Number of encoder layers (default: 6)" << '\n';
+    std::cout << "  --decoder-layers <n>   Number of decoder layers (default: 6)" << '\n';
+    std::cout << "  --max-length <n>       Maximum sequence length (default: 512)" << '\n';
     std::cout << "  --lr-schedule <name>   LR schedule: constant, warmup, cosine, warmup-cosine,"
-              << std::endl;
-    std::cout << "                         step, exponential (default: warmup-cosine)" << std::endl;
-    std::cout << "  --warmup-steps <n>     Warmup steps (default: auto 10%)" << std::endl;
-    std::cout << "  --min-lr <rate>        Minimum learning rate (default: 1e-6)" << std::endl;
+              << '\n';
+    std::cout << "                         step, exponential (default: warmup-cosine)" << '\n';
+    std::cout << "  --warmup-steps <n>     Warmup steps (default: auto 10%)" << '\n';
+    std::cout << "  --min-lr <rate>        Minimum learning rate (default: 1e-6)" << '\n';
     std::cout
         << "  --optimizer <name>     Optimizer: sgd, sgd-momentum, adam, adamw (default: adamw)"
-        << std::endl;
+        << '\n';
     std::cout << "  --weight-decay <val>   Weight decay / L2 regularization (default: 0.01)"
-              << std::endl;
+              << '\n';
     std::cout << "  --grad-clip <norm>     Gradient clipping max norm (default: 1.0, 0=disabled)"
-              << std::endl;
-    std::cout << "  --adam-beta1 <val>     Adam beta1 parameter (default: 0.9)" << std::endl;
-    std::cout << "  --adam-beta2 <val>     Adam beta2 parameter (default: 0.999)" << std::endl;
-    std::cout << "  --batch-size <n>       Batch size for training (default: 1)" << std::endl;
-    std::cout << "  --grad-accum <n>       Gradient accumulation steps (default: 1)" << std::endl;
-    std::cout << "  --resume <file>        Resume training from checkpoint (NEW)" << std::endl;
+              << '\n';
+    std::cout << "  --adam-beta1 <val>     Adam beta1 parameter (default: 0.9)" << '\n';
+    std::cout << "  --adam-beta2 <val>     Adam beta2 parameter (default: 0.999)" << '\n';
+    std::cout << "  --batch-size <n>       Batch size for training (default: 1)" << '\n';
+    std::cout << "  --grad-accum <n>       Gradient accumulation steps (default: 1)" << '\n';
+    std::cout << "  --resume <file>        Resume training from checkpoint (NEW)" << '\n';
     std::cout << "  --log-level <level>    Logging: silent, normal, verbose, debug (default: "
                  "verbose, NEW)"
-              << std::endl;
-    std::cout << "  --early-stopping       Enable early stopping based on validation loss"
-              << std::endl;
-    std::cout << "  --patience <n>         Early stopping patience in epochs (default: 5)"
-              << std::endl;
+              << '\n';
+    std::cout << "  --early-stopping       Enable early stopping based on validation loss" << '\n';
+    std::cout << "  --patience <n>         Early stopping patience in epochs (default: 5)" << '\n';
     std::cout << "  --min-delta <delta>    Minimum improvement for early stopping (default: 1e-4)"
-              << std::endl;
-    std::cout << "  --no-restore-best      Don't restore best weights after early stopping"
-              << std::endl;
+              << '\n';
+    std::cout << "  --no-restore-best      Don't restore best weights after early stopping" << '\n';
     std::cout << "  --keep-all-checkpoints Keep all epoch checkpoints (default: keep only best)"
-              << std::endl;
-    std::cout << "  --no-validation        Skip validation split" << std::endl;
-    std::cout << "  --help                 Show this help message" << std::endl;
-    std::cout << "\nExample:" << std::endl;
+              << '\n';
+    std::cout << "  --no-validation        Skip validation split" << '\n';
+    std::cout << "  --help                 Show this help message" << '\n';
+    std::cout << "\nExample:" << '\n';
     std::cout << "  " << program_name
-              << " --data conversations.txt --build-vocab 5000 --epochs 20 \\" << std::endl;
+              << " --data conversations.txt --build-vocab 5000 --epochs 20 \\" << '\n';
     std::cout << "      --lr 0.0001 --optimizer adamw --weight-decay 0.01 --grad-clip 1.0 \\"
-              << std::endl;
-    std::cout << "      --batch-size 4 --grad-accum 8 --lr-schedule warmup-cosine \\" << std::endl;
-    std::cout << "      --early-stopping --patience 3 --output my_model.bin" << std::endl;
+              << '\n';
+    std::cout << "      --batch-size 4 --grad-accum 8 --lr-schedule warmup-cosine \\" << '\n';
+    std::cout << "      --early-stopping --patience 3 --output my_model.bin" << '\n';
 }
 
 // New methods for incremental training support
@@ -1675,8 +1696,9 @@ bool ChatbotTrainer::train(int num_epochs) {
 
         // Calculate total steps
         int samples_per_update = config.gradient_accumulation_steps;
-        int updates_per_epoch =
-            (tokenized_training_data.size() + samples_per_update - 1) / samples_per_update;
+        int updates_per_epoch = static_cast<int>(
+            (tokenized_training_data.size() + static_cast<size_t>(samples_per_update) - 1) /
+            static_cast<size_t>(samples_per_update));
         total_training_steps = num_epochs * updates_per_epoch;
 
         // Train for specified epochs

@@ -35,6 +35,7 @@
 // Signal Handling for Graceful Shutdown and Config Reload
 // ============================================================================
 
+// NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 // Atomic flag for signal handling (async-signal-safe)
 static std::atomic<bool> shutdown_requested{false};
 static std::atomic<bool> reload_config_requested{false};
@@ -46,6 +47,7 @@ static ChatbotAPI* g_api_server = nullptr;
 static adai::ServiceConfig* g_config = nullptr;
 static std::mutex* g_config_mutex = nullptr;
 static std::string* g_config_file_path = nullptr;
+// NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
 /**
  * @brief Signal handler for SIGINT, SIGTERM, and SIGHUP
@@ -102,7 +104,7 @@ void print_usage(const char* program_name) {
         << "\nEnvironment Variables:\n"
         << "  All configuration can be set via environment variables.\n"
         << "  Examples: MODEL_PATH, VOCAB_PATH, PORT, LOG_LEVEL, etc.\n"
-        << std::endl;
+        << '\n';
 }
 
 int main(int argc, char* argv[]) {
@@ -111,10 +113,10 @@ int main(int argc, char* argv[]) {
     if (std::getenv("OMP_NUM_THREADS") == nullptr) {
         int num_procs = omp_get_num_procs();
         omp_set_num_threads(num_procs);
-        std::cout << "[OpenMP] Auto-configured to use " << num_procs << " threads" << std::endl;
+        std::cout << "[OpenMP] Auto-configured to use " << num_procs << " threads" << '\n';
     } else {
         std::cout << "[OpenMP] Using " << omp_get_max_threads() << " threads (from OMP_NUM_THREADS)"
-                  << std::endl;
+                  << '\n';
     }
     // omp_set_nested(1); // Enable nested parallelism if needed for advanced tasks
 #else
@@ -146,7 +148,8 @@ int main(int argc, char* argv[]) {
         if (arg == "--help" || arg == "-h") {
             print_usage(argv[0]);
             return 0;
-        } else if (arg == "--config") {
+        }
+        if (arg == "--config") {
             // Already handled in first pass
             ++i;  // Skip the value
         } else if (arg == "--model" && i + 1 < argc) {
@@ -174,13 +177,13 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--max-gen-len" && i + 1 < argc) {
             config.max_gen_length = std::atoi(argv[++i]);
         } else if (arg == "--temperature" && i + 1 < argc) {
-            config.temperature = std::atof(argv[++i]);
+            config.temperature = static_cast<float>(std::atof(argv[++i]));
         } else if (arg == "--top-p" && i + 1 < argc) {
-            config.top_p = std::atof(argv[++i]);
+            config.top_p = static_cast<float>(std::atof(argv[++i]));
         } else if (arg == "--strategy" && i + 1 < argc) {
             config.strategy = argv[++i];
         } else {
-            std::cerr << "Unknown argument: " << arg << std::endl;
+            std::cerr << "Unknown argument: " << arg << '\n';
             print_usage(argv[0]);
             return 1;
         }
@@ -190,7 +193,7 @@ int main(int argc, char* argv[]) {
     if (config.vocab_path.empty()) {
         std::cerr << "Error: Vocabulary path is required (use --vocab, VOCAB_PATH env var, or "
                      "config file)"
-                  << std::endl;
+                  << '\n';
         print_usage(argv[0]);
         return 1;
     }
@@ -483,8 +486,9 @@ int main(int argc, char* argv[]) {
             adai::Logger::info("==================================================");
         }
 
-        if (server_error)
+        if (server_error) {
             return 1;
+        }
 
     } catch (const std::exception& e) {
         adai::Logger::error("Error: {}", e.what());

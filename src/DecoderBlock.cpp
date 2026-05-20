@@ -6,11 +6,7 @@ using adai::Logger;
 #include "CrossAttention.hpp"
 
 DecoderBlock::DecoderBlock(int d_model, int num_heads, int d_ff, float dropout)
-    : d_model(d_model),
-      num_heads(num_heads),
-      d_ff(d_ff),
-      dropout_rate(dropout),
-      learning_rate(0.001f) {
+    : d_model(d_model), num_heads(num_heads), d_ff(d_ff), dropout_rate(dropout) {
     // Initialize self-attention (masked)
     self_attention = std::make_unique<MultiHeadAttention>(d_model, num_heads);
 
@@ -290,24 +286,30 @@ void DecoderBlock::save(const std::string& filepath) {
     // Save LayerNorm parameters inline
     const Matrix& gamma1 = norm1->get_gamma();
     const Matrix& beta1 = norm1->get_beta();
-    for (int j = 0; j < gamma1.cols; ++j)
+    for (int j = 0; j < gamma1.cols; ++j) {
         file.write(reinterpret_cast<const char*>(&gamma1(0, j)), sizeof(float));
-    for (int j = 0; j < beta1.cols; ++j)
+    }
+    for (int j = 0; j < beta1.cols; ++j) {
         file.write(reinterpret_cast<const char*>(&beta1(0, j)), sizeof(float));
+    }
 
     const Matrix& gamma2 = norm2->get_gamma();
     const Matrix& beta2 = norm2->get_beta();
-    for (int j = 0; j < gamma2.cols; ++j)
+    for (int j = 0; j < gamma2.cols; ++j) {
         file.write(reinterpret_cast<const char*>(&gamma2(0, j)), sizeof(float));
-    for (int j = 0; j < beta2.cols; ++j)
+    }
+    for (int j = 0; j < beta2.cols; ++j) {
         file.write(reinterpret_cast<const char*>(&beta2(0, j)), sizeof(float));
+    }
 
     const Matrix& gamma3 = norm3->get_gamma();
     const Matrix& beta3 = norm3->get_beta();
-    for (int j = 0; j < gamma3.cols; ++j)
+    for (int j = 0; j < gamma3.cols; ++j) {
         file.write(reinterpret_cast<const char*>(&gamma3(0, j)), sizeof(float));
-    for (int j = 0; j < beta3.cols; ++j)
+    }
+    for (int j = 0; j < beta3.cols; ++j) {
         file.write(reinterpret_cast<const char*>(&beta3(0, j)), sizeof(float));
+    }
 
     file.close();
 
@@ -324,7 +326,7 @@ void DecoderBlock::load(const std::string& filepath) {
     }
 
     // Load dimensions and hyperparameters
-    int loaded_d_model, loaded_num_heads, loaded_d_ff;
+    int loaded_d_model = 0, loaded_num_heads = 0, loaded_d_ff = 0;
     file.read(reinterpret_cast<char*>(&loaded_d_model), sizeof(loaded_d_model));
     file.read(reinterpret_cast<char*>(&loaded_num_heads), sizeof(loaded_num_heads));
     file.read(reinterpret_cast<char*>(&loaded_d_ff), sizeof(loaded_d_ff));
@@ -337,26 +339,32 @@ void DecoderBlock::load(const std::string& filepath) {
 
     // Load LayerNorm parameters inline
     Matrix gamma1(1, d_model), beta1(1, d_model);
-    for (int j = 0; j < d_model; ++j)
+    for (int j = 0; j < d_model; ++j) {
         file.read(reinterpret_cast<char*>(&gamma1(0, j)), sizeof(float));
-    for (int j = 0; j < d_model; ++j)
+    }
+    for (int j = 0; j < d_model; ++j) {
         file.read(reinterpret_cast<char*>(&beta1(0, j)), sizeof(float));
+    }
     norm1->set_gamma(gamma1);
     norm1->set_beta(beta1);
 
     Matrix gamma2(1, d_model), beta2(1, d_model);
-    for (int j = 0; j < d_model; ++j)
+    for (int j = 0; j < d_model; ++j) {
         file.read(reinterpret_cast<char*>(&gamma2(0, j)), sizeof(float));
-    for (int j = 0; j < d_model; ++j)
+    }
+    for (int j = 0; j < d_model; ++j) {
         file.read(reinterpret_cast<char*>(&beta2(0, j)), sizeof(float));
+    }
     norm2->set_gamma(gamma2);
     norm2->set_beta(beta2);
 
     Matrix gamma3(1, d_model), beta3(1, d_model);
-    for (int j = 0; j < d_model; ++j)
+    for (int j = 0; j < d_model; ++j) {
         file.read(reinterpret_cast<char*>(&gamma3(0, j)), sizeof(float));
-    for (int j = 0; j < d_model; ++j)
+    }
+    for (int j = 0; j < d_model; ++j) {
         file.read(reinterpret_cast<char*>(&beta3(0, j)), sizeof(float));
+    }
     norm3->set_gamma(gamma3);
     norm3->set_beta(beta3);
 

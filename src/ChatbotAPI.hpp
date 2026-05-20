@@ -81,6 +81,10 @@ class ChatbotAPI {
      * @brief Destructor
      */
     ~ChatbotAPI();
+    ChatbotAPI(const ChatbotAPI&) = delete;
+    ChatbotAPI& operator=(const ChatbotAPI&) = delete;
+    ChatbotAPI(ChatbotAPI&&) = delete;
+    ChatbotAPI& operator=(ChatbotAPI&&) = delete;
 
     /**
      * @brief Start the HTTP server (blocking)
@@ -137,12 +141,13 @@ class ChatbotAPI {
                                                    const GenerationConfig& config);
 
     // JSON utilities (public for testing)
-    std::string parse_json_string(const std::string& json, const std::string& key);
-    std::vector<std::string> parse_json_array(const std::string& json, const std::string& key);
-    std::string create_json_response(const std::string& response, bool success = true,
-                                     const std::string& error = "");
-    std::string create_batch_json_response(const BatchResponse& batch_response);
-    std::string create_error_response(const std::string& error);
+    static std::string parse_json_string(const std::string& json, const std::string& key);
+    static std::vector<std::string> parse_json_array(const std::string& json,
+                                                     const std::string& key);
+    static std::string create_json_response(const std::string& response, bool success = true,
+                                            const std::string& error = "");
+    static std::string create_batch_json_response(const BatchResponse& batch_response);
+    static std::string create_error_response(const std::string& error);
 
    private:
     // HTTP endpoint handlers
@@ -156,7 +161,7 @@ class ChatbotAPI {
     std::string handle_batch_chat_session(const std::string& request_body);
 
     // Session management
-    std::string create_session_id();
+    static std::string create_session_id();
     Session* get_or_create_session(const std::string& session_id);
     void cleanup_expired_sessions();
     bool is_session_expired(const Session& session);
@@ -174,7 +179,7 @@ class ChatbotAPI {
     // Server configuration
     int port_;
     std::chrono::minutes session_timeout_;
-    bool running_;
+    bool running_{false};
 
     // Session storage (thread-safe)
     std::unordered_map<std::string, std::unique_ptr<Session>> sessions_;

@@ -114,14 +114,14 @@ struct AbnormalSample {
  */
 struct PersistentMetricsRecord {
     std::chrono::system_clock::time_point timestamp;
-    int session_id;
-    int epoch;
-    int sample;
-    float loss;
-    float validation_loss;
-    float learning_rate;
-    float gradient_norm;
-    float perplexity;
+    int session_id = 0;
+    int epoch = 0;
+    int sample = 0;
+    float loss = 0.0f;
+    float validation_loss = 0.0f;
+    float learning_rate = 0.0f;
+    float gradient_norm = 0.0f;
+    float perplexity = 0.0f;
 };
 
 /**
@@ -189,12 +189,16 @@ class TrainingMetricsService {
     /**
      * @brief Construct metrics service with configuration
      */
-    explicit TrainingMetricsService(const MetricsServiceConfig& config = MetricsServiceConfig());
+    explicit TrainingMetricsService(MetricsServiceConfig config = MetricsServiceConfig());
 
     /**
      * @brief Destructor - ensures all metrics are persisted
      */
     ~TrainingMetricsService();
+    TrainingMetricsService(const TrainingMetricsService&) = delete;
+    TrainingMetricsService& operator=(const TrainingMetricsService&) = delete;
+    TrainingMetricsService(TrainingMetricsService&&) = delete;
+    TrainingMetricsService& operator=(TrainingMetricsService&&) = delete;
 
     // Session lifecycle
     void start_session(int session_id, int total_epochs = 0, int total_samples = 0);
@@ -272,7 +276,7 @@ class TrainingMetricsService {
     std::string to_json() const;
     std::string to_json_summary() const;
     std::string to_prometheus() const;
-    std::string to_csv_header() const;
+    static std::string to_csv_header();
     std::string to_csv_row() const;
 
     // Historical queries
@@ -306,7 +310,7 @@ class TrainingMetricsService {
 
     // Persistence state
     std::chrono::system_clock::time_point last_persist_time_;
-    int samples_since_last_persist_;
+    int samples_since_last_persist_{0};
 
     // Timing helpers
     std::chrono::steady_clock::time_point session_start_steady_;
@@ -324,8 +328,8 @@ class TrainingMetricsService {
     void add_record(const PersistentMetricsRecord& record);
     void trim_history();
     void update_throughput_metrics();
-    std::string escape_json(const std::string& s) const;
-    std::string format_timestamp(const std::chrono::system_clock::time_point& tp) const;
+    static std::string escape_json(const std::string& s);
+    static std::string format_timestamp(const std::chrono::system_clock::time_point& tp);
 
     // HTTP push to external metrics API daemon
     void push_to_api(const std::string& endpoint, const std::string& json_body);

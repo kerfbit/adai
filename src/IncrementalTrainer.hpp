@@ -113,7 +113,7 @@ class IncrementalTrainer {
      * @param vocab_path   Path to vocabulary file.
      * @param model_path   Path to model checkpoint.
      */
-    IncrementalTrainer(const std::string& vocab_path, const std::string& model_path);
+    IncrementalTrainer(std::string vocab_path, const std::string& model_path);
 
     /**
      * @brief Explicit-paths constructor with pre-built configuration.
@@ -122,8 +122,8 @@ class IncrementalTrainer {
      * @param cfg          Configuration settings; architecture is applied before
      *                     the model is constructed so no defaults are baked in.
      */
-    IncrementalTrainer(const std::string& vocab_path, const std::string& model_path,
-                       const IncrementalConfig& cfg);
+    IncrementalTrainer(std::string vocab_path, const std::string& model_path,
+                       IncrementalConfig cfg);
 
     /**
      * @brief Build an IncrementalConfig from a parsed ServiceConfig.
@@ -163,7 +163,7 @@ class IncrementalTrainer {
     bool resume_last_session();
     bool load_session_history();
     bool save_session_history();
-    TrainingSession get_current_session() const;
+    TrainingSession get_current_session();
     std::vector<TrainingSession> get_session_history() const;
     void cleanup_old_sessions();
 
@@ -171,12 +171,12 @@ class IncrementalTrainer {
     bool load_data_registry();
     bool save_data_registry();
     bool is_data_trained(const std::string& data_file);
-    std::string compute_data_checksum(const std::string& data_file);
+    static std::string compute_data_checksum(const std::string& data_file);
 
     // Model operations
     bool save_model(const std::string& path);
     bool load_model(const std::string& path);
-    std::string get_latest_checkpoint() const;
+    std::string get_latest_checkpoint();
 
     /**
      * @brief Hard-reset: erase all checkpoints, session history, and optionally
@@ -195,8 +195,8 @@ class IncrementalTrainer {
 
     // Status and reporting
     void print_training_summary() const;
-    void print_session_history() const;
-    void print_data_registry() const;
+    void print_session_history();
+    void print_data_registry();
     int get_total_samples_trained() const;
     float get_total_training_time_hours() const;
 
@@ -296,19 +296,20 @@ class IncrementalTrainer {
     void ensure_directories_exist();
     bool save_pending_data_list();
     bool load_pending_data_list();
-    int load_conversation_pairs(const std::string& filepath, std::vector<ConversationPair>& pairs);
+    static int load_conversation_pairs(const std::string& filepath,
+                                       std::vector<ConversationPair>& pairs);
 
     // Remove a saved model and all its sidecar files (.config, .vocab, .encoder, .decoder,
     // .lm_head)
-    void remove_model_files(const std::string& base_path);
+    static void remove_model_files(const std::string& base_path);
 
     // Symlink management helpers (TD-005)
     void update_checkpoint_symlinks(const std::string& checkpoint_path);
     void update_best_checkpoint(float validation_loss, const std::string& checkpoint_path);
     std::string get_best_checkpoint_path() const;
-    bool is_windows_platform() const;
+    static bool is_windows_platform();
     bool create_or_update_symlink(const std::string& target, const std::string& link_path);
-    bool remove_symlink_if_exists(const std::string& link_path);
+    static bool remove_symlink_if_exists(const std::string& link_path);
 
     // TD-009: Real-time dashboard helpers
     void display_dashboard(const TrainingSession& session, int current_epoch, int total_epochs,
@@ -317,22 +318,24 @@ class IncrementalTrainer {
     static std::string progress_bar(int current, int total, int bar_width = 42);
 
     // Project Gutenberg helpers
-    std::string get_gutenberg_url(int book_id) const;
-    bool download_file(const std::string& url, const std::string& output_path);
-    bool download_gutenberg_book(int book_id, const std::string& output_dir);
-    bool download_gutenberg_books(const std::vector<int>& book_ids, const std::string& output_dir);
-    std::string clean_gutenberg_text(const std::string& raw_text);
-    std::vector<std::string> extract_sentences(const std::string& text);
-    std::string generate_question_from_sentence(const std::string& sentence);
-    std::vector<std::pair<std::string, std::string>> create_qa_pairs_from_text(
+    static std::string get_gutenberg_url(int book_id);
+    static bool download_file(const std::string& url, const std::string& output_path);
+    static bool download_gutenberg_book(int book_id, const std::string& output_dir);
+    static bool download_gutenberg_books(const std::vector<int>& book_ids,
+                                         const std::string& output_dir);
+    static std::string clean_gutenberg_text(const std::string& raw_text);
+    static std::vector<std::string> extract_sentences(const std::string& text);
+    static std::string generate_question_from_sentence(const std::string& sentence);
+    static std::vector<std::pair<std::string, std::string>> create_qa_pairs_from_text(
         const std::vector<std::string>& sentences, int max_pairs);
-    bool convert_gutenberg_to_training_data(const std::string& text_file,
-                                            const std::string& output_file, int max_pairs);
+    static bool convert_gutenberg_to_training_data(const std::string& text_file,
+                                                   const std::string& output_file, int max_pairs);
 
     // HuggingFace helpers
-    bool download_hf_rows(const std::string& dataset_id, const std::string& split, int offset,
-                          int length, const std::string& output_path);
-    bool convert_hf_to_training_data(const std::string& rows_dir, const std::string& output_file,
-                                     const std::string& input_field,
-                                     const std::string& output_field, int max_pairs);
+    static bool download_hf_rows(const std::string& dataset_id, const std::string& split,
+                                 int offset, int length, const std::string& output_path);
+    static bool convert_hf_to_training_data(const std::string& rows_dir,
+                                            const std::string& output_file,
+                                            const std::string& input_field,
+                                            const std::string& output_field, int max_pairs);
 };

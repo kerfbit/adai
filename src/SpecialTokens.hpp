@@ -179,14 +179,18 @@ inline bool is_stop_token(int token_id, const SpecialTokenConfig& config = Speci
  */
 inline std::string get_special_token_string(
     int token_id, const SpecialTokenConfig& config = SpecialTokenConfig()) {
-    if (token_id == config.pad_token_id)
+    if (token_id == config.pad_token_id) {
         return SpecialTokenStrings::PAD;
-    if (token_id == config.unk_token_id)
+    }
+    if (token_id == config.unk_token_id) {
         return SpecialTokenStrings::UNK;
-    if (token_id == config.bos_token_id)
+    }
+    if (token_id == config.bos_token_id) {
         return SpecialTokenStrings::BOS;
-    if (token_id == config.eos_token_id)
+    }
+    if (token_id == config.eos_token_id) {
         return SpecialTokenStrings::EOS;
+    }
 
     throw std::invalid_argument("Token ID " + std::to_string(token_id) + " is not a special token");
 }
@@ -200,14 +204,18 @@ inline std::string get_special_token_string(
  */
 inline int get_special_token_id(const std::string& token_str,
                                 const SpecialTokenConfig& config = SpecialTokenConfig()) {
-    if (token_str == SpecialTokenStrings::PAD)
+    if (token_str == SpecialTokenStrings::PAD) {
         return config.pad_token_id;
-    if (token_str == SpecialTokenStrings::UNK)
+    }
+    if (token_str == SpecialTokenStrings::UNK) {
         return config.unk_token_id;
-    if (token_str == SpecialTokenStrings::BOS)
+    }
+    if (token_str == SpecialTokenStrings::BOS) {
         return config.bos_token_id;
-    if (token_str == SpecialTokenStrings::EOS)
+    }
+    if (token_str == SpecialTokenStrings::EOS) {
         return config.eos_token_id;
+    }
 
     throw std::invalid_argument("Token string '" + token_str + "' is not a special token");
 }

@@ -4,17 +4,7 @@
 #include <limits>
 
 // Constructor
-Optimizer::Optimizer(OptimizerType opt_type, float lr)
-    : type(opt_type),
-      learning_rate(lr),
-      global_step(0),
-      momentum_beta(0.9f),
-      beta1(0.9f),
-      beta2(0.999f),
-      epsilon(1e-8f),
-      weight_decay(0.0f),
-      max_grad_norm(0.0f),
-      amsgrad(false) {}
+Optimizer::Optimizer(OptimizerType opt_type, float lr) : type(opt_type), learning_rate(lr) {}
 
 // Add parameter group
 void Optimizer::add_parameter_group(Matrix* weights, Matrix* gradients) {
@@ -77,6 +67,7 @@ void Optimizer::zero_grad() {
     }
 }
 
+// NOLINTBEGIN(readability-convert-member-functions-to-static)
 // Get gradient norm
 float Optimizer::get_gradient_norm() const {
     float total_norm = 0.0f;
@@ -217,8 +208,8 @@ void Optimizer::step_adam(ParameterGroup& param) {
     param.step++;
 
     // Bias correction terms
-    float bias_correction1 = 1.0f - std::pow(beta1, param.step);
-    float bias_correction2 = 1.0f - std::pow(beta2, param.step);
+    float bias_correction1 = 1.0f - std::pow(beta1, static_cast<float>(param.step));
+    float bias_correction2 = 1.0f - std::pow(beta2, static_cast<float>(param.step));
 
     for (int i = 0; i < param.weights->rows; i++) {
         for (int j = 0; j < param.weights->cols; j++) {
@@ -250,8 +241,8 @@ void Optimizer::step_adamw(ParameterGroup& param) {
     param.step++;
 
     // Bias correction terms
-    float bias_correction1 = 1.0f - std::pow(beta1, param.step);
-    float bias_correction2 = 1.0f - std::pow(beta2, param.step);
+    float bias_correction1 = 1.0f - std::pow(beta1, static_cast<float>(param.step));
+    float bias_correction2 = 1.0f - std::pow(beta2, static_cast<float>(param.step));
 
     for (int i = 0; i < param.weights->rows; i++) {
         for (int j = 0; j < param.weights->cols; j++) {
@@ -313,6 +304,7 @@ size_t Optimizer::total_parameters() const {
     }
     return total;
 }
+// NOLINTEND(readability-convert-member-functions-to-static)
 
 // Get optimizer name
 const char* Optimizer::get_optimizer_name() const {

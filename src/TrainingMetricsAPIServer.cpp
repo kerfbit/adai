@@ -7,11 +7,13 @@
 #include "TrainingMetricsAPI.hpp"
 #include "TrainingMetricsService.hpp"
 
+// NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 // Global atomic flag for shutdown (async-signal-safe)
 static std::atomic<bool> shutdown_requested{false};
 
 // Global pointer for signal handling (only used after signal handler sets flag)
 static TrainingMetricsAPI* g_api_server = nullptr;
+// NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
 /**
  * @brief Signal handler for graceful shutdown
@@ -90,14 +92,15 @@ struct ServerConfig {
 /**
  * @brief Parse command-line arguments
  */
-bool parse_args(int argc, char* argv[], ServerConfig& config) {
+bool parse_args(int argc, char** argv, ServerConfig& config) {  // NOLINT(modernize-avoid-c-arrays)
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
 
         if (arg == "--help" || arg == "-h") {
             print_usage(argv[0]);
             return false;
-        } else if (arg == "--port" && i + 1 < argc) {
+        }
+        if (arg == "--port" && i + 1 < argc) {
             config.port = std::atoi(argv[++i]);
         } else if (arg == "--metrics-file" && i + 1 < argc) {
             config.metrics_file = argv[++i];
@@ -120,7 +123,7 @@ bool parse_args(int argc, char* argv[], ServerConfig& config) {
         } else if (arg == "--no-control") {
             config.allow_control = false;
         } else {
-            std::cerr << "Unknown option: " << arg << std::endl;
+            std::cerr << "Unknown option: " << arg << '\n';
             print_usage(argv[0]);
             return false;
         }
@@ -212,9 +215,8 @@ int main(int argc, char* argv[]) {
         std::atomic<bool> server_error{false};
         std::thread server_thread([&]() {
             if (!api->start()) {
-                std::cerr << "\nFailed to start server on port " << server_config.port << std::endl;
-                std::cerr << "Port may already be in use. Try a different port with --port"
-                          << std::endl;
+                std::cerr << "\nFailed to start server on port " << server_config.port << '\n';
+                std::cerr << "Port may already be in use. Try a different port with --port" << '\n';
                 server_error = true;
                 shutdown_requested.store(true);
             }
@@ -252,7 +254,7 @@ int main(int argc, char* argv[]) {
         }
 
     } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
+        std::cerr << "Error: " << e.what() << '\n';
         return 1;
     }
 

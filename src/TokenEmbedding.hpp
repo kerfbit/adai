@@ -45,10 +45,11 @@ class TokenEmbedding {
     std::vector<int> cached_token_ids;  // Stores input token IDs for gradient computation
 
     // Optimizer support
-    Optimizer* optimizer;  // Optional optimizer (nullptr = simple gradient descent)
+    Optimizer* optimizer{nullptr};  // Optional optimizer (nullptr = simple gradient descent)
 
    public:
-    float learning_rate;  // Learning rate for gradient updates (used when optimizer is nullptr)
+    float learning_rate{
+        0.001f};  // Learning rate for gradient updates (used when optimizer is nullptr)
 
     /**
      * Constructor

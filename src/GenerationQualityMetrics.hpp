@@ -45,8 +45,9 @@ class GenerationQualityEvaluator {
      */
     static GenerationQualityScore evaluate(const std::vector<std::string>& references,
                                            const std::vector<std::string>& hypotheses) {
-        if (references.empty() || references.size() != hypotheses.size())
+        if (references.empty() || references.size() != hypotheses.size()) {
             return {};
+        }
 
         std::vector<TokenList> ref_toks, hyp_toks;
         ref_toks.reserve(references.size());
@@ -82,14 +83,17 @@ class GenerationQualityEvaluator {
                            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
             // Strip leading punctuation
             size_t start = 0;
-            while (start < word.size() && std::ispunct(static_cast<unsigned char>(word[start])))
+            while (start < word.size() && std::ispunct(static_cast<unsigned char>(word[start]))) {
                 ++start;
+            }
             // Strip trailing punctuation
             size_t end = word.size();
-            while (end > start && std::ispunct(static_cast<unsigned char>(word[end - 1])))
+            while (end > start && std::ispunct(static_cast<unsigned char>(word[end - 1]))) {
                 --end;
-            if (start < end)
+            }
+            if (start < end) {
                 tokens.push_back(word.substr(start, end - start));
+            }
         }
         return tokens;
     }
@@ -102,8 +106,9 @@ class GenerationQualityEvaluator {
     static Counts count_ngrams(const TokenList& tokens, int n) {
         Counts c;
         int sz = static_cast<int>(tokens.size());
-        for (int i = 0; i + n <= sz; ++i)
+        for (int i = 0; i + n <= sz; ++i) {
             c[NGram(tokens.begin() + i, tokens.begin() + i + n)]++;
+        }
         return c;
     }
 
@@ -135,16 +140,19 @@ class GenerationQualityEvaluator {
                 for (auto& [ngram, cnt] : hyp_ng) {
                     hyp_cnt[n - 1] += cnt;
                     auto it = ref_ng.find(ngram);
-                    if (it != ref_ng.end())
+                    if (it != ref_ng.end()) {
                         match_cnt[n - 1] += std::min(cnt, it->second);
+                    }
                 }
             }
         }
 
         // Brevity penalty (corpus-level)
         float bp = 1.0f;
-        if (total_hyp_len < total_ref_len && total_hyp_len > 0)
-            bp = std::exp(1.0f - static_cast<float>(total_ref_len) / total_hyp_len);
+        if (total_hyp_len < total_ref_len && total_hyp_len > 0) {
+            bp = std::exp(1.0f -
+                          static_cast<float>(total_ref_len) / static_cast<float>(total_hyp_len));
+        }
 
         // Geometric mean of smoothed modified precisions
         float log_avg = 0.0f;
@@ -152,10 +160,10 @@ class GenerationQualityEvaluator {
             int m = match_cnt[n - 1];
             int h = hyp_cnt[n - 1];
             // Add-1 smoothing: avoids log(0) when no n-gram matches exist
-            float prec = (h > 0) ? static_cast<float>(m + 1) / (h + 1) : 0.0f;
+            float prec = (h > 0) ? static_cast<float>(m + 1) / static_cast<float>(h + 1) : 0.0f;
             log_avg += (prec > 0.0f) ? std::log(prec) : -20.0f;
         }
-        log_avg /= max_n;
+        log_avg /= static_cast<float>(max_n);
         return bp * std::exp(log_avg);
     }
 
@@ -172,16 +180,20 @@ class GenerationQualityEvaluator {
             Counts hyp_ng = count_ngrams(hyps[idx], n);
 
             int ref_total = 0, hyp_total = 0, match = 0;
-            for (auto& [ng, cnt] : ref_ng)
+            for (auto& [ng, cnt] : ref_ng) {
                 ref_total += cnt;
+            }
             for (auto& [ng, cnt] : hyp_ng) {
                 hyp_total += cnt;
                 auto it = ref_ng.find(ng);
-                if (it != ref_ng.end())
+                if (it != ref_ng.end()) {
                     match += std::min(cnt, it->second);
+                }
             }
-            float prec = hyp_total > 0 ? static_cast<float>(match) / hyp_total : 0.0f;
-            float rec = ref_total > 0 ? static_cast<float>(match) / ref_total : 0.0f;
+            float prec =
+                hyp_total > 0 ? static_cast<float>(match) / static_cast<float>(hyp_total) : 0.0f;
+            float rec =
+                ref_total > 0 ? static_cast<float>(match) / static_cast<float>(ref_total) : 0.0f;
             float f1 = (prec + rec > 0.0f) ? 2.0f * prec * rec / (prec + rec) : 0.0f;
             total_f1 += f1;
         }
@@ -198,8 +210,12 @@ class GenerationQualityEvaluator {
         float total_f1 = 0.0f;
         for (size_t idx = 0; idx < refs.size(); ++idx) {
             int lcs = lcs_length(refs[idx], hyps[idx]);
-            float prec = hyps[idx].empty() ? 0.0f : static_cast<float>(lcs) / hyps[idx].size();
-            float rec = refs[idx].empty() ? 0.0f : static_cast<float>(lcs) / refs[idx].size();
+            float prec = hyps[idx].empty()
+                             ? 0.0f
+                             : static_cast<float>(lcs) / static_cast<float>(hyps[idx].size());
+            float rec = refs[idx].empty()
+                            ? 0.0f
+                            : static_cast<float>(lcs) / static_cast<float>(refs[idx].size());
             float f1 = (prec + rec > 0.0f) ? 2.0f * prec * rec / (prec + rec) : 0.0f;
             total_f1 += f1;
         }
@@ -210,13 +226,15 @@ class GenerationQualityEvaluator {
     static int lcs_length(const TokenList& a, const TokenList& b) {
         int m = static_cast<int>(a.size());
         int n = static_cast<int>(b.size());
-        if (m == 0 || n == 0)
+        if (m == 0 || n == 0) {
             return 0;
+        }
 
         std::vector<int> prev(n + 1, 0), curr(n + 1, 0);
         for (int i = 1; i <= m; ++i) {
-            for (int j = 1; j <= n; ++j)
+            for (int j = 1; j <= n; ++j) {
                 curr[j] = (a[i - 1] == b[j - 1]) ? prev[j - 1] + 1 : std::max(prev[j], curr[j - 1]);
+            }
             std::swap(prev, curr);
             std::fill(curr.begin(), curr.end(), 0);
         }

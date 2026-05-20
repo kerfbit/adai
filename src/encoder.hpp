@@ -50,8 +50,8 @@ class LLMEncoder {
     int max_seq_length;
 
     // Training state
-    bool requires_grad;
-    float learning_rate;
+    bool requires_grad{false};
+    float learning_rate{0.001f};
 
     // Cached values for backward pass
     std::vector<int> cached_token_ids;

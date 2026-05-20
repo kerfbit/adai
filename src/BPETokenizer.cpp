@@ -2,7 +2,7 @@
 #include <iomanip>
 
 // UTF-8 validation helper
-bool BPETokenizer::is_valid_utf8(const std::string& text) const {
+bool BPETokenizer::is_valid_utf8(const std::string& text) {
     size_t i = 0;
     while (i < text.length()) {
         unsigned char c = text[i];
@@ -44,7 +44,7 @@ bool BPETokenizer::is_valid_utf8(const std::string& text) const {
 }
 
 // Validate input string
-void BPETokenizer::validate_input(const std::string& text, const std::string& context) const {
+void BPETokenizer::validate_input(const std::string& text, const std::string& context) {
     if (text.empty()) {
         throw TokenizerInputError(context + ": Input text is empty");
     }
@@ -58,7 +58,7 @@ void BPETokenizer::validate_input(const std::string& text, const std::string& co
 // frequency_threshold: minimum frequency for a character to be added to the vocabulary (default:1)
 void BPETokenizer::build_vocab(const std::vector<std::string>& texts, int vocab_size,
                                int frequency_threshold) {
-    std::cout << "\n[BPE Tokenizer] Building vocabulary..." << std::endl;
+    std::cout << "\n[BPE Tokenizer] Building vocabulary..." << '\n';
     std::cout << "[1/3] Counting character frequencies..." << std::flush;
 
     // Count character frequencies
@@ -76,7 +76,7 @@ void BPETokenizer::build_vocab(const std::vector<std::string>& texts, int vocab_
                       << texts.size() << " texts processed" << std::flush;
         }
     }
-    std::cout << " (" << total_chars << " total characters)" << std::endl;
+    std::cout << " (" << total_chars << " total characters)" << '\n';
 
     std::cout << "[2/3] Building base vocabulary..." << std::flush;
     // Add frequent characters to vocabulary
@@ -92,14 +92,14 @@ void BPETokenizer::build_vocab(const std::vector<std::string>& texts, int vocab_
             added_chars++;
         }
     }
-    std::cout << " Added " << added_chars << " characters" << std::endl;
+    std::cout << " Added " << added_chars << " characters" << '\n';
 
     // Build BPE merges
     int num_merges = std::max(0, vocab_size - current_id);
-    std::cout << "[3/3] Learning BPE merges (target: " << num_merges << " merges)..." << std::endl;
+    std::cout << "[3/3] Learning BPE merges (target: " << num_merges << " merges)..." << '\n';
     build_bpe_merges(texts, num_merges);
     std::cout << "\n[BPE Tokenizer] Vocabulary built successfully! Final size: " << vocab.size()
-              << " tokens" << std::endl;
+              << " tokens" << '\n';
 }
 
 // Build BPE merge rules
@@ -112,21 +112,21 @@ void BPETokenizer::build_bpe_merges(const std::vector<std::string>& texts, int n
         for (const auto& token : tokens) {
             std::vector<std::string> chars;
             for (char c : token) {
-                chars.push_back(std::string(1, c));
+                chars.emplace_back(1, c);
             }
             if (!chars.empty()) {
                 word_tokens.push_back(chars);
             }
         }
     }
-    std::cout << " " << word_tokens.size() << " word tokens" << std::endl;
+    std::cout << " " << word_tokens.size() << " word tokens" << '\n';
 
     // Iteratively find most frequent pairs and merge
     for (int i = 0; i < num_merges; i++) {
         auto best_pair = get_most_frequent_pair(word_tokens);
         if (best_pair.first.empty()) {
             std::cout << "\r    Merge " << i << "/" << num_merges << " - No more pairs to merge"
-                      << std::string(50, ' ') << std::endl;
+                      << std::string(50, ' ') << '\n';
             break;
         }
 
@@ -135,7 +135,7 @@ void BPETokenizer::build_bpe_merges(const std::vector<std::string>& texts, int n
 
         // Add merged token to vocabulary
         std::string merged = best_pair.first + best_pair.second;
-        int new_id = vocab.size();
+        int new_id = static_cast<int>(vocab.size());
         vocab[merged] = new_id;
         inverse_vocab[new_id] = merged;
 
@@ -144,7 +144,7 @@ void BPETokenizer::build_bpe_merges(const std::vector<std::string>& texts, int n
 
         // Progress update every 10 merges for better visibility
         if ((i + 1) % 10 == 0 || i == num_merges - 1) {
-            float progress = (float)(i + 1) / num_merges * 100.0f;
+            float progress = (float)(i + 1) / static_cast<float>(num_merges) * 100.0f;
             std::cout << "\r    Merge " << (i + 1) << "/" << num_merges << " (" << std::fixed
                       << std::setprecision(1) << progress << "%)" << " - Latest: '"
                       << best_pair.first << "' + '" << best_pair.second << "' → '" << merged << "'"
@@ -154,7 +154,7 @@ void BPETokenizer::build_bpe_merges(const std::vector<std::string>& texts, int n
                       << std::string(50, ' ') << std::flush;
         }
     }
-    std::cout << std::endl;
+    std::cout << '\n';
 }
 
 // Pre-tokenization step
@@ -190,7 +190,9 @@ std::vector<std::string> BPETokenizer::pre_tokenize(const std::string& text) {
 
         // Progress update every 1000 tokens
         if (match_count % 1000 == 0) {
-            float progress = text_length > 0 ? (float)last_pos / text_length * 100.0f : 0.0f;
+            float progress = text_length > 0 ? static_cast<float>(last_pos) /
+                                                   static_cast<float>(text_length) * 100.0f
+                                             : 0.0f;
             std::cout << "\r    Pre-tokenizing... " << match_count << " tokens (" << std::fixed
                       << std::setprecision(1) << progress << "% of text)" << std::flush;
         }
@@ -198,7 +200,7 @@ std::vector<std::string> BPETokenizer::pre_tokenize(const std::string& text) {
 
     if (match_count >= 1000) {
         std::cout << "\r    Pre-tokenizing... " << match_count << " tokens - Complete"
-                  << std::string(30, ' ') << std::endl;
+                  << std::string(30, ' ') << '\n';
     }
 
     return tokens;
@@ -216,8 +218,9 @@ std::pair<std::string, std::string> BPETokenizer::get_most_frequent_pair(
         }
     }
 
-    if (pair_counts.empty())
+    if (pair_counts.empty()) {
         return {"", ""};
+    }
 
     auto max_pair =
         std::max_element(pair_counts.begin(), pair_counts.end(),
@@ -246,12 +249,13 @@ void BPETokenizer::merge_tokens(std::vector<std::vector<std::string>>& word_toke
 
 // Apply BPE encoding to a single word
 std::vector<std::string> BPETokenizer::apply_bpe(const std::string& word) {
-    if (word.empty())
+    if (word.empty()) {
         return {};
+    }
 
     std::vector<std::string> tokens;
     for (char c : word) {
-        tokens.push_back(std::string(1, c));
+        tokens.emplace_back(1, c);
     }
 
     // Apply all merge rules
@@ -338,7 +342,7 @@ std::string BPETokenizer::decode(const std::vector<int>& ids, bool skip_special_
         } else {
             // Warn about unknown token ID but continue
             std::cerr << "Warning: Unknown token ID " << id << " encountered during decoding"
-                      << std::endl;
+                      << '\n';
         }
     }
 
@@ -354,7 +358,7 @@ size_t BPETokenizer::get_vocab_size() const {
 void BPETokenizer::save_vocab(const std::string& filename) const {
     std::ofstream file(filename);
     if (!file.is_open()) {
-        std::cerr << "Error: Could not open file for writing: " << filename << std::endl;
+        std::cerr << "Error: Could not open file for writing: " << filename << '\n';
         return;
     }
 
@@ -379,18 +383,19 @@ void BPETokenizer::save_vocab(const std::string& filename) const {
         // Replace newlines, tabs, and other special characters
         std::string escaped_token;
         for (char c : token) {
-            if (c == '\n')
+            if (c == '\n') {
                 escaped_token += "\\n";
-            else if (c == '\t')
+            } else if (c == '\t') {
                 escaped_token += "\\t";
-            else if (c == '\r')
+            } else if (c == '\r') {
                 escaped_token += "\\r";
-            else if (c == '\\')
+            } else if (c == '\\') {
                 escaped_token += "\\\\";
-            else if (c == ' ')
+            } else if (c == ' ') {
                 escaped_token += "\\s";
-            else
+            } else {
                 escaped_token += c;
+            }
         }
         file << escaped_token << "\t" << pair.second << "\n";
     }
@@ -402,18 +407,19 @@ void BPETokenizer::save_vocab(const std::string& filename) const {
         auto escape = [](const std::string& s) {
             std::string result;
             for (char c : s) {
-                if (c == '\n')
+                if (c == '\n') {
                     result += "\\n";
-                else if (c == '\t')
+                } else if (c == '\t') {
                     result += "\\t";
-                else if (c == '\r')
+                } else if (c == '\r') {
                     result += "\\r";
-                else if (c == '\\')
+                } else if (c == '\\') {
                     result += "\\\\";
-                else if (c == ' ')
+                } else if (c == ' ') {
                     result += "\\s";
-                else
+                } else {
                     result += c;
+                }
             }
             return result;
         };
@@ -421,9 +427,9 @@ void BPETokenizer::save_vocab(const std::string& filename) const {
     }
 
     file.close();
-    std::cout << "[BPE Tokenizer] Vocabulary saved to " << filename << std::endl;
-    std::cout << "  - Vocabulary size: " << vocab.size() << std::endl;
-    std::cout << "  - BPE merges: " << bpe_merges.size() << std::endl;
+    std::cout << "[BPE Tokenizer] Vocabulary saved to " << filename << '\n';
+    std::cout << "  - Vocabulary size: " << vocab.size() << '\n';
+    std::cout << "  - BPE merges: " << bpe_merges.size() << '\n';
 }
 
 // Load vocabulary from file
@@ -465,8 +471,9 @@ void BPETokenizer::load_vocab(const std::string& filename) {
                 } else if (next == 's') {
                     result += ' ';
                     i++;
-                } else
+                } else {
                     result += s[i];
+                }
             } else {
                 result += s[i];
             }
@@ -477,20 +484,24 @@ void BPETokenizer::load_vocab(const std::string& filename) {
     std::string section;
     while (std::getline(file, line)) {
         // Skip comments and empty lines
-        if (line.empty() || line[0] == '#')
+        if (line.empty() || line[0] == '#') {
             continue;
+        }
 
         // Check for section headers
         if (line.find("VOCAB_SIZE") == 0) {
             // Just informational, we'll count as we load
             continue;
-        } else if (line == "SPECIAL_TOKENS") {
+        }
+        if (line == "SPECIAL_TOKENS") {
             section = "SPECIAL_TOKENS";
             continue;
-        } else if (line == "VOCAB") {
+        }
+        if (line == "VOCAB") {
             section = "VOCAB";
             continue;
-        } else if (line.find("BPE_MERGES") == 0) {
+        }
+        if (line.find("BPE_MERGES") == 0) {
             section = "BPE_MERGES";
             continue;
         }
@@ -499,8 +510,10 @@ void BPETokenizer::load_vocab(const std::string& filename) {
         if (section == "SPECIAL_TOKENS") {
             size_t space_pos = line.find(' ');
             if (space_pos == std::string::npos) {
-                throw VocabularyFileError("Malformed SPECIAL_TOKENS line in " + filename + ": " +
-                                          line);
+                throw VocabularyFileError(std::string("Malformed SPECIAL_TOKENS line in ")
+                                              .append(filename)
+                                              .append(": ")
+                                              .append(line));
             }
 
             std::string key = line.substr(0, space_pos);
@@ -510,30 +523,37 @@ void BPETokenizer::load_vocab(const std::string& filename) {
             try {
                 int value = std::stoi(value_str);
 
-                if (key == "pad_token_id")
+                if (key == "pad_token_id") {
                     pad_token_id = value;
-                else if (key == "unk_token_id")
+                } else if (key == "unk_token_id") {
                     unk_token_id = value;
-                else if (key == "bos_token_id")
+                } else if (key == "bos_token_id") {
                     bos_token_id = value;
-                else if (key == "eos_token_id")
+                } else if (key == "eos_token_id") {
                     eos_token_id = value;
-                else {
+                } else {
                     std::cerr << "Warning: Unknown special token key '" << key << "' in "
-                              << filename << std::endl;
+                              << filename << '\n';
                 }
             } catch (const std::invalid_argument& e) {
-                throw VocabularyFileError("Invalid integer value for special token in " + filename +
-                                          ": " + value_str);
+                throw VocabularyFileError(std::string("Invalid integer value for special token in ")
+                                              .append(filename)
+                                              .append(": ")
+                                              .append(value_str));
             } catch (const std::out_of_range& e) {
-                throw VocabularyFileError("Special token ID out of range in " + filename + ": " +
-                                          value_str);
+                throw VocabularyFileError(std::string("Special token ID out of range in ")
+                                              .append(filename)
+                                              .append(": ")
+                                              .append(value_str));
             }
         } else if (section == "VOCAB") {
             size_t tab_pos = line.find('\t');
             if (tab_pos == std::string::npos) {
-                throw VocabularyFileError("Malformed VOCAB line (missing tab separator) in " +
-                                          filename + ": " + line);
+                throw VocabularyFileError(
+                    std::string("Malformed VOCAB line (missing tab separator) in ")
+                        .append(filename)
+                        .append(": ")
+                        .append(line));
             }
 
             std::string token = unescape(line.substr(0, tab_pos));
@@ -543,8 +563,10 @@ void BPETokenizer::load_vocab(const std::string& filename) {
                 int id = std::stoi(id_str);
                 // Validate token ID is non-negative
                 if (id < 0) {
-                    throw VocabularyFileError("Negative token ID in " + filename + ": " +
-                                              std::to_string(id));
+                    throw VocabularyFileError(std::string("Negative token ID in ")
+                                                  .append(filename)
+                                                  .append(": ")
+                                                  .append(std::to_string(id)));
                 }
 
                 vocab[token] = id;
@@ -556,15 +578,24 @@ void BPETokenizer::load_vocab(const std::string& filename) {
                     special_tokens.insert(token);
                 }
             } catch (const std::invalid_argument& e) {
-                throw VocabularyFileError("Invalid token ID in " + filename + ": " + id_str);
+                throw VocabularyFileError(std::string("Invalid token ID in ")
+                                              .append(filename)
+                                              .append(": ")
+                                              .append(id_str));
             } catch (const std::out_of_range& e) {
-                throw VocabularyFileError("Token ID out of range in " + filename + ": " + id_str);
+                throw VocabularyFileError(std::string("Token ID out of range in ")
+                                              .append(filename)
+                                              .append(": ")
+                                              .append(id_str));
             }
         } else if (section == "BPE_MERGES") {
             size_t tab_pos = line.find('\t');
             if (tab_pos == std::string::npos) {
-                throw VocabularyFileError("Malformed BPE_MERGES line (missing tab separator) in " +
-                                          filename + ": " + line);
+                throw VocabularyFileError(
+                    std::string("Malformed BPE_MERGES line (missing tab separator) in ")
+                        .append(filename)
+                        .append(": ")
+                        .append(line));
             }
 
             std::string first = unescape(line.substr(0, tab_pos));
@@ -575,7 +606,7 @@ void BPETokenizer::load_vocab(const std::string& filename) {
                 throw VocabularyFileError("Empty merge token in " + filename);
             }
 
-            bpe_merges.push_back({first, second});
+            bpe_merges.emplace_back(first, second);
         }
     }
 
@@ -593,14 +624,18 @@ void BPETokenizer::load_vocab(const std::string& filename) {
     }
 
     // Ensure special_tokens set is properly populated (in case vocab loading didn't catch all)
-    if (vocab.find("<pad>") != vocab.end())
+    if (vocab.find("<pad>") != vocab.end()) {
         special_tokens.insert("<pad>");
-    if (vocab.find("<unk>") != vocab.end())
+    }
+    if (vocab.find("<unk>") != vocab.end()) {
         special_tokens.insert("<unk>");
-    if (vocab.find("<bos>") != vocab.end())
+    }
+    if (vocab.find("<bos>") != vocab.end()) {
         special_tokens.insert("<bos>");
-    if (vocab.find("<eos>") != vocab.end())
+    }
+    if (vocab.find("<eos>") != vocab.end()) {
         special_tokens.insert("<eos>");
+    }
 
     // Map special token IDs to their string representations in inverse_vocab
     // This ensures that when decoding, the special token IDs (0,1,2,3) can be resolved
@@ -609,17 +644,17 @@ void BPETokenizer::load_vocab(const std::string& filename) {
     inverse_vocab[bos_token_id] = "<bos>";
     inverse_vocab[eos_token_id] = "<eos>";
 
-    std::cout << "[BPE Tokenizer] Vocabulary loaded from " << filename << std::endl;
-    std::cout << "  - Vocabulary size: " << vocab.size() << std::endl;
-    std::cout << "  - BPE merges: " << bpe_merges.size() << std::endl;
-    std::cout << "  - Special tokens: " << special_tokens.size() << std::endl;
+    std::cout << "[BPE Tokenizer] Vocabulary loaded from " << filename << '\n';
+    std::cout << "  - Vocabulary size: " << vocab.size() << '\n';
+    std::cout << "  - BPE merges: " << bpe_merges.size() << '\n';
+    std::cout << "  - Special tokens: " << special_tokens.size() << '\n';
 }
 
 // Print vocabulary statistics
 void BPETokenizer::print_vocab_stats() const {
-    std::cout << "Vocabulary size: " << vocab.size() << std::endl;
-    std::cout << "Number of BPE merges: " << bpe_merges.size() << std::endl;
-    std::cout << "Special tokens: " << special_tokens.size() << std::endl;
+    std::cout << "Vocabulary size: " << vocab.size() << '\n';
+    std::cout << "Number of BPE merges: " << bpe_merges.size() << '\n';
+    std::cout << "Special tokens: " << special_tokens.size() << '\n';
 }
 
 // Get top-k most frequent tokens (for debugging)

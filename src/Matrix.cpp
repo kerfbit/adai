@@ -20,10 +20,8 @@ Matrix::Matrix(int r, int c) : rows(r), cols(c) {
 }
 
 // Constructor from existing data
-Matrix::Matrix(const std::vector<std::vector<float>>& d) : data(d) {
-    rows = d.size();
-    cols = (rows > 0) ? d[0].size() : 0;
-
+Matrix::Matrix(const std::vector<std::vector<float>>& d)
+    : data(d), cols((rows > 0) ? d[0].size() : 0), rows(d.size()) {
     // Validate that all rows have the same number of columns
     for (const auto& row : data) {
         if (row.size() != cols) {
@@ -129,8 +127,9 @@ Matrix Matrix::operator*(const Matrix& other) const {
             }
 #endif
             // scalar remainder for cols not divisible by 8
-            for (; j < other.cols; ++j)
+            for (; j < other.cols; ++j) {
                 c_row[j] += a_row[k] * b_row[j];
+            }
         }
     }
 
@@ -203,10 +202,12 @@ Matrix Matrix::operator+(const Matrix& other) const {
         const float* b = other.data[i].data();
         float* r = result.data[i].data();
         int j = 0;
-        for (; j <= cols - 8; j += 8)
+        for (; j <= cols - 8; j += 8) {
             _mm256_storeu_ps(r + j, _mm256_add_ps(_mm256_loadu_ps(a + j), _mm256_loadu_ps(b + j)));
-        for (; j < cols; ++j)
+        }
+        for (; j < cols; ++j) {
             r[j] = a[j] + b[j];
+        }
     }
 
 #elif defined(ADAI_SIMD_NEON)
@@ -259,10 +260,12 @@ Matrix Matrix::operator-(const Matrix& other) const {
         const float* b = other.data[i].data();
         float* r = result.data[i].data();
         int j = 0;
-        for (; j <= cols - 8; j += 8)
+        for (; j <= cols - 8; j += 8) {
             _mm256_storeu_ps(r + j, _mm256_sub_ps(_mm256_loadu_ps(a + j), _mm256_loadu_ps(b + j)));
-        for (; j < cols; ++j)
+        }
+        for (; j < cols; ++j) {
             r[j] = a[j] - b[j];
+        }
     }
 
 #elif defined(ADAI_SIMD_NEON)
@@ -348,10 +351,12 @@ Matrix Matrix::scale(float scalar) const {
         const float* a = data[i].data();
         float* r = result.data[i].data();
         int j = 0;
-        for (; j <= cols - 8; j += 8)
+        for (; j <= cols - 8; j += 8) {
             _mm256_storeu_ps(r + j, _mm256_mul_ps(vs, _mm256_loadu_ps(a + j)));
-        for (; j < cols; ++j)
+        }
+        for (; j < cols; ++j) {
             r[j] = a[j] * scalar;
+        }
     }
 
 #elif defined(ADAI_SIMD_NEON)
@@ -404,10 +409,12 @@ Matrix Matrix::hadamard(const Matrix& other) const {
         const float* b = other.data[i].data();
         float* r = result.data[i].data();
         int j = 0;
-        for (; j <= cols - 8; j += 8)
+        for (; j <= cols - 8; j += 8) {
             _mm256_storeu_ps(r + j, _mm256_mul_ps(_mm256_loadu_ps(a + j), _mm256_loadu_ps(b + j)));
-        for (; j < cols; ++j)
+        }
+        for (; j < cols; ++j) {
             r[j] = a[j] * b[j];
+        }
     }
 
 #elif defined(ADAI_SIMD_NEON)
@@ -475,8 +482,9 @@ void Matrix::apply_gradients(const Matrix& gradients, float learning_rate) {
             _mm256_storeu_ps(d + j, vd);
         }
 #endif
-        for (; j < cols; ++j)
+        for (; j < cols; ++j) {
             d[j] -= learning_rate * g[j];
+        }
     }
 
 #elif defined(ADAI_SIMD_NEON)
@@ -542,10 +550,12 @@ float Matrix::sum() const {
     for (int i = 0; i < rows; ++i) {
         const float* row = data[i].data();
         int j = 0;
-        for (; j <= cols - 8; j += 8)
+        for (; j <= cols - 8; j += 8) {
             acc = _mm256_add_ps(acc, _mm256_loadu_ps(row + j));
-        for (; j < cols; ++j)
+        }
+        for (; j < cols; ++j) {
             total += row[j];
+        }
     }
     total += adai::simd::hsum256(acc);
 
@@ -581,9 +591,10 @@ float Matrix::sum() const {
 
 // Mean of all elements
 float Matrix::mean() const {
-    if (rows == 0 || cols == 0)
+    if (rows == 0 || cols == 0) {
         return 0.0f;
-    return sum() / (rows * cols);
+    }
+    return sum() / static_cast<float>(rows * cols);
 }
 
 // Print matrix
@@ -599,8 +610,9 @@ void Matrix::print(const std::string& name, int max_rows, int max_cols) const {
         std::cout << "[";
         for (int j = 0; j < print_cols; j++) {
             std::cout << std::setw(8) << std::fixed << std::setprecision(4) << data[i][j];
-            if (j < print_cols - 1)
+            if (j < print_cols - 1) {
                 std::cout << " ";
+            }
         }
         if (cols > max_cols) {
             std::cout << " ...";
@@ -615,10 +627,12 @@ void Matrix::print(const std::string& name, int max_rows, int max_cols) const {
 
 // Check if matrix is valid
 bool Matrix::is_valid() const {
-    if (rows <= 0 || cols <= 0)
+    if (rows <= 0 || cols <= 0) {
         return false;
-    if (data.size() != rows)
+    }
+    if (data.size() != rows) {
         return false;
+    }
     for (const auto& row : data) {
         if (row.size() != cols)
             return false;

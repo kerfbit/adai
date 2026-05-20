@@ -65,13 +65,14 @@ class FeedForward {
     Matrix cached_hidden_activated;  // Hidden layer after GELU
 
     // Optimizer support
-    Optimizer* optimizer;  // Optional optimizer (nullptr = simple gradient descent)
+    Optimizer* optimizer{nullptr};  // Optional optimizer (nullptr = simple gradient descent)
 
     // Activation hook (optional, fired after GELU in forward())
     ActivationHookFn activation_hook_;
 
    public:
-    float learning_rate;  // Learning rate for weight updates (used when optimizer is nullptr)
+    float learning_rate{
+        0.001f};  // Learning rate for weight updates (used when optimizer is nullptr)
 
     /**
      * Constructor

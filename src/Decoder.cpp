@@ -10,9 +10,7 @@ LLMDecoder::LLMDecoder(int vocab_size, int d_model, int num_layers, int num_head
       num_layers(num_layers),
       num_heads(num_heads),
       d_ff(d_ff),
-      max_seq_length(max_seq_length),
-      requires_grad(true),
-      learning_rate(0.001) {
+      max_seq_length(max_seq_length) {
     // Initialize token embedding
     token_embedding = std::make_unique<TokenEmbedding>(vocab_size, d_model);
 
@@ -34,7 +32,7 @@ LLMDecoder::~LLMDecoder() {
 }
 
 // Create causal mask
-Matrix LLMDecoder::create_causal_mask(int seq_length) const {
+Matrix LLMDecoder::create_causal_mask(int seq_length) {
     Matrix mask(seq_length, seq_length);
 
     // Fill with 1s on and below diagonal, 0s above diagonal
@@ -55,7 +53,7 @@ Matrix LLMDecoder::forward(const std::vector<int>& token_ids) {
 // Forward pass with encoder outputs
 Matrix LLMDecoder::forward_with_encoder(const std::vector<int>& token_ids,
                                         const Matrix& encoder_output) {
-    int seq_length = token_ids.size();
+    int seq_length = static_cast<int>(token_ids.size());
 
     // Cache inputs for backward pass
     cached_token_ids = token_ids;
@@ -95,7 +93,7 @@ Matrix LLMDecoder::forward_with_encoder(const std::vector<int>& token_ids,
 // Forward pass with custom mask
 Matrix LLMDecoder::forward_with_mask(const std::vector<int>& token_ids, const Matrix& causal_mask,
                                      const Matrix* encoder_output) {
-    int seq_length = token_ids.size();
+    int seq_length = static_cast<int>(token_ids.size());
 
     // Cache inputs for backward pass
     cached_token_ids = token_ids;
@@ -133,7 +131,7 @@ Matrix LLMDecoder::forward_with_mask(const std::vector<int>& token_ids, const Ma
 
 Matrix LLMDecoder::forward_with_cache(const std::vector<int>& token_ids, DecoderKVCache& kv_cache,
                                       const Matrix* encoder_output, bool use_cache) {
-    int num_new_tokens = token_ids.size();
+    int num_new_tokens = static_cast<int>(token_ids.size());
     int current_position = kv_cache.current_length();
     int total_seq_len = current_position + num_new_tokens;
 
@@ -157,11 +155,16 @@ Matrix LLMDecoder::forward_with_cache(const std::vector<int>& token_ids, Decoder
         for (int i = 0; i < d_model; ++i) {
             if (i % 2 == 0) {
                 // Even dimensions: sin(pos / 10000^(2i/d_model))
-                float angle = absolute_pos / std::pow(10000.0f, (2.0f * (i / 2)) / d_model);
+                float angle =
+                    static_cast<float>(absolute_pos) /
+                    std::pow(10000.0f, (2.0f * static_cast<float>(static_cast<float>(i) / 2)) /
+                                           static_cast<float>(d_model));
                 pos_encoded(pos, i) = embeddings(pos, i) + std::sin(angle);
             } else {
                 // Odd dimensions: cos(pos / 10000^(2i/d_model))
-                float angle = absolute_pos / std::pow(10000.0f, (2.0f * ((i - 1) / 2)) / d_model);
+                float angle =
+                    static_cast<float>(absolute_pos) /
+                    std::pow(10000.0f, static_cast<float>(i - 1) / static_cast<float>(d_model));
                 pos_encoded(pos, i) = embeddings(pos, i) + std::cos(angle);
             }
         }
@@ -230,7 +233,7 @@ void LLMDecoder::backward(const Matrix& grad_output) {
 }
 
 // Update weights
-void LLMDecoder::update_weights(float lr) {
+void LLMDecoder::update_weights(float learning_rate) {
     if (!requires_grad) {
         return;
     }
@@ -303,8 +306,8 @@ void LLMDecoder::load_weights(const std::string& filepath) {
     }
 
     // Read and verify header
-    int loaded_vocab_size, loaded_d_model, loaded_num_layers;
-    int loaded_num_heads, loaded_d_ff, loaded_max_seq_length;
+    int loaded_vocab_size = 0, loaded_d_model = 0, loaded_num_layers = 0;
+    int loaded_num_heads = 0, loaded_d_ff = 0, loaded_max_seq_length = 0;
 
     file.read(reinterpret_cast<char*>(&loaded_vocab_size), sizeof(int));
     file.read(reinterpret_cast<char*>(&loaded_d_model), sizeof(int));

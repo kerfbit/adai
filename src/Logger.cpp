@@ -79,8 +79,8 @@ void Logger::init(Level level, const FileConfig& file_config, const std::string&
             }
         } catch (const spdlog::spdlog_ex& ex) {
             // If file sink creation fails, fall back to console only
-            std::cerr << "Failed to create rotating file sink: " << ex.what() << std::endl;
-            std::cerr << "Falling back to console-only logging" << std::endl;
+            std::cerr << "Failed to create rotating file sink: " << ex.what() << '\n';
+            std::cerr << "Falling back to console-only logging" << '\n';
         }
     }
 

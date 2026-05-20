@@ -1,15 +1,12 @@
 #include "EncoderBlock.hpp"
+
 #include <cmath>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
 
 EncoderBlock::EncoderBlock(int d_model, int num_heads, int d_ff, float dropout)
-    : d_model(d_model),
-      num_heads(num_heads),
-      d_ff(d_ff),
-      dropout_rate(dropout),
-      learning_rate(0.001f) {
+    : d_model(d_model), num_heads(num_heads), d_ff(d_ff), dropout_rate(dropout) {
     // Initialize multi-head attention
     attention = std::make_unique<MultiHeadAttention>(d_model, num_heads);
 
@@ -215,7 +212,7 @@ void EncoderBlock::save_weights(const std::string& filename) const {
     attention->save_weights(base + "_attention.bin");
     feed_forward->save_weights(base + "_feedforward.bin");
 
-    std::cout << "Saved EncoderBlock weights to " << filename << std::endl;
+    std::cout << "Saved EncoderBlock weights to " << filename << '\n';
 }
 
 void EncoderBlock::load_weights(const std::string& filename) {
@@ -225,8 +222,8 @@ void EncoderBlock::load_weights(const std::string& filename) {
     }
 
     // Read and validate dimensions
-    int saved_d_model, saved_num_heads, saved_d_ff;
-    float saved_dropout_rate;
+    int saved_d_model = 0, saved_num_heads = 0, saved_d_ff = 0;
+    float saved_dropout_rate = NAN;
 
     file.read(reinterpret_cast<char*>(&saved_d_model), sizeof(int));
     file.read(reinterpret_cast<char*>(&saved_num_heads), sizeof(int));
@@ -271,16 +268,16 @@ void EncoderBlock::load_weights(const std::string& filename) {
     attention->load_weights(base + "_attention.bin");
     feed_forward->load_weights(base + "_feedforward.bin");
 
-    std::cout << "Loaded EncoderBlock weights from " << filename << std::endl;
+    std::cout << "Loaded EncoderBlock weights from " << filename << '\n';
 }
 
 void EncoderBlock::print_config(const std::string& name) const {
-    std::cout << "\n" << name << " Configuration:" << std::endl;
-    std::cout << "  Model Dimension (d_model): " << d_model << std::endl;
-    std::cout << "  Number of Heads: " << num_heads << std::endl;
-    std::cout << "  Feed-Forward Dimension (d_ff): " << d_ff << std::endl;
-    std::cout << "  Dropout Rate: " << dropout_rate << std::endl;
-    std::cout << "  Learning Rate: " << learning_rate << std::endl;
+    std::cout << "\n" << name << " Configuration:" << '\n';
+    std::cout << "  Model Dimension (d_model): " << d_model << '\n';
+    std::cout << "  Number of Heads: " << num_heads << '\n';
+    std::cout << "  Feed-Forward Dimension (d_ff): " << d_ff << '\n';
+    std::cout << "  Dropout Rate: " << dropout_rate << '\n';
+    std::cout << "  Learning Rate: " << learning_rate << '\n';
 
     // Calculate parameter count
     int attn_params = d_model * d_model * 4;              // Q, K, V, output projection
@@ -288,10 +285,10 @@ void EncoderBlock::print_config(const std::string& name) const {
     int norm_params = 4 * d_model;                        // gamma and beta for both layer norms
     int total_params = attn_params + ff_params + norm_params;
 
-    std::cout << "  Total Parameters: " << total_params << std::endl;
-    std::cout << "    - Attention: " << attn_params << std::endl;
-    std::cout << "    - Feed-Forward: " << ff_params << std::endl;
-    std::cout << "    - Layer Norm: " << norm_params << std::endl;
+    std::cout << "  Total Parameters: " << total_params << '\n';
+    std::cout << "    - Attention: " << attn_params << '\n';
+    std::cout << "    - Feed-Forward: " << ff_params << '\n';
+    std::cout << "    - Layer Norm: " << norm_params << '\n';
 }
 
 void EncoderBlock::register_parameters_with_optimizer(Optimizer& optimizer) {

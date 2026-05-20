@@ -15,9 +15,7 @@ EncoderDecoderModel::EncoderDecoderModel(int vocab_size, int d_model, int encode
       decoder_layers(decoder_layers),
       num_heads(num_heads),
       d_ff(d_ff),
-      max_seq_length(max_seq_length),
-      requires_grad(true),
-      learning_rate(0.001) {
+      max_seq_length(max_seq_length) {
     // Initialize tokenizer (will be set externally or use default)
     tokenizer = std::make_unique<BPETokenizer>();
 
@@ -83,7 +81,7 @@ float EncoderDecoderModel::compute_loss(const Matrix& logits,
         }
     }
 
-    return total_loss / seq_length;
+    return total_loss / static_cast<float>(seq_length);
 }
 
 // Compute loss gradient
@@ -121,7 +119,7 @@ Matrix EncoderDecoderModel::compute_loss_gradient(const Matrix& logits,
 
         // Scale by sequence length
         for (int v = 0; v < vocab_size; ++v) {
-            grad.data[t][v] /= seq_length;
+            grad.data[t][v] /= static_cast<float>(seq_length);
         }
     }
 
@@ -132,7 +130,7 @@ Matrix EncoderDecoderModel::compute_loss_gradient(const Matrix& logits,
 std::string EncoderDecoderModel::generate_response(const std::string& input_text, int max_length) {
     // Encode input (no special tokens for encoder input)
     std::vector<int> input_tokens = tokenizer->encode(input_text, false);
-    int input_len = input_tokens.size();
+    int input_len = static_cast<int>(input_tokens.size());
     Matrix encoder_mask(input_len, input_len);
     for (int i = 0; i < input_len; ++i) {
         for (int j = 0; j < input_len; ++j) {
@@ -150,7 +148,8 @@ std::string EncoderDecoderModel::generate_response(const std::string& input_text
         size_t current_length = tokens.size();
 
         // Determine which tokens are new (not yet processed)
-        std::vector<int> new_tokens(tokens.begin() + processed_length, tokens.end());
+        std::vector<int> new_tokens(tokens.begin() + static_cast<std::ptrdiff_t>(processed_length),
+                                    tokens.end());
 
         // Process only new tokens with cache
         Matrix decoder_out =
@@ -195,7 +194,7 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
 
     // Encode input (no special tokens for encoder input)
     std::vector<int> input_tokens = tokenizer->encode(input_text, false);
-    int input_len = input_tokens.size();
+    int input_len = static_cast<int>(input_tokens.size());
     Matrix encoder_mask(input_len, input_len);
     for (int i = 0; i < input_len; ++i) {
         for (int j = 0; j < input_len; ++j) {
@@ -217,7 +216,7 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
         generator->set_config(config);
 
         // Get actual tokenizer vocab size to mask invalid tokens
-        int actual_vocab_size = tokenizer->get_vocab_size();
+        int actual_vocab_size = static_cast<int>(tokenizer->get_vocab_size());
 
         // Create model function WITHOUT KV caching for beam search
         // Each beam has independent token sequences, so we can't share a cache
@@ -253,7 +252,7 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
     size_t processed_length = 0;
 
     // Get actual tokenizer vocab size to mask invalid tokens
-    int actual_vocab_size = tokenizer->get_vocab_size();
+    int actual_vocab_size = static_cast<int>(tokenizer->get_vocab_size());
 
     // Create model forward function with KV caching
     auto model_fn = [this, &kv_cache, &processed_length,
@@ -261,7 +260,8 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
         size_t current_length = tokens.size();
 
         // Determine which tokens are new (not yet processed)
-        std::vector<int> new_tokens(tokens.begin() + processed_length, tokens.end());
+        std::vector<int> new_tokens(tokens.begin() + static_cast<std::ptrdiff_t>(processed_length),
+                                    tokens.end());
 
         // Process only new tokens with cache
         Matrix decoder_out =
@@ -291,7 +291,7 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
     if (normalized_strategy == "greedy") {
         // WORKAROUND: Use non-cached path for greedy due to KV cache bug
         // TODO: Fix KV cache to properly handle autoregressive generation
-        int actual_vocab_size = tokenizer->get_vocab_size();
+        int actual_vocab_size = static_cast<int>(tokenizer->get_vocab_size());
         auto greedy_model_fn = [this, actual_vocab_size](const std::vector<int>& tokens) -> Matrix {
             Matrix decoder_out = decoder->forward_with_encoder(tokens, cached_encoder_output);
             Matrix logits = lm_head->forward(decoder_out);
@@ -383,7 +383,7 @@ float EncoderDecoderModel::compute_perplexity(const std::vector<std::string>& in
     }
 
     float total_loss = 0.0f;
-    int num_samples = input_texts.size();
+    int num_samples = static_cast<int>(input_texts.size());
 
     bool prev_mode = requires_grad;
     set_training(false);
@@ -394,7 +394,7 @@ float EncoderDecoderModel::compute_perplexity(const std::vector<std::string>& in
 
     set_training(prev_mode);
 
-    float avg_loss = total_loss / num_samples;
+    float avg_loss = total_loss / static_cast<float>(num_samples);
     return std::exp(avg_loss);  // Perplexity = exp(cross_entropy)
 }
 
@@ -453,8 +453,9 @@ void EncoderDecoderModel::set_tokenizer(BPETokenizer* tokenizer_ptr) {
 
 // Sync special token IDs from tokenizer
 void EncoderDecoderModel::sync_special_tokens() {
-    if (!tokenizer)
+    if (!tokenizer) {
         return;
+    }
 
     TextGenerator::GenerationConfig config = generator->get_config();
     config.bos_token_id = tokenizer->get_bos_token_id();
@@ -516,9 +517,10 @@ void EncoderDecoderModel::load_model(const std::string& filepath) {
         throw std::runtime_error("Failed to load model config");
     }
 
-    int loaded_vocab_size, loaded_d_model, loaded_encoder_layers, loaded_decoder_layers;
-    int loaded_num_heads, loaded_d_ff, loaded_max_seq_length;
-    int loaded_bos, loaded_eos, loaded_pad;
+    int loaded_vocab_size = 0, loaded_d_model = 0, loaded_encoder_layers = 0,
+        loaded_decoder_layers = 0;
+    int loaded_num_heads = 0, loaded_d_ff = 0, loaded_max_seq_length = 0;
+    int loaded_bos = 0, loaded_eos = 0, loaded_pad = 0;
 
     config_file.read(reinterpret_cast<char*>(&loaded_vocab_size), sizeof(int));
     config_file.read(reinterpret_cast<char*>(&loaded_d_model), sizeof(int));
@@ -574,7 +576,7 @@ Matrix EncoderDecoderModel::forward(const std::vector<int>& input_tokens,
     cached_target_tokens = target_tokens;
 
     // Encode input
-    int input_len = input_tokens.size();
+    int input_len = static_cast<int>(input_tokens.size());
     Matrix encoder_mask(input_len, input_len);
     for (int i = 0; i < input_len; ++i) {
         for (int j = 0; j < input_len; ++j) {

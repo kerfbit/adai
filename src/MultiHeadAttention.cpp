@@ -9,6 +9,7 @@
 
 #ifdef _OPENMP
 #include <omp.h>
+#include <cmath>
 #endif
 
 MultiHeadAttention::MultiHeadAttention(int d_model, int num_heads)
@@ -22,9 +23,7 @@ MultiHeadAttention::MultiHeadAttention(int d_model, int num_heads)
       W_q_grad(d_model, d_model),
       W_k_grad(d_model, d_model),
       W_v_grad(d_model, d_model),
-      W_o_grad(d_model, d_model),
-      optimizer(nullptr),
-      learning_rate(0.001f) {
+      W_o_grad(d_model, d_model) {
     // Validate that d_model is divisible by num_heads
     if (d_model % num_heads != 0) {
         throw std::invalid_argument("d_model (" + std::to_string(d_model) +
@@ -34,7 +33,7 @@ MultiHeadAttention::MultiHeadAttention(int d_model, int num_heads)
 
     // Xavier/He initialization for weight matrices
     // Scale factor based on the input dimension
-    float scale = std::sqrt(2.0f / d_model);
+    float scale = std::sqrt(2.0f / static_cast<float>(d_model));
 
     W_q.randomize(scale);
     W_k.randomize(scale);
@@ -510,8 +509,9 @@ void MultiHeadAttention::set_optimizer(Optimizer* opt) {
 }
 
 void MultiHeadAttention::register_parameters() {
-    if (!optimizer)
+    if (!optimizer) {
         return;
+    }
 
     // Register all weight matrices with the optimizer
     optimizer->add_parameter_group(&W_q, &W_q_grad);
@@ -548,14 +548,17 @@ void MultiHeadAttention::zero_grad() {
 }
 
 void MultiHeadAttention::print_config(const std::string& name) const {
-    std::cout << name << " Configuration:" << std::endl;
-    std::cout << "  Model Dimension (d_model): " << d_model << std::endl;
-    std::cout << "  Number of Heads: " << num_heads << std::endl;
-    std::cout << "  Dimension per Head (d_k): " << d_k << std::endl;
-    std::cout << "  Total Parameters: " << (4 * d_model * d_model) << std::endl;
+    std::cout << name << " Configuration:" << '\n';
+    std::cout << "  Model Dimension (d_model): " << d_model << '\n';
+    std::cout << "  Number of Heads: " << num_heads << '\n';
+    std::cout << "  Dimension per Head (d_k): " << d_k << '\n';
+    std::cout << "  Total Parameters: " << (4 * d_model * d_model) << '\n';
     std::cout << "  Memory Usage: " << std::fixed << std::setprecision(2)
-              << (4 * d_model * d_model * sizeof(float)) / 1024.0f / 1024.0f << " MB" << std::endl;
-    std::cout << "  Learning Rate: " << learning_rate << std::endl;
+              << (static_cast<float>(4) * static_cast<float>(d_model) *
+                  static_cast<float>(d_model) * sizeof(float)) /
+                     1024.0f / 1024.0f
+              << " MB" << '\n';
+    std::cout << "  Learning Rate: " << learning_rate << '\n';
 }
 
 void MultiHeadAttention::save_weights(const std::string& filename) const {
@@ -595,7 +598,7 @@ void MultiHeadAttention::save_weights(const std::string& filename) const {
 
     file.close();
 
-    std::cout << "Saved MultiHeadAttention weights to " << filename << std::endl;
+    std::cout << "Saved MultiHeadAttention weights to " << filename << '\n';
 }
 
 void MultiHeadAttention::load_weights(const std::string& filename) {
@@ -605,7 +608,7 @@ void MultiHeadAttention::load_weights(const std::string& filename) {
     }
 
     // Read dimensions
-    int saved_d_model, saved_num_heads;
+    int saved_d_model = 0, saved_num_heads = 0;
     file.read(reinterpret_cast<char*>(&saved_d_model), sizeof(int));
     file.read(reinterpret_cast<char*>(&saved_num_heads), sizeof(int));
 
@@ -644,7 +647,7 @@ void MultiHeadAttention::load_weights(const std::string& filename) {
 
     file.close();
 
-    std::cout << "Loaded MultiHeadAttention weights from " << filename << std::endl;
+    std::cout << "Loaded MultiHeadAttention weights from " << filename << '\n';
 }
 
 float MultiHeadAttention::get_gradient_norm() const {
@@ -652,7 +655,7 @@ float MultiHeadAttention::get_gradient_norm() const {
 
     for (int i = 0; i < d_model; ++i) {
         for (int j = 0; j < d_model; ++j) {
-            float grad;
+            float grad = NAN;
 
             grad = W_q_grad(i, j);
             sum_squares += grad * grad;

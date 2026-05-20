@@ -1,4 +1,5 @@
 #include "CrossAttention.hpp"
+
 #include <cmath>
 #include <fstream>
 #include <iomanip>
@@ -17,9 +18,7 @@ CrossAttention::CrossAttention(int d_model, int num_heads)
       W_q_grad(d_model, d_model),
       W_k_grad(d_model, d_model),
       W_v_grad(d_model, d_model),
-      W_o_grad(d_model, d_model),
-      optimizer(nullptr),
-      learning_rate(0.001f) {
+      W_o_grad(d_model, d_model) {
     // Validate that d_model is divisible by num_heads
     if (d_model % num_heads != 0) {
         throw std::invalid_argument("d_model (" + std::to_string(d_model) +
@@ -29,7 +28,7 @@ CrossAttention::CrossAttention(int d_model, int num_heads)
 
     // Xavier/He initialization for weight matrices
     // Scale factor based on the input dimension
-    float scale = std::sqrt(2.0f / d_model);
+    float scale = std::sqrt(2.0f / static_cast<float>(d_model));
 
     W_q.randomize(scale);
     W_k.randomize(scale);
@@ -276,8 +275,9 @@ void CrossAttention::set_optimizer(Optimizer* opt) {
 }
 
 void CrossAttention::register_parameters() {
-    if (!optimizer)
+    if (!optimizer) {
         return;
+    }
 
     // Register all four weight matrices with optimizer
     optimizer->add_parameter_group(&W_q, &W_q_grad);
@@ -368,7 +368,7 @@ void CrossAttention::load(const std::string& filepath) {
     }
 
     // Load hyperparameters
-    int loaded_d_model, loaded_num_heads;
+    int loaded_d_model = 0, loaded_num_heads = 0;
     file.read(reinterpret_cast<char*>(&loaded_d_model), sizeof(int));
     file.read(reinterpret_cast<char*>(&loaded_num_heads), sizeof(int));
     file.read(reinterpret_cast<char*>(&learning_rate), sizeof(float));
@@ -384,7 +384,7 @@ void CrossAttention::load(const std::string& filepath) {
     // Load weight matrices (manually read matrix data)
     for (int i = 0; i < d_model; ++i) {
         for (int j = 0; j < d_model; ++j) {
-            float val;
+            float val = NAN;
             file.read(reinterpret_cast<char*>(&val), sizeof(float));
             W_q(i, j) = val;
         }
@@ -392,7 +392,7 @@ void CrossAttention::load(const std::string& filepath) {
 
     for (int i = 0; i < d_model; ++i) {
         for (int j = 0; j < d_model; ++j) {
-            float val;
+            float val = NAN;
             file.read(reinterpret_cast<char*>(&val), sizeof(float));
             W_k(i, j) = val;
         }
@@ -400,7 +400,7 @@ void CrossAttention::load(const std::string& filepath) {
 
     for (int i = 0; i < d_model; ++i) {
         for (int j = 0; j < d_model; ++j) {
-            float val;
+            float val = NAN;
             file.read(reinterpret_cast<char*>(&val), sizeof(float));
             W_v(i, j) = val;
         }
@@ -408,7 +408,7 @@ void CrossAttention::load(const std::string& filepath) {
 
     for (int i = 0; i < d_model; ++i) {
         for (int j = 0; j < d_model; ++j) {
-            float val;
+            float val = NAN;
             file.read(reinterpret_cast<char*>(&val), sizeof(float));
             W_o(i, j) = val;
         }

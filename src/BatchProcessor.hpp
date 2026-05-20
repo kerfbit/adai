@@ -43,18 +43,18 @@ struct TokenBatch {
     /**
      * Maximum sequence length in batch (after padding)
      */
-    int max_length;
+    int max_length = 0;
 
     /**
      * Padding token ID
      */
-    int pad_token_id;
+    int pad_token_id = 0;
 
     /**
      * Number of sequences in batch
      */
     int batch_size() const {
-        return batch_token_ids.size();
+        return static_cast<int>(batch_token_ids.size());
     }
 
     /**
@@ -88,7 +88,7 @@ inline TokenBatch create_batch(const std::vector<std::vector<int>>& sequences,
     batch.max_length = 0;
     for (const auto& seq : sequences) {
         if (seq.size() > static_cast<size_t>(batch.max_length)) {
-            batch.max_length = seq.size();
+            batch.max_length = static_cast<int>(seq.size());
         }
     }
 
@@ -98,7 +98,7 @@ inline TokenBatch create_batch(const std::vector<std::vector<int>>& sequences,
 
     for (const auto& seq : sequences) {
         std::vector<int> padded_seq = seq;
-        int original_length = seq.size();
+        int original_length = static_cast<int>(seq.size());
 
         // Pad to max_length
         while (padded_seq.size() < static_cast<size_t>(batch.max_length)) {
@@ -136,7 +136,7 @@ inline std::vector<TokenBatch> create_dynamic_batches(
     // Create pairs of (length, index) for sorting
     std::vector<std::pair<int, int>> length_index_pairs;
     for (size_t i = 0; i < sequences.size(); ++i) {
-        length_index_pairs.push_back({sequences[i].size(), i});
+        length_index_pairs.emplace_back(sequences[i].size(), i);
     }
 
     // Sort by length
@@ -150,15 +150,9 @@ inline std::vector<TokenBatch> create_dynamic_batches(
         int length = pair.first;
         int index = pair.second;
 
-        // Check if we should start a new batch
-        bool start_new_batch = false;
-
-        if (current_batch.size() >= static_cast<size_t>(max_batch_size)) {
-            start_new_batch = true;  // Batch size limit reached
-        } else if (!current_batch.empty() &&
-                   (length - current_batch_min_length) > length_tolerance) {
-            start_new_batch = true;  // Length difference too large
-        }
+        bool start_new_batch =
+            (current_batch.size() >= static_cast<size_t>(max_batch_size)) ||
+            (!current_batch.empty() && (length - current_batch_min_length) > length_tolerance);
 
         if (start_new_batch && !current_batch.empty()) {
             // Create batch from current_batch
@@ -244,20 +238,20 @@ inline std::vector<Matrix> unbatch_outputs(const std::vector<Matrix>& batch_outp
  * Statistics about batch efficiency
  */
 struct BatchStats {
-    int total_tokens;      // Total tokens including padding
-    int actual_tokens;     // Actual tokens (excluding padding)
-    float padding_ratio;   // Ratio of padding tokens to total
-    int num_batches;       // Number of batches created
-    float avg_batch_size;  // Average batch size
+    int total_tokens = 0;         // Total tokens including padding
+    int actual_tokens = 0;        // Actual tokens (excluding padding)
+    float padding_ratio = 0.0f;   // Ratio of padding tokens to total
+    int num_batches = 0;          // Number of batches created
+    float avg_batch_size = 0.0f;  // Average batch size
 
     void print() const {
-        std::cout << "Batch Statistics:" << std::endl;
-        std::cout << "  Total tokens (with padding): " << total_tokens << std::endl;
-        std::cout << "  Actual tokens: " << actual_tokens << std::endl;
-        std::cout << "  Padding ratio: " << (padding_ratio * 100.0f) << "%" << std::endl;
-        std::cout << "  Number of batches: " << num_batches << std::endl;
-        std::cout << "  Average batch size: " << avg_batch_size << std::endl;
-        std::cout << "  Efficiency: " << ((1.0f - padding_ratio) * 100.0f) << "%" << std::endl;
+        std::cout << "Batch Statistics:" << '\n';
+        std::cout << "  Total tokens (with padding): " << total_tokens << '\n';
+        std::cout << "  Actual tokens: " << actual_tokens << '\n';
+        std::cout << "  Padding ratio: " << (padding_ratio * 100.0f) << "%" << '\n';
+        std::cout << "  Number of batches: " << num_batches << '\n';
+        std::cout << "  Average batch size: " << avg_batch_size << '\n';
+        std::cout << "  Efficiency: " << ((1.0f - padding_ratio) * 100.0f) << "%" << '\n';
     }
 };
 
@@ -269,7 +263,7 @@ struct BatchStats {
  */
 inline BatchStats compute_batch_stats(const std::vector<TokenBatch>& batches) {
     BatchStats stats;
-    stats.num_batches = batches.size();
+    stats.num_batches = static_cast<int>(batches.size());
     stats.total_tokens = 0;
     stats.actual_tokens = 0;
     int total_sequences = 0;
@@ -286,13 +280,14 @@ inline BatchStats compute_batch_stats(const std::vector<TokenBatch>& batches) {
         total_sequences += batch.batch_size();
     }
 
-    stats.padding_ratio =
-        (stats.total_tokens > 0)
-            ? static_cast<float>(stats.total_tokens - stats.actual_tokens) / stats.total_tokens
-            : 0.0f;
+    stats.padding_ratio = (stats.total_tokens > 0)
+                              ? static_cast<float>(stats.total_tokens - stats.actual_tokens) /
+                                    static_cast<float>(stats.total_tokens)
+                              : 0.0f;
 
-    stats.avg_batch_size =
-        (stats.num_batches > 0) ? static_cast<float>(total_sequences) / stats.num_batches : 0.0f;
+    stats.avg_batch_size = (stats.num_batches > 0) ? static_cast<float>(total_sequences) /
+                                                         static_cast<float>(stats.num_batches)
+                                                   : 0.0f;
 
     return stats;
 }

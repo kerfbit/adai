@@ -80,8 +80,9 @@ int main(int argc, char** argv) {
         if (arg == "--help" || arg == "-h") {
             print_usage(argv[0]);
             return 0;
-        } else if (arg == "--input" && i + 1 < argc) {
-            input_files.push_back(argv[++i]);
+        }
+        if (arg == "--input" && i + 1 < argc) {
+            input_files.emplace_back(argv[++i]);
         } else if (arg == "--output" && i + 1 < argc) {
             output_file = argv[++i];
         } else if (arg == "--vocab-size" && i + 1 < argc) {
@@ -205,8 +206,9 @@ int main(int argc, char** argv) {
         for (size_t i = 0; i < std::min(encoded.size(), size_t(10)); i++) {
             std::cout << encoded[i] << " ";
         }
-        if (encoded.size() > 10)
+        if (encoded.size() > 10) {
             std::cout << "...";
+        }
         std::cout << "\n";
 
         auto decoded = tokenizer.decode(encoded);

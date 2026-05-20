@@ -43,12 +43,12 @@ struct KVCache {
     /**
      * Current sequence length in cache
      */
-    int current_length;
+    int current_length{0};
 
     /**
      * Constructor
      */
-    KVCache() : current_length(0) {}
+    KVCache() = default;
 
     /**
      * Check if cache is empty

@@ -60,6 +60,10 @@ class TrainingMetricsAPI {
      * @brief Destructor - ensures server is stopped
      */
     ~TrainingMetricsAPI();
+    TrainingMetricsAPI(const TrainingMetricsAPI&) = delete;
+    TrainingMetricsAPI& operator=(const TrainingMetricsAPI&) = delete;
+    TrainingMetricsAPI(TrainingMetricsAPI&&) = delete;
+    TrainingMetricsAPI& operator=(TrainingMetricsAPI&&) = delete;
 
     /**
      * @brief Start the HTTP server (blocking)
@@ -116,10 +120,10 @@ class TrainingMetricsAPI {
     std::string handle_post_generation_quality_metrics(const std::string& body);  // TD-016
 
     // Helper functions
-    std::string create_error_response(const std::string& error_message) const;
-    std::string escape_json(const std::string& s) const;
-    int parse_query_param_int(const std::string& query, const std::string& param,
-                              int default_value) const;
+    static std::string create_error_response(const std::string& error_message);
+    static std::string escape_json(const std::string& s);
+    static int parse_query_param_int(const std::string& query, const std::string& param,
+                                     int default_value);
 
     // Members
     std::shared_ptr<TrainingMetricsService> metrics_service_;

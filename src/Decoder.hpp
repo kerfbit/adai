@@ -57,8 +57,8 @@ class LLMDecoder {
     int max_seq_length;
 
     // Training state
-    bool requires_grad;
-    float learning_rate;
+    bool requires_grad{true};
+    float learning_rate{0.001};
 
     // Cached values for backward pass
     std::vector<int> cached_token_ids;
@@ -74,7 +74,7 @@ class LLMDecoder {
      * @param seq_length Length of the sequence
      * @return Matrix [seq_length, seq_length] with 1s on/below diagonal, 0s above
      */
-    Matrix create_causal_mask(int seq_length) const;
+    static Matrix create_causal_mask(int seq_length);
 
    public:
     /**
@@ -94,6 +94,10 @@ class LLMDecoder {
      * Destructor
      */
     ~LLMDecoder();
+    LLMDecoder(const LLMDecoder&) = delete;
+    LLMDecoder& operator=(const LLMDecoder&) = delete;
+    LLMDecoder(LLMDecoder&&) = delete;
+    LLMDecoder& operator=(LLMDecoder&&) = delete;
 
     /**
      * Forward pass through decoder (decoder-only mode, no cross-attention)
@@ -261,7 +265,7 @@ class LLMDecoder {
      */
     Matrix get_last_output() const {
         if (cached_decoder_outputs.empty()) {
-            return Matrix(0, 0);
+            return {0, 0};
         }
         return cached_decoder_outputs.back();
     }

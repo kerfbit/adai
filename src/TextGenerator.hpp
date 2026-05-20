@@ -95,32 +95,33 @@ class TextGenerator {
      * Apply temperature scaling to logits
      * Higher temperature = more random, lower = more deterministic
      */
-    std::vector<float> apply_temperature(const std::vector<float>& logits, float temperature);
+    static std::vector<float> apply_temperature(const std::vector<float>& logits,
+                                                float temperature);
 
     /**
      * Apply top-k filtering
      * Zero out all logits except top k
      */
-    std::vector<float> apply_top_k(const std::vector<float>& logits, int k);
+    static std::vector<float> apply_top_k(const std::vector<float>& logits, int k);
 
     /**
      * Apply nucleus (top-p) sampling
      * Keep smallest set of tokens with cumulative probability >= p
      */
-    std::vector<float> apply_top_p(const std::vector<float>& logits, float p);
+    static std::vector<float> apply_top_p(const std::vector<float>& logits, float p);
 
     /**
      * Apply repetition penalty
      * Reduce probability of already-generated tokens
      */
-    std::vector<float> apply_repetition_penalty(const std::vector<float>& logits,
-                                                const std::vector<int>& generated_tokens,
-                                                float penalty);
+    static std::vector<float> apply_repetition_penalty(const std::vector<float>& logits,
+                                                       const std::vector<int>& generated_tokens,
+                                                       float penalty);
 
     /**
      * Convert logits to probability distribution (softmax)
      */
-    std::vector<float> softmax(const std::vector<float>& logits);
+    static std::vector<float> softmax(const std::vector<float>& logits);
 
     /**
      * Sample token from probability distribution
@@ -130,12 +131,12 @@ class TextGenerator {
     /**
      * Get argmax (highest probability token)
      */
-    int argmax(const std::vector<float>& values);
+    static int argmax(const std::vector<float>& values);
 
     /**
      * Compute length-normalized score for beam search
      */
-    float compute_length_penalty(int length, float alpha);
+    static float compute_length_penalty(int length, float alpha);
 
     /**
      * Check if token is a stopping token (<eos>, <pad>)
@@ -166,7 +167,7 @@ class TextGenerator {
      * @param prompt_tokens Initial token sequence (empty for unconditional)
      * @return Generated token sequence
      */
-    std::vector<int> generate_greedy(ModelForwardFn model_fn,
+    std::vector<int> generate_greedy(const ModelForwardFn& model_fn,
                                      const std::vector<int>& prompt_tokens = {});
 
     /**
@@ -180,7 +181,7 @@ class TextGenerator {
      * @param num_beams Number of beams to maintain
      * @return Best generated token sequence
      */
-    std::vector<int> generate_beam_search(ModelForwardFn model_fn,
+    std::vector<int> generate_beam_search(const ModelForwardFn& model_fn,
                                           const std::vector<int>& prompt_tokens = {},
                                           int num_beams = -1  // -1 = use config.num_beams
     );
@@ -198,7 +199,7 @@ class TextGenerator {
      * @param temperature Sampling temperature
      * @return Generated token sequence
      */
-    std::vector<int> generate_sampling(ModelForwardFn model_fn,
+    std::vector<int> generate_sampling(const ModelForwardFn& model_fn,
                                        const std::vector<int>& prompt_tokens = {},
                                        float temperature = -1.0f  // -1 = use config.temperature
     );
@@ -214,7 +215,7 @@ class TextGenerator {
      * @param k Number of top tokens to consider
      * @return Generated token sequence
      */
-    std::vector<int> generate_top_k(ModelForwardFn model_fn,
+    std::vector<int> generate_top_k(const ModelForwardFn& model_fn,
                                     const std::vector<int>& prompt_tokens = {},
                                     int k = -1  // -1 = use config.top_k
     );
@@ -231,7 +232,7 @@ class TextGenerator {
      * @param p Cumulative probability threshold (0.0-1.0)
      * @return Generated token sequence
      */
-    std::vector<int> generate_nucleus(ModelForwardFn model_fn,
+    std::vector<int> generate_nucleus(const ModelForwardFn& model_fn,
                                       const std::vector<int>& prompt_tokens = {},
                                       float p = -1.0f  // -1 = use config.top_p
     );
@@ -250,7 +251,8 @@ class TextGenerator {
      * @param prompt_tokens Initial token sequence
      * @return Generated token sequence
      */
-    std::vector<int> generate(ModelForwardFn model_fn, const std::vector<int>& prompt_tokens = {});
+    std::vector<int> generate(const ModelForwardFn& model_fn,
+                              const std::vector<int>& prompt_tokens = {});
 
     /**
      * Generate with string input/output using tokenizer
@@ -271,7 +273,7 @@ class TextGenerator {
      * @param prompts Vector of input prompts
      * @return Vector of generated texts
      */
-    std::vector<std::string> generate_batch(ModelForwardFn model_fn, BPETokenizer& tokenizer,
+    std::vector<std::string> generate_batch(const ModelForwardFn& model_fn, BPETokenizer& tokenizer,
                                             const std::vector<std::string>& prompts);
 
     /**

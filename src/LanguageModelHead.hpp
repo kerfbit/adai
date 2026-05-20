@@ -44,10 +44,10 @@ class LanguageModelHead {
     Matrix cached_input;
 
     // Optimizer integration (optional)
-    Optimizer* optimizer;  // Pointer to optimizer (nullptr = simple gradient descent)
+    Optimizer* optimizer{nullptr};  // Pointer to optimizer (nullptr = simple gradient descent)
 
    public:
-    float learning_rate;  // Used when optimizer is nullptr (backward compatibility)
+    float learning_rate{0.001f};  // Used when optimizer is nullptr (backward compatibility)
 
     /**
      * Constructor
@@ -79,7 +79,7 @@ class LanguageModelHead {
      * @param logits Output logits [vocab_size] (single position)
      * @return Probability distribution [vocab_size]
      */
-    std::vector<float> get_probabilities(const std::vector<float>& logits);
+    static std::vector<float> get_probabilities(const std::vector<float>& logits);
 
     /**
      * Backward pass: Compute gradients

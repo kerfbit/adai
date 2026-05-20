@@ -36,7 +36,8 @@ class LayerNorm {
     float eps;          // Small constant for numerical stability
 
     // Optimizer for weight updates
-    Optimizer* optimizer;  // Pointer to optimizer (nullptr means use simple gradient descent)
+    Optimizer* optimizer{
+        nullptr};  // Pointer to optimizer (nullptr means use simple gradient descent)
 
     // Cached values for backward pass
     Matrix cached_input;             // Original input

@@ -4,6 +4,7 @@
 #include <deque>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 /**
@@ -32,8 +33,8 @@ class ConversationContext {
         std::string content;  // The actual message text
         int token_count;      // Estimated token count for this message
 
-        Message(const std::string& r, const std::string& c, int tokens = 0)
-            : role(r), content(c), token_count(tokens) {}
+        Message(std::string r, std::string c, int tokens = 0)
+            : role(std::move(r)), content(std::move(c)), token_count(tokens) {}
     };
 
     /**
@@ -49,6 +50,10 @@ class ConversationContext {
      * @brief Destructor - cleans up system message
      */
     ~ConversationContext();
+    ConversationContext(const ConversationContext&) = default;
+    ConversationContext& operator=(const ConversationContext&) = default;
+    ConversationContext(ConversationContext&&) noexcept = default;
+    ConversationContext& operator=(ConversationContext&&) noexcept = default;
 
     /**
      * @brief Add a user message to the conversation
@@ -203,19 +208,19 @@ class ConversationContext {
                                           const std::string& summary_text = "") const;
 
    private:
-    std::deque<Message> messages;  // Conversation history (deque for efficient removal)
-    Message* system_message;       // Optional system message
-    int max_messages;              // Max number of messages to keep
-    int max_tokens;                // Max total tokens
-    bool keep_system_message;      // Whether to preserve system message
-    int total_tokens;              // Cached total token count
+    std::deque<Message> messages;      // Conversation history (deque for efficient removal)
+    Message* system_message{nullptr};  // Optional system message
+    int max_messages;                  // Max number of messages to keep
+    int max_tokens;                    // Max total tokens
+    bool keep_system_message;          // Whether to preserve system message
+    int total_tokens{0};               // Cached total token count
 
     /**
      * @brief Estimate token count for a message
      * @param content Message text
      * @return Estimated token count (rough approximation)
      */
-    int estimate_tokens(const std::string& content) const;
+    static int estimate_tokens(const std::string& content);
 
     /**
      * @brief Update total token count cache

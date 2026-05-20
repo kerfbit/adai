@@ -23,8 +23,7 @@ class ChatbotCLI {
      * @param conv_save_file Path for saving conversation history (default:
      * "conversation_history.txt")
      */
-    ChatbotCLI(const std::string& server_url,
-               const std::string& conv_save_file = "conversation_history.txt");
+    ChatbotCLI(std::string server_url, std::string conv_save_file = "conversation_history.txt");
 
     /**
      * @brief Destructor - automatically cleans up resources via smart pointers
@@ -53,12 +52,12 @@ class ChatbotCLI {
     /**
      * @brief Print welcome message and command help
      */
-    void print_welcome();
+    static void print_welcome();
 
     /**
      * @brief Print conversation statistics
      */
-    void print_stats();
+    static void print_stats();
 
     /**
      * @brief Print current generation settings
@@ -138,11 +137,11 @@ class ChatbotCLI {
     std::unique_ptr<httplib::Client> client;
 
     // Generation parameters
-    int max_response_length;
-    float temperature;
-    float top_p;
-    int top_k;
-    int beam_width;
+    int max_response_length{100};
+    float temperature{1.0f};
+    float top_p{0.9f};
+    int top_k{50};
+    int beam_width{5};
     std::string generation_strategy;
 };
 

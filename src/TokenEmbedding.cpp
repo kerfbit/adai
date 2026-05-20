@@ -9,12 +9,10 @@ TokenEmbedding::TokenEmbedding(int vocab_size, int d_model)
     : embedding_matrix(vocab_size, d_model),
       embedding_grad(vocab_size, d_model),
       vocab_size(vocab_size),
-      d_model(d_model),
-      optimizer(nullptr),
-      learning_rate(0.001f) {
+      d_model(d_model) {
     // Xavier/Glorot initialization
     // Scale by sqrt(1/d_model) for stable gradients
-    float scale = std::sqrt(1.0f / d_model);
+    float scale = std::sqrt(1.0f / static_cast<float>(d_model));
     embedding_matrix.randomize(scale);
 
     // Initialize gradients to zero
@@ -26,7 +24,7 @@ TokenEmbedding::TokenEmbedding(int vocab_size, int d_model)
 }
 
 Matrix TokenEmbedding::forward(const std::vector<int>& token_ids) {
-    int seq_len = token_ids.size();
+    int seq_len = static_cast<int>(token_ids.size());
     Matrix result(seq_len, d_model);
 
     // Cache token IDs for backward pass
@@ -73,7 +71,7 @@ void TokenEmbedding::backward(const std::vector<int>& token_ids, const Matrix& g
 
         // Accumulate gradient for this token's embedding
         for (int j = 0; j < d_model; ++j) {
-            embedding_grad(token_id, j) += grad_output(i, j);
+            embedding_grad(token_id, j) += grad_output(static_cast<int>(i), j);
         }
     }
 }
@@ -86,8 +84,9 @@ void TokenEmbedding::set_optimizer(Optimizer* opt) {
 }
 
 void TokenEmbedding::register_parameters() {
-    if (!optimizer)
+    if (!optimizer) {
         return;
+    }
 
     // Register embedding matrix with optimizer
     optimizer->add_parameter_group(&embedding_matrix, &embedding_grad);
@@ -151,7 +150,7 @@ void TokenEmbedding::load_pretrained(const std::string& filename) {
     }
 
     // Read dimensions
-    int saved_vocab_size, saved_d_model;
+    int saved_vocab_size = 0, saved_d_model = 0;
     file.read(reinterpret_cast<char*>(&saved_vocab_size), sizeof(int));
     file.read(reinterpret_cast<char*>(&saved_d_model), sizeof(int));
 
@@ -172,7 +171,7 @@ void TokenEmbedding::load_pretrained(const std::string& filename) {
 
     file.close();
 
-    std::cout << "Loaded pre-trained embeddings from " << filename << std::endl;
+    std::cout << "Loaded pre-trained embeddings from " << filename << '\n';
 }
 
 void TokenEmbedding::save_embeddings(const std::string& filename) const {
@@ -194,7 +193,7 @@ void TokenEmbedding::save_embeddings(const std::string& filename) const {
 
     file.close();
 
-    std::cout << "Saved embeddings to " << filename << std::endl;
+    std::cout << "Saved embeddings to " << filename << '\n';
 }
 
 void TokenEmbedding::initialize_constant(float value) {
@@ -207,19 +206,21 @@ void TokenEmbedding::initialize_constant(float value) {
 
 void TokenEmbedding::reinitialize() {
     // Xavier initialization
-    float scale = std::sqrt(1.0f / d_model);
+    float scale = std::sqrt(1.0f / static_cast<float>(d_model));
     embedding_matrix.randomize(scale);
     zero_grad();
 }
 
 void TokenEmbedding::print_config(const std::string& name) const {
-    std::cout << name << " Configuration:" << std::endl;
-    std::cout << "  Vocabulary Size: " << vocab_size << std::endl;
-    std::cout << "  Embedding Dimension: " << d_model << std::endl;
-    std::cout << "  Total Parameters: " << (vocab_size * d_model) << std::endl;
+    std::cout << name << " Configuration:" << '\n';
+    std::cout << "  Vocabulary Size: " << vocab_size << '\n';
+    std::cout << "  Embedding Dimension: " << d_model << '\n';
+    std::cout << "  Total Parameters: " << (vocab_size * d_model) << '\n';
     std::cout << "  Memory Usage: " << std::fixed << std::setprecision(2)
-              << (vocab_size * d_model * sizeof(float)) / 1024.0f / 1024.0f << " MB" << std::endl;
-    std::cout << "  Learning Rate: " << learning_rate << std::endl;
+              << (static_cast<float>(vocab_size) * static_cast<float>(d_model) * sizeof(float)) /
+                     1024.0f / 1024.0f
+              << " MB" << '\n';
+    std::cout << "  Learning Rate: " << learning_rate << '\n';
 }
 
 float TokenEmbedding::get_gradient_norm() const {

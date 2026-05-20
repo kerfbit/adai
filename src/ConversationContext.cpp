@@ -7,14 +7,10 @@
 ConversationContext::ConversationContext(int max_messages, int max_tokens, bool keep_system_message)
     : max_messages(max_messages),
       max_tokens(max_tokens),
-      keep_system_message(keep_system_message),
-      total_tokens(0),
-      system_message(nullptr) {}
+      keep_system_message(keep_system_message) {}
 
 ConversationContext::~ConversationContext() {
-    if (system_message != nullptr) {
-        delete system_message;
-    }
+    delete system_message;
 }
 
 void ConversationContext::add_user_message(const std::string& content, int token_count) {
@@ -70,7 +66,7 @@ std::string ConversationContext::format_for_model(bool include_system,
         // Capitalize first letter of role
         std::string role_cap = msg.role;
         if (!role_cap.empty()) {
-            role_cap[0] = std::toupper(role_cap[0]);
+            role_cap[0] = static_cast<char>(std::toupper(role_cap[0]));
         }
 
         oss << role_cap << ": " << msg.content << separator;
@@ -189,13 +185,13 @@ void ConversationContext::truncate_to_limits() {
     }
 }
 
-void ConversationContext::set_max_messages(int max_msgs) {
-    max_messages = max_msgs;
+void ConversationContext::set_max_messages(int max_messages) {
+    this->max_messages = max_messages;
     truncate_to_limits();
 }
 
-void ConversationContext::set_max_tokens(int max_toks) {
-    max_tokens = max_toks;
+void ConversationContext::set_max_tokens(int max_tokens) {
+    this->max_tokens = max_tokens;
     truncate_to_limits();
 }
 
@@ -260,12 +256,14 @@ void ConversationContext::load_from_file(const std::string& filepath) {
         } else {
             // Parse message: role|token_count|content
             size_t first_pipe = line.find('|');
-            if (first_pipe == std::string::npos)
+            if (first_pipe == std::string::npos) {
                 continue;
+            }
 
             size_t second_pipe = line.find('|', first_pipe + 1);
-            if (second_pipe == std::string::npos)
+            if (second_pipe == std::string::npos) {
                 continue;
+            }
 
             std::string role = line.substr(0, first_pipe);
             int token_count = std::stoi(line.substr(first_pipe + 1, second_pipe - first_pipe - 1));
@@ -346,7 +344,7 @@ ConversationContext ConversationContext::create_summarized(int keep_recent,
     return summarized;
 }
 
-int ConversationContext::estimate_tokens(const std::string& content) const {
+int ConversationContext::estimate_tokens(const std::string& content) {
     // Simple estimation: ~4 characters per token (rough BPE approximation)
     // Add some overhead for special tokens and formatting
     int char_count = static_cast<int>(content.length());

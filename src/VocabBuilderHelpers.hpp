@@ -81,8 +81,9 @@ inline std::vector<std::string> load_json_format(const std::string& filename) {
     while ((pos = content.find('"', pos)) != std::string::npos) {
         pos++;  // Skip opening quote
         size_t end = content.find('"', pos);
-        if (end == std::string::npos)
+        if (end == std::string::npos) {
             break;
+        }
 
         std::string text = content.substr(pos, end - pos);
         if (!text.empty()) {

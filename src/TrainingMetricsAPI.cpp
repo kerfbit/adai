@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <iomanip>
 #include <sstream>
+#include <utility>
 
 // ServerImpl using cpp-httplib
 class TrainingMetricsAPI::ServerImpl {
@@ -12,7 +13,7 @@ class TrainingMetricsAPI::ServerImpl {
 
 TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> metrics_service,
                                        int port, bool allow_control)
-    : metrics_service_(metrics_service),
+    : metrics_service_(std::move(metrics_service)),
       port_(port),
       allow_control_(allow_control),
       running_(false),
@@ -55,8 +56,9 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> m
                     query_params = "max_records=" + req.get_param_value("max_records");
                 }
                 if (req.has_param("session_id")) {
-                    if (!query_params.empty())
+                    if (!query_params.empty()) {
                         query_params += "&";
+                    }
                     query_params += "session_id=" + req.get_param_value("session_id");
                 }
 
@@ -392,10 +394,11 @@ std::string TrainingMetricsAPI::handle_metrics_history(const std::string& query_
     for (size_t i = 0; i < history.size(); ++i) {
         const auto& record = history[i];
 
-        if (i > 0)
+        if (i > 0) {
             json << ",";
+        }
         json << "{";
-        json << "\"timestamp\":\"" << std::chrono::system_clock::to_time_t(record.timestamp)
+        json << R"("timestamp":")" << std::chrono::system_clock::to_time_t(record.timestamp)
              << "\",";
         json << "\"session_id\":" << record.session_id << ",";
         json << "\"epoch\":" << record.epoch << ",";
@@ -437,7 +440,8 @@ std::string TrainingMetricsAPI::handle_session_status() {
     json << "\"progress_percent\":" << std::fixed << std::setprecision(2);
 
     if (snapshot.total_samples > 0) {
-        json << (100.0f * snapshot.current_sample / snapshot.total_samples);
+        json << (100.0f * static_cast<float>(snapshot.current_sample) /
+                 static_cast<float>(snapshot.total_samples));
     } else {
         json << 0.0f;
     }
@@ -460,71 +464,80 @@ std::string TrainingMetricsAPI::handle_epoch_metrics() {
     json << "\"epoch_losses\":[";
 
     for (size_t i = 0; i < snapshot.epoch_losses.size(); ++i) {
-        if (i > 0)
+        if (i > 0) {
             json << ",";
+        }
         json << snapshot.epoch_losses[i];
     }
 
     json << "],\"epoch_validation_losses\":[";
 
     for (size_t i = 0; i < snapshot.epoch_validation_losses.size(); ++i) {
-        if (i > 0)
+        if (i > 0) {
             json << ",";
+        }
         json << snapshot.epoch_validation_losses[i];
     }
 
     json << "],\"epoch_learning_rates\":[";
 
     for (size_t i = 0; i < snapshot.epoch_learning_rates.size(); ++i) {
-        if (i > 0)
+        if (i > 0) {
             json << ",";
+        }
         json << snapshot.epoch_learning_rates[i];
     }
 
     json << "],\"epoch_perplexities\":[";
 
     for (size_t i = 0; i < snapshot.epoch_perplexities.size(); ++i) {
-        if (i > 0)
+        if (i > 0) {
             json << ",";
+        }
         json << snapshot.epoch_perplexities[i];
     }
 
     json << "],\"epoch_durations\":[";
 
     for (size_t i = 0; i < snapshot.epoch_durations.size(); ++i) {
-        if (i > 0)
+        if (i > 0) {
             json << ",";
+        }
         json << snapshot.epoch_durations[i];
     }
 
     json << "],\"epoch_gradient_norms\":[";
 
     for (size_t i = 0; i < snapshot.epoch_gradient_norms.size(); ++i) {
-        if (i > 0)
+        if (i > 0) {
             json << ",";
+        }
         json << snapshot.epoch_gradient_norms[i];
     }
 
     // TD-017: per-epoch average adaptive clip threshold (-1 entries = fixed-clip mode)
     json << "],\"epoch_adaptive_clip_thresholds\":[";
     for (size_t i = 0; i < snapshot.epoch_adaptive_clip_thresholds.size(); ++i) {
-        if (i > 0)
+        if (i > 0) {
             json << ",";
+        }
         json << snapshot.epoch_adaptive_clip_thresholds[i];
     }
 
     // TD-015: per-epoch validation perplexity and accuracy
     json << "],\"epoch_validation_perplexities\":[";
     for (size_t i = 0; i < snapshot.epoch_validation_perplexities.size(); ++i) {
-        if (i > 0)
+        if (i > 0) {
             json << ",";
+        }
         json << snapshot.epoch_validation_perplexities[i];
     }
 
     json << "],\"epoch_validation_accuracies\":[";
     for (size_t i = 0; i < snapshot.epoch_validation_accuracies.size(); ++i) {
-        if (i > 0)
+        if (i > 0) {
             json << ",";
+        }
         json << snapshot.epoch_validation_accuracies[i];
     }
 
@@ -544,16 +557,17 @@ std::string TrainingMetricsAPI::handle_abnormal_samples() {
 
     for (size_t i = 0; i < samples.size(); ++i) {
         const auto& s = samples[i];
-        if (i > 0)
+        if (i > 0) {
             json << ",";
+        }
         json << "{";
         json << "\"epoch\":" << s.epoch << ",";
         json << "\"sample_id\":" << s.sample_id << ",";
         json << "\"loss\":" << s.loss << ",";
         json << "\"grad_norm\":" << s.grad_norm << ",";
-        json << "\"reason\":\"" << escape_json(s.reason) << "\",";
-        json << "\"input_text\":\"" << escape_json(s.input_text) << "\",";
-        json << "\"target_text\":\"" << escape_json(s.target_text) << "\",";
+        json << R"("reason":")" << escape_json(s.reason) << "\",";
+        json << R"("input_text":")" << escape_json(s.input_text) << "\",";
+        json << R"("target_text":")" << escape_json(s.target_text) << "\",";
         json << "\"timestamp\":" << std::chrono::system_clock::to_time_t(s.timestamp);
         json << "}";
     }
@@ -575,26 +589,30 @@ std::string TrainingMetricsAPI::handle_generation_quality_metrics() {
     // Per-epoch history arrays
     json << "\"epoch_bleu4\":[";
     for (size_t i = 0; i < snapshot.epoch_bleu4.size(); ++i) {
-        if (i > 0)
+        if (i > 0) {
             json << ",";
+        }
         json << snapshot.epoch_bleu4[i];
     }
     json << "],\"epoch_rouge1\":[";
     for (size_t i = 0; i < snapshot.epoch_rouge1.size(); ++i) {
-        if (i > 0)
+        if (i > 0) {
             json << ",";
+        }
         json << snapshot.epoch_rouge1[i];
     }
     json << "],\"epoch_rouge2\":[";
     for (size_t i = 0; i < snapshot.epoch_rouge2.size(); ++i) {
-        if (i > 0)
+        if (i > 0) {
             json << ",";
+        }
         json << snapshot.epoch_rouge2[i];
     }
     json << "],\"epoch_rougeL\":[";
     for (size_t i = 0; i < snapshot.epoch_rougeL.size(); ++i) {
-        if (i > 0)
+        if (i > 0) {
             json << ",";
+        }
         json << snapshot.epoch_rougeL[i];
     }
     json << "]}";
@@ -609,8 +627,9 @@ std::string TrainingMetricsAPI::handle_padding_efficiency_metrics() {
     json << "\"current_padding_efficiency\":" << snapshot.current_padding_efficiency << ",";
     json << "\"epoch_padding_efficiencies\":[";
     for (size_t i = 0; i < snapshot.epoch_padding_efficiencies.size(); ++i) {
-        if (i > 0)
+        if (i > 0) {
             json << ",";
+        }
         json << snapshot.epoch_padding_efficiencies[i];
     }
     json << "]}";
@@ -619,12 +638,12 @@ std::string TrainingMetricsAPI::handle_padding_efficiency_metrics() {
 
 std::string TrainingMetricsAPI::handle_flush_control() {
     metrics_service_->flush_to_disk();
-    return "{\"status\":\"success\",\"message\":\"Metrics flushed to disk\"}";
+    return R"({"status":"success","message":"Metrics flushed to disk"})";
 }
 
 std::string TrainingMetricsAPI::handle_clear_control() {
     metrics_service_->clear_history();
-    return "{\"status\":\"success\",\"message\":\"Metrics history cleared\"}";
+    return R"({"status":"success","message":"Metrics history cleared"})";
 }
 
 std::string TrainingMetricsAPI::handle_health_check() {
@@ -632,8 +651,8 @@ std::string TrainingMetricsAPI::handle_health_check() {
 
     std::ostringstream json;
     json << "{";
-    json << "\"status\":\"ok\",";
-    json << "\"service\":\"TrainingMetricsAPI\",";
+    json << R"("status":"ok",)";
+    json << R"("service":"TrainingMetricsAPI",)";
     json << "\"is_training\":" << (is_active ? "true" : "false");
     json << "}";
 
@@ -644,15 +663,15 @@ std::string TrainingMetricsAPI::handle_health_check() {
 // Helper Functions
 // ============================================================================
 
-std::string TrainingMetricsAPI::create_error_response(const std::string& error_message) const {
+std::string TrainingMetricsAPI::create_error_response(const std::string& error_message) {
     std::ostringstream json;
     json << "{";
-    json << "\"error\":\"" << escape_json(error_message) << "\"";
+    json << R"("error":")" << escape_json(error_message) << "\"";
     json << "}";
     return json.str();
 }
 
-std::string TrainingMetricsAPI::escape_json(const std::string& s) const {
+std::string TrainingMetricsAPI::escape_json(const std::string& s) {
     std::ostringstream escaped;
     for (char c : s) {
         switch (c) {
@@ -690,7 +709,7 @@ std::string TrainingMetricsAPI::escape_json(const std::string& s) const {
 }
 
 int TrainingMetricsAPI::parse_query_param_int(const std::string& query, const std::string& param,
-                                              int default_value) const {
+                                              int default_value) {
     std::string search_key = param + "=";
     size_t pos = query.find(search_key);
 
@@ -750,12 +769,12 @@ std::string TrainingMetricsAPI::handle_post_session_start(const std::string& bod
 
     metrics_service_->start_session(session_id, total_epochs, total_samples);
 
-    return "{\"status\":\"ok\",\"message\":\"Session started\"}";
+    return R"({"status":"ok","message":"Session started"})";
 }
 
 std::string TrainingMetricsAPI::handle_post_session_end() {
     metrics_service_->end_session();
-    return "{\"status\":\"ok\",\"message\":\"Session ended\"}";
+    return R"({"status":"ok","message":"Session ended"})";
 }
 
 std::string TrainingMetricsAPI::handle_post_epoch_start(const std::string& body) {
@@ -781,7 +800,7 @@ std::string TrainingMetricsAPI::handle_post_epoch_start(const std::string& body)
 
     metrics_service_->start_epoch(epoch, total_samples);
 
-    return "{\"status\":\"ok\",\"message\":\"Epoch started\"}";
+    return R"({"status":"ok","message":"Epoch started"})";
 }
 
 std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& body) {
@@ -923,7 +942,7 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& body) {
         metrics_service_->update_padding_efficiency(current_padding_efficiency);
     }
 
-    return "{\"status\":\"ok\",\"message\":\"Epoch ended\"}";
+    return R"({"status":"ok","message":"Epoch ended"})";
 }
 
 std::string TrainingMetricsAPI::handle_post_sample_metrics(const std::string& body) {
@@ -968,7 +987,7 @@ std::string TrainingMetricsAPI::handle_post_sample_metrics(const std::string& bo
 
     metrics_service_->update_sample_metrics(sample, loss, gradient_norm, learning_rate);
 
-    return "{\"status\":\"ok\"}";
+    return R"({"status":"ok"})";
 }
 
 std::string TrainingMetricsAPI::handle_post_validation_metrics(const std::string& body) {
@@ -1005,7 +1024,7 @@ std::string TrainingMetricsAPI::handle_post_validation_metrics(const std::string
     metrics_service_->update_validation_metrics(validation_loss, validation_accuracy,
                                                 validation_perplexity);
 
-    return "{\"status\":\"ok\"}";
+    return R"({"status":"ok"})";
 }
 
 std::string TrainingMetricsAPI::handle_post_best_metrics(const std::string& body) {
@@ -1031,7 +1050,7 @@ std::string TrainingMetricsAPI::handle_post_best_metrics(const std::string& body
 
     metrics_service_->update_best_metrics(validation_loss, epoch);
 
-    return "{\"status\":\"ok\"}";
+    return R"({"status":"ok"})";
 }
 
 std::string TrainingMetricsAPI::handle_post_generation_quality_metrics(const std::string& body) {
@@ -1044,30 +1063,34 @@ std::string TrainingMetricsAPI::handle_post_generation_quality_metrics(const std
     size_t pos = body.find("\"bleu4\"");
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
-        if (pos != std::string::npos)
+        if (pos != std::string::npos) {
             bleu4 = std::stof(body.substr(pos + 1));
+        }
     }
     pos = body.find("\"rouge1\"");
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
-        if (pos != std::string::npos)
+        if (pos != std::string::npos) {
             rouge1 = std::stof(body.substr(pos + 1));
+        }
     }
     pos = body.find("\"rouge2\"");
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
-        if (pos != std::string::npos)
+        if (pos != std::string::npos) {
             rouge2 = std::stof(body.substr(pos + 1));
+        }
     }
     pos = body.find("\"rougeL\"");
     if (pos != std::string::npos) {
         pos = body.find(':', pos);
-        if (pos != std::string::npos)
+        if (pos != std::string::npos) {
             rougeL = std::stof(body.substr(pos + 1));
+        }
     }
 
     metrics_service_->update_generation_quality_metrics(bleu4, rouge1, rouge2, rougeL);
-    return "{\"status\":\"ok\"}";
+    return R"({"status":"ok"})";
 }
 
 std::string TrainingMetricsAPI::handle_post_advanced_metrics(const std::string& body) {
@@ -1104,5 +1127,5 @@ std::string TrainingMetricsAPI::handle_post_advanced_metrics(const std::string& 
     metrics_service_->update_advanced_epoch_metrics(gradient_variance, compute_time_ratio,
                                                     weight_update_ratio);
 
-    return "{\"status\":\"ok\"}";
+    return R"({"status":"ok"})";
 }

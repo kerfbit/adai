@@ -34,7 +34,7 @@ std::optional<int> ConfigLoader::get_env_int(const std::string& var_name) {
             return std::stoi(*value);
         } catch (...) {
             std::cerr << "Warning: Invalid integer value for " << var_name << ": " << *value
-                      << std::endl;
+                      << '\n';
         }
     }
     return std::nullopt;
@@ -46,8 +46,7 @@ std::optional<size_t> ConfigLoader::get_env_size_t(const std::string& var_name) 
         try {
             return static_cast<size_t>(std::stoull(*value));
         } catch (...) {
-            std::cerr << "Warning: Invalid size_t value for " << var_name << ": " << *value
-                      << std::endl;
+            std::cerr << "Warning: Invalid size_t value for " << var_name << ": " << *value << '\n';
         }
     }
     return std::nullopt;
@@ -59,8 +58,7 @@ std::optional<float> ConfigLoader::get_env_float(const std::string& var_name) {
         try {
             return std::stof(*value);
         } catch (...) {
-            std::cerr << "Warning: Invalid float value for " << var_name << ": " << *value
-                      << std::endl;
+            std::cerr << "Warning: Invalid float value for " << var_name << ": " << *value << '\n';
         }
     }
     return std::nullopt;
@@ -73,12 +71,11 @@ std::optional<bool> ConfigLoader::get_env_bool(const std::string& var_name) {
         std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
         if (lower == "true" || lower == "1" || lower == "yes" || lower == "on") {
             return true;
-        } else if (lower == "false" || lower == "0" || lower == "no" || lower == "off") {
-            return false;
-        } else {
-            std::cerr << "Warning: Invalid boolean value for " << var_name << ": " << *value
-                      << std::endl;
         }
+        if (lower == "false" || lower == "0" || lower == "no" || lower == "off") {
+            return false;
+        }
+        std::cerr << "Warning: Invalid boolean value for " << var_name << ": " << *value << '\n';
     }
     return std::nullopt;
 }
@@ -89,8 +86,9 @@ std::optional<bool> ConfigLoader::get_env_bool(const std::string& var_name) {
 
 static std::string trim(const std::string& str) {
     size_t first = str.find_first_not_of(" \t\r\n");
-    if (first == std::string::npos)
+    if (first == std::string::npos) {
         return "";
+    }
     size_t last = str.find_last_not_of(" \t\r\n");
     return str.substr(first, last - first + 1);
 }
@@ -99,11 +97,11 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
     std::ifstream file(file_path);
     if (!file.is_open()) {
         // Config file is optional, so just log a warning
-        std::cerr << "Note: Configuration file not found: " << file_path << std::endl;
+        std::cerr << "Note: Configuration file not found: " << file_path << '\n';
         return;
     }
 
-    std::cout << "Loading configuration from: " << file_path << std::endl;
+    std::cout << "Loading configuration from: " << file_path << '\n';
 
     std::string line;
     int line_number = 0;
@@ -121,7 +119,7 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
         size_t pos = line.find('=');
         if (pos == std::string::npos) {
             std::cerr << "Warning: Invalid line " << line_number << " in config file: " << line
-                      << std::endl;
+                      << '\n';
             continue;
         }
 
@@ -275,11 +273,11 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "GPU_MEMORY_FRACTION") {
                 config.gpu_memory_fraction = std::stof(value);
             } else {
-                std::cerr << "Warning: Unknown configuration key: " << key << std::endl;
+                std::cerr << "Warning: Unknown configuration key: " << key << '\n';
             }
         } catch (const std::exception& e) {
             std::cerr << "Warning: Invalid value for " << key << ": " << value << " (" << e.what()
-                      << ")" << std::endl;
+                      << ")" << '\n';
         }
     }
 }
@@ -290,104 +288,147 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
 
 void ConfigLoader::load_from_env(ServiceConfig& config) {
     // Server configuration
-    if (auto val = get_env("MODEL_PATH"))
+    if (auto val = get_env("MODEL_PATH")) {
         config.model_path = *val;
-    if (auto val = get_env("VOCAB_PATH"))
+    }
+    if (auto val = get_env("VOCAB_PATH")) {
         config.vocab_path = *val;
-    if (auto val = get_env_int("PORT"))
+    }
+    if (auto val = get_env_int("PORT")) {
         config.port = *val;
-    if (auto val = get_env_int("SESSION_TIMEOUT"))
+    }
+    if (auto val = get_env_int("SESSION_TIMEOUT")) {
         config.session_timeout = *val;
-    if (auto val = get_env("LOG_LEVEL"))
+    }
+    if (auto val = get_env("LOG_LEVEL")) {
         config.log_level = *val;
-    if (auto val = get_env("LOG_FILE_PATH"))
+    }
+    if (auto val = get_env("LOG_FILE_PATH")) {
         config.log_file_path = *val;
-    if (auto val = get_env("SESSION_DIR"))
+    }
+    if (auto val = get_env("SESSION_DIR")) {
         config.session_dir = *val;
-    if (auto val = get_env_size_t("LOG_MAX_SIZE_MB"))
+    }
+    if (auto val = get_env_size_t("LOG_MAX_SIZE_MB")) {
         config.log_max_size_mb = *val;
-    if (auto val = get_env_size_t("LOG_MAX_FILES"))
+    }
+    if (auto val = get_env_size_t("LOG_MAX_FILES")) {
         config.log_max_files = *val;
-    if (auto val = get_env_bool("LOG_COMPRESS"))
+    }
+    if (auto val = get_env_bool("LOG_COMPRESS")) {
         config.log_compress = *val;
+    }
 
     // Model architecture
-    if (auto val = get_env_size_t("D_MODEL"))
+    if (auto val = get_env_size_t("D_MODEL")) {
         config.d_model = *val;
-    if (auto val = get_env_size_t("NUM_HEADS"))
+    }
+    if (auto val = get_env_size_t("NUM_HEADS")) {
         config.num_heads = *val;
-    if (auto val = get_env_size_t("D_FF"))
+    }
+    if (auto val = get_env_size_t("D_FF")) {
         config.d_ff = *val;
-    if (auto val = get_env_size_t("NUM_ENCODER_LAYERS"))
+    }
+    if (auto val = get_env_size_t("NUM_ENCODER_LAYERS")) {
         config.num_encoder_layers = *val;
-    if (auto val = get_env_size_t("NUM_DECODER_LAYERS"))
+    }
+    if (auto val = get_env_size_t("NUM_DECODER_LAYERS")) {
         config.num_decoder_layers = *val;
-    if (auto val = get_env_size_t("MAX_SEQ_LENGTH"))
+    }
+    if (auto val = get_env_size_t("MAX_SEQ_LENGTH")) {
         config.max_seq_length = *val;
+    }
 
     // Training hyperparameters
-    if (auto val = get_env_float("LEARNING_RATE"))
+    if (auto val = get_env_float("LEARNING_RATE")) {
         config.learning_rate = *val;
-    if (auto val = get_env_int("NUM_EPOCHS"))
+    }
+    if (auto val = get_env_int("NUM_EPOCHS")) {
         config.num_epochs = *val;
-    if (auto val = get_env_float("WEIGHT_DECAY"))
+    }
+    if (auto val = get_env_float("WEIGHT_DECAY")) {
         config.weight_decay = *val;
-    if (auto val = get_env_float("GRADIENT_CLIP"))
+    }
+    if (auto val = get_env_float("GRADIENT_CLIP")) {
         config.gradient_clip = *val;
-    if (auto val = get_env_bool("GRADIENT_CLIP_ADAPTIVE"))
+    }
+    if (auto val = get_env_bool("GRADIENT_CLIP_ADAPTIVE")) {
         config.adaptive_gradient_clip = *val;
-    if (auto val = get_env_float("GRADIENT_CLIP_MIN"))
+    }
+    if (auto val = get_env_float("GRADIENT_CLIP_MIN")) {
         config.gradient_clip_min = *val;
-    if (auto val = get_env_float("GRADIENT_CLIP_MAX"))
+    }
+    if (auto val = get_env_float("GRADIENT_CLIP_MAX")) {
         config.gradient_clip_max = *val;
-    if (auto val = get_env_float("GRADIENT_CLIP_EMA_DECAY"))
+    }
+    if (auto val = get_env_float("GRADIENT_CLIP_EMA_DECAY")) {
         config.gradient_clip_ema_decay = *val;
-    if (auto val = get_env_float("GRADIENT_CLIP_HEADROOM"))
+    }
+    if (auto val = get_env_float("GRADIENT_CLIP_HEADROOM")) {
         config.gradient_clip_headroom = *val;
-    if (auto val = get_env_int("GRADIENT_CLIP_WARMUP_STEPS"))
+    }
+    if (auto val = get_env_int("GRADIENT_CLIP_WARMUP_STEPS")) {
         config.gradient_clip_warmup_steps = *val;
-    if (auto val = get_env_float("GRADIENT_CLIP_SPIKE_K"))
+    }
+    if (auto val = get_env_float("GRADIENT_CLIP_SPIKE_K")) {
         config.gradient_clip_spike_k = *val;
-    if (auto val = get_env_int("BATCH_SIZE"))
+    }
+    if (auto val = get_env_int("BATCH_SIZE")) {
         config.batch_size = *val;
+    }
 
     // Generation parameters
     // Support both MAX_LENGTH and MAX_GEN_LENGTH for compatibility
-    if (auto val = get_env_size_t("MAX_GEN_LENGTH"))
+    if (auto val = get_env_size_t("MAX_GEN_LENGTH")) {
         config.max_gen_length = *val;
-    if (auto val = get_env_size_t("MAX_LENGTH"))
+    }
+    if (auto val = get_env_size_t("MAX_LENGTH")) {
         config.max_gen_length = *val;
+    }
 
-    if (auto val = get_env_float("TEMPERATURE"))
+    if (auto val = get_env_float("TEMPERATURE")) {
         config.temperature = *val;
-    if (auto val = get_env_float("TOP_P"))
+    }
+    if (auto val = get_env_float("TOP_P")) {
         config.top_p = *val;
-    if (auto val = get_env_int("TOP_K"))
+    }
+    if (auto val = get_env_int("TOP_K")) {
         config.top_k = *val;
-    if (auto val = get_env_int("BEAM_WIDTH"))
+    }
+    if (auto val = get_env_int("BEAM_WIDTH")) {
         config.beam_width = *val;
-    if (auto val = get_env("STRATEGY"))
+    }
+    if (auto val = get_env("STRATEGY")) {
         config.strategy = *val;
+    }
 
     // RAG configuration
-    if (auto val = get_env_bool("RAG_ENABLED"))
+    if (auto val = get_env_bool("RAG_ENABLED")) {
         config.rag_enabled = *val;
-    if (auto val = get_env("RAG_DOCS_PATH"))
+    }
+    if (auto val = get_env("RAG_DOCS_PATH")) {
         config.rag_docs_path = *val;
-    if (auto val = get_env_int("RAG_NUM_DOCS"))
+    }
+    if (auto val = get_env_int("RAG_NUM_DOCS")) {
         config.rag_num_docs = *val;
-    if (auto val = get_env_float("RAG_THRESHOLD"))
+    }
+    if (auto val = get_env_float("RAG_THRESHOLD")) {
         config.rag_threshold = *val;
-    if (auto val = get_env_int("RAG_MAX_CONTEXT_LENGTH"))
+    }
+    if (auto val = get_env_int("RAG_MAX_CONTEXT_LENGTH")) {
         config.rag_max_context_length = *val;
+    }
 
     // GPU configuration
-    if (auto val = get_env_bool("GPU_ENABLED"))
+    if (auto val = get_env_bool("GPU_ENABLED")) {
         config.gpu_enabled = *val;
-    if (auto val = get_env_int("GPU_DEVICE_ID"))
+    }
+    if (auto val = get_env_int("GPU_DEVICE_ID")) {
         config.gpu_device_id = *val;
-    if (auto val = get_env_float("GPU_MEMORY_FRACTION"))
+    }
+    if (auto val = get_env_float("GPU_MEMORY_FRACTION")) {
         config.gpu_memory_fraction = *val;
+    }
 }
 
 // ============================================================
@@ -420,56 +461,53 @@ ServiceConfig ConfigLoader::load(const std::string& config_file_path) {
 }
 
 void ConfigLoader::print(const ServiceConfig& config) {
-    std::cout << "==================================================" << std::endl;
-    std::cout << "         ADAI Chatbot Service Configuration" << std::endl;
-    std::cout << "==================================================" << std::endl;
-    std::cout << "Server Settings:" << std::endl;
+    std::cout << "==================================================" << '\n';
+    std::cout << "         ADAI Chatbot Service Configuration" << '\n';
+    std::cout << "==================================================" << '\n';
+    std::cout << "Server Settings:" << '\n';
     std::cout << "  Model path:       "
-              << (config.model_path.empty() ? "<new model>" : config.model_path) << std::endl;
+              << (config.model_path.empty() ? "<new model>" : config.model_path) << '\n';
     std::cout << "  Vocabulary:       "
-              << (config.vocab_path.empty() ? "<not set>" : config.vocab_path) << std::endl;
-    std::cout << "  Port:             " << config.port << std::endl;
-    std::cout << "  Session timeout:  " << config.session_timeout << " minutes" << std::endl;
-    std::cout << "  Log level:        " << config.log_level << std::endl;
+              << (config.vocab_path.empty() ? "<not set>" : config.vocab_path) << '\n';
+    std::cout << "  Port:             " << config.port << '\n';
+    std::cout << "  Session timeout:  " << config.session_timeout << " minutes" << '\n';
+    std::cout << "  Log level:        " << config.log_level << '\n';
     std::cout << "  Log file:         "
-              << (config.log_file_path.empty() ? "<console only>" : config.log_file_path)
-              << std::endl;
-    std::cout << "  Session dir:      " << config.session_dir << std::endl;
+              << (config.log_file_path.empty() ? "<console only>" : config.log_file_path) << '\n';
+    std::cout << "  Session dir:      " << config.session_dir << '\n';
     if (!config.log_file_path.empty()) {
-        std::cout << "  Log max size:     " << config.log_max_size_mb << " MB" << std::endl;
-        std::cout << "  Log max files:    " << config.log_max_files << std::endl;
+        std::cout << "  Log max size:     " << config.log_max_size_mb << " MB" << '\n';
+        std::cout << "  Log max files:    " << config.log_max_files << '\n';
         std::cout << "  Log compression:  " << (config.log_compress ? "enabled" : "disabled")
-                  << std::endl;
+                  << '\n';
     }
-    std::cout << std::endl;
-    std::cout << "Model Architecture:" << std::endl;
-    std::cout << "  d_model:          " << config.d_model << std::endl;
-    std::cout << "  num_heads:        " << config.num_heads << std::endl;
-    std::cout << "  d_ff:             " << config.d_ff << std::endl;
-    std::cout << "  encoder_layers:   " << config.num_encoder_layers << std::endl;
-    std::cout << "  decoder_layers:   " << config.num_decoder_layers << std::endl;
-    std::cout << "  max_seq_length:   " << config.max_seq_length << std::endl;
-    std::cout << std::endl;
-    std::cout << "Generation Parameters:" << std::endl;
-    std::cout << "  max_length:       " << config.max_gen_length << std::endl;
-    std::cout << "  temperature:      " << config.temperature << std::endl;
-    std::cout << "  top_p:            " << config.top_p << std::endl;
-    std::cout << "  top_k:            " << config.top_k << std::endl;
-    std::cout << "  beam_width:       " << config.beam_width << std::endl;
-    std::cout << "  strategy:         " << config.strategy << std::endl;
-    std::cout << std::endl;
-    std::cout << "RAG Configuration:" << std::endl;
-    std::cout << "  rag_enabled:      " << (config.rag_enabled ? "true" : "false") << std::endl;
+    std::cout << '\n';
+    std::cout << "Model Architecture:" << '\n';
+    std::cout << "  d_model:          " << config.d_model << '\n';
+    std::cout << "  num_heads:        " << config.num_heads << '\n';
+    std::cout << "  d_ff:             " << config.d_ff << '\n';
+    std::cout << "  encoder_layers:   " << config.num_encoder_layers << '\n';
+    std::cout << "  decoder_layers:   " << config.num_decoder_layers << '\n';
+    std::cout << "  max_seq_length:   " << config.max_seq_length << '\n';
+    std::cout << '\n';
+    std::cout << "Generation Parameters:" << '\n';
+    std::cout << "  max_length:       " << config.max_gen_length << '\n';
+    std::cout << "  temperature:      " << config.temperature << '\n';
+    std::cout << "  top_p:            " << config.top_p << '\n';
+    std::cout << "  top_k:            " << config.top_k << '\n';
+    std::cout << "  beam_width:       " << config.beam_width << '\n';
+    std::cout << "  strategy:         " << config.strategy << '\n';
+    std::cout << '\n';
+    std::cout << "RAG Configuration:" << '\n';
+    std::cout << "  rag_enabled:      " << (config.rag_enabled ? "true" : "false") << '\n';
     if (config.rag_enabled) {
         std::cout << "  rag_docs_path:    "
-                  << (config.rag_docs_path.empty() ? "<not set>" : config.rag_docs_path)
-                  << std::endl;
-        std::cout << "  rag_num_docs:     " << config.rag_num_docs << std::endl;
-        std::cout << "  rag_threshold:    " << config.rag_threshold << std::endl;
-        std::cout << "  rag_max_context:  " << config.rag_max_context_length << " tokens"
-                  << std::endl;
+                  << (config.rag_docs_path.empty() ? "<not set>" : config.rag_docs_path) << '\n';
+        std::cout << "  rag_num_docs:     " << config.rag_num_docs << '\n';
+        std::cout << "  rag_threshold:    " << config.rag_threshold << '\n';
+        std::cout << "  rag_max_context:  " << config.rag_max_context_length << " tokens" << '\n';
     }
-    std::cout << "==================================================" << std::endl;
+    std::cout << "==================================================" << '\n';
 }
 
 // ============================================================
