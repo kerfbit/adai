@@ -10,7 +10,7 @@ PositionalEncoding::PositionalEncoding(int max_len, int d_model)
         for (int i = 0; i < d_model; ++i) {
             // Compute the wavelength for this dimension
             float angle =
-                static_cast<float>(pos) / std::pow(10000.0f, (2.0f * (static_cast<float>(i) / 2)) /
+                static_cast<float>(pos) / std::pow(10000.0f, (2.0f * static_cast<float>(i / 2)) /
                                                                  static_cast<float>(d_model));
 
             if (i % 2 == 0) {
