@@ -526,22 +526,50 @@ TEST_F(EngineFunctionalTest, MultipleSequentialSubmits) {
 }
 
 TEST_F(EngineFunctionalTest, QueueFullThrows) {
+    // collect_batch() drains items from the queue into a thread-local buffer
+    // before process_batch() is ever called, so a large timeout alone cannot
+    // keep items in the queue long enough to observe queue.size() == max_queue_size.
+    // Fix: use a blocking model_fn that holds the background thread inside
+    // process_batch() while the main thread fills the queue to capacity.
+    std::promise<void> gate;
+    auto gate_fut = gate.get_future().share();
+    std::atomic<bool> model_entered{false};
+
+    auto blocking_fn = [&](const std::vector<int>&) -> Matrix {
+        model_entered.store(true, std::memory_order_release);
+        gate_fut.wait();  // block until explicitly released
+        Matrix logits(1, 10);
+        logits(0, adai::SpecialTokenIDs::EOS) = 100.0f;
+        return logits;
+    };
+
     BatchedInferenceConfig cfg;
-    cfg.timeout_ms = 30000;  // Don't let bg thread drain
+    cfg.timeout_ms    = 5;   // fast flush so the primer batch is collected quickly
     cfg.max_queue_size = 2;
 
     auto tok = make_tokenizer();
-    BatchedInferenceEngine engine(eos_model_fn, tok, cfg);
+    BatchedInferenceEngine engine(blocking_fn, tok, cfg);
 
-    // Fill the queue
+    // Submit a primer to get the background thread stuck inside model_fn
+    // (i.e. inside process_batch). Once it is there, new submissions go into
+    // the queue and cannot be drained until the gate is opened.
+    auto f_primer = engine.submit("primer");
+    while (!model_entered.load(std::memory_order_acquire)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    // Background thread is now blocked inside process_batch.
+    // Items added to the queue will remain there.
     auto f1 = engine.submit("one");
     auto f2 = engine.submit("two");
 
-    // Third submit should throw since queue is now full
+    // Third submit must throw: queue holds "one" and "two" (size == max_queue_size).
     EXPECT_THROW(engine.submit("three"), std::runtime_error);
 
+    // Unblock the model and shut down cleanly.
+    gate.set_value();
     engine.shutdown();
-    // Ensure futures resolve after shutdown
+    f_primer.wait_for(std::chrono::seconds(5));
     f1.wait_for(std::chrono::seconds(5));
     f2.wait_for(std::chrono::seconds(5));
 }
