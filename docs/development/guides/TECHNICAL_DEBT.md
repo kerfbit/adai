@@ -4,10 +4,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** May 3, 2026
-**Total Items:** 2
+**Last Updated:** May 21, 2026
+**Total Items:** 3
 **High Priority:** 0
-**Medium Priority:** 1
+**Medium Priority:** 2
 **Low Priority:** 1
 **Future Enhancements:** 19
 **Resolved Items:** 18
@@ -18,6 +18,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 - [Table of Contents](#table-of-contents)
 - [Active Technical Debt](#active-technical-debt)
   - [TD-017: Adaptive Gradient Clipping](#td-017-adaptive-gradient-clipping)
+  - [TD-018: Multi-Instance Training Metrics Service](#td-018-multi-instance-training-metrics-service)
   - [TD-014: LLM Operations and Training Tooling Suite](#td-014-llm-operations-and-training-tooling-suite)
   - [TD-006: Fill-in-the-Middle (FIM) Training Data Generation](#td-006-fill-in-the-middle-fim-training-data-generation)
 - [Resolved Items](#resolved-items)
@@ -204,6 +205,44 @@ Evaluation:
 - Test on narrative coherence tasks
 - Measure improvement in multi-turn conversation quality
 - Compare perplexity on FIM vs standard test sets
+
+---
+
+### TD-018: Multi-Instance Training Metrics Service
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Planned | Metrics / API / Config / Training | May 21, 2026 | 16-24 hours |
+
+Description:
+The current `TrainingMetricsService` is built around a single active training session: one `TrainingMetricsSnapshot`, one `std::atomic<int> current_session_id_`, global file paths, and a `GlobalMetricsService` singleton. Launching a second training job (e.g., a hyperparameter sweep, parallel fine-tune, or multi-GPU node) corrupts metrics of the first job because all callers share the same in-process object and write to the same files.
+
+Full proposal: `docs/development/proposals/multi-instance-metrics-service.md`
+
+Action Items:
+
+- [ ] **Step 1 — Per-session file paths in `TrainingMetricsService`**: Verify that `MetricsServiceConfig` carries all path fields (`metrics_file`, `metrics_summary_file`, `metrics_prometheus_file`, `abnormal_samples_file`) so each session can receive its own derived paths at construction time. No constructor-signature changes needed.
+- [ ] **Step 2 — Implement `MetricsSessionRegistry`** (`src/MetricsSessionRegistry.hpp`): new header-only class owning `std::unordered_map<std::string, std::shared_ptr<TrainingMetricsService>> sessions_`, a `std::shared_mutex` reader-writer lock, `size_t max_live_sessions_` (default 16), `create_or_get_session(key)`, `get_session(key)`, `list_sessions()`, and `evict_completed_sessions(max_age_seconds)`. Session key format: `^[a-zA-Z0-9][a-zA-Z0-9_\-]{0,63}$`; reject invalid keys with HTTP 400. Key `"0-default"` maps to legacy file paths for backwards compatibility.
+- [ ] **Step 3 — Update `TrainingMetricsAPI`**: Replace the single `TrainingMetricsService*` member with a `MetricsSessionRegistry*`. Register all session-scoped routes under `"/api/sessions/{key}/..."` prefix (using httplib path-param capture or manual prefix matching). Add `GET /api/sessions` (session index) and `GET /api/metrics/aggregate` (cross-session snapshot) endpoints. Preserve all old flat routes (`POST /api/session/start`, `GET /api/metrics/current`, etc.) as backwards-compat aliases mapping to key `"0-default"`, emitting `Deprecation: true` header.
+- [ ] **Step 4 — Update `TrainingMetricsAPIServer`**: Construct a `MetricsSessionRegistry` (seeded with the legacy `"0-default"` session from existing `MetricsServiceConfig`) and inject it into `TrainingMetricsAPI` instead of a single `TrainingMetricsService`.
+- [ ] **Step 5 — New config keys in `Config`**: Add `METRICS_SESSION_KEY` (string, default `"0-default"`), `METRICS_MAX_LIVE_SESSIONS` (int, default 16), `METRICS_COMPLETED_TTL_SECONDS` (int, default 3600), `METRICS_SWEEP_INTERVAL_SECONDS` (int, default 60). Parse in `src/Config.cpp` alongside existing metrics keys.
+- [ ] **Step 6 — Trainer HTTP client changes**: `ChatbotTrainer` and `IncrementalTrainer` read `metrics_session_key` from their config and prefix every HTTP push base URL with `/api/sessions/{key}` (e.g., `POST /api/sessions/42-gpu0/metrics/sample`).
+- [ ] **Step 7 — Tests**: Unit tests for `MetricsSessionRegistry` (create, evict, capacity cap, concurrent access, key validation). Integration test: two `TrainingMetricsService` instances writing to different file paths do not interfere.
+
+Files to Create:
+
+- `src/MetricsSessionRegistry.hpp` — new session registry header
+- `tests/metrics_session_registry_test.cpp` — unit tests
+
+Files to Modify:
+
+- `src/TrainingMetricsService.hpp` — verify per-session path fields in `MetricsServiceConfig`; remove/replace `GlobalMetricsService` singleton
+- `src/TrainingMetricsAPI.hpp` / `src/TrainingMetricsAPI.cpp` — registry injection, session-keyed routes, new endpoints, backwards-compat aliases
+- `src/TrainingMetricsAPIServer.cpp` — construct `MetricsSessionRegistry`; inject into `TrainingMetricsAPI`
+- `src/Config.hpp` / `src/Config.cpp` — four new config keys
+- `src/ChatbotTrainer.hpp` / `src/ChatbotTrainer.cpp` — `metrics_session_key` field; prefix push URLs
+- `src/IncrementalTrainer.cpp` — map `metrics_session_key` from `ServiceConfig`; prefix push URLs
+- `tests/CMakeLists.txt` — add `metricsSessionRegistryTests` target
 
 ---
 
@@ -1311,10 +1350,10 @@ When resolving a debt item:
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|0|0%|
-|Medium|1|50%|
-|Low|1|50%|
+|Medium|2|67%|
+|Low|1|33%|
 
-**Total Active Items:** 2
+**Total Active Items:** 3
 
 ### By Component
 
@@ -1322,6 +1361,7 @@ When resolving a debt item:
 |----------------------|-------|
 |Training / Data Generation|1|
 |Tooling / Toolchain|1|
+|Metrics / API / Config / Training|1|
 
 ### Effort Distribution
 
@@ -1330,9 +1370,9 @@ When resolving a debt item:
 |0-2 hours|0|
 |2-4 hours|0|
 |4-8 hours|1|
-|8+ hours|0|
+|8+ hours|1|
 
-**Total Estimated Effort (Active Items):** 6-8 hours
+**Total Estimated Effort (Active Items):** 22-32 hours
 
 ### Future Enhancements Summary
 

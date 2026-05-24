@@ -297,6 +297,7 @@ class TrainingMetricsService {
     // Thread-safe state
     mutable std::mutex mutex_;
     std::atomic<bool> is_training_;
+    // TODO: See TECHNICAL_DEBT.md TD-018 - Replace single current_session_id_ with per-session registry
     std::atomic<int> current_session_id_;
 
     // Current metrics
@@ -342,6 +343,7 @@ class TrainingMetricsService {
 
 /**
  * @brief Global metrics service instance (optional singleton access)
+ * TODO: See TECHNICAL_DEBT.md TD-018 - Replace GlobalMetricsService singleton with MetricsSessionRegistry
  */
 class GlobalMetricsService {
    public:

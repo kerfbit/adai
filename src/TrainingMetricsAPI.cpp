@@ -18,6 +18,9 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> m
       allow_control_(allow_control),
       running_(false),
       server_impl_(std::make_unique<ServerImpl>()) {
+    // TODO: See TECHNICAL_DEBT.md TD-018 - Replace flat routes with /api/sessions/{key}/... prefix;
+    //   inject MetricsSessionRegistry*; add GET /api/sessions and GET /api/metrics/aggregate endpoints;
+    //   preserve old flat routes as backwards-compat aliases mapping to key "0-default".
     // Set up HTTP endpoints
 
     // GET /api/metrics/current - Current snapshot

@@ -1128,6 +1128,8 @@ std::string TrainingMetricsService::build_push_url(const std::string& endpoint) 
     if (!url.empty() && url[url.length() - 1] == '/') {
         url = url.substr(0, url.length() - 1);
     }
+    // TODO: See TECHNICAL_DEBT.md TD-018 - Prepend /api/sessions/{session_key}
+    //   to endpoint so each trainer targets its own registry slot.
     return url + endpoint;
 }
 

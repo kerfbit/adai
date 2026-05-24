@@ -142,6 +142,10 @@ struct ServiceConfig {
     /// URL of metrics API daemon (default: http://localhost:8081)
     std::string metrics_server_url = "http://localhost:8081";
 
+    // TODO: See TECHNICAL_DEBT.md TD-018 - Add METRICS_SESSION_KEY (string, default "0-default"),
+    //   METRICS_MAX_LIVE_SESSIONS (int, default 16), METRICS_COMPLETED_TTL_SECONDS (int, default 3600),
+    //   METRICS_SWEEP_INTERVAL_SECONDS (int, default 60); parse in Config.cpp alongside existing keys.
+
     /// HTTP timeout for pushing metrics in milliseconds (default: 1000)
     int metrics_push_timeout_ms = 1000;
 
