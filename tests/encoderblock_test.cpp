@@ -17,10 +17,12 @@ class EncoderBlockTest : public ::testing::Test {
     }
 
     void TearDown() override {
-        // Clean up test files
+        // Clean up test files — save_weights() strips the extension before
+        // appending _attention.bin / _feedforward.bin, so we must do the same.
+        std::string base = test_weights_file.substr(0, test_weights_file.find_last_of('.'));
         std::remove(test_weights_file.c_str());
-        std::remove((test_weights_file + "_attention.bin").c_str());
-        std::remove((test_weights_file + "_feedforward.bin").c_str());
+        std::remove((base + "_attention.bin").c_str());
+        std::remove((base + "_feedforward.bin").c_str());
         std::remove("test_block_2.bin");
         std::remove("test_block_2_attention.bin");
         std::remove("test_block_2_feedforward.bin");
@@ -258,10 +260,13 @@ TEST_F(EncoderBlockTest, BackwardPassGradientFlow) {
 
     block.forward(input);
 
+    // Use non-constant gradients: uniform 1.0 cancels exactly through LayerNorm
+    // backward (sum of deviations from mean = 0), producing mathematically correct
+    // but test-defeating zeros on compilers that don't introduce FP rounding noise.
     Matrix grad_output(8, d_model);
     for (int i = 0; i < grad_output.rows; ++i) {
         for (int j = 0; j < grad_output.cols; ++j) {
-            grad_output.data[i][j] = 1.0f;
+            grad_output.data[i][j] = 0.1f * (i + 1) + 0.01f * (j + 1);
         }
     }
 
