@@ -1,6 +1,9 @@
 #include <gtest/gtest.h>
 #include "TrainingMetricsService.hpp"
 
+// TODO(TD-018): add multi-session registry tests (concurrent session keys,
+// duplicate start conflict, TTL eviction, and aggregate endpoint snapshots).
+
 static MetricsServiceConfig no_persist_resume_config() {
     MetricsServiceConfig cfg;
     cfg.enable_persistence = false;

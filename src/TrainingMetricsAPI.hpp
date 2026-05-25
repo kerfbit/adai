@@ -19,6 +19,8 @@
  * - Non-blocking, optimized for frequent polling
  *
  * Endpoints:
+ * - TODO(TD-018): add session-scoped routes under /api/sessions/{key}/... and keep
+ *   legacy flat routes as compatibility aliases for 0-default.
  * - GET  /api/metrics/current    - Current training snapshot (JSON)
  * - GET  /api/metrics/summary    - Aggregated metrics summary (JSON)
  * - GET  /api/metrics/history    - Historical metrics records (JSON)

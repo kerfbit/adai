@@ -18,6 +18,8 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> m
       allow_control_(allow_control),
       running_(false),
       server_impl_(std::make_unique<ServerImpl>()) {
+        // TODO(TD-018): route handlers should resolve a session key via a registry
+        // (e.g., /api/sessions/{key}/...) instead of binding all requests to one service instance.
     // Set up HTTP endpoints
 
     // GET /api/metrics/current - Current snapshot

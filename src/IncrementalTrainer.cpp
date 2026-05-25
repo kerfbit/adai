@@ -92,6 +92,8 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
     cfg.enable_metrics_service = svc.enable_metrics_service;
     cfg.metrics_push_enabled = svc.metrics_push_enabled;
     cfg.metrics_server_url = svc.metrics_server_url;
+    // TODO(TD-018): include METRICS_SESSION_KEY in push URL base
+    // (/api/sessions/{key}) and derive per-session metrics file paths.
     cfg.metrics_config.enable_push = svc.metrics_push_enabled;
     cfg.metrics_config.push_url = svc.metrics_server_url;
     cfg.metrics_config.push_timeout_ms = svc.metrics_push_timeout_ms;

@@ -4,10 +4,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** May 3, 2026
-**Total Items:** 2
+**Last Updated:** May 25, 2026
+**Total Items:** 3
 **High Priority:** 0
-**Medium Priority:** 1
+**Medium Priority:** 2
 **Low Priority:** 1
 **Future Enhancements:** 19
 **Resolved Items:** 18
@@ -17,6 +17,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 - [Overview](#overview)
 - [Table of Contents](#table-of-contents)
 - [Active Technical Debt](#active-technical-debt)
+  - [TD-018: Multi-Instance Training Metrics Service](#td-018-multi-instance-training-metrics-service)
   - [TD-014: LLM Operations and Training Tooling Suite](#td-014-llm-operations-and-training-tooling-suite)
   - [TD-006: Fill-in-the-Middle (FIM) Training Data Generation](#td-006-fill-in-the-middle-fim-training-data-generation)
 - [Resolved Items](#resolved-items)
@@ -55,6 +56,47 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 - [References](#references)
 
 ## Active Technical Debt
+
+### TD-018: Multi-Instance Training Metrics Service
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|-----------------|
+| MEDIUM | Planned | Training / Metrics / API | May 25, 2026 | 16-32 hours |
+
+Description:
+The metrics stack currently assumes a single active training session and uses shared file paths and flat API routes. Running multiple trainers against one metrics API server can overwrite metrics, cross-contaminate session state, and make dashboards unreliable.
+
+Proposal Reference:
+
+- `docs/development/proposals/multi-instance-metrics-service.md`
+
+Action Items:
+
+- [ ] Add `MetricsSessionRegistry` to own per-session `TrainingMetricsService` instances and enforce live-session caps + TTL eviction.
+- [ ] Add session-scoped API routes under `/api/sessions/{key}/...` and preserve legacy aliases for `0-default`.
+- [ ] Add `GET /api/sessions` and `GET /api/metrics/aggregate` endpoints for discovery and cross-session dashboard summaries.
+- [ ] Derive per-session metrics files (`*_metrics.jsonl`, `*_metrics_summary.json`, `*_metrics.prom`, `*_abnormal_samples.json`) and keep legacy path behavior for `0-default`.
+- [ ] Add config support for `METRICS_SESSION_KEY`, `METRICS_MAX_LIVE_SESSIONS`, `METRICS_COMPLETED_TTL_SECONDS`, `METRICS_SWEEP_INTERVAL_SECONDS`.
+- [ ] Update trainers to send metrics to `/api/sessions/{METRICS_SESSION_KEY}`.
+- [ ] Update singleton/proxy behavior for compatibility with existing `GlobalMetricsService::instance()` call sites.
+- [ ] Add multi-session tests: concurrent sessions, duplicate-start 409 behavior, eviction behavior, and aggregate endpoint coverage.
+
+Files to Modify:
+
+- `src/MetricsSessionRegistry.hpp` (new)
+- `src/TrainingMetricsAPI.hpp`
+- `src/TrainingMetricsAPI.cpp`
+- `src/TrainingMetricsAPIServer.cpp`
+- `src/Config.hpp`
+- `src/Config.cpp`
+- `src/ChatbotTrainer.cpp`
+- `src/IncrementalTrainer.cpp`
+- `src/GlobalMetricsService.hpp` (or equivalent)
+- `tests/training_metrics_service_test.cpp`
+- `config.conf`
+- `docs/development/api/TrainingMetricsAPI.md`
+
+---
 
 ### TD-014: LLM Operations and Training Tooling Suite
 
@@ -1249,10 +1291,10 @@ When resolving a debt item:
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|0|0%|
-|Medium|1|50%|
-|Low|1|50%|
+|Medium|2|67%|
+|Low|1|33%|
 
-**Total Active Items:** 2
+**Total Active Items:** 3
 
 ### By Component
 
@@ -1260,6 +1302,7 @@ When resolving a debt item:
 |----------------------|-------|
 |Training / Data Generation|1|
 |Tooling / Toolchain|1|
+|Training / Metrics / API|1|
 
 ### Effort Distribution
 
@@ -1268,9 +1311,9 @@ When resolving a debt item:
 |0-2 hours|0|
 |2-4 hours|0|
 |4-8 hours|1|
-|8+ hours|0|
+|8+ hours|1|
 
-**Total Estimated Effort (Active Items):** 6-8 hours
+**Total Estimated Effort (Active Items):** 22-40 hours
 
 ### Future Enhancements Summary
 

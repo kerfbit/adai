@@ -342,6 +342,8 @@ class TrainingMetricsService {
 
 /**
  * @brief Global metrics service instance (optional singleton access)
+ * TODO(TD-018): replace singleton backend with MetricsSessionRegistry while preserving
+ * compatibility for existing call sites that assume a single default session.
  */
 class GlobalMetricsService {
    public:

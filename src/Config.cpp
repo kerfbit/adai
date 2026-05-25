@@ -235,6 +235,9 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                     (value == "true" || value == "1" || value == "yes");
             } else if (key == "METRICS_PROMETHEUS_FILE") {
                 config.metrics_prometheus_file = value;
+                // TODO(TD-018): parse METRICS_SESSION_KEY,
+                // METRICS_MAX_LIVE_SESSIONS, METRICS_COMPLETED_TTL_SECONDS,
+                // METRICS_SWEEP_INTERVAL_SECONDS.
             } else if (key == "METRICS_API_PORT") {
                 config.metrics_api_port = std::stoi(value);
             } else if (key == "METRICS_API_ALLOW_CONTROL") {

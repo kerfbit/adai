@@ -63,6 +63,7 @@ void print_usage(const char* program_name) {
     std::cout << "  GET  /api/metrics/summary       - Aggregated metrics summary\n";
     std::cout << "  GET  /api/metrics/history       - Historical records (query params: "
                  "max_records, session_id)\n";
+    std::cout << "  TODO(TD-018): add /api/sessions and /api/sessions/{key}/... endpoints\n";
     std::cout << "  GET  /api/metrics/prometheus    - Prometheus format metrics\n";
     std::cout << "  GET  /api/metrics/csv           - CSV format metrics\n";
     std::cout << "  GET  /api/session/status        - Session status and progress\n";

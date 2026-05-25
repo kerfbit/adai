@@ -1128,6 +1128,7 @@ std::string TrainingMetricsService::format_timestamp(
 #ifdef BUILD_METRICS_API_SERVER
 
 std::string TrainingMetricsService::build_push_url(const std::string& endpoint) const {
+    // TODO(TD-018): prepend /api/sessions/{session_key} for session-scoped routes.
     std::string url = config_.push_url;
     // Remove trailing slash if present
     if (!url.empty() && url[url.length() - 1] == '/') {
@@ -1392,6 +1393,8 @@ std::mutex GlobalMetricsService::instance_mutex_;
 
 TrainingMetricsService& GlobalMetricsService::instance() {
     std::lock_guard<std::mutex> lock(instance_mutex_);
+    // TODO(TD-018): migrate singleton to a MetricsSessionRegistry facade and keep
+    // this accessor as a compatibility proxy for the 0-default session.
     if (!instance_) {
         instance_ = std::make_unique<TrainingMetricsService>();
     }

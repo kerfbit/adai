@@ -172,6 +172,10 @@ struct ServiceConfig {
     /// Path to Prometheus metrics file (default: training_sessions/metrics.prom)
     std::string metrics_prometheus_file = "training_sessions/metrics.prom";
 
+    /// TODO(TD-018): add multi-instance metrics keys:
+    /// METRICS_SESSION_KEY, METRICS_MAX_LIVE_SESSIONS,
+    /// METRICS_COMPLETED_TTL_SECONDS, METRICS_SWEEP_INTERVAL_SECONDS.
+
     /// Port for metrics API server daemon (default: 8081)
     int metrics_api_port = 8081;
 
