@@ -17,18 +17,41 @@
 
 namespace fs = std::filesystem;
 
+namespace {
+
+void ensure_parent_directory(const std::string& file_path) {
+    fs::path path(file_path);
+    if (path.has_parent_path()) {
+        fs::create_directories(path.parent_path());
+    }
+}
+
+void ensure_metrics_output_directories(const MetricsServiceConfig& config) {
+    if (!config.enable_persistence) {
+        return;
+    }
+
+    ensure_parent_directory(config.metrics_file);
+    ensure_parent_directory(config.summary_file);
+    ensure_parent_directory(config.abnormal_samples_file);
+
+    if (config.enable_prometheus_format) {
+        ensure_parent_directory(config.prometheus_file);
+    }
+}
+
+}  // namespace
+
 // ============================================================================
 // TrainingMetricsService Implementation
 // ============================================================================
 
 TrainingMetricsService::TrainingMetricsService(MetricsServiceConfig config)
     : config_(std::move(config)), is_training_(false), current_session_id_(0) {
-    // Ensure metrics directory exists
+    // Ensure all configured output directories exist so callers can safely pass
+    // per-session file paths in the config copy used to construct the service.
     if (config_.enable_persistence) {
-        fs::path metrics_path(config_.metrics_file);
-        if (metrics_path.has_parent_path()) {
-            fs::create_directories(metrics_path.parent_path());
-        }
+        ensure_metrics_output_directories(config_);
         // Restore snapshot from last persisted summary (survives restarts)
         if (fs::exists(config_.summary_file)) {
             restore_from_summary();
@@ -612,6 +635,7 @@ void TrainingMetricsService::clear_history() {
 void TrainingMetricsService::set_config(const MetricsServiceConfig& config) {
     std::lock_guard<std::mutex> lock(mutex_);
     config_ = config;
+    ensure_metrics_output_directories(config_);
 }
 
 MetricsServiceConfig TrainingMetricsService::get_config() const {
@@ -629,6 +653,7 @@ void TrainingMetricsService::persist_metrics() {
     }
 
     try {
+        ensure_parent_directory(config_.metrics_file);
         std::ofstream file(config_.metrics_file, std::ios::app);
         if (!file.is_open()) {
             adai::Logger::warn("Failed to open metrics file: {}", config_.metrics_file);
@@ -663,6 +688,7 @@ void TrainingMetricsService::persist_summary() {
     }
 
     try {
+        ensure_parent_directory(config_.summary_file);
         std::ofstream file(config_.summary_file);
         if (!file.is_open()) {
             adai::Logger::warn("Failed to open summary file: {}", config_.summary_file);
@@ -682,6 +708,7 @@ void TrainingMetricsService::persist_prometheus() {
     }
 
     try {
+        ensure_parent_directory(config_.prometheus_file);
         std::ofstream file(config_.prometheus_file);
         if (!file.is_open()) {
             adai::Logger::warn("Failed to open Prometheus file: {}", config_.prometheus_file);
@@ -697,6 +724,7 @@ void TrainingMetricsService::persist_prometheus() {
 
 void TrainingMetricsService::persist_summary_with_data(const std::string& json_data) {
     try {
+        ensure_parent_directory(config_.summary_file);
         std::ofstream file(config_.summary_file);
         if (!file.is_open()) {
             adai::Logger::warn("Failed to open summary file: {}", config_.summary_file);
@@ -712,6 +740,7 @@ void TrainingMetricsService::persist_summary_with_data(const std::string& json_d
 
 void TrainingMetricsService::persist_prometheus_with_data(const std::string& prometheus_data) {
     try {
+        ensure_parent_directory(config_.prometheus_file);
         std::ofstream file(config_.prometheus_file);
         if (!file.is_open()) {
             adai::Logger::warn("Failed to open Prometheus file: {}", config_.prometheus_file);

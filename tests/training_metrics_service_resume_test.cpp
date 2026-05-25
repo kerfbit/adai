@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <filesystem>
 #include "TrainingMetricsService.hpp"
 
 // TODO(TD-018): add multi-session registry tests (concurrent session keys,
@@ -10,6 +11,47 @@ static MetricsServiceConfig no_persist_resume_config() {
     cfg.enable_push = false;
     cfg.enable_prometheus_format = false;
     return cfg;
+}
+
+TEST(TrainingMetricsServiceConfig, CreatesConfiguredOutputFilesInCustomDirectories) {
+    namespace fs = std::filesystem;
+
+    const fs::path temp_root =
+        fs::temp_directory_path() / "adai_training_metrics_phase1_custom_paths";
+    fs::remove_all(temp_root);
+
+    MetricsServiceConfig cfg;
+    cfg.enable_persistence = true;
+    cfg.enable_push = false;
+    cfg.enable_prometheus_format = true;
+    cfg.persist_every_samples = 1;
+    cfg.metrics_file = (temp_root / "session-a" / "metrics.jsonl").string();
+    cfg.summary_file = (temp_root / "session-a" / "summary.json").string();
+    cfg.prometheus_file = (temp_root / "session-a" / "metrics.prom").string();
+    cfg.abnormal_samples_file = (temp_root / "session-a" / "abnormal.json").string();
+
+    {
+        TrainingMetricsService svc(cfg);
+        svc.start_session(7, 2, 10);
+        svc.update_sample_metrics(1, 1.25f, 0.75f, 0.001f);
+
+        AbnormalSample abnormal;
+        abnormal.epoch = 1;
+        abnormal.sample_id = 1;
+        abnormal.loss = 1.25f;
+        abnormal.grad_norm = 0.75f;
+        abnormal.reason = "test";
+        svc.flag_abnormal_sample(abnormal);
+
+        svc.flush_to_disk();
+    }
+
+    EXPECT_TRUE(fs::exists(cfg.metrics_file));
+    EXPECT_TRUE(fs::exists(cfg.summary_file));
+    EXPECT_TRUE(fs::exists(cfg.prometheus_file));
+    EXPECT_TRUE(fs::exists(cfg.abnormal_samples_file));
+
+    fs::remove_all(temp_root);
 }
 
 TEST(TrainingMetricsServiceResume, StartSessionPreservesBestValidationState) {
