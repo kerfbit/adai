@@ -52,6 +52,9 @@ void TrainingMetricsService::start_session(int session_id, int total_epochs, int
     {
         std::lock_guard<std::mutex> lock(mutex_);
 
+        const float previous_best_validation_loss = current_snapshot_.best_validation_loss;
+        const int previous_best_epoch = current_snapshot_.best_epoch;
+
         current_session_id_ = session_id;
         is_training_ = true;
 
@@ -62,6 +65,8 @@ void TrainingMetricsService::start_session(int session_id, int total_epochs, int
         current_snapshot_.total_samples = total_samples;
         current_snapshot_.session_start_time = std::chrono::system_clock::now();
         current_snapshot_.last_update_time = current_snapshot_.session_start_time;
+        current_snapshot_.best_validation_loss = previous_best_validation_loss;
+        current_snapshot_.best_epoch = previous_best_epoch;
 
         session_start_steady_ = std::chrono::steady_clock::now();
         samples_since_last_persist_ = 0;

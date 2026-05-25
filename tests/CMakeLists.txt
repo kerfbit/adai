@@ -461,6 +461,15 @@ target_link_libraries(paddingEfficiencyTests
 )
 add_test(NAME PaddingEfficiencyTests COMMAND paddingEfficiencyTests)
 
+# TrainingMetricsService resume-state regression tests
+add_executable(trainingMetricsServiceResumeTests training_metrics_service_resume_test.cpp)
+target_include_directories(trainingMetricsServiceResumeTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(trainingMetricsServiceResumeTests
+    adai_core
+    GTest::gtest_main
+)
+add_test(NAME TrainingMetricsServiceResumeTests COMMAND trainingMetricsServiceResumeTests)
+
 # TD-017: Adaptive gradient clipping tests (TrainingMetricsService)
 add_executable(adaptiveClippingTests adaptive_clipping_test.cpp)
 target_include_directories(adaptiveClippingTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
