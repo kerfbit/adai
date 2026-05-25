@@ -1,6 +1,6 @@
 # IncrementalTrainer System - Internal Documentation
 
-**Last Updated:** March 2026
+**Last Updated:** May 2026
 **Component:** IncrementalTrainer
 **Status:** Primary Training System
 
@@ -203,10 +203,11 @@ Process:
 1. Load configuration from file
 2. Build tokenizer from vocab
 3. Construct model with specified architecture
-4. Load existing model if available
-5. Load session history
-6. Load data registry
-7. Initialize auto-save state
+4. Load session history and recover the best checkpoint path, if any
+5. Load the best available checkpoint into the model
+6. If no best checkpoint exists, keep the randomly initialised model weights
+7. Load data registry
+8. Initialize auto-save state
 
 #### Data Management
 
@@ -295,6 +296,8 @@ bool train_incremental(int num_epochs);
 
 **Purpose:** Train only on pending (new) data.
 
+**Startup behavior:** Uses the model already loaded by the trainer. If a best checkpoint exists, the trainer starts from that checkpoint; otherwise it continues from the randomly initialised model weights.
+
 Process:
 
 1. Load all pending data files
@@ -335,6 +338,8 @@ bool train_full_retrain(int num_epochs);
 
 **Purpose:** Retrain from scratch on ALL data (trained + pending).
 
+**Startup behavior:** Resets the model to random weights before loading all data, so full retrain intentionally ignores any previous best checkpoint.
+
 Process:
 
 1. Reset model weights to random initialization
@@ -366,11 +371,12 @@ bool resume_last_session();
 
 Process:
 
-1. Load last checkpoint from session history
-2. Restore model state
-3. Return success/failure
+1. Prefer the in-progress best checkpoint from the interrupted session when available
+2. Otherwise load the best checkpoint recorded in session history
+3. If no best checkpoint exists, continue from the current model weights
+4. Start training on the pending data queue
 
-**Note:** Does not automatically continue training - you must call train methods.
+**Note:** `resume_last_session()` now continues training immediately after restoring weights.
 
 ##### get_session_history()
 

@@ -43,6 +43,8 @@ incremental_trainer retrain 15  # 15 epochs
 incremental_trainer resume
 ```
 
+`train` and `resume` both start from the best saved checkpoint when one exists. If no best checkpoint is available, they start from random initial weights.
+
 ### Status and Monitoring
 
 ```bash
@@ -91,6 +93,8 @@ incremental_trainer add initial_data.txt
 # 4. Train (long initial training)
 incremental_trainer train 20
 ```
+
+If there is already a best checkpoint in the session history, the `train` step resumes from that checkpoint instead of starting from scratch. If none exists, it trains from random weights.
 
 ### Weekly Update Workflow
 

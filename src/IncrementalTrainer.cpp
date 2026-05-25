@@ -166,17 +166,6 @@ IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
     Logger::info("Initializing Incremental Training System...");
     build_model();
 
-    // Try to load existing model checkpoint
-    std::ifstream model_file(model_path_);
-    if (model_file.good()) {
-        try {
-            model->load_model(model_path_);
-            Logger::info("Model loaded from: {}", model_path_);
-        } catch (...) {
-            Logger::warn("Could not load model, using fresh initialization");
-        }
-    }
-
     ensure_directories_exist();
     load_session_history();
     load_data_registry();
@@ -270,17 +259,6 @@ IncrementalTrainer::IncrementalTrainer(std::string vocab_path, const std::string
     // Build model using default config.
     build_model();
 
-    // Try to load existing model checkpoint
-    std::ifstream model_file(model_path);
-    if (model_file.good()) {
-        try {
-            model->load_model(model_path);
-            Logger::info("Model loaded from: {}", model_path);
-        } catch (...) {
-            Logger::warn("Could not load model, using fresh initialization");
-        }
-    }
-
     ensure_directories_exist();
     load_session_history();
     load_data_registry();
@@ -348,17 +326,6 @@ IncrementalTrainer::IncrementalTrainer(std::string vocab_path, const std::string
     }
 
     build_model();
-
-    // Try to load existing model checkpoint
-    std::ifstream model_file(model_path);
-    if (model_file.good()) {
-        try {
-            model->load_model(model_path);
-            Logger::info("Model loaded from: {}", model_path);
-        } catch (...) {
-            Logger::warn("Could not load model, using fresh initialization");
-        }
-    }
 
     ensure_directories_exist();
     load_session_history();
@@ -819,9 +786,6 @@ bool IncrementalTrainer::resume_last_session() {
         resume_checkpoint = in_progress_best;
     } else if (resume_checkpoint.empty() && !session_history.empty()) {
         resume_checkpoint = session_history.back().checkpoint_path;
-    } else if (resume_checkpoint.empty() && fs::exists(model_path_ + ".config")) {
-        // Fallback: explicit model path from config (e.g. session_N_best.bin)
-        resume_checkpoint = model_path_;
     }
 
     if (resume_checkpoint.empty()) {
