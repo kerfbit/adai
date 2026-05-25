@@ -30,7 +30,15 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
         else()
             list(APPEND _RELEASE_FLAGS -march=x86-64)
         endif()
-        add_compile_options(${_RELEASE_FLAGS})
+        # Apply aggressive CPU flags only to C/C++.
+        # Passing -march/-mtune fast-math flags through nvcc can cause toolchain
+        # instability on some hosts, so CUDA compilation uses its own defaults.
+        foreach(_flag IN LISTS _RELEASE_FLAGS)
+            add_compile_options(
+                $<$<COMPILE_LANGUAGE:CXX>:${_flag}>
+                $<$<COMPILE_LANGUAGE:C>:${_flag}>
+            )
+        endforeach()
         if(PORTABLE_BUILD)
             message(STATUS "Release mode: Portable build (-O3 -march=x86-64, SSE2 baseline)")
         else()

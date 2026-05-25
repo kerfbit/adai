@@ -799,27 +799,56 @@ bool IncrementalTrainer::train_full_retrain(int num_epochs) {
 }
 
 bool IncrementalTrainer::resume_last_session() {
-    if (session_history.empty()) {
-        Logger::warn("No previous sessions to resume");
+    if (pending_data_files.empty()) {
+        Logger::warn("No pending data files to resume training on");
         return false;
     }
 
-    const auto& last_session = session_history.back();
+    std::string resume_checkpoint = best_checkpoint_path;
+    int resume_session_id = -1;
 
-    // Validate checkpoint path
-    if (last_session.checkpoint_path.empty()) {
-        Logger::error("Invalid session: checkpoint path is empty");
-        return false;
+    if (!session_history.empty()) {
+        resume_session_id = session_history.back().session_id;
+    }
+
+    std::ostringstream in_progress_oss;
+    in_progress_oss << get_session_dir() << "/session_" << current_session_id << "_best.bin";
+    const std::string in_progress_best = in_progress_oss.str();
+
+    if (fs::exists(in_progress_best + ".config")) {
+        resume_checkpoint = in_progress_best;
+    } else if (resume_checkpoint.empty() && !session_history.empty()) {
+        resume_checkpoint = session_history.back().checkpoint_path;
+    } else if (resume_checkpoint.empty() && fs::exists(model_path_ + ".config")) {
+        // Fallback: explicit model path from config (e.g. session_N_best.bin)
+        resume_checkpoint = model_path_;
+    }
+
+    if (resume_checkpoint.empty()) {
+        Logger::warn(
+            "No resumable checkpoint metadata found; continuing from currently loaded model "
+            "weights");
+        return train_incremental(config.base_config.num_epochs);
     }
 
     // Check if checkpoint files exist (check for .config which should always be present)
-    if (!fs::exists(last_session.checkpoint_path + ".config")) {
-        Logger::error("Checkpoint file not found: {}.config", last_session.checkpoint_path);
+    if (!fs::exists(resume_checkpoint + ".config")) {
+        Logger::error("Checkpoint file not found: {}.config", resume_checkpoint);
         return false;
     }
 
-    Logger::info("Resuming from session #{}", last_session.session_id);
-    return load_model(last_session.checkpoint_path);
+    if (resume_session_id >= 0) {
+        Logger::info("Resuming training from session #{} using checkpoint {}", resume_session_id,
+                     resume_checkpoint);
+    } else {
+        Logger::info("Resuming training using checkpoint {}", resume_checkpoint);
+    }
+
+    if (!load_model(resume_checkpoint)) {
+        return false;
+    }
+
+    return train_incremental(config.base_config.num_epochs);
 }
 
 bool IncrementalTrainer::load_session_history() {
@@ -1549,7 +1578,15 @@ void IncrementalTrainer::ensure_directories_exist() {
 bool IncrementalTrainer::save_pending_data_list() {
     std::string pending_file = get_session_dir() + "/pending_files.txt";
     std::ofstream file(pending_file);
-    return file.is_open();
+    if (!file.is_open()) {
+        return false;
+    }
+
+    for (const auto& pending_file_path : pending_data_files) {
+        file << pending_file_path << '\n';
+    }
+
+    return true;
 }
 
 bool IncrementalTrainer::load_pending_data_list() {
