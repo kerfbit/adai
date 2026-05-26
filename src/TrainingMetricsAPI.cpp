@@ -12,6 +12,29 @@ class TrainingMetricsAPI::ServerImpl {
     httplib::Server server;
 };
 
+namespace {
+
+class ApiRequestError : public std::runtime_error {
+   public:
+    ApiRequestError(int status_code, const std::string& message)
+        : std::runtime_error(message), status_code_(status_code) {}
+
+    int status_code() const {
+        return status_code_;
+    }
+
+   private:
+    int status_code_;
+};
+
+void set_legacy_deprecation_headers(httplib::Response& res,
+                                    const std::string& replacement_path) {
+    res.set_header("Deprecation", "true");
+    res.set_header("Link", replacement_path);
+}
+
+}  // namespace
+
 TrainingMetricsAPI::TrainingMetricsAPI(
     std::shared_ptr<MetricsSessionRegistry> session_registry, int port, bool allow_control)
     : session_registry_(std::move(session_registry)),
@@ -20,12 +43,6 @@ TrainingMetricsAPI::TrainingMetricsAPI(
       running_(false),
       server_impl_(std::make_unique<ServerImpl>()) {
     const std::string key_pattern = "([A-Za-z0-9][A-Za-z0-9_\\-]{0,63})";
-
-    auto add_legacy_deprecation_headers = [](httplib::Response& res,
-                                             const std::string& replacement_path) {
-        res.set_header("Deprecation", "true");
-        res.set_header("Link", replacement_path);
-    };
 
     // Set up session-scoped HTTP endpoints
     server_impl_->server.Get("/api/sessions", [this](const httplib::Request&, httplib::Response& res) {
@@ -58,6 +75,9 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                 std::string response = handle_current_metrics(req.matches[1]);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 500;
@@ -70,6 +90,9 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                 std::string response = handle_metrics_summary(req.matches[1]);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 500;
@@ -94,6 +117,9 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                 std::string response = handle_metrics_history(req.matches[1], query_params);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 500;
@@ -106,6 +132,9 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                 std::string response = handle_prometheus_metrics(req.matches[1]);
                 res.set_content(response, "text/plain");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 500;
@@ -118,6 +147,9 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                 std::string response = handle_csv_metrics(req.matches[1]);
                 res.set_content(response, "text/csv");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 500;
@@ -130,6 +162,9 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                 std::string response = handle_session_status(req.matches[1]);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 500;
@@ -142,6 +177,9 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                 std::string response = handle_epoch_metrics(req.matches[1]);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 500;
@@ -154,6 +192,9 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                 std::string response = handle_abnormal_samples(req.matches[1]);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 500;
@@ -166,6 +207,9 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                 std::string response = handle_generation_quality_metrics(req.matches[1]);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 500;
@@ -178,6 +222,9 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                 std::string response = handle_padding_efficiency_metrics(req.matches[1]);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 500;
@@ -190,6 +237,9 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                 std::string response = handle_post_session_start(req.matches[1], req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
@@ -202,6 +252,9 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                 std::string response = handle_post_session_end(req.matches[1]);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
@@ -214,6 +267,9 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                 std::string response = handle_post_epoch_start(req.matches[1], req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
@@ -226,6 +282,9 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                 std::string response = handle_post_epoch_end(req.matches[1], req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
@@ -238,6 +297,9 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                 std::string response = handle_post_sample_metrics(req.matches[1], req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
@@ -251,6 +313,9 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                     handle_post_validation_metrics(req.matches[1], req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
@@ -263,6 +328,9 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                 std::string response = handle_post_best_metrics(req.matches[1], req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
@@ -275,6 +343,9 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                 std::string response = handle_post_advanced_metrics(req.matches[1], req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
@@ -288,6 +359,9 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                 handle_post_generation_quality_metrics(req.matches[1], req.body);
             res.set_content(response, "application/json");
             res.status = 200;
+        } catch (const ApiRequestError& e) {
+            res.set_content(create_error_response(e.what()), "application/json");
+            res.status = e.status_code();
         } catch (const std::exception& e) {
             res.set_content(create_error_response(e.what()), "application/json");
             res.status = 400;
@@ -302,6 +376,9 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                     std::string response = handle_flush_control(req.matches[1]);
                     res.set_content(response, "application/json");
                     res.status = 200;
+                } catch (const ApiRequestError& e) {
+                    res.set_content(create_error_response(e.what()), "application/json");
+                    res.status = e.status_code();
                 } catch (const std::exception& e) {
                     res.set_content(create_error_response(e.what()), "application/json");
                     res.status = 500;
@@ -314,6 +391,9 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                     std::string response = handle_clear_control(req.matches[1]);
                     res.set_content(response, "application/json");
                     res.status = 200;
+                } catch (const ApiRequestError& e) {
+                    res.set_content(create_error_response(e.what()), "application/json");
+                    res.status = e.status_code();
                 } catch (const std::exception& e) {
                     res.set_content(create_error_response(e.what()), "application/json");
                     res.status = 500;
@@ -323,11 +403,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(
 
     // Legacy aliases for the 0-default session
     server_impl_->server.Get("/api/metrics/current",
-                             [this, &add_legacy_deprecation_headers](const httplib::Request&,
-                                                                     httplib::Response& res) {
+                             [this](const httplib::Request&, httplib::Response& res) {
                                  try {
                                      std::string response = handle_current_metrics("0-default");
-                                     add_legacy_deprecation_headers(
+                                     set_legacy_deprecation_headers(
                                          res, "/api/sessions/0-default/metrics/current");
                                      res.set_content(response, "application/json");
                                      res.status = 200;
@@ -339,11 +418,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                              });
 
     server_impl_->server.Get("/api/metrics/summary",
-                             [this, &add_legacy_deprecation_headers](const httplib::Request&,
-                                                                     httplib::Response& res) {
+                             [this](const httplib::Request&, httplib::Response& res) {
                                  try {
                                      std::string response = handle_metrics_summary("0-default");
-                                     add_legacy_deprecation_headers(
+                                     set_legacy_deprecation_headers(
                                          res, "/api/sessions/0-default/metrics/summary");
                                      res.set_content(response, "application/json");
                                      res.status = 200;
@@ -355,8 +433,7 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                              });
 
     server_impl_->server.Get("/api/metrics/history",
-                             [this, &add_legacy_deprecation_headers](const httplib::Request& req,
-                                                                     httplib::Response& res) {
+                             [this](const httplib::Request& req, httplib::Response& res) {
                                  try {
                                      std::string query_params;
                                      if (req.has_param("max_records")) {
@@ -373,7 +450,7 @@ TrainingMetricsAPI::TrainingMetricsAPI(
 
                                      std::string response =
                                          handle_metrics_history("0-default", query_params);
-                                     add_legacy_deprecation_headers(
+                                     set_legacy_deprecation_headers(
                                          res, "/api/sessions/0-default/metrics/history");
                                      res.set_content(response, "application/json");
                                      res.status = 200;
@@ -385,11 +462,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                              });
 
     server_impl_->server.Get("/api/metrics/prometheus",
-                             [this, &add_legacy_deprecation_headers](const httplib::Request&,
-                                                                     httplib::Response& res) {
+                             [this](const httplib::Request&, httplib::Response& res) {
                                  try {
                                      std::string response = handle_prometheus_metrics("0-default");
-                                     add_legacy_deprecation_headers(
+                                     set_legacy_deprecation_headers(
                                          res, "/api/sessions/0-default/metrics/prometheus");
                                      res.set_content(response, "text/plain");
                                      res.status = 200;
@@ -401,11 +477,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                              });
 
     server_impl_->server.Get("/api/metrics/csv",
-                             [this, &add_legacy_deprecation_headers](const httplib::Request&,
-                                                                     httplib::Response& res) {
+                             [this](const httplib::Request&, httplib::Response& res) {
                                  try {
                                      std::string response = handle_csv_metrics("0-default");
-                                     add_legacy_deprecation_headers(
+                                     set_legacy_deprecation_headers(
                                          res, "/api/sessions/0-default/metrics/csv");
                                      res.set_content(response, "text/csv");
                                      res.status = 200;
@@ -417,11 +492,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                              });
 
     server_impl_->server.Get("/api/metrics/abnormal",
-                             [this, &add_legacy_deprecation_headers](const httplib::Request&,
-                                                                     httplib::Response& res) {
+                             [this](const httplib::Request&, httplib::Response& res) {
                                  try {
                                      std::string response = handle_abnormal_samples("0-default");
-                                     add_legacy_deprecation_headers(
+                                     set_legacy_deprecation_headers(
                                          res, "/api/sessions/0-default/metrics/abnormal");
                                      res.set_content(response, "application/json");
                                      res.status = 200;
@@ -433,12 +507,11 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                              });
 
     server_impl_->server.Get("/api/metrics/generation-quality",
-                             [this, &add_legacy_deprecation_headers](const httplib::Request&,
-                                                                     httplib::Response& res) {
+                             [this](const httplib::Request&, httplib::Response& res) {
                                  try {
                                      std::string response =
                                          handle_generation_quality_metrics("0-default");
-                                     add_legacy_deprecation_headers(
+                                     set_legacy_deprecation_headers(
                                          res,
                                          "/api/sessions/0-default/metrics/generation-quality");
                                      res.set_content(response, "application/json");
@@ -451,12 +524,11 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                              });
 
     server_impl_->server.Get("/api/metrics/padding-efficiency",
-                             [this, &add_legacy_deprecation_headers](const httplib::Request&,
-                                                                     httplib::Response& res) {
+                             [this](const httplib::Request&, httplib::Response& res) {
                                  try {
                                      std::string response =
                                          handle_padding_efficiency_metrics("0-default");
-                                     add_legacy_deprecation_headers(
+                                     set_legacy_deprecation_headers(
                                          res,
                                          "/api/sessions/0-default/metrics/padding-efficiency");
                                      res.set_content(response, "application/json");
@@ -469,11 +541,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                              });
 
     server_impl_->server.Get("/api/session/status",
-                             [this, &add_legacy_deprecation_headers](const httplib::Request&,
-                                                                     httplib::Response& res) {
+                             [this](const httplib::Request&, httplib::Response& res) {
                                  try {
                                      std::string response = handle_session_status("0-default");
-                                     add_legacy_deprecation_headers(
+                                     set_legacy_deprecation_headers(
                                          res, "/api/sessions/0-default/status");
                                      res.set_content(response, "application/json");
                                      res.status = 200;
@@ -485,11 +556,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                              });
 
     server_impl_->server.Get("/api/session/epochs",
-                             [this, &add_legacy_deprecation_headers](const httplib::Request&,
-                                                                     httplib::Response& res) {
+                             [this](const httplib::Request&, httplib::Response& res) {
                                  try {
                                      std::string response = handle_epoch_metrics("0-default");
-                                     add_legacy_deprecation_headers(
+                                     set_legacy_deprecation_headers(
                                          res, "/api/sessions/0-default/epochs");
                                      res.set_content(response, "application/json");
                                      res.status = 200;
@@ -501,15 +571,20 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                              });
 
     server_impl_->server.Post("/api/session/start",
-                              [this, &add_legacy_deprecation_headers](const httplib::Request& req,
-                                                                      httplib::Response& res) {
+                              [this](const httplib::Request& req, httplib::Response& res) {
                                   try {
                                       std::string response =
                                           handle_post_session_start("0-default", req.body);
-                                      add_legacy_deprecation_headers(
+                                      set_legacy_deprecation_headers(
                                           res, "/api/sessions/0-default/start");
                                       res.set_content(response, "application/json");
                                       res.status = 200;
+                                  } catch (const ApiRequestError& e) {
+                                      set_legacy_deprecation_headers(
+                                          res, "/api/sessions/0-default/start");
+                                      res.set_content(create_error_response(e.what()),
+                                                      "application/json");
+                                      res.status = e.status_code();
                                   } catch (const std::exception& e) {
                                       res.set_content(create_error_response(e.what()),
                                                       "application/json");
@@ -518,11 +593,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                               });
 
     server_impl_->server.Post("/api/session/end",
-                              [this, &add_legacy_deprecation_headers](const httplib::Request&,
-                                                                      httplib::Response& res) {
+                              [this](const httplib::Request&, httplib::Response& res) {
                                   try {
                                       std::string response = handle_post_session_end("0-default");
-                                      add_legacy_deprecation_headers(
+                                      set_legacy_deprecation_headers(
                                           res, "/api/sessions/0-default/end");
                                       res.set_content(response, "application/json");
                                       res.status = 200;
@@ -534,12 +608,11 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                               });
 
     server_impl_->server.Post("/api/epoch/start",
-                              [this, &add_legacy_deprecation_headers](const httplib::Request& req,
-                                                                      httplib::Response& res) {
+                              [this](const httplib::Request& req, httplib::Response& res) {
                                   try {
                                       std::string response =
                                           handle_post_epoch_start("0-default", req.body);
-                                      add_legacy_deprecation_headers(
+                                      set_legacy_deprecation_headers(
                                           res, "/api/sessions/0-default/epoch/start");
                                       res.set_content(response, "application/json");
                                       res.status = 200;
@@ -551,12 +624,11 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                               });
 
     server_impl_->server.Post("/api/epoch/end",
-                              [this, &add_legacy_deprecation_headers](const httplib::Request& req,
-                                                                      httplib::Response& res) {
+                              [this](const httplib::Request& req, httplib::Response& res) {
                                   try {
                                       std::string response =
                                           handle_post_epoch_end("0-default", req.body);
-                                      add_legacy_deprecation_headers(
+                                      set_legacy_deprecation_headers(
                                           res, "/api/sessions/0-default/epoch/end");
                                       res.set_content(response, "application/json");
                                       res.status = 200;
@@ -568,12 +640,11 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                               });
 
     server_impl_->server.Post("/api/metrics/sample",
-                              [this, &add_legacy_deprecation_headers](const httplib::Request& req,
-                                                                      httplib::Response& res) {
+                              [this](const httplib::Request& req, httplib::Response& res) {
                                   try {
                                       std::string response =
                                           handle_post_sample_metrics("0-default", req.body);
-                                      add_legacy_deprecation_headers(
+                                      set_legacy_deprecation_headers(
                                           res, "/api/sessions/0-default/metrics/sample");
                                       res.set_content(response, "application/json");
                                       res.status = 200;
@@ -586,11 +657,11 @@ TrainingMetricsAPI::TrainingMetricsAPI(
 
     server_impl_->server.Post(
         "/api/metrics/validation",
-        [this, &add_legacy_deprecation_headers](const httplib::Request& req,
-                                                httplib::Response& res) {
+        [this](const httplib::Request& req, httplib::Response& res) {
             try {
                 std::string response = handle_post_validation_metrics("0-default", req.body);
-                add_legacy_deprecation_headers(res, "/api/sessions/0-default/metrics/validation");
+                set_legacy_deprecation_headers(res,
+                                               "/api/sessions/0-default/metrics/validation");
                 res.set_content(response, "application/json");
                 res.status = 200;
             } catch (const std::exception& e) {
@@ -600,12 +671,11 @@ TrainingMetricsAPI::TrainingMetricsAPI(
         });
 
     server_impl_->server.Post("/api/metrics/best",
-                              [this, &add_legacy_deprecation_headers](const httplib::Request& req,
-                                                                      httplib::Response& res) {
+                              [this](const httplib::Request& req, httplib::Response& res) {
                                   try {
                                       std::string response =
                                           handle_post_best_metrics("0-default", req.body);
-                                      add_legacy_deprecation_headers(
+                                      set_legacy_deprecation_headers(
                                           res, "/api/sessions/0-default/metrics/best");
                                       res.set_content(response, "application/json");
                                       res.status = 200;
@@ -618,11 +688,11 @@ TrainingMetricsAPI::TrainingMetricsAPI(
 
     server_impl_->server.Post(
         "/api/metrics/advanced",
-        [this, &add_legacy_deprecation_headers](const httplib::Request& req,
-                                                httplib::Response& res) {
+        [this](const httplib::Request& req, httplib::Response& res) {
             try {
                 std::string response = handle_post_advanced_metrics("0-default", req.body);
-                add_legacy_deprecation_headers(res, "/api/sessions/0-default/metrics/advanced");
+                set_legacy_deprecation_headers(res,
+                                               "/api/sessions/0-default/metrics/advanced");
                 res.set_content(response, "application/json");
                 res.status = 200;
             } catch (const std::exception& e) {
@@ -633,13 +703,12 @@ TrainingMetricsAPI::TrainingMetricsAPI(
 
     server_impl_->server.Post(
         "/api/metrics/generation-quality",
-        [this, &add_legacy_deprecation_headers](const httplib::Request& req,
-                                                httplib::Response& res) {
+        [this](const httplib::Request& req, httplib::Response& res) {
             try {
                 std::string response =
                     handle_post_generation_quality_metrics("0-default", req.body);
-                add_legacy_deprecation_headers(res,
-                                               "/api/sessions/0-default/metrics/generation-quality");
+                set_legacy_deprecation_headers(
+                    res, "/api/sessions/0-default/metrics/generation-quality");
                 res.set_content(response, "application/json");
                 res.status = 200;
             } catch (const std::exception& e) {
@@ -650,12 +719,11 @@ TrainingMetricsAPI::TrainingMetricsAPI(
 
     if (allow_control_) {
         server_impl_->server.Post("/api/control/flush",
-                                  [this, &add_legacy_deprecation_headers](const httplib::Request&,
-                                                                          httplib::Response& res) {
+                                  [this](const httplib::Request&, httplib::Response& res) {
                                       try {
                                           std::string response =
                                               handle_flush_control("0-default");
-                                          add_legacy_deprecation_headers(
+                                          set_legacy_deprecation_headers(
                                               res, "/api/sessions/0-default/control/flush");
                                           res.set_content(response, "application/json");
                                           res.status = 200;
@@ -667,12 +735,11 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                                   });
 
         server_impl_->server.Post("/api/control/clear",
-                                  [this, &add_legacy_deprecation_headers](const httplib::Request&,
-                                                                          httplib::Response& res) {
+                                  [this](const httplib::Request&, httplib::Response& res) {
                                       try {
                                           std::string response =
                                               handle_clear_control("0-default");
-                                          add_legacy_deprecation_headers(
+                                          set_legacy_deprecation_headers(
                                               res, "/api/sessions/0-default/control/clear");
                                           res.set_content(response, "application/json");
                                           res.status = 200;
@@ -1200,6 +1267,13 @@ int TrainingMetricsAPI::parse_query_param_int(const std::string& query, const st
 std::string TrainingMetricsAPI::handle_post_session_start(const std::string& session_key,
                                                           const std::string& body) {
     auto service = resolve_session_service(session_key, true);
+
+    const auto snapshot = service->get_current_snapshot();
+    if (snapshot.is_training) {
+        throw ApiRequestError(409,
+                              "session already active for key: " + session_key);
+    }
+
     // Parse JSON body: {"session_id": int, "total_epochs": int, "total_samples": int}
     int session_id = 0;
     int total_epochs = 0;
@@ -1610,16 +1684,20 @@ std::string TrainingMetricsAPI::handle_post_advanced_metrics(const std::string& 
 std::shared_ptr<TrainingMetricsService> TrainingMetricsAPI::resolve_session_service(
     const std::string& session_key, bool create_if_missing) const {
     if (!is_valid_session_key(session_key)) {
-        throw std::invalid_argument("Invalid session key format");
+        throw ApiRequestError(400, "Invalid session key format");
     }
 
     if (create_if_missing) {
-        return session_registry_->create_or_get_session(session_key);
+        auto service = session_registry_->create_or_get_session(session_key);
+        if (!service) {
+            throw ApiRequestError(503, "metrics_server_full");
+        }
+        return service;
     }
 
     auto service = session_registry_->get_session(session_key);
     if (!service.has_value()) {
-        throw std::runtime_error("Unknown session key: " + session_key);
+        throw ApiRequestError(404, "Unknown session key: " + session_key);
     }
 
     return service.value();

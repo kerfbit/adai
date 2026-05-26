@@ -479,6 +479,21 @@ target_link_libraries(metricsSessionRegistryTests
 )
 add_test(NAME MetricsSessionRegistryTests COMMAND metricsSessionRegistryTests)
 
+# TD-018 phase 3: TrainingMetricsAPI session routing + compatibility aliases
+if(TARGET adai_metrics_api)
+    add_executable(trainingMetricsApiRoutesTests training_metrics_api_routes_test.cpp)
+    target_include_directories(trainingMetricsApiRoutesTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(trainingMetricsApiRoutesTests
+        adai_metrics_api
+        adai_core
+        GTest::gtest_main
+    )
+    if(HTTPLIB_INCLUDE_DIR)
+        target_include_directories(trainingMetricsApiRoutesTests PRIVATE ${HTTPLIB_INCLUDE_DIR})
+    endif()
+    add_test(NAME TrainingMetricsAPIRoutesTests COMMAND trainingMetricsApiRoutesTests)
+endif()
+
 # TD-017: Adaptive gradient clipping tests (TrainingMetricsService)
 add_executable(adaptiveClippingTests adaptive_clipping_test.cpp)
 target_include_directories(adaptiveClippingTests PRIVATE ${CMAKE_SOURCE_DIR}/src)

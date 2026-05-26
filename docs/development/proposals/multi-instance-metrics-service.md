@@ -1,4 +1,4 @@
-# Proposal: Multi-Instance Training Metrics Service
+IMplement# Proposal: Multi-Instance Training Metrics Service
 
 **Status:** Draft  
 **Date:** 2026-05-21  
