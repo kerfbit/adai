@@ -61,10 +61,19 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|-----------------|
-| MEDIUM | Planned | Training / Metrics / API | May 25, 2026 | 16-32 hours |
+| MEDIUM | In Progress | Training / Metrics / API | May 25, 2026 | 16-32 hours |
 
 Description:
 The metrics stack currently assumes a single active training session and uses shared file paths and flat API routes. Running multiple trainers against one metrics API server can overwrite metrics, cross-contaminate session state, and make dashboards unreliable.
+
+Recent Progress:
+
+- Phase 1 from the proposal is complete: `TrainingMetricsService` now safely supports caller-provided per-instance output paths by preparing configured parent directories for metrics, summary, Prometheus, and abnormal-sample files.
+- Added a narrow regression test proving custom nested output paths work end-to-end via `TrainingMetricsService` configuration.
+- Phase 2 from the proposal is complete: `MetricsSessionRegistry` now owns per-session services, supports safe lookup/create flows, derives per-session file paths while preserving `0-default` legacy paths, and includes completed-session TTL eviction.
+- Phase 3 implementation has started and is compiling: `TrainingMetricsAPI` now supports session-scoped routes under `/api/sessions/{key}/...`, legacy aliases for `0-default`, plus `GET /api/sessions` and `GET /api/metrics/aggregate`.
+- `TrainingMetricsAPIServer` now wires through `MetricsSessionRegistry` and constructs the API with registry ownership instead of a single global service.
+- Remaining work: config keys, trainer session-key wiring, singleton compatibility, and expanded API/multi-session test coverage.
 
 Proposal Reference:
 
@@ -72,10 +81,11 @@ Proposal Reference:
 
 Action Items:
 
-- [ ] Add `MetricsSessionRegistry` to own per-session `TrainingMetricsService` instances and enforce live-session caps + TTL eviction.
-- [ ] Add session-scoped API routes under `/api/sessions/{key}/...` and preserve legacy aliases for `0-default`.
-- [ ] Add `GET /api/sessions` and `GET /api/metrics/aggregate` endpoints for discovery and cross-session dashboard summaries.
-- [ ] Derive per-session metrics files (`*_metrics.jsonl`, `*_metrics_summary.json`, `*_metrics.prom`, `*_abnormal_samples.json`) and keep legacy path behavior for `0-default`.
+- [x] Add `MetricsSessionRegistry` to own per-session `TrainingMetricsService` instances and enforce live-session caps + TTL eviction.
+- [x] Add session-scoped API routes under `/api/sessions/{key}/...` and preserve legacy aliases for `0-default`.
+- [x] Add `GET /api/sessions` and `GET /api/metrics/aggregate` endpoints for discovery and cross-session dashboard summaries.
+- [x] Phase 1: ensure `TrainingMetricsService` fully honors configured per-instance file paths and create regression coverage for custom output locations.
+- [x] Derive per-session metrics files (`*_metrics.jsonl`, `*_metrics_summary.json`, `*_metrics.prom`, `*_abnormal_samples.json`) and keep legacy path behavior for `0-default`.
 - [ ] Add config support for `METRICS_SESSION_KEY`, `METRICS_MAX_LIVE_SESSIONS`, `METRICS_COMPLETED_TTL_SECONDS`, `METRICS_SWEEP_INTERVAL_SECONDS`.
 - [ ] Update trainers to send metrics to `/api/sessions/{METRICS_SESSION_KEY}`.
 - [ ] Update singleton/proxy behavior for compatibility with existing `GlobalMetricsService::instance()` call sites.
@@ -92,6 +102,8 @@ Files to Modify:
 - `src/ChatbotTrainer.cpp`
 - `src/IncrementalTrainer.cpp`
 - `src/GlobalMetricsService.hpp` (or equivalent)
+- `src/TrainingMetricsService.cpp`
+- `tests/training_metrics_service_resume_test.cpp`
 - `tests/training_metrics_service_test.cpp`
 - `config.conf`
 - `docs/development/api/TrainingMetricsAPI.md`

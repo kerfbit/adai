@@ -3,7 +3,7 @@
 #include <atomic>
 #include <memory>
 #include <string>
-#include "TrainingMetricsService.hpp"
+#include "MetricsSessionRegistry.hpp"
 
 /**
  * @brief REST API for TrainingMetricsService - Provides HTTP endpoints for polling training metrics
@@ -43,19 +43,19 @@
  * - GET  /health                 - API health check
  *
  * Usage:
- *   auto metrics_service = std::make_shared<TrainingMetricsService>(config);
- *   TrainingMetricsAPI api(metrics_service, 8081);
+ *   auto registry = std::make_shared<MetricsSessionRegistry>(config);
+ *   TrainingMetricsAPI api(registry, 8081);
  *   api.start();  // Blocking - runs server on port 8081
  */
 class TrainingMetricsAPI {
    public:
     /**
      * @brief Construct the metrics REST API
-     * @param metrics_service Shared pointer to the metrics service to expose
+      * @param session_registry Shared pointer to the metrics session registry
      * @param port Port number to listen on (default: 8081)
      * @param allow_control Enable control endpoints (flush, clear) - default: true
      */
-    explicit TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> metrics_service,
+     explicit TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> session_registry,
                                 int port = 8081, bool allow_control = true);
 
     /**
@@ -96,39 +96,48 @@ class TrainingMetricsAPI {
 
    private:
     // HTTP endpoint handlers (return JSON/plain text)
-    std::string handle_current_metrics();
-    std::string handle_metrics_summary();
-    std::string handle_metrics_history(const std::string& query_params);
-    std::string handle_prometheus_metrics();
-    std::string handle_csv_metrics();
-    std::string handle_session_status();
-    std::string handle_epoch_metrics();
-    std::string handle_abnormal_samples();            // TD-013: outlier samples
-    std::string handle_generation_quality_metrics();  // BLEU/ROUGE scores
-    std::string handle_padding_efficiency_metrics();  // Batch padding efficiency history
-    std::string handle_flush_control();
-    std::string handle_clear_control();
+    std::string handle_current_metrics(const std::string& session_key);
+    std::string handle_metrics_summary(const std::string& session_key);
+    std::string handle_metrics_history(const std::string& session_key,
+                                       const std::string& query_params);
+    std::string handle_prometheus_metrics(const std::string& session_key);
+    std::string handle_csv_metrics(const std::string& session_key);
+    std::string handle_session_status(const std::string& session_key);
+    std::string handle_epoch_metrics(const std::string& session_key);
+    std::string handle_abnormal_samples(const std::string& session_key);  // TD-013: outlier samples
+    std::string handle_generation_quality_metrics(const std::string& session_key);  // BLEU/ROUGE
+    std::string handle_padding_efficiency_metrics(const std::string& session_key);  // Batch padding
+    std::string handle_sessions_list();
+    std::string handle_metrics_aggregate();
+    std::string handle_flush_control(const std::string& session_key);
+    std::string handle_clear_control(const std::string& session_key);
     std::string handle_health_check();
 
     // POST endpoint handlers for receiving metrics updates
-    std::string handle_post_session_start(const std::string& body);
-    std::string handle_post_session_end();
-    std::string handle_post_epoch_start(const std::string& body);
-    std::string handle_post_epoch_end(const std::string& body);
-    std::string handle_post_sample_metrics(const std::string& body);
-    std::string handle_post_validation_metrics(const std::string& body);
-    std::string handle_post_best_metrics(const std::string& body);
-    std::string handle_post_advanced_metrics(const std::string& body);
-    std::string handle_post_generation_quality_metrics(const std::string& body);  // TD-016
+    std::string handle_post_session_start(const std::string& session_key, const std::string& body);
+    std::string handle_post_session_end(const std::string& session_key);
+    std::string handle_post_epoch_start(const std::string& session_key, const std::string& body);
+    std::string handle_post_epoch_end(const std::string& session_key, const std::string& body);
+    std::string handle_post_sample_metrics(const std::string& session_key, const std::string& body);
+    std::string handle_post_validation_metrics(const std::string& session_key,
+                                               const std::string& body);
+    std::string handle_post_best_metrics(const std::string& session_key, const std::string& body);
+    std::string handle_post_advanced_metrics(const std::string& session_key,
+                                             const std::string& body);
+    std::string handle_post_generation_quality_metrics(const std::string& session_key,
+                                                       const std::string& body);  // TD-016
 
     // Helper functions
     static std::string create_error_response(const std::string& error_message);
     static std::string escape_json(const std::string& s);
     static int parse_query_param_int(const std::string& query, const std::string& param,
                                      int default_value);
+    static bool is_valid_session_key(const std::string& key);
+    std::shared_ptr<TrainingMetricsService> resolve_session_service(const std::string& session_key,
+                                                                    bool create_if_missing) const;
 
     // Members
-    std::shared_ptr<TrainingMetricsService> metrics_service_;
+    std::shared_ptr<MetricsSessionRegistry> session_registry_;
     int port_;
     bool allow_control_;
     std::atomic<bool> running_;

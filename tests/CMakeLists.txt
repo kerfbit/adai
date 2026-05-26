@@ -470,6 +470,15 @@ target_link_libraries(trainingMetricsServiceResumeTests
 )
 add_test(NAME TrainingMetricsServiceResumeTests COMMAND trainingMetricsServiceResumeTests)
 
+# TD-018 phase 2: MetricsSessionRegistry tests
+add_executable(metricsSessionRegistryTests metrics_session_registry_test.cpp)
+target_include_directories(metricsSessionRegistryTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(metricsSessionRegistryTests
+    adai_core
+    GTest::gtest_main
+)
+add_test(NAME MetricsSessionRegistryTests COMMAND metricsSessionRegistryTests)
+
 # TD-017: Adaptive gradient clipping tests (TrainingMetricsService)
 add_executable(adaptiveClippingTests adaptive_clipping_test.cpp)
 target_include_directories(adaptiveClippingTests PRIVATE ${CMAKE_SOURCE_DIR}/src)

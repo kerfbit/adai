@@ -4,7 +4,9 @@
 #include <iostream>
 #include <memory>
 #include <thread>
+#include <vector>
 #include "TrainingMetricsAPI.hpp"
+#include "MetricsSessionRegistry.hpp"
 #include "TrainingMetricsService.hpp"
 
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
@@ -63,7 +65,9 @@ void print_usage(const char* program_name) {
     std::cout << "  GET  /api/metrics/summary       - Aggregated metrics summary\n";
     std::cout << "  GET  /api/metrics/history       - Historical records (query params: "
                  "max_records, session_id)\n";
-    std::cout << "  TODO(TD-018): add /api/sessions and /api/sessions/{key}/... endpoints\n";
+    std::cout << "  GET  /api/sessions              - List tracked sessions\n";
+    std::cout << "  GET  /api/metrics/aggregate     - Aggregate live session metrics\n";
+    std::cout << "  GET  /api/sessions/{key}/...    - Session-scoped endpoints\n";
     std::cout << "  GET  /api/metrics/prometheus    - Prometheus format metrics\n";
     std::cout << "  GET  /api/metrics/csv           - CSV format metrics\n";
     std::cout << "  GET  /api/session/status        - Session status and progress\n";
@@ -157,10 +161,11 @@ int main(int argc, char* argv[]) {
         metrics_config.max_records_on_disk = server_config.max_records_on_disk;
         metrics_config.enable_prometheus_format = server_config.enable_prometheus;
 
-        // Create metrics service
-        std::cout << "[1/3] Initializing metrics service...\n";
-        auto metrics_service = std::make_shared<TrainingMetricsService>(metrics_config);
-        std::cout << "  ✓ Metrics service initialized\n";
+        // Create registry-backed metrics services
+        std::cout << "[1/3] Initializing metrics session registry...\n";
+        auto session_registry = std::make_shared<MetricsSessionRegistry>(metrics_config);
+        auto metrics_service = session_registry->create_or_get_session("0-default");
+        std::cout << "  ✓ Metrics session registry initialized\n";
 
         if (server_config.enable_persistence) {
             std::cout << "  ✓ Persistence enabled:\n";
@@ -177,7 +182,7 @@ int main(int argc, char* argv[]) {
         }
 
         std::cout << "\n[2/3] Creating REST API...\n";
-        auto api = std::make_unique<TrainingMetricsAPI>(metrics_service, server_config.port,
+        auto api = std::make_unique<TrainingMetricsAPI>(session_registry, server_config.port,
                                                         server_config.allow_control);
         std::cout << "  ✓ API initialized\n";
 
@@ -198,6 +203,9 @@ int main(int argc, char* argv[]) {
         std::cout << "  GET  /api/metrics/current       - Current training snapshot\n";
         std::cout << "  GET  /api/metrics/summary       - Aggregated metrics summary\n";
         std::cout << "  GET  /api/metrics/history       - Historical records\n";
+        std::cout << "  GET  /api/sessions              - List tracked sessions\n";
+        std::cout << "  GET  /api/metrics/aggregate     - Aggregate live sessions\n";
+        std::cout << "  GET  /api/sessions/{key}/...    - Session-scoped endpoints\n";
         std::cout << "  GET  /api/metrics/prometheus    - Prometheus format\n";
         std::cout << "  GET  /api/metrics/csv           - CSV format\n";
         std::cout << "  GET  /api/session/status        - Session status\n";
@@ -245,6 +253,16 @@ int main(int argc, char* argv[]) {
 
             std::cout << "[2/2] Flushing metrics to disk...\n";
             metrics_service->flush_to_disk();
+            const auto sessions = session_registry->list_sessions();
+            for (const auto& summary : sessions) {
+                if (summary.key == "0-default") {
+                    continue;
+                }
+                auto service = session_registry->get_session(summary.key);
+                if (service.has_value()) {
+                    service.value()->flush_to_disk();
+                }
+            }
             std::cout << "  ✓ Metrics persisted\n";
 
             std::cout << "\nServer stopped successfully\n";

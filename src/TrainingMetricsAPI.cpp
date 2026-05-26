@@ -1,6 +1,7 @@
 #include "TrainingMetricsAPI.hpp"
 #include <httplib.h>
 #include <algorithm>
+#include <cctype>
 #include <iomanip>
 #include <sstream>
 #include <utility>
@@ -11,22 +12,50 @@ class TrainingMetricsAPI::ServerImpl {
     httplib::Server server;
 };
 
-TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> metrics_service,
-                                       int port, bool allow_control)
-    : metrics_service_(std::move(metrics_service)),
+TrainingMetricsAPI::TrainingMetricsAPI(
+    std::shared_ptr<MetricsSessionRegistry> session_registry, int port, bool allow_control)
+    : session_registry_(std::move(session_registry)),
       port_(port),
       allow_control_(allow_control),
       running_(false),
       server_impl_(std::make_unique<ServerImpl>()) {
-        // TODO(TD-018): route handlers should resolve a session key via a registry
-        // (e.g., /api/sessions/{key}/...) instead of binding all requests to one service instance.
-    // Set up HTTP endpoints
+    const std::string key_pattern = "([A-Za-z0-9][A-Za-z0-9_\\-]{0,63})";
 
-    // GET /api/metrics/current - Current snapshot
-    server_impl_->server.Get(
-        "/api/metrics/current", [this](const httplib::Request&, httplib::Response& res) {
+    auto add_legacy_deprecation_headers = [](httplib::Response& res,
+                                             const std::string& replacement_path) {
+        res.set_header("Deprecation", "true");
+        res.set_header("Link", replacement_path);
+    };
+
+    // Set up session-scoped HTTP endpoints
+    server_impl_->server.Get("/api/sessions", [this](const httplib::Request&, httplib::Response& res) {
+        try {
+            std::string response = handle_sessions_list();
+            res.set_content(response, "application/json");
+            res.status = 200;
+        } catch (const std::exception& e) {
+            res.set_content(create_error_response(e.what()), "application/json");
+            res.status = 500;
+        }
+    });
+
+    server_impl_->server.Get("/api/metrics/aggregate",
+                             [this](const httplib::Request&, httplib::Response& res) {
+                                 try {
+                                     std::string response = handle_metrics_aggregate();
+                                     res.set_content(response, "application/json");
+                                     res.status = 200;
+                                 } catch (const std::exception& e) {
+                                     res.set_content(create_error_response(e.what()),
+                                                     "application/json");
+                                     res.status = 500;
+                                 }
+                             });
+
+    server_impl_->server.Get("/api/sessions/" + key_pattern + "/metrics/current",
+                             [this](const httplib::Request& req, httplib::Response& res) {
             try {
-                std::string response = handle_current_metrics();
+                std::string response = handle_current_metrics(req.matches[1]);
                 res.set_content(response, "application/json");
                 res.status = 200;
             } catch (const std::exception& e) {
@@ -35,11 +64,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> m
             }
         });
 
-    // GET /api/metrics/summary - Summary
-    server_impl_->server.Get(
-        "/api/metrics/summary", [this](const httplib::Request&, httplib::Response& res) {
+    server_impl_->server.Get("/api/sessions/" + key_pattern + "/metrics/summary",
+                             [this](const httplib::Request& req, httplib::Response& res) {
             try {
-                std::string response = handle_metrics_summary();
+                std::string response = handle_metrics_summary(req.matches[1]);
                 res.set_content(response, "application/json");
                 res.status = 200;
             } catch (const std::exception& e) {
@@ -48,9 +76,8 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> m
             }
         });
 
-    // GET /api/metrics/history - Historical records
-    server_impl_->server.Get(
-        "/api/metrics/history", [this](const httplib::Request& req, httplib::Response& res) {
+    server_impl_->server.Get("/api/sessions/" + key_pattern + "/metrics/history",
+                             [this](const httplib::Request& req, httplib::Response& res) {
             try {
                 // Build query string from params
                 std::string query_params;
@@ -64,7 +91,7 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> m
                     query_params += "session_id=" + req.get_param_value("session_id");
                 }
 
-                std::string response = handle_metrics_history(query_params);
+                std::string response = handle_metrics_history(req.matches[1], query_params);
                 res.set_content(response, "application/json");
                 res.status = 200;
             } catch (const std::exception& e) {
@@ -73,11 +100,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> m
             }
         });
 
-    // GET /api/metrics/prometheus - Prometheus format
-    server_impl_->server.Get(
-        "/api/metrics/prometheus", [this](const httplib::Request&, httplib::Response& res) {
+    server_impl_->server.Get("/api/sessions/" + key_pattern + "/metrics/prometheus",
+                             [this](const httplib::Request& req, httplib::Response& res) {
             try {
-                std::string response = handle_prometheus_metrics();
+                std::string response = handle_prometheus_metrics(req.matches[1]);
                 res.set_content(response, "text/plain");
                 res.status = 200;
             } catch (const std::exception& e) {
@@ -86,11 +112,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> m
             }
         });
 
-    // GET /api/metrics/csv - CSV format
-    server_impl_->server.Get(
-        "/api/metrics/csv", [this](const httplib::Request&, httplib::Response& res) {
+    server_impl_->server.Get("/api/sessions/" + key_pattern + "/metrics/csv",
+                             [this](const httplib::Request& req, httplib::Response& res) {
             try {
-                std::string response = handle_csv_metrics();
+                std::string response = handle_csv_metrics(req.matches[1]);
                 res.set_content(response, "text/csv");
                 res.status = 200;
             } catch (const std::exception& e) {
@@ -99,11 +124,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> m
             }
         });
 
-    // GET /api/session/status - Session status
-    server_impl_->server.Get(
-        "/api/session/status", [this](const httplib::Request&, httplib::Response& res) {
+    server_impl_->server.Get("/api/sessions/" + key_pattern + "/status",
+                             [this](const httplib::Request& req, httplib::Response& res) {
             try {
-                std::string response = handle_session_status();
+                std::string response = handle_session_status(req.matches[1]);
                 res.set_content(response, "application/json");
                 res.status = 200;
             } catch (const std::exception& e) {
@@ -112,11 +136,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> m
             }
         });
 
-    // GET /api/session/epochs - Epoch metrics
-    server_impl_->server.Get(
-        "/api/session/epochs", [this](const httplib::Request&, httplib::Response& res) {
+    server_impl_->server.Get("/api/sessions/" + key_pattern + "/epochs",
+                             [this](const httplib::Request& req, httplib::Response& res) {
             try {
-                std::string response = handle_epoch_metrics();
+                std::string response = handle_epoch_metrics(req.matches[1]);
                 res.set_content(response, "application/json");
                 res.status = 200;
             } catch (const std::exception& e) {
@@ -125,11 +148,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> m
             }
         });
 
-    // GET /api/metrics/abnormal - Outlier samples (TD-013)
-    server_impl_->server.Get(
-        "/api/metrics/abnormal", [this](const httplib::Request&, httplib::Response& res) {
+    server_impl_->server.Get("/api/sessions/" + key_pattern + "/metrics/abnormal",
+                             [this](const httplib::Request& req, httplib::Response& res) {
             try {
-                std::string response = handle_abnormal_samples();
+                std::string response = handle_abnormal_samples(req.matches[1]);
                 res.set_content(response, "application/json");
                 res.status = 200;
             } catch (const std::exception& e) {
@@ -138,11 +160,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> m
             }
         });
 
-    // GET /api/metrics/generation-quality - BLEU/ROUGE generation quality scores
-    server_impl_->server.Get(
-        "/api/metrics/generation-quality", [this](const httplib::Request&, httplib::Response& res) {
+    server_impl_->server.Get("/api/sessions/" + key_pattern + "/metrics/generation-quality",
+                             [this](const httplib::Request& req, httplib::Response& res) {
             try {
-                std::string response = handle_generation_quality_metrics();
+                std::string response = handle_generation_quality_metrics(req.matches[1]);
                 res.set_content(response, "application/json");
                 res.status = 200;
             } catch (const std::exception& e) {
@@ -151,11 +172,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> m
             }
         });
 
-    // GET /api/metrics/padding-efficiency - Batch padding efficiency history
-    server_impl_->server.Get(
-        "/api/metrics/padding-efficiency", [this](const httplib::Request&, httplib::Response& res) {
+    server_impl_->server.Get("/api/sessions/" + key_pattern + "/metrics/padding-efficiency",
+                             [this](const httplib::Request& req, httplib::Response& res) {
             try {
-                std::string response = handle_padding_efficiency_metrics();
+                std::string response = handle_padding_efficiency_metrics(req.matches[1]);
                 res.set_content(response, "application/json");
                 res.status = 200;
             } catch (const std::exception& e) {
@@ -164,12 +184,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> m
             }
         });
 
-    // POST endpoints for receiving metrics updates from trainers
-    // POST /api/session/start - Start new training session
-    server_impl_->server.Post(
-        "/api/session/start", [this](const httplib::Request& req, httplib::Response& res) {
+    server_impl_->server.Post("/api/sessions/" + key_pattern + "/start",
+                              [this](const httplib::Request& req, httplib::Response& res) {
             try {
-                std::string response = handle_post_session_start(req.body);
+                std::string response = handle_post_session_start(req.matches[1], req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
             } catch (const std::exception& e) {
@@ -178,11 +196,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> m
             }
         });
 
-    // POST /api/session/end - End current training session
-    server_impl_->server.Post(
-        "/api/session/end", [this](const httplib::Request&, httplib::Response& res) {
+    server_impl_->server.Post("/api/sessions/" + key_pattern + "/end",
+                              [this](const httplib::Request& req, httplib::Response& res) {
             try {
-                std::string response = handle_post_session_end();
+                std::string response = handle_post_session_end(req.matches[1]);
                 res.set_content(response, "application/json");
                 res.status = 200;
             } catch (const std::exception& e) {
@@ -191,11 +208,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> m
             }
         });
 
-    // POST /api/epoch/start - Start new epoch
-    server_impl_->server.Post(
-        "/api/epoch/start", [this](const httplib::Request& req, httplib::Response& res) {
+    server_impl_->server.Post("/api/sessions/" + key_pattern + "/epoch/start",
+                              [this](const httplib::Request& req, httplib::Response& res) {
             try {
-                std::string response = handle_post_epoch_start(req.body);
+                std::string response = handle_post_epoch_start(req.matches[1], req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
             } catch (const std::exception& e) {
@@ -204,11 +220,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> m
             }
         });
 
-    // POST /api/epoch/end - End current epoch
-    server_impl_->server.Post(
-        "/api/epoch/end", [this](const httplib::Request& req, httplib::Response& res) {
+    server_impl_->server.Post("/api/sessions/" + key_pattern + "/epoch/end",
+                              [this](const httplib::Request& req, httplib::Response& res) {
             try {
-                std::string response = handle_post_epoch_end(req.body);
+                std::string response = handle_post_epoch_end(req.matches[1], req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
             } catch (const std::exception& e) {
@@ -217,11 +232,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> m
             }
         });
 
-    // POST /api/metrics/sample - Update sample metrics
-    server_impl_->server.Post(
-        "/api/metrics/sample", [this](const httplib::Request& req, httplib::Response& res) {
+    server_impl_->server.Post("/api/sessions/" + key_pattern + "/metrics/sample",
+                              [this](const httplib::Request& req, httplib::Response& res) {
             try {
-                std::string response = handle_post_sample_metrics(req.body);
+                std::string response = handle_post_sample_metrics(req.matches[1], req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
             } catch (const std::exception& e) {
@@ -230,11 +244,11 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> m
             }
         });
 
-    // POST /api/metrics/validation - Update validation metrics
-    server_impl_->server.Post(
-        "/api/metrics/validation", [this](const httplib::Request& req, httplib::Response& res) {
+    server_impl_->server.Post("/api/sessions/" + key_pattern + "/metrics/validation",
+                              [this](const httplib::Request& req, httplib::Response& res) {
             try {
-                std::string response = handle_post_validation_metrics(req.body);
+                std::string response =
+                    handle_post_validation_metrics(req.matches[1], req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
             } catch (const std::exception& e) {
@@ -243,11 +257,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> m
             }
         });
 
-    // POST /api/metrics/best - Update best metrics
-    server_impl_->server.Post(
-        "/api/metrics/best", [this](const httplib::Request& req, httplib::Response& res) {
+    server_impl_->server.Post("/api/sessions/" + key_pattern + "/metrics/best",
+                              [this](const httplib::Request& req, httplib::Response& res) {
             try {
-                std::string response = handle_post_best_metrics(req.body);
+                std::string response = handle_post_best_metrics(req.matches[1], req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
             } catch (const std::exception& e) {
@@ -256,11 +269,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> m
             }
         });
 
-    // POST /api/metrics/advanced - Update advanced diagnostic metrics (TD-013)
-    server_impl_->server.Post(
-        "/api/metrics/advanced", [this](const httplib::Request& req, httplib::Response& res) {
+    server_impl_->server.Post("/api/sessions/" + key_pattern + "/metrics/advanced",
+                              [this](const httplib::Request& req, httplib::Response& res) {
             try {
-                std::string response = handle_post_advanced_metrics(req.body);
+                std::string response = handle_post_advanced_metrics(req.matches[1], req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
             } catch (const std::exception& e) {
@@ -269,11 +281,11 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> m
             }
         });
 
-    // POST /api/metrics/generation-quality - Update BLEU/ROUGE scores (TD-016)
-    server_impl_->server.Post("/api/metrics/generation-quality", [this](const httplib::Request& req,
-                                                                        httplib::Response& res) {
+    server_impl_->server.Post("/api/sessions/" + key_pattern + "/metrics/generation-quality",
+                              [this](const httplib::Request& req, httplib::Response& res) {
         try {
-            std::string response = handle_post_generation_quality_metrics(req.body);
+            std::string response =
+                handle_post_generation_quality_metrics(req.matches[1], req.body);
             res.set_content(response, "application/json");
             res.status = 200;
         } catch (const std::exception& e) {
@@ -284,11 +296,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> m
 
     // Control endpoints (if enabled)
     if (allow_control_) {
-        // POST /api/control/flush - Flush to disk
-        server_impl_->server.Post(
-            "/api/control/flush", [this](const httplib::Request&, httplib::Response& res) {
+        server_impl_->server.Post("/api/sessions/" + key_pattern + "/control/flush",
+                                  [this](const httplib::Request& req, httplib::Response& res) {
                 try {
-                    std::string response = handle_flush_control();
+                    std::string response = handle_flush_control(req.matches[1]);
                     res.set_content(response, "application/json");
                     res.status = 200;
                 } catch (const std::exception& e) {
@@ -297,11 +308,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> m
                 }
             });
 
-        // POST /api/control/clear - Clear history
-        server_impl_->server.Post(
-            "/api/control/clear", [this](const httplib::Request&, httplib::Response& res) {
+        server_impl_->server.Post("/api/sessions/" + key_pattern + "/control/clear",
+                                  [this](const httplib::Request& req, httplib::Response& res) {
                 try {
-                    std::string response = handle_clear_control();
+                    std::string response = handle_clear_control(req.matches[1]);
                     res.set_content(response, "application/json");
                     res.status = 200;
                 } catch (const std::exception& e) {
@@ -309,6 +319,369 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<TrainingMetricsService> m
                     res.status = 500;
                 }
             });
+    }
+
+    // Legacy aliases for the 0-default session
+    server_impl_->server.Get("/api/metrics/current",
+                             [this, &add_legacy_deprecation_headers](const httplib::Request&,
+                                                                     httplib::Response& res) {
+                                 try {
+                                     std::string response = handle_current_metrics("0-default");
+                                     add_legacy_deprecation_headers(
+                                         res, "/api/sessions/0-default/metrics/current");
+                                     res.set_content(response, "application/json");
+                                     res.status = 200;
+                                 } catch (const std::exception& e) {
+                                     res.set_content(create_error_response(e.what()),
+                                                     "application/json");
+                                     res.status = 500;
+                                 }
+                             });
+
+    server_impl_->server.Get("/api/metrics/summary",
+                             [this, &add_legacy_deprecation_headers](const httplib::Request&,
+                                                                     httplib::Response& res) {
+                                 try {
+                                     std::string response = handle_metrics_summary("0-default");
+                                     add_legacy_deprecation_headers(
+                                         res, "/api/sessions/0-default/metrics/summary");
+                                     res.set_content(response, "application/json");
+                                     res.status = 200;
+                                 } catch (const std::exception& e) {
+                                     res.set_content(create_error_response(e.what()),
+                                                     "application/json");
+                                     res.status = 500;
+                                 }
+                             });
+
+    server_impl_->server.Get("/api/metrics/history",
+                             [this, &add_legacy_deprecation_headers](const httplib::Request& req,
+                                                                     httplib::Response& res) {
+                                 try {
+                                     std::string query_params;
+                                     if (req.has_param("max_records")) {
+                                         query_params =
+                                             "max_records=" + req.get_param_value("max_records");
+                                     }
+                                     if (req.has_param("session_id")) {
+                                         if (!query_params.empty()) {
+                                             query_params += "&";
+                                         }
+                                         query_params +=
+                                             "session_id=" + req.get_param_value("session_id");
+                                     }
+
+                                     std::string response =
+                                         handle_metrics_history("0-default", query_params);
+                                     add_legacy_deprecation_headers(
+                                         res, "/api/sessions/0-default/metrics/history");
+                                     res.set_content(response, "application/json");
+                                     res.status = 200;
+                                 } catch (const std::exception& e) {
+                                     res.set_content(create_error_response(e.what()),
+                                                     "application/json");
+                                     res.status = 500;
+                                 }
+                             });
+
+    server_impl_->server.Get("/api/metrics/prometheus",
+                             [this, &add_legacy_deprecation_headers](const httplib::Request&,
+                                                                     httplib::Response& res) {
+                                 try {
+                                     std::string response = handle_prometheus_metrics("0-default");
+                                     add_legacy_deprecation_headers(
+                                         res, "/api/sessions/0-default/metrics/prometheus");
+                                     res.set_content(response, "text/plain");
+                                     res.status = 200;
+                                 } catch (const std::exception& e) {
+                                     res.set_content(create_error_response(e.what()),
+                                                     "application/json");
+                                     res.status = 500;
+                                 }
+                             });
+
+    server_impl_->server.Get("/api/metrics/csv",
+                             [this, &add_legacy_deprecation_headers](const httplib::Request&,
+                                                                     httplib::Response& res) {
+                                 try {
+                                     std::string response = handle_csv_metrics("0-default");
+                                     add_legacy_deprecation_headers(
+                                         res, "/api/sessions/0-default/metrics/csv");
+                                     res.set_content(response, "text/csv");
+                                     res.status = 200;
+                                 } catch (const std::exception& e) {
+                                     res.set_content(create_error_response(e.what()),
+                                                     "application/json");
+                                     res.status = 500;
+                                 }
+                             });
+
+    server_impl_->server.Get("/api/metrics/abnormal",
+                             [this, &add_legacy_deprecation_headers](const httplib::Request&,
+                                                                     httplib::Response& res) {
+                                 try {
+                                     std::string response = handle_abnormal_samples("0-default");
+                                     add_legacy_deprecation_headers(
+                                         res, "/api/sessions/0-default/metrics/abnormal");
+                                     res.set_content(response, "application/json");
+                                     res.status = 200;
+                                 } catch (const std::exception& e) {
+                                     res.set_content(create_error_response(e.what()),
+                                                     "application/json");
+                                     res.status = 500;
+                                 }
+                             });
+
+    server_impl_->server.Get("/api/metrics/generation-quality",
+                             [this, &add_legacy_deprecation_headers](const httplib::Request&,
+                                                                     httplib::Response& res) {
+                                 try {
+                                     std::string response =
+                                         handle_generation_quality_metrics("0-default");
+                                     add_legacy_deprecation_headers(
+                                         res,
+                                         "/api/sessions/0-default/metrics/generation-quality");
+                                     res.set_content(response, "application/json");
+                                     res.status = 200;
+                                 } catch (const std::exception& e) {
+                                     res.set_content(create_error_response(e.what()),
+                                                     "application/json");
+                                     res.status = 500;
+                                 }
+                             });
+
+    server_impl_->server.Get("/api/metrics/padding-efficiency",
+                             [this, &add_legacy_deprecation_headers](const httplib::Request&,
+                                                                     httplib::Response& res) {
+                                 try {
+                                     std::string response =
+                                         handle_padding_efficiency_metrics("0-default");
+                                     add_legacy_deprecation_headers(
+                                         res,
+                                         "/api/sessions/0-default/metrics/padding-efficiency");
+                                     res.set_content(response, "application/json");
+                                     res.status = 200;
+                                 } catch (const std::exception& e) {
+                                     res.set_content(create_error_response(e.what()),
+                                                     "application/json");
+                                     res.status = 500;
+                                 }
+                             });
+
+    server_impl_->server.Get("/api/session/status",
+                             [this, &add_legacy_deprecation_headers](const httplib::Request&,
+                                                                     httplib::Response& res) {
+                                 try {
+                                     std::string response = handle_session_status("0-default");
+                                     add_legacy_deprecation_headers(
+                                         res, "/api/sessions/0-default/status");
+                                     res.set_content(response, "application/json");
+                                     res.status = 200;
+                                 } catch (const std::exception& e) {
+                                     res.set_content(create_error_response(e.what()),
+                                                     "application/json");
+                                     res.status = 500;
+                                 }
+                             });
+
+    server_impl_->server.Get("/api/session/epochs",
+                             [this, &add_legacy_deprecation_headers](const httplib::Request&,
+                                                                     httplib::Response& res) {
+                                 try {
+                                     std::string response = handle_epoch_metrics("0-default");
+                                     add_legacy_deprecation_headers(
+                                         res, "/api/sessions/0-default/epochs");
+                                     res.set_content(response, "application/json");
+                                     res.status = 200;
+                                 } catch (const std::exception& e) {
+                                     res.set_content(create_error_response(e.what()),
+                                                     "application/json");
+                                     res.status = 500;
+                                 }
+                             });
+
+    server_impl_->server.Post("/api/session/start",
+                              [this, &add_legacy_deprecation_headers](const httplib::Request& req,
+                                                                      httplib::Response& res) {
+                                  try {
+                                      std::string response =
+                                          handle_post_session_start("0-default", req.body);
+                                      add_legacy_deprecation_headers(
+                                          res, "/api/sessions/0-default/start");
+                                      res.set_content(response, "application/json");
+                                      res.status = 200;
+                                  } catch (const std::exception& e) {
+                                      res.set_content(create_error_response(e.what()),
+                                                      "application/json");
+                                      res.status = 400;
+                                  }
+                              });
+
+    server_impl_->server.Post("/api/session/end",
+                              [this, &add_legacy_deprecation_headers](const httplib::Request&,
+                                                                      httplib::Response& res) {
+                                  try {
+                                      std::string response = handle_post_session_end("0-default");
+                                      add_legacy_deprecation_headers(
+                                          res, "/api/sessions/0-default/end");
+                                      res.set_content(response, "application/json");
+                                      res.status = 200;
+                                  } catch (const std::exception& e) {
+                                      res.set_content(create_error_response(e.what()),
+                                                      "application/json");
+                                      res.status = 400;
+                                  }
+                              });
+
+    server_impl_->server.Post("/api/epoch/start",
+                              [this, &add_legacy_deprecation_headers](const httplib::Request& req,
+                                                                      httplib::Response& res) {
+                                  try {
+                                      std::string response =
+                                          handle_post_epoch_start("0-default", req.body);
+                                      add_legacy_deprecation_headers(
+                                          res, "/api/sessions/0-default/epoch/start");
+                                      res.set_content(response, "application/json");
+                                      res.status = 200;
+                                  } catch (const std::exception& e) {
+                                      res.set_content(create_error_response(e.what()),
+                                                      "application/json");
+                                      res.status = 400;
+                                  }
+                              });
+
+    server_impl_->server.Post("/api/epoch/end",
+                              [this, &add_legacy_deprecation_headers](const httplib::Request& req,
+                                                                      httplib::Response& res) {
+                                  try {
+                                      std::string response =
+                                          handle_post_epoch_end("0-default", req.body);
+                                      add_legacy_deprecation_headers(
+                                          res, "/api/sessions/0-default/epoch/end");
+                                      res.set_content(response, "application/json");
+                                      res.status = 200;
+                                  } catch (const std::exception& e) {
+                                      res.set_content(create_error_response(e.what()),
+                                                      "application/json");
+                                      res.status = 400;
+                                  }
+                              });
+
+    server_impl_->server.Post("/api/metrics/sample",
+                              [this, &add_legacy_deprecation_headers](const httplib::Request& req,
+                                                                      httplib::Response& res) {
+                                  try {
+                                      std::string response =
+                                          handle_post_sample_metrics("0-default", req.body);
+                                      add_legacy_deprecation_headers(
+                                          res, "/api/sessions/0-default/metrics/sample");
+                                      res.set_content(response, "application/json");
+                                      res.status = 200;
+                                  } catch (const std::exception& e) {
+                                      res.set_content(create_error_response(e.what()),
+                                                      "application/json");
+                                      res.status = 400;
+                                  }
+                              });
+
+    server_impl_->server.Post(
+        "/api/metrics/validation",
+        [this, &add_legacy_deprecation_headers](const httplib::Request& req,
+                                                httplib::Response& res) {
+            try {
+                std::string response = handle_post_validation_metrics("0-default", req.body);
+                add_legacy_deprecation_headers(res, "/api/sessions/0-default/metrics/validation");
+                res.set_content(response, "application/json");
+                res.status = 200;
+            } catch (const std::exception& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 400;
+            }
+        });
+
+    server_impl_->server.Post("/api/metrics/best",
+                              [this, &add_legacy_deprecation_headers](const httplib::Request& req,
+                                                                      httplib::Response& res) {
+                                  try {
+                                      std::string response =
+                                          handle_post_best_metrics("0-default", req.body);
+                                      add_legacy_deprecation_headers(
+                                          res, "/api/sessions/0-default/metrics/best");
+                                      res.set_content(response, "application/json");
+                                      res.status = 200;
+                                  } catch (const std::exception& e) {
+                                      res.set_content(create_error_response(e.what()),
+                                                      "application/json");
+                                      res.status = 400;
+                                  }
+                              });
+
+    server_impl_->server.Post(
+        "/api/metrics/advanced",
+        [this, &add_legacy_deprecation_headers](const httplib::Request& req,
+                                                httplib::Response& res) {
+            try {
+                std::string response = handle_post_advanced_metrics("0-default", req.body);
+                add_legacy_deprecation_headers(res, "/api/sessions/0-default/metrics/advanced");
+                res.set_content(response, "application/json");
+                res.status = 200;
+            } catch (const std::exception& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 400;
+            }
+        });
+
+    server_impl_->server.Post(
+        "/api/metrics/generation-quality",
+        [this, &add_legacy_deprecation_headers](const httplib::Request& req,
+                                                httplib::Response& res) {
+            try {
+                std::string response =
+                    handle_post_generation_quality_metrics("0-default", req.body);
+                add_legacy_deprecation_headers(res,
+                                               "/api/sessions/0-default/metrics/generation-quality");
+                res.set_content(response, "application/json");
+                res.status = 200;
+            } catch (const std::exception& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 400;
+            }
+        });
+
+    if (allow_control_) {
+        server_impl_->server.Post("/api/control/flush",
+                                  [this, &add_legacy_deprecation_headers](const httplib::Request&,
+                                                                          httplib::Response& res) {
+                                      try {
+                                          std::string response =
+                                              handle_flush_control("0-default");
+                                          add_legacy_deprecation_headers(
+                                              res, "/api/sessions/0-default/control/flush");
+                                          res.set_content(response, "application/json");
+                                          res.status = 200;
+                                      } catch (const std::exception& e) {
+                                          res.set_content(create_error_response(e.what()),
+                                                          "application/json");
+                                          res.status = 500;
+                                      }
+                                  });
+
+        server_impl_->server.Post("/api/control/clear",
+                                  [this, &add_legacy_deprecation_headers](const httplib::Request&,
+                                                                          httplib::Response& res) {
+                                      try {
+                                          std::string response =
+                                              handle_clear_control("0-default");
+                                          add_legacy_deprecation_headers(
+                                              res, "/api/sessions/0-default/control/clear");
+                                          res.set_content(response, "application/json");
+                                          res.status = 200;
+                                      } catch (const std::exception& e) {
+                                          res.set_content(create_error_response(e.what()),
+                                                          "application/json");
+                                          res.status = 500;
+                                      }
+                                  });
     }
 
     // GET /health - Health check
@@ -368,15 +741,19 @@ void TrainingMetricsAPI::stop() {
 // HTTP Endpoint Handlers
 // ============================================================================
 
-std::string TrainingMetricsAPI::handle_current_metrics() {
-    return metrics_service_->to_json();
+std::string TrainingMetricsAPI::handle_current_metrics(const std::string& session_key) {
+    auto service = resolve_session_service(session_key, false);
+    return service->to_json();
 }
 
-std::string TrainingMetricsAPI::handle_metrics_summary() {
-    return metrics_service_->to_json_summary();
+std::string TrainingMetricsAPI::handle_metrics_summary(const std::string& session_key) {
+    auto service = resolve_session_service(session_key, false);
+    return service->to_json_summary();
 }
 
-std::string TrainingMetricsAPI::handle_metrics_history(const std::string& query_params) {
+std::string TrainingMetricsAPI::handle_metrics_history(const std::string& session_key,
+                                                       const std::string& query_params) {
+    auto service = resolve_session_service(session_key, false);
     // Parse query parameters
     int max_records = parse_query_param_int(query_params, "max_records", 1000);
     int session_id = parse_query_param_int(query_params, "session_id", -1);
@@ -384,9 +761,9 @@ std::string TrainingMetricsAPI::handle_metrics_history(const std::string& query_
     // Get history
     std::vector<PersistentMetricsRecord> history;
     if (session_id >= 0) {
-        history = metrics_service_->get_session_history(session_id);
+        history = service->get_session_history(session_id);
     } else {
-        history = metrics_service_->get_history(max_records);
+        history = service->get_history(max_records);
     }
 
     // Convert to JSON array
@@ -417,19 +794,22 @@ std::string TrainingMetricsAPI::handle_metrics_history(const std::string& query_
     return json.str();
 }
 
-std::string TrainingMetricsAPI::handle_prometheus_metrics() {
-    return metrics_service_->to_prometheus();
+std::string TrainingMetricsAPI::handle_prometheus_metrics(const std::string& session_key) {
+    auto service = resolve_session_service(session_key, false);
+    return service->to_prometheus();
 }
 
-std::string TrainingMetricsAPI::handle_csv_metrics() {
+std::string TrainingMetricsAPI::handle_csv_metrics(const std::string& session_key) {
+    auto service = resolve_session_service(session_key, false);
     std::ostringstream csv;
-    csv << metrics_service_->to_csv_header() << "\n";
-    csv << metrics_service_->to_csv_row();
+    csv << TrainingMetricsService::to_csv_header() << "\n";
+    csv << service->to_csv_row();
     return csv.str();
 }
 
-std::string TrainingMetricsAPI::handle_session_status() {
-    auto snapshot = metrics_service_->get_current_snapshot();
+std::string TrainingMetricsAPI::handle_session_status(const std::string& session_key) {
+    auto service = resolve_session_service(session_key, false);
+    auto snapshot = service->get_current_snapshot();
 
     std::ostringstream json;
     json << "{";
@@ -456,8 +836,9 @@ std::string TrainingMetricsAPI::handle_session_status() {
     return json.str();
 }
 
-std::string TrainingMetricsAPI::handle_epoch_metrics() {
-    auto snapshot = metrics_service_->get_current_snapshot();
+std::string TrainingMetricsAPI::handle_epoch_metrics(const std::string& session_key) {
+    auto service = resolve_session_service(session_key, false);
+    auto snapshot = service->get_current_snapshot();
 
     std::ostringstream json;
     json << "{";
@@ -550,8 +931,9 @@ std::string TrainingMetricsAPI::handle_epoch_metrics() {
     return json.str();
 }
 
-std::string TrainingMetricsAPI::handle_abnormal_samples() {
-    auto samples = metrics_service_->get_abnormal_samples();
+std::string TrainingMetricsAPI::handle_abnormal_samples(const std::string& session_key) {
+    auto service = resolve_session_service(session_key, false);
+    auto samples = service->get_abnormal_samples();
 
     std::ostringstream json;
     json << std::fixed << std::setprecision(6);
@@ -578,8 +960,9 @@ std::string TrainingMetricsAPI::handle_abnormal_samples() {
     return json.str();
 }
 
-std::string TrainingMetricsAPI::handle_generation_quality_metrics() {
-    auto snapshot = metrics_service_->get_current_snapshot();
+std::string TrainingMetricsAPI::handle_generation_quality_metrics(const std::string& session_key) {
+    auto service = resolve_session_service(session_key, false);
+    auto snapshot = service->get_current_snapshot();
     std::ostringstream json;
     json << std::fixed << std::setprecision(6);
     json << "{";
@@ -621,8 +1004,9 @@ std::string TrainingMetricsAPI::handle_generation_quality_metrics() {
     return json.str();
 }
 
-std::string TrainingMetricsAPI::handle_padding_efficiency_metrics() {
-    auto snapshot = metrics_service_->get_current_snapshot();
+std::string TrainingMetricsAPI::handle_padding_efficiency_metrics(const std::string& session_key) {
+    auto service = resolve_session_service(session_key, false);
+    auto snapshot = service->get_current_snapshot();
     std::ostringstream json;
     json << std::fixed << std::setprecision(6);
     json << "{";
@@ -638,18 +1022,93 @@ std::string TrainingMetricsAPI::handle_padding_efficiency_metrics() {
     return json.str();
 }
 
-std::string TrainingMetricsAPI::handle_flush_control() {
-    metrics_service_->flush_to_disk();
+std::string TrainingMetricsAPI::handle_sessions_list() {
+    auto sessions = session_registry_->list_sessions();
+    std::ostringstream json;
+    json << std::fixed << std::setprecision(6);
+    size_t live = 0;
+
+    json << "{\"sessions\":[";
+    for (size_t i = 0; i < sessions.size(); ++i) {
+        const auto& session = sessions[i];
+        if (i > 0) {
+            json << ",";
+        }
+        if (session.is_training) {
+            ++live;
+        }
+        json << "{";
+        json << R"("key":")" << escape_json(session.key) << "\",";
+        json << "\"session_id\":" << session.session_id << ",";
+        json << "\"is_training\":" << (session.is_training ? "true" : "false") << ",";
+        json << "\"current_epoch\":" << session.current_epoch << ",";
+        json << "\"total_epochs\":" << session.total_epochs << ",";
+        json << "\"current_loss\":" << session.current_loss << ",";
+        json << "\"best_validation_loss\":" << session.best_validation_loss << ",";
+        json << "\"session_start_time\":"
+             << std::chrono::system_clock::to_time_t(session.session_start_time) << ",";
+        json << "\"last_update_time\":"
+             << std::chrono::system_clock::to_time_t(session.last_update_time) << ",";
+        json << R"("metrics_url":")" << escape_json(session.metrics_url) << "\"";
+        json << "}";
+    }
+    json << "],\"total\":" << sessions.size() << ",\"live\":" << live << "}";
+    return json.str();
+}
+
+std::string TrainingMetricsAPI::handle_metrics_aggregate() {
+    auto sessions = session_registry_->list_sessions();
+
+    std::ostringstream json;
+    json << std::fixed << std::setprecision(6);
+
+    size_t live_sessions = 0;
+    json << "{\"live_sessions\":";
+
+    std::ostringstream sessions_json;
+    sessions_json << "\"sessions\":[";
+    bool first = true;
+    for (const auto& session : sessions) {
+        if (!session.is_training) {
+            continue;
+        }
+        ++live_sessions;
+        if (!first) {
+            sessions_json << ",";
+        }
+        first = false;
+
+        sessions_json << "{";
+        sessions_json << R"("key":")" << escape_json(session.key) << "\",";
+        sessions_json << "\"epoch\":" << session.current_epoch << ",";
+        sessions_json << "\"loss\":" << session.current_loss << ",";
+        sessions_json << "\"validation_loss\":" << session.current_validation_loss;
+        sessions_json << "}";
+    }
+    sessions_json << "]";
+
+    json << live_sessions << "," << sessions_json.str() << "}";
+    return json.str();
+}
+
+std::string TrainingMetricsAPI::handle_flush_control(const std::string& session_key) {
+    auto service = resolve_session_service(session_key, false);
+    service->flush_to_disk();
     return R"({"status":"success","message":"Metrics flushed to disk"})";
 }
 
-std::string TrainingMetricsAPI::handle_clear_control() {
-    metrics_service_->clear_history();
+std::string TrainingMetricsAPI::handle_clear_control(const std::string& session_key) {
+    auto service = resolve_session_service(session_key, false);
+    service->clear_history();
     return R"({"status":"success","message":"Metrics history cleared"})";
 }
 
 std::string TrainingMetricsAPI::handle_health_check() {
-    bool is_active = metrics_service_->is_session_active();
+    auto sessions = session_registry_->list_sessions();
+    bool is_active = std::any_of(sessions.begin(), sessions.end(),
+                                 [](const MetricsSessionSummary& summary) {
+                                     return summary.is_training;
+                                 });
 
     std::ostringstream json;
     json << "{";
@@ -738,7 +1197,9 @@ int TrainingMetricsAPI::parse_query_param_int(const std::string& query, const st
 
 // POST handler implementations for receiving metrics updates
 
-std::string TrainingMetricsAPI::handle_post_session_start(const std::string& body) {
+std::string TrainingMetricsAPI::handle_post_session_start(const std::string& session_key,
+                                                          const std::string& body) {
+    auto service = resolve_session_service(session_key, true);
     // Parse JSON body: {"session_id": int, "total_epochs": int, "total_samples": int}
     int session_id = 0;
     int total_epochs = 0;
@@ -769,17 +1230,20 @@ std::string TrainingMetricsAPI::handle_post_session_start(const std::string& bod
         }
     }
 
-    metrics_service_->start_session(session_id, total_epochs, total_samples);
+    service->start_session(session_id, total_epochs, total_samples);
 
     return R"({"status":"ok","message":"Session started"})";
 }
 
-std::string TrainingMetricsAPI::handle_post_session_end() {
-    metrics_service_->end_session();
+std::string TrainingMetricsAPI::handle_post_session_end(const std::string& session_key) {
+    auto service = resolve_session_service(session_key, false);
+    service->end_session();
     return R"({"status":"ok","message":"Session ended"})";
 }
 
-std::string TrainingMetricsAPI::handle_post_epoch_start(const std::string& body) {
+std::string TrainingMetricsAPI::handle_post_epoch_start(const std::string& session_key,
+                                                        const std::string& body) {
+    auto service = resolve_session_service(session_key, false);
     // Parse JSON body: {"epoch": int, "total_samples": int}
     int epoch = 0;
     int total_samples = 0;
@@ -800,12 +1264,14 @@ std::string TrainingMetricsAPI::handle_post_epoch_start(const std::string& body)
         }
     }
 
-    metrics_service_->start_epoch(epoch, total_samples);
+    service->start_epoch(epoch, total_samples);
 
     return R"({"status":"ok","message":"Epoch started"})";
 }
 
-std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& body) {
+std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& session_key,
+                                                      const std::string& body) {
+    auto service = resolve_session_service(session_key, false);
     // Parse JSON body: {"epoch": int, "loss": float, "validation_loss": float, "learning_rate":
     // float, "perplexity": float, "gradient_norm": float}
     int epoch = 0;
@@ -928,26 +1394,28 @@ std::string TrainingMetricsAPI::handle_post_epoch_end(const std::string& body) {
         }
     }
 
-    metrics_service_->end_epoch(epoch, loss, validation_loss, learning_rate, perplexity,
-                                gradient_norm, epoch_time);
+    service->end_epoch(epoch, loss, validation_loss, learning_rate, perplexity, gradient_norm,
+                       epoch_time);
     if (gradient_variance != 0.0f || compute_time_ratio != 0.0f || weight_update_ratio != 0.0f) {
-        metrics_service_->update_advanced_epoch_metrics(gradient_variance, compute_time_ratio,
-                                                        weight_update_ratio);
+        service->update_advanced_epoch_metrics(gradient_variance, compute_time_ratio,
+                                               weight_update_ratio);
     }
     if (activation_saturation_ratio >= 0.0f) {
-        metrics_service_->update_activation_saturation(activation_saturation_ratio);
+        service->update_activation_saturation(activation_saturation_ratio);
     }
     if (attention_entropy >= 0.0f) {
-        metrics_service_->update_attention_entropy(attention_entropy);
+        service->update_attention_entropy(attention_entropy);
     }
     if (current_padding_efficiency >= 0.0f) {
-        metrics_service_->update_padding_efficiency(current_padding_efficiency);
+        service->update_padding_efficiency(current_padding_efficiency);
     }
 
     return R"({"status":"ok","message":"Epoch ended"})";
 }
 
-std::string TrainingMetricsAPI::handle_post_sample_metrics(const std::string& body) {
+std::string TrainingMetricsAPI::handle_post_sample_metrics(const std::string& session_key,
+                                                           const std::string& body) {
+    auto service = resolve_session_service(session_key, false);
     // Parse JSON body: {"sample": int, "loss": float, "gradient_norm": float, "learning_rate":
     // float}
     int sample = 0;
@@ -987,12 +1455,14 @@ std::string TrainingMetricsAPI::handle_post_sample_metrics(const std::string& bo
         }
     }
 
-    metrics_service_->update_sample_metrics(sample, loss, gradient_norm, learning_rate);
+    service->update_sample_metrics(sample, loss, gradient_norm, learning_rate);
 
     return R"({"status":"ok"})";
 }
 
-std::string TrainingMetricsAPI::handle_post_validation_metrics(const std::string& body) {
+std::string TrainingMetricsAPI::handle_post_validation_metrics(const std::string& session_key,
+                                                               const std::string& body) {
+    auto service = resolve_session_service(session_key, false);
     // Parse JSON body: {"validation_loss": float, "validation_accuracy": float,
     // "validation_perplexity": float}
     float validation_loss = 0.0f;
@@ -1023,13 +1493,14 @@ std::string TrainingMetricsAPI::handle_post_validation_metrics(const std::string
         }
     }
 
-    metrics_service_->update_validation_metrics(validation_loss, validation_accuracy,
-                                                validation_perplexity);
+    service->update_validation_metrics(validation_loss, validation_accuracy, validation_perplexity);
 
     return R"({"status":"ok"})";
 }
 
-std::string TrainingMetricsAPI::handle_post_best_metrics(const std::string& body) {
+std::string TrainingMetricsAPI::handle_post_best_metrics(const std::string& session_key,
+                                                         const std::string& body) {
+    auto service = resolve_session_service(session_key, false);
     // Parse JSON body: {"validation_loss": float, "epoch": int}
     float validation_loss = 0.0f;
     int epoch = 0;
@@ -1050,12 +1521,14 @@ std::string TrainingMetricsAPI::handle_post_best_metrics(const std::string& body
         }
     }
 
-    metrics_service_->update_best_metrics(validation_loss, epoch);
+    service->update_best_metrics(validation_loss, epoch);
 
     return R"({"status":"ok"})";
 }
 
-std::string TrainingMetricsAPI::handle_post_generation_quality_metrics(const std::string& body) {
+std::string TrainingMetricsAPI::handle_post_generation_quality_metrics(
+    const std::string& session_key, const std::string& body) {
+    auto service = resolve_session_service(session_key, false);
     // Parse JSON body: {"bleu4": float, "rouge1": float, "rouge2": float, "rougeL": float}
     float bleu4 = -1.0f;
     float rouge1 = -1.0f;
@@ -1091,11 +1564,13 @@ std::string TrainingMetricsAPI::handle_post_generation_quality_metrics(const std
         }
     }
 
-    metrics_service_->update_generation_quality_metrics(bleu4, rouge1, rouge2, rougeL);
+    service->update_generation_quality_metrics(bleu4, rouge1, rouge2, rougeL);
     return R"({"status":"ok"})";
 }
 
-std::string TrainingMetricsAPI::handle_post_advanced_metrics(const std::string& body) {
+std::string TrainingMetricsAPI::handle_post_advanced_metrics(const std::string& session_key,
+                                                             const std::string& body) {
+    auto service = resolve_session_service(session_key, false);
     // Parse JSON body: {"gradient_variance": float, "compute_time_ratio": float,
     // "weight_update_ratio": float}
     float gradient_variance = 0.0f;
@@ -1126,8 +1601,40 @@ std::string TrainingMetricsAPI::handle_post_advanced_metrics(const std::string& 
         }
     }
 
-    metrics_service_->update_advanced_epoch_metrics(gradient_variance, compute_time_ratio,
-                                                    weight_update_ratio);
+    service->update_advanced_epoch_metrics(gradient_variance, compute_time_ratio,
+                                           weight_update_ratio);
 
     return R"({"status":"ok"})";
+}
+
+std::shared_ptr<TrainingMetricsService> TrainingMetricsAPI::resolve_session_service(
+    const std::string& session_key, bool create_if_missing) const {
+    if (!is_valid_session_key(session_key)) {
+        throw std::invalid_argument("Invalid session key format");
+    }
+
+    if (create_if_missing) {
+        return session_registry_->create_or_get_session(session_key);
+    }
+
+    auto service = session_registry_->get_session(session_key);
+    if (!service.has_value()) {
+        throw std::runtime_error("Unknown session key: " + session_key);
+    }
+
+    return service.value();
+}
+
+bool TrainingMetricsAPI::is_valid_session_key(const std::string& key) {
+    if (key.empty() || key.size() > 64) {
+        return false;
+    }
+
+    if (!std::isalnum(static_cast<unsigned char>(key.front()))) {
+        return false;
+    }
+
+    return std::all_of(key.begin(), key.end(), [](unsigned char c) {
+        return std::isalnum(c) || c == '_' || c == '-';
+    });
 }
