@@ -51,6 +51,8 @@ void print_usage(const char* program_name) {
     std::cout << "  --persist-seconds N          Persist every N seconds (default: 30)\n";
     std::cout << "  --max-memory-records N       Max records in memory (default: 10000)\n";
     std::cout << "  --max-disk-records N         Max records on disk (default: 100000)\n";
+    std::cout << "  --max-live-sessions N        Max live metrics sessions (default: 16)\n";
+    std::cout << "  --completed-ttl-seconds N    Completed session TTL in seconds (default: 3600)\n";
     std::cout << "  --no-persistence             Disable persistence to disk\n";
     std::cout << "  --enable-prometheus          Enable Prometheus format output\n";
     std::cout << "  --no-control                 Disable control endpoints (flush, clear)\n";
@@ -92,6 +94,8 @@ struct ServerConfig {
     int persist_every_seconds = 30;
     int max_records_in_memory = 10000;
     int max_records_on_disk = 100000;
+    size_t max_live_sessions = 16;
+    int completed_ttl_seconds = 3600;
 };
 
 /**
@@ -121,6 +125,10 @@ bool parse_args(int argc, char** argv, ServerConfig& config) {  // NOLINT(modern
             config.max_records_in_memory = std::atoi(argv[++i]);
         } else if (arg == "--max-disk-records" && i + 1 < argc) {
             config.max_records_on_disk = std::atoi(argv[++i]);
+        } else if (arg == "--max-live-sessions" && i + 1 < argc) {
+            config.max_live_sessions = static_cast<size_t>(std::strtoul(argv[++i], nullptr, 10));
+        } else if (arg == "--completed-ttl-seconds" && i + 1 < argc) {
+            config.completed_ttl_seconds = std::atoi(argv[++i]);
         } else if (arg == "--no-persistence") {
             config.enable_persistence = false;
         } else if (arg == "--enable-prometheus") {
@@ -163,9 +171,17 @@ int main(int argc, char* argv[]) {
 
         // Create registry-backed metrics services
         std::cout << "[1/3] Initializing metrics session registry...\n";
-        auto session_registry = std::make_shared<MetricsSessionRegistry>(metrics_config);
+        auto session_registry = std::make_shared<MetricsSessionRegistry>(
+            metrics_config, server_config.max_live_sessions, server_config.completed_ttl_seconds);
         auto metrics_service = session_registry->create_or_get_session("0-default");
+        if (!metrics_service) {
+            std::cerr << "Error: Unable to initialize default metrics session\n";
+            return 1;
+        }
         std::cout << "  ✓ Metrics session registry initialized\n";
+        std::cout << "    - Max live sessions: " << server_config.max_live_sessions << "\n";
+        std::cout << "    - Completed session TTL: " << server_config.completed_ttl_seconds
+                  << " seconds\n";
 
         if (server_config.enable_persistence) {
             std::cout << "  ✓ Persistence enabled:\n";

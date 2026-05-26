@@ -878,6 +878,10 @@ std::string TrainingMetricsAPI::handle_session_status(const std::string& session
     auto service = resolve_session_service(session_key, false);
     auto snapshot = service->get_current_snapshot();
 
+    // TODO(TD-019): Compute stale-aware liveness here (for example
+    // effective_is_training = snapshot.is_training && !is_stale(snapshot.last_update_time))
+    // and include stale diagnostics in the JSON response.
+
     std::ostringstream json;
     json << "{";
     json << "\"is_training\":" << (snapshot.is_training ? "true" : "false") << ",";

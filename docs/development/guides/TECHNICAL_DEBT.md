@@ -4,10 +4,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** May 25, 2026
-**Total Items:** 3
+**Last Updated:** May 26, 2026
+**Total Items:** 4
 **High Priority:** 0
-**Medium Priority:** 2
+**Medium Priority:** 3
 **Low Priority:** 1
 **Future Enhancements:** 19
 **Resolved Items:** 18
@@ -17,6 +17,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 - [Overview](#overview)
 - [Table of Contents](#table-of-contents)
 - [Active Technical Debt](#active-technical-debt)
+  - [TD-019: Stale Metrics Detection and Liveness Accuracy](#td-019-stale-metrics-detection-and-liveness-accuracy)
   - [TD-018: Multi-Instance Training Metrics Service](#td-018-multi-instance-training-metrics-service)
   - [TD-014: LLM Operations and Training Tooling Suite](#td-014-llm-operations-and-training-tooling-suite)
   - [TD-006: Fill-in-the-Middle (FIM) Training Data Generation](#td-006-fill-in-the-middle-fim-training-data-generation)
@@ -56,6 +57,45 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 - [References](#references)
 
 ## Active Technical Debt
+
+### TD-019: Stale Metrics Detection and Liveness Accuracy
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|-----------------|
+| MEDIUM | Planned | Training / Metrics / API / Dashboard | May 26, 2026 | 6-10 hours |
+
+Description:
+Current metrics endpoints can report `is_training=true` long after metric updates have stopped. The dashboard also uses browser-local time for "Last updated", which can look fresh even when server-side metrics are stale. This creates false "running" states during trainer/network failures.
+
+Observed Behavior:
+
+- `TrainingMetricsService::get_current_snapshot()` overwrites `last_update_time` while active, masking true last-ingest time.
+- Session status and health checks infer liveness from `is_training` without staleness checks.
+- Dashboard displays local clock time as "Last updated" instead of server metric timestamp age.
+
+Action Items:
+
+- [ ] Add configurable staleness threshold(s) for metrics liveness evaluation.
+- [ ] Preserve true ingest/update timestamp and avoid overwriting it in read paths.
+- [ ] Expose stale-state fields in API responses (for example `is_stale`, `seconds_since_last_update`, `effective_is_training`).
+- [ ] Update status and health endpoints to report effective active state based on staleness.
+- [ ] Update dashboard to use server-provided timestamp and show stale badge/warning when updates freeze.
+- [ ] Add unit/integration tests for stale detection paths in service/API and dashboard behavior.
+
+Files to Modify:
+
+- `src/TrainingMetricsService.hpp`
+- `src/TrainingMetricsService.cpp`
+- `src/TrainingMetricsAPI.hpp`
+- `src/TrainingMetricsAPI.cpp`
+- `src/TrainingMetricsAPIServer.cpp`
+- `src/Config.hpp`
+- `src/Config.cpp`
+- `dashboard.html`
+- `tests/training_metrics_service_test.cpp`
+- `tests/training_metrics_api_test.cpp` (or equivalent)
+
+---
 
 ### TD-018: Multi-Instance Training Metrics Service
 
@@ -1303,10 +1343,10 @@ When resolving a debt item:
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|0|0%|
-|Medium|2|67%|
-|Low|1|33%|
+|Medium|3|75%|
+|Low|1|25%|
 
-**Total Active Items:** 3
+**Total Active Items:** 4
 
 ### By Component
 
@@ -1314,7 +1354,7 @@ When resolving a debt item:
 |----------------------|-------|
 |Training / Data Generation|1|
 |Tooling / Toolchain|1|
-|Training / Metrics / API|1|
+|Training / Metrics / API|2|
 
 ### Effort Distribution
 
@@ -1322,10 +1362,10 @@ When resolving a debt item:
 |--------------|-------|
 |0-2 hours|0|
 |2-4 hours|0|
-|4-8 hours|1|
+|4-8 hours|2|
 |8+ hours|1|
 
-**Total Estimated Effort (Active Items):** 22-40 hours
+**Total Estimated Effort (Active Items):** 28-50 hours
 
 ### Future Enhancements Summary
 

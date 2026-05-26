@@ -439,6 +439,9 @@ TrainingMetricsSnapshot TrainingMetricsService::get_current_snapshot() const {
             }
         }
 
+        // TODO(TD-019): Do not overwrite the ingest timestamp in read paths.
+        // Keep last_update_time as the true "last metrics update" time and
+        // expose separate "response generated at" metadata if needed.
         // Update last_update_time to current time for accurate timestamp
         snapshot.last_update_time = std::chrono::system_clock::now();
     }

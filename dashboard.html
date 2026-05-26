@@ -730,6 +730,9 @@
             const now = new Date();
             const timestamp = now.toLocaleTimeString();
 
+            // TODO(TD-019): Derive dashboard freshness from server-side metrics
+            // timestamp and stale-state fields instead of browser-local time.
+
             // Update status first with connection success
             updateStatus(true, data.is_training);
             
@@ -790,6 +793,8 @@
             updateElement('best-epoch', data.best_epoch || '--');
             updateElement('running-loss', formatNumber(data.running_loss));
 
+            // TODO(TD-019): Show server-reported last update time and stale age
+            // (for example seconds_since_last_update) to avoid false "fresh" UI.
             // Update timestamp
             updateElement('last-update', `Last updated: ${timestamp}`);
 
