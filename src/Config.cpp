@@ -235,9 +235,14 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                     (value == "true" || value == "1" || value == "yes");
             } else if (key == "METRICS_PROMETHEUS_FILE") {
                 config.metrics_prometheus_file = value;
-                // TODO(TD-018): parse METRICS_SESSION_KEY,
-                // METRICS_MAX_LIVE_SESSIONS, METRICS_COMPLETED_TTL_SECONDS,
-                // METRICS_SWEEP_INTERVAL_SECONDS.
+            } else if (key == "METRICS_SESSION_KEY") {
+                config.metrics_session_key = value;
+            } else if (key == "METRICS_MAX_LIVE_SESSIONS") {
+                config.metrics_max_live_sessions = static_cast<size_t>(std::stoull(value));
+            } else if (key == "METRICS_COMPLETED_TTL_SECONDS") {
+                config.metrics_completed_ttl_seconds = std::stoi(value);
+            } else if (key == "METRICS_SWEEP_INTERVAL_SECONDS") {
+                config.metrics_sweep_interval_seconds = std::stoi(value);
             } else if (key == "METRICS_API_PORT") {
                 config.metrics_api_port = std::stoi(value);
             } else if (key == "METRICS_API_ALLOW_CONTROL") {
@@ -403,6 +408,20 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env("STRATEGY")) {
         config.strategy = *val;
+    }
+
+    // Multi-instance metrics configuration
+    if (auto val = get_env("METRICS_SESSION_KEY")) {
+        config.metrics_session_key = *val;
+    }
+    if (auto val = get_env_size_t("METRICS_MAX_LIVE_SESSIONS")) {
+        config.metrics_max_live_sessions = *val;
+    }
+    if (auto val = get_env_int("METRICS_COMPLETED_TTL_SECONDS")) {
+        config.metrics_completed_ttl_seconds = *val;
+    }
+    if (auto val = get_env_int("METRICS_SWEEP_INTERVAL_SECONDS")) {
+        config.metrics_sweep_interval_seconds = *val;
     }
 
     // RAG configuration

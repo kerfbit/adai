@@ -62,6 +62,10 @@ class ConfigTest : public ::testing::Test {
         _putenv("TOP_K=");
         _putenv("BEAM_WIDTH=");
         _putenv("STRATEGY=");
+        _putenv("METRICS_SESSION_KEY=");
+        _putenv("METRICS_MAX_LIVE_SESSIONS=");
+        _putenv("METRICS_COMPLETED_TTL_SECONDS=");
+        _putenv("METRICS_SWEEP_INTERVAL_SECONDS=");
 #else
         unsetenv("PORT");
         unsetenv("LOG_LEVEL");
@@ -84,6 +88,10 @@ class ConfigTest : public ::testing::Test {
         unsetenv("TOP_K");
         unsetenv("BEAM_WIDTH");
         unsetenv("STRATEGY");
+        unsetenv("METRICS_SESSION_KEY");
+        unsetenv("METRICS_MAX_LIVE_SESSIONS");
+        unsetenv("METRICS_COMPLETED_TTL_SECONDS");
+        unsetenv("METRICS_SWEEP_INTERVAL_SECONDS");
 #endif
     }
 
@@ -138,6 +146,12 @@ TEST_F(ConfigTest, DefaultValues) {
     EXPECT_EQ(config.top_k, 50);
     EXPECT_EQ(config.beam_width, 4);
     EXPECT_EQ(config.strategy, "nucleus");
+
+    // Multi-instance metrics defaults (TD-018 phase 5)
+    EXPECT_TRUE(config.metrics_session_key.empty());
+    EXPECT_EQ(config.metrics_max_live_sessions, 16);
+    EXPECT_EQ(config.metrics_completed_ttl_seconds, 3600);
+    EXPECT_EQ(config.metrics_sweep_interval_seconds, 60);
 }
 
 // ============================================================================
@@ -164,6 +178,20 @@ TEST_F(ConfigTest, LoadFromEnvironmentVariables) {
     EXPECT_EQ(config.d_model, 768);
     EXPECT_EQ(config.num_heads, 12);
     EXPECT_EQ(config.strategy, "greedy");
+}
+
+TEST_F(ConfigTest, LoadMultiInstanceMetricsFromEnvironmentVariables) {
+    setEnv("METRICS_SESSION_KEY", "42-gpu0");
+    setEnv("METRICS_MAX_LIVE_SESSIONS", "32");
+    setEnv("METRICS_COMPLETED_TTL_SECONDS", "900");
+    setEnv("METRICS_SWEEP_INTERVAL_SECONDS", "15");
+
+    auto config = ConfigLoader::load();
+
+    EXPECT_EQ(config.metrics_session_key, "42-gpu0");
+    EXPECT_EQ(config.metrics_max_live_sessions, 32);
+    EXPECT_EQ(config.metrics_completed_ttl_seconds, 900);
+    EXPECT_EQ(config.metrics_sweep_interval_seconds, 15);
 }
 
 TEST_F(ConfigTest, EnvironmentVariablesBooleanParsing) {
@@ -226,6 +254,20 @@ TEST_F(ConfigTest, LoadFromFile) {
     EXPECT_EQ(config.d_model, 1024);
     EXPECT_EQ(config.num_heads, 16);
     EXPECT_EQ(config.strategy, "beam");
+}
+
+TEST_F(ConfigTest, LoadMultiInstanceMetricsFromFile) {
+    createConfigFile({{"METRICS_SESSION_KEY", "1-default"},
+                      {"METRICS_MAX_LIVE_SESSIONS", "20"},
+                      {"METRICS_COMPLETED_TTL_SECONDS", "1800"},
+                      {"METRICS_SWEEP_INTERVAL_SECONDS", "45"}});
+
+    auto config = ConfigLoader::load(test_file.string());
+
+    EXPECT_EQ(config.metrics_session_key, "1-default");
+    EXPECT_EQ(config.metrics_max_live_sessions, 20);
+    EXPECT_EQ(config.metrics_completed_ttl_seconds, 1800);
+    EXPECT_EQ(config.metrics_sweep_interval_seconds, 45);
 }
 
 TEST_F(ConfigTest, FileLoadingIgnoresCommentsAndWhitespace) {

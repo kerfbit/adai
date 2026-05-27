@@ -172,9 +172,18 @@ struct ServiceConfig {
     /// Path to Prometheus metrics file (default: training_sessions/metrics.prom)
     std::string metrics_prometheus_file = "training_sessions/metrics.prom";
 
-    /// TODO(TD-018): add multi-instance metrics keys:
-    /// METRICS_SESSION_KEY, METRICS_MAX_LIVE_SESSIONS,
-    /// METRICS_COMPLETED_TTL_SECONDS, METRICS_SWEEP_INTERVAL_SECONDS.
+    /// Session key for trainer-side session-scoped metrics routes.
+    /// Empty value means the trainer should derive one at runtime.
+    std::string metrics_session_key;
+
+    /// Maximum number of live metrics sessions in the registry (default: 16).
+    size_t metrics_max_live_sessions = 16;
+
+    /// Retention for completed sessions in memory before eviction (default: 3600).
+    int metrics_completed_ttl_seconds = 3600;
+
+    /// Background sweep cadence for stale completed sessions (default: 60).
+    int metrics_sweep_interval_seconds = 60;
 
     /// Port for metrics API server daemon (default: 8081)
     int metrics_api_port = 8081;

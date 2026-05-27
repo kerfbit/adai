@@ -126,7 +126,7 @@ Action Items:
 - [x] Add `GET /api/sessions` and `GET /api/metrics/aggregate` endpoints for discovery and cross-session dashboard summaries.
 - [x] Phase 1: ensure `TrainingMetricsService` fully honors configured per-instance file paths and create regression coverage for custom output locations.
 - [x] Derive per-session metrics files (`*_metrics.jsonl`, `*_metrics_summary.json`, `*_metrics.prom`, `*_abnormal_samples.json`) and keep legacy path behavior for `0-default`.
-- [ ] Add config support for `METRICS_SESSION_KEY`, `METRICS_MAX_LIVE_SESSIONS`, `METRICS_COMPLETED_TTL_SECONDS`, `METRICS_SWEEP_INTERVAL_SECONDS`.
+- [x] Add config support for `METRICS_SESSION_KEY`, `METRICS_MAX_LIVE_SESSIONS`, `METRICS_COMPLETED_TTL_SECONDS`, `METRICS_SWEEP_INTERVAL_SECONDS`.
 - [ ] Update trainers to send metrics to `/api/sessions/{METRICS_SESSION_KEY}`.
 - [ ] Update singleton/proxy behavior for compatibility with existing `GlobalMetricsService::instance()` call sites.
 - [ ] Add multi-session tests: concurrent sessions, duplicate-start 409 behavior, eviction behavior, and aggregate endpoint coverage.
