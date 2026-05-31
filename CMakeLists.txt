@@ -69,6 +69,7 @@ endif()
 # Options
 option(BUILD_TESTING "Build test suite" ON)
 option(BUILD_EXAMPLES "Build example programs" ON)
+option(BUILD_GUI "Build Qt GUI for chatbot" ON)
 option(ENABLE_GPU "Enable GPU acceleration with CUDA" OFF)
 option(ENABLE_BLAS "Enable BLAS (OpenBLAS/MKL/Accelerate) for large matrix multiply" ON)
 option(ENABLE_SIMD "Enable explicit AVX2/FMA/NEON intrinsics for matrix operations" ON)
@@ -101,6 +102,24 @@ if(ENABLE_GPU)
     add_compile_definitions(ADAI_ENABLE_GPU)
 else()
     message(STATUS "GPU acceleration disabled (enable with -DENABLE_GPU=ON)")
+endif()
+
+# Qt GUI support (optional, requires qtbase5-dev or Qt6)
+if(BUILD_GUI)
+    find_package(Qt6 COMPONENTS Widgets QUIET)
+    if(NOT Qt6_FOUND)
+        find_package(Qt5 COMPONENTS Widgets QUIET)
+    endif()
+
+    if(Qt6_FOUND)
+        message(STATUS "Qt6 found — GUI will be built")
+    elseif(Qt5_FOUND)
+        message(STATUS "Qt5 found — GUI will be built")
+    else()
+        message(WARNING "Qt5/Qt6 not found — GUI will not be built. "
+                        "Install with: sudo apt-get install qtbase5-dev")
+        set(BUILD_GUI OFF)
+    endif()
 endif()
 
 # Enable ccache if available and requested

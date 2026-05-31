@@ -11,6 +11,12 @@
 #include <regex>
 #include <sstream>
 #include <utility>
+#include <cctype>
+#ifdef _WIN32
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 #include "Config.hpp"
 #include "Logger.hpp"
 #include "TrainingMetricsAPI.hpp"
@@ -31,6 +37,73 @@ using adai::Logger;
 #define COLOR_PROGRESS "\033[1;35m"
 
 namespace fs = std::filesystem;
+
+namespace {
+
+std::string trim_trailing_slashes(std::string value) {
+    while (!value.empty() && value.back() == '/') {
+        value.pop_back();
+    }
+    return value;
+}
+
+std::string sanitize_session_key(const std::string& raw) {
+    std::string out;
+    out.reserve(raw.size());
+    for (unsigned char ch : raw) {
+        if (std::isalnum(ch) || ch == '-' || ch == '_' || ch == '.') {
+            out.push_back(static_cast<char>(ch));
+        } else {
+            out.push_back('-');
+        }
+    }
+    return out;
+}
+
+std::string detect_hostname_fragment() {
+    std::string host = "host";
+#ifdef _WIN32
+    if (const char* env_host = std::getenv("COMPUTERNAME")) {
+        host = env_host;
+    }
+#else
+    std::array<char, 256> buffer{};
+    if (gethostname(buffer.data(), buffer.size() - 1) == 0) {
+        host = buffer.data();
+    }
+#endif
+
+    host = sanitize_session_key(host);
+    if (host.empty()) {
+        host = "host";
+    }
+    if (host.size() > 8) {
+        host = host.substr(0, 8);
+    }
+    return host;
+}
+
+int detect_pid_mod_10000() {
+#ifdef _WIN32
+    return static_cast<int>(_getpid() % 10000);
+#else
+    return static_cast<int>(getpid() % 10000);
+#endif
+}
+
+std::string derive_metrics_session_key(int session_id) {
+    const std::string host = detect_hostname_fragment();
+    const int pid_tail = detect_pid_mod_10000();
+    return std::to_string(session_id) + "-" + host + std::to_string(pid_tail);
+}
+
+std::string build_metrics_session_push_base(const std::string& metrics_server_url,
+                                            const std::string& session_key) {
+    const std::string base = trim_trailing_slashes(metrics_server_url);
+    return base + "/api/sessions/" + session_key;
+}
+
+}  // namespace
 
 // ============================================================================
 // build_model() — THE single point for EncoderDecoderModel construction.
@@ -92,10 +165,13 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
     cfg.enable_metrics_service = svc.enable_metrics_service;
     cfg.metrics_push_enabled = svc.metrics_push_enabled;
     cfg.metrics_server_url = svc.metrics_server_url;
-    // TODO(TD-018): include METRICS_SESSION_KEY in push URL base
-    // (/api/sessions/{key}) and derive per-session metrics file paths.
+    cfg.metrics_config.session_key = sanitize_session_key(svc.metrics_session_key);
     cfg.metrics_config.enable_push = svc.metrics_push_enabled;
-    cfg.metrics_config.push_url = svc.metrics_server_url;
+    cfg.metrics_config.push_url = cfg.metrics_config.session_key.empty()
+                                      ? svc.metrics_server_url
+                                      : build_metrics_session_push_base(svc.metrics_server_url,
+                                                                        cfg.metrics_config
+                                                                            .session_key);
     cfg.metrics_config.push_timeout_ms = svc.metrics_push_timeout_ms;
     cfg.metrics_config.enable_persistence = svc.metrics_enable_persistence;
     cfg.metrics_config.metrics_file = svc.metrics_file;
@@ -490,6 +566,17 @@ bool IncrementalTrainer::train_incremental(int num_epochs) {
 
     // Set metrics service on trainer if enabled
     if (metrics_service_) {
+        if (config.metrics_push_enabled) {
+            MetricsServiceConfig metrics_cfg = metrics_service_->get_config();
+            std::string session_key = sanitize_session_key(metrics_cfg.session_key);
+            if (session_key.empty()) {
+                session_key = derive_metrics_session_key(current_session_id + 1);
+            }
+            metrics_cfg.session_key = session_key;
+            metrics_cfg.push_url =
+                build_metrics_session_push_base(config.metrics_server_url, session_key);
+            metrics_service_->set_config(metrics_cfg);
+        }
         trainer.set_metrics_service(metrics_service_.get());
         // Start metrics session
         metrics_service_->start_session(current_session_id + 1, num_epochs,
@@ -683,6 +770,17 @@ bool IncrementalTrainer::train_full_retrain(int num_epochs) {
 
     // Set metrics service on trainer if enabled
     if (metrics_service_) {
+        if (config.metrics_push_enabled) {
+            MetricsServiceConfig metrics_cfg = metrics_service_->get_config();
+            std::string session_key = sanitize_session_key(metrics_cfg.session_key);
+            if (session_key.empty()) {
+                session_key = derive_metrics_session_key(current_session_id + 1);
+            }
+            metrics_cfg.session_key = session_key;
+            metrics_cfg.push_url =
+                build_metrics_session_push_base(config.metrics_server_url, session_key);
+            metrics_service_->set_config(metrics_cfg);
+        }
         trainer.set_metrics_service(metrics_service_.get());
         // Start metrics session for full retrain
         metrics_service_->start_session(current_session_id + 1, num_epochs,

@@ -4,10 +4,12 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <stdexcept>
 #include <sstream>
 #include <thread>
 #include <utility>
 #include "Logger.hpp"
+#include "MetricsSessionRegistry.hpp"
 
 // HTTP client for pushing metrics to external API daemon (optional)
 #ifdef BUILD_METRICS_API_SERVER
@@ -1160,33 +1162,56 @@ std::string TrainingMetricsService::format_timestamp(
 #ifdef BUILD_METRICS_API_SERVER
 
 std::string TrainingMetricsService::build_push_url(const std::string& endpoint) const {
-    // TODO(TD-018): prepend /api/sessions/{session_key} for session-scoped routes.
     std::string url = config_.push_url;
-    // Remove trailing slash if present
-    if (!url.empty() && url[url.length() - 1] == '/') {
-        url = url.substr(0, url.length() - 1);
+    while (!url.empty() && url.back() == '/') {
+        url.pop_back();
     }
-    return url + endpoint;
+
+    std::string endpoint_path = endpoint;
+    if (endpoint_path.empty()) {
+        endpoint_path = "/";
+    }
+    if (endpoint_path.front() != '/') {
+        endpoint_path.insert(endpoint_path.begin(), '/');
+    }
+
+    // If the caller configured a session-scoped base URL
+    // (.../api/sessions/{key}), translate legacy flat endpoints to
+    // per-session relative routes.
+    if (url.find("/api/sessions/") != std::string::npos) {
+        if (endpoint_path.rfind("/api/session/", 0) == 0) {
+            endpoint_path = "/" + endpoint_path.substr(13);
+        } else if (endpoint_path.rfind("/api/", 0) == 0) {
+            endpoint_path = endpoint_path.substr(4);
+        }
+    }
+
+    return url + endpoint_path;
 }
 
 void TrainingMetricsService::push_to_api(const std::string& endpoint,
                                          const std::string& json_body) {
-    if (!config_.enable_push) {
-        return;
+    std::string request_url;
+    int timeout = 0;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!config_.enable_push) {
+            return;
+        }
+        timeout = config_.push_timeout_ms;
+        request_url = build_push_url(endpoint);
     }
 
     // Fire-and-forget: dispatch HTTP call onto a detached thread so the
     // training loop is never blocked by network latency or a slow/unresponsive
     // metrics server.
-    std::string push_url = config_.push_url;
-    int timeout = config_.push_timeout_ms;
-
-    std::thread([push_url, timeout, endpoint, json_body]() {
+    std::thread([request_url, timeout, json_body]() {
         try {
             // Parse URL to extract host and port
-            std::string url = push_url;
+            std::string url = request_url;
             std::string host = "localhost";
             int port = 8081;
+            std::string path = "/";
 
             size_t proto_pos = url.find("://");
             if (proto_pos != std::string::npos) {
@@ -1200,6 +1225,7 @@ void TrainingMetricsService::push_to_api(const std::string& endpoint,
                 std::string port_str;
                 if (path_pos != std::string::npos) {
                     port_str = url.substr(port_pos + 1, path_pos - port_pos - 1);
+                    path = url.substr(path_pos);
                 } else {
                     port_str = url.substr(port_pos + 1);
                 }
@@ -1208,6 +1234,7 @@ void TrainingMetricsService::push_to_api(const std::string& endpoint,
                 size_t path_pos = url.find('/');
                 if (path_pos != std::string::npos) {
                     host = url.substr(0, path_pos);
+                    path = url.substr(path_pos);
                 } else {
                     host = url;
                 }
@@ -1218,16 +1245,15 @@ void TrainingMetricsService::push_to_api(const std::string& endpoint,
             client.set_read_timeout(timeout / 1000, static_cast<long>(timeout % 1000) * 1000);
             client.set_write_timeout(timeout / 1000, static_cast<long>(timeout % 1000) * 1000);
 
-            auto res = client.Post(endpoint, json_body, "application/json");
+            auto res = client.Post(path, json_body, "application/json");
 
             if (!res) {
-                adai::Logger::debug("Metrics push to {}{}: connection failed", push_url, endpoint);
+                adai::Logger::debug("Metrics push to {}: connection failed", request_url);
             } else if (res->status != 200) {
-                adai::Logger::debug("Metrics push to {}{}: HTTP {}", push_url, endpoint,
-                                    res->status);
+                adai::Logger::debug("Metrics push to {}: HTTP {}", request_url, res->status);
             }
         } catch (const std::exception& e) {
-            adai::Logger::debug("Metrics push exception {}{}: {}", push_url, endpoint, e.what());
+            adai::Logger::debug("Metrics push exception {}: {}", request_url, e.what());
         }
     }).detach();
 }
@@ -1420,25 +1446,29 @@ void TrainingMetricsService::persist_abnormal_samples() {
 // GlobalMetricsService Implementation
 // ============================================================================
 
-std::unique_ptr<TrainingMetricsService> GlobalMetricsService::instance_ = nullptr;
+std::unique_ptr<MetricsSessionRegistry> GlobalMetricsService::registry_ = nullptr;
 std::mutex GlobalMetricsService::instance_mutex_;
 
 TrainingMetricsService& GlobalMetricsService::instance() {
     std::lock_guard<std::mutex> lock(instance_mutex_);
-    // TODO(TD-018): migrate singleton to a MetricsSessionRegistry facade and keep
-    // this accessor as a compatibility proxy for the 0-default session.
-    if (!instance_) {
-        instance_ = std::make_unique<TrainingMetricsService>();
+    if (!registry_) {
+        registry_ = std::make_unique<MetricsSessionRegistry>();
     }
-    return *instance_;
+
+    auto service = registry_->create_or_get_session("0-default");
+    if (!service) {
+        throw std::runtime_error(
+            "GlobalMetricsService failed to provision default metrics session");
+    }
+    return *service;
 }
 
 void GlobalMetricsService::initialize(const MetricsServiceConfig& config) {
     std::lock_guard<std::mutex> lock(instance_mutex_);
-    instance_ = std::make_unique<TrainingMetricsService>(config);
+    registry_ = std::make_unique<MetricsSessionRegistry>(config);
 }
 
 void GlobalMetricsService::shutdown() {
     std::lock_guard<std::mutex> lock(instance_mutex_);
-    instance_.reset();
+    registry_.reset();
 }

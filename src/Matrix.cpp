@@ -14,6 +14,23 @@
 // Default constructor
 Matrix::Matrix() : rows(0), cols(0) {}
 
+Matrix::Matrix(Matrix&& other) noexcept
+    : data(std::move(other.data)), rows(other.rows), cols(other.cols) {
+    other.rows = 0;
+    other.cols = 0;
+}
+
+Matrix& Matrix::operator=(Matrix&& other) noexcept {
+    if (this != &other) {
+        data = std::move(other.data);
+        rows = other.rows;
+        cols = other.cols;
+        other.rows = 0;
+        other.cols = 0;
+    }
+    return *this;
+}
+
 // Constructor with dimensions
 Matrix::Matrix(int r, int c) : rows(r), cols(c) {
     data.resize(rows, std::vector<float>(cols, 0.0f));

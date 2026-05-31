@@ -146,7 +146,8 @@ struct MetricsServiceConfig {
 
     // Push to external metrics API daemon
     bool enable_push = false;
-    std::string push_url = "http://localhost:8081";  // URL of metrics API daemon
+    std::string push_url = "http://localhost:8081";  // Base URL of metrics API daemon
+    std::string session_key;  // Optional session key for /api/sessions/{key} push routing
     int push_timeout_ms = 1000;                      // HTTP request timeout
 
     // Outlier detection (TD-013)
@@ -340,10 +341,10 @@ class TrainingMetricsService {
     void persist_abnormal_samples();                // write all to abnormal_samples_file
 };
 
+class MetricsSessionRegistry;
+
 /**
  * @brief Global metrics service instance (optional singleton access)
- * TODO(TD-018): replace singleton backend with MetricsSessionRegistry while preserving
- * compatibility for existing call sites that assume a single default session.
  */
 class GlobalMetricsService {
    public:
@@ -352,6 +353,6 @@ class GlobalMetricsService {
     static void shutdown();
 
    private:
-    static std::unique_ptr<TrainingMetricsService> instance_;
+    static std::unique_ptr<MetricsSessionRegistry> registry_;
     static std::mutex instance_mutex_;
 };

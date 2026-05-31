@@ -4,13 +4,13 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** May 26, 2026
-**Total Items:** 4
+**Last Updated:** May 31, 2026
+**Total Items:** 3
 **High Priority:** 0
-**Medium Priority:** 3
+**Medium Priority:** 2
 **Low Priority:** 1
 **Future Enhancements:** 19
-**Resolved Items:** 18
+**Resolved Items:** 19
 
 ## Table of Contents
 
@@ -18,17 +18,17 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 - [Table of Contents](#table-of-contents)
 - [Active Technical Debt](#active-technical-debt)
   - [TD-019: Stale Metrics Detection and Liveness Accuracy](#td-019-stale-metrics-detection-and-liveness-accuracy)
-  - [TD-018: Multi-Instance Training Metrics Service](#td-018-multi-instance-training-metrics-service)
   - [TD-014: LLM Operations and Training Tooling Suite](#td-014-llm-operations-and-training-tooling-suite)
   - [TD-006: Fill-in-the-Middle (FIM) Training Data Generation](#td-006-fill-in-the-middle-fim-training-data-generation)
 - [Resolved Items](#resolved-items)
+  - [TD-018: Multi-Instance Training Metrics Service](#td-018-multi-instance-training-metrics-service)
   - [TD-003: GPU Memory Management Optimization](#td-003-gpu-memory-management-optimization)
   - [TD-017: Adaptive Gradient Clipping](#td-017-adaptive-gradient-clipping)
-  - [TD-016: BLEU/ROUGE Generation Quality Scoring](#td-016-bleurouge-generation-quality-scoring)
-  - [TD-015: Validation Metrics Integration](#td-015-validation-metrics-integration)
   - [TD-013: Advanced Training Metrics and Outlier Detection](#td-013-advanced-training-metrics-and-outlier-detection)
   - [TD-013b: Batch Padding Efficiency Tracking](#td-013b-batch-padding-efficiency-tracking)
+  - [TD-016: BLEU/ROUGE Generation Quality Scoring](#td-016-bleurouge-generation-quality-scoring)
   - [TD-007: Matrix Operations SIMD Acceleration](#td-007-matrix-operations-simd-acceleration)
+  - [TD-015: Validation Metrics Integration](#td-015-validation-metrics-integration)
   - [TD-012: Increase Test Coverage](#td-012-increase-test-coverage)
   - [TD-011: File Rotation and Management](#td-011-file-rotation-and-management)
   - [TD-010: Configuration Hot-Reloading](#td-010-configuration-hot-reloading)
@@ -97,59 +97,6 @@ Files to Modify:
 
 ---
 
-### TD-018: Multi-Instance Training Metrics Service
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|-----------------|
-| MEDIUM | In Progress | Training / Metrics / API | May 25, 2026 | 16-32 hours |
-
-Description:
-The metrics stack currently assumes a single active training session and uses shared file paths and flat API routes. Running multiple trainers against one metrics API server can overwrite metrics, cross-contaminate session state, and make dashboards unreliable.
-
-Recent Progress:
-
-- Phase 1 from the proposal is complete: `TrainingMetricsService` now safely supports caller-provided per-instance output paths by preparing configured parent directories for metrics, summary, Prometheus, and abnormal-sample files.
-- Added a narrow regression test proving custom nested output paths work end-to-end via `TrainingMetricsService` configuration.
-- Phase 2 from the proposal is complete: `MetricsSessionRegistry` now owns per-session services, supports safe lookup/create flows, derives per-session file paths while preserving `0-default` legacy paths, and includes completed-session TTL eviction.
-- Phase 3 implementation has started and is compiling: `TrainingMetricsAPI` now supports session-scoped routes under `/api/sessions/{key}/...`, legacy aliases for `0-default`, plus `GET /api/sessions` and `GET /api/metrics/aggregate`.
-- `TrainingMetricsAPIServer` now wires through `MetricsSessionRegistry` and constructs the API with registry ownership instead of a single global service.
-- Remaining work: config keys, trainer session-key wiring, singleton compatibility, and expanded API/multi-session test coverage.
-
-Proposal Reference:
-
-- `docs/development/proposals/multi-instance-metrics-service.md`
-
-Action Items:
-
-- [x] Add `MetricsSessionRegistry` to own per-session `TrainingMetricsService` instances and enforce live-session caps + TTL eviction.
-- [x] Add session-scoped API routes under `/api/sessions/{key}/...` and preserve legacy aliases for `0-default`.
-- [x] Add `GET /api/sessions` and `GET /api/metrics/aggregate` endpoints for discovery and cross-session dashboard summaries.
-- [x] Phase 1: ensure `TrainingMetricsService` fully honors configured per-instance file paths and create regression coverage for custom output locations.
-- [x] Derive per-session metrics files (`*_metrics.jsonl`, `*_metrics_summary.json`, `*_metrics.prom`, `*_abnormal_samples.json`) and keep legacy path behavior for `0-default`.
-- [x] Add config support for `METRICS_SESSION_KEY`, `METRICS_MAX_LIVE_SESSIONS`, `METRICS_COMPLETED_TTL_SECONDS`, `METRICS_SWEEP_INTERVAL_SECONDS`.
-- [ ] Update trainers to send metrics to `/api/sessions/{METRICS_SESSION_KEY}`.
-- [ ] Update singleton/proxy behavior for compatibility with existing `GlobalMetricsService::instance()` call sites.
-- [ ] Add multi-session tests: concurrent sessions, duplicate-start 409 behavior, eviction behavior, and aggregate endpoint coverage.
-
-Files to Modify:
-
-- `src/MetricsSessionRegistry.hpp` (new)
-- `src/TrainingMetricsAPI.hpp`
-- `src/TrainingMetricsAPI.cpp`
-- `src/TrainingMetricsAPIServer.cpp`
-- `src/Config.hpp`
-- `src/Config.cpp`
-- `src/ChatbotTrainer.cpp`
-- `src/IncrementalTrainer.cpp`
-- `src/GlobalMetricsService.hpp` (or equivalent)
-- `src/TrainingMetricsService.cpp`
-- `tests/training_metrics_service_resume_test.cpp`
-- `tests/training_metrics_service_test.cpp`
-- `config.conf`
-- `docs/development/api/TrainingMetricsAPI.md`
-
----
-
 ### TD-014: LLM Operations and Training Tooling Suite
 
 | Priority | Status | Component | Created |
@@ -165,14 +112,6 @@ Action Items:
 - Develop `adai-eval` for deterministic pipeline benchmarking on standardized Q&A lists.
 - Isolate data-filtering scripts into an `adai-data-prep` tool for reproducible data hygiene.
 - Add a dedicated target in `CMakeLists.txt` for these auxiliary tools to avoid bloating main executables.
-
-### TD-003: GPU Memory Management Optimization
-
-| Priority | Status | Component | Created | Resolved |
-|----------|--------|-----------|---------|----------|
-| LOW | **Resolved** | GPU / Performance | January 28, 2026 | May 3, 2026 |
-
----
 
 ### TD-006: Fill-in-the-Middle (FIM) Training Data Generation
 
@@ -240,6 +179,52 @@ Evaluation:
 ---
 
 ## Resolved Items
+
+### TD-018: Multi-Instance Training Metrics Service
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| May 31, 2026 | Training / Metrics / API / Config | `MetricsSessionRegistry`, session-scoped routes, trainer session-key wiring, `GlobalMetricsService` proxy, config keys, API docs |
+
+Description:
+The metrics stack assumed a single active training session and used shared file paths and flat API routes. Running multiple trainers against one metrics API server could overwrite metrics, cross-contaminate session state, and make dashboards unreliable. All 10 phases of the proposal (`docs/development/proposals/multi-instance-metrics-service.md`) are now complete.
+
+Changes Made:
+
+- ✅ **Phase 1** — `TrainingMetricsService` now prepares configured parent directories for all output files, enabling fully caller-supplied per-instance paths. Regression test added in `tests/training_metrics_service_resume_test.cpp`.
+- ✅ **Phase 2** — Created `src/MetricsSessionRegistry.hpp`: owns `unordered_map<string, shared_ptr<TrainingMetricsService>>` under a `shared_mutex`, implements `create_or_get_session()`, `get_session()`, `list_sessions()`, and TTL-based `evict_completed_sessions()`. Enforces `max_live_sessions` cap (default 16). Derives per-session file paths (`{key}_metrics.jsonl`, etc.) while preserving legacy paths for `"0-default"`.
+- ✅ **Phase 3** — `TrainingMetricsAPI` rewritten to accept `MetricsSessionRegistry*`. All routes moved to `/api/sessions/{key}/...` prefix. Added `GET /api/sessions` (session index) and `GET /api/metrics/aggregate` (live cross-session view). Legacy flat routes preserved as `"0-default"` aliases emitting `Deprecation: true` / `Link:` headers.
+- ✅ **Phase 4** — `TrainingMetricsAPIServer` constructs `MetricsSessionRegistry` from `Config` and injects it into `TrainingMetricsAPI`; removed direct construction of a single `TrainingMetricsService`.
+- ✅ **Phase 5** — `src/Config.hpp/.cpp`: added `metrics_session_key`, `metrics_max_live_sessions` (16), `metrics_completed_ttl_seconds` (3600), `metrics_sweep_interval_seconds` (60); parsed from both config file and environment variable overrides.
+- ✅ **Phase 6** — `src/IncrementalTrainer.cpp`: added `sanitize_session_key()`, `derive_metrics_session_key()` (auto-derives `{id}-{hostname}{pid%10000}` when key is empty), `build_metrics_session_push_base()`, and updated `make_incremental_config()` to set the session-scoped push URL (`{METRICS_SERVER_URL}/api/sessions/{key}`).
+- ✅ **Phase 7** — `GlobalMetricsService` updated to proxy through the `"0-default"` slot of a `MetricsSessionRegistry` singleton, preserving the existing `instance().start_session(id, ...)` call-site API.
+- ✅ **Phase 8** — Added multi-session tests in `tests/metrics_session_registry_test.cpp` (`ConcurrentSessionCreationIsThreadSafe`, `ConcurrentReadsAndWritesDoNotDeadlock`, `ConcurrentSessionsHaveIsolatedData`) and `tests/training_metrics_api_routes_test.cpp` (`AggregateEndpointCountsAllLiveSessions`, `SessionStartReturnsConflictForActiveSessionKey`, `SessionStartReturns503WhenRegistryIsFull`).
+- ✅ **Phase 9** — `config.conf` and `config-remote.conf` updated with all four new keys and comments.
+- ✅ **Phase 10** — `docs/development/TRAINING_METRICS_API.md` updated with the full session-scoped route catalog, `GET /api/sessions` and `GET /api/metrics/aggregate` endpoint documentation, backwards-compatibility alias table, and session key configuration reference.
+
+Files Modified:
+
+- `src/MetricsSessionRegistry.hpp` (new)
+- `src/TrainingMetricsAPI.hpp` / `src/TrainingMetricsAPI.cpp`
+- `src/TrainingMetricsAPIServer.cpp`
+- `src/Config.hpp` / `src/Config.cpp`
+- `src/IncrementalTrainer.cpp`
+- `src/GlobalMetricsService.hpp`
+- `src/TrainingMetricsService.cpp`
+- `tests/metrics_session_registry_test.cpp`
+- `tests/training_metrics_api_routes_test.cpp`
+- `tests/training_metrics_service_resume_test.cpp`
+- `config.conf` / `config-remote.conf`
+- `docs/development/TRAINING_METRICS_API.md`
+
+Verification:
+
+- ✅ All `metricsSessionRegistryTests` pass (7 tests including 3 new concurrent-session tests)
+- ✅ All `trainingMetricsApiRoutesTests` pass (9 tests including 409/503/aggregate coverage)
+- ✅ All `incrementaltrainerTests` pass (40 tests) — no regressions
+- ✅ Production build (`build-gpu-clang`) and ASAN build (`build-asan`) both clean
+
+---
 
 ### TD-003: GPU Memory Management Optimization
 

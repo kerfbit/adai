@@ -26,6 +26,11 @@ class Matrix {
     std::vector<std::vector<float>> data;
     int rows, cols;
 
+    Matrix(const Matrix&) = default;
+    Matrix& operator=(const Matrix&) = default;
+    Matrix(Matrix&& other) noexcept;
+    Matrix& operator=(Matrix&& other) noexcept;
+
     /**
      * Constructor: Create a matrix with given dimensions, initialized to zero
      *

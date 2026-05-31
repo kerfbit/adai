@@ -371,13 +371,8 @@ if(OpenMP_CXX_FOUND)
 endif()
 
 # Chatbot GUI - Qt-based graphical interface (optional)
-option(BUILD_GUI "Build Qt GUI for chatbot" ON)
+# BUILD_GUI option and Qt find_package are declared in the top-level CMakeLists.txt.
 if(BUILD_GUI)
-    # Find Qt5 or Qt6
-    find_package(Qt6 COMPONENTS Widgets QUIET)
-    if(NOT Qt6_FOUND)
-        find_package(Qt5 COMPONENTS Widgets QUIET)
-    endif()
     
     if(Qt6_FOUND OR Qt5_FOUND)
         # Enable Qt's automatic MOC (Meta-Object Compiler)
@@ -429,7 +424,7 @@ if(BUILD_GUI)
         
         message(STATUS "Building chatbot_gui wrapper to fix library path issues")
     else()
-        message(WARNING "Qt5/Qt6 not found. GUI will not be built. Install with: sudo apt-get install qt5-default or qtbase5-dev")
+        message(WARNING "Qt5/Qt6 not found. GUI will not be built. Install with: sudo apt-get install qtbase5-dev")
         set(BUILD_GUI OFF)
     endif()
 endif()

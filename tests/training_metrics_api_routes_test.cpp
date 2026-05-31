@@ -288,4 +288,31 @@ TEST_F(TrainingMetricsAPICapacityRoutesTest, SessionStartReturns503WhenRegistryI
     EXPECT_NE(res->body.find("metrics_server_full"), std::string::npos);
 }
 
+TEST_F(TrainingMetricsAPIRoutesTest, AggregateEndpointCountsAllLiveSessions) {
+    // Start the default session and create two more, all simultaneously live.
+    // Verifies live_sessions == 3 and both named keys appear in the response.
+    auto default_opt = registry_->get_session("0-default");
+    ASSERT_TRUE(default_opt);
+    (*default_opt)->start_session(1, 2, 100);
+
+    auto alpha = registry_->create_or_get_session("multi-a");
+    ASSERT_NE(alpha, nullptr);
+    alpha->start_session(301, 2, 200);
+    alpha->update_sample_metrics(1, 0.7f, 0.5f, 0.001f);
+
+    auto beta = registry_->create_or_get_session("multi-b");
+    ASSERT_NE(beta, nullptr);
+    beta->start_session(302, 4, 400);
+    beta->update_sample_metrics(1, 1.1f, 0.8f, 0.002f);
+
+    auto client = make_client();
+    auto res = client.Get("/api/metrics/aggregate");
+
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_NE(res->body.find("\"live_sessions\":3"), std::string::npos);
+    EXPECT_NE(res->body.find("\"key\":\"multi-a\""), std::string::npos);
+    EXPECT_NE(res->body.find("\"key\":\"multi-b\""), std::string::npos);
+}
+
 }  // namespace
