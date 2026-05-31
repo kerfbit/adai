@@ -5,9 +5,9 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** May 31, 2026
-**Total Items:** 3
+**Total Items:** 4
 **High Priority:** 0
-**Medium Priority:** 2
+**Medium Priority:** 3
 **Low Priority:** 1
 **Future Enhancements:** 19
 **Resolved Items:** 19
@@ -17,6 +17,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 - [Overview](#overview)
 - [Table of Contents](#table-of-contents)
 - [Active Technical Debt](#active-technical-debt)
+  - [TD-020: Persistent Metrics Storage via SQL Database](#td-020-persistent-metrics-storage-via-sql-database)
   - [TD-019: Stale Metrics Detection and Liveness Accuracy](#td-019-stale-metrics-detection-and-liveness-accuracy)
   - [TD-014: LLM Operations and Training Tooling Suite](#td-014-llm-operations-and-training-tooling-suite)
   - [TD-006: Fill-in-the-Middle (FIM) Training Data Generation](#td-006-fill-in-the-middle-fim-training-data-generation)
@@ -57,6 +58,51 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 - [References](#references)
 
 ## Active Technical Debt
+
+### TD-020: Persistent Metrics Storage via SQL Database
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Planned | Training / Metrics / API / Infrastructure | May 31, 2026 | 20-30 hours |
+
+Description:
+The metrics stack persists all data to flat JSONL/JSON files per session. This prevents time-range queries, limits history served via the API to the 10,000-record in-memory ring buffer, and makes cross-session analytics impossible without reading multiple files externally. A SQL persistence layer (SQLite by default, PostgreSQL as a compile-time option) would remove these constraints while an `IMetricsDatabase` abstraction keeps both backends interchangeable.
+
+Proposal: `docs/development/proposals/persistent-metrics-sql-storage.md`
+
+Action Items:
+
+- [ ] Define `IMetricsDatabase` interface and `SessionRecord` struct in `src/MetricsDatabase.hpp`.
+- [ ] Implement `SQLiteMetricsDatabase` with WAL mode and prepared statements (`src/SQLiteMetricsDatabase.hpp/.cpp`).
+- [ ] Implement optional `PostgresMetricsDatabase` with connection pool and retry logic (`src/PostgresMetricsDatabase.hpp/.cpp`), guarded by `ENABLE_POSTGRES_METRICS` CMake option.
+- [ ] Add `MetricsDatabaseFactory::create(Config)` to select backend from `METRICS_STORAGE_BACKEND` config key.
+- [ ] Wire `IMetricsDatabase*` into `TrainingMetricsService`: dual-write in `persist_metrics()` / `persist_summary()`, DB-first restore in `restore_from_summary()`.
+- [ ] Have `MetricsSessionRegistry` own and initialise the database instance; inject into each session at creation.
+- [ ] Add four new REST endpoints: time-range history, cross-session metric compare, status-filtered session list, full history export.
+- [ ] Bundle SQLite amalgamation at `external/sqlite3/` for Windows/MinGW builds; update `adai/CMakeLists.txt`.
+- [ ] Add `METRICS_STORAGE_BACKEND`, `METRICS_DB_PATH`, `METRICS_DB_URL`, `METRICS_DB_POOL_SIZE` to `config.conf`.
+- [ ] Write `tests/MetricsDatabaseTest.cpp` covering schema bootstrap, WAL mode, round-trip insert/query, time-range filter, dual-write path, and DB-fallback restore.
+
+Files to Create:
+
+- `src/MetricsDatabase.hpp`
+- `src/SQLiteMetricsDatabase.hpp` / `src/SQLiteMetricsDatabase.cpp`
+- `src/PostgresMetricsDatabase.hpp` / `src/PostgresMetricsDatabase.cpp`
+- `src/MetricsDatabaseFactory.hpp`
+- `external/sqlite3/sqlite3.c` / `external/sqlite3/sqlite3.h` (amalgamation)
+- `tests/MetricsDatabaseTest.cpp`
+
+Files to Modify:
+
+- `src/TrainingMetricsService.hpp` / `src/TrainingMetricsService.cpp`
+- `src/MetricsSessionRegistry.hpp` / `src/MetricsSessionRegistry.cpp`
+- `src/TrainingMetricsAPI.hpp` / `src/TrainingMetricsAPI.cpp`
+- `src/TrainingMetricsAPIServer.cpp`
+- `adai/CMakeLists.txt` / `adai/src/CMakeLists.txt`
+- `config.conf` / `config-remote.conf`
+- `docs/development/TRAINING_METRICS_API.md`
+
+---
 
 ### TD-019: Stale Metrics Detection and Liveness Accuracy
 
@@ -1333,13 +1379,15 @@ When resolving a debt item:
 
 **Total Active Items:** 4
 
+> Note: TD-020 (Persistent Metrics Storage) raised Medium count from 2 to 3 on May 31, 2026.
+
 ### By Component
 
 |Component|Count|
 |----------------------|-------|
 |Training / Data Generation|1|
 |Tooling / Toolchain|1|
-|Training / Metrics / API|2|
+|Training / Metrics / API|3|
 
 ### Effort Distribution
 
@@ -1348,9 +1396,9 @@ When resolving a debt item:
 |0-2 hours|0|
 |2-4 hours|0|
 |4-8 hours|2|
-|8+ hours|1|
+|8+ hours|2|
 
-**Total Estimated Effort (Active Items):** 28-50 hours
+**Total Estimated Effort (Active Items):** 48-80 hours
 
 ### Future Enhancements Summary
 
