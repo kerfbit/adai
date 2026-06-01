@@ -47,6 +47,7 @@ add_library(adai_core STATIC
     Optimizer.cpp
     Logger.cpp
     TrainingMetricsService.cpp
+    MetricsPushClient.cpp
 )
 target_link_libraries(adai_core PUBLIC spdlog::spdlog)
 

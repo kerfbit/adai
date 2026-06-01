@@ -598,9 +598,9 @@ float ChatbotTrainer::train_epoch(int epoch) {
     int num_samples = static_cast<int>(tokenized_training_data.size());
     int effective_batch_size = config.batch_size * config.gradient_accumulation_steps;
 
-    // Notify metrics service that epoch is starting (1-based epoch number)
-    if (metrics_service_) {
-        metrics_service_->start_epoch(epoch + 1, num_samples);
+    // Notify metrics reporter that epoch is starting (1-based epoch number)
+    if (metrics_reporter_) {
+        metrics_reporter_->start_epoch(epoch + 1, num_samples);
     }
 
     log(LogLevel::VERBOSE,
@@ -629,11 +629,7 @@ float ChatbotTrainer::train_epoch(int epoch) {
     // Weight-update ratio (lr*||g||/||w||) accumulator
     float wu_ratio_sum = 0.0f;
     int wu_count = 0;
-    // Cache outlier thresholds from service config once per epoch
-    MetricsServiceConfig adv_cfg;
-    if (metrics_service_) {
-        adv_cfg = metrics_service_->get_config();
-    }
+    // Outlier detection thresholds come from TrainingConfig (TD-021)
     // Epoch-level wall-clock start for compute_time_ratio denominator
     auto epoch_td013_start = std::chrono::steady_clock::now();
     // ── TD-017: Adaptive gradient clipping state ──────────────────────────────
@@ -667,7 +663,7 @@ float ChatbotTrainer::train_epoch(int epoch) {
     float pad_eff_sum = 0.0f;
     int pad_eff_count = 0;
     // ──────────────────────────────────────────────────────────────────────────
-    if (metrics_service_) {
+    if (metrics_reporter_) {
         // Lambda captures sat_sum/sat_count by reference; hooks are cleared
         // before train_epoch() returns so there is no dangling reference risk.
         auto saturation_hook = [&sat_sum, &sat_count](const Matrix& activated) {
@@ -861,15 +857,15 @@ float ChatbotTrainer::train_epoch(int epoch) {
                     }
 
                     // Outlier detection — flag samples with extreme grad_norm or loss z-score
-                    if (metrics_service_) {
-                        bool grad_outlier = grad_norm > adv_cfg.grad_norm_outlier_threshold;
+                    if (metrics_reporter_) {
+                        bool grad_outlier = grad_norm > config.grad_norm_outlier_threshold;
                         bool loss_outlier = false;
                         if (ls_w_count >= 10.0f) {
                             float ls_std =
                                 (ls_w_M2 > 0.0f) ? std::sqrt(ls_w_M2 / ls_w_count) : 0.0f;
                             float ls_z =
                                 (ls_std > 1e-7f) ? (step_loss_for_cb - ls_w_mean) / ls_std : 0.0f;
-                            loss_outlier = (ls_z > adv_cfg.loss_outlier_z_threshold);
+                            loss_outlier = (ls_z > config.loss_outlier_z_threshold);
                         }
                         if (grad_outlier || loss_outlier) {
                             AbnormalSample ab;
@@ -888,14 +884,17 @@ float ChatbotTrainer::train_epoch(int epoch) {
                             } else {
                                 ab.reason = "loss_outlier";
                             }
-                            metrics_service_->flag_abnormal_sample(ab);
+                            if (abnormal_sample_count_ < config.max_abnormal_samples) {
+                                metrics_reporter_->flag_abnormal_sample(ab);
+                                ++abnormal_sample_count_;
+                            }
                         }
                     }
                 }
                 // ─────────────────────────────────────────────────────────────────────
 
                 // ── TD-013: emit running advanced metrics every optimizer step ─────────
-                if (metrics_service_) {
+                if (metrics_reporter_) {
                     float running_gv = (gn_w_count >= 2.0f) ? (gn_w_M2 / gn_w_count) : 0.0f;
                     auto elapsed_wall_ns = static_cast<double>(
                         std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -906,7 +905,7 @@ float ChatbotTrainer::train_epoch(int epoch) {
                                             : 0.0f;
                     float running_wur =
                         (wu_count > 0) ? (wu_ratio_sum / static_cast<float>(wu_count)) : 0.0f;
-                    metrics_service_->update_advanced_epoch_metrics(running_gv, running_ctr,
+                    metrics_reporter_->update_advanced_epoch_metrics(running_gv, running_ctr,
                                                                     running_wur);
                 }
                 // ─────────────────────────────────────────────────────────────────────
@@ -946,8 +945,8 @@ float ChatbotTrainer::train_epoch(int epoch) {
                 }
 
                 // Push adaptive clip state to metrics service
-                if (metrics_service_ && agc_active) {
-                    metrics_service_->update_adaptive_clip_metrics(effective_clip, agc_spike_count);
+                if (metrics_reporter_ && agc_active) {
+                    metrics_reporter_->update_adaptive_clip_metrics(effective_clip, agc_spike_count);
                 }
                 // ─────────────────────────────────────────────────────────────────
 
@@ -989,8 +988,8 @@ float ChatbotTrainer::train_epoch(int epoch) {
                 }
 
                 // Update metrics service with sample-level metrics
-                if (metrics_service_) {
-                    metrics_service_->update_sample_metrics(i + 1, step_loss_for_cb, grad_norm,
+                if (metrics_reporter_) {
+                    metrics_reporter_->update_sample_metrics(i + 1, step_loss_for_cb, grad_norm,
                                                             current_learning_rate);
                 }
             }
@@ -1029,8 +1028,8 @@ float ChatbotTrainer::train_epoch(int epoch) {
             std::to_string(avg_grad_norm) + " - Updates: " + std::to_string(num_updates),
         COLOR_SUCCESS);
 
-    // ── TD-013: emit advanced epoch diagnostics to metrics service ────────────
-    if (metrics_service_) {
+    // ── TD-013: emit advanced epoch diagnostics to metrics reporter ────────────
+    if (metrics_reporter_) {
         float gradient_variance = (gn_w_count >= 2.0f) ? (gn_w_M2 / gn_w_count) : 0.0f;
         auto total_wall_ns =
             static_cast<double>(std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -1039,12 +1038,12 @@ float ChatbotTrainer::train_epoch(int epoch) {
         float compute_time_ratio =
             (total_wall_ns > 0.0) ? static_cast<float>(total_compute_ns / total_wall_ns) : 0.0f;
         float avg_wu_ratio = (wu_count > 0) ? (wu_ratio_sum / static_cast<float>(wu_count)) : 0.0f;
-        metrics_service_->update_advanced_epoch_metrics(gradient_variance, compute_time_ratio,
-                                                        avg_wu_ratio);
+        metrics_reporter_->update_advanced_epoch_metrics(gradient_variance, compute_time_ratio,
+                                                          avg_wu_ratio);
 
         // ── TD-013: Activation saturation – report epoch average and clear hooks ─
         float avg_saturation = (sat_count > 0) ? (sat_sum / static_cast<float>(sat_count)) : -1.0f;
-        metrics_service_->update_activation_saturation(avg_saturation);
+        metrics_reporter_->update_activation_saturation(avg_saturation);
         const int enc_layers = model->get_encoder_layers();
         const int dec_layers = model->get_decoder_layers();
         for (int l = 0; l < enc_layers; ++l) {
@@ -1056,7 +1055,7 @@ float ChatbotTrainer::train_epoch(int epoch) {
 
         // ── TD-013: Attention entropy – report epoch average and clear hooks ──────
         float avg_entropy = (ent_count > 0) ? (ent_sum / static_cast<float>(ent_count)) : -1.0f;
-        metrics_service_->update_attention_entropy(avg_entropy);
+        metrics_reporter_->update_attention_entropy(avg_entropy);
         for (int l = 0; l < enc_layers; ++l) {
             model->get_encoder()
                 ->get_encoder_block(l)
@@ -1072,14 +1071,14 @@ float ChatbotTrainer::train_epoch(int epoch) {
         // ── Batch padding efficiency – report epoch average ───────────────────────
         float avg_pad_eff =
             (pad_eff_count > 0) ? (pad_eff_sum / static_cast<float>(pad_eff_count)) : -1.0f;
-        metrics_service_->update_padding_efficiency(avg_pad_eff);
+        metrics_reporter_->update_padding_efficiency(avg_pad_eff);
         adai::Logger::info("Batch padding efficiency (epoch {}): {:.4f}", epoch + 1, avg_pad_eff);
         // ── TD-017: Adaptive clip – report epoch average and spike count ────────
         if (agc_active) {
             float avg_clip = (agc_clip_count > 0)
                                  ? (agc_clip_sum / static_cast<float>(agc_clip_count))
                                  : config.gradient_clip_norm;
-            metrics_service_->update_adaptive_clip_epoch(avg_clip, agc_spike_count);
+            metrics_reporter_->update_adaptive_clip_epoch(avg_clip, agc_spike_count);
             adai::Logger::info("Adaptive clip (epoch {}): avg_threshold={:.4f} spikes={}",
                                epoch + 1, avg_clip, agc_spike_count);
         }
@@ -1128,8 +1127,8 @@ float ChatbotTrainer::validate() {
     validation_perplexities.push_back(validation_perplexity);
 
     // Update metrics service with validation metrics (TD-015: include accuracy and perplexity)
-    if (metrics_service_) {
-        metrics_service_->update_validation_metrics(validation_loss, -1.0f, validation_perplexity);
+    if (metrics_reporter_) {
+        metrics_reporter_->update_validation_metrics(validation_loss, -1.0f, validation_perplexity);
     }
 
     // Compute BLEU/ROUGE generation quality on a validation sample subset
@@ -1148,8 +1147,8 @@ float ChatbotTrainer::validate() {
         adai::Logger::info("  ⭐ New best validation loss!");
 
         // Update metrics service with best metrics
-        if (metrics_service_) {
-            metrics_service_->update_best_metrics(validation_loss, best_epoch);
+        if (metrics_reporter_) {
+            metrics_reporter_->update_best_metrics(validation_loss, best_epoch);
         }
 
         // Save best model if early stopping is enabled
@@ -1178,7 +1177,7 @@ float ChatbotTrainer::validate() {
 
 void ChatbotTrainer::compute_generation_quality_metrics() {
     // Only run when explicitly enabled and a metrics service is connected
-    if (!config.enable_generation_quality_metrics || !metrics_service_) {
+    if (!config.enable_generation_quality_metrics || !metrics_reporter_) {
         return;
     }
     if (tokenized_validation_data.empty()) {
@@ -1215,7 +1214,7 @@ void ChatbotTrainer::compute_generation_quality_metrics() {
     }
 
     GenerationQualityScore score = GenerationQualityEvaluator::evaluate(references, hypotheses);
-    metrics_service_->update_generation_quality_metrics(score.bleu4, score.rouge1, score.rouge2,
+    metrics_reporter_->update_generation_quality_metrics(score.bleu4, score.rouge1, score.rouge2,
                                                         score.rougeL);
 }
 
@@ -1713,8 +1712,8 @@ bool ChatbotTrainer::train(int num_epochs) {
                 float val_loss = validate();
 
                 // Update end_epoch with actual validation loss now that we have it (1-based epoch)
-                if (metrics_service_) {
-                    metrics_service_->end_epoch(epoch + 1, epoch_loss, val_loss,
+                if (metrics_reporter_) {
+                    metrics_reporter_->end_epoch(epoch + 1, epoch_loss, val_loss,
                                                 current_learning_rate, std::exp(epoch_loss),
                                                 optimizer ? optimizer->get_gradient_norm() : 0.0f);
                 }
@@ -1805,6 +1804,6 @@ void ChatbotTrainer::save_to(const std::string& path) {
     }
 }
 
-void ChatbotTrainer::set_metrics_service(TrainingMetricsService* service) {
-    metrics_service_ = service;
+void ChatbotTrainer::set_metrics_reporter(IMetricsReporter* reporter) {
+    metrics_reporter_ = reporter;
 }

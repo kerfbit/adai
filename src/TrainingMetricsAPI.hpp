@@ -24,7 +24,8 @@
  * - GET  /api/metrics/current    - Current training snapshot (JSON)
  * - GET  /api/metrics/summary    - Aggregated metrics summary (JSON)
  * - GET  /api/metrics/history    - Historical metrics records (JSON)
- * - GET  /api/metrics/prometheus - Prometheus format metrics
+ * - GET  /api/metrics/prometheus - Prometheus format metrics (legacy, alias for 0-default)
+ * - GET  /api/metrics/prometheus/aggregate - Concatenated Prometheus output for all live sessions (TD-021)
  * - GET  /api/metrics/csv        - CSV format (header + current row)
  * - GET  /api/metrics/abnormal   - TD-013: Outlier samples (JSON)
  * - GET  /api/metrics/generation-quality - BLEU/ROUGE generation quality scores (JSON)
@@ -109,6 +110,7 @@ class TrainingMetricsAPI {
     std::string handle_padding_efficiency_metrics(const std::string& session_key);  // Batch padding
     std::string handle_sessions_list();
     std::string handle_metrics_aggregate();
+    std::string handle_prometheus_aggregate();  ///< TD-021: per-session labelled Prometheus output
     std::string handle_flush_control(const std::string& session_key);
     std::string handle_clear_control(const std::string& session_key);
     std::string handle_health_check();

@@ -10,7 +10,9 @@
 #include "Config.hpp"
 #include "EncoderDecoderModel.hpp"
 #include "Logger.hpp"
-#include "TrainingMetricsService.hpp"
+#include "IMetricsReporter.hpp"
+#include "MetricsPushClient.hpp"
+
 
 /**
  * @brief Training session information
@@ -76,11 +78,10 @@ struct IncrementalConfig {
         "latest_checkpoint.bin";                            // Name for latest checkpoint symlink
     std::string best_symlink_name = "best_checkpoint.bin";  // Name for best checkpoint symlink
 
-    // Metrics service configuration
-    MetricsServiceConfig metrics_config;
-    bool enable_metrics_service = true;  // Enable TrainingMetricsService integration
-    bool metrics_push_enabled = false;   // Push metrics to external metrics API daemon
-    std::string metrics_server_url = "http://localhost:8081";  // URL of metrics API daemon
+    // Metrics push configuration (TD-021)
+    std::string metrics_server_url;          // URL of metrics API daemon; empty = no push
+    std::string metrics_session_label;       // Human-readable label; auto-derived when empty
+    int metrics_push_timeout_ms = 1000;      // HTTP push timeout in milliseconds
 };
 
 /**
@@ -255,8 +256,10 @@ class IncrementalTrainer {
     float best_validation_loss;
     std::string best_checkpoint_path;
 
-    // Training metrics service integration
-    std::unique_ptr<TrainingMetricsService> metrics_service_;
+    // Metrics reporter (TD-021)
+    std::unique_ptr<IMetricsReporter> metrics_reporter_;    ///< active reporter (Null or Push)
+    MetricsPushClient* push_client_{nullptr};               ///< non-owning alias when reporter is MetricsPushClient
+    std::string active_session_key_;                        ///< key for the in-flight push session
 
     // TD-009: Dashboard / timing state
     mutable int dashboard_lines_drawn_;  ///< lines drawn by last display_dashboard() call

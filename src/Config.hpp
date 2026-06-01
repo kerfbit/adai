@@ -197,6 +197,19 @@ struct ServiceConfig {
     bool metrics_api_allow_control = true;
 
     // ============================================================
+    // Outlier Detection Configuration (TD-021)
+    // ============================================================
+
+    /// Flag sample if loss z-score exceeds this value (default: 3.0)
+    float loss_outlier_z_threshold = 3.0f;
+
+    /// Flag sample if gradient norm exceeds this value (default: 10.0)
+    float grad_norm_outlier_threshold = 10.0f;
+
+    /// Maximum number of abnormal samples reported per training run (default: 1000)
+    int max_abnormal_samples = 1000;
+
+    // ============================================================
     // Generation Quality Metrics Configuration
     // ============================================================
 

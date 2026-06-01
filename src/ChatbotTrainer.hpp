@@ -10,7 +10,7 @@
 #include "BPETokenizer.hpp"
 #include "EncoderDecoderModel.hpp"
 #include "Optimizer.hpp"
-#include "TrainingMetricsService.hpp"
+#include "IMetricsReporter.hpp"
 
 // Parallel optimizations (Priority 1-5)
 #ifdef _OPENMP
@@ -133,6 +133,11 @@ struct TrainingConfig {
         false;                                // Compute BLEU/ROUGE during each validation pass
     int generation_quality_sample_size = 10;  // Max validation samples used for scoring
     int generation_quality_max_tokens = 50;   // max_length passed to generate_response()
+
+    // Outlier detection thresholds (TD-021, moved from MetricsServiceConfig)
+    float loss_outlier_z_threshold = 3.0f;     // Flag sample if loss > epoch_mean + N×std
+    float grad_norm_outlier_threshold = 10.0f;  // Flag sample if grad_norm exceeds this value
+    int   max_abnormal_samples = 1000;          // Cap on flagged samples reported per training run
 };
 
 /**
@@ -235,8 +240,8 @@ class ChatbotTrainer {
     // Fired whenever a new best validation loss is saved to disk
     BestModelCallback best_model_callback_;
 
-    // TrainingMetricsService integration
-    TrainingMetricsService* metrics_service_{nullptr};
+    IMetricsReporter* metrics_reporter_{nullptr};
+    int abnormal_sample_count_ = 0;  ///< flagged samples reported this training run (TD-021)
 
     // Private helper methods
     void validate_and_correct_config();
@@ -262,8 +267,8 @@ class ChatbotTrainer {
      * @brief Compute BLEU-4 and ROUGE-1/2/L on a random subset of validation pairs.
      *
      * Calls model->generate_response() in eval mode and scores the outputs
-     * against reference targets.  Results are pushed to metrics_service_.
-     * No-op when metrics_service_ is null or config option is disabled.
+     * against reference targets.  Results are pushed to metrics_reporter_.
+     * No-op when metrics_reporter_ is null or config option is disabled.
      */
     void compute_generation_quality_metrics();
     bool should_early_stop();
@@ -417,10 +422,10 @@ class ChatbotTrainer {
     void save_to(const std::string& path);
 
     /**
-     * @brief Set the TrainingMetricsService for metrics reporting.
-     * @param service Pointer to TrainingMetricsService (not owned, can be nullptr to disable)
+     * @brief Set the metrics reporter for in-epoch reporting (TD-021).
+     * @param reporter Pointer to IMetricsReporter (not owned, may be nullptr to disable)
      */
-    void set_metrics_service(TrainingMetricsService* service);
+    void set_metrics_reporter(IMetricsReporter* reporter);
 
     // For testing data management
     size_t get_training_data_size() const {

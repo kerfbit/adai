@@ -69,6 +69,20 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                                  }
                              });
 
+    // TD-021: aggregate Prometheus output for all live sessions, each labelled with session= key
+    server_impl_->server.Get("/api/metrics/prometheus/aggregate",
+                             [this](const httplib::Request&, httplib::Response& res) {
+                                 try {
+                                     std::string response = handle_prometheus_aggregate();
+                                     res.set_content(response, "text/plain");
+                                     res.status = 200;
+                                 } catch (const std::exception& e) {
+                                     res.set_content(create_error_response(e.what()),
+                                                     "application/json");
+                                     res.status = 500;
+                                 }
+                             });
+
     server_impl_->server.Get("/api/sessions/" + key_pattern + "/metrics/current",
                              [this](const httplib::Request& req, httplib::Response& res) {
             try {
@@ -863,7 +877,7 @@ std::string TrainingMetricsAPI::handle_metrics_history(const std::string& sessio
 
 std::string TrainingMetricsAPI::handle_prometheus_metrics(const std::string& session_key) {
     auto service = resolve_session_service(session_key, false);
-    return service->to_prometheus();
+    return service->to_prometheus(session_key);
 }
 
 std::string TrainingMetricsAPI::handle_csv_metrics(const std::string& session_key) {
@@ -1129,6 +1143,22 @@ std::string TrainingMetricsAPI::handle_sessions_list() {
     return json.str();
 }
 
+std::string TrainingMetricsAPI::handle_prometheus_aggregate() {
+    // Snapshot session summaries under the registry's shared lock (released on return from
+    // list_sessions()), then call to_prometheus(key) on each service without holding any
+    // registry lock — per-service mutex inside to_prometheus() handles thread safety.
+    auto summaries = session_registry_->list_sessions();
+    std::ostringstream out;
+    for (const auto& summary : summaries) {
+        auto maybe_service = session_registry_->get_session(summary.key);
+        if (!maybe_service) {
+            continue;  // session evicted between list and get — skip
+        }
+        out << (*maybe_service)->to_prometheus(summary.key);
+    }
+    return out.str();
+}
+
 std::string TrainingMetricsAPI::handle_metrics_aggregate() {
     auto sessions = session_registry_->list_sessions();
 
@@ -1303,10 +1333,13 @@ std::string TrainingMetricsAPI::handle_post_session_start(const std::string& ses
                               "session already active for key: " + session_key);
     }
 
-    // Parse JSON body: {"session_id": int, "total_epochs": int, "total_samples": int}
+    // Parse JSON body: {"session_id": int, "total_epochs": int, "total_samples": int,
+    //                   "label": string (optional), "config": JSON object (optional)}
     int session_id = 0;
     int total_epochs = 0;
     int total_samples = 0;
+    std::string label;
+    std::string config_snapshot;
 
     // Simple JSON parsing (extract integer values)
     size_t pos = body.find("\"session_id\"");
@@ -1333,7 +1366,43 @@ std::string TrainingMetricsAPI::handle_post_session_start(const std::string& ses
         }
     }
 
-    service->start_session(session_id, total_epochs, total_samples);
+    // Extract optional "label" string field
+    pos = body.find("\"label\"");
+    if (pos != std::string::npos) {
+        pos = body.find(':', pos);
+        if (pos != std::string::npos) {
+            size_t q1 = body.find('"', pos + 1);
+            if (q1 != std::string::npos) {
+                size_t q2 = body.find('"', q1 + 1);
+                if (q2 != std::string::npos) {
+                    label = body.substr(q1 + 1, q2 - q1 - 1);
+                }
+            }
+        }
+    }
+
+    // Extract optional "config" JSON object field by brace-matching
+    pos = body.find("\"config\"");
+    if (pos != std::string::npos) {
+        pos = body.find(':', pos);
+        if (pos != std::string::npos) {
+            size_t brace_start = body.find('{', pos + 1);
+            if (brace_start != std::string::npos) {
+                int depth = 1;
+                size_t i = brace_start + 1;
+                while (i < body.size() && depth > 0) {
+                    if (body[i] == '{') ++depth;
+                    else if (body[i] == '}') --depth;
+                    ++i;
+                }
+                if (depth == 0) {
+                    config_snapshot = body.substr(brace_start, i - brace_start);
+                }
+            }
+        }
+    }
+
+    service->start_session(session_id, total_epochs, total_samples, label, config_snapshot);
 
     return R"({"status":"ok","message":"Session started"})";
 }

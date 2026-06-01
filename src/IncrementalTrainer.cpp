@@ -161,28 +161,15 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
     // the TUI dashboard for real-time feedback.
     cfg.base_config.log_level = LogLevel::NORMAL;
 
-    // Metrics service configuration
-    cfg.enable_metrics_service = svc.enable_metrics_service;
-    cfg.metrics_push_enabled = svc.metrics_push_enabled;
-    cfg.metrics_server_url = svc.metrics_server_url;
-    cfg.metrics_config.session_key = sanitize_session_key(svc.metrics_session_key);
-    cfg.metrics_config.enable_push = svc.metrics_push_enabled;
-    cfg.metrics_config.push_url = cfg.metrics_config.session_key.empty()
-                                      ? svc.metrics_server_url
-                                      : build_metrics_session_push_base(svc.metrics_server_url,
-                                                                        cfg.metrics_config
-                                                                            .session_key);
-    cfg.metrics_config.push_timeout_ms = svc.metrics_push_timeout_ms;
-    cfg.metrics_config.enable_persistence = svc.metrics_enable_persistence;
-    cfg.metrics_config.metrics_file = svc.metrics_file;
-    cfg.metrics_config.summary_file = svc.metrics_summary_file;
-    cfg.metrics_config.persist_every_samples = svc.metrics_persist_every_samples;
-    cfg.metrics_config.persist_every_seconds = svc.metrics_persist_every_seconds;
-    cfg.metrics_config.max_records_in_memory = svc.metrics_max_records_in_memory;
-    cfg.metrics_config.max_records_on_disk = svc.metrics_max_records_on_disk;
-    cfg.metrics_config.enable_prometheus_format = svc.metrics_enable_prometheus;
-    cfg.metrics_config.prometheus_file = svc.metrics_prometheus_file;
-    cfg.metrics_config.staleness_threshold_seconds = svc.metrics_staleness_threshold_seconds;
+    // Metrics push configuration (TD-021)
+    cfg.metrics_server_url    = svc.metrics_push_enabled ? svc.metrics_server_url : "";
+    cfg.metrics_session_label = svc.metrics_session_key;
+    cfg.metrics_push_timeout_ms = svc.metrics_push_timeout_ms;
+
+    // Outlier detection (TD-021)
+    cfg.base_config.loss_outlier_z_threshold    = svc.loss_outlier_z_threshold;
+    cfg.base_config.grad_norm_outlier_threshold = svc.grad_norm_outlier_threshold;
+    cfg.base_config.max_abnormal_samples        = svc.max_abnormal_samples;
 
     // Generation quality metrics
     cfg.base_config.enable_generation_quality_metrics = svc.enable_generation_quality_metrics;
@@ -228,24 +215,11 @@ IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
     config = make_incremental_config(svc);
     config.base_config.lr_schedule = LRSchedule::WARMUP_COSINE;
 
-    // Initialize metrics service if enabled
-    if (config.enable_metrics_service) {
-        config.metrics_config.enable_persistence = true;
-        config.metrics_config.metrics_file = "training_sessions/metrics.jsonl";
-        config.metrics_config.summary_file = "training_sessions/metrics_summary.json";
-        config.metrics_config.persist_every_samples = 100;
-        config.metrics_config.persist_every_seconds = 30;
-        // Preserve push settings from config
-        // (already set by make_incremental_config from ServiceConfig)
-        metrics_service_ = std::make_unique<TrainingMetricsService>(config.metrics_config);
-        Logger::info("TrainingMetricsService initialized (push enabled: {}, URL: {})",
-                     config.metrics_config.enable_push, config.metrics_config.push_url);
-    }
-
-    Logger::info("Initializing Incremental Training System...");
-    build_model();
+    // MetricsPushClient is created per training run; use NullMetricsReporter until then.
+    metrics_reporter_ = std::make_unique<NullMetricsReporter>();
 
     ensure_directories_exist();
+
     load_session_history();
     load_data_registry();
     load_pending_data_list();
@@ -325,15 +299,8 @@ IncrementalTrainer::IncrementalTrainer(std::string vocab_path, const std::string
       current_item_lr_(0.0f) {
     Logger::info("Initializing Incremental Training System...");
 
-    // Initialize metrics service with default config
-    if (config.enable_metrics_service) {
-        config.metrics_config.enable_persistence = true;
-        config.metrics_config.metrics_file = "training_sessions/metrics.jsonl";
-        config.metrics_config.summary_file = "training_sessions/metrics_summary.json";
-        metrics_service_ = std::make_unique<TrainingMetricsService>(config.metrics_config);
-        Logger::info("TrainingMetricsService initialized (push enabled: {}, URL: {})",
-                     config.metrics_config.enable_push, config.metrics_config.push_url);
-    }
+    // MetricsPushClient is created per training run; use NullMetricsReporter until then.
+    metrics_reporter_ = std::make_unique<NullMetricsReporter>();
 
     // Build model using default config.
     build_model();
@@ -394,15 +361,8 @@ IncrementalTrainer::IncrementalTrainer(std::string vocab_path, const std::string
 
     // set config FIRST so build_model() uses the correct architecture
 
-    // Initialize metrics service if enabled
-    if (config.enable_metrics_service) {
-        config.metrics_config.enable_persistence = true;
-        config.metrics_config.metrics_file = "training_sessions/metrics.jsonl";
-        config.metrics_config.summary_file = "training_sessions/metrics_summary.json";
-        metrics_service_ = std::make_unique<TrainingMetricsService>(config.metrics_config);
-        Logger::info("TrainingMetricsService initialized (push enabled: {}, URL: {})",
-                     config.metrics_config.enable_push, config.metrics_config.push_url);
-    }
+    // MetricsPushClient is created per training run; use NullMetricsReporter until then.
+    metrics_reporter_ = std::make_unique<NullMetricsReporter>();
 
     build_model();
 
@@ -565,24 +525,24 @@ bool IncrementalTrainer::train_incremental(int num_epochs) {
     ChatbotTrainer trainer(config.base_config);
     trainer.set_model(std::move(model));
 
-    // Set metrics service on trainer if enabled
-    if (metrics_service_) {
-        if (config.metrics_push_enabled) {
-            MetricsServiceConfig metrics_cfg = metrics_service_->get_config();
-            std::string session_key = sanitize_session_key(metrics_cfg.session_key);
-            if (session_key.empty()) {
-                session_key = derive_metrics_session_key(current_session_id + 1);
-            }
-            metrics_cfg.session_key = session_key;
-            metrics_cfg.push_url =
-                build_metrics_session_push_base(config.metrics_server_url, session_key);
-            metrics_service_->set_config(metrics_cfg);
-        }
-        trainer.set_metrics_service(metrics_service_.get());
-        // Start metrics session
-        metrics_service_->start_session(current_session_id + 1, num_epochs,
-                                        static_cast<int>(training_pairs.size()));
+    // TD-021: Create MetricsPushClient for this session, or keep NullMetricsReporter.
+    if (!config.metrics_server_url.empty()) {
+        active_session_key_ =
+            sanitize_session_key(derive_metrics_session_key(current_session_id + 1));
+        const std::string push_url =
+            build_metrics_session_push_base(config.metrics_server_url, active_session_key_);
+        auto pc = std::make_unique<MetricsPushClient>(push_url, config.metrics_push_timeout_ms);
+        push_client_ = pc.get();
+        metrics_reporter_ = std::move(pc);
+        push_client_->start_session(current_session_id + 1, num_epochs,
+                                    static_cast<int>(training_pairs.size()),
+                                    config.metrics_session_label);
+    } else {
+        push_client_ = nullptr;
+        active_session_key_.clear();
+        metrics_reporter_ = std::make_unique<NullMetricsReporter>();
     }
+    trainer.set_metrics_reporter(metrics_reporter_.get());
 
     for (const auto& pair : training_pairs) {
         trainer.add_training_pair(pair.input, pair.response);
@@ -671,10 +631,12 @@ bool IncrementalTrainer::train_incremental(int num_epochs) {
     Logger::info("Training for {} epochs...", num_epochs);
     bool success = trainer.train(num_epochs);
 
-    // End metrics session if enabled
-    if (metrics_service_) {
-        metrics_service_->end_session();
+    // End metrics push session and reset to null reporter until the next run.
+    if (push_client_) {
+        push_client_->end_session();
+        push_client_ = nullptr;
     }
+    metrics_reporter_ = std::make_unique<NullMetricsReporter>();
 
     // Retrieve model after training
     model = trainer.release_model();
@@ -769,24 +731,23 @@ bool IncrementalTrainer::train_full_retrain(int num_epochs) {
     ChatbotTrainer trainer(config.base_config);
     trainer.set_model(std::move(model));
 
-    // Set metrics service on trainer if enabled
-    if (metrics_service_) {
-        if (config.metrics_push_enabled) {
-            MetricsServiceConfig metrics_cfg = metrics_service_->get_config();
-            std::string session_key = sanitize_session_key(metrics_cfg.session_key);
-            if (session_key.empty()) {
-                session_key = derive_metrics_session_key(current_session_id + 1);
-            }
-            metrics_cfg.session_key = session_key;
-            metrics_cfg.push_url =
-                build_metrics_session_push_base(config.metrics_server_url, session_key);
-            metrics_service_->set_config(metrics_cfg);
-        }
-        trainer.set_metrics_service(metrics_service_.get());
-        // Start metrics session for full retrain
-        metrics_service_->start_session(current_session_id + 1, num_epochs,
-                                        total_samples_in_epoch_);
+    // TD-021: Create MetricsPushClient for this session, or keep NullMetricsReporter.
+    if (!config.metrics_server_url.empty()) {
+        active_session_key_ =
+            sanitize_session_key(derive_metrics_session_key(current_session_id + 1));
+        const std::string push_url =
+            build_metrics_session_push_base(config.metrics_server_url, active_session_key_);
+        auto pc = std::make_unique<MetricsPushClient>(push_url, config.metrics_push_timeout_ms);
+        push_client_ = pc.get();
+        metrics_reporter_ = std::move(pc);
+        push_client_->start_session(current_session_id + 1, num_epochs, total_samples_in_epoch_,
+                                    config.metrics_session_label);
+    } else {
+        push_client_ = nullptr;
+        active_session_key_.clear();
+        metrics_reporter_ = std::make_unique<NullMetricsReporter>();
     }
+    trainer.set_metrics_reporter(metrics_reporter_.get());
 
     for (const auto& pair : all_pairs) {
         trainer.add_training_pair(pair.input, pair.response);
@@ -844,10 +805,12 @@ bool IncrementalTrainer::train_full_retrain(int num_epochs) {
     bool success = trainer.train(num_epochs);
     model = trainer.release_model();
 
-    // End metrics session if enabled
-    if (metrics_service_) {
-        metrics_service_->end_session();
+    // End metrics push session and reset to null reporter until the next run.
+    if (push_client_) {
+        push_client_->end_session();
+        push_client_ = nullptr;
     }
+    metrics_reporter_ = std::make_unique<NullMetricsReporter>();
 
     if (success) {
         std::string checkpoint_path = generate_session_checkpoint_path();

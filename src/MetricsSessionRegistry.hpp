@@ -1,11 +1,15 @@
 #pragma once
 
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <filesystem>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <shared_mutex>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -14,6 +18,8 @@
 struct MetricsSessionSummary {
     std::string key;
     int session_id = 0;
+    std::string label;           ///< human-readable label; empty until TrainingMetricsService populates (TD-021 step 8)
+    std::string config_snapshot; ///< compact training-config JSON; empty until step 8
     bool is_training = false;
     int current_epoch = 0;
     int total_epochs = 0;
@@ -29,11 +35,28 @@ class MetricsSessionRegistry {
    public:
     explicit MetricsSessionRegistry(MetricsServiceConfig base_config = MetricsServiceConfig(),
                                     size_t max_live_sessions = 16,
-                                    int completed_ttl_seconds = 3600)
+                                    int completed_ttl_seconds = 3600,
+                                    int sweep_interval_seconds = 60)
         : base_config_(std::move(base_config)),
           max_live_sessions_(max_live_sessions),
-          completed_ttl_seconds_(completed_ttl_seconds) {}
+          completed_ttl_seconds_(completed_ttl_seconds),
+          sweep_interval_seconds_(sweep_interval_seconds) {
+        if (sweep_interval_seconds_ > 0) {
+            sweep_thread_ = std::thread(&MetricsSessionRegistry::sweep_loop, this);
+        }
+    }
 
+    ~MetricsSessionRegistry() {
+        if (sweep_thread_.joinable()) {
+            stop_sweep_ = true;
+            sweep_cv_.notify_all();
+            sweep_thread_.join();
+        }
+    }
+
+    // Non-copyable, non-movable (owns a thread and a mutex)
+    MetricsSessionRegistry(const MetricsSessionRegistry&) = delete;
+    MetricsSessionRegistry& operator=(const MetricsSessionRegistry&) = delete;
     std::shared_ptr<TrainingMetricsService> create_or_get_session(const std::string& key) {
         std::unique_lock<std::shared_mutex> lock(registry_mutex_);
 
@@ -76,6 +99,8 @@ class MetricsSessionRegistry {
             MetricsSessionSummary summary;
             summary.key = key;
             summary.session_id = snapshot.session_id;
+            summary.label = snapshot.label;
+            summary.config_snapshot = snapshot.config_snapshot;
             summary.is_training = snapshot.is_training;
             summary.current_epoch = snapshot.current_epoch;
             summary.total_epochs = snapshot.total_epochs;
@@ -108,6 +133,8 @@ class MetricsSessionRegistry {
     struct SessionEntry {
         std::shared_ptr<TrainingMetricsService> service;
         std::chrono::system_clock::time_point created_at;
+        std::string label;           ///< populated by start_session() (TD-021 step 8)
+        std::string config_snapshot; ///< populated by start_session() (TD-021 step 8)
     };
 
     MetricsServiceConfig config_for_session(const std::string& key) const {
@@ -176,9 +203,27 @@ class MetricsSessionRegistry {
         return expired_keys.size();
     }
 
+    void sweep_loop() {
+        std::unique_lock<std::mutex> lock(sweep_mutex_);
+        while (!stop_sweep_) {
+            sweep_cv_.wait_for(lock, std::chrono::seconds(sweep_interval_seconds_),
+                               [this] { return stop_sweep_.load(); });
+            if (stop_sweep_) break;
+            lock.unlock();
+            evict_completed_sessions(completed_ttl_seconds_);
+            lock.lock();
+        }
+    }
+
     MetricsServiceConfig base_config_;
     mutable std::shared_mutex registry_mutex_;
     std::unordered_map<std::string, SessionEntry> sessions_;
     size_t max_live_sessions_;
     int completed_ttl_seconds_;
+    int sweep_interval_seconds_;
+
+    std::atomic<bool> stop_sweep_{false};
+    std::mutex sweep_mutex_;                ///< guards sweep_cv_ wait only
+    std::condition_variable_any sweep_cv_;
+    std::thread sweep_thread_;              ///< last member — joins after other members are valid
 };

@@ -7,6 +7,11 @@
 #include <mutex>
 #include <string>
 #include <vector>
+// TD-021: AbnormalSample and IMetricsReporter are defined here.
+// TrainingMetricsService does not implement IMetricsReporter; it is the
+// server-side storage class.  The include makes AbnormalSample available to
+// all translation units that include TrainingMetricsService.hpp.
+#include "IMetricsReporter.hpp"
 
 /**
  * @brief Real-time training metrics snapshot
@@ -15,6 +20,8 @@ struct TrainingMetricsSnapshot {
     // Session info
     int session_id = 0;
     bool is_training = false;
+    std::string label;            ///< Human-readable session label (TD-021)
+    std::string config_snapshot;  ///< Compact JSON config at session start (TD-021)
     std::chrono::system_clock::time_point session_start_time;
     std::chrono::system_clock::time_point last_update_time;
 
@@ -102,19 +109,8 @@ struct TrainingMetricsSnapshot {
         false;  ///< is_training && !is_stale — safe liveness signal for dashboards/health checks
 };
 
-/**
- * @brief Abnormal training sample flagged by outlier detection (TD-013)
- */
-struct AbnormalSample {
-    int epoch = 0;            ///< 1-based epoch number
-    int sample_id = 0;        ///< 1-based sample index within the epoch
-    float loss = 0.0f;        ///< Loss value that triggered the flag
-    float grad_norm = 0.0f;   ///< Gradient norm that triggered the flag
-    std::string reason;       ///< Human-readable reason (e.g. "loss_outlier", "grad_norm_outlier")
-    std::string input_text;   ///< Input text of the offending sample
-    std::string target_text;  ///< Target text of the offending sample
-    std::chrono::system_clock::time_point timestamp;
-};
+// AbnormalSample is defined in IMetricsReporter.hpp (TD-021).
+// It remains accessible here via the transitive include above.
 
 /**
  * @brief Persistent metrics record for historical tracking
@@ -213,7 +209,9 @@ class TrainingMetricsService {
     TrainingMetricsService& operator=(TrainingMetricsService&&) = delete;
 
     // Session lifecycle
-    void start_session(int session_id, int total_epochs = 0, int total_samples = 0);
+    void start_session(int session_id, int total_epochs = 0, int total_samples = 0,
+                       const std::string& label = "",
+                       const std::string& config_snapshot = "");
     void end_session();
     bool is_session_active() const;
 
@@ -287,7 +285,7 @@ class TrainingMetricsService {
     TrainingMetricsSnapshot get_current_snapshot() const;
     std::string to_json() const;
     std::string to_json_summary() const;
-    std::string to_prometheus() const;
+    std::string to_prometheus(const std::string& session_key = "") const;
     static std::string to_csv_header();
     std::string to_csv_row() const;
 
@@ -336,7 +334,10 @@ class TrainingMetricsService {
     void persist_summary_with_data(const std::string& json_data);
     void persist_prometheus_with_data(const std::string& prometheus_data);
     std::string to_json_summary_internal() const;  // No locking - caller must hold lock
-    std::string to_prometheus_internal() const;    // No locking - caller must hold lock
+    std::string label_;            // Session label stored across session lifetime (TD-021)
+    std::string config_snapshot_;  // Compact config JSON stored across session lifetime (TD-021)
+
+    std::string to_prometheus_internal(const std::string& session_key = "") const;  // No locking - caller must hold lock
     void add_record(const PersistentMetricsRecord& record);
     void trim_history();
     void update_throughput_metrics();

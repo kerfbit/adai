@@ -71,7 +71,9 @@ TrainingMetricsService::~TrainingMetricsService() {
     adai::Logger::info("TrainingMetricsService shutdown");
 }
 
-void TrainingMetricsService::start_session(int session_id, int total_epochs, int total_samples) {
+void TrainingMetricsService::start_session(int session_id, int total_epochs, int total_samples,
+                                           const std::string& label,
+                                           const std::string& config_snapshot) {
     std::string push_json;
     bool should_push = false;
     {
@@ -82,10 +84,14 @@ void TrainingMetricsService::start_session(int session_id, int total_epochs, int
 
         current_session_id_ = session_id;
         is_training_ = true;
+        label_ = label;
+        config_snapshot_ = config_snapshot;
 
         current_snapshot_ = TrainingMetricsSnapshot();
         current_snapshot_.session_id = session_id;
         current_snapshot_.is_training = true;
+        current_snapshot_.label = label;
+        current_snapshot_.config_snapshot = config_snapshot;
         current_snapshot_.total_epochs = total_epochs;
         current_snapshot_.total_samples = total_samples;
         current_snapshot_.session_start_time = std::chrono::system_clock::now();
@@ -97,8 +103,9 @@ void TrainingMetricsService::start_session(int session_id, int total_epochs, int
         samples_since_last_persist_ = 0;
         last_persist_time_ = std::chrono::system_clock::now();
 
-        adai::Logger::info("Metrics session {} started (epochs={}, samples={})", session_id,
-                           total_epochs, total_samples);
+        adai::Logger::info("Metrics session {} started (epochs={}, samples={}, label={})",
+                           session_id, total_epochs, total_samples,
+                           label.empty() ? "(none)" : label);
         adai::Logger::info("Metrics push config: enable_push={}, push_url={}", config_.enable_push,
                            config_.push_url);
 
@@ -106,7 +113,14 @@ void TrainingMetricsService::start_session(int session_id, int total_epochs, int
         if (should_push) {
             std::ostringstream json;
             json << "{\"session_id\":" << session_id << ",\"total_epochs\":" << total_epochs
-                 << ",\"total_samples\":" << total_samples << "}";
+                 << ",\"total_samples\":" << total_samples;
+            if (!label.empty()) {
+                json << ",\"label\":\"" << escape_json(label) << "\"";
+            }
+            if (!config_snapshot.empty()) {
+                json << ",\"config\":" << config_snapshot;
+            }
+            json << "}";
             push_json = json.str();
         }
     }  // mutex released here — HTTP call runs WITHOUT holding the lock
@@ -557,9 +571,9 @@ std::string TrainingMetricsService::to_json_summary() const {
     return to_json_summary_internal();
 }
 
-std::string TrainingMetricsService::to_prometheus() const {
+std::string TrainingMetricsService::to_prometheus(const std::string& session_key) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return to_prometheus_internal();
+    return to_prometheus_internal(session_key);
 }
 
 std::string TrainingMetricsService::to_csv_header() {
@@ -634,7 +648,7 @@ void TrainingMetricsService::flush_to_disk() {
         summary_json = to_json_summary_internal();
         enable_prometheus = config_.enable_prometheus_format;
         if (enable_prometheus) {
-            prometheus_text = to_prometheus_internal();
+            prometheus_text = to_prometheus_internal("");
         }
     }
 
@@ -744,7 +758,7 @@ void TrainingMetricsService::persist_prometheus() {
             return;
         }
 
-        file << to_prometheus_internal();  // caller already holds mutex_
+        file << to_prometheus_internal("");  // caller already holds mutex_
         file.close();
     } catch (const std::exception& e) {
         adai::Logger::error("Failed to persist Prometheus metrics: {}", e.what());
@@ -1027,10 +1041,15 @@ std::string TrainingMetricsService::to_json_summary_internal() const {
     return oss.str();
 }
 
-std::string TrainingMetricsService::to_prometheus_internal() const {
+std::string TrainingMetricsService::to_prometheus_internal(const std::string& session_key) const {
     // Caller must hold mutex_ lock
     int session_id = current_session_id_.load();
     bool is_training = is_training_.load();
+
+    // When session_key is non-empty, prefix each metric value with a label set so that
+    // concurrent sessions are distinguishable by Prometheus scrapers (TD-021 §4.8).
+    const std::string lbl =
+        session_key.empty() ? "" : "{session=\"" + session_key + "\"} ";
 
     std::ostringstream oss;
     oss << std::fixed << std::setprecision(6);
@@ -1041,54 +1060,55 @@ std::string TrainingMetricsService::to_prometheus_internal() const {
 
     oss << "# HELP training_session_id Current training session ID\n";
     oss << "# TYPE training_session_id gauge\n";
-    oss << "training_session_id " << session_id << " " << timestamp_ms << "\n\n";
+    oss << "training_session_id " << lbl << session_id << " " << timestamp_ms << "\n\n";
 
     oss << "# HELP training_is_active Whether training is currently active\n";
     oss << "# TYPE training_is_active gauge\n";
-    oss << "training_is_active " << (is_training ? 1 : 0) << " " << timestamp_ms << "\n\n";
+    oss << "training_is_active " << lbl << (is_training ? 1 : 0) << " " << timestamp_ms << "\n\n";
 
     oss << "# HELP training_current_epoch Current training epoch\n";
     oss << "# TYPE training_current_epoch gauge\n";
-    oss << "training_current_epoch " << current_snapshot_.current_epoch << " " << timestamp_ms
-        << "\n\n";
+    oss << "training_current_epoch " << lbl << current_snapshot_.current_epoch << " "
+        << timestamp_ms << "\n\n";
 
     oss << "# HELP training_loss Current training loss\n";
     oss << "# TYPE training_loss gauge\n";
-    oss << "training_loss " << current_snapshot_.current_loss << " " << timestamp_ms << "\n\n";
+    oss << "training_loss " << lbl << current_snapshot_.current_loss << " " << timestamp_ms
+        << "\n\n";
 
     oss << "# HELP training_validation_loss Current validation loss\n";
     oss << "# TYPE training_validation_loss gauge\n";
-    oss << "training_validation_loss " << current_snapshot_.current_validation_loss << " "
+    oss << "training_validation_loss " << lbl << current_snapshot_.current_validation_loss << " "
         << timestamp_ms << "\n\n";
 
     oss << "# HELP training_learning_rate Current learning rate\n";
     oss << "# TYPE training_learning_rate gauge\n";
-    oss << "training_learning_rate " << current_snapshot_.current_learning_rate << " "
+    oss << "training_learning_rate " << lbl << current_snapshot_.current_learning_rate << " "
         << timestamp_ms << "\n\n";
 
     oss << "# HELP training_gradient_norm Current gradient norm\n";
     oss << "# TYPE training_gradient_norm gauge\n";
-    oss << "training_gradient_norm " << current_snapshot_.current_gradient_norm << " "
+    oss << "training_gradient_norm " << lbl << current_snapshot_.current_gradient_norm << " "
         << timestamp_ms << "\n\n";
 
     oss << "# HELP training_perplexity Current perplexity\n";
     oss << "# TYPE training_perplexity gauge\n";
-    oss << "training_perplexity " << current_snapshot_.current_perplexity << " " << timestamp_ms
-        << "\n\n";
+    oss << "training_perplexity " << lbl << current_snapshot_.current_perplexity << " "
+        << timestamp_ms << "\n\n";
 
     oss << "# HELP training_samples_total Total samples trained\n";
     oss << "# TYPE training_samples_total counter\n";
-    oss << "training_samples_total " << current_snapshot_.total_samples_trained << " "
+    oss << "training_samples_total " << lbl << current_snapshot_.total_samples_trained << " "
         << timestamp_ms << "\n\n";
 
     oss << "# HELP training_time_seconds_total Total training time in seconds\n";
     oss << "# TYPE training_time_seconds_total counter\n";
-    oss << "training_time_seconds_total " << current_snapshot_.total_training_time_seconds << " "
-        << timestamp_ms << "\n\n";
+    oss << "training_time_seconds_total " << lbl << current_snapshot_.total_training_time_seconds
+        << " " << timestamp_ms << "\n\n";
 
     oss << "# HELP training_samples_per_second Training throughput\n";
     oss << "# TYPE training_samples_per_second gauge\n";
-    oss << "training_samples_per_second " << current_snapshot_.samples_per_second << " "
+    oss << "training_samples_per_second " << lbl << current_snapshot_.samples_per_second << " "
         << timestamp_ms << "\n\n";
 
     return oss.str();
