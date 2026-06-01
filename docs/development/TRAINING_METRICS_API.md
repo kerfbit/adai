@@ -20,6 +20,11 @@ The Training Metrics REST API provides real-time access to training progress and
 |**POST**|`/api/control/flush`|Forces immediate flush of metrics to disk|
 |**POST**|`/api/control/clear`|Clears historical metrics from memory|
 |**GET**|`/health`|Returns server health status|
+|**GET**|`/api/sessions`|List all registered sessions with status|
+|**GET**|`/api/metrics/aggregate`|Live-session summary across all active sessions|
+|**GET**|`/api/metrics/prometheus/aggregate`|Prometheus text for all live sessions, each labelled with `session=` (TD-021)|
+|**POST**|`/api/sessions/{key}/start`|Create and start a named training session|
+|**POST**|`/api/sessions/{key}/end`|End a named training session|
 
 ## Quick Start
 
@@ -385,6 +390,149 @@ Response:
 
 ---
 
+## Multi-Session API
+
+All endpoints above operate on the implicit `0-default` session for backwards compatibility.
+The multi-session API lets you manage and query independent named sessions identified by a
+human-readable *session key* (e.g. `42-finetune-gpu0`).
+
+### `GET /api/sessions`
+
+Returns a list of all registered sessions with their current status.
+
+Response:
+
+```json
+{
+  "sessions": [
+    {
+      "key": "42-finetune-gpu0",
+      "session_id": 42,
+      "is_training": true,
+      "current_epoch": 3,
+      "total_epochs": 10,
+      "current_loss": 2.1234,
+      "best_validation_loss": 2.0501,
+      "session_start_time": 1748720400,
+      "last_update_time": 1748721234,
+      "metrics_url": "/api/sessions/42-finetune-gpu0/metrics/current"
+    }
+  ],
+  "total": 1,
+  "live": 1
+}
+```
+
+---
+
+### `GET /api/metrics/aggregate`
+
+Returns a compact JSON summary of every currently **active** (training) session.
+Completed or idle sessions are omitted.
+
+Response:
+
+```json
+{
+  "live_sessions": 2,
+  "sessions": [
+    {"key": "42-finetune-gpu0", "epoch": 3, "loss": 2.1234, "validation_loss": 2.2010},
+    {"key": "43-finetune-gpu1", "epoch": 3, "loss": 2.0981, "validation_loss": 2.1750}
+  ]
+}
+```
+
+---
+
+### `GET /api/metrics/prometheus/aggregate` *(TD-021)*
+
+Returns Prometheus text exposition for **all live sessions**, concatenated into a single
+scrape payload. Each metric line carries a `session=` label so that individual sessions
+are distinguishable in Grafana or any other Prometheus-compatible consumer.
+
+Response (Content-Type: `text/plain`):
+
+```text
+# HELP training_session_id Current training session ID
+# TYPE training_session_id gauge
+training_session_id{session="42-finetune-gpu0"} 42 1748721234000
+
+# HELP training_is_active Whether training is currently active
+# TYPE training_is_active gauge
+training_is_active{session="42-finetune-gpu0"} 1 1748721234000
+
+# HELP training_loss Current training loss
+# TYPE training_loss gauge
+training_loss{session="42-finetune-gpu0"} 2.123400 1748721234000
+
+# HELP training_session_id Current training session ID
+# TYPE training_session_id gauge
+training_session_id{session="43-finetune-gpu1"} 43 1748721235000
+...
+```
+
+For Prometheus scrape configuration targeting this endpoint:
+
+```yaml
+scrape_configs:
+  - job_name: 'training_metrics_all'
+    static_configs:
+      - targets: ['localhost:8081']
+    metrics_path: '/api/metrics/prometheus/aggregate'
+    scrape_interval: 5s
+```
+
+---
+
+### `POST /api/sessions/{key}/start`
+
+Creates the session if it does not exist, then starts a training run for it.
+Returns `409 Conflict` if the session is already active.
+
+Request body:
+
+```json
+{
+  "session_id":    42,
+  "total_epochs":  10,
+  "total_samples": 5000,
+  "label":  "#42: wiki-finetune (gpu0, 2026-05-31)",
+  "config": {"lr": 0.001, "batch_size": 32, "dropout": 0.1}
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `session_id` | integer | yes | Numeric session identifier |
+| `total_epochs` | integer | no | Total epochs planned for progress calculation |
+| `total_samples` | integer | no | Total training samples for ETA estimation |
+| `label` | string | no | Human-readable label shown in dashboards and `GET /api/sessions`; empty string silently accepted |
+| `config` | object | no | Compact training-configuration snapshot; stored with the session for audit purposes |
+
+Response:
+
+```json
+{"status": "ok", "message": "Session started"}
+```
+
+---
+
+### `POST /api/sessions/{key}/end`
+
+Marks the session as complete and writes its final summary to disk.
+
+Response:
+
+```json
+{"status": "ok", "message": "Session ended"}
+```
+
+**Per-session variants of other endpoints** follow the pattern
+`/api/sessions/{key}/<resource>` (e.g. `/api/sessions/42-finetune-gpu0/metrics/current`)
+and return the same payload shapes as their legacy counterparts documented above.
+
+---
+
 ## Command-Line Options
 
 ```text
@@ -402,6 +550,7 @@ Options:
   --max-disk-records N         Max records on disk (default: 100000)
   --no-persistence             Disable persistence to disk
   --enable-prometheus          Enable Prometheus format output
+  --sweep-interval-seconds N   Seconds between registry sweep runs (default: 60; 0 disables)
   --no-control                 Disable control endpoints (flush, clear)
   --help                       Show help message
 ```

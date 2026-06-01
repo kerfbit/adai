@@ -199,3 +199,127 @@ TEST(MetricsSessionRegistry, ConcurrentSessionsHaveIsolatedData) {
     EXPECT_NE(snap_a.session_id, snap_b.session_id);
     EXPECT_NE(snap_a.total_samples, snap_b.total_samples);
 }
+
+// Phase 13: label / config_snapshot field tests (TD-021 step 13) ---------------
+
+TEST(MetricsSessionRegistry, ListSessionsPopulatesLabelFromStartSession) {
+    MetricsSessionRegistry registry(MetricsServiceConfig(), 16, 3600);
+    auto svc = registry.create_or_get_session("label-test");
+    ASSERT_NE(svc, nullptr);
+
+    svc->start_session(5, 3, 60, "my-run-label");
+
+    const auto summaries = registry.list_sessions();
+    ASSERT_EQ(summaries.size(), 1U);
+    EXPECT_EQ(summaries[0].label, "my-run-label");
+}
+
+TEST(MetricsSessionRegistry, ListSessionsPopulatesConfigSnapshotFromStartSession) {
+    MetricsSessionRegistry registry(MetricsServiceConfig(), 16, 3600);
+    auto svc = registry.create_or_get_session("cfg-snap-test");
+    ASSERT_NE(svc, nullptr);
+
+    const std::string cfg = R"({"lr":0.001,"batch_size":32})";
+    svc->start_session(6, 2, 40, "", cfg);
+
+    const auto summaries = registry.list_sessions();
+    ASSERT_EQ(summaries.size(), 1U);
+    EXPECT_EQ(summaries[0].config_snapshot, cfg);
+}
+
+TEST(MetricsSessionRegistry, ListSessionsKeyMatchesRegisteredKey) {
+    MetricsSessionRegistry registry(MetricsServiceConfig(), 16, 3600);
+    registry.create_or_get_session("alpha-key");
+    registry.create_or_get_session("beta-key");
+
+    const auto summaries = registry.list_sessions();
+    ASSERT_EQ(summaries.size(), 2U);
+
+    std::vector<std::string> keys;
+    for (const auto& s : summaries) { keys.push_back(s.key); }
+    std::sort(keys.begin(), keys.end());
+
+    EXPECT_EQ(keys[0], "alpha-key");
+    EXPECT_EQ(keys[1], "beta-key");
+}
+
+TEST(MetricsSessionRegistry, LabelAndConfigSnapshotAreBothStoredIndependently) {
+    MetricsSessionRegistry registry(MetricsServiceConfig(), 16, 3600);
+    auto svc = registry.create_or_get_session("both-fields");
+    ASSERT_NE(svc, nullptr);
+
+    svc->start_session(7, 1, 10, "the-label", "{\"key\":\"val\"}");
+
+    const auto summaries = registry.list_sessions();
+    ASSERT_EQ(summaries.size(), 1U);
+    EXPECT_EQ(summaries[0].label,           "the-label");
+    EXPECT_EQ(summaries[0].config_snapshot, "{\"key\":\"val\"}");
+}
+
+// Phase 13: get_session() tests -----------------------------------------------
+
+TEST(MetricsSessionRegistry, GetSessionReturnsValueForExistingKey) {
+    MetricsSessionRegistry registry(MetricsServiceConfig(), 16, 3600);
+    auto created = registry.create_or_get_session("lookup-key");
+    ASSERT_NE(created, nullptr);
+
+    const auto opt = registry.get_session("lookup-key");
+    ASSERT_TRUE(opt.has_value());
+    EXPECT_EQ(opt->get(), created.get());
+}
+
+TEST(MetricsSessionRegistry, GetSessionReturnsNulloptForMissingKey) {
+    MetricsSessionRegistry registry(MetricsServiceConfig(), 16, 3600);
+    const auto opt = registry.get_session("no-such-key");
+    EXPECT_FALSE(opt.has_value());
+}
+
+TEST(MetricsSessionRegistry, GetSessionReturnsNulloptAfterSessionIsEvicted) {
+    MetricsSessionRegistry registry(MetricsServiceConfig(), 16, 0);
+    auto svc = registry.create_or_get_session("evict-me");
+    ASSERT_NE(svc, nullptr);
+    svc->start_session(1, 1, 1);
+    svc->end_session();
+    svc.reset();  // release local reference
+
+    registry.evict_completed_sessions(0);
+
+    const auto opt = registry.get_session("evict-me");
+    EXPECT_FALSE(opt.has_value());
+}
+
+// Phase 13: sweep-thread tests ------------------------------------------------
+
+TEST(MetricsSessionRegistry, SweepIntervalZeroDoesNotStartBackgroundThread) {
+    // With sweep_interval_seconds == 0 the sweep thread must NOT be spawned.
+    // We verify this indirectly: construct and immediately destroy with no
+    // completed sessions — the destructor must not deadlock or crash.
+    {
+        MetricsSessionRegistry registry(MetricsServiceConfig(), 16, 3600, 0);
+        auto svc = registry.create_or_get_session("no-sweep");
+        ASSERT_NE(svc, nullptr);
+        svc->start_session(1, 1, 1);
+        // Session is still active; no eviction should happen automatically.
+    }
+    // Destructor ran cleanly — no deadlock.
+    SUCCEED();
+}
+
+TEST(MetricsSessionRegistry, SweepThreadEvictsCompletedSessionsAutomatically) {
+    // sweep_interval_seconds = 1 so the background thread fires after ~1 s.
+    // completed_ttl_seconds  = 0 so any finished session is immediately stale.
+    MetricsSessionRegistry registry(MetricsServiceConfig(), 16, /*ttl=*/0, /*sweep=*/1);
+
+    auto svc = registry.create_or_get_session("auto-sweep-session");
+    ASSERT_NE(svc, nullptr);
+    svc->start_session(99, 1, 1);
+    svc->end_session();
+    svc.reset();
+
+    EXPECT_EQ(registry.size(), 1U);  // still present before sweep fires
+
+    // Wait slightly longer than the sweep interval.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1200));
+
+    EXPECT_EQ(registry.size(), 0U);
+}

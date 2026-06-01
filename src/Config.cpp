@@ -209,8 +209,6 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 // Training Metrics Service configuration
             } else if (key == "ENABLE_METRICS_SERVICE") {
                 config.enable_metrics_service = (value == "true" || value == "1" || value == "yes");
-            } else if (key == "METRICS_PUSH_ENABLED") {
-                config.metrics_push_enabled = (value == "true" || value == "1" || value == "yes");
             } else if (key == "METRICS_SERVER_URL") {
                 config.metrics_server_url = value;
             } else if (key == "METRICS_PUSH_TIMEOUT_MS") {
@@ -237,6 +235,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.metrics_prometheus_file = value;
             } else if (key == "METRICS_SESSION_KEY") {
                 config.metrics_session_key = value;
+            } else if (key == "METRICS_SESSION_LABEL") {
+                config.metrics_session_label = value;
             } else if (key == "METRICS_MAX_LIVE_SESSIONS") {
                 config.metrics_max_live_sessions = static_cast<size_t>(std::stoull(value));
             } else if (key == "METRICS_COMPLETED_TTL_SECONDS") {
@@ -415,6 +415,9 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     // Multi-instance metrics configuration
     if (auto val = get_env("METRICS_SESSION_KEY")) {
         config.metrics_session_key = *val;
+    }
+    if (auto val = get_env("METRICS_SESSION_LABEL")) {
+        config.metrics_session_label = *val;
     }
     if (auto val = get_env_size_t("METRICS_MAX_LIVE_SESSIONS")) {
         config.metrics_max_live_sessions = *val;

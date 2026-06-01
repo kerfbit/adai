@@ -201,6 +201,11 @@ class IncrementalTrainer {
     int get_total_samples_trained() const;
     float get_total_training_time_hours() const;
 
+    /// Returns the push-session key set at the start of the most recent training
+    /// run (TD-021).  Empty when no metrics_server_url was configured or before
+    /// the first training run.
+    std::string get_metrics_session_key() const { return active_session_key_; }
+
     // Project Gutenberg integration
     bool add_gutenberg_book(int book_id, int num_pairs = 500);
     bool add_gutenberg_books(const std::vector<int>& book_ids, int num_pairs_per_book = 300);

@@ -96,6 +96,7 @@ struct ServerConfig {
     int max_records_on_disk = 100000;
     size_t max_live_sessions = 16;
     int completed_ttl_seconds = 3600;
+    int sweep_interval_seconds = 60;  // TD-021: background eviction sweep interval
 };
 
 /**
@@ -129,6 +130,8 @@ bool parse_args(int argc, char** argv, ServerConfig& config) {  // NOLINT(modern
             config.max_live_sessions = static_cast<size_t>(std::strtoul(argv[++i], nullptr, 10));
         } else if (arg == "--completed-ttl-seconds" && i + 1 < argc) {
             config.completed_ttl_seconds = std::atoi(argv[++i]);
+        } else if (arg == "--sweep-interval-seconds" && i + 1 < argc) {
+            config.sweep_interval_seconds = std::atoi(argv[++i]);
         } else if (arg == "--no-persistence") {
             config.enable_persistence = false;
         } else if (arg == "--enable-prometheus") {
@@ -172,7 +175,8 @@ int main(int argc, char* argv[]) {
         // Create registry-backed metrics services
         std::cout << "[1/3] Initializing metrics session registry...\n";
         auto session_registry = std::make_shared<MetricsSessionRegistry>(
-            metrics_config, server_config.max_live_sessions, server_config.completed_ttl_seconds);
+            metrics_config, server_config.max_live_sessions, server_config.completed_ttl_seconds,
+            server_config.sweep_interval_seconds);
         auto metrics_service = session_registry->create_or_get_session("0-default");
         if (!metrics_service) {
             std::cerr << "Error: Unable to initialize default metrics session\n";
@@ -181,6 +185,8 @@ int main(int argc, char* argv[]) {
         std::cout << "  ✓ Metrics session registry initialized\n";
         std::cout << "    - Max live sessions: " << server_config.max_live_sessions << "\n";
         std::cout << "    - Completed session TTL: " << server_config.completed_ttl_seconds
+                  << " seconds\n";
+        std::cout << "    - Sweep interval: " << server_config.sweep_interval_seconds
                   << " seconds\n";
 
         if (server_config.enable_persistence) {

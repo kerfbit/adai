@@ -76,15 +76,17 @@ Action Items:
 - ✅ Create `src/IMetricsReporter.hpp` — abstract reporter interface + `AbnormalSample` struct (moved from `TrainingMetricsService.hpp`) + `NullMetricsReporter` no-op implementation.
 - ✅ Create `src/MetricsPushClient.hpp` / `src/MetricsPushClient.cpp` — single background push thread, bounded priority queue (`Sample` events are lossy, `Epoch`/`Session` events are never dropped), 3× retry with back-off, 409-conflict retry loop on `start_session()`. `MetricsPushClient.cpp` added to `adai_core` in `src/CMakeLists.txt`.
 - ✅ Replace `void set_metrics_service(TrainingMetricsService*)` with `void set_metrics_reporter(IMetricsReporter*)` in `ChatbotTrainer`; updated all ~15 `metrics_service_->` call sites to `metrics_reporter_->`. Removed `adv_cfg = metrics_service_->get_config()` call; outlier thresholds read directly from `TrainingConfig`.
-- ✅ Remove `std::unique_ptr<TrainingMetricsService> metrics_service_` from `IncrementalTrainer`; replaced with `std::unique_ptr<IMetricsReporter> metrics_reporter_` + non-owning `MetricsPushClient* push_client_` alias. All three constructors initialize `NullMetricsReporter`. `MetricsPushClient` is constructed per training run in `train_incremental()` and `train_full_retrain()`.
+- ✅ Remove `std::unique_ptr<TrainingMetricsService> metrics_service_` from `IncrementalTrainer`; replaced with `std::unique_ptr<IMetricsReporter> metrics_reporter_` + non-owning `MetricsPushClient* push_client_` alias. All three constructors initialize `NullMetricsReporter`. `MetricsPushClient` is constructed per training run in `train_incremental()` and `train_full_retrain()`. Added `get_metrics_session_key()` accessor. `train_incremental()` and `train_full_retrain()` wrap `MetricsPushClient` creation and `start_session()` in a 3-attempt 409-conflict retry loop (suffix progression: `base_key`, `base_key-2`, `base_key-3`).
 - ✅ Replace `IncrementalConfig::enable_metrics_service` + `metrics_push_enabled` + `MetricsServiceConfig metrics_config` with flat fields `metrics_server_url`, `metrics_session_label`, `metrics_push_timeout_ms`; empty URL → `NullMetricsReporter`. Removed `#include "TrainingMetricsService.hpp"` from `IncrementalTrainer.hpp`.
 - ✅ Move `loss_outlier_z_threshold`, `grad_norm_outlier_threshold`, `max_abnormal_samples` from `MetricsServiceConfig` into `TrainingConfig` (`src/ChatbotTrainer.hpp`). Added `abnormal_sample_count_` member to `ChatbotTrainer`; `flag_abnormal_sample()` calls are now capped at `config.max_abnormal_samples` per training run. Added all three fields to `ServiceConfig` (`src/Config.hpp`) and wired them through `make_incremental_config()`.
 - [ ] Implement session label auto-derivation (`"#{id}: {stem} ({host}, {date})"`); include `label` + compact `config_snapshot` JSON in `start_session()` POST body (wired in `TrainingMetricsAPI::handle_session_start()`).
+- ✅ Add `METRICS_SESSION_LABEL` to `config.conf` and `config-remote.conf`; remove `METRICS_PUSH_ENABLED` (empty `METRICS_SERVER_URL` is now sufficient to disable push). Added `metrics_session_label` field to `ServiceConfig` (`src/Config.hpp`) and parsed from config file and env var in `src/Config.cpp`. Removed `ServiceConfig::metrics_push_enabled`; `make_incremental_config()` now maps `svc.metrics_server_url` directly.
 - ✅ Add background sweep thread to `MetricsSessionRegistry` (TD-018 §4.8): `sweep_thread_`, `stop_sweep_` atomic, `sweep_cv_` + `sweep_mutex_` — constructor gains 4th param `sweep_interval_seconds` (default: 60); thread started when > 0; destructor sets `stop_sweep_ = true`, notifies, joins.
 - ✅ Add `label` and `config_snapshot` fields to `MetricsSessionSummary` and `SessionEntry` (`src/MetricsSessionRegistry.hpp`); update `list_sessions()` to populate them.
 - ✅ Add `label` and `config_snapshot` params to `TrainingMetricsService::start_session()`; store as member vars (`label_`, `config_snapshot_`); add to `TrainingMetricsSnapshot`; `list_sessions()` reads them from snapshot. Add optional `session_key` param to `to_prometheus()` and `to_prometheus_internal()`; emits `{session="key"}` labels on each metric line when non-empty.
-- [ ] Pass `Config::metrics_sweep_interval_seconds` as 4th argument to `MetricsSessionRegistry` constructor in `src/TrainingMetricsAPIServer.cpp`.
+- ✅ Pass `sweep_interval_seconds` (default 60) as 4th argument to `MetricsSessionRegistry` constructor in `src/TrainingMetricsAPIServer.cpp`; added `--sweep-interval-seconds` CLI flag to `ServerConfig`.
 - ✅ Add `GET /api/metrics/prometheus/aggregate` endpoint to `TrainingMetricsAPI` that concatenates per-session labelled Prometheus output; `handle_prometheus_metrics()` now passes `session_key` to `to_prometheus()`; `handle_post_session_start()` parses and forwards `label` and `config` fields from POST body.
+- ✅ Write `tests/incremental_trainer_registry_test.cpp` (new): `NullMetricsReporter` all-methods-no-crash, `MetricsPushClient` construction/offline/201/409/retry-suffix, `IncrementalConfig` metrics fields, `IncrementalTrainer::get_metrics_session_key()` initially empty. Registered as `incrementalTrainerDecouplingTests` (step 14).
 - [ ] Write `tests/MetricsPushClientTest.cpp` covering queue overflow policy, priority eviction, retry/back-off, 409 retry, and shutdown drain.
 - [ ] Write `tests/MetricsSessionRegistrySweepTest.cpp` covering background sweep eviction.
 
@@ -93,6 +95,7 @@ Files Created:
 - ✅ `src/IMetricsReporter.hpp`
 - ✅ `src/MetricsPushClient.hpp`
 - ✅ `src/MetricsPushClient.cpp`
+- ✅ `tests/incremental_trainer_registry_test.cpp`
 - `tests/MetricsPushClientTest.cpp`
 - `tests/MetricsSessionRegistrySweepTest.cpp`
 
@@ -106,7 +109,8 @@ Files Modified:
 - ✅ `src/MetricsSessionRegistry.hpp`
 - ✅ `src/TrainingMetricsService.hpp` / `src/TrainingMetricsService.cpp`
 - ✅ `src/TrainingMetricsAPI.hpp` / `src/TrainingMetricsAPI.cpp`
-- `src/TrainingMetricsAPIServer.cpp`
+- ✅ `src/TrainingMetricsAPIServer.cpp`
+- ✅ `config.conf` / `config-remote.conf`
 
 ---
 

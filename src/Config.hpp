@@ -136,10 +136,7 @@ struct ServiceConfig {
     /// Enable training metrics service (default: true)
     bool enable_metrics_service = true;
 
-    /// Push metrics to external API daemon (default: false)
-    bool metrics_push_enabled = false;
-
-    /// URL of metrics API daemon (default: http://localhost:8081)
+    /// URL of metrics API daemon; empty string disables push reporting (default: http://localhost:8081)
     std::string metrics_server_url = "http://localhost:8081";
 
     /// HTTP timeout for pushing metrics in milliseconds (default: 1000)
@@ -175,6 +172,10 @@ struct ServiceConfig {
     /// Session key for trainer-side session-scoped metrics routes.
     /// Empty value means the trainer should derive one at runtime.
     std::string metrics_session_key;
+
+    /// Human-readable session label surfaced in /api/sessions responses (TD-021).
+    /// Empty value means the trainer should auto-derive one at runtime.
+    std::string metrics_session_label;
 
     /// Maximum number of live metrics sessions in the registry (default: 16).
     size_t metrics_max_live_sessions = 16;

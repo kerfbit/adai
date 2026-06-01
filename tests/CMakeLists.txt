@@ -479,6 +479,33 @@ target_link_libraries(metricsSessionRegistryTests
 )
 add_test(NAME MetricsSessionRegistryTests COMMAND metricsSessionRegistryTests)
 
+# TD-021: IncrementalTrainer × Metrics Service Decoupling tests
+add_executable(incrementalTrainerDecouplingTests
+    incremental_trainer_registry_test.cpp
+    ../src/IncrementalTrainer.cpp
+    ../src/ChatbotTrainer.cpp
+    ../src/Logger.cpp
+    ../src/Config.cpp
+)
+target_compile_definitions(incrementalTrainerDecouplingTests PRIVATE CHATBOT_TRAINER_TEST_BUILD)
+target_link_libraries(incrementalTrainerDecouplingTests
+    adai_models
+    adai_nlp
+    adai_transformer
+    adai_attention
+    adai_feedforward
+    adai_layers
+    adai_core
+    spdlog::spdlog
+    GTest::gtest_main
+)
+if(HTTPLIB_INCLUDE_DIR)
+    target_compile_definitions(incrementalTrainerDecouplingTests PRIVATE BUILD_METRICS_API_SERVER)
+    target_link_libraries(incrementalTrainerDecouplingTests adai_metrics_api)
+    target_include_directories(incrementalTrainerDecouplingTests PRIVATE ${HTTPLIB_INCLUDE_DIR})
+endif()
+add_test(NAME IncrementalTrainerDecouplingTests COMMAND incrementalTrainerDecouplingTests)
+
 # TD-018 phase 3: TrainingMetricsAPI session routing + compatibility aliases
 if(TARGET adai_metrics_api)
     add_executable(trainingMetricsApiRoutesTests training_metrics_api_routes_test.cpp)

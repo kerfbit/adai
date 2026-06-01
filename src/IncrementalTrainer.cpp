@@ -162,8 +162,8 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
     cfg.base_config.log_level = LogLevel::NORMAL;
 
     // Metrics push configuration (TD-021)
-    cfg.metrics_server_url    = svc.metrics_push_enabled ? svc.metrics_server_url : "";
-    cfg.metrics_session_label = svc.metrics_session_key;
+    cfg.metrics_server_url    = svc.metrics_server_url;  // empty URL → NullMetricsReporter
+    cfg.metrics_session_label = svc.metrics_session_label;
     cfg.metrics_push_timeout_ms = svc.metrics_push_timeout_ms;
 
     // Outlier detection (TD-021)
@@ -526,17 +526,29 @@ bool IncrementalTrainer::train_incremental(int num_epochs) {
     trainer.set_model(std::move(model));
 
     // TD-021: Create MetricsPushClient for this session, or keep NullMetricsReporter.
+    // Retry up to 3 times with a suffix if the server returns 409 Conflict.
     if (!config.metrics_server_url.empty()) {
-        active_session_key_ =
+        const std::string base_key =
             sanitize_session_key(derive_metrics_session_key(current_session_id + 1));
-        const std::string push_url =
-            build_metrics_session_push_base(config.metrics_server_url, active_session_key_);
-        auto pc = std::make_unique<MetricsPushClient>(push_url, config.metrics_push_timeout_ms);
+        std::string session_key = base_key;
+        std::unique_ptr<MetricsPushClient> pc;
+        for (int attempt = 0; attempt < 3; ++attempt) {
+            if (attempt > 0) {
+                session_key = base_key + "-" + std::to_string(attempt + 1);
+                Logger::warn("Metrics key conflict (409), retrying with '{}'", session_key);
+                std::this_thread::sleep_for(std::chrono::milliseconds(100 * attempt));
+            }
+            const std::string push_url =
+                build_metrics_session_push_base(config.metrics_server_url, session_key);
+            pc = std::make_unique<MetricsPushClient>(push_url, config.metrics_push_timeout_ms);
+            const int rc = pc->start_session(current_session_id + 1, num_epochs,
+                                             static_cast<int>(training_pairs.size()),
+                                             config.metrics_session_label);
+            if (rc != 409) break;
+        }
+        active_session_key_ = session_key;
         push_client_ = pc.get();
         metrics_reporter_ = std::move(pc);
-        push_client_->start_session(current_session_id + 1, num_epochs,
-                                    static_cast<int>(training_pairs.size()),
-                                    config.metrics_session_label);
     } else {
         push_client_ = nullptr;
         active_session_key_.clear();
@@ -732,16 +744,29 @@ bool IncrementalTrainer::train_full_retrain(int num_epochs) {
     trainer.set_model(std::move(model));
 
     // TD-021: Create MetricsPushClient for this session, or keep NullMetricsReporter.
+    // Retry up to 3 times with a suffix if the server returns 409 Conflict.
     if (!config.metrics_server_url.empty()) {
-        active_session_key_ =
+        const std::string base_key =
             sanitize_session_key(derive_metrics_session_key(current_session_id + 1));
-        const std::string push_url =
-            build_metrics_session_push_base(config.metrics_server_url, active_session_key_);
-        auto pc = std::make_unique<MetricsPushClient>(push_url, config.metrics_push_timeout_ms);
+        std::string session_key = base_key;
+        std::unique_ptr<MetricsPushClient> pc;
+        for (int attempt = 0; attempt < 3; ++attempt) {
+            if (attempt > 0) {
+                session_key = base_key + "-" + std::to_string(attempt + 1);
+                Logger::warn("Metrics key conflict (409), retrying with '{}'", session_key);
+                std::this_thread::sleep_for(std::chrono::milliseconds(100 * attempt));
+            }
+            const std::string push_url =
+                build_metrics_session_push_base(config.metrics_server_url, session_key);
+            pc = std::make_unique<MetricsPushClient>(push_url, config.metrics_push_timeout_ms);
+            const int rc = pc->start_session(current_session_id + 1, num_epochs,
+                                             total_samples_in_epoch_,
+                                             config.metrics_session_label);
+            if (rc != 409) break;
+        }
+        active_session_key_ = session_key;
         push_client_ = pc.get();
         metrics_reporter_ = std::move(pc);
-        push_client_->start_session(current_session_id + 1, num_epochs, total_samples_in_epoch_,
-                                    config.metrics_session_label);
     } else {
         push_client_ = nullptr;
         active_session_key_.clear();
