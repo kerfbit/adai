@@ -103,6 +103,63 @@ std::string build_metrics_session_push_base(const std::string& metrics_server_ur
     return base + "/api/sessions/" + session_key;
 }
 
+/**
+ * @brief Auto-derive a human-readable session label when none is configured.
+ *
+ * Format: "#{id}: {stem} ({host}, {date})"
+ *   id    — numeric session ID
+ *   stem  — filename stem of the model file (e.g. "chatbot_model")
+ *   host  — sanitised first-8-chars of hostname
+ *   date  — ISO-8601 date of the training run (YYYY-MM-DD)
+ */
+std::string derive_metrics_session_label(int session_id,
+                                         const std::string& model_path) {
+    // Stem: filename without extension
+    std::string stem = fs::path(model_path).stem().string();
+    if (stem.empty()) stem = "model";
+
+    // Host (first 8 chars, sanitised)
+    const std::string host = detect_hostname_fragment();
+
+    // Date: YYYY-MM-DD
+    const std::time_t now = std::time(nullptr);
+    std::tm tm_buf{};
+#ifdef _WIN32
+    localtime_s(&tm_buf, &now);
+#else
+    localtime_r(&now, &tm_buf);
+#endif
+    char date_buf[16];
+    std::strftime(date_buf, sizeof(date_buf), "%Y-%m-%d", &tm_buf);
+
+    std::ostringstream label;
+    label << "#" << session_id << ": " << stem << " (" << host << ", " << date_buf << ")";
+    return label.str();
+}
+
+/**
+ * @brief Build a compact JSON config snapshot from IncrementalConfig.
+ *
+ * Only key hyper-parameters are included; this is stored on the registry
+ * for display in the dashboard and Prometheus labels.
+ */
+std::string build_config_snapshot(const IncrementalConfig& cfg) {
+    const TrainingConfig& bc = cfg.base_config;
+    std::ostringstream json;
+    json << std::fixed;
+    json << "{"
+         << "\"d_model\":" << bc.d_model
+         << ",\"heads\":" << bc.num_heads
+         << ",\"d_ff\":" << bc.d_ff
+         << ",\"enc_layers\":" << bc.num_encoder_layers
+         << ",\"dec_layers\":" << bc.num_decoder_layers
+         << ",\"lr\":" << bc.learning_rate
+         << ",\"batch\":" << bc.batch_size
+         << ",\"grad_accum\":" << bc.gradient_accumulation_steps
+         << "}";
+    return json.str();
+}
+
 }  // namespace
 
 // ============================================================================
@@ -541,9 +598,14 @@ bool IncrementalTrainer::train_incremental(int num_epochs) {
             const std::string push_url =
                 build_metrics_session_push_base(config.metrics_server_url, session_key);
             pc = std::make_unique<MetricsPushClient>(push_url, config.metrics_push_timeout_ms);
+            const std::string label =
+                config.metrics_session_label.empty()
+                    ? derive_metrics_session_label(current_session_id + 1, model_path_)
+                    : config.metrics_session_label;
+            const std::string snapshot = build_config_snapshot(config);
             const int rc = pc->start_session(current_session_id + 1, num_epochs,
                                              static_cast<int>(training_pairs.size()),
-                                             config.metrics_session_label);
+                                             label, snapshot);
             if (rc != 409) break;
         }
         active_session_key_ = session_key;
@@ -759,9 +821,14 @@ bool IncrementalTrainer::train_full_retrain(int num_epochs) {
             const std::string push_url =
                 build_metrics_session_push_base(config.metrics_server_url, session_key);
             pc = std::make_unique<MetricsPushClient>(push_url, config.metrics_push_timeout_ms);
+            const std::string label =
+                config.metrics_session_label.empty()
+                    ? derive_metrics_session_label(current_session_id + 1, model_path_)
+                    : config.metrics_session_label;
+            const std::string snapshot = build_config_snapshot(config);
             const int rc = pc->start_session(current_session_id + 1, num_epochs,
                                              total_samples_in_epoch_,
-                                             config.metrics_session_label);
+                                             label, snapshot);
             if (rc != 409) break;
         }
         active_session_key_ = session_key;

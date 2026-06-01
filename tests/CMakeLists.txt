@@ -506,6 +506,21 @@ if(HTTPLIB_INCLUDE_DIR)
 endif()
 add_test(NAME IncrementalTrainerDecouplingTests COMMAND incrementalTrainerDecouplingTests)
 
+# TD-021: MetricsPushClient unit tests
+add_executable(metricsPushClientTests
+    metrics_push_client_test.cpp
+)
+target_include_directories(metricsPushClientTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(metricsPushClientTests
+    adai_core
+    GTest::gtest_main
+)
+if(HTTPLIB_INCLUDE_DIR)
+    target_compile_definitions(metricsPushClientTests PRIVATE BUILD_METRICS_API_SERVER)
+    target_include_directories(metricsPushClientTests PRIVATE ${HTTPLIB_INCLUDE_DIR})
+endif()
+add_test(NAME MetricsPushClientTests COMMAND metricsPushClientTests)
+
 # TD-018 phase 3: TrainingMetricsAPI session routing + compatibility aliases
 if(TARGET adai_metrics_api)
     add_executable(trainingMetricsApiRoutesTests training_metrics_api_routes_test.cpp)
