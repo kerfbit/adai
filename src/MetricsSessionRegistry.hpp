@@ -100,6 +100,10 @@ class MetricsSessionRegistry {
         return sessions_.size();
     }
 
+    size_t max_live_sessions() const {
+        return max_live_sessions_;
+    }
+
    private:
     struct SessionEntry {
         std::shared_ptr<TrainingMetricsService> service;

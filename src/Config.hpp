@@ -185,6 +185,11 @@ struct ServiceConfig {
     /// Background sweep cadence for stale completed sessions (default: 60).
     int metrics_sweep_interval_seconds = 60;
 
+    /// Seconds without a metrics ingest before a session is considered stale (default: 60).
+    /// When a live session exceeds this threshold, is_stale=true and effective_is_training=false
+    /// are set in snapshot reads and API responses so dashboards don't show false "running" state.
+    int metrics_staleness_threshold_seconds = 60;
+
     /// Port for metrics API server daemon (default: 8081)
     int metrics_api_port = 8081;
 

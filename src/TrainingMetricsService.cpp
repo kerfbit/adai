@@ -441,11 +441,19 @@ TrainingMetricsSnapshot TrainingMetricsService::get_current_snapshot() const {
             }
         }
 
-        // TODO(TD-019): Do not overwrite the ingest timestamp in read paths.
-        // Keep last_update_time as the true "last metrics update" time and
-        // expose separate "response generated at" metadata if needed.
-        // Update last_update_time to current time for accurate timestamp
-        snapshot.last_update_time = std::chrono::system_clock::now();
+        // TD-019: Do NOT overwrite last_update_time — preserve the true ingest timestamp.
+    }
+
+    // TD-019: Compute stale-state fields from the preserved ingest timestamp.
+    {
+        auto now_wall = std::chrono::system_clock::now();
+        auto secs = std::chrono::duration_cast<std::chrono::seconds>(
+                        now_wall - snapshot.last_update_time)
+                        .count();
+        snapshot.seconds_since_last_update = static_cast<double>(secs);
+        snapshot.is_stale =
+            snapshot.is_training && (secs > config_.staleness_threshold_seconds);
+        snapshot.effective_is_training = snapshot.is_training && !snapshot.is_stale;
     }
 
     return snapshot;
@@ -481,6 +489,18 @@ std::string TrainingMetricsService::to_json() const {
                     static_cast<float>(remaining_samples) / snapshot.samples_per_second;
             }
         }
+    }
+
+    // TD-019: Compute stale-state fields from preserved ingest timestamp.
+    {
+        auto now_wall = std::chrono::system_clock::now();
+        auto secs = std::chrono::duration_cast<std::chrono::seconds>(
+                        now_wall - snapshot.last_update_time)
+                        .count();
+        snapshot.seconds_since_last_update = static_cast<double>(secs);
+        snapshot.is_stale =
+            snapshot.is_training && (secs > config_.staleness_threshold_seconds);
+        snapshot.effective_is_training = snapshot.is_training && !snapshot.is_stale;
     }
 
     std::ostringstream oss;
@@ -522,7 +542,11 @@ std::string TrainingMetricsService::to_json() const {
     oss << "  \"current_padding_efficiency\": " << snapshot.current_padding_efficiency << ",\n";
     oss << "  \"current_adaptive_clip_threshold\": " << snapshot.current_adaptive_clip_threshold
         << ",\n";
-    oss << "  \"current_adaptive_clip_spikes\": " << snapshot.current_adaptive_clip_spikes << "\n";
+    oss << "  \"current_adaptive_clip_spikes\": " << snapshot.current_adaptive_clip_spikes << ",\n";
+    oss << "  \"is_stale\": " << (snapshot.is_stale ? "true" : "false") << ",\n";
+    oss << "  \"seconds_since_last_update\": " << snapshot.seconds_since_last_update << ",\n";
+    oss << "  \"effective_is_training\": "
+        << (snapshot.effective_is_training ? "true" : "false") << "\n";
     oss << "}";
 
     return oss.str();

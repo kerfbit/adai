@@ -521,4 +521,13 @@ target_link_libraries(modelSerializerTests
 )
 add_test(NAME ModelSerializerTests COMMAND modelSerializerTests)
 
-message(STATUS "Configured 45 test suites using library targets (including Config, Logger, IncrementalTrainer, LLMEncoder, DocumentStore, RAGInference, BatchProcessor, ParallelDataLoader, IntegratedInferenceEngine, PipelineInferenceEngine, BatchedInferenceEngine, SpeculativeDecoding, VocabBuilder, ChatbotAPI, ChatbotTrainer, GenerationQuality, PaddingEfficiency, AdaptiveClipping, ModelSerializer, integration, RAG/BERT comparison and Phase 5 tests)")
+# TD-019: Stale metrics detection tests (TrainingMetricsService staleness logic)
+add_executable(staleDetectionTests stale_detection_test.cpp)
+target_include_directories(staleDetectionTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(staleDetectionTests
+    adai_core
+    GTest::gtest_main
+)
+add_test(NAME StaleDetectionTests COMMAND staleDetectionTests)
+
+message(STATUS "Configured 46 test suites using library targets (including Config, Logger, IncrementalTrainer, LLMEncoder, DocumentStore, RAGInference, BatchProcessor, ParallelDataLoader, IntegratedInferenceEngine, PipelineInferenceEngine, BatchedInferenceEngine, SpeculativeDecoding, VocabBuilder, ChatbotAPI, ChatbotTrainer, GenerationQuality, PaddingEfficiency, AdaptiveClipping, ModelSerializer, StaleDetection, integration, RAG/BERT comparison and Phase 5 tests)")

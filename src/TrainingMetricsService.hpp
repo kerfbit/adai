@@ -93,6 +93,13 @@ struct TrainingMetricsSnapshot {
     int current_adaptive_clip_spikes = 0;  ///< Cumulative spike count for the current epoch
     std::vector<float> epoch_adaptive_clip_thresholds;  ///< Per-epoch average effective threshold
                                                         ///< (-1 = fixed-clip mode)
+
+    // Stale-state detection (TD-019; computed on demand in get_current_snapshot() / to_json())
+    bool is_stale = false;  ///< True when is_training && seconds since last ingest > threshold
+    double seconds_since_last_update =
+        0.0;  ///< Wall-clock seconds since the most recent metrics ingest
+    bool effective_is_training =
+        false;  ///< is_training && !is_stale — safe liveness signal for dashboards/health checks
 };
 
 /**
@@ -161,6 +168,10 @@ struct MetricsServiceConfig {
     bool enable_generation_quality =
         false;  // When true, generate responses during validation and score them
     int generation_quality_sample_size = 10;  // Number of validation samples used for scoring
+
+    // Staleness detection (TD-019)
+    /// Seconds without an ingest before is_stale is set on snapshot reads (default: 60).
+    int staleness_threshold_seconds = 60;
 };
 
 /**

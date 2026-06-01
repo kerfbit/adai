@@ -203,6 +203,23 @@
             font-weight: bold;
             color: #2c3e50;
         }
+
+        .stale-badge {
+            display: none;
+            background: #f39c12;
+            color: white;
+            font-size: 11px;
+            font-weight: bold;
+            padding: 2px 8px;
+            border-radius: 10px;
+            text-transform: uppercase;
+            margin-left: 8px;
+            vertical-align: middle;
+        }
+
+        .stale-badge.show {
+            display: inline-block;
+        }
     </style>
 </head>
 <body>
@@ -211,6 +228,7 @@
             <div>
                 <h1>ADAI Training Metrics Dashboard</h1>
                 <span class="timestamp" id="last-update">Last updated: Never</span>
+                <span class="stale-badge" id="stale-badge">Stale</span>
             </div>
             <div class="status-indicator">
                 <div class="status-dot" id="status-dot"></div>
@@ -727,15 +745,33 @@
         }
 
         function updateDashboard(data) {
-            const now = new Date();
-            const timestamp = now.toLocaleTimeString();
+            // TD-019: Use server-provided staleness fields for accurate liveness display.
+            // effective_is_training is false when the trainer has stopped pushing metrics,
+            // even if is_training is still true on the server side.
 
-            // TODO(TD-019): Derive dashboard freshness from server-side metrics
-            // timestamp and stale-state fields instead of browser-local time.
+            // Update status using effective liveness from the server
+            const effectiveTraining = data.effective_is_training !== undefined
+                ? data.effective_is_training
+                : data.is_training;
+            updateStatus(true, effectiveTraining);
 
-            // Update status first with connection success
-            updateStatus(true, data.is_training);
-            
+            // Show/hide stale badge and update last-update from server-provided age
+            const staleBadge = document.getElementById('stale-badge');
+            const secsAgo = data.seconds_since_last_update;
+            if (data.is_stale) {
+                if (staleBadge) staleBadge.classList.add('show');
+                const ageStr = secsAgo !== undefined ? `${Math.round(secsAgo)}s ago` : 'unknown';
+                updateElement('last-update', `Last updated: ${ageStr} (stale)`);
+            } else {
+                if (staleBadge) staleBadge.classList.remove('show');
+                if (secsAgo !== undefined && secsAgo >= 0) {
+                    const ageStr = secsAgo < 5 ? 'just now' : `${Math.round(secsAgo)}s ago`;
+                    updateElement('last-update', `Last updated: ${ageStr}`);
+                } else {
+                    updateElement('last-update', `Last updated: just now`);
+                }
+            }
+
             // Update main metrics
             updateElement('current-loss', formatNumber(data.current_loss));
             updateElement('validation-loss', formatNumber(data.current_validation_loss));
@@ -793,14 +829,9 @@
             updateElement('best-epoch', data.best_epoch || '--');
             updateElement('running-loss', formatNumber(data.running_loss));
 
-            // TODO(TD-019): Show server-reported last update time and stale age
-            // (for example seconds_since_last_update) to avoid false "fresh" UI.
-            // Update timestamp
-            updateElement('last-update', `Last updated: ${timestamp}`);
-
             // Add to history and update charts
             if (data.current_loss !== null && data.current_loss !== undefined) {
-                addToHistory(timestamp, data);
+                addToHistory(secsAgo !== undefined ? `${Math.round(secsAgo)}s` : new Date().toLocaleTimeString(), data);
                 updateCharts();
             }
         }

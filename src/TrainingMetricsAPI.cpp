@@ -878,10 +878,6 @@ std::string TrainingMetricsAPI::handle_session_status(const std::string& session
     auto service = resolve_session_service(session_key, false);
     auto snapshot = service->get_current_snapshot();
 
-    // TODO(TD-019): Compute stale-aware liveness here (for example
-    // effective_is_training = snapshot.is_training && !is_stale(snapshot.last_update_time))
-    // and include stale diagnostics in the JSON response.
-
     std::ostringstream json;
     json << "{";
     json << "\"is_training\":" << (snapshot.is_training ? "true" : "false") << ",";
@@ -901,7 +897,13 @@ std::string TrainingMetricsAPI::handle_session_status(const std::string& session
 
     json << ",";
     json << "\"samples_per_second\":" << snapshot.samples_per_second << ",";
-    json << "\"estimated_time_remaining_seconds\":" << snapshot.estimated_time_remaining_seconds;
+    json << "\"estimated_time_remaining_seconds\":" << snapshot.estimated_time_remaining_seconds
+         << ",";
+    json << "\"is_stale\":" << (snapshot.is_stale ? "true" : "false") << ",";
+    json << "\"seconds_since_last_update\":" << std::fixed << std::setprecision(1)
+         << snapshot.seconds_since_last_update << ",";
+    json << "\"effective_is_training\":"
+         << (snapshot.effective_is_training ? "true" : "false");
     json << "}";
 
     return json.str();
@@ -1176,16 +1178,35 @@ std::string TrainingMetricsAPI::handle_clear_control(const std::string& session_
 
 std::string TrainingMetricsAPI::handle_health_check() {
     auto sessions = session_registry_->list_sessions();
-    bool is_active = std::any_of(sessions.begin(), sessions.end(),
-                                 [](const MetricsSessionSummary& summary) {
-                                     return summary.is_training;
-                                 });
+
+    // TD-019: Compute per-session staleness to determine effective liveness.
+    // A session is "effectively active" only when is_training is true AND
+    // it has received a recent metrics ingest (not stale).
+    bool is_active = false;
+    bool any_stale = false;
+    for (const auto& summary : sessions) {
+        if (!summary.is_training) {
+            continue;
+        }
+        auto secs = std::chrono::duration_cast<std::chrono::seconds>(
+                        std::chrono::system_clock::now() - summary.last_update_time)
+                        .count();
+        // Use a fixed 60-second threshold for the health-check aggregate view.
+        // Session-level staleness uses the per-service configured threshold.
+        constexpr int kHealthStalenessThreshold = 60;
+        if (secs > kHealthStalenessThreshold) {
+            any_stale = true;
+        } else {
+            is_active = true;
+        }
+    }
 
     std::ostringstream json;
     json << "{";
     json << R"("status":"ok",)";
     json << R"("service":"TrainingMetricsAPI",)";
-    json << "\"is_training\":" << (is_active ? "true" : "false");
+    json << "\"is_training\":" << (is_active ? "true" : "false") << ",";
+    json << "\"any_stale\":" << (any_stale ? "true" : "false");
     json << "}";
 
     return json.str();
@@ -1196,6 +1217,10 @@ std::string TrainingMetricsAPI::handle_health_check() {
 // ============================================================================
 
 std::string TrainingMetricsAPI::create_error_response(const std::string& error_message) {
+    // Pre-built JSON bodies (e.g. structured 503 capacity errors) are passed through as-is.
+    if (!error_message.empty() && error_message.front() == '{') {
+        return error_message;
+    }
     std::ostringstream json;
     json << "{";
     json << R"("error":")" << escape_json(error_message) << "\"";
@@ -1694,7 +1719,10 @@ std::shared_ptr<TrainingMetricsService> TrainingMetricsAPI::resolve_session_serv
     if (create_if_missing) {
         auto service = session_registry_->create_or_get_session(session_key);
         if (!service) {
-            throw ApiRequestError(503, "metrics_server_full");
+            std::ostringstream body;
+            body << R"({"error":"metrics_server_full","max_live_sessions":)"
+                 << session_registry_->max_live_sessions() << "}";
+            throw ApiRequestError(503, body.str());
         }
         return service;
     }

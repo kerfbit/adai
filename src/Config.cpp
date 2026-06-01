@@ -243,6 +243,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.metrics_completed_ttl_seconds = std::stoi(value);
             } else if (key == "METRICS_SWEEP_INTERVAL_SECONDS") {
                 config.metrics_sweep_interval_seconds = std::stoi(value);
+            } else if (key == "METRICS_STALENESS_THRESHOLD_SECONDS") {
+                config.metrics_staleness_threshold_seconds = std::stoi(value);
             } else if (key == "METRICS_API_PORT") {
                 config.metrics_api_port = std::stoi(value);
             } else if (key == "METRICS_API_ALLOW_CONTROL") {
@@ -422,6 +424,9 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env_int("METRICS_SWEEP_INTERVAL_SECONDS")) {
         config.metrics_sweep_interval_seconds = *val;
+    }
+    if (auto val = get_env_int("METRICS_STALENESS_THRESHOLD_SECONDS")) {
+        config.metrics_staleness_threshold_seconds = *val;
     }
 
     // RAG configuration

@@ -286,6 +286,7 @@ TEST_F(TrainingMetricsAPICapacityRoutesTest, SessionStartReturns503WhenRegistryI
     ASSERT_TRUE(res);
     EXPECT_EQ(res->status, 503);
     EXPECT_NE(res->body.find("metrics_server_full"), std::string::npos);
+    EXPECT_NE(res->body.find("\"max_live_sessions\":1"), std::string::npos);
 }
 
 TEST_F(TrainingMetricsAPIRoutesTest, AggregateEndpointCountsAllLiveSessions) {

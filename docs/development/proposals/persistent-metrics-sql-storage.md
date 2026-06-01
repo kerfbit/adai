@@ -255,11 +255,16 @@ This lets operators validate the SQL output against the known-good JSONL files b
 | Method | Change |
 |--------|--------|
 | `persist_metrics()` | After appending to `history_` (and optionally JSONL), calls `db_->insert_metrics_record(key_, record)` |
-| `persist_summary()` | Calls `db_->upsert_session(...)` with current snapshot fields; file write still occurs in dual-write mode |
-| `restore_from_summary()` | Queries `db_->get_session(key_)` first; falls back to reading `_metrics_summary.json` if the row is absent — ensures existing deployments with only JSONL files migrate safely on first upgrade |
+| `persist_summary()` | Calls `db_->upsert_session(...)` with current snapshot fields, **including `label` and `config_json`**; also writes both fields into `_metrics_summary.json`; file write still occurs in dual-write mode |
+| `restore_from_summary()` | Queries `db_->get_session(key_)` first — recovers `label` and `config_json` alongside all snapshot fields; falls back to `_metrics_summary.json` (which also persists `label` and `config_snapshot` per the IncrementalTrainer decoupling proposal §6) if the DB row is absent |
 | Session end | Calls `db_->mark_session_ended(key_)` |
 
 No changes to the `TrainingMetricsService` constructor signature; the `MetricsSessionRegistry` injects `db_` via a setter after construction.
+
+> **Cross-proposal consistency:** `label` and `config_json` are written and restored via both
+> the `_metrics_summary.json` path (always active, mandated by the IncrementalTrainer decoupling
+> proposal) and the `sessions` table (active when this proposal is deployed). Regardless of which
+> backend is in use, labels are never lost to a server restart.
 
 ### 4.7 Changes to `MetricsSessionRegistry`
 

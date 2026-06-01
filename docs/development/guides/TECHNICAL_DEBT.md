@@ -5,12 +5,12 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** May 31, 2026
-**Total Items:** 4
+**Total Items:** 3
 **High Priority:** 0
-**Medium Priority:** 3
+**Medium Priority:** 2
 **Low Priority:** 1
 **Future Enhancements:** 19
-**Resolved Items:** 19
+**Resolved Items:** 20
 
 ## Table of Contents
 
@@ -18,10 +18,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 - [Table of Contents](#table-of-contents)
 - [Active Technical Debt](#active-technical-debt)
   - [TD-020: Persistent Metrics Storage via SQL Database](#td-020-persistent-metrics-storage-via-sql-database)
-  - [TD-019: Stale Metrics Detection and Liveness Accuracy](#td-019-stale-metrics-detection-and-liveness-accuracy)
   - [TD-014: LLM Operations and Training Tooling Suite](#td-014-llm-operations-and-training-tooling-suite)
   - [TD-006: Fill-in-the-Middle (FIM) Training Data Generation](#td-006-fill-in-the-middle-fim-training-data-generation)
 - [Resolved Items](#resolved-items)
+  - [TD-019: Stale Metrics Detection and Liveness Accuracy](#td-019-stale-metrics-detection-and-liveness-accuracy)
   - [TD-018: Multi-Instance Training Metrics Service](#td-018-multi-instance-training-metrics-service)
   - [TD-003: GPU Memory Management Optimization](#td-003-gpu-memory-management-optimization)
   - [TD-017: Adaptive Gradient Clipping](#td-017-adaptive-gradient-clipping)
@@ -101,45 +101,6 @@ Files to Modify:
 - `adai/CMakeLists.txt` / `adai/src/CMakeLists.txt`
 - `config.conf` / `config-remote.conf`
 - `docs/development/TRAINING_METRICS_API.md`
-
----
-
-### TD-019: Stale Metrics Detection and Liveness Accuracy
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|-----------------|
-| MEDIUM | Planned | Training / Metrics / API / Dashboard | May 26, 2026 | 6-10 hours |
-
-Description:
-Current metrics endpoints can report `is_training=true` long after metric updates have stopped. The dashboard also uses browser-local time for "Last updated", which can look fresh even when server-side metrics are stale. This creates false "running" states during trainer/network failures.
-
-Observed Behavior:
-
-- `TrainingMetricsService::get_current_snapshot()` overwrites `last_update_time` while active, masking true last-ingest time.
-- Session status and health checks infer liveness from `is_training` without staleness checks.
-- Dashboard displays local clock time as "Last updated" instead of server metric timestamp age.
-
-Action Items:
-
-- [ ] Add configurable staleness threshold(s) for metrics liveness evaluation.
-- [ ] Preserve true ingest/update timestamp and avoid overwriting it in read paths.
-- [ ] Expose stale-state fields in API responses (for example `is_stale`, `seconds_since_last_update`, `effective_is_training`).
-- [ ] Update status and health endpoints to report effective active state based on staleness.
-- [ ] Update dashboard to use server-provided timestamp and show stale badge/warning when updates freeze.
-- [ ] Add unit/integration tests for stale detection paths in service/API and dashboard behavior.
-
-Files to Modify:
-
-- `src/TrainingMetricsService.hpp`
-- `src/TrainingMetricsService.cpp`
-- `src/TrainingMetricsAPI.hpp`
-- `src/TrainingMetricsAPI.cpp`
-- `src/TrainingMetricsAPIServer.cpp`
-- `src/Config.hpp`
-- `src/Config.cpp`
-- `dashboard.html`
-- `tests/training_metrics_service_test.cpp`
-- `tests/training_metrics_api_test.cpp` (or equivalent)
 
 ---
 
@@ -225,6 +186,32 @@ Evaluation:
 ---
 
 ## Resolved Items
+
+### TD-019: Stale Metrics Detection and Liveness Accuracy
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| May 31, 2026 | Training / Metrics / API / Config / Dashboard | Staleness threshold config, snapshot stale fields, `get_current_snapshot()` fix, `to_json()` stale fields, API staleness fields, dashboard stale badge, `staleDetectionTests` |
+
+Description:
+Metrics endpoints reported `is_training=true` long after ingest stopped because `get_current_snapshot()` overwrote `last_update_time` with the current clock on every read, masking the true last-ingest time. The dashboard used browser-local time for "Last updated", showing a false freshness indicator during trainer/network failures.
+
+Changes Made:
+
+- ✅ **Config** — Added `metrics_staleness_threshold_seconds` (default: 60) to `ServiceConfig` (`src/Config.hpp`), parsed from config file and env var in `src/Config.cpp`. Wired through `MetricsServiceConfig.staleness_threshold_seconds` in `src/IncrementalTrainer.cpp`. Added key to `config.conf` and `config-remote.conf`.
+- ✅ **Snapshot fields** — Added `is_stale`, `seconds_since_last_update`, `effective_is_training` to `TrainingMetricsSnapshot` in `src/TrainingMetricsService.hpp`.
+- ✅ **Root cause fix** — Removed `snapshot.last_update_time = std::chrono::system_clock::now()` from `get_current_snapshot()` in `src/TrainingMetricsService.cpp`; staleness fields now computed from preserved ingest timestamp. Same logic added to `to_json()` (which runs independently to avoid lock re-entry).
+- ✅ **JSON output** — `to_json()` now appends `is_stale`, `seconds_since_last_update`, `effective_is_training` fields to all snapshot JSON responses.
+- ✅ **API endpoints** — `handle_session_status()` adds the three stale fields to its JSON response; `handle_health_check()` uses `effective_is_training` for per-session liveness and exposes `any_stale` in `src/TrainingMetricsAPI.cpp`.
+- ✅ **Dashboard** — Added `.stale-badge` CSS, stale badge `<span>` in HTML header, updated `updateDashboard()` to use server-provided `seconds_since_last_update`, show "X seconds ago (stale)" label, and use `effective_is_training` for status colour in `dashboard.html`.
+- ✅ **Tests** — Created `tests/stale_detection_test.cpp` with 16 tests across 6 suites (`StaleDetectionIngestTimestamp`, `StaleDetectionSecondsAgo`, `StaleDetectionIsStale`, `StaleDetectionEffectiveIsTraining`, `StaleDetectionJson`, `StaleDetectionConfig`). Registered as `staleDetectionTests` CMake target in `tests/CMakeLists.txt`.
+
+Verification:
+
+- ✅ All 16 `staleDetectionTests` pass in `build-gpu-clang`
+- ✅ No regressions in `adai_core` build
+
+---
 
 ### TD-018: Multi-Instance Training Metrics Service
 
