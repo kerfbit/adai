@@ -4,24 +4,27 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** May 31, 2026
-**Total Items:** 3
+**Last Updated:** June 2, 2026
+**Total Items:** 4
 **High Priority:** 0
 **Medium Priority:** 2
-**Low Priority:** 1
+**Low Priority:** 2
 **Future Enhancements:** 19
-**Resolved Items:** 21
+**Resolved Items:** 24
 
 ## Table of Contents
 
 - [Overview](#overview)
 - [Table of Contents](#table-of-contents)
 - [Active Technical Debt](#active-technical-debt)
-  - [TD-021: IncrementalTrainer × Metrics Service Decoupling](#td-021-incrementaltrainer--metrics-service-decoupling)
+  - [TD-023: Parallel Generation Quality Scoring via Model Snapshot](#td-023-parallel-generation-quality-scoring-via-model-snapshot)
   - [TD-020: Persistent Metrics Storage via SQL Database](#td-020-persistent-metrics-storage-via-sql-database)
   - [TD-014: LLM Operations and Training Tooling Suite](#td-014-llm-operations-and-training-tooling-suite)
   - [TD-006: Fill-in-the-Middle (FIM) Training Data Generation](#td-006-fill-in-the-middle-fim-training-data-generation)
 - [Resolved Items](#resolved-items)
+  - [TD-024: Remove Legacy Standalone ChatbotTrainer Code and Build Target](#td-024-remove-legacy-standalone-chatbottrainer-code-and-build-target)
+  - [TD-022: Remove Direct Terminal Output from IncrementalTrainer and Dependencies](#td-022-remove-direct-terminal-output-from-incrementaltrainer-and-dependencies)
+  - [TD-021: IncrementalTrainer × Metrics Service Decoupling](#td-021-incrementaltrainer--metrics-service-decoupling)
   - [TD-019: Stale Metrics Detection and Liveness Accuracy](#td-019-stale-metrics-detection-and-liveness-accuracy)
   - [TD-018: Multi-Instance Training Metrics Service](#td-018-multi-instance-training-metrics-service)
   - [TD-003: GPU Memory Management Optimization](#td-003-gpu-memory-management-optimization)
@@ -59,6 +62,62 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 - [References](#references)
 
 ## Active Technical Debt
+
+### TD-023: Parallel Generation Quality Scoring via Model Snapshot
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Planned | Training / ChatbotTrainer / Metrics | June 1, 2026 | 4-6 hours |
+
+Description:
+`ChatbotTrainer::compute_generation_quality_metrics()` runs synchronously on the training thread at the end of each epoch's validation phase. It calls `model->generate_response()` up to `generation_quality_sample_size` times (default 10), each of which is a full autoregressive decode through the transformer, followed by `GenerationQualityEvaluator::evaluate()`. At the default sample size of 10 this is negligible (≈1–3% of epoch time). However, users who raise `generation_quality_sample_size` to 50 or more for statistically robust BLEU/ROUGE estimates will incur a proportionally larger inter-epoch stall on the training thread.
+
+The `MetricsPushClient` background push thread already handles all HTTP I/O asynchronously, so the push itself is not the bottleneck. The bottleneck is the `generate_response()` loop, which cannot be safely moved to a background thread without first snapshotting the model weights, because the training loop begins updating those weights in the next epoch immediately after `compute_generation_quality_metrics()` returns.
+
+Proposed Solution:
+
+When `generation_quality_sample_size >= generation_quality_async_threshold` (new config key, default 50), `compute_generation_quality_metrics()` should:
+
+1. Clone the model weights into a temporary `EncoderDecoderModel` copy (`model->clone()` or equivalent weight-copy constructor).
+2. Launch a `std::thread` (stored as `generation_quality_thread_` on `ChatbotTrainer`) that runs the full scoring loop against the cloned model and then calls `metrics_reporter_->update_generation_quality_metrics(...)` from that thread — safe because `MetricsPushClient::enqueue()` is mutex-protected.
+3. Return immediately, allowing the training loop to begin the next epoch without waiting.
+4. Before the *next* call to `compute_generation_quality_metrics()` (i.e., at the start of the subsequent epoch's validation phase), join `generation_quality_thread_` if it is still running. This prevents two scoring threads from running concurrently and preserves monotonic epoch ordering of generation-quality pushes.
+5. In `ChatbotTrainer`'s destructor (and in `release_model()`), join any outstanding `generation_quality_thread_` before the model is released.
+
+Below the threshold (< 50 samples), the existing synchronous path is retained — no unnecessary memory overhead for the common case.
+
+Memory Overhead:
+
+The snapshot is a full copy of all model weight matrices. For typical model sizes in this codebase (d_model ≤ 512, layers ≤ 6) this is on the order of 50–150 MB. The clone is released as soon as the thread completes. Users should be aware of this cost when setting `generation_quality_sample_size >= 50`.
+
+Action Items:
+
+- [ ] Add `generation_quality_async_threshold` (default: 50) to `TrainingConfig` in `src/ChatbotTrainer.hpp`; wire through `ServiceConfig` in `src/Config.hpp/.cpp` and `make_incremental_config()` in `src/IncrementalTrainer.cpp`; add key to `config.conf` and `config-remote.conf`.
+- [ ] Add a weight-copy constructor or `clone()` method to `EncoderDecoderModel` (and propagate through `Encoder`, `Decoder`, `FeedForward`, `MultiHeadAttention`) that deep-copies all `Matrix` weight fields but does not copy mutable training state (optimizer moments, gradient accumulators).
+- [ ] Add `std::optional<std::thread> generation_quality_thread_` member to `ChatbotTrainer`.
+- [ ] In `compute_generation_quality_metrics()`: when `sample_size >= config.generation_quality_async_threshold`, clone the model, move the scoring loop into a `std::thread`, store in `generation_quality_thread_`, and return. Otherwise use the existing synchronous path.
+- [ ] Add a `join_generation_quality_thread()` private helper that joins `generation_quality_thread_` if joinable; call it at the top of `compute_generation_quality_metrics()` (before launching a new thread) and in the destructor / `release_model()`.
+- [ ] Add `GENERATION_QUALITY_ASYNC_THRESHOLD` to `config.conf` and `config-remote.conf` with a comment explaining the memory trade-off.
+- [ ] Write `tests/generation_quality_async_test.cpp` covering: threshold boundary (49 = sync, 50 = async), thread join before second epoch, destructor-join safety when thread is still running, result equivalence between sync and async paths, and `NullMetricsReporter` no-crash path.
+
+Files to Modify:
+
+- `src/ChatbotTrainer.hpp` — `TrainingConfig::generation_quality_async_threshold`, `generation_quality_thread_` member, `join_generation_quality_thread()` declaration
+- `src/ChatbotTrainer.cpp` — `compute_generation_quality_metrics()` async branch, destructor join, `release_model()` join
+- `src/EncoderDecoderModel.hpp` / `src/EncoderDecoderModel.cpp` — weight-copy constructor or `clone()` method
+- `src/Config.hpp` / `src/Config.cpp` — `generation_quality_async_threshold` field and parsing
+- `src/IncrementalTrainer.cpp` — `make_incremental_config()` mapping
+- `config.conf` / `config-remote.conf` — new config key
+
+Files to Create:
+
+- `tests/generation_quality_async_test.cpp`
+
+Related Items:
+
+- TD-016 (Resolved): BLEU/ROUGE Generation Quality Scoring — introduced `compute_generation_quality_metrics()` and the synchronous scoring loop.
+
+---
 
 ### TD-020: Persistent Metrics Storage via SQL Database
 
@@ -187,6 +246,57 @@ Evaluation:
 ---
 
 ## Resolved Items
+
+### TD-024: Remove Legacy Standalone ChatbotTrainer Code and Build Target
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| June 1, 2026 | Training / ChatbotTrainer / Build | Removed nine legacy standalone functions/methods from `ChatbotTrainer` and eliminated no-op `CHATBOT_TRAINER_TEST_BUILD` compile definitions from all CMake targets |
+
+Summary:
+`ChatbotTrainer` originally included a full standalone training pipeline (`train(const std::string&)`, `save_checkpoint`, `load_checkpoint`, `finalize_model`, `should_early_stop`, `restore_best_model`, `print_training_summary`, `test_generation`, `print_usage`) and the `TrainingConfig` checkpointing fields that drove them. `IncrementalTrainer` has fully superseded this role; none of the standalone code paths were reachable at runtime. All nine functions, their declarations, the `start_epoch` member variable, four `TrainingConfig` checkpoint fields, and the no-op `CHATBOT_TRAINER_TEST_BUILD` compile definitions were removed, reducing `ChatbotTrainer.cpp` by ~625 lines.
+
+Changes Made:
+
+- ✅ Removed `train(const std::string& output_model_path)` and its body from `src/ChatbotTrainer.cpp`.
+- ✅ Removed `print_training_summary(long duration)`, `test_generation()`, and `print_usage()` from `src/ChatbotTrainer.cpp`.
+- ✅ Removed `save_checkpoint()`, `load_checkpoint()`, `should_early_stop()`, `restore_best_model()`, `finalize_model()` from `src/ChatbotTrainer.cpp` (~625 lines total removed).
+- ✅ Removed `start_epoch` member variable and all references from `src/ChatbotTrainer.cpp`.
+- ✅ Removed all corresponding declarations from the public/private sections of `src/ChatbotTrainer.hpp`; removed `save_checkpoints`, `checkpoint_every`, `keep_all_checkpoints`, `resume_from_checkpoint` from `TrainingConfig`.
+- ✅ Removed `target_compile_definitions(incremental_trainer PRIVATE CHATBOT_TRAINER_TEST_BUILD)` from `src/CMakeLists.txt`.
+- ✅ Removed `CHATBOT_TRAINER_TEST_BUILD` from `chatbottrainerTests`, `incrementaltrainerTests`, and `incrementalTrainerDecouplingTests` in `tests/CMakeLists.txt`.
+- ✅ No test cases in `tests/chatbottrainer_test.cpp` referenced the removed code; no test changes needed.
+- ✅ `ChatbotTrainerTests` and `IncrementalTrainerDecouplingTests` pass with no regressions.
+
+Files Modified: `src/ChatbotTrainer.cpp`, `src/ChatbotTrainer.hpp`, `src/CMakeLists.txt`, `tests/CMakeLists.txt`
+
+---
+
+### TD-022: Remove Direct Terminal Output from IncrementalTrainer and Dependencies
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| June 2, 2026 | Training / IncrementalTrainer / BPETokenizer / Transformer / Logging | Converted 120+ `std::cout`/`std::cerr` calls to `adai::Logger` across 4 source files; `display_dashboard()` gated behind `isatty()` |
+
+Summary:
+All direct terminal output in the `IncrementalTrainer` dependency graph has been replaced with structured `adai::Logger` calls, eliminating the two-channel output problem and enabling full log control via a single sink in daemon mode.
+
+Changes Made:
+
+- ✅ **`src/IncrementalTrainer.cpp`**: Converted `print_training_summary()`, `print_session_history()`, `print_data_registry()`, and `add_huggingface_dataset()` to `Logger::info()`/`Logger::error()`. Gated `display_dashboard()` behind `isatty(STDOUT_FILENO)` / `_isatty(_fileno(stdout))` — non-TTY path emits a compact `Logger::info()` summary; TTY path retains the full ANSI TUI unchanged. Removed the five `COLOR_*` ANSI macros and "Legacy ANSI codes" comment block.
+- ✅ **`src/BPETokenizer.cpp`**: Replaced all `build_vocab()` / `build_bpe_merges()` / `pre_tokenize()` phase-banner and `\r`-overwrite progress `std::cout` calls with `Logger::info()`; removed `std::flush`/`\r` usage. Converted `save_vocab()`/`load_vocab()` confirmation `std::cout` to `Logger::info()`; `std::cerr` file-open error to `Logger::error()`; unknown-token and unknown-special-token `std::cerr` warnings to `Logger::warn()`.
+- ✅ **`src/LayerNorm.cpp`**: Replaced `#include <iostream>` with `#include "Logger.hpp"`. Converted `print_config()` `std::cout` calls to `adai::Logger::info()`, `save_weights()`/`load_weights()` confirmations to `adai::Logger::info()`, and `set_gamma()`/`set_beta()` dimension-mismatch `std::cerr` errors to `adai::Logger::error()`.
+- ✅ **`src/PositionalEncoding.cpp`**: Replaced `#include <iostream>` with `#include "Logger.hpp"` and added `#include <sstream>`. Converted `print_config()` `std::cout` calls to `adai::Logger::info()`, `forward()` sequence-length `std::cerr` warning to `adai::Logger::warn()`, and `visualize()` table rows built via `std::ostringstream` and emitted through `adai::Logger::info()`.
+
+Files Modified: `src/IncrementalTrainer.cpp`, `src/BPETokenizer.cpp`, `src/LayerNorm.cpp`, `src/PositionalEncoding.cpp`
+
+Verification:
+
+- ✅ `adai_core` builds cleanly (`[100%] Built target adai_core`)
+- ✅ `tokenizerErrorHandlingTests` builds and links successfully
+- ✅ Only pre-existing `incrementaltrainerTests` failures remain (from TD-021: `metrics_push_enabled`/`metrics_config` member references)
+
+---
 
 ### TD-021: IncrementalTrainer × Metrics Service Decoupling
 
@@ -1399,12 +1509,15 @@ When resolving a debt item:
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|0|0%|
-|Medium|2|67%|
-|Low|1|33%|
+|Medium|2|50%|
+|Low|2|50%|
 
-**Total Active Items:** 3
+**Total Active Items:** 4
 
-> Note: TD-021 (IncrementalTrainer × Metrics Service Decoupling) resolved May 31, 2026; High count reduced to 0, Medium reduced to 2.
+> Note: TD-021 (IncrementalTrainer × Metrics Service Decoupling) resolved May 31, 2026; moved to Resolved section June 1, 2026.
+> Note: TD-022 (Remove Direct Terminal Output from IncrementalTrainer and Dependencies) resolved June 2, 2026; moved to Resolved section June 2, 2026.
+> Note: TD-023 (Parallel Generation Quality Scoring via Model Snapshot) added June 1, 2026.
+> Note: TD-024 (Remove Legacy Standalone ChatbotTrainer Code and Build Target) resolved June 1, 2026; moved to Resolved section June 1, 2026.
 
 ### By Component
 
@@ -1413,17 +1526,18 @@ When resolving a debt item:
 |Training / Data Generation|1|
 |Tooling / Toolchain|1|
 |Training / Metrics / API|1|
+|Training / ChatbotTrainer / Metrics|1|
 
 ### Effort Distribution
 
 |Effort Range|Count|
 |--------------|-------|
 |0-2 hours|0|
-|2-4 hours|0|
+|2-4 hours|1|
 |4-8 hours|1|
 |8+ hours|1|
 
-**Total Estimated Effort (Active Items):** ~26-38 hours (TD-014 has no estimate)
+**Total Estimated Effort (Active Items):** ~30-44 hours (TD-014 has no estimate)
 
 ### Future Enhancements Summary
 
@@ -1447,6 +1561,7 @@ By Priority:
 
 Recently Completed:
 
+- TD-022: Remove Direct Terminal Output from IncrementalTrainer and Dependencies - June 2, 2026
 - TD-021: IncrementalTrainer × Metrics Service Decoupling - May 31, 2026
 - TD-003: GPU Memory Management Optimization (GPUMatrix) - May 3, 2026
 - TD-016: BLEU/ROUGE Generation Quality Scoring - April 11, 2026

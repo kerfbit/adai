@@ -300,7 +300,6 @@ message(STATUS "Building chatbot as lightweight API client")
 # Incremental Training Tool - Incremental model training with data management
 add_executable(incremental_trainer IncrementalTrainingTool.cpp IncrementalTrainer.cpp 
     ChatbotTrainer.cpp Config.cpp TrainingMetricsService.cpp)  # Logger.cpp compiled into adai_core
-target_compile_definitions(incremental_trainer PRIVATE CHATBOT_TRAINER_TEST_BUILD)
 target_link_libraries(incremental_trainer 
     adai_models 
     adai_nlp

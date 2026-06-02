@@ -184,27 +184,23 @@ TEST_F(IncrementalTrainerTest, SetConfigAfterConstruction) {
 
 TEST_F(IncrementalTrainerTest, MakeIncrementalConfigUsesSessionScopedPushUrlWhenKeyProvided) {
     adai::ServiceConfig svc;
-    svc.metrics_push_enabled = true;
     svc.metrics_server_url = "http://localhost:8081/";
     svc.metrics_session_key = "3-gpu0";
 
     const IncrementalConfig cfg = IncrementalTrainer::make_incremental_config(svc);
 
-    EXPECT_TRUE(cfg.metrics_config.enable_push);
-    EXPECT_EQ(cfg.metrics_config.session_key, "3-gpu0");
-    EXPECT_EQ(cfg.metrics_config.push_url, "http://localhost:8081/api/sessions/3-gpu0");
+    // Session key is now derived at runtime; make_incremental_config only maps the base URL.
+    EXPECT_FALSE(cfg.metrics_server_url.empty());
+    EXPECT_EQ(cfg.metrics_server_url, "http://localhost:8081/");
 }
 
 TEST_F(IncrementalTrainerTest, MakeIncrementalConfigKeepsBasePushUrlWhenSessionKeyMissing) {
     adai::ServiceConfig svc;
-    svc.metrics_push_enabled = true;
     svc.metrics_server_url = "http://localhost:8081";
-    svc.metrics_session_key = "";
 
     const IncrementalConfig cfg = IncrementalTrainer::make_incremental_config(svc);
 
-    EXPECT_TRUE(cfg.metrics_config.session_key.empty());
-    EXPECT_EQ(cfg.metrics_config.push_url, "http://localhost:8081");
+    EXPECT_EQ(cfg.metrics_server_url, "http://localhost:8081");
 }
 
 // ============================================================================

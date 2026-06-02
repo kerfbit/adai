@@ -110,12 +110,6 @@ struct TrainingConfig {
     int gradient_clip_warmup_steps = 100;   // Steps before adaptive logic activates
     float gradient_clip_spike_k = 5.0f;     // Outlier: norms > k×ema are not fed into EMA
 
-    // Checkpointing
-    bool save_checkpoints = true;
-    int checkpoint_every = 1;            // Save every N epochs
-    bool keep_all_checkpoints = false;   // Keep all epoch checkpoints (default: keep only best)
-    std::string resume_from_checkpoint;  // Path to checkpoint to resume from (empty = no resume)
-
     // Early stopping
     bool enable_early_stopping = false;
     int patience = 5;                  // Epochs to wait for improvement
@@ -228,9 +222,6 @@ class ChatbotTrainer {
     std::string best_model_path;
     bool early_stopped{false};
 
-    // Resume state
-    int start_epoch{0};
-
     // TD-009: Per-epoch monitoring callback
     EpochCallback epoch_callback_;
 
@@ -271,12 +262,6 @@ class ChatbotTrainer {
      * No-op when metrics_reporter_ is null or config option is disabled.
      */
     void compute_generation_quality_metrics();
-    bool should_early_stop();
-    void restore_best_model();
-    void save_checkpoint(const std::string& filepath, int epoch);
-    void finalize_model(const std::string& output_path);
-    bool load_checkpoint(const std::string& filepath);
-    void print_training_summary(long duration);
 
    public:
     /**
@@ -310,19 +295,9 @@ class ChatbotTrainer {
     bool load_conversation_data(const std::string& filepath);
 
     /**
-     * @brief Train the model
-     */
-    void train(const std::string& output_model_path);
-
-    /**
      * @brief Train the model and return success status (for incremental training)
      */
     bool train(int num_epochs);
-
-    /**
-     * @brief Test generation with trained model
-     */
-    void test_generation(const std::vector<std::string>& test_prompts);
 
     // Model and tokenizer ownership transfer (for incremental training)
     void set_tokenizer(std::unique_ptr<BPETokenizer> tok);

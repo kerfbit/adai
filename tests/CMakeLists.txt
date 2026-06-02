@@ -160,7 +160,6 @@ add_executable(chatbottrainerTests
     chatbottrainer_test.cpp
     ../src/ChatbotTrainer.cpp  # Include implementation
 )
-target_compile_definitions(chatbottrainerTests PRIVATE CHATBOT_TRAINER_TEST_BUILD)
 target_link_libraries(chatbottrainerTests
     adai_models
     adai_nlp
@@ -244,7 +243,6 @@ add_executable(incrementaltrainerTests
     ../src/Logger.cpp
     ../src/Config.cpp
 )
-target_compile_definitions(incrementaltrainerTests PRIVATE CHATBOT_TRAINER_TEST_BUILD)
 target_link_libraries(incrementaltrainerTests 
     adai_models
     adai_nlp
@@ -487,7 +485,6 @@ add_executable(incrementalTrainerDecouplingTests
     ../src/Logger.cpp
     ../src/Config.cpp
 )
-target_compile_definitions(incrementalTrainerDecouplingTests PRIVATE CHATBOT_TRAINER_TEST_BUILD)
 target_link_libraries(incrementalTrainerDecouplingTests
     adai_models
     adai_nlp
