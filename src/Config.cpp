@@ -258,6 +258,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.generation_quality_sample_size = std::stoi(value);
             } else if (key == "GENERATION_QUALITY_MAX_TOKENS") {
                 config.generation_quality_max_tokens = std::stoi(value);
+            } else if (key == "GENERATION_QUALITY_ASYNC_THRESHOLD") {
+                config.generation_quality_async_threshold = std::stoi(value);
                 // RAG configuration
             } else if (key == "RAG_ENABLED") {
                 std::string lower = value;
@@ -272,6 +274,15 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.rag_threshold = std::stof(value);
             } else if (key == "RAG_MAX_CONTEXT_LENGTH") {
                 config.rag_max_context_length = std::stoi(value);
+                // Distributed registry configuration (TD-028 Phase 9)
+            } else if (key == "REGISTRY_SERVER_URL") {
+                config.registry_server_url = value;
+            } else if (key == "RUN_GROUP") {
+                config.run_group = value;
+            } else if (key == "RUN_ID") {
+                config.run_id = value;
+            } else if (key == "REGISTRY_TIMEOUT_MS") {
+                config.registry_timeout_ms = std::stoi(value);
                 // GPU configuration
             } else if (key == "GPU_ENABLED") {
                 std::string lower = value;
@@ -458,6 +469,20 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env_float("GPU_MEMORY_FRACTION")) {
         config.gpu_memory_fraction = *val;
+    }
+
+    // Distributed registry (TD-028 Phase 9)
+    if (auto val = get_env("REGISTRY_SERVER_URL")) {
+        config.registry_server_url = *val;
+    }
+    if (auto val = get_env("RUN_GROUP")) {
+        config.run_group = *val;
+    }
+    if (auto val = get_env("RUN_ID")) {
+        config.run_id = *val;
+    }
+    if (auto val = get_env_int("REGISTRY_TIMEOUT_MS")) {
+        config.registry_timeout_ms = *val;
     }
 }
 

@@ -8,6 +8,7 @@
 #include "BPETokenizer.hpp"
 #include "ChatbotTrainer.hpp"
 #include "Config.hpp"
+#include "DatasetRegistry.hpp"
 #include "EncoderDecoderModel.hpp"
 #include "Logger.hpp"
 #include "IMetricsReporter.hpp"
@@ -37,16 +38,6 @@ struct TrainingSession {
     std::vector<float> per_epoch_validation_perplexities;  ///< validation perplexity per epoch
 };
 
-/**
- * @brief Data file version tracking
- */
-struct DataVersion {
-    std::string data_file;
-    std::string checksum;
-    int num_samples = 0;
-    std::chrono::system_clock::time_point added_time;
-    bool trained = false;
-};
 
 /**
  * @brief Incremental training configuration
@@ -57,11 +48,6 @@ struct IncrementalConfig {
     // Session management
     std::string session_dir = "training_sessions";
     int max_sessions_to_keep = 50;
-
-    // Data management
-    std::string data_registry_file = "data_registry.txt";
-    bool cache_tokenized_data = false;
-    std::string tokenized_cache_dir = "tokenized_cache";
 
     // Auto-save settings
     bool auto_save_enabled = true;
@@ -148,6 +134,7 @@ class IncrementalTrainer {
      */
     void reset_model_for_config();
 
+    // TODO(TD-028): Remove — queue management moves to DatasetRegistry; replace callers with DatasetRegistry methods
     // Data management
     bool add_new_data(const std::string& data_file);
     bool add_new_data_batch(const std::vector<std::string>& data_files);
@@ -155,10 +142,9 @@ class IncrementalTrainer {
     std::vector<std::string> get_pending_data_files() const;
     std::vector<std::string> get_trained_data_files() const;
 
-    // Training
-    bool train_incremental(int num_epochs);
-    bool train_on_new_data_only(int num_epochs);
-    bool train_full_retrain(int num_epochs);
+    // Training — file-list API (TD-028 Phase 3)
+    bool train_on_files(const std::vector<std::string>& files, int num_epochs);
+    bool retrain_on_files(const std::vector<std::string>& files, int num_epochs);
 
     // Session management
     bool resume_last_session();
@@ -168,9 +154,12 @@ class IncrementalTrainer {
     std::vector<TrainingSession> get_session_history() const;
     void cleanup_old_sessions();
 
+    // TODO(TD-028): Remove — registry I/O and checksum move to DatasetRegistry
     // Data registry
     bool load_data_registry();
     bool save_data_registry();
+    bool load_pending_data_list();
+    bool save_pending_data_list();
     bool is_data_trained(const std::string& data_file);
     static std::string compute_data_checksum(const std::string& data_file);
 
@@ -206,10 +195,12 @@ class IncrementalTrainer {
     /// the first training run.
     std::string get_metrics_session_key() const { return active_session_key_; }
 
+    // TODO(TD-028): Remove — moves to DataFetcher::fetch_gutenberg(); caller enqueues returned path via DatasetRegistry::add_file()
     // Project Gutenberg integration
     bool add_gutenberg_book(int book_id, int num_pairs = 500);
     bool add_gutenberg_books(const std::vector<int>& book_ids, int num_pairs_per_book = 300);
 
+    // TODO(TD-028): Remove — moves to DataFetcher::fetch_huggingface(); caller enqueues returned path via DatasetRegistry::add_file()
     // HuggingFace Datasets integration
     /**
      * @brief Download a dataset from the HuggingFace Datasets server and add it to
@@ -243,6 +234,7 @@ class IncrementalTrainer {
     std::unique_ptr<BPETokenizer> tokenizer;
     std::unique_ptr<EncoderDecoderModel> model;
     IncrementalConfig config;
+    DatasetConfig     dataset_config_;  ///< Data-specific config (TD-028 Phase 2)
 
     // Session tracking
     std::vector<TrainingSession> session_history;
@@ -302,8 +294,6 @@ class IncrementalTrainer {
     std::string generate_session_checkpoint_path();
     std::string get_session_dir() const;
     void ensure_directories_exist();
-    bool save_pending_data_list();
-    bool load_pending_data_list();
     static int load_conversation_pairs(const std::string& filepath,
                                        std::vector<ConversationPair>& pairs);
 
@@ -325,25 +315,4 @@ class IncrementalTrainer {
     static std::string format_duration(double seconds);
     static std::string progress_bar(int current, int total, int bar_width = 42);
 
-    // Project Gutenberg helpers
-    static std::string get_gutenberg_url(int book_id);
-    static bool download_file(const std::string& url, const std::string& output_path);
-    static bool download_gutenberg_book(int book_id, const std::string& output_dir);
-    static bool download_gutenberg_books(const std::vector<int>& book_ids,
-                                         const std::string& output_dir);
-    static std::string clean_gutenberg_text(const std::string& raw_text);
-    static std::vector<std::string> extract_sentences(const std::string& text);
-    static std::string generate_question_from_sentence(const std::string& sentence);
-    static std::vector<std::pair<std::string, std::string>> create_qa_pairs_from_text(
-        const std::vector<std::string>& sentences, int max_pairs);
-    static bool convert_gutenberg_to_training_data(const std::string& text_file,
-                                                   const std::string& output_file, int max_pairs);
-
-    // HuggingFace helpers
-    static bool download_hf_rows(const std::string& dataset_id, const std::string& split,
-                                 int offset, int length, const std::string& output_path);
-    static bool convert_hf_to_training_data(const std::string& rows_dir,
-                                            const std::string& output_file,
-                                            const std::string& input_field,
-                                            const std::string& output_field, int max_pairs);
 };

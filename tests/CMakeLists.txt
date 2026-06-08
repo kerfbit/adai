@@ -444,11 +444,31 @@ add_test(NAME BatchProcessorTests COMMAND batchprocessorTests)
 # Test Summary
 # ============================================================================
 
-# Generation quality metrics tests (BLEU/ROUGE — header-only, no library deps)
+# Generation quality metrics tests (BLEU/ROUGE)
 add_executable(generationQualityTests generation_quality_test.cpp)
 target_include_directories(generationQualityTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
-target_link_libraries(generationQualityTests GTest::gtest_main)
+target_link_libraries(generationQualityTests
+    adai_core
+    GTest::gtest_main
+)
 add_test(NAME GenerationQualityTests COMMAND generationQualityTests)
+
+# TD-023: Async generation quality scoring tests
+add_executable(generationQualityAsyncTests
+    generation_quality_async_test.cpp
+    ../src/ChatbotTrainer.cpp
+)
+target_link_libraries(generationQualityAsyncTests
+    adai_models
+    adai_nlp
+    adai_transformer
+    adai_attention
+    adai_feedforward
+    adai_layers
+    adai_core
+    GTest::gtest_main
+)
+add_test(NAME GenerationQualityAsyncTests COMMAND generationQualityAsyncTests)
 
 # Batch padding efficiency tests (TrainingMetricsService + pure arithmetic helpers)
 add_executable(paddingEfficiencyTests padding_efficiency_test.cpp)
@@ -569,4 +589,46 @@ target_link_libraries(staleDetectionTests
 )
 add_test(NAME StaleDetectionTests COMMAND staleDetectionTests)
 
-message(STATUS "Configured 46 test suites using library targets (including Config, Logger, IncrementalTrainer, LLMEncoder, DocumentStore, RAGInference, BatchProcessor, ParallelDataLoader, IntegratedInferenceEngine, PipelineInferenceEngine, BatchedInferenceEngine, SpeculativeDecoding, VocabBuilder, ChatbotAPI, ChatbotTrainer, GenerationQuality, PaddingEfficiency, AdaptiveClipping, ModelSerializer, StaleDetection, integration, RAG/BERT comparison and Phase 5 tests)")
+# TD-025: IncrementalTrainer Background Launch with PID Message
+add_executable(incrementalTrainerBackgroundTests
+    incremental_trainer_background_test.cpp
+)
+target_include_directories(incrementalTrainerBackgroundTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(incrementalTrainerBackgroundTests
+    GTest::gtest_main
+)
+add_test(NAME IncrementalTrainerBackgroundTests COMMAND incrementalTrainerBackgroundTests)
+
+# TD-028 Phase 8: LocalTransport unit tests
+add_executable(registryTransportTests registry_transport_test.cpp)
+target_link_libraries(registryTransportTests
+    adai_core
+    GTest::gtest_main
+)
+add_test(NAME RegistryTransportTests COMMAND registryTransportTests)
+
+# TD-028 Phase 9: LocalTransport acquire/release/commit_trained tests
+add_executable(registryTransportPhase9Tests RegistryTransportTests.cpp)
+target_link_libraries(registryTransportPhase9Tests
+    adai_core
+    GTest::gtest_main
+)
+add_test(NAME RegistryTransportPhase9Tests COMMAND registryTransportPhase9Tests)
+
+# TD-028 Phase 10: DatasetRegistry unit tests
+add_executable(datasetRegistryTests DatasetRegistryTests.cpp)
+target_link_libraries(datasetRegistryTests
+    adai_core
+    GTest::gtest_main
+)
+add_test(NAME DatasetRegistryTests COMMAND datasetRegistryTests)
+
+# TD-028 Phase 10: DataFetcher unit tests (offline only)
+add_executable(dataFetcherTests DataFetcherTests.cpp)
+target_link_libraries(dataFetcherTests
+    adai_core
+    GTest::gtest_main
+)
+add_test(NAME DataFetcherTests COMMAND dataFetcherTests)
+
+message(STATUS "Configured 52 test suites using library targets (including Config, Logger, IncrementalTrainer, LLMEncoder, DocumentStore, RAGInference, BatchProcessor, ParallelDataLoader, IntegratedInferenceEngine, PipelineInferenceEngine, BatchedInferenceEngine, SpeculativeDecoding, VocabBuilder, ChatbotAPI, ChatbotTrainer, GenerationQuality, GenerationQualityAsync, PaddingEfficiency, AdaptiveClipping, ModelSerializer, StaleDetection, BackgroundLaunch, integration, RAG/BERT comparison, Phase 5, DatasetRegistry and DataFetcher tests)")

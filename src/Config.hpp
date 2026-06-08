@@ -198,6 +198,23 @@ struct ServiceConfig {
     bool metrics_api_allow_control = true;
 
     // ============================================================
+    // Distributed Registry Configuration (TD-028 Phase 9)
+    // ============================================================
+
+    /// URL of the registry_server daemon; empty string = local flat-file mode (default: "")
+    std::string registry_server_url;
+
+    /// Logical namespace for multi-project registry_server sharing.
+    /// Defaults to the session_dir basename when not set.
+    std::string run_group;
+
+    /// Per-process training run identifier. Auto-derived from hostname+PID when empty.
+    std::string run_id;
+
+    /// HTTP timeout for registry_server calls in milliseconds (default: 5000)
+    int registry_timeout_ms = 5000;
+
+    // ============================================================
     // Outlier Detection Configuration (TD-021)
     // ============================================================
 
@@ -222,6 +239,10 @@ struct ServiceConfig {
 
     /// Max tokens per generate_response() call during scoring (default: 50)
     int generation_quality_max_tokens = 50;
+
+    /// Minimum sample size to trigger async parallel scoring (default: 50, TD-023).
+    /// Below this threshold the existing synchronous path is used.
+    int generation_quality_async_threshold = 50;
 
     // ============================================================
     // RAG Configuration

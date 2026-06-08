@@ -8,7 +8,6 @@
 #include <iomanip>
 #include <iostream>
 #include <limits>
-#include <regex>
 #include <sstream>
 #include <utility>
 #include <cctype>
@@ -18,6 +17,7 @@
 #include <unistd.h>
 #endif
 #include "Config.hpp"
+#include "DataFetcher.hpp"
 #include "Logger.hpp"
 #include "TrainingMetricsAPI.hpp"
 #ifdef ADAI_ENABLE_OPENMP
@@ -232,6 +232,7 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
     cfg.base_config.enable_generation_quality_metrics = svc.enable_generation_quality_metrics;
     cfg.base_config.generation_quality_sample_size = svc.generation_quality_sample_size;
     cfg.base_config.generation_quality_max_tokens = svc.generation_quality_max_tokens;
+    cfg.base_config.generation_quality_async_threshold = svc.generation_quality_async_threshold;
 
     // Session directory
     if (!svc.session_dir.empty()) {
@@ -271,6 +272,7 @@ IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
     model_path_ = svc.model_path.empty() ? "chatbot_model.bin" : svc.model_path;
     config = make_incremental_config(svc);
     config.base_config.lr_schedule = LRSchedule::WARMUP_COSINE;
+    dataset_config_ = DatasetRegistry::make_config(svc);
 
     // MetricsPushClient is created per training run; use NullMetricsReporter until then.
     metrics_reporter_ = std::make_unique<NullMetricsReporter>();
@@ -278,8 +280,6 @@ IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
     ensure_directories_exist();
 
     load_session_history();
-    load_data_registry();
-    load_pending_data_list();
 
     if (!session_history.empty()) {
         for (const auto& session : session_history) {
@@ -364,8 +364,6 @@ IncrementalTrainer::IncrementalTrainer(std::string vocab_path, const std::string
 
     ensure_directories_exist();
     load_session_history();
-    load_data_registry();
-    load_pending_data_list();
 
     // Initialize best checkpoint from history (TD-005)
     if (!session_history.empty()) {
@@ -425,8 +423,6 @@ IncrementalTrainer::IncrementalTrainer(std::string vocab_path, const std::string
 
     ensure_directories_exist();
     load_session_history();
-    load_data_registry();
-    load_pending_data_list();
 
     if (!session_history.empty()) {
         for (const auto& session : session_history) {
@@ -468,6 +464,8 @@ void IncrementalTrainer::reset_model_for_config() {
     Logger::info("Model reinitialized with fresh weights (architecture reset)");
 }
 
+// TODO(TD-028): Move add_new_data, add_new_data_batch, clear_pending_data,
+// get_pending_data_files, get_trained_data_files to DatasetRegistry
 bool IncrementalTrainer::add_new_data(const std::string& data_file) {
     if (!fs::exists(data_file)) {
         Logger::error("Data file not found: {}", data_file);
@@ -512,14 +510,10 @@ std::vector<std::string> IncrementalTrainer::get_trained_data_files() const {
     return std::vector<std::string>(trained_data_files.begin(), trained_data_files.end());
 }
 
-bool IncrementalTrainer::train_incremental(int num_epochs) {
-    if (pending_data_files.empty()) {
-        Logger::warn("No pending data files to train on");
-        return false;
-    }
 
+bool IncrementalTrainer::train_on_files(const std::vector<std::string>& files, int num_epochs) {
     Logger::info("Starting Incremental Training Session #{}", current_session_id + 1);
-    Logger::info("Pending data files: {}", pending_data_files.size());
+    Logger::info("Files to train: {}", files.size());
 
     initialize_session();
 
@@ -528,24 +522,24 @@ bool IncrementalTrainer::train_incremental(int num_epochs) {
     session_start_time_steady_ = std::chrono::steady_clock::now();
     epoch_start_time_steady_ = session_start_time_steady_;
 
-    // Load all pending data — files are independent so load them in parallel
+    // Load all data — files are independent so load them in parallel
     std::vector<ConversationPair> training_pairs;
     std::vector<ConversationPair> validation_pairs;
 
     {
-        const int n_files = static_cast<int>(pending_data_files.size());
+        const int n_files = static_cast<int>(files.size());
         std::vector<std::vector<ConversationPair>> per_file(n_files);
 
 #ifdef ADAI_ENABLE_OPENMP
 #pragma omp parallel for schedule(dynamic)
 #endif
         for (int fi = 0; fi < n_files; ++fi) {
-            load_conversation_pairs(pending_data_files[fi], per_file[fi]);
+            load_conversation_pairs(files[fi], per_file[fi]);
         }
 
         // Sequential: split, collect pairs, update data registry
         for (int fi = 0; fi < n_files; ++fi) {
-            const auto& data_file = pending_data_files[fi];
+            const auto& data_file = files[fi];
             auto& pairs = per_file[fi];
             int loaded = static_cast<int>(pairs.size());
             if (loaded > 0) {
@@ -700,14 +694,7 @@ bool IncrementalTrainer::train_incremental(int num_epochs) {
         finalize_session(static_cast<int>(training_pairs.size()), num_epochs, final_loss,
                          final_val_loss);
 
-        // Clear pending data
-        pending_data_files.clear();
-        save_pending_data_list();
-
-        // Persist
-        save_data_registry();
         save_session_history();
-
         Logger::info("Incremental training session completed successfully");
         print_training_summary();
     }
@@ -715,31 +702,9 @@ bool IncrementalTrainer::train_incremental(int num_epochs) {
     return success;
 }
 
-bool IncrementalTrainer::train_on_new_data_only(int num_epochs) {
-    return train_incremental(num_epochs);
-}
 
-bool IncrementalTrainer::train_full_retrain(int num_epochs) {
-    Logger::info("Starting full retrain on all data");
-
-    // Collect all trained data files
-    std::vector<std::string> all_data_files;
-    for (const auto& dv : data_registry) {
-        if (dv.trained) {
-            all_data_files.push_back(dv.data_file);
-        }
-    }
-
-    // Add pending files
-    all_data_files.insert(all_data_files.end(), pending_data_files.begin(),
-                          pending_data_files.end());
-
-    if (all_data_files.empty()) {
-        Logger::warn("No data files to train on");
-        return false;
-    }
-
-    Logger::info("Retraining on {} data file(s)", all_data_files.size());
+bool IncrementalTrainer::retrain_on_files(const std::vector<std::string>& files, int num_epochs) {
+    Logger::info("Starting full retrain on {} file(s)", files.size());
     initialize_session();
 
     // Reset dashboard state (TD-009)
@@ -750,14 +715,14 @@ bool IncrementalTrainer::train_full_retrain(int num_epochs) {
     // Load all data — files are independent so load them in parallel
     std::vector<ConversationPair> all_pairs;
     {
-        const int n_files = static_cast<int>(all_data_files.size());
+        const int n_files = static_cast<int>(files.size());
         std::vector<std::vector<ConversationPair>> per_file(n_files);
 
 #ifdef ADAI_ENABLE_OPENMP
 #pragma omp parallel for schedule(dynamic)
 #endif
         for (int fi = 0; fi < n_files; ++fi) {
-            load_conversation_pairs(all_data_files[fi], per_file[fi]);
+            load_conversation_pairs(files[fi], per_file[fi]);
         }
 
         // Merge in order so dataset ordering is deterministic
@@ -876,8 +841,6 @@ bool IncrementalTrainer::train_full_retrain(int num_epochs) {
         finalize_session(static_cast<int>(all_pairs.size()), num_epochs, final_loss,
                          final_val_loss);
 
-        pending_data_files.clear();
-        save_data_registry();
         save_session_history();
     }
 
@@ -885,7 +848,13 @@ bool IncrementalTrainer::train_full_retrain(int num_epochs) {
 }
 
 bool IncrementalTrainer::resume_last_session() {
-    if (pending_data_files.empty()) {
+    DatasetRegistry reg(dataset_config_);
+    std::string run_id = dataset_config_.run_id;
+    if (run_id.empty()) {
+        run_id = detect_hostname_fragment() + "_" + std::to_string(detect_pid_mod_10000());
+    }
+    auto pending = reg.acquire_pending(run_id);
+    if (pending.empty()) {
         Logger::warn("No pending data files to resume training on");
         return false;
     }
@@ -911,27 +880,41 @@ bool IncrementalTrainer::resume_last_session() {
         Logger::warn(
             "No resumable checkpoint metadata found; continuing from currently loaded model "
             "weights");
-        return train_incremental(config.base_config.num_epochs);
-    }
-
-    // Check if checkpoint files exist (check for .config which should always be present)
-    if (!fs::exists(resume_checkpoint + ".config")) {
-        Logger::error("Checkpoint file not found: {}.config", resume_checkpoint);
-        return false;
-    }
-
-    if (resume_session_id >= 0) {
-        Logger::info("Resuming training from session #{} using checkpoint {}", resume_session_id,
-                     resume_checkpoint);
     } else {
-        Logger::info("Resuming training using checkpoint {}", resume_checkpoint);
+        // Check if checkpoint files exist (check for .config which should always be present)
+        if (!fs::exists(resume_checkpoint + ".config")) {
+            Logger::error("Checkpoint file not found: {}.config", resume_checkpoint);
+            return false;
+        }
+
+        if (resume_session_id >= 0) {
+            Logger::info("Resuming training from session #{} using checkpoint {}",
+                         resume_session_id, resume_checkpoint);
+        } else {
+            Logger::info("Resuming training using checkpoint {}", resume_checkpoint);
+        }
+
+        if (!load_model(resume_checkpoint)) {
+            return false;
+        }
     }
 
-    if (!load_model(resume_checkpoint)) {
-        return false;
+    bool ok = train_on_files(pending, config.base_config.num_epochs);
+    if (ok) {
+        std::vector<int> counts;
+        counts.reserve(pending.size());
+        for (const auto& path : pending) {
+            int n = 0;
+            for (const auto& dv : data_registry) {
+                if (dv.data_file == path) { n = dv.num_samples; break; }
+            }
+            counts.push_back(n);
+        }
+        reg.mark_trained(run_id, pending, counts);
+    } else {
+        reg.release_pending(run_id, pending);
     }
-
-    return train_incremental(config.base_config.num_epochs);
+    return ok;
 }
 
 bool IncrementalTrainer::load_session_history() {
@@ -1178,8 +1161,9 @@ void IncrementalTrainer::cleanup_old_sessions() {
     }
 }
 
+// TODO(TD-028): Move to DatasetRegistry::load_registry()
 bool IncrementalTrainer::load_data_registry() {
-    std::string registry_file = get_session_dir() + "/" + config.data_registry_file;
+    std::string registry_file = get_session_dir() + "/" + dataset_config_.data_registry_file;
 
     if (!fs::exists(registry_file)) {
         return false;
@@ -1219,8 +1203,9 @@ bool IncrementalTrainer::load_data_registry() {
     return true;
 }
 
+// TODO(TD-028): Move to DatasetRegistry::save_registry()
 bool IncrementalTrainer::save_data_registry() {
-    std::string registry_file = get_session_dir() + "/" + config.data_registry_file;
+    std::string registry_file = get_session_dir() + "/" + dataset_config_.data_registry_file;
 
     std::ofstream file(registry_file);
     if (!file.is_open()) {
@@ -1242,6 +1227,7 @@ bool IncrementalTrainer::is_data_trained(const std::string& data_file) {
     return trained_data_files.find(data_file) != trained_data_files.end();
 }
 
+// TODO(TD-028): Move to DatasetRegistry::compute_checksum()
 std::string IncrementalTrainer::compute_data_checksum(const std::string& data_file) {
     // Simple checksum: file size + modification time
     if (!fs::exists(data_file)) {
@@ -1450,7 +1436,7 @@ bool IncrementalTrainer::finalize_session(int samples_trained, int epochs_comple
     session.final_loss = final_loss;
     session.final_validation_loss = final_val_loss;
     session.checkpoint_path = generate_session_checkpoint_path();
-    // Per-epoch metrics are accumulated live via the epoch callback in train_incremental()
+    // Per-epoch metrics are accumulated live via the epoch callback in train_on_files()
 
     // Remove the in-progress best snapshot — it is now superseded by the finalized checkpoint
     {
@@ -1590,7 +1576,7 @@ bool IncrementalTrainer::reset_all(bool keep_data_registry) {
         }
 
         // Optionally remove the data registry
-        std::string registry_file = sdir + "/" + config.data_registry_file;
+        std::string registry_file = sdir + "/" + dataset_config_.data_registry_file;
         if (!keep_data_registry) {
             if (fs::exists(registry_file)) {
                 std::error_code ec2;
@@ -1653,11 +1639,12 @@ void IncrementalTrainer::ensure_directories_exist() {
         fs::create_directories(config.session_dir);
     }
 
-    if (config.cache_tokenized_data && !fs::exists(config.tokenized_cache_dir)) {
-        fs::create_directories(config.tokenized_cache_dir);
+    if (dataset_config_.cache_tokenized_data && !fs::exists(dataset_config_.tokenized_cache_dir)) {
+        fs::create_directories(dataset_config_.tokenized_cache_dir);
     }
 }
 
+// TODO(TD-028): Move to DatasetRegistry::save_pending_list()
 bool IncrementalTrainer::save_pending_data_list() {
     std::string pending_file = get_session_dir() + "/pending_files.txt";
     std::ofstream file(pending_file);
@@ -1672,6 +1659,7 @@ bool IncrementalTrainer::save_pending_data_list() {
     return true;
 }
 
+// TODO(TD-028): Move to DatasetRegistry::load_pending_list()
 bool IncrementalTrainer::load_pending_data_list() {
     std::string pending_file = get_session_dir() + "/pending_files.txt";
     if (!fs::exists(pending_file)) {
@@ -1819,6 +1807,7 @@ std::string IncrementalTrainer::get_best_checkpoint_path() const {
 
 // ============================================================================
 
+// TODO(TD-028): Move to DatasetRegistry::load_conversation_pairs() as a static method
 int IncrementalTrainer::load_conversation_pairs(const std::string& filepath,
                                                 std::vector<ConversationPair>& pairs) {
     std::ifstream file(filepath);
@@ -1878,244 +1867,23 @@ int IncrementalTrainer::load_conversation_pairs(const std::string& filepath,
     return pair_count;
 }
 
-// Project Gutenberg integration
-
-std::string IncrementalTrainer::get_gutenberg_url(int book_id) {
-    // Project Gutenberg uses a tiered directory structure
-    // Book 12345 is at: https://www.gutenberg.org/files/12345/12345-0.txt
-    // Try UTF-8 version first (-0.txt), fallback to plain ASCII (.txt)
-    std::ostringstream oss;
-    oss << "https://www.gutenberg.org/files/" << book_id << "/" << book_id << "-0.txt";
-    return oss.str();
-}
-
-bool IncrementalTrainer::download_file(const std::string& url, const std::string& output_path) {
-    Logger::info("Downloading: {}", url);
-
-    std::ostringstream cmd;
-    cmd << "curl -L -f -s -o \"" << output_path << "\" \"" << url << "\"";
-
-    int result = std::system(cmd.str().c_str());
-
-    if (result == 0 && fs::exists(output_path) && fs::file_size(output_path) > 0) {
-        Logger::info("Downloaded to: {}", output_path);
-        return true;
-    }
-
-    if (url.find("-0.txt") != std::string::npos) {
-        std::string fallback_url = url;
-        size_t pos = fallback_url.find("-0.txt");
-        fallback_url.replace(pos, 6, ".txt");
-
-        Logger::info("Trying fallback URL: {}", fallback_url);
-        std::ostringstream fallback_cmd;
-        fallback_cmd << "curl -L -f -s -o \"" << output_path << "\" \"" << fallback_url << "\"";
-
-        result = std::system(fallback_cmd.str().c_str());
-
-        if (result == 0 && fs::exists(output_path) && fs::file_size(output_path) > 0) {
-            Logger::info("Downloaded to: {}", output_path);
-            return true;
-        }
-    }
-
-    Logger::error("Failed to download: {}", url);
-    return false;
-}
-
-bool IncrementalTrainer::download_gutenberg_book(int book_id, const std::string& output_dir) {
-    // Create output directory if needed
-    if (!fs::exists(output_dir)) {
-        fs::create_directories(output_dir);
-    }
-
-    std::string url = get_gutenberg_url(book_id);
-    std::ostringstream output_path;
-    output_path << output_dir << "/gutenberg_" << book_id << ".txt";
-
-    return download_file(url, output_path.str());
-}
-
-bool IncrementalTrainer::download_gutenberg_books(const std::vector<int>& book_ids,
-                                                  const std::string& output_dir) {
-    int success_count = 0;
-
-    for (int book_id : book_ids) {
-        if (download_gutenberg_book(book_id, output_dir)) {
-            success_count++;
-        }
-    }
-
-    Logger::info("Downloaded {}/{} books", success_count, book_ids.size());
-    return success_count > 0;
-}
-
-std::string IncrementalTrainer::clean_gutenberg_text(const std::string& raw_text) {
-    std::string cleaned = raw_text;
-
-    // Remove Project Gutenberg header (before "*** START OF")
-    size_t start_pos = cleaned.find("*** START OF");
-    if (start_pos != std::string::npos) {
-        start_pos = cleaned.find('\n', start_pos);
-        if (start_pos != std::string::npos) {
-            cleaned = cleaned.substr(start_pos + 1);
-        }
-    }
-
-    // Remove Project Gutenberg footer (after "*** END OF")
-    size_t end_pos = cleaned.find("*** END OF");
-    if (end_pos != std::string::npos) {
-        cleaned = cleaned.substr(0, end_pos);
-    }
-
-    // Remove excessive whitespace
-    cleaned = std::regex_replace(cleaned, std::regex("[ \\t]+"), " ");
-    cleaned = std::regex_replace(cleaned, std::regex("\\n{3,}"), "\n\n");
-
-    return cleaned;
-}
-
-std::vector<std::string> IncrementalTrainer::extract_sentences(const std::string& text) {
-    std::vector<std::string> sentences;
-
-    // Simple sentence splitting on . ! ?
-    std::regex sentence_regex("[^.!?]+[.!?]+");
-
-    auto sentences_begin = std::sregex_iterator(text.begin(), text.end(), sentence_regex);
-    auto sentences_end = std::sregex_iterator();
-
-    for (std::sregex_iterator i = sentences_begin; i != sentences_end; ++i) {
-        std::string sentence = i->str();
-
-        // Trim whitespace
-        sentence.erase(0, sentence.find_first_not_of(" \t\n\r"));
-        sentence.erase(sentence.find_last_not_of(" \t\n\r") + 1);
-
-        // Skip very short or very long sentences
-        if (sentence.length() > 20 && sentence.length() < 500) {
-            sentences.push_back(sentence);
-        }
-    }
-
-    return sentences;
-}
-
-std::string IncrementalTrainer::generate_question_from_sentence(const std::string& sentence) {
-    // Simple question generation patterns
-    std::vector<std::string> question_templates = {
-        "What does this mean: ", "Can you explain: ", "Tell me about: ",
-        "What is this about: ",  "Explain this: ",    "What does this say: "};
-
-    // Select a random template
-    int idx = rand() % static_cast<int>(question_templates.size());
-    return question_templates[idx] + sentence;
-}
-
-std::vector<std::pair<std::string, std::string>> IncrementalTrainer::create_qa_pairs_from_text(
-    const std::vector<std::string>& sentences, int max_pairs) {
-    std::vector<std::pair<std::string, std::string>> pairs;
-
-    // Create pairs from consecutive sentences
-    for (size_t i = 0; i < sentences.size() - 1 && pairs.size() < max_pairs; i += 2) {
-        std::string question = generate_question_from_sentence(sentences[i]);
-        std::string answer = sentences[i + 1];
-
-        // Also create reverse pairs (context + question)
-        if (pairs.size() < max_pairs) {
-            pairs.emplace_back(question, answer);
-        }
-
-        // Create "summarize" style pairs
-        if (i + 2 < sentences.size() && pairs.size() < max_pairs) {
-            std::string context = sentences[i] + " " + sentences[i + 1];
-            std::string summary = sentences[i + 2];
-            pairs.emplace_back("Summarize: " + context, summary);
-        }
-    }
-
-    return pairs;
-}
-
-bool IncrementalTrainer::convert_gutenberg_to_training_data(const std::string& text_file,
-                                                            const std::string& output_file,
-                                                            int max_pairs) {
-    Logger::info("Converting Gutenberg text to training pairs: {}", text_file);
-
-    std::ifstream file(text_file);
-    if (!file.is_open()) {
-        Logger::error("Cannot open: {}", text_file);
-        return false;
-    }
-
-    std::stringstream buffer;
-    buffer << file.rdbuf();
-    std::string raw_text = buffer.str();
-    file.close();
-
-    // Clean the text
-    std::string cleaned_text = clean_gutenberg_text(raw_text);
-
-    // Extract sentences
-    std::vector<std::string> sentences = extract_sentences(cleaned_text);
-    Logger::info("Extracted {} sentences", sentences.size());
-
-    if (sentences.empty()) {
-        Logger::error("No valid sentences found in {}", text_file);
-        return false;
-    }
-
-    auto pairs = create_qa_pairs_from_text(sentences, max_pairs);
-    Logger::info("Created {} conversation pairs", pairs.size());
-
-    std::ofstream out(output_file);
-    if (!out.is_open()) {
-        Logger::error("Cannot create: {}", output_file);
-        return false;
-    }
-
-    for (const auto& pair : pairs) {
-        out << "INPUT: " << pair.first << "\n";
-        out << "RESPONSE: " << pair.second << "\n";
-        out << "\n";
-    }
-
-    out.close();
-
-    Logger::info("Training data saved to: {}", output_file);
-    return true;
-}
+// Project Gutenberg integration (TD-028: thin wrappers delegating to DataFetcher)
 
 bool IncrementalTrainer::add_gutenberg_book(int book_id, int num_pairs) {
-    std::string output_dir = "gutenberg_data";
-
-    // Download the book
-    if (!download_gutenberg_book(book_id, output_dir)) {
-        return false;
-    }
-
-    // Convert to training data
-    std::ostringstream text_file, training_file;
-    text_file << output_dir << "/gutenberg_" << book_id << ".txt";
-    training_file << output_dir << "/gutenberg_" << book_id << "_training.txt";
-
-    if (!convert_gutenberg_to_training_data(text_file.str(), training_file.str(), num_pairs)) {
-        return false;
-    }
-
-    // Add to pending data
-    return add_new_data(training_file.str());
+    DataFetcher fetcher;
+    std::string path = fetcher.fetch_gutenberg(book_id, num_pairs);
+    if (path.empty()) return false;
+    return add_new_data(path);
 }
 
 bool IncrementalTrainer::add_gutenberg_books(const std::vector<int>& book_ids,
                                              int num_pairs_per_book) {
     int success_count = 0;
-
     for (int book_id : book_ids) {
         if (add_gutenberg_book(book_id, num_pairs_per_book)) {
             success_count++;
         }
     }
-
     Logger::info("Added {}/{} books to training queue", success_count, book_ids.size());
     return success_count > 0;
 }
@@ -2156,613 +1924,17 @@ std::string IncrementalTrainer::progress_bar(int current, int total, int bar_wid
     return bar;
 }
 
-// ============================================================================
-// HuggingFace Datasets integration
-// ============================================================================
-
-// ---------------------------------------------------------------------------
-// Minimal JSON helpers — no external library required.
-// ---------------------------------------------------------------------------
-
-/// Unescape a JSON string value (\n, \t, \r, \", \\, \/).
-static std::string hf_unescape(const std::string& s) {
-    std::string out;
-    out.reserve(s.size());
-    for (size_t i = 0; i < s.size(); ++i) {
-        if (s[i] == '\\' && i + 1 < s.size()) {
-            ++i;
-            switch (s[i]) {
-                case 'n':
-                    out += '\n';
-                    break;
-                case 't':
-                    out += '\t';
-                    break;
-                case 'r':
-                    out += '\r';
-                    break;
-                case '"':
-                    out += '"';
-                    break;
-                case '\\':
-                    out += '\\';
-                    break;
-                case '/':
-                    out += '/';
-                    break;
-                case 'b':
-                    out += '\b';
-                    break;
-                case 'f':
-                    out += '\f';
-                    break;
-                default:
-                    out += '\\';
-                    out += s[i];
-                    break;
-            }
-        } else {
-            out += s[i];
-        }
-    }
-    return out;
-}
-
-/// Extract the first quoted string value for the given JSON key.
-static std::string hf_extract_string(const std::string& json, const std::string& key) {
-    std::string needle = "\"" + key + "\"";
-    size_t kpos = json.find(needle);
-    if (kpos == std::string::npos) {
-        return "";
-    }
-    size_t colon = json.find(':', kpos + needle.size());
-    if (colon == std::string::npos) {
-        return "";
-    }
-
-    size_t vpos = colon + 1;
-    while (vpos < json.size() && std::isspace(static_cast<unsigned char>(json[vpos]))) {
-        ++vpos;
-    }
-    if (vpos >= json.size() || json[vpos] != '"') {
-        return "";
-    }
-
-    std::string raw;
-    ++vpos;  // past opening "
-    while (vpos < json.size() && json[vpos] != '"') {
-        if (json[vpos] == '\\' && vpos + 1 < json.size()) {
-            raw += '\\';
-            raw += json[vpos + 1];
-            vpos += 2;
-        } else {
-            raw += json[vpos++];
-        }
-    }
-    return hf_unescape(raw);
-}
-
-/// Extract an array of quoted strings for a given JSON key ("key": ["a","b",...]).
-static std::vector<std::string> hf_extract_string_array(const std::string& json,
-                                                        const std::string& key) {
-    std::vector<std::string> result;
-    std::string needle = "\"" + key + "\"";
-    size_t kpos = json.find(needle);
-    if (kpos == std::string::npos) {
-        return result;
-    }
-    size_t colon = json.find(':', kpos + needle.size());
-    if (colon == std::string::npos) {
-        return result;
-    }
-    size_t bracket = json.find('[', colon + 1);
-    if (bracket == std::string::npos) {
-        return result;
-    }
-
-    // Walk to matching ']', tracking nesting depth
-    int depth = 1;
-    size_t pos = bracket + 1;
-    size_t arr_end = std::string::npos;
-    while (pos < json.size() && depth > 0) {
-        char c = json[pos];
-        if (c == '[') {
-            ++depth;
-            ++pos;
-        } else if (c == ']') {
-            --depth;
-            if (depth == 0) {
-                arr_end = pos;
-                break;
-            }
-            ++pos;
-        } else if (c == '"') {
-            ++pos;
-            while (pos < json.size() && json[pos] != '"') {
-                if (json[pos] == '\\') {
-                    ++pos;
-                }
-                ++pos;
-            }
-            if (pos < json.size()) {
-                ++pos;  // past closing "
-            }
-        } else {
-            ++pos;
-        }
-    }
-    if (arr_end == std::string::npos) {
-        return result;
-    }
-
-    std::string arr = json.substr(bracket + 1, arr_end - bracket - 1);
-    size_t p = 0;
-    while (p < arr.size()) {
-        if (arr[p] == '"') {
-            ++p;
-            std::string raw;
-            while (p < arr.size() && arr[p] != '"') {
-                if (arr[p] == '\\' && p + 1 < arr.size()) {
-                    raw += '\\';
-                    raw += arr[p + 1];
-                    p += 2;
-                } else {
-                    raw += arr[p++];
-                }
-            }
-            if (p < arr.size()) {
-                ++p;  // past closing "
-            }
-            result.push_back(hf_unescape(raw));
-        } else {
-            ++p;
-        }
-    }
-    return result;
-}
-
-/// Extract a JSON object ( {...} ) for the given key from within a larger JSON string.
-static std::string hf_extract_object(const std::string& json, const std::string& key) {
-    std::string needle = "\"" + key + "\"";
-    size_t kpos = json.find(needle);
-    if (kpos == std::string::npos) {
-        return "";
-    }
-    size_t colon = json.find(':', kpos + needle.size());
-    if (colon == std::string::npos) {
-        return "";
-    }
-    size_t brace = json.find('{', colon + 1);
-    if (brace == std::string::npos) {
-        return "";
-    }
-
-    int depth = 1;
-    size_t pos = brace + 1;
-    while (pos < json.size() && depth > 0) {
-        char c = json[pos];
-        if (c == '{') {
-            ++depth;
-            ++pos;
-        } else if (c == '}') {
-            --depth;
-            if (depth == 0) {
-                break;
-            }
-            ++pos;
-        } else if (c == '"') {
-            ++pos;
-            while (pos < json.size() && json[pos] != '"') {
-                if (json[pos] == '\\') {
-                    ++pos;
-                }
-                ++pos;
-            }
-            if (pos < json.size()) {
-                ++pos;
-            }
-        } else {
-            ++pos;
-        }
-    }
-    // pos points at the closing '}'
-    return json.substr(brace, pos - brace + 1);
-}
-
-/// Parse the array of "row" sub-objects from a datasets-server JSON response.
-/// Response shape: { "rows": [ {"row_idx":N, "row":{...}, "truncated_cells":[]}, ... ] }
-static std::vector<std::string> hf_extract_rows(const std::string& response_json) {
-    std::vector<std::string> rows;
-    size_t rows_key = response_json.find("\"rows\"");
-    if (rows_key == std::string::npos) {
-        return rows;
-    }
-    size_t arr_start = response_json.find('[', rows_key + 6);
-    if (arr_start == std::string::npos) {
-        return rows;
-    }
-
-    size_t pos = arr_start + 1;
-    while (pos < response_json.size()) {
-        // Skip whitespace and commas between elements
-        while (pos < response_json.size() &&
-               (std::isspace(static_cast<unsigned char>(response_json[pos])) ||
-                response_json[pos] == ',')) {
-            ++pos;
-        }
-
-        if (pos >= response_json.size() || response_json[pos] == ']') {
-            break;
-        }
-        if (response_json[pos] != '{') {
-            ++pos;
-            continue;
-        }
-
-        // Find the extent of this outer element object
-        int depth = 1;
-        size_t obj_start = pos;
-        ++pos;
-        while (pos < response_json.size() && depth > 0) {
-            char c = response_json[pos];
-            if (c == '{') {
-                ++depth;
-                ++pos;
-            } else if (c == '}') {
-                --depth;
-                if (depth == 0) {
-                    break;
-                }
-                ++pos;
-            } else if (c == '"') {
-                ++pos;
-                while (pos < response_json.size() && response_json[pos] != '"') {
-                    if (response_json[pos] == '\\') {
-                        ++pos;
-                    }
-                    ++pos;
-                }
-                if (pos < response_json.size()) {
-                    ++pos;
-                }
-            } else {
-                ++pos;
-            }
-        }
-        if (pos < response_json.size()) {
-            ++pos;  // move past closing '}'
-        }
-
-        std::string outer_obj = response_json.substr(obj_start, pos - obj_start);
-
-        // Extract the nested "row": { ... } object
-        std::string row_obj = hf_extract_object(outer_obj, "row");
-        if (!row_obj.empty()) {
-            rows.push_back(row_obj);
-        }
-    }
-    return rows;
-}
-
-/// Try to infer input/output field names from the first row's JSON.
-static std::pair<std::string, std::string> hf_detect_fields(const std::string& row_json) {
-    // Ordered by prevalence across popular HuggingFace training datasets
-    static const std::array<std::pair<const char*, const char*>, 10> candidates = {{
-        {"instruction", "output"},
-        {"instruction", "response"},
-        {"question", "answer"},
-        {"question", "response"},
-        {"input", "output"},
-        {"prompt", "completion"},
-        {"prompt", "response"},
-        {"context", "response"},
-        {"source", "target"},
-        {"text", "label"},
-    }};
-    for (const auto& [in_f, out_f] : candidates) {
-        bool has_in = row_json.find(std::string("\"") + in_f + "\"") != std::string::npos;
-        bool has_out = row_json.find(std::string("\"") + out_f + "\"") != std::string::npos;
-        if (has_in && has_out) {
-            return {in_f, out_f};
-        }
-    }
-    return {"", ""};  // fall back to dialog-array extraction
-}
-
-// ---------------------------------------------------------------------------
-
-bool IncrementalTrainer::download_hf_rows(const std::string& dataset_id, const std::string& split,
-                                          int offset, int length, const std::string& output_path) {
-    std::ostringstream url;
-    url << "https://datasets-server.huggingface.co/rows" << "?dataset=" << dataset_id
-        << "&config=default" << "&split=" << split << "&offset=" << offset << "&length=" << length;
-
-    Logger::info("HF datasets-server: {} split={} offset={} length={}", dataset_id, split, offset,
-                 length);
-
-    std::ostringstream cmd;
-    const char* hf_token = std::getenv("HF_TOKEN");
-    if (hf_token && hf_token[0] != '\0') {
-        cmd << "curl -L -f -s" << " -H \"Authorization: Bearer " << hf_token << "\"" << " -o \""
-            << output_path << "\"" << " \"" << url.str() << "\"";
-    } else {
-        cmd << "curl -L -f -s" << " -o \"" << output_path << "\"" << " \"" << url.str() << "\"";
-    }
-
-    int rc = std::system(cmd.str().c_str());
-    if (rc != 0 || !fs::exists(output_path) || fs::file_size(output_path) == 0) {
-        Logger::error("Failed to fetch HuggingFace rows (offset={} length={})", offset, length);
-        return false;
-    }
-    return true;
-}
-
-bool IncrementalTrainer::convert_hf_to_training_data(const std::string& rows_dir,
-                                                     const std::string& output_file,
-                                                     const std::string& input_field,
-                                                     const std::string& output_field,
-                                                     int max_pairs) {
-    std::ofstream out(output_file);
-    if (!out.is_open()) {
-        Logger::error("Cannot create output file: {}", output_file);
-        return false;
-    }
-
-    int pair_count = 0;
-    std::string det_in = input_field;
-    std::string det_out = output_field;
-
-    for (int chunk = 0; pair_count < max_pairs; ++chunk) {
-        std::ostringstream chunk_path;
-        chunk_path << rows_dir << "/chunk_" << chunk << ".json";
-        if (!fs::exists(chunk_path.str())) {
-            break;
-        }
-
-        std::ifstream f(chunk_path.str());
-        if (!f.is_open()) {
-            Logger::error("Cannot open chunk: {}", chunk_path.str());
-            continue;
-        }
-        std::string json((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-        f.close();
-
-        auto rows = hf_extract_rows(json);
-        if (rows.empty()) {
-            Logger::info("No rows parsed from chunk {} — stopping", chunk);
-            break;
-        }
-
-        for (const auto& row_json : rows) {
-            if (pair_count >= max_pairs) {
-                break;
-            }
-
-            // Auto-detect field names on the first non-empty row
-            if (det_in.empty()) {
-                auto [df_in, df_out] = hf_detect_fields(row_json);
-                det_in = df_in;
-                det_out = df_out;
-                if (!det_in.empty()) {
-                    Logger::info("Auto-detected HF fields: input='{}' output='{}'", det_in,
-                                 det_out);
-                }
-            }
-
-            if (!det_in.empty() && !det_out.empty() && det_in == det_out) {
-                // Single-text-field datasets (TinyStories, wikitext, etc.)
-                // Split text at a sentence boundary to create prompt/completion pairs
-                std::string full_text = hf_extract_string(row_json, det_in);
-                if (full_text.size() >= 40) {
-                    // Find a sentence boundary near the middle
-                    size_t mid = full_text.size() / 2;
-                    size_t split_pos = std::string::npos;
-                    // Search outward from midpoint for sentence-ending punctuation followed by
-                    // space
-                    for (size_t radius = 0; radius < mid; ++radius) {
-                        for (size_t pos : {mid + radius, mid - radius}) {
-                            if (pos >= full_text.size() - 1) {
-                                continue;
-                            }
-                            char c = full_text[pos];
-                            if ((c == '.' || c == '!' || c == '?') && pos + 1 < full_text.size() &&
-                                (full_text[pos + 1] == ' ' || full_text[pos + 1] == '\n')) {
-                                split_pos = pos + 1;  // include the punctuation in INPUT
-                                break;
-                            }
-                        }
-                        if (split_pos != std::string::npos) {
-                            break;
-                        }
-                    }
-                    if (split_pos != std::string::npos && split_pos < full_text.size() - 5) {
-                        std::string input_text = full_text.substr(0, split_pos);
-                        std::string output_text = full_text.substr(split_pos);
-                        // Trim leading whitespace from output
-                        size_t start = output_text.find_first_not_of(" \n\t");
-                        if (start != std::string::npos) {
-                            output_text = output_text.substr(start);
-                        }
-                        if (!input_text.empty() && !output_text.empty()) {
-                            out << "INPUT: " << input_text << "\n"
-                                << "RESPONSE: " << output_text << "\n"
-                                << "\n";
-                            ++pair_count;
-                        }
-                    }
-                }
-            } else if (!det_in.empty() && !det_out.empty()) {
-                // Key-value datasets (alpaca, dolly, OpenHermes, …)
-                std::string input_text = hf_extract_string(row_json, det_in);
-                // Alpaca-style: append the "input" context field to "instruction"
-                if (det_in == "instruction") {
-                    std::string sub = hf_extract_string(row_json, "input");
-                    if (!sub.empty()) {
-                        input_text += "\n" + sub;
-                    }
-                }
-                std::string output_text = hf_extract_string(row_json, det_out);
-
-                if (!input_text.empty() && !output_text.empty()) {
-                    out << "INPUT: " << input_text << "\n"
-                        << "RESPONSE: " << output_text << "\n"
-                        << "\n";
-                    ++pair_count;
-                }
-            } else {
-                // Dialog-array datasets (daily_dialog, BlendedSkillTalk, …)
-                // Try several common array-field names in priority order
-                static const std::array<const char*, 5> dialog_keys = {
-                    "dialog", "turns", "utterances", "conversations", nullptr};
-                for (const char* dk : dialog_keys) {
-                    if (dk == nullptr) {
-                        break;
-                    }
-                    if (pair_count >= max_pairs) {
-                        break;
-                    }
-                    auto turns = hf_extract_string_array(row_json, dk);
-                    if (turns.empty()) {
-                        continue;
-                    }
-                    for (size_t i = 0; i + 1 < turns.size() && pair_count < max_pairs; i += 2) {
-                        if (!turns[i].empty() && !turns[i + 1].empty()) {
-                            out << "INPUT: " << turns[i] << "\n"
-                                << "RESPONSE: " << turns[i + 1] << "\n"
-                                << "\n";
-                            ++pair_count;
-                        }
-                    }
-                    break;  // use only the first matching key per row
-                }
-
-                // Last resort: try single-text-field with sentence splitting
-                if (pair_count == 0) {
-                    static const std::array<const char*, 4> text_keys = {"text", "content",
-                                                                         "document", nullptr};
-                    for (const char* tk : text_keys) {
-                        if (tk == nullptr) {
-                            break;
-                        }
-                        std::string full_text = hf_extract_string(row_json, tk);
-                        if (full_text.size() >= 40) {
-                            det_in = tk;
-                            det_out = tk;
-                            Logger::info(
-                                "Auto-detected single-text field: '{}' — will split at sentence "
-                                "boundaries",
-                                tk);
-                            // Re-process this row via the single-field path on next iteration
-                            // For now, do inline split
-                            size_t mid = full_text.size() / 2;
-                            size_t split_pos = std::string::npos;
-                            for (size_t radius = 0; radius < mid; ++radius) {
-                                for (size_t pos : {mid + radius, mid - radius}) {
-                                    if (pos >= full_text.size() - 1) {
-                                        continue;
-                                    }
-                                    char c = full_text[pos];
-                                    if ((c == '.' || c == '!' || c == '?') &&
-                                        pos + 1 < full_text.size() &&
-                                        (full_text[pos + 1] == ' ' || full_text[pos + 1] == '\n')) {
-                                        split_pos = pos + 1;
-                                        break;
-                                    }
-                                }
-                                if (split_pos != std::string::npos) {
-                                    break;
-                                }
-                            }
-                            if (split_pos != std::string::npos &&
-                                split_pos < full_text.size() - 5) {
-                                std::string input_text = full_text.substr(0, split_pos);
-                                std::string output_text = full_text.substr(split_pos);
-                                size_t start = output_text.find_first_not_of(" \n\t");
-                                if (start != std::string::npos) {
-                                    output_text = output_text.substr(start);
-                                }
-                                if (!input_text.empty() && !output_text.empty()) {
-                                    out << "INPUT: " << input_text << "\n"
-                                        << "RESPONSE: " << output_text << "\n"
-                                        << "\n";
-                                    ++pair_count;
-                                }
-                            }
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    out.close();
-    Logger::info("Wrote {} training pairs from HuggingFace dataset to: {}", pair_count,
-                 output_file);
-    return pair_count > 0;
-}
+// HuggingFace Datasets integration (TD-028: thin wrapper delegating to DataFetcher)
 
 bool IncrementalTrainer::add_huggingface_dataset(const std::string& dataset_id, int num_pairs,
                                                  const std::string& split,
                                                  const std::string& input_field,
                                                  const std::string& output_field) {
-    // Build a filesystem-safe base name (replace '/' with '_')
-    std::string safe_id = dataset_id;
-    std::replace(safe_id.begin(), safe_id.end(), '/', '_');
-
-    const std::string output_dir = "huggingface_data";
-    const std::string rows_dir = output_dir + "/" + safe_id + "_" + split;
-    const std::string train_file = output_dir + "/" + safe_id + "_" + split + "_training.txt";
-
-    if (!fs::exists(rows_dir)) {
-        fs::create_directories(rows_dir);
-    }
-
-    std::cout << "🤗 Fetching HuggingFace dataset '" << dataset_id << "' (split=" << split
-              << ", target=" << num_pairs << " pairs)\n";
-
-    // Datasets-server API allows at most 100 rows per request.
-    // Over-sample by 50 % to compensate for rows that yield no pairs.
-    // Cap at 500 000 to avoid unbounded downloads.
-    const int chunk_size = 100;
-    const int target_rows = std::min(num_pairs * 3 / 2 + chunk_size, 500000);
-    int downloaded = 0;
-    int chunk_idx = 0;
-
-    while (downloaded < target_rows) {
-        int this_len = std::min(chunk_size, target_rows - downloaded);
-        std::ostringstream chunk_path;
-        chunk_path << rows_dir << "/chunk_" << chunk_idx << ".json";
-
-        if (!download_hf_rows(dataset_id, split, downloaded, this_len, chunk_path.str())) {
-            if (chunk_idx == 0) {
-                std::cerr
-                    << "❌ Failed to fetch dataset '" << dataset_id << "'.\n"
-                    << "   • Check the dataset ID at https://huggingface.co/datasets\n"
-                    << "   • Gated datasets require: export HF_TOKEN=hf_...\n"
-                    << "   • Verify at: https://datasets-server.huggingface.co/is-valid?dataset="
-                    << dataset_id << "\n";
-                return false;
-            }
-            Logger::info("Download halted at chunk {} — converting partial data", chunk_idx);
-            break;
-        }
-
-        downloaded += this_len;
-        ++chunk_idx;
-        std::cout << "  ↓ rows " << (downloaded - this_len + 1) << "-" << downloaded << "\n";
-    }
-
-    Logger::info("Downloaded {} rows in {} chunks for '{}'", downloaded, chunk_idx, dataset_id);
-
-    if (!convert_hf_to_training_data(rows_dir, train_file, input_field, output_field, num_pairs)) {
-        std::cerr << "❌ Could not extract training pairs from '" << dataset_id << "'.\n"
-                  << "   Provide explicit field names: huggingface " << dataset_id << " "
-                  << num_pairs << " " << split << " <input_field> <output_field>\n";
-        return false;
-    }
-
-    return add_new_data(train_file);
+    DataFetcher fetcher;
+    std::string path = fetcher.fetch_huggingface(dataset_id, num_pairs, split, input_field,
+                                                 output_field);
+    if (path.empty()) return false;
+    return add_new_data(path);
 }
 
 // ============================================================================

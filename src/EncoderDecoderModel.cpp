@@ -1,6 +1,10 @@
 #include "EncoderDecoderModel.hpp"
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <filesystem>
+#include <functional>
+#include <sstream>
 #include <stdexcept>
 #include "Optimizer.hpp"
 #include "SpecialTokens.hpp"
@@ -566,6 +570,41 @@ void EncoderDecoderModel::load_model(const std::string& filepath) {
     bos_token_id = loaded_bos;
     eos_token_id = loaded_eos;
     pad_token_id = loaded_pad;
+}
+
+// Clone (TD-023): deep-copy weights via save/load; no optimizer state is copied
+std::unique_ptr<EncoderDecoderModel> EncoderDecoderModel::clone() const {
+    namespace fs = std::filesystem;
+
+    // Build a unique temp path from the object address and a steady-clock timestamp
+    const auto ts   = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto addr = std::hash<const void*>{}(static_cast<const void*>(this));
+    const std::string tmp =
+        fs::temp_directory_path().string() + "/adai_clone_" +
+        std::to_string(addr) + "_" + std::to_string(ts);
+
+    // Persist weights to temp files
+    save_model(tmp);
+
+    // RAII: remove all temp files on exit (success or exception)
+    auto remove_temps = [&tmp] {
+        for (const char* ext : {".config", ".vocab", ".encoder", ".decoder", ".lm_head"}) {
+            std::error_code ec;
+            std::filesystem::remove(tmp + ext, ec);  // best-effort; ignore errors
+        }
+    };
+
+    std::unique_ptr<EncoderDecoderModel> copy;
+    try {
+        copy = std::make_unique<EncoderDecoderModel>(
+            vocab_size, d_model, encoder_layers, decoder_layers, num_heads, d_ff, max_seq_length);
+        copy->load_model(tmp);  // also sets bos/eos/pad_token_id on copy
+    } catch (...) {
+        remove_temps();
+        throw;
+    }
+    remove_temps();
+    return copy;
 }
 
 // Forward pass

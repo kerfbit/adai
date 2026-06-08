@@ -118,6 +118,21 @@ class EncoderDecoderModel {
     EncoderDecoderModel& operator=(EncoderDecoderModel&&) = delete;
 
     /**
+     * Create a deep copy of this model's weights into a new instance (TD-023).
+     *
+     * All weight matrices in the encoder, decoder, and LM head are copied.
+     * Mutable training state (optimizer moments, gradient accumulators) is
+     * NOT included — the clone is inference-only by design.
+     *
+     * Memory cost: one full copy of all weight tensors (~50–150 MB for typical
+     * model sizes).  The temporary serialization files are removed on return.
+     *
+     * @return Owning pointer to the cloned model.
+     * @throws std::runtime_error if serialisation to the temp directory fails.
+     */
+    std::unique_ptr<EncoderDecoderModel> clone() const;
+
+    /**
      * Generate response for input text (inference mode)
      * Uses configured generation strategy from TextGenerator
      *

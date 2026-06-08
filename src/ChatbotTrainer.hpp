@@ -4,7 +4,9 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 #include "BPETokenizer.hpp"
@@ -127,6 +129,9 @@ struct TrainingConfig {
         false;                                // Compute BLEU/ROUGE during each validation pass
     int generation_quality_sample_size = 10;  // Max validation samples used for scoring
     int generation_quality_max_tokens = 50;   // max_length passed to generate_response()
+    /// Minimum sample size to use the async parallel-scoring path (TD-023).
+    /// Below this threshold the synchronous path is used (no extra memory cost).
+    int generation_quality_async_threshold = 50;
 
     // Outlier detection thresholds (TD-021, moved from MetricsServiceConfig)
     float loss_outlier_z_threshold = 3.0f;     // Flag sample if loss > epoch_mean + N×std
@@ -234,6 +239,9 @@ class ChatbotTrainer {
     IMetricsReporter* metrics_reporter_{nullptr};
     int abnormal_sample_count_ = 0;  ///< flagged samples reported this training run (TD-021)
 
+    // TD-023: background generation-quality scoring thread
+    std::optional<std::thread> generation_quality_thread_;
+
     // Private helper methods
     void validate_and_correct_config();
     void split_data();
@@ -262,6 +270,14 @@ class ChatbotTrainer {
      * No-op when metrics_reporter_ is null or config option is disabled.
      */
     void compute_generation_quality_metrics();
+    /**
+     * @brief Join `generation_quality_thread_` if it is joinable (TD-023).
+     *
+     * Called at the top of each `compute_generation_quality_metrics()` call and
+     * inside the destructor / `release_model()` to guarantee the scoring thread
+     * has finished before weights are modified or released.
+     */
+    void join_generation_quality_thread();
 
    public:
     /**
@@ -270,9 +286,9 @@ class ChatbotTrainer {
     ChatbotTrainer(const TrainingConfig& cfg);
 
     /**
-     * @brief Destructor (smart pointers handle cleanup)
+     * @brief Destructor — joins any outstanding generation quality thread (TD-023)
      */
-    ~ChatbotTrainer() = default;
+    ~ChatbotTrainer();
     ChatbotTrainer(const ChatbotTrainer&) = delete;
     ChatbotTrainer& operator=(const ChatbotTrainer&) = delete;
     ChatbotTrainer(ChatbotTrainer&&) = delete;

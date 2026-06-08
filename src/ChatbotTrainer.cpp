@@ -7,6 +7,7 @@
 #include <numeric>
 #include <random>
 #include <sstream>
+#include <thread>
 #include "ConversationContext.hpp"
 #include "GenerationQualityMetrics.hpp"
 #include "Logger.hpp"
@@ -31,6 +32,17 @@ ChatbotTrainer::ChatbotTrainer(const TrainingConfig& cfg)
       best_validation_loss(std::numeric_limits<float>::max()),
 
       current_learning_rate(cfg.learning_rate) {}
+
+ChatbotTrainer::~ChatbotTrainer() {
+    join_generation_quality_thread();
+}
+
+void ChatbotTrainer::join_generation_quality_thread() {
+    if (generation_quality_thread_.has_value() && generation_quality_thread_->joinable()) {
+        generation_quality_thread_->join();
+        generation_quality_thread_.reset();
+    }
+}
 
 /**
  * @brief Initialize tokenizer from vocabulary file
@@ -1189,6 +1201,54 @@ void ChatbotTrainer::compute_generation_quality_metrics() {
     const int sample_size = std::min(static_cast<int>(tokenized_validation_data.size()),
                                      config.generation_quality_sample_size);
 
+    // Join any outstanding scoring thread before launching a new one (TD-023)
+    join_generation_quality_thread();
+
+    if (sample_size >= config.generation_quality_async_threshold) {
+        // Async path (TD-023): snapshot model weights and score in a background thread
+        // so the training loop can begin the next epoch without waiting.
+        std::unique_ptr<EncoderDecoderModel> snapshot = model->clone();
+
+        std::vector<std::string> refs, inputs;
+        refs.reserve(sample_size);
+        inputs.reserve(sample_size);
+        for (int i = 0; i < sample_size; ++i) {
+            refs.push_back(tokenized_validation_data[i].target_text);
+            inputs.push_back(tokenized_validation_data[i].input_text);
+        }
+
+        const int     max_tokens = config.generation_quality_max_tokens;
+        IMetricsReporter* reporter = metrics_reporter_;
+
+        generation_quality_thread_.emplace(
+            [snap = std::move(snapshot),
+             refs  = std::move(refs),
+             inputs = std::move(inputs),
+             max_tokens, reporter]() mutable {
+                snap->set_training(false);
+                std::vector<std::string> hypotheses;
+                hypotheses.reserve(inputs.size());
+                for (size_t i = 0; i < inputs.size(); ++i) {
+                    try {
+                        hypotheses.push_back(snap->generate_response(inputs[i], max_tokens));
+                    } catch (const std::exception& e) {
+                        adai::Logger::warn(
+                            "BLEU/ROUGE async: skipping sample {} — generate_response() threw: {}",
+                            static_cast<int>(i), e.what());
+                        hypotheses.push_back("");
+                    }
+                }
+                if (!hypotheses.empty()) {
+                    GenerationQualityScore score =
+                        GenerationQualityEvaluator::evaluate(refs, hypotheses);
+                    reporter->update_generation_quality_metrics(
+                        score.bleu4, score.rouge1, score.rouge2, score.rougeL);
+                }
+            });
+        return;
+    }
+
+    // Synchronous path (sample_size < generation_quality_async_threshold)
     std::vector<std::string> references, hypotheses;
     references.reserve(sample_size);
     hypotheses.reserve(sample_size);
@@ -1307,6 +1367,7 @@ void ChatbotTrainer::set_model(std::unique_ptr<EncoderDecoderModel> mdl) {
 }
 
 std::unique_ptr<EncoderDecoderModel> ChatbotTrainer::release_model() {
+    join_generation_quality_thread();  // TD-023: wait for any in-flight scoring thread
     return std::move(model);
 }
 

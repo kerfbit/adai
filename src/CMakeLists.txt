@@ -48,6 +48,10 @@ add_library(adai_core STATIC
     Logger.cpp
     TrainingMetricsService.cpp
     MetricsPushClient.cpp
+    GenerationQualityMetrics.cpp
+    RegistryTransport.cpp
+    DatasetRegistry.cpp
+    DataFetcher.cpp
 )
 target_link_libraries(adai_core PUBLIC spdlog::spdlog)
 
@@ -298,7 +302,7 @@ message(STATUS "Building chatbot as lightweight API client")
 
 
 # Incremental Training Tool - Incremental model training with data management
-add_executable(incremental_trainer IncrementalTrainingTool.cpp IncrementalTrainer.cpp 
+add_executable(incremental_trainer IncrementalTrainingTool.cpp IncrementalTrainer.cpp
     ChatbotTrainer.cpp Config.cpp TrainingMetricsService.cpp)  # Logger.cpp compiled into adai_core
 target_link_libraries(incremental_trainer 
     adai_models 
@@ -323,6 +327,40 @@ endif()
 if(OpenMP_CXX_FOUND)
     message(STATUS "Building incremental_trainer with full parallel optimizations")
 endif()
+
+# Registry Server - Distributed dataset queue coordination daemon (TD-028 Phase 9)
+# Requires cpp-httplib; skipped when not available.
+if(HTTPLIB_INCLUDE_DIR)
+    add_executable(registry_server RegistryServer.cpp Config.cpp)
+    target_link_libraries(registry_server
+        adai_core
+        spdlog::spdlog
+        pthread
+        $<$<CXX_COMPILER_ID:GNU>:stdc++fs>
+    )
+    target_include_directories(registry_server PRIVATE ${HTTPLIB_INCLUDE_DIR})
+    target_compile_definitions(registry_server PRIVATE BUILD_METRICS_API_SERVER)
+    set_target_properties(registry_server PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+    )
+    message(STATUS "Building registry_server - distributed dataset queue coordination")
+else()
+    message(STATUS "registry_server not built (cpp-httplib not found)")
+endif()
+
+# Dataset Manager - Standalone data queue management tool (TD-028 Phase 6)
+# No model or tokenizer dependency: links only adai_core (DatasetRegistry, DataFetcher, Logger)
+# and Config.cpp for config file parsing.
+add_executable(dataset_manager DatasetManagerTool.cpp Config.cpp)
+target_link_libraries(dataset_manager
+    adai_core
+    spdlog::spdlog
+    $<$<CXX_COMPILER_ID:GNU>:stdc++fs>
+)
+set_target_properties(dataset_manager PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+message(STATUS "Building dataset_manager - standalone dataset queue management tool")
 
 # Vocabulary Builder - Standalone BPE vocabulary creation tool
 add_executable(vocab_builder VocabBuilder.cpp)
@@ -381,8 +419,8 @@ if(BUILD_GUI)
         set(CMAKE_AUTORCC ON)
         
         # Build the actual GUI binary (will be renamed)
-        add_executable(chatbot_gui_binary 
-            ChatbotGUI_main.cpp 
+        add_executable(chatbot_gui_binary
+            ChatbotGUI_main.cpp
             ChatbotGUI.cpp
             Config.cpp
         )
@@ -431,7 +469,7 @@ endif()
 
 # Chatbot API Server - REST API service
 if(BUILD_API_SERVER)
-    add_executable(chatbot_api_server 
+    add_executable(chatbot_api_server
         ChatbotAPIServer.cpp
         Config.cpp
     )  # Logger.cpp compiled into adai_core
@@ -540,7 +578,7 @@ if(BUILD_EXAMPLES)
     message(STATUS "Building rag_example - Retrieval-Augmented Generation demo")
     
     # Training Metrics Service Example
-    add_executable(training_metrics_example ../examples/TrainingMetricsServiceExample.cpp 
+    add_executable(training_metrics_example ../examples/TrainingMetricsServiceExample.cpp
         TrainingMetricsService.cpp IncrementalTrainer.cpp ChatbotTrainer.cpp Config.cpp)
     target_link_libraries(training_metrics_example 
         adai_models 

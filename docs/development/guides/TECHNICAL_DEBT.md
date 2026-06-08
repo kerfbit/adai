@@ -4,25 +4,30 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** June 2, 2026
+**Last Updated:** June 7, 2026
 **Total Items:** 4
 **High Priority:** 0
 **Medium Priority:** 2
 **Low Priority:** 2
 **Future Enhancements:** 19
-**Resolved Items:** 24
+**Resolved Items:** 29
 
 ## Table of Contents
 
 - [Overview](#overview)
 - [Table of Contents](#table-of-contents)
 - [Active Technical Debt](#active-technical-debt)
-  - [TD-023: Parallel Generation Quality Scoring via Model Snapshot](#td-023-parallel-generation-quality-scoring-via-model-snapshot)
+  - [TD-029: Fix GCC 13 ICE in raginference\_test.cpp](#td-029-fix-gcc-13-ice-in-raginference_testcpp)
   - [TD-020: Persistent Metrics Storage via SQL Database](#td-020-persistent-metrics-storage-via-sql-database)
   - [TD-014: LLM Operations and Training Tooling Suite](#td-014-llm-operations-and-training-tooling-suite)
   - [TD-006: Fill-in-the-Middle (FIM) Training Data Generation](#td-006-fill-in-the-middle-fim-training-data-generation)
 - [Resolved Items](#resolved-items)
+  - [TD-028: Separate Dataset Management from IncrementalTrainer](#td-028-separate-dataset-management-from-incrementaltrainer)
+  - [TD-027: Install Script for incremental\_trainer Sub-System](#td-027-install-script-for-incremental_trainer-sub-system)
+  - [TD-023: Parallel Generation Quality Scoring via Model Snapshot](#td-023-parallel-generation-quality-scoring-via-model-snapshot)
+  - [TD-026: Extract GenerationQualityMetrics to Compiled Translation Unit](#td-026-extract-generationqualitymetrics-to-compiled-translation-unit)
   - [TD-024: Remove Legacy Standalone ChatbotTrainer Code and Build Target](#td-024-remove-legacy-standalone-chatbottrainer-code-and-build-target)
+  - [TD-025: IncrementalTrainer Background Launch with PID Message](#td-025-incrementaltrainer-background-launch-with-pid-message)
   - [TD-022: Remove Direct Terminal Output from IncrementalTrainer and Dependencies](#td-022-remove-direct-terminal-output-from-incrementaltrainer-and-dependencies)
   - [TD-021: IncrementalTrainer × Metrics Service Decoupling](#td-021-incrementaltrainer--metrics-service-decoupling)
   - [TD-019: Stale Metrics Detection and Liveness Accuracy](#td-019-stale-metrics-detection-and-liveness-accuracy)
@@ -63,59 +68,19 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Active Technical Debt
 
-### TD-023: Parallel Generation Quality Scoring via Model Snapshot
+### TD-029: Fix GCC 13 ICE in raginference\_test.cpp
 
 | Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Planned | Training / ChatbotTrainer / Metrics | June 1, 2026 | 4-6 hours |
+|----------|--------|-----------|---------|-----------------|
+| LOW | Open | Tests / RAGInference | June 7, 2026 | 1-2 hours |
 
 Description:
-`ChatbotTrainer::compute_generation_quality_metrics()` runs synchronously on the training thread at the end of each epoch's validation phase. It calls `model->generate_response()` up to `generation_quality_sample_size` times (default 10), each of which is a full autoregressive decode through the transformer, followed by `GenerationQualityEvaluator::evaluate()`. At the default sample size of 10 this is negligible (≈1–3% of epoch time). However, users who raise `generation_quality_sample_size` to 50 or more for statistically robust BLEU/ROUGE estimates will incur a proportionally larger inter-epoch stall on the training thread.
-
-The `MetricsPushClient` background push thread already handles all HTTP I/O asynchronously, so the push itself is not the bottleneck. The bottleneck is the `generate_response()` loop, which cannot be safely moved to a background thread without first snapshotting the model weights, because the training loop begins updating those weights in the next epoch immediately after `compute_generation_quality_metrics()` returns.
-
-Proposed Solution:
-
-When `generation_quality_sample_size >= generation_quality_async_threshold` (new config key, default 50), `compute_generation_quality_metrics()` should:
-
-1. Clone the model weights into a temporary `EncoderDecoderModel` copy (`model->clone()` or equivalent weight-copy constructor).
-2. Launch a `std::thread` (stored as `generation_quality_thread_` on `ChatbotTrainer`) that runs the full scoring loop against the cloned model and then calls `metrics_reporter_->update_generation_quality_metrics(...)` from that thread — safe because `MetricsPushClient::enqueue()` is mutex-protected.
-3. Return immediately, allowing the training loop to begin the next epoch without waiting.
-4. Before the *next* call to `compute_generation_quality_metrics()` (i.e., at the start of the subsequent epoch's validation phase), join `generation_quality_thread_` if it is still running. This prevents two scoring threads from running concurrently and preserves monotonic epoch ordering of generation-quality pushes.
-5. In `ChatbotTrainer`'s destructor (and in `release_model()`), join any outstanding `generation_quality_thread_` before the model is released.
-
-Below the threshold (< 50 samples), the existing synchronous path is retained — no unnecessary memory overhead for the common case.
-
-Memory Overhead:
-
-The snapshot is a full copy of all model weight matrices. For typical model sizes in this codebase (d_model ≤ 512, layers ≤ 6) this is on the order of 50–150 MB. The clone is released as soon as the thread completes. Users should be aware of this cost when setting `generation_quality_sample_size >= 50`.
+`tests/raginference_test.cpp` triggers an Internal Compiler Error (ICE) in GCC 13 (`cc1plus` exits with SIGSEGV) during a full build, preventing the `raginferenceTests` target from being compiled. All other targets build and test cleanly. The root cause is a C++ construct in the 504-line test file that tickles a GCC 13 code-generation bug. The fix is to identify the offending construct (likely a complex template instantiation or lambda capture) and either simplify it or add a targeted workaround.
 
 Action Items:
-
-- [ ] Add `generation_quality_async_threshold` (default: 50) to `TrainingConfig` in `src/ChatbotTrainer.hpp`; wire through `ServiceConfig` in `src/Config.hpp/.cpp` and `make_incremental_config()` in `src/IncrementalTrainer.cpp`; add key to `config.conf` and `config-remote.conf`.
-- [ ] Add a weight-copy constructor or `clone()` method to `EncoderDecoderModel` (and propagate through `Encoder`, `Decoder`, `FeedForward`, `MultiHeadAttention`) that deep-copies all `Matrix` weight fields but does not copy mutable training state (optimizer moments, gradient accumulators).
-- [ ] Add `std::optional<std::thread> generation_quality_thread_` member to `ChatbotTrainer`.
-- [ ] In `compute_generation_quality_metrics()`: when `sample_size >= config.generation_quality_async_threshold`, clone the model, move the scoring loop into a `std::thread`, store in `generation_quality_thread_`, and return. Otherwise use the existing synchronous path.
-- [ ] Add a `join_generation_quality_thread()` private helper that joins `generation_quality_thread_` if joinable; call it at the top of `compute_generation_quality_metrics()` (before launching a new thread) and in the destructor / `release_model()`.
-- [ ] Add `GENERATION_QUALITY_ASYNC_THRESHOLD` to `config.conf` and `config-remote.conf` with a comment explaining the memory trade-off.
-- [ ] Write `tests/generation_quality_async_test.cpp` covering: threshold boundary (49 = sync, 50 = async), thread join before second epoch, destructor-join safety when thread is still running, result equivalence between sync and async paths, and `NullMetricsReporter` no-crash path.
-
-Files to Modify:
-
-- `src/ChatbotTrainer.hpp` — `TrainingConfig::generation_quality_async_threshold`, `generation_quality_thread_` member, `join_generation_quality_thread()` declaration
-- `src/ChatbotTrainer.cpp` — `compute_generation_quality_metrics()` async branch, destructor join, `release_model()` join
-- `src/EncoderDecoderModel.hpp` / `src/EncoderDecoderModel.cpp` — weight-copy constructor or `clone()` method
-- `src/Config.hpp` / `src/Config.cpp` — `generation_quality_async_threshold` field and parsing
-- `src/IncrementalTrainer.cpp` — `make_incremental_config()` mapping
-- `config.conf` / `config-remote.conf` — new config key
-
-Files to Create:
-
-- `tests/generation_quality_async_test.cpp`
-
-Related Items:
-
-- TD-016 (Resolved): BLEU/ROUGE Generation Quality Scoring — introduced `compute_generation_quality_metrics()` and the synchronous scoring loop.
+- [ ] Bisect `raginference_test.cpp` to isolate the construct that triggers the ICE (binary-search by commenting out half the file, rebuild, repeat).
+- [ ] Apply the minimal fix: restructure the construct or break it into smaller translation units.
+- [ ] Verify build succeeds with GCC 13 and add a CI note to monitor for recurrence.
 
 ---
 
@@ -247,6 +212,131 @@ Evaluation:
 
 ## Resolved Items
 
+### TD-028: Separate Dataset Management from IncrementalTrainer
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| June 7, 2026 | Training / Data Management / IncrementalTrainer | 10-phase refactor introducing `DatasetRegistry`, `DataFetcher`, `RegistryTransport` (Local + Remote), `registry_server` HTTP daemon, and `dataset_manager` binary; 53 tests across 4 suites verified clean |
+
+Summary:
+`IncrementalTrainer` previously combined three unrelated concerns: the training loop, data-queue/registry management, and external data fetching (Gutenberg, HuggingFace). The 10-phase refactor separated these into focused components with clean boundaries. `DatasetRegistry` owns the pending queue, trained-file registry, checksums, and the `INPUT:/RESPONSE:` parser; it has zero network dependency and is fully testable with temp files. `DataFetcher` is a stateless class owning all download and conversion logic; each method returns a file path the caller enqueues via `DatasetRegistry::add_file()`. `IncrementalTrainer` was stripped to the training loop, session history, checkpoints, and metrics push, accepting file lists through `train_on_files()` / `retrain_on_files()`. A standalone `dataset_manager` binary links only `DatasetRegistry` and `DataFetcher`, enabling data preparation to run concurrently with a training process. In distributed mode (Phase 9), `DatasetRegistry` is backed by a `registry_server` HTTP daemon that multiple trainer instances query to atomically acquire disjoint subsets of the pending queue, preventing double-training across a pool of machines.
+
+Changes Made:
+
+- ✅ **Phase 1a–1c**: Created `DatasetRegistry`, `DataFetcher`, and a temporary `DatasetManager` backward-compat facade. All Gutenberg/HuggingFace logic and JSON helpers moved to `DataFetcher.cpp`. `#include <regex>` removed from `IncrementalTrainer.cpp`. All three `.cpp` files added to `adai_core`.
+- ✅ **Phase 2**: Removed `data_registry_file`, `cache_tokenized_data`, `tokenized_cache_dir` from `IncrementalConfig`; added `DatasetConfig dataset_config_` to `IncrementalTrainer` populated via `DatasetRegistry::make_config(svc)`.
+- ✅ **Phase 3**: Added `train_on_files()` and `retrain_on_files()` to `IncrementalTrainer`; deprecated `train_incremental()` and `train_full_retrain()` as delegating shims.
+- ✅ **Phase 4**: Removed auto-loading from all three `IncrementalTrainer` constructors; shims now load/save via a local `DatasetRegistry` instance. Six CLI commands updated with explicit load/save calls. All 40 tests pass unchanged.
+- ✅ **Phase 5**: `IncrementalTrainingTool` data commands (`add`, `gutenberg`, `gutenberg-batch`, `huggingface`) now construct only `DatasetRegistry`/`DataFetcher` — no model or tokenizer initialised.
+- ✅ **Phase 6**: Added `src/DatasetManagerTool.cpp` and `dataset_manager` CMake target. Eight commands (`add`, `gutenberg`, `gutenberg-batch`, `huggingface`, `status`, `list-pending`, `list-trained`, `clear-pending`). No model dependency.
+- ✅ **Phase 7**: Removed deprecated shims (`train_incremental()`, `train_on_new_data_only()`, `train_full_retrain()`) and the `DatasetManager` facade entirely. `resume_last_session()` and `IncrementalTrainingTool` `train`/`retrain` commands migrated to `train_on_files()` / `retrain_on_files()` with `DatasetRegistry`.
+- ✅ **Phase 8**: Created `src/RegistryTransport.hpp/.cpp` — `DataVersion` (moved from `DatasetRegistry.hpp`), `PendingEntry`, abstract `RegistryTransport` interface, and `LocalTransport` (flat-file I/O). `DatasetRegistry` holds `std::unique_ptr<RegistryTransport> transport_`; transport-injection constructor added for testing. `RegistryTransportTests` (8 tests) added.
+- ✅ **Phase 9**: Implemented `RemoteTransport` (cpp-httplib, guarded by `BUILD_METRICS_API_SERVER`) and `registry_server` HTTP daemon (`src/RegistryServer.cpp`, 6 endpoints, port 8082). Added `acquire_pending()`, `release_pending()`, `mark_trained(run_id,…)`, `print_run_assignments()` to `DatasetRegistry`. `LocalTransport` uses advisory `flock()` on a `.lock` sentinel file for per-host atomicity. Pending file format extended to `path\trun_id` (tab-separated; backward compatible). `ServiceConfig`/`DatasetConfig` extended with `REGISTRY_SERVER_URL`, `RUN_GROUP`, `RUN_ID`, `REGISTRY_TIMEOUT_MS`. Transport factory auto-selects `LocalTransport` (no URL) or `RemoteTransport`. `RegistryTransportPhase9Tests` (10 tests) added.
+- ✅ **Phase 10**: `IncrementalTrainer::resume_last_session()` and `IncrementalTrainingTool` `train`/`retrain` commands now call `acquire_pending(run_id)` instead of `load_pending_list()` + `pending_files()`, and `mark_trained(run_id,…)` instead of the three-call sequence (`mark_trained` + `clear_pending` + `save_pending_list`). `release_pending(run_id, paths)` called on failure to return files to the pool. `run_id` auto-derived from `hostname[:8] + "_" + pid%10000` via `detect_hostname_fragment()` / `detect_pid_mod_10000()` (IncrementalTrainer) or `derive_run_id()` helper (IncrementalTrainingTool).
+- ✅ **Tests**: `DatasetRegistryTests` (31 tests across 4 suites: config defaults, `make_config`, `compute_checksum`, `load_conversation_pairs`, full pending-queue and trained-set API, persistence round-trips, and Phase 9 multi-run wrappers) and `DataFetcherTests` (4 offline tests) added to `tests/CMakeLists.txt`. All 53 TD-028 tests pass. Fixed pre-existing bug in `RegistryTransportPhase9Tests` where manually-constructed `DataVersion` objects with empty `checksum` caused the space-delimited registry parser to mis-align fields.
+
+Files Created: `src/DatasetRegistry.hpp`, `src/DatasetRegistry.cpp`, `src/DataFetcher.hpp`, `src/DataFetcher.cpp`, `src/DatasetManagerTool.cpp`, `src/RegistryTransport.hpp`, `src/RegistryTransport.cpp`, `src/RegistryServer.cpp`, `tests/registry_transport_test.cpp`, `tests/RegistryTransportTests.cpp`, `tests/DatasetRegistryTests.cpp`, `tests/DataFetcherTests.cpp`
+
+Files Modified: `src/IncrementalTrainer.hpp`, `src/IncrementalTrainer.cpp`, `src/IncrementalTrainingTool.cpp`, `src/Config.hpp`, `src/Config.cpp`, `src/CMakeLists.txt`, `tests/CMakeLists.txt`
+
+Files Removed: `src/DatasetManager.hpp`, `src/DatasetManager.cpp` *(Phase 1c backward-compat facade, removed in Phase 7)*
+
+Related Items:
+- TD-006: `create_qa_pairs_from_text()` now lives in `DataFetcher.cpp` — natural location for future FIM data generation.
+- TD-014: `DataFetcher` is the natural home for future `adai-data-prep` tooling.
+- TD-029: Fresh `Config.cpp` compilation in `build-gpu-clang` triggers the same GCC 13 ICE noted during Phase 6; cached object unaffected.
+
+---
+
+### TD-027: Install Script for incremental_trainer Sub-System
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| June 7, 2026 | Tooling / Deployment / IncrementalTrainer | Created `scripts/install_incremental_trainer.sh` supporting local, remote (SSH+rsync), and coordinator-only install modes; all 12 action items completed |
+
+Summary:
+`scripts/install_incremental_trainer.sh` was created to automate deployment of the `incremental_trainer` sub-system (all three binaries: `incremental_trainer`, `dataset_manager`, `registry_server`) to local and remote hosts. The script follows the established pattern from `install_systemd_service.sh` and `install_metrics_service.sh` (color helpers, `set -euo pipefail`, preflight checks, step-by-step logging, confirmation prompt). Local install creates the full directory layout, copies binaries with correct permissions, installs `config.conf` and `vocab.txt`, appends idempotent distributed-registry config stubs, creates the `adai` system user, sets ownership, and verifies both binaries execute correctly. Remote install performs all steps over SSH + rsync. Coordinator mode installs only `registry_server` and writes an `adai-registry.service` systemd unit. `scripts/README.md` was updated with a full usage table. Distributed-registry config stubs (`REGISTRY_SERVER_URL`, `RUN_GROUP`, `RUN_ID`, `REGISTRY_TIMEOUT_MS`) were added to both `config.conf` and `config-remote.conf`.
+
+Changes Made:
+
+- ✅ Created `scripts/install_incremental_trainer.sh` with `set -euo pipefail`, color helpers (`info`, `success`, `warn`, `error`), and full argument parsing loop.
+- ✅ Implemented all flags: `--install-path`, `--user`, `--group`, `--build-dir`, `--config-src`, `--vocab-src`, `--with-registry-server`, `--coordinator`, `--remote`, `--sync-sessions`, `--ssh-key`, `--help`.
+- ✅ Local install: 7-step process covering user creation, directory layout (including `gutenberg_data/`, `huggingface_data/`), binary copy (mode 755), config/vocab copy, registry stub append, ownership, and post-install verification.
+- ✅ Remote install: SSH mkdir, rsync binaries + config + vocab, remote chmod, remote registry stub append, optional `--sync-sessions` rsync, and remote post-install verification.
+- ✅ Coordinator install: `registry_server` binary only, coordinator `config.conf` stub, `adai-registry.service` systemd unit installed, enabled, and started.
+- ✅ Post-install verification runs `incremental_trainer status` (exit-code tolerant) and `dataset_manager --help` both locally and over SSH for remote installs.
+- ✅ Updated `scripts/README.md` with full usage examples and options table.
+- ✅ Added distributed-registry config stubs to `config.conf` and `config-remote.conf`.
+
+Files Created: `scripts/install_incremental_trainer.sh`
+
+Files Modified: `scripts/README.md`, `config.conf`, `config-remote.conf`
+
+Related Items:
+- TD-028 (Resolved): Separated dataset management — defined the three binaries this script deploys.
+- TD-008 (Resolved): Daemon Service Implementation — `install_systemd_service.sh` style guide followed.
+- TD-025 (Resolved): Background launch capability exposed to operators via the installed trainer.
+- TD-018 (Resolved): `install_metrics_service.sh` is a companion script for the metrics API server.
+
+---
+
+### TD-023: Parallel Generation Quality Scoring via Model Snapshot
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| June 4, 2026 | Training / ChatbotTrainer / Metrics | Added `EncoderDecoderModel::clone()` (save/load via temp files), `std::optional<std::thread> generation_quality_thread_` on `ChatbotTrainer`, `join_generation_quality_thread()` helper, async branch in `compute_generation_quality_metrics()`, join in destructor and `release_model()`, `generation_quality_async_threshold` config key (default 50) wired through `TrainingConfig`, `ServiceConfig`, `Config.cpp`, `IncrementalTrainer::make_incremental_config()`, `config.conf`, and `config-remote.conf`; 10-test suite in `tests/generation_quality_async_test.cpp` |
+
+Summary:
+`ChatbotTrainer::compute_generation_quality_metrics()` previously ran synchronously on the training thread, blocking the start of the next epoch for the full `generate_response()` loop. When `generation_quality_sample_size >= generation_quality_async_threshold` (default 50), the function now clones the model weights into a temporary `EncoderDecoderModel` copy via `clone()` (which serialises to a unique temp path under `std::filesystem::temp_directory_path()` and immediately removes the files), launches a `std::thread` that scores against the snapshot, stores the thread in `generation_quality_thread_`, and returns immediately. The training loop can proceed without waiting. Before launching a new thread at the next epoch's validation phase, any previous thread is joined. The destructor and `release_model()` also join the thread, preventing use-after-free. Below the threshold the original synchronous path is unchanged.
+
+Changes Made:
+
+- ✅ Added `generation_quality_async_threshold = 50` to `TrainingConfig` in `src/ChatbotTrainer.hpp`.
+- ✅ Added `#include <optional>` and `#include <thread>` to `src/ChatbotTrainer.hpp`; added `std::optional<std::thread> generation_quality_thread_` private member and `join_generation_quality_thread()` private helper declaration.
+- ✅ Changed `~ChatbotTrainer() = default` to an explicit destructor in `src/ChatbotTrainer.cpp` that calls `join_generation_quality_thread()`.
+- ✅ Implemented `join_generation_quality_thread()` — joins and resets the optional thread.
+- ✅ Rewrote `compute_generation_quality_metrics()`: joins prior thread, branches on `sample_size >= config.generation_quality_async_threshold`; async path clones model and launches scoring thread; sync path unchanged.
+- ✅ Updated `release_model()` to call `join_generation_quality_thread()` before releasing weights.
+- ✅ Implemented `EncoderDecoderModel::clone() const` in `src/EncoderDecoderModel.cpp` using the existing `save_model` / `load_model` pair against a unique temp path; RAII removes all five temp files on success or exception.
+- ✅ Added `clone()` declaration to `src/EncoderDecoderModel.hpp` with doc comment.
+- ✅ Added `generation_quality_async_threshold = 50` to `ServiceConfig` in `src/Config.hpp`.
+- ✅ Added `GENERATION_QUALITY_ASYNC_THRESHOLD` parsing in `src/Config.cpp`.
+- ✅ Wired `generation_quality_async_threshold` in `IncrementalTrainer::make_incremental_config()`.
+- ✅ Added `GENERATION_QUALITY_ASYNC_THRESHOLD=50` with memory-trade-off comment to `config.conf` and `config-remote.conf`.
+- ✅ Created `tests/generation_quality_async_test.cpp` with 10 tests: config defaults, `ServiceConfig` field, `NullMetricsReporter` no-crash, sync path at below-threshold, async path at threshold, 2-epoch thread-join ordering, destructor safety, and sync/async score range validity.
+- ✅ Added `generationQualityAsyncTests` target to `tests/CMakeLists.txt`; all 10 tests pass.
+
+Files Modified: `src/ChatbotTrainer.hpp`, `src/ChatbotTrainer.cpp`, `src/EncoderDecoderModel.hpp`, `src/EncoderDecoderModel.cpp`, `src/Config.hpp`, `src/Config.cpp`, `src/IncrementalTrainer.cpp`, `config.conf`, `config-remote.conf`, `tests/CMakeLists.txt`
+
+Files Created: `tests/generation_quality_async_test.cpp`
+
+Related Items: TD-016 (Resolved) — introduced the synchronous `compute_generation_quality_metrics()` path that this item parallelises.
+
+---
+
+### TD-026: Extract GenerationQualityMetrics to Compiled Translation Unit
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| June 3, 2026 | Metrics / Tooling / Code Quality | Moved all `GenerationQualityEvaluator` method implementations out of the header into a new `src/GenerationQualityMetrics.cpp`; added the `.cpp` to `adai_core`; updated `generationQualityTests` to link `adai_core` |
+
+Summary:
+`GenerationQualityMetrics.hpp` was a fully header-only class. All six static method implementations (`evaluate`, `tokenize`, `count_ngrams`, `compute_corpus_bleu`, `compute_corpus_rouge_n`, `compute_corpus_rouge_l`, `lcs_length`) were extracted to `src/GenerationQualityMetrics.cpp`. The header now contains only the `GenerationQualityScore` struct, the `GenerationQualityEvaluator` class declaration with static method signatures, and the three standard-library includes required by the interface (`<map>`, `<string>`, `<vector>`). Implementation-only includes (`<algorithm>`, `<cctype>`, `<cmath>`, `<sstream>`) moved to the `.cpp`. The compiled object is now part of `adai_core`, so any future tooling target (e.g., `adai-eval`) links against it with one line.
+
+Changes Made:
+
+- ✅ Created `src/GenerationQualityMetrics.cpp` with implementations of all seven static methods.
+- ✅ Trimmed `src/GenerationQualityMetrics.hpp` to declarations only; removed inline implementations and implementation-only `#include` directives.
+- ✅ Added `GenerationQualityMetrics.cpp` to the `adai_core` source list in `src/CMakeLists.txt`.
+- ✅ Updated `generationQualityTests` in `tests/CMakeLists.txt` to link `adai_core` (replacing the former header-only setup).
+- ✅ `GenerationQualityTests` passes with no regressions.
+
+Files Modified: `src/GenerationQualityMetrics.hpp`, `src/CMakeLists.txt`, `tests/CMakeLists.txt`
+
+Files Created: `src/GenerationQualityMetrics.cpp`
+
+---
+
 ### TD-024: Remove Legacy Standalone ChatbotTrainer Code and Build Target
 
 | Resolution Date | Component | Resolved By |
@@ -269,6 +359,33 @@ Changes Made:
 - ✅ `ChatbotTrainerTests` and `IncrementalTrainerDecouplingTests` pass with no regressions.
 
 Files Modified: `src/ChatbotTrainer.cpp`, `src/ChatbotTrainer.hpp`, `src/CMakeLists.txt`, `tests/CMakeLists.txt`
+
+---
+
+### TD-025: IncrementalTrainer Background Launch with PID Message
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| June 3, 2026 | Training / IncrementalTrainingTool / CLI | Added `launch_background()` in anonymous namespace; `train`, `retrain`, `resume` branches fork before trainer construction; parent prints structured startup banner and exits 0; child calls `setsid()` and redirects fds; Windows path uses `CreateProcess(DETACHED_PROCESS)` |
+
+Summary:
+`incremental_trainer train/retrain/resume` previously blocked the invoking shell for the full duration of training. The fix adds a `launch_background(int argc, char* argv[])` helper (POSIX: `fork()`+`setsid()`; Windows: `CreateProcess(DETACHED_PROCESS)` with `--background-child` sentinel). Each training dispatch branch reads the pending-file count and log path from config before forking, then:
+- **Parent** prints a structured startup banner (`[ADAI] Training started in background — PID …`) and returns 0.
+- **Child** redirects `stdin`/`stdout`/`stderr` to `/dev/null`, calls `setsid()`, and continues normal training (output flows through `adai::Logger`).
+Falls back to foreground execution if `fork()` fails, logging a warning.
+
+Changes Made:
+
+- ✅ Added `launch_background(int argc, char* argv[])` in anonymous namespace at top of `src/IncrementalTrainingTool.cpp` with `#ifndef _WIN32` POSIX path and `#ifdef _WIN32` `CreateProcess` path.
+- ✅ Added `--background-child` stripping in the global options parsing loop (Windows sentinel suppression).
+- ✅ `train` branch: reads `pending_files.txt` before fork, checks for empty pending list before fork, calls `launch_background()`, prints banner from parent, child continues to `trainer.train_incremental()`.
+- ✅ `retrain` branch: counts pending files before fork, calls `launch_background()`, prints banner from parent, child continues to `trainer.train_full_retrain()`.
+- ✅ `resume` branch: calls `launch_background()`, prints banner from parent, child continues to `trainer.resume_last_session()`.
+- ✅ Created `tests/incremental_trainer_background_test.cpp` covering fork/setsid behavior, PID uniqueness, banner format, log-path inclusion, and Windows `#ifdef` compile-time guard.
+- ✅ Added `incrementalTrainerBackgroundTests` target to `tests/CMakeLists.txt`.
+
+Files Modified: `src/IncrementalTrainingTool.cpp`, `tests/CMakeLists.txt`
+Files Created: `tests/incremental_trainer_background_test.cpp`
 
 ---
 
@@ -1516,8 +1633,12 @@ When resolving a debt item:
 
 > Note: TD-021 (IncrementalTrainer × Metrics Service Decoupling) resolved May 31, 2026; moved to Resolved section June 1, 2026.
 > Note: TD-022 (Remove Direct Terminal Output from IncrementalTrainer and Dependencies) resolved June 2, 2026; moved to Resolved section June 2, 2026.
-> Note: TD-023 (Parallel Generation Quality Scoring via Model Snapshot) added June 1, 2026.
+> Note: TD-023 (Parallel Generation Quality Scoring via Model Snapshot) added June 1, 2026; resolved June 4, 2026.
 > Note: TD-024 (Remove Legacy Standalone ChatbotTrainer Code and Build Target) resolved June 1, 2026; moved to Resolved section June 1, 2026.
+> Note: TD-025 (IncrementalTrainer Background Launch with PID Message) added June 2, 2026; resolved June 3, 2026.
+> Note: TD-026 (Extract GenerationQualityMetrics to Compiled Translation Unit) added June 3, 2026.
+> Note: TD-027 (Install Script for incremental_trainer Sub-System) added June 3, 2026; resolved June 7, 2026.
+> Note: TD-028 (Separate Dataset Management from IncrementalTrainer) added June 6, 2026; resolved June 7, 2026.
 
 ### By Component
 
@@ -1525,19 +1646,19 @@ When resolving a debt item:
 |----------------------|-------|
 |Training / Data Generation|1|
 |Tooling / Toolchain|1|
-|Training / Metrics / API|1|
-|Training / ChatbotTrainer / Metrics|1|
+|Training / Metrics / API / Infrastructure|1|
+|Tests / RAGInference|1|
 
 ### Effort Distribution
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|0|
-|2-4 hours|1|
+|0-2 hours|1|
+|2-4 hours|0|
 |4-8 hours|1|
 |8+ hours|1|
 
-**Total Estimated Effort (Active Items):** ~30-44 hours (TD-014 has no estimate)
+**Total Estimated Effort (Active Items):** ~27-40 hours (TD-014 has no estimate)
 
 ### Future Enhancements Summary
 
@@ -1561,6 +1682,9 @@ By Priority:
 
 Recently Completed:
 
+- TD-027: Install Script for incremental_trainer Sub-System - June 7, 2026
+- TD-028: Separate Dataset Management from IncrementalTrainer - June 7, 2026
+- TD-023: Parallel Generation Quality Scoring via Model Snapshot - June 4, 2026
 - TD-022: Remove Direct Terminal Output from IncrementalTrainer and Dependencies - June 2, 2026
 - TD-021: IncrementalTrainer × Metrics Service Decoupling - May 31, 2026
 - TD-003: GPU Memory Management Optimization (GPUMatrix) - May 3, 2026
