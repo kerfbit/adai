@@ -5,24 +5,24 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** June 7, 2026
-**Total Items:** 5
-**High Priority:** 1
+**Total Items:** 4
+**High Priority:** 0
 **Medium Priority:** 2
 **Low Priority:** 2
 **Future Enhancements:** 19
-**Resolved Items:** 30
+**Resolved Items:** 31
 
 ## Table of Contents
 
 - [Overview](#overview)
 - [Table of Contents](#table-of-contents)
 - [Active Technical Debt](#active-technical-debt)
-  - [TD-031: Fix RegistryServer Logger::init call signature mismatch](#td-031-fix-registryserver-loggerinit-call-signature-mismatch)
   - [TD-029: Fix GCC 13 ICE in raginference\_test.cpp](#td-029-fix-gcc-13-ice-in-raginference_testcpp)
   - [TD-020: Persistent Metrics Storage via SQL Database](#td-020-persistent-metrics-storage-via-sql-database)
   - [TD-014: LLM Operations and Training Tooling Suite](#td-014-llm-operations-and-training-tooling-suite)
   - [TD-006: Fill-in-the-Middle (FIM) Training Data Generation](#td-006-fill-in-the-middle-fim-training-data-generation)
 - [Resolved Items](#resolved-items)
+  - [TD-031: Fix RegistryServer Logger::init call signature mismatch](#td-031-fix-registryserver-loggerinit-call-signature-mismatch)
   - [TD-030: GPU Strategy CLI Option for incremental\_trainer](#td-030-gpu-strategy-cli-option-for-incremental_trainer)
   - [TD-028: Separate Dataset Management from IncrementalTrainer](#td-028-separate-dataset-management-from-incrementaltrainer)
   - [TD-027: Install Script for incremental\_trainer Sub-System](#td-027-install-script-for-incremental_trainer-sub-system)
@@ -69,33 +69,6 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 - [References](#references)
 
 ## Active Technical Debt
-
-### TD-031: Fix RegistryServer Logger::init call signature mismatch
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|-----------------|
-| HIGH | Open | RegistryServer / Build | June 7, 2026 | < 30 minutes |
-
-Description:
-`src/RegistryServer.cpp:386` calls `Logger::init("registry_server")` passing a program-name string as the first argument. The `Logger::init()` API requires a `Logger::Level` as its first parameter — the string overload no longer exists. This causes a hard compile error when building the `registry_server` target with Clang.
-
-The fix is a one-liner: replace the bare string call with the correct signature, e.g. `Logger::init(Logger::Level::INFO, "registry_server")` (or look up the appropriate default level used by other binaries).
-
-Action Items:
-
-- [ ] Audit other `Logger::init()` call sites (e.g. `incremental_trainer`, `metrics_api_server`) to confirm the canonical default level.
-- [ ] Replace `Logger::init("registry_server")` at `src/RegistryServer.cpp:386` with the correct `Logger::init(level, name)` call.
-- [ ] Verify `registry_server` target builds cleanly: `cmake --build build-gpu-clang --target registry_server`.
-
-Files to Modify:
-
-- `src/RegistryServer.cpp` — fix `Logger::init` call at line 386
-
-Related Items:
-
-- TD-028 (Resolved): Introduced `RegistryServer` as a new binary; `Logger::init` signature changed after that work was integrated.
-
----
 
 ### TD-029: Fix GCC 13 ICE in raginference\_test.cpp
 
@@ -240,6 +213,21 @@ Evaluation:
 ---
 
 ## Resolved Items
+
+### TD-031: Fix RegistryServer Logger::init call signature mismatch
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| June 7, 2026 | RegistryServer / Build | One-line fix: replaced `Logger::init("registry_server")` with `Logger::init(Logger::Level::INFO, "registry_server")` in `src/RegistryServer.cpp:386`; `registry_server` target now builds cleanly |
+
+Summary:
+`RegistryServer.cpp` was calling `Logger::init` with a bare string as the first argument, matching a signature that no longer exists after the logger API was updated to require an explicit `Level` as the first parameter. The fix adds `Logger::Level::INFO` (the default used by all other binaries in the project) as the first argument, matching the canonical `Logger::init(Level, const std::string&)` overload.
+
+Changes Made:
+
+- `src/RegistryServer.cpp`: `Logger::init("registry_server")` → `Logger::init(Logger::Level::INFO, "registry_server")` at line 386.
+
+---
 
 ### TD-030: GPU Strategy CLI Option for incremental\_trainer
 
@@ -1675,11 +1663,11 @@ When resolving a debt item:
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|1|20%|
-|Medium|2|40%|
-|Low|2|40%|
+|High|0|0%|
+|Medium|2|50%|
+|Low|2|50%|
 
-**Total Active Items:** 5
+**Total Active Items:** 4
 
 > Note: TD-021 (IncrementalTrainer × Metrics Service Decoupling) resolved May 31, 2026; moved to Resolved section June 1, 2026.
 > Note: TD-022 (Remove Direct Terminal Output from IncrementalTrainer and Dependencies) resolved June 2, 2026; moved to Resolved section June 2, 2026.
@@ -1690,7 +1678,7 @@ When resolving a debt item:
 > Note: TD-027 (Install Script for incremental_trainer Sub-System) added June 3, 2026; resolved June 7, 2026.
 > Note: TD-028 (Separate Dataset Management from IncrementalTrainer) added June 6, 2026; resolved June 7, 2026.
 > Note: TD-030 (GPU Strategy CLI Option for incremental_trainer) added June 7, 2026; resolved June 7, 2026.
-> Note: TD-031 (Fix RegistryServer Logger::init call signature mismatch) added June 7, 2026; discovered during TD-030 build verification.
+> Note: TD-031 (Fix RegistryServer Logger::init call signature mismatch) added June 7, 2026; resolved June 7, 2026.
 
 ### By Component
 
@@ -1700,7 +1688,6 @@ When resolving a debt item:
 |Tooling / Toolchain|1|
 |Training / Metrics / API / Infrastructure|1|
 |Tests / RAGInference|1|
-|RegistryServer / Build|1|
 
 ### Effort Distribution
 

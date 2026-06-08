@@ -383,7 +383,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    Logger::init("registry_server");
+    Logger::init(Logger::Level::INFO, "registry_server");
 
     std::signal(SIGINT,  signal_handler);
     std::signal(SIGTERM, signal_handler);
