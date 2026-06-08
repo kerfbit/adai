@@ -26,6 +26,7 @@ COORDINATOR=false
 REMOTE_HOST=""
 SYNC_SESSIONS=false
 SSH_KEY=""
+YES=false
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "${SCRIPT_DIR}")"
@@ -68,6 +69,7 @@ Options:
   --remote HOST             Install to a remote host via SSH + rsync
   --sync-sessions           (with --remote) Also rsync training_sessions/ to the remote host
   --ssh-key PATH            SSH identity file forwarded to all ssh/rsync calls
+  --yes                     Skip confirmation prompts (for non-interactive use)
   --help                    Show this help message
 
 Examples:
@@ -105,23 +107,101 @@ Description:
 EOF
 }
 
+# confirm PROMPT — skipped when --yes is set or stdin is not a terminal
+confirm() {
+    if [[ "${YES}" == true ]]; then
+        info "$1 — skipped (--yes)"
+        return 0
+    fi
+    if [[ ! -t 0 ]]; then
+        error "stdin is not a terminal; use --yes to confirm non-interactively"
+        exit 1
+    fi
+    read -r -p "$1 (y/N) " -n 1
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        warn "Installation cancelled by user"
+        exit 0
+    fi
+}
+
 # ============================================================================
 # Argument Parsing
 # ============================================================================
 
+# validate_identifier: allows letters, digits, hyphens, underscores, dots
+validate_identifier() {
+    local flag="$1" val="$2"
+    if [[ -z "${val}" ]]; then
+        error "${flag}: value must not be empty"
+        exit 1
+    fi
+    if [[ ! "${val}" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+        error "${flag}: '${val}' contains invalid characters (allowed: a-z A-Z 0-9 . _ -)"
+        exit 1
+    fi
+}
+
+# validate_abs_path: must start with / and contain no null bytes or newlines
+validate_abs_path() {
+    local flag="$1" val="$2"
+    if [[ -z "${val}" ]]; then
+        error "${flag}: value must not be empty"
+        exit 1
+    fi
+    if [[ "${val}" != /* ]]; then
+        error "${flag}: '${val}' must be an absolute path (starting with /)"
+        exit 1
+    fi
+    if [[ "${val}" =~ $'\n' || "${val}" =~ $'\0' ]]; then
+        error "${flag}: path contains illegal characters"
+        exit 1
+    fi
+}
+
+# validate_remote_host: user@host or host; no shell metacharacters
+validate_remote_host() {
+    local val="$1"
+    if [[ -z "${val}" ]]; then
+        error "--remote: value must not be empty"
+        exit 1
+    fi
+    if [[ ! "${val}" =~ ^[a-zA-Z0-9@._:-]+$ ]]; then
+        error "--remote: '${val}' contains invalid characters"
+        exit 1
+    fi
+}
+
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --install-path)       INSTALL_PATH="$2";  shift 2 ;;
-        --user)               SERVICE_USER="$2";   shift 2 ;;
-        --group)              SERVICE_GROUP="$2";  shift 2 ;;
-        --build-dir)          BUILD_DIR="$2";      shift 2 ;;
-        --config-src)         CONFIG_SRC="$2";     shift 2 ;;
-        --vocab-src)          VOCAB_SRC="$2";      shift 2 ;;
+        --install-path)
+            validate_abs_path "--install-path" "$2"
+            INSTALL_PATH="$2";  shift 2 ;;
+        --user)
+            validate_identifier "--user" "$2"
+            SERVICE_USER="$2";  shift 2 ;;
+        --group)
+            validate_identifier "--group" "$2"
+            SERVICE_GROUP="$2"; shift 2 ;;
+        --build-dir)
+            validate_identifier "--build-dir" "$2"
+            BUILD_DIR="$2";     shift 2 ;;
+        --config-src)
+            validate_abs_path "--config-src" "$2"
+            CONFIG_SRC="$2";    shift 2 ;;
+        --vocab-src)
+            validate_abs_path "--vocab-src" "$2"
+            VOCAB_SRC="$2";     shift 2 ;;
         --with-registry-server) WITH_REGISTRY_SERVER=true; shift ;;
         --coordinator)        COORDINATOR=true; WITH_REGISTRY_SERVER=true; shift ;;
-        --remote)             REMOTE_HOST="$2";    shift 2 ;;
+        --remote)
+            validate_remote_host "$2"
+            REMOTE_HOST="$2";   shift 2 ;;
         --sync-sessions)      SYNC_SESSIONS=true;  shift ;;
-        --ssh-key)            SSH_KEY="$2";        shift 2 ;;
+        --ssh-key)
+            validate_abs_path "--ssh-key" "$2"
+            SSH_KEY="$2";       shift 2 ;;
+        --yes)                YES=true; shift ;;
         --help)               show_help; exit 0 ;;
         *)
             error "Unknown option: $1"
@@ -260,19 +340,20 @@ local_install() {
     [[ "${WITH_REGISTRY_SERVER}" == true ]] && echo "  Registry Server:   yes (port 8082)"
     echo ""
 
-    read -r -p "Continue with installation? (y/N) " -n 1
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        warn "Installation cancelled by user"
-        exit 0
-    fi
+    confirm "Continue with installation?"
 
-    # Step 1: Create system user
+    # Step 1: Create system user and group
     info "[1/${step_total}] Creating service user and group..."
+    if getent group "${SERVICE_GROUP}" &>/dev/null; then
+        warn "Group '${SERVICE_GROUP}' already exists, skipping creation"
+    else
+        groupadd -r "${SERVICE_GROUP}"
+        success "Created system group '${SERVICE_GROUP}'"
+    fi
     if id "${SERVICE_USER}" &>/dev/null; then
         warn "User '${SERVICE_USER}' already exists, skipping creation"
     else
-        useradd -r -s /usr/sbin/nologin -d "${INSTALL_PATH}" -c "ADAI Service" "${SERVICE_USER}"
+        useradd -r -s /usr/sbin/nologin -g "${SERVICE_GROUP}" -d "${INSTALL_PATH}" -c "ADAI Service" "${SERVICE_USER}"
         success "Created system user '${SERVICE_USER}'"
     fi
 
@@ -408,19 +489,20 @@ coordinator_install() {
     echo "  Listen Port:    8082"
     echo ""
 
-    read -r -p "Continue with coordinator installation? (y/N) " -n 1
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        warn "Installation cancelled by user"
-        exit 0
-    fi
+    confirm "Continue with coordinator installation?"
 
-    # Step 1: Create system user
+    # Step 1: Create system user and group
     info "[1/${step_total}] Creating service user and group..."
+    if getent group "${SERVICE_GROUP}" &>/dev/null; then
+        warn "Group '${SERVICE_GROUP}' already exists, skipping creation"
+    else
+        groupadd -r "${SERVICE_GROUP}"
+        success "Created system group '${SERVICE_GROUP}'"
+    fi
     if id "${SERVICE_USER}" &>/dev/null; then
         warn "User '${SERVICE_USER}' already exists, skipping creation"
     else
-        useradd -r -s /usr/sbin/nologin -d "${INSTALL_PATH}" -c "ADAI Registry Service" "${SERVICE_USER}"
+        useradd -r -s /usr/sbin/nologin -g "${SERVICE_GROUP}" -d "${INSTALL_PATH}" -c "ADAI Registry Service" "${SERVICE_USER}"
         success "Created system user '${SERVICE_USER}'"
     fi
 
@@ -554,8 +636,8 @@ remote_install() {
     local remote_sessions="${INSTALL_PATH}/training_sessions"
     local remote_data="${INSTALL_PATH}/training_data"
 
-    local step_total=5
-    [[ "${SYNC_SESSIONS}" == true ]] && step_total=6
+    local step_total=6
+    [[ "${SYNC_SESSIONS}" == true ]] && step_total=7
 
     info "Remote Installation Configuration:"
     echo "  Remote Host:    ${REMOTE_HOST}"
@@ -566,12 +648,7 @@ remote_install() {
     [[ "${SYNC_SESSIONS}" == true ]]   && echo "  Sync Sessions:  yes"
     echo ""
 
-    read -r -p "Continue with remote installation to ${REMOTE_HOST}? (y/N) " -n 1
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        warn "Installation cancelled by user"
-        exit 0
-    fi
+    confirm "Continue with remote installation to ${REMOTE_HOST}?"
 
     # Step 1: Create remote directory structure via SSH
     info "[1/${step_total}] Creating remote directory structure on ${REMOTE_HOST}..."
@@ -603,9 +680,15 @@ REMOTE_MKDIR
 
     # Step 3: Set remote binary permissions
     info "[3/${step_total}] Setting remote binary permissions..."
-    local chmod_cmd="chmod 755 '${remote_bin}/incremental_trainer' '${remote_bin}/dataset_manager'"
-    [[ "${WITH_REGISTRY_SERVER}" == true ]] && chmod_cmd+=" '${remote_bin}/registry_server'"
-    ssh "${SSH_ARGS[@]}" "${REMOTE_HOST}" bash -c "${chmod_cmd}"
+    local extra_bin=""
+    [[ "${WITH_REGISTRY_SERVER}" == true ]] && extra_bin="${remote_bin}/registry_server"
+    ssh "${SSH_ARGS[@]}" "${REMOTE_HOST}" bash -s -- \
+        "${remote_bin}/incremental_trainer" \
+        "${remote_bin}/dataset_manager" \
+        "${extra_bin}" <<'REMOTE_CHMOD'
+chmod 755 "$1" "$2"
+[[ -n "$3" ]] && chmod 755 "$3"
+REMOTE_CHMOD
     success "Remote permissions set"
 
     # Step 4: Rsync config and vocab
@@ -644,9 +727,33 @@ fi
 REMOTE_STUBS
     success "Registry config stubs added"
 
-    # Step 6 (optional): Sync training_sessions/
+    # Step 6: Create remote service user/group and set ownership
+    info "[6/${step_total}] Setting ownership on ${REMOTE_HOST}..."
+    ssh "${SSH_ARGS[@]}" "${REMOTE_HOST}" bash -s -- \
+        "${SERVICE_GROUP}" "${SERVICE_USER}" "${INSTALL_PATH}" "${remote_config}/config.conf" <<'REMOTE_CHOWN'
+set -euo pipefail
+svc_group="$1" svc_user="$2" install_path="$3" config_file="$4"
+if getent group "${svc_group}" &>/dev/null; then
+    echo "Group '${svc_group}' already exists, skipping"
+else
+    groupadd -r "${svc_group}"
+    echo "Created group '${svc_group}'"
+fi
+if id "${svc_user}" &>/dev/null; then
+    echo "User '${svc_user}' already exists, skipping"
+else
+    useradd -r -s /usr/sbin/nologin -g "${svc_group}" -d "${install_path}" -c "ADAI Service" "${svc_user}"
+    echo "Created user '${svc_user}'"
+fi
+chown -R "${svc_user}:${svc_group}" "${install_path}"
+chown -R "${svc_user}:${svc_group}" /var/log/adai
+chmod 640 "${config_file}"
+REMOTE_CHOWN
+    success "Remote ownership and permissions set"
+
+    # Step 7 (optional): Sync training_sessions/
     if [[ "${SYNC_SESSIONS}" == true ]]; then
-        info "[6/${step_total}] Syncing training_sessions/ to ${REMOTE_HOST}..."
+        info "[7/${step_total}] Syncing training_sessions/ to ${REMOTE_HOST}..."
         local local_sessions="${REPO_ROOT}/training_sessions"
         if [[ -d "${local_sessions}" ]]; then
             rsync -az --progress \
