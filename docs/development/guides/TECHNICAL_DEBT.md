@@ -6,23 +6,24 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 **Last Updated:** June 7, 2026
 **Total Items:** 5
-**High Priority:** 0
+**High Priority:** 1
 **Medium Priority:** 2
-**Low Priority:** 3
+**Low Priority:** 2
 **Future Enhancements:** 19
-**Resolved Items:** 29
+**Resolved Items:** 30
 
 ## Table of Contents
 
 - [Overview](#overview)
 - [Table of Contents](#table-of-contents)
 - [Active Technical Debt](#active-technical-debt)
-  - [TD-030: GPU Strategy CLI Option for incremental\_trainer](#td-030-gpu-strategy-cli-option-for-incremental_trainer)
+  - [TD-031: Fix RegistryServer Logger::init call signature mismatch](#td-031-fix-registryserver-loggerinit-call-signature-mismatch)
   - [TD-029: Fix GCC 13 ICE in raginference\_test.cpp](#td-029-fix-gcc-13-ice-in-raginference_testcpp)
   - [TD-020: Persistent Metrics Storage via SQL Database](#td-020-persistent-metrics-storage-via-sql-database)
   - [TD-014: LLM Operations and Training Tooling Suite](#td-014-llm-operations-and-training-tooling-suite)
   - [TD-006: Fill-in-the-Middle (FIM) Training Data Generation](#td-006-fill-in-the-middle-fim-training-data-generation)
 - [Resolved Items](#resolved-items)
+  - [TD-030: GPU Strategy CLI Option for incremental\_trainer](#td-030-gpu-strategy-cli-option-for-incremental_trainer)
   - [TD-028: Separate Dataset Management from IncrementalTrainer](#td-028-separate-dataset-management-from-incrementaltrainer)
   - [TD-027: Install Script for incremental\_trainer Sub-System](#td-027-install-script-for-incremental_trainer-sub-system)
   - [TD-023: Parallel Generation Quality Scoring via Model Snapshot](#td-023-parallel-generation-quality-scoring-via-model-snapshot)
@@ -69,47 +70,30 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Active Technical Debt
 
-### TD-030: GPU Strategy CLI Option for incremental\_trainer
+### TD-031: Fix RegistryServer Logger::init call signature mismatch
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|-----------------|
-| LOW | Planned | Training / IncrementalTrainer / GPU | June 7, 2026 | 3-4 hours |
+| HIGH | Open | RegistryServer / Build | June 7, 2026 | < 30 minutes |
 
 Description:
-`incremental_trainer` currently uses a single, hardcoded GPU scheduling policy: a low-priority CUDA stream (so ADAI training is preempted by other GPU work) and a 0.5 memory fraction. This was intentional for shared-GPU workstations where the trainer coexists with a desktop or other ML workloads. On a dedicated training machine the low-priority stream leaves throughput on the table — training yields to work that doesn't exist.
+`src/RegistryServer.cpp:386` calls `Logger::init("registry_server")` passing a program-name string as the first argument. The `Logger::init()` API requires a `Logger::Level` as its first parameter — the string overload no longer exists. This causes a hard compile error when building the `registry_server` target with Clang.
 
-A `--gpu-strategy` global flag (and matching `GPU_STRATEGY` config key) would let the operator choose at launch time:
-- **`background`** — keep the existing low-priority stream (default; safe for shared GPUs)
-- **`full`** — use the highest-priority CUDA stream for maximum training throughput
-
-`GPU_MEMORY_FRACTION` remains an independent knob; `full` mode pairs naturally with a higher value (e.g. `0.9`).
-
-The change touches the stream-priority selection in `GPUManager::initialize()` and threads a `bool use_low_priority` parameter up through `Matrix::gpu_try_initialize()` and `IncrementalTrainingTool`'s GPU init block. No changes to the training loop itself.
+The fix is a one-liner: replace the bare string call with the correct signature, e.g. `Logger::init(Logger::Level::INFO, "registry_server")` (or look up the appropriate default level used by other binaries).
 
 Action Items:
 
-- [ ] Add `enum class GPUStrategy : uint8_t { BACKGROUND, FULL }` and `gpu_strategy_from_string()` helper to `src/Config.hpp`; add `GPUStrategy gpu_strategy = GPUStrategy::BACKGROUND` field to `ServiceConfig`.
-- [ ] Parse `GPU_STRATEGY=background|full` in `ConfigLoader::load_from_file()` and `load_from_env()` in `src/Config.cpp`.
-- [ ] Add `bool use_low_priority = true` parameter to `GPUManager::initialize()` in `src/gpu/GPUUtils.hpp`; use `priority_high` when `false`. Update stub in `#else` block to match.
-- [ ] Add `bool use_low_priority = true` to `Matrix::gpu_initialize()` and `Matrix::gpu_try_initialize()` declarations in `src/Matrix.hpp`; forward the parameter in `src/Matrix.cpp`.
-- [ ] Strip `--gpu-strategy background|full` from argv in `src/IncrementalTrainingTool.cpp` global arg parser (alongside `--config`); apply override to `svc_config.gpu_strategy`; pass `use_low_priority` to `gpu_try_initialize()`; log active strategy; update usage text.
-- [ ] Add `# GPU_STRATEGY=background` commented stub (with description) to `config.conf` and `config-remote.conf` after `GPU_MEMORY_FRACTION`.
-- [ ] Add 4 config-parsing tests to `tests/config_test.cpp`: `background`, `full`, unknown value (warns + defaults), env var overrides file.
+- [ ] Audit other `Logger::init()` call sites (e.g. `incremental_trainer`, `metrics_api_server`) to confirm the canonical default level.
+- [ ] Replace `Logger::init("registry_server")` at `src/RegistryServer.cpp:386` with the correct `Logger::init(level, name)` call.
+- [ ] Verify `registry_server` target builds cleanly: `cmake --build build-gpu-clang --target registry_server`.
 
 Files to Modify:
 
-- `src/Config.hpp` — `GPUStrategy` enum, helper, `ServiceConfig` field
-- `src/Config.cpp` — `GPU_STRATEGY` file + env parsing
-- `src/gpu/GPUUtils.hpp` — `use_low_priority` parameter on `initialize()`
-- `src/Matrix.hpp` / `src/Matrix.cpp` — thread `use_low_priority` through
-- `src/IncrementalTrainingTool.cpp` — CLI flag, override, log, usage text
-- `config.conf` / `config-remote.conf` — `GPU_STRATEGY` stub
-- `tests/config_test.cpp` — 4 new tests
+- `src/RegistryServer.cpp` — fix `Logger::init` call at line 386
 
 Related Items:
 
-- TD-028 (Resolved): Introduced `ServiceConfig` fields pattern this item follows for config parsing.
-- TD-025 (Resolved): Established the `--background-child` global-flag stripping pattern in `IncrementalTrainingTool.cpp` that `--gpu-strategy` should follow.
+- TD-028 (Resolved): Introduced `RegistryServer` as a new binary; `Logger::init` signature changed after that work was integrated.
 
 ---
 
@@ -256,6 +240,27 @@ Evaluation:
 ---
 
 ## Resolved Items
+
+### TD-030: GPU Strategy CLI Option for incremental\_trainer
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| June 7, 2026 | Training / IncrementalTrainer / GPU | Added `--gpu-strategy background|full` CLI flag and `GPU_STRATEGY` config key; threaded `bool use_low_priority` from `ServiceConfig` through `Matrix::gpu_try_initialize()` to `GPUManager::initialize()`; 4 config-parsing tests added and passing |
+
+Summary:
+`incremental_trainer` previously used a hardcoded low-priority CUDA stream regardless of deployment context. This made it polite on shared workstations but underutilised on dedicated training machines. The `background` strategy preserves the original low-priority behaviour; `full` selects the highest-priority CUDA stream so training is never preempted. `GPU_MEMORY_FRACTION` remains an independent knob. The strategy is selectable via `--gpu-strategy` on the command line or `GPU_STRATEGY=` in the config file, with `background` as the default for backward compatibility.
+
+Changes Made:
+
+- `src/Config.hpp`: Added `enum class GPUStrategy : uint8_t { BACKGROUND, FULL }` with `gpu_strategy_from_string()` helper; added `GPUStrategy gpu_strategy = GPUStrategy::BACKGROUND` field to `ServiceConfig`; added `<cstdint>` and `<iostream>` includes.
+- `src/Config.cpp`: Added `GPU_STRATEGY` parsing in both `load_from_file()` and `load_from_env()`.
+- `src/gpu/GPUUtils.hpp`: Added `bool use_low_priority = true` parameter to `GPUManager::initialize()` (real and CPU-only stub); stream creation now selects `priority_low` or `priority_high` based on the parameter.
+- `src/Matrix.hpp` / `src/Matrix.cpp`: Added `bool use_low_priority = true` parameter to `gpu_initialize()` and `gpu_try_initialize()` declarations and definitions; forwarded to `GPUManager::initialize()`.
+- `src/IncrementalTrainingTool.cpp`: Added `--gpu-strategy` global flag stripping alongside `--config`; applies CLI override to `svc_config.gpu_strategy`; passes `use_low_priority` to `gpu_try_initialize()`; logs active strategy mode; updated usage text.
+- `config.conf` / `config-remote.conf`: Added commented `GPU_STRATEGY` stub after `GPU_MEMORY_FRACTION`.
+- `tests/config_test.cpp`: Added `unsetenv("GPU_STRATEGY")` to `clearEnvironmentVariables()`; added 4 tests: `GpuStrategyFileBackground`, `GpuStrategyFileFull`, `GpuStrategyUnknownDefaultsToBackground`, `GpuStrategyEnvVarOverridesFile`; all pass.
+
+---
 
 ### TD-028: Separate Dataset Management from IncrementalTrainer
 
@@ -1670,9 +1675,9 @@ When resolving a debt item:
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|0|0%|
+|High|1|20%|
 |Medium|2|40%|
-|Low|3|60%|
+|Low|2|40%|
 
 **Total Active Items:** 5
 
@@ -1684,17 +1689,18 @@ When resolving a debt item:
 > Note: TD-026 (Extract GenerationQualityMetrics to Compiled Translation Unit) added June 3, 2026.
 > Note: TD-027 (Install Script for incremental_trainer Sub-System) added June 3, 2026; resolved June 7, 2026.
 > Note: TD-028 (Separate Dataset Management from IncrementalTrainer) added June 6, 2026; resolved June 7, 2026.
-> Note: TD-030 (GPU Strategy CLI Option for incremental_trainer) added June 7, 2026.
+> Note: TD-030 (GPU Strategy CLI Option for incremental_trainer) added June 7, 2026; resolved June 7, 2026.
+> Note: TD-031 (Fix RegistryServer Logger::init call signature mismatch) added June 7, 2026; discovered during TD-030 build verification.
 
 ### By Component
 
 |Component|Count|
 |----------------------|-------|
 |Training / Data Generation|1|
-|Training / IncrementalTrainer / GPU|1|
 |Tooling / Toolchain|1|
 |Training / Metrics / API / Infrastructure|1|
 |Tests / RAGInference|1|
+|RegistryServer / Build|1|
 
 ### Effort Distribution
 

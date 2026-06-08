@@ -734,16 +734,16 @@ bool Matrix::gpu_available() {
     return adai::gpu::GPUManager::is_available();
 }
 
-bool Matrix::gpu_initialize(int device_id, float memory_fraction) {
-    return adai::gpu::GPUManager::initialize(device_id, memory_fraction);
+bool Matrix::gpu_initialize(int device_id, float memory_fraction, bool use_low_priority) {
+    return adai::gpu::GPUManager::initialize(device_id, memory_fraction, use_low_priority);
 }
 
-bool Matrix::gpu_try_initialize(int device_id, float memory_fraction) {
+bool Matrix::gpu_try_initialize(int device_id, float memory_fraction, bool use_low_priority) {
     if (!adai::gpu::GPUManager::probe()) {
         return false;
     }
     try {
-        return adai::gpu::GPUManager::initialize(device_id, memory_fraction);
+        return adai::gpu::GPUManager::initialize(device_id, memory_fraction, use_low_priority);
     } catch (const std::exception& e) {
         adai::Logger::warn("[GPU] Initialisation failed, falling back to CPU: {}", e.what());
         return false;
@@ -764,11 +764,11 @@ bool Matrix::gpu_available() {
     return false;
 }
 
-bool Matrix::gpu_initialize(int, float) {
+bool Matrix::gpu_initialize(int, float, bool) {
     return false;
 }
 
-bool Matrix::gpu_try_initialize(int, float) {
+bool Matrix::gpu_try_initialize(int, float, bool) {
     return false;
 }
 

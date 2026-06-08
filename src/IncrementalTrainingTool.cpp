@@ -106,12 +106,15 @@ int main(int argc, char* argv[]) {
     // Usage:  incremental_trainer [--config <path>] <command> [args...]
     // -----------------------------------------------------------------------
     std::string config_path;
+    std::string gpu_strategy_override;
     std::vector<std::string> args;  // args[0] = command, args[1..] = its args
 
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--config" && i + 1 < argc) {
             config_path = argv[++i];
+        } else if (a == "--gpu-strategy" && i + 1 < argc) {
+            gpu_strategy_override = argv[++i];
         } else if (a == "--background-child") {
             // Windows sentinel flag — already handled inside launch_background();
             // strip here so it never reaches the command dispatcher.
@@ -137,10 +140,19 @@ int main(int argc, char* argv[]) {
             ? adai::ConfigLoader::load()  // falls back to /etc/adai/config.conf + env
             : adai::ConfigLoader::load(config_path);
 
+    // CLI --gpu-strategy overrides the config file value.
+    if (!gpu_strategy_override.empty()) {
+        svc_config.gpu_strategy = adai::gpu_strategy_from_string(gpu_strategy_override);
+    }
+
     // GPU auto-detect: attempt initialisation when requested; silently use CPU if unavailable.
     if (svc_config.gpu_enabled) {
-        if (Matrix::gpu_try_initialize(svc_config.gpu_device_id, svc_config.gpu_memory_fraction)) {
-            adai::Logger::info("[GPU] GPU ready. {}", Matrix::gpu_info());
+        const bool low_priority = (svc_config.gpu_strategy == adai::GPUStrategy::BACKGROUND);
+        if (Matrix::gpu_try_initialize(svc_config.gpu_device_id, svc_config.gpu_memory_fraction,
+                                       low_priority)) {
+            const char* mode = low_priority ? "background (low-priority stream)"
+                                            : "full (high-priority stream)";
+            adai::Logger::info("[GPU] GPU ready — strategy: {}. {}", mode, Matrix::gpu_info());
         } else {
             adai::Logger::warn(
                 "[GPU] No CUDA device found or initialisation failed — running on CPU");
@@ -154,7 +166,11 @@ int main(int argc, char* argv[]) {
         std::cout << "                               Search order: --config > ./config.conf > "
                      "/etc/adai/config.conf\n";
         std::cout << "                               Sets model architecture, training params, "
-                     "vocab/model paths\n\n";
+                     "vocab/model paths\n";
+        std::cout << "  --gpu-strategy <mode>        GPU scheduling strategy: background (default) or full\n";
+        std::cout << "                               background: low-priority stream, yields to other GPU work\n";
+        std::cout << "                               full:       high-priority stream, maximises throughput\n";
+        std::cout << "                               Tip: pair 'full' with GPU_MEMORY_FRACTION=0.9\n\n";
         std::cout << "Commands:\n";
         std::cout << "  init [vocab] [model]         Initialize incremental trainer\n";
         std::cout << "  add <data_file>              Add new training data\n";

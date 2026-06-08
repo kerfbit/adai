@@ -83,7 +83,8 @@ class GPUManager {
      * @throws std::runtime_error for unexpected CUDA errors (device present but
      *         initialisation failed).
      */
-    static bool initialize(int device_id = 0, float memory_fraction = 0.5f) {
+    static bool initialize(int device_id = 0, float memory_fraction = 0.5f,
+                           bool use_low_priority = true) {
         if (initialized_)
             return true;
 
@@ -120,7 +121,10 @@ class GPUManager {
         int priority_high = 0;
         cudaDeviceGetStreamPriorityRange(&priority_low, &priority_high);
         // priority_low is numerically the *lowest* scheduling priority.
-        CUDA_CHECK(cudaStreamCreateWithPriority(&stream_, cudaStreamNonBlocking, priority_low));
+        // use_low_priority=true  → background mode: yields to other GPU work.
+        // use_low_priority=false → full mode: highest priority, never preempted.
+        const int stream_priority = use_low_priority ? priority_low : priority_high;
+        CUDA_CHECK(cudaStreamCreateWithPriority(&stream_, cudaStreamNonBlocking, stream_priority));
 
         // ----------------------------------------------------------------
         // cuBLAS handle bound to the low-priority stream so that all BLAS
@@ -398,7 +402,7 @@ class GPUManager {
     static bool probe() {
         return false;
     }
-    static bool initialize(int = 0, float = 0.5f) {
+    static bool initialize(int = 0, float = 0.5f, bool = true) {
         return false;
     }
     static void cleanup() {}

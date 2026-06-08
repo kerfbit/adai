@@ -293,6 +293,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.gpu_device_id = std::stoi(value);
             } else if (key == "GPU_MEMORY_FRACTION") {
                 config.gpu_memory_fraction = std::stof(value);
+            } else if (key == "GPU_STRATEGY") {
+                config.gpu_strategy = gpu_strategy_from_string(value);
             } else {
                 std::cerr << "Warning: Unknown configuration key: " << key << '\n';
             }
@@ -469,6 +471,9 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env_float("GPU_MEMORY_FRACTION")) {
         config.gpu_memory_fraction = *val;
+    }
+    if (auto val = get_env("GPU_STRATEGY")) {
+        config.gpu_strategy = gpu_strategy_from_string(*val);
     }
 
     // Distributed registry (TD-028 Phase 9)

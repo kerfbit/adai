@@ -231,17 +231,21 @@ class Matrix {
      * @return false if no CUDA device is present (operations will use CPU).
      * @throws std::runtime_error for unexpected CUDA initialisation errors.
      */
-    static bool gpu_initialize(int device_id = 0, float memory_fraction = 0.5f);
+    static bool gpu_initialize(int device_id = 0, float memory_fraction = 0.5f,
+                               bool use_low_priority = true);
 
     /**
      * Attempt GPU initialisation and silently fall back to CPU on any failure.
      *
      * Never throws.  Returns false immediately on CPU-only builds.
-     * @param device_id       CUDA device index (default: 0).
-     * @param memory_fraction Memory budget fraction (default: 0.5).
+     * @param device_id        CUDA device index (default: 0).
+     * @param memory_fraction  Memory budget fraction (default: 0.5).
+     * @param use_low_priority true = low-priority stream (background mode);
+     *                         false = high-priority stream (full mode).
      * @return true  if GPU is ready, false if CPU-only mode is in effect.
      */
-    static bool gpu_try_initialize(int device_id = 0, float memory_fraction = 0.5f);
+    static bool gpu_try_initialize(int device_id = 0, float memory_fraction = 0.5f,
+                                   bool use_low_priority = true);
 
     /**
      * Release all GPU resources owned by ADAI.  No-op on CPU-only builds.

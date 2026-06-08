@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+#include <iostream>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -13,6 +15,20 @@
 //       Support named profiles (dev, staging, prod) with inheritance
 
 namespace adai {
+
+/// GPU scheduling strategy — controls CUDA stream priority at initialisation.
+enum class GPUStrategy : std::uint8_t {
+    BACKGROUND, ///< Low-priority stream; yields to other GPU work (default)
+    FULL,       ///< High-priority stream; maximises training throughput
+};
+
+/// Parse a GPU_STRATEGY string; warns and returns BACKGROUND on unknown input.
+inline GPUStrategy gpu_strategy_from_string(const std::string& s) {
+    if (s == "full")       return GPUStrategy::FULL;
+    if (s == "background") return GPUStrategy::BACKGROUND;
+    std::cerr << "Warning: unknown GPU_STRATEGY '" << s << "', using 'background'\n";
+    return GPUStrategy::BACKGROUND;
+}
 
 /**
  * @brief Configuration for the ADAI chatbot service.
@@ -284,6 +300,18 @@ struct ServiceConfig {
      * training job.
      */
     float gpu_memory_fraction = 0.5f;
+
+    /**
+     * @brief GPU scheduling strategy (default: BACKGROUND).
+     *
+     * BACKGROUND — low-priority CUDA stream; training yields to other GPU work
+     *              (display driver, desktop compositing, other ML frameworks).
+     *              Use on shared workstations.
+     * FULL        — highest-priority CUDA stream; training is never preempted.
+     *              Use on dedicated training machines. Pair with a higher
+     *              gpu_memory_fraction (e.g. 0.9) to maximise throughput.
+     */
+    GPUStrategy gpu_strategy = GPUStrategy::BACKGROUND;
 };
 
 /**

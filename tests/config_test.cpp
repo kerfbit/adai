@@ -92,6 +92,10 @@ class ConfigTest : public ::testing::Test {
         unsetenv("METRICS_MAX_LIVE_SESSIONS");
         unsetenv("METRICS_COMPLETED_TTL_SECONDS");
         unsetenv("METRICS_SWEEP_INTERVAL_SECONDS");
+        unsetenv("GPU_ENABLED");
+        unsetenv("GPU_DEVICE_ID");
+        unsetenv("GPU_MEMORY_FRACTION");
+        unsetenv("GPU_STRATEGY");
 #endif
     }
 
@@ -864,6 +868,38 @@ TEST_F(ConfigTest, MaxGenLengthValidation) {
     errors.clear();
     config.max_gen_length = 5000;
     EXPECT_FALSE(ConfigLoader::validate(config, errors));
+}
+
+// ============================================================================
+// GPU Strategy Config Tests (TD-030)
+// ============================================================================
+
+TEST_F(ConfigTest, GpuStrategyFileBackground) {
+    createConfigFile({{"GPU_STRATEGY", "background"}});
+    auto config = ConfigLoader::load(test_file.string());
+    EXPECT_EQ(config.gpu_strategy, adai::GPUStrategy::BACKGROUND);
+}
+
+TEST_F(ConfigTest, GpuStrategyFileFull) {
+    createConfigFile({{"GPU_STRATEGY", "full"}});
+    auto config = ConfigLoader::load(test_file.string());
+    EXPECT_EQ(config.gpu_strategy, adai::GPUStrategy::FULL);
+}
+
+TEST_F(ConfigTest, GpuStrategyUnknownDefaultsToBackground) {
+    createConfigFile({{"GPU_STRATEGY", "turbo"}});
+    testing::internal::CaptureStderr();
+    auto config = ConfigLoader::load(test_file.string());
+    std::string err = testing::internal::GetCapturedStderr();
+    EXPECT_EQ(config.gpu_strategy, adai::GPUStrategy::BACKGROUND);
+    EXPECT_NE(err.find("turbo"), std::string::npos);
+}
+
+TEST_F(ConfigTest, GpuStrategyEnvVarOverridesFile) {
+    createConfigFile({{"GPU_STRATEGY", "background"}});
+    setEnv("GPU_STRATEGY", "full");
+    auto config = ConfigLoader::load(test_file.string());
+    EXPECT_EQ(config.gpu_strategy, adai::GPUStrategy::FULL);
 }
 
 // ============================================================================
