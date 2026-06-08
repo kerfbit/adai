@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** June 7, 2026
-**Total Items:** 4
+**Total Items:** 5
 **High Priority:** 0
 **Medium Priority:** 2
-**Low Priority:** 2
+**Low Priority:** 3
 **Future Enhancements:** 19
 **Resolved Items:** 29
 
@@ -17,6 +17,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 - [Overview](#overview)
 - [Table of Contents](#table-of-contents)
 - [Active Technical Debt](#active-technical-debt)
+  - [TD-030: GPU Strategy CLI Option for incremental\_trainer](#td-030-gpu-strategy-cli-option-for-incremental_trainer)
   - [TD-029: Fix GCC 13 ICE in raginference\_test.cpp](#td-029-fix-gcc-13-ice-in-raginference_testcpp)
   - [TD-020: Persistent Metrics Storage via SQL Database](#td-020-persistent-metrics-storage-via-sql-database)
   - [TD-014: LLM Operations and Training Tooling Suite](#td-014-llm-operations-and-training-tooling-suite)
@@ -67,6 +68,50 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 - [References](#references)
 
 ## Active Technical Debt
+
+### TD-030: GPU Strategy CLI Option for incremental\_trainer
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|-----------------|
+| LOW | Planned | Training / IncrementalTrainer / GPU | June 7, 2026 | 3-4 hours |
+
+Description:
+`incremental_trainer` currently uses a single, hardcoded GPU scheduling policy: a low-priority CUDA stream (so ADAI training is preempted by other GPU work) and a 0.5 memory fraction. This was intentional for shared-GPU workstations where the trainer coexists with a desktop or other ML workloads. On a dedicated training machine the low-priority stream leaves throughput on the table — training yields to work that doesn't exist.
+
+A `--gpu-strategy` global flag (and matching `GPU_STRATEGY` config key) would let the operator choose at launch time:
+- **`background`** — keep the existing low-priority stream (default; safe for shared GPUs)
+- **`full`** — use the highest-priority CUDA stream for maximum training throughput
+
+`GPU_MEMORY_FRACTION` remains an independent knob; `full` mode pairs naturally with a higher value (e.g. `0.9`).
+
+The change touches the stream-priority selection in `GPUManager::initialize()` and threads a `bool use_low_priority` parameter up through `Matrix::gpu_try_initialize()` and `IncrementalTrainingTool`'s GPU init block. No changes to the training loop itself.
+
+Action Items:
+
+- [ ] Add `enum class GPUStrategy : uint8_t { BACKGROUND, FULL }` and `gpu_strategy_from_string()` helper to `src/Config.hpp`; add `GPUStrategy gpu_strategy = GPUStrategy::BACKGROUND` field to `ServiceConfig`.
+- [ ] Parse `GPU_STRATEGY=background|full` in `ConfigLoader::load_from_file()` and `load_from_env()` in `src/Config.cpp`.
+- [ ] Add `bool use_low_priority = true` parameter to `GPUManager::initialize()` in `src/gpu/GPUUtils.hpp`; use `priority_high` when `false`. Update stub in `#else` block to match.
+- [ ] Add `bool use_low_priority = true` to `Matrix::gpu_initialize()` and `Matrix::gpu_try_initialize()` declarations in `src/Matrix.hpp`; forward the parameter in `src/Matrix.cpp`.
+- [ ] Strip `--gpu-strategy background|full` from argv in `src/IncrementalTrainingTool.cpp` global arg parser (alongside `--config`); apply override to `svc_config.gpu_strategy`; pass `use_low_priority` to `gpu_try_initialize()`; log active strategy; update usage text.
+- [ ] Add `# GPU_STRATEGY=background` commented stub (with description) to `config.conf` and `config-remote.conf` after `GPU_MEMORY_FRACTION`.
+- [ ] Add 4 config-parsing tests to `tests/config_test.cpp`: `background`, `full`, unknown value (warns + defaults), env var overrides file.
+
+Files to Modify:
+
+- `src/Config.hpp` — `GPUStrategy` enum, helper, `ServiceConfig` field
+- `src/Config.cpp` — `GPU_STRATEGY` file + env parsing
+- `src/gpu/GPUUtils.hpp` — `use_low_priority` parameter on `initialize()`
+- `src/Matrix.hpp` / `src/Matrix.cpp` — thread `use_low_priority` through
+- `src/IncrementalTrainingTool.cpp` — CLI flag, override, log, usage text
+- `config.conf` / `config-remote.conf` — `GPU_STRATEGY` stub
+- `tests/config_test.cpp` — 4 new tests
+
+Related Items:
+
+- TD-028 (Resolved): Introduced `ServiceConfig` fields pattern this item follows for config parsing.
+- TD-025 (Resolved): Established the `--background-child` global-flag stripping pattern in `IncrementalTrainingTool.cpp` that `--gpu-strategy` should follow.
+
+---
 
 ### TD-029: Fix GCC 13 ICE in raginference\_test.cpp
 
@@ -1626,10 +1671,10 @@ When resolving a debt item:
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|0|0%|
-|Medium|2|50%|
-|Low|2|50%|
+|Medium|2|40%|
+|Low|3|60%|
 
-**Total Active Items:** 4
+**Total Active Items:** 5
 
 > Note: TD-021 (IncrementalTrainer × Metrics Service Decoupling) resolved May 31, 2026; moved to Resolved section June 1, 2026.
 > Note: TD-022 (Remove Direct Terminal Output from IncrementalTrainer and Dependencies) resolved June 2, 2026; moved to Resolved section June 2, 2026.
@@ -1639,12 +1684,14 @@ When resolving a debt item:
 > Note: TD-026 (Extract GenerationQualityMetrics to Compiled Translation Unit) added June 3, 2026.
 > Note: TD-027 (Install Script for incremental_trainer Sub-System) added June 3, 2026; resolved June 7, 2026.
 > Note: TD-028 (Separate Dataset Management from IncrementalTrainer) added June 6, 2026; resolved June 7, 2026.
+> Note: TD-030 (GPU Strategy CLI Option for incremental_trainer) added June 7, 2026.
 
 ### By Component
 
 |Component|Count|
 |----------------------|-------|
 |Training / Data Generation|1|
+|Training / IncrementalTrainer / GPU|1|
 |Tooling / Toolchain|1|
 |Training / Metrics / API / Infrastructure|1|
 |Tests / RAGInference|1|
@@ -1654,11 +1701,11 @@ When resolving a debt item:
 |Effort Range|Count|
 |--------------|-------|
 |0-2 hours|1|
-|2-4 hours|0|
+|2-4 hours|1|
 |4-8 hours|1|
 |8+ hours|1|
 
-**Total Estimated Effort (Active Items):** ~27-40 hours (TD-014 has no estimate)
+**Total Estimated Effort (Active Items):** ~30-44 hours (TD-014 has no estimate)
 
 ### Future Enhancements Summary
 
