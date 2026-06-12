@@ -142,6 +142,19 @@ validate_identifier() {
     fi
 }
 
+# validate_build_dir: relative path with no '..' traversal (allows slashes for preset sub-dirs)
+validate_build_dir() {
+    local flag="$1" val="$2"
+    if [[ -z "${val}" ]]; then
+        error "${flag}: value must not be empty"
+        exit 1
+    fi
+    if [[ ! "${val}" =~ ^[a-zA-Z0-9._/-]+$ ]] || [[ "${val}" =~ \.\. ]]; then
+        error "${flag}: '${val}' must be a relative path with no '..' (allowed: a-z A-Z 0-9 . _ - /)"
+        exit 1
+    fi
+}
+
 # validate_abs_path: must start with / and contain no null bytes or newlines
 validate_abs_path() {
     local flag="$1" val="$2"
@@ -184,7 +197,7 @@ while [[ $# -gt 0 ]]; do
             validate_identifier "--group" "$2"
             SERVICE_GROUP="$2"; shift 2 ;;
         --build-dir)
-            validate_identifier "--build-dir" "$2"
+            validate_build_dir "--build-dir" "$2"
             BUILD_DIR="$2";     shift 2 ;;
         --config-src)
             validate_abs_path "--config-src" "$2"

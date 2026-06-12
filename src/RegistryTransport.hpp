@@ -93,6 +93,11 @@ public:
     virtual void commit_trained(const std::string& run_id,
                                 const std::vector<DataVersion>& new_entries,
                                 const std::vector<std::string>& trained_paths) = 0;
+
+    /** @brief Atomically append a single @p path to the pending queue.
+     *  No-op (returns true) if @p path is already present.
+     *  @return true on success. */
+    virtual bool add_pending(const std::string& path) = 0;
 };
 
 // ============================================================================
@@ -145,6 +150,7 @@ public:
     void commit_trained(const std::string& run_id,
                         const std::vector<DataVersion>& new_entries,
                         const std::vector<std::string>& trained_paths)        override;
+    bool add_pending(const std::string& path)                                 override;
 
 private:
     std::string registry_path_;
@@ -191,6 +197,7 @@ public:
     void commit_trained(const std::string& run_id,
                         const std::vector<DataVersion>& new_entries,
                         const std::vector<std::string>& trained_paths)        override;
+    bool add_pending(const std::string& path)                                 override;
 
 private:
     std::string host_;

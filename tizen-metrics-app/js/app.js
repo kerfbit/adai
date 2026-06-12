@@ -20,15 +20,17 @@
     };
 
     var State = {
-        connected:       false,
-        training:        false,
-        settingsOpen:    false,
-        pollTimer:       null,
-        retryCount:      0,
-        maxRetry:        10,   // after this many failures, slow-poll at 5 s but keep trying
-        currentMetrics:  null,
-        epochLosses:     [],
-        epochValLosses:  [],
+        connected:        false,
+        training:         false,
+        settingsOpen:     false,
+        pickerOpen:       false,
+        pollTimer:        null,
+        retryCount:       0,
+        maxRetry:         10,   // after this many failures, slow-poll at 5 s but keep trying
+        currentMetrics:   null,
+        epochLosses:      [],
+        epochValLosses:   [],
+        activeSessionKey: localStorage.getItem('adai_session_key') || null,
     };
 
     /* -------------------------------------------------------
@@ -101,9 +103,12 @@
         pollIntervalLabel:  $('poll-interval-label'),
 
         /* Overlays */
-        settingsOverlay:    $('settings-overlay'),
-        loadingOverlay:     $('loading-overlay'),
-        loadingUrl:         $('loading-url'),
+        settingsOverlay:      $('settings-overlay'),
+        loadingOverlay:       $('loading-overlay'),
+        loadingUrl:           $('loading-url'),
+        sessionPickerOverlay: $('session-picker-overlay'),
+        sessionList:          $('session-list'),
+        sessionPickerSubtitle:$('session-picker-subtitle'),
 
         /* Settings inputs */
         apiHostInput:       $('api-host-input'),
@@ -522,11 +527,12 @@
         setText(UI.bestEpochStatValue, fmt(current.best_epoch, 0));
 
         /* --- Session badge --- */
+        var badgeKey = State.activeSessionKey || ('SESSION ' + (current.session_id || '—'));
         if (current.is_training) {
-            UI.sessionBadge.textContent  = 'SESSION ' + (current.session_id || '—') + '  ACTIVE';
-            UI.sessionBadge.className    = 'badge badge-active';
+            UI.sessionBadge.textContent = badgeKey + '  ACTIVE';
+            UI.sessionBadge.className   = 'badge badge-active';
         } else {
-            UI.sessionBadge.textContent = 'SESSION ' + (current.session_id || '—') + '  IDLE';
+            UI.sessionBadge.textContent = badgeKey + '  IDLE';
             UI.sessionBadge.className   = 'badge badge-done';
         }
 
@@ -572,11 +578,18 @@
        Polling
     ------------------------------------------------------- */
     function poll() {
-        var p1 = fetchJSON('/api/metrics/current');
-        var p2 = fetchJSON('/api/session/epochs');
+        var key  = State.activeSessionKey;
+        var base = key ? '/api/sessions/' + key : null;
+        var p1 = base
+            ? fetchJSON(base + '/metrics/current')
+            : fetchJSON('/api/metrics/current');
+        var p2 = base
+            ? fetchJSON(base + '/epochs').catch(function() { return null; })
+            : fetchJSON('/api/session/epochs');
         /* Only fetch per-sample history when the chart is in samples mode */
+        var histPath = base ? (base + '/metrics/history?max_records=200') : '/api/metrics/history?max_records=200';
         var p3 = Config.chartMode === 'samples'
-            ? fetchJSON('/api/metrics/history?max_records=200')
+            ? fetchJSON(histPath)
             : Promise.resolve(null);
 
         Promise.all([p1, p2, p3])
@@ -602,6 +615,14 @@
             })
             .catch(function(err) {
                 State.connected = false;
+
+                /* Session evicted on server — re-open picker */
+                if (State.activeSessionKey && err.message && err.message.indexOf('HTTP 404') !== -1) {
+                    setConnected('disconnected', 'Session lost');
+                    openPicker();
+                    return;
+                }
+
                 State.retryCount++;
 
                 if (State.retryCount < State.maxRetry) {
@@ -727,6 +748,101 @@
     }
 
     /* -------------------------------------------------------
+       Session Picker
+    ------------------------------------------------------- */
+    function openPicker() {
+        State.pickerOpen = true;
+        stopPolling();
+        if (UI.loadingOverlay) UI.loadingOverlay.classList.add('hidden');
+        UI.sessionPickerOverlay.classList.remove('hidden');
+        UI.sessionPickerSubtitle.textContent = 'Fetching sessions from ' + apiBase() + '…';
+        UI.sessionList.innerHTML = '<div class="session-loading">Loading…</div>';
+        setConnected('connecting', 'Connecting…');
+
+        fetchJSON('/api/sessions')
+            .then(function(data) {
+                setConnected('connected', 'Connected');
+                State.retryCount = 0;
+                renderSessionList(data.sessions || []);
+            })
+            .catch(function(err) {
+                setConnected('disconnected', 'Offline');
+                UI.sessionList.innerHTML =
+                    '<div class="session-error">Cannot reach ' + apiBase() +
+                    '<br>' + err.message + '</div>';
+                nav.refresh(document.getElementById('session-picker-panel'));
+            });
+    }
+
+    function closePicker() {
+        State.pickerOpen = false;
+        UI.sessionPickerOverlay.classList.add('hidden');
+        nav.refresh();
+        if (State.activeSessionKey) nav.focusById('card-epoch');
+    }
+
+    function renderSessionList(sessions) {
+        var list = UI.sessionList;
+        list.innerHTML = '';
+
+        if (sessions.length === 0) {
+            list.innerHTML = '<div class="session-empty">No sessions available.<br>Waiting for a trainer to connect…</div>';
+            nav.refresh(document.getElementById('session-picker-panel'));
+            return;
+        }
+
+        /* Sort: actively training first */
+        sessions.sort(function(a, b) {
+            if (a.is_training !== b.is_training) return a.is_training ? -1 : 1;
+            return 0;
+        });
+
+        var activeKey = State.activeSessionKey;
+
+        sessions.forEach(function(s, i) {
+            var el = document.createElement('div');
+            el.id        = 'session-item-' + i;
+            el.className = 'session-item focusable' + (s.key === activeKey ? ' session-item-current' : '');
+            el.tabIndex  = 0;
+            el.setAttribute('data-key', s.key);
+
+            var statusClass = s.is_training ? 'badge-active' : 'badge-done';
+            var statusText  = s.is_training ? 'TRAINING' : 'IDLE';
+            var epochStr    = s.total_epochs > 0 ? (s.current_epoch + ' / ' + s.total_epochs) : '—';
+            var lossStr     = (s.current_loss   && s.current_loss   > 0) ? s.current_loss.toFixed(4)   : '—';
+            var valStr      = (s.current_validation_loss && s.current_validation_loss > 0)
+                              ? s.current_validation_loss.toFixed(4) : '—';
+
+            el.innerHTML =
+                '<div class="session-item-header">' +
+                  '<span class="session-item-key">' + s.key + '</span>' +
+                  '<div class="session-item-badges">' +
+                    (s.key === activeKey ? '<span class="session-current-label">WATCHING</span>' : '') +
+                    '<span class="badge ' + statusClass + '">' + statusText + '</span>' +
+                  '</div>' +
+                '</div>' +
+                '<div class="session-item-stats">' +
+                  '<span class="session-stat"><span class="session-stat-label">Epoch</span>' + epochStr + '</span>' +
+                  '<span class="session-stat"><span class="session-stat-label">Loss</span>'  + lossStr  + '</span>' +
+                  '<span class="session-stat"><span class="session-stat-label">Val</span>'   + valStr   + '</span>' +
+                '</div>';
+
+            list.appendChild(el);
+        });
+
+        nav.refresh(document.getElementById('session-picker-panel'));
+        nav.focusById('session-item-0');
+    }
+
+    function selectSession(key) {
+        State.activeSessionKey = key;
+        localStorage.setItem('adai_session_key', key);
+        closePicker();
+        State.retryCount = 0;
+        startPolling();
+    }
+
+    /* -------------------------------------------------------
        Chart
     ------------------------------------------------------- */
     var chart = null;
@@ -750,6 +866,11 @@
         /* OK on settings card → open settings */
         nav.on('ok', function(el) {
             if (!el) return;
+
+            /* Session picker items */
+            var sessionKey = el.getAttribute('data-key');
+            if (sessionKey) { selectSession(sessionKey); return; }
+
             if (el.id === 'card-settings') {
                 openSettings();
                 return;
@@ -778,16 +899,25 @@
         });
 
         nav.on('back', function() {
+            if (State.pickerOpen) {
+                /* Only leave picker if a session is already selected */
+                if (State.activeSessionKey) { closePicker(); startPolling(); }
+                return;
+            }
             if (State.settingsOpen) closeSettings();
         });
 
         nav.on('blue', function() {
-            openSettings();
+            if (!State.pickerOpen) openSettings();
         });
 
         nav.on('green', function() {
-            /* Manual refresh */
+            if (State.pickerOpen) { openPicker(); return; } /* refresh session list */
             poll();
+        });
+
+        nav.on('yellow', function() {
+            if (!State.settingsOpen) openPicker();
         });
     }
 
@@ -841,8 +971,12 @@
             /* Not running on Tizen — browser preview mode */
         }
 
-        /* Start polling */
-        startPolling();
+        /* Open session picker on startup, or resume polling a previously selected session */
+        if (State.activeSessionKey) {
+            startPolling();
+        } else {
+            openPicker();
+        }
     }
 
     document.addEventListener('DOMContentLoaded', init);

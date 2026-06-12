@@ -51,7 +51,7 @@ std::string sanitize_session_key(const std::string& raw) {
     std::string out;
     out.reserve(raw.size());
     for (unsigned char ch : raw) {
-        if (std::isalnum(ch) || ch == '-' || ch == '_' || ch == '.') {
+        if (std::isalnum(ch) || ch == '-' || ch == '_') {
             out.push_back(static_cast<char>(ch));
         } else {
             out.push_back('-');
@@ -93,8 +93,7 @@ int detect_pid_mod_10000() {
 
 std::string derive_metrics_session_key(int session_id) {
     const std::string host = detect_hostname_fragment();
-    const int pid_tail = detect_pid_mod_10000();
-    return std::to_string(session_id) + "-" + host + std::to_string(pid_tail);
+    return std::to_string(session_id) + "-" + host;
 }
 
 std::string build_metrics_session_push_base(const std::string& metrics_server_url,

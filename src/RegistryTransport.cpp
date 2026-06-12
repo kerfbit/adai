@@ -230,6 +230,29 @@ void LocalTransport::commit_trained(const std::string& run_id,
     unlock_pending(lock_fd);
 }
 
+bool LocalTransport::add_pending(const std::string& path) {
+    const int lock_fd = lock_pending();
+    if (lock_fd < 0) {
+        Logger::error("LocalTransport::add_pending — failed to acquire pending lock");
+        return false;
+    }
+
+    std::vector<PendingEntry> entries;
+    load_pending(entries);
+    for (const auto& e : entries) {
+        if (e.path == path) {
+            unlock_pending(lock_fd);
+            return true;  // already queued
+        }
+    }
+
+    fs::create_directories(fs::path(pending_path_).parent_path());
+    std::ofstream file(pending_path_, std::ios::app);
+    const bool ok = file.is_open() && (file << path << '\n') && file.good();
+    unlock_pending(lock_fd);
+    return ok;
+}
+
 // ============================================================================
 // RemoteTransport
 // ============================================================================
@@ -512,5 +535,32 @@ void RemoteTransport::commit_trained(const std::string& run_id,
     }
 #else
     Logger::error("RemoteTransport::commit_trained — not compiled");
+#endif
+}
+
+bool RemoteTransport::add_pending(const std::string& path) {
+#ifdef BUILD_METRICS_API_SERVER
+    httplib::Client cli(host_, port_);
+    cli.set_connection_timeout(0, timeout_ms_ * 1000);
+    cli.set_read_timeout(0, timeout_ms_ * 1000);
+
+    std::ostringstream body;
+    body << "{\"path\":\"" << json_escape(path) << "\"}";
+
+    const auto res = cli.Post((group_prefix_ + "/pending/add").c_str(),
+                              body.str(), "application/json");
+    if (!res || res->status != 200) {
+        Logger::error("RemoteTransport::add_pending — HTTP {} from {}:{}{}",
+                      res ? res->status : -1, host_, port_, group_prefix_ + "/pending/add");
+        return false;
+    }
+    if (res->body.find("\"added\":false") != std::string::npos) {
+        Logger::warn("RemoteTransport::add_pending — '{}' already in remote queue", path);
+        return false;
+    }
+    return true;
+#else
+    Logger::error("RemoteTransport::add_pending — not compiled");
+    return false;
 #endif
 }

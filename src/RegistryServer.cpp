@@ -347,6 +347,35 @@ static void handle_runs(const httplib::Request& req, httplib::Response& res,
     res.set_content(json.str(), "application/json");
 }
 
+// POST /registry/<group>/pending/add  {"path":"..."}
+static void handle_pending_add(const httplib::Request& req, httplib::Response& res,
+                                const std::string& group) {
+    const std::string path = json_string(req.body, "path");
+    if (path.empty()) {
+        res.status = 400;
+        res.set_content("{\"error\":\"path required\"}", "application/json");
+        return;
+    }
+
+    auto& gs = get_group(group);
+    std::lock_guard<std::mutex> lock(gs.mtx);
+
+    std::vector<PendingEntry> entries;
+    gs.transport->load_pending(entries);
+    for (const auto& e : entries) {
+        if (e.path == path) {
+            res.set_content("{\"added\":false,\"reason\":\"already_pending\"}", "application/json");
+            Logger::info("[{}] pending/add: '{}' already queued", group, path);
+            return;
+        }
+    }
+
+    entries.push_back({path, {}});
+    gs.transport->save_pending(entries);
+    res.set_content("{\"added\":true}", "application/json");
+    Logger::info("[{}] pending/add: '{}'", group, path);
+}
+
 // ============================================================================
 // Usage / main
 // ============================================================================
@@ -409,6 +438,9 @@ int main(int argc, char* argv[]) {
     });
     svr.Get(R"(/registry/([^/]+)/runs)",     [](const httplib::Request& r, httplib::Response& res) {
         handle_runs(r, res, r.matches[1]);
+    });
+    svr.Post(R"(/registry/([^/]+)/pending/add)", [](const httplib::Request& r, httplib::Response& res) {
+        handle_pending_add(r, res, r.matches[1]);
     });
     svr.Get("/health", [](const httplib::Request&, httplib::Response& res) {
         res.set_content("{\"status\":\"ok\"}", "application/json");

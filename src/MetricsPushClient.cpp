@@ -148,7 +148,8 @@ int MetricsPushClient::start_session(int session_id, int total_epochs, int total
     }
     json << "}";
 
-    const int rc = attempt_post("/start", json.str());
+    reconnect_body_ = json.str();
+    const int rc = attempt_post("/start", reconnect_body_);
     if (rc == 0) {
         adai::Logger::warn("MetricsPushClient: start_session — connection failed");
     } else {
@@ -392,7 +393,21 @@ void MetricsPushClient::push_loop() {
             queue_.pop_front();
         }
 
-        attempt_post(event.endpoint, event.body);
+        const int rc = attempt_post(event.endpoint, event.body);
+
+        // Session lost (server restart or eviction) — re-register and retry once.
+        // Skip lifecycle endpoints: /start is already a registration, /end is a teardown.
+        if (rc == 404 && !reconnect_body_.empty()
+                && event.endpoint != "/start" && event.endpoint != "/end") {
+            adai::Logger::warn("MetricsPushClient: session gone on {}, re-registering", event.endpoint);
+            const int start_rc = attempt_post("/start", reconnect_body_);
+            if (start_rc == 200 || start_rc == 409) {
+                attempt_post(event.endpoint, event.body);
+            } else {
+                adai::Logger::warn("MetricsPushClient: re-registration failed (HTTP {}), dropping {}",
+                                   start_rc, event.endpoint);
+            }
+        }
     }
 }
 

@@ -42,7 +42,7 @@ TrainingMetricsAPI::TrainingMetricsAPI(
       allow_control_(allow_control),
       running_(false),
       server_impl_(std::make_unique<ServerImpl>()) {
-    const std::string key_pattern = "([A-Za-z0-9][A-Za-z0-9_\\-]{0,63})";
+    const std::string key_pattern = "([A-Za-z0-9][A-Za-z0-9_-]{0,63})";
 
     // Set up session-scoped HTTP endpoints
     server_impl_->server.Get("/api/sessions", [this](const httplib::Request&, httplib::Response& res) {
@@ -86,7 +86,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(
     server_impl_->server.Get("/api/sessions/" + key_pattern + "/metrics/current",
                              [this](const httplib::Request& req, httplib::Response& res) {
             try {
-                std::string response = handle_current_metrics(req.matches[1]);
+                const std::string& matched_key = req.matches[1];
+                adai::Logger::info("[metrics/current] matched key='{}' len={}",
+                                   matched_key, matched_key.size());
+                std::string response = handle_current_metrics(matched_key);
                 res.set_content(response, "application/json");
                 res.status = 200;
             } catch (const ApiRequestError& e) {
@@ -1328,9 +1331,12 @@ std::string TrainingMetricsAPI::handle_post_session_start(const std::string& ses
     auto service = resolve_session_service(session_key, true);
 
     const auto snapshot = service->get_current_snapshot();
-    if (snapshot.is_training) {
+    if (snapshot.is_training && !snapshot.is_stale) {
         throw ApiRequestError(409,
                               "session already active for key: " + session_key);
+    }
+    if (snapshot.is_stale) {
+        adai::Logger::warn("[session/start] key='{}' is stale — allowing restart", session_key);
     }
 
     // Parse JSON body: {"session_id": int, "total_epochs": int, "total_samples": int,

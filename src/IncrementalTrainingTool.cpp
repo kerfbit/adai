@@ -145,8 +145,14 @@ int main(int argc, char* argv[]) {
         svc_config.gpu_strategy = adai::gpu_strategy_from_string(gpu_strategy_override);
     }
 
-    // GPU auto-detect: attempt initialisation when requested; silently use CPU if unavailable.
-    if (svc_config.gpu_enabled) {
+    // GPU init is deferred for commands that fork (train/retrain/resume): the
+    // child reinitialises after fork because CUDA contexts are not fork-safe.
+    // For all other commands (chat, infer, status, …) we initialise here.
+    const bool command_forks = (!args.empty() &&
+        (args[0] == "train" || args[0] == "retrain" || args[0] == "resume"));
+
+    auto init_gpu = [&]() {
+        if (!svc_config.gpu_enabled) return;
         const bool low_priority = (svc_config.gpu_strategy == adai::GPUStrategy::BACKGROUND);
         if (Matrix::gpu_try_initialize(svc_config.gpu_device_id, svc_config.gpu_memory_fraction,
                                        low_priority)) {
@@ -157,7 +163,9 @@ int main(int argc, char* argv[]) {
             adai::Logger::warn(
                 "[GPU] No CUDA device found or initialisation failed — running on CPU");
         }
-    }
+    };
+
+    if (!command_forks) init_gpu();
 
     if (args.empty()) {
         std::cout << "Usage: " << argv[0] << " [--config <path>] <command> [options]\n\n";
@@ -414,6 +422,12 @@ int main(int argc, char* argv[]) {
             adai::Logger::warn("[background] fork failed — running in foreground");
         }
 
+        // Child (or foreground fallback): initialise file logger then GPU.
+        adai::Logger::init(adai::Logger::Level::INFO,
+                           {log_path, svc_config.log_max_size_mb, svc_config.log_max_files},
+                           "adai");
+        init_gpu();
+
         // Child (or foreground fallback): run normal incremental training.
         IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
         config.base_config.num_epochs = epochs;
@@ -467,6 +481,12 @@ int main(int argc, char* argv[]) {
         if (child_pid < 0) {
             adai::Logger::warn("[background] fork failed — running in foreground");
         }
+
+        // Child (or foreground fallback): initialise file logger then GPU.
+        adai::Logger::init(adai::Logger::Level::INFO,
+                           {log_path, svc_config.log_max_size_mb, svc_config.log_max_files},
+                           "adai");
+        init_gpu();
 
         // Child (or foreground fallback): run full retrain.
         IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
@@ -574,6 +594,12 @@ int main(int argc, char* argv[]) {
         if (child_pid < 0) {
             adai::Logger::warn("[background] fork failed — running in foreground");
         }
+
+        // Child (or foreground fallback): initialise file logger then GPU.
+        adai::Logger::init(adai::Logger::Level::INFO,
+                           {log_path, svc_config.log_max_size_mb, svc_config.log_max_files},
+                           "adai");
+        init_gpu();
 
         // Child (or foreground fallback): run resume.
         IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);

@@ -14,6 +14,7 @@
 #include <utility>
 #include <vector>
 #include "TrainingMetricsService.hpp"
+#include "Logger.hpp"
 
 struct MetricsSessionSummary {
     std::string key;
@@ -84,6 +85,11 @@ class MetricsSessionRegistry {
         std::shared_lock<std::shared_mutex> lock(registry_mutex_);
         auto existing = sessions_.find(key);
         if (existing == sessions_.end()) {
+            adai::Logger::warn("[get_session] key='{}' (len={}) not found; map has {} entries:",
+                               key, key.size(), sessions_.size());
+            for (const auto& [k, _] : sessions_) {
+                adai::Logger::warn("  -> '{}' (len={})", k, k.size());
+            }
             return std::nullopt;
         }
         return existing->second.service;
@@ -172,14 +178,16 @@ class MetricsSessionRegistry {
     static bool should_replace_completed_session(
         const std::shared_ptr<TrainingMetricsService>& service) {
         const auto snapshot = service->get_current_snapshot();
-        return has_started(snapshot) && !snapshot.is_training;
+        if (!has_started(snapshot)) return false;
+        if (!snapshot.is_training) return true;   // completed normally
+        return snapshot.is_stale;                  // trainer died without posting /end
     }
 
     static bool is_completed_and_stale(const SessionEntry& entry, int max_age_seconds) {
         const auto snapshot = entry.service->get_current_snapshot();
-        if (snapshot.is_training || !has_started(snapshot)) {
-            return false;
-        }
+        if (!has_started(snapshot)) return false;
+        // Actively training and receiving updates — do not evict.
+        if (snapshot.is_training && !snapshot.is_stale) return false;
 
         const auto last_activity = snapshot.last_update_time.time_since_epoch().count() > 0
                                        ? snapshot.last_update_time

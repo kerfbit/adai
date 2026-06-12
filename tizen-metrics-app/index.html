@@ -263,13 +263,29 @@
         <span class="key-hint"><span class="key">&#9650;&#9660;&#9664;&#9654;</span> Navigate</span>
         <span class="key-hint"><span class="key">OK</span> Select</span>
         <span class="key-hint"><span class="key">BACK</span> Back</span>
-        <span class="key-hint"><span class="key">EXIT</span> Exit</span>
+        <span class="key-hint"><span class="key key-yellow">&#9632;</span> Sessions</span>
+        <span class="key-hint"><span class="key key-green">&#9632;</span> Refresh</span>
+        <span class="key-hint"><span class="key key-blue">&#9632;</span> Settings</span>
     </div>
     <div id="footer-right">
         <span id="last-update">Last update: —</span>
         <span id="poll-interval-label">Polling: 2s</span>
     </div>
 </footer>
+
+<!-- ===== SESSION PICKER OVERLAY ===== -->
+<div id="session-picker-overlay" class="overlay hidden">
+    <div id="session-picker-panel">
+        <div class="overlay-title">&#9673; Select Session</div>
+        <div id="session-picker-subtitle" class="session-picker-subtitle">Choose a training session to monitor</div>
+        <div id="session-list"></div>
+        <div class="session-picker-hints">
+            <span class="key-hint"><span class="key">&#9650;&#9660;</span> Navigate</span>
+            <span class="key-hint"><span class="key">OK</span> Watch</span>
+            <span class="key-hint"><span class="key key-green">&#9632;</span> Refresh</span>
+        </div>
+    </div>
+</div>
 
 <!-- ===== SETTINGS OVERLAY ===== -->
 <div id="settings-overlay" class="overlay hidden">

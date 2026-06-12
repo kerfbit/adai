@@ -8,22 +8,22 @@
 
 set -e
 
-TV_SERIAL="10.0.0.10:26101"
-SDB="$HOME/.tizen-extension-platform/server/sdktools/data/tools/sdb"
+TV_SERIAL="192.168.1.17:26101"
+SDB="$HOME/tizen-studio/tools/sdb"
 TIZEN="$HOME/tizen-studio/tools/ide/bin/tizen"
-PROFILE="ADAI Samsung"
+PROFILE="AdaiTV"
 STAGE_DIR="/tmp/adai-stage"
 WGT_DIR="/tmp/adai-wgt"
 # IMPORTANT: no spaces in the WGT filename - spaces cause pkgcmd failure on TV
 WGT_FILE="adai.wgt"
 APP_ID="AdaiMtrcs1.trainingmetrics"
-AUTHOR_P12="$HOME/.tizen-extension-platform/server/sdktools/sdk-data/keystore/author/ADAI Dashboard_auth.p12"
+AUTHOR_P12="$SCRIPT_DIR/certs/adai-author.p12"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "=== ADAI TV Deploy ==="
 
 # 1. Point Tizen CLI at extension profiles
-$TIZEN cli-config "profiles.path=$HOME/.tizen-extension-platform/server/sdktools/sdk-data/profile/profiles.xml"
+$TIZEN cli-config "profiles.path=$HOME/tizen-studio-data/profile/profiles.xml"
 
 # 2. Sync app files to staging dir
 mkdir -p "$STAGE_DIR"
@@ -48,7 +48,7 @@ echo "WGT: $WGT_DIR/$WGT_FILE"
 
 # 5. Connect and permit-to-install
 echo "Connecting to TV..."
-"$SDB" connect 10.0.0.10
+"$SDB" connect 192.168.1.17
 
 echo "Running permit-to-install..."
 curl -s -X POST "http://localhost:45653/api/v1/devices/$TV_SERIAL/permit-to-install" \

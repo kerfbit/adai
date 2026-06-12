@@ -172,4 +172,10 @@ class MetricsPushClient final : public IMetricsReporter {
      * @return HTTP status code, or 0 on persistent connection failure.
      */
     int attempt_post(const std::string& endpoint, const std::string& body) const;
+
+    // Saved verbatim from the last start_session() call so push_loop can
+    // re-register the session automatically after a 404 (server restart /
+    // session eviction).  Written once before training starts, read-only
+    // during training — no additional lock needed beyond program-order.
+    std::string reconnect_body_;
 };

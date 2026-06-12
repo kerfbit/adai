@@ -158,9 +158,10 @@ if(ENABLE_GPU)
     
     # Link core library with GPU library
     target_link_libraries(adai_core PUBLIC adai_gpu)
-    
+
     message(STATUS "GPU support added to adai_core")
 endif()
+
 
 # Precompiled headers for commonly used STL headers
 target_precompile_headers(adai_core
@@ -298,6 +299,9 @@ add_executable(chatbot ChatbotCLI_main.cpp ChatbotCLI.cpp)
 target_include_directories(chatbot PRIVATE ${HTTPLIB_INCLUDE_DIR})
 find_package(Threads)
 target_link_libraries(chatbot Threads::Threads)
+set_target_properties(chatbot PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
 message(STATUS "Building chatbot as lightweight API client")
 
 
@@ -317,6 +321,9 @@ if(BUILD_METRICS_API_SERVER AND HTTPLIB_INCLUDE_DIR)
     target_link_libraries(incremental_trainer adai_metrics_api)
     target_include_directories(incremental_trainer PRIVATE ${HTTPLIB_INCLUDE_DIR})
 endif()
+set_target_properties(incremental_trainer PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
 if(ENABLE_GPU)
     # Allow bundled cublas .so files placed next to the binary to be found at runtime
     set_target_properties(incremental_trainer PROPERTIES
@@ -482,6 +489,9 @@ if(BUILD_API_SERVER)
         spdlog::spdlog
     )
     target_include_directories(chatbot_api_server PRIVATE ${HTTPLIB_INCLUDE_DIR})
+    set_target_properties(chatbot_api_server PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+    )
     if(OpenMP_CXX_FOUND)
         message(STATUS "Building chatbot_api_server with full parallel optimizations (OpenMP + parallel attention)")
     else()
@@ -500,6 +510,9 @@ if(BUILD_METRICS_API_SERVER)
         spdlog::spdlog
     )
     target_include_directories(metrics_api_server PRIVATE ${HTTPLIB_INCLUDE_DIR})
+    set_target_properties(metrics_api_server PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+    )
     message(STATUS "Building metrics_api_server for training metrics polling")
 endif()
 

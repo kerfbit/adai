@@ -93,10 +93,17 @@ bool DatasetRegistry::add_file(const std::string& path) {
         return false;
     }
 
+    if (std::find(pending_.begin(), pending_.end(), path) != pending_.end()) {
+        Logger::warn("Data file already in pending queue: {}", path);
+        return false;
+    }
+
+    if (!transport_->add_pending(path)) {
+        Logger::error("Failed to persist pending entry for: {}", path);
+        return false;
+    }
     pending_.push_back(path);
     Logger::info("Added new data file: {}", path);
-
-    save_pending_list();
     return true;
 }
 
