@@ -876,7 +876,9 @@
             var sessionKey = el.getAttribute('data-key');
             if (sessionKey) { selectSession(sessionKey); return; }
 
-            if (el.id === 'settings-save-btn')   { saveSettings();   return; }
+            if (el.id === 'card-session')         { openPicker();     return; }
+            if (el.id === 'card-settings')        { openSettings();   return; }
+            if (el.id === 'settings-save-btn')    { saveSettings();   return; }
             if (el.id === 'settings-cancel-btn')  { closeSettings();  return; }
 
             /* Interval buttons */
@@ -938,13 +940,6 @@
 
         UI.settingsSaveBtn.addEventListener('click', saveSettings);
         UI.settingsCancelBtn.addEventListener('click', closeSettings);
-
-        /* Card click handlers — work for both pointer clicks and the synthetic
-           click fired by navigation.js when OK is pressed on a focused card. */
-        var cardSession  = document.getElementById('card-session');
-        var cardSettings = document.getElementById('card-settings');
-        if (cardSession)  cardSession.addEventListener('click',  openPicker);
-        if (cardSettings) cardSettings.addEventListener('click', openSettings);
     }
 
     /* -------------------------------------------------------
