@@ -1210,6 +1210,7 @@ std::string TrainingMetricsService::build_push_url(const std::string& endpoint) 
     while (!url.empty() && url.back() == '/') {
         url.pop_back();
     }
+<<<<<<< HEAD
 
     std::string endpoint_path = endpoint;
     if (endpoint_path.empty()) {
@@ -1231,6 +1232,11 @@ std::string TrainingMetricsService::build_push_url(const std::string& endpoint) 
     }
 
     return url + endpoint_path;
+=======
+    // TODO: See TECHNICAL_DEBT.md TD-018 - Prepend /api/sessions/{session_key}
+    //   to endpoint so each trainer targets its own registry slot.
+    return url + endpoint;
+>>>>>>> ed717615298f1636afc2d8ea1e25ef1ea07c8c6e
 }
 
 void TrainingMetricsService::push_to_api(const std::string& endpoint,

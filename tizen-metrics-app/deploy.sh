@@ -9,7 +9,11 @@
 set -e
 
 TV_SERIAL="192.168.1.17:26101"
+<<<<<<< HEAD
 SDB="$HOME/tizen-studio/tools/sdb"
+=======
+SDB="$HOME/.tizen-extension-platform/server/sdktools/data/tools/sdb"
+>>>>>>> ed717615298f1636afc2d8ea1e25ef1ea07c8c6e
 TIZEN="$HOME/tizen-studio/tools/ide/bin/tizen"
 PROFILE="AdaiTV"
 STAGE_DIR="/tmp/adai-stage"

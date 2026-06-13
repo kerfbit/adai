@@ -42,7 +42,14 @@ TrainingMetricsAPI::TrainingMetricsAPI(
       allow_control_(allow_control),
       running_(false),
       server_impl_(std::make_unique<ServerImpl>()) {
+<<<<<<< HEAD
     const std::string key_pattern = "([A-Za-z0-9][A-Za-z0-9_-]{0,63})";
+=======
+    // TODO: See TECHNICAL_DEBT.md TD-018 - Replace flat routes with /api/sessions/{key}/... prefix;
+    //   inject MetricsSessionRegistry*; add GET /api/sessions and GET /api/metrics/aggregate endpoints;
+    //   preserve old flat routes as backwards-compat aliases mapping to key "0-default".
+    // Set up HTTP endpoints
+>>>>>>> ed717615298f1636afc2d8ea1e25ef1ea07c8c6e
 
     // Set up session-scoped HTTP endpoints
     server_impl_->server.Get("/api/sessions", [this](const httplib::Request&, httplib::Response& res) {

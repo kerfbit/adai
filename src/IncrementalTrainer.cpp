@@ -217,15 +217,24 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
     // the TUI dashboard for real-time feedback.
     cfg.base_config.log_level = LogLevel::NORMAL;
 
-    // Metrics push configuration (TD-021)
-    cfg.metrics_server_url    = svc.metrics_server_url;  // empty URL → NullMetricsReporter
-    cfg.metrics_session_label = svc.metrics_session_label;
-    cfg.metrics_push_timeout_ms = svc.metrics_push_timeout_ms;
-
-    // Outlier detection (TD-021)
-    cfg.base_config.loss_outlier_z_threshold    = svc.loss_outlier_z_threshold;
-    cfg.base_config.grad_norm_outlier_threshold = svc.grad_norm_outlier_threshold;
-    cfg.base_config.max_abnormal_samples        = svc.max_abnormal_samples;
+    // Metrics service configuration
+    cfg.enable_metrics_service = svc.enable_metrics_service;
+    cfg.metrics_push_enabled = svc.metrics_push_enabled;
+    // TODO: See TECHNICAL_DEBT.md TD-018 - Map metrics_session_key from ServiceConfig; prefix
+    //   push_url with /api/sessions/{metrics_session_key} so each trainer targets its own slot.
+    cfg.metrics_server_url = svc.metrics_server_url;
+    cfg.metrics_config.enable_push = svc.metrics_push_enabled;
+    cfg.metrics_config.push_url = svc.metrics_server_url;
+    cfg.metrics_config.push_timeout_ms = svc.metrics_push_timeout_ms;
+    cfg.metrics_config.enable_persistence = svc.metrics_enable_persistence;
+    cfg.metrics_config.metrics_file = svc.metrics_file;
+    cfg.metrics_config.summary_file = svc.metrics_summary_file;
+    cfg.metrics_config.persist_every_samples = svc.metrics_persist_every_samples;
+    cfg.metrics_config.persist_every_seconds = svc.metrics_persist_every_seconds;
+    cfg.metrics_config.max_records_in_memory = svc.metrics_max_records_in_memory;
+    cfg.metrics_config.max_records_on_disk = svc.metrics_max_records_on_disk;
+    cfg.metrics_config.enable_prometheus_format = svc.metrics_enable_prometheus;
+    cfg.metrics_config.prometheus_file = svc.metrics_prometheus_file;
 
     // Generation quality metrics
     cfg.base_config.enable_generation_quality_metrics = svc.enable_generation_quality_metrics;
