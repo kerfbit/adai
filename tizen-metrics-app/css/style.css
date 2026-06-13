@@ -237,6 +237,18 @@ html, body {
     text-transform: uppercase;
 }
 
+.card-action-hint {
+    font-size: 10px;
+    font-weight: 400;
+    letter-spacing: 0;
+    color: var(--text-dim);
+    text-transform: none;
+    margin-left: 8px;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+.focusable.focused .card-action-hint { opacity: 1; }
+
 .card-value {
     font-size: var(--font-xl);
     font-weight: 700;

@@ -18,7 +18,7 @@
         <div id="app-title">Training Metrics Dashboard</div>
     </div>
     <div id="header-center">
-        <div id="session-badge" class="badge badge-idle focusable" tabindex="0" title="Press OK to switch session">NO SESSION</div>
+        <div id="session-badge" class="badge badge-idle">NO SESSION</div>
     </div>
     <div id="header-right">
         <div id="connection-status" class="status-dot disconnected" title="API Connection">
@@ -198,9 +198,9 @@
             </div>
         </div>
 
-        <!-- Session Stats Card -->
+        <!-- Session Stats Card — OK opens session picker -->
         <div class="card focusable" id="card-session" tabindex="0">
-            <div class="card-label">SESSION TOTALS</div>
+            <div class="card-label">SESSION TOTALS <span class="card-action-hint">OK&nbsp;▸&nbsp;Switch</span></div>
             <div class="stat-grid">
                 <div class="stat-item">
                     <div class="stat-label">Total Samples</div>
@@ -261,11 +261,8 @@
 <footer id="footer">
     <div id="footer-left">
         <span class="key-hint"><span class="key">&#9650;&#9660;&#9664;&#9654;</span> Navigate</span>
-        <span class="key-hint"><span class="key">OK</span> Select / Switch Session</span>
+        <span class="key-hint"><span class="key">OK</span> Select</span>
         <span class="key-hint"><span class="key">BACK</span> Back</span>
-        <span class="key-hint"><span class="key key-yellow">&#9632;</span> Sessions</span>
-        <span class="key-hint"><span class="key key-green">&#9632;</span> Refresh</span>
-        <span class="key-hint"><span class="key key-blue">&#9632;</span> Settings</span>
     </div>
     <div id="footer-right">
         <span id="last-update">Last update: —</span>
