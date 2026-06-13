@@ -763,6 +763,10 @@
         UI.sessionList.innerHTML = '<div class="session-loading">Loading…</div>';
         setConnected('connecting', 'Connecting…');
 
+        /* Lock nav scope to the picker panel immediately so D-pad doesn't
+           navigate dashboard cards hidden behind the overlay during the fetch. */
+        nav.refresh(document.getElementById('session-picker-panel'));
+
         fetchJSON('/api/sessions')
             .then(function(data) {
                 setConnected('connected', 'Connected');
@@ -792,7 +796,9 @@
 
         if (sessions.length === 0) {
             list.innerHTML = '<div class="session-empty">No sessions available.<br>Waiting for a trainer to connect…</div>';
-            nav.refresh(document.getElementById('session-picker-panel'));
+            requestAnimationFrame(function() {
+                nav.refresh(document.getElementById('session-picker-panel'));
+            });
             return;
         }
 
@@ -835,8 +841,14 @@
             list.appendChild(el);
         });
 
-        nav.refresh(document.getElementById('session-picker-panel'));
-        nav.focusById('session-item-0');
+        /* Defer until next paint — Tizen's WebKit returns zero-dimension rects
+           for freshly-inserted elements if measured synchronously, which would
+           filter out all session items and leave D-pad with nothing to navigate. */
+        var panel = document.getElementById('session-picker-panel');
+        requestAnimationFrame(function() {
+            nav.refresh(panel);
+            nav.focusById('session-item-0');
+        });
     }
 
     function selectSession(key) {
