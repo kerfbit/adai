@@ -714,7 +714,7 @@
     }
 
     function saveSettings() {
-        Config.host         = UI.apiHostInput.value.trim() || '10.0.0.141';
+        Config.host         = UI.apiHostInput.value.trim() || '192.168.1.16';
         Config.port         = UI.apiPortInput.value.trim() || '8081';
 
         /* Read selected interval */
@@ -732,13 +732,17 @@
 
         closeSettings();
 
-        /* Reconnect */
+        /* Reconnect — if no session is selected, go back to the picker so it
+           fetches the session list from the (possibly new) host. */
         State.retryCount = 0;
-        setConnected('connecting', 'Connecting…');
-        UI.loadingOverlay.classList.remove('hidden');
-        UI.loadingUrl.textContent = apiBase();
-
-        startPolling();
+        if (State.activeSessionKey) {
+            setConnected('connecting', 'Connecting…');
+            UI.loadingOverlay.classList.remove('hidden');
+            UI.loadingUrl.textContent = apiBase();
+            startPolling();
+        } else {
+            openPicker();
+        }
     }
 
     function updateUrlPreview() {
@@ -769,7 +773,8 @@
                 setConnected('disconnected', 'Offline');
                 UI.sessionList.innerHTML =
                     '<div class="session-error">Cannot reach ' + apiBase() +
-                    '<br>' + err.message + '</div>';
+                    '<br>' + err.message +
+                    '<br><span style="opacity:0.6;font-size:0.85em">Press ■ (Blue) to change server address</span></div>';
                 nav.refresh(document.getElementById('session-picker-panel'));
             });
     }
@@ -908,7 +913,12 @@
         });
 
         nav.on('blue', function() {
-            if (!State.pickerOpen) openSettings();
+            if (State.pickerOpen) {
+                /* Allow settings access from within the picker so the user
+                   can correct the server address when the picker can't connect. */
+                closePicker();
+            }
+            if (!State.settingsOpen) openSettings();
         });
 
         nav.on('green', function() {
