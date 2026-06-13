@@ -398,7 +398,7 @@
 
         /* --- Aux --- */
         setText(UI.lrValue,            fmtLR(current.current_learning_rate));
-        setText(UI.perplexityValue,    fmt(current.current_perplexity, 4));
+        setText(UI.perplexityValue,    fmt(current.current_perplexity, 2));
         setText(UI.gradNormValue,      fmt(current.current_gradient_norm, 4));
         applyLRColor(UI.lrValue,          current.current_learning_rate);
         applyRangeColor(UI.perplexityValue, current.current_perplexity,    50,  500);
@@ -752,6 +752,10 @@
             if (!el) return;
             if (el.id === 'card-settings') {
                 openSettings();
+                return;
+            }
+            if (el.id == 'card-session') {
+                openPicker();
                 return;
             }
             if (el.id === 'settings-save-btn')   { saveSettings();   return; }
