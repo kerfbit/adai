@@ -64,7 +64,10 @@
         this._focusables = Array.prototype.slice.call(
             container.querySelectorAll('.focusable')
         ).filter(function(el) {
-            return el.offsetParent !== null; /* exclude hidden elements */
+            /* offsetParent is null for elements inside position:fixed containers,
+               so use getBoundingClientRect to test actual visibility instead. */
+            var r = el.getBoundingClientRect();
+            return r.width > 0 && r.height > 0;
         });
 
         /* If nothing focused yet, focus first */
