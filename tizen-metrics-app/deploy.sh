@@ -8,7 +8,7 @@
 
 set -e
 
-TV_SERIAL="10.0.0.10:26101"
+TV_SERIAL="192.168.1.17:26101"
 SDB="$HOME/.tizen-extension-platform/server/sdktools/data/tools/sdb"
 TIZEN="$HOME/tizen-studio/tools/ide/bin/tizen"
 PROFILE="ADAI Samsung"
