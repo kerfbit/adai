@@ -783,7 +783,7 @@
         State.pickerOpen = false;
         UI.sessionPickerOverlay.classList.add('hidden');
         nav.refresh();
-        if (State.activeSessionKey) nav.focusById('card-epoch');
+        nav.focusById('session-badge');
     }
 
     function renderSessionList(sessions) {
@@ -875,6 +875,11 @@
             /* Session picker items */
             var sessionKey = el.getAttribute('data-key');
             if (sessionKey) { selectSession(sessionKey); return; }
+
+            if (el.id === 'session-badge') {
+                openPicker();
+                return;
+            }
 
             if (el.id === 'card-settings') {
                 openSettings();

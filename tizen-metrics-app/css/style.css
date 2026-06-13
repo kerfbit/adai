@@ -123,6 +123,7 @@ html, body {
 .badge-active  { color: var(--accent-green);   border-color: var(--accent-green); animation: pulse-badge 2s infinite; }
 .badge-done    { color: var(--accent-blue);    border-color: var(--accent-blue); }
 .badge-error   { color: var(--accent-red);     border-color: var(--accent-red); }
+#session-badge.focused { box-shadow: 0 0 0 3px rgba(88,166,255,0.4); cursor: pointer; }
 
 @keyframes pulse-badge {
     0%, 100% { opacity: 1; }
