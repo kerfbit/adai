@@ -13,7 +13,7 @@
        Config & State
     ------------------------------------------------------- */
     var Config = {
-        host:         localStorage.getItem('adai_host')     || '10.0.0.141',
+        host:         localStorage.getItem('adai_host')     || '192.168.1.16',
         port:         localStorage.getItem('adai_port')     || '8081',
         pollInterval: parseInt(localStorage.getItem('adai_poll') || '2000', 10),
         chartMode:    localStorage.getItem('adai_chart')    || 'epochs',
