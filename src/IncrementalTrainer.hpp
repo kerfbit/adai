@@ -258,22 +258,6 @@ class IncrementalTrainer {
     MetricsPushClient* push_client_{nullptr};               ///< non-owning alias when reporter is MetricsPushClient
     std::string active_session_key_;                        ///< key for the in-flight push session
 
-    // TD-009: Dashboard / timing state
-    mutable int dashboard_lines_drawn_;  ///< lines drawn by last display_dashboard() call
-    std::chrono::steady_clock::time_point
-        session_start_time_steady_;  ///< steady-clock start of current session
-    std::chrono::steady_clock::time_point
-        epoch_start_time_steady_;  ///< steady-clock start of current epoch
-
-    // Per-sample progress state (updated by sample callback, read by display_dashboard)
-    mutable int current_sample_in_epoch_;  ///< 1-based sample index within the current epoch (0 =
-                                           ///< not started)
-    mutable int total_samples_in_epoch_;   ///< total training samples loaded for this run
-    mutable float running_sample_loss_;    ///< running-average loss so far within the current epoch
-    mutable float current_item_loss_;      ///< loss of the most recent optimizer step
-    mutable float current_item_grad_norm_;  ///< gradient norm of the most recent optimizer step
-    mutable float current_item_lr_;         ///< learning rate at the most recent optimizer step
-
     // Helper methods
 
     /**
@@ -309,10 +293,6 @@ class IncrementalTrainer {
     bool create_or_update_symlink(const std::string& target, const std::string& link_path);
     static bool remove_symlink_if_exists(const std::string& link_path);
 
-    // TD-009: Real-time dashboard helpers
-    void display_dashboard(const TrainingSession& session, int current_epoch, int total_epochs,
-                           bool is_final) const;
     static std::string format_duration(double seconds);
-    static std::string progress_bar(int current, int total, int bar_width = 42);
 
 };

@@ -140,7 +140,7 @@ std::string derive_metrics_session_label(int session_id,
  * @brief Build a compact JSON config snapshot from IncrementalConfig.
  *
  * Only key hyper-parameters are included; this is stored on the registry
- * for display in the dashboard and Prometheus labels.
+ * for Prometheus labels and session history.
  */
 std::string build_config_snapshot(const IncrementalConfig& cfg) {
     const TrainingConfig& bc = cfg.base_config;
@@ -213,28 +213,12 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
     cfg.base_config.enable_early_stopping = true;
     cfg.base_config.patience = 5;
     cfg.base_config.restore_best_weights = true;
-    // Suppress verbose per-sample logging from ChatbotTrainer, as we use
-    // the TUI dashboard for real-time feedback.
     cfg.base_config.log_level = LogLevel::NORMAL;
 
-    // Metrics service configuration
-    cfg.enable_metrics_service = svc.enable_metrics_service;
-    cfg.metrics_push_enabled = svc.metrics_push_enabled;
-    // TODO: See TECHNICAL_DEBT.md TD-018 - Map metrics_session_key from ServiceConfig; prefix
-    //   push_url with /api/sessions/{metrics_session_key} so each trainer targets its own slot.
+    // Metrics push configuration
     cfg.metrics_server_url = svc.metrics_server_url;
-    cfg.metrics_config.enable_push = svc.metrics_push_enabled;
-    cfg.metrics_config.push_url = svc.metrics_server_url;
-    cfg.metrics_config.push_timeout_ms = svc.metrics_push_timeout_ms;
-    cfg.metrics_config.enable_persistence = svc.metrics_enable_persistence;
-    cfg.metrics_config.metrics_file = svc.metrics_file;
-    cfg.metrics_config.summary_file = svc.metrics_summary_file;
-    cfg.metrics_config.persist_every_samples = svc.metrics_persist_every_samples;
-    cfg.metrics_config.persist_every_seconds = svc.metrics_persist_every_seconds;
-    cfg.metrics_config.max_records_in_memory = svc.metrics_max_records_in_memory;
-    cfg.metrics_config.max_records_on_disk = svc.metrics_max_records_on_disk;
-    cfg.metrics_config.enable_prometheus_format = svc.metrics_enable_prometheus;
-    cfg.metrics_config.prometheus_file = svc.metrics_prometheus_file;
+    cfg.metrics_push_timeout_ms = svc.metrics_push_timeout_ms;
+    cfg.metrics_session_label = svc.metrics_session_label;
 
     // Generation quality metrics
     cfg.base_config.enable_generation_quality_metrics = svc.enable_generation_quality_metrics;
@@ -257,14 +241,7 @@ IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
     : current_session_id(0),
       samples_since_last_save(0),
       best_validation_loss(std::numeric_limits<float>::max()),
-      best_checkpoint_path(""),
-      dashboard_lines_drawn_(0),
-      current_sample_in_epoch_(0),
-      total_samples_in_epoch_(0),
-      running_sample_loss_(0.0f),
-      current_item_loss_(0.0f),
-      current_item_grad_norm_(0.0f),
-      current_item_lr_(0.0f) {
+      best_checkpoint_path("") {
     Logger::info("Loading configuration from: {}",
                  config_file_path.empty() ? "<system default>" : config_file_path);
 
@@ -341,8 +318,6 @@ IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
     }
 
     last_save_time = std::chrono::system_clock::now();
-    session_start_time_steady_ = std::chrono::steady_clock::now();
-    epoch_start_time_steady_ = session_start_time_steady_;
 }
 
 // ============================================================================
@@ -354,14 +329,7 @@ IncrementalTrainer::IncrementalTrainer(std::string vocab_path, const std::string
       current_session_id(0),
       samples_since_last_save(0),
       best_validation_loss(std::numeric_limits<float>::max()),
-      best_checkpoint_path(""),
-      dashboard_lines_drawn_(0),
-      current_sample_in_epoch_(0),
-      total_samples_in_epoch_(0),
-      running_sample_loss_(0.0f),
-      current_item_loss_(0.0f),
-      current_item_grad_norm_(0.0f),
-      current_item_lr_(0.0f) {
+      best_checkpoint_path("") {
     Logger::info("Initializing Incremental Training System...");
 
     // MetricsPushClient is created per training run; use NullMetricsReporter until then.
@@ -396,8 +364,6 @@ IncrementalTrainer::IncrementalTrainer(std::string vocab_path, const std::string
     }
 
     last_save_time = std::chrono::system_clock::now();
-    session_start_time_steady_ = std::chrono::steady_clock::now();
-    epoch_start_time_steady_ = session_start_time_steady_;
 }
 
 // ============================================================================
@@ -412,14 +378,7 @@ IncrementalTrainer::IncrementalTrainer(std::string vocab_path, const std::string
       current_session_id(0),
       samples_since_last_save(0),
       best_validation_loss(std::numeric_limits<float>::max()),
-      best_checkpoint_path(""),
-      dashboard_lines_drawn_(0),
-      current_sample_in_epoch_(0),
-      total_samples_in_epoch_(0),
-      running_sample_loss_(0.0f),
-      current_item_loss_(0.0f),
-      current_item_grad_norm_(0.0f),
-      current_item_lr_(0.0f) {
+      best_checkpoint_path("") {
     Logger::info("Initializing Incremental Training System...");
 
     // set config FIRST so build_model() uses the correct architecture
@@ -454,8 +413,6 @@ IncrementalTrainer::IncrementalTrainer(std::string vocab_path, const std::string
     }
 
     last_save_time = std::chrono::system_clock::now();
-    session_start_time_steady_ = std::chrono::steady_clock::now();
-    epoch_start_time_steady_ = session_start_time_steady_;
 }
 
 void IncrementalTrainer::set_config(const IncrementalConfig& cfg) {
@@ -525,11 +482,6 @@ bool IncrementalTrainer::train_on_files(const std::vector<std::string>& files, i
 
     initialize_session();
 
-    // Reset dashboard state and record session start time (TD-009)
-    dashboard_lines_drawn_ = 0;
-    session_start_time_steady_ = std::chrono::steady_clock::now();
-    epoch_start_time_steady_ = session_start_time_steady_;
-
     // Load all data — files are independent so load them in parallel
     std::vector<ConversationPair> training_pairs;
     std::vector<ConversationPair> validation_pairs;
@@ -575,11 +527,6 @@ bool IncrementalTrainer::train_on_files(const std::vector<std::string>& files, i
     Logger::info("Total training samples: {}", training_pairs.size());
     Logger::info("Total validation samples: {}", validation_pairs.size());
 
-    // Store total sample count for dashboard and reset per-sample state
-    total_samples_in_epoch_ = static_cast<int>(training_pairs.size());
-    current_sample_in_epoch_ = 0;
-    running_sample_loss_ = 0.0f;
-
     // Create trainer and configure
     ChatbotTrainer trainer(config.base_config);
     trainer.set_model(std::move(model));
@@ -624,14 +571,13 @@ bool IncrementalTrainer::train_on_files(const std::vector<std::string>& files, i
         trainer.add_training_pair(pair.input, pair.response);
     }
 
-    // ── TD-009: Register per-epoch callback for timing, metrics, and live dashboard ──
-    trainer.set_epoch_callback([this](int epoch, int total, float loss, float val_loss, float lr) {
-        // Measure wall-clock time for this epoch
+    // Register per-epoch callback for timing and metrics
+    auto epoch_start = std::chrono::steady_clock::now();
+    trainer.set_epoch_callback([this, &epoch_start](int epoch, int total, float loss, float val_loss, float lr) {
         auto now = std::chrono::steady_clock::now();
-        double epoch_secs = std::chrono::duration<double>(now - epoch_start_time_steady_).count();
-        epoch_start_time_steady_ = now;  // reset for next epoch
+        double epoch_secs = std::chrono::duration<double>(now - epoch_start).count();
+        epoch_start = now;
 
-        // Store per-epoch metrics in the current session (session_history.back())
         if (!session_history.empty()) {
             auto& session = session_history.back();
             session.per_epoch_losses.push_back(loss);
@@ -640,23 +586,13 @@ bool IncrementalTrainer::train_on_files(const std::vector<std::string>& files, i
             session.training_time_per_epoch.push_back(epoch_secs);
             session.per_epoch_perplexities.push_back(std::exp(loss));
             session.per_epoch_validation_perplexities.push_back(std::exp(val_loss));
-
-
-            // Reset per-sample counters for the next epoch
-            current_sample_in_epoch_ = 0;
-            running_sample_loss_ = 0.0f;
-            current_item_loss_ = 0.0f;
-            current_item_grad_norm_ = 0.0f;
         }
     });
 
-    // ── Per-sample callback: update running state and redraw dashboard ──
-    trainer.set_sample_callback([this](int sample, int total_samples, float running_loss,
-                                       float step_loss, float grad_norm, float lr) {
-        // Reset the epoch timer on the very first sample so that throughput
-        // excludes preprocessing (split + tokenization) time.
+    // Reset the epoch timer on the first sample to exclude data-loading time from epoch duration.
+    trainer.set_sample_callback([&epoch_start](int sample, int, float, float, float, float) {
         if (sample == 1) {
-            epoch_start_time_steady_ = std::chrono::steady_clock::now();
+            epoch_start = std::chrono::steady_clock::now();
         }
     });
 
@@ -715,11 +651,6 @@ bool IncrementalTrainer::retrain_on_files(const std::vector<std::string>& files,
     Logger::info("Starting full retrain on {} file(s)", files.size());
     initialize_session();
 
-    // Reset dashboard state (TD-009)
-    dashboard_lines_drawn_ = 0;
-    session_start_time_steady_ = std::chrono::steady_clock::now();
-    epoch_start_time_steady_ = session_start_time_steady_;
-
     // Load all data — files are independent so load them in parallel
     std::vector<ConversationPair> all_pairs;
     {
@@ -741,12 +672,9 @@ bool IncrementalTrainer::retrain_on_files(const std::vector<std::string>& files,
 
     Logger::info("Total samples: {}", all_pairs.size());
 
-    // Store total sample count for dashboard and reset per-sample state
-    // (validation split is done inside ChatbotTrainer, approximate here)
+    // Approximate training sample count (validation split is done inside ChatbotTrainer)
     int val_size = static_cast<int>(all_pairs.size()) / config.base_config.validation_split;
-    total_samples_in_epoch_ = static_cast<int>(all_pairs.size()) - val_size;
-    current_sample_in_epoch_ = 0;
-    running_sample_loss_ = 0.0f;
+    int training_sample_count = static_cast<int>(all_pairs.size()) - val_size;
 
     // Create trainer
     ChatbotTrainer trainer(config.base_config);
@@ -774,7 +702,7 @@ bool IncrementalTrainer::retrain_on_files(const std::vector<std::string>& files,
                     : config.metrics_session_label;
             const std::string snapshot = build_config_snapshot(config);
             const int rc = pc->start_session(current_session_id + 1, num_epochs,
-                                             total_samples_in_epoch_,
+                                             training_sample_count,
                                              label, snapshot);
             if (rc != 409) break;
         }
@@ -792,11 +720,12 @@ bool IncrementalTrainer::retrain_on_files(const std::vector<std::string>& files,
         trainer.add_training_pair(pair.input, pair.response);
     }
 
-    // TD-009: Register per-epoch callback
-    trainer.set_epoch_callback([this](int epoch, int total, float loss, float val_loss, float lr) {
+    // Register per-epoch callback for timing and metrics
+    auto epoch_start = std::chrono::steady_clock::now();
+    trainer.set_epoch_callback([this, &epoch_start](int epoch, int total, float loss, float val_loss, float lr) {
         auto now = std::chrono::steady_clock::now();
-        double epoch_secs = std::chrono::duration<double>(now - epoch_start_time_steady_).count();
-        epoch_start_time_steady_ = now;
+        double epoch_secs = std::chrono::duration<double>(now - epoch_start).count();
+        epoch_start = now;
         if (!session_history.empty()) {
             auto& session = session_history.back();
             session.per_epoch_losses.push_back(loss);
@@ -805,29 +734,14 @@ bool IncrementalTrainer::retrain_on_files(const std::vector<std::string>& files,
             session.training_time_per_epoch.push_back(epoch_secs);
             session.per_epoch_perplexities.push_back(std::exp(loss));
             session.per_epoch_validation_perplexities.push_back(std::exp(val_loss));
-
-            // Reset per-sample counters for the next epoch
-            current_sample_in_epoch_ = 0;
-            running_sample_loss_ = 0.0f;
-            current_item_loss_ = 0.0f;
-            current_item_grad_norm_ = 0.0f;
         }
     });
 
-    // ── Per-sample callback for full retrain ──
-    trainer.set_sample_callback([this](int sample, int total_samples, float running_loss,
-                                       float step_loss, float grad_norm, float lr) {
-        // Reset the epoch timer on the very first sample so that throughput
-        // excludes preprocessing (split + tokenization) time.
+    // Reset the epoch timer on the first sample to exclude data-loading time from epoch duration.
+    trainer.set_sample_callback([&epoch_start](int sample, int, float, float, float, float) {
         if (sample == 1) {
-            epoch_start_time_steady_ = std::chrono::steady_clock::now();
+            epoch_start = std::chrono::steady_clock::now();
         }
-        current_sample_in_epoch_ = sample;
-        total_samples_in_epoch_ = total_samples;
-        running_sample_loss_ = running_loss;
-        current_item_loss_ = step_loss;
-        current_item_grad_norm_ = grad_norm;
-        current_item_lr_ = lr;
     });
 
     bool success = trainer.train(num_epochs);
@@ -1610,7 +1524,6 @@ bool IncrementalTrainer::reset_all(bool keep_data_registry) {
     samples_since_last_save = 0;
     best_validation_loss = std::numeric_limits<float>::max();
     best_checkpoint_path.clear();
-    dashboard_lines_drawn_ = 0;
 
     if (!keep_data_registry) {
         data_registry.clear();
@@ -1896,10 +1809,6 @@ bool IncrementalTrainer::add_gutenberg_books(const std::vector<int>& book_ids,
     return success_count > 0;
 }
 
-// ============================================================================
-// Dashboard helpers (TD-009)
-// ============================================================================
-
 std::string IncrementalTrainer::format_duration(double seconds) {
     int secs = static_cast<int>(seconds);
     int mins = secs / 60;
@@ -1916,20 +1825,6 @@ std::string IncrementalTrainer::format_duration(double seconds) {
         oss << seconds << "s";
     }
     return oss.str();
-}
-
-std::string IncrementalTrainer::progress_bar(int current, int total, int bar_width) {
-    if (total <= 0) {
-        return std::string(bar_width, '-');
-    }
-    int filled = (int)((double)current / total * bar_width);
-    filled = std::clamp(filled, 0, bar_width);
-    std::string bar(filled, '=');
-    if (filled < bar_width) {
-        bar += '>';
-    }
-    bar += std::string(std::max(0, bar_width - (int)bar.size()), ' ');
-    return bar;
 }
 
 // HuggingFace Datasets integration (TD-028: thin wrapper delegating to DataFetcher)
