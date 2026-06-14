@@ -42,6 +42,24 @@ void ensure_metrics_output_directories(const MetricsServiceConfig& config) {
     }
 }
 
+// Extract a comparable architecture signature from a config-snapshot JSON string.
+// Only the structural dimensions that invalidate prior loss comparisons are included;
+// hyperparameters like learning_rate and batch_size are intentionally excluded.
+// Returns an empty string if the snapshot is missing or unparseable.
+std::string arch_key(const std::string& config_json) {
+    if (config_json.empty()) return "";
+    auto extract = [&](const std::string& key) -> std::string {
+        auto pos = config_json.find('"' + key + "\":");
+        if (pos == std::string::npos) return "";
+        pos += key.size() + 3;
+        auto end = config_json.find_first_of(",}", pos);
+        return config_json.substr(pos, end == std::string::npos ? config_json.size() - pos
+                                                                : end - pos);
+    };
+    return extract("d_model") + "," + extract("heads") + "," + extract("d_ff") + "," +
+           extract("enc_layers") + "," + extract("dec_layers");
+}
+
 }  // namespace
 
 // ============================================================================
@@ -81,6 +99,9 @@ void TrainingMetricsService::start_session(int session_id, int total_epochs, int
 
         const float previous_best_validation_loss = current_snapshot_.best_validation_loss;
         const int previous_best_epoch = current_snapshot_.best_epoch;
+        const bool arch_unchanged = !arch_key(current_snapshot_.config_snapshot).empty() &&
+                                    arch_key(current_snapshot_.config_snapshot) ==
+                                        arch_key(config_snapshot);
 
         current_session_id_ = session_id;
         is_training_ = true;
@@ -96,8 +117,10 @@ void TrainingMetricsService::start_session(int session_id, int total_epochs, int
         current_snapshot_.total_samples = total_samples;
         current_snapshot_.session_start_time = std::chrono::system_clock::now();
         current_snapshot_.last_update_time = current_snapshot_.session_start_time;
-        current_snapshot_.best_validation_loss = previous_best_validation_loss;
-        current_snapshot_.best_epoch = previous_best_epoch;
+        if (arch_unchanged) {
+            current_snapshot_.best_validation_loss = previous_best_validation_loss;
+            current_snapshot_.best_epoch = previous_best_epoch;
+        }
 
         session_start_steady_ = std::chrono::steady_clock::now();
         samples_since_last_persist_ = 0;
@@ -319,6 +342,13 @@ void TrainingMetricsService::update_sample_metrics(int sample, float loss, float
         current_snapshot_.current_perplexity = std::exp(loss);
         current_snapshot_.total_samples_trained++;
         current_snapshot_.last_update_time = std::chrono::system_clock::now();
+
+        // Reset the clock on the first sample so elapsed time, throughput, and ETA
+        // are measured from when training actually begins, not from session start
+        // (which includes dataset loading and preprocessing time).
+        if (current_snapshot_.total_samples_trained == 1) {
+            session_start_steady_ = std::chrono::steady_clock::now();
+        }
 
         // Update running average
         if (sample == 1) {
@@ -1210,7 +1240,6 @@ std::string TrainingMetricsService::build_push_url(const std::string& endpoint) 
     while (!url.empty() && url.back() == '/') {
         url.pop_back();
     }
-<<<<<<< HEAD
 
     std::string endpoint_path = endpoint;
     if (endpoint_path.empty()) {
@@ -1232,11 +1261,6 @@ std::string TrainingMetricsService::build_push_url(const std::string& endpoint) 
     }
 
     return url + endpoint_path;
-=======
-    // TODO: See TECHNICAL_DEBT.md TD-018 - Prepend /api/sessions/{session_key}
-    //   to endpoint so each trainer targets its own registry slot.
-    return url + endpoint;
->>>>>>> ed717615298f1636afc2d8ea1e25ef1ea07c8c6e
 }
 
 void TrainingMetricsService::push_to_api(const std::string& endpoint,

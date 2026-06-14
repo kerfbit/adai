@@ -172,7 +172,6 @@ int main(int argc, char* argv[]) {
         metrics_config.max_records_on_disk = server_config.max_records_on_disk;
         metrics_config.enable_prometheus_format = server_config.enable_prometheus;
 
-<<<<<<< HEAD
         // Create registry-backed metrics services
         std::cout << "[1/3] Initializing metrics session registry...\n";
         auto session_registry = std::make_shared<MetricsSessionRegistry>(
@@ -189,15 +188,6 @@ int main(int argc, char* argv[]) {
                   << " seconds\n";
         std::cout << "    - Sweep interval: " << server_config.sweep_interval_seconds
                   << " seconds\n";
-=======
-        // Create metrics service
-        // TODO: See TECHNICAL_DEBT.md TD-018 - Replace single TrainingMetricsService with
-        //   MetricsSessionRegistry; seed "0-default" slot from metrics_config for backwards compat;
-        //   inject registry into TrainingMetricsAPI instead of a single service pointer.
-        std::cout << "[1/3] Initializing metrics service...\n";
-        auto metrics_service = std::make_shared<TrainingMetricsService>(metrics_config);
-        std::cout << "  ✓ Metrics service initialized\n";
->>>>>>> ed717615298f1636afc2d8ea1e25ef1ea07c8c6e
 
         if (server_config.enable_persistence) {
             std::cout << "  ✓ Persistence enabled:\n";

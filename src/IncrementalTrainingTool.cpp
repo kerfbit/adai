@@ -15,6 +15,7 @@
 #endif
 #ifdef _WIN32
 #  include <windows.h>
+#include "IncrementalTrainingTool.h"
 #endif
 
 namespace {
@@ -168,72 +169,7 @@ int main(int argc, char* argv[]) {
     if (!command_forks) init_gpu();
 
     if (args.empty()) {
-        std::cout << "Usage: " << argv[0] << " [--config <path>] <command> [options]\n\n";
-        std::cout << "Global options:\n";
-        std::cout << "  --config <path>              Path to config.conf\n";
-        std::cout << "                               Search order: --config > ./config.conf > "
-                     "/etc/adai/config.conf\n";
-        std::cout << "                               Sets model architecture, training params, "
-                     "vocab/model paths\n";
-        std::cout << "  --gpu-strategy <mode>        GPU scheduling strategy: background (default) or full\n";
-        std::cout << "                               background: low-priority stream, yields to other GPU work\n";
-        std::cout << "                               full:       high-priority stream, maximises throughput\n";
-        std::cout << "                               Tip: pair 'full' with GPU_MEMORY_FRACTION=0.9\n\n";
-        std::cout << "Commands:\n";
-        std::cout << "  init [vocab] [model]         Initialize incremental trainer\n";
-        std::cout << "  add <data_file>              Add new training data\n";
-        std::cout << "  gutenberg <book_id> [pairs]  Download & add Gutenberg book (default: 500 "
-                     "pairs)\n";
-        std::cout << "  gutenberg-batch <id1,id2...> Download multiple books\n";
-        std::cout << "  huggingface <dataset_id> [pairs] [split] [in_field] [out_field]\n";
-        std::cout << "                               Download a HuggingFace dataset (default: 500 "
-                     "pairs, train split)\n";
-        std::cout << "  train [epochs]               Train on pending data\n";
-        std::cout << "  retrain [epochs]             Full retrain on all data\n";
-        std::cout << "  reset                        Remove all checkpoints and rebuild model from "
-                     "config\n";
-        std::cout << "  resume                       Resume from last session\n";
-        std::cout << "  status                       Show training status\n";
-        std::cout << "  history                      Show session history\n";
-        std::cout << "\nreset options:\n";
-        std::cout << "  --yes                        Skip confirmation prompt\n";
-        std::cout
-            << "  --keep-data                  Preserve data registry (mark entries untrained)\n";
-        std::cout << "\nPopular Gutenberg Books:\n";
-        std::cout << "  1342  - Pride and Prejudice (Jane Austen)\n";
-        std::cout << "  11    - Alice in Wonderland (Lewis Carroll)\n";
-        std::cout << "  84    - Frankenstein (Mary Shelley)\n";
-        std::cout << "  1661  - Sherlock Holmes (Arthur Conan Doyle)\n";
-        std::cout << "  2701  - Moby Dick (Herman Melville)\n";
-        std::cout << "  16328 - Beowulf\n";
-        std::cout << "  1260  - Jane Eyre (Charlotte Bronte)\n";
-        std::cout << "  98    - A Tale of Two Cities (Charles Dickens)\n";
-        std::cout << "\nPopular HuggingFace Datasets:\n";
-        std::cout
-            << "  daily_dialog              - Daily conversation pairs (dialog array format)\n";
-        std::cout
-            << "  tatsu-lab/alpaca          - Instruction-following (instruction/output fields)\n";
-        std::cout
-            << "  databricks/databricks-dolly-15k - Instruction dataset (instruction/response)\n";
-        std::cout << "  Open-Orca/OpenOrca        - Chain-of-thought Q&A (question/response)\n";
-        std::cout << "  HuggingFaceH4/ultrachat_200k - Multi-turn chat (requires HF_TOKEN for some "
-                     "splits)\n";
-        std::cout << "\nnote: Set HF_TOKEN env var to access gated datasets\n";
-        std::cout << "\nExample workflow:\n";
-        std::cout << "  # Initial training with custom config\n";
-        std::cout << "  " << argv[0] << " --config config.conf init\n";
-        std::cout << "  " << argv[0] << " --config config.conf gutenberg 1342 500\n";
-        std::cout << "  " << argv[0] << " --config config.conf train 10\n";
-        std::cout << "\n  # Add multiple classic books\n";
-        std::cout << "  " << argv[0] << " --config config.conf gutenberg-batch 11,84,1661,2701\n";
-        std::cout << "  " << argv[0] << " --config config.conf train 5\n";
-        std::cout << "\n  # Add a HuggingFace dataset (auto-detect fields)\n";
-        std::cout << "  " << argv[0] << " --config config.conf huggingface daily_dialog 500\n";
-        std::cout
-            << "  " << argv[0]
-            << " --config config.conf huggingface tatsu-lab/alpaca 300 train instruction output\n";
-        std::cout << "  " << argv[0] << " --config config.conf train 5\n";
-        return 1;
+        return output_usage(argv);
     }
 
     // -----------------------------------------------------------------------
@@ -641,4 +577,73 @@ int main(int argc, char* argv[]) {
     }
 
     return 0;
+}
+
+int output_usage(char* argv[]) {
+    std::cout << "Usage: " << argv[0] << " [--config <path>] <command> [options]\n\n";
+    std::cout << "Global options:\n";
+    std::cout << "  --config <path>              Path to config.conf\n";
+    std::cout << "                               Search order: --config > ./config.conf > "
+                 "/etc/adai/config.conf\n";
+    std::cout << "                               Sets model architecture, training params, "
+                 "vocab/model paths\n";
+    std::cout
+        << "  --gpu-strategy <mode>        GPU scheduling strategy: background (default) or full\n";
+    std::cout << "                               background: low-priority stream, yields to other "
+                 "GPU work\n";
+    std::cout << "                               full:       high-priority stream, maximises "
+                 "throughput\n";
+    std::cout << "                               Tip: pair 'full' with GPU_MEMORY_FRACTION=0.9\n\n";
+    std::cout << "Commands:\n";
+    std::cout << "  init [vocab] [model]         Initialize incremental trainer\n";
+    std::cout << "  add <data_file>              Add new training data\n";
+    std::cout << "  gutenberg <book_id> [pairs]  Download & add Gutenberg book (default: 500 "
+                 "pairs)\n";
+    std::cout << "  gutenberg-batch <id1,id2...> Download multiple books\n";
+    std::cout << "  huggingface <dataset_id> [pairs] [split] [in_field] [out_field]\n";
+    std::cout << "                               Download a HuggingFace dataset (default: 500 "
+                 "pairs, train split)\n";
+    std::cout << "  train [epochs]               Train on pending data\n";
+    std::cout << "  retrain [epochs]             Full retrain on all data\n";
+    std::cout << "  reset                        Remove all checkpoints and rebuild model from "
+                 "config\n";
+    std::cout << "  resume                       Resume from last session\n";
+    std::cout << "  status                       Show training status\n";
+    std::cout << "  history                      Show session history\n";
+    std::cout << "\nreset options:\n";
+    std::cout << "  --yes                        Skip confirmation prompt\n";
+    std::cout << "  --keep-data                  Preserve data registry (mark entries untrained)\n";
+    std::cout << "\nPopular Gutenberg Books:\n";
+    std::cout << "  1342  - Pride and Prejudice (Jane Austen)\n";
+    std::cout << "  11    - Alice in Wonderland (Lewis Carroll)\n";
+    std::cout << "  84    - Frankenstein (Mary Shelley)\n";
+    std::cout << "  1661  - Sherlock Holmes (Arthur Conan Doyle)\n";
+    std::cout << "  2701  - Moby Dick (Herman Melville)\n";
+    std::cout << "  16328 - Beowulf\n";
+    std::cout << "  1260  - Jane Eyre (Charlotte Bronte)\n";
+    std::cout << "  98    - A Tale of Two Cities (Charles Dickens)\n";
+    std::cout << "\nPopular HuggingFace Datasets:\n";
+    std::cout << "  daily_dialog              - Daily conversation pairs (dialog array format)\n";
+    std::cout
+        << "  tatsu-lab/alpaca          - Instruction-following (instruction/output fields)\n";
+    std::cout << "  databricks/databricks-dolly-15k - Instruction dataset (instruction/response)\n";
+    std::cout << "  Open-Orca/OpenOrca        - Chain-of-thought Q&A (question/response)\n";
+    std::cout << "  HuggingFaceH4/ultrachat_200k - Multi-turn chat (requires HF_TOKEN for some "
+                 "splits)\n";
+    std::cout << "\nnote: Set HF_TOKEN env var to access gated datasets\n";
+    std::cout << "\nExample workflow:\n";
+    std::cout << "  # Initial training with custom config\n";
+    std::cout << "  " << argv[0] << " --config config.conf init\n";
+    std::cout << "  " << argv[0] << " --config config.conf gutenberg 1342 500\n";
+    std::cout << "  " << argv[0] << " --config config.conf train 10\n";
+    std::cout << "\n  # Add multiple classic books\n";
+    std::cout << "  " << argv[0] << " --config config.conf gutenberg-batch 11,84,1661,2701\n";
+    std::cout << "  " << argv[0] << " --config config.conf train 5\n";
+    std::cout << "\n  # Add a HuggingFace dataset (auto-detect fields)\n";
+    std::cout << "  " << argv[0] << " --config config.conf huggingface daily_dialog 500\n";
+    std::cout
+        << "  " << argv[0]
+        << " --config config.conf huggingface tatsu-lab/alpaca 300 train instruction output\n";
+    std::cout << "  " << argv[0] << " --config config.conf train 5\n";
+    return 1;
 }
