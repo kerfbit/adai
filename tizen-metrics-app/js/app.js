@@ -816,6 +816,7 @@
             el.className = 'session-item focusable' + (s.key === activeKey ? ' session-item-current' : '');
             el.tabIndex  = 0;
             el.setAttribute('data-key', s.key);
+            el.addEventListener('click', function() { selectSession(s.key); });
 
             var statusClass = s.is_training ? 'badge-active' : 'badge-done';
             var statusText  = s.is_training ? 'TRAINING' : 'IDLE';
@@ -883,16 +884,6 @@
         /* OK on settings card → open settings */
         nav.on('ok', function(el) {
             if (!el) return;
-<<<<<<< HEAD
-
-            /* Session picker items */
-            var sessionKey = el.getAttribute('data-key');
-            if (sessionKey) { selectSession(sessionKey); return; }
-
-            if (el.id === 'card-session')         { openPicker();     return; }
-            if (el.id === 'card-settings')        { openSettings();   return; }
-            if (el.id === 'settings-save-btn')    { saveSettings();   return; }
-=======
             if (el.id === 'card-settings') {
                 openSettings();
                 return;
@@ -901,9 +892,14 @@
                 openPicker();
                 return;
             }
-            if (el.id === 'settings-save-btn')   { saveSettings();   return; }
->>>>>>> ed717615298f1636afc2d8ea1e25ef1ea07c8c6e
-            if (el.id === 'settings-cancel-btn')  { closeSettings();  return; }
+            if (el.id === 'settings-save-btn')   { 
+                saveSettings();
+                return;
+            }
+            if (el.id === 'settings-cancel-btn')  { 
+                closeSettings();
+                return;
+            }
 
             /* Interval buttons */
             var interval = el.getAttribute('data-interval');

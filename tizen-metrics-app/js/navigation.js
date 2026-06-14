@@ -64,8 +64,14 @@
         this._focusables = Array.prototype.slice.call(
             container.querySelectorAll('.focusable')
         ).filter(function(el) {
-            /* offsetParent is null for elements inside position:fixed containers,
-               so use getBoundingClientRect to test actual visibility instead. */
+            /* offsetParent is null inside position:fixed, so it cannot be used
+               as a visibility test. offsetWidth/offsetHeight force a synchronous
+               layout flush and return correct dimensions immediately after DOM
+               insertion — unlike getBoundingClientRect which can return zero on
+               Tizen's WebKit for elements in fixed-position overlays even after
+               the overlay is made visible. Fall back to getBoundingClientRect for
+               any remaining edge cases. */
+            if (el.offsetWidth > 0 || el.offsetHeight > 0) return true;
             var r = el.getBoundingClientRect();
             return r.width > 0 && r.height > 0;
         });
