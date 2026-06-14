@@ -429,53 +429,6 @@ void IncrementalTrainer::reset_model_for_config() {
     Logger::info("Model reinitialized with fresh weights (architecture reset)");
 }
 
-// TODO(TD-028): Move add_new_data, add_new_data_batch, clear_pending_data,
-// get_pending_data_files, get_trained_data_files to DatasetRegistry
-bool IncrementalTrainer::add_new_data(const std::string& data_file) {
-    if (!fs::exists(data_file)) {
-        Logger::error("Data file not found: {}", data_file);
-        return false;
-    }
-
-    // Check if already trained
-    if (is_data_trained(data_file)) {
-        Logger::warn("Data file already trained, skipping: {}", data_file);
-        return false;
-    }
-
-    pending_data_files.push_back(data_file);
-    Logger::info("Added new data file: {}", data_file);
-
-    // Save pending files list
-    save_pending_data_list();
-
-    return true;
-}
-
-bool IncrementalTrainer::add_new_data_batch(const std::vector<std::string>& data_files) {
-    int added = 0;
-    for (const auto& file : data_files) {
-        if (add_new_data(file)) {
-            added++;
-        }
-    }
-    Logger::info("Added {}/{} new data files", added, data_files.size());
-    return added > 0;
-}
-
-void IncrementalTrainer::clear_pending_data() {
-    pending_data_files.clear();
-}
-
-std::vector<std::string> IncrementalTrainer::get_pending_data_files() const {
-    return pending_data_files;
-}
-
-std::vector<std::string> IncrementalTrainer::get_trained_data_files() const {
-    return std::vector<std::string>(trained_data_files.begin(), trained_data_files.end());
-}
-
-
 bool IncrementalTrainer::train_on_files(const std::vector<std::string>& files, int num_epochs) {
     Logger::info("Starting Incremental Training Session #{}", current_session_id + 1);
     Logger::info("Files to train: {}", files.size());
@@ -1794,7 +1747,9 @@ bool IncrementalTrainer::add_gutenberg_book(int book_id, int num_pairs) {
     DataFetcher fetcher;
     std::string path = fetcher.fetch_gutenberg(book_id, num_pairs);
     if (path.empty()) return false;
-    return add_new_data(path);
+    pending_data_files.push_back(path);
+    save_pending_data_list();
+    return true;
 }
 
 bool IncrementalTrainer::add_gutenberg_books(const std::vector<int>& book_ids,
@@ -1837,7 +1792,9 @@ bool IncrementalTrainer::add_huggingface_dataset(const std::string& dataset_id, 
     std::string path = fetcher.fetch_huggingface(dataset_id, num_pairs, split, input_field,
                                                  output_field);
     if (path.empty()) return false;
-    return add_new_data(path);
+    pending_data_files.push_back(path);
+    save_pending_data_list();
+    return true;
 }
 
 // ============================================================================

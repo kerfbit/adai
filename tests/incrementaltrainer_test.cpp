@@ -204,84 +204,8 @@ TEST_F(IncrementalTrainerTest, MakeIncrementalConfigKeepsBasePushUrlWhenSessionK
 }
 
 // ============================================================================
-// Data Management Tests
+// Data Registry Tests (checksum only — queue management moved to DatasetRegistry)
 // ============================================================================
-
-TEST_F(IncrementalTrainerTest, AddNewDataSingleFile) {
-    IncrementalConfig config;
-    config.session_dir = session_dir.string();
-    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
-
-    bool result = trainer.add_new_data(data_file1.string());
-    EXPECT_TRUE(result);
-
-    std::vector<std::string> pending = trainer.get_pending_data_files();
-    EXPECT_EQ(pending.size(), 1);
-    EXPECT_EQ(pending[0], data_file1.string());
-}
-
-TEST_F(IncrementalTrainerTest, AddNewDataMultipleFiles) {
-    IncrementalConfig config;
-    config.session_dir = session_dir.string();
-    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
-
-    trainer.add_new_data(data_file1.string());
-    trainer.add_new_data(data_file2.string());
-
-    std::vector<std::string> pending = trainer.get_pending_data_files();
-    EXPECT_EQ(pending.size(), 2);
-}
-
-TEST_F(IncrementalTrainerTest, AddNewDataBatch) {
-    IncrementalConfig config;
-    config.session_dir = session_dir.string();
-    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
-
-    std::vector<std::string> files = {data_file1.string(), data_file2.string()};
-    bool result = trainer.add_new_data_batch(files);
-    EXPECT_TRUE(result);
-
-    std::vector<std::string> pending = trainer.get_pending_data_files();
-    EXPECT_EQ(pending.size(), 2);
-}
-
-TEST_F(IncrementalTrainerTest, AddNonExistentFileReturnsFalse) {
-    IncrementalConfig config;
-    config.session_dir = session_dir.string();
-    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
-
-    bool result = trainer.add_new_data(test_dir.string() + "/nonexistent.txt");
-    EXPECT_FALSE(result);
-
-    std::vector<std::string> pending = trainer.get_pending_data_files();
-    EXPECT_EQ(pending.size(), 0);
-}
-
-TEST_F(IncrementalTrainerTest, ClearPendingData) {
-    IncrementalConfig config;
-    config.session_dir = session_dir.string();
-    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
-
-    trainer.add_new_data(data_file1.string());
-    trainer.add_new_data(data_file2.string());
-
-    std::vector<std::string> pending = trainer.get_pending_data_files();
-    EXPECT_EQ(pending.size(), 2);
-
-    trainer.clear_pending_data();
-
-    pending = trainer.get_pending_data_files();
-    EXPECT_EQ(pending.size(), 0);
-}
-
-TEST_F(IncrementalTrainerTest, GetTrainedDataFilesEmpty) {
-    IncrementalConfig config;
-    config.session_dir = session_dir.string();
-    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
-
-    std::vector<std::string> trained = trainer.get_trained_data_files();
-    EXPECT_EQ(trained.size(), 0);
-}
 
 TEST_F(IncrementalTrainerTest, ComputeDataChecksumConsistent) {
     IncrementalConfig config;
@@ -469,10 +393,6 @@ TEST_F(IncrementalTrainerTest, SaveAndLoadDataRegistry) {
     config.session_dir = session_dir.string();
     IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
 
-    // Add data files
-    trainer.add_new_data(data_file1.string());
-
-    // Save registry
     bool save_result = trainer.save_data_registry();
     EXPECT_TRUE(save_result);
 
@@ -550,29 +470,6 @@ TEST_F(IncrementalTrainerTest, PrintMethodsDoNotCrash) {
     EXPECT_NO_THROW(trainer.print_data_registry());
 }
 
-TEST_F(IncrementalTrainerTest, MultipleDataAddRemoveCycles) {
-    IncrementalConfig config;
-    config.session_dir = session_dir.string();
-    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
-
-    // Add data
-    trainer.add_new_data(data_file1.string());
-    EXPECT_EQ(trainer.get_pending_data_files().size(), 1);
-
-    // Clear
-    trainer.clear_pending_data();
-    EXPECT_EQ(trainer.get_pending_data_files().size(), 0);
-
-    // Add again
-    trainer.add_new_data(data_file1.string());
-    trainer.add_new_data(data_file2.string());
-    EXPECT_EQ(trainer.get_pending_data_files().size(), 2);
-
-    // Clear again
-    trainer.clear_pending_data();
-    EXPECT_EQ(trainer.get_pending_data_files().size(), 0);
-}
-
 TEST_F(IncrementalTrainerTest, ConfigModificationPersists) {
     IncrementalConfig config;
     config.session_dir = session_dir.string();
@@ -591,37 +488,6 @@ TEST_F(IncrementalTrainerTest, ConfigModificationPersists) {
 // ============================================================================
 // Edge Cases
 // ============================================================================
-
-TEST_F(IncrementalTrainerTest, EmptyDataFileHandling) {
-    // Create empty data file
-    fs::path empty_file = test_dir / "empty.txt";
-    std::ofstream(empty_file.string()).close();
-
-    IncrementalConfig config;
-    config.session_dir = session_dir.string();
-    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
-
-    // Should still add to pending even if empty
-    bool result = trainer.add_new_data(empty_file.string());
-    EXPECT_TRUE(result);
-}
-
-TEST_F(IncrementalTrainerTest, VeryLongFilePathHandling) {
-    IncrementalConfig config;
-    config.session_dir = session_dir.string();
-    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
-
-    // Create a very long but valid path
-    std::string long_path = test_dir.string() + "/";
-    for (int i = 0; i < 10; ++i) {
-        long_path += "very_long_directory_name_here/";
-    }
-    long_path += "data.txt";
-
-    // Should handle gracefully (will return false since file doesn't exist)
-    bool result = trainer.add_new_data(long_path);
-    EXPECT_FALSE(result);
-}
 
 TEST_F(IncrementalTrainerTest, MaxSessionsToKeepZero) {
     IncrementalConfig config;

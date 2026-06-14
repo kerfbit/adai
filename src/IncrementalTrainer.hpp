@@ -134,14 +134,6 @@ class IncrementalTrainer {
      */
     void reset_model_for_config();
 
-    // TODO(TD-028): Remove — queue management moves to DatasetRegistry; replace callers with DatasetRegistry methods
-    // Data management
-    bool add_new_data(const std::string& data_file);
-    bool add_new_data_batch(const std::vector<std::string>& data_files);
-    void clear_pending_data();
-    std::vector<std::string> get_pending_data_files() const;
-    std::vector<std::string> get_trained_data_files() const;
-
     // Training — file-list API (TD-028 Phase 3)
     bool train_on_files(const std::vector<std::string>& files, int num_epochs);
     bool retrain_on_files(const std::vector<std::string>& files, int num_epochs);

@@ -556,8 +556,11 @@ int main(int argc, char* argv[]) {
 
         trainer.print_training_summary();
 
+        DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
+        reg.load_registry();
+        reg.load_pending_list();
         std::cout << "\n📋 Pending data files:\n";
-        for (const auto& file : trainer.get_pending_data_files()) {
+        for (const auto& file : reg.pending_files()) {
             std::cout << "  - " << file << "\n";
         }
 
