@@ -146,15 +146,6 @@ class IncrementalTrainer {
     std::vector<TrainingSession> get_session_history() const;
     void cleanup_old_sessions();
 
-    // TODO(TD-028): Remove — registry I/O and checksum move to DatasetRegistry
-    // Data registry
-    bool load_data_registry();
-    bool save_data_registry();
-    bool load_pending_data_list();
-    bool save_pending_data_list();
-    bool is_data_trained(const std::string& data_file);
-    static std::string compute_data_checksum(const std::string& data_file);
-
     // Model operations
     bool save_model(const std::string& path);
     bool load_model(const std::string& path);
@@ -231,11 +222,6 @@ class IncrementalTrainer {
     // Session tracking
     std::vector<TrainingSession> session_history;
     int current_session_id;
-
-    // Data tracking
-    std::vector<DataVersion> data_registry;
-    std::set<std::string> trained_data_files;
-    std::vector<std::string> pending_data_files;
 
     // Auto-save state
     std::chrono::system_clock::time_point last_save_time;

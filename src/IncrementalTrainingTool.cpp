@@ -551,9 +551,6 @@ int main(int argc, char* argv[]) {
     } else if (command == "status") {
         IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
         IncrementalTrainer trainer(default_vocab, default_model, config);
-        trainer.load_data_registry();
-        trainer.load_pending_data_list();
-
         trainer.print_training_summary();
 
         DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
@@ -567,9 +564,6 @@ int main(int argc, char* argv[]) {
     } else if (command == "history") {
         IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
         IncrementalTrainer trainer(default_vocab, default_model, config);
-        trainer.load_data_registry();
-        trainer.load_pending_data_list();
-
         trainer.print_session_history();
         trainer.print_data_registry();
 

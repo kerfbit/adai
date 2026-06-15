@@ -204,33 +204,6 @@ TEST_F(IncrementalTrainerTest, MakeIncrementalConfigKeepsBasePushUrlWhenSessionK
 }
 
 // ============================================================================
-// Data Registry Tests (checksum only — queue management moved to DatasetRegistry)
-// ============================================================================
-
-TEST_F(IncrementalTrainerTest, ComputeDataChecksumConsistent) {
-    IncrementalConfig config;
-    config.session_dir = session_dir.string();
-    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
-
-    std::string checksum1 = trainer.compute_data_checksum(data_file1.string());
-    std::string checksum2 = trainer.compute_data_checksum(data_file1.string());
-
-    EXPECT_FALSE(checksum1.empty());
-    EXPECT_EQ(checksum1, checksum2);
-}
-
-TEST_F(IncrementalTrainerTest, ComputeDataChecksumDifferentForDifferentFiles) {
-    IncrementalConfig config;
-    config.session_dir = session_dir.string();
-    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
-
-    std::string checksum1 = trainer.compute_data_checksum(data_file1.string());
-    std::string checksum2 = trainer.compute_data_checksum(data_file2.string());
-
-    EXPECT_NE(checksum1, checksum2);
-}
-
-// ============================================================================
 // Session Management Tests
 // ============================================================================
 
@@ -382,33 +355,6 @@ TEST_F(IncrementalTrainerTest, GetLatestCheckpointReturnsLastSessionCheckpoint) 
 
     std::string latest = trainer.get_latest_checkpoint();
     EXPECT_EQ(latest, session_dir.string() + "/session_2_checkpoint.bin");
-}
-
-// ============================================================================
-// Data Registry Tests
-// ============================================================================
-
-TEST_F(IncrementalTrainerTest, SaveAndLoadDataRegistry) {
-    IncrementalConfig config;
-    config.session_dir = session_dir.string();
-    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
-
-    bool save_result = trainer.save_data_registry();
-    EXPECT_TRUE(save_result);
-
-    // Create new trainer and load registry
-    IncrementalTrainer trainer2(vocab_file.string(), model_file.string(), config);
-    bool load_result = trainer2.load_data_registry();
-    EXPECT_TRUE(load_result);
-}
-
-TEST_F(IncrementalTrainerTest, IsDataTrainedReturnsFalseForUntrained) {
-    IncrementalConfig config;
-    config.session_dir = session_dir.string();
-    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
-
-    bool trained = trainer.is_data_trained(data_file1.string());
-    EXPECT_FALSE(trained);
 }
 
 // ============================================================================

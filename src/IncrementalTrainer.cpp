@@ -465,14 +465,6 @@ bool IncrementalTrainer::train_on_files(const std::vector<std::string>& files, i
                     }
                 }
 
-                DataVersion dv;
-                dv.data_file = data_file;
-                dv.checksum = compute_data_checksum(data_file);
-                dv.num_samples = loaded;
-                dv.added_time = std::chrono::system_clock::now();
-                dv.trained = true;
-                data_registry.push_back(dv);
-                trained_data_files.insert(data_file);
             }
         }
     }
@@ -776,15 +768,7 @@ bool IncrementalTrainer::resume_last_session() {
 
     bool ok = train_on_files(pending, config.base_config.num_epochs);
     if (ok) {
-        std::vector<int> counts;
-        counts.reserve(pending.size());
-        for (const auto& path : pending) {
-            int n = 0;
-            for (const auto& dv : data_registry) {
-                if (dv.data_file == path) { n = dv.num_samples; break; }
-            }
-            counts.push_back(n);
-        }
+        std::vector<int> counts(pending.size(), 0);
         reg.mark_trained(run_id, pending, counts);
     } else {
         reg.release_pending(run_id, pending);
@@ -1036,90 +1020,6 @@ void IncrementalTrainer::cleanup_old_sessions() {
     }
 }
 
-// TODO(TD-028): Move to DatasetRegistry::load_registry()
-bool IncrementalTrainer::load_data_registry() {
-    std::string registry_file = get_session_dir() + "/" + dataset_config_.data_registry_file;
-
-    if (!fs::exists(registry_file)) {
-        return false;
-    }
-
-    std::ifstream file(registry_file);
-    if (!file.is_open()) {
-        return false;
-    }
-
-    data_registry.clear();
-    trained_data_files.clear();
-
-    std::string line;
-    while (std::getline(file, line)) {
-        if (line.empty() || line[0] == '#') {
-            continue;
-        }
-
-        std::istringstream iss(line);
-        DataVersion dv;
-        int trained_int = 0;
-
-        iss >> dv.data_file >> dv.checksum >> dv.num_samples >> trained_int;
-        dv.trained = (trained_int == 1);
-
-        data_registry.push_back(dv);
-
-        if (dv.trained) {
-            trained_data_files.insert(dv.data_file);
-        }
-    }
-
-    Logger::info("Loaded data registry: {} files ({} trained)", data_registry.size(),
-                 trained_data_files.size());
-
-    return true;
-}
-
-// TODO(TD-028): Move to DatasetRegistry::save_registry()
-bool IncrementalTrainer::save_data_registry() {
-    std::string registry_file = get_session_dir() + "/" + dataset_config_.data_registry_file;
-
-    std::ofstream file(registry_file);
-    if (!file.is_open()) {
-        Logger::error("Failed to save data registry");
-        return false;
-    }
-
-    file << "# Data Registry: data_file checksum num_samples trained\n";
-
-    for (const auto& dv : data_registry) {
-        file << dv.data_file << " " << dv.checksum << " " << dv.num_samples << " "
-             << (dv.trained ? 1 : 0) << "\n";
-    }
-
-    return true;
-}
-
-bool IncrementalTrainer::is_data_trained(const std::string& data_file) {
-    return trained_data_files.find(data_file) != trained_data_files.end();
-}
-
-// TODO(TD-028): Move to DatasetRegistry::compute_checksum()
-std::string IncrementalTrainer::compute_data_checksum(const std::string& data_file) {
-    // Simple checksum: file size + modification time
-    if (!fs::exists(data_file)) {
-        return "MISSING";
-    }
-
-    auto size = fs::file_size(data_file);
-    auto ftime = fs::last_write_time(data_file);
-
-    std::ostringstream oss;
-    // file_time_type::duration::rep is __int128 on macOS (libc++) which has no
-    // operator<< overload — cast to long long to keep it portable.
-    oss << size << "_" << static_cast<long long>(ftime.time_since_epoch().count());
-
-    return oss.str();
-}
-
 bool IncrementalTrainer::save_model(const std::string& path) {
     try {
         model->save_model(path);
@@ -1177,7 +1077,6 @@ void IncrementalTrainer::print_training_summary() const {
     std::cout << "╚══════════════════════════════════════════════╝\n";
 
     std::cout << "  Sessions       : " << session_history.size() << "\n";
-    std::cout << "  Data files used: " << trained_data_files.size() << "\n";
     std::cout << "  Total samples  : " << get_total_samples_trained() << "\n";
     std::cout << "  Total time     : " << std::fixed << std::setprecision(2)
               << get_total_training_time_hours() << " h\n";
@@ -1251,13 +1150,19 @@ void IncrementalTrainer::print_session_history() {
 }
 
 void IncrementalTrainer::print_data_registry() {
-    std::cout << COLOR_INFO << "\n📋 Data Registry:" << COLOR_RESET << '\n';
-    std::cout << "Trained | Samples | Data File" << '\n';
-    std::cout << "--------|---------|----------" << '\n';
+    DatasetRegistry reg(dataset_config_);
+    reg.load_registry();
+    reg.load_pending_list();
 
-    for (const auto& dv : data_registry) {
-        std::cout << std::setw(7) << (dv.trained ? "✓" : " ") << " | " << std::setw(7)
-                  << dv.num_samples << " | " << dv.data_file << '\n';
+    std::cout << COLOR_INFO << "\n📋 Data Registry:" << COLOR_RESET << '\n';
+    std::cout << "Status  | Data File" << '\n';
+    std::cout << "--------|----------" << '\n';
+
+    for (const auto& f : reg.trained_files()) {
+        std::cout << "trained | " << f << '\n';
+    }
+    for (const auto& f : reg.pending_files()) {
+        std::cout << "pending | " << f << '\n';
     }
 }
 
@@ -1273,10 +1178,8 @@ float IncrementalTrainer::get_total_training_time_hours() const {
 
 int IncrementalTrainer::get_total_samples_trained() const {
     int total = 0;
-    for (const auto& dv : data_registry) {
-        if (dv.trained) {
-            total += dv.num_samples;
-        }
+    for (const auto& s : session_history) {
+        total += s.samples_trained;
     }
     return total;
 }
@@ -1459,12 +1362,21 @@ bool IncrementalTrainer::reset_all(bool keep_data_registry) {
                 Logger::info("Data registry removed");
             }
         } else {
-            // Mark every entry as untrained so the next retrain picks them up
-            for (auto& dv : data_registry) {
-                dv.trained = false;
+            // Re-queue all previously trained files as pending so the next run
+            // picks them all up (equivalent to "mark all untrained").
+            DatasetRegistry reg(dataset_config_);
+            reg.load_registry();
+            auto previously_trained = reg.trained_files();
+            std::error_code ec2;
+            fs::remove(registry_file, ec2);  // clear trained-status on disk
+            if (!previously_trained.empty()) {
+                DatasetRegistry fresh(dataset_config_);
+                fresh.add_files(previously_trained);
+                Logger::info("Data registry preserved; {} entries re-queued as pending",
+                             previously_trained.size());
+            } else {
+                Logger::info("Data registry preserved; no trained entries to re-queue");
             }
-            save_data_registry();
-            Logger::info("Data registry preserved; all entries marked untrained");
         }
     }
 
@@ -1473,15 +1385,9 @@ bool IncrementalTrainer::reset_all(bool keep_data_registry) {
     // ------------------------------------------------------------------
     session_history.clear();
     current_session_id = 0;
-    pending_data_files.clear();
     samples_since_last_save = 0;
     best_validation_loss = std::numeric_limits<float>::max();
     best_checkpoint_path.clear();
-
-    if (!keep_data_registry) {
-        data_registry.clear();
-        trained_data_files.clear();
-    }
 
     // ------------------------------------------------------------------
     // 4. Rebuild model from current config (new architecture).
@@ -1493,7 +1399,6 @@ bool IncrementalTrainer::reset_all(bool keep_data_registry) {
     // ------------------------------------------------------------------
     ensure_directories_exist();
     save_session_history();
-    save_pending_data_list();
 
     Logger::info(
         "Reset complete. Model rebuilt with d_model={} heads={} enc_layers={} dec_layers={} "
@@ -1516,48 +1421,6 @@ void IncrementalTrainer::ensure_directories_exist() {
     if (dataset_config_.cache_tokenized_data && !fs::exists(dataset_config_.tokenized_cache_dir)) {
         fs::create_directories(dataset_config_.tokenized_cache_dir);
     }
-}
-
-// TODO(TD-028): Move to DatasetRegistry::save_pending_list()
-bool IncrementalTrainer::save_pending_data_list() {
-    std::string pending_file = get_session_dir() + "/pending_files.txt";
-    std::ofstream file(pending_file);
-    if (!file.is_open()) {
-        return false;
-    }
-
-    for (const auto& pending_file_path : pending_data_files) {
-        file << pending_file_path << '\n';
-    }
-
-    return true;
-}
-
-// TODO(TD-028): Move to DatasetRegistry::load_pending_list()
-bool IncrementalTrainer::load_pending_data_list() {
-    std::string pending_file = get_session_dir() + "/pending_files.txt";
-    if (!fs::exists(pending_file)) {
-        return false;
-    }
-
-    std::ifstream file(pending_file);
-    if (!file.is_open()) {
-        return false;
-    }
-
-    pending_data_files.clear();
-    std::string line;
-    while (std::getline(file, line)) {
-        if (!line.empty()) {
-            pending_data_files.push_back(line);
-        }
-    }
-
-    if (!pending_data_files.empty()) {
-        Logger::info("Loaded {} pending data files", pending_data_files.size());
-    }
-
-    return true;
 }
 
 // ============================================================================
@@ -1747,9 +1610,10 @@ bool IncrementalTrainer::add_gutenberg_book(int book_id, int num_pairs) {
     DataFetcher fetcher;
     std::string path = fetcher.fetch_gutenberg(book_id, num_pairs);
     if (path.empty()) return false;
-    pending_data_files.push_back(path);
-    save_pending_data_list();
-    return true;
+    DatasetRegistry reg(dataset_config_);
+    reg.load_registry();
+    reg.load_pending_list();
+    return reg.add_file(path);
 }
 
 bool IncrementalTrainer::add_gutenberg_books(const std::vector<int>& book_ids,
@@ -1792,9 +1656,10 @@ bool IncrementalTrainer::add_huggingface_dataset(const std::string& dataset_id, 
     std::string path = fetcher.fetch_huggingface(dataset_id, num_pairs, split, input_field,
                                                  output_field);
     if (path.empty()) return false;
-    pending_data_files.push_back(path);
-    save_pending_data_list();
-    return true;
+    DatasetRegistry reg(dataset_config_);
+    reg.load_registry();
+    reg.load_pending_list();
+    return reg.add_file(path);
 }
 
 // ============================================================================
