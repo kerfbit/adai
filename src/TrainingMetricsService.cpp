@@ -99,9 +99,9 @@ void TrainingMetricsService::start_session(int session_id, int total_epochs, int
 
         const float previous_best_validation_loss = current_snapshot_.best_validation_loss;
         const int previous_best_epoch = current_snapshot_.best_epoch;
-        const bool arch_unchanged = !arch_key(current_snapshot_.config_snapshot).empty() &&
-                                    arch_key(current_snapshot_.config_snapshot) ==
-                                        arch_key(config_snapshot);
+        const std::string old_arch = arch_key(current_snapshot_.config_snapshot);
+        const std::string new_arch = arch_key(config_snapshot);
+        const bool arch_changed = !old_arch.empty() && !new_arch.empty() && old_arch != new_arch;
 
         current_session_id_ = session_id;
         is_training_ = true;
@@ -117,7 +117,7 @@ void TrainingMetricsService::start_session(int session_id, int total_epochs, int
         current_snapshot_.total_samples = total_samples;
         current_snapshot_.session_start_time = std::chrono::system_clock::now();
         current_snapshot_.last_update_time = current_snapshot_.session_start_time;
-        if (arch_unchanged) {
+        if (!arch_changed) {
             current_snapshot_.best_validation_loss = previous_best_validation_loss;
             current_snapshot_.best_epoch = previous_best_epoch;
         }
