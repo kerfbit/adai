@@ -551,6 +551,20 @@ if(TARGET adai_metrics_api)
         target_include_directories(trainingMetricsApiRoutesTests PRIVATE ${HTTPLIB_INCLUDE_DIR})
     endif()
     add_test(NAME TrainingMetricsAPIRoutesTests COMMAND trainingMetricsApiRoutesTests)
+
+    # Live-server integration tests — connect to a running metrics_api_server.
+    # Override target with: METRICS_SERVER_HOST=<host> METRICS_SERVER_PORT=<port>
+    # Tests are skipped automatically when the server is unreachable.
+    add_executable(trainingMetricsApiLiveTests training_metrics_api_live_test.cpp)
+    target_include_directories(trainingMetricsApiLiveTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(trainingMetricsApiLiveTests
+        adai_core
+        GTest::gtest_main
+    )
+    if(HTTPLIB_INCLUDE_DIR)
+        target_include_directories(trainingMetricsApiLiveTests PRIVATE ${HTTPLIB_INCLUDE_DIR})
+    endif()
+    add_test(NAME TrainingMetricsAPILiveTests COMMAND trainingMetricsApiLiveTests)
 endif()
 
 # TD-017: Adaptive gradient clipping tests (TrainingMetricsService)

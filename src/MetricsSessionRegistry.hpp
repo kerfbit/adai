@@ -22,6 +22,7 @@ struct MetricsSessionSummary {
     std::string label;           ///< human-readable label; empty until TrainingMetricsService populates (TD-021 step 8)
     std::string config_snapshot; ///< compact training-config JSON; empty until step 8
     bool is_training = false;
+    bool effective_is_training = false; ///< is_training && !is_stale — matches health-check liveness
     int current_epoch = 0;
     int total_epochs = 0;
     float current_loss = 0.0f;
@@ -108,6 +109,7 @@ class MetricsSessionRegistry {
             summary.label = snapshot.label;
             summary.config_snapshot = snapshot.config_snapshot;
             summary.is_training = snapshot.is_training;
+            summary.effective_is_training = snapshot.effective_is_training;
             summary.current_epoch = snapshot.current_epoch;
             summary.total_epochs = snapshot.total_epochs;
             summary.current_loss = snapshot.current_loss;

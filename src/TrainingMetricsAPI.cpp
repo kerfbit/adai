@@ -14,6 +14,10 @@ class TrainingMetricsAPI::ServerImpl {
 
 namespace {
 
+// Shared by handle_health_check() and handle_metrics_aggregate() so both endpoints
+// agree on what counts as a live session.
+constexpr int kHealthStalenessThreshold = 60;
+
 class ApiRequestError : public std::runtime_error {
    public:
     ApiRequestError(int status_code, const std::string& message)
@@ -1174,8 +1178,15 @@ std::string TrainingMetricsAPI::handle_metrics_aggregate() {
     std::ostringstream sessions_json;
     sessions_json << "\"sessions\":[";
     bool first = true;
+    auto now = std::chrono::system_clock::now();
     for (const auto& session : sessions) {
         if (!session.is_training) {
+            continue;
+        }
+        auto secs = std::chrono::duration_cast<std::chrono::seconds>(
+                        now - session.last_update_time)
+                        .count();
+        if (secs > kHealthStalenessThreshold) {
             continue;
         }
         ++live_sessions;
@@ -1224,9 +1235,8 @@ std::string TrainingMetricsAPI::handle_health_check() {
         auto secs = std::chrono::duration_cast<std::chrono::seconds>(
                         std::chrono::system_clock::now() - summary.last_update_time)
                         .count();
-        // Use a fixed 60-second threshold for the health-check aggregate view.
-        // Session-level staleness uses the per-service configured threshold.
-        constexpr int kHealthStalenessThreshold = 60;
+        // Session-level staleness uses the per-service configured threshold (which may extend
+        // during validation); the aggregate/health view uses the flat kHealthStalenessThreshold.
         if (secs > kHealthStalenessThreshold) {
             any_stale = true;
         } else {
