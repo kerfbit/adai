@@ -125,6 +125,8 @@ void TrainingMetricsService::start_session(int session_id, int total_epochs, int
         session_start_steady_ = std::chrono::steady_clock::now();
         samples_since_last_persist_ = 0;
         last_persist_time_ = std::chrono::system_clock::now();
+        awaiting_validation_ = false;
+        last_epoch_training_duration_seconds_ = 0.0;
 
         adai::Logger::info("Metrics session {} started (epochs={}, samples={}, label={})",
                            session_id, total_epochs, total_samples,
@@ -202,6 +204,7 @@ void TrainingMetricsService::start_epoch(int epoch, int total_samples) {
         }
 
         epoch_start_steady_ = std::chrono::steady_clock::now();
+        awaiting_validation_ = false;
 
         adai::Logger::debug("Metrics epoch {} started (samples={})", epoch, total_samples);
 
@@ -267,6 +270,7 @@ void TrainingMetricsService::end_epoch(int epoch, float loss, float validation_l
         current_snapshot_.epoch_gradient_norms.push_back(gradient_norm);
 
         // Update current metrics
+        awaiting_validation_ = false;
         current_snapshot_.current_loss = loss;
         current_snapshot_.current_validation_loss = validation_loss;
         current_snapshot_.current_learning_rate = learning_rate;
@@ -342,6 +346,18 @@ void TrainingMetricsService::update_sample_metrics(int sample, float loss, float
         current_snapshot_.current_perplexity = std::exp(loss);
         current_snapshot_.total_samples_trained++;
         current_snapshot_.last_update_time = std::chrono::system_clock::now();
+
+        // Detect the last training sample of the epoch: validation is about to start.
+        // Record the epoch training duration so the staleness check can extend its threshold
+        // to epoch_duration + staleness_threshold_seconds while validation is in progress.
+        if (current_snapshot_.total_samples > 0 &&
+            sample == current_snapshot_.total_samples) {
+            auto epoch_dur = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::steady_clock::now() - epoch_start_steady_);
+            last_epoch_training_duration_seconds_ =
+                static_cast<double>(epoch_dur.count()) / 1000.0;
+            awaiting_validation_ = true;
+        }
 
         // Reset the clock on the first sample so elapsed time, throughput, and ETA
         // are measured from when training actually begins, not from session start
@@ -489,14 +505,20 @@ TrainingMetricsSnapshot TrainingMetricsService::get_current_snapshot() const {
     }
 
     // TD-019: Compute stale-state fields from the preserved ingest timestamp.
+    // During validation (awaiting_validation_), extend the threshold by the epoch training
+    // duration so a validation pass that takes as long as the epoch won't falsely mark
+    // the session stale before the inactivity window expires.
     {
         auto now_wall = std::chrono::system_clock::now();
         auto secs = std::chrono::duration_cast<std::chrono::seconds>(
                         now_wall - snapshot.last_update_time)
                         .count();
         snapshot.seconds_since_last_update = static_cast<double>(secs);
-        snapshot.is_stale =
-            snapshot.is_training && (secs > config_.staleness_threshold_seconds);
+        long long effective_threshold = config_.staleness_threshold_seconds;
+        if (awaiting_validation_ && last_epoch_training_duration_seconds_ > 0.0) {
+            effective_threshold += static_cast<long long>(last_epoch_training_duration_seconds_);
+        }
+        snapshot.is_stale = snapshot.is_training && (secs > effective_threshold);
         snapshot.effective_is_training = snapshot.is_training && !snapshot.is_stale;
     }
 
@@ -536,14 +558,18 @@ std::string TrainingMetricsService::to_json() const {
     }
 
     // TD-019: Compute stale-state fields from preserved ingest timestamp.
+    // Mirror the dynamic-threshold logic from get_current_snapshot().
     {
         auto now_wall = std::chrono::system_clock::now();
         auto secs = std::chrono::duration_cast<std::chrono::seconds>(
                         now_wall - snapshot.last_update_time)
                         .count();
         snapshot.seconds_since_last_update = static_cast<double>(secs);
-        snapshot.is_stale =
-            snapshot.is_training && (secs > config_.staleness_threshold_seconds);
+        long long effective_threshold = config_.staleness_threshold_seconds;
+        if (awaiting_validation_ && last_epoch_training_duration_seconds_ > 0.0) {
+            effective_threshold += static_cast<long long>(last_epoch_training_duration_seconds_);
+        }
+        snapshot.is_stale = snapshot.is_training && (secs > effective_threshold);
         snapshot.effective_is_training = snapshot.is_training && !snapshot.is_stale;
     }
 

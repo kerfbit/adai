@@ -327,6 +327,10 @@ class TrainingMetricsService {
     std::chrono::steady_clock::time_point session_start_steady_;
     std::chrono::steady_clock::time_point epoch_start_steady_;
 
+    // Validation-gap staleness extension
+    bool awaiting_validation_ = false;               ///< Set on last training sample of an epoch; cleared by end_epoch/start_epoch
+    double last_epoch_training_duration_seconds_ = 0.0;  ///< Training-phase wall time of the most recent epoch
+
     // Private helpers
     void restore_from_summary();  // Restore snapshot from persisted summary file on startup
     void persist_metrics();
