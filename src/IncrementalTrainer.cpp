@@ -17,7 +17,6 @@
 #include <unistd.h>
 #endif
 #include "Config.hpp"
-#include "DataFetcher.hpp"
 #include "Logger.hpp"
 #include "TrainingMetricsAPI.hpp"
 #ifdef ADAI_ENABLE_OPENMP
@@ -1620,22 +1619,6 @@ std::string IncrementalTrainer::format_duration(double seconds) {
         oss << seconds << "s";
     }
     return oss.str();
-}
-
-// HuggingFace Datasets integration (TD-028: thin wrapper delegating to DataFetcher)
-
-bool IncrementalTrainer::add_huggingface_dataset(const std::string& dataset_id, int num_pairs,
-                                                 const std::string& split,
-                                                 const std::string& input_field,
-                                                 const std::string& output_field) {
-    DataFetcher fetcher;
-    std::string path = fetcher.fetch_huggingface(dataset_id, num_pairs, split, input_field,
-                                                 output_field);
-    if (path.empty()) return false;
-    DatasetRegistry reg(dataset_config_);
-    reg.load_registry();
-    reg.load_pending_list();
-    return reg.add_file(path);
 }
 
 // ============================================================================

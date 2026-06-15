@@ -3,7 +3,6 @@
 #include <iostream>
 #include <sstream>
 #include "Config.hpp"
-#include "DataFetcher.hpp"
 #include "DatasetRegistry.hpp"
 #include "IncrementalTrainer.hpp"
 #include "Logger.hpp"
@@ -224,38 +223,6 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-    } else if (command == "huggingface") {
-        if (args.size() < 2) {
-            std::cerr
-                << "Usage: " << argv[0]
-                << " huggingface <dataset_id> [num_pairs] [split] [input_field] [output_field]\n";
-            std::cerr << "Example: " << argv[0] << " huggingface daily_dialog 500\n";
-            std::cerr << "Example: " << argv[0]
-                      << " huggingface tatsu-lab/alpaca 300 train instruction output\n";
-            return 1;
-        }
-
-        std::string dataset_id = args[1];
-        int num_pairs = (args.size() >= 3) ? std::stoi(args[2]) : 500;
-        std::string split = (args.size() >= 4) ? args[3] : "train";
-        std::string input_field = (args.size() >= 5) ? args[4] : "";
-        std::string output_field = (args.size() >= 6) ? args[5] : "";
-
-        DataFetcher fetcher;
-        DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
-        reg.load_registry();
-        reg.load_pending_list();
-
-        std::string path =
-            fetcher.fetch_huggingface(dataset_id, num_pairs, split, input_field, output_field);
-        if (!path.empty() && reg.add_file(path)) {
-            std::cout << "✅ Dataset added to training queue (" << num_pairs << " pairs)\n";
-            std::cout << "📊 Pending files: " << reg.pending_files().size() << "\n";
-        } else {
-            std::cerr << "❌ Failed to add HuggingFace dataset\n";
-            return 1;
-        }
-
     } else if (command == "train") {
         // Epoch count can come from args or from config
         int epochs = (args.size() >= 2) ? std::stoi(args[1]) : svc_config.num_epochs;
@@ -441,7 +408,7 @@ int main(int argc, char* argv[]) {
         if (trainer.reset_all(keep_data)) {
             std::cout << "✅ Reset complete. Model rebuilt from config.\n";
             if (!keep_data) {
-                std::cout << "   Use 'add' or 'huggingface' to queue new training data.\n";
+                std::cout << "   Use 'add' to queue new training data.\n";
             } else {
                 std::cout << "   All previous data marked untrained — run 'retrain' to use it.\n";
             }
@@ -529,9 +496,6 @@ int output_usage(char* argv[]) {
     std::cout << "Commands:\n";
     std::cout << "  init [vocab] [model]         Initialize incremental trainer\n";
     std::cout << "  add <data_file>              Add new training data\n";
-    std::cout << "  huggingface <dataset_id> [pairs] [split] [in_field] [out_field]\n";
-    std::cout << "                               Download a HuggingFace dataset (default: 500 "
-                 "pairs, train split)\n";
     std::cout << "  train [epochs]               Train on pending data\n";
     std::cout << "  retrain [epochs]             Full retrain on all data\n";
     std::cout << "  reset                        Remove all checkpoints and rebuild model from "
@@ -542,23 +506,10 @@ int output_usage(char* argv[]) {
     std::cout << "\nreset options:\n";
     std::cout << "  --yes                        Skip confirmation prompt\n";
     std::cout << "  --keep-data                  Preserve data registry (mark entries untrained)\n";
-    std::cout << "\nPopular HuggingFace Datasets:\n";
-    std::cout << "  daily_dialog              - Daily conversation pairs (dialog array format)\n";
-    std::cout
-        << "  tatsu-lab/alpaca          - Instruction-following (instruction/output fields)\n";
-    std::cout << "  databricks/databricks-dolly-15k - Instruction dataset (instruction/response)\n";
-    std::cout << "  Open-Orca/OpenOrca        - Chain-of-thought Q&A (question/response)\n";
-    std::cout << "  HuggingFaceH4/ultrachat_200k - Multi-turn chat (requires HF_TOKEN for some "
-                 "splits)\n";
-    std::cout << "\nnote: Set HF_TOKEN env var to access gated datasets\n";
     std::cout << "\nExample workflow:\n";
     std::cout << "  # Initial training with custom config\n";
     std::cout << "  " << argv[0] << " --config config.conf init\n";
-    std::cout << "\n  # Add a HuggingFace dataset (auto-detect fields)\n";
-    std::cout << "  " << argv[0] << " --config config.conf huggingface daily_dialog 500\n";
-    std::cout
-        << "  " << argv[0]
-        << " --config config.conf huggingface tatsu-lab/alpaca 300 train instruction output\n";
+    std::cout << "  " << argv[0] << " --config config.conf add data.txt\n";
     std::cout << "  " << argv[0] << " --config config.conf train 5\n";
     return 1;
 }

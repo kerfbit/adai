@@ -79,7 +79,6 @@ struct IncrementalConfig {
  * - Automatic checkpointing
  * - Incremental data addition
  * - Resume capability
- * - Project Gutenberg integration
  */
 class IncrementalTrainer {
    public:
@@ -177,33 +176,6 @@ class IncrementalTrainer {
     /// run (TD-021).  Empty when no metrics_server_url was configured or before
     /// the first training run.
     std::string get_metrics_session_key() const { return active_session_key_; }
-
-    // TODO(TD-028): Remove — moves to DataFetcher::fetch_huggingface(); caller enqueues returned path via DatasetRegistry::add_file()
-    // HuggingFace Datasets integration
-    /**
-     * @brief Download a dataset from the HuggingFace Datasets server and add it to
-     *        the pending training queue.
-     *
-     * Uses the HuggingFace datasets-server API (no Python / huggingface_hub required).
-     * Rows are fetched as JSON in chunks of 100 and converted to the INPUT:/RESPONSE:
-     * training format.
-     *
-     * Field auto-detection tries common pairs (instruction/output, question/answer, …).
-     * For dialog-array datasets (e.g. daily_dialog) consecutive turns are paired.
-     * Set the HF_TOKEN environment variable to access gated datasets.
-     *
-     * @param dataset_id   HuggingFace dataset identifier, e.g. "daily_dialog" or
-     *                     "tatsu-lab/alpaca".  Slashes are allowed.
-     * @param num_pairs    Maximum number of training pairs to extract (default 500).
-     * @param split        Dataset split to use (default "train").
-     * @param input_field  JSON field name for the input text.  Empty = auto-detect.
-     * @param output_field JSON field name for the output text.  Empty = auto-detect.
-     * @return true if the data was downloaded and added successfully.
-     */
-    bool add_huggingface_dataset(const std::string& dataset_id, int num_pairs = 500,
-                                 const std::string& split = "train",
-                                 const std::string& input_field = "",
-                                 const std::string& output_field = "");
 
    private:
     // Training components
