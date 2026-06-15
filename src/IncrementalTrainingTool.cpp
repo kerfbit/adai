@@ -224,71 +224,6 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-    } else if (command == "gutenberg") {
-        if (args.size() < 2) {
-            std::cerr << "Usage: " << argv[0] << " gutenberg <book_id> [num_pairs]\n";
-            std::cerr << "Example: " << argv[0] << " gutenberg 1342 500\n";
-            return 1;
-        }
-
-        int book_id = std::stoi(args[1]);
-        int num_pairs = (args.size() >= 3) ? std::stoi(args[2]) : 500;
-
-        DataFetcher fetcher;
-        DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
-        reg.load_registry();
-        reg.load_pending_list();
-
-        std::cout << "📚 Downloading Project Gutenberg book #" << book_id << "...\n";
-
-        std::string path = fetcher.fetch_gutenberg(book_id, num_pairs);
-        if (!path.empty() && reg.add_file(path)) {
-            std::cout << "✅ Book added to training queue (" << num_pairs << " pairs)\n";
-            std::cout << "📊 Pending files: " << reg.pending_files().size() << "\n";
-        } else {
-            std::cerr << "❌ Failed to add Gutenberg book\n";
-            return 1;
-        }
-
-    } else if (command == "gutenberg-batch") {
-        if (args.size() < 2) {
-            std::cerr << "Usage: " << argv[0]
-                      << " gutenberg-batch <id1,id2,id3,...> [num_pairs_each]\n";
-            std::cerr << "Example: " << argv[0] << " gutenberg-batch 1342,11,84,1661 300\n";
-            return 1;
-        }
-
-        std::string ids_str = args[1];
-        int num_pairs_each = (args.size() >= 3) ? std::stoi(args[2]) : 500;
-
-        std::vector<int> book_ids;
-        std::stringstream ss(ids_str);
-        std::string id;
-        while (std::getline(ss, id, ',')) {
-            book_ids.push_back(std::stoi(id));
-        }
-
-        DataFetcher fetcher;
-        DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
-        reg.load_registry();
-        reg.load_pending_list();
-
-        std::cout << "📚 Downloading " << book_ids.size() << " Project Gutenberg books...\n";
-
-        auto paths = fetcher.fetch_gutenberg_batch(book_ids, num_pairs_each);
-        int added = 0;
-        for (const auto& p : paths) {
-            if (!p.empty() && reg.add_file(p)) ++added;
-        }
-        if (added > 0) {
-            std::cout << "✅ " << added << "/" << book_ids.size()
-                      << " books added to training queue\n";
-            std::cout << "📊 Pending files: " << reg.pending_files().size() << "\n";
-        } else {
-            std::cerr << "❌ Failed to add Gutenberg books\n";
-            return 1;
-        }
-
     } else if (command == "huggingface") {
         if (args.size() < 2) {
             std::cerr
@@ -506,7 +441,7 @@ int main(int argc, char* argv[]) {
         if (trainer.reset_all(keep_data)) {
             std::cout << "✅ Reset complete. Model rebuilt from config.\n";
             if (!keep_data) {
-                std::cout << "   Use 'add' or 'gutenberg' to queue new training data.\n";
+                std::cout << "   Use 'add' or 'huggingface' to queue new training data.\n";
             } else {
                 std::cout << "   All previous data marked untrained — run 'retrain' to use it.\n";
             }
@@ -594,9 +529,6 @@ int output_usage(char* argv[]) {
     std::cout << "Commands:\n";
     std::cout << "  init [vocab] [model]         Initialize incremental trainer\n";
     std::cout << "  add <data_file>              Add new training data\n";
-    std::cout << "  gutenberg <book_id> [pairs]  Download & add Gutenberg book (default: 500 "
-                 "pairs)\n";
-    std::cout << "  gutenberg-batch <id1,id2...> Download multiple books\n";
     std::cout << "  huggingface <dataset_id> [pairs] [split] [in_field] [out_field]\n";
     std::cout << "                               Download a HuggingFace dataset (default: 500 "
                  "pairs, train split)\n";
@@ -610,15 +542,6 @@ int output_usage(char* argv[]) {
     std::cout << "\nreset options:\n";
     std::cout << "  --yes                        Skip confirmation prompt\n";
     std::cout << "  --keep-data                  Preserve data registry (mark entries untrained)\n";
-    std::cout << "\nPopular Gutenberg Books:\n";
-    std::cout << "  1342  - Pride and Prejudice (Jane Austen)\n";
-    std::cout << "  11    - Alice in Wonderland (Lewis Carroll)\n";
-    std::cout << "  84    - Frankenstein (Mary Shelley)\n";
-    std::cout << "  1661  - Sherlock Holmes (Arthur Conan Doyle)\n";
-    std::cout << "  2701  - Moby Dick (Herman Melville)\n";
-    std::cout << "  16328 - Beowulf\n";
-    std::cout << "  1260  - Jane Eyre (Charlotte Bronte)\n";
-    std::cout << "  98    - A Tale of Two Cities (Charles Dickens)\n";
     std::cout << "\nPopular HuggingFace Datasets:\n";
     std::cout << "  daily_dialog              - Daily conversation pairs (dialog array format)\n";
     std::cout
@@ -631,11 +554,6 @@ int output_usage(char* argv[]) {
     std::cout << "\nExample workflow:\n";
     std::cout << "  # Initial training with custom config\n";
     std::cout << "  " << argv[0] << " --config config.conf init\n";
-    std::cout << "  " << argv[0] << " --config config.conf gutenberg 1342 500\n";
-    std::cout << "  " << argv[0] << " --config config.conf train 10\n";
-    std::cout << "\n  # Add multiple classic books\n";
-    std::cout << "  " << argv[0] << " --config config.conf gutenberg-batch 11,84,1661,2701\n";
-    std::cout << "  " << argv[0] << " --config config.conf train 5\n";
     std::cout << "\n  # Add a HuggingFace dataset (auto-detect fields)\n";
     std::cout << "  " << argv[0] << " --config config.conf huggingface daily_dialog 500\n";
     std::cout

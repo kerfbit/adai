@@ -1604,30 +1604,6 @@ int IncrementalTrainer::load_conversation_pairs(const std::string& filepath,
     return pair_count;
 }
 
-// Project Gutenberg integration (TD-028: thin wrappers delegating to DataFetcher)
-
-bool IncrementalTrainer::add_gutenberg_book(int book_id, int num_pairs) {
-    DataFetcher fetcher;
-    std::string path = fetcher.fetch_gutenberg(book_id, num_pairs);
-    if (path.empty()) return false;
-    DatasetRegistry reg(dataset_config_);
-    reg.load_registry();
-    reg.load_pending_list();
-    return reg.add_file(path);
-}
-
-bool IncrementalTrainer::add_gutenberg_books(const std::vector<int>& book_ids,
-                                             int num_pairs_per_book) {
-    int success_count = 0;
-    for (int book_id : book_ids) {
-        if (add_gutenberg_book(book_id, num_pairs_per_book)) {
-            success_count++;
-        }
-    }
-    Logger::info("Added {}/{} books to training queue", success_count, book_ids.size());
-    return success_count > 0;
-}
-
 std::string IncrementalTrainer::format_duration(double seconds) {
     int secs = static_cast<int>(seconds);
     int mins = secs / 60;

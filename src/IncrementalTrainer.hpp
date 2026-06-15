@@ -178,11 +178,6 @@ class IncrementalTrainer {
     /// the first training run.
     std::string get_metrics_session_key() const { return active_session_key_; }
 
-    // TODO(TD-028): Remove — moves to DataFetcher::fetch_gutenberg(); caller enqueues returned path via DatasetRegistry::add_file()
-    // Project Gutenberg integration
-    bool add_gutenberg_book(int book_id, int num_pairs = 500);
-    bool add_gutenberg_books(const std::vector<int>& book_ids, int num_pairs_per_book = 300);
-
     // TODO(TD-028): Remove — moves to DataFetcher::fetch_huggingface(); caller enqueues returned path via DatasetRegistry::add_file()
     // HuggingFace Datasets integration
     /**
