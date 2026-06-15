@@ -515,11 +515,11 @@ All hyperparameters are set in `config.conf` (or environment variables) and read
 | Key | Default | Description |
 | --- | --- | --- |
 | `NUM_EPOCHS` | `10` | Number of training epochs |
-| `LR` | `0.001` | Learning rate |
+| `LEARNING_RATE` | `0.001` | Learning rate |
 | `BATCH_SIZE` | `32` | Batch size |
-| `GRADIENT_CLIP` | `1.0` | Gradient clipping value |
+| `WEIGHT_DECAY` | `0.01` | L2 weight decay regularization |
+| `GRADIENT_CLIP` | `1.0` | Gradient clipping norm (0 = disabled) |
 | `SESSION_DIR` | `training_sessions` | Session and checkpoint directory |
-| `RUN_ID` | auto | Identifier for this trainer node (auto-derived from hostname+PID) |
 | `GPU_STRATEGY` | `background` | `background` (low-priority) or `full` (max throughput) |
 
 #### Recommended Settings by Dataset Size
@@ -775,13 +775,34 @@ All settings can be provided via:
 | Key | Default | Description |
 | --- | --- | --- |
 | `NUM_EPOCHS` | `10` | Epochs per `train` / `retrain` run |
-| `LR` | `0.001` | Learning rate |
+| `LEARNING_RATE` | `0.001` | Learning rate |
 | `BATCH_SIZE` | `32` | Batch size |
-| `GRADIENT_CLIP` | `1.0` | Gradient clipping threshold |
+| `WEIGHT_DECAY` | `0.01` | L2 weight decay regularization |
+| `GRADIENT_CLIP` | `1.0` | Gradient clipping norm (0 = disabled) |
 | `SESSION_DIR` | `training_sessions` | Checkpoint and session file directory |
-| `RUN_ID` | auto | Node identifier for distributed registry (auto: hostname+PID tail) |
 | `GPU_STRATEGY` | `background` | `background` (low-priority) or `full` (max throughput) |
-| `REGISTRY_SERVER_URL` | — | URL of distributed registry server; empty = local-only |
+| `ENABLE_GENERATION_QUALITY_METRICS` | `false` | Compute BLEU/ROUGE during validation |
+| `GENERATION_QUALITY_SAMPLE_SIZE` | `10` | Validation pairs sampled for scoring per epoch |
+| `GENERATION_QUALITY_MAX_TOKENS` | `50` | Max tokens per scoring call |
+| `GENERATION_QUALITY_ASYNC_THRESHOLD` | `50` | Sample size at which scoring runs in a background thread |
+
+### Distributed Registry
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `REGISTRY_SERVER_URL` | — | URL of `registry_server`; empty = local-only |
+| `RUN_GROUP` | — | Training pool group name (partitions work across nodes) |
+| `RUN_ID` | auto | Node identifier (auto: hostname+PID tail) |
+| `REGISTRY_TIMEOUT_MS` | `5000` | HTTP timeout for registry operations (ms) |
+
+### GPU / CUDA
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `GPU_ENABLED` | `false` | Enable GPU acceleration (requires `-DENABLE_GPU=ON` build) |
+| `GPU_DEVICE_ID` | `0` | CUDA device index |
+| `GPU_MEMORY_FRACTION` | `0.5` | Fraction of GPU memory ADAI may allocate (0.0–1.0) |
+| `GPU_STRATEGY` | `background` | `background` (yields to other GPU work) or `full` (high-priority stream) |
 
 ### Training Metrics
 
@@ -824,13 +845,19 @@ CLI flags  >  Environment variables  >  config.conf  >  Built-in defaults
 ### Example `config.conf` (Production)
 
 ```ini
+# ============================================================================
 # Server
+# ============================================================================
 VOCAB_PATH=/opt/adai/vocab/vocab.txt
 MODEL_PATH=/opt/adai/models/chatbot_model.bin
 PORT=8080
 SESSION_TIMEOUT=30
+LOG_LEVEL=INFO
 
+# ============================================================================
 # Model Architecture
+# Must match the architecture used during training.
+# ============================================================================
 D_MODEL=512
 NUM_HEADS=8
 D_FF=2048
@@ -838,42 +865,101 @@ NUM_ENCODER_LAYERS=6
 NUM_DECODER_LAYERS=6
 MAX_SEQ_LENGTH=1024
 
-# Generation
-MAX_LENGTH=150
+# ============================================================================
+# Training Hyperparameters
+# Used by incremental_trainer; ignored by the inference server.
+# ============================================================================
+LEARNING_RATE=0.0003
+NUM_EPOCHS=25
+BATCH_SIZE=32
+WEIGHT_DECAY=0.01
+GRADIENT_CLIP=1.0
+SESSION_DIR=training_sessions
+
+# ============================================================================
+# Text Generation
+# ============================================================================
+MAX_GEN_LENGTH=150
 TEMPERATURE=0.8
 TOP_P=0.9
 TOP_K=50
 BEAM_WIDTH=4
 STRATEGY=nucleus
 
-# Training
-NUM_EPOCHS=25
-LR=0.0003
-BATCH_SIZE=32
-GRADIENT_CLIP=1.0
-SESSION_DIR=training_sessions
-GPU_STRATEGY=background
+# ============================================================================
+# Generation Quality Metrics
+# Opt-in: computes BLEU/ROUGE during validation by calling generate_response()
+# on a sample of the validation set. Adds overhead proportional to sample size.
+# ============================================================================
+ENABLE_GENERATION_QUALITY_METRICS=false
+GENERATION_QUALITY_SAMPLE_SIZE=10
+GENERATION_QUALITY_MAX_TOKENS=50
+# Async threshold: scoring runs in background thread when sample size >= this value.
+# Memory overhead: one full model weight copy (~50-150 MB).
+GENERATION_QUALITY_ASYNC_THRESHOLD=50
 
-# Training Metrics
+# ============================================================================
+# Training Metrics Service
+# The trainer pushes metrics to metrics_api_server via MetricsPushClient.
+# Start the daemon before training: ./build/bin/metrics_api_server
+# ============================================================================
 ENABLE_METRICS_SERVICE=true
 METRICS_SERVER_URL=http://localhost:8081
+METRICS_PUSH_TIMEOUT_MS=1000
+METRICS_ENABLE_PERSISTENCE=true
 METRICS_FILE=training_sessions/metrics.jsonl
 METRICS_SUMMARY_FILE=training_sessions/metrics_summary.json
 METRICS_PERSIST_EVERY_SAMPLES=100
 METRICS_PERSIST_EVERY_SECONDS=30
+METRICS_MAX_RECORDS_IN_MEMORY=10000
+METRICS_MAX_RECORDS_ON_DISK=100000
+METRICS_ENABLE_PROMETHEUS=false
+METRICS_PROMETHEUS_FILE=training_sessions/metrics.prom
 
+# ============================================================================
+# Metrics API Daemon (metrics_api_server)
+# ============================================================================
+METRICS_API_PORT=8081
+METRICS_API_ALLOW_CONTROL=true
+METRICS_MAX_LIVE_SESSIONS=16
+METRICS_COMPLETED_TTL_SECONDS=3600
+METRICS_SWEEP_INTERVAL_SECONDS=60
+# Seconds without a metrics ingest before a live session is marked stale.
+METRICS_STALENESS_THRESHOLD_SECONDS=60
+
+# ============================================================================
+# GPU / CUDA
+# Requires build with -DENABLE_GPU=ON.
+# ============================================================================
+GPU_ENABLED=false
+GPU_DEVICE_ID=0
+GPU_MEMORY_FRACTION=0.5
+# GPU_STRATEGY=background   # background (default) or full
+
+# ============================================================================
 # Logging
-LOG_LEVEL=INFO
+# ============================================================================
 LOG_FILE_PATH=/var/log/adai/chatbot.log
 LOG_MAX_SIZE_MB=50
 LOG_MAX_FILES=10
 
-# RAG (optional)
+# ============================================================================
+# RAG (Retrieval-Augmented Generation)
+# ============================================================================
 RAG_ENABLED=false
 # RAG_DOCS_PATH=/opt/adai/knowledge
 RAG_NUM_DOCS=3
 RAG_THRESHOLD=0.0
 RAG_MAX_CONTEXT_LENGTH=512
+
+# ============================================================================
+# Distributed Registry (multi-node training)
+# Leave commented out for standalone single-node operation.
+# ============================================================================
+# REGISTRY_SERVER_URL=http://<coordinator>:8082
+# RUN_GROUP=my-training-group
+# RUN_ID=
+# REGISTRY_TIMEOUT_MS=5000
 ```
 
 ---
@@ -1412,7 +1498,7 @@ cd build && cmake .. && make -j$(nproc)
 In `config.conf`, lower the learning rate and retrain:
 
 ```ini
-LR=0.0003
+LEARNING_RATE=0.0003
 GRADIENT_CLIP=1.0
 NUM_EPOCHS=25
 ```
@@ -1426,7 +1512,7 @@ NUM_EPOCHS=25
 The trainer detects and skips NaN/Inf updates automatically. If warnings persist, reduce the learning rate in `config.conf`:
 
 ```ini
-LR=0.0001
+LEARNING_RATE=0.0001
 ```
 
 Then retrain. If persistent, check training data for extremely long sequences or unusual characters.
