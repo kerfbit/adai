@@ -1,5 +1,6 @@
 #include <array>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <utility>
@@ -18,6 +19,34 @@
 #endif
 
 namespace {
+
+static constexpr const char* COLOR_RESET = "\033[0m";
+static constexpr const char* COLOR_INFO  = "\033[1;36m";
+
+void print_session_history(const std::vector<TrainingSession>& sessions) {
+    std::cout << COLOR_INFO << "\n📜 Session History:" << COLOR_RESET << '\n';
+    std::cout << "Session | Samples | Epochs | Loss   | Val Loss | Checkpoint\n";
+    std::cout << "--------|---------|--------|--------|----------|------------\n";
+    for (const auto& s : sessions) {
+        std::cout << std::setw(7) << s.session_id    << " | "
+                  << std::setw(7) << s.samples_trained << " | "
+                  << std::setw(6) << s.epochs_completed << " | "
+                  << std::setw(6) << std::fixed << std::setprecision(3) << s.final_loss << " | "
+                  << std::setw(8) << s.final_validation_loss << " | "
+                  << s.checkpoint_path << '\n';
+    }
+}
+
+void print_data_registry(const adai::ServiceConfig& svc_config) {
+    DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
+    reg.load_registry();
+    reg.load_pending_list();
+    std::cout << COLOR_INFO << "\n📋 Data Registry:" << COLOR_RESET << '\n';
+    std::cout << "Status  | Data File\n";
+    std::cout << "--------|----------\n";
+    for (const auto& f : reg.trained_files()) std::cout << "trained | " << f << '\n';
+    for (const auto& f : reg.pending_files()) std::cout << "pending | " << f << '\n';
+}
 
 // Detaches the calling process into the background.
 //
@@ -465,8 +494,8 @@ int main(int argc, char* argv[]) {
     } else if (command == "history") {
         IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
         IncrementalTrainer trainer(default_vocab, default_model, config);
-        trainer.print_session_history();
-        trainer.print_data_registry();
+        print_session_history(trainer.get_session_history());
+        print_data_registry(svc_config);
 
     } else {
         std::cerr << "Unknown command: " << command << "\n";

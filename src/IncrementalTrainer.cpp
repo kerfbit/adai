@@ -27,13 +27,6 @@
 // Bring Logger into scope without qualifying every call
 using adai::Logger;
 
-// Legacy ANSI codes kept for print_session_history / print_data_registry (intentional TUI output)
-#define COLOR_RESET "\033[0m"
-#define COLOR_INFO "\033[1;36m"
-#define COLOR_SUCCESS "\033[1;32m"
-#define COLOR_WARNING "\033[1;33m"
-#define COLOR_ERROR "\033[1;31m"
-#define COLOR_PROGRESS "\033[1;35m"
 
 namespace fs = std::filesystem;
 
@@ -1016,36 +1009,6 @@ void IncrementalTrainer::print_training_summary() const {
     }
 }
 
-void IncrementalTrainer::print_session_history() {
-    std::cout << COLOR_INFO << "\n📜 Session History:" << COLOR_RESET << '\n';
-    std::cout << "Session | Samples | Epochs | Loss   | Val Loss | Checkpoint" << '\n';
-    std::cout << "--------|---------|--------|--------|----------|------------" << '\n';
-
-    for (const auto& session : session_history) {
-        std::cout << std::setw(7) << session.session_id << " | " << std::setw(7)
-                  << session.samples_trained << " | " << std::setw(6) << session.epochs_completed
-                  << " | " << std::setw(6) << std::fixed << std::setprecision(3)
-                  << session.final_loss << " | " << std::setw(8) << session.final_validation_loss
-                  << " | " << session.checkpoint_path << '\n';
-    }
-}
-
-void IncrementalTrainer::print_data_registry() {
-    DatasetRegistry reg(dataset_config_);
-    reg.load_registry();
-    reg.load_pending_list();
-
-    std::cout << COLOR_INFO << "\n📋 Data Registry:" << COLOR_RESET << '\n';
-    std::cout << "Status  | Data File" << '\n';
-    std::cout << "--------|----------" << '\n';
-
-    for (const auto& f : reg.trained_files()) {
-        std::cout << "trained | " << f << '\n';
-    }
-    for (const auto& f : reg.pending_files()) {
-        std::cout << "pending | " << f << '\n';
-    }
-}
 
 float IncrementalTrainer::get_total_training_time_hours() const {
     float total_hours = 0.0f;

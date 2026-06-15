@@ -167,8 +167,6 @@ class IncrementalTrainer {
 
     // Status and reporting
     void print_training_summary() const;
-    void print_session_history();
-    void print_data_registry();
     int get_total_samples_trained() const;
     float get_total_training_time_hours() const;
 

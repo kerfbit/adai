@@ -410,10 +410,8 @@ TEST_F(IncrementalTrainerTest, PrintMethodsDoNotCrash) {
     config.session_dir = session_dir.string();
     IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
 
-    // These should not crash even with no data
+    // Should not crash even with no data
     EXPECT_NO_THROW(trainer.print_training_summary());
-    EXPECT_NO_THROW(trainer.print_session_history());
-    EXPECT_NO_THROW(trainer.print_data_registry());
 }
 
 TEST_F(IncrementalTrainerTest, ConfigModificationPersists) {
