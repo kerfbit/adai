@@ -240,4 +240,13 @@ class IncrementalTrainer {
 
     static std::string format_duration(double seconds);
 
+    // Shared training execution: starts the metrics session, wires up callbacks,
+    // runs trainer.train(), saves a checkpoint, and finalizes the session.
+    // Called by train_on_files and retrain_on_files after data is loaded and
+    // tokenized.  metrics_sample_count feeds start_session(); finalize_sample_count
+    // feeds finalize_session() (they differ in the retrain path).
+    bool run_training(ChatbotTrainer& trainer, int num_epochs,
+                      int metrics_sample_count, int finalize_sample_count,
+                      bool enable_best_model_snapshot);
+
 };
