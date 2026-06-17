@@ -25,6 +25,7 @@
         settingsOpen:     false,
         pickerOpen:       false,
         pollTimer:        null,
+        pickerPollTimer:  null,
         retryCount:       0,
         maxRetry:         10,   // after this many failures, slow-poll at 5 s but keep trying
         currentMetrics:   null,
@@ -679,6 +680,13 @@
         }
     }
 
+    function stopPickerPoll() {
+        if (State.pickerPollTimer) {
+            clearInterval(State.pickerPollTimer);
+            State.pickerPollTimer = null;
+        }
+    }
+
     /* -------------------------------------------------------
        Settings overlay
     ------------------------------------------------------- */
@@ -754,9 +762,32 @@
     /* -------------------------------------------------------
        Session Picker
     ------------------------------------------------------- */
+    function fetchAndRenderSessions() {
+        fetchJSON('/api/sessions')
+            .then(function(data) {
+                setConnected('connected', 'Connected');
+                State.retryCount = 0;
+                renderSessionList(data.sessions || []);
+            })
+            .catch(function(err) {
+                setConnected('disconnected', 'Offline');
+                /* On the initial open the list already shows "Loading…"; on
+                   periodic refreshes keep the last-known list visible instead
+                   of replacing it with an error. */
+                if (UI.sessionList.innerHTML.indexOf('session-item') === -1) {
+                    UI.sessionList.innerHTML =
+                        '<div class="session-error">Cannot reach ' + apiBase() +
+                        '<br>' + err.message +
+                        '<br><span style="opacity:0.6;font-size:0.85em">Press ■ (Blue) to change server address</span></div>';
+                    nav.refresh(document.getElementById('session-picker-panel'));
+                }
+            });
+    }
+
     function openPicker() {
         State.pickerOpen = true;
         stopPolling();
+        stopPickerPoll();
         if (UI.loadingOverlay) UI.loadingOverlay.classList.add('hidden');
         UI.sessionPickerOverlay.classList.remove('hidden');
         UI.sessionPickerSubtitle.textContent = 'Fetching sessions from ' + apiBase() + '…';
@@ -767,24 +798,16 @@
            navigate dashboard cards hidden behind the overlay during the fetch. */
         nav.refresh(document.getElementById('session-picker-panel'));
 
-        fetchJSON('/api/sessions')
-            .then(function(data) {
-                setConnected('connected', 'Connected');
-                State.retryCount = 0;
-                renderSessionList(data.sessions || []);
-            })
-            .catch(function(err) {
-                setConnected('disconnected', 'Offline');
-                UI.sessionList.innerHTML =
-                    '<div class="session-error">Cannot reach ' + apiBase() +
-                    '<br>' + err.message +
-                    '<br><span style="opacity:0.6;font-size:0.85em">Press ■ (Blue) to change server address</span></div>';
-                nav.refresh(document.getElementById('session-picker-panel'));
-            });
+        fetchAndRenderSessions();
+
+        /* Keep the list current while the picker stays open — poll every 5 s
+           so a newly-started trainer session appears without user interaction. */
+        State.pickerPollTimer = setInterval(fetchAndRenderSessions, 5000);
     }
 
     function closePicker() {
         State.pickerOpen = false;
+        stopPickerPoll();
         UI.sessionPickerOverlay.classList.add('hidden');
         nav.refresh();
         nav.focusById('card-session');
@@ -816,6 +839,7 @@
             el.className = 'session-item focusable' + (s.key === activeKey ? ' session-item-current' : '');
             el.tabIndex  = 0;
             el.setAttribute('data-key', s.key);
+            el.addEventListener('click', function() { selectSession(s.key); });
 
             var statusClass = s.is_training ? 'badge-active' : 'badge-done';
             var statusText  = s.is_training ? 'TRAINING' : 'IDLE';
