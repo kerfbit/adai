@@ -268,6 +268,10 @@ static void handle_trained(const httplib::Request& req, httplib::Response& res,
         if (!existing.count(files[i])) {
             DataVersion dv;
             dv.data_file   = files[i];
+            // Server has no filesystem access to compute a real checksum;
+            // use a placeholder so the space-separated flat-file format
+            // keeps its column alignment when loaded back by LocalTransport.
+            dv.checksum    = "REMOTE";
             dv.num_samples = (i < samples.size()) ? samples[i] : 0;
             dv.trained     = true;
             reg.push_back(std::move(dv));

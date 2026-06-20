@@ -565,6 +565,20 @@ if(TARGET adai_metrics_api)
         target_include_directories(trainingMetricsApiLiveTests PRIVATE ${HTTPLIB_INCLUDE_DIR})
     endif()
     add_test(NAME TrainingMetricsAPILiveTests COMMAND trainingMetricsApiLiveTests)
+
+    # Live-server integration tests for registry_server (TD-028 Phase 9).
+    # Override target with: REGISTRY_SERVER_HOST=<host> REGISTRY_SERVER_PORT=<port>
+    # Tests are skipped automatically when the server is unreachable.
+    add_executable(datasetRegistryLiveTests dataset_registry_live_test.cpp)
+    target_include_directories(datasetRegistryLiveTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(datasetRegistryLiveTests
+        adai_core
+        GTest::gtest_main
+    )
+    if(HTTPLIB_INCLUDE_DIR)
+        target_include_directories(datasetRegistryLiveTests PRIVATE ${HTTPLIB_INCLUDE_DIR})
+    endif()
+    add_test(NAME DatasetRegistryLiveTests COMMAND datasetRegistryLiveTests)
 endif()
 
 # TD-017: Adaptive gradient clipping tests (TrainingMetricsService)
@@ -645,4 +659,4 @@ target_link_libraries(dataFetcherTests
 )
 add_test(NAME DataFetcherTests COMMAND dataFetcherTests)
 
-message(STATUS "Configured 52 test suites using library targets (including Config, Logger, IncrementalTrainer, LLMEncoder, DocumentStore, RAGInference, BatchProcessor, ParallelDataLoader, IntegratedInferenceEngine, PipelineInferenceEngine, BatchedInferenceEngine, SpeculativeDecoding, VocabBuilder, ChatbotAPI, ChatbotTrainer, GenerationQuality, GenerationQualityAsync, PaddingEfficiency, AdaptiveClipping, ModelSerializer, StaleDetection, BackgroundLaunch, integration, RAG/BERT comparison, Phase 5, DatasetRegistry and DataFetcher tests)")
+message(STATUS "Configured 53 test suites using library targets (including Config, Logger, IncrementalTrainer, LLMEncoder, DocumentStore, RAGInference, BatchProcessor, ParallelDataLoader, IntegratedInferenceEngine, PipelineInferenceEngine, BatchedInferenceEngine, SpeculativeDecoding, VocabBuilder, ChatbotAPI, ChatbotTrainer, GenerationQuality, GenerationQualityAsync, PaddingEfficiency, AdaptiveClipping, ModelSerializer, StaleDetection, BackgroundLaunch, integration, RAG/BERT comparison, Phase 5, DatasetRegistry, DatasetRegistryLive and DataFetcher tests)")
