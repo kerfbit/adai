@@ -324,4 +324,45 @@ TEST_F(TrainingMetricsAPIRoutesTest, AggregateEndpointCountsAllLiveSessions) {
     EXPECT_NE(res->body.find("\"key\":\"multi-b\""), std::string::npos);
 }
 
+// ---------------------------------------------------------------------------
+// Phase 2: model_id injection into config_snapshot (TD-028 Phase 2)
+// ---------------------------------------------------------------------------
+
+TEST_F(TrainingMetricsAPIRoutesTest, SessionStartWithModelIdInjectsIntoConfigSnapshot) {
+    auto client = make_client();
+
+    const std::string model_uuid = "550e8400-e29b-41d4-a716-446655440099";
+    const std::string start_body =
+        "{\"session_id\":707,\"total_epochs\":3,\"total_samples\":150"
+        ",\"model_id\":\"" + model_uuid + "\"}";
+
+    auto res = client.Post("/api/sessions/mns-inject1/start", start_body, "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+
+    // Access config_snapshot directly via the registry — it is stored in the
+    // TrainingMetricsSnapshot even though it is not emitted by to_json().
+    auto svc_opt = registry_->get_session("mns-inject1");
+    ASSERT_TRUE(svc_opt) << "Session 'mns-inject1' not found in registry";
+    const auto snapshot = (*svc_opt)->get_current_snapshot();
+    EXPECT_NE(snapshot.config_snapshot.find(model_uuid), std::string::npos)
+        << "model_id not found in config_snapshot: " << snapshot.config_snapshot;
+}
+
+TEST_F(TrainingMetricsAPIRoutesTest, SessionStartWithoutModelIdStillWorks) {
+    auto client = make_client();
+
+    const std::string start_body =
+        R"({"session_id":808,"total_epochs":2,"total_samples":80})";
+
+    auto res = client.Post("/api/sessions/mns-compat1/start", start_body, "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200) << "Backward compat: session start without model_id must succeed";
+
+    auto metrics_res = client.Get("/api/sessions/mns-compat1/metrics/current");
+    ASSERT_TRUE(metrics_res);
+    EXPECT_EQ(metrics_res->status, 200);
+    EXPECT_NE(metrics_res->body.find("\"session_id\": 808"), std::string::npos);
+}
+
 }  // namespace

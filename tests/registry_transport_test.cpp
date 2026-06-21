@@ -170,3 +170,45 @@ TEST_F(LocalTransportTest, OverwriteOnSecondSave) {
     ASSERT_EQ(loaded.size(), 1u);
     EXPECT_TRUE(loaded[0].trained);
 }
+
+// ============================================================================
+// Phase 2: model_id field round-trip
+// ============================================================================
+
+TEST_F(LocalTransportTest, ModelIdRoundTrip) {
+    LocalTransport t(reg_path_, pend_path_);
+
+    DataVersion dv;
+    dv.data_file   = "/data/mns_test.txt";
+    dv.checksum    = "abc_def";
+    dv.num_samples = 100;
+    dv.trained     = true;
+    dv.model_id    = "550e8400-e29b-41d4-a716-446655440000";
+
+    ASSERT_TRUE(t.save_registry({dv}));
+
+    std::vector<DataVersion> loaded;
+    ASSERT_TRUE(t.load_registry(loaded));
+    ASSERT_EQ(loaded.size(), 1u);
+    EXPECT_EQ(loaded[0].model_id, dv.model_id);
+    EXPECT_EQ(loaded[0].data_file, dv.data_file);
+    EXPECT_EQ(loaded[0].trained, true);
+}
+
+TEST_F(LocalTransportTest, ModelIdDefaultsToEmptyForOldFormat) {
+    // Write a 4-column file (pre-Phase-2 format) and verify model_id loads as empty.
+    {
+        std::ofstream f(reg_path_);
+        f << "# Data Registry: data_file checksum num_samples trained\n";
+        f << "/data/legacy.txt abc123 50 1\n";
+    }
+
+    LocalTransport t(reg_path_, pend_path_);
+    std::vector<DataVersion> loaded;
+    ASSERT_TRUE(t.load_registry(loaded));
+    ASSERT_EQ(loaded.size(), 1u);
+    EXPECT_TRUE(loaded[0].model_id.empty())
+        << "Old 4-column format should yield empty model_id, got: " << loaded[0].model_id;
+    EXPECT_EQ(loaded[0].data_file, "/data/legacy.txt");
+    EXPECT_TRUE(loaded[0].trained);
+}

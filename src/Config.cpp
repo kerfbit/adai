@@ -283,6 +283,19 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.run_id = value;
             } else if (key == "REGISTRY_TIMEOUT_MS") {
                 config.registry_timeout_ms = std::stoi(value);
+                // Model Name Service configuration
+            } else if (key == "NAME_SERVICE_URL") {
+                config.name_service_url = value;
+            } else if (key == "NAME_SERVICE_PORT") {
+                config.name_service_port = std::stoi(value);
+            } else if (key == "NAME_SERVICE_DIR") {
+                config.name_service_dir = value;
+            } else if (key == "NAME_SERVICE_TIMEOUT_MS") {
+                config.name_service_timeout_ms = std::stoi(value);
+            } else if (key == "MODEL_NAME") {
+                config.model_name = value;
+            } else if (key == "MODEL_ROLE") {
+                config.model_role = value;
                 // GPU configuration
             } else if (key == "GPU_ENABLED") {
                 std::string lower = value;
@@ -488,6 +501,26 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env_int("REGISTRY_TIMEOUT_MS")) {
         config.registry_timeout_ms = *val;
+    }
+
+    // Model Name Service
+    if (auto val = get_env("NAME_SERVICE_URL")) {
+        config.name_service_url = *val;
+    }
+    if (auto val = get_env_int("NAME_SERVICE_PORT")) {
+        config.name_service_port = *val;
+    }
+    if (auto val = get_env("NAME_SERVICE_DIR")) {
+        config.name_service_dir = *val;
+    }
+    if (auto val = get_env_int("NAME_SERVICE_TIMEOUT_MS")) {
+        config.name_service_timeout_ms = *val;
+    }
+    if (auto val = get_env("MODEL_NAME")) {
+        config.model_name = *val;
+    }
+    if (auto val = get_env("MODEL_ROLE")) {
+        config.model_role = *val;
     }
 }
 

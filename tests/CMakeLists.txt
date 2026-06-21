@@ -581,6 +581,22 @@ if(TARGET adai_metrics_api)
     add_test(NAME DatasetRegistryLiveTests COMMAND datasetRegistryLiveTests)
 endif()
 
+# Model Name Service live-server integration tests.
+# Override target with: MNS_SERVER_HOST=<host> MNS_SERVER_PORT=<port>
+# Tests auto-skip when mns_server is unreachable.
+if(TARGET adai_mns)
+    add_executable(mnsLiveTests model_name_service_live_test.cpp)
+    target_include_directories(mnsLiveTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(mnsLiveTests
+        adai_core
+        GTest::gtest_main
+    )
+    if(HTTPLIB_INCLUDE_DIR)
+        target_include_directories(mnsLiveTests PRIVATE ${HTTPLIB_INCLUDE_DIR})
+    endif()
+    add_test(NAME MNSLiveTests COMMAND mnsLiveTests)
+endif()
+
 # TD-017: Adaptive gradient clipping tests (TrainingMetricsService)
 add_executable(adaptiveClippingTests adaptive_clipping_test.cpp)
 target_include_directories(adaptiveClippingTests PRIVATE ${CMAKE_SOURCE_DIR}/src)

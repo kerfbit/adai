@@ -247,10 +247,11 @@ static void handle_release(const httplib::Request& req, httplib::Response& res,
     Logger::info("[{}] release: run='{}' released {} files", group, run_id, released);
 }
 
-// POST /registry/<group>/trained  {"run_id":"...","files":[...],"samples":[...]}
+// POST /registry/<group>/trained  {"run_id":"...","files":[...],"samples":[...],"model_id":"..."}
 static void handle_trained(const httplib::Request& req, httplib::Response& res,
                             const std::string& group) {
-    const std::string             run_id  = json_string(req.body, "run_id");
+    const std::string             run_id   = json_string(req.body, "run_id");
+    const std::string             model_id = json_string(req.body, "model_id");
     const std::vector<std::string> files   = json_string_array(req.body, "files");
     const std::vector<int>         samples = json_int_array(req.body, "samples");
 
@@ -274,6 +275,7 @@ static void handle_trained(const httplib::Request& req, httplib::Response& res,
             dv.checksum    = "REMOTE";
             dv.num_samples = (i < samples.size()) ? samples[i] : 0;
             dv.trained     = true;
+            dv.model_id    = model_id;
             reg.push_back(std::move(dv));
             ++trained;
         }
@@ -351,6 +353,34 @@ static void handle_runs(const httplib::Request& req, httplib::Response& res,
     res.set_content(json.str(), "application/json");
 }
 
+// GET /registry/<group>/history?model_id=<uuid>
+static void handle_history(const httplib::Request& req, httplib::Response& res,
+                            const std::string& group) {
+    const std::string filter_id = req.has_param("model_id") ? req.get_param_value("model_id") : "";
+
+    auto& gs = get_group(group);
+    std::lock_guard<std::mutex> lock(gs.mtx);
+
+    std::vector<DataVersion> reg;
+    gs.transport->load_registry(reg);
+
+    std::ostringstream json;
+    json << "{\"entries\":[";
+    bool first = true;
+    for (const auto& dv : reg) {
+        if (!filter_id.empty() && dv.model_id != filter_id) continue;
+        if (!first) json << ',';
+        first = false;
+        json << "{\"data_file\":\""  << json_escape(dv.data_file) << "\","
+             << "\"checksum\":\""    << json_escape(dv.checksum)  << "\","
+             << "\"num_samples\":"   << dv.num_samples << ","
+             << "\"trained\":"       << (dv.trained ? "true" : "false") << ","
+             << "\"model_id\":\""    << json_escape(dv.model_id)  << "\"}";
+    }
+    json << "]}";
+    res.set_content(json.str(), "application/json");
+}
+
 // POST /registry/<group>/pending/add  {"path":"..."}
 static void handle_pending_add(const httplib::Request& req, httplib::Response& res,
                                 const std::string& group) {
@@ -398,6 +428,7 @@ static void print_usage(const char* prog) {
               << "  POST /registry/<group>/trained  {\"run_id\":\"...\",\"files\":[...],\"samples\":[...]}\n"
               << "  GET  /registry/<group>/registry\n"
               << "  GET  /registry/<group>/runs\n"
+              << "  GET  /registry/<group>/history[?model_id=<uuid>]\n"
               << "  GET  /health\n";
 }
 
@@ -442,6 +473,9 @@ int main(int argc, char* argv[]) {
     });
     svr.Get(R"(/registry/([^/]+)/runs)",     [](const httplib::Request& r, httplib::Response& res) {
         handle_runs(r, res, r.matches[1]);
+    });
+    svr.Get(R"(/registry/([^/]+)/history)", [](const httplib::Request& r, httplib::Response& res) {
+        handle_history(r, res, r.matches[1]);
     });
     svr.Post(R"(/registry/([^/]+)/pending/add)", [](const httplib::Request& r, httplib::Response& res) {
         handle_pending_add(r, res, r.matches[1]);

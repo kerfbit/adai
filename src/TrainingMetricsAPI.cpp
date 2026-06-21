@@ -1418,6 +1418,32 @@ std::string TrainingMetricsAPI::handle_post_session_start(const std::string& ses
         }
     }
 
+    // Extract optional "model_id" string field (Phase 2 — MNS UUID injected into config_snapshot)
+    std::string model_id;
+    pos = body.find("\"model_id\"");
+    if (pos != std::string::npos) {
+        pos = body.find(':', pos);
+        if (pos != std::string::npos) {
+            size_t q1 = body.find('"', pos + 1);
+            if (q1 != std::string::npos) {
+                size_t q2 = body.find('"', q1 + 1);
+                if (q2 != std::string::npos) {
+                    model_id = body.substr(q1 + 1, q2 - q1 - 1);
+                }
+            }
+        }
+    }
+    if (!model_id.empty()) {
+        if (config_snapshot.size() >= 2 && config_snapshot.back() == '}') {
+            const bool is_empty_obj = (config_snapshot == "{}");
+            config_snapshot.pop_back();
+            if (!is_empty_obj) config_snapshot += ',';
+            config_snapshot += "\"model_id\":\"" + model_id + "\"}";
+        } else {
+            config_snapshot = "{\"model_id\":\"" + model_id + "\"}";
+        }
+    }
+
     service->start_session(session_id, total_epochs, total_samples, label, config_snapshot);
 
     return R"({"status":"ok","message":"Session started"})";

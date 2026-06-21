@@ -247,3 +247,50 @@ TEST_F(LocalTransportPhase9Test, LoadPendingPhase8FormatBackwardCompat) {
     EXPECT_EQ(entries[1].path, "/data/legacy2.txt");
     EXPECT_TRUE(entries[1].run_id.empty());
 }
+
+// ============================================================================
+// Phase 2: model_id preserved through commit_trained
+// ============================================================================
+
+TEST_F(LocalTransportPhase9Test, CommitTrainedPreservesModelId) {
+    seed_pending({"/data/mns_file.txt"});
+    LocalTransport t(reg_path_, pend_path_);
+    t.acquire("run-mns", 0);
+
+    DataVersion dv;
+    dv.data_file   = "/data/mns_file.txt";
+    dv.checksum    = "MISSING";
+    dv.trained     = true;
+    dv.num_samples = 42;
+    dv.model_id    = "550e8400-e29b-41d4-a716-446655440000";
+
+    t.commit_trained("run-mns", {dv}, {"/data/mns_file.txt"});
+
+    std::vector<DataVersion> reg;
+    t.load_registry(reg);
+    ASSERT_EQ(reg.size(), 1u);
+    EXPECT_EQ(reg[0].model_id, "550e8400-e29b-41d4-a716-446655440000");
+    EXPECT_EQ(reg[0].data_file, "/data/mns_file.txt");
+    EXPECT_TRUE(reg[0].trained);
+}
+
+TEST_F(LocalTransportPhase9Test, CommitTrainedEmptyModelIdRoundTrips) {
+    seed_pending({"/data/no_mns.txt"});
+    LocalTransport t(reg_path_, pend_path_);
+    t.acquire("run-nomns", 0);
+
+    DataVersion dv;
+    dv.data_file   = "/data/no_mns.txt";
+    dv.checksum    = "MISSING";
+    dv.trained     = true;
+    dv.num_samples = 10;
+    // model_id intentionally left empty
+
+    t.commit_trained("run-nomns", {dv}, {"/data/no_mns.txt"});
+
+    std::vector<DataVersion> reg;
+    t.load_registry(reg);
+    ASSERT_EQ(reg.size(), 1u);
+    EXPECT_TRUE(reg[0].model_id.empty())
+        << "Empty model_id should remain empty after round-trip, got: " << reg[0].model_id;
+}

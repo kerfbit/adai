@@ -1,0 +1,83 @@
+#pragma once
+
+#include <map>
+#include <string>
+#include "Config.hpp"
+#include "ModelNameService.hpp"  // ArtifactLocation, ModelRecord
+
+namespace adai {
+
+// Result type returned by resolve operations.
+struct ResolvedModel {
+    std::string      model_id;
+    std::string      model_name;
+    std::string      state;
+    ArtifactLocation artifact;
+};
+
+/**
+ * @brief Synchronous HTTP client for the ModelNameService daemon.
+ *
+ * All methods block until the server responds or timeout_ms elapses.
+ * A std::runtime_error is thrown on non-2xx responses or network failure
+ * (consistent with RegistryTransport's error-propagation contract).
+ *
+ * Usage pattern:
+ *   ModelNameClient mns("http://192.168.1.19:8083");
+ *   auto id = mns.register_model("adai-chatbot-v3", "chatbot", config);
+ *   mns.set_training("adai-chatbot-v3", run_id_, session_key_);
+ *   // ... training loop ...
+ *   mns.set_candidate("adai-chatbot-v3", run_id_, artifact, summary);
+ */
+class ModelNameClient {
+   public:
+    explicit ModelNameClient(std::string server_url, int timeout_ms = 5000);
+
+    // Register a new model; returns the assigned UUID.
+    std::string register_model(const std::string& model_name,
+                                const std::string& role,
+                                const ServiceConfig& arch,
+                                const std::map<std::string, std::string>& tags = {});
+
+    // Transition model to "training" state (acquires training lock).
+    void set_training(const std::string& model_name,
+                      const std::string& run_id,
+                      const std::string& metrics_session_key = "");
+
+    // Transition model to "candidate" state (releases training lock, attaches artifact).
+    void set_candidate(const std::string& model_name,
+                       const std::string& run_id,
+                       const ArtifactLocation& artifact,
+                       const std::map<std::string, std::string>& training_summary = {});
+
+    // Resolve a model by name; throws if not found or in initializing state.
+    ResolvedModel resolve_model(const std::string& model_name);
+
+    // Resolve the production model for a role; throws if no production model.
+    ResolvedModel resolve_role(const std::string& role);
+
+    // Promote a candidate model to production for a role.
+    void promote(const std::string& role, const std::string& model_name);
+
+   private:
+    struct ParsedUrl {
+        std::string host = "localhost";
+        int         port = 8083;
+        std::string base_path;
+        static ParsedUrl from(const std::string& url);
+    };
+
+    // Returns HTTP status code; body is set to the response body.
+    // Throws std::runtime_error on persistent connection failure (returns 0).
+    int http_post(const std::string& path, const std::string& body, std::string& out) const;
+    int http_get (const std::string& path, std::string& out) const;
+    int http_put (const std::string& path, const std::string& body, std::string& out) const;
+
+    static void check_status(int status, const std::string& out, const std::string& op);
+
+    std::string server_url_;
+    int         timeout_ms_;
+    ParsedUrl   parsed_;
+};
+
+}  // namespace adai

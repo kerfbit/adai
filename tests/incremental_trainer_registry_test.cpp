@@ -368,3 +368,31 @@ TEST(IncrementalTrainerDecouplingTest, NullReporterPathWhenUrlIsEmpty) {
 
     fs::remove_all(dir);
 }
+
+// ============================================================================
+// IncrementalConfig — MNS fields (Phase 2)
+// ============================================================================
+
+TEST(IncrementalConfigTest, MnsServerUrlDefaultsToEmpty) {
+    IncrementalConfig cfg;
+    EXPECT_TRUE(cfg.mns_server_url.empty())
+        << "mns_server_url must default to empty (MNS disabled)";
+}
+
+TEST(IncrementalConfigTest, MnsModelNameDefaultsToEmpty) {
+    IncrementalConfig cfg;
+    EXPECT_TRUE(cfg.mns_model_name.empty())
+        << "mns_model_name must default to empty (MNS disabled)";
+}
+
+TEST(IncrementalConfigTest, MnsFieldsCanBeSet) {
+    IncrementalConfig cfg;
+    cfg.mns_server_url  = "http://localhost:8083";
+    cfg.mns_model_name  = "my-chatbot-v2";
+
+    EXPECT_EQ(cfg.mns_server_url,  "http://localhost:8083");
+    EXPECT_EQ(cfg.mns_model_name,  "my-chatbot-v2");
+
+    // Metrics fields are orthogonal to MNS fields — verify no cross-contamination.
+    EXPECT_TRUE(cfg.metrics_server_url.empty());
+}

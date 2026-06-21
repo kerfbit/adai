@@ -20,6 +20,7 @@ struct DataVersion {
     std::string checksum;
     int         num_samples = 0;
     bool        trained     = false;
+    std::string model_id;  ///< Phase 2: MNS model UUID; empty for pre-MNS records
     std::chrono::system_clock::time_point added_time;
 };
 

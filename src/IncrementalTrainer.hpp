@@ -14,6 +14,9 @@
 #include "IMetricsReporter.hpp"
 #include "MetricsPushClient.hpp"
 
+// Forward declaration — full type in ModelNameClient.hpp (included by .cpp)
+namespace adai { class ModelNameClient; }
+
 
 /**
  * @brief Training session information
@@ -68,6 +71,10 @@ struct IncrementalConfig {
     std::string metrics_server_url;          // URL of metrics API daemon; empty = no push
     std::string metrics_session_label;       // Human-readable label; auto-derived when empty
     int metrics_push_timeout_ms = 1000;      // HTTP push timeout in milliseconds
+
+    // Model Name Service configuration
+    std::string mns_server_url;   // URL of ModelNameService daemon; empty = MNS disabled
+    std::string mns_model_name;   // MNS model name; empty = MNS disabled
 };
 
 /**
@@ -93,6 +100,7 @@ class IncrementalTrainer {
      * @throws std::runtime_error if VOCAB_PATH is not set in the config.
      */
     explicit IncrementalTrainer(const std::string& config_file_path);
+    ~IncrementalTrainer();
 
     /**
      * @brief Explicit-paths constructor (low-level).
@@ -200,6 +208,9 @@ class IncrementalTrainer {
     std::unique_ptr<IMetricsReporter> metrics_reporter_;    ///< active reporter (Null or Push)
     MetricsPushClient* push_client_{nullptr};               ///< non-owning alias when reporter is MetricsPushClient
     std::string active_session_key_;                        ///< key for the in-flight push session
+
+    // Model Name Service client (Phase 2)
+    std::unique_ptr<adai::ModelNameClient> mns_client_;     ///< null when MNS disabled
 
     // Helper methods
 

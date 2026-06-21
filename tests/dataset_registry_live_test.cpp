@@ -175,6 +175,34 @@ protected:
         return client_->Get(("/registry/" + group_ + "/runs").c_str());
     }
 
+    // Helper: POST /registry/<group_>/trained with optional model_id
+    httplib::Result trained_with_model_id(const std::string& run_id,
+                                          const std::vector<std::string>& files,
+                                          const std::string& model_id,
+                                          const std::vector<int>& samples = {}) {
+        std::ostringstream body;
+        body << "{\"run_id\":\"" << run_id << "\",\"model_id\":\"" << model_id << "\",\"files\":[";
+        for (std::size_t i = 0; i < files.size(); ++i) {
+            if (i) body << ',';
+            body << '"' << files[i] << '"';
+        }
+        body << "],\"samples\":[";
+        for (std::size_t i = 0; i < samples.size(); ++i) {
+            if (i) body << ',';
+            body << samples[i];
+        }
+        body << "]}";
+        return client_->Post(("/registry/" + group_ + "/trained").c_str(),
+                             body.str(), "application/json");
+    }
+
+    // Helper: GET /registry/<group_>/history[?model_id=<id>]
+    httplib::Result get_history(const std::string& model_id_filter = "") {
+        std::string path = "/registry/" + group_ + "/history";
+        if (!model_id_filter.empty()) path += "?model_id=" + model_id_filter;
+        return client_->Get(path.c_str());
+    }
+
     httplib::Client& client() { return *client_; }
     const std::string& group() const { return group_; }
 
@@ -659,6 +687,109 @@ TEST_F(LiveRegistryTest, FullWorkflow_AddAcquireTrainVerify) {
         auto r = acquire("e2e-run2");
         ASSERT_TRUE(r);
         EXPECT_NE(r->body.find("\"acquired\":[]"), std::string::npos) << r->body;
+    }
+}
+
+// ===========================================================================
+// History — GET /registry/<group>/history[?model_id=<uuid>]  (Phase 2)
+// ===========================================================================
+
+TEST_F(LiveRegistryTest, HistoryInitiallyEmpty) {
+    auto res = get_history();
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_NE(res->body.find("\"entries\":[]"), std::string::npos) << res->body;
+}
+
+TEST_F(LiveRegistryTest, TrainedWithModelIdAppearsInHistory) {
+    const std::string path     = "/data/" + group() + "/hist1.txt";
+    const std::string model_id = "aaaabbbb-0001-0001-0001-000000000001";
+    ASSERT_TRUE(add_pending(path));
+    ASSERT_TRUE(acquire("run-hist1"));
+    ASSERT_TRUE(trained_with_model_id("run-hist1", {path}, model_id, {10}));
+
+    auto res = get_history();
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_NE(res->body.find(path), std::string::npos) << res->body;
+    EXPECT_NE(res->body.find(model_id), std::string::npos) << res->body;
+}
+
+TEST_F(LiveRegistryTest, HistoryFilterByModelIdReturnsOnlyMatches) {
+    const std::string p1 = "/data/" + group() + "/hfilt1.txt";
+    const std::string p2 = "/data/" + group() + "/hfilt2.txt";
+    const std::string id1 = "aaaabbbb-0002-0002-0002-000000000002";
+    const std::string id2 = "ccccdddd-0003-0003-0003-000000000003";
+
+    ASSERT_TRUE(add_pending(p1));
+    ASSERT_TRUE(add_pending(p2));
+    ASSERT_TRUE(acquire("run-hf1", 1));
+    ASSERT_TRUE(acquire("run-hf2", 1));
+    ASSERT_TRUE(trained_with_model_id("run-hf1", {p1}, id1, {5}));
+    ASSERT_TRUE(trained_with_model_id("run-hf2", {p2}, id2, {7}));
+
+    // Filter for id1 — should see p1 but not p2.
+    auto res = get_history(id1);
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_NE(res->body.find(p1), std::string::npos)  << "Expected p1 in filtered history: " << res->body;
+    EXPECT_EQ(res->body.find(p2), std::string::npos)  << "Did not expect p2 in filtered history: " << res->body;
+}
+
+TEST_F(LiveRegistryTest, HistoryWithoutFilterReturnsAll) {
+    const std::string p1 = "/data/" + group() + "/hall1.txt";
+    const std::string p2 = "/data/" + group() + "/hall2.txt";
+    const std::string id1 = "aaaabbbb-0004-0004-0004-000000000004";
+    const std::string id2 = "eeeeeeee-0005-0005-0005-000000000005";
+
+    ASSERT_TRUE(add_pending(p1));
+    ASSERT_TRUE(add_pending(p2));
+    ASSERT_TRUE(acquire("run-hall1", 1));
+    ASSERT_TRUE(acquire("run-hall2", 1));
+    ASSERT_TRUE(trained_with_model_id("run-hall1", {p1}, id1, {3}));
+    ASSERT_TRUE(trained_with_model_id("run-hall2", {p2}, id2, {9}));
+
+    auto res = get_history();
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_NE(res->body.find(p1), std::string::npos) << res->body;
+    EXPECT_NE(res->body.find(p2), std::string::npos) << res->body;
+}
+
+TEST_F(LiveRegistryTest, HistoryUnknownModelIdReturnsEmpty) {
+    // Commit one entry with a known id, then query with a different id.
+    const std::string path = "/data/" + group() + "/hunk1.txt";
+    ASSERT_TRUE(add_pending(path));
+    ASSERT_TRUE(acquire("run-hunk1"));
+    ASSERT_TRUE(trained_with_model_id("run-hunk1", {path},
+                                       "ffffffff-0006-0006-0006-000000000006", {1}));
+
+    auto res = get_history("00000000-9999-9999-9999-999999999999");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_NE(res->body.find("\"entries\":[]"), std::string::npos) << res->body;
+}
+
+TEST_F(LiveRegistryTest, TrainedWithoutModelIdHasEmptyModelIdInRegistry) {
+    // Calling the plain trained() helper (no model_id field) should store an
+    // empty model_id, keeping the registry backward-compatible.
+    const std::string path = "/data/" + group() + "/hnomid.txt";
+    ASSERT_TRUE(add_pending(path));
+    ASSERT_TRUE(acquire("run-hnomid"));
+    ASSERT_TRUE(trained("run-hnomid", {path}, {20}));
+
+    auto reg_res = get_registry();
+    ASSERT_TRUE(reg_res);
+    EXPECT_EQ(reg_res->status, 200);
+    EXPECT_NE(reg_res->body.find(path), std::string::npos) << reg_res->body;
+    // model_id key should either be absent or be an empty string — not a UUID.
+    const auto mid_pos = reg_res->body.find("\"model_id\":\"");
+    if (mid_pos != std::string::npos) {
+        const auto val_start = mid_pos + std::string("\"model_id\":\"").size();
+        const auto val_end   = reg_res->body.find('"', val_start);
+        const std::string stored_id = reg_res->body.substr(val_start, val_end - val_start);
+        EXPECT_TRUE(stored_id.empty())
+            << "Expected empty model_id for entry trained without one, got: " << stored_id;
     }
 }
 

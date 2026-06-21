@@ -18,7 +18,10 @@
 #endif
 #include "Config.hpp"
 #include "Logger.hpp"
+#include "ModelNameClient.hpp"  // always included for complete type (unique_ptr destructor)
 #include "TrainingMetricsAPI.hpp"
+
+IncrementalTrainer::~IncrementalTrainer() = default;
 #ifdef ADAI_ENABLE_OPENMP
 #include <omp.h>
 #include <cmath>
@@ -460,6 +463,20 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
     }
     trainer.set_metrics_reporter(metrics_reporter_.get());
 
+#ifdef BUILD_MNS_SERVER
+    // MNS: lazily initialize client, then notify training start
+    if (!config.mns_server_url.empty() && !config.mns_model_name.empty()) {
+        if (!mns_client_)
+            mns_client_ = std::make_unique<adai::ModelNameClient>(config.mns_server_url, 5000);
+        const std::string run_id = "session-" + std::to_string(current_session_id + 1);
+        try {
+            mns_client_->set_training(config.mns_model_name, run_id, active_session_key_);
+        } catch (const std::exception& e) {
+            Logger::warn("MNS set_training failed: {}", e.what());
+        }
+    }
+#endif
+
     // Per-epoch callback: record timing and per-epoch metrics into session history.
     auto epoch_start = std::chrono::steady_clock::now();
     trainer.set_epoch_callback([this, &epoch_start](int epoch, int total, float loss,
@@ -516,6 +533,26 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
         float final_val_loss = trainer.get_final_validation_loss();
         finalize_session(finalize_sample_count, num_epochs, final_loss, final_val_loss);
         save_session_history();
+
+#ifdef BUILD_MNS_SERVER
+        // MNS: notify candidate with checkpoint artifact
+        if (mns_client_ && !config.mns_model_name.empty()) {
+            const std::string run_id = "session-" + std::to_string(current_session_id);
+            adai::ArtifactLocation artifact;
+            artifact.path   = checkpoint_path;
+            artifact.format = "adai-native";
+            const std::map<std::string, std::string> summary = {
+                {"final_loss",     std::to_string(static_cast<double>(final_loss))},
+                {"final_val_loss", std::to_string(static_cast<double>(final_val_loss))},
+                {"epochs",         std::to_string(num_epochs)}
+            };
+            try {
+                mns_client_->set_candidate(config.mns_model_name, run_id, artifact, summary);
+            } catch (const std::exception& e) {
+                Logger::warn("MNS set_candidate failed: {}", e.what());
+            }
+        }
+#endif
     }
 
     return success;

@@ -335,6 +335,66 @@ if(OpenMP_CXX_FOUND)
     message(STATUS "Building incremental_trainer with full parallel optimizations")
 endif()
 
+# Find SQLite3 (pkg-config not always available; fall back to find_path/find_library)
+find_path(SQLITE3_INCLUDE_DIR sqlite3.h
+    PATHS /usr/include /usr/local/include /usr/include/x86_64-linux-gnu)
+find_library(SQLITE3_LIBRARY NAMES sqlite3
+    PATHS /usr/lib /usr/local/lib /usr/lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu)
+if(SQLITE3_INCLUDE_DIR AND SQLITE3_LIBRARY)
+    message(STATUS "SQLite3 found: ${SQLITE3_LIBRARY} (headers: ${SQLITE3_INCLUDE_DIR})")
+    set(SQLITE3_FOUND TRUE)
+else()
+    message(WARNING "SQLite3 not found — adai_mns will not be built. Install with: sudo apt-get install libsqlite3-dev")
+    set(SQLITE3_FOUND FALSE)
+endif()
+
+# Model Name Service library (requires cpp-httplib + SQLite3)
+if(HTTPLIB_INCLUDE_DIR AND SQLITE3_FOUND)
+    add_library(adai_mns STATIC
+        ModelNameService.cpp
+        ModelNameClient.cpp
+    )
+    target_link_libraries(adai_mns
+        adai_core
+        pthread
+        ${SQLITE3_LIBRARY}
+    )
+    target_include_directories(adai_mns PRIVATE ${HTTPLIB_INCLUDE_DIR} ${SQLITE3_INCLUDE_DIR})
+    target_compile_definitions(adai_mns PUBLIC BUILD_MNS_SERVER)
+    message(STATUS "Building adai_mns - Model Name Service library (SQLite backend)")
+else()
+    message(STATUS "adai_mns not built (cpp-httplib or SQLite3 not found)")
+endif()
+
+# Model Name Service daemon (mns_server)
+if(HTTPLIB_INCLUDE_DIR)
+    add_executable(mns_server ModelNameServiceServer.cpp)
+    target_link_libraries(mns_server
+        adai_mns
+        adai_core
+        spdlog::spdlog
+        pthread
+        $<$<CXX_COMPILER_ID:GNU>:stdc++fs>
+    )
+    target_include_directories(mns_server PRIVATE ${HTTPLIB_INCLUDE_DIR})
+    set_target_properties(mns_server PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+    )
+    message(STATUS "Building mns_server - Model Name Service daemon (port 8083)")
+else()
+    message(STATUS "mns_server not built (cpp-httplib not found)")
+endif()
+
+# Link adai_mns into incremental_trainer and chatbot_api_server now that the target exists
+if(TARGET adai_mns)
+    target_link_libraries(incremental_trainer adai_mns)
+    target_include_directories(incremental_trainer PRIVATE ${SQLITE3_INCLUDE_DIR})
+    if(TARGET chatbot_api_server)
+        target_link_libraries(chatbot_api_server adai_mns)
+        target_include_directories(chatbot_api_server PRIVATE ${SQLITE3_INCLUDE_DIR})
+    endif()
+endif()
+
 # Registry Server - Distributed dataset queue coordination daemon (TD-028 Phase 9)
 # Requires cpp-httplib; skipped when not available.
 if(HTTPLIB_INCLUDE_DIR)
@@ -480,9 +540,9 @@ if(BUILD_API_SERVER)
         ChatbotAPIServer.cpp
         Config.cpp
     )  # Logger.cpp compiled into adai_core
-    target_link_libraries(chatbot_api_server 
+    target_link_libraries(chatbot_api_server
         adai_api
-        adai_models 
+        adai_models
         adai_nlp
         adai_attention    # Priority 4: Parallel attention heads
         adai_core         # Priority 1: OpenMP matrix operations
@@ -592,14 +652,18 @@ if(BUILD_EXAMPLES)
     
     # Training Metrics Service Example
     add_executable(training_metrics_example ../examples/TrainingMetricsServiceExample.cpp
-        TrainingMetricsService.cpp IncrementalTrainer.cpp ChatbotTrainer.cpp Config.cpp)
-    target_link_libraries(training_metrics_example 
-        adai_models 
+        TrainingMetricsService.cpp IncrementalTrainer.cpp ChatbotTrainer.cpp Config.cpp
+        ModelNameClient.cpp)
+    target_link_libraries(training_metrics_example
+        adai_models
         adai_nlp
-        adai_core 
+        adai_core
         pthread
         $<$<CXX_COMPILER_ID:GNU>:stdc++fs>  # GCC/libstdc++ only; not available on macOS (libc++)
     )
+    if(HTTPLIB_INCLUDE_DIR)
+        target_include_directories(training_metrics_example PRIVATE ${HTTPLIB_INCLUDE_DIR})
+    endif()
     message(STATUS "Building training_metrics_example - Real-time metrics monitoring demo")
     
     message(STATUS "Building example programs (disable with -DBUILD_EXAMPLES=OFF)")

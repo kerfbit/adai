@@ -284,6 +284,28 @@ struct ServiceConfig {
     int rag_max_context_length = 512;
 
     // ============================================================
+    // Model Name Service Configuration
+    // ============================================================
+
+    /// URL of the ModelNameService daemon; empty = local file-path mode (default: "")
+    std::string name_service_url;
+
+    /// Listen port for the mns_server daemon (default: 8083)
+    int name_service_port = 8083;
+
+    /// Storage directory for mns_server JSONL files (default: "name_service")
+    std::string name_service_dir = "name_service";
+
+    /// HTTP timeout for ModelNameClient calls in milliseconds (default: 5000)
+    int name_service_timeout_ms = 5000;
+
+    /// Human-readable model name registered in the MNS (default: "")
+    std::string model_name;
+
+    /// Role used for resolve_role() at startup (e.g. "chatbot"); empty = use model_name
+    std::string model_role;
+
+    // ============================================================
     // GPU / CUDA Configuration
     // Only used when the binary is built with -DENABLE_GPU=ON.
     // ============================================================

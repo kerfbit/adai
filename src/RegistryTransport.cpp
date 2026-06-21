@@ -47,6 +47,9 @@ bool LocalTransport::load_registry(std::vector<DataVersion>& out) {
         int trained_int = 0;
         iss >> dv.data_file >> dv.checksum >> dv.num_samples >> trained_int;
         dv.trained = (trained_int == 1);
+        // model_id is optional 5th column; absent in pre-Phase-2 files
+        std::string mid;
+        if (iss >> mid) dv.model_id = mid;
         out.push_back(std::move(dv));
     }
 
@@ -61,10 +64,10 @@ bool LocalTransport::save_registry(const std::vector<DataVersion>& entries) {
         return false;
     }
 
-    file << "# Data Registry: data_file checksum num_samples trained\n";
+    file << "# Data Registry: data_file checksum num_samples trained model_id\n";
     for (const auto& dv : entries) {
         file << dv.data_file << " " << dv.checksum << " " << dv.num_samples << " "
-             << (dv.trained ? 1 : 0) << "\n";
+             << (dv.trained ? 1 : 0) << " " << dv.model_id << "\n";
     }
 
     return file.good();
