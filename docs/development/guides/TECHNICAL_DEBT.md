@@ -4,19 +4,11 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-<<<<<<< HEAD
-**Last Updated:** June 7, 2026
-**Total Items:** 4
-**High Priority:** 0
-**Medium Priority:** 2
-**Low Priority:** 2
-=======
 **Last Updated:** May 21, 2026
 **Total Items:** 3
 **High Priority:** 0
 **Medium Priority:** 2
 **Low Priority:** 1
->>>>>>> ed717615298f1636afc2d8ea1e25ef1ea07c8c6e
 **Future Enhancements:** 19
 **Resolved Items:** 31
 
@@ -27,8 +19,6 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 - [Active Technical Debt](#active-technical-debt)
   - [TD-029: Fix GCC 13 ICE in raginference\_test.cpp](#td-029-fix-gcc-13-ice-in-raginference_testcpp)
   - [TD-020: Persistent Metrics Storage via SQL Database](#td-020-persistent-metrics-storage-via-sql-database)
-  - [TD-017: Adaptive Gradient Clipping](#td-017-adaptive-gradient-clipping)
-  - [TD-018: Multi-Instance Training Metrics Service](#td-018-multi-instance-training-metrics-service)
   - [TD-014: LLM Operations and Training Tooling Suite](#td-014-llm-operations-and-training-tooling-suite)
   - [TD-006: Fill-in-the-Middle (FIM) Training Data Generation](#td-006-fill-in-the-middle-fim-training-data-generation)
 - [Resolved Items](#resolved-items)
@@ -90,6 +80,7 @@ Description:
 `tests/raginference_test.cpp` triggers an Internal Compiler Error (ICE) in GCC 13 (`cc1plus` exits with SIGSEGV) during a full build, preventing the `raginferenceTests` target from being compiled. All other targets build and test cleanly. The root cause is a C++ construct in the 504-line test file that tickles a GCC 13 code-generation bug. The fix is to identify the offending construct (likely a complex template instantiation or lambda capture) and either simplify it or add a targeted workaround.
 
 Action Items:
+
 - [ ] Bisect `raginference_test.cpp` to isolate the construct that triggers the ICE (binary-search by commenting out half the file, rebuild, repeat).
 - [ ] Apply the minimal fix: restructure the construct or break it into smaller translation units.
 - [ ] Verify build succeeds with GCC 13 and add a CI note to monitor for recurrence.
@@ -281,7 +272,7 @@ Changes Made:
 
 | Resolution Date | Component | Resolved By |
 |-----------------|-----------|-------------|
-| June 7, 2026 | Training / IncrementalTrainer / GPU | Added `--gpu-strategy background|full` CLI flag and `GPU_STRATEGY` config key; threaded `bool use_low_priority` from `ServiceConfig` through `Matrix::gpu_try_initialize()` to `GPUManager::initialize()`; 4 config-parsing tests added and passing |
+| June 7, 2026 | Training / IncrementalTrainer / GPU | Added `--gpu-strategy background\|full` CLI flag and `GPU_STRATEGY` config key; threaded `bool use_low_priority` from `ServiceConfig` through `Matrix::gpu_try_initialize()` to `GPUManager::initialize()`; 4 config-parsing tests added and passing |
 
 Summary:
 `incremental_trainer` previously used a hardcoded low-priority CUDA stream regardless of deployment context. This made it polite on shared workstations but underutilised on dedicated training machines. The `background` strategy preserves the original low-priority behaviour; `full` selects the highest-priority CUDA stream so training is never preempted. `GPU_MEMORY_FRACTION` remains an independent knob. The strategy is selectable via `--gpu-strategy` on the command line or `GPU_STRATEGY=` in the config file, with `background` as the default for backward compatibility.
@@ -328,6 +319,7 @@ Files Modified: `src/IncrementalTrainer.hpp`, `src/IncrementalTrainer.cpp`, `src
 Files Removed: `src/DatasetManager.hpp`, `src/DatasetManager.cpp` *(Phase 1c backward-compat facade, removed in Phase 7)*
 
 Related Items:
+
 - TD-006: `create_qa_pairs_from_text()` now lives in `DataFetcher.cpp` — natural location for future FIM data generation.
 - TD-014: `DataFetcher` is the natural home for future `adai-data-prep` tooling.
 - TD-029: Fresh `Config.cpp` compilation in `build-gpu-clang` triggers the same GCC 13 ICE noted during Phase 6; cached object unaffected.
@@ -359,6 +351,7 @@ Files Created: `scripts/install_incremental_trainer.sh`
 Files Modified: `scripts/README.md`, `config.conf`, `config-remote.conf`
 
 Related Items:
+
 - TD-028 (Resolved): Separated dataset management — defined the three binaries this script deploys.
 - TD-008 (Resolved): Daemon Service Implementation — `install_systemd_service.sh` style guide followed.
 - TD-025 (Resolved): Background launch capability exposed to operators via the installed trainer.
@@ -456,8 +449,10 @@ Files Modified: `src/ChatbotTrainer.cpp`, `src/ChatbotTrainer.hpp`, `src/CMakeLi
 
 Summary:
 `incremental_trainer train/retrain/resume` previously blocked the invoking shell for the full duration of training. The fix adds a `launch_background(int argc, char* argv[])` helper (POSIX: `fork()`+`setsid()`; Windows: `CreateProcess(DETACHED_PROCESS)` with `--background-child` sentinel). Each training dispatch branch reads the pending-file count and log path from config before forking, then:
+
 - **Parent** prints a structured startup banner (`[ADAI] Training started in background — PID …`) and returns 0.
 - **Child** redirects `stdin`/`stdout`/`stderr` to `/dev/null`, calls `setsid()`, and continues normal training (output flows through `adai::Logger`).
+
 Falls back to foreground execution if `fork()` fails, logging a warning.
 
 Changes Made:
@@ -1712,28 +1707,10 @@ When resolving a debt item:
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|0|0%|
-<<<<<<< HEAD
-|Medium|2|50%|
-|Low|2|50%|
-
-**Total Active Items:** 4
-
-> Note: TD-021 (IncrementalTrainer × Metrics Service Decoupling) resolved May 31, 2026; moved to Resolved section June 1, 2026.
-> Note: TD-022 (Remove Direct Terminal Output from IncrementalTrainer and Dependencies) resolved June 2, 2026; moved to Resolved section June 2, 2026.
-> Note: TD-023 (Parallel Generation Quality Scoring via Model Snapshot) added June 1, 2026; resolved June 4, 2026.
-> Note: TD-024 (Remove Legacy Standalone ChatbotTrainer Code and Build Target) resolved June 1, 2026; moved to Resolved section June 1, 2026.
-> Note: TD-025 (IncrementalTrainer Background Launch with PID Message) added June 2, 2026; resolved June 3, 2026.
-> Note: TD-026 (Extract GenerationQualityMetrics to Compiled Translation Unit) added June 3, 2026.
-> Note: TD-027 (Install Script for incremental_trainer Sub-System) added June 3, 2026; resolved June 7, 2026.
-> Note: TD-028 (Separate Dataset Management from IncrementalTrainer) added June 6, 2026; resolved June 7, 2026.
-> Note: TD-030 (GPU Strategy CLI Option for incremental_trainer) added June 7, 2026; resolved June 7, 2026.
-> Note: TD-031 (Fix RegistryServer Logger::init call signature mismatch) added June 7, 2026; resolved June 7, 2026.
-=======
 |Medium|2|67%|
 |Low|1|33%|
 
 **Total Active Items:** 3
->>>>>>> ed717615298f1636afc2d8ea1e25ef1ea07c8c6e
 
 ### By Component
 
@@ -1741,12 +1718,7 @@ When resolving a debt item:
 |----------------------|-------|
 |Training / Data Generation|1|
 |Tooling / Toolchain|1|
-<<<<<<< HEAD
-|Training / Metrics / API / Infrastructure|1|
-|Tests / RAGInference|1|
-=======
 |Metrics / API / Config / Training|1|
->>>>>>> ed717615298f1636afc2d8ea1e25ef1ea07c8c6e
 
 ### Effort Distribution
 
@@ -1757,11 +1729,7 @@ When resolving a debt item:
 |4-8 hours|1|
 |8+ hours|1|
 
-<<<<<<< HEAD
-**Total Estimated Effort (Active Items):** ~30-44 hours (TD-014 has no estimate)
-=======
 **Total Estimated Effort (Active Items):** 22-32 hours
->>>>>>> ed717615298f1636afc2d8ea1e25ef1ea07c8c6e
 
 ### Future Enhancements Summary
 
