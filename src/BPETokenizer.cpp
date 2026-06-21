@@ -659,3 +659,175 @@ std::vector<std::pair<std::string, int>> BPETokenizer::get_top_tokens(int k) con
     return std::vector<std::pair<std::string, int>>(sorted_vocab.begin(),
                                                     sorted_vocab.begin() + actual_k);
 }
+
+// ============================================================================
+// recommend_vocab_size() — data-driven vocabulary size recommendation.
+// ============================================================================
+
+// Decode one UTF-8 codepoint starting at p (len bytes remaining).
+// Returns the codepoint value and sets out_bytes to the sequence length.
+static uint32_t decode_codepoint(const unsigned char* p, size_t len, size_t& out_bytes) {
+    const unsigned char c = *p;
+    if ((c & 0x80) == 0)                        { out_bytes = 1; return c; }
+    if ((c & 0xE0) == 0xC0 && len >= 2)         { out_bytes = 2; return ((c & 0x1F) << 6)  | (p[1] & 0x3F); }
+    if ((c & 0xF0) == 0xE0 && len >= 3)         { out_bytes = 3; return ((c & 0x0F) << 12) | ((p[1] & 0x3F) << 6) | (p[2] & 0x3F); }
+    if ((c & 0xF8) == 0xF0 && len >= 4)         { out_bytes = 4; return ((c & 0x07) << 18) | ((p[1] & 0x3F) << 12) | ((p[2] & 0x3F) << 6) | (p[3] & 0x3F); }
+    out_bytes = 1; return c;
+}
+
+/*static*/
+int BPETokenizer::recommend_vocab_size(const std::vector<std::string>& texts,
+                                       int d_model,
+                                       int num_encoder_layers,
+                                       int num_decoder_layers,
+                                       int max_seq_length,
+                                       TokenizerMode mode) {
+    // ── 1. Corpus analysis ───────────────────────────────────────────────────
+    size_t total_chars    = 0;   // total UTF-8 code points
+    size_t total_words    = 0;   // whitespace-delimited word tokens
+    size_t cjk_count      = 0;   // CJK / Hangul / Kana code points
+    size_t arabic_count   = 0;   // Arabic / Hebrew code points
+    size_t cyrillic_count = 0;   // Cyrillic code points
+    size_t mb_other_count = 0;   // other multibyte (Extended Latin, Devanagari, …)
+
+    for (const auto& text : texts) {
+        bool in_word = false;
+        const auto* p   = reinterpret_cast<const unsigned char*>(text.data());
+        const auto* end = p + text.size();
+        while (p < end) {
+            size_t bytes = 1;
+            uint32_t cp = decode_codepoint(p, static_cast<size_t>(end - p), bytes);
+            p += bytes;
+            ++total_chars;
+
+            const bool is_space = (cp == ' ' || cp == '\t' || cp == '\n' || cp == '\r');
+            if (!is_space && !in_word) { ++total_words; in_word = true; }
+            else if (is_space)          { in_word = false; }
+
+            // Script categorisation (Unicode block ranges)
+            if      (cp >= 0x4E00 && cp <= 0x9FFF)   ++cjk_count;   // CJK Unified Ideographs
+            else if (cp >= 0x3040 && cp <= 0x30FF)   ++cjk_count;   // Hiragana / Katakana
+            else if (cp >= 0xAC00 && cp <= 0xD7AF)   ++cjk_count;   // Hangul Syllables
+            else if (cp >= 0x3400 && cp <= 0x4DBF)   ++cjk_count;   // CJK Extension A
+            else if (cp >= 0x20000 && cp <= 0x2A6DF) ++cjk_count;   // CJK Extension B
+            else if (cp >= 0x0600 && cp <= 0x06FF)   ++arabic_count; // Arabic
+            else if (cp >= 0x0590 && cp <= 0x05FF)   ++arabic_count; // Hebrew
+            else if (cp >= 0xFB1D && cp <= 0xFDFF)   ++arabic_count; // Arabic / Hebrew presentation forms
+            else if (cp >= 0x0400 && cp <= 0x04FF)   ++cyrillic_count;
+            else if (cp >= 0x0500 && cp <= 0x052F)   ++cyrillic_count; // Cyrillic Supplement
+            else if (cp >= 0x0080 && cp <= 0x024F)   ++mb_other_count; // Extended Latin
+            else if (cp >= 0x0900 && cp <= 0x097F)   ++mb_other_count; // Devanagari
+            else if (cp >= 0x0E00 && cp <= 0x0E7F)   ++mb_other_count; // Thai
+        }
+    }
+
+    if (total_chars == 0) return 2000;
+
+    // ── 2. Dataset-size base ─────────────────────────────────────────────────
+    // Anchored to known models: ~1k words → ~3k vocab, ~100k → ~14k, ~1M → ~44k.
+    const double words       = static_cast<double>(std::max(total_words, size_t(100)));
+    const double dataset_base = std::min(2000.0 + 3500.0 * std::sqrt(words / 1000.0), 64000.0);
+
+    // ── 3. Script multiplier ─────────────────────────────────────────────────
+    const double cjk_frac      = static_cast<double>(cjk_count)      / total_chars;
+    const double arabic_frac   = static_cast<double>(arabic_count)    / total_chars;
+    const double cyrillic_frac = static_cast<double>(cyrillic_count)  / total_chars;
+    const double mb_frac       = static_cast<double>(cjk_count + arabic_count +
+                                                      cyrillic_count + mb_other_count) / total_chars;
+
+    double script_mult = 1.0;
+    if (cjk_frac > 0.3) {
+        // CJK characters are already atomic semantic units; BPE needs fewer merges.
+        script_mult = 0.55;
+    } else if (arabic_frac > 0.2) {
+        // Arabic (and Hebrew) morphology is extremely rich — many prefix/suffix combos.
+        script_mult = 1.5;
+    } else if (cyrillic_frac > 0.3) {
+        // Cyrillic languages are moderately inflected.
+        script_mult = 1.2;
+    } else if (mb_frac > 0.3) {
+        // Heavily mixed scripts: must cover multiple character inventories.
+        script_mult = 1.25;
+    } else if (mb_frac > 0.1) {
+        script_mult = 1.1;
+    }
+
+    // ── 4. Architecture embedding-budget cap ─────────────────────────────────
+    // Embedding table (input only) = V × d_model.  Keep ≤ 30% of total params.
+    // Approximate non-embedding params ≈ (12 × L_enc + 16 × L_dec) × d_model².
+    // Solving for V:  V × d ≤ 0.3 × (V × d + arch)
+    //                 0.7 × V × d ≤ 0.3 × arch
+    //                 V ≤ (3/7) × (12 × L_enc + 16 × L_dec) × d_model
+    const double arch_mult = 12.0 * num_encoder_layers + 16.0 * num_decoder_layers;
+    const int    arch_cap  = static_cast<int>((3.0 / 7.0) * arch_mult * d_model);
+
+    // ── 5. Sequence-length adjustment ────────────────────────────────────────
+    // Short context → want denser tokens (fewer tokens per word) → larger vocab.
+    // Long  context → compression less critical → smaller vocab is fine.
+    double seq_mult = 1.0;
+    if      (max_seq_length <= 128)  seq_mult = 1.40;
+    else if (max_seq_length <= 256)  seq_mult = 1.20;
+    else if (max_seq_length >= 2048) seq_mult = 0.85;
+    else if (max_seq_length >= 1024) seq_mult = 0.92;
+
+    // ── 6. Unicode-mode coverage bump ────────────────────────────────────────
+    // Unicode mode needs slightly larger vocab to adequately cover multibyte
+    // code-point merges beyond what byte-level naturally handles.
+    const double mode_mult = (mode == TokenizerMode::UNICODE && mb_frac > 0.05) ? 1.1 : 1.0;
+
+    // ── 7. Combine, cap, and round ───────────────────────────────────────────
+    double recommended = dataset_base * script_mult * seq_mult * mode_mult;
+    recommended = std::min(recommended, static_cast<double>(arch_cap));
+    recommended = std::max(recommended, 2000.0);
+
+    // Round to nearest 500 for clean, memorable sizes.
+    const int rounded = static_cast<int>(std::round(recommended / 500.0) * 500.0);
+    return std::max(rounded, 2000);
+}
+
+// ============================================================================
+// measure_fertility() — tokens-per-word ratio on a text sample.
+// ============================================================================
+float BPETokenizer::measure_fertility(const std::vector<std::string>& texts,
+                                      int sample_limit) const {
+    if (vocab.empty()) return 0.0f;
+
+    // encode() is non-const (validates and mutates nothing, but the signature isn't marked const).
+    // Use a shallow copy that shares our vocab/merge tables via the same header-constructed state.
+    BPETokenizer probe(mode);
+    probe.vocab         = vocab;
+    probe.inverse_vocab = inverse_vocab;
+    probe.bpe_merges    = bpe_merges;
+    probe.special_tokens = special_tokens;
+    probe.pad_token_id  = pad_token_id;
+    probe.unk_token_id  = unk_token_id;
+    probe.bos_token_id  = bos_token_id;
+    probe.eos_token_id  = eos_token_id;
+
+    size_t total_tokens = 0;
+    size_t total_words  = 0;
+    int    sampled      = 0;
+
+    for (const auto& text : texts) {
+        if (sampled >= sample_limit) break;
+        if (text.empty()) continue;
+
+        // Count whitespace-delimited words
+        bool in_word = false;
+        for (unsigned char c : text) {
+            const bool is_space = (c == ' ' || c == '\t' || c == '\n' || c == '\r');
+            if (!is_space && !in_word) { ++total_words; in_word = true; }
+            else if (is_space)          { in_word = false; }
+        }
+
+        try {
+            total_tokens += probe.encode(text, /*add_special_tokens=*/false).size();
+        } catch (...) {
+            // skip texts that fail validation
+        }
+        ++sampled;
+    }
+
+    return (total_words == 0) ? 0.0f
+                              : static_cast<float>(total_tokens) / static_cast<float>(total_words);
+}

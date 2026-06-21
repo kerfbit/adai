@@ -192,6 +192,10 @@ class IncrementalTrainer {
     IncrementalConfig config;
     DatasetConfig     dataset_config_;  ///< Data-specific config (TD-028 Phase 2)
 
+    // Vocabulary auto-build state
+    int vocab_build_size_ = 0;        ///< 0 = auto-size via recommend_vocab_size(); >0 = explicit size
+    bool pending_vocab_build_ = false; ///< True until vocab is built on first training run
+
     // Session tracking
     std::vector<TrainingSession> session_history;
     int current_session_id;
@@ -223,6 +227,17 @@ class IncrementalTrainer {
      * method — there is no other place that instantiates EncoderDecoderModel.
      */
     void build_model();
+
+    /**
+     * @brief Build and save the vocabulary from a set of conversation pairs.
+     *
+     * Extracts all input and response texts, runs BPE with vocab_build_size_
+     * target tokens, and writes the vocab file to vocab_path_.  Clears
+     * pending_vocab_build_ on success.
+     *
+     * @return true if the vocab file was written successfully, false otherwise.
+     */
+    bool bootstrap_vocab(const std::vector<ConversationPair>& pairs);
 
     bool initialize_session();
     bool finalize_session(int samples_trained, int epochs_completed, float final_loss,

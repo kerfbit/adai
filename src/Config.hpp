@@ -397,6 +397,13 @@ struct ServiceConfig {
     /// Config key: TOKENIZER_MODE = ascii | unicode
     /// Env var:    TOKENIZER_MODE=unicode
     bool unicode_tokenizer = false;
+
+    /// Target vocabulary size when auto-building a new vocabulary from training data.
+    /// 0 (default) = auto-size based on corpus, model architecture, and script analysis.
+    /// Any positive value overrides automatic sizing.
+    /// Config key: VOCAB_BUILD_SIZE = <int>   (0 = auto)
+    /// Env var:    VOCAB_BUILD_SIZE=<int>
+    int vocab_build_size = 0;
 };
 
 /**

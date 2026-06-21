@@ -182,6 +182,62 @@ void IncrementalTrainer::build_model() {
 }
 
 // ============================================================================
+// bootstrap_vocab() — build vocabulary from training data on first run.
+// ============================================================================
+bool IncrementalTrainer::bootstrap_vocab(const std::vector<ConversationPair>& pairs) {
+    Logger::info("Building initial vocabulary from {} conversation pairs → {}", pairs.size(),
+                 vocab_path_);
+    std::vector<std::string> texts;
+    texts.reserve(pairs.size() * 2);
+    for (const auto& p : pairs) {
+        if (!p.input.empty())    texts.push_back(p.input);
+        if (!p.response.empty()) texts.push_back(p.response);
+    }
+    if (texts.empty()) {
+        Logger::error("Cannot build vocabulary: training data contains no text");
+        return false;
+    }
+
+    // Determine target size: explicit override or data-driven recommendation.
+    int target_size = vocab_build_size_;
+    if (target_size <= 0) {
+        target_size = BPETokenizer::recommend_vocab_size(
+            texts,
+            config.base_config.d_model,
+            config.base_config.num_encoder_layers,
+            config.base_config.num_decoder_layers,
+            config.base_config.max_seq_length,
+            config.base_config.tokenizer_mode);
+        Logger::info("Auto-sized vocabulary target: {} tokens", target_size);
+        Logger::info("  (corpus: {} texts | d_model: {} | layers: {}enc+{}dec | seq_len: {})",
+                     texts.size(), config.base_config.d_model,
+                     config.base_config.num_encoder_layers, config.base_config.num_decoder_layers,
+                     config.base_config.max_seq_length);
+    } else {
+        Logger::info("Using explicit vocabulary target: {} tokens", target_size);
+    }
+
+    BPETokenizer tok(config.base_config.tokenizer_mode);
+    tok.build_vocab(texts, target_size);
+    tok.save_vocab(vocab_path_);
+
+    // Measure and report fertility so users can judge quality.
+    float fertility = tok.measure_fertility(texts);
+    Logger::info("Vocabulary saved to '{}' ({} tokens, fertility {:.2f} tokens/word)",
+                 vocab_path_, tok.get_vocab_size(), fertility);
+    if (fertility > 2.5f) {
+        Logger::warn("High fertility ({:.2f}): vocabulary may be too small for this corpus; "
+                     "consider setting VOCAB_BUILD_SIZE to a larger value", fertility);
+    } else if (fertility < 1.1f && fertility > 0.0f) {
+        Logger::warn("Low fertility ({:.2f}): vocabulary may be oversized for this corpus",
+                     fertility);
+    }
+
+    pending_vocab_build_ = false;
+    return true;
+}
+
+// ============================================================================
 // make_incremental_config() — translate ServiceConfig → IncrementalConfig.
 // ============================================================================
 /*static*/
@@ -248,15 +304,22 @@ IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
     adai::ServiceConfig svc = config_file_path.empty() ? adai::ConfigLoader::load()
                                                        : adai::ConfigLoader::load(config_file_path);
 
-    if (svc.vocab_path.empty()) {
-        throw std::runtime_error(
-            "VOCAB_PATH must be set in config.conf (or via the VOCAB_PATH environment variable)");
+    model_path_ = svc.model_path.empty() ? "chatbot_model.bin" : svc.model_path;
+
+    // Derive vocab_path from model_name (canonical name) or model_path stem when not configured.
+    if (!svc.vocab_path.empty()) {
+        vocab_path_ = svc.vocab_path;
+    } else if (!svc.model_name.empty()) {
+        vocab_path_ = svc.model_name + ".vocab";
+        Logger::info("VOCAB_PATH not configured; derived from model name: {}", vocab_path_);
+    } else {
+        vocab_path_ = fs::path(model_path_).stem().string() + ".vocab";
+        Logger::info("VOCAB_PATH not configured; derived from model path: {}", vocab_path_);
     }
 
-    vocab_path_ = svc.vocab_path;
-    model_path_ = svc.model_path.empty() ? "chatbot_model.bin" : svc.model_path;
     config = make_incremental_config(svc);
     config.base_config.lr_schedule = LRSchedule::WARMUP_COSINE;
+    vocab_build_size_ = svc.vocab_build_size;
     dataset_config_ = DatasetRegistry::make_config(svc);
 
     // MetricsPushClient is created per training run; use NullMetricsReporter until then.
@@ -264,6 +327,15 @@ IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
 
     ensure_directories_exist();
 
+    if (!fs::exists(vocab_path_)) {
+        Logger::info("Vocabulary '{}' not found — will be built from first training run",
+                     vocab_path_);
+        pending_vocab_build_ = true;
+        last_save_time = std::chrono::system_clock::now();
+        return;
+    }
+
+    build_model();
     load_session_history();
 
     if (!session_history.empty()) {
@@ -595,6 +667,18 @@ bool IncrementalTrainer::train_on_files(const std::vector<std::string>& files, i
     Logger::info("Total training samples: {}", training_pairs.size());
     Logger::info("Total validation samples: {}", validation_pairs.size());
 
+    // First-run vocabulary bootstrap: build vocab from all available text then construct model.
+    if (pending_vocab_build_) {
+        std::vector<ConversationPair> all_pairs = training_pairs;
+        all_pairs.insert(all_pairs.end(), validation_pairs.begin(), validation_pairs.end());
+        if (!bootstrap_vocab(all_pairs)) {
+            Logger::error("Vocabulary bootstrap failed; aborting training");
+            return false;
+        }
+        build_model();
+        load_session_history();
+    }
+
     ChatbotTrainer trainer(config.base_config);
     trainer.set_model(std::move(model));
     for (const auto& pair : training_pairs)
@@ -629,6 +713,16 @@ bool IncrementalTrainer::retrain_on_files(const std::vector<std::string>& files,
             all_pairs.insert(all_pairs.end(), per_file[fi].begin(), per_file[fi].end());
     }
     Logger::info("Total samples: {}", all_pairs.size());
+
+    // First-run vocabulary bootstrap.
+    if (pending_vocab_build_) {
+        if (!bootstrap_vocab(all_pairs)) {
+            Logger::error("Vocabulary bootstrap failed; aborting training");
+            return false;
+        }
+        build_model();
+        load_session_history();
+    }
 
     // Validation split is handled inside ChatbotTrainer; compute the training
     // count here only to report an accurate sample count to the metrics server.

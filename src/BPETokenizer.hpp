@@ -147,6 +147,47 @@ class BPETokenizer {
     // Get top-k most frequent tokens (for debugging)
     std::vector<std::pair<std::string, int>> get_top_tokens(int k = 10) const;
 
+    /**
+     * @brief Recommend a vocabulary size based on corpus characteristics and model architecture.
+     *
+     * Combines five factors:
+     *   1. Dataset size   — larger corpora support larger, more useful vocabularies.
+     *   2. Script family  — CJK characters are already atomic (needs smaller vocab);
+     *                       Arabic/agglutinative scripts need larger vocab for morphology.
+     *   3. Architecture   — embedding table (V × d_model) is capped at ≤30% of total params.
+     *   4. Sequence length — tighter context budgets benefit from lower token fertility
+     *                        (more words per sequence), which means a larger vocabulary.
+     *   5. Tokenizer mode — Unicode mode with multibyte text gets a small upward adjustment
+     *                        to ensure adequate code-point coverage.
+     *
+     * @param texts              Training corpus texts.
+     * @param d_model            Model embedding dimension.
+     * @param num_encoder_layers Number of encoder layers.
+     * @param num_decoder_layers Number of decoder layers.
+     * @param max_seq_length     Maximum sequence length the model will process.
+     * @param mode               ASCII or UNICODE tokenizer mode.
+     * @return Recommended vocabulary size (multiple of 500, minimum 2000).
+     */
+    static int recommend_vocab_size(const std::vector<std::string>& texts,
+                                    int d_model,
+                                    int num_encoder_layers,
+                                    int num_decoder_layers,
+                                    int max_seq_length,
+                                    TokenizerMode mode = TokenizerMode::ASCII);
+
+    /**
+     * @brief Measure token fertility (average BPE tokens per whitespace word).
+     *
+     * A value in [1.2, 1.8] is generally healthy; above 2.5 indicates the vocabulary
+     * is too small for the corpus; below 1.1 indicates possible over-fitting or a
+     * very restricted vocabulary relative to the text.
+     *
+     * @param texts       Texts to evaluate (a random sample suffices).
+     * @param sample_limit Maximum number of texts to evaluate (default 500).
+     * @return Fertility ratio, or 0 if the tokenizer has no vocabulary.
+     */
+    float measure_fertility(const std::vector<std::string>& texts, int sample_limit = 500) const;
+
    private:
     // Split a UTF-8 string into one std::string per code point.
     // In ASCII mode the tokenizer calls this as well, but each "code point" is a

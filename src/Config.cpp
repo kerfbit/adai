@@ -338,6 +338,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 std::string lower = value;
                 std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
                 config.unicode_tokenizer = (lower == "unicode");
+            } else if (key == "VOCAB_BUILD_SIZE") {
+                config.vocab_build_size = std::stoi(value);
             } else {
                 std::cerr << "Warning: Unknown configuration key: " << key << '\n';
             }
@@ -522,6 +524,9 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
         std::string lower = *val;
         std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
         config.unicode_tokenizer = (lower == "unicode");
+    }
+    if (auto val = get_env_int("VOCAB_BUILD_SIZE")) {
+        config.vocab_build_size = *val;
     }
 
     // Distributed registry (TD-028 Phase 9)
