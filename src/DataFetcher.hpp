@@ -122,9 +122,10 @@ private:
 
     // ── HuggingFace private helpers ────────────────────────────────────────
 
-    static bool download_hf_rows(const std::string& dataset_id, const std::string& split,
-                                  int offset, int length, const std::string& output_path);
-    static bool convert_hf_to_training_data(const std::string& rows_dir,
+    static std::string download_hf_full_dataset(const std::string& dataset_id,
+                                                 const std::string& split,
+                                                 const std::string& output_dir);
+    static bool convert_hf_to_training_data(const std::string& jsonl_file,
                                              const std::string& output_file,
                                              const std::string& input_field,
                                              const std::string& output_field,
