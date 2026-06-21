@@ -143,37 +143,42 @@ void LocalTransport::unlock_pending(int lock_fd) const {
 
 // ── Phase 9: acquire / release / commit_trained ───────────────────────────────
 
-std::vector<std::string> LocalTransport::acquire(const std::string& run_id, int max_files) {
+AcquireResponse LocalTransport::acquire(const std::string& run_id, int max_files) {
+    AcquireResponse resp;
+    resp.run_id = run_id;
+    // ftp_server_host left empty → caller uses direct filesystem paths
+
     if (!fs::exists(pending_path_)) {
-        return {};
+        return resp;
     }
 
     const int lock_fd = lock_pending();
     if (lock_fd < 0) {
         Logger::error("LocalTransport::acquire — failed to acquire pending lock");
-        return {};
+        return resp;
     }
 
     std::vector<PendingEntry> entries;
     load_pending(entries);
 
     const int limit = (max_files > 0) ? max_files : std::numeric_limits<int>::max();
-    std::vector<std::string> acquired;
 
     for (auto& e : entries) {
-        if (e.run_id.empty() && static_cast<int>(acquired.size()) < limit) {
+        if (e.run_id.empty() && static_cast<int>(resp.files.size()) < limit) {
             e.run_id = run_id;
-            acquired.push_back(e.path);
+            FileToken tok;
+            tok.registry_path = e.path;
+            resp.files.push_back(std::move(tok));
         }
     }
 
-    if (!acquired.empty()) {
+    if (!resp.files.empty()) {
         save_pending(entries);
-        Logger::info("Acquired {} pending files for run '{}'", acquired.size(), run_id);
+        Logger::info("Acquired {} pending files for run '{}'", resp.files.size(), run_id);
     }
 
     unlock_pending(lock_fd);
-    return acquired;
+    return resp;
 }
 
 void LocalTransport::release(const std::string& run_id,
@@ -447,7 +452,9 @@ bool RemoteTransport::save_pending(const std::vector<PendingEntry>& /*entries*/)
     return false;
 }
 
-std::vector<std::string> RemoteTransport::acquire(const std::string& run_id, int max_files) {
+AcquireResponse RemoteTransport::acquire(const std::string& run_id, int max_files) {
+    AcquireResponse resp;
+    resp.run_id = run_id;
 #ifdef BUILD_METRICS_API_SERVER
     httplib::Client cli(host_, port_);
     cli.set_connection_timeout(0, timeout_ms_ * 1000);
@@ -462,16 +469,83 @@ std::vector<std::string> RemoteTransport::acquire(const std::string& run_id, int
     if (!res || res->status != 200) {
         Logger::error("RemoteTransport::acquire — HTTP {} from {}:{}{}",
                       res ? res->status : -1, host_, port_, group_prefix_ + "/acquire");
-        return {};
+        return resp;
     }
 
-    auto acquired = json_string_array(res->body, "acquired");
-    Logger::info("RemoteTransport: acquired {} files for run '{}'", acquired.size(), run_id);
-    return acquired;
+    const std::string& b = res->body;
+
+    // Detect new structured response: has "files":[ array.
+    // Old response format: {"acquired":["path",...]}
+    const bool new_format = (b.find("\"files\":[") != std::string::npos);
+
+    if (new_format) {
+        // Parse top-level scalar fields
+        resp.ftp_server_host = json_string(b, "ftp_server_host");
+        // ftp_server_port is a JSON number, not a string
+        const std::string port_needle = "\"ftp_server_port\":";
+        const auto pp = b.find(port_needle);
+        if (pp != std::string::npos) {
+            try { resp.ftp_server_port = std::stoi(b.substr(pp + port_needle.size())); }
+            catch (...) {}
+        }
+        // ftps_enabled is a JSON boolean (Phase 3)
+        const std::string ftps_needle = "\"ftps_enabled\":";
+        const auto fp = b.find(ftps_needle);
+        if (fp != std::string::npos) {
+            const std::string fval = b.substr(fp + ftps_needle.size(), 5);
+            resp.ftps_enabled = (fval.compare(0, 4, "true") == 0);
+        }
+
+        // Parse each file object inside "files":[{...},{...}]
+        auto files_pos = b.find("\"files\":[");
+        if (files_pos != std::string::npos) {
+            auto cur = files_pos + 9; // len("\"files\":[")
+            while (cur < b.size()) {
+                auto obj_start = b.find('{', cur);
+                if (obj_start == std::string::npos) break;
+                // Find matching closing brace (objects are flat, no nesting)
+                auto obj_end = b.find('}', obj_start);
+                if (obj_end == std::string::npos) break;
+                const std::string obj = b.substr(obj_start, obj_end - obj_start + 1);
+
+                FileToken tok;
+                tok.registry_path     = json_string(obj, "registry_path");
+                tok.ftp_path          = json_string(obj, "ftp_path");
+                tok.ftp_username      = json_string(obj, "ftp_username");
+                tok.ftp_password      = json_string(obj, "ftp_password");
+                tok.checksum          = json_string(obj, "checksum");
+                tok.token_expires_utc = json_string(obj, "token_expires_utc");
+                // size_bytes is a JSON number
+                const std::string sb_needle = "\"size_bytes\":";
+                const auto sbp = obj.find(sb_needle);
+                if (sbp != std::string::npos) {
+                    try { tok.size_bytes = static_cast<std::size_t>(
+                            std::stoull(obj.substr(sbp + sb_needle.size()))); }
+                    catch (...) {}
+                }
+                if (!tok.registry_path.empty()) {
+                    resp.files.push_back(std::move(tok));
+                }
+                cur = obj_end + 1;
+                if (b.find(']', cur) < b.find('{', cur)) break;
+            }
+        }
+    } else {
+        // Legacy format: {"acquired":["path1","path2",...]}
+        // Wrap each path in a minimal FileToken with ftp fields empty.
+        auto paths = json_string_array(b, "acquired");
+        for (auto& p : paths) {
+            FileToken tok;
+            tok.registry_path = std::move(p);
+            resp.files.push_back(std::move(tok));
+        }
+    }
+
+    Logger::info("RemoteTransport: acquired {} files for run '{}'", resp.files.size(), run_id);
 #else
     Logger::error("RemoteTransport::acquire — not compiled");
-    return {};
 #endif
+    return resp;
 }
 
 void RemoteTransport::release(const std::string& run_id,

@@ -235,6 +235,51 @@ struct ServiceConfig {
     int registry_timeout_ms = 5000;
 
     // ============================================================
+    // FTP Dataset Transport Configuration (Phase 10)
+    // Server-side (registry_server): FTP listener and token settings.
+    // Client-side (incremental_trainer): download directory and limits.
+    // ============================================================
+
+    /// FTP control port for the embedded FtpDataServer (default: 2121)
+    int ftp_server_port = 2121;
+
+    /// Lower bound of the PASV data port range (default: 50000)
+    int ftp_pasv_port_min = 50000;
+
+    /// Upper bound of the PASV data port range (default: 50099)
+    int ftp_pasv_port_max = 50099;
+
+    /// Per-file FTP token TTL in minutes (default: 30)
+    int ftp_token_ttl_minutes = 30;
+
+    /// HMAC key used for token signing (Phase 3); change in production
+    std::string ftp_data_server_secret = "change-me-in-production";
+
+    /// Trainer-owned directory for FTP downloads (default: "")
+    /// Empty = disabled; FTP transport is skipped even when the server sends tokens.
+    std::string download_dir;
+
+    /// Maximum concurrent FTP connections in fetch_all() (default: 4)
+    int max_parallel_downloads = 4;
+
+    /// Log a warning when a file transfer exceeds this size in MB; 0 = disabled (default: 500)
+    int large_file_warn_threshold_mb = 500;
+
+    // ── Phase 3: Security hardening ───────────────────────────────────────
+
+    /// Max concurrent FTP sessions per run_id; 0 = unlimited (default: 4)
+    int ftp_max_sessions_per_run = 4;
+
+    /// Enable FTPS (FTP over TLS) — encrypts credentials and data in transit (default: false)
+    bool ftps_enabled = false;
+
+    /// Path to PEM TLS certificate for the FTPS server; empty = generate self-signed
+    std::string ftp_cert_file;
+
+    /// Path to PEM TLS private key for the FTPS server; empty = generate self-signed
+    std::string ftp_key_file;
+
+    // ============================================================
     // Outlier Detection Configuration (TD-021)
     // ============================================================
 

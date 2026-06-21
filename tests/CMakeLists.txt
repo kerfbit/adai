@@ -675,4 +675,58 @@ target_link_libraries(dataFetcherTests
 )
 add_test(NAME DataFetcherTests COMMAND dataFetcherTests)
 
-message(STATUS "Configured 53 test suites using library targets (including Config, Logger, IncrementalTrainer, LLMEncoder, DocumentStore, RAGInference, BatchProcessor, ParallelDataLoader, IntegratedInferenceEngine, PipelineInferenceEngine, BatchedInferenceEngine, SpeculativeDecoding, VocabBuilder, ChatbotAPI, ChatbotTrainer, GenerationQuality, GenerationQualityAsync, PaddingEfficiency, AdaptiveClipping, ModelSerializer, StaleDetection, BackgroundLaunch, integration, RAG/BERT comparison, Phase 5, DatasetRegistry, DatasetRegistryLive and DataFetcher tests)")
+# TD-028 Phase 10 (FTP transport): FtpDataServer unit tests
+# Tests TokenStore, ftp_detail helpers, issue_token, AcquireResponse.
+# Does NOT start the FTP server (no network/port binding).
+# Phase 3: BUILD_FTPS enabled when OpenSSL is found so HMAC and rate-limit
+# tests exercise the real crypto path.
+find_package(OpenSSL QUIET)
+add_executable(ftpDataServerTests FtpDataServerTests.cpp)
+target_link_libraries(ftpDataServerTests
+    adai_core
+    GTest::gtest_main
+)
+if(OPENSSL_FOUND)
+    target_compile_definitions(ftpDataServerTests PRIVATE BUILD_FTPS)
+    target_link_libraries(ftpDataServerTests OpenSSL::SSL OpenSSL::Crypto)
+    message(STATUS "FtpDataServerTests: BUILD_FTPS enabled (OpenSSL found)")
+endif()
+add_test(NAME FtpDataServerTests COMMAND ftpDataServerTests)
+
+# TD-028 Phase 10 (FTP transport): DataTransport unit tests
+# Compiled WITHOUT BUILD_FTP_TRANSPORT to exercise the stub implementations.
+# Also validates FileToken and AcquireResponse struct defaults.
+add_executable(dataTransportTests DataTransportTests.cpp)
+target_link_libraries(dataTransportTests
+    adai_core
+    GTest::gtest_main
+)
+add_test(NAME DataTransportTests COMMAND dataTransportTests)
+
+# TD-028 Phase 2 (FTP transport): DataTransport unit tests WITH libcurl.
+# Tests Condition B (skip re-download for complete files), parallel fetch_all
+# result ordering, and error propagation — all without a running FTP server.
+# find_package result is cached so this is a no-op if src/CMakeLists already ran it.
+find_package(CURL QUIET)
+if(ENABLE_FTP_TRANSPORT AND CURL_FOUND)
+    add_executable(dataTransportFtpTests DataTransportFtpTests.cpp)
+    target_compile_definitions(dataTransportFtpTests PRIVATE BUILD_FTP_TRANSPORT)
+    target_link_libraries(dataTransportFtpTests
+        adai_core
+        CURL::libcurl
+        GTest::gtest_main
+    )
+    add_test(NAME DataTransportFtpTests COMMAND dataTransportFtpTests)
+endif()
+
+# TD-028 Phase 2 (startup sweep): startup_sweep() unit tests.
+# Tests all four cleanup conditions (A, D, G, B/C) using a real
+# DatasetRegistry backed by a temp directory — no FTP server needed.
+add_executable(startupSweepTests StartupSweepTests.cpp)
+target_link_libraries(startupSweepTests
+    adai_core
+    GTest::gtest_main
+)
+add_test(NAME StartupSweepTests COMMAND startupSweepTests)
+
+message(STATUS "Configured 56+ test suites using library targets (including Config, Logger, IncrementalTrainer, LLMEncoder, DocumentStore, RAGInference, BatchProcessor, ParallelDataLoader, IntegratedInferenceEngine, PipelineInferenceEngine, BatchedInferenceEngine, SpeculativeDecoding, VocabBuilder, ChatbotAPI, ChatbotTrainer, GenerationQuality, GenerationQualityAsync, PaddingEfficiency, AdaptiveClipping, ModelSerializer, StaleDetection, BackgroundLaunch, integration, RAG/BERT comparison, Phase 5, DatasetRegistry, DatasetRegistryLive, DataFetcher, FtpDataServer, DataTransport, DataTransportFtp, and StartupSweep tests)")

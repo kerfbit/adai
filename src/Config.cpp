@@ -283,6 +283,32 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.run_id = value;
             } else if (key == "REGISTRY_TIMEOUT_MS") {
                 config.registry_timeout_ms = std::stoi(value);
+                // FTP Dataset Transport configuration (Phase 10)
+            } else if (key == "FTP_SERVER_PORT") {
+                config.ftp_server_port = std::stoi(value);
+            } else if (key == "FTP_PASV_PORT_MIN") {
+                config.ftp_pasv_port_min = std::stoi(value);
+            } else if (key == "FTP_PASV_PORT_MAX") {
+                config.ftp_pasv_port_max = std::stoi(value);
+            } else if (key == "FTP_TOKEN_TTL_MINUTES") {
+                config.ftp_token_ttl_minutes = std::stoi(value);
+            } else if (key == "FTP_DATA_SERVER_SECRET") {
+                config.ftp_data_server_secret = value;
+            } else if (key == "DOWNLOAD_DIR") {
+                config.download_dir = value;
+            } else if (key == "MAX_PARALLEL_DOWNLOADS") {
+                config.max_parallel_downloads = std::stoi(value);
+            } else if (key == "LARGE_FILE_WARN_THRESHOLD_MB") {
+                config.large_file_warn_threshold_mb = std::stoi(value);
+                // Phase 3: security hardening
+            } else if (key == "FTP_MAX_SESSIONS_PER_RUN") {
+                config.ftp_max_sessions_per_run = std::stoi(value);
+            } else if (key == "FTPS_ENABLED") {
+                config.ftps_enabled = (value == "1" || value == "true" || value == "yes");
+            } else if (key == "FTP_CERT_FILE") {
+                config.ftp_cert_file = value;
+            } else if (key == "FTP_KEY_FILE") {
+                config.ftp_key_file = value;
                 // Model Name Service configuration
             } else if (key == "NAME_SERVICE_URL") {
                 config.name_service_url = value;
@@ -502,6 +528,42 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     if (auto val = get_env_int("REGISTRY_TIMEOUT_MS")) {
         config.registry_timeout_ms = *val;
     }
+
+    // FTP Dataset Transport (Phase 10)
+    if (auto val = get_env_int("FTP_SERVER_PORT")) {
+        config.ftp_server_port = *val;
+    }
+    if (auto val = get_env_int("FTP_PASV_PORT_MIN")) {
+        config.ftp_pasv_port_min = *val;
+    }
+    if (auto val = get_env_int("FTP_PASV_PORT_MAX")) {
+        config.ftp_pasv_port_max = *val;
+    }
+    if (auto val = get_env_int("FTP_TOKEN_TTL_MINUTES")) {
+        config.ftp_token_ttl_minutes = *val;
+    }
+    if (auto val = get_env("FTP_DATA_SERVER_SECRET")) {
+        config.ftp_data_server_secret = *val;
+    }
+    if (auto val = get_env("DOWNLOAD_DIR")) {
+        config.download_dir = *val;
+    }
+    if (auto val = get_env_int("MAX_PARALLEL_DOWNLOADS")) {
+        config.max_parallel_downloads = *val;
+    }
+    if (auto val = get_env_int("LARGE_FILE_WARN_THRESHOLD_MB")) {
+        config.large_file_warn_threshold_mb = *val;
+    }
+    // Phase 3: security hardening
+    if (auto val = get_env_int("FTP_MAX_SESSIONS_PER_RUN")) {
+        config.ftp_max_sessions_per_run = *val;
+    }
+    if (const char* v = std::getenv("FTPS_ENABLED")) {
+        const std::string sv(v);
+        config.ftps_enabled = (sv == "1" || sv == "true" || sv == "yes");
+    }
+    if (auto val = get_env("FTP_CERT_FILE")) { config.ftp_cert_file = *val; }
+    if (auto val = get_env("FTP_KEY_FILE"))  { config.ftp_key_file  = *val; }
 
     // Model Name Service
     if (auto val = get_env("NAME_SERVICE_URL")) {

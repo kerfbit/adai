@@ -59,19 +59,21 @@ protected:
 TEST_F(LocalTransportPhase9Test, AcquireNoFileReturnsEmpty) {
     LocalTransport t(reg_path_, pend_path_);
     // No pending file at all
-    auto acquired = t.acquire("run-a", 0);
-    EXPECT_TRUE(acquired.empty());
+    auto resp = t.acquire("run-a", 0);
+    EXPECT_TRUE(resp.files.empty());
 }
 
 TEST_F(LocalTransportPhase9Test, AcquireAllUnassigned) {
     seed_pending({"/data/a.txt", "/data/b.txt", "/data/c.txt"});
     LocalTransport t(reg_path_, pend_path_);
 
-    auto acquired = t.acquire("run-a", 0);  // 0 = all available
-    ASSERT_EQ(acquired.size(), 3u);
-    EXPECT_EQ(acquired[0], "/data/a.txt");
-    EXPECT_EQ(acquired[1], "/data/b.txt");
-    EXPECT_EQ(acquired[2], "/data/c.txt");
+    auto resp = t.acquire("run-a", 0);  // 0 = all available
+    ASSERT_EQ(resp.files.size(), 3u);
+    EXPECT_EQ(resp.files[0].registry_path, "/data/a.txt");
+    EXPECT_EQ(resp.files[1].registry_path, "/data/b.txt");
+    EXPECT_EQ(resp.files[2].registry_path, "/data/c.txt");
+    // LocalTransport: no FTP credentials
+    EXPECT_TRUE(resp.ftp_server_host.empty());
 
     // Verify run_ids are written to file
     std::vector<PendingEntry> entries;
@@ -86,16 +88,16 @@ TEST_F(LocalTransportPhase9Test, AcquireWithMaxFilesLimit) {
     seed_pending({"/data/a.txt", "/data/b.txt", "/data/c.txt", "/data/d.txt"});
     LocalTransport t(reg_path_, pend_path_);
 
-    auto acquired = t.acquire("run-b", 2);
-    ASSERT_EQ(acquired.size(), 2u);
+    auto resp = t.acquire("run-b", 2);
+    ASSERT_EQ(resp.files.size(), 2u);
 
     // Second acquire should get the remaining 2
-    auto acquired2 = t.acquire("run-c", 10);
-    ASSERT_EQ(acquired2.size(), 2u);
+    auto resp2 = t.acquire("run-c", 10);
+    ASSERT_EQ(resp2.files.size(), 2u);
 
     // Third acquire should find nothing
-    auto acquired3 = t.acquire("run-d", 0);
-    EXPECT_TRUE(acquired3.empty());
+    auto resp3 = t.acquire("run-d", 0);
+    EXPECT_TRUE(resp3.files.empty());
 }
 
 TEST_F(LocalTransportPhase9Test, AcquireSkipsAlreadyAssigned) {
@@ -105,9 +107,9 @@ TEST_F(LocalTransportPhase9Test, AcquireSkipsAlreadyAssigned) {
     });
     LocalTransport t(reg_path_, pend_path_);
 
-    auto acquired = t.acquire("run-y", 0);
-    ASSERT_EQ(acquired.size(), 1u);
-    EXPECT_EQ(acquired[0], "/data/b.txt");
+    auto resp = t.acquire("run-y", 0);
+    ASSERT_EQ(resp.files.size(), 1u);
+    EXPECT_EQ(resp.files[0].registry_path, "/data/b.txt");
 }
 
 // ============================================================================

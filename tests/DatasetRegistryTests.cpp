@@ -338,15 +338,16 @@ TEST_F(DatasetRegistryTest, AcquirePendingReturnsFilesAndUpdatesPending) {
         reg.add_file(data_file_);
     }
     DatasetRegistry reg2(make_cfg());
-    auto acquired = reg2.acquire_pending("run-a");
-    ASSERT_EQ(acquired.size(), 1u);
-    EXPECT_EQ(acquired[0], data_file_);
+    auto resp = reg2.acquire_pending("run-a");
+    ASSERT_EQ(resp.files.size(), 1u);
+    EXPECT_EQ(resp.files[0].registry_path, data_file_);
+    EXPECT_TRUE(resp.ftp_server_host.empty());  // LocalTransport: no FTP
     EXPECT_FALSE(reg2.pending_files().empty());  // reflected in-memory
 }
 
 TEST_F(DatasetRegistryTest, AcquirePendingEmptyWhenNoneAvailable) {
     DatasetRegistry reg(make_cfg());
-    EXPECT_TRUE(reg.acquire_pending("run-a").empty());
+    EXPECT_TRUE(reg.acquire_pending("run-a").files.empty());
 }
 
 TEST_F(DatasetRegistryTest, ReleasePendingRestoresFileToPool) {
@@ -355,16 +356,16 @@ TEST_F(DatasetRegistryTest, ReleasePendingRestoresFileToPool) {
         reg.add_file(data_file_);
     }
     DatasetRegistry reg2(make_cfg());
-    auto acquired = reg2.acquire_pending("run-a");
-    ASSERT_EQ(acquired.size(), 1u);
+    auto resp = reg2.acquire_pending("run-a");
+    ASSERT_EQ(resp.files.size(), 1u);
 
     // Release: in-memory pending_ is cleared
-    reg2.release_pending("run-a", acquired);
+    reg2.release_pending("run-a", resp.registry_paths());
     EXPECT_TRUE(reg2.pending_files().empty());
 
     // A subsequent acquire by a different run finds the file again
     DatasetRegistry reg3(make_cfg());
-    EXPECT_EQ(reg3.acquire_pending("run-b").size(), 1u);
+    EXPECT_EQ(reg3.acquire_pending("run-b").files.size(), 1u);
 }
 
 TEST_F(DatasetRegistryTest, MarkTrainedWithRunIdCommitsAndClearsPending) {
@@ -373,10 +374,10 @@ TEST_F(DatasetRegistryTest, MarkTrainedWithRunIdCommitsAndClearsPending) {
         reg.add_file(data_file_);
     }
     DatasetRegistry reg2(make_cfg());
-    auto acquired = reg2.acquire_pending("run-a");
-    ASSERT_FALSE(acquired.empty());
+    auto resp = reg2.acquire_pending("run-a");
+    ASSERT_FALSE(resp.files.empty());
 
-    reg2.mark_trained("run-a", acquired, {7});
+    reg2.mark_trained("run-a", resp.registry_paths(), {7});
 
     // In-memory state
     EXPECT_TRUE(reg2.is_trained(data_file_));
@@ -390,5 +391,5 @@ TEST_F(DatasetRegistryTest, MarkTrainedWithRunIdCommitsAndClearsPending) {
 
     // Pending file should be empty — no new acquire possible
     DatasetRegistry reg4(make_cfg());
-    EXPECT_TRUE(reg4.acquire_pending("run-c").empty());
+    EXPECT_TRUE(reg4.acquire_pending("run-c").files.empty());
 }

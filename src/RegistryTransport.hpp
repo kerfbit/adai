@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
@@ -33,6 +34,49 @@ struct DataVersion {
 struct PendingEntry {
     std::string path;
     std::string run_id;  // empty for LocalTransport
+};
+
+// ============================================================================
+// FTP transport data types (Phase 10: dataset transport)
+// ============================================================================
+
+/**
+ * @brief Per-file FTP credential bundle returned by RemoteTransport::acquire().
+ *
+ * Localhost (LocalTransport) callers only populate registry_path; all ftp_*
+ * fields are empty, which signals direct filesystem access.
+ */
+struct FileToken {
+    std::string  registry_path;      ///< absolute path as known to the registry
+    std::string  ftp_path;           ///< path relative to FTP root (data_dir)
+    std::string  ftp_username;       ///< per-file virtual FTP username
+    std::string  ftp_password;       ///< per-file FTP password (random 32-byte hex)
+    std::string  checksum;           ///< size+mtime from DataVersion (logging only)
+    std::size_t  size_bytes = 0;     ///< expected byte count; used for size verification
+    std::string  token_expires_utc;  ///< ISO-8601 UTC expiry timestamp
+};
+
+/**
+ * @brief Full response from an acquire call.
+ *
+ * When ftp_server_host is empty the trainer reads files directly by
+ * registry_path (localhost behavior, unchanged).  When ftp_server_host is set
+ * the trainer fetches each file via FTP using the per-file credentials.
+ */
+struct AcquireResponse {
+    std::string            run_id;
+    std::string            ftp_server_host;   ///< empty → direct path access
+    int                    ftp_server_port = 2121;
+    bool                   ftps_enabled = false;  ///< Phase 3: use FTPS (TLS) for downloads
+    std::vector<FileToken> files;
+
+    /// Convenience: collect registry_paths for release/mark_trained calls.
+    std::vector<std::string> registry_paths() const {
+        std::vector<std::string> out;
+        out.reserve(files.size());
+        for (const auto& f : files) out.push_back(f.registry_path);
+        return out;
+    }
 };
 
 // ============================================================================
@@ -73,11 +117,12 @@ public:
     /**
      * @brief Atomically acquire up to @p max_files unassigned entries for @p run_id.
      *
-     * LocalTransport uses an advisory lock file.  RemoteTransport uses a
-     * single atomic POST /acquire request.  Returns acquired paths; empty
-     * when none are available.
+     * LocalTransport uses an advisory lock file and returns an AcquireResponse
+     * with ftp_server_host empty (direct path access).  RemoteTransport uses a
+     * single atomic POST /acquire request and returns FTP credentials when the
+     * registry server is configured with an FTP server.
      */
-    virtual std::vector<std::string> acquire(const std::string& run_id, int max_files) = 0;
+    virtual AcquireResponse acquire(const std::string& run_id, int max_files) = 0;
 
     /** @brief Release @p paths assigned to @p run_id back to the unassigned pool. */
     virtual void release(const std::string& run_id, const std::vector<std::string>& paths) = 0;
@@ -146,7 +191,7 @@ public:
     bool save_registry(const std::vector<DataVersion>& entries)               override;
     bool load_pending(std::vector<PendingEntry>& out)                         override;
     bool save_pending(const std::vector<PendingEntry>& entries)               override;
-    std::vector<std::string> acquire(const std::string& run_id, int max_files) override;
+    AcquireResponse acquire(const std::string& run_id, int max_files) override;
     void release(const std::string& run_id, const std::vector<std::string>& paths) override;
     void commit_trained(const std::string& run_id,
                         const std::vector<DataVersion>& new_entries,
@@ -193,7 +238,7 @@ public:
     bool save_registry(const std::vector<DataVersion>& entries)               override;
     bool load_pending(std::vector<PendingEntry>& out)                         override;
     bool save_pending(const std::vector<PendingEntry>& entries)               override;
-    std::vector<std::string> acquire(const std::string& run_id, int max_files) override;
+    AcquireResponse acquire(const std::string& run_id, int max_files)        override;
     void release(const std::string& run_id, const std::vector<std::string>& paths) override;
     void commit_trained(const std::string& run_id,
                         const std::vector<DataVersion>& new_entries,

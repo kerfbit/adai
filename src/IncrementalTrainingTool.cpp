@@ -1,4 +1,5 @@
 #include <array>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -6,7 +7,9 @@
 #include <utility>
 #include "Config.hpp"
 #include "DatasetRegistry.hpp"
+#include "DataTransport.hpp"
 #include "IncrementalTrainer.hpp"
+#include "StartupSweep.hpp"
 #include "Logger.hpp"
 #include "Matrix.hpp"
 
@@ -17,6 +20,8 @@
 #ifdef _WIN32
 #  include <windows.h>
 #endif
+
+namespace fs = std::filesystem;
 
 namespace {
 
@@ -114,6 +119,21 @@ long long launch_background(int argc, char* argv[]) {
     return child_pid;
 #endif
 }
+
+// ── Download directory helpers ────────────────────────────────────────────────
+
+static void cleanup_downloads(const std::vector<fs::path>& local_paths) {
+    for (const auto& p : local_paths) {
+        if (!p.empty() && fs::exists(p)) {
+            std::error_code ec;
+            fs::remove(p, ec);
+            if (ec) {
+                adai::Logger::warn("[cleanup] Failed to remove '{}': {}", p.string(), ec.message());
+            }
+        }
+    }
+}
+
 
 std::string derive_run_id(const std::string& configured) {
     if (!configured.empty()) return configured;
@@ -332,22 +352,55 @@ int main(int argc, char* argv[]) {
                 config.base_config.lr_schedule = LRSchedule::WARMUP_COSINE;
                 IncrementalTrainer trainer(default_vocab, default_model, config);
 
-                DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
+                DatasetConfig dcfg = DatasetRegistry::make_config(svc_config);
+                DatasetRegistry reg(dcfg);
                 reg.load_registry();
                 const std::string run_id = derive_run_id(svc_config.run_id);
-                auto pending = reg.acquire_pending(run_id);
-                if (pending.empty()) {
+
+                // Startup stale-file sweep (conditions A-expired, B, C, D, G)
+                startup_sweep(reg, run_id, dcfg.download_dir);
+
+                auto resp = reg.acquire_pending(run_id);
+                if (resp.files.empty()) {
                     adai::Logger::warn("No pending data files to train on");
                     return 1;
                 }
-                if (trainer.train_on_files(pending, epochs)) {
-                    std::vector<int> counts(pending.size(), 0);
-                    reg.mark_trained(run_id, pending, counts);
-                    trainer.print_training_summary();
-                    return 0;
+
+                // Resolve local file paths — FTP download or direct access
+                std::vector<std::string> local_paths;
+                std::vector<fs::path>    downloaded_paths;
+                const bool use_ftp = !resp.ftp_server_host.empty()
+                                  && !dcfg.download_dir.empty();
+                if (use_ftp) {
+                    const std::size_t warn_bytes =
+                        static_cast<std::size_t>(dcfg.large_file_warn_threshold_mb) * 1024ULL * 1024ULL;
+                    try {
+                        DataTransport dt;
+                        downloaded_paths = dt.fetch_all(resp, dcfg.download_dir,
+                                                        dcfg.max_parallel_downloads, warn_bytes);
+                        for (const auto& p : downloaded_paths) local_paths.push_back(p.string());
+                    } catch (const std::exception& ex) {
+                        adai::Logger::error("[DataTransport] Download failed: {}", ex.what());
+                        reg.release_pending(run_id, resp.registry_paths());
+                        return 1;
+                    }
+                } else {
+                    for (const auto& f : resp.files) local_paths.push_back(f.registry_path);
                 }
-                reg.release_pending(run_id, pending);
-                return 1;
+
+                const bool ok = trainer.train_on_files(local_paths, epochs);
+                const auto reg_paths = resp.registry_paths();
+
+                if (ok) {
+                    std::vector<int> counts(reg_paths.size(), 0);
+                    reg.mark_trained(run_id, reg_paths, counts);
+                    trainer.print_training_summary();
+                } else {
+                    reg.release_pending(run_id, reg_paths);
+                }
+
+                if (use_ftp) cleanup_downloads(downloaded_paths);
+                return ok ? 0 : 1;
             });
 
     } else if (command == "retrain") {
@@ -380,30 +433,70 @@ int main(int argc, char* argv[]) {
                 IncrementalTrainer trainer(default_vocab, default_model, config);
                 trainer.reset_model_for_config();
 
-                DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
+                DatasetConfig dcfg = DatasetRegistry::make_config(svc_config);
+                DatasetRegistry reg(dcfg);
                 reg.load_registry();
                 const std::string run_id = derive_run_id(svc_config.run_id);
+
+                startup_sweep(reg, run_id, dcfg.download_dir);
+
                 auto trained_fs = reg.trained_files();
-                auto pending_fs = reg.acquire_pending(run_id);
-                std::vector<std::string> all_files;
-                all_files.insert(all_files.end(), trained_fs.begin(), trained_fs.end());
-                all_files.insert(all_files.end(), pending_fs.begin(), pending_fs.end());
-                if (all_files.empty()) {
+                auto pending_resp = reg.acquire_pending(run_id);
+
+                // For retrain: already-trained files are read directly by path (they
+                // live on the registry machine which already trained them, so no FTP
+                // needed for the trained portion).  Only newly acquired pending files
+                // may need FTP download.
+                std::vector<std::string>   local_paths(trained_fs.begin(), trained_fs.end());
+                std::vector<fs::path>      downloaded_paths;
+                const bool use_ftp = !pending_resp.ftp_server_host.empty()
+                                  && !dcfg.download_dir.empty();
+
+                if (!pending_resp.files.empty()) {
+                    if (use_ftp) {
+                        const std::size_t warn_bytes =
+                            static_cast<std::size_t>(dcfg.large_file_warn_threshold_mb)
+                            * 1024ULL * 1024ULL;
+                        try {
+                            DataTransport dt;
+                            downloaded_paths = dt.fetch_all(pending_resp, dcfg.download_dir,
+                                                            dcfg.max_parallel_downloads, warn_bytes);
+                            for (const auto& p : downloaded_paths)
+                                local_paths.push_back(p.string());
+                        } catch (const std::exception& ex) {
+                            adai::Logger::error("[DataTransport] Download failed: {}", ex.what());
+                            reg.release_pending(run_id, pending_resp.registry_paths());
+                            return 1;
+                        }
+                    } else {
+                        for (const auto& f : pending_resp.files)
+                            local_paths.push_back(f.registry_path);
+                    }
+                }
+
+                if (local_paths.empty()) {
                     adai::Logger::warn("No data files to retrain on");
                     return 1;
                 }
-                adai::Logger::info("Starting full retrain on {} data file(s)", all_files.size());
-                if (trainer.retrain_on_files(all_files, epochs)) {
-                    if (!pending_fs.empty()) {
-                        std::vector<int> counts(pending_fs.size(), 0);
-                        reg.mark_trained(run_id, pending_fs, counts);
+                adai::Logger::info("Starting full retrain on {} data file(s)", local_paths.size());
+
+                const bool ok = trainer.retrain_on_files(local_paths, epochs);
+                const auto pending_reg_paths = pending_resp.registry_paths();
+
+                if (ok) {
+                    if (!pending_reg_paths.empty()) {
+                        std::vector<int> counts(pending_reg_paths.size(), 0);
+                        reg.mark_trained(run_id, pending_reg_paths, counts);
                     }
                     trainer.print_training_summary();
-                    return 0;
+                } else {
+                    if (!pending_reg_paths.empty())
+                        reg.release_pending(run_id, pending_reg_paths);
+                    std::cerr << "❌ Full retrain failed\n";
                 }
-                if (!pending_fs.empty()) reg.release_pending(run_id, pending_fs);
-                std::cerr << "❌ Full retrain failed\n";
-                return 1;
+
+                if (use_ftp) cleanup_downloads(downloaded_paths);
+                return ok ? 0 : 1;
             });
 
     } else if (command == "reset") {

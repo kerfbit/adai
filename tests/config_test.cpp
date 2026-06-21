@@ -96,6 +96,15 @@ class ConfigTest : public ::testing::Test {
         unsetenv("GPU_DEVICE_ID");
         unsetenv("GPU_MEMORY_FRACTION");
         unsetenv("GPU_STRATEGY");
+        // FTP Dataset Transport (Phase 10)
+        unsetenv("FTP_SERVER_PORT");
+        unsetenv("FTP_PASV_PORT_MIN");
+        unsetenv("FTP_PASV_PORT_MAX");
+        unsetenv("FTP_TOKEN_TTL_MINUTES");
+        unsetenv("FTP_DATA_SERVER_SECRET");
+        unsetenv("DOWNLOAD_DIR");
+        unsetenv("MAX_PARALLEL_DOWNLOADS");
+        unsetenv("LARGE_FILE_WARN_THRESHOLD_MB");
 #endif
     }
 
@@ -900,6 +909,82 @@ TEST_F(ConfigTest, GpuStrategyEnvVarOverridesFile) {
     setEnv("GPU_STRATEGY", "full");
     auto config = ConfigLoader::load(test_file.string());
     EXPECT_EQ(config.gpu_strategy, adai::GPUStrategy::FULL);
+}
+
+// ============================================================================
+// FTP Dataset Transport Config Tests (Phase 10)
+// ============================================================================
+
+TEST_F(ConfigTest, FtpDefaultValues) {
+    auto config = ConfigLoader::load();
+
+    EXPECT_EQ(config.ftp_server_port,           2121);
+    EXPECT_EQ(config.ftp_pasv_port_min,         50000);
+    EXPECT_EQ(config.ftp_pasv_port_max,         50099);
+    EXPECT_EQ(config.ftp_token_ttl_minutes,     30);
+    EXPECT_EQ(config.ftp_data_server_secret,    "change-me-in-production");
+    EXPECT_TRUE(config.download_dir.empty());
+    EXPECT_EQ(config.max_parallel_downloads,    4);
+    EXPECT_EQ(config.large_file_warn_threshold_mb, 500);
+}
+
+TEST_F(ConfigTest, LoadFtpFieldsFromFile) {
+    createConfigFile({
+        {"FTP_SERVER_PORT",           "3121"},
+        {"FTP_PASV_PORT_MIN",         "60000"},
+        {"FTP_PASV_PORT_MAX",         "60099"},
+        {"FTP_TOKEN_TTL_MINUTES",     "60"},
+        {"FTP_DATA_SERVER_SECRET",    "s3cr3t-key"},
+        {"DOWNLOAD_DIR",              "/mnt/datasets"},
+        {"MAX_PARALLEL_DOWNLOADS",    "8"},
+        {"LARGE_FILE_WARN_THRESHOLD_MB", "1024"},
+    });
+
+    auto config = ConfigLoader::load(test_file.string());
+
+    EXPECT_EQ(config.ftp_server_port,              3121);
+    EXPECT_EQ(config.ftp_pasv_port_min,            60000);
+    EXPECT_EQ(config.ftp_pasv_port_max,            60099);
+    EXPECT_EQ(config.ftp_token_ttl_minutes,        60);
+    EXPECT_EQ(config.ftp_data_server_secret,       "s3cr3t-key");
+    EXPECT_EQ(config.download_dir,                 "/mnt/datasets");
+    EXPECT_EQ(config.max_parallel_downloads,       8);
+    EXPECT_EQ(config.large_file_warn_threshold_mb, 1024);
+}
+
+TEST_F(ConfigTest, LoadFtpFieldsFromEnvVars) {
+    setEnv("FTP_SERVER_PORT",           "4121");
+    setEnv("FTP_PASV_PORT_MIN",         "55000");
+    setEnv("FTP_PASV_PORT_MAX",         "55049");
+    setEnv("FTP_TOKEN_TTL_MINUTES",     "15");
+    setEnv("FTP_DATA_SERVER_SECRET",    "env-secret");
+    setEnv("DOWNLOAD_DIR",              "/tmp/adai_downloads");
+    setEnv("MAX_PARALLEL_DOWNLOADS",    "2");
+    setEnv("LARGE_FILE_WARN_THRESHOLD_MB", "250");
+
+    auto config = ConfigLoader::load();
+
+    EXPECT_EQ(config.ftp_server_port,              4121);
+    EXPECT_EQ(config.ftp_pasv_port_min,            55000);
+    EXPECT_EQ(config.ftp_pasv_port_max,            55049);
+    EXPECT_EQ(config.ftp_token_ttl_minutes,        15);
+    EXPECT_EQ(config.ftp_data_server_secret,       "env-secret");
+    EXPECT_EQ(config.download_dir,                 "/tmp/adai_downloads");
+    EXPECT_EQ(config.max_parallel_downloads,       2);
+    EXPECT_EQ(config.large_file_warn_threshold_mb, 250);
+}
+
+TEST_F(ConfigTest, FtpEnvVarOverridesFile) {
+    createConfigFile({
+        {"FTP_SERVER_PORT",  "3121"},
+        {"DOWNLOAD_DIR",     "/mnt/datasets"},
+    });
+    setEnv("FTP_SERVER_PORT", "5121");  // env overrides file
+
+    auto config = ConfigLoader::load(test_file.string());
+
+    EXPECT_EQ(config.ftp_server_port, 5121);       // from env
+    EXPECT_EQ(config.download_dir,    "/mnt/datasets");  // from file
 }
 
 // ============================================================================

@@ -58,10 +58,13 @@ DatasetConfig DatasetRegistry::make_config(const adai::ServiceConfig& svc) {
     if (!svc.session_dir.empty()) {
         cfg.session_dir = svc.session_dir;
     }
-    cfg.registry_server_url = svc.registry_server_url;
-    cfg.run_group           = svc.run_group;
-    cfg.run_id              = svc.run_id;
-    cfg.registry_timeout_ms = svc.registry_timeout_ms;
+    cfg.registry_server_url          = svc.registry_server_url;
+    cfg.run_group                    = svc.run_group;
+    cfg.run_id                       = svc.run_id;
+    cfg.registry_timeout_ms          = svc.registry_timeout_ms;
+    cfg.download_dir                 = svc.download_dir;
+    cfg.max_parallel_downloads       = svc.max_parallel_downloads;
+    cfg.large_file_warn_threshold_mb = svc.large_file_warn_threshold_mb;
     return cfg;
 }
 
@@ -193,21 +196,20 @@ void DatasetRegistry::mark_trained(const std::string& run_id,
 // Multi-run API (Phase 9)
 // ============================================================================
 
-std::vector<std::string> DatasetRegistry::acquire_pending(const std::string& run_id,
-                                                           int max_files) {
+AcquireResponse DatasetRegistry::acquire_pending(const std::string& run_id, int max_files) {
     const int limit = (max_files > 0) ? max_files : config_.max_files_per_run;
-    auto acquired = transport_->acquire(run_id, limit);
+    auto resp = transport_->acquire(run_id, limit);
 
     // Reflect acquisition in in-memory pending_
-    const std::set<std::string> acq_set(acquired.begin(), acquired.end());
-    for (const auto& p : acquired) {
-        const bool already_in = std::find(pending_.begin(), pending_.end(), p) != pending_.end();
+    for (const auto& f : resp.files) {
+        const bool already_in =
+            std::find(pending_.begin(), pending_.end(), f.registry_path) != pending_.end();
         if (!already_in) {
-            pending_.push_back(p);
+            pending_.push_back(f.registry_path);
         }
     }
 
-    return acquired;
+    return resp;
 }
 
 void DatasetRegistry::release_pending(const std::string& run_id,

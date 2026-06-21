@@ -647,11 +647,14 @@ bool IncrementalTrainer::resume_last_session() {
     if (run_id.empty()) {
         run_id = detect_hostname_fragment() + "_" + std::to_string(detect_pid_mod_10000());
     }
-    auto pending = reg.acquire_pending(run_id);
-    if (pending.empty()) {
+    auto resp = reg.acquire_pending(run_id);
+    if (resp.files.empty()) {
         Logger::warn("No pending data files to resume training on");
         return false;
     }
+    // resume_last_session runs on the same machine as the registry (localhost path);
+    // ftp_server_host is always empty here.  Use registry paths directly.
+    std::vector<std::string> pending = resp.registry_paths();
 
     std::string resume_checkpoint = best_checkpoint_path;
     int resume_session_id = -1;

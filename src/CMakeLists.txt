@@ -247,6 +247,38 @@ find_path(HTTPLIB_INCLUDE_DIR httplib.h
         ${CMAKE_SOURCE_DIR}/external/cpp-httplib
 )
 
+# ============================================================================
+# libcurl — required for FTP dataset transport (Phase 10)
+# Enable with: -DENABLE_FTP_TRANSPORT=ON (default ON when curl is found)
+# ============================================================================
+option(ENABLE_FTP_TRANSPORT "Enable FTP dataset transport via libcurl" ON)
+if(ENABLE_FTP_TRANSPORT)
+    find_package(CURL QUIET)
+    if(CURL_FOUND)
+        message(STATUS "libcurl found: ${CURL_LIBRARIES} — FTP dataset transport enabled")
+    else()
+        message(STATUS "libcurl not found — FTP dataset transport disabled. "
+                       "Install with: sudo apt-get install libcurl4-openssl-dev")
+        set(ENABLE_FTP_TRANSPORT OFF)
+    endif()
+endif()
+
+# ============================================================================
+# OpenSSL — required for FTPS (TLS) and HMAC-SHA256 token signing (Phase 11/3)
+# Enable with: -DENABLE_FTPS=ON (default ON when OpenSSL is found)
+# ============================================================================
+option(ENABLE_FTPS "Enable FTPS (TLS) for FTP dataset transport" ON)
+if(ENABLE_FTPS)
+    find_package(OpenSSL QUIET)
+    if(OPENSSL_FOUND)
+        message(STATUS "OpenSSL found: ${OPENSSL_LIBRARIES} — FTPS enabled")
+    else()
+        message(STATUS "OpenSSL not found — FTPS disabled. "
+                       "Install with: sudo apt-get install libssl-dev")
+        set(ENABLE_FTPS OFF)
+    endif()
+endif()
+
 # API layer (optional, requires httplib)
 option(BUILD_API_SERVER "Build REST API server" ON)
 if(BUILD_API_SERVER)
@@ -320,6 +352,11 @@ if(BUILD_METRICS_API_SERVER AND HTTPLIB_INCLUDE_DIR)
     target_compile_definitions(incremental_trainer PRIVATE BUILD_METRICS_API_SERVER)
     target_link_libraries(incremental_trainer adai_metrics_api)
     target_include_directories(incremental_trainer PRIVATE ${HTTPLIB_INCLUDE_DIR})
+endif()
+if(ENABLE_FTP_TRANSPORT AND CURL_FOUND)
+    target_compile_definitions(incremental_trainer PRIVATE BUILD_FTP_TRANSPORT)
+    target_link_libraries(incremental_trainer CURL::libcurl)
+    message(STATUS "FTP dataset transport enabled for incremental_trainer")
 endif()
 set_target_properties(incremental_trainer PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
@@ -410,6 +447,11 @@ if(HTTPLIB_INCLUDE_DIR)
     set_target_properties(registry_server PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
     )
+    if(ENABLE_FTPS AND OPENSSL_FOUND)
+        target_compile_definitions(registry_server PRIVATE BUILD_FTPS)
+        target_link_libraries(registry_server OpenSSL::SSL OpenSSL::Crypto)
+        message(STATUS "FTPS enabled for registry_server (OpenSSL found)")
+    endif()
     message(STATUS "Building registry_server - distributed dataset queue coordination")
 else()
     message(STATUS "registry_server not built (cpp-httplib not found)")
