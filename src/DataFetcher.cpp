@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 #include "Logger.hpp"
+#include "TrainingSampleMeta.hpp"
 
 using adai::Logger;
 namespace fs = std::filesystem;
@@ -42,7 +43,7 @@ std::string DataFetcher::fetch_gutenberg(int book_id, int num_pairs) {
 
     std::ostringstream training_path_oss;
     training_path_oss << config_.gutenberg_output_dir << "/gutenberg_" << book_id
-                      << "_training.txt";
+                      << "_training.jsonl";
     const std::string training_file = training_path_oss.str();
 
     if (!convert_gutenberg_to_training_data(text_file, training_file, num_pairs)) {
@@ -84,7 +85,7 @@ std::string DataFetcher::fetch_huggingface(const std::string& dataset_id, int nu
     const std::string dataset_dir =
         config_.huggingface_output_dir + "/" + safe_id + "_" + split;
     const std::string train_file =
-        config_.huggingface_output_dir + "/" + safe_id + "_" + split + "_training.txt";
+        config_.huggingface_output_dir + "/" + safe_id + "_" + split + "_training.jsonl";
 
     if (!fs::exists(config_.huggingface_output_dir)) {
         fs::create_directories(config_.huggingface_output_dir);
@@ -296,10 +297,13 @@ bool DataFetcher::convert_gutenberg_to_training_data(const std::string& text_fil
         return false;
     }
 
+    SampleMeta meta;
+    meta.task_type = "qa";
+    meta.domain    = "literature";
+    meta.language  = "en";
+
     for (const auto& pair : pairs) {
-        out << "INPUT: " << pair.first << "\n";
-        out << "RESPONSE: " << pair.second << "\n";
-        out << "\n";
+        out << sample_to_jsonl(pair.first, pair.second, meta) << "\n";
     }
 
     out.close();
@@ -647,8 +651,16 @@ static std::vector<std::string> hf_extract_parquet_urls(const std::string& json)
 // ============================================================================
 // Private — convert_hf_to_training_data
 // Reads a JSONL file (one JSON object per line) produced by download_hf_full_dataset
-// and writes up to max_pairs INPUT:/RESPONSE: training pairs.
+// and writes up to max_pairs training JSONL lines with inferred metadata.
 // ============================================================================
+
+// Infer task_type from the auto-detected HuggingFace field names.
+static std::string hf_task_type(const std::string& in_field) {
+    if (in_field == "instruction") return "instruction";
+    if (in_field == "question")    return "qa";
+    if (in_field == "prompt")      return "completion";
+    return "instruction";
+}
 
 /*static*/
 bool DataFetcher::convert_hf_to_training_data(const std::string& jsonl_file,
@@ -667,10 +679,35 @@ bool DataFetcher::convert_hf_to_training_data(const std::string& jsonl_file,
         return false;
     }
 
-    int         pair_count = 0;
-    std::string det_in     = input_field;
-    std::string det_out    = output_field;
+    int         pair_count    = 0;
+    std::string det_in        = input_field;
+    std::string det_out       = output_field;
+    std::string det_task_type;
     std::string line;
+
+    // Helper: split a long text at a sentence boundary near its midpoint.
+    auto mid_split = [](const std::string& text, std::string& left, std::string& right) -> bool {
+        if (text.size() < 40) return false;
+        size_t mid       = text.size() / 2;
+        size_t split_pos = std::string::npos;
+        for (size_t radius = 0; radius < mid && split_pos == std::string::npos; ++radius) {
+            for (size_t pos : {mid + radius, mid - radius}) {
+                if (pos >= text.size() - 1) continue;
+                char c = text[pos];
+                if ((c == '.' || c == '!' || c == '?') && pos + 1 < text.size() &&
+                    (text[pos + 1] == ' ' || text[pos + 1] == '\n')) {
+                    split_pos = pos + 1;
+                    break;
+                }
+            }
+        }
+        if (split_pos == std::string::npos || split_pos >= text.size() - 5) return false;
+        left  = text.substr(0, split_pos);
+        right = text.substr(split_pos);
+        size_t start = right.find_first_not_of(" \n\t");
+        if (start != std::string::npos) right = right.substr(start);
+        return !left.empty() && !right.empty();
+    };
 
     while (std::getline(f, line) && pair_count < max_pairs) {
         if (line.empty() || line.front() != '{') continue;
@@ -678,42 +715,26 @@ bool DataFetcher::convert_hf_to_training_data(const std::string& jsonl_file,
 
         if (det_in.empty()) {
             auto [df_in, df_out] = hf_detect_fields(row_json);
-            det_in  = df_in;
-            det_out = df_out;
+            det_in        = df_in;
+            det_out       = df_out;
+            det_task_type = det_in.empty() ? "" : hf_task_type(det_in);
             if (!det_in.empty()) {
-                Logger::info("Auto-detected HF fields: input='{}' output='{}'", det_in, det_out);
+                Logger::info("Auto-detected HF fields: input='{}' output='{}' task_type='{}'",
+                             det_in, det_out, det_task_type);
             }
         }
 
+        SampleMeta meta;
+        meta.task_type = det_task_type;
+
         if (!det_in.empty() && !det_out.empty() && det_in == det_out) {
-            // Single-text-field datasets — split at a sentence boundary near the middle
+            // Single-text-field datasets — split at sentence boundary near middle
             std::string full_text = hf_extract_string(row_json, det_in);
-            if (full_text.size() >= 40) {
-                size_t mid       = full_text.size() / 2;
-                size_t split_pos = std::string::npos;
-                for (size_t radius = 0; radius < mid && split_pos == std::string::npos; ++radius) {
-                    for (size_t pos : {mid + radius, mid - radius}) {
-                        if (pos >= full_text.size() - 1) continue;
-                        char c = full_text[pos];
-                        if ((c == '.' || c == '!' || c == '?') &&
-                            pos + 1 < full_text.size() &&
-                            (full_text[pos + 1] == ' ' || full_text[pos + 1] == '\n')) {
-                            split_pos = pos + 1;
-                            break;
-                        }
-                    }
-                }
-                if (split_pos != std::string::npos && split_pos < full_text.size() - 5) {
-                    std::string input_text  = full_text.substr(0, split_pos);
-                    std::string output_text = full_text.substr(split_pos);
-                    size_t      start       = output_text.find_first_not_of(" \n\t");
-                    if (start != std::string::npos) output_text = output_text.substr(start);
-                    if (!input_text.empty() && !output_text.empty()) {
-                        out << "INPUT: " << input_text << "\n"
-                            << "RESPONSE: " << output_text << "\n\n";
-                        ++pair_count;
-                    }
-                }
+            std::string left, right;
+            if (mid_split(full_text, left, right)) {
+                meta.task_type = "completion";
+                out << sample_to_jsonl(left, right, meta) << "\n";
+                ++pair_count;
             }
         } else if (!det_in.empty() && !det_out.empty()) {
             // Key-value datasets (alpaca, dolly, OpenHermes, …)
@@ -724,8 +745,7 @@ bool DataFetcher::convert_hf_to_training_data(const std::string& jsonl_file,
             }
             std::string output_text = hf_extract_string(row_json, det_out);
             if (!input_text.empty() && !output_text.empty()) {
-                out << "INPUT: " << input_text << "\n"
-                    << "RESPONSE: " << output_text << "\n\n";
+                out << sample_to_jsonl(input_text, output_text, meta) << "\n";
                 ++pair_count;
             }
         } else {
@@ -737,10 +757,11 @@ bool DataFetcher::convert_hf_to_training_data(const std::string& jsonl_file,
                 if (dk == nullptr || pair_count >= max_pairs) break;
                 auto turns = hf_extract_string_array(row_json, dk);
                 if (turns.empty()) continue;
+                SampleMeta chat_meta;
+                chat_meta.task_type = "chat";
                 for (size_t i = 0; i + 1 < turns.size() && pair_count < max_pairs; i += 2) {
                     if (!turns[i].empty() && !turns[i + 1].empty()) {
-                        out << "INPUT: " << turns[i] << "\n"
-                            << "RESPONSE: " << turns[i + 1] << "\n\n";
+                        out << sample_to_jsonl(turns[i], turns[i + 1], chat_meta) << "\n";
                         ++pair_count;
                     }
                 }
@@ -756,36 +777,18 @@ bool DataFetcher::convert_hf_to_training_data(const std::string& jsonl_file,
                     if (tk == nullptr) break;
                     std::string full_text = hf_extract_string(row_json, tk);
                     if (full_text.size() < 40) continue;
-                    det_in  = tk;
-                    det_out = tk;
+                    det_in        = tk;
+                    det_out       = tk;
+                    det_task_type = "completion";
                     Logger::info(
                         "Auto-detected single-text field: '{}' — will split at sentence boundaries",
                         tk);
-                    size_t mid       = full_text.size() / 2;
-                    size_t split_pos = std::string::npos;
-                    for (size_t radius = 0; radius < mid && split_pos == std::string::npos;
-                         ++radius) {
-                        for (size_t pos : {mid + radius, mid - radius}) {
-                            if (pos >= full_text.size() - 1) continue;
-                            char c = full_text[pos];
-                            if ((c == '.' || c == '!' || c == '?') &&
-                                pos + 1 < full_text.size() &&
-                                (full_text[pos + 1] == ' ' || full_text[pos + 1] == '\n')) {
-                                split_pos = pos + 1;
-                                break;
-                            }
-                        }
-                    }
-                    if (split_pos != std::string::npos && split_pos < full_text.size() - 5) {
-                        std::string input_text  = full_text.substr(0, split_pos);
-                        std::string output_text = full_text.substr(split_pos);
-                        size_t      start       = output_text.find_first_not_of(" \n\t");
-                        if (start != std::string::npos) output_text = output_text.substr(start);
-                        if (!input_text.empty() && !output_text.empty()) {
-                            out << "INPUT: " << input_text << "\n"
-                                << "RESPONSE: " << output_text << "\n\n";
-                            ++pair_count;
-                        }
+                    std::string left, right;
+                    if (mid_split(full_text, left, right)) {
+                        SampleMeta comp_meta;
+                        comp_meta.task_type = "completion";
+                        out << sample_to_jsonl(left, right, comp_meta) << "\n";
+                        ++pair_count;
                     }
                     break;
                 }

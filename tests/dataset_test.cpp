@@ -16,8 +16,10 @@ class DatasetTest : public ::testing::Test {
         std::filesystem::remove("test_conversations.txt");
         std::filesystem::remove("test_data.tsv");
         std::filesystem::remove("test_output.txt");
+        std::filesystem::remove("test_output.jsonl");
         std::filesystem::remove("test_data.json");
         std::filesystem::remove("test_data.csv");
+        std::filesystem::remove("test_data.jsonl");
     }
 
     void create_test_conversation_file() {
@@ -44,6 +46,17 @@ class DatasetTest : public ::testing::Test {
         file << "{\"input\": \"Hello\", \"target\": \"Hi there!\"}\n";
         file << "{\"input\": \"How are you?\", \"target\": \"I'm doing great!\"}\n";
         file << "{\"input\": \"What's your name?\", \"target\": \"I'm an AI assistant.\"}\n";
+        file.close();
+    }
+
+    void create_test_jsonl_training_file() {
+        std::ofstream file("test_data.jsonl");
+        // Training JSONL format: "response" key (not "target")
+        file << "{\"input\":\"Hello\",\"response\":\"Hi there!\"}\n";
+        file << "{\"input\":\"How are you?\",\"response\":\"I'm doing great!\","
+                "\"domain\":\"dialogue\",\"task_type\":\"chat\",\"quality\":0.8}\n";
+        file << "{\"input\":\"What's your name?\",\"response\":\"I'm an AI assistant.\","
+                "\"language\":\"en\",\"token_count\":15}\n";
         file.close();
     }
 
@@ -608,6 +621,115 @@ TEST_F(DatasetTest, FilterInvalidatesSplit) {
 
     // Split should be invalidated
     EXPECT_FALSE(dataset.is_split());
+}
+
+// ============================================================================
+// JSONL Training Format Tests
+// ============================================================================
+
+// Test: Load JSONL training format (input/response keys with optional meta)
+TEST_F(DatasetTest, LoadJsonlTrainingFormat) {
+    create_test_jsonl_training_file();
+
+    Dataset dataset;
+    EXPECT_TRUE(dataset.load_from_file("test_data.jsonl"));
+    EXPECT_EQ(dataset.size(), 3);
+    EXPECT_FALSE(dataset.empty());
+
+    const auto& data = dataset.get_all();
+    EXPECT_EQ(data[0].input,  "Hello");
+    EXPECT_EQ(data[0].target, "Hi there!");
+    EXPECT_EQ(data[1].input,  "How are you?");
+    EXPECT_EQ(data[1].target, "I'm doing great!");
+}
+
+// Test: JSONL metadata is preserved in DataSample.meta
+TEST_F(DatasetTest, LoadJsonlPreservesMetadata) {
+    create_test_jsonl_training_file();
+
+    Dataset dataset;
+    ASSERT_TRUE(dataset.load_from_file("test_data.jsonl"));
+    ASSERT_EQ(dataset.size(), 3);
+
+    const auto& data = dataset.get_all();
+
+    // Second sample has domain/task_type/quality
+    EXPECT_EQ(data[1].meta.domain,    "dialogue");
+    EXPECT_EQ(data[1].meta.task_type, "chat");
+    EXPECT_NEAR(data[1].meta.quality, 0.8f, 1e-4f);
+
+    // Third sample has language/token_count
+    EXPECT_EQ(data[2].meta.language, "en");
+    EXPECT_EQ(data[2].meta.token_count, 15);
+
+    // First sample: no optional fields → sentinel defaults
+    EXPECT_LT(data[0].meta.quality, 0.0f);
+    EXPECT_LT(data[0].meta.token_count, 0);
+    EXPECT_TRUE(data[0].meta.domain.empty());
+}
+
+// Test: save_to_file with JSONL format (default) round-trips correctly
+TEST_F(DatasetTest, SaveJsonlFormatAndReload) {
+    Dataset dataset;
+    dataset.add_sample("Hello", "Hi");
+    dataset.add_sample("Bye", "Goodbye");
+
+    EXPECT_TRUE(dataset.save_to_file("test_output.jsonl", "jsonl"));
+
+    Dataset loaded;
+    EXPECT_TRUE(loaded.load_from_file("test_output.jsonl"));
+    EXPECT_EQ(loaded.size(), 2);
+
+    const auto& data = loaded.get_all();
+    EXPECT_EQ(data[0].input,  "Hello");
+    EXPECT_EQ(data[0].target, "Hi");
+    EXPECT_EQ(data[1].input,  "Bye");
+    EXPECT_EQ(data[1].target, "Goodbye");
+}
+
+// Test: save_to_file default format is JSONL
+TEST_F(DatasetTest, SaveDefaultFormatIsJsonl) {
+    Dataset dataset;
+    dataset.add_sample("q", "a");
+
+    EXPECT_TRUE(dataset.save_to_file("test_output.jsonl"));
+
+    // The saved file should be parseable as JSONL
+    std::ifstream f("test_output.jsonl");
+    std::string first_line;
+    std::getline(f, first_line);
+    EXPECT_FALSE(first_line.empty());
+    EXPECT_EQ(first_line.front(), '{');
+}
+
+// Test: LazyDataset with JSONL training file
+TEST_F(DatasetTest, LazyDataset_JsonlFormat) {
+    create_test_jsonl_training_file();
+
+    LazyDataset lazy("test_data.jsonl");
+
+    EXPECT_GT(lazy.size(), 0);
+
+    auto sample = lazy.get_sample(0);
+    EXPECT_EQ(sample.input,  "Hello");
+    EXPECT_EQ(sample.target, "Hi there!");
+
+    auto samples = lazy.load_range(0, 2);
+    EXPECT_EQ(samples.size(), 2);
+    EXPECT_EQ(samples[1].input, "How are you?");
+}
+
+// Test: JSONL format auto-detected vs legacy conversation format
+TEST_F(DatasetTest, FormatAutoDetection_JsonlVsLegacy) {
+    create_test_jsonl_training_file();
+
+    Dataset jsonl_dataset;
+    EXPECT_TRUE(jsonl_dataset.load_from_file("test_data.jsonl"));
+    EXPECT_EQ(jsonl_dataset.size(), 3);
+
+    Dataset legacy_dataset;
+    EXPECT_TRUE(legacy_dataset.load_from_file("test_conversations.txt"));
+    EXPECT_EQ(legacy_dataset.size(), 3);
 }
 
 int main(int argc, char** argv) {

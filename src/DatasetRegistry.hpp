@@ -208,7 +208,11 @@ public:
     // ── Static helpers ─────────────────────────────────────────────────────
 
     /**
-     * @brief Parse an INPUT:/RESPONSE: training file into ConversationPairs.
+     * @brief Parse a training file (JSONL or legacy INPUT:/RESPONSE:) into ConversationPairs.
+     *
+     * Format is auto-detected from the first non-empty line.  JSONL samples
+     * carry optional SampleMeta (domain, task_type, quality, …).  Legacy files
+     * are read unchanged for backward compatibility.
      *
      * Pure I/O: no network access, no model dependency.  Safe to call from
      * any thread.

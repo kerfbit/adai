@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 #include "BatchProcessor.hpp"
+#include "TrainingSampleMeta.hpp"
 
 /**
  * @file Dataset.hpp
@@ -25,14 +26,17 @@
  */
 
 /**
- * @brief Training data sample (input, target response)
+ * @brief Training data sample (input, target response) with optional metadata.
  */
 struct DataSample {
     std::string input;
     std::string target;
+    SampleMeta  meta;
 
     DataSample() = default;
     DataSample(const std::string& in, const std::string& tgt) : input(in), target(tgt) {}
+    DataSample(const std::string& in, const std::string& tgt, SampleMeta m)
+        : input(in), target(tgt), meta(std::move(m)) {}
 };
 
 /**
@@ -224,6 +228,28 @@ class Dataset {
             pair_count++;
         }
 
+        return pair_count > 0;
+    }
+
+    /**
+     * @brief Parse JSONL training format (one sample per line).
+     *
+     * Each line: {"input":"...","response":"..."[,<metadata>]}
+     * Metadata fields (all optional): domain, task_type, language, split,
+     * quality, weight, token_count.
+     */
+    bool parse_jsonl_format(std::ifstream& file) {
+        std::string line;
+        size_t pair_count = 0;
+        while (std::getline(file, line)) {
+            if (line.empty() || line.front() != '{') continue;
+            std::string in, resp;
+            SampleMeta  meta;
+            if (parse_jsonl_sample(line, in, resp, meta)) {
+                data_.emplace_back(in, resp, std::move(meta));
+                ++pair_count;
+            }
+        }
         return pair_count > 0;
     }
 
@@ -429,6 +455,10 @@ class Dataset {
         bool success = false;
         if (first_line.find("INPUT:") != std::string::npos) {
             success = parse_conversation_format(file);
+        } else if (first_line.front() == '{' &&
+                   first_line.find("\"response\"") != std::string::npos) {
+            // JSONL training format produced by DataFetcher / sample_to_jsonl()
+            success = parse_jsonl_format(file);
         } else if (first_line.find('{') != std::string::npos &&
                    (first_line.find("\"input\"") != std::string::npos ||
                     first_line.find("\"Input\"") != std::string::npos)) {
@@ -657,13 +687,13 @@ class Dataset {
     }
 
     /**
-     * @brief Save dataset to file
+     * @brief Save dataset to file.
      * @param filepath Output file path
-     * @param format "conversation" or "tsv"
+     * @param format "jsonl" (default), "conversation" (legacy INPUT:/RESPONSE:), or "tsv"
      * @return True if successful
      */
     bool save_to_file(const std::string& filepath,
-                      const std::string& format = "conversation") const {
+                      const std::string& format = "jsonl") const {
         std::ofstream file(filepath);
         if (!file.is_open()) {
             std::cerr << "Error: Cannot open file for writing: " << filepath << std::endl;
@@ -674,10 +704,14 @@ class Dataset {
             for (const auto& sample : data_) {
                 file << sample.input << "\t" << sample.target << "\n";
             }
-        } else {  // conversation format
+        } else if (format == "conversation") {
             for (const auto& sample : data_) {
                 file << "INPUT: " << sample.input << "\n";
                 file << "RESPONSE: " << sample.target << "\n\n";
+            }
+        } else {  // jsonl (default)
+            for (const auto& sample : data_) {
+                file << sample_to_jsonl(sample.input, sample.target, sample.meta) << "\n";
             }
         }
 
@@ -1418,14 +1452,24 @@ class LazyDataset {
         sample_positions_.clear();
         std::string line;
 
+        // Detect format from first non-empty line
+        bool is_jsonl = false;
+        while (std::getline(file, line)) {
+            if (!line.empty()) { is_jsonl = (line.front() == '{'); break; }
+        }
+        file.seekg(0);
+
         while (file) {
             std::streampos pos = file.tellg();
-            if (!std::getline(file, line))
-                break;
+            if (!std::getline(file, line)) break;
 
-            // Check if this is the start of a sample
-            if (line.find("INPUT:") != std::string::npos || line.find('{') != std::string::npos) {
-                sample_positions_.push_back(pos);
+            if (is_jsonl) {
+                if (!line.empty() && line.front() == '{' &&
+                    line.find("\"input\"") != std::string::npos)
+                    sample_positions_.push_back(pos);
+            } else {
+                if (line.find("INPUT:") != std::string::npos)
+                    sample_positions_.push_back(pos);
             }
         }
 
@@ -1456,20 +1500,33 @@ class LazyDataset {
         file.seekg(sample_positions_[index]);
 
         std::string line;
-        std::string input, target;
+        if (!std::getline(file, line)) { file.close(); return {}; }
 
-        // Read sample (simplified - assumes conversation format)
-        while (std::getline(file, line)) {
-            if (line.find("INPUT:") != std::string::npos) {
-                input = line.substr(7);
-            } else if (line.find("RESPONSE:") != std::string::npos) {
-                target = line.substr(10);
-                break;
+        DataSample sample;
+        if (!line.empty() && line.front() == '{') {
+            // JSONL format
+            std::string resp;
+            SampleMeta  meta;
+            parse_jsonl_sample(line, sample.input, resp, meta);
+            sample.target = resp;
+            sample.meta   = std::move(meta);
+        } else {
+            // Legacy INPUT:/RESPONSE: format
+            std::string input, target;
+            while (true) {
+                if (line.find("INPUT:") != std::string::npos) {
+                    input = line.substr(7);
+                } else if (line.find("RESPONSE:") != std::string::npos) {
+                    target = line.substr(10);
+                    break;
+                }
+                if (!std::getline(file, line)) break;
             }
+            sample = DataSample(input, target);
         }
 
         file.close();
-        return DataSample(input, target);
+        return sample;
     }
 
     /**

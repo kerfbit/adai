@@ -13,6 +13,7 @@
 #include "EncoderDecoderModel.hpp"
 #include "Optimizer.hpp"
 #include "IMetricsReporter.hpp"
+#include "TrainingSampleMeta.hpp"
 
 // Parallel optimizations (Priority 1-5)
 #ifdef _OPENMP
@@ -20,14 +21,17 @@
 #endif
 
 /**
- * @brief Training data pair (input, target response)
+ * @brief Training data pair (input, target response) with optional metadata.
  */
 struct ConversationPair {
     std::string input;
     std::string response;
+    SampleMeta  meta;
 
     ConversationPair(std::string in, std::string resp)
         : input(std::move(in)), response(std::move(resp)) {}
+    ConversationPair(std::string in, std::string resp, SampleMeta m)
+        : input(std::move(in)), response(std::move(resp)), meta(std::move(m)) {}
 };
 
 /**
@@ -132,6 +136,11 @@ struct TrainingConfig {
     /// Minimum sample size to use the async parallel-scoring path (TD-023).
     /// Below this threshold the synchronous path is used (no extra memory cost).
     int generation_quality_async_threshold = 50;
+
+    // Quality score backfill into SampleMeta
+    bool enable_loss_quality_backfill = false;        // Write exp(-loss) into meta.quality each epoch
+    bool enable_generation_quality_backfill = false;  // Overwrite meta.quality with BLEU4 after training (slow)
+    int  generation_backfill_max_tokens = 50;         // max_length passed to generate_response() during backfill
 
     // Outlier detection thresholds (TD-021, moved from MetricsServiceConfig)
     float loss_outlier_z_threshold = 3.0f;     // Flag sample if loss > epoch_mean + N×std
@@ -278,6 +287,14 @@ class ChatbotTrainer {
      * has finished before weights are modified or released.
      */
     void join_generation_quality_thread();
+    /**
+     * @brief Overwrite meta.quality on all training and validation samples using
+     *        per-sample generation BLEU4. Called once after the final epoch when
+     *        config.enable_generation_quality_backfill is true.
+     *
+     * Runs in eval mode; expensive for large datasets.
+     */
+    void backfill_generation_quality();
 
    public:
     /**

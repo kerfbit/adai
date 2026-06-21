@@ -1437,54 +1437,67 @@ int IncrementalTrainer::load_conversation_pairs(const std::string& filepath,
         return 0;
     }
 
-    std::string line;
-    std::string current_input;
-    std::string current_response;
+    // Detect format from first non-empty line
+    std::string first_line;
+    while (std::getline(file, first_line)) {
+        first_line.erase(0, first_line.find_first_not_of(" \t\r\n"));
+        if (!first_line.empty()) break;
+    }
+    file.seekg(0);
+
     int pair_count = 0;
 
-    while (std::getline(file, line)) {
-        // Trim whitespace
-        line.erase(0, line.find_first_not_of(" \t\n\r"));
-        line.erase(line.find_last_not_of(" \t\n\r") + 1);
-
-        if (line.empty()) {
-            // End of pair
-            if (!current_input.empty() && !current_response.empty()) {
-                pairs.emplace_back(current_input, current_response);
-                pair_count++;
-                current_input.clear();
-                current_response.clear();
+    if (!first_line.empty() && first_line.front() == '{') {
+        // JSONL training format
+        std::string line;
+        while (std::getline(file, line)) {
+            if (line.empty() || line.front() != '{') continue;
+            std::string in, resp;
+            SampleMeta  meta;
+            if (parse_jsonl_sample(line, in, resp, meta)) {
+                pairs.emplace_back(std::move(in), std::move(resp), std::move(meta));
+                ++pair_count;
             }
-            continue;
         }
+    } else {
+        // Legacy INPUT:/RESPONSE: format
+        std::string line, current_input, current_response;
+        while (std::getline(file, line)) {
+            line.erase(0, line.find_first_not_of(" \t\n\r"));
+            line.erase(line.find_last_not_of(" \t\n\r") + 1);
 
-        if (line.substr(0, 6) == "INPUT:") {
-            // Commit any already-complete pair before starting a new one
-            // (handles files with no blank-line separator between pairs)
-            if (!current_input.empty() && !current_response.empty()) {
-                pairs.emplace_back(current_input, current_response);
-                pair_count++;
-                current_input.clear();
-                current_response.clear();
+            if (line.empty()) {
+                if (!current_input.empty() && !current_response.empty()) {
+                    pairs.emplace_back(current_input, current_response);
+                    ++pair_count;
+                    current_input.clear();
+                    current_response.clear();
+                }
+                continue;
             }
-            current_input = line.substr(6);
-            current_input.erase(0, current_input.find_first_not_of(" \t"));
-        } else if (line.substr(0, 9) == "RESPONSE:") {
-            current_response = line.substr(9);
-            current_response.erase(0, current_response.find_first_not_of(" \t"));
-        }
-    }
 
-    // Don't forget last pair
-    if (!current_input.empty() && !current_response.empty()) {
-        pairs.emplace_back(current_input, current_response);
-        pair_count++;
+            if (line.substr(0, 6) == "INPUT:") {
+                if (!current_input.empty() && !current_response.empty()) {
+                    pairs.emplace_back(current_input, current_response);
+                    ++pair_count;
+                    current_input.clear();
+                    current_response.clear();
+                }
+                current_input = line.substr(6);
+                current_input.erase(0, current_input.find_first_not_of(" \t"));
+            } else if (line.substr(0, 9) == "RESPONSE:") {
+                current_response = line.substr(9);
+                current_response.erase(0, current_response.find_first_not_of(" \t"));
+            }
+        }
+        if (!current_input.empty() && !current_response.empty()) {
+            pairs.emplace_back(current_input, current_response);
+            ++pair_count;
+        }
     }
 
     file.close();
-
     Logger::info("Loaded {} pairs from: {}", pair_count, filepath);
-
     return pair_count;
 }
 

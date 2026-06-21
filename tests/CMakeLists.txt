@@ -675,6 +675,12 @@ target_link_libraries(dataFetcherTests
 )
 add_test(NAME DataFetcherTests COMMAND dataFetcherTests)
 
+# TrainingSampleMeta unit tests (SampleMeta, sample_to_jsonl, parse_jsonl_sample)
+add_executable(trainingSampleMetaTests training_sample_meta_test.cpp)
+target_include_directories(trainingSampleMetaTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(trainingSampleMetaTests GTest::gtest_main)
+add_test(NAME TrainingSampleMetaTests COMMAND trainingSampleMetaTests)
+
 # TD-028 Phase 10 (FTP transport): FtpDataServer unit tests
 # Tests TokenStore, ftp_detail helpers, issue_token, AcquireResponse.
 # Does NOT start the FTP server (no network/port binding).
@@ -729,4 +735,4 @@ target_link_libraries(startupSweepTests
 )
 add_test(NAME StartupSweepTests COMMAND startupSweepTests)
 
-message(STATUS "Configured 56+ test suites using library targets (including Config, Logger, IncrementalTrainer, LLMEncoder, DocumentStore, RAGInference, BatchProcessor, ParallelDataLoader, IntegratedInferenceEngine, PipelineInferenceEngine, BatchedInferenceEngine, SpeculativeDecoding, VocabBuilder, ChatbotAPI, ChatbotTrainer, GenerationQuality, GenerationQualityAsync, PaddingEfficiency, AdaptiveClipping, ModelSerializer, StaleDetection, BackgroundLaunch, integration, RAG/BERT comparison, Phase 5, DatasetRegistry, DatasetRegistryLive, DataFetcher, FtpDataServer, DataTransport, DataTransportFtp, and StartupSweep tests)")
+message(STATUS "Configured 57+ test suites using library targets (including Config, Logger, IncrementalTrainer, LLMEncoder, DocumentStore, RAGInference, BatchProcessor, ParallelDataLoader, IntegratedInferenceEngine, PipelineInferenceEngine, BatchedInferenceEngine, SpeculativeDecoding, VocabBuilder, ChatbotAPI, ChatbotTrainer, GenerationQuality, GenerationQualityAsync, PaddingEfficiency, AdaptiveClipping, ModelSerializer, StaleDetection, BackgroundLaunch, integration, RAG/BERT comparison, Phase 5, DatasetRegistry, DatasetRegistryLive, DataFetcher, FtpDataServer, DataTransport, DataTransportFtp, StartupSweep, and TrainingSampleMeta tests)")

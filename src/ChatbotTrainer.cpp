@@ -8,12 +8,12 @@
 #include <random>
 #include <sstream>
 #include <thread>
+#include <cmath>
 #include "ConversationContext.hpp"
 #include "GenerationQualityMetrics.hpp"
 #include "Logger.hpp"
 #ifdef ADAI_ENABLE_OPENMP
 #include <omp.h>
-#include <cmath>
 #endif
 
 // ANSI color codes
@@ -101,46 +101,61 @@ bool ChatbotTrainer::load_conversation_data(const std::string& filepath) {
         return false;
     }
 
-    std::string line;
-    std::string current_input;
-    std::string current_response;
+    // Detect format from first non-empty line
+    std::string first_line;
+    while (std::getline(file, first_line)) {
+        first_line.erase(0, first_line.find_first_not_of(" \t\r\n"));
+        if (!first_line.empty()) break;
+    }
+    file.seekg(0);
+
     int pair_count = 0;
 
-    while (std::getline(file, line)) {
-        // Trim whitespace
-        line.erase(0, line.find_first_not_of(" \t\n\r"));
-        line.erase(line.find_last_not_of(" \t\n\r") + 1);
-
-        if (line.empty()) {
-            // End of pair
-            if (!current_input.empty() && !current_response.empty()) {
-                training_data.emplace_back(current_input, current_response);
-                pair_count++;
-                current_input.clear();
-                current_response.clear();
+    if (!first_line.empty() && first_line.front() == '{') {
+        // JSONL training format
+        std::string line;
+        while (std::getline(file, line)) {
+            if (line.empty() || line.front() != '{') continue;
+            std::string in, resp;
+            SampleMeta  meta;
+            if (parse_jsonl_sample(line, in, resp, meta)) {
+                training_data.emplace_back(std::move(in), std::move(resp), std::move(meta));
+                ++pair_count;
             }
-            continue;
         }
+    } else {
+        // Legacy INPUT:/RESPONSE: format
+        std::string line, current_input, current_response;
+        while (std::getline(file, line)) {
+            line.erase(0, line.find_first_not_of(" \t\n\r"));
+            line.erase(line.find_last_not_of(" \t\n\r") + 1);
 
-        if (line.substr(0, 6) == "INPUT:") {
-            current_input = line.substr(6);
-            current_input.erase(0, current_input.find_first_not_of(" \t"));
-        } else if (line.substr(0, 9) == "RESPONSE:") {
-            current_response = line.substr(9);
-            current_response.erase(0, current_response.find_first_not_of(" \t"));
+            if (line.empty()) {
+                if (!current_input.empty() && !current_response.empty()) {
+                    training_data.emplace_back(current_input, current_response);
+                    ++pair_count;
+                    current_input.clear();
+                    current_response.clear();
+                }
+                continue;
+            }
+
+            if (line.substr(0, 6) == "INPUT:") {
+                current_input = line.substr(6);
+                current_input.erase(0, current_input.find_first_not_of(" \t"));
+            } else if (line.substr(0, 9) == "RESPONSE:") {
+                current_response = line.substr(9);
+                current_response.erase(0, current_response.find_first_not_of(" \t"));
+            }
         }
-    }
-
-    // Don't forget last pair
-    if (!current_input.empty() && !current_response.empty()) {
-        training_data.emplace_back(current_input, current_response);
-        pair_count++;
+        if (!current_input.empty() && !current_response.empty()) {
+            training_data.emplace_back(current_input, current_response);
+            ++pair_count;
+        }
     }
 
     file.close();
-
     adai::Logger::info("✅ Loaded {} conversation pairs", pair_count);
-
     return pair_count > 0;
 }
 
@@ -326,6 +341,9 @@ void ChatbotTrainer::preprocess_data() {
                 TokenizedPair(truncate(tokenizer->encode(clip_text(pair.input), false)),
                               truncate(tokenizer->encode(clip_text(pair.response), true)),
                               pair.input, pair.response);
+            training_data[i].meta.token_count =
+                static_cast<int>(tokenized_training_data[i].input_tokens.size() +
+                                 tokenized_training_data[i].target_tokens.size());
         } catch (const TokenizerEncodingError&) {
             // Leave default-constructed (empty) — filtered out during training
             ++skipped_train;
@@ -350,6 +368,9 @@ void ChatbotTrainer::preprocess_data() {
                 TokenizedPair(truncate(tokenizer->encode(clip_text(pair.input), false)),
                               truncate(tokenizer->encode(clip_text(pair.response), true)),
                               pair.input, pair.response);
+            validation_data[i].meta.token_count =
+                static_cast<int>(tokenized_validation_data[i].input_tokens.size() +
+                                 tokenized_validation_data[i].target_tokens.size());
         } catch (const TokenizerEncodingError&) {
             ++skipped_val;
         }
@@ -610,6 +631,11 @@ float ChatbotTrainer::train_epoch(int epoch) {
     int num_samples = static_cast<int>(tokenized_training_data.size());
     int effective_batch_size = config.batch_size * config.gradient_accumulation_steps;
 
+    long long epoch_tokens = 0;
+    for (const auto& tp : tokenized_training_data) {
+        epoch_tokens += static_cast<long long>(tp.input_tokens.size() + tp.target_tokens.size());
+    }
+
     // Notify metrics reporter that epoch is starting (1-based epoch number)
     if (metrics_reporter_) {
         metrics_reporter_->start_epoch(epoch + 1, num_samples);
@@ -771,6 +797,11 @@ float ChatbotTrainer::train_epoch(int epoch) {
 
             // Compute loss
             float loss = model->compute_loss_for_training(logits, pair.target_tokens);
+
+            // Backfill quality from loss (overwritten each epoch; final epoch value is kept)
+            if (config.enable_loss_quality_backfill) {
+                training_data[training_indices[i]].meta.quality = std::exp(-loss);
+            }
 
             // Scale loss by accumulation steps for proper gradient averaging
             float scaled_loss = loss / static_cast<float>(config.gradient_accumulation_steps);
@@ -1037,7 +1068,8 @@ float ChatbotTrainer::train_epoch(int epoch) {
         "✅ Epoch " + std::to_string(epoch + 1) + " complete - Loss: " +
             std::to_string(epoch_loss) + " - Perplexity: " + std::to_string(epoch_perplexity) +
             " - LR: " + std::to_string(current_learning_rate) + " - GradNorm: " +
-            std::to_string(avg_grad_norm) + " - Updates: " + std::to_string(num_updates),
+            std::to_string(avg_grad_norm) + " - Updates: " + std::to_string(num_updates) +
+            " - Tokens: " + std::to_string(epoch_tokens),
         COLOR_SUCCESS);
 
     // ── TD-013: emit advanced epoch diagnostics to metrics reporter ────────────
@@ -1124,6 +1156,9 @@ float ChatbotTrainer::validate() {
             // Use evaluate() which doesn't update weights
             float loss = model->evaluate(pair.input_text, pair.target_text);
             total_loss += loss;
+            if (config.enable_loss_quality_backfill) {
+                validation_data[i].meta.quality = std::exp(-loss);
+            }
         } catch (const std::exception& e) {
             adai::Logger::error("  ❌ Error validating sample {}: {}", (i + 1), e.what());
         }
@@ -1278,6 +1313,42 @@ void ChatbotTrainer::compute_generation_quality_metrics() {
                                                         score.rougeL);
 }
 
+void ChatbotTrainer::backfill_generation_quality() {
+    if (!model) {
+        return;
+    }
+
+    adai::Logger::info("📊 Backfilling generation quality scores (BLEU4)...");
+    model->set_training(false);
+
+    auto score_sample = [&](const std::string& input, const std::string& target) -> float {
+        try {
+            std::string hyp = model->generate_response(input, config.generation_backfill_max_tokens);
+            GenerationQualityScore s = GenerationQualityEvaluator::evaluate({target}, {hyp});
+            return s.bleu4 >= 0.0f ? s.bleu4 : 0.0f;
+        } catch (const std::exception& e) {
+            adai::Logger::warn("backfill_generation_quality: generate_response() threw: {}", e.what());
+            return 0.0f;
+        }
+    };
+
+    for (size_t i = 0; i < training_data.size(); ++i) {
+        training_data[i].meta.quality =
+            score_sample(tokenized_training_data[i].input_text,
+                         tokenized_training_data[i].target_text);
+    }
+
+    for (size_t i = 0; i < validation_data.size(); ++i) {
+        validation_data[i].meta.quality =
+            score_sample(tokenized_validation_data[i].input_text,
+                         tokenized_validation_data[i].target_text);
+    }
+
+    model->set_training(true);
+    adai::Logger::info("  ✅ Generation quality backfill complete ({} training, {} validation samples)",
+                       training_data.size(), validation_data.size());
+}
+
 // New methods for incremental training support
 
 bool ChatbotTrainer::train(int num_epochs) {
@@ -1334,6 +1405,11 @@ bool ChatbotTrainer::train(int num_epochs) {
                 float cb_val = validation_losses.empty() ? 0.0f : validation_losses.back();
                 epoch_callback_(epoch, num_epochs, epoch_loss, cb_val, current_learning_rate);
             }
+        }
+
+        if (config.enable_generation_quality_backfill) {
+            join_generation_quality_thread();  // finish any async scoring before backfill
+            backfill_generation_quality();
         }
 
         return true;
