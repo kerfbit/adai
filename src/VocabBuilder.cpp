@@ -38,6 +38,7 @@ void print_usage(const char* program_name) {
     std::cout << "  --vocab-size <N>     Target vocabulary size (default: 5000)\n";
     std::cout << "  --threshold <N>      Minimum character frequency (default: 1)\n";
     std::cout << "  --format <type>      Input format: 'plain', 'pairs', 'json' (default: plain)\n";
+    std::cout << "  --unicode            Use UTF-8 code-point tokenization (default: ASCII/byte)\n";
     std::cout << "  --stats              Show vocabulary statistics after building\n";
     std::cout << "  --help               Show this help message\n\n";
 
@@ -73,6 +74,7 @@ int main(int argc, char** argv) {
     int vocab_size = 5000;
     int threshold = 1;
     bool show_stats = false;
+    bool unicode_mode = false;
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
@@ -91,6 +93,8 @@ int main(int argc, char** argv) {
             threshold = std::stoi(argv[++i]);
         } else if (arg == "--format" && i + 1 < argc) {
             format = argv[++i];
+        } else if (arg == "--unicode") {
+            unicode_mode = true;
         } else if (arg == "--stats") {
             show_stats = true;
         } else {
@@ -163,10 +167,11 @@ int main(int argc, char** argv) {
     std::cout << COLOR_YELLOW << "Parameters:\n";
     std::cout << "  • Target vocabulary size: " << vocab_size << "\n";
     std::cout << "  • Character frequency threshold: " << threshold << "\n";
+    std::cout << "  • Tokenizer mode: " << (unicode_mode ? "unicode" : "ascii") << "\n";
     std::cout << "  • Output file: " << output_file << "\n" << COLOR_RESET << "\n";
 
     try {
-        BPETokenizer tokenizer;
+        BPETokenizer tokenizer(unicode_mode ? TokenizerMode::UNICODE : TokenizerMode::ASCII);
         tokenizer.build_vocab(all_texts, vocab_size, threshold);
 
         // Save vocabulary

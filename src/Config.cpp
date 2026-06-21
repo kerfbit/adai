@@ -334,6 +334,10 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.gpu_memory_fraction = std::stof(value);
             } else if (key == "GPU_STRATEGY") {
                 config.gpu_strategy = gpu_strategy_from_string(value);
+            } else if (key == "TOKENIZER_MODE") {
+                std::string lower = value;
+                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+                config.unicode_tokenizer = (lower == "unicode");
             } else {
                 std::cerr << "Warning: Unknown configuration key: " << key << '\n';
             }
@@ -513,6 +517,11 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env("GPU_STRATEGY")) {
         config.gpu_strategy = gpu_strategy_from_string(*val);
+    }
+    if (auto val = get_env("TOKENIZER_MODE")) {
+        std::string lower = *val;
+        std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+        config.unicode_tokenizer = (lower == "unicode");
     }
 
     // Distributed registry (TD-028 Phase 9)

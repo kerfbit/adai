@@ -50,10 +50,12 @@ void ChatbotTrainer::join_generation_quality_thread() {
 bool ChatbotTrainer::load_tokenizer(const std::string& vocab_path) {
     adai::Logger::info("📚 Loading tokenizer from: {}", vocab_path);
 
-    tokenizer = std::make_unique<BPETokenizer>();
+    tokenizer = std::make_unique<BPETokenizer>(config.tokenizer_mode);
     try {
         tokenizer->load_vocab(vocab_path);
-        adai::Logger::info("✅ Tokenizer loaded (vocab size: {})", tokenizer->get_vocab_size());
+        adai::Logger::info("✅ Tokenizer loaded (vocab size: {}, mode: {})",
+                           tokenizer->get_vocab_size(),
+                           tokenizer->is_unicode_mode() ? "unicode" : "ascii");
         return true;
     } catch (const std::exception& e) {
         adai::Logger::error("❌ Failed to load tokenizer: {}", e.what());
@@ -70,12 +72,14 @@ bool ChatbotTrainer::build_vocabulary(const std::vector<std::string>& texts, int
     adai::Logger::info("  Texts: {}", texts.size());
     adai::Logger::info("  Target vocab size: {}", vocab_size);
 
-    tokenizer = std::make_unique<BPETokenizer>();
+    tokenizer = std::make_unique<BPETokenizer>(config.tokenizer_mode);
     try {
         tokenizer->build_vocab(texts, vocab_size, 1);
         tokenizer->save_vocab(save_path);
 
-        adai::Logger::info("✅ Vocabulary built (size: {})", tokenizer->get_vocab_size());
+        adai::Logger::info("✅ Vocabulary built (size: {}, mode: {})",
+                           tokenizer->get_vocab_size(),
+                           tokenizer->is_unicode_mode() ? "unicode" : "ascii");
         adai::Logger::info("✅ Saved to: {}", save_path);
         return true;
     } catch (const std::exception& e) {

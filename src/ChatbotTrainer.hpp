@@ -146,6 +146,9 @@ struct TrainingConfig {
     float loss_outlier_z_threshold = 3.0f;     // Flag sample if loss > epoch_mean + N×std
     float grad_norm_outlier_threshold = 10.0f;  // Flag sample if grad_norm exceeds this value
     int   max_abnormal_samples = 1000;          // Cap on flagged samples reported per training run
+
+    // Tokenizer mode: ASCII (default, byte-level) or UNICODE (UTF-8 code-point-level)
+    TokenizerMode tokenizer_mode = TokenizerMode::ASCII;
 };
 
 /**

@@ -334,6 +334,68 @@ TEST_F(TokenizerErrorHandlingTest, TokenIDErrorIsOutOfRange) {
 }
 
 // ============================================================================
+// Unicode Mode Error Handling Tests
+// ============================================================================
+
+class UnicodeModeTokenizerTest : public ::testing::Test {
+   protected:
+    BPETokenizer tokenizer{TokenizerMode::UNICODE};
+
+    void SetUp() override {
+        std::vector<std::string> texts = {"hello world", "test text"};
+        tokenizer.build_vocab(texts, 100);
+    }
+};
+
+TEST_F(UnicodeModeTokenizerTest, EncodeEmptyStringThrows) {
+    EXPECT_THROW({ tokenizer.encode(""); }, TokenizerInputError);
+}
+
+TEST_F(UnicodeModeTokenizerTest, EncodeInvalidUTF8Throws) {
+    // Lone continuation byte — invalid in any UTF-8 mode
+    std::string bad = "hello\x80world";
+    EXPECT_THROW({ tokenizer.encode(bad); }, TokenizerEncodingError);
+}
+
+TEST_F(UnicodeModeTokenizerTest, EncodeValidASCIISucceeds) {
+    EXPECT_NO_THROW({ tokenizer.encode("Hello World 123!"); });
+}
+
+TEST_F(UnicodeModeTokenizerTest, EncodeValidMultibyteSucceeds) {
+    // U+00E9 = é (0xC3 0xA9), U+4E2D = 中 (0xE4 0xB8 0xAD)
+    EXPECT_NO_THROW({ tokenizer.encode("caf\xC3\xA9 \xE4\xB8\xAD"); });
+}
+
+TEST_F(UnicodeModeTokenizerTest, EncodeIncompleteMultibyteThrows) {
+    // 0xC3 starts a two-byte sequence but is not followed by a continuation byte
+    std::string truncated = "hello\xC3";
+    EXPECT_THROW({ tokenizer.encode(truncated); }, TokenizerEncodingError);
+}
+
+TEST_F(UnicodeModeTokenizerTest, DecodeEmptyVectorThrows) {
+    std::vector<int> empty;
+    EXPECT_THROW({ tokenizer.decode(empty); }, TokenizerInputError);
+}
+
+TEST_F(UnicodeModeTokenizerTest, DecodeNegativeIdThrows) {
+    std::vector<int> bad_ids = {2, -1, 3};
+    EXPECT_THROW({ tokenizer.decode(bad_ids); }, TokenIDError);
+}
+
+TEST_F(UnicodeModeTokenizerTest, EncodeDecodeRoundTrip) {
+    std::string text = "hello world";
+    auto ids = tokenizer.encode(text, false);
+    EXPECT_GT(ids.size(), 0u);
+    auto decoded = tokenizer.decode(ids, false);
+    EXPECT_NE(decoded.find("hello"), std::string::npos);
+}
+
+TEST_F(UnicodeModeTokenizerTest, IsModeUnicode) {
+    EXPECT_TRUE(tokenizer.is_unicode_mode());
+    EXPECT_EQ(tokenizer.get_mode(), TokenizerMode::UNICODE);
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 

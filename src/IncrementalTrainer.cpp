@@ -169,9 +169,10 @@ void IncrementalTrainer::build_model() {
         config.base_config.num_encoder_layers, config.base_config.num_decoder_layers,
         config.base_config.max_seq_length);
 
-    auto tok = std::make_unique<BPETokenizer>();
+    auto tok = std::make_unique<BPETokenizer>(config.base_config.tokenizer_mode);
     tok->load_vocab(vocab_path_);
-    Logger::info("Tokenizer loaded (vocab size: {})", tok->get_vocab_size());
+    Logger::info("Tokenizer loaded (vocab size: {}, mode: {})", tok->get_vocab_size(),
+                 tok->is_unicode_mode() ? "unicode" : "ascii");
 
     model = std::make_unique<EncoderDecoderModel>(
         tok->get_vocab_size(), config.base_config.d_model, config.base_config.num_encoder_layers,
@@ -225,6 +226,10 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
     if (!svc.session_dir.empty()) {
         cfg.session_dir = svc.session_dir;
     }
+
+    // Tokenizer mode
+    cfg.base_config.tokenizer_mode =
+        svc.unicode_tokenizer ? TokenizerMode::UNICODE : TokenizerMode::ASCII;
 
     return cfg;
 }

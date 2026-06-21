@@ -383,6 +383,20 @@ struct ServiceConfig {
      *              gpu_memory_fraction (e.g. 0.9) to maximise throughput.
      */
     GPUStrategy gpu_strategy = GPUStrategy::BACKGROUND;
+
+    // ============================================================
+    // Tokenizer Configuration
+    // ============================================================
+
+    /// Use UTF-8 code-point tokenization (Unicode mode); false = byte-level ASCII mode (default).
+    ///
+    /// ASCII mode  — each raw byte is one BPE unit.  Fast, backward-compatible.
+    /// Unicode mode — each UTF-8 code point is one BPE unit.  Learns better
+    ///                subword merges for non-Latin scripts (CJK, Arabic, Cyrillic…).
+    ///
+    /// Config key: TOKENIZER_MODE = ascii | unicode
+    /// Env var:    TOKENIZER_MODE=unicode
+    bool unicode_tokenizer = false;
 };
 
 /**

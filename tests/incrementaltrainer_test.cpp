@@ -583,6 +583,36 @@ TEST_F(IncrementalTrainerTest, SaveLoadSessionHistoryRoundTripWithPerEpochData) 
     }
 }
 
+// ============================================================================
+// TokenizerMode Mapping in make_incremental_config
+// ============================================================================
+
+TEST_F(IncrementalTrainerTest, MakeIncrementalConfigDefaultsToAsciiMode) {
+    adai::ServiceConfig svc;  // unicode_tokenizer defaults to false
+
+    const IncrementalConfig cfg = IncrementalTrainer::make_incremental_config(svc);
+
+    EXPECT_EQ(cfg.base_config.tokenizer_mode, TokenizerMode::ASCII);
+}
+
+TEST_F(IncrementalTrainerTest, MakeIncrementalConfigMapsAsciiTokenizerMode) {
+    adai::ServiceConfig svc;
+    svc.unicode_tokenizer = false;
+
+    const IncrementalConfig cfg = IncrementalTrainer::make_incremental_config(svc);
+
+    EXPECT_EQ(cfg.base_config.tokenizer_mode, TokenizerMode::ASCII);
+}
+
+TEST_F(IncrementalTrainerTest, MakeIncrementalConfigMapsUnicodeTokenizerMode) {
+    adai::ServiceConfig svc;
+    svc.unicode_tokenizer = true;
+
+    const IncrementalConfig cfg = IncrementalTrainer::make_incremental_config(svc);
+
+    EXPECT_EQ(cfg.base_config.tokenizer_mode, TokenizerMode::UNICODE);
+}
+
 TEST_F(IncrementalTrainerTest, DisplayDashboardDoesNotCrash) {
     // print_training_summary exercises make_sparkline and per-epoch display.
     // Test with no per-epoch data (empty session history).

@@ -53,8 +53,23 @@ class TokenIDError : public std::out_of_range {
         : std::out_of_range("Token ID Error: " + message) {}
 };
 
+/**
+ * @brief Controls whether the tokenizer operates on raw bytes or UTF-8 code points.
+ *
+ * ASCII   – byte-level mode; each byte is one unit. Non-ASCII input passes through
+ *           but multi-byte sequences are split into individual raw-byte tokens.
+ * UNICODE – code-point mode; multi-byte UTF-8 sequences are kept intact as a
+ *           single atomic unit, so BPE can learn meaningful merges across all scripts.
+ */
+enum class TokenizerMode {
+    ASCII,
+    UNICODE,
+};
+
 class BPETokenizer {
    private:
+    TokenizerMode mode;
+
     std::unordered_map<std::string, int> vocab;
     std::unordered_map<int, std::string> inverse_vocab;
     std::vector<std::pair<std::string, std::string>> bpe_merges;
@@ -66,29 +81,20 @@ class BPETokenizer {
     int bos_token_id = adai::SpecialTokenIDs::BOS;
     int eos_token_id = adai::SpecialTokenIDs::EOS;
 
-    // Regex pattern for pre-tokenization
+    // Regex pattern for pre-tokenization (chosen at construction time based on mode)
     std::regex token_pattern;
 
    public:
-    BPETokenizer()
-        : token_pattern(
-              R"('s|'t|'re|'ve|'m|'ll|'d| ?[A-Za-z]+| ?[0-9]+| ?[^ \t\r\nA-Za-z0-9]+|\s+(?!\S)|\s+)") {
-        // Initialize special tokens
-        vocab["<pad>"] = pad_token_id;
-        vocab["<unk>"] = unk_token_id;
-        vocab["<bos>"] = bos_token_id;
-        vocab["<eos>"] = eos_token_id;
+    /**
+     * @brief Construct a BPETokenizer.
+     * @param mode  ASCII (default) for byte-level tokenization; UNICODE for
+     *              UTF-8 code-point-level tokenization.
+     */
+    explicit BPETokenizer(TokenizerMode mode = TokenizerMode::ASCII);
 
-        inverse_vocab[pad_token_id] = "<pad>";
-        inverse_vocab[unk_token_id] = "<unk>";
-        inverse_vocab[bos_token_id] = "<bos>";
-        inverse_vocab[eos_token_id] = "<eos>";
-
-        special_tokens.insert("<pad>");
-        special_tokens.insert("<unk>");
-        special_tokens.insert("<bos>");
-        special_tokens.insert("<eos>");
-    }
+    // Query the active tokenization mode
+    TokenizerMode get_mode() const { return mode; }
+    bool is_unicode_mode() const { return mode == TokenizerMode::UNICODE; }
 
     // Build vocabulary from text corpus
     void build_vocab(const std::vector<std::string>& texts, int vocab_size = 10000,
@@ -124,23 +130,15 @@ class BPETokenizer {
     size_t get_vocab_size() const;
 
     // Get special token IDs
-    int get_bos_token_id() const {
-        return bos_token_id;
-    }
-    int get_eos_token_id() const {
-        return eos_token_id;
-    }
-    int get_pad_token_id() const {
-        return pad_token_id;
-    }
-    int get_unk_token_id() const {
-        return unk_token_id;
-    }
+    int get_bos_token_id() const { return bos_token_id; }
+    int get_eos_token_id() const { return eos_token_id; }
+    int get_pad_token_id() const { return pad_token_id; }
+    int get_unk_token_id() const { return unk_token_id; }
 
     // Save vocabulary to file
     void save_vocab(const std::string& filename) const;
 
-    // Load vocabulary from file
+    // Load vocabulary from file (restores the saved TokenizerMode automatically)
     void load_vocab(const std::string& filename);
 
     // Print vocabulary statistics
@@ -150,6 +148,11 @@ class BPETokenizer {
     std::vector<std::pair<std::string, int>> get_top_tokens(int k = 10) const;
 
    private:
+    // Split a UTF-8 string into one std::string per code point.
+    // In ASCII mode the tokenizer calls this as well, but each "code point" is a
+    // single byte, so the behaviour is identical to the old char loop.
+    static std::vector<std::string> utf8_split_codepoints(const std::string& str);
+
     // UTF-8 validation helper
     static bool is_valid_utf8(const std::string& text);
 

@@ -105,6 +105,7 @@ class ConfigTest : public ::testing::Test {
         unsetenv("DOWNLOAD_DIR");
         unsetenv("MAX_PARALLEL_DOWNLOADS");
         unsetenv("LARGE_FILE_WARN_THRESHOLD_MB");
+        unsetenv("TOKENIZER_MODE");
 #endif
     }
 
@@ -985,6 +986,70 @@ TEST_F(ConfigTest, FtpEnvVarOverridesFile) {
 
     EXPECT_EQ(config.ftp_server_port, 5121);       // from env
     EXPECT_EQ(config.download_dir,    "/mnt/datasets");  // from file
+}
+
+// ============================================================================
+// Tokenizer Mode Config Tests
+// ============================================================================
+
+TEST_F(ConfigTest, TokenizerModeDefaultsFalse) {
+    auto config = ConfigLoader::load();
+    EXPECT_FALSE(config.unicode_tokenizer);
+}
+
+TEST_F(ConfigTest, TokenizerModeUnicodeFromFile) {
+    createConfigFile({{"TOKENIZER_MODE", "unicode"}});
+    auto config = ConfigLoader::load(test_file.string());
+    EXPECT_TRUE(config.unicode_tokenizer);
+}
+
+TEST_F(ConfigTest, TokenizerModeAsciiFromFile) {
+    createConfigFile({{"TOKENIZER_MODE", "ascii"}});
+    auto config = ConfigLoader::load(test_file.string());
+    EXPECT_FALSE(config.unicode_tokenizer);
+}
+
+TEST_F(ConfigTest, TokenizerModeUnicodeCaseInsensitiveFromFile) {
+    createConfigFile({{"TOKENIZER_MODE", "UNICODE"}});
+    auto config = ConfigLoader::load(test_file.string());
+    EXPECT_TRUE(config.unicode_tokenizer);
+}
+
+TEST_F(ConfigTest, TokenizerModeMixedCaseFromFile) {
+    createConfigFile({{"TOKENIZER_MODE", "Unicode"}});
+    auto config = ConfigLoader::load(test_file.string());
+    EXPECT_TRUE(config.unicode_tokenizer);
+}
+
+TEST_F(ConfigTest, TokenizerModeUnknownValueDefaultsFalse) {
+    createConfigFile({{"TOKENIZER_MODE", "utf8"}});
+    auto config = ConfigLoader::load(test_file.string());
+    EXPECT_FALSE(config.unicode_tokenizer);
+}
+
+TEST_F(ConfigTest, TokenizerModeFromEnvVar) {
+    setEnv("TOKENIZER_MODE", "unicode");
+    auto config = ConfigLoader::load();
+    EXPECT_TRUE(config.unicode_tokenizer);
+}
+
+TEST_F(ConfigTest, TokenizerModeAsciiFromEnvVar) {
+    setEnv("TOKENIZER_MODE", "ascii");
+    auto config = ConfigLoader::load();
+    EXPECT_FALSE(config.unicode_tokenizer);
+}
+
+TEST_F(ConfigTest, TokenizerModeEnvVarOverridesFile) {
+    createConfigFile({{"TOKENIZER_MODE", "ascii"}});
+    setEnv("TOKENIZER_MODE", "unicode");
+    auto config = ConfigLoader::load(test_file.string());
+    EXPECT_TRUE(config.unicode_tokenizer);  // env wins
+}
+
+TEST_F(ConfigTest, TokenizerModeFileOverridesDefault) {
+    createConfigFile({{"TOKENIZER_MODE", "unicode"}});
+    auto config = ConfigLoader::load(test_file.string());
+    EXPECT_TRUE(config.unicode_tokenizer);  // file overrides default false
 }
 
 // ============================================================================

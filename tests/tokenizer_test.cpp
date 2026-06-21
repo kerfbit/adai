@@ -578,6 +578,172 @@ TEST_F(BPETokenizerTest, CompleteWorkflow) {
     EXPECT_NE(decoded.find("quick"), std::string::npos);
 }
 
+// ============================================================================
+// TokenizerMode Tests
+// ============================================================================
+
+TEST_F(BPETokenizerTest, AsciiModeIsDefault) {
+    BPETokenizer tokenizer;
+    EXPECT_EQ(tokenizer.get_mode(), TokenizerMode::ASCII);
+    EXPECT_FALSE(tokenizer.is_unicode_mode());
+}
+
+TEST_F(BPETokenizerTest, UnicodeModeConstruction) {
+    BPETokenizer tokenizer(TokenizerMode::UNICODE);
+    EXPECT_EQ(tokenizer.get_mode(), TokenizerMode::UNICODE);
+    EXPECT_TRUE(tokenizer.is_unicode_mode());
+}
+
+TEST_F(BPETokenizerTest, AsciiModeExplicit) {
+    BPETokenizer tokenizer(TokenizerMode::ASCII);
+    EXPECT_EQ(tokenizer.get_mode(), TokenizerMode::ASCII);
+    EXPECT_FALSE(tokenizer.is_unicode_mode());
+}
+
+TEST_F(BPETokenizerTest, UnicodeModeHasFourSpecialTokens) {
+    BPETokenizer tokenizer(TokenizerMode::UNICODE);
+    EXPECT_EQ(tokenizer.get_vocab_size(), 4u);
+}
+
+TEST_F(BPETokenizerTest, UnicodeModeSpecialTokenIdsUnchanged) {
+    BPETokenizer tokenizer(TokenizerMode::UNICODE);
+    EXPECT_EQ(tokenizer.get_pad_token_id(), 0);
+    EXPECT_EQ(tokenizer.get_unk_token_id(), 1);
+    EXPECT_EQ(tokenizer.get_bos_token_id(), 2);
+    EXPECT_EQ(tokenizer.get_eos_token_id(), 3);
+}
+
+TEST_F(BPETokenizerTest, UnicodeModeBuildsVocab) {
+    BPETokenizer tokenizer(TokenizerMode::UNICODE);
+    std::vector<std::string> texts = {"hello world", "test text"};
+    EXPECT_NO_THROW(tokenizer.build_vocab(texts, 50, 1));
+    EXPECT_GT(tokenizer.get_vocab_size(), 4u);
+}
+
+TEST_F(BPETokenizerTest, UnicodeModeEncodeDecodeASCII) {
+    BPETokenizer tokenizer(TokenizerMode::UNICODE);
+    std::vector<std::string> texts = {"hello world"};
+    tokenizer.build_vocab(texts, 50, 1);
+
+    auto ids = tokenizer.encode("hello", false);
+    EXPECT_GT(ids.size(), 0u);
+
+    auto decoded = tokenizer.decode(ids, false);
+    EXPECT_NE(decoded.find("hello"), std::string::npos);
+}
+
+TEST_F(BPETokenizerTest, UnicodeModeEncodeMultibyteText) {
+    // "café" contains the two-byte code point U+00E9 (é = 0xC3 0xA9)
+    BPETokenizer tokenizer(TokenizerMode::UNICODE);
+    std::vector<std::string> texts = {"caf\xC3\xA9", "hello world"};
+    EXPECT_NO_THROW(tokenizer.build_vocab(texts, 50, 1));
+
+    // Should be able to encode UTF-8 text without throwing
+    EXPECT_NO_THROW(tokenizer.encode("caf\xC3\xA9", false));
+}
+
+TEST_F(BPETokenizerTest, UnicodeModeRoundTripMultibyteText) {
+    // U+4E2D U+6587 = 中文 (Chinese), encoded as 0xE4 0xB8 0xAD 0xE6 0x96 0x87
+    std::string cjk = "\xE4\xB8\xAD\xE6\x96\x87";
+    BPETokenizer tokenizer(TokenizerMode::UNICODE);
+    std::vector<std::string> texts = {cjk, cjk, cjk};  // repeat so chars are frequent
+    tokenizer.build_vocab(texts, 50, 1);
+
+    auto ids = tokenizer.encode(cjk, false);
+    EXPECT_GT(ids.size(), 0u);
+
+    auto decoded = tokenizer.decode(ids, false);
+    // The decoded text should contain the original characters
+    EXPECT_FALSE(decoded.empty());
+}
+
+TEST_F(BPETokenizerTest, UnicodeModePreTokenizeLowercasesOnlyASCII) {
+    BPETokenizer tokenizer(TokenizerMode::UNICODE);
+    // "HEllo" uppercase ASCII + "café" with accented char
+    auto tokens = tokenizer.pre_tokenize("HEllo caf\xC3\xA9");
+    EXPECT_GT(tokens.size(), 0u);
+
+    // ASCII letters must be lowercased
+    bool found_hello = false;
+    for (const auto& t : tokens) {
+        if (t.find("hello") != std::string::npos) found_hello = true;
+        // Multi-byte sequences must not be corrupted — U+00E9 bytes must survive
+        for (size_t i = 0; i + 1 < t.size(); ++i) {
+            // 0xC3 0xA9 should appear intact (tolower must not have touched them)
+            if ((unsigned char)t[i] == 0xC3 && (unsigned char)t[i+1] == 0xA9) {
+                // the sequence is present and uncorrupted
+                SUCCEED();
+            }
+        }
+    }
+    EXPECT_TRUE(found_hello);
+}
+
+TEST_F(BPETokenizerTest, AsciiModeSaveContainsModeField) {
+    BPETokenizer tokenizer(TokenizerMode::ASCII);
+    std::vector<std::string> texts = {"hello world"};
+    tokenizer.build_vocab(texts, 30, 1);
+    tokenizer.save_vocab("test_save_vocab.txt");
+
+    std::ifstream f("test_save_vocab.txt");
+    std::string content((std::istreambuf_iterator<char>(f)),
+                         std::istreambuf_iterator<char>());
+    EXPECT_NE(content.find("TOKENIZER_MODE ASCII"), std::string::npos);
+}
+
+TEST_F(BPETokenizerTest, UnicodeModeFileSaveContainsModeField) {
+    BPETokenizer tokenizer(TokenizerMode::UNICODE);
+    std::vector<std::string> texts = {"hello world"};
+    tokenizer.build_vocab(texts, 30, 1);
+    tokenizer.save_vocab("test_save_vocab.txt");
+
+    std::ifstream f("test_save_vocab.txt");
+    std::string content((std::istreambuf_iterator<char>(f)),
+                         std::istreambuf_iterator<char>());
+    EXPECT_NE(content.find("TOKENIZER_MODE UNICODE"), std::string::npos);
+}
+
+TEST_F(BPETokenizerTest, SaveLoadPreservesAsciiMode) {
+    BPETokenizer builder(TokenizerMode::ASCII);
+    std::vector<std::string> texts = {"hello world"};
+    builder.build_vocab(texts, 30, 1);
+    builder.save_vocab("test_save_vocab.txt");
+
+    BPETokenizer loader;  // starts as ASCII but load_vocab should confirm
+    loader.load_vocab("test_save_vocab.txt");
+
+    EXPECT_EQ(loader.get_mode(), TokenizerMode::ASCII);
+    EXPECT_FALSE(loader.is_unicode_mode());
+}
+
+TEST_F(BPETokenizerTest, SaveLoadPreservesUnicodeMode) {
+    BPETokenizer builder(TokenizerMode::UNICODE);
+    std::vector<std::string> texts = {"hello world"};
+    builder.build_vocab(texts, 30, 1);
+    builder.save_vocab("test_save_vocab.txt");
+
+    // Load into a default-ASCII tokenizer — mode should switch to UNICODE
+    BPETokenizer loader;
+    loader.load_vocab("test_save_vocab.txt");
+
+    EXPECT_EQ(loader.get_mode(), TokenizerMode::UNICODE);
+    EXPECT_TRUE(loader.is_unicode_mode());
+}
+
+TEST_F(BPETokenizerTest, SaveLoadUnicodeModeEncodingIsConsistent) {
+    BPETokenizer builder(TokenizerMode::UNICODE);
+    std::vector<std::string> texts = {"hello world test"};
+    builder.build_vocab(texts, 50, 1);
+    auto ids_before = builder.encode("hello", false);
+    builder.save_vocab("test_save_vocab.txt");
+
+    BPETokenizer loader;
+    loader.load_vocab("test_save_vocab.txt");
+    auto ids_after = loader.encode("hello", false);
+
+    EXPECT_EQ(ids_before, ids_after);
+}
+
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

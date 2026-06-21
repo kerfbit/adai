@@ -215,6 +215,7 @@ TEST_F(ChatbotTrainerTest, Config_DefaultValues) {
     EXPECT_FLOAT_EQ(default_config.weight_decay, 0.01f);
     EXPECT_FLOAT_EQ(default_config.gradient_clip_norm, 1.0f);
     EXPECT_EQ(default_config.log_level, LogLevel::VERBOSE);
+    EXPECT_EQ(default_config.tokenizer_mode, TokenizerMode::ASCII);
 }
 
 TEST_F(ChatbotTrainerTest, Config_CustomValues) {
@@ -657,6 +658,40 @@ TEST(ConfigTest, ValidationSplit_Typical) {
     config.validation_split = 10;  // 10% validation
 
     EXPECT_EQ(config.validation_split, 10);
+}
+
+// ============================================================================
+// TokenizerMode in TrainingConfig Tests
+// ============================================================================
+
+TEST(TokenizerModeConfigTest, DefaultModeIsASCII) {
+    TrainingConfig config;
+    EXPECT_EQ(config.tokenizer_mode, TokenizerMode::ASCII);
+    EXPECT_NE(config.tokenizer_mode, TokenizerMode::UNICODE);
+}
+
+TEST(TokenizerModeConfigTest, CanSetUnicodeMode) {
+    TrainingConfig config;
+    config.tokenizer_mode = TokenizerMode::UNICODE;
+    EXPECT_EQ(config.tokenizer_mode, TokenizerMode::UNICODE);
+}
+
+TEST(TokenizerModeConfigTest, ModePersistedInGetConfig) {
+    TrainingConfig config;
+    config.log_level = LogLevel::SILENT;
+    config.tokenizer_mode = TokenizerMode::UNICODE;
+
+    ChatbotTrainer trainer(config);
+    EXPECT_EQ(trainer.get_config().tokenizer_mode, TokenizerMode::UNICODE);
+}
+
+TEST(TokenizerModeConfigTest, AsciiModePersistedInGetConfig) {
+    TrainingConfig config;
+    config.log_level = LogLevel::SILENT;
+    config.tokenizer_mode = TokenizerMode::ASCII;
+
+    ChatbotTrainer trainer(config);
+    EXPECT_EQ(trainer.get_config().tokenizer_mode, TokenizerMode::ASCII);
 }
 
 // ============================================================================
