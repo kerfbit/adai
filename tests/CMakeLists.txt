@@ -595,6 +595,19 @@ if(TARGET adai_mns)
         target_include_directories(mnsLiveTests PRIVATE ${HTTPLIB_INCLUDE_DIR})
     endif()
     add_test(NAME MNSLiveTests COMMAND mnsLiveTests)
+
+    # MNS Manager GUI unit + integration tests.
+    # Part 1 (json helpers, URL parser) always runs; Part 2 auto-skips without a server.
+    if(HTTPLIB_INCLUDE_DIR)
+        add_executable(mnsManagerGuiTests mns_manager_gui_test.cpp)
+        target_include_directories(mnsManagerGuiTests PRIVATE
+            ${CMAKE_SOURCE_DIR}/src ${HTTPLIB_INCLUDE_DIR})
+        target_link_libraries(mnsManagerGuiTests
+            adai_core
+            GTest::gtest_main
+        )
+        add_test(NAME MnsManagerGuiTests COMMAND mnsManagerGuiTests)
+    endif()
 endif()
 
 # TD-017: Adaptive gradient clipping tests (TrainingMetricsService)

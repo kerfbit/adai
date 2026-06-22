@@ -600,6 +600,31 @@ if(BUILD_GUI)
     endif()
 endif()
 
+# MNS Manager GUI - Qt-based Model Name Service manager (optional)
+if(BUILD_GUI AND (Qt6_FOUND OR Qt5_FOUND) AND TARGET adai_mns AND HTTPLIB_INCLUDE_DIR)
+    add_executable(mns_manager_gui
+        MnsManagerGUI_main.cpp
+        MnsManagerGUI.cpp
+        Config.cpp
+    )
+    if(Qt6_FOUND)
+        target_link_libraries(mns_manager_gui
+            adai_mns adai_core spdlog::spdlog Qt6::Widgets
+            pthread $<$<CXX_COMPILER_ID:GNU>:stdc++fs>
+        )
+    else()
+        target_link_libraries(mns_manager_gui
+            adai_mns adai_core spdlog::spdlog Qt5::Widgets
+            pthread $<$<CXX_COMPILER_ID:GNU>:stdc++fs>
+        )
+    endif()
+    target_include_directories(mns_manager_gui PRIVATE ${HTTPLIB_INCLUDE_DIR} ${SQLITE3_INCLUDE_DIR})
+    set_target_properties(mns_manager_gui PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+    )
+    message(STATUS "Building mns_manager_gui - Model Name Service GUI manager")
+endif()
+
 # Chatbot API Server - REST API service
 if(BUILD_API_SERVER)
     add_executable(chatbot_api_server
