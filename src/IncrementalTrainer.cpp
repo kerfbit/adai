@@ -272,6 +272,10 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
     cfg.metrics_push_timeout_ms = svc.metrics_push_timeout_ms;
     cfg.metrics_session_label = svc.metrics_session_label;
 
+    // Model Name Service configuration
+    cfg.mns_server_url = svc.name_service_url;
+    cfg.mns_model_name = svc.model_name;
+
     // Generation quality metrics
     cfg.base_config.enable_generation_quality_metrics = svc.enable_generation_quality_metrics;
     cfg.base_config.generation_quality_sample_size = svc.generation_quality_sample_size;

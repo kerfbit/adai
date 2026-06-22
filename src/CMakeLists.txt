@@ -310,7 +310,7 @@ if(BUILD_METRICS_API_SERVER)
         add_library(adai_metrics_api STATIC
             TrainingMetricsAPI.cpp
         )
-        target_link_libraries(adai_metrics_api 
+        target_link_libraries(adai_metrics_api
             adai_core
             pthread
         )
@@ -422,13 +422,34 @@ else()
     message(STATUS "mns_server not built (cpp-httplib not found)")
 endif()
 
-# Link adai_mns into incremental_trainer and chatbot_api_server now that the target exists
+# Model Name Service CLI (mns_cli)
+if(HTTPLIB_INCLUDE_DIR AND TARGET adai_mns)
+    add_executable(mns_cli MnsCliTool.cpp Config.cpp)
+    target_link_libraries(mns_cli
+        adai_mns
+        adai_core
+        spdlog::spdlog
+        pthread
+        $<$<CXX_COMPILER_ID:GNU>:stdc++fs>
+    )
+    target_include_directories(mns_cli PRIVATE ${HTTPLIB_INCLUDE_DIR} ${SQLITE3_INCLUDE_DIR})
+    set_target_properties(mns_cli PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+    )
+    message(STATUS "Building mns_cli - Model Name Service CLI tool")
+endif()
+
+# Link adai_mns into dependent targets now that the target exists
 if(TARGET adai_mns)
     target_link_libraries(incremental_trainer adai_mns)
     target_include_directories(incremental_trainer PRIVATE ${SQLITE3_INCLUDE_DIR})
     if(TARGET chatbot_api_server)
         target_link_libraries(chatbot_api_server adai_mns)
         target_include_directories(chatbot_api_server PRIVATE ${SQLITE3_INCLUDE_DIR})
+    endif()
+    if(TARGET adai_metrics_api)
+        target_link_libraries(adai_metrics_api adai_mns)
+        target_include_directories(adai_metrics_api PRIVATE ${SQLITE3_INCLUDE_DIR})
     endif()
 endif()
 
@@ -458,14 +479,17 @@ else()
 endif()
 
 # Dataset Manager - Standalone data queue management tool (TD-028 Phase 6)
-# No model or tokenizer dependency: links only adai_core (DatasetRegistry, DataFetcher, Logger)
-# and Config.cpp for config file parsing.
+# Links adai_core (DatasetRegistry, DataFetcher, Logger), Config.cpp, and optionally adai_mns.
 add_executable(dataset_manager DatasetManagerTool.cpp Config.cpp)
 target_link_libraries(dataset_manager
     adai_core
     spdlog::spdlog
     $<$<CXX_COMPILER_ID:GNU>:stdc++fs>
 )
+if(TARGET adai_mns)
+    target_link_libraries(dataset_manager adai_mns)
+    target_include_directories(dataset_manager PRIVATE ${HTTPLIB_INCLUDE_DIR} ${SQLITE3_INCLUDE_DIR})
+endif()
 set_target_properties(dataset_manager PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
@@ -603,14 +627,18 @@ endif()
 
 # Training Metrics API Server - REST API for training metrics polling
 if(BUILD_METRICS_API_SERVER)
-    add_executable(metrics_api_server 
+    add_executable(metrics_api_server
         TrainingMetricsAPIServer.cpp
     )
-    target_link_libraries(metrics_api_server 
+    target_link_libraries(metrics_api_server
         adai_metrics_api
         adai_core
         spdlog::spdlog
     )
+    if(TARGET adai_mns)
+        target_link_libraries(metrics_api_server adai_mns)
+        target_include_directories(metrics_api_server PRIVATE ${SQLITE3_INCLUDE_DIR})
+    endif()
     target_include_directories(metrics_api_server PRIVATE ${HTTPLIB_INCLUDE_DIR})
     set_target_properties(metrics_api_server PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin

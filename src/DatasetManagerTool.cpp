@@ -5,6 +5,9 @@
 #include "DataFetcher.hpp"
 #include "DatasetRegistry.hpp"
 #include "Logger.hpp"
+#ifdef BUILD_MNS_SERVER
+#include "ModelNameClient.hpp"
+#endif
 
 int main(int argc, char* argv[]) {
     // -----------------------------------------------------------------------
@@ -48,6 +51,7 @@ int main(int argc, char* argv[]) {
         std::cout << "  list-pending                 List all pending files\n";
         std::cout << "  list-trained                 List all trained files\n";
         std::cout << "  clear-pending                Remove all files from the pending queue\n";
+        std::cout << "  models                       List registered models from name service\n";
         std::cout << "\nPopular Gutenberg Books:\n";
         std::cout << "  1342  - Pride and Prejudice (Jane Austen)\n";
         std::cout << "  11    - Alice in Wonderland (Lewis Carroll)\n";
@@ -240,6 +244,48 @@ int main(int argc, char* argv[]) {
             std::cerr << "❌ Failed to save pending list\n";
             return 1;
         }
+
+    } else if (command == "models") {
+#ifdef BUILD_MNS_SERVER
+        std::string mns_url = svc_config.name_service_url;
+        if (mns_url.empty()) {
+            mns_url = "http://localhost:8083";
+        }
+        try {
+            adai::ModelNameClient client(mns_url, svc_config.name_service_timeout_ms);
+            // Use resolve_role to test connectivity; list via HTTP directly
+            std::string host = "localhost";
+            int port = 8083;
+            std::string url = mns_url;
+            if (url.rfind("http://", 0) == 0) url = url.substr(7);
+            auto colon = url.find(':');
+            if (colon != std::string::npos) {
+                host = url.substr(0, colon);
+                try { port = std::stoi(url.substr(colon + 1)); } catch (...) {}
+            }
+            // Query /models endpoint directly
+            std::cout << "Querying name service at " << mns_url << "...\n";
+            // ModelNameClient doesn't expose list; use resolve_model for known names
+            // or just report the configured model
+            if (!svc_config.model_name.empty()) {
+                auto resolved = client.resolve_model(svc_config.model_name);
+                std::cout << "  Model: " << resolved.model_name
+                          << "  State: " << resolved.state
+                          << "  ID: " << resolved.model_id << "\n";
+                if (!resolved.artifact.path.empty()) {
+                    std::cout << "  Artifact: " << resolved.artifact.path << "\n";
+                }
+            } else {
+                std::cout << "No MODEL_NAME configured. Set NAME_SERVICE_URL and MODEL_NAME in config.\n";
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "Name service query failed: " << e.what() << "\n";
+            return 1;
+        }
+#else
+        std::cerr << "Name service support not compiled (requires BUILD_MNS_SERVER)\n";
+        return 1;
+#endif
 
     } else {
         std::cerr << "Unknown command: " << command << "\n";

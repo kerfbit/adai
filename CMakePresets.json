@@ -109,6 +109,34 @@
         "BUILD_TESTING": "ON",
         "BUILD_EXAMPLES": "ON"
       }
+    },
+    {
+      "name": "gpu",
+      "displayName": "GPU-Enabled Build",
+      "description": "GPU-accelerated Release build for incremental_trainer (requires CUDA toolkit). Uses -march=native for host code.",
+      "inherits": "default",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ENABLE_GPU": "ON",
+        "PORTABLE_BUILD": "OFF",
+        "BUILD_TESTING": "OFF",
+        "BUILD_EXAMPLES": "OFF",
+        "ENABLE_CCACHE": "ON"
+      }
+    },
+    {
+      "name": "portable",
+      "displayName": "Portable Build",
+      "description": "Portable Release build for all non-trainer components. No GPU, baseline x86-64 (-march=x86-64) for cross-machine deployment.",
+      "inherits": "default",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ENABLE_GPU": "OFF",
+        "PORTABLE_BUILD": "ON",
+        "BUILD_TESTING": "OFF",
+        "BUILD_EXAMPLES": "OFF",
+        "ENABLE_CCACHE": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -165,6 +193,19 @@
       "displayName": "CI Build",
       "configurePreset": "ci",
       "jobs": 4
+    },
+    {
+      "name": "gpu",
+      "displayName": "GPU-Enabled Build",
+      "configurePreset": "gpu",
+      "jobs": 8,
+      "targets": ["incremental_trainer"]
+    },
+    {
+      "name": "portable",
+      "displayName": "Portable Build",
+      "configurePreset": "portable",
+      "jobs": 8
     }
   ],
   "testPresets": [

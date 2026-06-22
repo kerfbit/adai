@@ -40,10 +40,12 @@ void set_legacy_deprecation_headers(httplib::Response& res,
 }  // namespace
 
 TrainingMetricsAPI::TrainingMetricsAPI(
-    std::shared_ptr<MetricsSessionRegistry> session_registry, int port, bool allow_control)
+    std::shared_ptr<MetricsSessionRegistry> session_registry, int port, bool allow_control,
+    const std::string& name_service_url)
     : session_registry_(std::move(session_registry)),
       port_(port),
       allow_control_(allow_control),
+      name_service_url_(name_service_url),
       running_(false),
       server_impl_(std::make_unique<ServerImpl>()) {
     const std::string key_pattern = "([A-Za-z0-9][A-Za-z0-9_-]{0,63})";
@@ -772,6 +774,18 @@ TrainingMetricsAPI::TrainingMetricsAPI(
                                   });
     }
 
+    // GET /api/models - Registered model names from name service
+    server_impl_->server.Get("/api/models", [this](const httplib::Request&, httplib::Response& res) {
+        try {
+            std::string response = handle_models_list();
+            res.set_content(response, "application/json");
+            res.status = 200;
+        } catch (const std::exception& e) {
+            res.set_content(create_error_response(e.what()), "application/json");
+            res.status = 502;
+        }
+    });
+
     // GET /health - Health check
     server_impl_->server.Get("/health", [this](const httplib::Request&, httplib::Response& res) {
         std::string response = handle_health_check();
@@ -1253,6 +1267,40 @@ std::string TrainingMetricsAPI::handle_health_check() {
     json << "}";
 
     return json.str();
+}
+
+std::string TrainingMetricsAPI::handle_models_list() {
+    if (name_service_url_.empty()) {
+        return R"({"error":"name service not configured","models":[]})";
+    }
+
+    // Parse host:port from the configured URL
+    std::string host = "localhost";
+    int port = 8083;
+    std::string url = name_service_url_;
+    if (url.rfind("http://", 0) == 0) url = url.substr(7);
+    else if (url.rfind("https://", 0) == 0) url = url.substr(8);
+    auto colon = url.find(':');
+    if (colon != std::string::npos) {
+        host = url.substr(0, colon);
+        auto slash = url.find('/', colon);
+        std::string port_str = (slash != std::string::npos)
+            ? url.substr(colon + 1, slash - colon - 1)
+            : url.substr(colon + 1);
+        try { port = std::stoi(port_str); } catch (...) {}
+    } else {
+        auto slash = url.find('/');
+        host = (slash != std::string::npos) ? url.substr(0, slash) : url;
+    }
+
+    httplib::Client http(host, port);
+    http.set_connection_timeout(5, 0);
+    http.set_read_timeout(5, 0);
+    auto res = http.Get("/models");
+    if (!res || res->status != 200) {
+        return R"({"error":"name service unavailable","models":[]})";
+    }
+    return res->body;
 }
 
 // ============================================================================

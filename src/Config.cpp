@@ -101,7 +101,7 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
         return;
     }
 
-    std::cout << "Loading configuration from: " << file_path << '\n';
+    std::cerr << "Loading configuration from: " << file_path << '\n';
 
     std::string line;
     int line_number = 0;

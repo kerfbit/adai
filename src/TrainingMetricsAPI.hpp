@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include "MetricsSessionRegistry.hpp"
+#include "ModelNameClient.hpp"
 
 /**
  * @brief REST API for TrainingMetricsService - Provides HTTP endpoints for polling training metrics
@@ -55,9 +56,11 @@ class TrainingMetricsAPI {
       * @param session_registry Shared pointer to the metrics session registry
      * @param port Port number to listen on (default: 8081)
      * @param allow_control Enable control endpoints (flush, clear) - default: true
+     * @param name_service_url URL of MNS daemon for /api/models (empty = disabled)
      */
      explicit TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> session_registry,
-                                int port = 8081, bool allow_control = true);
+                                int port = 8081, bool allow_control = true,
+                                const std::string& name_service_url = "");
 
     /**
      * @brief Destructor - ensures server is stopped
@@ -111,6 +114,7 @@ class TrainingMetricsAPI {
     std::string handle_sessions_list();
     std::string handle_metrics_aggregate();
     std::string handle_prometheus_aggregate();  ///< TD-021: per-session labelled Prometheus output
+    std::string handle_models_list();
     std::string handle_flush_control(const std::string& session_key);
     std::string handle_clear_control(const std::string& session_key);
     std::string handle_health_check();
@@ -142,6 +146,7 @@ class TrainingMetricsAPI {
     std::shared_ptr<MetricsSessionRegistry> session_registry_;
     int port_;
     bool allow_control_;
+    std::string name_service_url_;
     std::atomic<bool> running_;
 
     // HTTP server implementation (forward declaration to avoid including httplib.h in header)
