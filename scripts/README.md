@@ -354,57 +354,7 @@ Example/test client demonstrating the batch processing API. Includes five exampl
 python3 scripts/batch_api_client.py
 ```
 
-## Training Data
-
-### download_minipile.py
-
-Downloads MiniPile parquet shards from HuggingFace and converts them to the incremental trainer's `INPUT:/RESPONSE:` format. Splits documents at mid-sentence boundaries to create prompt/completion pairs. Targets 50,000 pairs.
-
-```bash
-python3 scripts/download_minipile.py
-```
-
-### extend_minipile.py
-
-Selects 10,000 additional MiniPile training pairs that are deduplicated against the existing training file and contain only printable ASCII characters.
-
-```bash
-python3 scripts/extend_minipile.py
-```
-
-### expand_training_data.py
-
-Expands `sample_training_data.txt` to 7,500 conversation pairs using templates across categories (greetings, programming, web development, databases, algorithms, machine learning, etc.).
-
-```bash
-python3 scripts/expand_training_data.py
-```
-
-### projGutenbergTrimmer.py
-
-Removes Project Gutenberg headers and footers from text files, extracting only the actual book content for use as training data.
-
-```bash
-python3 scripts/projGutenbergTrimmer.py <input_file> [output_file]
-```
-
 ## Diagnostics
-
-### diagnose_generation.py
-
-Analyzes a vocabulary file for structural issues that cause `<unk>` tokens during generation. Checks special token definitions, duplicate IDs, and vocab/special-token ID consistency. Suggests common fixes.
-
-```bash
-python3 scripts/diagnose_generation.py vocab.txt
-```
-
-### test_repair_vocab.py
-
-Validates and repairs the BPE tokenizer vocabulary file (`vocab.txt`). Checks header format, special token definitions, duplicate entries, and ID continuity.
-
-```bash
-python3 scripts/test_repair_vocab.py
-```
 
 ### monitor_training.py
 
