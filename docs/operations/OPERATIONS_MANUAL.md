@@ -52,22 +52,29 @@ ADAI is an encoder-decoder transformer model built entirely in C++17 with no Pyt
 
 - **`incremental_trainer`** — trains the encoder-decoder model (incremental, retrain, and resume modes)
 - **`dataset_manager`** — manages the training dataset queue (local files, Gutenberg, HuggingFace)
-- **`metrics_api_server`** — HTTP daemon for live training metrics
+- **`metrics_api_server`** — HTTP daemon for live training metrics with SQLite/PostgreSQL persistence
+- **`registry_server`** — HTTP daemon for distributed dataset queue coordination
+- **`mns_server`** — Model Name Service for model identity, lifecycle, and artifact registry
+- **`mns_cli`** — CLI client for querying and managing the MNS
 - **`chatbot`** (CLI) — interactive chatbot on the command line
 - **`chatbot_gui`** — Qt5 graphical interface
 - **`chatbot_api_server`** — HTTP REST API server
 - **`vocab_builder`** — BPE tokenizer vocabulary construction
 - **RAG module** — Retrieval-Augmented Generation, wired into the API server
 
+The server-side daemons (`metrics_api_server`, `registry_server`, `mns_server`) are deployed together as the **server bundle** via `install_server_bundle.sh`. See [Server Bundle Deployment](deployment/SERVER_BUNDLE_DEPLOYMENT.md) for full details including SQLite/PostgreSQL database setup, tarball packaging, and systemd service management.
+
 ### Key Static Libraries
 
 | Library | Contents |
 | --- | --- |
-| `adai_core` | Core math, tensors, activation functions |
+| `adai_core` | Core math, tensors, activation functions, metrics service, SQLite/PostgreSQL backends |
 | `adai_transformer` | Transformer layers, attention, positional encoding |
 | `adai_models` | EncoderDecoderModel, TextGenerator, KV cache |
 | `adai_nlp` | BPETokenizer, vocab utilities |
 | `adai_api` | ChatbotAPI, DocumentStore, RAGInference |
+| `adai_metrics_api` | TrainingMetricsAPI REST layer (session-scoped routes, DB query endpoints) |
+| `adai_mns` | ModelNameService, ModelNameClient (SQLite registry + HTTP client) |
 
 ---
 
@@ -1180,7 +1187,25 @@ docker-compose up -d
 
 ### 9.2 systemd Service Deployment
 
-#### Automated Installation
+#### Server Bundle (Metrics, MNS, Registry)
+
+For deploying the training infrastructure services, see [Server Bundle Deployment](deployment/SERVER_BUNDLE_DEPLOYMENT.md).
+
+```bash
+# Build, package, and install with PostgreSQL
+cmake --preset portable && cmake --build --preset portable
+./scripts/package_server_bundle.sh
+sudo ./scripts/install_server_bundle.sh --build-dir build/portable --setup-postgres --yes
+
+# Verify
+systemctl status adai-mns adai-registry adai-metrics
+curl http://localhost:8081/health   # metrics
+curl http://localhost:8083/health   # MNS
+```
+
+#### Chatbot API Server
+
+Automated installation for the chatbot API server:
 
 ```bash
 # 1. Build
@@ -1855,18 +1880,25 @@ done
 | --- | --- |
 | Vocabulary | `vocab.txt` / `/opt/adai/vocab/vocab.txt` |
 | Model base | `chatbot_model.bin` |
-| Config | `config.conf` / `/etc/adai/config.conf` |
-| API server executable | `build/src/chatbot_api_server` |
+| Config | `config.conf` / `/opt/adai/etc/config.conf` |
+| API server executable | `build/bin/chatbot_api_server` |
 | CLI chatbot | `build/bin/chatbot` |
-| GUI chatbot | `build/src/chatbot_gui` |
+| GUI chatbot | `build/bin/chatbot_gui` |
 | Incremental trainer | `build/bin/incremental_trainer` |
 | Dataset manager | `build/bin/dataset_manager` |
 | Metrics API server | `build/bin/metrics_api_server` |
 | Registry server | `build/bin/registry_server` |
-| Logs | `stdout` / `/var/log/adai/chatbot.log` |
-| Training log | `chatbot_server.log` (or `LOG_FILE_PATH`) |
+| MNS server | `build/bin/mns_server` |
+| MNS CLI | `build/bin/mns_cli` |
+| Logs | `stdout` / `/var/log/adai/` |
 | Training sessions | `training_sessions/` |
 | Metrics JSONL | `training_sessions/metrics.jsonl` |
+| Metrics SQLite DB | `training_sessions/metrics.db` |
+| MNS SQLite DB | `<mns-data-dir>/models.db` |
+| PostgreSQL schema | `scripts/setup_postgres.sql` |
+| Server bundle installer | `scripts/install_server_bundle.sh` |
+| Bundle packager | `scripts/package_server_bundle.sh` |
+| Dashboard | `dashboard.html` |
 | RAG knowledge base | configurable via `RAG_DOCS_PATH` |
 
 ---

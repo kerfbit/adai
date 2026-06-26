@@ -98,6 +98,9 @@ The server uses a session-keyed design. Each training run opens a named **sessio
 | **GET** | `/api/sessions/{key}/epochs` | Per-epoch history |
 | **GET** | `/api/metrics/aggregate` | Compact JSON of all live sessions |
 | **GET** | `/api/metrics/prometheus/aggregate` | Prometheus text for all live sessions with `session=` labels |
+| **GET** | `/api/sessions/{key}/metrics/db-history` | DB-backed time-range history (`from`, `to`, `limit`) |
+| **GET** | `/api/sessions/{key}/metrics/export` | Full unbounded history export (`format=csv\|json`) |
+| **GET** | `/api/metrics/compare` | Cross-session metric comparison (`keys`, `metric`) |
 | **GET** | `/health` | Server health and active session count |
 
 ### Push endpoints (trainer → server)
@@ -537,6 +540,116 @@ Response: `{"status":"success","message":"Metrics history cleared"}`
 
 ---
 
+### `GET /api/sessions/{key}/metrics/db-history`
+
+Time-range history query served from the SQL database. Not limited to the 10,000-record in-memory ring buffer.
+
+Query parameters:
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `from` | ISO 8601 | Start of time range (inclusive) |
+| `to` | ISO 8601 | End of time range (inclusive) |
+| `limit` | int | Maximum records to return (0 = unlimited) |
+
+```bash
+curl "http://localhost:8081/api/sessions/42-gpu0/metrics/db-history?from=2026-06-25T10:00:00Z&to=2026-06-25T12:00:00Z&limit=500"
+```
+
+Response:
+
+```json
+{
+  "session_key": "42-gpu0",
+  "count": 500,
+  "records": [
+    {"timestamp": "2026-06-25T10:00:01.234Z", "epoch": 1, "sample": 100, "loss": 2.34, ...},
+    ...
+  ]
+}
+```
+
+Returns an error response if no database backend is configured (`METRICS_STORAGE_BACKEND=file`).
+
+---
+
+### `GET /api/sessions/{key}/metrics/export`
+
+Full unbounded history export from the database.
+
+Query parameters:
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `format` | string | `json` (default) or `csv` |
+
+```bash
+# CSV export for spreadsheet analysis
+curl -o session.csv "http://localhost:8081/api/sessions/42-gpu0/metrics/export?format=csv"
+
+# JSON export
+curl "http://localhost:8081/api/sessions/42-gpu0/metrics/export?format=json"
+```
+
+CSV response:
+
+```csv
+timestamp,epoch,sample,loss,validation_loss,learning_rate,gradient_norm,perplexity
+2026-06-25T10:00:01.234Z,1,100,2.340000,0.000000,0.001000,1.500000,10.381237
+...
+```
+
+---
+
+### `GET /api/metrics/compare`
+
+Cross-session metric comparison. Returns parallel per-epoch value arrays for the specified metric from each session, useful for loss-curve overlays.
+
+Query parameters:
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `keys` | string | Comma-separated session keys (required) |
+| `metric` | string | Field name: `loss`, `validation_loss`, `learning_rate`, `gradient_norm`, `perplexity` (default: `loss`) |
+
+```bash
+curl "http://localhost:8081/api/metrics/compare?keys=run-a,run-b&metric=loss"
+```
+
+Response:
+
+```json
+{
+  "metric": "loss",
+  "sessions": {
+    "run-a": [2.5, 2.1, 1.8, 1.5],
+    "run-b": [2.3, 1.9, 1.6, 1.3]
+  }
+}
+```
+
+---
+
+### `GET /api/sessions` (filtered)
+
+The existing sessions list endpoint now supports optional query-string filters backed by the database.
+
+Query parameters:
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `status` | string | `active` / `training` or `completed` |
+| `from` | ISO 8601 | Only sessions created after this time |
+
+```bash
+# All completed sessions from the last week
+curl "http://localhost:8081/api/sessions?status=completed&from=2026-06-18T00:00:00Z"
+```
+
+When no filters are provided, the endpoint returns the same in-memory session list as before. When filters are present and a database backend is configured, results are served from the database and include evicted completed sessions that are no longer in memory.
+
+---
+
 ## Push Endpoints
 
 These endpoints are called by `incremental_trainer` (via `MetricsPushClient`) to push training state to the server. They are also useful for custom trainers or test harnesses.
@@ -713,6 +826,13 @@ Options:
   --no-persistence             Disable persistence to disk
   --enable-prometheus          Enable Prometheus format output
   --no-control                 Disable control endpoints (flush, clear)
+  --name-service-url URL       MNS daemon URL for /api/models (default: http://localhost:8083)
+  --no-name-service            Disable MNS integration
+  --storage-backend BACKEND    file | sqlite | postgres | sqlite+file | postgres+file
+                               (default: sqlite+file)
+  --db-path PATH               SQLite database file (default: training_sessions/metrics.db)
+  --db-url URL                 PostgreSQL connection URL
+  --db-pool-size N             PostgreSQL connection pool size (default: 4)
   --help                       Show this help message
 ```
 
@@ -821,6 +941,11 @@ scrape_configs:
 
 ## See Also
 
+- [Server Bundle Deployment](../operations/deployment/SERVER_BUNDLE_DEPLOYMENT.md) — Installing, packaging, and configuring the metrics server with SQLite or PostgreSQL
+- [setup_postgres.sql](../../scripts/setup_postgres.sql) — PostgreSQL schema for metrics and MNS tables
+- [MetricsDatabase.hpp](../../src/MetricsDatabase.hpp) — `IMetricsDatabase` interface and `SessionRecord` struct
+- [SQLiteMetricsDatabase.hpp](../../src/SQLiteMetricsDatabase.hpp) — SQLite backend implementation
+- [PostgresMetricsDatabase.hpp](../../src/PostgresMetricsDatabase.hpp) — PostgreSQL backend implementation
 - [TrainingMetricsService.hpp](../../src/TrainingMetricsService.hpp) — Core metrics service and snapshot structs
 - [TrainingMetricsAPI.hpp](../../src/TrainingMetricsAPI.hpp) — REST API implementation
 - [MetricsPushClient.hpp](../../src/MetricsPushClient.hpp) — Client used by `incremental_trainer` to push metrics

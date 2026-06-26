@@ -81,13 +81,72 @@ sudo ./scripts/install_systemd_service.sh [--install-path PATH] [--user USER] [-
 
 ### 📈 install_metrics_service.sh
 
-Installs the ADAI metrics API server as a systemd service.
+Installs the ADAI metrics API server as a standalone systemd service.  For co-located deployment of all three servers (metrics, registry, MNS), use `install_server_bundle.sh` instead.
 
 **Usage:**
 
 ```bash
 sudo ./scripts/install_metrics_service.sh [--install-path PATH] [--port PORT]
 ```
+
+---
+
+### 📦 install_server_bundle.sh
+
+Installs `metrics_api_server`, `registry_server`, and `mns_server` as a co-located set of systemd services on a single machine.  Supports SQLite (default) and PostgreSQL persistence backends.
+
+**Usage:**
+
+```bash
+# SQLite (default)
+sudo ./scripts/install_server_bundle.sh --build-dir build/portable --yes
+
+# PostgreSQL (install packages, create DB, apply schema)
+sudo ./scripts/install_server_bundle.sh --build-dir build/portable --setup-postgres --yes
+
+# From a distributed tarball
+sudo ./scripts/install_server_bundle.sh --build-dir . --yes
+```
+
+**Key options:** `--storage-backend`, `--db-path`, `--db-url`, `--setup-postgres`, `--pg-db-name`, `--pg-db-user`. Run `--help` for the full list.
+
+See [Server Bundle Deployment](../docs/operations/deployment/SERVER_BUNDLE_DEPLOYMENT.md) for the full guide.
+
+---
+
+### 📦 package_server_bundle.sh
+
+Packages all server binaries, install scripts, config templates, SQL schema, and dashboard into a self-contained tarball for distribution to target hosts.
+
+**Usage:**
+
+```bash
+# Auto-detect build dir, version from git tag
+./scripts/package_server_bundle.sh
+
+# Include trainer binaries
+./scripts/package_server_bundle.sh --include-trainer
+
+# Custom output directory and version
+./scripts/package_server_bundle.sh --output-dir dist/ --version v1.2.0
+```
+
+**Key options:** `--build-dir`, `--output-dir`, `--version`, `--no-strip`, `--include-trainer`.
+
+---
+
+### 🐘 setup_postgres.sql
+
+PostgreSQL schema setup file for both the metrics API server and the model name service.  Creates all tables, indexes, and seeds the `schema_version` tracking row.  Idempotent (safe to re-run).
+
+**Usage:**
+
+```bash
+sudo -u postgres createdb -O adai adai
+sudo -u postgres psql -d adai -f scripts/setup_postgres.sql
+```
+
+This file is run automatically by `install_server_bundle.sh --setup-postgres`.
 
 ---
 
