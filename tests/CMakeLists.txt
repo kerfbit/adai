@@ -497,6 +497,18 @@ target_link_libraries(metricsSessionRegistryTests
 )
 add_test(NAME MetricsSessionRegistryTests COMMAND metricsSessionRegistryTests)
 
+# TD-020: Metrics Database Persistence tests
+add_executable(metricsDatabaseTests MetricsDatabaseTest.cpp)
+target_include_directories(metricsDatabaseTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(metricsDatabaseTests
+    adai_core
+    GTest::gtest_main
+)
+if(SQLITE3_FOUND)
+    target_include_directories(metricsDatabaseTests PRIVATE ${SQLITE3_INCLUDE_DIR})
+endif()
+add_test(NAME MetricsDatabaseTests COMMAND metricsDatabaseTests)
+
 # TD-021: IncrementalTrainer × Metrics Service Decoupling tests
 add_executable(incrementalTrainerDecouplingTests
     incremental_trainer_registry_test.cpp

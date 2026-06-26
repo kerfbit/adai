@@ -52,14 +52,29 @@ add_library(adai_core STATIC
     RegistryTransport.cpp
     DatasetRegistry.cpp
     DataFetcher.cpp
+    SQLiteMetricsDatabase.cpp
 )
 target_link_libraries(adai_core PUBLIC spdlog::spdlog)
+
+# SQLite3 is detected below (shared with adai_mns); link it here for MetricsDatabase
+# The find_path/find_library block at line ~375 sets SQLITE3_INCLUDE_DIR and SQLITE3_LIBRARY.
+# We defer the actual linking to after detection (see TD-020 block below).
 
 # Add httplib support for metrics push (if available)
 if(HTTPLIB_INCLUDE_DIR)
     target_include_directories(adai_core PRIVATE ${HTTPLIB_INCLUDE_DIR})
     target_compile_definitions(adai_core PRIVATE BUILD_METRICS_API_SERVER)
     message(STATUS "Metrics push support added to adai_core (httplib found)")
+endif()
+
+# PostgreSQL backend for metrics (TD-020) — optional
+option(ENABLE_POSTGRES_METRICS "Build PostgreSQL metrics backend (requires libpq)" OFF)
+if(ENABLE_POSTGRES_METRICS)
+    find_package(PostgreSQL REQUIRED)
+    target_sources(adai_core PRIVATE PostgresMetricsDatabase.cpp)
+    target_link_libraries(adai_core PUBLIC PostgreSQL::PostgreSQL)
+    target_compile_definitions(adai_core PUBLIC ADAI_ENABLE_POSTGRES)
+    message(STATUS "PostgreSQL metrics backend enabled (TD-020)")
 endif()
 
 # OpenMP support (optional but recommended)
@@ -381,8 +396,15 @@ if(SQLITE3_INCLUDE_DIR AND SQLITE3_LIBRARY)
     message(STATUS "SQLite3 found: ${SQLITE3_LIBRARY} (headers: ${SQLITE3_INCLUDE_DIR})")
     set(SQLITE3_FOUND TRUE)
 else()
-    message(WARNING "SQLite3 not found — adai_mns will not be built. Install with: sudo apt-get install libsqlite3-dev")
+    message(WARNING "SQLite3 not found — adai_mns and SQLite metrics backend will not be built. Install with: sudo apt-get install libsqlite3-dev")
     set(SQLITE3_FOUND FALSE)
+endif()
+
+# TD-020: Link SQLite3 into adai_core for SQLiteMetricsDatabase
+if(SQLITE3_FOUND)
+    target_link_libraries(adai_core PUBLIC ${SQLITE3_LIBRARY})
+    target_include_directories(adai_core PUBLIC ${SQLITE3_INCLUDE_DIR})
+    message(STATUS "SQLite3 metrics backend linked to adai_core (TD-020)")
 endif()
 
 # Model Name Service library (requires cpp-httplib + SQLite3)

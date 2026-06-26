@@ -10,6 +10,7 @@
 #include <utility>
 #include "Logger.hpp"
 #include "MetricsSessionRegistry.hpp"
+#include "GenerationQualityMetrics.hpp"
 
 // HTTP client for pushing metrics to external API daemon (optional)
 #ifdef BUILD_METRICS_API_SERVER
@@ -174,6 +175,15 @@ void TrainingMetricsService::end_session() {
         persist_summary();
         if (config_.enable_prometheus_format) {
             persist_prometheus();
+        }
+
+        // DB mark ended (TD-020)
+        if (db_ && !session_key_.empty()) {
+            try {
+                db_->mark_session_ended(session_key_);
+            } catch (const std::exception& e) {
+                adai::Logger::error("Failed to mark session ended in DB: {}", e.what());
+            }
         }
 
         adai::Logger::info(
@@ -751,6 +761,17 @@ void TrainingMetricsService::persist_metrics() {
         return;
     }
 
+    // DB write first (TD-020)
+    if (db_ && !session_key_.empty()) {
+        try {
+            for (const auto& record : history_) {
+                db_->insert_metrics_record(session_key_, record);
+            }
+        } catch (const std::exception& e) {
+            adai::Logger::error("Failed to persist metrics to DB: {}", e.what());
+        }
+    }
+
     try {
         ensure_parent_directory(config_.metrics_file);
         std::ofstream file(config_.metrics_file, std::ios::app);
@@ -784,6 +805,15 @@ void TrainingMetricsService::persist_metrics() {
 void TrainingMetricsService::persist_summary() {
     if (!config_.enable_persistence) {
         return;
+    }
+
+    // DB upsert first (TD-020)
+    if (db_ && !session_key_.empty()) {
+        try {
+            db_->upsert_session(build_session_record());
+        } catch (const std::exception& e) {
+            adai::Logger::error("Failed to upsert session to DB: {}", e.what());
+        }
     }
 
     try {
@@ -854,6 +884,31 @@ void TrainingMetricsService::persist_prometheus_with_data(const std::string& pro
 }
 
 void TrainingMetricsService::restore_from_summary() {
+    // DB-first restore (TD-020): try loading session record from DB before
+    // falling back to the JSON summary file.
+    if (db_ && !session_key_.empty()) {
+        try {
+            auto rec = db_->get_session(session_key_);
+            if (rec) {
+                current_session_id_ = rec->session_id;
+                current_snapshot_.session_id = rec->session_id;
+                current_snapshot_.best_validation_loss = rec->best_validation_loss;
+                current_snapshot_.best_epoch = rec->best_epoch;
+                current_snapshot_.session_start_time = rec->created_at;
+                current_snapshot_.last_update_time = rec->last_update_at;
+                label_ = rec->label;
+                config_snapshot_ = rec->config_json;
+                current_snapshot_.label = rec->label;
+                current_snapshot_.config_snapshot = rec->config_json;
+                adai::Logger::info("Metrics state restored from DB (session_key='{}')", session_key_);
+                return;
+            }
+        } catch (const std::exception& e) {
+            adai::Logger::warn("DB restore failed for key '{}': {}; falling back to file",
+                               session_key_, e.what());
+        }
+    }
+
     // Restore current_snapshot_ from the persisted summary JSON.
     // Called at construction before any lock is needed.
     try {
@@ -1455,6 +1510,21 @@ void TrainingMetricsService::update_generation_quality_metrics(float bleu4, floa
         current_snapshot_.current_rougeL = rougeL;
         current_snapshot_.last_update_time = std::chrono::system_clock::now();
 
+        // DB write (TD-020)
+        if (db_ && !session_key_.empty()) {
+            try {
+                GenerationQualityScore score;
+                score.bleu4 = bleu4;
+                score.rouge1 = rouge1;
+                score.rouge2 = rouge2;
+                score.rougeL = rougeL;
+                db_->insert_generation_quality(session_key_,
+                    current_snapshot_.current_epoch, score);
+            } catch (const std::exception& e) {
+                adai::Logger::error("Failed to insert generation quality to DB: {}", e.what());
+            }
+        }
+
         adai::Logger::info(
             "Generation quality — BLEU-4: {:.4f}  ROUGE-1: {:.4f}  "
             "ROUGE-2: {:.4f}  ROUGE-L: {:.4f}",
@@ -1479,10 +1549,18 @@ void TrainingMetricsService::flag_abnormal_sample(const AbnormalSample& sample) 
         std::lock_guard<std::mutex> lock(mutex_);
 
         if (static_cast<int>(abnormal_samples_.size()) >= config_.max_abnormal_samples) {
-            // Drop oldest entry to stay within cap
             abnormal_samples_.erase(abnormal_samples_.begin());
         }
         abnormal_samples_.push_back(sample);
+
+        // DB write (TD-020)
+        if (db_ && !session_key_.empty()) {
+            try {
+                db_->insert_abnormal_sample(session_key_, sample);
+            } catch (const std::exception& e) {
+                adai::Logger::error("Failed to insert abnormal sample to DB: {}", e.what());
+            }
+        }
 
         adai::Logger::warn(
             "Abnormal sample flagged — epoch={} sample={} loss={:.4f} grad={:.4f} reason={}",
@@ -1540,6 +1618,32 @@ void TrainingMetricsService::persist_abnormal_samples() {
     } catch (const std::exception& e) {
         adai::Logger::error("Failed to persist abnormal samples: {}", e.what());
     }
+}
+
+// ============================================================================
+// SQL Database Persistence (TD-020)
+// ============================================================================
+
+void TrainingMetricsService::set_database(IMetricsDatabase* db, const std::string& session_key) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    db_ = db;
+    session_key_ = session_key;
+}
+
+SessionRecord TrainingMetricsService::build_session_record() const {
+    SessionRecord rec;
+    rec.key          = session_key_;
+    rec.session_id   = current_session_id_.load();
+    rec.label        = label_;
+    rec.config_json  = config_snapshot_;
+    rec.is_training  = is_training_.load();
+    rec.created_at   = current_snapshot_.session_start_time;
+    rec.last_update_at = current_snapshot_.last_update_time;
+    rec.total_epochs   = current_snapshot_.current_epoch;
+    rec.total_samples  = current_snapshot_.total_samples_trained;
+    rec.best_validation_loss = current_snapshot_.best_validation_loss;
+    rec.best_epoch     = current_snapshot_.best_epoch;
+    return rec;
 }
 
 // ============================================================================

@@ -51,9 +51,18 @@ TrainingMetricsAPI::TrainingMetricsAPI(
     const std::string key_pattern = "([A-Za-z0-9][A-Za-z0-9_-]{0,63})";
 
     // Set up session-scoped HTTP endpoints
-    server_impl_->server.Get("/api/sessions", [this](const httplib::Request&, httplib::Response& res) {
+    server_impl_->server.Get("/api/sessions", [this](const httplib::Request& req, httplib::Response& res) {
         try {
-            std::string response = handle_sessions_list();
+            std::string query_params;
+            for (const auto& param : {"status", "from"}) {
+                if (req.has_param(param)) {
+                    if (!query_params.empty()) query_params += "&";
+                    query_params += std::string(param) + "=" + req.get_param_value(param);
+                }
+            }
+            std::string response = query_params.empty()
+                ? handle_sessions_list()
+                : handle_sessions_list_filtered(query_params);
             res.set_content(response, "application/json");
             res.status = 200;
         } catch (const std::exception& e) {
@@ -61,6 +70,26 @@ TrainingMetricsAPI::TrainingMetricsAPI(
             res.status = 500;
         }
     });
+
+    // TD-020: cross-session metric comparison from DB
+    server_impl_->server.Get("/api/metrics/compare",
+                             [this](const httplib::Request& req, httplib::Response& res) {
+                                 try {
+                                     std::string query_params;
+                                     if (req.has_param("keys")) query_params += "keys=" + req.get_param_value("keys");
+                                     if (req.has_param("metric")) {
+                                         if (!query_params.empty()) query_params += "&";
+                                         query_params += "metric=" + req.get_param_value("metric");
+                                     }
+                                     std::string response = handle_metrics_compare(query_params);
+                                     res.set_content(response, "application/json");
+                                     res.status = 200;
+                                 } catch (const std::exception& e) {
+                                     res.set_content(create_error_response(e.what()),
+                                                     "application/json");
+                                     res.status = 500;
+                                 }
+                             });
 
     server_impl_->server.Get("/api/metrics/aggregate",
                              [this](const httplib::Request&, httplib::Response& res) {
@@ -244,6 +273,51 @@ TrainingMetricsAPI::TrainingMetricsAPI(
             try {
                 std::string response = handle_padding_efficiency_metrics(req.matches[1]);
                 res.set_content(response, "application/json");
+                res.status = 200;
+            } catch (const ApiRequestError& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
+            } catch (const std::exception& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 500;
+            }
+        });
+
+    // TD-020: DB-backed time-range history query
+    server_impl_->server.Get("/api/sessions/" + key_pattern + "/metrics/db-history",
+                             [this](const httplib::Request& req, httplib::Response& res) {
+            try {
+                std::string query_params;
+                for (const auto& param : {"from", "to", "limit"}) {
+                    if (req.has_param(param)) {
+                        if (!query_params.empty()) query_params += "&";
+                        query_params += std::string(param) + "=" + req.get_param_value(param);
+                    }
+                }
+                std::string response = handle_db_history(req.matches[1], query_params);
+                res.set_content(response, "application/json");
+                res.status = 200;
+            } catch (const ApiRequestError& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
+            } catch (const std::exception& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 500;
+            }
+        });
+
+    // TD-020: Full unbounded history export from DB
+    server_impl_->server.Get("/api/sessions/" + key_pattern + "/metrics/export",
+                             [this](const httplib::Request& req, httplib::Response& res) {
+            try {
+                std::string query_params;
+                if (req.has_param("format")) {
+                    query_params = "format=" + req.get_param_value("format");
+                }
+                std::string response = handle_metrics_export(req.matches[1], query_params);
+                std::string format = req.has_param("format") ? req.get_param_value("format") : "json";
+                std::string content_type = (format == "csv") ? "text/csv" : "application/json";
+                res.set_content(response, content_type);
                 res.status = 200;
             } catch (const ApiRequestError& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
@@ -1867,6 +1941,233 @@ std::string TrainingMetricsAPI::handle_post_advanced_metrics(const std::string& 
                                            weight_update_ratio);
 
     return R"({"status":"ok"})";
+}
+
+// ============================================================================
+// TD-020: DB-backed Query Endpoints
+// ============================================================================
+
+std::string TrainingMetricsAPI::parse_query_param_string(
+    const std::string& query, const std::string& param,
+    const std::string& default_value) {
+    std::string search_key = param + "=";
+    size_t pos = query.find(search_key);
+    if (pos == std::string::npos) return default_value;
+    pos += search_key.length();
+    size_t end_pos = query.find('&', pos);
+    return end_pos == std::string::npos ? query.substr(pos) : query.substr(pos, end_pos - pos);
+}
+
+static std::chrono::system_clock::time_point parse_iso8601(const std::string& s) {
+    if (s.empty()) return {};
+    std::tm tm{};
+    int ms = 0;
+    if (auto* end = strptime(s.c_str(), "%Y-%m-%dT%H:%M:%S", &tm)) {
+        if (*end == '.') ms = std::atoi(end + 1);
+    }
+    auto tp = std::chrono::system_clock::from_time_t(timegm(&tm));
+    tp += std::chrono::milliseconds(ms);
+    return tp;
+}
+
+static std::string format_iso8601(const std::chrono::system_clock::time_point& tp) {
+    auto time_t = std::chrono::system_clock::to_time_t(tp);
+    std::tm tm{};
+    gmtime_r(&time_t, &tm);
+    std::ostringstream oss;
+    oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%S");
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        tp.time_since_epoch()) % 1000;
+    oss << "." << std::setfill('0') << std::setw(3) << ms.count() << "Z";
+    return oss.str();
+}
+
+std::string TrainingMetricsAPI::handle_db_history(
+    const std::string& session_key, const std::string& query_params) {
+    auto* db = session_registry_->get_database();
+    if (!db) {
+        return create_error_response("No database backend configured");
+    }
+
+    std::optional<std::chrono::system_clock::time_point> from, to;
+    auto from_str = parse_query_param_string(query_params, "from");
+    auto to_str   = parse_query_param_string(query_params, "to");
+    int limit     = parse_query_param_int(query_params, "limit", 0);
+
+    if (!from_str.empty()) from = parse_iso8601(from_str);
+    if (!to_str.empty())   to   = parse_iso8601(to_str);
+
+    auto records = db->query_history(session_key, from, to, limit);
+
+    std::ostringstream json;
+    json << std::fixed << std::setprecision(6);
+    json << "{\"session_key\":\"" << escape_json(session_key) << "\",";
+    json << "\"count\":" << records.size() << ",";
+    json << "\"records\":[";
+    for (size_t i = 0; i < records.size(); ++i) {
+        if (i > 0) json << ",";
+        const auto& r = records[i];
+        json << "{\"timestamp\":\"" << format_iso8601(r.timestamp) << "\",";
+        json << "\"epoch\":" << r.epoch << ",";
+        json << "\"sample\":" << r.sample << ",";
+        json << "\"loss\":" << r.loss << ",";
+        json << "\"validation_loss\":" << r.validation_loss << ",";
+        json << "\"learning_rate\":" << r.learning_rate << ",";
+        json << "\"gradient_norm\":" << r.gradient_norm << ",";
+        json << "\"perplexity\":" << r.perplexity << "}";
+    }
+    json << "]}";
+    return json.str();
+}
+
+std::string TrainingMetricsAPI::handle_metrics_compare(const std::string& query_params) {
+    auto* db = session_registry_->get_database();
+    if (!db) {
+        return create_error_response("No database backend configured");
+    }
+
+    auto keys_str = parse_query_param_string(query_params, "keys");
+    auto metric   = parse_query_param_string(query_params, "metric", "loss");
+
+    if (keys_str.empty()) {
+        return create_error_response("Missing required parameter: keys");
+    }
+
+    // Parse comma-separated keys
+    std::vector<std::string> keys;
+    std::istringstream ks(keys_str);
+    std::string k;
+    while (std::getline(ks, k, ',')) {
+        if (!k.empty()) keys.push_back(k);
+    }
+
+    std::ostringstream json;
+    json << std::fixed << std::setprecision(6);
+    json << "{\"metric\":\"" << escape_json(metric) << "\",\"sessions\":{";
+
+    for (size_t i = 0; i < keys.size(); ++i) {
+        if (i > 0) json << ",";
+        json << "\"" << escape_json(keys[i]) << "\":[";
+
+        auto records = db->query_history(keys[i]);
+        std::map<int, float> epoch_values;
+        for (const auto& r : records) {
+            float val = 0.0f;
+            if (metric == "loss") val = r.loss;
+            else if (metric == "validation_loss") val = r.validation_loss;
+            else if (metric == "learning_rate") val = r.learning_rate;
+            else if (metric == "gradient_norm") val = r.gradient_norm;
+            else if (metric == "perplexity") val = r.perplexity;
+            else val = r.loss;
+            epoch_values[r.epoch] = val;
+        }
+
+        bool first = true;
+        for (const auto& [epoch, val] : epoch_values) {
+            if (!first) json << ",";
+            first = false;
+            json << val;
+        }
+        json << "]";
+    }
+    json << "}}";
+    return json.str();
+}
+
+std::string TrainingMetricsAPI::handle_sessions_list_filtered(const std::string& query_params) {
+    auto status_str = parse_query_param_string(query_params, "status");
+    auto from_str   = parse_query_param_string(query_params, "from");
+
+    // If no DB-specific filters, delegate to standard list
+    if (status_str.empty() && from_str.empty()) {
+        return handle_sessions_list();
+    }
+
+    auto* db = session_registry_->get_database();
+    if (!db) {
+        return handle_sessions_list();
+    }
+
+    std::optional<bool> is_training_filter;
+    if (status_str == "completed") is_training_filter = false;
+    else if (status_str == "active" || status_str == "training") is_training_filter = true;
+
+    auto db_sessions = db->list_sessions(is_training_filter);
+
+    std::optional<std::chrono::system_clock::time_point> from_tp;
+    if (!from_str.empty()) from_tp = parse_iso8601(from_str);
+
+    std::ostringstream json;
+    json << std::fixed << std::setprecision(6);
+    json << "{\"sessions\":[";
+    size_t count = 0;
+    for (const auto& rec : db_sessions) {
+        if (from_tp && rec.created_at < *from_tp) continue;
+        if (count > 0) json << ",";
+        json << "{\"key\":\"" << escape_json(rec.key) << "\",";
+        json << "\"session_id\":" << rec.session_id << ",";
+        json << "\"label\":\"" << escape_json(rec.label) << "\",";
+        json << "\"is_training\":" << (rec.is_training ? "true" : "false") << ",";
+        json << "\"total_epochs\":" << rec.total_epochs << ",";
+        json << "\"total_samples\":" << rec.total_samples << ",";
+        json << "\"best_validation_loss\":" << rec.best_validation_loss << ",";
+        json << "\"best_epoch\":" << rec.best_epoch << ",";
+        json << "\"created_at\":\"" << format_iso8601(rec.created_at) << "\",";
+        json << "\"last_update_at\":\"" << format_iso8601(rec.last_update_at) << "\"";
+        if (rec.ended_at) {
+            json << ",\"ended_at\":\"" << format_iso8601(*rec.ended_at) << "\"";
+        }
+        json << "}";
+        ++count;
+    }
+    json << "],\"total\":" << count << "}";
+    return json.str();
+}
+
+std::string TrainingMetricsAPI::handle_metrics_export(
+    const std::string& session_key, const std::string& query_params) {
+    auto* db = session_registry_->get_database();
+    if (!db) {
+        return create_error_response("No database backend configured");
+    }
+
+    auto format = parse_query_param_string(query_params, "format", "json");
+    auto records = db->query_history(session_key);
+
+    if (format == "csv") {
+        std::ostringstream csv;
+        csv << "timestamp,epoch,sample,loss,validation_loss,learning_rate,gradient_norm,perplexity\n";
+        csv << std::fixed << std::setprecision(6);
+        for (const auto& r : records) {
+            csv << format_iso8601(r.timestamp) << ","
+                << r.epoch << "," << r.sample << ","
+                << r.loss << "," << r.validation_loss << ","
+                << r.learning_rate << "," << r.gradient_norm << ","
+                << r.perplexity << "\n";
+        }
+        return csv.str();
+    }
+
+    // JSON format
+    std::ostringstream json;
+    json << std::fixed << std::setprecision(6);
+    json << "{\"session_key\":\"" << escape_json(session_key) << "\",";
+    json << "\"count\":" << records.size() << ",";
+    json << "\"records\":[";
+    for (size_t i = 0; i < records.size(); ++i) {
+        if (i > 0) json << ",";
+        const auto& r = records[i];
+        json << "{\"timestamp\":\"" << format_iso8601(r.timestamp) << "\",";
+        json << "\"epoch\":" << r.epoch << ",";
+        json << "\"sample\":" << r.sample << ",";
+        json << "\"loss\":" << r.loss << ",";
+        json << "\"validation_loss\":" << r.validation_loss << ",";
+        json << "\"learning_rate\":" << r.learning_rate << ",";
+        json << "\"gradient_norm\":" << r.gradient_norm << ",";
+        json << "\"perplexity\":" << r.perplexity << "}";
+    }
+    json << "]}";
+    return json.str();
 }
 
 std::shared_ptr<TrainingMetricsService> TrainingMetricsAPI::resolve_session_service(

@@ -14,6 +14,7 @@
 #include <utility>
 #include <vector>
 #include "TrainingMetricsService.hpp"
+#include "MetricsDatabase.hpp"
 #include "Logger.hpp"
 
 struct MetricsSessionSummary {
@@ -38,11 +39,26 @@ class MetricsSessionRegistry {
     explicit MetricsSessionRegistry(MetricsServiceConfig base_config = MetricsServiceConfig(),
                                     size_t max_live_sessions = 16,
                                     int completed_ttl_seconds = 3600,
-                                    int sweep_interval_seconds = 60)
+                                    int sweep_interval_seconds = 60,
+                                    const std::string& storage_backend = "",
+                                    const std::string& db_path = "",
+                                    const std::string& db_url = "",
+                                    int db_pool_size = 4)
         : base_config_(std::move(base_config)),
           max_live_sessions_(max_live_sessions),
           completed_ttl_seconds_(completed_ttl_seconds),
           sweep_interval_seconds_(sweep_interval_seconds) {
+        // Create DB backend if configured (TD-020)
+        if (!storage_backend.empty() && storage_backend != "file") {
+            try {
+                db_ = MetricsDatabaseFactory::create(storage_backend, db_path, db_url, db_pool_size);
+                if (db_) {
+                    adai::Logger::info("[MetricsSessionRegistry] Database backend initialized: {}", storage_backend);
+                }
+            } catch (const std::exception& e) {
+                adai::Logger::error("[MetricsSessionRegistry] Failed to create DB backend: {}", e.what());
+            }
+        }
         if (sweep_interval_seconds_ > 0) {
             sweep_thread_ = std::thread(&MetricsSessionRegistry::sweep_loop, this);
         }
@@ -78,6 +94,9 @@ class MetricsSessionRegistry {
         }
 
         auto service = std::make_shared<TrainingMetricsService>(config_for_session(key));
+        if (db_) {
+            service->set_database(db_.get(), key);
+        }
         sessions_.emplace(key, SessionEntry{service, std::chrono::system_clock::now()});
         return service;
     }
@@ -120,8 +139,37 @@ class MetricsSessionRegistry {
             summary.metrics_url = "/api/sessions/" + key + "/metrics/current";
             summaries.push_back(std::move(summary));
         }
+
+        // Supplement with completed sessions from DB that have been evicted (TD-020)
+        if (db_) {
+            try {
+                auto db_sessions = db_->list_sessions(std::optional<bool>(false));
+                for (const auto& rec : db_sessions) {
+                    if (sessions_.count(rec.key)) continue;
+                    MetricsSessionSummary summary;
+                    summary.key = rec.key;
+                    summary.session_id = rec.session_id;
+                    summary.label = rec.label;
+                    summary.config_snapshot = rec.config_json;
+                    summary.is_training = rec.is_training;
+                    summary.effective_is_training = false;
+                    summary.current_epoch = rec.total_epochs;
+                    summary.total_epochs = rec.total_epochs;
+                    summary.best_validation_loss = rec.best_validation_loss;
+                    summary.session_start_time = rec.created_at;
+                    summary.last_update_time = rec.last_update_at;
+                    summary.metrics_url = "/api/sessions/" + rec.key + "/metrics/current";
+                    summaries.push_back(std::move(summary));
+                }
+            } catch (const std::exception& e) {
+                adai::Logger::warn("[MetricsSessionRegistry] DB list_sessions failed: {}", e.what());
+            }
+        }
+
         return summaries;
     }
+
+    IMetricsDatabase* get_database() const { return db_.get(); }
 
     size_t evict_completed_sessions(int max_age_seconds) {
         std::unique_lock<std::shared_mutex> lock(registry_mutex_);
@@ -226,6 +274,7 @@ class MetricsSessionRegistry {
     }
 
     MetricsServiceConfig base_config_;
+    std::unique_ptr<IMetricsDatabase> db_;
     mutable std::shared_mutex registry_mutex_;
     std::unordered_map<std::string, SessionEntry> sessions_;
     size_t max_live_sessions_;

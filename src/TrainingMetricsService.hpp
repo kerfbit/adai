@@ -12,6 +12,7 @@
 // server-side storage class.  The include makes AbnormalSample available to
 // all translation units that include TrainingMetricsService.hpp.
 #include "IMetricsReporter.hpp"
+#include "MetricsDatabase.hpp"
 
 /**
  * @brief Real-time training metrics snapshot
@@ -303,6 +304,10 @@ class TrainingMetricsService {
     void set_config(const MetricsServiceConfig& config);
     MetricsServiceConfig get_config() const;
 
+    // Database persistence (TD-020)
+    void set_database(IMetricsDatabase* db, const std::string& session_key);
+    IMetricsDatabase* get_database() const { return db_; }
+
    private:
     // Thread-safe state
     mutable std::mutex mutex_;
@@ -356,6 +361,11 @@ class TrainingMetricsService {
     // Outlier storage & persistence (TD-013)
     std::vector<AbnormalSample> abnormal_samples_;  // in-memory list of flagged samples
     void persist_abnormal_samples();                // write all to abnormal_samples_file
+
+    // SQL database persistence (TD-020)
+    IMetricsDatabase* db_ = nullptr;
+    std::string session_key_;
+    SessionRecord build_session_record() const;
 };
 
 class MetricsSessionRegistry;

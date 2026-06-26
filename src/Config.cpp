@@ -250,6 +250,15 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "METRICS_API_ALLOW_CONTROL") {
                 config.metrics_api_allow_control =
                     (value == "true" || value == "1" || value == "yes");
+                // Metrics database persistence (TD-020)
+            } else if (key == "METRICS_STORAGE_BACKEND") {
+                config.metrics_storage_backend = value;
+            } else if (key == "METRICS_DB_PATH") {
+                config.metrics_db_path = value;
+            } else if (key == "METRICS_DB_URL") {
+                config.metrics_db_url = value;
+            } else if (key == "METRICS_DB_POOL_SIZE") {
+                config.metrics_db_pool_size = std::stoi(value);
                 // Generation quality metrics configuration
             } else if (key == "ENABLE_GENERATION_QUALITY_METRICS") {
                 config.enable_generation_quality_metrics =
@@ -488,6 +497,20 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env_int("METRICS_STALENESS_THRESHOLD_SECONDS")) {
         config.metrics_staleness_threshold_seconds = *val;
+    }
+
+    // Metrics database persistence (TD-020)
+    if (auto val = get_env("METRICS_STORAGE_BACKEND")) {
+        config.metrics_storage_backend = *val;
+    }
+    if (auto val = get_env("METRICS_DB_PATH")) {
+        config.metrics_db_path = *val;
+    }
+    if (auto val = get_env("METRICS_DB_URL")) {
+        config.metrics_db_url = *val;
+    }
+    if (auto val = get_env_int("METRICS_DB_POOL_SIZE")) {
+        config.metrics_db_pool_size = *val;
     }
 
     // RAG configuration

@@ -26,6 +26,13 @@ METRICS_PORT=8081
 METRICS_DIR=""
 REGISTRY_DATA_DIR=""
 MNS_DATA_DIR=""
+STORAGE_BACKEND="sqlite+file"
+DB_PATH=""
+DB_URL=""
+DB_POOL_SIZE=4
+SETUP_POSTGRES=false
+PG_DB_NAME="adai"
+PG_DB_USER=""
 YES=false
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -67,8 +74,29 @@ Options:
   --metrics-dir DIR         Metrics/sessions directory (default: <install-path>/training_sessions)
   --registry-data-dir DIR   Registry data directory (default: <install-path>/registry_sessions)
   --mns-data-dir DIR        MNS data directory (default: <install-path>/name_service)
+  --storage-backend BACKEND Metrics storage backend (default: sqlite+file)
+                            Options: file, sqlite, postgres, sqlite+file, postgres+file
+  --db-path PATH            SQLite database file path (default: <metrics-dir>/metrics.db)
+  --db-url URL              PostgreSQL connection URL (required when backend includes postgres)
+  --db-pool-size N          PostgreSQL connection pool size (default: 4)
+  --setup-postgres          Install PostgreSQL, create database and role, run schema setup
+  --pg-db-name NAME         PostgreSQL database name (default: adai)
+  --pg-db-user USER         PostgreSQL role for ADAI (default: same as --user)
   --yes                     Skip confirmation prompts (for non-interactive use)
   --help                    Show this help message
+
+PostgreSQL quick-start:
+  sudo $0 --setup-postgres --yes
+
+  Equivalent to:
+    1. apt install postgresql           (or dnf on RHEL/Fedora)
+    2. CREATE ROLE adai LOGIN
+    3. CREATE DATABASE adai OWNER adai
+    4. psql -d adai -f scripts/setup_postgres.sql
+    5. --storage-backend postgres+file --db-url postgresql://adai@localhost/adai
+
+  If --storage-backend and --db-url are not explicitly set, --setup-postgres
+  sets them automatically.
 
 Description:
   Installs the following services as a co-located bundle:
@@ -194,6 +222,19 @@ while [[ $# -gt 0 ]]; do
         --mns-data-dir)
             validate_abs_path "--mns-data-dir" "$2"
             MNS_DATA_DIR="$2"; shift 2 ;;
+        --storage-backend)
+            STORAGE_BACKEND="$2"; shift 2 ;;
+        --db-path)
+            DB_PATH="$2"; shift 2 ;;
+        --db-url)
+            DB_URL="$2"; shift 2 ;;
+        --db-pool-size)
+            DB_POOL_SIZE="$2"; shift 2 ;;
+        --setup-postgres) SETUP_POSTGRES=true; shift ;;
+        --pg-db-name)
+            PG_DB_NAME="$2"; shift 2 ;;
+        --pg-db-user)
+            PG_DB_USER="$2"; shift 2 ;;
         --yes)  YES=true; shift ;;
         --help) show_help; exit 0 ;;
         *)
@@ -215,8 +256,22 @@ CONF_DIR="${INSTALL_PATH}/etc"
 [[ -z "${METRICS_DIR}" ]]       && METRICS_DIR="${INSTALL_PATH}/training_sessions"
 [[ -z "${REGISTRY_DATA_DIR}" ]] && REGISTRY_DATA_DIR="${INSTALL_PATH}/registry_sessions"
 [[ -z "${MNS_DATA_DIR}" ]]      && MNS_DATA_DIR="${INSTALL_PATH}/name_service"
+[[ -z "${DB_PATH}" ]]           && DB_PATH="${METRICS_DIR}/metrics.db"
+[[ -z "${PG_DB_USER}" ]]        && PG_DB_USER="${SERVICE_USER}"
+
+# --setup-postgres implies postgres+file backend and auto-derives --db-url
+# unless the caller explicitly set them.
+if [[ "${SETUP_POSTGRES}" == true ]]; then
+    if [[ "${STORAGE_BACKEND}" == "sqlite+file" ]]; then
+        STORAGE_BACKEND="postgres+file"
+    fi
+    if [[ -z "${DB_URL}" ]]; then
+        DB_URL="postgresql://${PG_DB_USER}@localhost/${PG_DB_NAME}"
+    fi
+fi
 
 BUILD_BIN_DIR="${REPO_ROOT}/${BUILD_DIR}/bin"
+SETUP_SQL="${SCRIPT_DIR}/setup_postgres.sql"
 
 # ============================================================================
 # Preflight Checks
@@ -242,6 +297,28 @@ preflight_checks() {
         fi
     done
 
+    # Validate storage backend
+    case "${STORAGE_BACKEND}" in
+        file|sqlite|postgres|sqlite+file|postgres+file) ;;
+        *)
+            error "Invalid --storage-backend '${STORAGE_BACKEND}'"
+            error "  Valid options: file, sqlite, postgres, sqlite+file, postgres+file"
+            exit 1
+            ;;
+    esac
+
+    if [[ "${STORAGE_BACKEND}" == *postgres* && -z "${DB_URL}" && "${SETUP_POSTGRES}" != true ]]; then
+        error "--db-url is required when storage backend includes postgres"
+        error "  Hint: use --setup-postgres to install PostgreSQL and auto-configure"
+        exit 1
+    fi
+
+    if [[ "${SETUP_POSTGRES}" == true && ! -f "${SETUP_SQL}" ]]; then
+        error "Schema file not found: ${SETUP_SQL}"
+        error "  Expected at: scripts/setup_postgres.sql (relative to repo root)"
+        exit 1
+    fi
+
     if [[ ${#missing[@]} -gt 0 ]]; then
         error "Missing binaries in ${BUILD_BIN_DIR}:"
         for m in "${missing[@]}"; do
@@ -258,11 +335,157 @@ preflight_checks() {
 }
 
 # ============================================================================
+# PostgreSQL Setup (--setup-postgres)
+# ============================================================================
+
+detect_pkg_manager() {
+    if command -v apt-get &>/dev/null; then
+        echo "apt"
+    elif command -v dnf &>/dev/null; then
+        echo "dnf"
+    elif command -v yum &>/dev/null; then
+        echo "yum"
+    else
+        echo "unknown"
+    fi
+}
+
+install_postgres_packages() {
+    local pkg_mgr
+    pkg_mgr="$(detect_pkg_manager)"
+
+    info "Detected package manager: ${pkg_mgr}"
+
+    case "${pkg_mgr}" in
+        apt)
+            info "Installing PostgreSQL via apt..."
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+                postgresql postgresql-client libpq-dev >/dev/null
+            ;;
+        dnf)
+            info "Installing PostgreSQL via dnf..."
+            dnf install -y -q postgresql-server postgresql postgresql-devel
+            # Initialize the data directory on first install
+            if [[ ! -d /var/lib/pgsql/data/base ]]; then
+                postgresql-setup --initdb 2>/dev/null || true
+            fi
+            ;;
+        yum)
+            info "Installing PostgreSQL via yum..."
+            yum install -y -q postgresql-server postgresql postgresql-devel
+            if [[ ! -d /var/lib/pgsql/data/base ]]; then
+                postgresql-setup initdb 2>/dev/null || true
+            fi
+            ;;
+        *)
+            error "Unsupported package manager — install PostgreSQL manually"
+            error "  Debian/Ubuntu:  sudo apt install postgresql postgresql-client libpq-dev"
+            error "  RHEL/Fedora:    sudo dnf install postgresql-server postgresql postgresql-devel"
+            exit 1
+            ;;
+    esac
+
+    # Ensure the service is running
+    systemctl enable postgresql
+    systemctl start postgresql
+    success "PostgreSQL server is running"
+}
+
+pg_role_exists() {
+    sudo -u postgres psql -tAc \
+        "SELECT 1 FROM pg_roles WHERE rolname = '${1}'" 2>/dev/null | grep -q 1
+}
+
+pg_db_exists() {
+    sudo -u postgres psql -tAc \
+        "SELECT 1 FROM pg_database WHERE datname = '${1}'" 2>/dev/null | grep -q 1
+}
+
+setup_postgres() {
+    info "Setting up PostgreSQL for ADAI..."
+
+    # Step 1: Install packages if psql is not available
+    if ! command -v psql &>/dev/null; then
+        confirm "PostgreSQL is not installed. Install it now?"
+        install_postgres_packages
+    else
+        info "PostgreSQL client already installed ($(psql --version | head -1))"
+        # Make sure the server is running
+        if ! systemctl is-active --quiet postgresql; then
+            warn "PostgreSQL service is not running — starting it"
+            systemctl enable postgresql
+            systemctl start postgresql
+        fi
+    fi
+
+    # Step 2: Create the database role
+    if pg_role_exists "${PG_DB_USER}"; then
+        info "PostgreSQL role '${PG_DB_USER}' already exists"
+    else
+        info "Creating PostgreSQL role '${PG_DB_USER}'..."
+        sudo -u postgres psql -c "CREATE ROLE ${PG_DB_USER} LOGIN;" 2>&1 | \
+            grep -v "^$" || true
+        success "Created role '${PG_DB_USER}'"
+    fi
+
+    # Step 3: Create the database
+    if pg_db_exists "${PG_DB_NAME}"; then
+        info "PostgreSQL database '${PG_DB_NAME}' already exists"
+    else
+        info "Creating PostgreSQL database '${PG_DB_NAME}'..."
+        sudo -u postgres createdb -O "${PG_DB_USER}" "${PG_DB_NAME}"
+        success "Created database '${PG_DB_NAME}' (owner: ${PG_DB_USER})"
+    fi
+
+    # Step 4: Ensure peer auth works for the service user.
+    # The adai system user needs to connect via Unix socket.  Most default
+    # pg_hba.conf files allow "local all all peer", which maps the OS user
+    # to the same-named PostgreSQL role — exactly what we need.  If the role
+    # was just created above, peer auth already covers it.
+
+    # Step 5: Run the schema setup SQL
+    if [[ ! -f "${SETUP_SQL}" ]]; then
+        error "Schema file not found: ${SETUP_SQL}"
+        error "Expected at: scripts/setup_postgres.sql (relative to repo root)"
+        exit 1
+    fi
+
+    info "Applying schema from ${SETUP_SQL}..."
+    sudo -u postgres psql -d "${PG_DB_NAME}" -f "${SETUP_SQL}" 2>&1 | \
+        while IFS= read -r line; do
+            case "${line}" in
+                BEGIN|COMMIT|"") ;;
+                CREATE*|INSERT*) success "  ${line}" ;;
+                NOTICE*)         info   "  ${line}" ;;
+                ERROR*)          error  "  ${line}" ;;
+                *)               echo   "  ${line}" ;;
+            esac
+        done
+    success "PostgreSQL schema applied"
+
+    # Step 6: Quick connectivity check as the service user
+    info "Verifying connectivity as '${PG_DB_USER}'..."
+    if sudo -u "${PG_DB_USER}" psql -d "${PG_DB_NAME}" -c "SELECT version();" &>/dev/null; then
+        success "Role '${PG_DB_USER}' can connect to '${PG_DB_NAME}' via peer auth"
+    else
+        warn "Peer auth test failed — the service user may need pg_hba.conf adjustment"
+        warn "  The metrics_api_server will retry with the connection URL: ${DB_URL}"
+        warn "  Verify manually: sudo -u ${PG_DB_USER} psql -d ${PG_DB_NAME} -c 'SELECT 1'"
+    fi
+
+    echo ""
+}
+
+# ============================================================================
 # Install
 # ============================================================================
 
 install_bundle() {
     local step_total=8
+    if [[ "${SETUP_POSTGRES}" == true ]]; then
+        step_total=9
+    fi
 
     info "Installation Configuration:"
     echo "  Install Path:         ${INSTALL_PATH}"
@@ -282,15 +505,33 @@ install_bundle() {
     echo "  Metrics API Server:"
     echo "    Port:               ${METRICS_PORT}"
     echo "    Metrics Directory:  ${METRICS_DIR}"
+    echo "    Storage Backend:    ${STORAGE_BACKEND}"
+    if [[ "${STORAGE_BACKEND}" == *sqlite* ]]; then
+        echo "    SQLite DB Path:     ${DB_PATH}"
+    fi
+    if [[ "${STORAGE_BACKEND}" == *postgres* ]]; then
+        echo "    PostgreSQL URL:     ${DB_URL}"
+        echo "    Connection Pool:    ${DB_POOL_SIZE}"
+    fi
     echo "    Name Service URL:   http://localhost:${MNS_PORT}"
     echo ""
+    if [[ "${SETUP_POSTGRES}" == true ]]; then
+        echo "  PostgreSQL Setup:"
+        echo "    Database:           ${PG_DB_NAME}"
+        echo "    Role:               ${PG_DB_USER}"
+        echo "    Schema SQL:         ${SETUP_SQL}"
+        echo ""
+    fi
     echo "  Build Source:         ${BUILD_BIN_DIR}/"
     echo ""
 
     confirm "Continue with installation?"
 
-    # Step 1: Create system user and group
-    info "[1/${step_total}] Creating service user and group..."
+    local step=0
+
+    # Step: Create system user and group
+    step=$((step + 1))
+    info "[${step}/${step_total}] Creating service user and group..."
     if getent group "${SERVICE_GROUP}" &>/dev/null; then
         warn "Group '${SERVICE_GROUP}' already exists, skipping creation"
     else
@@ -305,8 +546,9 @@ install_bundle() {
         success "Created system user '${SERVICE_USER}'"
     fi
 
-    # Step 2: Create directory structure
-    info "[2/${step_total}] Creating directory structure..."
+    # Step: Create directory structure
+    step=$((step + 1))
+    info "[${step}/${step_total}] Creating directory structure..."
     mkdir -p "${BIN_DIR}"
     mkdir -p "${CONF_DIR}"
     mkdir -p "${LOG_DIR}"
@@ -315,8 +557,9 @@ install_bundle() {
     mkdir -p "${METRICS_DIR}"
     success "Directory structure created"
 
-    # Step 3: Copy binaries
-    info "[3/${step_total}] Installing binaries..."
+    # Step: Copy binaries
+    step=$((step + 1))
+    info "[${step}/${step_total}] Installing binaries..."
     for bin in mns_server registry_server metrics_api_server dataset_manager mns_cli; do
         if [[ -f "${BUILD_BIN_DIR}/${bin}" ]]; then
             cp "${BUILD_BIN_DIR}/${bin}" "${BIN_DIR}/${bin}"
@@ -325,8 +568,9 @@ install_bundle() {
         fi
     done
 
-    # Step 4: Write config file
-    info "[4/${step_total}] Writing configuration..."
+    # Step: Write config file
+    step=$((step + 1))
+    info "[${step}/${step_total}] Writing configuration..."
     cat > "${CONF_DIR}/config.conf" <<EOF
 # ADAI Server Bundle Configuration
 # Generated by install_server_bundle.sh
@@ -345,18 +589,38 @@ METRICS_DIR=${METRICS_DIR}
 
 # Session directory
 SESSION_DIR=${METRICS_DIR}
+
+# Metrics Database Persistence (TD-020)
+METRICS_STORAGE_BACKEND=${STORAGE_BACKEND}
+METRICS_DB_PATH=${DB_PATH}
 EOF
+
+    if [[ "${STORAGE_BACKEND}" == *postgres* ]]; then
+        cat >> "${CONF_DIR}/config.conf" <<EOF
+METRICS_DB_URL=${DB_URL}
+METRICS_DB_POOL_SIZE=${DB_POOL_SIZE}
+EOF
+    fi
     chmod 644 "${CONF_DIR}/config.conf"
     success "Wrote ${CONF_DIR}/config.conf"
 
-    # Step 5: Set ownership and permissions
-    info "[5/${step_total}] Setting ownership and permissions..."
+    # Step: PostgreSQL setup (conditional)
+    if [[ "${SETUP_POSTGRES}" == true ]]; then
+        step=$((step + 1))
+        info "[${step}/${step_total}] Installing and configuring PostgreSQL..."
+        setup_postgres
+    fi
+
+    # Step: Set ownership and permissions
+    step=$((step + 1))
+    info "[${step}/${step_total}] Setting ownership and permissions..."
     chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${INSTALL_PATH}"
     chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${LOG_DIR}"
     success "Ownership and permissions set"
 
-    # Step 6: Write systemd unit files
-    info "[6/${step_total}] Writing systemd service units..."
+    # Step: Write systemd unit files
+    step=$((step + 1))
+    info "[${step}/${step_total}] Writing systemd service units..."
 
     # --- adai-mns ---
     cat > "/etc/systemd/system/adai-mns.service" <<EOF
@@ -422,6 +686,15 @@ EOF
     success "  Wrote adai-registry.service"
 
     # --- adai-metrics ---
+    local metrics_exec="${BIN_DIR}/metrics_api_server --port ${METRICS_PORT} --name-service-url http://localhost:${MNS_PORT}"
+    metrics_exec+=" --storage-backend ${STORAGE_BACKEND}"
+    if [[ "${STORAGE_BACKEND}" == *sqlite* ]]; then
+        metrics_exec+=" --db-path ${DB_PATH}"
+    fi
+    if [[ "${STORAGE_BACKEND}" == *postgres* ]]; then
+        metrics_exec+=" --db-url ${DB_URL} --db-pool-size ${DB_POOL_SIZE}"
+    fi
+
     cat > "/etc/systemd/system/adai-metrics.service" <<EOF
 [Unit]
 Description=ADAI Training Metrics API Server
@@ -433,7 +706,7 @@ Type=simple
 User=${SERVICE_USER}
 Group=${SERVICE_GROUP}
 WorkingDirectory=${INSTALL_PATH}
-ExecStart=${BIN_DIR}/metrics_api_server --port ${METRICS_PORT} --name-service-url http://localhost:${MNS_PORT}
+ExecStart=${metrics_exec}
 Restart=on-failure
 RestartSec=5s
 StandardOutput=journal
@@ -455,8 +728,9 @@ EOF
     chmod 644 /etc/systemd/system/adai-metrics.service
     success "  Wrote adai-metrics.service"
 
-    # Step 7: Enable and start services
-    info "[7/${step_total}] Enabling and starting services..."
+    # Step: Enable and start services
+    step=$((step + 1))
+    info "[${step}/${step_total}] Enabling and starting services..."
     systemctl daemon-reload
 
     for svc in adai-mns adai-registry adai-metrics; do
@@ -486,8 +760,9 @@ EOF
         warn "  Check logs: sudo journalctl -u adai-metrics -n 50"
     fi
 
-    # Step 8: Verify
-    info "[8/${step_total}] Verifying installation..."
+    # Step: Verify
+    step=$((step + 1))
+    info "[${step}/${step_total}] Verifying installation..."
     sleep 2
 
     local all_ok=true
@@ -533,6 +808,20 @@ print_summary() {
     echo "  systemctl restart adai-mns adai-registry adai-metrics"
     echo "  systemctl stop    adai-mns adai-registry adai-metrics"
     echo ""
+    echo "Storage:   ${STORAGE_BACKEND}"
+    if [[ "${STORAGE_BACKEND}" == *sqlite* ]]; then
+        echo "           SQLite DB: ${DB_PATH}"
+    fi
+    if [[ "${STORAGE_BACKEND}" == *postgres* ]]; then
+        echo "           PostgreSQL: ${DB_URL} (pool=${DB_POOL_SIZE})"
+        echo "           Database:   ${PG_DB_NAME}"
+        echo ""
+        echo "PostgreSQL administration:"
+        echo "  sudo -u postgres psql -d ${PG_DB_NAME}        # superuser shell"
+        echo "  sudo -u ${PG_DB_USER} psql -d ${PG_DB_NAME}   # service user shell"
+        echo "  sudo systemctl status postgresql               # server status"
+    fi
+    echo ""
     echo "Health checks:"
     echo "  curl http://localhost:${MNS_PORT}/health"
     echo "  curl http://localhost:${REGISTRY_PORT}/health"
@@ -556,6 +845,9 @@ print_summary() {
 
 echo ""
 info "ADAI Server Bundle — Installation Script"
+if [[ "${SETUP_POSTGRES}" == true ]]; then
+    info "PostgreSQL setup enabled"
+fi
 echo ""
 
 preflight_checks

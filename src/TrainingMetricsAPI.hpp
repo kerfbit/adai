@@ -112,7 +112,11 @@ class TrainingMetricsAPI {
     std::string handle_generation_quality_metrics(const std::string& session_key);  // BLEU/ROUGE
     std::string handle_padding_efficiency_metrics(const std::string& session_key);  // Batch padding
     std::string handle_sessions_list();
+    std::string handle_sessions_list_filtered(const std::string& query_params);
     std::string handle_metrics_aggregate();
+    std::string handle_db_history(const std::string& session_key, const std::string& query_params);
+    std::string handle_metrics_compare(const std::string& query_params);
+    std::string handle_metrics_export(const std::string& session_key, const std::string& query_params);
     std::string handle_prometheus_aggregate();  ///< TD-021: per-session labelled Prometheus output
     std::string handle_models_list();
     std::string handle_flush_control(const std::string& session_key);
@@ -138,6 +142,8 @@ class TrainingMetricsAPI {
     static std::string escape_json(const std::string& s);
     static int parse_query_param_int(const std::string& query, const std::string& param,
                                      int default_value);
+    static std::string parse_query_param_string(const std::string& query, const std::string& param,
+                                                const std::string& default_value = "");
     static bool is_valid_session_key(const std::string& key);
     std::shared_ptr<TrainingMetricsService> resolve_session_service(const std::string& session_key,
                                                                     bool create_if_missing) const;

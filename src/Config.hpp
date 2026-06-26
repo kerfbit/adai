@@ -218,6 +218,22 @@ struct ServiceConfig {
     bool metrics_api_allow_control = true;
 
     // ============================================================
+    // Metrics Database Persistence (TD-020)
+    // ============================================================
+
+    /// Storage backend: "file", "sqlite", "postgres", "sqlite+file", "postgres+file"
+    std::string metrics_storage_backend = "sqlite+file";
+
+    /// SQLite database file path (default: training_sessions/metrics.db)
+    std::string metrics_db_path = "training_sessions/metrics.db";
+
+    /// PostgreSQL connection URL (used when backend includes "postgres")
+    std::string metrics_db_url;
+
+    /// PostgreSQL connection pool size (default: 4)
+    int metrics_db_pool_size = 4;
+
+    // ============================================================
     // Distributed Registry Configuration (TD-028 Phase 9)
     // ============================================================
 

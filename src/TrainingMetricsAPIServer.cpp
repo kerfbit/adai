@@ -101,6 +101,11 @@ struct ServerConfig {
     int completed_ttl_seconds = 3600;
     int sweep_interval_seconds = 60;  // TD-021: background eviction sweep interval
     std::string name_service_url = "http://localhost:8083";
+    // TD-020: Database persistence
+    std::string storage_backend = "sqlite+file";
+    std::string db_path = "training_sessions/metrics.db";
+    std::string db_url;
+    int db_pool_size = 4;
 };
 
 /**
@@ -146,6 +151,14 @@ bool parse_args(int argc, char** argv, ServerConfig& config) {  // NOLINT(modern
             config.name_service_url = argv[++i];
         } else if (arg == "--no-name-service") {
             config.name_service_url.clear();
+        } else if (arg == "--storage-backend" && i + 1 < argc) {
+            config.storage_backend = argv[++i];
+        } else if (arg == "--db-path" && i + 1 < argc) {
+            config.db_path = argv[++i];
+        } else if (arg == "--db-url" && i + 1 < argc) {
+            config.db_url = argv[++i];
+        } else if (arg == "--db-pool-size" && i + 1 < argc) {
+            config.db_pool_size = std::atoi(argv[++i]);
         } else {
             std::cerr << "Unknown option: " << arg << '\n';
             print_usage(argv[0]);
@@ -184,7 +197,9 @@ int main(int argc, char* argv[]) {
         std::cout << "[1/3] Initializing metrics session registry...\n";
         auto session_registry = std::make_shared<MetricsSessionRegistry>(
             metrics_config, server_config.max_live_sessions, server_config.completed_ttl_seconds,
-            server_config.sweep_interval_seconds);
+            server_config.sweep_interval_seconds,
+            server_config.storage_backend, server_config.db_path,
+            server_config.db_url, server_config.db_pool_size);
         auto metrics_service = session_registry->create_or_get_session("0-default");
         if (!metrics_service) {
             std::cerr << "Error: Unable to initialize default metrics session\n";
@@ -196,6 +211,14 @@ int main(int argc, char* argv[]) {
                   << " seconds\n";
         std::cout << "    - Sweep interval: " << server_config.sweep_interval_seconds
                   << " seconds\n";
+        std::cout << "    - Storage backend: " << server_config.storage_backend << "\n";
+        if (server_config.storage_backend.find("sqlite") != std::string::npos) {
+            std::cout << "    - DB path: " << server_config.db_path << "\n";
+        }
+        if (server_config.storage_backend.find("postgres") != std::string::npos) {
+            std::cout << "    - DB URL: " << (server_config.db_url.empty() ? "(not set)" : server_config.db_url) << "\n";
+            std::cout << "    - DB pool size: " << server_config.db_pool_size << "\n";
+        }
 
         if (server_config.enable_persistence) {
             std::cout << "  ✓ Persistence enabled:\n";
