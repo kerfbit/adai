@@ -1184,10 +1184,10 @@ Nice=-10  # Higher priority (-20 to 19)
 - [systemd.service Documentation](https://www.freedesktop.org/software/systemd/man/systemd.service.html)
 - [systemd.exec Documentation](https://www.freedesktop.org/software/systemd/man/systemd.exec.html)
 - [Service Files](../../scripts/adai.service)
-- [Configuration Guide](../development/STEP1_COMPLETE.md)
-- [Signal Handling](../development/STEP2_COMPLETE.md)
-- [Structured Logging](../development/STEP3_COMPLETE.md)
-- [Docker Deployment](DOCKER_DEPLOYMENT.md)
+- [Configuration Guide](../../development/archive/STEP1_COMPLETE.md)
+- [Signal Handling](../../development/archive/STEP2_COMPLETE.md)
+- [Structured Logging](../../development/archive/STEP3_COMPLETE.md)
+- [Docker Deployment](docker.md)
 
 ---
 

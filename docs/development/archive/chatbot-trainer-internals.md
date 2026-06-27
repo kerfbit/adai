@@ -7,7 +7,7 @@
 > **ChatbotTrainer is now an internal component** used by `IncrementalTrainer`. All training is performed through the `incremental_trainer` CLI tool.
 >
 > **See instead:**
-> - [IncrementalTrainer Internals](../guides/incremental-trainer-internals.md) - Current training system
+> - [IncrementalTrainer Internals](../guides/internals/incremental-trainer-internals.md) - Current training system
 > - [Incremental Training Guide](../../operations/guides/incremental-training-guide.md) - User guide
 >
 > This document is preserved for historical reference only.

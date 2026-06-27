@@ -31,6 +31,7 @@ Since you are working in a C++/Python environment, here are two optimal paths:
    - Export an `action_manifest.json` or rewrite a cleaned dataset.
 
 ## 4. Proposed UI Layout
+
 ```text
 +-----------------------------------------------------------------------------------+
 |File: abnormal_samples.json|Total: 1542|Reviewed: 34|Pending: 1508|

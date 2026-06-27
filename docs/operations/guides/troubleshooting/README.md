@@ -100,7 +100,7 @@ echo $OMP_NUM_THREADS
 If you encounter an issue not covered here:
 
 1. **Check existing documentation**:
-   - [Building Guide](../../../development/guides/building.md)
+   - [Building Guide](../../../development/guides/building/building.md)
    - [Training Guide](../training-guide.md)
    - [API Documentation](../../../development/api/README.md)
 
@@ -117,8 +117,8 @@ If you encounter an issue not covered here:
 ## 🔍 Related Documentation
 
 - **[Operations Documentation](../../README.md)** - Operations docs home
-- **[Building ADAI](../../../development/guides/building.md)** - Build instructions
-- **[Contributing Guide](../../../development/guides/contributing.md)** - Development guidelines
+- **[Building ADAI](../../../development/guides/building/building.md)** - Build instructions
+- **[Contributing Guide](../../../development/guides/workflow/contributing.md)** - Development guidelines
 - **[Technical Debt](../../../development/guides/TECHNICAL_DEBT.md)** - Known limitations
 
 ## 💡 Prevention Tips
@@ -145,4 +145,4 @@ If you encounter an issue not covered here:
 
 - **Documentation**: Start with [Operations Documentation](../../README.md)
 - **GitHub Issues**: Search/create issues
-- **Contributing**: See [Contributing Guide](../../../development/guides/contributing.md)
+- **Contributing**: See [Contributing Guide](../../../development/guides/workflow/contributing.md)

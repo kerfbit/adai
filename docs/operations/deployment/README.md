@@ -5,8 +5,7 @@ Deployment guides for the ADAI system.
 ## Available Guides
 
 - **[SERVER_BUNDLE_DEPLOYMENT.md](SERVER_BUNDLE_DEPLOYMENT.md)** — Deploying the server infrastructure bundle: metrics API, model name service, and dataset registry as co-located systemd services with SQLite or PostgreSQL persistence, packaging for distribution, and connecting trainers
-- **[DOCKER_DEPLOYMENT.md](DOCKER_DEPLOYMENT.md)** — Full Docker and Docker Compose deployment guide: multi-stage builds, volume management, Nginx reverse proxy, SSL/TLS, health checks, monitoring, and troubleshooting
-- **[docker.md](docker.md)** — Concise Docker deployment reference
+- **[docker.md](docker.md)** — Docker and Docker Compose deployment guide: multi-stage builds, volume management, Nginx reverse proxy, SSL/TLS, health checks, monitoring, and troubleshooting
 - **[SYSTEMD_DEPLOYMENT.md](SYSTEMD_DEPLOYMENT.md)** — Deploying the chatbot API server as a managed Linux system service: automated installation, service management, security hardening, resource limits, and log management via journald
 
 ## Choosing a Deployment Method
@@ -15,11 +14,11 @@ Deployment guides for the ADAI system.
 | --- | --- | --- |
 | Training infrastructure (metrics, MNS, registry) | Server bundle | [SERVER_BUNDLE_DEPLOYMENT.md](SERVER_BUNDLE_DEPLOYMENT.md) |
 | Training infra with PostgreSQL | Server bundle + `--setup-postgres` | [SERVER_BUNDLE_DEPLOYMENT.md](SERVER_BUNDLE_DEPLOYMENT.md) |
-| Local development | Docker Compose | [DOCKER_DEPLOYMENT.md](DOCKER_DEPLOYMENT.md) |
-| Single server (VPS) | Docker + Nginx reverse proxy | [DOCKER_DEPLOYMENT.md](DOCKER_DEPLOYMENT.md) |
+| Local development | Docker Compose | [docker.md](docker.md) |
+| Single server (VPS) | Docker + Nginx reverse proxy | [docker.md](docker.md) |
 | Chatbot API service | systemd | [SYSTEMD_DEPLOYMENT.md](SYSTEMD_DEPLOYMENT.md) |
-| Cloud (AWS/GCP/Azure) | Docker + cloud container service | [DOCKER_DEPLOYMENT.md](DOCKER_DEPLOYMENT.md) |
-| Kubernetes | Docker image + K8s manifests | [DOCKER_DEPLOYMENT.md](DOCKER_DEPLOYMENT.md) |
+| Cloud (AWS/GCP/Azure) | Docker + cloud container service | [docker.md](docker.md) |
+| Kubernetes | Docker image + K8s manifests | [docker.md](docker.md) |
 
 ## Quick Start
 

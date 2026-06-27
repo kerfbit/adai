@@ -1005,9 +1005,9 @@ EXPECT_TRUE(std::any_of(errors.begin(), errors.end(),
 
 ## Related Documentation
 
-- [CONFIG_HOT_RELOAD_COMPLETE.md](../../../CONFIG_HOT_RELOAD_COMPLETE.md) - Configuration hot-reload implementation
-- [LOG_FILE_ROTATION_COMPLETE.md](../../../LOG_FILE_ROTATION_COMPLETE.md) - Log file rotation implementation
-- [DAEMON_IMPLEMENTATION_COMPLETE.md](../../../DAEMON_IMPLEMENTATION_COMPLETE.md) - Overall daemon service implementation
+- [CONFIG_HOT_RELOAD_COMPLETE.md](archive/CONFIG_HOT_RELOAD_COMPLETE.md) - Configuration hot-reload implementation
+- [LOG_FILE_ROTATION_COMPLETE.md](archive/LOG_FILE_ROTATION_COMPLETE.md) - Log file rotation implementation
+- [DAEMON_IMPLEMENTATION_COMPLETE.md](archive/DAEMON_IMPLEMENTATION_COMPLETE.md) - Overall daemon service implementation
 - [TECHNICAL_DEBT.md](TECHNICAL_DEBT.md) - Technical debt tracking
 
 ## Summary

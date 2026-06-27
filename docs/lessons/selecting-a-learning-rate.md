@@ -99,4 +99,4 @@ Reduce $\eta$ by a fixed factor (e.g., $\times 0.1$) at predetermined epochs.
 
 ---
 
-*See also: [Architecting Attention](architechting_attention.md) § Chapter 8 — Optimization Stability.*
+*See also: [Architecting Attention](architecting-attention.md) § Chapter 8 — Optimization Stability.*
