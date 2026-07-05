@@ -262,6 +262,7 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
     cfg.base_config.gradient_clip_warmup_steps = svc.gradient_clip_warmup_steps;
     cfg.base_config.gradient_clip_spike_k = svc.gradient_clip_spike_k;
     cfg.base_config.batch_size = svc.batch_size;
+    cfg.base_config.gradient_accumulation_steps = svc.gradient_accumulation_steps;
     cfg.base_config.enable_early_stopping = true;
     cfg.base_config.patience = 5;
     cfg.base_config.restore_best_weights = true;
@@ -270,6 +271,7 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
     // Metrics push configuration
     cfg.metrics_server_url = svc.metrics_server_url;
     cfg.metrics_push_timeout_ms = svc.metrics_push_timeout_ms;
+    cfg.metrics_heartbeat_interval_ms = svc.metrics_heartbeat_interval_ms;
     cfg.metrics_session_label = svc.metrics_session_label;
 
     // Model Name Service configuration
@@ -516,6 +518,7 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
             sanitize_session_key(derive_metrics_session_key(current_session_id + 1));
         std::string session_key = base_key;
         std::unique_ptr<MetricsPushClient> pc;
+        int rc = 0;
         for (int attempt = 0; attempt < 3; ++attempt) {
             if (attempt > 0) {
                 session_key = base_key + "-" + std::to_string(attempt + 1);
@@ -524,19 +527,36 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
             }
             const std::string push_url =
                 build_metrics_session_push_base(config.metrics_server_url, session_key);
-            pc = std::make_unique<MetricsPushClient>(push_url, config.metrics_push_timeout_ms);
+            pc = std::make_unique<MetricsPushClient>(push_url, config.metrics_push_timeout_ms,
+                                                       1024, config.metrics_heartbeat_interval_ms);
             const std::string label =
                 config.metrics_session_label.empty()
                     ? derive_metrics_session_label(current_session_id + 1, model_path_)
                     : config.metrics_session_label;
             const std::string snapshot = build_config_snapshot(config);
-            const int rc = pc->start_session(current_session_id + 1, num_epochs,
-                                             metrics_sample_count, label, snapshot);
+            rc = pc->start_session(current_session_id + 1, num_epochs,
+                                   metrics_sample_count, label, snapshot);
             if (rc != 409) break;
         }
-        active_session_key_ = session_key;
-        push_client_ = pc.get();
-        metrics_reporter_ = std::move(pc);
+
+        if (rc >= 200 && rc < 300) {
+            active_session_key_ = session_key;
+            push_client_ = pc.get();
+            metrics_reporter_ = std::move(pc);
+        } else {
+            // The server never created a session for this key (registry full, 409 exhausted
+            // after 3 attempts, connection failure, etc.) — pushing epoch/sample metrics to a
+            // session that doesn't exist would fail just as silently as this did, so training
+            // would run to completion with no visible record on the metrics server. Fail loud
+            // here instead of wiring up a push client that quietly drops everything.
+            Logger::error(
+                "Metrics session/start failed for key '{}' (HTTP {}) — training will proceed "
+                "WITHOUT metrics reporting for this run",
+                session_key, rc);
+            push_client_ = nullptr;
+            active_session_key_.clear();
+            metrics_reporter_ = std::make_unique<NullMetricsReporter>();
+        }
     } else {
         push_client_ = nullptr;
         active_session_key_.clear();
@@ -644,9 +664,14 @@ bool IncrementalTrainer::train_on_files(const std::vector<std::string>& files, i
     Logger::info("Files to train: {}", files.size());
     initialize_session();
 
-    // Load files in parallel, then split each file's pairs into training/validation.
-    std::vector<ConversationPair> training_pairs;
-    std::vector<ConversationPair> validation_pairs;
+    // Load files in parallel, then merge in submission order. Do NOT pre-split here:
+    // ChatbotTrainer::train() performs its own validation split internally
+    // (split_data(), called once per train() invocation whenever validation_data is
+    // empty). Pre-splitting here as well used to carve out a second, redundant
+    // validation set from what was left after this split — silently discarding the
+    // first split's validation_pairs (never fed to the trainer) and leaving only
+    // ~81% of the loaded data actually used for training.
+    std::vector<ConversationPair> all_pairs;
     {
         const int n_files = static_cast<int>(files.size());
         std::vector<std::vector<ConversationPair>> per_file(n_files);
@@ -656,25 +681,22 @@ bool IncrementalTrainer::train_on_files(const std::vector<std::string>& files, i
         for (int fi = 0; fi < n_files; ++fi)
             load_conversation_pairs(files[fi], per_file[fi]);
 
-        for (int fi = 0; fi < n_files; ++fi) {
-            auto& pairs = per_file[fi];
-            int loaded = static_cast<int>(pairs.size());
-            if (loaded > 0) {
-                int val_size = loaded / config.base_config.validation_split;
-                for (int i = 0; i < loaded; ++i) {
-                    if (i < val_size) validation_pairs.push_back(pairs[i]);
-                    else             training_pairs.push_back(pairs[i]);
-                }
-            }
-        }
+        for (int fi = 0; fi < n_files; ++fi)
+            all_pairs.insert(all_pairs.end(), per_file[fi].begin(), per_file[fi].end());
     }
-    Logger::info("Total training samples: {}", training_pairs.size());
-    Logger::info("Total validation samples: {}", validation_pairs.size());
+
+    // Mirrors ChatbotTrainer::split_data()'s arithmetic so the metrics session is told
+    // the real post-split training size up front, without duplicating the actual split.
+    const int total_loaded = static_cast<int>(all_pairs.size());
+    const int val_split = config.base_config.validation_split;
+    const int expected_val_size = (val_split > 0) ? (total_loaded / val_split) : 0;
+    const int expected_train_size = total_loaded - expected_val_size;
+    Logger::info("Total samples loaded: {}", total_loaded);
+    Logger::info("Expected split — training: {}, validation: {}", expected_train_size,
+                 expected_val_size);
 
     // First-run vocabulary bootstrap: build vocab from all available text then construct model.
     if (pending_vocab_build_) {
-        std::vector<ConversationPair> all_pairs = training_pairs;
-        all_pairs.insert(all_pairs.end(), validation_pairs.begin(), validation_pairs.end());
         if (!bootstrap_vocab(all_pairs)) {
             Logger::error("Vocabulary bootstrap failed; aborting training");
             return false;
@@ -685,11 +707,11 @@ bool IncrementalTrainer::train_on_files(const std::vector<std::string>& files, i
 
     ChatbotTrainer trainer(config.base_config);
     trainer.set_model(std::move(model));
-    for (const auto& pair : training_pairs)
+    for (const auto& pair : all_pairs)
         trainer.add_training_pair(pair.input, pair.response);
 
-    const int n = static_cast<int>(training_pairs.size());
-    bool success = run_training(trainer, num_epochs, n, n, /*enable_best_model_snapshot=*/true);
+    bool success = run_training(trainer, num_epochs, expected_train_size, expected_train_size,
+                                /*enable_best_model_snapshot=*/true);
     if (success) {
         Logger::info("Incremental training session completed successfully");
         print_training_summary();

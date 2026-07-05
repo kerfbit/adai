@@ -71,6 +71,7 @@ struct IncrementalConfig {
     std::string metrics_server_url;          // URL of metrics API daemon; empty = no push
     std::string metrics_session_label;       // Human-readable label; auto-derived when empty
     int metrics_push_timeout_ms = 1000;      // HTTP push timeout in milliseconds
+    int metrics_heartbeat_interval_ms = 30000; // Idle heartbeat interval in milliseconds
 
     // Model Name Service configuration
     std::string mns_server_url;   // URL of ModelNameService daemon; empty = MNS disabled

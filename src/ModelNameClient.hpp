@@ -2,6 +2,7 @@
 
 #include <map>
 #include <string>
+#include <vector>
 #include "Config.hpp"
 #include "ModelNameService.hpp"  // ArtifactLocation, ModelRecord
 
@@ -13,6 +14,14 @@ struct ResolvedModel {
     std::string      model_name;
     std::string      state;
     ArtifactLocation artifact;
+};
+
+// Lightweight summary returned by list_models().
+struct ModelSummary {
+    std::string model_name;
+    std::string state;
+    std::string role;
+    std::string updated_utc;
 };
 
 /**
@@ -55,6 +64,11 @@ class ModelNameClient {
 
     // Resolve the production model for a role; throws if no production model.
     ResolvedModel resolve_role(const std::string& role);
+
+    // List models, optionally filtered by state and/or role.
+    std::vector<ModelSummary> list_models(const std::string& state_filter = "",
+                                          const std::string& role_filter = "",
+                                          int limit = 50);
 
     // Promote a candidate model to production for a role.
     void promote(const std::string& role, const std::string& model_name);

@@ -263,6 +263,35 @@ void adai::ModelNameClient::set_candidate(
     check_status(status, out, "set_candidate(" + model_name + ")");
 }
 
+std::vector<adai::ModelSummary> adai::ModelNameClient::list_models(
+        const std::string& state_filter, const std::string& role_filter, int limit) {
+    std::string path = "/models?limit=" + std::to_string(limit);
+    if (!state_filter.empty()) path += "&state=" + state_filter;
+    if (!role_filter.empty())  path += "&role="  + role_filter;
+
+    std::string out;
+    const int status = http_get(path, out);
+    check_status(status, out, "list_models");
+
+    std::vector<ModelSummary> result;
+    const std::string needle = "{\"model_id\":";
+    size_t pos = 0;
+    while ((pos = out.find(needle, pos)) != std::string::npos) {
+        size_t end = out.find("}}", pos);
+        if (end == std::string::npos) break;
+        end += 2;
+        std::string record = out.substr(pos, end - pos);
+        ModelSummary ms;
+        ms.model_name  = json_string_client(record, "model_name");
+        ms.state       = json_string_client(record, "state");
+        ms.role        = json_string_client(record, "role");
+        ms.updated_utc = json_string_client(record, "updated_utc");
+        result.push_back(std::move(ms));
+        pos = end;
+    }
+    return result;
+}
+
 adai::ResolvedModel adai::ModelNameClient::resolve_model(const std::string& model_name) {
     std::string out;
     const int status = http_get("/models/" + model_name + "/resolve", out);

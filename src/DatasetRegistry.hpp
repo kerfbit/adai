@@ -105,8 +105,31 @@ public:
     /** @brief Discard the in-memory pending queue (does not write to disk). */
     void clear_pending();
 
-    /** @return Copy of the current in-memory pending-file list. */
+    /**
+     * @brief Remove a single file from the pending queue.
+     *
+     * Removes the entry from in-memory state and persists via save_pending_list().
+     *
+     * @return true if the file was found and removed.
+     */
+    bool remove_pending(const std::string& path);
+
+    /**
+     * @brief Assign pending files to a model by name.
+     *
+     * Sets the model_name field on matching pending entries and persists
+     * via save_pending_list().  If @p paths is empty, assigns all pending.
+     *
+     * @return true if at least one entry was updated.
+     */
+    bool assign_model(const std::string& model_name,
+                      const std::vector<std::string>& paths = {});
+
+    /** @return Copy of the current in-memory pending-file paths. */
     std::vector<std::string> pending_files() const;
+
+    /** @return Copy of the current in-memory pending entries (with model assignments). */
+    std::vector<PendingEntry> pending_entries() const;
 
     /** @return Sorted vector of all file paths that have been trained. */
     std::vector<std::string> trained_files() const;
@@ -237,7 +260,7 @@ private:
     std::unique_ptr<RegistryTransport> transport_;  // Phase 8: injected I/O backend
     std::vector<DataVersion>           registry_;
     std::set<std::string>              trained_set_;
-    std::vector<std::string>           pending_;
+    std::vector<PendingEntry>           pending_;
 
     /** @return Full path to the registry flat file. */
     std::string registry_file_path() const;

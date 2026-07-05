@@ -87,12 +87,19 @@ bool LocalTransport::load_pending(std::vector<PendingEntry>& out) {
     std::string line;
     while (std::getline(file, line)) {
         if (line.empty()) continue;
-        // Format: "path" or "path\trun_id" (tab-separated; Phase 9 extension)
-        const auto tab_pos = line.find('\t');
-        if (tab_pos != std::string::npos) {
-            out.push_back({line.substr(0, tab_pos), line.substr(tab_pos + 1)});
+        // Format: "path" or "path\trun_id" or "path\trun_id\tmodel_name"
+        const auto tab1 = line.find('\t');
+        if (tab1 != std::string::npos) {
+            const auto tab2 = line.find('\t', tab1 + 1);
+            if (tab2 != std::string::npos) {
+                out.push_back({line.substr(0, tab1),
+                               line.substr(tab1 + 1, tab2 - tab1 - 1),
+                               line.substr(tab2 + 1)});
+            } else {
+                out.push_back({line.substr(0, tab1), line.substr(tab1 + 1), {}});
+            }
         } else {
-            out.push_back({std::move(line), {}});
+            out.push_back({std::move(line), {}, {}});
         }
     }
 
@@ -108,10 +115,12 @@ bool LocalTransport::save_pending(const std::vector<PendingEntry>& entries) {
     }
 
     for (const auto& e : entries) {
-        if (e.run_id.empty()) {
+        if (e.run_id.empty() && e.model_name.empty()) {
             file << e.path << '\n';
-        } else {
+        } else if (e.model_name.empty()) {
             file << e.path << '\t' << e.run_id << '\n';
+        } else {
+            file << e.path << '\t' << e.run_id << '\t' << e.model_name << '\n';
         }
     }
 
@@ -434,9 +443,10 @@ bool RemoteTransport::load_pending(std::vector<PendingEntry>& out) {
         auto obj_end = body.find('}', obj_start);
         if (obj_end == std::string::npos) break;
         const std::string obj = body.substr(obj_start, obj_end - obj_start + 1);
-        const std::string path   = json_string(obj, "path");
-        const std::string run_id = json_string(obj, "run_id");
-        if (!path.empty()) out.push_back({path, run_id});
+        const std::string path       = json_string(obj, "path");
+        const std::string run_id     = json_string(obj, "run_id");
+        const std::string model_name = json_string(obj, "model_name");
+        if (!path.empty()) out.push_back({path, run_id, model_name});
         cur = obj_end + 1;
         if (body.find(']', cur) < body.find('{', cur)) break;
     }

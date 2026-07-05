@@ -33,7 +33,8 @@ struct DataVersion {
  */
 struct PendingEntry {
     std::string path;
-    std::string run_id;  // empty for LocalTransport
+    std::string run_id;      // empty for LocalTransport
+    std::string model_name;  // target model; empty = unassigned
 };
 
 // ============================================================================

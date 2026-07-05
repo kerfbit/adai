@@ -97,7 +97,9 @@ bool DatasetRegistry::add_file(const std::string& path) {
         return false;
     }
 
-    if (std::find(pending_.begin(), pending_.end(), path) != pending_.end()) {
+    const bool already_pending = std::any_of(pending_.begin(), pending_.end(),
+        [&](const PendingEntry& e) { return e.path == path; });
+    if (already_pending) {
         Logger::warn("Data file already in pending queue: {}", path);
         return false;
     }
@@ -106,7 +108,7 @@ bool DatasetRegistry::add_file(const std::string& path) {
         Logger::error("Failed to persist pending entry for: {}", path);
         return false;
     }
-    pending_.push_back(path);
+    pending_.push_back({path, {}, {}});
     Logger::info("Added new data file: {}", path);
     return true;
 }
@@ -126,8 +128,44 @@ void DatasetRegistry::clear_pending() {
     pending_.clear();
 }
 
+bool DatasetRegistry::remove_pending(const std::string& path) {
+    auto it = std::find_if(pending_.begin(), pending_.end(),
+        [&](const PendingEntry& e) { return e.path == path; });
+    if (it == pending_.end()) {
+        return false;
+    }
+    pending_.erase(it);
+    save_pending_list();
+    return true;
+}
+
 std::vector<std::string> DatasetRegistry::pending_files() const {
+    std::vector<std::string> paths;
+    paths.reserve(pending_.size());
+    for (const auto& e : pending_) paths.push_back(e.path);
+    return paths;
+}
+
+std::vector<PendingEntry> DatasetRegistry::pending_entries() const {
     return pending_;
+}
+
+bool DatasetRegistry::assign_model(const std::string& model_name,
+                                   const std::vector<std::string>& paths) {
+    const bool assign_all = paths.empty();
+    bool any_matched = false;
+
+    for (auto& e : pending_) {
+        if (assign_all || std::find(paths.begin(), paths.end(), e.path) != paths.end()) {
+            e.model_name = model_name;
+            any_matched = true;
+        }
+    }
+
+    if (any_matched) {
+        save_pending_list();
+    }
+    return any_matched;
 }
 
 std::vector<std::string> DatasetRegistry::trained_files() const {
@@ -189,7 +227,7 @@ void DatasetRegistry::mark_trained(const std::string& run_id,
     // Update in-memory pending_ to remove trained files
     const std::set<std::string> trained_set(paths.begin(), paths.end());
     pending_.erase(std::remove_if(pending_.begin(), pending_.end(),
-        [&](const std::string& p) { return trained_set.count(p) > 0; }),
+        [&](const PendingEntry& e) { return trained_set.count(e.path) > 0; }),
         pending_.end());
 }
 
@@ -203,10 +241,10 @@ AcquireResponse DatasetRegistry::acquire_pending(const std::string& run_id, int 
 
     // Reflect acquisition in in-memory pending_
     for (const auto& f : resp.files) {
-        const bool already_in =
-            std::find(pending_.begin(), pending_.end(), f.registry_path) != pending_.end();
+        const bool already_in = std::any_of(pending_.begin(), pending_.end(),
+            [&](const PendingEntry& e) { return e.path == f.registry_path; });
         if (!already_in) {
-            pending_.push_back(f.registry_path);
+            pending_.push_back({f.registry_path, run_id, {}});
         }
     }
 
@@ -220,7 +258,7 @@ void DatasetRegistry::release_pending(const std::string& run_id,
     // Remove from in-memory pending_
     const std::set<std::string> rel_set(paths.begin(), paths.end());
     pending_.erase(std::remove_if(pending_.begin(), pending_.end(),
-        [&](const std::string& p) { return rel_set.count(p) > 0; }),
+        [&](const PendingEntry& e) { return rel_set.count(e.path) > 0; }),
         pending_.end());
 }
 
@@ -278,10 +316,7 @@ bool DatasetRegistry::load_pending_list() {
         return false;
     }
 
-    pending_.clear();
-    for (auto& e : entries) {
-        pending_.push_back(std::move(e.path));
-    }
+    pending_ = std::move(entries);
 
     if (!pending_.empty()) {
         Logger::info("Loaded {} pending data files", pending_.size());
@@ -291,12 +326,7 @@ bool DatasetRegistry::load_pending_list() {
 }
 
 bool DatasetRegistry::save_pending_list() {
-    std::vector<PendingEntry> entries;
-    entries.reserve(pending_.size());
-    for (const auto& p : pending_) {
-        entries.push_back({p, {}});
-    }
-    return transport_->save_pending(entries);
+    return transport_->save_pending(pending_);
 }
 
 // ============================================================================

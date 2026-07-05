@@ -9,6 +9,7 @@
 #include "DatasetRegistry.hpp"
 #include "DataTransport.hpp"
 #include "IncrementalTrainer.hpp"
+#include "ModelNameClient.hpp"
 #include "StartupSweep.hpp"
 #include "Logger.hpp"
 #include "Matrix.hpp"
@@ -150,6 +151,62 @@ std::string derive_run_id(const std::string& configured) {
     return host + "_" + std::to_string(pid_tail);
 }
 
+// Resolve which model to train.
+//
+// Priority: --model CLI flag > MODEL_NAME in config > interactive pick from MNS.
+// When MNS is configured (NAME_SERVICE_URL is set), the name service is the
+// authoritative source of available models.  If no model can be determined,
+// returns an empty string (caller should abort with an error).
+#ifdef BUILD_MNS_SERVER
+std::string resolve_model_name(const adai::ServiceConfig& svc_config,
+                                const std::string& cli_model_name) {
+    if (!cli_model_name.empty()) return cli_model_name;
+    if (!svc_config.model_name.empty()) return svc_config.model_name;
+
+    if (svc_config.name_service_url.empty()) return {};
+
+    adai::ModelNameClient mns(svc_config.name_service_url, svc_config.name_service_timeout_ms);
+    std::vector<adai::ModelSummary> models;
+    try {
+        models = mns.list_models("", svc_config.model_role);
+    } catch (const std::exception& e) {
+        std::cerr << "❌ Failed to query name service at " << svc_config.name_service_url
+                  << ": " << e.what() << "\n";
+        return {};
+    }
+
+    if (models.empty()) {
+        std::cerr << "❌ No models registered in the name service";
+        if (!svc_config.model_role.empty())
+            std::cerr << " for role '" << svc_config.model_role << "'";
+        std::cerr << ".\n";
+        return {};
+    }
+
+    std::cout << "\nAvailable models from name service:\n";
+    std::cout << "  #  | State        | Role       | Model Name\n";
+    std::cout << "-----|--------------|------------|---------------------------\n";
+    for (size_t i = 0; i < models.size(); ++i) {
+        std::cout << "  " << std::setw(2) << (i + 1) << " | "
+                  << std::setw(12) << std::left << models[i].state << " | "
+                  << std::setw(10) << std::left << models[i].role  << " | "
+                  << models[i].model_name << "\n";
+    }
+    std::cout << "\nSelect model [1-" << models.size() << "]: ";
+    std::string input;
+    std::getline(std::cin, input);
+    if (input.empty()) return {};
+
+    int choice = 0;
+    try { choice = std::stoi(input); } catch (...) { return {}; }
+    if (choice < 1 || choice > static_cast<int>(models.size())) {
+        std::cerr << "Invalid selection.\n";
+        return {};
+    }
+    return models[static_cast<size_t>(choice - 1)].model_name;
+}
+#endif
+
 // Forks into the background, prints a startup banner in the parent, then
 // initialises the logger and GPU in the child before running child_work().
 // init_gpu_fn and child_work are callables; child_work returns an exit code.
@@ -201,7 +258,10 @@ int output_usage(char* argv[]) {
                  "GPU work\n";
     std::cout << "                               full:       high-priority stream, maximises "
                  "throughput\n";
-    std::cout << "                               Tip: pair 'full' with GPU_MEMORY_FRACTION=0.9\n\n";
+    std::cout << "                               Tip: pair 'full' with GPU_MEMORY_FRACTION=0.9\n";
+    std::cout << "  --model <name>               Model name (overrides MODEL_NAME in config)\n";
+    std::cout << "                               When NAME_SERVICE_URL is set and --model is\n";
+    std::cout << "                               omitted, lists available models interactively\n\n";
     std::cout << "Commands:\n";
     std::cout << "  init [vocab] [model]         Initialize incremental trainer\n";
     std::cout << "  train [epochs]               Train on pending data\n";
@@ -231,6 +291,7 @@ int main(int argc, char* argv[]) {
     // -----------------------------------------------------------------------
     std::string config_path;
     std::string gpu_strategy_override;
+    std::string cli_model_name;
     std::vector<std::string> args;  // args[0] = command, args[1..] = its args
 
     for (int i = 1; i < argc; ++i) {
@@ -239,6 +300,8 @@ int main(int argc, char* argv[]) {
             config_path = argv[++i];
         } else if (a == "--gpu-strategy" && i + 1 < argc) {
             gpu_strategy_override = argv[++i];
+        } else if (a == "--model" && i + 1 < argc) {
+            cli_model_name = argv[++i];
         } else {
             args.push_back(a);
         }
@@ -273,6 +336,7 @@ int main(int argc, char* argv[]) {
 
     auto init_gpu = [&]() {
         if (!svc_config.gpu_enabled) return;
+#ifdef ADAI_ENABLE_GPU
         const bool low_priority = (svc_config.gpu_strategy == adai::GPUStrategy::BACKGROUND);
         if (Matrix::gpu_try_initialize(svc_config.gpu_device_id, svc_config.gpu_memory_fraction,
                                        low_priority)) {
@@ -280,9 +344,19 @@ int main(int argc, char* argv[]) {
                                             : "full (high-priority stream)";
             adai::Logger::info("[GPU] GPU ready — strategy: {}. {}", mode, Matrix::gpu_info());
         } else {
-            adai::Logger::warn(
-                "[GPU] No CUDA device found or initialisation failed — running on CPU");
+#if defined(ADAI_GPU_BACKEND_SYCL)
+            adai::Logger::warn("[GPU] No Intel GPU device found or SYCL initialisation failed"
+                               " — running on CPU");
+            adai::Logger::warn("{}", adai::gpu::GPUManager::probe_diagnostic());
+#else
+            adai::Logger::warn("[GPU] No CUDA device found or initialisation failed"
+                               " — running on CPU");
+#endif
         }
+#else
+        adai::Logger::warn("[GPU] GPU_ENABLED is set but this binary was built without GPU support"
+                           " (rebuild with -DENABLE_GPU=ON for CUDA or -DENABLE_SYCL=ON for Intel Arc)");
+#endif
     };
 
     if (!command_forks) init_gpu();
@@ -290,6 +364,35 @@ int main(int argc, char* argv[]) {
     if (args.empty()) {
         return output_usage(argv);
     }
+
+    // -----------------------------------------------------------------------
+    // Resolve model identity via name service (when configured).
+    // Priority: --model CLI > MODEL_NAME config > interactive MNS selection.
+    // On success, svc_config.model_name is set and (if the model has an
+    // artifact) model_path is resolved from the name service.
+    // -----------------------------------------------------------------------
+#ifdef BUILD_MNS_SERVER
+    if (!svc_config.name_service_url.empty()) {
+        std::string resolved = resolve_model_name(svc_config, cli_model_name);
+        if (resolved.empty()) {
+            std::cerr << "❌ No model selected. Specify --model <name>, set MODEL_NAME in "
+                         "config.conf, or select from the name service list.\n";
+            return 1;
+        }
+        svc_config.model_name = resolved;
+
+        try {
+            adai::ModelNameClient mns(svc_config.name_service_url,
+                                      svc_config.name_service_timeout_ms);
+            auto rm = mns.resolve_model(resolved);
+            if (!rm.artifact.path.empty()) {
+                svc_config.model_path = rm.artifact.path;
+            }
+        } catch (...) {
+            // Model exists but has no artifact yet (initializing state) — train from scratch.
+        }
+    }
+#endif
 
     // -----------------------------------------------------------------------
     // Resolve vocab/model paths: prefer ServiceConfig paths, fall back to
@@ -326,14 +429,18 @@ int main(int argc, char* argv[]) {
     } else if (command == "train") {
         int epochs = (args.size() >= 2) ? std::stoi(args[1]) : svc_config.num_epochs;
 
-        std::vector<std::string> pre_fork_pending;
-        {
+        size_t pre_fork_pending_count = 0;
+        if (!svc_config.registry_server_url.empty()) {
+            DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
+            reg.load_pending_list();
+            pre_fork_pending_count = reg.pending_files().size();
+        } else {
             std::ifstream pf(svc_config.session_dir + "/pending_files.txt");
             std::string line;
             while (std::getline(pf, line))
-                if (!line.empty()) pre_fork_pending.push_back(line);
+                if (!line.empty()) ++pre_fork_pending_count;
         }
-        if (pre_fork_pending.empty()) {
+        if (pre_fork_pending_count == 0) {
             std::cout << "⚠️  No pending data. Use DatasetManager to queue training data.\n";
             return 1;
         }
@@ -343,7 +450,7 @@ int main(int argc, char* argv[]) {
 
         return run_training_pipeline(argc, argv, svc_config, default_model, log_path,
             "Training started in background",
-            {{"Data",   std::to_string(pre_fork_pending.size()) + " pending file(s)"},
+            {{"Data",   std::to_string(pre_fork_pending_count) + " pending file(s)"},
              {"Epochs", std::to_string(epochs)}},
             init_gpu,
             [&]() -> int {
@@ -407,7 +514,13 @@ int main(int argc, char* argv[]) {
         int epochs = (args.size() >= 2) ? std::stoi(args[1]) : svc_config.num_epochs;
 
         int data_file_count = 0;
-        {
+        if (!svc_config.registry_server_url.empty()) {
+            DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
+            reg.load_registry();
+            reg.load_pending_list();
+            data_file_count = static_cast<int>(reg.trained_files().size()
+                                             + reg.pending_files().size());
+        } else {
             std::ifstream pf(svc_config.session_dir + "/pending_files.txt");
             std::string line;
             while (std::getline(pf, line))
