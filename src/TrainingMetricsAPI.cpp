@@ -358,6 +358,21 @@ TrainingMetricsAPI::TrainingMetricsAPI(
             }
         });
 
+    server_impl_->server.Post("/api/sessions/" + key_pattern + "/heartbeat",
+                              [this](const httplib::Request& req, httplib::Response& res) {
+            try {
+                std::string response = handle_post_heartbeat(req.matches[1]);
+                res.set_content(response, "application/json");
+                res.status = 200;
+            } catch (const ApiRequestError& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
+            } catch (const std::exception& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 400;
+            }
+        });
+
     server_impl_->server.Post("/api/sessions/" + key_pattern + "/epoch/start",
                               [this](const httplib::Request& req, httplib::Response& res) {
             try {
@@ -1460,15 +1475,25 @@ int TrainingMetricsAPI::parse_query_param_int(const std::string& query, const st
 
 std::string TrainingMetricsAPI::handle_post_session_start(const std::string& session_key,
                                                           const std::string& body) {
-    auto service = resolve_session_service(session_key, true);
+    if (!is_valid_session_key(session_key)) {
+        throw ApiRequestError(400, "Invalid session key format");
+    }
 
-    const auto snapshot = service->get_current_snapshot();
-    if (snapshot.is_training && !snapshot.is_stale) {
+    // The conflict check and the reclaim-if-stale decision must happen atomically under one
+    // registry lock (see MetricsSessionRegistry::start_session_or_conflict) — otherwise a
+    // session that is still genuinely training can be silently archived and replaced out from
+    // under itself before a separate "is it already active?" check gets to run.
+    auto outcome = session_registry_->start_session_or_conflict(session_key);
+    if (outcome.conflict) {
         throw ApiRequestError(409,
                               "session already active for key: " + session_key);
     }
-    if (snapshot.is_stale) {
-        adai::Logger::warn("[session/start] key='{}' is stale — allowing restart", session_key);
+    auto service = outcome.service;
+    if (!service) {
+        std::ostringstream body_err;
+        body_err << R"({"error":"metrics_server_full","max_live_sessions":)"
+                 << session_registry_->max_live_sessions() << "}";
+        throw ApiRequestError(503, body_err.str());
     }
 
     // Parse JSON body: {"session_id": int, "total_epochs": int, "total_samples": int,
@@ -1575,6 +1600,12 @@ std::string TrainingMetricsAPI::handle_post_session_end(const std::string& sessi
     auto service = resolve_session_service(session_key, false);
     service->end_session();
     return R"({"status":"ok","message":"Session ended"})";
+}
+
+std::string TrainingMetricsAPI::handle_post_heartbeat(const std::string& session_key) {
+    auto service = resolve_session_service(session_key, false);
+    service->heartbeat();
+    return R"({"status":"ok"})";
 }
 
 std::string TrainingMetricsAPI::handle_post_epoch_start(const std::string& session_key,

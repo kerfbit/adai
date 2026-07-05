@@ -318,6 +318,47 @@ void PostgresMetricsDatabase::upsert_session(const SessionRecord& rec) {
     });
 }
 
+void PostgresMetricsDatabase::archive_session(const std::string& key, const std::string& archived_key) {
+    execute_with_retry("archive_session", [&](PGconn* conn) -> bool {
+        PGresult* res = PQexec(conn, "BEGIN");
+        bool ok = PQresultStatus(res) == PGRES_COMMAND_OK;
+        PQclear(res);
+        if (!ok) return false;
+
+        auto run = [&](const char* sql, int nparams, const char* const* params) -> bool {
+            PGresult* r = PQexecParams(conn, sql, nparams, nullptr, params, nullptr, nullptr, 0);
+            bool success = PQresultStatus(r) == PGRES_COMMAND_OK;
+            if (!success) {
+                adai::Logger::error("[PostgresMetricsDB] archive_session: {}", PQerrorMessage(conn));
+            }
+            PQclear(r);
+            return success;
+        };
+
+        const char* p2[] = {archived_key.c_str(), key.c_str()};
+        // Copy the session row under the archived key (rather than UPDATE the key in place)
+        // so that repointing child rows never references a session key that doesn't yet
+        // exist, which would otherwise violate the sessions(key) foreign key.
+        bool step_ok =
+            run("INSERT INTO sessions (key, session_id, label, config_json, is_training, created_at, "
+                "ended_at, last_update_at, total_epochs, total_samples, best_validation_loss, best_epoch) "
+                "SELECT $1, session_id, label, config_json, false, created_at, "
+                "COALESCE(ended_at, last_update_at), last_update_at, total_epochs, total_samples, "
+                "best_validation_loss, best_epoch FROM sessions WHERE key = $2",
+                2, p2) &&
+            run("UPDATE metrics_history SET session_key = $1 WHERE session_key = $2", 2, p2) &&
+            run("UPDATE generation_quality SET session_key = $1 WHERE session_key = $2", 2, p2) &&
+            run("UPDATE abnormal_samples SET session_key = $1 WHERE session_key = $2", 2, p2);
+
+        const char* p1[] = {key.c_str()};
+        step_ok = step_ok && run("DELETE FROM sessions WHERE key = $1", 1, p1);
+
+        res = PQexec(conn, step_ok ? "COMMIT" : "ROLLBACK");
+        PQclear(res);
+        return step_ok;
+    });
+}
+
 void PostgresMetricsDatabase::mark_session_ended(const std::string& key) {
     execute_with_retry("mark_session_ended", [&](PGconn* conn) -> bool {
         auto now = format_timestamp(std::chrono::system_clock::now());

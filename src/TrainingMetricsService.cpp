@@ -201,6 +201,13 @@ bool TrainingMetricsService::is_session_active() const {
     return is_training_;
 }
 
+void TrainingMetricsService::heartbeat() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (is_training_) {
+        current_snapshot_.last_update_time = std::chrono::system_clock::now();
+    }
+}
+
 void TrainingMetricsService::start_epoch(int epoch, int total_samples) {
     std::string push_json;
     bool should_push = false;
@@ -209,6 +216,7 @@ void TrainingMetricsService::start_epoch(int epoch, int total_samples) {
 
         current_snapshot_.current_epoch = epoch;
         current_snapshot_.current_sample = 0;
+        last_sample_in_epoch_ = 0;
         if (total_samples > 0) {
             current_snapshot_.total_samples = total_samples;
         }
@@ -354,7 +362,16 @@ void TrainingMetricsService::update_sample_metrics(int sample, float loss, float
         current_snapshot_.current_gradient_norm = gradient_norm;
         current_snapshot_.current_learning_rate = learning_rate;
         current_snapshot_.current_perplexity = std::exp(loss);
-        current_snapshot_.total_samples_trained++;
+
+        // update_sample_metrics() fires once per gradient-accumulation window,
+        // not once per raw sample, so a plain "++" here undercounts raw
+        // throughput by ~gradient_accumulation_steps. Advance by the number
+        // of raw samples this call actually represents instead.
+        const bool is_first_update = (current_snapshot_.total_samples_trained == 0);
+        const bool is_first_update_in_epoch = (last_sample_in_epoch_ == 0);
+        const int delta = std::max(1, sample - last_sample_in_epoch_);
+        current_snapshot_.total_samples_trained += delta;
+        last_sample_in_epoch_ = sample;
         current_snapshot_.last_update_time = std::chrono::system_clock::now();
 
         // Detect the last training sample of the epoch: validation is about to start.
@@ -369,15 +386,15 @@ void TrainingMetricsService::update_sample_metrics(int sample, float loss, float
             awaiting_validation_ = true;
         }
 
-        // Reset the clock on the first sample so elapsed time, throughput, and ETA
+        // Reset the clock on the first update so elapsed time, throughput, and ETA
         // are measured from when training actually begins, not from session start
         // (which includes dataset loading and preprocessing time).
-        if (current_snapshot_.total_samples_trained == 1) {
+        if (is_first_update) {
             session_start_steady_ = std::chrono::steady_clock::now();
         }
 
         // Update running average
-        if (sample == 1) {
+        if (is_first_update_in_epoch) {
             current_snapshot_.running_loss = loss;
         } else {
             float alpha = 0.1f;  // Exponential moving average factor

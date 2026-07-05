@@ -108,10 +108,11 @@ std::string escape_json_string(const std::string& s) {
 // ============================================================================
 
 MetricsPushClient::MetricsPushClient(std::string session_base_url, int timeout_ms,
-                                     size_t max_queue_depth)
+                                     size_t max_queue_depth, int heartbeat_interval_ms)
     : session_base_url_(std::move(session_base_url)),
       timeout_ms_(timeout_ms),
-      max_queue_depth_(max_queue_depth) {
+      max_queue_depth_(max_queue_depth),
+      heartbeat_interval_ms_(heartbeat_interval_ms) {
     push_thread_ = std::thread(&MetricsPushClient::push_loop, this);
 }
 
@@ -378,11 +379,21 @@ void MetricsPushClient::enqueue(PushEvent event) {
 // ============================================================================
 
 void MetricsPushClient::push_loop() {
+    const auto interval = std::chrono::milliseconds(heartbeat_interval_ms_);
     while (true) {
         PushEvent event;
         {
             std::unique_lock<std::mutex> lock(queue_mutex_);
-            queue_cv_.wait(lock, [this] { return !queue_.empty() || stop_.load(); });
+            const bool signaled = queue_cv_.wait_for(
+                lock, interval, [this] { return !queue_.empty() || stop_.load(); });
+
+            if (!signaled) {
+                // Timed out with empty queue — send a heartbeat to keep the session
+                // visible on the dashboard during long pre-processing or validation gaps.
+                lock.unlock();
+                attempt_post("/heartbeat", "{}");
+                continue;
+            }
 
             if (queue_.empty()) {
                 // stop_ is set and the queue has been fully drained — exit cleanly.

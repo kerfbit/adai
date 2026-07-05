@@ -33,6 +33,13 @@ public:
     virtual void upsert_session(const SessionRecord& rec) = 0;
     virtual void mark_session_ended(const std::string& key) = 0;
 
+    // Renames a session (and all of its metrics/samples/quality rows) from `key` to
+    // `archived_key`, marking it not-training. Used when a live session goes stale/
+    // completed and its key may be reused by a new session — archiving first prevents
+    // the new session's history from being intermixed with the old one's under the
+    // same key. No-op (not an error) if `key` does not currently exist.
+    virtual void archive_session(const std::string& key, const std::string& archived_key) = 0;
+
     virtual void insert_metrics_record(
         const std::string& session_key,
         const PersistentMetricsRecord& rec) = 0;

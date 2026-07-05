@@ -126,6 +126,7 @@ class TrainingMetricsAPI {
     // POST endpoint handlers for receiving metrics updates
     std::string handle_post_session_start(const std::string& session_key, const std::string& body);
     std::string handle_post_session_end(const std::string& session_key);
+    std::string handle_post_heartbeat(const std::string& session_key);
     std::string handle_post_epoch_start(const std::string& session_key, const std::string& body);
     std::string handle_post_epoch_end(const std::string& session_key, const std::string& body);
     std::string handle_post_sample_metrics(const std::string& session_key, const std::string& body);

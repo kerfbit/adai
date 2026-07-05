@@ -233,6 +233,79 @@ TEST_F(MetricsDatabaseTest, MarkSessionEnded) {
     EXPECT_TRUE(rec->ended_at.has_value());
 }
 
+TEST_F(MetricsDatabaseTest, ArchiveSessionMovesRowUnderNewKey) {
+    SQLiteMetricsDatabase db(db_path_);
+
+    SessionRecord session;
+    session.key = "archive-test";
+    session.session_id = 42;
+    session.label = "stale-run";
+    session.is_training = true;
+    session.created_at = std::chrono::system_clock::now();
+    session.last_update_at = session.created_at;
+    session.total_epochs = 3;
+    session.best_validation_loss = 0.42f;
+    db.upsert_session(session);
+
+    db.archive_session("archive-test", "archive-test_archived_1");
+
+    // Original key no longer resolves to a live session.
+    EXPECT_FALSE(db.get_session("archive-test").has_value());
+
+    auto archived = db.get_session("archive-test_archived_1");
+    ASSERT_TRUE(archived.has_value());
+    EXPECT_EQ(archived->label, "stale-run");
+    EXPECT_EQ(archived->total_epochs, 3);
+    EXPECT_FALSE(archived->is_training);
+    EXPECT_TRUE(archived->ended_at.has_value());
+}
+
+TEST_F(MetricsDatabaseTest, ArchiveSessionMovesChildRows) {
+    SQLiteMetricsDatabase db(db_path_);
+
+    SessionRecord session;
+    session.key = "archive-child-test";
+    session.session_id = 1;
+    session.is_training = true;
+    session.created_at = std::chrono::system_clock::now();
+    session.last_update_at = session.created_at;
+    db.upsert_session(session);
+
+    auto base_time = std::chrono::system_clock::now();
+    for (int i = 0; i < 5; ++i) {
+        PersistentMetricsRecord rec;
+        rec.timestamp = base_time + std::chrono::seconds(i);
+        rec.epoch = 0;
+        rec.sample = i;
+        rec.loss = 1.0f;
+        db.insert_metrics_record("archive-child-test", rec);
+    }
+
+    db.archive_session("archive-child-test", "archive-child-test_archived_1");
+
+    // History no longer appears under the live key...
+    EXPECT_EQ(db.query_history("archive-child-test", std::nullopt, std::nullopt, 0).size(), 0u);
+    // ...but is preserved intact under the archived key.
+    EXPECT_EQ(db.query_history("archive-child-test_archived_1", std::nullopt, std::nullopt, 0).size(), 5u);
+
+    // A new session can now reuse the original key with a clean history.
+    SessionRecord new_session;
+    new_session.key = "archive-child-test";
+    new_session.session_id = 2;
+    new_session.is_training = true;
+    new_session.created_at = std::chrono::system_clock::now();
+    new_session.last_update_at = new_session.created_at;
+    db.upsert_session(new_session);
+
+    EXPECT_EQ(db.query_history("archive-child-test", std::nullopt, std::nullopt, 0).size(), 0u);
+}
+
+TEST_F(MetricsDatabaseTest, ArchiveSessionOfMissingKeyIsNoop) {
+    SQLiteMetricsDatabase db(db_path_);
+    EXPECT_NO_THROW(db.archive_session("does-not-exist", "does-not-exist_archived_1"));
+    EXPECT_FALSE(db.get_session("does-not-exist_archived_1").has_value());
+}
+
 TEST_F(MetricsDatabaseTest, AbnormalSampleRoundTrip) {
     SQLiteMetricsDatabase db(db_path_);
 

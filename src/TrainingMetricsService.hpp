@@ -215,6 +215,7 @@ class TrainingMetricsService {
                        const std::string& config_snapshot = "");
     void end_session();
     bool is_session_active() const;
+    void heartbeat();
 
     // Epoch lifecycle
     void start_epoch(int epoch, int total_samples = 0);
@@ -335,6 +336,13 @@ class TrainingMetricsService {
     // Validation-gap staleness extension
     bool awaiting_validation_ = false;               ///< Set on last training sample of an epoch; cleared by end_epoch/start_epoch
     double last_epoch_training_duration_seconds_ = 0.0;  ///< Training-phase wall time of the most recent epoch
+
+    // Raw in-epoch sample index as of the last update_sample_metrics() call.
+    // update_sample_metrics() is only invoked once per gradient-accumulation
+    // window, not once per raw sample, so `sample - last_sample_in_epoch_`
+    // gives the number of raw samples represented by this call. Reset at each
+    // start_epoch() alongside current_sample.
+    int last_sample_in_epoch_ = 0;
 
     // Private helpers
     void restore_from_summary();  // Restore snapshot from persisted summary file on startup

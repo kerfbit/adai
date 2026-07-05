@@ -284,6 +284,45 @@ void SQLiteMetricsDatabase::upsert_session(const SessionRecord& rec) {
     check_sqlite(sqlite3_step(stmt_upsert_session_), db_, "upsert_session");
 }
 
+void SQLiteMetricsDatabase::archive_session(const std::string& key, const std::string& archived_key) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    auto run = [this](const char* sql, const std::vector<std::string>& params) {
+        sqlite3_stmt* stmt = nullptr;
+        check_sqlite(sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr), db_, sql);
+        for (size_t i = 0; i < params.size(); ++i) {
+            sqlite3_bind_text(stmt, static_cast<int>(i + 1), params[i].c_str(), -1, SQLITE_TRANSIENT);
+        }
+        int rc = sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+        if (rc != SQLITE_DONE) {
+            throw std::runtime_error(std::string(sql) + ": " + sqlite3_errmsg(db_));
+        }
+    };
+
+    check_sqlite(sqlite3_exec(db_, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr), db_,
+                 "archive_session:begin");
+    try {
+        // Copy the session row under the archived key (rather than UPDATE the key in place)
+        // so that child rows can be repointed to a key that already exists, avoiding any
+        // foreign-key ordering issue if constraint enforcement is ever turned on.
+        run("INSERT INTO sessions (key, session_id, label, config_json, is_training, created_at, "
+            "ended_at, last_update_at, total_epochs, total_samples, best_validation_loss, best_epoch) "
+            "SELECT ?1, session_id, label, config_json, 0, created_at, "
+            "COALESCE(ended_at, last_update_at), last_update_at, total_epochs, total_samples, "
+            "best_validation_loss, best_epoch FROM sessions WHERE key = ?2;",
+            {archived_key, key});
+        run("UPDATE metrics_history SET session_key = ?1 WHERE session_key = ?2;", {archived_key, key});
+        run("UPDATE generation_quality SET session_key = ?1 WHERE session_key = ?2;", {archived_key, key});
+        run("UPDATE abnormal_samples SET session_key = ?1 WHERE session_key = ?2;", {archived_key, key});
+        run("DELETE FROM sessions WHERE key = ?1;", {key});
+    } catch (...) {
+        sqlite3_exec(db_, "ROLLBACK;", nullptr, nullptr, nullptr);
+        throw;
+    }
+    check_sqlite(sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, nullptr), db_, "archive_session:commit");
+}
+
 void SQLiteMetricsDatabase::mark_session_ended(const std::string& key) {
     std::lock_guard<std::mutex> lock(mutex_);
 

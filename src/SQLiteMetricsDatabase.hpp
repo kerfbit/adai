@@ -17,6 +17,7 @@ public:
 
     void upsert_session(const SessionRecord& rec) override;
     void mark_session_ended(const std::string& key) override;
+    void archive_session(const std::string& key, const std::string& archived_key) override;
 
     void insert_metrics_record(
         const std::string& session_key,
