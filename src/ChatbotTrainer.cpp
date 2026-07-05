@@ -528,6 +528,12 @@ void ChatbotTrainer::initialize_model() {
     model->register_parameters(*optimizer);
 
     adai::Logger::info("✅ Optimizer initialized");
+
+#ifdef ADAI_ENABLE_GPU
+    adai::Logger::info("🖥️  Uploading model weights to GPU...");
+    model->gpu_init_training();
+    adai::Logger::info("✅ GPU training initialized");
+#endif
 }
 
 /**
@@ -778,6 +784,9 @@ float ChatbotTrainer::train_epoch(int epoch) {
             // Zero gradients at the start of accumulation cycle
             if (accumulation_step == 0) {
                 model->zero_grad();
+#ifdef ADAI_ENABLE_GPU
+                model->gpu_zero_grads();
+#endif
                 // Reset per-window padding accumulators at start of new window
                 pad_win_actual = 0;
                 pad_win_max_input = 0;
@@ -795,37 +804,54 @@ float ChatbotTrainer::train_epoch(int epoch) {
                 ++pad_win_count;
             }
 
-            // Forward pass using cached tokenized data
+            // Forward + backward pass
             auto compute_t0 = std::chrono::steady_clock::now();
+            const float grad_scale =
+                1.0f / static_cast<float>(config.gradient_accumulation_steps);
+            float loss = 0.0f;
+
+#ifdef ADAI_ENABLE_GPU
+            // GPU path: forward + cross-entropy loss entirely on device
+            loss = model->gpu_forward(pair.input_tokens, pair.target_tokens);
+
+            // Backfill quality from loss
+            if (config.enable_loss_quality_backfill) {
+                training_data[training_indices[i]].meta.quality = std::exp(-loss);
+            }
+
+            accumulated_loss += loss;
+
+            // GPU backward with accumulation scale baked in
+            model->gpu_backward(grad_scale);
+#else
             Matrix logits = model->forward(pair.input_tokens, pair.target_tokens);
 
             // Compute loss
-            float loss = model->compute_loss_for_training(logits, pair.target_tokens);
+            loss = model->compute_loss_for_training(logits, pair.target_tokens);
 
             // Backfill quality from loss (overwritten each epoch; final epoch value is kept)
             if (config.enable_loss_quality_backfill) {
                 training_data[training_indices[i]].meta.quality = std::exp(-loss);
             }
 
-            // Scale loss by accumulation steps for proper gradient averaging
-            float scaled_loss = loss / static_cast<float>(config.gradient_accumulation_steps);
             accumulated_loss += loss;  // Track unscaled for logging
 
             // Backward pass (accumulates gradients)
             Matrix grad_loss =
                 model->compute_loss_gradient_for_training(logits, pair.target_tokens);
 
-            // Scale gradients for accumulation by modifying in-place
+            // Scale gradients for accumulation
             if (config.gradient_accumulation_steps > 1) {
-                float scale = 1.0f / static_cast<float>(config.gradient_accumulation_steps);
                 for (int r = 0; r < grad_loss.rows; r++) {
                     for (int c = 0; c < grad_loss.cols; c++) {
-                        grad_loss.data[r][c] *= scale;
+                        grad_loss.data[r][c] *= grad_scale;
                     }
                 }
             }
 
             model->backward_pass(grad_loss);
+#endif
+
             // Accumulate compute time (forward + backward)
             total_compute_ns +=
                 static_cast<double>(std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -873,6 +899,9 @@ float ChatbotTrainer::train_epoch(int epoch) {
                     accumulation_step = 0;
                     accumulated_loss = 0.0f;
                     model->zero_grad();
+#ifdef ADAI_ENABLE_GPU
+                    model->gpu_zero_grads();
+#endif
                     continue;
                 }
 
@@ -997,8 +1026,16 @@ float ChatbotTrainer::train_epoch(int epoch) {
                 }
                 // ─────────────────────────────────────────────────────────────────
 
+#ifdef ADAI_ENABLE_GPU
+                // Download GPU gradients into CPU grad members before optimizer step
+                model->gpu_download_grads();
+#endif
                 // Update weights via optimizer
                 optimizer->step();
+#ifdef ADAI_ENABLE_GPU
+                // Re-upload updated CPU weights to GPU mirrors
+                model->gpu_sync_weights();
+#endif
 
                 total_loss += accumulated_loss;
                 global_step++;
@@ -1157,8 +1194,12 @@ float ChatbotTrainer::validate() {
         const auto& pair = tokenized_validation_data[i];
 
         try {
-            // Use evaluate() which doesn't update weights
+            // Use evaluate()/gpu_evaluate() — loss only, no weight updates
+#ifdef ADAI_ENABLE_GPU
+            float loss = model->gpu_evaluate(pair.input_text, pair.target_text);
+#else
             float loss = model->evaluate(pair.input_text, pair.target_text);
+#endif
             total_loss += loss;
             if (config.enable_loss_quality_backfill) {
                 validation_data[i].meta.quality = std::exp(-loss);
@@ -1246,6 +1287,14 @@ void ChatbotTrainer::compute_generation_quality_metrics() {
     if (sample_size >= config.generation_quality_async_threshold) {
         // Async path (TD-023): snapshot model weights and score in a background thread
         // so the training loop can begin the next epoch without waiting.
+        //
+        // Deliberately still CPU-only (snap->generate_response(), not
+        // gpu_generate_response()): clone() rebuilds the model via
+        // save_model()+load_model() and never calls gpu_init_training(), so
+        // the clone's GPU-resident weight mirrors are never populated.
+        // Wiring this up would also mean a background thread submitting
+        // kernels to the same shared GPUManager queue concurrently with the
+        // main training thread — needs its own validation before enabling.
         std::unique_ptr<EncoderDecoderModel> snapshot = model->clone();
 
         std::vector<std::string> refs, inputs;
@@ -1298,8 +1347,13 @@ void ChatbotTrainer::compute_generation_quality_metrics() {
         const auto& pair = tokenized_validation_data[i];
         references.push_back(pair.target_text);
         try {
+#ifdef ADAI_ENABLE_GPU
+            hypotheses.push_back(model->gpu_generate_response(
+                pair.input_text, config.generation_quality_max_tokens));
+#else
             hypotheses.push_back(
                 model->generate_response(pair.input_text, config.generation_quality_max_tokens));
+#endif
         } catch (const std::exception& e) {
             adai::Logger::warn("BLEU/ROUGE: skipping sample {} — generate_response() threw: {}", i,
                                e.what());
@@ -1327,7 +1381,12 @@ void ChatbotTrainer::backfill_generation_quality() {
 
     auto score_sample = [&](const std::string& input, const std::string& target) -> float {
         try {
+#ifdef ADAI_ENABLE_GPU
+            std::string hyp =
+                model->gpu_generate_response(input, config.generation_backfill_max_tokens);
+#else
             std::string hyp = model->generate_response(input, config.generation_backfill_max_tokens);
+#endif
             GenerationQualityScore s = GenerationQualityEvaluator::evaluate({target}, {hyp});
             return s.bleu4 >= 0.0f ? s.bleu4 : 0.0f;
         } catch (const std::exception& e) {

@@ -137,6 +137,22 @@
         "BUILD_EXAMPLES": "OFF",
         "ENABLE_CCACHE": "ON"
       }
+    },
+    {
+      "name": "sycl",
+      "displayName": "Intel SYCL GPU Build",
+      "description": "Intel ARC GPU-accelerated Release build (requires oneAPI toolkit with icpx compiler).",
+      "inherits": "default",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_COMPILER": "icpx",
+        "ENABLE_SYCL": "ON",
+        "ENABLE_GPU": "OFF",
+        "PORTABLE_BUILD": "OFF",
+        "BUILD_TESTING": "OFF",
+        "BUILD_EXAMPLES": "OFF",
+        "ENABLE_CCACHE": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -206,6 +222,13 @@
       "displayName": "Portable Build",
       "configurePreset": "portable",
       "jobs": 8
+    },
+    {
+      "name": "sycl",
+      "displayName": "Intel SYCL GPU Build",
+      "configurePreset": "sycl",
+      "jobs": 8,
+      "targets": ["incremental_trainer"]
     }
   ],
   "testPresets": [

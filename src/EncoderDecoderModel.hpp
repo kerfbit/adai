@@ -12,6 +12,9 @@
 #include "Matrix.hpp"
 #include "TextGenerator.hpp"
 #include "encoder.hpp"
+#ifdef ADAI_ENABLE_GPU
+#include "gpu/MatrixGPU.hpp"
+#endif
 
 /**
  * EncoderDecoderModel - Complete sequence-to-sequence transformer
@@ -73,6 +76,15 @@ class EncoderDecoderModel {
     Matrix cached_decoder_output;
     std::vector<int> cached_input_tokens;
     std::vector<int> cached_target_tokens;
+
+#ifdef ADAI_ENABLE_GPU
+    bool gpu_initialized_{false};
+    // GPU-resident state cached between gpu_forward and gpu_backward
+    std::unique_ptr<adai::gpu::GPUMatrix> gpu_encoder_out_;
+    std::unique_ptr<adai::gpu::GPUMatrix> gpu_logits_;
+    std::unique_ptr<adai::gpu::GPUMemory<int>> gpu_targets_dev_;
+    int gpu_target_len_{0};
+#endif
 
     /**
      * Compute cross-entropy loss for language modeling
@@ -141,6 +153,26 @@ class EncoderDecoderModel {
      * @return Generated response text
      */
     std::string generate_response(const std::string& input_text, int max_length = 100);
+
+#ifdef ADAI_ENABLE_GPU
+    /**
+     * GPU-accelerated equivalent of generate_response(). Same sampling
+     * behaviour (uses the shared TextGenerator config — temperature/top-k/
+     * top-p as configured), but each decode step runs through the
+     * GPU-resident encoder/decoder/lm_head instead of the CPU Matrix path.
+     *
+     * No GPU KV-cache exists yet, so each step recomputes the full decoded
+     * sequence from scratch via gpu_decode() rather than incrementally
+     * caching — same algorithmic shape as the CPU "greedy workaround" path,
+     * just GPU-accelerated. Only the last position's logits are downloaded
+     * per step.
+     *
+     * @param input_text Input text to encode
+     * @param max_length Maximum output length
+     * @return Generated response text
+     */
+    std::string gpu_generate_response(const std::string& input_text, int max_length = 100);
+#endif
 
     /**
      * Generate response with specific strategy
@@ -384,4 +416,50 @@ class EncoderDecoderModel {
      * @param grad_output Gradient from loss [seq_length, vocab_size]
      */
     void backward(const Matrix& grad_output);
+
+#ifdef ADAI_ENABLE_GPU
+    /** Upload all weights to GPU (call once before first gpu_forward). */
+    void gpu_init_training();
+
+    /** Zero all GPU gradient accumulators (call at start of each accumulation window). */
+    void gpu_zero_grads();
+
+    /**
+     * Full GPU forward pass.
+     * @return scalar loss; caches GPU encoder/decoder outputs for gpu_backward.
+     */
+    float gpu_forward(const std::vector<int>& input_tokens,
+                      const std::vector<int>& target_tokens);
+
+    /**
+     * Full GPU backward pass. Accumulates GPU gradients.
+     * @param scale Multiply loss gradient by this factor before accumulating
+     *              (use 1/gradient_accumulation_steps for proper averaging).
+     */
+    void gpu_backward(float scale = 1.0f);
+
+    /**
+     * GPU-accelerated evaluation (loss only, no gradient computation).
+     * Mirrors evaluate() but runs the forward pass through the GPU-resident
+     * path instead of the CPU Matrix path, so validation runs at the same
+     * speed as training.
+     *
+     * @param input_text Input text
+     * @param target_text Target text
+     * @return Loss value
+     */
+    float gpu_evaluate(const std::string& input_text, const std::string& target_text);
+
+    /**
+     * Download GPU gradient accumulators to CPU gradient members.
+     * Call before optimizer->step().
+     */
+    void gpu_download_grads();
+
+    /**
+     * Re-upload updated CPU weights to GPU mirrors.
+     * Call after optimizer->step().
+     */
+    void gpu_sync_weights();
+#endif
 };

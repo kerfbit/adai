@@ -5,6 +5,9 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#ifdef ADAI_ENABLE_GPU
+#include "gpu/MatrixGPU.hpp"
+#endif
 #include <memory>
 #include <random>
 #include <string>
@@ -217,4 +220,19 @@ class LLMEncoder {
     LayerNorm* get_final_norm() {
         return final_norm.get();
     }
+
+#ifdef ADAI_ENABLE_GPU
+    /** Upload all encoder weights to GPU. */
+    void gpu_upload_weights();
+    /** Download GPU gradient accumulators to CPU. */
+    void gpu_download_grads();
+    /** Zero GPU gradient accumulators. */
+    void gpu_zero_grads();
+    /**
+     * GPU encode: embed + positional encode on CPU, then run all encoder blocks on GPU.
+     * @param token_ids  Input token IDs
+     * @return GPU matrix [seq_len, d_model]
+     */
+    adai::gpu::GPUMatrix gpu_encode(const std::vector<int>& token_ids);
+#endif
 };

@@ -9,6 +9,9 @@
 #include "Matrix.hpp"
 #include "MultiHeadAttention.hpp"
 #include "Optimizer.hpp"
+#ifdef ADAI_ENABLE_GPU
+#include "gpu/MatrixGPU.hpp"
+#endif
 
 /**
  * Transformer Decoder Block
@@ -224,4 +227,16 @@ class DecoderBlock {
      * @param optimizer Optimizer to register parameters with
      */
     void register_parameters_with_optimizer(class Optimizer& optimizer);
+
+#ifdef ADAI_ENABLE_GPU
+    void gpu_upload_weights();
+    void gpu_download_grads();
+    void gpu_zero_grads();
+    // encoder_out: cached GPU encoder output [src_len, d_model]
+    adai::gpu::GPUMatrix gpu_forward(const adai::gpu::GPUMatrix& input,
+                                      const adai::gpu::GPUMatrix& encoder_out,
+                                      const adai::gpu::GPUMatrix* self_mask = nullptr);
+    // Returns d_input (grad w.r.t. decoder input; encoder grad discarded)
+    adai::gpu::GPUMatrix gpu_backward(const adai::gpu::GPUMatrix& dout);
+#endif
 };

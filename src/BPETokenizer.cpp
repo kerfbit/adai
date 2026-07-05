@@ -1,4 +1,6 @@
 #include "BPETokenizer.hpp"
+#include <cmath>
+#include <cstdint>
 #include <iomanip>
 
 // Pre-tokenization regex patterns

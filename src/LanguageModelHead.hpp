@@ -1,8 +1,12 @@
 #pragma once
 
+#include <memory>
 #include <string>
 #include <vector>
 #include "Matrix.hpp"
+#ifdef ADAI_ENABLE_GPU
+#include "gpu/MatrixGPU.hpp"
+#endif
 #include "Optimizer.hpp"
 
 /**
@@ -171,4 +175,26 @@ class LanguageModelHead {
      * @param filename Path to load weights from
      */
     void load_weights(const std::string& filename);
+
+#ifdef ADAI_ENABLE_GPU
+    struct GPUState {
+        adai::gpu::GPUMatrix W_g;   // [d_model, vocab_size]
+        adai::gpu::GPUMatrix b_g;   // [1, vocab_size]
+        adai::gpu::GPUMatrix dW;    // gradient accumulator
+        adai::gpu::GPUMatrix db;    // gradient accumulator
+        adai::gpu::GPUMatrix cached_input; // [seq, d_model]
+
+        GPUState(int dm, int vs)
+            : W_g(dm, vs), b_g(1, vs), dW(dm, vs), db(1, vs), cached_input(1, 1) {}
+    };
+    std::unique_ptr<GPUState> gpu_;
+
+    void gpu_upload_weights();
+    void gpu_download_grads();
+    void gpu_zero_grads();
+    /** GPU forward: returns logits [seq, vocab_size]. */
+    adai::gpu::GPUMatrix gpu_forward(const adai::gpu::GPUMatrix& input);
+    /** GPU backward: accumulates dW, db; returns d_input [seq, d_model]. */
+    adai::gpu::GPUMatrix gpu_backward(const adai::gpu::GPUMatrix& dout);
+#endif
 };

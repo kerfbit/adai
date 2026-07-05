@@ -263,12 +263,22 @@ int main(int argc, char* argv[]) {
             adai::Logger::info(
                 "[GPU] Attempting GPU initialisation (device {}, {:.0f}% memory budget)...",
                 config.gpu_device_id, config.gpu_memory_fraction * 100.0f);
+#ifdef ADAI_ENABLE_GPU
             if (Matrix::gpu_try_initialize(config.gpu_device_id, config.gpu_memory_fraction)) {
                 adai::Logger::info("[GPU] GPU ready. {}", Matrix::gpu_info());
             } else {
-                adai::Logger::warn(
-                    "[GPU] No CUDA device found or initialisation failed — running on CPU");
+#if defined(ADAI_GPU_BACKEND_SYCL)
+                adai::Logger::warn("[GPU] No Intel GPU device found or SYCL initialisation failed"
+                                   " — running on CPU");
+#else
+                adai::Logger::warn("[GPU] No CUDA device found or initialisation failed"
+                                   " — running on CPU");
+#endif
             }
+#else
+            adai::Logger::warn("[GPU] GPU_ENABLED is set but this binary was built without GPU support"
+                               " (rebuild with -DENABLE_GPU=ON for CUDA or -DENABLE_SYCL=ON for Intel Arc)");
+#endif
         } else {
             adai::Logger::info("[GPU] GPU acceleration disabled (set GPU_ENABLED=true to enable)");
         }

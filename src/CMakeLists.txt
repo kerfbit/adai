@@ -144,53 +144,69 @@ if(ENABLE_SIMD)
     endif()
 endif()
 
-# GPU support (optional)
+# GPU support (optional) — CUDA backend
 if(ENABLE_GPU)
-    # Add GPU library
     add_library(adai_gpu STATIC
         gpu/MatrixGPU.cu
     )
-    
-    # Set CUDA properties
+
     set_target_properties(adai_gpu PROPERTIES
         CUDA_SEPARABLE_COMPILATION ON
         CUDA_RESOLVE_DEVICE_SYMBOLS ON
     )
-    
-    # Link with CUDA libraries — use static cudart so the binary needs no
-    # libcudart.so on the target machine (driver-only install is enough).
-    # cublas has no simple static form; set RPATH=$ORIGIN so the bundled
-    # libcublas.so found next to the executable at runtime.
+
+    # Static cudart so the binary needs no libcudart.so on target (driver-only).
+    # cublas has no simple static form; RPATH=$ORIGIN finds the bundled .so.
     target_link_libraries(adai_gpu
         CUDA::cudart_static
         CUDA::cublas
     )
-    
-    # Include GPU headers
+
     target_include_directories(adai_gpu PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
     )
-    
-    # Link core library with GPU library
-    target_link_libraries(adai_core PUBLIC adai_gpu)
 
-    message(STATUS "GPU support added to adai_core")
+    target_link_libraries(adai_core PUBLIC adai_gpu)
+    message(STATUS "GPU support added to adai_core (CUDA)")
+
+# GPU support (optional) — Intel SYCL backend
+elseif(ENABLE_SYCL)
+    add_library(adai_gpu STATIC
+        gpu/sycl/MatrixGPU_SYCL.cpp
+    )
+
+    target_compile_options(adai_gpu PRIVATE -fsycl)
+    target_link_options(adai_gpu PUBLIC -fsycl)
+
+    target_link_libraries(adai_gpu
+        MKL::MKL_SYCL
+    )
+
+    target_include_directories(adai_gpu PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+
+    target_link_libraries(adai_core PUBLIC adai_gpu)
+    message(STATUS "GPU support added to adai_core (Intel SYCL)")
 endif()
 
 
 # Precompiled headers for commonly used STL headers
-target_precompile_headers(adai_core
-    PUBLIC
-        <vector>
-        <string>
-        <memory>
-        <algorithm>
-        <cmath>
-        <iostream>
-        <stdexcept>
-        <unordered_map>
-        <utility>
-)
+# icpx (Intel DPC++) does not support PCH with its offload bundler
+if(NOT ENABLE_SYCL)
+    target_precompile_headers(adai_core
+        PUBLIC
+            <vector>
+            <string>
+            <memory>
+            <algorithm>
+            <cmath>
+            <iostream>
+            <stdexcept>
+            <unordered_map>
+            <utility>
+    )
+endif()
 
 # Layer normalization and utilities
 add_library(adai_layers STATIC
@@ -244,15 +260,17 @@ add_library(adai_nlp STATIC
 target_link_libraries(adai_nlp adai_core)
 
 # Additional precompiled headers for NLP components
-target_precompile_headers(adai_nlp
-    PRIVATE
-        <fstream>
-        <sstream>
-        <regex>
-        <queue>
-        <unordered_set>
-        <cctype>
-)
+if(NOT ENABLE_SYCL)
+    target_precompile_headers(adai_nlp
+        PRIVATE
+            <fstream>
+            <sstream>
+            <regex>
+            <queue>
+            <unordered_set>
+            <cctype>
+    )
+endif()
 
 # Try to find cpp-httplib
 find_path(HTTPLIB_INCLUDE_DIR httplib.h

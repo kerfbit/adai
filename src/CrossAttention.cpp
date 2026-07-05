@@ -416,3 +416,104 @@ void CrossAttention::load(const std::string& filepath) {
 
     file.close();
 }
+
+#ifdef ADAI_ENABLE_GPU
+static void ca_upload_sq(const Matrix& m, adai::gpu::GPUMatrix& g) {
+    int n = m.rows * m.cols;
+    std::vector<float> tmp;
+    tmp.reserve(n);
+    for (const auto& row : m.data)
+        for (float v : row) tmp.push_back(v);
+    g.upload(tmp.data(), n);
+}
+
+void CrossAttention::gpu_upload_weights() {
+    if (!gpu_) gpu_ = std::make_unique<GPUState>(d_model);
+    ca_upload_sq(W_q, gpu_->Wq); ca_upload_sq(W_k, gpu_->Wk);
+    ca_upload_sq(W_v, gpu_->Wv); ca_upload_sq(W_o, gpu_->Wo);
+}
+
+void CrossAttention::gpu_download_grads() {
+    if (!gpu_) return;
+    auto add_back = [](const adai::gpu::GPUMatrix& src, Matrix& dst) {
+        int n = dst.rows * dst.cols;
+        std::vector<float> tmp(n);
+        src.download(tmp.data(), n);
+        int idx = 0;
+        for (auto& row : dst.data)
+            for (auto& v : row) v += tmp[idx++];
+    };
+    add_back(gpu_->dWq, W_q_grad); add_back(gpu_->dWk, W_k_grad);
+    add_back(gpu_->dWv, W_v_grad); add_back(gpu_->dWo, W_o_grad);
+}
+
+void CrossAttention::gpu_zero_grads() {
+    if (!gpu_) return;
+    gpu_->dWq.zero(); gpu_->dWk.zero();
+    gpu_->dWv.zero(); gpu_->dWo.zero();
+}
+
+adai::gpu::GPUMatrix CrossAttention::gpu_forward(const adai::gpu::GPUMatrix& query,
+                                                   const adai::gpu::GPUMatrix& kv,
+                                                   const adai::gpu::GPUMatrix* mask) {
+    if (!gpu_) gpu_upload_weights();
+    const int tgt = query.rows;
+    const int src = kv.rows;
+    const float scale = 1.0f / std::sqrt(static_cast<float>(d_k));
+    auto& q = adai::gpu::GPUManager::get_queue();
+
+    if (gpu_->cached_query.rows != tgt || gpu_->cached_query.cols != d_model)
+        gpu_->cached_query = adai::gpu::GPUMatrix(tgt, d_model);
+    if (gpu_->cached_kv.rows != src || gpu_->cached_kv.cols != d_model)
+        gpu_->cached_kv = adai::gpu::GPUMatrix(src, d_model);
+    q.memcpy(gpu_->cached_query.device_ptr(), query.device_ptr(),
+             static_cast<size_t>(tgt * d_model) * sizeof(float));
+    q.memcpy(gpu_->cached_kv.device_ptr(), kv.device_ptr(),
+             static_cast<size_t>(src * d_model) * sizeof(float));
+
+    gpu_->cached_Q = query * gpu_->Wq;
+    gpu_->cached_K = kv    * gpu_->Wk;
+    gpu_->cached_V = kv    * gpu_->Wv;
+
+    adai::gpu::GPUMatrix scores = gpu_->cached_Q * gpu_->cached_K.transpose();
+    scores = scores.scale(scale);
+    if (mask != nullptr) scores.masked_fill_inplace(*mask, -1e9f);
+
+    if (gpu_->cached_weights.rows != tgt || gpu_->cached_weights.cols != src)
+        gpu_->cached_weights = adai::gpu::GPUMatrix(tgt, src);
+    adai::gpu::GPUManager::get_queue()
+        .memcpy(gpu_->cached_weights.device_ptr(), scores.device_ptr(),
+                static_cast<size_t>(tgt * src) * sizeof(float));
+    gpu_->cached_weights.softmax_rows_inplace();
+
+    gpu_->cached_attn_out = gpu_->cached_weights * gpu_->cached_V;
+    return gpu_->cached_attn_out * gpu_->Wo;
+}
+
+std::pair<adai::gpu::GPUMatrix, adai::gpu::GPUMatrix>
+CrossAttention::gpu_backward(const adai::gpu::GPUMatrix& dout) {
+    const float scale = 1.0f / std::sqrt(static_cast<float>(d_k));
+
+    gpu_->dWo.add_inplace(gpu_->cached_attn_out.transpose() * dout);
+    adai::gpu::GPUMatrix d_ao = dout * gpu_->Wo.transpose();
+
+    adai::gpu::GPUMatrix dV = gpu_->cached_weights.transpose() * d_ao;
+    adai::gpu::GPUMatrix d_wts = d_ao * gpu_->cached_V.transpose();
+
+    adai::gpu::GPUMatrix d_scores = gpu_->cached_weights.softmax_backward(d_wts);
+    d_scores = d_scores.scale(scale);
+
+    adai::gpu::GPUMatrix dQ = d_scores * gpu_->cached_K;
+    adai::gpu::GPUMatrix dK = d_scores.transpose() * gpu_->cached_Q;
+
+    gpu_->dWq.add_inplace(gpu_->cached_query.transpose() * dQ);
+    gpu_->dWk.add_inplace(gpu_->cached_kv.transpose()    * dK);
+    gpu_->dWv.add_inplace(gpu_->cached_kv.transpose()    * dV);
+
+    adai::gpu::GPUMatrix d_query = dQ * gpu_->Wq.transpose();
+    adai::gpu::GPUMatrix d_kv    = dK * gpu_->Wk.transpose();
+    d_kv.add_inplace(dV * gpu_->Wv.transpose());
+
+    return {std::move(d_query), std::move(d_kv)};
+}
+#endif

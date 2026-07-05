@@ -366,3 +366,62 @@ void LLMDecoder::register_parameters_with_optimizer(Optimizer& optimizer) {
     // Register final layer norm parameters
     final_norm->set_optimizer(&optimizer);
 }
+
+#ifdef ADAI_ENABLE_GPU
+void LLMDecoder::gpu_upload_weights() {
+    for (auto& block : decoder_blocks) block->gpu_upload_weights();
+    final_norm->gpu_upload_weights();
+}
+
+void LLMDecoder::gpu_download_grads() {
+    for (auto& block : decoder_blocks) block->gpu_download_grads();
+    final_norm->gpu_download_grads();
+}
+
+void LLMDecoder::gpu_zero_grads() {
+    for (auto& block : decoder_blocks) block->gpu_zero_grads();
+    final_norm->gpu_zero_grads();
+}
+
+adai::gpu::GPUMatrix LLMDecoder::gpu_decode(const std::vector<int>& token_ids,
+                                              const adai::gpu::GPUMatrix& encoder_out) {
+    const int tgt = static_cast<int>(token_ids.size());
+
+    // Embedding + positional encoding on CPU (fast)
+    Matrix embeddings = token_embedding->forward(token_ids);
+    Matrix pos_encoded = positional_encoding->forward(embeddings);
+
+    adai::gpu::GPUMatrix x(tgt, d_model);
+    {
+        std::vector<float> flat;
+        flat.reserve(tgt * d_model);
+        for (const auto& row : pos_encoded.data)
+            for (float v : row) flat.push_back(v);
+        x.upload(flat.data(), tgt * d_model);
+    }
+
+    // Build causal mask on GPU: mask[i][j] = 0 where j > i (mask out future)
+    // We store values as 0.0f for masked positions so masked_fill_inplace works.
+    adai::gpu::GPUMatrix causal_mask(tgt, tgt);
+    {
+        std::vector<float> cm(tgt * tgt);
+        for (int i = 0; i < tgt; ++i)
+            for (int j = 0; j < tgt; ++j)
+                cm[i * tgt + j] = (j <= i) ? 1.0f : 0.0f;
+        causal_mask.upload(cm.data(), tgt * tgt);
+    }
+
+    for (auto& block : decoder_blocks)
+        x = block->gpu_forward(x, encoder_out, &causal_mask);
+
+    return final_norm->gpu_forward(x);
+}
+
+adai::gpu::GPUMatrix LLMDecoder::gpu_backward(const adai::gpu::GPUMatrix& dout) {
+    adai::gpu::GPUMatrix d = final_norm->gpu_backward(dout);
+    // Backward through decoder blocks in reverse
+    for (int i = static_cast<int>(decoder_blocks.size()) - 1; i >= 0; --i)
+        d = decoder_blocks[i]->gpu_backward(d);
+    return d;
+}
+#endif

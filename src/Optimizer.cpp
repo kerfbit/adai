@@ -3,6 +3,10 @@
 #include <iostream>
 #include <limits>
 
+#ifdef ADAI_ENABLE_OPENMP
+#include <omp.h>
+#endif
+
 // Constructor
 Optimizer::Optimizer(OptimizerType opt_type, float lr) : type(opt_type), learning_rate(lr) {}
 
@@ -74,12 +78,19 @@ float Optimizer::get_gradient_norm() const {
 
     for (const auto& param : parameter_groups) {
         if (param.gradients) {
-            for (int i = 0; i < param.gradients->rows; i++) {
-                for (int j = 0; j < param.gradients->cols; j++) {
+            const int rows = param.gradients->rows;
+            const int cols = param.gradients->cols;
+            float group_norm = 0.0f;
+#ifdef ADAI_ENABLE_OPENMP
+#pragma omp parallel for collapse(2) reduction(+ : group_norm) schedule(static) if (rows * cols > 4096)
+#endif
+            for (int i = 0; i < rows; i++) {
+                for (int j = 0; j < cols; j++) {
                     float val = (*param.gradients)(i, j);
-                    total_norm += val * val;
+                    group_norm += val * val;
                 }
             }
+            total_norm += group_norm;
         }
     }
 
@@ -92,12 +103,19 @@ float Optimizer::get_weight_norm() const {
 
     for (const auto& param : parameter_groups) {
         if (param.weights) {
-            for (int i = 0; i < param.weights->rows; i++) {
-                for (int j = 0; j < param.weights->cols; j++) {
+            const int rows = param.weights->rows;
+            const int cols = param.weights->cols;
+            float group_norm = 0.0f;
+#ifdef ADAI_ENABLE_OPENMP
+#pragma omp parallel for collapse(2) reduction(+ : group_norm) schedule(static) if (rows * cols > 4096)
+#endif
+            for (int i = 0; i < rows; i++) {
+                for (int j = 0; j < cols; j++) {
                     float val = (*param.weights)(i, j);
-                    total_norm += val * val;
+                    group_norm += val * val;
                 }
             }
+            total_norm += group_norm;
         }
     }
 
@@ -134,8 +152,13 @@ float Optimizer::clip_gradients(float max_norm) {
 
         for (auto& param : parameter_groups) {
             if (param.gradients) {
-                for (int i = 0; i < param.gradients->rows; i++) {
-                    for (int j = 0; j < param.gradients->cols; j++) {
+                const int rows = param.gradients->rows;
+                const int cols = param.gradients->cols;
+#ifdef ADAI_ENABLE_OPENMP
+#pragma omp parallel for collapse(2) schedule(static) if (rows * cols > 4096)
+#endif
+                for (int i = 0; i < rows; i++) {
+                    for (int j = 0; j < cols; j++) {
                         (*param.gradients)(i, j) *= clip_coef;
                     }
                 }
@@ -155,8 +178,13 @@ float Optimizer::clip_gradients(float max_norm, float precomputed_norm) {
 
     for (auto& param : parameter_groups) {
         if (param.gradients) {
-            for (int i = 0; i < param.gradients->rows; i++) {
-                for (int j = 0; j < param.gradients->cols; j++) {
+            const int rows = param.gradients->rows;
+            const int cols = param.gradients->cols;
+#ifdef ADAI_ENABLE_OPENMP
+#pragma omp parallel for collapse(2) schedule(static) if (rows * cols > 4096)
+#endif
+            for (int i = 0; i < rows; i++) {
+                for (int j = 0; j < cols; j++) {
                     (*param.gradients)(i, j) *= clip_coef;
                 }
             }
@@ -168,6 +196,9 @@ float Optimizer::clip_gradients(float max_norm, float precomputed_norm) {
 
 // SGD update
 void Optimizer::step_sgd(ParameterGroup& param) {
+#ifdef ADAI_ENABLE_OPENMP
+#pragma omp parallel for collapse(2) schedule(static) if (param.weights->rows * param.weights->cols > 4096)
+#endif
     for (int i = 0; i < param.weights->rows; i++) {
         for (int j = 0; j < param.weights->cols; j++) {
             float grad = (*param.gradients)(i, j);
@@ -185,6 +216,9 @@ void Optimizer::step_sgd(ParameterGroup& param) {
 
 // SGD with momentum update
 void Optimizer::step_sgd_momentum(ParameterGroup& param) {
+#ifdef ADAI_ENABLE_OPENMP
+#pragma omp parallel for collapse(2) schedule(static) if (param.weights->rows * param.weights->cols > 4096)
+#endif
     for (int i = 0; i < param.weights->rows; i++) {
         for (int j = 0; j < param.weights->cols; j++) {
             float grad = (*param.gradients)(i, j);
@@ -211,6 +245,9 @@ void Optimizer::step_adam(ParameterGroup& param) {
     float bias_correction1 = 1.0f - std::pow(beta1, static_cast<float>(param.step));
     float bias_correction2 = 1.0f - std::pow(beta2, static_cast<float>(param.step));
 
+#ifdef ADAI_ENABLE_OPENMP
+#pragma omp parallel for collapse(2) schedule(static) if (param.weights->rows * param.weights->cols > 4096)
+#endif
     for (int i = 0; i < param.weights->rows; i++) {
         for (int j = 0; j < param.weights->cols; j++) {
             float grad = (*param.gradients)(i, j);
@@ -244,6 +281,9 @@ void Optimizer::step_adamw(ParameterGroup& param) {
     float bias_correction1 = 1.0f - std::pow(beta1, static_cast<float>(param.step));
     float bias_correction2 = 1.0f - std::pow(beta2, static_cast<float>(param.step));
 
+#ifdef ADAI_ENABLE_OPENMP
+#pragma omp parallel for collapse(2) schedule(static) if (param.weights->rows * param.weights->cols > 4096)
+#endif
     for (int i = 0; i < param.weights->rows; i++) {
         for (int j = 0; j < param.weights->cols; j++) {
             float grad = (*param.gradients)(i, j);

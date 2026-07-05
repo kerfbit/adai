@@ -390,3 +390,76 @@ void DecoderBlock::register_parameters_with_optimizer(Optimizer& optimizer) {
     norm2->set_optimizer(&optimizer);
     norm3->set_optimizer(&optimizer);
 }
+
+#ifdef ADAI_ENABLE_GPU
+void DecoderBlock::gpu_upload_weights() {
+    self_attention->gpu_upload_weights();
+    cross_attention->gpu_upload_weights();
+    feed_forward->gpu_upload_weights();
+    norm1->gpu_upload_weights();
+    norm2->gpu_upload_weights();
+    norm3->gpu_upload_weights();
+}
+
+void DecoderBlock::gpu_download_grads() {
+    self_attention->gpu_download_grads();
+    cross_attention->gpu_download_grads();
+    feed_forward->gpu_download_grads();
+    norm1->gpu_download_grads();
+    norm2->gpu_download_grads();
+    norm3->gpu_download_grads();
+}
+
+void DecoderBlock::gpu_zero_grads() {
+    self_attention->gpu_zero_grads();
+    cross_attention->gpu_zero_grads();
+    feed_forward->gpu_zero_grads();
+    norm1->gpu_zero_grads();
+    norm2->gpu_zero_grads();
+    norm3->gpu_zero_grads();
+}
+
+adai::gpu::GPUMatrix DecoderBlock::gpu_forward(const adai::gpu::GPUMatrix& input,
+                                                 const adai::gpu::GPUMatrix& encoder_out,
+                                                 const adai::gpu::GPUMatrix* self_mask) {
+    // 1. Masked self-attention + residual + norm1
+    adai::gpu::GPUMatrix self_attn = self_attention->gpu_forward(input, self_mask);
+    adai::gpu::GPUMatrix res1 = input + self_attn;
+    adai::gpu::GPUMatrix normed1 = norm1->gpu_forward(res1);
+
+    // 2. Cross-attention + residual + norm2
+    adai::gpu::GPUMatrix cross_attn = cross_attention->gpu_forward(normed1, encoder_out);
+    adai::gpu::GPUMatrix res2 = normed1 + cross_attn;
+    adai::gpu::GPUMatrix normed2 = norm2->gpu_forward(res2);
+
+    // 3. Feed-forward + residual + norm3
+    adai::gpu::GPUMatrix ff_out = feed_forward->gpu_forward(normed2);
+    adai::gpu::GPUMatrix res3 = normed2 + ff_out;
+    return norm3->gpu_forward(res3);
+}
+
+adai::gpu::GPUMatrix DecoderBlock::gpu_backward(const adai::gpu::GPUMatrix& dout) {
+    // Back through norm3
+    adai::gpu::GPUMatrix d_res3 = norm3->gpu_backward(dout);
+
+    // Residual3: d_normed2 += d_res3, d_ff = d_res3
+    adai::gpu::GPUMatrix d_normed2_ff = feed_forward->gpu_backward(d_res3);
+    adai::gpu::GPUMatrix d_normed2 = d_res3 + d_normed2_ff;
+
+    // Back through norm2
+    adai::gpu::GPUMatrix d_res2 = norm2->gpu_backward(d_normed2);
+
+    // Residual2: d_normed1 += d_res2, d_cross = d_res2
+    // cross_attention backward returns {d_query=d_normed1, d_kv=d_encoder} — discard d_kv
+    auto [d_normed1_cross, d_enc] = cross_attention->gpu_backward(d_res2);
+    (void)d_enc;  // encoder backward not propagated (same as CPU simplified path)
+    adai::gpu::GPUMatrix d_normed1 = d_res2 + d_normed1_cross;
+
+    // Back through norm1
+    adai::gpu::GPUMatrix d_res1 = norm1->gpu_backward(d_normed1);
+
+    // Residual1: d_input from self-attn
+    adai::gpu::GPUMatrix d_input_self = self_attention->gpu_backward(d_res1);
+    return d_res1 + d_input_self;
+}
+#endif

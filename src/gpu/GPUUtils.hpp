@@ -6,6 +6,11 @@
 #include <string>
 
 #ifdef ADAI_ENABLE_GPU
+
+#if defined(ADAI_GPU_BACKEND_SYCL)
+#include "sycl/GPUUtils_SYCL.hpp"
+#else  // CUDA backend (default when ADAI_ENABLE_GPU is set)
+
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
 
@@ -68,6 +73,12 @@ class GPUManager {
     static bool probe() {
         int n = 0;
         return (cudaGetDeviceCount(&n) == cudaSuccess) && (n > 0);
+    }
+
+    static std::string probe_diagnostic() {
+        int n = 0;
+        cudaGetDeviceCount(&n);
+        return "CUDA found " + std::to_string(n) + " device(s)";
     }
 
     /**
@@ -391,6 +402,8 @@ class GPUMemory {
 }  // namespace gpu
 }  // namespace adai
 
+#endif  // CUDA backend
+
 #else  // !ADAI_ENABLE_GPU
 
 // Stub implementations when GPU is disabled
@@ -401,6 +414,9 @@ class GPUManager {
    public:
     static bool probe() {
         return false;
+    }
+    static std::string probe_diagnostic() {
+        return "GPU support not compiled";
     }
     static bool initialize(int = 0, float = 0.5f, bool = true) {
         return false;
