@@ -1216,7 +1216,7 @@ make chatbot_api_server -j$(nproc)
 cd ..
 
 # 2. Install service (creates adai user, /opt/adai/, /etc/adai/, /var/log/adai/)
-sudo ./scripts/install_systemd_service.sh
+sudo ./scripts/install_chatbot_API.sh
 
 # 3. Verify
 systemctl status adai
@@ -1237,7 +1237,7 @@ curl http://localhost:8080/health
 #### Installation Script Options
 
 ```bash
-sudo ./scripts/install_systemd_service.sh \
+sudo ./scripts/install_chatbot_API.sh \
   --install-path /usr/local/adai \
   --port 9000 \
   --user mychatbot \

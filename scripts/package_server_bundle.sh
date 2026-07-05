@@ -28,6 +28,7 @@ OUTPUT_DIR="."
 VERSION=""
 STRIP_BINARIES=true
 INCLUDE_TRAINER=false
+INCLUDE_CHATBOT_API=false
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "${SCRIPT_DIR}")"
@@ -63,6 +64,7 @@ Options:
   --version TAG         Version string for the tarball name (default: git describe or date)
   --no-strip            Do not strip debug symbols from binaries
   --include-trainer     Also include incremental_trainer and dataset_manager
+  --include-chatbot-api Also include chatbot_api_server
   --help                Show this help message
 
 Auto-detection:
@@ -108,6 +110,7 @@ while [[ $# -gt 0 ]]; do
         --version)      VERSION="$2";        shift 2 ;;
         --no-strip)     STRIP_BINARIES=false; shift ;;
         --include-trainer) INCLUDE_TRAINER=true; shift ;;
+        --include-chatbot-api) INCLUDE_CHATBOT_API=true; shift ;;
         --help)         show_help; exit 0 ;;
         *)
             error "Unknown option: $1"
@@ -172,6 +175,9 @@ info "  Output:          ${OUTPUT_DIR}/${BUNDLE_NAME}.tar.gz"
 REQUIRED_BINS=(metrics_api_server registry_server mns_server mns_cli)
 if [[ "${INCLUDE_TRAINER}" == true ]]; then
     REQUIRED_BINS+=(incremental_trainer dataset_manager)
+fi
+if [[ "${INCLUDE_CHATBOT_API}" == true ]]; then
+    REQUIRED_BINS+=(chatbot_api_server)
 fi
 
 missing=()
@@ -250,7 +256,7 @@ fi
 info "Copying scripts..."
 for s in install_server_bundle.sh install_incremental_trainer.sh \
          install_metrics_service.sh install_mns_server.sh \
-         setup_postgres.sql; do
+         install_chatbot_API.sh setup_postgres.sql; do
     if [[ -f "${SCRIPT_DIR}/${s}" ]]; then
         cp "${SCRIPT_DIR}/${s}" "${STAGE}/scripts/${s}"
         success "  scripts/${s}"

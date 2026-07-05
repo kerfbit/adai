@@ -10,6 +10,7 @@
 #
 # Options:
 #   --install-path PATH    Installation directory (default: /opt/adai)
+#   --build-dir PATH       Build directory relative to repo root (default: build/portable)
 #   --user USER           Service user (default: adai)
 #   --group GROUP         Service group (default: adai)
 #   --port PORT           Server port (default: 8080)
@@ -18,6 +19,7 @@
 # Examples:
 #   sudo ./install_chatbot_API.sh
 #   sudo ./install_chatbot_API.sh --install-path /usr/local/adai --port 9000
+#   sudo ./install_chatbot_API.sh --build-dir build/sycl   # GPU-accelerated build
 
 set -euo pipefail
 
@@ -30,6 +32,7 @@ SERVICE_USER="adai"
 SERVICE_GROUP="adai"
 SERVER_PORT=8080
 LOG_LEVEL="INFO"
+BUILD_DIR="build/portable"
 
 # Derived paths
 BIN_DIR="${INSTALL_PATH}/bin"
@@ -42,6 +45,19 @@ SERVICE_FILE="/etc/systemd/system/adai.service"
 # Script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "${SCRIPT_DIR}")"
+
+# validate_build_dir: relative path with no '..' traversal (allows slashes for preset sub-dirs)
+validate_build_dir() {
+    local flag="$1" val="$2"
+    if [[ -z "${val}" ]]; then
+        echo "ERROR: ${flag}: value must not be empty" >&2
+        exit 1
+    fi
+    if [[ ! "${val}" =~ ^[a-zA-Z0-9._/-]+$ ]] || [[ "${val}" =~ \.\. ]]; then
+        echo "ERROR: ${flag}: '${val}' must be a relative path with no '..' (allowed: a-z A-Z 0-9 . _ - /)" >&2
+        exit 1
+    fi
+}
 
 # ============================================================================
 # Color Output
@@ -81,6 +97,8 @@ Usage: sudo $0 [OPTIONS]
 
 Options:
   --install-path PATH    Installation directory (default: /opt/adai)
+  --build-dir PATH       Build directory relative to repo root, e.g. build/portable,
+                         build/sycl, build/gpu (default: build/portable)
   --user USER           Service user (default: adai)
   --group GROUP         Service group (default: adai)
   --port PORT           Server port (default: 8080)
@@ -88,7 +106,7 @@ Options:
   --help                Show this help message
 
 Examples:
-  # Default installation
+  # Default installation (portable, CPU-only build)
   sudo $0
 
   # Custom installation path
@@ -96,6 +114,10 @@ Examples:
 
   # Custom user and port
   sudo $0 --user mychatbot --port 9000
+
+  # Install a GPU-accelerated (SYCL) build — GPU_ENABLED and device group
+  # access are configured automatically when a GPU build is detected
+  sudo $0 --build-dir build/sycl
 
 Description:
   This script automates the installation of the ADAI chatbot as a systemd
@@ -110,7 +132,8 @@ Description:
 
 Requirements:
   - Root privileges (run with sudo)
-  - Built chatbot_api_server executable in build/
+  - Built chatbot_api_server executable at <build-dir>/bin/chatbot_api_server
+    (build with: cmake --preset=<preset> && cmake --build --preset=<preset> --target chatbot_api_server)
   - Vocabulary file (vocab.txt)
 
 EOF
@@ -120,6 +143,11 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --install-path)
             INSTALL_PATH="$2"
+            shift 2
+            ;;
+        --build-dir)
+            validate_build_dir "--build-dir" "$2"
+            BUILD_DIR="$2"
             shift 2
             ;;
         --user)
@@ -154,6 +182,7 @@ done
 BIN_DIR="${INSTALL_PATH}/bin"
 VOCAB_DIR="${INSTALL_PATH}/vocab"
 MODELS_DIR="${INSTALL_PATH}/models"
+BUILD_BIN_DIR="${REPO_ROOT}/${BUILD_DIR}/bin"
 
 # ============================================================================
 # Preflight Checks
@@ -175,9 +204,10 @@ if ! command -v systemctl &> /dev/null; then
 fi
 
 # Check if chatbot_api_server executable exists
-if [[ ! -f "${REPO_ROOT}/build/chatbot_api_server" ]]; then
-    error "chatbot_api_server executable not found in ${REPO_ROOT}/build/"
-    error "Please build the project first: cd ${REPO_ROOT} && mkdir -p build && cd build && cmake .. && make chatbot_api_server"
+if [[ ! -f "${BUILD_BIN_DIR}/chatbot_api_server" ]]; then
+    error "chatbot_api_server executable not found at ${BUILD_BIN_DIR}/"
+    error "Build it first, e.g.: cmake --preset=portable && cmake --build --preset=portable --target chatbot_api_server"
+    error "(use --build-dir to point at a different build, e.g. build/sycl for a GPU build)"
     exit 1
 fi
 
@@ -187,7 +217,21 @@ if [[ ! -f "${REPO_ROOT}/vocab.txt" ]]; then
     exit 1
 fi
 
+# Detect whether this binary was built with GPU (SYCL/CUDA) support: the
+# "[GPU] GPU ready." log format string is only compiled in under
+# #ifdef ADAI_ENABLE_GPU (see ChatbotAPIServer.cpp), so its presence in the
+# binary reliably indicates a GPU-enabled build regardless of runtime config.
+IS_GPU_BUILD=false
+if strings "${BUILD_BIN_DIR}/chatbot_api_server" 2>/dev/null | grep -q "GPU ready\."; then
+    IS_GPU_BUILD=true
+fi
+
 success "Preflight checks passed"
+if [[ "${IS_GPU_BUILD}" == true ]]; then
+    info "Detected GPU-enabled binary — will configure GPU_ENABLED, device group access, and relax PrivateDevices"
+else
+    info "Detected CPU-only binary — GPU device access will remain locked down"
+fi
 echo ""
 
 # ============================================================================
@@ -196,6 +240,8 @@ echo ""
 
 info "Installation Configuration:"
 echo "  Installation Path: ${INSTALL_PATH}"
+echo "  Build Directory:   ${BUILD_BIN_DIR}"
+echo "  GPU Build:         ${IS_GPU_BUILD}"
 echo "  Binary Directory:  ${BIN_DIR}"
 echo "  Vocabulary Path:   ${VOCAB_DIR}"
 echo "  Models Directory:  ${MODELS_DIR}"
@@ -227,6 +273,20 @@ else
     success "Created user '${SERVICE_USER}'"
 fi
 
+# GPU builds need the service account in the group that owns the GPU device
+# node (commonly "render" for /dev/dri/renderD128 on Intel Arc) — without
+# this, the server silently falls back to CPU even with PrivateDevices
+# disabled and GPU_ENABLED=true.
+if [[ "${IS_GPU_BUILD}" == true ]]; then
+    if getent group render &>/dev/null; then
+        usermod -aG render "${SERVICE_USER}"
+        success "Added '${SERVICE_USER}' to the 'render' group for GPU device access"
+    else
+        warn "GPU build detected but no 'render' group exists on this system"
+        warn "GPU device access will likely fail — verify GPU drivers are installed"
+    fi
+fi
+
 # ============================================================================
 # Step 2: Create Directory Structure
 # ============================================================================
@@ -248,7 +308,7 @@ success "Created directories"
 info "[3/8] Copying executable and resources..."
 
 # Copy executable
-cp "${REPO_ROOT}/build/chatbot_api_server" "${BIN_DIR}/"
+cp "${BUILD_BIN_DIR}/chatbot_api_server" "${BIN_DIR}/"
 chmod 755 "${BIN_DIR}/chatbot_api_server"
 
 # Copy vocabulary
@@ -284,6 +344,20 @@ success "Set ownership and permissions"
 
 info "[5/8] Creating configuration file..."
 
+GPU_CONFIG_BLOCK=""
+if [[ "${IS_GPU_BUILD}" == true ]]; then
+    GPU_CONFIG_BLOCK="
+# ============================================================================
+# GPU Configuration (auto-detected GPU build)
+# ============================================================================
+
+GPU_ENABLED=true
+GPU_DEVICE_ID=0
+GPU_MEMORY_FRACTION=0.9
+GPU_STRATEGY=full
+"
+fi
+
 cat > "${CONFIG_FILE}" <<EOF
 # ADAI Chatbot Service Configuration
 # Generated by install_chatbot_API.sh on $(date)
@@ -299,7 +373,7 @@ LOG_LEVEL=${LOG_LEVEL}
 
 # Optional: Path to pretrained model
 # MODEL_PATH=${MODELS_DIR}/model.bin
-
+${GPU_CONFIG_BLOCK}
 # ============================================================================
 # Model Architecture Parameters
 # ============================================================================
@@ -333,18 +407,32 @@ success "Created configuration file at ${CONFIG_FILE}"
 info "[6/8] Installing systemd service file..."
 
 # Update service file with installation paths
+# GPU builds need the device group and a private-/dev exemption; CPU-only
+# builds keep the hardened defaults (no supplementary groups, private /dev).
+SUPPLEMENTARY_GROUPS=""
+PRIVATE_DEVICES="yes"
+if [[ "${IS_GPU_BUILD}" == true ]]; then
+    SUPPLEMENTARY_GROUPS="render"
+    PRIVATE_DEVICES="no"
+fi
+
 sed -e "s|WorkingDirectory=.*|WorkingDirectory=${INSTALL_PATH}|" \
     -e "s|ExecStart=.*|ExecStart=${BIN_DIR}/chatbot_api_server|" \
     -e "s|User=.*|User=${SERVICE_USER}|" \
     -e "s|Group=.*|Group=${SERVICE_GROUP}|" \
+    -e "s|^SupplementaryGroups=.*|SupplementaryGroups=${SUPPLEMENTARY_GROUPS}|" \
     -e "s|Environment=\"VOCAB_PATH=.*\"|Environment=\"VOCAB_PATH=${VOCAB_DIR}/vocab.txt\"|" \
     -e "s|Environment=\"PORT=.*\"|Environment=\"PORT=${SERVER_PORT}\"|" \
     -e "s|Environment=\"LOG_LEVEL=.*\"|Environment=\"LOG_LEVEL=${LOG_LEVEL}\"|" \
     -e "s|Environment=\"CONFIG_FILE=.*\"|Environment=\"CONFIG_FILE=${CONFIG_FILE}\"|" \
     -e "s|ReadWritePaths=.*|ReadWritePaths=${LOG_DIR} ${MODELS_DIR}|" \
+    -e "s|^PrivateDevices=.*|PrivateDevices=${PRIVATE_DEVICES}|" \
     "${SCRIPT_DIR}/adai.service" > "${SERVICE_FILE}"
 
 success "Installed systemd service file"
+if [[ "${IS_GPU_BUILD}" == true ]]; then
+    info "  GPU build: SupplementaryGroups=render, PrivateDevices=no"
+fi
 
 # ============================================================================
 # Step 7: Reload systemd and Enable Service

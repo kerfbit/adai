@@ -194,6 +194,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.gradient_clip_spike_k = std::stof(value);
             } else if (key == "BATCH_SIZE") {
                 config.batch_size = std::stoi(value);
+            } else if (key == "GRADIENT_ACCUMULATION_STEPS") {
+                config.gradient_accumulation_steps = std::stoi(value);
             } else if (key == "MAX_LENGTH" || key == "MAX_GEN_LENGTH") {
                 config.max_gen_length = static_cast<size_t>(std::stoull(value));
             } else if (key == "TEMPERATURE") {
@@ -213,6 +215,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.metrics_server_url = value;
             } else if (key == "METRICS_PUSH_TIMEOUT_MS") {
                 config.metrics_push_timeout_ms = std::stoi(value);
+            } else if (key == "METRICS_HEARTBEAT_INTERVAL_MS") {
+                config.metrics_heartbeat_interval_ms = std::stoi(value);
             } else if (key == "METRICS_ENABLE_PERSISTENCE") {
                 config.metrics_enable_persistence =
                     (value == "true" || value == "1" || value == "yes");
@@ -452,6 +456,9 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env_int("BATCH_SIZE")) {
         config.batch_size = *val;
+    }
+    if (auto val = get_env_int("GRADIENT_ACCUMULATION_STEPS")) {
+        config.gradient_accumulation_steps = *val;
     }
 
     // Generation parameters

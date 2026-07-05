@@ -66,7 +66,7 @@ make chatbot_api_server -j$(nproc)
 cd ..
 
 # Install and start service
-sudo ./scripts/install_systemd_service.sh
+sudo ./scripts/install_chatbot_API.sh
 
 # Verify
 systemctl status adai
@@ -77,7 +77,7 @@ curl http://localhost:8080/health
 
 | Service | Port | Install Script |
 | --- | --- | --- |
-| Chatbot API Server | 8080 | `install_systemd_service.sh` |
+| Chatbot API Server | 8080 | `install_chatbot_API.sh` |
 | Metrics API Server | 8081 | `install_server_bundle.sh` |
 | Dataset Registry Server | 8082 | `install_server_bundle.sh` |
 | Model Name Service | 8083 | `install_server_bundle.sh` |

@@ -123,6 +123,12 @@ struct ServiceConfig {
     /// Batch size / gradient accumulation steps (default: 1)
     int batch_size = 1;
 
+    /// Number of samples to accumulate gradients over before each optimizer step
+    /// (default: 1). The optimizer step and GPU<->host weight/gradient sync run
+    /// once per this many samples, so values > 1 amortize that overhead across
+    /// the batch instead of paying it on every sample.
+    int gradient_accumulation_steps = 1;
+
     // ============================================================
     // Generation Parameters
     // ============================================================
@@ -210,6 +216,11 @@ struct ServiceConfig {
     /// When a live session exceeds this threshold, is_stale=true and effective_is_training=false
     /// are set in snapshot reads and API responses so dashboards don't show false "running" state.
     int metrics_staleness_threshold_seconds = 60;
+
+    /// Interval in milliseconds between heartbeat POSTs sent by MetricsPushClient when no other
+    /// events are queued (e.g. during pre-processing). Keeps the session visible on the dashboard.
+    /// Should be less than METRICS_STALENESS_THRESHOLD_SECONDS * 1000 (default: 30000).
+    int metrics_heartbeat_interval_ms = 30000;
 
     /// Port for metrics API server daemon (default: 8081)
     int metrics_api_port = 8081;

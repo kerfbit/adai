@@ -98,7 +98,6 @@ Description:
 
   Binaries:
     incremental_trainer   training loop and session manager
-    dataset_manager       stateless data-prep CLI (Gutenberg / HuggingFace)
     registry_server       optional HTTP daemon (port 8082) for distributed pools
 
   Build first:
@@ -273,11 +272,6 @@ preflight_checks() {
             error "Build with: cmake -B ${BUILD_DIR} && cmake --build ${BUILD_DIR} --target incremental_trainer"
             exit 1
         fi
-        if [[ ! -f "${BUILD_BIN_DIR}/dataset_manager" ]]; then
-            error "dataset_manager not found at ${BUILD_BIN_DIR}/dataset_manager"
-            error "Build with: cmake -B ${BUILD_DIR} && cmake --build ${BUILD_DIR} --target dataset_manager"
-            exit 1
-        fi
         if [[ "${WITH_REGISTRY_SERVER}" == true ]] && [[ ! -f "${BUILD_BIN_DIR}/registry_server" ]]; then
             error "registry_server not found at ${BUILD_BIN_DIR}/registry_server"
             error "Build with: cmake -B ${BUILD_DIR} -DBUILD_METRICS_API_SERVER=ON && cmake --build ${BUILD_DIR} --target registry_server"
@@ -386,10 +380,6 @@ local_install() {
     chmod 755 "${BIN_DIR}/incremental_trainer"
     success "Installed incremental_trainer"
 
-    cp "${BUILD_BIN_DIR}/dataset_manager" "${BIN_DIR}/dataset_manager"
-    chmod 755 "${BIN_DIR}/dataset_manager"
-    success "Installed dataset_manager"
-
     if [[ "${WITH_REGISTRY_SERVER}" == true ]]; then
         cp "${BUILD_BIN_DIR}/registry_server" "${BIN_DIR}/registry_server"
         chmod 755 "${BIN_DIR}/registry_server"
@@ -430,13 +420,6 @@ local_install() {
         ok=false
     fi
 
-    if "${BIN_DIR}/dataset_manager" --help &>/dev/null; then
-        success "dataset_manager --help returned exit code 0"
-    else
-        warn "dataset_manager --help returned a non-zero exit code"
-        ok=false
-    fi
-
     if [[ "${ok}" == false ]]; then
         warn "Some post-install checks did not pass — review the output above"
     fi
@@ -461,9 +444,6 @@ print_local_summary() {
     echo "Start training:"
     echo "  sudo -u ${SERVICE_USER} ${BIN_DIR}/incremental_trainer \\"
     echo "    --config ${CONFIG_DIR}/config.conf"
-    echo ""
-    echo "Manage datasets:"
-    echo "  sudo -u ${SERVICE_USER} ${BIN_DIR}/dataset_manager --help"
     echo ""
     if [[ "${WITH_REGISTRY_SERVER}" == true ]]; then
         echo "Start registry server:"
@@ -681,7 +661,6 @@ REMOTE_MKDIR
     rsync -az --progress \
         -e "${RSYNC_SSH_CMD}" \
         "${BUILD_BIN_DIR}/incremental_trainer" \
-        "${BUILD_BIN_DIR}/dataset_manager" \
         "${REMOTE_HOST}:${remote_bin}/"
     if [[ "${WITH_REGISTRY_SERVER}" == true ]]; then
         rsync -az --progress \
@@ -697,10 +676,9 @@ REMOTE_MKDIR
     [[ "${WITH_REGISTRY_SERVER}" == true ]] && extra_bin="${remote_bin}/registry_server"
     ssh "${SSH_ARGS[@]}" "${REMOTE_HOST}" bash -s -- \
         "${remote_bin}/incremental_trainer" \
-        "${remote_bin}/dataset_manager" \
         "${extra_bin}" <<'REMOTE_CHMOD'
-chmod 755 "$1" "$2"
-[[ -n "$3" ]] && chmod 755 "$3"
+chmod 755 "$1"
+[[ -n "$2" ]] && chmod 755 "$2"
 REMOTE_CHMOD
     success "Remote permissions set"
 
@@ -793,14 +771,6 @@ REMOTE_CHOWN
         remote_ok=false
     fi
 
-    if ssh "${SSH_ARGS[@]}" "${REMOTE_HOST}" \
-        "'${remote_bin}/dataset_manager' --help" &>/dev/null; then
-        success "dataset_manager --help succeeded on ${REMOTE_HOST}"
-    else
-        warn "dataset_manager --help did not return 0 on ${REMOTE_HOST}"
-        remote_ok=false
-    fi
-
     [[ "${remote_ok}" == false ]] && warn "Some remote verification checks did not pass"
 
     local ssh_cmd="ssh ${REMOTE_HOST}"
@@ -821,9 +791,6 @@ REMOTE_CHOWN
     echo "Start training on ${REMOTE_HOST}:"
     echo "  ${ssh_cmd}"
     echo "  ${remote_bin}/incremental_trainer --config ${remote_config}/config.conf"
-    echo ""
-    echo "Manage datasets:"
-    echo "  ${ssh_cmd} '${remote_bin}/dataset_manager --help'"
     echo ""
     echo "========================================================================"
     echo ""

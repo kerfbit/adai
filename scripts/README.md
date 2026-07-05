@@ -49,12 +49,12 @@ sudo ./scripts/install_incremental_trainer.sh --remote user@192.168.1.7
 | `--sync-sessions` | off | Rsync `training_sessions/` to remote |
 | `--ssh-key PATH` | -- | SSH identity file for ssh/rsync calls |
 
-### install_systemd_service.sh
+### install_chatbot_API.sh
 
 Installs the ADAI chatbot API server as a systemd service. Creates necessary directories, users, and configuration files.
 
 ```bash
-sudo ./scripts/install_systemd_service.sh [--install-path PATH] [--user USER] [--port PORT]
+sudo ./scripts/install_chatbot_API.sh [--install-path PATH] [--user USER] [--port PORT]
 ```
 
 ### install_metrics_service.sh

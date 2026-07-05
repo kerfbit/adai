@@ -19,7 +19,7 @@ make chatbot_api_server
 
 # 2. Run the installation script
 cd ..
-sudo ./scripts/install_systemd_service.sh
+sudo ./scripts/install_chatbot_API.sh
 
 # 3. Verify the service is running
 systemctl status adai
@@ -82,12 +82,12 @@ make chatbot_api_server -j$(nproc)
 
 ### Using the Installation Script
 
-The `install_systemd_service.sh` script automates the entire installation process.
+The `install_chatbot_API.sh` script automates the entire installation process.
 
 #### Default Installation
 
 ```bash
-sudo ./scripts/install_systemd_service.sh
+sudo ./scripts/install_chatbot_API.sh
 ```
 
 Installs to:
@@ -109,18 +109,18 @@ Creates:
 
 ```bash
 # Install to custom location
-sudo ./scripts/install_systemd_service.sh \
+sudo ./scripts/install_chatbot_API.sh \
   --install-path /usr/local/adai \
   --port 9000
 
 # Use custom user and group
-sudo ./scripts/install_systemd_service.sh \
+sudo ./scripts/install_chatbot_API.sh \
   --user mychatbot \
   --group mychatbot \
   --log-level DEBUG
 
 # View all options
-./scripts/install_systemd_service.sh --help
+./scripts/install_chatbot_API.sh --help
 ```
 
 #### Installation Script Options
@@ -952,7 +952,7 @@ Converting Docker deployment to systemd:
 3. **Install systemd service:**
 
    ```bash
-   sudo ./scripts/install_systemd_service.sh
+   sudo ./scripts/install_chatbot_API.sh
    ```
 
 4. **Verify same configuration:**

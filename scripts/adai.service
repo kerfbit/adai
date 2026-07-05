@@ -42,6 +42,12 @@ Type=simple
 User=adai
 Group=adai
 
+# Extra group membership. For GPU (SYCL/CUDA) builds this must include the
+# group that owns the GPU device node (commonly "render" for /dev/dri/renderD128
+# on Intel Arc) — set automatically by install_chatbot_API.sh when it detects a
+# GPU-enabled binary. Left empty (no supplementary groups) for CPU-only builds.
+SupplementaryGroups=
+
 # ============================================================================
 # Execution Configuration
 # ============================================================================
@@ -131,7 +137,11 @@ ProtectKernelTunables=yes
 # Prevent access to /proc/kcore, /proc/kallsyms, etc.
 ProtectControlGroups=yes
 
-# Use a private /dev with only basic device nodes
+# Use a private /dev with only basic device nodes. MUST be "no" for GPU
+# (SYCL/CUDA) builds — a private /dev has no /dev/dri/renderD128 or /dev/nvidia*,
+# so the GPU silently becomes invisible and the server falls back to CPU with
+# no error. install_chatbot_API.sh sets this automatically based on the
+# binary it installs.
 PrivateDevices=yes
 
 # Restrict system calls (comment out if causing issues)
