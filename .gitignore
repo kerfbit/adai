@@ -52,6 +52,12 @@ checkpoints/
 # Test artifacts
 Testing/
 test_*.bin
+tests/test_migration
+tests/test_migration_verify
+tests/test_special_tokens_header
+
+# Deployed/scp'd binaries named after the target host
+adai@*
 
 # Coverage reports
 *.gcda
