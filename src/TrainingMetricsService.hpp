@@ -299,6 +299,10 @@ class TrainingMetricsService {
 
     // Persistence control
     void flush_to_disk();
+    // Clears per-sample history AND resets best_validation_loss/best_epoch
+    // (persisting the reset immediately) — the explicit "force clear" for a
+    // session, since start_session()'s cross-session carryover otherwise keeps
+    // resurrecting whatever best was last recorded for this key.
     void clear_history();
 
     // Configuration

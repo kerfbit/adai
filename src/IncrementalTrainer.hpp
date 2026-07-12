@@ -154,6 +154,25 @@ class IncrementalTrainer {
     std::vector<TrainingSession> get_session_history() const;
     void cleanup_old_sessions();
 
+    /**
+     * @brief Remove dead/broken/crashed session artifacts left on disk.
+     *
+     * Two passes:
+     *  1. Deletes orphaned `session_<N>_best.bin` / `auto_save_session_<N>.bin`
+     *     files for any N other than the current in-progress session, and any
+     *     `session_<N>_checkpoint.bin` not referenced by a session_history
+     *     entry — all of these can only exist because a run crashed before
+     *     reaching finalize_session(), which is what normally deletes a
+     *     session's superseded snapshot / registers its checkpoint.
+     *  2. Drops session_history entries that fail is_sane_checkpoint_candidate
+     *     (zero samples trained, non-finite/non-positive loss, or a missing
+     *     checkpoint file) and deletes their files, then persists the
+     *     cleaned history.
+     *
+     * Safe to call repeatedly; a directory with no dead artifacts is a no-op.
+     */
+    void cleanup_dead_sessions();
+
     // Model operations
     bool save_model(const std::string& path);
     bool load_model(const std::string& path);
@@ -254,6 +273,13 @@ class IncrementalTrainer {
     // Remove a saved model and all its sidecar files (.config, .vocab, .encoder, .decoder,
     // .lm_head)
     static void remove_model_files(const std::string& base_path);
+
+    // TD-005 best-checkpoint selection guard: rejects sessions whose recorded
+    // final_validation_loss can't be trusted as a real "best" candidate —
+    // zero-sample sessions (loss left at its zero-initialized default),
+    // non-finite/non-positive losses (NaN/Inf from a diverged or crashed run,
+    // or a stray exact 0.0), and checkpoints missing from disk.
+    static bool is_sane_checkpoint_candidate(const TrainingSession& session);
 
     // Symlink management helpers (TD-005)
     void update_checkpoint_symlinks(const std::string& checkpoint_path);

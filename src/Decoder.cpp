@@ -213,6 +213,11 @@ Matrix LLMDecoder::forward_with_cache(const std::vector<int>& token_ids, Decoder
 
 // Backward pass
 void LLMDecoder::backward(const Matrix& grad_output) {
+    Matrix unused_grad_encoder_output;
+    backward(grad_output, unused_grad_encoder_output);
+}
+
+void LLMDecoder::backward(const Matrix& grad_output, Matrix& grad_encoder_output) {
     if (!requires_grad) {
         return;
     }
@@ -220,9 +225,23 @@ void LLMDecoder::backward(const Matrix& grad_output) {
     // Backward through final layer norm
     Matrix grad = final_norm->backward(grad_output);
 
-    // Backward through decoder blocks in reverse order
+    // Backward through decoder blocks in reverse order, summing each block's
+    // encoder-side gradient contribution — the same encoder_output feeds every
+    // block's cross-attention.
+    bool have_encoder_grad = false;
     for (int i = num_layers - 1; i >= 0; --i) {
-        grad = decoder_blocks[i]->backward(grad);
+        Matrix grad_enc_i;
+        grad = decoder_blocks[i]->backward(grad, grad_enc_i);
+        if (!have_encoder_grad) {
+            grad_encoder_output = grad_enc_i;
+            have_encoder_grad = true;
+        } else {
+            for (int r = 0; r < grad_encoder_output.rows; ++r) {
+                for (int c = 0; c < grad_encoder_output.cols; ++c) {
+                    grad_encoder_output(r, c) += grad_enc_i(r, c);
+                }
+            }
+        }
     }
 
     // Backward through positional encoding (no parameters, just pass through)
@@ -417,11 +436,23 @@ adai::gpu::GPUMatrix LLMDecoder::gpu_decode(const std::vector<int>& token_ids,
     return final_norm->gpu_forward(x);
 }
 
-adai::gpu::GPUMatrix LLMDecoder::gpu_backward(const adai::gpu::GPUMatrix& dout) {
+std::pair<adai::gpu::GPUMatrix, adai::gpu::GPUMatrix> LLMDecoder::gpu_backward(
+    const adai::gpu::GPUMatrix& dout) {
     adai::gpu::GPUMatrix d = final_norm->gpu_backward(dout);
-    // Backward through decoder blocks in reverse
-    for (int i = static_cast<int>(decoder_blocks.size()) - 1; i >= 0; --i)
-        d = decoder_blocks[i]->gpu_backward(d);
-    return d;
+
+    // Backward through decoder blocks in reverse, summing each block's
+    // encoder-side gradient contribution (GPUMatrix is move-only with no
+    // default-constructible zero, so accumulate via std::optional).
+    std::optional<adai::gpu::GPUMatrix> grad_encoder_sum;
+    for (int i = static_cast<int>(decoder_blocks.size()) - 1; i >= 0; --i) {
+        auto [d_input, d_enc] = decoder_blocks[i]->gpu_backward(d);
+        d = std::move(d_input);
+        if (!grad_encoder_sum) {
+            grad_encoder_sum.emplace(std::move(d_enc));
+        } else {
+            *grad_encoder_sum = *grad_encoder_sum + d_enc;
+        }
+    }
+    return {std::move(d), std::move(*grad_encoder_sum)};
 }
 #endif

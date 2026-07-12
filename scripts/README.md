@@ -77,6 +77,17 @@ sudo ./scripts/install_mns_server.sh [--install-path PATH] [--port PORT]
 
 Systemd service unit file for the ADAI chatbot API server. Includes security hardening (filesystem protection, capability restrictions, syscall filtering) and resource limits (4G memory, 50% CPU). Copy to `/etc/systemd/system/adai.service` and enable with `systemctl`.
 
+### cloudflared/install_cloudflared.sh
+
+Installs a Cloudflare Tunnel connector as a systemd service, exposing metrics/MNS/registry/chatbot to the Android tablet apps under `kerfbit.dev` subdomains when off the home LAN. Runs as a dedicated `cloudflared` system user (not `adai`). Assumes the `cloudflared` binary and the tunnel itself already exist — see [Cloudflare Tunnel Relay](../docs/operations/deployment/CLOUDFLARE_TUNNEL_RELAY.md) for the full setup, including the ingress config templates (`config-storage.yml.template`, `config-chat.yml.template`) in the same directory.
+
+```bash
+sudo ./scripts/cloudflared/install_cloudflared.sh \
+  --tunnel-name adai-storage-tunnel \
+  --config-src ./config-storage.yml \
+  --credentials-src ~/.cloudflared/<uuid>.json --yes
+```
+
 ### setup_postgres.sql
 
 PostgreSQL schema for the metrics API server and model name service. Creates all tables (sessions, metrics_history, generation_quality, abnormal_samples, models, training_history, roles), indexes, and schema_version tracking. Idempotent -- safe to re-run.

@@ -6,8 +6,10 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <random>
 #include <string>
+#include <utility>
 #include <vector>
 #include "DecoderBlock.hpp"
 #ifdef ADAI_ENABLE_GPU
@@ -155,7 +157,13 @@ class LLMDecoder {
      * Backward pass for training
      *
      * @param grad_output Gradient from loss function [seq_length, d_model]
+     * @param grad_encoder_output Out-param: gradient w.r.t. encoder_output, summed
+     *   across every decoder block's cross-attention (the same encoder_output feeds
+     *   all of them).
      */
+    void backward(const Matrix& grad_output, Matrix& grad_encoder_output);
+
+    /** Convenience overload: discards the encoder-side gradient. */
     void backward(const Matrix& grad_output);
 
     /**
@@ -295,9 +303,11 @@ class LLMDecoder {
     /**
      * GPU backward through decoder blocks (lm_head grad passed in as dout).
      * @param dout  Upstream gradient [tgt_len, d_model]
-     * @return Gradient w.r.t. decoder embedding output (discarded in simplified backward)
+     * @return {grad w.r.t. decoder embedding output, grad w.r.t. encoder_output
+     *   summed across every decoder block's cross-attention}
      */
-    adai::gpu::GPUMatrix gpu_backward(const adai::gpu::GPUMatrix& dout);
+    std::pair<adai::gpu::GPUMatrix, adai::gpu::GPUMatrix> gpu_backward(
+        const adai::gpu::GPUMatrix& dout);
 
     LayerNorm* get_final_norm_dec() { return final_norm.get(); }
 #endif

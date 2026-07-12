@@ -220,6 +220,22 @@ class EncoderDecoderModel {
     float evaluate(const std::string& input_text, const std::string& target_text);
 
     /**
+     * Evaluate model on already-tokenized validation data (no gradient computation).
+     *
+     * Prefer this over the text-based evaluate() whenever pre-tokenized ids are
+     * available: encode() on raw text has no length cap, so re-tokenizing raw
+     * validation text on every call can silently bypass the max_seq_length
+     * truncation applied when the dataset was first tokenized, and pay for
+     * redundant BPE encoding on every validation pass.
+     *
+     * @param input_tokens Already-tokenized (and length-truncated) input ids
+     * @param target_tokens Already-tokenized (and length-truncated) target ids
+     * @return Loss value
+     */
+    float evaluate_tokenized(const std::vector<int>& input_tokens,
+                             const std::vector<int>& target_tokens);
+
+    /**
      * Compute perplexity on a dataset
      *
      * @param input_texts Vector of input texts
@@ -451,6 +467,18 @@ class EncoderDecoderModel {
     float gpu_evaluate(const std::string& input_text, const std::string& target_text);
 
     /**
+     * GPU-accelerated evaluation on already-tokenized data (no gradient computation).
+     * See evaluate_tokenized() for why this is preferred over the text-based
+     * overload whenever pre-tokenized ids are available.
+     *
+     * @param input_tokens Already-tokenized (and length-truncated) input ids
+     * @param target_tokens Already-tokenized (and length-truncated) target ids
+     * @return Loss value
+     */
+    float gpu_evaluate_tokenized(const std::vector<int>& input_tokens,
+                                 const std::vector<int>& target_tokens);
+
+    /**
      * Download GPU gradient accumulators to CPU gradient members.
      * Call before optimizer->step().
      */
@@ -461,5 +489,20 @@ class EncoderDecoderModel {
      * Call after optimizer->step().
      */
     void gpu_sync_weights();
+
+    /**
+     * Block until all previously submitted GPU work (including deferred
+     * frees of temporary GPUMatrix/GPUMemory buffers) has completed.
+     *
+     * Every kernel submission and USM allocation on the training path is
+     * asynchronous, but temporaries only actually release their device
+     * memory via a queue-ordered deferred free (see GPUMemory::defer_free).
+     * Without a periodic drain, the host can queue far more work than the
+     * device has retired, so the set of "allocated but not yet freed"
+     * buffers grows without bound across samples until the device runs out
+     * of memory. Call this once per sample (or at minimum once per
+     * optimizer step) to bound that backlog.
+     */
+    void gpu_synchronize();
 #endif
 };

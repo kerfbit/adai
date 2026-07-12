@@ -823,6 +823,12 @@ float ChatbotTrainer::train_epoch(int epoch) {
 
             // GPU backward with accumulation scale baked in
             model->gpu_backward(grad_scale);
+
+            // Drain the queue before the next sample: temporaries created above
+            // reserve device memory synchronously but free it via a queue-ordered
+            // deferred host_task, so without a periodic sync the host can outrun
+            // the device and pile up unretired allocations until it OOMs.
+            model->gpu_synchronize();
 #else
             Matrix logits = model->forward(pair.input_tokens, pair.target_tokens);
 
@@ -872,6 +878,16 @@ float ChatbotTrainer::train_epoch(int epoch) {
                     pad_eff_sum += win_eff;
                     ++pad_eff_count;
                 }
+
+#ifdef ADAI_ENABLE_GPU
+                // Pull the GPU-resident gradient accumulators into the CPU grad
+                // buffers *before* anything below reads them. gpu_backward() only
+                // ever writes to device-resident buffers, so get_gradient_norm()
+                // and clip_gradients() would otherwise see the all-zero CPU
+                // buffers left by zero_grad() at the top of this accumulation
+                // window — silently skipping clipping every step.
+                model->gpu_download_grads();
+#endif
 
                 // Get gradient norm before clipping
                 float grad_norm = optimizer->get_gradient_norm();
@@ -1026,10 +1042,6 @@ float ChatbotTrainer::train_epoch(int epoch) {
                 }
                 // ─────────────────────────────────────────────────────────────────
 
-#ifdef ADAI_ENABLE_GPU
-                // Download GPU gradients into CPU grad members before optimizer step
-                model->gpu_download_grads();
-#endif
                 // Update weights via optimizer
                 optimizer->step();
 #ifdef ADAI_ENABLE_GPU
@@ -1037,7 +1049,15 @@ float ChatbotTrainer::train_epoch(int epoch) {
                 model->gpu_sync_weights();
 #endif
 
-                total_loss += accumulated_loss;
+                // step_loss_for_cb (not accumulated_loss) — accumulated_loss is the raw SUM
+                // of this window's per-sample losses; total_loss is later divided by
+                // num_updates (a count of windows, not samples), so summing the unscaled
+                // window total here inflated the epoch-end average by roughly the
+                // accumulation window size (e.g. ~32x with GRADIENT_ACCUMULATION_STEPS=32),
+                // which is exactly what produced the "loss" ≈ 200 / perplexity=inf spike
+                // logged once per epoch via end_epoch(). step_loss_for_cb is already
+                // properly scaled by config.gradient_accumulation_steps.
+                total_loss += step_loss_for_cb;
                 global_step++;
 
                 // Log progress
@@ -1194,11 +1214,24 @@ float ChatbotTrainer::validate() {
         const auto& pair = tokenized_validation_data[i];
 
         try {
-            // Use evaluate()/gpu_evaluate() — loss only, no weight updates
+            // Use the tokenized overloads with the already-truncated ids from
+            // tokenized_validation_data — the text overloads re-tokenize
+            // pair.input_text/target_text from scratch with no length cap,
+            // which let occasional long validation samples blow the GPU
+            // memory budget (attention temporaries scale O(seq^2)) far past
+            // what training ever allocates for the same dataset.
 #ifdef ADAI_ENABLE_GPU
-            float loss = model->gpu_evaluate(pair.input_text, pair.target_text);
+            float loss = model->gpu_evaluate_tokenized(pair.input_tokens, pair.target_tokens);
+
+            // Drain the queue before the next sample — see the identical
+            // comment in the training loop above. Validation sets can be far
+            // larger than one accumulation window and have no optimizer-step
+            // backpressure, so without this the unsynchronized backlog of
+            // forward-pass temporaries grows unchecked across the whole
+            // validation pass.
+            model->gpu_synchronize();
 #else
-            float loss = model->evaluate(pair.input_text, pair.target_text);
+            float loss = model->evaluate_tokenized(pair.input_tokens, pair.target_tokens);
 #endif
             total_loss += loss;
             if (config.enable_loss_quality_backfill) {

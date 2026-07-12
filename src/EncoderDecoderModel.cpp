@@ -363,13 +363,21 @@ float EncoderDecoderModel::train_step_tokenized(const std::vector<int>& input_to
 
 // Evaluate (no gradients)
 float EncoderDecoderModel::evaluate(const std::string& input_text, const std::string& target_text) {
-    bool prev_mode = requires_grad;
-    set_training(false);
-
+    // encode() has no length cap, unlike the truncate() step ChatbotTrainer
+    // applies when first tokenizing the dataset — prefer evaluate_tokenized()
+    // with already-truncated ids whenever they're available.
     std::vector<int> input_tokens =
         tokenizer->encode(input_text, false);  // Encoder: no special tokens
     std::vector<int> target_tokens =
         tokenizer->encode(target_text, true);  // Decoder: with special tokens
+
+    return evaluate_tokenized(input_tokens, target_tokens);
+}
+
+float EncoderDecoderModel::evaluate_tokenized(const std::vector<int>& input_tokens,
+                                              const std::vector<int>& target_tokens) {
+    bool prev_mode = requires_grad;
+    set_training(false);
 
     // Forward pass only
     Matrix logits = forward(input_tokens, target_tokens);
@@ -405,7 +413,7 @@ float EncoderDecoderModel::compute_perplexity(const std::vector<std::string>& in
 // Set training mode
 void EncoderDecoderModel::set_training(bool mode) {
     requires_grad = mode;
-    // encoder->set_training(mode);  // LLMEncoder doesn't have this method
+    encoder->set_requires_grad(mode);
     decoder->set_training(mode);
 }
 
@@ -650,20 +658,13 @@ void EncoderDecoderModel::backward(const Matrix& grad_output) {
     // Backward through LM head
     Matrix grad_decoder = lm_head->backward(grad_output);
 
-    // Backward through decoder
-    decoder->backward(grad_decoder);
+    // Backward through decoder, capturing the gradient w.r.t. encoder output
+    // (summed across every decoder block's cross-attention)
+    Matrix grad_encoder_output;
+    decoder->backward(grad_decoder, grad_encoder_output);
 
-    // Backward through encoder (via cross-attention gradients in decoder)
-    // The decoder's cross-attention already computed gradients for encoder output
-    // We need to propagate those back through the encoder
-    // This is handled internally by the decoder's backward pass
-
-    // For now, we'll implement a simple version
-    // In a full implementation, we'd need to collect cross-attention gradients
-    // and propagate them back through the encoder
-
-    // Simplified: just update encoder based on its own gradients
-    // (This would be enhanced in a production implementation)
+    // Backward through encoder
+    encoder->backward(grad_encoder_output);
 }
 
 #ifdef ADAI_ENABLE_GPU
@@ -728,22 +729,39 @@ void EncoderDecoderModel::gpu_backward(float scale) {
     // LM head backward — accumulates dW, db; returns d_dec_out
     adai::gpu::GPUMatrix d_dec = lm_head->gpu_backward(dlogits);
 
-    // Decoder backward — accumulates gradients into each block
-    decoder->gpu_backward(d_dec);
+    // Decoder backward — accumulates gradients into each block, and returns the
+    // gradient w.r.t. encoder_output summed across every decoder block's
+    // cross-attention.
+    auto [grad_decoder_embed_input, grad_encoder_output] = decoder->gpu_backward(d_dec);
+    // Decoder's own token-embedding gradient is not wired on the GPU path yet
+    // (pre-existing, separate gap — the CPU path does this, the GPU path doesn't).
+    (void)grad_decoder_embed_input;
 
-    // Encoder backward is simplified (same as CPU path): encoder grads accumulate
-    // via cross-attention during decoder backward (d_kv is discarded per design)
+    // Encoder backward
+    encoder->gpu_backward(grad_encoder_output);
 }
 
 float EncoderDecoderModel::gpu_evaluate(const std::string& input_text,
                                          const std::string& target_text) {
-    bool prev_mode = requires_grad;
-    set_training(false);
-
+    // encode() has no length cap, unlike the truncate() step ChatbotTrainer
+    // applies when first tokenizing the dataset — prefer
+    // gpu_evaluate_tokenized() with already-truncated ids whenever available.
+    // An untruncated sequence here scales the encoder/decoder's on-device
+    // temporaries (attention scores are O(seq^2)) well past what the model
+    // ever sees during training, which is what was blowing the GPU memory
+    // budget during validation.
     std::vector<int> input_tokens =
         tokenizer->encode(input_text, false);  // Encoder: no special tokens
     std::vector<int> target_tokens =
         tokenizer->encode(target_text, true);  // Decoder: with special tokens
+
+    return gpu_evaluate_tokenized(input_tokens, target_tokens);
+}
+
+float EncoderDecoderModel::gpu_evaluate_tokenized(const std::vector<int>& input_tokens,
+                                                  const std::vector<int>& target_tokens) {
+    bool prev_mode = requires_grad;
+    set_training(false);
 
     // Forward pass only — gpu_forward() already computes cross-entropy loss
     // on-device, so there is nothing further to compute here. Deliberately
@@ -806,5 +824,9 @@ void EncoderDecoderModel::gpu_sync_weights() {
     encoder->gpu_upload_weights();
     decoder->gpu_upload_weights();
     lm_head->gpu_upload_weights();
+}
+
+void EncoderDecoderModel::gpu_synchronize() {
+    adai::gpu::GPUManager::synchronize();
 }
 #endif

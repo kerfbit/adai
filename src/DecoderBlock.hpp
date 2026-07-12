@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 #include "CrossAttention.hpp"
 #include "FeedForward.hpp"
 #include "KVCache.hpp"
@@ -182,8 +183,13 @@ class DecoderBlock {
      *   9. Self-attention (backward)
      *
      * @param grad_output Gradient from next layer [seq_len, d_model]
+     * @param grad_encoder_output Out-param: gradient w.r.t. this block's cross-attention
+     *   encoder input (K/V source), overwritten (not accumulated) by this call.
      * @return Gradient w.r.t. input [seq_len, d_model]
      */
+    Matrix backward(const Matrix& grad_output, Matrix& grad_encoder_output);
+
+    /** Convenience overload: discards the encoder-side gradient. */
     Matrix backward(const Matrix& grad_output);
 
     /**
@@ -236,7 +242,9 @@ class DecoderBlock {
     adai::gpu::GPUMatrix gpu_forward(const adai::gpu::GPUMatrix& input,
                                       const adai::gpu::GPUMatrix& encoder_out,
                                       const adai::gpu::GPUMatrix* self_mask = nullptr);
-    // Returns d_input (grad w.r.t. decoder input; encoder grad discarded)
-    adai::gpu::GPUMatrix gpu_backward(const adai::gpu::GPUMatrix& dout);
+    // Returns {grad_input, grad_encoder_output} — gradient w.r.t. decoder input,
+    // and gradient w.r.t. this block's cross-attention encoder input.
+    std::pair<adai::gpu::GPUMatrix, adai::gpu::GPUMatrix> gpu_backward(
+        const adai::gpu::GPUMatrix& dout);
 #endif
 };

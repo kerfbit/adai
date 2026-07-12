@@ -346,7 +346,8 @@ IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
 
     if (!session_history.empty()) {
         for (const auto& session : session_history) {
-            if (session.final_validation_loss < best_validation_loss) {
+            if (is_sane_checkpoint_candidate(session) &&
+                session.final_validation_loss < best_validation_loss) {
                 best_validation_loss = session.final_validation_loss;
                 best_checkpoint_path = session.checkpoint_path;
             }
@@ -395,6 +396,10 @@ IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
         }
     }
 
+    // Now that this run's resume decision is locked in, sweep away anything
+    // left behind by a crashed prior attempt.
+    cleanup_dead_sessions();
+
     last_save_time = std::chrono::system_clock::now();
 }
 
@@ -422,7 +427,8 @@ IncrementalTrainer::IncrementalTrainer(std::string vocab_path, const std::string
     // Initialize best checkpoint from history (TD-005)
     if (!session_history.empty()) {
         for (const auto& session : session_history) {
-            if (session.final_validation_loss < best_validation_loss) {
+            if (is_sane_checkpoint_candidate(session) &&
+                session.final_validation_loss < best_validation_loss) {
                 best_validation_loss = session.final_validation_loss;
                 best_checkpoint_path = session.checkpoint_path;
             }
@@ -440,6 +446,8 @@ IncrementalTrainer::IncrementalTrainer(std::string vocab_path, const std::string
             }
         }
     }
+
+    cleanup_dead_sessions();
 
     last_save_time = std::chrono::system_clock::now();
 }
@@ -471,7 +479,8 @@ IncrementalTrainer::IncrementalTrainer(std::string vocab_path, const std::string
 
     if (!session_history.empty()) {
         for (const auto& session : session_history) {
-            if (session.final_validation_loss < best_validation_loss) {
+            if (is_sane_checkpoint_candidate(session) &&
+                session.final_validation_loss < best_validation_loss) {
                 best_validation_loss = session.final_validation_loss;
                 best_checkpoint_path = session.checkpoint_path;
             }
@@ -489,6 +498,8 @@ IncrementalTrainer::IncrementalTrainer(std::string vocab_path, const std::string
             }
         }
     }
+
+    cleanup_dead_sessions();
 
     last_save_time = std::chrono::system_clock::now();
 }
@@ -985,6 +996,128 @@ std::vector<TrainingSession> IncrementalTrainer::get_session_history() const {
     return session_history;
 }
 
+bool IncrementalTrainer::is_sane_checkpoint_candidate(const TrainingSession& session) {
+    // Zero-sample sessions never ran validation, so final_validation_loss is
+    // left at its zero-initialized default rather than a real measurement.
+    if (session.samples_trained <= 0) {
+        return false;
+    }
+    // NaN/Inf means the run diverged (or crashed mid-computation) before
+    // producing a usable loss; an exact 0.0 is not an achievable cross-entropy
+    // loss and indicates the value was never actually written.
+    if (!std::isfinite(session.final_validation_loss) || session.final_validation_loss <= 0.0f) {
+        return false;
+    }
+    // A checkpoint whose file (or required .config sidecar) has been deleted
+    // out from under its history entry can't be resumed from.
+    if (session.checkpoint_path.empty() || !fs::exists(session.checkpoint_path) ||
+        !fs::exists(session.checkpoint_path + ".config")) {
+        return false;
+    }
+    return true;
+}
+
+void IncrementalTrainer::cleanup_dead_sessions() {
+    const std::string sdir = get_session_dir();
+    std::error_code ec;
+    if (!fs::exists(sdir, ec)) {
+        return;
+    }
+
+    // Checkpoints referenced by a (still-to-be-vetted) history entry are the
+    // only "session_N_checkpoint.bin" files considered live at this point.
+    std::set<std::string> known_checkpoints;
+    for (const auto& session : session_history) {
+        known_checkpoints.insert(session.checkpoint_path);
+    }
+
+    for (const auto& dir_entry : fs::directory_iterator(sdir, ec)) {
+        if (ec) {
+            break;
+        }
+        const auto& path = dir_entry.path();
+        if (path.extension().string() != ".bin") {
+            continue;  // only inspect base checkpoint files; sidecars follow their base
+        }
+        const std::string stem = path.stem().string();
+
+        int session_id = -1;
+        bool is_best = false;
+        bool is_autosave = false;
+
+        if (stem.rfind("session_", 0) == 0) {
+            const std::string rest = stem.substr(8);
+            const size_t sep = rest.find('_');
+            if (sep == std::string::npos) {
+                continue;
+            }
+            try {
+                session_id = std::stoi(rest.substr(0, sep));
+            } catch (...) {
+                continue;
+            }
+            const std::string kind = rest.substr(sep + 1);
+            if (kind == "best") {
+                is_best = true;
+            } else if (kind != "checkpoint") {
+                continue;  // unrecognized "session_*" file — leave it alone
+            }
+        } else if (stem.rfind("auto_save_session_", 0) == 0) {
+            static const std::string autosave_prefix = "auto_save_session_";
+            try {
+                session_id = std::stoi(stem.substr(autosave_prefix.size()));
+            } catch (...) {
+                continue;
+            }
+            is_autosave = true;
+        } else {
+            continue;
+        }
+
+        const std::string full = path.string();
+        std::string reason;
+
+        if (is_best || is_autosave) {
+            // A completed session's own best-snapshot / autosave is deleted by
+            // finalize_session()/cleanup_old_sessions(); any that still exist
+            // under an id other than the current in-progress session belong to
+            // a run that crashed before reaching that cleanup.
+            if (session_id != current_session_id) {
+                reason = "orphaned snapshot from a crashed/superseded session";
+            }
+        } else if (known_checkpoints.find(full) == known_checkpoints.end()) {
+            // A bare checkpoint with no matching history line: the run
+            // crashed between writing the file and appending its record.
+            reason = "checkpoint has no matching session_history entry";
+        }
+
+        if (!reason.empty()) {
+            Logger::info("Cleaning up dead session artifact: {} ({})", full, reason);
+            remove_model_files(full);
+        }
+    }
+
+    // Drop history entries whose recorded results can no longer be trusted
+    // (zero samples trained, non-finite/non-positive loss, or a checkpoint
+    // that's gone missing) so they stop being reconsidered on every restart.
+    bool history_changed = false;
+    for (auto it = session_history.begin(); it != session_history.end();) {
+        if (!is_sane_checkpoint_candidate(*it)) {
+            Logger::info(
+                "Removing broken session {} from history (samples_trained={}, val_loss={})",
+                it->session_id, it->samples_trained, it->final_validation_loss);
+            remove_model_files(it->checkpoint_path);
+            it = session_history.erase(it);
+            history_changed = true;
+        } else {
+            ++it;
+        }
+    }
+    if (history_changed) {
+        save_session_history();
+    }
+}
+
 void IncrementalTrainer::remove_model_files(const std::string& base_path) {
     static const std::vector<std::string> sidecars = {".config", ".vocab", ".encoder", ".decoder",
                                                       ".lm_head"};
@@ -1046,8 +1179,8 @@ void IncrementalTrainer::cleanup_old_sessions() {
             // Search through remaining sessions (after the ones we're removing)
             for (size_t j = to_remove; j < session_history.size(); ++j) {
                 const auto& remaining_session = session_history[j];
-                if (remaining_session.final_validation_loss < best_validation_loss &&
-                    fs::exists(remaining_session.checkpoint_path)) {
+                if (is_sane_checkpoint_candidate(remaining_session) &&
+                    remaining_session.final_validation_loss < best_validation_loss) {
                     best_validation_loss = remaining_session.final_validation_loss;
                     best_checkpoint_path = remaining_session.checkpoint_path;
                 }

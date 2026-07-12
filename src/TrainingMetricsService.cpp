@@ -629,7 +629,11 @@ std::string TrainingMetricsService::to_json() const {
         << ",\n";
     oss << "  \"gradient_variance\": " << snapshot.gradient_variance << ",\n";
     oss << "  \"compute_time_ratio\": " << snapshot.compute_time_ratio << ",\n";
-    oss << "  \"weight_update_ratio\": " << snapshot.weight_update_ratio << ",\n";
+    // Scientific notation: (lr * ||g||) / ||w|| is routinely 1e-6 or smaller during
+    // warmup, which std::fixed/setprecision(6) above silently rounds to "0.000000",
+    // making a genuinely tiny-but-real ratio indistinguishable from a broken/zero one.
+    oss << "  \"weight_update_ratio\": " << std::scientific << std::setprecision(3)
+        << snapshot.weight_update_ratio << std::fixed << std::setprecision(6) << ",\n";
     oss << "  \"activation_saturation_ratio\": " << snapshot.activation_saturation_ratio << ",\n";
     oss << "  \"attention_entropy\": " << snapshot.attention_entropy << ",\n";
     oss << "  \"current_bleu4\": " << snapshot.current_bleu4 << ",\n";
@@ -755,7 +759,26 @@ void TrainingMetricsService::clear_history() {
     std::lock_guard<std::mutex> lock(mutex_);
 
     history_.clear();
-    adai::Logger::info("Metrics history cleared");
+
+    // Also reset "best" tracking: start_session() deliberately carries
+    // best_validation_loss/best_epoch forward across sessions for the same key
+    // (see its comment) so a genuine multi-session resume doesn't lose track of
+    // the best checkpoint. But nothing previously reset that state, so a stale
+    // best from an old/aborted run kept resurrecting itself on every later
+    // session. This is the one explicit "clear" entry point, so it's the place
+    // that reset belongs.
+    current_snapshot_.best_validation_loss = std::numeric_limits<float>::max();
+    current_snapshot_.best_epoch = 0;
+
+    // Persist immediately — otherwise a metrics-service restart (or DB/summary
+    // restore at the next session's construction) just reloads the pre-clear
+    // value right back in, exactly as before.
+    persist_summary();
+    if (config_.enable_prometheus_format) {
+        persist_prometheus();
+    }
+
+    adai::Logger::info("Metrics history and best-validation tracking cleared");
 }
 
 void TrainingMetricsService::set_config(const MetricsServiceConfig& config) {

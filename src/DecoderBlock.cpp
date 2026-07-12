@@ -163,6 +163,11 @@ Matrix DecoderBlock::forward_with_cache(const Matrix& input, const Matrix& encod
 }
 
 Matrix DecoderBlock::backward(const Matrix& grad_output) {
+    Matrix unused_grad_encoder_output;
+    return backward(grad_output, unused_grad_encoder_output);
+}
+
+Matrix DecoderBlock::backward(const Matrix& grad_output, Matrix& grad_encoder_output) {
     // Step 1: Gradient through third layer norm
     Matrix grad_residual3 = norm3->backward(grad_output);
 
@@ -204,7 +209,7 @@ Matrix DecoderBlock::backward(const Matrix& grad_output) {
     }
 
     // Step 7: Gradient through cross-attention
-    Matrix grad_normed1_from_cross, grad_encoder_output;
+    Matrix grad_normed1_from_cross;
     cross_attention->backward(grad_cross_attn_output, grad_normed1_from_cross, grad_encoder_output);
 
     // Step 8: Accumulate gradients from both paths
@@ -438,7 +443,8 @@ adai::gpu::GPUMatrix DecoderBlock::gpu_forward(const adai::gpu::GPUMatrix& input
     return norm3->gpu_forward(res3);
 }
 
-adai::gpu::GPUMatrix DecoderBlock::gpu_backward(const adai::gpu::GPUMatrix& dout) {
+std::pair<adai::gpu::GPUMatrix, adai::gpu::GPUMatrix> DecoderBlock::gpu_backward(
+    const adai::gpu::GPUMatrix& dout) {
     // Back through norm3
     adai::gpu::GPUMatrix d_res3 = norm3->gpu_backward(dout);
 
@@ -450,9 +456,8 @@ adai::gpu::GPUMatrix DecoderBlock::gpu_backward(const adai::gpu::GPUMatrix& dout
     adai::gpu::GPUMatrix d_res2 = norm2->gpu_backward(d_normed2);
 
     // Residual2: d_normed1 += d_res2, d_cross = d_res2
-    // cross_attention backward returns {d_query=d_normed1, d_kv=d_encoder} — discard d_kv
+    // cross_attention backward returns {d_query=d_normed1, d_kv=d_encoder}
     auto [d_normed1_cross, d_enc] = cross_attention->gpu_backward(d_res2);
-    (void)d_enc;  // encoder backward not propagated (same as CPU simplified path)
     adai::gpu::GPUMatrix d_normed1 = d_res2 + d_normed1_cross;
 
     // Back through norm1
@@ -460,6 +465,6 @@ adai::gpu::GPUMatrix DecoderBlock::gpu_backward(const adai::gpu::GPUMatrix& dout
 
     // Residual1: d_input from self-attn
     adai::gpu::GPUMatrix d_input_self = self_attention->gpu_backward(d_res1);
-    return d_res1 + d_input_self;
+    return {d_res1 + d_input_self, std::move(d_enc)};
 }
 #endif
