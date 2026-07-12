@@ -25,6 +25,7 @@ chatbot_trainer
 
 # Build directories
 build/
+build-*/
 cmake-build-*/
 .cmake/
 
@@ -51,6 +52,12 @@ checkpoints/
 # Test artifacts
 Testing/
 test_*.bin
+tests/test_migration
+tests/test_migration_verify
+tests/test_special_tokens_header
+
+# Deployed/scp'd binaries named after the target host
+adai@*
 
 # Coverage reports
 *.gcda
@@ -113,3 +120,12 @@ training_sessions/pending_files.txt
 training_sessions/session_history.txt
 training_sessions/metrics_summary.json
 training_sessions/abnormal_samples.json
+
+# Local one-off downloads / build byproducts (not source, too large for GitHub)
+huggingface_data/*_training.jsonl
+huggingface_data/*/full_dataset.jsonl
+huggingface_data/*/parquet/
+huggingface_data/*/parquet_info.json
+*.tar.gz
+intel-oneapi-toolkit-*.sh
+/test_encoder_decoder_*.lm_head

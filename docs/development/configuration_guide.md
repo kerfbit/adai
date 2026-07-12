@@ -182,6 +182,36 @@ services:
       - "8080:8080"
 ```
 
+## Using the Service Script
+
+The easiest way to run the server is using `model_service.sh`, which automatically uses `config.conf`:
+
+```bash
+# Start in background
+./scripts/model_service.sh start
+
+# Start in foreground with custom config
+./scripts/model_service.sh start --foreground --config my_custom_config.conf
+```
+
+See [operations/guides/MODEL_SERVICE_MANAGER.md](../operations/guides/MODEL_SERVICE_MANAGER.md) for full details.
+
+## Constructor Parameter Order
+
+The `EncoderDecoderModel` constructor receives parameters in this order:
+
+```cpp
+EncoderDecoderModel(
+    vocab_size,          // Vocabulary size
+    d_model,             // Model dimension (512)
+    encoder_layers,      // Number of encoder layers (6)
+    decoder_layers,      // Number of decoder layers (6)
+    num_heads,           // Number of attention heads (8)
+    d_ff,                // Feed-forward dimension (2048)
+    max_seq_length       // Maximum sequence length (1024)
+)
+```
+
 ## Migration from Old Configuration
 
 If you were using command-line arguments exclusively, you can:

@@ -497,6 +497,18 @@ target_link_libraries(metricsSessionRegistryTests
 )
 add_test(NAME MetricsSessionRegistryTests COMMAND metricsSessionRegistryTests)
 
+# TD-020: Metrics Database Persistence tests
+add_executable(metricsDatabaseTests MetricsDatabaseTest.cpp)
+target_include_directories(metricsDatabaseTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(metricsDatabaseTests
+    adai_core
+    GTest::gtest_main
+)
+if(SQLITE3_FOUND)
+    target_include_directories(metricsDatabaseTests PRIVATE ${SQLITE3_INCLUDE_DIR})
+endif()
+add_test(NAME MetricsDatabaseTests COMMAND metricsDatabaseTests)
+
 # TD-021: IncrementalTrainer × Metrics Service Decoupling tests
 add_executable(incrementalTrainerDecouplingTests
     incremental_trainer_registry_test.cpp
@@ -551,6 +563,63 @@ if(TARGET adai_metrics_api)
         target_include_directories(trainingMetricsApiRoutesTests PRIVATE ${HTTPLIB_INCLUDE_DIR})
     endif()
     add_test(NAME TrainingMetricsAPIRoutesTests COMMAND trainingMetricsApiRoutesTests)
+
+    # Live-server integration tests — connect to a running metrics_api_server.
+    # Override target with: METRICS_SERVER_HOST=<host> METRICS_SERVER_PORT=<port>
+    # Tests are skipped automatically when the server is unreachable.
+    add_executable(trainingMetricsApiLiveTests training_metrics_api_live_test.cpp)
+    target_include_directories(trainingMetricsApiLiveTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(trainingMetricsApiLiveTests
+        adai_core
+        GTest::gtest_main
+    )
+    if(HTTPLIB_INCLUDE_DIR)
+        target_include_directories(trainingMetricsApiLiveTests PRIVATE ${HTTPLIB_INCLUDE_DIR})
+    endif()
+    add_test(NAME TrainingMetricsAPILiveTests COMMAND trainingMetricsApiLiveTests)
+
+    # Live-server integration tests for registry_server (TD-028 Phase 9).
+    # Override target with: REGISTRY_SERVER_HOST=<host> REGISTRY_SERVER_PORT=<port>
+    # Tests are skipped automatically when the server is unreachable.
+    add_executable(datasetRegistryLiveTests dataset_registry_live_test.cpp)
+    target_include_directories(datasetRegistryLiveTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(datasetRegistryLiveTests
+        adai_core
+        GTest::gtest_main
+    )
+    if(HTTPLIB_INCLUDE_DIR)
+        target_include_directories(datasetRegistryLiveTests PRIVATE ${HTTPLIB_INCLUDE_DIR})
+    endif()
+    add_test(NAME DatasetRegistryLiveTests COMMAND datasetRegistryLiveTests)
+endif()
+
+# Model Name Service live-server integration tests.
+# Override target with: MNS_SERVER_HOST=<host> MNS_SERVER_PORT=<port>
+# Tests auto-skip when mns_server is unreachable.
+if(TARGET adai_mns)
+    add_executable(mnsLiveTests model_name_service_live_test.cpp)
+    target_include_directories(mnsLiveTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(mnsLiveTests
+        adai_core
+        GTest::gtest_main
+    )
+    if(HTTPLIB_INCLUDE_DIR)
+        target_include_directories(mnsLiveTests PRIVATE ${HTTPLIB_INCLUDE_DIR})
+    endif()
+    add_test(NAME MNSLiveTests COMMAND mnsLiveTests)
+
+    # MNS Manager GUI unit + integration tests.
+    # Part 1 (json helpers, URL parser) always runs; Part 2 auto-skips without a server.
+    if(HTTPLIB_INCLUDE_DIR)
+        add_executable(mnsManagerGuiTests mns_manager_gui_test.cpp)
+        target_include_directories(mnsManagerGuiTests PRIVATE
+            ${CMAKE_SOURCE_DIR}/src ${HTTPLIB_INCLUDE_DIR})
+        target_link_libraries(mnsManagerGuiTests
+            adai_core
+            GTest::gtest_main
+        )
+        add_test(NAME MnsManagerGuiTests COMMAND mnsManagerGuiTests)
+    endif()
 endif()
 
 # TD-017: Adaptive gradient clipping tests (TrainingMetricsService)
@@ -631,4 +700,64 @@ target_link_libraries(dataFetcherTests
 )
 add_test(NAME DataFetcherTests COMMAND dataFetcherTests)
 
-message(STATUS "Configured 52 test suites using library targets (including Config, Logger, IncrementalTrainer, LLMEncoder, DocumentStore, RAGInference, BatchProcessor, ParallelDataLoader, IntegratedInferenceEngine, PipelineInferenceEngine, BatchedInferenceEngine, SpeculativeDecoding, VocabBuilder, ChatbotAPI, ChatbotTrainer, GenerationQuality, GenerationQualityAsync, PaddingEfficiency, AdaptiveClipping, ModelSerializer, StaleDetection, BackgroundLaunch, integration, RAG/BERT comparison, Phase 5, DatasetRegistry and DataFetcher tests)")
+# TrainingSampleMeta unit tests (SampleMeta, sample_to_jsonl, parse_jsonl_sample)
+add_executable(trainingSampleMetaTests training_sample_meta_test.cpp)
+target_include_directories(trainingSampleMetaTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(trainingSampleMetaTests GTest::gtest_main)
+add_test(NAME TrainingSampleMetaTests COMMAND trainingSampleMetaTests)
+
+# TD-028 Phase 10 (FTP transport): FtpDataServer unit tests
+# Tests TokenStore, ftp_detail helpers, issue_token, AcquireResponse.
+# Does NOT start the FTP server (no network/port binding).
+# Phase 3: BUILD_FTPS enabled when OpenSSL is found so HMAC and rate-limit
+# tests exercise the real crypto path.
+find_package(OpenSSL QUIET)
+add_executable(ftpDataServerTests FtpDataServerTests.cpp)
+target_link_libraries(ftpDataServerTests
+    adai_core
+    GTest::gtest_main
+)
+if(OPENSSL_FOUND)
+    target_compile_definitions(ftpDataServerTests PRIVATE BUILD_FTPS)
+    target_link_libraries(ftpDataServerTests OpenSSL::SSL OpenSSL::Crypto)
+    message(STATUS "FtpDataServerTests: BUILD_FTPS enabled (OpenSSL found)")
+endif()
+add_test(NAME FtpDataServerTests COMMAND ftpDataServerTests)
+
+# TD-028 Phase 10 (FTP transport): DataTransport unit tests
+# Compiled WITHOUT BUILD_FTP_TRANSPORT to exercise the stub implementations.
+# Also validates FileToken and AcquireResponse struct defaults.
+add_executable(dataTransportTests DataTransportTests.cpp)
+target_link_libraries(dataTransportTests
+    adai_core
+    GTest::gtest_main
+)
+add_test(NAME DataTransportTests COMMAND dataTransportTests)
+
+# TD-028 Phase 2 (FTP transport): DataTransport unit tests WITH libcurl.
+# Tests Condition B (skip re-download for complete files), parallel fetch_all
+# result ordering, and error propagation — all without a running FTP server.
+# find_package result is cached so this is a no-op if src/CMakeLists already ran it.
+find_package(CURL QUIET)
+if(ENABLE_FTP_TRANSPORT AND CURL_FOUND)
+    add_executable(dataTransportFtpTests DataTransportFtpTests.cpp)
+    target_compile_definitions(dataTransportFtpTests PRIVATE BUILD_FTP_TRANSPORT)
+    target_link_libraries(dataTransportFtpTests
+        adai_core
+        CURL::libcurl
+        GTest::gtest_main
+    )
+    add_test(NAME DataTransportFtpTests COMMAND dataTransportFtpTests)
+endif()
+
+# TD-028 Phase 2 (startup sweep): startup_sweep() unit tests.
+# Tests all four cleanup conditions (A, D, G, B/C) using a real
+# DatasetRegistry backed by a temp directory — no FTP server needed.
+add_executable(startupSweepTests StartupSweepTests.cpp)
+target_link_libraries(startupSweepTests
+    adai_core
+    GTest::gtest_main
+)
+add_test(NAME StartupSweepTests COMMAND startupSweepTests)
+
+message(STATUS "Configured 57+ test suites using library targets (including Config, Logger, IncrementalTrainer, LLMEncoder, DocumentStore, RAGInference, BatchProcessor, ParallelDataLoader, IntegratedInferenceEngine, PipelineInferenceEngine, BatchedInferenceEngine, SpeculativeDecoding, VocabBuilder, ChatbotAPI, ChatbotTrainer, GenerationQuality, GenerationQualityAsync, PaddingEfficiency, AdaptiveClipping, ModelSerializer, StaleDetection, BackgroundLaunch, integration, RAG/BERT comparison, Phase 5, DatasetRegistry, DatasetRegistryLive, DataFetcher, FtpDataServer, DataTransport, DataTransportFtp, StartupSweep, and TrainingSampleMeta tests)")

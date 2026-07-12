@@ -123,6 +123,12 @@ struct ServiceConfig {
     /// Batch size / gradient accumulation steps (default: 1)
     int batch_size = 1;
 
+    /// Number of samples to accumulate gradients over before each optimizer step
+    /// (default: 1). The optimizer step and GPU<->host weight/gradient sync run
+    /// once per this many samples, so values > 1 amortize that overhead across
+    /// the batch instead of paying it on every sample.
+    int gradient_accumulation_steps = 1;
+
     // ============================================================
     // Generation Parameters
     // ============================================================
@@ -154,6 +160,10 @@ struct ServiceConfig {
 
     /// URL of metrics API daemon; empty string disables push reporting (default: http://localhost:8081)
     std::string metrics_server_url = "http://localhost:8081";
+
+    // TODO: See TECHNICAL_DEBT.md TD-018 - Add METRICS_SESSION_KEY (string, default "0-default"),
+    //   METRICS_MAX_LIVE_SESSIONS (int, default 16), METRICS_COMPLETED_TTL_SECONDS (int, default 3600),
+    //   METRICS_SWEEP_INTERVAL_SECONDS (int, default 60); parse in Config.cpp alongside existing keys.
 
     /// HTTP timeout for pushing metrics in milliseconds (default: 1000)
     int metrics_push_timeout_ms = 1000;
@@ -207,11 +217,32 @@ struct ServiceConfig {
     /// are set in snapshot reads and API responses so dashboards don't show false "running" state.
     int metrics_staleness_threshold_seconds = 60;
 
+    /// Interval in milliseconds between heartbeat POSTs sent by MetricsPushClient when no other
+    /// events are queued (e.g. during pre-processing). Keeps the session visible on the dashboard.
+    /// Should be less than METRICS_STALENESS_THRESHOLD_SECONDS * 1000 (default: 30000).
+    int metrics_heartbeat_interval_ms = 30000;
+
     /// Port for metrics API server daemon (default: 8081)
     int metrics_api_port = 8081;
 
     /// Allow control endpoints in metrics API (default: true)
     bool metrics_api_allow_control = true;
+
+    // ============================================================
+    // Metrics Database Persistence (TD-020)
+    // ============================================================
+
+    /// Storage backend: "file", "sqlite", "postgres", "sqlite+file", "postgres+file"
+    std::string metrics_storage_backend = "sqlite+file";
+
+    /// SQLite database file path (default: training_sessions/metrics.db)
+    std::string metrics_db_path = "training_sessions/metrics.db";
+
+    /// PostgreSQL connection URL (used when backend includes "postgres")
+    std::string metrics_db_url;
+
+    /// PostgreSQL connection pool size (default: 4)
+    int metrics_db_pool_size = 4;
 
     // ============================================================
     // Distributed Registry Configuration (TD-028 Phase 9)
@@ -229,6 +260,51 @@ struct ServiceConfig {
 
     /// HTTP timeout for registry_server calls in milliseconds (default: 5000)
     int registry_timeout_ms = 5000;
+
+    // ============================================================
+    // FTP Dataset Transport Configuration (Phase 10)
+    // Server-side (registry_server): FTP listener and token settings.
+    // Client-side (incremental_trainer): download directory and limits.
+    // ============================================================
+
+    /// FTP control port for the embedded FtpDataServer (default: 2121)
+    int ftp_server_port = 2121;
+
+    /// Lower bound of the PASV data port range (default: 50000)
+    int ftp_pasv_port_min = 50000;
+
+    /// Upper bound of the PASV data port range (default: 50099)
+    int ftp_pasv_port_max = 50099;
+
+    /// Per-file FTP token TTL in minutes (default: 30)
+    int ftp_token_ttl_minutes = 30;
+
+    /// HMAC key used for token signing (Phase 3); change in production
+    std::string ftp_data_server_secret = "change-me-in-production";
+
+    /// Trainer-owned directory for FTP downloads (default: "")
+    /// Empty = disabled; FTP transport is skipped even when the server sends tokens.
+    std::string download_dir;
+
+    /// Maximum concurrent FTP connections in fetch_all() (default: 4)
+    int max_parallel_downloads = 4;
+
+    /// Log a warning when a file transfer exceeds this size in MB; 0 = disabled (default: 500)
+    int large_file_warn_threshold_mb = 500;
+
+    // ── Phase 3: Security hardening ───────────────────────────────────────
+
+    /// Max concurrent FTP sessions per run_id; 0 = unlimited (default: 4)
+    int ftp_max_sessions_per_run = 4;
+
+    /// Enable FTPS (FTP over TLS) — encrypts credentials and data in transit (default: false)
+    bool ftps_enabled = false;
+
+    /// Path to PEM TLS certificate for the FTPS server; empty = generate self-signed
+    std::string ftp_cert_file;
+
+    /// Path to PEM TLS private key for the FTPS server; empty = generate self-signed
+    std::string ftp_key_file;
 
     // ============================================================
     // Outlier Detection Configuration (TD-021)
@@ -280,6 +356,28 @@ struct ServiceConfig {
     int rag_max_context_length = 512;
 
     // ============================================================
+    // Model Name Service Configuration
+    // ============================================================
+
+    /// URL of the ModelNameService daemon; empty = local file-path mode (default: "")
+    std::string name_service_url;
+
+    /// Listen port for the mns_server daemon (default: 8083)
+    int name_service_port = 8083;
+
+    /// Storage directory for mns_server JSONL files (default: "name_service")
+    std::string name_service_dir = "name_service";
+
+    /// HTTP timeout for ModelNameClient calls in milliseconds (default: 5000)
+    int name_service_timeout_ms = 5000;
+
+    /// Human-readable model name registered in the MNS (default: "")
+    std::string model_name;
+
+    /// Role used for resolve_role() at startup (e.g. "chatbot"); empty = use model_name
+    std::string model_role;
+
+    // ============================================================
     // GPU / CUDA Configuration
     // Only used when the binary is built with -DENABLE_GPU=ON.
     // ============================================================
@@ -312,6 +410,27 @@ struct ServiceConfig {
      *              gpu_memory_fraction (e.g. 0.9) to maximise throughput.
      */
     GPUStrategy gpu_strategy = GPUStrategy::BACKGROUND;
+
+    // ============================================================
+    // Tokenizer Configuration
+    // ============================================================
+
+    /// Use UTF-8 code-point tokenization (Unicode mode); false = byte-level ASCII mode (default).
+    ///
+    /// ASCII mode  — each raw byte is one BPE unit.  Fast, backward-compatible.
+    /// Unicode mode — each UTF-8 code point is one BPE unit.  Learns better
+    ///                subword merges for non-Latin scripts (CJK, Arabic, Cyrillic…).
+    ///
+    /// Config key: TOKENIZER_MODE = ascii | unicode
+    /// Env var:    TOKENIZER_MODE=unicode
+    bool unicode_tokenizer = false;
+
+    /// Target vocabulary size when auto-building a new vocabulary from training data.
+    /// 0 (default) = auto-size based on corpus, model architecture, and script analysis.
+    /// Any positive value overrides automatic sizing.
+    /// Config key: VOCAB_BUILD_SIZE = <int>   (0 = auto)
+    /// Env var:    VOCAB_BUILD_SIZE=<int>
+    int vocab_build_size = 0;
 };
 
 /**

@@ -657,7 +657,7 @@ Matrix grad_kv_input;         // [src_len, d_model]
 cross_attention->backward(
     grad_output,        // Input gradient
     grad_query_input,   // Output: gradient for decoder
-    grad_kv_input       // Output: gradient for encoder (usually ignored)
+    grad_kv_input       // Output: gradient for encoder (propagated to LLMEncoder::backward)
 );
 ```
 
@@ -1105,7 +1105,11 @@ mask(i, j) = (j < i) ? 1.0f : 0.0f;  // Excludes current position!
 Matrix grad_decoder, grad_encoder;
 cross_attention->backward(grad_output, grad_decoder, grad_encoder);
 // Use grad_decoder for decoder path
-// grad_encoder typically ignored (encoder already trained)
+// grad_encoder must be propagated into the encoder (see DecoderBlock::backward's
+// grad_encoder_output out-param, summed across layers by LLMDecoder::backward and
+// passed to LLMEncoder::backward by EncoderDecoderModel::backward) — only drop it
+// if the encoder is a genuinely frozen/pretrained component, via the 1-arg
+// DecoderBlock::backward()/LLMDecoder::backward() overloads.
 
 // WRONG: Single output API (doesn't exist for CrossAttention)
 Matrix grad = cross_attention->backward(grad_output);  // Compile error!

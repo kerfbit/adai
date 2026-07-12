@@ -1,11 +1,16 @@
 #include <array>
+#include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <sstream>
+#include <utility>
 #include "Config.hpp"
-#include "DataFetcher.hpp"
 #include "DatasetRegistry.hpp"
+#include "DataTransport.hpp"
 #include "IncrementalTrainer.hpp"
+#include "ModelNameClient.hpp"
+#include "StartupSweep.hpp"
 #include "Logger.hpp"
 #include "Matrix.hpp"
 
@@ -17,7 +22,37 @@
 #  include <windows.h>
 #endif
 
+namespace fs = std::filesystem;
+
 namespace {
+
+static constexpr const char* COLOR_RESET = "\033[0m";
+static constexpr const char* COLOR_INFO  = "\033[1;36m";
+
+void print_session_history(const std::vector<TrainingSession>& sessions) {
+    std::cout << COLOR_INFO << "\n📜 Session History:" << COLOR_RESET << '\n';
+    std::cout << "Session | Samples | Epochs | Loss   | Val Loss | Checkpoint\n";
+    std::cout << "--------|---------|--------|--------|----------|------------\n";
+    for (const auto& s : sessions) {
+        std::cout << std::setw(7) << s.session_id    << " | "
+                  << std::setw(7) << s.samples_trained << " | "
+                  << std::setw(6) << s.epochs_completed << " | "
+                  << std::setw(6) << std::fixed << std::setprecision(3) << s.final_loss << " | "
+                  << std::setw(8) << s.final_validation_loss << " | "
+                  << s.checkpoint_path << '\n';
+    }
+}
+
+void print_data_registry(const adai::ServiceConfig& svc_config) {
+    DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
+    reg.load_registry();
+    reg.load_pending_list();
+    std::cout << COLOR_INFO << "\n📋 Data Registry:" << COLOR_RESET << '\n';
+    std::cout << "Status  | Data File\n";
+    std::cout << "--------|----------\n";
+    for (const auto& f : reg.trained_files()) std::cout << "trained | " << f << '\n';
+    for (const auto& f : reg.pending_files()) std::cout << "pending | " << f << '\n';
+}
 
 // Detaches the calling process into the background.
 //
@@ -25,10 +60,10 @@ namespace {
 //        the startup banner then exit(0).  The child gets 0, calls setsid(),
 //        and redirects stdin/stdout/stderr to /dev/null before returning so
 //        training output flows only through the Logger file sink.
-// Windows: re-launches the current command line with --background-child via
-//          CreateProcess(DETACHED_PROCESS); the launcher gets back the new
-//          process ID (> 0) and should print the banner then exit(0).  The
-//          re-launched child detects --background-child in argv[] and returns 0.
+// Windows: re-launches the current command line via CreateProcess(DETACHED_PROCESS);
+//          the launcher gets back the new process ID (> 0) and should print the
+//          banner then exit(0).  The re-launched child detects the
+//          ADAI_BACKGROUND_CHILD env var and returns 0.
 //
 // Returns -1 if the fork/CreateProcess call fails (caller falls back to
 // running in the foreground).
@@ -57,23 +92,27 @@ long long launch_background(int argc, char* argv[]) {
     return 0LL;
 
 #else  // _WIN32
-    // If this process was already re-launched as the background child, signal
-    // that to the caller so it continues with normal training.
-    for (int i = 1; i < argc; ++i)
-        if (std::string(argv[i]) == "--background-child") return 0LL;
+    // If this process was re-launched as the background child, clear the
+    // sentinel env var and return 0 so the caller proceeds with training.
+    if (::GetEnvironmentVariableA("ADAI_BACKGROUND_CHILD", nullptr, 0) > 0) {
+        ::SetEnvironmentVariableA("ADAI_BACKGROUND_CHILD", nullptr);
+        return 0LL;
+    }
 
-    // Re-launch the same command line with the sentinel flag appended.
+    // Set sentinel before re-launching so the child knows it is the worker.
+    ::SetEnvironmentVariableA("ADAI_BACKGROUND_CHILD", "1");
+
     std::string cmd = ::GetCommandLineA();
-    cmd += " --background-child";
-
     STARTUPINFOA si{};
     si.cb = sizeof(si);
     PROCESS_INFORMATION pi{};
 
     if (!::CreateProcessA(nullptr, cmd.data(), nullptr, nullptr,
                           FALSE, DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
-                          nullptr, nullptr, &si, &pi))
+                          nullptr, nullptr, &si, &pi)) {
+        ::SetEnvironmentVariableA("ADAI_BACKGROUND_CHILD", nullptr);
         return -1LL;
+    }
 
     const long long child_pid = static_cast<long long>(::GetProcessId(pi.hProcess));
     ::CloseHandle(pi.hProcess);
@@ -81,6 +120,21 @@ long long launch_background(int argc, char* argv[]) {
     return child_pid;
 #endif
 }
+
+// ── Download directory helpers ────────────────────────────────────────────────
+
+static void cleanup_downloads(const std::vector<fs::path>& local_paths) {
+    for (const auto& p : local_paths) {
+        if (!p.empty() && fs::exists(p)) {
+            std::error_code ec;
+            fs::remove(p, ec);
+            if (ec) {
+                adai::Logger::warn("[cleanup] Failed to remove '{}': {}", p.string(), ec.message());
+            }
+        }
+    }
+}
+
 
 std::string derive_run_id(const std::string& configured) {
     if (!configured.empty()) return configured;
@@ -97,6 +151,136 @@ std::string derive_run_id(const std::string& configured) {
     return host + "_" + std::to_string(pid_tail);
 }
 
+// Resolve which model to train.
+//
+// Priority: --model CLI flag > MODEL_NAME in config > interactive pick from MNS.
+// When MNS is configured (NAME_SERVICE_URL is set), the name service is the
+// authoritative source of available models.  If no model can be determined,
+// returns an empty string (caller should abort with an error).
+#ifdef BUILD_MNS_SERVER
+std::string resolve_model_name(const adai::ServiceConfig& svc_config,
+                                const std::string& cli_model_name) {
+    if (!cli_model_name.empty()) return cli_model_name;
+    if (!svc_config.model_name.empty()) return svc_config.model_name;
+
+    if (svc_config.name_service_url.empty()) return {};
+
+    adai::ModelNameClient mns(svc_config.name_service_url, svc_config.name_service_timeout_ms);
+    std::vector<adai::ModelSummary> models;
+    try {
+        models = mns.list_models("", svc_config.model_role);
+    } catch (const std::exception& e) {
+        std::cerr << "❌ Failed to query name service at " << svc_config.name_service_url
+                  << ": " << e.what() << "\n";
+        return {};
+    }
+
+    if (models.empty()) {
+        std::cerr << "❌ No models registered in the name service";
+        if (!svc_config.model_role.empty())
+            std::cerr << " for role '" << svc_config.model_role << "'";
+        std::cerr << ".\n";
+        return {};
+    }
+
+    std::cout << "\nAvailable models from name service:\n";
+    std::cout << "  #  | State        | Role       | Model Name\n";
+    std::cout << "-----|--------------|------------|---------------------------\n";
+    for (size_t i = 0; i < models.size(); ++i) {
+        std::cout << "  " << std::setw(2) << (i + 1) << " | "
+                  << std::setw(12) << std::left << models[i].state << " | "
+                  << std::setw(10) << std::left << models[i].role  << " | "
+                  << models[i].model_name << "\n";
+    }
+    std::cout << "\nSelect model [1-" << models.size() << "]: ";
+    std::string input;
+    std::getline(std::cin, input);
+    if (input.empty()) return {};
+
+    int choice = 0;
+    try { choice = std::stoi(input); } catch (...) { return {}; }
+    if (choice < 1 || choice > static_cast<int>(models.size())) {
+        std::cerr << "Invalid selection.\n";
+        return {};
+    }
+    return models[static_cast<size_t>(choice - 1)].model_name;
+}
+#endif
+
+// Forks into the background, prints a startup banner in the parent, then
+// initialises the logger and GPU in the child before running child_work().
+// init_gpu_fn and child_work are callables; child_work returns an exit code.
+// banner_extras are {label, value} pairs printed between Model and Log lines;
+// labels are left-padded to 7 characters to align with the fixed lines.
+template<typename InitGpuFn, typename WorkerFn>
+int run_training_pipeline(
+        int argc, char* argv[],
+        const adai::ServiceConfig& svc_config,
+        const std::string& default_model,
+        const std::string& log_path,
+        const std::string& title,
+        const std::vector<std::pair<std::string, std::string>>& banner_extras,
+        InitGpuFn&& init_gpu_fn,
+        WorkerFn&& child_work) {
+    const long long child_pid = launch_background(argc, argv);
+    if (child_pid > 0) {
+        std::cout << "[ADAI] " << title << " — PID " << child_pid << "\n"
+                  << "       Model  : " << default_model << "\n";
+        for (auto [label, value] : banner_extras) {
+            label.resize(7, ' ');
+            std::cout << "       " << label << ": " << value << "\n";
+        }
+        std::cout << "       Log    : " << log_path << "\n"
+                  << "       Stop   : kill " << child_pid << "\n";
+        return 0;
+    }
+    if (child_pid < 0)
+        adai::Logger::warn("[background] fork failed — running in foreground");
+
+    adai::Logger::init(adai::Logger::Level::INFO,
+                       {log_path, svc_config.log_max_size_mb, svc_config.log_max_files},
+                       "adai");
+    init_gpu_fn();
+    return child_work();
+}
+
+int output_usage(char* argv[]) {
+    std::cout << "Usage: " << argv[0] << " [--config <path>] <command> [options]\n\n";
+    std::cout << "Global options:\n";
+    std::cout << "  --config <path>              Path to config.conf\n";
+    std::cout << "                               Search order: --config > ./config.conf > "
+                 "/etc/adai/config.conf\n";
+    std::cout << "                               Sets model architecture, training params, "
+                 "vocab/model paths\n";
+    std::cout
+        << "  --gpu-strategy <mode>        GPU scheduling strategy: background (default) or full\n";
+    std::cout << "                               background: low-priority stream, yields to other "
+                 "GPU work\n";
+    std::cout << "                               full:       high-priority stream, maximises "
+                 "throughput\n";
+    std::cout << "                               Tip: pair 'full' with GPU_MEMORY_FRACTION=0.9\n";
+    std::cout << "  --model <name>               Model name (overrides MODEL_NAME in config)\n";
+    std::cout << "                               When NAME_SERVICE_URL is set and --model is\n";
+    std::cout << "                               omitted, lists available models interactively\n\n";
+    std::cout << "Commands:\n";
+    std::cout << "  init [vocab] [model]         Initialize incremental trainer\n";
+    std::cout << "  train [epochs]               Train on pending data\n";
+    std::cout << "  retrain [epochs]             Full retrain on all data\n";
+    std::cout << "  reset                        Remove all checkpoints and rebuild model from "
+                 "config\n";
+    std::cout << "  resume                       Resume from last session\n";
+    std::cout << "  status                       Show training status\n";
+    std::cout << "  history                      Show session history\n";
+    std::cout << "\nreset options:\n";
+    std::cout << "  --yes                        Skip confirmation prompt\n";
+    std::cout << "  --keep-data                  Preserve data registry (mark entries untrained)\n";
+    std::cout << "\nExample workflow:\n";
+    std::cout << "  # Initial training with custom config\n";
+    std::cout << "  " << argv[0] << " --config config.conf init\n";
+    std::cout << "  " << argv[0] << " --config config.conf train 5\n";
+    return 1;
+}
+
 }  // namespace
 
 int main(int argc, char* argv[]) {
@@ -107,6 +291,7 @@ int main(int argc, char* argv[]) {
     // -----------------------------------------------------------------------
     std::string config_path;
     std::string gpu_strategy_override;
+    std::string cli_model_name;
     std::vector<std::string> args;  // args[0] = command, args[1..] = its args
 
     for (int i = 1; i < argc; ++i) {
@@ -115,10 +300,8 @@ int main(int argc, char* argv[]) {
             config_path = argv[++i];
         } else if (a == "--gpu-strategy" && i + 1 < argc) {
             gpu_strategy_override = argv[++i];
-        } else if (a == "--background-child") {
-            // Windows sentinel flag — already handled inside launch_background();
-            // strip here so it never reaches the command dispatcher.
-            (void)0;
+        } else if (a == "--model" && i + 1 < argc) {
+            cli_model_name = argv[++i];
         } else {
             args.push_back(a);
         }
@@ -153,6 +336,7 @@ int main(int argc, char* argv[]) {
 
     auto init_gpu = [&]() {
         if (!svc_config.gpu_enabled) return;
+#ifdef ADAI_ENABLE_GPU
         const bool low_priority = (svc_config.gpu_strategy == adai::GPUStrategy::BACKGROUND);
         if (Matrix::gpu_try_initialize(svc_config.gpu_device_id, svc_config.gpu_memory_fraction,
                                        low_priority)) {
@@ -160,81 +344,55 @@ int main(int argc, char* argv[]) {
                                             : "full (high-priority stream)";
             adai::Logger::info("[GPU] GPU ready — strategy: {}. {}", mode, Matrix::gpu_info());
         } else {
-            adai::Logger::warn(
-                "[GPU] No CUDA device found or initialisation failed — running on CPU");
+#if defined(ADAI_GPU_BACKEND_SYCL)
+            adai::Logger::warn("[GPU] No Intel GPU device found or SYCL initialisation failed"
+                               " — running on CPU");
+            adai::Logger::warn("{}", adai::gpu::GPUManager::probe_diagnostic());
+#else
+            adai::Logger::warn("[GPU] No CUDA device found or initialisation failed"
+                               " — running on CPU");
+#endif
         }
+#else
+        adai::Logger::warn("[GPU] GPU_ENABLED is set but this binary was built without GPU support"
+                           " (rebuild with -DENABLE_GPU=ON for CUDA or -DENABLE_SYCL=ON for Intel Arc)");
+#endif
     };
 
     if (!command_forks) init_gpu();
 
     if (args.empty()) {
-        std::cout << "Usage: " << argv[0] << " [--config <path>] <command> [options]\n\n";
-        std::cout << "Global options:\n";
-        std::cout << "  --config <path>              Path to config.conf\n";
-        std::cout << "                               Search order: --config > ./config.conf > "
-                     "/etc/adai/config.conf\n";
-        std::cout << "                               Sets model architecture, training params, "
-                     "vocab/model paths\n";
-        std::cout << "  --gpu-strategy <mode>        GPU scheduling strategy: background (default) or full\n";
-        std::cout << "                               background: low-priority stream, yields to other GPU work\n";
-        std::cout << "                               full:       high-priority stream, maximises throughput\n";
-        std::cout << "                               Tip: pair 'full' with GPU_MEMORY_FRACTION=0.9\n\n";
-        std::cout << "Commands:\n";
-        std::cout << "  init [vocab] [model]         Initialize incremental trainer\n";
-        std::cout << "  add <data_file>              Add new training data\n";
-        std::cout << "  gutenberg <book_id> [pairs]  Download & add Gutenberg book (default: 500 "
-                     "pairs)\n";
-        std::cout << "  gutenberg-batch <id1,id2...> Download multiple books\n";
-        std::cout << "  huggingface <dataset_id> [pairs] [split] [in_field] [out_field]\n";
-        std::cout << "                               Download a HuggingFace dataset (default: 500 "
-                     "pairs, train split)\n";
-        std::cout << "  train [epochs]               Train on pending data\n";
-        std::cout << "  retrain [epochs]             Full retrain on all data\n";
-        std::cout << "  reset                        Remove all checkpoints and rebuild model from "
-                     "config\n";
-        std::cout << "  resume                       Resume from last session\n";
-        std::cout << "  status                       Show training status\n";
-        std::cout << "  history                      Show session history\n";
-        std::cout << "\nreset options:\n";
-        std::cout << "  --yes                        Skip confirmation prompt\n";
-        std::cout
-            << "  --keep-data                  Preserve data registry (mark entries untrained)\n";
-        std::cout << "\nPopular Gutenberg Books:\n";
-        std::cout << "  1342  - Pride and Prejudice (Jane Austen)\n";
-        std::cout << "  11    - Alice in Wonderland (Lewis Carroll)\n";
-        std::cout << "  84    - Frankenstein (Mary Shelley)\n";
-        std::cout << "  1661  - Sherlock Holmes (Arthur Conan Doyle)\n";
-        std::cout << "  2701  - Moby Dick (Herman Melville)\n";
-        std::cout << "  16328 - Beowulf\n";
-        std::cout << "  1260  - Jane Eyre (Charlotte Bronte)\n";
-        std::cout << "  98    - A Tale of Two Cities (Charles Dickens)\n";
-        std::cout << "\nPopular HuggingFace Datasets:\n";
-        std::cout
-            << "  daily_dialog              - Daily conversation pairs (dialog array format)\n";
-        std::cout
-            << "  tatsu-lab/alpaca          - Instruction-following (instruction/output fields)\n";
-        std::cout
-            << "  databricks/databricks-dolly-15k - Instruction dataset (instruction/response)\n";
-        std::cout << "  Open-Orca/OpenOrca        - Chain-of-thought Q&A (question/response)\n";
-        std::cout << "  HuggingFaceH4/ultrachat_200k - Multi-turn chat (requires HF_TOKEN for some "
-                     "splits)\n";
-        std::cout << "\nnote: Set HF_TOKEN env var to access gated datasets\n";
-        std::cout << "\nExample workflow:\n";
-        std::cout << "  # Initial training with custom config\n";
-        std::cout << "  " << argv[0] << " --config config.conf init\n";
-        std::cout << "  " << argv[0] << " --config config.conf gutenberg 1342 500\n";
-        std::cout << "  " << argv[0] << " --config config.conf train 10\n";
-        std::cout << "\n  # Add multiple classic books\n";
-        std::cout << "  " << argv[0] << " --config config.conf gutenberg-batch 11,84,1661,2701\n";
-        std::cout << "  " << argv[0] << " --config config.conf train 5\n";
-        std::cout << "\n  # Add a HuggingFace dataset (auto-detect fields)\n";
-        std::cout << "  " << argv[0] << " --config config.conf huggingface daily_dialog 500\n";
-        std::cout
-            << "  " << argv[0]
-            << " --config config.conf huggingface tatsu-lab/alpaca 300 train instruction output\n";
-        std::cout << "  " << argv[0] << " --config config.conf train 5\n";
-        return 1;
+        return output_usage(argv);
     }
+
+    // -----------------------------------------------------------------------
+    // Resolve model identity via name service (when configured).
+    // Priority: --model CLI > MODEL_NAME config > interactive MNS selection.
+    // On success, svc_config.model_name is set and (if the model has an
+    // artifact) model_path is resolved from the name service.
+    // -----------------------------------------------------------------------
+#ifdef BUILD_MNS_SERVER
+    if (!svc_config.name_service_url.empty()) {
+        std::string resolved = resolve_model_name(svc_config, cli_model_name);
+        if (resolved.empty()) {
+            std::cerr << "❌ No model selected. Specify --model <name>, set MODEL_NAME in "
+                         "config.conf, or select from the name service list.\n";
+            return 1;
+        }
+        svc_config.model_name = resolved;
+
+        try {
+            adai::ModelNameClient mns(svc_config.name_service_url,
+                                      svc_config.name_service_timeout_ms);
+            auto rm = mns.resolve_model(resolved);
+            if (!rm.artifact.path.empty()) {
+                svc_config.model_path = rm.artifact.path;
+            }
+        } catch (...) {
+            // Model exists but has no artifact yet (initializing state) — train from scratch.
+        }
+    }
+#endif
 
     // -----------------------------------------------------------------------
     // Resolve vocab/model paths: prefer ServiceConfig paths, fall back to
@@ -268,197 +426,101 @@ int main(int argc, char* argv[]) {
                   << "  dec_layers=" << config.base_config.num_decoder_layers
                   << "  max_seq=" << config.base_config.max_seq_length << "\n";
 
-    } else if (command == "add") {
-        if (args.size() < 2) {
-            std::cerr << "Usage: " << argv[0] << " add <data_file>\n";
-            return 1;
-        }
-
-        std::string data_file = args[1];
-
-        DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
-        reg.load_registry();
-        reg.load_pending_list();
-
-        if (reg.add_file(data_file)) {
-            std::cout << "✅ Data file added to pending queue\n";
-            std::cout << "📊 Pending files: " << reg.pending_files().size() << "\n";
-        } else {
-            std::cerr << "❌ Failed to add data file\n";
-            return 1;
-        }
-
-    } else if (command == "gutenberg") {
-        if (args.size() < 2) {
-            std::cerr << "Usage: " << argv[0] << " gutenberg <book_id> [num_pairs]\n";
-            std::cerr << "Example: " << argv[0] << " gutenberg 1342 500\n";
-            return 1;
-        }
-
-        int book_id = std::stoi(args[1]);
-        int num_pairs = (args.size() >= 3) ? std::stoi(args[2]) : 500;
-
-        DataFetcher fetcher;
-        DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
-        reg.load_registry();
-        reg.load_pending_list();
-
-        std::cout << "📚 Downloading Project Gutenberg book #" << book_id << "...\n";
-
-        std::string path = fetcher.fetch_gutenberg(book_id, num_pairs);
-        if (!path.empty() && reg.add_file(path)) {
-            std::cout << "✅ Book added to training queue (" << num_pairs << " pairs)\n";
-            std::cout << "📊 Pending files: " << reg.pending_files().size() << "\n";
-        } else {
-            std::cerr << "❌ Failed to add Gutenberg book\n";
-            return 1;
-        }
-
-    } else if (command == "gutenberg-batch") {
-        if (args.size() < 2) {
-            std::cerr << "Usage: " << argv[0]
-                      << " gutenberg-batch <id1,id2,id3,...> [num_pairs_each]\n";
-            std::cerr << "Example: " << argv[0] << " gutenberg-batch 1342,11,84,1661 300\n";
-            return 1;
-        }
-
-        std::string ids_str = args[1];
-        int num_pairs_each = (args.size() >= 3) ? std::stoi(args[2]) : 500;
-
-        std::vector<int> book_ids;
-        std::stringstream ss(ids_str);
-        std::string id;
-        while (std::getline(ss, id, ',')) {
-            book_ids.push_back(std::stoi(id));
-        }
-
-        DataFetcher fetcher;
-        DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
-        reg.load_registry();
-        reg.load_pending_list();
-
-        std::cout << "📚 Downloading " << book_ids.size() << " Project Gutenberg books...\n";
-
-        auto paths = fetcher.fetch_gutenberg_batch(book_ids, num_pairs_each);
-        int added = 0;
-        for (const auto& p : paths) {
-            if (!p.empty() && reg.add_file(p)) ++added;
-        }
-        if (added > 0) {
-            std::cout << "✅ " << added << "/" << book_ids.size()
-                      << " books added to training queue\n";
-            std::cout << "📊 Pending files: " << reg.pending_files().size() << "\n";
-        } else {
-            std::cerr << "❌ Failed to add Gutenberg books\n";
-            return 1;
-        }
-
-    } else if (command == "huggingface") {
-        if (args.size() < 2) {
-            std::cerr
-                << "Usage: " << argv[0]
-                << " huggingface <dataset_id> [num_pairs] [split] [input_field] [output_field]\n";
-            std::cerr << "Example: " << argv[0] << " huggingface daily_dialog 500\n";
-            std::cerr << "Example: " << argv[0]
-                      << " huggingface tatsu-lab/alpaca 300 train instruction output\n";
-            return 1;
-        }
-
-        std::string dataset_id = args[1];
-        int num_pairs = (args.size() >= 3) ? std::stoi(args[2]) : 500;
-        std::string split = (args.size() >= 4) ? args[3] : "train";
-        std::string input_field = (args.size() >= 5) ? args[4] : "";
-        std::string output_field = (args.size() >= 6) ? args[5] : "";
-
-        DataFetcher fetcher;
-        DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
-        reg.load_registry();
-        reg.load_pending_list();
-
-        std::string path =
-            fetcher.fetch_huggingface(dataset_id, num_pairs, split, input_field, output_field);
-        if (!path.empty() && reg.add_file(path)) {
-            std::cout << "✅ Dataset added to training queue (" << num_pairs << " pairs)\n";
-            std::cout << "📊 Pending files: " << reg.pending_files().size() << "\n";
-        } else {
-            std::cerr << "❌ Failed to add HuggingFace dataset\n";
-            return 1;
-        }
-
     } else if (command == "train") {
-        // Epoch count can come from args or from config
         int epochs = (args.size() >= 2) ? std::stoi(args[1]) : svc_config.num_epochs;
 
-        // Count pending files before fork (cheap single-file read; avoids a
-        // full IncrementalTrainer construction just to query the list).
-        std::vector<std::string> pre_fork_pending;
-        {
+        size_t pre_fork_pending_count = 0;
+        if (!svc_config.registry_server_url.empty()) {
+            DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
+            reg.load_pending_list();
+            pre_fork_pending_count = reg.pending_files().size();
+        } else {
             std::ifstream pf(svc_config.session_dir + "/pending_files.txt");
             std::string line;
             while (std::getline(pf, line))
-                if (!line.empty()) pre_fork_pending.push_back(line);
+                if (!line.empty()) ++pre_fork_pending_count;
         }
-        if (pre_fork_pending.empty()) {
-            std::cout << "⚠️  No pending data. Use 'add' command first.\n";
+        if (pre_fork_pending_count == 0) {
+            std::cout << "⚠️  No pending data. Use DatasetManager to queue training data.\n";
             return 1;
         }
 
         const std::string log_path =
             svc_config.log_file_path.empty() ? "chatbot_server.log" : svc_config.log_file_path;
 
-        const long long child_pid = launch_background(argc, argv);
-        if (child_pid > 0) {
-            // Parent: print structured startup banner and exit so the shell
-            // prompt returns to the user immediately.
-            std::cout << "[ADAI] Training started in background — PID " << child_pid << "\n"
-                      << "       Model  : " << default_model << "\n"
-                      << "       Data   : " << pre_fork_pending.size() << " pending file(s)\n"
-                      << "       Epochs : " << epochs << "\n"
-                      << "       Log    : " << log_path << "\n"
-                      << "       Stop   : kill " << child_pid << "\n";
-            return 0;
-        }
-        if (child_pid < 0) {
-            adai::Logger::warn("[background] fork failed — running in foreground");
-        }
+        return run_training_pipeline(argc, argv, svc_config, default_model, log_path,
+            "Training started in background",
+            {{"Data",   std::to_string(pre_fork_pending_count) + " pending file(s)"},
+             {"Epochs", std::to_string(epochs)}},
+            init_gpu,
+            [&]() -> int {
+                IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
+                config.base_config.num_epochs = epochs;
+                config.base_config.lr_schedule = LRSchedule::WARMUP_COSINE;
+                IncrementalTrainer trainer(default_vocab, default_model, config);
 
-        // Child (or foreground fallback): initialise file logger then GPU.
-        adai::Logger::init(adai::Logger::Level::INFO,
-                           {log_path, svc_config.log_max_size_mb, svc_config.log_max_files},
-                           "adai");
-        init_gpu();
+                DatasetConfig dcfg = DatasetRegistry::make_config(svc_config);
+                DatasetRegistry reg(dcfg);
+                reg.load_registry();
+                const std::string run_id = derive_run_id(svc_config.run_id);
 
-        // Child (or foreground fallback): run normal incremental training.
-        IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
-        config.base_config.num_epochs = epochs;
-        config.base_config.lr_schedule = LRSchedule::WARMUP_COSINE;
-        IncrementalTrainer trainer(default_vocab, default_model, config);
+                // Startup stale-file sweep (conditions A-expired, B, C, D, G)
+                startup_sweep(reg, run_id, dcfg.download_dir);
 
-        DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
-        reg.load_registry();
-        const std::string run_id = derive_run_id(svc_config.run_id);
-        auto pending = reg.acquire_pending(run_id);
-        if (pending.empty()) {
-            adai::Logger::warn("No pending data files to train on");
-            return 1;
-        }
-        if (trainer.train_on_files(pending, epochs)) {
-            std::vector<int> counts(pending.size(), 0);
-            reg.mark_trained(run_id, pending, counts);
-            trainer.print_training_summary();
-        } else {
-            reg.release_pending(run_id, pending);
-            return 1;
-        }
+                auto resp = reg.acquire_pending(run_id);
+                if (resp.files.empty()) {
+                    adai::Logger::warn("No pending data files to train on");
+                    return 1;
+                }
+
+                // Resolve local file paths — FTP download or direct access
+                std::vector<std::string> local_paths;
+                std::vector<fs::path>    downloaded_paths;
+                const bool use_ftp = !resp.ftp_server_host.empty()
+                                  && !dcfg.download_dir.empty();
+                if (use_ftp) {
+                    const std::size_t warn_bytes =
+                        static_cast<std::size_t>(dcfg.large_file_warn_threshold_mb) * 1024ULL * 1024ULL;
+                    try {
+                        DataTransport dt;
+                        downloaded_paths = dt.fetch_all(resp, dcfg.download_dir,
+                                                        dcfg.max_parallel_downloads, warn_bytes);
+                        for (const auto& p : downloaded_paths) local_paths.push_back(p.string());
+                    } catch (const std::exception& ex) {
+                        adai::Logger::error("[DataTransport] Download failed: {}", ex.what());
+                        reg.release_pending(run_id, resp.registry_paths());
+                        return 1;
+                    }
+                } else {
+                    for (const auto& f : resp.files) local_paths.push_back(f.registry_path);
+                }
+
+                const bool ok = trainer.train_on_files(local_paths, epochs);
+                const auto reg_paths = resp.registry_paths();
+
+                if (ok) {
+                    std::vector<int> counts(reg_paths.size(), 0);
+                    reg.mark_trained(run_id, reg_paths, counts);
+                    trainer.print_training_summary();
+                } else {
+                    reg.release_pending(run_id, reg_paths);
+                }
+
+                if (use_ftp) cleanup_downloads(downloaded_paths);
+                return ok ? 0 : 1;
+            });
 
     } else if (command == "retrain") {
-        // Epoch count can come from args or from config
         int epochs = (args.size() >= 2) ? std::stoi(args[1]) : svc_config.num_epochs;
 
-        // Count all registered data files before fork (pending + trained) so
-        // the startup banner can report the full dataset size.
         int data_file_count = 0;
-        {
+        if (!svc_config.registry_server_url.empty()) {
+            DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
+            reg.load_registry();
+            reg.load_pending_list();
+            data_file_count = static_cast<int>(reg.trained_files().size()
+                                             + reg.pending_files().size());
+        } else {
             std::ifstream pf(svc_config.session_dir + "/pending_files.txt");
             std::string line;
             while (std::getline(pf, line))
@@ -468,61 +530,87 @@ int main(int argc, char* argv[]) {
         const std::string log_path =
             svc_config.log_file_path.empty() ? "chatbot_server.log" : svc_config.log_file_path;
 
-        const long long child_pid = launch_background(argc, argv);
-        if (child_pid > 0) {
-            std::cout << "[ADAI] Full retrain started in background — PID " << child_pid << "\n"
-                      << "       Model  : " << default_model << "\n"
-                      << "       Data   : " << data_file_count << " file(s)\n"
-                      << "       Epochs : " << epochs << "\n"
-                      << "       Log    : " << log_path << "\n"
-                      << "       Stop   : kill " << child_pid << "\n";
-            return 0;
-        }
-        if (child_pid < 0) {
-            adai::Logger::warn("[background] fork failed — running in foreground");
-        }
+        return run_training_pipeline(argc, argv, svc_config, default_model, log_path,
+            "Full retrain started in background",
+            {{"Data",   std::to_string(data_file_count) + " file(s)"},
+             {"Epochs", std::to_string(epochs)}},
+            init_gpu,
+            [&]() -> int {
+                IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
+                config.base_config.num_epochs = epochs;
+                config.base_config.lr_schedule = LRSchedule::WARMUP_COSINE;
+                config.auto_save_enabled = true;
+                config.auto_save_every_minutes = 30;
+                config.auto_save_every_samples = 1000;
 
-        // Child (or foreground fallback): initialise file logger then GPU.
-        adai::Logger::init(adai::Logger::Level::INFO,
-                           {log_path, svc_config.log_max_size_mb, svc_config.log_max_files},
-                           "adai");
-        init_gpu();
+                IncrementalTrainer trainer(default_vocab, default_model, config);
+                trainer.reset_model_for_config();
 
-        // Child (or foreground fallback): run full retrain.
-        IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
-        config.base_config.num_epochs = epochs;
-        config.base_config.lr_schedule = LRSchedule::WARMUP_COSINE;
-        config.auto_save_enabled = true;
-        config.auto_save_every_minutes = 30;
-        config.auto_save_every_samples = 1000;
+                DatasetConfig dcfg = DatasetRegistry::make_config(svc_config);
+                DatasetRegistry reg(dcfg);
+                reg.load_registry();
+                const std::string run_id = derive_run_id(svc_config.run_id);
 
-        IncrementalTrainer trainer(default_vocab, default_model, config);
-        trainer.reset_model_for_config();
+                startup_sweep(reg, run_id, dcfg.download_dir);
 
-        DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
-        reg.load_registry();
-        const std::string run_id = derive_run_id(svc_config.run_id);
-        auto trained_fs = reg.trained_files();
-        auto pending_fs = reg.acquire_pending(run_id);
-        std::vector<std::string> all_files;
-        all_files.insert(all_files.end(), trained_fs.begin(), trained_fs.end());
-        all_files.insert(all_files.end(), pending_fs.begin(), pending_fs.end());
-        if (all_files.empty()) {
-            adai::Logger::warn("No data files to retrain on");
-            return 1;
-        }
-        adai::Logger::info("Starting full retrain on {} data file(s)", all_files.size());
-        if (trainer.retrain_on_files(all_files, epochs)) {
-            if (!pending_fs.empty()) {
-                std::vector<int> counts(pending_fs.size(), 0);
-                reg.mark_trained(run_id, pending_fs, counts);
-            }
-            trainer.print_training_summary();
-        } else {
-            if (!pending_fs.empty()) reg.release_pending(run_id, pending_fs);
-            std::cerr << "❌ Full retrain failed\n";
-            return 1;
-        }
+                auto trained_fs = reg.trained_files();
+                auto pending_resp = reg.acquire_pending(run_id);
+
+                // For retrain: already-trained files are read directly by path (they
+                // live on the registry machine which already trained them, so no FTP
+                // needed for the trained portion).  Only newly acquired pending files
+                // may need FTP download.
+                std::vector<std::string>   local_paths(trained_fs.begin(), trained_fs.end());
+                std::vector<fs::path>      downloaded_paths;
+                const bool use_ftp = !pending_resp.ftp_server_host.empty()
+                                  && !dcfg.download_dir.empty();
+
+                if (!pending_resp.files.empty()) {
+                    if (use_ftp) {
+                        const std::size_t warn_bytes =
+                            static_cast<std::size_t>(dcfg.large_file_warn_threshold_mb)
+                            * 1024ULL * 1024ULL;
+                        try {
+                            DataTransport dt;
+                            downloaded_paths = dt.fetch_all(pending_resp, dcfg.download_dir,
+                                                            dcfg.max_parallel_downloads, warn_bytes);
+                            for (const auto& p : downloaded_paths)
+                                local_paths.push_back(p.string());
+                        } catch (const std::exception& ex) {
+                            adai::Logger::error("[DataTransport] Download failed: {}", ex.what());
+                            reg.release_pending(run_id, pending_resp.registry_paths());
+                            return 1;
+                        }
+                    } else {
+                        for (const auto& f : pending_resp.files)
+                            local_paths.push_back(f.registry_path);
+                    }
+                }
+
+                if (local_paths.empty()) {
+                    adai::Logger::warn("No data files to retrain on");
+                    return 1;
+                }
+                adai::Logger::info("Starting full retrain on {} data file(s)", local_paths.size());
+
+                const bool ok = trainer.retrain_on_files(local_paths, epochs);
+                const auto pending_reg_paths = pending_resp.registry_paths();
+
+                if (ok) {
+                    if (!pending_reg_paths.empty()) {
+                        std::vector<int> counts(pending_reg_paths.size(), 0);
+                        reg.mark_trained(run_id, pending_reg_paths, counts);
+                    }
+                    trainer.print_training_summary();
+                } else {
+                    if (!pending_reg_paths.empty())
+                        reg.release_pending(run_id, pending_reg_paths);
+                    std::cerr << "❌ Full retrain failed\n";
+                }
+
+                if (use_ftp) cleanup_downloads(downloaded_paths);
+                return ok ? 0 : 1;
+            });
 
     } else if (command == "reset") {
         // Parse reset-specific flags from remaining args
@@ -570,7 +658,7 @@ int main(int argc, char* argv[]) {
         if (trainer.reset_all(keep_data)) {
             std::cout << "✅ Reset complete. Model rebuilt from config.\n";
             if (!keep_data) {
-                std::cout << "   Use 'add' or 'gutenberg' to queue new training data.\n";
+                std::cout << "   Use DatasetManager to queue new training data.\n";
             } else {
                 std::cout << "   All previous data marked untrained — run 'retrain' to use it.\n";
             }
@@ -583,56 +671,37 @@ int main(int argc, char* argv[]) {
         const std::string log_path =
             svc_config.log_file_path.empty() ? "chatbot_server.log" : svc_config.log_file_path;
 
-        const long long child_pid = launch_background(argc, argv);
-        if (child_pid > 0) {
-            std::cout << "[ADAI] Resume started in background — PID " << child_pid << "\n"
-                      << "       Model  : " << default_model << "\n"
-                      << "       Log    : " << log_path << "\n"
-                      << "       Stop   : kill " << child_pid << "\n";
-            return 0;
-        }
-        if (child_pid < 0) {
-            adai::Logger::warn("[background] fork failed — running in foreground");
-        }
-
-        // Child (or foreground fallback): initialise file logger then GPU.
-        adai::Logger::init(adai::Logger::Level::INFO,
-                           {log_path, svc_config.log_max_size_mb, svc_config.log_max_files},
-                           "adai");
-        init_gpu();
-
-        // Child (or foreground fallback): run resume.
-        IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
-        IncrementalTrainer trainer(default_vocab, default_model, config);
-
-        if (trainer.resume_last_session()) {
-            adai::Logger::info("Resumed from last session; latest checkpoint: {}",
-                               trainer.get_latest_checkpoint());
-        } else {
-            return 1;
-        }
+        return run_training_pipeline(argc, argv, svc_config, default_model, log_path,
+            "Resume started in background",
+            {},
+            init_gpu,
+            [&]() -> int {
+                IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
+                IncrementalTrainer trainer(default_vocab, default_model, config);
+                if (!trainer.resume_last_session()) return 1;
+                adai::Logger::info("Resumed from last session; latest checkpoint: {}",
+                                   trainer.get_latest_checkpoint());
+                return 0;
+            });
 
     } else if (command == "status") {
         IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
         IncrementalTrainer trainer(default_vocab, default_model, config);
-        trainer.load_data_registry();
-        trainer.load_pending_data_list();
-
         trainer.print_training_summary();
 
+        DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
+        reg.load_registry();
+        reg.load_pending_list();
         std::cout << "\n📋 Pending data files:\n";
-        for (const auto& file : trainer.get_pending_data_files()) {
+        for (const auto& file : reg.pending_files()) {
             std::cout << "  - " << file << "\n";
         }
 
     } else if (command == "history") {
         IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
         IncrementalTrainer trainer(default_vocab, default_model, config);
-        trainer.load_data_registry();
-        trainer.load_pending_data_list();
-
-        trainer.print_session_history();
-        trainer.print_data_registry();
+        print_session_history(trainer.get_session_history());
+        print_data_registry(svc_config);
 
     } else {
         std::cerr << "Unknown command: " << command << "\n";

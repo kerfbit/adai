@@ -363,13 +363,21 @@ float EncoderDecoderModel::train_step_tokenized(const std::vector<int>& input_to
 
 // Evaluate (no gradients)
 float EncoderDecoderModel::evaluate(const std::string& input_text, const std::string& target_text) {
-    bool prev_mode = requires_grad;
-    set_training(false);
-
+    // encode() has no length cap, unlike the truncate() step ChatbotTrainer
+    // applies when first tokenizing the dataset — prefer evaluate_tokenized()
+    // with already-truncated ids whenever they're available.
     std::vector<int> input_tokens =
         tokenizer->encode(input_text, false);  // Encoder: no special tokens
     std::vector<int> target_tokens =
         tokenizer->encode(target_text, true);  // Decoder: with special tokens
+
+    return evaluate_tokenized(input_tokens, target_tokens);
+}
+
+float EncoderDecoderModel::evaluate_tokenized(const std::vector<int>& input_tokens,
+                                              const std::vector<int>& target_tokens) {
+    bool prev_mode = requires_grad;
+    set_training(false);
 
     // Forward pass only
     Matrix logits = forward(input_tokens, target_tokens);
@@ -405,7 +413,7 @@ float EncoderDecoderModel::compute_perplexity(const std::vector<std::string>& in
 // Set training mode
 void EncoderDecoderModel::set_training(bool mode) {
     requires_grad = mode;
-    // encoder->set_training(mode);  // LLMEncoder doesn't have this method
+    encoder->set_requires_grad(mode);
     decoder->set_training(mode);
 }
 
@@ -650,18 +658,175 @@ void EncoderDecoderModel::backward(const Matrix& grad_output) {
     // Backward through LM head
     Matrix grad_decoder = lm_head->backward(grad_output);
 
-    // Backward through decoder
-    decoder->backward(grad_decoder);
+    // Backward through decoder, capturing the gradient w.r.t. encoder output
+    // (summed across every decoder block's cross-attention)
+    Matrix grad_encoder_output;
+    decoder->backward(grad_decoder, grad_encoder_output);
 
-    // Backward through encoder (via cross-attention gradients in decoder)
-    // The decoder's cross-attention already computed gradients for encoder output
-    // We need to propagate those back through the encoder
-    // This is handled internally by the decoder's backward pass
-
-    // For now, we'll implement a simple version
-    // In a full implementation, we'd need to collect cross-attention gradients
-    // and propagate them back through the encoder
-
-    // Simplified: just update encoder based on its own gradients
-    // (This would be enhanced in a production implementation)
+    // Backward through encoder
+    encoder->backward(grad_encoder_output);
 }
+
+#ifdef ADAI_ENABLE_GPU
+void EncoderDecoderModel::gpu_init_training() {
+    encoder->gpu_upload_weights();
+    decoder->gpu_upload_weights();
+    lm_head->gpu_upload_weights();
+    gpu_initialized_ = true;
+}
+
+void EncoderDecoderModel::gpu_zero_grads() {
+    encoder->gpu_zero_grads();
+    decoder->gpu_zero_grads();
+    lm_head->gpu_zero_grads();
+}
+
+float EncoderDecoderModel::gpu_forward(const std::vector<int>& input_tokens,
+                                        const std::vector<int>& target_tokens) {
+    cached_target_tokens = target_tokens;
+    const int tgt_len = static_cast<int>(target_tokens.size());
+
+    // Upload integer target IDs to device (resize buffer if needed)
+    if (!gpu_targets_dev_ || gpu_target_len_ < tgt_len) {
+        gpu_targets_dev_ = std::make_unique<adai::gpu::GPUMemory<int>>(tgt_len);
+        gpu_target_len_ = tgt_len;
+    }
+    adai::gpu::GPUManager::get_queue()
+        .memcpy(gpu_targets_dev_->get(), target_tokens.data(),
+                static_cast<size_t>(tgt_len) * sizeof(int))
+        .wait();
+
+    // Encoder
+    gpu_encoder_out_ = std::make_unique<adai::gpu::GPUMatrix>(
+        encoder->gpu_encode(input_tokens));
+
+    // Decoder (caches its block inputs/outputs for backward internally)
+    adai::gpu::GPUMatrix dec_out = decoder->gpu_decode(target_tokens, *gpu_encoder_out_);
+
+    // LM head (caches dec_out internally)
+    gpu_logits_ = std::make_unique<adai::gpu::GPUMatrix>(
+        lm_head->gpu_forward(dec_out));
+
+    // Cross-entropy loss entirely on GPU — only a scalar crosses PCIe
+    return adai::gpu::matrix_cross_entropy_loss_gpu(
+        gpu_logits_->device_ptr(), gpu_targets_dev_->get(),
+        tgt_len, vocab_size);
+}
+
+void EncoderDecoderModel::gpu_backward(float scale) {
+    const int tgt_len = static_cast<int>(cached_target_tokens.size());
+
+    // Cross-entropy gradient w.r.t. logits
+    adai::gpu::GPUMatrix dlogits(tgt_len, vocab_size);
+    adai::gpu::matrix_cross_entropy_grad_gpu(
+        gpu_logits_->device_ptr(), gpu_targets_dev_->get(),
+        dlogits.device_ptr(), tgt_len, vocab_size);
+
+    // Apply gradient accumulation scale (no allocation when scale == 1)
+    if (scale != 1.0f)
+        dlogits = dlogits.scale(scale);
+
+    // LM head backward — accumulates dW, db; returns d_dec_out
+    adai::gpu::GPUMatrix d_dec = lm_head->gpu_backward(dlogits);
+
+    // Decoder backward — accumulates gradients into each block, and returns the
+    // gradient w.r.t. encoder_output summed across every decoder block's
+    // cross-attention.
+    auto [grad_decoder_embed_input, grad_encoder_output] = decoder->gpu_backward(d_dec);
+    // Decoder's own token-embedding gradient is not wired on the GPU path yet
+    // (pre-existing, separate gap — the CPU path does this, the GPU path doesn't).
+    (void)grad_decoder_embed_input;
+
+    // Encoder backward
+    encoder->gpu_backward(grad_encoder_output);
+}
+
+float EncoderDecoderModel::gpu_evaluate(const std::string& input_text,
+                                         const std::string& target_text) {
+    // encode() has no length cap, unlike the truncate() step ChatbotTrainer
+    // applies when first tokenizing the dataset — prefer
+    // gpu_evaluate_tokenized() with already-truncated ids whenever available.
+    // An untruncated sequence here scales the encoder/decoder's on-device
+    // temporaries (attention scores are O(seq^2)) well past what the model
+    // ever sees during training, which is what was blowing the GPU memory
+    // budget during validation.
+    std::vector<int> input_tokens =
+        tokenizer->encode(input_text, false);  // Encoder: no special tokens
+    std::vector<int> target_tokens =
+        tokenizer->encode(target_text, true);  // Decoder: with special tokens
+
+    return gpu_evaluate_tokenized(input_tokens, target_tokens);
+}
+
+float EncoderDecoderModel::gpu_evaluate_tokenized(const std::vector<int>& input_tokens,
+                                                  const std::vector<int>& target_tokens) {
+    bool prev_mode = requires_grad;
+    set_training(false);
+
+    // Forward pass only — gpu_forward() already computes cross-entropy loss
+    // on-device, so there is nothing further to compute here. Deliberately
+    // never call gpu_backward(): validation must not accumulate gradients.
+    float loss = gpu_forward(input_tokens, target_tokens);
+
+    set_training(prev_mode);
+    return loss;
+}
+
+std::string EncoderDecoderModel::gpu_generate_response(const std::string& input_text,
+                                                         int max_length) {
+    // Matches generate_response(): the caller's max_length is not forwarded to
+    // TextGenerator, which generates up to its own, separately configured
+    // config.max_length. Kept as a parameter for interface parity.
+    (void)max_length;
+
+    std::vector<int> input_tokens = tokenizer->encode(input_text, false);
+
+    // Encode once on GPU; read-only input to every decode step below.
+    adai::gpu::GPUMatrix gpu_encoder_out = encoder->gpu_encode(input_tokens);
+
+    // No GPU KV-cache exists yet, so every step recomputes the full decoded
+    // sequence from scratch via gpu_decode() (same causal self-attention +
+    // cross-attention to gpu_encoder_out as training) — algorithmically the
+    // same shape as the CPU "greedy workaround" path in
+    // generate_response_with_strategy(), just GPU-accelerated throughout.
+    auto model_fn = [this, &gpu_encoder_out](const std::vector<int>& tokens) -> Matrix {
+        adai::gpu::GPUMatrix dec_out = decoder->gpu_decode(tokens, gpu_encoder_out);
+        adai::gpu::GPUMatrix logits = lm_head->gpu_forward(dec_out);
+
+        // generate() only ever reads the last row of what model_fn returns,
+        // so download just that row instead of the whole [tgt, vocab_size]
+        // logits matrix.
+        const int tgt = static_cast<int>(tokens.size());
+        std::vector<float> last_row(vocab_size);
+        adai::gpu::GPUManager::get_queue()
+            .memcpy(last_row.data(), logits.device_ptr() + (tgt - 1) * vocab_size,
+                    static_cast<size_t>(vocab_size) * sizeof(float))
+            .wait();
+
+        Matrix last_logits(1, vocab_size);
+        for (int v = 0; v < vocab_size; ++v) {
+            last_logits.data[0][v] = last_row[v];
+        }
+        return last_logits;
+    };
+
+    std::vector<int> output_tokens = generator->generate(model_fn, {bos_token_id});
+    return tokenizer->decode(output_tokens, true);
+}
+
+void EncoderDecoderModel::gpu_download_grads() {
+    encoder->gpu_download_grads();
+    decoder->gpu_download_grads();
+    lm_head->gpu_download_grads();
+}
+
+void EncoderDecoderModel::gpu_sync_weights() {
+    encoder->gpu_upload_weights();
+    decoder->gpu_upload_weights();
+    lm_head->gpu_upload_weights();
+}
+
+void EncoderDecoderModel::gpu_synchronize() {
+    adai::gpu::GPUManager::synchronize();
+}
+#endif

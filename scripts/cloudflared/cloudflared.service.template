@@ -1,0 +1,58 @@
+# cloudflared - Cloudflare Tunnel connector (relay for kerfbit.dev remote access)
+#
+# This is a template; install_cloudflared.sh renders it with real paths/names.
+# Do not copy it directly to /etc/systemd/system without running the installer.
+#
+# See docs/operations/deployment/CLOUDFLARE_TUNNEL_RELAY.md for the full setup.
+
+[Unit]
+Description=cloudflared tunnel connector (@TUNNEL_NAME@)
+Documentation=https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/
+After=network-online.target
+Wants=network-online.target
+
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+
+# Dedicated system user — intentionally NOT the "adai" service account.
+# cloudflared is a third-party network-facing daemon with no legitimate reason
+# to read/write anything under /opt/adai; keeping it isolated means a future
+# cloudflared CVE can't pivot into model/data directories, and vice versa.
+User=@SERVICE_USER@
+Group=@SERVICE_GROUP@
+
+ExecStart=@CLOUDFLARED_BIN@ tunnel --config @CONFIG_PATH@ run @TUNNEL_NAME@
+
+Restart=on-failure
+RestartSec=5s
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cloudflared-@TUNNEL_NAME@
+
+# ============================================================================
+# Hardening
+# ============================================================================
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=yes
+ReadOnlyPaths=@CONFIG_DIR@
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictRealtime=yes
+CapabilityBoundingSet=
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

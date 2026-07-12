@@ -416,6 +416,33 @@ TEST(EncoderDecoderModelTest, TrainStepTokenized) {
     });
 }
 
+TEST(EncoderDecoderModelTest, EncoderReceivesGradientOnTrainStep) {
+    int vocab_size = 100;
+    int d_model = 64;
+    EncoderDecoderModel model(vocab_size, d_model, 2, 2);
+
+    build_test_vocab(model.get_tokenizer(), vocab_size);
+    model.set_training(true);
+    model.zero_grad();
+
+    // Regression guard: before this fix, the encoder never received a gradient
+    // at all (dropped in DecoderBlock::backward, and gated off by
+    // set_training() never calling encoder->set_requires_grad()).
+    for (int i = 0; i < model.get_encoder()->get_num_layers(); ++i) {
+        ASSERT_FLOAT_EQ(model.get_encoder()->get_encoder_block(i)->get_gradient_norm(), 0.0f);
+    }
+
+    std::vector<int> input_tokens = {1, 5, 10, 2};
+    std::vector<int> target_tokens = {1, 3, 7, 2};
+    float loss = model.train_step_tokenized(input_tokens, target_tokens);
+    EXPECT_GT(loss, 0.0f);
+
+    for (int i = 0; i < model.get_encoder()->get_num_layers(); ++i) {
+        EXPECT_GT(model.get_encoder()->get_encoder_block(i)->get_gradient_norm(), 0.0f)
+            << "encoder layer " << i << " received no gradient";
+    }
+}
+
 TEST(EncoderDecoderModelTest, TrainStepRequiresTrainingMode) {
     int vocab_size = 100;
     int d_model = 64;

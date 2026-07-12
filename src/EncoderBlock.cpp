@@ -298,3 +298,61 @@ void EncoderBlock::register_parameters_with_optimizer(Optimizer& optimizer) {
     norm1->set_optimizer(&optimizer);
     norm2->set_optimizer(&optimizer);
 }
+
+#ifdef ADAI_ENABLE_GPU
+void EncoderBlock::gpu_upload_weights() {
+    attention->gpu_upload_weights();
+    feed_forward->gpu_upload_weights();
+    norm1->gpu_upload_weights();
+    norm2->gpu_upload_weights();
+}
+
+void EncoderBlock::gpu_download_grads() {
+    attention->gpu_download_grads();
+    feed_forward->gpu_download_grads();
+    norm1->gpu_download_grads();
+    norm2->gpu_download_grads();
+}
+
+void EncoderBlock::gpu_zero_grads() {
+    attention->gpu_zero_grads();
+    feed_forward->gpu_zero_grads();
+    norm1->gpu_zero_grads();
+    norm2->gpu_zero_grads();
+}
+
+adai::gpu::GPUMatrix EncoderBlock::gpu_forward(const adai::gpu::GPUMatrix& input,
+                                                 const adai::gpu::GPUMatrix* mask) {
+    // Self-attention + residual1
+    adai::gpu::GPUMatrix attn_out = attention->gpu_forward(input, mask);
+    adai::gpu::GPUMatrix res1 = input + attn_out;
+
+    // LayerNorm1
+    adai::gpu::GPUMatrix normed1 = norm1->gpu_forward(res1);
+
+    // FeedForward + residual2
+    adai::gpu::GPUMatrix ff_out = feed_forward->gpu_forward(normed1);
+    adai::gpu::GPUMatrix res2 = normed1 + ff_out;
+
+    // LayerNorm2
+    return norm2->gpu_forward(res2);
+}
+
+adai::gpu::GPUMatrix EncoderBlock::gpu_backward(const adai::gpu::GPUMatrix& dout) {
+    // Back through norm2
+    adai::gpu::GPUMatrix d_res2 = norm2->gpu_backward(dout);
+
+    // Residual2 split: d_normed1 += d_res2, d_ff_out = d_res2
+    adai::gpu::GPUMatrix d_normed1_ff = feed_forward->gpu_backward(d_res2);
+    adai::gpu::GPUMatrix d_normed1 = d_res2 + d_normed1_ff;
+
+    // Back through norm1
+    adai::gpu::GPUMatrix d_res1 = norm1->gpu_backward(d_normed1);
+
+    // Residual1 split: d_input += d_res1, d_attn = d_res1
+    adai::gpu::GPUMatrix d_input_from_attn = attention->gpu_backward(d_res1);
+    adai::gpu::GPUMatrix d_input = d_res1 + d_input_from_attn;
+
+    return d_input;
+}
+#endif

@@ -3,6 +3,10 @@
 
 #ifdef ADAI_ENABLE_GPU
 
+#if defined(ADAI_GPU_BACKEND_SYCL)
+#include "sycl/MatrixGPU_SYCL.hpp"
+#else  // CUDA backend (default)
+
 #include "GPUUtils.hpp"  // GPUMemory, GPUManager, CUDA_CHECK
 
 namespace adai {
@@ -115,6 +119,29 @@ void matrix_batch_add_gpu(const float** a_batch, const float** b_batch, float** 
  */
 void matrix_batch_multiply_gpu(const float** a_batch, const float** b_batch, float** c_batch,
                                int batch_size, int m, int k, int n);
+
+// TD-003 training kernels (CUDA implementations in MatrixGPU.cu)
+void matrix_add_inplace_gpu(const float* src, float* dst, int size);
+void matrix_softmax_rows_gpu(float* data, int rows, int cols);
+void matrix_softmax_backward_gpu(const float* s, const float* dout, float* din,
+                                  int rows, int cols);
+void matrix_gelu_backward_gpu(const float* pre_act, const float* dout, float* din, int size);
+void matrix_layer_norm_fwd_gpu(const float* input, float* output, float* out_normed,
+                                const float* gamma, const float* beta,
+                                float* out_mean, float* out_rstd,
+                                int rows, int cols, float eps);
+void matrix_layer_norm_bwd_gpu(const float* dout, const float* input_norm,
+                                const float* gamma, const float* mean, const float* rstd,
+                                float* dx, float* dgamma, float* dbeta,
+                                int rows, int cols);
+void matrix_add_row_bias_gpu(const float* mat, const float* bias, float* out,
+                              int rows, int cols);
+void matrix_sum_rows_gpu(const float* mat, float* out, int rows, int cols);
+void matrix_masked_fill_gpu(float* data, const float* mask, float fill_val, int size);
+float matrix_cross_entropy_loss_gpu(const float* logits, const int* targets,
+                                     int seq_len, int vocab_size);
+void matrix_cross_entropy_grad_gpu(const float* logits, const int* targets,
+                                    float* grad, int seq_len, int vocab_size);
 
 // ============================================================================
 // GPUMatrix — persistent GPU-resident matrix (TD-003)
@@ -253,10 +280,77 @@ class GPUMatrix {
     float sum() const {
         return matrix_sum_gpu(data_.get(), size());
     }
+
+    // ---- TD-003 persistent-training operations ----------------------------
+
+    void zero() {
+        CUDA_CHECK(cudaMemsetAsync(data_.get(), 0,
+                                   static_cast<size_t>(rows * cols) * sizeof(float),
+                                   GPUManager::get_stream()));
+    }
+
+    void add_inplace(const GPUMatrix& other) {
+        matrix_add_inplace_gpu(other.data_.get(), data_.get(), size());
+    }
+
+    void softmax_rows_inplace() {
+        matrix_softmax_rows_gpu(data_.get(), rows, cols);
+    }
+
+    GPUMatrix softmax_backward(const GPUMatrix& dout) const {
+        GPUMatrix result(rows, cols);
+        matrix_softmax_backward_gpu(data_.get(), dout.data_.get(), result.data_.get(), rows, cols);
+        return result;
+    }
+
+    GPUMatrix gelu_backward(const GPUMatrix& dout) const {
+        GPUMatrix result(rows, cols);
+        matrix_gelu_backward_gpu(data_.get(), dout.data_.get(), result.data_.get(), size());
+        return result;
+    }
+
+    GPUMatrix add_row_bias(const GPUMatrix& bias) const {
+        GPUMatrix result(rows, cols);
+        matrix_add_row_bias_gpu(data_.get(), bias.data_.get(), result.data_.get(), rows, cols);
+        return result;
+    }
+
+    GPUMatrix sum_rows() const {
+        GPUMatrix result(1, cols);
+        matrix_sum_rows_gpu(data_.get(), result.data_.get(), rows, cols);
+        return result;
+    }
+
+    void masked_fill_inplace(const GPUMatrix& mask, float fill_val) {
+        matrix_masked_fill_gpu(data_.get(), mask.data_.get(), fill_val, size());
+    }
+
+    GPUMatrix layer_norm(const GPUMatrix& gamma, const GPUMatrix& beta, float eps,
+                          GPUMatrix& out_normed, GPUMatrix& out_mean, GPUMatrix& out_rstd) const {
+        GPUMatrix result(rows, cols);
+        matrix_layer_norm_fwd_gpu(data_.get(), result.data_.get(), out_normed.data_.get(),
+                                   gamma.data_.get(), beta.data_.get(),
+                                   out_mean.data_.get(), out_rstd.data_.get(),
+                                   rows, cols, eps);
+        return result;
+    }
+
+    GPUMatrix layer_norm_backward(const GPUMatrix& input_norm, const GPUMatrix& gamma,
+                                   const GPUMatrix& mean, const GPUMatrix& rstd,
+                                   GPUMatrix& dgamma, GPUMatrix& dbeta) const {
+        GPUMatrix dx(rows, cols);
+        matrix_layer_norm_bwd_gpu(data_.get(), input_norm.data_.get(),
+                                   gamma.data_.get(), mean.data_.get(), rstd.data_.get(),
+                                   dx.data_.get(), dgamma.data_.get(), dbeta.data_.get(),
+                                   rows, cols);
+        return dx;
+    }
 };
 
 }  // namespace gpu
 }  // namespace adai
+
+#endif  // CUDA backend
 
 #endif  // ADAI_ENABLE_GPU
 

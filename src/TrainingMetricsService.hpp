@@ -12,6 +12,7 @@
 // server-side storage class.  The include makes AbnormalSample available to
 // all translation units that include TrainingMetricsService.hpp.
 #include "IMetricsReporter.hpp"
+#include "MetricsDatabase.hpp"
 
 /**
  * @brief Real-time training metrics snapshot
@@ -214,6 +215,7 @@ class TrainingMetricsService {
                        const std::string& config_snapshot = "");
     void end_session();
     bool is_session_active() const;
+    void heartbeat();
 
     // Epoch lifecycle
     void start_epoch(int epoch, int total_samples = 0);
@@ -297,16 +299,25 @@ class TrainingMetricsService {
 
     // Persistence control
     void flush_to_disk();
+    // Clears per-sample history AND resets best_validation_loss/best_epoch
+    // (persisting the reset immediately) — the explicit "force clear" for a
+    // session, since start_session()'s cross-session carryover otherwise keeps
+    // resurrecting whatever best was last recorded for this key.
     void clear_history();
 
     // Configuration
     void set_config(const MetricsServiceConfig& config);
     MetricsServiceConfig get_config() const;
 
+    // Database persistence (TD-020)
+    void set_database(IMetricsDatabase* db, const std::string& session_key);
+    IMetricsDatabase* get_database() const { return db_; }
+
    private:
     // Thread-safe state
     mutable std::mutex mutex_;
     std::atomic<bool> is_training_;
+    // TODO: See TECHNICAL_DEBT.md TD-018 - Replace single current_session_id_ with per-session registry
     std::atomic<int> current_session_id_;
 
     // Current metrics
@@ -325,6 +336,17 @@ class TrainingMetricsService {
     // Timing helpers
     std::chrono::steady_clock::time_point session_start_steady_;
     std::chrono::steady_clock::time_point epoch_start_steady_;
+
+    // Validation-gap staleness extension
+    bool awaiting_validation_ = false;               ///< Set on last training sample of an epoch; cleared by end_epoch/start_epoch
+    double last_epoch_training_duration_seconds_ = 0.0;  ///< Training-phase wall time of the most recent epoch
+
+    // Raw in-epoch sample index as of the last update_sample_metrics() call.
+    // update_sample_metrics() is only invoked once per gradient-accumulation
+    // window, not once per raw sample, so `sample - last_sample_in_epoch_`
+    // gives the number of raw samples represented by this call. Reset at each
+    // start_epoch() alongside current_sample.
+    int last_sample_in_epoch_ = 0;
 
     // Private helpers
     void restore_from_summary();  // Restore snapshot from persisted summary file on startup
@@ -351,12 +373,18 @@ class TrainingMetricsService {
     // Outlier storage & persistence (TD-013)
     std::vector<AbnormalSample> abnormal_samples_;  // in-memory list of flagged samples
     void persist_abnormal_samples();                // write all to abnormal_samples_file
+
+    // SQL database persistence (TD-020)
+    IMetricsDatabase* db_ = nullptr;
+    std::string session_key_;
+    SessionRecord build_session_record() const;
 };
 
 class MetricsSessionRegistry;
 
 /**
  * @brief Global metrics service instance (optional singleton access)
+ * TODO: See TECHNICAL_DEBT.md TD-018 - Replace GlobalMetricsService singleton with MetricsSessionRegistry
  */
 class GlobalMetricsService {
    public:

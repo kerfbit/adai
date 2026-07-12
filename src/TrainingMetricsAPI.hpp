@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include "MetricsSessionRegistry.hpp"
+#include "ModelNameClient.hpp"
 
 /**
  * @brief REST API for TrainingMetricsService - Provides HTTP endpoints for polling training metrics
@@ -55,9 +56,11 @@ class TrainingMetricsAPI {
       * @param session_registry Shared pointer to the metrics session registry
      * @param port Port number to listen on (default: 8081)
      * @param allow_control Enable control endpoints (flush, clear) - default: true
+     * @param name_service_url URL of MNS daemon for /api/models (empty = disabled)
      */
      explicit TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> session_registry,
-                                int port = 8081, bool allow_control = true);
+                                int port = 8081, bool allow_control = true,
+                                const std::string& name_service_url = "");
 
     /**
      * @brief Destructor - ensures server is stopped
@@ -109,8 +112,13 @@ class TrainingMetricsAPI {
     std::string handle_generation_quality_metrics(const std::string& session_key);  // BLEU/ROUGE
     std::string handle_padding_efficiency_metrics(const std::string& session_key);  // Batch padding
     std::string handle_sessions_list();
+    std::string handle_sessions_list_filtered(const std::string& query_params);
     std::string handle_metrics_aggregate();
+    std::string handle_db_history(const std::string& session_key, const std::string& query_params);
+    std::string handle_metrics_compare(const std::string& query_params);
+    std::string handle_metrics_export(const std::string& session_key, const std::string& query_params);
     std::string handle_prometheus_aggregate();  ///< TD-021: per-session labelled Prometheus output
+    std::string handle_models_list();
     std::string handle_flush_control(const std::string& session_key);
     std::string handle_clear_control(const std::string& session_key);
     std::string handle_health_check();
@@ -118,6 +126,7 @@ class TrainingMetricsAPI {
     // POST endpoint handlers for receiving metrics updates
     std::string handle_post_session_start(const std::string& session_key, const std::string& body);
     std::string handle_post_session_end(const std::string& session_key);
+    std::string handle_post_heartbeat(const std::string& session_key);
     std::string handle_post_epoch_start(const std::string& session_key, const std::string& body);
     std::string handle_post_epoch_end(const std::string& session_key, const std::string& body);
     std::string handle_post_sample_metrics(const std::string& session_key, const std::string& body);
@@ -134,6 +143,8 @@ class TrainingMetricsAPI {
     static std::string escape_json(const std::string& s);
     static int parse_query_param_int(const std::string& query, const std::string& param,
                                      int default_value);
+    static std::string parse_query_param_string(const std::string& query, const std::string& param,
+                                                const std::string& default_value = "");
     static bool is_valid_session_key(const std::string& key);
     std::shared_ptr<TrainingMetricsService> resolve_session_service(const std::string& session_key,
                                                                     bool create_if_missing) const;
@@ -142,6 +153,7 @@ class TrainingMetricsAPI {
     std::shared_ptr<MetricsSessionRegistry> session_registry_;
     int port_;
     bool allow_control_;
+    std::string name_service_url_;
     std::atomic<bool> running_;
 
     // HTTP server implementation (forward declaration to avoid including httplib.h in header)

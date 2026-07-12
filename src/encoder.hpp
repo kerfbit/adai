@@ -5,6 +5,9 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#ifdef ADAI_ENABLE_GPU
+#include "gpu/MatrixGPU.hpp"
+#endif
 #include <memory>
 #include <random>
 #include <string>
@@ -50,7 +53,12 @@ class LLMEncoder {
     int max_seq_length;
 
     // Training state
-    bool requires_grad{false};
+    // Defaults to true to match EncoderDecoderModel::requires_grad and
+    // LLMDecoder::requires_grad — nothing calls set_training(true) explicitly
+    // at the start of a fresh training run (ChatbotTrainer::validate() etc.
+    // only ever restore it after temporarily flipping to false), so a false
+    // default here left the encoder gradient-less for the entire first epoch.
+    bool requires_grad{true};
     float learning_rate{0.001f};
 
     // Cached values for backward pass
@@ -217,4 +225,28 @@ class LLMEncoder {
     LayerNorm* get_final_norm() {
         return final_norm.get();
     }
+
+#ifdef ADAI_ENABLE_GPU
+    /** Upload all encoder weights to GPU. */
+    void gpu_upload_weights();
+    /** Download GPU gradient accumulators to CPU. */
+    void gpu_download_grads();
+    /** Zero GPU gradient accumulators. */
+    void gpu_zero_grads();
+    /**
+     * GPU encode: embed + positional encode on CPU, then run all encoder blocks on GPU.
+     * @param token_ids  Input token IDs
+     * @return GPU matrix [seq_len, d_model]
+     */
+    adai::gpu::GPUMatrix gpu_encode(const std::vector<int>& token_ids);
+    /**
+     * GPU backward: final_norm and encoder_blocks (reverse order) run on device;
+     * the resulting gradient is then downloaded to host and finished via the
+     * existing CPU token_embedding->backward() (embedding lookup has no GPU
+     * backward, mirroring the CPU embed step already done inside gpu_encode()).
+     * No-op if requires_grad is false.
+     * @param dout Gradient w.r.t. this encoder's final output [seq_len, d_model]
+     */
+    void gpu_backward(const adai::gpu::GPUMatrix& dout);
+#endif
 };

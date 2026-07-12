@@ -1,0 +1,19 @@
+# cloudflared ingress config for the ai-machine (192.168.1.24).
+# Fronts chatbot_api_server under kerfbit.dev. See
+# docs/operations/deployment/CLOUDFLARE_TUNNEL_RELAY.md.
+#
+# Fill in the placeholders below with real values from `cloudflared tunnel create
+# adai-chat-tunnel`, then install with:
+#   sudo ./scripts/cloudflared/install_cloudflared.sh \
+#     --tunnel-name adai-chat-tunnel --config-src <this-file> --yes
+#
+# NEVER commit a filled-in copy of this file (it embeds the tunnel UUID and, by
+# reference, the path to the credentials JSON, which is private key material).
+
+tunnel: <TUNNEL_UUID>
+credentials-file: /etc/cloudflared/<TUNNEL_UUID>.json
+
+ingress:
+  - hostname: chat.kerfbit.dev
+    service: http://localhost:8080
+  - service: http_status:404

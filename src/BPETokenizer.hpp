@@ -53,8 +53,23 @@ class TokenIDError : public std::out_of_range {
         : std::out_of_range("Token ID Error: " + message) {}
 };
 
+/**
+ * @brief Controls whether the tokenizer operates on raw bytes or UTF-8 code points.
+ *
+ * ASCII   – byte-level mode; each byte is one unit. Non-ASCII input passes through
+ *           but multi-byte sequences are split into individual raw-byte tokens.
+ * UNICODE – code-point mode; multi-byte UTF-8 sequences are kept intact as a
+ *           single atomic unit, so BPE can learn meaningful merges across all scripts.
+ */
+enum class TokenizerMode {
+    ASCII,
+    UNICODE,
+};
+
 class BPETokenizer {
    private:
+    TokenizerMode mode;
+
     std::unordered_map<std::string, int> vocab;
     std::unordered_map<int, std::string> inverse_vocab;
     std::vector<std::pair<std::string, std::string>> bpe_merges;
@@ -66,29 +81,20 @@ class BPETokenizer {
     int bos_token_id = adai::SpecialTokenIDs::BOS;
     int eos_token_id = adai::SpecialTokenIDs::EOS;
 
-    // Regex pattern for pre-tokenization
+    // Regex pattern for pre-tokenization (chosen at construction time based on mode)
     std::regex token_pattern;
 
    public:
-    BPETokenizer()
-        : token_pattern(
-              R"('s|'t|'re|'ve|'m|'ll|'d| ?[A-Za-z]+| ?[0-9]+| ?[^ \t\r\nA-Za-z0-9]+|\s+(?!\S)|\s+)") {
-        // Initialize special tokens
-        vocab["<pad>"] = pad_token_id;
-        vocab["<unk>"] = unk_token_id;
-        vocab["<bos>"] = bos_token_id;
-        vocab["<eos>"] = eos_token_id;
+    /**
+     * @brief Construct a BPETokenizer.
+     * @param mode  ASCII (default) for byte-level tokenization; UNICODE for
+     *              UTF-8 code-point-level tokenization.
+     */
+    explicit BPETokenizer(TokenizerMode mode = TokenizerMode::ASCII);
 
-        inverse_vocab[pad_token_id] = "<pad>";
-        inverse_vocab[unk_token_id] = "<unk>";
-        inverse_vocab[bos_token_id] = "<bos>";
-        inverse_vocab[eos_token_id] = "<eos>";
-
-        special_tokens.insert("<pad>");
-        special_tokens.insert("<unk>");
-        special_tokens.insert("<bos>");
-        special_tokens.insert("<eos>");
-    }
+    // Query the active tokenization mode
+    TokenizerMode get_mode() const { return mode; }
+    bool is_unicode_mode() const { return mode == TokenizerMode::UNICODE; }
 
     // Build vocabulary from text corpus
     void build_vocab(const std::vector<std::string>& texts, int vocab_size = 10000,
@@ -124,23 +130,15 @@ class BPETokenizer {
     size_t get_vocab_size() const;
 
     // Get special token IDs
-    int get_bos_token_id() const {
-        return bos_token_id;
-    }
-    int get_eos_token_id() const {
-        return eos_token_id;
-    }
-    int get_pad_token_id() const {
-        return pad_token_id;
-    }
-    int get_unk_token_id() const {
-        return unk_token_id;
-    }
+    int get_bos_token_id() const { return bos_token_id; }
+    int get_eos_token_id() const { return eos_token_id; }
+    int get_pad_token_id() const { return pad_token_id; }
+    int get_unk_token_id() const { return unk_token_id; }
 
     // Save vocabulary to file
     void save_vocab(const std::string& filename) const;
 
-    // Load vocabulary from file
+    // Load vocabulary from file (restores the saved TokenizerMode automatically)
     void load_vocab(const std::string& filename);
 
     // Print vocabulary statistics
@@ -149,7 +147,53 @@ class BPETokenizer {
     // Get top-k most frequent tokens (for debugging)
     std::vector<std::pair<std::string, int>> get_top_tokens(int k = 10) const;
 
+    /**
+     * @brief Recommend a vocabulary size based on corpus characteristics and model architecture.
+     *
+     * Combines five factors:
+     *   1. Dataset size   — larger corpora support larger, more useful vocabularies.
+     *   2. Script family  — CJK characters are already atomic (needs smaller vocab);
+     *                       Arabic/agglutinative scripts need larger vocab for morphology.
+     *   3. Architecture   — embedding table (V × d_model) is capped at ≤30% of total params.
+     *   4. Sequence length — tighter context budgets benefit from lower token fertility
+     *                        (more words per sequence), which means a larger vocabulary.
+     *   5. Tokenizer mode — Unicode mode with multibyte text gets a small upward adjustment
+     *                        to ensure adequate code-point coverage.
+     *
+     * @param texts              Training corpus texts.
+     * @param d_model            Model embedding dimension.
+     * @param num_encoder_layers Number of encoder layers.
+     * @param num_decoder_layers Number of decoder layers.
+     * @param max_seq_length     Maximum sequence length the model will process.
+     * @param mode               ASCII or UNICODE tokenizer mode.
+     * @return Recommended vocabulary size (multiple of 500, minimum 2000).
+     */
+    static int recommend_vocab_size(const std::vector<std::string>& texts,
+                                    int d_model,
+                                    int num_encoder_layers,
+                                    int num_decoder_layers,
+                                    int max_seq_length,
+                                    TokenizerMode mode = TokenizerMode::ASCII);
+
+    /**
+     * @brief Measure token fertility (average BPE tokens per whitespace word).
+     *
+     * A value in [1.2, 1.8] is generally healthy; above 2.5 indicates the vocabulary
+     * is too small for the corpus; below 1.1 indicates possible over-fitting or a
+     * very restricted vocabulary relative to the text.
+     *
+     * @param texts       Texts to evaluate (a random sample suffices).
+     * @param sample_limit Maximum number of texts to evaluate (default 500).
+     * @return Fertility ratio, or 0 if the tokenizer has no vocabulary.
+     */
+    float measure_fertility(const std::vector<std::string>& texts, int sample_limit = 500) const;
+
    private:
+    // Split a UTF-8 string into one std::string per code point.
+    // In ASCII mode the tokenizer calls this as well, but each "code point" is a
+    // single byte, so the behaviour is identical to the old char loop.
+    static std::vector<std::string> utf8_split_codepoints(const std::string& str);
+
     // UTF-8 validation helper
     static bool is_valid_utf8(const std::string& text);
 

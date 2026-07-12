@@ -56,6 +56,50 @@ TEST(MetricsSessionRegistry, KeepsLegacyPathsForDefaultKey) {
     EXPECT_EQ(derived.abnormal_samples_file, config.abnormal_samples_file);
 }
 
+TEST(MetricsSessionRegistry, StartSessionOrConflictRefusesGenuinelyLiveSession) {
+    // Default staleness threshold (60s) — a session that just received an update must
+    // never be treated as reclaimable by a second /session/start for the same key.
+    MetricsSessionRegistry registry(MetricsServiceConfig(), 16, 3600);
+    auto first = registry.create_or_get_session("live-key");
+    ASSERT_NE(first, nullptr);
+    first->start_session(1, 5, 100);
+
+    auto outcome = registry.start_session_or_conflict("live-key");
+    EXPECT_TRUE(outcome.conflict);
+    EXPECT_EQ(outcome.service, nullptr);
+
+    // The original session must be untouched — not archived, not replaced.
+    auto still_there = registry.get_session("live-key");
+    ASSERT_TRUE(still_there.has_value());
+    EXPECT_EQ(still_there->get(), first.get());
+    EXPECT_TRUE(still_there->get()->get_current_snapshot().is_training);
+}
+
+TEST(MetricsSessionRegistry, StartSessionOrConflictReclaimsStaleSession) {
+    // staleness_threshold_seconds = -1 makes is_stale true immediately after any ingest
+    // (secs_since_update >= 0 > -1), simulating a trainer that crashed without posting /end.
+    MetricsServiceConfig config;
+    config.staleness_threshold_seconds = -1;
+
+    MetricsSessionRegistry registry(config, 16, 3600);
+    auto first = registry.create_or_get_session("crashed-key");
+    ASSERT_NE(first, nullptr);
+    first->start_session(1, 5, 100);
+    ASSERT_TRUE(first->get_current_snapshot().is_stale);
+
+    auto outcome = registry.start_session_or_conflict("crashed-key");
+    EXPECT_FALSE(outcome.conflict);
+    ASSERT_NE(outcome.service, nullptr);
+    EXPECT_NE(outcome.service.get(), first.get());
+}
+
+TEST(MetricsSessionRegistry, StartSessionOrConflictCreatesFreshSessionForNewKey) {
+    MetricsSessionRegistry registry(MetricsServiceConfig(), 16, 3600);
+    auto outcome = registry.start_session_or_conflict("brand-new-key");
+    EXPECT_FALSE(outcome.conflict);
+    ASSERT_NE(outcome.service, nullptr);
+}
+
 TEST(MetricsSessionRegistry, ReplacesCompletedSessionOnRecreate) {
     MetricsSessionRegistry registry(MetricsServiceConfig(), 16, 3600);
     auto first = registry.create_or_get_session("7-finetune");
@@ -67,6 +111,171 @@ TEST(MetricsSessionRegistry, ReplacesCompletedSessionOnRecreate) {
     auto second = registry.create_or_get_session("7-finetune");
     ASSERT_NE(second, nullptr);
     EXPECT_NE(second.get(), first.get());
+}
+
+TEST(MetricsSessionRegistry, ReplaceArchivesPreviousSessionInDatabase) {
+    namespace fs = std::filesystem;
+    const fs::path temp_root = fs::temp_directory_path() / "adai_metrics_registry_test_replace_db";
+    fs::remove_all(temp_root);
+    fs::create_directories(temp_root);
+    const std::string db_path = (temp_root / "metrics.db").string();
+
+    MetricsSessionRegistry registry(MetricsServiceConfig(), 16, 3600, 60, "sqlite", db_path);
+    auto first = registry.create_or_get_session("archive-key");
+    ASSERT_NE(first, nullptr);
+    first->start_session(7, 2, 20);
+    first->end_session();
+
+    ASSERT_TRUE(registry.get_database()->get_session("archive-key").has_value());
+
+    auto second = registry.create_or_get_session("archive-key");
+    ASSERT_NE(second, nullptr);
+    EXPECT_NE(second.get(), first.get());
+
+    // The old row must be moved out from under the reused key immediately upon
+    // replacement — not left in place for the new session to silently inherit.
+    EXPECT_FALSE(registry.get_database()->get_session("archive-key").has_value());
+
+    // The old data must survive somewhere, under a distinct archived key.
+    bool found_archived = false;
+    for (const auto& rec : registry.get_database()->list_sessions(std::nullopt)) {
+        if (rec.key != "archive-key" && rec.key.rfind("archive-key_archived_", 0) == 0) {
+            found_archived = true;
+            EXPECT_EQ(rec.session_id, 7);
+        }
+    }
+    EXPECT_TRUE(found_archived);
+
+    second->start_session(9, 1, 5);
+    second->end_session();
+    auto fresh = registry.get_database()->get_session("archive-key");
+    ASSERT_TRUE(fresh.has_value());
+    EXPECT_EQ(fresh->session_id, 9);  // fresh data, not the archived run's
+
+    fs::remove_all(temp_root);
+}
+
+TEST(MetricsSessionRegistry, ListSessionsExcludesArchivedRowsFromDbSupplement) {
+    // Regression test: list_sessions() feeds the dashboard/session-picker. Every eviction
+    // (whether via TTL sweep or replace-on-reuse) renames a session's DB row to a unique
+    // "<key>_archived_<ts>_<n>" row that is kept forever as queryable history. Left
+    // unfiltered, list_sessions()'s DB supplement piles up every one of these rows forever,
+    // burying genuinely live sessions in a picker full of dead entries.
+    namespace fs = std::filesystem;
+    const fs::path temp_root =
+        fs::temp_directory_path() / "adai_metrics_registry_test_list_excludes_archived";
+    fs::remove_all(temp_root);
+    fs::create_directories(temp_root);
+    const std::string db_path = (temp_root / "metrics.db").string();
+
+    MetricsSessionRegistry registry(MetricsServiceConfig(), 16, 3600, 60, "sqlite", db_path);
+
+    // A session that has ended but is still within the live-map TTL window remains visible
+    // via the live-session loop, same as before this fix — only archived residue is filtered.
+    auto ended = registry.create_or_get_session("completed-key");
+    ASSERT_NE(ended, nullptr);
+    ended->start_session(1, 1, 1);
+    ended->end_session();
+
+    // Reuse "archive-key" so its prior run gets archived into a new DB row.
+    auto first = registry.create_or_get_session("archive-key");
+    ASSERT_NE(first, nullptr);
+    first->start_session(7, 2, 20);
+    first->end_session();
+    auto second = registry.create_or_get_session("archive-key");
+    ASSERT_NE(second, nullptr);
+
+    // Sanity: the archived row really is in the DB (same assertion style as the test above).
+    bool db_has_archived_row = false;
+    for (const auto& rec : registry.get_database()->list_sessions(std::nullopt)) {
+        if (rec.key.rfind("archive-key_archived_", 0) == 0) db_has_archived_row = true;
+    }
+    ASSERT_TRUE(db_has_archived_row);
+
+    // The registry-level (dashboard-facing) listing must not surface the archived row, but
+    // must still show the ended-but-still-live "completed-key" session.
+    bool picker_has_archived_row = false;
+    bool picker_has_completed_row = false;
+    for (const auto& summary : registry.list_sessions()) {
+        if (summary.key.find("_archived_") != std::string::npos) {
+            picker_has_archived_row = true;
+        }
+        if (summary.key == "completed-key") {
+            picker_has_completed_row = true;
+        }
+    }
+    EXPECT_FALSE(picker_has_archived_row);
+    EXPECT_TRUE(picker_has_completed_row);
+
+    fs::remove_all(temp_root);
+}
+
+TEST(MetricsSessionRegistry, SweepEvictionArchivesSessionInDatabase) {
+    namespace fs = std::filesystem;
+    const fs::path temp_root = fs::temp_directory_path() / "adai_metrics_registry_test_evict_db";
+    fs::remove_all(temp_root);
+    fs::create_directories(temp_root);
+    const std::string db_path = (temp_root / "metrics.db").string();
+
+    MetricsSessionRegistry registry(MetricsServiceConfig(), 16, /*ttl=*/0, /*sweep=*/0, "sqlite", db_path);
+    auto svc = registry.create_or_get_session("evict-key");
+    ASSERT_NE(svc, nullptr);
+    svc->start_session(3, 1, 1);
+    svc->end_session();
+
+    const auto evicted = registry.evict_completed_sessions(0);
+    EXPECT_EQ(evicted, 1U);
+
+    EXPECT_FALSE(registry.get_database()->get_session("evict-key").has_value());
+
+    bool found_archived = false;
+    for (const auto& rec : registry.get_database()->list_sessions(std::nullopt)) {
+        if (rec.key.rfind("evict-key_archived_", 0) == 0) {
+            found_archived = true;
+        }
+    }
+    EXPECT_TRUE(found_archived);
+
+    fs::remove_all(temp_root);
+}
+
+TEST(MetricsSessionRegistry, EvictionRenamesPerSessionFilesOnDisk) {
+    namespace fs = std::filesystem;
+    const fs::path temp_root = fs::temp_directory_path() / "adai_metrics_registry_test_evict_files";
+    fs::remove_all(temp_root);
+    fs::create_directories(temp_root);
+
+    MetricsServiceConfig config;
+    config.enable_persistence = true;
+    config.persist_every_samples = 1;
+    config.metrics_file = (temp_root / "metrics.jsonl").string();
+    config.summary_file = (temp_root / "metrics_summary.json").string();
+    config.prometheus_file = (temp_root / "metrics.prom").string();
+    config.abnormal_samples_file = (temp_root / "abnormal_samples.json").string();
+
+    MetricsSessionRegistry registry(config, 16, /*ttl=*/0, /*sweep=*/0);
+    auto svc = registry.create_or_get_session("file-key");
+    ASSERT_NE(svc, nullptr);
+    svc->start_session(1, 1, 1);
+    svc->end_session();
+
+    const auto derived = svc->get_config();
+    ASSERT_TRUE(fs::exists(derived.summary_file));
+
+    registry.evict_completed_sessions(0);
+
+    EXPECT_FALSE(fs::exists(derived.summary_file));
+
+    bool found_archived_summary = false;
+    for (const auto& entry : fs::directory_iterator(temp_root)) {
+        const std::string name = entry.path().filename().string();
+        if (name.rfind("file-key_archived_", 0) == 0 && name.find("_metrics_summary.json") != std::string::npos) {
+            found_archived_summary = true;
+        }
+    }
+    EXPECT_TRUE(found_archived_summary);
+
+    fs::remove_all(temp_root);
 }
 
 TEST(MetricsSessionRegistry, EvictsCompletedSessionsAfterTtl) {

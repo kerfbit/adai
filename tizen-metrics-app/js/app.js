@@ -404,7 +404,7 @@
 
         /* --- Aux --- */
         setText(UI.lrValue,            fmtLR(current.current_learning_rate));
-        setText(UI.perplexityValue,    fmt(current.current_perplexity, 4));
+        setText(UI.perplexityValue,    fmt(current.current_perplexity, 2));
         setText(UI.gradNormValue,      fmt(current.current_gradient_norm, 4));
         applyLRColor(UI.lrValue,          current.current_learning_rate);
         applyRangeColor(UI.perplexityValue, current.current_perplexity,    50,  500);
@@ -907,15 +907,22 @@
         /* OK on settings card → open settings */
         nav.on('ok', function(el) {
             if (!el) return;
-
-            /* Session picker items */
-            var sessionKey = el.getAttribute('data-key');
-            if (sessionKey) { selectSession(sessionKey); return; }
-
-            if (el.id === 'card-session')         { openPicker();     return; }
-            if (el.id === 'card-settings')        { openSettings();   return; }
-            if (el.id === 'settings-save-btn')    { saveSettings();   return; }
-            if (el.id === 'settings-cancel-btn')  { closeSettings();  return; }
+            if (el.id === 'card-settings') {
+                openSettings();
+                return;
+            }
+            if (el.id == 'card-session') {
+                openPicker();
+                return;
+            }
+            if (el.id === 'settings-save-btn')   { 
+                saveSettings();
+                return;
+            }
+            if (el.id === 'settings-cancel-btn')  { 
+                closeSettings();
+                return;
+            }
 
             /* Interval buttons */
             var interval = el.getAttribute('data-interval');

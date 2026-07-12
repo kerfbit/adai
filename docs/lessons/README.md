@@ -48,7 +48,7 @@ Practices that make experiments trustworthy and results recoverable.
 
 | Document | Summary |
 | --- | --- |
-| [Architecting Attention](architechting_attention.md) | Structural scaling and training dynamics of modern transformers |
+| [Architecting Attention](architecting-attention.md) | Structural scaling and training dynamics of modern transformers |
 | [Core Model Components](core-model-components.md) | Technical reference for the ADAI C++ transformer implementation |
 
 ---

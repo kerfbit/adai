@@ -204,7 +204,10 @@ $$
 **Critical Note**: CrossAttention backward pass produces **TWO** gradients:
 
 - `grad_query_input` → flows back to decoder
-- `grad_kv_input` → flows back to encoder (usually ignored during decoder training)
+- `grad_kv_input` → flows back to encoder, summed across all decoder blocks by
+  `LLMDecoder::backward` and propagated to `LLMEncoder::backward` by
+  `EncoderDecoderModel::backward` (only dropped if the caller uses the 1-arg
+  `backward()` overloads, e.g. for a genuinely frozen/pretrained encoder)
 
 ---
 
@@ -485,13 +488,14 @@ Matrix grad_decoder_input, grad_encoder_input;
 cross_attn.backward(grad_output, grad_decoder_input, grad_encoder_input);
 
 // grad_decoder_input.shape = [10, 512] → flows to decoder
-// grad_encoder_input.shape = [20, 512] → typically ignored (encoder pre-trained)
+// grad_encoder_input.shape = [20, 512] → flows to encoder (see below)
 ```
 
-**Note**: In typical usage during decoder training:
+**Note**: In typical usage during joint encoder-decoder training:
 
 - `grad_query_input` is used (flows to previous decoder layers)
-- `grad_kv_input` is often discarded (encoder already trained)
+- `grad_kv_input` is summed across decoder blocks and propagated into the encoder
+  (only discarded when the encoder is a genuinely frozen/pretrained component)
 
 #### Optimizer Integration
 
@@ -1385,7 +1389,8 @@ Matrix grad = cross_attn.backward(grad_output);  // Compile error!
 Matrix grad_decoder, grad_encoder;
 cross_attn.backward(grad_output, grad_decoder, grad_encoder);
 // Use grad_decoder for decoder path
-// grad_encoder usually ignored (encoder pre-trained)
+// grad_encoder must be propagated into the encoder (see LLMDecoder::backward /
+// EncoderDecoderModel::backward); only ignore it for a frozen/pretrained encoder
 
 ```text
 

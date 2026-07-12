@@ -704,15 +704,22 @@ void backward(const Matrix& grad_output)
    grad_decoder = lm_head->backward(grad_output)
    ```
 
-3. Backward through decoder:
+3. Backward through decoder, capturing the summed encoder-side gradient:
 
    ```cpp
-   decoder->backward(grad_decoder)
+   Matrix grad_encoder_output;
+   decoder->backward(grad_decoder, grad_encoder_output)
    ```
 
-4. Encoder gradients: Handled via cross-attention in decoder
+4. Backward through encoder:
 
-**Note**: Simplified implementation; full version would explicitly propagate encoder gradients
+   ```cpp
+   encoder->backward(grad_encoder_output)
+   ```
+
+**Note**: The gradient w.r.t. encoder output — computed by `CrossAttention::backward`
+as `grad_kv_input`, summed across every decoder block's cross-attention by
+`LLMDecoder::backward` — is explicitly propagated into the encoder end-to-end.
 
 ## Usage Patterns
 
@@ -1022,13 +1029,12 @@ EncoderDecoderModel model(
 
 1. **No Batch Support**: Processes one sequence at a time
 2. **Incomplete Persistence**: Component weights not fully saved
-3. **Simplified Backward**: Encoder gradients not explicitly propagated
-4. **No Attention Masking**: Encoder uses full attention (no padding masks)
-5. **Teacher Forcing Only**: No scheduled sampling or other curricula
+3. **No Attention Masking**: Encoder uses full attention (no padding masks)
+4. **Teacher Forcing Only**: No scheduled sampling or other curricula
 
 ### Known Issues
 
-1. **LLMEncoder Methods**: Missing set_training(), set_learning_rate(), update_weights()
+1. **LLMEncoder Methods**: Missing `update_weights()` — `set_requires_grad()`/`set_learning_rate()` exist and are wired up, but `EncoderDecoderModel::update_weights()` has no encoder counterpart to call, so the standalone `train_step()`/`train_step_tokenized()` convenience API computes correct encoder gradients but doesn't apply them. The production training path (external `Optimizer` via `register_parameters_with_optimizer`) is unaffected.
 2. **LanguageModelHead Methods**: Missing save_weights(), load_weights()
 3. **Memory Inefficiency**: No KV caching, regenerates attention each token
 4. **No Validation**: Doesn't validate token IDs in vocabulary range

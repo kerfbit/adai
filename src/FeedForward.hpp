@@ -1,9 +1,13 @@
 #pragma once
 
 #include <functional>
+#include <memory>
 #include <string>
 #include "Matrix.hpp"
 #include "Optimizer.hpp"
+#ifdef ADAI_ENABLE_GPU
+#include "gpu/MatrixGPU.hpp"
+#endif
 
 /**
  * Position-wise Feed-Forward Network
@@ -234,10 +238,34 @@ class FeedForward {
         activation_hook_ = std::move(fn);
     }
 
-    /**
-     * Remove any previously registered activation hook.
-     */
     void clear_activation_hook() {
         activation_hook_ = nullptr;
     }
+
+#ifdef ADAI_ENABLE_GPU
+    struct GPUState {
+        // Weight mirrors
+        adai::gpu::GPUMatrix W1_g, W2_g, b1_g, b2_g;
+        // Gradient accumulators
+        adai::gpu::GPUMatrix dW1, dW2, db1, db2;
+        // Cached activations for backward
+        adai::gpu::GPUMatrix cached_input;   // [seq, d_model]
+        adai::gpu::GPUMatrix cached_hidden;  // [seq, d_ff] pre-GELU
+        adai::gpu::GPUMatrix cached_act;     // [seq, d_ff] post-GELU
+
+        GPUState(int d_model, int d_ff)
+            : W1_g(d_model, d_ff), W2_g(d_ff, d_model),
+              b1_g(1, d_ff), b2_g(1, d_model),
+              dW1(d_model, d_ff), dW2(d_ff, d_model),
+              db1(1, d_ff), db2(1, d_model),
+              cached_input(1, 1), cached_hidden(1, 1), cached_act(1, 1) {}
+    };
+    std::unique_ptr<GPUState> gpu_;
+
+    void gpu_upload_weights();
+    void gpu_download_grads();
+    void gpu_zero_grads();
+    adai::gpu::GPUMatrix gpu_forward(const adai::gpu::GPUMatrix& input);
+    adai::gpu::GPUMatrix gpu_backward(const adai::gpu::GPUMatrix& dout);
+#endif
 };

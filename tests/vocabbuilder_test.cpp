@@ -483,6 +483,105 @@ TEST(VocabBuilderMultiSourceTest, LoadFromMultiplePlainFiles) {
     remove_tmp(p2);
 }
 
+// ============================================================================
+// TokenizerMode in VocabBuilder workflow
+// ============================================================================
+
+TEST_F(VocabBuilderWorkflowTest, DefaultModeIsAscii) {
+    BPETokenizer tok;
+    EXPECT_FALSE(tok.is_unicode_mode());
+    EXPECT_EQ(tok.get_mode(), TokenizerMode::ASCII);
+}
+
+TEST_F(VocabBuilderWorkflowTest, UnicodeModeConstructionIsRecognized) {
+    BPETokenizer tok(TokenizerMode::UNICODE);
+    EXPECT_TRUE(tok.is_unicode_mode());
+}
+
+TEST_F(VocabBuilderWorkflowTest, UnicodeModeBuildsVocabFromCorpus) {
+    BPETokenizer tok(TokenizerMode::UNICODE);
+    EXPECT_NO_THROW(tok.build_vocab(kCorpus, 100, 1));
+    EXPECT_GT(tok.get_vocab_size(), 4u);
+}
+
+TEST_F(VocabBuilderWorkflowTest, AsciiModeSavedVocabContainsModeField) {
+    BPETokenizer tok(TokenizerMode::ASCII);
+    tok.build_vocab(kCorpus, 100, 1);
+    tok.save_vocab(vocab_path_);
+
+    std::ifstream f(vocab_path_);
+    std::string content((std::istreambuf_iterator<char>(f)),
+                         std::istreambuf_iterator<char>());
+    EXPECT_NE(content.find("TOKENIZER_MODE ASCII"), std::string::npos);
+}
+
+TEST_F(VocabBuilderWorkflowTest, UnicodeModeVocabFileContainsModeField) {
+    BPETokenizer tok(TokenizerMode::UNICODE);
+    tok.build_vocab(kCorpus, 100, 1);
+    tok.save_vocab(vocab_path_);
+
+    std::ifstream f(vocab_path_);
+    std::string content((std::istreambuf_iterator<char>(f)),
+                         std::istreambuf_iterator<char>());
+    EXPECT_NE(content.find("TOKENIZER_MODE UNICODE"), std::string::npos);
+}
+
+TEST_F(VocabBuilderWorkflowTest, SaveLoadPreservesUnicodeMode) {
+    BPETokenizer builder(TokenizerMode::UNICODE);
+    builder.build_vocab(kCorpus, 150, 1);
+    builder.save_vocab(vocab_path_);
+
+    BPETokenizer loader;  // starts ASCII
+    loader.load_vocab(vocab_path_);
+
+    EXPECT_TRUE(loader.is_unicode_mode());
+    EXPECT_EQ(loader.get_vocab_size(), builder.get_vocab_size());
+}
+
+TEST_F(VocabBuilderWorkflowTest, SaveLoadPreservesAsciiMode) {
+    BPETokenizer builder(TokenizerMode::ASCII);
+    builder.build_vocab(kCorpus, 150, 1);
+    builder.save_vocab(vocab_path_);
+
+    BPETokenizer loader(TokenizerMode::UNICODE);  // starts Unicode; load should reset
+    loader.load_vocab(vocab_path_);
+
+    EXPECT_FALSE(loader.is_unicode_mode());
+}
+
+TEST_F(VocabBuilderWorkflowTest, UnicodeModeCanEncodeMultibyteText) {
+    // "café" and CJK text
+    std::vector<std::string> corpus_with_unicode = {
+        "caf\xC3\xA9",                      // café
+        "\xE4\xB8\xAD\xE6\x96\x87",         // 中文
+        "hello world",
+    };
+    BPETokenizer tok(TokenizerMode::UNICODE);
+    tok.build_vocab(corpus_with_unicode, 100, 1);
+
+    EXPECT_NO_THROW(tok.encode("caf\xC3\xA9", false));
+    EXPECT_NO_THROW(tok.encode("hello", false));
+}
+
+TEST_F(VocabBuilderWorkflowTest, UnicodeModeTopTokensHaveValidStrings) {
+    BPETokenizer tok(TokenizerMode::UNICODE);
+    tok.build_vocab(kCorpus, 200, 1);
+
+    auto top = tok.get_top_tokens(10);
+    EXPECT_FALSE(top.empty());
+    for (const auto& p : top) {
+        EXPECT_FALSE(p.first.empty());
+        EXPECT_GE(p.second, 0);
+    }
+}
+
+TEST_F(VocabBuilderWorkflowTest, UnicodeModeGetTopTokensK) {
+    BPETokenizer tok(TokenizerMode::UNICODE);
+    tok.build_vocab(kCorpus, 200, 1);
+    auto top = tok.get_top_tokens(5);
+    EXPECT_LE(static_cast<int>(top.size()), 5);
+}
+
 TEST(VocabBuilderMultiSourceTest, MixedFormatsLoadedAndCombinedForBuild) {
     std::string plain_path = tmp_path("mixed_plain.txt");
     write_file(plain_path, "plain text line\nanother line\n");

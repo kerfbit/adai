@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 #include "Logger.hpp"
+#include "TrainingSampleMeta.hpp"
 
 using adai::Logger;
 namespace fs = std::filesystem;
@@ -42,7 +43,7 @@ std::string DataFetcher::fetch_gutenberg(int book_id, int num_pairs) {
 
     std::ostringstream training_path_oss;
     training_path_oss << config_.gutenberg_output_dir << "/gutenberg_" << book_id
-                      << "_training.txt";
+                      << "_training.jsonl";
     const std::string training_file = training_path_oss.str();
 
     if (!convert_gutenberg_to_training_data(text_file, training_file, num_pairs)) {
@@ -78,59 +79,38 @@ std::string DataFetcher::fetch_huggingface(const std::string& dataset_id, int nu
                                             const std::string& split,
                                             const std::string& input_field,
                                             const std::string& output_field) {
-    // Build a filesystem-safe base name (replace '/' with '_')
     std::string safe_id = dataset_id;
     std::replace(safe_id.begin(), safe_id.end(), '/', '_');
 
-    const std::string rows_dir =
+    const std::string dataset_dir =
         config_.huggingface_output_dir + "/" + safe_id + "_" + split;
     const std::string train_file =
-        config_.huggingface_output_dir + "/" + safe_id + "_" + split + "_training.txt";
+        config_.huggingface_output_dir + "/" + safe_id + "_" + split + "_training.jsonl";
 
     if (!fs::exists(config_.huggingface_output_dir)) {
         fs::create_directories(config_.huggingface_output_dir);
     }
-    if (!fs::exists(rows_dir)) {
-        fs::create_directories(rows_dir);
+    if (!fs::exists(dataset_dir)) {
+        fs::create_directories(dataset_dir);
     }
 
     std::cout << "🤖 Fetching HuggingFace dataset '" << dataset_id << "' (split=" << split
               << ", target=" << num_pairs << " pairs)\n";
 
-    // datasets-server allows at most 100 rows per request.
-    // Over-sample by 50 % to compensate for rows that yield no pairs.
-    const int chunk_size   = 100;
-    const int target_rows  = std::min(num_pairs * 3 / 2 + chunk_size, 500000);
-    int downloaded         = 0;
-    int chunk_idx          = 0;
-
-    while (downloaded < target_rows) {
-        int this_len = std::min(chunk_size, target_rows - downloaded);
-        std::ostringstream chunk_path;
-        chunk_path << rows_dir << "/chunk_" << chunk_idx << ".json";
-
-        if (!download_hf_rows(dataset_id, split, downloaded, this_len, chunk_path.str())) {
-            if (chunk_idx == 0) {
-                std::cerr
-                    << "❌ Failed to fetch dataset '" << dataset_id << "'.\n"
-                    << "   • Check the dataset ID at https://huggingface.co/datasets\n"
-                    << "   • Gated datasets require: export HF_TOKEN=hf_...\n"
-                    << "   • Verify at: https://datasets-server.huggingface.co/is-valid?dataset="
-                    << dataset_id << "\n";
-                return "";
-            }
-            Logger::info("Download halted at chunk {} — converting partial data", chunk_idx);
-            break;
-        }
-
-        downloaded += this_len;
-        ++chunk_idx;
-        std::cout << "  ✓ rows " << (downloaded - this_len + 1) << "-" << downloaded << "\n";
+    const std::string jsonl_path =
+        download_hf_full_dataset(dataset_id, split, dataset_dir);
+    if (jsonl_path.empty()) {
+        std::cerr << "❌ Failed to download dataset '" << dataset_id << "'.\n"
+                  << "   • Check the dataset ID at https://huggingface.co/datasets\n"
+                  << "   • Gated datasets require: export HF_TOKEN=hf_...\n"
+                  << "   • Verify at: https://datasets-server.huggingface.co/is-valid?dataset="
+                  << dataset_id << "\n"
+                  << "   • python3 with pandas or pyarrow is required for parquet conversion\n";
+        return "";
     }
 
-    Logger::info("Downloaded {} rows in {} chunks for '{}'", downloaded, chunk_idx, dataset_id);
-
-    if (!convert_hf_to_training_data(rows_dir, train_file, input_field, output_field, num_pairs)) {
+    if (!convert_hf_to_training_data(jsonl_path, train_file, input_field, output_field,
+                                      num_pairs)) {
         std::cerr << "❌ Could not extract training pairs from '" << dataset_id << "'.\n"
                   << "   Provide explicit field names: huggingface " << dataset_id << " "
                   << num_pairs << " " << split << " <input_field> <output_field>\n";
@@ -317,10 +297,13 @@ bool DataFetcher::convert_gutenberg_to_training_data(const std::string& text_fil
         return false;
     }
 
+    SampleMeta meta;
+    meta.task_type = "qa";
+    meta.domain    = "literature";
+    meta.language  = "en";
+
     for (const auto& pair : pairs) {
-        out << "INPUT: " << pair.first << "\n";
-        out << "RESPONSE: " << pair.second << "\n";
-        out << "\n";
+        out << sample_to_jsonl(pair.first, pair.second, meta) << "\n";
     }
 
     out.close();
@@ -333,36 +316,124 @@ bool DataFetcher::convert_gutenberg_to_training_data(const std::string& text_fil
 // Private — HuggingFace helpers (moved verbatim from IncrementalTrainer.cpp)
 // ============================================================================
 
+// Forward declaration — defined after the JSON helper block below.
+static std::vector<std::string> hf_extract_parquet_urls(const std::string& json);
+
 /*static*/
-bool DataFetcher::download_hf_rows(const std::string& dataset_id, const std::string& split,
-                                    int offset, int length, const std::string& output_path) {
-    std::ostringstream url;
-    url << "https://datasets-server.huggingface.co/rows"
-        << "?dataset=" << dataset_id << "&config=default"
-        << "&split=" << split << "&offset=" << offset << "&length=" << length;
+std::string DataFetcher::download_hf_full_dataset(const std::string& dataset_id,
+                                                    const std::string& split,
+                                                    const std::string& output_dir) {
+    const char*       hf_token  = std::getenv("HF_TOKEN");
+    const std::string jsonl_path = output_dir + "/full_dataset.jsonl";
 
-    Logger::info("HF datasets-server: {} split={} offset={} length={}", dataset_id, split, offset,
-                 length);
+    // 1. Fetch the parquet file list from the datasets-server /parquet endpoint
+    const std::string info_path = output_dir + "/parquet_info.json";
+    {
+        std::ostringstream url;
+        url << "https://datasets-server.huggingface.co/parquet"
+            << "?dataset=" << dataset_id << "&config=default&split=" << split;
 
-    std::ostringstream cmd;
-    const char* hf_token = std::getenv("HF_TOKEN");
-    if (hf_token && hf_token[0] != '\0') {
-        cmd << "curl -L -f -s"
-            << " -H \"Authorization: Bearer " << hf_token << "\""
-            << " -o \"" << output_path << "\""
-            << " \"" << url.str() << "\"";
-    } else {
-        cmd << "curl -L -f -s"
-            << " -o \"" << output_path << "\""
-            << " \"" << url.str() << "\"";
+        std::ostringstream cmd;
+        if (hf_token && hf_token[0] != '\0') {
+            cmd << "curl -L -f -s -H \"Authorization: Bearer " << hf_token << "\""
+                << " -o \"" << info_path << "\" \"" << url.str() << "\"";
+        } else {
+            cmd << "curl -L -f -s -o \"" << info_path << "\" \"" << url.str() << "\"";
+        }
+        if (std::system(cmd.str().c_str()) != 0 || !fs::exists(info_path) ||
+            fs::file_size(info_path) == 0) {
+            Logger::error("Failed to fetch parquet info for '{}'", dataset_id);
+            return "";
+        }
     }
 
-    int rc = std::system(cmd.str().c_str());
-    if (rc != 0 || !fs::exists(output_path) || fs::file_size(output_path) == 0) {
-        Logger::error("Failed to fetch HuggingFace rows (offset={} length={})", offset, length);
-        return false;
+    std::vector<std::string> parquet_urls;
+    {
+        std::ifstream     f(info_path);
+        std::string       info_json((std::istreambuf_iterator<char>(f)),
+                                    std::istreambuf_iterator<char>());
+        parquet_urls = hf_extract_parquet_urls(info_json);
     }
-    return true;
+
+    if (parquet_urls.empty()) {
+        Logger::error("No parquet files found for dataset '{}' split '{}'", dataset_id, split);
+        return "";
+    }
+    Logger::info("Found {} parquet file(s) for '{}'", parquet_urls.size(), dataset_id);
+
+    // 2. Write a small Python3 conversion script (pandas preferred, pyarrow fallback)
+    const std::string parquet_dir = output_dir + "/parquet";
+    fs::create_directories(parquet_dir);
+
+    const std::string py_script = parquet_dir + "/to_jsonl.py";
+    {
+        std::ofstream py(py_script);
+        py << "import sys, json\n"
+           << "try:\n"
+           << "    import pandas as pd\n"
+           << "    pd.read_parquet(sys.argv[1]).to_json(\n"
+           << "        sys.argv[2], orient='records', lines=True, force_ascii=False)\n"
+           << "except ImportError:\n"
+           << "    import pyarrow.parquet as pq\n"
+           << "    table = pq.read_table(sys.argv[1])\n"
+           << "    with open(sys.argv[2], 'w', encoding='utf-8') as f:\n"
+           << "        for row in table.to_pylist():\n"
+           << "            f.write(json.dumps(row, ensure_ascii=False) + '\\n')\n";
+    }
+
+    // 3. Download each parquet file and convert to JSONL, appending to jsonl_path
+    { std::ofstream(jsonl_path).close(); }  // truncate / create
+
+    int converted = 0;
+    for (size_t i = 0; i < parquet_urls.size(); ++i) {
+        const std::string pq_file =
+            parquet_dir + "/part_" + std::to_string(i) + ".parquet";
+        const std::string chunk_jsonl =
+            parquet_dir + "/part_" + std::to_string(i) + ".jsonl";
+
+        // Download
+        std::ostringstream dl_cmd;
+        if (hf_token && hf_token[0] != '\0') {
+            dl_cmd << "curl -L -f -s -H \"Authorization: Bearer " << hf_token << "\""
+                   << " -o \"" << pq_file << "\" \"" << parquet_urls[i] << "\"";
+        } else {
+            dl_cmd << "curl -L -f -s -o \"" << pq_file << "\" \"" << parquet_urls[i] << "\"";
+        }
+        if (std::system(dl_cmd.str().c_str()) != 0 || !fs::exists(pq_file) ||
+            fs::file_size(pq_file) == 0) {
+            Logger::error("Failed to download parquet part {}: {}", i, parquet_urls[i]);
+            continue;
+        }
+
+        // Convert to JSONL
+        std::ostringstream py_cmd;
+        py_cmd << "python3 \"" << py_script << "\" \"" << pq_file << "\" \""
+               << chunk_jsonl << "\" 2>/dev/null";
+        if (std::system(py_cmd.str().c_str()) != 0 || !fs::exists(chunk_jsonl) ||
+            fs::file_size(chunk_jsonl) == 0) {
+            Logger::error(
+                "Parquet to JSONL conversion failed for part {} "
+                "(python3 with pandas or pyarrow required)",
+                i);
+            continue;
+        }
+
+        // Append to main JSONL
+        std::ostringstream cat_cmd;
+        cat_cmd << "cat \"" << chunk_jsonl << "\" >> \"" << jsonl_path << "\"";
+        std::system(cat_cmd.str().c_str());
+        ++converted;
+        std::cout << "  ✓ parquet part " << (i + 1) << "/" << parquet_urls.size() << "\n";
+    }
+
+    if (converted == 0 || !fs::exists(jsonl_path) || fs::file_size(jsonl_path) == 0) {
+        Logger::error("No parquet files successfully converted for '{}'", dataset_id);
+        return "";
+    }
+
+    Logger::info("Dataset '{}': {}/{} parquet files converted to JSONL", dataset_id, converted,
+                 parquet_urls.size());
+    return jsonl_path;
 }
 
 // ============================================================================
@@ -515,56 +586,6 @@ static std::string hf_extract_object(const std::string& json, const std::string&
     return json.substr(brace, pos - brace + 1);
 }
 
-/// Parse the array of "row" sub-objects from a datasets-server JSON response.
-static std::vector<std::string> hf_extract_rows(const std::string& response_json) {
-    std::vector<std::string> rows;
-    size_t rows_key = response_json.find("\"rows\"");
-    if (rows_key == std::string::npos) return rows;
-    size_t arr_start = response_json.find('[', rows_key + 6);
-    if (arr_start == std::string::npos) return rows;
-
-    size_t pos = arr_start + 1;
-    while (pos < response_json.size()) {
-        while (pos < response_json.size() &&
-               (std::isspace(static_cast<unsigned char>(response_json[pos])) ||
-                response_json[pos] == ',')) {
-            ++pos;
-        }
-
-        if (pos >= response_json.size() || response_json[pos] == ']') break;
-        if (response_json[pos] != '{') { ++pos; continue; }
-
-        int    depth     = 1;
-        size_t obj_start = pos;
-        ++pos;
-        while (pos < response_json.size() && depth > 0) {
-            char c = response_json[pos];
-            if (c == '{') {
-                ++depth; ++pos;
-            } else if (c == '}') {
-                --depth;
-                if (depth == 0) break;
-                ++pos;
-            } else if (c == '"') {
-                ++pos;
-                while (pos < response_json.size() && response_json[pos] != '"') {
-                    if (response_json[pos] == '\\') ++pos;
-                    ++pos;
-                }
-                if (pos < response_json.size()) ++pos;
-            } else {
-                ++pos;
-            }
-        }
-        if (pos < response_json.size()) ++pos;
-
-        std::string outer_obj = response_json.substr(obj_start, pos - obj_start);
-        std::string row_obj   = hf_extract_object(outer_obj, "row");
-        if (!row_obj.empty()) rows.push_back(row_obj);
-    }
-    return rows;
-}
-
 /// Try to infer input/output field names from the first row's JSON.
 static std::pair<std::string, std::string> hf_detect_fields(const std::string& row_json) {
     static const std::array<std::pair<const char*, const char*>, 10> candidates = {{
@@ -587,167 +608,189 @@ static std::pair<std::string, std::string> hf_detect_fields(const std::string& r
     return {"", ""};
 }
 
+/// Extract parquet file URLs from a datasets-server /parquet API response.
+static std::vector<std::string> hf_extract_parquet_urls(const std::string& json) {
+    std::vector<std::string> urls;
+    size_t arr_key = json.find("\"parquet_files\"");
+    if (arr_key == std::string::npos) return urls;
+    size_t arr_start = json.find('[', arr_key);
+    if (arr_start == std::string::npos) return urls;
+
+    size_t pos = arr_start + 1;
+    while (pos < json.size()) {
+        while (pos < json.size() &&
+               (std::isspace(static_cast<unsigned char>(json[pos])) || json[pos] == ','))
+            ++pos;
+        if (pos >= json.size() || json[pos] == ']') break;
+        if (json[pos] != '{') { ++pos; continue; }
+
+        int    depth     = 1;
+        size_t obj_start = pos++;
+        while (pos < json.size() && depth > 0) {
+            char c = json[pos];
+            if (c == '{')      { ++depth; ++pos; }
+            else if (c == '}') { if (--depth == 0) break; ++pos; }
+            else if (c == '"') {
+                ++pos;
+                while (pos < json.size() && json[pos] != '"') {
+                    if (json[pos] == '\\') ++pos;
+                    ++pos;
+                }
+                if (pos < json.size()) ++pos;
+            } else { ++pos; }
+        }
+        if (pos < json.size()) ++pos;
+
+        std::string obj = json.substr(obj_start, pos - obj_start);
+        std::string url = hf_extract_string(obj, "url");
+        if (!url.empty()) urls.push_back(url);
+    }
+    return urls;
+}
+
 // ============================================================================
-// Private — convert_hf_to_training_data (moved verbatim from IncrementalTrainer.cpp)
+// Private — convert_hf_to_training_data
+// Reads a JSONL file (one JSON object per line) produced by download_hf_full_dataset
+// and writes up to max_pairs training JSONL lines with inferred metadata.
 // ============================================================================
 
+// Infer task_type from the auto-detected HuggingFace field names.
+static std::string hf_task_type(const std::string& in_field) {
+    if (in_field == "instruction") return "instruction";
+    if (in_field == "question")    return "qa";
+    if (in_field == "prompt")      return "completion";
+    return "instruction";
+}
+
 /*static*/
-bool DataFetcher::convert_hf_to_training_data(const std::string& rows_dir,
+bool DataFetcher::convert_hf_to_training_data(const std::string& jsonl_file,
                                                const std::string& output_file,
                                                const std::string& input_field,
                                                const std::string& output_field,
                                                int max_pairs) {
+    std::ifstream f(jsonl_file);
+    if (!f.is_open()) {
+        Logger::error("Cannot open JSONL file: {}", jsonl_file);
+        return false;
+    }
     std::ofstream out(output_file);
     if (!out.is_open()) {
         Logger::error("Cannot create output file: {}", output_file);
         return false;
     }
 
-    int pair_count  = 0;
-    std::string det_in  = input_field;
-    std::string det_out = output_field;
+    int         pair_count    = 0;
+    std::string det_in        = input_field;
+    std::string det_out       = output_field;
+    std::string det_task_type;
+    std::string line;
 
-    for (int chunk = 0; pair_count < max_pairs; ++chunk) {
-        std::ostringstream chunk_path;
-        chunk_path << rows_dir << "/chunk_" << chunk << ".json";
-        if (!fs::exists(chunk_path.str())) break;
-
-        std::ifstream f(chunk_path.str());
-        if (!f.is_open()) {
-            Logger::error("Cannot open chunk: {}", chunk_path.str());
-            continue;
-        }
-        std::string json((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-        f.close();
-
-        auto rows = hf_extract_rows(json);
-        if (rows.empty()) {
-            Logger::info("No rows parsed from chunk {} — stopping", chunk);
-            break;
-        }
-
-        for (const auto& row_json : rows) {
-            if (pair_count >= max_pairs) break;
-
-            if (det_in.empty()) {
-                auto [df_in, df_out] = hf_detect_fields(row_json);
-                det_in  = df_in;
-                det_out = df_out;
-                if (!det_in.empty()) {
-                    Logger::info("Auto-detected HF fields: input='{}' output='{}'", det_in,
-                                 det_out);
-                }
-            }
-
-            if (!det_in.empty() && !det_out.empty() && det_in == det_out) {
-                // Single-text-field datasets — split at a sentence boundary near the middle
-                std::string full_text = hf_extract_string(row_json, det_in);
-                if (full_text.size() >= 40) {
-                    size_t mid       = full_text.size() / 2;
-                    size_t split_pos = std::string::npos;
-                    for (size_t radius = 0; radius < mid; ++radius) {
-                        for (size_t pos : {mid + radius, mid - radius}) {
-                            if (pos >= full_text.size() - 1) continue;
-                            char c = full_text[pos];
-                            if ((c == '.' || c == '!' || c == '?') &&
-                                pos + 1 < full_text.size() &&
-                                (full_text[pos + 1] == ' ' || full_text[pos + 1] == '\n')) {
-                                split_pos = pos + 1;
-                                break;
-                            }
-                        }
-                        if (split_pos != std::string::npos) break;
-                    }
-                    if (split_pos != std::string::npos && split_pos < full_text.size() - 5) {
-                        std::string input_text  = full_text.substr(0, split_pos);
-                        std::string output_text = full_text.substr(split_pos);
-                        size_t start = output_text.find_first_not_of(" \n\t");
-                        if (start != std::string::npos) output_text = output_text.substr(start);
-                        if (!input_text.empty() && !output_text.empty()) {
-                            out << "INPUT: " << input_text << "\n"
-                                << "RESPONSE: " << output_text << "\n\n";
-                            ++pair_count;
-                        }
-                    }
-                }
-            } else if (!det_in.empty() && !det_out.empty()) {
-                // Key-value datasets (alpaca, dolly, OpenHermes, …)
-                std::string input_text = hf_extract_string(row_json, det_in);
-                if (det_in == "instruction") {
-                    std::string sub = hf_extract_string(row_json, "input");
-                    if (!sub.empty()) input_text += "\n" + sub;
-                }
-                std::string output_text = hf_extract_string(row_json, det_out);
-                if (!input_text.empty() && !output_text.empty()) {
-                    out << "INPUT: " << input_text << "\n"
-                        << "RESPONSE: " << output_text << "\n\n";
-                    ++pair_count;
-                }
-            } else {
-                // Dialog-array datasets (daily_dialog, BlendedSkillTalk, …)
-                static const std::array<const char*, 5> dialog_keys = {
-                    "dialog", "turns", "utterances", "conversations", nullptr};
-                for (const char* dk : dialog_keys) {
-                    if (dk == nullptr) break;
-                    if (pair_count >= max_pairs) break;
-                    auto turns = hf_extract_string_array(row_json, dk);
-                    if (turns.empty()) continue;
-                    for (size_t i = 0; i + 1 < turns.size() && pair_count < max_pairs; i += 2) {
-                        if (!turns[i].empty() && !turns[i + 1].empty()) {
-                            out << "INPUT: " << turns[i] << "\n"
-                                << "RESPONSE: " << turns[i + 1] << "\n\n";
-                            ++pair_count;
-                        }
-                    }
+    // Helper: split a long text at a sentence boundary near its midpoint.
+    auto mid_split = [](const std::string& text, std::string& left, std::string& right) -> bool {
+        if (text.size() < 40) return false;
+        size_t mid       = text.size() / 2;
+        size_t split_pos = std::string::npos;
+        for (size_t radius = 0; radius < mid && split_pos == std::string::npos; ++radius) {
+            for (size_t pos : {mid + radius, mid - radius}) {
+                if (pos >= text.size() - 1) continue;
+                char c = text[pos];
+                if ((c == '.' || c == '!' || c == '?') && pos + 1 < text.size() &&
+                    (text[pos + 1] == ' ' || text[pos + 1] == '\n')) {
+                    split_pos = pos + 1;
                     break;
                 }
+            }
+        }
+        if (split_pos == std::string::npos || split_pos >= text.size() - 5) return false;
+        left  = text.substr(0, split_pos);
+        right = text.substr(split_pos);
+        size_t start = right.find_first_not_of(" \n\t");
+        if (start != std::string::npos) right = right.substr(start);
+        return !left.empty() && !right.empty();
+    };
 
-                // Last resort: single-text-field with sentence splitting
-                if (pair_count == 0) {
-                    static const std::array<const char*, 4> text_keys = {
-                        "text", "content", "document", nullptr};
-                    for (const char* tk : text_keys) {
-                        if (tk == nullptr) break;
-                        std::string full_text = hf_extract_string(row_json, tk);
-                        if (full_text.size() >= 40) {
-                            det_in  = tk;
-                            det_out = tk;
-                            Logger::info(
-                                "Auto-detected single-text field: '{}' — will split at sentence "
-                                "boundaries",
-                                tk);
-                            size_t mid       = full_text.size() / 2;
-                            size_t split_pos = std::string::npos;
-                            for (size_t radius = 0; radius < mid; ++radius) {
-                                for (size_t pos : {mid + radius, mid - radius}) {
-                                    if (pos >= full_text.size() - 1) continue;
-                                    char c = full_text[pos];
-                                    if ((c == '.' || c == '!' || c == '?') &&
-                                        pos + 1 < full_text.size() &&
-                                        (full_text[pos + 1] == ' ' ||
-                                         full_text[pos + 1] == '\n')) {
-                                        split_pos = pos + 1;
-                                        break;
-                                    }
-                                }
-                                if (split_pos != std::string::npos) break;
-                            }
-                            if (split_pos != std::string::npos &&
-                                split_pos < full_text.size() - 5) {
-                                std::string input_text  = full_text.substr(0, split_pos);
-                                std::string output_text = full_text.substr(split_pos);
-                                size_t start = output_text.find_first_not_of(" \n\t");
-                                if (start != std::string::npos)
-                                    output_text = output_text.substr(start);
-                                if (!input_text.empty() && !output_text.empty()) {
-                                    out << "INPUT: " << input_text << "\n"
-                                        << "RESPONSE: " << output_text << "\n\n";
-                                    ++pair_count;
-                                }
-                            }
-                            break;
-                        }
+    while (std::getline(f, line) && pair_count < max_pairs) {
+        if (line.empty() || line.front() != '{') continue;
+        const std::string& row_json = line;
+
+        if (det_in.empty()) {
+            auto [df_in, df_out] = hf_detect_fields(row_json);
+            det_in        = df_in;
+            det_out       = df_out;
+            det_task_type = det_in.empty() ? "" : hf_task_type(det_in);
+            if (!det_in.empty()) {
+                Logger::info("Auto-detected HF fields: input='{}' output='{}' task_type='{}'",
+                             det_in, det_out, det_task_type);
+            }
+        }
+
+        SampleMeta meta;
+        meta.task_type = det_task_type;
+
+        if (!det_in.empty() && !det_out.empty() && det_in == det_out) {
+            // Single-text-field datasets — split at sentence boundary near middle
+            std::string full_text = hf_extract_string(row_json, det_in);
+            std::string left, right;
+            if (mid_split(full_text, left, right)) {
+                meta.task_type = "completion";
+                out << sample_to_jsonl(left, right, meta) << "\n";
+                ++pair_count;
+            }
+        } else if (!det_in.empty() && !det_out.empty()) {
+            // Key-value datasets (alpaca, dolly, OpenHermes, …)
+            std::string input_text = hf_extract_string(row_json, det_in);
+            if (det_in == "instruction") {
+                std::string sub = hf_extract_string(row_json, "input");
+                if (!sub.empty()) input_text += "\n" + sub;
+            }
+            std::string output_text = hf_extract_string(row_json, det_out);
+            if (!input_text.empty() && !output_text.empty()) {
+                out << sample_to_jsonl(input_text, output_text, meta) << "\n";
+                ++pair_count;
+            }
+        } else {
+            // Dialog-array datasets (daily_dialog, BlendedSkillTalk, …)
+            static const std::array<const char*, 5> dialog_keys = {
+                "dialog", "turns", "utterances", "conversations", nullptr};
+            bool handled = false;
+            for (const char* dk : dialog_keys) {
+                if (dk == nullptr || pair_count >= max_pairs) break;
+                auto turns = hf_extract_string_array(row_json, dk);
+                if (turns.empty()) continue;
+                SampleMeta chat_meta;
+                chat_meta.task_type = "chat";
+                for (size_t i = 0; i + 1 < turns.size() && pair_count < max_pairs; i += 2) {
+                    if (!turns[i].empty() && !turns[i + 1].empty()) {
+                        out << sample_to_jsonl(turns[i], turns[i + 1], chat_meta) << "\n";
+                        ++pair_count;
                     }
+                }
+                handled = true;
+                break;
+            }
+
+            // Last resort: single-text-field with sentence splitting
+            if (!handled && pair_count == 0) {
+                static const std::array<const char*, 4> text_keys = {
+                    "text", "content", "document", nullptr};
+                for (const char* tk : text_keys) {
+                    if (tk == nullptr) break;
+                    std::string full_text = hf_extract_string(row_json, tk);
+                    if (full_text.size() < 40) continue;
+                    det_in        = tk;
+                    det_out       = tk;
+                    det_task_type = "completion";
+                    Logger::info(
+                        "Auto-detected single-text field: '{}' — will split at sentence boundaries",
+                        tk);
+                    std::string left, right;
+                    if (mid_split(full_text, left, right)) {
+                        SampleMeta comp_meta;
+                        comp_meta.task_type = "completion";
+                        out << sample_to_jsonl(left, right, comp_meta) << "\n";
+                        ++pair_count;
+                    }
+                    break;
                 }
             }
         }

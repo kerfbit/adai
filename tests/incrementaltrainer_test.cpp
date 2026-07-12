@@ -204,109 +204,6 @@ TEST_F(IncrementalTrainerTest, MakeIncrementalConfigKeepsBasePushUrlWhenSessionK
 }
 
 // ============================================================================
-// Data Management Tests
-// ============================================================================
-
-TEST_F(IncrementalTrainerTest, AddNewDataSingleFile) {
-    IncrementalConfig config;
-    config.session_dir = session_dir.string();
-    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
-
-    bool result = trainer.add_new_data(data_file1.string());
-    EXPECT_TRUE(result);
-
-    std::vector<std::string> pending = trainer.get_pending_data_files();
-    EXPECT_EQ(pending.size(), 1);
-    EXPECT_EQ(pending[0], data_file1.string());
-}
-
-TEST_F(IncrementalTrainerTest, AddNewDataMultipleFiles) {
-    IncrementalConfig config;
-    config.session_dir = session_dir.string();
-    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
-
-    trainer.add_new_data(data_file1.string());
-    trainer.add_new_data(data_file2.string());
-
-    std::vector<std::string> pending = trainer.get_pending_data_files();
-    EXPECT_EQ(pending.size(), 2);
-}
-
-TEST_F(IncrementalTrainerTest, AddNewDataBatch) {
-    IncrementalConfig config;
-    config.session_dir = session_dir.string();
-    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
-
-    std::vector<std::string> files = {data_file1.string(), data_file2.string()};
-    bool result = trainer.add_new_data_batch(files);
-    EXPECT_TRUE(result);
-
-    std::vector<std::string> pending = trainer.get_pending_data_files();
-    EXPECT_EQ(pending.size(), 2);
-}
-
-TEST_F(IncrementalTrainerTest, AddNonExistentFileReturnsFalse) {
-    IncrementalConfig config;
-    config.session_dir = session_dir.string();
-    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
-
-    bool result = trainer.add_new_data(test_dir.string() + "/nonexistent.txt");
-    EXPECT_FALSE(result);
-
-    std::vector<std::string> pending = trainer.get_pending_data_files();
-    EXPECT_EQ(pending.size(), 0);
-}
-
-TEST_F(IncrementalTrainerTest, ClearPendingData) {
-    IncrementalConfig config;
-    config.session_dir = session_dir.string();
-    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
-
-    trainer.add_new_data(data_file1.string());
-    trainer.add_new_data(data_file2.string());
-
-    std::vector<std::string> pending = trainer.get_pending_data_files();
-    EXPECT_EQ(pending.size(), 2);
-
-    trainer.clear_pending_data();
-
-    pending = trainer.get_pending_data_files();
-    EXPECT_EQ(pending.size(), 0);
-}
-
-TEST_F(IncrementalTrainerTest, GetTrainedDataFilesEmpty) {
-    IncrementalConfig config;
-    config.session_dir = session_dir.string();
-    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
-
-    std::vector<std::string> trained = trainer.get_trained_data_files();
-    EXPECT_EQ(trained.size(), 0);
-}
-
-TEST_F(IncrementalTrainerTest, ComputeDataChecksumConsistent) {
-    IncrementalConfig config;
-    config.session_dir = session_dir.string();
-    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
-
-    std::string checksum1 = trainer.compute_data_checksum(data_file1.string());
-    std::string checksum2 = trainer.compute_data_checksum(data_file1.string());
-
-    EXPECT_FALSE(checksum1.empty());
-    EXPECT_EQ(checksum1, checksum2);
-}
-
-TEST_F(IncrementalTrainerTest, ComputeDataChecksumDifferentForDifferentFiles) {
-    IncrementalConfig config;
-    config.session_dir = session_dir.string();
-    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
-
-    std::string checksum1 = trainer.compute_data_checksum(data_file1.string());
-    std::string checksum2 = trainer.compute_data_checksum(data_file2.string());
-
-    EXPECT_NE(checksum1, checksum2);
-}
-
-// ============================================================================
 // Session Management Tests
 // ============================================================================
 
@@ -320,13 +217,16 @@ TEST_F(IncrementalTrainerTest, SessionHistoryEmptyInitially) {
 }
 
 TEST_F(IncrementalTrainerTest, LoadSessionHistoryFromFile) {
-    // Create session history file
-    std::string history_file = session_dir.string() + "/session_history.txt";
-    create_session_history_file(history_file, 3);
-
     IncrementalConfig config;
     config.session_dir = session_dir.string();
     IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+
+    // Create session history file after construction — cleanup_dead_sessions()
+    // runs during construction and would purge entries whose checkpoint files
+    // (deliberately not created here; this test only exercises parsing) don't
+    // exist on disk.
+    std::string history_file = session_dir.string() + "/session_history.txt";
+    create_session_history_file(history_file, 3);
 
     bool result = trainer.load_session_history();
     EXPECT_TRUE(result);
@@ -415,6 +315,84 @@ TEST_F(IncrementalTrainerTest, CleanupOldSessionsKeepsMaxSessions) {
     EXPECT_FALSE(fs::exists(session_dir / "session_2_checkpoint.bin"));
 }
 
+TEST_F(IncrementalTrainerTest, CleanupDeadSessionsRemovesOrphansAndBrokenHistory) {
+    IncrementalConfig config;
+    config.session_dir = session_dir.string();
+    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+
+    // History: session 0 is "broken" (zero samples trained, the degenerate
+    // zero-loss case); session 1 actually trained and is sane.
+    std::string history_file = session_dir.string() + "/session_history.txt";
+    {
+        std::ofstream file(history_file);
+        file << "# session_id samples_trained epochs final_loss final_val_loss checkpoint_path\n";
+        file << "0 0 20 0 0 " << session_dir.string() << "/session_0_checkpoint.bin\n";
+        file << "1 45000 20 187.259 5.87326 " << session_dir.string()
+             << "/session_1_checkpoint.bin\n";
+    }
+    trainer.load_session_history();  // current_session_id becomes 2 (max id 1 + 1)
+
+    auto touch = [](const fs::path& p) { std::ofstream(p) << "dummy"; };
+
+    // Referenced checkpoints (one broken, one sane)
+    touch(session_dir / "session_0_checkpoint.bin");
+    touch(session_dir / "session_0_checkpoint.bin.config");
+    touch(session_dir / "session_1_checkpoint.bin");
+    touch(session_dir / "session_1_checkpoint.bin.config");
+
+    // Orphaned in-progress snapshot from an older, already-superseded session
+    touch(session_dir / "session_1_best.bin");
+    touch(session_dir / "session_1_best.bin.config");
+    // Live in-progress snapshot for the *current* session (id 2) — must survive
+    touch(session_dir / "session_2_best.bin");
+    touch(session_dir / "session_2_best.bin.config");
+    // Bare checkpoint with no matching history line at all (crash before the
+    // history line was appended)
+    touch(session_dir / "session_3_checkpoint.bin");
+    // Stale autosave from an old session vs. the current one
+    touch(session_dir / "auto_save_session_1.bin");
+    touch(session_dir / "auto_save_session_2.bin");
+
+    trainer.cleanup_dead_sessions();
+
+    // Broken session 0 is purged: history entry and its checkpoint files gone
+    std::vector<TrainingSession> history = trainer.get_session_history();
+    ASSERT_EQ(history.size(), 1u);
+    EXPECT_EQ(history[0].session_id, 1);
+    EXPECT_FALSE(fs::exists(session_dir / "session_0_checkpoint.bin"));
+    EXPECT_FALSE(fs::exists(session_dir / "session_0_checkpoint.bin.config"));
+
+    // Sane session 1 checkpoint survives
+    EXPECT_TRUE(fs::exists(session_dir / "session_1_checkpoint.bin"));
+    EXPECT_TRUE(fs::exists(session_dir / "session_1_checkpoint.bin.config"));
+
+    // Orphaned session_1_best.bin (not the current session) is removed
+    EXPECT_FALSE(fs::exists(session_dir / "session_1_best.bin"));
+    EXPECT_FALSE(fs::exists(session_dir / "session_1_best.bin.config"));
+
+    // Live session_2_best.bin (current in-progress session) survives
+    EXPECT_TRUE(fs::exists(session_dir / "session_2_best.bin"));
+    EXPECT_TRUE(fs::exists(session_dir / "session_2_best.bin.config"));
+
+    // Unreferenced bare checkpoint is removed regardless of id
+    EXPECT_FALSE(fs::exists(session_dir / "session_3_checkpoint.bin"));
+
+    // Stale autosave removed, current-session autosave survives
+    EXPECT_FALSE(fs::exists(session_dir / "auto_save_session_1.bin"));
+    EXPECT_TRUE(fs::exists(session_dir / "auto_save_session_2.bin"));
+
+    // The cleaned history was persisted to disk
+    std::ifstream check(history_file);
+    std::string line;
+    int line_count = 0;
+    while (std::getline(check, line)) {
+        if (!line.empty() && line[0] != '#') {
+            ++line_count;
+        }
+    }
+    EXPECT_EQ(line_count, 1);
+}
+
 // ============================================================================
 // Checkpoint Management Tests
 // ============================================================================
@@ -458,37 +436,6 @@ TEST_F(IncrementalTrainerTest, GetLatestCheckpointReturnsLastSessionCheckpoint) 
 
     std::string latest = trainer.get_latest_checkpoint();
     EXPECT_EQ(latest, session_dir.string() + "/session_2_checkpoint.bin");
-}
-
-// ============================================================================
-// Data Registry Tests
-// ============================================================================
-
-TEST_F(IncrementalTrainerTest, SaveAndLoadDataRegistry) {
-    IncrementalConfig config;
-    config.session_dir = session_dir.string();
-    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
-
-    // Add data files
-    trainer.add_new_data(data_file1.string());
-
-    // Save registry
-    bool save_result = trainer.save_data_registry();
-    EXPECT_TRUE(save_result);
-
-    // Create new trainer and load registry
-    IncrementalTrainer trainer2(vocab_file.string(), model_file.string(), config);
-    bool load_result = trainer2.load_data_registry();
-    EXPECT_TRUE(load_result);
-}
-
-TEST_F(IncrementalTrainerTest, IsDataTrainedReturnsFalseForUntrained) {
-    IncrementalConfig config;
-    config.session_dir = session_dir.string();
-    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
-
-    bool trained = trainer.is_data_trained(data_file1.string());
-    EXPECT_FALSE(trained);
 }
 
 // ============================================================================
@@ -544,33 +491,8 @@ TEST_F(IncrementalTrainerTest, PrintMethodsDoNotCrash) {
     config.session_dir = session_dir.string();
     IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
 
-    // These should not crash even with no data
+    // Should not crash even with no data
     EXPECT_NO_THROW(trainer.print_training_summary());
-    EXPECT_NO_THROW(trainer.print_session_history());
-    EXPECT_NO_THROW(trainer.print_data_registry());
-}
-
-TEST_F(IncrementalTrainerTest, MultipleDataAddRemoveCycles) {
-    IncrementalConfig config;
-    config.session_dir = session_dir.string();
-    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
-
-    // Add data
-    trainer.add_new_data(data_file1.string());
-    EXPECT_EQ(trainer.get_pending_data_files().size(), 1);
-
-    // Clear
-    trainer.clear_pending_data();
-    EXPECT_EQ(trainer.get_pending_data_files().size(), 0);
-
-    // Add again
-    trainer.add_new_data(data_file1.string());
-    trainer.add_new_data(data_file2.string());
-    EXPECT_EQ(trainer.get_pending_data_files().size(), 2);
-
-    // Clear again
-    trainer.clear_pending_data();
-    EXPECT_EQ(trainer.get_pending_data_files().size(), 0);
 }
 
 TEST_F(IncrementalTrainerTest, ConfigModificationPersists) {
@@ -591,37 +513,6 @@ TEST_F(IncrementalTrainerTest, ConfigModificationPersists) {
 // ============================================================================
 // Edge Cases
 // ============================================================================
-
-TEST_F(IncrementalTrainerTest, EmptyDataFileHandling) {
-    // Create empty data file
-    fs::path empty_file = test_dir / "empty.txt";
-    std::ofstream(empty_file.string()).close();
-
-    IncrementalConfig config;
-    config.session_dir = session_dir.string();
-    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
-
-    // Should still add to pending even if empty
-    bool result = trainer.add_new_data(empty_file.string());
-    EXPECT_TRUE(result);
-}
-
-TEST_F(IncrementalTrainerTest, VeryLongFilePathHandling) {
-    IncrementalConfig config;
-    config.session_dir = session_dir.string();
-    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
-
-    // Create a very long but valid path
-    std::string long_path = test_dir.string() + "/";
-    for (int i = 0; i < 10; ++i) {
-        long_path += "very_long_directory_name_here/";
-    }
-    long_path += "data.txt";
-
-    // Should handle gracefully (will return false since file doesn't exist)
-    bool result = trainer.add_new_data(long_path);
-    EXPECT_FALSE(result);
-}
 
 TEST_F(IncrementalTrainerTest, MaxSessionsToKeepZero) {
     IncrementalConfig config;
@@ -702,10 +593,14 @@ TEST_F(IncrementalTrainerTest, LoadSessionHistoryV2ParsesPerEpochVectors) {
     std::string default_dir = "training_sessions";
     fs::create_directories(default_dir);
     std::string hist_path = default_dir + "/session_history.txt";
-    create_session_history_file_v2(hist_path);
 
-    // Create trainer using 2-arg constructor so it reads from the default dir
+    // Create trainer using 2-arg constructor so it reads from the default dir.
+    // Construct BEFORE writing the history file: cleanup_dead_sessions() runs
+    // during construction and would purge this entry, since its checkpoint
+    // path (a placeholder that's never actually created on disk) doesn't exist.
     IncrementalTrainer trainer(vocab_file.string(), model_file.string());
+    create_session_history_file_v2(hist_path);
+    trainer.load_session_history();
     auto history = trainer.get_session_history();
 
     // Cleanup artefact created by this test
@@ -744,9 +639,12 @@ TEST_F(IncrementalTrainerTest, SaveLoadSessionHistoryRoundTripWithPerEpochData) 
     std::string default_dir = "training_sessions";
     fs::create_directories(default_dir);
     std::string hist_path = default_dir + "/session_history.txt";
-    create_session_history_file_v2(hist_path);
 
+    // Construct before writing history — see comment in
+    // LoadSessionHistoryV2ParsesPerEpochVectors for why.
     IncrementalTrainer trainer(vocab_file.string(), model_file.string());
+    create_session_history_file_v2(hist_path);
+    trainer.load_session_history();
     auto history = trainer.get_session_history();
     fs::remove(hist_path);
 
@@ -773,6 +671,36 @@ TEST_F(IncrementalTrainerTest, SaveLoadSessionHistoryRoundTripWithPerEpochData) 
     }
 }
 
+// ============================================================================
+// TokenizerMode Mapping in make_incremental_config
+// ============================================================================
+
+TEST_F(IncrementalTrainerTest, MakeIncrementalConfigDefaultsToAsciiMode) {
+    adai::ServiceConfig svc;  // unicode_tokenizer defaults to false
+
+    const IncrementalConfig cfg = IncrementalTrainer::make_incremental_config(svc);
+
+    EXPECT_EQ(cfg.base_config.tokenizer_mode, TokenizerMode::ASCII);
+}
+
+TEST_F(IncrementalTrainerTest, MakeIncrementalConfigMapsAsciiTokenizerMode) {
+    adai::ServiceConfig svc;
+    svc.unicode_tokenizer = false;
+
+    const IncrementalConfig cfg = IncrementalTrainer::make_incremental_config(svc);
+
+    EXPECT_EQ(cfg.base_config.tokenizer_mode, TokenizerMode::ASCII);
+}
+
+TEST_F(IncrementalTrainerTest, MakeIncrementalConfigMapsUnicodeTokenizerMode) {
+    adai::ServiceConfig svc;
+    svc.unicode_tokenizer = true;
+
+    const IncrementalConfig cfg = IncrementalTrainer::make_incremental_config(svc);
+
+    EXPECT_EQ(cfg.base_config.tokenizer_mode, TokenizerMode::UNICODE);
+}
+
 TEST_F(IncrementalTrainerTest, DisplayDashboardDoesNotCrash) {
     // print_training_summary exercises make_sparkline and per-epoch display.
     // Test with no per-epoch data (empty session history).
@@ -781,12 +709,14 @@ TEST_F(IncrementalTrainerTest, DisplayDashboardDoesNotCrash) {
     IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
     EXPECT_NO_THROW(trainer.print_training_summary());
 
-    // Test with per-epoch data loaded
+    // Test with per-epoch data loaded. Construct before writing history — see
+    // comment in LoadSessionHistoryV2ParsesPerEpochVectors for why.
     std::string default_dir = "training_sessions";
     fs::create_directories(default_dir);
     std::string hist_path = default_dir + "/session_history.txt";
-    create_session_history_file_v2(hist_path);
     IncrementalTrainer trainer2(vocab_file.string(), model_file.string());
+    create_session_history_file_v2(hist_path);
+    trainer2.load_session_history();
     fs::remove(hist_path);
     EXPECT_NO_THROW(trainer2.print_training_summary());
 }

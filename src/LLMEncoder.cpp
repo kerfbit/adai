@@ -309,3 +309,63 @@ void LLMEncoder::register_parameters_with_optimizer(Optimizer& optimizer) {
     // Register final layer norm parameters
     final_norm->set_optimizer(&optimizer);
 }
+
+#ifdef ADAI_ENABLE_GPU
+void LLMEncoder::gpu_upload_weights() {
+    for (auto& block : encoder_blocks) block->gpu_upload_weights();
+    final_norm->gpu_upload_weights();
+}
+
+void LLMEncoder::gpu_download_grads() {
+    for (auto& block : encoder_blocks) block->gpu_download_grads();
+    final_norm->gpu_download_grads();
+}
+
+void LLMEncoder::gpu_zero_grads() {
+    for (auto& block : encoder_blocks) block->gpu_zero_grads();
+    final_norm->gpu_zero_grads();
+}
+
+adai::gpu::GPUMatrix LLMEncoder::gpu_encode(const std::vector<int>& token_ids) {
+    const int seq = static_cast<int>(token_ids.size());
+
+    if (requires_grad) {
+        cached_token_ids = token_ids;
+    }
+
+    // Embedding + positional encoding on CPU (cheap; avoids vocab-size GPU transfer)
+    Matrix embeddings = token_embedding->forward(token_ids);
+    Matrix encoded = positional_encoding->forward(embeddings);
+
+    // Upload the embedded sequence to GPU
+    adai::gpu::GPUMatrix gpu_in(seq, d_model);
+    std::vector<float> flat;
+    flat.reserve(seq * d_model);
+    for (const auto& row : encoded.data)
+        for (float v : row) flat.push_back(v);
+    gpu_in.upload(flat.data(), seq * d_model);
+
+    // All-ones encoder mask: no masking needed (skip masked_fill)
+    adai::gpu::GPUMatrix x = std::move(gpu_in);
+    for (auto& block : encoder_blocks)
+        x = block->gpu_forward(x);  // no self-mask for encoder
+
+    return final_norm->gpu_forward(x);
+}
+
+void LLMEncoder::gpu_backward(const adai::gpu::GPUMatrix& dout) {
+    if (!requires_grad) {
+        return;
+    }
+
+    adai::gpu::GPUMatrix d = final_norm->gpu_backward(dout);
+    for (int i = num_layers - 1; i >= 0; --i) {
+        d = encoder_blocks[i]->gpu_backward(d);
+    }
+
+    // TokenEmbedding has no GPU backward — download and finish on host, reusing
+    // the existing, already-correct CPU path (mirrors gpu_encode()'s CPU embed step).
+    Matrix grad_host = Matrix::from_gpu(d);
+    token_embedding->backward(cached_token_ids, grad_host);
+}
+#endif

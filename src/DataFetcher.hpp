@@ -19,7 +19,7 @@ struct FetcherConfig {
  * @brief Stateless network fetcher for external training-data sources.
  *
  * Each public method downloads and converts a dataset from an external source,
- * writes the resulting INPUT:/RESPONSE: training file to disk, and returns the
+ * writes the resulting JSONL training file to disk, and returns the
  * path.  The caller is responsible for enqueueing the result via
  * DatasetRegistry::add_file().
  *
@@ -52,11 +52,11 @@ public:
      * Downloads the book text, cleans the Gutenberg header/footer, extracts
      * sentences, and creates consecutive-sentence QA pairs.  The resulting
      * INPUT:/RESPONSE: file is written to
-     * `config.gutenberg_output_dir/gutenberg_<id>_training.txt`.
+     * `config.gutenberg_output_dir/gutenberg_<id>_training.jsonl`.
      *
      * @param book_id   Gutenberg numeric book ID (e.g. 1342 for Pride and Prejudice).
      * @param num_pairs Maximum number of training pairs to generate (default 500).
-     * @return Path to the produced training file, or "" on any failure.
+     * @return Path to the produced `.jsonl` training file, or "" on any failure.
      */
     std::string fetch_gutenberg(int book_id, int num_pairs = 500);
 
@@ -122,9 +122,10 @@ private:
 
     // ── HuggingFace private helpers ────────────────────────────────────────
 
-    static bool download_hf_rows(const std::string& dataset_id, const std::string& split,
-                                  int offset, int length, const std::string& output_path);
-    static bool convert_hf_to_training_data(const std::string& rows_dir,
+    static std::string download_hf_full_dataset(const std::string& dataset_id,
+                                                 const std::string& split,
+                                                 const std::string& output_dir);
+    static bool convert_hf_to_training_data(const std::string& jsonl_file,
                                              const std::string& output_file,
                                              const std::string& input_field,
                                              const std::string& output_field,

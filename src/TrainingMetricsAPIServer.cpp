@@ -56,6 +56,8 @@ void print_usage(const char* program_name) {
     std::cout << "  --no-persistence             Disable persistence to disk\n";
     std::cout << "  --enable-prometheus          Enable Prometheus format output\n";
     std::cout << "  --no-control                 Disable control endpoints (flush, clear)\n";
+    std::cout << "  --name-service-url URL       Model Name Service URL (default: http://localhost:8083)\n";
+    std::cout << "  --no-name-service            Disable name service integration\n";
     std::cout << "  --help                       Show this help message\n\n";
     std::cout << "Examples:\n";
     std::cout << "  " << program_name << "\n";
@@ -76,6 +78,7 @@ void print_usage(const char* program_name) {
     std::cout << "  GET  /api/session/epochs        - Per-epoch metrics\n";
     std::cout << "  POST /api/control/flush         - Force flush to disk\n";
     std::cout << "  POST /api/control/clear         - Clear historical metrics\n";
+    std::cout << "  GET  /api/models                - Registered models (from name service)\n";
     std::cout << "  GET  /health                    - Health check\n";
 }
 
@@ -97,6 +100,12 @@ struct ServerConfig {
     size_t max_live_sessions = 16;
     int completed_ttl_seconds = 3600;
     int sweep_interval_seconds = 60;  // TD-021: background eviction sweep interval
+    std::string name_service_url = "http://localhost:8083";
+    // TD-020: Database persistence
+    std::string storage_backend = "sqlite+file";
+    std::string db_path = "training_sessions/metrics.db";
+    std::string db_url;
+    int db_pool_size = 4;
 };
 
 /**
@@ -138,6 +147,18 @@ bool parse_args(int argc, char** argv, ServerConfig& config) {  // NOLINT(modern
             config.enable_prometheus = true;
         } else if (arg == "--no-control") {
             config.allow_control = false;
+        } else if (arg == "--name-service-url" && i + 1 < argc) {
+            config.name_service_url = argv[++i];
+        } else if (arg == "--no-name-service") {
+            config.name_service_url.clear();
+        } else if (arg == "--storage-backend" && i + 1 < argc) {
+            config.storage_backend = argv[++i];
+        } else if (arg == "--db-path" && i + 1 < argc) {
+            config.db_path = argv[++i];
+        } else if (arg == "--db-url" && i + 1 < argc) {
+            config.db_url = argv[++i];
+        } else if (arg == "--db-pool-size" && i + 1 < argc) {
+            config.db_pool_size = std::atoi(argv[++i]);
         } else {
             std::cerr << "Unknown option: " << arg << '\n';
             print_usage(argv[0]);
@@ -176,7 +197,9 @@ int main(int argc, char* argv[]) {
         std::cout << "[1/3] Initializing metrics session registry...\n";
         auto session_registry = std::make_shared<MetricsSessionRegistry>(
             metrics_config, server_config.max_live_sessions, server_config.completed_ttl_seconds,
-            server_config.sweep_interval_seconds);
+            server_config.sweep_interval_seconds,
+            server_config.storage_backend, server_config.db_path,
+            server_config.db_url, server_config.db_pool_size);
         auto metrics_service = session_registry->create_or_get_session("0-default");
         if (!metrics_service) {
             std::cerr << "Error: Unable to initialize default metrics session\n";
@@ -188,6 +211,14 @@ int main(int argc, char* argv[]) {
                   << " seconds\n";
         std::cout << "    - Sweep interval: " << server_config.sweep_interval_seconds
                   << " seconds\n";
+        std::cout << "    - Storage backend: " << server_config.storage_backend << "\n";
+        if (server_config.storage_backend.find("sqlite") != std::string::npos) {
+            std::cout << "    - DB path: " << server_config.db_path << "\n";
+        }
+        if (server_config.storage_backend.find("postgres") != std::string::npos) {
+            std::cout << "    - DB URL: " << (server_config.db_url.empty() ? "(not set)" : server_config.db_url) << "\n";
+            std::cout << "    - DB pool size: " << server_config.db_pool_size << "\n";
+        }
 
         if (server_config.enable_persistence) {
             std::cout << "  ✓ Persistence enabled:\n";
@@ -205,8 +236,13 @@ int main(int argc, char* argv[]) {
 
         std::cout << "\n[2/3] Creating REST API...\n";
         auto api = std::make_unique<TrainingMetricsAPI>(session_registry, server_config.port,
-                                                        server_config.allow_control);
+                                                        server_config.allow_control,
+                                                        server_config.name_service_url);
         std::cout << "  ✓ API initialized\n";
+
+        if (!server_config.name_service_url.empty()) {
+            std::cout << "  ✓ Name service: " << server_config.name_service_url << "\n";
+        }
 
         if (!server_config.allow_control) {
             std::cout << "  ⚠ Control endpoints disabled (flush, clear)\n";
@@ -236,6 +272,10 @@ int main(int argc, char* argv[]) {
         if (server_config.allow_control) {
             std::cout << "  POST /api/control/flush         - Force flush to disk\n";
             std::cout << "  POST /api/control/clear         - Clear history\n";
+        }
+
+        if (!server_config.name_service_url.empty()) {
+            std::cout << "  GET  /api/models                - Registered models\n";
         }
 
         std::cout << "  GET  /health                    - Health check\n";

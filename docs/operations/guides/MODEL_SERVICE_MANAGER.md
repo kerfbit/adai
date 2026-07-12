@@ -150,4 +150,4 @@ rm /tmp/adai_model_service.pid
 ## Systemd vs. Script
 
 - **Use `model_service.sh`** for ad-hoc usage, development, CI/CD pipelines, and unprivileged execution.
-- **Use Systemd** (via `scripts/install_systemd_service.sh`) for production deployments where the service must auto-start on boot and restart on failure.
+- **Use Systemd** (via `scripts/install_chatbot_API.sh`) for production deployments where the service must auto-start on boot and restart on failure.

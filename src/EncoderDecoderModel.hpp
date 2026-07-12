@@ -12,6 +12,9 @@
 #include "Matrix.hpp"
 #include "TextGenerator.hpp"
 #include "encoder.hpp"
+#ifdef ADAI_ENABLE_GPU
+#include "gpu/MatrixGPU.hpp"
+#endif
 
 /**
  * EncoderDecoderModel - Complete sequence-to-sequence transformer
@@ -73,6 +76,15 @@ class EncoderDecoderModel {
     Matrix cached_decoder_output;
     std::vector<int> cached_input_tokens;
     std::vector<int> cached_target_tokens;
+
+#ifdef ADAI_ENABLE_GPU
+    bool gpu_initialized_{false};
+    // GPU-resident state cached between gpu_forward and gpu_backward
+    std::unique_ptr<adai::gpu::GPUMatrix> gpu_encoder_out_;
+    std::unique_ptr<adai::gpu::GPUMatrix> gpu_logits_;
+    std::unique_ptr<adai::gpu::GPUMemory<int>> gpu_targets_dev_;
+    int gpu_target_len_{0};
+#endif
 
     /**
      * Compute cross-entropy loss for language modeling
@@ -142,6 +154,26 @@ class EncoderDecoderModel {
      */
     std::string generate_response(const std::string& input_text, int max_length = 100);
 
+#ifdef ADAI_ENABLE_GPU
+    /**
+     * GPU-accelerated equivalent of generate_response(). Same sampling
+     * behaviour (uses the shared TextGenerator config — temperature/top-k/
+     * top-p as configured), but each decode step runs through the
+     * GPU-resident encoder/decoder/lm_head instead of the CPU Matrix path.
+     *
+     * No GPU KV-cache exists yet, so each step recomputes the full decoded
+     * sequence from scratch via gpu_decode() rather than incrementally
+     * caching — same algorithmic shape as the CPU "greedy workaround" path,
+     * just GPU-accelerated. Only the last position's logits are downloaded
+     * per step.
+     *
+     * @param input_text Input text to encode
+     * @param max_length Maximum output length
+     * @return Generated response text
+     */
+    std::string gpu_generate_response(const std::string& input_text, int max_length = 100);
+#endif
+
     /**
      * Generate response with specific strategy
      *
@@ -186,6 +218,22 @@ class EncoderDecoderModel {
      * @return Loss value
      */
     float evaluate(const std::string& input_text, const std::string& target_text);
+
+    /**
+     * Evaluate model on already-tokenized validation data (no gradient computation).
+     *
+     * Prefer this over the text-based evaluate() whenever pre-tokenized ids are
+     * available: encode() on raw text has no length cap, so re-tokenizing raw
+     * validation text on every call can silently bypass the max_seq_length
+     * truncation applied when the dataset was first tokenized, and pay for
+     * redundant BPE encoding on every validation pass.
+     *
+     * @param input_tokens Already-tokenized (and length-truncated) input ids
+     * @param target_tokens Already-tokenized (and length-truncated) target ids
+     * @return Loss value
+     */
+    float evaluate_tokenized(const std::vector<int>& input_tokens,
+                             const std::vector<int>& target_tokens);
 
     /**
      * Compute perplexity on a dataset
@@ -384,4 +432,77 @@ class EncoderDecoderModel {
      * @param grad_output Gradient from loss [seq_length, vocab_size]
      */
     void backward(const Matrix& grad_output);
+
+#ifdef ADAI_ENABLE_GPU
+    /** Upload all weights to GPU (call once before first gpu_forward). */
+    void gpu_init_training();
+
+    /** Zero all GPU gradient accumulators (call at start of each accumulation window). */
+    void gpu_zero_grads();
+
+    /**
+     * Full GPU forward pass.
+     * @return scalar loss; caches GPU encoder/decoder outputs for gpu_backward.
+     */
+    float gpu_forward(const std::vector<int>& input_tokens,
+                      const std::vector<int>& target_tokens);
+
+    /**
+     * Full GPU backward pass. Accumulates GPU gradients.
+     * @param scale Multiply loss gradient by this factor before accumulating
+     *              (use 1/gradient_accumulation_steps for proper averaging).
+     */
+    void gpu_backward(float scale = 1.0f);
+
+    /**
+     * GPU-accelerated evaluation (loss only, no gradient computation).
+     * Mirrors evaluate() but runs the forward pass through the GPU-resident
+     * path instead of the CPU Matrix path, so validation runs at the same
+     * speed as training.
+     *
+     * @param input_text Input text
+     * @param target_text Target text
+     * @return Loss value
+     */
+    float gpu_evaluate(const std::string& input_text, const std::string& target_text);
+
+    /**
+     * GPU-accelerated evaluation on already-tokenized data (no gradient computation).
+     * See evaluate_tokenized() for why this is preferred over the text-based
+     * overload whenever pre-tokenized ids are available.
+     *
+     * @param input_tokens Already-tokenized (and length-truncated) input ids
+     * @param target_tokens Already-tokenized (and length-truncated) target ids
+     * @return Loss value
+     */
+    float gpu_evaluate_tokenized(const std::vector<int>& input_tokens,
+                                 const std::vector<int>& target_tokens);
+
+    /**
+     * Download GPU gradient accumulators to CPU gradient members.
+     * Call before optimizer->step().
+     */
+    void gpu_download_grads();
+
+    /**
+     * Re-upload updated CPU weights to GPU mirrors.
+     * Call after optimizer->step().
+     */
+    void gpu_sync_weights();
+
+    /**
+     * Block until all previously submitted GPU work (including deferred
+     * frees of temporary GPUMatrix/GPUMemory buffers) has completed.
+     *
+     * Every kernel submission and USM allocation on the training path is
+     * asynchronous, but temporaries only actually release their device
+     * memory via a queue-ordered deferred free (see GPUMemory::defer_free).
+     * Without a periodic drain, the host can queue far more work than the
+     * device has retired, so the set of "allocated but not yet freed"
+     * buffers grows without bound across samples until the device runs out
+     * of memory. Call this once per sample (or at minimum once per
+     * optimizer step) to bound that backlog.
+     */
+    void gpu_synchronize();
+#endif
 };

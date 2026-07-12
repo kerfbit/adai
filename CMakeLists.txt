@@ -71,6 +71,7 @@ option(BUILD_TESTING "Build test suite" ON)
 option(BUILD_EXAMPLES "Build example programs" ON)
 option(BUILD_GUI "Build Qt GUI for chatbot" ON)
 option(ENABLE_GPU "Enable GPU acceleration with CUDA" OFF)
+option(ENABLE_SYCL "Enable GPU acceleration with Intel oneAPI/SYCL (e.g. Intel ARC)" OFF)
 option(ENABLE_BLAS "Enable BLAS (OpenBLAS/MKL/Accelerate) for large matrix multiply" ON)
 option(ENABLE_SIMD "Enable explicit AVX2/FMA/NEON intrinsics for matrix operations" ON)
 option(ENABLE_ASAN "Enable AddressSanitizer" OFF)
@@ -80,28 +81,62 @@ option(ENABLE_COVERAGE "Enable code coverage" OFF)
 option(ENABLE_CLANG_TIDY "Run clang-tidy during build" OFF)
 option(ENABLE_CCACHE "Use ccache for compilation caching" ON)
 
+# GPU backend mutual exclusion
+if(ENABLE_GPU AND ENABLE_SYCL)
+    message(FATAL_ERROR
+        "ENABLE_GPU (CUDA) and ENABLE_SYCL (Intel oneAPI) are mutually exclusive. "
+        "Enable only one GPU backend per build.")
+endif()
+
 # GPU/CUDA support
 if(ENABLE_GPU)
     enable_language(CUDA)
     find_package(CUDAToolkit REQUIRED)
-    
+
     if(NOT DEFINED CMAKE_CUDA_STANDARD)
         set(CMAKE_CUDA_STANDARD 17)
         set(CMAKE_CUDA_STANDARD_REQUIRED ON)
     endif()
-    
+
     # Set CUDA architectures (compute capability)
     # Can be overridden with -DCMAKE_CUDA_ARCHITECTURES
     if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
         set(CMAKE_CUDA_ARCHITECTURES 60 61 70 75 80 86)
     endif()
-    
-    message(STATUS "GPU acceleration enabled")
+
+    message(STATUS "GPU acceleration enabled (CUDA)")
     message(STATUS "  CUDA Version: ${CUDAToolkit_VERSION}")
     message(STATUS "  CUDA Architectures: ${CMAKE_CUDA_ARCHITECTURES}")
     add_compile_definitions(ADAI_ENABLE_GPU)
+    add_compile_definitions(ADAI_GPU_BACKEND_CUDA)
+
+# GPU/SYCL support (Intel oneAPI — e.g. Intel ARC)
+elseif(ENABLE_SYCL)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "IntelLLVM")
+        find_program(ICPX_COMPILER icpx)
+        if(NOT ICPX_COMPILER)
+            message(FATAL_ERROR
+                "ENABLE_SYCL requires the Intel oneAPI DPC++ compiler (icpx). "
+                "Source /opt/intel/oneapi/setvars.sh and reconfigure, or set "
+                "-DCMAKE_CXX_COMPILER=icpx")
+        endif()
+    endif()
+
+    find_package(MKL QUIET HINTS $ENV{MKLROOT}/lib/cmake/mkl)
+    if(NOT MKL_FOUND)
+        message(FATAL_ERROR
+            "ENABLE_SYCL requires Intel oneMKL. "
+            "Ensure the oneAPI Base Toolkit is installed and MKLROOT is set.")
+    endif()
+
+    message(STATUS "GPU acceleration enabled (Intel SYCL)")
+    message(STATUS "  Compiler: ${CMAKE_CXX_COMPILER}")
+    message(STATUS "  oneMKL: ${MKL_ROOT}")
+    add_compile_definitions(ADAI_ENABLE_GPU)
+    add_compile_definitions(ADAI_GPU_BACKEND_SYCL)
+
 else()
-    message(STATUS "GPU acceleration disabled (enable with -DENABLE_GPU=ON)")
+    message(STATUS "GPU acceleration disabled (enable with -DENABLE_GPU=ON or -DENABLE_SYCL=ON)")
 endif()
 
 # Qt GUI support (optional, requires qtbase5-dev or Qt6)
@@ -183,10 +218,19 @@ add_subdirectory(src)
 
 include(FetchContent)
 
+if(ENABLE_SYCL)
+    # spdlog 1.15.0 bundles fmt 11.x which compiles cleanly with IntelLLVM (icpx).
+    # spdlog 1.12.0's bundled fmt 10.x fails to compile with icpx due to eager
+    # template instantiation of float_info<long double>.
+    set(_SPDLOG_TAG v1.15.0)
+else()
+    set(_SPDLOG_TAG v1.12.0)
+endif()
+
 FetchContent_Declare(
     spdlog
     GIT_REPOSITORY https://github.com/gabime/spdlog.git
-    GIT_TAG v1.12.0
+    GIT_TAG ${_SPDLOG_TAG}
     GIT_SHALLOW TRUE
     GIT_PROGRESS TRUE
 )
@@ -199,7 +243,7 @@ set(SPDLOG_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 # Make spdlog available
 FetchContent_MakeAvailable(spdlog)
 
-message(STATUS "spdlog v1.12.0 fetched and configured for structured logging")
+message(STATUS "spdlog ${_SPDLOG_TAG} fetched and configured for structured logging")
 
 # ============================================================================
 # Testing Configuration

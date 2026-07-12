@@ -39,6 +39,17 @@ const std::string kSimplePairs =
     "INPUT: hello\nRESPONSE: world\n\n"
     "INPUT: foo\nRESPONSE: bar\n";
 
+const std::string kJsonlPairs =
+    "{\"input\":\"hello\",\"response\":\"world\"}\n"
+    "{\"input\":\"foo\",\"response\":\"bar\"}\n";
+
+const std::string kJsonlPairsWithMeta =
+    "{\"input\":\"what is ml?\",\"response\":\"machine learning\","
+    "\"domain\":\"science\",\"task_type\":\"qa\",\"language\":\"en\","
+    "\"quality\":0.9,\"weight\":1.5,\"token_count\":20}\n"
+    "{\"input\":\"greet\",\"response\":\"hi\","
+    "\"domain\":\"dialogue\",\"task_type\":\"chat\"}\n";
+
 }  // namespace
 
 // ============================================================================
@@ -151,6 +162,74 @@ TEST(DatasetRegistryParserTest, EmptyFileReturnsZeroPairs) {
     write_file(tmp.string(), "");
     std::vector<ConversationPair> pairs;
     EXPECT_EQ(DatasetRegistry::load_conversation_pairs(tmp.string(), pairs), 0);
+    fs::remove(tmp);
+}
+
+// ── JSONL format ─────────────────────────────────────────────────────────────
+
+TEST(DatasetRegistryParserTest, ParsesJsonlPairs) {
+    const fs::path tmp = fs::temp_directory_path() / "adai_parser_jsonl.txt";
+    write_file(tmp.string(), kJsonlPairs);
+
+    std::vector<ConversationPair> pairs;
+    const int n = DatasetRegistry::load_conversation_pairs(tmp.string(), pairs);
+    ASSERT_EQ(n, 2);
+    EXPECT_EQ(pairs[0].input,    "hello");
+    EXPECT_EQ(pairs[0].response, "world");
+    EXPECT_EQ(pairs[1].input,    "foo");
+    EXPECT_EQ(pairs[1].response, "bar");
+    fs::remove(tmp);
+}
+
+TEST(DatasetRegistryParserTest, JsonlPairsPreserveMetadata) {
+    const fs::path tmp = fs::temp_directory_path() / "adai_parser_jsonl_meta.txt";
+    write_file(tmp.string(), kJsonlPairsWithMeta);
+
+    std::vector<ConversationPair> pairs;
+    const int n = DatasetRegistry::load_conversation_pairs(tmp.string(), pairs);
+    ASSERT_EQ(n, 2);
+
+    // First pair: full metadata
+    EXPECT_EQ(pairs[0].input,    "what is ml?");
+    EXPECT_EQ(pairs[0].response, "machine learning");
+    EXPECT_EQ(pairs[0].meta.domain,    "science");
+    EXPECT_EQ(pairs[0].meta.task_type, "qa");
+    EXPECT_EQ(pairs[0].meta.language,  "en");
+    EXPECT_NEAR(pairs[0].meta.quality, 0.9f, 1e-4f);
+    EXPECT_NEAR(pairs[0].meta.weight,  1.5f, 1e-4f);
+    EXPECT_EQ(pairs[0].meta.token_count, 20);
+
+    // Second pair: partial metadata — unset fields use sentinels
+    EXPECT_EQ(pairs[1].meta.domain,    "dialogue");
+    EXPECT_EQ(pairs[1].meta.task_type, "chat");
+    EXPECT_LT(pairs[1].meta.quality, 0.0f);   // sentinel
+    EXPECT_LT(pairs[1].meta.token_count, 0);   // sentinel
+    fs::remove(tmp);
+}
+
+TEST(DatasetRegistryParserTest, JsonlSkipsLinesWithoutInputField) {
+    const fs::path tmp = fs::temp_directory_path() / "adai_parser_jsonl_noinput.txt";
+    write_file(tmp.string(),
+        "{\"input\":\"valid\",\"response\":\"yes\"}\n"
+        "{\"response\":\"no input key\"}\n"
+        "{\"input\":\"also valid\",\"response\":\"yes\"}\n");
+
+    std::vector<ConversationPair> pairs;
+    const int n = DatasetRegistry::load_conversation_pairs(tmp.string(), pairs);
+    EXPECT_EQ(n, 2);
+    fs::remove(tmp);
+}
+
+TEST(DatasetRegistryParserTest, LegacyMetaSentinelsSet) {
+    // Legacy INPUT:/RESPONSE: format — meta fields should remain at sentinel defaults
+    const fs::path tmp = fs::temp_directory_path() / "adai_parser_legacy_meta.txt";
+    write_file(tmp.string(), kSimplePairs);
+
+    std::vector<ConversationPair> pairs;
+    ASSERT_EQ(DatasetRegistry::load_conversation_pairs(tmp.string(), pairs), 2);
+    EXPECT_LT(pairs[0].meta.quality, 0.0f);
+    EXPECT_LT(pairs[0].meta.token_count, 0);
+    EXPECT_TRUE(pairs[0].meta.domain.empty());
     fs::remove(tmp);
 }
 
@@ -338,15 +417,16 @@ TEST_F(DatasetRegistryTest, AcquirePendingReturnsFilesAndUpdatesPending) {
         reg.add_file(data_file_);
     }
     DatasetRegistry reg2(make_cfg());
-    auto acquired = reg2.acquire_pending("run-a");
-    ASSERT_EQ(acquired.size(), 1u);
-    EXPECT_EQ(acquired[0], data_file_);
+    auto resp = reg2.acquire_pending("run-a");
+    ASSERT_EQ(resp.files.size(), 1u);
+    EXPECT_EQ(resp.files[0].registry_path, data_file_);
+    EXPECT_TRUE(resp.ftp_server_host.empty());  // LocalTransport: no FTP
     EXPECT_FALSE(reg2.pending_files().empty());  // reflected in-memory
 }
 
 TEST_F(DatasetRegistryTest, AcquirePendingEmptyWhenNoneAvailable) {
     DatasetRegistry reg(make_cfg());
-    EXPECT_TRUE(reg.acquire_pending("run-a").empty());
+    EXPECT_TRUE(reg.acquire_pending("run-a").files.empty());
 }
 
 TEST_F(DatasetRegistryTest, ReleasePendingRestoresFileToPool) {
@@ -355,16 +435,16 @@ TEST_F(DatasetRegistryTest, ReleasePendingRestoresFileToPool) {
         reg.add_file(data_file_);
     }
     DatasetRegistry reg2(make_cfg());
-    auto acquired = reg2.acquire_pending("run-a");
-    ASSERT_EQ(acquired.size(), 1u);
+    auto resp = reg2.acquire_pending("run-a");
+    ASSERT_EQ(resp.files.size(), 1u);
 
     // Release: in-memory pending_ is cleared
-    reg2.release_pending("run-a", acquired);
+    reg2.release_pending("run-a", resp.registry_paths());
     EXPECT_TRUE(reg2.pending_files().empty());
 
     // A subsequent acquire by a different run finds the file again
     DatasetRegistry reg3(make_cfg());
-    EXPECT_EQ(reg3.acquire_pending("run-b").size(), 1u);
+    EXPECT_EQ(reg3.acquire_pending("run-b").files.size(), 1u);
 }
 
 TEST_F(DatasetRegistryTest, MarkTrainedWithRunIdCommitsAndClearsPending) {
@@ -373,10 +453,10 @@ TEST_F(DatasetRegistryTest, MarkTrainedWithRunIdCommitsAndClearsPending) {
         reg.add_file(data_file_);
     }
     DatasetRegistry reg2(make_cfg());
-    auto acquired = reg2.acquire_pending("run-a");
-    ASSERT_FALSE(acquired.empty());
+    auto resp = reg2.acquire_pending("run-a");
+    ASSERT_FALSE(resp.files.empty());
 
-    reg2.mark_trained("run-a", acquired, {7});
+    reg2.mark_trained("run-a", resp.registry_paths(), {7});
 
     // In-memory state
     EXPECT_TRUE(reg2.is_trained(data_file_));
@@ -390,5 +470,5 @@ TEST_F(DatasetRegistryTest, MarkTrainedWithRunIdCommitsAndClearsPending) {
 
     // Pending file should be empty — no new acquire possible
     DatasetRegistry reg4(make_cfg());
-    EXPECT_TRUE(reg4.acquire_pending("run-c").empty());
+    EXPECT_TRUE(reg4.acquire_pending("run-c").files.empty());
 }

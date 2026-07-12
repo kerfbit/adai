@@ -1,9 +1,13 @@
 #pragma once
 
 #include <cmath>
+#include <memory>
 #include <vector>
 #include "Matrix.hpp"
 #include "Optimizer.hpp"
+#ifdef ADAI_ENABLE_GPU
+#include "gpu/MatrixGPU.hpp"
+#endif
 
 /**
  * Layer Normalization for stabilizing neural network training
@@ -158,14 +162,45 @@ class LayerNorm {
      */
     void set_beta(const Matrix& new_beta);
 
-    /**
-     * Get dimension of normalization
-     *
-     * @return Feature dimension
-     */
     int get_dim() const {
         return gamma.cols;
     }
+
+#ifdef ADAI_ENABLE_GPU
+    // --- TD-003 GPU interface ---
+
+    struct GPUState {
+        adai::gpu::GPUMatrix gamma_g;  // GPU mirror of gamma [1, dim]
+        adai::gpu::GPUMatrix beta_g;   // GPU mirror of beta  [1, dim]
+        adai::gpu::GPUMatrix dgamma;   // GPU gradient accumulator [1, dim]
+        adai::gpu::GPUMatrix dbeta;    // GPU gradient accumulator [1, dim]
+        // Cached for backward (resized per forward call)
+        adai::gpu::GPUMatrix normed;  // (x-mean)*rstd before affine [seq, dim]
+        adai::gpu::GPUMatrix mean;    // per-row mean [seq, 1]
+        adai::gpu::GPUMatrix rstd;    // per-row 1/std [seq, 1]
+
+        explicit GPUState(int dim)
+            : gamma_g(1, dim), beta_g(1, dim),
+              dgamma(1, dim), dbeta(1, dim),
+              normed(1, 1), mean(1, 1), rstd(1, 1) {}
+    };
+    std::unique_ptr<GPUState> gpu_;
+
+    /** Upload CPU weights to GPU mirrors. */
+    void gpu_upload_weights();
+
+    /** Download GPU grad accumulators into CPU grad members. */
+    void gpu_download_grads();
+
+    /** Zero GPU gradient accumulators. */
+    void gpu_zero_grads();
+
+    /** GPU forward pass. Caches input_norm, mean, rstd for backward. */
+    adai::gpu::GPUMatrix gpu_forward(const adai::gpu::GPUMatrix& input);
+
+    /** GPU backward pass. Accumulates dgamma/dbeta. Returns d_input. */
+    adai::gpu::GPUMatrix gpu_backward(const adai::gpu::GPUMatrix& dout);
+#endif
 
     /**
      * Print layer configuration

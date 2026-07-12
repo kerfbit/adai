@@ -24,6 +24,9 @@
 #ifdef _OPENMP
 #include <omp.h>
 #endif
+#ifdef BUILD_MNS_SERVER
+#include "ModelNameClient.hpp"
+#endif
 
 // TODO: See TECHNICAL_DEBT.md Future Enhancement #6 - Model State Persistence on Shutdown
 // TODO: See TECHNICAL_DEBT.md Future Enhancement #7 - Graceful Reload (Zero-Downtime Restart)
@@ -218,6 +221,35 @@ int main(int argc, char* argv[]) {
     adai::ConfigLoader::print(config);
 
     try {
+#ifdef BUILD_MNS_SERVER
+        // Resolve model path from Model Name Service if configured
+        if (!config.name_service_url.empty() &&
+                (!config.model_role.empty() || !config.model_name.empty())) {
+            adai::Logger::info("[MNS] Resolving model via {}", config.name_service_url);
+            try {
+                adai::ModelNameClient mns_client(config.name_service_url,
+                                                 config.name_service_timeout_ms);
+                adai::ResolvedModel resolved;
+                if (!config.model_role.empty()) {
+                    resolved = mns_client.resolve_role(config.model_role);
+                    adai::Logger::info("[MNS] Role '{}' -> model '{}' (state={})",
+                                       config.model_role, resolved.model_name, resolved.state);
+                } else {
+                    resolved = mns_client.resolve_model(config.model_name);
+                    adai::Logger::info("[MNS] Model '{}' (state={})",
+                                       resolved.model_name, resolved.state);
+                }
+                if (!resolved.artifact.path.empty()) {
+                    config.model_path = resolved.artifact.path;
+                    adai::Logger::info("[MNS] Using model path: {}", config.model_path);
+                }
+            } catch (const std::exception& e) {
+                adai::Logger::warn("[MNS] Resolution failed: {} — using configured model_path",
+                                   e.what());
+            }
+        }
+#endif
+
         // Initialize tokenizer
         adai::Logger::info("");
         adai::Logger::info("[1/4] Loading tokenizer...");
@@ -231,12 +263,22 @@ int main(int argc, char* argv[]) {
             adai::Logger::info(
                 "[GPU] Attempting GPU initialisation (device {}, {:.0f}% memory budget)...",
                 config.gpu_device_id, config.gpu_memory_fraction * 100.0f);
+#ifdef ADAI_ENABLE_GPU
             if (Matrix::gpu_try_initialize(config.gpu_device_id, config.gpu_memory_fraction)) {
                 adai::Logger::info("[GPU] GPU ready. {}", Matrix::gpu_info());
             } else {
-                adai::Logger::warn(
-                    "[GPU] No CUDA device found or initialisation failed — running on CPU");
+#if defined(ADAI_GPU_BACKEND_SYCL)
+                adai::Logger::warn("[GPU] No Intel GPU device found or SYCL initialisation failed"
+                                   " — running on CPU");
+#else
+                adai::Logger::warn("[GPU] No CUDA device found or initialisation failed"
+                                   " — running on CPU");
+#endif
             }
+#else
+            adai::Logger::warn("[GPU] GPU_ENABLED is set but this binary was built without GPU support"
+                               " (rebuild with -DENABLE_GPU=ON for CUDA or -DENABLE_SYCL=ON for Intel Arc)");
+#endif
         } else {
             adai::Logger::info("[GPU] GPU acceleration disabled (set GPU_ENABLED=true to enable)");
         }

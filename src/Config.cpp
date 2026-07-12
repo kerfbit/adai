@@ -101,7 +101,7 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
         return;
     }
 
-    std::cout << "Loading configuration from: " << file_path << '\n';
+    std::cerr << "Loading configuration from: " << file_path << '\n';
 
     std::string line;
     int line_number = 0;
@@ -194,6 +194,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.gradient_clip_spike_k = std::stof(value);
             } else if (key == "BATCH_SIZE") {
                 config.batch_size = std::stoi(value);
+            } else if (key == "GRADIENT_ACCUMULATION_STEPS") {
+                config.gradient_accumulation_steps = std::stoi(value);
             } else if (key == "MAX_LENGTH" || key == "MAX_GEN_LENGTH") {
                 config.max_gen_length = static_cast<size_t>(std::stoull(value));
             } else if (key == "TEMPERATURE") {
@@ -213,6 +215,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.metrics_server_url = value;
             } else if (key == "METRICS_PUSH_TIMEOUT_MS") {
                 config.metrics_push_timeout_ms = std::stoi(value);
+            } else if (key == "METRICS_HEARTBEAT_INTERVAL_MS") {
+                config.metrics_heartbeat_interval_ms = std::stoi(value);
             } else if (key == "METRICS_ENABLE_PERSISTENCE") {
                 config.metrics_enable_persistence =
                     (value == "true" || value == "1" || value == "yes");
@@ -250,6 +254,15 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
             } else if (key == "METRICS_API_ALLOW_CONTROL") {
                 config.metrics_api_allow_control =
                     (value == "true" || value == "1" || value == "yes");
+                // Metrics database persistence (TD-020)
+            } else if (key == "METRICS_STORAGE_BACKEND") {
+                config.metrics_storage_backend = value;
+            } else if (key == "METRICS_DB_PATH") {
+                config.metrics_db_path = value;
+            } else if (key == "METRICS_DB_URL") {
+                config.metrics_db_url = value;
+            } else if (key == "METRICS_DB_POOL_SIZE") {
+                config.metrics_db_pool_size = std::stoi(value);
                 // Generation quality metrics configuration
             } else if (key == "ENABLE_GENERATION_QUALITY_METRICS") {
                 config.enable_generation_quality_metrics =
@@ -283,6 +296,45 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.run_id = value;
             } else if (key == "REGISTRY_TIMEOUT_MS") {
                 config.registry_timeout_ms = std::stoi(value);
+                // FTP Dataset Transport configuration (Phase 10)
+            } else if (key == "FTP_SERVER_PORT") {
+                config.ftp_server_port = std::stoi(value);
+            } else if (key == "FTP_PASV_PORT_MIN") {
+                config.ftp_pasv_port_min = std::stoi(value);
+            } else if (key == "FTP_PASV_PORT_MAX") {
+                config.ftp_pasv_port_max = std::stoi(value);
+            } else if (key == "FTP_TOKEN_TTL_MINUTES") {
+                config.ftp_token_ttl_minutes = std::stoi(value);
+            } else if (key == "FTP_DATA_SERVER_SECRET") {
+                config.ftp_data_server_secret = value;
+            } else if (key == "DOWNLOAD_DIR") {
+                config.download_dir = value;
+            } else if (key == "MAX_PARALLEL_DOWNLOADS") {
+                config.max_parallel_downloads = std::stoi(value);
+            } else if (key == "LARGE_FILE_WARN_THRESHOLD_MB") {
+                config.large_file_warn_threshold_mb = std::stoi(value);
+                // Phase 3: security hardening
+            } else if (key == "FTP_MAX_SESSIONS_PER_RUN") {
+                config.ftp_max_sessions_per_run = std::stoi(value);
+            } else if (key == "FTPS_ENABLED") {
+                config.ftps_enabled = (value == "1" || value == "true" || value == "yes");
+            } else if (key == "FTP_CERT_FILE") {
+                config.ftp_cert_file = value;
+            } else if (key == "FTP_KEY_FILE") {
+                config.ftp_key_file = value;
+                // Model Name Service configuration
+            } else if (key == "NAME_SERVICE_URL") {
+                config.name_service_url = value;
+            } else if (key == "NAME_SERVICE_PORT") {
+                config.name_service_port = std::stoi(value);
+            } else if (key == "NAME_SERVICE_DIR") {
+                config.name_service_dir = value;
+            } else if (key == "NAME_SERVICE_TIMEOUT_MS") {
+                config.name_service_timeout_ms = std::stoi(value);
+            } else if (key == "MODEL_NAME") {
+                config.model_name = value;
+            } else if (key == "MODEL_ROLE") {
+                config.model_role = value;
                 // GPU configuration
             } else if (key == "GPU_ENABLED") {
                 std::string lower = value;
@@ -295,6 +347,12 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.gpu_memory_fraction = std::stof(value);
             } else if (key == "GPU_STRATEGY") {
                 config.gpu_strategy = gpu_strategy_from_string(value);
+            } else if (key == "TOKENIZER_MODE") {
+                std::string lower = value;
+                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+                config.unicode_tokenizer = (lower == "unicode");
+            } else if (key == "VOCAB_BUILD_SIZE") {
+                config.vocab_build_size = std::stoi(value);
             } else {
                 std::cerr << "Warning: Unknown configuration key: " << key << '\n';
             }
@@ -399,6 +457,9 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     if (auto val = get_env_int("BATCH_SIZE")) {
         config.batch_size = *val;
     }
+    if (auto val = get_env_int("GRADIENT_ACCUMULATION_STEPS")) {
+        config.gradient_accumulation_steps = *val;
+    }
 
     // Generation parameters
     // Support both MAX_LENGTH and MAX_GEN_LENGTH for compatibility
@@ -445,6 +506,20 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
         config.metrics_staleness_threshold_seconds = *val;
     }
 
+    // Metrics database persistence (TD-020)
+    if (auto val = get_env("METRICS_STORAGE_BACKEND")) {
+        config.metrics_storage_backend = *val;
+    }
+    if (auto val = get_env("METRICS_DB_PATH")) {
+        config.metrics_db_path = *val;
+    }
+    if (auto val = get_env("METRICS_DB_URL")) {
+        config.metrics_db_url = *val;
+    }
+    if (auto val = get_env_int("METRICS_DB_POOL_SIZE")) {
+        config.metrics_db_pool_size = *val;
+    }
+
     // RAG configuration
     if (auto val = get_env_bool("RAG_ENABLED")) {
         config.rag_enabled = *val;
@@ -475,6 +550,14 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     if (auto val = get_env("GPU_STRATEGY")) {
         config.gpu_strategy = gpu_strategy_from_string(*val);
     }
+    if (auto val = get_env("TOKENIZER_MODE")) {
+        std::string lower = *val;
+        std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+        config.unicode_tokenizer = (lower == "unicode");
+    }
+    if (auto val = get_env_int("VOCAB_BUILD_SIZE")) {
+        config.vocab_build_size = *val;
+    }
 
     // Distributed registry (TD-028 Phase 9)
     if (auto val = get_env("REGISTRY_SERVER_URL")) {
@@ -488,6 +571,62 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env_int("REGISTRY_TIMEOUT_MS")) {
         config.registry_timeout_ms = *val;
+    }
+
+    // FTP Dataset Transport (Phase 10)
+    if (auto val = get_env_int("FTP_SERVER_PORT")) {
+        config.ftp_server_port = *val;
+    }
+    if (auto val = get_env_int("FTP_PASV_PORT_MIN")) {
+        config.ftp_pasv_port_min = *val;
+    }
+    if (auto val = get_env_int("FTP_PASV_PORT_MAX")) {
+        config.ftp_pasv_port_max = *val;
+    }
+    if (auto val = get_env_int("FTP_TOKEN_TTL_MINUTES")) {
+        config.ftp_token_ttl_minutes = *val;
+    }
+    if (auto val = get_env("FTP_DATA_SERVER_SECRET")) {
+        config.ftp_data_server_secret = *val;
+    }
+    if (auto val = get_env("DOWNLOAD_DIR")) {
+        config.download_dir = *val;
+    }
+    if (auto val = get_env_int("MAX_PARALLEL_DOWNLOADS")) {
+        config.max_parallel_downloads = *val;
+    }
+    if (auto val = get_env_int("LARGE_FILE_WARN_THRESHOLD_MB")) {
+        config.large_file_warn_threshold_mb = *val;
+    }
+    // Phase 3: security hardening
+    if (auto val = get_env_int("FTP_MAX_SESSIONS_PER_RUN")) {
+        config.ftp_max_sessions_per_run = *val;
+    }
+    if (const char* v = std::getenv("FTPS_ENABLED")) {
+        const std::string sv(v);
+        config.ftps_enabled = (sv == "1" || sv == "true" || sv == "yes");
+    }
+    if (auto val = get_env("FTP_CERT_FILE")) { config.ftp_cert_file = *val; }
+    if (auto val = get_env("FTP_KEY_FILE"))  { config.ftp_key_file  = *val; }
+
+    // Model Name Service
+    if (auto val = get_env("NAME_SERVICE_URL")) {
+        config.name_service_url = *val;
+    }
+    if (auto val = get_env_int("NAME_SERVICE_PORT")) {
+        config.name_service_port = *val;
+    }
+    if (auto val = get_env("NAME_SERVICE_DIR")) {
+        config.name_service_dir = *val;
+    }
+    if (auto val = get_env_int("NAME_SERVICE_TIMEOUT_MS")) {
+        config.name_service_timeout_ms = *val;
+    }
+    if (auto val = get_env("MODEL_NAME")) {
+        config.model_name = *val;
+    }
+    if (auto val = get_env("MODEL_ROLE")) {
+        config.model_role = *val;
     }
 }
 

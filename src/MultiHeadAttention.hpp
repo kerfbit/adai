@@ -6,6 +6,9 @@
 #include "KVCache.hpp"
 #include "Matrix.hpp"
 #include "Optimizer.hpp"
+#ifdef ADAI_ENABLE_GPU
+#include "gpu/MatrixGPU.hpp"
+#endif
 
 /**
  * Multi-Head Self-Attention Mechanism
@@ -333,4 +336,34 @@ class MultiHeadAttention {
      * @param max_norm Maximum allowed gradient norm
      */
     void clip_gradients(float max_norm);
+
+#ifdef ADAI_ENABLE_GPU
+    struct GPUState {
+        // Weight mirrors
+        adai::gpu::GPUMatrix Wq, Wk, Wv, Wo;
+        // Gradient accumulators
+        adai::gpu::GPUMatrix dWq, dWk, dWv, dWo;
+        // Cached for backward
+        adai::gpu::GPUMatrix cached_input;    // [seq, d_model]
+        adai::gpu::GPUMatrix cached_Q;        // [seq, d_model]
+        adai::gpu::GPUMatrix cached_K;        // [seq, d_model]
+        adai::gpu::GPUMatrix cached_V;        // [seq, d_model]
+        adai::gpu::GPUMatrix cached_weights;  // softmax output [seq, seq]
+        adai::gpu::GPUMatrix cached_attn_out; // [seq, d_model]
+
+        explicit GPUState(int d)
+            : Wq(d, d), Wk(d, d), Wv(d, d), Wo(d, d),
+              dWq(d, d), dWk(d, d), dWv(d, d), dWo(d, d),
+              cached_input(1, 1), cached_Q(1, 1), cached_K(1, 1), cached_V(1, 1),
+              cached_weights(1, 1), cached_attn_out(1, 1) {}
+    };
+    std::unique_ptr<GPUState> gpu_;
+
+    void gpu_upload_weights();
+    void gpu_download_grads();
+    void gpu_zero_grads();
+    adai::gpu::GPUMatrix gpu_forward(const adai::gpu::GPUMatrix& input,
+                                      const adai::gpu::GPUMatrix* mask = nullptr);
+    adai::gpu::GPUMatrix gpu_backward(const adai::gpu::GPUMatrix& dout);
+#endif
 };

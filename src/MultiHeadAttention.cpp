@@ -690,3 +690,122 @@ void MultiHeadAttention::clip_gradients(float max_norm) {
         }
     }
 }
+
+#ifdef ADAI_ENABLE_GPU
+static void upload_sq_matrix(const Matrix& m, adai::gpu::GPUMatrix& g) {
+    int n = m.rows * m.cols;
+    std::vector<float> tmp(n);
+    int idx = 0;
+    for (const auto& row : m.data)
+        for (float v : row) tmp[idx++] = v;
+    g.upload(tmp.data(), n);
+}
+
+void MultiHeadAttention::gpu_upload_weights() {
+    if (!gpu_) gpu_ = std::make_unique<GPUState>(d_model);
+    upload_sq_matrix(W_q, gpu_->Wq);
+    upload_sq_matrix(W_k, gpu_->Wk);
+    upload_sq_matrix(W_v, gpu_->Wv);
+    upload_sq_matrix(W_o, gpu_->Wo);
+}
+
+void MultiHeadAttention::gpu_download_grads() {
+    if (!gpu_) return;
+    auto add_back = [&](const adai::gpu::GPUMatrix& src, Matrix& dst) {
+        int n = dst.rows * dst.cols;
+        std::vector<float> tmp(n);
+        src.download(tmp.data(), n);
+        int idx = 0;
+        for (auto& row : dst.data)
+            for (auto& v : row) v += tmp[idx++];
+    };
+    add_back(gpu_->dWq, W_q_grad);
+    add_back(gpu_->dWk, W_k_grad);
+    add_back(gpu_->dWv, W_v_grad);
+    add_back(gpu_->dWo, W_o_grad);
+}
+
+void MultiHeadAttention::gpu_zero_grads() {
+    if (!gpu_) return;
+    gpu_->dWq.zero(); gpu_->dWk.zero();
+    gpu_->dWv.zero(); gpu_->dWo.zero();
+}
+
+adai::gpu::GPUMatrix MultiHeadAttention::gpu_forward(const adai::gpu::GPUMatrix& input,
+                                                       const adai::gpu::GPUMatrix* mask) {
+    if (!gpu_) gpu_upload_weights();
+    const int seq = input.rows;
+    const float scale = 1.0f / std::sqrt(static_cast<float>(d_k));
+
+    // Resize caches if seq changed
+    if (gpu_->cached_input.rows != seq) {
+        gpu_->cached_input    = adai::gpu::GPUMatrix(seq, d_model);
+        gpu_->cached_Q        = adai::gpu::GPUMatrix(seq, d_model);
+        gpu_->cached_K        = adai::gpu::GPUMatrix(seq, d_model);
+        gpu_->cached_V        = adai::gpu::GPUMatrix(seq, d_model);
+        gpu_->cached_weights  = adai::gpu::GPUMatrix(seq, seq);
+        gpu_->cached_attn_out = adai::gpu::GPUMatrix(seq, d_model);
+    }
+    adai::gpu::GPUManager::get_queue()
+        .memcpy(gpu_->cached_input.device_ptr(), input.device_ptr(),
+                static_cast<size_t>(seq * d_model) * sizeof(float));
+
+    // Q, K, V projections
+    gpu_->cached_Q = input * gpu_->Wq;
+    gpu_->cached_K = input * gpu_->Wk;
+    gpu_->cached_V = input * gpu_->Wv;
+
+    // Scores = Q * K^T * scale
+    adai::gpu::GPUMatrix scores = gpu_->cached_Q * gpu_->cached_K.transpose();
+    scores = scores.scale(scale);
+
+    // Apply causal / padding mask
+    if (mask != nullptr) scores.masked_fill_inplace(*mask, -1e9f);
+
+    // Softmax → cached_weights
+    gpu_->cached_weights = std::move(scores);
+    gpu_->cached_weights.softmax_rows_inplace();
+
+    // attn_out = weights * V
+    gpu_->cached_attn_out = gpu_->cached_weights * gpu_->cached_V;
+
+    // output = attn_out * W_o
+    return gpu_->cached_attn_out * gpu_->Wo;
+}
+
+adai::gpu::GPUMatrix MultiHeadAttention::gpu_backward(const adai::gpu::GPUMatrix& dout) {
+    const float scale = 1.0f / std::sqrt(static_cast<float>(d_k));
+
+    // dW_o += attn_out^T * dout
+    gpu_->dWo.add_inplace(gpu_->cached_attn_out.transpose() * dout);
+
+    // d_attn_out = dout * W_o^T
+    adai::gpu::GPUMatrix d_attn_out = dout * gpu_->Wo.transpose();
+
+    // dV += weights^T * d_attn_out
+    adai::gpu::GPUMatrix dV = gpu_->cached_weights.transpose() * d_attn_out;
+
+    // d_weights = d_attn_out * V^T
+    adai::gpu::GPUMatrix d_weights = d_attn_out * gpu_->cached_V.transpose();
+
+    // Softmax backward → d_scores
+    adai::gpu::GPUMatrix d_scores = gpu_->cached_weights.softmax_backward(d_weights);
+    d_scores = d_scores.scale(scale);
+
+    // dQ = d_scores * K,  dK = d_scores^T * Q
+    adai::gpu::GPUMatrix dQ = d_scores * gpu_->cached_K;
+    adai::gpu::GPUMatrix dK = d_scores.transpose() * gpu_->cached_Q;
+
+    // Weight grads
+    adai::gpu::GPUMatrix in_T = gpu_->cached_input.transpose();
+    gpu_->dWq.add_inplace(in_T * dQ);
+    gpu_->dWk.add_inplace(in_T * dK);
+    gpu_->dWv.add_inplace(in_T * dV);
+
+    // d_input = dQ*Wq^T + dK*Wk^T + dV*Wv^T
+    adai::gpu::GPUMatrix d_input = dQ * gpu_->Wq.transpose();
+    d_input.add_inplace(dK * gpu_->Wk.transpose());
+    d_input.add_inplace(dV * gpu_->Wv.transpose());
+    return d_input;
+}
+#endif

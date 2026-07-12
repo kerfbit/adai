@@ -69,7 +69,8 @@ class MetricsPushClient final : public IMetricsReporter {
      *                          Epoch/Session events evict the oldest Sample entry.
      */
     explicit MetricsPushClient(std::string session_base_url, int timeout_ms = 1000,
-                               size_t max_queue_depth = 1024);
+                               size_t max_queue_depth = 1024,
+                               int heartbeat_interval_ms = 30000);
     ~MetricsPushClient() override;
 
     MetricsPushClient(const MetricsPushClient&) = delete;
@@ -136,6 +137,7 @@ class MetricsPushClient final : public IMetricsReporter {
     std::string session_base_url_;
     int timeout_ms_;
     size_t max_queue_depth_;
+    int heartbeat_interval_ms_;
 
     std::deque<PushEvent> queue_;
     std::mutex queue_mutex_;

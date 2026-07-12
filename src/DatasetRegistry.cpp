@@ -1,5 +1,6 @@
 #include "DatasetRegistry.hpp"
 #include "RegistryTransport.hpp"
+#include "TrainingSampleMeta.hpp"
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
@@ -58,10 +59,13 @@ DatasetConfig DatasetRegistry::make_config(const adai::ServiceConfig& svc) {
     if (!svc.session_dir.empty()) {
         cfg.session_dir = svc.session_dir;
     }
-    cfg.registry_server_url = svc.registry_server_url;
-    cfg.run_group           = svc.run_group;
-    cfg.run_id              = svc.run_id;
-    cfg.registry_timeout_ms = svc.registry_timeout_ms;
+    cfg.registry_server_url          = svc.registry_server_url;
+    cfg.run_group                    = svc.run_group;
+    cfg.run_id                       = svc.run_id;
+    cfg.registry_timeout_ms          = svc.registry_timeout_ms;
+    cfg.download_dir                 = svc.download_dir;
+    cfg.max_parallel_downloads       = svc.max_parallel_downloads;
+    cfg.large_file_warn_threshold_mb = svc.large_file_warn_threshold_mb;
     return cfg;
 }
 
@@ -93,7 +97,9 @@ bool DatasetRegistry::add_file(const std::string& path) {
         return false;
     }
 
-    if (std::find(pending_.begin(), pending_.end(), path) != pending_.end()) {
+    const bool already_pending = std::any_of(pending_.begin(), pending_.end(),
+        [&](const PendingEntry& e) { return e.path == path; });
+    if (already_pending) {
         Logger::warn("Data file already in pending queue: {}", path);
         return false;
     }
@@ -102,7 +108,7 @@ bool DatasetRegistry::add_file(const std::string& path) {
         Logger::error("Failed to persist pending entry for: {}", path);
         return false;
     }
-    pending_.push_back(path);
+    pending_.push_back({path, {}, {}});
     Logger::info("Added new data file: {}", path);
     return true;
 }
@@ -122,8 +128,44 @@ void DatasetRegistry::clear_pending() {
     pending_.clear();
 }
 
+bool DatasetRegistry::remove_pending(const std::string& path) {
+    auto it = std::find_if(pending_.begin(), pending_.end(),
+        [&](const PendingEntry& e) { return e.path == path; });
+    if (it == pending_.end()) {
+        return false;
+    }
+    pending_.erase(it);
+    save_pending_list();
+    return true;
+}
+
 std::vector<std::string> DatasetRegistry::pending_files() const {
+    std::vector<std::string> paths;
+    paths.reserve(pending_.size());
+    for (const auto& e : pending_) paths.push_back(e.path);
+    return paths;
+}
+
+std::vector<PendingEntry> DatasetRegistry::pending_entries() const {
     return pending_;
+}
+
+bool DatasetRegistry::assign_model(const std::string& model_name,
+                                   const std::vector<std::string>& paths) {
+    const bool assign_all = paths.empty();
+    bool any_matched = false;
+
+    for (auto& e : pending_) {
+        if (assign_all || std::find(paths.begin(), paths.end(), e.path) != paths.end()) {
+            e.model_name = model_name;
+            any_matched = true;
+        }
+    }
+
+    if (any_matched) {
+        save_pending_list();
+    }
+    return any_matched;
 }
 
 std::vector<std::string> DatasetRegistry::trained_files() const {
@@ -185,7 +227,7 @@ void DatasetRegistry::mark_trained(const std::string& run_id,
     // Update in-memory pending_ to remove trained files
     const std::set<std::string> trained_set(paths.begin(), paths.end());
     pending_.erase(std::remove_if(pending_.begin(), pending_.end(),
-        [&](const std::string& p) { return trained_set.count(p) > 0; }),
+        [&](const PendingEntry& e) { return trained_set.count(e.path) > 0; }),
         pending_.end());
 }
 
@@ -193,21 +235,20 @@ void DatasetRegistry::mark_trained(const std::string& run_id,
 // Multi-run API (Phase 9)
 // ============================================================================
 
-std::vector<std::string> DatasetRegistry::acquire_pending(const std::string& run_id,
-                                                           int max_files) {
+AcquireResponse DatasetRegistry::acquire_pending(const std::string& run_id, int max_files) {
     const int limit = (max_files > 0) ? max_files : config_.max_files_per_run;
-    auto acquired = transport_->acquire(run_id, limit);
+    auto resp = transport_->acquire(run_id, limit);
 
     // Reflect acquisition in in-memory pending_
-    const std::set<std::string> acq_set(acquired.begin(), acquired.end());
-    for (const auto& p : acquired) {
-        const bool already_in = std::find(pending_.begin(), pending_.end(), p) != pending_.end();
+    for (const auto& f : resp.files) {
+        const bool already_in = std::any_of(pending_.begin(), pending_.end(),
+            [&](const PendingEntry& e) { return e.path == f.registry_path; });
         if (!already_in) {
-            pending_.push_back(p);
+            pending_.push_back({f.registry_path, run_id, {}});
         }
     }
 
-    return acquired;
+    return resp;
 }
 
 void DatasetRegistry::release_pending(const std::string& run_id,
@@ -217,7 +258,7 @@ void DatasetRegistry::release_pending(const std::string& run_id,
     // Remove from in-memory pending_
     const std::set<std::string> rel_set(paths.begin(), paths.end());
     pending_.erase(std::remove_if(pending_.begin(), pending_.end(),
-        [&](const std::string& p) { return rel_set.count(p) > 0; }),
+        [&](const PendingEntry& e) { return rel_set.count(e.path) > 0; }),
         pending_.end());
 }
 
@@ -275,10 +316,7 @@ bool DatasetRegistry::load_pending_list() {
         return false;
     }
 
-    pending_.clear();
-    for (auto& e : entries) {
-        pending_.push_back(std::move(e.path));
-    }
+    pending_ = std::move(entries);
 
     if (!pending_.empty()) {
         Logger::info("Loaded {} pending data files", pending_.size());
@@ -288,12 +326,7 @@ bool DatasetRegistry::load_pending_list() {
 }
 
 bool DatasetRegistry::save_pending_list() {
-    std::vector<PendingEntry> entries;
-    entries.reserve(pending_.size());
-    for (const auto& p : pending_) {
-        entries.push_back({p, {}});
-    }
-    return transport_->save_pending(entries);
+    return transport_->save_pending(pending_);
 }
 
 // ============================================================================
@@ -334,52 +367,66 @@ int DatasetRegistry::load_conversation_pairs(const std::string& path,
         return 0;
     }
 
-    std::string line;
-    std::string current_input;
-    std::string current_response;
+    // Detect format from first non-empty line
+    std::string first_line;
+    while (std::getline(file, first_line)) {
+        first_line.erase(0, first_line.find_first_not_of(" \t\r\n"));
+        if (!first_line.empty()) break;
+    }
+    file.seekg(0);
+
     int pair_count = 0;
 
-    while (std::getline(file, line)) {
-        // Trim whitespace
-        line.erase(0, line.find_first_not_of(" \t\n\r"));
-        line.erase(line.find_last_not_of(" \t\n\r") + 1);
-
-        if (line.empty()) {
-            // End of pair
-            if (!current_input.empty() && !current_response.empty()) {
-                pairs.emplace_back(current_input, current_response);
+    if (!first_line.empty() && first_line.front() == '{') {
+        // JSONL training format
+        std::string line;
+        while (std::getline(file, line)) {
+            if (line.empty() || line.front() != '{') continue;
+            std::string in, resp;
+            SampleMeta  meta;
+            if (parse_jsonl_sample(line, in, resp, meta)) {
+                pairs.emplace_back(std::move(in), std::move(resp), std::move(meta));
                 ++pair_count;
-                current_input.clear();
-                current_response.clear();
             }
-            continue;
         }
+    } else {
+        // Legacy INPUT:/RESPONSE: format
+        std::string line, current_input, current_response;
+        while (std::getline(file, line)) {
+            line.erase(0, line.find_first_not_of(" \t\n\r"));
+            line.erase(line.find_last_not_of(" \t\n\r") + 1);
 
-        if (line.substr(0, 6) == "INPUT:") {
-            // Commit any already-complete pair before starting a new one
-            // (handles files with no blank-line separator between pairs)
-            if (!current_input.empty() && !current_response.empty()) {
-                pairs.emplace_back(current_input, current_response);
-                ++pair_count;
-                current_input.clear();
-                current_response.clear();
+            if (line.empty()) {
+                if (!current_input.empty() && !current_response.empty()) {
+                    pairs.emplace_back(current_input, current_response);
+                    ++pair_count;
+                    current_input.clear();
+                    current_response.clear();
+                }
+                continue;
             }
-            current_input = line.substr(6);
-            current_input.erase(0, current_input.find_first_not_of(" \t"));
-        } else if (line.substr(0, 9) == "RESPONSE:") {
-            current_response = line.substr(9);
-            current_response.erase(0, current_response.find_first_not_of(" \t"));
-        }
-    }
 
-    // Don't forget last pair
-    if (!current_input.empty() && !current_response.empty()) {
-        pairs.emplace_back(current_input, current_response);
-        ++pair_count;
+            if (line.substr(0, 6) == "INPUT:") {
+                if (!current_input.empty() && !current_response.empty()) {
+                    pairs.emplace_back(current_input, current_response);
+                    ++pair_count;
+                    current_input.clear();
+                    current_response.clear();
+                }
+                current_input = line.substr(6);
+                current_input.erase(0, current_input.find_first_not_of(" \t"));
+            } else if (line.substr(0, 9) == "RESPONSE:") {
+                current_response = line.substr(9);
+                current_response.erase(0, current_response.find_first_not_of(" \t"));
+            }
+        }
+        if (!current_input.empty() && !current_response.empty()) {
+            pairs.emplace_back(current_input, current_response);
+            ++pair_count;
+        }
     }
 
     file.close();
-
     Logger::info("Loaded {} pairs from: {}", pair_count, path);
     return pair_count;
 }

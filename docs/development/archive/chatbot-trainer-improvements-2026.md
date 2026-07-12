@@ -6,7 +6,7 @@
 >
 > **See instead:**
 >
-> - [IncrementalTrainer Internals](../guides/incremental-trainer-internals.md) - Current training system
+> - [IncrementalTrainer Internals](../guides/internals/incremental-trainer-internals.md) - Current training system
 >
 > This document is preserved for historical reference only.
 

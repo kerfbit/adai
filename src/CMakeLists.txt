@@ -52,14 +52,29 @@ add_library(adai_core STATIC
     RegistryTransport.cpp
     DatasetRegistry.cpp
     DataFetcher.cpp
+    SQLiteMetricsDatabase.cpp
 )
 target_link_libraries(adai_core PUBLIC spdlog::spdlog)
+
+# SQLite3 is detected below (shared with adai_mns); link it here for MetricsDatabase
+# The find_path/find_library block at line ~375 sets SQLITE3_INCLUDE_DIR and SQLITE3_LIBRARY.
+# We defer the actual linking to after detection (see TD-020 block below).
 
 # Add httplib support for metrics push (if available)
 if(HTTPLIB_INCLUDE_DIR)
     target_include_directories(adai_core PRIVATE ${HTTPLIB_INCLUDE_DIR})
     target_compile_definitions(adai_core PRIVATE BUILD_METRICS_API_SERVER)
     message(STATUS "Metrics push support added to adai_core (httplib found)")
+endif()
+
+# PostgreSQL backend for metrics (TD-020) — optional
+option(ENABLE_POSTGRES_METRICS "Build PostgreSQL metrics backend (requires libpq)" OFF)
+if(ENABLE_POSTGRES_METRICS)
+    find_package(PostgreSQL REQUIRED)
+    target_sources(adai_core PRIVATE PostgresMetricsDatabase.cpp)
+    target_link_libraries(adai_core PUBLIC PostgreSQL::PostgreSQL)
+    target_compile_definitions(adai_core PUBLIC ADAI_ENABLE_POSTGRES)
+    message(STATUS "PostgreSQL metrics backend enabled (TD-020)")
 endif()
 
 # OpenMP support (optional but recommended)
@@ -129,53 +144,69 @@ if(ENABLE_SIMD)
     endif()
 endif()
 
-# GPU support (optional)
+# GPU support (optional) — CUDA backend
 if(ENABLE_GPU)
-    # Add GPU library
     add_library(adai_gpu STATIC
         gpu/MatrixGPU.cu
     )
-    
-    # Set CUDA properties
+
     set_target_properties(adai_gpu PROPERTIES
         CUDA_SEPARABLE_COMPILATION ON
         CUDA_RESOLVE_DEVICE_SYMBOLS ON
     )
-    
-    # Link with CUDA libraries — use static cudart so the binary needs no
-    # libcudart.so on the target machine (driver-only install is enough).
-    # cublas has no simple static form; set RPATH=$ORIGIN so the bundled
-    # libcublas.so found next to the executable at runtime.
+
+    # Static cudart so the binary needs no libcudart.so on target (driver-only).
+    # cublas has no simple static form; RPATH=$ORIGIN finds the bundled .so.
     target_link_libraries(adai_gpu
         CUDA::cudart_static
         CUDA::cublas
     )
-    
-    # Include GPU headers
+
     target_include_directories(adai_gpu PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
     )
-    
-    # Link core library with GPU library
-    target_link_libraries(adai_core PUBLIC adai_gpu)
 
-    message(STATUS "GPU support added to adai_core")
+    target_link_libraries(adai_core PUBLIC adai_gpu)
+    message(STATUS "GPU support added to adai_core (CUDA)")
+
+# GPU support (optional) — Intel SYCL backend
+elseif(ENABLE_SYCL)
+    add_library(adai_gpu STATIC
+        gpu/sycl/MatrixGPU_SYCL.cpp
+    )
+
+    target_compile_options(adai_gpu PRIVATE -fsycl)
+    target_link_options(adai_gpu PUBLIC -fsycl)
+
+    target_link_libraries(adai_gpu
+        MKL::MKL_SYCL
+    )
+
+    target_include_directories(adai_gpu PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+
+    target_link_libraries(adai_core PUBLIC adai_gpu)
+    message(STATUS "GPU support added to adai_core (Intel SYCL)")
 endif()
 
 
 # Precompiled headers for commonly used STL headers
-target_precompile_headers(adai_core
-    PUBLIC
-        <vector>
-        <string>
-        <memory>
-        <algorithm>
-        <cmath>
-        <iostream>
-        <stdexcept>
-        <unordered_map>
-        <utility>
-)
+# icpx (Intel DPC++) does not support PCH with its offload bundler
+if(NOT ENABLE_SYCL)
+    target_precompile_headers(adai_core
+        PUBLIC
+            <vector>
+            <string>
+            <memory>
+            <algorithm>
+            <cmath>
+            <iostream>
+            <stdexcept>
+            <unordered_map>
+            <utility>
+    )
+endif()
 
 # Layer normalization and utilities
 add_library(adai_layers STATIC
@@ -229,15 +260,17 @@ add_library(adai_nlp STATIC
 target_link_libraries(adai_nlp adai_core)
 
 # Additional precompiled headers for NLP components
-target_precompile_headers(adai_nlp
-    PRIVATE
-        <fstream>
-        <sstream>
-        <regex>
-        <queue>
-        <unordered_set>
-        <cctype>
-)
+if(NOT ENABLE_SYCL)
+    target_precompile_headers(adai_nlp
+        PRIVATE
+            <fstream>
+            <sstream>
+            <regex>
+            <queue>
+            <unordered_set>
+            <cctype>
+    )
+endif()
 
 # Try to find cpp-httplib
 find_path(HTTPLIB_INCLUDE_DIR httplib.h
@@ -246,6 +279,38 @@ find_path(HTTPLIB_INCLUDE_DIR httplib.h
         /usr/local/include
         ${CMAKE_SOURCE_DIR}/external/cpp-httplib
 )
+
+# ============================================================================
+# libcurl — required for FTP dataset transport (Phase 10)
+# Enable with: -DENABLE_FTP_TRANSPORT=ON (default ON when curl is found)
+# ============================================================================
+option(ENABLE_FTP_TRANSPORT "Enable FTP dataset transport via libcurl" ON)
+if(ENABLE_FTP_TRANSPORT)
+    find_package(CURL QUIET)
+    if(CURL_FOUND)
+        message(STATUS "libcurl found: ${CURL_LIBRARIES} — FTP dataset transport enabled")
+    else()
+        message(STATUS "libcurl not found — FTP dataset transport disabled. "
+                       "Install with: sudo apt-get install libcurl4-openssl-dev")
+        set(ENABLE_FTP_TRANSPORT OFF)
+    endif()
+endif()
+
+# ============================================================================
+# OpenSSL — required for FTPS (TLS) and HMAC-SHA256 token signing (Phase 11/3)
+# Enable with: -DENABLE_FTPS=ON (default ON when OpenSSL is found)
+# ============================================================================
+option(ENABLE_FTPS "Enable FTPS (TLS) for FTP dataset transport" ON)
+if(ENABLE_FTPS)
+    find_package(OpenSSL QUIET)
+    if(OPENSSL_FOUND)
+        message(STATUS "OpenSSL found: ${OPENSSL_LIBRARIES} — FTPS enabled")
+    else()
+        message(STATUS "OpenSSL not found — FTPS disabled. "
+                       "Install with: sudo apt-get install libssl-dev")
+        set(ENABLE_FTPS OFF)
+    endif()
+endif()
 
 # API layer (optional, requires httplib)
 option(BUILD_API_SERVER "Build REST API server" ON)
@@ -278,7 +343,7 @@ if(BUILD_METRICS_API_SERVER)
         add_library(adai_metrics_api STATIC
             TrainingMetricsAPI.cpp
         )
-        target_link_libraries(adai_metrics_api 
+        target_link_libraries(adai_metrics_api
             adai_core
             pthread
         )
@@ -321,6 +386,11 @@ if(BUILD_METRICS_API_SERVER AND HTTPLIB_INCLUDE_DIR)
     target_link_libraries(incremental_trainer adai_metrics_api)
     target_include_directories(incremental_trainer PRIVATE ${HTTPLIB_INCLUDE_DIR})
 endif()
+if(ENABLE_FTP_TRANSPORT AND CURL_FOUND)
+    target_compile_definitions(incremental_trainer PRIVATE BUILD_FTP_TRANSPORT)
+    target_link_libraries(incremental_trainer CURL::libcurl)
+    message(STATUS "FTP dataset transport enabled for incremental_trainer")
+endif()
 set_target_properties(incremental_trainer PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
@@ -333,6 +403,94 @@ if(ENABLE_GPU)
 endif()
 if(OpenMP_CXX_FOUND)
     message(STATUS "Building incremental_trainer with full parallel optimizations")
+endif()
+
+# Find SQLite3 (pkg-config not always available; fall back to find_path/find_library)
+find_path(SQLITE3_INCLUDE_DIR sqlite3.h
+    PATHS /usr/include /usr/local/include /usr/include/x86_64-linux-gnu)
+find_library(SQLITE3_LIBRARY NAMES sqlite3
+    PATHS /usr/lib /usr/local/lib /usr/lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu)
+if(SQLITE3_INCLUDE_DIR AND SQLITE3_LIBRARY)
+    message(STATUS "SQLite3 found: ${SQLITE3_LIBRARY} (headers: ${SQLITE3_INCLUDE_DIR})")
+    set(SQLITE3_FOUND TRUE)
+else()
+    message(WARNING "SQLite3 not found — adai_mns and SQLite metrics backend will not be built. Install with: sudo apt-get install libsqlite3-dev")
+    set(SQLITE3_FOUND FALSE)
+endif()
+
+# TD-020: Link SQLite3 into adai_core for SQLiteMetricsDatabase
+if(SQLITE3_FOUND)
+    target_link_libraries(adai_core PUBLIC ${SQLITE3_LIBRARY})
+    target_include_directories(adai_core PUBLIC ${SQLITE3_INCLUDE_DIR})
+    message(STATUS "SQLite3 metrics backend linked to adai_core (TD-020)")
+endif()
+
+# Model Name Service library (requires cpp-httplib + SQLite3)
+if(HTTPLIB_INCLUDE_DIR AND SQLITE3_FOUND)
+    add_library(adai_mns STATIC
+        ModelNameService.cpp
+        ModelNameClient.cpp
+    )
+    target_link_libraries(adai_mns
+        adai_core
+        pthread
+        ${SQLITE3_LIBRARY}
+    )
+    target_include_directories(adai_mns PRIVATE ${HTTPLIB_INCLUDE_DIR} ${SQLITE3_INCLUDE_DIR})
+    target_compile_definitions(adai_mns PUBLIC BUILD_MNS_SERVER)
+    message(STATUS "Building adai_mns - Model Name Service library (SQLite backend)")
+else()
+    message(STATUS "adai_mns not built (cpp-httplib or SQLite3 not found)")
+endif()
+
+# Model Name Service daemon (mns_server)
+if(HTTPLIB_INCLUDE_DIR)
+    add_executable(mns_server ModelNameServiceServer.cpp)
+    target_link_libraries(mns_server
+        adai_mns
+        adai_core
+        spdlog::spdlog
+        pthread
+        $<$<CXX_COMPILER_ID:GNU>:stdc++fs>
+    )
+    target_include_directories(mns_server PRIVATE ${HTTPLIB_INCLUDE_DIR})
+    set_target_properties(mns_server PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+    )
+    message(STATUS "Building mns_server - Model Name Service daemon (port 8083)")
+else()
+    message(STATUS "mns_server not built (cpp-httplib not found)")
+endif()
+
+# Model Name Service CLI (mns_cli)
+if(HTTPLIB_INCLUDE_DIR AND TARGET adai_mns)
+    add_executable(mns_cli MnsCliTool.cpp Config.cpp)
+    target_link_libraries(mns_cli
+        adai_mns
+        adai_core
+        spdlog::spdlog
+        pthread
+        $<$<CXX_COMPILER_ID:GNU>:stdc++fs>
+    )
+    target_include_directories(mns_cli PRIVATE ${HTTPLIB_INCLUDE_DIR} ${SQLITE3_INCLUDE_DIR})
+    set_target_properties(mns_cli PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+    )
+    message(STATUS "Building mns_cli - Model Name Service CLI tool")
+endif()
+
+# Link adai_mns into dependent targets now that the target exists
+if(TARGET adai_mns)
+    target_link_libraries(incremental_trainer adai_mns)
+    target_include_directories(incremental_trainer PRIVATE ${SQLITE3_INCLUDE_DIR})
+    if(TARGET chatbot_api_server)
+        target_link_libraries(chatbot_api_server adai_mns)
+        target_include_directories(chatbot_api_server PRIVATE ${SQLITE3_INCLUDE_DIR})
+    endif()
+    if(TARGET adai_metrics_api)
+        target_link_libraries(adai_metrics_api adai_mns)
+        target_include_directories(adai_metrics_api PRIVATE ${SQLITE3_INCLUDE_DIR})
+    endif()
 endif()
 
 # Registry Server - Distributed dataset queue coordination daemon (TD-028 Phase 9)
@@ -350,20 +508,28 @@ if(HTTPLIB_INCLUDE_DIR)
     set_target_properties(registry_server PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
     )
+    if(ENABLE_FTPS AND OPENSSL_FOUND)
+        target_compile_definitions(registry_server PRIVATE BUILD_FTPS)
+        target_link_libraries(registry_server OpenSSL::SSL OpenSSL::Crypto)
+        message(STATUS "FTPS enabled for registry_server (OpenSSL found)")
+    endif()
     message(STATUS "Building registry_server - distributed dataset queue coordination")
 else()
     message(STATUS "registry_server not built (cpp-httplib not found)")
 endif()
 
 # Dataset Manager - Standalone data queue management tool (TD-028 Phase 6)
-# No model or tokenizer dependency: links only adai_core (DatasetRegistry, DataFetcher, Logger)
-# and Config.cpp for config file parsing.
+# Links adai_core (DatasetRegistry, DataFetcher, Logger), Config.cpp, and optionally adai_mns.
 add_executable(dataset_manager DatasetManagerTool.cpp Config.cpp)
 target_link_libraries(dataset_manager
     adai_core
     spdlog::spdlog
     $<$<CXX_COMPILER_ID:GNU>:stdc++fs>
 )
+if(TARGET adai_mns)
+    target_link_libraries(dataset_manager adai_mns)
+    target_include_directories(dataset_manager PRIVATE ${HTTPLIB_INCLUDE_DIR} ${SQLITE3_INCLUDE_DIR})
+endif()
 set_target_properties(dataset_manager PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
@@ -474,15 +640,40 @@ if(BUILD_GUI)
     endif()
 endif()
 
+# MNS Manager GUI - Qt-based Model Name Service manager (optional)
+if(BUILD_GUI AND (Qt6_FOUND OR Qt5_FOUND) AND TARGET adai_mns AND HTTPLIB_INCLUDE_DIR)
+    add_executable(mns_manager_gui
+        MnsManagerGUI_main.cpp
+        MnsManagerGUI.cpp
+        Config.cpp
+    )
+    if(Qt6_FOUND)
+        target_link_libraries(mns_manager_gui
+            adai_mns adai_core spdlog::spdlog Qt6::Widgets
+            pthread $<$<CXX_COMPILER_ID:GNU>:stdc++fs>
+        )
+    else()
+        target_link_libraries(mns_manager_gui
+            adai_mns adai_core spdlog::spdlog Qt5::Widgets
+            pthread $<$<CXX_COMPILER_ID:GNU>:stdc++fs>
+        )
+    endif()
+    target_include_directories(mns_manager_gui PRIVATE ${HTTPLIB_INCLUDE_DIR} ${SQLITE3_INCLUDE_DIR})
+    set_target_properties(mns_manager_gui PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+    )
+    message(STATUS "Building mns_manager_gui - Model Name Service GUI manager")
+endif()
+
 # Chatbot API Server - REST API service
 if(BUILD_API_SERVER)
     add_executable(chatbot_api_server
         ChatbotAPIServer.cpp
         Config.cpp
     )  # Logger.cpp compiled into adai_core
-    target_link_libraries(chatbot_api_server 
+    target_link_libraries(chatbot_api_server
         adai_api
-        adai_models 
+        adai_models
         adai_nlp
         adai_attention    # Priority 4: Parallel attention heads
         adai_core         # Priority 1: OpenMP matrix operations
@@ -501,14 +692,18 @@ endif()
 
 # Training Metrics API Server - REST API for training metrics polling
 if(BUILD_METRICS_API_SERVER)
-    add_executable(metrics_api_server 
+    add_executable(metrics_api_server
         TrainingMetricsAPIServer.cpp
     )
-    target_link_libraries(metrics_api_server 
+    target_link_libraries(metrics_api_server
         adai_metrics_api
         adai_core
         spdlog::spdlog
     )
+    if(TARGET adai_mns)
+        target_link_libraries(metrics_api_server adai_mns)
+        target_include_directories(metrics_api_server PRIVATE ${SQLITE3_INCLUDE_DIR})
+    endif()
     target_include_directories(metrics_api_server PRIVATE ${HTTPLIB_INCLUDE_DIR})
     set_target_properties(metrics_api_server PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
@@ -592,14 +787,18 @@ if(BUILD_EXAMPLES)
     
     # Training Metrics Service Example
     add_executable(training_metrics_example ../examples/TrainingMetricsServiceExample.cpp
-        TrainingMetricsService.cpp IncrementalTrainer.cpp ChatbotTrainer.cpp Config.cpp)
-    target_link_libraries(training_metrics_example 
-        adai_models 
+        TrainingMetricsService.cpp IncrementalTrainer.cpp ChatbotTrainer.cpp Config.cpp
+        ModelNameClient.cpp)
+    target_link_libraries(training_metrics_example
+        adai_models
         adai_nlp
-        adai_core 
+        adai_core
         pthread
         $<$<CXX_COMPILER_ID:GNU>:stdc++fs>  # GCC/libstdc++ only; not available on macOS (libc++)
     )
+    if(HTTPLIB_INCLUDE_DIR)
+        target_include_directories(training_metrics_example PRIVATE ${HTTPLIB_INCLUDE_DIR})
+    endif()
     message(STATUS "Building training_metrics_example - Real-time metrics monitoring demo")
     
     message(STATUS "Building example programs (disable with -DBUILD_EXAMPLES=OFF)")

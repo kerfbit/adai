@@ -1,532 +1,529 @@
 # Training Guide
 
-This comprehensive guide covers all aspects of training ADAI models, from basic quickstart to advanced incremental training and performance optimization.
+This guide covers all aspects of training ADAI models: queuing data, choosing a training mode, monitoring metrics, tuning hyperparameters, and recovering from common problems.
 
 ---
 
 ## Table of Contents
 
 1. [Quick Start](#quick-start)
-2. [Training Methods](#training-methods)
-3. [Advanced Training Features](#advanced-training-features)
-4. [Performance & Optimization](#performance--optimization)
-5. [Internals and Testing](#internals-and-testing)
+2. [How Training Works](#how-training-works)
+3. [Training Modes](#training-modes)
+4. [Dataset Management](#dataset-management)
+5. [Configuration](#configuration)
+6. [Training Metrics Service](#training-metrics-service)
+7. [Training Strategies](#training-strategies)
+8. [Monitoring and Inspecting Progress](#monitoring-and-inspecting-progress)
+9. [Troubleshooting](#troubleshooting)
+10. [Quick Reference](#quick-reference)
 
 ---
 
 ## Quick Start
 
-### Basic Training
-
-The simplest way to train a chatbot model:
+New model from scratch in six steps:
 
 ```bash
-./chatbot_trainer --data conversations.txt --vocab vocab.txt --epochs 10 --output chatbot_model.bin
+cd /home/rodney/Repos/adai
+
+# 1. Build
+mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release && make -j$(nproc) && cd ..
+
+# 2. Create vocabulary
+./build/bin/vocab_builder \
+    --input sample_training_data.txt \
+    --output vocab.txt \
+    --vocab-size 5000 \
+    --format pairs \
+    --stats
+
+# 3. Queue training data
+./build/bin/dataset_manager add sample_training_data.txt
+
+# 4. Initialize and train (starts in background)
+./build/bin/incremental_trainer init
+./build/bin/incremental_trainer train 25
+
+# 5. Monitor progress
+tail -f chatbot_server.log
+
+# 6. Check status when done
+./build/bin/incremental_trainer status
 ```
-
-What this does:
-
-- Loads conversation data from `conversations.txt`
-- Uses BPE tokenizer with `vocab.txt`
-- Trains for 10 epochs
-- Saves trained model to `chatbot_model.bin`
-
-**For detailed instructions**, see:
-
-- **[Training Example](training-example.md)** - Step-by-step training walkthrough
-- **[Enhanced Training Pipeline](enhanced-training-pipeline.md)** - Production-ready training infrastructure
 
 ---
 
-## Training Methods
+## How Training Works
 
-### 1. Standard Training
+The training system is split across two binaries that operate independently:
 
-**Best for:** Initial model training, complete retrains
+| Binary | Responsibility |
+| --- | --- |
+| `dataset_manager` | Manages the dataset queue (DatasetRegistry) — add files, download from Gutenberg or HuggingFace |
+| `incremental_trainer` | Consumes the queue and trains the model |
 
-**Documentation:** [Enhanced Training Pipeline](enhanced-training-pipeline.md)
+**All training commands (`train`, `retrain`, `resume`) fork into the background automatically.** The launcher prints the PID and log path, then exits. Output goes to the log file only (default: `chatbot_server.log`; set `LOG_FILE_PATH` in `config.conf`).
 
-Train from scratch on a complete dataset:
+**All hyperparameters come from `config.conf`.** There are no per-run CLI flags for learning rate, epochs, or batch size. Set them once in the config file; every training run picks them up at startup.
+
+### Training Data Format
+
+Training data files use alternating `INPUT:` / `RESPONSE:` pairs:
+
+```text
+INPUT: Hello
+RESPONSE: Hi! How can I help you?
+INPUT: What is your name?
+RESPONSE: I am the ADAI chatbot assistant.
+```
+
+---
+
+## Training Modes
+
+`incremental_trainer` exposes three training modes plus utility commands:
 
 ```bash
-./chatbot_trainer \
-    --data conversations.txt \
-    --vocab vocab.txt \
-    --epochs 12 \
-    --learning-rate 0.0001 \
-    --batch-size 32 \
-    --output model.bin
+./build/bin/incremental_trainer [--config <path>] [--gpu-strategy background|full] <command>
 ```
 
-Key Features:
-
-- Full dataset training
-- Configurable hyperparameters
-- Learning rate scheduling (warmup + cosine decay)
-- Automatic checkpointing
-- Validation split support
-
-**Expected Performance:** 12 epochs on 7,500 samples ≈ 6 days
-
----
-
-### 2. Incremental Training
-
-**Best for:** Continuous learning, quick updates with new data
-
-**Documentation:** [Incremental Training Guide](incremental-training-guide.md)
-
-Add new conversation data without retraining from scratch:
+### `train` — Incremental (pending data only)
 
 ```bash
-# Initialize
-./incremental_trainer init vocab.txt chatbot_model.bin
-
-# Add data incrementally
-./incremental_trainer add week1_conversations.txt
-./incremental_trainer train 5
-
-# Later: add more data and train only on new data
-./incremental_trainer add week2_conversations.txt
-./incremental_trainer train 5  # Much faster!
+./build/bin/incremental_trainer train [epochs]
 ```
 
-Key Features:
+Trains only on files that have not been trained before (the pending queue). On success, marks those files as trained in the DatasetRegistry. Falls back to `NUM_EPOCHS` in `config.conf` if `[epochs]` is omitted.
 
-- Session-based training tracking
-- Data versioning and registry
-- Resume from interruption
-- Auto-save during long runs
-- Periodic full retrains
+**Use when:** Adding new data to an already-trained model.
 
-**Performance Advantage:** 87% time reduction for small data additions
-
-- Traditional: 6 days to retrain everything
-- Incremental: 12 hours to train on 500 new samples
-
-When to use:
-
-- Adding weekly/monthly conversation logs
-- Fine-tuning on specific conversation types
-- Continuous model improvement
-
----
-
-### 3. Project Gutenberg Training
-
-**Best for:** Enhancing language understanding with literary data
-
-**Documentation:** [Project Gutenberg Training Guide](gutenberg-training-guide.md)
-
-Train on high-quality literary texts from 70,000+ free books:
+### `retrain` — Full retrain from scratch
 
 ```bash
-# Download and train on a single book
-./incremental_trainer gutenberg 1342 500  # Pride and Prejudice, 500 pairs
-./incremental_trainer train 5
-
-# Batch download multiple books
-./incremental_trainer gutenberg-batch 1342,11,84,1661 300
-./incremental_trainer train 10
+./build/bin/incremental_trainer retrain [epochs]
 ```
 
-Key Features:
+Resets model weights to the config architecture, then trains on **all** files in the registry (trained + pending). This is the equivalent of a clean restart without losing the data you've accumulated.
 
-- Automatic book downloading
-- Intelligent text processing (removes headers/footers)
-- Question-answer pair generation
-- Multiple training pair styles
+**Use when:** Changing model architecture, recovering from a badly diverged model, or doing a scheduled consolidation after many incremental runs.
 
-Recommended Book Combinations:
+### `resume` — Continue an interrupted session
 
-- **General conversation:** 1342 (Pride & Prejudice), 11 (Alice), 76 (Huck Finn), 98 (Tale of Two Cities)
-- **Formal/professional:** 1661 (Sherlock), 84 (Frankenstein), 1260 (Jane Eyre), 2701 (Moby Dick)
-- **Creative/imaginative:** 11 (Alice), 345 (Dracula), 35 (Time Machine), 16328 (Beowulf)
+```bash
+./build/bin/incremental_trainer resume
+```
 
-**Best Practice:** Mix Gutenberg books with real conversation data for best results
+Restarts the most recently incomplete training session without touching the DatasetRegistry. Useful after a crash or deliberate early stop.
+
+**Use when:** Training was interrupted before completing.
+
+### Utility commands
+
+```bash
+# Initialize session directory and validate config (run once before first train)
+./build/bin/incremental_trainer init
+
+# Reset model to config architecture; optionally preserve registry
+./build/bin/incremental_trainer reset [--yes] [--keep-data]
+
+# Print session summary and current pending files
+./build/bin/incremental_trainer status
+
+# Print full session history and data registry
+./build/bin/incremental_trainer history
+```
+
+`--keep-data` preserves all registered files (marking previously trained files as pending again) so a subsequent `retrain` reuses them without re-queuing. `--yes` skips the confirmation prompt.
 
 ---
 
-## Advanced Training Features
+## Dataset Management
 
-### Training Metrics and Logging
+`dataset_manager` queues data for `incremental_trainer train` to consume. It never touches the model or the training sessions directly.
 
-**Documentation:** [Training Metrics and Logging](chatbot-trainer-metrics-logging.md)
-
-Enhanced tracking system for monitoring training progress:
-
-Features:
-
-- **Perplexity tracking** - Model prediction quality metric
-- **Learning rate logging** - Track LR schedule over time
-- **Gradient statistics** - Monitor gradient norms and clipping
-- **Detailed epoch summaries** - Loss breakdown and timing
-- **CSV export** - Export metrics for analysis
-- **TensorBoard support** - Visual training monitoring
-
-Enable enhanced logging:
-
-```cpp
-TrainingConfig config;
-config.log_metrics = true;
-config.metrics_output_file = "training_metrics.csv";
-config.log_perplexity = true;
-config.log_gradients = true;
+```bash
+./build/bin/dataset_manager [--config <path>] <command>
 ```
 
-Use cases:
+### Local files
 
-- Debugging training issues
-- Hyperparameter tuning
-- Performance optimization
-- Research and analysis
+```bash
+# Add a local training file
+./build/bin/dataset_manager add conversations.txt
 
----
+# Check what is queued
+./build/bin/dataset_manager status
+./build/bin/dataset_manager list-pending
+./build/bin/dataset_manager list-trained
 
-### Training Improvements (2026)
-
-**Documentation:** [Training Improvements Quick Reference](chatbot-trainer-improvements-2026.md)
-
-Latest enhancements added January 2026:
-
-1. **Warmup + Cosine LR Schedule** - Better convergence
-2. **Gradient Clipping** - Training stability
-3. **Early Stopping** - Prevent overfitting
-4. **Validation Split** - Automatic train/val split
-5. **Enhanced Logging** - Detailed metrics
-6. **Checkpoint System** - Auto-save progress
-
-Migration from old trainer:
-
-```cpp
-// Old
-ChatbotTrainer trainer(vocab_size, d_model, num_heads);
-trainer.train(dataset, 10);
-
-// New
-TrainingConfig config;
-config.num_epochs = 10;
-config.lr_schedule = LRSchedule::WARMUP_COSINE;
-config.enable_gradient_clipping = true;
-config.validation_split = 0.1;
-ChatbotTrainer trainer(vocab_size, d_model, num_heads, config);
-trainer.train_with_config(dataset);
+# Remove all pending files (does not affect already-trained files)
+./build/bin/dataset_manager clear-pending
 ```
 
----
+### Project Gutenberg
 
-## Performance & Optimization
+Downloads the book text, strips Gutenberg headers/footers, generates INPUT/RESPONSE pairs, and adds the result to the pending queue.
 
-### Data Pipeline Enhancement
+```bash
+# Single book (500 pairs)
+./build/bin/dataset_manager gutenberg 1342 500
 
-**Documentation:** [Data Pipeline Enhancement](data-pipeline-enhancement.md)
-
-Optimize data loading and batching for faster training:
-
-#### 1. Efficient Batching
-
-```cpp
-#include "EfficientBatching.hpp"
-
-EfficientBatching batcher;
-auto batches = batcher.create_batches_dynamic_bucketing(
-    dataset,
-    batch_size,
-    num_buckets
-);  // 20-40% efficiency improvement
+# Batch download (300 pairs each)
+./build/bin/dataset_manager gutenberg-batch 1342,11,84,1661 300
 ```
 
-#### 2. Parallel Data Loading
+Downloaded files are cached in `gutenberg_data/` and can be re-added with `dataset_manager add` if needed.
 
-```cpp
-#include "ParallelDataLoader.hpp"
+**Recommended books by training goal:**
 
-ParallelDataLoader loader(4);  // 4 worker threads
-loader.start_prefetching(dataset, batch_size);
-// 2-6x speedup with background loading
+| Goal | Command |
+| --- | --- |
+| General conversation | `gutenberg-batch 1342,11,76,98 400` |
+| Formal / professional tone | `gutenberg-batch 1661,84,1260,2701 300` |
+| Creative / imaginative | `gutenberg-batch 11,345,35,16328 500` |
+
+**Popular book IDs:**
+
+| ID | Title |
+| --- | --- |
+| 1342 | Pride and Prejudice (Austen) |
+| 11 | Alice in Wonderland (Carroll) |
+| 84 | Frankenstein (Shelley) |
+| 1661 | Sherlock Holmes (Doyle) |
+| 2701 | Moby Dick (Melville) |
+| 16328 | Beowulf |
+| 1260 | Jane Eyre (Brontë) |
+| 98 | A Tale of Two Cities (Dickens) |
+| 345 | Dracula (Stoker) |
+| 35 | The Time Machine (Wells) |
+
+Find any book ID at: <https://www.gutenberg.org/ebooks/>
+
+**Pair count guidelines:**
+
+| Book length | Recommended pairs |
+| --- | --- |
+| Short story | 100–200 |
+| Novella | 300–500 |
+| Novel | 500–1000 |
+| Epic / long novel | 1000–2000 |
+
+### HuggingFace datasets
+
+```bash
+# Daily conversation pairs (auto-detected format)
+./build/bin/dataset_manager huggingface daily_dialog 500
+
+# Instruction-following with explicit field mapping
+./build/bin/dataset_manager huggingface tatsu-lab/alpaca 300 train instruction output
+
+# Syntax: huggingface <dataset_id> [num_pairs] [split] [input_field] [output_field]
+./build/bin/dataset_manager huggingface databricks/databricks-dolly-15k 500
+./build/bin/dataset_manager huggingface Open-Orca/OpenOrca 500 train question response
 ```
 
 ---
 
-### Dataset Enhanced Features
+## Configuration
 
-Documentation:
+All training hyperparameters are set in `config.conf` (or environment variables) and read at startup. Edit the file and re-run; no rebuild required.
 
-- [Dataset Enhanced Features](dataset-enhanced-features.md) - Comprehensive guide
-- [Dataset Quick Reference](dataset-quick-reference.md) - Quick API reference
+### Key training settings
 
-Advanced dataset capabilities for improved training:
+| Key | Default | When to change |
+| --- | --- | --- |
+| `LEARNING_RATE` | `0.001` | Lower to `0.0001–0.0003` for stable training |
+| `NUM_EPOCHS` | `10` | 25 for small datasets; 15–20 for large |
+| `BATCH_SIZE` | `32` | Lower if RAM is tight |
+| `WEIGHT_DECAY` | `0.01` | L2 regularization; raise if overfitting |
+| `GRADIENT_CLIP` | `1.0` | Lower to `0.5` if you see NaN/Inf warnings |
+| `SESSION_DIR` | `training_sessions` | Change to separate session directories per model |
+| `GPU_STRATEGY` | `background` | Set to `full` on a dedicated training machine |
 
-Key Features:
+### Recommended settings by dataset size
 
-- **Iterator interface** - Range-based for loops
-- **Batch iteration** - Built-in batching support
-- **Multiple formats** - Conversation, TSV, JSON, CSV
-- **K-fold cross-validation** - Advanced validation
-- **Data augmentation** - On-the-fly augmentation
-- **Lazy loading** - Memory-efficient large datasets
-- **Stratified splitting** - Balanced train/val/test splits
+| Dataset size | `NUM_EPOCHS` | `LEARNING_RATE` | Notes |
+| --- | --- | --- | --- |
+| < 1,000 pairs | 25–50 | 0.0003 | Risk of overfitting beyond 30 epochs |
+| 1,000–10,000 pairs | 20–30 | 0.0003 | Standard configuration |
+| > 10,000 pairs | 15–20 | 0.0005 | Larger `BATCH_SIZE` if RAM allows |
 
-Example:
+### Learning rate schedule
 
-```cpp
-Dataset dataset;
-dataset.load_from_file("data.txt");
-dataset.split_stratified(0.8, 0.1, 0.1, 5);  // Stratified split
+The trainer always applies `WARMUP_COSINE` scheduling: the learning rate ramps up over the first 10% of steps, then decays via cosine annealing. No config key is needed; it is always active.
 
-// Iterate with augmentation
-for (const auto& sample : dataset.augmented_view(augmenter)) {
-    train_on_sample(sample);
-}
+### Generation quality scoring during validation
 
-// K-fold cross-validation
-for (int fold = 0; fold < 5; fold++) {
-    dataset.prepare_fold(fold, 5);
-    train(dataset.get_train_split());
-    validate(dataset.get_val_split());
-}
+The trainer can compute BLEU/ROUGE scores on a sample of the validation set each epoch. This adds overhead but reveals generation quality beyond loss alone.
+
+```ini
+ENABLE_GENERATION_QUALITY_METRICS=true
+GENERATION_QUALITY_SAMPLE_SIZE=20    # pairs scored per epoch
+GENERATION_QUALITY_MAX_TOKENS=50
+GENERATION_QUALITY_ASYNC_THRESHOLD=50  # run scoring in background thread when sample >= this
 ```
+
+Disable (`false`) during exploratory runs; enable for final evaluation passes.
 
 ---
 
-### Batch Processing
+## Training Metrics Service
 
-Documentation:
+Metrics are pushed from the trainer to a standalone HTTP daemon. Run the daemon before starting training to enable live monitoring.
 
-- [Batch Processing Integration](BATCH_PROCESSING_INTEGRATION.md)
-- [Batch Processing Quick Reference](BATCH_PROCESSING_QUICK_REFERENCE.md)
+```bash
+# Start the daemon (port 8081 by default)
+./build/bin/metrics_api_server
 
-Process multiple sequences efficiently:
-
-```cpp
-#include "BatchProcessor.hpp"
-
-BatchProcessor processor(max_seq_len);
-auto batched = processor.prepare_batch(inputs);
-// 2-4x throughput improvement
+# Poll metrics while training runs
+curl http://localhost:8081/api/metrics/current
+curl http://localhost:8081/api/sessions
+curl http://localhost:8081/api/metrics/summary
 ```
 
----
+The daemon persists metrics to `training_sessions/metrics.jsonl` automatically. Configure push behavior in `config.conf`:
 
-### Data Augmentation
-
-Documentation:
-
-- [Augmentation Implementation](AUGMENTATION_IMPLEMENTATION.md)
-- [Augmentation Quick Reference](AUGMENTATION_QUICK_REFERENCE.md)
-- [Augmentation Checklist](AUGMENTATION_CHECKLIST.md)
-
-Expand training data with intelligent augmentation:
-
-Techniques:
-
-- Synonym substitution
-- Back-translation
-- Paraphrasing
-- Noise injection
-- Character-level perturbations
-
-Implementation:
-
-```cpp
-DataAugmenter augmenter;
-augmenter.set_augmentation_probability(0.3);
-auto augmented = augmenter.augment(original_text);
+```ini
+ENABLE_METRICS_SERVICE=true
+METRICS_SERVER_URL=http://localhost:8081
+METRICS_PERSIST_EVERY_SAMPLES=100
+METRICS_PERSIST_EVERY_SECONDS=30
 ```
+
+See [OPERATIONS_MANUAL.md §5.3](../OPERATIONS_MANUAL.md#53-training-metrics-service) for the full endpoint and config key reference.
 
 ---
 
 ## Training Strategies
 
-### Strategy 1: Initial Training → Incremental Updates
+### Strategy 1: Continuous incremental updates
 
-**Best for:** Production systems with regular new data
+Best for production systems with a regular stream of new conversation data.
 
 ```bash
-# Week 0: Initial comprehensive training
-./chatbot_trainer --data initial_dataset.txt --epochs 20 --output model.bin
+# One-time initialization
+./build/bin/incremental_trainer init
+./build/bin/dataset_manager add initial_conversations.txt
+./build/bin/incremental_trainer train 25
 
-# Week 1-9: Quick incremental updates
-./incremental_trainer init vocab.txt model.bin
-for week in {1..9}; do
-    ./incremental_trainer add week${week}_data.txt
-    ./incremental_trainer train 5
-done
+# Each time new data arrives
+./build/bin/dataset_manager add new_week_conversations.txt
+./build/bin/incremental_trainer train 10
 
-# Week 10: Full retrain to consolidate
-./incremental_trainer retrain 15
+# Every ~10 incremental sessions, consolidate
+./build/bin/incremental_trainer retrain 20
+```
+
+**Trade-off:** Fast updates; model may gradually forget older patterns without periodic retrains.
+
+---
+
+### Strategy 2: Literary enhancement
+
+Best for improving language quality and vocabulary diversity when conversation data is limited.
+
+```bash
+# Step 1: Train on real conversations first
+./build/bin/dataset_manager add real_conversations.txt
+./build/bin/incremental_trainer train 20
+
+# Step 2: Add literary style
+./build/bin/dataset_manager gutenberg-batch 1342,11,1661,84 400
+./build/bin/incremental_trainer train 10
+
+# Step 3: Re-anchor on conversational data
+./build/bin/dataset_manager add more_conversations.txt
+./build/bin/incremental_trainer train 8
+```
+
+**Best practice:** Keep real conversation data as the final training step so the model's conversational register stays grounded.
+
+---
+
+### Strategy 3: Domain specialization
+
+Best for building a chatbot focused on a specific domain (medical, legal, technical).
+
+```bash
+# Phase 1: General conversational base
+./build/bin/dataset_manager add general_conversations.txt
+./build/bin/incremental_trainer train 20
+
+# Phase 2: Domain-specific fine-tuning
+./build/bin/dataset_manager add medical_dialogues.txt
+./build/bin/incremental_trainer train 15   # more epochs for specialization
+
+# Phase 3: Maintenance — mix general and domain
+./build/bin/dataset_manager add general_and_medical_mix.txt
+./build/bin/incremental_trainer train 8
+```
+
+**Trade-off:** Specialization improves domain accuracy but can reduce general conversational fluency. Maintenance sessions counteract this.
+
+---
+
+## Monitoring and Inspecting Progress
+
+### Follow the training log
+
+```bash
+tail -f chatbot_server.log
+```
+
+Set `LOG_FILE_PATH` in `config.conf` to change the log location.
+
+### Expected loss progression
+
+| Phase | Expected Loss | Expected Perplexity |
+| --- | --- | --- |
+| Epochs 1–3 | 4–8 → 4–5 | 1000+ → 50–150 |
+| Epochs 4–10 | 2–3 | 10–20 |
+| Epochs 11–25 | 1–2 | 3–7 |
+
+### Check session status
+
+```bash
+# Current pending files and latest checkpoint
+./build/bin/incremental_trainer status
+
+# Full history of all sessions
+./build/bin/incremental_trainer history
+
+# Check what data is queued
+./build/bin/dataset_manager status
+./build/bin/dataset_manager list-pending
+```
+
+### Live metrics (requires metrics daemon)
+
+```bash
+./build/bin/metrics_api_server &
+curl http://localhost:8081/api/metrics/current
+curl http://localhost:8081/api/sessions
+```
+
+### Verify model files after training
+
+```bash
+ls -lh chatbot_model.bin*
+# Expected: base file + .config .encoder .decoder .lm_head .vocab symlinks
 ```
 
 ---
 
-### Strategy 2: Literature Enhancement
+## Troubleshooting
 
-**Best for:** Improving language quality and diversity
+### Loss rises or will not decrease past epoch 2
+
+**Cause:** Learning rate too high.
+
+```ini
+# config.conf
+LEARNING_RATE=0.0003
+GRADIENT_CLIP=1.0
+```
+
+Then run a full retrain: `./build/bin/incremental_trainer retrain 25`
+
+---
+
+### NaN/Inf warnings in the log
+
+The trainer detects and skips bad gradient updates automatically. If warnings persist:
+
+```ini
+LEARNING_RATE=0.0001
+GRADIENT_CLIP=0.5
+```
+
+Also check training data for extremely long sequences or non-text content.
+
+---
+
+### Perplexity stuck above 100 after 25 epochs
+
+1. Increase `NUM_EPOCHS=50` in `config.conf` and run `train 50`
+2. Verify data format — every pair must have `INPUT:` / `RESPONSE:` prefixes
+3. Check vocabulary coverage: if many words appear as `<unk>`, rebuild with a larger `--vocab-size`
+4. Consider a smaller model (`D_MODEL=256`, `D_FF=1024`) if dataset is tiny (< 500 pairs)
+
+---
+
+### "No pending data. Use DatasetManager to queue training data."
+
+The `train` command found no pending files. Queue data first:
 
 ```bash
-# Step 1: Train on real conversations
-./incremental_trainer add real_conversations.txt
-./incremental_trainer train 12
+./build/bin/dataset_manager add my_data.txt
+# or
+./build/bin/dataset_manager gutenberg 1342 500
+```
 
-# Step 2: Enhance with literary style
-./incremental_trainer gutenberg-batch 1342,11,1661,84 400
-./incremental_trainer train 8
+Then retry `incremental_trainer train`.
 
-# Step 3: Fine-tune on conversations again
-./incremental_trainer add more_conversations.txt
-./incremental_trainer train 5
+---
+
+### Model quality degraded after incremental updates
+
+Incremental training can cause catastrophic forgetting when the new data distribution differs significantly from the old data.
+
+```bash
+# Full retrain on all data to recover
+./build/bin/incremental_trainer retrain 20
 ```
 
 ---
 
-### Strategy 3: Specialized Domain Training
+### Gutenberg download fails
 
-**Best for:** Domain-specific chatbots (medical, legal, technical)
+- Verify the book ID at <https://www.gutenberg.org/ebooks/>
+- Some books are not available in plain text format
+- Manually download and use `dataset_manager add` as a fallback:
 
 ```bash
-# Base: General conversation ability
-./chatbot_trainer --data general_conversations.txt --epochs 10
-
-# Specialized: Domain-specific data
-./incremental_trainer init vocab.txt model.bin
-./incremental_trainer add medical_dialogues.txt
-./incremental_trainer train 15  # More epochs for specialization
-
-# Maintenance: Mix of general + specialized
-./incremental_trainer add general_and_medical_mix.txt
-./incremental_trainer train 5
+wget "https://www.gutenberg.org/files/1342/1342-0.txt" -O my_book.txt
+./build/bin/dataset_manager add my_book.txt
 ```
 
 ---
 
-## Troubleshooting Training Issues
+### Training started but no log output
 
-**Documentation:** [Training Fix Strategy](troubleshooting/TRAINING_FIX_STRATEGY.md)
-
-### Common Issues
-
-#### 1. Loss Divergence (NaN/Inf)
-
-- Enable gradient clipping
-- Reduce learning rate
-- Check for corrupted data
-
-#### 2. Slow Convergence
-
-- Increase learning rate
-- Use warmup schedule
-- Check batch size
-
-#### 3. Overfitting
-
-- Enable early stopping
-- Increase validation split
-- Add data augmentation
-- Use dropout
-
-#### 4. Memory Issues
-
-- Reduce batch size
-- Use lazy loading
-- Enable gradient accumulation
-
-#### 5. Long Training Times
-
-- Use parallel data loading
-- Enable efficient batching
-- Use fewer epochs for incremental updates
-- Consider smaller model
-
----
-
-## Internals and Testing
-
-### Training System Internals
-
-**Documentation:** [Training Internals](training-internals.md)
-
-Deep dive into the training system architecture:
-
-- Loss computation
-- Backpropagation through transformer
-- Optimizer implementation (Adam, AdamW)
-- Learning rate scheduling
-- Gradient accumulation
-- Mixed precision training
-
----
-
-### Test Suite
-
-**Documentation:** [Chatbot Trainer Tests](../testing/chatbot-trainer-tests.md)
-
-Comprehensive test coverage:
-
-- Unit tests for trainer components
-- Integration tests for full training pipeline
-- Performance benchmarks
-- Regression tests
-
-Run tests:
+Training runs in the background; all output goes to the log file, not the terminal.
 
 ```bash
-./build/src/chatbot_trainer_tests
+tail -f chatbot_server.log
 ```
 
----
-
-## Quick Reference Summary
-
-|Task|Tool|Documentation|
-|------|------|---------------|
-|Initial training|`chatbot_trainer`|[Enhanced Training Pipeline](enhanced-training-pipeline.md)|
-|Add new data|`incremental_trainer`|[Incremental Training Guide](incremental-training-guide.md)|
-|Train on books|`incremental_trainer gutenberg`|[Gutenberg Training Guide](gutenberg-training-guide.md)|
-|Monitor metrics|Enable logging|[Training Metrics and Logging](chatbot-trainer-metrics-logging.md)|
-|Optimize data loading|Use DataLoader/Batching|[Data Pipeline Enhancement](data-pipeline-enhancement.md)|
-|Advanced datasets|Use Dataset v2.0|[Dataset Enhanced Features](dataset-enhanced-features.md)|
-|Debug issues|Check docs|[Training Fix Strategy](troubleshooting/TRAINING_FIX_STRATEGY.md)|
+If the log file does not exist, check `LOG_FILE_PATH` in `config.conf`. If it is empty, training logs go to `chatbot_server.log` in the working directory.
 
 ---
 
-## Related Documentation
+## Quick Reference
 
-### Core Training
+| Task | Command |
+| --- | --- |
+| Add local data file | `./build/bin/dataset_manager add <file>` |
+| Download Gutenberg book | `./build/bin/dataset_manager gutenberg <id> <pairs>` |
+| Download HuggingFace dataset | `./build/bin/dataset_manager huggingface <id> <pairs>` |
+| Check data queue | `./build/bin/dataset_manager status` |
+| Initialize trainer | `./build/bin/incremental_trainer init` |
+| Train on new (pending) data | `./build/bin/incremental_trainer train [epochs]` |
+| Full retrain on all data | `./build/bin/incremental_trainer retrain [epochs]` |
+| Resume interrupted session | `./build/bin/incremental_trainer resume` |
+| Check session status | `./build/bin/incremental_trainer status` |
+| View session history | `./build/bin/incremental_trainer history` |
+| Reset to fresh model | `./build/bin/incremental_trainer reset --keep-data --yes` |
+| Follow training log | `tail -f chatbot_server.log` |
+| Start metrics daemon | `./build/bin/metrics_api_server` |
+| Poll current metrics | `curl http://localhost:8081/api/metrics/current` |
 
-- [Training Example](training-example.md) - Complete walkthrough
-- [Training Internals](training-internals.md) - System architecture
-- [Enhanced Training Pipeline](enhanced-training-pipeline.md) - Production setup
-- [Training Improvements (2026)](chatbot-trainer-improvements-2026.md) - Latest features
+### Related documentation
 
-### Advanced Training
-
-- [Incremental Training Guide](incremental-training-guide.md) - Continuous learning
-- [Project Gutenberg Training](gutenberg-training-guide.md) - Literary data
-- [Training Metrics and Logging](chatbot-trainer-metrics-logging.md) - Enhanced monitoring
-
-### Data & Optimization
-
-- [Data Pipeline Enhancement](data-pipeline-enhancement.md) - Efficient batching and loading
-- [Dataset Enhanced Features](dataset-enhanced-features.md) - Advanced dataset capabilities
-- [Dataset Quick Reference](dataset-quick-reference.md) - Quick API lookup
-- [Batch Processing Integration](BATCH_PROCESSING_INTEGRATION.md) - Multi-sequence processing
-
-### Augmentation
-
-- [Augmentation Implementation](AUGMENTATION_IMPLEMENTATION.md) - Setup guide
-- [Augmentation Quick Reference](AUGMENTATION_QUICK_REFERENCE.md) - Quick lookup
-- [Augmentation Checklist](AUGMENTATION_CHECKLIST.md) - Implementation verification
-
-### Testing & Troubleshooting
-
-- [Chatbot Trainer Tests](../testing/chatbot-trainer-tests.md) - Test suite
-- [Training Fix Strategy](troubleshooting/TRAINING_FIX_STRATEGY.md) - Issue resolution
-
----
-
-## Getting Help
-
-- **Quick questions**: Check the [Quick Reference](dataset-quick-reference.md) docs
-- **Training issues**: See [Training Fix Strategy](troubleshooting/TRAINING_FIX_STRATEGY.md)
-- **Performance**: See [Data Pipeline Enhancement](data-pipeline-enhancement.md)
-- **API details**: See [Training Internals](training-internals.md)
+| Document | Status | Notes |
+| --- | --- | --- |
+| [OPERATIONS_MANUAL.md](../OPERATIONS_MANUAL.md) | Current | Full system reference |
+| [COMMANDS.md](COMMANDS.md) | Current | Copy-paste command cheatsheet |
+| [troubleshooting/TRAINING_FIX_STRATEGY.md](troubleshooting/TRAINING_FIX_STRATEGY.md) | Current | Detailed issue resolution |
+| [incremental-training-guide.md](incremental-training-guide.md) | Outdated | Uses old `incremental_trainer add/gutenberg` syntax; defer to this guide |
+| [gutenberg-training-guide.md](gutenberg-training-guide.md) | Outdated | Uses old `incremental_trainer gutenberg` syntax; use `dataset_manager gutenberg` instead |

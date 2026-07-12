@@ -1,10 +1,16 @@
 /**
  * registry_server — Distributed dataset queue coordination daemon (TD-028 Phase 9)
+ *                   + FTP dataset delivery server (Phase 10)
  *
  * Provides a shared pending-file queue and data registry for multi-machine
  * training pools.  Each training run calls acquire (POST /registry/<group>/acquire)
  * to atomically claim a disjoint subset of pending files, trains independently,
  * then calls trained (POST /registry/<group>/trained) to commit results.
+ *
+ * Phase 10 extension: when --ftp-enabled is passed (or FTP_ENABLED=1 env var),
+ * the /acquire response is extended with per-file FTP tokens and an embedded
+ * FtpDataServer is started on --ftp-port (default 2121).  Trainers on remote
+ * machines use these credentials to download their files before training.
  *
  * State is persisted to flat files in --data-dir/<group>/ using the same format
  * as LocalTransport, so manual inspection and recovery are always possible.
@@ -32,6 +38,7 @@
 #include <thread>
 #include <vector>
 #include <httplib.h>
+#include "FtpDataServer.hpp"
 #include "Logger.hpp"
 #include "RegistryTransport.hpp"
 
@@ -75,6 +82,24 @@ static GroupState& get_group(const std::string& group) {
     }
     return gs;
 }
+
+// ============================================================================
+// FTP server (Phase 10) — optional, started when --ftp-enabled is passed
+// ============================================================================
+
+static std::unique_ptr<FtpDataServer> g_ftp_server;
+static bool        ftp_enabled           = false;
+static int         ftp_port              = 2121;
+static int         ftp_pasv_min          = 50000;
+static int         ftp_pasv_max          = 50099;
+static int         ftp_token_ttl_min     = 30;
+static std::string ftp_advertise_ip;        // set from --ftp-ip; falls back to empty
+// Phase 3: security hardening options
+static std::string ftp_server_secret;       // HMAC key (empty = random passwords)
+static bool        ftps_enabled           = false;  // FTPS (explicit TLS via AUTH TLS)
+static std::string ftp_cert_file;           // PEM cert (empty = self-signed)
+static std::string ftp_key_file;            // PEM key  (empty = self-signed)
+static int         ftp_max_sessions        = 4;     // max concurrent sessions per run_id
 
 // ============================================================================
 // Minimal JSON helpers
@@ -177,6 +202,10 @@ static void handle_queue(const httplib::Request& req, httplib::Response& res,
 }
 
 // POST /registry/<group>/acquire  {"run_id":"...","max_files":N}
+//
+// Phase 10: when ftp_enabled the response is extended with per-file FTP tokens.
+// Legacy format ("acquired":[...]) is used when ftp_enabled is false so that
+// old RemoteTransport clients continue to work.
 static void handle_acquire(const httplib::Request& req, httplib::Response& res,
                             const std::string& group) {
     const std::string run_id   = json_string(req.body, "run_id");
@@ -207,15 +236,74 @@ static void handle_acquire(const httplib::Request& req, httplib::Response& res,
         gs.transport->save_pending(entries);
     }
 
+    if (!ftp_enabled || !g_ftp_server) {
+        // Legacy response format
+        std::ostringstream json;
+        json << "{\"acquired\":[";
+        for (std::size_t i = 0; i < acquired.size(); ++i) {
+            if (i) json << ',';
+            json << '"' << json_escape(acquired[i]) << '"';
+        }
+        json << "]}";
+        res.set_content(json.str(), "application/json");
+        Logger::info("[{}] acquire: run='{}' claimed {} files", group, run_id, acquired.size());
+        return;
+    }
+
+    // Phase 10: extended response with per-file FTP tokens
+    // ftp_path is the registry path made relative to data_dir.
+    const fs::path data_root(data_dir);
     std::ostringstream json;
-    json << "{\"acquired\":[";
+    json << "{\"run_id\":\"" << json_escape(run_id) << "\","
+         << "\"ftp_server_host\":\"" << json_escape(ftp_advertise_ip) << "\","
+         << "\"ftp_server_port\":" << ftp_port << ","
+         << "\"ftps_enabled\":" << (ftps_enabled ? "true" : "false") << ","
+         << "\"files\":[";
+
     for (std::size_t i = 0; i < acquired.size(); ++i) {
         if (i) json << ',';
-        json << '"' << json_escape(acquired[i]) << '"';
+
+        const fs::path file_path(acquired[i]);
+        std::string ftp_path;
+        std::size_t size_bytes = 0;
+        std::string checksum;
+
+        // Compute ftp_path relative to data_dir
+        try {
+            ftp_path = file_path.lexically_relative(data_root).string();
+        } catch (...) {
+            ftp_path = file_path.filename().string();
+        }
+        // Normalise path separators to '/'
+        std::replace(ftp_path.begin(), ftp_path.end(), '\\', '/');
+
+        // File metadata for the token
+        if (fs::exists(file_path) && fs::is_regular_file(file_path)) {
+            size_bytes = static_cast<std::size_t>(fs::file_size(file_path));
+            const auto ftime = fs::last_write_time(file_path);
+            std::ostringstream cs;
+            cs << size_bytes << "_" << static_cast<long long>(ftime.time_since_epoch().count());
+            checksum = cs.str();
+        }
+
+        // Mint per-file FTP token (Phase 3: run_id is first param for audit/rate-limit)
+        const auto tok = g_ftp_server->issue_token(run_id, ftp_path, ftp_token_ttl_min);
+
+        json << "{"
+             << "\"registry_path\":\"" << json_escape(acquired[i]) << "\","
+             << "\"ftp_path\":\""      << json_escape(ftp_path)    << "\","
+             << "\"ftp_username\":\""  << json_escape(tok.username) << "\","
+             << "\"ftp_password\":\""  << json_escape(tok.password) << "\","
+             << "\"checksum\":\""      << json_escape(checksum)     << "\","
+             << "\"size_bytes\":"      << size_bytes << ","
+             << "\"token_expires_utc\":\"" << json_escape(tok.token_expires_utc) << "\""
+             << "}";
     }
+
     json << "]}";
     res.set_content(json.str(), "application/json");
-    Logger::info("[{}] acquire: run='{}' claimed {} files", group, run_id, acquired.size());
+    Logger::info("[{}] acquire: run='{}' claimed {} files (with FTP tokens)",
+                 group, run_id, acquired.size());
 }
 
 // POST /registry/<group>/release  {"run_id":"...","files":[...]}
@@ -247,10 +335,11 @@ static void handle_release(const httplib::Request& req, httplib::Response& res,
     Logger::info("[{}] release: run='{}' released {} files", group, run_id, released);
 }
 
-// POST /registry/<group>/trained  {"run_id":"...","files":[...],"samples":[...]}
+// POST /registry/<group>/trained  {"run_id":"...","files":[...],"samples":[...],"model_id":"..."}
 static void handle_trained(const httplib::Request& req, httplib::Response& res,
                             const std::string& group) {
-    const std::string             run_id  = json_string(req.body, "run_id");
+    const std::string             run_id   = json_string(req.body, "run_id");
+    const std::string             model_id = json_string(req.body, "model_id");
     const std::vector<std::string> files   = json_string_array(req.body, "files");
     const std::vector<int>         samples = json_int_array(req.body, "samples");
 
@@ -268,8 +357,13 @@ static void handle_trained(const httplib::Request& req, httplib::Response& res,
         if (!existing.count(files[i])) {
             DataVersion dv;
             dv.data_file   = files[i];
+            // Server has no filesystem access to compute a real checksum;
+            // use a placeholder so the space-separated flat-file format
+            // keeps its column alignment when loaded back by LocalTransport.
+            dv.checksum    = "REMOTE";
             dv.num_samples = (i < samples.size()) ? samples[i] : 0;
             dv.trained     = true;
+            dv.model_id    = model_id;
             reg.push_back(std::move(dv));
             ++trained;
         }
@@ -347,6 +441,34 @@ static void handle_runs(const httplib::Request& req, httplib::Response& res,
     res.set_content(json.str(), "application/json");
 }
 
+// GET /registry/<group>/history?model_id=<uuid>
+static void handle_history(const httplib::Request& req, httplib::Response& res,
+                            const std::string& group) {
+    const std::string filter_id = req.has_param("model_id") ? req.get_param_value("model_id") : "";
+
+    auto& gs = get_group(group);
+    std::lock_guard<std::mutex> lock(gs.mtx);
+
+    std::vector<DataVersion> reg;
+    gs.transport->load_registry(reg);
+
+    std::ostringstream json;
+    json << "{\"entries\":[";
+    bool first = true;
+    for (const auto& dv : reg) {
+        if (!filter_id.empty() && dv.model_id != filter_id) continue;
+        if (!first) json << ',';
+        first = false;
+        json << "{\"data_file\":\""  << json_escape(dv.data_file) << "\","
+             << "\"checksum\":\""    << json_escape(dv.checksum)  << "\","
+             << "\"num_samples\":"   << dv.num_samples << ","
+             << "\"trained\":"       << (dv.trained ? "true" : "false") << ","
+             << "\"model_id\":\""    << json_escape(dv.model_id)  << "\"}";
+    }
+    json << "]}";
+    res.set_content(json.str(), "application/json");
+}
+
 // POST /registry/<group>/pending/add  {"path":"..."}
 static void handle_pending_add(const httplib::Request& req, httplib::Response& res,
                                 const std::string& group) {
@@ -384,9 +506,20 @@ static void print_usage(const char* prog) {
     std::cout << "ADAI Registry Server — distributed dataset queue coordination\n"
               << "Usage: " << prog << " [OPTIONS]\n\n"
               << "Options:\n"
-              << "  --port PORT       Listening port (default: 8082)\n"
-              << "  --data-dir DIR    Root directory for group state (default: registry_sessions)\n"
-              << "  --help            Show this message\n\n"
+              << "  --port PORT           Listening port (default: 8082)\n"
+              << "  --data-dir DIR        Root directory for group state (default: registry_sessions)\n"
+              << "  --ftp-enabled         Enable embedded FTP data server (Phase 10)\n"
+              << "  --ftp-port PORT       FTP control port (default: 2121)\n"
+              << "  --ftp-ip IP           IP address advertised in PASV responses\n"
+              << "  --ftp-pasv-min PORT   Lower bound of PASV data port range (default: 50000)\n"
+              << "  --ftp-pasv-max PORT   Upper bound of PASV data port range (default: 50099)\n"
+              << "  --ftp-ttl MINUTES     Per-file token lifetime in minutes (default: 30)\n"
+              << "  --ftp-secret SECRET   HMAC-SHA256 key for token signing (default: random)\n"
+              << "  --ftps                Enable FTPS (explicit TLS via AUTH TLS)\n"
+              << "  --ftp-cert FILE       PEM certificate file for FTPS (default: self-signed)\n"
+              << "  --ftp-key FILE        PEM private key file for FTPS (default: self-signed)\n"
+              << "  --ftp-max-sessions N  Max concurrent FTP sessions per run_id (default: 4)\n"
+              << "  --help                Show this message\n\n"
               << "Endpoints per group:\n"
               << "  GET  /registry/<group>/queue\n"
               << "  POST /registry/<group>/acquire  {\"run_id\":\"...\",\"max_files\":N}\n"
@@ -394,6 +527,7 @@ static void print_usage(const char* prog) {
               << "  POST /registry/<group>/trained  {\"run_id\":\"...\",\"files\":[...],\"samples\":[...]}\n"
               << "  GET  /registry/<group>/registry\n"
               << "  GET  /registry/<group>/runs\n"
+              << "  GET  /registry/<group>/history[?model_id=<uuid>]\n"
               << "  GET  /health\n";
 }
 
@@ -406,6 +540,28 @@ int main(int argc, char* argv[]) {
             port = std::stoi(argv[++i]);
         } else if (arg == "--data-dir" && i + 1 < argc) {
             data_dir = argv[++i];
+        } else if (arg == "--ftp-enabled") {
+            ftp_enabled = true;
+        } else if (arg == "--ftp-port" && i + 1 < argc) {
+            ftp_port = std::stoi(argv[++i]);
+        } else if (arg == "--ftp-ip" && i + 1 < argc) {
+            ftp_advertise_ip = argv[++i];
+        } else if (arg == "--ftp-pasv-min" && i + 1 < argc) {
+            ftp_pasv_min = std::stoi(argv[++i]);
+        } else if (arg == "--ftp-pasv-max" && i + 1 < argc) {
+            ftp_pasv_max = std::stoi(argv[++i]);
+        } else if (arg == "--ftp-ttl" && i + 1 < argc) {
+            ftp_token_ttl_min = std::stoi(argv[++i]);
+        } else if (arg == "--ftp-secret" && i + 1 < argc) {
+            ftp_server_secret = argv[++i];
+        } else if (arg == "--ftps") {
+            ftps_enabled = true;
+        } else if (arg == "--ftp-cert" && i + 1 < argc) {
+            ftp_cert_file = argv[++i];
+        } else if (arg == "--ftp-key" && i + 1 < argc) {
+            ftp_key_file = argv[++i];
+        } else if (arg == "--ftp-max-sessions" && i + 1 < argc) {
+            ftp_max_sessions = std::stoi(argv[++i]);
         } else if (arg == "--help" || arg == "-h") {
             print_usage(argv[0]);
             return 0;
@@ -416,6 +572,14 @@ int main(int argc, char* argv[]) {
 
     std::signal(SIGINT,  signal_handler);
     std::signal(SIGTERM, signal_handler);
+
+    // Start FTP server if enabled (Phase 3: pass security params)
+    if (ftp_enabled) {
+        g_ftp_server = std::make_unique<FtpDataServer>(
+            data_dir, ftp_port, ftp_pasv_min, ftp_pasv_max, ftp_advertise_ip,
+            ftp_server_secret, ftps_enabled, ftp_cert_file, ftp_key_file, ftp_max_sessions);
+        g_ftp_server->start();
+    }
 
     httplib::Server svr;
     g_server = &svr;
@@ -439,6 +603,9 @@ int main(int argc, char* argv[]) {
     svr.Get(R"(/registry/([^/]+)/runs)",     [](const httplib::Request& r, httplib::Response& res) {
         handle_runs(r, res, r.matches[1]);
     });
+    svr.Get(R"(/registry/([^/]+)/history)", [](const httplib::Request& r, httplib::Response& res) {
+        handle_history(r, res, r.matches[1]);
+    });
     svr.Post(R"(/registry/([^/]+)/pending/add)", [](const httplib::Request& r, httplib::Response& res) {
         handle_pending_add(r, res, r.matches[1]);
     });
@@ -448,9 +615,14 @@ int main(int argc, char* argv[]) {
 
     Logger::info("registry_server listening on port {}", port);
     Logger::info("Data directory: {}", data_dir);
+    if (ftp_enabled) {
+        Logger::info("FTP data server enabled on port {} (PASV {}–{})",
+                     ftp_port, ftp_pasv_min, ftp_pasv_max);
+    }
 
     svr.listen("0.0.0.0", port);
 
+    if (g_ftp_server) g_ftp_server->stop();
     Logger::info("registry_server stopped");
     return 0;
 }

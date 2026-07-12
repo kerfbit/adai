@@ -1,6 +1,8 @@
 #include "../src/ChatbotTrainer.hpp"
+#include "../src/TrainingSampleMeta.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <memory>
 
@@ -213,6 +215,7 @@ TEST_F(ChatbotTrainerTest, Config_DefaultValues) {
     EXPECT_FLOAT_EQ(default_config.weight_decay, 0.01f);
     EXPECT_FLOAT_EQ(default_config.gradient_clip_norm, 1.0f);
     EXPECT_EQ(default_config.log_level, LogLevel::VERBOSE);
+    EXPECT_EQ(default_config.tokenizer_mode, TokenizerMode::ASCII);
 }
 
 TEST_F(ChatbotTrainerTest, Config_CustomValues) {
@@ -278,6 +281,32 @@ TEST(DataStructureTest, ConversationPair_EmptyStrings) {
 
     EXPECT_TRUE(pair.input.empty());
     EXPECT_TRUE(pair.response.empty());
+}
+
+TEST(DataStructureTest, ConversationPair_DefaultMetaSentinels) {
+    ConversationPair pair("q", "a");
+    EXPECT_LT(pair.meta.quality, 0.0f);
+    EXPECT_FLOAT_EQ(pair.meta.weight, 1.0f);
+    EXPECT_LT(pair.meta.token_count, 0);
+    EXPECT_TRUE(pair.meta.domain.empty());
+    EXPECT_TRUE(pair.meta.task_type.empty());
+}
+
+TEST(DataStructureTest, ConversationPair_MetaConstructor) {
+    SampleMeta m;
+    m.domain    = "fiction";
+    m.task_type = "qa";
+    m.quality   = 0.8f;
+    m.token_count = 50;
+
+    ConversationPair pair("question", "answer", m);
+
+    EXPECT_EQ(pair.input,    "question");
+    EXPECT_EQ(pair.response, "answer");
+    EXPECT_EQ(pair.meta.domain,    "fiction");
+    EXPECT_EQ(pair.meta.task_type, "qa");
+    EXPECT_NEAR(pair.meta.quality, 0.8f, 1e-5f);
+    EXPECT_EQ(pair.meta.token_count, 50);
 }
 
 TEST(DataStructureTest, TokenizedPair_Construction) {
@@ -431,6 +460,108 @@ TEST(GradientAccumulationTest, EffectiveBatchSize_Large) {
 // Early Stopping Tests
 // ============================================================================
 
+// ============================================================================
+// Quality Backfill Configuration Tests
+// ============================================================================
+
+TEST(QualityBackfillTest, Config_DefaultsAllDisabled) {
+    TrainingConfig config;
+    EXPECT_FALSE(config.enable_loss_quality_backfill);
+    EXPECT_FALSE(config.enable_generation_quality_backfill);
+    EXPECT_EQ(config.generation_backfill_max_tokens, 50);
+}
+
+TEST(QualityBackfillTest, Config_CanEnableLossBackfill) {
+    TrainingConfig config;
+    config.enable_loss_quality_backfill = true;
+    EXPECT_TRUE(config.enable_loss_quality_backfill);
+    EXPECT_FALSE(config.enable_generation_quality_backfill);
+}
+
+TEST(QualityBackfillTest, Config_CanEnableGenerationBackfill) {
+    TrainingConfig config;
+    config.enable_generation_quality_backfill = true;
+    config.generation_backfill_max_tokens     = 100;
+    EXPECT_TRUE(config.enable_generation_quality_backfill);
+    EXPECT_EQ(config.generation_backfill_max_tokens, 100);
+}
+
+// ============================================================================
+// JSONL Training File Loading
+// ============================================================================
+
+class JsonlLoadTest : public ::testing::Test {
+protected:
+    std::filesystem::path tmp_file_;
+
+    void SetUp() override {
+        tmp_file_ = std::filesystem::temp_directory_path() /
+                    "adai_chatbot_trainer_jsonl_test.jsonl";
+    }
+
+    void TearDown() override {
+        std::filesystem::remove(tmp_file_);
+    }
+
+    void write_jsonl(const std::string& content) {
+        std::ofstream f(tmp_file_);
+        f << content;
+    }
+};
+
+TEST_F(JsonlLoadTest, LoadsCorrectPairCount) {
+    write_jsonl(
+        "{\"input\":\"q1\",\"response\":\"a1\"}\n"
+        "{\"input\":\"q2\",\"response\":\"a2\"}\n"
+        "{\"input\":\"q3\",\"response\":\"a3\"}\n");
+
+    TrainingConfig cfg;
+    cfg.log_level       = LogLevel::SILENT;
+    cfg.validation_split = 0;  // no split so all 3 go to training
+    ChatbotTrainer trainer(cfg);
+    EXPECT_TRUE(trainer.load_conversation_data(tmp_file_.string()));
+    EXPECT_EQ(trainer.get_training_data_size(), 3u);
+}
+
+TEST_F(JsonlLoadTest, LoadsLegacyFormatStillWorks) {
+    write_jsonl(
+        "INPUT: hello\nRESPONSE: world\n\n"
+        "INPUT: foo\nRESPONSE: bar\n");
+
+    TrainingConfig cfg;
+    cfg.log_level        = LogLevel::SILENT;
+    cfg.validation_split = 0;
+    ChatbotTrainer trainer(cfg);
+    EXPECT_TRUE(trainer.load_conversation_data(tmp_file_.string()));
+    EXPECT_EQ(trainer.get_training_data_size(), 2u);
+}
+
+TEST_F(JsonlLoadTest, ReturnsFalseForMissingFile) {
+    TrainingConfig cfg;
+    cfg.log_level = LogLevel::SILENT;
+    ChatbotTrainer trainer(cfg);
+    EXPECT_FALSE(trainer.load_conversation_data("/nonexistent/adai_no_file.jsonl"));
+    EXPECT_EQ(trainer.get_training_data_size(), 0u);
+}
+
+TEST_F(JsonlLoadTest, SkipsLinesWithoutInputField) {
+    write_jsonl(
+        "{\"input\":\"valid\",\"response\":\"yes\"}\n"
+        "{\"response\":\"no input key here\"}\n"  // should be skipped
+        "{\"input\":\"also valid\",\"response\":\"yes\"}\n");
+
+    TrainingConfig cfg;
+    cfg.log_level        = LogLevel::SILENT;
+    cfg.validation_split = 0;
+    ChatbotTrainer trainer(cfg);
+    EXPECT_TRUE(trainer.load_conversation_data(tmp_file_.string()));
+    EXPECT_EQ(trainer.get_training_data_size(), 2u);
+}
+
+// ============================================================================
+// Early Stopping Tests
+// ============================================================================
+
 TEST(EarlyStoppingTest, Config_DefaultDisabled) {
     TrainingConfig config;
     EXPECT_FALSE(config.enable_early_stopping);
@@ -527,6 +658,40 @@ TEST(ConfigTest, ValidationSplit_Typical) {
     config.validation_split = 10;  // 10% validation
 
     EXPECT_EQ(config.validation_split, 10);
+}
+
+// ============================================================================
+// TokenizerMode in TrainingConfig Tests
+// ============================================================================
+
+TEST(TokenizerModeConfigTest, DefaultModeIsASCII) {
+    TrainingConfig config;
+    EXPECT_EQ(config.tokenizer_mode, TokenizerMode::ASCII);
+    EXPECT_NE(config.tokenizer_mode, TokenizerMode::UNICODE);
+}
+
+TEST(TokenizerModeConfigTest, CanSetUnicodeMode) {
+    TrainingConfig config;
+    config.tokenizer_mode = TokenizerMode::UNICODE;
+    EXPECT_EQ(config.tokenizer_mode, TokenizerMode::UNICODE);
+}
+
+TEST(TokenizerModeConfigTest, ModePersistedInGetConfig) {
+    TrainingConfig config;
+    config.log_level = LogLevel::SILENT;
+    config.tokenizer_mode = TokenizerMode::UNICODE;
+
+    ChatbotTrainer trainer(config);
+    EXPECT_EQ(trainer.get_config().tokenizer_mode, TokenizerMode::UNICODE);
+}
+
+TEST(TokenizerModeConfigTest, AsciiModePersistedInGetConfig) {
+    TrainingConfig config;
+    config.log_level = LogLevel::SILENT;
+    config.tokenizer_mode = TokenizerMode::ASCII;
+
+    ChatbotTrainer trainer(config);
+    EXPECT_EQ(trainer.get_config().tokenizer_mode, TokenizerMode::ASCII);
 }
 
 // ============================================================================

@@ -14,9 +14,9 @@
 3. [Building from Source](#3-building-from-source)
 4. [Vocabulary Creation](#4-vocabulary-creation)
 5. [Model Training](#5-model-training)
-   - 5.1 [Standard Training](#51-standard-training)
-   - 5.2 [Incremental Training](#52-incremental-training)
-   - 5.3 [Gutenberg Training](#53-gutenberg-training)
+   - 5.1 [Incremental Training](#51-incremental-training)
+   - 5.2 [Dataset Management](#52-dataset-management)
+   - 5.3 [Training Metrics Service](#53-training-metrics-service)
    - 5.4 [Training Hyperparameter Reference](#54-training-hyperparameter-reference)
 6. [Running the Chatbot](#6-running-the-chatbot)
    - 6.1 [CLI Chatbot](#61-cli-chatbot)
@@ -50,23 +50,31 @@ This manual consolidates all operational knowledge for building, training, runni
 
 ADAI is an encoder-decoder transformer model built entirely in C++17 with no Python runtime dependency. The system includes:
 
-- **`chatbot_trainer`** — trains the encoder-decoder model on text pairs
-- **`chatbot_incremental_trainer`** — resumes training from saved sessions
+- **`incremental_trainer`** — trains the encoder-decoder model (incremental, retrain, and resume modes)
+- **`dataset_manager`** — manages the training dataset queue (local files, Gutenberg, HuggingFace)
+- **`metrics_api_server`** — HTTP daemon for live training metrics with SQLite/PostgreSQL persistence
+- **`registry_server`** — HTTP daemon for distributed dataset queue coordination
+- **`mns_server`** — Model Name Service for model identity, lifecycle, and artifact registry
+- **`mns_cli`** — CLI client for querying and managing the MNS
 - **`chatbot`** (CLI) — interactive chatbot on the command line
 - **`chatbot_gui`** — Qt5 graphical interface
 - **`chatbot_api_server`** — HTTP REST API server
 - **`vocab_builder`** — BPE tokenizer vocabulary construction
 - **RAG module** — Retrieval-Augmented Generation, wired into the API server
 
+The server-side daemons (`metrics_api_server`, `registry_server`, `mns_server`) are deployed together as the **server bundle** via `install_server_bundle.sh`. See [Server Bundle Deployment](deployment/SERVER_BUNDLE_DEPLOYMENT.md) for full details including SQLite/PostgreSQL database setup, tarball packaging, and systemd service management.
+
 ### Key Static Libraries
 
 | Library | Contents |
 | --- | --- |
-| `adai_core` | Core math, tensors, activation functions |
+| `adai_core` | Core math, tensors, activation functions, metrics service, SQLite/PostgreSQL backends |
 | `adai_transformer` | Transformer layers, attention, positional encoding |
 | `adai_models` | EncoderDecoderModel, TextGenerator, KV cache |
 | `adai_nlp` | BPETokenizer, vocab utilities |
 | `adai_api` | ChatbotAPI, DocumentStore, RAGInference |
+| `adai_metrics_api` | TrainingMetricsAPI REST layer (session-scoped routes, DB query endpoints) |
+| `adai_mns` | ModelNameService, ModelNameClient (SQLite registry + HTTP client) |
 
 ---
 
@@ -127,8 +135,10 @@ make -j$(nproc)
 | Target | Command | Description |
 | --- | --- | --- |
 | All | `make -j$(nproc)` | Build everything |
-| Trainer | `make chatbot_trainer -j$(nproc)` | Training executable |
-| Incremental trainer | `make chatbot_incremental_trainer -j$(nproc)` | Incremental training |
+| Incremental trainer | `make incremental_trainer -j$(nproc)` | Training executable (all modes) |
+| Dataset manager | `make dataset_manager -j$(nproc)` | Dataset queue management |
+| Metrics API server | `make metrics_api_server -j$(nproc)` | Training metrics HTTP daemon |
+| Registry server | `make registry_server -j$(nproc)` | Distributed dataset coordination |
 | CLI chatbot | `make chatbot -j$(nproc)` | CLI chatbot |
 | GUI chatbot | `make chatbot_gui -j$(nproc)` | Qt GUI (requires Qt5) |
 | API server | `make chatbot_api_server -j$(nproc)` | HTTP API server |
@@ -158,10 +168,12 @@ make chatbot_api_server -j$(nproc)
 ### Build Artifacts
 
 ```text
-build/bin/chatbot_trainer
-build/bin/chatbot_incremental_trainer
+build/bin/incremental_trainer
+build/bin/dataset_manager
+build/bin/metrics_api_server
+build/bin/registry_server
 build/bin/vocab_builder
-build/src/chatbot
+build/bin/chatbot
 build/src/chatbot_gui
 build/src/chatbot_gui_binary
 build/src/chatbot_api_server
@@ -171,7 +183,7 @@ build/src/chatbot_api_server
 
 ```bash
 cd build
-cmake --build . --target chatbot_trainer -j$(nproc)
+cmake --build . --target incremental_trainer -j$(nproc)
 # or for everything:
 make -j$(nproc)
 ```
@@ -247,9 +259,11 @@ sort vocab.txt | uniq -d | wc -l
 
 ## 5. Model Training
 
-### 5.1 Standard Training
+All training runs through a single binary — `incremental_trainer` — using a subcommand interface. Model architecture, learning rate, and other hyperparameters are read from `config.conf` (or environment variables); there are no per-run CLI flags for these.
 
-#### Preparing Training Data
+Every training command (`train`, `retrain`, `resume`) automatically forks into the background. The launcher prints the PID and log path, then exits. Training output goes to the log file only.
+
+### Preparing Training Data
 
 Training data is a plain text file of alternating `INPUT:` / `RESPONSE:` pairs:
 
@@ -260,57 +274,95 @@ INPUT: What is your name?
 RESPONSE: I am the ADAI chatbot assistant.
 ```
 
-#### Basic Training Command
+Use `dataset_manager` to queue data files (see [Section 5.2](#52-dataset-management)).
+
+### 5.1 Incremental Training
+
+`incremental_trainer` exposes the following subcommands:
 
 ```bash
-./build/bin/chatbot_trainer \
-    --data training_data.txt \
-    --vocab vocab.txt \
-    --output chatbot_model.bin \
-    --epochs 25 \
-    --lr 0.0003
+./build/bin/incremental_trainer [--config <path>] [--gpu-strategy background|full] <command>
 ```
 
-#### Training Options
+| Command | What it does |
+| --- | --- |
+| `init [vocab] [model]` | Initialize trainer — creates session dir, validates config |
+| `train [epochs]` | Train on pending queue; marks files trained on success (background) |
+| `retrain [epochs]` | Reset model from config, retrain on all data (background) |
+| `resume` | Continue last unfinished session without touching the data registry (background) |
+| `reset [--yes] [--keep-data]` | Delete checkpoints, rebuild model from config |
+| `status` | Print session summary and pending-file list |
+| `history` | Print full session history and data registry |
 
-| Option | Default | Description |
-| --- | --- | --- |
-| `--data FILE` | required | Training data file |
-| `--vocab FILE` | `vocab.txt` | Vocabulary file |
-| `--output FILE` | `chatbot_model.bin` | Model output path |
-| `--epochs N` | 10 | Number of training epochs |
-| `--lr FLOAT` | 0.001 | Learning rate |
-| `--batch-size N` | 32 | Batch size |
-| `--gradient-clip FLOAT` | 1.0 | Gradient clipping value |
-| `--log-every N` | 10 | Log frequency (steps) |
-| `--save-checkpoints` | off | Save per-epoch checkpoints |
-| `--keep-all-checkpoints` | off | Keep all epochs (default: best only) |
-| `--resume FILE` | — | Resume from checkpoint |
-| `--d-model N` | 512 | Model hidden dimension |
-| `--num-heads N` | 8 | Attention heads |
-| `--d-ff N` | 2048 | Feed-forward dimension |
-| `--num-encoder-layers N` | 6 | Encoder depth |
-| `--num-decoder-layers N` | 6 | Decoder depth |
-| `--max-seq-length N` | 512 | Maximum sequence length |
+Config is auto-discovered: `--config` flag → `./config.conf` → `/etc/adai/config.conf`.
+
+#### Typical New-Model Workflow
+
+```bash
+# 1. Queue training data (see Section 5.2)
+./build/bin/dataset_manager add training_data.txt
+
+# 2. Initialize
+./build/bin/incremental_trainer init
+
+# 3. Train (runs in background; follow the log)
+./build/bin/incremental_trainer train 25
+tail -f chatbot_server.log
+```
+
+#### Adding More Data Later
+
+```bash
+# Queue new data
+./build/bin/dataset_manager add additional_data.txt
+
+# Train only on new (pending) files
+./build/bin/incremental_trainer train 10
+```
+
+#### Full Retrain from Scratch
+
+```bash
+# Reset model weights, retrain on everything in the registry
+./build/bin/incremental_trainer retrain 25
+```
+
+#### Resume an Interrupted Session
+
+```bash
+# Continue the last session that did not finish cleanly
+./build/bin/incremental_trainer resume
+```
+
+#### Reset to a Fresh Model
+
+```bash
+# Wipe checkpoints and rebuild model architecture from config
+./build/bin/incremental_trainer reset
+
+# Preserve data registry so existing files are re-queued as pending
+./build/bin/incremental_trainer reset --keep-data --yes
+```
 
 #### After Training
 
-The trainer automatically:
-
-1. Selects the best epoch (lowest validation loss)
-2. Creates `chatbot_model.bin` (base file)
-3. Creates component symlinks: `.config`, `.encoder`, `.decoder`, `.lm_head`, `.vocab`
-4. Removes intermediate checkpoints (keeps only best)
+The trainer saves per-epoch checkpoints and promotes the best epoch (lowest validation loss) to the active model symlinks automatically:
 
 ```bash
 # Verify model files
 ls -lh chatbot_model.bin*
-# Should show base file + 5 symlinks
+# Expected: base file + .config .encoder .decoder .lm_head .vocab symlinks
 ```
 
 #### Monitoring Training
 
-Healthy training dynamics:
+Training output goes to the log file (default `chatbot_server.log`; set `LOG_FILE_PATH` in `config.conf`):
+
+```bash
+tail -f chatbot_server.log
+```
+
+Healthy dynamics:
 
 | Phase | Expected Loss | Expected Perplexity |
 | --- | --- | --- |
@@ -318,101 +370,168 @@ Healthy training dynamics:
 | Epochs 4–10 | 2–3 | 10–20 |
 | Epochs 11–25 | 1–2 | 3–7 |
 
-```bash
-# Monitor training log
-./build/bin/chatbot_trainer ... 2>&1 | tee training_log.txt
-tail -f training_log.txt
-```
+For a live metrics dashboard see [Section 5.3](#53-training-metrics-service).
 
-### 5.2 Incremental Training
+---
 
-The incremental trainer resumes training from an existing model, preserving session history and supporting multiple training sessions.
+### 5.2 Dataset Management
+
+`dataset_manager` maintains the dataset queue (DatasetRegistry) independently of the trainer. It can add local files, download Gutenberg books, or pull HuggingFace datasets — all queued as pending files that `incremental_trainer train` consumes.
 
 ```bash
-# Initial training session
-./build/bin/chatbot_incremental_trainer \
-    --vocab vocab.txt \
-    --data new_data.txt \
-    --model chatbot_model.bin \
-    --session-dir training_sessions/ \
-    --epochs 10 \
-    --lr 0.0001
-
-# Resume previous session
-./build/bin/chatbot_incremental_trainer \
-    --vocab vocab.txt \
-    --data additional_data.txt \
-    --model chatbot_model.bin \
-    --session-dir training_sessions/ \
-    --resume-session \
-    --epochs 5
+./build/bin/dataset_manager [--config <path>] <command>
 ```
 
-#### Session Management Commands
+| Command | Description |
+| --- | --- |
+| `add <data_file>` | Add a local training file to the pending queue |
+| `gutenberg <id> [pairs]` | Download & queue a Gutenberg book (default: 500 pairs) |
+| `gutenberg-batch <id1,id2,...> [pairs]` | Batch-download multiple Gutenberg books |
+| `huggingface <id> [pairs] [split] [in_field] [out_field]` | Download a HuggingFace dataset (default: 500 pairs, `train` split) |
+| `status` | Show pending/trained file counts and registry |
+| `list-pending` | List all pending files |
+| `list-trained` | List all trained files |
+| `clear-pending` | Remove all files from the pending queue |
+
+#### Local File
 
 ```bash
-# List training sessions
-./build/bin/chatbot_incremental_trainer --list-sessions --session-dir training_sessions/
-
-# Continue from specific session
-./build/bin/chatbot_incremental_trainer \
-    --resume-session SESSION_ID \
-    --session-dir training_sessions/ ...
-
-# Auto-save interval (default: every 5 steps)
---autosave-interval 10
+./build/bin/dataset_manager add training_data.txt
 ```
 
-#### Session Tracking
-
-Session files are stored in `training_sessions/` and contain:
-
-- Full training history (loss per epoch, timestamps)
-- Model architecture parameters
-- Hyperparameter history
-- Resume state
-
-### 5.3 Gutenberg Training
-
-Training on Project Gutenberg texts requires pairing generation from raw text.
-
-#### Prepare Gutenberg Data
+#### Gutenberg Books
 
 ```bash
-# Download already prepared files are in gutenberg_data/
-ls gutenberg_data/
-# gutenberg_11.txt, gutenberg_1184.txt, etc.
+# Single book
+./build/bin/dataset_manager gutenberg 1342 500      # Pride and Prejudice, 500 pairs
 
-# Training files already prepared (suffix _training.txt)
-ls gutenberg_data/*_training.txt
+# Batch download
+./build/bin/dataset_manager gutenberg-batch 1342,11,84,1661 300
 ```
 
-#### Train on Gutenberg Corpus
+Popular book IDs:
+
+| ID | Title |
+| --- | --- |
+| 1342 | Pride and Prejudice (Austen) |
+| 11 | Alice in Wonderland (Carroll) |
+| 84 | Frankenstein (Shelley) |
+| 1661 | Sherlock Holmes (Doyle) |
+| 2701 | Moby Dick (Melville) |
+| 16328 | Beowulf |
+| 1260 | Jane Eyre (Brontë) |
+| 98 | A Tale of Two Cities (Dickens) |
+
+#### HuggingFace Datasets
 
 ```bash
-# Combine all Gutenberg training files
-cat gutenberg_data/*_training.txt > gutenberg_combined.txt
+# Daily conversation pairs (auto-detects dialog format)
+./build/bin/dataset_manager huggingface daily_dialog 500
 
-# Build vocabulary from Gutenberg corpus
-./build/bin/vocab_builder \
-    --input gutenberg_combined.txt \
-    --output vocab_gutenberg.txt \
-    --vocab-size 16000
+# Instruction-following with explicit field mapping
+./build/bin/dataset_manager huggingface tatsu-lab/alpaca 300 train instruction output
 
-# Train on Gutenberg data
-./build/bin/chatbot_trainer \
-    --data gutenberg_combined.txt \
-    --vocab vocab_gutenberg.txt \
-    --output gutenberg_model.bin \
-    --epochs 30 \
-    --lr 0.0003
+# Other popular datasets
+./build/bin/dataset_manager huggingface databricks/databricks-dolly-15k 500
+./build/bin/dataset_manager huggingface Open-Orca/OpenOrca 500 train question response
 ```
+
+#### Complete Gutenberg Workflow Example
+
+```bash
+# Queue several books
+./build/bin/dataset_manager gutenberg-batch 1342,11,84 500
+
+# Build or verify vocabulary
+./build/bin/vocab_builder --input training_sessions/pending/*.txt --output vocab.txt --vocab-size 16000
+
+# Initialize and train
+./build/bin/incremental_trainer init
+./build/bin/incremental_trainer train 25
+```
+
+---
+
+### 5.3 Training Metrics Service
+
+Metrics are pushed from the trainer to a standalone HTTP daemon (`metrics_api_server`) via `MetricsPushClient`. Run the daemon before starting training if you want live monitoring.
+
+#### Starting the Metrics Server
+
+```bash
+# Default: port 8081, persists to training_sessions/metrics.jsonl
+./build/bin/metrics_api_server
+
+# Custom port and persistence interval
+./build/bin/metrics_api_server --port 9090 --persist-samples 50
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `--port PORT` | `8081` | Listening port |
+| `--metrics-file FILE` | `training_sessions/metrics.jsonl` | JSONL persistence path |
+| `--summary-file FILE` | `training_sessions/metrics_summary.json` | Summary JSON path |
+| `--prometheus-file FILE` | `training_sessions/metrics.prom` | Prometheus format output |
+| `--persist-samples N` | `100` | Persist every N samples |
+| `--persist-seconds N` | `30` | Persist every N seconds |
+| `--max-live-sessions N` | `16` | Max concurrent tracked sessions |
+| `--completed-ttl-seconds N` | `3600` | Completed session TTL |
+| `--no-persistence` | — | Disable disk writes |
+| `--enable-prometheus` | — | Enable Prometheus output |
+| `--no-control` | — | Disable flush/clear control endpoints |
+
+#### REST Endpoints
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `GET` | `/api/metrics/current` | Current training snapshot |
+| `GET` | `/api/metrics/summary` | Aggregated metrics summary |
+| `GET` | `/api/metrics/history` | Historical records |
+| `GET` | `/api/sessions` | List tracked sessions |
+| `GET` | `/api/metrics/aggregate` | Aggregate across live sessions |
+| `GET` | `/api/sessions/{key}/...` | Session-scoped endpoints |
+
+#### Trainer-Side Config
+
+The trainer pushes metrics automatically when `ENABLE_METRICS_SERVICE=true` (the default). Point it at a non-default server with `METRICS_SERVER_URL`. See the full key list in [Section 7](#7-configuration-reference).
+
+```bash
+# Example: check current metrics while training is running
+curl http://localhost:8081/api/metrics/current
+curl http://localhost:8081/api/sessions
+```
+
+#### Distributed Training (Registry Server)
+
+For multi-node setups, `registry_server` coordinates the dataset queue across multiple trainer instances:
+
+```bash
+./build/bin/registry_server --port 8082 --data-dir registry_sessions
+```
+
+Set `REGISTRY_SERVER_URL=http://<host>:8082` in each node's `config.conf`. Single-node deployments do not need this.
+
+---
 
 ### 5.4 Training Hyperparameter Reference
 
+All hyperparameters are set in `config.conf` (or environment variables) and read at trainer startup. There are no per-run CLI flags.
+
+#### Key Training Config Keys
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `NUM_EPOCHS` | `10` | Number of training epochs |
+| `LEARNING_RATE` | `0.001` | Learning rate |
+| `BATCH_SIZE` | `32` | Batch size |
+| `WEIGHT_DECAY` | `0.01` | L2 weight decay regularization |
+| `GRADIENT_CLIP` | `1.0` | Gradient clipping norm (0 = disabled) |
+| `SESSION_DIR` | `training_sessions` | Session and checkpoint directory |
+| `GPU_STRATEGY` | `background` | `background` (low-priority) or `full` (max throughput) |
+
 #### Recommended Settings by Dataset Size
 
-| Dataset Size | Epochs | Learning Rate | Notes |
+| Dataset Size | `NUM_EPOCHS` | `LR` | Notes |
 | --- | --- | --- | --- |
 | < 1,000 pairs | 25–50 | 0.0003 | Risk of overfitting after 30 epochs |
 | 1,000–10,000 pairs | 20–30 | 0.0003 | Standard configuration |
@@ -420,20 +539,20 @@ cat gutenberg_data/*_training.txt > gutenberg_combined.txt
 
 #### Learning Rate Schedule
 
-Default: `WARMUP_COSINE` — learning rate ramps up over the first 10% of steps then decays via cosine annealing. For best results, do not override the warmup.
+Default: `WARMUP_COSINE` — ramps up over the first 10% of steps, then decays via cosine annealing. This is applied automatically; no config key required.
 
 #### Gradient Clipping
 
-Default `--gradient-clip 1.0` prevents gradient explosion. Reduce to `0.5` if you see persistent NaN/Inf warnings.
+Default `GRADIENT_CLIP=1.0` prevents gradient explosion. Reduce to `0.5` if you see persistent NaN/Inf warnings in the log.
 
 #### Generation Strategies (Inference)
 
-| Strategy | Flag | Use Case |
+| Strategy | Config (`STRATEGY=`) | Use Case |
 | --- | --- | --- |
-| Greedy | `--strategy greedy` | Fastest; deterministic |
-| Beam Search | `--strategy beam --beam-width 5` | Best quality; slow |
-| Top-K Sampling | `--strategy top-k --top-k 50` | Creative; temperature-sensitive |
-| Nucleus (Top-P) | `--strategy nucleus --top-p 0.9` | Best balance of quality/variety |
+| Greedy | `greedy` | Fastest; deterministic |
+| Beam Search | `beam` | Best quality; slow |
+| Top-K Sampling | `top-k` | Creative; temperature-sensitive |
+| Nucleus (Top-P) | `nucleus` | Best balance of quality/variety |
 
 ---
 
@@ -658,6 +777,61 @@ All settings can be provided via:
 | `BEAM_WIDTH` | `4` | Beam search beam count |
 | `STRATEGY` | `nucleus` | `greedy`, `beam`, `top-k`, `nucleus` |
 
+### Training
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `NUM_EPOCHS` | `10` | Epochs per `train` / `retrain` run |
+| `LEARNING_RATE` | `0.001` | Learning rate |
+| `BATCH_SIZE` | `32` | Batch size |
+| `WEIGHT_DECAY` | `0.01` | L2 weight decay regularization |
+| `GRADIENT_CLIP` | `1.0` | Gradient clipping norm (0 = disabled) |
+| `SESSION_DIR` | `training_sessions` | Checkpoint and session file directory |
+| `GPU_STRATEGY` | `background` | `background` (low-priority) or `full` (max throughput) |
+| `ENABLE_GENERATION_QUALITY_METRICS` | `false` | Compute BLEU/ROUGE during validation |
+| `GENERATION_QUALITY_SAMPLE_SIZE` | `10` | Validation pairs sampled for scoring per epoch |
+| `GENERATION_QUALITY_MAX_TOKENS` | `50` | Max tokens per scoring call |
+| `GENERATION_QUALITY_ASYNC_THRESHOLD` | `50` | Sample size at which scoring runs in a background thread |
+
+### Distributed Registry
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `REGISTRY_SERVER_URL` | — | URL of `registry_server`; empty = local-only |
+| `RUN_GROUP` | — | Training pool group name (partitions work across nodes) |
+| `RUN_ID` | auto | Node identifier (auto: hostname+PID tail) |
+| `REGISTRY_TIMEOUT_MS` | `5000` | HTTP timeout for registry operations (ms) |
+
+### GPU / CUDA
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `GPU_ENABLED` | `false` | Enable GPU acceleration (requires `-DENABLE_GPU=ON` build) |
+| `GPU_DEVICE_ID` | `0` | CUDA device index |
+| `GPU_MEMORY_FRACTION` | `0.5` | Fraction of GPU memory ADAI may allocate (0.0–1.0) |
+| `GPU_STRATEGY` | `background` | `background` (yields to other GPU work) or `full` (high-priority stream) |
+
+### Training Metrics
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `ENABLE_METRICS_SERVICE` | `true` | Push metrics from trainer to metrics daemon |
+| `METRICS_SERVER_URL` | `http://localhost:8081` | URL of `metrics_api_server`; empty disables push |
+| `METRICS_PUSH_TIMEOUT_MS` | `1000` | HTTP timeout for metric pushes (ms) |
+| `METRICS_ENABLE_PERSISTENCE` | `true` | Persist metrics to disk |
+| `METRICS_FILE` | `training_sessions/metrics.jsonl` | JSONL metrics log |
+| `METRICS_SUMMARY_FILE` | `training_sessions/metrics_summary.json` | Summary JSON |
+| `METRICS_PERSIST_EVERY_SAMPLES` | `100` | Flush to disk every N samples |
+| `METRICS_PERSIST_EVERY_SECONDS` | `30` | Flush to disk every N seconds |
+| `METRICS_MAX_RECORDS_IN_MEMORY` | `10000` | Cap on in-memory metric records |
+| `METRICS_MAX_RECORDS_ON_DISK` | `100000` | Cap on persisted metric records |
+| `METRICS_ENABLE_PROMETHEUS` | `false` | Write Prometheus format output |
+| `METRICS_PROMETHEUS_FILE` | `training_sessions/metrics.prom` | Prometheus output path |
+| `METRICS_MAX_LIVE_SESSIONS` | `16` | Max concurrent tracked sessions in daemon |
+| `METRICS_COMPLETED_TTL_SECONDS` | `3600` | How long completed sessions are retained |
+| `METRICS_SWEEP_INTERVAL_SECONDS` | `60` | Session GC sweep interval |
+| `METRICS_API_PORT` | `8081` | Port the metrics daemon listens on |
+
 ### Log File Rotation
 
 | Key | Default | Description |
@@ -678,13 +852,19 @@ CLI flags  >  Environment variables  >  config.conf  >  Built-in defaults
 ### Example `config.conf` (Production)
 
 ```ini
+# ============================================================================
 # Server
+# ============================================================================
 VOCAB_PATH=/opt/adai/vocab/vocab.txt
 MODEL_PATH=/opt/adai/models/chatbot_model.bin
 PORT=8080
 SESSION_TIMEOUT=30
+LOG_LEVEL=INFO
 
+# ============================================================================
 # Model Architecture
+# Must match the architecture used during training.
+# ============================================================================
 D_MODEL=512
 NUM_HEADS=8
 D_FF=2048
@@ -692,26 +872,101 @@ NUM_ENCODER_LAYERS=6
 NUM_DECODER_LAYERS=6
 MAX_SEQ_LENGTH=1024
 
-# Generation
-MAX_LENGTH=150
+# ============================================================================
+# Training Hyperparameters
+# Used by incremental_trainer; ignored by the inference server.
+# ============================================================================
+LEARNING_RATE=0.0003
+NUM_EPOCHS=25
+BATCH_SIZE=32
+WEIGHT_DECAY=0.01
+GRADIENT_CLIP=1.0
+SESSION_DIR=training_sessions
+
+# ============================================================================
+# Text Generation
+# ============================================================================
+MAX_GEN_LENGTH=150
 TEMPERATURE=0.8
 TOP_P=0.9
 TOP_K=50
 BEAM_WIDTH=4
 STRATEGY=nucleus
 
+# ============================================================================
+# Generation Quality Metrics
+# Opt-in: computes BLEU/ROUGE during validation by calling generate_response()
+# on a sample of the validation set. Adds overhead proportional to sample size.
+# ============================================================================
+ENABLE_GENERATION_QUALITY_METRICS=false
+GENERATION_QUALITY_SAMPLE_SIZE=10
+GENERATION_QUALITY_MAX_TOKENS=50
+# Async threshold: scoring runs in background thread when sample size >= this value.
+# Memory overhead: one full model weight copy (~50-150 MB).
+GENERATION_QUALITY_ASYNC_THRESHOLD=50
+
+# ============================================================================
+# Training Metrics Service
+# The trainer pushes metrics to metrics_api_server via MetricsPushClient.
+# Start the daemon before training: ./build/bin/metrics_api_server
+# ============================================================================
+ENABLE_METRICS_SERVICE=true
+METRICS_SERVER_URL=http://localhost:8081
+METRICS_PUSH_TIMEOUT_MS=1000
+METRICS_ENABLE_PERSISTENCE=true
+METRICS_FILE=training_sessions/metrics.jsonl
+METRICS_SUMMARY_FILE=training_sessions/metrics_summary.json
+METRICS_PERSIST_EVERY_SAMPLES=100
+METRICS_PERSIST_EVERY_SECONDS=30
+METRICS_MAX_RECORDS_IN_MEMORY=10000
+METRICS_MAX_RECORDS_ON_DISK=100000
+METRICS_ENABLE_PROMETHEUS=false
+METRICS_PROMETHEUS_FILE=training_sessions/metrics.prom
+
+# ============================================================================
+# Metrics API Daemon (metrics_api_server)
+# ============================================================================
+METRICS_API_PORT=8081
+METRICS_API_ALLOW_CONTROL=true
+METRICS_MAX_LIVE_SESSIONS=16
+METRICS_COMPLETED_TTL_SECONDS=3600
+METRICS_SWEEP_INTERVAL_SECONDS=60
+# Seconds without a metrics ingest before a live session is marked stale.
+METRICS_STALENESS_THRESHOLD_SECONDS=60
+
+# ============================================================================
+# GPU / CUDA
+# Requires build with -DENABLE_GPU=ON.
+# ============================================================================
+GPU_ENABLED=false
+GPU_DEVICE_ID=0
+GPU_MEMORY_FRACTION=0.5
+# GPU_STRATEGY=background   # background (default) or full
+
+# ============================================================================
 # Logging
-LOG_LEVEL=INFO
+# ============================================================================
 LOG_FILE_PATH=/var/log/adai/chatbot.log
 LOG_MAX_SIZE_MB=50
 LOG_MAX_FILES=10
 
-# RAG (optional)
+# ============================================================================
+# RAG (Retrieval-Augmented Generation)
+# ============================================================================
 RAG_ENABLED=false
 # RAG_DOCS_PATH=/opt/adai/knowledge
 RAG_NUM_DOCS=3
 RAG_THRESHOLD=0.0
 RAG_MAX_CONTEXT_LENGTH=512
+
+# ============================================================================
+# Distributed Registry (multi-node training)
+# Leave commented out for standalone single-node operation.
+# ============================================================================
+# REGISTRY_SERVER_URL=http://<coordinator>:8082
+# RUN_GROUP=my-training-group
+# RUN_ID=
+# REGISTRY_TIMEOUT_MS=5000
 ```
 
 ---
@@ -932,7 +1187,25 @@ docker-compose up -d
 
 ### 9.2 systemd Service Deployment
 
-#### Automated Installation
+#### Server Bundle (Metrics, MNS, Registry)
+
+For deploying the training infrastructure services, see [Server Bundle Deployment](deployment/SERVER_BUNDLE_DEPLOYMENT.md).
+
+```bash
+# Build, package, and install with PostgreSQL
+cmake --preset portable && cmake --build --preset portable
+./scripts/package_server_bundle.sh
+sudo ./scripts/install_server_bundle.sh --build-dir build/portable --setup-postgres --yes
+
+# Verify
+systemctl status adai-mns adai-registry adai-metrics
+curl http://localhost:8081/health   # metrics
+curl http://localhost:8083/health   # MNS
+```
+
+#### Chatbot API Server
+
+Automated installation for the chatbot API server:
 
 ```bash
 # 1. Build
@@ -943,7 +1216,7 @@ make chatbot_api_server -j$(nproc)
 cd ..
 
 # 2. Install service (creates adai user, /opt/adai/, /etc/adai/, /var/log/adai/)
-sudo ./scripts/install_systemd_service.sh
+sudo ./scripts/install_chatbot_API.sh
 
 # 3. Verify
 systemctl status adai
@@ -964,7 +1237,7 @@ curl http://localhost:8080/health
 #### Installation Script Options
 
 ```bash
-sudo ./scripts/install_systemd_service.sh \
+sudo ./scripts/install_chatbot_API.sh \
   --install-path /usr/local/adai \
   --port 9000 \
   --user mychatbot \
@@ -1247,30 +1520,34 @@ cd build && cmake .. && make -j$(nproc)
 
 **Cause:** Learning rate too high.
 
+In `config.conf`, lower the learning rate and retrain:
+
+```ini
+LEARNING_RATE=0.0003
+GRADIENT_CLIP=1.0
+NUM_EPOCHS=25
+```
+
 ```bash
-# Use recommended settings
-./build/bin/chatbot_trainer \
-    --data data.txt --vocab vocab.txt \
-    --lr 0.0003 --epochs 25 --gradient-clip 1.0
+./build/bin/incremental_trainer retrain 25
 ```
 
 #### NaN/Inf gradient warnings
 
-The trainer detects and skips NaN/Inf updates automatically. If warnings persist:
+The trainer detects and skips NaN/Inf updates automatically. If warnings persist, reduce the learning rate in `config.conf`:
 
-```bash
-# Reduce learning rate immediately
---lr 0.0001
+```ini
+LEARNING_RATE=0.0001
 ```
 
-If persistent, check training data for extremely long sequences or unusual characters.
+Then retrain. If persistent, check training data for extremely long sequences or unusual characters.
 
 #### Perplexity stuck above 100 after 25 epochs
 
-1. Train longer (`--epochs 50`)
+1. Increase `NUM_EPOCHS=50` in `config.conf` and run `incremental_trainer train 50`
 2. Verify data quality (diverse inputs, correct `INPUT:`/`RESPONSE:` format)
 3. Check learning rate warmup is active (default: automatic 10% warmup)
-4. Consider a smaller model if dataset is tiny (< 500 pairs)
+4. Consider a smaller model (`D_MODEL`, `D_FF`) if dataset is tiny (< 500 pairs)
 
 #### Incorrect loss values
 
@@ -1499,7 +1776,7 @@ cd /home/rodney/Repos/adai
 mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release && make -j$(nproc)
 
 # Rebuild specific target
-cmake --build . --target chatbot_trainer -j$(nproc)
+cmake --build . --target incremental_trainer -j$(nproc)
 ```
 
 ### Vocabulary
@@ -1509,18 +1786,33 @@ cmake --build . --target chatbot_trainer -j$(nproc)
 ./build/bin/vocab_builder --input data.txt --output vocab.txt --vocab-size 10000
 ```
 
-### Training
+### Dataset & Training
 
 ```bash
-# Standard training (recommended settings)
-./build/bin/chatbot_trainer \
-    --data data.txt --vocab vocab.txt --output model.bin \
-    --epochs 25 --lr 0.0003 --gradient-clip 1.0
+# Queue a local file, then train
+./build/bin/dataset_manager add data.txt
+./build/bin/incremental_trainer train 25
 
-# Incremental training (resume)
-./build/bin/chatbot_incremental_trainer \
-    --vocab vocab.txt --data new_data.txt --model model.bin \
-    --session-dir training_sessions/ --resume-session --epochs 10
+# Download a Gutenberg book and train
+./build/bin/dataset_manager gutenberg 1342 500
+./build/bin/incremental_trainer train 25
+
+# Full retrain from scratch on all queued data
+./build/bin/incremental_trainer retrain 25
+
+# Resume an interrupted session
+./build/bin/incremental_trainer resume
+
+# Check training status / session history
+./build/bin/incremental_trainer status
+./build/bin/incremental_trainer history
+
+# Follow training log
+tail -f chatbot_server.log
+
+# Live metrics (requires metrics_api_server running)
+./build/bin/metrics_api_server &
+curl http://localhost:8081/api/metrics/current
 ```
 
 ### Running
@@ -1588,13 +1880,25 @@ done
 | --- | --- |
 | Vocabulary | `vocab.txt` / `/opt/adai/vocab/vocab.txt` |
 | Model base | `chatbot_model.bin` |
-| Config | `config.conf` / `/etc/adai/config.conf` |
-| API server executable | `build/src/chatbot_api_server` |
-| CLI chatbot | `build/src/chatbot` |
-| GUI chatbot | `build/src/chatbot_gui` |
-| Trainer | `build/bin/chatbot_trainer` |
-| Logs | `stdout` / `/var/log/adai/chatbot.log` |
+| Config | `config.conf` / `/opt/adai/etc/config.conf` |
+| API server executable | `build/bin/chatbot_api_server` |
+| CLI chatbot | `build/bin/chatbot` |
+| GUI chatbot | `build/bin/chatbot_gui` |
+| Incremental trainer | `build/bin/incremental_trainer` |
+| Dataset manager | `build/bin/dataset_manager` |
+| Metrics API server | `build/bin/metrics_api_server` |
+| Registry server | `build/bin/registry_server` |
+| MNS server | `build/bin/mns_server` |
+| MNS CLI | `build/bin/mns_cli` |
+| Logs | `stdout` / `/var/log/adai/` |
 | Training sessions | `training_sessions/` |
+| Metrics JSONL | `training_sessions/metrics.jsonl` |
+| Metrics SQLite DB | `training_sessions/metrics.db` |
+| MNS SQLite DB | `<mns-data-dir>/models.db` |
+| PostgreSQL schema | `scripts/setup_postgres.sql` |
+| Server bundle installer | `scripts/install_server_bundle.sh` |
+| Bundle packager | `scripts/package_server_bundle.sh` |
+| Dashboard | `dashboard.html` |
 | RAG knowledge base | configurable via `RAG_DOCS_PATH` |
 
 ---

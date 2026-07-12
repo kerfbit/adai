@@ -10,6 +10,7 @@
 #include <utility>
 #include "Logger.hpp"
 #include "MetricsSessionRegistry.hpp"
+#include "GenerationQualityMetrics.hpp"
 
 // HTTP client for pushing metrics to external API daemon (optional)
 #ifdef BUILD_METRICS_API_SERVER
@@ -40,6 +41,24 @@ void ensure_metrics_output_directories(const MetricsServiceConfig& config) {
     if (config.enable_prometheus_format) {
         ensure_parent_directory(config.prometheus_file);
     }
+}
+
+// Extract a comparable architecture signature from a config-snapshot JSON string.
+// Only the structural dimensions that invalidate prior loss comparisons are included;
+// hyperparameters like learning_rate and batch_size are intentionally excluded.
+// Returns an empty string if the snapshot is missing or unparseable.
+std::string arch_key(const std::string& config_json) {
+    if (config_json.empty()) return "";
+    auto extract = [&](const std::string& key) -> std::string {
+        auto pos = config_json.find('"' + key + "\":");
+        if (pos == std::string::npos) return "";
+        pos += key.size() + 3;
+        auto end = config_json.find_first_of(",}", pos);
+        return config_json.substr(pos, end == std::string::npos ? config_json.size() - pos
+                                                                : end - pos);
+    };
+    return extract("d_model") + "," + extract("heads") + "," + extract("d_ff") + "," +
+           extract("enc_layers") + "," + extract("dec_layers");
 }
 
 }  // namespace
@@ -81,6 +100,9 @@ void TrainingMetricsService::start_session(int session_id, int total_epochs, int
 
         const float previous_best_validation_loss = current_snapshot_.best_validation_loss;
         const int previous_best_epoch = current_snapshot_.best_epoch;
+        const std::string old_arch = arch_key(current_snapshot_.config_snapshot);
+        const std::string new_arch = arch_key(config_snapshot);
+        const bool arch_changed = !old_arch.empty() && !new_arch.empty() && old_arch != new_arch;
 
         current_session_id_ = session_id;
         is_training_ = true;
@@ -96,12 +118,16 @@ void TrainingMetricsService::start_session(int session_id, int total_epochs, int
         current_snapshot_.total_samples = total_samples;
         current_snapshot_.session_start_time = std::chrono::system_clock::now();
         current_snapshot_.last_update_time = current_snapshot_.session_start_time;
-        current_snapshot_.best_validation_loss = previous_best_validation_loss;
-        current_snapshot_.best_epoch = previous_best_epoch;
+        if (!arch_changed) {
+            current_snapshot_.best_validation_loss = previous_best_validation_loss;
+            current_snapshot_.best_epoch = previous_best_epoch;
+        }
 
         session_start_steady_ = std::chrono::steady_clock::now();
         samples_since_last_persist_ = 0;
         last_persist_time_ = std::chrono::system_clock::now();
+        awaiting_validation_ = false;
+        last_epoch_training_duration_seconds_ = 0.0;
 
         adai::Logger::info("Metrics session {} started (epochs={}, samples={}, label={})",
                            session_id, total_epochs, total_samples,
@@ -151,6 +177,15 @@ void TrainingMetricsService::end_session() {
             persist_prometheus();
         }
 
+        // DB mark ended (TD-020)
+        if (db_ && !session_key_.empty()) {
+            try {
+                db_->mark_session_ended(session_key_);
+            } catch (const std::exception& e) {
+                adai::Logger::error("Failed to mark session ended in DB: {}", e.what());
+            }
+        }
+
         adai::Logger::info(
             "Metrics session {} ended (total_time={:.2f}s, samples={})", current_session_id_.load(),
             current_snapshot_.total_training_time_seconds, current_snapshot_.total_samples_trained);
@@ -166,6 +201,13 @@ bool TrainingMetricsService::is_session_active() const {
     return is_training_;
 }
 
+void TrainingMetricsService::heartbeat() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (is_training_) {
+        current_snapshot_.last_update_time = std::chrono::system_clock::now();
+    }
+}
+
 void TrainingMetricsService::start_epoch(int epoch, int total_samples) {
     std::string push_json;
     bool should_push = false;
@@ -174,11 +216,13 @@ void TrainingMetricsService::start_epoch(int epoch, int total_samples) {
 
         current_snapshot_.current_epoch = epoch;
         current_snapshot_.current_sample = 0;
+        last_sample_in_epoch_ = 0;
         if (total_samples > 0) {
             current_snapshot_.total_samples = total_samples;
         }
 
         epoch_start_steady_ = std::chrono::steady_clock::now();
+        awaiting_validation_ = false;
 
         adai::Logger::debug("Metrics epoch {} started (samples={})", epoch, total_samples);
 
@@ -244,6 +288,7 @@ void TrainingMetricsService::end_epoch(int epoch, float loss, float validation_l
         current_snapshot_.epoch_gradient_norms.push_back(gradient_norm);
 
         // Update current metrics
+        awaiting_validation_ = false;
         current_snapshot_.current_loss = loss;
         current_snapshot_.current_validation_loss = validation_loss;
         current_snapshot_.current_learning_rate = learning_rate;
@@ -317,11 +362,39 @@ void TrainingMetricsService::update_sample_metrics(int sample, float loss, float
         current_snapshot_.current_gradient_norm = gradient_norm;
         current_snapshot_.current_learning_rate = learning_rate;
         current_snapshot_.current_perplexity = std::exp(loss);
-        current_snapshot_.total_samples_trained++;
+
+        // update_sample_metrics() fires once per gradient-accumulation window,
+        // not once per raw sample, so a plain "++" here undercounts raw
+        // throughput by ~gradient_accumulation_steps. Advance by the number
+        // of raw samples this call actually represents instead.
+        const bool is_first_update = (current_snapshot_.total_samples_trained == 0);
+        const bool is_first_update_in_epoch = (last_sample_in_epoch_ == 0);
+        const int delta = std::max(1, sample - last_sample_in_epoch_);
+        current_snapshot_.total_samples_trained += delta;
+        last_sample_in_epoch_ = sample;
         current_snapshot_.last_update_time = std::chrono::system_clock::now();
 
+        // Detect the last training sample of the epoch: validation is about to start.
+        // Record the epoch training duration so the staleness check can extend its threshold
+        // to epoch_duration + staleness_threshold_seconds while validation is in progress.
+        if (current_snapshot_.total_samples > 0 &&
+            sample == current_snapshot_.total_samples) {
+            auto epoch_dur = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::steady_clock::now() - epoch_start_steady_);
+            last_epoch_training_duration_seconds_ =
+                static_cast<double>(epoch_dur.count()) / 1000.0;
+            awaiting_validation_ = true;
+        }
+
+        // Reset the clock on the first update so elapsed time, throughput, and ETA
+        // are measured from when training actually begins, not from session start
+        // (which includes dataset loading and preprocessing time).
+        if (is_first_update) {
+            session_start_steady_ = std::chrono::steady_clock::now();
+        }
+
         // Update running average
-        if (sample == 1) {
+        if (is_first_update_in_epoch) {
             current_snapshot_.running_loss = loss;
         } else {
             float alpha = 0.1f;  // Exponential moving average factor
@@ -459,14 +532,20 @@ TrainingMetricsSnapshot TrainingMetricsService::get_current_snapshot() const {
     }
 
     // TD-019: Compute stale-state fields from the preserved ingest timestamp.
+    // During validation (awaiting_validation_), extend the threshold by the epoch training
+    // duration so a validation pass that takes as long as the epoch won't falsely mark
+    // the session stale before the inactivity window expires.
     {
         auto now_wall = std::chrono::system_clock::now();
         auto secs = std::chrono::duration_cast<std::chrono::seconds>(
                         now_wall - snapshot.last_update_time)
                         .count();
         snapshot.seconds_since_last_update = static_cast<double>(secs);
-        snapshot.is_stale =
-            snapshot.is_training && (secs > config_.staleness_threshold_seconds);
+        long long effective_threshold = config_.staleness_threshold_seconds;
+        if (awaiting_validation_ && last_epoch_training_duration_seconds_ > 0.0) {
+            effective_threshold += static_cast<long long>(last_epoch_training_duration_seconds_);
+        }
+        snapshot.is_stale = snapshot.is_training && (secs > effective_threshold);
         snapshot.effective_is_training = snapshot.is_training && !snapshot.is_stale;
     }
 
@@ -506,14 +585,18 @@ std::string TrainingMetricsService::to_json() const {
     }
 
     // TD-019: Compute stale-state fields from preserved ingest timestamp.
+    // Mirror the dynamic-threshold logic from get_current_snapshot().
     {
         auto now_wall = std::chrono::system_clock::now();
         auto secs = std::chrono::duration_cast<std::chrono::seconds>(
                         now_wall - snapshot.last_update_time)
                         .count();
         snapshot.seconds_since_last_update = static_cast<double>(secs);
-        snapshot.is_stale =
-            snapshot.is_training && (secs > config_.staleness_threshold_seconds);
+        long long effective_threshold = config_.staleness_threshold_seconds;
+        if (awaiting_validation_ && last_epoch_training_duration_seconds_ > 0.0) {
+            effective_threshold += static_cast<long long>(last_epoch_training_duration_seconds_);
+        }
+        snapshot.is_stale = snapshot.is_training && (secs > effective_threshold);
         snapshot.effective_is_training = snapshot.is_training && !snapshot.is_stale;
     }
 
@@ -546,7 +629,11 @@ std::string TrainingMetricsService::to_json() const {
         << ",\n";
     oss << "  \"gradient_variance\": " << snapshot.gradient_variance << ",\n";
     oss << "  \"compute_time_ratio\": " << snapshot.compute_time_ratio << ",\n";
-    oss << "  \"weight_update_ratio\": " << snapshot.weight_update_ratio << ",\n";
+    // Scientific notation: (lr * ||g||) / ||w|| is routinely 1e-6 or smaller during
+    // warmup, which std::fixed/setprecision(6) above silently rounds to "0.000000",
+    // making a genuinely tiny-but-real ratio indistinguishable from a broken/zero one.
+    oss << "  \"weight_update_ratio\": " << std::scientific << std::setprecision(3)
+        << snapshot.weight_update_ratio << std::fixed << std::setprecision(6) << ",\n";
     oss << "  \"activation_saturation_ratio\": " << snapshot.activation_saturation_ratio << ",\n";
     oss << "  \"attention_entropy\": " << snapshot.attention_entropy << ",\n";
     oss << "  \"current_bleu4\": " << snapshot.current_bleu4 << ",\n";
@@ -672,7 +759,26 @@ void TrainingMetricsService::clear_history() {
     std::lock_guard<std::mutex> lock(mutex_);
 
     history_.clear();
-    adai::Logger::info("Metrics history cleared");
+
+    // Also reset "best" tracking: start_session() deliberately carries
+    // best_validation_loss/best_epoch forward across sessions for the same key
+    // (see its comment) so a genuine multi-session resume doesn't lose track of
+    // the best checkpoint. But nothing previously reset that state, so a stale
+    // best from an old/aborted run kept resurrecting itself on every later
+    // session. This is the one explicit "clear" entry point, so it's the place
+    // that reset belongs.
+    current_snapshot_.best_validation_loss = std::numeric_limits<float>::max();
+    current_snapshot_.best_epoch = 0;
+
+    // Persist immediately — otherwise a metrics-service restart (or DB/summary
+    // restore at the next session's construction) just reloads the pre-clear
+    // value right back in, exactly as before.
+    persist_summary();
+    if (config_.enable_prometheus_format) {
+        persist_prometheus();
+    }
+
+    adai::Logger::info("Metrics history and best-validation tracking cleared");
 }
 
 void TrainingMetricsService::set_config(const MetricsServiceConfig& config) {
@@ -693,6 +799,17 @@ MetricsServiceConfig TrainingMetricsService::get_config() const {
 void TrainingMetricsService::persist_metrics() {
     if (!config_.enable_persistence || history_.empty()) {
         return;
+    }
+
+    // DB write first (TD-020)
+    if (db_ && !session_key_.empty()) {
+        try {
+            for (const auto& record : history_) {
+                db_->insert_metrics_record(session_key_, record);
+            }
+        } catch (const std::exception& e) {
+            adai::Logger::error("Failed to persist metrics to DB: {}", e.what());
+        }
     }
 
     try {
@@ -728,6 +845,15 @@ void TrainingMetricsService::persist_metrics() {
 void TrainingMetricsService::persist_summary() {
     if (!config_.enable_persistence) {
         return;
+    }
+
+    // DB upsert first (TD-020)
+    if (db_ && !session_key_.empty()) {
+        try {
+            db_->upsert_session(build_session_record());
+        } catch (const std::exception& e) {
+            adai::Logger::error("Failed to upsert session to DB: {}", e.what());
+        }
     }
 
     try {
@@ -798,6 +924,31 @@ void TrainingMetricsService::persist_prometheus_with_data(const std::string& pro
 }
 
 void TrainingMetricsService::restore_from_summary() {
+    // DB-first restore (TD-020): try loading session record from DB before
+    // falling back to the JSON summary file.
+    if (db_ && !session_key_.empty()) {
+        try {
+            auto rec = db_->get_session(session_key_);
+            if (rec) {
+                current_session_id_ = rec->session_id;
+                current_snapshot_.session_id = rec->session_id;
+                current_snapshot_.best_validation_loss = rec->best_validation_loss;
+                current_snapshot_.best_epoch = rec->best_epoch;
+                current_snapshot_.session_start_time = rec->created_at;
+                current_snapshot_.last_update_time = rec->last_update_at;
+                label_ = rec->label;
+                config_snapshot_ = rec->config_json;
+                current_snapshot_.label = rec->label;
+                current_snapshot_.config_snapshot = rec->config_json;
+                adai::Logger::info("Metrics state restored from DB (session_key='{}')", session_key_);
+                return;
+            }
+        } catch (const std::exception& e) {
+            adai::Logger::warn("DB restore failed for key '{}': {}; falling back to file",
+                               session_key_, e.what());
+        }
+    }
+
     // Restore current_snapshot_ from the persisted summary JSON.
     // Called at construction before any lock is needed.
     try {
@@ -1399,6 +1550,21 @@ void TrainingMetricsService::update_generation_quality_metrics(float bleu4, floa
         current_snapshot_.current_rougeL = rougeL;
         current_snapshot_.last_update_time = std::chrono::system_clock::now();
 
+        // DB write (TD-020)
+        if (db_ && !session_key_.empty()) {
+            try {
+                GenerationQualityScore score;
+                score.bleu4 = bleu4;
+                score.rouge1 = rouge1;
+                score.rouge2 = rouge2;
+                score.rougeL = rougeL;
+                db_->insert_generation_quality(session_key_,
+                    current_snapshot_.current_epoch, score);
+            } catch (const std::exception& e) {
+                adai::Logger::error("Failed to insert generation quality to DB: {}", e.what());
+            }
+        }
+
         adai::Logger::info(
             "Generation quality — BLEU-4: {:.4f}  ROUGE-1: {:.4f}  "
             "ROUGE-2: {:.4f}  ROUGE-L: {:.4f}",
@@ -1423,10 +1589,18 @@ void TrainingMetricsService::flag_abnormal_sample(const AbnormalSample& sample) 
         std::lock_guard<std::mutex> lock(mutex_);
 
         if (static_cast<int>(abnormal_samples_.size()) >= config_.max_abnormal_samples) {
-            // Drop oldest entry to stay within cap
             abnormal_samples_.erase(abnormal_samples_.begin());
         }
         abnormal_samples_.push_back(sample);
+
+        // DB write (TD-020)
+        if (db_ && !session_key_.empty()) {
+            try {
+                db_->insert_abnormal_sample(session_key_, sample);
+            } catch (const std::exception& e) {
+                adai::Logger::error("Failed to insert abnormal sample to DB: {}", e.what());
+            }
+        }
 
         adai::Logger::warn(
             "Abnormal sample flagged — epoch={} sample={} loss={:.4f} grad={:.4f} reason={}",
@@ -1484,6 +1658,32 @@ void TrainingMetricsService::persist_abnormal_samples() {
     } catch (const std::exception& e) {
         adai::Logger::error("Failed to persist abnormal samples: {}", e.what());
     }
+}
+
+// ============================================================================
+// SQL Database Persistence (TD-020)
+// ============================================================================
+
+void TrainingMetricsService::set_database(IMetricsDatabase* db, const std::string& session_key) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    db_ = db;
+    session_key_ = session_key;
+}
+
+SessionRecord TrainingMetricsService::build_session_record() const {
+    SessionRecord rec;
+    rec.key          = session_key_;
+    rec.session_id   = current_session_id_.load();
+    rec.label        = label_;
+    rec.config_json  = config_snapshot_;
+    rec.is_training  = is_training_.load();
+    rec.created_at   = current_snapshot_.session_start_time;
+    rec.last_update_at = current_snapshot_.last_update_time;
+    rec.total_epochs   = current_snapshot_.current_epoch;
+    rec.total_samples  = current_snapshot_.total_samples_trained;
+    rec.best_validation_loss = current_snapshot_.best_validation_loss;
+    rec.best_epoch     = current_snapshot_.best_epoch;
+    return rec;
 }
 
 // ============================================================================

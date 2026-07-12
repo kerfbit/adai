@@ -22,6 +22,7 @@ Searched the entire codebase for special token usage across:
 Created `src/SpecialTokens.hpp` containing:
 
 #### Constants
+
 ```cpp
 namespace adai::SpecialTokenIDs {
     constexpr int PAD = 0;  // Padding token
@@ -39,6 +40,7 @@ namespace adai::SpecialTokenStrings {
 ```
 
 #### Configuration Structure
+
 ```cpp
 adai::SpecialTokenConfig config;  // Default IDs
 config.get_bos_token_id();  // Returns 2
@@ -72,6 +74,7 @@ All tests pass successfully!
 ## Usage Examples
 
 ### Basic Usage
+
 ```cpp
 #include "SpecialTokens.hpp"
 using namespace adai;
@@ -94,6 +97,7 @@ if (is_stop_token(next_token, config)) {
 ```
 
 ### Integration with Existing Code
+
 ```cpp
 // In tokenizer initialization
 auto special_map = create_special_token_map();
@@ -111,6 +115,7 @@ std::string token_name = get_special_token_string(token_id, config);
 ```
 
 ### Custom Configurations
+
 ```cpp
 // Create custom token IDs (for compatibility with different models)
 SpecialTokenConfig custom(10, 11, 12, 13);

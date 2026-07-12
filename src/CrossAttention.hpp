@@ -5,6 +5,9 @@
 #include "KVCache.hpp"
 #include "Matrix.hpp"
 #include "Optimizer.hpp"
+#ifdef ADAI_ENABLE_GPU
+#include "gpu/MatrixGPU.hpp"
+#endif
 
 /**
  * Cross-Attention Mechanism for Transformer Decoder
@@ -247,4 +250,38 @@ class CrossAttention {
      * @param filepath Path to load file
      */
     void load(const std::string& filepath);
+
+#ifdef ADAI_ENABLE_GPU
+    struct GPUState {
+        adai::gpu::GPUMatrix Wq, Wk, Wv, Wo;
+        adai::gpu::GPUMatrix dWq, dWk, dWv, dWo;
+        // Cached for backward (query and kv come from different sources)
+        adai::gpu::GPUMatrix cached_query;    // [tgt, d_model]
+        adai::gpu::GPUMatrix cached_kv;       // [src, d_model]
+        adai::gpu::GPUMatrix cached_Q;        // [tgt, d_model]
+        adai::gpu::GPUMatrix cached_K;        // [src, d_model]
+        adai::gpu::GPUMatrix cached_V;        // [src, d_model]
+        adai::gpu::GPUMatrix cached_weights;  // [tgt, src]
+        adai::gpu::GPUMatrix cached_attn_out; // [tgt, d_model]
+
+        explicit GPUState(int d)
+            : Wq(d, d), Wk(d, d), Wv(d, d), Wo(d, d),
+              dWq(d, d), dWk(d, d), dWv(d, d), dWo(d, d),
+              cached_query(1, 1), cached_kv(1, 1),
+              cached_Q(1, 1), cached_K(1, 1), cached_V(1, 1),
+              cached_weights(1, 1), cached_attn_out(1, 1) {}
+    };
+    std::unique_ptr<GPUState> gpu_;
+
+    void gpu_upload_weights();
+    void gpu_download_grads();
+    void gpu_zero_grads();
+    // Returns attention output; query from decoder, kv from encoder
+    adai::gpu::GPUMatrix gpu_forward(const adai::gpu::GPUMatrix& query,
+                                      const adai::gpu::GPUMatrix& kv,
+                                      const adai::gpu::GPUMatrix* mask = nullptr);
+    // Returns {d_query, d_kv}
+    std::pair<adai::gpu::GPUMatrix, adai::gpu::GPUMatrix>
+        gpu_backward(const adai::gpu::GPUMatrix& dout);
+#endif
 };

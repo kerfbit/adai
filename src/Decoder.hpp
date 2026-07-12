@@ -6,10 +6,15 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <random>
 #include <string>
+#include <utility>
 #include <vector>
 #include "DecoderBlock.hpp"
+#ifdef ADAI_ENABLE_GPU
+#include "gpu/MatrixGPU.hpp"
+#endif
 #include "KVCache.hpp"
 #include "LayerNorm.hpp"
 #include "Matrix.hpp"
@@ -152,7 +157,13 @@ class LLMDecoder {
      * Backward pass for training
      *
      * @param grad_output Gradient from loss function [seq_length, d_model]
+     * @param grad_encoder_output Out-param: gradient w.r.t. encoder_output, summed
+     *   across every decoder block's cross-attention (the same encoder_output feeds
+     *   all of them).
      */
+    void backward(const Matrix& grad_output, Matrix& grad_encoder_output);
+
+    /** Convenience overload: discards the encoder-side gradient. */
     void backward(const Matrix& grad_output);
 
     /**
@@ -276,4 +287,28 @@ class LLMDecoder {
      * @param optimizer Optimizer to register parameters with
      */
     void register_parameters_with_optimizer(Optimizer& optimizer);
+
+#ifdef ADAI_ENABLE_GPU
+    void gpu_upload_weights();
+    void gpu_download_grads();
+    void gpu_zero_grads();
+    /**
+     * GPU decode: embed + positional encode on CPU, then run all decoder blocks on GPU.
+     * @param token_ids     Decoder input token IDs
+     * @param encoder_out   GPU-resident encoder output [src_len, d_model]
+     * @return GPU matrix [tgt_len, d_model] (decoder output, before lm_head)
+     */
+    adai::gpu::GPUMatrix gpu_decode(const std::vector<int>& token_ids,
+                                     const adai::gpu::GPUMatrix& encoder_out);
+    /**
+     * GPU backward through decoder blocks (lm_head grad passed in as dout).
+     * @param dout  Upstream gradient [tgt_len, d_model]
+     * @return {grad w.r.t. decoder embedding output, grad w.r.t. encoder_output
+     *   summed across every decoder block's cross-attention}
+     */
+    std::pair<adai::gpu::GPUMatrix, adai::gpu::GPUMatrix> gpu_backward(
+        const adai::gpu::GPUMatrix& dout);
+
+    LayerNorm* get_final_norm_dec() { return final_norm.get(); }
+#endif
 };
