@@ -1,6 +1,4 @@
 #include "DatasetRegistry.hpp"
-#include "RegistryTransport.hpp"
-#include "TrainingSampleMeta.hpp"
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
@@ -11,13 +9,15 @@
 #include <sstream>
 #include <utility>
 #include "Logger.hpp"
+#include "RegistryTransport.hpp"
+#include "TrainingSampleMeta.hpp"
 
 using adai::Logger;
 namespace fs = std::filesystem;
 
 // ANSI colour codes used by print_registry() for intentional TUI output.
 #define COLOR_RESET "\033[0m"
-#define COLOR_INFO  "\033[1;36m"
+#define COLOR_INFO "\033[1;36m"
 
 // ============================================================================
 // Transport factory (file-scope helper)
@@ -26,17 +26,25 @@ namespace fs = std::filesystem;
 static std::unique_ptr<RegistryTransport> build_transport(const DatasetConfig& cfg) {
     if (!cfg.registry_server_url.empty()) {
 #ifdef BUILD_METRICS_API_SERVER
-        const std::string group = cfg.run_group.empty()
-            ? fs::path(cfg.session_dir).filename().string()
-            : cfg.run_group;
-        return std::make_unique<RemoteTransport>(
-            cfg.registry_server_url, group, cfg.registry_timeout_ms);
+        const std::string group =
+            cfg.run_group.empty() ? fs::path(cfg.session_dir).filename().string() : cfg.run_group;
+        return std::make_unique<RemoteTransport>(cfg.registry_server_url, group,
+                                                 cfg.registry_timeout_ms);
 #else
-        adai::Logger::warn("REGISTRY_SERVER_URL is set but RemoteTransport is not compiled "
-                           "(BUILD_METRICS_API_SERVER not set); falling back to LocalTransport");
+        // BUILD_METRICS_API_SERVER is reused here as a general "cpp-httplib was found at
+        // configure time" signal (RemoteTransport is an HTTP client, unrelated to the
+        // metrics dashboard) — named after the first feature that needed it. If this
+        // fires, the actual missing dependency is cpp-httplib, not the metrics server.
+        adai::Logger::warn(
+            "REGISTRY_SERVER_URL is set but this binary was built without cpp-httplib "
+            "(BUILD_METRICS_API_SERVER was OFF at configure time because HTTPLIB_INCLUDE_DIR "
+            "was not found), so RemoteTransport is unavailable; falling back to LocalTransport, "
+            "which reads only local flat files (data_registry.txt/pending_files.txt) and will "
+            "not see files staged on the remote registry_server. Rebuild with cpp-httplib "
+            "available (vendored at external/cpp-httplib) to fix this.");
 #endif
     }
-    const std::string reg_path  = cfg.session_dir + "/" + cfg.data_registry_file;
+    const std::string reg_path = cfg.session_dir + "/" + cfg.data_registry_file;
     const std::string pend_path = cfg.session_dir + "/pending_files.txt";
     return std::make_unique<LocalTransport>(reg_path, pend_path);
 }
@@ -46,12 +54,10 @@ static std::unique_ptr<RegistryTransport> build_transport(const DatasetConfig& c
 // ============================================================================
 
 DatasetRegistry::DatasetRegistry(DatasetConfig cfg)
-    : config_(std::move(cfg))
-    , transport_(build_transport(config_)) {}
+    : config_(std::move(cfg)), transport_(build_transport(config_)) {}
 
 DatasetRegistry::DatasetRegistry(DatasetConfig cfg, std::unique_ptr<RegistryTransport> transport)
-    : config_(std::move(cfg))
-    , transport_(std::move(transport)) {}
+    : config_(std::move(cfg)), transport_(std::move(transport)) {}
 
 /*static*/
 DatasetConfig DatasetRegistry::make_config(const adai::ServiceConfig& svc) {
@@ -59,12 +65,12 @@ DatasetConfig DatasetRegistry::make_config(const adai::ServiceConfig& svc) {
     if (!svc.session_dir.empty()) {
         cfg.session_dir = svc.session_dir;
     }
-    cfg.registry_server_url          = svc.registry_server_url;
-    cfg.run_group                    = svc.run_group;
-    cfg.run_id                       = svc.run_id;
-    cfg.registry_timeout_ms          = svc.registry_timeout_ms;
-    cfg.download_dir                 = svc.download_dir;
-    cfg.max_parallel_downloads       = svc.max_parallel_downloads;
+    cfg.registry_server_url = svc.registry_server_url;
+    cfg.run_group = svc.run_group;
+    cfg.run_id = svc.run_id;
+    cfg.registry_timeout_ms = svc.registry_timeout_ms;
+    cfg.download_dir = svc.download_dir;
+    cfg.max_parallel_downloads = svc.max_parallel_downloads;
     cfg.large_file_warn_threshold_mb = svc.large_file_warn_threshold_mb;
     return cfg;
 }
@@ -80,7 +86,6 @@ std::string DatasetRegistry::registry_file_path() const {
 std::string DatasetRegistry::pending_file_path() const {
     return config_.session_dir + "/pending_files.txt";
 }
-
 
 // ============================================================================
 // Pending queue
@@ -98,7 +103,7 @@ bool DatasetRegistry::add_file(const std::string& path) {
     }
 
     const bool already_pending = std::any_of(pending_.begin(), pending_.end(),
-        [&](const PendingEntry& e) { return e.path == path; });
+                                             [&](const PendingEntry& e) { return e.path == path; });
     if (already_pending) {
         Logger::warn("Data file already in pending queue: {}", path);
         return false;
@@ -130,7 +135,7 @@ void DatasetRegistry::clear_pending() {
 
 bool DatasetRegistry::remove_pending(const std::string& path) {
     auto it = std::find_if(pending_.begin(), pending_.end(),
-        [&](const PendingEntry& e) { return e.path == path; });
+                           [&](const PendingEntry& e) { return e.path == path; });
     if (it == pending_.end()) {
         return false;
     }
@@ -142,7 +147,8 @@ bool DatasetRegistry::remove_pending(const std::string& path) {
 std::vector<std::string> DatasetRegistry::pending_files() const {
     std::vector<std::string> paths;
     paths.reserve(pending_.size());
-    for (const auto& e : pending_) paths.push_back(e.path);
+    for (const auto& e : pending_)
+        paths.push_back(e.path);
     return paths;
 }
 
@@ -182,23 +188,22 @@ bool DatasetRegistry::is_trained(const std::string& path) const {
 
 // Build new DataVersion entries for each untrained path; update in-memory state.
 // Returns the newly created entries (does NOT persist — callers do that).
-static std::vector<DataVersion> build_new_versions(
-    const std::vector<std::string>& paths,
-    const std::vector<int>& sample_counts,
-    std::vector<DataVersion>& registry_,
-    std::set<std::string>& trained_set_) {
-
+static std::vector<DataVersion> build_new_versions(const std::vector<std::string>& paths,
+                                                   const std::vector<int>& sample_counts,
+                                                   std::vector<DataVersion>& registry_,
+                                                   std::set<std::string>& trained_set_) {
     std::vector<DataVersion> new_entries;
     for (std::size_t i = 0; i < paths.size(); ++i) {
         const std::string& f = paths[i];
-        if (trained_set_.count(f)) continue;
+        if (trained_set_.count(f))
+            continue;
 
         DataVersion dv;
-        dv.data_file   = f;
-        dv.checksum    = DatasetRegistry::compute_checksum(f);
+        dv.data_file = f;
+        dv.checksum = DatasetRegistry::compute_checksum(f);
         dv.num_samples = (i < sample_counts.size()) ? sample_counts[i] : 0;
-        dv.added_time  = std::chrono::system_clock::now();
-        dv.trained     = true;
+        dv.added_time = std::chrono::system_clock::now();
+        dv.trained = true;
 
         new_entries.push_back(dv);
         registry_.push_back(dv);
@@ -218,16 +223,16 @@ void DatasetRegistry::mark_trained(const std::vector<std::string>& paths,
 }
 
 // Phase 9 overload — atomic for both local (flock) and remote (POST /trained).
-void DatasetRegistry::mark_trained(const std::string& run_id,
-                                    const std::vector<std::string>& paths,
-                                    const std::vector<int>& sample_counts) {
+void DatasetRegistry::mark_trained(const std::string& run_id, const std::vector<std::string>& paths,
+                                   const std::vector<int>& sample_counts) {
     const auto new_entries = build_new_versions(paths, sample_counts, registry_, trained_set_);
     transport_->commit_trained(run_id, new_entries, paths);
 
     // Update in-memory pending_ to remove trained files
     const std::set<std::string> trained_set(paths.begin(), paths.end());
-    pending_.erase(std::remove_if(pending_.begin(), pending_.end(),
-        [&](const PendingEntry& e) { return trained_set.count(e.path) > 0; }),
+    pending_.erase(
+        std::remove_if(pending_.begin(), pending_.end(),
+                       [&](const PendingEntry& e) { return trained_set.count(e.path) > 0; }),
         pending_.end());
 }
 
@@ -241,8 +246,9 @@ AcquireResponse DatasetRegistry::acquire_pending(const std::string& run_id, int 
 
     // Reflect acquisition in in-memory pending_
     for (const auto& f : resp.files) {
-        const bool already_in = std::any_of(pending_.begin(), pending_.end(),
-            [&](const PendingEntry& e) { return e.path == f.registry_path; });
+        const bool already_in =
+            std::any_of(pending_.begin(), pending_.end(),
+                        [&](const PendingEntry& e) { return e.path == f.registry_path; });
         if (!already_in) {
             pending_.push_back({f.registry_path, run_id, {}});
         }
@@ -252,14 +258,48 @@ AcquireResponse DatasetRegistry::acquire_pending(const std::string& run_id, int 
 }
 
 void DatasetRegistry::release_pending(const std::string& run_id,
-                                       const std::vector<std::string>& paths) {
+                                      const std::vector<std::string>& paths) {
     transport_->release(run_id, paths);
 
     // Remove from in-memory pending_
     const std::set<std::string> rel_set(paths.begin(), paths.end());
     pending_.erase(std::remove_if(pending_.begin(), pending_.end(),
-        [&](const PendingEntry& e) { return rel_set.count(e.path) > 0; }),
-        pending_.end());
+                                  [&](const PendingEntry& e) { return rel_set.count(e.path) > 0; }),
+                   pending_.end());
+}
+
+// ============================================================================
+// Server-side dataset fetch (Phase 11)
+// ============================================================================
+
+std::string DatasetRegistry::remote_fetch_gutenberg(int book_id, int num_pairs,
+                                                     const std::string& model_name) {
+    const std::string path = transport_->fetch_gutenberg(book_id, num_pairs, model_name);
+    if (!path.empty()) {
+        pending_.push_back({path, {}, {}});
+    }
+    return path;
+}
+
+std::string DatasetRegistry::remote_fetch_huggingface(const std::string& dataset_id,
+                                                       int num_pairs, const std::string& split,
+                                                       const std::string& input_field,
+                                                       const std::string& output_field,
+                                                       const std::string& model_name) {
+    const std::string path = transport_->fetch_huggingface(dataset_id, num_pairs, split,
+                                                            input_field, output_field, model_name);
+    if (!path.empty()) {
+        pending_.push_back({path, {}, {}});
+    }
+    return path;
+}
+
+std::string DatasetRegistry::remote_upload(const std::string& local_path) {
+    const std::string path = transport_->upload_file(local_path);
+    if (!path.empty()) {
+        pending_.push_back({path, {}, {}});
+    }
+    return path;
 }
 
 void DatasetRegistry::print_run_assignments() {
@@ -270,8 +310,8 @@ void DatasetRegistry::print_run_assignments() {
     std::cout << "Run ID                         | File\n";
     std::cout << "-------------------------------|-----\n";
     for (const auto& e : entries) {
-        std::cout << std::setw(31) << (e.run_id.empty() ? "<unassigned>" : e.run_id)
-                  << " | " << e.path << '\n';
+        std::cout << std::setw(31) << (e.run_id.empty() ? "<unassigned>" : e.run_id) << " | "
+                  << e.path << '\n';
     }
 }
 
@@ -371,7 +411,8 @@ int DatasetRegistry::load_conversation_pairs(const std::string& path,
     std::string first_line;
     while (std::getline(file, first_line)) {
         first_line.erase(0, first_line.find_first_not_of(" \t\r\n"));
-        if (!first_line.empty()) break;
+        if (!first_line.empty())
+            break;
     }
     file.seekg(0);
 
@@ -381,9 +422,10 @@ int DatasetRegistry::load_conversation_pairs(const std::string& path,
         // JSONL training format
         std::string line;
         while (std::getline(file, line)) {
-            if (line.empty() || line.front() != '{') continue;
+            if (line.empty() || line.front() != '{')
+                continue;
             std::string in, resp;
-            SampleMeta  meta;
+            SampleMeta meta;
             if (parse_jsonl_sample(line, in, resp, meta)) {
                 pairs.emplace_back(std::move(in), std::move(resp), std::move(meta));
                 ++pair_count;
@@ -441,7 +483,7 @@ std::string DatasetRegistry::compute_checksum(const std::string& path) {
         return "MISSING";
     }
 
-    auto size  = fs::file_size(path);
+    auto size = fs::file_size(path);
     auto ftime = fs::last_write_time(path);
 
     std::ostringstream oss;

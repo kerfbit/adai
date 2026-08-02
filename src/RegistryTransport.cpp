@@ -1,13 +1,13 @@
 #include "RegistryTransport.hpp"
+#include <fcntl.h>     // open(), O_RDWR
+#include <sys/file.h>  // flock()
+#include <unistd.h>    // close()
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <limits>
 #include <set>
 #include <sstream>
-#include <sys/file.h>  // flock()
-#include <fcntl.h>     // open(), O_RDWR
-#include <unistd.h>    // close()
 #include "Logger.hpp"
 
 #ifdef BUILD_METRICS_API_SERVER
@@ -22,8 +22,7 @@ namespace fs = std::filesystem;
 // ============================================================================
 
 LocalTransport::LocalTransport(std::string registry_path, std::string pending_path)
-    : registry_path_(std::move(registry_path))
-    , pending_path_(std::move(pending_path)) {}
+    : registry_path_(std::move(registry_path)), pending_path_(std::move(pending_path)) {}
 
 bool LocalTransport::load_registry(std::vector<DataVersion>& out) {
     if (!fs::exists(registry_path_)) {
@@ -49,7 +48,8 @@ bool LocalTransport::load_registry(std::vector<DataVersion>& out) {
         dv.trained = (trained_int == 1);
         // model_id is optional 5th column; absent in pre-Phase-2 files
         std::string mid;
-        if (iss >> mid) dv.model_id = mid;
+        if (iss >> mid)
+            dv.model_id = mid;
         out.push_back(std::move(dv));
     }
 
@@ -86,14 +86,14 @@ bool LocalTransport::load_pending(std::vector<PendingEntry>& out) {
     out.clear();
     std::string line;
     while (std::getline(file, line)) {
-        if (line.empty()) continue;
+        if (line.empty())
+            continue;
         // Format: "path" or "path\trun_id" or "path\trun_id\tmodel_name"
         const auto tab1 = line.find('\t');
         if (tab1 != std::string::npos) {
             const auto tab2 = line.find('\t', tab1 + 1);
             if (tab2 != std::string::npos) {
-                out.push_back({line.substr(0, tab1),
-                               line.substr(tab1 + 1, tab2 - tab1 - 1),
+                out.push_back({line.substr(0, tab1), line.substr(tab1 + 1, tab2 - tab1 - 1),
                                line.substr(tab2 + 1)});
             } else {
                 out.push_back({line.substr(0, tab1), line.substr(tab1 + 1), {}});
@@ -190,8 +190,7 @@ AcquireResponse LocalTransport::acquire(const std::string& run_id, int max_files
     return resp;
 }
 
-void LocalTransport::release(const std::string& run_id,
-                              const std::vector<std::string>& paths) {
+void LocalTransport::release(const std::string& run_id, const std::vector<std::string>& paths) {
     const int lock_fd = lock_pending();
     if (lock_fd < 0) {
         Logger::error("LocalTransport::release — failed to acquire pending lock");
@@ -215,8 +214,8 @@ void LocalTransport::release(const std::string& run_id,
 }
 
 void LocalTransport::commit_trained(const std::string& run_id,
-                                     const std::vector<DataVersion>& new_entries,
-                                     const std::vector<std::string>& trained_paths) {
+                                    const std::vector<DataVersion>& new_entries,
+                                    const std::vector<std::string>& trained_paths) {
     // ── Registry ──────────────────────────────────────────────────────────
     // Load existing registry, append new entries, save.
     std::vector<DataVersion> registry;
@@ -238,10 +237,11 @@ void LocalTransport::commit_trained(const std::string& run_id,
 
     const std::set<std::string> trained_set(trained_paths.begin(), trained_paths.end());
     pending.erase(std::remove_if(pending.begin(), pending.end(),
-        [&](const PendingEntry& e) {
-            return trained_set.count(e.path) &&
-                   (run_id.empty() || e.run_id == run_id);
-        }), pending.end());
+                                 [&](const PendingEntry& e) {
+                                     return trained_set.count(e.path) &&
+                                            (run_id.empty() || e.run_id == run_id);
+                                 }),
+                  pending.end());
 
     save_pending(pending);
     unlock_pending(lock_fd);
@@ -270,6 +270,33 @@ bool LocalTransport::add_pending(const std::string& path) {
     return ok;
 }
 
+// Phase 11: LocalTransport has no registry_server to delegate downloading to.
+std::string LocalTransport::fetch_gutenberg(int /*book_id*/, int /*num_pairs*/,
+                                            const std::string& /*model_name*/) {
+    Logger::warn(
+        "LocalTransport::fetch_gutenberg — not supported in local mode; use DataFetcher directly "
+        "and DatasetRegistry::add_file()");
+    return "";
+}
+
+std::string LocalTransport::fetch_huggingface(const std::string& /*dataset_id*/,
+                                              int /*num_pairs*/, const std::string& /*split*/,
+                                              const std::string& /*input_field*/,
+                                              const std::string& /*output_field*/,
+                                              const std::string& /*model_name*/) {
+    Logger::warn(
+        "LocalTransport::fetch_huggingface — not supported in local mode; use DataFetcher "
+        "directly and DatasetRegistry::add_file()");
+    return "";
+}
+
+std::string LocalTransport::upload_file(const std::string& /*local_path*/) {
+    Logger::warn(
+        "LocalTransport::upload_file — not supported in local mode; use "
+        "DatasetRegistry::add_file() directly");
+    return "";
+}
+
 // ============================================================================
 // RemoteTransport
 // ============================================================================
@@ -282,12 +309,24 @@ std::string json_escape(const std::string& s) {
     out.reserve(s.size() + 4);
     for (char c : s) {
         switch (c) {
-            case '"':  out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            case '\n': out += "\\n";  break;
-            case '\r': out += "\\r";  break;
-            case '\t': out += "\\t";  break;
-            default:   out += c;      break;
+            case '"':
+                out += "\\\"";
+                break;
+            case '\\':
+                out += "\\\\";
+                break;
+            case '\n':
+                out += "\\n";
+                break;
+            case '\r':
+                out += "\\r";
+                break;
+            case '\t':
+                out += "\\t";
+                break;
+            default:
+                out += c;
+                break;
         }
     }
     return out;
@@ -298,10 +337,12 @@ std::string json_escape(const std::string& s) {
 std::string json_string(const std::string& body, const std::string& key) {
     const std::string needle = "\"" + key + "\":\"";
     const auto pos = body.find(needle);
-    if (pos == std::string::npos) return {};
+    if (pos == std::string::npos)
+        return {};
     const auto start = pos + needle.size();
-    const auto end   = body.find('"', start);
-    if (end == std::string::npos) return {};
+    const auto end = body.find('"', start);
+    if (end == std::string::npos)
+        return {};
     return body.substr(start, end - start);
 }
 
@@ -310,19 +351,23 @@ std::vector<std::string> json_string_array(const std::string& body, const std::s
     std::vector<std::string> result;
     const std::string needle = "\"" + key + "\":[";
     const auto pos = body.find(needle);
-    if (pos == std::string::npos) return result;
+    if (pos == std::string::npos)
+        return result;
     auto cur = pos + needle.size();
     while (cur < body.size()) {
         cur = body.find('"', cur);
-        if (cur == std::string::npos) break;
+        if (cur == std::string::npos)
+            break;
         ++cur;
         const auto end = body.find('"', cur);
-        if (end == std::string::npos) break;
+        if (end == std::string::npos)
+            break;
         result.push_back(body.substr(cur, end - cur));
         cur = end + 1;
         // Stop at ]
         const auto next = body.find_first_of(",]", cur);
-        if (next == std::string::npos || body[next] == ']') break;
+        if (next == std::string::npos || body[next] == ']')
+            break;
         cur = next + 1;
     }
     return result;
@@ -332,8 +377,11 @@ std::vector<std::string> json_string_array(const std::string& body, const std::s
 std::string json_array(const std::vector<std::string>& v) {
     std::string out = "[";
     for (std::size_t i = 0; i < v.size(); ++i) {
-        if (i) out += ',';
-        out += '"'; out += json_escape(v[i]); out += '"';
+        if (i)
+            out += ',';
+        out += '"';
+        out += json_escape(v[i]);
+        out += '"';
     }
     out += ']';
     return out;
@@ -344,28 +392,33 @@ std::pair<std::string, int> parse_host_port(const std::string& url) {
     std::string s = url;
     for (const char* prefix : {"http://", "https://"}) {
         const std::string p = prefix;
-        if (s.rfind(p, 0) == 0) { s = s.substr(p.size()); break; }
+        if (s.rfind(p, 0) == 0) {
+            s = s.substr(p.size());
+            break;
+        }
     }
     // strip any trailing path
     const auto slash = s.find('/');
-    if (slash != std::string::npos) s = s.substr(0, slash);
+    if (slash != std::string::npos)
+        s = s.substr(0, slash);
 
     const auto colon = s.rfind(':');
     if (colon != std::string::npos) {
         try {
             return {s.substr(0, colon), std::stoi(s.substr(colon + 1))};
-        } catch (...) {}
+        } catch (...) {
+        }
     }
     return {s, 8082};
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 RemoteTransport::RemoteTransport(std::string base_url, std::string run_group, int timeout_ms)
     : timeout_ms_(timeout_ms) {
     auto [host, port] = parse_host_port(base_url);
-    host_         = std::move(host);
-    port_         = port;
+    host_ = std::move(host);
+    port_ = port;
     group_prefix_ = "/registry/" + run_group;
 }
 
@@ -382,39 +435,59 @@ bool RemoteTransport::load_registry(std::vector<DataVersion>& out) {
         return false;
     }
 
-    // Parse JSON array: {"entries":[{"data_file":"...","checksum":"...","num_samples":N,"trained":T},...]}
+    // Parse JSON array:
+    // {"entries":[{"data_file":"...","checksum":"...","num_samples":N,"trained":T},...]}
     out.clear();
     const std::string& body = res->body;
     auto entries_start = body.find("\"entries\":[");
-    if (entries_start == std::string::npos) return false;
-    auto cur = entries_start + 11; // len of "entries":[
+    if (entries_start == std::string::npos)
+        return false;
+    auto cur = entries_start + 11;  // len of "entries":[
     while (cur < body.size()) {
         auto obj_start = body.find('{', cur);
-        if (obj_start == std::string::npos) break;
+        if (obj_start == std::string::npos)
+            break;
         auto obj_end = body.find('}', obj_start);
-        if (obj_end == std::string::npos) break;
+        if (obj_end == std::string::npos)
+            break;
         const std::string obj = body.substr(obj_start, obj_end - obj_start + 1);
         DataVersion dv;
-        dv.data_file   = json_string(obj, "data_file");
-        dv.checksum    = json_string(obj, "checksum");
-        const auto ns  = json_string(obj, "num_samples");
-        dv.num_samples = ns.empty() ? 0 : std::stoi(ns);
-        const auto tr  = json_string(obj, "trained");
-        dv.trained     = (tr == "true" || tr == "1");
-        if (!dv.data_file.empty()) out.push_back(std::move(dv));
+        dv.data_file = json_string(obj, "data_file");
+        dv.checksum = json_string(obj, "checksum");
+        // num_samples is a JSON number, not a string
+        const std::string ns_needle = "\"num_samples\":";
+        const auto nsp = obj.find(ns_needle);
+        if (nsp != std::string::npos) {
+            try {
+                dv.num_samples = std::stoi(obj.substr(nsp + ns_needle.size()));
+            } catch (...) {
+            }
+        }
+        // trained is a JSON boolean, not a string
+        const std::string tr_needle = "\"trained\":";
+        const auto trp = obj.find(tr_needle);
+        if (trp != std::string::npos) {
+            const std::string tval = obj.substr(trp + tr_needle.size(), 4);
+            dv.trained = (tval == "true");
+        }
+        if (!dv.data_file.empty())
+            out.push_back(std::move(dv));
         cur = obj_end + 1;
-        if (body.find(']', cur) < body.find('{', cur)) break;
+        if (body.find(']', cur) < body.find('{', cur))
+            break;
     }
     return true;
 #else
-    Logger::error("RemoteTransport::load_registry — not compiled (BUILD_METRICS_API_SERVER not set)");
+    Logger::error(
+        "RemoteTransport::load_registry — not compiled (BUILD_METRICS_API_SERVER not set)");
     return false;
 #endif
 }
 
 bool RemoteTransport::save_registry(const std::vector<DataVersion>& /*entries*/) {
     // In distributed mode the server owns the registry; clients use commit_trained().
-    Logger::warn("RemoteTransport::save_registry — no-op; use mark_trained(run_id,...) in distributed mode");
+    Logger::warn(
+        "RemoteTransport::save_registry — no-op; use mark_trained(run_id,...) in distributed mode");
     return false;
 }
 
@@ -435,20 +508,25 @@ bool RemoteTransport::load_pending(std::vector<PendingEntry>& out) {
     out.clear();
     const std::string& body = res->body;
     auto cur = body.find("\"entries\":[");
-    if (cur == std::string::npos) return false;
+    if (cur == std::string::npos)
+        return false;
     cur += 11;
     while (cur < body.size()) {
         auto obj_start = body.find('{', cur);
-        if (obj_start == std::string::npos) break;
+        if (obj_start == std::string::npos)
+            break;
         auto obj_end = body.find('}', obj_start);
-        if (obj_end == std::string::npos) break;
+        if (obj_end == std::string::npos)
+            break;
         const std::string obj = body.substr(obj_start, obj_end - obj_start + 1);
-        const std::string path       = json_string(obj, "path");
-        const std::string run_id     = json_string(obj, "run_id");
+        const std::string path = json_string(obj, "path");
+        const std::string run_id = json_string(obj, "run_id");
         const std::string model_name = json_string(obj, "model_name");
-        if (!path.empty()) out.push_back({path, run_id, model_name});
+        if (!path.empty())
+            out.push_back({path, run_id, model_name});
         cur = obj_end + 1;
-        if (body.find(']', cur) < body.find('{', cur)) break;
+        if (body.find(']', cur) < body.find('{', cur))
+            break;
     }
     return true;
 #else
@@ -458,7 +536,9 @@ bool RemoteTransport::load_pending(std::vector<PendingEntry>& out) {
 }
 
 bool RemoteTransport::save_pending(const std::vector<PendingEntry>& /*entries*/) {
-    Logger::warn("RemoteTransport::save_pending — no-op; use acquire/release/commit_trained in distributed mode");
+    Logger::warn(
+        "RemoteTransport::save_pending — no-op; use acquire/release/commit_trained in distributed "
+        "mode");
     return false;
 }
 
@@ -471,14 +551,13 @@ AcquireResponse RemoteTransport::acquire(const std::string& run_id, int max_file
     cli.set_read_timeout(0, timeout_ms_ * 1000);
 
     std::ostringstream body;
-    body << "{\"run_id\":\"" << json_escape(run_id) << "\","
-         << "\"max_files\":" << max_files << "}";
+    body << "{\"run_id\":\"" << json_escape(run_id) << "\"," << "\"max_files\":" << max_files
+         << "}";
 
-    const auto res = cli.Post((group_prefix_ + "/acquire").c_str(),
-                              body.str(), "application/json");
+    const auto res = cli.Post((group_prefix_ + "/acquire").c_str(), body.str(), "application/json");
     if (!res || res->status != 200) {
-        Logger::error("RemoteTransport::acquire — HTTP {} from {}:{}{}",
-                      res ? res->status : -1, host_, port_, group_prefix_ + "/acquire");
+        Logger::error("RemoteTransport::acquire — HTTP {} from {}:{}{}", res ? res->status : -1,
+                      host_, port_, group_prefix_ + "/acquire");
         return resp;
     }
 
@@ -495,8 +574,10 @@ AcquireResponse RemoteTransport::acquire(const std::string& run_id, int max_file
         const std::string port_needle = "\"ftp_server_port\":";
         const auto pp = b.find(port_needle);
         if (pp != std::string::npos) {
-            try { resp.ftp_server_port = std::stoi(b.substr(pp + port_needle.size())); }
-            catch (...) {}
+            try {
+                resp.ftp_server_port = std::stoi(b.substr(pp + port_needle.size()));
+            } catch (...) {
+            }
         }
         // ftps_enabled is a JSON boolean (Phase 3)
         const std::string ftps_needle = "\"ftps_enabled\":";
@@ -509,35 +590,40 @@ AcquireResponse RemoteTransport::acquire(const std::string& run_id, int max_file
         // Parse each file object inside "files":[{...},{...}]
         auto files_pos = b.find("\"files\":[");
         if (files_pos != std::string::npos) {
-            auto cur = files_pos + 9; // len("\"files\":[")
+            auto cur = files_pos + 9;  // len("\"files\":[")
             while (cur < b.size()) {
                 auto obj_start = b.find('{', cur);
-                if (obj_start == std::string::npos) break;
+                if (obj_start == std::string::npos)
+                    break;
                 // Find matching closing brace (objects are flat, no nesting)
                 auto obj_end = b.find('}', obj_start);
-                if (obj_end == std::string::npos) break;
+                if (obj_end == std::string::npos)
+                    break;
                 const std::string obj = b.substr(obj_start, obj_end - obj_start + 1);
 
                 FileToken tok;
-                tok.registry_path     = json_string(obj, "registry_path");
-                tok.ftp_path          = json_string(obj, "ftp_path");
-                tok.ftp_username      = json_string(obj, "ftp_username");
-                tok.ftp_password      = json_string(obj, "ftp_password");
-                tok.checksum          = json_string(obj, "checksum");
+                tok.registry_path = json_string(obj, "registry_path");
+                tok.ftp_path = json_string(obj, "ftp_path");
+                tok.ftp_username = json_string(obj, "ftp_username");
+                tok.ftp_password = json_string(obj, "ftp_password");
+                tok.checksum = json_string(obj, "checksum");
                 tok.token_expires_utc = json_string(obj, "token_expires_utc");
                 // size_bytes is a JSON number
                 const std::string sb_needle = "\"size_bytes\":";
                 const auto sbp = obj.find(sb_needle);
                 if (sbp != std::string::npos) {
-                    try { tok.size_bytes = static_cast<std::size_t>(
-                            std::stoull(obj.substr(sbp + sb_needle.size()))); }
-                    catch (...) {}
+                    try {
+                        tok.size_bytes = static_cast<std::size_t>(
+                            std::stoull(obj.substr(sbp + sb_needle.size())));
+                    } catch (...) {
+                    }
                 }
                 if (!tok.registry_path.empty()) {
                     resp.files.push_back(std::move(tok));
                 }
                 cur = obj_end + 1;
-                if (b.find(']', cur) < b.find('{', cur)) break;
+                if (b.find(']', cur) < b.find('{', cur))
+                    break;
             }
         }
     } else {
@@ -558,22 +644,20 @@ AcquireResponse RemoteTransport::acquire(const std::string& run_id, int max_file
     return resp;
 }
 
-void RemoteTransport::release(const std::string& run_id,
-                               const std::vector<std::string>& paths) {
+void RemoteTransport::release(const std::string& run_id, const std::vector<std::string>& paths) {
 #ifdef BUILD_METRICS_API_SERVER
     httplib::Client cli(host_, port_);
     cli.set_connection_timeout(0, timeout_ms_ * 1000);
     cli.set_read_timeout(0, timeout_ms_ * 1000);
 
     std::ostringstream body;
-    body << "{\"run_id\":\"" << json_escape(run_id) << "\","
-         << "\"files\":" << json_array(paths) << "}";
+    body << "{\"run_id\":\"" << json_escape(run_id) << "\"," << "\"files\":" << json_array(paths)
+         << "}";
 
-    const auto res = cli.Post((group_prefix_ + "/release").c_str(),
-                              body.str(), "application/json");
+    const auto res = cli.Post((group_prefix_ + "/release").c_str(), body.str(), "application/json");
     if (!res || res->status != 200) {
-        Logger::error("RemoteTransport::release — HTTP {} from {}:{}{}",
-                      res ? res->status : -1, host_, port_, group_prefix_ + "/release");
+        Logger::error("RemoteTransport::release — HTTP {} from {}:{}{}", res ? res->status : -1,
+                      host_, port_, group_prefix_ + "/release");
     }
 #else
     Logger::error("RemoteTransport::release — not compiled");
@@ -581,8 +665,8 @@ void RemoteTransport::release(const std::string& run_id,
 }
 
 void RemoteTransport::commit_trained(const std::string& run_id,
-                                      const std::vector<DataVersion>& new_entries,
-                                      const std::vector<std::string>& trained_paths) {
+                                     const std::vector<DataVersion>& new_entries,
+                                     const std::vector<std::string>& trained_paths) {
 #ifdef BUILD_METRICS_API_SERVER
     httplib::Client cli(host_, port_);
     cli.set_connection_timeout(0, timeout_ms_ * 1000);
@@ -605,17 +689,16 @@ void RemoteTransport::commit_trained(const std::string& run_id,
     }
 
     std::ostringstream body;
-    body << "{\"run_id\":\"" << json_escape(run_id) << "\","
-         << "\"files\":" << json_array(files) << ","
-         << "\"samples\":[";
+    body << "{\"run_id\":\"" << json_escape(run_id) << "\"," << "\"files\":" << json_array(files)
+         << "," << "\"samples\":[";
     for (std::size_t i = 0; i < samples.size(); ++i) {
-        if (i) body << ',';
+        if (i)
+            body << ',';
         body << samples[i];
     }
     body << "]}";
 
-    const auto res = cli.Post((group_prefix_ + "/trained").c_str(),
-                              body.str(), "application/json");
+    const auto res = cli.Post((group_prefix_ + "/trained").c_str(), body.str(), "application/json");
     if (!res || res->status != 200) {
         Logger::error("RemoteTransport::commit_trained — HTTP {} from {}:{}{}",
                       res ? res->status : -1, host_, port_, group_prefix_ + "/trained");
@@ -634,11 +717,11 @@ bool RemoteTransport::add_pending(const std::string& path) {
     std::ostringstream body;
     body << "{\"path\":\"" << json_escape(path) << "\"}";
 
-    const auto res = cli.Post((group_prefix_ + "/pending/add").c_str(),
-                              body.str(), "application/json");
+    const auto res =
+        cli.Post((group_prefix_ + "/pending/add").c_str(), body.str(), "application/json");
     if (!res || res->status != 200) {
-        Logger::error("RemoteTransport::add_pending — HTTP {} from {}:{}{}",
-                      res ? res->status : -1, host_, port_, group_prefix_ + "/pending/add");
+        Logger::error("RemoteTransport::add_pending — HTTP {} from {}:{}{}", res ? res->status : -1,
+                      host_, port_, group_prefix_ + "/pending/add");
         return false;
     }
     if (res->body.find("\"added\":false") != std::string::npos) {
@@ -649,5 +732,113 @@ bool RemoteTransport::add_pending(const std::string& path) {
 #else
     Logger::error("RemoteTransport::add_pending — not compiled");
     return false;
+#endif
+}
+
+// Phase 11: server-side dataset fetch ---------------------------------------
+
+std::string RemoteTransport::fetch_gutenberg(int book_id, int num_pairs,
+                                             const std::string& model_name) {
+#ifdef BUILD_METRICS_API_SERVER
+    httplib::Client cli(host_, port_);
+    cli.set_connection_timeout(0, timeout_ms_ * 1000);
+    // Fetching a book + converting it can take a while; give the server room.
+    cli.set_read_timeout(std::max(timeout_ms_, 120000) / 1000, 0);
+
+    std::ostringstream body;
+    body << "{\"book_id\":" << book_id << ",\"num_pairs\":" << num_pairs << ",\"model_name\":\""
+         << json_escape(model_name) << "\"}";
+
+    const auto res =
+        cli.Post((group_prefix_ + "/fetch/gutenberg").c_str(), body.str(), "application/json");
+    if (!res || res->status != 200) {
+        Logger::error("RemoteTransport::fetch_gutenberg — HTTP {} from {}:{}{}",
+                      res ? res->status : -1, host_, port_, group_prefix_ + "/fetch/gutenberg");
+        return "";
+    }
+    if (res->body.find("\"added\":true") == std::string::npos) {
+        Logger::error("RemoteTransport::fetch_gutenberg — registry reported failure: {}",
+                      res->body);
+        return "";
+    }
+    return json_string(res->body, "path");
+#else
+    Logger::error("RemoteTransport::fetch_gutenberg — not compiled");
+    return "";
+#endif
+}
+
+std::string RemoteTransport::fetch_huggingface(const std::string& dataset_id, int num_pairs,
+                                               const std::string& split,
+                                               const std::string& input_field,
+                                               const std::string& output_field,
+                                               const std::string& model_name) {
+#ifdef BUILD_METRICS_API_SERVER
+    httplib::Client cli(host_, port_);
+    cli.set_connection_timeout(0, timeout_ms_ * 1000);
+    // HuggingFace downloads can be large; give the server room.
+    cli.set_read_timeout(std::max(timeout_ms_, 120000) / 1000, 0);
+
+    std::ostringstream body;
+    body << "{\"dataset_id\":\"" << json_escape(dataset_id) << "\"," << "\"num_pairs\":"
+         << num_pairs << "," << "\"split\":\"" << json_escape(split) << "\","
+         << "\"input_field\":\"" << json_escape(input_field) << "\"," << "\"output_field\":\""
+         << json_escape(output_field) << "\"," << "\"model_name\":\"" << json_escape(model_name)
+         << "\"}";
+
+    const auto res =
+        cli.Post((group_prefix_ + "/fetch/huggingface").c_str(), body.str(), "application/json");
+    if (!res || res->status != 200) {
+        Logger::error("RemoteTransport::fetch_huggingface — HTTP {} from {}:{}{}",
+                      res ? res->status : -1, host_, port_, group_prefix_ + "/fetch/huggingface");
+        return "";
+    }
+    if (res->body.find("\"added\":true") == std::string::npos) {
+        Logger::error("RemoteTransport::fetch_huggingface — registry reported failure: {}",
+                      res->body);
+        return "";
+    }
+    return json_string(res->body, "path");
+#else
+    Logger::error("RemoteTransport::fetch_huggingface — not compiled");
+    return "";
+#endif
+}
+
+std::string RemoteTransport::upload_file(const std::string& local_path) {
+#ifdef BUILD_METRICS_API_SERVER
+    std::ifstream in(local_path, std::ios::binary);
+    if (!in.is_open()) {
+        Logger::error("RemoteTransport::upload_file — cannot open local file: {}", local_path);
+        return "";
+    }
+    std::ostringstream buf;
+    buf << in.rdbuf();
+    const std::string contents = buf.str();
+
+    const std::string filename = fs::path(local_path).filename().string();
+
+    httplib::Client cli(host_, port_);
+    cli.set_connection_timeout(0, timeout_ms_ * 1000);
+    // Upload duration scales with file size; give the server room.
+    cli.set_read_timeout(std::max(timeout_ms_, 120000) / 1000, 0);
+    cli.set_write_timeout(std::max(timeout_ms_, 120000) / 1000, 0);
+
+    const std::string path =
+        group_prefix_ + "/upload?filename=" + httplib::detail::encode_query_param(filename);
+    const auto res = cli.Post(path.c_str(), contents, "application/octet-stream");
+    if (!res || res->status != 200) {
+        Logger::error("RemoteTransport::upload_file — HTTP {} from {}:{}{}",
+                      res ? res->status : -1, host_, port_, path);
+        return "";
+    }
+    if (res->body.find("\"added\":true") == std::string::npos) {
+        Logger::error("RemoteTransport::upload_file — registry reported failure: {}", res->body);
+        return "";
+    }
+    return json_string(res->body, "path");
+#else
+    Logger::error("RemoteTransport::upload_file — not compiled");
+    return "";
 #endif
 }

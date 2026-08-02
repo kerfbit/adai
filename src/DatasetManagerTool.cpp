@@ -29,11 +29,11 @@ int main(int argc, char* argv[]) {
     // Auto-discover config.conf: explicit --config > CWD/config.conf > /etc/adai/config.conf.
     if (config_path.empty()) {
         std::ifstream local_check("config.conf");
-        if (local_check.good()) config_path = "config.conf";
+        if (local_check.good())
+            config_path = "config.conf";
     }
     adai::ServiceConfig svc_config =
-        config_path.empty() ? adai::ConfigLoader::load()
-                            : adai::ConfigLoader::load(config_path);
+        config_path.empty() ? adai::ConfigLoader::load() : adai::ConfigLoader::load(config_path);
 
     if (args.empty()) {
         std::cout << "Usage: " << argv[0] << " [--config <path>] <command> [options]\n\n";
@@ -42,17 +42,31 @@ int main(int argc, char* argv[]) {
         std::cout << "                               Search order: --config > ./config.conf > "
                      "/etc/adai/config.conf\n\n";
         std::cout << "Commands:\n";
-        std::cout << "  add <data_file>              Add a local training file to the pending queue\n";
-        std::cout << "  gutenberg <id> [pairs]       Download & queue a Gutenberg book (default: 500 pairs)\n";
-        std::cout << "  gutenberg-batch <id1,id2...> [pairs]  Download multiple books\n";
-        std::cout << "  huggingface <id> [pairs] [split] [in_field] [out_field]\n";
-        std::cout << "                               Download a HuggingFace dataset (default: 500 pairs, train split)\n";
-        std::cout << "  status                       Show pending/trained file counts and registry\n";
+        std::cout
+            << "  add <data_file>              Add a local training file to the pending queue\n";
+        std::cout << "  gutenberg <id> [pairs] [model]  Download & queue a Gutenberg book "
+                     "(default: 500 pairs)\n";
+        std::cout << "  gutenberg-batch <id1,id2...> [pairs] [model]  Download multiple books\n";
+        std::cout << "  huggingface <id> [pairs] [split] [in_field] [out_field] [model]\n";
+        std::cout << "                               Download a HuggingFace dataset (default: 500 "
+                     "pairs, train split).\n";
+        std::cout << "                               [model] (remote mode only) rotates through a "
+                     "different slice\n";
+        std::cout << "                               of the dataset per model name instead of "
+                     "always the same rows.\n";
+        std::cout << "\nNote: when REGISTRY_SERVER_URL is configured, add/gutenberg*/huggingface "
+                     "run\n";
+        std::cout << "      on the registry server itself (bytes land in its data_dir and are\n";
+        std::cout << "      served to trainers over the existing FTP transport) instead of "
+                     "locally.\n";
+        std::cout
+            << "  status                       Show pending/trained file counts and registry\n";
         std::cout << "  list-pending                 List all pending files\n";
         std::cout << "  list-trained                 List all trained files\n";
         std::cout << "  remove <file>                Remove a single file from the pending queue\n";
         std::cout << "  clear-pending                Remove all files from the pending queue\n";
-        std::cout << "  assign <model> [file ...]    Assign pending file(s) to a model (omit files = all)\n";
+        std::cout << "  assign <model> [file ...]    Assign pending file(s) to a model (omit files "
+                     "= all)\n";
         std::cout << "  models                       List registered models from name service\n";
         std::cout << "\nPopular Gutenberg Books:\n";
         std::cout << "  1342  - Pride and Prejudice (Jane Austen)\n";
@@ -64,9 +78,12 @@ int main(int argc, char* argv[]) {
         std::cout << "  1260  - Jane Eyre (Charlotte Bronte)\n";
         std::cout << "  98    - A Tale of Two Cities (Charles Dickens)\n";
         std::cout << "\nPopular HuggingFace Datasets:\n";
-        std::cout << "  daily_dialog              - Daily conversation pairs (dialog array format)\n";
-        std::cout << "  tatsu-lab/alpaca          - Instruction-following (instruction/output fields)\n";
-        std::cout << "  databricks/databricks-dolly-15k - Instruction dataset (instruction/response)\n";
+        std::cout
+            << "  daily_dialog              - Daily conversation pairs (dialog array format)\n";
+        std::cout
+            << "  tatsu-lab/alpaca          - Instruction-following (instruction/output fields)\n";
+        std::cout
+            << "  databricks/databricks-dolly-15k - Instruction dataset (instruction/response)\n";
         std::cout << "  Open-Orca/OpenOrca        - Chain-of-thought Q&A (question/response)\n";
         return 0;
     }
@@ -85,7 +102,16 @@ int main(int argc, char* argv[]) {
         reg.load_registry();
         reg.load_pending_list();
 
-        if (reg.add_file(data_file)) {
+        bool ok;
+        if (!svc_config.registry_server_url.empty()) {
+            // Remote mode: upload the bytes to registry_server so they land on
+            // its data_dir, where the FTP delivery pipeline can serve them out.
+            ok = !reg.remote_upload(data_file).empty();
+        } else {
+            ok = reg.add_file(data_file);
+        }
+
+        if (ok) {
             std::cout << "✅ Data file added to pending queue\n";
             std::cout << "📊 Pending files: " << reg.pending_files().size() << "\n";
         } else {
@@ -95,23 +121,37 @@ int main(int argc, char* argv[]) {
 
     } else if (command == "gutenberg") {
         if (args.size() < 2) {
-            std::cerr << "Usage: " << argv[0] << " gutenberg <book_id> [num_pairs]\n";
+            std::cerr << "Usage: " << argv[0] << " gutenberg <book_id> [num_pairs] [model]\n";
             std::cerr << "Example: " << argv[0] << " gutenberg 1342 500\n";
+            std::cerr << "  [model] is only meaningful when REGISTRY_SERVER_URL is set: the "
+                        "registry\n";
+            std::cerr << "  serves a different rotating slice of the book per model name "
+                        "instead of\n";
+            std::cerr << "  always the same sentences. Ignored entirely in local mode.\n";
             return 1;
         }
 
         int book_id = std::stoi(args[1]);
         int num_pairs = (args.size() >= 3) ? std::stoi(args[2]) : 500;
+        std::string model = (args.size() >= 4) ? args[3] : "";
 
-        DataFetcher fetcher;
         DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
         reg.load_registry();
         reg.load_pending_list();
 
-        std::cout << "📚 Downloading Project Gutenberg book #" << book_id << "...\n";
+        bool ok;
+        if (!svc_config.registry_server_url.empty()) {
+            std::cout << "📚 Requesting registry server download Project Gutenberg book #"
+                      << book_id << "...\n";
+            ok = !reg.remote_fetch_gutenberg(book_id, num_pairs, model).empty();
+        } else {
+            std::cout << "📚 Downloading Project Gutenberg book #" << book_id << "...\n";
+            DataFetcher fetcher;
+            std::string path = fetcher.fetch_gutenberg(book_id, num_pairs);
+            ok = !path.empty() && reg.add_file(path);
+        }
 
-        std::string path = fetcher.fetch_gutenberg(book_id, num_pairs);
-        if (!path.empty() && reg.add_file(path)) {
+        if (ok) {
             std::cout << "✅ Book added to training queue (" << num_pairs << " pairs)\n";
             std::cout << "📊 Pending files: " << reg.pending_files().size() << "\n";
         } else {
@@ -122,30 +162,41 @@ int main(int argc, char* argv[]) {
     } else if (command == "gutenberg-batch") {
         if (args.size() < 2) {
             std::cerr << "Usage: " << argv[0]
-                      << " gutenberg-batch <id1,id2,id3,...> [num_pairs_each]\n";
+                      << " gutenberg-batch <id1,id2,id3,...> [num_pairs_each] [model]\n";
             std::cerr << "Example: " << argv[0] << " gutenberg-batch 1342,11,84,1661 300\n";
             return 1;
         }
 
         std::string ids_str = args[1];
         int num_pairs_each = (args.size() >= 3) ? std::stoi(args[2]) : 500;
+        std::string model = (args.size() >= 4) ? args[3] : "";
 
         std::vector<int> book_ids;
         std::stringstream ss(ids_str);
         std::string tok;
-        while (std::getline(ss, tok, ',')) book_ids.push_back(std::stoi(tok));
+        while (std::getline(ss, tok, ','))
+            book_ids.push_back(std::stoi(tok));
 
-        DataFetcher fetcher;
         DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
         reg.load_registry();
         reg.load_pending_list();
 
-        std::cout << "📚 Downloading " << book_ids.size() << " Project Gutenberg books...\n";
-
-        auto paths = fetcher.fetch_gutenberg_batch(book_ids, num_pairs_each);
         int added = 0;
-        for (const auto& p : paths) {
-            if (!p.empty() && reg.add_file(p)) ++added;
+        if (!svc_config.registry_server_url.empty()) {
+            std::cout << "📚 Requesting registry server download " << book_ids.size()
+                      << " Project Gutenberg books...\n";
+            for (int book_id : book_ids) {
+                if (!reg.remote_fetch_gutenberg(book_id, num_pairs_each, model).empty())
+                    ++added;
+            }
+        } else {
+            std::cout << "📚 Downloading " << book_ids.size() << " Project Gutenberg books...\n";
+            DataFetcher fetcher;
+            auto paths = fetcher.fetch_gutenberg_batch(book_ids, num_pairs_each);
+            for (const auto& p : paths) {
+                if (!p.empty() && reg.add_file(p))
+                    ++added;
+            }
         }
         if (added > 0) {
             std::cout << "✅ " << added << "/" << book_ids.size()
@@ -159,27 +210,47 @@ int main(int argc, char* argv[]) {
     } else if (command == "huggingface") {
         if (args.size() < 2) {
             std::cerr << "Usage: " << argv[0]
-                      << " huggingface <dataset_id> [num_pairs] [split] [input_field] [output_field]\n";
+                      << " huggingface <dataset_id> [num_pairs] [split] [input_field] "
+                        "[output_field] [model]\n";
             std::cerr << "Example: " << argv[0] << " huggingface daily_dialog 500\n";
             std::cerr << "Example: " << argv[0]
                       << " huggingface tatsu-lab/alpaca 300 train instruction output\n";
+            std::cerr << "  [model] is only meaningful when REGISTRY_SERVER_URL is set: the "
+                        "registry\n";
+            std::cerr << "  serves a different rotating slice of the dataset per model name "
+                        "instead of\n";
+            std::cerr << "  always the same rows; omit it (or reuse it) to keep advancing the "
+                        "same model's\n";
+            std::cerr << "  cursor. Ignored entirely in local mode.\n";
             return 1;
         }
 
-        std::string dataset_id  = args[1];
-        int num_pairs           = (args.size() >= 3) ? std::stoi(args[2]) : 500;
-        std::string split       = (args.size() >= 4) ? args[3] : "train";
+        std::string dataset_id = args[1];
+        int num_pairs = (args.size() >= 3) ? std::stoi(args[2]) : 500;
+        std::string split = (args.size() >= 4) ? args[3] : "train";
         std::string input_field = (args.size() >= 5) ? args[4] : "";
-        std::string output_field= (args.size() >= 6) ? args[5] : "";
+        std::string output_field = (args.size() >= 6) ? args[5] : "";
+        std::string model = (args.size() >= 7) ? args[6] : "";
 
-        DataFetcher fetcher;
         DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
         reg.load_registry();
         reg.load_pending_list();
 
-        std::string path =
-            fetcher.fetch_huggingface(dataset_id, num_pairs, split, input_field, output_field);
-        if (!path.empty() && reg.add_file(path)) {
+        bool ok;
+        if (!svc_config.registry_server_url.empty()) {
+            std::cout << "🤖 Requesting registry server download HuggingFace dataset '"
+                      << dataset_id << "'...\n";
+            ok = !reg.remote_fetch_huggingface(dataset_id, num_pairs, split, input_field,
+                                               output_field, model)
+                      .empty();
+        } else {
+            DataFetcher fetcher;
+            std::string path =
+                fetcher.fetch_huggingface(dataset_id, num_pairs, split, input_field, output_field);
+            ok = !path.empty() && reg.add_file(path);
+        }
+
+        if (ok) {
             std::cout << "✅ Dataset added to training queue (" << num_pairs << " pairs)\n";
             std::cout << "📊 Pending files: " << reg.pending_files().size() << "\n";
         } else {
@@ -207,7 +278,8 @@ int main(int argc, char* argv[]) {
             std::cout << "\n📋 Pending files:\n";
             for (const auto& e : entries) {
                 std::cout << "  - " << e.path;
-                if (!e.model_name.empty()) std::cout << "  [model: " << e.model_name << "]";
+                if (!e.model_name.empty())
+                    std::cout << "  [model: " << e.model_name << "]";
                 std::cout << "\n";
             }
         }
@@ -222,7 +294,8 @@ int main(int argc, char* argv[]) {
         } else {
             for (const auto& e : entries) {
                 std::cout << e.path;
-                if (!e.model_name.empty()) std::cout << "\t" << e.model_name;
+                if (!e.model_name.empty())
+                    std::cout << "\t" << e.model_name;
                 std::cout << "\n";
             }
         }
@@ -235,7 +308,8 @@ int main(int argc, char* argv[]) {
         if (trained.empty()) {
             std::cout << "No trained files.\n";
         } else {
-            for (const auto& f : trained) std::cout << f << "\n";
+            for (const auto& f : trained)
+                std::cout << f << "\n";
         }
 
     } else if (command == "remove") {
@@ -291,10 +365,11 @@ int main(int argc, char* argv[]) {
                 adai::ModelNameClient client(mns_url, svc_config.name_service_timeout_ms);
                 auto resolved = client.resolve_model(model_name);
                 std::cout << "✅ Verified model: " << resolved.model_name
-                          << " (id: " << resolved.model_id << ", state: " << resolved.state << ")\n";
+                          << " (id: " << resolved.model_id << ", state: " << resolved.state
+                          << ")\n";
             } catch (const std::exception& e) {
-                std::cerr << "❌ Model '" << model_name << "' not found in name service: "
-                          << e.what() << "\n";
+                std::cerr << "❌ Model '" << model_name
+                          << "' not found in name service: " << e.what() << "\n";
                 return 1;
             }
         }
@@ -336,11 +411,15 @@ int main(int argc, char* argv[]) {
             std::string host = "localhost";
             int port = 8083;
             std::string url = mns_url;
-            if (url.rfind("http://", 0) == 0) url = url.substr(7);
+            if (url.rfind("http://", 0) == 0)
+                url = url.substr(7);
             auto colon = url.find(':');
             if (colon != std::string::npos) {
                 host = url.substr(0, colon);
-                try { port = std::stoi(url.substr(colon + 1)); } catch (...) {}
+                try {
+                    port = std::stoi(url.substr(colon + 1));
+                } catch (...) {
+                }
             }
             // Query /models endpoint directly
             std::cout << "Querying name service at " << mns_url << "...\n";
@@ -348,14 +427,14 @@ int main(int argc, char* argv[]) {
             // or just report the configured model
             if (!svc_config.model_name.empty()) {
                 auto resolved = client.resolve_model(svc_config.model_name);
-                std::cout << "  Model: " << resolved.model_name
-                          << "  State: " << resolved.state
+                std::cout << "  Model: " << resolved.model_name << "  State: " << resolved.state
                           << "  ID: " << resolved.model_id << "\n";
                 if (!resolved.artifact.path.empty()) {
                     std::cout << "  Artifact: " << resolved.artifact.path << "\n";
                 }
             } else {
-                std::cout << "No MODEL_NAME configured. Set NAME_SERVICE_URL and MODEL_NAME in config.\n";
+                std::cout
+                    << "No MODEL_NAME configured. Set NAME_SERVICE_URL and MODEL_NAME in config.\n";
             }
         } catch (const std::exception& e) {
             std::cerr << "Name service query failed: " << e.what() << "\n";

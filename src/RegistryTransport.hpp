@@ -19,8 +19,8 @@
 struct DataVersion {
     std::string data_file;
     std::string checksum;
-    int         num_samples = 0;
-    bool        trained     = false;
+    int num_samples = 0;
+    bool trained = false;
     std::string model_id;  ///< Phase 2: MNS model UUID; empty for pre-MNS records
     std::chrono::system_clock::time_point added_time;
 };
@@ -48,13 +48,13 @@ struct PendingEntry {
  * fields are empty, which signals direct filesystem access.
  */
 struct FileToken {
-    std::string  registry_path;      ///< absolute path as known to the registry
-    std::string  ftp_path;           ///< path relative to FTP root (data_dir)
-    std::string  ftp_username;       ///< per-file virtual FTP username
-    std::string  ftp_password;       ///< per-file FTP password (random 32-byte hex)
-    std::string  checksum;           ///< size+mtime from DataVersion (logging only)
-    std::size_t  size_bytes = 0;     ///< expected byte count; used for size verification
-    std::string  token_expires_utc;  ///< ISO-8601 UTC expiry timestamp
+    std::string registry_path;      ///< absolute path as known to the registry
+    std::string ftp_path;           ///< path relative to FTP root (data_dir)
+    std::string ftp_username;       ///< per-file virtual FTP username
+    std::string ftp_password;       ///< per-file FTP password (random 32-byte hex)
+    std::string checksum;           ///< size+mtime from DataVersion (logging only)
+    std::size_t size_bytes = 0;     ///< expected byte count; used for size verification
+    std::string token_expires_utc;  ///< ISO-8601 UTC expiry timestamp
 };
 
 /**
@@ -65,17 +65,18 @@ struct FileToken {
  * the trainer fetches each file via FTP using the per-file credentials.
  */
 struct AcquireResponse {
-    std::string            run_id;
-    std::string            ftp_server_host;   ///< empty → direct path access
-    int                    ftp_server_port = 2121;
-    bool                   ftps_enabled = false;  ///< Phase 3: use FTPS (TLS) for downloads
+    std::string run_id;
+    std::string ftp_server_host;  ///< empty → direct path access
+    int ftp_server_port = 2121;
+    bool ftps_enabled = false;  ///< Phase 3: use FTPS (TLS) for downloads
     std::vector<FileToken> files;
 
     /// Convenience: collect registry_paths for release/mark_trained calls.
     std::vector<std::string> registry_paths() const {
         std::vector<std::string> out;
         out.reserve(files.size());
-        for (const auto& f : files) out.push_back(f.registry_path);
+        for (const auto& f : files)
+            out.push_back(f.registry_path);
         return out;
     }
 };
@@ -94,12 +95,12 @@ struct AcquireResponse {
  * All methods are non-const; implementations may buffer or cache state.
  */
 class RegistryTransport {
-public:
+   public:
     virtual ~RegistryTransport() = default;
 
     /** @brief Load all DataVersion entries into @p out.  Clears @p out first.
      *  @return true if the backing store was found and parsed. */
-    virtual bool load_registry(std::vector<DataVersion>& out)           = 0;
+    virtual bool load_registry(std::vector<DataVersion>& out) = 0;
 
     /** @brief Persist @p entries to the backing store.
      *  @return true on success. */
@@ -107,7 +108,7 @@ public:
 
     /** @brief Load all pending-queue entries into @p out.  Clears @p out first.
      *  @return true if the backing store was found and parsed. */
-    virtual bool load_pending(std::vector<PendingEntry>& out)           = 0;
+    virtual bool load_pending(std::vector<PendingEntry>& out) = 0;
 
     /** @brief Persist @p entries to the backing store.
      *  @return true on success. */
@@ -145,6 +146,54 @@ public:
      *  No-op (returns true) if @p path is already present.
      *  @return true on success. */
     virtual bool add_pending(const std::string& path) = 0;
+
+    // ── Phase 11: server-side dataset fetch ────────────────────────────────
+    //
+    // In distributed mode the registry_server (not the caller) performs the
+    // actual download/storage so the bytes land under its own data_dir where
+    // the FTP delivery pipeline (FtpDataServer + DataTransport) can serve
+    // them out to trainers. LocalTransport has no server to delegate to, so
+    // these are unsupported there — see DatasetRegistry::add_file() /
+    // DataFetcher for the local-mode equivalent.
+
+    /**
+     * @brief Ask the registry to download a Project Gutenberg book into its
+     *        own data_dir and enqueue it as pending.
+     *
+     * @param model_name Identifies the caller for per-model rotating-slice
+     *                    tracking (Phase 13) — the registry serves a
+     *                    different slice of the book to each distinct
+     *                    model_name rather than always the same sentences.
+     *                    Empty is valid and buckets into a shared cursor.
+     * @return Registry-relative path of the newly queued file, or "" on failure.
+     */
+    virtual std::string fetch_gutenberg(int book_id, int num_pairs,
+                                        const std::string& model_name) = 0;
+
+    /**
+     * @brief Ask the registry to download a HuggingFace dataset into its own
+     *        data_dir and enqueue it as pending.
+     *
+     * @param model_name Identifies the caller for per-model rotating-slice
+     *                    tracking (Phase 12) — the registry serves a
+     *                    different slice of the dataset to each distinct
+     *                    model_name rather than always the same rows. Empty
+     *                    is valid and buckets into a shared cursor.
+     * @return Registry-relative path of the newly queued file, or "" on failure.
+     */
+    virtual std::string fetch_huggingface(const std::string& dataset_id, int num_pairs,
+                                          const std::string& split,
+                                          const std::string& input_field,
+                                          const std::string& output_field,
+                                          const std::string& model_name) = 0;
+
+    /**
+     * @brief Upload a local file's bytes to the registry's own data_dir and
+     *        enqueue it as pending.
+     * @param local_path Path to a file readable on the caller's machine.
+     * @return Registry-relative path of the newly queued file, or "" on failure.
+     */
+    virtual std::string upload_file(const std::string& local_path) = 0;
 };
 
 // ============================================================================
@@ -181,31 +230,39 @@ public:
  * concurrent callers on the same host.
  */
 class LocalTransport : public RegistryTransport {
-public:
+   public:
     /**
      * @param registry_path  Full path to the data_registry.txt file.
      * @param pending_path   Full path to the pending_files.txt file.
      */
     LocalTransport(std::string registry_path, std::string pending_path);
 
-    bool load_registry(std::vector<DataVersion>& out)                         override;
-    bool save_registry(const std::vector<DataVersion>& entries)               override;
-    bool load_pending(std::vector<PendingEntry>& out)                         override;
-    bool save_pending(const std::vector<PendingEntry>& entries)               override;
+    bool load_registry(std::vector<DataVersion>& out) override;
+    bool save_registry(const std::vector<DataVersion>& entries) override;
+    bool load_pending(std::vector<PendingEntry>& out) override;
+    bool save_pending(const std::vector<PendingEntry>& entries) override;
     AcquireResponse acquire(const std::string& run_id, int max_files) override;
     void release(const std::string& run_id, const std::vector<std::string>& paths) override;
-    void commit_trained(const std::string& run_id,
-                        const std::vector<DataVersion>& new_entries,
-                        const std::vector<std::string>& trained_paths)        override;
-    bool add_pending(const std::string& path)                                 override;
+    void commit_trained(const std::string& run_id, const std::vector<DataVersion>& new_entries,
+                        const std::vector<std::string>& trained_paths) override;
+    bool add_pending(const std::string& path) override;
 
-private:
+    // Phase 11: not supported in local mode — logs a warning and returns "".
+    std::string fetch_gutenberg(int book_id, int num_pairs,
+                                const std::string& model_name) override;
+    std::string fetch_huggingface(const std::string& dataset_id, int num_pairs,
+                                  const std::string& split, const std::string& input_field,
+                                  const std::string& output_field,
+                                  const std::string& model_name) override;
+    std::string upload_file(const std::string& local_path) override;
+
+   private:
     std::string registry_path_;
     std::string pending_path_;
 
     // Hold an exclusive flock on pending_path_ + ".lock" for the duration of
     // an acquire/release cycle and return the fd, or -1 on failure.
-    int  lock_pending() const;
+    int lock_pending() const;
     void unlock_pending(int lock_fd) const;
 };
 
@@ -227,7 +284,7 @@ private:
  *   /registry/<group>/<endpoint>
  */
 class RemoteTransport final : public RegistryTransport {
-public:
+   public:
     /**
      * @param base_url   Scheme + host + optional port, e.g. "http://reg:8082"
      * @param run_group  Logical namespace for this project.
@@ -235,20 +292,29 @@ public:
      */
     RemoteTransport(std::string base_url, std::string run_group, int timeout_ms = 5000);
 
-    bool load_registry(std::vector<DataVersion>& out)                         override;
-    bool save_registry(const std::vector<DataVersion>& entries)               override;
-    bool load_pending(std::vector<PendingEntry>& out)                         override;
-    bool save_pending(const std::vector<PendingEntry>& entries)               override;
-    AcquireResponse acquire(const std::string& run_id, int max_files)        override;
+    bool load_registry(std::vector<DataVersion>& out) override;
+    bool save_registry(const std::vector<DataVersion>& entries) override;
+    bool load_pending(std::vector<PendingEntry>& out) override;
+    bool save_pending(const std::vector<PendingEntry>& entries) override;
+    AcquireResponse acquire(const std::string& run_id, int max_files) override;
     void release(const std::string& run_id, const std::vector<std::string>& paths) override;
-    void commit_trained(const std::string& run_id,
-                        const std::vector<DataVersion>& new_entries,
-                        const std::vector<std::string>& trained_paths)        override;
-    bool add_pending(const std::string& path)                                 override;
+    void commit_trained(const std::string& run_id, const std::vector<DataVersion>& new_entries,
+                        const std::vector<std::string>& trained_paths) override;
+    bool add_pending(const std::string& path) override;
 
-private:
+    // Phase 11: delegate to the registry_server, which performs the fetch/
+    // upload itself and stores the result under its own data_dir.
+    std::string fetch_gutenberg(int book_id, int num_pairs,
+                                const std::string& model_name) override;
+    std::string fetch_huggingface(const std::string& dataset_id, int num_pairs,
+                                  const std::string& split, const std::string& input_field,
+                                  const std::string& output_field,
+                                  const std::string& model_name) override;
+    std::string upload_file(const std::string& local_path) override;
+
+   private:
     std::string host_;
-    int         port_;
+    int port_;
     std::string group_prefix_;  ///< "/registry/<run_group>"
-    int         timeout_ms_;
+    int timeout_ms_;
 };

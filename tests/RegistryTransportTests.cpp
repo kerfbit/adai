@@ -21,33 +21,38 @@ namespace fs = std::filesystem;
 // ============================================================================
 
 class LocalTransportPhase9Test : public ::testing::Test {
-protected:
+   protected:
     void SetUp() override {
-        tmp_dir_  = fs::temp_directory_path() / "adai_registry_p9_test";
+        tmp_dir_ = fs::temp_directory_path() / "adai_registry_p9_test";
         fs::remove_all(tmp_dir_);
         fs::create_directories(tmp_dir_);
-        reg_path_  = (tmp_dir_ / "registry.txt").string();
+        reg_path_ = (tmp_dir_ / "registry.txt").string();
         pend_path_ = (tmp_dir_ / "pending.txt").string();
     }
 
-    void TearDown() override { fs::remove_all(tmp_dir_); }
+    void TearDown() override {
+        fs::remove_all(tmp_dir_);
+    }
 
     // Write a pending file manually (path only — no run_id)
     void seed_pending(const std::vector<std::string>& paths) {
         std::ofstream f(pend_path_);
-        for (const auto& p : paths) f << p << '\n';
+        for (const auto& p : paths)
+            f << p << '\n';
     }
 
     // Write a pending file with run_id assignments (tab-separated format)
-    void seed_pending_assigned(const std::vector<std::pair<std::string,std::string>>& entries) {
+    void seed_pending_assigned(const std::vector<std::pair<std::string, std::string>>& entries) {
         std::ofstream f(pend_path_);
         for (const auto& [path, run] : entries) {
-            if (run.empty()) f << path << '\n';
-            else             f << path << '\t' << run << '\n';
+            if (run.empty())
+                f << path << '\n';
+            else
+                f << path << '\t' << run << '\n';
         }
     }
 
-    fs::path    tmp_dir_;
+    fs::path tmp_dir_;
     std::string reg_path_;
     std::string pend_path_;
 };
@@ -165,8 +170,16 @@ TEST_F(LocalTransportPhase9Test, CommitTrainedUpdatesRegistryAndRemovesPending) 
     t.acquire("run-a", 2);  // claims a and b
 
     // Simulate training completion for a and b
-    DataVersion dv1; dv1.data_file = "/data/a.txt"; dv1.checksum = "MISSING"; dv1.trained = true; dv1.num_samples = 10;
-    DataVersion dv2; dv2.data_file = "/data/b.txt"; dv2.checksum = "MISSING"; dv2.trained = true; dv2.num_samples = 20;
+    DataVersion dv1;
+    dv1.data_file = "/data/a.txt";
+    dv1.checksum = "MISSING";
+    dv1.trained = true;
+    dv1.num_samples = 10;
+    DataVersion dv2;
+    dv2.data_file = "/data/b.txt";
+    dv2.checksum = "MISSING";
+    dv2.trained = true;
+    dv2.num_samples = 20;
 
     t.commit_trained("run-a", {dv1, dv2}, {"/data/a.txt", "/data/b.txt"});
 
@@ -194,7 +207,10 @@ TEST_F(LocalTransportPhase9Test, CommitTrainedWithEmptyRunIdRemovesAny) {
     t.acquire("run-b", 1);
 
     // Commit with empty run_id: removes any matching path regardless of owner
-    DataVersion dv; dv.data_file = "/data/x.txt"; dv.checksum = "MISSING"; dv.trained = true;
+    DataVersion dv;
+    dv.data_file = "/data/x.txt";
+    dv.checksum = "MISSING";
+    dv.trained = true;
     t.commit_trained("", {dv}, {"/data/x.txt"});
 
     std::vector<PendingEntry> pending;
@@ -206,7 +222,10 @@ TEST_F(LocalTransportPhase9Test, CommitTrainedWithEmptyRunIdRemovesAny) {
 TEST_F(LocalTransportPhase9Test, CommitTrainedAppendsToExistingRegistry) {
     // Pre-populate the registry with one entry
     {
-        DataVersion existing; existing.data_file = "/data/old.txt"; existing.checksum = "MISSING"; existing.trained = true;
+        DataVersion existing;
+        existing.data_file = "/data/old.txt";
+        existing.checksum = "MISSING";
+        existing.trained = true;
         LocalTransport t(reg_path_, pend_path_);
         t.save_registry({existing});
     }
@@ -215,7 +234,11 @@ TEST_F(LocalTransportPhase9Test, CommitTrainedAppendsToExistingRegistry) {
     LocalTransport t(reg_path_, pend_path_);
     t.acquire("run-a", 0);
 
-    DataVersion dv; dv.data_file = "/data/new.txt"; dv.checksum = "MISSING"; dv.trained = true; dv.num_samples = 5;
+    DataVersion dv;
+    dv.data_file = "/data/new.txt";
+    dv.checksum = "MISSING";
+    dv.trained = true;
+    dv.num_samples = 5;
     t.commit_trained("run-a", {dv}, {"/data/new.txt"});
 
     std::vector<DataVersion> reg;
@@ -260,11 +283,11 @@ TEST_F(LocalTransportPhase9Test, CommitTrainedPreservesModelId) {
     t.acquire("run-mns", 0);
 
     DataVersion dv;
-    dv.data_file   = "/data/mns_file.txt";
-    dv.checksum    = "MISSING";
-    dv.trained     = true;
+    dv.data_file = "/data/mns_file.txt";
+    dv.checksum = "MISSING";
+    dv.trained = true;
     dv.num_samples = 42;
-    dv.model_id    = "550e8400-e29b-41d4-a716-446655440000";
+    dv.model_id = "550e8400-e29b-41d4-a716-446655440000";
 
     t.commit_trained("run-mns", {dv}, {"/data/mns_file.txt"});
 
@@ -276,15 +299,34 @@ TEST_F(LocalTransportPhase9Test, CommitTrainedPreservesModelId) {
     EXPECT_TRUE(reg[0].trained);
 }
 
+// ============================================================================
+// Phase 11: server-side dataset fetch — unsupported in local mode
+// ============================================================================
+
+TEST_F(LocalTransportPhase9Test, FetchGutenbergUnsupportedInLocalMode) {
+    LocalTransport t(reg_path_, pend_path_);
+    EXPECT_EQ(t.fetch_gutenberg(1342, 100, ""), "");
+}
+
+TEST_F(LocalTransportPhase9Test, FetchHuggingfaceUnsupportedInLocalMode) {
+    LocalTransport t(reg_path_, pend_path_);
+    EXPECT_EQ(t.fetch_huggingface("daily_dialog", 100, "train", "", "", ""), "");
+}
+
+TEST_F(LocalTransportPhase9Test, UploadFileUnsupportedInLocalMode) {
+    LocalTransport t(reg_path_, pend_path_);
+    EXPECT_EQ(t.upload_file("/some/local/file.jsonl"), "");
+}
+
 TEST_F(LocalTransportPhase9Test, CommitTrainedEmptyModelIdRoundTrips) {
     seed_pending({"/data/no_mns.txt"});
     LocalTransport t(reg_path_, pend_path_);
     t.acquire("run-nomns", 0);
 
     DataVersion dv;
-    dv.data_file   = "/data/no_mns.txt";
-    dv.checksum    = "MISSING";
-    dv.trained     = true;
+    dv.data_file = "/data/no_mns.txt";
+    dv.checksum = "MISSING";
+    dv.trained = true;
     dv.num_samples = 10;
     // model_id intentionally left empty
 
