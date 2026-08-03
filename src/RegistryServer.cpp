@@ -19,6 +19,7 @@
  *   GET  /registry/<group>/queue     — all pending entries with run assignments
  *   POST /registry/<group>/acquire   — atomically claim up to N files for run_id
  *   POST /registry/<group>/release   — return reserved files to the unassigned pool
+ *   POST /registry/<group>/assign    — set model_name on pending entries (Phase 14)
  *   POST /registry/<group>/trained   — mark files trained and remove from queue
  *   GET  /registry/<group>/registry  — full data registry
  *   GET  /registry/<group>/runs      — files currently assigned per run_id
@@ -35,13 +36,16 @@
 
 #include <httplib.h>
 #include <atomic>
+#include <chrono>
 #include <csignal>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -216,6 +220,62 @@ static std::vector<int> json_int_array(const std::string& body, const std::strin
 }
 
 // ============================================================================
+// Phase 15: dataset metadata helpers (size/checksum/entry count/timestamps)
+// ============================================================================
+
+// ISO-8601 UTC timestamp, e.g. "2026-08-02T14:30:00Z".
+static std::string utc_now_string() {
+    const auto now = std::chrono::system_clock::now();
+    const std::time_t t = std::chrono::system_clock::to_time_t(now);
+    std::tm tm_buf{};
+#ifdef _WIN32
+    gmtime_s(&tm_buf, &t);
+#else
+    gmtime_r(&t, &tm_buf);
+#endif
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm_buf);
+    return buf;
+}
+
+struct LocalFileStat {
+    std::size_t size_bytes = 0;
+    std::string checksum;
+};
+
+// Best-effort size+mtime fingerprint for a registry-local path (same
+// convention as FileToken::checksum in handle_acquire, which now delegates
+// here too) — not cryptographic, logging/display only. Returns nullopt if
+// the path isn't a locally-readable regular file (e.g. a legacy /pending/add
+// path that was never actually placed under data_dir).
+static std::optional<LocalFileStat> stat_local_file(const std::string& path) {
+    const fs::path p(path);
+    if (!fs::exists(p) || !fs::is_regular_file(p))
+        return std::nullopt;
+    LocalFileStat st;
+    st.size_bytes = static_cast<std::size_t>(fs::file_size(p));
+    const auto ftime = fs::last_write_time(p);
+    std::ostringstream cs;
+    cs << st.size_bytes << "_" << static_cast<long long>(ftime.time_since_epoch().count());
+    st.checksum = cs.str();
+    return st;
+}
+
+// Best-effort non-empty-line count for a JSONL file; -1 if it can't be opened.
+static int count_jsonl_entries(const std::string& path) {
+    std::ifstream f(path);
+    if (!f.is_open())
+        return -1;
+    int count = 0;
+    std::string line;
+    while (std::getline(f, line)) {
+        if (!line.empty())
+            ++count;
+    }
+    return count;
+}
+
+// ============================================================================
 // Route handlers
 // ============================================================================
 
@@ -234,7 +294,12 @@ static void handle_queue(const httplib::Request& req, httplib::Response& res,
         if (i)
             json << ',';
         json << "{\"path\":\"" << json_escape(entries[i].path) << "\"," << "\"run_id\":\""
-             << json_escape(entries[i].run_id) << "\"}";
+             << json_escape(entries[i].run_id) << "\"," << "\"model_name\":\""
+             << json_escape(entries[i].model_name) << "\"," << "\"source\":\""
+             << json_escape(entries[i].source) << "\"," << "\"added_utc\":\""
+             << json_escape(entries[i].added_utc) << "\"," << "\"size_bytes\":"
+             << entries[i].size_bytes << "," << "\"num_entries\":" << entries[i].num_entries
+             << "," << "\"checksum\":\"" << json_escape(entries[i].checksum) << "\"}";
     }
     json << "]}";
     res.set_content(json.str(), "application/json");
@@ -317,12 +382,9 @@ static void handle_acquire(const httplib::Request& req, httplib::Response& res,
         std::replace(ftp_path.begin(), ftp_path.end(), '\\', '/');
 
         // File metadata for the token
-        if (fs::exists(file_path) && fs::is_regular_file(file_path)) {
-            size_bytes = static_cast<std::size_t>(fs::file_size(file_path));
-            const auto ftime = fs::last_write_time(file_path);
-            std::ostringstream cs;
-            cs << size_bytes << "_" << static_cast<long long>(ftime.time_since_epoch().count());
-            checksum = cs.str();
+        if (const auto stat = stat_local_file(acquired[i])) {
+            size_bytes = stat->size_bytes;
+            checksum = stat->checksum;
         }
 
         // Mint per-file FTP token (Phase 3: run_id is first param for audit/rate-limit)
@@ -343,6 +405,19 @@ static void handle_acquire(const httplib::Request& req, httplib::Response& res,
 }
 
 // POST /registry/<group>/release  {"run_id":"...","files":[...]}
+// Model names flow straight into a cursor-file path (see *_cursor_path below)
+// and are also written verbatim into the tab-separated pending-file format
+// (LocalTransport), so unlike dataset_id/split this is deliberately stricter —
+// no '/' at all, since a model name has no legitimate reason to contain one
+// and it doubles as path-traversal protection. Empty is allowed for the fetch
+// endpoints (buckets into a shared cursor) but rejected by handle_assign,
+// which requires a real, non-empty model name.
+static const std::regex kSafeModelName(R"(^[A-Za-z0-9._-]*$)");
+
+static bool is_safe_model_name(const std::string& s) {
+    return std::regex_match(s, kSafeModelName);
+}
+
 static void handle_release(const httplib::Request& req, httplib::Response& res,
                            const std::string& group) {
     const std::string run_id = json_string(req.body, "run_id");
@@ -371,6 +446,53 @@ static void handle_release(const httplib::Request& req, httplib::Response& res,
     Logger::info("[{}] release: run='{}' released {} files", group, run_id, released);
 }
 
+// POST /registry/<group>/assign  {"model_name":"...","paths":[...]}
+//
+// Mirrors DatasetRegistry::assign_model()'s semantics (DatasetRegistry.cpp) for
+// remote/distributed mode, which previously had no server-side equivalent —
+// RemoteTransport::save_pending() is a documented no-op, so dataset_manager's
+// `assign` command silently did nothing against a real registry_server before
+// this endpoint existed. Empty/absent paths assigns every pending entry;
+// otherwise only entries whose path is listed.
+static void handle_assign(const httplib::Request& req, httplib::Response& res,
+                          const std::string& group) {
+    const std::string model_name = json_string(req.body, "model_name");
+    const std::vector<std::string> paths = json_string_array(req.body, "paths");
+
+    if (!is_safe_model_name(model_name) || model_name.empty()) {
+        res.status = 400;
+        res.set_content("{\"error\":\"non-empty model_name matching [A-Za-z0-9._-]+ required\"}",
+                        "application/json");
+        Logger::warn("[{}] assign: rejected model_name='{}'", group, model_name);
+        return;
+    }
+
+    auto& gs = get_group(group);
+    std::lock_guard<std::mutex> lock(gs.mtx);
+
+    std::vector<PendingEntry> entries;
+    gs.transport->load_pending(entries);
+
+    const bool assign_all = paths.empty();
+    const std::set<std::string> target_paths(paths.begin(), paths.end());
+    int assigned = 0;
+    for (auto& e : entries) {
+        if (assign_all || target_paths.count(e.path)) {
+            e.model_name = model_name;
+            ++assigned;
+        }
+    }
+
+    if (assigned > 0) {
+        gs.transport->save_pending(entries);
+    }
+
+    std::ostringstream json;
+    json << "{\"assigned\":" << assigned << "}";
+    res.set_content(json.str(), "application/json");
+    Logger::info("[{}] assign: model='{}' assigned {} file(s)", group, model_name, assigned);
+}
+
 // POST /registry/<group>/trained  {"run_id":"...","files":[...],"samples":[...],"model_id":"..."}
 static void handle_trained(const httplib::Request& req, httplib::Response& res,
                            const std::string& group) {
@@ -381,6 +503,16 @@ static void handle_trained(const httplib::Request& req, httplib::Response& res,
 
     auto& gs = get_group(group);
     std::lock_guard<std::mutex> lock(gs.mtx);
+
+    // Phase 15: look up each trained path's originating PendingEntry before it's
+    // erased below, so source/added_utc survive the pending → trained transition
+    // (added_utc then reflects when the file first entered the system, not when
+    // training happened to finish).
+    std::vector<PendingEntry> pending;
+    gs.transport->load_pending(pending);
+    std::map<std::string, const PendingEntry*> pending_by_path;
+    for (const auto& e : pending)
+        pending_by_path[e.path] = &e;
 
     // Build new DataVersion entries
     std::vector<DataVersion> reg;
@@ -394,13 +526,28 @@ static void handle_trained(const httplib::Request& req, httplib::Response& res,
         if (!existing.count(files[i])) {
             DataVersion dv;
             dv.data_file = files[i];
-            // Server has no filesystem access to compute a real checksum;
-            // use a placeholder so the space-separated flat-file format
-            // keeps its column alignment when loaded back by LocalTransport.
-            dv.checksum = "REMOTE";
             dv.num_samples = (i < samples.size()) ? samples[i] : 0;
             dv.trained = true;
             dv.model_id = model_id;
+
+            if (const auto it = pending_by_path.find(files[i]); it != pending_by_path.end()) {
+                dv.source = it->second->source;
+                dv.added_utc = it->second->added_utc;
+            }
+            if (dv.added_utc.empty())
+                dv.added_utc = utc_now_string();  // no matching pending entry — best available
+
+            // Real checksum when the file is still locally readable (true for
+            // anything this registry fetched/uploaded itself); "REMOTE" placeholder
+            // otherwise — e.g. a trainer on a different machine reporting a file
+            // this registry never staged. Placeholder also keeps the flat-file
+            // column non-empty (see LocalTransport::save_registry's "-" convention).
+            if (const auto stat = stat_local_file(files[i])) {
+                dv.checksum = stat->checksum;
+            } else {
+                dv.checksum = "REMOTE";
+            }
+
             reg.push_back(std::move(dv));
             ++trained;
         }
@@ -408,8 +555,6 @@ static void handle_trained(const httplib::Request& req, httplib::Response& res,
     gs.transport->save_registry(reg);
 
     // Remove trained files from pending
-    std::vector<PendingEntry> pending;
-    gs.transport->load_pending(pending);
     const std::set<std::string> trained_set(files.begin(), files.end());
     pending.erase(std::remove_if(pending.begin(), pending.end(),
                                  [&](const PendingEntry& e) {
@@ -441,7 +586,9 @@ static void handle_registry(const httplib::Request& req, httplib::Response& res,
             json << ',';
         json << "{\"data_file\":\"" << json_escape(reg[i].data_file) << "\"," << "\"checksum\":\""
              << json_escape(reg[i].checksum) << "\"," << "\"num_samples\":" << reg[i].num_samples
-             << "," << "\"trained\":" << (reg[i].trained ? "true" : "false") << "}";
+             << "," << "\"trained\":" << (reg[i].trained ? "true" : "false") << ","
+             << "\"added_utc\":\"" << json_escape(reg[i].added_utc) << "\"," << "\"source\":\""
+             << json_escape(reg[i].source) << "\"}";
     }
     json << "]}";
     res.set_content(json.str(), "application/json");
@@ -513,7 +660,13 @@ static void handle_history(const httplib::Request& req, httplib::Response& res,
 
 // Shared helper: enqueue @p path as a pending entry for @p group unless already
 // present. Caller must already hold gs.mtx. Returns true if newly added.
-static bool add_pending_path_locked(GroupState& gs, const std::string& path) {
+// Phase 15: source identifies how the entry was created ("manual"|"gutenberg"|
+// "huggingface"|"upload"); known_num_entries lets a caller that already knows
+// the exact count (e.g. a fetch handler's pairs_written) pass it directly
+// instead of paying for a redundant re-read. -1 (default) means "count it
+// yourself if the file is locally readable, else leave it unknown."
+static bool add_pending_path_locked(GroupState& gs, const std::string& path,
+                                    const std::string& source, int known_num_entries = -1) {
     std::vector<PendingEntry> entries;
     gs.transport->load_pending(entries);
     for (const auto& e : entries) {
@@ -521,7 +674,18 @@ static bool add_pending_path_locked(GroupState& gs, const std::string& path) {
             return false;
         }
     }
-    entries.push_back({path, {}, {}});
+
+    PendingEntry entry;
+    entry.path = path;
+    entry.source = source;
+    entry.added_utc = utc_now_string();
+    if (const auto stat = stat_local_file(path)) {
+        entry.size_bytes = stat->size_bytes;
+        entry.checksum = stat->checksum;
+    }
+    entry.num_entries = (known_num_entries >= 0) ? known_num_entries : count_jsonl_entries(path);
+
+    entries.push_back(std::move(entry));
     gs.transport->save_pending(entries);
     return true;
 }
@@ -539,7 +703,7 @@ static void handle_pending_add(const httplib::Request& req, httplib::Response& r
     auto& gs = get_group(group);
     std::lock_guard<std::mutex> lock(gs.mtx);
 
-    if (!add_pending_path_locked(gs, path)) {
+    if (!add_pending_path_locked(gs, path, "manual")) {
         res.set_content("{\"added\":false,\"reason\":\"already_pending\"}", "application/json");
         Logger::info("[{}] pending/add: '{}' already queued", group, path);
         return;
@@ -571,16 +735,6 @@ static bool is_safe_upload_filename(const std::string& s) {
     if (s.find('/') != std::string::npos || s.find('\\') != std::string::npos)
         return false;
     return true;
-}
-
-// Model names flow straight into a cursor-file path (see *_cursor_path below),
-// so unlike dataset_id/split this is deliberately stricter — no '/' at all, since
-// a model name has no legitimate reason to contain one and it doubles as
-// path-traversal protection. Empty is allowed (buckets into a shared cursor).
-static const std::regex kSafeModelName(R"(^[A-Za-z0-9._-]*$)");
-
-static bool is_safe_model_name(const std::string& s) {
-    return std::regex_match(s, kSafeModelName);
 }
 
 // ============================================================================
@@ -691,7 +845,7 @@ static void handle_fetch_gutenberg(const httplib::Request& req, httplib::Respons
 
     auto& gs = get_group(group);
     std::lock_guard<std::mutex> lock(gs.mtx);
-    add_pending_path_locked(gs, path);
+    add_pending_path_locked(gs, path, "gutenberg", pairs_written);
 
     std::ostringstream json;
     json << "{\"added\":true,\"path\":\"" << json_escape(path) << "\",\"served_from_row\":" << offset
@@ -775,7 +929,7 @@ static void handle_fetch_huggingface(const httplib::Request& req, httplib::Respo
 
     auto& gs = get_group(group);
     std::lock_guard<std::mutex> lock(gs.mtx);
-    add_pending_path_locked(gs, path);
+    add_pending_path_locked(gs, path, "huggingface", pairs_written);
 
     std::ostringstream json;
     json << "{\"added\":true,\"path\":\"" << json_escape(path) << "\",\"served_from_row\":" << offset
@@ -819,7 +973,7 @@ static void handle_upload(const httplib::Request& req, httplib::Response& res,
 
     auto& gs = get_group(group);
     std::lock_guard<std::mutex> lock(gs.mtx);
-    add_pending_path_locked(gs, path);
+    add_pending_path_locked(gs, path, "upload");
 
     std::ostringstream json;
     json << "{\"added\":true,\"path\":\"" << json_escape(path) << "\"}";
@@ -854,6 +1008,7 @@ static void print_usage(const char* prog) {
         << "  GET  /registry/<group>/queue\n"
         << "  POST /registry/<group>/acquire  {\"run_id\":\"...\",\"max_files\":N}\n"
         << "  POST /registry/<group>/release  {\"run_id\":\"...\",\"files\":[...]}\n"
+        << "  POST /registry/<group>/assign   {\"model_name\":\"...\",\"paths\":[...]}\n"
         << "  POST /registry/<group>/trained  "
            "{\"run_id\":\"...\",\"files\":[...],\"samples\":[...]}\n"
         << "  GET  /registry/<group>/registry\n"
@@ -929,6 +1084,9 @@ int main(int argc, char* argv[]) {
     });
     svr.Post(R"(/registry/([^/]+)/release)", [](const httplib::Request& r, httplib::Response& res) {
         handle_release(r, res, r.matches[1]);
+    });
+    svr.Post(R"(/registry/([^/]+)/assign)", [](const httplib::Request& r, httplib::Response& res) {
+        handle_assign(r, res, r.matches[1]);
     });
     svr.Post(R"(/registry/([^/]+)/trained)", [](const httplib::Request& r, httplib::Response& res) {
         handle_trained(r, res, r.matches[1]);

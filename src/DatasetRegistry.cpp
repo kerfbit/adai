@@ -1,6 +1,7 @@
 #include "DatasetRegistry.hpp"
 #include <algorithm>
 #include <chrono>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -18,6 +19,24 @@ namespace fs = std::filesystem;
 // ANSI colour codes used by print_registry() for intentional TUI output.
 #define COLOR_RESET "\033[0m"
 #define COLOR_INFO "\033[1;36m"
+
+namespace {
+// ISO-8601 UTC timestamp, e.g. "2026-08-02T14:30:00Z" — same convention used
+// server-side (RegistryServer.cpp's utc_now_string) for DataVersion::added_utc.
+std::string utc_now_string() {
+    const auto now = std::chrono::system_clock::now();
+    const std::time_t t = std::chrono::system_clock::to_time_t(now);
+    std::tm tm_buf{};
+#ifdef _WIN32
+    gmtime_s(&tm_buf, &t);
+#else
+    gmtime_r(&t, &tm_buf);
+#endif
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm_buf);
+    return buf;
+}
+}  // namespace
 
 // ============================================================================
 // Transport factory (file-scope helper)
@@ -202,7 +221,7 @@ static std::vector<DataVersion> build_new_versions(const std::vector<std::string
         dv.data_file = f;
         dv.checksum = DatasetRegistry::compute_checksum(f);
         dv.num_samples = (i < sample_counts.size()) ? sample_counts[i] : 0;
-        dv.added_time = std::chrono::system_clock::now();
+        dv.added_utc = utc_now_string();
         dv.trained = true;
 
         new_entries.push_back(dv);

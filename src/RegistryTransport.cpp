@@ -46,10 +46,20 @@ bool LocalTransport::load_registry(std::vector<DataVersion>& out) {
         int trained_int = 0;
         iss >> dv.data_file >> dv.checksum >> dv.num_samples >> trained_int;
         dv.trained = (trained_int == 1);
-        // model_id is optional 5th column; absent in pre-Phase-2 files
-        std::string mid;
-        if (iss >> mid)
-            dv.model_id = mid;
+
+        // model_id (Phase 2), added_utc/source (Phase 15) are optional trailing
+        // columns, absent in older files. "-" is a written placeholder for an
+        // empty value: with whitespace-delimited >>, an empty middle column
+        // can't otherwise be distinguished from "no more columns" and would
+        // silently shift every column after it.
+        std::string tok;
+        if (iss >> tok)
+            dv.model_id = (tok == "-") ? "" : tok;
+        if (iss >> tok)
+            dv.added_utc = (tok == "-") ? "" : tok;
+        if (iss >> tok)
+            dv.source = (tok == "-") ? "" : tok;
+
         out.push_back(std::move(dv));
     }
 
@@ -64,10 +74,13 @@ bool LocalTransport::save_registry(const std::vector<DataVersion>& entries) {
         return false;
     }
 
-    file << "# Data Registry: data_file checksum num_samples trained model_id\n";
+    auto col = [](const std::string& s) { return s.empty() ? std::string("-") : s; };
+
+    file << "# Data Registry: data_file checksum num_samples trained model_id added_utc source\n";
     for (const auto& dv : entries) {
         file << dv.data_file << " " << dv.checksum << " " << dv.num_samples << " "
-             << (dv.trained ? 1 : 0) << " " << dv.model_id << "\n";
+             << (dv.trained ? 1 : 0) << " " << col(dv.model_id) << " " << col(dv.added_utc) << " "
+             << col(dv.source) << "\n";
     }
 
     return file.good();
@@ -88,19 +101,51 @@ bool LocalTransport::load_pending(std::vector<PendingEntry>& out) {
     while (std::getline(file, line)) {
         if (line.empty())
             continue;
-        // Format: "path" or "path\trun_id" or "path\trun_id\tmodel_name"
-        const auto tab1 = line.find('\t');
-        if (tab1 != std::string::npos) {
-            const auto tab2 = line.find('\t', tab1 + 1);
-            if (tab2 != std::string::npos) {
-                out.push_back({line.substr(0, tab1), line.substr(tab1 + 1, tab2 - tab1 - 1),
-                               line.substr(tab2 + 1)});
-            } else {
-                out.push_back({line.substr(0, tab1), line.substr(tab1 + 1), {}});
+
+        // Format: path[\trun_id[\tmodel_name[\tsource[\tadded_utc[\tsize_bytes[\tnum_entries[\tchecksum]]]]]]]
+        // Each trailing column was added in a later phase (run_id: Phase 9,
+        // model_name: Phase 11-ish, source/added_utc/size_bytes/num_entries/
+        // checksum: Phase 15) — split on tab and assign positionally so
+        // shorter lines from older files keep loading with defaults for the
+        // columns they predate.
+        std::vector<std::string> cols;
+        std::size_t start = 0;
+        while (true) {
+            const auto tab = line.find('\t', start);
+            if (tab == std::string::npos) {
+                cols.push_back(line.substr(start));
+                break;
             }
-        } else {
-            out.push_back({std::move(line), {}, {}});
+            cols.push_back(line.substr(start, tab - start));
+            start = tab + 1;
         }
+
+        PendingEntry e;
+        e.path = cols[0];
+        if (cols.size() > 1)
+            e.run_id = cols[1];
+        if (cols.size() > 2)
+            e.model_name = cols[2];
+        if (cols.size() > 3)
+            e.source = cols[3];
+        if (cols.size() > 4)
+            e.added_utc = cols[4];
+        if (cols.size() > 5 && !cols[5].empty()) {
+            try {
+                e.size_bytes = static_cast<std::size_t>(std::stoull(cols[5]));
+            } catch (...) {
+            }
+        }
+        if (cols.size() > 6 && !cols[6].empty()) {
+            try {
+                e.num_entries = std::stoi(cols[6]);
+            } catch (...) {
+            }
+        }
+        if (cols.size() > 7)
+            e.checksum = cols[7];
+
+        out.push_back(std::move(e));
     }
 
     return true;
@@ -115,13 +160,9 @@ bool LocalTransport::save_pending(const std::vector<PendingEntry>& entries) {
     }
 
     for (const auto& e : entries) {
-        if (e.run_id.empty() && e.model_name.empty()) {
-            file << e.path << '\n';
-        } else if (e.model_name.empty()) {
-            file << e.path << '\t' << e.run_id << '\n';
-        } else {
-            file << e.path << '\t' << e.run_id << '\t' << e.model_name << '\n';
-        }
+        file << e.path << '\t' << e.run_id << '\t' << e.model_name << '\t' << e.source << '\t'
+             << e.added_utc << '\t' << e.size_bytes << '\t' << e.num_entries << '\t' << e.checksum
+             << '\n';
     }
 
     return file.good();
@@ -470,6 +511,8 @@ bool RemoteTransport::load_registry(std::vector<DataVersion>& out) {
             const std::string tval = obj.substr(trp + tr_needle.size(), 4);
             dv.trained = (tval == "true");
         }
+        dv.added_utc = json_string(obj, "added_utc");
+        dv.source = json_string(obj, "source");
         if (!dv.data_file.empty())
             out.push_back(std::move(dv));
         cur = obj_end + 1;
@@ -520,10 +563,32 @@ bool RemoteTransport::load_pending(std::vector<PendingEntry>& out) {
             break;
         const std::string obj = body.substr(obj_start, obj_end - obj_start + 1);
         const std::string path = json_string(obj, "path");
-        const std::string run_id = json_string(obj, "run_id");
-        const std::string model_name = json_string(obj, "model_name");
-        if (!path.empty())
-            out.push_back({path, run_id, model_name});
+        if (!path.empty()) {
+            PendingEntry e;
+            e.path = path;
+            e.run_id = json_string(obj, "run_id");
+            e.model_name = json_string(obj, "model_name");
+            e.source = json_string(obj, "source");
+            e.added_utc = json_string(obj, "added_utc");
+            e.checksum = json_string(obj, "checksum");
+            const std::string sb_needle = "\"size_bytes\":";
+            const auto sbp = obj.find(sb_needle);
+            if (sbp != std::string::npos) {
+                try {
+                    e.size_bytes = static_cast<std::size_t>(std::stoull(obj.substr(sbp + sb_needle.size())));
+                } catch (...) {
+                }
+            }
+            const std::string ne_needle = "\"num_entries\":";
+            const auto nep = obj.find(ne_needle);
+            if (nep != std::string::npos) {
+                try {
+                    e.num_entries = std::stoi(obj.substr(nep + ne_needle.size()));
+                } catch (...) {
+                }
+            }
+            out.push_back(std::move(e));
+        }
         cur = obj_end + 1;
         if (body.find(']', cur) < body.find('{', cur))
             break;

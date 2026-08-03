@@ -1,6 +1,5 @@
 #pragma once
 
-#include <chrono>
 #include <cstddef>
 #include <memory>
 #include <string>
@@ -22,7 +21,13 @@ struct DataVersion {
     int num_samples = 0;
     bool trained = false;
     std::string model_id;  ///< Phase 2: MNS model UUID; empty for pre-MNS records
-    std::chrono::system_clock::time_point added_time;
+    /// Phase 15: ISO-8601 UTC, carried forward from the originating PendingEntry's
+    /// added_utc at commit time (so it reflects when the file first entered the
+    /// system, not when training completed). Empty for pre-Phase-15 records.
+    std::string added_utc;
+    /// Phase 15: "gutenberg" | "huggingface" | "upload" | "manual"; empty = unknown
+    /// (pre-Phase-15 record, or the originating PendingEntry had none).
+    std::string source;
 };
 
 /**
@@ -35,6 +40,18 @@ struct PendingEntry {
     std::string path;
     std::string run_id;      // empty for LocalTransport
     std::string model_name;  // target model; empty = unassigned
+    /// Phase 15: "gutenberg" | "huggingface" | "upload" | "manual"; empty = legacy/unknown.
+    std::string source;
+    /// Phase 15: ISO-8601 UTC, set once when the entry is first created.
+    std::string added_utc;
+    /// Phase 15: size on disk in bytes; 0 = unknown (path not locally readable
+    /// by the registry at creation time).
+    std::size_t size_bytes = 0;
+    /// Phase 15: JSONL line/sample count; -1 = unknown/uncounted.
+    int num_entries = -1;
+    /// Phase 15: lightweight size+mtime fingerprint (same convention as
+    /// FileToken::checksum) — not cryptographic, logging/display only.
+    std::string checksum;
 };
 
 // ============================================================================

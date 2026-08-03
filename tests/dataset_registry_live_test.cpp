@@ -197,6 +197,21 @@ class LiveRegistryTest : public ::testing::Test {
                              "application/json");
     }
 
+    // Helper: POST /registry/<group_>/assign {"model_name":"<model>","paths":[...]}
+    httplib::Result assign(const std::string& model_name_raw_json,
+                           const std::vector<std::string>& paths = {}) {
+        std::ostringstream body;
+        body << "{\"model_name\":\"" << model_name_raw_json << "\",\"paths\":[";
+        for (std::size_t i = 0; i < paths.size(); ++i) {
+            if (i)
+                body << ',';
+            body << '"' << paths[i] << '"';
+        }
+        body << "]}";
+        return client_->Post(("/registry/" + group_ + "/assign").c_str(), body.str(),
+                             "application/json");
+    }
+
     // Helper: POST /registry/<group_>/trained
     httplib::Result trained(const std::string& run_id, const std::vector<std::string>& files,
                             const std::vector<int>& samples = {}) {
@@ -526,6 +541,80 @@ TEST_F(LiveRegistryTest, ReleaseReturnsZeroForNonExistentFiles) {
     ASSERT_TRUE(res);
     EXPECT_EQ(res->status, 200);
     EXPECT_EQ(json_int(res->body, "released"), 0) << res->body;
+}
+
+// ===========================================================================
+// Assign — POST /registry/<group>/assign (Phase 14)
+//
+// Fills a gap that predates this endpoint: DatasetRegistry::assign_model()
+// silently no-ops against RemoteTransport (save_pending() is a documented
+// no-op in distributed mode), so dataset_manager's `assign` command never
+// actually worked against a real registry_server before this existed.
+// ===========================================================================
+
+TEST_F(LiveRegistryTest, AssignSetsModelNameOnSpecifiedPath) {
+    const std::string p1 = "/data/" + group() + "/assign1.txt";
+    const std::string p2 = "/data/" + group() + "/assign2.txt";
+    ASSERT_TRUE(add_pending(p1));
+    ASSERT_TRUE(add_pending(p2));
+
+    auto res = assign("model-a", {p1});
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_EQ(json_int(res->body, "assigned"), 1) << res->body;
+
+    auto queue_res = get_queue();
+    ASSERT_TRUE(queue_res);
+    // p1's entry should carry the model_name; p2's should not.
+    const auto p1_pos = queue_res->body.find(p1);
+    ASSERT_NE(p1_pos, std::string::npos);
+    EXPECT_NE(queue_res->body.find("\"model_name\":\"model-a\"", p1_pos), std::string::npos)
+        << queue_res->body;
+}
+
+TEST_F(LiveRegistryTest, AssignWithEmptyPathsAssignsAllPending) {
+    const std::string p1 = "/data/" + group() + "/assignall1.txt";
+    const std::string p2 = "/data/" + group() + "/assignall2.txt";
+    ASSERT_TRUE(add_pending(p1));
+    ASSERT_TRUE(add_pending(p2));
+
+    auto res = assign("model-b");  // no paths → assign all
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_EQ(json_int(res->body, "assigned"), 2) << res->body;
+
+    auto queue_res = get_queue();
+    ASSERT_TRUE(queue_res);
+    int occurrences = 0;
+    std::size_t pos = 0;
+    const std::string needle = "\"model_name\":\"model-b\"";
+    while ((pos = queue_res->body.find(needle, pos)) != std::string::npos) {
+        ++occurrences;
+        pos += needle.size();
+    }
+    EXPECT_EQ(occurrences, 2) << queue_res->body;
+}
+
+TEST_F(LiveRegistryTest, AssignRejectsEmptyModelName) {
+    auto res = assign("");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400);
+}
+
+TEST_F(LiveRegistryTest, AssignRejectsUnsafeModelName) {
+    // model_name is written verbatim into the tab-separated pending-file
+    // format, so a literal '/' (and by extension tabs/newlines, though those
+    // aren't expressible in this JSON-string test helper) must be rejected.
+    auto res = assign("../../etc/passwd");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400);
+}
+
+TEST_F(LiveRegistryTest, AssignReturnsZeroForNonExistentPath) {
+    auto res = assign("model-c", {"/no/such/file.txt"});
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_EQ(json_int(res->body, "assigned"), 0) << res->body;
 }
 
 // ===========================================================================
@@ -1055,6 +1144,93 @@ TEST_F(LiveRegistryTest, UploadDeduplicatesSamePath) {
         pos += filename.size();
     }
     EXPECT_EQ(occurrences, 1) << queue_res->body;
+}
+
+// ===========================================================================
+// Dataset metadata (Phase 15) — source/added_utc/size_bytes/num_entries/checksum
+// ===========================================================================
+
+TEST_F(LiveRegistryTest, PendingAddSetsManualSourceAndAddedUtc) {
+    const std::string path = "/data/" + group() + "/manual_meta.txt";
+    ASSERT_TRUE(add_pending(path));
+
+    auto res = get_queue();
+    ASSERT_TRUE(res);
+    const auto entry_pos = res->body.find(path);
+    ASSERT_NE(entry_pos, std::string::npos) << res->body;
+    EXPECT_NE(res->body.find("\"source\":\"manual\"", entry_pos), std::string::npos) << res->body;
+    // added_utc must be present and non-empty — look for the key followed by a
+    // non-'"' character (i.e. not immediately closed, meaning some content is there).
+    const auto added_pos = res->body.find("\"added_utc\":\"", entry_pos);
+    ASSERT_NE(added_pos, std::string::npos) << res->body;
+    EXPECT_NE(res->body[added_pos + std::string("\"added_utc\":\"").size()], '"') << res->body;
+}
+
+TEST_F(LiveRegistryTest, UploadComputesRealSizeAndEntryCountAndChecksum) {
+    const std::string filename = "meta_" + group() + ".jsonl";
+    const std::string contents =
+        "{\"input\":\"a\",\"response\":\"b\"}\n{\"input\":\"c\",\"response\":\"d\"}\n";
+    ASSERT_TRUE(upload(filename, contents));
+
+    auto res = get_queue();
+    ASSERT_TRUE(res);
+    const auto entry_pos = res->body.find(filename);
+    ASSERT_NE(entry_pos, std::string::npos) << res->body;
+    EXPECT_NE(res->body.find("\"source\":\"upload\"", entry_pos), std::string::npos) << res->body;
+    EXPECT_NE(res->body.find("\"size_bytes\":" + std::to_string(contents.size()), entry_pos),
+             std::string::npos)
+        << res->body;
+    // Uploaded content has exactly 2 non-empty lines.
+    EXPECT_NE(res->body.find("\"num_entries\":2", entry_pos), std::string::npos) << res->body;
+    // checksum is the registry's own size+mtime fingerprint — non-empty, and not
+    // the "unknown" empty-string case that a not-locally-readable path would get.
+    const auto checksum_pos = res->body.find("\"checksum\":\"", entry_pos);
+    ASSERT_NE(checksum_pos, std::string::npos) << res->body;
+    EXPECT_NE(res->body[checksum_pos + std::string("\"checksum\":\"").size()], '"') << res->body;
+}
+
+TEST_F(LiveRegistryTest, TrainedCarriesForwardSourceAndAddedUtcFromPendingEntry) {
+    if (!server_current_format_)
+        GTEST_SKIP() << "Server uses legacy registry format; rebuild and redeploy registry_server";
+    const std::string filename = "carry_" + group() + ".jsonl";
+    ASSERT_TRUE(upload(filename, "{\"input\":\"a\",\"response\":\"b\"}\n"));
+
+    // Recover the exact registry_path the server assigned (data_dir/... — not
+    // something this test constructs itself), and its added_utc, to compare
+    // against the trained registry entry afterwards.
+    auto queue_before = get_queue();
+    ASSERT_TRUE(queue_before);
+    const auto path_key_pos = queue_before->body.find("\"path\":\"");
+    ASSERT_NE(path_key_pos, std::string::npos) << queue_before->body;
+    const auto path_start = path_key_pos + std::string("\"path\":\"").size();
+    const auto path_end = queue_before->body.find('"', path_start);
+    const std::string full_path = queue_before->body.substr(path_start, path_end - path_start);
+
+    const auto added_key_pos = queue_before->body.find("\"added_utc\":\"", path_end);
+    ASSERT_NE(added_key_pos, std::string::npos) << queue_before->body;
+    const auto added_start = added_key_pos + std::string("\"added_utc\":\"").size();
+    const auto added_end = queue_before->body.find('"', added_start);
+    const std::string original_added_utc = queue_before->body.substr(added_start, added_end - added_start);
+    ASSERT_FALSE(original_added_utc.empty());
+
+    ASSERT_TRUE(acquire("run-carry"));
+    ASSERT_TRUE(trained("run-carry", {full_path}, {1}));
+
+    auto reg_res = get_registry();
+    ASSERT_TRUE(reg_res);
+    const auto entry_pos = reg_res->body.find(full_path);
+    ASSERT_NE(entry_pos, std::string::npos) << reg_res->body;
+    EXPECT_NE(reg_res->body.find("\"source\":\"upload\"", entry_pos), std::string::npos)
+        << reg_res->body;
+    EXPECT_NE(reg_res->body.find("\"added_utc\":\"" + original_added_utc + "\"", entry_pos),
+             std::string::npos)
+        << "expected the trained entry to carry forward the pending entry's original "
+           "added_utc ('"
+        << original_added_utc << "') rather than resetting it: " << reg_res->body;
+    // The file is still locally readable by the registry (it staged the upload
+    // itself), so the checksum must be a real fingerprint, not the "REMOTE" placeholder.
+    EXPECT_EQ(reg_res->body.find("\"checksum\":\"REMOTE\"", entry_pos), std::string::npos)
+        << reg_res->body;
 }
 
 }  // namespace
