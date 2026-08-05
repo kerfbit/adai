@@ -102,7 +102,15 @@ class DatasetRegistry {
      */
     bool add_files(const std::vector<std::string>& paths);
 
-    /** @brief Discard the in-memory pending queue (does not write to disk). */
+    /**
+     * @brief Discard the in-memory pending queue (does not write to disk).
+     *
+     * @note Local-mode only in effect: save_pending_list() (called separately
+     *       by callers such as the CLI) is a documented no-op for
+     *       RemoteTransport, so against a live registry_server this clears
+     *       nothing server-side. Use delete_entries() with the current
+     *       pending_files() list for a remote-capable bulk purge instead.
+     */
     void clear_pending();
 
     /**
@@ -111,18 +119,54 @@ class DatasetRegistry {
      * Removes the entry from in-memory state and persists via save_pending_list().
      *
      * @return true if the file was found and removed.
+     *
+     * @note Local-mode only in effect, for the same reason as clear_pending().
+     *       Use delete_entries({path}) for a remote-capable equivalent.
      */
     bool remove_pending(const std::string& path);
 
     /**
-     * @brief Assign pending files to a model by name.
+     * @brief Assign pending files to a model, by explicit path list, by
+     *        count, or all of them.
      *
-     * Sets the model_name field on matching pending entries and persists
-     * via save_pending_list().  If @p paths is empty, assigns all pending.
-     *
-     * @return true if at least one entry was updated.
+     * Delegates to transport_->assign(), so — unlike clear_pending()/
+     * remove_pending() — this works correctly against both LocalTransport and
+     * RemoteTransport. Three modes, checked in order:
+     *   - non-empty @p paths        — assign exactly those (count ignored)
+     *   - empty @p paths, count > 0 — assign the first @p count
+     *                                 currently-unassigned entries
+     *   - empty @p paths, count<=0  — assign every pending entry (default)
      */
-    bool assign_model(const std::string& model_name, const std::vector<std::string>& paths = {});
+    AssignResult assign_model(const std::string& model_name,
+                              const std::vector<std::string>& paths = {}, int count = 0);
+
+    /**
+     * @brief Clear model_name back to unassigned. Delegates to
+     *        transport_->unassign() (works in both local and remote mode).
+     *
+     * If @p paths is empty, clears every entry currently assigned to
+     * @p model_name (bulk mode; @p model_name must be non-empty). Otherwise
+     * clears only the listed paths; a non-empty @p model_name additionally
+     * acts as an ownership filter. An entry actively claimed by a run
+     * (non-empty run_id) is left untouched unless @p force is true.
+     */
+    UnassignResult unassign_model(const std::string& model_name,
+                                  const std::vector<std::string>& paths = {}, bool force = false);
+
+    /**
+     * @brief Permanently purge entries matching @p paths from both the
+     *        pending queue and the trained registry. Delegates to
+     *        transport_->delete_paths() (works in both local and remote
+     *        mode). @p paths must be non-empty.
+     *
+     * A pending entry actively claimed by a run is left untouched unless
+     * @p force is true; the trained registry has no run_id concept and is
+     * always purged unconditionally on a match. @p delete_files additionally
+     * requests the physical file be unlinked — see RegistryTransport::
+     * delete_paths() for the local-vs-remote containment rules.
+     */
+    DeleteResult delete_entries(const std::vector<std::string>& paths, bool force = false,
+                                bool delete_files = false);
 
     /** @return Copy of the current in-memory pending-file paths. */
     std::vector<std::string> pending_files() const;

@@ -99,6 +99,38 @@ struct AcquireResponse {
 };
 
 // ============================================================================
+// Phase 16: dataset management result types (assign-by-count, unassign, delete)
+// ============================================================================
+
+/** @brief Result of RegistryTransport::assign(). */
+struct AssignResult {
+    int assigned = 0;
+    std::vector<std::string> paths;  ///< exact paths touched, in every mode
+};
+
+/** @brief Result of RegistryTransport::unassign(). */
+struct UnassignResult {
+    int unassigned = 0;
+    /// Entries that matched but were left untouched because they're actively
+    /// claimed by a run (non-empty run_id) and force was not set.
+    int skipped = 0;
+    std::vector<std::string> paths;  ///< exact paths touched
+};
+
+/** @brief Result of RegistryTransport::delete_paths(). */
+struct DeleteResult {
+    struct Detail {
+        std::string path;
+        std::string status;       ///< "deleted" | "skipped_active_run" | "not_found"
+        bool file_deleted = false;  ///< true only if delete_files was requested and it worked
+    };
+    int deleted = 0;
+    int skipped = 0;
+    int not_found = 0;
+    std::vector<Detail> details;
+};
+
+// ============================================================================
 // Abstract transport interface
 // ============================================================================
 
@@ -163,6 +195,50 @@ class RegistryTransport {
      *  No-op (returns true) if @p path is already present.
      *  @return true on success. */
     virtual bool add_pending(const std::string& path) = 0;
+
+    // ── Phase 16: dataset management (assign-by-count, unassign, delete) ──
+
+    /**
+     * @brief Set model_name on pending entries. Three modes, checked in order:
+     *          - non-empty @p paths        — assign exactly those (count ignored)
+     *          - empty @p paths, count > 0 — assign the first @p count
+     *                                        currently-unassigned entries
+     *          - empty @p paths, count<=0  — assign every pending entry
+     */
+    virtual AssignResult assign(const std::string& model_name,
+                                const std::vector<std::string>& paths = {}, int count = 0) = 0;
+
+    /**
+     * @brief Clear model_name back to unassigned. If @p paths is empty, clears
+     *        every entry currently assigned to @p model_name (bulk mode,
+     *        requires non-empty @p model_name). Otherwise clears only the
+     *        listed paths; a non-empty @p model_name additionally acts as an
+     *        ownership filter. An entry actively claimed by a run (non-empty
+     *        run_id) is left untouched unless @p force is true.
+     */
+    virtual UnassignResult unassign(const std::string& model_name,
+                                    const std::vector<std::string>& paths, bool force) = 0;
+
+    /**
+     * @brief Permanently purge entries matching @p paths from both the
+     *        pending queue and the trained registry. @p paths must be
+     *        non-empty — there is no bulk "delete everything" mode.
+     *
+     * A pending entry actively claimed by a run (non-empty run_id) is left
+     * untouched unless @p force is true; the trained registry has no run_id
+     * concept and is always purged unconditionally on a match.
+     *
+     * @p delete_files additionally unlinks the physical file, but the two
+     * implementations differ here: RemoteTransport (registry_server) only
+     * unlinks files that resolve inside its own group data_dir (server-owned
+     * fetches/uploads) — arbitrary external paths are never touched, since
+     * the server has no business reaching outside its managed directory
+     * tree. LocalTransport has no such distinction (the caller already has
+     * full filesystem access in local mode) and will unlink any existing
+     * path, except its own registry_path_/pending_path_ state files.
+     */
+    virtual DeleteResult delete_paths(const std::vector<std::string>& paths, bool force,
+                                      bool delete_files) = 0;
 
     // ── Phase 11: server-side dataset fetch ────────────────────────────────
     //
@@ -264,6 +340,13 @@ class LocalTransport : public RegistryTransport {
                         const std::vector<std::string>& trained_paths) override;
     bool add_pending(const std::string& path) override;
 
+    AssignResult assign(const std::string& model_name, const std::vector<std::string>& paths,
+                        int count) override;
+    UnassignResult unassign(const std::string& model_name, const std::vector<std::string>& paths,
+                            bool force) override;
+    DeleteResult delete_paths(const std::vector<std::string>& paths, bool force,
+                              bool delete_files) override;
+
     // Phase 11: not supported in local mode — logs a warning and returns "".
     std::string fetch_gutenberg(int book_id, int num_pairs,
                                 const std::string& model_name) override;
@@ -318,6 +401,13 @@ class RemoteTransport final : public RegistryTransport {
     void commit_trained(const std::string& run_id, const std::vector<DataVersion>& new_entries,
                         const std::vector<std::string>& trained_paths) override;
     bool add_pending(const std::string& path) override;
+
+    AssignResult assign(const std::string& model_name, const std::vector<std::string>& paths,
+                        int count) override;
+    UnassignResult unassign(const std::string& model_name, const std::vector<std::string>& paths,
+                            bool force) override;
+    DeleteResult delete_paths(const std::vector<std::string>& paths, bool force,
+                              bool delete_files) override;
 
     // Phase 11: delegate to the registry_server, which performs the fetch/
     // upload itself and stores the result under its own data_dir.

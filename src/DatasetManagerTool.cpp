@@ -64,9 +64,20 @@ int main(int argc, char* argv[]) {
         std::cout << "  list-pending                 List all pending files\n";
         std::cout << "  list-trained                 List all trained files\n";
         std::cout << "  remove <file>                Remove a single file from the pending queue\n";
+        std::cout << "                               (local mode only — use `delete` against a "
+                     "live registry_server)\n";
         std::cout << "  clear-pending                Remove all files from the pending queue\n";
-        std::cout << "  assign <model> [file ...]    Assign pending file(s) to a model (omit files "
-                     "= all)\n";
+        std::cout << "                               (local mode only — use `delete` against a "
+                     "live registry_server)\n";
+        std::cout << "  assign <model> [file ...] [--count N]\n";
+        std::cout << "                               Assign pending file(s) to a model (omit "
+                     "files/--count = all)\n";
+        std::cout << "  unassign <model> [file ...] [--force]\n";
+        std::cout << "                               Clear model assignment (omit files = every "
+                     "file assigned to it)\n";
+        std::cout << "  delete <file> [...] [--force] [--delete-files]\n";
+        std::cout << "                               Permanently purge file(s) from the pending "
+                     "queue and registry\n";
         std::cout << "  models                       List registered models from name service\n";
         std::cout << "\nPopular Gutenberg Books:\n";
         std::cout << "  1342  - Pride and Prejudice (Jane Austen)\n";
@@ -351,8 +362,10 @@ int main(int argc, char* argv[]) {
 
     } else if (command == "assign") {
         if (args.size() < 2) {
-            std::cerr << "Usage: " << argv[0] << " assign <model_name> [file1 file2 ...]\n";
-            std::cerr << "  Omit files to assign all pending files to the model.\n";
+            std::cerr << "Usage: " << argv[0]
+                      << " assign <model_name> [file1 file2 ...] [--count N]\n";
+            std::cerr << "  Omit files and --count to assign all pending files to the model.\n";
+            std::cerr << "  --count is ignored when explicit files are given.\n";
             return 1;
         }
 
@@ -386,16 +399,112 @@ int main(int argc, char* argv[]) {
         }
 
         std::vector<std::string> targets;
+        int count = 0;
         for (std::size_t i = 2; i < args.size(); ++i) {
-            targets.push_back(args[i]);
+            if (args[i] == "--count" && i + 1 < args.size()) {
+                try {
+                    count = std::stoi(args[++i]);
+                } catch (...) {
+                    std::cerr << "❌ Invalid --count value\n";
+                    return 1;
+                }
+            } else {
+                targets.push_back(args[i]);
+            }
         }
 
-        if (reg.assign_model(model_name, targets)) {
-            int count = targets.empty() ? static_cast<int>(pending.size())
-                                        : static_cast<int>(targets.size());
-            std::cout << "✅ Assigned " << count << " file(s) to model '" << model_name << "'\n";
+        auto result = reg.assign_model(model_name, targets, count);
+        if (result.assigned > 0) {
+            std::cout << "✅ Assigned " << result.assigned << " file(s) to model '" << model_name
+                      << "'\n";
+            if (targets.empty()) {
+                // count-based or "assign all" mode — the caller couldn't
+                // otherwise know which specific files were picked.
+                for (const auto& p : result.paths) {
+                    std::cout << "   " << p << "\n";
+                }
+            }
         } else {
             std::cerr << "❌ No matching pending files found\n";
+            return 1;
+        }
+
+    } else if (command == "unassign") {
+        if (args.size() < 2) {
+            std::cerr << "Usage: " << argv[0] << " unassign <model_name> [file1 file2 ...] [--force]\n";
+            std::cerr << "  Omit files to clear every entry currently assigned to the model.\n";
+            std::cerr << "  --force also clears entries actively claimed by a training run.\n";
+            return 1;
+        }
+
+        const std::string model_name = args[1];
+        std::vector<std::string> targets;
+        bool force = false;
+        for (std::size_t i = 2; i < args.size(); ++i) {
+            if (args[i] == "--force") {
+                force = true;
+            } else {
+                targets.push_back(args[i]);
+            }
+        }
+
+        DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
+        reg.load_pending_list();
+
+        auto result = reg.unassign_model(model_name, targets, force);
+        std::cout << "✅ Unassigned " << result.unassigned << " file(s) from model '" << model_name
+                  << "'\n";
+        if (result.skipped > 0) {
+            std::cout << "   (" << result.skipped
+                      << " skipped: actively claimed by a run; use --force to override)\n";
+        }
+        if (result.unassigned == 0 && result.skipped == 0) {
+            return 1;
+        }
+
+    } else if (command == "delete") {
+        if (args.size() < 2) {
+            std::cerr << "Usage: " << argv[0]
+                      << " delete <file1> [file2 ...] [--force] [--delete-files]\n";
+            std::cerr << "  Purges entries from the pending queue and trained registry.\n";
+            std::cerr << "  --force overrides the active-run-claim guard on pending entries.\n";
+            std::cerr << "  --delete-files also unlinks the underlying file when the registry\n";
+            std::cerr << "                 owns it (server-fetched/uploaded datasets only).\n";
+            return 1;
+        }
+
+        std::vector<std::string> targets;
+        bool force = false;
+        bool delete_files = false;
+        for (std::size_t i = 1; i < args.size(); ++i) {
+            if (args[i] == "--force") {
+                force = true;
+            } else if (args[i] == "--delete-files") {
+                delete_files = true;
+            } else {
+                targets.push_back(args[i]);
+            }
+        }
+        if (targets.empty()) {
+            std::cerr << "❌ At least one file is required\n";
+            return 1;
+        }
+
+        DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
+        reg.load_registry();
+        reg.load_pending_list();
+
+        auto result = reg.delete_entries(targets, force, delete_files);
+        std::cout << "✅ " << result.deleted << " deleted, " << result.skipped << " skipped, "
+                  << result.not_found << " not found\n";
+        for (const auto& d : result.details) {
+            std::cout << "   " << d.path << ": " << d.status;
+            if (delete_files && d.status == "deleted") {
+                std::cout << (d.file_deleted ? " [file removed]" : " [file kept]");
+            }
+            std::cout << "\n";
+        }
+        if (result.deleted == 0) {
             return 1;
         }
 

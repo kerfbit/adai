@@ -87,6 +87,18 @@ class FakeFetchTransport : public RegistryTransport {
     bool add_pending(const std::string& path) override {
         return inner_.add_pending(path);
     }
+    AssignResult assign(const std::string& model_name, const std::vector<std::string>& paths,
+                        int count) override {
+        return inner_.assign(model_name, paths, count);
+    }
+    UnassignResult unassign(const std::string& model_name, const std::vector<std::string>& paths,
+                            bool force) override {
+        return inner_.unassign(model_name, paths, force);
+    }
+    DeleteResult delete_paths(const std::vector<std::string>& paths, bool force,
+                              bool delete_files) override {
+        return inner_.delete_paths(paths, force, delete_files);
+    }
 
     // Controllable Phase 11 behaviour:
     std::string next_fetch_result;  // returned by fetch_gutenberg/fetch_huggingface
@@ -547,6 +559,109 @@ TEST_F(DatasetRegistryTest, MarkTrainedWithRunIdCommitsAndClearsPending) {
     // Pending file should be empty — no new acquire possible
     DatasetRegistry reg4(make_cfg());
     EXPECT_TRUE(reg4.acquire_pending("run-c").files.empty());
+}
+
+// ============================================================================
+// Phase 16 — assign-by-count / unassign / delete
+// ============================================================================
+
+TEST_F(DatasetRegistryTest, AssignModelReturnsCountAndPaths) {
+    DatasetRegistry reg(make_cfg());
+    reg.add_file(data_file_);
+
+    auto result = reg.assign_model("model-a");
+    EXPECT_EQ(result.assigned, 1);
+    ASSERT_EQ(result.paths.size(), 1u);
+    EXPECT_EQ(result.paths[0], data_file_);
+    ASSERT_EQ(reg.pending_entries().size(), 1u);
+    EXPECT_EQ(reg.pending_entries()[0].model_name, "model-a");
+}
+
+TEST_F(DatasetRegistryTest, AssignModelWithCountLimitsAssignment) {
+    const std::string file2 = (tmp_dir_ / "training2.txt").string();
+    const std::string file3 = (tmp_dir_ / "training3.txt").string();
+    write_file(file2, "INPUT: x\nRESPONSE: y\n");
+    write_file(file3, "INPUT: p\nRESPONSE: q\n");
+
+    DatasetRegistry reg(make_cfg());
+    reg.add_file(data_file_);
+    reg.add_file(file2);
+    reg.add_file(file3);
+
+    auto result = reg.assign_model("model-a", {}, 2);
+    EXPECT_EQ(result.assigned, 2);
+    EXPECT_EQ(result.paths.size(), 2u);
+
+    int assigned_count = 0;
+    for (const auto& e : reg.pending_entries()) {
+        if (e.model_name == "model-a")
+            ++assigned_count;
+    }
+    EXPECT_EQ(assigned_count, 2);
+}
+
+TEST_F(DatasetRegistryTest, UnassignModelClearsInMemoryPending) {
+    DatasetRegistry reg(make_cfg());
+    reg.add_file(data_file_);
+    reg.assign_model("model-a");
+
+    auto result = reg.unassign_model("model-a");
+    EXPECT_EQ(result.unassigned, 1);
+    EXPECT_EQ(result.skipped, 0);
+    ASSERT_EQ(reg.pending_entries().size(), 1u);
+    EXPECT_TRUE(reg.pending_entries()[0].model_name.empty());
+}
+
+TEST_F(DatasetRegistryTest, UnassignModelSkipsActiveClaimWithoutForce) {
+    DatasetRegistry reg(make_cfg());
+    reg.add_file(data_file_);
+    reg.assign_model("model-a");
+    auto resp = reg.acquire_pending("run-a");
+    ASSERT_FALSE(resp.files.empty());
+
+    auto result = reg.unassign_model("model-a");
+    EXPECT_EQ(result.unassigned, 0);
+    EXPECT_EQ(result.skipped, 1);
+
+    auto result2 = reg.unassign_model("model-a", {}, /*force=*/true);
+    EXPECT_EQ(result2.unassigned, 1);
+    EXPECT_EQ(result2.skipped, 0);
+}
+
+TEST_F(DatasetRegistryTest, DeleteEntriesRemovesFromPendingAndRegistry) {
+    DatasetRegistry reg(make_cfg());
+    reg.add_file(data_file_);
+
+    auto result = reg.delete_entries({data_file_});
+    EXPECT_EQ(result.deleted, 1);
+    EXPECT_TRUE(reg.pending_files().empty());
+}
+
+TEST_F(DatasetRegistryTest, DeleteEntriesUpdatesTrainedSetAndIsTrained) {
+    DatasetRegistry reg(make_cfg());
+    reg.mark_trained({data_file_}, {50});
+    ASSERT_TRUE(reg.is_trained(data_file_));
+    ASSERT_EQ(reg.total_samples_trained(), 50);
+
+    auto result = reg.delete_entries({data_file_});
+    EXPECT_EQ(result.deleted, 1);
+    EXPECT_FALSE(reg.is_trained(data_file_));
+    EXPECT_EQ(reg.total_samples_trained(), 0);
+}
+
+TEST_F(DatasetRegistryTest, DeleteEntriesSkipsActiveClaim) {
+    DatasetRegistry reg(make_cfg());
+    reg.add_file(data_file_);
+    auto resp = reg.acquire_pending("run-a");
+    ASSERT_FALSE(resp.files.empty());
+
+    auto result = reg.delete_entries({data_file_});
+    EXPECT_EQ(result.deleted, 0);
+    EXPECT_EQ(result.skipped, 1);
+
+    auto result2 = reg.delete_entries({data_file_}, /*force=*/true);
+    EXPECT_EQ(result2.deleted, 1);
+    EXPECT_EQ(result2.skipped, 0);
 }
 
 // ============================================================================

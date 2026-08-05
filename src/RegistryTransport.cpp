@@ -311,6 +311,187 @@ bool LocalTransport::add_pending(const std::string& path) {
     return ok;
 }
 
+// ── Phase 16: assign-by-count / unassign / delete ──────────────────────────
+
+AssignResult LocalTransport::assign(const std::string& model_name,
+                                    const std::vector<std::string>& paths, int count) {
+    AssignResult result;
+    const int lock_fd = lock_pending();
+    if (lock_fd < 0) {
+        Logger::error("LocalTransport::assign — failed to acquire pending lock");
+        return result;
+    }
+
+    std::vector<PendingEntry> entries;
+    load_pending(entries);
+
+    const bool by_paths = !paths.empty();
+    const bool by_count = !by_paths && count > 0;
+    const bool assign_all = !by_paths && !by_count;
+    const std::set<std::string> target_paths(paths.begin(), paths.end());
+    for (auto& e : entries) {
+        if (by_count && static_cast<int>(result.paths.size()) >= count) {
+            break;
+        }
+        const bool matches = by_paths ? target_paths.count(e.path) > 0
+                            : by_count ? e.model_name.empty()
+                                       : assign_all;
+        if (matches) {
+            e.model_name = model_name;
+            result.paths.push_back(e.path);
+        }
+    }
+    result.assigned = static_cast<int>(result.paths.size());
+
+    if (!result.paths.empty()) {
+        save_pending(entries);
+    }
+    unlock_pending(lock_fd);
+    Logger::info("LocalTransport::assign — model='{}' assigned {} file(s)", model_name,
+                result.assigned);
+    return result;
+}
+
+UnassignResult LocalTransport::unassign(const std::string& model_name,
+                                        const std::vector<std::string>& paths, bool force) {
+    UnassignResult result;
+    // Defense in depth: DatasetRegistry already rejects this combination before
+    // it reaches the transport, but a caller could invoke LocalTransport
+    // directly.
+    if (paths.empty() && model_name.empty()) {
+        Logger::warn("LocalTransport::unassign — no-op: both paths and model_name empty");
+        return result;
+    }
+
+    const int lock_fd = lock_pending();
+    if (lock_fd < 0) {
+        Logger::error("LocalTransport::unassign — failed to acquire pending lock");
+        return result;
+    }
+
+    std::vector<PendingEntry> entries;
+    load_pending(entries);
+
+    const bool bulk_by_model = paths.empty();
+    const std::set<std::string> target_paths(paths.begin(), paths.end());
+    for (auto& e : entries) {
+        const bool matches = bulk_by_model
+                                ? e.model_name == model_name
+                                : (target_paths.count(e.path) > 0 &&
+                                   (model_name.empty() || e.model_name == model_name));
+        if (!matches) {
+            continue;
+        }
+        if (!e.run_id.empty() && !force) {
+            ++result.skipped;
+            continue;
+        }
+        e.model_name.clear();
+        result.paths.push_back(e.path);
+    }
+    result.unassigned = static_cast<int>(result.paths.size());
+
+    if (!result.paths.empty()) {
+        save_pending(entries);
+    }
+    unlock_pending(lock_fd);
+    Logger::info("LocalTransport::unassign — model='{}' unassigned {} file(s), {} skipped",
+                model_name, result.unassigned, result.skipped);
+    return result;
+}
+
+// Note on delete_files containment: unlike RemoteTransport, local mode has no
+// "server-owned data_dir" concept — the caller already has full filesystem
+// access (Phase 11 fetch/upload are unsupported stubs here, see below), so
+// any existing path is eligible for unlinking. The one guard kept is
+// self-protection: never unlink this transport's own state files even if
+// somehow passed as a delete target.
+DeleteResult LocalTransport::delete_paths(const std::vector<std::string>& paths, bool force,
+                                          bool delete_files) {
+    DeleteResult result;
+    if (paths.empty()) {
+        Logger::warn("LocalTransport::delete_paths — no-op: paths is empty");
+        return result;
+    }
+
+    // Registry half has no run_id/ownership concept and needs no lock,
+    // mirroring commit_trained()'s split locking.
+    std::vector<DataVersion> registry;
+    load_registry(registry);
+
+    const int lock_fd = lock_pending();
+    if (lock_fd < 0) {
+        Logger::error("LocalTransport::delete_paths — failed to acquire pending lock");
+        return result;
+    }
+    std::vector<PendingEntry> pending;
+    load_pending(pending);
+
+    bool pending_changed = false;
+    bool registry_changed = false;
+
+    for (const auto& p : paths) {
+        bool pending_blocked = false;
+        bool found_anywhere = false;
+
+        auto pit = std::find_if(pending.begin(), pending.end(),
+                                [&](const PendingEntry& e) { return e.path == p; });
+        if (pit != pending.end()) {
+            found_anywhere = true;
+            if (!pit->run_id.empty() && !force) {
+                pending_blocked = true;
+            } else {
+                pending.erase(pit);
+                pending_changed = true;
+            }
+        }
+
+        auto rit = std::find_if(registry.begin(), registry.end(),
+                                [&](const DataVersion& dv) { return dv.data_file == p; });
+        if (rit != registry.end()) {
+            found_anywhere = true;
+            registry.erase(rit);
+            registry_changed = true;
+        }
+
+        DeleteResult::Detail detail;
+        detail.path = p;
+        if (pending_blocked) {
+            detail.status = "skipped_active_run";
+            ++result.skipped;
+        } else if (found_anywhere) {
+            detail.status = "deleted";
+            ++result.deleted;
+            const bool is_own_state_file =
+                fs::path(p) == fs::path(registry_path_) || fs::path(p) == fs::path(pending_path_);
+            if (delete_files && !is_own_state_file && fs::exists(p)) {
+                std::error_code ec;
+                fs::remove(p, ec);
+                detail.file_deleted = !ec;
+            } else if (delete_files && is_own_state_file) {
+                Logger::warn(
+                    "LocalTransport::delete_paths — refusing to unlink own state file '{}'", p);
+            }
+        } else {
+            detail.status = "not_found";
+            ++result.not_found;
+        }
+        result.details.push_back(std::move(detail));
+    }
+
+    if (pending_changed) {
+        save_pending(pending);
+    }
+    unlock_pending(lock_fd);
+    if (registry_changed) {
+        save_registry(registry);
+    }
+
+    Logger::info("LocalTransport::delete_paths — {} deleted, {} skipped, {} not_found",
+                result.deleted, result.skipped, result.not_found);
+    return result;
+}
+
 // Phase 11: LocalTransport has no registry_server to delegate downloading to.
 std::string LocalTransport::fetch_gutenberg(int /*book_id*/, int /*num_pairs*/,
                                             const std::string& /*model_name*/) {
@@ -387,6 +568,29 @@ std::string json_string(const std::string& body, const std::string& key) {
     return body.substr(start, end - start);
 }
 
+// Extract the value of a bare JSON number key: "key":N
+int json_int(const std::string& body, const std::string& key, int def = 0) {
+    const std::string needle = "\"" + key + "\":";
+    const auto pos = body.find(needle);
+    if (pos == std::string::npos)
+        return def;
+    try {
+        return std::stoi(body.substr(pos + needle.size()));
+    } catch (...) {
+        return def;
+    }
+}
+
+// Extract the value of a bare JSON boolean key (true/false, unquoted).
+bool json_bool(const std::string& body, const std::string& key, bool def = false) {
+    const std::string needle = "\"" + key + "\":";
+    const auto pos = body.find(needle);
+    if (pos == std::string::npos)
+        return def;
+    const auto start = pos + needle.size();
+    return body.compare(start, 4, "true") == 0;
+}
+
 // Parse a JSON array of strings from body["key"]: ["a","b",...]
 std::vector<std::string> json_string_array(const std::string& body, const std::string& key) {
     std::vector<std::string> result;
@@ -396,10 +600,17 @@ std::vector<std::string> json_string_array(const std::string& body, const std::s
         return result;
     auto cur = pos + needle.size();
     while (cur < body.size()) {
-        cur = body.find('"', cur);
-        if (cur == std::string::npos)
+        // An empty array (or one already fully consumed) closes with ']'
+        // before any further '"' — check that first, otherwise an empty
+        // array immediately followed by another JSON field would wrongly
+        // treat that field's key as an array element.
+        const auto quote_pos = body.find('"', cur);
+        const auto close_pos = body.find(']', cur);
+        if (quote_pos == std::string::npos ||
+            (close_pos != std::string::npos && close_pos < quote_pos)) {
             break;
-        ++cur;
+        }
+        cur = quote_pos + 1;
         const auto end = body.find('"', cur);
         if (end == std::string::npos)
             break;
@@ -798,6 +1009,121 @@ bool RemoteTransport::add_pending(const std::string& path) {
     Logger::error("RemoteTransport::add_pending — not compiled");
     return false;
 #endif
+}
+
+// Phase 16: assign-by-count / unassign / delete ------------------------------
+
+AssignResult RemoteTransport::assign(const std::string& model_name,
+                                     const std::vector<std::string>& paths, int count) {
+    AssignResult result;
+#ifdef BUILD_METRICS_API_SERVER
+    httplib::Client cli(host_, port_);
+    cli.set_connection_timeout(0, timeout_ms_ * 1000);
+    cli.set_read_timeout(0, timeout_ms_ * 1000);
+
+    std::ostringstream body;
+    body << "{\"model_name\":\"" << json_escape(model_name) << "\","
+         << "\"paths\":" << json_array(paths) << "," << "\"count\":" << count << "}";
+
+    const auto res = cli.Post((group_prefix_ + "/assign").c_str(), body.str(), "application/json");
+    if (!res || res->status != 200) {
+        Logger::error("RemoteTransport::assign — HTTP {} from {}:{}{}", res ? res->status : -1,
+                      host_, port_, group_prefix_ + "/assign");
+        return result;
+    }
+    result.assigned = json_int(res->body, "assigned");
+    result.paths = json_string_array(res->body, "paths");
+    Logger::info("RemoteTransport: assigned {} files to model '{}'", result.assigned, model_name);
+#else
+    Logger::error("RemoteTransport::assign — not compiled");
+#endif
+    return result;
+}
+
+UnassignResult RemoteTransport::unassign(const std::string& model_name,
+                                         const std::vector<std::string>& paths, bool force) {
+    UnassignResult result;
+#ifdef BUILD_METRICS_API_SERVER
+    httplib::Client cli(host_, port_);
+    cli.set_connection_timeout(0, timeout_ms_ * 1000);
+    cli.set_read_timeout(0, timeout_ms_ * 1000);
+
+    std::ostringstream body;
+    body << "{\"model_name\":\"" << json_escape(model_name) << "\","
+         << "\"paths\":" << json_array(paths) << "," << "\"force\":" << (force ? "true" : "false")
+         << "}";
+
+    const auto res =
+        cli.Post((group_prefix_ + "/unassign").c_str(), body.str(), "application/json");
+    if (!res || res->status != 200) {
+        Logger::error("RemoteTransport::unassign — HTTP {} from {}:{}{}", res ? res->status : -1,
+                      host_, port_, group_prefix_ + "/unassign");
+        return result;
+    }
+    result.unassigned = json_int(res->body, "unassigned");
+    result.skipped = json_int(res->body, "skipped");
+    result.paths = json_string_array(res->body, "paths");
+    Logger::info("RemoteTransport: unassigned {} files from model '{}' ({} skipped)",
+                result.unassigned, model_name, result.skipped);
+#else
+    Logger::error("RemoteTransport::unassign — not compiled");
+#endif
+    return result;
+}
+
+DeleteResult RemoteTransport::delete_paths(const std::vector<std::string>& paths, bool force,
+                                           bool delete_files) {
+    DeleteResult result;
+#ifdef BUILD_METRICS_API_SERVER
+    httplib::Client cli(host_, port_);
+    cli.set_connection_timeout(0, timeout_ms_ * 1000);
+    cli.set_read_timeout(0, timeout_ms_ * 1000);
+
+    std::ostringstream body;
+    body << "{\"paths\":" << json_array(paths) << "," << "\"force\":" << (force ? "true" : "false")
+         << "," << "\"delete_files\":" << (delete_files ? "true" : "false") << "}";
+
+    const auto res = cli.Post((group_prefix_ + "/delete").c_str(), body.str(), "application/json");
+    if (!res || res->status != 200) {
+        Logger::error("RemoteTransport::delete_paths — HTTP {} from {}:{}{}",
+                      res ? res->status : -1, host_, port_, group_prefix_ + "/delete");
+        return result;
+    }
+    const std::string& b = res->body;
+    result.deleted = json_int(b, "deleted");
+    result.skipped = json_int(b, "skipped");
+    result.not_found = json_int(b, "not_found");
+
+    // Parse "details":[{"path":"...","status":"...","file_deleted":bool},...]
+    // — flat (non-nested) objects, same iteration idiom as load_registry/
+    // load_pending/acquire above.
+    auto cur = b.find("\"details\":[");
+    if (cur != std::string::npos) {
+        cur += 11;  // len of "details":[
+        while (cur < b.size()) {
+            auto obj_start = b.find('{', cur);
+            if (obj_start == std::string::npos)
+                break;
+            auto obj_end = b.find('}', obj_start);
+            if (obj_end == std::string::npos)
+                break;
+            const std::string obj = b.substr(obj_start, obj_end - obj_start + 1);
+            DeleteResult::Detail detail;
+            detail.path = json_string(obj, "path");
+            detail.status = json_string(obj, "status");
+            detail.file_deleted = json_bool(obj, "file_deleted");
+            result.details.push_back(std::move(detail));
+            cur = obj_end + 1;
+            if (b.find(']', cur) < b.find('{', cur))
+                break;
+        }
+    }
+    Logger::info("RemoteTransport: delete — {} deleted, {} skipped, {} not_found", result.deleted,
+                result.skipped, result.not_found);
+#else
+    Logger::error("RemoteTransport::delete_paths — not compiled");
+#endif
+    return result;
 }
 
 // Phase 11: server-side dataset fetch ---------------------------------------

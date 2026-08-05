@@ -338,3 +338,247 @@ TEST_F(LocalTransportPhase9Test, CommitTrainedEmptyModelIdRoundTrips) {
     EXPECT_TRUE(reg[0].model_id.empty())
         << "Empty model_id should remain empty after round-trip, got: " << reg[0].model_id;
 }
+
+// ============================================================================
+// Phase 16 — assign-by-count / unassign / delete
+// ============================================================================
+
+TEST_F(LocalTransportPhase9Test, AssignAllWhenPathsAndCountEmpty) {
+    seed_pending({"/data/a.txt", "/data/b.txt"});
+    LocalTransport t(reg_path_, pend_path_);
+
+    auto result = t.assign("model-a", {}, 0);
+    EXPECT_EQ(result.assigned, 2);
+    EXPECT_EQ(result.paths.size(), 2u);
+
+    std::vector<PendingEntry> entries;
+    t.load_pending(entries);
+    for (const auto& e : entries) {
+        EXPECT_EQ(e.model_name, "model-a");
+    }
+}
+
+TEST_F(LocalTransportPhase9Test, AssignExactPathsIgnoresCount) {
+    seed_pending({"/data/a.txt", "/data/b.txt", "/data/c.txt"});
+    LocalTransport t(reg_path_, pend_path_);
+
+    auto result = t.assign("model-a", {"/data/b.txt"}, 99);
+    EXPECT_EQ(result.assigned, 1);
+    ASSERT_EQ(result.paths.size(), 1u);
+    EXPECT_EQ(result.paths[0], "/data/b.txt");
+
+    std::vector<PendingEntry> entries;
+    t.load_pending(entries);
+    for (const auto& e : entries) {
+        if (e.path == "/data/b.txt")
+            EXPECT_EQ(e.model_name, "model-a");
+        else
+            EXPECT_TRUE(e.model_name.empty());
+    }
+}
+
+TEST_F(LocalTransportPhase9Test, AssignFirstNUnassignedWhenCountGiven) {
+    seed_pending({"/data/a.txt", "/data/b.txt", "/data/c.txt"});
+    LocalTransport t(reg_path_, pend_path_);
+
+    auto result = t.assign("model-a", {}, 2);
+    EXPECT_EQ(result.assigned, 2);
+    ASSERT_EQ(result.paths.size(), 2u);
+    EXPECT_EQ(result.paths[0], "/data/a.txt");
+    EXPECT_EQ(result.paths[1], "/data/b.txt");
+
+    std::vector<PendingEntry> entries;
+    t.load_pending(entries);
+    ASSERT_EQ(entries.size(), 3u);
+    EXPECT_EQ(entries[0].model_name, "model-a");
+    EXPECT_EQ(entries[1].model_name, "model-a");
+    EXPECT_TRUE(entries[2].model_name.empty());
+}
+
+TEST_F(LocalTransportPhase9Test, AssignCountSkipsAlreadyAssignedEntries) {
+    LocalTransport t(reg_path_, pend_path_);
+    std::vector<PendingEntry> seeded = {
+        {"/data/a.txt", "", "model-x", "", "", 0, -1, ""},
+        {"/data/b.txt", "", "", "", "", 0, -1, ""},
+        {"/data/c.txt", "", "", "", "", 0, -1, ""},
+    };
+    t.save_pending(seeded);
+
+    auto result = t.assign("model-a", {}, 5);
+    EXPECT_EQ(result.assigned, 2);  // only b and c were unassigned; a keeps model-x
+}
+
+TEST_F(LocalTransportPhase9Test, UnassignBulkByModelName) {
+    seed_pending({"/data/a.txt", "/data/b.txt", "/data/c.txt"});
+    LocalTransport t(reg_path_, pend_path_);
+    t.assign("model-a", {"/data/a.txt", "/data/b.txt"}, 0);
+
+    auto result = t.unassign("model-a", {}, false);
+    EXPECT_EQ(result.unassigned, 2);
+    EXPECT_EQ(result.skipped, 0);
+
+    std::vector<PendingEntry> entries;
+    t.load_pending(entries);
+    for (const auto& e : entries) {
+        EXPECT_TRUE(e.model_name.empty());
+    }
+}
+
+TEST_F(LocalTransportPhase9Test, UnassignSpecificPathsWithOwnershipCheck) {
+    seed_pending({"/data/a.txt", "/data/b.txt"});
+    LocalTransport t(reg_path_, pend_path_);
+    t.assign("model-a", {"/data/a.txt"}, 0);
+    t.assign("model-b", {"/data/b.txt"}, 0);
+
+    // model-a is not the owner of b.txt — should not match.
+    auto result = t.unassign("model-a", {"/data/b.txt"}, false);
+    EXPECT_EQ(result.unassigned, 0);
+
+    // The actual owner clears successfully.
+    auto result2 = t.unassign("model-b", {"/data/b.txt"}, false);
+    EXPECT_EQ(result2.unassigned, 1);
+}
+
+TEST_F(LocalTransportPhase9Test, UnassignSkipsActiveClaimWithoutForce) {
+    seed_pending_assigned({{"/data/a.txt", "run-a"}});
+    LocalTransport t(reg_path_, pend_path_);
+    t.assign("model-a", {"/data/a.txt"}, 0);
+
+    auto result = t.unassign("model-a", {"/data/a.txt"}, false);
+    EXPECT_EQ(result.unassigned, 0);
+    EXPECT_EQ(result.skipped, 1);
+}
+
+TEST_F(LocalTransportPhase9Test, UnassignForceClearsActiveClaim) {
+    seed_pending_assigned({{"/data/a.txt", "run-a"}});
+    LocalTransport t(reg_path_, pend_path_);
+    t.assign("model-a", {"/data/a.txt"}, 0);
+
+    auto result = t.unassign("model-a", {"/data/a.txt"}, true);
+    EXPECT_EQ(result.unassigned, 1);
+    EXPECT_EQ(result.skipped, 0);
+}
+
+TEST_F(LocalTransportPhase9Test, UnassignBothEmptyIsNoOp) {
+    seed_pending({"/data/a.txt"});
+    LocalTransport t(reg_path_, pend_path_);
+    t.assign("model-a", {"/data/a.txt"}, 0);
+
+    auto result = t.unassign("", {}, false);
+    EXPECT_EQ(result.unassigned, 0);
+    EXPECT_EQ(result.skipped, 0);
+
+    std::vector<PendingEntry> entries;
+    t.load_pending(entries);
+    ASSERT_EQ(entries.size(), 1u);
+    EXPECT_EQ(entries[0].model_name, "model-a");  // untouched
+}
+
+TEST_F(LocalTransportPhase9Test, DeletePendingEntryRemovesFromQueue) {
+    seed_pending({"/data/a.txt", "/data/b.txt"});
+    LocalTransport t(reg_path_, pend_path_);
+
+    auto result = t.delete_paths({"/data/a.txt"}, false, false);
+    EXPECT_EQ(result.deleted, 1);
+    ASSERT_EQ(result.details.size(), 1u);
+    EXPECT_EQ(result.details[0].status, "deleted");
+
+    std::vector<PendingEntry> entries;
+    t.load_pending(entries);
+    ASSERT_EQ(entries.size(), 1u);
+    EXPECT_EQ(entries[0].path, "/data/b.txt");
+}
+
+TEST_F(LocalTransportPhase9Test, DeleteRegistryEntryRemovesFromRegistry) {
+    LocalTransport t(reg_path_, pend_path_);
+    DataVersion dv;
+    dv.data_file = "/data/trained.txt";
+    dv.checksum = "MISSING";
+    dv.trained = true;
+    dv.num_samples = 3;
+    t.save_registry({dv});
+
+    auto result = t.delete_paths({"/data/trained.txt"}, false, false);
+    EXPECT_EQ(result.deleted, 1);
+
+    std::vector<DataVersion> reg;
+    t.load_registry(reg);
+    EXPECT_TRUE(reg.empty());
+}
+
+TEST_F(LocalTransportPhase9Test, DeleteSkipsActiveClaimWithoutForce) {
+    seed_pending_assigned({{"/data/a.txt", "run-a"}});
+    LocalTransport t(reg_path_, pend_path_);
+
+    auto result = t.delete_paths({"/data/a.txt"}, false, false);
+    EXPECT_EQ(result.deleted, 0);
+    EXPECT_EQ(result.skipped, 1);
+    ASSERT_EQ(result.details.size(), 1u);
+    EXPECT_EQ(result.details[0].status, "skipped_active_run");
+
+    std::vector<PendingEntry> entries;
+    t.load_pending(entries);
+    ASSERT_EQ(entries.size(), 1u);  // still present
+}
+
+TEST_F(LocalTransportPhase9Test, DeleteForceRemovesActiveClaim) {
+    seed_pending_assigned({{"/data/a.txt", "run-a"}});
+    LocalTransport t(reg_path_, pend_path_);
+
+    auto result = t.delete_paths({"/data/a.txt"}, true, false);
+    EXPECT_EQ(result.deleted, 1);
+    EXPECT_EQ(result.skipped, 0);
+}
+
+TEST_F(LocalTransportPhase9Test, DeleteNotFoundReportsCorrectStatus) {
+    LocalTransport t(reg_path_, pend_path_);
+    auto result = t.delete_paths({"/no/such/file.txt"}, false, false);
+    EXPECT_EQ(result.deleted, 0);
+    EXPECT_EQ(result.not_found, 1);
+    ASSERT_EQ(result.details.size(), 1u);
+    EXPECT_EQ(result.details[0].status, "not_found");
+}
+
+TEST_F(LocalTransportPhase9Test, DeleteFilesUnlinksWhenRequested) {
+    const std::string real_file = (tmp_dir_ / "real.txt").string();
+    {
+        std::ofstream f(real_file);
+        f << "hello";
+    }
+    seed_pending({real_file});
+    LocalTransport t(reg_path_, pend_path_);
+
+    auto result = t.delete_paths({real_file}, false, true);
+    EXPECT_EQ(result.deleted, 1);
+    ASSERT_EQ(result.details.size(), 1u);
+    EXPECT_TRUE(result.details[0].file_deleted);
+    EXPECT_FALSE(fs::exists(real_file));
+}
+
+TEST_F(LocalTransportPhase9Test, DeleteWithoutDeleteFilesLeavesFileOnDisk) {
+    const std::string real_file = (tmp_dir_ / "real2.txt").string();
+    {
+        std::ofstream f(real_file);
+        f << "hello";
+    }
+    seed_pending({real_file});
+    LocalTransport t(reg_path_, pend_path_);
+
+    auto result = t.delete_paths({real_file}, false, false);
+    EXPECT_EQ(result.deleted, 1);
+    ASSERT_EQ(result.details.size(), 1u);
+    EXPECT_FALSE(result.details[0].file_deleted);
+    EXPECT_TRUE(fs::exists(real_file));
+}
+
+TEST_F(LocalTransportPhase9Test, DeleteRefusesToUnlinkOwnRegistryOrPendingFile) {
+    // Register the pending state file's own path as a (contrived) entry.
+    seed_pending({pend_path_});
+    LocalTransport t(reg_path_, pend_path_);
+
+    auto result = t.delete_paths({pend_path_}, false, true);
+    EXPECT_EQ(result.deleted, 1);                   // metadata entry still removed
+    ASSERT_EQ(result.details.size(), 1u);
+    EXPECT_FALSE(result.details[0].file_deleted);   // but the file itself is untouched
+    EXPECT_TRUE(fs::exists(pend_path_));  // still there (rewritten by save_pending, not unlinked)
+}

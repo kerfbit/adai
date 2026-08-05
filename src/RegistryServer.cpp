@@ -19,7 +19,11 @@
  *   GET  /registry/<group>/queue     — all pending entries with run assignments
  *   POST /registry/<group>/acquire   — atomically claim up to N files for run_id
  *   POST /registry/<group>/release   — return reserved files to the unassigned pool
- *   POST /registry/<group>/assign    — set model_name on pending entries (Phase 14)
+ *   POST /registry/<group>/assign    — set model_name on N pending entries, by path,
+ *                                       count, or all (Phase 14; count added Phase 16)
+ *   POST /registry/<group>/unassign  — clear model_name back to unassigned (Phase 16)
+ *   POST /registry/<group>/delete    — purge entries from pending and/or registry by
+ *                                       path, optionally unlinking the file (Phase 16)
  *   POST /registry/<group>/trained   — mark files trained and remove from queue
  *   GET  /registry/<group>/registry  — full data registry
  *   GET  /registry/<group>/runs      — files currently assigned per run_id
@@ -35,6 +39,7 @@
  */
 
 #include <httplib.h>
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -171,6 +176,19 @@ static int json_int(const std::string& body, const std::string& key, int def = 0
     }
 }
 
+// Bare-literal boolean (true/false, no quotes) — json_string can't parse
+// these since it requires a '"' immediately after the colon, and json_int's
+// std::stoi would throw on "true"/"false" and silently fall back to @p def
+// without ever telling the caller it didn't understand the value.
+static bool json_bool(const std::string& body, const std::string& key, bool def = false) {
+    const std::string needle = "\"" + key + "\":";
+    const auto pos = body.find(needle);
+    if (pos == std::string::npos)
+        return def;
+    const auto start = pos + needle.size();
+    return body.compare(start, 4, "true") == 0;
+}
+
 static std::vector<std::string> json_string_array(const std::string& body, const std::string& key) {
     std::vector<std::string> result;
     const std::string needle = "\"" + key + "\":[";
@@ -179,10 +197,18 @@ static std::vector<std::string> json_string_array(const std::string& body, const
         return result;
     auto cur = pos + needle.size();
     while (cur < body.size()) {
-        cur = body.find('"', cur);
-        if (cur == std::string::npos)
+        // An empty array (or one that has already been fully consumed) closes
+        // with ']' before any further '"' — check that first, otherwise an
+        // empty array immediately followed by another JSON field (e.g.
+        // "paths":[],"count":0) would wrongly treat that field's key as an
+        // array element, since the ']' would never be observed.
+        const auto quote_pos = body.find('"', cur);
+        const auto close_pos = body.find(']', cur);
+        if (quote_pos == std::string::npos ||
+            (close_pos != std::string::npos && close_pos < quote_pos)) {
             break;
-        ++cur;
+        }
+        cur = quote_pos + 1;
         const auto end = body.find('"', cur);
         if (end == std::string::npos)
             break;
@@ -446,18 +472,26 @@ static void handle_release(const httplib::Request& req, httplib::Response& res,
     Logger::info("[{}] release: run='{}' released {} files", group, run_id, released);
 }
 
-// POST /registry/<group>/assign  {"model_name":"...","paths":[...]}
+// POST /registry/<group>/assign  {"model_name":"...","paths":[...],"count":N}
 //
 // Mirrors DatasetRegistry::assign_model()'s semantics (DatasetRegistry.cpp) for
 // remote/distributed mode, which previously had no server-side equivalent —
 // RemoteTransport::save_pending() is a documented no-op, so dataset_manager's
 // `assign` command silently did nothing against a real registry_server before
-// this endpoint existed. Empty/absent paths assigns every pending entry;
-// otherwise only entries whose path is listed.
+// this endpoint existed. Three modes, checked in this order:
+//   - non-empty paths        — assign exactly those paths (count is ignored)
+//   - empty paths, count > 0 — assign the first `count` currently-unassigned
+//                              (model_name empty) pending entries, mirroring
+//                              handle_acquire's counting-with-limit loop
+//   - empty paths, count<=0  — assign every pending entry (original default,
+//                              preserved for backward compatibility)
+// The response always includes the exact list of paths touched, since the
+// count-based mode doesn't otherwise tell the caller which files were picked.
 static void handle_assign(const httplib::Request& req, httplib::Response& res,
                           const std::string& group) {
     const std::string model_name = json_string(req.body, "model_name");
     const std::vector<std::string> paths = json_string_array(req.body, "paths");
+    const int count = json_int(req.body, "count", 0);
 
     if (!is_safe_model_name(model_name) || model_name.empty()) {
         res.status = 400;
@@ -473,24 +507,259 @@ static void handle_assign(const httplib::Request& req, httplib::Response& res,
     std::vector<PendingEntry> entries;
     gs.transport->load_pending(entries);
 
-    const bool assign_all = paths.empty();
+    const bool by_paths = !paths.empty();
+    const bool by_count = !by_paths && count > 0;
+    const bool assign_all = !by_paths && !by_count;
     const std::set<std::string> target_paths(paths.begin(), paths.end());
-    int assigned = 0;
+    std::vector<std::string> assigned_paths;
     for (auto& e : entries) {
-        if (assign_all || target_paths.count(e.path)) {
+        if (by_count && static_cast<int>(assigned_paths.size()) >= count) {
+            break;
+        }
+        const bool matches = by_paths ? target_paths.count(e.path) > 0
+                            : by_count ? e.model_name.empty()
+                                       : assign_all;
+        if (matches) {
             e.model_name = model_name;
-            ++assigned;
+            assigned_paths.push_back(e.path);
         }
     }
 
-    if (assigned > 0) {
+    if (!assigned_paths.empty()) {
         gs.transport->save_pending(entries);
     }
 
     std::ostringstream json;
-    json << "{\"assigned\":" << assigned << "}";
+    json << "{\"assigned\":" << assigned_paths.size() << ",\"paths\":[";
+    for (std::size_t i = 0; i < assigned_paths.size(); ++i) {
+        if (i > 0)
+            json << ",";
+        json << "\"" << json_escape(assigned_paths[i]) << "\"";
+    }
+    json << "]}";
     res.set_content(json.str(), "application/json");
-    Logger::info("[{}] assign: model='{}' assigned {} file(s)", group, model_name, assigned);
+    Logger::info("[{}] assign: model='{}' assigned {} file(s) (count={})", group, model_name,
+                assigned_paths.size(), count);
+}
+
+// POST /registry/<group>/unassign  {"model_name":"...","paths":[...],"force":bool}
+//
+// Reverses `assign`: clears model_name back to "" (unassigned). Two modes:
+//   - paths empty, model_name non-empty — bulk-clear every pending entry
+//     currently assigned to that model
+//   - paths non-empty — clear only the listed paths; if model_name is also
+//     given it acts as an ownership filter (only clears entries currently
+//     owned by that model), mirroring handle_release's run_id ownership
+//     check; an empty model_name here means "clear regardless of owner"
+// Both paths and model_name empty is rejected (400) — there is no implicit
+// "unassign everything" the way assign's empty-paths defaults to "assign
+// everything", since that would be far too easy to trigger by accident.
+// A match whose run_id is non-empty (actively claimed by a training run) is
+// skipped unless force:true is passed, to avoid yanking the assignment out
+// from under an in-flight run.
+static void handle_unassign(const httplib::Request& req, httplib::Response& res,
+                            const std::string& group) {
+    const std::string model_name = json_string(req.body, "model_name");
+    const std::vector<std::string> paths = json_string_array(req.body, "paths");
+    const bool force = json_bool(req.body, "force", false);
+
+    if (paths.empty() && model_name.empty()) {
+        res.status = 400;
+        res.set_content("{\"error\":\"either paths or model_name (or both) required\"}",
+                        "application/json");
+        Logger::warn("[{}] unassign: rejected — both paths and model_name empty", group);
+        return;
+    }
+    if (!model_name.empty() && !is_safe_model_name(model_name)) {
+        res.status = 400;
+        res.set_content("{\"error\":\"model_name must match [A-Za-z0-9._-]+\"}",
+                        "application/json");
+        Logger::warn("[{}] unassign: rejected model_name='{}'", group, model_name);
+        return;
+    }
+
+    auto& gs = get_group(group);
+    std::lock_guard<std::mutex> lock(gs.mtx);
+
+    std::vector<PendingEntry> entries;
+    gs.transport->load_pending(entries);
+
+    const bool bulk_by_model = paths.empty();
+    const std::set<std::string> target_paths(paths.begin(), paths.end());
+    std::vector<std::string> unassigned_paths;
+    int skipped = 0;
+    for (auto& e : entries) {
+        const bool matches = bulk_by_model
+                                ? e.model_name == model_name
+                                : (target_paths.count(e.path) > 0 &&
+                                   (model_name.empty() || e.model_name == model_name));
+        if (!matches) {
+            continue;
+        }
+        if (!e.run_id.empty() && !force) {
+            ++skipped;
+            continue;
+        }
+        e.model_name.clear();
+        unassigned_paths.push_back(e.path);
+    }
+
+    if (!unassigned_paths.empty()) {
+        gs.transport->save_pending(entries);
+    }
+
+    std::ostringstream json;
+    json << "{\"unassigned\":" << unassigned_paths.size() << ",\"skipped\":" << skipped
+        << ",\"paths\":[";
+    for (std::size_t i = 0; i < unassigned_paths.size(); ++i) {
+        if (i > 0)
+            json << ",";
+        json << "\"" << json_escape(unassigned_paths[i]) << "\"";
+    }
+    json << "]}";
+    res.set_content(json.str(), "application/json");
+    Logger::info("[{}] unassign: model='{}' unassigned {} file(s), {} skipped (force={})", group,
+                model_name, unassigned_paths.size(), skipped, force);
+}
+
+// POST /registry/<group>/delete  {"paths":[...],"force":bool,"delete_files":bool}
+//
+// Permanently purges entries matching `paths` from BOTH the pending queue and
+// the trained DataVersion registry (a path may legitimately match either,
+// neither, or — not expected in normal operation, since pending->registry is
+// a one-way transition via /trained — both). `paths` must be non-empty; there
+// is deliberately no "delete everything" bulk mode, since this is destructive
+// and spans two stores.
+//
+// Pending-queue removal respects the same active-run-claim guard as
+// /unassign: an entry with a non-empty run_id is left alone (reported
+// "skipped_active_run") unless force:true. The registry (trained) half has no
+// run_id concept, so it is always purged unconditionally when matched.
+//
+// delete_files:true additionally unlinks the physical file from disk, but
+// ONLY when it resolves to a location inside this group's own data_dir root
+// (i.e. files the server itself fetched/uploaded) — arbitrary paths that were
+// merely registered via /pending/add (e.g. a trainer-local path) are never
+// touched, since the server has no business reaching outside its own managed
+// directory tree.
+static void handle_delete(const httplib::Request& req, httplib::Response& res,
+                          const std::string& group) {
+    const std::vector<std::string> paths = json_string_array(req.body, "paths");
+    const bool force = json_bool(req.body, "force", false);
+    const bool delete_files = json_bool(req.body, "delete_files", false);
+
+    if (paths.empty()) {
+        res.status = 400;
+        res.set_content("{\"error\":\"paths required\"}", "application/json");
+        Logger::warn("[{}] delete: rejected — empty paths", group);
+        return;
+    }
+
+    auto& gs = get_group(group);
+    std::lock_guard<std::mutex> lock(gs.mtx);
+
+    std::vector<PendingEntry> pending;
+    gs.transport->load_pending(pending);
+    std::vector<DataVersion> reg;
+    gs.transport->load_registry(reg);
+
+    fs::path group_root;
+    bool have_root = false;
+    try {
+        group_root = fs::weakly_canonical(fs::path(data_dir) / group);
+        have_root = true;
+    } catch (...) {
+        have_root = false;
+    }
+
+    bool pending_changed = false;
+    bool registry_changed = false;
+    int deleted = 0;
+    int skipped = 0;
+    int not_found = 0;
+    std::ostringstream details;
+    details << "[";
+    bool first_detail = true;
+
+    for (const auto& p : paths) {
+        bool pending_blocked = false;
+        bool found_anywhere = false;
+
+        auto pit = std::find_if(pending.begin(), pending.end(),
+                                [&](const PendingEntry& e) { return e.path == p; });
+        if (pit != pending.end()) {
+            found_anywhere = true;
+            if (!pit->run_id.empty() && !force) {
+                pending_blocked = true;
+            } else {
+                pending.erase(pit);
+                pending_changed = true;
+            }
+        }
+
+        auto rit = std::find_if(reg.begin(), reg.end(),
+                                [&](const DataVersion& dv) { return dv.data_file == p; });
+        if (rit != reg.end()) {
+            found_anywhere = true;
+            reg.erase(rit);
+            registry_changed = true;
+        }
+
+        std::string status;
+        bool file_deleted = false;
+        if (pending_blocked) {
+            status = "skipped_active_run";
+            ++skipped;
+        } else if (found_anywhere) {
+            status = "deleted";
+            ++deleted;
+            if (delete_files && have_root) {
+                try {
+                    if (fs::exists(p)) {
+                        const auto canon = fs::weakly_canonical(p);
+                        const auto rel = canon.lexically_relative(group_root);
+                        const bool contained =
+                            !rel.empty() && rel.native().compare(0, 2, "..") != 0;
+                        if (contained) {
+                            std::error_code ec;
+                            fs::remove(canon, ec);
+                            file_deleted = !ec;
+                        } else {
+                            Logger::warn(
+                                "[{}] delete: refusing to unlink '{}' — outside group data_dir",
+                                group, p);
+                        }
+                    }
+                } catch (...) {
+                    // Path doesn't resolve (e.g. dangling symlink) — leave file_deleted false.
+                }
+            }
+        } else {
+            status = "not_found";
+            ++not_found;
+        }
+
+        if (!first_detail)
+            details << ",";
+        first_detail = false;
+        details << "{\"path\":\"" << json_escape(p) << "\",\"status\":\"" << status
+               << "\",\"file_deleted\":" << (file_deleted ? "true" : "false") << "}";
+    }
+    details << "]";
+
+    if (pending_changed) {
+        gs.transport->save_pending(pending);
+    }
+    if (registry_changed) {
+        gs.transport->save_registry(reg);
+    }
+
+    std::ostringstream json;
+    json << "{\"deleted\":" << deleted << ",\"skipped\":" << skipped << ",\"not_found\":"
+        << not_found << ",\"details\":" << details.str() << "}";
+    res.set_content(json.str(), "application/json");
+    Logger::info("[{}] delete: {} deleted, {} skipped, {} not_found (force={}, delete_files={})",
+                group, deleted, skipped, not_found, force, delete_files);
 }
 
 // POST /registry/<group>/trained  {"run_id":"...","files":[...],"samples":[...],"model_id":"..."}
@@ -1008,7 +1277,12 @@ static void print_usage(const char* prog) {
         << "  GET  /registry/<group>/queue\n"
         << "  POST /registry/<group>/acquire  {\"run_id\":\"...\",\"max_files\":N}\n"
         << "  POST /registry/<group>/release  {\"run_id\":\"...\",\"files\":[...]}\n"
-        << "  POST /registry/<group>/assign   {\"model_name\":\"...\",\"paths\":[...]}\n"
+        << "  POST /registry/<group>/assign   "
+           "{\"model_name\":\"...\",\"paths\":[...],\"count\":N}\n"
+        << "  POST /registry/<group>/unassign "
+           "{\"model_name\":\"...\",\"paths\":[...],\"force\":bool}\n"
+        << "  POST /registry/<group>/delete   "
+           "{\"paths\":[...],\"force\":bool,\"delete_files\":bool}\n"
         << "  POST /registry/<group>/trained  "
            "{\"run_id\":\"...\",\"files\":[...],\"samples\":[...]}\n"
         << "  GET  /registry/<group>/registry\n"
@@ -1087,6 +1361,13 @@ int main(int argc, char* argv[]) {
     });
     svr.Post(R"(/registry/([^/]+)/assign)", [](const httplib::Request& r, httplib::Response& res) {
         handle_assign(r, res, r.matches[1]);
+    });
+    svr.Post(R"(/registry/([^/]+)/unassign)",
+             [](const httplib::Request& r, httplib::Response& res) {
+                 handle_unassign(r, res, r.matches[1]);
+             });
+    svr.Post(R"(/registry/([^/]+)/delete)", [](const httplib::Request& r, httplib::Response& res) {
+        handle_delete(r, res, r.matches[1]);
     });
     svr.Post(R"(/registry/([^/]+)/trained)", [](const httplib::Request& r, httplib::Response& res) {
         handle_trained(r, res, r.matches[1]);

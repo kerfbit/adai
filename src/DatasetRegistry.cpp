@@ -175,22 +175,51 @@ std::vector<PendingEntry> DatasetRegistry::pending_entries() const {
     return pending_;
 }
 
-bool DatasetRegistry::assign_model(const std::string& model_name,
-                                   const std::vector<std::string>& paths) {
-    const bool assign_all = paths.empty();
-    bool any_matched = false;
-
-    for (auto& e : pending_) {
-        if (assign_all || std::find(paths.begin(), paths.end(), e.path) != paths.end()) {
-            e.model_name = model_name;
-            any_matched = true;
+AssignResult DatasetRegistry::assign_model(const std::string& model_name,
+                                           const std::vector<std::string>& paths, int count) {
+    auto result = transport_->assign(model_name, paths, count);
+    if (!result.paths.empty()) {
+        const std::set<std::string> touched(result.paths.begin(), result.paths.end());
+        for (auto& e : pending_) {
+            if (touched.count(e.path)) {
+                e.model_name = model_name;
+            }
         }
     }
+    return result;
+}
 
-    if (any_matched) {
-        save_pending_list();
+UnassignResult DatasetRegistry::unassign_model(const std::string& model_name,
+                                               const std::vector<std::string>& paths, bool force) {
+    auto result = transport_->unassign(model_name, paths, force);
+    if (!result.paths.empty()) {
+        const std::set<std::string> touched(result.paths.begin(), result.paths.end());
+        for (auto& e : pending_) {
+            if (touched.count(e.path)) {
+                e.model_name.clear();
+            }
+        }
     }
-    return any_matched;
+    return result;
+}
+
+DeleteResult DatasetRegistry::delete_entries(const std::vector<std::string>& paths, bool force,
+                                             bool delete_files) {
+    auto result = transport_->delete_paths(paths, force, delete_files);
+    for (const auto& d : result.details) {
+        if (d.status != "deleted") {
+            continue;
+        }
+        pending_.erase(std::remove_if(pending_.begin(), pending_.end(),
+                                      [&](const PendingEntry& e) { return e.path == d.path; }),
+                       pending_.end());
+        registry_.erase(
+            std::remove_if(registry_.begin(), registry_.end(),
+                           [&](const DataVersion& dv) { return dv.data_file == d.path; }),
+            registry_.end());
+        trained_set_.erase(d.path);
+    }
+    return result;
 }
 
 std::vector<std::string> DatasetRegistry::trained_files() const {

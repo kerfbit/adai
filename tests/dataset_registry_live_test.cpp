@@ -197,9 +197,9 @@ class LiveRegistryTest : public ::testing::Test {
                              "application/json");
     }
 
-    // Helper: POST /registry/<group_>/assign {"model_name":"<model>","paths":[...]}
+    // Helper: POST /registry/<group_>/assign {"model_name":"<model>","paths":[...],"count":N}
     httplib::Result assign(const std::string& model_name_raw_json,
-                           const std::vector<std::string>& paths = {}) {
+                           const std::vector<std::string>& paths = {}, int count = 0) {
         std::ostringstream body;
         body << "{\"model_name\":\"" << model_name_raw_json << "\",\"paths\":[";
         for (std::size_t i = 0; i < paths.size(); ++i) {
@@ -207,8 +207,39 @@ class LiveRegistryTest : public ::testing::Test {
                 body << ',';
             body << '"' << paths[i] << '"';
         }
-        body << "]}";
+        body << "],\"count\":" << count << "}";
         return client_->Post(("/registry/" + group_ + "/assign").c_str(), body.str(),
+                             "application/json");
+    }
+
+    // Helper: POST /registry/<group_>/unassign {"model_name":"<model>","paths":[...],"force":bool}
+    httplib::Result unassign(const std::string& model_name_raw_json,
+                             const std::vector<std::string>& paths = {}, bool force = false) {
+        std::ostringstream body;
+        body << "{\"model_name\":\"" << model_name_raw_json << "\",\"paths\":[";
+        for (std::size_t i = 0; i < paths.size(); ++i) {
+            if (i)
+                body << ',';
+            body << '"' << paths[i] << '"';
+        }
+        body << "],\"force\":" << (force ? "true" : "false") << "}";
+        return client_->Post(("/registry/" + group_ + "/unassign").c_str(), body.str(),
+                             "application/json");
+    }
+
+    // Helper: POST /registry/<group_>/delete {"paths":[...],"force":bool,"delete_files":bool}
+    httplib::Result delete_entries(const std::vector<std::string>& paths, bool force = false,
+                                   bool delete_files = false) {
+        std::ostringstream body;
+        body << "{\"paths\":[";
+        for (std::size_t i = 0; i < paths.size(); ++i) {
+            if (i)
+                body << ',';
+            body << '"' << paths[i] << '"';
+        }
+        body << "],\"force\":" << (force ? "true" : "false")
+            << ",\"delete_files\":" << (delete_files ? "true" : "false") << "}";
+        return client_->Post(("/registry/" + group_ + "/delete").c_str(), body.str(),
                              "application/json");
     }
 
@@ -615,6 +646,297 @@ TEST_F(LiveRegistryTest, AssignReturnsZeroForNonExistentPath) {
     ASSERT_TRUE(res);
     EXPECT_EQ(res->status, 200);
     EXPECT_EQ(json_int(res->body, "assigned"), 0) << res->body;
+}
+
+TEST_F(LiveRegistryTest, AssignWithCountAssignsFirstNUnassignedOnly) {
+    const std::string p1 = "/data/" + group() + "/count1.txt";
+    const std::string p2 = "/data/" + group() + "/count2.txt";
+    const std::string p3 = "/data/" + group() + "/count3.txt";
+    ASSERT_TRUE(add_pending(p1));
+    ASSERT_TRUE(add_pending(p2));
+    ASSERT_TRUE(add_pending(p3));
+
+    auto res = assign("model-d", {}, 2);
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_EQ(json_int(res->body, "assigned"), 2) << res->body;
+
+    auto queue_res = get_queue();
+    ASSERT_TRUE(queue_res);
+    int occurrences = 0;
+    std::size_t pos = 0;
+    const std::string needle = "\"model_name\":\"model-d\"";
+    while ((pos = queue_res->body.find(needle, pos)) != std::string::npos) {
+        ++occurrences;
+        pos += needle.size();
+    }
+    EXPECT_EQ(occurrences, 2) << queue_res->body;
+}
+
+TEST_F(LiveRegistryTest, AssignWithCountSkipsAlreadyAssignedEntries) {
+    const std::string p1 = "/data/" + group() + "/countskip1.txt";
+    const std::string p2 = "/data/" + group() + "/countskip2.txt";
+    const std::string p3 = "/data/" + group() + "/countskip3.txt";
+    ASSERT_TRUE(add_pending(p1));
+    ASSERT_TRUE(add_pending(p2));
+    ASSERT_TRUE(add_pending(p3));
+
+    ASSERT_TRUE(assign("model-x", {p1}));  // pre-assign p1 to a different model
+
+    auto res = assign("model-d", {}, 5);  // ask for more than remain unassigned
+    ASSERT_TRUE(res);
+    EXPECT_EQ(json_int(res->body, "assigned"), 2) << res->body;  // only p2, p3
+}
+
+TEST_F(LiveRegistryTest, AssignWithZeroCountAndEmptyPathsAssignsAll) {
+    const std::string p1 = "/data/" + group() + "/zerocount1.txt";
+    const std::string p2 = "/data/" + group() + "/zerocount2.txt";
+    ASSERT_TRUE(add_pending(p1));
+    ASSERT_TRUE(add_pending(p2));
+
+    auto res = assign("model-b", {}, 0);  // explicit count=0 == today's "assign all" default
+    ASSERT_TRUE(res);
+    EXPECT_EQ(json_int(res->body, "assigned"), 2) << res->body;
+}
+
+TEST_F(LiveRegistryTest, AssignResponseIncludesPathsArray) {
+    const std::string p1 = "/data/" + group() + "/pathsarr1.txt";
+    ASSERT_TRUE(add_pending(p1));
+
+    auto res = assign("model-e", {p1});
+    ASSERT_TRUE(res);
+    EXPECT_NE(res->body.find("\"paths\":[\"" + p1 + "\"]"), std::string::npos) << res->body;
+}
+
+// ===========================================================================
+// Unassign — POST /registry/<group>/unassign
+// ===========================================================================
+
+TEST_F(LiveRegistryTest, UnassignBulkByModelNameClearsAllMatchingEntries) {
+    const std::string p1 = "/data/" + group() + "/unassignbulk1.txt";
+    const std::string p2 = "/data/" + group() + "/unassignbulk2.txt";
+    const std::string p3 = "/data/" + group() + "/unassignbulk3.txt";
+    ASSERT_TRUE(add_pending(p1));
+    ASSERT_TRUE(add_pending(p2));
+    ASSERT_TRUE(add_pending(p3));
+    ASSERT_TRUE(assign("model-e", {p1, p2, p3}));
+
+    auto res = unassign("model-e");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_EQ(json_int(res->body, "unassigned"), 3) << res->body;
+
+    auto queue_res = get_queue();
+    ASSERT_TRUE(queue_res);
+    EXPECT_EQ(queue_res->body.find("\"model_name\":\"model-e\""), std::string::npos)
+        << queue_res->body;
+}
+
+TEST_F(LiveRegistryTest, UnassignSpecificPathsOnlyClearsListed) {
+    const std::string p1 = "/data/" + group() + "/unassignspecific1.txt";
+    const std::string p2 = "/data/" + group() + "/unassignspecific2.txt";
+    ASSERT_TRUE(add_pending(p1));
+    ASSERT_TRUE(add_pending(p2));
+    ASSERT_TRUE(assign("model-f", {p1, p2}));
+
+    auto res = unassign("model-f", {p1});
+    ASSERT_TRUE(res);
+    EXPECT_EQ(json_int(res->body, "unassigned"), 1) << res->body;
+
+    auto queue_res = get_queue();
+    ASSERT_TRUE(queue_res);
+    const auto p2_pos = queue_res->body.find(p2);
+    ASSERT_NE(p2_pos, std::string::npos);
+    EXPECT_NE(queue_res->body.find("\"model_name\":\"model-f\"", p2_pos), std::string::npos)
+        << queue_res->body;
+}
+
+TEST_F(LiveRegistryTest, UnassignSkipsActivelyClaimedEntryWithoutForce) {
+    const std::string p1 = "/data/" + group() + "/unassignclaimed1.txt";
+    ASSERT_TRUE(add_pending(p1));
+    ASSERT_TRUE(assign("model-g", {p1}));
+    ASSERT_TRUE(acquire("run-Z", 1));
+
+    auto res = unassign("model-g", {p1});
+    ASSERT_TRUE(res);
+    EXPECT_EQ(json_int(res->body, "unassigned"), 0) << res->body;
+    EXPECT_EQ(json_int(res->body, "skipped"), 1) << res->body;
+
+    auto queue_res = get_queue();
+    ASSERT_TRUE(queue_res);
+    const auto p1_pos = queue_res->body.find(p1);
+    ASSERT_NE(p1_pos, std::string::npos);
+    EXPECT_NE(queue_res->body.find("\"model_name\":\"model-g\"", p1_pos), std::string::npos)
+        << queue_res->body;
+}
+
+TEST_F(LiveRegistryTest, UnassignForceOverridesActiveClaim) {
+    const std::string p1 = "/data/" + group() + "/unassignforce1.txt";
+    ASSERT_TRUE(add_pending(p1));
+    ASSERT_TRUE(assign("model-g", {p1}));
+    ASSERT_TRUE(acquire("run-Z", 1));
+
+    auto res = unassign("model-g", {p1}, /*force=*/true);
+    ASSERT_TRUE(res);
+    EXPECT_EQ(json_int(res->body, "unassigned"), 1) << res->body;
+    EXPECT_EQ(json_int(res->body, "skipped"), 0) << res->body;
+}
+
+TEST_F(LiveRegistryTest, UnassignRejectsWhenBothPathsAndModelNameEmpty) {
+    auto res = unassign("");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400);
+}
+
+TEST_F(LiveRegistryTest, UnassignReturnsZeroForNonMatchingModelName) {
+    auto res = unassign("no-such-model");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_EQ(json_int(res->body, "unassigned"), 0) << res->body;
+    EXPECT_EQ(json_int(res->body, "skipped"), 0) << res->body;
+}
+
+TEST_F(LiveRegistryTest, UnassignOwnershipCheckSkipsPathAssignedToDifferentModel) {
+    const std::string p1 = "/data/" + group() + "/unassignownership1.txt";
+    ASSERT_TRUE(add_pending(p1));
+    ASSERT_TRUE(assign("model-h", {p1}));
+
+    auto res = unassign("model-i", {p1});
+    ASSERT_TRUE(res);
+    EXPECT_EQ(json_int(res->body, "unassigned"), 0) << res->body;
+}
+
+// ===========================================================================
+// Delete — POST /registry/<group>/delete
+// ===========================================================================
+
+TEST_F(LiveRegistryTest, DeleteRemovesPendingEntryByPath) {
+    const std::string p1 = "/data/" + group() + "/delete1.txt";
+    ASSERT_TRUE(add_pending(p1));
+
+    auto res = delete_entries({p1});
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_EQ(json_int(res->body, "deleted"), 1) << res->body;
+
+    auto queue_res = get_queue();
+    ASSERT_TRUE(queue_res);
+    EXPECT_EQ(queue_res->body.find(p1), std::string::npos) << queue_res->body;
+}
+
+TEST_F(LiveRegistryTest, DeleteRemovesTrainedRegistryEntryByPath) {
+    if (!server_current_format_) {
+        GTEST_SKIP() << "server predates current registry format";
+    }
+    const std::string p1 = "/data/" + group() + "/deletetrained1.txt";
+    ASSERT_TRUE(add_pending(p1));
+    ASSERT_TRUE(acquire("run-del", 1));
+    ASSERT_TRUE(trained("run-del", {p1}, {5}));
+
+    auto res = delete_entries({p1});
+    ASSERT_TRUE(res);
+    EXPECT_EQ(json_int(res->body, "deleted"), 1) << res->body;
+
+    auto reg_res = get_registry();
+    ASSERT_TRUE(reg_res);
+    EXPECT_EQ(reg_res->body.find(p1), std::string::npos) << reg_res->body;
+}
+
+TEST_F(LiveRegistryTest, DeleteReturnsNotFoundForUnknownPath) {
+    auto res = delete_entries({"/no/such/file-" + group() + ".txt"});
+    ASSERT_TRUE(res);
+    EXPECT_EQ(json_int(res->body, "deleted"), 0) << res->body;
+    EXPECT_EQ(json_int(res->body, "not_found"), 1) << res->body;
+}
+
+TEST_F(LiveRegistryTest, DeleteSkipsActivelyClaimedPendingEntryWithoutForce) {
+    const std::string p1 = "/data/" + group() + "/deleteclaimed1.txt";
+    ASSERT_TRUE(add_pending(p1));
+    ASSERT_TRUE(acquire("run-Z", 1));
+
+    auto res = delete_entries({p1});
+    ASSERT_TRUE(res);
+    EXPECT_EQ(json_int(res->body, "deleted"), 0) << res->body;
+    EXPECT_EQ(json_int(res->body, "skipped"), 1) << res->body;
+
+    auto queue_res = get_queue();
+    ASSERT_TRUE(queue_res);
+    EXPECT_NE(queue_res->body.find(p1), std::string::npos) << queue_res->body;
+}
+
+TEST_F(LiveRegistryTest, DeleteForceOverridesActiveClaim) {
+    const std::string p1 = "/data/" + group() + "/deleteforce1.txt";
+    ASSERT_TRUE(add_pending(p1));
+    ASSERT_TRUE(acquire("run-Z", 1));
+
+    auto res = delete_entries({p1}, /*force=*/true);
+    ASSERT_TRUE(res);
+    EXPECT_EQ(json_int(res->body, "deleted"), 1) << res->body;
+}
+
+TEST_F(LiveRegistryTest, DeleteWithoutDeleteFilesLeavesFileDeletedFlagFalse) {
+    const std::string filename = "delete_nofiles_" + group() + ".txt";
+    auto upload_res = upload(filename, "hello from delete test");
+    ASSERT_TRUE(upload_res);
+    ASSERT_EQ(upload_res->status, 200);
+    const std::string path = json_string(upload_res->body, "path");
+    ASSERT_FALSE(path.empty());
+
+    // delete_files defaults to false — assert only via the response field,
+    // never fs::exists, since the live server under test may be remote.
+    auto res = delete_entries({path});
+    ASSERT_TRUE(res);
+    EXPECT_EQ(json_int(res->body, "deleted"), 1) << res->body;
+    EXPECT_FALSE(json_bool(res->body, "file_deleted")) << res->body;
+}
+
+TEST_F(LiveRegistryTest, DeleteWithDeleteFilesUnlinksUploadedFile) {
+    const std::string filename = "delete_withfiles_" + group() + ".txt";
+    auto upload_res = upload(filename, "hello from delete test 2");
+    ASSERT_TRUE(upload_res);
+    ASSERT_EQ(upload_res->status, 200);
+    const std::string path = json_string(upload_res->body, "path");
+    ASSERT_FALSE(path.empty());
+
+    auto res = delete_entries({path}, /*force=*/false, /*delete_files=*/true);
+    ASSERT_TRUE(res);
+    EXPECT_EQ(json_int(res->body, "deleted"), 1) << res->body;
+    EXPECT_TRUE(json_bool(res->body, "file_deleted")) << res->body;
+}
+
+TEST_F(LiveRegistryTest, DeleteWithDeleteFilesRefusesPathOutsideDataDir) {
+    // Deliberately never created on disk, so this test is valid whether the
+    // live server under test is local or remote — the containment check (or
+    // simple non-existence) both yield file_deleted=false either way.
+    const std::string path = "/tmp/adai_external_" + group() + ".txt";
+    ASSERT_TRUE(add_pending(path));
+
+    auto res = delete_entries({path}, /*force=*/false, /*delete_files=*/true);
+    ASSERT_TRUE(res);
+    EXPECT_EQ(json_int(res->body, "deleted"), 1) << res->body;  // metadata still purged
+    EXPECT_FALSE(json_bool(res->body, "file_deleted")) << res->body;
+}
+
+TEST_F(LiveRegistryTest, DeleteMultiplePathsMixedOutcomes) {
+    const std::string p_ok = "/data/" + group() + "/mixed_ok.txt";
+    const std::string p_claimed = "/data/" + group() + "/mixed_claimed.txt";
+    const std::string p_missing = "/no/such/mixed-" + group() + ".txt";
+    ASSERT_TRUE(add_pending(p_ok));
+    ASSERT_TRUE(add_pending(p_claimed));
+    ASSERT_TRUE(acquire("run-mixed", 2));       // claims both
+    ASSERT_TRUE(release("run-mixed", {p_ok}));  // release only p_ok back to unclaimed
+
+    auto res = delete_entries({p_ok, p_claimed, p_missing});
+    ASSERT_TRUE(res);
+    EXPECT_EQ(json_int(res->body, "deleted"), 1) << res->body;    // p_ok
+    EXPECT_EQ(json_int(res->body, "skipped"), 1) << res->body;    // p_claimed
+    EXPECT_EQ(json_int(res->body, "not_found"), 1) << res->body;  // p_missing
+}
+
+TEST_F(LiveRegistryTest, DeleteRejectsEmptyPaths) {
+    auto res = delete_entries({});
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400);
 }
 
 // ===========================================================================
