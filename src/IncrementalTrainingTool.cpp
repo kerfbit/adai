@@ -6,20 +6,20 @@
 #include <sstream>
 #include <utility>
 #include "Config.hpp"
-#include "DatasetRegistry.hpp"
 #include "DataTransport.hpp"
+#include "DatasetRegistry.hpp"
 #include "IncrementalTrainer.hpp"
-#include "ModelNameClient.hpp"
-#include "StartupSweep.hpp"
 #include "Logger.hpp"
 #include "Matrix.hpp"
+#include "ModelNameClient.hpp"
+#include "StartupSweep.hpp"
 
 #ifndef _WIN32
-#  include <fcntl.h>
-#  include <unistd.h>
+#include <fcntl.h>
+#include <unistd.h>
 #endif
 #ifdef _WIN32
-#  include <windows.h>
+#include <windows.h>
 #endif
 
 namespace fs = std::filesystem;
@@ -27,19 +27,17 @@ namespace fs = std::filesystem;
 namespace {
 
 static constexpr const char* COLOR_RESET = "\033[0m";
-static constexpr const char* COLOR_INFO  = "\033[1;36m";
+static constexpr const char* COLOR_INFO = "\033[1;36m";
 
 void print_session_history(const std::vector<TrainingSession>& sessions) {
     std::cout << COLOR_INFO << "\n📜 Session History:" << COLOR_RESET << '\n';
     std::cout << "Session | Samples | Epochs | Loss   | Val Loss | Checkpoint\n";
     std::cout << "--------|---------|--------|--------|----------|------------\n";
     for (const auto& s : sessions) {
-        std::cout << std::setw(7) << s.session_id    << " | "
-                  << std::setw(7) << s.samples_trained << " | "
-                  << std::setw(6) << s.epochs_completed << " | "
-                  << std::setw(6) << std::fixed << std::setprecision(3) << s.final_loss << " | "
-                  << std::setw(8) << s.final_validation_loss << " | "
-                  << s.checkpoint_path << '\n';
+        std::cout << std::setw(7) << s.session_id << " | " << std::setw(7) << s.samples_trained
+                  << " | " << std::setw(6) << s.epochs_completed << " | " << std::setw(6)
+                  << std::fixed << std::setprecision(3) << s.final_loss << " | " << std::setw(8)
+                  << s.final_validation_loss << " | " << s.checkpoint_path << '\n';
     }
 }
 
@@ -50,8 +48,10 @@ void print_data_registry(const adai::ServiceConfig& svc_config) {
     std::cout << COLOR_INFO << "\n📋 Data Registry:" << COLOR_RESET << '\n';
     std::cout << "Status  | Data File\n";
     std::cout << "--------|----------\n";
-    for (const auto& f : reg.trained_files()) std::cout << "trained | " << f << '\n';
-    for (const auto& f : reg.pending_files()) std::cout << "pending | " << f << '\n';
+    for (const auto& f : reg.trained_files())
+        std::cout << "trained | " << f << '\n';
+    for (const auto& f : reg.pending_files())
+        std::cout << "pending | " << f << '\n';
 }
 
 // Detaches the calling process into the background.
@@ -72,15 +72,20 @@ long long launch_background(int argc, char* argv[]) {
     (void)argc;
     (void)argv;
     pid_t pid = ::fork();
-    if (pid < 0) return -1LL;   // fork failed
-    if (pid > 0) return static_cast<long long>(pid);  // parent: return child PID
+    if (pid < 0)
+        return -1LL;  // fork failed
+    if (pid > 0)
+        return static_cast<long long>(pid);  // parent: return child PID
 
     // --- child ---
     ::setsid();  // become session leader; fully detach from controlling terminal
 
     // Redirect stdin to /dev/null
     int nr = ::open("/dev/null", O_RDONLY);
-    if (nr >= 0) { ::dup2(nr, STDIN_FILENO);  ::close(nr); }
+    if (nr >= 0) {
+        ::dup2(nr, STDIN_FILENO);
+        ::close(nr);
+    }
 
     // Redirect stdout/stderr to /dev/null (training output goes through Logger)
     int nw = ::open("/dev/null", O_WRONLY);
@@ -107,9 +112,9 @@ long long launch_background(int argc, char* argv[]) {
     si.cb = sizeof(si);
     PROCESS_INFORMATION pi{};
 
-    if (!::CreateProcessA(nullptr, cmd.data(), nullptr, nullptr,
-                          FALSE, DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
-                          nullptr, nullptr, &si, &pi)) {
+    if (!::CreateProcessA(nullptr, cmd.data(), nullptr, nullptr, FALSE,
+                          DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP, nullptr, nullptr, &si,
+                          &pi)) {
         ::SetEnvironmentVariableA("ADAI_BACKGROUND_CHILD", nullptr);
         return -1LL;
     }
@@ -135,19 +140,22 @@ static void cleanup_downloads(const std::vector<fs::path>& local_paths) {
     }
 }
 
-
 std::string derive_run_id(const std::string& configured) {
-    if (!configured.empty()) return configured;
+    if (!configured.empty())
+        return configured;
     std::string host = "host";
 #ifdef _WIN32
-    if (const char* env_host = std::getenv("COMPUTERNAME")) host = env_host;
+    if (const char* env_host = std::getenv("COMPUTERNAME"))
+        host = env_host;
     const int pid_tail = static_cast<int>(_getpid() % 10000);
 #else
     std::array<char, 256> buf{};
-    if (gethostname(buf.data(), buf.size() - 1) == 0) host = buf.data();
+    if (gethostname(buf.data(), buf.size() - 1) == 0)
+        host = buf.data();
     const int pid_tail = static_cast<int>(getpid() % 10000);
 #endif
-    if (host.size() > 8) host = host.substr(0, 8);
+    if (host.size() > 8)
+        host = host.substr(0, 8);
     return host + "_" + std::to_string(pid_tail);
 }
 
@@ -159,19 +167,22 @@ std::string derive_run_id(const std::string& configured) {
 // returns an empty string (caller should abort with an error).
 #ifdef BUILD_MNS_SERVER
 std::string resolve_model_name(const adai::ServiceConfig& svc_config,
-                                const std::string& cli_model_name) {
-    if (!cli_model_name.empty()) return cli_model_name;
-    if (!svc_config.model_name.empty()) return svc_config.model_name;
+                               const std::string& cli_model_name) {
+    if (!cli_model_name.empty())
+        return cli_model_name;
+    if (!svc_config.model_name.empty())
+        return svc_config.model_name;
 
-    if (svc_config.name_service_url.empty()) return {};
+    if (svc_config.name_service_url.empty())
+        return {};
 
     adai::ModelNameClient mns(svc_config.name_service_url, svc_config.name_service_timeout_ms);
     std::vector<adai::ModelSummary> models;
     try {
         models = mns.list_models("", svc_config.model_role);
     } catch (const std::exception& e) {
-        std::cerr << "❌ Failed to query name service at " << svc_config.name_service_url
-                  << ": " << e.what() << "\n";
+        std::cerr << "❌ Failed to query name service at " << svc_config.name_service_url << ": "
+                  << e.what() << "\n";
         return {};
     }
 
@@ -187,18 +198,22 @@ std::string resolve_model_name(const adai::ServiceConfig& svc_config,
     std::cout << "  #  | State        | Role       | Model Name\n";
     std::cout << "-----|--------------|------------|---------------------------\n";
     for (size_t i = 0; i < models.size(); ++i) {
-        std::cout << "  " << std::setw(2) << (i + 1) << " | "
-                  << std::setw(12) << std::left << models[i].state << " | "
-                  << std::setw(10) << std::left << models[i].role  << " | "
-                  << models[i].model_name << "\n";
+        std::cout << "  " << std::setw(2) << (i + 1) << " | " << std::setw(12) << std::left
+                  << models[i].state << " | " << std::setw(10) << std::left << models[i].role
+                  << " | " << models[i].model_name << "\n";
     }
     std::cout << "\nSelect model [1-" << models.size() << "]: ";
     std::string input;
     std::getline(std::cin, input);
-    if (input.empty()) return {};
+    if (input.empty())
+        return {};
 
     int choice = 0;
-    try { choice = std::stoi(input); } catch (...) { return {}; }
+    try {
+        choice = std::stoi(input);
+    } catch (...) {
+        return {};
+    }
     if (choice < 1 || choice > static_cast<int>(models.size())) {
         std::cerr << "Invalid selection.\n";
         return {};
@@ -212,16 +227,12 @@ std::string resolve_model_name(const adai::ServiceConfig& svc_config,
 // init_gpu_fn and child_work are callables; child_work returns an exit code.
 // banner_extras are {label, value} pairs printed between Model and Log lines;
 // labels are left-padded to 7 characters to align with the fixed lines.
-template<typename InitGpuFn, typename WorkerFn>
-int run_training_pipeline(
-        int argc, char* argv[],
-        const adai::ServiceConfig& svc_config,
-        const std::string& default_model,
-        const std::string& log_path,
-        const std::string& title,
-        const std::vector<std::pair<std::string, std::string>>& banner_extras,
-        InitGpuFn&& init_gpu_fn,
-        WorkerFn&& child_work) {
+template <typename InitGpuFn, typename WorkerFn>
+int run_training_pipeline(int argc, char* argv[], const adai::ServiceConfig& svc_config,
+                          const std::string& default_model, const std::string& log_path,
+                          const std::string& title,
+                          const std::vector<std::pair<std::string, std::string>>& banner_extras,
+                          InitGpuFn&& init_gpu_fn, WorkerFn&& child_work) {
     const long long child_pid = launch_background(argc, argv);
     if (child_pid > 0) {
         std::cout << "[ADAI] " << title << " — PID " << child_pid << "\n"
@@ -238,8 +249,7 @@ int run_training_pipeline(
         adai::Logger::warn("[background] fork failed — running in foreground");
 
     adai::Logger::init(adai::Logger::Level::INFO,
-                       {log_path, svc_config.log_max_size_mb, svc_config.log_max_files},
-                       "adai");
+                       {log_path, svc_config.log_max_size_mb, svc_config.log_max_files}, "adai");
     init_gpu_fn();
     return child_work();
 }
@@ -247,9 +257,11 @@ int run_training_pipeline(
 int output_usage(char* argv[]) {
     std::cout << "Usage: " << argv[0] << " [--config <path>] <command> [options]\n\n";
     std::cout << "Global options:\n";
-    std::cout << "  --config <path>              Path to config.conf\n";
-    std::cout << "                               Search order: --config > ./config.conf > "
-                 "/etc/adai/config.conf\n";
+    std::cout << "  --config <path>              Path to config.trainer.conf\n";
+    std::cout << "                               Search order: --config > ./config.trainer.conf > "
+                 "/etc/adai/config.trainer.conf\n";
+    std::cout << "                               > ./config.conf (legacy) > /etc/adai/config.conf "
+                 "(legacy)\n";
     std::cout << "                               Sets model architecture, training params, "
                  "vocab/model paths\n";
     std::cout
@@ -276,8 +288,8 @@ int output_usage(char* argv[]) {
     std::cout << "  --keep-data                  Preserve data registry (mark entries untrained)\n";
     std::cout << "\nExample workflow:\n";
     std::cout << "  # Initial training with custom config\n";
-    std::cout << "  " << argv[0] << " --config config.conf init\n";
-    std::cout << "  " << argv[0] << " --config config.conf train 5\n";
+    std::cout << "  " << argv[0] << " --config config.trainer.conf init\n";
+    std::cout << "  " << argv[0] << " --config config.trainer.conf train 5\n";
     return 1;
 }
 
@@ -309,19 +321,10 @@ int main(int argc, char* argv[]) {
 
     // Load model architecture + training params from config file.
     // Priority: file < environment variables (ConfigLoader already handles this).
-    // Auto-discover config.conf: explicit --config > CWD/config.conf > /etc/adai/config.conf.
-    if (config_path.empty()) {
-        // Check the current working directory first so running from the project
-        // root always picks up the local config.conf without needing --config.
-        std::ifstream local_check("config.conf");
-        if (local_check.good()) {
-            config_path = "config.conf";
-        }
-    }
-    adai::ServiceConfig svc_config =
-        config_path.empty()
-            ? adai::ConfigLoader::load()  // falls back to /etc/adai/config.conf + env
-            : adai::ConfigLoader::load(config_path);
+    // Discovery: --config > ./config.trainer.conf > /etc/adai/config.trainer.conf
+    // > ./config.conf (legacy) > /etc/adai/config.conf (legacy).
+    config_path = adai::ConfigLoader::discover_config_path(config_path, "config.trainer.conf");
+    adai::ServiceConfig svc_config = adai::ConfigLoader::load(config_path);
 
     // CLI --gpu-strategy overrides the config file value.
     if (!gpu_strategy_override.empty()) {
@@ -331,35 +334,40 @@ int main(int argc, char* argv[]) {
     // GPU init is deferred for commands that fork (train/retrain/resume): the
     // child reinitialises after fork because CUDA contexts are not fork-safe.
     // For all other commands (chat, infer, status, …) we initialise here.
-    const bool command_forks = (!args.empty() &&
-        (args[0] == "train" || args[0] == "retrain" || args[0] == "resume"));
+    const bool command_forks =
+        (!args.empty() && (args[0] == "train" || args[0] == "retrain" || args[0] == "resume"));
 
     auto init_gpu = [&]() {
-        if (!svc_config.gpu_enabled) return;
+        if (!svc_config.gpu_enabled)
+            return;
 #ifdef ADAI_ENABLE_GPU
         const bool low_priority = (svc_config.gpu_strategy == adai::GPUStrategy::BACKGROUND);
         if (Matrix::gpu_try_initialize(svc_config.gpu_device_id, svc_config.gpu_memory_fraction,
                                        low_priority)) {
-            const char* mode = low_priority ? "background (low-priority stream)"
-                                            : "full (high-priority stream)";
+            const char* mode =
+                low_priority ? "background (low-priority stream)" : "full (high-priority stream)";
             adai::Logger::info("[GPU] GPU ready — strategy: {}. {}", mode, Matrix::gpu_info());
         } else {
 #if defined(ADAI_GPU_BACKEND_SYCL)
-            adai::Logger::warn("[GPU] No Intel GPU device found or SYCL initialisation failed"
-                               " — running on CPU");
+            adai::Logger::warn(
+                "[GPU] No Intel GPU device found or SYCL initialisation failed"
+                " — running on CPU");
             adai::Logger::warn("{}", adai::gpu::GPUManager::probe_diagnostic());
 #else
-            adai::Logger::warn("[GPU] No CUDA device found or initialisation failed"
-                               " — running on CPU");
+            adai::Logger::warn(
+                "[GPU] No CUDA device found or initialisation failed"
+                " — running on CPU");
 #endif
         }
 #else
-        adai::Logger::warn("[GPU] GPU_ENABLED is set but this binary was built without GPU support"
-                           " (rebuild with -DENABLE_GPU=ON for CUDA or -DENABLE_SYCL=ON for Intel Arc)");
+        adai::Logger::warn(
+            "[GPU] GPU_ENABLED is set but this binary was built without GPU support"
+            " (rebuild with -DENABLE_GPU=ON for CUDA or -DENABLE_SYCL=ON for Intel Arc)");
 #endif
     };
 
-    if (!command_forks) init_gpu();
+    if (!command_forks)
+        init_gpu();
 
     if (args.empty()) {
         return output_usage(argv);
@@ -376,7 +384,7 @@ int main(int argc, char* argv[]) {
         std::string resolved = resolve_model_name(svc_config, cli_model_name);
         if (resolved.empty()) {
             std::cerr << "❌ No model selected. Specify --model <name>, set MODEL_NAME in "
-                         "config.conf, or select from the name service list.\n";
+                         "config.trainer.conf, or select from the name service list.\n";
             return 1;
         }
         svc_config.model_name = resolved;
@@ -390,6 +398,30 @@ int main(int argc, char* argv[]) {
             }
         } catch (...) {
             // Model exists but has no artifact yet (initializing state) — train from scratch.
+        }
+
+        // MNS is the authoritative source for architecture — see CLAUDE.md
+        // "Configuration". Falls back to config.trainer.conf's D_MODEL etc. when
+        // the lookup fails or the model isn't registered yet (bootstrap case).
+        try {
+            adai::ModelNameClient mns(svc_config.name_service_url,
+                                      svc_config.name_service_timeout_ms);
+            if (auto arch = mns.get_architecture(resolved)) {
+                svc_config.d_model = arch->d_model;
+                svc_config.num_heads = arch->num_heads;
+                svc_config.d_ff = arch->d_ff;
+                svc_config.num_encoder_layers = arch->num_encoder_layers;
+                svc_config.num_decoder_layers = arch->num_decoder_layers;
+                svc_config.max_seq_length = arch->max_seq_length;
+                std::cout << "[MNS] Architecture resolved from MNS for model '" << resolved
+                          << "'\n";
+            } else {
+                std::cout << "[MNS] No architecture on record for '" << resolved
+                          << "'; using local config architecture\n";
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "[MNS] Architecture lookup failed (" << e.what()
+                      << "); using local config architecture\n";
         }
     }
 #endif
@@ -438,7 +470,8 @@ int main(int argc, char* argv[]) {
             std::ifstream pf(svc_config.session_dir + "/pending_files.txt");
             std::string line;
             while (std::getline(pf, line))
-                if (!line.empty()) ++pre_fork_pending_count;
+                if (!line.empty())
+                    ++pre_fork_pending_count;
         }
         if (pre_fork_pending_count == 0) {
             std::cout << "⚠️  No pending data. Use DatasetManager to queue training data.\n";
@@ -448,21 +481,28 @@ int main(int argc, char* argv[]) {
         const std::string log_path =
             svc_config.log_file_path.empty() ? "chatbot_server.log" : svc_config.log_file_path;
 
-        return run_training_pipeline(argc, argv, svc_config, default_model, log_path,
-            "Training started in background",
-            {{"Data",   std::to_string(pre_fork_pending_count) + " pending file(s)"},
+        return run_training_pipeline(
+            argc, argv, svc_config, default_model, log_path, "Training started in background",
+            {{"Data", std::to_string(pre_fork_pending_count) + " pending file(s)"},
              {"Epochs", std::to_string(epochs)}},
-            init_gpu,
-            [&]() -> int {
+            init_gpu, [&]() -> int {
                 IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
                 config.base_config.num_epochs = epochs;
                 config.base_config.lr_schedule = LRSchedule::WARMUP_COSINE;
                 IncrementalTrainer trainer(default_vocab, default_model, config);
 
+                // MNS is the definitive source for run_id (continuing the
+                // model's current run — not a retrain); falls back to the
+                // local hostname+pid/RUN_ID-derived value only when MNS isn't
+                // configured. The same run_id is then used for dataset-registry
+                // file ownership below, unifying both systems' notion of "run".
+                std::string run_id = trainer.begin_run(/*is_retrain=*/false);
+                if (run_id.empty())
+                    run_id = derive_run_id(svc_config.run_id);
+
                 DatasetConfig dcfg = DatasetRegistry::make_config(svc_config);
                 DatasetRegistry reg(dcfg);
                 reg.load_registry();
-                const std::string run_id = derive_run_id(svc_config.run_id);
 
                 // Startup stale-file sweep (conditions A-expired, B, C, D, G)
                 startup_sweep(reg, run_id, dcfg.download_dir);
@@ -475,24 +515,26 @@ int main(int argc, char* argv[]) {
 
                 // Resolve local file paths — FTP download or direct access
                 std::vector<std::string> local_paths;
-                std::vector<fs::path>    downloaded_paths;
-                const bool use_ftp = !resp.ftp_server_host.empty()
-                                  && !dcfg.download_dir.empty();
+                std::vector<fs::path> downloaded_paths;
+                const bool use_ftp = !resp.ftp_server_host.empty() && !dcfg.download_dir.empty();
                 if (use_ftp) {
                     const std::size_t warn_bytes =
-                        static_cast<std::size_t>(dcfg.large_file_warn_threshold_mb) * 1024ULL * 1024ULL;
+                        static_cast<std::size_t>(dcfg.large_file_warn_threshold_mb) * 1024ULL *
+                        1024ULL;
                     try {
                         DataTransport dt;
                         downloaded_paths = dt.fetch_all(resp, dcfg.download_dir,
                                                         dcfg.max_parallel_downloads, warn_bytes);
-                        for (const auto& p : downloaded_paths) local_paths.push_back(p.string());
+                        for (const auto& p : downloaded_paths)
+                            local_paths.push_back(p.string());
                     } catch (const std::exception& ex) {
                         adai::Logger::error("[DataTransport] Download failed: {}", ex.what());
                         reg.release_pending(run_id, resp.registry_paths());
                         return 1;
                     }
                 } else {
-                    for (const auto& f : resp.files) local_paths.push_back(f.registry_path);
+                    for (const auto& f : resp.files)
+                        local_paths.push_back(f.registry_path);
                 }
 
                 const bool ok = trainer.train_on_files(local_paths, epochs);
@@ -506,7 +548,8 @@ int main(int argc, char* argv[]) {
                     reg.release_pending(run_id, reg_paths);
                 }
 
-                if (use_ftp) cleanup_downloads(downloaded_paths);
+                if (use_ftp)
+                    cleanup_downloads(downloaded_paths);
                 return ok ? 0 : 1;
             });
 
@@ -518,24 +561,24 @@ int main(int argc, char* argv[]) {
             DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
             reg.load_registry();
             reg.load_pending_list();
-            data_file_count = static_cast<int>(reg.trained_files().size()
-                                             + reg.pending_files().size());
+            data_file_count =
+                static_cast<int>(reg.trained_files().size() + reg.pending_files().size());
         } else {
             std::ifstream pf(svc_config.session_dir + "/pending_files.txt");
             std::string line;
             while (std::getline(pf, line))
-                if (!line.empty()) ++data_file_count;
+                if (!line.empty())
+                    ++data_file_count;
         }
 
         const std::string log_path =
             svc_config.log_file_path.empty() ? "chatbot_server.log" : svc_config.log_file_path;
 
-        return run_training_pipeline(argc, argv, svc_config, default_model, log_path,
-            "Full retrain started in background",
-            {{"Data",   std::to_string(data_file_count) + " file(s)"},
+        return run_training_pipeline(
+            argc, argv, svc_config, default_model, log_path, "Full retrain started in background",
+            {{"Data", std::to_string(data_file_count) + " file(s)"},
              {"Epochs", std::to_string(epochs)}},
-            init_gpu,
-            [&]() -> int {
+            init_gpu, [&]() -> int {
                 IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
                 config.base_config.num_epochs = epochs;
                 config.base_config.lr_schedule = LRSchedule::WARMUP_COSINE;
@@ -546,10 +589,18 @@ int main(int argc, char* argv[]) {
                 IncrementalTrainer trainer(default_vocab, default_model, config);
                 trainer.reset_model_for_config();
 
+                // MNS is the definitive source for run_id — retrain always
+                // requests a fresh run (new_run=true), falling back to the
+                // local hostname+pid/RUN_ID-derived value only when MNS isn't
+                // configured. The same run_id is then used for dataset-registry
+                // file ownership below, unifying both systems' notion of "run".
+                std::string run_id = trainer.begin_run(/*is_retrain=*/true);
+                if (run_id.empty())
+                    run_id = derive_run_id(svc_config.run_id);
+
                 DatasetConfig dcfg = DatasetRegistry::make_config(svc_config);
                 DatasetRegistry reg(dcfg);
                 reg.load_registry();
-                const std::string run_id = derive_run_id(svc_config.run_id);
 
                 startup_sweep(reg, run_id, dcfg.download_dir);
 
@@ -560,20 +611,21 @@ int main(int argc, char* argv[]) {
                 // live on the registry machine which already trained them, so no FTP
                 // needed for the trained portion).  Only newly acquired pending files
                 // may need FTP download.
-                std::vector<std::string>   local_paths(trained_fs.begin(), trained_fs.end());
-                std::vector<fs::path>      downloaded_paths;
-                const bool use_ftp = !pending_resp.ftp_server_host.empty()
-                                  && !dcfg.download_dir.empty();
+                std::vector<std::string> local_paths(trained_fs.begin(), trained_fs.end());
+                std::vector<fs::path> downloaded_paths;
+                const bool use_ftp =
+                    !pending_resp.ftp_server_host.empty() && !dcfg.download_dir.empty();
 
                 if (!pending_resp.files.empty()) {
                     if (use_ftp) {
                         const std::size_t warn_bytes =
-                            static_cast<std::size_t>(dcfg.large_file_warn_threshold_mb)
-                            * 1024ULL * 1024ULL;
+                            static_cast<std::size_t>(dcfg.large_file_warn_threshold_mb) * 1024ULL *
+                            1024ULL;
                         try {
                             DataTransport dt;
-                            downloaded_paths = dt.fetch_all(pending_resp, dcfg.download_dir,
-                                                            dcfg.max_parallel_downloads, warn_bytes);
+                            downloaded_paths =
+                                dt.fetch_all(pending_resp, dcfg.download_dir,
+                                             dcfg.max_parallel_downloads, warn_bytes);
                             for (const auto& p : downloaded_paths)
                                 local_paths.push_back(p.string());
                         } catch (const std::exception& ex) {
@@ -608,7 +660,8 @@ int main(int argc, char* argv[]) {
                     std::cerr << "❌ Full retrain failed\n";
                 }
 
-                if (use_ftp) cleanup_downloads(downloaded_paths);
+                if (use_ftp)
+                    cleanup_downloads(downloaded_paths);
                 return ok ? 0 : 1;
             });
 
@@ -671,14 +724,18 @@ int main(int argc, char* argv[]) {
         const std::string log_path =
             svc_config.log_file_path.empty() ? "chatbot_server.log" : svc_config.log_file_path;
 
-        return run_training_pipeline(argc, argv, svc_config, default_model, log_path,
-            "Resume started in background",
-            {},
-            init_gpu,
-            [&]() -> int {
+        return run_training_pipeline(
+            argc, argv, svc_config, default_model, log_path, "Resume started in background", {},
+            init_gpu, [&]() -> int {
                 IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
                 IncrementalTrainer trainer(default_vocab, default_model, config);
-                if (!trainer.resume_last_session()) return 1;
+                // MNS is the definitive source for run_id — resume continues
+                // the model's current run (not a retrain); falls back to the
+                // local hostname+pid/RUN_ID-derived value inside
+                // resume_last_session() when MNS isn't configured.
+                trainer.begin_run(/*is_retrain=*/false);
+                if (!trainer.resume_last_session())
+                    return 1;
                 adai::Logger::info("Resumed from last session; latest checkpoint: {}",
                                    trainer.get_latest_checkpoint());
                 return 0;

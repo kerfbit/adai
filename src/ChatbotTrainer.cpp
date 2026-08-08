@@ -1,5 +1,6 @@
 #include "ChatbotTrainer.hpp"
 #include <algorithm>
+#include <cmath>
 #include <ctime>
 #include <fstream>
 #include <iomanip>
@@ -8,7 +9,6 @@
 #include <random>
 #include <sstream>
 #include <thread>
-#include <cmath>
 #include "ConversationContext.hpp"
 #include "GenerationQualityMetrics.hpp"
 #include "Logger.hpp"
@@ -77,8 +77,7 @@ bool ChatbotTrainer::build_vocabulary(const std::vector<std::string>& texts, int
         tokenizer->build_vocab(texts, vocab_size, 1);
         tokenizer->save_vocab(save_path);
 
-        adai::Logger::info("✅ Vocabulary built (size: {}, mode: {})",
-                           tokenizer->get_vocab_size(),
+        adai::Logger::info("✅ Vocabulary built (size: {}, mode: {})", tokenizer->get_vocab_size(),
                            tokenizer->is_unicode_mode() ? "unicode" : "ascii");
         adai::Logger::info("✅ Saved to: {}", save_path);
         return true;
@@ -109,7 +108,8 @@ bool ChatbotTrainer::load_conversation_data(const std::string& filepath) {
     std::string first_line;
     while (std::getline(file, first_line)) {
         first_line.erase(0, first_line.find_first_not_of(" \t\r\n"));
-        if (!first_line.empty()) break;
+        if (!first_line.empty())
+            break;
     }
     file.seekg(0);
 
@@ -119,9 +119,10 @@ bool ChatbotTrainer::load_conversation_data(const std::string& filepath) {
         // JSONL training format
         std::string line;
         while (std::getline(file, line)) {
-            if (line.empty() || line.front() != '{') continue;
+            if (line.empty() || line.front() != '{')
+                continue;
             std::string in, resp;
-            SampleMeta  meta;
+            SampleMeta meta;
             if (parse_jsonl_sample(line, in, resp, meta)) {
                 training_data.emplace_back(std::move(in), std::move(resp), std::move(meta));
                 ++pair_count;
@@ -329,6 +330,8 @@ void ChatbotTrainer::preprocess_data() {
         }
         return ids;
     };
+    // Input-side truncation uses truncate_text_tail()/truncate_tokens_tail() instead
+    // of clip_text()/truncate() — see their doc comments in ChatbotTrainer.hpp for why.
 
     // Tokenize training data — parallel BPE encoding (tokenizer is read-only after load)
     const int n_train = static_cast<int>(training_data.size());
@@ -341,10 +344,11 @@ void ChatbotTrainer::preprocess_data() {
     for (int i = 0; i < n_train; i++) {
         const auto& pair = training_data[i];
         try {
-            tokenized_training_data[i] =
-                TokenizedPair(truncate(tokenizer->encode(clip_text(pair.input), false)),
-                              truncate(tokenizer->encode(clip_text(pair.response), true)),
-                              pair.input, pair.response);
+            tokenized_training_data[i] = TokenizedPair(
+                truncate_tokens_tail(
+                    tokenizer->encode(truncate_text_tail(pair.input, max_chars), false), max_len),
+                truncate(tokenizer->encode(clip_text(pair.response), true)), pair.input,
+                pair.response);
             training_data[i].meta.token_count =
                 static_cast<int>(tokenized_training_data[i].input_tokens.size() +
                                  tokenized_training_data[i].target_tokens.size());
@@ -368,10 +372,11 @@ void ChatbotTrainer::preprocess_data() {
     for (int i = 0; i < n_val; i++) {
         const auto& pair = validation_data[i];
         try {
-            tokenized_validation_data[i] =
-                TokenizedPair(truncate(tokenizer->encode(clip_text(pair.input), false)),
-                              truncate(tokenizer->encode(clip_text(pair.response), true)),
-                              pair.input, pair.response);
+            tokenized_validation_data[i] = TokenizedPair(
+                truncate_tokens_tail(
+                    tokenizer->encode(truncate_text_tail(pair.input, max_chars), false), max_len),
+                truncate(tokenizer->encode(clip_text(pair.response), true)), pair.input,
+                pair.response);
             validation_data[i].meta.token_count =
                 static_cast<int>(tokenized_validation_data[i].input_tokens.size() +
                                  tokenized_validation_data[i].target_tokens.size());
@@ -439,6 +444,26 @@ float ChatbotTrainer::calculate_accuracy(const std::vector<int>& predictions,
         }
     }
     return static_cast<float>(correct) / static_cast<float>(predictions.size());
+}
+
+std::string ChatbotTrainer::truncate_text_tail(const std::string& s, size_t max_chars) {
+    if (s.size() <= max_chars) {
+        return s;
+    }
+    size_t start = s.size() - max_chars;
+    // Advance to the start of the next full multi-byte character so we don't
+    // begin mid-sequence.
+    while (start < s.size() && (static_cast<unsigned char>(s[start]) & 0xC0) == 0x80) {
+        ++start;
+    }
+    return s.substr(start);
+}
+
+std::vector<int> ChatbotTrainer::truncate_tokens_tail(std::vector<int> ids, int max_len) {
+    if (static_cast<int>(ids.size()) > max_len) {
+        ids.erase(ids.begin(), ids.end() - max_len);
+    }
+    return ids;
 }
 
 /**
@@ -712,6 +737,49 @@ float ChatbotTrainer::train_epoch(int epoch) {
     int pad_eff_count = 0;
     // ──────────────────────────────────────────────────────────────────────────
     if (metrics_reporter_) {
+        const int enc_layers = model->get_encoder_layers();
+        const int dec_layers = model->get_decoder_layers();
+
+#ifdef ADAI_ENABLE_GPU
+        // GPU path: FeedForward::gpu_forward()/MultiHeadAttention::gpu_forward() never
+        // touch the CPU hooks below (they operate on GPU-resident data), so the
+        // GPU-native equivalents receive an already-reduced scalar per call instead.
+        // Same sat_sum/sat_count/ent_sum/ent_count bookkeeping either way — the
+        // epoch-end averaging/reporting further down is completely backend-agnostic.
+        auto gpu_saturation_hook = [&sat_sum, &sat_count](float saturated_fraction) {
+            sat_sum += saturated_fraction;
+            ++sat_count;
+        };
+        for (int l = 0; l < enc_layers; ++l) {
+            model->get_encoder()
+                ->get_encoder_block(l)
+                ->get_feed_forward()
+                ->set_gpu_activation_stats_hook(gpu_saturation_hook);
+        }
+        for (int l = 0; l < dec_layers; ++l) {
+            model->get_decoder()
+                ->get_decoder_block(l)
+                ->get_feed_forward()
+                ->set_gpu_activation_stats_hook(gpu_saturation_hook);
+        }
+
+        auto gpu_entropy_hook = [&ent_sum, &ent_count](float avg_row_entropy) {
+            ent_sum += avg_row_entropy;
+            ++ent_count;
+        };
+        for (int l = 0; l < enc_layers; ++l) {
+            model->get_encoder()
+                ->get_encoder_block(l)
+                ->get_self_attention()
+                ->set_gpu_attention_stats_hook(gpu_entropy_hook);
+        }
+        for (int l = 0; l < dec_layers; ++l) {
+            model->get_decoder()
+                ->get_decoder_block(l)
+                ->get_self_attention()
+                ->set_gpu_attention_stats_hook(gpu_entropy_hook);
+        }
+#else
         // Lambda captures sat_sum/sat_count by reference; hooks are cleared
         // before train_epoch() returns so there is no dangling reference risk.
         auto saturation_hook = [&sat_sum, &sat_count](const Matrix& activated) {
@@ -730,8 +798,6 @@ float ChatbotTrainer::train_epoch(int epoch) {
             sat_sum += static_cast<float>(sat) / static_cast<float>(total);
             ++sat_count;
         };
-        const int enc_layers = model->get_encoder_layers();
-        const int dec_layers = model->get_decoder_layers();
         for (int l = 0; l < enc_layers; ++l) {
             model->get_encoder()->get_encoder_block(l)->get_feed_forward()->set_activation_hook(
                 saturation_hook);
@@ -769,6 +835,7 @@ float ChatbotTrainer::train_epoch(int epoch) {
             model->get_decoder()->get_decoder_block(l)->get_self_attention()->set_attention_hook(
                 entropy_hook);
         }
+#endif
     }
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -806,8 +873,7 @@ float ChatbotTrainer::train_epoch(int epoch) {
 
             // Forward + backward pass
             auto compute_t0 = std::chrono::steady_clock::now();
-            const float grad_scale =
-                1.0f / static_cast<float>(config.gradient_accumulation_steps);
+            const float grad_scale = 1.0f / static_cast<float>(config.gradient_accumulation_steps);
             float loss = 0.0f;
 
 #ifdef ADAI_ENABLE_GPU
@@ -998,7 +1064,7 @@ float ChatbotTrainer::train_epoch(int epoch) {
                     float running_wur =
                         (wu_count > 0) ? (wu_ratio_sum / static_cast<float>(wu_count)) : 0.0f;
                     metrics_reporter_->update_advanced_epoch_metrics(running_gv, running_ctr,
-                                                                    running_wur);
+                                                                     running_wur);
                 }
                 // ─────────────────────────────────────────────────────────────────────
 
@@ -1038,7 +1104,8 @@ float ChatbotTrainer::train_epoch(int epoch) {
 
                 // Push adaptive clip state to metrics service
                 if (metrics_reporter_ && agc_active) {
-                    metrics_reporter_->update_adaptive_clip_metrics(effective_clip, agc_spike_count);
+                    metrics_reporter_->update_adaptive_clip_metrics(effective_clip,
+                                                                    agc_spike_count);
                 }
                 // ─────────────────────────────────────────────────────────────────
 
@@ -1094,11 +1161,25 @@ float ChatbotTrainer::train_epoch(int epoch) {
                 // Update metrics service with sample-level metrics
                 if (metrics_reporter_) {
                     metrics_reporter_->update_sample_metrics(i + 1, step_loss_for_cb, grad_norm,
-                                                            current_learning_rate);
+                                                             current_learning_rate);
                 }
             }
         } catch (const std::exception& e) {
             adai::Logger::error("  ❌ Error training sample {}: {}", (i + 1), e.what());
+#ifdef ADAI_ENABLE_GPU
+            // The success path's gpu_synchronize() (above) is what drains the SYCL
+            // queue's deferred host_task frees back into GPUManager's allocated_bytes_
+            // counter. Skipping it here means a failed sample's — and any still-pending
+            // prior samples' — frees never retire, so the counter stays inflated and the
+            // next sample is more likely to also throw "budget exceeded", which again
+            // skips this drain. That spiral is what permanently exhausts the budget.
+            try {
+                model->gpu_synchronize();
+            } catch (const std::exception& sync_err) {
+                adai::Logger::error("  ⚠️  gpu_synchronize() failed after sample {}: {}", (i + 1),
+                                    sync_err.what());
+            }
+#endif
             // Still fire sample callback so the dashboard shows the sample was attempted
             if (sample_callback_) {
                 float running_avg =
@@ -1144,23 +1225,52 @@ float ChatbotTrainer::train_epoch(int epoch) {
             (total_wall_ns > 0.0) ? static_cast<float>(total_compute_ns / total_wall_ns) : 0.0f;
         float avg_wu_ratio = (wu_count > 0) ? (wu_ratio_sum / static_cast<float>(wu_count)) : 0.0f;
         metrics_reporter_->update_advanced_epoch_metrics(gradient_variance, compute_time_ratio,
-                                                          avg_wu_ratio);
+                                                         avg_wu_ratio);
 
         // ── TD-013: Activation saturation – report epoch average and clear hooks ─
         float avg_saturation = (sat_count > 0) ? (sat_sum / static_cast<float>(sat_count)) : -1.0f;
         metrics_reporter_->update_activation_saturation(avg_saturation);
         const int enc_layers = model->get_encoder_layers();
         const int dec_layers = model->get_decoder_layers();
+#ifdef ADAI_ENABLE_GPU
+        for (int l = 0; l < enc_layers; ++l) {
+            model->get_encoder()
+                ->get_encoder_block(l)
+                ->get_feed_forward()
+                ->clear_gpu_activation_stats_hook();
+        }
+        for (int l = 0; l < dec_layers; ++l) {
+            model->get_decoder()
+                ->get_decoder_block(l)
+                ->get_feed_forward()
+                ->clear_gpu_activation_stats_hook();
+        }
+#else
         for (int l = 0; l < enc_layers; ++l) {
             model->get_encoder()->get_encoder_block(l)->get_feed_forward()->clear_activation_hook();
         }
         for (int l = 0; l < dec_layers; ++l) {
             model->get_decoder()->get_decoder_block(l)->get_feed_forward()->clear_activation_hook();
         }
+#endif
 
         // ── TD-013: Attention entropy – report epoch average and clear hooks ──────
         float avg_entropy = (ent_count > 0) ? (ent_sum / static_cast<float>(ent_count)) : -1.0f;
         metrics_reporter_->update_attention_entropy(avg_entropy);
+#ifdef ADAI_ENABLE_GPU
+        for (int l = 0; l < enc_layers; ++l) {
+            model->get_encoder()
+                ->get_encoder_block(l)
+                ->get_self_attention()
+                ->clear_gpu_attention_stats_hook();
+        }
+        for (int l = 0; l < dec_layers; ++l) {
+            model->get_decoder()
+                ->get_decoder_block(l)
+                ->get_self_attention()
+                ->clear_gpu_attention_stats_hook();
+        }
+#else
         for (int l = 0; l < enc_layers; ++l) {
             model->get_encoder()
                 ->get_encoder_block(l)
@@ -1173,6 +1283,29 @@ float ChatbotTrainer::train_epoch(int epoch) {
                 ->get_self_attention()
                 ->clear_attention_hook();
         }
+#endif
+        // ── Per-layer gradient norms – vanishing-gradient diagnostic ──────────────
+        // Snapshot of each block's gradient norm as of the epoch's last optimizer
+        // step (gradients aren't zeroed until the next accumulation window
+        // starts). Lets the dashboard show whether gradients are shrinking
+        // uniformly across layers (healthy) or specifically in early layers
+        // (the classic vanishing-gradient signature), instead of only the
+        // whole-model aggregate norm.
+        {
+            std::vector<float> encoder_layer_norms;
+            std::vector<float> decoder_layer_norms;
+            encoder_layer_norms.reserve(enc_layers);
+            decoder_layer_norms.reserve(dec_layers);
+            for (int l = 0; l < enc_layers; ++l) {
+                encoder_layer_norms.push_back(model->get_encoder()->get_encoder_block(l)->get_gradient_norm());
+            }
+            for (int l = 0; l < dec_layers; ++l) {
+                decoder_layer_norms.push_back(model->get_decoder()->get_decoder_block(l)->get_gradient_norm());
+            }
+            metrics_reporter_->update_layer_gradient_norms(encoder_layer_norms, decoder_layer_norms);
+        }
+        // ─────────────────────────────────────────────────────────────────────────
+
         // ── Batch padding efficiency – report epoch average ───────────────────────
         float avg_pad_eff =
             (pad_eff_count > 0) ? (pad_eff_sum / static_cast<float>(pad_eff_count)) : -1.0f;
@@ -1239,6 +1372,17 @@ float ChatbotTrainer::validate() {
             }
         } catch (const std::exception& e) {
             adai::Logger::error("  ❌ Error validating sample {}: {}", (i + 1), e.what());
+#ifdef ADAI_ENABLE_GPU
+            // See the identical comment in the training loop's catch block above —
+            // without this, a failed sample's deferred frees never retire and the
+            // budget-exceeded failures compound for the rest of the validation pass.
+            try {
+                model->gpu_synchronize();
+            } catch (const std::exception& sync_err) {
+                adai::Logger::error("  ⚠️  gpu_synchronize() failed after sample {}: {}", (i + 1),
+                                    sync_err.what());
+            }
+#endif
         }
     }
 
@@ -1338,34 +1482,32 @@ void ChatbotTrainer::compute_generation_quality_metrics() {
             inputs.push_back(tokenized_validation_data[i].input_text);
         }
 
-        const int     max_tokens = config.generation_quality_max_tokens;
+        const int max_tokens = config.generation_quality_max_tokens;
         IMetricsReporter* reporter = metrics_reporter_;
 
-        generation_quality_thread_.emplace(
-            [snap = std::move(snapshot),
-             refs  = std::move(refs),
-             inputs = std::move(inputs),
-             max_tokens, reporter]() mutable {
-                snap->set_training(false);
-                std::vector<std::string> hypotheses;
-                hypotheses.reserve(inputs.size());
-                for (size_t i = 0; i < inputs.size(); ++i) {
-                    try {
-                        hypotheses.push_back(snap->generate_response(inputs[i], max_tokens));
-                    } catch (const std::exception& e) {
-                        adai::Logger::warn(
-                            "BLEU/ROUGE async: skipping sample {} — generate_response() threw: {}",
-                            static_cast<int>(i), e.what());
-                        hypotheses.push_back("");
-                    }
+        generation_quality_thread_.emplace([snap = std::move(snapshot), refs = std::move(refs),
+                                            inputs = std::move(inputs), max_tokens,
+                                            reporter]() mutable {
+            snap->set_training(false);
+            std::vector<std::string> hypotheses;
+            hypotheses.reserve(inputs.size());
+            for (size_t i = 0; i < inputs.size(); ++i) {
+                try {
+                    hypotheses.push_back(snap->generate_response(inputs[i], max_tokens));
+                } catch (const std::exception& e) {
+                    adai::Logger::warn(
+                        "BLEU/ROUGE async: skipping sample {} — generate_response() threw: {}",
+                        static_cast<int>(i), e.what());
+                    hypotheses.push_back("");
                 }
-                if (!hypotheses.empty()) {
-                    GenerationQualityScore score =
-                        GenerationQualityEvaluator::evaluate(refs, hypotheses);
-                    reporter->update_generation_quality_metrics(
-                        score.bleu4, score.rouge1, score.rouge2, score.rougeL);
-                }
-            });
+            }
+            if (!hypotheses.empty()) {
+                GenerationQualityScore score =
+                    GenerationQualityEvaluator::evaluate(refs, hypotheses);
+                reporter->update_generation_quality_metrics(score.bleu4, score.rouge1, score.rouge2,
+                                                            score.rougeL);
+            }
+        });
         return;
     }
 
@@ -1392,6 +1534,19 @@ void ChatbotTrainer::compute_generation_quality_metrics() {
                                e.what());
             hypotheses.push_back("");
         }
+#ifdef ADAI_ENABLE_GPU
+        // gpu_generate_response()'s autoregressive decode loop allocates several
+        // temporaries per generated token with no synchronization point of its own.
+        // Without draining the SYCL queue here (same rationale as the training/
+        // validation loops above), GPUManager's allocated_bytes_ counter races ahead
+        // of the deferred host_task frees and never catches up across this loop.
+        try {
+            model->gpu_synchronize();
+        } catch (const std::exception& sync_err) {
+            adai::Logger::warn("BLEU/ROUGE: gpu_synchronize() failed after sample {}: {}", i,
+                               sync_err.what());
+        }
+#endif
     }
     model->set_training(true);
 
@@ -1401,7 +1556,7 @@ void ChatbotTrainer::compute_generation_quality_metrics() {
 
     GenerationQualityScore score = GenerationQualityEvaluator::evaluate(references, hypotheses);
     metrics_reporter_->update_generation_quality_metrics(score.bleu4, score.rouge1, score.rouge2,
-                                                        score.rougeL);
+                                                         score.rougeL);
 }
 
 void ChatbotTrainer::backfill_generation_quality() {
@@ -1413,36 +1568,52 @@ void ChatbotTrainer::backfill_generation_quality() {
     model->set_training(false);
 
     auto score_sample = [&](const std::string& input, const std::string& target) -> float {
+        float result = 0.0f;
         try {
 #ifdef ADAI_ENABLE_GPU
             std::string hyp =
                 model->gpu_generate_response(input, config.generation_backfill_max_tokens);
 #else
-            std::string hyp = model->generate_response(input, config.generation_backfill_max_tokens);
+            std::string hyp =
+                model->generate_response(input, config.generation_backfill_max_tokens);
 #endif
             GenerationQualityScore s = GenerationQualityEvaluator::evaluate({target}, {hyp});
-            return s.bleu4 >= 0.0f ? s.bleu4 : 0.0f;
+            result = s.bleu4 >= 0.0f ? s.bleu4 : 0.0f;
         } catch (const std::exception& e) {
-            adai::Logger::warn("backfill_generation_quality: generate_response() threw: {}", e.what());
-            return 0.0f;
+            adai::Logger::warn("backfill_generation_quality: generate_response() threw: {}",
+                               e.what());
+            result = 0.0f;
         }
+#ifdef ADAI_ENABLE_GPU
+        // This lambda runs once per sample across the entire training + validation
+        // set (see the two loops below) — without draining the SYCL queue's deferred
+        // frees after every call (same gap as the BLEU/ROUGE loop above), the
+        // allocated_bytes_ accounting climbs across the whole dataset and eventually
+        // exhausts the budget for whatever GPU work runs next.
+        try {
+            model->gpu_synchronize();
+        } catch (const std::exception& sync_err) {
+            adai::Logger::warn("backfill_generation_quality: gpu_synchronize() failed: {}",
+                               sync_err.what());
+        }
+#endif
+        return result;
     };
 
     for (size_t i = 0; i < training_data.size(); ++i) {
-        training_data[i].meta.quality =
-            score_sample(tokenized_training_data[i].input_text,
-                         tokenized_training_data[i].target_text);
+        training_data[i].meta.quality = score_sample(tokenized_training_data[i].input_text,
+                                                     tokenized_training_data[i].target_text);
     }
 
     for (size_t i = 0; i < validation_data.size(); ++i) {
-        validation_data[i].meta.quality =
-            score_sample(tokenized_validation_data[i].input_text,
-                         tokenized_validation_data[i].target_text);
+        validation_data[i].meta.quality = score_sample(tokenized_validation_data[i].input_text,
+                                                       tokenized_validation_data[i].target_text);
     }
 
     model->set_training(true);
-    adai::Logger::info("  ✅ Generation quality backfill complete ({} training, {} validation samples)",
-                       training_data.size(), validation_data.size());
+    adai::Logger::info(
+        "  ✅ Generation quality backfill complete ({} training, {} validation samples)",
+        training_data.size(), validation_data.size());
 }
 
 // New methods for incremental training support
@@ -1485,8 +1656,8 @@ bool ChatbotTrainer::train(int num_epochs) {
                 // Update end_epoch with actual validation loss now that we have it (1-based epoch)
                 if (metrics_reporter_) {
                     metrics_reporter_->end_epoch(epoch + 1, epoch_loss, val_loss,
-                                                current_learning_rate, std::exp(epoch_loss),
-                                                optimizer ? optimizer->get_gradient_norm() : 0.0f);
+                                                 current_learning_rate, std::exp(epoch_loss),
+                                                 optimizer ? optimizer->get_gradient_norm() : 0.0f);
                 }
 
                 // Early stopping check (epochs_without_improvement maintained by validate())
@@ -1500,6 +1671,21 @@ bool ChatbotTrainer::train(int num_epochs) {
             if (epoch_callback_) {
                 float cb_val = validation_losses.empty() ? 0.0f : validation_losses.back();
                 epoch_callback_(epoch, num_epochs, epoch_loss, cb_val, current_learning_rate);
+            }
+        }
+
+        // validate() saves best_model_path whenever a new best validation loss is
+        // found, but never reloads it — without this, training simply ends on
+        // whatever the final epoch produced, even if validation regressed after
+        // an earlier peak (the flag's name promises a restore that never happened).
+        if (config.enable_early_stopping && config.restore_best_weights &&
+            !best_model_path.empty()) {
+            try {
+                model->load_model(best_model_path);
+                adai::Logger::info("  Restored best model weights (epoch {}, val_loss {:.4f})",
+                                   best_epoch, best_validation_loss);
+            } catch (const std::exception& e) {
+                adai::Logger::error("  Failed to restore best model weights: {}", e.what());
             }
         }
 

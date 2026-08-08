@@ -34,6 +34,7 @@ SETUP_POSTGRES=false
 PG_DB_NAME="adai"
 PG_DB_USER=""
 YES=false
+WIPE_DATA=false
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "${SCRIPT_DIR}")"
@@ -82,6 +83,12 @@ Options:
   --setup-postgres          Install PostgreSQL, create database and role, run schema setup
   --pg-db-name NAME         PostgreSQL database name (default: adai)
   --pg-db-user USER         PostgreSQL role for ADAI (default: same as --user)
+  --wipe-data               Move each service's existing data directory aside to a
+                            timestamped backup (<dir>.bak-<timestamp>) before
+                            reinstalling, so all three start fresh. Never
+                            permanently deletes; asks once per service (unless
+                            --yes). Use a service's own independent install
+                            script instead to wipe just one.
   --yes                     Skip confirmation prompts (for non-interactive use)
   --help                    Show this help message
 
@@ -136,6 +143,42 @@ confirm() {
         warn "Installation cancelled by user"
         exit 0
     fi
+}
+
+# wipe_old_data SERVICE_NAME DIR [DIR2 ...]
+# No-op if none of the dirs exist / are non-empty. Otherwise: warns, lists the
+# exact directories, confirms (respects --yes like every other confirm() call),
+# stops SERVICE_NAME first if it's currently active (files may be open/locked),
+# then renames each existing non-empty dir to "<dir>.bak-<timestamp>" — never
+# rm -rf. The subsequent mkdir -p in the normal install flow recreates it empty.
+wipe_old_data() {
+    local service_name="$1"; shift
+    local dirs=("$@")
+    local any=false
+    for d in "${dirs[@]}"; do
+        [[ -d "$d" && -n "$(ls -A "$d" 2>/dev/null)" ]] && any=true
+    done
+    if [[ "${any}" != true ]]; then
+        info "No existing data under: ${dirs[*]} — nothing to wipe"
+        return 0
+    fi
+
+    warn "This will move the following EXISTING data director$([ ${#dirs[@]} -gt 1 ] && echo ies || echo y) aside:"
+    for d in "${dirs[@]}"; do [[ -d "$d" ]] && echo "    $d"; done
+    warn "Preserved as <dir>.bak-<timestamp> — not permanently deleted."
+    confirm "Wipe old ${service_name} data?"
+
+    if systemctl is-active --quiet "${service_name}.service" 2>/dev/null; then
+        info "Stopping ${service_name} before wiping its data..."
+        systemctl stop "${service_name}.service"
+    fi
+    local ts; ts="$(date +%Y%m%d-%H%M%S)"
+    for d in "${dirs[@]}"; do
+        if [[ -d "$d" && -n "$(ls -A "$d" 2>/dev/null)" ]]; then
+            mv "$d" "${d}.bak-${ts}"
+            success "Moved ${d} -> ${d}.bak-${ts}"
+        fi
+    done
 }
 
 # ============================================================================
@@ -235,6 +278,7 @@ while [[ $# -gt 0 ]]; do
             PG_DB_NAME="$2"; shift 2 ;;
         --pg-db-user)
             PG_DB_USER="$2"; shift 2 ;;
+        --wipe-data) WIPE_DATA=true; shift ;;
         --yes)  YES=true; shift ;;
         --help) show_help; exit 0 ;;
         *)
@@ -523,9 +567,16 @@ install_bundle() {
         echo ""
     fi
     echo "  Build Source:         ${BUILD_BIN_DIR}/"
+    echo "  Wipe Old Data:        ${WIPE_DATA}"
     echo ""
 
     confirm "Continue with installation?"
+
+    if [[ "${WIPE_DATA}" == true ]]; then
+        wipe_old_data "adai-mns" "${MNS_DATA_DIR}"
+        wipe_old_data "adai-registry" "${REGISTRY_DATA_DIR}"
+        wipe_old_data "adai-metrics" "${METRICS_DIR}"
+    fi
 
     local step=0
 

@@ -22,13 +22,13 @@
 #include <gtest/gtest.h>
 
 #ifndef _WIN32
-#  include <fcntl.h>
-#  include <sys/wait.h>
-#  include <unistd.h>
+#include <fcntl.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #endif
 
 #ifdef _WIN32
-#  include <windows.h>
+#include <windows.h>
 #endif
 
 #include <sstream>
@@ -40,10 +40,8 @@
 // intentional: if the banner format changes the test will catch drift.
 // ============================================================================
 
-static std::string make_startup_banner(long long pid,
-                                       const std::string& model,
-                                       std::size_t pending_count,
-                                       int epochs,
+static std::string make_startup_banner(long long pid, const std::string& model,
+                                       std::size_t pending_count, int epochs,
                                        const std::string& log_path) {
     std::ostringstream oss;
     oss << "[ADAI] Training started in background \xe2\x80\x94 PID " << pid << "\n"
@@ -133,29 +131,31 @@ TEST(BackgroundLaunchTest, StartupBannerContainsPid) {
         make_startup_banner(pid, "chatbot_model.bin", 3, 10, "chatbot_server.log");
 
     EXPECT_NE(banner.find("PID"), std::string::npos)
-        << "Banner must contain the literal text 'PID'.\nBanner was:\n" << banner;
+        << "Banner must contain the literal text 'PID'.\nBanner was:\n"
+        << banner;
 
     // The actual PID value must also appear in the banner.
     EXPECT_NE(banner.find("14923"), std::string::npos)
-        << "Banner must include the numeric PID.\nBanner was:\n" << banner;
+        << "Banner must include the numeric PID.\nBanner was:\n"
+        << banner;
 }
 
 TEST(BackgroundLaunchTest, StartupBannerContainsLogPath) {
     const std::string log_path = "/var/log/adai/chatbot_server.log";
-    const std::string banner =
-        make_startup_banner(42LL, "chatbot_model.bin", 5, 3, log_path);
+    const std::string banner = make_startup_banner(42LL, "chatbot_model.bin", 5, 3, log_path);
 
     EXPECT_NE(banner.find(log_path), std::string::npos)
-        << "Banner must include the log-file path from config.\nBanner was:\n" << banner;
+        << "Banner must include the log-file path from config.\nBanner was:\n"
+        << banner;
 }
 
 TEST(BackgroundLaunchTest, StartupBannerContainsModelPath) {
     const std::string model = "training_sessions/session_7_checkpoint.bin";
-    const std::string banner =
-        make_startup_banner(99LL, model, 2, 5, "chatbot_server.log");
+    const std::string banner = make_startup_banner(99LL, model, 2, 5, "chatbot_server.log");
 
     EXPECT_NE(banner.find(model), std::string::npos)
-        << "Banner must include the model path.\nBanner was:\n" << banner;
+        << "Banner must include the model path.\nBanner was:\n"
+        << banner;
 }
 
 TEST(BackgroundLaunchTest, StartupBannerContainsKillCommand) {

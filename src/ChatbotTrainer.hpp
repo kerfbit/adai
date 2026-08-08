@@ -11,8 +11,8 @@
 #include <vector>
 #include "BPETokenizer.hpp"
 #include "EncoderDecoderModel.hpp"
-#include "Optimizer.hpp"
 #include "IMetricsReporter.hpp"
+#include "Optimizer.hpp"
 #include "TrainingSampleMeta.hpp"
 
 // Parallel optimizations (Priority 1-5)
@@ -26,7 +26,7 @@
 struct ConversationPair {
     std::string input;
     std::string response;
-    SampleMeta  meta;
+    SampleMeta meta;
 
     ConversationPair(std::string in, std::string resp)
         : input(std::move(in)), response(std::move(resp)) {}
@@ -138,14 +138,16 @@ struct TrainingConfig {
     int generation_quality_async_threshold = 50;
 
     // Quality score backfill into SampleMeta
-    bool enable_loss_quality_backfill = false;        // Write exp(-loss) into meta.quality each epoch
-    bool enable_generation_quality_backfill = false;  // Overwrite meta.quality with BLEU4 after training (slow)
-    int  generation_backfill_max_tokens = 50;         // max_length passed to generate_response() during backfill
+    bool enable_loss_quality_backfill = false;  // Write exp(-loss) into meta.quality each epoch
+    bool enable_generation_quality_backfill =
+        false;  // Overwrite meta.quality with BLEU4 after training (slow)
+    int generation_backfill_max_tokens =
+        50;  // max_length passed to generate_response() during backfill
 
     // Outlier detection thresholds (TD-021, moved from MetricsServiceConfig)
-    float loss_outlier_z_threshold = 3.0f;     // Flag sample if loss > epoch_mean + N×std
+    float loss_outlier_z_threshold = 3.0f;      // Flag sample if loss > epoch_mean + N×std
     float grad_norm_outlier_threshold = 10.0f;  // Flag sample if grad_norm exceeds this value
-    int   max_abnormal_samples = 1000;          // Cap on flagged samples reported per training run
+    int max_abnormal_samples = 1000;            // Cap on flagged samples reported per training run
 
     // Tokenizer mode: ASCII (default, byte-level) or UNICODE (UTF-8 code-point-level)
     TokenizerMode tokenizer_mode = TokenizerMode::ASCII;
@@ -360,6 +362,24 @@ class ChatbotTrainer {
      * @brief Calculate perplexity from loss
      */
     static float calculate_perplexity(float loss);
+
+    /**
+     * @brief Truncate text to at most max_chars characters, keeping the TAIL
+     *        (end of the string) rather than the head. Used by preprocess_data()
+     *        for encoder input text, so a truncated input stays adjacent to
+     *        where the paired decoder target begins (training pairs are a
+     *        document split at its midpoint) instead of keeping the document's
+     *        opening text, arbitrarily far from what the target continues.
+     *        Breaks at a valid UTF-8 character boundary.
+     */
+    static std::string truncate_text_tail(const std::string& s, size_t max_chars);
+
+    /**
+     * @brief Truncate a token-id sequence to at most max_len ids, keeping the
+     *        TAIL rather than the head. Token-level counterpart to
+     *        truncate_text_tail(), applied after BPE encoding.
+     */
+    static std::vector<int> truncate_tokens_tail(std::vector<int> ids, int max_len);
 
     /**
      * @brief Calculate token-level accuracy (placeholder)

@@ -509,6 +509,18 @@ if(SQLITE3_FOUND)
 endif()
 add_test(NAME MetricsDatabaseTests COMMAND metricsDatabaseTests)
 
+# Daemon admin config persistence (metrics_api_server / mns_server / registry_server)
+add_executable(daemonConfigStoreTests daemonconfigstore_test.cpp)
+target_include_directories(daemonConfigStoreTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(daemonConfigStoreTests
+    adai_core
+    GTest::gtest_main
+)
+if(SQLITE3_FOUND)
+    target_include_directories(daemonConfigStoreTests PRIVATE ${SQLITE3_INCLUDE_DIR})
+endif()
+add_test(NAME DaemonConfigStoreTests COMMAND daemonConfigStoreTests)
+
 # TD-021: IncrementalTrainer × Metrics Service Decoupling tests
 add_executable(incrementalTrainerDecouplingTests
     incremental_trainer_registry_test.cpp
@@ -759,5 +771,14 @@ target_link_libraries(startupSweepTests
     GTest::gtest_main
 )
 add_test(NAME StartupSweepTests COMMAND startupSweepTests)
+
+# TD-003 GPU-native kernel tests (activation_saturation_ratio/attention_entropy
+# GPU-path fix + CUDA TD-003 port). Only meaningful — and only compilable —
+# when a GPU backend is configured; adai_gpu doesn't exist otherwise.
+if(ENABLE_GPU OR ENABLE_SYCL)
+    add_executable(matrixgpuTd003Tests matrixgpu_td003_test.cpp)
+    target_link_libraries(matrixgpuTd003Tests adai_gpu GTest::gtest_main)
+    add_test(NAME MatrixGPUTD003Tests COMMAND matrixgpuTd003Tests)
+endif()
 
 message(STATUS "Configured 57+ test suites using library targets (including Config, Logger, IncrementalTrainer, LLMEncoder, DocumentStore, RAGInference, BatchProcessor, ParallelDataLoader, IntegratedInferenceEngine, PipelineInferenceEngine, BatchedInferenceEngine, SpeculativeDecoding, VocabBuilder, ChatbotAPI, ChatbotTrainer, GenerationQuality, GenerationQualityAsync, PaddingEfficiency, AdaptiveClipping, ModelSerializer, StaleDetection, BackgroundLaunch, integration, RAG/BERT comparison, Phase 5, DatasetRegistry, DatasetRegistryLive, DataFetcher, FtpDataServer, DataTransport, DataTransportFtp, StartupSweep, and TrainingSampleMeta tests)")

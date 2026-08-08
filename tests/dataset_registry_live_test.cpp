@@ -8,20 +8,30 @@
 // a monotonic counter so concurrent test runs on the same server cannot collide.
 //
 // Configuration (env vars, both optional):
-//   REGISTRY_SERVER_HOST   default: 192.168.1.19
+//   REGISTRY_SERVER_HOST   default: 127.0.0.1
 //   REGISTRY_SERVER_PORT   default: 8082
+//
+// The default host MUST be a loopback/clearly-local address, never a real LAN IP —
+// see the identical note in tests/training_metrics_api_live_test.cpp for why (a
+// previous default here pointed at a real LAN address and every normal `ctest` run
+// silently mutated whatever server happened to live there). Point REGISTRY_SERVER_HOST
+// at a real server explicitly and deliberately when you need to exercise one.
 
 #include <gtest/gtest.h>
 
+#include <unistd.h>
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <ctime>
 #include <sstream>
 #include <string>
-#include <unistd.h>
+#include <vector>
 
 #include <httplib.h>
+
+#include "../src/RegistryTransport.hpp"
 
 namespace {
 
@@ -31,7 +41,7 @@ namespace {
 
 std::string server_host() {
     const char* env = std::getenv("REGISTRY_SERVER_HOST");
-    return env ? std::string(env) : "192.168.1.19";
+    return env ? std::string(env) : "127.0.0.1";
 }
 
 int server_port() {
@@ -48,6 +58,14 @@ httplib::Client make_client() {
 }
 
 bool server_reachable() {
+    // Require an explicit opt-in via REGISTRY_SERVER_HOST rather than probing a
+    // default host/port — see the identical note in
+    // tests/training_metrics_api_live_test.cpp for why: this suite mutates real
+    // registry state, and guessing at a default (even loopback) risks silently
+    // hitting whatever unrelated service happens to already be listening there.
+    if (!std::getenv("REGISTRY_SERVER_HOST")) {
+        return false;
+    }
     auto c = make_client();
     auto res = c.Get("/health");
     return res && res->status == 200;
@@ -63,7 +81,8 @@ std::string make_group(const std::string& tag = "") {
     // Captured once at first call: PID + process-start time in milliseconds.
     static const std::string process_prefix = [] {
         const long long ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
+                                 std::chrono::system_clock::now().time_since_epoch())
+                                 .count();
         std::ostringstream o;
         o << "lt" << static_cast<int>(::getpid()) << "m" << ms;
         return o.str();
@@ -71,7 +90,8 @@ std::string make_group(const std::string& tag = "") {
     static std::atomic<int> counter{0};
     std::ostringstream oss;
     oss << process_prefix << "c" << counter.fetch_add(1);
-    if (!tag.empty()) oss << "-" << tag;
+    if (!tag.empty())
+        oss << "-" << tag;
     return oss.str();
 }
 
@@ -79,25 +99,32 @@ std::string make_group(const std::string& tag = "") {
 std::string json_string(const std::string& body, const std::string& key) {
     const std::string needle = "\"" + key + "\":\"";
     const auto pos = body.find(needle);
-    if (pos == std::string::npos) return {};
+    if (pos == std::string::npos)
+        return {};
     const auto start = pos + needle.size();
-    const auto end   = body.find('"', start);
-    if (end == std::string::npos) return {};
+    const auto end = body.find('"', start);
+    if (end == std::string::npos)
+        return {};
     return body.substr(start, end - start);
 }
 
 int json_int(const std::string& body, const std::string& key, int def = -1) {
     const std::string needle = "\"" + key + "\":";
     const auto pos = body.find(needle);
-    if (pos == std::string::npos) return def;
-    try { return std::stoi(body.substr(pos + needle.size())); }
-    catch (...) { return def; }
+    if (pos == std::string::npos)
+        return def;
+    try {
+        return std::stoi(body.substr(pos + needle.size()));
+    } catch (...) {
+        return def;
+    }
 }
 
 bool json_bool(const std::string& body, const std::string& key) {
     const std::string needle = "\"" + key + "\":";
     const auto pos = body.find(needle);
-    if (pos == std::string::npos) return false;
+    if (pos == std::string::npos)
+        return false;
     const auto rest = body.substr(pos + needle.size());
     return rest.substr(0, 4) == "true";
 }
@@ -107,7 +134,7 @@ bool json_bool(const std::string& body, const std::string& key) {
 // ---------------------------------------------------------------------------
 
 class LiveRegistryTest : public ::testing::Test {
-protected:
+   protected:
     // True when the server supports current-format features (history endpoint +
     // "REMOTE" checksum column in the registry flat file).  Set false when the
     // server is an older build that predates these additions, detected by probing
@@ -116,8 +143,8 @@ protected:
 
     void SetUp() override {
         if (!server_reachable()) {
-            GTEST_SKIP() << "registry_server not reachable at "
-                         << server_host() << ":" << server_port();
+            GTEST_SKIP() << "registry_server not reachable at " << server_host() << ":"
+                         << server_port();
         }
         client_ = std::make_unique<httplib::Client>(server_host(), server_port());
         client_->set_connection_timeout(std::chrono::seconds(5));
@@ -139,8 +166,8 @@ protected:
     // Helper: POST /registry/<group_>/pending/add {"path":"<path>"}
     httplib::Result add_pending(const std::string& path) {
         const std::string body = "{\"path\":\"" + path + "\"}";
-        return client_->Post(("/registry/" + group_ + "/pending/add").c_str(),
-                             body, "application/json");
+        return client_->Post(("/registry/" + group_ + "/pending/add").c_str(), body,
+                             "application/json");
     }
 
     // Helper: GET /registry/<group_>/queue
@@ -148,46 +175,108 @@ protected:
         return client_->Get(("/registry/" + group_ + "/queue").c_str());
     }
 
-    // Helper: POST /registry/<group_>/acquire {"run_id":"<rid>","max_files":<n>}
-    httplib::Result acquire(const std::string& run_id, int max_files = 0) {
+    // Helper: POST /registry/<group_>/acquire
+    // {"run_id":"<rid>","max_files":<n>,"model_name":"<model_name>"}
+    // acquire() is assignment-aware (see RegistryTransport::acquire): an
+    // anonymous caller (model_name empty) can only claim unassigned entries,
+    // never one assigned to a specific model — pass model_name to claim an
+    // entry this test has assigned to that model.
+    httplib::Result acquire(const std::string& run_id, int max_files = 0,
+                            const std::string& model_name = "") {
         std::ostringstream body;
-        body << "{\"run_id\":\"" << run_id << "\",\"max_files\":" << max_files << "}";
-        return client_->Post(("/registry/" + group_ + "/acquire").c_str(),
-                             body.str(), "application/json");
+        body << "{\"run_id\":\"" << run_id << "\",\"max_files\":" << max_files
+             << ",\"model_name\":\"" << model_name << "\"}";
+        return client_->Post(("/registry/" + group_ + "/acquire").c_str(), body.str(),
+                             "application/json");
+    }
+
+    // Helper: POST /registry/<group_>/session/next {"model_name":..., "run_id":...}
+    httplib::Result next_session(const std::string& model_name, const std::string& run_id) {
+        const std::string body =
+            "{\"model_name\":\"" + model_name + "\",\"run_id\":\"" + run_id + "\"}";
+        return client_->Post(("/registry/" + group_ + "/session/next").c_str(), body,
+                             "application/json");
     }
 
     // Helper: POST /registry/<group_>/release {"run_id":"<rid>","files":[...]}
-    httplib::Result release(const std::string& run_id,
-                            const std::vector<std::string>& files) {
+    httplib::Result release(const std::string& run_id, const std::vector<std::string>& files) {
         std::ostringstream body;
         body << "{\"run_id\":\"" << run_id << "\",\"files\":[";
         for (std::size_t i = 0; i < files.size(); ++i) {
-            if (i) body << ',';
+            if (i)
+                body << ',';
             body << '"' << files[i] << '"';
         }
         body << "]}";
-        return client_->Post(("/registry/" + group_ + "/release").c_str(),
-                             body.str(), "application/json");
+        return client_->Post(("/registry/" + group_ + "/release").c_str(), body.str(),
+                             "application/json");
+    }
+
+    // Helper: POST /registry/<group_>/assign {"model_name":"<model>","paths":[...],"count":N}
+    httplib::Result assign(const std::string& model_name_raw_json,
+                           const std::vector<std::string>& paths = {}, int count = 0) {
+        std::ostringstream body;
+        body << "{\"model_name\":\"" << model_name_raw_json << "\",\"paths\":[";
+        for (std::size_t i = 0; i < paths.size(); ++i) {
+            if (i)
+                body << ',';
+            body << '"' << paths[i] << '"';
+        }
+        body << "],\"count\":" << count << "}";
+        return client_->Post(("/registry/" + group_ + "/assign").c_str(), body.str(),
+                             "application/json");
+    }
+
+    // Helper: POST /registry/<group_>/unassign {"model_name":"<model>","paths":[...],"force":bool}
+    httplib::Result unassign(const std::string& model_name_raw_json,
+                             const std::vector<std::string>& paths = {}, bool force = false) {
+        std::ostringstream body;
+        body << "{\"model_name\":\"" << model_name_raw_json << "\",\"paths\":[";
+        for (std::size_t i = 0; i < paths.size(); ++i) {
+            if (i)
+                body << ',';
+            body << '"' << paths[i] << '"';
+        }
+        body << "],\"force\":" << (force ? "true" : "false") << "}";
+        return client_->Post(("/registry/" + group_ + "/unassign").c_str(), body.str(),
+                             "application/json");
+    }
+
+    // Helper: POST /registry/<group_>/delete {"paths":[...],"force":bool,"delete_files":bool}
+    httplib::Result delete_entries(const std::vector<std::string>& paths, bool force = false,
+                                   bool delete_files = false) {
+        std::ostringstream body;
+        body << "{\"paths\":[";
+        for (std::size_t i = 0; i < paths.size(); ++i) {
+            if (i)
+                body << ',';
+            body << '"' << paths[i] << '"';
+        }
+        body << "],\"force\":" << (force ? "true" : "false")
+            << ",\"delete_files\":" << (delete_files ? "true" : "false") << "}";
+        return client_->Post(("/registry/" + group_ + "/delete").c_str(), body.str(),
+                             "application/json");
     }
 
     // Helper: POST /registry/<group_>/trained
-    httplib::Result trained(const std::string& run_id,
-                            const std::vector<std::string>& files,
+    httplib::Result trained(const std::string& run_id, const std::vector<std::string>& files,
                             const std::vector<int>& samples = {}) {
         std::ostringstream body;
         body << "{\"run_id\":\"" << run_id << "\",\"files\":[";
         for (std::size_t i = 0; i < files.size(); ++i) {
-            if (i) body << ',';
+            if (i)
+                body << ',';
             body << '"' << files[i] << '"';
         }
         body << "],\"samples\":[";
         for (std::size_t i = 0; i < samples.size(); ++i) {
-            if (i) body << ',';
+            if (i)
+                body << ',';
             body << samples[i];
         }
         body << "]}";
-        return client_->Post(("/registry/" + group_ + "/trained").c_str(),
-                             body.str(), "application/json");
+        return client_->Post(("/registry/" + group_ + "/trained").c_str(), body.str(),
+                             "application/json");
     }
 
     // Helper: GET /registry/<group_>/registry
@@ -208,30 +297,65 @@ protected:
         std::ostringstream body;
         body << "{\"run_id\":\"" << run_id << "\",\"model_id\":\"" << model_id << "\",\"files\":[";
         for (std::size_t i = 0; i < files.size(); ++i) {
-            if (i) body << ',';
+            if (i)
+                body << ',';
             body << '"' << files[i] << '"';
         }
         body << "],\"samples\":[";
         for (std::size_t i = 0; i < samples.size(); ++i) {
-            if (i) body << ',';
+            if (i)
+                body << ',';
             body << samples[i];
         }
         body << "]}";
-        return client_->Post(("/registry/" + group_ + "/trained").c_str(),
-                             body.str(), "application/json");
+        return client_->Post(("/registry/" + group_ + "/trained").c_str(), body.str(),
+                             "application/json");
     }
 
     // Helper: GET /registry/<group_>/history[?model_id=<id>]
     httplib::Result get_history(const std::string& model_id_filter = "") {
         std::string path = "/registry/" + group_ + "/history";
-        if (!model_id_filter.empty()) path += "?model_id=" + model_id_filter;
+        if (!model_id_filter.empty())
+            path += "?model_id=" + model_id_filter;
         return client_->Get(path.c_str());
     }
 
-    httplib::Client& client() { return *client_; }
-    const std::string& group() const { return group_; }
+    // Helper: POST /registry/<group_>/fetch/gutenberg {"book_id":N,"num_pairs":N,"model_name":"..."}
+    httplib::Result fetch_gutenberg(int book_id, int num_pairs = 100,
+                                    const std::string& model_name_raw_json = "") {
+        std::ostringstream body;
+        body << "{\"book_id\":" << book_id << ",\"num_pairs\":" << num_pairs
+             << ",\"model_name\":\"" << model_name_raw_json << "\"}";
+        return client_->Post(("/registry/" + group_ + "/fetch/gutenberg").c_str(), body.str(),
+                             "application/json");
+    }
 
-private:
+    // Helper: POST /registry/<group_>/fetch/huggingface {"dataset_id":"...",...}
+    httplib::Result fetch_huggingface(const std::string& dataset_id_raw_json,
+                                      int num_pairs = 100,
+                                      const std::string& model_name_raw_json = "") {
+        std::ostringstream body;
+        body << "{\"dataset_id\":\"" << dataset_id_raw_json << "\",\"num_pairs\":" << num_pairs
+             << ",\"model_name\":\"" << model_name_raw_json << "\"}";
+        return client_->Post(("/registry/" + group_ + "/fetch/huggingface").c_str(), body.str(),
+                             "application/json");
+    }
+
+    // Helper: POST /registry/<group_>/upload?filename=<name>  (raw body)
+    httplib::Result upload(const std::string& filename, const std::string& contents) {
+        const std::string path =
+            "/registry/" + group_ + "/upload?filename=" + filename;
+        return client_->Post(path.c_str(), contents, "application/octet-stream");
+    }
+
+    httplib::Client& client() {
+        return *client_;
+    }
+    const std::string& group() const {
+        return group_;
+    }
+
+   private:
     std::unique_ptr<httplib::Client> client_;
     std::string group_;
 };
@@ -241,7 +365,8 @@ private:
 // ===========================================================================
 
 TEST(LiveRegistryHealth, Returns200WithStatusOk) {
-    if (!server_reachable()) GTEST_SKIP() << "server not reachable";
+    if (!server_reachable())
+        GTEST_SKIP() << "server not reachable";
     auto c = make_client();
     auto res = c.Get("/health");
     ASSERT_TRUE(res) << "no response from /health";
@@ -310,16 +435,16 @@ TEST_F(LiveRegistryTest, PendingAddDeduplicates) {
 }
 
 TEST_F(LiveRegistryTest, PendingAddRequiresPathField) {
-    auto res = client().Post(("/registry/" + group() + "/pending/add").c_str(),
-                             "{}", "application/json");
+    auto res =
+        client().Post(("/registry/" + group() + "/pending/add").c_str(), "{}", "application/json");
     ASSERT_TRUE(res);
     EXPECT_EQ(res->status, 400);
     EXPECT_NE(res->body.find("\"error\":"), std::string::npos) << res->body;
 }
 
 TEST_F(LiveRegistryTest, PendingAddEmptyBodyReturns400) {
-    auto res = client().Post(("/registry/" + group() + "/pending/add").c_str(),
-                             "", "application/json");
+    auto res =
+        client().Post(("/registry/" + group() + "/pending/add").c_str(), "", "application/json");
     ASSERT_TRUE(res);
     EXPECT_EQ(res->status, 400);
 }
@@ -332,8 +457,8 @@ TEST_F(LiveRegistryTest, AcquireRequiresRunId) {
     const std::string path = "/data/" + group() + "/f.txt";
     ASSERT_TRUE(add_pending(path));
 
-    auto res = client().Post(("/registry/" + group() + "/acquire").c_str(),
-                             "{\"max_files\":0}", "application/json");
+    auto res = client().Post(("/registry/" + group() + "/acquire").c_str(), "{\"max_files\":0}",
+                             "application/json");
     ASSERT_TRUE(res);
     EXPECT_EQ(res->status, 400);
     EXPECT_NE(res->body.find("\"error\":"), std::string::npos) << res->body;
@@ -462,6 +587,371 @@ TEST_F(LiveRegistryTest, ReleaseReturnsZeroForNonExistentFiles) {
     ASSERT_TRUE(res);
     EXPECT_EQ(res->status, 200);
     EXPECT_EQ(json_int(res->body, "released"), 0) << res->body;
+}
+
+// ===========================================================================
+// Assign — POST /registry/<group>/assign (Phase 14)
+//
+// Fills a gap that predates this endpoint: DatasetRegistry::assign_model()
+// silently no-ops against RemoteTransport (save_pending() is a documented
+// no-op in distributed mode), so dataset_manager's `assign` command never
+// actually worked against a real registry_server before this existed.
+// ===========================================================================
+
+TEST_F(LiveRegistryTest, AssignSetsModelNameOnSpecifiedPath) {
+    const std::string p1 = "/data/" + group() + "/assign1.txt";
+    const std::string p2 = "/data/" + group() + "/assign2.txt";
+    ASSERT_TRUE(add_pending(p1));
+    ASSERT_TRUE(add_pending(p2));
+
+    auto res = assign("model-a", {p1});
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_EQ(json_int(res->body, "assigned"), 1) << res->body;
+
+    auto queue_res = get_queue();
+    ASSERT_TRUE(queue_res);
+    // p1's entry should carry the model_name; p2's should not.
+    const auto p1_pos = queue_res->body.find(p1);
+    ASSERT_NE(p1_pos, std::string::npos);
+    EXPECT_NE(queue_res->body.find("\"model_name\":\"model-a\"", p1_pos), std::string::npos)
+        << queue_res->body;
+}
+
+TEST_F(LiveRegistryTest, AssignWithEmptyPathsAssignsAllPending) {
+    const std::string p1 = "/data/" + group() + "/assignall1.txt";
+    const std::string p2 = "/data/" + group() + "/assignall2.txt";
+    ASSERT_TRUE(add_pending(p1));
+    ASSERT_TRUE(add_pending(p2));
+
+    auto res = assign("model-b");  // no paths → assign all
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_EQ(json_int(res->body, "assigned"), 2) << res->body;
+
+    auto queue_res = get_queue();
+    ASSERT_TRUE(queue_res);
+    int occurrences = 0;
+    std::size_t pos = 0;
+    const std::string needle = "\"model_name\":\"model-b\"";
+    while ((pos = queue_res->body.find(needle, pos)) != std::string::npos) {
+        ++occurrences;
+        pos += needle.size();
+    }
+    EXPECT_EQ(occurrences, 2) << queue_res->body;
+}
+
+TEST_F(LiveRegistryTest, AssignRejectsEmptyModelName) {
+    auto res = assign("");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400);
+}
+
+TEST_F(LiveRegistryTest, AssignRejectsUnsafeModelName) {
+    // model_name is written verbatim into the tab-separated pending-file
+    // format, so a literal '/' (and by extension tabs/newlines, though those
+    // aren't expressible in this JSON-string test helper) must be rejected.
+    auto res = assign("../../etc/passwd");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400);
+}
+
+TEST_F(LiveRegistryTest, AssignReturnsZeroForNonExistentPath) {
+    auto res = assign("model-c", {"/no/such/file.txt"});
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_EQ(json_int(res->body, "assigned"), 0) << res->body;
+}
+
+TEST_F(LiveRegistryTest, AssignWithCountAssignsFirstNUnassignedOnly) {
+    const std::string p1 = "/data/" + group() + "/count1.txt";
+    const std::string p2 = "/data/" + group() + "/count2.txt";
+    const std::string p3 = "/data/" + group() + "/count3.txt";
+    ASSERT_TRUE(add_pending(p1));
+    ASSERT_TRUE(add_pending(p2));
+    ASSERT_TRUE(add_pending(p3));
+
+    auto res = assign("model-d", {}, 2);
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_EQ(json_int(res->body, "assigned"), 2) << res->body;
+
+    auto queue_res = get_queue();
+    ASSERT_TRUE(queue_res);
+    int occurrences = 0;
+    std::size_t pos = 0;
+    const std::string needle = "\"model_name\":\"model-d\"";
+    while ((pos = queue_res->body.find(needle, pos)) != std::string::npos) {
+        ++occurrences;
+        pos += needle.size();
+    }
+    EXPECT_EQ(occurrences, 2) << queue_res->body;
+}
+
+TEST_F(LiveRegistryTest, AssignWithCountSkipsAlreadyAssignedEntries) {
+    const std::string p1 = "/data/" + group() + "/countskip1.txt";
+    const std::string p2 = "/data/" + group() + "/countskip2.txt";
+    const std::string p3 = "/data/" + group() + "/countskip3.txt";
+    ASSERT_TRUE(add_pending(p1));
+    ASSERT_TRUE(add_pending(p2));
+    ASSERT_TRUE(add_pending(p3));
+
+    ASSERT_TRUE(assign("model-x", {p1}));  // pre-assign p1 to a different model
+
+    auto res = assign("model-d", {}, 5);  // ask for more than remain unassigned
+    ASSERT_TRUE(res);
+    EXPECT_EQ(json_int(res->body, "assigned"), 2) << res->body;  // only p2, p3
+}
+
+TEST_F(LiveRegistryTest, AssignWithZeroCountAndEmptyPathsAssignsAll) {
+    const std::string p1 = "/data/" + group() + "/zerocount1.txt";
+    const std::string p2 = "/data/" + group() + "/zerocount2.txt";
+    ASSERT_TRUE(add_pending(p1));
+    ASSERT_TRUE(add_pending(p2));
+
+    auto res = assign("model-b", {}, 0);  // explicit count=0 == today's "assign all" default
+    ASSERT_TRUE(res);
+    EXPECT_EQ(json_int(res->body, "assigned"), 2) << res->body;
+}
+
+TEST_F(LiveRegistryTest, AssignResponseIncludesPathsArray) {
+    const std::string p1 = "/data/" + group() + "/pathsarr1.txt";
+    ASSERT_TRUE(add_pending(p1));
+
+    auto res = assign("model-e", {p1});
+    ASSERT_TRUE(res);
+    EXPECT_NE(res->body.find("\"paths\":[\"" + p1 + "\"]"), std::string::npos) << res->body;
+}
+
+// ===========================================================================
+// Unassign — POST /registry/<group>/unassign
+// ===========================================================================
+
+TEST_F(LiveRegistryTest, UnassignBulkByModelNameClearsAllMatchingEntries) {
+    const std::string p1 = "/data/" + group() + "/unassignbulk1.txt";
+    const std::string p2 = "/data/" + group() + "/unassignbulk2.txt";
+    const std::string p3 = "/data/" + group() + "/unassignbulk3.txt";
+    ASSERT_TRUE(add_pending(p1));
+    ASSERT_TRUE(add_pending(p2));
+    ASSERT_TRUE(add_pending(p3));
+    ASSERT_TRUE(assign("model-e", {p1, p2, p3}));
+
+    auto res = unassign("model-e");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_EQ(json_int(res->body, "unassigned"), 3) << res->body;
+
+    auto queue_res = get_queue();
+    ASSERT_TRUE(queue_res);
+    EXPECT_EQ(queue_res->body.find("\"model_name\":\"model-e\""), std::string::npos)
+        << queue_res->body;
+}
+
+TEST_F(LiveRegistryTest, UnassignSpecificPathsOnlyClearsListed) {
+    const std::string p1 = "/data/" + group() + "/unassignspecific1.txt";
+    const std::string p2 = "/data/" + group() + "/unassignspecific2.txt";
+    ASSERT_TRUE(add_pending(p1));
+    ASSERT_TRUE(add_pending(p2));
+    ASSERT_TRUE(assign("model-f", {p1, p2}));
+
+    auto res = unassign("model-f", {p1});
+    ASSERT_TRUE(res);
+    EXPECT_EQ(json_int(res->body, "unassigned"), 1) << res->body;
+
+    auto queue_res = get_queue();
+    ASSERT_TRUE(queue_res);
+    const auto p2_pos = queue_res->body.find(p2);
+    ASSERT_NE(p2_pos, std::string::npos);
+    EXPECT_NE(queue_res->body.find("\"model_name\":\"model-f\"", p2_pos), std::string::npos)
+        << queue_res->body;
+}
+
+TEST_F(LiveRegistryTest, UnassignSkipsActivelyClaimedEntryWithoutForce) {
+    const std::string p1 = "/data/" + group() + "/unassignclaimed1.txt";
+    ASSERT_TRUE(add_pending(p1));
+    ASSERT_TRUE(assign("model-g", {p1}));
+    ASSERT_TRUE(acquire("run-Z", 1, "model-g"));
+
+    auto res = unassign("model-g", {p1});
+    ASSERT_TRUE(res);
+    EXPECT_EQ(json_int(res->body, "unassigned"), 0) << res->body;
+    EXPECT_EQ(json_int(res->body, "skipped"), 1) << res->body;
+
+    auto queue_res = get_queue();
+    ASSERT_TRUE(queue_res);
+    const auto p1_pos = queue_res->body.find(p1);
+    ASSERT_NE(p1_pos, std::string::npos);
+    EXPECT_NE(queue_res->body.find("\"model_name\":\"model-g\"", p1_pos), std::string::npos)
+        << queue_res->body;
+}
+
+TEST_F(LiveRegistryTest, UnassignForceOverridesActiveClaim) {
+    const std::string p1 = "/data/" + group() + "/unassignforce1.txt";
+    ASSERT_TRUE(add_pending(p1));
+    ASSERT_TRUE(assign("model-g", {p1}));
+    ASSERT_TRUE(acquire("run-Z", 1, "model-g"));
+
+    auto res = unassign("model-g", {p1}, /*force=*/true);
+    ASSERT_TRUE(res);
+    EXPECT_EQ(json_int(res->body, "unassigned"), 1) << res->body;
+    EXPECT_EQ(json_int(res->body, "skipped"), 0) << res->body;
+}
+
+TEST_F(LiveRegistryTest, UnassignRejectsWhenBothPathsAndModelNameEmpty) {
+    auto res = unassign("");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400);
+}
+
+TEST_F(LiveRegistryTest, UnassignReturnsZeroForNonMatchingModelName) {
+    auto res = unassign("no-such-model");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_EQ(json_int(res->body, "unassigned"), 0) << res->body;
+    EXPECT_EQ(json_int(res->body, "skipped"), 0) << res->body;
+}
+
+TEST_F(LiveRegistryTest, UnassignOwnershipCheckSkipsPathAssignedToDifferentModel) {
+    const std::string p1 = "/data/" + group() + "/unassignownership1.txt";
+    ASSERT_TRUE(add_pending(p1));
+    ASSERT_TRUE(assign("model-h", {p1}));
+
+    auto res = unassign("model-i", {p1});
+    ASSERT_TRUE(res);
+    EXPECT_EQ(json_int(res->body, "unassigned"), 0) << res->body;
+}
+
+// ===========================================================================
+// Delete — POST /registry/<group>/delete
+// ===========================================================================
+
+TEST_F(LiveRegistryTest, DeleteRemovesPendingEntryByPath) {
+    const std::string p1 = "/data/" + group() + "/delete1.txt";
+    ASSERT_TRUE(add_pending(p1));
+
+    auto res = delete_entries({p1});
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_EQ(json_int(res->body, "deleted"), 1) << res->body;
+
+    auto queue_res = get_queue();
+    ASSERT_TRUE(queue_res);
+    EXPECT_EQ(queue_res->body.find(p1), std::string::npos) << queue_res->body;
+}
+
+TEST_F(LiveRegistryTest, DeleteRemovesTrainedRegistryEntryByPath) {
+    if (!server_current_format_) {
+        GTEST_SKIP() << "server predates current registry format";
+    }
+    const std::string p1 = "/data/" + group() + "/deletetrained1.txt";
+    ASSERT_TRUE(add_pending(p1));
+    ASSERT_TRUE(acquire("run-del", 1));
+    ASSERT_TRUE(trained("run-del", {p1}, {5}));
+
+    auto res = delete_entries({p1});
+    ASSERT_TRUE(res);
+    EXPECT_EQ(json_int(res->body, "deleted"), 1) << res->body;
+
+    auto reg_res = get_registry();
+    ASSERT_TRUE(reg_res);
+    EXPECT_EQ(reg_res->body.find(p1), std::string::npos) << reg_res->body;
+}
+
+TEST_F(LiveRegistryTest, DeleteReturnsNotFoundForUnknownPath) {
+    auto res = delete_entries({"/no/such/file-" + group() + ".txt"});
+    ASSERT_TRUE(res);
+    EXPECT_EQ(json_int(res->body, "deleted"), 0) << res->body;
+    EXPECT_EQ(json_int(res->body, "not_found"), 1) << res->body;
+}
+
+TEST_F(LiveRegistryTest, DeleteSkipsActivelyClaimedPendingEntryWithoutForce) {
+    const std::string p1 = "/data/" + group() + "/deleteclaimed1.txt";
+    ASSERT_TRUE(add_pending(p1));
+    ASSERT_TRUE(acquire("run-Z", 1));
+
+    auto res = delete_entries({p1});
+    ASSERT_TRUE(res);
+    EXPECT_EQ(json_int(res->body, "deleted"), 0) << res->body;
+    EXPECT_EQ(json_int(res->body, "skipped"), 1) << res->body;
+
+    auto queue_res = get_queue();
+    ASSERT_TRUE(queue_res);
+    EXPECT_NE(queue_res->body.find(p1), std::string::npos) << queue_res->body;
+}
+
+TEST_F(LiveRegistryTest, DeleteForceOverridesActiveClaim) {
+    const std::string p1 = "/data/" + group() + "/deleteforce1.txt";
+    ASSERT_TRUE(add_pending(p1));
+    ASSERT_TRUE(acquire("run-Z", 1));
+
+    auto res = delete_entries({p1}, /*force=*/true);
+    ASSERT_TRUE(res);
+    EXPECT_EQ(json_int(res->body, "deleted"), 1) << res->body;
+}
+
+TEST_F(LiveRegistryTest, DeleteWithoutDeleteFilesLeavesFileDeletedFlagFalse) {
+    const std::string filename = "delete_nofiles_" + group() + ".txt";
+    auto upload_res = upload(filename, "hello from delete test");
+    ASSERT_TRUE(upload_res);
+    ASSERT_EQ(upload_res->status, 200);
+    const std::string path = json_string(upload_res->body, "path");
+    ASSERT_FALSE(path.empty());
+
+    // delete_files defaults to false — assert only via the response field,
+    // never fs::exists, since the live server under test may be remote.
+    auto res = delete_entries({path});
+    ASSERT_TRUE(res);
+    EXPECT_EQ(json_int(res->body, "deleted"), 1) << res->body;
+    EXPECT_FALSE(json_bool(res->body, "file_deleted")) << res->body;
+}
+
+TEST_F(LiveRegistryTest, DeleteWithDeleteFilesUnlinksUploadedFile) {
+    const std::string filename = "delete_withfiles_" + group() + ".txt";
+    auto upload_res = upload(filename, "hello from delete test 2");
+    ASSERT_TRUE(upload_res);
+    ASSERT_EQ(upload_res->status, 200);
+    const std::string path = json_string(upload_res->body, "path");
+    ASSERT_FALSE(path.empty());
+
+    auto res = delete_entries({path}, /*force=*/false, /*delete_files=*/true);
+    ASSERT_TRUE(res);
+    EXPECT_EQ(json_int(res->body, "deleted"), 1) << res->body;
+    EXPECT_TRUE(json_bool(res->body, "file_deleted")) << res->body;
+}
+
+TEST_F(LiveRegistryTest, DeleteWithDeleteFilesRefusesPathOutsideDataDir) {
+    // Deliberately never created on disk, so this test is valid whether the
+    // live server under test is local or remote — the containment check (or
+    // simple non-existence) both yield file_deleted=false either way.
+    const std::string path = "/tmp/adai_external_" + group() + ".txt";
+    ASSERT_TRUE(add_pending(path));
+
+    auto res = delete_entries({path}, /*force=*/false, /*delete_files=*/true);
+    ASSERT_TRUE(res);
+    EXPECT_EQ(json_int(res->body, "deleted"), 1) << res->body;  // metadata still purged
+    EXPECT_FALSE(json_bool(res->body, "file_deleted")) << res->body;
+}
+
+TEST_F(LiveRegistryTest, DeleteMultiplePathsMixedOutcomes) {
+    const std::string p_ok = "/data/" + group() + "/mixed_ok.txt";
+    const std::string p_claimed = "/data/" + group() + "/mixed_claimed.txt";
+    const std::string p_missing = "/no/such/mixed-" + group() + ".txt";
+    ASSERT_TRUE(add_pending(p_ok));
+    ASSERT_TRUE(add_pending(p_claimed));
+    ASSERT_TRUE(acquire("run-mixed", 2));       // claims both
+    ASSERT_TRUE(release("run-mixed", {p_ok}));  // release only p_ok back to unclaimed
+
+    auto res = delete_entries({p_ok, p_claimed, p_missing});
+    ASSERT_TRUE(res);
+    EXPECT_EQ(json_int(res->body, "deleted"), 1) << res->body;    // p_ok
+    EXPECT_EQ(json_int(res->body, "skipped"), 1) << res->body;    // p_claimed
+    EXPECT_EQ(json_int(res->body, "not_found"), 1) << res->body;  // p_missing
+}
+
+TEST_F(LiveRegistryTest, DeleteRejectsEmptyPaths) {
+    auto res = delete_entries({});
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400);
 }
 
 // ===========================================================================
@@ -637,6 +1127,43 @@ TEST_F(LiveRegistryTest, RunsShowsMultipleRunsSimultaneously) {
 }
 
 // ===========================================================================
+// session/next — Phase 3 run/session numbering
+// ===========================================================================
+
+TEST_F(LiveRegistryTest, SessionNextStartsAtOneAndIncrements) {
+    const std::string model = "sess-model-" + group();
+    const std::string run_id = "run-sess-" + group();
+
+    auto r1 = next_session(model, run_id);
+    ASSERT_TRUE(r1);
+    EXPECT_EQ(200, r1->status);
+    EXPECT_EQ(json_string(r1->body, "session_id"), "session-01") << r1->body;
+
+    auto r2 = next_session(model, run_id);
+    ASSERT_TRUE(r2);
+    EXPECT_EQ(json_string(r2->body, "session_id"), "session-02") << r2->body;
+}
+
+TEST_F(LiveRegistryTest, SessionNextResetsForDifferentRunId) {
+    const std::string model = "sess-model2-" + group();
+
+    auto r1 = next_session(model, "run-x-" + group());
+    ASSERT_TRUE(r1);
+    EXPECT_EQ(json_string(r1->body, "session_id"), "session-01") << r1->body;
+
+    // A different run_id starts its own counter at 1.
+    auto r2 = next_session(model, "run-y-" + group());
+    ASSERT_TRUE(r2);
+    EXPECT_EQ(json_string(r2->body, "session_id"), "session-01") << r2->body;
+}
+
+TEST_F(LiveRegistryTest, SessionNextRejectsMissingRunId) {
+    auto res = next_session("some-model", "");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(400, res->status);
+}
+
+// ===========================================================================
 // Full end-to-end workflow
 // ===========================================================================
 
@@ -723,6 +1250,39 @@ TEST_F(LiveRegistryTest, FullWorkflow_AddAcquireTrainVerify) {
     }
 }
 
+// Regression test for a bug where RemoteTransport::load_registry() parsed
+// "num_samples" and "trained" with json_string(), a helper that only handles
+// quoted string values ("key":"value"). Both fields are bare JSON literals
+// ("num_samples":100, "trained":true), so the lookup always found nothing and
+// silently defaulted to num_samples=0 / trained=false — regardless of the
+// server's actual response. The tests above only ever inspected the raw HTTP
+// response body, never fed it through the client parsing path, so this went
+// unnoticed. This test exercises RemoteTransport itself, the way the real
+// trainer does, and would have caught it.
+TEST_F(LiveRegistryTest, RemoteTransportParsesTrainedAndNumSamplesAsRawJsonLiterals) {
+    if (!server_current_format_)
+        GTEST_SKIP() << "Server uses legacy registry format; rebuild and redeploy registry_server";
+    const std::string p = "/data/" + group() + "/client_parse_check.txt";
+
+    ASSERT_TRUE(add_pending(p));
+    ASSERT_TRUE(acquire("client-parse-run"));
+    {
+        auto r = trained("client-parse-run", {p}, {321});
+        ASSERT_TRUE(r);
+        ASSERT_EQ(r->status, 200);
+    }
+
+    RemoteTransport rt("http://" + server_host() + ":" + std::to_string(server_port()), group());
+    std::vector<DataVersion> entries;
+    ASSERT_TRUE(rt.load_registry(entries));
+
+    auto it = std::find_if(entries.begin(), entries.end(),
+                           [&](const DataVersion& dv) { return dv.data_file == p; });
+    ASSERT_NE(it, entries.end()) << "file not found in client-parsed registry";
+    EXPECT_TRUE(it->trained) << "trained:true from the server was not parsed as true";
+    EXPECT_EQ(it->num_samples, 321) << "num_samples was not parsed as a bare JSON number";
+}
+
 // ===========================================================================
 // History — GET /registry/<group>/history[?model_id=<uuid>]  (Phase 2)
 // ===========================================================================
@@ -730,13 +1290,14 @@ TEST_F(LiveRegistryTest, FullWorkflow_AddAcquireTrainVerify) {
 TEST_F(LiveRegistryTest, HistoryInitiallyEmpty) {
     auto res = get_history();
     ASSERT_TRUE(res);
-    if (res->status == 404) GTEST_SKIP() << "/history endpoint not available on this server version";
+    if (res->status == 404)
+        GTEST_SKIP() << "/history endpoint not available on this server version";
     EXPECT_EQ(res->status, 200);
     EXPECT_NE(res->body.find("\"entries\":[]"), std::string::npos) << res->body;
 }
 
 TEST_F(LiveRegistryTest, TrainedWithModelIdAppearsInHistory) {
-    const std::string path     = "/data/" + group() + "/hist1.txt";
+    const std::string path = "/data/" + group() + "/hist1.txt";
     const std::string model_id = "aaaabbbb-0001-0001-0001-000000000001";
     ASSERT_TRUE(add_pending(path));
     ASSERT_TRUE(acquire("run-hist1"));
@@ -744,7 +1305,8 @@ TEST_F(LiveRegistryTest, TrainedWithModelIdAppearsInHistory) {
 
     auto res = get_history();
     ASSERT_TRUE(res);
-    if (res->status == 404) GTEST_SKIP() << "/history endpoint not available on this server version";
+    if (res->status == 404)
+        GTEST_SKIP() << "/history endpoint not available on this server version";
     EXPECT_EQ(res->status, 200);
     EXPECT_NE(res->body.find(path), std::string::npos) << res->body;
     EXPECT_NE(res->body.find(model_id), std::string::npos) << res->body;
@@ -766,10 +1328,13 @@ TEST_F(LiveRegistryTest, HistoryFilterByModelIdReturnsOnlyMatches) {
     // Filter for id1 — should see p1 but not p2.
     auto res = get_history(id1);
     ASSERT_TRUE(res);
-    if (res->status == 404) GTEST_SKIP() << "/history endpoint not available on this server version";
+    if (res->status == 404)
+        GTEST_SKIP() << "/history endpoint not available on this server version";
     EXPECT_EQ(res->status, 200);
-    EXPECT_NE(res->body.find(p1), std::string::npos)  << "Expected p1 in filtered history: " << res->body;
-    EXPECT_EQ(res->body.find(p2), std::string::npos)  << "Did not expect p2 in filtered history: " << res->body;
+    EXPECT_NE(res->body.find(p1), std::string::npos)
+        << "Expected p1 in filtered history: " << res->body;
+    EXPECT_EQ(res->body.find(p2), std::string::npos)
+        << "Did not expect p2 in filtered history: " << res->body;
 }
 
 TEST_F(LiveRegistryTest, HistoryWithoutFilterReturnsAll) {
@@ -787,7 +1352,8 @@ TEST_F(LiveRegistryTest, HistoryWithoutFilterReturnsAll) {
 
     auto res = get_history();
     ASSERT_TRUE(res);
-    if (res->status == 404) GTEST_SKIP() << "/history endpoint not available on this server version";
+    if (res->status == 404)
+        GTEST_SKIP() << "/history endpoint not available on this server version";
     EXPECT_EQ(res->status, 200);
     EXPECT_NE(res->body.find(p1), std::string::npos) << res->body;
     EXPECT_NE(res->body.find(p2), std::string::npos) << res->body;
@@ -798,12 +1364,13 @@ TEST_F(LiveRegistryTest, HistoryUnknownModelIdReturnsEmpty) {
     const std::string path = "/data/" + group() + "/hunk1.txt";
     ASSERT_TRUE(add_pending(path));
     ASSERT_TRUE(acquire("run-hunk1"));
-    ASSERT_TRUE(trained_with_model_id("run-hunk1", {path},
-                                       "ffffffff-0006-0006-0006-000000000006", {1}));
+    ASSERT_TRUE(
+        trained_with_model_id("run-hunk1", {path}, "ffffffff-0006-0006-0006-000000000006", {1}));
 
     auto res = get_history("00000000-9999-9999-9999-999999999999");
     ASSERT_TRUE(res);
-    if (res->status == 404) GTEST_SKIP() << "/history endpoint not available on this server version";
+    if (res->status == 404)
+        GTEST_SKIP() << "/history endpoint not available on this server version";
     EXPECT_EQ(res->status, 200);
     EXPECT_NE(res->body.find("\"entries\":[]"), std::string::npos) << res->body;
 }
@@ -824,11 +1391,220 @@ TEST_F(LiveRegistryTest, TrainedWithoutModelIdHasEmptyModelIdInRegistry) {
     const auto mid_pos = reg_res->body.find("\"model_id\":\"");
     if (mid_pos != std::string::npos) {
         const auto val_start = mid_pos + std::string("\"model_id\":\"").size();
-        const auto val_end   = reg_res->body.find('"', val_start);
+        const auto val_end = reg_res->body.find('"', val_start);
         const std::string stored_id = reg_res->body.substr(val_start, val_end - val_start);
         EXPECT_TRUE(stored_id.empty())
             << "Expected empty model_id for entry trained without one, got: " << stored_id;
     }
+}
+
+// ===========================================================================
+// Phase 11: server-side dataset fetch — validation (no real network calls)
+//
+// These deliberately avoid exercising the DataFetcher happy path (which
+// would perform real downloads from gutenberg.org / huggingface.co — slow,
+// flaky, and against this project's convention of keeping test suites
+// offline; see DataFetcherTests.cpp). They cover the validation added
+// specifically to make these endpoints safe to expose over the network:
+// invalid input must be rejected with 400 before DataFetcher is ever
+// invoked, and the /upload path must reject path-traversal filenames.
+// ===========================================================================
+
+TEST_F(LiveRegistryTest, FetchGutenbergRejectsNonPositiveBookId) {
+    auto res = fetch_gutenberg(0);
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400);
+}
+
+TEST_F(LiveRegistryTest, FetchGutenbergRejectsNegativeBookId) {
+    auto res = fetch_gutenberg(-5);
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400);
+}
+
+TEST_F(LiveRegistryTest, FetchGutenbergRejectsUnsafeModelName) {
+    // model_name flows into a cursor-file path (Phase 13) — '/' must be
+    // rejected before it ever reaches the filesystem.
+    auto res = fetch_gutenberg(1342, 10, "../../etc/passwd");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400);
+}
+
+TEST_F(LiveRegistryTest, FetchHuggingfaceRejectsUnsafeDatasetId) {
+    // Shell metacharacters (space, ';') are outside the allow-list regex —
+    // DataFetcher interpolates dataset_id unescaped into a curl command, so
+    // this must be rejected before it ever reaches DataFetcher.
+    auto res = fetch_huggingface("evil; rm -rf ~");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400);
+}
+
+TEST_F(LiveRegistryTest, FetchHuggingfaceRejectsUnsafeSplit) {
+    std::ostringstream body;
+    body << "{\"dataset_id\":\"daily_dialog\",\"num_pairs\":10,"
+            "\"split\":\"train; touch /tmp/pwned\"}";
+    auto res = client().Post(("/registry/" + group() + "/fetch/huggingface").c_str(), body.str(),
+                             "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400);
+}
+
+TEST_F(LiveRegistryTest, FetchHuggingfaceRejectsUnsafeModelName) {
+    // model_name flows into a cursor-file path (Phase 12) — '/' must be
+    // rejected before it ever reaches the filesystem, unlike dataset_id/split
+    // which legitimately need '/' for "org/name" identifiers.
+    auto res = fetch_huggingface("daily_dialog", 10, "../../etc/passwd");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400);
+}
+
+TEST_F(LiveRegistryTest, UploadRejectsPathTraversalFilename) {
+    auto res = upload("..%2F..%2F..%2Fetc%2Fpasswd", "malicious contents");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400);
+}
+
+TEST_F(LiveRegistryTest, UploadRejectsBareParentDirFilename) {
+    auto res = upload("..", "malicious contents");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400);
+}
+
+TEST_F(LiveRegistryTest, UploadRejectsEmptyBody) {
+    auto res = upload("empty.jsonl", "");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400);
+}
+
+TEST_F(LiveRegistryTest, UploadRejectsMissingFilename) {
+    auto res = client().Post(("/registry/" + group() + "/upload").c_str(), "some bytes",
+                             "application/octet-stream");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 400);
+}
+
+TEST_F(LiveRegistryTest, UploadSucceedsAndAppearsInQueue) {
+    const std::string filename = "smoke_" + group() + ".jsonl";
+    const std::string contents = "{\"input\":\"hi\",\"response\":\"hello\"}\n";
+
+    auto res = upload(filename, contents);
+    ASSERT_TRUE(res);
+    ASSERT_EQ(res->status, 200) << res->body;
+    EXPECT_NE(res->body.find("\"added\":true"), std::string::npos) << res->body;
+    EXPECT_NE(res->body.find(filename), std::string::npos) << res->body;
+
+    auto queue_res = get_queue();
+    ASSERT_TRUE(queue_res);
+    EXPECT_EQ(queue_res->status, 200);
+    EXPECT_NE(queue_res->body.find(filename), std::string::npos) << queue_res->body;
+}
+
+TEST_F(LiveRegistryTest, UploadDeduplicatesSamePath) {
+    const std::string filename = "dup_" + group() + ".jsonl";
+    ASSERT_TRUE(upload(filename, "first"));
+
+    auto res = upload(filename, "second");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+    EXPECT_NE(res->body.find("\"added\":true"), std::string::npos) << res->body;
+
+    // Second upload overwrote the file but must not create a duplicate queue entry.
+    auto queue_res = get_queue();
+    ASSERT_TRUE(queue_res);
+    int occurrences = 0;
+    std::size_t pos = 0;
+    while ((pos = queue_res->body.find(filename, pos)) != std::string::npos) {
+        ++occurrences;
+        pos += filename.size();
+    }
+    EXPECT_EQ(occurrences, 1) << queue_res->body;
+}
+
+// ===========================================================================
+// Dataset metadata (Phase 15) — source/added_utc/size_bytes/num_entries/checksum
+// ===========================================================================
+
+TEST_F(LiveRegistryTest, PendingAddSetsManualSourceAndAddedUtc) {
+    const std::string path = "/data/" + group() + "/manual_meta.txt";
+    ASSERT_TRUE(add_pending(path));
+
+    auto res = get_queue();
+    ASSERT_TRUE(res);
+    const auto entry_pos = res->body.find(path);
+    ASSERT_NE(entry_pos, std::string::npos) << res->body;
+    EXPECT_NE(res->body.find("\"source\":\"manual\"", entry_pos), std::string::npos) << res->body;
+    // added_utc must be present and non-empty — look for the key followed by a
+    // non-'"' character (i.e. not immediately closed, meaning some content is there).
+    const auto added_pos = res->body.find("\"added_utc\":\"", entry_pos);
+    ASSERT_NE(added_pos, std::string::npos) << res->body;
+    EXPECT_NE(res->body[added_pos + std::string("\"added_utc\":\"").size()], '"') << res->body;
+}
+
+TEST_F(LiveRegistryTest, UploadComputesRealSizeAndEntryCountAndChecksum) {
+    const std::string filename = "meta_" + group() + ".jsonl";
+    const std::string contents =
+        "{\"input\":\"a\",\"response\":\"b\"}\n{\"input\":\"c\",\"response\":\"d\"}\n";
+    ASSERT_TRUE(upload(filename, contents));
+
+    auto res = get_queue();
+    ASSERT_TRUE(res);
+    const auto entry_pos = res->body.find(filename);
+    ASSERT_NE(entry_pos, std::string::npos) << res->body;
+    EXPECT_NE(res->body.find("\"source\":\"upload\"", entry_pos), std::string::npos) << res->body;
+    EXPECT_NE(res->body.find("\"size_bytes\":" + std::to_string(contents.size()), entry_pos),
+             std::string::npos)
+        << res->body;
+    // Uploaded content has exactly 2 non-empty lines.
+    EXPECT_NE(res->body.find("\"num_entries\":2", entry_pos), std::string::npos) << res->body;
+    // checksum is the registry's own size+mtime fingerprint — non-empty, and not
+    // the "unknown" empty-string case that a not-locally-readable path would get.
+    const auto checksum_pos = res->body.find("\"checksum\":\"", entry_pos);
+    ASSERT_NE(checksum_pos, std::string::npos) << res->body;
+    EXPECT_NE(res->body[checksum_pos + std::string("\"checksum\":\"").size()], '"') << res->body;
+}
+
+TEST_F(LiveRegistryTest, TrainedCarriesForwardSourceAndAddedUtcFromPendingEntry) {
+    if (!server_current_format_)
+        GTEST_SKIP() << "Server uses legacy registry format; rebuild and redeploy registry_server";
+    const std::string filename = "carry_" + group() + ".jsonl";
+    ASSERT_TRUE(upload(filename, "{\"input\":\"a\",\"response\":\"b\"}\n"));
+
+    // Recover the exact registry_path the server assigned (data_dir/... — not
+    // something this test constructs itself), and its added_utc, to compare
+    // against the trained registry entry afterwards.
+    auto queue_before = get_queue();
+    ASSERT_TRUE(queue_before);
+    const auto path_key_pos = queue_before->body.find("\"path\":\"");
+    ASSERT_NE(path_key_pos, std::string::npos) << queue_before->body;
+    const auto path_start = path_key_pos + std::string("\"path\":\"").size();
+    const auto path_end = queue_before->body.find('"', path_start);
+    const std::string full_path = queue_before->body.substr(path_start, path_end - path_start);
+
+    const auto added_key_pos = queue_before->body.find("\"added_utc\":\"", path_end);
+    ASSERT_NE(added_key_pos, std::string::npos) << queue_before->body;
+    const auto added_start = added_key_pos + std::string("\"added_utc\":\"").size();
+    const auto added_end = queue_before->body.find('"', added_start);
+    const std::string original_added_utc = queue_before->body.substr(added_start, added_end - added_start);
+    ASSERT_FALSE(original_added_utc.empty());
+
+    ASSERT_TRUE(acquire("run-carry"));
+    ASSERT_TRUE(trained("run-carry", {full_path}, {1}));
+
+    auto reg_res = get_registry();
+    ASSERT_TRUE(reg_res);
+    const auto entry_pos = reg_res->body.find(full_path);
+    ASSERT_NE(entry_pos, std::string::npos) << reg_res->body;
+    EXPECT_NE(reg_res->body.find("\"source\":\"upload\"", entry_pos), std::string::npos)
+        << reg_res->body;
+    EXPECT_NE(reg_res->body.find("\"added_utc\":\"" + original_added_utc + "\"", entry_pos),
+             std::string::npos)
+        << "expected the trained entry to carry forward the pending entry's original "
+           "added_utc ('"
+        << original_added_utc << "') rather than resetting it: " << reg_res->body;
+    // The file is still locally readable by the registry (it staged the upload
+    // itself), so the checksum must be a real fingerprint, not the "REMOTE" placeholder.
+    EXPECT_EQ(reg_res->body.find("\"checksum\":\"REMOTE\"", entry_pos), std::string::npos)
+        << reg_res->body;
 }
 
 }  // namespace

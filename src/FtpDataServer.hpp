@@ -48,12 +48,12 @@
 
 // Phase 3: OpenSSL for FTPS (TLS) and HMAC-SHA256 token signing
 #ifdef BUILD_FTPS
+#include <openssl/crypto.h>
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
 #include <openssl/rand.h>
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
-#include <openssl/crypto.h>
 #endif
 
 namespace fs = std::filesystem;
@@ -65,8 +65,8 @@ using adai::Logger;
 
 struct VirtualUser {
     std::string password;
-    std::string ftp_path;   ///< path relative to data_dir that this user may RETR
-    std::string run_id;     ///< Phase 3: owning run_id (for audit log and rate limiting)
+    std::string ftp_path;  ///< path relative to data_dir that this user may RETR
+    std::string run_id;    ///< Phase 3: owning run_id (for audit log and rate limiting)
     std::chrono::system_clock::time_point expiry;
     bool consumed = false;  ///< set true after a successful RETR to prevent replay
 };
@@ -76,7 +76,7 @@ struct VirtualUser {
 // ============================================================================
 
 class TokenStore {
-public:
+   public:
     void insert(const std::string& username, VirtualUser user) {
         std::lock_guard<std::mutex> lk(mtx_);
         users_[username] = std::move(user);
@@ -90,41 +90,46 @@ public:
      * timing-based password extraction.
      */
     bool authenticate(const std::string& username, const std::string& password,
-                      std::string& out_ftp_path,
-                      std::string* out_run_id = nullptr) {
+                      std::string& out_ftp_path, std::string* out_run_id = nullptr) {
         std::lock_guard<std::mutex> lk(mtx_);
         auto it = users_.find(username);
-        if (it == users_.end()) return false;
+        if (it == users_.end())
+            return false;
         VirtualUser& u = it->second;
-        if (u.consumed) return false;
-        if (std::chrono::system_clock::now() > u.expiry) return false;
+        if (u.consumed)
+            return false;
+        if (std::chrono::system_clock::now() > u.expiry)
+            return false;
 
-        // Constant-time password comparison (Phase 3)
+            // Constant-time password comparison (Phase 3)
 #ifdef BUILD_FTPS
         if (u.password.size() != password.size() ||
             CRYPTO_memcmp(u.password.data(), password.data(), u.password.size()) != 0) {
             return false;
         }
 #else
-        if (u.password != password) return false;
+        if (u.password != password)
+            return false;
 #endif
 
         out_ftp_path = u.ftp_path;
-        if (out_run_id) *out_run_id = u.run_id;
+        if (out_run_id)
+            *out_run_id = u.run_id;
         return true;
     }
 
     void mark_consumed(const std::string& username) {
         std::lock_guard<std::mutex> lk(mtx_);
         auto it = users_.find(username);
-        if (it != users_.end()) it->second.consumed = true;
+        if (it != users_.end())
+            it->second.consumed = true;
     }
 
     /** Sweep expired and consumed tokens; audit-logs each expiry. */
     void sweep_expired() {
         std::lock_guard<std::mutex> lk(mtx_);
         const auto now = std::chrono::system_clock::now();
-        for (auto it = users_.begin(); it != users_.end(); ) {
+        for (auto it = users_.begin(); it != users_.end();) {
             const bool expired = !it->second.consumed && (now > it->second.expiry);
             if (expired) {
                 Logger::info("[AUDIT] Token expired: username='{}' ftp_path='{}' run_id='{}'",
@@ -142,7 +147,7 @@ public:
         users_.erase(username);
     }
 
-private:
+   private:
     std::mutex mtx_;
     std::unordered_map<std::string, VirtualUser> users_;
 };
@@ -181,17 +186,17 @@ inline std::string utc_string(std::chrono::system_clock::time_point tp) {
     return buf;
 }
 
-inline std::string local_ip() { return "0.0.0.0"; }
+inline std::string local_ip() {
+    return "0.0.0.0";
+}
 
 #ifdef BUILD_FTPS
 // Phase 3: HMAC-SHA256 over @p msg with @p key.  Returns lowercase hex string.
 inline std::string hmac_sha256(const std::string& key, const std::string& msg) {
     unsigned char digest[EVP_MAX_MD_SIZE];
     unsigned int len = 0;
-    HMAC(EVP_sha256(),
-         key.data(), static_cast<int>(key.size()),
-         reinterpret_cast<const unsigned char*>(msg.data()), msg.size(),
-         digest, &len);
+    HMAC(EVP_sha256(), key.data(), static_cast<int>(key.size()),
+         reinterpret_cast<const unsigned char*>(msg.data()), msg.size(), digest, &len);
     static const char hex[] = "0123456789abcdef";
     std::string out;
     out.reserve(len * 2);
@@ -207,13 +212,21 @@ inline std::string hmac_sha256(const std::string& key, const std::string& msg) {
 inline bool generate_self_signed(SSL_CTX* ctx) {
     // Generate RSA key
     EVP_PKEY_CTX* pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
-    if (!pctx) return false;
-    if (EVP_PKEY_keygen_init(pctx) != 1) { EVP_PKEY_CTX_free(pctx); return false; }
+    if (!pctx)
+        return false;
+    if (EVP_PKEY_keygen_init(pctx) != 1) {
+        EVP_PKEY_CTX_free(pctx);
+        return false;
+    }
     if (EVP_PKEY_CTX_set_rsa_keygen_bits(pctx, 2048) != 1) {
-        EVP_PKEY_CTX_free(pctx); return false;
+        EVP_PKEY_CTX_free(pctx);
+        return false;
     }
     EVP_PKEY* pkey = nullptr;
-    if (EVP_PKEY_keygen(pctx, &pkey) != 1) { EVP_PKEY_CTX_free(pctx); return false; }
+    if (EVP_PKEY_keygen(pctx, &pkey) != 1) {
+        EVP_PKEY_CTX_free(pctx);
+        return false;
+    }
     EVP_PKEY_CTX_free(pctx);
 
     X509* cert = X509_new();
@@ -225,26 +238,27 @@ inline bool generate_self_signed(SSL_CTX* ctx) {
 
     X509_NAME* name = X509_get_subject_name(cert);
     X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
-        reinterpret_cast<const unsigned char*>("ADAI-FTP-Server"), -1, -1, 0);
+                               reinterpret_cast<const unsigned char*>("ADAI-FTP-Server"), -1, -1,
+                               0);
     X509_set_issuer_name(cert, name);  // self-signed: issuer == subject
     X509_sign(cert, pkey, EVP_sha256());
 
-    const bool ok = (SSL_CTX_use_certificate(ctx, cert) == 1 &&
-                     SSL_CTX_use_PrivateKey(ctx, pkey) == 1);
+    const bool ok =
+        (SSL_CTX_use_certificate(ctx, cert) == 1 && SSL_CTX_use_PrivateKey(ctx, pkey) == 1);
     X509_free(cert);
     EVP_PKEY_free(pkey);
     return ok;
 }
-#endif // BUILD_FTPS
+#endif  // BUILD_FTPS
 
-} // namespace ftp_detail
+}  // namespace ftp_detail
 
 // ============================================================================
 // FtpDataServer
 // ============================================================================
 
 class FtpDataServer {
-public:
+   public:
     /**
      * @param data_dir            FTP root directory (registry's data_dir).
      * @param control_port        FTP control connection port (default 2121).
@@ -257,34 +271,40 @@ public:
      * @param key_file            Phase 3: PEM key path (empty = generate self-signed).
      * @param max_sessions_per_run Phase 3: rate limit per run_id (0 = unlimited).
      */
-    FtpDataServer(std::string data_dir, int control_port,
-                  int pasv_min, int pasv_max,
-                  std::string advertise_ip        = "",
-                  std::string server_secret       = "",
-                  bool        ftps_en             = false,
-                  std::string cert_file           = "",
-                  std::string key_file            = "",
-                  int         max_sessions_per_run = 4)
-        : data_dir_(std::move(data_dir))
-        , control_port_(control_port)
-        , pasv_min_(pasv_min)
-        , pasv_max_(pasv_max)
-        , advertise_ip_(std::move(advertise_ip))
-        , server_secret_(std::move(server_secret))
-        , ftps_enabled_(ftps_en)
-        , cert_file_(std::move(cert_file))
-        , key_file_(std::move(key_file))
-        , max_sessions_per_run_(max_sessions_per_run)
-    {
-        for (int p = pasv_min_; p <= pasv_max_; ++p) available_pasv_.insert(p);
+    FtpDataServer(std::string data_dir, int control_port, int pasv_min, int pasv_max,
+                  std::string advertise_ip = "", std::string server_secret = "",
+                  bool ftps_en = false, std::string cert_file = "", std::string key_file = "",
+                  int max_sessions_per_run = 4)
+        : data_dir_(std::move(data_dir)),
+          control_port_(control_port),
+          pasv_min_(pasv_min),
+          pasv_max_(pasv_max),
+          advertise_ip_(std::move(advertise_ip)),
+          server_secret_(std::move(server_secret)),
+          ftps_enabled_(ftps_en),
+          cert_file_(std::move(cert_file)),
+          key_file_(std::move(key_file)),
+          max_sessions_per_run_(max_sessions_per_run) {
+        for (int p = pasv_min_; p <= pasv_max_; ++p)
+            available_pasv_.insert(p);
     }
 
-    ~FtpDataServer() { stop(); }
+    ~FtpDataServer() {
+        stop();
+    }
 
-    TokenStore& tokens()        { return tokens_; }
-    std::string advertise_ip()  const { return advertise_ip_; }
-    int         control_port()  const { return control_port_; }
-    bool        ftps_enabled()  const { return ftps_enabled_; }
+    TokenStore& tokens() {
+        return tokens_;
+    }
+    std::string advertise_ip() const {
+        return advertise_ip_;
+    }
+    int control_port() const {
+        return control_port_;
+    }
+    bool ftps_enabled() const {
+        return ftps_enabled_;
+    }
 
     // ── Issue a new token ─────────────────────────────────────────────────
 
@@ -305,12 +325,10 @@ public:
      * @param ftp_path Path relative to data_dir that the token grants access to.
      * @param ttl_min  Token lifetime in minutes.
      */
-    IssuedToken issue_token(const std::string& run_id,
-                            const std::string& ftp_path, int ttl_min) {
-        const std::string token_id  = ftp_detail::random_hex(4);   // 8 hex chars
-        const std::string username  = "adai_" + token_id;
-        const auto expiry = std::chrono::system_clock::now()
-                          + std::chrono::minutes(ttl_min);
+    IssuedToken issue_token(const std::string& run_id, const std::string& ftp_path, int ttl_min) {
+        const std::string token_id = ftp_detail::random_hex(4);  // 8 hex chars
+        const std::string username = "adai_" + token_id;
+        const auto expiry = std::chrono::system_clock::now() + std::chrono::minutes(ttl_min);
         const std::string expiry_utc = ftp_detail::utc_string(expiry);
 
         // Phase 3: HMAC-derived password when a server secret is configured.
@@ -328,15 +346,16 @@ public:
 #endif
 
         VirtualUser vu;
-        vu.run_id   = run_id;
+        vu.run_id = run_id;
         vu.password = password;
         vu.ftp_path = ftp_path;
-        vu.expiry   = expiry;
+        vu.expiry = expiry;
         tokens_.insert(username, std::move(vu));
 
-        Logger::info("[AUDIT] Token issued: run_id='{}' ftp_path='{}' "
-                     "username='{}' expires='{}'",
-                     run_id, ftp_path, username, expiry_utc);
+        Logger::info(
+            "[AUDIT] Token issued: run_id='{}' ftp_path='{}' "
+            "username='{}' expires='{}'",
+            run_id, ftp_path, username, expiry_utc);
 
         return {username, password, expiry_utc};
     }
@@ -344,7 +363,8 @@ public:
     // ── Lifecycle ─────────────────────────────────────────────────────────
 
     void start() {
-        if (running_.exchange(true)) return;
+        if (running_.exchange(true))
+            return;
 
 #ifdef BUILD_FTPS
         if (ftps_enabled_) {
@@ -358,13 +378,13 @@ public:
 
             bool cert_ok = false;
             if (!cert_file_.empty() && !key_file_.empty()) {
-                cert_ok = (SSL_CTX_use_certificate_file(
-                               ssl_ctx_, cert_file_.c_str(), SSL_FILETYPE_PEM) == 1 &&
-                           SSL_CTX_use_PrivateKey_file(
-                               ssl_ctx_, key_file_.c_str(), SSL_FILETYPE_PEM) == 1);
+                cert_ok = (SSL_CTX_use_certificate_file(ssl_ctx_, cert_file_.c_str(),
+                                                        SSL_FILETYPE_PEM) == 1 &&
+                           SSL_CTX_use_PrivateKey_file(ssl_ctx_, key_file_.c_str(),
+                                                       SSL_FILETYPE_PEM) == 1);
                 if (!cert_ok)
-                    Logger::error("[FTP/TLS] Failed to load cert '{}' / key '{}'",
-                                  cert_file_, key_file_);
+                    Logger::error("[FTP/TLS] Failed to load cert '{}' / key '{}'", cert_file_,
+                                  key_file_);
             } else {
                 cert_ok = ftp_detail::generate_self_signed(ssl_ctx_);
                 if (cert_ok)
@@ -393,9 +413,9 @@ public:
         ::setsockopt(listen_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
         sockaddr_in addr{};
-        addr.sin_family      = AF_INET;
+        addr.sin_family = AF_INET;
         addr.sin_addr.s_addr = INADDR_ANY;
-        addr.sin_port        = htons(static_cast<uint16_t>(control_port_));
+        addr.sin_port = htons(static_cast<uint16_t>(control_port_));
 
         if (::bind(listen_fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
             Logger::error("[FTP] bind on port {} failed: {}", control_port_, std::strerror(errno));
@@ -412,22 +432,25 @@ public:
             return;
         }
 
-        Logger::info("[FTP] FtpDataServer listening on port {} (root: {})",
-                     control_port_, data_dir_);
+        Logger::info("[FTP] FtpDataServer listening on port {} (root: {})", control_port_,
+                     data_dir_);
 
         listener_thread_ = std::thread([this] { listener_loop(); });
-        sweep_thread_    = std::thread([this] { sweep_loop(); });
+        sweep_thread_ = std::thread([this] { sweep_loop(); });
     }
 
     void stop() {
-        if (!running_.exchange(false)) return;
+        if (!running_.exchange(false))
+            return;
         if (listen_fd_ >= 0) {
             ::shutdown(listen_fd_, SHUT_RDWR);
             ::close(listen_fd_);
             listen_fd_ = -1;
         }
-        if (listener_thread_.joinable()) listener_thread_.join();
-        if (sweep_thread_.joinable()) sweep_thread_.join();
+        if (listener_thread_.joinable())
+            listener_thread_.join();
+        if (sweep_thread_.joinable())
+            sweep_thread_.join();
 #ifdef BUILD_FTPS
         if (ssl_ctx_) {
             SSL_CTX_free(ssl_ctx_);
@@ -436,43 +459,44 @@ public:
 #endif
     }
 
-private:
+   private:
     // ── State ─────────────────────────────────────────────────────────────
 
-    std::string      data_dir_;
-    int              control_port_;
-    int              pasv_min_;
-    int              pasv_max_;
-    std::string      advertise_ip_;
-    std::string      server_secret_;    // Phase 3: HMAC key
-    bool             ftps_enabled_;     // Phase 3: FTPS mode
-    std::string      cert_file_;        // Phase 3: PEM cert path
-    std::string      key_file_;         // Phase 3: PEM key path
-    int              max_sessions_per_run_;  // Phase 3: rate limit
+    std::string data_dir_;
+    int control_port_;
+    int pasv_min_;
+    int pasv_max_;
+    std::string advertise_ip_;
+    std::string server_secret_;  // Phase 3: HMAC key
+    bool ftps_enabled_;          // Phase 3: FTPS mode
+    std::string cert_file_;      // Phase 3: PEM cert path
+    std::string key_file_;       // Phase 3: PEM key path
+    int max_sessions_per_run_;   // Phase 3: rate limit
 
-    TokenStore       tokens_;
+    TokenStore tokens_;
     std::atomic<bool> running_{false};
-    int              listen_fd_ = -1;
-    std::thread      listener_thread_;
-    std::thread      sweep_thread_;
+    int listen_fd_ = -1;
+    std::thread listener_thread_;
+    std::thread sweep_thread_;
 
     // PASV port pool
-    std::mutex       pasv_mtx_;
-    std::set<int>    available_pasv_;
+    std::mutex pasv_mtx_;
+    std::set<int> available_pasv_;
 
     // Phase 3: per-run_id session counter for rate limiting
-    std::mutex                           session_mtx_;
+    std::mutex session_mtx_;
     std::unordered_map<std::string, int> active_sessions_;  // run_id → count
 
 #ifdef BUILD_FTPS
-    SSL_CTX*         ssl_ctx_ = nullptr;  // Phase 3: TLS server context
+    SSL_CTX* ssl_ctx_ = nullptr;  // Phase 3: TLS server context
 #endif
 
     // ── PASV port pool ────────────────────────────────────────────────────
 
     int allocate_pasv_port() {
         std::lock_guard<std::mutex> lk(pasv_mtx_);
-        if (available_pasv_.empty()) return -1;
+        if (available_pasv_.empty())
+            return -1;
         int p = *available_pasv_.begin();
         available_pasv_.erase(available_pasv_.begin());
         return p;
@@ -487,9 +511,11 @@ private:
 
     /** @return true if a session slot was successfully claimed for run_id. */
     bool acquire_session(const std::string& run_id) {
-        if (max_sessions_per_run_ <= 0) return true;  // unlimited
+        if (max_sessions_per_run_ <= 0)
+            return true;  // unlimited
         std::lock_guard<std::mutex> lk(session_mtx_);
-        if (active_sessions_[run_id] >= max_sessions_per_run_) return false;
+        if (active_sessions_[run_id] >= max_sessions_per_run_)
+            return false;
         ++active_sessions_[run_id];
         return true;
     }
@@ -498,7 +524,8 @@ private:
         std::lock_guard<std::mutex> lk(session_mtx_);
         auto it = active_sessions_.find(run_id);
         if (it != active_sessions_.end() && it->second > 0) {
-            if (--it->second == 0) active_sessions_.erase(it);
+            if (--it->second == 0)
+                active_sessions_.erase(it);
         }
     }
 
@@ -508,9 +535,8 @@ private:
         while (running_.load()) {
             sockaddr_in client_addr{};
             socklen_t client_len = sizeof(client_addr);
-            int conn_fd = ::accept(listen_fd_,
-                                   reinterpret_cast<sockaddr*>(&client_addr),
-                                   &client_len);
+            int conn_fd =
+                ::accept(listen_fd_, reinterpret_cast<sockaddr*>(&client_addr), &client_len);
             if (conn_fd < 0) {
                 if (running_.load())
                     Logger::warn("[FTP] accept error: {}", std::strerror(errno));
@@ -537,21 +563,21 @@ private:
     // ── Per-connection state ──────────────────────────────────────────────
 
     struct ConnState {
-        int         fd;
+        int fd;
         std::string client_ip;
-        bool        authenticated = false;
+        bool authenticated = false;
         std::string username;
-        std::string run_id;           // Phase 3: set at login for audit/rate-limit
-        std::string pending_user;     // set by USER, cleared by PASS
-        std::string allowed_path;     // ftp_path granted after login
-        int         pasv_listen_fd = -1;
-        int         pasv_port      = -1;
-        bool        type_binary    = false;
+        std::string run_id;        // Phase 3: set at login for audit/rate-limit
+        std::string pending_user;  // set by USER, cleared by PASS
+        std::string allowed_path;  // ftp_path granted after login
+        int pasv_listen_fd = -1;
+        int pasv_port = -1;
+        bool type_binary = false;
         std::size_t bytes_transferred = 0;  // Phase 3: audit log
 
 #ifdef BUILD_FTPS
-        SSL*        ssl          = nullptr;  // non-null after AUTH TLS handshake
-        bool        data_prot_p  = false;   // true after PROT P
+        SSL* ssl = nullptr;        // non-null after AUTH TLS handshake
+        bool data_prot_p = false;  // true after PROT P
 #endif
     };
 
@@ -579,9 +605,12 @@ private:
             else
 #endif
                 n = ::recv(st.fd, &c, 1, 0);
-            if (n <= 0) break;
-            if (c == '\n') break;
-            if (c != '\r') line += c;
+            if (n <= 0)
+                break;
+            if (c == '\n')
+                break;
+            if (c != '\r')
+                line += c;
         }
         return line;
     }
@@ -590,14 +619,15 @@ private:
 
     void handle_connection(int fd, std::string client_ip) {
         ConnState st;
-        st.fd        = fd;
+        st.fd = fd;
         st.client_ip = std::move(client_ip);
 
         send_reply(st, 220, "ADAI FTP Data Server ready.");
 
         while (true) {
             std::string line = read_line(st);
-            if (line.empty()) break;
+            if (line.empty())
+                break;
 
             std::string cmd, arg;
             const auto sp = line.find(' ');
@@ -639,9 +669,9 @@ private:
                 // Advertise AUTH TLS when FTPS is enabled
 #ifdef BUILD_FTPS
                 const bool has_tls = (ftps_enabled_ && ssl_ctx_ != nullptr);
-                std::string resp = has_tls
-                    ? "211-Features:\r\n PASV\r\n AUTH TLS\r\n PBSZ\r\n PROT\r\n211 End"
-                    : "211-Features:\r\n PASV\r\n211 End";
+                std::string resp =
+                    has_tls ? "211-Features:\r\n PASV\r\n AUTH TLS\r\n PBSZ\r\n PROT\r\n211 End"
+                            : "211-Features:\r\n PASV\r\n211 End";
 #else
                 std::string resp = "211-Features:\r\n PASV\r\n211 End";
 #endif
@@ -663,9 +693,8 @@ private:
                 send_reply(st, 550, "Directory navigation not permitted.");
             } else if (cmd == "LIST" || cmd == "NLST" || cmd == "MLSD") {
                 send_reply(st, 550, "Directory listing not permitted.");
-            } else if (cmd == "STOR" || cmd == "STOU" || cmd == "APPE" ||
-                       cmd == "DELE" || cmd == "MKD"  || cmd == "RMD"  ||
-                       cmd == "RNFR" || cmd == "RNTO") {
+            } else if (cmd == "STOR" || cmd == "STOU" || cmd == "APPE" || cmd == "DELE" ||
+                       cmd == "MKD" || cmd == "RMD" || cmd == "RNFR" || cmd == "RNTO") {
                 send_reply(st, 502, "Write commands not permitted.");
             } else {
                 send_reply(st, 502, "Command not implemented.");
@@ -675,9 +704,10 @@ private:
         // Phase 3: release rate-limit slot and emit session-end audit entry
         if (st.authenticated && !st.run_id.empty()) {
             release_session(st.run_id);
-            Logger::info("[AUDIT] Session ended: run_id='{}' username='{}' "
-                         "client_ip='{}' bytes_transferred={}",
-                         st.run_id, st.username, st.client_ip, st.bytes_transferred);
+            Logger::info(
+                "[AUDIT] Session ended: run_id='{}' username='{}' "
+                "client_ip='{}' bytes_transferred={}",
+                st.run_id, st.username, st.client_ip, st.bytes_transferred);
         }
 
         // Clean up passive socket if still open
@@ -700,7 +730,7 @@ private:
     // ── FTP command handlers ──────────────────────────────────────────────
 
     void cmd_user(ConnState& st, const std::string& arg) {
-        st.pending_user  = arg;
+        st.pending_user = arg;
         st.authenticated = false;
         st.username.clear();
         st.run_id.clear();
@@ -716,8 +746,8 @@ private:
 
         std::string ftp_path, run_id;
         if (!tokens_.authenticate(st.pending_user, arg, ftp_path, &run_id)) {
-            Logger::warn("[AUDIT] Login failed: username='{}' client_ip='{}'",
-                         st.pending_user, st.client_ip);
+            Logger::warn("[AUDIT] Login failed: username='{}' client_ip='{}'", st.pending_user,
+                         st.client_ip);
             st.pending_user.clear();
             send_reply(st, 530, "Login incorrect.");
             return;
@@ -725,18 +755,17 @@ private:
 
         // Phase 3: rate limiting
         if (!acquire_session(run_id)) {
-            Logger::warn("[FTP] Rate limit exceeded: run_id='{}' max_sessions={}",
-                         run_id, max_sessions_per_run_);
+            Logger::warn("[FTP] Rate limit exceeded: run_id='{}' max_sessions={}", run_id,
+                         max_sessions_per_run_);
             st.pending_user.clear();
-            send_reply(st, 421,
-                       "Too many concurrent sessions for this run_id; try again later.");
+            send_reply(st, 421, "Too many concurrent sessions for this run_id; try again later.");
             return;
         }
 
         st.authenticated = true;
-        st.username      = st.pending_user;
-        st.run_id        = run_id;
-        st.allowed_path  = ftp_path;
+        st.username = st.pending_user;
+        st.run_id = run_id;
+        st.allowed_path = ftp_path;
         st.pending_user.clear();
 
         Logger::info("[AUDIT] Login: run_id='{}' username='{}' ftp_path='{}' client_ip='{}'",
@@ -788,7 +817,7 @@ private:
             send_reply(st, 504, "Only PROT C and PROT P are supported.");
         }
     }
-#endif // BUILD_FTPS
+#endif  // BUILD_FTPS
 
     void cmd_pasv(ConnState& st) {
         // Close any previous PASV listener
@@ -815,9 +844,9 @@ private:
         ::setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
         sockaddr_in addr{};
-        addr.sin_family      = AF_INET;
+        addr.sin_family = AF_INET;
         addr.sin_addr.s_addr = INADDR_ANY;
-        addr.sin_port        = htons(static_cast<uint16_t>(port));
+        addr.sin_port = htons(static_cast<uint16_t>(port));
 
         if (::bind(srv, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0 ||
             ::listen(srv, 1) < 0) {
@@ -828,25 +857,27 @@ private:
         }
 
         st.pasv_listen_fd = srv;
-        st.pasv_port      = port;
+        st.pasv_port = port;
 
         std::string ip = advertise_ip_.empty() ? "127.0.0.1" : advertise_ip_;
         std::replace(ip.begin(), ip.end(), '.', ',');
         const int p1 = port / 256;
         const int p2 = port % 256;
         send_reply(st, 227,
-                   "Entering Passive Mode (" + ip + "," +
-                   std::to_string(p1) + "," + std::to_string(p2) + ").");
+                   "Entering Passive Mode (" + ip + "," + std::to_string(p1) + "," +
+                       std::to_string(p2) + ").");
     }
 
     void cmd_retr(ConnState& st, const std::string& arg) {
         std::string requested = arg;
-        while (!requested.empty() && requested.front() == '/') requested.erase(0, 1);
+        while (!requested.empty() && requested.front() == '/')
+            requested.erase(0, 1);
 
         if (requested != st.allowed_path) {
-            Logger::warn("[AUDIT] RETR denied: run_id='{}' username='{}' "
-                         "requested='{}' allowed='{}'",
-                         st.run_id, st.username, requested, st.allowed_path);
+            Logger::warn(
+                "[AUDIT] RETR denied: run_id='{}' username='{}' "
+                "requested='{}' allowed='{}'",
+                st.run_id, st.username, requested, st.allowed_path);
             send_reply(st, 550, "Permission denied.");
             return;
         }
@@ -863,13 +894,16 @@ private:
         }
 
         const std::size_t file_size = fs::file_size(local_path);
-        Logger::info("[AUDIT] RETR start: run_id='{}' username='{}' "
-                     "ftp_path='{}' size_bytes={}",
-                     st.run_id, st.username, requested, file_size);
+        Logger::info(
+            "[AUDIT] RETR start: run_id='{}' username='{}' "
+            "ftp_path='{}' size_bytes={}",
+            st.run_id, st.username, requested, file_size);
 
         send_reply(st, 150, "Opening data connection.");
 
-        struct timeval tv { 30, 0 };
+        struct timeval tv {
+            30, 0
+        };
         ::setsockopt(st.pasv_listen_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
         int data_fd = ::accept(st.pasv_listen_fd, nullptr, nullptr);
         ::close(st.pasv_listen_fd);
@@ -889,8 +923,7 @@ private:
             data_ssl = SSL_new(ssl_ctx_);
             SSL_set_fd(data_ssl, data_fd);
             if (SSL_accept(data_ssl) != 1) {
-                Logger::error("[FTP/TLS] Data-channel TLS handshake failed for '{}'",
-                              st.username);
+                Logger::error("[FTP/TLS] Data-channel TLS handshake failed for '{}'", st.username);
                 SSL_free(data_ssl);
                 data_ssl = nullptr;
                 ::close(data_fd);
@@ -903,7 +936,10 @@ private:
         std::ifstream file(local_path, std::ios::binary);
         if (!file.is_open()) {
 #ifdef BUILD_FTPS
-            if (data_ssl) { SSL_shutdown(data_ssl); SSL_free(data_ssl); }
+            if (data_ssl) {
+                SSL_shutdown(data_ssl);
+                SSL_free(data_ssl);
+            }
 #endif
             ::close(data_fd);
             send_reply(st, 550, "Cannot read file.");
@@ -918,23 +954,34 @@ private:
         while (file) {
             file.read(buf.data(), static_cast<std::streamsize>(buf_size));
             const std::streamsize n = file.gcount();
-            if (n <= 0) break;
+            if (n <= 0)
+                break;
 
 #ifdef BUILD_FTPS
             if (data_ssl) {
                 int w = SSL_write(data_ssl, buf.data(), static_cast<int>(n));
-                if (w <= 0) { ok = false; break; }
+                if (w <= 0) {
+                    ok = false;
+                    break;
+                }
             } else
 #endif
             {
-                ssize_t sent = ::send(data_fd, buf.data(), static_cast<std::size_t>(n), MSG_NOSIGNAL);
-                if (sent < 0) { ok = false; break; }
+                ssize_t sent =
+                    ::send(data_fd, buf.data(), static_cast<std::size_t>(n), MSG_NOSIGNAL);
+                if (sent < 0) {
+                    ok = false;
+                    break;
+                }
             }
             bytes_sent += static_cast<std::size_t>(n);
         }
 
 #ifdef BUILD_FTPS
-        if (data_ssl) { SSL_shutdown(data_ssl); SSL_free(data_ssl); }
+        if (data_ssl) {
+            SSL_shutdown(data_ssl);
+            SSL_free(data_ssl);
+        }
 #endif
         ::close(data_fd);
 
@@ -942,21 +989,24 @@ private:
 
         if (ok) {
             tokens_.mark_consumed(st.username);
-            Logger::info("[AUDIT] RETR complete: run_id='{}' username='{}' "
-                         "ftp_path='{}' bytes={}",
-                         st.run_id, st.username, requested, bytes_sent);
+            Logger::info(
+                "[AUDIT] RETR complete: run_id='{}' username='{}' "
+                "ftp_path='{}' bytes={}",
+                st.run_id, st.username, requested, bytes_sent);
             send_reply(st, 226, "Transfer complete.");
         } else {
-            Logger::error("[AUDIT] RETR aborted: run_id='{}' username='{}' "
-                          "ftp_path='{}' bytes_sent={}",
-                          st.run_id, st.username, requested, bytes_sent);
+            Logger::error(
+                "[AUDIT] RETR aborted: run_id='{}' username='{}' "
+                "ftp_path='{}' bytes_sent={}",
+                st.run_id, st.username, requested, bytes_sent);
             send_reply(st, 426, "Connection closed; transfer aborted.");
         }
     }
 
     void cmd_size(ConnState& st, const std::string& arg) {
         std::string requested = arg;
-        while (!requested.empty() && requested.front() == '/') requested.erase(0, 1);
+        while (!requested.empty() && requested.front() == '/')
+            requested.erase(0, 1);
         if (requested != st.allowed_path) {
             send_reply(st, 550, "Permission denied.");
             return;

@@ -6,6 +6,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 #include "IMetricsReporter.hpp"
 
 // ============================================================================
@@ -69,8 +70,7 @@ class MetricsPushClient final : public IMetricsReporter {
      *                          Epoch/Session events evict the oldest Sample entry.
      */
     explicit MetricsPushClient(std::string session_base_url, int timeout_ms = 1000,
-                               size_t max_queue_depth = 1024,
-                               int heartbeat_interval_ms = 30000);
+                               size_t max_queue_depth = 1024, int heartbeat_interval_ms = 30000);
     ~MetricsPushClient() override;
 
     MetricsPushClient(const MetricsPushClient&) = delete;
@@ -94,11 +94,15 @@ class MetricsPushClient final : public IMetricsReporter {
      * @param label            Human-readable session label (may be empty)
      * @param config_snapshot  JSON object string of key training config fields
      *                         (may be empty; passed verbatim as the "config" field)
+     * @param reset_best       When true, tells the server not to carry forward
+     *                         best_validation_loss/best_epoch from a prior session
+     *                         with the same architecture — for a session that
+     *                         starts over from scratch (e.g. a full retrain).
      * @return HTTP status code, or 0 on connection/timeout failure
      */
     int start_session(int session_id, int total_epochs, int total_samples,
-                      const std::string& label = "",
-                      const std::string& config_snapshot = "");
+                      const std::string& label = "", const std::string& config_snapshot = "",
+                      bool reset_best = false);
 
     /**
      * @brief Enqueue a session-end event and flush the queue.
@@ -129,6 +133,8 @@ class MetricsPushClient final : public IMetricsReporter {
     void update_adaptive_clip_epoch(float avg_clip_threshold, int total_spike_count) override;
     void update_activation_saturation(float ratio) override;
     void update_attention_entropy(float entropy) override;
+    void update_layer_gradient_norms(const std::vector<float>& encoder_layer_norms,
+                                     const std::vector<float>& decoder_layer_norms) override;
     void update_padding_efficiency(float efficiency) override;
     void update_generation_quality_metrics(float bleu4, float rouge1, float rouge2,
                                            float rougeL) override;

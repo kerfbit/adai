@@ -122,14 +122,44 @@ IncrementalTrainer
   ├── ChatbotTrainer (forward + backward + optimizer step)
   │     └── EncoderDecoderModel
   ├── TrainingMetricsService → MetricsPushClient → metrics_api_server
-  └── ModelNameClient → mns_server  (set_training / set_candidate states)
+  └── ModelNameClient → mns_server  (begin_run / set_training / push_progress / set_candidate)
 ```
 
-`IncrementalConfig` is separate from `ServiceConfig`. `IncrementalTrainer::make_incremental_config(svc)` maps `ServiceConfig` → `IncrementalConfig`; any new config field added to `ServiceConfig` must also be added to `IncrementalConfig` and mapped there.
+`IncrementalConfig` is separate from `ServiceConfig`. `IncrementalTrainer::make_incremental_config(svc)` maps `ServiceConfig` → `IncrementalConfig`; any new config field added to `ServiceConfig` must also be added to `IncrementalConfig` and mapped there. `IncrementalConfig::dataset` (a `DatasetConfig`) is populated the same way — `IncrementalTrainer`'s 3-arg constructor (the one `incremental_trainer`'s `train`/`retrain`/`resume`/`reset` commands all use) copies it into `dataset_config_`, so `resume_last_session()`/`reset_all()` see the real `REGISTRY_SERVER_URL`/`MODEL_NAME` instead of an all-default `DatasetConfig`.
+
+### MNS/registry-authoritative run and session numbering
+
+**MNS and the dataset registry are the definitive source for run/session identity and training progress
+whenever they're configured and reachable — client-local values are only a fallback for when they're
+unavailable** (`NAME_SERVICE_URL`/`REGISTRY_SERVER_URL` unset at startup), the same standard used for
+[MNS-authoritative architecture](#configuration) above. A single transient mid-run request failure
+still just surfaces as a warning/no-op — it does **not** trigger a silent fallback to local files, since
+swapping data sources mid-run risks duplicate/inconsistent training across a distributed pool.
+
+- **`IncrementalTrainer::begin_run(is_retrain)`** — called once per `train`/`retrain`/`resume` invocation,
+  before any data is acquired. Calls `ModelNameClient::set_training(model_name, new_run)`, which now
+  returns the **server-allocated** `run_id` instead of taking a client-supplied one: `"run-01"` the first
+  time a model ever trains (regardless of `new_run`), incrementing only when `new_run=true` (`retrain`;
+  `train`/`resume` continue the current run). That same `run_id` is then used both for the MNS training
+  lock/history *and* as the `run_id` passed to `DatasetRegistry::acquire_pending`/`mark_trained`/
+  `release_pending` — one canonical identifier across both systems, instead of the two unrelated ones
+  used before.
+- `begin_run` also calls `DatasetRegistry::next_session(model_name, run_id)` →
+  `registry_server`'s `POST /registry/{group}/session/next` (or `LocalTransport`'s equivalent local
+  counter in standalone mode), which allocates `"session-01"`, `"session-02"`, … per `(model_name, run_id)`
+  pair — a run_id never seen before naturally starts its session counter at 1, so a new MNS-allocated run
+  resets it for free.
+- **Crash-safe progress**: after every epoch, `IncrementalTrainer` calls
+  `ModelNameClient::push_progress(model_name, run_id, session_id, epoch, loss, best_loss)` →
+  `PUT /models/{name}/progress`, so a `SIGKILL`'d or crashed trainer still leaves an accurate last-known
+  state on the MNS record (`progress.epoch`/`progress.loss`/`progress.best_loss`). If a new
+  `set_training` call finds the record still `"training"` under a previous (never-completed) run, MNS
+  archives that snapshot into `training_history` tagged `"incomplete":true` before allocating the new run
+  — see `ModelNameService::handle_state_transition`'s `"training"` branch.
 
 ### Metrics Session Lifecycle
 
-The dashboard discovers which metrics session belongs to a model via the `metrics_session_key` field stored in the MNS model record. This link is written by `mns_client_->set_training(model_name, run_id, session_key)`. If that call returns 409 (model locked by a different `run_id`), the link is never written and the dashboard sees no active session. Clear stale MNS locks with `mns-cli` or `PUT /models/{name}/state`.
+The dashboard discovers which metrics session belongs to a model via the `metrics_session_key` field stored in the MNS model record. This link is written by `mns_client_->set_training(model_name, new_run, session_key)`. Clear stale MNS locks with `mns-cli` or `PUT /models/{name}/state`.
 
 Sessions are marked stale after `METRICS_STALENESS_THRESHOLD_SECONDS` (default: 60) of no metric ingest — `effective_is_training` becomes false and the dashboard drops the session. `MetricsPushClient` sends a `/heartbeat` every `METRICS_HEARTBEAT_INTERVAL_MS` (default: 30 000 ms) when idle to prevent this during pre-processing.
 
@@ -139,17 +169,46 @@ Sessions are marked stale after `METRICS_STALENESS_THRESHOLD_SECONDS` (default: 
 - `registry_server_url` non-empty → `RemoteTransport` (HTTP to `registry_server`)
 - Otherwise → `LocalTransport` (flat files: `data_registry.txt`, `pending_files.txt`)
 
-`dataset_manager status` calls `load_pending` (returns all entries). The trainer calls `acquire` (returns only unassigned entries where `run_id` is empty). A file visible in `status` but not acquired means its `run_id` is still set from a previous run. Release with `POST /registry/{group}/release {"run_id":"","files":[...]}` (empty `run_id` bypasses the owner check).
+`dataset_manager status` calls `load_pending` (returns all entries). The trainer calls `acquire` (returns only untrained entries — `run_id` empty — that are also unassigned or assigned to the caller's own `model_name`; a caller with no `model_name` can only claim unassigned entries, never one assigned to a specific model). A file visible in `status` but not acquired means its `run_id` is still set from a previous run, or it's assigned to a different model (`dataset_manager assign`/`unassign`). Release with `POST /registry/{group}/release {"run_id":"","files":[...]}` (empty `run_id` bypasses the owner check).
 
 ## Configuration
 
-`config.conf` uses `KEY=VALUE` format. Loading priority: **env vars → config.conf → hardcoded defaults**. Hot-reload via `SIGHUP`.
+Config files use `KEY=VALUE` format, parsed by the single `ServiceConfig`/`ConfigLoader` in
+`src/Config.{hpp,cpp}`. Loading priority: **env vars → config file → hardcoded defaults**; explicit CLI
+flags (where a binary has them) override all three. Client binaries (`chatbot_api_server`,
+`incremental_trainer`) additionally hot-reload their file via `SIGHUP`.
 
-Architecturally significant keys:
+Configuration is split into 5 service-scoped files, each read only by the binaries that need those
+keys (non-architecture keys used by more than one binary, e.g. GPU/MNS-client settings, are duplicated
+across files rather than shared):
+
+| File | Read by | Covers |
+|---|---|---|
+| `config.chatbot.conf` | `chatbot_api_server`, `chatbot_gui` | server/log, architecture (fallback), generation, RAG, GPU, MNS client |
+| `config.trainer.conf` | `incremental_trainer` | architecture (fallback), training hyperparameters, GPU, metrics client, MNS client, registry client |
+| `config.metrics.conf` | `metrics_api_server` | metrics daemon: port, persistence, DB backend, session registry limits |
+| `config.mns.conf` | `mns_server` | MNS daemon: port, data dir, registry proxy target |
+| `config.registry.conf` | `registry_server`, `dataset_manager` | registry daemon: port, data dir, FTP server; registry client keys |
+
+Each binary discovers its file via `ConfigLoader::discover_config_path(explicit, service_filename)`
+(`src/Config.cpp`): `--config <path>` > `./config.<service>.conf` > `/etc/adai/config.<service>.conf` >
+`./config.conf` (legacy, pre-split) > `/etc/adai/config.conf` (legacy). The legacy fallback exists so
+old single-file deployments keep working; new deployments should use the per-service files.
+
+**Model architecture is MNS-authoritative.** `D_MODEL`, `NUM_HEADS`, `D_FF`, `NUM_ENCODER_LAYERS`,
+`NUM_DECODER_LAYERS`, `MAX_SEQ_LENGTH` in `config.chatbot.conf`/`config.trainer.conf` are only a
+fallback. When `NAME_SERVICE_URL` + `MODEL_NAME` resolve successfully, `chatbot_api_server` and
+`incremental_trainer` overwrite these 6 fields from the model's `ModelRecord` in MNS
+(`ModelNameClient::get_architecture()`) at startup — this is what keeps a chatbot and its trainer in
+checkpoint-compatible lockstep without hand-syncing two files. Architecture is set once at
+`mns_cli register` and is immutable thereafter (no update endpoint — changing it would break the
+checkpoint). The local values are only used standalone (no MNS) or to bootstrap a not-yet-registered
+model.
+
+Other architecturally significant keys:
 
 | Key | Notes |
 |---|---|
-| `D_MODEL`, `NUM_HEADS`, `D_FF`, `NUM_ENCODER_LAYERS`, `NUM_DECODER_LAYERS`, `MAX_SEQ_LENGTH` | Model architecture — must match checkpoint |
 | `BATCH_SIZE` | Samples per gradient update; increase for GPU efficiency |
 | `GPU_ENABLED`, `GPU_DEVICE_ID`, `GPU_MEMORY_FRACTION`, `GPU_STRATEGY` | GPU control |
 | `METRICS_SERVER_URL` | URL of `metrics_api_server`; empty = no push |
@@ -157,6 +216,18 @@ Architecturally significant keys:
 | `METRICS_HEARTBEAT_INTERVAL_MS` | Idle heartbeat period from trainer (default: 30 000) |
 | `NAME_SERVICE_URL`, `MODEL_NAME`, `MODEL_ROLE` | MNS connection |
 | `REGISTRY_SERVER_URL`, `RUN_GROUP`, `RUN_ID` | Distributed dataset registry |
+| `REGISTRY_LISTEN_PORT`, `REGISTRY_DATA_DIR` | `registry_server`'s own listen port / data dir (server-side, distinct from the client-side `REGISTRY_SERVER_URL` above) |
+
+### Daemon admin config API
+
+`metrics_api_server`, `mns_server`, and `registry_server` now also load their `config.<service>.conf`
+at startup and expose `GET`/`PUT /admin/config` for a documented allow-list of settings that are safe
+to change without restarting (things baked into an already-open socket, DB handle, or FTP listener —
+e.g. `port`, `data_dir`, `db_path` — are excluded and file/CLI-only). `PUT` writes accepted keys to a
+`daemon_config` SQLite table (`src/DaemonConfigStore.{hpp,cpp}`, one `daemon_config.db` per daemon,
+isolated from that daemon's own data store) which overlays the config file on the next restart. The
+endpoint is gated behind `--admin-enabled` (`registry_server`, `mns_server`) or the existing
+`METRICS_API_ALLOW_CONTROL` (`metrics_api_server`), all default-true.
 
 ## Code Conventions
 

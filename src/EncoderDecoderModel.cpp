@@ -2,12 +2,25 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <sstream>
 #include <stdexcept>
 #include "Optimizer.hpp"
 #include "SpecialTokens.hpp"
+
+namespace {
+// Checkpoint .config format marker. Negative so it can never collide with a
+// legacy (pre-marker) file's first field, vocab_size, which is always > 0 —
+// this gives an unambiguous rejection instead of a coincidental dimension
+// mismatch. Bump kConfigFormatVersion on any future change to the
+// EncoderBlock/DecoderBlock forward-pass math that makes existing checkpoint
+// weights semantically incompatible even though their shapes are unchanged
+// (e.g. this version: switching Post-LN -> Pre-LN).
+constexpr int32_t kConfigMagic = -20260721;
+constexpr int32_t kConfigFormatVersion = 2;  // 2 = Pre-LN EncoderBlock/DecoderBlock
+}  // namespace
 
 // Constructor
 EncoderDecoderModel::EncoderDecoderModel(int vocab_size, int d_model, int encoder_layers,
@@ -496,6 +509,8 @@ void EncoderDecoderModel::save_model(const std::string& filepath) const {
     if (!config_file.is_open()) {
         throw std::runtime_error("Failed to open config file for writing: " + filepath + ".config");
     }
+    config_file.write(reinterpret_cast<const char*>(&kConfigMagic), sizeof(int32_t));
+    config_file.write(reinterpret_cast<const char*>(&kConfigFormatVersion), sizeof(int32_t));
     config_file.write(reinterpret_cast<const char*>(&vocab_size), sizeof(int));
     config_file.write(reinterpret_cast<const char*>(&d_model), sizeof(int));
     config_file.write(reinterpret_cast<const char*>(&encoder_layers), sizeof(int));
@@ -527,6 +542,22 @@ void EncoderDecoderModel::load_model(const std::string& filepath) {
     std::ifstream config_file(filepath + ".config", std::ios::binary);
     if (!config_file.is_open()) {
         throw std::runtime_error("Failed to load model config");
+    }
+
+    int32_t magic = 0, format_version = 0;
+    config_file.read(reinterpret_cast<char*>(&magic), sizeof(int32_t));
+    config_file.read(reinterpret_cast<char*>(&format_version), sizeof(int32_t));
+    if (magic != kConfigMagic) {
+        throw std::runtime_error(
+            "Checkpoint format marker missing/invalid — this looks like a pre-Pre-LN (Post-LN) "
+            "checkpoint saved before the architecture change and is not compatible with the "
+            "current Pre-LN EncoderBlock/DecoderBlock math (same weight shapes, different "
+            "meaning — loading it would silently produce garbage). Retrain from scratch.");
+    }
+    if (format_version < kConfigFormatVersion) {
+        throw std::runtime_error("Unsupported older checkpoint format_version " +
+                                 std::to_string(format_version) + " (current: " +
+                                 std::to_string(kConfigFormatVersion) + "). Retrain from scratch.");
     }
 
     int loaded_vocab_size = 0, loaded_d_model = 0, loaded_encoder_layers = 0,
@@ -585,11 +616,10 @@ std::unique_ptr<EncoderDecoderModel> EncoderDecoderModel::clone() const {
     namespace fs = std::filesystem;
 
     // Build a unique temp path from the object address and a steady-clock timestamp
-    const auto ts   = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto ts = std::chrono::steady_clock::now().time_since_epoch().count();
     const auto addr = std::hash<const void*>{}(static_cast<const void*>(this));
-    const std::string tmp =
-        fs::temp_directory_path().string() + "/adai_clone_" +
-        std::to_string(addr) + "_" + std::to_string(ts);
+    const std::string tmp = fs::temp_directory_path().string() + "/adai_clone_" +
+                            std::to_string(addr) + "_" + std::to_string(ts);
 
     // Persist weights to temp files
     save_model(tmp);
@@ -682,7 +712,7 @@ void EncoderDecoderModel::gpu_zero_grads() {
 }
 
 float EncoderDecoderModel::gpu_forward(const std::vector<int>& input_tokens,
-                                        const std::vector<int>& target_tokens) {
+                                       const std::vector<int>& target_tokens) {
     cached_target_tokens = target_tokens;
     const int tgt_len = static_cast<int>(target_tokens.size());
 
@@ -691,26 +721,20 @@ float EncoderDecoderModel::gpu_forward(const std::vector<int>& input_tokens,
         gpu_targets_dev_ = std::make_unique<adai::gpu::GPUMemory<int>>(tgt_len);
         gpu_target_len_ = tgt_len;
     }
-    adai::gpu::GPUManager::get_queue()
-        .memcpy(gpu_targets_dev_->get(), target_tokens.data(),
-                static_cast<size_t>(tgt_len) * sizeof(int))
-        .wait();
+    gpu_targets_dev_->copy_from_host(target_tokens.data(), static_cast<size_t>(tgt_len));
 
     // Encoder
-    gpu_encoder_out_ = std::make_unique<adai::gpu::GPUMatrix>(
-        encoder->gpu_encode(input_tokens));
+    gpu_encoder_out_ = std::make_unique<adai::gpu::GPUMatrix>(encoder->gpu_encode(input_tokens));
 
     // Decoder (caches its block inputs/outputs for backward internally)
     adai::gpu::GPUMatrix dec_out = decoder->gpu_decode(target_tokens, *gpu_encoder_out_);
 
     // LM head (caches dec_out internally)
-    gpu_logits_ = std::make_unique<adai::gpu::GPUMatrix>(
-        lm_head->gpu_forward(dec_out));
+    gpu_logits_ = std::make_unique<adai::gpu::GPUMatrix>(lm_head->gpu_forward(dec_out));
 
     // Cross-entropy loss entirely on GPU — only a scalar crosses PCIe
-    return adai::gpu::matrix_cross_entropy_loss_gpu(
-        gpu_logits_->device_ptr(), gpu_targets_dev_->get(),
-        tgt_len, vocab_size);
+    return adai::gpu::matrix_cross_entropy_loss_gpu(gpu_logits_->device_ptr(),
+                                                    gpu_targets_dev_->get(), tgt_len, vocab_size);
 }
 
 void EncoderDecoderModel::gpu_backward(float scale) {
@@ -718,9 +742,8 @@ void EncoderDecoderModel::gpu_backward(float scale) {
 
     // Cross-entropy gradient w.r.t. logits
     adai::gpu::GPUMatrix dlogits(tgt_len, vocab_size);
-    adai::gpu::matrix_cross_entropy_grad_gpu(
-        gpu_logits_->device_ptr(), gpu_targets_dev_->get(),
-        dlogits.device_ptr(), tgt_len, vocab_size);
+    adai::gpu::matrix_cross_entropy_grad_gpu(gpu_logits_->device_ptr(), gpu_targets_dev_->get(),
+                                             dlogits.device_ptr(), tgt_len, vocab_size);
 
     // Apply gradient accumulation scale (no allocation when scale == 1)
     if (scale != 1.0f)
@@ -733,8 +756,9 @@ void EncoderDecoderModel::gpu_backward(float scale) {
     // gradient w.r.t. encoder_output summed across every decoder block's
     // cross-attention.
     auto [grad_decoder_embed_input, grad_encoder_output] = decoder->gpu_backward(d_dec);
-    // Decoder's own token-embedding gradient is not wired on the GPU path yet
-    // (pre-existing, separate gap — the CPU path does this, the GPU path doesn't).
+    // decoder->gpu_backward() already applies this gradient to the decoder's
+    // token embedding internally (mirrors LLMEncoder::gpu_backward()); the
+    // caller has no further use for it.
     (void)grad_decoder_embed_input;
 
     // Encoder backward
@@ -742,7 +766,7 @@ void EncoderDecoderModel::gpu_backward(float scale) {
 }
 
 float EncoderDecoderModel::gpu_evaluate(const std::string& input_text,
-                                         const std::string& target_text) {
+                                        const std::string& target_text) {
     // encode() has no length cap, unlike the truncate() step ChatbotTrainer
     // applies when first tokenizing the dataset — prefer
     // gpu_evaluate_tokenized() with already-truncated ids whenever available.
@@ -773,7 +797,7 @@ float EncoderDecoderModel::gpu_evaluate_tokenized(const std::vector<int>& input_
 }
 
 std::string EncoderDecoderModel::gpu_generate_response(const std::string& input_text,
-                                                         int max_length) {
+                                                       int max_length) {
     // Matches generate_response(): the caller's max_length is not forwarded to
     // TextGenerator, which generates up to its own, separately configured
     // config.max_length. Kept as a parameter for interface parity.
@@ -798,10 +822,8 @@ std::string EncoderDecoderModel::gpu_generate_response(const std::string& input_
         // logits matrix.
         const int tgt = static_cast<int>(tokens.size());
         std::vector<float> last_row(vocab_size);
-        adai::gpu::GPUManager::get_queue()
-            .memcpy(last_row.data(), logits.device_ptr() + (tgt - 1) * vocab_size,
-                    static_cast<size_t>(vocab_size) * sizeof(float))
-            .wait();
+        adai::gpu::matrix_download_gpu(logits.device_ptr() + (tgt - 1) * vocab_size,
+                                       last_row.data(), vocab_size);
 
         Matrix last_logits(1, vocab_size);
         for (int v = 0; v < vocab_size; ++v) {

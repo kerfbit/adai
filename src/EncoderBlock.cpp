@@ -28,11 +28,16 @@ Matrix EncoderBlock::forward(const Matrix& input, const Matrix* mask) {
     // Cache input for backward pass
     cached_input = input;
 
-    // Step 1: Multi-head self-attention
-    Matrix attn_output = attention->forward(input, mask);
+    // Step 1: Pre-attention layer normalization
+    Matrix normed1 = norm1->forward(input);
+    cached_normed1 = normed1;
+
+    // Step 2: Multi-head self-attention on the normalized input
+    Matrix attn_output = attention->forward(normed1, mask);
     cached_attn_output = attn_output;
 
-    // Step 2: First residual connection (input + attention output)
+    // Step 3: First residual connection (input + attention output) — stays
+    // unnormalized; this raw residual stream is what Pre-LN preserves.
     Matrix residual1(input.rows, input.cols);
     for (int i = 0; i < input.rows; ++i) {
         for (int j = 0; j < input.cols; ++j) {
@@ -41,64 +46,59 @@ Matrix EncoderBlock::forward(const Matrix& input, const Matrix* mask) {
     }
     cached_residual1 = residual1;
 
-    // Step 3: First layer normalization
-    Matrix normed1 = norm1->forward(residual1);
-    cached_normed1 = normed1;
+    // Step 4: Pre-feedforward layer normalization
+    Matrix normed2 = norm2->forward(residual1);
 
-    // Step 4: Feed-forward network
-    Matrix ff_output = feed_forward->forward(normed1);
+    // Step 5: Feed-forward network on the normalized residual
+    Matrix ff_output = feed_forward->forward(normed2);
     cached_ff_output = ff_output;
 
-    // Step 5: Second residual connection (normed1 + ff_output)
-    Matrix residual2(normed1.rows, normed1.cols);
-    for (int i = 0; i < normed1.rows; ++i) {
-        for (int j = 0; j < normed1.cols; ++j) {
-            residual2(i, j) = normed1(i, j) + ff_output(i, j);
+    // Step 6: Second residual connection (residual1 + ff_output) — the block's
+    // output is unnormalized; LLMEncoder's final_norm normalizes the
+    // accumulated residual stream once, after the last block.
+    Matrix residual2(residual1.rows, residual1.cols);
+    for (int i = 0; i < residual1.rows; ++i) {
+        for (int j = 0; j < residual1.cols; ++j) {
+            residual2(i, j) = residual1(i, j) + ff_output(i, j);
         }
     }
     cached_residual2 = residual2;
 
-    // Step 6: Second layer normalization
-    Matrix normed2 = norm2->forward(residual2);
-
-    return normed2;
+    return residual2;
 }
 
 Matrix EncoderBlock::backward(const Matrix& grad_output) {
-    // Step 1: Gradient through second layer norm
-    Matrix grad_residual2 = norm2->backward(grad_output);
-
-    // Step 2: Gradient through second residual connection
+    // Step 1: Gradient through second residual connection (output = residual1 + ff_output)
     // Residual splits gradient into two paths:
-    //   - One path goes to normed1
-    //   - Other path goes to ff_output
-    Matrix grad_normed1(grad_residual2.rows, grad_residual2.cols);
-    Matrix grad_ff_output(grad_residual2.rows, grad_residual2.cols);
+    //   - One path goes directly to residual1
+    //   - Other path goes through the feed-forward branch (ff_output -> normed2 -> residual1)
+    Matrix grad_residual1(grad_output.rows, grad_output.cols);
+    Matrix grad_ff_output(grad_output.rows, grad_output.cols);
 
-    for (int i = 0; i < grad_residual2.rows; ++i) {
-        for (int j = 0; j < grad_residual2.cols; ++j) {
-            grad_normed1(i, j) = grad_residual2(i, j);
-            grad_ff_output(i, j) = grad_residual2(i, j);
+    for (int i = 0; i < grad_output.rows; ++i) {
+        for (int j = 0; j < grad_output.cols; ++j) {
+            grad_residual1(i, j) = grad_output(i, j);
+            grad_ff_output(i, j) = grad_output(i, j);
         }
     }
 
-    // Step 3: Gradient through feed-forward network
-    Matrix grad_normed1_from_ff = feed_forward->backward(grad_ff_output);
+    // Step 2: Gradient through feed-forward network
+    Matrix grad_normed2 = feed_forward->backward(grad_ff_output);
 
-    // Step 4: Accumulate gradients from both paths
-    for (int i = 0; i < grad_normed1.rows; ++i) {
-        for (int j = 0; j < grad_normed1.cols; ++j) {
-            grad_normed1(i, j) += grad_normed1_from_ff(i, j);
+    // Step 3: Gradient through pre-feedforward layer norm
+    Matrix grad_residual1_from_norm2 = norm2->backward(grad_normed2);
+
+    // Step 4: Accumulate gradients from both paths into residual1
+    for (int i = 0; i < grad_residual1.rows; ++i) {
+        for (int j = 0; j < grad_residual1.cols; ++j) {
+            grad_residual1(i, j) += grad_residual1_from_norm2(i, j);
         }
     }
 
-    // Step 5: Gradient through first layer norm
-    Matrix grad_residual1 = norm1->backward(grad_normed1);
-
-    // Step 6: Gradient through first residual connection
+    // Step 5: Gradient through first residual connection (residual1 = input + attn_output)
     // Residual splits gradient into two paths:
-    //   - One path goes to input
-    //   - Other path goes to attn_output
+    //   - One path goes directly to input
+    //   - Other path goes through the attention branch (attn_output -> normed1 -> input)
     Matrix grad_input(grad_residual1.rows, grad_residual1.cols);
     Matrix grad_attn_output(grad_residual1.rows, grad_residual1.cols);
 
@@ -109,13 +109,16 @@ Matrix EncoderBlock::backward(const Matrix& grad_output) {
         }
     }
 
-    // Step 7: Gradient through multi-head attention
-    Matrix grad_input_from_attn = attention->backward(grad_attn_output);
+    // Step 6: Gradient through multi-head attention
+    Matrix grad_normed1 = attention->backward(grad_attn_output);
 
-    // Step 8: Accumulate gradients from both paths
+    // Step 7: Gradient through pre-attention layer norm
+    Matrix grad_input_from_norm1 = norm1->backward(grad_normed1);
+
+    // Step 8: Accumulate gradients from both paths into input
     for (int i = 0; i < grad_input.rows; ++i) {
         for (int j = 0; j < grad_input.cols; ++j) {
-            grad_input(i, j) += grad_input_from_attn(i, j);
+            grad_input(i, j) += grad_input_from_norm1(i, j);
         }
     }
 
@@ -322,37 +325,28 @@ void EncoderBlock::gpu_zero_grads() {
 }
 
 adai::gpu::GPUMatrix EncoderBlock::gpu_forward(const adai::gpu::GPUMatrix& input,
-                                                 const adai::gpu::GPUMatrix* mask) {
-    // Self-attention + residual1
-    adai::gpu::GPUMatrix attn_out = attention->gpu_forward(input, mask);
+                                               const adai::gpu::GPUMatrix* mask) {
+    // LayerNorm1 + self-attention + residual1 (unnormalized)
+    adai::gpu::GPUMatrix normed1 = norm1->gpu_forward(input);
+    adai::gpu::GPUMatrix attn_out = attention->gpu_forward(normed1, mask);
     adai::gpu::GPUMatrix res1 = input + attn_out;
 
-    // LayerNorm1
-    adai::gpu::GPUMatrix normed1 = norm1->gpu_forward(res1);
-
-    // FeedForward + residual2
-    adai::gpu::GPUMatrix ff_out = feed_forward->gpu_forward(normed1);
-    adai::gpu::GPUMatrix res2 = normed1 + ff_out;
-
-    // LayerNorm2
-    return norm2->gpu_forward(res2);
+    // LayerNorm2 + FeedForward + residual2 (unnormalized — final_norm handles
+    // normalization once, after the last block, at the LLMEncoder level)
+    adai::gpu::GPUMatrix normed2 = norm2->gpu_forward(res1);
+    adai::gpu::GPUMatrix ff_out = feed_forward->gpu_forward(normed2);
+    return res1 + ff_out;
 }
 
 adai::gpu::GPUMatrix EncoderBlock::gpu_backward(const adai::gpu::GPUMatrix& dout) {
-    // Back through norm2
-    adai::gpu::GPUMatrix d_res2 = norm2->gpu_backward(dout);
+    // Residual2 split: d_res1 = dout (direct) + norm2/ff branch
+    adai::gpu::GPUMatrix d_normed2 = feed_forward->gpu_backward(dout);
+    adai::gpu::GPUMatrix d_res1_from_norm2 = norm2->gpu_backward(d_normed2);
+    adai::gpu::GPUMatrix d_res1 = dout + d_res1_from_norm2;
 
-    // Residual2 split: d_normed1 += d_res2, d_ff_out = d_res2
-    adai::gpu::GPUMatrix d_normed1_ff = feed_forward->gpu_backward(d_res2);
-    adai::gpu::GPUMatrix d_normed1 = d_res2 + d_normed1_ff;
-
-    // Back through norm1
-    adai::gpu::GPUMatrix d_res1 = norm1->gpu_backward(d_normed1);
-
-    // Residual1 split: d_input += d_res1, d_attn = d_res1
-    adai::gpu::GPUMatrix d_input_from_attn = attention->gpu_backward(d_res1);
-    adai::gpu::GPUMatrix d_input = d_res1 + d_input_from_attn;
-
-    return d_input;
+    // Residual1 split: d_input = d_res1 (direct) + norm1/attn branch
+    adai::gpu::GPUMatrix d_normed1 = attention->gpu_backward(d_res1);
+    adai::gpu::GPUMatrix d_input_from_norm1 = norm1->gpu_backward(d_normed1);
+    return d_res1 + d_input_from_norm1;
 }
 #endif

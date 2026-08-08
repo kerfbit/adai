@@ -16,10 +16,12 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <vector>
-#include "../src/DatasetRegistry.hpp"
 #include "../src/Config.hpp"
+#include "../src/DatasetRegistry.hpp"
+#include "../src/RegistryTransport.hpp"
 
 namespace fs = std::filesystem;
 
@@ -50,6 +52,95 @@ const std::string kJsonlPairsWithMeta =
     "{\"input\":\"greet\",\"response\":\"hi\","
     "\"domain\":\"dialogue\",\"task_type\":\"chat\"}\n";
 
+// Fake RegistryTransport (Phase 11) — wraps a real LocalTransport for the
+// flat-file operations DatasetRegistry needs at construction/load time, but
+// gives the test full control over the new server-side-fetch methods so the
+// remote_fetch_*/remote_upload pass-throughs can be tested without a real
+// registry_server.
+class FakeFetchTransport : public RegistryTransport {
+   public:
+    FakeFetchTransport(std::string registry_path, std::string pending_path)
+        : inner_(std::move(registry_path), std::move(pending_path)) {}
+
+    bool load_registry(std::vector<DataVersion>& out) override {
+        return inner_.load_registry(out);
+    }
+    bool save_registry(const std::vector<DataVersion>& entries) override {
+        return inner_.save_registry(entries);
+    }
+    bool load_pending(std::vector<PendingEntry>& out) override {
+        return inner_.load_pending(out);
+    }
+    bool save_pending(const std::vector<PendingEntry>& entries) override {
+        return inner_.save_pending(entries);
+    }
+    AcquireResponse acquire(const std::string& run_id, int max_files,
+                            const std::string& model_name = "") override {
+        return inner_.acquire(run_id, max_files, model_name);
+    }
+    void release(const std::string& run_id, const std::vector<std::string>& paths) override {
+        inner_.release(run_id, paths);
+    }
+    void commit_trained(const std::string& run_id, const std::vector<DataVersion>& new_entries,
+                        const std::vector<std::string>& trained_paths) override {
+        inner_.commit_trained(run_id, new_entries, trained_paths);
+    }
+    bool add_pending(const std::string& path) override {
+        return inner_.add_pending(path);
+    }
+    std::string next_session(const std::string& model_name, const std::string& run_id) override {
+        return inner_.next_session(model_name, run_id);
+    }
+    AssignResult assign(const std::string& model_name, const std::vector<std::string>& paths,
+                        int count) override {
+        return inner_.assign(model_name, paths, count);
+    }
+    UnassignResult unassign(const std::string& model_name, const std::vector<std::string>& paths,
+                            bool force) override {
+        return inner_.unassign(model_name, paths, force);
+    }
+    DeleteResult delete_paths(const std::vector<std::string>& paths, bool force,
+                              bool delete_files) override {
+        return inner_.delete_paths(paths, force, delete_files);
+    }
+
+    // Controllable Phase 11 behaviour:
+    std::string next_fetch_result;  // returned by fetch_gutenberg/fetch_huggingface
+    std::string next_upload_result;
+    int fetch_gutenberg_calls = 0;
+    int fetch_huggingface_calls = 0;
+    int upload_calls = 0;
+    int last_book_id = -1;
+    std::string last_dataset_id;
+    std::string last_model_name;
+    std::string last_upload_path;
+
+    std::string fetch_gutenberg(int book_id, int /*num_pairs*/,
+                                const std::string& model_name) override {
+        ++fetch_gutenberg_calls;
+        last_book_id = book_id;
+        last_model_name = model_name;
+        return next_fetch_result;
+    }
+    std::string fetch_huggingface(const std::string& dataset_id, int /*num_pairs*/,
+                                  const std::string& /*split*/, const std::string& /*input_field*/,
+                                  const std::string& /*output_field*/,
+                                  const std::string& model_name) override {
+        ++fetch_huggingface_calls;
+        last_dataset_id = dataset_id;
+        last_model_name = model_name;
+        return next_fetch_result;
+    }
+    std::string upload_file(const std::string& local_path) override {
+        ++upload_calls;
+        last_upload_path = local_path;
+        return next_upload_result;
+    }
+
+   private:
+    LocalTransport inner_;
+};
+
 }  // namespace
 
 // ============================================================================
@@ -58,29 +149,29 @@ const std::string kJsonlPairsWithMeta =
 
 TEST(DatasetConfigTest, DefaultValues) {
     DatasetConfig cfg;
-    EXPECT_EQ(cfg.session_dir,        "training_sessions");
+    EXPECT_EQ(cfg.session_dir, "training_sessions");
     EXPECT_EQ(cfg.data_registry_file, "data_registry.txt");
     EXPECT_FALSE(cfg.cache_tokenized_data);
     EXPECT_TRUE(cfg.registry_server_url.empty());
     EXPECT_TRUE(cfg.run_id.empty());
     EXPECT_EQ(cfg.registry_timeout_ms, 5000);
-    EXPECT_EQ(cfg.max_files_per_run,   0);
+    EXPECT_EQ(cfg.max_files_per_run, 0);
 }
 
 TEST(DatasetConfigTest, MakeConfigCopiesFields) {
     adai::ServiceConfig svc;
-    svc.session_dir          = "/tmp/adai_dr_test_sessions";
-    svc.registry_server_url  = "http://reg:8082";
-    svc.run_group            = "my-group";
-    svc.run_id               = "host_1234";
-    svc.registry_timeout_ms  = 3000;
+    svc.session_dir = "/tmp/adai_dr_test_sessions";
+    svc.registry_server_url = "http://reg:8082";
+    svc.run_group = "my-group";
+    svc.run_id = "host_1234";
+    svc.registry_timeout_ms = 3000;
 
     const DatasetConfig cfg = DatasetRegistry::make_config(svc);
 
-    EXPECT_EQ(cfg.session_dir,         svc.session_dir);
+    EXPECT_EQ(cfg.session_dir, svc.session_dir);
     EXPECT_EQ(cfg.registry_server_url, svc.registry_server_url);
-    EXPECT_EQ(cfg.run_group,           svc.run_group);
-    EXPECT_EQ(cfg.run_id,              svc.run_id);
+    EXPECT_EQ(cfg.run_group, svc.run_group);
+    EXPECT_EQ(cfg.run_id, svc.run_id);
     EXPECT_EQ(cfg.registry_timeout_ms, svc.registry_timeout_ms);
 }
 
@@ -137,17 +228,16 @@ TEST(DatasetRegistryParserTest, ParsesInputResponsePairs) {
     std::vector<ConversationPair> pairs;
     const int n = DatasetRegistry::load_conversation_pairs(tmp.string(), pairs);
     ASSERT_EQ(n, 2);
-    EXPECT_EQ(pairs[0].input,    "hello");
+    EXPECT_EQ(pairs[0].input, "hello");
     EXPECT_EQ(pairs[0].response, "world");
-    EXPECT_EQ(pairs[1].input,    "foo");
+    EXPECT_EQ(pairs[1].input, "foo");
     EXPECT_EQ(pairs[1].response, "bar");
     fs::remove(tmp);
 }
 
 TEST(DatasetRegistryParserTest, ParsesPairsWithoutBlankSeparator) {
     const fs::path tmp = fs::temp_directory_path() / "adai_parser_nosep.txt";
-    write_file(tmp.string(),
-        "INPUT: q1\nRESPONSE: a1\nINPUT: q2\nRESPONSE: a2\n");
+    write_file(tmp.string(), "INPUT: q1\nRESPONSE: a1\nINPUT: q2\nRESPONSE: a2\n");
 
     std::vector<ConversationPair> pairs;
     const int n = DatasetRegistry::load_conversation_pairs(tmp.string(), pairs);
@@ -174,9 +264,9 @@ TEST(DatasetRegistryParserTest, ParsesJsonlPairs) {
     std::vector<ConversationPair> pairs;
     const int n = DatasetRegistry::load_conversation_pairs(tmp.string(), pairs);
     ASSERT_EQ(n, 2);
-    EXPECT_EQ(pairs[0].input,    "hello");
+    EXPECT_EQ(pairs[0].input, "hello");
     EXPECT_EQ(pairs[0].response, "world");
-    EXPECT_EQ(pairs[1].input,    "foo");
+    EXPECT_EQ(pairs[1].input, "foo");
     EXPECT_EQ(pairs[1].response, "bar");
     fs::remove(tmp);
 }
@@ -190,29 +280,29 @@ TEST(DatasetRegistryParserTest, JsonlPairsPreserveMetadata) {
     ASSERT_EQ(n, 2);
 
     // First pair: full metadata
-    EXPECT_EQ(pairs[0].input,    "what is ml?");
+    EXPECT_EQ(pairs[0].input, "what is ml?");
     EXPECT_EQ(pairs[0].response, "machine learning");
-    EXPECT_EQ(pairs[0].meta.domain,    "science");
+    EXPECT_EQ(pairs[0].meta.domain, "science");
     EXPECT_EQ(pairs[0].meta.task_type, "qa");
-    EXPECT_EQ(pairs[0].meta.language,  "en");
+    EXPECT_EQ(pairs[0].meta.language, "en");
     EXPECT_NEAR(pairs[0].meta.quality, 0.9f, 1e-4f);
-    EXPECT_NEAR(pairs[0].meta.weight,  1.5f, 1e-4f);
+    EXPECT_NEAR(pairs[0].meta.weight, 1.5f, 1e-4f);
     EXPECT_EQ(pairs[0].meta.token_count, 20);
 
     // Second pair: partial metadata — unset fields use sentinels
-    EXPECT_EQ(pairs[1].meta.domain,    "dialogue");
+    EXPECT_EQ(pairs[1].meta.domain, "dialogue");
     EXPECT_EQ(pairs[1].meta.task_type, "chat");
     EXPECT_LT(pairs[1].meta.quality, 0.0f);   // sentinel
-    EXPECT_LT(pairs[1].meta.token_count, 0);   // sentinel
+    EXPECT_LT(pairs[1].meta.token_count, 0);  // sentinel
     fs::remove(tmp);
 }
 
 TEST(DatasetRegistryParserTest, JsonlSkipsLinesWithoutInputField) {
     const fs::path tmp = fs::temp_directory_path() / "adai_parser_jsonl_noinput.txt";
     write_file(tmp.string(),
-        "{\"input\":\"valid\",\"response\":\"yes\"}\n"
-        "{\"response\":\"no input key\"}\n"
-        "{\"input\":\"also valid\",\"response\":\"yes\"}\n");
+               "{\"input\":\"valid\",\"response\":\"yes\"}\n"
+               "{\"response\":\"no input key\"}\n"
+               "{\"input\":\"also valid\",\"response\":\"yes\"}\n");
 
     std::vector<ConversationPair> pairs;
     const int n = DatasetRegistry::load_conversation_pairs(tmp.string(), pairs);
@@ -238,17 +328,19 @@ TEST(DatasetRegistryParserTest, LegacyMetaSentinelsSet) {
 // ============================================================================
 
 class DatasetRegistryTest : public ::testing::Test {
-protected:
+   protected:
     void SetUp() override {
-        tmp_dir_     = fs::temp_directory_path() / "adai_registry_unit_test";
+        tmp_dir_ = fs::temp_directory_path() / "adai_registry_unit_test";
         fs::remove_all(tmp_dir_);
         fs::create_directories(tmp_dir_);
         session_dir_ = (tmp_dir_ / "sessions").string();
-        data_file_   = (tmp_dir_ / "training.txt").string();
+        data_file_ = (tmp_dir_ / "training.txt").string();
         write_file(data_file_, kSimplePairs);
     }
 
-    void TearDown() override { fs::remove_all(tmp_dir_); }
+    void TearDown() override {
+        fs::remove_all(tmp_dir_);
+    }
 
     DatasetConfig make_cfg() const {
         DatasetConfig cfg;
@@ -256,7 +348,7 @@ protected:
         return cfg;
     }
 
-    fs::path    tmp_dir_;
+    fs::path tmp_dir_;
     std::string session_dir_;
     std::string data_file_;
 };
@@ -342,7 +434,7 @@ TEST_F(DatasetRegistryTest, TrainedFilesContainsAllMarkedPaths) {
     const auto trained = reg.trained_files();
     ASSERT_EQ(trained.size(), 2u);
     EXPECT_NE(std::find(trained.begin(), trained.end(), data_file_), trained.end());
-    EXPECT_NE(std::find(trained.begin(), trained.end(), file2),      trained.end());
+    EXPECT_NE(std::find(trained.begin(), trained.end(), file2), trained.end());
 }
 
 TEST_F(DatasetRegistryTest, MarkTrainedSkipsDuplicateEntry) {
@@ -420,7 +512,7 @@ TEST_F(DatasetRegistryTest, AcquirePendingReturnsFilesAndUpdatesPending) {
     auto resp = reg2.acquire_pending("run-a");
     ASSERT_EQ(resp.files.size(), 1u);
     EXPECT_EQ(resp.files[0].registry_path, data_file_);
-    EXPECT_TRUE(resp.ftp_server_host.empty());  // LocalTransport: no FTP
+    EXPECT_TRUE(resp.ftp_server_host.empty());   // LocalTransport: no FTP
     EXPECT_FALSE(reg2.pending_files().empty());  // reflected in-memory
 }
 
@@ -471,4 +563,218 @@ TEST_F(DatasetRegistryTest, MarkTrainedWithRunIdCommitsAndClearsPending) {
     // Pending file should be empty — no new acquire possible
     DatasetRegistry reg4(make_cfg());
     EXPECT_TRUE(reg4.acquire_pending("run-c").files.empty());
+}
+
+// ============================================================================
+// Phase 16 — assign-by-count / unassign / delete
+// ============================================================================
+
+TEST_F(DatasetRegistryTest, AssignModelReturnsCountAndPaths) {
+    DatasetRegistry reg(make_cfg());
+    reg.add_file(data_file_);
+
+    auto result = reg.assign_model("model-a");
+    EXPECT_EQ(result.assigned, 1);
+    ASSERT_EQ(result.paths.size(), 1u);
+    EXPECT_EQ(result.paths[0], data_file_);
+    ASSERT_EQ(reg.pending_entries().size(), 1u);
+    EXPECT_EQ(reg.pending_entries()[0].model_name, "model-a");
+}
+
+TEST_F(DatasetRegistryTest, AssignModelWithCountLimitsAssignment) {
+    const std::string file2 = (tmp_dir_ / "training2.txt").string();
+    const std::string file3 = (tmp_dir_ / "training3.txt").string();
+    write_file(file2, "INPUT: x\nRESPONSE: y\n");
+    write_file(file3, "INPUT: p\nRESPONSE: q\n");
+
+    DatasetRegistry reg(make_cfg());
+    reg.add_file(data_file_);
+    reg.add_file(file2);
+    reg.add_file(file3);
+
+    auto result = reg.assign_model("model-a", {}, 2);
+    EXPECT_EQ(result.assigned, 2);
+    EXPECT_EQ(result.paths.size(), 2u);
+
+    int assigned_count = 0;
+    for (const auto& e : reg.pending_entries()) {
+        if (e.model_name == "model-a")
+            ++assigned_count;
+    }
+    EXPECT_EQ(assigned_count, 2);
+}
+
+TEST_F(DatasetRegistryTest, UnassignModelClearsInMemoryPending) {
+    DatasetRegistry reg(make_cfg());
+    reg.add_file(data_file_);
+    reg.assign_model("model-a");
+
+    auto result = reg.unassign_model("model-a");
+    EXPECT_EQ(result.unassigned, 1);
+    EXPECT_EQ(result.skipped, 0);
+    ASSERT_EQ(reg.pending_entries().size(), 1u);
+    EXPECT_TRUE(reg.pending_entries()[0].model_name.empty());
+}
+
+TEST_F(DatasetRegistryTest, UnassignModelSkipsActiveClaimWithoutForce) {
+    // acquire_pending is assignment-aware (see RegistryTransport::acquire): a
+    // caller can only claim entries assigned to itself or unassigned ones, so
+    // this test's config must identify as "model-a" to claim the file it just
+    // assigned to "model-a" below.
+    DatasetConfig cfg = make_cfg();
+    cfg.model_name = "model-a";
+    DatasetRegistry reg(cfg);
+    reg.add_file(data_file_);
+    reg.assign_model("model-a");
+    auto resp = reg.acquire_pending("run-a");
+    ASSERT_FALSE(resp.files.empty());
+
+    auto result = reg.unassign_model("model-a");
+    EXPECT_EQ(result.unassigned, 0);
+    EXPECT_EQ(result.skipped, 1);
+
+    auto result2 = reg.unassign_model("model-a", {}, /*force=*/true);
+    EXPECT_EQ(result2.unassigned, 1);
+    EXPECT_EQ(result2.skipped, 0);
+}
+
+TEST_F(DatasetRegistryTest, DeleteEntriesRemovesFromPendingAndRegistry) {
+    DatasetRegistry reg(make_cfg());
+    reg.add_file(data_file_);
+
+    auto result = reg.delete_entries({data_file_});
+    EXPECT_EQ(result.deleted, 1);
+    EXPECT_TRUE(reg.pending_files().empty());
+}
+
+TEST_F(DatasetRegistryTest, DeleteEntriesUpdatesTrainedSetAndIsTrained) {
+    DatasetRegistry reg(make_cfg());
+    reg.mark_trained({data_file_}, {50});
+    ASSERT_TRUE(reg.is_trained(data_file_));
+    ASSERT_EQ(reg.total_samples_trained(), 50);
+
+    auto result = reg.delete_entries({data_file_});
+    EXPECT_EQ(result.deleted, 1);
+    EXPECT_FALSE(reg.is_trained(data_file_));
+    EXPECT_EQ(reg.total_samples_trained(), 0);
+}
+
+TEST_F(DatasetRegistryTest, DeleteEntriesSkipsActiveClaim) {
+    DatasetRegistry reg(make_cfg());
+    reg.add_file(data_file_);
+    auto resp = reg.acquire_pending("run-a");
+    ASSERT_FALSE(resp.files.empty());
+
+    auto result = reg.delete_entries({data_file_});
+    EXPECT_EQ(result.deleted, 0);
+    EXPECT_EQ(result.skipped, 1);
+
+    auto result2 = reg.delete_entries({data_file_}, /*force=*/true);
+    EXPECT_EQ(result2.deleted, 1);
+    EXPECT_EQ(result2.skipped, 0);
+}
+
+// ============================================================================
+// Server-side dataset fetch (Phase 11) — remote_fetch_*/remote_upload
+// ============================================================================
+
+class DatasetRegistryFetchTest : public ::testing::Test {
+   protected:
+    void SetUp() override {
+        tmp_dir_ = fs::temp_directory_path() / "adai_registry_fetch_test";
+        fs::remove_all(tmp_dir_);
+        fs::create_directories(tmp_dir_);
+    }
+
+    void TearDown() override {
+        fs::remove_all(tmp_dir_);
+    }
+
+    std::unique_ptr<DatasetRegistry> make_reg(FakeFetchTransport** out_fake) {
+        auto transport = std::make_unique<FakeFetchTransport>(
+            (tmp_dir_ / "registry.txt").string(), (tmp_dir_ / "pending.txt").string());
+        *out_fake = transport.get();
+        DatasetConfig cfg;
+        cfg.session_dir = (tmp_dir_ / "sessions").string();
+        return std::make_unique<DatasetRegistry>(cfg, std::move(transport));
+    }
+
+    fs::path tmp_dir_;
+};
+
+TEST_F(DatasetRegistryFetchTest, RemoteFetchGutenbergReturnsPathAndUpdatesPending) {
+    FakeFetchTransport* fake = nullptr;
+    auto reg = make_reg(&fake);
+    fake->next_fetch_result = "/reg/data/gutenberg_1342_training.jsonl";
+
+    const std::string path = reg->remote_fetch_gutenberg(1342, 100);
+    EXPECT_EQ(path, "/reg/data/gutenberg_1342_training.jsonl");
+    EXPECT_EQ(fake->fetch_gutenberg_calls, 1);
+    EXPECT_EQ(fake->last_book_id, 1342);
+    EXPECT_TRUE(fake->last_model_name.empty());
+    ASSERT_EQ(reg->pending_files().size(), 1u);
+    EXPECT_EQ(reg->pending_files()[0], path);
+}
+
+TEST_F(DatasetRegistryFetchTest, RemoteFetchGutenbergForwardsModelName) {
+    FakeFetchTransport* fake = nullptr;
+    auto reg = make_reg(&fake);
+    fake->next_fetch_result = "/reg/data/gutenberg_1342_model-a_row0_training.jsonl";
+
+    reg->remote_fetch_gutenberg(1342, 100, "model-a");
+    EXPECT_EQ(fake->last_model_name, "model-a");
+}
+
+TEST_F(DatasetRegistryFetchTest, RemoteFetchGutenbergFailureLeavesPendingEmpty) {
+    FakeFetchTransport* fake = nullptr;
+    auto reg = make_reg(&fake);
+    fake->next_fetch_result = "";  // simulated failure
+
+    EXPECT_EQ(reg->remote_fetch_gutenberg(1342, 100), "");
+    EXPECT_TRUE(reg->pending_files().empty());
+}
+
+TEST_F(DatasetRegistryFetchTest, RemoteFetchHuggingfaceReturnsPathAndUpdatesPending) {
+    FakeFetchTransport* fake = nullptr;
+    auto reg = make_reg(&fake);
+    fake->next_fetch_result = "/reg/data/daily_dialog_train_training.jsonl";
+
+    const std::string path =
+        reg->remote_fetch_huggingface("daily_dialog", 200, "train", "", "");
+    EXPECT_EQ(path, "/reg/data/daily_dialog_train_training.jsonl");
+    EXPECT_EQ(fake->fetch_huggingface_calls, 1);
+    EXPECT_EQ(fake->last_dataset_id, "daily_dialog");
+    EXPECT_TRUE(fake->last_model_name.empty());
+    ASSERT_EQ(reg->pending_files().size(), 1u);
+}
+
+TEST_F(DatasetRegistryFetchTest, RemoteFetchHuggingfaceForwardsModelName) {
+    FakeFetchTransport* fake = nullptr;
+    auto reg = make_reg(&fake);
+    fake->next_fetch_result = "/reg/data/daily_dialog_train_model-a_row0_training.jsonl";
+
+    reg->remote_fetch_huggingface("daily_dialog", 200, "train", "", "", "model-a");
+    EXPECT_EQ(fake->last_model_name, "model-a");
+}
+
+TEST_F(DatasetRegistryFetchTest, RemoteUploadReturnsPathAndUpdatesPending) {
+    FakeFetchTransport* fake = nullptr;
+    auto reg = make_reg(&fake);
+    fake->next_upload_result = "/reg/data/uploads/my_file.jsonl";
+
+    const std::string path = reg->remote_upload("/local/my_file.jsonl");
+    EXPECT_EQ(path, "/reg/data/uploads/my_file.jsonl");
+    EXPECT_EQ(fake->upload_calls, 1);
+    EXPECT_EQ(fake->last_upload_path, "/local/my_file.jsonl");
+    ASSERT_EQ(reg->pending_files().size(), 1u);
+    EXPECT_EQ(reg->pending_files()[0], path);
+}
+
+TEST_F(DatasetRegistryFetchTest, RemoteUploadFailureLeavesPendingEmpty) {
+    FakeFetchTransport* fake = nullptr;
+    auto reg = make_reg(&fake);
+    fake->next_upload_result = "";  // simulated failure
+
+    EXPECT_EQ(reg->remote_upload("/local/missing.jsonl"), "");
+    EXPECT_TRUE(reg->pending_files().empty());
 }

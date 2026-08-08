@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <filesystem>
+#include <limits>
 #include "TrainingMetricsService.hpp"
 
 // TODO(TD-018): add multi-session registry tests (concurrent session keys,
@@ -73,6 +74,29 @@ TEST(TrainingMetricsServiceResume, StartSessionPreservesBestValidationState) {
     EXPECT_TRUE(after_restart.is_training);
 }
 
+// Regression test for a full retrain showing a stale, unrelated prior session's
+// best_validation_loss/best_epoch from the moment the new session starts —
+// reset_best=true (used by IncrementalTrainer::retrain_on_files()) must bypass
+// the same-architecture carryforward entirely.
+TEST(TrainingMetricsServiceResume, StartSessionWithResetBestClearsCarriedOverState) {
+    TrainingMetricsService svc(no_persist_resume_config());
+
+    svc.start_session(1, 4, 1000);
+    svc.update_best_metrics(4.25f, 3);
+
+    auto before_retrain = svc.get_current_snapshot();
+    EXPECT_FLOAT_EQ(before_retrain.best_validation_loss, 4.25f);
+    EXPECT_EQ(before_retrain.best_epoch, 3);
+
+    svc.start_session(2, 4, 1000, "", "", /*reset_best=*/true);
+
+    auto fresh = svc.get_current_snapshot();
+    EXPECT_FLOAT_EQ(fresh.best_validation_loss, std::numeric_limits<float>::max());
+    EXPECT_EQ(fresh.best_epoch, 0);
+    EXPECT_EQ(fresh.session_id, 2);
+    EXPECT_TRUE(fresh.is_training);
+}
+
 TEST(GlobalMetricsServiceCompatibility, InstanceUsesStableDefaultSessionProxy) {
     GlobalMetricsService::shutdown();
 
@@ -93,8 +117,7 @@ TEST(GlobalMetricsServiceCompatibility, InitializeConfigAppliesToDefaultSession)
 
     GlobalMetricsService::shutdown();
 
-    const fs::path temp_root =
-        fs::temp_directory_path() / "adai_global_metrics_service_phase7";
+    const fs::path temp_root = fs::temp_directory_path() / "adai_global_metrics_service_phase7";
     fs::remove_all(temp_root);
 
     MetricsServiceConfig cfg;

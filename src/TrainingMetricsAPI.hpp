@@ -3,6 +3,8 @@
 #include <atomic>
 #include <memory>
 #include <string>
+#include <utility>
+#include "DaemonConfigStore.hpp"
 #include "MetricsSessionRegistry.hpp"
 #include "ModelNameClient.hpp"
 
@@ -26,7 +28,8 @@
  * - GET  /api/metrics/summary    - Aggregated metrics summary (JSON)
  * - GET  /api/metrics/history    - Historical metrics records (JSON)
  * - GET  /api/metrics/prometheus - Prometheus format metrics (legacy, alias for 0-default)
- * - GET  /api/metrics/prometheus/aggregate - Concatenated Prometheus output for all live sessions (TD-021)
+ * - GET  /api/metrics/prometheus/aggregate - Concatenated Prometheus output for all live sessions
+ * (TD-021)
  * - GET  /api/metrics/csv        - CSV format (header + current row)
  * - GET  /api/metrics/abnormal   - TD-013: Outlier samples (JSON)
  * - GET  /api/metrics/generation-quality - BLEU/ROUGE generation quality scores (JSON)
@@ -53,14 +56,20 @@ class TrainingMetricsAPI {
    public:
     /**
      * @brief Construct the metrics REST API
-      * @param session_registry Shared pointer to the metrics session registry
+     * @param session_registry Shared pointer to the metrics session registry
      * @param port Port number to listen on (default: 8081)
      * @param allow_control Enable control endpoints (flush, clear) - default: true
      * @param name_service_url URL of MNS daemon for /api/models (empty = disabled)
      */
-     explicit TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> session_registry,
+    /**
+     * @param admin_config_db_dir Directory for this daemon's daemon_config.db (admin-mutable
+     *        settings persisted via PUT /admin/config); empty = admin changes don't persist
+     *        across restarts (GET/PUT /admin/config still work in-memory).
+     */
+    explicit TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> session_registry,
                                 int port = 8081, bool allow_control = true,
-                                const std::string& name_service_url = "");
+                                const std::string& name_service_url = "",
+                                const std::string& admin_config_db_dir = "");
 
     /**
      * @brief Destructor - ensures server is stopped
@@ -116,12 +125,15 @@ class TrainingMetricsAPI {
     std::string handle_metrics_aggregate();
     std::string handle_db_history(const std::string& session_key, const std::string& query_params);
     std::string handle_metrics_compare(const std::string& query_params);
-    std::string handle_metrics_export(const std::string& session_key, const std::string& query_params);
+    std::string handle_metrics_export(const std::string& session_key,
+                                      const std::string& query_params);
     std::string handle_prometheus_aggregate();  ///< TD-021: per-session labelled Prometheus output
     std::string handle_models_list();
     std::string handle_flush_control(const std::string& session_key);
     std::string handle_clear_control(const std::string& session_key);
     std::string handle_health_check();
+    std::string handle_admin_get_config();
+    std::pair<int, std::string> handle_admin_put_config(const std::string& body);
 
     // POST endpoint handlers for receiving metrics updates
     std::string handle_post_session_start(const std::string& session_key, const std::string& body);
@@ -135,6 +147,8 @@ class TrainingMetricsAPI {
     std::string handle_post_best_metrics(const std::string& session_key, const std::string& body);
     std::string handle_post_advanced_metrics(const std::string& session_key,
                                              const std::string& body);
+    std::string handle_post_layer_gradient_norms(const std::string& session_key,
+                                                 const std::string& body);
     std::string handle_post_generation_quality_metrics(const std::string& session_key,
                                                        const std::string& body);  // TD-016
 
@@ -155,6 +169,7 @@ class TrainingMetricsAPI {
     bool allow_control_;
     std::string name_service_url_;
     std::atomic<bool> running_;
+    std::unique_ptr<adai::DaemonConfigStore> config_store_;
 
     // HTTP server implementation (forward declaration to avoid including httplib.h in header)
     class ServerImpl;

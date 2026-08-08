@@ -93,8 +93,12 @@ class BPETokenizer {
     explicit BPETokenizer(TokenizerMode mode = TokenizerMode::ASCII);
 
     // Query the active tokenization mode
-    TokenizerMode get_mode() const { return mode; }
-    bool is_unicode_mode() const { return mode == TokenizerMode::UNICODE; }
+    TokenizerMode get_mode() const {
+        return mode;
+    }
+    bool is_unicode_mode() const {
+        return mode == TokenizerMode::UNICODE;
+    }
 
     // Build vocabulary from text corpus
     void build_vocab(const std::vector<std::string>& texts, int vocab_size = 10000,
@@ -130,10 +134,18 @@ class BPETokenizer {
     size_t get_vocab_size() const;
 
     // Get special token IDs
-    int get_bos_token_id() const { return bos_token_id; }
-    int get_eos_token_id() const { return eos_token_id; }
-    int get_pad_token_id() const { return pad_token_id; }
-    int get_unk_token_id() const { return unk_token_id; }
+    int get_bos_token_id() const {
+        return bos_token_id;
+    }
+    int get_eos_token_id() const {
+        return eos_token_id;
+    }
+    int get_pad_token_id() const {
+        return pad_token_id;
+    }
+    int get_unk_token_id() const {
+        return unk_token_id;
+    }
 
     // Save vocabulary to file
     void save_vocab(const std::string& filename) const;
@@ -168,12 +180,9 @@ class BPETokenizer {
      * @param mode               ASCII or UNICODE tokenizer mode.
      * @return Recommended vocabulary size (multiple of 500, minimum 2000).
      */
-    static int recommend_vocab_size(const std::vector<std::string>& texts,
-                                    int d_model,
-                                    int num_encoder_layers,
-                                    int num_decoder_layers,
-                                    int max_seq_length,
-                                    TokenizerMode mode = TokenizerMode::ASCII);
+    static int recommend_vocab_size(const std::vector<std::string>& texts, int d_model,
+                                    int num_encoder_layers, int num_decoder_layers,
+                                    int max_seq_length, TokenizerMode mode = TokenizerMode::ASCII);
 
     /**
      * @brief Measure token fertility (average BPE tokens per whitespace word).

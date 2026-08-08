@@ -4,13 +4,13 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
-#include <stdexcept>
 #include <sstream>
+#include <stdexcept>
 #include <thread>
 #include <utility>
+#include "GenerationQualityMetrics.hpp"
 #include "Logger.hpp"
 #include "MetricsSessionRegistry.hpp"
-#include "GenerationQualityMetrics.hpp"
 
 // HTTP client for pushing metrics to external API daemon (optional)
 #ifdef BUILD_METRICS_API_SERVER
@@ -48,14 +48,16 @@ void ensure_metrics_output_directories(const MetricsServiceConfig& config) {
 // hyperparameters like learning_rate and batch_size are intentionally excluded.
 // Returns an empty string if the snapshot is missing or unparseable.
 std::string arch_key(const std::string& config_json) {
-    if (config_json.empty()) return "";
+    if (config_json.empty())
+        return "";
     auto extract = [&](const std::string& key) -> std::string {
         auto pos = config_json.find('"' + key + "\":");
-        if (pos == std::string::npos) return "";
+        if (pos == std::string::npos)
+            return "";
         pos += key.size() + 3;
         auto end = config_json.find_first_of(",}", pos);
-        return config_json.substr(pos, end == std::string::npos ? config_json.size() - pos
-                                                                : end - pos);
+        return config_json.substr(pos,
+                                  end == std::string::npos ? config_json.size() - pos : end - pos);
     };
     return extract("d_model") + "," + extract("heads") + "," + extract("d_ff") + "," +
            extract("enc_layers") + "," + extract("dec_layers");
@@ -92,7 +94,7 @@ TrainingMetricsService::~TrainingMetricsService() {
 
 void TrainingMetricsService::start_session(int session_id, int total_epochs, int total_samples,
                                            const std::string& label,
-                                           const std::string& config_snapshot) {
+                                           const std::string& config_snapshot, bool reset_best) {
     std::string push_json;
     bool should_push = false;
     {
@@ -118,7 +120,7 @@ void TrainingMetricsService::start_session(int session_id, int total_epochs, int
         current_snapshot_.total_samples = total_samples;
         current_snapshot_.session_start_time = std::chrono::system_clock::now();
         current_snapshot_.last_update_time = current_snapshot_.session_start_time;
-        if (!arch_changed) {
+        if (!arch_changed && !reset_best) {
             current_snapshot_.best_validation_loss = previous_best_validation_loss;
             current_snapshot_.best_epoch = previous_best_epoch;
         }
@@ -307,6 +309,34 @@ void TrainingMetricsService::end_epoch(int epoch, float loss, float validation_l
         record.learning_rate = learning_rate;
         record.gradient_norm = gradient_norm;
         record.perplexity = current_snapshot_.current_perplexity;
+        // TD-013 diagnostics: epoch-final values, as already buffered by
+        // update_advanced_epoch_metrics()/update_activation_saturation()/
+        // update_attention_entropy()/update_padding_efficiency() earlier this
+        // epoch — end_epoch() is always called after those, so these are the
+        // epoch's final snapshot, not stale leftovers from a prior epoch.
+        record.compute_time_ratio = current_snapshot_.compute_time_ratio;
+        record.weight_update_ratio = current_snapshot_.weight_update_ratio;
+        record.activation_saturation_ratio = current_snapshot_.activation_saturation_ratio;
+        record.attention_entropy = current_snapshot_.attention_entropy;
+        record.padding_efficiency = current_snapshot_.current_padding_efficiency;
+        if (!current_snapshot_.encoder_layer_grad_norms.empty() ||
+            !current_snapshot_.decoder_layer_grad_norms.empty()) {
+            std::ostringstream lg;
+            lg << "{\"encoder\":[";
+            for (size_t i = 0; i < current_snapshot_.encoder_layer_grad_norms.size(); ++i) {
+                if (i > 0)
+                    lg << ",";
+                lg << current_snapshot_.encoder_layer_grad_norms[i];
+            }
+            lg << "],\"decoder\":[";
+            for (size_t i = 0; i < current_snapshot_.decoder_layer_grad_norms.size(); ++i) {
+                if (i > 0)
+                    lg << ",";
+                lg << current_snapshot_.decoder_layer_grad_norms[i];
+            }
+            lg << "]}";
+            record.layer_gradient_norms_json = lg.str();
+        }
         add_record(record);
 
         // Persist if needed
@@ -377,12 +407,10 @@ void TrainingMetricsService::update_sample_metrics(int sample, float loss, float
         // Detect the last training sample of the epoch: validation is about to start.
         // Record the epoch training duration so the staleness check can extend its threshold
         // to epoch_duration + staleness_threshold_seconds while validation is in progress.
-        if (current_snapshot_.total_samples > 0 &&
-            sample == current_snapshot_.total_samples) {
+        if (current_snapshot_.total_samples > 0 && sample == current_snapshot_.total_samples) {
             auto epoch_dur = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                 std::chrono::steady_clock::now() - epoch_start_steady_);
-            last_epoch_training_duration_seconds_ =
-                static_cast<double>(epoch_dur.count()) / 1000.0;
+                std::chrono::steady_clock::now() - epoch_start_steady_);
+            last_epoch_training_duration_seconds_ = static_cast<double>(epoch_dur.count()) / 1000.0;
             awaiting_validation_ = true;
         }
 
@@ -537,9 +565,9 @@ TrainingMetricsSnapshot TrainingMetricsService::get_current_snapshot() const {
     // the session stale before the inactivity window expires.
     {
         auto now_wall = std::chrono::system_clock::now();
-        auto secs = std::chrono::duration_cast<std::chrono::seconds>(
-                        now_wall - snapshot.last_update_time)
-                        .count();
+        auto secs =
+            std::chrono::duration_cast<std::chrono::seconds>(now_wall - snapshot.last_update_time)
+                .count();
         snapshot.seconds_since_last_update = static_cast<double>(secs);
         long long effective_threshold = config_.staleness_threshold_seconds;
         if (awaiting_validation_ && last_epoch_training_duration_seconds_ > 0.0) {
@@ -588,9 +616,9 @@ std::string TrainingMetricsService::to_json() const {
     // Mirror the dynamic-threshold logic from get_current_snapshot().
     {
         auto now_wall = std::chrono::system_clock::now();
-        auto secs = std::chrono::duration_cast<std::chrono::seconds>(
-                        now_wall - snapshot.last_update_time)
-                        .count();
+        auto secs =
+            std::chrono::duration_cast<std::chrono::seconds>(now_wall - snapshot.last_update_time)
+                .count();
         snapshot.seconds_since_last_update = static_cast<double>(secs);
         long long effective_threshold = config_.staleness_threshold_seconds;
         if (awaiting_validation_ && last_epoch_training_duration_seconds_ > 0.0) {
@@ -636,6 +664,20 @@ std::string TrainingMetricsService::to_json() const {
         << snapshot.weight_update_ratio << std::fixed << std::setprecision(6) << ",\n";
     oss << "  \"activation_saturation_ratio\": " << snapshot.activation_saturation_ratio << ",\n";
     oss << "  \"attention_entropy\": " << snapshot.attention_entropy << ",\n";
+    oss << "  \"encoder_layer_grad_norms\": [";
+    for (size_t i = 0; i < snapshot.encoder_layer_grad_norms.size(); ++i) {
+        if (i > 0)
+            oss << ",";
+        oss << snapshot.encoder_layer_grad_norms[i];
+    }
+    oss << "],\n";
+    oss << "  \"decoder_layer_grad_norms\": [";
+    for (size_t i = 0; i < snapshot.decoder_layer_grad_norms.size(); ++i) {
+        if (i > 0)
+            oss << ",";
+        oss << snapshot.decoder_layer_grad_norms[i];
+    }
+    oss << "],\n";
     oss << "  \"current_bleu4\": " << snapshot.current_bleu4 << ",\n";
     oss << "  \"current_rouge1\": " << snapshot.current_rouge1 << ",\n";
     oss << "  \"current_rouge2\": " << snapshot.current_rouge2 << ",\n";
@@ -646,8 +688,8 @@ std::string TrainingMetricsService::to_json() const {
     oss << "  \"current_adaptive_clip_spikes\": " << snapshot.current_adaptive_clip_spikes << ",\n";
     oss << "  \"is_stale\": " << (snapshot.is_stale ? "true" : "false") << ",\n";
     oss << "  \"seconds_since_last_update\": " << snapshot.seconds_since_last_update << ",\n";
-    oss << "  \"effective_is_training\": "
-        << (snapshot.effective_is_training ? "true" : "false") << "\n";
+    oss << "  \"effective_is_training\": " << (snapshot.effective_is_training ? "true" : "false")
+        << "\n";
     oss << "}";
 
     return oss.str();
@@ -759,6 +801,7 @@ void TrainingMetricsService::clear_history() {
     std::lock_guard<std::mutex> lock(mutex_);
 
     history_.clear();
+    persisted_up_to_ = 0;
 
     // Also reset "best" tracking: start_session() deliberately carries
     // best_validation_loss/best_epoch forward across sessions for the same key
@@ -797,15 +840,20 @@ MetricsServiceConfig TrainingMetricsService::get_config() const {
 // ============================================================================
 
 void TrainingMetricsService::persist_metrics() {
-    if (!config_.enable_persistence || history_.empty()) {
+    if (!config_.enable_persistence || persisted_up_to_ >= history_.size()) {
         return;
     }
+
+    // Only records added since the last successful persist — history_ is a rolling
+    // in-memory window, not a pending-persist queue, so re-iterating the whole thing
+    // here would re-insert/re-append every already-persisted record on every call.
+    const auto begin = history_.begin() + static_cast<std::ptrdiff_t>(persisted_up_to_);
 
     // DB write first (TD-020)
     if (db_ && !session_key_.empty()) {
         try {
-            for (const auto& record : history_) {
-                db_->insert_metrics_record(session_key_, record);
+            for (auto it = begin; it != history_.end(); ++it) {
+                db_->insert_metrics_record(session_key_, *it);
             }
         } catch (const std::exception& e) {
             adai::Logger::error("Failed to persist metrics to DB: {}", e.what());
@@ -821,7 +869,8 @@ void TrainingMetricsService::persist_metrics() {
         }
 
         // Write records as JSON Lines (one JSON object per line)
-        for (const auto& record : history_) {
+        for (auto it = begin; it != history_.end(); ++it) {
+            const auto& record = *it;
             file << std::fixed << std::setprecision(6);
             file << "{";
             file << R"("timestamp":")" << format_timestamp(record.timestamp) << "\",";
@@ -840,6 +889,8 @@ void TrainingMetricsService::persist_metrics() {
     } catch (const std::exception& e) {
         adai::Logger::error("Failed to persist metrics: {}", e.what());
     }
+
+    persisted_up_to_ = history_.size();
 }
 
 void TrainingMetricsService::persist_summary() {
@@ -940,7 +991,8 @@ void TrainingMetricsService::restore_from_summary() {
                 config_snapshot_ = rec->config_json;
                 current_snapshot_.label = rec->label;
                 current_snapshot_.config_snapshot = rec->config_json;
-                adai::Logger::info("Metrics state restored from DB (session_key='{}')", session_key_);
+                adai::Logger::info("Metrics state restored from DB (session_key='{}')",
+                                   session_key_);
                 return;
             }
         } catch (const std::exception& e) {
@@ -1199,8 +1251,7 @@ std::string TrainingMetricsService::to_prometheus_internal(const std::string& se
 
     // When session_key is non-empty, prefix each metric value with a label set so that
     // concurrent sessions are distinguishable by Prometheus scrapers (TD-021 §4.8).
-    const std::string lbl =
-        session_key.empty() ? "" : "{session=\"" + session_key + "\"} ";
+    const std::string lbl = session_key.empty() ? "" : "{session=\"" + session_key + "\"} ";
 
     std::ostringstream oss;
     oss << std::fixed << std::setprecision(6);
@@ -1273,10 +1324,13 @@ void TrainingMetricsService::add_record(const PersistentMetricsRecord& record) {
 void TrainingMetricsService::trim_history() {
     if (history_.size() > static_cast<size_t>(config_.max_records_in_memory)) {
         // Keep only the most recent records
-        history_.erase(history_.begin(),
-                       history_.begin() + static_cast<std::ptrdiff_t>(
-                                              history_.size() -
-                                              static_cast<size_t>(config_.max_records_in_memory)));
+        const std::size_t to_remove =
+            history_.size() - static_cast<size_t>(config_.max_records_in_memory);
+        history_.erase(history_.begin(), history_.begin() + static_cast<std::ptrdiff_t>(to_remove));
+        // Shift the persisted-so-far marker to match — those entries are gone either
+        // way, but if any were never persisted (persisted_up_to_ hadn't caught up yet),
+        // this must not let it point past the front of the now-shorter vector.
+        persisted_up_to_ = (persisted_up_to_ > to_remove) ? (persisted_up_to_ - to_remove) : 0;
     }
 }
 
@@ -1485,6 +1539,20 @@ void TrainingMetricsService::update_advanced_epoch_metrics(float gradient_varian
         adai::Logger::debug(
             "Advanced epoch metrics: grad_var={:.4f}, compute_ratio={:.4f}, wu_ratio={:.6f}",
             gradient_variance, compute_time_ratio, weight_update_ratio);
+
+        // Dedicated, unthrottled per-step gradient_variance history (see
+        // IMetricsDatabase::insert_gradient_variance_sample doc comment for why
+        // this doesn't reuse the throttled insert_metrics_record() path).
+        if (db_ && !session_key_.empty()) {
+            try {
+                db_->insert_gradient_variance_sample(session_key_, ++gradient_variance_step_counter_,
+                                                     current_snapshot_.current_epoch,
+                                                     gradient_variance);
+            } catch (const std::exception& e) {
+                adai::Logger::error("Failed to insert gradient_variance sample to DB: {}", e.what());
+            }
+        }
+
         should_push = config_.enable_push;
         if (should_push) {
             std::ostringstream json;
@@ -1515,6 +1583,15 @@ void TrainingMetricsService::update_padding_efficiency(float efficiency) {
     std::lock_guard<std::mutex> lock(mutex_);
     current_snapshot_.current_padding_efficiency = efficiency;
     adai::Logger::debug("Batch padding efficiency: {:.4f}", efficiency);
+}
+
+void TrainingMetricsService::update_layer_gradient_norms(
+    const std::vector<float>& encoder_layer_norms, const std::vector<float>& decoder_layer_norms) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    current_snapshot_.encoder_layer_grad_norms = encoder_layer_norms;
+    current_snapshot_.decoder_layer_grad_norms = decoder_layer_norms;
+    adai::Logger::debug("Per-layer gradient norms: {} encoder, {} decoder layers reported",
+                        encoder_layer_norms.size(), decoder_layer_norms.size());
 }
 
 // ── TD-017: Adaptive gradient clipping metrics ────────────────────────────────
@@ -1558,8 +1635,8 @@ void TrainingMetricsService::update_generation_quality_metrics(float bleu4, floa
                 score.rouge1 = rouge1;
                 score.rouge2 = rouge2;
                 score.rougeL = rougeL;
-                db_->insert_generation_quality(session_key_,
-                    current_snapshot_.current_epoch, score);
+                db_->insert_generation_quality(session_key_, current_snapshot_.current_epoch,
+                                               score);
             } catch (const std::exception& e) {
                 adai::Logger::error("Failed to insert generation quality to DB: {}", e.what());
             }
@@ -1672,17 +1749,19 @@ void TrainingMetricsService::set_database(IMetricsDatabase* db, const std::strin
 
 SessionRecord TrainingMetricsService::build_session_record() const {
     SessionRecord rec;
-    rec.key          = session_key_;
-    rec.session_id   = current_session_id_.load();
-    rec.label        = label_;
-    rec.config_json  = config_snapshot_;
-    rec.is_training  = is_training_.load();
-    rec.created_at   = current_snapshot_.session_start_time;
+    rec.key = session_key_;
+    rec.session_id = current_session_id_.load();
+    rec.label = label_;
+    rec.config_json = config_snapshot_;
+    rec.is_training = is_training_.load();
+    rec.created_at = current_snapshot_.session_start_time;
     rec.last_update_at = current_snapshot_.last_update_time;
-    rec.total_epochs   = current_snapshot_.current_epoch;
-    rec.total_samples  = current_snapshot_.total_samples_trained;
+    rec.total_epochs = current_snapshot_.current_epoch;
+    rec.total_samples = current_snapshot_.total_samples_trained;
     rec.best_validation_loss = current_snapshot_.best_validation_loss;
-    rec.best_epoch     = current_snapshot_.best_epoch;
+    rec.best_epoch = current_snapshot_.best_epoch;
+    rec.final_loss = current_snapshot_.current_loss;
+    rec.final_validation_loss = current_snapshot_.current_validation_loss;
     return rec;
 }
 

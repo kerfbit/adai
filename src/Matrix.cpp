@@ -775,7 +775,8 @@ bool Matrix::gpu_try_initialize(int, float, bool) {
 void Matrix::gpu_cleanup() {}
 
 std::string Matrix::gpu_info(int) {
-    return "GPU support not compiled (rebuild with -DENABLE_GPU=ON for CUDA or -DENABLE_SYCL=ON for Intel Arc)";
+    return "GPU support not compiled (rebuild with -DENABLE_GPU=ON for CUDA or -DENABLE_SYCL=ON "
+           "for Intel Arc)";
 }
 
 #endif  // ADAI_ENABLE_GPU

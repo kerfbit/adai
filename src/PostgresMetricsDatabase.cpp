@@ -1,10 +1,10 @@
 #ifdef ADAI_ENABLE_POSTGRES
 
 #include "PostgresMetricsDatabase.hpp"
-#include "TrainingMetricsService.hpp"
-#include "IMetricsReporter.hpp"
 #include "GenerationQualityMetrics.hpp"
+#include "IMetricsReporter.hpp"
 #include "Logger.hpp"
+#include "TrainingMetricsService.hpp"
 
 #include <libpq-fe.h>
 #include <chrono>
@@ -18,11 +18,8 @@
 static constexpr int RETRY_COUNT = 3;
 static constexpr int RETRY_DELAYS_MS[] = {100, 400, 1600};
 
-PostgresMetricsDatabase::PostgresMetricsDatabase(
-    const std::string& connection_url, int pool_size)
-    : connection_url_(connection_url),
-      pool_size_(pool_size > 0 ? pool_size : 4) {
-
+PostgresMetricsDatabase::PostgresMetricsDatabase(const std::string& connection_url, int pool_size)
+    : connection_url_(connection_url), pool_size_(pool_size > 0 ? pool_size : 4) {
     pool_.resize(static_cast<size_t>(pool_size_));
     for (auto& entry : pool_) {
         entry.conn = create_connection();
@@ -57,7 +54,8 @@ PGconn* PostgresMetricsDatabase::create_connection() {
 }
 
 bool PostgresMetricsDatabase::ensure_connection(PGconn*& conn) {
-    if (conn && PQstatus(conn) == CONNECTION_OK) return true;
+    if (conn && PQstatus(conn) == CONNECTION_OK)
+        return true;
     if (conn) {
         PQfinish(conn);
         conn = nullptr;
@@ -70,7 +68,8 @@ PGconn* PostgresMetricsDatabase::acquire_connection() {
     std::unique_lock<std::mutex> lock(pool_mutex_);
     pool_cv_.wait(lock, [this] {
         for (auto& e : pool_) {
-            if (!e.in_use) return true;
+            if (!e.in_use)
+                return true;
         }
         return false;
     });
@@ -95,9 +94,8 @@ void PostgresMetricsDatabase::release_connection(PGconn* conn) {
     pool_cv_.notify_one();
 }
 
-bool PostgresMetricsDatabase::execute_with_retry(
-    const char* context,
-    std::function<bool(PGconn*)> operation) {
+bool PostgresMetricsDatabase::execute_with_retry(const char* context,
+                                                 std::function<bool(PGconn*)> operation) {
     for (int attempt = 0; attempt < RETRY_COUNT; ++attempt) {
         PGconn* conn = acquire_connection();
         if (!conn) {
@@ -113,8 +111,8 @@ bool PostgresMetricsDatabase::execute_with_retry(
         try {
             success = operation(conn);
         } catch (const std::exception& e) {
-            adai::Logger::error("[PostgresMetricsDB] {} — exception: {} (attempt {}/{})",
-                                context, e.what(), attempt + 1, RETRY_COUNT);
+            adai::Logger::error("[PostgresMetricsDB] {} — exception: {} (attempt {}/{})", context,
+                                e.what(), attempt + 1, RETRY_COUNT);
         }
 
         if (!success && PQstatus(conn) != CONNECTION_OK) {
@@ -130,7 +128,8 @@ bool PostgresMetricsDatabase::execute_with_retry(
         }
 
         release_connection(conn);
-        if (success) return true;
+        if (success)
+            return true;
 
         if (attempt < RETRY_COUNT - 1) {
             std::this_thread::sleep_for(std::chrono::milliseconds(RETRY_DELAYS_MS[attempt]));
@@ -163,7 +162,9 @@ void PostgresMetricsDatabase::bootstrap_schema(PGconn* conn) {
             total_epochs         INTEGER NOT NULL DEFAULT 0,
             total_samples        INTEGER NOT NULL DEFAULT 0,
             best_validation_loss REAL,
-            best_epoch           INTEGER
+            best_epoch           INTEGER,
+            final_loss            REAL,
+            final_validation_loss REAL
         );
 
         CREATE TABLE IF NOT EXISTS metrics_history (
@@ -176,11 +177,33 @@ void PostgresMetricsDatabase::bootstrap_schema(PGconn* conn) {
             validation_loss             REAL,
             learning_rate               REAL,
             gradient_norm               REAL,
-            perplexity                  REAL
+            perplexity                  REAL,
+            compute_time_ratio          REAL,
+            weight_update_ratio         REAL,
+            activation_saturation_ratio REAL,
+            attention_entropy           REAL,
+            padding_efficiency          REAL,
+            layer_gradient_norms_json   TEXT
         );
 
         CREATE INDEX IF NOT EXISTS idx_metrics_history_session_time
             ON metrics_history (session_key, recorded_at);
+
+        -- TD-013 extension: dedicated, unthrottled per-optimizer-step
+        -- gradient_variance history (see IMetricsDatabase::insert_gradient_variance_sample
+        -- doc comment — deliberately not folded into metrics_history, which is
+        -- only written once every persist_every_samples steps).
+        CREATE TABLE IF NOT EXISTS gradient_variance_history (
+            id          SERIAL PRIMARY KEY,
+            session_key TEXT    NOT NULL REFERENCES sessions(key),
+            recorded_at TIMESTAMPTZ NOT NULL,
+            step        INTEGER NOT NULL,
+            epoch       INTEGER NOT NULL,
+            value       REAL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_gradient_variance_history_session_step
+            ON gradient_variance_history (session_key, step);
 
         CREATE TABLE IF NOT EXISTS generation_quality (
             id          SERIAL PRIMARY KEY,
@@ -233,6 +256,38 @@ void PostgresMetricsDatabase::bootstrap_schema(PGconn* conn) {
         PQclear(res);
     }
 
+    // Migration: final_loss/final_validation_loss were added after the initial schema —
+    // CREATE TABLE IF NOT EXISTS above is a no-op against a table that already exists
+    // without them. Postgres (unlike SQLite) supports IF NOT EXISTS on ADD COLUMN, so this
+    // is safe to run unconditionally on every startup.
+    res = PQexec(conn, "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS final_loss REAL;");
+    PQclear(res);
+    res = PQexec(conn, "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS final_validation_loss REAL;");
+    PQclear(res);
+
+    // Migration: TD-013 extension columns on metrics_history, added after the
+    // initial schema.
+    res = PQexec(conn,
+                 "ALTER TABLE metrics_history ADD COLUMN IF NOT EXISTS compute_time_ratio REAL;");
+    PQclear(res);
+    res = PQexec(
+        conn, "ALTER TABLE metrics_history ADD COLUMN IF NOT EXISTS weight_update_ratio REAL;");
+    PQclear(res);
+    res = PQexec(conn,
+                 "ALTER TABLE metrics_history ADD COLUMN IF NOT EXISTS "
+                 "activation_saturation_ratio REAL;");
+    PQclear(res);
+    res = PQexec(
+        conn, "ALTER TABLE metrics_history ADD COLUMN IF NOT EXISTS attention_entropy REAL;");
+    PQclear(res);
+    res = PQexec(
+        conn, "ALTER TABLE metrics_history ADD COLUMN IF NOT EXISTS padding_efficiency REAL;");
+    PQclear(res);
+    res = PQexec(conn,
+                 "ALTER TABLE metrics_history ADD COLUMN IF NOT EXISTS "
+                 "layer_gradient_norms_json TEXT;");
+    PQclear(res);
+
     adai::Logger::info("[PostgresMetricsDB] Schema bootstrap complete");
 }
 
@@ -248,15 +303,15 @@ std::string PostgresMetricsDatabase::format_timestamp(
 
     std::ostringstream oss;
     oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%S");
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        tp.time_since_epoch()) % 1000;
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(tp.time_since_epoch()) % 1000;
     oss << "." << std::setfill('0') << std::setw(3) << ms.count() << "+00";
     return oss.str();
 }
 
 std::chrono::system_clock::time_point PostgresMetricsDatabase::parse_timestamp(
     const std::string& s) {
-    if (s.empty()) return {};
+    if (s.empty())
+        return {};
 
     std::tm tm{};
     int ms = 0;
@@ -289,47 +344,55 @@ void PostgresMetricsDatabase::upsert_session(const SessionRecord& rec) {
         auto epochs = std::to_string(rec.total_epochs);
         auto samples = std::to_string(rec.total_samples);
         auto best_ep = std::to_string(rec.best_epoch);
+        auto f_loss = std::to_string(rec.final_loss);
+        auto f_val_loss = std::to_string(rec.final_validation_loss);
 
-        const char* params[] = {
-            rec.key.c_str(), sid.c_str(), rec.label.c_str(),
-            rec.config_json.c_str(), is_t.c_str(), ts_created.c_str(),
-            ts_updated.c_str(), epochs.c_str(), samples.c_str(),
-            bv_loss.c_str(), best_ep.c_str()
-        };
+        const char* params[] = {rec.key.c_str(),         sid.c_str(),     rec.label.c_str(),
+                                rec.config_json.c_str(), is_t.c_str(),    ts_created.c_str(),
+                                ts_updated.c_str(),      epochs.c_str(),  samples.c_str(),
+                                bv_loss.c_str(),         best_ep.c_str(), f_loss.c_str(),
+                                f_val_loss.c_str()};
 
-        PGresult* res = PQexecParams(conn,
+        PGresult* res = PQexecParams(
+            conn,
             "INSERT INTO sessions (key, session_id, label, config_json, is_training, "
             "created_at, last_update_at, total_epochs, total_samples, "
-            "best_validation_loss, best_epoch) "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) "
+            "best_validation_loss, best_epoch, final_loss, final_validation_loss) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) "
             "ON CONFLICT (key) DO UPDATE SET "
             "session_id = EXCLUDED.session_id, label = EXCLUDED.label, "
             "config_json = EXCLUDED.config_json, is_training = EXCLUDED.is_training, "
             "last_update_at = EXCLUDED.last_update_at, total_epochs = EXCLUDED.total_epochs, "
             "total_samples = EXCLUDED.total_samples, "
             "best_validation_loss = EXCLUDED.best_validation_loss, "
-            "best_epoch = EXCLUDED.best_epoch",
-            11, nullptr, params, nullptr, nullptr, 0);
+            "best_epoch = EXCLUDED.best_epoch, "
+            "final_loss = EXCLUDED.final_loss, "
+            "final_validation_loss = EXCLUDED.final_validation_loss",
+            13, nullptr, params, nullptr, nullptr, 0);
 
         bool ok = PQresultStatus(res) == PGRES_COMMAND_OK;
-        if (!ok) adai::Logger::error("[PostgresMetricsDB] upsert_session: {}", PQerrorMessage(conn));
+        if (!ok)
+            adai::Logger::error("[PostgresMetricsDB] upsert_session: {}", PQerrorMessage(conn));
         PQclear(res);
         return ok;
     });
 }
 
-void PostgresMetricsDatabase::archive_session(const std::string& key, const std::string& archived_key) {
+void PostgresMetricsDatabase::archive_session(const std::string& key,
+                                              const std::string& archived_key) {
     execute_with_retry("archive_session", [&](PGconn* conn) -> bool {
         PGresult* res = PQexec(conn, "BEGIN");
         bool ok = PQresultStatus(res) == PGRES_COMMAND_OK;
         PQclear(res);
-        if (!ok) return false;
+        if (!ok)
+            return false;
 
         auto run = [&](const char* sql, int nparams, const char* const* params) -> bool {
             PGresult* r = PQexecParams(conn, sql, nparams, nullptr, params, nullptr, nullptr, 0);
             bool success = PQresultStatus(r) == PGRES_COMMAND_OK;
             if (!success) {
-                adai::Logger::error("[PostgresMetricsDB] archive_session: {}", PQerrorMessage(conn));
+                adai::Logger::error("[PostgresMetricsDB] archive_session: {}",
+                                    PQerrorMessage(conn));
             }
             PQclear(r);
             return success;
@@ -340,13 +403,19 @@ void PostgresMetricsDatabase::archive_session(const std::string& key, const std:
         // so that repointing child rows never references a session key that doesn't yet
         // exist, which would otherwise violate the sessions(key) foreign key.
         bool step_ok =
-            run("INSERT INTO sessions (key, session_id, label, config_json, is_training, created_at, "
-                "ended_at, last_update_at, total_epochs, total_samples, best_validation_loss, best_epoch) "
+            run("INSERT INTO sessions (key, session_id, label, config_json, is_training, "
+                "created_at, "
+                "ended_at, last_update_at, total_epochs, total_samples, best_validation_loss, "
+                "best_epoch, "
+                "final_loss, final_validation_loss) "
                 "SELECT $1, session_id, label, config_json, false, created_at, "
                 "COALESCE(ended_at, last_update_at), last_update_at, total_epochs, total_samples, "
-                "best_validation_loss, best_epoch FROM sessions WHERE key = $2",
+                "best_validation_loss, best_epoch, final_loss, final_validation_loss "
+                "FROM sessions WHERE key = $2",
                 2, p2) &&
             run("UPDATE metrics_history SET session_key = $1 WHERE session_key = $2", 2, p2) &&
+            run("UPDATE gradient_variance_history SET session_key = $1 WHERE session_key = $2", 2,
+                p2) &&
             run("UPDATE generation_quality SET session_key = $1 WHERE session_key = $2", 2, p2) &&
             run("UPDATE abnormal_samples SET session_key = $1 WHERE session_key = $2", 2, p2);
 
@@ -364,13 +433,15 @@ void PostgresMetricsDatabase::mark_session_ended(const std::string& key) {
         auto now = format_timestamp(std::chrono::system_clock::now());
         const char* params[] = {key.c_str(), now.c_str()};
 
-        PGresult* res = PQexecParams(conn,
+        PGresult* res = PQexecParams(
+            conn,
             "UPDATE sessions SET is_training = false, ended_at = $2, last_update_at = $2 "
             "WHERE key = $1",
             2, nullptr, params, nullptr, nullptr, 0);
 
         bool ok = PQresultStatus(res) == PGRES_COMMAND_OK;
-        if (!ok) adai::Logger::error("[PostgresMetricsDB] mark_session_ended: {}", PQerrorMessage(conn));
+        if (!ok)
+            adai::Logger::error("[PostgresMetricsDB] mark_session_ended: {}", PQerrorMessage(conn));
         PQclear(res);
         return ok;
     });
@@ -380,9 +451,8 @@ void PostgresMetricsDatabase::mark_session_ended(const std::string& key) {
 // Metrics Record Operations
 // ============================================================================
 
-void PostgresMetricsDatabase::insert_metrics_record(
-    const std::string& session_key,
-    const PersistentMetricsRecord& rec) {
+void PostgresMetricsDatabase::insert_metrics_record(const std::string& session_key,
+                                                    const PersistentMetricsRecord& rec) {
     execute_with_retry("insert_metrics_record", [&](PGconn* conn) -> bool {
         auto ts = format_timestamp(rec.timestamp);
         auto epoch = std::to_string(rec.epoch);
@@ -392,28 +462,69 @@ void PostgresMetricsDatabase::insert_metrics_record(
         auto lr = std::to_string(rec.learning_rate);
         auto gnorm = std::to_string(rec.gradient_norm);
         auto ppl = std::to_string(rec.perplexity);
+        auto ctr = std::to_string(rec.compute_time_ratio);
+        auto wur = std::to_string(rec.weight_update_ratio);
+        auto asr = std::to_string(rec.activation_saturation_ratio);
+        auto aent = std::to_string(rec.attention_entropy);
+        auto peff = std::to_string(rec.padding_efficiency);
+        // PQexecParams treats a NULL entry in the params array as SQL NULL —
+        // pass nullptr instead of an empty string when not reported this epoch.
+        const char* lg_json = rec.layer_gradient_norms_json.empty()
+                                  ? nullptr
+                                  : rec.layer_gradient_norms_json.c_str();
 
-        const char* params[] = {
-            session_key.c_str(), ts.c_str(), epoch.c_str(), sample.c_str(),
-            loss.c_str(), vloss.c_str(), lr.c_str(), gnorm.c_str(), ppl.c_str()
-        };
+        const char* params[] = {session_key.c_str(), ts.c_str(),    epoch.c_str(),
+                                sample.c_str(),      loss.c_str(),  vloss.c_str(),
+                                lr.c_str(),          gnorm.c_str(), ppl.c_str(),
+                                ctr.c_str(),         wur.c_str(),   asr.c_str(),
+                                aent.c_str(),         peff.c_str(), lg_json};
 
-        PGresult* res = PQexecParams(conn,
+        PGresult* res = PQexecParams(
+            conn,
             "INSERT INTO metrics_history (session_key, recorded_at, epoch, sample, "
-            "loss, validation_loss, learning_rate, gradient_norm, perplexity) "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-            9, nullptr, params, nullptr, nullptr, 0);
+            "loss, validation_loss, learning_rate, gradient_norm, perplexity, "
+            "compute_time_ratio, weight_update_ratio, activation_saturation_ratio, "
+            "attention_entropy, padding_efficiency, layer_gradient_norms_json) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
+            15, nullptr, params, nullptr, nullptr, 0);
 
         bool ok = PQresultStatus(res) == PGRES_COMMAND_OK;
-        if (!ok) adai::Logger::error("[PostgresMetricsDB] insert_metrics_record: {}", PQerrorMessage(conn));
+        if (!ok)
+            adai::Logger::error("[PostgresMetricsDB] insert_metrics_record: {}",
+                                PQerrorMessage(conn));
         PQclear(res);
         return ok;
     });
 }
 
-void PostgresMetricsDatabase::insert_abnormal_sample(
-    const std::string& session_key,
-    const AbnormalSample& sample) {
+void PostgresMetricsDatabase::insert_gradient_variance_sample(const std::string& session_key,
+                                                               int step, int epoch, float value) {
+    execute_with_retry("insert_gradient_variance_sample", [&](PGconn* conn) -> bool {
+        auto ts = format_timestamp(std::chrono::system_clock::now());
+        auto step_str = std::to_string(step);
+        auto epoch_str = std::to_string(epoch);
+        auto value_str = std::to_string(value);
+
+        const char* params[] = {session_key.c_str(), ts.c_str(), step_str.c_str(),
+                                epoch_str.c_str(), value_str.c_str()};
+
+        PGresult* res = PQexecParams(
+            conn,
+            "INSERT INTO gradient_variance_history (session_key, recorded_at, step, epoch, value) "
+            "VALUES ($1, $2, $3, $4, $5)",
+            5, nullptr, params, nullptr, nullptr, 0);
+
+        bool ok = PQresultStatus(res) == PGRES_COMMAND_OK;
+        if (!ok)
+            adai::Logger::error("[PostgresMetricsDB] insert_gradient_variance_sample: {}",
+                                PQerrorMessage(conn));
+        PQclear(res);
+        return ok;
+    });
+}
+
+void PostgresMetricsDatabase::insert_abnormal_sample(const std::string& session_key,
+                                                     const AbnormalSample& sample) {
     execute_with_retry("insert_abnormal_sample", [&](PGconn* conn) -> bool {
         auto ts = format_timestamp(sample.timestamp);
         auto epoch = std::to_string(sample.epoch);
@@ -421,29 +532,34 @@ void PostgresMetricsDatabase::insert_abnormal_sample(
         auto loss = std::to_string(sample.loss);
         auto gnorm = std::to_string(sample.grad_norm);
 
-        const char* params[] = {
-            session_key.c_str(), epoch.c_str(), sid.c_str(),
-            loss.c_str(), gnorm.c_str(), sample.reason.c_str(),
-            sample.input_text.c_str(), sample.target_text.c_str(), ts.c_str()
-        };
+        const char* params[] = {session_key.c_str(),
+                                epoch.c_str(),
+                                sid.c_str(),
+                                loss.c_str(),
+                                gnorm.c_str(),
+                                sample.reason.c_str(),
+                                sample.input_text.c_str(),
+                                sample.target_text.c_str(),
+                                ts.c_str()};
 
-        PGresult* res = PQexecParams(conn,
-            "INSERT INTO abnormal_samples (session_key, epoch, sample_id, loss, "
-            "grad_norm, reason, input_text, target_text, recorded_at) "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-            9, nullptr, params, nullptr, nullptr, 0);
+        PGresult* res =
+            PQexecParams(conn,
+                         "INSERT INTO abnormal_samples (session_key, epoch, sample_id, loss, "
+                         "grad_norm, reason, input_text, target_text, recorded_at) "
+                         "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+                         9, nullptr, params, nullptr, nullptr, 0);
 
         bool ok = PQresultStatus(res) == PGRES_COMMAND_OK;
-        if (!ok) adai::Logger::error("[PostgresMetricsDB] insert_abnormal_sample: {}", PQerrorMessage(conn));
+        if (!ok)
+            adai::Logger::error("[PostgresMetricsDB] insert_abnormal_sample: {}",
+                                PQerrorMessage(conn));
         PQclear(res);
         return ok;
     });
 }
 
-void PostgresMetricsDatabase::insert_generation_quality(
-    const std::string& session_key,
-    int epoch,
-    const GenerationQualityScore& score) {
+void PostgresMetricsDatabase::insert_generation_quality(const std::string& session_key, int epoch,
+                                                        const GenerationQualityScore& score) {
     execute_with_retry("insert_generation_quality", [&](PGconn* conn) -> bool {
         auto ts = format_timestamp(std::chrono::system_clock::now());
         auto ep = std::to_string(epoch);
@@ -454,20 +570,20 @@ void PostgresMetricsDatabase::insert_generation_quality(
         auto r2 = std::to_string(score.rouge2);
         auto rL = std::to_string(score.rougeL);
 
-        const char* params[] = {
-            session_key.c_str(), ts.c_str(), ep.c_str(),
-            b1.c_str(), b2.c_str(), b4.c_str(),
-            r1.c_str(), r2.c_str(), rL.c_str()
-        };
+        const char* params[] = {session_key.c_str(), ts.c_str(), ep.c_str(), b1.c_str(), b2.c_str(),
+                                b4.c_str(),          r1.c_str(), r2.c_str(), rL.c_str()};
 
-        PGresult* res = PQexecParams(conn,
-            "INSERT INTO generation_quality (session_key, recorded_at, epoch, "
-            "bleu1, bleu2, bleu4, rouge1, rouge2, \"rougeL\") "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-            9, nullptr, params, nullptr, nullptr, 0);
+        PGresult* res =
+            PQexecParams(conn,
+                         "INSERT INTO generation_quality (session_key, recorded_at, epoch, "
+                         "bleu1, bleu2, bleu4, rouge1, rouge2, \"rougeL\") "
+                         "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+                         9, nullptr, params, nullptr, nullptr, 0);
 
         bool ok = PQresultStatus(res) == PGRES_COMMAND_OK;
-        if (!ok) adai::Logger::error("[PostgresMetricsDB] insert_generation_quality: {}", PQerrorMessage(conn));
+        if (!ok)
+            adai::Logger::error("[PostgresMetricsDB] insert_generation_quality: {}",
+                                PQerrorMessage(conn));
         PQclear(res);
         return ok;
     });
@@ -478,19 +594,19 @@ void PostgresMetricsDatabase::insert_generation_quality(
 // ============================================================================
 
 std::vector<PersistentMetricsRecord> PostgresMetricsDatabase::query_history(
-    const std::string& session_key,
-    std::optional<std::chrono::system_clock::time_point> from,
-    std::optional<std::chrono::system_clock::time_point> to,
-    int limit) {
-
+    const std::string& session_key, std::optional<std::chrono::system_clock::time_point> from,
+    std::optional<std::chrono::system_clock::time_point> to, int limit) {
     std::vector<PersistentMetricsRecord> results;
 
     execute_with_retry("query_history", [&](PGconn* conn) -> bool {
         results.clear();
 
-        std::string sql = "SELECT recorded_at, epoch, sample, loss, validation_loss, "
-                          "learning_rate, gradient_norm, perplexity "
-                          "FROM metrics_history WHERE session_key = $1";
+        std::string sql =
+            "SELECT recorded_at, epoch, sample, loss, validation_loss, "
+            "learning_rate, gradient_norm, perplexity, compute_time_ratio, "
+            "weight_update_ratio, activation_saturation_ratio, attention_entropy, "
+            "padding_efficiency, layer_gradient_norms_json "
+            "FROM metrics_history WHERE session_key = $1";
 
         std::vector<std::string> param_strs;
         param_strs.push_back(session_key);
@@ -513,11 +629,11 @@ std::vector<PersistentMetricsRecord> PostgresMetricsDatabase::query_history(
         }
 
         std::vector<const char*> params;
-        for (const auto& s : param_strs) params.push_back(s.c_str());
+        for (const auto& s : param_strs)
+            params.push_back(s.c_str());
 
-        PGresult* res = PQexecParams(conn, sql.c_str(),
-            static_cast<int>(params.size()), nullptr,
-            params.data(), nullptr, nullptr, 0);
+        PGresult* res = PQexecParams(conn, sql.c_str(), static_cast<int>(params.size()), nullptr,
+                                     params.data(), nullptr, nullptr, 0);
 
         if (PQresultStatus(res) != PGRES_TUPLES_OK) {
             adai::Logger::error("[PostgresMetricsDB] query_history: {}", PQerrorMessage(conn));
@@ -528,16 +644,34 @@ std::vector<PersistentMetricsRecord> PostgresMetricsDatabase::query_history(
         int nrows = PQntuples(res);
         results.reserve(static_cast<size_t>(nrows));
 
+        // PQgetvalue() returns "" for a SQL NULL (indistinguishable from a real
+        // empty string without PQgetisnull) — the new TD-013 columns are NULL on
+        // any row inserted before this migration ran, so std::stof() on them
+        // unconditionally would throw. Guard with PQgetisnull for those columns.
+        auto opt_float = [&](int row, int col, float fallback) {
+            if (PQgetisnull(res, row, col))
+                return fallback;
+            return std::stof(PQgetvalue(res, row, col));
+        };
+
         for (int i = 0; i < nrows; ++i) {
             PersistentMetricsRecord rec;
-            rec.timestamp       = parse_timestamp(PQgetvalue(res, i, 0));
-            rec.epoch           = std::atoi(PQgetvalue(res, i, 1));
-            rec.sample          = std::atoi(PQgetvalue(res, i, 2));
-            rec.loss            = std::stof(PQgetvalue(res, i, 3));
+            rec.timestamp = parse_timestamp(PQgetvalue(res, i, 0));
+            rec.epoch = std::atoi(PQgetvalue(res, i, 1));
+            rec.sample = std::atoi(PQgetvalue(res, i, 2));
+            rec.loss = std::stof(PQgetvalue(res, i, 3));
             rec.validation_loss = std::stof(PQgetvalue(res, i, 4));
-            rec.learning_rate   = std::stof(PQgetvalue(res, i, 5));
-            rec.gradient_norm   = std::stof(PQgetvalue(res, i, 6));
-            rec.perplexity      = std::stof(PQgetvalue(res, i, 7));
+            rec.learning_rate = std::stof(PQgetvalue(res, i, 5));
+            rec.gradient_norm = std::stof(PQgetvalue(res, i, 6));
+            rec.perplexity = std::stof(PQgetvalue(res, i, 7));
+            rec.compute_time_ratio = opt_float(i, 8, 0.0f);
+            rec.weight_update_ratio = opt_float(i, 9, 0.0f);
+            rec.activation_saturation_ratio = opt_float(i, 10, -1.0f);
+            rec.attention_entropy = opt_float(i, 11, -1.0f);
+            rec.padding_efficiency = opt_float(i, 12, -1.0f);
+            if (!PQgetisnull(res, i, 13)) {
+                rec.layer_gradient_norms_json = PQgetvalue(res, i, 13);
+            }
             results.push_back(rec);
         }
 
@@ -550,16 +684,17 @@ std::vector<PersistentMetricsRecord> PostgresMetricsDatabase::query_history(
 
 std::vector<SessionRecord> PostgresMetricsDatabase::list_sessions(
     std::optional<bool> is_training_filter) {
-
     std::vector<SessionRecord> results;
 
     execute_with_retry("list_sessions", [&](PGconn* conn) -> bool {
         results.clear();
 
-        std::string sql = "SELECT key, session_id, label, config_json, is_training, "
-                          "created_at, ended_at, last_update_at, total_epochs, "
-                          "total_samples, best_validation_loss, best_epoch "
-                          "FROM sessions";
+        std::string sql =
+            "SELECT key, session_id, label, config_json, is_training, "
+            "created_at, ended_at, last_update_at, total_epochs, "
+            "total_samples, best_validation_loss, best_epoch, "
+            "final_loss, final_validation_loss "
+            "FROM sessions";
 
         std::vector<const char*> params;
         std::string filter_val;
@@ -572,10 +707,8 @@ std::vector<SessionRecord> PostgresMetricsDatabase::list_sessions(
 
         sql += " ORDER BY created_at DESC";
 
-        PGresult* res = PQexecParams(conn, sql.c_str(),
-            static_cast<int>(params.size()), nullptr,
-            params.empty() ? nullptr : params.data(),
-            nullptr, nullptr, 0);
+        PGresult* res = PQexecParams(conn, sql.c_str(), static_cast<int>(params.size()), nullptr,
+                                     params.empty() ? nullptr : params.data(), nullptr, nullptr, 0);
 
         if (PQresultStatus(res) != PGRES_TUPLES_OK) {
             adai::Logger::error("[PostgresMetricsDB] list_sessions: {}", PQerrorMessage(conn));
@@ -588,21 +721,23 @@ std::vector<SessionRecord> PostgresMetricsDatabase::list_sessions(
 
         for (int i = 0; i < nrows; ++i) {
             SessionRecord rec;
-            rec.key          = PQgetvalue(res, i, 0);
-            rec.session_id   = std::atoi(PQgetvalue(res, i, 1));
-            rec.label        = PQgetvalue(res, i, 2);
-            rec.config_json  = PQgetvalue(res, i, 3);
-            rec.is_training  = std::string(PQgetvalue(res, i, 4)) == "t";
-            rec.created_at   = parse_timestamp(PQgetvalue(res, i, 5));
-            auto ended_str   = std::string(PQgetvalue(res, i, 6));
+            rec.key = PQgetvalue(res, i, 0);
+            rec.session_id = std::atoi(PQgetvalue(res, i, 1));
+            rec.label = PQgetvalue(res, i, 2);
+            rec.config_json = PQgetvalue(res, i, 3);
+            rec.is_training = std::string(PQgetvalue(res, i, 4)) == "t";
+            rec.created_at = parse_timestamp(PQgetvalue(res, i, 5));
+            auto ended_str = std::string(PQgetvalue(res, i, 6));
             if (!ended_str.empty()) {
                 rec.ended_at = parse_timestamp(ended_str);
             }
-            rec.last_update_at       = parse_timestamp(PQgetvalue(res, i, 7));
-            rec.total_epochs         = std::atoi(PQgetvalue(res, i, 8));
-            rec.total_samples        = std::atoi(PQgetvalue(res, i, 9));
+            rec.last_update_at = parse_timestamp(PQgetvalue(res, i, 7));
+            rec.total_epochs = std::atoi(PQgetvalue(res, i, 8));
+            rec.total_samples = std::atoi(PQgetvalue(res, i, 9));
             rec.best_validation_loss = std::stof(PQgetvalue(res, i, 10));
-            rec.best_epoch           = std::atoi(PQgetvalue(res, i, 11));
+            rec.best_epoch = std::atoi(PQgetvalue(res, i, 11));
+            rec.final_loss = std::stof(PQgetvalue(res, i, 12));
+            rec.final_validation_loss = std::stof(PQgetvalue(res, i, 13));
             results.push_back(std::move(rec));
         }
 
@@ -621,11 +756,12 @@ std::optional<SessionRecord> PostgresMetricsDatabase::get_session(const std::str
 
         const char* params[] = {key.c_str()};
         PGresult* res = PQexecParams(conn,
-            "SELECT key, session_id, label, config_json, is_training, "
-            "created_at, ended_at, last_update_at, total_epochs, "
-            "total_samples, best_validation_loss, best_epoch "
-            "FROM sessions WHERE key = $1",
-            1, nullptr, params, nullptr, nullptr, 0);
+                                     "SELECT key, session_id, label, config_json, is_training, "
+                                     "created_at, ended_at, last_update_at, total_epochs, "
+                                     "total_samples, best_validation_loss, best_epoch, "
+                                     "final_loss, final_validation_loss "
+                                     "FROM sessions WHERE key = $1",
+                                     1, nullptr, params, nullptr, nullptr, 0);
 
         if (PQresultStatus(res) != PGRES_TUPLES_OK) {
             adai::Logger::error("[PostgresMetricsDB] get_session: {}", PQerrorMessage(conn));
@@ -639,21 +775,23 @@ std::optional<SessionRecord> PostgresMetricsDatabase::get_session(const std::str
         }
 
         SessionRecord rec;
-        rec.key          = PQgetvalue(res, 0, 0);
-        rec.session_id   = std::atoi(PQgetvalue(res, 0, 1));
-        rec.label        = PQgetvalue(res, 0, 2);
-        rec.config_json  = PQgetvalue(res, 0, 3);
-        rec.is_training  = std::string(PQgetvalue(res, 0, 4)) == "t";
-        rec.created_at   = parse_timestamp(PQgetvalue(res, 0, 5));
-        auto ended_str   = std::string(PQgetvalue(res, 0, 6));
+        rec.key = PQgetvalue(res, 0, 0);
+        rec.session_id = std::atoi(PQgetvalue(res, 0, 1));
+        rec.label = PQgetvalue(res, 0, 2);
+        rec.config_json = PQgetvalue(res, 0, 3);
+        rec.is_training = std::string(PQgetvalue(res, 0, 4)) == "t";
+        rec.created_at = parse_timestamp(PQgetvalue(res, 0, 5));
+        auto ended_str = std::string(PQgetvalue(res, 0, 6));
         if (!ended_str.empty()) {
             rec.ended_at = parse_timestamp(ended_str);
         }
-        rec.last_update_at       = parse_timestamp(PQgetvalue(res, 0, 7));
-        rec.total_epochs         = std::atoi(PQgetvalue(res, 0, 8));
-        rec.total_samples        = std::atoi(PQgetvalue(res, 0, 9));
+        rec.last_update_at = parse_timestamp(PQgetvalue(res, 0, 7));
+        rec.total_epochs = std::atoi(PQgetvalue(res, 0, 8));
+        rec.total_samples = std::atoi(PQgetvalue(res, 0, 9));
         rec.best_validation_loss = std::stof(PQgetvalue(res, 0, 10));
-        rec.best_epoch           = std::atoi(PQgetvalue(res, 0, 11));
+        rec.best_epoch = std::atoi(PQgetvalue(res, 0, 11));
+        rec.final_loss = std::stof(PQgetvalue(res, 0, 12));
+        rec.final_validation_loss = std::stof(PQgetvalue(res, 0, 13));
 
         result = std::move(rec);
         PQclear(res);
@@ -667,9 +805,9 @@ std::optional<SessionRecord> PostgresMetricsDatabase::get_session(const std::str
 // Factory Helper
 // ============================================================================
 
-std::unique_ptr<IMetricsDatabase> create_postgres_metrics_database(
-    const std::string& url, int pool_size) {
+std::unique_ptr<IMetricsDatabase> create_postgres_metrics_database(const std::string& url,
+                                                                   int pool_size) {
     return std::make_unique<PostgresMetricsDatabase>(url, pool_size);
 }
 
-#endif // ADAI_ENABLE_POSTGRES
+#endif  // ADAI_ENABLE_POSTGRES

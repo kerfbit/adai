@@ -17,10 +17,10 @@
  */
 struct DatasetConfig {
     // ── Local state ────────────────────────────────────────────────────────
-    std::string session_dir          = "training_sessions";
-    std::string data_registry_file   = "data_registry.txt";
-    bool        cache_tokenized_data = false;
-    std::string tokenized_cache_dir  = "tokenized_cache";
+    std::string session_dir = "training_sessions";
+    std::string data_registry_file = "data_registry.txt";
+    bool cache_tokenized_data = false;
+    std::string tokenized_cache_dir = "tokenized_cache";
 
     // ── Remote registry (TD-028 Phase 9; empty = local flat-file mode) ────
     /// URL of the registry_server daemon (e.g. "http://registry-host:8081")
@@ -30,17 +30,20 @@ struct DatasetConfig {
     /// Per-process run identifier; auto-derived from hostname+PID when empty
     std::string run_id;
     /// HTTP timeout in milliseconds for registry_server calls (default: 5000)
-    int         registry_timeout_ms = 5000;
+    int registry_timeout_ms = 5000;
+    /// Caller's model identity for assignment-aware acquire() filtering (empty =
+    /// only unassigned entries are eligible; see RegistryTransport::acquire).
+    std::string model_name;
     /// Maximum pending files to acquire per run; 0 = claim all available (default: 0)
-    int         max_files_per_run   = 0;
+    int max_files_per_run = 0;
 
     // ── FTP dataset transport (Phase 10) ──────────────────────────────────
     /// Local directory for FTP downloads; created at startup if absent.
     std::string download_dir;
     /// Maximum concurrent FTP connections for fetch_all() (default: 4)
-    int         max_parallel_downloads = 4;
+    int max_parallel_downloads = 4;
     /// Log a warning for any file whose size exceeds this threshold in MB; 0 = disabled
-    int         large_file_warn_threshold_mb = 500;
+    int large_file_warn_threshold_mb = 500;
 };
 
 /**
@@ -64,7 +67,7 @@ struct DatasetConfig {
  * design including the distributed-mode extensions planned for Phase 9.
  */
 class DatasetRegistry {
-public:
+   public:
     explicit DatasetRegistry(DatasetConfig cfg = {});
 
     /**
@@ -102,7 +105,15 @@ public:
      */
     bool add_files(const std::vector<std::string>& paths);
 
-    /** @brief Discard the in-memory pending queue (does not write to disk). */
+    /**
+     * @brief Discard the in-memory pending queue (does not write to disk).
+     *
+     * @note Local-mode only in effect: save_pending_list() (called separately
+     *       by callers such as the CLI) is a documented no-op for
+     *       RemoteTransport, so against a live registry_server this clears
+     *       nothing server-side. Use delete_entries() with the current
+     *       pending_files() list for a remote-capable bulk purge instead.
+     */
     void clear_pending();
 
     /**
@@ -111,19 +122,54 @@ public:
      * Removes the entry from in-memory state and persists via save_pending_list().
      *
      * @return true if the file was found and removed.
+     *
+     * @note Local-mode only in effect, for the same reason as clear_pending().
+     *       Use delete_entries({path}) for a remote-capable equivalent.
      */
     bool remove_pending(const std::string& path);
 
     /**
-     * @brief Assign pending files to a model by name.
+     * @brief Assign pending files to a model, by explicit path list, by
+     *        count, or all of them.
      *
-     * Sets the model_name field on matching pending entries and persists
-     * via save_pending_list().  If @p paths is empty, assigns all pending.
-     *
-     * @return true if at least one entry was updated.
+     * Delegates to transport_->assign(), so — unlike clear_pending()/
+     * remove_pending() — this works correctly against both LocalTransport and
+     * RemoteTransport. Three modes, checked in order:
+     *   - non-empty @p paths        — assign exactly those (count ignored)
+     *   - empty @p paths, count > 0 — assign the first @p count
+     *                                 currently-unassigned entries
+     *   - empty @p paths, count<=0  — assign every pending entry (default)
      */
-    bool assign_model(const std::string& model_name,
-                      const std::vector<std::string>& paths = {});
+    AssignResult assign_model(const std::string& model_name,
+                              const std::vector<std::string>& paths = {}, int count = 0);
+
+    /**
+     * @brief Clear model_name back to unassigned. Delegates to
+     *        transport_->unassign() (works in both local and remote mode).
+     *
+     * If @p paths is empty, clears every entry currently assigned to
+     * @p model_name (bulk mode; @p model_name must be non-empty). Otherwise
+     * clears only the listed paths; a non-empty @p model_name additionally
+     * acts as an ownership filter. An entry actively claimed by a run
+     * (non-empty run_id) is left untouched unless @p force is true.
+     */
+    UnassignResult unassign_model(const std::string& model_name,
+                                  const std::vector<std::string>& paths = {}, bool force = false);
+
+    /**
+     * @brief Permanently purge entries matching @p paths from both the
+     *        pending queue and the trained registry. Delegates to
+     *        transport_->delete_paths() (works in both local and remote
+     *        mode). @p paths must be non-empty.
+     *
+     * A pending entry actively claimed by a run is left untouched unless
+     * @p force is true; the trained registry has no run_id concept and is
+     * always purged unconditionally on a match. @p delete_files additionally
+     * requests the physical file be unlinked — see RegistryTransport::
+     * delete_paths() for the local-vs-remote containment rules.
+     */
+    DeleteResult delete_entries(const std::vector<std::string>& paths, bool force = false,
+                                bool delete_files = false);
 
     /** @return Copy of the current in-memory pending-file paths. */
     std::vector<std::string> pending_files() const;
@@ -150,8 +196,7 @@ public:
      *                      (parallel to @p paths; extra or missing counts
      *                      are treated as 0).
      */
-    void mark_trained(const std::vector<std::string>& paths,
-                      const std::vector<int>& sample_counts);
+    void mark_trained(const std::vector<std::string>& paths, const std::vector<int>& sample_counts);
 
     // ── Multi-run API (TD-028 Phase 9) ─────────────────────────────────────
 
@@ -169,6 +214,14 @@ public:
      *         (caller reads files directly by registry_path).
      */
     AcquireResponse acquire_pending(const std::string& run_id, int max_files = 0);
+
+    /**
+     * @brief Allocate the next session number for (@p model_name, @p run_id) —
+     *        e.g. "session-01" the first call for a given run_id, "session-02"
+     *        the next, resetting naturally whenever @p run_id changes (a new
+     *        MNS-allocated run). Thin wrapper over RegistryTransport::next_session.
+     */
+    std::string next_session(const std::string& model_name, const std::string& run_id);
 
     /**
      * @brief Return @p paths claimed by @p run_id back to the unassigned pool.
@@ -192,6 +245,41 @@ public:
 
     /** @brief Print which files are currently assigned to which run_id. */
     void print_run_assignments();
+
+    // ── Server-side dataset fetch (Phase 11) ────────────────────────────────
+    //
+    // These delegate to the transport; in local mode (LocalTransport) they
+    // always fail since there is no registry_server to perform the download.
+    // Callers should fall back to DataFetcher + add_file() in local mode.
+
+    /**
+     * @brief Ask the registry to download a Project Gutenberg book into its
+     *        own data_dir and enqueue it as pending.
+     * @param model_name Identifies the caller for per-model rotating-slice
+     *                    tracking; empty buckets into a shared cursor.
+     * @return Registry-relative path of the newly queued file, or "" on failure.
+     */
+    std::string remote_fetch_gutenberg(int book_id, int num_pairs, const std::string& model_name = "");
+
+    /**
+     * @brief Ask the registry to download a HuggingFace dataset into its own
+     *        data_dir and enqueue it as pending.
+     * @param model_name Identifies the caller for per-model rotating-slice
+     *                    tracking; empty buckets into a shared cursor.
+     * @return Registry-relative path of the newly queued file, or "" on failure.
+     */
+    std::string remote_fetch_huggingface(const std::string& dataset_id, int num_pairs,
+                                         const std::string& split, const std::string& input_field,
+                                         const std::string& output_field,
+                                         const std::string& model_name = "");
+
+    /**
+     * @brief Upload a local file's bytes to the registry's own data_dir and
+     *        enqueue it as pending.
+     * @param local_path Path to a file readable on the caller's machine.
+     * @return Registry-relative path of the newly queued file, or "" on failure.
+     */
+    std::string remote_upload(const std::string& local_path);
 
     // ── Persistence ────────────────────────────────────────────────────────
 
@@ -226,7 +314,7 @@ public:
     void print_registry() const;
 
     /** @return Total number of trained samples across all registry entries. */
-    int  total_samples_trained() const;
+    int total_samples_trained() const;
 
     // ── Static helpers ─────────────────────────────────────────────────────
 
@@ -244,8 +332,7 @@ public:
      * @param out   Output vector; pairs are appended (not replaced).
      * @return Number of pairs appended to @p out.
      */
-    static int load_conversation_pairs(const std::string& path,
-                                       std::vector<ConversationPair>& out);
+    static int load_conversation_pairs(const std::string& path, std::vector<ConversationPair>& out);
 
     /**
      * @brief Compute a lightweight content fingerprint for @p path.
@@ -255,12 +342,12 @@ public:
      */
     static std::string compute_checksum(const std::string& path);
 
-private:
-    DatasetConfig                      config_;
+   private:
+    DatasetConfig config_;
     std::unique_ptr<RegistryTransport> transport_;  // Phase 8: injected I/O backend
-    std::vector<DataVersion>           registry_;
-    std::set<std::string>              trained_set_;
-    std::vector<PendingEntry>           pending_;
+    std::vector<DataVersion> registry_;
+    std::set<std::string> trained_set_;
+    std::vector<PendingEntry> pending_;
 
     /** @return Full path to the registry flat file. */
     std::string registry_file_path() const;

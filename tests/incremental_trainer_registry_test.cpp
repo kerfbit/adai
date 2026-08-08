@@ -129,10 +129,10 @@ bool start_mock_server(httplib::Server& server, int port, std::thread& thread) {
     probe.set_connection_timeout(std::chrono::milliseconds(200));
     probe.set_read_timeout(std::chrono::milliseconds(200));
 
-    const auto deadline =
-        std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
     while (std::chrono::steady_clock::now() < deadline) {
-        if (server.is_running()) return true;
+        if (server.is_running())
+            return true;
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     return false;
@@ -145,8 +145,7 @@ TEST(MetricsPushClientTest, StartSessionReturns201WhenServerAccepts) {
     const int port = pick_mock_port(static_cast<int>(::getpid()) + 0);
 
     httplib::Server mock;
-    mock.Post("/api/sessions/key-201/start", [](const httplib::Request&,
-                                                 httplib::Response& res) {
+    mock.Post("/api/sessions/key-201/start", [](const httplib::Request&, httplib::Response& res) {
         res.status = 201;
         res.set_content("{}", "application/json");
     });
@@ -155,13 +154,13 @@ TEST(MetricsPushClientTest, StartSessionReturns201WhenServerAccepts) {
     ASSERT_TRUE(start_mock_server(mock, port, srv_thread))
         << "Mock server failed to start on port " << port;
 
-    const std::string url =
-        "http://127.0.0.1:" + std::to_string(port) + "/api/sessions/key-201";
+    const std::string url = "http://127.0.0.1:" + std::to_string(port) + "/api/sessions/key-201";
     MetricsPushClient client(url, /*timeout_ms=*/500);
     const int rc = client.start_session(1, 3, 50, "label-201");
 
     mock.stop();
-    if (srv_thread.joinable()) srv_thread.join();
+    if (srv_thread.joinable())
+        srv_thread.join();
 
     EXPECT_EQ(rc, 201);
 }
@@ -170,8 +169,7 @@ TEST(MetricsPushClientTest, StartSessionReturns409WhenServerConflicts) {
     const int port = pick_mock_port(static_cast<int>(::getpid()) + 1);
 
     httplib::Server mock;
-    mock.Post("/api/sessions/key-409/start", [](const httplib::Request&,
-                                                 httplib::Response& res) {
+    mock.Post("/api/sessions/key-409/start", [](const httplib::Request&, httplib::Response& res) {
         res.status = 409;
         res.set_content("{\"error\":\"conflict\"}", "application/json");
     });
@@ -180,13 +178,13 @@ TEST(MetricsPushClientTest, StartSessionReturns409WhenServerConflicts) {
     ASSERT_TRUE(start_mock_server(mock, port, srv_thread))
         << "Mock server failed to start on port " << port;
 
-    const std::string url =
-        "http://127.0.0.1:" + std::to_string(port) + "/api/sessions/key-409";
+    const std::string url = "http://127.0.0.1:" + std::to_string(port) + "/api/sessions/key-409";
     MetricsPushClient client(url, /*timeout_ms=*/500);
     const int rc = client.start_session(2, 3, 50, "label-409");
 
     mock.stop();
-    if (srv_thread.joinable()) srv_thread.join();
+    if (srv_thread.joinable())
+        srv_thread.join();
 
     EXPECT_EQ(rc, 409);
 }
@@ -237,18 +235,20 @@ TEST(MetricsPushClientTest, StartSessionRetryAppendsCorrectSuffix) {
 
         const int port = (attempt == 0) ? port_a : port_b;
         const std::string url =
-            "http://127.0.0.1:" + std::to_string(port) +
-            "/api/sessions/" + session_key;
+            "http://127.0.0.1:" + std::to_string(port) + "/api/sessions/" + session_key;
 
         MetricsPushClient client(url, /*timeout_ms=*/500);
         final_rc = client.start_session(1, 2, 30, "retry-label");
-        if (final_rc != 409) break;
+        if (final_rc != 409)
+            break;
     }
 
     mock_a.stop();
     mock_b.stop();
-    if (thr_a.joinable()) thr_a.join();
-    if (thr_b.joinable()) thr_b.join();
+    if (thr_a.joinable())
+        thr_a.join();
+    if (thr_b.joinable())
+        thr_b.join();
 
     EXPECT_EQ(final_rc, 201);
     EXPECT_EQ(session_key, base_key + "-2");
@@ -317,8 +317,7 @@ void write_minimal_vocab(const std::string& path) {
 TEST(IncrementalTrainerDecouplingTest, SessionKeyIsInitiallyEmpty) {
     // Construct a minimal IncrementalTrainer and verify the key is empty
     // before any training run has started.
-    const fs::path dir =
-        fs::temp_directory_path() / "adai_decoupling_test_key_check";
+    const fs::path dir = fs::temp_directory_path() / "adai_decoupling_test_key_check";
     fs::create_directories(dir);
 
     const std::string vocab_path = (dir / "vocab.txt").string();
@@ -346,8 +345,7 @@ TEST(IncrementalTrainerDecouplingTest, SessionKeyIsInitiallyEmpty) {
 TEST(IncrementalTrainerDecouplingTest, NullReporterPathWhenUrlIsEmpty) {
     // When metrics_server_url is empty the push_client_ alias is never set,
     // so get_metrics_session_key() returns the empty string.
-    const fs::path dir =
-        fs::temp_directory_path() / "adai_decoupling_test_null_path";
+    const fs::path dir = fs::temp_directory_path() / "adai_decoupling_test_null_path";
     fs::create_directories(dir);
 
     const std::string vocab_path = (dir / "vocab.txt").string();
@@ -387,11 +385,11 @@ TEST(IncrementalConfigTest, MnsModelNameDefaultsToEmpty) {
 
 TEST(IncrementalConfigTest, MnsFieldsCanBeSet) {
     IncrementalConfig cfg;
-    cfg.mns_server_url  = "http://localhost:8083";
-    cfg.mns_model_name  = "my-chatbot-v2";
+    cfg.mns_server_url = "http://localhost:8083";
+    cfg.mns_model_name = "my-chatbot-v2";
 
-    EXPECT_EQ(cfg.mns_server_url,  "http://localhost:8083");
-    EXPECT_EQ(cfg.mns_model_name,  "my-chatbot-v2");
+    EXPECT_EQ(cfg.mns_server_url, "http://localhost:8083");
+    EXPECT_EQ(cfg.mns_model_name, "my-chatbot-v2");
 
     // Metrics fields are orthogonal to MNS fields — verify no cross-contamination.
     EXPECT_TRUE(cfg.metrics_server_url.empty());

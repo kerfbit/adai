@@ -13,35 +13,38 @@
 // URL parsing (same pattern as MetricsPushClient::ParsedUrl)
 // ============================================================================
 
-adai::ModelNameClient::ParsedUrl
-adai::ModelNameClient::ParsedUrl::from(const std::string& url) {
+adai::ModelNameClient::ParsedUrl adai::ModelNameClient::ParsedUrl::from(const std::string& url) {
     ParsedUrl r;
     std::string s = url;
 
     // Strip scheme
-    const std::string http_prefix  = "http://";
+    const std::string http_prefix = "http://";
     const std::string https_prefix = "https://";
     if (s.rfind(http_prefix, 0) == 0) {
         s = s.substr(http_prefix.size());
     } else if (s.rfind(https_prefix, 0) == 0) {
-        s    = s.substr(https_prefix.size());
+        s = s.substr(https_prefix.size());
         r.port = 443;
     }
 
     const auto slash = s.find('/');
     std::string authority;
     if (slash != std::string::npos) {
-        authority    = s.substr(0, slash);
-        r.base_path  = s.substr(slash);
+        authority = s.substr(0, slash);
+        r.base_path = s.substr(slash);
     } else {
         authority = s;
     }
-    while (!r.base_path.empty() && r.base_path.back() == '/') r.base_path.pop_back();
+    while (!r.base_path.empty() && r.base_path.back() == '/')
+        r.base_path.pop_back();
 
     const auto colon = authority.find(':');
     if (colon != std::string::npos) {
         r.host = authority.substr(0, colon);
-        try { r.port = std::stoi(authority.substr(colon + 1)); } catch (...) {}
+        try {
+            r.port = std::stoi(authority.substr(colon + 1));
+        } catch (...) {
+        }
     } else {
         r.host = authority;
     }
@@ -67,12 +70,24 @@ std::string json_escape_client(const std::string& s) {
     std::string out;
     for (unsigned char c : s) {
         switch (c) {
-            case '"':  out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            case '\n': out += "\\n";  break;
-            case '\r': out += "\\r";  break;
-            case '\t': out += "\\t";  break;
-            default:   out += static_cast<char>(c); break;
+            case '"':
+                out += "\\\"";
+                break;
+            case '\\':
+                out += "\\\\";
+                break;
+            case '\n':
+                out += "\\n";
+                break;
+            case '\r':
+                out += "\\r";
+                break;
+            case '\t':
+                out += "\\t";
+                break;
+            default:
+                out += static_cast<char>(c);
+                break;
         }
     }
     return out;
@@ -81,11 +96,25 @@ std::string json_escape_client(const std::string& s) {
 std::string json_string_client(const std::string& body, const std::string& key) {
     const std::string needle = "\"" + key + "\":\"";
     const auto pos = body.find(needle);
-    if (pos == std::string::npos) return {};
+    if (pos == std::string::npos)
+        return {};
     const auto start = pos + needle.size();
-    const auto end   = body.find('"', start);
-    if (end == std::string::npos) return {};
+    const auto end = body.find('"', start);
+    if (end == std::string::npos)
+        return {};
     return body.substr(start, end - start);
+}
+
+size_t json_int_client(const std::string& body, const std::string& key) {
+    const std::string needle = "\"" + key + "\":";
+    const auto pos = body.find(needle);
+    if (pos == std::string::npos)
+        return 0;
+    try {
+        return static_cast<size_t>(std::stoull(body.substr(pos + needle.size())));
+    } catch (...) {
+        return 0;
+    }
 }
 
 }  // namespace
@@ -104,17 +133,19 @@ static httplib::Client make_client(const std::string& host, int port, int timeou
 }
 
 int adai::ModelNameClient::http_post(const std::string& path, const std::string& body,
-                                      std::string& out) const {
+                                     std::string& out) const {
     const std::string full_path = parsed_.base_path + path;
     for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
         if (attempt > 0)
             std::this_thread::sleep_for(std::chrono::milliseconds(kBackoffMs[attempt]));
         try {
-            auto c   = make_client(parsed_.host, parsed_.port, timeout_ms_);
+            auto c = make_client(parsed_.host, parsed_.port, timeout_ms_);
             auto res = c.Post(full_path, body, "application/json");
-            if (!res) continue;
+            if (!res)
+                continue;
             out = res->body;
-            if (res->status >= 500) continue;
+            if (res->status >= 500)
+                continue;
             return res->status;
         } catch (const std::exception& e) {
             adai::Logger::debug("ModelNameClient: POST {} exception: {}", path, e.what());
@@ -129,11 +160,13 @@ int adai::ModelNameClient::http_get(const std::string& path, std::string& out) c
         if (attempt > 0)
             std::this_thread::sleep_for(std::chrono::milliseconds(kBackoffMs[attempt]));
         try {
-            auto c   = make_client(parsed_.host, parsed_.port, timeout_ms_);
+            auto c = make_client(parsed_.host, parsed_.port, timeout_ms_);
             auto res = c.Get(full_path);
-            if (!res) continue;
+            if (!res)
+                continue;
             out = res->body;
-            if (res->status >= 500) continue;
+            if (res->status >= 500)
+                continue;
             return res->status;
         } catch (const std::exception& e) {
             adai::Logger::debug("ModelNameClient: GET {} exception: {}", path, e.what());
@@ -143,17 +176,19 @@ int adai::ModelNameClient::http_get(const std::string& path, std::string& out) c
 }
 
 int adai::ModelNameClient::http_put(const std::string& path, const std::string& body,
-                                     std::string& out) const {
+                                    std::string& out) const {
     const std::string full_path = parsed_.base_path + path;
     for (int attempt = 0; attempt < kMaxAttempts; ++attempt) {
         if (attempt > 0)
             std::this_thread::sleep_for(std::chrono::milliseconds(kBackoffMs[attempt]));
         try {
-            auto c   = make_client(parsed_.host, parsed_.port, timeout_ms_);
+            auto c = make_client(parsed_.host, parsed_.port, timeout_ms_);
             auto res = c.Put(full_path, body, "application/json");
-            if (!res) continue;
+            if (!res)
+                continue;
             out = res->body;
-            if (res->status >= 500) continue;
+            if (res->status >= 500)
+                continue;
             return res->status;
         } catch (const std::exception& e) {
             adai::Logger::debug("ModelNameClient: PUT {} exception: {}", path, e.what());
@@ -164,9 +199,15 @@ int adai::ModelNameClient::http_put(const std::string& path, const std::string& 
 
 #else  // BUILD_MNS_SERVER not defined — no-op stubs
 
-int adai::ModelNameClient::http_post(const std::string&, const std::string&, std::string&) const { return 0; }
-int adai::ModelNameClient::http_get (const std::string&, std::string&) const { return 0; }
-int adai::ModelNameClient::http_put (const std::string&, const std::string&, std::string&) const { return 0; }
+int adai::ModelNameClient::http_post(const std::string&, const std::string&, std::string&) const {
+    return 0;
+}
+int adai::ModelNameClient::http_get(const std::string&, std::string&) const {
+    return 0;
+}
+int adai::ModelNameClient::http_put(const std::string&, const std::string&, std::string&) const {
+    return 0;
+}
 
 #endif  // BUILD_MNS_SERVER
 
@@ -175,7 +216,7 @@ int adai::ModelNameClient::http_put (const std::string&, const std::string&, std
 // ============================================================================
 
 void adai::ModelNameClient::check_status(int status, const std::string& out,
-                                          const std::string& op) {
+                                         const std::string& op) {
     if (status == 0)
         throw std::runtime_error("ModelNameClient: " + op + " — connection failed");
     if (status < 200 || status >= 300)
@@ -187,25 +228,21 @@ void adai::ModelNameClient::check_status(int status, const std::string& out,
 // Public API
 // ============================================================================
 
-std::string adai::ModelNameClient::register_model(
-        const std::string& model_name,
-        const std::string& role,
-        const ServiceConfig& arch,
-        const std::map<std::string, std::string>& tags) {
+std::string adai::ModelNameClient::register_model(const std::string& model_name,
+                                                  const std::string& role,
+                                                  const ServiceConfig& arch,
+                                                  const std::map<std::string, std::string>& tags) {
     std::ostringstream body;
-    body << "{\"model_name\":\"" << json_escape_client(model_name) << "\""
-         << ",\"role\":\""        << json_escape_client(role)       << "\""
-         << ",\"arch\":{"
-           << "\"d_model\":"            << arch.d_model
-           << ",\"num_heads\":"         << arch.num_heads
-           << ",\"d_ff\":"              << arch.d_ff
-           << ",\"num_encoder_layers\":" << arch.num_encoder_layers
-           << ",\"num_decoder_layers\":" << arch.num_decoder_layers
-           << ",\"max_seq_length\":"    << arch.max_seq_length
-         << "},\"tags\":{";
+    body << "{\"model_name\":\"" << json_escape_client(model_name) << "\"" << ",\"role\":\""
+         << json_escape_client(role) << "\"" << ",\"arch\":{" << "\"d_model\":" << arch.d_model
+         << ",\"num_heads\":" << arch.num_heads << ",\"d_ff\":" << arch.d_ff
+         << ",\"num_encoder_layers\":" << arch.num_encoder_layers
+         << ",\"num_decoder_layers\":" << arch.num_decoder_layers
+         << ",\"max_seq_length\":" << arch.max_seq_length << "},\"tags\":{";
     bool first = true;
     for (const auto& [k, v] : tags) {
-        if (!first) body << ',';
+        if (!first)
+            body << ',';
         first = false;
         body << '"' << json_escape_client(k) << "\":\"" << json_escape_client(v) << '"';
     }
@@ -217,12 +254,10 @@ std::string adai::ModelNameClient::register_model(
     return json_string_client(out, "model_id");
 }
 
-void adai::ModelNameClient::set_training(const std::string& model_name,
-                                          const std::string& run_id,
-                                          const std::string& metrics_session_key) {
+std::string adai::ModelNameClient::set_training(const std::string& model_name, bool new_run,
+                                                const std::string& metrics_session_key) {
     std::ostringstream body;
-    body << "{\"state\":\"training\""
-         << ",\"run_id\":\"" << json_escape_client(run_id) << "\"";
+    body << "{\"state\":\"training\"" << ",\"new_run\":" << (new_run ? "true" : "false");
     if (!metrics_session_key.empty())
         body << ",\"metrics_session_key\":\"" << json_escape_client(metrics_session_key) << "\"";
     body << "}";
@@ -230,27 +265,24 @@ void adai::ModelNameClient::set_training(const std::string& model_name,
     std::string out;
     const int status = http_put("/models/" + model_name + "/state", body.str(), out);
     check_status(status, out, "set_training(" + model_name + ")");
+    return json_string_client(out, "run_id");
 }
 
 void adai::ModelNameClient::set_candidate(
-        const std::string& model_name,
-        const std::string& run_id,
-        const ArtifactLocation& artifact,
-        const std::map<std::string, std::string>& training_summary) {
+    const std::string& model_name, const std::string& run_id, const ArtifactLocation& artifact,
+    const std::map<std::string, std::string>& training_summary) {
     std::ostringstream body;
-    body << "{\"state\":\"candidate\""
-         << ",\"run_id\":\"" << json_escape_client(run_id) << "\""
-         << ",\"artifact\":{"
-           << "\"host\":\""     << json_escape_client(artifact.host)     << "\""
-           << ",\"path\":\""    << json_escape_client(artifact.path)     << "\""
-           << ",\"checksum\":\"" << json_escape_client(artifact.checksum) << "\""
-           << ",\"format\":\""  << json_escape_client(artifact.format)   << "\""
-         << "}";
+    body << "{\"state\":\"candidate\"" << ",\"run_id\":\"" << json_escape_client(run_id) << "\""
+         << ",\"artifact\":{" << "\"host\":\"" << json_escape_client(artifact.host) << "\""
+         << ",\"path\":\"" << json_escape_client(artifact.path) << "\"" << ",\"checksum\":\""
+         << json_escape_client(artifact.checksum) << "\"" << ",\"format\":\""
+         << json_escape_client(artifact.format) << "\"" << "}";
     if (!training_summary.empty()) {
         body << ",\"training_summary\":{";
         bool first = true;
         for (const auto& [k, v] : training_summary) {
-            if (!first) body << ',';
+            if (!first)
+                body << ',';
             first = false;
             body << '"' << json_escape_client(k) << "\":\"" << json_escape_client(v) << '"';
         }
@@ -263,11 +295,27 @@ void adai::ModelNameClient::set_candidate(
     check_status(status, out, "set_candidate(" + model_name + ")");
 }
 
-std::vector<adai::ModelSummary> adai::ModelNameClient::list_models(
-        const std::string& state_filter, const std::string& role_filter, int limit) {
+void adai::ModelNameClient::push_progress(const std::string& model_name, const std::string& run_id,
+                                          const std::string& session_id, int epoch, double loss,
+                                          double best_loss) {
+    std::ostringstream body;
+    body << "{\"run_id\":\"" << json_escape_client(run_id) << "\"" << ",\"session_id\":\""
+         << json_escape_client(session_id) << "\"" << ",\"epoch\":" << epoch << ",\"loss\":" << loss
+         << ",\"best_loss\":" << best_loss << "}";
+
+    std::string out;
+    const int status = http_put("/models/" + model_name + "/progress", body.str(), out);
+    check_status(status, out, "push_progress(" + model_name + ")");
+}
+
+std::vector<adai::ModelSummary> adai::ModelNameClient::list_models(const std::string& state_filter,
+                                                                   const std::string& role_filter,
+                                                                   int limit) {
     std::string path = "/models?limit=" + std::to_string(limit);
-    if (!state_filter.empty()) path += "&state=" + state_filter;
-    if (!role_filter.empty())  path += "&role="  + role_filter;
+    if (!state_filter.empty())
+        path += "&state=" + state_filter;
+    if (!role_filter.empty())
+        path += "&role=" + role_filter;
 
     std::string out;
     const int status = http_get(path, out);
@@ -278,13 +326,14 @@ std::vector<adai::ModelSummary> adai::ModelNameClient::list_models(
     size_t pos = 0;
     while ((pos = out.find(needle, pos)) != std::string::npos) {
         size_t end = out.find("}}", pos);
-        if (end == std::string::npos) break;
+        if (end == std::string::npos)
+            break;
         end += 2;
         std::string record = out.substr(pos, end - pos);
         ModelSummary ms;
-        ms.model_name  = json_string_client(record, "model_name");
-        ms.state       = json_string_client(record, "state");
-        ms.role        = json_string_client(record, "role");
+        ms.model_name = json_string_client(record, "model_name");
+        ms.state = json_string_client(record, "state");
+        ms.role = json_string_client(record, "role");
         ms.updated_utc = json_string_client(record, "updated_utc");
         result.push_back(std::move(ms));
         pos = end;
@@ -298,14 +347,39 @@ adai::ResolvedModel adai::ModelNameClient::resolve_model(const std::string& mode
     check_status(status, out, "resolve_model(" + model_name + ")");
 
     ResolvedModel rm;
-    rm.model_id    = json_string_client(out, "model_id");
-    rm.model_name  = json_string_client(out, "model_name");
-    rm.state       = json_string_client(out, "state");
-    rm.artifact.host     = json_string_client(out, "host");
-    rm.artifact.path     = json_string_client(out, "path");
+    rm.model_id = json_string_client(out, "model_id");
+    rm.model_name = json_string_client(out, "model_name");
+    rm.state = json_string_client(out, "state");
+    rm.artifact.host = json_string_client(out, "host");
+    rm.artifact.path = json_string_client(out, "path");
     rm.artifact.checksum = json_string_client(out, "checksum");
-    rm.artifact.format   = json_string_client(out, "format");
+    rm.artifact.format = json_string_client(out, "format");
     return rm;
+}
+
+std::optional<adai::ModelArchitecture> adai::ModelNameClient::get_architecture(
+    const std::string& model_name) {
+    std::string out;
+    const int status = http_get("/models/" + model_name, out);
+    if (status == 404) {
+        return std::nullopt;
+    }
+    check_status(status, out, "get_architecture(" + model_name + ")");
+
+    const auto arch_pos = out.find("\"arch\":{");
+    if (arch_pos == std::string::npos) {
+        return std::nullopt;
+    }
+    const std::string arch = out.substr(arch_pos);
+
+    ModelArchitecture a;
+    a.d_model = json_int_client(arch, "d_model");
+    a.num_heads = json_int_client(arch, "num_heads");
+    a.d_ff = json_int_client(arch, "d_ff");
+    a.num_encoder_layers = json_int_client(arch, "num_encoder_layers");
+    a.num_decoder_layers = json_int_client(arch, "num_decoder_layers");
+    a.max_seq_length = json_int_client(arch, "max_seq_length");
+    return a;
 }
 
 adai::ResolvedModel adai::ModelNameClient::resolve_role(const std::string& role) {
@@ -314,13 +388,13 @@ adai::ResolvedModel adai::ModelNameClient::resolve_role(const std::string& role)
     check_status(status, out, "resolve_role(" + role + ")");
 
     ResolvedModel rm;
-    rm.model_id    = json_string_client(out, "model_id");
-    rm.model_name  = json_string_client(out, "model_name");
-    rm.state       = json_string_client(out, "state");
-    rm.artifact.host     = json_string_client(out, "host");
-    rm.artifact.path     = json_string_client(out, "path");
+    rm.model_id = json_string_client(out, "model_id");
+    rm.model_name = json_string_client(out, "model_name");
+    rm.state = json_string_client(out, "state");
+    rm.artifact.host = json_string_client(out, "host");
+    rm.artifact.path = json_string_client(out, "path");
     rm.artifact.checksum = json_string_client(out, "checksum");
-    rm.artifact.format   = json_string_client(out, "format");
+    rm.artifact.format = json_string_client(out, "format");
     return rm;
 }
 

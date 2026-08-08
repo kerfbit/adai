@@ -41,11 +41,11 @@ static void write_bytes(const fs::path& p, std::size_t n_bytes, char fill = 'X')
 
 static FileToken make_token(const std::string& ftp_path, std::size_t size_bytes) {
     FileToken tok;
-    tok.registry_path     = "/registry/" + ftp_path;
-    tok.ftp_path          = ftp_path;
-    tok.ftp_username      = "adai_deadbeef";
-    tok.ftp_password      = std::string(64, 'f');
-    tok.size_bytes        = size_bytes;
+    tok.registry_path = "/registry/" + ftp_path;
+    tok.ftp_path = ftp_path;
+    tok.ftp_username = "adai_deadbeef";
+    tok.ftp_password = std::string(64, 'f');
+    tok.size_bytes = size_bytes;
     tok.token_expires_utc = "2099-01-01T00:00:00Z";
     return tok;
 }
@@ -68,13 +68,13 @@ TEST(DataTransportConstantsTest, BaseBackoffIsOneSecond) {
 
 TEST(DataTransportConditionBTest, SkipsDownloadForCompleteFile) {
     const auto dir = make_temp_dir("cond_b_skip");
-    const std::string ftp_path  = "train.bin";
+    const std::string ftp_path = "train.bin";
     const std::size_t file_size = 1024;
 
     // Pre-create a "complete" file matching the expected size
     write_bytes(dir / ftp_path, file_size);
 
-    FileToken tok   = make_token(ftp_path, file_size);
+    FileToken tok = make_token(ftp_path, file_size);
     DataTransport dt;
 
     // host:port "127.0.0.1:19999" — nothing is listening there.
@@ -90,7 +90,7 @@ TEST(DataTransportConditionBTest, SkipsDownloadForCompleteFile) {
 
 TEST(DataTransportConditionBTest, DoesNotSkipWhenSizeMismatch) {
     const auto dir = make_temp_dir("cond_b_mismatch");
-    const std::string ftp_path  = "partial.bin";
+    const std::string ftp_path = "partial.bin";
     const std::size_t file_size = 1024;
     const std::size_t disk_size = 512;  // only half downloaded
 
@@ -126,18 +126,18 @@ TEST(DataTransportConditionBTest, DoesNotSkipWhenSizeBytesIsZero) {
 }
 
 TEST(DataTransportConditionBTest, CreatesDownloadDirIfAbsent) {
-    const auto base    = fs::temp_directory_path() / "adai_dt_ftp_test_mkdir";
-    const auto dir     = base / "nested" / "download";
+    const auto base = fs::temp_directory_path() / "adai_dt_ftp_test_mkdir";
+    const auto dir = base / "nested" / "download";
     fs::remove_all(base);
 
-    const std::string ftp_path  = "f.bin";
+    const std::string ftp_path = "f.bin";
     const std::size_t file_size = 256;
 
     // Manually create the file in the expected location so Condition B fires
     fs::create_directories(dir);
     write_bytes(dir / ftp_path, file_size);
 
-    FileToken tok   = make_token(ftp_path, file_size);
+    FileToken tok = make_token(ftp_path, file_size);
     DataTransport dt;
 
     fs::path result;
@@ -159,8 +159,7 @@ TEST(DataTransportFetchAllTest, FetchAllReturnsPreDownloadedPaths) {
     resp.ftp_server_port = 19999;  // nothing listening
 
     const std::vector<std::pair<std::string, std::size_t>> files = {
-        {"a.bin", 100}, {"b.bin", 200}, {"c.bin", 300}
-    };
+        {"a.bin", 100}, {"b.bin", 200}, {"c.bin", 300}};
 
     for (const auto& [name, sz] : files) {
         write_bytes(dir / name, sz);
@@ -271,7 +270,7 @@ TEST(DataTransportFetchAllTest, SingleThreadedFetchAllPreservesOrder) {
 
 TEST(DataTransportFetchTest, CreatesMissingDownloadDir) {
     const auto base = fs::temp_directory_path() / "adai_dt_ftp_mkdir";
-    const auto dir  = base / "a" / "b" / "c";
+    const auto dir = base / "a" / "b" / "c";
     fs::remove_all(base);
 
     // Pre-create the file (Condition B) so no network connection is needed
@@ -295,7 +294,7 @@ TEST(DataTransportFetchTest, UsesBasenameOfFtpPath) {
     const auto dir = make_temp_dir("basename_test");
 
     // ftp_path has directory components: only the basename ends up in download_dir
-    FileToken tok       = make_token("subdir/train.csv", 256);
+    FileToken tok = make_token("subdir/train.csv", 256);
     const fs::path expected = dir / "train.csv";
 
     write_bytes(expected, 256);

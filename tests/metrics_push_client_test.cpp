@@ -5,6 +5,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 #include "MetricsPushClient.hpp"
 
 #ifdef BUILD_METRICS_API_SERVER
@@ -13,14 +14,16 @@
 
 // Port range 42200–42299 — reserved for MetricsPushClientTests
 // (incremental_trainer_registry_test uses 41800–41899)
-static constexpr int kPort_SampleDrop    = 42200;
+static constexpr int kPort_SampleDrop = 42200;
 static constexpr int kPort_EpochEviction = 42201;
-static constexpr int kPort_EpochNoDrop   = 42202;
-static constexpr int kPort_5xxRetry      = 42203;
-static constexpr int kPort_4xxNoRetry    = 42204;
-static constexpr int kPort_409NoRetry    = 42205;
-static constexpr int kPort_DrainOnEnd    = 42206;
-static constexpr int kPort_StartSession  = 42207;
+static constexpr int kPort_EpochNoDrop = 42202;
+static constexpr int kPort_5xxRetry = 42203;
+static constexpr int kPort_4xxNoRetry = 42204;
+static constexpr int kPort_409NoRetry = 42205;
+static constexpr int kPort_DrainOnEnd = 42206;
+static constexpr int kPort_StartSession = 42207;
+static constexpr int kPort_ReconnectResetBest = 42208;
+static constexpr int kPort_LayerGradientNorms = 42209;
 
 #ifdef BUILD_METRICS_API_SERVER
 
@@ -61,7 +64,9 @@ struct Gate {
     }
 
     /** True once at least one handler has entered wait(). */
-    bool entered() const { return entry_count.load(std::memory_order_acquire) > 0; }
+    bool entered() const {
+        return entry_count.load(std::memory_order_acquire) > 0;
+    }
 };
 
 /** Starts svr.listen() in a background thread; blocks until is_running(). */
@@ -84,11 +89,12 @@ static std::string session_url(int port) {
  * Spin-waits until gate.entered() is true or the deadline is exceeded.
  * Returns false on timeout (will trigger ASSERT_TRUE from caller).
  */
-static bool wait_for_gate(const Gate& gate, std::chrono::milliseconds timeout_ms =
-                                                std::chrono::milliseconds(2000)) {
+static bool wait_for_gate(const Gate& gate,
+                          std::chrono::milliseconds timeout_ms = std::chrono::milliseconds(2000)) {
     const auto deadline = std::chrono::steady_clock::now() + timeout_ms;
     while (!gate.entered()) {
-        if (std::chrono::steady_clock::now() > deadline) return false;
+        if (std::chrono::steady_clock::now() > deadline)
+            return false;
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     return true;
@@ -101,11 +107,11 @@ static bool wait_for_gate(const Gate& gate, std::chrono::milliseconds timeout_ms
  * priority) may evict a still-queued sample via the overflow policy.
  */
 static bool wait_for_count(const std::atomic<int>& count, int target,
-                           std::chrono::milliseconds timeout_ms =
-                               std::chrono::milliseconds(2000)) {
+                           std::chrono::milliseconds timeout_ms = std::chrono::milliseconds(2000)) {
     const auto deadline = std::chrono::steady_clock::now() + timeout_ms;
     while (count.load(std::memory_order_relaxed) < target) {
-        if (std::chrono::steady_clock::now() > deadline) return false;
+        if (std::chrono::steady_clock::now() > deadline)
+            return false;
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     return true;
@@ -408,6 +414,85 @@ TEST(MetricsPushClientStartSession, IncludesLabelAndConfigInPostBody) {
     EXPECT_NE(captured_body.find("my-run-label"), std::string::npos);
     EXPECT_NE(captured_body.find("\"config\""), std::string::npos);
     EXPECT_NE(captured_body.find("\"lr\""), std::string::npos);
+}
+
+// Regression test: an automatic reconnect (triggered by a 404 mid-session,
+// e.g. a transient staleness eviction) must NOT replay reset_best:true even
+// when the original start_session() call used it — the reconnect is resuming
+// the SAME session, not starting a fresh one, and must not wipe
+// best_validation_loss/best_epoch on the server every time it fires.
+TEST(MetricsPushClientStartSession, ReconnectAfter404DoesNotReplayResetBest) {
+    httplib::Server svr;
+    std::vector<std::string> start_bodies;
+    std::mutex body_mtx;
+    std::atomic<int> sample_call_count{0};
+
+    svr.Post("/.*", [&](const httplib::Request& req, httplib::Response& res) {
+        if (req.path.find("/start") != std::string::npos) {
+            std::lock_guard<std::mutex> lk(body_mtx);
+            start_bodies.push_back(req.body);
+            res.status = 200;  // matches TrainingMetricsAPI's real /start response code
+        } else if (req.path.find("/metrics/sample") != std::string::npos) {
+            // First sample push looks like the session was evicted; subsequent
+            // ones (after reconnect) succeed.
+            if (sample_call_count.fetch_add(1, std::memory_order_relaxed) == 0) {
+                res.status = 404;
+            } else {
+                res.status = 201;
+            }
+        } else {
+            res.status = 201;
+        }
+    });
+
+    auto svr_thread = start_server(svr, kPort_ReconnectResetBest);
+    MetricsPushClient client(session_url(kPort_ReconnectResetBest), 500);
+
+    const int rc = client.start_session(1, 3, 100, "", "", /*reset_best=*/true);
+    ASSERT_EQ(rc, 200);
+
+    client.update_sample_metrics(1, 0.8f, 1.2f, 0.001f);
+    ASSERT_TRUE(wait_for_count(sample_call_count, 2));  // initial 404 + post-reconnect retry
+
+    client.end_session();
+    svr.stop();
+    svr_thread.join();
+
+    std::lock_guard<std::mutex> lk(body_mtx);
+    ASSERT_EQ(start_bodies.size(), 2u) << "expected the initial /start plus one reconnect /start";
+    EXPECT_NE(start_bodies[0].find("\"reset_best\":true"), std::string::npos)
+        << "initial start_session() call should carry reset_best:true";
+    EXPECT_EQ(start_bodies[1].find("reset_best"), std::string::npos)
+        << "reconnect must not replay reset_best:true";
+}
+
+TEST(MetricsPushClientLayerGradientNorms, SendsBothArraysAsJson) {
+    httplib::Server svr;
+    std::string captured_body;
+    std::mutex body_mtx;
+
+    svr.Post("/.*", [&](const httplib::Request& req, httplib::Response& res) {
+        if (req.path.find("/metrics/layer-gradients") != std::string::npos) {
+            std::lock_guard<std::mutex> lk(body_mtx);
+            captured_body = req.body;
+        }
+        res.status = 200;
+    });
+
+    auto svr_thread = start_server(svr, kPort_LayerGradientNorms);
+    MetricsPushClient client(session_url(kPort_LayerGradientNorms), 500);
+
+    client.update_layer_gradient_norms({0.5f, 0.4f, 0.3f}, {0.6f, 0.5f});
+    client.end_session();
+
+    svr.stop();
+    svr_thread.join();
+
+    std::lock_guard<std::mutex> lk(body_mtx);
+    EXPECT_NE(captured_body.find("\"encoder_layer_grad_norms\":[0.5,0.4,0.3]"), std::string::npos)
+        << captured_body;
+    EXPECT_NE(captured_body.find("\"decoder_layer_grad_norms\":[0.6,0.5]"), std::string::npos)
+        << captured_body;
 }
 
 #endif  // BUILD_METRICS_API_SERVER

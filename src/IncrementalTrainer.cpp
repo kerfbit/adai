@@ -1,6 +1,7 @@
 #include "IncrementalTrainer.hpp"
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstdlib>
 #include <ctime>
 #include <filesystem>
@@ -10,7 +11,6 @@
 #include <limits>
 #include <sstream>
 #include <utility>
-#include <cctype>
 #ifdef _WIN32
 #include <process.h>
 #else
@@ -29,7 +29,6 @@ IncrementalTrainer::~IncrementalTrainer() = default;
 
 // Bring Logger into scope without qualifying every call
 using adai::Logger;
-
 
 namespace fs = std::filesystem;
 
@@ -106,11 +105,11 @@ std::string build_metrics_session_push_base(const std::string& metrics_server_ur
  *   host  — sanitised first-8-chars of hostname
  *   date  — ISO-8601 date of the training run (YYYY-MM-DD)
  */
-std::string derive_metrics_session_label(int session_id,
-                                         const std::string& model_path) {
+std::string derive_metrics_session_label(int session_id, const std::string& model_path) {
     // Stem: filename without extension
     std::string stem = fs::path(model_path).stem().string();
-    if (stem.empty()) stem = "model";
+    if (stem.empty())
+        stem = "model";
 
     // Host (first 8 chars, sanitised)
     const std::string host = detect_hostname_fragment();
@@ -141,15 +140,10 @@ std::string build_config_snapshot(const IncrementalConfig& cfg) {
     const TrainingConfig& bc = cfg.base_config;
     std::ostringstream json;
     json << std::fixed;
-    json << "{"
-         << "\"d_model\":" << bc.d_model
-         << ",\"heads\":" << bc.num_heads
-         << ",\"d_ff\":" << bc.d_ff
-         << ",\"enc_layers\":" << bc.num_encoder_layers
-         << ",\"dec_layers\":" << bc.num_decoder_layers
-         << ",\"lr\":" << bc.learning_rate
-         << ",\"batch\":" << bc.batch_size
-         << ",\"grad_accum\":" << bc.gradient_accumulation_steps
+    json << "{" << "\"d_model\":" << bc.d_model << ",\"heads\":" << bc.num_heads
+         << ",\"d_ff\":" << bc.d_ff << ",\"enc_layers\":" << bc.num_encoder_layers
+         << ",\"dec_layers\":" << bc.num_decoder_layers << ",\"lr\":" << bc.learning_rate
+         << ",\"batch\":" << bc.batch_size << ",\"grad_accum\":" << bc.gradient_accumulation_steps
          << "}";
     return json.str();
 }
@@ -190,8 +184,10 @@ bool IncrementalTrainer::bootstrap_vocab(const std::vector<ConversationPair>& pa
     std::vector<std::string> texts;
     texts.reserve(pairs.size() * 2);
     for (const auto& p : pairs) {
-        if (!p.input.empty())    texts.push_back(p.input);
-        if (!p.response.empty()) texts.push_back(p.response);
+        if (!p.input.empty())
+            texts.push_back(p.input);
+        if (!p.response.empty())
+            texts.push_back(p.response);
     }
     if (texts.empty()) {
         Logger::error("Cannot build vocabulary: training data contains no text");
@@ -202,11 +198,8 @@ bool IncrementalTrainer::bootstrap_vocab(const std::vector<ConversationPair>& pa
     int target_size = vocab_build_size_;
     if (target_size <= 0) {
         target_size = BPETokenizer::recommend_vocab_size(
-            texts,
-            config.base_config.d_model,
-            config.base_config.num_encoder_layers,
-            config.base_config.num_decoder_layers,
-            config.base_config.max_seq_length,
+            texts, config.base_config.d_model, config.base_config.num_encoder_layers,
+            config.base_config.num_decoder_layers, config.base_config.max_seq_length,
             config.base_config.tokenizer_mode);
         Logger::info("Auto-sized vocabulary target: {} tokens", target_size);
         Logger::info("  (corpus: {} texts | d_model: {} | layers: {}enc+{}dec | seq_len: {})",
@@ -223,11 +216,13 @@ bool IncrementalTrainer::bootstrap_vocab(const std::vector<ConversationPair>& pa
 
     // Measure and report fertility so users can judge quality.
     float fertility = tok.measure_fertility(texts);
-    Logger::info("Vocabulary saved to '{}' ({} tokens, fertility {:.2f} tokens/word)",
-                 vocab_path_, tok.get_vocab_size(), fertility);
+    Logger::info("Vocabulary saved to '{}' ({} tokens, fertility {:.2f} tokens/word)", vocab_path_,
+                 tok.get_vocab_size(), fertility);
     if (fertility > 2.5f) {
-        Logger::warn("High fertility ({:.2f}): vocabulary may be too small for this corpus; "
-                     "consider setting VOCAB_BUILD_SIZE to a larger value", fertility);
+        Logger::warn(
+            "High fertility ({:.2f}): vocabulary may be too small for this corpus; "
+            "consider setting VOCAB_BUILD_SIZE to a larger value",
+            fertility);
     } else if (fertility < 1.1f && fertility > 0.0f) {
         Logger::warn("Low fertility ({:.2f}): vocabulary may be oversized for this corpus",
                      fertility);
@@ -293,6 +288,12 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
     cfg.base_config.tokenizer_mode =
         svc.unicode_tokenizer ? TokenizerMode::UNICODE : TokenizerMode::ASCII;
 
+    // Distributed dataset registry configuration — reuse the existing mapping so
+    // dataset_config_ (below) is correctly populated regardless of which
+    // IncrementalTrainer constructor a caller uses (fixes resume/reset silently
+    // ignoring REGISTRY_SERVER_URL; see CLAUDE.md "Distributed Dataset Registry").
+    cfg.dataset = DatasetRegistry::make_config(svc);
+
     return cfg;
 }
 
@@ -326,7 +327,7 @@ IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
     config = make_incremental_config(svc);
     config.base_config.lr_schedule = LRSchedule::WARMUP_COSINE;
     vocab_build_size_ = svc.vocab_build_size;
-    dataset_config_ = DatasetRegistry::make_config(svc);
+    dataset_config_ = config.dataset;
 
     // MetricsPushClient is created per training run; use NullMetricsReporter until then.
     metrics_reporter_ = std::make_unique<NullMetricsReporter>();
@@ -468,6 +469,7 @@ IncrementalTrainer::IncrementalTrainer(std::string vocab_path, const std::string
     Logger::info("Initializing Incremental Training System...");
 
     // set config FIRST so build_model() uses the correct architecture
+    dataset_config_ = config.dataset;
 
     // MetricsPushClient is created per training run; use NullMetricsReporter until then.
     metrics_reporter_ = std::make_unique<NullMetricsReporter>();
@@ -513,14 +515,62 @@ IncrementalConfig& IncrementalTrainer::get_config() {
 }
 
 void IncrementalTrainer::reset_model_for_config() {
-    // Delegate entirely to build_model() — the single construction point.
+    // A freshly-built model has no history to compare against — clear tracking
+    // state too, otherwise the next session inherits a stale best_validation_loss
+    // (and best_checkpoint_path pointing at a now-irrelevant checkpoint) from
+    // whatever was previously in session_history.txt.
+    session_history.clear();
+    current_session_id = 0;
+    samples_since_last_save = 0;
+    best_validation_loss = std::numeric_limits<float>::max();
+    best_checkpoint_path.clear();
+
     build_model();
+    save_session_history();
     Logger::info("Model reinitialized with fresh weights (architecture reset)");
+}
+
+std::string IncrementalTrainer::begin_run(bool is_retrain) {
+    current_run_id_.clear();
+    current_mns_session_id_.clear();
+
+#ifdef BUILD_MNS_SERVER
+    if (!config.mns_server_url.empty() && !config.mns_model_name.empty()) {
+        if (!mns_client_)
+            mns_client_ = std::make_unique<adai::ModelNameClient>(config.mns_server_url, 5000);
+        try {
+            // metrics_session_key isn't known yet at this point (the metrics
+            // push session starts later, inside run_training()) — MNS's
+            // TrainingHistoryEntry.metrics_session_key is best-effort
+            // correlation, not required for run/session numbering.
+            current_run_id_ = mns_client_->set_training(config.mns_model_name, is_retrain);
+            Logger::info("MNS allocated run_id '{}' for model '{}' ({})", current_run_id_,
+                         config.mns_model_name, is_retrain ? "retrain" : "continuing");
+        } catch (const std::exception& e) {
+            Logger::warn("MNS set_training failed: {}", e.what());
+        }
+    }
+
+    if (!current_run_id_.empty()) {
+        try {
+            DatasetRegistry reg(dataset_config_);
+            current_mns_session_id_ = reg.next_session(config.mns_model_name, current_run_id_);
+            Logger::info("Registry allocated session_id '{}' for run '{}'",
+                         current_mns_session_id_, current_run_id_);
+        } catch (const std::exception& e) {
+            Logger::warn("DatasetRegistry::next_session failed: {}", e.what());
+        }
+    }
+#else
+    (void)is_retrain;
+#endif
+
+    return current_run_id_;
 }
 
 bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
                                       int metrics_sample_count, int finalize_sample_count,
-                                      bool enable_best_model_snapshot) {
+                                      bool enable_best_model_snapshot, bool reset_best_tracking) {
     // Start metrics session now — tokenization is already done so the server
     // timeout window covers only the actual training wait.
     // Retry up to 3 times with a suffix if the server returns 409 Conflict.
@@ -538,16 +588,17 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
             }
             const std::string push_url =
                 build_metrics_session_push_base(config.metrics_server_url, session_key);
-            pc = std::make_unique<MetricsPushClient>(push_url, config.metrics_push_timeout_ms,
-                                                       1024, config.metrics_heartbeat_interval_ms);
+            pc = std::make_unique<MetricsPushClient>(push_url, config.metrics_push_timeout_ms, 1024,
+                                                     config.metrics_heartbeat_interval_ms);
             const std::string label =
                 config.metrics_session_label.empty()
                     ? derive_metrics_session_label(current_session_id + 1, model_path_)
                     : config.metrics_session_label;
             const std::string snapshot = build_config_snapshot(config);
-            rc = pc->start_session(current_session_id + 1, num_epochs,
-                                   metrics_sample_count, label, snapshot);
-            if (rc != 409) break;
+            rc = pc->start_session(current_session_id + 1, num_epochs, metrics_sample_count, label,
+                                   snapshot, reset_best_tracking);
+            if (rc != 409)
+                break;
         }
 
         if (rc >= 200 && rc < 300) {
@@ -575,27 +626,26 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
     }
     trainer.set_metrics_reporter(metrics_reporter_.get());
 
-#ifdef BUILD_MNS_SERVER
-    // MNS: lazily initialize client, then notify training start
-    if (!config.mns_server_url.empty() && !config.mns_model_name.empty()) {
-        if (!mns_client_)
-            mns_client_ = std::make_unique<adai::ModelNameClient>(config.mns_server_url, 5000);
-        const std::string run_id = "session-" + std::to_string(current_session_id + 1);
-        try {
-            mns_client_->set_training(config.mns_model_name, run_id, active_session_key_);
-        } catch (const std::exception& e) {
-            Logger::warn("MNS set_training failed: {}", e.what());
-        }
-    }
-#endif
+    // MNS training-lock/run_id (and, transitively, the registry session_id) are
+    // obtained by begin_run() — called by the caller (train/retrain/resume
+    // command handlers) before any data is acquired, so the dataset-ownership
+    // run_id and MNS's run_id are the same canonical identifier. current_run_id_
+    // is empty here when MNS isn't configured; every MNS call below is a no-op
+    // in that case.
 
-    // Per-epoch callback: record timing and per-epoch metrics into session history.
+    // Per-epoch callback: record timing and per-epoch metrics into session
+    // history, and push progress to MNS so a killed/crashed trainer still
+    // leaves an accurate last-known state (see CLAUDE.md "Configuration").
     auto epoch_start = std::chrono::steady_clock::now();
-    trainer.set_epoch_callback([this, &epoch_start](int epoch, int total, float loss,
-                                                    float val_loss, float lr) {
+    int epochs_fully_completed = 0;
+    float session_best_val_loss = std::numeric_limits<float>::max();
+    trainer.set_epoch_callback([this, &epoch_start, &epochs_fully_completed,
+                                &session_best_val_loss](int epoch, int total, float loss,
+                                                        float val_loss, float lr) {
         auto now = std::chrono::steady_clock::now();
         double epoch_secs = std::chrono::duration<double>(now - epoch_start).count();
         epoch_start = now;
+        epochs_fully_completed = epoch;
         if (!session_history.empty()) {
             auto& session = session_history.back();
             session.per_epoch_losses.push_back(loss);
@@ -605,11 +655,40 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
             session.per_epoch_perplexities.push_back(std::exp(loss));
             session.per_epoch_validation_perplexities.push_back(std::exp(val_loss));
         }
+        if (std::isfinite(val_loss) && val_loss < session_best_val_loss) {
+            session_best_val_loss = val_loss;
+        }
+#ifdef BUILD_MNS_SERVER
+        if (mns_client_ && !current_run_id_.empty()) {
+            try {
+                mns_client_->push_progress(config.mns_model_name, current_run_id_,
+                                           current_mns_session_id_, epoch,
+                                           static_cast<double>(loss),
+                                           static_cast<double>(session_best_val_loss));
+            } catch (const std::exception& e) {
+                Logger::warn("MNS push_progress failed: {}", e.what());
+            }
+        }
+#endif
     });
 
-    // Reset epoch timer on the first sample to exclude data-loading time.
-    trainer.set_sample_callback([&epoch_start](int sample, int, float, float, float, float) {
-        if (sample == 1) epoch_start = std::chrono::steady_clock::now();
+    // Reset epoch timer on the first sample to exclude data-loading time, and
+    // drive TD-005 auto-save so a crash mid-run doesn't lose all progress —
+    // previously should_auto_save()/perform_auto_save() were never called from
+    // anywhere, so samples_since_last_save never advanced and nothing was ever
+    // persisted before finalize_session() at the very end of the whole run.
+    int cumulative_samples_this_session = 0;
+    trainer.set_sample_callback([this, &epoch_start, &epochs_fully_completed,
+                                 &cumulative_samples_this_session](int sample, int, float, float,
+                                                                    float, float) {
+        if (sample == 1)
+            epoch_start = std::chrono::steady_clock::now();
+
+        ++cumulative_samples_this_session;
+        ++samples_since_last_save;
+        if (should_auto_save()) {
+            perform_auto_save(epochs_fully_completed + 1, cumulative_samples_this_session);
+        }
     });
 
     if (enable_best_model_snapshot) {
@@ -619,8 +698,8 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
         trainer.set_best_model_callback([this, &trainer, best_path](int epoch, float val_loss) {
             try {
                 trainer.save_to(best_path);
-                Logger::info("  [best] New best (epoch {}, val_loss {:.4f}) saved to: {}",
-                             epoch, val_loss, best_path);
+                Logger::info("  [best] New best (epoch {}, val_loss {:.4f}) saved to: {}", epoch,
+                             val_loss, best_path);
             } catch (const std::exception& e) {
                 Logger::warn("  [warn] Failed to save best snapshot: {}", e.what());
             }
@@ -641,25 +720,24 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
         std::string checkpoint_path = generate_session_checkpoint_path();
         save_model(checkpoint_path);
 
-        float final_loss     = trainer.get_final_training_loss();
+        float final_loss = trainer.get_final_training_loss();
         float final_val_loss = trainer.get_final_validation_loss();
         finalize_session(finalize_sample_count, num_epochs, final_loss, final_val_loss);
         save_session_history();
 
 #ifdef BUILD_MNS_SERVER
         // MNS: notify candidate with checkpoint artifact
-        if (mns_client_ && !config.mns_model_name.empty()) {
-            const std::string run_id = "session-" + std::to_string(current_session_id);
+        if (mns_client_ && !current_run_id_.empty()) {
             adai::ArtifactLocation artifact;
-            artifact.path   = checkpoint_path;
+            artifact.path = checkpoint_path;
             artifact.format = "adai-native";
             const std::map<std::string, std::string> summary = {
-                {"final_loss",     std::to_string(static_cast<double>(final_loss))},
+                {"final_loss", std::to_string(static_cast<double>(final_loss))},
                 {"final_val_loss", std::to_string(static_cast<double>(final_val_loss))},
-                {"epochs",         std::to_string(num_epochs)}
-            };
+                {"epochs", std::to_string(num_epochs)}};
             try {
-                mns_client_->set_candidate(config.mns_model_name, run_id, artifact, summary);
+                mns_client_->set_candidate(config.mns_model_name, current_run_id_, artifact,
+                                          summary);
             } catch (const std::exception& e) {
                 Logger::warn("MNS set_candidate failed: {}", e.what());
             }
@@ -721,15 +799,20 @@ bool IncrementalTrainer::train_on_files(const std::vector<std::string>& files, i
     for (const auto& pair : all_pairs)
         trainer.add_training_pair(pair.input, pair.response);
 
+    // Each call gets its own metrics session key (derived from current_session_id),
+    // so there is never a genuine same-lineage session to preserve best-loss
+    // continuity with — reset_best_tracking=true avoids inheriting a stale
+    // best_validation_loss from an unrelated prior session (TD-018: the metrics
+    // server keeps a single global snapshot, not one scoped per session key).
     bool success = run_training(trainer, num_epochs, expected_train_size, expected_train_size,
-                                /*enable_best_model_snapshot=*/true);
+                                /*enable_best_model_snapshot=*/true,
+                                /*reset_best_tracking=*/true);
     if (success) {
         Logger::info("Incremental training session completed successfully");
         print_training_summary();
     }
     return success;
 }
-
 
 bool IncrementalTrainer::retrain_on_files(const std::vector<std::string>& files, int num_epochs) {
     Logger::info("Starting full retrain on {} file(s)", files.size());
@@ -772,14 +855,17 @@ bool IncrementalTrainer::retrain_on_files(const std::vector<std::string>& files,
     for (const auto& pair : all_pairs)
         trainer.add_training_pair(pair.input, pair.response);
 
-    return run_training(trainer, num_epochs,
-                        training_sample_count, total,
-                        /*enable_best_model_snapshot=*/false);
+    return run_training(trainer, num_epochs, training_sample_count, total,
+                        /*enable_best_model_snapshot=*/true, /*reset_best_tracking=*/true);
 }
 
 bool IncrementalTrainer::resume_last_session() {
     DatasetRegistry reg(dataset_config_);
-    std::string run_id = dataset_config_.run_id;
+    // Prefer the MNS-allocated run_id (set by begin_run(), called by the
+    // caller before resume_last_session()) so dataset-registry file ownership
+    // uses the same canonical run_id as MNS; fall back to the local
+    // RUN_ID/hostname+pid-derived value when MNS isn't configured.
+    std::string run_id = !current_run_id_.empty() ? current_run_id_ : dataset_config_.run_id;
     if (run_id.empty()) {
         run_id = detect_hostname_fragment() + "_" + std::to_string(detect_pid_mod_10000());
     }
@@ -1008,11 +1094,23 @@ bool IncrementalTrainer::is_sane_checkpoint_candidate(const TrainingSession& ses
     if (!std::isfinite(session.final_validation_loss) || session.final_validation_loss <= 0.0f) {
         return false;
     }
-    // A checkpoint whose file (or required .config sidecar) has been deleted
-    // out from under its history entry can't be resumed from.
-    if (session.checkpoint_path.empty() || !fs::exists(session.checkpoint_path) ||
-        !fs::exists(session.checkpoint_path + ".config")) {
+    // A checkpoint whose required sidecar files have been deleted (or never
+    // fully written) out from under its history entry can't be resumed from.
+    // EncoderDecoderModel::save_model() never writes a bare file at
+    // session.checkpoint_path itself (no extension) — only the five sidecars
+    // below — so checking for that bare path here would reject every
+    // legitimately-saved checkpoint unconditionally. load_model() requires
+    // all five to succeed (see EncoderDecoderModel.cpp), so check all five,
+    // not just .config.
+    if (session.checkpoint_path.empty()) {
         return false;
+    }
+    static const std::array<const char*, 5> required_sidecars = {".config", ".vocab", ".encoder",
+                                                                  ".decoder", ".lm_head"};
+    for (const char* ext : required_sidecars) {
+        if (!fs::exists(session.checkpoint_path + ext)) {
+            return false;
+        }
     }
     return true;
 }
@@ -1284,16 +1382,17 @@ void IncrementalTrainer::print_training_summary() const {
     }
 
     for (const auto& s : session_history) {
-        Logger::info("  Session #{}  samples={}  epochs={}  loss={:.4f}  val={:.4f}",
-                     s.session_id, s.samples_trained, s.epochs_completed,
-                     s.final_loss, s.final_validation_loss);
+        Logger::info("  Session #{}  samples={}  epochs={}  loss={:.4f}  val={:.4f}", s.session_id,
+                     s.samples_trained, s.epochs_completed, s.final_loss, s.final_validation_loss);
         Logger::info("    checkpoint: {}", s.checkpoint_path);
 
         if (!s.per_epoch_losses.empty()) {
             float best_val = std::numeric_limits<float>::max();
             double total_t = 0.0;
-            for (float v : s.per_epoch_validation_losses) best_val = std::min(best_val, v);
-            for (double t : s.training_time_per_epoch)    total_t += t;
+            for (float v : s.per_epoch_validation_losses)
+                best_val = std::min(best_val, v);
+            for (double t : s.training_time_per_epoch)
+                total_t += t;
 
             Logger::info("    loss      : {}", make_sparkline(s.per_epoch_losses));
             Logger::info("    val loss  : {}", make_sparkline(s.per_epoch_validation_losses));
@@ -1306,7 +1405,6 @@ void IncrementalTrainer::print_training_summary() const {
         }
     }
 }
-
 
 float IncrementalTrainer::get_total_training_time_hours() const {
     float total_hours = 0.0f;
@@ -1407,7 +1505,7 @@ bool IncrementalTrainer::should_auto_save() {
     return false;
 }
 
-void IncrementalTrainer::perform_auto_save() {
+void IncrementalTrainer::perform_auto_save(int current_epoch, int cumulative_samples_trained) {
     std::string auto_save_path =
         get_session_dir() + "/auto_save_session_" + std::to_string(current_session_id) + ".bin";
 
@@ -1415,6 +1513,21 @@ void IncrementalTrainer::perform_auto_save() {
         Logger::info("Auto-saved checkpoint to {}", auto_save_path);
         last_save_time = std::chrono::system_clock::now();
         samples_since_last_save = 0;
+
+        // Persist the in-progress session too, so a crash mid-run doesn't wipe
+        // session_history back to empty. final_validation_loss is deliberately
+        // left at its 0.0 default here (not known until the epoch finishes),
+        // which keeps is_sane_checkpoint_candidate() correctly excluding this
+        // still-in-progress entry from "best checkpoint" selection on restart.
+        if (!session_history.empty()) {
+            auto& session = session_history.back();
+            session.samples_trained = cumulative_samples_trained;
+            session.epochs_completed = current_epoch;
+            session.checkpoint_path = auto_save_path;
+            save_session_history();
+            Logger::info("Auto-saved session history ({} samples, epoch {})",
+                         cumulative_samples_trained, current_epoch);
+        }
     }
 }
 
@@ -1699,7 +1812,8 @@ int IncrementalTrainer::load_conversation_pairs(const std::string& filepath,
     std::string first_line;
     while (std::getline(file, first_line)) {
         first_line.erase(0, first_line.find_first_not_of(" \t\r\n"));
-        if (!first_line.empty()) break;
+        if (!first_line.empty())
+            break;
     }
     file.seekg(0);
 
@@ -1709,9 +1823,10 @@ int IncrementalTrainer::load_conversation_pairs(const std::string& filepath,
         // JSONL training format
         std::string line;
         while (std::getline(file, line)) {
-            if (line.empty() || line.front() != '{') continue;
+            if (line.empty() || line.front() != '{')
+                continue;
             std::string in, resp;
-            SampleMeta  meta;
+            SampleMeta meta;
             if (parse_jsonl_sample(line, in, resp, meta)) {
                 pairs.emplace_back(std::move(in), std::move(resp), std::move(meta));
                 ++pair_count;

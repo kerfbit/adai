@@ -76,6 +76,14 @@ struct TrainingMetricsSnapshot {
     float attention_entropy = -1.0f;  ///< Avg per-token attention entropy across all self-attention
                                       ///< layers (-1 = not computed)
 
+    // Per-layer gradient norms (TD-013 extension) — one entry per encoder/decoder
+    // layer, in layer order, snapshotted once per epoch. Lets the dashboard show
+    // whether gradients are shrinking uniformly across layers (healthy) or
+    // specifically in early layers (vanishing-gradient signature), instead of
+    // only the whole-model aggregate norm. Empty until the first epoch reports.
+    std::vector<float> encoder_layer_grad_norms;
+    std::vector<float> decoder_layer_grad_norms;
+
     // Generation quality metrics (BLEU/ROUGE, -1 = not computed)
     float current_bleu4 = -1.0f;   ///< Corpus BLEU-4 score for the current validation epoch
     float current_rouge1 = -1.0f;  ///< Macro-avg ROUGE-1 F1 for the current validation epoch
@@ -126,6 +134,22 @@ struct PersistentMetricsRecord {
     float learning_rate = 0.0f;
     float gradient_norm = 0.0f;
     float perplexity = 0.0f;
+
+    // TD-013 diagnostics — populated only on the epoch-end record (created in
+    // end_epoch()), left at their defaults on per-sample records. Unlike
+    // gradient_variance (see insert_gradient_variance_sample()), these don't
+    // need per-optimizer-step granularity, so they piggyback on the existing
+    // epoch-boundary persistence instead of a dedicated table.
+    float compute_time_ratio = 0.0f;
+    float weight_update_ratio = 0.0f;
+    float activation_saturation_ratio = -1.0f;
+    float attention_entropy = -1.0f;
+    float padding_efficiency = -1.0f;
+    // JSON string {"encoder":[...],"decoder":[...]} of per-layer gradient
+    // norms, or empty if not reported this epoch. Stored pre-serialized
+    // (rather than as vectors) since this is the exact form persisted to and
+    // read back from the DB's TEXT column.
+    std::string layer_gradient_norms_json;
 };
 
 /**
@@ -151,8 +175,8 @@ struct MetricsServiceConfig {
     // Push to external metrics API daemon
     bool enable_push = false;
     std::string push_url = "http://localhost:8081";  // Base URL of metrics API daemon
-    std::string session_key;  // Optional session key for /api/sessions/{key} push routing
-    int push_timeout_ms = 1000;                      // HTTP request timeout
+    std::string session_key;     // Optional session key for /api/sessions/{key} push routing
+    int push_timeout_ms = 1000;  // HTTP request timeout
 
     // Outlier detection (TD-013)
     std::string abnormal_samples_file = "training_sessions/abnormal_samples.json";
@@ -210,9 +234,16 @@ class TrainingMetricsService {
     TrainingMetricsService& operator=(TrainingMetricsService&&) = delete;
 
     // Session lifecycle
+    //
+    // reset_best: when false (default), best_validation_loss/best_epoch carry
+    // forward from the previous session on this service if the architecture
+    // (d_model/heads/d_ff/layers) is unchanged — intentional so incremental
+    // training doesn't lose track of "best ever" between calls. Pass true for
+    // a session that starts over from scratch (e.g. a full retrain) so the
+    // dashboard doesn't show an unrelated prior session's best.
     void start_session(int session_id, int total_epochs = 0, int total_samples = 0,
-                       const std::string& label = "",
-                       const std::string& config_snapshot = "");
+                       const std::string& label = "", const std::string& config_snapshot = "",
+                       bool reset_best = false);
     void end_session();
     bool is_session_active() const;
     void heartbeat();
@@ -279,6 +310,12 @@ class TrainingMetricsService {
     /// Pass -1.0f to mark "not computed".
     void update_attention_entropy(float entropy);
 
+    /// Report per-layer gradient norms for the current epoch (TD-013 extension).
+    /// @param encoder_layer_norms One entry per encoder layer, in layer order
+    /// @param decoder_layer_norms One entry per decoder layer, in layer order
+    void update_layer_gradient_norms(const std::vector<float>& encoder_layer_norms,
+                                     const std::vector<float>& decoder_layer_norms);
+
     // Outlier / abnormal-sample tracking (TD-013)
     void flag_abnormal_sample(const AbnormalSample& sample);
     std::vector<AbnormalSample> get_abnormal_samples() const;
@@ -311,20 +348,28 @@ class TrainingMetricsService {
 
     // Database persistence (TD-020)
     void set_database(IMetricsDatabase* db, const std::string& session_key);
-    IMetricsDatabase* get_database() const { return db_; }
+    IMetricsDatabase* get_database() const {
+        return db_;
+    }
 
    private:
     // Thread-safe state
     mutable std::mutex mutex_;
     std::atomic<bool> is_training_;
-    // TODO: See TECHNICAL_DEBT.md TD-018 - Replace single current_session_id_ with per-session registry
+    // TODO: See TECHNICAL_DEBT.md TD-018 - Replace single current_session_id_ with per-session
+    // registry
     std::atomic<int> current_session_id_;
 
     // Current metrics
     TrainingMetricsSnapshot current_snapshot_;
 
-    // Historical records
+    // Historical records — a rolling in-memory window (capped at
+    // config_.max_records_in_memory by trim_history()) used to serve recent-history
+    // queries; NOT a "pending persist" queue. persisted_up_to_ tracks how much of it
+    // persist_metrics() has already written out, so periodic persistence only writes
+    // newly-added records instead of re-writing the whole window every time.
     std::vector<PersistentMetricsRecord> history_;
+    std::size_t persisted_up_to_{0};
 
     // Configuration
     MetricsServiceConfig config_;
@@ -338,8 +383,10 @@ class TrainingMetricsService {
     std::chrono::steady_clock::time_point epoch_start_steady_;
 
     // Validation-gap staleness extension
-    bool awaiting_validation_ = false;               ///< Set on last training sample of an epoch; cleared by end_epoch/start_epoch
-    double last_epoch_training_duration_seconds_ = 0.0;  ///< Training-phase wall time of the most recent epoch
+    bool awaiting_validation_ =
+        false;  ///< Set on last training sample of an epoch; cleared by end_epoch/start_epoch
+    double last_epoch_training_duration_seconds_ =
+        0.0;  ///< Training-phase wall time of the most recent epoch
 
     // Raw in-epoch sample index as of the last update_sample_metrics() call.
     // update_sample_metrics() is only invoked once per gradient-accumulation
@@ -359,7 +406,8 @@ class TrainingMetricsService {
     std::string label_;            // Session label stored across session lifetime (TD-021)
     std::string config_snapshot_;  // Compact config JSON stored across session lifetime (TD-021)
 
-    std::string to_prometheus_internal(const std::string& session_key = "") const;  // No locking - caller must hold lock
+    std::string to_prometheus_internal(
+        const std::string& session_key = "") const;  // No locking - caller must hold lock
     void add_record(const PersistentMetricsRecord& record);
     void trim_history();
     void update_throughput_metrics();
@@ -378,13 +426,18 @@ class TrainingMetricsService {
     IMetricsDatabase* db_ = nullptr;
     std::string session_key_;
     SessionRecord build_session_record() const;
+    // Monotonic step counter for insert_gradient_variance_sample() — this is a
+    // server-side ordinal (one per update_advanced_epoch_metrics() call), not
+    // the trainer's own sample/step index, which never crosses the wire.
+    int gradient_variance_step_counter_{0};
 };
 
 class MetricsSessionRegistry;
 
 /**
  * @brief Global metrics service instance (optional singleton access)
- * TODO: See TECHNICAL_DEBT.md TD-018 - Replace GlobalMetricsService singleton with MetricsSessionRegistry
+ * TODO: See TECHNICAL_DEBT.md TD-018 - Replace GlobalMetricsService singleton with
+ * MetricsSessionRegistry
  */
 class GlobalMetricsService {
    public:

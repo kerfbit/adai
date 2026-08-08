@@ -281,46 +281,50 @@ void LayerNorm::load_weights(const std::string& filename) {
 #ifdef ADAI_ENABLE_GPU
 void LayerNorm::gpu_upload_weights() {
     const int dim = gamma.cols;
-    if (!gpu_) gpu_ = std::make_unique<GPUState>(dim);
+    if (!gpu_)
+        gpu_ = std::make_unique<GPUState>(dim);
     gpu_->gamma_g.upload(gamma.data[0].data(), dim);
     gpu_->beta_g.upload(beta.data[0].data(), dim);
 }
 
 void LayerNorm::gpu_download_grads() {
-    if (!gpu_) return;
+    if (!gpu_)
+        return;
     const int dim = gamma.cols;
     std::vector<float> tmp(dim);
     gpu_->dgamma.download(tmp.data(), dim);
-    for (int j = 0; j < dim; ++j) gamma_grad.data[0][j] += tmp[j];
+    for (int j = 0; j < dim; ++j)
+        gamma_grad.data[0][j] += tmp[j];
     gpu_->dbeta.download(tmp.data(), dim);
-    for (int j = 0; j < dim; ++j) beta_grad.data[0][j] += tmp[j];
+    for (int j = 0; j < dim; ++j)
+        beta_grad.data[0][j] += tmp[j];
 }
 
 void LayerNorm::gpu_zero_grads() {
-    if (!gpu_) return;
+    if (!gpu_)
+        return;
     gpu_->dgamma.zero();
     gpu_->dbeta.zero();
 }
 
 adai::gpu::GPUMatrix LayerNorm::gpu_forward(const adai::gpu::GPUMatrix& input) {
     const int rows = input.rows;
-    const int dim  = input.cols;
-    if (!gpu_ || gpu_->gamma_g.cols != dim) gpu_upload_weights();
+    const int dim = input.cols;
+    if (!gpu_ || gpu_->gamma_g.cols != dim)
+        gpu_upload_weights();
 
     // Resize cached buffers if sequence length changed
     if (gpu_->normed.rows != rows || gpu_->normed.cols != dim) {
         gpu_->normed = adai::gpu::GPUMatrix(rows, dim);
-        gpu_->mean   = adai::gpu::GPUMatrix(rows, 1);
-        gpu_->rstd   = adai::gpu::GPUMatrix(rows, 1);
+        gpu_->mean = adai::gpu::GPUMatrix(rows, 1);
+        gpu_->rstd = adai::gpu::GPUMatrix(rows, 1);
     }
 
-    return input.layer_norm(gpu_->gamma_g, gpu_->beta_g, eps,
-                             gpu_->normed, gpu_->mean, gpu_->rstd);
+    return input.layer_norm(gpu_->gamma_g, gpu_->beta_g, eps, gpu_->normed, gpu_->mean, gpu_->rstd);
 }
 
 adai::gpu::GPUMatrix LayerNorm::gpu_backward(const adai::gpu::GPUMatrix& dout) {
-    return dout.layer_norm_backward(gpu_->normed, gpu_->gamma_g,
-                                    gpu_->mean, gpu_->rstd,
+    return dout.layer_norm_backward(gpu_->normed, gpu_->gamma_g, gpu_->mean, gpu_->rstd,
                                     gpu_->dgamma, gpu_->dbeta);
 }
 #endif

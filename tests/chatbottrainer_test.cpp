@@ -1,10 +1,10 @@
 #include "../src/ChatbotTrainer.hpp"
-#include "../src/TrainingSampleMeta.hpp"
 #include <gtest/gtest.h>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include "../src/TrainingSampleMeta.hpp"
 
 // ============================================================================
 // Test Fixtures
@@ -294,16 +294,16 @@ TEST(DataStructureTest, ConversationPair_DefaultMetaSentinels) {
 
 TEST(DataStructureTest, ConversationPair_MetaConstructor) {
     SampleMeta m;
-    m.domain    = "fiction";
+    m.domain = "fiction";
     m.task_type = "qa";
-    m.quality   = 0.8f;
+    m.quality = 0.8f;
     m.token_count = 50;
 
     ConversationPair pair("question", "answer", m);
 
-    EXPECT_EQ(pair.input,    "question");
+    EXPECT_EQ(pair.input, "question");
     EXPECT_EQ(pair.response, "answer");
-    EXPECT_EQ(pair.meta.domain,    "fiction");
+    EXPECT_EQ(pair.meta.domain, "fiction");
     EXPECT_EQ(pair.meta.task_type, "qa");
     EXPECT_NEAR(pair.meta.quality, 0.8f, 1e-5f);
     EXPECT_EQ(pair.meta.token_count, 50);
@@ -481,7 +481,7 @@ TEST(QualityBackfillTest, Config_CanEnableLossBackfill) {
 TEST(QualityBackfillTest, Config_CanEnableGenerationBackfill) {
     TrainingConfig config;
     config.enable_generation_quality_backfill = true;
-    config.generation_backfill_max_tokens     = 100;
+    config.generation_backfill_max_tokens = 100;
     EXPECT_TRUE(config.enable_generation_quality_backfill);
     EXPECT_EQ(config.generation_backfill_max_tokens, 100);
 }
@@ -491,12 +491,12 @@ TEST(QualityBackfillTest, Config_CanEnableGenerationBackfill) {
 // ============================================================================
 
 class JsonlLoadTest : public ::testing::Test {
-protected:
+   protected:
     std::filesystem::path tmp_file_;
 
     void SetUp() override {
-        tmp_file_ = std::filesystem::temp_directory_path() /
-                    "adai_chatbot_trainer_jsonl_test.jsonl";
+        tmp_file_ =
+            std::filesystem::temp_directory_path() / "adai_chatbot_trainer_jsonl_test.jsonl";
     }
 
     void TearDown() override {
@@ -516,7 +516,7 @@ TEST_F(JsonlLoadTest, LoadsCorrectPairCount) {
         "{\"input\":\"q3\",\"response\":\"a3\"}\n");
 
     TrainingConfig cfg;
-    cfg.log_level       = LogLevel::SILENT;
+    cfg.log_level = LogLevel::SILENT;
     cfg.validation_split = 0;  // no split so all 3 go to training
     ChatbotTrainer trainer(cfg);
     EXPECT_TRUE(trainer.load_conversation_data(tmp_file_.string()));
@@ -529,7 +529,7 @@ TEST_F(JsonlLoadTest, LoadsLegacyFormatStillWorks) {
         "INPUT: foo\nRESPONSE: bar\n");
 
     TrainingConfig cfg;
-    cfg.log_level        = LogLevel::SILENT;
+    cfg.log_level = LogLevel::SILENT;
     cfg.validation_split = 0;
     ChatbotTrainer trainer(cfg);
     EXPECT_TRUE(trainer.load_conversation_data(tmp_file_.string()));
@@ -551,7 +551,7 @@ TEST_F(JsonlLoadTest, SkipsLinesWithoutInputField) {
         "{\"input\":\"also valid\",\"response\":\"yes\"}\n");
 
     TrainingConfig cfg;
-    cfg.log_level        = LogLevel::SILENT;
+    cfg.log_level = LogLevel::SILENT;
     cfg.validation_split = 0;
     ChatbotTrainer trainer(cfg);
     EXPECT_TRUE(trainer.load_conversation_data(tmp_file_.string()));
@@ -644,6 +644,56 @@ TEST_F(MetricsTest, Perplexity_VeryLargeLoss) {
     float loss = 10.0f;  // Very high loss
     float perplexity = trainer->calculate_perplexity(loss);
     EXPECT_GT(perplexity, 20000.0f);  // exp(10) ≈ 22026
+}
+
+// ============================================================================
+// Input truncation: tail vs. head (regression test for truncate_text_tail /
+// truncate_tokens_tail — see their doc comments in ChatbotTrainer.hpp).
+// Training pairs are a document split at its midpoint (input = first half,
+// target = second half), so the target always starts right where the input's
+// tail leaves off. Truncating a long input from its head instead of its tail
+// keeps the document's opening text — arbitrarily far from what the target
+// actually continues — severing the input/target relationship.
+// ============================================================================
+
+TEST(TruncateTailTest, TextShorterThanLimit_ReturnsUnchanged) {
+    std::string s = "short text";
+    EXPECT_EQ(ChatbotTrainer::truncate_text_tail(s, 100), s);
+}
+
+TEST(TruncateTailTest, TextLongerThanLimit_KeepsTailNotHead) {
+    // 26 chars total; cap at 10 should keep the LAST 10 characters.
+    std::string s = "abcdefghijklmnopqrstuvwxyz";
+    std::string result = ChatbotTrainer::truncate_text_tail(s, 10);
+    EXPECT_EQ(result, "qrstuvwxyz");  // tail, not "abcdefghij" (head)
+    EXPECT_LE(result.size(), 10u);
+}
+
+TEST(TruncateTailTest, TextBoundaryRespectsUtf8) {
+    // "é" is 2 bytes (0xC3 0xA9). Place multi-byte chars straddling the cut
+    // point and confirm the result is still valid UTF-8 (starts on a lead byte).
+    std::string s =
+        "aé"
+        "bé"
+        "cé"
+        "dé"
+        "eé";  // 15 bytes total
+    std::string result = ChatbotTrainer::truncate_text_tail(s, 6);
+    ASSERT_FALSE(result.empty());
+    // First byte must not be a UTF-8 continuation byte (10xxxxxx).
+    EXPECT_NE(static_cast<unsigned char>(result[0]) & 0xC0, 0x80);
+}
+
+TEST(TruncateTailTest, TokensShorterThanLimit_ReturnsUnchanged) {
+    std::vector<int> ids = {1, 2, 3};
+    EXPECT_EQ(ChatbotTrainer::truncate_tokens_tail(ids, 10), ids);
+}
+
+TEST(TruncateTailTest, TokensLongerThanLimit_KeepsTailNotHead) {
+    std::vector<int> ids = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+    std::vector<int> result = ChatbotTrainer::truncate_tokens_tail(ids, 4);
+    std::vector<int> expected = {7, 8, 9, 10};  // tail, not {1,2,3,4} (head)
+    EXPECT_EQ(result, expected);
 }
 
 TEST(ConfigTest, ValidationSplit_Zero_NoValidation) {

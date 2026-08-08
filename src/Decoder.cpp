@@ -388,23 +388,30 @@ void LLMDecoder::register_parameters_with_optimizer(Optimizer& optimizer) {
 
 #ifdef ADAI_ENABLE_GPU
 void LLMDecoder::gpu_upload_weights() {
-    for (auto& block : decoder_blocks) block->gpu_upload_weights();
+    for (auto& block : decoder_blocks)
+        block->gpu_upload_weights();
     final_norm->gpu_upload_weights();
 }
 
 void LLMDecoder::gpu_download_grads() {
-    for (auto& block : decoder_blocks) block->gpu_download_grads();
+    for (auto& block : decoder_blocks)
+        block->gpu_download_grads();
     final_norm->gpu_download_grads();
 }
 
 void LLMDecoder::gpu_zero_grads() {
-    for (auto& block : decoder_blocks) block->gpu_zero_grads();
+    for (auto& block : decoder_blocks)
+        block->gpu_zero_grads();
     final_norm->gpu_zero_grads();
 }
 
 adai::gpu::GPUMatrix LLMDecoder::gpu_decode(const std::vector<int>& token_ids,
-                                              const adai::gpu::GPUMatrix& encoder_out) {
+                                            const adai::gpu::GPUMatrix& encoder_out) {
     const int tgt = static_cast<int>(token_ids.size());
+
+    if (requires_grad) {
+        cached_token_ids = token_ids;
+    }
 
     // Embedding + positional encoding on CPU (fast)
     Matrix embeddings = token_embedding->forward(token_ids);
@@ -415,7 +422,8 @@ adai::gpu::GPUMatrix LLMDecoder::gpu_decode(const std::vector<int>& token_ids,
         std::vector<float> flat;
         flat.reserve(tgt * d_model);
         for (const auto& row : pos_encoded.data)
-            for (float v : row) flat.push_back(v);
+            for (float v : row)
+                flat.push_back(v);
         x.upload(flat.data(), tgt * d_model);
     }
 
@@ -453,6 +461,14 @@ std::pair<adai::gpu::GPUMatrix, adai::gpu::GPUMatrix> LLMDecoder::gpu_backward(
             *grad_encoder_sum = *grad_encoder_sum + d_enc;
         }
     }
+
+    // TokenEmbedding has no GPU backward — download and finish on host, reusing
+    // the existing, already-correct CPU path (mirrors LLMEncoder::gpu_backward()).
+    if (requires_grad) {
+        Matrix grad_host = Matrix::from_gpu(d);
+        token_embedding->backward(cached_token_ids, grad_host);
+    }
+
     return {std::move(d), std::move(*grad_encoder_sum)};
 }
 #endif

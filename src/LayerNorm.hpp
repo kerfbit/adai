@@ -180,9 +180,13 @@ class LayerNorm {
         adai::gpu::GPUMatrix rstd;    // per-row 1/std [seq, 1]
 
         explicit GPUState(int dim)
-            : gamma_g(1, dim), beta_g(1, dim),
-              dgamma(1, dim), dbeta(1, dim),
-              normed(1, 1), mean(1, 1), rstd(1, 1) {}
+            : gamma_g(1, dim),
+              beta_g(1, dim),
+              dgamma(1, dim),
+              dbeta(1, dim),
+              normed(1, 1),
+              mean(1, 1),
+              rstd(1, 1) {}
     };
     std::unique_ptr<GPUState> gpu_;
 

@@ -60,8 +60,8 @@ GenerationQualityScore GenerationQualityEvaluator::evaluate(
 
 // ─── count_ngrams ─────────────────────────────────────────────────────────────
 
-GenerationQualityEvaluator::Counts GenerationQualityEvaluator::count_ngrams(
-    const TokenList& tokens, int n) {
+GenerationQualityEvaluator::Counts GenerationQualityEvaluator::count_ngrams(const TokenList& tokens,
+                                                                            int n) {
     Counts c;
     int sz = static_cast<int>(tokens.size());
     for (int i = 0; i + n <= sz; ++i) {
@@ -73,8 +73,8 @@ GenerationQualityEvaluator::Counts GenerationQualityEvaluator::count_ngrams(
 // ─── compute_corpus_bleu ──────────────────────────────────────────────────────
 
 float GenerationQualityEvaluator::compute_corpus_bleu(const std::vector<TokenList>& refs,
-                                                       const std::vector<TokenList>& hyps,
-                                                       int max_n) {
+                                                      const std::vector<TokenList>& hyps,
+                                                      int max_n) {
     std::vector<int> match_cnt(max_n, 0);
     std::vector<int> hyp_cnt(max_n, 0);
     int total_ref_len = 0;
@@ -102,8 +102,7 @@ float GenerationQualityEvaluator::compute_corpus_bleu(const std::vector<TokenLis
     // Brevity penalty (corpus-level)
     float bp = 1.0f;
     if (total_hyp_len < total_ref_len && total_hyp_len > 0) {
-        bp = std::exp(1.0f -
-                      static_cast<float>(total_ref_len) / static_cast<float>(total_hyp_len));
+        bp = std::exp(1.0f - static_cast<float>(total_ref_len) / static_cast<float>(total_hyp_len));
     }
 
     // Geometric mean of smoothed modified precisions
@@ -122,8 +121,8 @@ float GenerationQualityEvaluator::compute_corpus_bleu(const std::vector<TokenLis
 // ─── compute_corpus_rouge_n ───────────────────────────────────────────────────
 
 float GenerationQualityEvaluator::compute_corpus_rouge_n(const std::vector<TokenList>& refs,
-                                                          const std::vector<TokenList>& hyps,
-                                                          int n) {
+                                                         const std::vector<TokenList>& hyps,
+                                                         int n) {
     float total_f1 = 0.0f;
     for (size_t idx = 0; idx < refs.size(); ++idx) {
         Counts ref_ng = count_ngrams(refs[idx], n);
@@ -153,7 +152,7 @@ float GenerationQualityEvaluator::compute_corpus_rouge_n(const std::vector<Token
 // ─── compute_corpus_rouge_l ───────────────────────────────────────────────────
 
 float GenerationQualityEvaluator::compute_corpus_rouge_l(const std::vector<TokenList>& refs,
-                                                          const std::vector<TokenList>& hyps) {
+                                                         const std::vector<TokenList>& hyps) {
     float total_f1 = 0.0f;
     for (size_t idx = 0; idx < refs.size(); ++idx) {
         int lcs = lcs_length(refs[idx], hyps[idx]);
@@ -181,8 +180,7 @@ int GenerationQualityEvaluator::lcs_length(const TokenList& a, const TokenList& 
     std::vector<int> prev(n + 1, 0), curr(n + 1, 0);
     for (int i = 1; i <= m; ++i) {
         for (int j = 1; j <= n; ++j) {
-            curr[j] =
-                (a[i - 1] == b[j - 1]) ? prev[j - 1] + 1 : std::max(prev[j], curr[j - 1]);
+            curr[j] = (a[i - 1] == b[j - 1]) ? prev[j - 1] + 1 : std::max(prev[j], curr[j - 1]);
         }
         std::swap(prev, curr);
         std::fill(curr.begin(), curr.end(), 0);

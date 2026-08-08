@@ -4,6 +4,8 @@
 #include <cmath>
 #include <fstream>
 #include <stdexcept>
+#include <utility>
+#include <vector>
 #include "../src/Matrix.hpp"
 
 // ============================================================================
@@ -273,9 +275,17 @@ TEST(DecoderBlockMaskingTest, AllOnesVsAllZerosMask) {
     Matrix decoder_input(seq_len, d_model);
     Matrix encoder_output(seq_len, d_model);
 
+    // Pre-LN normalizes the input (per-row mean/variance) before self-attention,
+    // so a per-row additive constant (e.g. 0.1f*(i+j)) is removed by that
+    // normalization and every row ends up producing nearly identical Q/K/V —
+    // masking then has almost no visible effect regardless of causal vs
+    // bidirectional, since attending to "different" positions doesn't matter
+    // when they're all nearly the same vector. Use a per-row varying shape
+    // (not just a shift) so rows stay genuinely distinguishable post-norm.
     for (int i = 0; i < seq_len; ++i) {
         for (int j = 0; j < d_model; ++j) {
-            decoder_input(i, j) = 0.1f * (i + j);
+            decoder_input(i, j) =
+                0.1f * static_cast<float>(i + 1) * std::sin(0.3f * static_cast<float>(j));
             encoder_output(i, j) = 0.05f;
         }
     }
@@ -476,6 +486,42 @@ TEST(DecoderBlockBackwardTest, GradientNonZero) {
     EXPECT_GT(grad_norm, 0.0f);
 }
 
+TEST(DecoderBlockBackwardTest, GradientNormComputation) {
+    int d_model = 64;
+    int num_heads = 4;
+    int d_ff = 256;
+    int seq_len = 8;
+
+    DecoderBlock decoder_block(d_model, num_heads, d_ff);
+
+    Matrix decoder_input(seq_len, d_model);
+    Matrix encoder_output(seq_len, d_model);
+    for (int i = 0; i < seq_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            decoder_input(i, j) = 0.1f * (i + j);
+            encoder_output(i, j) = 0.05f * i;
+        }
+    }
+    Matrix causal_mask = create_causal_mask(seq_len);
+
+    // Before any backward pass, accumulated gradients are zero.
+    EXPECT_FLOAT_EQ(decoder_block.get_gradient_norm(), 0.0f);
+
+    Matrix output = decoder_block.forward(decoder_input, encoder_output, causal_mask);
+    Matrix grad_output(seq_len, d_model);
+    for (int i = 0; i < seq_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            grad_output(i, j) = 0.01f * (i + 1) + 0.001f * (j + 1);
+        }
+    }
+    decoder_block.backward(grad_output);
+
+    // After backward, self-attention/cross-attention/feed-forward gradients
+    // (self_attention, cross_attention, feed_forward — see
+    // DecoderBlock::get_gradient_norm()) should combine to a nonzero norm.
+    EXPECT_GT(decoder_block.get_gradient_norm(), 0.0f);
+}
+
 TEST(DecoderBlockBackwardTest, GradientFlow) {
     int d_model = 32;
     int num_heads = 4;
@@ -520,6 +566,76 @@ TEST(DecoderBlockBackwardTest, GradientFlow) {
     }
 
     EXPECT_GT(total_grad, 0.0f);
+}
+
+// Finite-difference gradient check for the Pre-LN forward/backward rewrite.
+// This is the real correctness gate for the Post-LN -> Pre-LN migration: a
+// subtly wrong backward pass (e.g. an accumulation point moved to the wrong
+// residual, or the cross-attention encoder-gradient contribution dropped)
+// would still produce finite, plausible-looking gradients under the other
+// tests in this file, but would fail this check.
+TEST(DecoderBlockBackwardTest, BackwardPassMatchesNumericalGradient) {
+    int d_model = 32;
+    int num_heads = 4;
+    int d_ff = 64;
+    int tgt_len = 4;
+    int src_len = 5;
+
+    DecoderBlock decoder_block(d_model, num_heads, d_ff);
+
+    Matrix decoder_input(tgt_len, d_model);
+    Matrix encoder_output(src_len, d_model);
+    for (int i = 0; i < tgt_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            decoder_input(i, j) = 0.05f * std::sin(static_cast<float>(i * d_model + j));
+        }
+    }
+    for (int i = 0; i < src_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            encoder_output(i, j) = 0.05f * std::cos(static_cast<float>(i * d_model + j));
+        }
+    }
+    Matrix causal_mask = create_causal_mask(tgt_len);
+
+    auto scalar_loss = [](const Matrix& out) {
+        float loss = 0.0f;
+        for (int i = 0; i < out.rows; ++i) {
+            for (int j = 0; j < out.cols; ++j) {
+                loss += out(i, j) * out(i, j);
+            }
+        }
+        return loss;
+    };
+
+    Matrix output = decoder_block.forward(decoder_input, encoder_output, causal_mask);
+    Matrix grad_output(output.rows, output.cols);
+    for (int i = 0; i < output.rows; ++i) {
+        for (int j = 0; j < output.cols; ++j) {
+            grad_output(i, j) = 2.0f * output(i, j);
+        }
+    }
+    Matrix analytic_grad = decoder_block.backward(grad_output);
+
+    const float epsilon = 1e-3f;
+    const std::vector<std::pair<int, int>> positions = {
+        {0, 0}, {0, d_model / 2}, {1, 3}, {tgt_len - 1, d_model - 1}};
+
+    for (const auto& [pi, pj] : positions) {
+        Matrix input_plus = decoder_input;
+        input_plus(pi, pj) += epsilon;
+        Matrix input_minus = decoder_input;
+        input_minus(pi, pj) -= epsilon;
+
+        float loss_plus =
+            scalar_loss(decoder_block.forward(input_plus, encoder_output, causal_mask));
+        float loss_minus =
+            scalar_loss(decoder_block.forward(input_minus, encoder_output, causal_mask));
+        float numerical_grad = (loss_plus - loss_minus) / (2.0f * epsilon);
+
+        float tolerance = std::max(1e-2f, 0.05f * std::abs(numerical_grad));
+        EXPECT_NEAR(analytic_grad(pi, pj), numerical_grad, tolerance)
+            << "gradient mismatch at (" << pi << "," << pj << ")";
+    }
 }
 
 TEST(DecoderBlockBackwardTest, MultipleBackwardPasses) {

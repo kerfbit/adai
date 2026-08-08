@@ -45,6 +45,16 @@
  */
 using ActivationHookFn = std::function<void(const Matrix&)>;
 
+#ifdef ADAI_ENABLE_GPU
+/**
+ * Callback invoked immediately after GELU in every gpu_forward() call. GPU-resident
+ * data doesn't fit the raw-matrix hook contract above, so this receives the
+ * already-reduced saturated-fraction scalar instead (computed on-device via
+ * GPUMatrix::count_below_threshold()).
+ */
+using GPUActivationStatsHookFn = std::function<void(float)>;
+#endif
+
 class FeedForward {
    private:
     // Model dimensions
@@ -73,6 +83,11 @@ class FeedForward {
 
     // Activation hook (optional, fired after GELU in forward())
     ActivationHookFn activation_hook_;
+
+#ifdef ADAI_ENABLE_GPU
+    // GPU-path equivalent, fired after GELU in gpu_forward() (see GPUActivationStatsHookFn).
+    GPUActivationStatsHookFn gpu_activation_stats_hook_;
+#endif
 
    public:
     float learning_rate{
@@ -243,6 +258,20 @@ class FeedForward {
     }
 
 #ifdef ADAI_ENABLE_GPU
+    /**
+     * Register a callback invoked after GELU in every gpu_forward() call.
+     * Pass nullptr / call clear_gpu_activation_stats_hook() to disable.
+     *
+     * @param fn Callable receiving the fraction of post-GELU elements with |x| < 0.01
+     */
+    void set_gpu_activation_stats_hook(GPUActivationStatsHookFn fn) {
+        gpu_activation_stats_hook_ = std::move(fn);
+    }
+
+    void clear_gpu_activation_stats_hook() {
+        gpu_activation_stats_hook_ = nullptr;
+    }
+
     struct GPUState {
         // Weight mirrors
         adai::gpu::GPUMatrix W1_g, W2_g, b1_g, b2_g;
@@ -254,11 +283,17 @@ class FeedForward {
         adai::gpu::GPUMatrix cached_act;     // [seq, d_ff] post-GELU
 
         GPUState(int d_model, int d_ff)
-            : W1_g(d_model, d_ff), W2_g(d_ff, d_model),
-              b1_g(1, d_ff), b2_g(1, d_model),
-              dW1(d_model, d_ff), dW2(d_ff, d_model),
-              db1(1, d_ff), db2(1, d_model),
-              cached_input(1, 1), cached_hidden(1, 1), cached_act(1, 1) {}
+            : W1_g(d_model, d_ff),
+              W2_g(d_ff, d_model),
+              b1_g(1, d_ff),
+              b2_g(1, d_model),
+              dW1(d_model, d_ff),
+              dW2(d_ff, d_model),
+              db1(1, d_ff),
+              db2(1, d_model),
+              cached_input(1, 1),
+              cached_hidden(1, 1),
+              cached_act(1, 1) {}
     };
     std::unique_ptr<GPUState> gpu_;
 

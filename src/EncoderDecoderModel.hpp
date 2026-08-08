@@ -444,8 +444,7 @@ class EncoderDecoderModel {
      * Full GPU forward pass.
      * @return scalar loss; caches GPU encoder/decoder outputs for gpu_backward.
      */
-    float gpu_forward(const std::vector<int>& input_tokens,
-                      const std::vector<int>& target_tokens);
+    float gpu_forward(const std::vector<int>& input_tokens, const std::vector<int>& target_tokens);
 
     /**
      * Full GPU backward pass. Accumulates GPU gradients.

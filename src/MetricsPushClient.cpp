@@ -83,11 +83,21 @@ std::string escape_json_string(const std::string& s) {
     out.reserve(s.size() + 8);
     for (unsigned char c : s) {
         switch (c) {
-            case '"':  out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            case '\n': out += "\\n";  break;
-            case '\r': out += "\\r";  break;
-            case '\t': out += "\\t";  break;
+            case '"':
+                out += "\\\"";
+                break;
+            case '\\':
+                out += "\\\\";
+                break;
+            case '\n':
+                out += "\\n";
+                break;
+            case '\r':
+                out += "\\r";
+                break;
+            case '\t':
+                out += "\\t";
+                break;
             default:
                 if (c < 0x20u) {
                     char buf[8];
@@ -134,11 +144,10 @@ MetricsPushClient::~MetricsPushClient() {
 // ============================================================================
 
 int MetricsPushClient::start_session(int session_id, int total_epochs, int total_samples,
-                                     const std::string& label,
-                                     const std::string& config_snapshot) {
+                                     const std::string& label, const std::string& config_snapshot,
+                                     bool reset_best) {
     std::ostringstream json;
-    json << "{\"session_id\":" << session_id
-         << ",\"total_epochs\":" << total_epochs
+    json << "{\"session_id\":" << session_id << ",\"total_epochs\":" << total_epochs
          << ",\"total_samples\":" << total_samples;
     if (!label.empty()) {
         json << ",\"label\":\"" << escape_json_string(label) << "\"";
@@ -147,10 +156,31 @@ int MetricsPushClient::start_session(int session_id, int total_epochs, int total
         // config_snapshot is already a JSON object string — embed verbatim
         json << ",\"config\":" << config_snapshot;
     }
+    if (reset_best) {
+        json << ",\"reset_best\":true";
+    }
     json << "}";
+    const std::string start_body = json.str();
 
-    reconnect_body_ = json.str();
-    const int rc = attempt_post("/start", reconnect_body_);
+    // reconnect_body_ is replayed automatically by push_loop() whenever a
+    // transient staleness eviction causes a mid-session 404 — that is recovery
+    // of the SAME session, not a fresh start, so it must never carry
+    // reset_best:true even when this start_session() call did (e.g. a retrain).
+    // Otherwise every automatic reconnect would silently wipe
+    // best_validation_loss/best_epoch back to defaults mid-run.
+    std::ostringstream reconnect_json;
+    reconnect_json << "{\"session_id\":" << session_id << ",\"total_epochs\":" << total_epochs
+                   << ",\"total_samples\":" << total_samples;
+    if (!label.empty()) {
+        reconnect_json << ",\"label\":\"" << escape_json_string(label) << "\"";
+    }
+    if (!config_snapshot.empty()) {
+        reconnect_json << ",\"config\":" << config_snapshot;
+    }
+    reconnect_json << "}";
+    reconnect_body_ = reconnect_json.str();
+
+    const int rc = attempt_post("/start", start_body);
     if (rc == 0) {
         adai::Logger::warn("MetricsPushClient: start_session — connection failed");
     } else {
@@ -191,27 +221,23 @@ void MetricsPushClient::start_epoch(int epoch, int total_samples) {
     enqueue({EventPriority::Epoch, "/epoch/start", json.str()});
 }
 
-void MetricsPushClient::end_epoch(int epoch, float loss, float validation_loss,
-                                  float learning_rate, float perplexity, float gradient_norm,
+void MetricsPushClient::end_epoch(int epoch, float loss, float validation_loss, float learning_rate,
+                                  float perplexity, float gradient_norm,
                                   double epoch_time_seconds) {
     const float stored_perplexity = (perplexity > 0.0f) ? perplexity : std::exp(loss);
 
     std::ostringstream json;
     json << std::fixed;
-    json << "{\"epoch\":" << epoch
-         << ",\"loss\":" << loss
-         << ",\"validation_loss\":" << validation_loss
-         << ",\"learning_rate\":" << learning_rate
-         << ",\"perplexity\":" << stored_perplexity
-         << ",\"gradient_norm\":" << gradient_norm
+    json << "{\"epoch\":" << epoch << ",\"loss\":" << loss
+         << ",\"validation_loss\":" << validation_loss << ",\"learning_rate\":" << learning_rate
+         << ",\"perplexity\":" << stored_perplexity << ",\"gradient_norm\":" << gradient_norm
          << ",\"epoch_time\":" << epoch_time_seconds
          << ",\"gradient_variance\":" << buf_gradient_variance_
          << ",\"compute_time_ratio\":" << buf_compute_time_ratio_
          << ",\"weight_update_ratio\":" << buf_weight_update_ratio_
          << ",\"activation_saturation_ratio\":" << buf_activation_saturation_
          << ",\"attention_entropy\":" << buf_attention_entropy_
-         << ",\"current_padding_efficiency\":" << buf_padding_efficiency_
-         << "}";
+         << ",\"current_padding_efficiency\":" << buf_padding_efficiency_ << "}";
     enqueue({EventPriority::Epoch, "/epoch/end", json.str()});
 }
 
@@ -222,11 +248,8 @@ void MetricsPushClient::end_epoch(int epoch, float loss, float validation_loss,
 void MetricsPushClient::update_sample_metrics(int sample, float loss, float gradient_norm,
                                               float learning_rate) {
     std::ostringstream json;
-    json << "{\"sample\":" << sample
-         << ",\"loss\":" << loss
-         << ",\"gradient_norm\":" << gradient_norm
-         << ",\"learning_rate\":" << learning_rate
-         << "}";
+    json << "{\"sample\":" << sample << ",\"loss\":" << loss
+         << ",\"gradient_norm\":" << gradient_norm << ",\"learning_rate\":" << learning_rate << "}";
     enqueue({EventPriority::Sample, "/metrics/sample", json.str()});
 }
 
@@ -239,8 +262,7 @@ void MetricsPushClient::update_validation_metrics(float validation_loss, float v
     std::ostringstream json;
     json << "{\"validation_loss\":" << validation_loss
          << ",\"validation_accuracy\":" << validation_accuracy
-         << ",\"validation_perplexity\":" << validation_perplexity
-         << "}";
+         << ",\"validation_perplexity\":" << validation_perplexity << "}";
     enqueue({EventPriority::Epoch, "/metrics/validation", json.str()});
 }
 
@@ -267,21 +289,17 @@ void MetricsPushClient::update_advanced_epoch_metrics(float gradient_variance,
     std::ostringstream json;
     json << "{\"gradient_variance\":" << gradient_variance
          << ",\"compute_time_ratio\":" << compute_time_ratio
-         << ",\"weight_update_ratio\":" << weight_update_ratio
-         << "}";
+         << ",\"weight_update_ratio\":" << weight_update_ratio << "}";
     enqueue({EventPriority::Sample, "/metrics/advanced", json.str()});
 }
 
 void MetricsPushClient::flag_abnormal_sample(const AbnormalSample& sample) {
     std::ostringstream json;
-    json << "{\"epoch\":" << sample.epoch
-         << ",\"sample_id\":" << sample.sample_id
-         << ",\"loss\":" << sample.loss
-         << ",\"grad_norm\":" << sample.grad_norm
-         << ",\"reason\":\"" << escape_json_string(sample.reason) << "\""
-         << ",\"input_text\":\"" << escape_json_string(sample.input_text) << "\""
-         << ",\"target_text\":\"" << escape_json_string(sample.target_text) << "\""
-         << "}";
+    json << "{\"epoch\":" << sample.epoch << ",\"sample_id\":" << sample.sample_id
+         << ",\"loss\":" << sample.loss << ",\"grad_norm\":" << sample.grad_norm << ",\"reason\":\""
+         << escape_json_string(sample.reason) << "\"" << ",\"input_text\":\""
+         << escape_json_string(sample.input_text) << "\"" << ",\"target_text\":\""
+         << escape_json_string(sample.target_text) << "\"" << "}";
     enqueue({EventPriority::Epoch, "/metrics/abnormal", json.str()});
 }
 
@@ -314,6 +332,27 @@ void MetricsPushClient::update_attention_entropy(float entropy) {
     buf_attention_entropy_ = entropy;
 }
 
+void MetricsPushClient::update_layer_gradient_norms(const std::vector<float>& encoder_layer_norms,
+                                                     const std::vector<float>& decoder_layer_norms) {
+    // Called once per epoch with the full arrays already computed — unlike the
+    // scalar TD-013 diagnostics, there's nothing to buffer/fold; send directly.
+    std::ostringstream json;
+    json << "{\"encoder_layer_grad_norms\":[";
+    for (size_t i = 0; i < encoder_layer_norms.size(); ++i) {
+        if (i > 0)
+            json << ",";
+        json << encoder_layer_norms[i];
+    }
+    json << "],\"decoder_layer_grad_norms\":[";
+    for (size_t i = 0; i < decoder_layer_norms.size(); ++i) {
+        if (i > 0)
+            json << ",";
+        json << decoder_layer_norms[i];
+    }
+    json << "]}";
+    enqueue({EventPriority::Epoch, "/metrics/layer-gradients", json.str()});
+}
+
 void MetricsPushClient::update_padding_efficiency(float efficiency) {
     buf_padding_efficiency_ = efficiency;
 }
@@ -326,11 +365,8 @@ void MetricsPushClient::update_generation_quality_metrics(float bleu4, float rou
                                                           float rougeL) {
     std::ostringstream json;
     json << std::fixed;
-    json << "{\"bleu4\":" << bleu4
-         << ",\"rouge1\":" << rouge1
-         << ",\"rouge2\":" << rouge2
-         << ",\"rougeL\":" << rougeL
-         << "}";
+    json << "{\"bleu4\":" << bleu4 << ",\"rouge1\":" << rouge1 << ",\"rouge2\":" << rouge2
+         << ",\"rougeL\":" << rougeL << "}";
     enqueue({EventPriority::Epoch, "/metrics/generation-quality", json.str()});
 }
 
@@ -380,44 +416,62 @@ void MetricsPushClient::enqueue(PushEvent event) {
 
 void MetricsPushClient::push_loop() {
     const auto interval = std::chrono::milliseconds(heartbeat_interval_ms_);
+    auto last_heartbeat = std::chrono::steady_clock::now();
     while (true) {
         PushEvent event;
+        bool have_event = false;
+        bool stopping = false;
         {
             std::unique_lock<std::mutex> lock(queue_mutex_);
-            const bool signaled = queue_cv_.wait_for(
-                lock, interval, [this] { return !queue_.empty() || stop_.load(); });
+            queue_cv_.wait_for(lock, interval,
+                               [this] { return !queue_.empty() || stop_.load(); });
 
-            if (!signaled) {
-                // Timed out with empty queue — send a heartbeat to keep the session
-                // visible on the dashboard during long pre-processing or validation gaps.
-                lock.unlock();
-                attempt_post("/heartbeat", "{}");
-                continue;
-            }
-
-            if (queue_.empty()) {
+            if (!queue_.empty()) {
+                event = std::move(queue_.front());
+                queue_.pop_front();
+                have_event = true;
+            } else if (stop_.load()) {
                 // stop_ is set and the queue has been fully drained — exit cleanly.
-                return;
+                stopping = true;
             }
-
-            event = std::move(queue_.front());
-            queue_.pop_front();
+        }
+        if (stopping) {
+            return;
         }
 
-        const int rc = attempt_post(event.endpoint, event.body);
+        if (have_event) {
+            const int rc = attempt_post(event.endpoint, event.body);
 
-        // Session lost (server restart or eviction) — re-register and retry once.
-        // Skip lifecycle endpoints: /start is already a registration, /end is a teardown.
-        if (rc == 404 && !reconnect_body_.empty()
-                && event.endpoint != "/start" && event.endpoint != "/end") {
-            adai::Logger::warn("MetricsPushClient: session gone on {}, re-registering", event.endpoint);
-            const int start_rc = attempt_post("/start", reconnect_body_);
-            if (start_rc == 200 || start_rc == 409) {
-                attempt_post(event.endpoint, event.body);
-            } else {
-                adai::Logger::warn("MetricsPushClient: re-registration failed (HTTP {}), dropping {}",
-                                   start_rc, event.endpoint);
+            // Session lost (server restart or eviction) — re-register and retry once.
+            // Skip lifecycle endpoints: /start is already a registration, /end is a teardown.
+            if (rc == 404 && !reconnect_body_.empty() && event.endpoint != "/start" &&
+                event.endpoint != "/end") {
+                adai::Logger::warn("MetricsPushClient: session gone on {}, re-registering",
+                                   event.endpoint);
+                const int start_rc = attempt_post("/start", reconnect_body_);
+                if (start_rc == 200 || start_rc == 409) {
+                    attempt_post(event.endpoint, event.body);
+                } else {
+                    adai::Logger::warn(
+                        "MetricsPushClient: re-registration failed (HTTP {}), dropping {}",
+                        start_rc, event.endpoint);
+                }
             }
+        }
+
+        // Keep the session alive independent of queue activity. A sustained
+        // backlog of never-dropped Epoch/Session events (e.g. up to
+        // max_abnormal_samples flagged outliers) can occupy this loop for
+        // minutes at a time, during which Sample-priority pushes are dropped
+        // outright (see enqueue()) — starving the server of any ingest and
+        // letting it evict the session as stale even though the client is
+        // actively trying to report. A heartbeat bypasses the queue entirely,
+        // so firing it on a plain wall-clock timer (not "queue was empty and
+        // wait_for timed out") keeps the session alive under backlog too.
+        const auto now = std::chrono::steady_clock::now();
+        if (now - last_heartbeat >= interval) {
+            attempt_post("/heartbeat", "{}");
+            last_heartbeat = now;
         }
     }
 }
@@ -428,8 +482,7 @@ void MetricsPushClient::push_loop() {
 
 #ifdef BUILD_METRICS_API_SERVER
 
-int MetricsPushClient::attempt_post(const std::string& endpoint,
-                                    const std::string& body) const {
+int MetricsPushClient::attempt_post(const std::string& endpoint, const std::string& body) const {
     if (session_base_url_.empty()) {
         return 0;
     }
@@ -457,17 +510,15 @@ int MetricsPushClient::attempt_post(const std::string& endpoint,
             auto res = client.Post(path, body, "application/json");
 
             if (!res) {
-                adai::Logger::debug(
-                    "MetricsPushClient: POST {} — no response (attempt {}/{})",
-                    full_url, attempt + 1, kMaxAttempts);
+                adai::Logger::debug("MetricsPushClient: POST {} — no response (attempt {}/{})",
+                                    full_url, attempt + 1, kMaxAttempts);
                 continue;  // Network error → retry
             }
 
             const int status = res->status;
             if (status >= 500) {
-                adai::Logger::debug(
-                    "MetricsPushClient: POST {} returned HTTP {} (attempt {}/{})",
-                    full_url, status, attempt + 1, kMaxAttempts);
+                adai::Logger::debug("MetricsPushClient: POST {} returned HTTP {} (attempt {}/{})",
+                                    full_url, status, attempt + 1, kMaxAttempts);
                 continue;  // Server error → retry
             }
 
@@ -475,9 +526,8 @@ int MetricsPushClient::attempt_post(const std::string& endpoint,
             return status;
 
         } catch (const std::exception& e) {
-            adai::Logger::debug(
-                "MetricsPushClient: POST {} exception: {} (attempt {}/{})",
-                full_url, e.what(), attempt + 1, kMaxAttempts);
+            adai::Logger::debug("MetricsPushClient: POST {} exception: {} (attempt {}/{})",
+                                full_url, e.what(), attempt + 1, kMaxAttempts);
         }
     }
 

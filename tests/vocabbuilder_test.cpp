@@ -510,8 +510,7 @@ TEST_F(VocabBuilderWorkflowTest, AsciiModeSavedVocabContainsModeField) {
     tok.save_vocab(vocab_path_);
 
     std::ifstream f(vocab_path_);
-    std::string content((std::istreambuf_iterator<char>(f)),
-                         std::istreambuf_iterator<char>());
+    std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     EXPECT_NE(content.find("TOKENIZER_MODE ASCII"), std::string::npos);
 }
 
@@ -521,8 +520,7 @@ TEST_F(VocabBuilderWorkflowTest, UnicodeModeVocabFileContainsModeField) {
     tok.save_vocab(vocab_path_);
 
     std::ifstream f(vocab_path_);
-    std::string content((std::istreambuf_iterator<char>(f)),
-                         std::istreambuf_iterator<char>());
+    std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     EXPECT_NE(content.find("TOKENIZER_MODE UNICODE"), std::string::npos);
 }
 
@@ -552,8 +550,8 @@ TEST_F(VocabBuilderWorkflowTest, SaveLoadPreservesAsciiMode) {
 TEST_F(VocabBuilderWorkflowTest, UnicodeModeCanEncodeMultibyteText) {
     // "café" and CJK text
     std::vector<std::string> corpus_with_unicode = {
-        "caf\xC3\xA9",                      // café
-        "\xE4\xB8\xAD\xE6\x96\x87",         // 中文
+        "caf\xC3\xA9",               // café
+        "\xE4\xB8\xAD\xE6\x96\x87",  // 中文
         "hello world",
     };
     BPETokenizer tok(TokenizerMode::UNICODE);

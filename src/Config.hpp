@@ -18,14 +18,16 @@ namespace adai {
 
 /// GPU scheduling strategy — controls CUDA stream priority at initialisation.
 enum class GPUStrategy : std::uint8_t {
-    BACKGROUND, ///< Low-priority stream; yields to other GPU work (default)
-    FULL,       ///< High-priority stream; maximises training throughput
+    BACKGROUND,  ///< Low-priority stream; yields to other GPU work (default)
+    FULL,        ///< High-priority stream; maximises training throughput
 };
 
 /// Parse a GPU_STRATEGY string; warns and returns BACKGROUND on unknown input.
 inline GPUStrategy gpu_strategy_from_string(const std::string& s) {
-    if (s == "full")       return GPUStrategy::FULL;
-    if (s == "background") return GPUStrategy::BACKGROUND;
+    if (s == "full")
+        return GPUStrategy::FULL;
+    if (s == "background")
+        return GPUStrategy::BACKGROUND;
     std::cerr << "Warning: unknown GPU_STRATEGY '" << s << "', using 'background'\n";
     return GPUStrategy::BACKGROUND;
 }
@@ -158,12 +160,14 @@ struct ServiceConfig {
     /// Enable training metrics service (default: true)
     bool enable_metrics_service = true;
 
-    /// URL of metrics API daemon; empty string disables push reporting (default: http://localhost:8081)
+    /// URL of metrics API daemon; empty string disables push reporting (default:
+    /// http://localhost:8081)
     std::string metrics_server_url = "http://localhost:8081";
 
     // TODO: See TECHNICAL_DEBT.md TD-018 - Add METRICS_SESSION_KEY (string, default "0-default"),
-    //   METRICS_MAX_LIVE_SESSIONS (int, default 16), METRICS_COMPLETED_TTL_SECONDS (int, default 3600),
-    //   METRICS_SWEEP_INTERVAL_SECONDS (int, default 60); parse in Config.cpp alongside existing keys.
+    //   METRICS_MAX_LIVE_SESSIONS (int, default 16), METRICS_COMPLETED_TTL_SECONDS (int, default
+    //   3600), METRICS_SWEEP_INTERVAL_SECONDS (int, default 60); parse in Config.cpp alongside
+    //   existing keys.
 
     /// HTTP timeout for pushing metrics in milliseconds (default: 1000)
     int metrics_push_timeout_ms = 1000;
@@ -260,6 +264,15 @@ struct ServiceConfig {
 
     /// HTTP timeout for registry_server calls in milliseconds (default: 5000)
     int registry_timeout_ms = 5000;
+
+    /// Listen port for the registry_server daemon itself (default: 8082).
+    /// Server-side setting, read by registry_server; distinct from
+    /// registry_server_url (which is the client-side URL pointing *at* a registry_server).
+    int registry_listen_port = 8082;
+
+    /// Root storage directory for registry_server's per-group state (default: "registry_sessions").
+    /// Server-side setting, read by registry_server.
+    std::string registry_data_dir = "registry_sessions";
 
     // ============================================================
     // FTP Dataset Transport Configuration (Phase 10)
@@ -452,6 +465,22 @@ class ConfigLoader {
      * @return ServiceConfig The loaded configuration
      */
     static ServiceConfig load(const std::string& config_file_path);
+
+    /**
+     * @brief Resolve which config file a binary should load, given an optional
+     *        explicit --config path and that binary's own service-scoped filename.
+     *
+     * Search order: explicit_path (if non-empty) > ./service_filename >
+     * /etc/adai/service_filename > ./config.conf (legacy) > /etc/adai/config.conf
+     * (legacy fallback, returned even if it doesn't exist so callers behave like
+     * the pre-split ConfigLoader::load() default).
+     *
+     * @param explicit_path Value of an explicit --config flag; empty if not given.
+     * @param service_filename This binary's own config file, e.g. "config.chatbot.conf".
+     * @return Path to load via ConfigLoader::load().
+     */
+    static std::string discover_config_path(const std::string& explicit_path,
+                                             const std::string& service_filename);
 
     /**
      * @brief Print the current configuration to stdout.

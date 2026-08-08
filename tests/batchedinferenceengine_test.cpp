@@ -544,7 +544,7 @@ TEST_F(EngineFunctionalTest, QueueFullThrows) {
     };
 
     BatchedInferenceConfig cfg;
-    cfg.timeout_ms    = 5;   // fast flush so the primer batch is collected quickly
+    cfg.timeout_ms = 5;  // fast flush so the primer batch is collected quickly
     cfg.max_queue_size = 2;
 
     auto tok = make_tokenizer();

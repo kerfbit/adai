@@ -22,8 +22,8 @@
 #include <string>
 #include <thread>
 #include <vector>
-#include "RegistryTransport.hpp"  // FileToken, AcquireResponse
 #include "Logger.hpp"
+#include "RegistryTransport.hpp"  // FileToken, AcquireResponse
 
 #ifdef BUILD_FTP_TRANSPORT
 #include <curl/curl.h>
@@ -33,13 +33,13 @@ using adai::Logger;
 namespace fs = std::filesystem;
 
 class DataTransport {
-public:
-    DataTransport()  = default;
+   public:
+    DataTransport() = default;
     ~DataTransport() = default;
 
     // Phase 2: retry configuration constants
-    static constexpr int kMaxRetries    = 3;        // attempts = 1 + kMaxRetries
-    static constexpr int kBaseBackoffMs = 1000;     // 1 s → 2 s → 4 s
+    static constexpr int kMaxRetries = 3;        // attempts = 1 + kMaxRetries
+    static constexpr int kBaseBackoffMs = 1000;  // 1 s → 2 s → 4 s
 
     /**
      * @brief Download one file via FTP (or FTPS) to download_dir using its per-file token.
@@ -63,13 +63,9 @@ public:
      * @return Local filesystem path to the downloaded file.
      * @throws std::runtime_error on FTP error, size mismatch, or missing libcurl.
      */
-    fs::path fetch(
-        const FileToken&    token,
-        const std::string&  ftp_host,
-        int                 ftp_port,
-        const fs::path&     download_dir,
-        std::size_t         large_file_warn_bytes = 0,
-        bool                ftps_enabled = false);
+    fs::path fetch(const FileToken& token, const std::string& ftp_host, int ftp_port,
+                   const fs::path& download_dir, std::size_t large_file_warn_bytes = 0,
+                   bool ftps_enabled = false);
 
     /**
      * @brief Download all files in the acquire response.
@@ -82,11 +78,8 @@ public:
      * @return Local paths in the same order as resp.files.
      * @throws std::runtime_error if any single fetch fails.
      */
-    std::vector<fs::path> fetch_all(
-        const AcquireResponse& resp,
-        const fs::path&        download_dir,
-        int                    max_parallel = 4,
-        std::size_t            large_file_warn_bytes = 0);
+    std::vector<fs::path> fetch_all(const AcquireResponse& resp, const fs::path& download_dir,
+                                    int max_parallel = 4, std::size_t large_file_warn_bytes = 0);
 };
 
 // ============================================================================
@@ -99,7 +92,7 @@ namespace dt_detail {
 
 struct WriteCtx {
     std::ofstream* file;
-    std::size_t    bytes_written = 0;
+    std::size_t bytes_written = 0;
 };
 
 static std::size_t curl_write(void* ptr, std::size_t size, std::size_t nmemb, void* userdata) {
@@ -130,16 +123,11 @@ inline bool is_transient(CURLcode rc) {
     }
 }
 
-} // namespace dt_detail
+}  // namespace dt_detail
 
-inline fs::path DataTransport::fetch(
-        const FileToken&   token,
-        const std::string& ftp_host,
-        int                ftp_port,
-        const fs::path&    download_dir,
-        std::size_t        large_file_warn_bytes,
-        bool               ftps_enabled)
-{
+inline fs::path DataTransport::fetch(const FileToken& token, const std::string& ftp_host,
+                                     int ftp_port, const fs::path& download_dir,
+                                     std::size_t large_file_warn_bytes, bool ftps_enabled) {
     fs::create_directories(download_dir);
     const fs::path local_path = download_dir / fs::path(token.ftp_path).filename();
 
@@ -147,29 +135,28 @@ inline fs::path DataTransport::fetch(
     if (token.size_bytes > 0 && fs::exists(local_path)) {
         const std::size_t on_disk = fs::file_size(local_path);
         if (on_disk == token.size_bytes) {
-            Logger::info("[CLEANUP-B] Found previously downloaded file '{}' ({} bytes) "
-                         "ready for training. Skipping re-download.",
-                         token.ftp_path, token.size_bytes);
+            Logger::info(
+                "[CLEANUP-B] Found previously downloaded file '{}' ({} bytes) "
+                "ready for training. Skipping re-download.",
+                token.ftp_path, token.size_bytes);
             return local_path;
         }
     }
 
     // Large-file pre-transfer warning
-    const bool is_large = (large_file_warn_bytes > 0 &&
-                           token.size_bytes >= large_file_warn_bytes);
+    const bool is_large = (large_file_warn_bytes > 0 && token.size_bytes >= large_file_warn_bytes);
     if (is_large) {
         const double size_mb = static_cast<double>(token.size_bytes) / (1024.0 * 1024.0);
-        Logger::warn("[DataTransport] Large file transfer beginning: '{}' ({:.1f} MB). "
-                     "This may take a while.",
-                     token.ftp_path, size_mb);
+        Logger::warn(
+            "[DataTransport] Large file transfer beginning: '{}' ({:.1f} MB). "
+            "This may take a while.",
+            token.ftp_path, size_mb);
     }
 
     // Build FTP URL — use plain ftp:// with CURLOPT_USE_SSL for FTPS (AUTH TLS)
     // rather than ftps:// (which implies implicit TLS on port 990).
-    const std::string url = "ftp://"
-        + token.ftp_username + ":" + token.ftp_password
-        + "@" + ftp_host + ":" + std::to_string(ftp_port)
-        + "/" + token.ftp_path;
+    const std::string url = "ftp://" + token.ftp_username + ":" + token.ftp_password + "@" +
+                            ftp_host + ":" + std::to_string(ftp_port) + "/" + token.ftp_path;
 
     const auto t_start = std::chrono::steady_clock::now();
     CURLcode rc = CURLE_OK;
@@ -188,10 +175,11 @@ inline fs::path DataTransport::fetch(
             } else {
                 // Genuine partial file: resume from current offset
                 resume_from = on_disk;
-                Logger::info("[DataTransport] Partial file '{}' ({}/{} bytes). "
-                             "Resuming from offset {} (attempt {}/{}).",
-                             token.ftp_path, on_disk, token.size_bytes,
-                             resume_from, attempt + 1, kMaxRetries + 1);
+                Logger::info(
+                    "[DataTransport] Partial file '{}' ({}/{} bytes). "
+                    "Resuming from offset {} (attempt {}/{}).",
+                    token.ftp_path, on_disk, token.size_bytes, resume_from, attempt + 1,
+                    kMaxRetries + 1);
             }
         }
 
@@ -203,46 +191,54 @@ inline fs::path DataTransport::fetch(
             outfile.open(local_path, std::ios::binary | std::ios::trunc);
         }
         if (!outfile.is_open()) {
-            throw std::runtime_error("[DataTransport] Cannot open local file for writing: "
-                                     + local_path.string());
+            throw std::runtime_error("[DataTransport] Cannot open local file for writing: " +
+                                     local_path.string());
         }
 
         dt_detail::WriteCtx ctx{&outfile, 0};
 
         CURL* curl = curl_easy_init();
-        if (!curl) throw std::runtime_error("[DataTransport] curl_easy_init() failed");
+        if (!curl)
+            throw std::runtime_error("[DataTransport] curl_easy_init() failed");
 
-        curl_easy_setopt(curl, CURLOPT_URL,            url.c_str());
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,  dt_detail::curl_write);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA,      &ctx);
-        curl_easy_setopt(curl, CURLOPT_FTP_USE_EPSV,   0L);   // prefer PASV over EPSV
+        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, dt_detail::curl_write);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &ctx);
+        curl_easy_setopt(curl, CURLOPT_FTP_USE_EPSV, 0L);  // prefer PASV over EPSV
+        // FtpDataServer (registry-side) rejects all CWD ("directory navigation not
+        // permitted") and expects the full relative path in a single RETR — curl's
+        // default MULTICWD method would CWD into each path segment first and get a
+        // 550 before ever sending RETR. Phase 11 dataset fetches (gutenberg/
+        // huggingface/upload) are stored under <group>/datasets or <group>/uploads,
+        // so ftp_path routinely contains '/' — NOCWD is required for those to work.
+        curl_easy_setopt(curl, CURLOPT_FTP_FILEMETHOD, (long)CURLFTPMETHOD_NOCWD);
         curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 30L);
-        curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 60L);   // abort if < 1 byte/s for 60s
+        curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 60L);  // abort if < 1 byte/s for 60s
         curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
         // Phase 3: FTPS — explicit TLS via AUTH TLS on the control channel
         if (ftps_enabled) {
-            curl_easy_setopt(curl, CURLOPT_USE_SSL,       (long)CURLUSESSL_ALL);
-            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L); // accept self-signed certs
+            curl_easy_setopt(curl, CURLOPT_USE_SSL, (long)CURLUSESSL_ALL);
+            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);  // accept self-signed certs
             curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
         }
         if (resume_from > 0) {
-            curl_easy_setopt(curl, CURLOPT_RESUME_FROM_LARGE,
-                             static_cast<curl_off_t>(resume_from));
+            curl_easy_setopt(curl, CURLOPT_RESUME_FROM_LARGE, static_cast<curl_off_t>(resume_from));
         }
 
         rc = curl_easy_perform(curl);
         curl_easy_cleanup(curl);
         outfile.close();
 
-        if (rc == CURLE_OK) break;  // success — fall through to verification
+        if (rc == CURLE_OK)
+            break;  // success — fall through to verification
 
         const bool retryable = dt_detail::is_transient(rc) && (attempt < kMaxRetries);
         if (retryable) {
             const int backoff_ms = kBaseBackoffMs << attempt;  // 1 s, 2 s, 4 s
-            Logger::warn("[DataTransport] Transient error on attempt {}/{} for '{}': {}. "
-                         "Retrying in {} ms.",
-                         attempt + 1, kMaxRetries + 1, token.ftp_path,
-                         curl_easy_strerror(rc), backoff_ms);
+            Logger::warn(
+                "[DataTransport] Transient error on attempt {}/{} for '{}': {}. "
+                "Retrying in {} ms.",
+                attempt + 1, kMaxRetries + 1, token.ftp_path, curl_easy_strerror(rc), backoff_ms);
             std::this_thread::sleep_for(std::chrono::milliseconds(backoff_ms));
         } else {
             break;  // non-retryable or max retries exhausted
@@ -251,9 +247,8 @@ inline fs::path DataTransport::fetch(
 
     if (rc != CURLE_OK) {
         fs::remove(local_path);
-        throw std::runtime_error(
-            std::string("[DataTransport] FTP transfer failed for '") + token.ftp_path
-            + "': " + curl_easy_strerror(rc));
+        throw std::runtime_error(std::string("[DataTransport] FTP transfer failed for '") +
+                                 token.ftp_path + "': " + curl_easy_strerror(rc));
     }
 
     // ── Size verification against full on-disk file ───────────────────────
@@ -261,38 +256,37 @@ inline fs::path DataTransport::fetch(
         const std::size_t on_disk = fs::file_size(local_path);
         if (on_disk != token.size_bytes) {
             fs::remove(local_path);
-            throw std::runtime_error(
-                "[DataTransport] Size mismatch for '" + token.ftp_path + "': expected "
-                + std::to_string(token.size_bytes) + " bytes, got "
-                + std::to_string(on_disk) + " bytes.");
+            throw std::runtime_error("[DataTransport] Size mismatch for '" + token.ftp_path +
+                                     "': expected " + std::to_string(token.size_bytes) +
+                                     " bytes, got " + std::to_string(on_disk) + " bytes.");
         }
     }
 
     if (is_large) {
-        const auto elapsed = std::chrono::duration<double>(
-            std::chrono::steady_clock::now() - t_start).count();
-        const double mb   = static_cast<double>(token.size_bytes) / (1024.0 * 1024.0);
+        const auto elapsed =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - t_start).count();
+        const double mb = static_cast<double>(token.size_bytes) / (1024.0 * 1024.0);
         const double mbps = (elapsed > 0.0) ? (mb / elapsed) : 0.0;
-        Logger::info("[DataTransport] Large file transfer complete: '{}' "
-                     "({:.1f} MB in {:.1f}s, {:.2f} MB/s).",
-                     token.ftp_path, mb, elapsed, mbps);
+        Logger::info(
+            "[DataTransport] Large file transfer complete: '{}' "
+            "({:.1f} MB in {:.1f}s, {:.2f} MB/s).",
+            token.ftp_path, mb, elapsed, mbps);
     }
 
-    Logger::info("[DataTransport] Downloaded '{}' → '{}' ({} bytes)",
-                 token.ftp_path, local_path.string(), token.size_bytes);
+    Logger::info("[DataTransport] Downloaded '{}' → '{}' ({} bytes)", token.ftp_path,
+                 local_path.string(), token.size_bytes);
     return local_path;
 }
 
-inline std::vector<fs::path> DataTransport::fetch_all(
-        const AcquireResponse& resp,
-        const fs::path&        download_dir,
-        int                    max_parallel,
-        std::size_t            large_file_warn_bytes)
-{
+inline std::vector<fs::path> DataTransport::fetch_all(const AcquireResponse& resp,
+                                                      const fs::path& download_dir,
+                                                      int max_parallel,
+                                                      std::size_t large_file_warn_bytes) {
     const std::size_t n = resp.files.size();
-    if (n == 0) return {};
+    if (n == 0)
+        return {};
 
-    std::vector<fs::path>           local_paths(n);
+    std::vector<fs::path> local_paths(n);
     std::vector<std::exception_ptr> errors(n);
 
     // Work-stealing thread pool: each thread atomically claims the next
@@ -307,40 +301,43 @@ inline std::vector<fs::path> DataTransport::fetch_all(
         threads.emplace_back([&] {
             while (true) {
                 const std::size_t idx = next_idx.fetch_add(1, std::memory_order_relaxed);
-                if (idx >= n) break;
+                if (idx >= n)
+                    break;
                 try {
-                    local_paths[idx] = fetch(
-                        resp.files[idx], resp.ftp_server_host, resp.ftp_server_port,
-                        download_dir, large_file_warn_bytes, resp.ftps_enabled);
+                    local_paths[idx] =
+                        fetch(resp.files[idx], resp.ftp_server_host, resp.ftp_server_port,
+                              download_dir, large_file_warn_bytes, resp.ftps_enabled);
                 } catch (...) {
                     errors[idx] = std::current_exception();
                 }
             }
         });
     }
-    for (auto& t : threads) t.join();
+    for (auto& t : threads)
+        t.join();
 
     // Re-throw the first error so the caller can handle it
     for (const auto& e : errors) {
-        if (e) std::rethrow_exception(e);
+        if (e)
+            std::rethrow_exception(e);
     }
     return local_paths;
 }
 
-#else // BUILD_FTP_TRANSPORT not defined
+#else  // BUILD_FTP_TRANSPORT not defined
 
-inline fs::path DataTransport::fetch(
-        const FileToken&, const std::string&, int, const fs::path&, std::size_t, bool) {
+inline fs::path DataTransport::fetch(const FileToken&, const std::string&, int, const fs::path&,
+                                     std::size_t, bool) {
     throw std::runtime_error(
         "[DataTransport] FTP transport not compiled (BUILD_FTP_TRANSPORT not set). "
         "Build with libcurl to enable remote dataset download.");
 }
 
-inline std::vector<fs::path> DataTransport::fetch_all(
-        const AcquireResponse&, const fs::path&, int, std::size_t) {
+inline std::vector<fs::path> DataTransport::fetch_all(const AcquireResponse&, const fs::path&, int,
+                                                      std::size_t) {
     throw std::runtime_error(
         "[DataTransport] FTP transport not compiled (BUILD_FTP_TRANSPORT not set). "
         "Build with libcurl to enable remote dataset download.");
 }
 
-#endif // BUILD_FTP_TRANSPORT
+#endif  // BUILD_FTP_TRANSPORT
