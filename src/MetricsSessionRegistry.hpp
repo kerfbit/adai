@@ -5,6 +5,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -14,17 +15,19 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
-#include "TrainingMetricsService.hpp"
-#include "MetricsDatabase.hpp"
 #include "Logger.hpp"
+#include "MetricsDatabase.hpp"
+#include "TrainingMetricsService.hpp"
 
 struct MetricsSessionSummary {
     std::string key;
     int session_id = 0;
-    std::string label;           ///< human-readable label; empty until TrainingMetricsService populates (TD-021 step 8)
-    std::string config_snapshot; ///< compact training-config JSON; empty until step 8
+    std::string label;  ///< human-readable label; empty until TrainingMetricsService populates
+                        ///< (TD-021 step 8)
+    std::string config_snapshot;  ///< compact training-config JSON; empty until step 8
     bool is_training = false;
-    bool effective_is_training = false; ///< is_training && !is_stale — matches health-check liveness
+    bool effective_is_training =
+        false;  ///< is_training && !is_stale — matches health-check liveness
     int current_epoch = 0;
     int total_epochs = 0;
     float current_loss = 0.0f;
@@ -46,12 +49,10 @@ struct SessionStartResult {
 class MetricsSessionRegistry {
    public:
     explicit MetricsSessionRegistry(MetricsServiceConfig base_config = MetricsServiceConfig(),
-                                    size_t max_live_sessions = 16,
-                                    int completed_ttl_seconds = 3600,
+                                    size_t max_live_sessions = 16, int completed_ttl_seconds = 3600,
                                     int sweep_interval_seconds = 60,
                                     const std::string& storage_backend = "",
-                                    const std::string& db_path = "",
-                                    const std::string& db_url = "",
+                                    const std::string& db_path = "", const std::string& db_url = "",
                                     int db_pool_size = 4)
         : base_config_(std::move(base_config)),
           max_live_sessions_(max_live_sessions),
@@ -60,12 +61,15 @@ class MetricsSessionRegistry {
         // Create DB backend if configured (TD-020)
         if (!storage_backend.empty() && storage_backend != "file") {
             try {
-                db_ = MetricsDatabaseFactory::create(storage_backend, db_path, db_url, db_pool_size);
+                db_ =
+                    MetricsDatabaseFactory::create(storage_backend, db_path, db_url, db_pool_size);
                 if (db_) {
-                    adai::Logger::info("[MetricsSessionRegistry] Database backend initialized: {}", storage_backend);
+                    adai::Logger::info("[MetricsSessionRegistry] Database backend initialized: {}",
+                                       storage_backend);
                 }
             } catch (const std::exception& e) {
-                adai::Logger::error("[MetricsSessionRegistry] Failed to create DB backend: {}", e.what());
+                adai::Logger::error("[MetricsSessionRegistry] Failed to create DB backend: {}",
+                                    e.what());
             }
         }
         if (sweep_interval_seconds_ > 0) {
@@ -154,7 +158,8 @@ class MetricsSessionRegistry {
         return SessionStartResult{service, false};
     }
 
-    std::optional<std::shared_ptr<TrainingMetricsService>> get_session(const std::string& key) const {
+    std::optional<std::shared_ptr<TrainingMetricsService>> get_session(
+        const std::string& key) const {
         std::shared_lock<std::shared_mutex> lock(registry_mutex_);
         auto existing = sessions_.find(key);
         if (existing == sessions_.end()) {
@@ -198,11 +203,13 @@ class MetricsSessionRegistry {
             try {
                 auto db_sessions = db_->list_sessions(std::optional<bool>(false));
                 for (const auto& rec : db_sessions) {
-                    if (sessions_.count(rec.key)) continue;
+                    if (sessions_.count(rec.key))
+                        continue;
                     // Archived rows are permanent history kept only so their metrics can
                     // still be queried by exact key — they must never clutter the live
                     // dashboard/session-picker listing.
-                    if (is_archived_key(rec.key)) continue;
+                    if (is_archived_key(rec.key))
+                        continue;
                     MetricsSessionSummary summary;
                     summary.key = rec.key;
                     summary.session_id = rec.session_id;
@@ -213,20 +220,29 @@ class MetricsSessionRegistry {
                     summary.current_epoch = rec.total_epochs;
                     summary.total_epochs = rec.total_epochs;
                     summary.best_validation_loss = rec.best_validation_loss;
+                    // A completed/archived session has no live TrainingMetricsSnapshot, so
+                    // there's no "current" loss anymore — final_loss/final_validation_loss are
+                    // the last values recorded before it stopped being live, which is the
+                    // closest equivalent and prevents this from silently reading as 0.
+                    summary.current_loss = rec.final_loss;
+                    summary.current_validation_loss = rec.final_validation_loss;
                     summary.session_start_time = rec.created_at;
                     summary.last_update_time = rec.last_update_at;
                     summary.metrics_url = "/api/sessions/" + rec.key + "/metrics/current";
                     summaries.push_back(std::move(summary));
                 }
             } catch (const std::exception& e) {
-                adai::Logger::warn("[MetricsSessionRegistry] DB list_sessions failed: {}", e.what());
+                adai::Logger::warn("[MetricsSessionRegistry] DB list_sessions failed: {}",
+                                   e.what());
             }
         }
 
         return summaries;
     }
 
-    IMetricsDatabase* get_database() const { return db_.get(); }
+    IMetricsDatabase* get_database() const {
+        return db_.get();
+    }
 
     size_t evict_completed_sessions(int max_age_seconds) {
         std::unique_lock<std::shared_mutex> lock(registry_mutex_);
@@ -242,12 +258,66 @@ class MetricsSessionRegistry {
         return max_live_sessions_;
     }
 
+    // ── Admin-mutable settings (see TrainingMetricsAPI's PUT /admin/config) ───
+
+    void set_max_live_sessions(size_t n) {
+        std::unique_lock<std::shared_mutex> lock(registry_mutex_);
+        max_live_sessions_ = n;
+    }
+
+    int completed_ttl_seconds() const {
+        std::shared_lock<std::shared_mutex> lock(registry_mutex_);
+        return completed_ttl_seconds_;
+    }
+
+    void set_completed_ttl_seconds(int seconds) {
+        std::unique_lock<std::shared_mutex> lock(registry_mutex_);
+        completed_ttl_seconds_ = seconds;
+    }
+
+    int sweep_interval_seconds() const {
+        std::lock_guard<std::mutex> lock(sweep_mutex_);
+        return sweep_interval_seconds_;
+    }
+
+    // Safe to call while the sweep thread is running: notify_all() wakes its
+    // wait_for(), which re-reads sweep_interval_seconds_ fresh on the next loop
+    // iteration (see sweep_loop()) rather than being stuck on the duration it
+    // was constructed with.
+    void set_sweep_interval_seconds(int seconds) {
+        {
+            std::lock_guard<std::mutex> lock(sweep_mutex_);
+            sweep_interval_seconds_ = seconds;
+        }
+        sweep_cv_.notify_all();
+    }
+
+    MetricsServiceConfig base_metrics_config() const {
+        std::shared_lock<std::shared_mutex> lock(registry_mutex_);
+        return base_config_;
+    }
+
+    // Applies `mutator` to base_config_ (so future sessions pick up the change)
+    // and to every currently-live session's config (so the change is immediate).
+    // Each session's config is read-mutate-written individually rather than
+    // overwritten wholesale, so per-session derived file paths (see
+    // config_for_session) are preserved.
+    void update_metrics_config(const std::function<void(MetricsServiceConfig&)>& mutator) {
+        std::unique_lock<std::shared_mutex> lock(registry_mutex_);
+        mutator(base_config_);
+        for (auto& [key, entry] : sessions_) {
+            auto cfg = entry.service->get_config();
+            mutator(cfg);
+            entry.service->set_config(cfg);
+        }
+    }
+
    private:
     struct SessionEntry {
         std::shared_ptr<TrainingMetricsService> service;
         std::chrono::system_clock::time_point created_at;
-        std::string label;           ///< populated by start_session() (TD-021 step 8)
-        std::string config_snapshot; ///< populated by start_session() (TD-021 step 8)
+        std::string label;            ///< populated by start_session() (TD-021 step 8)
+        std::string config_snapshot;  ///< populated by start_session() (TD-021 step 8)
     };
 
     MetricsServiceConfig config_for_session(const std::string& key) const {
@@ -261,14 +331,13 @@ class MetricsSessionRegistry {
             derive_session_file_path(base_config_.summary_file, key, "_metrics_summary");
         config.prometheus_file =
             derive_session_file_path(base_config_.prometheus_file, key, "_metrics");
-        config.abnormal_samples_file = derive_session_file_path(base_config_.abnormal_samples_file,
-                                                                key, "_abnormal_samples");
+        config.abnormal_samples_file =
+            derive_session_file_path(base_config_.abnormal_samples_file, key, "_abnormal_samples");
         return config;
     }
 
     static std::string derive_session_file_path(const std::string& base_file,
-                                                const std::string& key,
-                                                const std::string& suffix) {
+                                                const std::string& key, const std::string& suffix) {
         namespace fs = std::filesystem;
 
         fs::path path(base_file);
@@ -278,23 +347,27 @@ class MetricsSessionRegistry {
     }
 
     static bool has_started(const TrainingMetricsSnapshot& snapshot) {
-        return snapshot.session_id != 0 || snapshot.total_epochs != 0 || snapshot.total_samples != 0 ||
-               snapshot.total_samples_trained != 0;
+        return snapshot.session_id != 0 || snapshot.total_epochs != 0 ||
+               snapshot.total_samples != 0 || snapshot.total_samples_trained != 0;
     }
 
     static bool should_replace_completed_session(
         const std::shared_ptr<TrainingMetricsService>& service) {
         const auto snapshot = service->get_current_snapshot();
-        if (!has_started(snapshot)) return false;
-        if (!snapshot.is_training) return true;   // completed normally
-        return snapshot.is_stale;                  // trainer died without posting /end
+        if (!has_started(snapshot))
+            return false;
+        if (!snapshot.is_training)
+            return true;           // completed normally
+        return snapshot.is_stale;  // trainer died without posting /end
     }
 
     static bool is_completed_and_stale(const SessionEntry& entry, int max_age_seconds) {
         const auto snapshot = entry.service->get_current_snapshot();
-        if (!has_started(snapshot)) return false;
+        if (!has_started(snapshot))
+            return false;
         // Actively training and receiving updates — do not evict.
-        if (snapshot.is_training && !snapshot.is_stale) return false;
+        if (snapshot.is_training && !snapshot.is_stale)
+            return false;
 
         const auto last_activity = snapshot.last_update_time.time_since_epoch().count() > 0
                                        ? snapshot.last_update_time
@@ -317,8 +390,8 @@ class MetricsSessionRegistry {
     // shares database rows or on-disk files with the old (dead) run.
     std::string make_archived_key(const std::string& key) {
         const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                 std::chrono::system_clock::now().time_since_epoch())
-                                 .count();
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count();
         return key + kArchivedKeyMarker + std::to_string(now_ms) + "_" +
                std::to_string(archive_counter_.fetch_add(1, std::memory_order_relaxed));
     }
@@ -328,7 +401,8 @@ class MetricsSessionRegistry {
     // (see config_for_session) rather than per-session paths, so there is nothing to rename.
     void archive_session_files_locked(const std::string& key, const std::string& archived_key,
                                       const std::shared_ptr<TrainingMetricsService>& service) {
-        if (key == "0-default") return;
+        if (key == "0-default")
+            return;
 
         namespace fs = std::filesystem;
         const auto config = service->get_config();
@@ -336,15 +410,18 @@ class MetricsSessionRegistry {
                                       &config.prometheus_file, &config.abnormal_samples_file};
         for (const auto* path_ptr : paths) {
             const std::string& path = *path_ptr;
-            if (path.empty()) continue;
+            if (path.empty())
+                continue;
 
             fs::path p(path);
             std::error_code exists_ec;
-            if (!fs::exists(p, exists_ec)) continue;
+            if (!fs::exists(p, exists_ec))
+                continue;
 
             std::string filename = p.filename().string();
             const auto pos = filename.find(key);
-            if (pos == std::string::npos) continue;
+            if (pos == std::string::npos)
+                continue;
             filename.replace(pos, key.size(), archived_key);
 
             std::error_code rename_ec;
@@ -367,8 +444,9 @@ class MetricsSessionRegistry {
             try {
                 db_->archive_session(key, archived_key);
             } catch (const std::exception& e) {
-                adai::Logger::error("[MetricsSessionRegistry] archive_session failed for key='{}': {}",
-                                    key, e.what());
+                adai::Logger::error(
+                    "[MetricsSessionRegistry] archive_session failed for key='{}': {}", key,
+                    e.what());
             }
         }
         archive_session_files_locked(key, archived_key, service);
@@ -399,7 +477,8 @@ class MetricsSessionRegistry {
         while (!stop_sweep_) {
             sweep_cv_.wait_for(lock, std::chrono::seconds(sweep_interval_seconds_),
                                [this] { return stop_sweep_.load(); });
-            if (stop_sweep_) break;
+            if (stop_sweep_)
+                break;
             lock.unlock();
             evict_completed_sessions(completed_ttl_seconds_);
             lock.lock();
@@ -416,7 +495,7 @@ class MetricsSessionRegistry {
     std::atomic<uint64_t> archive_counter_{0};
 
     std::atomic<bool> stop_sweep_{false};
-    std::mutex sweep_mutex_;                ///< guards sweep_cv_ wait only
+    mutable std::mutex sweep_mutex_;  ///< guards sweep_cv_ wait only; mutable for the const getter
     std::condition_variable_any sweep_cv_;
-    std::thread sweep_thread_;              ///< last member — joins after other members are valid
+    std::thread sweep_thread_;  ///< last member — joins after other members are valid
 };

@@ -36,6 +36,24 @@ else()
     set(ENABLE_OPENMP OFF)
 endif()
 
+# Try to find cpp-httplib. Must run before any target_compile_definitions()
+# that gates on HTTPLIB_INCLUDE_DIR (e.g. adai_core below) — CMakeLists.txt is
+# processed top-to-bottom in a single pass on a fresh configure, so a find_path()
+# appearing later in the file has not run yet when an earlier if(HTTPLIB_INCLUDE_DIR)
+# is evaluated, silently taking the "not found" branch even though httplib is
+# actually available. That decision then gets baked into the generated build
+# system and, since CMake only reprocesses this file when it changes, persists
+# across every subsequent incremental rebuild — even though HTTPLIB_INCLUDE_DIR
+# itself shows up correctly in CMakeCache.txt from that point on, which is
+# what made this so easy to misdiagnose as a runtime/deployment issue instead
+# of a configure-time ordering bug.
+find_path(HTTPLIB_INCLUDE_DIR httplib.h
+    PATHS
+        /usr/include
+        /usr/local/include
+        ${CMAKE_SOURCE_DIR}/external/cpp-httplib
+)
+
 # ============================================================================
 # Core Libraries - Build Once, Link Many
 # ============================================================================
@@ -53,6 +71,7 @@ add_library(adai_core STATIC
     DatasetRegistry.cpp
     DataFetcher.cpp
     SQLiteMetricsDatabase.cpp
+    DaemonConfigStore.cpp
 )
 target_link_libraries(adai_core PUBLIC spdlog::spdlog)
 
@@ -121,8 +140,15 @@ endif()
 # Enable with: -DENABLE_SIMD=ON (default).
 # Release builds using -march=native already enable AVX2+FMA where supported.
 # This option additionally enables intrinsics in Debug/RelWithDebInfo builds.
+#
+# Must be skipped for PORTABLE_BUILD: check_cxx_compiler_flag() only checks that
+# the *compiler* accepts -mavx2/-mfma, not that the eventual runtime CPU supports
+# executing them — unconditionally forcing these onto adai_core regardless of
+# PORTABLE_BUILD defeated the entire point of the portable preset (baseline
+# -march=x86-64 for deployment to unknown machines) and produced a binary that
+# SIGILLs on any CPU without AVX2.
 # ============================================================================
-if(ENABLE_SIMD)
+if(ENABLE_SIMD AND NOT PORTABLE_BUILD)
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         include(CheckCXXCompilerFlag)
         check_cxx_compiler_flag("-mavx2" ADAI_HAVE_AVX2)
@@ -142,6 +168,8 @@ if(ENABLE_SIMD)
         target_compile_options(adai_core PRIVATE /arch:AVX2)
         message(STATUS "SIMD: AVX2 intrinsics enabled via /arch:AVX2")
     endif()
+elseif(ENABLE_SIMD AND PORTABLE_BUILD)
+    message(STATUS "SIMD: AVX2/FMA intrinsics disabled — PORTABLE_BUILD requires baseline x86-64")
 endif()
 
 # GPU support (optional) — CUDA backend
@@ -271,14 +299,6 @@ if(NOT ENABLE_SYCL)
             <cctype>
     )
 endif()
-
-# Try to find cpp-httplib
-find_path(HTTPLIB_INCLUDE_DIR httplib.h
-    PATHS
-        /usr/include
-        /usr/local/include
-        ${CMAKE_SOURCE_DIR}/external/cpp-httplib
-)
 
 # ============================================================================
 # libcurl — required for FTP dataset transport (Phase 10)
@@ -445,7 +465,7 @@ endif()
 
 # Model Name Service daemon (mns_server)
 if(HTTPLIB_INCLUDE_DIR)
-    add_executable(mns_server ModelNameServiceServer.cpp)
+    add_executable(mns_server ModelNameServiceServer.cpp Config.cpp)
     target_link_libraries(mns_server
         adai_mns
         adai_core
@@ -694,6 +714,7 @@ endif()
 if(BUILD_METRICS_API_SERVER)
     add_executable(metrics_api_server
         TrainingMetricsAPIServer.cpp
+        Config.cpp
     )
     target_link_libraries(metrics_api_server
         adai_metrics_api

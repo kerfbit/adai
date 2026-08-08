@@ -74,8 +74,9 @@ class FakeFetchTransport : public RegistryTransport {
     bool save_pending(const std::vector<PendingEntry>& entries) override {
         return inner_.save_pending(entries);
     }
-    AcquireResponse acquire(const std::string& run_id, int max_files) override {
-        return inner_.acquire(run_id, max_files);
+    AcquireResponse acquire(const std::string& run_id, int max_files,
+                            const std::string& model_name = "") override {
+        return inner_.acquire(run_id, max_files, model_name);
     }
     void release(const std::string& run_id, const std::vector<std::string>& paths) override {
         inner_.release(run_id, paths);
@@ -86,6 +87,9 @@ class FakeFetchTransport : public RegistryTransport {
     }
     bool add_pending(const std::string& path) override {
         return inner_.add_pending(path);
+    }
+    std::string next_session(const std::string& model_name, const std::string& run_id) override {
+        return inner_.next_session(model_name, run_id);
     }
     AssignResult assign(const std::string& model_name, const std::vector<std::string>& paths,
                         int count) override {
@@ -613,7 +617,13 @@ TEST_F(DatasetRegistryTest, UnassignModelClearsInMemoryPending) {
 }
 
 TEST_F(DatasetRegistryTest, UnassignModelSkipsActiveClaimWithoutForce) {
-    DatasetRegistry reg(make_cfg());
+    // acquire_pending is assignment-aware (see RegistryTransport::acquire): a
+    // caller can only claim entries assigned to itself or unassigned ones, so
+    // this test's config must identify as "model-a" to claim the file it just
+    // assigned to "model-a" below.
+    DatasetConfig cfg = make_cfg();
+    cfg.model_name = "model-a";
+    DatasetRegistry reg(cfg);
     reg.add_file(data_file_);
     reg.assign_model("model-a");
     auto resp = reg.acquire_pending("run-a");

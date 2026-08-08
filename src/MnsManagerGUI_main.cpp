@@ -24,21 +24,19 @@ int main(int argc, char* argv[]) {
             std::cout << "ADAI Model Name Service Manager (GUI)\n\n"
                       << "Usage: " << argv[0] << " [--url URL] [--config PATH]\n\n"
                       << "Options:\n"
-                      << "  --url URL       MNS server URL (default: from config or http://localhost:8083)\n"
-                      << "  --config PATH   Path to config.conf\n"
+                      << "  --url URL       MNS server URL (default: from config or "
+                         "http://localhost:8083)\n"
+                      << "  --config PATH   Path to config.mns.conf\n"
                       << "  --help          Show this help\n";
             return 0;
         }
     }
 
     if (server_url.empty()) {
-        if (config_path.empty()) {
-            std::ifstream f("config.conf");
-            if (f.good()) config_path = "config.conf";
-        }
-        adai::ServiceConfig cfg = config_path.empty()
-            ? adai::ConfigLoader::load()
-            : adai::ConfigLoader::load(config_path);
+        // Discovery: --config > ./config.mns.conf > /etc/adai/config.mns.conf
+        // > ./config.conf (legacy) > /etc/adai/config.conf (legacy).
+        config_path = adai::ConfigLoader::discover_config_path(config_path, "config.mns.conf");
+        adai::ServiceConfig cfg = adai::ConfigLoader::load(config_path);
         if (!cfg.name_service_url.empty())
             server_url = cfg.name_service_url;
     }

@@ -52,7 +52,11 @@ bool ChatbotGUI::initializeChatbot() {
         tokenizer->load_vocab(vocab_path);
 
         // Load architecture from config (vocab/model paths still come from constructor args)
-        adai::ServiceConfig svc = adai::ConfigLoader::load();
+        // Discovery: ./config.chatbot.conf > /etc/adai/config.chatbot.conf
+        // > ./config.conf (legacy) > /etc/adai/config.conf (legacy)
+        const std::string config_path =
+            adai::ConfigLoader::discover_config_path("", "config.chatbot.conf");
+        adai::ServiceConfig svc = adai::ConfigLoader::load(config_path);
 
         // Initialize model
         model = std::make_unique<EncoderDecoderModel>(

@@ -296,6 +296,10 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.run_id = value;
             } else if (key == "REGISTRY_TIMEOUT_MS") {
                 config.registry_timeout_ms = std::stoi(value);
+            } else if (key == "REGISTRY_LISTEN_PORT") {
+                config.registry_listen_port = std::stoi(value);
+            } else if (key == "REGISTRY_DATA_DIR") {
+                config.registry_data_dir = value;
                 // FTP Dataset Transport configuration (Phase 10)
             } else if (key == "FTP_SERVER_PORT") {
                 config.ftp_server_port = std::stoi(value);
@@ -572,6 +576,12 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     if (auto val = get_env_int("REGISTRY_TIMEOUT_MS")) {
         config.registry_timeout_ms = *val;
     }
+    if (auto val = get_env_int("REGISTRY_LISTEN_PORT")) {
+        config.registry_listen_port = *val;
+    }
+    if (auto val = get_env("REGISTRY_DATA_DIR")) {
+        config.registry_data_dir = *val;
+    }
 
     // FTP Dataset Transport (Phase 10)
     if (auto val = get_env_int("FTP_SERVER_PORT")) {
@@ -606,8 +616,12 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
         const std::string sv(v);
         config.ftps_enabled = (sv == "1" || sv == "true" || sv == "yes");
     }
-    if (auto val = get_env("FTP_CERT_FILE")) { config.ftp_cert_file = *val; }
-    if (auto val = get_env("FTP_KEY_FILE"))  { config.ftp_key_file  = *val; }
+    if (auto val = get_env("FTP_CERT_FILE")) {
+        config.ftp_cert_file = *val;
+    }
+    if (auto val = get_env("FTP_KEY_FILE")) {
+        config.ftp_key_file = *val;
+    }
 
     // Model Name Service
     if (auto val = get_env("NAME_SERVICE_URL")) {
@@ -633,6 +647,31 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
 // ============================================================
 // Public API
 // ============================================================
+
+std::string ConfigLoader::discover_config_path(const std::string& explicit_path,
+                                                const std::string& service_filename) {
+    if (!explicit_path.empty()) {
+        return explicit_path;
+    }
+
+    const auto exists = [](const std::string& path) {
+        std::ifstream f(path);
+        return f.good();
+    };
+
+    if (exists(service_filename)) {
+        return service_filename;
+    }
+    const std::string etc_service_path = "/etc/adai/" + service_filename;
+    if (exists(etc_service_path)) {
+        return etc_service_path;
+    }
+    // Legacy fallback: pre-split monolithic config.conf.
+    if (exists("config.conf")) {
+        return "config.conf";
+    }
+    return "/etc/adai/config.conf";
+}
 
 ServiceConfig ConfigLoader::load() {
     ServiceConfig config;

@@ -7,18 +7,26 @@
 // session and clean up in TearDown.
 //
 // Configuration (env vars, both optional):
-//   METRICS_SERVER_HOST   default: 192.168.1.16
+//   METRICS_SERVER_HOST   default: 127.0.0.1
 //   METRICS_SERVER_PORT   default: 8081
+//
+// The default host MUST be a loopback/clearly-local address, never a real LAN IP:
+// this file's default previously pointed at a specific developer's actual production
+// metrics_api_server, so every normal `ctest` run (which includes this suite whenever
+// the server happens to be reachable at that address, with no opt-in required) was
+// silently creating and mutating real sessions on production infrastructure. Point
+// METRICS_SERVER_HOST at a real server explicitly and deliberately when you need to
+// exercise one.
 
 #include <gtest/gtest.h>
 
+#include <unistd.h>
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <ctime>
 #include <sstream>
 #include <string>
-#include <unistd.h>
 
 #include <httplib.h>
 
@@ -30,7 +38,7 @@ namespace {
 
 std::string server_host() {
     const char* env = std::getenv("METRICS_SERVER_HOST");
-    return env ? std::string(env) : "192.168.1.16";
+    return env ? std::string(env) : "127.0.0.1";
 }
 
 int server_port() {
@@ -50,8 +58,7 @@ httplib::Client make_client() {
 std::string make_test_key(const std::string& tag = "") {
     static std::atomic<int> counter{0};
     std::ostringstream oss;
-    oss << "lt" << static_cast<int>(::getpid())
-        << "t" << static_cast<long>(std::time(nullptr))
+    oss << "lt" << static_cast<int>(::getpid()) << "t" << static_cast<long>(std::time(nullptr))
         << "c" << counter.fetch_add(1);
     if (!tag.empty()) {
         oss << "-" << tag;
@@ -60,6 +67,17 @@ std::string make_test_key(const std::string& tag = "") {
 }
 
 bool server_reachable() {
+    // Require an explicit opt-in via METRICS_SERVER_HOST rather than probing a default
+    // host/port: this suite mutates real session state (starts/ends sessions, posts
+    // metrics), and guessing at a default here — even a loopback address — risks
+    // silently hitting whatever unrelated service happens to already be listening
+    // there (this repo has hit this twice: once a stray leftover metrics_api_server
+    // process, once a real systemd-managed service for an unrelated client). No
+    // implicit default means no such collision is possible; a developer who wants to
+    // run this suite against a real server sets the env var deliberately.
+    if (!std::getenv("METRICS_SERVER_HOST")) {
+        return false;
+    }
     auto c = make_client();
     auto res = c.Get("/health");
     return res && res->status == 200;
@@ -86,7 +104,8 @@ class LiveServerSharedSession : public ::testing::Test {
         std::string body =
             R"({"session_id":7001,"total_epochs":3,"total_samples":300,"label":"live-test-shared"})";
         auto res = c.Post((kp + "/start").c_str(), body, "application/json");
-        if (!res || res->status != 200) return false;
+        if (!res || res->status != 200)
+            return false;
 
         c.Post((kp + "/epoch/start").c_str(), R"({"epoch":1,"total_samples":100})",
                "application/json");
@@ -106,13 +125,16 @@ class LiveServerSharedSession : public ::testing::Test {
                "application/json");
         c.Post((kp + "/metrics/generation-quality").c_str(),
                R"({"bleu4":0.4,"rouge1":0.5,"rouge2":0.3,"rougeL":0.45})", "application/json");
-        c.Post((kp + "/epoch/end").c_str(),
-               R"({"epoch":1,"loss":0.7,"validation_loss":0.72,"learning_rate":0.001,"perplexity":2.0,"gradient_norm":0.4})",
-               "application/json");
+        c.Post(
+            (kp + "/epoch/end").c_str(),
+            R"({"epoch":1,"loss":0.7,"validation_loss":0.72,"learning_rate":0.001,"perplexity":2.0,"gradient_norm":0.4})",
+            "application/json");
         return true;
     }
 
-    static void SetUpTestSuite() { shared_key_ = make_test_key("shared"); }
+    static void SetUpTestSuite() {
+        shared_key_ = make_test_key("shared");
+    }
     static void TearDownTestSuite() {}
 
     void SetUp() override {
@@ -137,8 +159,12 @@ class LiveServerSharedSession : public ::testing::Test {
         }
     }
 
-    httplib::Client& client() { return *client_; }
-    static const std::string& shared_key() { return shared_key_; }
+    httplib::Client& client() {
+        return *client_;
+    }
+    static const std::string& shared_key() {
+        return shared_key_;
+    }
 
     std::unique_ptr<httplib::Client> client_;
     static std::string shared_key_;
@@ -154,8 +180,8 @@ class LiveServerTest : public ::testing::Test {
    protected:
     void SetUp() override {
         if (!server_reachable()) {
-            GTEST_SKIP() << "metrics_api_server not reachable at "
-                         << server_host() << ":" << server_port();
+            GTEST_SKIP() << "metrics_api_server not reachable at " << server_host() << ":"
+                         << server_port();
         }
         client_ = std::make_unique<httplib::Client>(server_host(), server_port());
         client_->set_connection_timeout(std::chrono::seconds(5));
@@ -167,8 +193,7 @@ class LiveServerTest : public ::testing::Test {
 
     void TearDown() override {
         if (session_started_) {
-            client_->Post(("/api/sessions/" + test_key_ + "/end").c_str(),
-                          "", "application/json");
+            client_->Post(("/api/sessions/" + test_key_ + "/end").c_str(), "", "application/json");
         }
     }
 
@@ -177,13 +202,10 @@ class LiveServerTest : public ::testing::Test {
     // to abort the test body cleanly.
     bool start_test_session(int session_id = 1, int epochs = 3, int samples = 300) {
         std::ostringstream body;
-        body << R"({"session_id":)" << session_id
-             << R"(,"total_epochs":)" << epochs
-             << R"(,"total_samples":)" << samples
-             << R"(,"label":"live-test"})";
-        auto res = client_->Post(
-            ("/api/sessions/" + test_key_ + "/start").c_str(),
-            body.str(), "application/json");
+        body << R"({"session_id":)" << session_id << R"(,"total_epochs":)" << epochs
+             << R"(,"total_samples":)" << samples << R"(,"label":"live-test"})";
+        auto res = client_->Post(("/api/sessions/" + test_key_ + "/start").c_str(), body.str(),
+                                 "application/json");
         if (!res) {
             ADD_FAILURE() << "POST /start: no response (connection error)";
             return false;
@@ -197,8 +219,12 @@ class LiveServerTest : public ::testing::Test {
         return true;
     }
 
-    httplib::Client& client() { return *client_; }
-    const std::string& test_key() const { return test_key_; }
+    httplib::Client& client() {
+        return *client_;
+    }
+    const std::string& test_key() const {
+        return test_key_;
+    }
 
    protected:
     bool session_started_ = false;
@@ -213,7 +239,8 @@ class LiveServerTest : public ::testing::Test {
 // ===========================================================================
 
 TEST(LiveServerHealth, Returns200WithRequiredFields) {
-    if (!server_reachable()) GTEST_SKIP() << "server not reachable";
+    if (!server_reachable())
+        GTEST_SKIP() << "server not reachable";
     auto c = make_client();
     auto res = c.Get("/health");
     ASSERT_TRUE(res);
@@ -229,7 +256,8 @@ TEST(LiveServerHealth, Returns200WithRequiredFields) {
 // ===========================================================================
 
 TEST(LiveServerSessionList, Returns200WithSessionsArray) {
-    if (!server_reachable()) GTEST_SKIP() << "server not reachable";
+    if (!server_reachable())
+        GTEST_SKIP() << "server not reachable";
     auto c = make_client();
     auto res = c.Get("/api/sessions");
     ASSERT_TRUE(res);
@@ -238,7 +266,8 @@ TEST(LiveServerSessionList, Returns200WithSessionsArray) {
 }
 
 TEST(LiveServerSessionList, ContainsDefaultSession) {
-    if (!server_reachable()) GTEST_SKIP() << "server not reachable";
+    if (!server_reachable())
+        GTEST_SKIP() << "server not reachable";
     auto c = make_client();
     auto res = c.Get("/api/sessions");
     ASSERT_TRUE(res);
@@ -254,7 +283,8 @@ TEST(LiveServerSessionList, ContainsDefaultSession) {
 // ===========================================================================
 
 TEST(LiveServerAggregate, JsonReturns200WithLiveSessionsField) {
-    if (!server_reachable()) GTEST_SKIP() << "server not reachable";
+    if (!server_reachable())
+        GTEST_SKIP() << "server not reachable";
     auto c = make_client();
     auto res = c.Get("/api/metrics/aggregate");
     ASSERT_TRUE(res);
@@ -264,7 +294,8 @@ TEST(LiveServerAggregate, JsonReturns200WithLiveSessionsField) {
 }
 
 TEST(LiveServerAggregate, PrometheusReturns200WithTextPlain) {
-    if (!server_reachable()) GTEST_SKIP() << "server not reachable";
+    if (!server_reachable())
+        GTEST_SKIP() << "server not reachable";
     auto c = make_client();
     auto res = c.Get("/api/metrics/prometheus/aggregate");
     ASSERT_TRUE(res);
@@ -277,7 +308,8 @@ TEST(LiveServerAggregate, PrometheusReturns200WithTextPlain) {
 // ===========================================================================
 
 TEST(LiveServerErrors, Get_UnknownSessionKeyReturns404) {
-    if (!server_reachable()) GTEST_SKIP() << "server not reachable";
+    if (!server_reachable())
+        GTEST_SKIP() << "server not reachable";
     auto c = make_client();
     auto res = c.Get("/api/sessions/no-such-session-xyz/metrics/current");
     ASSERT_TRUE(res);
@@ -286,7 +318,8 @@ TEST(LiveServerErrors, Get_UnknownSessionKeyReturns404) {
 }
 
 TEST(LiveServerErrors, Get_InvalidSessionKeyFormatReturns400or404) {
-    if (!server_reachable()) GTEST_SKIP() << "server not reachable";
+    if (!server_reachable())
+        GTEST_SKIP() << "server not reachable";
     auto c = make_client();
     // Key starting with '-' fails the regex pattern so route won't match.
     auto res = c.Get("/api/sessions/-bad/metrics/current");
@@ -296,11 +329,11 @@ TEST(LiveServerErrors, Get_InvalidSessionKeyFormatReturns400or404) {
 }
 
 TEST(LiveServerErrors, Post_ToUnknownSessionReturns404) {
-    if (!server_reachable()) GTEST_SKIP() << "server not reachable";
+    if (!server_reachable())
+        GTEST_SKIP() << "server not reachable";
     auto c = make_client();
     const std::string body = R"({"sample":1,"loss":0.5,"gradient_norm":0.1,"learning_rate":0.001})";
-    auto res = c.Post("/api/sessions/no-such-session-xyz/metrics/sample",
-                      body, "application/json");
+    auto res = c.Post("/api/sessions/no-such-session-xyz/metrics/sample", body, "application/json");
     ASSERT_TRUE(res);
     EXPECT_EQ(res->status, 404) << res->body;
     EXPECT_NE(res->body.find("Unknown session key"), std::string::npos) << res->body;
@@ -333,8 +366,8 @@ TEST_F(LiveServerSharedSession, HistoryReturns200WithRecordsField) {
 }
 
 TEST_F(LiveServerSharedSession, HistoryWithMaxRecordsParamReturns200) {
-    auto res = client().Get(
-        ("/api/sessions/" + shared_key() + "/metrics/history?max_records=2").c_str());
+    auto res =
+        client().Get(("/api/sessions/" + shared_key() + "/metrics/history?max_records=2").c_str());
     ASSERT_TRUE(res);
     EXPECT_EQ(res->status, 200) << res->body;
 }
@@ -374,15 +407,15 @@ TEST_F(LiveServerSharedSession, AbnormalReturns200WithAbnormalSamplesField) {
 }
 
 TEST_F(LiveServerSharedSession, GenerationQualityReturns200) {
-    auto res = client().Get(
-        ("/api/sessions/" + shared_key() + "/metrics/generation-quality").c_str());
+    auto res =
+        client().Get(("/api/sessions/" + shared_key() + "/metrics/generation-quality").c_str());
     ASSERT_TRUE(res);
     EXPECT_EQ(res->status, 200) << res->body;
 }
 
 TEST_F(LiveServerSharedSession, PaddingEfficiencyReturns200) {
-    auto res = client().Get(
-        ("/api/sessions/" + shared_key() + "/metrics/padding-efficiency").c_str());
+    auto res =
+        client().Get(("/api/sessions/" + shared_key() + "/metrics/padding-efficiency").c_str());
     ASSERT_TRUE(res);
     EXPECT_EQ(res->status, 200) << res->body;
 }
@@ -410,24 +443,26 @@ TEST_F(LiveServerTest, PostLifecycle_FullRoundTrip) {
 
     // epoch/start
     {
-        auto r = client().Post((kp + "/epoch/start").c_str(),
-                               R"({"epoch":1,"total_samples":100})", "application/json");
+        auto r = client().Post((kp + "/epoch/start").c_str(), R"({"epoch":1,"total_samples":100})",
+                               "application/json");
         ASSERT_TRUE(r);
         EXPECT_EQ(r->status, 200) << r->body;
     }
     // metrics/sample
     {
-        auto r = client().Post((kp + "/metrics/sample").c_str(),
-                               R"({"sample":50,"loss":0.85,"gradient_norm":0.45,"learning_rate":0.001})",
-                               "application/json");
+        auto r =
+            client().Post((kp + "/metrics/sample").c_str(),
+                          R"({"sample":50,"loss":0.85,"gradient_norm":0.45,"learning_rate":0.001})",
+                          "application/json");
         ASSERT_TRUE(r);
         EXPECT_EQ(r->status, 200) << r->body;
     }
     // metrics/validation
     {
-        auto r = client().Post((kp + "/metrics/validation").c_str(),
-                               R"({"validation_loss":0.78,"validation_accuracy":0.65,"validation_perplexity":0.0})",
-                               "application/json");
+        auto r = client().Post(
+            (kp + "/metrics/validation").c_str(),
+            R"({"validation_loss":0.78,"validation_accuracy":0.65,"validation_perplexity":0.0})",
+            "application/json");
         ASSERT_TRUE(r);
         EXPECT_EQ(r->status, 200) << r->body;
     }
@@ -440,9 +475,10 @@ TEST_F(LiveServerTest, PostLifecycle_FullRoundTrip) {
     }
     // metrics/advanced
     {
-        auto r = client().Post((kp + "/metrics/advanced").c_str(),
-                               R"({"gradient_variance":0.02,"compute_time_ratio":0.85,"weight_update_ratio":0.95})",
-                               "application/json");
+        auto r = client().Post(
+            (kp + "/metrics/advanced").c_str(),
+            R"({"gradient_variance":0.02,"compute_time_ratio":0.85,"weight_update_ratio":0.95})",
+            "application/json");
         ASSERT_TRUE(r);
         EXPECT_EQ(r->status, 200) << r->body;
     }
@@ -456,9 +492,10 @@ TEST_F(LiveServerTest, PostLifecycle_FullRoundTrip) {
     }
     // epoch/end
     {
-        auto r = client().Post((kp + "/epoch/end").c_str(),
-                               R"({"epoch":1,"loss":0.72,"validation_loss":0.78,"learning_rate":0.001,"perplexity":2.1,"gradient_norm":0.38})",
-                               "application/json");
+        auto r = client().Post(
+            (kp + "/epoch/end").c_str(),
+            R"({"epoch":1,"loss":0.72,"validation_loss":0.78,"learning_rate":0.001,"perplexity":2.1,"gradient_norm":0.38})",
+            "application/json");
         ASSERT_TRUE(r);
         EXPECT_EQ(r->status, 200) << r->body;
     }
@@ -487,8 +524,8 @@ TEST_F(LiveServerTest, Post_DuplicateStartReturns409) {
     ASSERT_TRUE(start_test_session(9002, 2, 100));
 
     const std::string body = R"({"session_id":9002,"total_epochs":2,"total_samples":100})";
-    auto res = client().Post(("/api/sessions/" + test_key() + "/start").c_str(),
-                             body, "application/json");
+    auto res =
+        client().Post(("/api/sessions/" + test_key() + "/start").c_str(), body, "application/json");
     ASSERT_TRUE(res);
     EXPECT_EQ(res->status, 409) << res->body;
     EXPECT_NE(res->body.find("session already active"), std::string::npos) << res->body;
@@ -499,10 +536,11 @@ TEST_F(LiveServerTest, Post_DuplicateStartReturns409) {
 // ===========================================================================
 
 TEST_F(LiveServerTest, Post_EmptyBodyToStartReturns200) {
-    auto res = client().Post(("/api/sessions/" + test_key() + "/start").c_str(),
-                             "{}", "application/json");
+    auto res =
+        client().Post(("/api/sessions/" + test_key() + "/start").c_str(), "{}", "application/json");
     ASSERT_TRUE(res);
-    if (res->status == 503) GTEST_SKIP() << "server at capacity";
+    if (res->status == 503)
+        GTEST_SKIP() << "server at capacity";
     EXPECT_EQ(res->status, 200) << res->body;
     session_started_ = true;
 }
@@ -513,8 +551,8 @@ TEST_F(LiveServerTest, Post_EmptyBodyToStartReturns200) {
 
 TEST_F(LiveServerTest, Control_FlushResponds200Or404) {
     ASSERT_TRUE(start_test_session(9010, 2, 100));
-    auto res = client().Post(
-        ("/api/sessions/" + test_key() + "/control/flush").c_str(), "", "application/json");
+    auto res = client().Post(("/api/sessions/" + test_key() + "/control/flush").c_str(), "",
+                             "application/json");
     ASSERT_TRUE(res);
     EXPECT_TRUE(res->status == 200 || res->status == 404)
         << "flush: unexpected " << res->status << " body: " << res->body;
@@ -522,8 +560,8 @@ TEST_F(LiveServerTest, Control_FlushResponds200Or404) {
 
 TEST_F(LiveServerTest, Control_ClearResponds200Or404) {
     ASSERT_TRUE(start_test_session(9011, 2, 100));
-    auto res = client().Post(
-        ("/api/sessions/" + test_key() + "/control/clear").c_str(), "", "application/json");
+    auto res = client().Post(("/api/sessions/" + test_key() + "/control/clear").c_str(), "",
+                             "application/json");
     ASSERT_TRUE(res);
     EXPECT_TRUE(res->status == 200 || res->status == 404)
         << "clear: unexpected " << res->status << " body: " << res->body;
@@ -561,7 +599,9 @@ class LiveServerLegacyGet : public ::testing::Test {
         client_.reset();
     }
 
-    httplib::Client& client() { return *client_; }
+    httplib::Client& client() {
+        return *client_;
+    }
 
    private:
     std::unique_ptr<httplib::Client> client_;
@@ -662,8 +702,12 @@ class LiveServerLegacyPost : public ::testing::Test {
         }
     }
 
-    httplib::Client& client() { return *client_; }
-    bool default_was_started() const { return default_was_started_; }
+    httplib::Client& client() {
+        return *client_;
+    }
+    bool default_was_started() const {
+        return default_was_started_;
+    }
 
    protected:
     bool default_was_started_ = false;
@@ -685,55 +729,64 @@ TEST_F(LiveServerLegacyPost, StartRespondsWithDeprecationHeader) {
 }
 
 TEST_F(LiveServerLegacyPost, EpochStartReturns200WithDeprecationHeader) {
-    if (!default_was_started()) GTEST_SKIP() << "0-default already active; skipping";
-    auto res = client().Post("/api/epoch/start", R"({"epoch":1,"total_samples":50})",
-                             "application/json");
+    if (!default_was_started())
+        GTEST_SKIP() << "0-default already active; skipping";
+    auto res =
+        client().Post("/api/epoch/start", R"({"epoch":1,"total_samples":50})", "application/json");
     ASSERT_TRUE(res);
     EXPECT_EQ(res->status, 200) << res->body;
     EXPECT_EQ(res->get_header_value("Deprecation"), "true");
 }
 
 TEST_F(LiveServerLegacyPost, SampleMetricsReturns200WithDeprecationHeader) {
-    if (!default_was_started()) GTEST_SKIP() << "0-default already active; skipping";
-    auto res = client().Post("/api/metrics/sample",
-                             R"({"sample":1,"loss":0.88,"gradient_norm":0.4,"learning_rate":0.001})",
-                             "application/json");
+    if (!default_was_started())
+        GTEST_SKIP() << "0-default already active; skipping";
+    auto res =
+        client().Post("/api/metrics/sample",
+                      R"({"sample":1,"loss":0.88,"gradient_norm":0.4,"learning_rate":0.001})",
+                      "application/json");
     ASSERT_TRUE(res);
     EXPECT_EQ(res->status, 200) << res->body;
     EXPECT_EQ(res->get_header_value("Deprecation"), "true");
 }
 
 TEST_F(LiveServerLegacyPost, ValidationMetricsReturns200WithDeprecationHeader) {
-    if (!default_was_started()) GTEST_SKIP() << "0-default already active; skipping";
-    auto res = client().Post("/api/metrics/validation",
-                             R"({"validation_loss":0.75,"validation_accuracy":0.71,"validation_perplexity":0.0})",
-                             "application/json");
+    if (!default_was_started())
+        GTEST_SKIP() << "0-default already active; skipping";
+    auto res = client().Post(
+        "/api/metrics/validation",
+        R"({"validation_loss":0.75,"validation_accuracy":0.71,"validation_perplexity":0.0})",
+        "application/json");
     ASSERT_TRUE(res);
     EXPECT_EQ(res->status, 200) << res->body;
     EXPECT_EQ(res->get_header_value("Deprecation"), "true");
 }
 
 TEST_F(LiveServerLegacyPost, BestMetricsReturns200WithDeprecationHeader) {
-    if (!default_was_started()) GTEST_SKIP() << "0-default already active; skipping";
-    auto res = client().Post("/api/metrics/best",
-                             R"({"validation_loss":0.75,"epoch":1})", "application/json");
-    ASSERT_TRUE(res);
-    EXPECT_EQ(res->status, 200) << res->body;
-    EXPECT_EQ(res->get_header_value("Deprecation"), "true");
-}
-
-TEST_F(LiveServerLegacyPost, AdvancedMetricsReturns200WithDeprecationHeader) {
-    if (!default_was_started()) GTEST_SKIP() << "0-default already active; skipping";
-    auto res = client().Post("/api/metrics/advanced",
-                             R"({"gradient_variance":0.01,"compute_time_ratio":0.9,"weight_update_ratio":0.95})",
+    if (!default_was_started())
+        GTEST_SKIP() << "0-default already active; skipping";
+    auto res = client().Post("/api/metrics/best", R"({"validation_loss":0.75,"epoch":1})",
                              "application/json");
     ASSERT_TRUE(res);
     EXPECT_EQ(res->status, 200) << res->body;
     EXPECT_EQ(res->get_header_value("Deprecation"), "true");
 }
 
+TEST_F(LiveServerLegacyPost, AdvancedMetricsReturns200WithDeprecationHeader) {
+    if (!default_was_started())
+        GTEST_SKIP() << "0-default already active; skipping";
+    auto res = client().Post(
+        "/api/metrics/advanced",
+        R"({"gradient_variance":0.01,"compute_time_ratio":0.9,"weight_update_ratio":0.95})",
+        "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200) << res->body;
+    EXPECT_EQ(res->get_header_value("Deprecation"), "true");
+}
+
 TEST_F(LiveServerLegacyPost, GenerationQualityReturns200WithDeprecationHeader) {
-    if (!default_was_started()) GTEST_SKIP() << "0-default already active; skipping";
+    if (!default_was_started())
+        GTEST_SKIP() << "0-default already active; skipping";
     auto res = client().Post("/api/metrics/generation-quality",
                              R"({"bleu4":0.38,"rouge1":0.51,"rouge2":0.28,"rougeL":0.44})",
                              "application/json");
@@ -743,17 +796,20 @@ TEST_F(LiveServerLegacyPost, GenerationQualityReturns200WithDeprecationHeader) {
 }
 
 TEST_F(LiveServerLegacyPost, EpochEndReturns200WithDeprecationHeader) {
-    if (!default_was_started()) GTEST_SKIP() << "0-default already active; skipping";
-    auto res = client().Post("/api/epoch/end",
-                             R"({"epoch":1,"loss":0.88,"validation_loss":0.75,"learning_rate":0.001,"perplexity":2.4,"gradient_norm":0.4})",
-                             "application/json");
+    if (!default_was_started())
+        GTEST_SKIP() << "0-default already active; skipping";
+    auto res = client().Post(
+        "/api/epoch/end",
+        R"({"epoch":1,"loss":0.88,"validation_loss":0.75,"learning_rate":0.001,"perplexity":2.4,"gradient_norm":0.4})",
+        "application/json");
     ASSERT_TRUE(res);
     EXPECT_EQ(res->status, 200) << res->body;
     EXPECT_EQ(res->get_header_value("Deprecation"), "true");
 }
 
 TEST_F(LiveServerLegacyPost, SessionEndReturns200WithDeprecationHeader) {
-    if (!default_was_started()) GTEST_SKIP() << "0-default already active; skipping";
+    if (!default_was_started())
+        GTEST_SKIP() << "0-default already active; skipping";
     auto res = client().Post("/api/session/end", "", "application/json");
     ASSERT_TRUE(res);
     EXPECT_EQ(res->status, 200) << res->body;

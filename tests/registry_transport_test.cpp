@@ -6,18 +6,20 @@
 namespace fs = std::filesystem;
 
 class LocalTransportTest : public ::testing::Test {
-protected:
+   protected:
     void SetUp() override {
         tmp_dir_ = fs::temp_directory_path() / "adai_registry_transport_test";
         fs::remove_all(tmp_dir_);
         fs::create_directories(tmp_dir_);
-        reg_path_  = (tmp_dir_ / "registry.txt").string();
+        reg_path_ = (tmp_dir_ / "registry.txt").string();
         pend_path_ = (tmp_dir_ / "pending.txt").string();
     }
 
-    void TearDown() override { fs::remove_all(tmp_dir_); }
+    void TearDown() override {
+        fs::remove_all(tmp_dir_);
+    }
 
-    fs::path    tmp_dir_;
+    fs::path tmp_dir_;
     std::string reg_path_;
     std::string pend_path_;
 };
@@ -48,16 +50,16 @@ TEST_F(LocalTransportTest, RoundTripRegistry) {
     LocalTransport t(reg_path_, pend_path_);
 
     DataVersion dv1;
-    dv1.data_file   = "/data/training.txt";
-    dv1.checksum    = "abc_123";
+    dv1.data_file = "/data/training.txt";
+    dv1.checksum = "abc_123";
     dv1.num_samples = 42;
-    dv1.trained     = true;
+    dv1.trained = true;
 
     DataVersion dv2;
-    dv2.data_file   = "/data/pending.txt";
-    dv2.checksum    = "def_456";
+    dv2.data_file = "/data/pending.txt";
+    dv2.checksum = "def_456";
     dv2.num_samples = 0;
-    dv2.trained     = false;
+    dv2.trained = false;
 
     ASSERT_TRUE(t.save_registry({dv1, dv2}));
 
@@ -65,12 +67,12 @@ TEST_F(LocalTransportTest, RoundTripRegistry) {
     ASSERT_TRUE(t.load_registry(loaded));
 
     ASSERT_EQ(loaded.size(), 2u);
-    EXPECT_EQ(loaded[0].data_file,   dv1.data_file);
-    EXPECT_EQ(loaded[0].checksum,    dv1.checksum);
+    EXPECT_EQ(loaded[0].data_file, dv1.data_file);
+    EXPECT_EQ(loaded[0].checksum, dv1.checksum);
     EXPECT_EQ(loaded[0].num_samples, dv1.num_samples);
     EXPECT_TRUE(loaded[0].trained);
 
-    EXPECT_EQ(loaded[1].data_file,   dv2.data_file);
+    EXPECT_EQ(loaded[1].data_file, dv2.data_file);
     EXPECT_EQ(loaded[1].num_samples, 0);
     EXPECT_FALSE(loaded[1].trained);
 }
@@ -101,7 +103,7 @@ TEST_F(LocalTransportTest, RoundTripPending) {
 // ============================================================================
 
 TEST_F(LocalTransportTest, SaveCreatesParentDirectory) {
-    std::string reg  = (tmp_dir_ / "deep/nested/registry.txt").string();
+    std::string reg = (tmp_dir_ / "deep/nested/registry.txt").string();
     std::string pend = (tmp_dir_ / "deep/nested/pending.txt").string();
     LocalTransport t(reg, pend);
 
@@ -145,8 +147,8 @@ TEST_F(LocalTransportTest, SkipsCommentAndBlankLinesInRegistry) {
     std::vector<DataVersion> loaded;
     ASSERT_TRUE(t.load_registry(loaded));
     ASSERT_EQ(loaded.size(), 1u);
-    EXPECT_EQ(loaded[0].data_file,   "/data/file.txt");
-    EXPECT_EQ(loaded[0].checksum,    "abc123");
+    EXPECT_EQ(loaded[0].data_file, "/data/file.txt");
+    EXPECT_EQ(loaded[0].checksum, "abc123");
     EXPECT_EQ(loaded[0].num_samples, 10);
     EXPECT_TRUE(loaded[0].trained);
 }
@@ -156,8 +158,8 @@ TEST_F(LocalTransportTest, OverwriteOnSecondSave) {
 
     DataVersion dv;
     dv.data_file = "/data/x.txt";
-    dv.checksum  = "csum";
-    dv.trained   = false;
+    dv.checksum = "csum";
+    dv.trained = false;
 
     ASSERT_TRUE(t.save_registry({dv}));
 
@@ -179,11 +181,11 @@ TEST_F(LocalTransportTest, ModelIdRoundTrip) {
     LocalTransport t(reg_path_, pend_path_);
 
     DataVersion dv;
-    dv.data_file   = "/data/mns_test.txt";
-    dv.checksum    = "abc_def";
+    dv.data_file = "/data/mns_test.txt";
+    dv.checksum = "abc_def";
     dv.num_samples = 100;
-    dv.trained     = true;
-    dv.model_id    = "550e8400-e29b-41d4-a716-446655440000";
+    dv.trained = true;
+    dv.model_id = "550e8400-e29b-41d4-a716-446655440000";
 
     ASSERT_TRUE(t.save_registry({dv}));
 

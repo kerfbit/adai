@@ -5,6 +5,7 @@ import com.adai.ops.network.dto.AssignResponseDto
 import com.adai.ops.network.dto.FetchResponseDto
 import com.adai.ops.network.dto.QueueEntryDto
 import com.adai.ops.network.dto.QueueResponseDto
+import com.adai.ops.network.dto.RegistryAdminConfigDto
 import com.adai.ops.network.dto.RegistryEntryDto
 import com.adai.ops.network.dto.RegistryResponseDto
 import com.adai.ops.network.dto.ReleaseResponseDto
@@ -12,6 +13,8 @@ import com.adai.ops.testutil.FakeApiClientProvider
 import com.adai.ops.testutil.FakeRegistryApiService
 import com.adai.ops.testutil.FakeSettingsRepository
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -159,5 +162,33 @@ class RegistryRepositoryTest {
         val entry = (result as ApiResult.Success).data.entries.single()
         assertEquals("2026-08-01T09:00:00Z", entry.added_utc)
         assertEquals("upload", entry.source)
+    }
+
+    @Test
+    fun `updateFtpTokenTtlMinutes sends a single-key body, never the full round-tripped object`() = runTest {
+        val fakeService = FakeRegistryApiService(
+            putAdminConfigResponse = { Response.success(RegistryAdminConfigDto(ftp_token_ttl_minutes = 30)) },
+        )
+        val repository = RegistryRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
+
+        val result = repository.updateFtpTokenTtlMinutes(30)
+
+        assertTrue(result is ApiResult.Success)
+        assertEquals(30, (result as ApiResult.Success).data.ftp_token_ttl_minutes)
+        val body = fakeService.putAdminConfigCalls.single()
+        assertEquals(1, body.size)
+        assertEquals(30, body.getValue("ftp_token_ttl_minutes").jsonPrimitive.int)
+    }
+
+    @Test
+    fun `updateFtpMaxSessionsPerRun sends only ftp_max_sessions_per_run`() = runTest {
+        val fakeService = FakeRegistryApiService()
+        val repository = RegistryRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
+
+        repository.updateFtpMaxSessionsPerRun(5)
+
+        val body = fakeService.putAdminConfigCalls.single()
+        assertEquals(1, body.size)
+        assertEquals(5, body.getValue("ftp_max_sessions_per_run").jsonPrimitive.int)
     }
 }

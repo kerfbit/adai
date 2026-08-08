@@ -42,8 +42,7 @@ TEST(StaleDetectionIngestTimestamp, SnapshotPreservesLastUpdateTimeAfterIngest) 
     auto snap2 = svc.get_current_snapshot();
     auto t2 = snap2.last_update_time;
 
-    EXPECT_EQ(t1, t2)
-        << "last_update_time should not advance between reads without a new ingest";
+    EXPECT_EQ(t1, t2) << "last_update_time should not advance between reads without a new ingest";
 }
 
 // A new ingest should update last_update_time.
@@ -167,7 +166,7 @@ TEST(StaleDetectionEffectiveIsTraining, FalseWhenStale) {
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     auto snap = svc.get_current_snapshot();
 
-    EXPECT_TRUE(snap.is_training);    // raw flag still true
+    EXPECT_TRUE(snap.is_training);  // raw flag still true
     EXPECT_TRUE(snap.is_stale);
     EXPECT_FALSE(snap.effective_is_training);  // stale → not effectively training
 }
@@ -191,8 +190,7 @@ TEST(StaleDetectionJson, EmitsRequiredFields) {
 
     const std::string json = svc.to_json();
 
-    EXPECT_NE(json.find("\"is_stale\""), std::string::npos)
-        << "to_json() must include 'is_stale'";
+    EXPECT_NE(json.find("\"is_stale\""), std::string::npos) << "to_json() must include 'is_stale'";
     EXPECT_NE(json.find("\"seconds_since_last_update\""), std::string::npos)
         << "to_json() must include 'seconds_since_last_update'";
     EXPECT_NE(json.find("\"effective_is_training\""), std::string::npos)

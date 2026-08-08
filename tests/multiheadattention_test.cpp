@@ -1294,6 +1294,71 @@ TEST(AttentionHookTest, HookCalledOncePerForwardPass) {
     EXPECT_EQ(call_count, 3);
 }
 
+#ifdef ADAI_ENABLE_GPU
+// ============================================================================
+// GPU Attention-Stats Hook Tests (gpu_forward() path — the fix for the
+// attention_entropy-always--1.0 bug: these hooks fire from gpu_forward(),
+// which set_attention_hook()'s CPU-only hook never sees).
+// ============================================================================
+
+TEST(MultiHeadAttentionGPUStatsHookTest, HookFiresOnGpuForward) {
+    MultiHeadAttention mha(64, 4);
+
+    bool hook_called = false;
+    mha.set_gpu_attention_stats_hook([&hook_called](float) { hook_called = true; });
+
+    adai::gpu::GPUMatrix input(6, 64);
+    input.zero();
+    mha.gpu_forward(input);
+
+    EXPECT_TRUE(hook_called);
+}
+
+TEST(MultiHeadAttentionGPUStatsHookTest, ClearedHookDoesNotFire) {
+    MultiHeadAttention mha(64, 4);
+
+    bool hook_called = false;
+    mha.set_gpu_attention_stats_hook([&hook_called](float) { hook_called = true; });
+    mha.clear_gpu_attention_stats_hook();
+
+    adai::gpu::GPUMatrix input(6, 64);
+    input.zero();
+    mha.gpu_forward(input);
+
+    EXPECT_FALSE(hook_called);
+}
+
+TEST(MultiHeadAttentionGPUStatsHookTest, EntropyIsNonNegative) {
+    // Shannon entropy of a probability distribution (post-softmax attention
+    // weights) is always >= 0 — matches the CPU-hook EntropyIsNonNegative test.
+    MultiHeadAttention mha(64, 4);
+
+    float reported = -999.0f;
+    mha.set_gpu_attention_stats_hook([&reported](float avg_entropy) { reported = avg_entropy; });
+
+    adai::gpu::GPUMatrix input(5, 64);
+    input.zero();
+    mha.gpu_forward(input);
+
+    EXPECT_GE(reported, 0.0f);
+}
+
+TEST(MultiHeadAttentionGPUStatsHookTest, HookCalledOncePerForwardPass) {
+    MultiHeadAttention mha(64, 4);
+
+    int call_count = 0;
+    mha.set_gpu_attention_stats_hook([&call_count](float) { ++call_count; });
+
+    adai::gpu::GPUMatrix input(5, 64);
+    input.zero();
+    mha.gpu_forward(input);
+    mha.gpu_forward(input);
+    mha.gpu_forward(input);
+
+    EXPECT_EQ(call_count, 3);
+}
+#endif  // ADAI_ENABLE_GPU
+
 // ============================================================================
 // Main function
 // ============================================================================

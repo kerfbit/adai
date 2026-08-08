@@ -3,6 +3,8 @@
 #include <cmath>
 #include <cstdio>
 #include <fstream>
+#include <utility>
+#include <vector>
 #include "../src/Matrix.hpp"
 
 // Test fixture for EncoderBlock tests
@@ -191,7 +193,15 @@ TEST_F(EncoderBlockTest, ForwardPassDeterministic) {
     EXPECT_TRUE(matrices_close(output1, output2, 1e-6f));
 }
 
-TEST_F(EncoderBlockTest, ForwardPassNormalizationEffect) {
+// Pre-LN: the block's own output is the raw (unnormalized) residual stream —
+// LayerNorm runs on the sublayer *inputs*, not the block output, so unlike
+// Post-LN there is no near-zero-mean guarantee on `output` itself (that
+// guarantee now lives at LLMEncoder's final_norm, applied once after the
+// last block). What Pre-LN *does* guarantee is that large-magnitude inputs
+// never reach the attention/feed-forward sublayers directly — they're always
+// normalized first — so the block stays numerically well-behaved (finite,
+// no NaN/Inf) even under large input values.
+TEST_F(EncoderBlockTest, ForwardPassStableUnderLargeMagnitudeInput) {
     EncoderBlock block(d_model, num_heads, d_ff);
 
     Matrix input(10, d_model);
@@ -202,18 +212,6 @@ TEST_F(EncoderBlockTest, ForwardPassNormalizationEffect) {
     }
 
     Matrix output = block.forward(input);
-
-    // Check that output is normalized (roughly mean 0, std 1 per position)
-    for (int i = 0; i < output.rows; ++i) {
-        float mean = 0.0f;
-        for (int j = 0; j < output.cols; ++j) {
-            mean += output.data[i][j];
-        }
-        mean /= output.cols;
-
-        // Mean should be close to 0 after layer norm
-        EXPECT_LT(std::abs(mean), 1.0f);
-    }
 
     EXPECT_TRUE(has_valid_values(output));
 }
@@ -282,6 +280,62 @@ TEST_F(EncoderBlockTest, BackwardPassGradientFlow) {
 
     EXPECT_GT(grad_sum, 0.0f);
     EXPECT_TRUE(has_valid_values(grad_input));
+}
+
+// Finite-difference gradient check for the Pre-LN forward/backward rewrite.
+// This is the real correctness gate for the Post-LN -> Pre-LN migration: a
+// subtly wrong backward pass (e.g. an accumulation point moved to the wrong
+// residual, or a swapped norm) would still produce finite, plausible-looking
+// gradients under the other tests in this file, but would fail this check.
+TEST_F(EncoderBlockTest, BackwardPassMatchesNumericalGradient) {
+    EncoderBlock block(d_model, num_heads, d_ff);
+
+    const int seq_len = 4;
+    Matrix input(seq_len, d_model);
+    for (int i = 0; i < input.rows; ++i) {
+        for (int j = 0; j < input.cols; ++j) {
+            input.data[i][j] = 0.05f * std::sin(static_cast<float>(i * d_model + j));
+        }
+    }
+
+    // Sum-of-squares scalar loss: L = sum(output^2), so dL/doutput = 2*output.
+    auto scalar_loss = [](const Matrix& out) {
+        float loss = 0.0f;
+        for (int i = 0; i < out.rows; ++i) {
+            for (int j = 0; j < out.cols; ++j) {
+                loss += out.data[i][j] * out.data[i][j];
+            }
+        }
+        return loss;
+    };
+
+    Matrix output = block.forward(input);
+    Matrix grad_output(output.rows, output.cols);
+    for (int i = 0; i < output.rows; ++i) {
+        for (int j = 0; j < output.cols; ++j) {
+            grad_output.data[i][j] = 2.0f * output.data[i][j];
+        }
+    }
+    Matrix analytic_grad = block.backward(grad_output);
+
+    const float epsilon = 1e-3f;
+    const std::vector<std::pair<int, int>> positions = {
+        {0, 0}, {0, d_model / 2}, {1, 3}, {seq_len - 1, d_model - 1}};
+
+    for (const auto& [pi, pj] : positions) {
+        Matrix input_plus = input;
+        input_plus.data[pi][pj] += epsilon;
+        Matrix input_minus = input;
+        input_minus.data[pi][pj] -= epsilon;
+
+        float loss_plus = scalar_loss(block.forward(input_plus));
+        float loss_minus = scalar_loss(block.forward(input_minus));
+        float numerical_grad = (loss_plus - loss_minus) / (2.0f * epsilon);
+
+        float tolerance = std::max(1e-2f, 0.05f * std::abs(numerical_grad));
+        EXPECT_NEAR(analytic_grad.data[pi][pj], numerical_grad, tolerance)
+            << "gradient mismatch at (" << pi << "," << pj << ")";
+    }
 }
 
 TEST_F(EncoderBlockTest, BackwardPassWithMask) {
@@ -584,7 +638,20 @@ TEST_F(EncoderBlockTest, SaveAndLoadWeights) {
 
 TEST_F(EncoderBlockTest, SaveLoadAfterTraining) {
     EncoderBlock block1(d_model, num_heads, d_ff);
-    block1.learning_rate = 0.01f;
+    // A learning rate of 0.01 combined with a large constant synthetic
+    // gradient (previously 0.1 everywhere) was aggressive enough to
+    // occasionally blow up Pre-LN's unnormalized residual stream to NaN over
+    // 10 iterations, depending on random weight initialization — Pre-LN
+    // doesn't renormalize the residual after every block the way Post-LN
+    // did, so it has no built-in ceiling on magnitude growth under an
+    // unrealistically large, sustained gradient signal like this synthetic
+    // one. Real training never produces a uniform 0.1 gradient for 10
+    // straight steps, so use a gentler synthetic signal here — the point of
+    // this test is save/load fidelity after some training, not numerical
+    // stability under adversarial hyperparameters (that's a separate
+    // concern, covered by real gradient-clipping behavior at the trainer
+    // level).
+    block1.learning_rate = 0.001f;
 
     Matrix input(8, d_model);
     for (int i = 0; i < input.rows; ++i) {
@@ -600,7 +667,7 @@ TEST_F(EncoderBlockTest, SaveLoadAfterTraining) {
         Matrix grad_output(8, d_model);
         for (int i = 0; i < grad_output.rows; ++i) {
             for (int j = 0; j < grad_output.cols; ++j) {
-                grad_output.data[i][j] = 0.1f;
+                grad_output.data[i][j] = 0.01f;
             }
         }
 
@@ -610,6 +677,8 @@ TEST_F(EncoderBlockTest, SaveLoadAfterTraining) {
     }
 
     Matrix output1 = block1.forward(input);
+    ASSERT_TRUE(has_valid_values(output1)) << "training diverged to NaN/Inf before save/load "
+                                              "was even exercised";
 
     block1.save_weights("test_block_2.bin");
 

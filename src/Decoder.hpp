@@ -299,7 +299,7 @@ class LLMDecoder {
      * @return GPU matrix [tgt_len, d_model] (decoder output, before lm_head)
      */
     adai::gpu::GPUMatrix gpu_decode(const std::vector<int>& token_ids,
-                                     const adai::gpu::GPUMatrix& encoder_out);
+                                    const adai::gpu::GPUMatrix& encoder_out);
     /**
      * GPU backward through decoder blocks (lm_head grad passed in as dout).
      * @param dout  Upstream gradient [tgt_len, d_model]
@@ -309,6 +309,8 @@ class LLMDecoder {
     std::pair<adai::gpu::GPUMatrix, adai::gpu::GPUMatrix> gpu_backward(
         const adai::gpu::GPUMatrix& dout);
 
-    LayerNorm* get_final_norm_dec() { return final_norm.get(); }
+    LayerNorm* get_final_norm_dec() {
+        return final_norm.get();
+    }
 #endif
 };

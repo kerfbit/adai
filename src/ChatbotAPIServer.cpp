@@ -86,7 +86,8 @@ void print_usage(const char* program_name) {
         << "  3. Configuration file\n"
         << "  4. Default values (lowest priority)\n"
         << "\nOptions:\n"
-        << "  --config <path>      Path to configuration file (default: /etc/adai/config.conf)\n"
+        << "  --config <path>      Path to configuration file (default: ./config.chatbot.conf or "
+           "/etc/adai/config.chatbot.conf)\n"
         << "  --model <path>       Path to model file\n"
         << "  --vocab <path>       Path to vocabulary file\n"
         << "  --port <number>      Port number (default: 8080)\n"
@@ -128,21 +129,23 @@ int main(int argc, char* argv[]) {
 
     // Load configuration from file and environment variables
     std::string config_file_path;
-    bool use_custom_config = false;
 
     // First pass: check for --config argument
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "--config" && i + 1 < argc) {
             config_file_path = argv[++i];
-            use_custom_config = true;
             break;
         }
     }
 
+    // Discovery: --config > ./config.chatbot.conf > /etc/adai/config.chatbot.conf
+    // > ./config.conf (legacy) > /etc/adai/config.conf (legacy)
+    const std::string resolved_config_path =
+        adai::ConfigLoader::discover_config_path(config_file_path, "config.chatbot.conf");
+
     // Load base configuration
-    adai::ServiceConfig config =
-        use_custom_config ? adai::ConfigLoader::load(config_file_path) : adai::ConfigLoader::load();
+    adai::ServiceConfig config = adai::ConfigLoader::load(resolved_config_path);
 
     // Parse command line arguments (these override config file and env vars)
     for (int i = 1; i < argc; ++i) {
@@ -224,7 +227,7 @@ int main(int argc, char* argv[]) {
 #ifdef BUILD_MNS_SERVER
         // Resolve model path from Model Name Service if configured
         if (!config.name_service_url.empty() &&
-                (!config.model_role.empty() || !config.model_name.empty())) {
+            (!config.model_role.empty() || !config.model_name.empty())) {
             adai::Logger::info("[MNS] Resolving model via {}", config.name_service_url);
             try {
                 adai::ModelNameClient mns_client(config.name_service_url,
@@ -236,16 +239,36 @@ int main(int argc, char* argv[]) {
                                        config.model_role, resolved.model_name, resolved.state);
                 } else {
                     resolved = mns_client.resolve_model(config.model_name);
-                    adai::Logger::info("[MNS] Model '{}' (state={})",
-                                       resolved.model_name, resolved.state);
+                    adai::Logger::info("[MNS] Model '{}' (state={})", resolved.model_name,
+                                       resolved.state);
                 }
                 if (!resolved.artifact.path.empty()) {
                     config.model_path = resolved.artifact.path;
                     adai::Logger::info("[MNS] Using model path: {}", config.model_path);
                 }
+
+                // MNS is the authoritative source for architecture — see CLAUDE.md
+                // "Configuration". Falls back to config.chatbot.conf's D_MODEL etc.
+                // when the lookup fails.
+                if (auto arch = mns_client.get_architecture(resolved.model_name)) {
+                    config.d_model = arch->d_model;
+                    config.num_heads = arch->num_heads;
+                    config.d_ff = arch->d_ff;
+                    config.num_encoder_layers = arch->num_encoder_layers;
+                    config.num_decoder_layers = arch->num_decoder_layers;
+                    config.max_seq_length = arch->max_seq_length;
+                    adai::Logger::info("[MNS] Architecture resolved from MNS for model '{}'",
+                                       resolved.model_name);
+                } else {
+                    adai::Logger::warn(
+                        "[MNS] No architecture on record for '{}'; using local config "
+                        "architecture",
+                        resolved.model_name);
+                }
             } catch (const std::exception& e) {
-                adai::Logger::warn("[MNS] Resolution failed: {} — using configured model_path",
-                                   e.what());
+                adai::Logger::warn(
+                    "[MNS] Resolution failed: {} — using configured model_path/architecture",
+                    e.what());
             }
         }
 #endif
@@ -268,16 +291,19 @@ int main(int argc, char* argv[]) {
                 adai::Logger::info("[GPU] GPU ready. {}", Matrix::gpu_info());
             } else {
 #if defined(ADAI_GPU_BACKEND_SYCL)
-                adai::Logger::warn("[GPU] No Intel GPU device found or SYCL initialisation failed"
-                                   " — running on CPU");
+                adai::Logger::warn(
+                    "[GPU] No Intel GPU device found or SYCL initialisation failed"
+                    " — running on CPU");
 #else
-                adai::Logger::warn("[GPU] No CUDA device found or initialisation failed"
-                                   " — running on CPU");
+                adai::Logger::warn(
+                    "[GPU] No CUDA device found or initialisation failed"
+                    " — running on CPU");
 #endif
             }
 #else
-            adai::Logger::warn("[GPU] GPU_ENABLED is set but this binary was built without GPU support"
-                               " (rebuild with -DENABLE_GPU=ON for CUDA or -DENABLE_SYCL=ON for Intel Arc)");
+            adai::Logger::warn(
+                "[GPU] GPU_ENABLED is set but this binary was built without GPU support"
+                " (rebuild with -DENABLE_GPU=ON for CUDA or -DENABLE_SYCL=ON for Intel Arc)");
 #endif
         } else {
             adai::Logger::info("[GPU] GPU acceleration disabled (set GPU_ENABLED=true to enable)");
@@ -390,9 +416,8 @@ int main(int argc, char* argv[]) {
         g_config = &config;
         g_config_mutex = &config_mutex;
 
-        // Store config file path for reload
-        std::string stored_config_path =
-            use_custom_config ? config_file_path : "/etc/adai/config.conf";
+        // Store config file path for reload (same path resolved at load time above)
+        std::string stored_config_path = resolved_config_path;
         g_config_file_path = &stored_config_path;
 
         // Set up signal handlers

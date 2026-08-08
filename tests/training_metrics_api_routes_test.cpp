@@ -1,12 +1,12 @@
 #include <gtest/gtest.h>
 
+#include <unistd.h>
 #include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <memory>
 #include <string>
 #include <thread>
-#include <unistd.h>
 
 #include <httplib.h>
 
@@ -81,9 +81,8 @@ class TrainingMetricsAPIRoutesTest : public ::testing::Test {
             api_ = std::make_unique<TrainingMetricsAPI>(registry_, port_, true);
 
             server_exit_code_.store(-1);
-            server_thread_ = std::thread([this]() {
-                server_exit_code_.store(api_->start() ? 0 : 1);
-            });
+            server_thread_ =
+                std::thread([this]() { server_exit_code_.store(api_->start() ? 0 : 1); });
 
             if (wait_for_server_ready()) {
                 return true;
@@ -183,7 +182,8 @@ TEST_F(TrainingMetricsAPIRoutesTest, AggregateEndpointReportsLiveSessionsOnly) {
     EXPECT_EQ(res->body.find("\"key\":\"beta2\""), std::string::npos);
 }
 
-TEST_F(TrainingMetricsAPIRoutesTest, LegacyAliasRoutesMapToDefaultSessionAndExposeDeprecationHeaders) {
+TEST_F(TrainingMetricsAPIRoutesTest,
+       LegacyAliasRoutesMapToDefaultSessionAndExposeDeprecationHeaders) {
     auto default_service = registry_->create_or_get_session("0-default");
     ASSERT_NE(default_service, nullptr);
     default_service->start_session(303, 3, 120);
@@ -208,11 +208,11 @@ TEST_F(TrainingMetricsAPIRoutesTest, LegacyAliasRoutesMapToDefaultSessionAndExpo
     EXPECT_EQ(legacy_res->get_header_value("Link"), "/api/sessions/0-default/metrics/current");
 }
 
-TEST_F(TrainingMetricsAPIRoutesTest, LegacyPostStartAliasMapsToDefaultSessionAndExposesDeprecationHeaders) {
+TEST_F(TrainingMetricsAPIRoutesTest,
+       LegacyPostStartAliasMapsToDefaultSessionAndExposesDeprecationHeaders) {
     auto client = make_client();
 
-    const std::string start_body =
-        R"({"session_id":404,"total_epochs":2,"total_samples":50})";
+    const std::string start_body = R"({"session_id":404,"total_epochs":2,"total_samples":50})";
 
     auto legacy_start = client.Post("/api/session/start", start_body, "application/json");
     auto session_start =
@@ -243,11 +243,9 @@ TEST_F(TrainingMetricsAPIRoutesTest, LegacyPostStartAliasMapsToDefaultSessionAnd
 TEST_F(TrainingMetricsAPIRoutesTest, SessionStartReturnsConflictForActiveSessionKey) {
     auto client = make_client();
 
-    const std::string start_body =
-        R"({"session_id":505,"total_epochs":2,"total_samples":100})";
+    const std::string start_body = R"({"session_id":505,"total_epochs":2,"total_samples":100})";
 
-    auto first_start =
-        client.Post("/api/sessions/conflict1/start", start_body, "application/json");
+    auto first_start = client.Post("/api/sessions/conflict1/start", start_body, "application/json");
     auto second_start =
         client.Post("/api/sessions/conflict1/start", start_body, "application/json");
 
@@ -281,11 +279,42 @@ TEST_F(TrainingMetricsAPIRoutesTest, SessionScopedPostReturns404ForUnknownSessio
     EXPECT_NE(res->body.find("Unknown session key"), std::string::npos);
 }
 
+TEST_F(TrainingMetricsAPIRoutesTest, LayerGradientNormsRoundTripThroughPostAndGet) {
+    auto client = make_client();
+
+    const std::string start_body = R"({"session_id":606,"total_epochs":2,"total_samples":100})";
+    auto start_res = client.Post("/api/sessions/layergrad1/start", start_body, "application/json");
+    ASSERT_TRUE(start_res);
+    ASSERT_EQ(start_res->status, 200);
+
+    const std::string layer_grad_body =
+        R"({"encoder_layer_grad_norms":[0.9,0.7,0.5],"decoder_layer_grad_norms":[1.1,0.8]})";
+    auto post_res = client.Post("/api/sessions/layergrad1/metrics/layer-gradients",
+                                layer_grad_body, "application/json");
+    ASSERT_TRUE(post_res);
+    EXPECT_EQ(post_res->status, 200);
+
+    auto get_res = client.Get("/api/sessions/layergrad1/metrics/current");
+    ASSERT_TRUE(get_res);
+    EXPECT_EQ(get_res->status, 200);
+    // to_json() serializes floats under the stream's ambient std::fixed <<
+    // setprecision(6) (set earlier for weight_update_ratio's neighbors), so
+    // arrays come out as "0.900000" rather than the compact "0.9" the client
+    // sends — this asserts against what the endpoint actually emits, not what
+    // was POSTed.
+    EXPECT_NE(get_res->body.find(
+                 "\"encoder_layer_grad_norms\": [0.900000,0.700000,0.500000]"),
+             std::string::npos)
+        << get_res->body;
+    EXPECT_NE(get_res->body.find("\"decoder_layer_grad_norms\": [1.100000,0.800000]"),
+             std::string::npos)
+        << get_res->body;
+}
+
 TEST_F(TrainingMetricsAPICapacityRoutesTest, SessionStartReturns503WhenRegistryIsFull) {
     auto client = make_client();
 
-    const std::string start_body =
-        R"({"session_id":606,"total_epochs":2,"total_samples":100})";
+    const std::string start_body = R"({"session_id":606,"total_epochs":2,"total_samples":100})";
 
     // With max_live_sessions=1 and 0-default pre-created in fixture setup,
     // creating any additional key should be rejected as at-capacity.
@@ -334,7 +363,8 @@ TEST_F(TrainingMetricsAPIRoutesTest, SessionStartWithModelIdInjectsIntoConfigSna
     const std::string model_uuid = "550e8400-e29b-41d4-a716-446655440099";
     const std::string start_body =
         "{\"session_id\":707,\"total_epochs\":3,\"total_samples\":150"
-        ",\"model_id\":\"" + model_uuid + "\"}";
+        ",\"model_id\":\"" +
+        model_uuid + "\"}";
 
     auto res = client.Post("/api/sessions/mns-inject1/start", start_body, "application/json");
     ASSERT_TRUE(res);
@@ -352,8 +382,7 @@ TEST_F(TrainingMetricsAPIRoutesTest, SessionStartWithModelIdInjectsIntoConfigSna
 TEST_F(TrainingMetricsAPIRoutesTest, SessionStartWithoutModelIdStillWorks) {
     auto client = make_client();
 
-    const std::string start_body =
-        R"({"session_id":808,"total_epochs":2,"total_samples":80})";
+    const std::string start_body = R"({"session_id":808,"total_epochs":2,"total_samples":80})";
 
     auto res = client.Post("/api/sessions/mns-compat1/start", start_body, "application/json");
     ASSERT_TRUE(res);

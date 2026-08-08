@@ -175,11 +175,26 @@ class LiveRegistryTest : public ::testing::Test {
         return client_->Get(("/registry/" + group_ + "/queue").c_str());
     }
 
-    // Helper: POST /registry/<group_>/acquire {"run_id":"<rid>","max_files":<n>}
-    httplib::Result acquire(const std::string& run_id, int max_files = 0) {
+    // Helper: POST /registry/<group_>/acquire
+    // {"run_id":"<rid>","max_files":<n>,"model_name":"<model_name>"}
+    // acquire() is assignment-aware (see RegistryTransport::acquire): an
+    // anonymous caller (model_name empty) can only claim unassigned entries,
+    // never one assigned to a specific model — pass model_name to claim an
+    // entry this test has assigned to that model.
+    httplib::Result acquire(const std::string& run_id, int max_files = 0,
+                            const std::string& model_name = "") {
         std::ostringstream body;
-        body << "{\"run_id\":\"" << run_id << "\",\"max_files\":" << max_files << "}";
+        body << "{\"run_id\":\"" << run_id << "\",\"max_files\":" << max_files
+             << ",\"model_name\":\"" << model_name << "\"}";
         return client_->Post(("/registry/" + group_ + "/acquire").c_str(), body.str(),
+                             "application/json");
+    }
+
+    // Helper: POST /registry/<group_>/session/next {"model_name":..., "run_id":...}
+    httplib::Result next_session(const std::string& model_name, const std::string& run_id) {
+        const std::string body =
+            "{\"model_name\":\"" + model_name + "\",\"run_id\":\"" + run_id + "\"}";
+        return client_->Post(("/registry/" + group_ + "/session/next").c_str(), body,
                              "application/json");
     }
 
@@ -755,7 +770,7 @@ TEST_F(LiveRegistryTest, UnassignSkipsActivelyClaimedEntryWithoutForce) {
     const std::string p1 = "/data/" + group() + "/unassignclaimed1.txt";
     ASSERT_TRUE(add_pending(p1));
     ASSERT_TRUE(assign("model-g", {p1}));
-    ASSERT_TRUE(acquire("run-Z", 1));
+    ASSERT_TRUE(acquire("run-Z", 1, "model-g"));
 
     auto res = unassign("model-g", {p1});
     ASSERT_TRUE(res);
@@ -774,7 +789,7 @@ TEST_F(LiveRegistryTest, UnassignForceOverridesActiveClaim) {
     const std::string p1 = "/data/" + group() + "/unassignforce1.txt";
     ASSERT_TRUE(add_pending(p1));
     ASSERT_TRUE(assign("model-g", {p1}));
-    ASSERT_TRUE(acquire("run-Z", 1));
+    ASSERT_TRUE(acquire("run-Z", 1, "model-g"));
 
     auto res = unassign("model-g", {p1}, /*force=*/true);
     ASSERT_TRUE(res);
@@ -1109,6 +1124,43 @@ TEST_F(LiveRegistryTest, RunsShowsMultipleRunsSimultaneously) {
     EXPECT_EQ(res->status, 200);
     EXPECT_NE(res->body.find("run-alpha"), std::string::npos) << res->body;
     EXPECT_NE(res->body.find("run-beta"), std::string::npos) << res->body;
+}
+
+// ===========================================================================
+// session/next — Phase 3 run/session numbering
+// ===========================================================================
+
+TEST_F(LiveRegistryTest, SessionNextStartsAtOneAndIncrements) {
+    const std::string model = "sess-model-" + group();
+    const std::string run_id = "run-sess-" + group();
+
+    auto r1 = next_session(model, run_id);
+    ASSERT_TRUE(r1);
+    EXPECT_EQ(200, r1->status);
+    EXPECT_EQ(json_string(r1->body, "session_id"), "session-01") << r1->body;
+
+    auto r2 = next_session(model, run_id);
+    ASSERT_TRUE(r2);
+    EXPECT_EQ(json_string(r2->body, "session_id"), "session-02") << r2->body;
+}
+
+TEST_F(LiveRegistryTest, SessionNextResetsForDifferentRunId) {
+    const std::string model = "sess-model2-" + group();
+
+    auto r1 = next_session(model, "run-x-" + group());
+    ASSERT_TRUE(r1);
+    EXPECT_EQ(json_string(r1->body, "session_id"), "session-01") << r1->body;
+
+    // A different run_id starts its own counter at 1.
+    auto r2 = next_session(model, "run-y-" + group());
+    ASSERT_TRUE(r2);
+    EXPECT_EQ(json_string(r2->body, "session_id"), "session-01") << r2->body;
+}
+
+TEST_F(LiveRegistryTest, SessionNextRejectsMissingRunId) {
+    auto res = next_session("some-model", "");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(400, res->status);
 }
 
 // ===========================================================================

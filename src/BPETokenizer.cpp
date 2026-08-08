@@ -47,11 +47,16 @@ std::vector<std::string> BPETokenizer::utf8_split_codepoints(const std::string& 
     while (i < str.size()) {
         unsigned char c = static_cast<unsigned char>(str[i]);
         size_t bytes = 1;
-        if ((c & 0x80) == 0)         bytes = 1;
-        else if ((c & 0xE0) == 0xC0) bytes = 2;
-        else if ((c & 0xF0) == 0xE0) bytes = 3;
-        else if ((c & 0xF8) == 0xF0) bytes = 4;
-        if (i + bytes > str.size()) bytes = 1;  // guard against truncated sequences
+        if ((c & 0x80) == 0)
+            bytes = 1;
+        else if ((c & 0xE0) == 0xC0)
+            bytes = 2;
+        else if ((c & 0xF0) == 0xE0)
+            bytes = 3;
+        else if ((c & 0xF8) == 0xF0)
+            bytes = 4;
+        if (i + bytes > str.size())
+            bytes = 1;  // guard against truncated sequences
         result.push_back(str.substr(i, bytes));
         i += bytes;
     }
@@ -442,12 +447,18 @@ void BPETokenizer::save_vocab(const std::string& filename) const {
     auto escape = [](const std::string& s) {
         std::string result;
         for (char c : s) {
-            if (c == '\n')       result += "\\n";
-            else if (c == '\t')  result += "\\t";
-            else if (c == '\r')  result += "\\r";
-            else if (c == '\\')  result += "\\\\";
-            else if (c == ' ')   result += "\\s";
-            else                 result += c;
+            if (c == '\n')
+                result += "\\n";
+            else if (c == '\t')
+                result += "\\t";
+            else if (c == '\r')
+                result += "\\r";
+            else if (c == '\\')
+                result += "\\\\";
+            else if (c == ' ')
+                result += "\\s";
+            else
+                result += c;
         }
         return result;
     };
@@ -490,12 +501,24 @@ void BPETokenizer::load_vocab(const std::string& filename) {
         for (size_t i = 0; i < s.length(); i++) {
             if (s[i] == '\\' && i + 1 < s.length()) {
                 char next = s[i + 1];
-                if (next == 'n')       { result += '\n'; i++; }
-                else if (next == 't')  { result += '\t'; i++; }
-                else if (next == 'r')  { result += '\r'; i++; }
-                else if (next == '\\') { result += '\\'; i++; }
-                else if (next == 's')  { result += ' ';  i++; }
-                else                   { result += s[i]; }
+                if (next == 'n') {
+                    result += '\n';
+                    i++;
+                } else if (next == 't') {
+                    result += '\t';
+                    i++;
+                } else if (next == 'r') {
+                    result += '\r';
+                    i++;
+                } else if (next == '\\') {
+                    result += '\\';
+                    i++;
+                } else if (next == 's') {
+                    result += ' ';
+                    i++;
+                } else {
+                    result += s[i];
+                }
             } else {
                 result += s[i];
             }
@@ -512,8 +535,8 @@ void BPETokenizer::load_vocab(const std::string& filename) {
         if (line.find("TOKENIZER_MODE") == 0) {
             std::string mode_str = line.substr(15);  // skip "TOKENIZER_MODE "
             mode = (mode_str == "UNICODE") ? TokenizerMode::UNICODE : TokenizerMode::ASCII;
-            token_pattern = std::regex(mode == TokenizerMode::UNICODE ? UNICODE_PATTERN
-                                                                      : ASCII_PATTERN);
+            token_pattern =
+                std::regex(mode == TokenizerMode::UNICODE ? UNICODE_PATTERN : ASCII_PATTERN);
             continue;
         }
         if (line.find("VOCAB_SIZE") == 0) {
@@ -536,7 +559,9 @@ void BPETokenizer::load_vocab(const std::string& filename) {
             size_t space_pos = line.find(' ');
             if (space_pos == std::string::npos) {
                 throw VocabularyFileError(std::string("Malformed SPECIAL_TOKENS line in ")
-                                              .append(filename).append(": ").append(line));
+                                              .append(filename)
+                                              .append(": ")
+                                              .append(line));
             }
 
             std::string key = line.substr(0, space_pos);
@@ -545,27 +570,37 @@ void BPETokenizer::load_vocab(const std::string& filename) {
             try {
                 int value = std::stoi(value_str);
 
-                if (key == "pad_token_id")       pad_token_id = value;
-                else if (key == "unk_token_id")  unk_token_id = value;
-                else if (key == "bos_token_id")  bos_token_id = value;
-                else if (key == "eos_token_id")  eos_token_id = value;
+                if (key == "pad_token_id")
+                    pad_token_id = value;
+                else if (key == "unk_token_id")
+                    unk_token_id = value;
+                else if (key == "bos_token_id")
+                    bos_token_id = value;
+                else if (key == "eos_token_id")
+                    eos_token_id = value;
                 else {
                     std::cerr << "Warning: Unknown special token key '" << key << "' in "
                               << filename << '\n';
                 }
             } catch (const std::invalid_argument&) {
                 throw VocabularyFileError(std::string("Invalid integer value for special token in ")
-                                              .append(filename).append(": ").append(value_str));
+                                              .append(filename)
+                                              .append(": ")
+                                              .append(value_str));
             } catch (const std::out_of_range&) {
                 throw VocabularyFileError(std::string("Special token ID out of range in ")
-                                              .append(filename).append(": ").append(value_str));
+                                              .append(filename)
+                                              .append(": ")
+                                              .append(value_str));
             }
         } else if (section == "VOCAB") {
             size_t tab_pos = line.find('\t');
             if (tab_pos == std::string::npos) {
                 throw VocabularyFileError(
                     std::string("Malformed VOCAB line (missing tab separator) in ")
-                        .append(filename).append(": ").append(line));
+                        .append(filename)
+                        .append(": ")
+                        .append(line));
             }
 
             std::string token = unescape(line.substr(0, tab_pos));
@@ -575,7 +610,8 @@ void BPETokenizer::load_vocab(const std::string& filename) {
                 int id = std::stoi(id_str);
                 if (id < 0) {
                     throw VocabularyFileError(std::string("Negative token ID in ")
-                                                  .append(filename).append(": ")
+                                                  .append(filename)
+                                                  .append(": ")
                                                   .append(std::to_string(id)));
                 }
 
@@ -588,17 +624,23 @@ void BPETokenizer::load_vocab(const std::string& filename) {
                 }
             } catch (const std::invalid_argument&) {
                 throw VocabularyFileError(std::string("Invalid token ID in ")
-                                              .append(filename).append(": ").append(id_str));
+                                              .append(filename)
+                                              .append(": ")
+                                              .append(id_str));
             } catch (const std::out_of_range&) {
                 throw VocabularyFileError(std::string("Token ID out of range in ")
-                                              .append(filename).append(": ").append(id_str));
+                                              .append(filename)
+                                              .append(": ")
+                                              .append(id_str));
             }
         } else if (section == "BPE_MERGES") {
             size_t tab_pos = line.find('\t');
             if (tab_pos == std::string::npos) {
                 throw VocabularyFileError(
                     std::string("Malformed BPE_MERGES line (missing tab separator) in ")
-                        .append(filename).append(": ").append(line));
+                        .append(filename)
+                        .append(": ")
+                        .append(line));
             }
 
             std::string first = unescape(line.substr(0, tab_pos));
@@ -670,31 +712,41 @@ std::vector<std::pair<std::string, int>> BPETokenizer::get_top_tokens(int k) con
 // Returns the codepoint value and sets out_bytes to the sequence length.
 static uint32_t decode_codepoint(const unsigned char* p, size_t len, size_t& out_bytes) {
     const unsigned char c = *p;
-    if ((c & 0x80) == 0)                        { out_bytes = 1; return c; }
-    if ((c & 0xE0) == 0xC0 && len >= 2)         { out_bytes = 2; return ((c & 0x1F) << 6)  | (p[1] & 0x3F); }
-    if ((c & 0xF0) == 0xE0 && len >= 3)         { out_bytes = 3; return ((c & 0x0F) << 12) | ((p[1] & 0x3F) << 6) | (p[2] & 0x3F); }
-    if ((c & 0xF8) == 0xF0 && len >= 4)         { out_bytes = 4; return ((c & 0x07) << 18) | ((p[1] & 0x3F) << 12) | ((p[2] & 0x3F) << 6) | (p[3] & 0x3F); }
-    out_bytes = 1; return c;
+    if ((c & 0x80) == 0) {
+        out_bytes = 1;
+        return c;
+    }
+    if ((c & 0xE0) == 0xC0 && len >= 2) {
+        out_bytes = 2;
+        return ((c & 0x1F) << 6) | (p[1] & 0x3F);
+    }
+    if ((c & 0xF0) == 0xE0 && len >= 3) {
+        out_bytes = 3;
+        return ((c & 0x0F) << 12) | ((p[1] & 0x3F) << 6) | (p[2] & 0x3F);
+    }
+    if ((c & 0xF8) == 0xF0 && len >= 4) {
+        out_bytes = 4;
+        return ((c & 0x07) << 18) | ((p[1] & 0x3F) << 12) | ((p[2] & 0x3F) << 6) | (p[3] & 0x3F);
+    }
+    out_bytes = 1;
+    return c;
 }
 
 /*static*/
-int BPETokenizer::recommend_vocab_size(const std::vector<std::string>& texts,
-                                       int d_model,
-                                       int num_encoder_layers,
-                                       int num_decoder_layers,
-                                       int max_seq_length,
-                                       TokenizerMode mode) {
+int BPETokenizer::recommend_vocab_size(const std::vector<std::string>& texts, int d_model,
+                                       int num_encoder_layers, int num_decoder_layers,
+                                       int max_seq_length, TokenizerMode mode) {
     // ── 1. Corpus analysis ───────────────────────────────────────────────────
-    size_t total_chars    = 0;   // total UTF-8 code points
-    size_t total_words    = 0;   // whitespace-delimited word tokens
-    size_t cjk_count      = 0;   // CJK / Hangul / Kana code points
-    size_t arabic_count   = 0;   // Arabic / Hebrew code points
-    size_t cyrillic_count = 0;   // Cyrillic code points
-    size_t mb_other_count = 0;   // other multibyte (Extended Latin, Devanagari, …)
+    size_t total_chars = 0;     // total UTF-8 code points
+    size_t total_words = 0;     // whitespace-delimited word tokens
+    size_t cjk_count = 0;       // CJK / Hangul / Kana code points
+    size_t arabic_count = 0;    // Arabic / Hebrew code points
+    size_t cyrillic_count = 0;  // Cyrillic code points
+    size_t mb_other_count = 0;  // other multibyte (Extended Latin, Devanagari, …)
 
     for (const auto& text : texts) {
         bool in_word = false;
-        const auto* p   = reinterpret_cast<const unsigned char*>(text.data());
+        const auto* p = reinterpret_cast<const unsigned char*>(text.data());
         const auto* end = p + text.size();
         while (p < end) {
             size_t bytes = 1;
@@ -703,39 +755,58 @@ int BPETokenizer::recommend_vocab_size(const std::vector<std::string>& texts,
             ++total_chars;
 
             const bool is_space = (cp == ' ' || cp == '\t' || cp == '\n' || cp == '\r');
-            if (!is_space && !in_word) { ++total_words; in_word = true; }
-            else if (is_space)          { in_word = false; }
+            if (!is_space && !in_word) {
+                ++total_words;
+                in_word = true;
+            } else if (is_space) {
+                in_word = false;
+            }
 
             // Script categorisation (Unicode block ranges)
-            if      (cp >= 0x4E00 && cp <= 0x9FFF)   ++cjk_count;   // CJK Unified Ideographs
-            else if (cp >= 0x3040 && cp <= 0x30FF)   ++cjk_count;   // Hiragana / Katakana
-            else if (cp >= 0xAC00 && cp <= 0xD7AF)   ++cjk_count;   // Hangul Syllables
-            else if (cp >= 0x3400 && cp <= 0x4DBF)   ++cjk_count;   // CJK Extension A
-            else if (cp >= 0x20000 && cp <= 0x2A6DF) ++cjk_count;   // CJK Extension B
-            else if (cp >= 0x0600 && cp <= 0x06FF)   ++arabic_count; // Arabic
-            else if (cp >= 0x0590 && cp <= 0x05FF)   ++arabic_count; // Hebrew
-            else if (cp >= 0xFB1D && cp <= 0xFDFF)   ++arabic_count; // Arabic / Hebrew presentation forms
-            else if (cp >= 0x0400 && cp <= 0x04FF)   ++cyrillic_count;
-            else if (cp >= 0x0500 && cp <= 0x052F)   ++cyrillic_count; // Cyrillic Supplement
-            else if (cp >= 0x0080 && cp <= 0x024F)   ++mb_other_count; // Extended Latin
-            else if (cp >= 0x0900 && cp <= 0x097F)   ++mb_other_count; // Devanagari
-            else if (cp >= 0x0E00 && cp <= 0x0E7F)   ++mb_other_count; // Thai
+            if (cp >= 0x4E00 && cp <= 0x9FFF)
+                ++cjk_count;  // CJK Unified Ideographs
+            else if (cp >= 0x3040 && cp <= 0x30FF)
+                ++cjk_count;  // Hiragana / Katakana
+            else if (cp >= 0xAC00 && cp <= 0xD7AF)
+                ++cjk_count;  // Hangul Syllables
+            else if (cp >= 0x3400 && cp <= 0x4DBF)
+                ++cjk_count;  // CJK Extension A
+            else if (cp >= 0x20000 && cp <= 0x2A6DF)
+                ++cjk_count;  // CJK Extension B
+            else if (cp >= 0x0600 && cp <= 0x06FF)
+                ++arabic_count;  // Arabic
+            else if (cp >= 0x0590 && cp <= 0x05FF)
+                ++arabic_count;  // Hebrew
+            else if (cp >= 0xFB1D && cp <= 0xFDFF)
+                ++arabic_count;  // Arabic / Hebrew presentation forms
+            else if (cp >= 0x0400 && cp <= 0x04FF)
+                ++cyrillic_count;
+            else if (cp >= 0x0500 && cp <= 0x052F)
+                ++cyrillic_count;  // Cyrillic Supplement
+            else if (cp >= 0x0080 && cp <= 0x024F)
+                ++mb_other_count;  // Extended Latin
+            else if (cp >= 0x0900 && cp <= 0x097F)
+                ++mb_other_count;  // Devanagari
+            else if (cp >= 0x0E00 && cp <= 0x0E7F)
+                ++mb_other_count;  // Thai
         }
     }
 
-    if (total_chars == 0) return 2000;
+    if (total_chars == 0)
+        return 2000;
 
     // ── 2. Dataset-size base ─────────────────────────────────────────────────
     // Anchored to known models: ~1k words → ~3k vocab, ~100k → ~14k, ~1M → ~44k.
-    const double words       = static_cast<double>(std::max(total_words, size_t(100)));
+    const double words = static_cast<double>(std::max(total_words, size_t(100)));
     const double dataset_base = std::min(2000.0 + 3500.0 * std::sqrt(words / 1000.0), 64000.0);
 
     // ── 3. Script multiplier ─────────────────────────────────────────────────
-    const double cjk_frac      = static_cast<double>(cjk_count)      / total_chars;
-    const double arabic_frac   = static_cast<double>(arabic_count)    / total_chars;
-    const double cyrillic_frac = static_cast<double>(cyrillic_count)  / total_chars;
-    const double mb_frac       = static_cast<double>(cjk_count + arabic_count +
-                                                      cyrillic_count + mb_other_count) / total_chars;
+    const double cjk_frac = static_cast<double>(cjk_count) / total_chars;
+    const double arabic_frac = static_cast<double>(arabic_count) / total_chars;
+    const double cyrillic_frac = static_cast<double>(cyrillic_count) / total_chars;
+    const double mb_frac =
+        static_cast<double>(cjk_count + arabic_count + cyrillic_count + mb_other_count) /
+        total_chars;
 
     double script_mult = 1.0;
     if (cjk_frac > 0.3) {
@@ -761,16 +832,20 @@ int BPETokenizer::recommend_vocab_size(const std::vector<std::string>& texts,
     //                 0.7 × V × d ≤ 0.3 × arch
     //                 V ≤ (3/7) × (12 × L_enc + 16 × L_dec) × d_model
     const double arch_mult = 12.0 * num_encoder_layers + 16.0 * num_decoder_layers;
-    const int    arch_cap  = static_cast<int>((3.0 / 7.0) * arch_mult * d_model);
+    const int arch_cap = static_cast<int>((3.0 / 7.0) * arch_mult * d_model);
 
     // ── 5. Sequence-length adjustment ────────────────────────────────────────
     // Short context → want denser tokens (fewer tokens per word) → larger vocab.
     // Long  context → compression less critical → smaller vocab is fine.
     double seq_mult = 1.0;
-    if      (max_seq_length <= 128)  seq_mult = 1.40;
-    else if (max_seq_length <= 256)  seq_mult = 1.20;
-    else if (max_seq_length >= 2048) seq_mult = 0.85;
-    else if (max_seq_length >= 1024) seq_mult = 0.92;
+    if (max_seq_length <= 128)
+        seq_mult = 1.40;
+    else if (max_seq_length <= 256)
+        seq_mult = 1.20;
+    else if (max_seq_length >= 2048)
+        seq_mult = 0.85;
+    else if (max_seq_length >= 1024)
+        seq_mult = 0.92;
 
     // ── 6. Unicode-mode coverage bump ────────────────────────────────────────
     // Unicode mode needs slightly larger vocab to adequately cover multibyte
@@ -792,34 +867,41 @@ int BPETokenizer::recommend_vocab_size(const std::vector<std::string>& texts,
 // ============================================================================
 float BPETokenizer::measure_fertility(const std::vector<std::string>& texts,
                                       int sample_limit) const {
-    if (vocab.empty()) return 0.0f;
+    if (vocab.empty())
+        return 0.0f;
 
     // encode() is non-const (validates and mutates nothing, but the signature isn't marked const).
     // Use a shallow copy that shares our vocab/merge tables via the same header-constructed state.
     BPETokenizer probe(mode);
-    probe.vocab         = vocab;
+    probe.vocab = vocab;
     probe.inverse_vocab = inverse_vocab;
-    probe.bpe_merges    = bpe_merges;
+    probe.bpe_merges = bpe_merges;
     probe.special_tokens = special_tokens;
-    probe.pad_token_id  = pad_token_id;
-    probe.unk_token_id  = unk_token_id;
-    probe.bos_token_id  = bos_token_id;
-    probe.eos_token_id  = eos_token_id;
+    probe.pad_token_id = pad_token_id;
+    probe.unk_token_id = unk_token_id;
+    probe.bos_token_id = bos_token_id;
+    probe.eos_token_id = eos_token_id;
 
     size_t total_tokens = 0;
-    size_t total_words  = 0;
-    int    sampled      = 0;
+    size_t total_words = 0;
+    int sampled = 0;
 
     for (const auto& text : texts) {
-        if (sampled >= sample_limit) break;
-        if (text.empty()) continue;
+        if (sampled >= sample_limit)
+            break;
+        if (text.empty())
+            continue;
 
         // Count whitespace-delimited words
         bool in_word = false;
         for (unsigned char c : text) {
             const bool is_space = (c == ' ' || c == '\t' || c == '\n' || c == '\r');
-            if (!is_space && !in_word) { ++total_words; in_word = true; }
-            else if (is_space)          { in_word = false; }
+            if (!is_space && !in_word) {
+                ++total_words;
+                in_word = true;
+            } else if (is_space) {
+                in_word = false;
+            }
         }
 
         try {

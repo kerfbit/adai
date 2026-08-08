@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdio>
 #include <fstream>
+#include <vector>
 #include "../src/Activation.hpp"
 #include "../src/Matrix.hpp"
 #include "../src/Optimizer.hpp"
@@ -1528,6 +1529,73 @@ TEST(FeedForwardActivationHookTest, HookCalledOncePerForwardPass) {
 
     EXPECT_EQ(call_count, 3);
 }
+
+#ifdef ADAI_ENABLE_GPU
+// ============================================================================
+// GPU Activation-Stats Hook Tests (gpu_forward() path — the fix for the
+// activation_saturation_ratio-always--1.0 bug: these hooks fire from
+// gpu_forward(), which set_activation_hook()'s CPU-only hook never sees).
+// ============================================================================
+
+TEST(FeedForwardGPUActivationStatsHookTest, HookFiresOnGpuForward) {
+    FeedForward ff(8, 32);
+
+    bool hook_called = false;
+    ff.set_gpu_activation_stats_hook([&hook_called](float) { hook_called = true; });
+
+    adai::gpu::GPUMatrix input(2, 8);
+    input.zero();
+    ff.gpu_forward(input);
+
+    EXPECT_TRUE(hook_called);
+}
+
+TEST(FeedForwardGPUActivationStatsHookTest, ClearedHookDoesNotFire) {
+    FeedForward ff(8, 32);
+
+    bool hook_called = false;
+    ff.set_gpu_activation_stats_hook([&hook_called](float) { hook_called = true; });
+    ff.clear_gpu_activation_stats_hook();
+
+    adai::gpu::GPUMatrix input(2, 8);
+    input.zero();
+    ff.gpu_forward(input);
+
+    EXPECT_FALSE(hook_called);
+}
+
+TEST(FeedForwardGPUActivationStatsHookTest, SaturationRatioAllSaturated) {
+    // Zero input -> pre-activations = 0*W1 + b1 = b1 (all 0 at init) -> GELU(0) = 0.
+    // Every element is exactly 0, which is < 0.01, so saturation ratio should be 1,
+    // matching the CPU-hook SaturationRatioAllSaturated test above.
+    FeedForward ff(8, 32);
+
+    float reported = -1.0f;
+    ff.set_gpu_activation_stats_hook([&reported](float frac) { reported = frac; });
+
+    adai::gpu::GPUMatrix input(2, 8);
+    input.zero();
+    ff.gpu_forward(input);
+
+    EXPECT_FLOAT_EQ(reported, 1.0f);
+}
+
+TEST(FeedForwardGPUActivationStatsHookTest, SaturationRatioNoneSaturated) {
+    // Modest positive inputs produce large GELU outputs, so saturation is near 0,
+    // matching the CPU-hook SaturationRatioNoneSaturated test above.
+    FeedForward ff(8, 32);
+
+    float reported = -1.0f;
+    ff.set_gpu_activation_stats_hook([&reported](float frac) { reported = frac; });
+
+    std::vector<float> host_input(8, 5.0f);
+    adai::gpu::GPUMatrix input(1, 8);
+    input.upload(host_input.data(), 8);
+    ff.gpu_forward(input);
+
+    EXPECT_LT(reported, 1.0f);
+}
+#endif  // ADAI_ENABLE_GPU
 
 // ============================================================================
 // Main Function

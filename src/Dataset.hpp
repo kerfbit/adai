@@ -31,7 +31,7 @@
 struct DataSample {
     std::string input;
     std::string target;
-    SampleMeta  meta;
+    SampleMeta meta;
 
     DataSample() = default;
     DataSample(const std::string& in, const std::string& tgt) : input(in), target(tgt) {}
@@ -242,9 +242,10 @@ class Dataset {
         std::string line;
         size_t pair_count = 0;
         while (std::getline(file, line)) {
-            if (line.empty() || line.front() != '{') continue;
+            if (line.empty() || line.front() != '{')
+                continue;
             std::string in, resp;
-            SampleMeta  meta;
+            SampleMeta meta;
             if (parse_jsonl_sample(line, in, resp, meta)) {
                 data_.emplace_back(in, resp, std::move(meta));
                 ++pair_count;
@@ -692,8 +693,7 @@ class Dataset {
      * @param format "jsonl" (default), "conversation" (legacy INPUT:/RESPONSE:), or "tsv"
      * @return True if successful
      */
-    bool save_to_file(const std::string& filepath,
-                      const std::string& format = "jsonl") const {
+    bool save_to_file(const std::string& filepath, const std::string& format = "jsonl") const {
         std::ofstream file(filepath);
         if (!file.is_open()) {
             std::cerr << "Error: Cannot open file for writing: " << filepath << std::endl;
@@ -1455,13 +1455,17 @@ class LazyDataset {
         // Detect format from first non-empty line
         bool is_jsonl = false;
         while (std::getline(file, line)) {
-            if (!line.empty()) { is_jsonl = (line.front() == '{'); break; }
+            if (!line.empty()) {
+                is_jsonl = (line.front() == '{');
+                break;
+            }
         }
         file.seekg(0);
 
         while (file) {
             std::streampos pos = file.tellg();
-            if (!std::getline(file, line)) break;
+            if (!std::getline(file, line))
+                break;
 
             if (is_jsonl) {
                 if (!line.empty() && line.front() == '{' &&
@@ -1500,16 +1504,19 @@ class LazyDataset {
         file.seekg(sample_positions_[index]);
 
         std::string line;
-        if (!std::getline(file, line)) { file.close(); return {}; }
+        if (!std::getline(file, line)) {
+            file.close();
+            return {};
+        }
 
         DataSample sample;
         if (!line.empty() && line.front() == '{') {
             // JSONL format
             std::string resp;
-            SampleMeta  meta;
+            SampleMeta meta;
             parse_jsonl_sample(line, sample.input, resp, meta);
             sample.target = resp;
-            sample.meta   = std::move(meta);
+            sample.meta = std::move(meta);
         } else {
             // Legacy INPUT:/RESPONSE: format
             std::string input, target;
@@ -1520,7 +1527,8 @@ class LazyDataset {
                     target = line.substr(10);
                     break;
                 }
-                if (!std::getline(file, line)) break;
+                if (!std::getline(file, line))
+                    break;
             }
             sample = DataSample(input, target);
         }

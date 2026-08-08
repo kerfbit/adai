@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">adai Complications</string>
+    <string name="loss_complication_label">adai Loss</string>
+    <string name="perplexity_complication_label">adai Perplexity</string>
+</resources>

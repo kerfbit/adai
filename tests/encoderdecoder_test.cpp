@@ -701,6 +701,49 @@ TEST(EncoderDecoderModelTest, LoadModelMismatchedArchitecture) {
     std::remove((filepath + ".decoder").c_str());
 }
 
+// Regression test for the Post-LN -> Pre-LN checkpoint compatibility marker:
+// a checkpoint saved before the architecture change has the same 10-int
+// layout (same shapes) but a different weight *meaning*, which the old
+// dimension-only check couldn't catch. load_model() must now reject a
+// legacy-format .config file (missing the magic/version header) with a
+// clear error instead of silently loading it.
+TEST(EncoderDecoderModelTest, LoadModelRejectsLegacyPreMarkerCheckpoint) {
+    int vocab_size = 100;
+    int d_model = 64;
+    int encoder_layers = 2;
+    int decoder_layers = 2;
+    int num_heads = 4;
+    int d_ff = 256;
+    int max_seq_length = 128;
+
+    std::string filepath = "test_encoder_decoder_legacy_format";
+
+    // Hand-build a legacy-format .config: exactly the 10 raw ints the
+    // pre-marker format wrote, with no magic/version header.
+    {
+        std::ofstream config_file(filepath + ".config", std::ios::binary);
+        ASSERT_TRUE(config_file.is_open());
+        int bos = 1, eos = 2, pad = 0;
+        config_file.write(reinterpret_cast<const char*>(&vocab_size), sizeof(int));
+        config_file.write(reinterpret_cast<const char*>(&d_model), sizeof(int));
+        config_file.write(reinterpret_cast<const char*>(&encoder_layers), sizeof(int));
+        config_file.write(reinterpret_cast<const char*>(&decoder_layers), sizeof(int));
+        config_file.write(reinterpret_cast<const char*>(&num_heads), sizeof(int));
+        config_file.write(reinterpret_cast<const char*>(&d_ff), sizeof(int));
+        config_file.write(reinterpret_cast<const char*>(&max_seq_length), sizeof(int));
+        config_file.write(reinterpret_cast<const char*>(&bos), sizeof(int));
+        config_file.write(reinterpret_cast<const char*>(&eos), sizeof(int));
+        config_file.write(reinterpret_cast<const char*>(&pad), sizeof(int));
+    }
+
+    EncoderDecoderModel model(vocab_size, d_model, encoder_layers, decoder_layers, num_heads, d_ff,
+                              max_seq_length);
+
+    EXPECT_THROW({ model.load_model(filepath); }, std::runtime_error);
+
+    std::remove((filepath + ".config").c_str());
+}
+
 TEST(EncoderDecoderModelTest, SaveLoadRoundTrip) {
     int vocab_size = 100;
     int d_model = 64;

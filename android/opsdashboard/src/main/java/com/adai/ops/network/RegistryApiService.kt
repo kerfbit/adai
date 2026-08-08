@@ -7,15 +7,18 @@ import com.adai.ops.network.dto.FetchHuggingfaceRequestDto
 import com.adai.ops.network.dto.FetchResponseDto
 import com.adai.ops.network.dto.HistoryResponseDto
 import com.adai.ops.network.dto.QueueResponseDto
+import com.adai.ops.network.dto.RegistryAdminConfigDto
 import com.adai.ops.network.dto.RegistryHealthDto
 import com.adai.ops.network.dto.RegistryResponseDto
 import com.adai.ops.network.dto.ReleaseRequestDto
 import com.adai.ops.network.dto.ReleaseResponseDto
 import com.adai.ops.network.dto.RunsResponseDto
+import kotlinx.serialization.json.JsonObject
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.POST
+import retrofit2.http.PUT
 import retrofit2.http.Path
 import retrofit2.http.Query
 
@@ -57,4 +60,12 @@ interface RegistryApiService {
 
     @GET("health")
     suspend fun health(): RegistryHealthDto
+
+    /** 403 (Response inspected, not thrown) when the server was started with --admin-enabled=false. */
+    @GET("admin/config")
+    suspend fun getAdminConfig(): Response<RegistryAdminConfigDto>
+
+    /** [body] must contain only the field(s) actually changed — see RegistryAdminConfigDto's doc comment. */
+    @PUT("admin/config")
+    suspend fun putAdminConfig(@Body body: JsonObject): Response<RegistryAdminConfigDto>
 }

@@ -375,7 +375,8 @@ void FeedForward::print_config(const std::string& name) const {
 
 #ifdef ADAI_ENABLE_GPU
 void FeedForward::gpu_upload_weights() {
-    if (!gpu_) gpu_ = std::make_unique<GPUState>(d_model, d_ff);
+    if (!gpu_)
+        gpu_ = std::make_unique<GPUState>(d_model, d_ff);
     auto flat = [](const Matrix& m) {
         std::vector<float> v;
         v.reserve(m.rows * m.cols);
@@ -383,61 +384,80 @@ void FeedForward::gpu_upload_weights() {
             v.insert(v.end(), row.begin(), row.end());
         return v;
     };
-    auto f1 = flat(W1); gpu_->W1_g.upload(f1.data(), d_model * d_ff);
-    auto f2 = flat(W2); gpu_->W2_g.upload(f2.data(), d_ff * d_model);
-    auto fb1 = flat(b1); gpu_->b1_g.upload(fb1.data(), d_ff);
-    auto fb2 = flat(b2); gpu_->b2_g.upload(fb2.data(), d_model);
+    auto f1 = flat(W1);
+    gpu_->W1_g.upload(f1.data(), d_model * d_ff);
+    auto f2 = flat(W2);
+    gpu_->W2_g.upload(f2.data(), d_ff * d_model);
+    auto fb1 = flat(b1);
+    gpu_->b1_g.upload(fb1.data(), d_ff);
+    auto fb2 = flat(b2);
+    gpu_->b2_g.upload(fb2.data(), d_model);
 }
 
 void FeedForward::gpu_download_grads() {
-    if (!gpu_) return;
+    if (!gpu_)
+        return;
     std::vector<float> tmp;
     auto add_back = [](const std::vector<float>& src, Matrix& dst) {
         int idx = 0;
         for (auto& row : dst.data)
-            for (auto& v : row) v += src[idx++];
+            for (auto& v : row)
+                v += src[idx++];
     };
-    tmp.resize(d_model * d_ff); gpu_->dW1.download(tmp.data(), d_model * d_ff); add_back(tmp, W1_grad);
-    tmp.resize(d_ff * d_model); gpu_->dW2.download(tmp.data(), d_ff * d_model); add_back(tmp, W2_grad);
-    tmp.resize(d_ff);           gpu_->db1.download(tmp.data(), d_ff);           add_back(tmp, b1_grad);
-    tmp.resize(d_model);        gpu_->db2.download(tmp.data(), d_model);        add_back(tmp, b2_grad);
+    tmp.resize(d_model * d_ff);
+    gpu_->dW1.download(tmp.data(), d_model * d_ff);
+    add_back(tmp, W1_grad);
+    tmp.resize(d_ff * d_model);
+    gpu_->dW2.download(tmp.data(), d_ff * d_model);
+    add_back(tmp, W2_grad);
+    tmp.resize(d_ff);
+    gpu_->db1.download(tmp.data(), d_ff);
+    add_back(tmp, b1_grad);
+    tmp.resize(d_model);
+    gpu_->db2.download(tmp.data(), d_model);
+    add_back(tmp, b2_grad);
 }
 
 void FeedForward::gpu_zero_grads() {
-    if (!gpu_) return;
-    gpu_->dW1.zero(); gpu_->dW2.zero();
-    gpu_->db1.zero(); gpu_->db2.zero();
+    if (!gpu_)
+        return;
+    gpu_->dW1.zero();
+    gpu_->dW2.zero();
+    gpu_->db1.zero();
+    gpu_->db2.zero();
 }
 
 adai::gpu::GPUMatrix FeedForward::gpu_forward(const adai::gpu::GPUMatrix& input) {
-    if (!gpu_) gpu_upload_weights();
+    if (!gpu_)
+        gpu_upload_weights();
     const int seq = input.rows;
     // Resize caches if seq length changed
     if (gpu_->cached_input.rows != seq) {
-        gpu_->cached_input  = adai::gpu::GPUMatrix(seq, d_model);
+        gpu_->cached_input = adai::gpu::GPUMatrix(seq, d_model);
         gpu_->cached_hidden = adai::gpu::GPUMatrix(seq, d_ff);
-        gpu_->cached_act    = adai::gpu::GPUMatrix(seq, d_ff);
+        gpu_->cached_act = adai::gpu::GPUMatrix(seq, d_ff);
     }
     // Copy input for backward
-    adai::gpu::GPUManager::get_queue()
-        .memcpy(gpu_->cached_input.device_ptr(), input.device_ptr(),
-                static_cast<size_t>(seq * d_model) * sizeof(float));
+    adai::gpu::matrix_copy_device_to_device_gpu(input.device_ptr(), gpu_->cached_input.device_ptr(),
+                                                seq * d_model);
 
     // hidden = input * W1 + b1
     adai::gpu::GPUMatrix hidden = input * gpu_->W1_g;
     adai::gpu::matrix_add_row_bias_gpu(hidden.device_ptr(), gpu_->b1_g.device_ptr(),
-                                        gpu_->cached_hidden.device_ptr(), seq, d_ff);
+                                       gpu_->cached_hidden.device_ptr(), seq, d_ff);
     // act = GELU(hidden)
-    adai::gpu::GPUManager::get_queue()
-        .memcpy(gpu_->cached_act.device_ptr(), gpu_->cached_hidden.device_ptr(),
-                static_cast<size_t>(seq * d_ff) * sizeof(float));
+    adai::gpu::matrix_copy_device_to_device_gpu(gpu_->cached_hidden.device_ptr(),
+                                                gpu_->cached_act.device_ptr(), seq * d_ff);
     gpu_->cached_act.apply_activation_inplace(adai::gpu::ActivationType::GELU);
+    if (gpu_activation_stats_hook_) {
+        gpu_activation_stats_hook_(gpu_->cached_act.count_below_threshold(0.01f));
+    }
 
     // output = act * W2 + b2
     adai::gpu::GPUMatrix out = gpu_->cached_act * gpu_->W2_g;
     adai::gpu::GPUMatrix result(seq, d_model);
     adai::gpu::matrix_add_row_bias_gpu(out.device_ptr(), gpu_->b2_g.device_ptr(),
-                                        result.device_ptr(), seq, d_model);
+                                       result.device_ptr(), seq, d_model);
     return result;
 }
 
@@ -474,4 +494,3 @@ adai::gpu::GPUMatrix FeedForward::gpu_backward(const adai::gpu::GPUMatrix& dout)
     return d_hidden * W1_T;
 }
 #endif
-

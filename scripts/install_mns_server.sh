@@ -20,6 +20,7 @@ SERVICE_GROUP="adai"
 BUILD_DIR="build/portable"
 MNS_PORT=8083
 YES=false
+WIPE_DATA=false
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "${SCRIPT_DIR}")"
@@ -55,6 +56,9 @@ Options:
   --group GROUP         Service group (default: adai)
   --build-dir DIR       CMake build directory containing bin/ (default: build/portable)
   --port PORT           Listening port for mns_server (default: 8083)
+  --wipe-data           Move any existing data directory aside to a timestamped
+                        backup (<dir>.bak-<timestamp>) before reinstalling, so
+                        the daemon starts fresh. Never permanently deletes.
   --yes                 Skip confirmation prompts (for non-interactive use)
   --help                Show this help message
 
@@ -67,6 +71,9 @@ Examples:
 
   # Custom build directory
   sudo $0 --build-dir build/release
+
+  # Reinstall with a clean data directory (old data moved to a backup)
+  sudo $0 --wipe-data
 
 Description:
   Installs mns_server (ADAI Model Name Service daemon) to a local host.
@@ -104,6 +111,42 @@ confirm() {
         warn "Installation cancelled by user"
         exit 0
     fi
+}
+
+# wipe_old_data SERVICE_NAME DIR [DIR2 ...]
+# No-op if none of the dirs exist / are non-empty. Otherwise: warns, lists the
+# exact directories, confirms (respects --yes like every other confirm() call),
+# stops SERVICE_NAME first if it's currently active (files may be open/locked),
+# then renames each existing non-empty dir to "<dir>.bak-<timestamp>" — never
+# rm -rf. The subsequent mkdir -p in the normal install flow recreates it empty.
+wipe_old_data() {
+    local service_name="$1"; shift
+    local dirs=("$@")
+    local any=false
+    for d in "${dirs[@]}"; do
+        [[ -d "$d" && -n "$(ls -A "$d" 2>/dev/null)" ]] && any=true
+    done
+    if [[ "${any}" != true ]]; then
+        info "No existing data under: ${dirs[*]} — nothing to wipe"
+        return 0
+    fi
+
+    warn "This will move the following EXISTING data director$([ ${#dirs[@]} -gt 1 ] && echo ies || echo y) aside:"
+    for d in "${dirs[@]}"; do [[ -d "$d" ]] && echo "    $d"; done
+    warn "Preserved as <dir>.bak-<timestamp> — not permanently deleted."
+    confirm "Wipe old ${service_name} data?"
+
+    if systemctl is-active --quiet "${service_name}.service" 2>/dev/null; then
+        info "Stopping ${service_name} before wiping its data..."
+        systemctl stop "${service_name}.service"
+    fi
+    local ts; ts="$(date +%Y%m%d-%H%M%S)"
+    for d in "${dirs[@]}"; do
+        if [[ -d "$d" && -n "$(ls -A "$d" 2>/dev/null)" ]]; then
+            mv "$d" "${d}.bak-${ts}"
+            success "Moved ${d} -> ${d}.bak-${ts}"
+        fi
+    done
 }
 
 # ============================================================================
@@ -175,6 +218,7 @@ while [[ $# -gt 0 ]]; do
         --port)
             validate_port "$2"
             MNS_PORT="$2"; shift 2 ;;
+        --wipe-data) WIPE_DATA=true; shift ;;
         --yes)  YES=true; shift ;;
         --help) show_help; exit 0 ;;
         *)
@@ -242,9 +286,14 @@ install_mns_server() {
     echo "  Service File:   ${SERVICE_FILE}"
     echo "  Listen Port:    ${MNS_PORT}"
     echo "  Build Source:   ${BUILD_BIN_DIR}/mns_server"
+    echo "  Wipe Old Data:  ${WIPE_DATA}"
     echo ""
 
     confirm "Continue with installation?"
+
+    if [[ "${WIPE_DATA}" == true ]]; then
+        wipe_old_data "${SERVICE_NAME}" "${DATA_DIR}"
+    fi
 
     # Step 1: Create system user and group
     info "[1/${step_total}] Creating service user and group..."

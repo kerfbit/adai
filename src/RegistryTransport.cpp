@@ -193,7 +193,8 @@ void LocalTransport::unlock_pending(int lock_fd) const {
 
 // ── Phase 9: acquire / release / commit_trained ───────────────────────────────
 
-AcquireResponse LocalTransport::acquire(const std::string& run_id, int max_files) {
+AcquireResponse LocalTransport::acquire(const std::string& run_id, int max_files,
+                                        const std::string& model_name) {
     AcquireResponse resp;
     resp.run_id = run_id;
     // ftp_server_host left empty → caller uses direct filesystem paths
@@ -213,8 +214,16 @@ AcquireResponse LocalTransport::acquire(const std::string& run_id, int max_files
 
     const int limit = (max_files > 0) ? max_files : std::numeric_limits<int>::max();
 
+    // Assignment-aware: an entry is claimable iff unassigned or assigned to
+    // this exact model_name — never another model's assigned entry. A caller
+    // with no model identity (model_name empty) can only claim unassigned
+    // entries. See RegistryTransport::acquire's doc comment.
+    const auto eligible = [&model_name](const PendingEntry& e) {
+        return e.model_name.empty() || e.model_name == model_name;
+    };
+
     for (auto& e : entries) {
-        if (e.run_id.empty() && static_cast<int>(resp.files.size()) < limit) {
+        if (e.run_id.empty() && eligible(e) && static_cast<int>(resp.files.size()) < limit) {
             e.run_id = run_id;
             FileToken tok;
             tok.registry_path = e.path;
@@ -309,6 +318,43 @@ bool LocalTransport::add_pending(const std::string& path) {
     const bool ok = file.is_open() && (file << path << '\n') && file.good();
     unlock_pending(lock_fd);
     return ok;
+}
+
+namespace {
+// "N" -> "0N" for N < 10, otherwise unchanged — matches MNS's run_id padding
+// (run-01 ... run-10, run-11, ...). Shared by both transports' next_session().
+std::string zero_pad2(int n) {
+    const std::string s = std::to_string(n);
+    return s.size() < 2 ? "0" + s : s;
+}
+}  // namespace
+
+std::string LocalTransport::next_session(const std::string& model_name,
+                                         const std::string& run_id) {
+    if (!session_store_) {
+        try {
+            const fs::path db_path = fs::path(pending_path_).parent_path() / "session_counters.db";
+            fs::create_directories(db_path.parent_path());
+            session_store_ = std::make_unique<adai::DaemonConfigStore>(db_path.string());
+        } catch (const std::exception& e) {
+            Logger::warn(
+                "LocalTransport::next_session — session_counters.db unavailable ({}); session "
+                "numbers won't persist across restarts",
+                e.what());
+            return "session-01";
+        }
+    }
+
+    const std::string key = model_name + "|" + run_id;
+    int next = 1;
+    if (const auto all = session_store_->load_all(); all.count(key)) {
+        try {
+            next = std::stoi(all.at(key)) + 1;
+        } catch (...) {
+        }
+    }
+    session_store_->set(key, std::to_string(next));
+    return "session-" + zero_pad2(next);
 }
 
 // ── Phase 16: assign-by-count / unassign / delete ──────────────────────────
@@ -818,7 +864,8 @@ bool RemoteTransport::save_pending(const std::vector<PendingEntry>& /*entries*/)
     return false;
 }
 
-AcquireResponse RemoteTransport::acquire(const std::string& run_id, int max_files) {
+AcquireResponse RemoteTransport::acquire(const std::string& run_id, int max_files,
+                                         const std::string& model_name) {
     AcquireResponse resp;
     resp.run_id = run_id;
 #ifdef BUILD_METRICS_API_SERVER
@@ -827,8 +874,8 @@ AcquireResponse RemoteTransport::acquire(const std::string& run_id, int max_file
     cli.set_read_timeout(0, timeout_ms_ * 1000);
 
     std::ostringstream body;
-    body << "{\"run_id\":\"" << json_escape(run_id) << "\"," << "\"max_files\":" << max_files
-         << "}";
+    body << "{\"run_id\":\"" << json_escape(run_id) << "\"," << "\"max_files\":" << max_files << ","
+         << "\"model_name\":\"" << json_escape(model_name) << "\"}";
 
     const auto res = cli.Post((group_prefix_ + "/acquire").c_str(), body.str(), "application/json");
     if (!res || res->status != 200) {
@@ -1008,6 +1055,31 @@ bool RemoteTransport::add_pending(const std::string& path) {
 #else
     Logger::error("RemoteTransport::add_pending — not compiled");
     return false;
+#endif
+}
+
+std::string RemoteTransport::next_session(const std::string& model_name,
+                                          const std::string& run_id) {
+#ifdef BUILD_METRICS_API_SERVER
+    httplib::Client cli(host_, port_);
+    cli.set_connection_timeout(0, timeout_ms_ * 1000);
+    cli.set_read_timeout(0, timeout_ms_ * 1000);
+
+    std::ostringstream body;
+    body << "{\"model_name\":\"" << json_escape(model_name) << "\"," << "\"run_id\":\""
+         << json_escape(run_id) << "\"}";
+
+    const auto res =
+        cli.Post((group_prefix_ + "/session/next").c_str(), body.str(), "application/json");
+    if (!res || res->status != 200) {
+        Logger::error("RemoteTransport::next_session — HTTP {} from {}:{}{}",
+                      res ? res->status : -1, host_, port_, group_prefix_ + "/session/next");
+        return "session-01";
+    }
+    return json_string(res->body, "session_id");
+#else
+    Logger::error("RemoteTransport::next_session — not compiled");
+    return "session-01";
 #endif
 }
 

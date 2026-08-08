@@ -334,11 +334,17 @@ TEST_F(IncrementalTrainerTest, CleanupDeadSessionsRemovesOrphansAndBrokenHistory
 
     auto touch = [](const fs::path& p) { std::ofstream(p) << "dummy"; };
 
-    // Referenced checkpoints (one broken, one sane)
+    // Referenced checkpoints (one broken, one sane). Session 1 needs the full
+    // realistic set of sidecar files EncoderDecoderModel::save_model() actually
+    // writes for is_sane_checkpoint_candidate() to accept it.
     touch(session_dir / "session_0_checkpoint.bin");
     touch(session_dir / "session_0_checkpoint.bin.config");
     touch(session_dir / "session_1_checkpoint.bin");
     touch(session_dir / "session_1_checkpoint.bin.config");
+    touch(session_dir / "session_1_checkpoint.bin.vocab");
+    touch(session_dir / "session_1_checkpoint.bin.encoder");
+    touch(session_dir / "session_1_checkpoint.bin.decoder");
+    touch(session_dir / "session_1_checkpoint.bin.lm_head");
 
     // Orphaned in-progress snapshot from an older, already-superseded session
     touch(session_dir / "session_1_best.bin");
@@ -413,6 +419,102 @@ TEST_F(IncrementalTrainerTest, SaveAndLoadModel) {
     IncrementalTrainer trainer2(vocab_file.string(), model_file.string(), config);
     bool load_result = trainer2.load_model(checkpoint);
     EXPECT_TRUE(load_result);
+}
+
+// Regression test: is_sane_checkpoint_candidate() used to require a bare
+// "session_N_checkpoint.bin" file (no extension) to exist alongside the real
+// sidecars — but EncoderDecoderModel::save_model() (the only thing that ever
+// writes a checkpoint in production) never creates that bare file, only
+// ".config"/".vocab"/".encoder"/".decoder"/".lm_head". That made every
+// legitimately-completed session fail the sanity check on the very next
+// startup, get logged as "Removing broken session N from history", and have
+// its (perfectly valid) checkpoint files deleted — silently forcing a full
+// restart from random weights on every incremental `train` invocation.
+TEST_F(IncrementalTrainerTest, RealisticallySavedCheckpointSurvivesStartupCleanup) {
+    std::string checkpoint_path = session_dir.string() + "/session_0_checkpoint.bin";
+
+    {
+        IncrementalConfig config;
+        config.session_dir = session_dir.string();
+        IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+        // Exercises the exact same EncoderDecoderModel::save_model() call
+        // production uses (IncrementalTrainer::save_model() -> model->save_model()) —
+        // deliberately not hand-crafting the sidecar files, so this test fails
+        // if the real save path and the sanity check ever disagree again.
+        ASSERT_TRUE(trainer.save_model(checkpoint_path));
+    }
+    ASSERT_TRUE(fs::exists(checkpoint_path + ".config"));
+    ASSERT_FALSE(fs::exists(checkpoint_path))
+        << "save_model() is not expected to write a bare marker file — if this "
+           "starts failing, is_sane_checkpoint_candidate() may need revisiting again";
+
+    std::string history_file = session_dir.string() + "/session_history.txt";
+    {
+        std::ofstream file(history_file);
+        file << "# Session History: session_id samples_trained epochs final_loss "
+                "final_val_loss checkpoint_path\n";
+        file << "0 200000 5 3.2 3.13157 " << checkpoint_path << "\n";
+    }
+
+    // A fresh IncrementalTrainer instance (matching what happens on the next
+    // `train`/`retrain` process invocation) loads session_history and runs
+    // cleanup_dead_sessions() during construction. The session must survive.
+    IncrementalConfig config2;
+    config2.session_dir = session_dir.string();
+    IncrementalTrainer trainer2(vocab_file.string(), model_file.string(), config2);
+
+    std::vector<TrainingSession> history = trainer2.get_session_history();
+    ASSERT_EQ(history.size(), 1u)
+        << "session was incorrectly dropped as 'broken' despite having a complete, "
+           "realistically-saved checkpoint";
+    EXPECT_EQ(history[0].session_id, 0);
+    EXPECT_EQ(history[0].samples_trained, 200000);
+    EXPECT_FLOAT_EQ(history[0].final_validation_loss, 3.13157f);
+    EXPECT_TRUE(fs::exists(checkpoint_path + ".config"))
+        << "surviving session's checkpoint files must not have been deleted";
+}
+
+TEST_F(IncrementalTrainerTest, ResetModelForConfigClearsStaleSessionTracking) {
+    std::string checkpoint_path = session_dir.string() + "/session_0_checkpoint.bin";
+    {
+        IncrementalConfig config;
+        config.session_dir = session_dir.string();
+        IncrementalTrainer seed_trainer(vocab_file.string(), model_file.string(), config);
+        ASSERT_TRUE(seed_trainer.save_model(checkpoint_path));
+    }
+
+    std::string history_file = session_dir.string() + "/session_history.txt";
+    {
+        std::ofstream file(history_file);
+        file << "# Session History: session_id samples_trained epochs final_loss "
+                "final_val_loss checkpoint_path\n";
+        file << "0 200000 5 3.2 3.13157 " << checkpoint_path << "\n";
+    }
+
+    IncrementalConfig config;
+    config.session_dir = session_dir.string();
+    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+
+    // Precondition: construction picked up the old session as history, same as
+    // production does on startup.
+    ASSERT_EQ(trainer.get_session_history().size(), 1u);
+
+    // retrain's reset_model_for_config() must wipe that state — a rebuilt model
+    // has nothing in common with a prior architecture/dataset's val_loss, so
+    // carrying it forward makes every subsequent epoch look like a regression.
+    trainer.reset_model_for_config();
+
+    EXPECT_TRUE(trainer.get_session_history().empty());
+
+    // The cleared state must also be persisted, so a crash right after reset
+    // doesn't resurrect the stale history on the next startup.
+    std::ifstream check(history_file);
+    std::string line;
+    int data_lines = 0;
+    while (std::getline(check, line))
+        if (!line.empty() && line[0] != '#')
+            ++data_lines;
+    EXPECT_EQ(data_lines, 0);
 }
 
 TEST_F(IncrementalTrainerTest, GetLatestCheckpointEmptyWhenNoSessions) {

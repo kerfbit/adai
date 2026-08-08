@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <string>
+#include <vector>
 
 /**
  * @brief Abnormal training sample flagged by outlier detection (TD-013)
@@ -12,9 +13,9 @@
  * and drops its own copy.
  */
 struct AbnormalSample {
-    int epoch = 0;        ///< 1-based epoch number
-    int sample_id = 0;    ///< 1-based sample index within the epoch
-    float loss = 0.0f;    ///< Loss value that triggered the flag
+    int epoch = 0;           ///< 1-based epoch number
+    int sample_id = 0;       ///< 1-based sample index within the epoch
+    float loss = 0.0f;       ///< Loss value that triggered the flag
     float grad_norm = 0.0f;  ///< Gradient norm that triggered the flag
     std::string reason;      ///< e.g. "loss_outlier", "grad_norm_outlier"
     std::string input_text;
@@ -114,8 +115,7 @@ class IMetricsReporter {
     /// Called once at epoch end with aggregate adaptive-clip statistics.
     /// @param avg_clip_threshold Epoch-average effective clip threshold
     /// @param total_spike_count  Total spike count for the epoch
-    virtual void update_adaptive_clip_epoch(float avg_clip_threshold,
-                                            int total_spike_count) = 0;
+    virtual void update_adaptive_clip_epoch(float avg_clip_threshold, int total_spike_count) = 0;
 
     // ── Activation / attention diagnostics (TD-013) ──────────────────────────
 
@@ -126,6 +126,15 @@ class IMetricsReporter {
     /// Update epoch-average per-token attention entropy.
     /// @param entropy Average Shannon entropy of the softmax distribution (-1 = not computed)
     virtual void update_attention_entropy(float entropy) = 0;
+
+    /// Report per-layer gradient norms, once per epoch — the direct way to see
+    /// whether gradients are shrinking uniformly (healthy convergence) or
+    /// specifically in early layers (the classic vanishing-gradient signature),
+    /// instead of only inferring it from the whole-model aggregate norm.
+    /// @param encoder_layer_norms One entry per encoder layer, in layer order
+    /// @param decoder_layer_norms One entry per decoder layer, in layer order
+    virtual void update_layer_gradient_norms(const std::vector<float>& encoder_layer_norms,
+                                             const std::vector<float>& decoder_layer_norms) = 0;
 
     // ── Batch padding efficiency ──────────────────────────────────────────────
 
@@ -172,6 +181,8 @@ class NullMetricsReporter final : public IMetricsReporter {
                                     int /*total_spike_count*/) override {}
     void update_activation_saturation(float /*ratio*/) override {}
     void update_attention_entropy(float /*entropy*/) override {}
+    void update_layer_gradient_norms(const std::vector<float>& /*encoder_layer_norms*/,
+                                     const std::vector<float>& /*decoder_layer_norms*/) override {}
     void update_padding_efficiency(float /*efficiency*/) override {}
     void update_generation_quality_metrics(float /*bleu4*/, float /*rouge1*/, float /*rouge2*/,
                                            float /*rougeL*/) override {}

@@ -188,7 +188,8 @@ TEST(MetricsSessionRegistry, ListSessionsExcludesArchivedRowsFromDbSupplement) {
     // Sanity: the archived row really is in the DB (same assertion style as the test above).
     bool db_has_archived_row = false;
     for (const auto& rec : registry.get_database()->list_sessions(std::nullopt)) {
-        if (rec.key.rfind("archive-key_archived_", 0) == 0) db_has_archived_row = true;
+        if (rec.key.rfind("archive-key_archived_", 0) == 0)
+            db_has_archived_row = true;
     }
     ASSERT_TRUE(db_has_archived_row);
 
@@ -217,7 +218,8 @@ TEST(MetricsSessionRegistry, SweepEvictionArchivesSessionInDatabase) {
     fs::create_directories(temp_root);
     const std::string db_path = (temp_root / "metrics.db").string();
 
-    MetricsSessionRegistry registry(MetricsServiceConfig(), 16, /*ttl=*/0, /*sweep=*/0, "sqlite", db_path);
+    MetricsSessionRegistry registry(MetricsServiceConfig(), 16, /*ttl=*/0, /*sweep=*/0, "sqlite",
+                                    db_path);
     auto svc = registry.create_or_get_session("evict-key");
     ASSERT_NE(svc, nullptr);
     svc->start_session(3, 1, 1);
@@ -269,7 +271,8 @@ TEST(MetricsSessionRegistry, EvictionRenamesPerSessionFilesOnDisk) {
     bool found_archived_summary = false;
     for (const auto& entry : fs::directory_iterator(temp_root)) {
         const std::string name = entry.path().filename().string();
-        if (name.rfind("file-key_archived_", 0) == 0 && name.find("_metrics_summary.json") != std::string::npos) {
+        if (name.rfind("file-key_archived_", 0) == 0 &&
+            name.find("_metrics_summary.json") != std::string::npos) {
             found_archived_summary = true;
         }
     }
@@ -445,7 +448,9 @@ TEST(MetricsSessionRegistry, ListSessionsKeyMatchesRegisteredKey) {
     ASSERT_EQ(summaries.size(), 2U);
 
     std::vector<std::string> keys;
-    for (const auto& s : summaries) { keys.push_back(s.key); }
+    for (const auto& s : summaries) {
+        keys.push_back(s.key);
+    }
     std::sort(keys.begin(), keys.end());
 
     EXPECT_EQ(keys[0], "alpha-key");
@@ -461,7 +466,7 @@ TEST(MetricsSessionRegistry, LabelAndConfigSnapshotAreBothStoredIndependently) {
 
     const auto summaries = registry.list_sessions();
     ASSERT_EQ(summaries.size(), 1U);
-    EXPECT_EQ(summaries[0].label,           "the-label");
+    EXPECT_EQ(summaries[0].label, "the-label");
     EXPECT_EQ(summaries[0].config_snapshot, "{\"key\":\"val\"}");
 }
 

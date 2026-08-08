@@ -27,14 +27,12 @@ using namespace std::chrono_literals;
 // Helpers
 // ============================================================================
 
-static VirtualUser make_user(const std::string& password,
-                             const std::string& ftp_path,
-                             std::chrono::seconds ttl = 3600s)
-{
+static VirtualUser make_user(const std::string& password, const std::string& ftp_path,
+                             std::chrono::seconds ttl = 3600s) {
     VirtualUser u;
     u.password = password;
     u.ftp_path = ftp_path;
-    u.expiry   = std::chrono::system_clock::now() + ttl;
+    u.expiry = std::chrono::system_clock::now() + ttl;
     u.consumed = false;
     return u;
 }
@@ -122,7 +120,7 @@ TEST(TokenStoreTest, RemoveNonExistentIsNoOp) {
 
 TEST(TokenStoreTest, SweepExpiredRemovesExpiredTokens) {
     TokenStore store;
-    store.insert("adai_good",    make_user("pw", "data/good.bin",    600s));
+    store.insert("adai_good", make_user("pw", "data/good.bin", 600s));
     store.insert("adai_expired", make_user("pw", "data/expired.bin", -1s));
 
     store.sweep_expired();
@@ -148,14 +146,12 @@ TEST(TokenStoreTest, SweepExpiredRemovesConsumedTokens) {
 TEST(TokenStoreTest, SweepExpiredPreservesValidTokens) {
     TokenStore store;
     for (int i = 0; i < 5; ++i) {
-        store.insert("adai_v" + std::to_string(i),
-                     make_user("pw" + std::to_string(i),
-                               "data/f" + std::to_string(i) + ".bin",
-                               600s));
+        store.insert(
+            "adai_v" + std::to_string(i),
+            make_user("pw" + std::to_string(i), "data/f" + std::to_string(i) + ".bin", 600s));
     }
     for (int i = 0; i < 3; ++i) {
-        store.insert("adai_e" + std::to_string(i),
-                     make_user("ew", "data/e.bin", -1s));
+        store.insert("adai_e" + std::to_string(i), make_user("ew", "data/e.bin", -1s));
     }
 
     store.sweep_expired();
@@ -163,9 +159,8 @@ TEST(TokenStoreTest, SweepExpiredPreservesValidTokens) {
     // All 5 valid tokens remain
     for (int i = 0; i < 5; ++i) {
         std::string ftp_path;
-        EXPECT_TRUE(store.authenticate("adai_v" + std::to_string(i),
-                                       "pw" + std::to_string(i),
-                                       ftp_path))
+        EXPECT_TRUE(
+            store.authenticate("adai_v" + std::to_string(i), "pw" + std::to_string(i), ftp_path))
             << "Valid token adai_v" << i << " should survive sweep";
     }
 }
@@ -193,7 +188,7 @@ TEST(TokenStoreTest, ConcurrentInsertsAndAuthenticates) {
     for (int i = 0; i < 8; ++i) {
         threads.emplace_back([&store, i] {
             const std::string user = "adai_t" + std::to_string(i);
-            const std::string pw   = "secret" + std::to_string(i);
+            const std::string pw = "secret" + std::to_string(i);
             store.insert(user, make_user(pw, "data/f" + std::to_string(i) + ".bin"));
             std::string ftp_path;
             // Authentication may succeed or fail depending on timing;
@@ -201,12 +196,13 @@ TEST(TokenStoreTest, ConcurrentInsertsAndAuthenticates) {
             store.authenticate(user, pw, ftp_path);
         });
     }
-    for (auto& t : threads) t.join();
+    for (auto& t : threads)
+        t.join();
 
     // After all threads finish, each token should authenticate correctly.
     for (int i = 0; i < 8; ++i) {
         const std::string user = "adai_t" + std::to_string(i);
-        const std::string pw   = "secret" + std::to_string(i);
+        const std::string pw = "secret" + std::to_string(i);
         std::string ftp_path;
         EXPECT_TRUE(store.authenticate(user, pw, ftp_path));
     }
@@ -217,8 +213,8 @@ TEST(TokenStoreTest, ConcurrentInsertsAndAuthenticates) {
 // ============================================================================
 
 TEST(RandomHexTest, LengthIs2xBytes) {
-    EXPECT_EQ(ftp_detail::random_hex(4).size(),  8u);
-    EXPECT_EQ(ftp_detail::random_hex(8).size(),  16u);
+    EXPECT_EQ(ftp_detail::random_hex(4).size(), 8u);
+    EXPECT_EQ(ftp_detail::random_hex(8).size(), 16u);
     EXPECT_EQ(ftp_detail::random_hex(32).size(), 64u);
 }
 
@@ -291,7 +287,7 @@ TEST(UtcStringTest, KnownEpoch) {
 // ============================================================================
 
 class FtpDataServerTokenTest : public ::testing::Test {
-protected:
+   protected:
     // Use a non-zero port range; server is never started in these tests.
     FtpDataServer server_{"/tmp/adai_ftp_test_root", 12121, 52000, 52099, "127.0.0.1"};
     const std::string kRunId = "run-test-001";
@@ -388,16 +384,14 @@ TEST_F(FtpDataServerTokenTest, ZeroTtlTokenIsImmediatelyExpired) {
 TEST_F(FtpDataServerTokenTest, RunIdIsStoredInToken) {
     const auto tok = server_.issue_token("run-audit-1", "data/audit.bin", 30);
     std::string out_path, out_run_id;
-    EXPECT_TRUE(server_.tokens().authenticate(tok.username, tok.password,
-                                              out_path, &out_run_id));
+    EXPECT_TRUE(server_.tokens().authenticate(tok.username, tok.password, out_path, &out_run_id));
     EXPECT_EQ(out_run_id, "run-audit-1");
 }
 
 TEST_F(FtpDataServerTokenTest, EmptyRunIdIsAllowed) {
     const auto tok = server_.issue_token("", "data/f.bin", 30);
     std::string out_path, out_run_id;
-    EXPECT_TRUE(server_.tokens().authenticate(tok.username, tok.password,
-                                              out_path, &out_run_id));
+    EXPECT_TRUE(server_.tokens().authenticate(tok.username, tok.password, out_path, &out_run_id));
     EXPECT_EQ(out_run_id, "");
 }
 
@@ -427,8 +421,7 @@ TEST(HmacTokenTest, HmacPasswordIsDeterministic) {
     // same (username, ftp_path, expiry) tuple — but since the username is
     // random and the expiry is time-based, the simplest test is that the
     // same call produces a non-random-looking 64-char hex string.
-    FtpDataServer srv("/tmp/adai_hmac_test", 15100, 55200, 55299,
-                      "127.0.0.1", "supersecretkey");
+    FtpDataServer srv("/tmp/adai_hmac_test", 15100, 55200, 55299, "127.0.0.1", "supersecretkey");
 
     const auto tok = srv.issue_token("run-hmac-1", "data/train.bin", 30);
     // HMAC-SHA256 of a 32-byte input is 32 bytes = 64 hex chars
@@ -440,8 +433,7 @@ TEST(HmacTokenTest, HmacPasswordIsDeterministic) {
 }
 
 TEST(HmacTokenTest, HmacPasswordAuthenticates) {
-    FtpDataServer srv("/tmp/adai_hmac_test", 15101, 55300, 55399,
-                      "127.0.0.1", "supersecretkey");
+    FtpDataServer srv("/tmp/adai_hmac_test", 15101, 55300, 55399, "127.0.0.1", "supersecretkey");
 
     const auto tok = srv.issue_token("run-hmac-2", "data/check.bin", 30);
     std::string out_path;
@@ -451,15 +443,14 @@ TEST(HmacTokenTest, HmacPasswordAuthenticates) {
 
 TEST(HmacTokenTest, EmptySecretFallsBackToRandomPassword) {
     // Without a secret the fallback is 32 random bytes = 64 hex chars
-    FtpDataServer srv_plain("/tmp/adai_hmac_test", 15102, 55400, 55499,
-                            "127.0.0.1", "");   // empty secret
+    FtpDataServer srv_plain("/tmp/adai_hmac_test", 15102, 55400, 55499, "127.0.0.1",
+                            "");  // empty secret
     const auto tok = srv_plain.issue_token("run-plain", "data/plain.bin", 30);
     EXPECT_EQ(tok.password.size(), 64u);
 }
 
 TEST(HmacTokenTest, DifferentPathsDifferentHmacPasswords) {
-    FtpDataServer srv("/tmp/adai_hmac_test", 15103, 55500, 55599,
-                      "127.0.0.1", "sharedkey");
+    FtpDataServer srv("/tmp/adai_hmac_test", 15103, 55500, 55599, "127.0.0.1", "sharedkey");
 
     const auto tok1 = srv.issue_token("run-diff", "data/file1.bin", 30);
     const auto tok2 = srv.issue_token("run-diff", "data/file2.bin", 30);
@@ -501,7 +492,7 @@ TEST(HmacTokenTest, HmacHelperDifferentMsgsProduceDifferentDigests) {
     EXPECT_NE(r1, r2);
 }
 
-#endif // BUILD_FTPS
+#endif  // BUILD_FTPS
 
 // ============================================================================
 // AcquireResponse::registry_paths
@@ -592,9 +583,7 @@ TEST(AcquireResponseTest, DefaultRunIdIsEmpty) {
 // ============================================================================
 
 TEST(FtpDataServerConstructorTest, ConstructorDoesNotCrash) {
-    EXPECT_NO_THROW({
-        FtpDataServer srv("/tmp/adai_data", 12122, 52100, 52199, "127.0.0.1");
-    });
+    EXPECT_NO_THROW({ FtpDataServer srv("/tmp/adai_data", 12122, 52100, 52199, "127.0.0.1"); });
 }
 
 TEST(FtpDataServerConstructorTest, AdvertiseIpIsPreserved) {

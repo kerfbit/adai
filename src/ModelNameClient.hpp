@@ -1,6 +1,7 @@
 #pragma once
 
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 #include "Config.hpp"
@@ -10,9 +11,9 @@ namespace adai {
 
 // Result type returned by resolve operations.
 struct ResolvedModel {
-    std::string      model_id;
-    std::string      model_name;
-    std::string      state;
+    std::string model_id;
+    std::string model_name;
+    std::string state;
     ArtifactLocation artifact;
 };
 
@@ -43,32 +44,46 @@ class ModelNameClient {
     explicit ModelNameClient(std::string server_url, int timeout_ms = 5000);
 
     // Register a new model; returns the assigned UUID.
-    std::string register_model(const std::string& model_name,
-                                const std::string& role,
-                                const ServiceConfig& arch,
-                                const std::map<std::string, std::string>& tags = {});
+    std::string register_model(const std::string& model_name, const std::string& role,
+                               const ServiceConfig& arch,
+                               const std::map<std::string, std::string>& tags = {});
 
-    // Transition model to "training" state (acquires training lock).
-    void set_training(const std::string& model_name,
-                      const std::string& run_id,
-                      const std::string& metrics_session_key = "");
+    // Transition model to "training" state. MNS allocates and returns the
+    // run_id (definitive standard — see CLAUDE.md "Configuration"): "run-01"
+    // the first time this model ever trains, incrementing only when
+    // new_run=true (a retrain); a plain continuation (train/resume) passes
+    // new_run=false and gets back the model's current run_id unchanged. If a
+    // previous run was still marked "training" (crashed/killed), its last
+    // pushed progress is archived into training_history (incomplete=true)
+    // before this call's run_id is allocated.
+    std::string set_training(const std::string& model_name, bool new_run,
+                             const std::string& metrics_session_key = "");
 
     // Transition model to "candidate" state (releases training lock, attaches artifact).
-    void set_candidate(const std::string& model_name,
-                       const std::string& run_id,
+    void set_candidate(const std::string& model_name, const std::string& run_id,
                        const ArtifactLocation& artifact,
                        const std::map<std::string, std::string>& training_summary = {});
 
+    // Push epoch/loss progress for the currently-active run — call after every
+    // epoch so a killed/crashed trainer still leaves an accurate last-known
+    // state in MNS. Throws on a stale/superseded run_id (409) or network
+    // failure; callers should treat failures as non-fatal (log and continue).
+    void push_progress(const std::string& model_name, const std::string& run_id,
+                       const std::string& session_id, int epoch, double loss, double best_loss);
+
     // Resolve a model by name; throws if not found or in initializing state.
     ResolvedModel resolve_model(const std::string& model_name);
+
+    // Fetch a registered model's authoritative architecture. Returns std::nullopt
+    // if the model isn't registered (404); throws on other request failures.
+    std::optional<ModelArchitecture> get_architecture(const std::string& model_name);
 
     // Resolve the production model for a role; throws if no production model.
     ResolvedModel resolve_role(const std::string& role);
 
     // List models, optionally filtered by state and/or role.
     std::vector<ModelSummary> list_models(const std::string& state_filter = "",
-                                          const std::string& role_filter = "",
-                                          int limit = 50);
+                                          const std::string& role_filter = "", int limit = 50);
 
     // Promote a candidate model to production for a role.
     void promote(const std::string& role, const std::string& model_name);
@@ -76,7 +91,7 @@ class ModelNameClient {
    private:
     struct ParsedUrl {
         std::string host = "localhost";
-        int         port = 8083;
+        int port = 8083;
         std::string base_path;
         static ParsedUrl from(const std::string& url);
     };
@@ -84,14 +99,14 @@ class ModelNameClient {
     // Returns HTTP status code; body is set to the response body.
     // Throws std::runtime_error on persistent connection failure (returns 0).
     int http_post(const std::string& path, const std::string& body, std::string& out) const;
-    int http_get (const std::string& path, std::string& out) const;
-    int http_put (const std::string& path, const std::string& body, std::string& out) const;
+    int http_get(const std::string& path, std::string& out) const;
+    int http_put(const std::string& path, const std::string& body, std::string& out) const;
 
     static void check_status(int status, const std::string& out, const std::string& op);
 
     std::string server_url_;
-    int         timeout_ms_;
-    ParsedUrl   parsed_;
+    int timeout_ms_;
+    ParsedUrl parsed_;
 };
 
 }  // namespace adai

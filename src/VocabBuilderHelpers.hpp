@@ -54,7 +54,8 @@ inline std::vector<std::string> load_pairs_format(const std::string& filename) {
     std::string first_line;
     while (std::getline(file, first_line)) {
         first_line.erase(0, first_line.find_first_not_of(" \t\r\n"));
-        if (!first_line.empty()) break;
+        if (!first_line.empty())
+            break;
     }
     file.seekg(0);
 
@@ -62,12 +63,15 @@ inline std::vector<std::string> load_pairs_format(const std::string& filename) {
     if (!first_line.empty() && first_line.front() == '{') {
         // JSONL training format
         while (std::getline(file, line)) {
-            if (line.empty() || line.front() != '{') continue;
+            if (line.empty() || line.front() != '{')
+                continue;
             std::string in, resp;
-            SampleMeta  meta;
+            SampleMeta meta;
             if (parse_jsonl_sample(line, in, resp, meta)) {
-                if (!in.empty())   texts.push_back(in);
-                if (!resp.empty()) texts.push_back(resp);
+                if (!in.empty())
+                    texts.push_back(in);
+                if (!resp.empty())
+                    texts.push_back(resp);
             }
         }
     } else {

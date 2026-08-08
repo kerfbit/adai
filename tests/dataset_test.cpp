@@ -637,9 +637,9 @@ TEST_F(DatasetTest, LoadJsonlTrainingFormat) {
     EXPECT_FALSE(dataset.empty());
 
     const auto& data = dataset.get_all();
-    EXPECT_EQ(data[0].input,  "Hello");
+    EXPECT_EQ(data[0].input, "Hello");
     EXPECT_EQ(data[0].target, "Hi there!");
-    EXPECT_EQ(data[1].input,  "How are you?");
+    EXPECT_EQ(data[1].input, "How are you?");
     EXPECT_EQ(data[1].target, "I'm doing great!");
 }
 
@@ -654,7 +654,7 @@ TEST_F(DatasetTest, LoadJsonlPreservesMetadata) {
     const auto& data = dataset.get_all();
 
     // Second sample has domain/task_type/quality
-    EXPECT_EQ(data[1].meta.domain,    "dialogue");
+    EXPECT_EQ(data[1].meta.domain, "dialogue");
     EXPECT_EQ(data[1].meta.task_type, "chat");
     EXPECT_NEAR(data[1].meta.quality, 0.8f, 1e-4f);
 
@@ -681,9 +681,9 @@ TEST_F(DatasetTest, SaveJsonlFormatAndReload) {
     EXPECT_EQ(loaded.size(), 2);
 
     const auto& data = loaded.get_all();
-    EXPECT_EQ(data[0].input,  "Hello");
+    EXPECT_EQ(data[0].input, "Hello");
     EXPECT_EQ(data[0].target, "Hi");
-    EXPECT_EQ(data[1].input,  "Bye");
+    EXPECT_EQ(data[1].input, "Bye");
     EXPECT_EQ(data[1].target, "Goodbye");
 }
 
@@ -711,7 +711,7 @@ TEST_F(DatasetTest, LazyDataset_JsonlFormat) {
     EXPECT_GT(lazy.size(), 0);
 
     auto sample = lazy.get_sample(0);
-    EXPECT_EQ(sample.input,  "Hello");
+    EXPECT_EQ(sample.input, "Hello");
     EXPECT_EQ(sample.target, "Hi there!");
 
     auto samples = lazy.load_range(0, 2);

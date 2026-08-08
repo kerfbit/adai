@@ -133,3 +133,20 @@ data class FetchResponseDto(
 data class RegistryHealthDto(
     val status: String? = null,
 )
+
+/**
+ * GET/PUT /admin/config. Field names verified against RegistryServer.cpp's
+ * admin_config_json/handle_admin_put_config. port/data_dir/ftp_* connection settings are
+ * immutable at runtime; only ftp_token_ttl_minutes/ftp_max_sessions_per_run are PUT-able.
+ * ftp_max_sessions_per_run_applied is only present on the PUT response, reflecting whether
+ * the new value took effect immediately (false if an FtpDataServer instance is already
+ * running — it's picked up on the next restart instead). See CLAUDE.md "Daemon admin
+ * config API".
+ */
+@Serializable
+data class RegistryAdminConfigDto(
+    val ftp_token_ttl_minutes: Int = 0,
+    val ftp_max_sessions_per_run: Int = 0,
+    val admin_enabled: Boolean = false,
+    val ftp_max_sessions_per_run_applied: Boolean? = null,
+)

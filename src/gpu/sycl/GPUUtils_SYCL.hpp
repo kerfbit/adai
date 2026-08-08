@@ -35,23 +35,26 @@ class GPUManager {
 
     static std::string probe_diagnostic() {
         auto platforms = sycl::platform::get_platforms();
-        std::string diag = "SYCL found 0 GPU devices across "
-                         + std::to_string(platforms.size()) + " platform(s):\n";
+        std::string diag = "SYCL found 0 GPU devices across " + std::to_string(platforms.size()) +
+                           " platform(s):\n";
         for (auto& p : platforms) {
             std::string plat_name = p.get_info<sycl::info::platform::name>();
             auto all_devs = p.get_devices();
             for (auto& d : all_devs) {
-                diag += "  " + plat_name + " — "
-                      + d.get_info<sycl::info::device::name>()
-                      + " [" + (d.is_gpu() ? "GPU" : d.is_cpu() ? "CPU" : "other") + "]\n";
+                diag += "  " + plat_name + " — " + d.get_info<sycl::info::device::name>() + " [" +
+                        (d.is_gpu()   ? "GPU"
+                         : d.is_cpu() ? "CPU"
+                                      : "other") +
+                        "]\n";
             }
             if (all_devs.empty()) {
                 diag += "  " + plat_name + " — (no devices)\n";
             }
         }
-        diag += "Hint: if Level Zero platform is missing, ensure UR_ADAPTERS_SEARCH_PATH "
-                "includes the adapter libs and the user is in the render group "
-                "(access to /dev/dri/renderD128).";
+        diag +=
+            "Hint: if Level Zero platform is missing, ensure UR_ADAPTERS_SEARCH_PATH "
+            "includes the adapter libs and the user is in the render group "
+            "(access to /dev/dri/renderD128).";
         return diag;
     }
 
@@ -146,11 +149,20 @@ class GPUManager {
 
     static void reserve_memory(size_t bytes) {
         if (max_memory_bytes_ > 0 && (allocated_bytes_ + bytes) > max_memory_bytes_) {
-            throw std::runtime_error(
-                "ADAI GPU memory budget exceeded: requested " +
-                std::to_string(bytes / (1024 * 1024)) + " MB, " +
-                std::to_string(get_available_memory_bytes() / (1024 * 1024)) + " MB available of " +
-                std::to_string(max_memory_bytes_ / (1024 * 1024)) + " MB limit");
+            // GPUMemory defers its sycl::free()/release_memory() into a queued
+            // host_task (see defer_free() below) to avoid racing in-flight
+            // kernels, so allocated_bytes_ can lag behind reality under
+            // sustained submission pressure. Drain the queue once to let any
+            // already-queued frees actually execute before refusing.
+            synchronize();
+            if ((allocated_bytes_ + bytes) > max_memory_bytes_) {
+                throw std::runtime_error(
+                    "ADAI GPU memory budget exceeded: requested " +
+                    std::to_string(bytes / (1024 * 1024)) + " MB, " +
+                    std::to_string(get_available_memory_bytes() / (1024 * 1024)) +
+                    " MB available of " + std::to_string(max_memory_bytes_ / (1024 * 1024)) +
+                    " MB limit");
+            }
         }
         allocated_bytes_ += bytes;
     }
@@ -174,8 +186,8 @@ class GPUManager {
         unsigned int compute_units = dev.get_info<sycl::info::device::max_compute_units>();
 
         std::string info = "Device " + std::to_string(device) + ": " + name +
-                           "\n  Global Memory: " + std::to_string(global_mem / (1024 * 1024)) + " MB" +
-                           "\n  Compute Units: " + std::to_string(compute_units) +
+                           "\n  Global Memory: " + std::to_string(global_mem / (1024 * 1024)) +
+                           " MB" + "\n  Compute Units: " + std::to_string(compute_units) +
                            "\n  Max Work-Group Size: " + std::to_string(max_wg);
 
         if (initialized_ && device == current_device_) {

@@ -31,6 +31,9 @@ struct DatasetConfig {
     std::string run_id;
     /// HTTP timeout in milliseconds for registry_server calls (default: 5000)
     int registry_timeout_ms = 5000;
+    /// Caller's model identity for assignment-aware acquire() filtering (empty =
+    /// only unassigned entries are eligible; see RegistryTransport::acquire).
+    std::string model_name;
     /// Maximum pending files to acquire per run; 0 = claim all available (default: 0)
     int max_files_per_run = 0;
 
@@ -211,6 +214,14 @@ class DatasetRegistry {
      *         (caller reads files directly by registry_path).
      */
     AcquireResponse acquire_pending(const std::string& run_id, int max_files = 0);
+
+    /**
+     * @brief Allocate the next session number for (@p model_name, @p run_id) —
+     *        e.g. "session-01" the first call for a given run_id, "session-02"
+     *        the next, resetting naturally whenever @p run_id changes (a new
+     *        MNS-allocated run). Thin wrapper over RegistryTransport::next_session.
+     */
+    std::string next_session(const std::string& model_name, const std::string& run_id);
 
     /**
      * @brief Return @p paths claimed by @p run_id back to the unassigned pool.

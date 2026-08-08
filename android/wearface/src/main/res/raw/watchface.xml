@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- adai Training watch face — Watch Face Format (declarative, no code).
+     Layout: amber day/date near the top, large HH:MM:SS time below it, and three
+     RANGED_VALUE gauges (loss, perplexity, battery) below that — replacing the
+     reference face's step-count bar chart, since WFF has no primitive for an
+     arbitrary multi-point polyline (see the Canvas-based :wearface predecessor,
+     removed in favor of this, for that richer but unpushable rendering).
+     Loss/perplexity are fed by the :wearcomplications app's two
+     ComplicationDataSourceServices (populated from the opsdashboard phone relay
+     over the Data Layer); battery uses the system WATCH_BATTERY provider. -->
+<WatchFace width="450" height="450">
+    <Scene backgroundColor="#ff000000">
+
+        <!-- Day/date, e.g. "SUN 6" -->
+        <PartText x="75" y="55" width="300" height="40">
+            <Text align="CENTER">
+                <Font size="26" family="sans-serif-medium" color="#fff2a65a">
+                    <Template>
+                        <![CDATA[%s %s]]>
+                        <Parameter expression="[DAY_OF_WEEK_S]" />
+                        <Parameter expression="[DAY_OF_MONTH]" />
+                    </Template>
+                </Font>
+            </Text>
+        </PartText>
+
+        <!-- Time, HH:MM:SS -->
+        <DigitalClock x="75" y="100" width="300" height="80">
+            <TimeText format="hh:mm:ss" hourFormat="24" align="CENTER"
+                x="0" y="0" width="300" height="80">
+                <Font size="56" family="sans-serif" color="#ffffffff" />
+            </TimeText>
+        </DigitalClock>
+
+        <!-- Loss gauge (left) -->
+        <ComplicationSlot slotId="1" supportedTypes="RANGED_VALUE" x="50" y="215" width="140" height="140">
+            <BoundingOval x="0" y="0" width="140" height="140" />
+            <DefaultProviderPolicy
+                primaryProvider="com.adai.wearcomplications/.LossComplicationDataSourceService"
+                primaryProviderType="RANGED_VALUE"
+                defaultSystemProvider="WATCH_BATTERY"
+                defaultSystemProviderType="RANGED_VALUE" />
+            <Complication type="RANGED_VALUE">
+                <PartDraw x="0" y="0" width="140" height="140">
+                    <Arc centerX="70" centerY="70" width="140" height="140"
+                        startAngle="0" endAngle="0" direction="CLOCKWISE">
+                        <Transform target="endAngle"
+                            value="([COMPLICATION.RANGED_VALUE_VALUE] - [COMPLICATION.RANGED_VALUE_MIN]) / ([COMPLICATION.RANGED_VALUE_MAX] - [COMPLICATION.RANGED_VALUE_MIN]) * 360" />
+                        <Stroke color="#ffe07a5f" thickness="8" cap="ROUND" />
+                    </Arc>
+                </PartDraw>
+                <PartText x="0" y="0" width="140" height="140">
+                    <Text align="CENTER">
+                        <Font size="24" family="sans-serif" color="#ffffffff">
+                            <Template>
+                                <![CDATA[%.1f]]>
+                                <Parameter expression="[COMPLICATION.RANGED_VALUE_VALUE]" />
+                            </Template>
+                        </Font>
+                    </Text>
+                </PartText>
+            </Complication>
+        </ComplicationSlot>
+
+        <!-- Perplexity gauge (right) -->
+        <ComplicationSlot slotId="2" supportedTypes="RANGED_VALUE" x="260" y="215" width="140" height="140">
+            <BoundingOval x="0" y="0" width="140" height="140" />
+            <DefaultProviderPolicy
+                primaryProvider="com.adai.wearcomplications/.PerplexityComplicationDataSourceService"
+                primaryProviderType="RANGED_VALUE"
+                defaultSystemProvider="WATCH_BATTERY"
+                defaultSystemProviderType="RANGED_VALUE" />
+            <Complication type="RANGED_VALUE">
+                <PartDraw x="0" y="0" width="140" height="140">
+                    <Arc centerX="70" centerY="70" width="140" height="140"
+                        startAngle="0" endAngle="0" direction="CLOCKWISE">
+                        <Transform target="endAngle"
+                            value="([COMPLICATION.RANGED_VALUE_VALUE] - [COMPLICATION.RANGED_VALUE_MIN]) / ([COMPLICATION.RANGED_VALUE_MAX] - [COMPLICATION.RANGED_VALUE_MIN]) * 360" />
+                        <Stroke color="#ff81b29a" thickness="8" cap="ROUND" />
+                    </Arc>
+                </PartDraw>
+                <PartText x="0" y="0" width="140" height="140">
+                    <Text align="CENTER">
+                        <Font size="24" family="sans-serif" color="#ffffffff">
+                            <Template>
+                                <![CDATA[%.1f]]>
+                                <Parameter expression="[COMPLICATION.RANGED_VALUE_VALUE]" />
+                            </Template>
+                        </Font>
+                    </Text>
+                </PartText>
+            </Complication>
+        </ComplicationSlot>
+
+        <!-- Battery gauge (bottom center) -->
+        <ComplicationSlot slotId="3" supportedTypes="RANGED_VALUE" x="165" y="355" width="120" height="85">
+            <BoundingOval x="0" y="0" width="120" height="85" />
+            <DefaultProviderPolicy
+                defaultSystemProvider="WATCH_BATTERY"
+                defaultSystemProviderType="RANGED_VALUE" />
+            <Complication type="RANGED_VALUE">
+                <PartDraw x="0" y="0" width="120" height="85">
+                    <Arc centerX="60" centerY="42" width="80" height="80"
+                        startAngle="0" endAngle="0" direction="CLOCKWISE">
+                        <Transform target="endAngle"
+                            value="([COMPLICATION.RANGED_VALUE_VALUE] - [COMPLICATION.RANGED_VALUE_MIN]) / ([COMPLICATION.RANGED_VALUE_MAX] - [COMPLICATION.RANGED_VALUE_MIN]) * 360" />
+                        <Stroke color="#ffffffff" thickness="6" cap="ROUND" />
+                    </Arc>
+                </PartDraw>
+                <PartText x="0" y="0" width="120" height="85">
+                    <Text align="CENTER">
+                        <Font size="20" family="sans-serif" color="#ffffffff">
+                            <Template>
+                                <![CDATA[%.0f%%]]>
+                                <Parameter expression="[COMPLICATION.RANGED_VALUE_VALUE]" />
+                            </Template>
+                        </Font>
+                    </Text>
+                </PartText>
+            </Complication>
+        </ComplicationSlot>
+
+    </Scene>
+</WatchFace>

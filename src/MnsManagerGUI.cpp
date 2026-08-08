@@ -1,15 +1,15 @@
 #include "MnsManagerGUI.hpp"
-#include "MnsJsonHelpers.hpp"
+#include <httplib.h>
 #include <QApplication>
 #include <QMessageBox>
 #include <QScrollBar>
-#include <httplib.h>
 #include <sstream>
+#include "MnsJsonHelpers.hpp"
 
-using mns_gui::json_value;
 using mns_gui::json_array_objects;
 using mns_gui::json_escape;
 using mns_gui::json_pretty;
+using mns_gui::json_value;
 
 // ============================================================================
 // Construction
@@ -42,7 +42,8 @@ std::string MnsManagerGUI::httpGet(const std::string& path) {
     c.set_connection_timeout(5, 0);
     c.set_read_timeout(10, 0);
     auto res = c.Get(path);
-    if (!res) return {};
+    if (!res)
+        return {};
     return res->body;
 }
 
@@ -51,7 +52,8 @@ std::string MnsManagerGUI::httpPost(const std::string& path, const std::string& 
     c.set_connection_timeout(5, 0);
     c.set_read_timeout(10, 0);
     auto res = c.Post(path, body, "application/json");
-    if (!res) return {};
+    if (!res)
+        return {};
     return res->body;
 }
 
@@ -60,7 +62,8 @@ std::string MnsManagerGUI::httpPut(const std::string& path, const std::string& b
     c.set_connection_timeout(5, 0);
     c.set_read_timeout(10, 0);
     auto res = c.Put(path, body, "application/json");
-    if (!res) return {};
+    if (!res)
+        return {};
     return res->body;
 }
 
@@ -69,7 +72,8 @@ std::string MnsManagerGUI::httpDelete(const std::string& path) {
     c.set_connection_timeout(5, 0);
     c.set_read_timeout(10, 0);
     auto res = c.Delete(path);
-    if (!res) return {};
+    if (!res)
+        return {};
     return res->body;
 }
 
@@ -145,17 +149,18 @@ QWidget* MnsManagerGUI::createModelsTab() {
     QHBoxLayout* filterLay = new QHBoxLayout();
     filterLay->addWidget(new QLabel("State:"));
     stateFilter_ = new QComboBox();
-    stateFilter_->addItems({"(all)", "initializing", "training", "candidate", "production", "retired"});
-    connect(stateFilter_, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, [this](int) { onRefreshModels(); });
+    stateFilter_->addItems(
+        {"(all)", "initializing", "training", "candidate", "production", "retired"});
+    connect(stateFilter_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            [this](int) { onRefreshModels(); });
     filterLay->addWidget(stateFilter_);
 
     filterLay->addWidget(new QLabel("Role:"));
     roleFilter_ = new QComboBox();
     roleFilter_->setEditable(true);
     roleFilter_->addItem("(all)");
-    connect(roleFilter_, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, [this](int) { onRefreshModels(); });
+    connect(roleFilter_, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            [this](int) { onRefreshModels(); });
     filterLay->addWidget(roleFilter_);
     filterLay->addStretch();
     lay->addLayout(filterLay);
@@ -357,40 +362,47 @@ void MnsManagerGUI::onRefreshModels() {
     }
 
     auto body = httpGet(path);
-    if (!body.empty()) populateModelsTable(body);
+    if (!body.empty())
+        populateModelsTable(body);
 }
 
 void MnsManagerGUI::onRefreshRoles() {
     auto body = httpGet("/roles");
-    if (!body.empty()) populateRolesTable(body);
+    if (!body.empty())
+        populateRolesTable(body);
 }
 
 void MnsManagerGUI::onModelSelected(int row, int /*col*/) {
     auto item = modelsTable_->item(row, 0);
-    if (!item) return;
+    if (!item)
+        return;
     selectedModel_ = item->text();
 
     // Pre-fill action fields
     actionPromoteModel_->setText(selectedModel_);
     auto roleItem = modelsTable_->item(row, 1);
-    if (roleItem) actionPromoteRole_->setText(roleItem->text());
+    if (roleItem)
+        actionPromoteRole_->setText(roleItem->text());
 
     // Fetch full record
     auto body = httpGet("/models/" + selectedModel_.toStdString());
-    if (!body.empty()) showModelDetail(body);
+    if (!body.empty())
+        showModelDetail(body);
 }
 
 void MnsManagerGUI::onRoleSelected(int row, int /*col*/) {
     auto roleItem = rolesTable_->item(row, 0);
     auto modelItem = rolesTable_->item(row, 1);
-    if (!roleItem) return;
+    if (!roleItem)
+        return;
 
     actionPromoteRole_->setText(roleItem->text());
     if (modelItem && !modelItem->text().isEmpty() && modelItem->text() != "null") {
         selectedModel_ = modelItem->text();
         actionPromoteModel_->setText(selectedModel_);
         auto body = httpGet("/models/" + selectedModel_.toStdString());
-        if (!body.empty()) showModelDetail(body);
+        if (!body.empty())
+            showModelDetail(body);
     }
 }
 
@@ -403,16 +415,12 @@ void MnsManagerGUI::onRegisterModel() {
     }
 
     std::ostringstream body;
-    body << "{\"model_name\":\"" << json_escape(name) << "\""
-         << ",\"role\":\"" << json_escape(role) << "\""
-         << ",\"arch\":{"
-            << "\"d_model\":" << regDModel_->value()
-            << ",\"num_heads\":" << regHeads_->value()
-            << ",\"d_ff\":" << regDff_->value()
-            << ",\"num_encoder_layers\":" << regEncLayers_->value()
-            << ",\"num_decoder_layers\":" << regDecLayers_->value()
-            << ",\"max_seq_length\":" << regMaxSeq_->value()
-         << "}";
+    body << "{\"model_name\":\"" << json_escape(name) << "\"" << ",\"role\":\"" << json_escape(role)
+         << "\"" << ",\"arch\":{" << "\"d_model\":" << regDModel_->value()
+         << ",\"num_heads\":" << regHeads_->value() << ",\"d_ff\":" << regDff_->value()
+         << ",\"num_encoder_layers\":" << regEncLayers_->value()
+         << ",\"num_decoder_layers\":" << regDecLayers_->value()
+         << ",\"max_seq_length\":" << regMaxSeq_->value() << "}";
 
     // Parse tags
     std::string tags_str = regTags_->text().toStdString();
@@ -423,15 +431,21 @@ void MnsManagerGUI::onRegisterModel() {
         bool first = true;
         while (std::getline(ss, tok, ',')) {
             auto eq = tok.find('=');
-            if (eq == std::string::npos) continue;
+            if (eq == std::string::npos)
+                continue;
             std::string k = tok.substr(0, eq);
             std::string v = tok.substr(eq + 1);
             // trim
-            while (!k.empty() && k.front() == ' ') k.erase(k.begin());
-            while (!k.empty() && k.back() == ' ') k.pop_back();
-            while (!v.empty() && v.front() == ' ') v.erase(v.begin());
-            while (!v.empty() && v.back() == ' ') v.pop_back();
-            if (!first) body << ',';
+            while (!k.empty() && k.front() == ' ')
+                k.erase(k.begin());
+            while (!k.empty() && k.back() == ' ')
+                k.pop_back();
+            while (!v.empty() && v.front() == ' ')
+                v.erase(v.begin());
+            while (!v.empty() && v.back() == ' ')
+                v.pop_back();
+            if (!first)
+                body << ',';
             first = false;
             body << '"' << json_escape(k) << "\":\"" << json_escape(v) << '"';
         }
@@ -466,7 +480,10 @@ void MnsManagerGUI::onSetTraining() {
 
     std::string body = "{\"state\":\"training\",\"run_id\":\"" + json_escape(run_id) + "\"}";
     auto resp = httpPut("/models/" + selectedModel_.toStdString() + "/state", body);
-    if (resp.empty()) { setStatusMessage("Connection failed", true); return; }
+    if (resp.empty()) {
+        setStatusMessage("Connection failed", true);
+        return;
+    }
     if (resp.find("\"error\"") != std::string::npos) {
         QMessageBox::warning(this, "State Transition Failed", QString::fromStdString(resp));
     } else {
@@ -495,7 +512,10 @@ void MnsManagerGUI::onSetCandidate() {
     body << "}";
 
     auto resp = httpPut("/models/" + selectedModel_.toStdString() + "/state", body.str());
-    if (resp.empty()) { setStatusMessage("Connection failed", true); return; }
+    if (resp.empty()) {
+        setStatusMessage("Connection failed", true);
+        return;
+    }
     if (resp.find("\"error\"") != std::string::npos) {
         QMessageBox::warning(this, "State Transition Failed", QString::fromStdString(resp));
     } else {
@@ -515,11 +535,15 @@ void MnsManagerGUI::onPromote() {
 
     std::string body = "{\"model_name\":\"" + json_escape(model) + "\"}";
     auto resp = httpPut("/roles/" + role + "/production", body);
-    if (resp.empty()) { setStatusMessage("Connection failed", true); return; }
+    if (resp.empty()) {
+        setStatusMessage("Connection failed", true);
+        return;
+    }
     if (resp.find("\"error\"") != std::string::npos) {
         QMessageBox::warning(this, "Promotion Failed", QString::fromStdString(resp));
     } else {
-        setStatusMessage(QString::fromStdString(model) + " promoted to " + QString::fromStdString(role));
+        setStatusMessage(QString::fromStdString(model) + " promoted to " +
+                         QString::fromStdString(role));
         onRefreshModels();
         onRefreshRoles();
     }
@@ -530,13 +554,18 @@ void MnsManagerGUI::onRetire() {
         QMessageBox::warning(this, "No Model Selected", "Select a model from the list first.");
         return;
     }
-    auto answer = QMessageBox::question(this, "Confirm Retire",
+    auto answer = QMessageBox::question(
+        this, "Confirm Retire",
         "Retire model \"" + selectedModel_ + "\"?\nThis cannot be undone without re-promoting.");
-    if (answer != QMessageBox::Yes) return;
+    if (answer != QMessageBox::Yes)
+        return;
 
     std::string body = "{\"state\":\"retired\"}";
     auto resp = httpPut("/models/" + selectedModel_.toStdString() + "/state", body);
-    if (resp.empty()) { setStatusMessage("Connection failed", true); return; }
+    if (resp.empty()) {
+        setStatusMessage("Connection failed", true);
+        return;
+    }
     if (resp.find("\"error\"") != std::string::npos) {
         QMessageBox::warning(this, "Retire Failed", QString::fromStdString(resp));
     } else {
@@ -553,13 +582,18 @@ void MnsManagerGUI::onDelete() {
         return;
     }
     auto answer = QMessageBox::question(this, "Confirm Delete",
-        "Permanently delete model \"" + selectedModel_ + "\"?\n"
-        "Only allowed for initializing or retired models.\n"
-        "Weight files are NOT deleted from disk.");
-    if (answer != QMessageBox::Yes) return;
+                                        "Permanently delete model \"" + selectedModel_ +
+                                            "\"?\n"
+                                            "Only allowed for initializing or retired models.\n"
+                                            "Weight files are NOT deleted from disk.");
+    if (answer != QMessageBox::Yes)
+        return;
 
     auto resp = httpDelete("/models/" + selectedModel_.toStdString());
-    if (resp.empty()) { setStatusMessage("Connection failed", true); return; }
+    if (resp.empty()) {
+        setStatusMessage("Connection failed", true);
+        return;
+    }
     if (resp.find("\"error\"") != std::string::npos) {
         QMessageBox::warning(this, "Delete Failed", QString::fromStdString(resp));
     } else {
@@ -581,21 +615,29 @@ void MnsManagerGUI::populateModelsTable(const std::string& json) {
 
     for (int i = 0; i < static_cast<int>(objects.size()); ++i) {
         const auto& obj = objects[i];
-        modelsTable_->setItem(i, 0, new QTableWidgetItem(QString::fromStdString(json_value(obj, "model_name"))));
-        modelsTable_->setItem(i, 1, new QTableWidgetItem(QString::fromStdString(json_value(obj, "role"))));
+        modelsTable_->setItem(
+            i, 0, new QTableWidgetItem(QString::fromStdString(json_value(obj, "model_name"))));
+        modelsTable_->setItem(
+            i, 1, new QTableWidgetItem(QString::fromStdString(json_value(obj, "role"))));
 
         auto stateItem = new QTableWidgetItem(QString::fromStdString(json_value(obj, "state")));
         std::string state = json_value(obj, "state");
-        if (state == "production")   stateItem->setForeground(QColor("#2e7d32"));
-        else if (state == "training") stateItem->setForeground(QColor("#1565c0"));
-        else if (state == "candidate") stateItem->setForeground(QColor("#e65100"));
-        else if (state == "retired")  stateItem->setForeground(QColor("#9e9e9e"));
+        if (state == "production")
+            stateItem->setForeground(QColor("#2e7d32"));
+        else if (state == "training")
+            stateItem->setForeground(QColor("#1565c0"));
+        else if (state == "candidate")
+            stateItem->setForeground(QColor("#e65100"));
+        else if (state == "retired")
+            stateItem->setForeground(QColor("#9e9e9e"));
         modelsTable_->setItem(i, 2, stateItem);
 
         std::string id = json_value(obj, "model_id");
-        if (id.size() > 8) id = id.substr(0, 8) + "...";
+        if (id.size() > 8)
+            id = id.substr(0, 8) + "...";
         modelsTable_->setItem(i, 3, new QTableWidgetItem(QString::fromStdString(id)));
-        modelsTable_->setItem(i, 4, new QTableWidgetItem(QString::fromStdString(json_value(obj, "updated_utc"))));
+        modelsTable_->setItem(
+            i, 4, new QTableWidgetItem(QString::fromStdString(json_value(obj, "updated_utc"))));
     }
 }
 
@@ -605,9 +647,11 @@ void MnsManagerGUI::populateRolesTable(const std::string& json) {
 
     for (int i = 0; i < static_cast<int>(objects.size()); ++i) {
         const auto& obj = objects[i];
-        rolesTable_->setItem(i, 0, new QTableWidgetItem(QString::fromStdString(json_value(obj, "role"))));
+        rolesTable_->setItem(i, 0,
+                             new QTableWidgetItem(QString::fromStdString(json_value(obj, "role"))));
         std::string prod = json_value(obj, "production_model");
-        if (prod.empty()) prod = "(none)";
+        if (prod.empty())
+            prod = "(none)";
         rolesTable_->setItem(i, 1, new QTableWidgetItem(QString::fromStdString(prod)));
     }
 }

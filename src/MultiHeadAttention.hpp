@@ -46,6 +46,16 @@
 /// attention weight matrix [seq_len × seq_len].
 using AttentionHookFn = std::function<void(const Matrix&)>;
 
+#ifdef ADAI_ENABLE_GPU
+/**
+ * Callback invoked immediately after softmax in every gpu_forward() call. GPU-resident
+ * data doesn't fit the raw-matrix hook contract above, so this receives the
+ * already-reduced average-row-entropy scalar instead (computed on-device via
+ * GPUMatrix::row_entropy_avg()).
+ */
+using GPUAttentionStatsHookFn = std::function<void(float)>;
+#endif
+
 class MultiHeadAttention {
    private:
     // Model dimensions
@@ -80,6 +90,11 @@ class MultiHeadAttention {
 
     // Attention hook (for entropy tracking, TD-013)
     AttentionHookFn attention_hook_;
+
+#ifdef ADAI_ENABLE_GPU
+    // GPU-path equivalent, fired after softmax in gpu_forward() (see GPUAttentionStatsHookFn).
+    GPUAttentionStatsHookFn gpu_attention_stats_hook_;
+#endif
 
     // Helper function for scaled dot-product attention
     /**
@@ -275,6 +290,21 @@ class MultiHeadAttention {
         attention_hook_ = nullptr;
     }
 
+#ifdef ADAI_ENABLE_GPU
+    /**
+     * Register a callback fired after softmax in every gpu_forward() call.
+     * The callback receives the average per-row Shannon entropy of the
+     * attention weights. Pass nullptr / call clear_gpu_attention_stats_hook() to disable.
+     */
+    void set_gpu_attention_stats_hook(GPUAttentionStatsHookFn fn) {
+        gpu_attention_stats_hook_ = std::move(fn);
+    }
+
+    void clear_gpu_attention_stats_hook() {
+        gpu_attention_stats_hook_ = nullptr;
+    }
+#endif
+
     /**
      * Print configuration
      *
@@ -344,18 +374,28 @@ class MultiHeadAttention {
         // Gradient accumulators
         adai::gpu::GPUMatrix dWq, dWk, dWv, dWo;
         // Cached for backward
-        adai::gpu::GPUMatrix cached_input;    // [seq, d_model]
-        adai::gpu::GPUMatrix cached_Q;        // [seq, d_model]
-        adai::gpu::GPUMatrix cached_K;        // [seq, d_model]
-        adai::gpu::GPUMatrix cached_V;        // [seq, d_model]
-        adai::gpu::GPUMatrix cached_weights;  // softmax output [seq, seq]
-        adai::gpu::GPUMatrix cached_attn_out; // [seq, d_model]
+        adai::gpu::GPUMatrix cached_input;     // [seq, d_model]
+        adai::gpu::GPUMatrix cached_Q;         // [seq, d_model]
+        adai::gpu::GPUMatrix cached_K;         // [seq, d_model]
+        adai::gpu::GPUMatrix cached_V;         // [seq, d_model]
+        adai::gpu::GPUMatrix cached_weights;   // softmax output [seq, seq]
+        adai::gpu::GPUMatrix cached_attn_out;  // [seq, d_model]
 
         explicit GPUState(int d)
-            : Wq(d, d), Wk(d, d), Wv(d, d), Wo(d, d),
-              dWq(d, d), dWk(d, d), dWv(d, d), dWo(d, d),
-              cached_input(1, 1), cached_Q(1, 1), cached_K(1, 1), cached_V(1, 1),
-              cached_weights(1, 1), cached_attn_out(1, 1) {}
+            : Wq(d, d),
+              Wk(d, d),
+              Wv(d, d),
+              Wo(d, d),
+              dWq(d, d),
+              dWk(d, d),
+              dWv(d, d),
+              dWo(d, d),
+              cached_input(1, 1),
+              cached_Q(1, 1),
+              cached_K(1, 1),
+              cached_V(1, 1),
+              cached_weights(1, 1),
+              cached_attn_out(1, 1) {}
     };
     std::unique_ptr<GPUState> gpu_;
 
@@ -363,7 +403,7 @@ class MultiHeadAttention {
     void gpu_download_grads();
     void gpu_zero_grads();
     adai::gpu::GPUMatrix gpu_forward(const adai::gpu::GPUMatrix& input,
-                                      const adai::gpu::GPUMatrix* mask = nullptr);
+                                     const adai::gpu::GPUMatrix* mask = nullptr);
     adai::gpu::GPUMatrix gpu_backward(const adai::gpu::GPUMatrix& dout);
 #endif
 };

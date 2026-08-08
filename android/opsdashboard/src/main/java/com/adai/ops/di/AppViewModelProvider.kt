@@ -4,6 +4,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.adai.ops.OpsApp
 import com.adai.ops.settings.SettingsViewModel
+import com.adai.ops.ui.admin.AdminViewModel
 import com.adai.ops.ui.metrics.SessionDetailViewModel
 import com.adai.ops.ui.metrics.SessionListViewModel
 import com.adai.ops.ui.models.ModelDetailViewModel
@@ -42,6 +43,12 @@ object AppViewModelProvider {
     fun groupDetailFactory(app: OpsApp, group: String) = viewModelFactory {
         initializer {
             GroupDetailViewModel(group, app.container.registryRepository, app.container.modelRepository)
+        }
+    }
+
+    fun adminFactory(app: OpsApp) = viewModelFactory {
+        initializer {
+            AdminViewModel(app.container.modelRepository, app.container.registryRepository, app.container.metricsRepository)
         }
     }
 }

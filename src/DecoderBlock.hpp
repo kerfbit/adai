@@ -22,30 +22,27 @@
  * and position-wise feed-forward networks with residual connections
  * and layer normalization.
  *
- * Architecture:
+ * Architecture (Pre-LN — normalization happens before each sublayer, not
+ * after; the residual stream itself is never normalized inside the block,
+ * which is why LLMDecoder applies a final LayerNorm once after the last
+ * block. This placement is more stable for deep stacks than Post-LN):
  *   Input
  *     ↓
- *   Masked Self-Attention (causal)
+ *   Norm -> Masked Self-Attention (causal) -> Add (residual)
  *     ↓
- *   Add & Norm (residual + layer norm)
+ *   Norm -> Cross-Attention (to encoder output) -> Add (residual)
  *     ↓
- *   Cross-Attention (to encoder output)
+ *   Norm -> Feed-Forward Network -> Add (residual)
  *     ↓
- *   Add & Norm (residual + layer norm)
- *     ↓
- *   Feed-Forward Network
- *     ↓
- *   Add & Norm (residual + layer norm)
- *     ↓
- *   Output
+ *   Output (unnormalized)
  *
  * Mathematical Operations:
- *   self_attn_output = MultiHeadAttention(input, input, input, causal_mask)
- *   residual1 = LayerNorm(input + self_attn_output)
- *   cross_attn_output = MultiHeadAttention(residual1, encoder, encoder, mask)
- *   residual2 = LayerNorm(residual1 + cross_attn_output)
- *   ff_output = FeedForward(residual2)
- *   output = LayerNorm(residual2 + ff_output)
+ *   self_attn_output = MultiHeadAttention(LayerNorm(input), causal_mask)
+ *   residual1 = input + self_attn_output
+ *   cross_attn_output = CrossAttention(LayerNorm(residual1), encoder, mask)
+ *   residual2 = residual1 + cross_attn_output
+ *   ff_output = FeedForward(LayerNorm(residual2))
+ *   output = residual2 + ff_output
  *
  * Features:
  *   - Causal self-attention (prevents attending to future)
@@ -172,15 +169,15 @@ class DecoderBlock {
      *
      * Computes gradients for all parameters and returns gradient w.r.t. input.
      * Gradients flow through:
-     *   1. Third layer norm (backward)
-     *   2. Third residual connection (split gradient)
-     *   3. Feed-forward network (backward)
-     *   4. Second layer norm (backward)
-     *   5. Second residual connection (split gradient)
-     *   6. Cross-attention (backward)
-     *   7. First layer norm (backward)
-     *   8. First residual connection (split gradient)
-     *   9. Self-attention (backward)
+     *   1. Third residual connection (split gradient)
+     *   2. Feed-forward network (backward)
+     *   3. Third layer norm (backward)
+     *   4. Second residual connection (split gradient)
+     *   5. Cross-attention (backward)
+     *   6. Second layer norm (backward)
+     *   7. First residual connection (split gradient)
+     *   8. Self-attention (backward)
+     *   9. First layer norm (backward)
      *
      * @param grad_output Gradient from next layer [seq_len, d_model]
      * @param grad_encoder_output Out-param: gradient w.r.t. this block's cross-attention
@@ -205,6 +202,16 @@ class DecoderBlock {
      * Clears gradients in all sub-components
      */
     void zero_grad();
+
+    /**
+     * Compute the L2 norm of accumulated gradients across self-attention,
+     * cross-attention, and feed-forward sub-components (combined in
+     * quadrature). LayerNorm gradients are omitted, matching
+     * EncoderBlock::get_gradient_norm()'s approximation.
+     *
+     * @return sqrt(sum of squared per-component gradient norms)
+     */
+    float get_gradient_norm() const;
 
     /**
      * Set learning rate for all sub-components
@@ -240,8 +247,8 @@ class DecoderBlock {
     void gpu_zero_grads();
     // encoder_out: cached GPU encoder output [src_len, d_model]
     adai::gpu::GPUMatrix gpu_forward(const adai::gpu::GPUMatrix& input,
-                                      const adai::gpu::GPUMatrix& encoder_out,
-                                      const adai::gpu::GPUMatrix* self_mask = nullptr);
+                                     const adai::gpu::GPUMatrix& encoder_out,
+                                     const adai::gpu::GPUMatrix* self_mask = nullptr);
     // Returns {grad_input, grad_encoder_output} — gradient w.r.t. decoder input,
     // and gradient w.r.t. this block's cross-attention encoder input.
     std::pair<adai::gpu::GPUMatrix, adai::gpu::GPUMatrix> gpu_backward(

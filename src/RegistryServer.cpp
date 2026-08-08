@@ -57,6 +57,8 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "Config.hpp"
+#include "DaemonConfigStore.hpp"
 #include "DataFetcher.hpp"
 #include "FtpDataServer.hpp"
 #include "Logger.hpp"
@@ -112,14 +114,30 @@ static bool ftp_enabled = false;
 static int ftp_port = 2121;
 static int ftp_pasv_min = 50000;
 static int ftp_pasv_max = 50099;
-static int ftp_token_ttl_min = 30;
+// Admin-mutable (PUT /admin/config): read fresh per-acquire by handle_acquire,
+// not baked into FtpDataServer at construction, so atomic is enough to make
+// live mutation safe — no restart required. Contrast with ftp_max_sessions
+// below, which FtpDataServer only reads once, in its constructor.
+static std::atomic<int> ftp_token_ttl_min{30};
 static std::string ftp_advertise_ip;  // set from --ftp-ip; falls back to empty
 // Phase 3: security hardening options
 static std::string ftp_server_secret;  // HMAC key (empty = random passwords)
 static bool ftps_enabled = false;      // FTPS (explicit TLS via AUTH TLS)
 static std::string ftp_cert_file;      // PEM cert (empty = self-signed)
 static std::string ftp_key_file;       // PEM key  (empty = self-signed)
-static int ftp_max_sessions = 4;       // max concurrent sessions per run_id
+// Baked into FtpDataServer at construction (see main()) — PUT /admin/config
+// can still record a new value for the *next* restart, but it won't take
+// effect on the running FtpDataServer instance.
+static int ftp_max_sessions = 4;
+
+static bool admin_enabled = true;
+static std::unique_ptr<adai::DaemonConfigStore> g_config_store;
+
+// Session-number counter (Phase 3 run/session numbering): keyed by
+// "model_name|run_id" -> current count, persisted separately from
+// daemon_config.db since it's business data, not an admin setting.
+static std::unique_ptr<adai::DaemonConfigStore> g_session_store;
+static std::mutex g_session_store_mtx;
 
 // ============================================================================
 // Minimal JSON helpers
@@ -187,6 +205,11 @@ static bool json_bool(const std::string& body, const std::string& key, bool def 
         return def;
     const auto start = pos + needle.size();
     return body.compare(start, 4, "true") == 0;
+}
+
+// Presence check — distinguishes "key not sent" from "sent with its zero/default value".
+static bool json_has_key(const std::string& body, const std::string& key) {
+    return body.find("\"" + key + "\"") != std::string::npos;
 }
 
 static std::vector<std::string> json_string_array(const std::string& body, const std::string& key) {
@@ -339,6 +362,7 @@ static void handle_queue(const httplib::Request& req, httplib::Response& res,
 static void handle_acquire(const httplib::Request& req, httplib::Response& res,
                            const std::string& group) {
     const std::string run_id = json_string(req.body, "run_id");
+    const std::string model_name = json_string(req.body, "model_name");
     const int max_files = json_int(req.body, "max_files", 0);
 
     if (run_id.empty()) {
@@ -353,10 +377,17 @@ static void handle_acquire(const httplib::Request& req, httplib::Response& res,
     std::vector<PendingEntry> entries;
     gs.transport->load_pending(entries);
 
+    // Assignment-aware: an entry is claimable iff unassigned or assigned to
+    // this exact model_name — never another model's assigned entry. See
+    // RegistryTransport::acquire's doc comment (same rule, LocalTransport side).
+    const auto eligible = [&model_name](const PendingEntry& e) {
+        return e.model_name.empty() || e.model_name == model_name;
+    };
+
     const int limit = (max_files > 0) ? max_files : static_cast<int>(entries.size());
     std::vector<std::string> acquired;
     for (auto& e : entries) {
-        if (e.run_id.empty() && static_cast<int>(acquired.size()) < limit) {
+        if (e.run_id.empty() && eligible(e) && static_cast<int>(acquired.size()) < limit) {
             e.run_id = run_id;
             acquired.push_back(e.path);
         }
@@ -1251,6 +1282,129 @@ static void handle_upload(const httplib::Request& req, httplib::Response& res,
 }
 
 // ============================================================================
+// Admin config (GET/PUT /admin/config) — see CLAUDE.md "Daemon admin config API"
+// ============================================================================
+
+static std::string admin_config_json() {
+    std::ostringstream j;
+    j << "{\"ftp_token_ttl_minutes\":" << ftp_token_ttl_min.load()
+      << ",\"ftp_max_sessions_per_run\":" << ftp_max_sessions
+      << ",\"admin_enabled\":" << (admin_enabled ? "true" : "false") << "}";
+    return j.str();
+}
+
+static void handle_admin_get_config(const httplib::Request&, httplib::Response& res) {
+    res.set_content(admin_config_json(), "application/json");
+}
+
+static void handle_admin_put_config(const httplib::Request& req, httplib::Response& res) {
+    if (!admin_enabled) {
+        res.status = 403;
+        res.set_content("{\"error\":\"admin config mutation disabled (--admin-enabled=false)\"}",
+                        "application/json");
+        return;
+    }
+
+    static const char* kImmutableKeys[] = {
+        "port",         "data_dir",   "ftp_server_port", "ftp_pasv_port_min",
+        "ftp_pasv_port_max", "ftps_enabled", "ftp_cert_file",    "ftp_key_file"};
+    for (const auto* key : kImmutableKeys) {
+        if (json_has_key(req.body, key)) {
+            res.status = 400;
+            res.set_content(std::string("{\"error\":\"'") + key +
+                                "' is immutable at runtime; set it via config.registry.conf or "
+                                "the matching --flag and restart\"}",
+                            "application/json");
+            return;
+        }
+    }
+
+    bool changed = false;
+
+    if (json_has_key(req.body, "ftp_token_ttl_minutes")) {
+        ftp_token_ttl_min.store(json_int(req.body, "ftp_token_ttl_minutes", ftp_token_ttl_min));
+        changed = true;
+    }
+    // ftp_max_sessions_per_run is recorded for next restart but does not affect
+    // the already-constructed FtpDataServer instance — see the comment on
+    // ftp_max_sessions's declaration.
+    bool max_sessions_applied_live = true;
+    if (json_has_key(req.body, "ftp_max_sessions_per_run")) {
+        ftp_max_sessions = json_int(req.body, "ftp_max_sessions_per_run", ftp_max_sessions);
+        max_sessions_applied_live = !ftp_enabled;  // only "live" if there's no running instance
+        changed = true;
+    }
+
+    if (!changed) {
+        res.status = 400;
+        res.set_content(
+            "{\"error\":\"no recognized mutable keys in body (ftp_token_ttl_minutes, "
+            "ftp_max_sessions_per_run)\"}",
+            "application/json");
+        return;
+    }
+
+    if (g_config_store) {
+        g_config_store->set("ftp_token_ttl_minutes", std::to_string(ftp_token_ttl_min.load()));
+        g_config_store->set("ftp_max_sessions_per_run", std::to_string(ftp_max_sessions));
+    }
+    Logger::info("registry_server: admin config updated (ftp_token_ttl_minutes={}, "
+                "ftp_max_sessions_per_run={})",
+                ftp_token_ttl_min.load(), ftp_max_sessions);
+
+    std::ostringstream j;
+    j << "{\"ftp_token_ttl_minutes\":" << ftp_token_ttl_min.load()
+      << ",\"ftp_max_sessions_per_run\":" << ftp_max_sessions
+      << ",\"admin_enabled\":" << (admin_enabled ? "true" : "false")
+      << ",\"ftp_max_sessions_per_run_applied\":" << (max_sessions_applied_live ? "true" : "false")
+      << "}";
+    res.set_content(j.str(), "application/json");
+}
+
+// ============================================================================
+// Handler: POST /registry/<group>/session/next  {"model_name":..., "run_id":...}
+//
+// Allocates the next session number for (model_name, run_id) — "session-01"
+// the first call for a given run_id, "session-02" the next, and so on. A
+// run_id never seen before naturally starts at 1, so a new MNS-allocated run
+// (see CLAUDE.md "Configuration") resets the session counter for free, with
+// no explicit reset signal needed. Group-agnostic: shared across all groups
+// on this daemon since (model_name, run_id) is already globally unique.
+// ============================================================================
+
+static void handle_session_next(const httplib::Request& req, httplib::Response& res,
+                                const std::string& /*group*/) {
+    const std::string model_name = json_string(req.body, "model_name");
+    const std::string run_id = json_string(req.body, "run_id");
+    if (run_id.empty()) {
+        res.status = 400;
+        res.set_content("{\"error\":\"run_id required\"}", "application/json");
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(g_session_store_mtx);
+    if (!g_session_store) {
+        res.status = 503;
+        res.set_content("{\"error\":\"session_counters.db unavailable\"}", "application/json");
+        return;
+    }
+
+    const std::string key = model_name + "|" + run_id;
+    int next = 1;
+    if (const auto all = g_session_store->load_all(); all.count(key)) {
+        try {
+            next = std::stoi(all.at(key)) + 1;
+        } catch (...) {
+        }
+    }
+    g_session_store->set(key, std::to_string(next));
+
+    const std::string session_str = std::to_string(next);
+    const std::string padded = session_str.size() < 2 ? "0" + session_str : session_str;
+    res.set_content("{\"session_id\":\"session-" + padded + "\"}", "application/json");
+}
+
+// ============================================================================
 // Usage / main
 // ============================================================================
 
@@ -1259,6 +1413,8 @@ static void print_usage(const char* prog) {
         << "ADAI Registry Server — distributed dataset queue coordination\n"
         << "Usage: " << prog << " [OPTIONS]\n\n"
         << "Options:\n"
+        << "  --config PATH         Path to config.registry.conf (default: "
+           "./config.registry.conf or /etc/adai/config.registry.conf)\n"
         << "  --port PORT           Listening port (default: 8082)\n"
         << "  --data-dir DIR        Root directory for group state (default: registry_sessions)\n"
         << "  --ftp-enabled         Enable embedded FTP data server (Phase 10)\n"
@@ -1272,10 +1428,13 @@ static void print_usage(const char* prog) {
         << "  --ftp-cert FILE       PEM certificate file for FTPS (default: self-signed)\n"
         << "  --ftp-key FILE        PEM private key file for FTPS (default: self-signed)\n"
         << "  --ftp-max-sessions N  Max concurrent FTP sessions per run_id (default: 4)\n"
+        << "  --admin-enabled BOOL  Allow PUT /admin/config to mutate settings (default: true)\n"
         << "  --help                Show this message\n\n"
         << "Endpoints per group:\n"
         << "  GET  /registry/<group>/queue\n"
-        << "  POST /registry/<group>/acquire  {\"run_id\":\"...\",\"max_files\":N}\n"
+        << "  POST /registry/<group>/acquire  "
+           "{\"run_id\":\"...\",\"max_files\":N,\"model_name\":\"...\"}\n"
+        << "  POST /registry/<group>/session/next {\"model_name\":\"...\",\"run_id\":\"...\"}\n"
         << "  POST /registry/<group>/release  {\"run_id\":\"...\",\"files\":[...]}\n"
         << "  POST /registry/<group>/assign   "
            "{\"model_name\":\"...\",\"paths\":[...],\"count\":N}\n"
@@ -1293,18 +1452,31 @@ static void print_usage(const char* prog) {
         << "  POST /registry/<group>/fetch/huggingface "
            "{\"dataset_id\":\"...\",\"num_pairs\":N,\"split\":\"...\"}\n"
         << "  POST /registry/<group>/upload?filename=<name>  (raw body = file bytes)\n"
+        << "  GET  /admin/config\n"
+        << "  PUT  /admin/config\n"
         << "  GET  /health\n";
 }
 
 int main(int argc, char* argv[]) {
-    int port = 8082;
+    // Single pass: collect raw CLI values without applying any precedence yet.
+    // Precedence (config.registry.conf < persisted admin overrides < this run's
+    // CLI flags) is resolved explicitly below — see CLAUDE.md "Daemon admin
+    // config API".
+    std::optional<std::string> cli_config_path;
+    std::optional<int> cli_port;
+    std::optional<std::string> cli_data_dir;
+    std::optional<int> cli_ftp_ttl;
+    std::optional<int> cli_ftp_max_sessions;
+    std::optional<bool> cli_admin_enabled;
 
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
-        if ((arg == "--port" || arg == "-p") && i + 1 < argc) {
-            port = std::stoi(argv[++i]);
+        if (arg == "--config" && i + 1 < argc) {
+            cli_config_path = argv[++i];
+        } else if ((arg == "--port" || arg == "-p") && i + 1 < argc) {
+            cli_port = std::stoi(argv[++i]);
         } else if (arg == "--data-dir" && i + 1 < argc) {
-            data_dir = argv[++i];
+            cli_data_dir = argv[++i];
         } else if (arg == "--ftp-enabled") {
             ftp_enabled = true;
         } else if (arg == "--ftp-port" && i + 1 < argc) {
@@ -1316,7 +1488,7 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--ftp-pasv-max" && i + 1 < argc) {
             ftp_pasv_max = std::stoi(argv[++i]);
         } else if (arg == "--ftp-ttl" && i + 1 < argc) {
-            ftp_token_ttl_min = std::stoi(argv[++i]);
+            cli_ftp_ttl = std::stoi(argv[++i]);
         } else if (arg == "--ftp-secret" && i + 1 < argc) {
             ftp_server_secret = argv[++i];
         } else if (arg == "--ftps") {
@@ -1326,12 +1498,71 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--ftp-key" && i + 1 < argc) {
             ftp_key_file = argv[++i];
         } else if (arg == "--ftp-max-sessions" && i + 1 < argc) {
-            ftp_max_sessions = std::stoi(argv[++i]);
+            cli_ftp_max_sessions = std::stoi(argv[++i]);
+        } else if (arg == "--admin-enabled" && i + 1 < argc) {
+            std::string v = argv[++i];
+            for (auto& c : v)
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            cli_admin_enabled = (v == "true" || v == "1" || v == "yes" || v == "on");
         } else if (arg == "--help" || arg == "-h") {
             print_usage(argv[0]);
             return 0;
         }
     }
+
+    const std::string config_path = adai::ConfigLoader::discover_config_path(
+        cli_config_path.value_or(""), "config.registry.conf");
+    adai::ServiceConfig file_config = adai::ConfigLoader::load(config_path);
+
+    int port = cli_port.value_or(file_config.registry_listen_port);
+    data_dir = cli_data_dir.value_or(file_config.registry_data_dir);
+    // ftp_server_port/pasv range/cert/key/ftps_enabled intentionally keep their
+    // CLI-only defaults above — they're immutable-at-runtime listener settings
+    // (see kImmutableKeys in handle_admin_put_config) and not worth threading
+    // through the file for the same reason port/data_dir aren't either. Only
+    // the two admin-mutable FTP settings get the full file/DB/CLI treatment:
+    int ftp_ttl_value = file_config.ftp_token_ttl_minutes;
+    ftp_max_sessions = file_config.ftp_max_sessions_per_run;
+
+    // Overlay persisted admin overrides on top of the file defaults.
+    try {
+        fs::create_directories(data_dir);
+        g_config_store = std::make_unique<adai::DaemonConfigStore>(data_dir + "/daemon_config.db");
+        const auto overrides = g_config_store->load_all();
+        if (auto it = overrides.find("ftp_token_ttl_minutes"); it != overrides.end()) {
+            try {
+                ftp_ttl_value = std::stoi(it->second);
+            } catch (...) {
+            }
+        }
+        if (auto it = overrides.find("ftp_max_sessions_per_run"); it != overrides.end()) {
+            try {
+                ftp_max_sessions = std::stoi(it->second);
+            } catch (...) {
+            }
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Warning: daemon_config.db unavailable (" << e.what()
+                  << "); admin config changes won't persist across restarts\n";
+    }
+
+    try {
+        std::lock_guard<std::mutex> lock(g_session_store_mtx);
+        g_session_store =
+            std::make_unique<adai::DaemonConfigStore>(data_dir + "/session_counters.db");
+    } catch (const std::exception& e) {
+        std::cerr << "Warning: session_counters.db unavailable (" << e.what()
+                  << "); POST /registry/<group>/session/next will fail\n";
+    }
+
+    // This run's explicit CLI flags win over everything, including persisted
+    // admin overrides.
+    if (cli_ftp_ttl)
+        ftp_ttl_value = *cli_ftp_ttl;
+    if (cli_ftp_max_sessions)
+        ftp_max_sessions = *cli_ftp_max_sessions;
+    ftp_token_ttl_min.store(ftp_ttl_value);
+    admin_enabled = cli_admin_enabled.value_or(true);
 
     Logger::init(Logger::Level::INFO, "registry_server");
 
@@ -1356,6 +1587,10 @@ int main(int argc, char* argv[]) {
     svr.Post(R"(/registry/([^/]+)/acquire)", [](const httplib::Request& r, httplib::Response& res) {
         handle_acquire(r, res, r.matches[1]);
     });
+    svr.Post(R"(/registry/([^/]+)/session/next)",
+             [](const httplib::Request& r, httplib::Response& res) {
+                 handle_session_next(r, res, r.matches[1]);
+             });
     svr.Post(R"(/registry/([^/]+)/release)", [](const httplib::Request& r, httplib::Response& res) {
         handle_release(r, res, r.matches[1]);
     });
@@ -1396,6 +1631,9 @@ int main(int argc, char* argv[]) {
     svr.Post(R"(/registry/([^/]+)/upload)", [](const httplib::Request& r, httplib::Response& res) {
         handle_upload(r, res, r.matches[1]);
     });
+    svr.Get("/admin/config", handle_admin_get_config);
+    svr.Put("/admin/config", handle_admin_put_config);
+
     svr.Get("/health", [](const httplib::Request&, httplib::Response& res) {
         res.set_content("{\"status\":\"ok\"}", "application/json");
     });

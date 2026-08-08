@@ -18,24 +18,23 @@
  * combining multi-head self-attention and position-wise feed-forward
  * networks with residual connections and layer normalization.
  *
- * Architecture:
+ * Architecture (Pre-LN — normalization happens before each sublayer, not
+ * after; the residual stream itself is never normalized inside the block,
+ * which is why LLMEncoder applies a final LayerNorm once after the last
+ * block. This placement is more stable for deep stacks than Post-LN):
  *   Input
  *     ↓
- *   Multi-Head Attention
+ *   Norm -> Multi-Head Attention -> Add (residual)
  *     ↓
- *   Add & Norm (residual + layer norm)
+ *   Norm -> Feed-Forward Network -> Add (residual)
  *     ↓
- *   Feed-Forward Network
- *     ↓
- *   Add & Norm (residual + layer norm)
- *     ↓
- *   Output
+ *   Output (unnormalized)
  *
  * Mathematical Operations:
- *   attn_output = MultiHeadAttention(input, input, input, mask)
- *   residual1 = LayerNorm(input + attn_output)
- *   ff_output = FeedForward(residual1)
- *   output = LayerNorm(residual1 + ff_output)
+ *   attn_output = MultiHeadAttention(LayerNorm(input), mask)
+ *   residual1 = input + attn_output
+ *   ff_output = FeedForward(LayerNorm(residual1))
+ *   output = residual1 + ff_output
  *
  * Features:
  *   - Self-attention mechanism for capturing dependencies
@@ -258,7 +257,7 @@ class EncoderBlock {
     void gpu_download_grads();
     void gpu_zero_grads();
     adai::gpu::GPUMatrix gpu_forward(const adai::gpu::GPUMatrix& input,
-                                      const adai::gpu::GPUMatrix* mask = nullptr);
+                                     const adai::gpu::GPUMatrix* mask = nullptr);
     adai::gpu::GPUMatrix gpu_backward(const adai::gpu::GPUMatrix& dout);
 #endif
 };

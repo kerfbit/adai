@@ -10,6 +10,7 @@ import com.adai.ops.network.dto.FetchHuggingfaceRequestDto
 import com.adai.ops.network.dto.FetchResponseDto
 import com.adai.ops.network.dto.HistoryResponseDto
 import com.adai.ops.network.dto.QueueResponseDto
+import com.adai.ops.network.dto.RegistryAdminConfigDto
 import com.adai.ops.network.dto.RegistryResponseDto
 import com.adai.ops.network.dto.ReleaseRequestDto
 import com.adai.ops.network.dto.ReleaseResponseDto
@@ -18,6 +19,8 @@ import com.adai.ops.network.safeApiCall
 import com.adai.ops.network.safeResponseCall
 import com.adai.ops.settings.OpsSettingsRepository
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * Client for registry_server. [forceRelease] is the original admin action exposed
@@ -89,4 +92,22 @@ class RegistryRepository(
             FetchHuggingfaceRequestDto(datasetId, numPairs, split, inputField, outputField, modelName),
         )
     }
+
+    /**
+     * GET /admin/config. Response is inspected (not thrown), so a 403 (admin disabled on the
+     * server) surfaces as [ApiResult.ApiError] rather than an exception.
+     */
+    suspend fun getAdminConfig(): ApiResult<RegistryAdminConfigDto> =
+        safeResponseCall { service().getAdminConfig() }
+
+    /**
+     * Admin action: PUT /admin/config with only {"ftp_token_ttl_minutes": ...} — a single-key
+     * body, never the full round-tripped object (see RegistryAdminConfigDto's doc comment).
+     */
+    suspend fun updateFtpTokenTtlMinutes(minutes: Int): ApiResult<RegistryAdminConfigDto> =
+        safeResponseCall { service().putAdminConfig(buildJsonObject { put("ftp_token_ttl_minutes", minutes) }) }
+
+    /** Admin action: PUT /admin/config with only {"ftp_max_sessions_per_run": ...}. */
+    suspend fun updateFtpMaxSessionsPerRun(count: Int): ApiResult<RegistryAdminConfigDto> =
+        safeResponseCall { service().putAdminConfig(buildJsonObject { put("ftp_max_sessions_per_run", count) }) }
 }

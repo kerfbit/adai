@@ -178,11 +178,11 @@ class LanguageModelHead {
 
 #ifdef ADAI_ENABLE_GPU
     struct GPUState {
-        adai::gpu::GPUMatrix W_g;   // [d_model, vocab_size]
-        adai::gpu::GPUMatrix b_g;   // [1, vocab_size]
-        adai::gpu::GPUMatrix dW;    // gradient accumulator
-        adai::gpu::GPUMatrix db;    // gradient accumulator
-        adai::gpu::GPUMatrix cached_input; // [seq, d_model]
+        adai::gpu::GPUMatrix W_g;           // [d_model, vocab_size]
+        adai::gpu::GPUMatrix b_g;           // [1, vocab_size]
+        adai::gpu::GPUMatrix dW;            // gradient accumulator
+        adai::gpu::GPUMatrix db;            // gradient accumulator
+        adai::gpu::GPUMatrix cached_input;  // [seq, d_model]
 
         GPUState(int dm, int vs)
             : W_g(dm, vs), b_g(1, vs), dW(dm, vs), db(1, vs), cached_input(1, 1) {}

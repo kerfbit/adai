@@ -13,13 +13,13 @@
 
 #include <gtest/gtest.h>
 
+#include <unistd.h>
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <ctime>
 #include <sstream>
 #include <string>
-#include <unistd.h>
 
 #include <httplib.h>
 
@@ -48,7 +48,7 @@ httplib::Client make_client() {
 }
 
 bool server_reachable() {
-    auto c   = make_client();
+    auto c = make_client();
     auto res = c.Get("/health");
     return res && res->status == 200;
 }
@@ -57,10 +57,10 @@ bool server_reachable() {
 std::string make_model(const std::string& tag = "") {
     static std::atomic<int> counter{0};
     std::ostringstream oss;
-    oss << "lt" << static_cast<int>(::getpid())
-        << "t" << static_cast<long>(std::time(nullptr))
+    oss << "lt" << static_cast<int>(::getpid()) << "t" << static_cast<long>(std::time(nullptr))
         << "c" << counter.fetch_add(1);
-    if (!tag.empty()) oss << "-" << tag;
+    if (!tag.empty())
+        oss << "-" << tag;
     return oss.str();
 }
 
@@ -68,9 +68,9 @@ std::string make_model(const std::string& tag = "") {
 std::string make_role(const std::string& tag = "") {
     static std::atomic<int> counter{0};
     std::ostringstream oss;
-    oss << "role" << static_cast<int>(::getpid())
-        << "c" << counter.fetch_add(1);
-    if (!tag.empty()) oss << "-" << tag;
+    oss << "role" << static_cast<int>(::getpid()) << "c" << counter.fetch_add(1);
+    if (!tag.empty())
+        oss << "-" << tag;
     return oss.str();
 }
 
@@ -81,23 +81,38 @@ std::string make_role(const std::string& tag = "") {
 std::string json_str(const std::string& body, const std::string& key) {
     const std::string needle = "\"" + key + "\":\"";
     const auto pos = body.find(needle);
-    if (pos == std::string::npos) return {};
+    if (pos == std::string::npos)
+        return {};
     const auto start = pos + needle.size();
-    const auto end   = body.find('"', start);
-    if (end == std::string::npos) return {};
+    const auto end = body.find('"', start);
+    if (end == std::string::npos)
+        return {};
     return body.substr(start, end - start);
 }
 
 bool json_bool(const std::string& body, const std::string& key) {
     const std::string needle = "\"" + key + "\":";
     const auto pos = body.find(needle);
-    if (pos == std::string::npos) return false;
+    if (pos == std::string::npos)
+        return false;
     const auto val_pos = pos + needle.size();
     return body.substr(val_pos, 4) == "true";
 }
 
 bool body_contains(const std::string& body, const std::string& substr) {
     return body.find(substr) != std::string::npos;
+}
+
+int json_int(const std::string& body, const std::string& key) {
+    const std::string needle = "\"" + key + "\":";
+    const auto pos = body.find(needle);
+    if (pos == std::string::npos)
+        return 0;
+    try {
+        return std::stoi(body.substr(pos + needle.size()));
+    } catch (...) {
+        return 0;
+    }
 }
 
 }  // namespace
@@ -110,8 +125,7 @@ class MNSLiveTest : public ::testing::Test {
    protected:
     void SetUp() override {
         if (!server_reachable()) {
-            GTEST_SKIP() << "mns_server not reachable at "
-                         << server_host() << ":" << server_port()
+            GTEST_SKIP() << "mns_server not reachable at " << server_host() << ":" << server_port()
                          << " — set MNS_SERVER_HOST / MNS_SERVER_PORT to override";
         }
     }
@@ -122,7 +136,7 @@ class MNSLiveTest : public ::testing::Test {
 // ---------------------------------------------------------------------------
 
 TEST_F(MNSLiveTest, HealthReturnsOk) {
-    auto c   = make_client();
+    auto c = make_client();
     auto res = c.Get("/health");
     ASSERT_TRUE(res);
     EXPECT_EQ(200, res->status);
@@ -137,7 +151,8 @@ TEST_F(MNSLiveTest, RegisterModel_ReturnsUUIDAndInitializingState) {
     const auto name = make_model("reg");
     auto c = make_client();
     const std::string body =
-        "{\"model_name\":\"" + name + "\""
+        "{\"model_name\":\"" + name +
+        "\""
         ",\"role\":\"chatbot\""
         ",\"arch\":{\"d_model\":128,\"num_heads\":4,\"d_ff\":512"
         ",\"num_encoder_layers\":2,\"num_decoder_layers\":2,\"max_seq_length\":256}"
@@ -170,7 +185,7 @@ TEST_F(MNSLiveTest, RegisterModel_InvalidNameReturns400) {
 }
 
 TEST_F(MNSLiveTest, RegisterModel_MissingNameReturns400) {
-    auto c   = make_client();
+    auto c = make_client();
     auto res = c.Post("/models", "{\"role\":\"chatbot\"}", "application/json");
     ASSERT_TRUE(res);
     EXPECT_EQ(400, res->status);
@@ -193,7 +208,7 @@ TEST_F(MNSLiveTest, GetModel_ReturnsRecord) {
 }
 
 TEST_F(MNSLiveTest, GetModel_NotFoundReturns404) {
-    auto c   = make_client();
+    auto c = make_client();
     auto res = c.Get("/models/no-such-model-xyzzy");
     ASSERT_TRUE(res);
     EXPECT_EQ(404, res->status);
@@ -244,8 +259,8 @@ TEST_F(MNSLiveTest, StateTransition_TrainingToCandidate_AttachesArtifact) {
     const auto name = make_model("cand");
     auto c = make_client();
     c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
-    c.Put("/models/" + name + "/state",
-          "{\"state\":\"training\",\"run_id\":\"run-abc\"}", "application/json");
+    c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"run_id\":\"run-abc\"}",
+          "application/json");
 
     const std::string body =
         "{\"state\":\"candidate\",\"run_id\":\"run-abc\""
@@ -265,8 +280,8 @@ TEST_F(MNSLiveTest, StateTransition_InvalidReturns409) {
     c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
 
     // initializing -> production is not a valid transition
-    auto res = c.Put("/models/" + name + "/state",
-                     "{\"state\":\"production\"}", "application/json");
+    auto res =
+        c.Put("/models/" + name + "/state", "{\"state\":\"production\"}", "application/json");
     ASSERT_TRUE(res);
     EXPECT_EQ(400, res->status);  // "production" is not accepted directly
 }
@@ -275,11 +290,11 @@ TEST_F(MNSLiveTest, StateTransition_TrainingLock_SameRunIdIdempotent) {
     const auto name = make_model("lock");
     auto c = make_client();
     c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
-    c.Put("/models/" + name + "/state",
-          "{\"state\":\"training\",\"run_id\":\"run-1\"}", "application/json");
+    c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"run_id\":\"run-1\"}",
+          "application/json");
     // Same run_id — should be accepted
-    auto res = c.Put("/models/" + name + "/state",
-                     "{\"state\":\"training\",\"run_id\":\"run-1\"}", "application/json");
+    auto res = c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"run_id\":\"run-1\"}",
+                     "application/json");
     ASSERT_TRUE(res);
     EXPECT_EQ(200, res->status);
 }
@@ -288,13 +303,12 @@ TEST_F(MNSLiveTest, ExplicitRetire) {
     const auto name = make_model("retire");
     auto c = make_client();
     c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
-    c.Put("/models/" + name + "/state",
-          "{\"state\":\"training\",\"run_id\":\"r1\"}", "application/json");
-    c.Put("/models/" + name + "/state",
-          "{\"state\":\"candidate\",\"run_id\":\"r1\"}", "application/json");
+    c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"run_id\":\"r1\"}",
+          "application/json");
+    c.Put("/models/" + name + "/state", "{\"state\":\"candidate\",\"run_id\":\"r1\"}",
+          "application/json");
 
-    auto res = c.Put("/models/" + name + "/state",
-                     "{\"state\":\"retired\"}", "application/json");
+    auto res = c.Put("/models/" + name + "/state", "{\"state\":\"retired\"}", "application/json");
     ASSERT_TRUE(res);
     EXPECT_EQ(200, res->status);
     EXPECT_EQ("retired", json_str(res->body, "state"));
@@ -310,10 +324,10 @@ TEST_F(MNSLiveTest, Promote_CandidateToProduction) {
     auto c = make_client();
     c.Post("/models", "{\"model_name\":\"" + name + "\",\"role\":\"" + role + "\"}",
            "application/json");
-    c.Put("/models/" + name + "/state",
-          "{\"state\":\"training\",\"run_id\":\"r1\"}", "application/json");
-    c.Put("/models/" + name + "/state",
-          "{\"state\":\"candidate\",\"run_id\":\"r1\"}", "application/json");
+    c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"run_id\":\"r1\"}",
+          "application/json");
+    c.Put("/models/" + name + "/state", "{\"state\":\"candidate\",\"run_id\":\"r1\"}",
+          "application/json");
 
     const std::string pbody = "{\"model_name\":\"" + name + "\"}";
     auto res = c.Put("/roles/" + role + "/production", pbody, "application/json");
@@ -339,26 +353,26 @@ TEST_F(MNSLiveTest, Promote_NonCandidateReturns409) {
 TEST_F(MNSLiveTest, Promote_AutoRetiresPreviousProduction) {
     const auto name1 = make_model("v1");
     const auto name2 = make_model("v2");
-    const auto role  = make_role("auto");
+    const auto role = make_role("auto");
     auto c = make_client();
 
     // Register and promote v1
     auto promote_to_candidate = [&](const std::string& mname) {
         c.Post("/models", "{\"model_name\":\"" + mname + "\",\"role\":\"" + role + "\"}",
                "application/json");
-        c.Put("/models/" + mname + "/state",
-              "{\"state\":\"training\",\"run_id\":\"r\"}", "application/json");
-        c.Put("/models/" + mname + "/state",
-              "{\"state\":\"candidate\",\"run_id\":\"r\"}", "application/json");
+        c.Put("/models/" + mname + "/state", "{\"state\":\"training\",\"run_id\":\"r\"}",
+              "application/json");
+        c.Put("/models/" + mname + "/state", "{\"state\":\"candidate\",\"run_id\":\"r\"}",
+              "application/json");
     };
     promote_to_candidate(name1);
-    c.Put("/roles/" + role + "/production",
-          "{\"model_name\":\"" + name1 + "\"}", "application/json");
+    c.Put("/roles/" + role + "/production", "{\"model_name\":\"" + name1 + "\"}",
+          "application/json");
 
     // Register and promote v2 — v1 should be auto-retired
     promote_to_candidate(name2);
-    auto res = c.Put("/roles/" + role + "/production",
-                     "{\"model_name\":\"" + name2 + "\"}", "application/json");
+    auto res = c.Put("/roles/" + role + "/production", "{\"model_name\":\"" + name2 + "\"}",
+                     "application/json");
     ASSERT_TRUE(res);
     EXPECT_EQ(200, res->status);
     EXPECT_EQ(name1, json_str(res->body, "retired"));
@@ -379,14 +393,15 @@ TEST_F(MNSLiveTest, ResolveRole_ReturnsArtifact) {
     auto c = make_client();
     c.Post("/models", "{\"model_name\":\"" + name + "\",\"role\":\"" + role + "\"}",
            "application/json");
-    c.Put("/models/" + name + "/state",
-          "{\"state\":\"training\",\"run_id\":\"r\"}", "application/json");
+    c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"run_id\":\"r\"}",
+          "application/json");
     c.Put("/models/" + name + "/state",
           "{\"state\":\"candidate\",\"run_id\":\"r\""
-          ",\"artifact\":{\"host\":\"h\",\"path\":\"/p\",\"checksum\":\"c\",\"format\":\"adai-native\"}}",
+          ",\"artifact\":{\"host\":\"h\",\"path\":\"/"
+          "p\",\"checksum\":\"c\",\"format\":\"adai-native\"}}",
           "application/json");
-    c.Put("/roles/" + role + "/production",
-          "{\"model_name\":\"" + name + "\"}", "application/json");
+    c.Put("/roles/" + role + "/production", "{\"model_name\":\"" + name + "\"}",
+          "application/json");
 
     auto res = c.Get("/roles/" + role + "/production");
     ASSERT_TRUE(res);
@@ -397,7 +412,7 @@ TEST_F(MNSLiveTest, ResolveRole_ReturnsArtifact) {
 
 TEST_F(MNSLiveTest, ResolveRole_NoProductionReturns404) {
     const auto role = make_role("noprod");
-    auto c   = make_client();
+    auto c = make_client();
     auto res = c.Get("/roles/" + role + "/production");
     ASSERT_TRUE(res);
     EXPECT_EQ(404, res->status);
@@ -409,12 +424,12 @@ TEST_F(MNSLiveTest, ListRoles_ContainsPromotedRole) {
     auto c = make_client();
     c.Post("/models", "{\"model_name\":\"" + name + "\",\"role\":\"" + role + "\"}",
            "application/json");
-    c.Put("/models/" + name + "/state",
-          "{\"state\":\"training\",\"run_id\":\"r\"}", "application/json");
-    c.Put("/models/" + name + "/state",
-          "{\"state\":\"candidate\",\"run_id\":\"r\"}", "application/json");
-    c.Put("/roles/" + role + "/production",
-          "{\"model_name\":\"" + name + "\"}", "application/json");
+    c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"run_id\":\"r\"}",
+          "application/json");
+    c.Put("/models/" + name + "/state", "{\"state\":\"candidate\",\"run_id\":\"r\"}",
+          "application/json");
+    c.Put("/roles/" + role + "/production", "{\"model_name\":\"" + name + "\"}",
+          "application/json");
 
     auto res = c.Get("/roles");
     ASSERT_TRUE(res);
@@ -430,8 +445,8 @@ TEST_F(MNSLiveTest, ResolveModel_CandidateReturnsArtifact) {
     const auto name = make_model("mres");
     auto c = make_client();
     c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
-    c.Put("/models/" + name + "/state",
-          "{\"state\":\"training\",\"run_id\":\"r\"}", "application/json");
+    c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"run_id\":\"r\"}",
+          "application/json");
     c.Put("/models/" + name + "/state",
           "{\"state\":\"candidate\",\"run_id\":\"r\""
           ",\"artifact\":{\"host\":\"h\",\"path\":\"/mymodel.bin\""
@@ -471,12 +486,12 @@ TEST_F(MNSLiveTest, DeleteModel_ProductionReturns409) {
     auto c = make_client();
     c.Post("/models", "{\"model_name\":\"" + name + "\",\"role\":\"" + role + "\"}",
            "application/json");
-    c.Put("/models/" + name + "/state",
-          "{\"state\":\"training\",\"run_id\":\"r\"}", "application/json");
-    c.Put("/models/" + name + "/state",
-          "{\"state\":\"candidate\",\"run_id\":\"r\"}", "application/json");
-    c.Put("/roles/" + role + "/production",
-          "{\"model_name\":\"" + name + "\"}", "application/json");
+    c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"run_id\":\"r\"}",
+          "application/json");
+    c.Put("/models/" + name + "/state", "{\"state\":\"candidate\",\"run_id\":\"r\"}",
+          "application/json");
+    c.Put("/roles/" + role + "/production", "{\"model_name\":\"" + name + "\"}",
+          "application/json");
 
     auto res = c.Delete("/models/" + name);
     ASSERT_TRUE(res);
@@ -520,8 +535,8 @@ TEST_F(MNSLiveTest, TrainingHistory_StoredAfterStateTransitions) {
     c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
 
     // Transition: initializing → training → candidate
-    c.Put("/models/" + name + "/state",
-          "{\"state\":\"training\",\"run_id\":\"run-hist-1\"}", "application/json");
+    c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"run_id\":\"run-hist-1\"}",
+          "application/json");
     c.Put("/models/" + name + "/state",
           "{\"state\":\"candidate\",\"run_id\":\"run-hist-1\""
           ",\"artifact\":{\"host\":\"h\",\"path\":\"/m.bin\",\"checksum\":\"c\""
@@ -543,10 +558,10 @@ TEST_F(MNSLiveTest, TrainingHistory_PersistsAcrossGetModel) {
     const auto name = make_model("histp");
     auto c = make_client();
     c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
-    c.Put("/models/" + name + "/state",
-          "{\"state\":\"training\",\"run_id\":\"run-histp-1\"}", "application/json");
-    c.Put("/models/" + name + "/state",
-          "{\"state\":\"candidate\",\"run_id\":\"run-histp-1\"}", "application/json");
+    c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"run_id\":\"run-histp-1\"}",
+          "application/json");
+    c.Put("/models/" + name + "/state", "{\"state\":\"candidate\",\"run_id\":\"run-histp-1\"}",
+          "application/json");
 
     // Two independent GET calls must both return the training_history.
     auto r1 = c.Get("/models/" + name);
@@ -557,4 +572,125 @@ TEST_F(MNSLiveTest, TrainingHistory_PersistsAcrossGetModel) {
     EXPECT_EQ(200, r2->status);
     EXPECT_TRUE(body_contains(r1->body, "run-histp-1")) << r1->body;
     EXPECT_TRUE(body_contains(r2->body, "run-histp-1")) << r2->body;
+}
+
+// ---------------------------------------------------------------------------
+// MNS-authoritative run numbering + crash-safe progress (see CLAUDE.md
+// "Configuration"): the client no longer supplies run_id — MNS allocates it.
+// ---------------------------------------------------------------------------
+
+TEST_F(MNSLiveTest, SetTraining_FirstEverCallBootstrapsRunOne) {
+    const auto name = make_model("run1");
+    auto c = make_client();
+    c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
+
+    // Bootstrap: even with new_run=false, the very first call allocates run-01.
+    auto res =
+        c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"new_run\":false}",
+             "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(200, res->status);
+    EXPECT_EQ("run-01", json_str(res->body, "run_id"));
+    EXPECT_EQ(1, json_int(res->body, "current_run_number"));
+}
+
+TEST_F(MNSLiveTest, SetTraining_NewRunFalseContinuesSameRun) {
+    const auto name = make_model("runsame");
+    auto c = make_client();
+    c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
+    c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"new_run\":false}",
+          "application/json");
+    c.Put("/models/" + name + "/state",
+          "{\"state\":\"candidate\",\"run_id\":\"run-01\"}", "application/json");
+
+    // Continuing (new_run=false) after a candidate transition keeps run-01.
+    auto res =
+        c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"new_run\":false}",
+             "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(200, res->status);
+    EXPECT_EQ("run-01", json_str(res->body, "run_id"));
+    EXPECT_EQ(1, json_int(res->body, "current_run_number"));
+}
+
+TEST_F(MNSLiveTest, SetTraining_NewRunTrueAllocatesFreshRun) {
+    const auto name = make_model("runnew");
+    auto c = make_client();
+    c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
+    c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"new_run\":false}",
+          "application/json");
+    c.Put("/models/" + name + "/state",
+          "{\"state\":\"candidate\",\"run_id\":\"run-01\"}", "application/json");
+
+    auto res =
+        c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"new_run\":true}",
+             "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(200, res->status);
+    EXPECT_EQ("run-02", json_str(res->body, "run_id"));
+    EXPECT_EQ(2, json_int(res->body, "current_run_number"));
+}
+
+TEST_F(MNSLiveTest, PushProgress_UpdatesSnapshotAndRejectsStaleRunId) {
+    const auto name = make_model("prog");
+    auto c = make_client();
+    c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
+    auto train_res =
+        c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"new_run\":false}",
+             "application/json");
+    const std::string run_id = json_str(train_res->body, "run_id");
+    ASSERT_EQ("run-01", run_id);
+
+    auto res = c.Put("/models/" + name + "/progress",
+                     "{\"run_id\":\"" + run_id +
+                         "\",\"session_id\":\"session-01\",\"epoch\":2,\"loss\":0.5,"
+                         "\"best_loss\":0.4}",
+                     "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(200, res->status);
+
+    auto get_res = c.Get("/models/" + name);
+    ASSERT_TRUE(get_res);
+    EXPECT_EQ(2, json_int(get_res->body, "epoch"));
+    EXPECT_TRUE(body_contains(get_res->body, "session-01"));
+
+    // A stale run_id (not the currently active one) is rejected.
+    auto stale = c.Put("/models/" + name + "/progress",
+                       "{\"run_id\":\"run-99\",\"session_id\":\"x\",\"epoch\":1,\"loss\":1.0,"
+                       "\"best_loss\":1.0}",
+                       "application/json");
+    ASSERT_TRUE(stale);
+    EXPECT_EQ(409, stale->status);
+}
+
+TEST_F(MNSLiveTest, CrashedRunArchivedAsIncompleteHistoryOnNextTraining) {
+    const auto name = make_model("crash");
+    auto c = make_client();
+    c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
+    auto train_res =
+        c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"new_run\":false}",
+             "application/json");
+    const std::string run_id = json_str(train_res->body, "run_id");
+
+    // Push progress, then simulate a crash: never reach "candidate".
+    c.Put("/models/" + name + "/progress",
+          "{\"run_id\":\"" + run_id +
+              "\",\"session_id\":\"session-01\",\"epoch\":4,\"loss\":0.3,\"best_loss\":0.25}",
+          "application/json");
+
+    // A new training call while still "training" — treated as crash recovery.
+    auto res =
+        c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"new_run\":true}",
+             "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(200, res->status);
+    EXPECT_EQ("run-02", json_str(res->body, "run_id"));
+
+    EXPECT_TRUE(body_contains(res->body, "\"incomplete\":true"))
+        << "Expected an incomplete history entry: " << res->body;
+    EXPECT_TRUE(body_contains(res->body, run_id))
+        << "Expected the crashed run's id in history: " << res->body;
+
+    // The new run's live progress snapshot starts clean.
+    EXPECT_EQ(0, json_int(res->body, "epoch"));
 }

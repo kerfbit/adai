@@ -200,24 +200,28 @@ void LanguageModelHead::load_weights(const std::string& filename) {
 
 #ifdef ADAI_ENABLE_GPU
 void LanguageModelHead::gpu_upload_weights() {
-    if (!gpu_) gpu_ = std::make_unique<GPUState>(d_model, vocab_size);
+    if (!gpu_)
+        gpu_ = std::make_unique<GPUState>(d_model, vocab_size);
     int n_w = d_model * vocab_size;
     std::vector<float> tmp;
     tmp.reserve(n_w);
     for (const auto& row : W_output.data)
-        for (float v : row) tmp.push_back(v);
+        for (float v : row)
+            tmp.push_back(v);
     gpu_->W_g.upload(tmp.data(), n_w);
     gpu_->b_g.upload(bias.data[0].data(), vocab_size);
 }
 
 void LanguageModelHead::gpu_download_grads() {
-    if (!gpu_) return;
+    if (!gpu_)
+        return;
     {
         std::vector<float> tmp(d_model * vocab_size);
         gpu_->dW.download(tmp.data(), d_model * vocab_size);
         int idx = 0;
         for (auto& row : W_output_grad.data)
-            for (auto& v : row) v += tmp[idx++];
+            for (auto& v : row)
+                v += tmp[idx++];
     }
     {
         std::vector<float> tmp(vocab_size);
@@ -228,25 +232,26 @@ void LanguageModelHead::gpu_download_grads() {
 }
 
 void LanguageModelHead::gpu_zero_grads() {
-    if (!gpu_) return;
+    if (!gpu_)
+        return;
     gpu_->dW.zero();
     gpu_->db.zero();
 }
 
 adai::gpu::GPUMatrix LanguageModelHead::gpu_forward(const adai::gpu::GPUMatrix& input) {
-    if (!gpu_) gpu_upload_weights();
+    if (!gpu_)
+        gpu_upload_weights();
     const int seq = input.rows;
     if (gpu_->cached_input.rows != seq || gpu_->cached_input.cols != d_model)
         gpu_->cached_input = adai::gpu::GPUMatrix(seq, d_model);
-    adai::gpu::GPUManager::get_queue()
-        .memcpy(gpu_->cached_input.device_ptr(), input.device_ptr(),
-                static_cast<size_t>(seq * d_model) * sizeof(float));
+    adai::gpu::matrix_copy_device_to_device_gpu(input.device_ptr(), gpu_->cached_input.device_ptr(),
+                                                seq * d_model);
 
     adai::gpu::GPUMatrix logits = input * gpu_->W_g;
     // In-place add bias row-broadcast
     adai::gpu::GPUMatrix result(seq, vocab_size);
     adai::gpu::matrix_add_row_bias_gpu(logits.device_ptr(), gpu_->b_g.device_ptr(),
-                                        result.device_ptr(), seq, vocab_size);
+                                       result.device_ptr(), seq, vocab_size);
     return result;
 }
 

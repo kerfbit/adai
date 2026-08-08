@@ -10,6 +10,7 @@
 
 #include <gtest/gtest.h>
 
+#include <unistd.h>
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
@@ -17,15 +18,14 @@
 #include <sstream>
 #include <string>
 #include <vector>
-#include <unistd.h>
 
 #include <httplib.h>
 #include "MnsJsonHelpers.hpp"
 
-using mns_gui::json_value;
 using mns_gui::json_array_objects;
 using mns_gui::json_escape;
 using mns_gui::json_pretty;
+using mns_gui::json_value;
 using mns_gui::ParsedUrl;
 
 // ============================================================================
@@ -284,26 +284,27 @@ bool live_server_reachable() {
 std::string unique_model(const std::string& tag = "") {
     static std::atomic<int> counter{0};
     std::ostringstream oss;
-    oss << "gui" << static_cast<int>(::getpid())
-        << "t" << static_cast<long>(std::time(nullptr))
+    oss << "gui" << static_cast<int>(::getpid()) << "t" << static_cast<long>(std::time(nullptr))
         << "c" << counter.fetch_add(1);
-    if (!tag.empty()) oss << "-" << tag;
+    if (!tag.empty())
+        oss << "-" << tag;
     return oss.str();
 }
 
 std::string unique_role(const std::string& tag = "") {
     static std::atomic<int> counter{0};
     std::ostringstream oss;
-    oss << "guirole" << static_cast<int>(::getpid())
-        << "c" << counter.fetch_add(1);
-    if (!tag.empty()) oss << "-" << tag;
+    oss << "guirole" << static_cast<int>(::getpid()) << "c" << counter.fetch_add(1);
+    if (!tag.empty())
+        oss << "-" << tag;
     return oss.str();
 }
 
 std::string register_body(const std::string& name, const std::string& role = "") {
     std::ostringstream body;
     body << "{\"model_name\":\"" << name << "\"";
-    if (!role.empty()) body << ",\"role\":\"" << role << "\"";
+    if (!role.empty())
+        body << ",\"role\":\"" << role << "\"";
     body << ",\"arch\":{\"d_model\":64,\"num_heads\":2,\"d_ff\":128"
             ",\"num_encoder_layers\":1,\"num_decoder_layers\":1,\"max_seq_length\":64}}";
     return body.str();
@@ -315,8 +316,7 @@ class MnsManagerGUILiveTest : public ::testing::Test {
    protected:
     void SetUp() override {
         if (!live_server_reachable()) {
-            GTEST_SKIP() << "mns_server not reachable at "
-                         << live_host() << ":" << live_port();
+            GTEST_SKIP() << "mns_server not reachable at " << live_host() << ":" << live_port();
         }
     }
 };
@@ -466,10 +466,10 @@ TEST_F(MnsManagerGUILiveTest, RetireAndDelete) {
     // Register again, move through lifecycle, then retire and delete
     const auto name2 = unique_model("retire-del2");
     c.Post("/models", register_body(name2), "application/json");
-    c.Put("/models/" + name2 + "/state",
-          "{\"state\":\"training\",\"run_id\":\"r1\"}", "application/json");
-    c.Put("/models/" + name2 + "/state",
-          "{\"state\":\"candidate\",\"run_id\":\"r1\"}", "application/json");
+    c.Put("/models/" + name2 + "/state", "{\"state\":\"training\",\"run_id\":\"r1\"}",
+          "application/json");
+    c.Put("/models/" + name2 + "/state", "{\"state\":\"candidate\",\"run_id\":\"r1\"}",
+          "application/json");
 
     // Candidate can't be deleted directly
     auto r2 = c.Delete("/models/" + name2);
@@ -477,8 +477,7 @@ TEST_F(MnsManagerGUILiveTest, RetireAndDelete) {
     EXPECT_EQ(409, r2->status);
 
     // Retire first
-    auto r3 = c.Put("/models/" + name2 + "/state",
-                     "{\"state\":\"retired\"}", "application/json");
+    auto r3 = c.Put("/models/" + name2 + "/state", "{\"state\":\"retired\"}", "application/json");
     ASSERT_TRUE(r3);
     EXPECT_EQ(200, r3->status);
     EXPECT_EQ("retired", json_value(r3->body, "state"));
@@ -502,8 +501,8 @@ TEST_F(MnsManagerGUILiveTest, ListModels_StateFilter) {
     auto c = make_live_client();
     const auto name = unique_model("filter");
     c.Post("/models", register_body(name), "application/json");
-    c.Put("/models/" + name + "/state",
-          "{\"state\":\"training\",\"run_id\":\"f1\"}", "application/json");
+    c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"run_id\":\"f1\"}",
+          "application/json");
 
     // Filter by training — should include this model
     auto r1 = c.Get("/models?state=training");
@@ -512,7 +511,8 @@ TEST_F(MnsManagerGUILiveTest, ListModels_StateFilter) {
     auto objs_training = json_array_objects(r1->body, "models");
     bool found_training = false;
     for (const auto& obj : objs_training) {
-        if (json_value(obj, "model_name") == name) found_training = true;
+        if (json_value(obj, "model_name") == name)
+            found_training = true;
         EXPECT_EQ("training", json_value(obj, "state"));
     }
     EXPECT_TRUE(found_training);

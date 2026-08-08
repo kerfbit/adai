@@ -10,13 +10,14 @@
 #include "Config.hpp"
 #include "DatasetRegistry.hpp"
 #include "EncoderDecoderModel.hpp"
-#include "Logger.hpp"
 #include "IMetricsReporter.hpp"
+#include "Logger.hpp"
 #include "MetricsPushClient.hpp"
 
 // Forward declaration — full type in ModelNameClient.hpp (included by .cpp)
-namespace adai { class ModelNameClient; }
-
+namespace adai {
+class ModelNameClient;
+}
 
 /**
  * @brief Training session information
@@ -40,7 +41,6 @@ struct TrainingSession {
     std::vector<float> per_epoch_perplexities;       ///< training perplexity per epoch (exp(loss))
     std::vector<float> per_epoch_validation_perplexities;  ///< validation perplexity per epoch
 };
-
 
 /**
  * @brief Incremental training configuration
@@ -68,14 +68,20 @@ struct IncrementalConfig {
     std::string best_symlink_name = "best_checkpoint.bin";  // Name for best checkpoint symlink
 
     // Metrics push configuration (TD-021)
-    std::string metrics_server_url;          // URL of metrics API daemon; empty = no push
-    std::string metrics_session_label;       // Human-readable label; auto-derived when empty
-    int metrics_push_timeout_ms = 1000;      // HTTP push timeout in milliseconds
-    int metrics_heartbeat_interval_ms = 30000; // Idle heartbeat interval in milliseconds
+    std::string metrics_server_url;             // URL of metrics API daemon; empty = no push
+    std::string metrics_session_label;          // Human-readable label; auto-derived when empty
+    int metrics_push_timeout_ms = 1000;         // HTTP push timeout in milliseconds
+    int metrics_heartbeat_interval_ms = 30000;  // Idle heartbeat interval in milliseconds
 
     // Model Name Service configuration
-    std::string mns_server_url;   // URL of ModelNameService daemon; empty = MNS disabled
-    std::string mns_model_name;   // MNS model name; empty = MNS disabled
+    std::string mns_server_url;  // URL of ModelNameService daemon; empty = MNS disabled
+    std::string mns_model_name;  // MNS model name; empty = MNS disabled
+
+    // Distributed dataset registry configuration (mirrors ServiceConfig; see
+    // DatasetRegistry::make_config). Carried here so that every IncrementalTrainer
+    // constructor — not just the ones a caller happens to build a DatasetRegistry
+    // for separately — has access to registry_server_url/model_name/run_id.
+    DatasetConfig dataset;
 };
 
 /**
@@ -142,6 +148,22 @@ class IncrementalTrainer {
      */
     void reset_model_for_config();
 
+    /**
+     * @brief Begin a new training run: obtains an MNS-allocated run_id (and, if
+     *        a distributed registry_server is configured, a registry-allocated
+     *        session_id), storing both for the rest of this process's lifetime
+     *        — used by the epoch-progress push, the final set_candidate call,
+     *        and (by the caller) as the run_id for acquire_pending/mark_trained/
+     *        release_pending, so the dataset-ownership run_id and MNS's run_id
+     *        are the same canonical identifier (see CLAUDE.md "Distributed
+     *        Dataset Registry"). Call once per invocation, before acquiring any
+     *        pending data. No-op (returns "") when MNS isn't configured.
+     *
+     * @param is_retrain true only for `retrain` (allocates a fresh run_id);
+     *        false for `train`/`resume` (continues the model's current run).
+     */
+    std::string begin_run(bool is_retrain);
+
     // Training — file-list API (TD-028 Phase 3)
     bool train_on_files(const std::vector<std::string>& files, int num_epochs);
     bool retrain_on_files(const std::vector<std::string>& files, int num_epochs);
@@ -201,7 +223,9 @@ class IncrementalTrainer {
     /// Returns the push-session key set at the start of the most recent training
     /// run (TD-021).  Empty when no metrics_server_url was configured or before
     /// the first training run.
-    std::string get_metrics_session_key() const { return active_session_key_; }
+    std::string get_metrics_session_key() const {
+        return active_session_key_;
+    }
 
    private:
     // Training components
@@ -210,11 +234,11 @@ class IncrementalTrainer {
     std::unique_ptr<BPETokenizer> tokenizer;
     std::unique_ptr<EncoderDecoderModel> model;
     IncrementalConfig config;
-    DatasetConfig     dataset_config_;  ///< Data-specific config (TD-028 Phase 2)
+    DatasetConfig dataset_config_;  ///< Data-specific config (TD-028 Phase 2)
 
     // Vocabulary auto-build state
-    int vocab_build_size_ = 0;        ///< 0 = auto-size via recommend_vocab_size(); >0 = explicit size
-    bool pending_vocab_build_ = false; ///< True until vocab is built on first training run
+    int vocab_build_size_ = 0;  ///< 0 = auto-size via recommend_vocab_size(); >0 = explicit size
+    bool pending_vocab_build_ = false;  ///< True until vocab is built on first training run
 
     // Session tracking
     std::vector<TrainingSession> session_history;
@@ -229,12 +253,20 @@ class IncrementalTrainer {
     std::string best_checkpoint_path;
 
     // Metrics reporter (TD-021)
-    std::unique_ptr<IMetricsReporter> metrics_reporter_;    ///< active reporter (Null or Push)
-    MetricsPushClient* push_client_{nullptr};               ///< non-owning alias when reporter is MetricsPushClient
-    std::string active_session_key_;                        ///< key for the in-flight push session
+    std::unique_ptr<IMetricsReporter> metrics_reporter_;  ///< active reporter (Null or Push)
+    MetricsPushClient* push_client_{
+        nullptr};                     ///< non-owning alias when reporter is MetricsPushClient
+    std::string active_session_key_;  ///< key for the in-flight push session
 
     // Model Name Service client (Phase 2)
-    std::unique_ptr<adai::ModelNameClient> mns_client_;     ///< null when MNS disabled
+    std::unique_ptr<adai::ModelNameClient> mns_client_;  ///< null when MNS disabled
+
+    // Run/session identity for the current process (set by begin_run()) — the
+    // canonical run_id shared with the dataset registry, and the
+    // registry-allocated session label, both used by the epoch-progress push
+    // and the final set_candidate call. Empty when MNS isn't configured.
+    std::string current_run_id_;
+    std::string current_mns_session_id_;
 
     // Helper methods
 
@@ -263,7 +295,7 @@ class IncrementalTrainer {
     bool finalize_session(int samples_trained, int epochs_completed, float final_loss,
                           float final_val_loss);
     bool should_auto_save();
-    void perform_auto_save();
+    void perform_auto_save(int current_epoch, int cumulative_samples_trained);
     std::string generate_session_checkpoint_path();
     std::string get_session_dir() const;
     void ensure_directories_exist();
@@ -296,8 +328,7 @@ class IncrementalTrainer {
     // Called by train_on_files and retrain_on_files after data is loaded and
     // tokenized.  metrics_sample_count feeds start_session(); finalize_sample_count
     // feeds finalize_session() (they differ in the retrain path).
-    bool run_training(ChatbotTrainer& trainer, int num_epochs,
-                      int metrics_sample_count, int finalize_sample_count,
-                      bool enable_best_model_snapshot);
-
+    bool run_training(ChatbotTrainer& trainer, int num_epochs, int metrics_sample_count,
+                      int finalize_sample_count, bool enable_best_model_snapshot,
+                      bool reset_best_tracking = false);
 };

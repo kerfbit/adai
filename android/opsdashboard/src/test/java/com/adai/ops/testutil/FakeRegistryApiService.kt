@@ -8,11 +8,13 @@ import com.adai.ops.network.dto.FetchHuggingfaceRequestDto
 import com.adai.ops.network.dto.FetchResponseDto
 import com.adai.ops.network.dto.HistoryResponseDto
 import com.adai.ops.network.dto.QueueResponseDto
+import com.adai.ops.network.dto.RegistryAdminConfigDto
 import com.adai.ops.network.dto.RegistryHealthDto
 import com.adai.ops.network.dto.RegistryResponseDto
 import com.adai.ops.network.dto.ReleaseRequestDto
 import com.adai.ops.network.dto.ReleaseResponseDto
 import com.adai.ops.network.dto.RunsResponseDto
+import kotlinx.serialization.json.JsonObject
 import retrofit2.Response
 
 class FakeRegistryApiService(
@@ -24,12 +26,17 @@ class FakeRegistryApiService(
         { _, _ -> Response.success(FetchResponseDto()) },
     private val fetchHuggingfaceResponse: (String, FetchHuggingfaceRequestDto) -> Response<FetchResponseDto> =
         { _, _ -> Response.success(FetchResponseDto()) },
+    private val getAdminConfigResponse: () -> Response<RegistryAdminConfigDto> =
+        { Response.success(RegistryAdminConfigDto()) },
+    private val putAdminConfigResponse: (JsonObject) -> Response<RegistryAdminConfigDto> =
+        { Response.success(RegistryAdminConfigDto()) },
 ) : RegistryApiService {
 
     val releaseCalls = mutableListOf<Pair<String, ReleaseRequestDto>>()
     val assignCalls = mutableListOf<Pair<String, AssignRequestDto>>()
     val fetchGutenbergCalls = mutableListOf<Pair<String, FetchGutenbergRequestDto>>()
     val fetchHuggingfaceCalls = mutableListOf<Pair<String, FetchHuggingfaceRequestDto>>()
+    val putAdminConfigCalls = mutableListOf<JsonObject>()
 
     override suspend fun queue(group: String): QueueResponseDto = queueResponse(group)
 
@@ -63,4 +70,11 @@ class FakeRegistryApiService(
     }
 
     override suspend fun health(): RegistryHealthDto = RegistryHealthDto()
+
+    override suspend fun getAdminConfig(): Response<RegistryAdminConfigDto> = getAdminConfigResponse()
+
+    override suspend fun putAdminConfig(body: JsonObject): Response<RegistryAdminConfigDto> {
+        putAdminConfigCalls += body
+        return putAdminConfigResponse(body)
+    }
 }

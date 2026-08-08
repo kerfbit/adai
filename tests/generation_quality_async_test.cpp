@@ -51,6 +51,8 @@ class RecordingMetricsReporter final : public IMetricsReporter {
     void update_adaptive_clip_epoch(float, int) override {}
     void update_activation_saturation(float) override {}
     void update_attention_entropy(float) override {}
+    void update_layer_gradient_norms(const std::vector<float>&,
+                                     const std::vector<float>&) override {}
     void update_padding_efficiency(float) override {}
     void update_generation_quality_metrics(float bleu4, float, float, float) override {
         std::lock_guard<std::mutex> lk(score_mutex);
@@ -71,13 +73,12 @@ class RecordingMetricsReporter final : public IMetricsReporter {
  * @param vocab_tmp_path   Path for the temporary vocab file (test-unique name).
  * @return Initialised ChatbotTrainer with vocabulary and data loaded.
  */
-static std::unique_ptr<ChatbotTrainer> make_tiny_trainer(TrainingConfig cfg,
-                                                          int num_train_pairs,
-                                                          int num_val_pairs,
-                                                          const std::string& vocab_tmp_path) {
+static std::unique_ptr<ChatbotTrainer> make_tiny_trainer(TrainingConfig cfg, int num_train_pairs,
+                                                         int num_val_pairs,
+                                                         const std::string& vocab_tmp_path) {
     // Ensure tiny-model dims are valid
     cfg.d_model = 8;
-    cfg.num_heads = 2;   // d_model (8) divisible by num_heads (2)
+    cfg.num_heads = 2;  // d_model (8) divisible by num_heads (2)
     cfg.d_ff = 32;
     cfg.num_encoder_layers = 1;
     cfg.num_decoder_layers = 1;
@@ -89,8 +90,7 @@ static std::unique_ptr<ChatbotTrainer> make_tiny_trainer(TrainingConfig cfg,
 
     auto trainer = std::make_unique<ChatbotTrainer>(cfg);
 
-    std::vector<std::string> corpus = {"hello world foo bar baz",
-                                       "the quick brown fox",
+    std::vector<std::string> corpus = {"hello world foo bar baz", "the quick brown fox",
                                        "test data sample text"};
     trainer->build_vocabulary(corpus, 50, vocab_tmp_path);
 
@@ -281,12 +281,12 @@ TEST(GenerationQualityAsync, SyncAndAsync_ScoresInValidRange) {
         return reporter.last_bleu4;
     };
 
-    float sync_bleu  = run_and_get_bleu(50, "/tmp/adai_async_test_sync2_vocab.txt");
-    float async_bleu = run_and_get_bleu(3,  "/tmp/adai_async_test_async2_vocab.txt");
+    float sync_bleu = run_and_get_bleu(50, "/tmp/adai_async_test_sync2_vocab.txt");
+    float async_bleu = run_and_get_bleu(3, "/tmp/adai_async_test_async2_vocab.txt");
 
     // Scores must be in valid range
-    EXPECT_GE(sync_bleu,  0.0f);
-    EXPECT_LE(sync_bleu,  1.0f);
+    EXPECT_GE(sync_bleu, 0.0f);
+    EXPECT_LE(sync_bleu, 1.0f);
     EXPECT_GE(async_bleu, 0.0f);
     EXPECT_LE(async_bleu, 1.0f);
 }

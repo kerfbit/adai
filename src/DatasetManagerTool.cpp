@@ -26,21 +26,20 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // Auto-discover config.conf: explicit --config > CWD/config.conf > /etc/adai/config.conf.
-    if (config_path.empty()) {
-        std::ifstream local_check("config.conf");
-        if (local_check.good())
-            config_path = "config.conf";
-    }
-    adai::ServiceConfig svc_config =
-        config_path.empty() ? adai::ConfigLoader::load() : adai::ConfigLoader::load(config_path);
+    // Discovery: --config > ./config.registry.conf > /etc/adai/config.registry.conf
+    // > ./config.conf (legacy) > /etc/adai/config.conf (legacy).
+    config_path = adai::ConfigLoader::discover_config_path(config_path, "config.registry.conf");
+    adai::ServiceConfig svc_config = adai::ConfigLoader::load(config_path);
 
     if (args.empty()) {
         std::cout << "Usage: " << argv[0] << " [--config <path>] <command> [options]\n\n";
         std::cout << "Global options:\n";
-        std::cout << "  --config <path>              Path to config.conf\n";
-        std::cout << "                               Search order: --config > ./config.conf > "
-                     "/etc/adai/config.conf\n\n";
+        std::cout << "  --config <path>              Path to config.registry.conf\n";
+        std::cout << "                               Search order: --config > "
+                     "./config.registry.conf >\n";
+        std::cout << "                               /etc/adai/config.registry.conf > "
+                     "./config.conf (legacy) >\n";
+        std::cout << "                               /etc/adai/config.conf (legacy)\n\n";
         std::cout << "Commands:\n";
         std::cout
             << "  add <data_file>              Add a local training file to the pending queue\n";

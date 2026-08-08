@@ -666,11 +666,12 @@ TEST_F(BPETokenizerTest, UnicodeModePreTokenizeLowercasesOnlyASCII) {
     // ASCII letters must be lowercased
     bool found_hello = false;
     for (const auto& t : tokens) {
-        if (t.find("hello") != std::string::npos) found_hello = true;
+        if (t.find("hello") != std::string::npos)
+            found_hello = true;
         // Multi-byte sequences must not be corrupted — U+00E9 bytes must survive
         for (size_t i = 0; i + 1 < t.size(); ++i) {
             // 0xC3 0xA9 should appear intact (tolower must not have touched them)
-            if ((unsigned char)t[i] == 0xC3 && (unsigned char)t[i+1] == 0xA9) {
+            if ((unsigned char)t[i] == 0xC3 && (unsigned char)t[i + 1] == 0xA9) {
                 // the sequence is present and uncorrupted
                 SUCCEED();
             }
@@ -686,8 +687,7 @@ TEST_F(BPETokenizerTest, AsciiModeSaveContainsModeField) {
     tokenizer.save_vocab("test_save_vocab.txt");
 
     std::ifstream f("test_save_vocab.txt");
-    std::string content((std::istreambuf_iterator<char>(f)),
-                         std::istreambuf_iterator<char>());
+    std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     EXPECT_NE(content.find("TOKENIZER_MODE ASCII"), std::string::npos);
 }
 
@@ -698,8 +698,7 @@ TEST_F(BPETokenizerTest, UnicodeModeFileSaveContainsModeField) {
     tokenizer.save_vocab("test_save_vocab.txt");
 
     std::ifstream f("test_save_vocab.txt");
-    std::string content((std::istreambuf_iterator<char>(f)),
-                         std::istreambuf_iterator<char>());
+    std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     EXPECT_NE(content.find("TOKENIZER_MODE UNICODE"), std::string::npos);
 }
 

@@ -88,6 +88,7 @@ DatasetConfig DatasetRegistry::make_config(const adai::ServiceConfig& svc) {
     cfg.run_group = svc.run_group;
     cfg.run_id = svc.run_id;
     cfg.registry_timeout_ms = svc.registry_timeout_ms;
+    cfg.model_name = svc.model_name;
     cfg.download_dir = svc.download_dir;
     cfg.max_parallel_downloads = svc.max_parallel_downloads;
     cfg.large_file_warn_threshold_mb = svc.large_file_warn_threshold_mb;
@@ -290,7 +291,7 @@ void DatasetRegistry::mark_trained(const std::string& run_id, const std::vector<
 
 AcquireResponse DatasetRegistry::acquire_pending(const std::string& run_id, int max_files) {
     const int limit = (max_files > 0) ? max_files : config_.max_files_per_run;
-    auto resp = transport_->acquire(run_id, limit);
+    auto resp = transport_->acquire(run_id, limit, config_.model_name);
 
     // Reflect acquisition in in-memory pending_
     for (const auto& f : resp.files) {
@@ -303,6 +304,11 @@ AcquireResponse DatasetRegistry::acquire_pending(const std::string& run_id, int 
     }
 
     return resp;
+}
+
+std::string DatasetRegistry::next_session(const std::string& model_name,
+                                          const std::string& run_id) {
+    return transport_->next_session(model_name, run_id);
 }
 
 void DatasetRegistry::release_pending(const std::string& run_id,

@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "DaemonConfigStore.hpp"
 
 // ============================================================================
 // Data types shared between DatasetRegistry and all transport implementations
@@ -166,14 +167,22 @@ class RegistryTransport {
     // ── Phase 9: distributed queue operations ─────────────────────────────
 
     /**
-     * @brief Atomically acquire up to @p max_files unassigned entries for @p run_id.
+     * @brief Atomically acquire up to @p max_files entries for @p run_id.
      *
      * LocalTransport uses an advisory lock file and returns an AcquireResponse
      * with ftp_server_host empty (direct path access).  RemoteTransport uses a
      * single atomic POST /acquire request and returns FTP credentials when the
      * registry server is configured with an FTP server.
+     *
+     * @p model_name scopes eligibility: an entry is claimable iff it's
+     * unassigned (PendingEntry::model_name empty) or assigned to this exact
+     * @p model_name — never an entry assigned to a *different* model. An empty
+     * @p model_name (no MNS/model identity configured) can only claim
+     * unassigned entries. Default "" preserves the pre-assignment-aware
+     * behavior for callers that never touch model assignment.
      */
-    virtual AcquireResponse acquire(const std::string& run_id, int max_files) = 0;
+    virtual AcquireResponse acquire(const std::string& run_id, int max_files,
+                                    const std::string& model_name = "") = 0;
 
     /** @brief Release @p paths assigned to @p run_id back to the unassigned pool. */
     virtual void release(const std::string& run_id, const std::vector<std::string>& paths) = 0;
@@ -195,6 +204,17 @@ class RegistryTransport {
      *  No-op (returns true) if @p path is already present.
      *  @return true on success. */
     virtual bool add_pending(const std::string& path) = 0;
+
+    /**
+     * @brief Allocate the next session number for (@p model_name, @p run_id),
+     *        e.g. "session-01", "session-02". A @p run_id never seen before
+     *        starts its counter at 1 — since run_id changes whenever MNS
+     *        allocates a new run, this naturally resets per run with no
+     *        separate reset signal needed. Persisted durably (survives a
+     *        restart of the daemon/process backing this transport).
+     */
+    virtual std::string next_session(const std::string& model_name,
+                                     const std::string& run_id) = 0;
 
     // ── Phase 16: dataset management (assign-by-count, unassign, delete) ──
 
@@ -334,11 +354,13 @@ class LocalTransport : public RegistryTransport {
     bool save_registry(const std::vector<DataVersion>& entries) override;
     bool load_pending(std::vector<PendingEntry>& out) override;
     bool save_pending(const std::vector<PendingEntry>& entries) override;
-    AcquireResponse acquire(const std::string& run_id, int max_files) override;
+    AcquireResponse acquire(const std::string& run_id, int max_files,
+                            const std::string& model_name = "") override;
     void release(const std::string& run_id, const std::vector<std::string>& paths) override;
     void commit_trained(const std::string& run_id, const std::vector<DataVersion>& new_entries,
                         const std::vector<std::string>& trained_paths) override;
     bool add_pending(const std::string& path) override;
+    std::string next_session(const std::string& model_name, const std::string& run_id) override;
 
     AssignResult assign(const std::string& model_name, const std::vector<std::string>& paths,
                         int count) override;
@@ -359,6 +381,13 @@ class LocalTransport : public RegistryTransport {
    private:
     std::string registry_path_;
     std::string pending_path_;
+
+    // Session-number counter (Phase 3), lazily opened next to pending_path_ as
+    // "session_counters.db" on first next_session() call. Kept as a raw
+    // pointer behind a small helper rather than <memory> to avoid pulling
+    // DaemonConfigStore's sqlite3 forward-declare into every RegistryTransport
+    // consumer; see RegistryTransport.cpp for the definition.
+    std::unique_ptr<adai::DaemonConfigStore> session_store_;
 
     // Hold an exclusive flock on pending_path_ + ".lock" for the duration of
     // an acquire/release cycle and return the fd, or -1 on failure.
@@ -396,11 +425,13 @@ class RemoteTransport final : public RegistryTransport {
     bool save_registry(const std::vector<DataVersion>& entries) override;
     bool load_pending(std::vector<PendingEntry>& out) override;
     bool save_pending(const std::vector<PendingEntry>& entries) override;
-    AcquireResponse acquire(const std::string& run_id, int max_files) override;
+    AcquireResponse acquire(const std::string& run_id, int max_files,
+                            const std::string& model_name = "") override;
     void release(const std::string& run_id, const std::vector<std::string>& paths) override;
     void commit_trained(const std::string& run_id, const std::vector<DataVersion>& new_entries,
                         const std::vector<std::string>& trained_paths) override;
     bool add_pending(const std::string& path) override;
+    std::string next_session(const std::string& model_name, const std::string& run_id) override;
 
     AssignResult assign(const std::string& model_name, const std::vector<std::string>& paths,
                         int count) override;

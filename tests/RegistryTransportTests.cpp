@@ -8,6 +8,7 @@
  * test-harness server is available; those will live in this file too.
  */
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -115,6 +116,36 @@ TEST_F(LocalTransportPhase9Test, AcquireSkipsAlreadyAssigned) {
     auto resp = t.acquire("run-y", 0);
     ASSERT_EQ(resp.files.size(), 1u);
     EXPECT_EQ(resp.files[0].registry_path, "/data/b.txt");
+}
+
+TEST_F(LocalTransportPhase9Test, AcquireWithModelNameTakesOwnAndUnassignedNeverOthers) {
+    LocalTransport t(reg_path_, pend_path_);
+    std::vector<PendingEntry> seeded = {
+        {"/data/mine.txt", "", "model-a", "", "", 0, -1, ""},
+        {"/data/theirs.txt", "", "model-b", "", "", 0, -1, ""},
+        {"/data/free.txt", "", "", "", "", 0, -1, ""},
+    };
+    t.save_pending(seeded);
+
+    auto resp = t.acquire("run-a", 0, "model-a");
+    std::vector<std::string> paths;
+    for (const auto& f : resp.files)
+        paths.push_back(f.registry_path);
+    std::sort(paths.begin(), paths.end());
+    EXPECT_EQ(paths, (std::vector<std::string>{"/data/free.txt", "/data/mine.txt"}));
+}
+
+TEST_F(LocalTransportPhase9Test, AcquireWithEmptyModelNameOnlyTakesUnassigned) {
+    LocalTransport t(reg_path_, pend_path_);
+    std::vector<PendingEntry> seeded = {
+        {"/data/assigned.txt", "", "model-a", "", "", 0, -1, ""},
+        {"/data/free.txt", "", "", "", "", 0, -1, ""},
+    };
+    t.save_pending(seeded);
+
+    auto resp = t.acquire("run-a", 0);  // no model_name — anonymous caller
+    ASSERT_EQ(resp.files.size(), 1u);
+    EXPECT_EQ(resp.files[0].registry_path, "/data/free.txt");
 }
 
 // ============================================================================
@@ -581,4 +612,47 @@ TEST_F(LocalTransportPhase9Test, DeleteRefusesToUnlinkOwnRegistryOrPendingFile) 
     ASSERT_EQ(result.details.size(), 1u);
     EXPECT_FALSE(result.details[0].file_deleted);   // but the file itself is untouched
     EXPECT_TRUE(fs::exists(pend_path_));  // still there (rewritten by save_pending, not unlinked)
+}
+
+// ============================================================================
+// next_session() — Phase 3 run/session numbering
+// ============================================================================
+
+TEST_F(LocalTransportPhase9Test, NextSessionStartsAtOneForNewRunId) {
+    LocalTransport t(reg_path_, pend_path_);
+    EXPECT_EQ(t.next_session("model-a", "run-01"), "session-01");
+}
+
+TEST_F(LocalTransportPhase9Test, NextSessionIncrementsWithinSameRunId) {
+    LocalTransport t(reg_path_, pend_path_);
+    EXPECT_EQ(t.next_session("model-a", "run-01"), "session-01");
+    EXPECT_EQ(t.next_session("model-a", "run-01"), "session-02");
+    EXPECT_EQ(t.next_session("model-a", "run-01"), "session-03");
+}
+
+TEST_F(LocalTransportPhase9Test, NextSessionResetsForNewRunId) {
+    LocalTransport t(reg_path_, pend_path_);
+    EXPECT_EQ(t.next_session("model-a", "run-01"), "session-01");
+    EXPECT_EQ(t.next_session("model-a", "run-01"), "session-02");
+    // A different run_id starts its own counter at 1 — no explicit reset needed.
+    EXPECT_EQ(t.next_session("model-a", "run-02"), "session-01");
+}
+
+TEST_F(LocalTransportPhase9Test, NextSessionIsPerModelWithinSameRunId) {
+    LocalTransport t(reg_path_, pend_path_);
+    EXPECT_EQ(t.next_session("model-a", "run-01"), "session-01");
+    // A different model_name under the same run_id has an independent counter.
+    EXPECT_EQ(t.next_session("model-b", "run-01"), "session-01");
+    EXPECT_EQ(t.next_session("model-a", "run-01"), "session-02");
+}
+
+TEST_F(LocalTransportPhase9Test, NextSessionPersistsAcrossTransportInstances) {
+    {
+        LocalTransport t(reg_path_, pend_path_);
+        EXPECT_EQ(t.next_session("model-a", "run-01"), "session-01");
+    }
+    // A fresh LocalTransport instance (simulating a process restart) reopens
+    // the same session_counters.db next to pending_path_ and continues.
+    LocalTransport t2(reg_path_, pend_path_);
+    EXPECT_EQ(t2.next_session("model-a", "run-01"), "session-02");
 }

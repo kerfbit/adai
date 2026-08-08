@@ -26,15 +26,12 @@
 TEST(DataTransportStubTest, FetchThrowsRuntimeError) {
     DataTransport dt;
     FileToken tok;
-    tok.ftp_path     = "data/train.bin";
+    tok.ftp_path = "data/train.bin";
     tok.ftp_username = "adai_deadbeef";
     tok.ftp_password = std::string(64, 'a');
-    tok.size_bytes   = 1024;
+    tok.size_bytes = 1024;
 
-    EXPECT_THROW(
-        dt.fetch(tok, "127.0.0.1", 2121, "/tmp/adai_dt_test"),
-        std::runtime_error
-    );
+    EXPECT_THROW(dt.fetch(tok, "127.0.0.1", 2121, "/tmp/adai_dt_test"), std::runtime_error);
 }
 
 TEST(DataTransportStubTest, FetchErrorMessageMentionsBuildFlag) {
@@ -59,10 +56,7 @@ TEST(DataTransportStubTest, FetchAllThrowsRuntimeError) {
     tok.ftp_path = "data/train.bin";
     resp.files.push_back(tok);
 
-    EXPECT_THROW(
-        dt.fetch_all(resp, "/tmp/adai_dt_test"),
-        std::runtime_error
-    );
+    EXPECT_THROW(dt.fetch_all(resp, "/tmp/adai_dt_test"), std::runtime_error);
 }
 
 TEST(DataTransportStubTest, FetchAllErrorMessageMentionsBuildFlag) {
@@ -81,7 +75,7 @@ TEST(DataTransportStubTest, FetchAllErrorMessageMentionsBuildFlag) {
     }
 }
 
-#else // BUILD_FTP_TRANSPORT is defined — test what we can without a real server
+#else  // BUILD_FTP_TRANSPORT is defined — test what we can without a real server
 
 // When libcurl is present, fetch_all on an empty AcquireResponse must return
 // an empty vector without making any network calls.
@@ -93,7 +87,7 @@ TEST(DataTransportTest, FetchAllEmptyResponseReturnsEmpty) {
     EXPECT_TRUE(result.empty());
 }
 
-#endif // BUILD_FTP_TRANSPORT
+#endif  // BUILD_FTP_TRANSPORT
 
 // ============================================================================
 // FileToken struct — default field values
@@ -116,19 +110,19 @@ TEST(FileTokenStructTest, DefaultStringsAreEmpty) {
 
 TEST(FileTokenStructTest, AssignmentRoundTrips) {
     FileToken tok;
-    tok.registry_path     = "/srv/data/train.csv";
-    tok.ftp_path          = "train.csv";
-    tok.ftp_username      = "adai_deadbeef";
-    tok.ftp_password      = std::string(64, 'f');
-    tok.checksum          = "12345_1718900000";
-    tok.size_bytes        = 102400;
+    tok.registry_path = "/srv/data/train.csv";
+    tok.ftp_path = "train.csv";
+    tok.ftp_username = "adai_deadbeef";
+    tok.ftp_password = std::string(64, 'f');
+    tok.checksum = "12345_1718900000";
+    tok.size_bytes = 102400;
     tok.token_expires_utc = "2026-12-31T23:59:59Z";
 
-    EXPECT_EQ(tok.registry_path,     "/srv/data/train.csv");
-    EXPECT_EQ(tok.ftp_path,          "train.csv");
-    EXPECT_EQ(tok.ftp_username,      "adai_deadbeef");
+    EXPECT_EQ(tok.registry_path, "/srv/data/train.csv");
+    EXPECT_EQ(tok.ftp_path, "train.csv");
+    EXPECT_EQ(tok.ftp_username, "adai_deadbeef");
     EXPECT_EQ(tok.ftp_password.size(), 64u);
-    EXPECT_EQ(tok.size_bytes,        102400u);
+    EXPECT_EQ(tok.size_bytes, 102400u);
     EXPECT_EQ(tok.token_expires_utc, "2026-12-31T23:59:59Z");
 }
 
@@ -156,12 +150,12 @@ TEST(AcquireResponseStructTest, RegistryPathsReturnsAllPaths) {
     AcquireResponse resp;
     resp.ftp_server_host = "ftp.example.com";
     resp.ftp_server_port = 2121;
-    resp.run_id          = "run-42";
+    resp.run_id = "run-42";
 
     for (int i = 0; i < 3; ++i) {
         FileToken tok;
         tok.registry_path = "/data/f" + std::to_string(i) + ".bin";
-        tok.ftp_path      = "f" + std::to_string(i) + ".bin";
+        tok.ftp_path = "f" + std::to_string(i) + ".bin";
         resp.files.push_back(tok);
     }
 

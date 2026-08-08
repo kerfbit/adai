@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The chatbot_api_server is plain HTTP only (no TLS) and reachable at a
+  user-configured LAN/VPN address entered at runtime in Settings, so a
+  scoped per-domain allowlist isn't possible. This app is intended for use
+  only against trusted local servers.
+
+  cleartextTrafficPermitted only additionally permits HTTP — it does not
+  restrict HTTPS. The Settings "secure relay" mode (HTTPS to a kerfbit.dev
+  subdomain) already validates against the system trust-anchors declared
+  below, so no config change is needed to support it.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

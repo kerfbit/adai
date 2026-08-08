@@ -16,8 +16,8 @@
 #include <fstream>
 #include <string>
 
-#include "../src/StartupSweep.hpp"
 #include "../src/DatasetRegistry.hpp"
+#include "../src/StartupSweep.hpp"
 
 namespace fs = std::filesystem;
 
@@ -51,17 +51,17 @@ static DatasetConfig make_cfg(const fs::path& sessions_dir) {
     return cfg;
 }
 
-} // namespace
+}  // namespace
 
 // ============================================================================
 // Condition D — trained file: local copy deleted
 // ============================================================================
 
 TEST(StartupSweepTest, ConditionD_TrainedFileIsDeleted) {
-    const auto base         = make_base("d");
-    const fs::path sess     = base / "sessions";
-    const fs::path reg_dir  = base / "registry";
-    const fs::path dl_dir   = base / "downloads";
+    const auto base = make_base("d");
+    const fs::path sess = base / "sessions";
+    const fs::path reg_dir = base / "registry";
+    const fs::path dl_dir = base / "downloads";
     fs::create_directories(sess);
     fs::create_directories(reg_dir);
     fs::create_directories(dl_dir);
@@ -79,8 +79,8 @@ TEST(StartupSweepTest, ConditionD_TrainedFileIsDeleted) {
 
     startup_sweep(reg, "test-run", dl_dir.string());
 
-    EXPECT_FALSE(fs::exists(local));       // deleted
-    EXPECT_FALSE(reg.trained_files().empty()); // registry entry kept
+    EXPECT_FALSE(fs::exists(local));            // deleted
+    EXPECT_FALSE(reg.trained_files().empty());  // registry entry kept
 
     fs::remove_all(base);
 }
@@ -90,9 +90,9 @@ TEST(StartupSweepTest, ConditionD_TrainedFileIsDeleted) {
 // ============================================================================
 
 TEST(StartupSweepTest, ConditionG_OrphanedFileIsDeleted) {
-    const auto base     = make_base("g");
+    const auto base = make_base("g");
     const fs::path sess = base / "sessions";
-    const fs::path dl   = base / "downloads";
+    const fs::path dl = base / "downloads";
     fs::create_directories(sess);
     fs::create_directories(dl);
 
@@ -114,10 +114,10 @@ TEST(StartupSweepTest, ConditionG_OrphanedFileIsDeleted) {
 // ============================================================================
 
 TEST(StartupSweepTest, ConditionA_ZeroByteDeletedAndReleased) {
-    const auto base         = make_base("a");
-    const fs::path sess     = base / "sessions";
-    const fs::path reg_dir  = base / "registry";
-    const fs::path dl_dir   = base / "downloads";
+    const auto base = make_base("a");
+    const fs::path sess = base / "sessions";
+    const fs::path reg_dir = base / "registry";
+    const fs::path dl_dir = base / "downloads";
     fs::create_directories(sess);
     fs::create_directories(reg_dir);
     fs::create_directories(dl_dir);
@@ -148,10 +148,10 @@ TEST(StartupSweepTest, ConditionA_ZeroByteDeletedAndReleased) {
 // ============================================================================
 
 TEST(StartupSweepTest, ConditionBC_NonZeroFileKept) {
-    const auto base         = make_base("bc");
-    const fs::path sess     = base / "sessions";
-    const fs::path reg_dir  = base / "registry";
-    const fs::path dl_dir   = base / "downloads";
+    const auto base = make_base("bc");
+    const fs::path sess = base / "sessions";
+    const fs::path reg_dir = base / "registry";
+    const fs::path dl_dir = base / "downloads";
     fs::create_directories(sess);
     fs::create_directories(reg_dir);
     fs::create_directories(dl_dir);
@@ -181,9 +181,9 @@ TEST(StartupSweepTest, ConditionBC_NonZeroFileKept) {
 // ============================================================================
 
 TEST(StartupSweepTest, EmptyDownloadDirIsNoop) {
-    const auto base     = make_base("empty");
+    const auto base = make_base("empty");
     const fs::path sess = base / "sessions";
-    const fs::path dl   = base / "downloads";
+    const fs::path dl = base / "downloads";
     fs::create_directories(sess);
     fs::create_directories(dl);
 
@@ -194,7 +194,7 @@ TEST(StartupSweepTest, EmptyDownloadDirIsNoop) {
 }
 
 TEST(StartupSweepTest, NonExistentDownloadDirIsNoop) {
-    const auto base     = make_base("nodir");
+    const auto base = make_base("nodir");
     const fs::path sess = base / "sessions";
     fs::create_directories(sess);
 
@@ -205,7 +205,7 @@ TEST(StartupSweepTest, NonExistentDownloadDirIsNoop) {
 }
 
 TEST(StartupSweepTest, EmptyDownloadDirStringIsNoop) {
-    const auto base     = make_base("emptystr");
+    const auto base = make_base("emptystr");
     const fs::path sess = base / "sessions";
     fs::create_directories(sess);
 
