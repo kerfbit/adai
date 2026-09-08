@@ -339,6 +339,42 @@ TEST(ModelNameClientTest, ListModelsAppliesFiltersAndParsesMultipleRecords) {
     EXPECT_EQ(models[1].state, "candidate");
 }
 
+// TD-070 regression: list_models() used to find each record's end by
+// searching for the literal substring "}}" — a free-form field appearing
+// before state/updated_utc in the wire format (run_group has no server-side
+// format validation, unlike model_name) that happens to contain that
+// two-character sequence used to truncate the record early, extracting
+// empty strings for the fields that come after it.
+TEST(ModelNameClientTest, ListModelsHandlesBraceLikeSequenceInsideFieldValue) {
+    httplib::Server svr;
+    svr.Get("/models", [&](const httplib::Request&, httplib::Response& res) {
+        res.status = 200;
+        res.set_content(
+            R"({"models":[)"
+            R"({"model_id":"1","model_name":"m1","role":"chatbot","run_group":"grp }} weird",)"
+            R"("state":"training","updated_utc":"t1","artifact":{"host":"","path":"",)"
+            R"("checksum":"","format":""},"tags":{}},)"
+            R"({"model_id":"2","model_name":"m2","role":"embedder","run_group":"",)"
+            R"("state":"production","updated_utc":"t2","artifact":{"host":"","path":"",)"
+            R"("checksum":"","format":""},"tags":{}}]})",
+            "application/json");
+    });
+    auto t = start_server(svr, kPort_ListModels);
+
+    adai::ModelNameClient client(base_url(kPort_ListModels));
+    auto models = client.list_models();
+
+    stop_server(svr, t);
+
+    ASSERT_EQ(models.size(), 2u);
+    EXPECT_EQ(models[0].model_name, "m1");
+    EXPECT_EQ(models[0].state, "training");
+    EXPECT_EQ(models[0].updated_utc, "t1");
+    EXPECT_EQ(models[1].model_name, "m2");
+    EXPECT_EQ(models[1].state, "production");
+    EXPECT_EQ(models[1].updated_utc, "t2");
+}
+
 // ============================================================================
 // promote
 // ============================================================================

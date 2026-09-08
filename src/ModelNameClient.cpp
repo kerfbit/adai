@@ -1,6 +1,6 @@
 // @adai-status: stable
 // @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 #include "ModelNameClient.hpp"
 #include <chrono>
@@ -97,13 +97,31 @@ std::string json_escape_client(const std::string& s) {
     return out;
 }
 
+// TD-070 (fixed): find the closing quote of a JSON string literal starting
+// just after the opening quote at `start`, honoring backslash-escapes (so a
+// value like "he said \"hi\"" isn't truncated at the escaped quote) — same
+// helper as MnsJsonHelpers.hpp's find_string_end(), duplicated here since
+// this file has its own independent minimal JSON reader.
+size_t find_string_end_client(const std::string& body, size_t start) {
+    for (size_t i = start; i < body.size(); ++i) {
+        if (body[i] == '\\') {
+            ++i;
+            continue;
+        }
+        if (body[i] == '"') {
+            return i;
+        }
+    }
+    return std::string::npos;
+}
+
 std::string json_string_client(const std::string& body, const std::string& key) {
     const std::string needle = "\"" + key + "\":\"";
     const auto pos = body.find(needle);
     if (pos == std::string::npos)
         return {};
     const auto start = pos + needle.size();
-    const auto end = body.find('"', start);
+    const auto end = find_string_end_client(body, start);
     if (end == std::string::npos)
         return {};
     return body.substr(start, end - start);
@@ -330,10 +348,39 @@ std::vector<adai::ModelSummary> adai::ModelNameClient::list_models(const std::st
     const std::string needle = "{\"model_id\":";
     size_t pos = 0;
     while ((pos = out.find(needle, pos)) != std::string::npos) {
-        size_t end = out.find("}}", pos);
+        // TD-070 (fixed): this used to look for the literal substring "}}"
+        // to find each record's end — relying on every record happening to
+        // end with two adjacent closing braces (true only because "tags" is
+        // serialized last server-side) and, more seriously, breaking on any
+        // string field anywhere in the record (run_group is a free-form,
+        // unvalidated field, unlike model_name) that happens to contain that
+        // same two-character sequence — reproduced: a run_group value
+        // containing "}}" truncated the record before its state/updated_utc
+        // fields, extracting them as empty. Proper string-aware brace-depth
+        // counting (matching MnsJsonHelpers.hpp's json_array_objects() fix)
+        // finds the true end regardless of what any string value contains.
+        size_t depth = 0;
+        size_t end = std::string::npos;
+        for (size_t i = pos; i < out.size(); ++i) {
+            if (out[i] == '"') {
+                const size_t str_end = find_string_end_client(out, i + 1);
+                if (str_end == std::string::npos)
+                    break;
+                i = str_end;
+                continue;
+            }
+            if (out[i] == '{') {
+                ++depth;
+            } else if (out[i] == '}') {
+                --depth;
+                if (depth == 0) {
+                    end = i + 1;
+                    break;
+                }
+            }
+        }
         if (end == std::string::npos)
             break;
-        end += 2;
         std::string record = out.substr(pos, end - pos);
         ModelSummary ms;
         ms.model_name = json_string_client(record, "model_name");

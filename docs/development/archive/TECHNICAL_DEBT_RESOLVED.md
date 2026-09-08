@@ -4,6 +4,62 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-070: ModelNameClient's list_models() Corrupted Records on a "}}" Inside a Field Value
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 8, 2026 | MNS Client | String-aware brace/quote scanning, matching TD-068's fix |
+
+Summary:
+Found while reading `src/ModelNameClient.cpp` end to end, immediately after fixing the same bug
+class (TD-068) in `MnsManagerGUI`'s JSON helpers. `list_models()` found each model record's end by
+searching for the literal substring `"}}"`  — relying on every record happening to end with two
+adjacent closing braces (true only because `ModelNameService::serialize_record()` currently
+serializes `tags` last) and, more seriously, breaking on **any** string field anywhere in the record
+that happens to contain that same two-character sequence. `run_group` is a free-form, admin-settable
+field (`mns_cli register --run-group <value>` / `update --run-group <value>`) with no server-side
+format validation, unlike `model_name` (which is regex-constrained and so can never contain `}`) —
+and `run_group` is serialized *before* `state`/`updated_utc` in the wire format, so a value containing
+`}}` truncated the record before those two fields were reached, extracting them as empty strings.
+`json_string_client()` (used by `list_models()` and every other parsing method in this file —
+`resolve_model()`, `resolve_role()`, `get_architecture()`, `register_model()`, `set_training()`) had
+the same escaped-quote gap as TD-068's `json_value()`: it found a string value's closing quote via a
+plain `find('"', ...)` with no awareness of backslash-escapes.
+
+Reproduced two ways: (1) a standalone program using the exact pre-fix logic, and (2) end-to-end
+against a real running `mns_server` — registered a model with `run_group: "grp }} weird"`, then
+called the real `ModelNameClient::list_models()` over HTTP. Before the fix, that model's `state` and
+`updated_utc` came back as empty strings; after the fix, both are correct. `ModelNameClient` is
+`@adai-status: stable` and is the MNS client used by every production binary that talks to the name
+service (`chatbot_api_server`, `incremental_trainer`, `dataset_manager`, `mns_cli`'s underlying
+library), so this had broader blast radius than TD-068's GUI-only scope — the interactive model
+picker in `IncrementalTrainingTool.cpp`'s `resolve_model_name()` and `dataset_manager models` (just
+fixed as TD-069) both call `list_models()` and would show wrong state/timestamp for any affected
+model.
+
+Changes Made:
+
+- Added the same `find_string_end()`-style escape-aware helper used in `MnsJsonHelpers.hpp`
+  (duplicated here since this file has its own independent minimal JSON reader) and used it in
+  `json_string_client()`, fixing the escaped-quote truncation for every caller in this file.
+- `list_models()` now uses proper string-aware brace-depth counting (skipping string content, honoring
+  escapes) to find each record's true end, instead of searching for the literal `"}}"` substring.
+
+Verification:
+- ✅ Standalone reproduction and a real local `mns_server` end-to-end run both confirmed the bug
+  before the fix and correct behavior after.
+- ✅ Added `ModelNameClientTest.ListModelsHandlesBraceLikeSequenceInsideFieldValue` to
+  `tests/modelnameclient_test.cpp`. Confirmed it **fails** against the pre-fix code and **passes**
+  against the fix — reverted/rebuilt/re-applied to verify both directions.
+- ✅ Full `modelnameclientTests`: 15/15 pass (including the pre-existing `list_models` test, whose
+  fixture data — inherited from the old code's assumptions — still parses correctly under the new
+  string-aware logic).
+
+Files Changed:
+
+- `src/ModelNameClient.cpp`
+- `tests/modelnameclient_test.cpp`
+
 ### TD-069: dataset_manager's `models` Command Never Actually Listed Models
 
 | Resolution Date | Component | Resolved By |
