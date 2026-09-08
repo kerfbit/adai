@@ -4,6 +4,70 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-076: DataTransport's FTP URL Construction Broke on Filenames Containing Spaces or Reserved Characters
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 8, 2026 | DataTransport (incremental_trainer FTP dataset fetch) | Percent-encode each `/`-separated ftp_path segment before building the FTP URL |
+
+Summary:
+Found while reading `src/DataTransport.hpp` end to end. `fetch()` built the FTP URL by directly
+string-concatenating `token.ftp_path` — the registry-computed path of a pending dataset file relative
+to `data_dir` — into a `ftp://user:pass@host:port/<ftp_path>` string with no escaping. `ftp_path` comes
+straight from real on-disk filenames (`RegistryServer.cpp`'s `file_path.lexically_relative(data_root)`),
+and Phase 11 dataset fetches (Gutenberg/HuggingFace downloads, manual uploads) routinely produce
+filenames with spaces or punctuation — e.g. a Gutenberg title downloaded as `Pride and Prejudice.txt`.
+libcurl does not implicitly percent-encode a URL passed via `CURLOPT_URL`: an unescaped space (or `#`,
+`?`, etc.) makes `curl_easy_perform()` fail immediately with `CURLE_URL_MALFORMAT` ("URL using
+bad/illegal format or missing URL") — and that code is correctly classified as non-transient by
+`dt_detail::is_transient()` (already covered by the pre-existing `UrlMalformatIsNotTransient` test), so
+the file is never retried and the fetch hard-fails on a routine filename with no actionable error
+pointing at the real cause.
+
+Reproduced directly against libcurl: a raw URL with an embedded space
+(`ftp://user:pass@127.0.0.1:2121/some group/training data.jsonl`) returned `CURLE_URL_MALFORMAT` (rc 3);
+percent-encoding each path segment (`some%20group/training%20data.jsonl`) changed the result to
+`CURLE_COULDNT_CONNECT` (rc 7, since nothing was listening) — proving the URL became well-formed and
+curl proceeded past parsing to the connection attempt.
+
+Also found and fixed the same recurring missing-include pattern seen throughout this audit pass:
+`std::ofstream` (`WriteCtx::file`, the local `outfile` in `fetch()`) needs `<fstream>`, which was never
+included — it compiled only because the file's one production consumer, `IncrementalTrainingTool.cpp`,
+happens to include `<fstream>` itself before `DataTransport.hpp`. A standalone compile of the header
+alone (`-DBUILD_FTP_TRANSPORT`) reproduced the exact "invalid use of incomplete type 'std::ofstream'"
+errors before the fix.
+
+Changes Made:
+
+- Added `dt_detail::url_encode_ftp_path()`: splits the path on `/`, percent-encodes each segment via
+  `curl_easy_escape()` (called with a `NULL` handle — confirmed to work on this libcurl version — since
+  no `CURL*` exists yet at URL-build time), and rejoins with literal `/` separators so directory
+  structure survives encoding.
+- `fetch()` now builds the URL via `dt_detail::url_encode_ftp_path(token.ftp_path)` instead of the raw
+  field.
+- Added the missing `<fstream>` include.
+
+Verification:
+- ✅ Standalone C reproduction against libcurl directly confirmed both the bug (`CURLE_URL_MALFORMAT`
+  on an unencoded space) and the fix (`CURLE_COULDNT_CONNECT` once encoded — proving the URL parses).
+- ✅ Added `UrlEncodeFtpPathTest` (4 cases: alphanumeric passthrough, space encoding, `#`/`?` encoding,
+  leading/double-slash preservation) and
+  `DataTransportFetchTest.FtpPathWithSpaceDoesNotTriggerUrlMalformat` to
+  `tests/DataTransportFtpTests.cpp`.
+- ✅ Before/after regression: reverted `src/DataTransport.hpp` to its pre-fix `HEAD` version, rebuilt
+  `dataTransportFtpTests`, and confirmed `FtpPathWithSpaceDoesNotTriggerUrlMalformat` fails with the
+  exact predicted message (`"...bad/illegal format or missing URL"`); restored the fix, rebuilt, and
+  confirmed all 30 tests in `dataTransportFtpTests` and all 13 in `dataTransportTests` pass.
+- ✅ Standalone `g++ -std=c++17 -Wall -Wextra` compile of `DataTransport.hpp` both with and without
+  `-DBUILD_FTP_TRANSPORT` (the stub path) — zero warnings after the `<fstream>` fix.
+
+Files Changed:
+
+- `src/DataTransport.hpp`
+- `tests/DataTransportFtpTests.cpp`
+
+---
+
 ### TD-075: Quantization's ASYMMETRIC_INT8 Mode Corrupted Any Value Above the Signed int8_t Range
 
 | Resolution Date | Component | Resolved By |

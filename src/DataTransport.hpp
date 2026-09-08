@@ -1,6 +1,6 @@
 // @adai-status: stable
 // @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 /**
  * DataTransport — trainer-side FTP download client.
@@ -22,6 +22,7 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -110,6 +111,38 @@ static std::size_t curl_write(void* ptr, std::size_t size, std::size_t nmemb, vo
     return 0;  // signal error to curl
 }
 
+// Percent-encode each '/'-separated segment of an FTP path independently, so
+// the '/' separators themselves survive as path structure while everything
+// else (spaces, '#', '?', '%', etc.) becomes transport-safe. Registry-side
+// ftp_path values are derived directly from real on-disk dataset filenames
+// (Gutenberg/HuggingFace downloads routinely contain spaces), and libcurl
+// does not implicitly encode an FTP URL passed via CURLOPT_URL — an
+// unencoded space or '#' makes curl_easy_perform fail immediately with
+// CURLE_URL_MALFORMAT, which is not in the transient/retryable set above.
+inline std::string url_encode_ftp_path(const std::string& path) {
+    std::string encoded;
+    std::size_t start = 0;
+    while (true) {
+        const std::size_t slash = path.find('/', start);
+        const std::string segment = path.substr(start, slash - start);
+        if (!segment.empty()) {
+            char* escaped = curl_easy_escape(nullptr, segment.c_str(),
+                                             static_cast<int>(segment.size()));
+            if (escaped) {
+                encoded += escaped;
+                curl_free(escaped);
+            } else {
+                encoded += segment;  // escape failure: fall back to the raw segment
+            }
+        }
+        if (slash == std::string::npos)
+            break;
+        encoded += '/';
+        start = slash + 1;
+    }
+    return encoded;
+}
+
 // Returns true for errors that are worth retrying (transient network issues).
 // Connection refused (CURLE_COULDNT_CONNECT) and auth failures are NOT
 // transient — the server is either absent or rejected us deliberately.
@@ -159,8 +192,12 @@ inline fs::path DataTransport::fetch(const FileToken& token, const std::string& 
 
     // Build FTP URL — use plain ftp:// with CURLOPT_USE_SSL for FTPS (AUTH TLS)
     // rather than ftps:// (which implies implicit TLS on port 990).
+    // ftp_path is percent-encoded per path segment: it comes from real on-disk
+    // filenames and routinely contains spaces (Gutenberg/HuggingFace dataset
+    // names), which libcurl will not tolerate unencoded in a URL.
     const std::string url = "ftp://" + token.ftp_username + ":" + token.ftp_password + "@" +
-                            ftp_host + ":" + std::to_string(ftp_port) + "/" + token.ftp_path;
+                            ftp_host + ":" + std::to_string(ftp_port) + "/" +
+                            dt_detail::url_encode_ftp_path(token.ftp_path);
 
     const auto t_start = std::chrono::steady_clock::now();
     CURLcode rc = CURLE_OK;

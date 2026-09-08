@@ -308,6 +308,63 @@ TEST(DataTransportFetchTest, UsesBasenameOfFtpPath) {
 }
 
 // ============================================================================
+// dt_detail::url_encode_ftp_path() — per-segment percent-encoding
+//
+// Registry-side ftp_path values are derived from real on-disk dataset
+// filenames (Gutenberg/HuggingFace downloads routinely contain spaces), so
+// each '/'-separated segment must be percent-encoded while the '/'
+// separators themselves are preserved as path structure.
+// ============================================================================
+
+TEST(UrlEncodeFtpPathTest, LeavesSimpleAlphanumericPathUnchanged) {
+    EXPECT_EQ(dt_detail::url_encode_ftp_path("subdir/train.bin"), "subdir/train.bin");
+}
+
+TEST(UrlEncodeFtpPathTest, EncodesSpacesInPathSegments) {
+    EXPECT_EQ(dt_detail::url_encode_ftp_path("some group/training data.jsonl"),
+              "some%20group/training%20data.jsonl");
+}
+
+TEST(UrlEncodeFtpPathTest, EncodesHashAndQuestionMark) {
+    EXPECT_EQ(dt_detail::url_encode_ftp_path("grp/file#1?.txt"), "grp/file%231%3F.txt");
+}
+
+TEST(UrlEncodeFtpPathTest, PreservesLeadingAndDoubleSlashes) {
+    // Not expected in practice, but the encoder must not crash or drop the
+    // separators themselves on unusual input.
+    EXPECT_EQ(dt_detail::url_encode_ftp_path("/a//b"), "/a//b");
+}
+
+// ============================================================================
+// fetch() with a space in ftp_path must reach the network layer (and fail
+// with "connection refused"-style errors against an unreachable host) rather
+// than failing immediately with CURLE_URL_MALFORMAT ("bad/illegal format")
+// from an unencoded space in the URL passed to libcurl.
+// ============================================================================
+
+TEST(DataTransportFetchTest, FtpPathWithSpaceDoesNotTriggerUrlMalformat) {
+    const auto dir = make_temp_dir("space_path_test");
+
+    // Not pre-created on disk, so Condition B cannot fire — fetch() must
+    // reach curl_easy_perform() against the real (encoded) URL.
+    FileToken tok = make_token("some group/training data.jsonl", 100);
+    DataTransport dt;
+
+    try {
+        dt.fetch(tok, "127.0.0.1", 19999, dir);
+        FAIL() << "Expected std::runtime_error (nothing listens on 19999)";
+    } catch (const std::runtime_error& e) {
+        const std::string msg = e.what();
+        EXPECT_EQ(msg.find("bad/illegal format"), std::string::npos)
+            << "ftp_path with a space triggered CURLE_URL_MALFORMAT — the space was not "
+               "percent-encoded before being handed to libcurl: "
+            << msg;
+    }
+
+    fs::remove_all(dir);
+}
+
+// ============================================================================
 // dt_detail::is_transient() — CURLcode classification
 //
 // Transient errors are worth retrying (temporary network issues).
