@@ -4,6 +4,57 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-080: RAGInference's truncateContext() Returned a *Longer* String Than Its Input for max_tokens <= 0
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 8, 2026 | RAGInference (retrieval-augmented generation context truncation) | Clamp max_chars and handle the too-small-for-an-ellipsis case explicitly |
+
+Summary:
+Found while reading `src/RAGInference.hpp`/`.cpp` end to end. `truncateContext()` computes
+`max_chars = max_tokens * 4` (a rough chars-per-token approximation) and, when the context exceeds that
+budget, returns `context.substr(0, max_chars - 3) + "..."`. When `max_tokens <= 0` (e.g.
+`RAGConfig::max_context_length` set to `0` or misconfigured negative), `max_chars - 3` is negative;
+`std::string::substr()`'s `count` parameter is `size_t`, so the negative `int` implicitly converts to a
+huge unsigned value — which `substr()` then silently clamps back down to *the entire remaining string*.
+The function ends up returning the whole, untouched context with `"..."` appended: literally longer than
+its input, the exact opposite of "truncate to fit within token limit."
+
+Reproduced directly: a 1000-character context truncated with `max_tokens=0` or `max_tokens=-5` came back
+1003 characters long (the full original plus the three-character ellipsis) instead of empty/short.
+
+Changes Made:
+
+- `truncateContext()` now returns `""` immediately when `max_chars <= 0` (no budget for any content).
+- Added an explicit `max_chars <= 3` branch (room for content but not for a 3-character ellipsis) that
+  hard-truncates without appending "...", instead of falling through to the same negative-subtraction
+  hazard.
+- Added `friend class RAGInferenceTruncateContextTest;` to `RAGInference.hpp` (mirroring the existing
+  `DataFetcherGutenbergCleaningTest` pattern in `DataFetcher.hpp`) so the private static
+  `truncateContext()` can be unit-tested directly with hand-written fixture strings, without standing up
+  a full model/document-store pipeline just to observe an internal prompt string.
+
+Verification:
+- ✅ Standalone reproduction confirmed the bug (1003-char output from a 1000-char input) and the fix
+  (empty output for `max_tokens <= 0`, correctly-truncated output otherwise) across a matrix of
+  `max_tokens` values including negative, zero, small-positive, and normal.
+- ✅ Added 5 tests to `tests/raginference_test.cpp` (`RAGInferenceTruncateContextTest` fixture):
+  `ZeroMaxTokensReturnsEmpty`, `NegativeMaxTokensReturnsEmpty`, `ResultNeverLongerThanInput`,
+  `NormalTruncationStillAddsEllipsis`, `ContextShorterThanLimitReturnsUnchanged`.
+- ✅ Before/after regression: reverted `RAGInference.cpp` to its pre-fix `HEAD` version (keeping the
+  fixed header's new friend declaration, since that's test infrastructure rather than part of the bug),
+  rebuilt `raginferenceTests`, and confirmed 3 of the 5 new tests fail with the exact predicted
+  1003-vs-1000 mismatch; restored the fix, rebuilt, and confirmed all 36 tests in `raginferenceTests`
+  pass via `ctest`.
+
+Files Changed:
+
+- `src/RAGInference.hpp`
+- `src/RAGInference.cpp`
+- `tests/raginference_test.cpp`
+
+---
+
 ### TD-079: ConversationContext's Raw-Pointer system_message Caused a Double-Free/Use-After-Free on Copy or Move
 
 | Resolution Date | Component | Resolved By |

@@ -502,3 +502,55 @@ TEST_F(RAGInferenceTest, EmptyQueryHandling) {
         { std::string response = rag->generate(""); },
         std::invalid_argument);  // TokenizerInputError inherits from invalid_argument
 }
+
+// ============================================================================
+// truncateContext() — TD-080 regression
+//
+// max_chars = max_tokens * 4 goes <= 0 when max_tokens <= 0. Passing
+// (max_chars - 3) — negative — as substr()'s unsigned `count` parameter used
+// to wrap to a huge value, which substr() silently clamps back down to the
+// *entire remaining string* — so "truncation" returned the whole untouched
+// context with "..." appended, actually *longer* than the input. Exercised
+// directly via the friend declaration since truncateContext() is private.
+// ============================================================================
+
+class RAGInferenceTruncateContextTest : public ::testing::Test {
+   protected:
+    static std::string TruncateContext(const std::string& context, int max_tokens) {
+        return RAGInference::truncateContext(context, max_tokens);
+    }
+};
+
+TEST_F(RAGInferenceTruncateContextTest, ZeroMaxTokensReturnsEmpty) {
+    std::string context(1000, 'x');
+    std::string result = TruncateContext(context, 0);
+    EXPECT_TRUE(result.empty());
+}
+
+TEST_F(RAGInferenceTruncateContextTest, NegativeMaxTokensReturnsEmpty) {
+    std::string context(1000, 'x');
+    std::string result = TruncateContext(context, -5);
+    EXPECT_TRUE(result.empty());
+}
+
+TEST_F(RAGInferenceTruncateContextTest, ResultNeverLongerThanInput) {
+    std::string context(1000, 'x');
+    for (int max_tokens : {-10, -1, 0, 1, 2, 3, 100}) {
+        std::string result = TruncateContext(context, max_tokens);
+        EXPECT_LE(result.size(), context.size())
+            << "max_tokens=" << max_tokens << " produced a result longer than the input";
+    }
+}
+
+TEST_F(RAGInferenceTruncateContextTest, NormalTruncationStillAddsEllipsis) {
+    std::string context(1000, 'x');
+    std::string result = TruncateContext(context, 100);
+    EXPECT_EQ(result.size(), 400u);
+    EXPECT_EQ(result.substr(result.size() - 3), "...");
+}
+
+TEST_F(RAGInferenceTruncateContextTest, ContextShorterThanLimitReturnsUnchanged) {
+    std::string context = "short context";
+    std::string result = TruncateContext(context, 100);
+    EXPECT_EQ(result, context);
+}

@@ -2,7 +2,7 @@
 
 // @adai-status: stable
 // @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 
 #include <memory>
@@ -93,6 +93,13 @@ class RAGInference {
      * @return std::string Truncated context
      */
     static std::string truncateContext(const std::string& context, int max_tokens);
+
+    // Grants tests/raginference_test.cpp direct access to the private
+    // truncateContext() helper so its edge cases (max_tokens <= 0) can be
+    // unit-tested with hand-written fixture strings, without widening the
+    // public API surface or standing up a full model/document-store pipeline
+    // just to observe an internal prompt string.
+    friend class RAGInferenceTruncateContextTest;
 
    public:
     /**

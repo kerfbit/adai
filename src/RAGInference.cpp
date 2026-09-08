@@ -1,6 +1,6 @@
 // @adai-status: stable
 // @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 #include "RAGInference.hpp"
 #include <algorithm>
@@ -67,8 +67,23 @@ std::string RAGInference::truncateContext(const std::string& context, int max_to
     // For now, we use a rough approximation: ~4 chars per token
     int max_chars = max_tokens * 4;
 
+    // max_tokens <= 0 leaves no room for any content at all.
+    if (max_chars <= 0) {
+        return "";
+    }
+
     if (static_cast<int>(context.length()) <= max_chars) {
         return context;
+    }
+
+    // Not enough room for a 3-character "..." suffix — hard-truncate instead.
+    // (Without this, `max_chars - 3` would go negative and, once implicitly
+    // converted to substr()'s unsigned `count` parameter, wrap to a huge
+    // value that substr() silently clamps back down to the *entire* string —
+    // i.e. "truncation" would instead return the whole untruncated context
+    // with "..." appended, longer than the original.)
+    if (max_chars <= 3) {
+        return context.substr(0, static_cast<size_t>(max_chars));
     }
 
     // Truncate and add ellipsis
