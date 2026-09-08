@@ -2,7 +2,7 @@
 
 // @adai-status: beta        (capped by TD-033 — GPU dispatch still round-trips per op, see TECHNICAL_DEBT.md)
 // @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 
 #include <cmath>

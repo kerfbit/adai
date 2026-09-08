@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-033 — GPU dispatch still round-trips per op, see TECHNICAL_DEBT.md)
 // @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 #include "Matrix.hpp"
 #include <iomanip>
@@ -41,8 +41,15 @@ Matrix::Matrix(int r, int c) : rows(r), cols(c) {
 }
 
 // Constructor from existing data
+// Initializer list is written in declaration order (data, rows, cols) — cols's
+// initializer reads rows, and member init order follows declaration order, not
+// the order written here, regardless. Previously written as
+// `cols(...), rows(...)` (cols before rows): happened to still work only
+// because rows is declared before cols in Matrix.hpp, but triggered -Wreorder
+// and would have silently read an indeterminate rows if that declaration order
+// were ever changed. Reordered defensively; no behavior change.
 Matrix::Matrix(const std::vector<std::vector<float>>& d)
-    : data(d), cols((rows > 0) ? d[0].size() : 0), rows(d.size()) {
+    : data(d), rows(d.size()), cols((rows > 0) ? d[0].size() : 0) {
     // Validate that all rows have the same number of columns
     for (const auto& row : data) {
         if (row.size() != cols) {
