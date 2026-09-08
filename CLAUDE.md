@@ -285,3 +285,4 @@ trusting a `grep TD-NNN` alone. Currently active items:
 | TD-014 | Missing standalone tooling (quantization, eval, data-prep binaries) |
 | TD-006 | Fill-in-the-Middle (FIM) training data generation not implemented |
 | TD-040 | `RegistryServer::handle_acquire()`'s FTP-token path has no containment check (unlike its own `handle_delete()`) — a pending entry outside `data_dir` mints a real FTP token whose path escapes `data_dir` via `../` segments |
+| TD-064 | `paralleldataloaderTests` hung indefinitely under a full-suite `ctest -j8` run; root cause not found despite extensive reproduction attempts (including TSan). A blanket `TIMEOUT 1200` on all registered tests (`tests/CMakeLists.txt`) mitigates the CI blast radius, but the underlying hang is unresolved. |

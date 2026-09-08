@@ -889,4 +889,19 @@ add_test(NAME IncrementalTrainerControlTests COMMAND incrementalTrainerControlTe
 # are covered above (TrainerControlStateTests, IncrementalTrainerControlTests)
 # instead of duplicating the loop's control flow against fabricated state.
 
+# TD-064: no test in this file had a TIMEOUT property, so ctest had no way to
+# bound a hung test — confirmed the hard way when paralleldataloaderTests hung
+# for ~9 hours under a full `ctest -j8` run (both its threads genuinely
+# blocked in futex_wait_queue per /proc, 0% CPU — a real, if not yet
+# root-caused, intermittent hang, not a busy-spin). 1200s (20 min) is chosen
+# with headroom above the slowest legitimately-long suites observed in this
+# same run (EncoderDecoderTests ~623s, IncrementalTrainerTests ~531s,
+# RAGBERTComparisonTests ~508s), so a genuine hang now fails loudly within a
+# bounded time instead of blocking a CI run indefinitely. Set last so it
+# applies to every test already registered above.
+get_property(_adai_all_tests DIRECTORY PROPERTY TESTS)
+if(_adai_all_tests)
+    set_tests_properties(${_adai_all_tests} PROPERTIES TIMEOUT 1200)
+endif()
+
 message(STATUS "Configured 57+ test suites using library targets (including Config, Logger, IncrementalTrainer, LLMEncoder, DocumentStore, RAGInference, BatchProcessor, ParallelDataLoader, IntegratedInferenceEngine, PipelineInferenceEngine, BatchedInferenceEngine, SpeculativeDecoding, VocabBuilder, ChatbotAPI, ChatbotTrainer, GenerationQuality, GenerationQualityAsync, PaddingEfficiency, AdaptiveClipping, ModelSerializer, StaleDetection, BackgroundLaunch, integration, RAG/BERT comparison, Phase 5, DatasetRegistry, DatasetRegistryLive, DataFetcher, FtpDataServer, DataTransport, DataTransportFtp, StartupSweep, TrainingSampleMeta, and TrainerAdminAPI tests)")
