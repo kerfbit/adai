@@ -4,6 +4,41 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-067: DatasetRegistry's Legacy mark_trained() Overload Left Trained Files in the Pending Queue
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 8, 2026 | Training / Data Management | Added the same `pending_` cleanup the run_id overload already has |
+
+Summary:
+Found while reading `src/DatasetRegistry.cpp` end to end. `DatasetRegistry` has two `mark_trained()`
+overloads: the newer Phase 9 `mark_trained(run_id, paths, sample_counts)` (used by every real
+production call site — `IncrementalTrainingTool.cpp`, `IncrementalTrainer.cpp`) correctly removes the
+now-trained paths from the in-memory `pending_` queue after recording them. The older 2-arg
+`mark_trained(paths, sample_counts)` overload — which predates the Phase 9 run-based API and is no
+longer called by any production code, only by tests — never got the same cleanup added, leaving a
+file simultaneously marked trained *and* still listed as pending. That's a state `add_file()` itself
+already refuses to create directly (it declines to re-add a file that `is_trained()` returns true
+for), so a caller of this overload for a file already in `pending_` would end up with exactly the
+inconsistent state the rest of the class works to prevent. No test exercised the add-then-mark-trained
+sequence for this overload, so the asymmetry went unnoticed.
+
+Changes Made:
+
+- `mark_trained(paths, sample_counts)` now removes the newly-trained paths from `pending_`,
+  mirroring the run_id overload's existing logic.
+
+Verification:
+- ✅ Added `DatasetRegistryTest.MarkTrainedRemovesFileFromPending`: adds a file (making it pending),
+  marks it trained, and asserts it's reported trained and no longer pending. Fails without the fix
+  (file remains in `pending_files()`), passes with it.
+- ✅ Full `datasetRegistryTests` suite: 51/51 pass.
+
+Files Changed:
+
+- `src/DatasetRegistry.cpp`
+- `tests/DatasetRegistryTests.cpp`
+
 ### TD-066: TextGenerator's Repetition Penalty Compounded Per-Occurrence Instead of Per-Token
 
 | Resolution Date | Component | Resolved By |

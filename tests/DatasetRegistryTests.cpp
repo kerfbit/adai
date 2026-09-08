@@ -444,6 +444,21 @@ TEST_F(DatasetRegistryTest, MarkTrainedSkipsDuplicateEntry) {
     EXPECT_EQ(reg.trained_files().size(), 1u);
 }
 
+// TD-067 regression: the 2-arg mark_trained() overload used to leave a
+// now-trained file sitting in pending_ — only the Phase 9 run_id overload
+// cleared it. A file that's both pending and trained is a nonsensical state
+// (add_file() itself refuses to re-add an already-trained file).
+TEST_F(DatasetRegistryTest, MarkTrainedRemovesFileFromPending) {
+    DatasetRegistry reg(make_cfg());
+    ASSERT_TRUE(reg.add_file(data_file_));
+    ASSERT_EQ(reg.pending_files().size(), 1u);
+
+    reg.mark_trained({data_file_}, {10});
+
+    EXPECT_TRUE(reg.is_trained(data_file_));
+    EXPECT_TRUE(reg.pending_files().empty());
+}
+
 // ============================================================================
 // total_samples_trained
 // ============================================================================

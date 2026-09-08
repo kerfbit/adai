@@ -1,6 +1,6 @@
 // @adai-status: stable
 // @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 #include "DatasetRegistry.hpp"
 #include <algorithm>
@@ -277,6 +277,17 @@ void DatasetRegistry::mark_trained(const std::vector<std::string>& paths,
                                    const std::vector<int>& sample_counts) {
     build_new_versions(paths, sample_counts, registry_, trained_set_);
     save_registry();  // calls transport_->save_registry(registry_) for LocalTransport
+
+    // TD-067 (fixed): this overload used to leave now-trained files sitting in
+    // pending_ — the Phase 9 run_id overload below already does this cleanup,
+    // but this older overload predates it and was never brought in line. No
+    // production caller currently uses this overload (only tests), but the
+    // asymmetry was a live trap for the next one that does.
+    const std::set<std::string> trained_now(paths.begin(), paths.end());
+    pending_.erase(
+        std::remove_if(pending_.begin(), pending_.end(),
+                       [&](const PendingEntry& e) { return trained_now.count(e.path) > 0; }),
+        pending_.end());
 }
 
 // Phase 9 overload — atomic for both local (flock) and remote (POST /trained).
