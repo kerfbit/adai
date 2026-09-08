@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-038 — tested but not wired into any shipped binary)
 // @adai-version: 0.7.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 /**
  * @file IntegratedInferenceEngine.hpp
@@ -323,6 +323,23 @@ class IntegratedInferenceEngine {
 
             if (got_request) {
                 request.batch_time = std::chrono::steady_clock::now();
+                if (pending_requests.empty()) {
+                    // TD-073 (fixed): batch_deadline was only ever reset
+                    // *after* a successful emit, so it stayed stale
+                    // (initialized once at thread start) through any idle
+                    // period. The first request to arrive after such a
+                    // period found now() already past that stale deadline
+                    // and was emitted alone immediately, instead of
+                    // starting a fresh batch_timeout_ms accumulation
+                    // window — defeating batching for exactly the request
+                    // that should have anchored the next batch. Verified
+                    // with a standalone simulation of this control flow:
+                    // two requests 5ms apart (well within a 50ms timeout)
+                    // landed in two separate batches of 1 before this fix,
+                    // one batch of 2 after it.
+                    batch_deadline =
+                        request.batch_time + std::chrono::milliseconds(config_.batch_timeout_ms);
+                }
                 pending_requests.push_back(std::move(request));
             }
 

@@ -4,6 +4,54 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-073: IntegratedInferenceEngine's Batcher Emitted the First Request of Every Window Alone
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 8, 2026 | Inference / Batching (not shipped — see TD-038) | Reset `batch_deadline` when the first request of a new window arrives |
+
+Summary:
+Found while reading `src/IntegratedInferenceEngine.hpp` end to end. `batcher_worker()`'s
+`batch_deadline` — meant to give a `batch_timeout_ms` window to accumulate requests into one batch —
+was only ever reset to `now() + batch_timeout_ms` *after* a batch was successfully emitted. It was
+otherwise initialized once, at thread start, and never touched while `pending_requests` sat empty
+during any idle period. The very first request to arrive after such a period found `now()` already
+past that stale deadline and was emitted alone immediately as a batch of 1, instead of starting a
+fresh accumulation window — defeating the entire point of batching for exactly the request that
+should have anchored the next batch. Any request arriving shortly after (well within the configured
+timeout) landed in a separate batch instead of being merged with it.
+
+Verified with a standalone Python simulation of `batcher_worker()`'s exact control flow (mirroring
+the technique used earlier for TD-062): after a simulated idle period, two requests submitted 5ms
+apart — well within a 50ms `batch_timeout_ms` — were emitted as two separate batches of 1 before the
+fix, and as a single batch of 2 after it.
+
+This engine is `@adai-status: beta`, capped by [TD-038](../guides/TECHNICAL_DEBT.md#td-038-advanced-features-tested-in-isolation-never-wired-into-a-shipped-binary)
+(tested in isolation, never wired into any shipped binary), so the bug currently has no production
+impact. It has dedicated tests (`integratedinferenceengine_test.cpp`), but — consistent with TD-038's
+description — none of them exercise the actual threaded `submit()` pipeline (all lifecycle tests use
+null model pointers and never submit a real request, since doing so requires a fully working
+encoder/decoder/LM-head chain that neither this test file nor its `PipelineInferenceEngine`/
+`BatchedInferenceEngine` siblings currently construct). A full end-to-end regression test was judged
+disproportionate new test infrastructure for a currently-unreachable code path; the standalone
+simulation is the appropriate verification level here, matching how earlier timing/loop-logic bugs in
+this session (e.g. TD-062) were primarily verified.
+
+Changes Made:
+
+- `batcher_worker()` now resets `batch_deadline` to `now() + batch_timeout_ms` at the moment a request
+  is added to a previously-empty `pending_requests`, so every accumulation window is anchored to when
+  it actually started rather than to a stale prior deadline.
+
+Verification:
+- ✅ Standalone simulation confirmed the bug and the fix (see Summary).
+- ✅ Full `integratedinferenceengineTests`: 47/47 pass (unaffected — none of them exercise this timing
+  path, confirming the gap this fix addresses).
+
+Files Changed:
+
+- `src/IntegratedInferenceEngine.hpp`
+
 ### TD-072: ChatbotCLI's /set Command Crashed the Whole Interactive Session on a Typo
 
 | Resolution Date | Component | Resolved By |
