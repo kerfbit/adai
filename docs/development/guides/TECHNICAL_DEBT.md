@@ -244,6 +244,22 @@ Neither the CPU nor the GPU decode path has a working incremental KV-cache. On C
 Action Items:
 
 - [ ] Root-cause the existing CPU `DecoderKVCache` correctness bug (self-attention and/or cross-attention cache indexing) in `src/KVCache.hpp` / `src/Decoder.cpp` `forward_with_cache()` before building the GPU equivalent on top of the same flawed model.
+      Partial progress (September 8, 2026, from a full end-to-end read of `KVCache.hpp`): traced and
+      hand-verified as mathematically consistent between the cached and non-cached paths (i.e. ruled out
+      as the source of the divergence) — `KVCache::append()`'s row-wise concatenation;
+      `LLMDecoder::forward_with_cache()`'s inline positional-encoding reimplementation (its odd-index
+      exponent `(i-1)/d_model` is algebraically identical to the canonical `PositionalEncoding.cpp`'s
+      `2*(i/2)/d_model` for odd `i`, since integer `i/2` floors); its causal-mask construction for the
+      new-tokens-only query range; `LayerNorm::forward()`'s per-row independence (so normalizing a
+      single new token in isolation is provably identical to normalizing that same row within a full
+      batch); and `CrossAttention::forward_with_cache()`'s cache-encoder-K/V-once-then-reuse logic. The
+      already-tracked TD-059 (missing per-head split) is present in both `MultiHeadAttention::forward()`
+      and `forward_with_cache()` identically, so it cannot itself be the source of a cached-vs-uncached
+      *divergence* (it would produce equally-wrong-but-matching output in both modes) — it's a candidate
+      to fix incidentally while in this code, not the TD-050 root cause. Not yet checked: an actual
+      multi-step incremental-decode-vs-single-shot-full-recompute numerical comparison with identical
+      weights (the only way to confirm the bug is still live at all, and if so, localize which step
+      first diverges) — this is the next concrete step, not yet attempted.
 - [ ] Design a GPU-resident cache type (e.g. `GPUKVCache`) holding persistent per-layer `GPUMatrix` key/value buffers in `src/gpu/sycl/MatrixGPU_SYCL.hpp`, sized for `max_seq_length` and appended to in-place as new tokens are generated (no per-step malloc_device/free churn).
 - [ ] Add incremental self-attention kernels that compute Q/K/V for only the newest token(s) and attend against the full cached K/V (mirrors the CPU cache's intent), plus a one-time cross-attention K/V cache populated from the encoder output and reused unchanged across all decode steps.
 - [ ] Add `LLMDecoder::gpu_decode_step()` (single-token incremental decode using the cache) alongside the existing full-sequence `gpu_decode()` (retained for training's teacher-forced forward pass, which doesn't need a cache).
