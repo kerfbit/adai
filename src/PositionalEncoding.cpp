@@ -1,8 +1,9 @@
 // @adai-status: stable
 // @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 #include "PositionalEncoding.hpp"
+#include <algorithm>
 #include <iomanip>
 #include <iostream>
 #include <stdexcept>

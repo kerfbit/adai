@@ -2,7 +2,7 @@
 
 // @adai-status: stable
 // @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 // ============================================================================
 // SIMD platform detection and helper utilities for Matrix operations.
