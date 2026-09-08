@@ -54,6 +54,11 @@ add_executable(positionalencodingTests positionalencoding_test.cpp)
 target_link_libraries(positionalencodingTests adai_layers GTest::gtest_main)
 add_test(NAME PositionalEncodingTests COMMAND positionalencodingTests)
 
+# SpecialTokens tests (header-only; no adai lib dependency)
+add_executable(specialtokensTests specialtokens_test.cpp)
+target_link_libraries(specialtokensTests GTest::gtest_main)
+add_test(NAME SpecialTokensTests COMMAND specialtokensTests)
+
 # TokenEmbedding tests
 add_executable(tokenembeddingTests tokenembedding_test.cpp)
 target_link_libraries(tokenembeddingTests adai_layers GTest::gtest_main)
@@ -641,6 +646,20 @@ if(TARGET adai_mns)
         )
         add_test(NAME MnsManagerGuiTests COMMAND mnsManagerGuiTests)
     endif()
+
+    # ModelNameClient unit tests — spins up a real httplib::Server standing in
+    # for mns_server and verifies both request construction and response parsing.
+    add_executable(modelnameclientTests modelnameclient_test.cpp)
+    target_include_directories(modelnameclientTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(modelnameclientTests
+        adai_mns
+        adai_core
+        GTest::gtest_main
+    )
+    if(HTTPLIB_INCLUDE_DIR)
+        target_include_directories(modelnameclientTests PRIVATE ${HTTPLIB_INCLUDE_DIR})
+    endif()
+    add_test(NAME ModelNameClientTests COMMAND modelnameclientTests)
 endif()
 
 # TD-017: Adaptive gradient clipping tests (TrainingMetricsService)

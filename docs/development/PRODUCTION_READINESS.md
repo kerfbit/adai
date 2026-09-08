@@ -12,10 +12,10 @@ See [file-status-standard.md](guides/file-status-standard.md) for what these sta
 |---|---|---|---|---|---|---|---|
 | android | 0 | 41 | 62 | 0 | 0 | 0 | 103 |
 | scripts | 2 | 33 | 6 | 0 | 0 | 0 | 41 |
-| src | 73 | 56 | 3 | 0 | 0 | 0 | 132 |
+| src | 79 | 50 | 3 | 0 | 0 | 0 | 132 |
 | tizen-metrics-app | 0 | 3 | 0 | 0 | 0 | 0 | 3 |
 
-**75/279 files (27%) are tagged `stable`.**
+**81/279 files (29%) are tagged `stable`.**
 
 ## Untagged files
 
@@ -183,7 +183,6 @@ None — every in-scope file carries a tag.
 | `src/DatasetManagerTool.cpp` | beta | 0.8.0 | 2026-09-07 | — |
 | `src/Decoder.cpp` | beta | 0.9.0 | 2026-09-07 | TD-030 |
 | `src/Decoder.hpp` | beta | 0.9.0 | 2026-09-07 | TD-030 |
-| `src/EfficientBatching.hpp` | beta | 0.7.0 | 2026-09-07 | — |
 | `src/EncoderDecoderModel.cpp` | beta | 0.9.0 | 2026-09-07 | TD-030 |
 | `src/EncoderDecoderModel.hpp` | beta | 0.9.0 | 2026-09-07 | TD-030 |
 | `src/FtpDataServer.hpp` | beta | 0.8.0 | 2026-09-07 | — |
@@ -199,24 +198,19 @@ None — every in-scope file carries a tag.
 | `src/MnsManagerGUI.cpp` | beta | 0.7.0 | 2026-09-07 | — |
 | `src/MnsManagerGUI.hpp` | beta | 0.7.0 | 2026-09-07 | — |
 | `src/MnsManagerGUI_main.cpp` | beta | 0.7.0 | 2026-09-07 | — |
-| `src/ModelNameClient.cpp` | beta | 0.8.0 | 2026-09-07 | — |
-| `src/ModelNameClient.hpp` | beta | 0.8.0 | 2026-09-07 | — |
 | `src/ModelNameServiceServer.cpp` | beta | 0.8.0 | 2026-09-07 | — |
 | `src/MultiHeadAttention.cpp` | beta | 0.9.0 | 2026-09-07 | TD-030 |
 | `src/MultiHeadAttention.hpp` | beta | 0.9.0 | 2026-09-07 | TD-030 |
 | `src/PPOOptimizer.hpp` | experimental | 0.2.0 | 2026-09-07 | TD-034 |
-| `src/PerformanceProfiler.hpp` | beta | 0.6.0 | 2026-09-07 | — |
+| `src/PerformanceProfiler.hpp` | beta | 0.7.0 | 2026-09-07 | — |
 | `src/PipelineInferenceEngine.hpp` | beta | 0.7.0 | 2026-09-07 | — |
 | `src/PostgresMetricsDatabase.cpp` | experimental | 0.3.0 | 2026-09-07 | — |
 | `src/PostgresMetricsDatabase.hpp` | experimental | 0.3.0 | 2026-09-07 | — |
 | `src/Quantization.hpp` | beta | 0.7.0 | 2026-09-07 | — |
-| `src/RAGInference.cpp` | beta | 0.8.0 | 2026-09-07 | — |
-| `src/RAGInference.hpp` | beta | 0.8.0 | 2026-09-07 | — |
+| `src/RAGInference.cpp` | beta | 0.8.0 | 2026-09-07 | TD-029 |
+| `src/RAGInference.hpp` | beta | 0.8.0 | 2026-09-07 | TD-029 |
 | `src/RegistryServer.cpp` | beta | 0.8.0 | 2026-09-07 | — |
 | `src/RewardModel.hpp` | beta | 0.7.0 | 2026-09-07 | — |
-| `src/SQLiteMetricsDatabase.cpp` | beta | 0.9.0 | 2026-09-07 | — |
-| `src/SQLiteMetricsDatabase.hpp` | beta | 0.9.0 | 2026-09-07 | — |
-| `src/SpecialTokens.hpp` | beta | 0.8.0 | 2026-09-07 | — |
 | `src/SpeculativeDecoding.hpp` | beta | 0.7.0 | 2026-09-07 | — |
 | `src/TrainingMetricsAPI.cpp` | beta | 0.9.0 | 2026-09-07 | — |
 | `src/TrainingMetricsAPI.hpp` | beta | 0.9.0 | 2026-09-07 | — |

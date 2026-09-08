@@ -1,7 +1,7 @@
 #pragma once
 
-// @adai-status: beta        (tested only indirectly via mns_manager_gui_test.cpp)
-// @adai-version: 0.8.0
+// @adai-status: stable
+// @adai-version: 1.0.0
 // @adai-reviewed: 2026-09-07
 
 

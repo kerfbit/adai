@@ -1,5 +1,5 @@
-// @adai-status: beta        (no dedicated test file)
-// @adai-version: 0.7.0
+// @adai-status: stable
+// @adai-version: 1.0.0
 // @adai-reviewed: 2026-09-07
 
 /**

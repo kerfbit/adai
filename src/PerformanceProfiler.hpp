@@ -1,7 +1,7 @@
 #pragma once
 
-// @adai-status: beta        (no dedicated test file)
-// @adai-version: 0.6.0
+// @adai-status: beta        (tested — see PerformanceProfilerTest in inference_optimization_test.cpp — but not wired into any shipped binary yet)
+// @adai-version: 0.7.0
 // @adai-reviewed: 2026-09-07
 
 

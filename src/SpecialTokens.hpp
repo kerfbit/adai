@@ -1,8 +1,8 @@
 #ifndef SPECIAL_TOKENS_HPP
 #define SPECIAL_TOKENS_HPP
 
-// @adai-status: beta        (no dedicated test file — covered only indirectly via BPETokenizer tests)
-// @adai-version: 0.8.0
+// @adai-status: stable
+// @adai-version: 1.0.0
 // @adai-reviewed: 2026-09-07
 
 

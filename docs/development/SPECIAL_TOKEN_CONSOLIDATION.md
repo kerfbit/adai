@@ -60,7 +60,9 @@ config.validate();  // Ensures IDs are valid and unique
 
 ### 3. Testing
 
-Created comprehensive test suite in `test_special_tokens_header.cpp` covering:
+Comprehensive test suite in `tests/specialtokens_test.cpp` (registered as `specialtokensTests` /
+`SpecialTokensTests` in `tests/CMakeLists.txt` — runs under `ctest` like every other test in the
+suite) covering:
 
 - ✅ Constant definitions
 - ✅ Configuration struct
@@ -138,7 +140,7 @@ bool is_special = is_special_token(12, custom);  // true (custom BOS)
 ## Files Created
 
 1. **`src/SpecialTokens.hpp`** - Main header-only library (380 lines)
-2. **`test_special_tokens_header.cpp`** - Comprehensive test suite (240 lines)
+2. **`tests/specialtokens_test.cpp`** - Comprehensive GTest suite
 
 ## Locations of Special Token Usage
 
@@ -172,12 +174,8 @@ To migrate existing code to use the new header:
 Run the test suite:
 
 ```bash
-cd /home/rodney/Repos/adai
-g++ -std=c++17 -I./src -o test_special_tokens_header test_special_tokens_header.cpp
-./test_special_tokens_header
+cd build/debug && ctest -R SpecialTokensTests --output-on-failure
 ```
-
-Expected output: All tests should pass with ✅ indicator.
 
 ## Standard Token Definitions
 
