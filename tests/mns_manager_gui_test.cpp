@@ -92,6 +92,14 @@ TEST(MnsJsonValue, HandlesNullValue) {
     EXPECT_EQ("null", json_value(body, "retired"));
 }
 
+// TD-068 regression: an escaped quote inside a string value used to
+// terminate the value early (find('"', ...) has no escape awareness).
+TEST(MnsJsonValue, HandlesEscapedQuoteInStringValue) {
+    std::string body = R"({"reason":"she said \"hello\" to me","name":"test"})";
+    EXPECT_EQ("she said \\\"hello\\\" to me", json_value(body, "reason"));
+    EXPECT_EQ("test", json_value(body, "name"));
+}
+
 // ---------------------------------------------------------------------------
 // json_array_objects
 // ---------------------------------------------------------------------------
@@ -137,6 +145,24 @@ TEST(MnsJsonArrayObjects, HandlesNoKeyTopLevelArray) {
     std::string body = R"([{"a":1},{"b":2}])";
     auto objs = json_array_objects(body, "nonexistent");
     ASSERT_EQ(2u, objs.size());
+}
+
+// TD-068 regression: a literal '{' or '}' inside a string value (e.g. a
+// tags/label field an admin typed) used to desynchronize the depth counter,
+// corrupting that object and every object parsed after it in the array.
+TEST(MnsJsonArrayObjects, StrayBraceInStringValueDoesNotCorruptParsing) {
+    std::string body =
+        R"({"models":[)"
+        R"({"name":"good","tags":{"note":"ok"}},)"
+        R"({"name":"bad","tags":{"note":"see } section 3"}},)"
+        R"({"name":"third","tags":{}})"
+        R"(]})";
+    auto objs = json_array_objects(body, "models");
+    ASSERT_EQ(3u, objs.size());
+    EXPECT_EQ("good", json_value(objs[0], "name"));
+    EXPECT_EQ("bad", json_value(objs[1], "name"));
+    EXPECT_EQ("see } section 3", json_value(objs[1], "note"));
+    EXPECT_EQ("third", json_value(objs[2], "name"));
 }
 
 // ---------------------------------------------------------------------------

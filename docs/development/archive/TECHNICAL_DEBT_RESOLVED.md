@@ -4,6 +4,55 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-068: MnsManagerGUI's JSON Array Parser Corrupted Records on a Stray Brace in a String Value
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 8, 2026 | GUI / MNS Manager | String-aware brace/quote scanning in `MnsJsonHelpers.hpp` |
+
+Summary:
+Found while reading `src/MnsManagerGUI.cpp` and its shared `src/MnsJsonHelpers.hpp` end to end.
+`json_array_objects()` — used to populate both the "Models" and "Roles" tables — counted `{`/`}`
+characters unconditionally to find each object's boundaries, with no awareness of whether it was
+inside a JSON string literal. A model's free-form `tags` map (admin-entered `key=value` pairs) or any
+other string field containing a literal `{` or `}` character (e.g. a tag value like `"see } section
+3"`) desynchronized the depth counter — not just for that one object, but for **every object parsed
+after it** in the same array, since the counter never returns to a consistent state. `json_value()`
+had the same class of gap: it found the closing quote of a string value via a plain `find('"', ...)`
+with no awareness of backslash-escapes, so a value containing an escaped quote (`\"`) was truncated
+at the escape.
+
+Reproduced with a standalone program: a 3-model `/models` response where the middle model's `tags`
+contained a stray `}` inside a string value. Before the fix, the middle object was truncated early
+and the third (real, unrelated) model's row was replaced by a corrupted, empty `{}` fragment — in the
+GUI this would silently make a real model disappear from the table and show wrong/truncated data,
+with no error or warning of any kind.
+
+Changes Made:
+
+- Added a shared `find_string_end()` helper that scans for a JSON string's closing quote while
+  skipping backslash-escaped characters.
+- `json_value()` now uses it when extracting a quoted value, fixing the escaped-quote truncation.
+- `json_array_objects()` now skips over string content entirely (using the same helper) before
+  testing a character for `{`/`}`/`]`, so only structural braces are counted — matching the
+  string-awareness `json_pretty()` in the same file already had for indentation.
+
+Verification:
+- ✅ Standalone reproduction: a stray `}` inside one object's string value no longer corrupts that
+  object or any object after it — confirmed byte-for-byte correct output before vs. after the fix.
+- ✅ Added `MnsJsonValue.HandlesEscapedQuoteInStringValue` and
+  `MnsJsonArrayObjects.StrayBraceInStringValueDoesNotCorruptParsing` to
+  `tests/mns_manager_gui_test.cpp`. Confirmed both **fail** against the pre-fix code and **pass**
+  against the fix — reverted/rebuilt/re-applied to verify both directions.
+- ✅ Full `mnsManagerGuiTests` (excluding the 8 tests that require a live `mns_server`, which none of
+  this environment has running): 35/35 pass.
+- ✅ `mns_manager_gui` binary rebuilds clean.
+
+Files Changed:
+
+- `src/MnsJsonHelpers.hpp`
+- `tests/mns_manager_gui_test.cpp`
+
 ### TD-067: DatasetRegistry's Legacy mark_trained() Overload Left Trained Files in the Pending Queue
 
 | Resolution Date | Component | Resolved By |

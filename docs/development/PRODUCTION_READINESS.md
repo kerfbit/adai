@@ -195,7 +195,7 @@ None — every in-scope file carries a tag.
 | `src/Matrix.cpp` | beta | 0.9.0 | 2026-09-08 | TD-033 |
 | `src/Matrix.hpp` | beta | 0.9.0 | 2026-09-08 | TD-033 |
 | `src/MnsCliTool.cpp` | beta | 0.8.0 | 2026-09-07 | TD-035 |
-| `src/MnsManagerGUI.cpp` | beta | 0.7.0 | 2026-09-07 | TD-037 |
+| `src/MnsManagerGUI.cpp` | beta | 0.7.0 | 2026-09-08 | TD-037 |
 | `src/MnsManagerGUI.hpp` | beta | 0.7.0 | 2026-09-07 | TD-037 |
 | `src/MnsManagerGUI_main.cpp` | beta | 0.7.0 | 2026-09-07 | TD-036 |
 | `src/ModelNameServiceServer.cpp` | beta | 0.8.0 | 2026-09-07 | TD-035 |
