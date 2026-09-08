@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-035 — shipped as mns_cli, no dedicated test)
 // @adai-version: 0.8.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 /**
  * mns_cli — Command-line interface for the ADAI Model Name Service
