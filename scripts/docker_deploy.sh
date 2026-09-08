@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# @adai-status: experimental        (not referenced by current docs (docker.md documents docker_build.sh + docker-compose instead))
+# @adai-status: experimental        (not referenced by current docs (docker.md documents docker_build.sh + docker-compose instead); capped by TD-046 — see TECHNICAL_DEBT.md)
 # @adai-version: 0.4.0
 # @adai-reviewed: 2026-09-07
 

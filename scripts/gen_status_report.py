@@ -5,7 +5,7 @@
 Usage:
     ./scripts/gen_status_report.py
 """
-# @adai-status: beta        (validated via manual test cases this session; no formal test suite)
+# @adai-status: beta        (validated via manual test cases this session; no formal test suite; capped by TD-043 — see TECHNICAL_DEBT.md)
 # @adai-version: 0.9.0
 # @adai-reviewed: 2026-09-07
 from __future__ import annotations
@@ -36,8 +36,11 @@ def read_tag(path: Path) -> dict | None:
     m = TAG_RE.search(header)
     if not m:
         return None
-    line = next((l for l in header.splitlines() if "@adai-status" in l), "")
-    td_ref = TD_REF_RE.search(line)
+    # Use the matched span's own first line, not a substring search over the whole
+    # header — a file whose docstring mentions "@adai-status" (like this script and
+    # check_file_status.py do) would otherwise match that line instead of the real tag.
+    status_line = header[m.start():].splitlines()[0]
+    td_ref = TD_REF_RE.search(status_line)
     return {
         "status": m.group("status"),
         "version": m.group("version"),

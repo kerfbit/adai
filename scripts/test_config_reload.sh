@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# @adai-status: beta
+# @adai-status: beta        (capped by TD-044 — see TECHNICAL_DEBT.md)
 # @adai-version: 0.7.0
 # @adai-reviewed: 2026-09-07
 

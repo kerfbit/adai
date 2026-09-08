@@ -10,7 +10,7 @@ Usage:
     ./scripts/check_file_status.py --changed --strict  # PR-gating mode
     ./scripts/check_file_status.py --changed HEAD~5     # custom base ref
 """
-# @adai-status: beta        (validated via manual test cases this session; no formal test suite)
+# @adai-status: beta        (validated via manual test cases this session; no formal test suite; capped by TD-043 — see TECHNICAL_DEBT.md)
 # @adai-version: 0.9.0
 # @adai-reviewed: 2026-09-07
 from __future__ import annotations

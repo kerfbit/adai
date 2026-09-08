@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# @adai-status: experimental        (one-off codemod for a specific past clang-tidy cleanup)
+# @adai-status: experimental        (one-off codemod for a specific past clang-tidy cleanup; capped by TD-046 — see TECHNICAL_DEBT.md)
 # @adai-version: 0.3.0
 # @adai-reviewed: 2026-09-07
 

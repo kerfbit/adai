@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# @adai-status: experimental        (not called by install_server_bundle.sh and not documented — registry_server install is now handled there directly)
+# @adai-status: experimental        (not called by install_server_bundle.sh and not documented — registry_server install is now handled there directly; capped by TD-046 — see TECHNICAL_DEBT.md)
 # @adai-version: 0.3.0
 # @adai-reviewed: 2026-09-07
 

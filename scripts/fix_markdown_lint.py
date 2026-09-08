@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# @adai-status: beta        (general repo-maintenance utility, no test)
+# @adai-status: beta        (general repo-maintenance utility, no test; capped by TD-045 — see TECHNICAL_DEBT.md)
 # @adai-version: 0.6.0
 # @adai-reviewed: 2026-09-07
 

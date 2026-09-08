@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# @adai-status: beta        (documented in CLAUDE.md; no automated test of the script itself)
+# @adai-status: beta        (documented in CLAUDE.md; no automated test of the script itself; capped by TD-043 — see TECHNICAL_DEBT.md)
 # @adai-version: 0.8.0
 # @adai-reviewed: 2026-09-07
 

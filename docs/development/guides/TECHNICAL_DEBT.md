@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** September 7, 2026
-**Total Items:** 15
+**Total Items:** 22
 **High Priority:** 0
-**Medium Priority:** 6
-**Low Priority:** 9
+**Medium Priority:** 9
+**Low Priority:** 13
 **Future Enhancements:** 19
 **Resolved Items:** 32
 **Deferred Decisions:** 1
@@ -33,6 +33,13 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [TD-040: FtpDataServer's Auth Path Unreviewed; RegistryServer Untested in Isolation](#td-040-ftpdataservers-auth-path-unreviewed-registryserver-untested-in-isolation)
   - [TD-041: GPUUtils Has No Dedicated Test on Either Backend](#td-041-gpuutils-has-no-dedicated-test-on-either-backend)
   - [TD-042: PostgresMetricsDatabase Has Zero Test Coverage](#td-042-postgresmetricsdatabase-has-zero-test-coverage)
+  - [TD-043: Deployment-Critical Scripts Have No Automated Test](#td-043-deployment-critical-scripts-have-no-automated-test)
+  - [TD-044: Manual-QA Launcher Scripts Have No Automated Test](#td-044-manual-qa-launcher-scripts-have-no-automated-test)
+  - [TD-045: Standalone Dev-Utility Scripts Have No Test or Integration](#td-045-standalone-dev-utility-scripts-have-no-test-or-integration)
+  - [TD-046: Orphaned/Superseded Scripts Should Be Removed or Reconciled](#td-046-orphanedsuperseded-scripts-should-be-removed-or-reconciled)
+  - [TD-047: Android Data/Repository/API Layer Has No CI or Release History](#td-047-android-datarepositoryapi-layer-has-no-ci-or-release-history)
+  - [TD-048: Android UI/DI/Entry-Point Classes Are Untested and Unreleased](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
+  - [TD-049: No JS Test Framework for the Tizen TV App](#td-049-no-js-test-framework-for-the-tizen-tv-app)
 - [Resolved Items](#resolved-items) (32 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -547,6 +554,212 @@ Files to Modify:
 
 ---
 
+### TD-043: Deployment-Critical Scripts Have No Automated Test
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Scripts / Tooling | September 7, 2026 | 14-20 hours |
+
+Description:
+16 scripts that the project actually depends on for building, packaging, and deploying — every
+`install_*.sh`, `package_*.sh`/`package-sycl.sh`, `build_windows.sh`, `docker_build.sh`,
+`model_service.sh`, plus `check_tech_debt.sh`, `run_tests.sh`, and this standard's own
+`check_file_status.py`/`gen_status_report.py` — have no automated test of the script itself.
+Several are documented as the sanctioned way to do something (`CLAUDE.md`, `SERVER_BUNDLE_DEPLOYMENT.md`)
+but nothing verifies the script's own argument parsing, error handling, or output stays correct
+across changes.
+
+Action Items:
+
+- [ ] Add a lightweight test harness for shell scripts (e.g. bats-core or a plain
+  assert-and-diff wrapper) and wire it into `ctest` or a dedicated CI job.
+- [ ] For the two Python tools (`check_file_status.py`, `gen_status_report.py`), add a real
+  `pytest`/`unittest` suite — they currently rely only on the manual test cases run interactively
+  during this rollout, not anything repeatable.
+- [ ] Prioritize `install_server_bundle.sh` and `check_tech_debt.sh`/`run_tests.sh` first — the
+  most central of the sixteen.
+
+Files to Modify:
+
+- `scripts/build_windows.sh`, `scripts/docker_build.sh`, `scripts/install_chatbot_API.sh`,
+  `scripts/install_incremental_trainer.sh`, `scripts/install_metrics_service.sh`,
+  `scripts/install_mns_server.sh`, `scripts/install_oneapi_libs.sh`,
+  `scripts/install_server_bundle.sh`, `scripts/model_service.sh`, `scripts/package-sycl.sh`,
+  `scripts/package_server_bundle.sh`, `scripts/package_windows.sh`, `scripts/check_tech_debt.sh`,
+  `scripts/run_tests.sh`, `scripts/check_file_status.py`, `scripts/gen_status_report.py`
+
+---
+
+### TD-044: Manual-QA Launcher Scripts Have No Automated Test
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Scripts / Tooling | September 7, 2026 | 6-10 hours |
+
+Description:
+11 scripts covering chatbot/GUI launching and manual regression checks for already-shipped
+features (config hot-reload, log rotation, signal handling, parallel processing) — same "no
+automated test of the script itself" gap as TD-043, split out because these are lower-stakes,
+developer-facing manual QA tools rather than the deployment path.
+
+Action Items:
+
+- [ ] Same harness as TD-043, applied here once that's stood up — no need to design a second
+  approach.
+- [ ] Lower priority than TD-043; address opportunistically.
+
+Files to Modify:
+
+- `scripts/chatbot_gui_fixed.sh`, `scripts/manual_test_reload.sh`, `scripts/run_chatbot.sh`,
+  `scripts/run_chatbot_gui.sh`, `scripts/test_chatbot_gui.sh`,
+  `scripts/test_chatbot_gui_comprehensive.sh`, `scripts/test_config_reload.sh`,
+  `scripts/test_log_rotation.sh`, `scripts/test_signal_handling.sh`,
+  `scripts/verify_cli_parallel.sh`, `scripts/verify_gui_parallel.sh`
+
+---
+
+### TD-045: Standalone Dev-Utility Scripts Have No Test or Integration
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Scripts / Tooling | September 7, 2026 | 4-6 hours |
+
+Description:
+6 self-contained utility scripts (an example API client, a driver-update monitor, a markdown
+linter, a training dashboard, a static file server, a port checker) with no test and no other
+script depending on them. `check_ports.sh` additionally has a known, specific bug beyond "no
+test": its hardcoded port list (`8080 8081 8082`) omits `mns_server` (8083) and the trainer admin
+API (8084), so it under-reports what's actually listening.
+
+Action Items:
+
+- [ ] Fix `check_ports.sh`'s port list to include 8083/8084.
+- [ ] Add a minimal smoke test per script (invoke it, assert it doesn't crash) — full unit tests
+  aren't warranted for tools this small and low-stakes.
+
+Files to Modify:
+
+- `scripts/batch_api_client.py`, `scripts/check_intel_driver_updates.py`, `scripts/check_ports.sh`,
+  `scripts/fix_markdown_lint.py`, `scripts/monitor_training.py`, `scripts/serve_dashboard.py`
+
+---
+
+### TD-046: Orphaned/Superseded Scripts Should Be Removed or Reconciled
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Scripts / Cleanup | September 7, 2026 | 2-3 hours |
+
+Description:
+6 scripts that aren't a testing gap at all — they're dead weight or duplicates, found during the
+per-file rollout: `scan_todos.sh` duplicates `check_tech_debt.sh` almost line-for-line and isn't
+documented anywhere; `test_sigint.sh` is a near-identical, less-complete twin of
+`test_signal_handling.sh`; `install_registry_server.sh` isn't called by
+`install_server_bundle.sh` (which now handles `registry_server` directly) and isn't documented;
+`docker_deploy.sh` isn't referenced by current docs (`docker.md` documents `docker_build.sh` +
+`docker-compose` instead); `apply_narrowing_fixes.py` and `verify_special_token_fixes.py` are
+explicitly one-off scripts tied to a specific already-completed past fix. This item is a decision
+to make (delete vs. keep for reference), not a fix to implement.
+
+Action Items:
+
+- [ ] Confirm each is genuinely superseded (spot-checked already during the rollout — see
+  [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md)) and delete, or explicitly document why
+  it's being kept.
+
+Files to Modify:
+
+- `scripts/apply_narrowing_fixes.py`, `scripts/docker_deploy.sh`,
+  `scripts/install_registry_server.sh`, `scripts/scan_todos.sh`, `scripts/test_sigint.sh`,
+  `scripts/verify_special_token_fixes.py`
+
+---
+
+### TD-047: Android Data/Repository/API Layer Has No CI or Release History
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Android / CI | September 7, 2026 | 10-14 hours |
+
+Description:
+41 files across `android/app` (15) and `android/opsdashboard`/`android/wearsync` (26) — the
+repository/network/DTO/poller/contract layer — each have real dedicated unit tests and pass, but
+the entire Android surface landed in a single commit, both apps still declare
+`versionName = "0.1.0"`, and no CI workflow builds or tests either app. Being tested in isolation
+isn't the same as having a release process; that's the actual gap here, distinct from TD-048
+(files with no test at all).
+
+Action Items:
+
+- [ ] Add a GitHub Actions workflow building both `:app` and `:opsdashboard` and running their
+  unit tests (`./gradlew testDebugUnitTest`) — no such job currently exists anywhere in
+  `.github/workflows/`.
+- [ ] Establish a real release/versioning process before either app leaves `0.1.0`.
+
+Files to Modify:
+
+- 41 files under `android/app/src/main` and `android/opsdashboard/src/main` /
+  `android/wearsync/src/main` tagged `beta` — see [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md)
+  for the exact list.
+- `.github/workflows/` (new Android CI job)
+
+---
+
+### TD-048: Android UI/DI/Entry-Point Classes Are Untested and Unreleased
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Android / Testing | September 7, 2026 | 24-32 hours |
+
+Description:
+62 files — Compose screens, ViewModels without tests, DI containers, `Activity`/`Application`
+entry points, and the `wearcomplications` services — genuinely have zero automated coverage, on
+top of sharing TD-047's no-CI/no-release problem. `BiometricAdminAuthGate.kt` is a partial
+exception: hard to unit-test (`BiometricPrompt` needs a real `FragmentActivity`), but it was read
+manually during the rollout and appears complete — the gap there is coverage, not a known defect.
+
+Action Items:
+
+- [ ] Add ViewModel unit tests first (cheapest — no Compose/Activity needed), following the
+  pattern already established for `TrainerViewModel`, `SettingsViewModel`, etc.
+- [ ] Adopt Compose UI testing (`androidx.compose.ui.test`) for screens once ViewModels are
+  covered.
+- [ ] `BiometricAdminAuthGate.kt` specifically: consider an instrumented test using
+  `BiometricPrompt`'s test/fake authenticator support instead of leaving it permanently untested.
+
+Files to Modify:
+
+- 62 files under `android/app/src/main`, `android/opsdashboard/src/main`, and
+  `android/wearcomplications/src/main` tagged `experimental` — see
+  [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md) for the exact list.
+
+---
+
+### TD-049: No JS Test Framework for the Tizen TV App
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Tizen / Testing | September 7, 2026 | 4-6 hours |
+
+Description:
+`tizen-metrics-app/js/{app,chart,navigation}.js` have no test framework at all — unlike the rest
+of the tree, this app has never had one. All three are wired into `index.html`, iterated on over
+24 commits, and actually deployed to Samsung TV hardware, so this isn't a correctness concern,
+just a gap: nothing would catch a regression before it ships to the TV.
+
+Action Items:
+
+- [ ] Add a minimal JS test setup (e.g. a small assertion helper run via Node, or a headless
+  browser harness) for the pure-logic pieces — `chart.js`'s coordinate math and `navigation.js`'s
+  key-code mapping are the most testable without a real DOM/TV remote.
+
+Files to Modify:
+
+- `tizen-metrics-app/js/app.js`, `tizen-metrics-app/js/chart.js`,
+  `tizen-metrics-app/js/navigation.js`
+
+---
+
 ## Resolved Items
 
 32 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -944,10 +1157,10 @@ When resolving a debt item:
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|0|0%|
-|Medium|6|40%|
-|Low|9|60%|
+|Medium|9|41%|
+|Low|13|59%|
 
-**Total Active Items:** 15
+**Total Active Items:** 22
 
 ### By Component
 
@@ -967,18 +1180,23 @@ When resolving a debt item:
 |Security / Registry|1|
 |GPU / Testing|1|
 |Metrics / Testing|1|
+|Scripts / Tooling|3|
+|Scripts / Cleanup|1|
+|Android / CI|1|
+|Android / Testing|1|
+|Tizen / Testing|1|
 
 ### Effort Distribution
 
 |Effort Range|Count|
 |--------------|-------|
 |0-2 hours|1|
-|2-4 hours|3|
-|4-8 hours|3|
-|8+ hours|6|
+|2-4 hours|4|
+|4-8 hours|5|
+|8+ hours|10|
 |Not estimated|2|
 
-**Total Estimated Effort (Active Items):** 93-138 hours (excludes TD-014 and TD-039, which have no effort estimate)
+**Total Estimated Effort (Active Items):** 157-229 hours (excludes TD-014 and TD-039, which have no effort estimate)
 
 ### Future Enhancements Summary
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# @adai-status: beta        (current — see ONEAPI_SYCL_DRIVER_SEGFAULT.md)
+# @adai-status: beta        (current — see ONEAPI_SYCL_DRIVER_SEGFAULT.md; capped by TD-045 — see TECHNICAL_DEBT.md)
 # @adai-version: 0.6.0
 # @adai-reviewed: 2026-09-07
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# @adai-status: beta        (no doc reference, but self-contained and functional)
+# @adai-status: beta        (no doc reference, but self-contained and functional; capped by TD-045 — see TECHNICAL_DEBT.md)
 # @adai-version: 0.6.0
 # @adai-reviewed: 2026-09-07
 

@@ -1,6 +1,6 @@
 package com.adai.ops.data.metrics
 
-// @adai-status: beta
+// @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.4.0
 // @adai-reviewed: 2026-09-07
 

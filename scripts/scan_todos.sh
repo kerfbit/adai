@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# @adai-status: experimental        (undocumented duplicate of check_tech_debt.sh, superseded by it)
+# @adai-status: experimental        (undocumented duplicate of check_tech_debt.sh, superseded by it; capped by TD-046 — see TECHNICAL_DEBT.md)
 # @adai-version: 0.3.0
 # @adai-reviewed: 2026-09-07
 

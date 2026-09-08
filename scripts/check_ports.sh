@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# @adai-status: beta        (hardcoded port list omits mns_server (8083) and trainer admin API (8084))
+# @adai-status: beta        (hardcoded port list omits mns_server (8083) and trainer admin API (8084); capped by TD-045 — see TECHNICAL_DEBT.md)
 # @adai-version: 0.5.0
 # @adai-reviewed: 2026-09-07
 
