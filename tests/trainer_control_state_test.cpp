@@ -101,10 +101,10 @@ TEST(TrainerControlStateTest, InterruptibleSleepReturnsEarlyOnWake) {
     });
 
     // Give the sleeper a moment to actually enter the wait before waking it,
-    // so this isn't just racing a wake() that landed before wait_for() began
-    // (wait_for still catches that case via its own internal check, but this
-    // makes the test's intent — "wake interrupts an in-progress sleep" — the
-    // thing actually being exercised).
+    // so this test's intent — "wake interrupts an in-progress sleep" — is the
+    // thing actually being exercised (the separate "wake lands first" case is
+    // covered by InterruptibleSleepDoesNotMissAWakeThatArrivesBeforeItStarts
+    // below).
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     EXPECT_FALSE(awoke.load());
 
@@ -117,6 +117,31 @@ TEST(TrainerControlStateTest, InterruptibleSleepReturnsEarlyOnWake) {
     // Should return in well under the 30s sleep duration — a couple of
     // seconds of slack covers CI/build-machine scheduling jitter.
     EXPECT_LT(std::chrono::duration_cast<std::chrono::seconds>(elapsed).count(), 5);
+}
+
+// TD-077 regression: a wake() that lands *before* interruptible_sleep()
+// starts waiting must not be lost. A plain condition_variable::wait_for()
+// with no predicate has no memory of a notify_all() that happened before
+// anyone was waiting — it would park for the full requested duration
+// regardless. This is exactly the window between the supervisory loop
+// finishing its own work (e.g. resume_last_session() concluding nothing is
+// pending) and it calling interruptible_sleep(): a concurrent
+// POST /admin/resume's wake() landing in that window must still make the
+// upcoming sleep return immediately, per its documented contract ("wake the
+// idle-poll sleep so pending work is checked immediately").
+TEST(TrainerControlStateTest, InterruptibleSleepDoesNotMissAWakeThatArrivesBeforeItStarts) {
+    TrainerControlState state;
+
+    state.wake();  // no one is waiting yet
+
+    const auto t0 = std::chrono::steady_clock::now();
+    state.interruptible_sleep(5);
+    const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - t0)
+                                .count();
+
+    // Should return almost immediately, not wait out the full 5s interval.
+    EXPECT_LT(elapsed_ms, 1000);
 }
 
 TEST(TrainerControlStateTest, InterruptibleSleepWithoutWakeRunsTheFullDuration) {

@@ -4,6 +4,122 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-078: GPUManager's Allocation-Tracking Counters Raced Between the Allocating Thread and the SYCL Runtime's Deferred-Free Worker Thread
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 8, 2026 | GPUUtils_SYCL (GPUManager, TD-041) | Guard `allocated_bytes_`/`max_memory_bytes_` with a dedicated mutex |
+
+Summary:
+Found while reading `src/gpu/sycl/GPUUtils_SYCL.hpp` end to end, made possible for the first time by
+an Intel oneAPI SYCL toolchain (`icpx` 2026.1) unexpectedly being present in this environment — this
+file's status tag had previously read "unverified (no SYCL toolchain available to build it)".
+`GPUManager::allocated_bytes_`/`max_memory_bytes_` are plain (non-atomic) static `size_t` fields read
+and written by `reserve_memory()`, `release_memory()`, and several getters — but `release_memory()` is
+also called from inside a `sycl::handler::host_task` queued by `GPUMemory::defer_free()` (see that
+function's own doc comment on why the free is deferred), which runs on a SYCL-runtime worker thread,
+concurrently with whatever application thread calls `reserve_memory()` for the next allocation. This is
+an unsynchronized concurrent read-modify-write from two different threads on the same memory — a data
+race and undefined behavior regardless of whether any particular run happens to observe a wrong value.
+
+Confirmed as a genuine, real race — not merely a theoretical one — with ThreadSanitizer: a standalone
+reproduction exercising `GPUManager::reserve_memory()`/`release_memory()` from 8 concurrent threads (pure
+host-side calls, no actual GPU device or SYCL queue involved, since the race is on the static bookkeeping
+fields themselves) was flagged immediately: `WARNING: ThreadSanitizer: data race ... on
+adai::gpu::GPUManager::allocated_bytes_`, with both conflicting accesses inside `reserve_memory()`
+(`GPUUtils_SYCL.hpp:203`). A plain (non-TSan) run of the same reproduction did not reliably show a wrong
+final tally at low contention — this is exactly the class of bug that ships silently until it doesn't.
+
+Changes Made:
+
+- Added a dedicated `memory_mutex_` guarding every access to `allocated_bytes_`/`max_memory_bytes_`:
+  `reserve_memory()` (via a new private `try_reserve_locked()` helper used both for the fast path and
+  the post-`synchronize()` retry), `release_memory()`, `get_used_memory_bytes()`,
+  `get_available_memory_bytes()`, `get_memory_limit_bytes()`, `get_device_info()`'s budget line, and the
+  two writes inside `initialize()`/`cleanup()`.
+- `reserve_memory()`'s call to `synchronize()` (which blocks until any in-flight deferred free's
+  `host_task` completes) is deliberately made **without** `memory_mutex_` held — that `host_task` itself
+  needs to acquire `memory_mutex_` inside `release_memory()`, so holding the lock across `synchronize()`
+  would deadlock against it.
+- Added the missing `<mutex>` include, and `<vector>` (used by `enumerate_gpu_devices()`'s return type,
+  previously compiled only via transitive inclusion from `<sycl/sycl.hpp>` — same class of portability
+  gap as several other files fixed this audit pass).
+- Updated the file's status-tag comment: the "unverified (no SYCL toolchain available to build it)"
+  clause no longer applies now that a toolchain has been used to actually build it; TD-041's "no
+  dedicated test" gap remains open (confirmed: no `GPUUtils_SYCL`-specific test file exists).
+
+Verification:
+- ✅ Standalone host-side reproduction under ThreadSanitizer (`icpx -fsycl -fsanitize=thread`) confirmed
+  the race pre-fix and its absence post-fix (clean TSan run, same 8-thread/200k-iteration workload).
+- ✅ Standalone `icpx -fsycl -Wall -Wextra` compile of the header alone — zero warnings, both before and
+  after (the fix introduces no new warnings).
+- ✅ Full integration build: configured and built the real `sycl` CMake preset (`ENABLE_SYCL=ON`) for
+  the first time in this audit — `cmake --preset=sycl` then `cmake --build --target incremental_trainer`
+  — which succeeded end-to-end, compiling and linking this header as part of the actual `adai_gpu`
+  library and the full `incremental_trainer` binary.
+
+Files Changed:
+
+- `src/gpu/sycl/GPUUtils_SYCL.hpp`
+
+---
+
+### TD-077: TrainerControlState's wake()/interruptible_sleep() Lost a Wake That Arrived Before the Sleep Started
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 8, 2026 | TrainerControlState (incremental_trainer serve admin API) | Add a predicate flag consumed by a predicate-checked `wait_for()` |
+
+Summary:
+Found while reading `src/TrainerControlState.hpp` end to end. `wake()` called `wake_cv_.notify_all()`
+with no accompanying state change, and `interruptible_sleep()` called the plain (non-predicate)
+`wake_cv_.wait_for(lock, duration)` overload. A `condition_variable` has no memory of a notification
+that happened before anyone was waiting: if `wake()` fires during the window where the supervisory loop
+(`incremental_trainer serve`'s `while (true)` loop in `IncrementalTrainingTool.cpp`) is doing its own
+work — e.g. `resume_last_session()` concluding there is nothing pending — rather than already blocked
+inside `interruptible_sleep()`, the notification is silently lost, and the *very next*
+`interruptible_sleep(45)` call parks for the full 45-second poll interval regardless. This directly
+contradicts `POST /admin/resume`'s documented contract (CLAUDE.md: "wake the idle-poll sleep so pending
+work is checked immediately") for exactly the timing an operator calling that endpoint cares about.
+
+The existing test suite's own comment on `InterruptibleSleepReturnsEarlyOnWake` even asserted the
+mistaken belief that "wait_for still catches that case via its own internal check" — it does not; that
+belief is precisely the bug.
+
+Reproduced directly: a standalone program built against the real `TrainerControlState` class called
+`wake()`, then (simulating the loop's brief non-sleep work) waited 20ms, then called
+`interruptible_sleep(3)` — pre-fix, this returned after the full 3.000s; post-fix, it returned in 0.000s.
+A control run with no `wake()` at all confirmed `interruptible_sleep()` still waits out its full requested
+duration when nothing wakes it (no regression to the normal idle-poll case).
+
+Changes Made:
+
+- Added a `wake_requested_` bool (guarded by the existing `wake_mutex_`). `wake()` now sets it before
+  calling `notify_all()`; `interruptible_sleep()` now uses the predicate-checked
+  `wait_for(lock, duration, [this]{ return wake_requested_; })` overload and clears the flag on return.
+  This correctly handles both a wake arriving during the wait (notified, predicate now true) and one that
+  arrived before the wait began (predicate already true, `wait_for` returns immediately without blocking
+  at all) — and continues to absorb genuine spurious OS-level wakeups the same as before, since the
+  predicate-checked overload internally loops until the predicate is true or the timeout elapses.
+
+Verification:
+- ✅ Standalone reproduction against the real class confirmed both the bug (3.000s) and the fix (0.000s),
+  plus the no-wake control case (still waits out the full requested duration).
+- ✅ Added `TrainerControlStateTest.InterruptibleSleepDoesNotMissAWakeThatArrivesBeforeItStarts` to
+  `tests/trainer_control_state_test.cpp`; corrected the neighboring test's comment that had asserted the
+  incorrect belief about `wait_for`'s semantics.
+- ✅ Before/after regression: reverted `TrainerControlState.hpp` to its pre-fix `HEAD` version, rebuilt
+  `trainerControlStateTests`, confirmed the new test fails with the exact predicted ~5000ms result;
+  restored the fix, rebuilt, confirmed all 12 tests in `trainerControlStateTests` pass, plus the
+  dependent `TrainerAdminAPITests` suite (1/1) via `ctest`.
+
+Files Changed:
+
+- `src/TrainerControlState.hpp`
+- `tests/trainer_control_state_test.cpp`
+
+---
+
 ### TD-076: DataTransport's FTP URL Construction Broke on Filenames Containing Spaces or Reserved Characters
 
 | Resolution Date | Component | Resolved By |

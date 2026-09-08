@@ -1,14 +1,16 @@
 #ifndef GPU_UTILS_SYCL_HPP
 #define GPU_UTILS_SYCL_HPP
 
-// @adai-status: beta        (capped by TD-041 — GPUManager/GPUMemory only exercised incidentally, no dedicated test; also unverified (no SYCL toolchain available to build it))
+// @adai-status: beta        (capped by TD-041 — GPUManager/GPUMemory only exercised incidentally, no dedicated test)
 // @adai-version: 0.6.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 
 #include <cstddef>
+#include <mutex>
 #include <stdexcept>
 #include <string>
+#include <vector>
 #include <sycl/ext/oneapi/properties/properties.hpp>
 #include <sycl/sycl.hpp>
 
@@ -23,6 +25,14 @@ class GPUManager {
     inline static sycl::queue* queue_ = nullptr;
     inline static size_t max_memory_bytes_ = 0;
     inline static size_t allocated_bytes_ = 0;
+    /// Guards max_memory_bytes_/allocated_bytes_. Needed because
+    /// release_memory() is called from inside a queued host_task (see
+    /// GPUMemory::defer_free()) — i.e. from a SYCL-runtime worker thread —
+    /// while reserve_memory()/the getters below run on whatever application
+    /// thread is allocating. Confirmed as a genuine data race with
+    /// ThreadSanitizer (concurrent reserve_memory() calls flagged a race on
+    /// this pair of fields) before this mutex was added.
+    inline static std::mutex memory_mutex_;
     /// Remembered from initialize() so set_device() can recreate the queue
     /// with the same scheduling priority (GPU_STRATEGY) after a device switch.
     inline static bool low_priority_ = true;
@@ -58,6 +68,17 @@ class GPUManager {
         return sycl::queue(dev, sycl::property_list{
                                     sycl::property::queue::in_order{},
                                     sycl::ext::oneapi::property::queue::priority_high{}});
+    }
+
+    // Returns true if the reservation was granted outright (no need to drain
+    // in-flight deferred frees first) — see reserve_memory()'s use of this.
+    static bool try_reserve_locked(size_t bytes) {
+        std::lock_guard<std::mutex> lock(memory_mutex_);
+        if (max_memory_bytes_ == 0 || (allocated_bytes_ + bytes) <= max_memory_bytes_) {
+            allocated_bytes_ += bytes;
+            return true;
+        }
+        return false;
     }
 
    public:
@@ -114,8 +135,12 @@ class GPUManager {
         queue_ = new sycl::queue(make_queue(selected, use_low_priority));
 
         size_t total_bytes = selected.get_info<sycl::info::device::global_mem_size>();
-        max_memory_bytes_ = static_cast<size_t>(static_cast<double>(total_bytes) * memory_fraction);
-        allocated_bytes_ = 0;
+        {
+            std::lock_guard<std::mutex> lock(memory_mutex_);
+            max_memory_bytes_ =
+                static_cast<size_t>(static_cast<double>(total_bytes) * memory_fraction);
+            allocated_bytes_ = 0;
+        }
 
         initialized_ = true;
         return true;
@@ -131,7 +156,10 @@ class GPUManager {
             queue_ = nullptr;
         }
 
-        allocated_bytes_ = 0;
+        {
+            std::lock_guard<std::mutex> lock(memory_mutex_);
+            allocated_bytes_ = 0;
+        }
         initialized_ = false;
     }
 
@@ -172,38 +200,50 @@ class GPUManager {
     }
 
     static size_t get_memory_limit_bytes() {
+        std::lock_guard<std::mutex> lock(memory_mutex_);
         return max_memory_bytes_;
     }
 
     static size_t get_used_memory_bytes() {
+        std::lock_guard<std::mutex> lock(memory_mutex_);
         return allocated_bytes_;
     }
 
     static size_t get_available_memory_bytes() {
+        std::lock_guard<std::mutex> lock(memory_mutex_);
         return (max_memory_bytes_ > allocated_bytes_) ? (max_memory_bytes_ - allocated_bytes_) : 0;
     }
 
     static void reserve_memory(size_t bytes) {
-        if (max_memory_bytes_ > 0 && (allocated_bytes_ + bytes) > max_memory_bytes_) {
-            // GPUMemory defers its sycl::free()/release_memory() into a queued
-            // host_task (see defer_free() below) to avoid racing in-flight
-            // kernels, so allocated_bytes_ can lag behind reality under
-            // sustained submission pressure. Drain the queue once to let any
-            // already-queued frees actually execute before refusing.
-            synchronize();
-            if ((allocated_bytes_ + bytes) > max_memory_bytes_) {
-                throw std::runtime_error(
-                    "ADAI GPU memory budget exceeded: requested " +
-                    std::to_string(bytes / (1024 * 1024)) + " MB, " +
-                    std::to_string(get_available_memory_bytes() / (1024 * 1024)) +
-                    " MB available of " + std::to_string(max_memory_bytes_ / (1024 * 1024)) +
-                    " MB limit");
-            }
+        if (try_reserve_locked(bytes)) {
+            return;
         }
-        allocated_bytes_ += bytes;
+        // GPUMemory defers its sycl::free()/release_memory() into a queued
+        // host_task (see defer_free() below) to avoid racing in-flight
+        // kernels, so allocated_bytes_ can lag behind reality under
+        // sustained submission pressure. Drain the queue once to let any
+        // already-queued frees actually execute before refusing. Deliberately
+        // called without memory_mutex_ held: synchronize() blocks until any
+        // in-flight host_task completes, and that host_task itself needs to
+        // acquire memory_mutex_ inside release_memory() — holding the lock
+        // here would deadlock against it.
+        synchronize();
+        if (!try_reserve_locked(bytes)) {
+            std::lock_guard<std::mutex> lock(memory_mutex_);
+            throw std::runtime_error(
+                "ADAI GPU memory budget exceeded: requested " +
+                std::to_string(bytes / (1024 * 1024)) + " MB, " +
+                std::to_string((max_memory_bytes_ > allocated_bytes_
+                                    ? (max_memory_bytes_ - allocated_bytes_)
+                                    : 0) /
+                               (1024 * 1024)) +
+                " MB available of " + std::to_string(max_memory_bytes_ / (1024 * 1024)) +
+                " MB limit");
+        }
     }
 
     static void release_memory(size_t bytes) {
+        std::lock_guard<std::mutex> lock(memory_mutex_);
         allocated_bytes_ = (bytes <= allocated_bytes_) ? (allocated_bytes_ - bytes) : 0;
     }
 
@@ -227,6 +267,7 @@ class GPUManager {
                            "\n  Max Work-Group Size: " + std::to_string(max_wg);
 
         if (initialized_ && device == current_device_) {
+            std::lock_guard<std::mutex> lock(memory_mutex_);
             info += "\n  ADAI Memory Budget: " + std::to_string(max_memory_bytes_ / (1024 * 1024)) +
                     " MB" + " (used: " + std::to_string(allocated_bytes_ / (1024 * 1024)) + " MB)";
         }

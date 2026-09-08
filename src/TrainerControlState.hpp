@@ -2,7 +2,7 @@
 
 // @adai-status: stable
 // @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 
 #include <algorithm>
@@ -153,15 +153,30 @@ class TrainerControlState {
     /// cleared) doesn't have to wait out the full poll interval. Spurious
     /// early wakeups are harmless: the loop just re-checks for pending work
     /// and, finding none, goes back to sleep.
+    ///
+    /// wake_requested_ (guarded by wake_mutex_, consumed by
+    /// interruptible_sleep) exists so a wake() that lands *before*
+    /// interruptible_sleep() starts waiting is not silently lost: a bare
+    /// notify_all() with no one yet parked in wait_for() reaches no one and
+    /// is forgotten, so a wake() arriving during the (typically brief, but
+    /// nonzero) window where the supervisory loop is doing work between
+    /// sleeps — e.g. resume_last_session() concluding there is nothing
+    /// pending, right before the loop calls interruptible_sleep() — would
+    /// otherwise make the very next sleep run the full interval instead of
+    /// returning immediately, defeating /admin/resume's documented
+    /// "wake the idle-poll sleep so pending work is checked immediately".
     void wake() {
         std::lock_guard<std::mutex> lock(wake_mutex_);
+        wake_requested_ = true;
         wake_cv_.notify_all();
     }
 
-    /// Sleeps up to `seconds`, returning early if wake() is called.
+    /// Sleeps up to `seconds`, returning early if wake() is called — either
+    /// while this call is waiting, or already pending from before it started.
     void interruptible_sleep(int seconds) {
         std::unique_lock<std::mutex> lock(wake_mutex_);
-        wake_cv_.wait_for(lock, std::chrono::seconds(seconds));
+        wake_cv_.wait_for(lock, std::chrono::seconds(seconds), [this] { return wake_requested_; });
+        wake_requested_ = false;
     }
 
     // ---- Identity strings (mutex-guarded) ----
@@ -257,6 +272,7 @@ class TrainerControlState {
 
     std::mutex wake_mutex_;
     std::condition_variable wake_cv_;
+    bool wake_requested_ = false;  ///< guarded by wake_mutex_
 
     static constexpr std::size_t kMaxLogEntries = 200;
     mutable std::mutex log_mutex_;

@@ -219,7 +219,7 @@ None — every in-scope file carries a tag.
 | `src/gpu/GPUUtils.hpp` | beta | 0.9.0 | 2026-09-07 | TD-041 |
 | `src/gpu/MatrixGPU.cu` | beta | 0.9.0 | 2026-09-08 | TD-061 |
 | `src/gpu/MatrixGPU.hpp` | beta | 0.9.0 | 2026-09-08 | TD-061 |
-| `src/gpu/sycl/GPUUtils_SYCL.hpp` | beta | 0.6.0 | 2026-09-07 | TD-041 |
+| `src/gpu/sycl/GPUUtils_SYCL.hpp` | beta | 0.6.0 | 2026-09-08 | TD-041 |
 | `src/gpu/sycl/MatrixGPU_SYCL.cpp` | beta | 0.10.0 | 2026-09-08 | TD-050 |
 | `src/gpu/sycl/MatrixGPU_SYCL.hpp` | beta | 0.9.0 | 2026-09-07 | TD-050 |
 | `tizen-metrics-app/js/app.js` | beta | 0.6.0 | 2026-09-07 | TD-049 |
