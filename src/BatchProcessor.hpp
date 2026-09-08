@@ -2,10 +2,11 @@
 
 // @adai-status: stable
 // @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 
 #include <algorithm>
+#include <iostream>
 #include <vector>
 #include "Matrix.hpp"
 #include "SpecialTokens.hpp"
