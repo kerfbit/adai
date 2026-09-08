@@ -4,6 +4,55 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-066: TextGenerator's Repetition Penalty Compounded Per-Occurrence Instead of Per-Token
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 8, 2026 | NLP / Generation quality | Deduplicate `generated_tokens` before applying the penalty |
+
+Summary:
+Found while reading `src/TextGenerator.cpp` end to end. `apply_repetition_penalty()` iterated every
+element of `generated_tokens` (the full running generated sequence) and divided (or multiplied, for
+negative logits) the corresponding logit by `penalty` once per **occurrence** — so a token that had
+appeared N times in the sequence so far got penalized by a factor of `penalty^N`, compounding without
+bound as generation continued. The standard algorithm this feature is modeled on (CTRL, Keskar et al.
+2019 — the paper that introduced repetition penalty as a decoding-time technique) penalizes a token
+once if it has appeared **at all**, regardless of how many times; this is also how HuggingFace
+`transformers`' `RepetitionPenaltyLogitsProcessor` and llama.cpp's sampler behave (both use a
+membership/set semantic, not a count). No unit test isolated `apply_repetition_penalty()` directly —
+the existing repetition tests only exercised it indirectly through `generate()`, none of which
+distinguished the two semantics.
+
+The practical effect: any token that legitimately needs to recur several times in a longer generation
+(common function words, a repeated key noun, punctuation) would be exponentially suppressed the more
+it had already appeared, making the model increasingly and disproportionately reluctant to reuse
+*any* previously-used token as generation continued — a much stronger and more erratic effect than the
+configured `repetition_penalty` value would suggest, worsening the longer the output.
+
+Verified analytically and with a standalone Python check: with `penalty=1.2` and a token appearing
+10 times, the buggy formula gives `5.0 / 1.2^10 ≈ 0.808` where the intended once-per-token semantic
+gives `5.0 / 1.2 ≈ 4.167` — a difference of 5x, growing exponentially with occurrence count.
+
+Changes Made:
+
+- `apply_repetition_penalty()` now builds a `std::unordered_set<int>` from `generated_tokens` and
+  applies the penalty once per distinct token in that set, instead of once per element of the
+  original vector.
+
+Verification:
+- ✅ Added `TextGeneratorRepetitionTest.PenaltyDoesNotCompoundAcrossRepeats`: a fixed-logit mock model
+  that favors one dominant token by a margin that survives exactly one penalty division but not two;
+  asserts the dominant token is selected in every generated position under greedy decoding.
+- ✅ Confirmed the new test **fails** against the pre-fix code (5 of 9 positions matched the dominant
+  token, since the compounding penalty displaced it partway through) and **passes** against the fix
+  (9 of 9) — reverted, rebuilt, and re-applied to verify both directions.
+- ✅ Full `textgeneratorTests` suite: 36/36 pass.
+
+Files Changed:
+
+- `src/TextGenerator.cpp`
+- `tests/textgenerator_test.cpp`
+
 ### TD-065: PostgresMetricsDatabase's list_sessions()/get_session() Lost All Data on a Nullable-Column Session Row
 
 | Resolution Date | Component | Resolved By |

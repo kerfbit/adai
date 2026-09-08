@@ -1,6 +1,6 @@
 // @adai-status: stable
 // @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 #include "TextGenerator.hpp"
 #include <algorithm>
@@ -8,6 +8,7 @@
 #include <iostream>
 #include <numeric>
 #include <queue>
+#include <unordered_set>
 #include <utility>
 
 // Default constructor
@@ -89,6 +90,17 @@ std::vector<float> TextGenerator::apply_top_p(const std::vector<float>& logits, 
 }
 
 // Apply repetition penalty
+//
+// TD-066 (fixed): this used to iterate `generated_tokens` and divide/multiply
+// a token's logit by `penalty` once per OCCURRENCE, so a token repeated N
+// times in the (ever-growing) generated sequence got penalized by a factor of
+// penalty^N — compounding multiplicatively and without bound as generation
+// continues. The standard algorithm this feature is modeled on (CTRL,
+// Keskar et al. 2019; matches HuggingFace transformers' and llama.cpp's
+// implementations) penalizes a token once if it has appeared at all,
+// regardless of how many times — a simple membership test, not a count.
+// Deduplicate first so each previously-generated token is penalized exactly
+// once.
 std::vector<float> TextGenerator::apply_repetition_penalty(const std::vector<float>& logits,
                                                            const std::vector<int>& generated_tokens,
                                                            float penalty) {
@@ -97,8 +109,9 @@ std::vector<float> TextGenerator::apply_repetition_penalty(const std::vector<flo
     }
 
     std::vector<float> penalized = logits;
+    std::unordered_set<int> seen(generated_tokens.begin(), generated_tokens.end());
 
-    for (int token : generated_tokens) {
+    for (int token : seen) {
         if (token >= 0 && token < static_cast<int>(penalized.size())) {
             if (penalized[token] > 0) {
                 penalized[token] /= penalty;

@@ -581,6 +581,52 @@ TEST(TextGeneratorRepetitionTest, PenaltyReducesRepetition) {
     EXPECT_GT(with_penalty.size(), 1);
 }
 
+// TD-066 regression: apply_repetition_penalty() used to divide a repeated
+// token's logit by `penalty` once per OCCURRENCE in the generated sequence
+// (compounding as penalty^count) instead of once per distinct token (the
+// standard CTRL/HuggingFace/llama.cpp semantic). With a fixed per-step model
+// that always favors one dominant token by a margin that survives exactly one
+// penalty division but not two, the buggy version would switch away from that
+// token after only 2-3 repeats as the compounding penalty overtook the
+// runner-up; the fixed version keeps preferring it for the whole generation,
+// since each step's penalized score is a fresh single division regardless of
+// how many times the token has already appeared.
+TEST(TextGeneratorRepetitionTest, PenaltyDoesNotCompoundAcrossRepeats) {
+    constexpr int kDominant = 5;
+    constexpr int kRunnerUp = 6;
+    auto fixed_logit_model = [](const std::vector<int>& tokens) {
+        int seq_len = static_cast<int>(tokens.size());
+        Matrix logits(seq_len, 20);
+        for (int i = 0; i < seq_len; ++i) {
+            for (int j = 0; j < 20; ++j) {
+                logits.data[i][j] = -100.0f;
+            }
+            logits.data[i][kDominant] = 10.0f;
+            logits.data[i][kRunnerUp] = 8.0f;
+        }
+        return logits;
+    };
+
+    TextGenerator::GenerationConfig config;
+    config.max_length = 10;
+    config.temperature = 0.0f;  // greedy for determinism
+    config.repetition_penalty = 1.15f;
+
+    TextGenerator gen(config, 42);
+    std::vector<int> result = gen.generate(fixed_logit_model, {2});
+
+    // Single-division penalized score for the dominant token (10.0/1.15 ~=
+    // 8.696) stays above the runner-up's raw 8.0 at every step, so a correct,
+    // non-compounding penalty keeps selecting it for the entire generation.
+    // Under the old per-occurrence-compounding bug, the dominant token's score
+    // would have dropped below 8.0 by the third repeat (10.0/1.15^2 ~= 7.56)
+    // and the generation would have switched to the runner-up well before the
+    // end.
+    int dominant_count = static_cast<int>(std::count(result.begin(), result.end(), kDominant));
+    EXPECT_EQ(dominant_count, static_cast<int>(result.size()) - 1)
+        << "expected the dominant token in every generated position (prompt excluded)";
+}
+
 TEST(TextGeneratorRepetitionTest, NoPenaltyWhenDisabled) {
     MockLanguageModel model(100, 64);
     auto model_fn = [&model](const std::vector<int>& tokens) { return model.forward(tokens); };
