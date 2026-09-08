@@ -244,6 +244,28 @@ TEST_F(ChatbotCLITest, HandleSettingMissingValue) {
     std::cout.rdbuf(old);
 }
 
+// TD-073 regression: a non-numeric value for a numeric parameter used to
+// throw std::invalid_argument straight out of handle_setting() uncaught —
+// in the real interactive run() loop this propagated to main()'s top-level
+// catch and ended the whole session (losing session_id/conversation state)
+// over a single mistyped command. handle_setting() should report the bad
+// value and leave the parameter untouched instead of throwing.
+TEST_F(ChatbotCLITest, HandleSettingNonNumericValueDoesNotThrow) {
+    ChatbotCLI cli(server_url, conv_file);
+
+    std::stringstream buffer;
+    std::streambuf* old = std::cout.rdbuf(buffer.rdbuf());
+
+    int original_length = cli.get_max_response_length();
+    float original_temp = cli.get_temperature();
+    EXPECT_NO_THROW(cli.handle_setting("length abc"));
+    EXPECT_NO_THROW(cli.handle_setting("temp not-a-number"));
+    EXPECT_EQ(cli.get_max_response_length(), original_length);
+    EXPECT_FLOAT_EQ(cli.get_temperature(), original_temp);
+
+    std::cout.rdbuf(old);
+}
+
 // ============================================================================
 // Helper Function Tests (from original test suite)
 // ============================================================================

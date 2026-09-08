@@ -4,6 +4,45 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-073: ChatbotCLI's /set Command Crashed the Whole Interactive Session on a Typo
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 8, 2026 | CLI / User-Facing | Wrapped the numeric conversions in a try/catch |
+
+Summary:
+Found while reading `src/ChatbotCLI.cpp` end to end. `handle_setting()`'s numeric parameters
+(`length`/`max_length`, `temperature`/`temp`, `top_p`, `top_k`, `beam_width`) called
+`std::stoi`/`std::stof` directly on the user-supplied value with no exception handling. A mistyped
+value — `/set length abc`, `/set temp not-a-number` — threw `std::invalid_argument` straight out of
+`handle_setting()`. `run()`'s main REPL loop has no try/catch around `handle_command()`, so the
+exception propagated all the way up to `ChatbotCLI_main.cpp`'s top-level `catch`, which prints
+"Fatal error: ..." and exits — a clean exit, not a raw crash, but one that ends the *entire
+interactive chat session* (losing `session_id` and conversation continuity) over a single mistyped
+`/set` command. This is a materially worse outcome than the same unguarded-`stoi`-on-CLI-input
+pattern seen elsewhere in this codebase's one-shot tools (`IncrementalTrainingTool.cpp`,
+`DatasetManagerTool.cpp`), where a bad argument just means re-running the command — here it destroys
+state a REPL user would reasonably expect to survive a typo.
+
+Changes Made:
+
+- Wrapped the five numeric `/set` conversions in a single `try`/`catch`; a malformed value now
+  prints `"Invalid value '<value>' for parameter '<param>'"` (matching the style of the adjacent
+  `/set strategy` validation) and leaves the parameter unchanged, instead of throwing.
+
+Verification:
+- ✅ Added `ChatbotCLITest.HandleSettingNonNumericValueDoesNotThrow` to
+  `tests/chatbotcli_improved_test.cpp`. Confirmed it **fails** against the pre-fix code
+  (`std::invalid_argument` from both `stoi` and `stof`) and **passes** against the fix —
+  reverted/rebuilt/re-applied to verify both directions.
+- ✅ Full `chatbotcliTests` (83/83) and `chatbotcliImprovedTests` (24/24) pass.
+- ✅ `chatbot` binary rebuilds clean.
+
+Files Changed:
+
+- `src/ChatbotCLI.cpp`
+- `tests/chatbotcli_improved_test.cpp`
+
 ### TD-071: ConversationContext Silently Truncated Multi-Line Messages on Save/Load
 
 | Resolution Date | Component | Resolved By |

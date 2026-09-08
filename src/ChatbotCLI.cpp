@@ -1,6 +1,6 @@
 // @adai-status: stable
 // @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 #include "ChatbotCLI.hpp"
 #include <ctime>
@@ -256,23 +256,40 @@ void ChatbotCLI::handle_setting(std::string_view setting) {
         generation_strategy = strat_val;
         std::cout << COLOR_SYSTEM << "✅ Generation strategy set to: " << value << COLOR_RESET
                   << '\n';
-    } else if (param == "length" || param == "max_length") {
-        max_response_length = std::stoi(std::string(value));
-        std::cout << COLOR_SYSTEM << "✅ Max response length set to: " << max_response_length
-                  << COLOR_RESET << '\n';
-    } else if (param == "temperature" || param == "temp") {
-        temperature = std::stof(std::string(value));
-        std::cout << COLOR_SYSTEM << "✅ Temperature set to: " << temperature << COLOR_RESET
-                  << '\n';
-    } else if (param == "top_p" || param == "top-p") {
-        top_p = std::stof(std::string(value));
-        std::cout << COLOR_SYSTEM << "✅ Top-p set to: " << top_p << COLOR_RESET << '\n';
-    } else if (param == "top_k" || param == "top-k") {
-        top_k = std::stoi(std::string(value));
-        std::cout << COLOR_SYSTEM << "✅ Top-k set to: " << top_k << COLOR_RESET << '\n';
-    } else if (param == "beam_width" || param == "beam-width") {
-        beam_width = std::stoi(std::string(value));
-        std::cout << COLOR_SYSTEM << "✅ Beam width set to: " << beam_width << COLOR_RESET << '\n';
+    } else if (param == "length" || param == "max_length" || param == "temperature" ||
+              param == "temp" || param == "top_p" || param == "top-p" || param == "top_k" ||
+              param == "top-k" || param == "beam_width" || param == "beam-width") {
+        // TD-073 (fixed): std::stoi/std::stof on a malformed value (e.g. a
+        // typo in "/set length abc") used to throw uncaught out of this
+        // function, propagate through run()'s main loop, and hit main()'s
+        // top-level catch — a clean exit, but one that silently ends the
+        // entire interactive session (losing session_id/conversation state)
+        // over a single mistyped command, unlike a one-shot CLI tool where
+        // the same unguarded stoi pattern just means "re-run the command."
+        try {
+            if (param == "length" || param == "max_length") {
+                max_response_length = std::stoi(std::string(value));
+                std::cout << COLOR_SYSTEM << "✅ Max response length set to: "
+                          << max_response_length << COLOR_RESET << '\n';
+            } else if (param == "temperature" || param == "temp") {
+                temperature = std::stof(std::string(value));
+                std::cout << COLOR_SYSTEM << "✅ Temperature set to: " << temperature
+                          << COLOR_RESET << '\n';
+            } else if (param == "top_p" || param == "top-p") {
+                top_p = std::stof(std::string(value));
+                std::cout << COLOR_SYSTEM << "✅ Top-p set to: " << top_p << COLOR_RESET << '\n';
+            } else if (param == "top_k" || param == "top-k") {
+                top_k = std::stoi(std::string(value));
+                std::cout << COLOR_SYSTEM << "✅ Top-k set to: " << top_k << COLOR_RESET << '\n';
+            } else {
+                beam_width = std::stoi(std::string(value));
+                std::cout << COLOR_SYSTEM << "✅ Beam width set to: " << beam_width << COLOR_RESET
+                          << '\n';
+            }
+        } catch (const std::exception&) {
+            std::cout << COLOR_ERROR << "❌ Invalid value '" << value << "' for parameter '"
+                      << param << "'" << COLOR_RESET << '\n';
+        }
     } else {
         std::cout << COLOR_ERROR << "❌ Unknown parameter: " << param << COLOR_RESET << '\n';
     }
