@@ -283,6 +283,15 @@ The `adai_attention` library implements the two attention variants used in the t
 
 > **Definition:** **Multi-Head Self-Attention** is a mechanism that allows every position in a sequence to attend to every other position simultaneously, using multiple independent attention "heads" that learn complementary relationship patterns.
 
+> **⚠️ TD-059 (open, September 8, 2026):** the formulas and cache description below match what
+> `MultiHeadAttention::forward()`/`forward_with_cache()` compute today, but that computation is
+> **not actually split into per-head slices** — $Q$, $K$, $V$ below are the full
+> $[L, d_\text{model}]$ projections used as-is, making this single-head attention over the whole
+> $d_\text{model}$ width regardless of `num_heads` (and the $1/\sqrt{d_k}$ scale below is therefore
+> mismatched with the real contraction width, $d_\text{model}$). `forward_parallel()` is the one
+> method that genuinely splits per head, but nothing calls it. See `TECHNICAL_DEBT.md` TD-059 before
+> treating "multi-head" here as a description of current behavior rather than the original design.
+
 This is the primary attention mechanism, used in both encoder blocks (unrestricted) and decoder blocks (causally masked). For input $X \in \mathbb{R}^{L \times d_\text{model}}$, the forward pass computes:
 
 $$Q = XW_q, \qquad K = XW_k, \qquad V = XW_v$$
@@ -302,6 +311,10 @@ For the backward pass, the module caches the input $X$, projected queries $Q$, k
 ### 4.2 Cross-Attention (`CrossAttention.cpp` / `CrossAttention.hpp`)
 
 > **Definition:** **Cross-Attention** is a variant of multi-head attention where the queries originate from the decoder and the keys and values originate from the encoder output. This allows the decoder to selectively focus on relevant parts of the encoded input at each generation step.
+
+> **⚠️ TD-059 (open):** same gap as 4.1 — this class implements its own independent copy of the same
+> missing per-head split, so "cross-attention" here is likewise single-head over the full
+> $d_\text{model}$ width today.
 
 The fundamental difference from self-attention is the source of the key and value inputs:
 

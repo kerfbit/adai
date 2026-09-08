@@ -3,7 +3,7 @@
 
 // @adai-status: stable
 // @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 
 #include <algorithm>
@@ -461,7 +461,7 @@ class Dataset {
         bool success = false;
         if (first_line.find("INPUT:") != std::string::npos) {
             success = parse_conversation_format(file);
-        } else if (first_line.front() == '{' &&
+        } else if (!first_line.empty() && first_line.front() == '{' &&
                    first_line.find("\"response\"") != std::string::npos) {
             // JSONL training format produced by DataFetcher / sample_to_jsonl()
             success = parse_jsonl_format(file);
@@ -1523,13 +1523,21 @@ class LazyDataset {
             sample.target = resp;
             sample.meta = std::move(meta);
         } else {
-            // Legacy INPUT:/RESPONSE: format
+            // Legacy INPUT:/RESPONSE: format. Anchored prefix checks (not find())
+            // and substr() lengths that match the prefix exactly (not
+            // prefix.size()+1) — TD-057 (fixed): the old find()+fixed-offset
+            // substr(7)/substr(10) combination threw std::out_of_range on a
+            // bare "INPUT:"/"RESPONSE:" line (shorter than the assumed
+            // "KEY: " prefix), and used the wrong start offset whenever the
+            // key appeared anywhere but column 0.
             std::string input, target;
             while (true) {
-                if (line.find("INPUT:") != std::string::npos) {
-                    input = line.substr(7);
-                } else if (line.find("RESPONSE:") != std::string::npos) {
-                    target = line.substr(10);
+                if (line.rfind("INPUT:", 0) == 0) {
+                    input = line.substr(6);
+                    input.erase(0, input.find_first_not_of(" \t"));
+                } else if (line.rfind("RESPONSE:", 0) == 0) {
+                    target = line.substr(9);
+                    target.erase(0, target.find_first_not_of(" \t"));
                     break;
                 }
                 if (!std::getline(file, line))

@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-035 (no dedicated unit test) and TD-040 (embeds FtpDataServer's unreviewed auth path))
 // @adai-version: 0.8.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 /**
  * registry_server — Distributed dataset queue coordination daemon (TD-028 Phase 9)

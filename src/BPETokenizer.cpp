@@ -1,6 +1,6 @@
 // @adai-status: stable
 // @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 #include "BPETokenizer.hpp"
 #include <cmath>
@@ -294,7 +294,12 @@ std::pair<std::string, std::string> BPETokenizer::get_most_frequent_pair(
     std::unordered_map<std::string, int> pair_counts;
 
     for (const auto& tokens : word_tokens) {
-        for (size_t i = 0; i < tokens.size() - 1; i++) {
+        // `i + 1 < tokens.size()` rather than `i < tokens.size() - 1` (TD-058,
+        // fixed): the latter underflows to SIZE_MAX for an empty `tokens`
+        // entry, since tokens.size() is unsigned — every internal caller
+        // happens to only ever push non-empty entries, but this is a public
+        // static method and callers outside this file have no such guarantee.
+        for (size_t i = 0; i + 1 < tokens.size(); i++) {
             std::string pair_key = tokens[i] + "|||" + tokens[i + 1];
             pair_counts[pair_key]++;
         }

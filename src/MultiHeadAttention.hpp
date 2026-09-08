@@ -2,7 +2,7 @@
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 
 #include <functional>
@@ -29,24 +29,31 @@
  * - Gradient computation for backpropagation
  * - Optional attention masking (e.g., for padding or causal attention)
  *
- * Architecture:
+ * Architecture (as designed):
  * 1. Linear projections: Q = XW_q, K = XW_k, V = XW_v
  * 2. Split into num_heads: Each head processes d_k dimensions
  * 3. Scaled dot-product attention: Attention(Q,K,V) = softmax(QK^T/√d_k)V
  * 4. Concatenate heads and apply output projection: Output = Concat(heads)W_o
  *
- * Mathematical Formulation:
+ * Mathematical Formulation (as designed):
  * For input X ∈ ℝ^(seq_len × d_model):
  * - Q = XW_q, K = XW_k, V = XW_v  (each ∈ ℝ^(seq_len × d_model))
  * - Split into h heads: Q_i, K_i, V_i ∈ ℝ^(seq_len × d_k) where d_k = d_model/h
  * - Attention_i = softmax((Q_iK_i^T)/√d_k)V_i
  * - Output = Concat(Attention_1, ..., Attention_h)W_o
  *
- * Implementation Note:
- * MultiHeadAttention.cpp's forward() does explicitly split into per-head slices — each head
- * processes its own [h*d_k, (h+1)*d_k) column range of Q/K/V, matching the mathematical
- * formulation above exactly. (This comment previously described an earlier, non-split
- * implementation; corrected September 8, 2026 after confirming against the current code.)
+ * TD-059 (open — see TECHNICAL_DEBT.md): the design above is NOT what runs today.
+ * `forward()` and `forward_with_cache()` — the only two entry points anything in this
+ * codebase actually calls (EncoderBlock/DecoderBlock self-attention, and the KV-cache
+ * decode path) — compute `Q * K.transpose()` over the FULL d_model width, once, with no
+ * per-head split at all: mathematically single-head attention over d_model dimensions,
+ * still scaled by 1/√d_k (wrong for that width — should be 1/√d_model, off by √num_heads).
+ * `forward_parallel()` below is the only method that implements the design correctly
+ * (explicit per-head [h*d_k, (h+1)*d_k) column slicing, matching the formulation above
+ * exactly) — but nothing calls it; it is dead code. `num_heads` therefore has no effect
+ * on the actual computation other than gating the constructor's divisibility check.
+ * `CrossAttention` (`CrossAttention.cpp`) has the identical gap, independently. See
+ * TD-059 before trusting "multi-head" as an accurate description of current behavior.
  */
 /// Callback invoked after softmax in every forward() pass, receiving the
 /// attention weight matrix [seq_len × seq_len].

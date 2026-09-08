@@ -2,7 +2,7 @@
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 
 #include <memory>
@@ -45,6 +45,12 @@
  * - Scores = (Q * K^T) / √d_k ∈ ℝ^(tgt_len × src_len)
  * - Attention = softmax(Scores) * V ∈ ℝ^(tgt_len × d_model)
  * - Output = Attention * W_o ∈ ℝ^(tgt_len × d_model)
+ *
+ * TD-059 (open — see TECHNICAL_DEBT.md): despite "extends multi-head attention"
+ * above, Q/K/V here are never split into per-head slices — the formulation is
+ * applied once over the full d_model width, making this single-head cross-attention
+ * regardless of num_heads (same gap as MultiHeadAttention's self-attention path,
+ * found independently in this class).
  */
 class CrossAttention {
    private:

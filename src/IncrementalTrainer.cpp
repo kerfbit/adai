@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer)
 // @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 #include "IncrementalTrainer.hpp"
 #include <algorithm>
@@ -1573,13 +1573,17 @@ void IncrementalTrainer::print_training_summary() const {
 }
 
 float IncrementalTrainer::get_total_training_time_hours() const {
-    float total_hours = 0.0f;
+    // TD-055 (fixed): must accumulate fractional hours, not whole hours per
+    // session — duration_cast<hours> truncates any single session under 60
+    // minutes to 0 before it's ever added, which silently zeroed out most of
+    // the reported total for typical incremental/online training runs.
+    double total_hours = 0.0;
     for (const auto& session : session_history) {
-        auto duration =
-            std::chrono::duration_cast<std::chrono::hours>(session.end_time - session.start_time);
-        total_hours += static_cast<float>(duration.count());
+        const std::chrono::duration<double, std::ratio<3600>> duration =
+            session.end_time - session.start_time;
+        total_hours += duration.count();
     }
-    return total_hours;
+    return static_cast<float>(total_hours);
 }
 
 int IncrementalTrainer::get_total_samples_trained() const {
@@ -2082,7 +2086,3 @@ std::string IncrementalTrainer::format_duration(double seconds) {
     }
     return oss.str();
 }
-
-// ============================================================================
-// Metrics API Server Management
-// ============================================================================

@@ -277,6 +277,7 @@ trusting a `grep TD-NNN` alone. Currently active items:
 
 | Tag | Description |
 |---|---|
+| **TD-059** (HIGH) | `MultiHeadAttention`/`CrossAttention`'s production `forward()`/`forward_with_cache()` never split into per-head slices — every self- and cross-attention call is single-head attention over the full `d_model` width with a mismatched softmax scale; `num_heads` has no effect on the actual math. Needs a deliberate fix-and-retrain-everything vs. document-as-is decision, not a silent patch. |
 | TD-050 | GPU-resident KV-cache for autoregressive generation — CPU cache has a known correctness bug; no GPU cache exists at all |
 | **TD-033** | `chatbot_api_server` inference never uses the persistent GPU-resident decode path — training already does |
 | **TD-034** | `PPOOptimizer::train()`'s ratio/KL terms are a placeholder, and `ValueFunction::update()` never writes its computed gradient into the weight update — the value function's weights never change |

@@ -743,6 +743,24 @@ TEST_F(BPETokenizerTest, SaveLoadUnicodeModeEncodingIsConsistent) {
     EXPECT_EQ(ids_before, ids_after);
 }
 
+// Regression test (TD-058): get_most_frequent_pair() is a public static
+// method whose loop bound used to be `i < tokens.size() - 1`, which
+// underflows to SIZE_MAX for an empty inner vector (size_t is unsigned) and
+// reads out of bounds. No internal caller ever passes an empty entry, but
+// external callers of this public API have no such guarantee.
+TEST_F(BPETokenizerTest, GetMostFrequentPairIgnoresEmptyWordEntries) {
+    std::vector<std::vector<std::string>> word_tokens = {
+        {},                  // empty entry — must not underflow/crash
+        {"a", "b", "a", "b"},
+        {"a"},               // single-token entry — no pair possible either
+    };
+
+    std::pair<std::string, std::string> result;
+    EXPECT_NO_THROW(result = BPETokenizer::get_most_frequent_pair(word_tokens));
+    EXPECT_EQ(result.first, "a");
+    EXPECT_EQ(result.second, "b");
+}
+
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

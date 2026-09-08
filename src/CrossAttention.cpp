@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 #include "CrossAttention.hpp"
 
@@ -56,9 +56,13 @@ Matrix CrossAttention::scaled_dot_product_attention(const Matrix& Q, const Matri
     int src_len = K.rows;
 
     // Compute attention scores: QK^T
+    // TODO: See TECHNICAL_DEBT.md TD-059 - same missing per-head split found in
+    // MultiHeadAttention::forward(): contracts over the full d_model width, not
+    // d_k, so this is single-head cross-attention regardless of num_heads.
     Matrix scores = Q * K.transpose();
 
-    // Scale by sqrt(d_k) to prevent softmax saturation
+    // Scale by sqrt(d_k) to prevent softmax saturation — TD-059: mismatched
+    // with the actual d_model-width contraction above; see MultiHeadAttention.cpp.
     float scale_factor = 1.0f / std::sqrt(static_cast<float>(d_k));
     scores = scores.scale(scale_factor);
 
@@ -180,9 +184,11 @@ Matrix CrossAttention::forward_with_cache(const Matrix& query_input, const Matri
 
     // Compute attention scores: Q_new * K_encoder^T
     // Shape: [num_new_tokens, src_len]
+    // TODO: See TECHNICAL_DEBT.md TD-059 - same missing per-head split; see
+    // scaled_dot_product_attention() above.
     Matrix scores = cached_Q * K_full.transpose();
 
-    // Scale by sqrt(d_k)
+    // Scale by sqrt(d_k) — TD-059: mismatched, see note above.
     float scale_factor = 1.0f / std::sqrt(static_cast<float>(d_k));
     scores = scores.scale(scale_factor);
 

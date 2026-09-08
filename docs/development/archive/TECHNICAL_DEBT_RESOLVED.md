@@ -4,6 +4,161 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-058: BPETokenizer::get_most_frequent_pair() Could Underflow Its Loop Bound on an Empty Entry
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 8, 2026 | NLP / Tokenizer | Rewrote the loop bound to a form that can't underflow, plus a regression test |
+
+Summary:
+Found while reading `src/BPETokenizer.cpp` end to end. `get_most_frequent_pair()` — a **public
+static** method, not a private helper — counted adjacent-pair frequencies with
+`for (size_t i = 0; i < tokens.size() - 1; i++)` for each inner `tokens` vector. `size_t` is
+unsigned, so an empty `tokens` entry makes `tokens.size() - 1` wrap to `SIZE_MAX`, turning the loop
+into an out-of-bounds read starting at `tokens[0]` on an empty vector. Every internal caller
+(`build_bpe_merges()`) happens to only ever push non-empty entries into `word_tokens`, which is why
+this was never hit in practice, but as a public API this method has no way to enforce that
+invariant on a caller outside this file.
+
+Changes Made:
+
+- Changed the loop condition to `i + 1 < tokens.size()`, an idiom that is correct (and never
+  underflows) for every value of `tokens.size()` including 0, instead of relying on callers to
+  never pass an empty entry.
+- Added `BPETokenizerTest.GetMostFrequentPairIgnoresEmptyWordEntries` to `tests/tokenizer_test.cpp`,
+  calling the public static method directly with an empty entry mixed into `word_tokens` and
+  asserting it neither throws/crashes nor lets the empty entry affect the correct result.
+
+Verification:
+
+- ✅ `runTests` (the `tokenizer_test.cpp` binary) rebuilds clean; all 53 tests pass.
+
+Files Changed:
+
+- `src/BPETokenizer.cpp`
+- `tests/tokenizer_test.cpp`
+
+---
+
+### TD-057: LazyDataset::get_sample() Threw on a Bare "INPUT:"/"RESPONSE:" Legacy-Format Line
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 8, 2026 | Data / Dataset | Anchored prefix check + correct substr offset, plus a regression test |
+
+Summary:
+Found immediately after TD-056 while continuing the same end-to-end read of `src/Dataset.hpp`.
+`LazyDataset::get_sample()`'s legacy-format branch used `line.find("INPUT:") != npos` /
+`line.find("RESPONSE:") != npos` only as an existence check, then unconditionally sliced with a
+fixed offset — `line.substr(7)` / `line.substr(10)` — assuming the key starts at column 0 and is
+immediately followed by `": "`. Two independent problems: (1) a bare `"INPUT:"` or `"RESPONSE:"`
+line (no trailing space/content — shorter than the assumed prefix) makes the offset exceed the
+line's length, and `std::string::substr` throws `std::out_of_range` when `pos > size()` — confirmed
+directly (`"INPUT:".substr(7)` throws `basic_string::substr: __pos (which is 7) > this->size()
+(which is 6)`); (2) even for a normal line, `find()` matches the key anywhere in the string but the
+substr offset is always relative to column 0, so a key not literally at the start would be sliced
+from the wrong position. In practice every file this codebase itself writes
+(`Dataset::save_to_file(..., "conversation")`) places the key at column 0, which is why this went
+unnoticed, but any hand-edited or externally-supplied legacy-format file with a short/malformed line
+could crash `LazyDataset::get_sample()` with an uncaught exception.
+
+Changes Made:
+
+- Replaced `find()` + fixed-offset `substr()` with `line.rfind("INPUT:", 0) == 0` /
+  `line.rfind("RESPONSE:", 0) == 0` (anchored prefix checks, same idiom already used by
+  `IncrementalTrainer::load_conversation_pairs()`'s legacy-format parser) and `substr()` at the
+  prefix's actual length (6 / 9, not 7 / 10), followed by trimming leading whitespace — matches
+  behavior for well-formed input while making a short/malformed line return an empty field instead
+  of throwing.
+- Added `DatasetTest.LazyDatasetHandlesBareLegacyKeys` to `tests/dataset_test.cpp`, asserting
+  `get_sample()` doesn't throw on a file containing only bare `"INPUT:"`/`"RESPONSE:"` lines.
+
+Verification:
+
+- ✅ Standalone repro confirms the exact `std::out_of_range` thrown by the old code.
+- ✅ `datasetTests` rebuilds clean; all 42 tests pass (41 prior + this one), including in isolation
+  (`--gtest_filter=*BareLegacyKeys*`).
+
+Files Changed:
+
+- `src/Dataset.hpp`
+- `tests/dataset_test.cpp`
+
+---
+
+### TD-056: Dataset::load_from_file() Called front() on an Empty String for Empty Files
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 8, 2026 | Data / Dataset | One-line guard + regression test |
+
+Summary:
+Found while reading `src/Dataset.hpp` end to end. `load_from_file()`'s format-detection chain reads
+the first line into `first_line`, then checks `first_line.front() == '{'` to detect JSONL. For an
+existing-but-empty (0-byte) file, `std::getline` leaves `first_line` empty and
+`std::string::front()` on an empty string is undefined behavior per the C++ standard. Reproduced
+directly: compiled a minimal repro with `-D_GLIBCXX_ASSERTIONS -fsanitize=address,undefined`
+(libstdc++ 13) and it aborts with `Assertion '!empty()' failed`; in a normal (non-hardened) build it
+returns unspecified data instead of crashing, silently falling through the detection chain rather
+than reliably defaulting to conversation format. No existing test in `dataset_test.cpp` loaded a
+genuinely empty (as opposed to non-existent) file, so this was never caught.
+
+Changes Made:
+
+- Added `!first_line.empty() &&` to the JSONL-detection branch's condition in `load_from_file()`.
+- Added `DatasetTest.LoadEmptyFileDoesNotCrash` to `tests/dataset_test.cpp`, creating a real 0-byte
+  file and asserting `load_from_file()` returns `false` (dataset stays empty) instead of crashing.
+
+Verification:
+
+- ✅ Standalone repro confirms the crash mode before the fix (`_GLIBCXX_ASSERTIONS` + ASan/UBSan).
+- ✅ `datasetTests` rebuilds clean; all 41 tests pass, including the new regression test in
+  isolation (`--gtest_filter=*EmptyFile*`).
+
+Files Changed:
+
+- `src/Dataset.hpp`
+- `tests/dataset_test.cpp`
+
+---
+
+### TD-055: get_total_training_time_hours() Truncated Every Session to Whole Hours Before Summing
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 8, 2026 | Training / Reporting | One-line fix: sum fractional hours instead of truncated ones |
+
+Summary:
+Found while reading `src/IncrementalTrainer.cpp` end to end. `get_total_training_time_hours()` (used
+by `print_training_summary()`'s "Total time" line) computed each session's duration with
+`std::chrono::duration_cast<std::chrono::hours>(end_time - start_time)` and summed the results.
+`duration_cast` to `hours` truncates toward zero, so any single session under 60 minutes — the
+common case for incremental/online training passes — contributed exactly 0 to the total, and a
+95-minute session contributed 1 rather than ~1.58. The only existing test
+(`GetTotalTrainingTimeHoursZeroInitially`) only covers the trivial no-session case, so this never
+surfaced. A deployment training in short, frequent increments would see "Total time: 0.00 h" in the
+summary log indefinitely regardless of how much wall-clock time had actually elapsed.
+
+Changes Made:
+
+- Changed the per-session duration computation to `std::chrono::duration<double,
+  std::ratio<3600>>` (fractional hours) instead of `duration_cast<hours>`, and accumulate in
+  `double` before narrowing to the `float` return type once at the end.
+- Also removed a stray, contentless `// Metrics API Server Management` section-header comment
+  left at the very end of the file (from the original March 2026 metrics-service commit; the
+  actual management code lives in `TrainingMetricsAPI.{cpp,hpp}`, already reviewed and found
+  complete) — it read like the file had been truncated mid-edit.
+
+Verification:
+
+- ✅ `incrementaltrainerTests` rebuilds clean and the full suite passes.
+
+Files Changed:
+
+- `src/IncrementalTrainer.cpp`
+
+---
+
 ### TD-054: ModelNameService's Legacy JSONL-to-SQLite Migration Silently Dropped Every Record
 
 | Resolution Date | Component | Resolved By |

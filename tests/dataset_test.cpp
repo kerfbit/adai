@@ -110,6 +110,18 @@ TEST_F(DatasetTest, LoadNonExistentFile) {
     EXPECT_TRUE(dataset.empty());
 }
 
+// Regression test (TD-056): an existing-but-empty file used to call
+// std::string::front() on an empty first_line inside load_from_file()'s
+// format-detection chain — undefined behavior (aborts under
+// _GLIBCXX_ASSERTIONS). Must return false/empty instead of crashing.
+TEST_F(DatasetTest, LoadEmptyFileDoesNotCrash) {
+    std::ofstream("test_empty.txt").close();  // create a real, 0-byte file
+
+    Dataset dataset;
+    EXPECT_FALSE(dataset.load_from_file("test_empty.txt"));
+    EXPECT_TRUE(dataset.empty());
+}
+
 // Test: Add single sample
 TEST_F(DatasetTest, AddSample) {
     Dataset dataset;
@@ -540,6 +552,26 @@ TEST_F(DatasetTest, LazyDataset) {
     // Load range
     auto samples = lazy.load_range(0, 2);
     EXPECT_EQ(samples.size(), 2);
+}
+
+// Regression test (TD-057): a bare "INPUT:"/"RESPONSE:" line (no space or
+// content after the colon) used to make LazyDataset::get_sample() call
+// substr() with an offset past the end of the line, throwing
+// std::out_of_range instead of returning an empty field.
+TEST_F(DatasetTest, LazyDatasetHandlesBareLegacyKeys) {
+    {
+        std::ofstream file("test_bare_keys.txt");
+        file << "INPUT:\nRESPONSE:\n\n";
+        file.close();
+    }
+
+    LazyDataset lazy("test_bare_keys.txt");
+    ASSERT_GT(lazy.size(), 0u);
+
+    DataSample sample;
+    EXPECT_NO_THROW(sample = lazy.get_sample(0));
+    EXPECT_TRUE(sample.input.empty());
+    EXPECT_TRUE(sample.target.empty());
 }
 
 // Test: Multiple format auto-detection

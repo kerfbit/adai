@@ -5,12 +5,12 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** September 8, 2026
-**Total Items:** 24
-**High Priority:** 0
+**Total Items:** 25
+**High Priority:** 1
 **Medium Priority:** 11
 **Low Priority:** 13
 **Future Enhancements:** 19
-**Resolved Items:** 34
+**Resolved Items:** 38
 **Deferred Decisions:** 1
 
 ## Table of Contents
@@ -18,6 +18,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 - [Overview](#overview)
 - [Table of Contents](#table-of-contents)
 - [Active Technical Debt](#active-technical-debt)
+  - [TD-059: Multi-Head and Cross-Attention Never Actually Split Into Heads](#td-059-multi-head-and-cross-attention-never-actually-split-into-heads)
   - [TD-050: GPU-Resident KV-Cache for Autoregressive Generation](#td-050-gpu-resident-kv-cache-for-autoregressive-generation)
   - [TD-033: chatbot_api_server Inference Never Uses Persistent GPU-Resident Decode](#td-033-chatbot_api_server-inference-never-uses-persistent-gpu-resident-decode)
   - [TD-032: Bundle SQLite3 Amalgamation for Windows Cross-Compilation](#td-032-bundle-sqlite3-amalgamation-for-windows-cross-compilation)
@@ -42,7 +43,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [TD-051: IncrementalTrainer::load_conversation_pairs() Is an Unmigrated Duplicate](#td-051-incrementaltrainerload_conversation_pairs-is-an-unmigrated-duplicate)
   - [TD-052: ParallelDataLoader's Batches Use Character Codes, Not Real Tokens](#td-052-paralleldataloaders-batches-use-character-codes-not-real-tokens)
   - [TD-053: ChatbotCLI's /save and /load Commands Are Non-Functional Everywhere](#td-053-chatbotclis-save-and-load-commands-are-non-functional-everywhere)
-- [Resolved Items](#resolved-items) (34 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+- [Resolved Items](#resolved-items) (38 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -65,6 +66,101 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 - [References](#references)
 
 ## Active Technical Debt
+
+### TD-059: Multi-Head and Cross-Attention Never Actually Split Into Heads
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| **HIGH** | Open — needs a decision, not just a fix | Core Model Architecture | September 8, 2026 | 30-50 hours (implementation + full retrain/validation cycle) |
+
+Description:
+Found while reading `src/MultiHeadAttention.cpp`/`.hpp` end to end, then confirmed independently
+in `src/CrossAttention.cpp`/`.hpp`. **The production attention computation used by every encoder
+and decoder layer in this codebase has never actually implemented multi-head attention** — it
+computes a single global attention pattern over the full `d_model` width, with `num_heads` having
+no effect on the math at all beyond gating the constructor's divisibility check.
+
+Specifically:
+
+- `MultiHeadAttention::forward()` — called by both `EncoderBlock::forward()` (self-attention) and
+  `DecoderBlock::forward()` (self-attention) — computes `cached_Q * cached_K.transpose()` where
+  `cached_Q`/`cached_K` are the full `[seq_len, d_model]` projections. There is no per-head slicing
+  anywhere in this function: no `d_k`-wide column ranges, no per-head loop, nothing. `Matrix::operator*`
+  is a plain, general-purpose GEMM (confirmed by reading `Matrix.cpp`) with no head-aware behavior of
+  its own, so this really is one attention computation across all `d_model` dimensions at once —
+  mathematically identical to single-head attention with a head dimension of `d_model`.
+- `MultiHeadAttention::forward_with_cache()` (the KV-cache-based autoregressive decode path) has the
+  identical gap: `Q_new * K_full.transpose()` over the full width, no per-head split.
+- Both of the above still scale by `1.0f / std::sqrt(static_cast<float>(d_k))` — correct *only* for a
+  dot product contracted over `d_k` dimensions. Since the actual contraction here is over `d_model =
+  num_heads * d_k` dimensions, the correct scale for what's actually computed would be
+  `1/sqrt(d_model)`; using `1/sqrt(d_k)` instead makes the pre-softmax logits too large by a factor of
+  `sqrt(num_heads)`, pushing softmax toward more peaked (lower-entropy) distributions than intended —
+  a secondary numerical bug riding on top of the missing head split.
+- `CrossAttention::scaled_dot_product_attention()` and `CrossAttention::forward_with_cache()` — the
+  cross-attention path used by every `DecoderBlock::forward()` call — have the exact same two problems,
+  implemented independently (this is a separate class, not inheriting `MultiHeadAttention`).
+- `MultiHeadAttention::forward_parallel()` is the **only** method in either file that implements the
+  design correctly: it explicitly slices `[h*d_k, (h+1)*d_k)` column ranges per head (`start_dim = h *
+  d_k`), runs scaled dot-product attention per head with the correct `1/sqrt(d_k)` scale (correct
+  *for that width*), and concatenates — matching the "Attention is All You Need" formulation exactly.
+  **Grep confirms zero callers of `forward_parallel()` anywhere outside `MultiHeadAttention.cpp`/`.hpp`
+  itself** — it is unreachable dead code, apparently written later (its own doc comment: "Properly
+  splits input into num_heads... This provides 2-4x speedup") specifically to add the correct
+  behavior, but never wired into `EncoderBlock`/`DecoderBlock` in place of `forward()`.
+
+Why this was never caught: `tests/multiheadattention_test.cpp` has 45+ tests, but every one checks
+generic properties — output shape, attention weights summing to 1 per row, non-negativity, gradient
+existence, save/load round-trip — that hold identically whether or not heads are actually split.
+Nothing compares `forward()`'s output against a hand-computed or `forward_parallel()`-derived
+per-head reference, and nothing asserts that changing `num_heads` (with `d_model` fixed) changes the
+attention pattern in a way consistent with genuine multi-head behavior. The same is true of
+`CrossAttention`'s test suite.
+
+**This is a decision item, not a drop-in fix.** Every model ever trained with this codebase — every
+existing checkpoint — was trained under the current (single-head-over-d_model, mis-scaled) math.
+Silently switching `forward()`/`forward_with_cache()` over to `forward_parallel()`'s approach would
+change what every layer's `W_q`/`W_k`/`W_v`/`W_o` weights actually mean at inference time, since the
+same weights would now be sliced and attended-to differently — existing checkpoints would produce
+different (likely much worse, since they were never optimized for it) output under the "fixed" math
+without retraining. That tradeoff — fix now and require retraining everything, or document the actual
+(single-head) behavior as the real architecture and stop calling it multi-head — needs a deliberate
+call from whoever owns model quality, not a silent patch during a documentation/tech-debt pass.
+
+Action Items:
+
+- [ ] Decide: (a) fix the attention math to genuinely split per head (wire `forward()`/
+  `forward_with_cache()` through `forward_parallel()`'s per-head logic, fix the cross-attention
+  equivalent, fix both scale factors to `1/sqrt(d_k)` *applied per head* — which is what
+  `forward_parallel()` already does correctly) and accept that every existing checkpoint needs
+  retraining from scratch to be meaningful under the new math; or (b) formally accept the current
+  behavior as "single global attention, `num_heads` cosmetic" and correct all documentation/naming
+  accordingly instead of describing it as multi-head.
+- [ ] If (a): delete `forward_parallel()`'s redundancy by making it the one `forward()` implementation
+  (or inline its logic into `forward()`), do the same for `CrossAttention`, and add
+  `forward_with_cache()` equivalents that use per-head slicing over the cached K/V.
+- [ ] If (a): add tests that would have caught this — e.g. constructing two `MultiHeadAttention`
+  instances with `num_heads=1` vs `num_heads=4` (same `d_model`, same weights via a shared seed or
+  explicit weight copy) and asserting their outputs *differ* in a way consistent with per-head
+  softmax normalization, not just that both produce a plausible-shaped, plausible-valued output.
+  Currently the test suite is architecture-blind: it would pass identically against a correct or an
+  incorrect implementation.
+- [ ] If (a): benchmark/validate against a from-scratch retrain before declaring any existing
+  deployment upgraded — this is not a hot-fixable-in-place change.
+- [ ] Either way: update `MultiHeadAttention.hpp`/`CrossAttention.hpp`'s class-level architecture
+  comments (already flagged with this TD number) once a decision is made, and remove the `forward_parallel()`
+  dead-code path or promote it, rather than leaving both forever.
+
+Files to Modify:
+
+- `src/MultiHeadAttention.cpp` / `src/MultiHeadAttention.hpp`
+- `src/CrossAttention.cpp` / `src/CrossAttention.hpp`
+- `tests/multiheadattention_test.cpp` / `tests/crossattention_test.cpp` (new architecture-sensitive
+  coverage)
+- Every existing trained checkpoint, if option (a) is chosen (out of source-tree scope, but the real
+  cost driver of this item)
+
+---
 
 ### TD-050: GPU-Resident KV-Cache for Autoregressive Generation
 
@@ -878,7 +974,7 @@ Files to Modify:
 
 ## Resolved Items
 
-34 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+38 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements
@@ -1272,16 +1368,17 @@ When resolving a debt item:
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|0|0%|
-|Medium|11|46%|
-|Low|13|54%|
+|High|1|4%|
+|Medium|11|44%|
+|Low|13|52%|
 
-**Total Active Items:** 24
+**Total Active Items:** 25
 
 ### By Component
 
 |Component|Count|
 |----------------------|-------|
+|Core Model Architecture|1|
 |Training / Data Generation|1|
 |Training / Data Management|1|
 |Training / Data Loading|1|
@@ -1311,10 +1408,10 @@ When resolving a debt item:
 |0-2 hours|1|
 |2-4 hours|4|
 |4-8 hours|6|
-|8+ hours|11|
+|8+ hours|12|
 |Not estimated|2|
 
-**Total Estimated Effort (Active Items):** 171-251 hours (excludes TD-014 and TD-039, which have no effort estimate)
+**Total Estimated Effort (Active Items):** 201-301 hours (excludes TD-014 and TD-039, which have no effort estimate)
 
 ### Future Enhancements Summary
 

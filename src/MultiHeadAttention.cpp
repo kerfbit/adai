@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 #include "MultiHeadAttention.hpp"
 #include <cmath>
@@ -117,9 +117,16 @@ Matrix MultiHeadAttention::forward(const Matrix& input, const Matrix* mask) {
 
     // Compute scaled dot-product attention
     // This function also caches scores and computes attention_weights
+    // TODO: See TECHNICAL_DEBT.md TD-059 - this is the production self-attention path
+    // (called by EncoderBlock/DecoderBlock) and it does NOT split into per-head slices:
+    // the QK^T below contracts over the full d_model width, not d_k, making this
+    // single-head attention over d_model dims regardless of num_heads. See
+    // forward_parallel() below for the (currently unused) correct per-head version.
     Matrix scores = cached_Q * cached_K.transpose();
 
-    // Scale by sqrt(d_k)
+    // Scale by sqrt(d_k) — TD-059: mismatched with the actual contraction width
+    // (d_model, not d_k) used just above; should be 1/sqrt(d_model) for this
+    // computation, which would be off by sqrt(num_heads) from what's written here.
     float scale_factor = 1.0f / std::sqrt(static_cast<float>(d_k));
     scores = scores.scale(scale_factor);
 
@@ -158,6 +165,11 @@ Matrix MultiHeadAttention::forward(const Matrix& input, const Matrix* mask) {
     return output;
 }
 
+// TODO: See TECHNICAL_DEBT.md TD-059 - this is the only method in this class that
+// correctly implements per-head attention (explicit start_dim = h*d_k slicing
+// below); forward()/forward_with_cache() above do not, and are the only ones any
+// caller actually invokes (grep confirms zero callers of forward_parallel() outside
+// this file) — this method is dead code holding the one correct implementation.
 Matrix MultiHeadAttention::forward_parallel(const Matrix& input, const Matrix* mask,
                                             bool use_parallel) {
     // Cache input for backward pass
@@ -384,9 +396,12 @@ Matrix MultiHeadAttention::forward_with_cache(const Matrix& input, const Matrix*
 
     // Compute attention scores: Q_new * K_full^T
     // Shape: [num_new_tokens, total_seq_len]
+    // TODO: See TECHNICAL_DEBT.md TD-059 - same missing per-head split as forward()
+    // above; the KV-cache decode path also runs single-head attention over the
+    // full d_model width.
     Matrix scores = Q_new * K_full.transpose();
 
-    // Scale by sqrt(d_k)
+    // Scale by sqrt(d_k) — TD-059: mismatched, see forward()'s note above.
     float scale_factor = 1.0f / std::sqrt(static_cast<float>(d_k));
     scores = scores.scale(scale_factor);
 
