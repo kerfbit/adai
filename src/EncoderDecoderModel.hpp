@@ -165,7 +165,14 @@ class EncoderDecoderModel {
      * sequence from scratch via gpu_decode() rather than incrementally
      * caching — same algorithmic shape as the CPU "greedy workaround" path,
      * just GPU-accelerated. Only the last position's logits are downloaded
-     * per step.
+     * per step. (See TD-030 for the KV-cache gap.)
+     *
+     * See TD-033 in TECHNICAL_DEBT.md - this is the persistent GPU-resident
+     * decode path chatbot_api_server's live serving code should be using, but
+     * currently isn't: ChatbotAPI::generate_response() calls forward() instead
+     * (ChatbotAPI.cpp). Today this function is only reached from
+     * ChatbotTrainer's internal generation-quality backfill / BLEU-ROUGE
+     * scoring (ChatbotTrainer.cpp), never from a real chat request.
      *
      * @param input_text Input text to encode
      * @param max_length Maximum output length

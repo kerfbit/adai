@@ -4,13 +4,14 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** July 4, 2026
-**Total Items:** 4
+**Last Updated:** September 7, 2026
+**Total Items:** 7
 **High Priority:** 0
 **Medium Priority:** 3
-**Low Priority:** 1
+**Low Priority:** 4
 **Future Enhancements:** 19
-**Resolved Items:** 31
+**Resolved Items:** 32
+**Deferred Decisions:** 1
 
 ## Table of Contents
 
@@ -19,10 +20,12 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 - [Active Technical Debt](#active-technical-debt)
   - [TD-030: GPU-Resident KV-Cache for Autoregressive Generation](#td-030-gpu-resident-kv-cache-for-autoregressive-generation)
   - [TD-029: Fix GCC 13 ICE in raginference\_test.cpp](#td-029-fix-gcc-13-ice-in-raginference_testcpp)
-  - [TD-020: Persistent Metrics Storage via SQL Database](#td-020-persistent-metrics-storage-via-sql-database)
+  - [TD-033: chatbot_api_server Inference Never Uses Persistent GPU-Resident Decode](#td-033-chatbot_api_server-inference-never-uses-persistent-gpu-resident-decode)
+  - [TD-032: Bundle SQLite3 Amalgamation for Windows Cross-Compilation](#td-032-bundle-sqlite3-amalgamation-for-windows-cross-compilation)
   - [TD-014: LLM Operations and Training Tooling Suite](#td-014-llm-operations-and-training-tooling-suite)
   - [TD-006: Fill-in-the-Middle (FIM) Training Data Generation](#td-006-fill-in-the-middle-fim-training-data-generation)
-- [Resolved Items](#resolved-items) (31 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+  - [TD-034: PPOOptimizer's Core Update Loop Is a Placeholder, Not Real PPO](#td-034-ppooptimizers-core-update-loop-is-a-placeholder-not-real-ppo)
+- [Resolved Items](#resolved-items) (32 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -30,6 +33,8 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [Configuration and Service Management](#configuration-and-service-management)
   - [Logging and Observability](#logging-and-observability)
   - [Container and Deployment](#container-and-deployment)
+- [Deferred Decisions](#deferred-decisions)
+  - [AMD Radeon / ROCm-HIP GPU Backend — Not Pursued](#amd-radeon--rocm-hip-gpu-backend--not-pursued)
 - [Process Guidelines](#process-guidelines)
   - [Adding New Technical Debt](#adding-new-technical-debt)
   - [Prioritization Criteria](#prioritization-criteria)
@@ -39,6 +44,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [By Component](#by-component)
   - [Effort Distribution](#effort-distribution)
   - [Future Enhancements Summary](#future-enhancements-summary)
+  - [Deferred Decisions Summary](#deferred-decisions-summary)
 - [References](#references)
 
 ## Active Technical Debt
@@ -93,48 +99,61 @@ Action Items:
 
 ---
 
-### TD-020: Persistent Metrics Storage via SQL Database
+### TD-033: chatbot_api_server Inference Never Uses Persistent GPU-Resident Decode
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Planned | Training / Metrics / API / Infrastructure | May 31, 2026 | 20-30 hours |
+| MEDIUM | Open | GPU / Inference / Performance | September 7, 2026 | 6-8 hours |
 
 Description:
-The metrics stack persists all data to flat JSONL/JSON files per session. This prevents time-range queries, limits history served via the API to the 10,000-record in-memory ring buffer, and makes cross-session analytics impossible without reading multiple files externally. A SQL persistence layer (SQLite by default, PostgreSQL as a compile-time option) would remove these constraints while an `IMetricsDatabase` abstraction keeps both backends interchangeable.
+Originally filed as "Matrix GPU Dispatch Doesn't Use Persistent GPUMatrix Residency," on the claim that nothing in the training/inference hot path calls `to_gpu()`/`from_gpu()` and that TD-003's persistent-residency win was never realized outside code that explicitly opts in. That claim is only half true, and the half that's false changes where the fix belongs — this entry replaces it with the verified scope.
 
-Proposal: `docs/development/proposals/persistent-metrics-sql-storage.md`
+**Training already has full persistent GPU residency.** `ChatbotTrainer::train_epoch()` calls `EncoderDecoderModel::gpu_forward()`/`gpu_backward()` (`src/ChatbotTrainer.cpp`) under `#ifdef ADAI_ENABLE_GPU`, which cascades through `EncoderBlock`/`DecoderBlock::gpu_forward()`/`gpu_backward()` (`src/EncoderBlock.cpp`, `src/DecoderBlock.cpp`) into `MultiHeadAttention`/`FeedForward`/`LayerNorm::gpu_forward()`/`gpu_backward()`, all chaining `GPUMatrix` end-to-end with cached device-resident buffers (`cached_Q`, `cached_K`, `cached_hidden`, etc.). This is exactly TD-003's intended design (resolved May 3, 2026), fully wired up, and identical on both backends — `GPUMatrix` exposes the same API in `src/gpu/MatrixGPU.hpp` (CUDA) and `src/gpu/sycl/MatrixGPU_SYCL.hpp` (SYCL).
+
+**The real, live gap is inference serving.** `ChatbotAPI::generate_response()` (`src/ChatbotAPI.cpp`) builds its `model_fn` around `EncoderDecoderModel::forward()` — the plain CPU `Matrix` path — never the GPU-resident one. `Matrix::operator*()` (`src/Matrix.cpp`) auto-dispatches per call to `Matrix::multiply_gpu()` whenever `GPUManager::is_available()` and both inner dimensions are ≥32; `multiply_gpu()` (and `add_gpu`/`transpose_gpu`/`scale_gpu`/`hadamard_gpu`) allocate device memory, upload, compute, and download on every single call, with zero reuse of `GPUMatrix`. So on a GPU build, every live chat request re-pays a full alloc+upload+compute+download for every matmul, in every layer, for every generated token — worse than the training case, since it's per-token request latency rather than amortized training throughput. Confirmed backend-symmetric: `GPUMemory` does a fresh `cudaMalloc` (`src/gpu/GPUUtils.hpp`) or `sycl::malloc_device` (`src/gpu/sycl/GPUUtils_SYCL.hpp`) per call either way — this is a `Matrix.cpp`/`ChatbotAPI.cpp` dispatch problem, not a CUDA-vs-SYCL difference.
+
+`EncoderDecoderModel::gpu_generate_response()` (`src/EncoderDecoderModel.cpp`) already exists as a persistent-residency decode path, but it's wired only into `ChatbotTrainer`'s internal generation-quality backfill / BLEU-ROUGE scoring (`src/ChatbotTrainer.cpp`), never into `ChatbotAPI` — so the one caller that would most benefit (real chat latency) has never been connected to it.
+
+Related: TD-030 (GPU-Resident KV-Cache) covers a different problem inside `gpu_generate_response()` itself — once called, it recomputes the full sequence from scratch every step (no KV-cache), which is O(n²) instead of O(n). TD-030 is about making `gpu_generate_response()` fast once used; this item is about it not being used by `chatbot_api_server` at all.
+
+Discovered during the per-file production-readiness rollout (September 7, 2026) — see [file-status-standard.md](file-status-standard.md); corrected same day after tracing both GPU backends end-to-end.
 
 Action Items:
 
-- [ ] Define `IMetricsDatabase` interface and `SessionRecord` struct in `src/MetricsDatabase.hpp`.
-- [ ] Implement `SQLiteMetricsDatabase` with WAL mode and prepared statements (`src/SQLiteMetricsDatabase.hpp/.cpp`).
-- [ ] Implement optional `PostgresMetricsDatabase` with connection pool and retry logic (`src/PostgresMetricsDatabase.hpp/.cpp`), guarded by `ENABLE_POSTGRES_METRICS` CMake option.
-- [ ] Add `MetricsDatabaseFactory::create(Config)` to select backend from `METRICS_STORAGE_BACKEND` config key.
-- [ ] Wire `IMetricsDatabase*` into `TrainingMetricsService`: dual-write in `persist_metrics()` / `persist_summary()`, DB-first restore in `restore_from_summary()`.
-- [ ] Have `MetricsSessionRegistry` own and initialise the database instance; inject into each session at creation.
-- [ ] Add four new REST endpoints: time-range history, cross-session metric compare, status-filtered session list, full history export.
-- [ ] Bundle SQLite amalgamation at `external/sqlite3/` for Windows/MinGW builds; update `adai/CMakeLists.txt`.
-- [ ] Add `METRICS_STORAGE_BACKEND`, `METRICS_DB_PATH`, `METRICS_DB_URL`, `METRICS_DB_POOL_SIZE` to `config.conf`.
-- [ ] Write `tests/MetricsDatabaseTest.cpp` covering schema bootstrap, WAL mode, round-trip insert/query, time-range filter, dual-write path, and DB-fallback restore.
-
-Files to Create:
-
-- `src/MetricsDatabase.hpp`
-- `src/SQLiteMetricsDatabase.hpp` / `src/SQLiteMetricsDatabase.cpp`
-- `src/PostgresMetricsDatabase.hpp` / `src/PostgresMetricsDatabase.cpp`
-- `src/MetricsDatabaseFactory.hpp`
-- `external/sqlite3/sqlite3.c` / `external/sqlite3/sqlite3.h` (amalgamation)
-- `tests/MetricsDatabaseTest.cpp`
+- [ ] Give `ChatbotAPI::generate_response()`'s `model_fn` a GPU-resident branch that calls `EncoderDecoderModel::gpu_generate_response()` (or an equivalent single-pass GPU decode) when `GPUManager::is_available()`, instead of unconditionally calling `model_->forward()`.
+- [ ] Confirm `TextGenerator`'s beam/top-k/nucleus/temperature strategies all work against the GPU-resident decode path — `gpu_generate_response()` was built for BLEU/ROUGE scoring and may only need to support greedy today; verify before switching real callers over, extend if needed.
+- [ ] Benchmark chat response latency before/after on a representative prompt/`max_length` on both CUDA and SYCL builds to confirm the per-token round-trip elimination.
+- [ ] Leave `Matrix::multiply_gpu()` and siblings as-is for callers that only have CPU `Matrix` data and no persistent-residency alternative — this item is about routing the identified hot path around them, not removing them.
 
 Files to Modify:
 
-- `src/TrainingMetricsService.hpp` / `src/TrainingMetricsService.cpp`
-- `src/MetricsSessionRegistry.hpp` / `src/MetricsSessionRegistry.cpp`
-- `src/TrainingMetricsAPI.hpp` / `src/TrainingMetricsAPI.cpp`
-- `src/TrainingMetricsAPIServer.cpp`
-- `adai/CMakeLists.txt` / `adai/src/CMakeLists.txt`
-- `config.conf` / `config-remote.conf`
-- `docs/development/TRAINING_METRICS_API.md`
+- `src/ChatbotAPI.cpp` / `src/ChatbotAPI.hpp` — `generate_response()`'s `model_fn`
+- `src/EncoderDecoderModel.cpp` / `src/EncoderDecoderModel.hpp` — adjust `gpu_generate_response()` for a non-training caller if needed (e.g. strategy support)
+- `src/TextGenerator.cpp` / `src/TextGenerator.hpp` — verify/extend strategy support against the GPU-resident decode path
+- `tests/` — coverage confirming identical output between the CPU and GPU-resident serving paths
+
+---
+
+### TD-032: Bundle SQLite3 Amalgamation for Windows Cross-Compilation
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Build / Windows / Metrics | September 7, 2026 | 2-4 hours |
+
+Description:
+TD-020 (Persistent Metrics Storage via SQL Database, resolved — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md)) links SQLite3 via `find_path`/`find_library` in `src/CMakeLists.txt`, which works on Linux/macOS but has no equivalent for the MinGW Windows cross-compilation path (`scripts/build_windows.sh`, `scripts/package_windows.sh`). TD-020's original proposal called for bundling the public-domain SQLite amalgamation specifically to cover this case; that one item was the only part of the proposal not carried out. Everything else in TD-020 shipped and is verified working.
+
+Action Items:
+
+- [ ] Vendor the SQLite amalgamation into `external/sqlite3/` (`sqlite3.c`, `sqlite3.h`).
+- [ ] Add a CMake option to build it as a static lib on MinGW/Windows targets when system SQLite3 isn't found.
+- [ ] Verify `metrics_api_server` builds and runs under Wine or a Windows VM with the SQLite backend enabled.
+
+Files to Modify:
+
+- `external/sqlite3/` (new)
+- `src/CMakeLists.txt`
+- `scripts/build_windows.sh`
 
 ---
 
@@ -200,7 +219,7 @@ Files to Modify:
 
 - `src/IncrementalTrainer.cpp` - Modify `create_qa_pairs_from_text()` (line 920)
 - `src/BPETokenizer.cpp` - Add FIM special tokens to vocabulary
-- `include/IncrementalTrainer.hpp` - Add FIM configuration options
+- `src/IncrementalTrainer.hpp` - Add FIM configuration options
 
 Code Location:
 
@@ -219,47 +238,45 @@ Evaluation:
 
 ---
 
-### TD-018: Multi-Instance Training Metrics Service
+### TD-034: PPOOptimizer's Core Update Loop Is a Placeholder, Not Real PPO
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Planned | Metrics / API / Config / Training | May 21, 2026 | 16-24 hours |
+| LOW | Open | RLHF / PPOOptimizer | September 7, 2026 | 6-10 hours |
 
 Description:
-The current `TrainingMetricsService` is built around a single active training session: one `TrainingMetricsSnapshot`, one `std::atomic<int> current_session_id_`, global file paths, and a `GlobalMetricsService` singleton. Launching a second training job (e.g., a hyperparameter sweep, parallel fine-tune, or multi-GPU node) corrupts metrics of the first job because all callers share the same in-process object and write to the same files.
+`PPOOptimizer::train()`'s minibatch loop never recomputes log-probabilities under the current
+policy: `float new_log_prob = batch_old_log_probs[i];  // Placeholder` makes the clipped-ratio term
+`exp(new_log_prob - batch_old_log_probs[i])` always evaluate to `exp(0) = 1`, so the policy loss is
+not actually PPO's clipped surrogate objective — it silently trains as something else. The KL-based
+early-stopping check has the same problem: `float approx_kl = 0.0f;  // Placeholder` means the
+`> 1.5 * kl_target` early-stop condition can never fire. `PPOOptimizer` is not wired into any
+shipped binary (`phase5_test.cpp` exercises it in isolation only — see
+[PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md)), so this has no effect on any current
+training path, but it would silently misbehave the moment RLHF fine-tuning is wired up.
 
-Full proposal: `docs/development/proposals/multi-instance-metrics-service.md`
+Discovered during the per-file production-readiness rollout (September 7, 2026) — see
+[file-status-standard.md](file-status-standard.md).
 
 Action Items:
 
-- [ ] **Step 1 — Per-session file paths in `TrainingMetricsService`**: Verify that `MetricsServiceConfig` carries all path fields (`metrics_file`, `metrics_summary_file`, `metrics_prometheus_file`, `abnormal_samples_file`) so each session can receive its own derived paths at construction time. No constructor-signature changes needed.
-- [ ] **Step 2 — Implement `MetricsSessionRegistry`** (`src/MetricsSessionRegistry.hpp`): new header-only class owning `std::unordered_map<std::string, std::shared_ptr<TrainingMetricsService>> sessions_`, a `std::shared_mutex` reader-writer lock, `size_t max_live_sessions_` (default 16), `create_or_get_session(key)`, `get_session(key)`, `list_sessions()`, and `evict_completed_sessions(max_age_seconds)`. Session key format: `^[a-zA-Z0-9][a-zA-Z0-9_\-]{0,63}$`; reject invalid keys with HTTP 400. Key `"0-default"` maps to legacy file paths for backwards compatibility.
-- [ ] **Step 3 — Update `TrainingMetricsAPI`**: Replace the single `TrainingMetricsService*` member with a `MetricsSessionRegistry*`. Register all session-scoped routes under `"/api/sessions/{key}/..."` prefix (using httplib path-param capture or manual prefix matching). Add `GET /api/sessions` (session index) and `GET /api/metrics/aggregate` (cross-session snapshot) endpoints. Preserve all old flat routes (`POST /api/session/start`, `GET /api/metrics/current`, etc.) as backwards-compat aliases mapping to key `"0-default"`, emitting `Deprecation: true` header.
-- [ ] **Step 4 — Update `TrainingMetricsAPIServer`**: Construct a `MetricsSessionRegistry` (seeded with the legacy `"0-default"` session from existing `MetricsServiceConfig`) and inject it into `TrainingMetricsAPI` instead of a single `TrainingMetricsService`.
-- [ ] **Step 5 — New config keys in `Config`**: Add `METRICS_SESSION_KEY` (string, default `"0-default"`), `METRICS_MAX_LIVE_SESSIONS` (int, default 16), `METRICS_COMPLETED_TTL_SECONDS` (int, default 3600), `METRICS_SWEEP_INTERVAL_SECONDS` (int, default 60). Parse in `src/Config.cpp` alongside existing metrics keys.
-- [ ] **Step 6 — Trainer HTTP client changes**: `ChatbotTrainer` and `IncrementalTrainer` read `metrics_session_key` from their config and prefix every HTTP push base URL with `/api/sessions/{key}` (e.g., `POST /api/sessions/42-gpu0/metrics/sample`).
-- [ ] **Step 7 — Tests**: Unit tests for `MetricsSessionRegistry` (create, evict, capacity cap, concurrent access, key validation). Integration test: two `TrainingMetricsService` instances writing to different file paths do not interfere.
-
-Files to Create:
-
-- `src/MetricsSessionRegistry.hpp` — new session registry header
-- `tests/metrics_session_registry_test.cpp` — unit tests
+- [ ] Recompute `new_log_prob` via a real forward pass of the current policy over `batch_states[i]`,
+  not a copy of `batch_old_log_probs[i]`.
+- [ ] Track actual per-minibatch KL divergence between old and current policy for `approx_kl`
+  instead of the hardcoded `0.0f`.
+- [ ] Add a test that trains on a toy environment/reward and asserts the policy actually changes
+  (a no-op ratio would previously have passed any test that doesn't check this).
 
 Files to Modify:
 
-- `src/TrainingMetricsService.hpp` — verify per-session path fields in `MetricsServiceConfig`; remove/replace `GlobalMetricsService` singleton
-- `src/TrainingMetricsAPI.hpp` / `src/TrainingMetricsAPI.cpp` — registry injection, session-keyed routes, new endpoints, backwards-compat aliases
-- `src/TrainingMetricsAPIServer.cpp` — construct `MetricsSessionRegistry`; inject into `TrainingMetricsAPI`
-- `src/Config.hpp` / `src/Config.cpp` — four new config keys
-- `src/ChatbotTrainer.hpp` / `src/ChatbotTrainer.cpp` — `metrics_session_key` field; prefix push URLs
-- `src/IncrementalTrainer.cpp` — map `metrics_session_key` from `ServiceConfig`; prefix push URLs
-- `tests/CMakeLists.txt` — add `metricsSessionRegistryTests` target
+- `src/PPOOptimizer.hpp`
+- `tests/phase5_test.cpp`
 
 ---
 
 ## Resolved Items
 
-31 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+32 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements
@@ -542,6 +559,43 @@ Related to Steps 4-5: Docker and systemd
 
 ---
 
+## Deferred Decisions
+
+Architecture decisions that were considered and explicitly not pursued, with the reasoning and the
+condition that would reopen them. Unlike Future Improvements above, these are not queued work —
+they're a record of "not now, and here's why," so the reasoning isn't re-litigated from scratch later.
+
+### AMD Radeon / ROCm-HIP GPU Backend — Not Pursued
+
+**Date:** September 7, 2026
+**Component:** GPU / Architecture
+
+**Decision:** Do not add a third GPU backend (ROCm/HIP) alongside the existing CUDA
+(`src/gpu/MatrixGPU.cu`) and SYCL (`src/gpu/sycl/`) paths.
+
+**Reasoning:**
+
+- No AMD Radeon hardware is available or targeted for this project — a HIP backend would be
+  maintained by inspection only, the same way `MatrixGPU.cu` already is on the primary dev
+  machine (whose only GPU is an integrated Intel UHD 620 — neither CUDA nor a discrete Intel ARC
+  device is actually present there either).
+- The two existing backends already demonstrate the sync cost: CUDA and SYCL were edited in the
+  same commit, on the same day, and still drifted (see the September 2026 fix that added float4
+  vectorization, sub-group/warp-shuffle reduction, and `GPU_STRATEGY` queue-priority parity to the
+  SYCL backend to catch it up with CUDA). A third backend multiplies that sync surface rather than
+  adding to it linearly.
+- Unlike SYCL (a ground-up rewrite in a different kernel-lambda paradigm), HIP is close to
+  source-compatible with CUDA — AMD's hipify tools can mechanically translate most of
+  `MatrixGPU.cu` (`cuda*` → `hip*`, `cublas` → `hipblas`/`rocblas`) — so adding it later is
+  expected to cost meaningfully less than SYCL did.
+
+**Revisit when:** Either (a) AMD Radeon/ROCm hardware becomes available to build and test
+against, or (b) a concrete deployment target requires it. The CMake mutual-exclusion pattern
+(`ENABLE_GPU`/`ENABLE_SYCL`, see `CMakeLists.txt`) already extends cleanly to a third
+`ENABLE_HIP` option if/when that happens.
+
+---
+
 ## Process Guidelines
 
 ### Adding New Technical Debt
@@ -617,10 +671,10 @@ When resolving a debt item:
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|0|0%|
-|Medium|3|75%|
-|Low|1|25%|
+|Medium|3|43%|
+|Low|4|57%|
 
-**Total Active Items:** 4
+**Total Active Items:** 7
 
 ### By Component
 
@@ -628,8 +682,11 @@ When resolving a debt item:
 |----------------------|-------|
 |Training / Data Generation|1|
 |Tooling / Toolchain|1|
-|Metrics / API / Config / Training|1|
+|Tests / RAGInference|1|
 |GPU / Inference / Training|1|
+|GPU / Inference / Performance|1|
+|Build / Windows / Metrics|1|
+|RLHF / PPOOptimizer|1|
 
 ### Effort Distribution
 
@@ -637,10 +694,11 @@ When resolving a debt item:
 |--------------|-------|
 |0-2 hours|1|
 |2-4 hours|1|
-|4-8 hours|1|
+|4-8 hours|2|
 |8+ hours|2|
+|Not estimated|1|
 
-**Total Estimated Effort (Active Items):** 42-60 hours
+**Total Estimated Effort (Active Items):** 41-60 hours (excludes TD-014, which has no effort estimate)
 
 ### Future Enhancements Summary
 
@@ -664,6 +722,7 @@ By Priority:
 
 Recently Completed:
 
+- TD-020: Persistent Metrics Storage via SQL Database - September 7, 2026 (tracker correction; implementation predates this entry)
 - TD-027: Install Script for incremental_trainer Sub-System - June 7, 2026
 - TD-028: Separate Dataset Management from IncrementalTrainer - June 7, 2026
 - TD-023: Parallel Generation Quality Scoring via Model Snapshot - June 4, 2026
@@ -685,6 +744,12 @@ Recently Completed:
 - TD-005: Checkpoint Management - February 18, 2026
 - TD-002: BPE Tokenizer Error Handling - February 18, 2026
 - TD-001: Optimizer Parameter Exposure - January 28, 2026
+
+### Deferred Decisions Summary
+
+**Total Deferred Decisions:** 1
+
+- AMD Radeon / ROCm-HIP GPU Backend — Not Pursued (September 7, 2026)
 
 ---
 

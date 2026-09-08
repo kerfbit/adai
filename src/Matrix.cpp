@@ -808,6 +808,16 @@ static Matrix unflatten_matrix(const std::vector<float>& flat, int rows, int col
     return result;
 }
 
+// See TD-033 in TECHNICAL_DEBT.md - this allocates, uploads, computes, and
+// downloads on every call (same for add_gpu/transpose_gpu/scale_gpu/hadamard_gpu
+// below), with no reuse of the persistent-residency GPUMatrix/to_gpu()/from_gpu()
+// API (TD-003). Fine for isolated/one-off CPU-side callers; the real cost is
+// Matrix::operator*() (above) auto-dispatching here on every matmul of
+// chatbot_api_server's live inference path, which never switched to a
+// GPU-resident decode. Do not add a to_gpu()/from_gpu() conversion here —
+// convert the *caller* to stay GPU-resident across the whole chain instead
+// (one round trip in, N on-device ops, one round trip out), same as
+// ChatbotTrainer's gpu_forward()/gpu_backward() training path already does.
 Matrix Matrix::multiply_gpu(const Matrix& other) const {
     if (cols != other.rows) {
         throw std::invalid_argument("Matrix dimensions incompatible for multiplication");

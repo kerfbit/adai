@@ -644,6 +644,13 @@ std::string ChatbotAPI::generate_response(const std::string& input,
         TextGenerator generator(gen_config, 0);  // seed=0 for random
 
         // Create model forward function (uses encoder-decoder model)
+        // See TD-033 in TECHNICAL_DEBT.md - this always takes the plain CPU
+        // Matrix::forward() path, whose Matrix::operator*() (Matrix.cpp) auto-dispatches
+        // per call to multiply_gpu() when GPU is available: full alloc+upload+compute+
+        // download on every matmul, every layer, every generated token. The persistent
+        // GPU-resident alternative (EncoderDecoderModel::gpu_generate_response()) already
+        // exists but is currently wired only into ChatbotTrainer's internal generation-
+        // quality backfill, never into this serving path.
         auto model_fn = [this, &input_tokens](const std::vector<int>& decoder_tokens) -> Matrix {
             // For encoder-decoder model: encode input once, then use decoder
             // This is a simplified version - in practice, you might cache encoder output
