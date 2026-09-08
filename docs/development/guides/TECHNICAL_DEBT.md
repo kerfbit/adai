@@ -11,6 +11,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 **Low Priority:** 4
 **Future Enhancements:** 19
 **Resolved Items:** 32
+**Deferred Decisions:** 1
 
 ## Table of Contents
 
@@ -32,6 +33,8 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [Configuration and Service Management](#configuration-and-service-management)
   - [Logging and Observability](#logging-and-observability)
   - [Container and Deployment](#container-and-deployment)
+- [Deferred Decisions](#deferred-decisions)
+  - [AMD Radeon / ROCm-HIP GPU Backend — Not Pursued](#amd-radeon--rocm-hip-gpu-backend--not-pursued)
 - [Process Guidelines](#process-guidelines)
   - [Adding New Technical Debt](#adding-new-technical-debt)
   - [Prioritization Criteria](#prioritization-criteria)
@@ -41,6 +44,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [By Component](#by-component)
   - [Effort Distribution](#effort-distribution)
   - [Future Enhancements Summary](#future-enhancements-summary)
+  - [Deferred Decisions Summary](#deferred-decisions-summary)
 - [References](#references)
 
 ## Active Technical Debt
@@ -545,6 +549,43 @@ Related to Steps 4-5: Docker and systemd
 
 ---
 
+## Deferred Decisions
+
+Architecture decisions that were considered and explicitly not pursued, with the reasoning and the
+condition that would reopen them. Unlike Future Improvements above, these are not queued work —
+they're a record of "not now, and here's why," so the reasoning isn't re-litigated from scratch later.
+
+### AMD Radeon / ROCm-HIP GPU Backend — Not Pursued
+
+**Date:** September 7, 2026
+**Component:** GPU / Architecture
+
+**Decision:** Do not add a third GPU backend (ROCm/HIP) alongside the existing CUDA
+(`src/gpu/MatrixGPU.cu`) and SYCL (`src/gpu/sycl/`) paths.
+
+**Reasoning:**
+
+- No AMD Radeon hardware is available or targeted for this project — a HIP backend would be
+  maintained by inspection only, the same way `MatrixGPU.cu` already is on the primary dev
+  machine (whose only GPU is an integrated Intel UHD 620 — neither CUDA nor a discrete Intel ARC
+  device is actually present there either).
+- The two existing backends already demonstrate the sync cost: CUDA and SYCL were edited in the
+  same commit, on the same day, and still drifted (see the September 2026 fix that added float4
+  vectorization, sub-group/warp-shuffle reduction, and `GPU_STRATEGY` queue-priority parity to the
+  SYCL backend to catch it up with CUDA). A third backend multiplies that sync surface rather than
+  adding to it linearly.
+- Unlike SYCL (a ground-up rewrite in a different kernel-lambda paradigm), HIP is close to
+  source-compatible with CUDA — AMD's hipify tools can mechanically translate most of
+  `MatrixGPU.cu` (`cuda*` → `hip*`, `cublas` → `hipblas`/`rocblas`) — so adding it later is
+  expected to cost meaningfully less than SYCL did.
+
+**Revisit when:** Either (a) AMD Radeon/ROCm hardware becomes available to build and test
+against, or (b) a concrete deployment target requires it. The CMake mutual-exclusion pattern
+(`ENABLE_GPU`/`ENABLE_SYCL`, see `CMakeLists.txt`) already extends cleanly to a third
+`ENABLE_HIP` option if/when that happens.
+
+---
+
 ## Process Guidelines
 
 ### Adding New Technical Debt
@@ -693,6 +734,12 @@ Recently Completed:
 - TD-005: Checkpoint Management - February 18, 2026
 - TD-002: BPE Tokenizer Error Handling - February 18, 2026
 - TD-001: Optimizer Parameter Exposure - January 28, 2026
+
+### Deferred Decisions Summary
+
+**Total Deferred Decisions:** 1
+
+- AMD Radeon / ROCm-HIP GPU Backend — Not Pursued (September 7, 2026)
 
 ---
 
