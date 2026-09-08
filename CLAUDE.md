@@ -107,7 +107,7 @@ Two mutually exclusive backends, selected at compile time:
 
 Both backends expose the same interface through `src/gpu/MatrixGPU.hpp` (`GPUMatrix`, `GPUMemory<T>`, `GPUManager`). `Matrix.cpp` dispatches to GPU when `GPUManager::is_available()` and matrix dimensions meet a minimum threshold.
 
-**TD-033** (active): GPU memory round-trips. `Matrix::multiply_gpu()` still uploads data, runs a kernel, and downloads the result on every call. TD-003 (resolved) added the `GPUMatrix` persistent-residency type and `Matrix::to_gpu()` / `Matrix::from_gpu()`, but nothing in the hot path uses them — model weights still don't stay device-resident throughout a training run.
+**TD-033** (active): `chatbot_api_server` inference never uses persistent GPU-resident decode. Training already has full GPU residency — `ChatbotTrainer::gpu_forward()`/`gpu_backward()` chain `GPUMatrix` end-to-end via TD-003's `to_gpu()`/`from_gpu()`. But `ChatbotAPI::generate_response()` still calls the plain CPU `forward()` path, so `Matrix::multiply_gpu()` uploads, computes, and downloads on every call, for every matmul, for every generated token — the one caller that most needs the existing `EncoderDecoderModel::gpu_generate_response()` persistent-residency path has never been wired to use it.
 
 **`GPU_STRATEGY`** (config key): `background` (low-priority queue, default) or `full` (normal priority).
 
@@ -278,7 +278,7 @@ trusting a `grep TD-NNN` alone. Currently active items:
 | Tag | Description |
 |---|---|
 | TD-030 | GPU-resident KV-cache for autoregressive generation — CPU cache has a known correctness bug; no GPU cache exists at all |
-| **TD-033** | `Matrix::multiply_gpu()` doesn't use the persistent-residency `GPUMatrix`/`to_gpu()`/`from_gpu()` API added by TD-003 — still round-trips host↔device per call |
+| **TD-033** | `chatbot_api_server` inference never uses the persistent GPU-resident decode path — training already does |
 | TD-029 | GCC 13 ICE compiling `tests/raginference_test.cpp` |
 | TD-032 | SQLite amalgamation not bundled for Windows/MinGW cross-compilation |
 | TD-014 | Missing standalone tooling (quantization, eval, data-prep binaries) |

@@ -12,10 +12,10 @@ See [file-status-standard.md](guides/file-status-standard.md) for what these sta
 |---|---|---|---|---|---|---|---|
 | android | 0 | 41 | 62 | 0 | 0 | 0 | 103 |
 | scripts | 2 | 33 | 6 | 0 | 0 | 0 | 41 |
-| src | 75 | 54 | 3 | 0 | 0 | 0 | 132 |
+| src | 73 | 56 | 3 | 0 | 0 | 0 | 132 |
 | tizen-metrics-app | 0 | 3 | 0 | 0 | 0 | 0 | 3 |
 
-**77/279 files (28%) are tagged `stable`.**
+**75/279 files (27%) are tagged `stable`.**
 
 ## Untagged files
 
@@ -168,6 +168,8 @@ None — every in-scope file carries a tag.
 | `scripts/verify_gui_parallel.sh` | beta | 0.6.0 | 2026-09-07 | — |
 | `scripts/verify_special_token_fixes.py` | experimental | 0.3.0 | 2026-09-07 | — |
 | `src/BatchedInferenceEngine.hpp` | beta | 0.7.0 | 2026-09-07 | — |
+| `src/ChatbotAPI.cpp` | beta | 0.9.0 | 2026-09-07 | TD-033 |
+| `src/ChatbotAPI.hpp` | beta | 0.9.0 | 2026-09-07 | TD-033 |
 | `src/ChatbotAPIServer.cpp` | beta | 0.8.0 | 2026-09-07 | — |
 | `src/ChatbotCLI_main.cpp` | beta | 0.8.0 | 2026-09-07 | — |
 | `src/ChatbotGUI.cpp` | beta | 0.7.0 | 2026-09-07 | — |
@@ -221,8 +223,8 @@ None — every in-scope file carries a tag.
 | `src/TrainingMetricsAPIServer.cpp` | beta | 0.8.0 | 2026-09-07 | — |
 | `src/TrainingMetricsService.cpp` | beta | 0.9.0 | 2026-09-07 | — |
 | `src/TrainingMetricsService.hpp` | beta | 0.9.0 | 2026-09-07 | — |
-| `src/gpu/sycl/GPUUtils_SYCL.hpp` | beta | 0.5.0 | 2026-09-07 | — |
-| `src/gpu/sycl/MatrixGPU_SYCL.cpp` | beta | 0.9.0 | 2026-09-07 | TD-030 |
+| `src/gpu/sycl/GPUUtils_SYCL.hpp` | beta | 0.6.0 | 2026-09-07 | — |
+| `src/gpu/sycl/MatrixGPU_SYCL.cpp` | beta | 0.10.0 | 2026-09-07 | TD-030 |
 | `src/gpu/sycl/MatrixGPU_SYCL.hpp` | beta | 0.9.0 | 2026-09-07 | TD-030 |
 | `tizen-metrics-app/js/app.js` | beta | 0.6.0 | 2026-09-07 | — |
 | `tizen-metrics-app/js/chart.js` | beta | 0.6.0 | 2026-09-07 | — |
