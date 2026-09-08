@@ -2,9 +2,10 @@
 
 // @adai-status: beta        (capped by TD-038 — tested (PerformanceProfilerTest), but not wired into any shipped binary)
 // @adai-version: 0.7.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 
+#include <algorithm>
 #include <chrono>
 #include <iomanip>
 #include <iostream>
