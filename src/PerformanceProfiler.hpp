@@ -1,5 +1,10 @@
 #pragma once
 
+// @adai-status: beta        (no dedicated test file)
+// @adai-version: 0.6.0
+// @adai-reviewed: 2026-09-07
+
+
 #include <chrono>
 #include <iomanip>
 #include <iostream>

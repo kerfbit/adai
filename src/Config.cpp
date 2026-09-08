@@ -1,3 +1,7 @@
+// @adai-status: stable
+// @adai-version: 1.0.0
+// @adai-reviewed: 2026-09-07
+
 #include "Config.hpp"
 #include <algorithm>
 #include <chrono>
@@ -294,6 +298,13 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.run_group = value;
             } else if (key == "RUN_ID") {
                 config.run_id = value;
+            } else if (key == "CACHE_TOKENIZED_DATA") {
+                std::string lower = value;
+                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+                config.cache_tokenized_data =
+                    (lower == "true" || lower == "1" || lower == "yes" || lower == "on");
+            } else if (key == "TOKENIZED_CACHE_DIR") {
+                config.tokenized_cache_dir = value;
             } else if (key == "REGISTRY_TIMEOUT_MS") {
                 config.registry_timeout_ms = std::stoi(value);
             } else if (key == "REGISTRY_LISTEN_PORT") {
@@ -339,6 +350,30 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.model_name = value;
             } else if (key == "MODEL_ROLE") {
                 config.model_role = value;
+                // Incremental trainer admin API configuration
+            } else if (key == "TRAINER_ADMIN_ENABLED") {
+                std::string lower = value;
+                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+                config.trainer_admin_enabled =
+                    (lower == "true" || lower == "1" || lower == "yes" || lower == "on");
+            } else if (key == "TRAINER_ADMIN_PORT") {
+                config.trainer_admin_port = std::stoi(value);
+            } else if (key == "TRAINER_ADMIN_HOST") {
+                config.trainer_admin_host = value;
+            } else if (key == "TRAINER_ADMIN_DIR") {
+                config.trainer_admin_dir = value;
+                // Auto-save / checkpoint retention configuration
+            } else if (key == "AUTO_SAVE_ENABLED") {
+                std::string lower = value;
+                std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+                config.auto_save_enabled =
+                    (lower == "true" || lower == "1" || lower == "yes" || lower == "on");
+            } else if (key == "AUTO_SAVE_EVERY_SAMPLES") {
+                config.auto_save_every_samples = std::stoi(value);
+            } else if (key == "AUTO_SAVE_EVERY_MINUTES") {
+                config.auto_save_every_minutes = std::stoi(value);
+            } else if (key == "MAX_SESSIONS_TO_KEEP") {
+                config.max_sessions_to_keep = std::stoi(value);
                 // GPU configuration
             } else if (key == "GPU_ENABLED") {
                 std::string lower = value;
@@ -573,6 +608,12 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     if (auto val = get_env("RUN_ID")) {
         config.run_id = *val;
     }
+    if (auto val = get_env_bool("CACHE_TOKENIZED_DATA")) {
+        config.cache_tokenized_data = *val;
+    }
+    if (auto val = get_env("TOKENIZED_CACHE_DIR")) {
+        config.tokenized_cache_dir = *val;
+    }
     if (auto val = get_env_int("REGISTRY_TIMEOUT_MS")) {
         config.registry_timeout_ms = *val;
     }
@@ -641,6 +682,34 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env("MODEL_ROLE")) {
         config.model_role = *val;
+    }
+
+    // Incremental trainer admin API
+    if (auto val = get_env_bool("TRAINER_ADMIN_ENABLED")) {
+        config.trainer_admin_enabled = *val;
+    }
+    if (auto val = get_env_int("TRAINER_ADMIN_PORT")) {
+        config.trainer_admin_port = *val;
+    }
+    if (auto val = get_env("TRAINER_ADMIN_HOST")) {
+        config.trainer_admin_host = *val;
+    }
+    if (auto val = get_env("TRAINER_ADMIN_DIR")) {
+        config.trainer_admin_dir = *val;
+    }
+
+    // Auto-save / checkpoint retention
+    if (auto val = get_env_bool("AUTO_SAVE_ENABLED")) {
+        config.auto_save_enabled = *val;
+    }
+    if (auto val = get_env_int("AUTO_SAVE_EVERY_SAMPLES")) {
+        config.auto_save_every_samples = *val;
+    }
+    if (auto val = get_env_int("AUTO_SAVE_EVERY_MINUTES")) {
+        config.auto_save_every_minutes = *val;
+    }
+    if (auto val = get_env_int("MAX_SESSIONS_TO_KEEP")) {
+        config.max_sessions_to_keep = *val;
     }
 }
 

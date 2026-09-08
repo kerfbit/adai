@@ -1,6 +1,11 @@
 #ifndef REWARD_MODEL_HPP
 #define REWARD_MODEL_HPP
 
+// @adai-status: beta        (tested but not wired into any shipped binary yet)
+// @adai-version: 0.7.0
+// @adai-reviewed: 2026-09-07
+
+
 #include <algorithm>
 #include <cmath>
 #include <fstream>

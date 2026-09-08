@@ -48,6 +48,14 @@ This directory contains solutions and fixes for common issues encountered during
   - Learning rate tuning
   - Checkpoint recovery
 
+### GPU / Driver Issues
+
+- **[oneAPI/SYCL Driver Segfault](ONEAPI_SYCL_DRIVER_SEGFAULT.md)** - Intel Arc B60/Battlemage `xe`
+  driver instability crashing `incremental_trainer` on the first GPU kernel of a run
+  - Root cause: upstream `libigc.so.2` bug, not fixable from this codebase
+  - Diagnostic playbook (gdb/coredumpctl/ASAN recipes for GPU-driver crashes)
+  - Crash-resilience mitigation (auto-restart + tokenized-data cache) instead of a fix
+
 ### GUI Issues
 
 - **[Chatbot GUI Troubleshooting](CHATBOT_GUI_TROUBLESHOOTING.md)**

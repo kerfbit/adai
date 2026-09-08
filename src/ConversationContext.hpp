@@ -1,6 +1,11 @@
 #ifndef CONVERSATIONCONTEXT_HPP
 #define CONVERSATIONCONTEXT_HPP
 
+// @adai-status: stable
+// @adai-version: 1.0.0
+// @adai-reviewed: 2026-09-07
+
+
 #include <deque>
 #include <stdexcept>
 #include <string>

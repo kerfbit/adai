@@ -1,4 +1,9 @@
 #!/bin/bash
+
+# @adai-status: experimental        (not called by install_server_bundle.sh and not documented — registry_server install is now handled there directly)
+# @adai-version: 0.3.0
+# @adai-reviewed: 2026-09-07
+
 # ADAI Distributed Dataset Registry - Installation Script
 #
 # Installs registry_server as a systemd service.

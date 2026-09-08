@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# @adai-status: beta
+# @adai-version: 0.6.0
+# @adai-reviewed: 2026-09-07
+
+
 # Manual test for configuration hot-reload
 # This script allows you to manually test the SIGHUP handling
 

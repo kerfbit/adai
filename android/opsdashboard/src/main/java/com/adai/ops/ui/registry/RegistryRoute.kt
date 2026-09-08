@@ -1,5 +1,10 @@
 package com.adai.ops.ui.registry
 
+// @adai-status: experimental
+// @adai-version: 0.1.0
+// @adai-reviewed: 2026-09-07
+
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.layout.AnimatedPane

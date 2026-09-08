@@ -1,5 +1,10 @@
 package com.adai.ops
 
+// @adai-status: experimental
+// @adai-version: 0.1.0
+// @adai-reviewed: 2026-09-07
+
+
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge

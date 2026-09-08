@@ -4,13 +4,13 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** July 4, 2026
-**Total Items:** 4
+**Last Updated:** September 7, 2026
+**Total Items:** 7
 **High Priority:** 0
 **Medium Priority:** 3
-**Low Priority:** 1
+**Low Priority:** 4
 **Future Enhancements:** 19
-**Resolved Items:** 31
+**Resolved Items:** 32
 
 ## Table of Contents
 
@@ -19,10 +19,12 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 - [Active Technical Debt](#active-technical-debt)
   - [TD-030: GPU-Resident KV-Cache for Autoregressive Generation](#td-030-gpu-resident-kv-cache-for-autoregressive-generation)
   - [TD-029: Fix GCC 13 ICE in raginference\_test.cpp](#td-029-fix-gcc-13-ice-in-raginference_testcpp)
-  - [TD-020: Persistent Metrics Storage via SQL Database](#td-020-persistent-metrics-storage-via-sql-database)
+  - [TD-033: Matrix GPU Dispatch Doesn't Use Persistent GPUMatrix Residency](#td-033-matrix-gpu-dispatch-doesnt-use-persistent-gpumatrix-residency)
+  - [TD-032: Bundle SQLite3 Amalgamation for Windows Cross-Compilation](#td-032-bundle-sqlite3-amalgamation-for-windows-cross-compilation)
   - [TD-014: LLM Operations and Training Tooling Suite](#td-014-llm-operations-and-training-tooling-suite)
   - [TD-006: Fill-in-the-Middle (FIM) Training Data Generation](#td-006-fill-in-the-middle-fim-training-data-generation)
-- [Resolved Items](#resolved-items) (31 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+  - [TD-034: PPOOptimizer's Core Update Loop Is a Placeholder, Not Real PPO](#td-034-ppooptimizers-core-update-loop-is-a-placeholder-not-real-ppo)
+- [Resolved Items](#resolved-items) (32 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -93,48 +95,51 @@ Action Items:
 
 ---
 
-### TD-020: Persistent Metrics Storage via SQL Database
+### TD-033: Matrix GPU Dispatch Doesn't Use Persistent GPUMatrix Residency
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Planned | Training / Metrics / API / Infrastructure | May 31, 2026 | 20-30 hours |
+| MEDIUM | Open | GPU / Performance | September 7, 2026 | 8-12 hours |
 
 Description:
-The metrics stack persists all data to flat JSONL/JSON files per session. This prevents time-range queries, limits history served via the API to the 10,000-record in-memory ring buffer, and makes cross-session analytics impossible without reading multiple files externally. A SQL persistence layer (SQLite by default, PostgreSQL as a compile-time option) would remove these constraints while an `IMetricsDatabase` abstraction keeps both backends interchangeable.
+TD-003 (resolved May 3, 2026 — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md)) added the persistent-residency `GPUMatrix` type and `Matrix::to_gpu()` / `Matrix::from_gpu()` conversions. However, `Matrix::multiply_gpu()` — the path `Matrix::multiply()` dispatches to whenever `GPUManager::is_available()` — still allocates, uploads, computes, and downloads on every single call, the exact per-operation round-trip TD-003 set out to eliminate. Nothing in the training/inference hot path (`EncoderDecoderModel`, `ChatbotTrainer`) calls `to_gpu()`/`from_gpu()` to keep model weights resident across a chain of GPU operations, so TD-003's intended performance win was never realized outside of code that explicitly opts in to the persistent-residency API.
 
-Proposal: `docs/development/proposals/persistent-metrics-sql-storage.md`
+Discovered during the per-file production-readiness rollout (September 7, 2026) — see [file-status-standard.md](file-status-standard.md).
 
 Action Items:
 
-- [ ] Define `IMetricsDatabase` interface and `SessionRecord` struct in `src/MetricsDatabase.hpp`.
-- [ ] Implement `SQLiteMetricsDatabase` with WAL mode and prepared statements (`src/SQLiteMetricsDatabase.hpp/.cpp`).
-- [ ] Implement optional `PostgresMetricsDatabase` with connection pool and retry logic (`src/PostgresMetricsDatabase.hpp/.cpp`), guarded by `ENABLE_POSTGRES_METRICS` CMake option.
-- [ ] Add `MetricsDatabaseFactory::create(Config)` to select backend from `METRICS_STORAGE_BACKEND` config key.
-- [ ] Wire `IMetricsDatabase*` into `TrainingMetricsService`: dual-write in `persist_metrics()` / `persist_summary()`, DB-first restore in `restore_from_summary()`.
-- [ ] Have `MetricsSessionRegistry` own and initialise the database instance; inject into each session at creation.
-- [ ] Add four new REST endpoints: time-range history, cross-session metric compare, status-filtered session list, full history export.
-- [ ] Bundle SQLite amalgamation at `external/sqlite3/` for Windows/MinGW builds; update `adai/CMakeLists.txt`.
-- [ ] Add `METRICS_STORAGE_BACKEND`, `METRICS_DB_PATH`, `METRICS_DB_URL`, `METRICS_DB_POOL_SIZE` to `config.conf`.
-- [ ] Write `tests/MetricsDatabaseTest.cpp` covering schema bootstrap, WAL mode, round-trip insert/query, time-range filter, dual-write path, and DB-fallback restore.
-
-Files to Create:
-
-- `src/MetricsDatabase.hpp`
-- `src/SQLiteMetricsDatabase.hpp` / `src/SQLiteMetricsDatabase.cpp`
-- `src/PostgresMetricsDatabase.hpp` / `src/PostgresMetricsDatabase.cpp`
-- `src/MetricsDatabaseFactory.hpp`
-- `external/sqlite3/sqlite3.c` / `external/sqlite3/sqlite3.h` (amalgamation)
-- `tests/MetricsDatabaseTest.cpp`
+- [ ] Identify the hot-path call chains (training forward/backward, `EncoderDecoderModel` layers) where consecutive `Matrix` operations run back-to-back on the same data.
+- [ ] Convert those chains to stay on `GPUMatrix` across the chain via `to_gpu()`/`from_gpu()` instead of one round-trip per op.
+- [ ] Benchmark before/after on a representative training step to confirm the reduction in host↔device transfers.
 
 Files to Modify:
 
-- `src/TrainingMetricsService.hpp` / `src/TrainingMetricsService.cpp`
-- `src/MetricsSessionRegistry.hpp` / `src/MetricsSessionRegistry.cpp`
-- `src/TrainingMetricsAPI.hpp` / `src/TrainingMetricsAPI.cpp`
-- `src/TrainingMetricsAPIServer.cpp`
-- `adai/CMakeLists.txt` / `adai/src/CMakeLists.txt`
-- `config.conf` / `config-remote.conf`
-- `docs/development/TRAINING_METRICS_API.md`
+- `src/Matrix.cpp` / `src/Matrix.hpp`
+- `src/EncoderDecoderModel.cpp`
+- `src/ChatbotTrainer.cpp` (call sites)
+
+---
+
+### TD-032: Bundle SQLite3 Amalgamation for Windows Cross-Compilation
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Build / Windows / Metrics | September 7, 2026 | 2-4 hours |
+
+Description:
+TD-020 (Persistent Metrics Storage via SQL Database, resolved — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md)) links SQLite3 via `find_path`/`find_library` in `src/CMakeLists.txt`, which works on Linux/macOS but has no equivalent for the MinGW Windows cross-compilation path (`scripts/build_windows.sh`, `scripts/package_windows.sh`). TD-020's original proposal called for bundling the public-domain SQLite amalgamation specifically to cover this case; that one item was the only part of the proposal not carried out. Everything else in TD-020 shipped and is verified working.
+
+Action Items:
+
+- [ ] Vendor the SQLite amalgamation into `external/sqlite3/` (`sqlite3.c`, `sqlite3.h`).
+- [ ] Add a CMake option to build it as a static lib on MinGW/Windows targets when system SQLite3 isn't found.
+- [ ] Verify `metrics_api_server` builds and runs under Wine or a Windows VM with the SQLite backend enabled.
+
+Files to Modify:
+
+- `external/sqlite3/` (new)
+- `src/CMakeLists.txt`
+- `scripts/build_windows.sh`
 
 ---
 
@@ -200,7 +205,7 @@ Files to Modify:
 
 - `src/IncrementalTrainer.cpp` - Modify `create_qa_pairs_from_text()` (line 920)
 - `src/BPETokenizer.cpp` - Add FIM special tokens to vocabulary
-- `include/IncrementalTrainer.hpp` - Add FIM configuration options
+- `src/IncrementalTrainer.hpp` - Add FIM configuration options
 
 Code Location:
 
@@ -219,47 +224,45 @@ Evaluation:
 
 ---
 
-### TD-018: Multi-Instance Training Metrics Service
+### TD-034: PPOOptimizer's Core Update Loop Is a Placeholder, Not Real PPO
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Planned | Metrics / API / Config / Training | May 21, 2026 | 16-24 hours |
+| LOW | Open | RLHF / PPOOptimizer | September 7, 2026 | 6-10 hours |
 
 Description:
-The current `TrainingMetricsService` is built around a single active training session: one `TrainingMetricsSnapshot`, one `std::atomic<int> current_session_id_`, global file paths, and a `GlobalMetricsService` singleton. Launching a second training job (e.g., a hyperparameter sweep, parallel fine-tune, or multi-GPU node) corrupts metrics of the first job because all callers share the same in-process object and write to the same files.
+`PPOOptimizer::train()`'s minibatch loop never recomputes log-probabilities under the current
+policy: `float new_log_prob = batch_old_log_probs[i];  // Placeholder` makes the clipped-ratio term
+`exp(new_log_prob - batch_old_log_probs[i])` always evaluate to `exp(0) = 1`, so the policy loss is
+not actually PPO's clipped surrogate objective — it silently trains as something else. The KL-based
+early-stopping check has the same problem: `float approx_kl = 0.0f;  // Placeholder` means the
+`> 1.5 * kl_target` early-stop condition can never fire. `PPOOptimizer` is not wired into any
+shipped binary (`phase5_test.cpp` exercises it in isolation only — see
+[PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md)), so this has no effect on any current
+training path, but it would silently misbehave the moment RLHF fine-tuning is wired up.
 
-Full proposal: `docs/development/proposals/multi-instance-metrics-service.md`
+Discovered during the per-file production-readiness rollout (September 7, 2026) — see
+[file-status-standard.md](file-status-standard.md).
 
 Action Items:
 
-- [ ] **Step 1 — Per-session file paths in `TrainingMetricsService`**: Verify that `MetricsServiceConfig` carries all path fields (`metrics_file`, `metrics_summary_file`, `metrics_prometheus_file`, `abnormal_samples_file`) so each session can receive its own derived paths at construction time. No constructor-signature changes needed.
-- [ ] **Step 2 — Implement `MetricsSessionRegistry`** (`src/MetricsSessionRegistry.hpp`): new header-only class owning `std::unordered_map<std::string, std::shared_ptr<TrainingMetricsService>> sessions_`, a `std::shared_mutex` reader-writer lock, `size_t max_live_sessions_` (default 16), `create_or_get_session(key)`, `get_session(key)`, `list_sessions()`, and `evict_completed_sessions(max_age_seconds)`. Session key format: `^[a-zA-Z0-9][a-zA-Z0-9_\-]{0,63}$`; reject invalid keys with HTTP 400. Key `"0-default"` maps to legacy file paths for backwards compatibility.
-- [ ] **Step 3 — Update `TrainingMetricsAPI`**: Replace the single `TrainingMetricsService*` member with a `MetricsSessionRegistry*`. Register all session-scoped routes under `"/api/sessions/{key}/..."` prefix (using httplib path-param capture or manual prefix matching). Add `GET /api/sessions` (session index) and `GET /api/metrics/aggregate` (cross-session snapshot) endpoints. Preserve all old flat routes (`POST /api/session/start`, `GET /api/metrics/current`, etc.) as backwards-compat aliases mapping to key `"0-default"`, emitting `Deprecation: true` header.
-- [ ] **Step 4 — Update `TrainingMetricsAPIServer`**: Construct a `MetricsSessionRegistry` (seeded with the legacy `"0-default"` session from existing `MetricsServiceConfig`) and inject it into `TrainingMetricsAPI` instead of a single `TrainingMetricsService`.
-- [ ] **Step 5 — New config keys in `Config`**: Add `METRICS_SESSION_KEY` (string, default `"0-default"`), `METRICS_MAX_LIVE_SESSIONS` (int, default 16), `METRICS_COMPLETED_TTL_SECONDS` (int, default 3600), `METRICS_SWEEP_INTERVAL_SECONDS` (int, default 60). Parse in `src/Config.cpp` alongside existing metrics keys.
-- [ ] **Step 6 — Trainer HTTP client changes**: `ChatbotTrainer` and `IncrementalTrainer` read `metrics_session_key` from their config and prefix every HTTP push base URL with `/api/sessions/{key}` (e.g., `POST /api/sessions/42-gpu0/metrics/sample`).
-- [ ] **Step 7 — Tests**: Unit tests for `MetricsSessionRegistry` (create, evict, capacity cap, concurrent access, key validation). Integration test: two `TrainingMetricsService` instances writing to different file paths do not interfere.
-
-Files to Create:
-
-- `src/MetricsSessionRegistry.hpp` — new session registry header
-- `tests/metrics_session_registry_test.cpp` — unit tests
+- [ ] Recompute `new_log_prob` via a real forward pass of the current policy over `batch_states[i]`,
+  not a copy of `batch_old_log_probs[i]`.
+- [ ] Track actual per-minibatch KL divergence between old and current policy for `approx_kl`
+  instead of the hardcoded `0.0f`.
+- [ ] Add a test that trains on a toy environment/reward and asserts the policy actually changes
+  (a no-op ratio would previously have passed any test that doesn't check this).
 
 Files to Modify:
 
-- `src/TrainingMetricsService.hpp` — verify per-session path fields in `MetricsServiceConfig`; remove/replace `GlobalMetricsService` singleton
-- `src/TrainingMetricsAPI.hpp` / `src/TrainingMetricsAPI.cpp` — registry injection, session-keyed routes, new endpoints, backwards-compat aliases
-- `src/TrainingMetricsAPIServer.cpp` — construct `MetricsSessionRegistry`; inject into `TrainingMetricsAPI`
-- `src/Config.hpp` / `src/Config.cpp` — four new config keys
-- `src/ChatbotTrainer.hpp` / `src/ChatbotTrainer.cpp` — `metrics_session_key` field; prefix push URLs
-- `src/IncrementalTrainer.cpp` — map `metrics_session_key` from `ServiceConfig`; prefix push URLs
-- `tests/CMakeLists.txt` — add `metricsSessionRegistryTests` target
+- `src/PPOOptimizer.hpp`
+- `tests/phase5_test.cpp`
 
 ---
 
 ## Resolved Items
 
-31 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+32 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements
@@ -617,10 +620,10 @@ When resolving a debt item:
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|0|0%|
-|Medium|3|75%|
-|Low|1|25%|
+|Medium|3|43%|
+|Low|4|57%|
 
-**Total Active Items:** 4
+**Total Active Items:** 7
 
 ### By Component
 
@@ -628,8 +631,11 @@ When resolving a debt item:
 |----------------------|-------|
 |Training / Data Generation|1|
 |Tooling / Toolchain|1|
-|Metrics / API / Config / Training|1|
+|Tests / RAGInference|1|
 |GPU / Inference / Training|1|
+|GPU / Performance|1|
+|Build / Windows / Metrics|1|
+|RLHF / PPOOptimizer|1|
 
 ### Effort Distribution
 
@@ -638,9 +644,10 @@ When resolving a debt item:
 |0-2 hours|1|
 |2-4 hours|1|
 |4-8 hours|1|
-|8+ hours|2|
+|8+ hours|3|
+|Not estimated|1|
 
-**Total Estimated Effort (Active Items):** 42-60 hours
+**Total Estimated Effort (Active Items):** 43-64 hours (excludes TD-014, which has no effort estimate)
 
 ### Future Enhancements Summary
 
@@ -664,6 +671,7 @@ By Priority:
 
 Recently Completed:
 
+- TD-020: Persistent Metrics Storage via SQL Database - September 7, 2026 (tracker correction; implementation predates this entry)
 - TD-027: Install Script for incremental_trainer Sub-System - June 7, 2026
 - TD-028: Separate Dataset Management from IncrementalTrainer - June 7, 2026
 - TD-023: Parallel Generation Quality Scoring via Model Snapshot - June 4, 2026

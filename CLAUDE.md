@@ -69,7 +69,7 @@ For sanitizer testing: `./scripts/run_tests.sh --asan|--ubsan|--tsan|--coverage`
 | `chatbot` | Interactive CLI client | — |
 | `chatbot_api_server` | REST inference API + session management | 8080 |
 | `chatbot_gui` | Qt GUI (optional) | — |
-| `incremental_trainer` | Online/incremental training with GPU support | — |
+| `incremental_trainer` | Online/incremental training with GPU support | 8084 (admin API, `serve` only, opt-in) |
 | `metrics_api_server` | Training metrics collection + export | 8081 |
 | `registry_server` | Distributed dataset queue coordination | 8082 |
 | `mns_server` | Model Name Service: model identity + role registry | 8083 |
@@ -107,7 +107,7 @@ Two mutually exclusive backends, selected at compile time:
 
 Both backends expose the same interface through `src/gpu/MatrixGPU.hpp` (`GPUMatrix`, `GPUMemory<T>`, `GPUManager`). `Matrix.cpp` dispatches to GPU when `GPUManager::is_available()` and matrix dimensions meet a minimum threshold.
 
-**TD-003** (active): GPU memory round-trips. Currently each `Matrix` operation uploads data, runs a kernel, and downloads the result. The `GPUMatrix` persistent-residency type and `Matrix::to_gpu()` / `Matrix::from_gpu()` are the scaffolding for fixing this — model weights should stay device-resident throughout a training run.
+**TD-033** (active): GPU memory round-trips. `Matrix::multiply_gpu()` still uploads data, runs a kernel, and downloads the result on every call. TD-003 (resolved) added the `GPUMatrix` persistent-residency type and `Matrix::to_gpu()` / `Matrix::from_gpu()`, but nothing in the hot path uses them — model weights still don't stay device-resident throughout a training run.
 
 **`GPU_STRATEGY`** (config key): `background` (low-priority queue, default) or `full` (normal priority).
 
@@ -125,7 +125,9 @@ IncrementalTrainer
   └── ModelNameClient → mns_server  (begin_run / set_training / push_progress / set_candidate)
 ```
 
-`IncrementalConfig` is separate from `ServiceConfig`. `IncrementalTrainer::make_incremental_config(svc)` maps `ServiceConfig` → `IncrementalConfig`; any new config field added to `ServiceConfig` must also be added to `IncrementalConfig` and mapped there. `IncrementalConfig::dataset` (a `DatasetConfig`) is populated the same way — `IncrementalTrainer`'s 3-arg constructor (the one `incremental_trainer`'s `train`/`retrain`/`resume`/`reset` commands all use) copies it into `dataset_config_`, so `resume_last_session()`/`reset_all()` see the real `REGISTRY_SERVER_URL`/`MODEL_NAME` instead of an all-default `DatasetConfig`.
+`IncrementalConfig` is separate from `ServiceConfig`. `IncrementalTrainer::make_incremental_config(svc)` maps `ServiceConfig` → `IncrementalConfig`; any new config field added to `ServiceConfig` must also be added to `IncrementalConfig` and mapped there. `IncrementalConfig::dataset` (a `DatasetConfig`) is populated the same way — `IncrementalTrainer`'s 3-arg constructor (the one `incremental_trainer`'s `train`/`retrain`/`resume`/`reset`/`serve` commands all use) copies it into `dataset_config_`, so `resume_last_session()`/`reset_all()` see the real `REGISTRY_SERVER_URL`/`MODEL_NAME` instead of an all-default `DatasetConfig`.
+
+`incremental_trainer serve` (recommended for `adai-trainer.service`, see `scripts/adai-trainer.service`) is a distinct top-level command, not routed through `train`/`retrain`/`resume`'s fork+daemonize path — it never forks and stays alive for the process's entire lifetime, internally looping between checking for pending work and running a pass via `resume_last_session()`'s existing logic once per iteration (default 45s idle-poll interval). This is what lets it host the always-on admin HTTP API below — see "Incremental trainer admin API".
 
 ### MNS/registry-authoritative run and session numbering
 
@@ -217,6 +219,8 @@ Other architecturally significant keys:
 | `NAME_SERVICE_URL`, `MODEL_NAME`, `MODEL_ROLE` | MNS connection |
 | `REGISTRY_SERVER_URL`, `RUN_GROUP`, `RUN_ID` | Distributed dataset registry |
 | `REGISTRY_LISTEN_PORT`, `REGISTRY_DATA_DIR` | `registry_server`'s own listen port / data dir (server-side, distinct from the client-side `REGISTRY_SERVER_URL` above) |
+| `AUTO_SAVE_ENABLED`, `AUTO_SAVE_EVERY_SAMPLES`, `AUTO_SAVE_EVERY_MINUTES`, `MAX_SESSIONS_TO_KEEP` | Checkpoint cadence / retention — map into `IncrementalConfig`'s matching fields via `make_incremental_config()`; live-tunable under `serve` via `PUT /admin/config`, see below |
+| `TRAINER_ADMIN_ENABLED`, `TRAINER_ADMIN_PORT`, `TRAINER_ADMIN_HOST`, `TRAINER_ADMIN_DIR` | `incremental_trainer serve`'s admin HTTP API — see below |
 
 ### Daemon admin config API
 
@@ -229,25 +233,53 @@ isolated from that daemon's own data store) which overlays the config file on th
 endpoint is gated behind `--admin-enabled` (`registry_server`, `mns_server`) or the existing
 `METRICS_API_ALLOW_CONTROL` (`metrics_api_server`), all default-true.
 
+### Incremental trainer admin API
+
+`incremental_trainer serve` — not `train`/`retrain`/`resume` — is the only command that hosts this;
+those three remain simple one-shot CLI invocations with no HTTP server at all. Unlike the three admin
+daemons above, `serve`'s admin port is **opt-in** (`TRAINER_ADMIN_ENABLED=false` by default) since it's
+the first thing to open a network port on a host that previously had none, and it's **genuinely
+always-on**: bound once at `serve` startup and kept alive for the whole process lifetime, independent of
+any single training pass — the design point that makes it different from a lighter "control-file" or
+"only reachable while a worker process happens to be up between systemd restarts" alternative. See
+`src/TrainerControlState.hpp`/`src/TrainerAdminAPI.{hpp,cpp}`.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/health` | liveness |
+| GET | `/admin/config` | current `auto_save_enabled`/`auto_save_every_samples`/`auto_save_every_minutes`/`max_sessions_to_keep` |
+| PUT | `/admin/config` | mutate the same four keys; persisted to `TRAINER_ADMIN_DIR/daemon_config.db` |
+| GET | `/admin/status` | phase (`idle`/`loading_data`/`tokenizing`/`training`/`checkpointing`/`pausing`), run/session identity, epoch/sample/loss progress, `paused`, checkpoint counters |
+| POST | `/admin/checkpoint[?wait_ms=N]` | force a checkpoint at the next optimizer-step boundary; 409 if idle (no active pass to checkpoint) |
+| POST | `/admin/pause` | drain the current pass (if any) via `ChatbotTrainer::set_abort_flag()`, checkpoint, release claimed files back to pending, return to idle — the supervisory loop keeps serving, it does not exit |
+| POST | `/admin/resume` | clear pause, wake the idle-poll sleep so pending work is checked immediately |
+
+No HTTP shutdown endpoint exists or is planned — `systemctl stop`/SIGTERM stays the sole way to end the
+process, unchanged from `train`/`retrain`/`resume`. No companion CLI wraps this API (matches
+`mns_cli`/`dataset_manager` not wrapping their daemons' `/admin/config` either) — `curl` is the
+documented interface, e.g. `curl -s http://127.0.0.1:8084/admin/status`.
+
 ## Code Conventions
 
 - **Logging**: `adai::Logger::info/warn/error/debug(fmt, args...)` — never `std::cout` in library code.
 - **Headers**: `#pragma once`, no implementation in headers except templates.
 - **Ownership**: `std::unique_ptr` / `std::shared_ptr`; no raw owning pointers.
-- **New component**: `src/Component.{cpp,hpp}` + `tests/component_test.cpp` + register in `src/CMakeLists.txt` and `tests/CMakeLists.txt`.
+- **New component**: `src/Component.{cpp,hpp}` + `tests/component_test.cpp` + register in `src/CMakeLists.txt` and `tests/CMakeLists.txt`; new files start tagged `@adai-status: experimental`, `@adai-version: 0.1.0` (see below).
 - **Artifacts**: trained weights go in `training_sessions/` (gitignored); feature proposals in `docs/development/proposals/`.
+- **File status tag**: every in-scope file (`src/`, Android `src/main`, `tizen-metrics-app/js/`, operational `scripts/`) carries a header comment block — `@adai-status` (`experimental`/`beta`/`stable`/`deprecated`/`legacy`), `@adai-version` (per-file SemVer, `stable` requires `MAJOR >= 1`), `@adai-reviewed` (ISO date). See [file-status-standard.md](docs/development/guides/file-status-standard.md); validate with `./scripts/check_file_status.py --changed` and regenerate the dashboard with `./scripts/gen_status_report.py`.
 
 ## Active Technical Debt Tags
 
-The codebase uses `// TD-NNN` comment tags. Notable open items:
+The codebase uses `// TD-NNN` comment tags, though most that remain inline today cite
+already-resolved items kept as historical design-rationale footnotes, not pending work — check
+[TECHNICAL_DEBT.md](docs/development/guides/TECHNICAL_DEBT.md) for what's actually open rather than
+trusting a `grep TD-NNN` alone. Currently active items:
 
 | Tag | Description |
 |---|---|
-| **TD-003** | Persistent GPU-resident matrices — model weights should stay on device; `GPUMatrix` / `to_gpu()` / `from_gpu()` are scaffolding |
-| TD-013 | Advanced metrics & outlier detection in `TrainingMetricsService` |
-| TD-017 | Adaptive gradient clipping — persist per-epoch clip threshold |
-| TD-018 | Replace single `current_session_id_` with per-session registry in `TrainingMetricsService` |
-| TD-020 | Cross-session metric comparison from SQLite DB |
-| TD-021 | Per-session labelled Prometheus output; `MetricsPushClient` push client |
-| TD-023 | Background generation-quality scoring thread |
-| TD-028 | Multiple references in metrics / training path (see grep for current locations) |
+| TD-030 | GPU-resident KV-cache for autoregressive generation — CPU cache has a known correctness bug; no GPU cache exists at all |
+| **TD-033** | `Matrix::multiply_gpu()` doesn't use the persistent-residency `GPUMatrix`/`to_gpu()`/`from_gpu()` API added by TD-003 — still round-trips host↔device per call |
+| TD-029 | GCC 13 ICE compiling `tests/raginference_test.cpp` |
+| TD-032 | SQLite amalgamation not bundled for Windows/MinGW cross-compilation |
+| TD-014 | Missing standalone tooling (quantization, eval, data-prep binaries) |
+| TD-006 | Fill-in-the-Middle (FIM) training data generation not implemented |

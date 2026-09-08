@@ -1,3 +1,7 @@
+// @adai-status: beta        (thin main() wrapper, no dedicated test)
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-09-07
+
 #include <iostream>
 #include <string>
 #include "ChatbotCLI.hpp"

@@ -1,3 +1,7 @@
+// @adai-status: stable
+// @adai-version: 1.0.0
+// @adai-reviewed: 2026-09-07
+
 #include "DatasetRegistry.hpp"
 #include <algorithm>
 #include <chrono>
@@ -87,6 +91,10 @@ DatasetConfig DatasetRegistry::make_config(const adai::ServiceConfig& svc) {
     cfg.registry_server_url = svc.registry_server_url;
     cfg.run_group = svc.run_group;
     cfg.run_id = svc.run_id;
+    cfg.cache_tokenized_data = svc.cache_tokenized_data;
+    if (!svc.tokenized_cache_dir.empty()) {
+        cfg.tokenized_cache_dir = svc.tokenized_cache_dir;
+    }
     cfg.registry_timeout_ms = svc.registry_timeout_ms;
     cfg.model_name = svc.model_name;
     cfg.download_dir = svc.download_dir;

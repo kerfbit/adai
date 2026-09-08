@@ -1,6 +1,11 @@
 #ifndef MNS_MANAGER_GUI_HPP
 #define MNS_MANAGER_GUI_HPP
 
+// @adai-status: beta        (Qt GUI, no dedicated test file)
+// @adai-version: 0.7.0
+// @adai-reviewed: 2026-09-07
+
+
 #include <QComboBox>
 #include <QGroupBox>
 #include <QHBoxLayout>

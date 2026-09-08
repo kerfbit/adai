@@ -1,5 +1,10 @@
 package com.adai.ops.ui.metrics
 
+// @adai-status: beta
+// @adai-version: 0.4.0
+// @adai-reviewed: 2026-09-07
+
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.adai.ops.data.metrics.MetricsRepository

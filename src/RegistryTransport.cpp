@@ -1,3 +1,7 @@
+// @adai-status: stable
+// @adai-version: 1.0.0
+// @adai-reviewed: 2026-09-07
+
 #include "RegistryTransport.hpp"
 #include <fcntl.h>     // open(), O_RDWR
 #include <sys/file.h>  // flock()
@@ -223,7 +227,14 @@ AcquireResponse LocalTransport::acquire(const std::string& run_id, int max_files
     };
 
     for (auto& e : entries) {
-        if (e.run_id.empty() && eligible(e) && static_cast<int>(resp.files.size()) < limit) {
+        // Unclaimed, OR already claimed by this exact run_id — the latter
+        // lets a crashed-and-restarted run (same run_id — see
+        // IncrementalTrainer::begin_run()/MNS's new_run=false continuation)
+        // reclaim its own in-flight files instead of finding them
+        // permanently stuck. A *different* run_id still can never steal
+        // another's claim.
+        if ((e.run_id.empty() || e.run_id == run_id) && eligible(e) &&
+            static_cast<int>(resp.files.size()) < limit) {
             e.run_id = run_id;
             FileToken tok;
             tok.registry_path = e.path;

@@ -1,3 +1,7 @@
+// @adai-status: beta        (large, actively evolving core trainer)
+// @adai-version: 0.9.0
+// @adai-reviewed: 2026-09-07
+
 #include "IncrementalTrainer.hpp"
 #include <algorithm>
 #include <array>
@@ -6,6 +10,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iomanip>
 #include <iostream>
 #include <limits>
@@ -83,6 +88,32 @@ int detect_pid_mod_10000() {
 #else
     return static_cast<int>(getpid() % 10000);
 #endif
+}
+
+// Cache key for ChatbotTrainer's on-disk tokenized-data cache (see
+// ChatbotTrainer::preprocess_data()). Built from everything that affects
+// tokenization output: each input file's content fingerprint (so a changed
+// dataset invalidates the cache), the vocab file's fingerprint (so a
+// retrained/rebuilt vocab invalidates it), and the tokenizer mode + max
+// sequence length (both affect encoding/truncation directly). Files are
+// sorted first so the same file set in a different acquire order still
+// produces the same key. Hashed (not used verbatim) to keep the resulting
+// cache filename short and filesystem-safe regardless of how many files or
+// how long their paths are.
+std::string compute_tokenized_cache_key(std::vector<std::string> files,
+                                        const std::string& vocab_path,
+                                        TokenizerMode tokenizer_mode, int max_seq_length) {
+    std::sort(files.begin(), files.end());
+    std::ostringstream oss;
+    for (const auto& f : files) {
+        oss << f << ':' << DatasetRegistry::compute_checksum(f) << '|';
+    }
+    oss << "vocab:" << DatasetRegistry::compute_checksum(vocab_path) << '|'
+        << "mode:" << static_cast<int>(tokenizer_mode) << '|' << "maxlen:" << max_seq_length;
+
+    std::ostringstream hex;
+    hex << std::hex << std::hash<std::string>{}(oss.str());
+    return hex.str();
 }
 
 std::string derive_metrics_session_key(int session_id) {
@@ -284,6 +315,13 @@ IncrementalConfig IncrementalTrainer::make_incremental_config(const adai::Servic
         cfg.session_dir = svc.session_dir;
     }
 
+    // Auto-save / checkpoint retention — previously always used the
+    // hardcoded IncrementalConfig defaults regardless of config.conf.
+    cfg.auto_save_enabled = svc.auto_save_enabled;
+    cfg.auto_save_every_samples = svc.auto_save_every_samples;
+    cfg.auto_save_every_minutes = svc.auto_save_every_minutes;
+    cfg.max_sessions_to_keep = svc.max_sessions_to_keep;
+
     // Tokenizer mode
     cfg.base_config.tokenizer_mode =
         svc.unicode_tokenizer ? TokenizerMode::UNICODE : TokenizerMode::ASCII;
@@ -328,6 +366,11 @@ IncrementalTrainer::IncrementalTrainer(const std::string& config_file_path)
     config.base_config.lr_schedule = LRSchedule::WARMUP_COSINE;
     vocab_build_size_ = svc.vocab_build_size;
     dataset_config_ = config.dataset;
+    // Threaded through to ChatbotTrainer via config.base_config (its constructor
+    // takes only TrainingConfig) — tokenized_cache_key itself is set fresh per
+    // train_on_files()/retrain_on_files() call, see there.
+    config.base_config.cache_tokenized_data = dataset_config_.cache_tokenized_data;
+    config.base_config.tokenized_cache_dir = dataset_config_.tokenized_cache_dir;
 
     // MetricsPushClient is created per training run; use NullMetricsReporter until then.
     metrics_reporter_ = std::make_unique<NullMetricsReporter>();
@@ -470,6 +513,11 @@ IncrementalTrainer::IncrementalTrainer(std::string vocab_path, const std::string
 
     // set config FIRST so build_model() uses the correct architecture
     dataset_config_ = config.dataset;
+    // Threaded through to ChatbotTrainer via config.base_config (its constructor
+    // takes only TrainingConfig) — tokenized_cache_key itself is set fresh per
+    // train_on_files()/retrain_on_files() call, see there.
+    config.base_config.cache_tokenized_data = dataset_config_.cache_tokenized_data;
+    config.base_config.tokenized_cache_dir = dataset_config_.tokenized_cache_dir;
 
     // MetricsPushClient is created per training run; use NullMetricsReporter until then.
     metrics_reporter_ = std::make_unique<NullMetricsReporter>();
@@ -565,6 +613,12 @@ std::string IncrementalTrainer::begin_run(bool is_retrain) {
     (void)is_retrain;
 #endif
 
+    if (control_) {
+        control_->set_run_id(current_run_id_);
+        control_->set_session_id(current_mns_session_id_);
+        control_->set_model_name(config.mns_model_name);
+    }
+
     return current_run_id_;
 }
 
@@ -626,6 +680,20 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
     }
     trainer.set_metrics_reporter(metrics_reporter_.get());
 
+    // `serve`'s admin API: /admin/pause sets control_->paused, which doubles
+    // as ChatbotTrainer's cooperative abort flag — checked only at
+    // optimizer-step boundaries, so a pause never leaves a half-applied
+    // gradient update. No-op (nullptr) outside of `serve`.
+    if (control_) {
+        trainer.set_abort_flag(&control_->paused);
+        control_->phase = adai::TrainerPhase::Tokenizing;
+        control_->total_epochs = num_epochs;
+        control_->current_epoch = 0;
+        control_->log(adai::TrainerLogLevel::Info,
+                      "Starting training pass: tokenizing (" + std::to_string(num_epochs) +
+                          " epoch(s) requested)");
+    }
+
     // MNS training-lock/run_id (and, transitively, the registry session_id) are
     // obtained by begin_run() — called by the caller (train/retrain/resume
     // command handlers) before any data is acquired, so the dataset-ownership
@@ -658,6 +726,12 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
         if (std::isfinite(val_loss) && val_loss < session_best_val_loss) {
             session_best_val_loss = val_loss;
         }
+        if (control_) {
+            control_->current_epoch = epoch;
+            if (std::isfinite(val_loss)) {
+                control_->best_loss = static_cast<double>(session_best_val_loss);
+            }
+        }
 #ifdef BUILD_MNS_SERVER
         if (mns_client_ && !current_run_id_.empty()) {
             try {
@@ -677,15 +751,48 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
     // previously should_auto_save()/perform_auto_save() were never called from
     // anywhere, so samples_since_last_save never advanced and nothing was ever
     // persisted before finalize_session() at the very end of the whole run.
+    //
+    // last_save_time is also (re)armed here, not just at construction/session-init
+    // (see initialize_session()) — both of those run before dataset download and
+    // tokenization, which for a large dataset can take hours. Left as-is,
+    // should_auto_save()'s time-based check (auto_save_every_minutes, default 30)
+    // was already satisfied by the time the very first sample finished, so
+    // perform_auto_save() — and the checkpoint write inside it — fired on sample 1
+    // of every run, before a full batch had ever been trained. Resetting it here
+    // means the auto-save clock reflects actual training time elapsed, not
+    // setup/download/tokenize time.
     int cumulative_samples_this_session = 0;
     trainer.set_sample_callback([this, &epoch_start, &epochs_fully_completed,
-                                 &cumulative_samples_this_session](int sample, int, float, float,
-                                                                    float, float) {
-        if (sample == 1)
+                                 &cumulative_samples_this_session](int sample, int, float running_loss,
+                                                                    float, float, float) {
+        if (sample == 1) {
             epoch_start = std::chrono::steady_clock::now();
+            last_save_time = std::chrono::system_clock::now();
+            if (control_) {
+                // sample==1 fires at the start of every epoch (the loop index
+                // resets each epoch), so only log once, on the true first
+                // optimizer step of the whole pass — epochs_fully_completed
+                // only advances once epoch_callback_ has fired.
+                if (epochs_fully_completed == 0) {
+                    control_->log(adai::TrainerLogLevel::Info, "Training started");
+                }
+                control_->phase = adai::TrainerPhase::Training;
+            }
+        }
 
         ++cumulative_samples_this_session;
         ++samples_since_last_save;
+        if (control_) {
+            control_->samples_trained_this_pass = cumulative_samples_this_session;
+            control_->last_loss = static_cast<double>(running_loss);
+            // Forced checkpoint (POST /admin/checkpoint) — independent of the
+            // auto-save cadence, consumed once via exchange().
+            if (control_->checkpoint_requested.exchange(false)) {
+                control_->phase = adai::TrainerPhase::Checkpointing;
+                perform_auto_save(epochs_fully_completed + 1, cumulative_samples_this_session);
+                control_->phase = adai::TrainerPhase::Training;
+            }
+        }
         if (should_auto_save()) {
             perform_auto_save(epochs_fully_completed + 1, cumulative_samples_this_session);
         }
@@ -710,13 +817,40 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
     bool success = trainer.train(num_epochs);
     model = trainer.release_model();
 
+    // A pass drained via /admin/pause (control_->paused) ends with train()
+    // returning true (no exception; it just did fewer epochs than asked) —
+    // was_aborted() is the only signal that this wasn't a normal completion.
+    // Treat it like the existing failure path: save a checkpoint of whatever
+    // progress was made, but do NOT finalize_session()/mark_trained() — the
+    // caller (train_on_files/retrain_on_files/resume_last_session) releases
+    // the claimed files back to pending on a false return, exactly as it
+    // already does for a genuine failure, so the next pass (this process
+    // after /admin/resume, or a future one) picks the same files back up.
+    const bool aborted = trainer.was_aborted();
+    if (aborted) {
+        const std::string message = "Training pass paused via admin API (epoch " +
+            std::to_string(epochs_fully_completed) + ", " +
+            std::to_string(cumulative_samples_this_session) +
+            " sample(s) this pass) — checkpointing and releasing claimed files back to pending";
+        if (control_) {
+            control_->log(adai::TrainerLogLevel::Warn, message);
+            control_->phase = adai::TrainerPhase::Checkpointing;
+        } else {
+            Logger::info("{}", message);
+        }
+        perform_auto_save(epochs_fully_completed + 1, cumulative_samples_this_session);
+        if (control_) {
+            control_->phase = adai::TrainerPhase::Idle;
+        }
+    }
+
     if (push_client_) {
         push_client_->end_session();
         push_client_ = nullptr;
     }
     metrics_reporter_ = std::make_unique<NullMetricsReporter>();
 
-    if (success) {
+    if (success && !aborted) {
         std::string checkpoint_path = generate_session_checkpoint_path();
         save_model(checkpoint_path);
 
@@ -743,14 +877,35 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
             }
         }
 #endif
+        if (control_) {
+            control_->log(adai::TrainerLogLevel::Info, "Training pass complete");
+        }
+    } else if (!aborted && control_) {
+        // success == false here — a genuine failure (exception inside
+        // ChatbotTrainer::train(), not an admin-requested pause).
+        control_->log(adai::TrainerLogLevel::Error, "Training pass failed");
     }
 
-    return success;
+    // The aborted branch above already returned control_ to Idle; cover the
+    // normal-completion and genuine-failure paths here so `serve`'s
+    // /admin/status always reads Idle once run_training() has returned,
+    // regardless of which path was taken.
+    if (control_ && !aborted) {
+        control_->phase = adai::TrainerPhase::Idle;
+    }
+
+    return success && !aborted;
 }
 
 bool IncrementalTrainer::train_on_files(const std::vector<std::string>& files, int num_epochs) {
-    Logger::info("Starting Incremental Training Session #{}", current_session_id + 1);
-    Logger::info("Files to train: {}", files.size());
+    const std::string start_message = "Starting incremental training session #" +
+        std::to_string(current_session_id + 1) + " (" + std::to_string(files.size()) + " file(s))";
+    if (control_) {
+        control_->log(adai::TrainerLogLevel::Info, start_message);
+        control_->phase = adai::TrainerPhase::LoadingData;
+    } else {
+        Logger::info("{}", start_message);
+    }
     initialize_session();
 
     // Load files in parallel, then merge in submission order. Do NOT pre-split here:
@@ -794,6 +949,8 @@ bool IncrementalTrainer::train_on_files(const std::vector<std::string>& files, i
         load_session_history();
     }
 
+    config.base_config.tokenized_cache_key = compute_tokenized_cache_key(
+        files, vocab_path_, config.base_config.tokenizer_mode, config.base_config.max_seq_length);
     ChatbotTrainer trainer(config.base_config);
     trainer.set_model(std::move(model));
     for (const auto& pair : all_pairs)
@@ -815,7 +972,13 @@ bool IncrementalTrainer::train_on_files(const std::vector<std::string>& files, i
 }
 
 bool IncrementalTrainer::retrain_on_files(const std::vector<std::string>& files, int num_epochs) {
-    Logger::info("Starting full retrain on {} file(s)", files.size());
+    const std::string start_message = "Starting full retrain on " + std::to_string(files.size()) + " file(s)";
+    if (control_) {
+        control_->log(adai::TrainerLogLevel::Info, start_message);
+        control_->phase = adai::TrainerPhase::LoadingData;
+    } else {
+        Logger::info("{}", start_message);
+    }
     initialize_session();
 
     // Load files in parallel, then merge in order for deterministic dataset ordering.
@@ -850,6 +1013,8 @@ bool IncrementalTrainer::retrain_on_files(const std::vector<std::string>& files,
     const int val_size = total / config.base_config.validation_split;
     const int training_sample_count = total - val_size;
 
+    config.base_config.tokenized_cache_key = compute_tokenized_cache_key(
+        files, vocab_path_, config.base_config.tokenizer_mode, config.base_config.max_seq_length);
     ChatbotTrainer trainer(config.base_config);
     trainer.set_model(std::move(model));
     for (const auto& pair : all_pairs)
@@ -1236,11 +1401,12 @@ void IncrementalTrainer::remove_model_files(const std::string& base_path) {
 }
 
 void IncrementalTrainer::cleanup_old_sessions() {
-    if (session_history.size() <= config.max_sessions_to_keep) {
+    const int max_keep = control_ ? control_->max_sessions_to_keep.load() : config.max_sessions_to_keep;
+    if (static_cast<int>(session_history.size()) <= max_keep) {
         return;
     }
 
-    int to_remove = static_cast<int>(session_history.size()) - config.max_sessions_to_keep;
+    int to_remove = static_cast<int>(session_history.size()) - max_keep;
 
     for (int i = 0; i < to_remove; ++i) {
         const auto& session = session_history[i];
@@ -1483,21 +1649,28 @@ bool IncrementalTrainer::finalize_session(int samples_trained, int epochs_comple
 }
 
 bool IncrementalTrainer::should_auto_save() {
-    if (!config.auto_save_enabled) {
+    // When running under `serve`, control_'s tunables are live (PUT
+    // /admin/config) and take precedence over the config-file values baked
+    // in at construction time; otherwise fall back to config as before.
+    const bool enabled = control_ ? control_->auto_save_enabled.load() : config.auto_save_enabled;
+    if (!enabled) {
         return false;
     }
+    const int every_samples =
+        control_ ? control_->auto_save_every_samples.load() : config.auto_save_every_samples;
+    const int every_minutes =
+        control_ ? control_->auto_save_every_minutes.load() : config.auto_save_every_minutes;
 
     // Check sample count
-    if (config.auto_save_every_samples > 0 &&
-        samples_since_last_save >= config.auto_save_every_samples) {
+    if (every_samples > 0 && samples_since_last_save >= every_samples) {
         return true;
     }
 
     // Check time elapsed
-    if (config.auto_save_every_minutes > 0) {
+    if (every_minutes > 0) {
         auto now = std::chrono::system_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::minutes>(now - last_save_time);
-        if (elapsed.count() >= config.auto_save_every_minutes) {
+        if (elapsed.count() >= every_minutes) {
             return true;
         }
     }
@@ -1510,9 +1683,25 @@ void IncrementalTrainer::perform_auto_save(int current_epoch, int cumulative_sam
         get_session_dir() + "/auto_save_session_" + std::to_string(current_session_id) + ".bin";
 
     if (save_model(auto_save_path)) {
-        Logger::info("Auto-saved checkpoint to {}", auto_save_path);
+        // Routed through control_->log() (which itself calls Logger::info) rather
+        // than calling Logger::info directly here too — avoids double-logging the
+        // same line when running under `serve` (control_ non-null).
+        if (control_) {
+            control_->log(adai::TrainerLogLevel::Info, "Checkpoint saved: " + auto_save_path);
+        } else {
+            Logger::info("Auto-saved checkpoint to {}", auto_save_path);
+        }
         last_save_time = std::chrono::system_clock::now();
         samples_since_last_save = 0;
+
+        if (control_) {
+            control_->checkpoints_written.fetch_add(1);
+            control_->last_checkpoint_time_unix.store(
+                std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::system_clock::now().time_since_epoch())
+                    .count());
+            control_->set_last_checkpoint_path(auto_save_path);
+        }
 
         // Persist the in-progress session too, so a crash mid-run doesn't wipe
         // session_history back to empty. final_validation_loss is deliberately

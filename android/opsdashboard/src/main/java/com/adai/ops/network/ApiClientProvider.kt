@@ -1,5 +1,10 @@
 package com.adai.ops.network
 
+// @adai-status: beta
+// @adai-version: 0.4.0
+// @adai-reviewed: 2026-09-07
+
+
 import com.adai.ops.BuildConfig
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import kotlinx.serialization.json.Json

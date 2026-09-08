@@ -38,6 +38,7 @@ Developer guides and implementation documentation:
 - **[quick-reference/](guides/quick-reference/)** — Cheat sheets for augmentation, batch processing, dataset, inference, OpenMP, RAG
 - **Implementation** — [implementation-guide.md](guides/implementation-guide.md), [implementation-checklist.md](guides/implementation-checklist.md), [phase5-advanced-features.md](guides/phase5-advanced-features.md)
 - **Technical debt** — [TECHNICAL_DEBT.md](guides/TECHNICAL_DEBT.md), [technical-debt-management.md](guides/technical-debt-management.md), [PRIORITY1_CHECKLIST.md](guides/PRIORITY1_CHECKLIST.md)
+- **File status & versioning** — [file-status-standard.md](guides/file-status-standard.md) — the per-file `@adai-status`/`@adai-version` tag; see [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) for the generated dashboard
 
 ### [reference/](reference/)
 
@@ -83,6 +84,7 @@ Historical documentation, completed phase summaries, and implementation reports.
 | [TRAINING_METRICS_SERVICE.md](TRAINING_METRICS_SERVICE.md) | Training metrics service internals |
 | [SPECIAL_TOKEN_CONSOLIDATION.md](SPECIAL_TOKEN_CONSOLIDATION.md) | Special token consolidation notes |
 | [TEST_COVERAGE_IMPROVEMENTS.md](TEST_COVERAGE_IMPROVEMENTS.md) | Test coverage improvement tracker |
+| [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) | Generated per-file status dashboard — see [file-status-standard.md](guides/file-status-standard.md) |
 | [transformer_introspection_plan.md](../proposals/transformer_introspection_plan.md) | Transformer introspection design (proposal) |
 | [code-citations.md](code-citations.md) | Code citations and references |
 

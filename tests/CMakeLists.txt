@@ -521,6 +521,15 @@ if(SQLITE3_FOUND)
 endif()
 add_test(NAME DaemonConfigStoreTests COMMAND daemonConfigStoreTests)
 
+# Native Parquet -> JSONL reader (replaces the Python pandas/pyarrow subprocess)
+add_executable(parquetReaderTests parquet_reader_test.cpp)
+target_include_directories(parquetReaderTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(parquetReaderTests
+    adai_core
+    GTest::gtest_main
+)
+add_test(NAME ParquetReaderTests COMMAND parquetReaderTests)
+
 # TD-021: IncrementalTrainer × Metrics Service Decoupling tests
 add_executable(incrementalTrainerDecouplingTests
     incremental_trainer_registry_test.cpp
@@ -781,4 +790,84 @@ if(ENABLE_GPU OR ENABLE_SYCL)
     add_test(NAME MatrixGPUTD003Tests COMMAND matrixgpuTd003Tests)
 endif()
 
-message(STATUS "Configured 57+ test suites using library targets (including Config, Logger, IncrementalTrainer, LLMEncoder, DocumentStore, RAGInference, BatchProcessor, ParallelDataLoader, IntegratedInferenceEngine, PipelineInferenceEngine, BatchedInferenceEngine, SpeculativeDecoding, VocabBuilder, ChatbotAPI, ChatbotTrainer, GenerationQuality, GenerationQualityAsync, PaddingEfficiency, AdaptiveClipping, ModelSerializer, StaleDetection, BackgroundLaunch, integration, RAG/BERT comparison, Phase 5, DatasetRegistry, DatasetRegistryLive, DataFetcher, FtpDataServer, DataTransport, DataTransportFtp, StartupSweep, and TrainingSampleMeta tests)")
+# ============================================================================
+# Trainer admin control daemon (`incremental_trainer serve`) tests
+# ============================================================================
+
+# TrainerControlState — header-only, but its log ring buffer mirrors every entry
+# through adai::Logger (see TrainerControlState::log()), so it now needs adai_core
+# (Logger.cpp) + spdlog to link, unlike before that feature existed.
+add_executable(trainerControlStateTests trainer_control_state_test.cpp)
+target_include_directories(trainerControlStateTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(trainerControlStateTests
+    adai_core
+    spdlog::spdlog
+    GTest::gtest_main
+    pthread
+)
+add_test(NAME TrainerControlStateTests COMMAND trainerControlStateTests)
+
+# TrainerAdminAPI — real httplib::Server exercised with a real httplib::Client,
+# same style as RegistryServer/ModelNameService's own routes tests. Gated on
+# HTTPLIB_INCLUDE_DIR like the daemon itself (see src/CMakeLists.txt's
+# BUILD_TRAINER_ADMIN block) — nothing to test when it isn't built.
+if(HTTPLIB_INCLUDE_DIR)
+    add_executable(trainerAdminApiTests
+        trainer_admin_api_test.cpp
+        ../src/TrainerAdminAPI.cpp
+    )
+    target_include_directories(trainerAdminApiTests PRIVATE ${CMAKE_SOURCE_DIR}/src
+        ${HTTPLIB_INCLUDE_DIR})
+    target_link_libraries(trainerAdminApiTests
+        adai_core
+        spdlog::spdlog
+        pthread
+        GTest::gtest_main
+    )
+    add_test(NAME TrainerAdminAPITests COMMAND trainerAdminApiTests)
+else()
+    message(STATUS "TrainerAdminAPITests not built (cpp-httplib not found)")
+endif()
+
+# IncrementalTrainer × TrainerControlState integration — proves
+# should_auto_save()/cleanup_old_sessions() actually prefer an attached
+# control state's live-tunable values over the config-file ones, via the
+# same friend-class pattern ChatbotTrainerCacheTest uses.
+add_executable(incrementalTrainerControlTests
+    incremental_trainer_control_test.cpp
+    ../src/IncrementalTrainer.cpp
+    ../src/ChatbotTrainer.cpp
+    ../src/Logger.cpp
+    ../src/Config.cpp
+)
+target_link_libraries(incrementalTrainerControlTests
+    adai_models
+    adai_nlp
+    adai_transformer
+    adai_attention
+    adai_feedforward
+    adai_layers
+    adai_core
+    spdlog::spdlog
+    GTest::gtest_main
+)
+if(HTTPLIB_INCLUDE_DIR)
+    target_link_libraries(incrementalTrainerControlTests adai_metrics_api)
+    target_include_directories(incrementalTrainerControlTests PRIVATE ${HTTPLIB_INCLUDE_DIR})
+endif()
+add_test(NAME IncrementalTrainerControlTests COMMAND incrementalTrainerControlTests)
+
+# Note: ChatbotTrainer's cooperative-abort-flag tests (was_aborted(), early
+# epoch-loop exit on /admin/pause) live in chatbottrainer_test.cpp
+# (ChatbotTrainerAbortTest fixture) — no separate target needed, it's part
+# of the existing chatbottrainerTests binary above.
+#
+# There is deliberately no separate trainer_serve_loop_test.cpp: `serve`'s
+# supervisory loop lives inline in IncrementalTrainingTool.cpp's main() with
+# no extracted seam to call into directly, so its two real testable pieces —
+# the idle-poll wake()/interruptible_sleep() primitive, and the
+# IncrementalTrainer×TrainerControlState wiring it drives each iteration —
+# are covered above (TrainerControlStateTests, IncrementalTrainerControlTests)
+# instead of duplicating the loop's control flow against fabricated state.
+
+message(STATUS "Configured 57+ test suites using library targets (including Config, Logger, IncrementalTrainer, LLMEncoder, DocumentStore, RAGInference, BatchProcessor, ParallelDataLoader, IntegratedInferenceEngine, PipelineInferenceEngine, BatchedInferenceEngine, SpeculativeDecoding, VocabBuilder, ChatbotAPI, ChatbotTrainer, GenerationQuality, GenerationQualityAsync, PaddingEfficiency, AdaptiveClipping, ModelSerializer, StaleDetection, BackgroundLaunch, integration, RAG/BERT comparison, Phase 5, DatasetRegistry, DatasetRegistryLive, DataFetcher, FtpDataServer, DataTransport, DataTransportFtp, StartupSweep, TrainingSampleMeta, and TrainerAdminAPI tests)")

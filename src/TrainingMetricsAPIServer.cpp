@@ -1,3 +1,7 @@
+// @adai-status: beta        (shipped as metrics_api_server; no dedicated test file)
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-09-07
+
 #include <atomic>
 #include <csignal>
 #include <cstring>

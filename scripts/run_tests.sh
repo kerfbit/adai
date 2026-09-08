@@ -1,4 +1,9 @@
 #!/bin/bash
+
+# @adai-status: beta        (documented in CLAUDE.md; no automated test of the script itself)
+# @adai-version: 0.8.0
+# @adai-reviewed: 2026-09-07
+
 #
 # Run all tests with optional sanitizers
 #

@@ -1,4 +1,9 @@
 #!/bin/bash
+
+# @adai-status: beta
+# @adai-version: 0.8.0
+# @adai-reviewed: 2026-09-07
+
 # ADAI Model Name Service - Installation Script
 #
 # Installs mns_server as a systemd service.

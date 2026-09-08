@@ -1,5 +1,10 @@
 package com.adai.ops.ui.common
 
+// @adai-status: experimental
+// @adai-version: 0.1.0
+// @adai-reviewed: 2026-09-07
+
+
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.ButtonDefaults

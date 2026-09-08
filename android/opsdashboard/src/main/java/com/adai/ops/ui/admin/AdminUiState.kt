@@ -1,5 +1,10 @@
 package com.adai.ops.ui.admin
 
+// @adai-status: experimental
+// @adai-version: 0.1.0
+// @adai-reviewed: 2026-09-07
+
+
 import com.adai.ops.network.dto.MetricsAdminConfigDto
 import com.adai.ops.network.dto.MnsAdminConfigDto
 import com.adai.ops.network.dto.RegistryAdminConfigDto

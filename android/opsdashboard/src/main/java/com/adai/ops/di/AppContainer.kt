@@ -1,9 +1,15 @@
 package com.adai.ops.di
 
+// @adai-status: experimental
+// @adai-version: 0.1.0
+// @adai-reviewed: 2026-09-07
+
+
 import android.content.Context
 import com.adai.ops.data.metrics.MetricsRepository
 import com.adai.ops.data.mns.ModelRepository
 import com.adai.ops.data.registry.RegistryRepository
+import com.adai.ops.data.trainer.TrainerRepository
 import com.adai.ops.data.wearsync.WatchFacePushRepository
 import com.adai.ops.data.wearsync.WatchSyncRepository
 import com.adai.ops.network.ApiClientProvider
@@ -25,6 +31,7 @@ class AppContainer(context: Context) {
     val metricsRepository = MetricsRepository(apiClientProvider, settingsDataStore)
     val modelRepository = ModelRepository(apiClientProvider, settingsDataStore)
     val registryRepository = RegistryRepository(apiClientProvider, settingsDataStore)
+    val trainerRepository = TrainerRepository(apiClientProvider, settingsDataStore)
     val watchSyncRepository = WatchSyncRepository(context, metricsRepository, settingsDataStore)
     val watchFacePushRepository = WatchFacePushRepository(context)
 

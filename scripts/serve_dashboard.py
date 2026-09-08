@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# @adai-status: beta
+# @adai-version: 0.6.0
+# @adai-reviewed: 2026-09-07
+
 """
 Simple HTTP server to serve the dashboard
 Usage: python3 serve_dashboard.py

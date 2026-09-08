@@ -1,4 +1,9 @@
 #!/bin/bash
+
+# @adai-status: experimental        (not referenced by current docs (docker.md documents docker_build.sh + docker-compose instead))
+# @adai-version: 0.4.0
+# @adai-reviewed: 2026-09-07
+
 # Docker deployment script for ADAI Chatbot API Server
 
 set -e

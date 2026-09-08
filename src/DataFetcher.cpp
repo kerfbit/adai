@@ -1,3 +1,7 @@
+// @adai-status: stable
+// @adai-version: 1.0.0
+// @adai-reviewed: 2026-09-07
+
 #include "DataFetcher.hpp"
 #include <algorithm>
 #include <array>
@@ -11,6 +15,7 @@
 #include <utility>
 #include <vector>
 #include "Logger.hpp"
+#include "ParquetReader.hpp"
 #include "TrainingSampleMeta.hpp"
 
 using adai::Logger;
@@ -227,8 +232,7 @@ std::string DataFetcher::fetch_huggingface(const std::string& dataset_id, int nu
                   << "   • Check the dataset ID at https://huggingface.co/datasets\n"
                   << "   • Gated datasets require: export HF_TOKEN=hf_...\n"
                   << "   • Verify at: https://datasets-server.huggingface.co/is-valid?dataset="
-                  << dataset_id << "\n"
-                  << "   • python3 with pandas or pyarrow is required for parquet conversion\n";
+                  << dataset_id << "\n";
         return "";
     }
 
@@ -697,33 +701,15 @@ std::string DataFetcher::download_hf_full_dataset(const std::string& dataset_id,
     }
     Logger::info("Found {} parquet file(s) for '{}'", parquet_urls.size(), dataset_id);
 
-    // 2. Write a small Python3 conversion script (pandas preferred, pyarrow fallback)
+    // 2. Download each parquet file and convert it natively to JSONL (ParquetReader),
+    // appending directly to jsonl_path — no python3/pandas/pyarrow subprocess, no
+    // per-part temp .jsonl + `cat` concatenation.
     const std::string parquet_dir = output_dir + "/parquet";
     fs::create_directories(parquet_dir);
-
-    const std::string py_script = parquet_dir + "/to_jsonl.py";
-    {
-        std::ofstream py(py_script);
-        py << "import sys, json\n"
-           << "try:\n"
-           << "    import pandas as pd\n"
-           << "    pd.read_parquet(sys.argv[1]).to_json(\n"
-           << "        sys.argv[2], orient='records', lines=True, force_ascii=False)\n"
-           << "except ImportError:\n"
-           << "    import pyarrow.parquet as pq\n"
-           << "    table = pq.read_table(sys.argv[1])\n"
-           << "    with open(sys.argv[2], 'w', encoding='utf-8') as f:\n"
-           << "        for row in table.to_pylist():\n"
-           << "            f.write(json.dumps(row, ensure_ascii=False) + '\\n')\n";
-    }
-
-    // 3. Download each parquet file and convert to JSONL, appending to jsonl_path
-    { std::ofstream(jsonl_path).close(); }  // truncate / create
 
     int converted = 0;
     for (size_t i = 0; i < parquet_urls.size(); ++i) {
         const std::string pq_file = parquet_dir + "/part_" + std::to_string(i) + ".parquet";
-        const std::string chunk_jsonl = parquet_dir + "/part_" + std::to_string(i) + ".jsonl";
 
         // Download
         std::ostringstream dl_cmd;
@@ -739,25 +725,19 @@ std::string DataFetcher::download_hf_full_dataset(const std::string& dataset_id,
             continue;
         }
 
-        // Convert to JSONL
-        std::ostringstream py_cmd;
-        py_cmd << "python3 \"" << py_script << "\" \"" << pq_file << "\" \"" << chunk_jsonl
-               << "\" 2>/dev/null";
-        if (std::system(py_cmd.str().c_str()) != 0 || !fs::exists(chunk_jsonl) ||
-            fs::file_size(chunk_jsonl) == 0) {
-            Logger::error(
-                "Parquet to JSONL conversion failed for part {} "
-                "(python3 with pandas or pyarrow required)",
-                i);
+        // Convert to JSONL — first successful part truncates jsonl_path, subsequent
+        // parts append, so a failure on part 0 never leaves a stale file from a
+        // previous run behind.
+        const long long rows = ParquetReader::convert_to_jsonl(pq_file, jsonl_path,
+                                                                /*append=*/converted > 0);
+        if (rows < 0) {
+            Logger::error("Parquet to JSONL conversion failed for part {} ({})", i, pq_file);
             continue;
         }
 
-        // Append to main JSONL
-        std::ostringstream cat_cmd;
-        cat_cmd << "cat \"" << chunk_jsonl << "\" >> \"" << jsonl_path << "\"";
-        std::system(cat_cmd.str().c_str());
         ++converted;
-        std::cout << "  ✓ parquet part " << (i + 1) << "/" << parquet_urls.size() << "\n";
+        std::cout << "  ✓ parquet part " << (i + 1) << "/" << parquet_urls.size() << " (" << rows
+                  << " rows)\n";
     }
 
     if (converted == 0 || !fs::exists(jsonl_path) || fs::file_size(jsonl_path) == 0) {
@@ -962,6 +942,17 @@ static std::string hf_extract_object(const std::string& json, const std::string&
 }
 
 /// Try to infer input/output field names from the first row's JSON.
+///
+/// A candidate is only accepted if BOTH fields hold actual non-empty JSON
+/// *string* values in this row — not merely if the key names are present.
+/// A field that matches by name but holds a number/bool/null/array/object
+/// (e.g. a classification dataset's numeric "label" column, which happens to
+/// match the {"text","label"} candidate by name) is unusable as free-text
+/// input/output and would silently produce zero pairs for the *entire* file,
+/// since the detected field pair is locked in after this first check and
+/// never revisited. Skipping such a candidate here lets the caller fall
+/// through to the dialog-array / single-text-field fallbacks instead, which
+/// correctly extract from just the "text" field in exactly this situation.
 static std::pair<std::string, std::string> hf_detect_fields(const std::string& row_json) {
     static const std::array<std::pair<const char*, const char*>, 10> candidates = {{
         {"instruction", "output"},
@@ -976,9 +967,7 @@ static std::pair<std::string, std::string> hf_detect_fields(const std::string& r
         {"text", "label"},
     }};
     for (const auto& [in_f, out_f] : candidates) {
-        bool has_in = row_json.find(std::string("\"") + in_f + "\"") != std::string::npos;
-        bool has_out = row_json.find(std::string("\"") + out_f + "\"") != std::string::npos;
-        if (has_in && has_out)
+        if (!hf_extract_string(row_json, in_f).empty() && !hf_extract_string(row_json, out_f).empty())
             return {in_f, out_f};
     }
     return {"", ""};

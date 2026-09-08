@@ -1,5 +1,10 @@
 #pragma once
 
+// @adai-status: stable
+// @adai-version: 1.0.0
+// @adai-reviewed: 2026-09-07
+
+
 #include <string>
 #include <utility>
 #include <vector>
@@ -28,7 +33,8 @@ struct FetcherConfig {
  *
  * Supported sources:
  *   - Project Gutenberg (plain-text books converted to QA pairs)
- *   - HuggingFace Datasets server (rows API, no Python required)
+ *   - HuggingFace Datasets server (parquet exports, converted natively via
+ *     ParquetReader — no Python required)
  *
  * Usage:
  * @code

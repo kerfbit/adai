@@ -1,3 +1,7 @@
+// @adai-status: beta        (Qt GUI, no dedicated test file)
+// @adai-version: 0.7.0
+// @adai-reviewed: 2026-09-07
+
 #include "ChatbotGUI.hpp"
 #include <QApplication>
 #include <QDateTime>

@@ -1,5 +1,10 @@
 package com.adai.ops.network
 
+// @adai-status: beta
+// @adai-version: 0.4.0
+// @adai-reviewed: 2026-09-07
+
+
 sealed interface ApiResult<out T> {
     data class Success<T>(val data: T) : ApiResult<T>
     data object NotFound : ApiResult<Nothing>

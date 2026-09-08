@@ -1,3 +1,7 @@
+// @adai-status: beta        (shipped as mns_cli; no dedicated test file)
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-09-07
+
 /**
  * mns_cli — Command-line interface for the ADAI Model Name Service
  *
@@ -157,8 +161,19 @@ static void print_usage(const char* prog) {
               << "      Show the full record for a model.\n\n"
               << "  register <name> <role> [--d-model N] [--num-heads N] [--d-ff N]\n"
               << "           [--encoder-layers N] [--decoder-layers N] [--max-seq-length N]\n"
-              << "           [--tag key=value ...]\n"
-              << "      Register a new model.  Architecture defaults come from config.mns.conf.\n\n"
+              << "           [--run-group GROUP] [--tag key=value ...]\n"
+              << "      Register a new model.  Architecture defaults come from config.mns.conf,\n"
+              << "      and — unlike --run-group — is immutable after register (changing it would\n"
+              << "      break checkpoint compatibility).\n"
+              << "      --run-group sets the dataset-registry group this model's trainer should\n"
+              << "      use (see DatasetRegistry); omitted/empty means clients fall back to their\n"
+              << "      own local RUN_GROUP config / SESSION_DIR-basename derivation. Safe to\n"
+              << "      change later with 'update' (see below) — no checkpoint-compatibility\n"
+              << "      concern the way architecture has.\n\n"
+              << "  update <name> --run-group <value>\n"
+              << "      Set/change an already-registered model's run_group. The only per-model\n"
+              << "      field with an update-after-register path — everything else (architecture,\n"
+              << "      role) is register-time-only.\n\n"
               << "  resolve <name>\n"
               << "      Resolve a model by name (artifact location + state).\n\n"
               << "  set-training <name> [--new-run] [session-key]\n"
@@ -245,6 +260,7 @@ static int cmd_register(const ParsedUrl& u, const std::vector<std::string>& args
     size_t enc_layers = cfg.num_encoder_layers;
     size_t dec_layers = cfg.num_decoder_layers;
     size_t max_seq = cfg.max_seq_length;
+    std::string run_group = cfg.run_group;
     std::map<std::string, std::string> tags;
 
     for (size_t i = 2; i < args.size(); ++i) {
@@ -260,6 +276,8 @@ static int cmd_register(const ParsedUrl& u, const std::vector<std::string>& args
             dec_layers = static_cast<size_t>(std::stoul(args[++i]));
         else if (args[i] == "--max-seq-length" && i + 1 < args.size())
             max_seq = static_cast<size_t>(std::stoul(args[++i]));
+        else if (args[i] == "--run-group" && i + 1 < args.size())
+            run_group = args[++i];
         else if (args[i] == "--tag" && i + 1 < args.size()) {
             const auto& kv = args[++i];
             auto eq = kv.find('=');
@@ -270,7 +288,8 @@ static int cmd_register(const ParsedUrl& u, const std::vector<std::string>& args
 
     std::ostringstream body;
     body << "{\"model_name\":\"" << json_escape(name) << "\"" << ",\"role\":\"" << json_escape(role)
-         << "\"" << ",\"arch\":{" << "\"d_model\":" << d_model << ",\"num_heads\":" << num_heads
+         << "\"" << ",\"run_group\":\"" << json_escape(run_group) << "\""
+         << ",\"arch\":{" << "\"d_model\":" << d_model << ",\"num_heads\":" << num_heads
          << ",\"d_ff\":" << d_ff << ",\"num_encoder_layers\":" << enc_layers
          << ",\"num_decoder_layers\":" << dec_layers << ",\"max_seq_length\":" << max_seq << "}";
     if (!tags.empty()) {
@@ -403,6 +422,16 @@ static int cmd_promote(const ParsedUrl& u, const std::vector<std::string>& args)
     return http_put(u, "/roles/" + args[0] + "/production", body.str());
 }
 
+static int cmd_update_run_group(const ParsedUrl& u, const std::vector<std::string>& args) {
+    if (args.size() < 2 || args[1] != "--run-group" || args.size() < 3) {
+        std::cerr << "Usage: update <name> --run-group <value>\n";
+        return 1;
+    }
+    std::ostringstream body;
+    body << "{\"run_group\":\"" << json_escape(args[2]) << "\"}";
+    return http_put(u, "/models/" + args[0] + "/run_group", body.str());
+}
+
 static int cmd_health(const ParsedUrl& u) {
     return http_get(u, "/health");
 }
@@ -456,6 +485,8 @@ int main(int argc, char* argv[]) {
         return cmd_get(url, cmd_args);
     if (command == "register")
         return cmd_register(url, cmd_args, svc_config);
+    if (command == "update")
+        return cmd_update_run_group(url, cmd_args);
     if (command == "resolve")
         return cmd_resolve(url, cmd_args);
     if (command == "set-training")

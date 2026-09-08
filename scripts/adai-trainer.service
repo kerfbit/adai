@@ -1,0 +1,130 @@
+# ADAI Incremental Trainer - systemd Service Unit
+#
+# Runs `incremental_trainer serve` under systemd supervision so a crash
+# (this host has a known, currently-unfixable Intel Arc/Battlemage `xe`
+# driver instability — see project_ai_machine_gpu_hang in ops notes) gets
+# auto-restarted instead of silently halting the training pipeline.
+# `serve` is the always-on supervisory-loop command: internally it does
+# exactly what repeatedly calling `resume` did before (safe to run with
+# nothing pending — it just idles; reloads the best checkpoint; and, with
+# CACHE_TOKENIZED_DATA=true in config.trainer.conf, reuses the on-disk
+# tokenized-data cache instead of repeating potentially hours of BPE
+# tokenization) but as a single long-lived process rather than one new
+# process per restart cycle — which is what makes the optional admin HTTP
+# API (TRAINER_ADMIN_ENABLED=true; see CLAUDE.md "Incremental trainer admin
+# API") genuinely always-on instead of reachable only between restarts.
+# Requires the acquire-eligibility fix (a resumed run can reclaim files it
+# had already claimed before crashing — needs NAME_SERVICE_URL configured so
+# MNS hands back the same run_id across restarts; a standalone/no-MNS
+# deployment needs a static RUN_ID= pinned in config.trainer.conf instead).
+#
+# Installation:
+#   1. Copy this file to /etc/systemd/system/adai-trainer.service
+#   2. Update paths to match your installation
+#   3. Run: sudo systemctl daemon-reload
+#   4. Enable: sudo systemctl enable adai-trainer
+#   5. Start: sudo systemctl start adai-trainer
+#
+# Before first start, the model must already exist (run `incremental_trainer
+# init` and at least one manual `train` once) — `serve`'s internal resume
+# logic expects a prior session to resume from, it doesn't bootstrap a new
+# model.
+
+[Unit]
+Description=ADAI Incremental Trainer (crash-resilient, auto-resume)
+Documentation=https://github.com/rjv717/adai
+After=network-online.target metrics-api-server.service mns-server.service registry-server.service
+Wants=network-online.target metrics-api-server.service mns-server.service registry-server.service
+
+PartOf=multi-user.target
+
+# GPU-driver crash-loops are an expected, recurring pattern on this host —
+# looser than adai.service's 600s/5 so a cluster of driver faults over a few
+# hours doesn't trip systemd into giving up on the service entirely.
+StartLimitIntervalSec=1800
+StartLimitBurst=10
+
+[Service]
+Type=simple
+
+User=adai
+Group=adai
+
+# GPU (SYCL/CUDA) device access — the group owning /dev/dri/renderD128 on
+# this host (commonly "render" for Intel Arc; verify with
+# `ls -l /dev/dri/renderD128` and adjust if different).
+SupplementaryGroups=render
+
+WorkingDirectory=/opt/adai
+
+# `serve` never forks — it IS the worker process, so Type=simple tracks it
+# directly with no --foreground flag needed (unlike train/retrain/resume,
+# which still fork+daemonize by default when invoked directly from a shell).
+ExecStart=/opt/adai/bin/incremental_trainer --config /etc/adai/config.trainer.conf serve
+
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+TimeoutStartSec=40
+
+# always, not on-failure: `serve` itself never exits non-zero on "nothing
+# pending" (it just idles in-process — see IncrementalTrainingTool.cpp) so
+# there's no separate "clean idle" exit code to distinguish from a crash the
+# way the old per-cycle `resume` process had to. Kept as `always` regardless,
+# since it's still the correct posture for the one failure mode that *can*
+# take the whole process down: a genuine GPU-driver segfault.
+Restart=always
+# Longer than adai.service's 5s — this host's GT0 engine-reset recovery
+# window has been observed taking up to ~1 minute; restarting into a
+# not-yet-settled GPU risks an immediate repeat crash.
+RestartSec=45
+
+# ============================================================================
+# Hardening — same posture as adai.service where applicable. Notably
+# PrivateDevices is "no" here (not adai.service's "yes") for the same reason
+# documented there: a private /dev hides /dev/dri/renderD128 and the GPU
+# silently becomes invisible with no error.
+# ============================================================================
+
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/log/adai /opt/adai/models /opt/adai/training_sessions /opt/adai/tokenized_cache /opt/adai/trainer_admin
+
+NoNewPrivileges=true
+PrivateTmp=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+PrivateDevices=no
+# No SystemCallFilter here (unlike adai.service) — the GPU/Level-Zero driver
+# stack on this host issues a syscall that @system-service's allow-list
+# blocks, which surfaced as a SIGSYS crash loop (status=31) the first time
+# this hardening was copied over from adai.service. See
+# project_trainer_crash_resilience in ops notes.
+CapabilityBoundingSet=
+ProtectClock=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictRealtime=yes
+
+# No CPU/memory caps here, deliberately unlike adai.service's inference-server
+# limits — training (tokenization + gradient computation) is meant to use
+# whatever host resources are available, not share headroom with other
+# services the way a request-serving API does.
+
+LimitNOFILE=65536
+LimitNPROC=512
+LimitCORE=0
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=adai-trainer
+SyslogLevel=info
+
+OOMScoreAdjust=100
+
+[Install]
+WantedBy=multi-user.target
+Alias=adai-trainer.service

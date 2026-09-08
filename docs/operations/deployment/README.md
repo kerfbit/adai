@@ -7,7 +7,7 @@ Deployment guides for the ADAI system.
 - **[SERVER_BUNDLE_DEPLOYMENT.md](SERVER_BUNDLE_DEPLOYMENT.md)** — Deploying the server infrastructure bundle: metrics API, model name service, and dataset registry as co-located systemd services with SQLite or PostgreSQL persistence, packaging for distribution, and connecting trainers
 - **[docker.md](docker.md)** — Docker and Docker Compose deployment guide: multi-stage builds, volume management, Nginx reverse proxy, SSL/TLS, health checks, monitoring, and troubleshooting
 - **[SYSTEMD_DEPLOYMENT.md](SYSTEMD_DEPLOYMENT.md)** — Deploying the chatbot API server as a managed Linux system service: automated installation, service management, security hardening, resource limits, and log management via journald
-- **[CLOUDFLARE_TUNNEL_RELAY.md](CLOUDFLARE_TUNNEL_RELAY.md)** — Exposing metrics/MNS/registry/chatbot to the Android tablet apps when off the home LAN, via Cloudflare Tunnel + Cloudflare Access service tokens fronted by kerfbit.dev
+- **[CLOUDFLARE_TUNNEL_RELAY.md](CLOUDFLARE_TUNNEL_RELAY.md)** — Exposing metrics/MNS/registry/chatbot/trainer-admin to the Android tablet apps when off the home LAN, via Cloudflare Tunnel + Cloudflare Access service tokens fronted by kerfbit.dev (trainer's admin API uses its own, separately-revocable Access token — see that doc's "Configure Cloudflare Access")
 
 ## Choosing a Deployment Method
 

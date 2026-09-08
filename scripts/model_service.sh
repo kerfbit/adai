@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+
+# @adai-status: beta
+# @adai-version: 0.8.0
+# @adai-reviewed: 2026-09-07
+
 # =============================================================================
 # ADAI Model Service Manager
 #

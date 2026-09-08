@@ -1,4 +1,9 @@
 #!/bin/bash
+
+# @adai-status: beta        (documented official scanner; no automated test of the script itself)
+# @adai-version: 0.8.0
+# @adai-reviewed: 2026-09-07
+
 # Script to scan codebase for technical debt markers and verify tracking
 
 set -e

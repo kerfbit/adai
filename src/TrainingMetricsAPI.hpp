@@ -1,5 +1,10 @@
 #pragma once
 
+// @adai-status: beta        (large, actively evolving)
+// @adai-version: 0.9.0
+// @adai-reviewed: 2026-09-07
+
+
 #include <atomic>
 #include <memory>
 #include <string>

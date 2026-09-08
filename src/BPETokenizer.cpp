@@ -1,3 +1,7 @@
+// @adai-status: stable
+// @adai-version: 1.0.0
+// @adai-reviewed: 2026-09-07
+
 #include "BPETokenizer.hpp"
 #include <cmath>
 #include <cstdint>
@@ -248,9 +252,15 @@ std::vector<std::string> BPETokenizer::pre_tokenize(const std::string& text) {
     size_t text_length = lower_text.length();
     size_t last_pos = 0;
 
+    // Hoisted out of the loop: constructing a std::regex is expensive (builds
+    // an NFA + internal category tables), and this pattern is fixed — doing
+    // it once per token match instead of once per pre_tokenize() call made
+    // large inputs pathologically slow (worse under ASAN, where every one of
+    // std::regex's internal allocations also gets instrumented).
+    static const std::regex kWhitespaceRun("\\s+");
     for (; iter != end; ++iter) {
         std::string token = iter->str();
-        token = std::regex_replace(token, std::regex("\\s+"), " ");
+        token = std::regex_replace(token, kWhitespaceRun, " ");
         if (!token.empty()) {
             tokens.push_back(token);
         }
@@ -323,6 +333,28 @@ std::vector<std::string> BPETokenizer::apply_bpe(const std::string& word) {
         return {};
     }
 
+    // Per-thread memoization, keyed by (tokenizer instance, word). Natural
+    // text is extremely word-repetitive (Zipf's law — "the"/"a"/"and"/etc.
+    // dominate real-world token counts), and without this every occurrence
+    // reran the full O(bpe_merges.size()) merge scan below from scratch —
+    // this dominated preprocessing time on real text (worse still under
+    // ASAN, which instruments every one of the loop's vector allocations).
+    // thread_local avoids any synchronization: preprocess_data() already
+    // calls tokenize()/encode()/apply_bpe() concurrently from many OpenMP
+    // worker threads on one shared BPETokenizer instance, so a plain shared
+    // cache would race; a thread_local one needs none, at the cost of not
+    // sharing hits across threads. Safe only because bpe_merges is immutable
+    // for the lifetime of any concurrent tokenize() calls on a given
+    // instance — its only mutators (load_vocab(), train_bpe()) always run
+    // single-threaded, before parallel preprocessing ever starts.
+    thread_local std::unordered_map<const BPETokenizer*,
+                                    std::unordered_map<std::string, std::vector<std::string>>>
+        tls_cache;
+    auto& cache = tls_cache[this];
+    if (auto it = cache.find(word); it != cache.end()) {
+        return it->second;
+    }
+
     std::vector<std::string> tokens;
     if (mode == TokenizerMode::UNICODE) {
         tokens = utf8_split_codepoints(word);
@@ -346,6 +378,7 @@ std::vector<std::string> BPETokenizer::apply_bpe(const std::string& word) {
         tokens = new_tokens;
     }
 
+    cache.emplace(word, tokens);
     return tokens;
 }
 

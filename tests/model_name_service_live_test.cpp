@@ -191,6 +191,72 @@ TEST_F(MNSLiveTest, RegisterModel_MissingNameReturns400) {
     EXPECT_EQ(400, res->status);
 }
 
+TEST_F(MNSLiveTest, RegisterModel_WithRunGroupPersistsIt) {
+    const auto name = make_model("rungroup");
+    auto c = make_client();
+    const std::string body =
+        "{\"model_name\":\"" + name + "\",\"role\":\"chatbot\",\"run_group\":\"my-group\"}";
+    auto res = c.Post("/models", body, "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(201, res->status);
+
+    auto get_res = c.Get("/models/" + name);
+    ASSERT_TRUE(get_res);
+    EXPECT_EQ(200, get_res->status);
+    EXPECT_EQ("my-group", json_str(get_res->body, "run_group"));
+}
+
+TEST_F(MNSLiveTest, RegisterModel_WithoutRunGroupDefaultsToEmpty) {
+    const auto name = make_model("norungroup");
+    auto c = make_client();
+    c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
+
+    auto get_res = c.Get("/models/" + name);
+    ASSERT_TRUE(get_res);
+    EXPECT_EQ(200, get_res->status);
+    EXPECT_EQ("", json_str(get_res->body, "run_group"));
+}
+
+TEST_F(MNSLiveTest, UpdateRunGroup_ChangesAlreadyRegisteredModel) {
+    const auto name = make_model("upd");
+    auto c = make_client();
+    c.Post("/models", "{\"model_name\":\"" + name + "\",\"run_group\":\"original\"}",
+           "application/json");
+
+    auto put_res = c.Put("/models/" + name + "/run_group", "{\"run_group\":\"updated\"}",
+                         "application/json");
+    ASSERT_TRUE(put_res);
+    EXPECT_EQ(200, put_res->status);
+    EXPECT_EQ("updated", json_str(put_res->body, "run_group"));
+
+    auto get_res = c.Get("/models/" + name);
+    ASSERT_TRUE(get_res);
+    EXPECT_EQ("updated", json_str(get_res->body, "run_group"));
+}
+
+TEST_F(MNSLiveTest, UpdateRunGroup_UnknownModelReturns404) {
+    auto c = make_client();
+    auto res = c.Put("/models/no-such-model-xyzzy/run_group", "{\"run_group\":\"x\"}",
+                     "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(404, res->status);
+}
+
+TEST_F(MNSLiveTest, UpdateRunGroup_WorksRegardlessOfState) {
+    const auto name = make_model("updstate");
+    auto c = make_client();
+    c.Post("/models", "{\"model_name\":\"" + name + "\"}", "application/json");
+    c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"run_id\":\"r\"}",
+          "application/json");
+
+    // Model is "training" (not "initializing") — unlike handle_progress_update,
+    // this endpoint isn't state-gated.
+    auto put_res = c.Put("/models/" + name + "/run_group", "{\"run_group\":\"mid-run\"}",
+                         "application/json");
+    ASSERT_TRUE(put_res);
+    EXPECT_EQ(200, put_res->status);
+}
+
 // ---------------------------------------------------------------------------
 // GET /models/{name} and GET /models
 // ---------------------------------------------------------------------------
@@ -458,6 +524,25 @@ TEST_F(MNSLiveTest, ResolveModel_CandidateReturnsArtifact) {
     EXPECT_EQ(200, res->status);
     EXPECT_EQ(name, json_str(res->body, "model_name"));
     EXPECT_EQ("/mymodel.bin", json_str(res->body, "path"));
+}
+
+TEST_F(MNSLiveTest, ResolveModel_ReturnsRunGroup) {
+    const auto name = make_model("mresrg");
+    auto c = make_client();
+    c.Post("/models", "{\"model_name\":\"" + name + "\",\"run_group\":\"resolve-group\"}",
+           "application/json");
+    c.Put("/models/" + name + "/state", "{\"state\":\"training\",\"run_id\":\"r\"}",
+          "application/json");
+    c.Put("/models/" + name + "/state",
+          "{\"state\":\"candidate\",\"run_id\":\"r\""
+          ",\"artifact\":{\"host\":\"h\",\"path\":\"/mymodel.bin\""
+          ",\"checksum\":\"chk\",\"format\":\"adai-native\"}}",
+          "application/json");
+
+    auto res = c.Get("/models/" + name + "/resolve");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(200, res->status);
+    EXPECT_EQ("resolve-group", json_str(res->body, "run_group"));
 }
 
 // ---------------------------------------------------------------------------

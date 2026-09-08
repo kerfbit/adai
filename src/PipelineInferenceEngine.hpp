@@ -1,3 +1,7 @@
+// @adai-status: beta        (tested but not wired into any shipped binary yet)
+// @adai-version: 0.7.0
+// @adai-reviewed: 2026-09-07
+
 /**
  * Pipeline Parallelism for Encoder-Decoder Models
  * Priority 5: Achieve 2-3x throughput improvement

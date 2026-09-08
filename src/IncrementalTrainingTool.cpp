@@ -1,9 +1,15 @@
+// @adai-status: beta        (shipped as incremental_trainer; large, actively evolving)
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-09-07
+
 #include <array>
+#include <csignal>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
+#include <thread>
 #include <utility>
 #include "Config.hpp"
 #include "DataTransport.hpp"
@@ -13,6 +19,10 @@
 #include "Matrix.hpp"
 #include "ModelNameClient.hpp"
 #include "StartupSweep.hpp"
+#include "TrainerControlState.hpp"
+#ifdef BUILD_TRAINER_ADMIN
+#include "TrainerAdminAPI.hpp"
+#endif
 
 #ifndef _WIN32
 #include <fcntl.h>
@@ -28,6 +38,28 @@ namespace {
 
 static constexpr const char* COLOR_RESET = "\033[0m";
 static constexpr const char* COLOR_INFO = "\033[1;36m";
+
+// Graceful-stop signal handling — registered only for the actual worker
+// process (--foreground under systemd, or the detached background child; see
+// run_training_pipeline()). Not load-bearing for crash recovery: a real
+// SIGSEGV from the GPU driver never reaches a handler at all, and after the
+// dataset-registry acquire-eligibility fix (RegistryTransport.cpp/
+// RegistryServer.cpp — a resumed run can reclaim its own prior claim by
+// run_id) a subsequent `resume` recovers cleanly regardless of whether the
+// old process exited via SIGTERM or was hard-killed. This exists purely so
+// `systemctl stop`/restart produces a clean, prompt exit and a clear log line
+// instead of relying on the OS default SIGTERM action.
+void signal_handler(int sig) {
+    if (sig == SIGTERM || sig == SIGINT) {
+        // Logger's underlying spdlog sink is not strictly async-signal-safe,
+        // but this file already accepts that same pragmatic tradeoff
+        // elsewhere (see ChatbotAPIServer.cpp's signal_handler, which logs
+        // from its SIGHUP branch) — acceptable here since this only fires on
+        // an operator-issued stop, not from a crash handler.
+        adai::Logger::info("Received {} — shutting down", sig == SIGTERM ? "SIGTERM" : "SIGINT");
+        std::exit(0);
+    }
+}
 
 void print_session_history(const std::vector<TrainingSession>& sessions) {
     std::cout << COLOR_INFO << "\n📜 Session History:" << COLOR_RESET << '\n';
@@ -232,8 +264,13 @@ int run_training_pipeline(int argc, char* argv[], const adai::ServiceConfig& svc
                           const std::string& default_model, const std::string& log_path,
                           const std::string& title,
                           const std::vector<std::pair<std::string, std::string>>& banner_extras,
-                          InitGpuFn&& init_gpu_fn, WorkerFn&& child_work) {
-    const long long child_pid = launch_background(argc, argv);
+                          InitGpuFn&& init_gpu_fn, WorkerFn&& child_work, bool foreground = false) {
+    // --foreground skips the fork entirely — child_pid == 0 is exactly the
+    // existing "we are the worker" path (already used for the fork-failure
+    // fallback below), so this reuses it with no new branches. Needed for
+    // systemd Type=simple, which tracks/restarts whatever ExecStart's PID
+    // actually is — that can't be a process that forks and exits immediately.
+    const long long child_pid = foreground ? 0 : launch_background(argc, argv);
     if (child_pid > 0) {
         std::cout << "[ADAI] " << title << " — PID " << child_pid << "\n"
                   << "       Model  : " << default_model << "\n";
@@ -250,6 +287,8 @@ int run_training_pipeline(int argc, char* argv[], const adai::ServiceConfig& svc
 
     adai::Logger::init(adai::Logger::Level::INFO,
                        {log_path, svc_config.log_max_size_mb, svc_config.log_max_files}, "adai");
+    std::signal(SIGTERM, signal_handler);
+    std::signal(SIGINT, signal_handler);
     init_gpu_fn();
     return child_work();
 }
@@ -273,7 +312,11 @@ int output_usage(char* argv[]) {
     std::cout << "                               Tip: pair 'full' with GPU_MEMORY_FRACTION=0.9\n";
     std::cout << "  --model <name>               Model name (overrides MODEL_NAME in config)\n";
     std::cout << "                               When NAME_SERVICE_URL is set and --model is\n";
-    std::cout << "                               omitted, lists available models interactively\n\n";
+    std::cout << "                               omitted, lists available models interactively\n";
+    std::cout << "  --foreground                 train/retrain/resume: stay in the foreground\n";
+    std::cout << "                               instead of forking+daemonizing. For process\n";
+    std::cout << "                               supervisors (e.g. systemd Type=simple) that need\n";
+    std::cout << "                               to track/restart the actual worker PID.\n\n";
     std::cout << "Commands:\n";
     std::cout << "  init [vocab] [model]         Initialize incremental trainer\n";
     std::cout << "  train [epochs]               Train on pending data\n";
@@ -281,6 +324,11 @@ int output_usage(char* argv[]) {
     std::cout << "  reset                        Remove all checkpoints and rebuild model from "
                  "config\n";
     std::cout << "  resume                       Resume from last session\n";
+    std::cout << "  serve                        Run as an always-on service: loops resuming\n";
+    std::cout << "                               from pending data, never forks (for systemd\n";
+    std::cout << "                               Type=simple). Optionally exposes an admin\n";
+    std::cout << "                               HTTP API — see TRAINER_ADMIN_* in\n";
+    std::cout << "                               config.trainer.conf.\n";
     std::cout << "  status                       Show training status\n";
     std::cout << "  history                      Show session history\n";
     std::cout << "\nreset options:\n";
@@ -304,6 +352,7 @@ int main(int argc, char* argv[]) {
     std::string config_path;
     std::string gpu_strategy_override;
     std::string cli_model_name;
+    bool foreground = false;
     std::vector<std::string> args;  // args[0] = command, args[1..] = its args
 
     for (int i = 1; i < argc; ++i) {
@@ -314,6 +363,8 @@ int main(int argc, char* argv[]) {
             gpu_strategy_override = argv[++i];
         } else if (a == "--model" && i + 1 < argc) {
             cli_model_name = argv[++i];
+        } else if (a == "--foreground") {
+            foreground = true;
         } else {
             args.push_back(a);
         }
@@ -333,9 +384,15 @@ int main(int argc, char* argv[]) {
 
     // GPU init is deferred for commands that fork (train/retrain/resume): the
     // child reinitialises after fork because CUDA contexts are not fork-safe.
+    // `serve` never forks but is deferred for the same underlying reason as
+    // the others — it calls adai::Logger::init() itself (file-based logging,
+    // matching what run_training_pipeline() does for the forking commands)
+    // before doing anything else, and init_gpu()'s own log lines should go
+    // through that, not whatever the pre-init default logger state is.
     // For all other commands (chat, infer, status, …) we initialise here.
-    const bool command_forks =
-        (!args.empty() && (args[0] == "train" || args[0] == "retrain" || args[0] == "resume"));
+    const bool command_defers_init =
+        (!args.empty() && (args[0] == "train" || args[0] == "retrain" || args[0] == "resume" ||
+                           args[0] == "serve"));
 
     auto init_gpu = [&]() {
         if (!svc_config.gpu_enabled)
@@ -366,7 +423,7 @@ int main(int argc, char* argv[]) {
 #endif
     };
 
-    if (!command_forks)
+    if (!command_defers_init)
         init_gpu();
 
     if (args.empty()) {
@@ -395,6 +452,16 @@ int main(int argc, char* argv[]) {
             auto rm = mns.resolve_model(resolved);
             if (!rm.artifact.path.empty()) {
                 svc_config.model_path = rm.artifact.path;
+            }
+            // MNS is the authoritative source for run_group when the model has
+            // been registered with one — falls back to local RUN_GROUP config /
+            // SESSION_DIR-basename derivation (DatasetRegistry.cpp) otherwise.
+            // Every DatasetRegistry::make_config(svc_config) call site downstream
+            // picks this up automatically since they all read svc_config.run_group
+            // fresh — see IncrementalTrainer::begin_run()/train_on_files()/etc.
+            if (!rm.run_group.empty()) {
+                svc_config.run_group = rm.run_group;
+                std::cout << "[MNS] run_group resolved from MNS: '" << rm.run_group << "'\n";
             }
         } catch (...) {
             // Model exists but has no artifact yet (initializing state) — train from scratch.
@@ -551,7 +618,8 @@ int main(int argc, char* argv[]) {
                 if (use_ftp)
                     cleanup_downloads(downloaded_paths);
                 return ok ? 0 : 1;
-            });
+            },
+            foreground);
 
     } else if (command == "retrain") {
         int epochs = (args.size() >= 2) ? std::stoi(args[1]) : svc_config.num_epochs;
@@ -663,7 +731,8 @@ int main(int argc, char* argv[]) {
                 if (use_ftp)
                     cleanup_downloads(downloaded_paths);
                 return ok ? 0 : 1;
-            });
+            },
+            foreground);
 
     } else if (command == "reset") {
         // Parse reset-specific flags from remaining args
@@ -739,7 +808,101 @@ int main(int argc, char* argv[]) {
                 adai::Logger::info("Resumed from last session; latest checkpoint: {}",
                                    trainer.get_latest_checkpoint());
                 return 0;
+            },
+            foreground);
+
+    } else if (command == "serve") {
+        // Always-on training service: binds the admin HTTP API (if enabled)
+        // once at startup and stays alive for the whole process lifetime,
+        // looping between checking for pending work and running a training
+        // pass in-process (resume_last_session()'s existing body, called
+        // once per iteration rather than as a whole process's main()).
+        //
+        // Deliberately NOT routed through run_training_pipeline() — that
+        // helper's fork/foreground dance exists for a single train/retrain/
+        // resume invocation; `serve` never forks (systemd Type=simple tracks
+        // this PID directly) and outlives many individual training passes.
+        // See CLAUDE.md "Incremental trainer admin API" / the admin-control-
+        // daemon plan for the full design rationale.
+        const std::string log_path =
+            svc_config.log_file_path.empty() ? "chatbot_server.log" : svc_config.log_file_path;
+        adai::Logger::init(adai::Logger::Level::INFO,
+                           {log_path, svc_config.log_max_size_mb, svc_config.log_max_files}, "adai");
+        std::signal(SIGTERM, signal_handler);
+        std::signal(SIGINT, signal_handler);
+        init_gpu();
+
+        auto control = std::make_shared<adai::TrainerControlState>();
+        control->auto_save_enabled = svc_config.auto_save_enabled;
+        control->auto_save_every_samples = svc_config.auto_save_every_samples;
+        control->auto_save_every_minutes = svc_config.auto_save_every_minutes;
+        control->max_sessions_to_keep = svc_config.max_sessions_to_keep;
+        control->set_model_name(svc_config.model_name);
+
+#ifdef BUILD_TRAINER_ADMIN
+        std::unique_ptr<adai::TrainerAdminAPI> admin_api;
+        if (svc_config.trainer_admin_enabled) {
+            admin_api = std::make_unique<adai::TrainerAdminAPI>(
+                control, svc_config.trainer_admin_host, svc_config.trainer_admin_port,
+                svc_config.trainer_admin_dir);
+            adai::TrainerAdminAPI* admin_ptr = admin_api.get();
+            std::thread admin_thread([admin_ptr] {
+                if (!admin_ptr->start()) {
+                    adai::Logger::error(
+                        "TrainerAdminAPI failed to bind — serve continues with no admin port");
+                }
             });
+            admin_thread.detach();
+            adai::Logger::info("Trainer admin API enabled on {}:{}", svc_config.trainer_admin_host,
+                               svc_config.trainer_admin_port);
+        } else {
+            adai::Logger::info("Trainer admin API disabled (TRAINER_ADMIN_ENABLED=false)");
+        }
+#else
+        if (svc_config.trainer_admin_enabled) {
+            adai::Logger::warn(
+                "TRAINER_ADMIN_ENABLED=true but this binary was built without the admin API "
+                "(cpp-httplib not found at configure time) — serve continues with no admin port");
+        }
+#endif
+
+        constexpr int kPollIntervalSeconds = 45;  // matches the previously-deployed
+                                                   // Restart=always RestartSec=45, now an
+                                                   // in-process sleep instead of a systemd restart.
+        control->log(adai::TrainerLogLevel::Info,
+                     "incremental_trainer serve: supervisory loop starting (poll interval " +
+                         std::to_string(kPollIntervalSeconds) + "s)");
+
+        // No exit path other than process termination (SIGTERM/SIGINT via
+        // signal_handler, or a genuine crash recovered by systemd's
+        // Restart=always — unchanged from what's already deployed).
+        while (true) {
+            if (control->paused.load()) {
+                control->interruptible_sleep(kPollIntervalSeconds);
+                continue;
+            }
+
+            IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);
+            IncrementalTrainer trainer(default_vocab, default_model, config);
+            trainer.set_control_state(control);
+            // Continues the model's current run (not a retrain) — same
+            // semantics as the `resume` command's begin_run() call.
+            trainer.begin_run(/*is_retrain=*/false);
+
+            const bool did_work = trainer.resume_last_session();
+            if (did_work) {
+                control->log(adai::TrainerLogLevel::Info,
+                             "serve: training pass complete; checking for more pending work");
+                continue;  // don't sleep — more files may already be pending
+            }
+
+            // No pending files, a genuine failure, or a drain via
+            // /admin/pause — resume_last_session() already released any
+            // claimed files back to pending on every non-success path
+            // (including abort — see IncrementalTrainer::run_training()).
+            control->phase = adai::TrainerPhase::Idle;
+            control->interruptible_sleep(kPollIntervalSeconds);
+        }
 
     } else if (command == "status") {
         IncrementalConfig config = IncrementalTrainer::make_incremental_config(svc_config);

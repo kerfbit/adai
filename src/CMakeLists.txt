@@ -70,6 +70,7 @@ add_library(adai_core STATIC
     RegistryTransport.cpp
     DatasetRegistry.cpp
     DataFetcher.cpp
+    ParquetReader.cpp
     SQLiteMetricsDatabase.cpp
     DaemonConfigStore.cpp
 )
@@ -405,6 +406,22 @@ if(BUILD_METRICS_API_SERVER AND HTTPLIB_INCLUDE_DIR)
     target_compile_definitions(incremental_trainer PRIVATE BUILD_METRICS_API_SERVER)
     target_link_libraries(incremental_trainer adai_metrics_api)
     target_include_directories(incremental_trainer PRIVATE ${HTTPLIB_INCLUDE_DIR})
+endif()
+# Trainer admin API (`incremental_trainer serve`'s GET/PUT /admin/config,
+# /admin/status, /admin/checkpoint, /admin/pause, /admin/resume) — gated on
+# cpp-httplib only, independent of BUILD_METRICS_API_SERVER above. Header-only
+# TrainerControlState.hpp has no httplib dependency and is always compiled in
+# (IncrementalTrainer.hpp includes it unconditionally) so `serve`'s
+# supervisory loop itself always builds; only the HTTP server half is gated.
+if(HTTPLIB_INCLUDE_DIR)
+    target_sources(incremental_trainer PRIVATE TrainerAdminAPI.cpp)
+    target_compile_definitions(incremental_trainer PRIVATE BUILD_TRAINER_ADMIN)
+    target_include_directories(incremental_trainer PRIVATE ${HTTPLIB_INCLUDE_DIR})
+    target_link_libraries(incremental_trainer pthread)
+    message(STATUS "Trainer admin API enabled for incremental_trainer (serve command)")
+else()
+    message(STATUS "Trainer admin API not built for incremental_trainer (cpp-httplib not found) "
+                   "— serve will run with no admin port regardless of TRAINER_ADMIN_ENABLED")
 endif()
 if(ENABLE_FTP_TRANSPORT AND CURL_FOUND)
     target_compile_definitions(incremental_trainer PRIVATE BUILD_FTP_TRANSPORT)

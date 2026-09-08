@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# @adai-status: beta
+# @adai-version: 0.7.0
+# @adai-reviewed: 2026-09-07
+
+
 # Script to test configuration hot-reloading feature
 # Tests SIGHUP signal handling and config validation
 

@@ -1,3 +1,7 @@
+// @adai-status: beta        (no dedicated test file)
+// @adai-version: 0.7.0
+// @adai-reviewed: 2026-09-07
+
 /**
  * @file EfficientBatching.hpp
  * @brief Efficient batching utilities for data pipeline optimization
