@@ -563,30 +563,91 @@ Files to Modify:
 
 ---
 
-### TD-040: FtpDataServer's Auth Path Unreviewed; RegistryServer Untested in Isolation
+### TD-040: FtpDataServer Path-Confinement Gap in Token Issuance; RegistryServer Untested in Isolation
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Security / Registry | September 7, 2026 | 6-10 hours |
+| MEDIUM | Open — security read done, one real gap found and not yet fixed | Security / Registry | September 7, 2026 (security read completed September 8, 2026) | 4-6 hours (down from 6-10 — the read is done; remaining work is the fix + its test) |
 
 Description:
 `FtpDataServer.hpp` implements a hand-rolled FTP server with its own authentication, token, and
 virtual-user logic (`IssuedToken`, `TokenStore`, `VirtualUser`), embedded directly in
-`registry_server`'s startup path (`RegistryServer.cpp` constructs it in `main()`). It has a real
-602-line test and no demonstrated defect, but no one has done a focused security read of the
-auth/token path specifically — a hand-rolled network-facing auth implementation deserves that
-before being called production-ready, regardless of general test coverage. `RegistryServer.cpp`
-itself is only exercised as a live instance via `dataset_registry_live_test.cpp` and
+`registry_server`'s startup path (`RegistryServer.cpp` constructs it in `main()`). This item
+originally just called for a security-focused read; that read is now done (September 8, 2026, as
+part of the same pass that read every other large file end to end) and found one real,
+concrete gap plus one lower-severity hardening opportunity. `RegistryServer.cpp` itself is still
+only exercised as a live instance via `dataset_registry_live_test.cpp` and
 `trainer_admin_api_test.cpp`, not tested in isolation (see also TD-035, which covers the same file
-from the "no dedicated unit test" angle — this item is specifically about the FTP auth review).
+from the "no dedicated unit test" angle).
+
+**What was checked and confirmed SAFE:**
+- `cmd_retr`'s permission check (`requested != st.allowed_path` → `550 Permission denied`) is an
+  **exact string match** against the path granted at token-issue time, not a prefix or
+  "resolves under" check — so an FTP client cannot traverse outside its own granted `ftp_path` by
+  manipulating the `RETR` argument (e.g. embedding `..`): any deviation from the exact string simply
+  fails the match. No client-side traversal is possible.
+- Audit logging (`[AUDIT] Token issued` / `Login` / `Login failed` / `RETR start/complete/aborted` /
+  `Session ended`) never includes the password, only username/run_id/path/byte-counts — confirmed
+  by reading every `Logger::` call in the file.
+- Token validation (`TokenStore::authenticate`) correctly checks both expiry and a `consumed` flag
+  under one mutex-held critical section, and uses `CRYPTO_memcmp` (constant-time) for the password
+  comparison when built with `BUILD_FTPS`. `mark_consumed()` only fires after a fully successful
+  `RETR` completes, so a token can serve a small window of concurrent/sequential re-download
+  attempts before consumption finalizes — not a privilege issue (the same already-authorized
+  credential, same file, no scope increase possible), just imperfect single-use enforcement.
+
+**Real gap found — path confinement in `handle_acquire` (`RegistryServer.cpp`):** when
+`--ftp-enabled`, `handle_acquire()` computes each file's `ftp_path` via
+`file_path.lexically_relative(data_root)` with **no containment check** — if the pending entry's
+registered path is *not* under `data_dir` (e.g. an absolute path elsewhere on the filesystem), the
+result is a `../../../etc/passwd`-style string (confirmed directly: `os.path.relpath` on an
+out-of-tree path produces exactly this shape). That traversal-laden string is then minted as
+`st.allowed_path` for a real FTP token and handed to the token holder — `cmd_retr`'s exact-match
+check has no problem with it (the string just needs to match itself), and
+`fs::path(data_dir_) / requested` resolves *outside* `data_dir_`, serving whatever file the registry
+happened to reference. **This is the identical class of bug `handle_delete()` in the same file
+already defends against** — that handler canonicalizes the path and checks
+`rel.native().compare(0, 2, "..") != 0` before ever unlinking anything (`"delete: refusing to
+unlink '{}' — outside group data_dir"`) — but the equivalent guard was never added to
+`handle_acquire()`'s FTP-token path.
+
+How an out-of-tree path gets into the pending queue in the first place: `POST
+/registry/<group>/pending/add` (`handle_pending_add()`) accepts any string as `path` with zero
+validation that it resolves under `data_dir` — confirmed by reading the handler. This makes it an
+operator/trusted-caller-facing gap rather than one reachable by an anonymous FTP client directly
+(an FTP client can only ever request its own token's pre-minted path, never choose one) — but any
+caller of the registry's own HTTP API (a `dataset_manager add` mistake, a compromised or
+misconfigured trainer node) can turn this into arbitrary local file exposure to whichever training
+node next acquires that entry with FTP delivery enabled.
+
+**Lower-severity hardening note:** `ftp_detail::random_hex()` (used for the FTP username's random
+suffix always, and for the *password* whenever `--ftp-secret` is not configured — which is the
+default; confirmed in `RegistryServer.cpp`: `ftp_server_secret` starts empty and is only set via an
+explicit CLI flag) draws from `std::mt19937`, seeded from `std::random_device` but not itself a
+CSPRNG. `BUILD_FTPS` already links OpenSSL for HMAC/TLS — `RAND_bytes()` would be a stronger source
+for both the token-id and the no-secret-configured password fallback, at no new dependency cost.
 
 Action Items:
 
-- [ ] Security-focused read of `FtpDataServer.hpp`'s authentication, token issuance/validation, and
-  virtual-user permission logic.
-- [ ] Confirm token expiry/scope enforcement can't be bypassed and credentials aren't logged.
+- [x] Security-focused read of `FtpDataServer.hpp`'s authentication, token issuance/validation, and
+  virtual-user permission logic — done September 8, 2026 (see findings above).
+- [x] Confirm token expiry/scope enforcement can't be bypassed and credentials aren't logged — client-side
+  RETR scope confirmed unbypassable; the *issuance*-side scope-confinement gap is the finding above.
+- [ ] Fix `handle_acquire()` in `RegistryServer.cpp`: apply the same containment check
+  `handle_delete()` already uses (`fs::weakly_canonical` both paths, then
+  `rel.native().compare(0, 2, "..") != 0`) before minting an FTP token for a file; decide and
+  implement the right behavior for a rejected file (skip the FTP token but still return
+  `registry_path` so the caller can fall back to a direct filesystem path in same-machine
+  deployments? Exclude the file from the response entirely and release its claim? — needs a
+  decision informed by how `RemoteTransport`'s trainer-side FTP client actually consumes a
+  files[] entry with no token, which wasn't verified this pass).
+- [ ] Consider also validating at `handle_pending_add()` time (reject/flag paths outside `data_dir`
+  before they ever reach the pending queue) as defense in depth, not just at acquire-time.
+- [ ] Switch `ftp_detail::random_hex()` to `RAND_bytes()` under `BUILD_FTPS` (hardening, not a fix
+  for an active exploit path given the exact-match RETR gate).
 - [ ] Add a dedicated `RegistryServer` unit test isolating its request-handling logic from the live
-  server it's normally only exercised through.
+  server it's normally only exercised through, including a regression test for the path-confinement
+  fix once implemented (a pending entry outside `data_dir` must not receive a working FTP token).
 
 Files to Modify:
 
@@ -1411,7 +1472,7 @@ When resolving a debt item:
 |8+ hours|12|
 |Not estimated|2|
 
-**Total Estimated Effort (Active Items):** 201-301 hours (excludes TD-014 and TD-039, which have no effort estimate)
+**Total Estimated Effort (Active Items):** 199-297 hours (excludes TD-014 and TD-039, which have no effort estimate)
 
 ### Future Enhancements Summary
 

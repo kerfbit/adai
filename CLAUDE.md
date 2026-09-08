@@ -284,3 +284,4 @@ trusting a `grep TD-NNN` alone. Currently active items:
 | TD-032 | SQLite amalgamation not bundled for Windows/MinGW cross-compilation |
 | TD-014 | Missing standalone tooling (quantization, eval, data-prep binaries) |
 | TD-006 | Fill-in-the-Middle (FIM) training data generation not implemented |
+| TD-040 | `RegistryServer::handle_acquire()`'s FTP-token path has no containment check (unlike its own `handle_delete()`) — a pending entry outside `data_dir` mints a real FTP token whose path escapes `data_dir` via `../` segments |

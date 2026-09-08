@@ -185,7 +185,7 @@ None — every in-scope file carries a tag.
 | `src/Decoder.hpp` | beta | 0.9.0 | 2026-09-08 | TD-050 |
 | `src/EncoderDecoderModel.cpp` | beta | 0.9.0 | 2026-09-08 | TD-050 |
 | `src/EncoderDecoderModel.hpp` | beta | 0.9.0 | 2026-09-08 | TD-050 |
-| `src/FtpDataServer.hpp` | beta | 0.8.0 | 2026-09-07 | TD-040 |
+| `src/FtpDataServer.hpp` | beta | 0.8.0 | 2026-09-08 | TD-040 |
 | `src/IncrementalTrainer.cpp` | beta | 0.9.0 | 2026-09-08 | TD-039 |
 | `src/IncrementalTrainer.hpp` | beta | 0.9.0 | 2026-09-08 | TD-039 |
 | `src/IncrementalTrainingTool.cpp` | beta | 0.8.0 | 2026-09-07 | TD-035 |

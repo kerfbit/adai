@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-040 — hand-rolled auth/token/virtual-user logic not security-reviewed)
+// @adai-status: beta        (capped by TD-040 — security review done; one real path-confinement gap found in the caller, RegistryServer.cpp's handle_acquire())
 // @adai-version: 0.8.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 /**
  * FtpDataServer — embedded read-only FTP server for dataset delivery.
@@ -21,6 +21,17 @@
  *     FTP sessions per run_id.  Excess connections receive 421.
  *   - Audit log: every token issuance, FTP login, RETR start/complete, and
  *     token expiry is logged with run_id, ftp_path, and bytes transferred.
+ *
+ * TD-040 security review (September 8, 2026): cmd_retr()'s exact-match check
+ * against st.allowed_path makes client-side path traversal via the RETR
+ * argument impossible, credentials are never written to the audit log, and
+ * token validation/consumption is race-free under TokenStore's mutex. The one
+ * confirmed gap is upstream of this file, in the caller: RegistryServer.cpp's
+ * handle_acquire() has no containment check when computing the ftp_path handed
+ * to issue_token() below, so a pending entry referencing a file outside the
+ * registry's data_dir mints a token whose allowed_path legitimately escapes
+ * data_dir via "../" segments — see TD-040 in TECHNICAL_DEBT.md for the full
+ * writeup and the fix this class itself doesn't need to make.
  */
 
 #pragma once

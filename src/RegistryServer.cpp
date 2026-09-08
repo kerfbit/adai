@@ -437,6 +437,16 @@ static void handle_acquire(const httplib::Request& req, httplib::Response& res,
         std::string checksum;
 
         // Compute ftp_path relative to data_dir
+        // TODO: See TECHNICAL_DEBT.md TD-040 - unlike handle_delete() below (which
+        // canonicalizes both sides and checks rel.native().compare(0,2,"..")!=0
+        // before unlinking anything), this has no containment check at all. If
+        // acquired[i] isn't actually under data_root (reachable today since
+        // handle_pending_add() accepts any path with zero validation), the
+        // resulting ftp_path is a "../../etc/passwd"-style string that gets
+        // minted as a real FTP token's allowed_path — cmd_retr's exact-match
+        // check has no problem with it, and fs::path(data_dir_)/requested then
+        // resolves outside data_dir_, exposing an arbitrary local file to
+        // whoever holds this token.
         try {
             ftp_path = file_path.lexically_relative(data_root).string();
         } catch (...) {
@@ -998,6 +1008,14 @@ static bool add_pending_path_locked(GroupState& gs, const std::string& path,
 }
 
 // POST /registry/<group>/pending/add  {"path":"..."}
+// TODO: See TECHNICAL_DEBT.md TD-040 - accepts any path with no validation that
+// it resolves under data_dir. Combined with handle_acquire()'s unguarded
+// lexically_relative() when minting FTP tokens (--ftp-enabled), an out-of-tree
+// path added here can result in a real FTP token that serves an arbitrary
+// local file. Considered defense-in-depth here (the primary fix belongs in
+// handle_acquire, per TD-040) rather than fixed inline, since rejecting a path
+// here would also block any legitimate use of this endpoint for files outside
+// data_dir in non-FTP (direct-filesystem-path) deployments.
 static void handle_pending_add(const httplib::Request& req, httplib::Response& res,
                                const std::string& group) {
     const std::string path = json_string(req.body, "path");
