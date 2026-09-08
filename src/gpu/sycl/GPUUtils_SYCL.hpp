@@ -1,7 +1,7 @@
 #ifndef GPU_UTILS_SYCL_HPP
 #define GPU_UTILS_SYCL_HPP
 
-// @adai-status: beta        (no dedicated test coverage)
+// @adai-status: beta        (capped by TD-041 — GPUManager/GPUMemory only exercised incidentally, no dedicated test; also unverified (no SYCL toolchain available to build it))
 // @adai-version: 0.6.0
 // @adai-reviewed: 2026-09-07
 

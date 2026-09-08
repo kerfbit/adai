@@ -1,4 +1,4 @@
-// @adai-status: beta        (thin main() wrapper, no dedicated test)
+// @adai-status: beta        (capped by TD-036 — thin main() wrapper, no smoke test)
 // @adai-version: 0.7.0
 // @adai-reviewed: 2026-09-07
 

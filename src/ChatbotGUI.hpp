@@ -1,7 +1,7 @@
 #ifndef CHATBOT_GUI_HPP
 #define CHATBOT_GUI_HPP
 
-// @adai-status: beta        (Qt GUI, no dedicated test file)
+// @adai-status: beta        (capped by TD-037 — no Qt Test infrastructure in this repo)
 // @adai-version: 0.7.0
 // @adai-reviewed: 2026-09-07
 

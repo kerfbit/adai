@@ -1,8 +1,8 @@
 #ifndef GPU_UTILS_HPP
 #define GPU_UTILS_HPP
 
-// @adai-status: stable
-// @adai-version: 1.0.0
+// @adai-status: beta        (capped by TD-041 — GPUManager/GPUMemory only exercised incidentally via Matrix's tests, no dedicated test)
+// @adai-version: 0.9.0
 // @adai-reviewed: 2026-09-07
 
 

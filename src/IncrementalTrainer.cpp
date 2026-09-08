@@ -1,4 +1,4 @@
-// @adai-status: beta        (large, actively evolving core trainer)
+// @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer)
 // @adai-version: 0.9.0
 // @adai-reviewed: 2026-09-07
 

@@ -1,4 +1,4 @@
-// @adai-status: beta        (shipped as registry_server; tested only via live/integration tests)
+// @adai-status: beta        (capped by TD-035 (no dedicated unit test) and TD-040 (embeds FtpDataServer's unreviewed auth path))
 // @adai-version: 0.8.0
 // @adai-reviewed: 2026-09-07
 

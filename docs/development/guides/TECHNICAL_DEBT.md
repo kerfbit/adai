@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** September 7, 2026
-**Total Items:** 7
+**Total Items:** 15
 **High Priority:** 0
-**Medium Priority:** 3
-**Low Priority:** 4
+**Medium Priority:** 6
+**Low Priority:** 9
 **Future Enhancements:** 19
 **Resolved Items:** 32
 **Deferred Decisions:** 1
@@ -25,6 +25,14 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [TD-014: LLM Operations and Training Tooling Suite](#td-014-llm-operations-and-training-tooling-suite)
   - [TD-006: Fill-in-the-Middle (FIM) Training Data Generation](#td-006-fill-in-the-middle-fim-training-data-generation)
   - [TD-034: PPOOptimizer's Core Update Loop Is a Placeholder, Not Real PPO](#td-034-ppooptimizers-core-update-loop-is-a-placeholder-not-real-ppo)
+  - [TD-035: Shipped Daemon/CLI Binaries Have No Dedicated Test](#td-035-shipped-daemoncli-binaries-have-no-dedicated-test)
+  - [TD-036: Thin main() Wrappers Have No Smoke Test](#td-036-thin-main-wrappers-have-no-smoke-test)
+  - [TD-037: No Qt Test Infrastructure for GUI Classes](#td-037-no-qt-test-infrastructure-for-gui-classes)
+  - [TD-038: Advanced Features Tested in Isolation, Never Wired Into a Shipped Binary](#td-038-advanced-features-tested-in-isolation-never-wired-into-a-shipped-binary)
+  - [TD-039: Core Training/Metrics Classes Too Large and Fast-Moving to Certify Stable](#td-039-core-trainingmetrics-classes-too-large-and-fast-moving-to-certify-stable)
+  - [TD-040: FtpDataServer's Auth Path Unreviewed; RegistryServer Untested in Isolation](#td-040-ftpdataservers-auth-path-unreviewed-registryserver-untested-in-isolation)
+  - [TD-041: GPUUtils Has No Dedicated Test on Either Backend](#td-041-gpuutils-has-no-dedicated-test-on-either-backend)
+  - [TD-042: PostgresMetricsDatabase Has Zero Test Coverage](#td-042-postgresmetricsdatabase-has-zero-test-coverage)
 - [Resolved Items](#resolved-items) (32 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -271,6 +279,266 @@ Files to Modify:
 
 - `src/PPOOptimizer.hpp`
 - `tests/phase5_test.cpp`
+
+---
+
+### TD-035: Shipped Daemon/CLI Binaries Have No Dedicated Test
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Testing / Tooling | September 7, 2026 | 12-16 hours |
+
+Description:
+Six of the binaries in CLAUDE.md's own "Executable Targets" table — the actual shipped
+product — have no automated test at all: `chatbot_api_server`, `dataset_manager`, `mns_cli`,
+`mns_server`, `metrics_api_server`, and `incremental_trainer` each have their `main()`-hosting
+`.cpp` file doing real work (argument parsing, command dispatch, server lifecycle) with zero
+coverage. `ChatbotCLI` already shows the fix: `ChatbotCLI.cpp`/`.hpp` hold the testable logic
+(and have a real test) while `ChatbotCLI_main.cpp` is a thin, untested wrapper (tracked separately
+as TD-036, since a 40-line argv shim isn't the same problem as a whole untested server).
+
+Action Items:
+
+- [ ] For each binary, extract its command-dispatch / server-setup logic out of `main()` into a
+  testable function or class, the way `ChatbotCLI` already separates from `ChatbotCLI_main`.
+- [ ] Add a dedicated test per binary covering: argument parsing, config loading, and (for the
+  three daemons) the request-handling entry points not already covered by a live/integration test.
+- [ ] `RegistryServer.cpp` is a partial case — already exercised indirectly by
+  `dataset_registry_live_test.cpp`/`trainer_admin_api_test.cpp` as a live instance; needs a
+  dedicated unit test of its own request-handling logic in isolation, not a from-scratch test.
+
+Files to Modify:
+
+- `src/ChatbotAPIServer.cpp`
+- `src/DatasetManagerTool.cpp`
+- `src/MnsCliTool.cpp`
+- `src/ModelNameServiceServer.cpp`
+- `src/TrainingMetricsAPIServer.cpp`
+- `src/IncrementalTrainingTool.cpp`
+- `src/RegistryServer.cpp` (see note above — narrower scope)
+- `tests/` — one new test file per binary
+
+---
+
+### TD-036: Thin main() Wrappers Have No Smoke Test
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Testing / Tooling | September 7, 2026 | 3-5 hours |
+
+Description:
+`ChatbotCLI_main.cpp`, `ChatbotGUI_main.cpp`, `ChatbotGUI_wrapper.cpp`, and
+`MnsManagerGUI_main.cpp` are all 40-75 line argv-parsing shims that construct and delegate to
+already-tested library classes. A GTest unit test isn't a good fit for a `main()` — the realistic
+path is a scripted smoke test (invoke the binary, check exit code and `--help` output), the same
+category as the manual QA scripts already in `scripts/` (`test_chatbot_gui.sh`, etc.), just made
+automated and part of the suite instead of a manual step.
+
+Action Items:
+
+- [ ] Add a lightweight smoke-test script (or a CTest `add_test` entry wrapping one) per binary:
+  invoke with `--help`/`--version`, assert exit code 0 and non-empty output.
+- [ ] Wire these into `ctest` (e.g. via `add_test(... COMMAND sh -c "...")`) so they run alongside
+  the rest of the suite instead of living only as manual `scripts/test_*.sh` invocations.
+
+Files to Modify:
+
+- `src/ChatbotCLI_main.cpp`
+- `src/ChatbotGUI_main.cpp`
+- `src/ChatbotGUI_wrapper.cpp`
+- `src/MnsManagerGUI_main.cpp`
+- `tests/CMakeLists.txt`
+
+---
+
+### TD-037: No Qt Test Infrastructure for GUI Classes
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | GUI / Testing | September 7, 2026 | 8-12 hours |
+
+Description:
+`ChatbotGUI.{cpp,hpp}` and `MnsManagerGUI.{cpp,hpp}` have no automated coverage, and this repo
+has no QTest (or any Qt-aware test) infrastructure at all — every other test in `tests/` is a
+plain GTest with no Qt event loop. Real widget behavior is hard to test without one; the more
+tractable near-term step is separating non-widget logic (state transitions, signal/slot wiring
+decisions, data formatting) out of the widget classes into plain C++ that GTest can already
+exercise, deferring full widget testing until QTest is actually adopted.
+
+Action Items:
+
+- [ ] Decide whether to adopt QTest (`Qt::Test` component, `QTEST_MAIN`) as a second test
+  framework alongside GTest, or to keep pushing logic out of the widget classes instead.
+- [ ] Extract testable non-widget logic from `ChatbotGUI`/`MnsManagerGUI` into plain classes.
+- [ ] Add tests for the extracted logic; add QTest-based tests for the remaining widget code if
+  that framework is adopted.
+
+Files to Modify:
+
+- `src/ChatbotGUI.cpp` / `src/ChatbotGUI.hpp`
+- `src/MnsManagerGUI.cpp` / `src/MnsManagerGUI.hpp`
+- `tests/CMakeLists.txt` (if QTest is adopted)
+
+---
+
+### TD-038: Advanced Features Tested in Isolation, Never Wired Into a Shipped Binary
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Advanced Features / Integration | September 7, 2026 | 16-24 hours |
+
+Description:
+`BatchedInferenceEngine`, `IntegratedInferenceEngine`, `PipelineInferenceEngine`,
+`SpeculativeDecoding`, `LoRA`, `Quantization`, `RewardModel`, and `PerformanceProfiler` each have
+real, passing dedicated tests — the gap isn't test coverage, it's that nothing in `chatbot`,
+`chatbot_api_server`, or `incremental_trainer` actually calls any of them. They're complete,
+correct implementations of a scoped feature sitting unreachable from the actual product. Each
+needs its own integration decision (a CLI flag, a config option, a training-mode switch) rather
+than one shared fix — grouped here because they share the identical structural gap, not because
+one change resolves all eight.
+
+Action Items:
+
+- [ ] `BatchedInferenceEngine` / `PipelineInferenceEngine`: wire into `chatbot_api_server`'s
+  request path as an opt-in serving mode.
+- [ ] `SpeculativeDecoding`: add a CLI/config flag to `chatbot`/`chatbot_api_server` enabling it
+  for generation.
+- [ ] `LoRA` / `Quantization`: hook into `ModelSerializer` save/load or `IncrementalTrainer`'s
+  fine-tuning flow.
+- [ ] `RewardModel`: wire into an actual RLHF training command (blocked on TD-034's PPO fix landing
+  first — no point integrating a reward model into a policy-update loop that doesn't work yet).
+- [ ] `PerformanceProfiler`: wire into at least one binary's `--profile` flag or equivalent.
+- [ ] Add an integration test per feature proving the wiring works end-to-end, not just the
+  existing isolated unit test.
+
+Files to Modify:
+
+- `src/BatchedInferenceEngine.hpp`, `src/IntegratedInferenceEngine.hpp`,
+  `src/PipelineInferenceEngine.hpp`, `src/SpeculativeDecoding.hpp`, `src/LoRA.hpp`,
+  `src/Quantization.hpp`, `src/RewardModel.hpp`, `src/PerformanceProfiler.hpp`
+- `src/ChatbotAPI.cpp`, `src/IncrementalTrainer.cpp` (likely integration points)
+
+---
+
+### TD-039: Core Training/Metrics Classes Too Large and Fast-Moving to Certify Stable
+
+| Priority | Status | Component | Created |
+|----------|--------|-----------|---------|
+| MEDIUM | Open | Training / Metrics / Core | September 7, 2026 |
+
+Description:
+`ChatbotTrainer`, `IncrementalTrainer`, `TrainingMetricsService`, and `TrainingMetricsAPI` are the
+largest files in the tree (2000-2700 lines each) and already have substantial test coverage
+(14/19/7/5 test-file cross-references respectively) — this isn't a test-coverage gap like the
+other items here. It's churn: all four gained real features during the same session this tracker
+was built in (the trainer admin API, session registry work), and a file that's still actively
+changing shape isn't a good candidate for a `stable` claim regardless of how well-tested its
+current snapshot is. No effort estimate — this isn't a fixed-scope task, it resolves when the API
+surface stops changing.
+
+Action Items:
+
+- [ ] Let the current round of feature work (trainer admin API, session-scoped metrics) land and
+  settle — no more structural changes planned.
+- [ ] Do one deliberate final correctness/API-freeze review pass per file.
+- [ ] Only then bump each to `MAJOR >= 1` and `@adai-status: stable`.
+
+Files to Modify:
+
+- `src/ChatbotTrainer.cpp` / `src/ChatbotTrainer.hpp`
+- `src/IncrementalTrainer.cpp` / `src/IncrementalTrainer.hpp`
+- `src/TrainingMetricsService.cpp` / `src/TrainingMetricsService.hpp`
+- `src/TrainingMetricsAPI.cpp` / `src/TrainingMetricsAPI.hpp`
+
+---
+
+### TD-040: FtpDataServer's Auth Path Unreviewed; RegistryServer Untested in Isolation
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Security / Registry | September 7, 2026 | 6-10 hours |
+
+Description:
+`FtpDataServer.hpp` implements a hand-rolled FTP server with its own authentication, token, and
+virtual-user logic (`IssuedToken`, `TokenStore`, `VirtualUser`), embedded directly in
+`registry_server`'s startup path (`RegistryServer.cpp` constructs it in `main()`). It has a real
+602-line test and no demonstrated defect, but no one has done a focused security read of the
+auth/token path specifically — a hand-rolled network-facing auth implementation deserves that
+before being called production-ready, regardless of general test coverage. `RegistryServer.cpp`
+itself is only exercised as a live instance via `dataset_registry_live_test.cpp` and
+`trainer_admin_api_test.cpp`, not tested in isolation (see also TD-035, which covers the same file
+from the "no dedicated unit test" angle — this item is specifically about the FTP auth review).
+
+Action Items:
+
+- [ ] Security-focused read of `FtpDataServer.hpp`'s authentication, token issuance/validation, and
+  virtual-user permission logic.
+- [ ] Confirm token expiry/scope enforcement can't be bypassed and credentials aren't logged.
+- [ ] Add a dedicated `RegistryServer` unit test isolating its request-handling logic from the live
+  server it's normally only exercised through.
+
+Files to Modify:
+
+- `src/FtpDataServer.hpp`
+- `src/RegistryServer.cpp`
+
+---
+
+### TD-041: GPUUtils Has No Dedicated Test on Either Backend
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | GPU / Testing | September 7, 2026 | 3-5 hours |
+
+Description:
+Neither `gpu/GPUUtils.hpp` (CUDA) nor `gpu/sycl/GPUUtils_SYCL.hpp` (SYCL) has a dedicated test —
+both `GPUManager`/`GPUMemory` are only exercised incidentally through `Matrix`'s GPU dispatch
+tests. `gpu/GPUUtils.hpp` was incorrectly tagged `stable` during the original per-file rollout
+(the "stable requires tests" rule was violated); corrected to `beta` as part of filing this item.
+`gpu/sycl/GPUUtils_SYCL.hpp` could not be built or tested during that rollout — no SYCL toolchain
+(Intel oneAPI `icpx`) was available in that environment — so its status is asserted from reading
+the code, not from a passing build.
+
+Action Items:
+
+- [ ] Add a dedicated test for `GPUManager`/`GPUMemory` (device init, allocation, the CPU-only
+  stub path) — one for CUDA, one for SYCL, both gated behind their respective `ENABLE_GPU`/
+  `ENABLE_SYCL` CMake options like the rest of the GPU-specific tests.
+- [ ] Build and run the SYCL variant on a machine with Intel oneAPI installed to confirm it
+  actually compiles — this has not been verified since the file was last touched.
+
+Files to Modify:
+
+- `src/gpu/GPUUtils.hpp`
+- `src/gpu/sycl/GPUUtils_SYCL.hpp`
+- `tests/CMakeLists.txt`
+
+---
+
+### TD-042: PostgresMetricsDatabase Has Zero Test Coverage
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Metrics / Testing | September 7, 2026 | 4-6 hours |
+
+Description:
+`PostgresMetricsDatabase.{cpp,hpp}` is the optional Postgres backend selected by
+`ENABLE_POSTGRES_METRICS`; it isn't built by default and has no test, unlike its SQLite sibling
+(`SQLiteMetricsDatabase`, thoroughly covered by `MetricsDatabaseTest.cpp`). Since it implements the
+same `IMetricsDatabase` interface, `MetricsDatabaseTest.cpp`'s existing fixtures are a natural
+starting point rather than a from-scratch design.
+
+Action Items:
+
+- [ ] Parameterize (or duplicate) `MetricsDatabaseTest.cpp`'s `IMetricsDatabase` test cases to run
+  against `PostgresMetricsDatabase` when `ENABLE_POSTGRES_METRICS` is on.
+- [ ] Add a CI job (or document a local setup) that builds with `ENABLE_POSTGRES_METRICS=ON`
+  against a real Postgres instance, since this configuration is currently untested by any CI path.
+
+Files to Modify:
+
+- `src/PostgresMetricsDatabase.cpp` / `src/PostgresMetricsDatabase.hpp`
+- `tests/MetricsDatabaseTest.cpp`
 
 ---
 
@@ -671,10 +939,10 @@ When resolving a debt item:
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|0|0%|
-|Medium|3|43%|
-|Low|4|57%|
+|Medium|6|40%|
+|Low|9|60%|
 
-**Total Active Items:** 7
+**Total Active Items:** 15
 
 ### By Component
 
@@ -687,18 +955,25 @@ When resolving a debt item:
 |GPU / Inference / Performance|1|
 |Build / Windows / Metrics|1|
 |RLHF / PPOOptimizer|1|
+|Testing / Tooling|2|
+|GUI / Testing|1|
+|Advanced Features / Integration|1|
+|Training / Metrics / Core|1|
+|Security / Registry|1|
+|GPU / Testing|1|
+|Metrics / Testing|1|
 
 ### Effort Distribution
 
 |Effort Range|Count|
 |--------------|-------|
 |0-2 hours|1|
-|2-4 hours|1|
-|4-8 hours|2|
-|8+ hours|2|
-|Not estimated|1|
+|2-4 hours|3|
+|4-8 hours|3|
+|8+ hours|6|
+|Not estimated|2|
 
-**Total Estimated Effort (Active Items):** 41-60 hours (excludes TD-014, which has no effort estimate)
+**Total Estimated Effort (Active Items):** 93-138 hours (excludes TD-014 and TD-039, which have no effort estimate)
 
 ### Future Enhancements Summary
 

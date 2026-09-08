@@ -1,4 +1,4 @@
-// @adai-status: experimental        (compile-time optional backend; no test coverage, not built by default)
+// @adai-status: experimental        (capped by TD-042 — zero test coverage, not built by default)
 // @adai-version: 0.3.0
 // @adai-reviewed: 2026-09-07
 

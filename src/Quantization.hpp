@@ -1,7 +1,7 @@
 #ifndef QUANTIZATION_HPP
 #define QUANTIZATION_HPP
 
-// @adai-status: beta        (tested but not wired into any shipped binary yet)
+// @adai-status: beta        (capped by TD-038 — tested but not wired into any shipped binary)
 // @adai-version: 0.7.0
 // @adai-reviewed: 2026-09-07
 

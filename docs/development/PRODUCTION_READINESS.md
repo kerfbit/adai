@@ -12,10 +12,10 @@ See [file-status-standard.md](guides/file-status-standard.md) for what these sta
 |---|---|---|---|---|---|---|---|
 | android | 0 | 41 | 62 | 0 | 0 | 0 | 103 |
 | scripts | 2 | 33 | 6 | 0 | 0 | 0 | 41 |
-| src | 79 | 50 | 3 | 0 | 0 | 0 | 132 |
+| src | 78 | 51 | 3 | 0 | 0 | 0 | 132 |
 | tizen-metrics-app | 0 | 3 | 0 | 0 | 0 | 0 | 3 |
 
-**81/279 files (29%) are tagged `stable`.**
+**80/279 files (29%) are tagged `stable`.**
 
 ## Untagged files
 
@@ -167,57 +167,58 @@ None — every in-scope file carries a tag.
 | `scripts/verify_cli_parallel.sh` | beta | 0.6.0 | 2026-09-07 | — |
 | `scripts/verify_gui_parallel.sh` | beta | 0.6.0 | 2026-09-07 | — |
 | `scripts/verify_special_token_fixes.py` | experimental | 0.3.0 | 2026-09-07 | — |
-| `src/BatchedInferenceEngine.hpp` | beta | 0.7.0 | 2026-09-07 | — |
+| `src/BatchedInferenceEngine.hpp` | beta | 0.7.0 | 2026-09-07 | TD-038 |
 | `src/ChatbotAPI.cpp` | beta | 0.9.0 | 2026-09-07 | TD-033 |
 | `src/ChatbotAPI.hpp` | beta | 0.9.0 | 2026-09-07 | TD-033 |
-| `src/ChatbotAPIServer.cpp` | beta | 0.8.0 | 2026-09-07 | — |
-| `src/ChatbotCLI_main.cpp` | beta | 0.8.0 | 2026-09-07 | — |
-| `src/ChatbotGUI.cpp` | beta | 0.7.0 | 2026-09-07 | — |
-| `src/ChatbotGUI.hpp` | beta | 0.7.0 | 2026-09-07 | — |
-| `src/ChatbotGUI_main.cpp` | beta | 0.7.0 | 2026-09-07 | — |
-| `src/ChatbotGUI_wrapper.cpp` | beta | 0.7.0 | 2026-09-07 | — |
-| `src/ChatbotTrainer.cpp` | beta | 0.9.0 | 2026-09-07 | — |
-| `src/ChatbotTrainer.hpp` | beta | 0.9.0 | 2026-09-07 | — |
+| `src/ChatbotAPIServer.cpp` | beta | 0.8.0 | 2026-09-07 | TD-035 |
+| `src/ChatbotCLI_main.cpp` | beta | 0.8.0 | 2026-09-07 | TD-036 |
+| `src/ChatbotGUI.cpp` | beta | 0.7.0 | 2026-09-07 | TD-037 |
+| `src/ChatbotGUI.hpp` | beta | 0.7.0 | 2026-09-07 | TD-037 |
+| `src/ChatbotGUI_main.cpp` | beta | 0.7.0 | 2026-09-07 | TD-036 |
+| `src/ChatbotGUI_wrapper.cpp` | beta | 0.7.0 | 2026-09-07 | TD-036 |
+| `src/ChatbotTrainer.cpp` | beta | 0.9.0 | 2026-09-07 | TD-039 |
+| `src/ChatbotTrainer.hpp` | beta | 0.9.0 | 2026-09-07 | TD-039 |
 | `src/CrossAttention.cpp` | beta | 0.9.0 | 2026-09-07 | TD-030 |
 | `src/CrossAttention.hpp` | beta | 0.9.0 | 2026-09-07 | TD-030 |
-| `src/DatasetManagerTool.cpp` | beta | 0.8.0 | 2026-09-07 | — |
+| `src/DatasetManagerTool.cpp` | beta | 0.8.0 | 2026-09-07 | TD-035 |
 | `src/Decoder.cpp` | beta | 0.9.0 | 2026-09-07 | TD-030 |
 | `src/Decoder.hpp` | beta | 0.9.0 | 2026-09-07 | TD-030 |
 | `src/EncoderDecoderModel.cpp` | beta | 0.9.0 | 2026-09-07 | TD-030 |
 | `src/EncoderDecoderModel.hpp` | beta | 0.9.0 | 2026-09-07 | TD-030 |
-| `src/FtpDataServer.hpp` | beta | 0.8.0 | 2026-09-07 | — |
-| `src/IncrementalTrainer.cpp` | beta | 0.9.0 | 2026-09-07 | — |
-| `src/IncrementalTrainer.hpp` | beta | 0.9.0 | 2026-09-07 | — |
-| `src/IncrementalTrainingTool.cpp` | beta | 0.8.0 | 2026-09-07 | — |
-| `src/IntegratedInferenceEngine.hpp` | beta | 0.7.0 | 2026-09-07 | — |
+| `src/FtpDataServer.hpp` | beta | 0.8.0 | 2026-09-07 | TD-040 |
+| `src/IncrementalTrainer.cpp` | beta | 0.9.0 | 2026-09-07 | TD-039 |
+| `src/IncrementalTrainer.hpp` | beta | 0.9.0 | 2026-09-07 | TD-039 |
+| `src/IncrementalTrainingTool.cpp` | beta | 0.8.0 | 2026-09-07 | TD-035 |
+| `src/IntegratedInferenceEngine.hpp` | beta | 0.7.0 | 2026-09-07 | TD-038 |
 | `src/KVCache.hpp` | beta | 0.6.0 | 2026-09-07 | TD-030 |
-| `src/LoRA.hpp` | beta | 0.7.0 | 2026-09-07 | — |
+| `src/LoRA.hpp` | beta | 0.7.0 | 2026-09-07 | TD-038 |
 | `src/Matrix.cpp` | beta | 0.9.0 | 2026-09-07 | TD-033 |
 | `src/Matrix.hpp` | beta | 0.9.0 | 2026-09-07 | TD-033 |
-| `src/MnsCliTool.cpp` | beta | 0.8.0 | 2026-09-07 | — |
-| `src/MnsManagerGUI.cpp` | beta | 0.7.0 | 2026-09-07 | — |
-| `src/MnsManagerGUI.hpp` | beta | 0.7.0 | 2026-09-07 | — |
-| `src/MnsManagerGUI_main.cpp` | beta | 0.7.0 | 2026-09-07 | — |
-| `src/ModelNameServiceServer.cpp` | beta | 0.8.0 | 2026-09-07 | — |
+| `src/MnsCliTool.cpp` | beta | 0.8.0 | 2026-09-07 | TD-035 |
+| `src/MnsManagerGUI.cpp` | beta | 0.7.0 | 2026-09-07 | TD-037 |
+| `src/MnsManagerGUI.hpp` | beta | 0.7.0 | 2026-09-07 | TD-037 |
+| `src/MnsManagerGUI_main.cpp` | beta | 0.7.0 | 2026-09-07 | TD-036 |
+| `src/ModelNameServiceServer.cpp` | beta | 0.8.0 | 2026-09-07 | TD-035 |
 | `src/MultiHeadAttention.cpp` | beta | 0.9.0 | 2026-09-07 | TD-030 |
 | `src/MultiHeadAttention.hpp` | beta | 0.9.0 | 2026-09-07 | TD-030 |
 | `src/PPOOptimizer.hpp` | experimental | 0.2.0 | 2026-09-07 | TD-034 |
-| `src/PerformanceProfiler.hpp` | beta | 0.7.0 | 2026-09-07 | — |
-| `src/PipelineInferenceEngine.hpp` | beta | 0.7.0 | 2026-09-07 | — |
-| `src/PostgresMetricsDatabase.cpp` | experimental | 0.3.0 | 2026-09-07 | — |
-| `src/PostgresMetricsDatabase.hpp` | experimental | 0.3.0 | 2026-09-07 | — |
-| `src/Quantization.hpp` | beta | 0.7.0 | 2026-09-07 | — |
+| `src/PerformanceProfiler.hpp` | beta | 0.7.0 | 2026-09-07 | TD-038 |
+| `src/PipelineInferenceEngine.hpp` | beta | 0.7.0 | 2026-09-07 | TD-038 |
+| `src/PostgresMetricsDatabase.cpp` | experimental | 0.3.0 | 2026-09-07 | TD-042 |
+| `src/PostgresMetricsDatabase.hpp` | experimental | 0.3.0 | 2026-09-07 | TD-042 |
+| `src/Quantization.hpp` | beta | 0.7.0 | 2026-09-07 | TD-038 |
 | `src/RAGInference.cpp` | beta | 0.8.0 | 2026-09-07 | TD-029 |
 | `src/RAGInference.hpp` | beta | 0.8.0 | 2026-09-07 | TD-029 |
-| `src/RegistryServer.cpp` | beta | 0.8.0 | 2026-09-07 | — |
-| `src/RewardModel.hpp` | beta | 0.7.0 | 2026-09-07 | — |
-| `src/SpeculativeDecoding.hpp` | beta | 0.7.0 | 2026-09-07 | — |
-| `src/TrainingMetricsAPI.cpp` | beta | 0.9.0 | 2026-09-07 | — |
-| `src/TrainingMetricsAPI.hpp` | beta | 0.9.0 | 2026-09-07 | — |
-| `src/TrainingMetricsAPIServer.cpp` | beta | 0.8.0 | 2026-09-07 | — |
-| `src/TrainingMetricsService.cpp` | beta | 0.9.0 | 2026-09-07 | — |
-| `src/TrainingMetricsService.hpp` | beta | 0.9.0 | 2026-09-07 | — |
-| `src/gpu/sycl/GPUUtils_SYCL.hpp` | beta | 0.6.0 | 2026-09-07 | — |
+| `src/RegistryServer.cpp` | beta | 0.8.0 | 2026-09-07 | TD-035 |
+| `src/RewardModel.hpp` | beta | 0.7.0 | 2026-09-07 | TD-038 |
+| `src/SpeculativeDecoding.hpp` | beta | 0.7.0 | 2026-09-07 | TD-038 |
+| `src/TrainingMetricsAPI.cpp` | beta | 0.9.0 | 2026-09-07 | TD-039 |
+| `src/TrainingMetricsAPI.hpp` | beta | 0.9.0 | 2026-09-07 | TD-039 |
+| `src/TrainingMetricsAPIServer.cpp` | beta | 0.8.0 | 2026-09-07 | TD-035 |
+| `src/TrainingMetricsService.cpp` | beta | 0.9.0 | 2026-09-07 | TD-039 |
+| `src/TrainingMetricsService.hpp` | beta | 0.9.0 | 2026-09-07 | TD-039 |
+| `src/gpu/GPUUtils.hpp` | beta | 0.9.0 | 2026-09-07 | TD-041 |
+| `src/gpu/sycl/GPUUtils_SYCL.hpp` | beta | 0.6.0 | 2026-09-07 | TD-041 |
 | `src/gpu/sycl/MatrixGPU_SYCL.cpp` | beta | 0.10.0 | 2026-09-07 | TD-030 |
 | `src/gpu/sycl/MatrixGPU_SYCL.hpp` | beta | 0.9.0 | 2026-09-07 | TD-030 |
 | `tizen-metrics-app/js/app.js` | beta | 0.6.0 | 2026-09-07 | — |

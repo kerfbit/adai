@@ -1,4 +1,4 @@
-// @adai-status: beta
+// @adai-status: beta        (capped by TD-040 — hand-rolled auth/token/virtual-user logic not security-reviewed)
 // @adai-version: 0.8.0
 // @adai-reviewed: 2026-09-07
 
