@@ -39,7 +39,7 @@ reverting this one — the root cause was never isolated, so there's no fix to "
 | September 7, 2026 (tracker correction — implementation predates this entry) | Training / Metrics / API / Infrastructure | `IMetricsDatabase` abstraction, `SQLiteMetricsDatabase` (WAL mode), optional `PostgresMetricsDatabase`, `MetricsDatabaseFactory`, `MetricsSessionRegistry` DB ownership, four new REST endpoints, config keys, 884-line `MetricsDatabaseTest.cpp` |
 
 Summary:
-The proposal (`docs/development/proposals/persistent-metrics-sql-storage.md`) was found fully implemented and verified during the per-file production-readiness rollout (see [file-status-standard.md](../guides/file-status-standard.md)) — this entry backfills the tracker, which had continued to list the item as "Active/Planned" after the work was actually done. Nine of the ten action items are complete and verified in code; one narrow sub-item (bundling the SQLite amalgamation specifically for Windows/MinGW cross-compilation, since the current CMake setup only finds a system-installed SQLite3) was never done and has been split off as its own item, [TD-032](../guides/TECHNICAL_DEBT.md#td-032-bundle-sqlite3-amalgamation-for-windows-cross-compilation).
+The proposal (`docs/development/archive/persistent-metrics-sql-storage.md`) was found fully implemented and verified during the per-file production-readiness rollout (see [file-status-standard.md](../guides/file-status-standard.md)) — this entry backfills the tracker, which had continued to list the item as "Active/Planned" after the work was actually done. Nine of the ten action items are complete and verified in code; one narrow sub-item (bundling the SQLite amalgamation specifically for Windows/MinGW cross-compilation, since the current CMake setup only finds a system-installed SQLite3) was never done and has been split off as its own item, [TD-032](../guides/TECHNICAL_DEBT.md#td-032-bundle-sqlite3-amalgamation-for-windows-cross-compilation).
 
 Changes Made:
 
@@ -325,7 +325,7 @@ Verification:
 Description:
 `IncrementalTrainer` directly instantiated `TrainingMetricsService` — a server-side class owning a ring buffer, file I/O, and push threads — inside the trainer process. All metrics now flow outward via HTTP only through a lightweight `MetricsPushClient`. `MetricsSessionRegistry` gained the TD-018 §4.8 background sweep thread, and `TrainingMetricsService::to_prometheus()` now emits per-session `{session="key"}` labels eliminating metric collisions across concurrent sessions.
 
-Proposal: `docs/development/proposals/incremental-trainer-registry-integration.md`
+Proposal: `docs/development/archive/incremental-trainer-registry-integration.md`
 
 Changes Made:
 
@@ -386,7 +386,7 @@ Verification:
 | May 31, 2026 | Training / Metrics / API / Config | `MetricsSessionRegistry`, session-scoped routes, trainer session-key wiring, `GlobalMetricsService` proxy, config keys, API docs |
 
 Description:
-The metrics stack assumed a single active training session and used shared file paths and flat API routes. Running multiple trainers against one metrics API server could overwrite metrics, cross-contaminate session state, and make dashboards unreliable. All 10 phases of the proposal (`docs/development/proposals/multi-instance-metrics-service.md`) are now complete.
+The metrics stack assumed a single active training session and used shared file paths and flat API routes. Running multiple trainers against one metrics API server could overwrite metrics, cross-contaminate session state, and make dashboards unreliable. All 10 phases of the proposal (`docs/development/archive/multi-instance-metrics-service.md`) are now complete.
 
 Changes Made:
 
@@ -408,8 +408,10 @@ Files Modified:
 - `src/TrainingMetricsAPIServer.cpp`
 - `src/Config.hpp` / `src/Config.cpp`
 - `src/IncrementalTrainer.cpp`
-- `src/GlobalMetricsService.hpp`
-- `src/TrainingMetricsService.cpp`
+- `src/TrainingMetricsService.hpp` / `src/TrainingMetricsService.cpp` — `GlobalMetricsService`
+  ended up as a class inside this file rather than its own `GlobalMetricsService.hpp` as
+  originally planned; corrected here September 7, 2026 after finding a stale TODO in that class
+  still describing this item as pending
 - `tests/metrics_session_registry_test.cpp`
 - `tests/training_metrics_api_routes_test.cpp`
 - `tests/training_metrics_service_resume_test.cpp`
@@ -691,7 +693,7 @@ Verification:
 | March 14, 2026 | Training / Service | Extended `TrainingMetricsService` with validation perplexity and accuracy tracking |
 
 Description:
-Previously, the training pipeline tracked metrics during training passes but lacked granular, systematized metric tracking for the validation phase. Validation metrics are now fully integrated into `TrainingMetricsService` and the dashboard, providing better insights into model generalization and enabling early detection of over-fitting. Proposal: `docs/proposals/VALIDATION_METRICS_PROPOSAL.md`.
+Previously, the training pipeline tracked metrics during training passes but lacked granular, systematized metric tracking for the validation phase. Validation metrics are now fully integrated into `TrainingMetricsService` and the dashboard, providing better insights into model generalization and enabling early detection of over-fitting. Proposal: `docs/development/archive/VALIDATION_METRICS_PROPOSAL.md`.
 
 Changes Made:
 
@@ -958,9 +960,15 @@ Files Created:
 
 - Configuration: `src/Config.hpp`, `src/Config.cpp`, `config.conf`, `config.conf.example`
 - Logging: `src/Logger.hpp`, `src/Logger.cpp`
-- systemd: `scripts/adai.service`, `scripts/install_systemd_service.sh`
-- Documentation: `STEP1_COMPLETE.md`, `STEP2_COMPLETE.md`, `STEP3_COMPLETE.md`, `STEP4_COMPLETE.md`, `STEP5_COMPLETE.md`, `DAEMON_IMPLEMENTATION_COMPLETE.md`, `DOCKER_DEPLOYMENT.md`, `SYSTEMD_DEPLOYMENT.md`
-- Testing: `scripts/test_signal_handling.sh`, `scripts/test_sigint.sh`
+- systemd: `scripts/adai.service`, `scripts/install_systemd_service.sh` *(the latter was later
+  consolidated into `scripts/install_chatbot_API.sh` — commit `d914070`, "chore: consolidate
+  systemd deployment onto install_chatbot_API.sh"; corrected here September 7, 2026)*
+- Documentation (now under `docs/development/archive/` after a later doc reorg): `STEP1_COMPLETE.md`,
+  `STEP2_COMPLETE.md`, `STEP3_COMPLETE.md`, `STEP4_COMPLETE.md`, `STEP5_COMPLETE.md`,
+  `DAEMON_IMPLEMENTATION_COMPLETE.md`; the Docker/systemd deployment guides are now
+  `docs/operations/deployment/docker.md` and `docs/operations/deployment/SYSTEMD_DEPLOYMENT.md`
+- Testing: `scripts/test_signal_handling.sh`, `scripts/test_sigint.sh` *(the latter was later found
+  to be a near-duplicate of the former and tagged `experimental` — see TD-046)*
 
 Files Modified:
 

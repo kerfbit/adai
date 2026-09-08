@@ -441,8 +441,11 @@ class MetricsSessionRegistry;
 
 /**
  * @brief Global metrics service instance (optional singleton access)
- * TODO: See TECHNICAL_DEBT.md TD-018 - Replace GlobalMetricsService singleton with
- * MetricsSessionRegistry
+ *
+ * Resolved by TD-018: this is now a thin proxy through the "0-default" slot of a
+ * MetricsSessionRegistry, kept deliberately (not replaced) so the pre-existing
+ * instance().start_session(id, ...) call-site API didn't need to change everywhere
+ * it's used.
  */
 class GlobalMetricsService {
    public:
