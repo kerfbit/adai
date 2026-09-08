@@ -204,7 +204,7 @@ None — every in-scope file carries a tag.
 | `src/PPOOptimizer.hpp` | experimental | 0.2.0 | 2026-09-07 | TD-034 |
 | `src/ParallelDataLoader.hpp` | experimental | 0.4.0 | 2026-09-08 | TD-052 |
 | `src/PerformanceProfiler.hpp` | beta | 0.7.0 | 2026-09-07 | TD-038 |
-| `src/PipelineInferenceEngine.hpp` | beta | 0.7.0 | 2026-09-07 | TD-038 |
+| `src/PipelineInferenceEngine.hpp` | beta | 0.7.0 | 2026-09-08 | TD-038 |
 | `src/PostgresMetricsDatabase.cpp` | experimental | 0.3.0 | 2026-09-08 | TD-042 |
 | `src/PostgresMetricsDatabase.hpp` | experimental | 0.3.0 | 2026-09-07 | TD-042 |
 | `src/Quantization.hpp` | beta | 0.7.0 | 2026-09-07 | TD-038 |

@@ -147,6 +147,42 @@ TEST_F(EfficientBatchingTest, BucketedBatches) {
     }
 }
 
+// TD-074 regression: create_bucketed_batches()'s greedy batch-forming loop
+// used to compare each new candidate's length only against the FIRST
+// sequence ever added to the batch, not the true running maximum across
+// everything already in it. Once a longer sequence joined a batch, later
+// candidates were silently compared against the stale, smaller first-element
+// length, letting the loop admit sequences well past max_tokens_per_batch.
+// A bucket groups by a coarse length range (here, a single bucket covering
+// everything up to boundary 200), so a short-then-long-then-short pattern
+// within one bucket is exactly the case that exposed the bug.
+TEST_F(EfficientBatchingTest, BucketedBatchesRespectTokenLimitWithMixedLengthOrder) {
+    std::vector<std::vector<int>> sequences = {
+        std::vector<int>(50, 1),   // length 50
+        std::vector<int>(100, 1),  // length 100 - joins after the short one
+        std::vector<int>(30, 1),   // length 30
+        std::vector<int>(30, 1),   // length 30
+        std::vector<int>(30, 1),   // length 30
+        std::vector<int>(30, 1),   // length 30
+    };
+
+    BucketConfig config;
+    config.bucket_boundaries = {200};  // single bucket covers all six sequences
+    config.max_tokens_per_batch = 300;
+    config.shuffle_buckets = false;
+
+    auto batches = EfficientBatching::create_bucketed_batches(sequences, config, 0,
+                                                              PaddingStrategy::RIGHT);
+
+    ASSERT_GT(batches.size(), 0);
+    for (const auto& batch : batches) {
+        // total_tokens() uses the batch's own max_length, i.e. the TRUE
+        // padded size — this is what used to come out at 600 (double the
+        // 300 limit) before the fix.
+        EXPECT_LE(batch.total_tokens(), config.max_tokens_per_batch);
+    }
+}
+
 TEST_F(EfficientBatchingTest, DataAugmentationTokenDropout) {
     auto sequences = test_sequences_;
 

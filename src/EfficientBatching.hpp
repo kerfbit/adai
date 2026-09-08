@@ -1,6 +1,6 @@
 // @adai-status: stable
 // @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 /**
  * @file EfficientBatching.hpp
@@ -227,25 +227,36 @@ class EfficientBatching {
             size_t i = 0;
             while (i < bucket.size()) {
                 std::vector<size_t> batch_indices;
-                size_t current_tokens = 0;
+                // TD-074 (fixed): this used to compare each new candidate's
+                // length only against sequences[batch_indices[0]] — the
+                // FIRST sequence ever added to the batch — instead of the
+                // true running maximum across everything already in it.
+                // Since a bucket groups sequences by a coarse length RANGE
+                // (not an exact length), a batch's true max can come from
+                // any element, not just the first; once a longer sequence
+                // joined the batch, every later candidate was silently
+                // compared against the stale, smaller first-element length,
+                // letting the loop keep admitting sequences well past
+                // max_tokens_per_batch. Reproduced: lengths
+                // [50,100,30,30,30,30] with max_tokens_per_batch=300 all
+                // landed in one batch whose true padded token count (600,
+                // padded to the real max of 100) was double the limit.
+                size_t batch_max_len = 0;
 
                 // Add sequences until we hit max tokens
                 while (i < bucket.size()) {
                     size_t seq_idx = bucket[i];
                     size_t seq_len = sequences[seq_idx].size();
-                    size_t batch_max_len =
-                        batch_indices.empty()
-                            ? seq_len
-                            : std::max(seq_len, sequences[batch_indices[0]].size());
+                    size_t candidate_max_len = std::max(batch_max_len, seq_len);
 
-                    size_t new_tokens = batch_max_len * (batch_indices.size() + 1);
+                    size_t new_tokens = candidate_max_len * (batch_indices.size() + 1);
 
                     if (!batch_indices.empty() && new_tokens > config.max_tokens_per_batch) {
                         break;
                     }
 
                     batch_indices.push_back(seq_idx);
-                    current_tokens = new_tokens;
+                    batch_max_len = candidate_max_len;
                     ++i;
                 }
 

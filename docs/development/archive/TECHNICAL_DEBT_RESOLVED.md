@@ -4,6 +4,49 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-074: EfficientBatching's Bucketed Batches Could Silently Exceed max_tokens_per_batch
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 8, 2026 | Data Pipeline / Batching | Track the true running max length instead of comparing against the first element |
+
+Summary:
+Found while reading `src/EfficientBatching.hpp` end to end. `create_bucketed_batches()`'s greedy
+batch-forming loop computed each candidate sequence's contribution to the batch's padded size via
+`std::max(seq_len, sequences[batch_indices[0]].size())` — comparing only against the **first**
+sequence ever added to the batch, not the true running maximum across everything already in it.
+Since a bucket groups sequences by a coarse length *range* (e.g. everything up to a boundary), not an
+exact length, a batch's true maximum can come from any sequence added to it, not just the first. Once
+a longer sequence joined a batch, every later candidate was silently compared against the stale,
+smaller first-element length instead of the real current max — letting the loop keep admitting
+sequences well past `config.max_tokens_per_batch`, the very budget this function exists to enforce.
+
+Reproduced with a standalone Python simulation of the exact loop: lengths `[50, 100, 30, 30, 30, 30]`
+with `max_tokens_per_batch=300` all landed in one batch, whose true padded token count (`600`, once
+padded to the real max length of 100) was double the configured limit. The codebase's own existing
+test for this function (`BucketedBatches`) already asserted the limit was respected, but used a
+`max_tokens_per_batch` generous enough relative to its test sequences' lengths that the boundary
+condition was never actually stressed — so the assertion never failed despite the underlying bug.
+
+Changes Made:
+
+- Replaced the first-element comparison with a proper running `batch_max_len` that's updated to
+  `std::max(batch_max_len, seq_len)` on every accepted sequence, so each admission decision uses the
+  batch's true current maximum. Also removed a `current_tokens` local that was written but never read.
+
+Verification:
+- ✅ Standalone Python simulation confirmed the bug and the fix (see Summary).
+- ✅ Added `EfficientBatchingTest.BucketedBatchesRespectTokenLimitWithMixedLengthOrder` to
+  `tests/datapipeline_test.cpp`, using the exact reproduction lengths. Confirmed it **fails** against
+  the pre-fix code (`600 vs 300`) and **passes** against the fix — reverted/rebuilt/re-applied to
+  verify both directions.
+- ✅ Full `datapipelineTests` (covers `EfficientBatching` and `ParallelDataLoader`): 33/33 pass.
+
+Files Changed:
+
+- `src/EfficientBatching.hpp`
+- `tests/datapipeline_test.cpp`
+
 ### TD-073: IntegratedInferenceEngine's Batcher Emitted the First Request of Every Window Alone
 
 | Resolution Date | Component | Resolved By |
