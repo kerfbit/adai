@@ -10,7 +10,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 **Medium Priority:** 12
 **Low Priority:** 13
 **Future Enhancements:** 19
-**Resolved Items:** 39
+**Resolved Items:** 40
 **Deferred Decisions:** 1
 
 ## Table of Contents
@@ -44,7 +44,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [TD-051: IncrementalTrainer::load_conversation_pairs() Is an Unmigrated Duplicate](#td-051-incrementaltrainerload_conversation_pairs-is-an-unmigrated-duplicate)
   - [TD-052: ParallelDataLoader's Batches Use Character Codes, Not Real Tokens](#td-052-paralleldataloaders-batches-use-character-codes-not-real-tokens)
   - [TD-053: ChatbotCLI's /save and /load Commands Are Non-Functional Everywhere](#td-053-chatbotclis-save-and-load-commands-are-non-functional-everywhere)
-- [Resolved Items](#resolved-items) (39 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+- [Resolved Items](#resolved-items) (40 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -772,8 +772,14 @@ starting point rather than a from-scratch design.
 
 Compiled standalone against the system `libpq` (`g++ -std=c++17 -DENABLE_POSTGRES_METRICS`,
 September 7, 2026) to check whether it even builds, since no configured build here has
-`ENABLE_POSTGRES_METRICS=ON` — it compiled clean, zero errors or warnings. So this is purely a
-coverage/CI gap, not a known code defect; the action items below are unchanged.
+`ENABLE_POSTGRES_METRICS=ON` — it compiled clean, zero errors or warnings.
+
+**Update (September 8, 2026):** this coverage gap is exactly what let a real code defect ship
+undetected — see [TD-065](../archive/TECHNICAL_DEBT_RESOLVED.md#td-065-postgresmetricsdatabases-list_sessionsget_session-lost-all-data-on-a-nullable-column-session-row)
+(resolved), found and fixed by standing up a real local Postgres instance and exercising
+`list_sessions()`/`get_session()` directly. The action items below — parameterizing
+`MetricsDatabaseTest.cpp` against this backend — would have caught TD-065 automatically; they
+remain open and are now higher-value than when this item was created.
 
 Action Items:
 
@@ -1105,7 +1111,7 @@ Files to Modify:
 
 ## Resolved Items
 
-39 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+40 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements

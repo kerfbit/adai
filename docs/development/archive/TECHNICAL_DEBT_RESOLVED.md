@@ -4,6 +4,71 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-065: PostgresMetricsDatabase's list_sessions()/get_session() Lost All Data on a Nullable-Column Session Row
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 8, 2026 | Metrics / Postgres backend | Guarded the three nullable REAL columns with the existing `PQgetisnull()` pattern |
+
+Summary:
+Found while reading `src/PostgresMetricsDatabase.cpp` end to end. `list_sessions()` and
+`get_session()` both called `std::stof(PQgetvalue(res, i, N))` unconditionally on
+`best_validation_loss`, `final_loss`, and `final_validation_loss` — three `REAL` columns declared
+nullable in the schema (no `NOT NULL`). `PQgetvalue()` returns `""` for a SQL `NULL`
+(indistinguishable from a real empty string without `PQgetisnull()`), and `std::stof("")` throws
+`std::invalid_argument`. `query_history()` already had to solve this identical problem for its own
+TD-013 migration columns (an `opt_float` lambda checking `PQgetisnull()` first) — the same guard was
+never applied to `list_sessions()`/`get_session()`'s three columns.
+
+The concrete trigger is `bootstrap_schema()`'s own documented migration:
+`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS final_loss REAL;` /
+`... final_validation_loss REAL;` have no `DEFAULT`, so any `sessions` row that existed in a
+deployment before this migration ran keeps `final_loss`/`final_validation_loss` as `NULL` until the
+next `upsert_session()` call for that specific row — a real, not merely theoretical, state (e.g. an
+archived/ended session that's never touched again after the migration).
+
+The failure mode is more severe than losing just the affected row: `execute_with_retry()` wraps the
+whole query lambda in a `try`/`catch`, so the `std::stof` exception is caught there and the *entire
+operation* is treated as a failed attempt and retried 3 times (with real ~2.1s of backoff) before
+giving up — `list_sessions()` returns an **empty vector** (not just missing the bad row — every
+other session in the same query result is silently dropped too, since the exception aborts the
+result-processing loop) and `get_session()` returns `std::nullopt` even for the exact key requested.
+
+Reproduced against a real local PostgreSQL 16 instance (`initdb`/`pg_ctl` in the scratch dir, no
+system service touched): built `adai_core` with `-DENABLE_POSTGRES_METRICS=ON`, inserted one normal
+session via `upsert_session()` and one raw-SQL row that omits `final_loss`/`final_validation_loss`
+(reproducing exactly what a pre-migration row looks like), then called `list_sessions()`/
+`get_session()`. Before the fix: `list_sessions()` returned 0 of the 2 sessions and `get_session()`
+returned `nullopt`, with `[PostgresMetricsDB] list_sessions — exception: stof` logged on all 3
+retry attempts. After the fix: both sessions are returned correctly and `get_session()` returns the
+expected record.
+
+Changes Made:
+
+- Added a shared `pg_opt_float()` static helper (same `PQgetisnull()`-guarded pattern as
+  `query_history()`'s local `opt_float` lambda) and applied it to `best_validation_loss` (fallback
+  `std::numeric_limits<float>::max()`, matching `SessionRecord`'s own default), `final_loss`, and
+  `final_validation_loss` (fallback `0.0f`, matching `SessionRecord`'s defaults) in both
+  `list_sessions()` and `get_session()`.
+- `best_epoch` (a nullable `INTEGER`) was not touched — `std::atoi("")` on a NULL value already
+  returns `0` without throwing, which happens to match `SessionRecord::best_epoch`'s own default, so
+  it was silently correct rather than silently wrong.
+- No behavior change for any row where these columns are non-NULL (the normal case for every row
+  written via `upsert_session()`, which always supplies concrete values).
+
+Verification:
+- ✅ Standalone reproduction against a real local Postgres 16 instance, confirmed failing before the
+  fix and passing after (see Summary).
+- ✅ `adai_core` (built with `-DENABLE_POSTGRES_METRICS=ON`) compiles clean with the fix.
+- Not exercised by the existing test suite — `PostgresMetricsDatabase` has zero test coverage,
+  tracked separately by [TD-042](../guides/TECHNICAL_DEBT.md#td-042-postgresmetricsdatabase-has-zero-test-coverage)
+  (unchanged by this fix; TD-042's own action items — parameterizing `MetricsDatabaseTest.cpp`
+  against this backend — would have caught this).
+
+Files Changed:
+
+- `src/PostgresMetricsDatabase.cpp`
+
 ### TD-063: ChatbotAPI's JSON Responses Could Be Injected Via an Unescaped session_id/error
 
 | Resolution Date | Component | Resolved By |

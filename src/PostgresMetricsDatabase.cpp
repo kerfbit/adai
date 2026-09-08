@@ -1,6 +1,6 @@
 // @adai-status: experimental        (capped by TD-042 — zero test coverage, not built by default)
 // @adai-version: 0.3.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 #ifdef ADAI_ENABLE_POSTGRES
 
@@ -15,6 +15,7 @@
 #include <cstring>
 #include <functional>
 #include <iomanip>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <thread>
@@ -332,6 +333,25 @@ std::chrono::system_clock::time_point PostgresMetricsDatabase::parse_timestamp(
     auto tp = std::chrono::system_clock::from_time_t(timegm(&tm));
     tp += std::chrono::milliseconds(ms);
     return tp;
+}
+
+// PQgetvalue() returns "" for a SQL NULL (indistinguishable from a real empty
+// string without PQgetisnull() — see the identical note in query_history()
+// below). best_validation_loss, final_loss, and final_validation_loss are
+// nullable REAL columns; final_loss/final_validation_loss in particular are
+// NULL on any row that predates the migration that added them
+// (bootstrap_schema()'s "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS
+// final_loss/final_validation_loss REAL" has no DEFAULT). list_sessions()
+// and get_session() used to call std::stof() on these columns unconditionally
+// — TD-065 (fixed): on a NULL value this throws, which execute_with_retry()
+// catches and treats as a failed attempt, so any session row with an unset
+// value made the *entire* query fail all 3 retries and return no data
+// (an empty list from list_sessions(), std::nullopt from get_session()) —
+// reproduced against a real Postgres instance with a pre-migration-style row.
+static float pg_opt_float(PGresult* res, int row, int col, float fallback) {
+    if (PQgetisnull(res, row, col))
+        return fallback;
+    return std::stof(PQgetvalue(res, row, col));
 }
 
 // ============================================================================
@@ -738,10 +758,11 @@ std::vector<SessionRecord> PostgresMetricsDatabase::list_sessions(
             rec.last_update_at = parse_timestamp(PQgetvalue(res, i, 7));
             rec.total_epochs = std::atoi(PQgetvalue(res, i, 8));
             rec.total_samples = std::atoi(PQgetvalue(res, i, 9));
-            rec.best_validation_loss = std::stof(PQgetvalue(res, i, 10));
+            rec.best_validation_loss =
+                pg_opt_float(res, i, 10, std::numeric_limits<float>::max());
             rec.best_epoch = std::atoi(PQgetvalue(res, i, 11));
-            rec.final_loss = std::stof(PQgetvalue(res, i, 12));
-            rec.final_validation_loss = std::stof(PQgetvalue(res, i, 13));
+            rec.final_loss = pg_opt_float(res, i, 12, 0.0f);
+            rec.final_validation_loss = pg_opt_float(res, i, 13, 0.0f);
             results.push_back(std::move(rec));
         }
 
@@ -792,10 +813,10 @@ std::optional<SessionRecord> PostgresMetricsDatabase::get_session(const std::str
         rec.last_update_at = parse_timestamp(PQgetvalue(res, 0, 7));
         rec.total_epochs = std::atoi(PQgetvalue(res, 0, 8));
         rec.total_samples = std::atoi(PQgetvalue(res, 0, 9));
-        rec.best_validation_loss = std::stof(PQgetvalue(res, 0, 10));
+        rec.best_validation_loss = pg_opt_float(res, 0, 10, std::numeric_limits<float>::max());
         rec.best_epoch = std::atoi(PQgetvalue(res, 0, 11));
-        rec.final_loss = std::stof(PQgetvalue(res, 0, 12));
-        rec.final_validation_loss = std::stof(PQgetvalue(res, 0, 13));
+        rec.final_loss = pg_opt_float(res, 0, 12, 0.0f);
+        rec.final_validation_loss = pg_opt_float(res, 0, 13, 0.0f);
 
         result = std::move(rec);
         PQclear(res);

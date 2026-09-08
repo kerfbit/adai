@@ -188,7 +188,7 @@ None — every in-scope file carries a tag.
 | `src/FtpDataServer.hpp` | beta | 0.8.0 | 2026-09-08 | TD-040 |
 | `src/IncrementalTrainer.cpp` | beta | 0.9.0 | 2026-09-08 | TD-039 |
 | `src/IncrementalTrainer.hpp` | beta | 0.9.0 | 2026-09-08 | TD-039 |
-| `src/IncrementalTrainingTool.cpp` | beta | 0.8.0 | 2026-09-07 | TD-035 |
+| `src/IncrementalTrainingTool.cpp` | beta | 0.8.0 | 2026-09-08 | TD-035 |
 | `src/IntegratedInferenceEngine.hpp` | beta | 0.7.0 | 2026-09-07 | TD-038 |
 | `src/KVCache.hpp` | beta | 0.6.0 | 2026-09-07 | TD-050 |
 | `src/LoRA.hpp` | beta | 0.7.0 | 2026-09-07 | TD-038 |
@@ -205,7 +205,7 @@ None — every in-scope file carries a tag.
 | `src/ParallelDataLoader.hpp` | experimental | 0.4.0 | 2026-09-08 | TD-052 |
 | `src/PerformanceProfiler.hpp` | beta | 0.7.0 | 2026-09-07 | TD-038 |
 | `src/PipelineInferenceEngine.hpp` | beta | 0.7.0 | 2026-09-07 | TD-038 |
-| `src/PostgresMetricsDatabase.cpp` | experimental | 0.3.0 | 2026-09-07 | TD-042 |
+| `src/PostgresMetricsDatabase.cpp` | experimental | 0.3.0 | 2026-09-08 | TD-042 |
 | `src/PostgresMetricsDatabase.hpp` | experimental | 0.3.0 | 2026-09-07 | TD-042 |
 | `src/Quantization.hpp` | beta | 0.7.0 | 2026-09-07 | TD-038 |
 | `src/RegistryServer.cpp` | beta | 0.8.0 | 2026-09-08 | TD-035 |
