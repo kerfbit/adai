@@ -4,6 +4,81 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-079: ConversationContext's Raw-Pointer system_message Caused a Double-Free/Use-After-Free on Copy or Move
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 8, 2026 | ConversationContext (chatbot/GUI conversation history) | Store system_message as `std::optional<Message>` instead of a raw owning pointer |
+
+Summary:
+Found while reading `src/ConversationContext.hpp`/`.cpp` end to end — the most severe bug found in this
+audit pass (a memory-safety defect, not just a logic error). `system_message` was declared as a raw
+owning `Message*`, allocated with `new` in `set_system_message()` and freed with `delete` in the
+explicitly hand-written destructor (`~ConversationContext() { delete system_message; }`) and in
+`clear_all()`. But the class's copy constructor, copy assignment, move constructor, and move assignment
+were all declared `= default` — which for a raw-pointer member just copies the pointer *value*. Two
+`ConversationContext` instances could therefore end up pointing at the *same* heap-allocated `Message`:
+destroying either one frees it, leaving the other with a dangling pointer (a subsequent read through it,
+e.g. via `get_system_message()`, is a heap-use-after-free), and destroying the second instance afterward
+`delete`s the same block a second time (a double-free). This violates the codebase's own stated
+convention (CLAUDE.md: "Ownership: `std::unique_ptr`/`std::shared_ptr`; no raw owning pointers") and is a
+classic Rule-of-Five violation: declaring a custom destructor for a raw owning pointer while leaving
+copy/move as compiler-generated shallow copies.
+
+Confirmed directly with AddressSanitizer: a minimal reproduction (construct `a`, call
+`a.set_system_message(...)`, copy-construct `b` from `*a`, destroy `a`, then read `b`'s system message)
+produced `SUMMARY: AddressSanitizer: heap-use-after-free ... in ConversationContext::get_system_message`,
+with the ASan trace showing the read hitting memory freed by `a`'s destructor. In current production
+code `ConversationContext` is always held via `std::unique_ptr` (`ChatbotAPI`, `ChatbotGUI`) so the
+defaulted copy/move are never exercised there — but `create_summarized()` (a public, documented API
+member) returns a `ConversationContext` *by value*, which relies on NRVO (an optional, not
+standard-mandated, optimization) to avoid triggering the bug in practice, and any future caller that
+copies or moves an instance with a system message set (assigns it, stores it in a container, etc.) would
+hit it immediately — the existing test suite had no test that directly exercised the copy/move
+constructors or assignment operators at all.
+
+Changes Made:
+
+- Changed `system_message` from `Message* system_message{nullptr}` to
+  `std::optional<Message> system_message` (added `#include <optional>`). `Message`'s own members
+  (two `std::string`s and an `int`) already have correct, safe implicit copy/move, so wrapping it in
+  `std::optional` gives `ConversationContext`'s copy/move/destroy all-correct-for-free — no manual
+  memory management needed anywhere in the class.
+- Changed `~ConversationContext()` from a hand-written `delete system_message;` body to
+  `~ConversationContext() = default;` (nothing left to manually release).
+- Updated every touch point in `ConversationContext.cpp` (`set_system_message()`, `format_for_model()`,
+  `format_with_special_tokens()`, `get_system_message()`, `clear()`, `clear_all()`,
+  `truncate_to_limits()`, `save_to_file()`, `get_statistics()`, `create_summarized()`,
+  `update_token_count()`) from `!= nullptr`/`new`/`delete` to `.has_value()`/`.emplace()`/`.reset()` —
+  `->` member access on the optional needed no changes, since `std::optional` overloads `operator->`.
+- Removed a genuinely dead local (`int system_tokens = ...`, already flagged by the compiler as
+  `-Wunused-variable`) from `truncate_to_limits()` — computed but never referenced; left the loop's
+  actual behavior unchanged since the docstring ("max total tokens in context") is consistent with the
+  current behavior of counting the system message's tokens toward the budget, so this reads as vestigial
+  dead code rather than an incomplete feature.
+
+Verification:
+- ✅ AddressSanitizer reproduction confirmed the bug pre-fix (`heap-use-after-free`) and a clean run
+  post-fix with correct, independent copied state.
+- ✅ Added four regression tests to `tests/conversationcontext_test.cpp` exercising all four special
+  members directly with a system message set: `CopyConstructWithSystemMessageIsIndependent`,
+  `CopyAssignWithSystemMessageIsIndependent`, `MoveConstructWithSystemMessagePreservesState`,
+  `MoveAssignWithSystemMessagePreservesState` (deliberately not relying on `create_summarized()`, whose
+  NRVO-eligible single-return-statement pattern would not reliably exercise the bug).
+- ✅ Before/after regression: reverted both `ConversationContext.hpp`/`.cpp` to their pre-fix `HEAD`
+  versions, rebuilt the new copy-construction test under ASan, and confirmed it fails with the exact
+  predicted `heap-use-after-free` (freed by `clear_all()`'s `delete`, read by `get_system_message()`);
+  restored the fix, rebuilt, and confirmed all 62 tests in `conversationcontextTests` pass both normally
+  and under a standalone ASan build (`g++ -fsanitize=address`).
+
+Files Changed:
+
+- `src/ConversationContext.hpp`
+- `src/ConversationContext.cpp`
+- `tests/conversationcontext_test.cpp`
+
+---
+
 ### TD-078: GPUManager's Allocation-Tracking Counters Raced Between the Allocating Thread and the SYCL Runtime's Deferred-Free Worker Thread
 
 | Resolution Date | Component | Resolved By |

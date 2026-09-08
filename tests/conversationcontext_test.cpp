@@ -2,6 +2,7 @@
 #include <../gtest/gtest.h>
 #include <cstdio>
 #include <fstream>
+#include <utility>
 
 // ============================================================================
 // Constructor Tests
@@ -783,6 +784,73 @@ TEST(ConversationContextTest, RepeatedTruncation) {
 
     EXPECT_LE(context.get_message_count(), 10);
     EXPECT_LE(context.get_total_tokens(), 200);
+}
+
+// ============================================================================
+// TD-079 regression: copy/move with a system message set
+//
+// system_message used to be a raw owning `Message*`, deleted in the
+// destructor. The copy/move constructor and assignment operator were all
+// `= default`, which shallow-copies a raw pointer: two instances could end
+// up pointing at the same heap-allocated Message, and destroying one would
+// leave the other's pointer dangling (heap-use-after-free), then destroying
+// the second would delete the same block a second time (double-free).
+// Confirmed with AddressSanitizer before the fix (system_message is now a
+// std::optional<Message> value member, so copy/move/destroy are all
+// correct automatically). These tests exercise every one of the four
+// (copy ctor, copy assign, move ctor, move assign) directly, not just via
+// create_summarized() (which happens to rely on NRVO in practice and would
+// not reliably exercise the bug).
+// ============================================================================
+
+TEST(ConversationContextTest, CopyConstructWithSystemMessageIsIndependent) {
+    ConversationContext original(20, 2048, true);
+    original.set_system_message("You are a helpful assistant.", 8);
+    original.add_user_message("Hello", 2);
+
+    ConversationContext copy(original);
+
+    // Destroy the original's state by mutating it heavily; the copy must be
+    // completely unaffected (this would corrupt/crash under ASan pre-fix
+    // once `original` goes out of scope and frees the shared Message).
+    original.clear_all();
+
+    EXPECT_EQ(copy.get_system_message(), "You are a helpful assistant.");
+    EXPECT_EQ(copy.get_message_count(), 1);
+}
+
+TEST(ConversationContextTest, CopyAssignWithSystemMessageIsIndependent) {
+    ConversationContext original(20, 2048, true);
+    original.set_system_message("System prompt A", 4);
+
+    ConversationContext other(20, 2048, true);
+    other.set_system_message("System prompt B", 4);
+
+    other = original;
+    original.clear_all();
+
+    EXPECT_EQ(other.get_system_message(), "System prompt A");
+}
+
+TEST(ConversationContextTest, MoveConstructWithSystemMessagePreservesState) {
+    ConversationContext original(20, 2048, true);
+    original.set_system_message("Move me", 3);
+    original.add_user_message("Hi", 1);
+
+    ConversationContext moved(std::move(original));
+
+    EXPECT_EQ(moved.get_system_message(), "Move me");
+    EXPECT_EQ(moved.get_message_count(), 1);
+}
+
+TEST(ConversationContextTest, MoveAssignWithSystemMessagePreservesState) {
+    ConversationContext original(20, 2048, true);
+    original.set_system_message("Move-assigned", 3);
+
+    ConversationContext other(20, 2048, true);
+    other = std::move(original);
+
+    EXPECT_EQ(other.get_system_message(), "Move-assigned");
 }
 
 // ============================================================================

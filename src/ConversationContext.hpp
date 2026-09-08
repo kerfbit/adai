@@ -3,10 +3,11 @@
 
 // @adai-status: stable
 // @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 
 #include <deque>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -52,9 +53,20 @@ class ConversationContext {
                         bool keep_system_message = true);
 
     /**
-     * @brief Destructor - cleans up system message
+     * @brief Destructor
+     *
+     * Defaulted: system_message is a std::optional<Message> (value member),
+     * so there is nothing to manually release. TD-079 note: this class used
+     * to hold system_message as a raw owning `Message*`, requiring a
+     * hand-written `delete` here — combined with the `= default` copy/move
+     * below, that was a Rule-of-Five violation (the compiler-generated copy/
+     * move just copied the pointer value, so two instances could end up
+     * owning — and both `delete`-ing — the same Message, causing a
+     * heap-use-after-free/double-free). Storing Message by value in a
+     * std::optional sidesteps the whole category of bug: copy/move/destroy
+     * are all correct "for free".
      */
-    ~ConversationContext();
+    ~ConversationContext() = default;
     ConversationContext(const ConversationContext&) = default;
     ConversationContext& operator=(const ConversationContext&) = default;
     ConversationContext(ConversationContext&&) noexcept = default;
@@ -213,8 +225,8 @@ class ConversationContext {
                                           const std::string& summary_text = "") const;
 
    private:
-    std::deque<Message> messages;      // Conversation history (deque for efficient removal)
-    Message* system_message{nullptr};  // Optional system message
+    std::deque<Message> messages;             // Conversation history (deque for efficient removal)
+    std::optional<Message> system_message;    // Optional system message (value type — see ~dtor)
     int max_messages;                  // Max number of messages to keep
     int max_tokens;                    // Max total tokens
     bool keep_system_message;          // Whether to preserve system message

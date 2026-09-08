@@ -75,10 +75,6 @@ ConversationContext::ConversationContext(int max_messages, int max_tokens, bool 
       max_tokens(max_tokens),
       keep_system_message(keep_system_message) {}
 
-ConversationContext::~ConversationContext() {
-    delete system_message;
-}
-
 void ConversationContext::add_user_message(const std::string& content, int token_count) {
     add_message("user", content, token_count);
 }
@@ -88,10 +84,9 @@ void ConversationContext::add_assistant_message(const std::string& content, int 
 }
 
 void ConversationContext::set_system_message(const std::string& content, int token_count) {
-    // Delete old system message if exists
-    if (system_message != nullptr) {
+    // Replace old system message if exists
+    if (system_message.has_value()) {
         total_tokens -= system_message->token_count;
-        delete system_message;
     }
 
     // Create new system message
@@ -99,7 +94,7 @@ void ConversationContext::set_system_message(const std::string& content, int tok
         token_count = estimate_tokens(content);
     }
 
-    system_message = new Message("system", content, token_count);
+    system_message.emplace("system", content, token_count);
     total_tokens += token_count;
 }
 
@@ -123,7 +118,7 @@ std::string ConversationContext::format_for_model(bool include_system,
     std::ostringstream oss;
 
     // Add system message if requested and exists
-    if (include_system && system_message != nullptr) {
+    if (include_system && system_message.has_value()) {
         oss << "System: " << system_message->content << separator;
     }
 
@@ -149,7 +144,7 @@ std::string ConversationContext::format_with_special_tokens(const std::string& b
     oss << bos_token;
 
     // Add system message if exists
-    if (system_message != nullptr) {
+    if (system_message.has_value()) {
         oss << " [SYSTEM] " << system_message->content << sep_token;
     }
 
@@ -193,7 +188,7 @@ std::vector<ConversationContext::Message> ConversationContext::get_messages() co
 }
 
 std::string ConversationContext::get_system_message() const {
-    if (system_message != nullptr) {
+    if (system_message.has_value()) {
         return system_message->content;
     }
     return "";
@@ -213,19 +208,14 @@ bool ConversationContext::is_empty() const {
 
 void ConversationContext::clear() {
     // Clear all messages but keep system message
-    total_tokens = (system_message != nullptr) ? system_message->token_count : 0;
+    total_tokens = system_message.has_value() ? system_message->token_count : 0;
     messages.clear();
 }
 
 void ConversationContext::clear_all() {
     // Clear everything including system message
     messages.clear();
-
-    if (system_message != nullptr) {
-        delete system_message;
-        system_message = nullptr;
-    }
-
+    system_message.reset();
     total_tokens = 0;
 }
 
@@ -239,8 +229,6 @@ void ConversationContext::truncate_to_limits() {
 
     // Truncate by token count
     if (max_tokens > 0) {
-        int system_tokens = (system_message != nullptr) ? system_message->token_count : 0;
-
         while (total_tokens > max_tokens && !messages.empty()) {
             // Keep at least one message if possible
             if (messages.size() == 1 && total_tokens <= max_tokens * 1.2) {
@@ -274,7 +262,7 @@ void ConversationContext::save_to_file(const std::string& filepath) const {
     file << "---\n";
 
     // Write system message if exists
-    if (system_message != nullptr) {
+    if (system_message.has_value()) {
         file << "SYSTEM|" << system_message->token_count << "|"
              << escape_for_line(system_message->content) << "\n";
     }
@@ -353,7 +341,7 @@ std::string ConversationContext::get_statistics() const {
     oss << "Conversation Statistics:\n";
     oss << "  Messages: " << messages.size() << "\n";
     oss << "  Total Tokens: " << total_tokens << "\n";
-    oss << "  System Message: " << (system_message != nullptr ? "Yes" : "No") << "\n";
+    oss << "  System Message: " << (system_message.has_value() ? "Yes" : "No") << "\n";
 
     if (max_messages > 0) {
         oss << "  Max Messages: " << max_messages << "\n";
@@ -391,7 +379,7 @@ ConversationContext ConversationContext::create_summarized(int keep_recent,
     ConversationContext summarized(max_messages, max_tokens, keep_system_message);
 
     // Copy system message
-    if (system_message != nullptr) {
+    if (system_message.has_value()) {
         summarized.set_system_message(system_message->content, system_message->token_count);
     }
 
@@ -427,7 +415,7 @@ int ConversationContext::estimate_tokens(const std::string& content) {
 void ConversationContext::update_token_count() {
     total_tokens = 0;
 
-    if (system_message != nullptr) {
+    if (system_message.has_value()) {
         total_tokens += system_message->token_count;
     }
 
