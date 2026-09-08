@@ -496,6 +496,35 @@ TEST(ConversationContextTest, SaveLoadRoundTrip) {
     std::remove(filepath.c_str());
 }
 
+// TD-071 regression: save_to_file()/load_from_file() use one line per
+// message, read back with std::getline() — a message containing an
+// embedded newline (a routine chatbot scenario: a multi-line user message,
+// a multi-paragraph assistant reply) used to split across multiple lines on
+// disk, truncating the message to just its first line and silently
+// dropping every continuation line (no '|' delimiter to parse).
+TEST(ConversationContextTest, SaveLoadRoundTripPreservesEmbeddedNewlines) {
+    ConversationContext context1(15, 1500, true);
+
+    context1.set_system_message("Line one\nLine two of the system prompt");
+    context1.add_user_message("Hello\nWorld, this is\na multi-line message.");
+    context1.add_assistant_message("Single line reply.");
+
+    std::string filepath = "test_multiline_roundtrip.txt";
+    context1.save_to_file(filepath);
+
+    ConversationContext context2;
+    context2.load_from_file(filepath);
+
+    EXPECT_EQ(context2.get_system_message(), "Line one\nLine two of the system prompt");
+    ASSERT_EQ(context2.get_message_count(), 2);
+    auto messages = context2.get_messages();
+    EXPECT_EQ(messages[0].content, "Hello\nWorld, this is\na multi-line message.");
+    EXPECT_EQ(messages[1].content, "Single line reply.");
+
+    // Cleanup
+    std::remove(filepath.c_str());
+}
+
 TEST(ConversationContextTest, LoadFromNonexistentFile) {
     ConversationContext context;
 

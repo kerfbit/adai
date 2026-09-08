@@ -1,12 +1,74 @@
 // @adai-status: stable
 // @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 #include "ConversationContext.hpp"
 #include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <sstream>
+
+namespace {
+
+// TD-071 (fixed): save_to_file()/load_from_file() use one line per message
+// ("role|token_count|content"), read back with std::getline() — so a
+// message whose content contains an embedded newline (extremely common for
+// a chatbot: a multi-line user message, a multi-paragraph assistant reply)
+// used to split across multiple lines on disk. On load, only the first
+// line was parsed as the message (truncating its content); every
+// continuation line had no '|' delimiter and was silently dropped —
+// permanent, silent data loss on every save+load round-trip for any
+// multi-line message. Escape '\\', '\n', and '\r' so each message is
+// always exactly one line on disk, and unescape on the way back in.
+std::string escape_for_line(const std::string& s) {
+    std::string out;
+    out.reserve(s.size());
+    for (char c : s) {
+        switch (c) {
+            case '\\':
+                out += "\\\\";
+                break;
+            case '\n':
+                out += "\\n";
+                break;
+            case '\r':
+                out += "\\r";
+                break;
+            default:
+                out += c;
+        }
+    }
+    return out;
+}
+
+std::string unescape_from_line(const std::string& s) {
+    std::string out;
+    out.reserve(s.size());
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (s[i] == '\\' && i + 1 < s.size()) {
+            const char next = s[i + 1];
+            if (next == '\\') {
+                out += '\\';
+                ++i;
+                continue;
+            }
+            if (next == 'n') {
+                out += '\n';
+                ++i;
+                continue;
+            }
+            if (next == 'r') {
+                out += '\r';
+                ++i;
+                continue;
+            }
+        }
+        out += s[i];
+    }
+    return out;
+}
+
+}  // namespace
 
 ConversationContext::ConversationContext(int max_messages, int max_tokens, bool keep_system_message)
     : max_messages(max_messages),
@@ -213,12 +275,13 @@ void ConversationContext::save_to_file(const std::string& filepath) const {
 
     // Write system message if exists
     if (system_message != nullptr) {
-        file << "SYSTEM|" << system_message->token_count << "|" << system_message->content << "\n";
+        file << "SYSTEM|" << system_message->token_count << "|"
+             << escape_for_line(system_message->content) << "\n";
     }
 
     // Write all messages
     for (const auto& msg : messages) {
-        file << msg.role << "|" << msg.token_count << "|" << msg.content << "\n";
+        file << msg.role << "|" << msg.token_count << "|" << escape_for_line(msg.content) << "\n";
     }
 
     file.close();
@@ -271,7 +334,7 @@ void ConversationContext::load_from_file(const std::string& filepath) {
 
             std::string role = line.substr(0, first_pipe);
             int token_count = std::stoi(line.substr(first_pipe + 1, second_pipe - first_pipe - 1));
-            std::string content = line.substr(second_pipe + 1);
+            std::string content = unescape_from_line(line.substr(second_pipe + 1));
 
             if (role == "SYSTEM") {
                 set_system_message(content, token_count);

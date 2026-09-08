@@ -4,6 +4,50 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-071: ConversationContext Silently Truncated Multi-Line Messages on Save/Load
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 8, 2026 | NLP / Conversation persistence | Escape `\`/`\n`/`\r` so each message is always one line on disk |
+
+Summary:
+Found while reading `src/ConversationContext.cpp` end to end. `save_to_file()`/`load_from_file()`
+use one line per message (`role|token_count|content`), written and read back with `std::getline()`.
+Any message whose content contains an embedded newline — a routine chatbot scenario: a user typing a
+multi-line message, or an assistant reply with paragraph breaks — split across multiple lines on
+disk. On load, only the *first* line of such a message was parsed (silently truncating its content);
+every continuation line had no `|` delimiter, failed the parser's own sanity check, and was silently
+dropped via `continue`. This was a genuine, silent, permanent data-loss bug on every save+load
+round-trip for any multi-line message, with zero test coverage of the case (all of the file's
+existing persistence tests used single-line message content) — and it directly affects
+`ChatbotGUI::onSaveConversation()`/`onLoadConversation()`, which call these methods for its real
+"Save Conversation"/"Load Conversation" buttons.
+
+Reproduced with a standalone program: saved a context with a 3-line user message and a 2-line system
+message, reloaded it, and confirmed both were truncated to only their first line — the rest silently
+gone, no error or warning of any kind.
+
+Changes Made:
+
+- Added `escape_for_line()`/`unescape_from_line()` (escaping `\`, `\n`, `\r`) and applied them to
+  `content` in both `save_to_file()` (escape on write) and `load_from_file()` (unescape on read), so
+  every message is guaranteed to occupy exactly one line on disk regardless of its content.
+
+Verification:
+- ✅ Standalone reproduction confirmed the pre-fix truncation and the fix's full round-trip fidelity
+  for both a multi-line user message and a multi-line system message.
+- ✅ Added `ConversationContextTest.SaveLoadRoundTripPreservesEmbeddedNewlines` to
+  `tests/conversationcontext_test.cpp`. Confirmed it **fails** against the pre-fix code (content
+  truncated to its first line) and **passes** against the fix — reverted/rebuilt/re-applied to
+  verify both directions.
+- ✅ Full `conversationcontextTests`: 58/58 pass.
+- ✅ Rebuilt `chatbot_gui` (the real consumer of this save/load path) clean.
+
+Files Changed:
+
+- `src/ConversationContext.cpp`
+- `tests/conversationcontext_test.cpp`
+
 ### TD-070: ModelNameClient's list_models() Corrupted Records on a "}}" Inside a Field Value
 
 | Resolution Date | Component | Resolved By |
