@@ -4,7 +4,7 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
-### TD-073: ChatbotCLI's /set Command Crashed the Whole Interactive Session on a Typo
+### TD-072: ChatbotCLI's /set Command Crashed the Whole Interactive Session on a Typo
 
 | Resolution Date | Component | Resolved By |
 |-----------------|-----------|-------------|

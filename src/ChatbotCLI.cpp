@@ -259,7 +259,7 @@ void ChatbotCLI::handle_setting(std::string_view setting) {
     } else if (param == "length" || param == "max_length" || param == "temperature" ||
               param == "temp" || param == "top_p" || param == "top-p" || param == "top_k" ||
               param == "top-k" || param == "beam_width" || param == "beam-width") {
-        // TD-073 (fixed): std::stoi/std::stof on a malformed value (e.g. a
+        // TD-072 (fixed): std::stoi/std::stof on a malformed value (e.g. a
         // typo in "/set length abc") used to throw uncaught out of this
         // function, propagate through run()'s main loop, and hit main()'s
         // top-level catch — a clean exit, but one that silently ends the

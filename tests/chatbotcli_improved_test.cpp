@@ -244,7 +244,7 @@ TEST_F(ChatbotCLITest, HandleSettingMissingValue) {
     std::cout.rdbuf(old);
 }
 
-// TD-073 regression: a non-numeric value for a numeric parameter used to
+// TD-072 regression: a non-numeric value for a numeric parameter used to
 // throw std::invalid_argument straight out of handle_setting() uncaught —
 // in the real interactive run() loop this propagated to main()'s top-level
 // catch and ended the whole session (losing session_id/conversation state)
