@@ -256,7 +256,10 @@ Scans source code for TODO, FIXME, HACK, and XXX markers and verifies they are t
 
 ### scan_todos.sh
 
-Scans `src/`, `tests/`, and `include/` for TODO comments and cross-references them against `TECHNICAL_DEBT.md`. Generates a timestamped report file.
+Scans `src/`, `tests/`, and `include/` (the last of which hasn't existed in this repo for a long
+time — see TD-046) for TODO comments and cross-references them against `TECHNICAL_DEBT.md`.
+Generates a timestamped report file. This script is an undocumented, superseded duplicate of
+`check_tech_debt.sh` — see TD-046 for the removal/reconciliation decision.
 
 ```bash
 ./scripts/scan_todos.sh

@@ -126,7 +126,10 @@ All weight matrices, activations, and gradients are represented as `Matrix` obje
 - Transpose, Hadamard product, and gradient utilities
 - Xavier/Glorot random initialization
 
-> **Note:** The matrix multiplication inner loop uses `#pragma omp simd reduction(+:sum)` for SIMD vectorization. BLAS integration (OpenBLAS / Intel MKL) for matrices larger than 256×256 is planned but not yet implemented (see TD-007).
+> **Note:** TD-007 (resolved April 11, 2026) implemented this: `Matrix::operator*` now has a BLAS
+> SGEMM path for matrices ≥256 in all dimensions, plus AVX2/FMA and ARM NEON intrinsic paths for
+> the other Matrix operations, with the OpenMP/scalar path retained as a fallback. See
+> `src/MatrixSIMD.hpp` and `tests/matrix_simd_test.cpp`.
 
 ### 2.2 Activation Functions (`Activation.cpp` / `Activation.hpp`)
 

@@ -189,8 +189,9 @@ float grad_norm = optimizer->get_gradient_norm();
 // 6. Clip gradients
 optimizer->clip_gradients();
 
-// 7. Update weights
-model->update_weights();  // TODO: Replace with optimizer->step()
+// 7. Update weights via optimizer
+optimizer->step();  // Resolved by TD-001 — ChatbotTrainer.cpp no longer calls
+                     // model->update_weights() in the main training loop.
 ```
 
 ### Optimizer Initialization
@@ -318,7 +319,10 @@ Use these settings for best results:
 
 ## Conclusion
 
-The optimizer integration is **functionally complete** for training purposes. While full parameter exposure remains a TODO, the current implementation provides:
+The optimizer integration is **functionally complete** for training purposes. Full parameter
+exposure (this doc's original TODO) was completed by TD-001, resolved January 28, 2026 —
+`ChatbotTrainer.cpp` now calls `optimizer->step()` directly, replacing `model->update_weights()`.
+The current implementation provides:
 
 ✅ All optimizer algorithms working
 ✅ Gradient clipping preventing training instability
@@ -326,5 +330,6 @@ The optimizer integration is **functionally complete** for training purposes. Wh
 ✅ Gradient monitoring for debugging
 ✅ Full CLI configuration
 ✅ Backward compatibility maintained
+✅ Centralized parameter registration (TD-001, resolved)
 
 The training loop benefits from modern optimization techniques while maintaining compatibility with the existing codebase.
