@@ -21,9 +21,9 @@ namespace adai {
  * Provides structured logging with configurable levels and formatting.
  * Uses spdlog internally for high-performance logging.
  *
- * TODO: See TECHNICAL_DEBT.md Future Enhancement #8 - JSON log output for machine parsing
- * TODO: See TECHNICAL_DEBT.md Future Enhancement #10 - Per-module logging levels
- * TODO: See TECHNICAL_DEBT.md Future Enhancement #11 - Custom sinks (systemd journal, syslog)
+ * TODO: See TECHNICAL_DEBT.md Future Enhancement (Logging and Observability #1) - JSON log output for machine parsing
+ * TODO: See TECHNICAL_DEBT.md Future Enhancement (Logging and Observability #2) - Per-module logging levels
+ * TODO: See TECHNICAL_DEBT.md Future Enhancement (Logging and Observability #3) - Custom sinks (systemd journal, syslog)
  */
 class Logger {
    public:

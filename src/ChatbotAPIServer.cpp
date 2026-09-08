@@ -32,11 +32,11 @@
 #include "ModelNameClient.hpp"
 #endif
 
-// TODO: See TECHNICAL_DEBT.md Future Enhancement #6 - Model State Persistence on Shutdown
-// TODO: See TECHNICAL_DEBT.md Future Enhancement #7 - Graceful Reload (Zero-Downtime Restart)
-// TODO: See TECHNICAL_DEBT.md Future Enhancement #13 - Metrics Endpoint for Prometheus
-// TODO: See TECHNICAL_DEBT.md Future Enhancement #14 - systemd Socket Activation
-// TODO: See TECHNICAL_DEBT.md Future Enhancement #16 - Health Check Enhancements
+// TODO: See TECHNICAL_DEBT.md Future Enhancement (Configuration and Service Management #3) - Model State Persistence on Shutdown
+// TODO: See TECHNICAL_DEBT.md Future Enhancement (Configuration and Service Management #4) - Graceful Reload (Zero-Downtime Restart)
+// TODO: See TECHNICAL_DEBT.md Future Enhancement (Container and Deployment #2) - Metrics Endpoint for Prometheus
+// TODO: See TECHNICAL_DEBT.md Future Enhancement (Container and Deployment #3) - systemd Socket Activation
+// TODO: See TECHNICAL_DEBT.md Future Enhancement (Container and Deployment #5) - Health Check Enhancements
 
 // ============================================================================
 // Signal Handling for Graceful Shutdown and Config Reload
@@ -77,7 +77,7 @@ void signal_handler(int signal) {
         reload_config_requested.store(true);
         adai::Logger::info("SIGHUP received - configuration reload requested");
     }
-    // TODO: See TECHNICAL_DEBT.md Future Enhancement #7 - Add SIGUSR1 handler for graceful model
+    // TODO: See TECHNICAL_DEBT.md Future Enhancement (Configuration and Service Management #4) - Add SIGUSR1 handler for graceful model
     // reload SIGUSR1 should trigger background model loading and atomic swap
 }
 
@@ -444,9 +444,9 @@ int main(int argc, char* argv[]) {
             adai::Logger::info("  RAG:   enabled ({} docs indexed, retrieving top-{})",
                                rag_engine->getNumDocuments(), config.rag_num_docs);
         }
-        // TODO: See TECHNICAL_DEBT.md Future Enhancement #13 - Add /metrics endpoint
+        // TODO: See TECHNICAL_DEBT.md Future Enhancement (Container and Deployment #2) - Add /metrics endpoint
         // Expose Prometheus metrics: request_count, request_duration, active_sessions, etc.
-        // TODO: See TECHNICAL_DEBT.md Future Enhancement #16 - Enhanced /health endpoint
+        // TODO: See TECHNICAL_DEBT.md Future Enhancement (Container and Deployment #5) - Enhanced /health endpoint
         // Return detailed component status, memory usage, readiness/liveness checks
         adai::Logger::info("");
         adai::Logger::info("Press Ctrl+C to stop the server");
@@ -539,7 +539,7 @@ int main(int argc, char* argv[]) {
             // Step 2: Save model state if needed
             // Note: Currently the API server doesn't modify the model,
             // but this is where we would save it if we had online learning
-            // TODO: See TECHNICAL_DEBT.md Future Enhancement #6 - Model State Persistence
+            // TODO: See TECHNICAL_DEBT.md Future Enhancement (Configuration and Service Management #3) - Model State Persistence
             // Automatically save model weights during graceful shutdown if MODEL_PATH is configured
             // Add checkpoint metadata (timestamp, loss, training state)
             if (!config.model_path.empty()) {

@@ -14,9 +14,9 @@
 #include <vector>
 
 // Hot-reloading implemented - see DAEMON_IMPLEMENTATION_COMPLETE.md
-// TODO: See TECHNICAL_DEBT.md Future Enhancement #4 - JSON Configuration Format Support
+// TODO: See TECHNICAL_DEBT.md Future Enhancement (Configuration and Service Management #1) - JSON Configuration Format Support
 //       Add support for JSON format in addition to key=value format
-// TODO: See TECHNICAL_DEBT.md Future Enhancement #5 - Configuration Profiles
+// TODO: See TECHNICAL_DEBT.md Future Enhancement (Configuration and Service Management #2) - Configuration Profiles
 //       Support named profiles (dev, staging, prod) with inheritance
 
 namespace adai {
@@ -169,10 +169,6 @@ struct ServiceConfig {
     /// http://localhost:8081)
     std::string metrics_server_url = "http://localhost:8081";
 
-    // TODO: See TECHNICAL_DEBT.md TD-018 - Add METRICS_SESSION_KEY (string, default "0-default"),
-    //   METRICS_MAX_LIVE_SESSIONS (int, default 16), METRICS_COMPLETED_TTL_SECONDS (int, default
-    //   3600), METRICS_SWEEP_INTERVAL_SECONDS (int, default 60); parse in Config.cpp alongside
-    //   existing keys.
 
     /// HTTP timeout for pushing metrics in milliseconds (default: 1000)
     int metrics_push_timeout_ms = 1000;

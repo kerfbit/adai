@@ -14,8 +14,8 @@
 #include "Logger.hpp"
 
 // Hot-reloading implemented - see DAEMON_IMPLEMENTATION_COMPLETE.md
-// TODO: See TECHNICAL_DEBT.md Future Enhancement #4 - JSON Configuration Format Support
-// TODO: See TECHNICAL_DEBT.md Future Enhancement #5 - Configuration Profiles (dev, staging, prod)
+// TODO: See TECHNICAL_DEBT.md Future Enhancement (Configuration and Service Management #1) - JSON Configuration Format Support
+// TODO: See TECHNICAL_DEBT.md Future Enhancement (Configuration and Service Management #2) - Configuration Profiles (dev, staging, prod)
 
 namespace adai {
 

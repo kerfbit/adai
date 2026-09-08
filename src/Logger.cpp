@@ -11,9 +11,9 @@
 #include <vector>
 
 // File rotation implemented - see LOG_FILE_ROTATION_COMPLETE.md
-// TODO: See TECHNICAL_DEBT.md Future Enhancement #8 - JSON Log Output Format
-// TODO: See TECHNICAL_DEBT.md Future Enhancement #10 - Per-Module Log Levels
-// TODO: See TECHNICAL_DEBT.md Future Enhancement #11 - Custom Log Sinks (syslog, network)
+// TODO: See TECHNICAL_DEBT.md Future Enhancement (Logging and Observability #1) - JSON Log Output Format
+// TODO: See TECHNICAL_DEBT.md Future Enhancement (Logging and Observability #2) - Per-Module Log Levels
+// TODO: See TECHNICAL_DEBT.md Future Enhancement (Logging and Observability #3) - Custom Log Sinks (syslog, network)
 
 namespace adai {
 
@@ -32,7 +32,7 @@ void Logger::init(Level level, const std::string& name) {
     // stdout = program/TUI output; stderr = diagnostics/logs (POSIX convention).
     logger_ = spdlog::stderr_color_mt(name);
 
-    // TODO: See TECHNICAL_DEBT.md Future Enhancement #8 - Support JSON format
+    // TODO: See TECHNICAL_DEBT.md Future Enhancement (Logging and Observability #1) - Support JSON format
     // Add LOG_FORMAT configuration option (text/json)
     // Implement JSON formatter with structured fields
 

@@ -1988,7 +1988,9 @@ std::string IncrementalTrainer::get_best_checkpoint_path() const {
 
 // ============================================================================
 
-// TODO(TD-028): Move to DatasetRegistry::load_conversation_pairs() as a static method
+// TODO: See TECHNICAL_DEBT.md TD-051 - byte-for-byte identical to
+// DatasetRegistry::load_conversation_pairs() (added by TD-028), which this was meant to be
+// replaced by. Redirect the two call sites below to that instead and delete this copy.
 int IncrementalTrainer::load_conversation_pairs(const std::string& filepath,
                                                 std::vector<ConversationPair>& pairs) {
     std::ifstream file(filepath);

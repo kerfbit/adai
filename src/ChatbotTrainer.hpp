@@ -435,8 +435,8 @@ class ChatbotTrainer {
     static float calculate_accuracy(const std::vector<int>& predictions,
                                     const std::vector<int>& targets);
 
-    // Getters for testing
-    // TODO: TD-004 - These getters expose per-epoch metrics for IncrementalTrainer integration
+    // Getters for testing — also how IncrementalTrainer integration consumes per-epoch metrics
+    // (TD-004, absorbed into and completed by TD-009).
     const std::vector<float>& get_training_losses() const {
         return training_losses;
     }

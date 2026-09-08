@@ -361,8 +361,9 @@ class TrainingMetricsService {
     // Thread-safe state
     mutable std::mutex mutex_;
     std::atomic<bool> is_training_;
-    // TODO: See TECHNICAL_DEBT.md TD-018 - Replace single current_session_id_ with per-session
-    // registry
+    // Resolved by TD-018: multi-session support comes from MetricsSessionRegistry owning one
+    // TrainingMetricsService instance per session key, not from this class tracking multiple
+    // sessions internally — so a single current_session_id_ per instance is correct as-is.
     std::atomic<int> current_session_id_;
 
     // Current metrics

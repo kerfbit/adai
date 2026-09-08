@@ -5,10 +5,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** September 7, 2026
-**Total Items:** 21
+**Total Items:** 22
 **High Priority:** 0
 **Medium Priority:** 9
-**Low Priority:** 12
+**Low Priority:** 13
 **Future Enhancements:** 19
 **Resolved Items:** 33
 **Deferred Decisions:** 1
@@ -39,6 +39,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [TD-047: Android Data/Repository/API Layer Has No CI or Release History](#td-047-android-datarepositoryapi-layer-has-no-ci-or-release-history)
   - [TD-048: Android UI/DI/Entry-Point Classes Are Untested and Unreleased](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
   - [TD-049: No JS Test Framework for the Tizen TV App](#td-049-no-js-test-framework-for-the-tizen-tv-app)
+  - [TD-051: IncrementalTrainer::load_conversation_pairs() Is an Unmigrated Duplicate](#td-051-incrementaltrainerload_conversation_pairs-is-an-unmigrated-duplicate)
 - [Resolved Items](#resolved-items) (33 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -743,6 +744,35 @@ Files to Modify:
 
 ---
 
+### TD-051: IncrementalTrainer::load_conversation_pairs() Is an Unmigrated Duplicate
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Training / Data Management | September 7, 2026 | 1-2 hours |
+
+Description:
+Found while auditing every active TD entry for an appropriate in-code TODO. TD-028's dataset
+management refactor (resolved June 7, 2026) added `DatasetRegistry::load_conversation_pairs()`
+as the intended new home for this logic — confirmed byte-for-byte identical to
+`IncrementalTrainer::load_conversation_pairs()` (same 73 lines, only a renamed parameter,
+`filepath` vs `path`) — but never actually removed the original or redirected its two call sites
+(`IncrementalTrainer.cpp:926,993`), which still call the old copy. A `// TODO(TD-028): Move to
+DatasetRegistry::load_conversation_pairs()` comment has sat on the unmigrated copy since — but
+TD-028 itself is closed, so this was effectively an orphaned, never-completed sub-task inside an
+otherwise-resolved item.
+
+Action Items:
+
+- [ ] Redirect `IncrementalTrainer.cpp:926,993` to call `DatasetRegistry::load_conversation_pairs()`.
+- [ ] Delete `IncrementalTrainer::load_conversation_pairs()` and its declaration.
+- [ ] Verify `incrementaltrainerTests` still pass after the redirect.
+
+Files to Modify:
+
+- `src/IncrementalTrainer.cpp` / `src/IncrementalTrainer.hpp`
+
+---
+
 ## Resolved Items
 
 33 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -1140,16 +1170,17 @@ When resolving a debt item:
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|0|0%|
-|Medium|9|43%|
-|Low|12|57%|
+|Medium|9|41%|
+|Low|13|59%|
 
-**Total Active Items:** 21
+**Total Active Items:** 22
 
 ### By Component
 
 |Component|Count|
 |----------------------|-------|
 |Training / Data Generation|1|
+|Training / Data Management|1|
 |Tooling / Toolchain|1|
 |GPU / Inference / Training|1|
 |GPU / Inference / Performance|1|
@@ -1172,12 +1203,13 @@ When resolving a debt item:
 
 |Effort Range|Count|
 |--------------|-------|
+|0-2 hours|1|
 |2-4 hours|4|
 |4-8 hours|5|
 |8+ hours|10|
 |Not estimated|2|
 
-**Total Estimated Effort (Active Items):** 156-227 hours (excludes TD-014 and TD-039, which have no effort estimate)
+**Total Estimated Effort (Active Items):** 157-229 hours (excludes TD-014 and TD-039, which have no effort estimate)
 
 ### Future Enhancements Summary
 
