@@ -528,6 +528,11 @@ Description:
 same `IMetricsDatabase` interface, `MetricsDatabaseTest.cpp`'s existing fixtures are a natural
 starting point rather than a from-scratch design.
 
+Compiled standalone against the system `libpq` (`g++ -std=c++17 -DENABLE_POSTGRES_METRICS`,
+September 7, 2026) to check whether it even builds, since no configured build here has
+`ENABLE_POSTGRES_METRICS=ON` — it compiled clean, zero errors or warnings. So this is purely a
+coverage/CI gap, not a known code defect; the action items below are unchanged.
+
 Action Items:
 
 - [ ] Parameterize (or duplicate) `MetricsDatabaseTest.cpp`'s `IMetricsDatabase` test cases to run
