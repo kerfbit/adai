@@ -2,7 +2,7 @@
 
 // @adai-status: stable
 // @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 
 #include <atomic>
@@ -321,8 +321,11 @@ class MetricsSessionRegistry {
     struct SessionEntry {
         std::shared_ptr<TrainingMetricsService> service;
         std::chrono::system_clock::time_point created_at;
-        std::string label;            ///< populated by start_session() (TD-021 step 8)
-        std::string config_snapshot;  ///< populated by start_session() (TD-021 step 8)
+        // Hygiene: label/config_snapshot used to live here too ("populated by
+        // start_session() (TD-021 step 8)") but were never actually written
+        // or read anywhere in this file — list_sessions() reads those fields
+        // from the service's own snapshot instead. Removed as dead fields on
+        // a private struct with no external accessors.
     };
 
     MetricsServiceConfig config_for_session(const std::string& key) const {
