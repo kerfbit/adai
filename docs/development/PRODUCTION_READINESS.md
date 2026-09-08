@@ -198,7 +198,7 @@ None — every in-scope file carries a tag.
 | `src/MnsManagerGUI.cpp` | beta | 0.7.0 | 2026-09-08 | TD-037 |
 | `src/MnsManagerGUI.hpp` | beta | 0.7.0 | 2026-09-07 | TD-037 |
 | `src/MnsManagerGUI_main.cpp` | beta | 0.7.0 | 2026-09-07 | TD-036 |
-| `src/ModelNameServiceServer.cpp` | beta | 0.8.0 | 2026-09-07 | TD-035 |
+| `src/ModelNameServiceServer.cpp` | beta | 0.8.0 | 2026-09-08 | TD-035 |
 | `src/MultiHeadAttention.cpp` | beta | 0.9.0 | 2026-09-08 | TD-050 |
 | `src/MultiHeadAttention.hpp` | beta | 0.9.0 | 2026-09-08 | TD-050 |
 | `src/PPOOptimizer.hpp` | experimental | 0.2.0 | 2026-09-07 | TD-034 |
