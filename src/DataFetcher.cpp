@@ -574,6 +574,9 @@ std::string DataFetcher::generate_question_from_sentence(const std::string& sent
 }
 
 /*static*/
+// TODO: See TECHNICAL_DEBT.md TD-006 - Add Fill-in-the-Middle (FIM) style pairs here (~20% mix):
+//       given first/last sentences, predict the middle one. Needs FIM special tokens
+//       (<|first|>/<|middle|>/<|last|>) defined first (see BPETokenizer.cpp).
 std::vector<std::pair<std::string, std::string>> DataFetcher::create_qa_pairs_from_text(
     const std::vector<std::string>& sentences, int max_pairs, size_t start_index,
     size_t* out_next_index) {

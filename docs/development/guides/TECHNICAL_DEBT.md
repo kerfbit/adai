@@ -5,12 +5,12 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** September 7, 2026
-**Total Items:** 22
+**Total Items:** 21
 **High Priority:** 0
 **Medium Priority:** 9
-**Low Priority:** 13
+**Low Priority:** 12
 **Future Enhancements:** 19
-**Resolved Items:** 32
+**Resolved Items:** 33
 **Deferred Decisions:** 1
 
 ## Table of Contents
@@ -18,8 +18,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 - [Overview](#overview)
 - [Table of Contents](#table-of-contents)
 - [Active Technical Debt](#active-technical-debt)
-  - [TD-030: GPU-Resident KV-Cache for Autoregressive Generation](#td-030-gpu-resident-kv-cache-for-autoregressive-generation)
-  - [TD-029: Fix GCC 13 ICE in raginference\_test.cpp](#td-029-fix-gcc-13-ice-in-raginference_testcpp)
+  - [TD-050: GPU-Resident KV-Cache for Autoregressive Generation](#td-050-gpu-resident-kv-cache-for-autoregressive-generation)
   - [TD-033: chatbot_api_server Inference Never Uses Persistent GPU-Resident Decode](#td-033-chatbot_api_server-inference-never-uses-persistent-gpu-resident-decode)
   - [TD-032: Bundle SQLite3 Amalgamation for Windows Cross-Compilation](#td-032-bundle-sqlite3-amalgamation-for-windows-cross-compilation)
   - [TD-014: LLM Operations and Training Tooling Suite](#td-014-llm-operations-and-training-tooling-suite)
@@ -40,7 +39,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [TD-047: Android Data/Repository/API Layer Has No CI or Release History](#td-047-android-datarepositoryapi-layer-has-no-ci-or-release-history)
   - [TD-048: Android UI/DI/Entry-Point Classes Are Untested and Unreleased](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
   - [TD-049: No JS Test Framework for the Tizen TV App](#td-049-no-js-test-framework-for-the-tizen-tv-app)
-- [Resolved Items](#resolved-items) (32 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+- [Resolved Items](#resolved-items) (33 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -64,7 +63,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Active Technical Debt
 
-### TD-030: GPU-Resident KV-Cache for Autoregressive Generation
+### TD-050: GPU-Resident KV-Cache for Autoregressive Generation
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
@@ -97,23 +96,6 @@ Context: added alongside `gpu_evaluate()` and `gpu_generate_response()` (July 20
 
 ---
 
-### TD-029: Fix GCC 13 ICE in raginference\_test.cpp
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|-----------------|
-| LOW | Open | Tests / RAGInference | June 7, 2026 | 1-2 hours |
-
-Description:
-`tests/raginference_test.cpp` triggers an Internal Compiler Error (ICE) in GCC 13 (`cc1plus` exits with SIGSEGV) during a full build, preventing the `raginferenceTests` target from being compiled. All other targets build and test cleanly. The root cause is a C++ construct in the 504-line test file that tickles a GCC 13 code-generation bug. The fix is to identify the offending construct (likely a complex template instantiation or lambda capture) and either simplify it or add a targeted workaround.
-
-Action Items:
-
-- [ ] Bisect `raginference_test.cpp` to isolate the construct that triggers the ICE (binary-search by commenting out half the file, rebuild, repeat).
-- [ ] Apply the minimal fix: restructure the construct or break it into smaller translation units.
-- [ ] Verify build succeeds with GCC 13 and add a CI note to monitor for recurrence.
-
----
-
 ### TD-033: chatbot_api_server Inference Never Uses Persistent GPU-Resident Decode
 
 | Priority | Status | Component | Created | Effort Estimate |
@@ -129,7 +111,7 @@ Originally filed as "Matrix GPU Dispatch Doesn't Use Persistent GPUMatrix Reside
 
 `EncoderDecoderModel::gpu_generate_response()` (`src/EncoderDecoderModel.cpp`) already exists as a persistent-residency decode path, but it's wired only into `ChatbotTrainer`'s internal generation-quality backfill / BLEU-ROUGE scoring (`src/ChatbotTrainer.cpp`), never into `ChatbotAPI` — so the one caller that would most benefit (real chat latency) has never been connected to it.
 
-Related: TD-030 (GPU-Resident KV-Cache) covers a different problem inside `gpu_generate_response()` itself — once called, it recomputes the full sequence from scratch every step (no KV-cache), which is O(n²) instead of O(n). TD-030 is about making `gpu_generate_response()` fast once used; this item is about it not being used by `chatbot_api_server` at all.
+Related: TD-050 (GPU-Resident KV-Cache) covers a different problem inside `gpu_generate_response()` itself — once called, it recomputes the full sequence from scratch every step (no KV-cache), which is O(n²) instead of O(n). TD-050 is about making `gpu_generate_response()` fast once used; this item is about it not being used by `chatbot_api_server` at all.
 
 Discovered during the per-file production-readiness rollout (September 7, 2026) — see [file-status-standard.md](file-status-standard.md); corrected same day after tracing both GPU backends end-to-end.
 
@@ -232,13 +214,14 @@ Implementation Tasks:
 
 Files to Modify:
 
-- `src/IncrementalTrainer.cpp` - Modify `create_qa_pairs_from_text()` (line 920)
+- `src/DataFetcher.cpp` - Modify `create_qa_pairs_from_text()` (moved here from
+  `IncrementalTrainer.cpp` in the TD-028 refactor; corrected September 7, 2026)
 - `src/BPETokenizer.cpp` - Add FIM special tokens to vocabulary
-- `src/IncrementalTrainer.hpp` - Add FIM configuration options
+- `src/DataFetcher.hpp` - Add FIM configuration options
 
 Code Location:
 
-`src/IncrementalTrainer.cpp:920`
+`src/DataFetcher.cpp` — `create_qa_pairs_from_text()` (tagged with a `// TODO: TD-006` comment)
 
 References:
 
@@ -762,7 +745,7 @@ Files to Modify:
 
 ## Resolved Items
 
-32 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+33 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements
@@ -1157,10 +1140,10 @@ When resolving a debt item:
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|0|0%|
-|Medium|9|41%|
-|Low|13|59%|
+|Medium|9|43%|
+|Low|12|57%|
 
-**Total Active Items:** 22
+**Total Active Items:** 21
 
 ### By Component
 
@@ -1168,7 +1151,6 @@ When resolving a debt item:
 |----------------------|-------|
 |Training / Data Generation|1|
 |Tooling / Toolchain|1|
-|Tests / RAGInference|1|
 |GPU / Inference / Training|1|
 |GPU / Inference / Performance|1|
 |Build / Windows / Metrics|1|
@@ -1190,13 +1172,12 @@ When resolving a debt item:
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|1|
 |2-4 hours|4|
 |4-8 hours|5|
 |8+ hours|10|
 |Not estimated|2|
 
-**Total Estimated Effort (Active Items):** 157-229 hours (excludes TD-014 and TD-039, which have no effort estimate)
+**Total Estimated Effort (Active Items):** 156-227 hours (excludes TD-014 and TD-039, which have no effort estimate)
 
 ### Future Enhancements Summary
 

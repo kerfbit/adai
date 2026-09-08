@@ -443,6 +443,11 @@ if(OpenMP_CXX_FOUND)
 endif()
 
 # Find SQLite3 (pkg-config not always available; fall back to find_path/find_library)
+# TODO: See TECHNICAL_DEBT.md TD-032 - this only ever finds a system-installed SQLite3
+#       (paths below are Linux-only), which the MinGW Windows cross-compilation path
+#       (scripts/build_windows.sh) has no equivalent for. Bundle the SQLite amalgamation
+#       under external/sqlite3/ and build it as a static lib when this find fails on
+#       a Windows target instead of leaving the metrics SQLite backend unavailable there.
 find_path(SQLITE3_INCLUDE_DIR sqlite3.h
     PATHS /usr/include /usr/local/include /usr/include/x86_64-linux-gnu)
 find_library(SQLITE3_LIBRARY NAMES sqlite3

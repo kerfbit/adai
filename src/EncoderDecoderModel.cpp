@@ -1,4 +1,4 @@
-// @adai-status: beta        (capped by TD-030 — see TECHNICAL_DEBT.md)
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.9.0
 // @adai-reviewed: 2026-09-07
 
@@ -311,7 +311,9 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
 
     if (normalized_strategy == "greedy") {
         // WORKAROUND: Use non-cached path for greedy due to KV cache bug
-        // TODO: Fix KV cache to properly handle autoregressive generation
+        // TODO: See TECHNICAL_DEBT.md TD-050 - Fix KV cache to properly handle autoregressive
+        //       generation (self-attention/cross-attention indexing bug), then build the
+        //       GPU-resident cache on top of the corrected model.
         int actual_vocab_size = static_cast<int>(tokenizer->get_vocab_size());
         auto greedy_model_fn = [this, actual_vocab_size](const std::vector<int>& tokens) -> Matrix {
             Matrix decoder_out = decoder->forward_with_encoder(tokens, cached_encoder_output);

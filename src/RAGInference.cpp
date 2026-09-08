@@ -1,5 +1,5 @@
-// @adai-status: beta        (capped by TD-029 — its GCC 13 build, raginferenceTests, can't compile to verify)
-// @adai-version: 0.8.0
+// @adai-status: stable
+// @adai-version: 1.0.0
 // @adai-reviewed: 2026-09-07
 
 #include "RAGInference.hpp"

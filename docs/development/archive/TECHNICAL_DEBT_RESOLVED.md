@@ -4,6 +4,34 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-029: Fix GCC 13 ICE in raginference_test.cpp
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 7, 2026 (verified, not actively fixed — see note) | Tests / RAGInference | No longer reproduces on GCC 13.3.0 |
+
+Summary:
+Filed against an Internal Compiler Error (`cc1plus` SIGSEGV) that reportedly prevented
+`raginferenceTests` from compiling on GCC 13. Re-verified during a pass confirming every active
+TD item has an appropriate in-code marker: a clean `rm` of the object file followed by a fresh
+`cmake --build . --target raginferenceTests` on this machine's GCC 13.3.0 compiled without error,
+and all 31 tests in the suite pass. Most likely this was fixed upstream in a GCC 13 point release
+between whenever this item was filed (June 7, 2026) and 13.3.0, though the original offending
+construct was never identified, so it's possible a different GCC 13.x minor version could still
+hit it. No code changes were made — `RAGInference.{cpp,hpp}` were promoted from `beta` to `stable`
+since this was their only recorded blocker.
+
+Verification:
+
+- ✅ `raginferenceTests` builds clean on GCC 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1) after removing
+  the stale object file first.
+- ✅ All 31 tests in `raginferenceTests` pass.
+
+If this resurfaces on a different GCC 13.x point release, re-open as a new item rather than
+reverting this one — the root cause was never isolated, so there's no fix to "undo."
+
+---
+
 ### TD-020: Persistent Metrics Storage via SQL Database
 
 | Resolution Date | Component | Resolved By |

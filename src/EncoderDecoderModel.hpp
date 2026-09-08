@@ -1,6 +1,6 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-030 — see TECHNICAL_DEBT.md)
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.9.0
 // @adai-reviewed: 2026-09-07
 
@@ -170,7 +170,7 @@ class EncoderDecoderModel {
      * sequence from scratch via gpu_decode() rather than incrementally
      * caching — same algorithmic shape as the CPU "greedy workaround" path,
      * just GPU-accelerated. Only the last position's logits are downloaded
-     * per step. (See TD-030 for the KV-cache gap.)
+     * per step. (See TD-050 for the KV-cache gap.)
      *
      * See TD-033 in TECHNICAL_DEBT.md - this is the persistent GPU-resident
      * decode path chatbot_api_server's live serving code should be using, but

@@ -277,7 +277,7 @@ trusting a `grep TD-NNN` alone. Currently active items:
 
 | Tag | Description |
 |---|---|
-| TD-030 | GPU-resident KV-cache for autoregressive generation — CPU cache has a known correctness bug; no GPU cache exists at all |
+| TD-050 | GPU-resident KV-cache for autoregressive generation — CPU cache has a known correctness bug; no GPU cache exists at all |
 | **TD-033** | `chatbot_api_server` inference never uses the persistent GPU-resident decode path — training already does |
 | TD-029 | GCC 13 ICE compiling `tests/raginference_test.cpp` |
 | TD-032 | SQLite amalgamation not bundled for Windows/MinGW cross-compilation |

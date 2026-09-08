@@ -390,8 +390,10 @@ class PPOOptimizer {
                 // Compute policy loss
                 float policy_loss = 0.0f;
                 for (size_t i = 0; i < batch_states.size(); i++) {
-                    // In practice, would recompute log_probs with current policy
-                    // For now, use simplified ratio calculation
+                    // TODO: See TECHNICAL_DEBT.md TD-034 - new_log_prob is never recomputed
+                    // under the current policy, so ratio always evaluates to exp(0) = 1 and
+                    // this isn't PPO's clipped surrogate objective. Needs a real forward pass
+                    // of the current policy over batch_states[i].
                     float new_log_prob = batch_old_log_probs[i];  // Placeholder
                     float ratio = std::exp(new_log_prob - batch_old_log_probs[i]);
 
@@ -408,8 +410,9 @@ class PPOOptimizer {
                 num_updates++;
             }
 
-            // Early stopping based on KL divergence
-            // (simplified - would need to track actual KL)
+            // TODO: See TECHNICAL_DEBT.md TD-034 - approx_kl is hardcoded to 0.0f, so the
+            // early-stop condition below can never fire. Needs real per-minibatch KL
+            // divergence between old and current policy.
             float approx_kl = 0.0f;  // Placeholder
             if (approx_kl > 1.5f * config_.kl_target) {
                 break;

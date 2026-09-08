@@ -1,6 +1,6 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-030 — greedy-decode correctness bug, see TECHNICAL_DEBT.md)
+// @adai-status: beta        (capped by TD-050 — greedy-decode correctness bug, see TECHNICAL_DEBT.md)
 // @adai-version: 0.6.0
 // @adai-reviewed: 2026-09-07
 

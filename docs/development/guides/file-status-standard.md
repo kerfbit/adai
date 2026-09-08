@@ -10,7 +10,7 @@ is often *capped* by an open TD item; see [Relationship to Technical Debt](#rela
 ## Why this exists
 
 `docs/development/reference/chatbot-completeness.md` marks `MultiHeadAttention`'s KV-cache path
-"✅ Production-ready," but [TECHNICAL_DEBT.md](TECHNICAL_DEBT.md) TD-030 documents that the same
+"✅ Production-ready," but [TECHNICAL_DEBT.md](TECHNICAL_DEBT.md) TD-050 documents that the same
 cache produces incorrect results for greedy decoding. Neither doc is wrong for its moment — the
 completeness doc just has no mechanism to notice when the ground shifts under it. A tag that lives
 in the file itself, is checked by CI, and is cheap to keep current doesn't have that failure mode.
@@ -38,7 +38,7 @@ are out of scope — see [Scope](#scope).)
 When a status is held down by a specific known gap, say so on the status line itself:
 
 ```cpp
-// @adai-status: beta        (capped by TD-030 — see TECHNICAL_DEBT.md)
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
 ```
 
 ### `@adai-status`
@@ -126,7 +126,7 @@ Two scripts live in `scripts/`:
 [TECHNICAL_DEBT.md](TECHNICAL_DEBT.md) tracks *why* something isn't done; this standard tracks
 *whether a given file is safe to rely on right now*. They cross-reference, they don't merge:
 
-- A file capped below `stable` by a known, tracked gap should say so inline (`capped by TD-030`).
+- A file capped below `stable` by a known, tracked gap should say so inline (`capped by TD-050`).
 - Resolving a TD item is a natural trigger to re-review and possibly promote the file's status —
   but promotion still requires an explicit `@adai-status`/`@adai-version` edit; closing the TD item
   alone doesn't change the tag.
