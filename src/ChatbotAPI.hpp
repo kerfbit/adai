@@ -2,7 +2,7 @@
 
 // @adai-status: beta        (capped by TD-033 — generate_response() never uses GPU-resident decode, see TECHNICAL_DEBT.md)
 // @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 
 #include <chrono>
@@ -153,6 +153,24 @@ class ChatbotAPI {
                                             const std::string& error = "");
     static std::string create_batch_json_response(const BatchResponse& batch_response);
     static std::string create_error_response(const std::string& error);
+    /**
+     * @brief Escape a string for embedding inside a JSON string literal
+     *        (quotes, backslashes, and the standard control-character escapes).
+     *
+     * TD-063 (fixed): every JSON-building function in this file used to escape
+     * some string fields (e.g. the "response"/"responses" fields) char-by-char
+     * inline but not others (session_id, the "error" field in both
+     * create_json_response()'s failure branch and create_batch_json_response()'s
+     * failure branch, and session_ids[] in the batch response) — all of which
+     * can carry client-controlled or exception-message text (e.g. every
+     * top-level handler's catch block passes e.what() straight to
+     * create_error_response()). A crafted session_id or a message that
+     * triggers an exception whose text embeds a '"' could inject additional
+     * JSON fields into the response or break its structure entirely. This
+     * helper is now the single escaping implementation used everywhere in
+     * this file.
+     */
+    static std::string escape_json_string(const std::string& s);
 
    private:
     // HTTP endpoint handlers

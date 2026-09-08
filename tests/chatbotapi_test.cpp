@@ -211,6 +211,71 @@ TEST_F(ChatbotAPITest, CreateBatchJsonResponse_Error) {
 }
 
 // ============================================================================
+// JSON Escaping Regression Tests (TD-063)
+//
+// create_json_response()'s error branch, create_batch_json_response()'s error
+// and session_ids branches, and handle_chat_session()'s inline session_id
+// field all used to write their string arguments straight into the response
+// with no escaping — while an adjacent field in the very same function (the
+// success "response"/"responses" text) was carefully escaped. Every top-level
+// endpoint handler's catch block passes e.what() straight to
+// create_error_response(), and session_id can be entirely client-supplied
+// (get_or_create_session() uses a non-empty client-supplied session_id
+// verbatim as the session's key), so a quote character reaching either path
+// used to inject additional JSON fields or break the response's structure.
+// handle_chat_session() is private and its TEST_F-generated subclass doesn't
+// inherit ChatbotAPI's friendship with the ChatbotAPITest base fixture (C++
+// friendship isn't transitive to subclasses), so it isn't called directly
+// here — it's covered indirectly, since it now calls the same
+// escape_json_string() exercised below.
+// ============================================================================
+
+TEST_F(ChatbotAPITest, EscapeJsonString_EscapesQuotesBackslashesAndControlChars) {
+    EXPECT_EQ(ChatbotAPI::escape_json_string(R"(say "hi")"), R"(say \"hi\")");
+    EXPECT_EQ(ChatbotAPI::escape_json_string("a\\b"), "a\\\\b");
+    EXPECT_EQ(ChatbotAPI::escape_json_string("line1\nline2"), "line1\\nline2");
+    EXPECT_EQ(ChatbotAPI::escape_json_string("plain text"), "plain text");
+}
+
+TEST_F(ChatbotAPITest, CreateErrorResponse_EscapesEmbeddedQuote) {
+    // A crafted error message containing a quote used to break out of the
+    // "error" string and inject a sibling field into the response.
+    std::string response = api->create_error_response(R"(bad input: "oops","injected":true)");
+
+    EXPECT_EQ(response.find(R"("injected":true)"), std::string::npos)
+        << "unescaped quote let attacker-controlled JSON escape the error string: " << response;
+    EXPECT_NE(response.find(R"(\")"), std::string::npos);
+}
+
+TEST_F(ChatbotAPITest, CreateBatchJsonResponse_EscapesEmbeddedQuoteInSessionId) {
+    ChatbotAPI::BatchResponse batch_resp;
+    batch_resp.success = true;
+    batch_resp.responses = {"hi"};
+    batch_resp.session_ids = {R"(evil","admin":true)"};
+    batch_resp.stats.total_tokens = 1;
+    batch_resp.stats.actual_tokens = 1;
+    batch_resp.stats.padding_ratio = 0.0f;
+    batch_resp.stats.num_batches = 1;
+    batch_resp.stats.avg_batch_size = 1.0f;
+
+    std::string response = api->create_batch_json_response(batch_resp);
+
+    EXPECT_EQ(response.find(R"("admin":true)"), std::string::npos)
+        << "unescaped quote in session_ids[] injected a sibling field: " << response;
+}
+
+TEST_F(ChatbotAPITest, CreateBatchJsonResponse_EscapesEmbeddedQuoteInError) {
+    ChatbotAPI::BatchResponse batch_resp;
+    batch_resp.success = false;
+    batch_resp.error = R"(failed","pwned":true)";
+
+    std::string response = api->create_batch_json_response(batch_resp);
+
+    EXPECT_EQ(response.find(R"("pwned":true)"), std::string::npos)
+        << "unescaped quote in batch error injected a sibling field: " << response;
+}
+
+// ============================================================================
 // Generation Configuration Tests
 // ============================================================================
 

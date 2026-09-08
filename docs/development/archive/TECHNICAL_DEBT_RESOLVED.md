@@ -4,6 +4,64 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-063: ChatbotAPI's JSON Responses Could Be Injected Via an Unescaped session_id/error
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 8, 2026 | API / Security | Shared `escape_json_string()` helper applied at all four gaps |
+
+Summary:
+Found while reading `src/ChatbotAPI.cpp` end to end. Four separate places in this file wrote a
+string field straight into a hand-built JSON response with **no escaping**, while an adjacent field
+in the very same function *was* carefully escaped char-by-char — an inconsistent pattern that
+turned out to be a real, exploitable gap in all four cases:
+
+1. `handle_chat_session()`'s inline response builder escaped `response` but not `session_id`.
+2. `create_json_response()`'s failure branch wrote `error` unescaped (the success branch's
+   `response` was escaped).
+3. `create_batch_json_response()`'s `session_ids[]` array was unescaped (`responses[]` right next
+   to it was escaped).
+4. `create_batch_json_response()`'s failure branch wrote `batch_response.error` unescaped.
+
+Both string sources are attacker-reachable: `session_id` can be entirely client-supplied —
+`get_or_create_session()` uses a non-empty, not-yet-seen client-supplied `session_id` verbatim as
+the new session's key — and `parse_json_string()`'s request-side unescaping correctly turns a
+client's `\"` into a literal `"`, so a crafted request can get an actual quote character into the
+raw `session_id` string. Every one of the five `/chat*` endpoint handlers' top-level `catch` blocks
+passes `e.what()` straight to `create_error_response()`, and `generate_response()`/
+`generate_batch_responses()`/`generate_batch_session_responses()` all wrap and rethrow with
+`e.what()` embedded, so any exception message that happens to include user-influenced text reaches
+the same unescaped path. A crafted value like `evil","injected":true` in either field produces a
+syntactically valid but attacker-extended JSON response — e.g.
+`..."session_id":"evil","injected":true"}` — letting a client inject sibling fields into (or, with
+different content, break the structure of) a response the server never intended to send.
+
+Changes Made:
+
+- Added `ChatbotAPI::escape_json_string()` (public, matches the `\"`/`\\`/`\n`/`\r`/`\t` escaping
+  already used correctly elsewhere in the file) as the single escaping implementation.
+- Replaced all four unescaped call sites with it, and replaced the two already-correct-but-duplicated
+  inline char-by-char loops (`response` in `handle_chat_session`, `responses[i]` in
+  `create_batch_json_response`) with calls to the same helper, so there's only one escaping
+  implementation left in the file to keep correct.
+- Added five regression tests to `tests/chatbotapi_test.cpp`: a direct test of
+  `escape_json_string()`'s behavior, and one test per fixed call site asserting that a crafted
+  `evil","injected":true`-shaped value can no longer produce an `"injected":true` (or equivalent)
+  sibling field in the output.
+
+Verification:
+
+- ✅ `chatbotapiTests` rebuilds clean; all 45 tests pass, including the 5 new regression tests in
+  isolation.
+
+Files Changed:
+
+- `src/ChatbotAPI.hpp`
+- `src/ChatbotAPI.cpp`
+- `tests/chatbotapi_test.cpp`
+
+---
+
 ### TD-062: train_epoch()'s Reported Loss/Grad-Norm Drifted Across Epochs
 
 | Resolution Date | Component | Resolved By |

@@ -168,8 +168,8 @@ None — every in-scope file carries a tag.
 | `scripts/verify_gui_parallel.sh` | beta | 0.6.0 | 2026-09-07 | TD-044 |
 | `scripts/verify_special_token_fixes.py` | experimental | 0.3.0 | 2026-09-07 | TD-046 |
 | `src/BatchedInferenceEngine.hpp` | beta | 0.7.0 | 2026-09-07 | TD-038 |
-| `src/ChatbotAPI.cpp` | beta | 0.9.0 | 2026-09-07 | TD-033 |
-| `src/ChatbotAPI.hpp` | beta | 0.9.0 | 2026-09-07 | TD-033 |
+| `src/ChatbotAPI.cpp` | beta | 0.9.0 | 2026-09-08 | TD-033 |
+| `src/ChatbotAPI.hpp` | beta | 0.9.0 | 2026-09-08 | TD-033 |
 | `src/ChatbotAPIServer.cpp` | beta | 0.8.0 | 2026-09-07 | TD-035 |
 | `src/ChatbotCLI_main.cpp` | beta | 0.8.0 | 2026-09-07 | TD-036 |
 | `src/ChatbotGUI.cpp` | beta | 0.7.0 | 2026-09-07 | TD-037 |

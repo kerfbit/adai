@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-033 — generate_response() never uses GPU-resident decode, see TECHNICAL_DEBT.md)
 // @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 #include "ChatbotAPI.hpp"
 #include <httplib.h>
@@ -188,25 +188,11 @@ std::string ChatbotAPI::handle_chat_session(const std::string& request_body) {
     session->context->add_assistant_message(response);
 
     // Create JSON response with session_id
+    // TD-063 (fixed): session_id used to be written unescaped here — see
+    // escape_json_string()'s doc comment.
     std::ostringstream oss;
-    oss << R"({"success":true,"response":")";
-    // Escape quotes in response
-    for (char c : response) {
-        if (c == '"') {
-            oss << "\\\"";
-        } else if (c == '\\') {
-            oss << "\\\\";
-        } else if (c == '\n') {
-            oss << "\\n";
-        } else if (c == '\r') {
-            oss << "\\r";
-        } else if (c == '\t') {
-            oss << "\\t";
-        } else {
-            oss << c;
-        }
-    }
-    oss << R"(","session_id":")" << session_id << "\"}";
+    oss << R"({"success":true,"response":")" << escape_json_string(response)
+        << R"(","session_id":")" << escape_json_string(session_id) << "\"}";
 
     return oss.str();
 }
@@ -516,32 +502,39 @@ std::vector<std::string> ChatbotAPI::parse_json_array(const std::string& json,
     return result;
 }
 
+std::string ChatbotAPI::escape_json_string(const std::string& s) {
+    std::ostringstream oss;
+    for (char c : s) {
+        if (c == '"') {
+            oss << "\\\"";
+        } else if (c == '\\') {
+            oss << "\\\\";
+        } else if (c == '\n') {
+            oss << "\\n";
+        } else if (c == '\r') {
+            oss << "\\r";
+        } else if (c == '\t') {
+            oss << "\\t";
+        } else {
+            oss << c;
+        }
+    }
+    return oss.str();
+}
+
 std::string ChatbotAPI::create_json_response(const std::string& response, bool success,
                                              const std::string& error) {
     std::ostringstream oss;
     oss << "{\"success\":" << (success ? "true" : "false");
 
     if (success) {
-        oss << R"(,"response":")";
-        // Escape quotes and special characters
-        for (char c : response) {
-            if (c == '"') {
-                oss << "\\\"";
-            } else if (c == '\\') {
-                oss << "\\\\";
-            } else if (c == '\n') {
-                oss << "\\n";
-            } else if (c == '\r') {
-                oss << "\\r";
-            } else if (c == '\t') {
-                oss << "\\t";
-            } else {
-                oss << c;
-            }
-        }
-        oss << "\"";
+        oss << R"(,"response":")" << escape_json_string(response) << "\"";
     } else {
-        oss << R"(,"error":")" << error << "\"";
+        // TD-063 (fixed): error used to be written unescaped here. Every
+        // top-level handler's catch block passes e.what() straight to
+        // create_error_response(), so an exception message embedding a '"'
+        // used to break or inject into the response JSON.
+        oss << R"(,"error":")" << escape_json_string(error) << "\"";
     }
 
     oss << "}";
@@ -562,35 +555,19 @@ std::string ChatbotAPI::create_batch_json_response(const BatchResponse& batch_re
             if (i > 0) {
                 oss << ",";
             }
-            oss << "\"";
-            // Escape quotes and special characters
-            for (char c : batch_response.responses[i]) {
-                if (c == '"') {
-                    oss << "\\\"";
-                } else if (c == '\\') {
-                    oss << "\\\\";
-                } else if (c == '\n') {
-                    oss << "\\n";
-                } else if (c == '\r') {
-                    oss << "\\r";
-                } else if (c == '\t') {
-                    oss << "\\t";
-                } else {
-                    oss << c;
-                }
-            }
-            oss << "\"";
+            oss << "\"" << escape_json_string(batch_response.responses[i]) << "\"";
         }
         oss << "]";
 
         // Include session IDs if present
+        // TD-063 (fixed): session_ids[i] used to be written unescaped here.
         if (!batch_response.session_ids.empty()) {
             oss << ",\"session_ids\":[";
             for (size_t i = 0; i < batch_response.session_ids.size(); ++i) {
                 if (i > 0) {
                     oss << ",";
                 }
-                oss << "\"" << batch_response.session_ids[i] << "\"";
+                oss << "\"" << escape_json_string(batch_response.session_ids[i]) << "\"";
             }
             oss << "]";
         }
@@ -603,7 +580,8 @@ std::string ChatbotAPI::create_batch_json_response(const BatchResponse& batch_re
             << "\"avg_batch_size\":" << batch_response.stats.avg_batch_size << ","
             << "\"efficiency\":" << ((1.0f - batch_response.stats.padding_ratio) * 100.0f) << "}";
     } else {
-        oss << R"(,"error":")" << batch_response.error << "\"";
+        // TD-063 (fixed): batch_response.error used to be written unescaped here.
+        oss << R"(,"error":")" << escape_json_string(batch_response.error) << "\"";
     }
 
     oss << "}";
