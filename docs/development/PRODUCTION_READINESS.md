@@ -176,8 +176,8 @@ None — every in-scope file carries a tag.
 | `src/ChatbotGUI.hpp` | beta | 0.7.0 | 2026-09-07 | TD-037 |
 | `src/ChatbotGUI_main.cpp` | beta | 0.7.0 | 2026-09-07 | TD-036 |
 | `src/ChatbotGUI_wrapper.cpp` | beta | 0.7.0 | 2026-09-07 | TD-036 |
-| `src/ChatbotTrainer.cpp` | beta | 0.9.0 | 2026-09-07 | TD-039 |
-| `src/ChatbotTrainer.hpp` | beta | 0.9.0 | 2026-09-07 | TD-039 |
+| `src/ChatbotTrainer.cpp` | beta | 0.9.0 | 2026-09-08 | TD-039 |
+| `src/ChatbotTrainer.hpp` | beta | 0.9.0 | 2026-09-08 | TD-039 |
 | `src/CrossAttention.cpp` | beta | 0.9.0 | 2026-09-08 | TD-050 |
 | `src/CrossAttention.hpp` | beta | 0.9.0 | 2026-09-08 | TD-050 |
 | `src/DatasetManagerTool.cpp` | beta | 0.8.0 | 2026-09-07 | TD-035 |

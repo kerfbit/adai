@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer)
 // @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 #include "ChatbotTrainer.hpp"
 #include <algorithm>
@@ -1327,10 +1327,22 @@ float ChatbotTrainer::train_epoch(int epoch) {
                 global_step++;
 
                 // Log progress
+                // TD-062 (fixed): num_updates used to be derived from
+                // `global_step - epoch*(num_samples/accum_steps)`, which assumes every
+                // epoch has exactly `num_samples/accum_steps` (integer-divided) updates.
+                // The last, partial accumulation window is always force-flushed at
+                // i==num_samples-1 regardless of its size, so whenever num_samples isn't
+                // an exact multiple of gradient_accumulation_steps, each epoch actually
+                // has one MORE update than that floor division — an error the formula
+                // never corrected for, so it drifted by +1 every epoch (confirmed by
+                // simulating the exact loop: epoch 5 of a 100-sample/32-step run computed
+                // 9 "updates" for an epoch that only ever did 4). update_count is already
+                // an exact, directly-incremented count of updates so far this epoch (see
+                // ++update_count below) — using it instead needs no epoch-boundary math
+                // at all. +1 here because this fires before update_count's own increment.
                 if ((i + 1) % (config.log_every * config.gradient_accumulation_steps) == 0 ||
                     i == num_samples - 1) {
-                    int num_updates =
-                        global_step - (epoch * (num_samples / config.gradient_accumulation_steps));
+                    int num_updates = update_count + 1;
                     float avg_loss = total_loss / static_cast<float>(num_updates);
                     float avg_grad_norm = total_grad_norm / static_cast<float>(num_updates);
 
@@ -1392,9 +1404,16 @@ float ChatbotTrainer::train_epoch(int epoch) {
         }
     }
 
-    // CRITICAL FIX: Divide by number of actual updates, not num_samples
-    // total_loss only accumulates when should_update is true
-    int num_updates = global_step - (epoch * (num_samples / config.gradient_accumulation_steps));
+    // Divide by number of actual updates, not num_samples — total_loss only
+    // accumulates when should_update is true. TD-062 (fixed): this used to
+    // re-derive the count via `global_step - epoch*(num_samples/accum_steps)`,
+    // which drifted by +1 every epoch whenever num_samples wasn't an exact
+    // multiple of gradient_accumulation_steps (see the detailed note at the
+    // mid-epoch log above) — increasingly understating epoch_loss/avg_grad_norm
+    // in later epochs. update_count was already being incremented once per
+    // actual update this whole time; using it directly needs no epoch-boundary
+    // arithmetic and can't drift.
+    int num_updates = update_count;
     float epoch_loss = (num_updates > 0) ? (total_loss / static_cast<float>(num_updates)) : 0.0f;
     float avg_grad_norm =
         (num_updates > 0) ? (total_grad_norm / static_cast<float>(num_updates)) : 0.0f;

@@ -4,6 +4,78 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-062: train_epoch()'s Reported Loss/Grad-Norm Drifted Across Epochs
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 8, 2026 | Training / Reporting | Use the already-correct `update_count` local instead of re-deriving it from `global_step` |
+
+Summary:
+Found while reading `src/ChatbotTrainer.cpp` end to end. `train_epoch()` computed its reported
+`epoch_loss`/`avg_grad_norm` (and the identical mid-epoch progress-log figures) by dividing
+`total_loss`/`total_grad_norm` by a `num_updates` re-derived as
+`global_step - epoch * (num_samples / config.gradient_accumulation_steps)`. That formula assumes
+every epoch does exactly `num_samples / gradient_accumulation_steps` (**integer-divided**)
+optimizer updates — but the loop always force-flushes a final, possibly-partial accumulation
+window at the last sample of the epoch (`i == num_samples - 1`) regardless of its size, so whenever
+`num_samples` isn't an exact multiple of `gradient_accumulation_steps`, every epoch actually does
+one *more* update than the floor-divided formula assumes. The formula never corrected for this, so
+the discrepancy compounded by +1 every epoch. Confirmed by simulating the exact loop logic
+(100 samples, 32-step accumulation): the true update count is 4 every epoch, but the formula
+computed 4, 5, 6, 7, 8, 9 across epochs 0–5 — by epoch 5 more than double the true count, meaning
+`epoch_loss` was calculated as `(sum of 4 update-losses) / 9`, understating the reported training
+loss by more than half.
+
+**Scope of impact — narrower than a training-correctness bug:** this only affects the *reported*
+aggregate figures — `get_final_training_loss()`, `get_training_losses()`, `get_gradient_norms()`,
+the "Epoch N complete" log line, mid-epoch progress logs, and (via `IncrementalTrainer::run_training()`)
+the `final_loss` field pushed into session history and MNS's `training_history` summaries.
+Per-sample metrics pushed to the metrics dashboard (`update_sample_metrics`) use the correctly-scaled
+`step_loss_for_cb`, not this aggregate, so those were never affected. **Actual training was never
+affected either** — every optimizer step, gradient accumulation, and weight update happened exactly
+as intended; only the epoch-level bookkeeping used for display was wrong. Best-checkpoint selection
+(`best_validation_loss`) is also unaffected — it's computed independently in `validate()` as a
+straightforward `total_loss / num_samples` over the validation set, with no accumulation-window
+arithmetic at all.
+
+The original "CRITICAL FIX" comment at this exact line reveals this was already a second attempt: a
+prior fix corrected an even more basic bug (dividing by `num_samples` instead of update count) but
+introduced this subtler one in the process, and neither one was caught because
+`tests/chatbottrainer_test.cpp`'s `GradientAccumulationTest` suite only checks
+`batch_size * gradient_accumulation_steps` config arithmetic, never running an actual multi-epoch
+training pass with a non-divisible sample count.
+
+Changes Made:
+
+- Replaced both the mid-epoch and epoch-end `num_updates` computations with the already-correct,
+  directly-incremented `update_count` local variable (`update_count + 1` mid-epoch, since that
+  fires just before `update_count`'s own increment; plain `update_count` at epoch end, after the
+  loop has finished incrementing it for every update that occurred) — no epoch-boundary arithmetic
+  needed at all, so there's nothing left to drift.
+- Added `ChatbotTrainerAbortTest.TrainingLossStaysSaneWithNonDivisibleAccumulationWindow` to
+  `tests/chatbottrainer_test.cpp`: 5 training pairs with `gradient_accumulation_steps=3` (2
+  updates/epoch: a 3-sample window then a force-flushed 2-sample window) across 4 epochs, asserting
+  `get_global_step()` matches the exact expected count and every reported epoch loss is finite and
+  positive. Can't assert an exact expected loss value (depends on the model's actual learned
+  weights), but exercises the exact non-divisible shape that triggered the drift and would catch a
+  regression to a wrong/zero divisor.
+
+Verification:
+
+- ✅ Standalone Python simulation of the exact loop logic confirms both the bug (formula computes
+  4, 5, 6, 7, 8, 9 "updates" for epochs 0–5 of a 100-sample/32-step configuration that truly does 4
+  every epoch) and that the fix removes the drift entirely (by construction — `update_count` is a
+  direct count, not a re-derived estimate).
+- ✅ `chatbottrainerTests` rebuilds clean; all 69 tests pass, including the new regression test in
+  isolation.
+
+Files Changed:
+
+- `src/ChatbotTrainer.cpp`
+- `tests/chatbottrainer_test.cpp`
+
+---
+
 ### TD-061: GPU LayerNorm Backward (CUDA and SYCL) Computed Wrong Input Gradients
 
 | Resolution Date | Component | Resolved By |

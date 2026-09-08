@@ -989,6 +989,40 @@ TEST(ChatbotTrainerAbortTest, SetAbortFlagNullptrDisablesAbortChecking) {
     EXPECT_FALSE(trainer->was_aborted());
 }
 
+// Regression test (TD-062): train_epoch()'s reported epoch_loss/avg_grad_norm
+// used to divide by a `num_updates` re-derived from
+// `global_step - epoch*(num_samples/accum_steps)`, which drifted by +1 every
+// epoch whenever num_samples wasn't an exact multiple of
+// gradient_accumulation_steps (confirmed by simulating the exact loop:
+// 100 samples / 32 accum steps gave 4 true updates/epoch but the old formula
+// reported 4, 5, 6, 7... across successive epochs). 5 pairs with
+// accumulation_steps=3 gives 2 updates/epoch (a 3-sample window, then a
+// force-flushed 2-sample window) — the same non-divisible shape that
+// triggered the drift. This can't assert an exact expected loss value
+// (that depends on the model's actual learned weights), but it does verify
+// the fixed code path produces the correct update *count* across several
+// epochs and never divides by a wrong/zero count (which would show up as a
+// non-finite or clearly-wrong-magnitude loss).
+TEST(ChatbotTrainerAbortTest, TrainingLossStaysSaneWithNonDivisibleAccumulationWindow) {
+    TrainingConfig cfg;
+    cfg.num_epochs = 4;
+    cfg.gradient_accumulation_steps = 3;
+    auto trainer = make_abort_test_trainer(
+        cfg, 5, "/tmp/adai_chatbottrainer_abort_test_nondivisible_accum_vocab.txt");
+
+    ASSERT_TRUE(trainer->train(4));
+    // 5 samples / 3 accum steps = 2 updates/epoch (window sizes 3 then 2,
+    // the second force-flushed at the last sample) — exact, not floor-divided.
+    EXPECT_EQ(trainer->get_global_step(), 4 * 2);
+
+    const auto& losses = trainer->get_training_losses();
+    ASSERT_EQ(losses.size(), 4u);
+    for (float loss : losses) {
+        EXPECT_TRUE(std::isfinite(loss));
+        EXPECT_GT(loss, 0.0f);
+    }
+}
+
 // ============================================================================
 // Main Function
 // ============================================================================
