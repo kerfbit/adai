@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-035 — shipped as chatbot_api_server, no dedicated test)
 // @adai-version: 0.8.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
 #include <atomic>
@@ -49,11 +49,6 @@ static std::atomic<bool> reload_config_requested{false};
 
 // Global pointer for signal handler (only used to stop the server)
 static ChatbotAPI* g_api_server = nullptr;
-
-// Global configuration state (protected by mutex)
-static adai::ServiceConfig* g_config = nullptr;
-static std::mutex* g_config_mutex = nullptr;
-static std::string* g_config_file_path = nullptr;
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
 /**
@@ -415,14 +410,13 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // Initialize global config state for reload
+        // Configuration reload state — read/written only via the local
+        // variables below (the reload logic runs entirely in the main loop,
+        // never in the signal handler, so no global pointers are needed here).
         std::mutex config_mutex;
-        g_config = &config;
-        g_config_mutex = &config_mutex;
 
         // Store config file path for reload (same path resolved at load time above)
         std::string stored_config_path = resolved_config_path;
-        g_config_file_path = &stored_config_path;
 
         // Set up signal handlers
         g_api_server = api.get();
