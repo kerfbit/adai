@@ -43,9 +43,10 @@
  * - Output = Concat(Attention_1, ..., Attention_h)W_o
  *
  * Implementation Note:
- * This implementation uses a simplified approach where we don't explicitly
- * split and concatenate heads, but instead process the full d_model dimension
- * and rely on the learned weight matrices to capture multi-head behavior.
+ * MultiHeadAttention.cpp's forward() does explicitly split into per-head slices — each head
+ * processes its own [h*d_k, (h+1)*d_k) column range of Q/K/V, matching the mathematical
+ * formulation above exactly. (This comment previously described an earlier, non-split
+ * implementation; corrected September 8, 2026 after confirming against the current code.)
  */
 /// Callback invoked after softmax in every forward() pass, receiving the
 /// attention weight matrix [seq_len × seq_len].

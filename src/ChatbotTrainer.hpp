@@ -430,7 +430,7 @@ class ChatbotTrainer {
     static std::vector<int> truncate_tokens_tail(std::vector<int> ids, int max_len);
 
     /**
-     * @brief Calculate token-level accuracy (placeholder)
+     * @brief Calculate token-level accuracy (fraction of positions where predictions match targets)
      */
     static float calculate_accuracy(const std::vector<int>& predictions,
                                     const std::vector<int>& targets);

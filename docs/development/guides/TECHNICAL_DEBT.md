@@ -4,10 +4,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** September 7, 2026
-**Total Items:** 22
+**Last Updated:** September 8, 2026
+**Total Items:** 24
 **High Priority:** 0
-**Medium Priority:** 9
+**Medium Priority:** 11
 **Low Priority:** 13
 **Future Enhancements:** 19
 **Resolved Items:** 33
@@ -40,6 +40,8 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [TD-048: Android UI/DI/Entry-Point Classes Are Untested and Unreleased](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
   - [TD-049: No JS Test Framework for the Tizen TV App](#td-049-no-js-test-framework-for-the-tizen-tv-app)
   - [TD-051: IncrementalTrainer::load_conversation_pairs() Is an Unmigrated Duplicate](#td-051-incrementaltrainerload_conversation_pairs-is-an-unmigrated-duplicate)
+  - [TD-052: ParallelDataLoader's Batches Use Character Codes, Not Real Tokens](#td-052-paralleldataloaders-batches-use-character-codes-not-real-tokens)
+  - [TD-053: ChatbotCLI's /save and /load Commands Are Non-Functional Everywhere](#td-053-chatbotclis-save-and-load-commands-are-non-functional-everywhere)
 - [Resolved Items](#resolved-items) (33 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -241,7 +243,7 @@ Evaluation:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | RLHF / PPOOptimizer | September 7, 2026 | 6-10 hours |
+| LOW | Open | RLHF / PPOOptimizer | September 7, 2026 | 10-16 hours |
 
 Description:
 `PPOOptimizer::train()`'s minibatch loop never recomputes log-probabilities under the current
@@ -254,6 +256,20 @@ shipped binary (`phase5_test.cpp` exercises it in isolation only — see
 [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md)), so this has no effect on any current
 training path, but it would silently misbehave the moment RLHF fine-tuning is wired up.
 
+**A second, more severe bug in the same file, found during a later re-audit (September 8, 2026):**
+`ValueFunction::update()` allocates `weight_grads`/`bias_grads` (zero-initialized), then its
+per-sample loop computes a local `grad` variable (`// Backward pass (simplified...)`) that is
+**never written into `weight_grads`/`bias_grads` at all** — the variable is computed and
+immediately discarded. The weight-update loop below then does
+`weights_[i](r, c) -= learning_rate * weight_grads[i](r, c)` against gradients that are still
+exactly zero. Net effect: `update()` returns a real, correctly-computed MSE loss (so a caller
+would see a plausible-looking "loss" value) but **never changes a single weight** — the value
+function is permanently frozen at its random initialization, no matter how many times `update()`
+is called. This is strictly worse than the ratio/KL issue above (that one degrades to a wrong-but-
+nonzero gradient signal; this one is a complete no-op) and was missed on the first pass because
+the file's `@adai-status` tag already flagged it as broken for the ratio/KL reason — nobody
+checked whether *every* function in the file had the same problem.
+
 Discovered during the per-file production-readiness rollout (September 7, 2026) — see
 [file-status-standard.md](file-status-standard.md).
 
@@ -263,8 +279,16 @@ Action Items:
   not a copy of `batch_old_log_probs[i]`.
 - [ ] Track actual per-minibatch KL divergence between old and current policy for `approx_kl`
   instead of the hardcoded `0.0f`.
-- [ ] Add a test that trains on a toy environment/reward and asserts the policy actually changes
-  (a no-op ratio would previously have passed any test that doesn't check this).
+- [ ] Implement `ValueFunction::update()`'s backward pass for real: accumulate `grad` into
+  `weight_grads`/`bias_grads` via actual backprop through the network's cached activations,
+  instead of computing and discarding it.
+- [ ] Add a test that trains `ValueFunction` on a toy regression target and asserts its weights
+  actually move and its loss actually decreases over iterations — the current test suite doesn't
+  catch a permanently-frozen value function because it likely only checks that `update()` runs
+  without crashing and returns a plausible loss value.
+- [ ] Add a test that trains `PPOOptimizer` end-to-end on a toy environment/reward and asserts the
+  policy actually changes (a no-op ratio would previously have passed any test that doesn't check
+  this).
 
 Files to Modify:
 
@@ -773,6 +797,85 @@ Files to Modify:
 
 ---
 
+### TD-052: ParallelDataLoader's Batches Use Character Codes, Not Real Tokens
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Training / Data Loading | September 8, 2026 | 4-6 hours |
+
+Description:
+`ParallelDataLoader.hpp` was incorrectly tagged `stable` in the original per-file
+production-readiness rollout — corrected to `experimental` when this was found during a
+broader re-audit. Its batch-generation code is explicit about being a placeholder:
+`// Note: For now we'll create dummy token sequences from the text` / `// In a real
+implementation, this should use a tokenizer`, followed by `// Create simple token sequence
+(char codes for demonstration)` — each character of the input text is converted to its raw
+`unsigned char` value and used directly as a "token ID," with no BPE tokenizer involved at all.
+`ParallelDataLoaderTest`'s tests do exercise this code path (`next_batch()`), but they only
+check batch shape/counting, not token content — so the tests passing gave false confidence
+during the original rollout that this class was production-ready. It is also not included by
+any production `src/*.cpp` file — only by its own test.
+
+Action Items:
+
+- [ ] Replace the char-code loop with a real `BPETokenizer::encode()` call.
+- [ ] Add a test asserting batch contents are valid vocabulary token IDs, not raw byte values.
+- [ ] Re-evaluate whether `ParallelDataLoader` should be wired into a real training path once
+  fixed, or whether `EfficientBatching`/`Dataset` already cover this need and it should be
+  retired instead.
+
+Files to Modify:
+
+- `src/ParallelDataLoader.hpp`
+- `tests/paralleldataloader_test.cpp`
+
+---
+
+### TD-053: ChatbotCLI's /save and /load Commands Are Non-Functional Everywhere
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | CLI / User-Facing | September 8, 2026 | 6-10 hours |
+
+Description:
+`docs/operations/guides/chatbot-guide.md` documents an entire "Conversation History" feature set
+— automatic save-on-exit, manual `/save`, manual `/load` — as real and working, with example
+usage shown twice. None of it exists: `ChatbotCLI.cpp`'s `/exit`/`/quit` handler only sets
+`running = false` (no save call, no "conversation_history.txt" string anywhere in the file), and
+`/save`/`/load` share one handler that unconditionally prints `"Save/Load not supported in API
+client mode yet."` The message's wording implies a working alternative mode exists; it doesn't —
+there is no other code path anywhere in `ChatbotCLI.cpp`/`.hpp` that saves or loads a
+conversation. A user following the documented examples would hit a dead end on all three.
+
+**Broader context found while fixing the doc:** `chatbot-guide.md` turned out to describe an
+entire earlier CLI architecture — a standalone binary taking `[vocab_file] [model_file]
+[conversation_save_file]` — that predates `ChatbotCLI` becoming a thin HTTP client for
+`chatbot_api_server` (current args, verified against `ChatbotCLI_main.cpp`:
+`[server_url] [conversation_save_file]`). The Quick Start banner, File Requirements, Default
+File Paths, "Starting the Chatbot", and Command-Line Help sections have been corrected to match
+current behavior (September 8, 2026); a banner at the top of the doc flags that later sections
+(Commands Reference details, Generation Strategies, Configuration Parameters) have not been
+re-verified against a live `chatbot`/`chatbot_api_server` pair and may have the same problem.
+
+Action Items:
+
+- [ ] Either implement save-on-exit and `/save`/`/load` (serialize/restore `ConversationContext`
+  to/from disk) or formally decide they're out of scope for the API-client CLI and remove the
+  "planned" framing from the doc instead of leaving it aspirational indefinitely.
+- [ ] Add a CLI test asserting the actual current behavior (clear error on `/save`/`/load`, no
+  crash or silent no-op on exit) so this doesn't regress silently either way.
+- [ ] Do a full pass over the rest of `chatbot-guide.md` (Commands Reference, Generation
+  Strategies, Configuration Parameters) against a live `chatbot` + `chatbot_api_server` pair —
+  the sections already fixed were the ones verifiable by reading source directly; the rest need
+  interactive verification. Remove the "partially stale" banner once done.
+
+Files to Modify:
+
+- `src/ChatbotCLI.cpp`
+- `docs/operations/guides/chatbot-guide.md`
+
+---
+
 ## Resolved Items
 
 33 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -1170,10 +1273,10 @@ When resolving a debt item:
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|0|0%|
-|Medium|9|41%|
-|Low|13|59%|
+|Medium|11|46%|
+|Low|13|54%|
 
-**Total Active Items:** 22
+**Total Active Items:** 24
 
 ### By Component
 
@@ -1181,6 +1284,8 @@ When resolving a debt item:
 |----------------------|-------|
 |Training / Data Generation|1|
 |Training / Data Management|1|
+|Training / Data Loading|1|
+|CLI / User-Facing|1|
 |Tooling / Toolchain|1|
 |GPU / Inference / Training|1|
 |GPU / Inference / Performance|1|
@@ -1205,11 +1310,11 @@ When resolving a debt item:
 |--------------|-------|
 |0-2 hours|1|
 |2-4 hours|4|
-|4-8 hours|5|
-|8+ hours|10|
+|4-8 hours|6|
+|8+ hours|11|
 |Not estimated|2|
 
-**Total Estimated Effort (Active Items):** 157-229 hours (excludes TD-014 and TD-039, which have no effort estimate)
+**Total Estimated Effort (Active Items):** 171-251 hours (excludes TD-014 and TD-039, which have no effort estimate)
 
 ### Future Enhancements Summary
 

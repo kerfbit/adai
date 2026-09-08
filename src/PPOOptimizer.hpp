@@ -195,6 +195,9 @@ class ValueFunction {
             float error = pred - targets[idx];
             total_loss += error * error;
 
+            // TODO: See TECHNICAL_DEBT.md TD-034 - grad is computed here but never written into
+            // weight_grads/bias_grads below, so the weight-update loop always applies a zero
+            // gradient — update() returns a real loss value but never actually changes a weight.
             // Backward pass (simplified - assumes caching of activations)
             // In practice, would need full backprop implementation
             float grad = 2.0f * error / states.size();

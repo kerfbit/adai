@@ -2,6 +2,15 @@
 
 A comprehensive guide to using the ADAI transformer-based chatbot command-line interface.
 
+> **Partially stale (tracked as TD-053):** `ChatbotCLI` was re-architected at some point from a
+> standalone CLI that loaded its own vocabulary/model files directly into a thin HTTP client for
+> `chatbot_api_server` (it now takes `[server_url] [conversation_save_file]`, not
+> `[vocab_file] [model_file] [conversation_save_file]`), and this guide was never fully updated to
+> match. The "Conversation History" behavior (auto-save, `/save`, `/load`) has been corrected
+> in place below; the vocabulary/model file sections and command-line examples further down have
+> not been fully re-verified against the current API-client architecture — treat anything
+> describing `vocab_file`/`model_file` arguments as suspect until TD-053 is resolved.
+
 ---
 
 ## Table of Contents
@@ -34,12 +43,17 @@ make chatbot -j$(nproc)
 ### Running the Chatbot
 
 ```bash
-# From build directory
+# From build directory — connects to chatbot_api_server at the default URL
+# (http://localhost:8080), which must already be running
 ./src/chatbot
 
-# Or with custom paths
-./src/chatbot vocab.txt model.bin conversation.txt
+# Or with a custom server URL and conversation-save path
+./src/chatbot http://localhost:8080 conversation.txt
 ```
+
+Note: `chatbot` is an API client for `chatbot_api_server`, not a standalone binary that loads a
+vocabulary/model file itself — `chatbot_api_server` must be running first (see
+[../deployment/README.md](../deployment/README.md)).
 
 ### Your First Conversation
 
@@ -55,8 +69,6 @@ You: What can you do?
 Bot: I'm an AI assistant powered by a transformer model...
 
 You: /exit
-💾 Saving conversation...
-✅ Conversation saved to: conversation_history.txt
 👋 Goodbye!
 ```
 
@@ -88,28 +100,17 @@ make chatbot
 
 ### File Requirements
 
-**Vocabulary File** (`vocab.txt`):
+`chatbot` itself needs no vocabulary or model file — it's an HTTP client, and
+`chatbot_api_server` (the process actually holding the vocabulary and model) is what needs
+those. See [../deployment/README.md](../deployment/README.md) for `chatbot_api_server`'s
+requirements.
 
-```text
-hello 100
-world 50
-test 25
-...
-```
+### Default File Paths (for `chatbot`)
 
-**Model File** (`chatbot_model.bin`):
-
-- Pre-trained transformer weights
-- Binary format from training
-- Optional (will use random initialization if missing)
-
-### Default File Paths
-
-|File|Default Path|Purpose|
+|Argument|Default|Purpose|
 |------|-------------|---------|
-|Vocabulary|`vocab.txt`|BPE tokenizer vocabulary|
-|Model|`chatbot_model.bin`|Pre-trained weights|
-|Conversation|`conversation_history.txt`|Auto-saved conversations|
+|`server_url`|`http://localhost:8080`|`chatbot_api_server` to connect to|
+|`conversation_save_file`|`conversation_history.txt`|Stored but not currently used — see TD-053|
 
 ---
 
@@ -118,17 +119,14 @@ test 25
 ### Starting the Chatbot
 
 ```bash
-# Use defaults
+# Use defaults (connects to http://localhost:8080)
 ./src/chatbot
 
-# Custom vocabulary
-./src/chatbot my_vocab.txt
+# Custom server URL
+./src/chatbot http://192.168.1.10:8080
 
-# Custom vocabulary and model
-./src/chatbot my_vocab.txt my_model.bin
-
-# All custom paths
-./src/chatbot my_vocab.txt my_model.bin my_conversations.txt
+# Custom server URL and conversation-save path
+./src/chatbot http://192.168.1.10:8080 my_conversations.txt
 ```
 
 ### Command-Line Help
@@ -139,15 +137,16 @@ test 25
 ./src/chatbot -h
 ```
 
-Output:
+Output (verified against `src/ChatbotCLI_main.cpp` September 8, 2026):
 
 ```text
-Usage: chatbot [vocab_file] [model_file] [conversation_save_file]
+Usage: chatbot [server_url] [conversation_save_file]
 
 Default values:
-  vocab_file: vocab.txt
-  model_file: chatbot_model.bin
+  server_url: http://localhost:8080
   conversation_save_file: conversation_history.txt
+
+Example: chatbot http://localhost:8080
 ```
 
 ### Interactive Mode
@@ -216,18 +215,17 @@ You: /clear
 ✅ Conversation history cleared
 ```
 
-#### `/save`
+#### `/save` and `/load`
 
-Manually save conversation to file.
+> **Not currently implemented** (tracked as TD-053): `ChatbotCLI` has a single handler for both
+> commands that always prints "Save/Load not supported in API client mode yet." — there is no
+> working code path for either command in any mode today. The examples below describe the
+> intended behavior once implemented, not current behavior.
 
 ```text
 You: /save
 ✅ Conversation saved to: conversation_history.txt
 ```
-
-#### `/load`
-
-Load previously saved conversation.
 
 ```text
 You: /load
@@ -264,12 +262,11 @@ You: /system You are a helpful programming assistant
 
 #### `/exit` or `/quit`
 
-Exit the chatbot (auto-saves conversation).
+Exit the chatbot. Auto-save on exit is planned but not implemented (TD-053) — `/exit` and
+`/quit` end the session immediately, with no save step:
 
 ```text
 You: /exit
-💾 Saving conversation...
-✅ Conversation saved to: conversation_history.txt
 👋 Goodbye!
 ```
 
@@ -467,9 +464,14 @@ You: /set temp 0.7
 
 ## Conversation History
 
-### Automatic Saving
+> **Not currently implemented** (tracked as TD-053): none of automatic save-on-exit, `/save`, or
+> `/load` exist in `ChatbotCLI.cpp` today — `/exit` and `/quit` simply end the session, and
+> `/save`/`/load` both print an error. Everything below describes the intended behavior once
+> this is built, not current behavior.
 
-Conversations are **automatically saved** when you exit:
+### Automatic Saving (planned)
+
+Conversations would be **automatically saved** when you exit:
 
 ```text
 You: /exit
@@ -477,7 +479,7 @@ You: /exit
 ✅ Conversation saved to: conversation_history.txt
 ```
 
-### Manual Saving
+### Manual Saving (planned)
 
 Save at any time:
 
@@ -486,14 +488,14 @@ You: /save
 ✅ Conversation saved to: conversation_history.txt
 ```
 
-### Loading Previous Conversations
+### Loading Previous Conversations (planned)
 
 ```text
 You: /load
 ✅ Conversation loaded from: conversation_history.txt
 ```
 
-**Note:** Loading replaces current conversation history.
+**Note:** Loading would replace current conversation history.
 
 ### Conversation Limits
 

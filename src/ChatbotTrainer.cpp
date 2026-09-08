@@ -616,14 +616,16 @@ float ChatbotTrainer::calculate_perplexity(float loss) {
 }
 
 /**
- * @brief Calculate token-level accuracy (stub - requires model output probabilities)
- * This is a placeholder until model exposes prediction probabilities
- * Returns -1.0 to indicate not implemented
+ * @brief Calculate token-level accuracy (fraction of positions where predictions match targets)
+ *
+ * Fully implemented (this doc comment previously described an older stub version) and covered
+ * by tests/chatbottrainer_test.cpp; not currently called from the training loop itself, only
+ * from tests — see TD-039 for ChatbotTrainer's general "large, still evolving" status.
  */
 float ChatbotTrainer::calculate_accuracy(const std::vector<int>& predictions,
                                          const std::vector<int>& targets) {
     if (predictions.empty() || targets.empty() || predictions.size() != targets.size()) {
-        return -1.0f;  // Not implemented yet
+        return -1.0f;  // Invalid input (empty or mismatched-length sequences)
     }
 
     int correct = 0;

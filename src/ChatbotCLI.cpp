@@ -215,6 +215,9 @@ void ChatbotCLI::handle_command(const std::string& command) {
     } else if (cmd_view.size() > 5 && cmd_view.substr(0, 5) == "/set ") {
         handle_setting(cmd_view.substr(5));
     } else if (command == "/save" || command == "/load") {
+        // TODO: See TECHNICAL_DEBT.md TD-053 - this is the only handler for /save and /load;
+        // there is no other mode where either command works, despite
+        // docs/operations/guides/chatbot-guide.md documenting them as working examples.
         std::cout << COLOR_ERROR << "❌ Save/Load not supported in API client mode yet."
                   << COLOR_RESET << '\n';
     } else {

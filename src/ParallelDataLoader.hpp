@@ -1,6 +1,6 @@
-// @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-07
+// @adai-status: experimental        (capped by TD-052 — batches use raw char codes, not a real tokenizer; corrected from an earlier, incorrect "stable" tag)
+// @adai-version: 0.4.0
+// @adai-reviewed: 2026-09-08
 
 /**
  * @file ParallelDataLoader.hpp
@@ -334,8 +334,8 @@ class ParallelDataLoader {
         auto split_data = dataset_.get_split(SplitType::TRAIN);
 
         // Collect sequences for this batch
-        // Note: For now we'll create dummy token sequences from the text
-        // In a real implementation, this should use a tokenizer
+        // TODO: See TECHNICAL_DEBT.md TD-052 - replace this with a real BPETokenizer::encode()
+        // call; the char-code loop below produces raw byte values, not vocabulary token IDs.
         std::vector<std::vector<int>> batch_sequences;
         for (size_t i = start_idx; i < end_idx; ++i) {
             size_t dataset_idx = epoch_indices_[i];
