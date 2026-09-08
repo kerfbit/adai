@@ -1,6 +1,6 @@
 // @adai-status: stable
 // @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 #include "RegistryTransport.hpp"
 #include <fcntl.h>     // open(), O_RDWR

@@ -4,6 +4,54 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-054: ModelNameService's Legacy JSONL-to-SQLite Migration Silently Dropped Every Record
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 8, 2026 | MNS / Persistence | One-line fix: bind the missing 26th column |
+
+Summary:
+Found while reading `src/ModelNameService.cpp` end to end. `init_db()` creates the `models` table
+with 26 columns (`run_group` added last by a later migration — see the comment above
+`add_column_if_missing("models", "run_group", ...)` explaining why it must stay last for
+positional-INSERT compatibility). `persist_model()`, the actively-used save path, correctly binds
+all 26 columns. `migrate_from_jsonl()` — the one-time import that runs when `models.db` is freshly
+created and a legacy `models.jsonl` exists — used an INSERT literal with only 25 `?` placeholders
+and never bound `run_group`. Reproduced directly with a standalone SQLite3 script against the
+real schema: `sqlite3_prepare_v2` fails with `"table models has 26 columns but 25 values were
+supplied"`, and the surrounding `if (... != SQLITE_OK) continue;` silently skips the record with
+no logging — so any deployment upgrading from a pre-SQLite (or pre-`run_group`) MNS data directory
+would import zero models from its `models.jsonl`, with nothing but a `migrated 0 records` log line
+as a symptom (`roles.json` migration is a separate code path and unaffected).
+
+Changes Made:
+
+- Added the missing 26th placeholder to the `INSERT OR REPLACE INTO models VALUES (...)` literal
+  in `migrate_from_jsonl()` and bound `r.run_group` (already parsed by `parse_record()`) to it,
+  matching `persist_model()`'s statement exactly.
+- Added an inline comment at the INSERT explaining the column-count invariant so a future column
+  addition doesn't reintroduce the same silent failure in this specific call site.
+
+Verification:
+
+- ✅ Reproduced the failure and the fix against the real 26-column schema with a standalone
+  Python/`sqlite3` script (25 placeholders → `OperationalError: table models has 26 columns but
+  25 values were supplied`; 26 placeholders → succeeds, `run_group` lands correctly).
+- ✅ `adai_mns` (the static library containing `ModelNameService.cpp`) rebuilds clean.
+
+Action item not covered by this fix: `ModelNameService` (the server-side class, as opposed to
+`ModelNameClient`) still has no dedicated unit test — only `modelnameclient_test.cpp` (client) and
+`mns_manager_gui_test.cpp` (GUI) exercise it, both indirectly over HTTP. A test that actually drives
+`migrate_from_jsonl()` against a scratch data dir would have caught this at write time; none exists
+today. Filing this gap is out of scope for this fix — flagged for whoever next touches this file,
+matching [TD-040](../guides/TECHNICAL_DEBT.md#td-040-ftpdataservers-auth-path-unreviewed-registryserver-untested-in-isolation)'s "no dedicated unit test" framing for a sibling daemon class.
+
+Files Changed:
+
+- `src/ModelNameService.cpp`
+
+---
+
 ### TD-029: Fix GCC 13 ICE in raginference_test.cpp
 
 | Resolution Date | Component | Resolved By |

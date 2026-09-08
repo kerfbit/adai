@@ -211,11 +211,11 @@ None — every in-scope file carries a tag.
 | `src/RegistryServer.cpp` | beta | 0.8.0 | 2026-09-07 | TD-035 |
 | `src/RewardModel.hpp` | beta | 0.7.0 | 2026-09-07 | TD-038 |
 | `src/SpeculativeDecoding.hpp` | beta | 0.7.0 | 2026-09-07 | TD-038 |
-| `src/TrainingMetricsAPI.cpp` | beta | 0.9.0 | 2026-09-07 | TD-039 |
-| `src/TrainingMetricsAPI.hpp` | beta | 0.9.0 | 2026-09-07 | TD-039 |
+| `src/TrainingMetricsAPI.cpp` | beta | 0.9.0 | 2026-09-08 | TD-039 |
+| `src/TrainingMetricsAPI.hpp` | beta | 0.9.0 | 2026-09-08 | TD-039 |
 | `src/TrainingMetricsAPIServer.cpp` | beta | 0.8.0 | 2026-09-07 | TD-035 |
-| `src/TrainingMetricsService.cpp` | beta | 0.9.0 | 2026-09-07 | TD-039 |
-| `src/TrainingMetricsService.hpp` | beta | 0.9.0 | 2026-09-07 | TD-039 |
+| `src/TrainingMetricsService.cpp` | beta | 0.9.0 | 2026-09-08 | TD-039 |
+| `src/TrainingMetricsService.hpp` | beta | 0.9.0 | 2026-09-08 | TD-039 |
 | `src/gpu/GPUUtils.hpp` | beta | 0.9.0 | 2026-09-07 | TD-041 |
 | `src/gpu/sycl/GPUUtils_SYCL.hpp` | beta | 0.6.0 | 2026-09-07 | TD-041 |
 | `src/gpu/sycl/MatrixGPU_SYCL.cpp` | beta | 0.10.0 | 2026-09-07 | TD-050 |

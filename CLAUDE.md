@@ -279,7 +279,7 @@ trusting a `grep TD-NNN` alone. Currently active items:
 |---|---|
 | TD-050 | GPU-resident KV-cache for autoregressive generation — CPU cache has a known correctness bug; no GPU cache exists at all |
 | **TD-033** | `chatbot_api_server` inference never uses the persistent GPU-resident decode path — training already does |
-| TD-029 | GCC 13 ICE compiling `tests/raginference_test.cpp` |
+| **TD-034** | `PPOOptimizer::train()`'s ratio/KL terms are a placeholder, and `ValueFunction::update()` never writes its computed gradient into the weight update — the value function's weights never change |
 | TD-032 | SQLite amalgamation not bundled for Windows/MinGW cross-compilation |
 | TD-014 | Missing standalone tooling (quantization, eval, data-prep binaries) |
 | TD-006 | Fill-in-the-Middle (FIM) training data generation not implemented |

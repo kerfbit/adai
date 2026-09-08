@@ -1,6 +1,6 @@
 // @adai-status: stable
 // @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 #include "ModelNameService.hpp"
 #include <httplib.h>
@@ -826,6 +826,11 @@ void adai::ModelNameService::migrate_from_jsonl() {
     Logger::info("ModelNameService: migrating {} to SQLite", models_path);
     sqlite3_exec(db, "BEGIN TRANSACTION", nullptr, nullptr, nullptr);
 
+    // TD-054 (fixed): this INSERT's placeholder/bind count must track the `models`
+    // table's full column count (26, `run_group` last — see init_db()'s migration-
+    // guard comment) or sqlite3_prepare_v2 fails ("table models has N columns but
+    // M values were supplied") and the `if (... != SQLITE_OK) continue;` below
+    // silently drops every legacy record with no logging at all.
     std::string line;
     int imported = 0;
     while (std::getline(f, line)) {
@@ -838,7 +843,7 @@ void adai::ModelNameService::migrate_from_jsonl() {
 
             const std::string sql =
                 "INSERT OR REPLACE INTO models VALUES "
-                "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+                "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
             sqlite3_stmt* st = nullptr;
             if (sqlite3_prepare_v2(db, sql.c_str(), -1, &st, nullptr) != SQLITE_OK)
                 continue;
@@ -868,6 +873,7 @@ void adai::ModelNameService::migrate_from_jsonl() {
             sqlite3_bind_double(st, 23, r.progress_loss);
             sqlite3_bind_double(st, 24, r.progress_best_loss);
             sqlite3_bind_text(st, 25, r.progress_updated_utc.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(st, 26, r.run_group.c_str(), -1, SQLITE_TRANSIENT);
             sqlite3_step(st);
             sqlite3_finalize(st);
 

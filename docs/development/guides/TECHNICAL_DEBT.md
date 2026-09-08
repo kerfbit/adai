@@ -10,7 +10,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 **Medium Priority:** 11
 **Low Priority:** 13
 **Future Enhancements:** 19
-**Resolved Items:** 33
+**Resolved Items:** 34
 **Deferred Decisions:** 1
 
 ## Table of Contents
@@ -42,7 +42,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [TD-051: IncrementalTrainer::load_conversation_pairs() Is an Unmigrated Duplicate](#td-051-incrementaltrainerload_conversation_pairs-is-an-unmigrated-duplicate)
   - [TD-052: ParallelDataLoader's Batches Use Character Codes, Not Real Tokens](#td-052-paralleldataloaders-batches-use-character-codes-not-real-tokens)
   - [TD-053: ChatbotCLI's /save and /load Commands Are Non-Functional Everywhere](#td-053-chatbotclis-save-and-load-commands-are-non-functional-everywhere)
-- [Resolved Items](#resolved-items) (33 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+- [Resolved Items](#resolved-items) (34 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -878,7 +878,7 @@ Files to Modify:
 
 ## Resolved Items
 
-33 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+34 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements

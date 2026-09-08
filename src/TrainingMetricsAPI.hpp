@@ -2,7 +2,7 @@
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
 // @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 
 #include <atomic>
@@ -27,8 +27,9 @@
  * - Non-blocking, optimized for frequent polling
  *
  * Endpoints:
- * - TODO(TD-018): add session-scoped routes under /api/sessions/{key}/... and keep
- *   legacy flat routes as compatibility aliases for 0-default.
+ * - Resolved by TD-018: every route below is also exposed session-scoped under
+ *   /api/sessions/{key}/... ; the flat routes listed here remain as compatibility
+ *   aliases for the "0-default" session.
  * - GET  /api/metrics/current    - Current training snapshot (JSON)
  * - GET  /api/metrics/summary    - Aggregated metrics summary (JSON)
  * - GET  /api/metrics/history    - Historical metrics records (JSON)
