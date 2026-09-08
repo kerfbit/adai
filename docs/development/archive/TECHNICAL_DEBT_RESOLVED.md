@@ -4,6 +4,133 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-061: GPU LayerNorm Backward (CUDA and SYCL) Computed Wrong Input Gradients
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 8, 2026 | GPU / Core Training Math | One-token fix (`r*r*r` → `r*r`) in both backends, verified analytically and numerically |
+
+Summary:
+Found while reading `src/gpu/MatrixGPU.cu` end to end. `layer_norm_bwd_dx_kernel`'s gradient
+w.r.t. the LayerNorm input had a genuine math bug affecting **every LayerNorm backward call on the
+GPU training path** (multiple per encoder/decoder block, every layer, every step) — this is not a
+minor rounding issue: verified by finite-difference check to be off by a large fraction of the
+gradient's own magnitude, not a small numerical discrepancy.
+
+Root cause: the kernel accumulates `sum(d_xn * xn)` — `xn` being the *already-normalized*
+`(x-mean)*rstd` value, cached from the forward pass — then scales it by `-0.5 * rstd^3` to get the
+gradient w.r.t. variance (`d_var`). The CPU implementation
+(`LayerNorm::backward()` in `src/LayerNorm.cpp`) computes the mathematically equivalent quantity
+using `sum(d_xn * (x - mean))` instead — the *pre-normalization* difference — and that version's
+`-0.5 * rstd^3` scaling is correct **for that quantity**. Since `xn = (x-mean) * rstd`, reusing the
+already-normalized value needs one *fewer* power of `rstd` to reach the same `d_var`; the GPU
+kernel copied the CPU version's `rstd^3` scaling without adjusting for the different quantity it
+was scaling, leaving an extra, spurious factor of `rstd` in every input gradient's variance
+contribution.
+
+Verified three ways:
+1. **Analytical derivation** of the correct closed-form LayerNorm backward (`dx_j = rstd·h_j −
+   (rstd/N)·xn_j·S − (rstd/N)·H`, where `h = d_xn`, `S = Σh_i·xn_i`, `H = Σh_i`) from first
+   principles via the chain rule through `mean` and `rstd` (both functions of every `x_i` in the
+   row) — confirms the correct power of `rstd` is 1, not 2, in the `xn_j·S` term the kernel's
+   `d_var` feeds into.
+2. **Numerical finite-difference check** (standalone Python/NumPy script implementing the exact
+   kernel formula structure): the buggy formula (`r^3` in `d_var`) diverges from central-difference
+   numerical gradients by up to ~0.3 in a toy example with gradients of magnitude ~0.02–0.6 — a
+   large relative error, not float noise. The corrected formula (`r^2` in `d_var`, everything else
+   unchanged) matches finite differences to ~1e-10 across 5 random trials of varying size.
+3. **SYCL cross-check**: `src/gpu/sycl/MatrixGPU_SYCL.cpp`'s `matrix_layer_norm_bwd_gpu` has the
+   byte-for-byte identical `r * r * r` bug — this CUDA kernel was ported "formula-for-formula" from
+   the SYCL version (per this file's own section header comment), so the bug predates this session
+   and affects both GPU backends identically. The CPU path (`LayerNorm.cpp`) is unaffected — it
+   uses `(x - mean)` directly, which happens to need the correct power of `rstd` already.
+
+No test exercises `matrix_layer_norm_bwd_gpu`/`layer_norm_bwd_dx_kernel` on either backend (grep
+confirms zero references in `tests/`), consistent with [TD-041](../guides/TECHNICAL_DEBT.md#td-041-gpuutils-has-no-dedicated-test-on-either-backend)'s
+broader finding that GPU-only code has minimal dedicated coverage — why this went undetected.
+
+**Checkpoint impact — narrower than TD-059's:** this bug only affects the *backward* pass (gradient
+computation during training), not the forward computation a saved checkpoint's weights encode.
+Existing checkpoints trained with `-DENABLE_GPU=ON` or `-DENABLE_SYCL=ON` remain valid and usable —
+their forward pass was never wrong — but their training likely converged less well than it should
+have, since every LayerNorm's contribution to the gradient was systematically distorted throughout
+training. No retraining is *required*, though anyone who trained primarily on GPU may want to
+consider a fresh run now that the gradient is correct. CPU-only training was never affected.
+
+Changes Made:
+
+- `src/gpu/MatrixGPU.cu`: changed `d_var`'s scaling from `r * r * r` to `r * r` (one token), with a
+  comment explaining the derivation and pointing at `LayerNorm.cpp` for the CPU-side reference
+  quantity it must match.
+- `src/gpu/sycl/MatrixGPU_SYCL.cpp`: identical one-token fix, identical explanatory comment.
+- `src/gpu/MatrixGPU.cu`: retagged `stable` → `beta` (0.9.0) — this specific bug is fixed, but the
+  incident exposed that most of this file's kernels (not just `layer_norm_bwd`) have no dedicated
+  test and, more fundamentally, can only ever execute on real GPU hardware — which was not available
+  to verify any of them during this file's original "stable" rollout or since. `stable` was not an
+  earned claim. Action item for whoever next touches this file: add dedicated tests for the
+  remaining untested kernels (`matrix_add`/`multiply`/`transpose`, `gelu_backward`,
+  `cross_entropy_loss`/`grad`, batch ops) alongside `matrixgpu_td003_test.cpp`'s existing coverage,
+  and run the full GPU test suite on real hardware before re-promoting to `stable`.
+
+Verification:
+
+- ✅ Analytical re-derivation of the correct formula from the chain rule (see above).
+- ✅ Standalone NumPy finite-difference check, both confirming the bug (pre-fix formula) and the fix
+  (post-fix formula, ~1e-10 agreement) across multiple random trials.
+- ✅ `adai_gpu` (containing `MatrixGPU.cu`) rebuilds clean under the local CUDA toolchain
+  (`nvcc` present; no physical GPU in this environment, so the kernel could not be *run* here — the
+  fix is verified mathematically and by a clean compile, not by an on-device numerical test).
+- ⚠️ The SYCL build could not be compiled or tested in this environment either (no Intel oneAPI
+  `icpx` toolchain available — same limitation noted in TD-041); the fix there is verified only by
+  the formula being byte-for-byte identical to the now-fixed-and-compiled CUDA version.
+
+Files Changed:
+
+- `src/gpu/MatrixGPU.cu`
+- `src/gpu/sycl/MatrixGPU_SYCL.cpp`
+
+---
+
+### TD-060: EncoderDecoderModel::forward() Segfaulted on an Empty target_tokens
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 8, 2026 | Core Model / Training | Rewrote the loop bound to a form that can't underflow, plus a regression test |
+
+Summary:
+Found while reading `src/EncoderDecoderModel.cpp` end to end, in the course of investigating
+TD-050's greedy-decode KV-cache workaround (confirmed that workaround still matches the tracker's
+description exactly — nothing new there). `forward()` — a public method explicitly documented
+"for custom training loops" — built the teacher-forcing decoder input with
+`for (size_t i = 0; i < target_tokens.size() - 1; ++i)`. `size_t` is unsigned, so an empty
+`target_tokens` makes `size() - 1` wrap to `SIZE_MAX`, turning the loop into an out-of-bounds read
+of `target_tokens[i]` for ever-increasing `i`. Reproduced directly with a standalone
+ASan/UBSan build: immediate `SEGV` on the first out-of-bounds `vector::push_back` read. Every
+built-in caller (`train_step`/`evaluate`, via `tokenizer->encode(text, true)`) always produces a
+non-empty `target_tokens` (at minimum bos+eos), which is why this was never hit through the normal
+API surface — but `forward()`/`train_step_tokenized()`/`evaluate_tokenized()` all accept
+already-tokenized vectors directly and are documented for exactly that use.
+
+Changes Made:
+
+- Changed the loop condition to `i + 1 < target_tokens.size()`, the same underflow-proof idiom used
+  for TD-058, instead of `i < target_tokens.size() - 1`.
+- Added `EncoderDecoderModelTest.ForwardEmptyTargetTokensDoesNotCrash` to
+  `tests/encoderdecoder_test.cpp`.
+
+Verification:
+
+- ✅ Standalone ASan/UBSan repro confirms the exact SEGV crash mode before the fix.
+- ✅ `EncoderDecoderTests` rebuilds clean and passes (this suite alone runs ~9 minutes as part of
+  the full project's `ctest` — 77/77 suites, 100% pass, 0 failures, including this fix).
+
+Files Changed:
+
+- `src/EncoderDecoderModel.cpp`
+- `tests/encoderdecoder_test.cpp`
+
+---
+
 ### TD-058: BPETokenizer::get_most_frequent_pair() Could Underflow Its Loop Bound on an Empty Entry
 
 | Resolution Date | Component | Resolved By |

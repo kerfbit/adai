@@ -12,10 +12,10 @@ See [file-status-standard.md](guides/file-status-standard.md) for what these sta
 |---|---|---|---|---|---|---|---|
 | android | 0 | 41 | 62 | 0 | 0 | 0 | 103 |
 | scripts | 2 | 33 | 6 | 0 | 0 | 0 | 41 |
-| src | 79 | 49 | 4 | 0 | 0 | 0 | 132 |
+| src | 77 | 51 | 4 | 0 | 0 | 0 | 132 |
 | tizen-metrics-app | 0 | 3 | 0 | 0 | 0 | 0 | 3 |
 
-**81/279 files (29%) are tagged `stable`.**
+**79/279 files (28%) are tagged `stable`.**
 
 ## Untagged files
 
@@ -181,10 +181,10 @@ None — every in-scope file carries a tag.
 | `src/CrossAttention.cpp` | beta | 0.9.0 | 2026-09-08 | TD-050 |
 | `src/CrossAttention.hpp` | beta | 0.9.0 | 2026-09-08 | TD-050 |
 | `src/DatasetManagerTool.cpp` | beta | 0.8.0 | 2026-09-07 | TD-035 |
-| `src/Decoder.cpp` | beta | 0.9.0 | 2026-09-07 | TD-050 |
-| `src/Decoder.hpp` | beta | 0.9.0 | 2026-09-07 | TD-050 |
-| `src/EncoderDecoderModel.cpp` | beta | 0.9.0 | 2026-09-07 | TD-050 |
-| `src/EncoderDecoderModel.hpp` | beta | 0.9.0 | 2026-09-07 | TD-050 |
+| `src/Decoder.cpp` | beta | 0.9.0 | 2026-09-08 | TD-050 |
+| `src/Decoder.hpp` | beta | 0.9.0 | 2026-09-08 | TD-050 |
+| `src/EncoderDecoderModel.cpp` | beta | 0.9.0 | 2026-09-08 | TD-050 |
+| `src/EncoderDecoderModel.hpp` | beta | 0.9.0 | 2026-09-08 | TD-050 |
 | `src/FtpDataServer.hpp` | beta | 0.8.0 | 2026-09-07 | TD-040 |
 | `src/IncrementalTrainer.cpp` | beta | 0.9.0 | 2026-09-08 | TD-039 |
 | `src/IncrementalTrainer.hpp` | beta | 0.9.0 | 2026-09-08 | TD-039 |
@@ -217,8 +217,10 @@ None — every in-scope file carries a tag.
 | `src/TrainingMetricsService.cpp` | beta | 0.9.0 | 2026-09-08 | TD-039 |
 | `src/TrainingMetricsService.hpp` | beta | 0.9.0 | 2026-09-08 | TD-039 |
 | `src/gpu/GPUUtils.hpp` | beta | 0.9.0 | 2026-09-07 | TD-041 |
+| `src/gpu/MatrixGPU.cu` | beta | 0.9.0 | 2026-09-08 | TD-061 |
+| `src/gpu/MatrixGPU.hpp` | beta | 0.9.0 | 2026-09-08 | TD-061 |
 | `src/gpu/sycl/GPUUtils_SYCL.hpp` | beta | 0.6.0 | 2026-09-07 | TD-041 |
-| `src/gpu/sycl/MatrixGPU_SYCL.cpp` | beta | 0.10.0 | 2026-09-07 | TD-050 |
+| `src/gpu/sycl/MatrixGPU_SYCL.cpp` | beta | 0.10.0 | 2026-09-08 | TD-050 |
 | `src/gpu/sycl/MatrixGPU_SYCL.hpp` | beta | 0.9.0 | 2026-09-07 | TD-050 |
 | `tizen-metrics-app/js/app.js` | beta | 0.6.0 | 2026-09-07 | TD-049 |
 | `tizen-metrics-app/js/chart.js` | beta | 0.6.0 | 2026-09-07 | TD-049 |

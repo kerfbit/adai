@@ -1,6 +1,6 @@
-// @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-07
+// @adai-status: beta        (capped by TD-061 — layer_norm_bwd had an undetected math bug; most kernels have no dedicated test and need real GPU hardware to verify)
+// @adai-version: 0.9.0
+// @adai-reviewed: 2026-09-08
 
 #ifdef ADAI_ENABLE_GPU
 
@@ -753,7 +753,14 @@ __global__ void layer_norm_bwd_dx_kernel(const float* dout, const float* input_n
         __syncthreads();
     }
     // d_var and d_mean (via rstd)
-    const float d_var = sc_a[0] * (-0.5f) * r * r * r;
+    // TD-061 (fixed): this accumulates sum(d_xn * xn) — the ALREADY-NORMALIZED
+    // value — not sum(d_xn * (x-mean)) like the (correct) CPU LayerNorm::backward()
+    // in LayerNorm.cpp. Since xn = (x-mean)*rstd, using xn here needs one fewer
+    // power of rstd than the CPU version's x-mean-based accumulation to reach the
+    // same quantity; the original `r*r*r` copied the CPU version's power without
+    // that adjustment, an extra factor of rstd verified both analytically and by
+    // finite-difference check (numpy) against this exact kernel's formula structure.
+    const float d_var = sc_a[0] * (-0.5f) * r * r;
     const float d_mean = sc_b[0] * (-r);
 
     for (int j = lid; j < cols; j += WG) {

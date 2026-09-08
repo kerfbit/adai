@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.10.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 #ifdef ADAI_ENABLE_GPU
 
@@ -595,7 +595,12 @@ void matrix_layer_norm_bwd_gpu(const float* dout, const float* input_norm, const
                     item.barrier(sycl::access::fence_space::local_space);
                 }
                 // d_var and d_mean (via rstd)
-                const float d_var = sc_a[0] * (-0.5f) * r * r * r;
+                // TD-061 (fixed): see MatrixGPU.cu's identical fix for the derivation —
+                // this accumulates sum(d_xn * xn) (already-normalized), which needs one
+                // fewer power of rstd than the CPU LayerNorm::backward()'s sum(d_xn *
+                // (x-mean)) to reach the same quantity; `r*r*r` was an extra factor of
+                // rstd, verified both analytically and against finite-difference checks.
+                const float d_var = sc_a[0] * (-0.5f) * r * r;
                 const float d_mean = sc_b[0] * (-r);
 
                 for (int j = lid; j < cols; j += WG) {

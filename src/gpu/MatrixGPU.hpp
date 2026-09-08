@@ -1,9 +1,9 @@
 #ifndef MATRIX_GPU_HPP
 #define MATRIX_GPU_HPP
 
-// @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-07
+// @adai-status: beta        (capped by TD-061 — see MatrixGPU.cu's tag; this header just declares/wraps its kernels)
+// @adai-version: 0.9.0
+// @adai-reviewed: 2026-09-08
 
 
 #ifdef ADAI_ENABLE_GPU

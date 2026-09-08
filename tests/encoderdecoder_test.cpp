@@ -258,6 +258,25 @@ TEST(EncoderDecoderModelTest, ForwardOutputDimensions) {
     EXPECT_GT(logits.rows, 0);
 }
 
+// Regression test (TD-060): forward()'s decoder-input loop used to compute
+// `i < target_tokens.size() - 1`, which underflows to SIZE_MAX for an empty
+// target_tokens (size_t is unsigned) and reads out of bounds — confirmed via
+// a standalone ASan repro to crash with SEGV. forward() is a public API
+// documented for "custom training loops", so an empty target_tokens is a
+// plausible caller input.
+TEST(EncoderDecoderModelTest, ForwardEmptyTargetTokensDoesNotCrash) {
+    int vocab_size = 100;
+    int d_model = 64;
+    EncoderDecoderModel model(vocab_size, d_model, 2, 2);
+
+    build_test_vocab(model.get_tokenizer(), vocab_size);
+
+    std::vector<int> input_tokens = {1, 5, 10, 2};
+    std::vector<int> empty_target_tokens;
+
+    EXPECT_NO_THROW({ model.forward(input_tokens, empty_target_tokens); });
+}
+
 TEST(EncoderDecoderModelTest, ForwardDifferentLengths) {
     int vocab_size = 100;
     int d_model = 64;

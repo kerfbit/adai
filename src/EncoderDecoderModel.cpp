@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 #include "EncoderDecoderModel.hpp"
 #include <algorithm>
@@ -670,9 +670,14 @@ Matrix EncoderDecoderModel::forward(const std::vector<int>& input_tokens,
 
     // Prepare decoder input (teacher forcing: use target tokens)
     // In training, we use ground truth tokens as decoder input
+    // TD-060 (fixed): `i < target_tokens.size() - 1` underflows to SIZE_MAX for
+    // an empty target_tokens (size_t is unsigned), turning this into an
+    // out-of-bounds read that crashes immediately — confirmed via ASan (SEGV).
+    // `forward()` is a public, documented "custom training loops" API, so an
+    // empty target_tokens is a plausible caller input, not just theoretical.
     std::vector<int> decoder_input;
     decoder_input.push_back(bos_token_id);
-    for (size_t i = 0; i < target_tokens.size() - 1; ++i) {
+    for (size_t i = 0; i + 1 < target_tokens.size(); ++i) {
         decoder_input.push_back(target_tokens[i]);
     }
 
