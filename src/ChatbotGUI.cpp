@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-037 — no Qt Test infrastructure in this repo)
 // @adai-version: 0.7.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 #include "ChatbotGUI.hpp"
 #include <QApplication>
@@ -163,10 +163,19 @@ QWidget* ChatbotGUI::createInputArea() {
     inputField->setPlaceholderText("Type your message here...");
     inputField->setMinimumHeight(40);
 
-    clearButton = new QPushButton("Clear");
-    clearButton->setMinimumWidth(80);
-    clearButton->setMinimumHeight(40);
-    clearButton->setToolTip("Clear conversation history");
+    // Hygiene fix: this used to assign into the `clearButton` member — the
+    // same member createChatArea() already set to the chat area's
+    // "Clear Chat" button. Both buttons' own connect()s still worked (Qt
+    // binds to the object, not the member holding it), so this was never a
+    // functional bug, but `clearButton` silently ended up referring only to
+    // this second, redundant button afterward, discarding any live handle
+    // to the first one. Kept as a local — the class member should
+    // unambiguously mean the chat area's clear button, matching its
+    // sibling saveButton/loadButton.
+    QPushButton* clearInputButton = new QPushButton("Clear");
+    clearInputButton->setMinimumWidth(80);
+    clearInputButton->setMinimumHeight(40);
+    clearInputButton->setToolTip("Clear conversation history");
 
     sendButton = new QPushButton("Send");
     sendButton->setMinimumWidth(100);
@@ -174,11 +183,11 @@ QWidget* ChatbotGUI::createInputArea() {
 
     // Connect signals
     connect(sendButton, &QPushButton::clicked, this, &ChatbotGUI::onSendMessage);
-    connect(clearButton, &QPushButton::clicked, this, &ChatbotGUI::onClearConversation);
+    connect(clearInputButton, &QPushButton::clicked, this, &ChatbotGUI::onClearConversation);
     connect(inputField, &QLineEdit::returnPressed, this, &ChatbotGUI::onSendMessage);
 
     layout->addWidget(inputField);
-    layout->addWidget(clearButton);
+    layout->addWidget(clearInputButton);
     layout->addWidget(sendButton);
 
     return widget;
