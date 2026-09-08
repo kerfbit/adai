@@ -1,6 +1,6 @@
 // @adai-status: stable
 // @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 /**
  * StartupSweep — stale download cleanup before the first acquire.
@@ -10,7 +10,8 @@
  *
  * Conditions (see dataset-transport-proposal.md "Stale Download Cleanup"):
  *   D  — trained in registry → delete local copy
- *   G  — no assignment for our run_id → delete
+ *   G  — filename not found anywhere in the pending list (any model/run_id,
+ *        not just ours — pending_files() is unfiltered) → orphaned, delete
  *   A  — zero-byte partial + assigned → delete + release back to pool
  *   B/C — non-zero + assigned → keep; DataTransport handles re-use/resume
  */
@@ -62,10 +63,13 @@ inline void startup_sweep(DatasetRegistry& reg, const std::string& run_id,
 
         auto it = assigned_by_filename.find(filename);
         if (it == assigned_by_filename.end()) {
-            // Condition G: not referenced by any assignment for our run_id
+            // Condition G: filename not found anywhere in the pending list
+            // (pending_files() is unfiltered — this checks all models/runs,
+            // not just ours).
             adai::Logger::info(
-                "[CLEANUP-G] Found orphaned file '{}' in download_dir with "
-                "no active registry assignment for run_id '{}'. Deleting.",
+                "[CLEANUP-G] Found orphaned file '{}' in download_dir with no "
+                "matching pending-list entry (checked while processing run_id "
+                "'{}'). Deleting.",
                 filename, run_id);
             fs::remove(local_path);
             continue;

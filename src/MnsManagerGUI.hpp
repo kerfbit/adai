@@ -3,7 +3,7 @@
 
 // @adai-status: beta        (capped by TD-037 — no Qt Test infrastructure in this repo)
 // @adai-version: 0.7.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 
 #include <QComboBox>
