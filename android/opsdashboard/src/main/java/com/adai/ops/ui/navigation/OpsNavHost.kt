@@ -1,5 +1,10 @@
 package com.adai.ops.ui.navigation
 
+// @adai-status: experimental
+// @adai-version: 0.1.0
+// @adai-reviewed: 2026-09-07
+
+
 import androidx.compose.runtime.Composable
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
@@ -14,6 +19,7 @@ import com.adai.ops.ui.admin.AdminRoute
 import com.adai.ops.ui.metrics.SessionsRoute
 import com.adai.ops.ui.models.ModelsRoute
 import com.adai.ops.ui.registry.RegistryRoute
+import com.adai.ops.ui.trainer.TrainerRoute
 
 private const val SETTINGS_ROUTE = "settings"
 
@@ -28,6 +34,9 @@ fun OpsNavHost(app: OpsApp, navController: NavHostController = rememberNavContro
         }
         composable(OpsDestination.REGISTRY.route) {
             RegistryRoute(app, onOpenSettings = { navController.navigate(SETTINGS_ROUTE) })
+        }
+        composable(OpsDestination.TRAINER.route) {
+            TrainerRoute(app, onOpenSettings = { navController.navigate(SETTINGS_ROUTE) })
         }
         composable(OpsDestination.ADMIN.route) {
             AdminRoute(app, onOpenSettings = { navController.navigate(SETTINGS_ROUTE) })

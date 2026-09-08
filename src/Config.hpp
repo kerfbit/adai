@@ -1,5 +1,10 @@
 #pragma once
 
+// @adai-status: stable
+// @adai-version: 1.0.0
+// @adai-reviewed: 2026-09-07
+
+
 #include <cstdint>
 #include <iostream>
 #include <map>
@@ -262,6 +267,16 @@ struct ServiceConfig {
     /// Per-process training run identifier. Auto-derived from hostname+PID when empty.
     std::string run_id;
 
+    /// On-disk tokenized-data cache: ChatbotTrainer::preprocess_data() skips
+    /// re-tokenizing on a hit (default: false — opt-in, since it uses disk
+    /// space proportional to dataset size). See DatasetConfig for the
+    /// matching fields this is copied into via DatasetRegistry::make_config().
+    bool cache_tokenized_data = false;
+
+    /// Directory for the tokenized-data cache, relative to the process's
+    /// working directory unless given as an absolute path (default: "tokenized_cache").
+    std::string tokenized_cache_dir = "tokenized_cache";
+
     /// HTTP timeout for registry_server calls in milliseconds (default: 5000)
     int registry_timeout_ms = 5000;
 
@@ -389,6 +404,52 @@ struct ServiceConfig {
 
     /// Role used for resolve_role() at startup (e.g. "chatbot"); empty = use model_name
     std::string model_role;
+
+    // ============================================================
+    // Incremental Trainer Admin API Configuration
+    // Read by `incremental_trainer serve` only. Exposes GET/PUT /admin/config,
+    // /admin/status, /admin/checkpoint, /admin/pause, /admin/resume on an
+    // always-on HTTP daemon that outlives any single training pass.
+    // ============================================================
+
+    /// Enable the trainer admin HTTP API (default: false — opt-in, since this
+    /// opens a port on a host that previously had none).
+    bool trainer_admin_enabled = false;
+
+    /// Listen port for the trainer admin API (default: 8084 — next free slot
+    /// after chatbot=8080/metrics=8081/registry=8082/mns=8083).
+    int trainer_admin_port = 8084;
+
+    /// Bind host for the trainer admin API (default: "127.0.0.1" — loopback
+    /// only; /admin/* carries no auth token, matching existing precedent
+    /// across all four daemons of relying on network placement instead).
+    std::string trainer_admin_host = "127.0.0.1";
+
+    /// Directory for the trainer admin API's daemon_config.db overlay
+    /// (default: "trainer_admin"). Deliberately its own subdirectory rather
+    /// than session_dir directly, to avoid colliding with
+    /// metrics_api_server's own daemon_config.db location.
+    std::string trainer_admin_dir = "trainer_admin";
+
+    // ============================================================
+    // Auto-save / Checkpoint Retention Configuration
+    // Maps into IncrementalConfig's matching fields (IncrementalTrainer.hpp),
+    // which previously had no ServiceConfig/config-file path populating them
+    // and always used their hardcoded defaults regardless of config.conf.
+    // ============================================================
+
+    /// Enable periodic auto-save checkpoints during a training pass (default: true).
+    bool auto_save_enabled = true;
+
+    /// Auto-save every N samples; 0 = disabled by sample count (default: 1000).
+    int auto_save_every_samples = 1000;
+
+    /// Auto-save every N minutes; 0 = disabled by wall-clock interval (default: 30).
+    int auto_save_every_minutes = 30;
+
+    /// Maximum number of session checkpoints to retain; older ones are pruned.
+    /// 0 = unlimited (default: 50).
+    int max_sessions_to_keep = 50;
 
     // ============================================================
     // GPU / CUDA Configuration

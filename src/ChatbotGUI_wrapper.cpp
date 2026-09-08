@@ -1,3 +1,7 @@
+// @adai-status: beta        (thin main() wrapper, no dedicated test)
+// @adai-version: 0.7.0
+// @adai-reviewed: 2026-09-07
+
 /**
  * @file ChatbotGUI_wrapper.cpp
  * @brief Wrapper to launch chatbot_gui with correct environment settings

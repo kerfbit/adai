@@ -1,5 +1,6 @@
 #include "../src/ChatbotTrainer.hpp"
 #include <gtest/gtest.h>
+#include <atomic>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -742,6 +743,250 @@ TEST(TokenizerModeConfigTest, AsciiModePersistedInGetConfig) {
 
     ChatbotTrainer trainer(config);
     EXPECT_EQ(trainer.get_config().tokenizer_mode, TokenizerMode::ASCII);
+}
+
+// ============================================================================
+// Tokenized-data cache (load_tokenized_cache/save_tokenized_cache) —
+// friended into ChatbotTrainer (see ChatbotTrainer.hpp) since exercising
+// these through the public API would require a real train() run (real
+// model+tokenizer, actual forward/backward passes) just to reach
+// preprocess_data() — heavier than this file's other ChatbotTrainer tests
+// take on. Static wrapper methods here call the private methods directly
+// (legal: this fixture class itself is the friend); TEST_F bodies below only
+// ever call these inherited wrappers, never touch ChatbotTrainer internals
+// directly — same pattern as DataFetcherGutenbergCleaningTest in
+// DataFetcherTests.cpp.
+// ============================================================================
+
+class ChatbotTrainerCacheTest : public ::testing::Test {
+   protected:
+    std::string cache_dir;
+
+    void SetUp() override {
+        cache_dir = "test_tokenized_cache_dir";
+        std::filesystem::remove_all(cache_dir);
+    }
+
+    void TearDown() override {
+        std::filesystem::remove_all(cache_dir);
+    }
+
+    static bool LoadCache(ChatbotTrainer& t, const std::string& path) {
+        return t.load_tokenized_cache(path);
+    }
+    static void SaveCache(const ChatbotTrainer& t, const std::string& path) {
+        t.save_tokenized_cache(path);
+    }
+    static void SetTrainingData(ChatbotTrainer& t, std::vector<ConversationPair> data) {
+        t.training_data = std::move(data);
+    }
+    static void SetValidationData(ChatbotTrainer& t, std::vector<ConversationPair> data) {
+        t.validation_data = std::move(data);
+    }
+    static void SetTokenized(ChatbotTrainer& t, std::vector<TokenizedPair> train,
+                             std::vector<TokenizedPair> val) {
+        t.tokenized_training_data = std::move(train);
+        t.tokenized_validation_data = std::move(val);
+    }
+    static const std::vector<TokenizedPair>& GetTokenizedTraining(const ChatbotTrainer& t) {
+        return t.tokenized_training_data;
+    }
+    static const std::vector<TokenizedPair>& GetTokenizedValidation(const ChatbotTrainer& t) {
+        return t.tokenized_validation_data;
+    }
+
+    static TrainingConfig quiet_config() {
+        TrainingConfig cfg;
+        cfg.log_level = LogLevel::SILENT;
+        return cfg;
+    }
+};
+
+TEST_F(ChatbotTrainerCacheTest, RoundTripSavesAndLoadsCorrectly) {
+    ChatbotTrainer writer(quiet_config());
+    SetTrainingData(writer, {ConversationPair("q1", "a1"), ConversationPair("q2", "a2")});
+    SetValidationData(writer, {ConversationPair("q3", "a3")});
+    SetTokenized(writer,
+                 {TokenizedPair({1, 2, 3}, {4, 5}, "q1", "a1"), TokenizedPair({6}, {7, 8, 9}, "q2", "a2")},
+                 {TokenizedPair({10, 11}, {12}, "q3", "a3")});
+
+    const std::string path = cache_dir + "/key.cache";
+    SaveCache(writer, path);
+    ASSERT_TRUE(std::filesystem::exists(path));
+
+    ChatbotTrainer reader(quiet_config());
+    SetTrainingData(reader, {ConversationPair("q1", "a1"), ConversationPair("q2", "a2")});
+    SetValidationData(reader, {ConversationPair("q3", "a3")});
+    ASSERT_TRUE(LoadCache(reader, path));
+
+    const auto& train = GetTokenizedTraining(reader);
+    ASSERT_EQ(train.size(), 2u);
+    EXPECT_EQ(train[0].input_tokens, (std::vector<int>{1, 2, 3}));
+    EXPECT_EQ(train[0].target_tokens, (std::vector<int>{4, 5}));
+    EXPECT_EQ(train[0].input_text, "q1");
+    EXPECT_EQ(train[0].target_text, "a1");
+    EXPECT_EQ(train[1].input_tokens, (std::vector<int>{6}));
+    EXPECT_EQ(train[1].target_tokens, (std::vector<int>{7, 8, 9}));
+
+    const auto& val = GetTokenizedValidation(reader);
+    ASSERT_EQ(val.size(), 1u);
+    EXPECT_EQ(val[0].input_tokens, (std::vector<int>{10, 11}));
+    EXPECT_EQ(val[0].target_tokens, (std::vector<int>{12}));
+}
+
+TEST_F(ChatbotTrainerCacheTest, RoundTripSurvivesEmptyVectors) {
+    ChatbotTrainer writer(quiet_config());
+    SetTrainingData(writer, {ConversationPair("", "")});
+    SetValidationData(writer, {});
+    SetTokenized(writer, {TokenizedPair({}, {}, "", "")}, {});
+
+    const std::string path = cache_dir + "/empty.cache";
+    SaveCache(writer, path);
+
+    ChatbotTrainer reader(quiet_config());
+    SetTrainingData(reader, {ConversationPair("", "")});
+    SetValidationData(reader, {});
+    ASSERT_TRUE(LoadCache(reader, path));
+
+    const auto& train = GetTokenizedTraining(reader);
+    ASSERT_EQ(train.size(), 1u);
+    EXPECT_TRUE(train[0].input_tokens.empty());
+    EXPECT_TRUE(train[0].target_tokens.empty());
+    EXPECT_TRUE(GetTokenizedValidation(reader).empty());
+}
+
+TEST_F(ChatbotTrainerCacheTest, MissWhenFileDoesNotExist) {
+    ChatbotTrainer reader(quiet_config());
+    SetTrainingData(reader, {ConversationPair("q", "a")});
+    EXPECT_FALSE(LoadCache(reader, cache_dir + "/does-not-exist.cache"));
+}
+
+TEST_F(ChatbotTrainerCacheTest, MissOnSampleCountMismatch) {
+    ChatbotTrainer writer(quiet_config());
+    SetTrainingData(writer, {ConversationPair("q1", "a1"), ConversationPair("q2", "a2")});
+    SetValidationData(writer, {});
+    SetTokenized(writer, {TokenizedPair({1}, {2}, "q1", "a1"), TokenizedPair({3}, {4}, "q2", "a2")},
+                 {});
+    const std::string path = cache_dir + "/mismatch.cache";
+    SaveCache(writer, path);
+
+    // Different (smaller) training_data size than what was cached — this is
+    // exactly what a changed dataset looks like; the tokenized_cache_key
+    // (computed by IncrementalTrainer) is the primary defense against this in
+    // practice, but load_tokenized_cache() must never trust a stale cache
+    // just because the file happens to exist.
+    ChatbotTrainer reader(quiet_config());
+    SetTrainingData(reader, {ConversationPair("q1", "a1")});
+    EXPECT_FALSE(LoadCache(reader, path));
+}
+
+// ============================================================================
+// Abort-flag tests (incremental_trainer `serve`'s /admin/pause)
+//
+// Uses a tiny real model — same sizing convention as
+// generation_quality_async_test.cpp's make_tiny_trainer() — since
+// was_aborted()/train_epoch()'s abort check only make sense to verify against
+// an actual train() run, not the config-only tests above.
+// ============================================================================
+
+namespace {
+
+std::unique_ptr<ChatbotTrainer> make_abort_test_trainer(TrainingConfig cfg, int num_train_pairs,
+                                                        const std::string& vocab_tmp_path) {
+    cfg.d_model = 8;
+    cfg.num_heads = 2;
+    cfg.d_ff = 32;
+    cfg.num_encoder_layers = 1;
+    cfg.num_decoder_layers = 1;
+    cfg.max_seq_length = 16;
+    cfg.log_level = LogLevel::SILENT;
+    cfg.validation_split = 0;  // no validation split needed for these tests
+
+    auto trainer = std::make_unique<ChatbotTrainer>(cfg);
+    std::vector<std::string> corpus = {"hello world foo bar baz", "the quick brown fox"};
+    trainer->build_vocabulary(corpus, 50, vocab_tmp_path);
+    for (int i = 0; i < num_train_pairs; ++i) {
+        trainer->add_training_pair("hello", "world");
+    }
+    return trainer;
+}
+
+}  // namespace
+
+TEST(ChatbotTrainerAbortTest, WasAbortedFalseBeforeAnyTrainCall) {
+    TrainingConfig cfg;
+    auto trainer =
+        make_abort_test_trainer(cfg, 3, "/tmp/adai_chatbottrainer_abort_test_default_vocab.txt");
+    EXPECT_FALSE(trainer->was_aborted());
+}
+
+TEST(ChatbotTrainerAbortTest, TrainCompletesNormallyWhenAbortFlagNeverSet) {
+    TrainingConfig cfg;
+    cfg.num_epochs = 2;
+    auto trainer = make_abort_test_trainer(cfg, 4, "/tmp/adai_chatbottrainer_abort_test_normal_vocab.txt");
+
+    std::atomic<bool> abort_flag{false};
+    trainer->set_abort_flag(&abort_flag);  // registered, but never set
+
+    ASSERT_TRUE(trainer->train(2));
+    EXPECT_FALSE(trainer->was_aborted());
+    EXPECT_EQ(trainer->get_training_losses().size(), 2u);
+    EXPECT_GT(trainer->get_global_step(), 0);
+}
+
+TEST(ChatbotTrainerAbortTest, TrainStopsWithZeroProgressWhenAbortFlagAlreadySet) {
+    TrainingConfig cfg;
+    cfg.num_epochs = 5;
+    auto trainer = make_abort_test_trainer(cfg, 4, "/tmp/adai_chatbottrainer_abort_test_immediate_vocab.txt");
+
+    std::atomic<bool> abort_flag{true};  // set before train() is even called
+    trainer->set_abort_flag(&abort_flag);
+
+    // train() itself still returns true — no exception was thrown, it just
+    // did fewer epochs than asked. was_aborted() is the only signal that
+    // this wasn't a normal completion (see
+    // IncrementalTrainer::run_training()'s comment on this exact point).
+    ASSERT_TRUE(trainer->train(5));
+    EXPECT_TRUE(trainer->was_aborted());
+    // Checked at accumulation_step==0, i.e. before the very first sample of
+    // epoch 0 — zero optimizer steps ever ran.
+    EXPECT_EQ(trainer->get_global_step(), 0);
+}
+
+TEST(ChatbotTrainerAbortTest, TrainStopsAfterCurrentEpochWhenFlagSetMidRun) {
+    TrainingConfig cfg;
+    cfg.num_epochs = 4;
+    auto trainer = make_abort_test_trainer(cfg, 4, "/tmp/adai_chatbottrainer_abort_test_midrun_vocab.txt");
+
+    std::atomic<bool> abort_flag{false};
+    trainer->set_abort_flag(&abort_flag);
+    // Flip the flag once epoch 0 has fully completed (epoch_callback_ fires
+    // after train_epoch() + validate() for that epoch) — proves the abort is
+    // honored at the next epoch boundary rather than being missed entirely.
+    trainer->set_epoch_callback([&abort_flag](int epoch, int, float, float, float) {
+        if (epoch == 0) {
+            abort_flag = true;
+        }
+    });
+
+    ASSERT_TRUE(trainer->train(4));
+    EXPECT_TRUE(trainer->was_aborted());
+    const int steps_after_one_full_epoch = trainer->get_global_step();
+    EXPECT_GT(steps_after_one_full_epoch, 0);
+    // Epoch 1's train_epoch() call aborts before any sample runs (0 more
+    // optimizer steps), and epochs 2-3 never start at all — global_step
+    // never advances past what epoch 0 alone produced.
+    EXPECT_EQ(trainer->get_global_step(), steps_after_one_full_epoch);
+}
+
+TEST(ChatbotTrainerAbortTest, SetAbortFlagNullptrDisablesAbortChecking) {
+    TrainingConfig cfg;
+    cfg.num_epochs = 1;
+    auto trainer = make_abort_test_trainer(cfg, 3, "/tmp/adai_chatbottrainer_abort_test_nullptr_vocab.txt");
+
+    trainer->set_abort_flag(nullptr);  // the default — no crash, never aborts
+    ASSERT_TRUE(trainer->train(1));
+    EXPECT_FALSE(trainer->was_aborted());
 }
 
 // ============================================================================

@@ -1,3 +1,7 @@
+// @adai-status: beta        (capped by TD-030 — see TECHNICAL_DEBT.md)
+// @adai-version: 0.10.0
+// @adai-reviewed: 2026-09-07
+
 #ifdef ADAI_ENABLE_GPU
 
 #include "MatrixGPU_SYCL.hpp"
@@ -10,26 +14,82 @@ namespace gpu {
 
 // ============================================================================
 // Element-wise Kernels
+//
+// Each op below is split into a vectorized sycl::vec<float,4> pass over the
+// size/4 aligned prefix (one 128-bit load/store per work-item, ~4x the
+// effective memory bandwidth of a scalar loop) plus a scalar pass over the
+// size%4 remainder — mirrors CUDA's add_kernel_v4/add_kernel split in
+// MatrixGPU.cu. USM device allocations satisfy sycl::vec<float,4>'s 16-byte
+// alignment requirement, same assumption CUDA's float4 reinterpret makes of
+// cudaMalloc.
 // ============================================================================
 
 void matrix_add_gpu(const float* a, const float* b, float* c, int size) {
     auto& q = GPUManager::get_queue();
-    q.parallel_for(sycl::range<1>(size), [=](sycl::id<1> idx) { c[idx] = a[idx] + b[idx]; });
+    const int n4 = size / 4;
+    const int tail = size % 4;
+    if (n4 > 0) {
+        const auto* a4 = reinterpret_cast<const sycl::vec<float, 4>*>(a);
+        const auto* b4 = reinterpret_cast<const sycl::vec<float, 4>*>(b);
+        auto* c4 = reinterpret_cast<sycl::vec<float, 4>*>(c);
+        q.parallel_for(sycl::range<1>(n4), [=](sycl::id<1> idx) { c4[idx] = a4[idx] + b4[idx]; });
+    }
+    if (tail > 0) {
+        const int offset = n4 * 4;
+        q.parallel_for(sycl::range<1>(tail), [=](sycl::id<1> idx) {
+            c[offset + idx] = a[offset + idx] + b[offset + idx];
+        });
+    }
 }
 
 void matrix_add_scalar_gpu(const float* a, float scalar, float* c, int size) {
     auto& q = GPUManager::get_queue();
-    q.parallel_for(sycl::range<1>(size), [=](sycl::id<1> idx) { c[idx] = a[idx] + scalar; });
+    const int n4 = size / 4;
+    const int tail = size % 4;
+    if (n4 > 0) {
+        const auto* a4 = reinterpret_cast<const sycl::vec<float, 4>*>(a);
+        auto* c4 = reinterpret_cast<sycl::vec<float, 4>*>(c);
+        q.parallel_for(sycl::range<1>(n4), [=](sycl::id<1> idx) { c4[idx] = a4[idx] + scalar; });
+    }
+    if (tail > 0) {
+        const int offset = n4 * 4;
+        q.parallel_for(sycl::range<1>(tail),
+                       [=](sycl::id<1> idx) { c[offset + idx] = a[offset + idx] + scalar; });
+    }
 }
 
 void matrix_multiply_elementwise_gpu(const float* a, const float* b, float* c, int size) {
     auto& q = GPUManager::get_queue();
-    q.parallel_for(sycl::range<1>(size), [=](sycl::id<1> idx) { c[idx] = a[idx] * b[idx]; });
+    const int n4 = size / 4;
+    const int tail = size % 4;
+    if (n4 > 0) {
+        const auto* a4 = reinterpret_cast<const sycl::vec<float, 4>*>(a);
+        const auto* b4 = reinterpret_cast<const sycl::vec<float, 4>*>(b);
+        auto* c4 = reinterpret_cast<sycl::vec<float, 4>*>(c);
+        q.parallel_for(sycl::range<1>(n4), [=](sycl::id<1> idx) { c4[idx] = a4[idx] * b4[idx]; });
+    }
+    if (tail > 0) {
+        const int offset = n4 * 4;
+        q.parallel_for(sycl::range<1>(tail), [=](sycl::id<1> idx) {
+            c[offset + idx] = a[offset + idx] * b[offset + idx];
+        });
+    }
 }
 
 void matrix_multiply_scalar_gpu(const float* a, float scalar, float* c, int size) {
     auto& q = GPUManager::get_queue();
-    q.parallel_for(sycl::range<1>(size), [=](sycl::id<1> idx) { c[idx] = a[idx] * scalar; });
+    const int n4 = size / 4;
+    const int tail = size % 4;
+    if (n4 > 0) {
+        const auto* a4 = reinterpret_cast<const sycl::vec<float, 4>*>(a);
+        auto* c4 = reinterpret_cast<sycl::vec<float, 4>*>(c);
+        q.parallel_for(sycl::range<1>(n4), [=](sycl::id<1> idx) { c4[idx] = a4[idx] * scalar; });
+    }
+    if (tail > 0) {
+        const int offset = n4 * 4;
+        q.parallel_for(sycl::range<1>(tail),
+                       [=](sycl::id<1> idx) { c[offset + idx] = a[offset + idx] * scalar; });
+    }
 }
 
 // ============================================================================
@@ -90,38 +150,96 @@ void matrix_multiply_gpu(const float* a, const float* b, float* c, int m, int k,
 // Activation Kernels
 // ============================================================================
 
+// Shared by the vectorized and scalar-tail passes below, same role as
+// MatrixGPU.cu's __device__ apply_activation().
+static inline float apply_activation_sycl(float x, int act) {
+    switch (act) {
+        case 0:  // ReLU
+            return sycl::fmax(0.0f, x);
+        case 1:  // Sigmoid
+            return 1.0f / (1.0f + sycl::exp(-x));
+        case 2:  // Tanh
+            return sycl::tanh(x);
+        case 3:  // GELU (approximation)
+            return 0.5f * x * (1.0f + sycl::tanh(0.7978845608f * (x + 0.044715f * x * x * x)));
+        default:
+            return x;
+    }
+}
+
 void matrix_apply_activation_gpu(float* data, int size, ActivationType type) {
     auto& q = GPUManager::get_queue();
-    int act = static_cast<int>(type);
+    const int act = static_cast<int>(type);
+    const int n4 = size / 4;
+    const int tail = size % 4;
 
-    q.parallel_for(sycl::range<1>(size), [=](sycl::id<1> idx) {
-        float x = data[idx];
-        float result;
-        switch (act) {
-            case 0:  // ReLU
-                result = sycl::fmax(0.0f, x);
-                break;
-            case 1:  // Sigmoid
-                result = 1.0f / (1.0f + sycl::exp(-x));
-                break;
-            case 2:  // Tanh
-                result = sycl::tanh(x);
-                break;
-            case 3:  // GELU (approximation)
-                result =
-                    0.5f * x * (1.0f + sycl::tanh(0.7978845608f * (x + 0.044715f * x * x * x)));
-                break;
-            default:
-                result = x;
-                break;
-        }
-        data[idx] = result;
-    });
+    if (n4 > 0) {
+        auto* data4 = reinterpret_cast<sycl::vec<float, 4>*>(data);
+        q.parallel_for(sycl::range<1>(n4), [=](sycl::id<1> idx) {
+            sycl::vec<float, 4> v = data4[idx];
+            v.x() = apply_activation_sycl(v.x(), act);
+            v.y() = apply_activation_sycl(v.y(), act);
+            v.z() = apply_activation_sycl(v.z(), act);
+            v.w() = apply_activation_sycl(v.w(), act);
+            data4[idx] = v;
+        });
+    }
+    if (tail > 0) {
+        const int offset = n4 * 4;
+        q.parallel_for(sycl::range<1>(tail), [=](sycl::id<1> idx) {
+            data[offset + idx] = apply_activation_sycl(data[offset + idx], act);
+        });
+    }
 }
 
 // ============================================================================
 // Sum Reduction (sub-group optimized)
+//
+// Sub-group reduce_over_group is SYCL's portable equivalent of CUDA's
+// __shfl_down_sync warp reduction (MatrixGPU.cu's warp_reduce_sum /
+// TD-003 warp opt): no local memory or barrier needed within a sub-group.
+// A single barrier then combines the per-sub-group partials, mirroring
+// sum_kernel's 6-step shape exactly — just with reduce_over_group standing
+// in for the shuffle-based warp_reduce_sum.
 // ============================================================================
+
+// Reduce val across one sub-group (portable stand-in for warp_reduce_sum).
+static inline float subgroup_reduce_sum(sycl::sub_group sg, float val) {
+    return sycl::reduce_over_group(sg, val, sycl::plus<float>());
+}
+
+// Reduce val across an entire work-group. Valid only in the item whose
+// local_id(0) == 0; other work-items' return values are unspecified.
+// `subgroup_sums` must have at least (work-group size / sub-group size)
+// elements — WG_SIZE is generous for any Intel sub-group width (16 or 32).
+static inline float workgroup_reduce_sum(sycl::nd_item<1> item,
+                                          sycl::local_accessor<float, 1> subgroup_sums,
+                                          float val) {
+    auto sg = item.get_sub_group();
+
+    // Step 1: reduce within the sub-group — no shared memory, no barrier.
+    val = subgroup_reduce_sum(sg, val);
+
+    // Step 2: lane 0 of each sub-group stores its partial sum.
+    const int sg_id = static_cast<int>(sg.get_group_linear_id());
+    if (sg.get_local_linear_id() == 0) {
+        subgroup_sums[sg_id] = val;
+    }
+
+    // Step 3: ONE barrier to make all sub-group results visible.
+    item.barrier(sycl::access::fence_space::local_space);
+
+    // Step 4: the first sub-group reduces the per-sub-group partial sums.
+    //         Lanes beyond that count contribute 0.
+    const int num_subgroups =
+        static_cast<int>(item.get_local_range(0) / sg.get_local_linear_range());
+    const int local_id = static_cast<int>(item.get_local_id(0));
+    val = (local_id < num_subgroups) ? subgroup_sums[local_id] : 0.0f;
+    if (sg_id == 0) {
+        val = subgroup_reduce_sum(sg, val);
+    }
+    return val;
+}
 
 float matrix_sum_gpu(const float* data, int size) {
     auto& q = GPUManager::get_queue();
@@ -131,28 +249,18 @@ float matrix_sum_gpu(const float* data, int size) {
     GPUMemory<float> group_sums(num_groups);
 
     q.submit([&](sycl::handler& cgh) {
-         sycl::local_accessor<float, 1> local_data(sycl::range<1>(WG_SIZE), cgh);
+         sycl::local_accessor<float, 1> subgroup_sums(sycl::range<1>(WG_SIZE), cgh);
          float* out = group_sums.get();
 
          cgh.parallel_for(sycl::nd_range<1>(num_groups * WG_SIZE, WG_SIZE),
                           [=](sycl::nd_item<1> item) {
-                              int global_id = item.get_global_id(0);
-                              int local_id = item.get_local_id(0);
-                              int wg_size = item.get_local_range(0);
+                              const int global_id = static_cast<int>(item.get_global_id(0));
+                              float val = (global_id < size) ? data[global_id] : 0.0f;
 
-                              local_data[local_id] = (global_id < size) ? data[global_id] : 0.0f;
-                              item.barrier(sycl::access::fence_space::local_space);
+                              val = workgroup_reduce_sum(item, subgroup_sums, val);
 
-                              // Tree reduction in local memory
-                              for (int stride = wg_size / 2; stride > 0; stride >>= 1) {
-                                  if (local_id < stride) {
-                                      local_data[local_id] += local_data[local_id + stride];
-                                  }
-                                  item.barrier(sycl::access::fence_space::local_space);
-                              }
-
-                              if (local_id == 0) {
-                                  out[item.get_group(0)] = local_data[0];
+                              if (item.get_local_id(0) == 0) {
+                                  out[item.get_group(0)] = val;
                               }
                           });
      }).wait();
@@ -186,13 +294,31 @@ void matrix_batch_add_gpu(const float** a_batch, const float** b_batch, float** 
     q.memcpy(d_b, b_batch, ptr_bytes);
     q.memcpy(d_c, c_batch, ptr_bytes);
 
-    q.parallel_for(sycl::range<2>(batch_size, size), [=](sycl::id<2> idx) {
-        int b = idx[0];
-        int i = idx[1];
-        d_c[b][i] = d_a[b][i] + d_b[b][i];
-    });
+    // Vectorized float4 pass over the size/4 aligned prefix + scalar tail —
+    // mirrors CUDA's batch_add_kernel_v4 / batch_add_tail_kernel split.
+    const int n4 = size / 4;
+    const int tail = size % 4;
 
-    // Free after the kernel — in-order queue ensures the kernel finishes first.
+    if (n4 > 0) {
+        q.parallel_for(sycl::range<2>(batch_size, n4), [=](sycl::id<2> idx) {
+            const int b = idx[0];
+            const int i = idx[1];
+            const auto* a4 = reinterpret_cast<const sycl::vec<float, 4>*>(d_a[b]);
+            const auto* b4 = reinterpret_cast<const sycl::vec<float, 4>*>(d_b[b]);
+            auto* c4 = reinterpret_cast<sycl::vec<float, 4>*>(d_c[b]);
+            c4[i] = a4[i] + b4[i];
+        });
+    }
+    if (tail > 0) {
+        const int offset = n4 * 4;
+        q.parallel_for(sycl::range<2>(batch_size, tail), [=](sycl::id<2> idx) {
+            const int b = idx[0];
+            const int i = idx[1];
+            d_c[b][offset + i] = d_a[b][offset + i] + d_b[b][offset + i];
+        });
+    }
+
+    // Free after the kernels — in-order queue ensures they finish first.
     q.submit([=](sycl::handler& cgh) {
         cgh.host_task([=]() {
             sycl::free(d_a, q);
@@ -646,9 +772,10 @@ void matrix_cross_entropy_grad_gpu(const float* logits, const int* targets, floa
 // Training-diagnostics reductions (activation saturation / attention entropy)
 // ============================================================================
 
-// Count of elements with |x| < threshold. Clone of matrix_sum_gpu's reduction
-// shape (see above) with the per-thread load replaced by a thresholded predicate;
-// recurses into matrix_sum_gpu itself for the final multi-group reduce.
+// Count of elements with |x| < threshold. Clone of matrix_sum_gpu's sub-group
+// reduction shape (see above, and MatrixGPU.cu's count_below_threshold_kernel)
+// with the per-thread load replaced by a thresholded predicate; recurses into
+// matrix_sum_gpu itself for the final multi-group reduce.
 float matrix_count_below_threshold_gpu(const float* data, int size, float threshold) {
     auto& q = GPUManager::get_queue();
     constexpr int WG_SIZE = 256;
@@ -657,28 +784,19 @@ float matrix_count_below_threshold_gpu(const float* data, int size, float thresh
     GPUMemory<float> group_sums(num_groups);
 
     q.submit([&](sycl::handler& cgh) {
-         sycl::local_accessor<float, 1> local_data(sycl::range<1>(WG_SIZE), cgh);
+         sycl::local_accessor<float, 1> subgroup_sums(sycl::range<1>(WG_SIZE), cgh);
          float* out = group_sums.get();
 
          cgh.parallel_for(
              sycl::nd_range<1>(num_groups * WG_SIZE, WG_SIZE), [=](sycl::nd_item<1> item) {
-                 int global_id = item.get_global_id(0);
-                 int local_id = item.get_local_id(0);
-                 int wg_size = item.get_local_range(0);
-
-                 local_data[local_id] =
+                 const int global_id = static_cast<int>(item.get_global_id(0));
+                 float val =
                      (global_id < size && sycl::fabs(data[global_id]) < threshold) ? 1.0f : 0.0f;
-                 item.barrier(sycl::access::fence_space::local_space);
 
-                 for (int stride = wg_size / 2; stride > 0; stride >>= 1) {
-                     if (local_id < stride) {
-                         local_data[local_id] += local_data[local_id + stride];
-                     }
-                     item.barrier(sycl::access::fence_space::local_space);
-                 }
+                 val = workgroup_reduce_sum(item, subgroup_sums, val);
 
-                 if (local_id == 0) {
-                     out[item.get_group(0)] = local_data[0];
+                 if (item.get_local_id(0) == 0) {
+                     out[item.get_group(0)] = val;
                  }
              });
      }).wait();

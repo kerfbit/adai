@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+
+# @adai-status: beta
+# @adai-version: 0.7.0
+# @adai-reviewed: 2026-09-07
+
 set -euo pipefail
 
 # Install bundled Intel oneAPI shared libraries into the system linker

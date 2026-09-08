@@ -1,4 +1,9 @@
 #!/bin/bash
+
+# @adai-status: beta
+# @adai-version: 0.8.0
+# @adai-reviewed: 2026-09-07
+
 # Cross-compile ADAI chatbot for Windows from Linux
 # Requires: mingw-w64 toolchain
 # Install on Ubuntu/Debian: sudo apt-get install mingw-w64 g++-mingw-w64

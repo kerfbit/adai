@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# @adai-status: beta
+# @adai-version: 0.7.0
+# @adai-reviewed: 2026-09-07
+
+
 # Comprehensive test suite for chatbot_gui
 # Tests build, dependencies, integration, and code quality
 

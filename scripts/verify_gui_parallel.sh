@@ -1,4 +1,9 @@
 #!/bin/bash
+
+# @adai-status: beta
+# @adai-version: 0.6.0
+# @adai-reviewed: 2026-09-07
+
 # Chatbot GUI Parallel Processing Verification Script
 
 echo "╔══════════════════════════════════════════════════════════════════╗"

@@ -186,6 +186,36 @@ TEST_F(HuggingfaceSliceTest, MissingCachedFileReturnsZeroPairs) {
     EXPECT_EQ(pairs, 0);
 }
 
+// Regression test for a real production incident: SetFit/sst2 (and any
+// dataset shaped like it — free text plus a *numeric* classification field
+// that happens to share a name with an auto-detect candidate, here
+// {"text","label"}) silently produced zero pairs for the entire dataset.
+// hf_detect_fields() used to accept a candidate purely because both key
+// names were present, so it locked onto "text"/"label" on row 0 and then
+// never recovered: label's value is a bare JSON number (`"label":0`), which
+// hf_extract_string() correctly refuses to treat as a string, so every
+// subsequent row's extraction silently failed too — det_in/det_out are only
+// (re)detected once, on the first row, so there was no path back to the
+// working single-text-field fallback that TinyStories-shaped ({"text":...}
+// only) datasets already use successfully.
+TEST_F(HuggingfaceSliceTest, NumericFieldMatchingCandidateNameFallsBackToSingleText) {
+    {
+        std::ofstream f(cached_jsonl_);
+        for (int i = 0; i < 5; ++i) {
+            f << "{\"text\":\"This is a reasonably long piece of review text number " << i
+              << ". It goes on for a while so the mid-sentence splitter has enough to work with.\","
+                 "\"label\":"
+              << (i % 2) << "}\n";
+        }
+    }
+    int next_offset = -1;
+    const int pairs = DataFetcher::convert_huggingface_slice(cached_jsonl_, output_file_, "", "",
+                                                              /*offset_rows=*/0, /*num_pairs=*/5,
+                                                              next_offset);
+    EXPECT_GT(pairs, 0) << "should fall back to the single-text-field splitter instead of "
+                           "silently detecting the numeric 'label' field as free-text output";
+}
+
 }  // namespace
 
 // ============================================================================

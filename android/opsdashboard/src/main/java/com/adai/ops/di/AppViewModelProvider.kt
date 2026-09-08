@@ -1,5 +1,10 @@
 package com.adai.ops.di
 
+// @adai-status: experimental
+// @adai-version: 0.1.0
+// @adai-reviewed: 2026-09-07
+
+
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.adai.ops.OpsApp
@@ -11,6 +16,7 @@ import com.adai.ops.ui.models.ModelDetailViewModel
 import com.adai.ops.ui.models.ModelListViewModel
 import com.adai.ops.ui.registry.GroupDetailViewModel
 import com.adai.ops.ui.registry.GroupListViewModel
+import com.adai.ops.ui.trainer.TrainerViewModel
 
 /**
  * Builds ViewModels from [OpsApp.container] instead of a Hilt graph — see
@@ -50,5 +56,9 @@ object AppViewModelProvider {
         initializer {
             AdminViewModel(app.container.modelRepository, app.container.registryRepository, app.container.metricsRepository)
         }
+    }
+
+    fun trainerFactory(app: OpsApp) = viewModelFactory {
+        initializer { TrainerViewModel(app.container.trainerRepository) }
     }
 }

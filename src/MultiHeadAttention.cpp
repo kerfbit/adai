@@ -1,3 +1,7 @@
+// @adai-status: beta        (capped by TD-030 — see TECHNICAL_DEBT.md)
+// @adai-version: 0.9.0
+// @adai-reviewed: 2026-09-07
+
 #include "MultiHeadAttention.hpp"
 #include <cmath>
 #include <fstream>

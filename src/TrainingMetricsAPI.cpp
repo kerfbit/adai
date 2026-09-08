@@ -1,3 +1,7 @@
+// @adai-status: beta        (large, actively evolving)
+// @adai-version: 0.9.0
+// @adai-reviewed: 2026-09-07
+
 #include "TrainingMetricsAPI.hpp"
 #include <httplib.h>
 #include <algorithm>

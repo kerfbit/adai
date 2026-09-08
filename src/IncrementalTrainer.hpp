@@ -1,5 +1,10 @@
 #pragma once
 
+// @adai-status: beta        (large, actively evolving core trainer)
+// @adai-version: 0.9.0
+// @adai-reviewed: 2026-09-07
+
+
 #include <chrono>
 #include <memory>
 #include <set>
@@ -13,6 +18,7 @@
 #include "IMetricsReporter.hpp"
 #include "Logger.hpp"
 #include "MetricsPushClient.hpp"
+#include "TrainerControlState.hpp"
 
 // Forward declaration — full type in ModelNameClient.hpp (included by .cpp)
 namespace adai {
@@ -164,6 +170,24 @@ class IncrementalTrainer {
      */
     std::string begin_run(bool is_retrain);
 
+    /**
+     * @brief Attach an in-process control state shared with a TrainerAdminAPI
+     *        instance (used only by `incremental_trainer serve`). When set:
+     *        - should_auto_save()/cleanup_old_sessions() prefer the control
+     *          state's live-tunable auto_save_* / max_sessions_to_keep values
+     *          over the config-file ones baked in at construction time.
+     *        - run_training() wires ChatbotTrainer::set_abort_flag() to
+     *          &control->paused, updates phase/progress fields as the pass
+     *          runs, and honors checkpoint_requested.
+     *        - begin_run() publishes the resolved run_id/model_name; the
+     *          registry-allocated session_id is published once acquired.
+     *        Pass nullptr to detach (the default — every other constructor/
+     *        command leaves this null and behaves exactly as before).
+     */
+    void set_control_state(std::shared_ptr<adai::TrainerControlState> control) {
+        control_ = std::move(control);
+    }
+
     // Training — file-list API (TD-028 Phase 3)
     bool train_on_files(const std::vector<std::string>& files, int num_epochs);
     bool retrain_on_files(const std::vector<std::string>& files, int num_epochs);
@@ -228,6 +252,13 @@ class IncrementalTrainer {
     }
 
    private:
+    // Allows the control-state tests direct access to should_auto_save()/
+    // cleanup_old_sessions() and the samples_since_last_save/last_save_time/
+    // session_history members — proving control_'s live-tunable values are
+    // actually consulted without needing a real training pass, the same
+    // friend-class pattern ChatbotTrainerCacheTest already uses.
+    friend class IncrementalTrainerControlTest;
+
     // Training components
     std::string vocab_path_;  ///< Path to vocabulary file (for architecture reinit)
     std::string model_path_;  ///< Path to main model file (for reset)
@@ -267,6 +298,10 @@ class IncrementalTrainer {
     // and the final set_candidate call. Empty when MNS isn't configured.
     std::string current_run_id_;
     std::string current_mns_session_id_;
+
+    // Optional in-process control state — only non-null under `serve`
+    // (IncrementalTrainingTool.cpp). See set_control_state().
+    std::shared_ptr<adai::TrainerControlState> control_;
 
     // Helper methods
 

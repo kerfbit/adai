@@ -1,5 +1,10 @@
 package com.adai.ops.network
 
+// @adai-status: experimental
+// @adai-version: 0.1.0
+// @adai-reviewed: 2026-09-07
+
+
 import okhttp3.Interceptor
 import okhttp3.Response
 

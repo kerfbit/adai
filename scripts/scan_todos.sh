@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# @adai-status: experimental        (undocumented duplicate of check_tech_debt.sh, superseded by it)
+# @adai-version: 0.3.0
+# @adai-reviewed: 2026-09-07
+
+
 # Script to scan for TODO comments in the codebase
 # This helps ensure all TODOs are tracked in TECHNICAL_DEBT.md
 

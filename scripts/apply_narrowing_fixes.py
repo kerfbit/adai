@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# @adai-status: experimental        (one-off codemod for a specific past clang-tidy cleanup)
+# @adai-version: 0.3.0
+# @adai-reviewed: 2026-09-07
+
 """Apply static_cast fixes for cppcoreguidelines-narrowing-conversions warnings.
 
 Reads a clang-tidy warning file and applies fixes to source files.

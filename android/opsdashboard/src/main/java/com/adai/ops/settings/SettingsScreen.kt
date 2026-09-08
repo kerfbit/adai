@@ -1,5 +1,10 @@
 package com.adai.ops.settings
 
+// @adai-status: experimental
+// @adai-version: 0.1.0
+// @adai-reviewed: 2026-09-07
+
+
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -111,6 +116,10 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
             }
 
             if (state.useHttpsRelay) {
+                Text(
+                    "Chat, Metrics, Models, and Registry share one Access token:",
+                    style = MaterialTheme.typography.bodySmall,
+                )
                 OutlinedTextField(
                     value = state.accessClientId,
                     onValueChange = viewModel::onAccessClientIdChanged,
@@ -157,6 +166,37 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                 onHostChanged = viewModel::onRegistryHostChanged,
                 onPortChanged = viewModel::onRegistryPortChanged,
             )
+            ServiceHostRow(
+                label = "Trainer (incremental_trainer serve, opt-in)",
+                host = state.trainerHost,
+                port = state.trainerPort,
+                showHost = !state.useSharedHost,
+                showPort = !state.useHttpsRelay,
+                onHostChanged = viewModel::onTrainerHostChanged,
+                onPortChanged = viewModel::onTrainerPortChanged,
+            )
+            if (state.useHttpsRelay) {
+                Text(
+                    "Trainer can pause/resume/checkpoint a live training run, so it uses its " +
+                        "own separately-revocable Access token, not the one above:",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedTextField(
+                    value = state.trainerAccessClientId,
+                    onValueChange = viewModel::onTrainerAccessClientIdChanged,
+                    label = { Text("Trainer Access Client ID") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = state.trainerAccessClientSecret,
+                    onValueChange = viewModel::onTrainerAccessClientSecretChanged,
+                    label = { Text("Trainer Access Client Secret") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
 
             HorizontalDivider()
 

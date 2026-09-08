@@ -4,6 +4,47 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-020: Persistent Metrics Storage via SQL Database
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 7, 2026 (tracker correction — implementation predates this entry) | Training / Metrics / API / Infrastructure | `IMetricsDatabase` abstraction, `SQLiteMetricsDatabase` (WAL mode), optional `PostgresMetricsDatabase`, `MetricsDatabaseFactory`, `MetricsSessionRegistry` DB ownership, four new REST endpoints, config keys, 884-line `MetricsDatabaseTest.cpp` |
+
+Summary:
+The proposal (`docs/development/proposals/persistent-metrics-sql-storage.md`) was found fully implemented and verified during the per-file production-readiness rollout (see [file-status-standard.md](../guides/file-status-standard.md)) — this entry backfills the tracker, which had continued to list the item as "Active/Planned" after the work was actually done. Nine of the ten action items are complete and verified in code; one narrow sub-item (bundling the SQLite amalgamation specifically for Windows/MinGW cross-compilation, since the current CMake setup only finds a system-installed SQLite3) was never done and has been split off as its own item, [TD-032](../guides/TECHNICAL_DEBT.md#td-032-bundle-sqlite3-amalgamation-for-windows-cross-compilation).
+
+Changes Made:
+
+- ✅ `IMetricsDatabase` interface and `SessionRecord` struct defined in `src/MetricsDatabase.hpp`.
+- ✅ `SQLiteMetricsDatabase` implemented with WAL mode (`PRAGMA journal_mode = WAL;`) and prepared statements (`src/SQLiteMetricsDatabase.hpp/.cpp`).
+- ✅ Optional `PostgresMetricsDatabase` implemented (`src/PostgresMetricsDatabase.hpp/.cpp`).
+- ✅ `MetricsDatabaseFactory::create(...)` implemented — declared in `src/MetricsDatabase.hpp`, defined in `src/SQLiteMetricsDatabase.cpp` (folded into the existing database header rather than a separate `MetricsDatabaseFactory.hpp` file as originally proposed; functionally equivalent).
+- ✅ `IMetricsDatabase*` wired into `TrainingMetricsService` via `set_database()`.
+- ✅ `MetricsSessionRegistry` owns and initializes the database instance (`src/MetricsSessionRegistry.hpp`), constructing it via `MetricsDatabaseFactory::create()` and injecting it into each session.
+- ✅ Four new REST endpoints added to `TrainingMetricsAPI`: `/api/sessions/{key}/metrics/history` (time-range, explicitly commented "TD-020: DB-backed time-range history query"), `/api/metrics/compare` (cross-session), `/api/metrics/aggregate` (status-filtered live session list), `/api/sessions/{key}/metrics/export` (full history export).
+- ✅ `METRICS_STORAGE_BACKEND`, `METRICS_DB_PATH`, `METRICS_DB_URL`, `METRICS_DB_POOL_SIZE` all present in `src/Config.hpp/.cpp` and `config.metrics.conf`.
+- ✅ `tests/MetricsDatabaseTest.cpp` written (884 lines) covering schema bootstrap, WAL mode, round-trip insert/query, and related paths.
+- ⬜ SQLite amalgamation bundling for Windows/MinGW builds — not done; split off as TD-032.
+
+Files Modified:
+
+- `src/MetricsDatabase.hpp` (new)
+- `src/SQLiteMetricsDatabase.hpp` / `src/SQLiteMetricsDatabase.cpp` (new)
+- `src/PostgresMetricsDatabase.hpp` / `src/PostgresMetricsDatabase.cpp` (new)
+- `src/MetricsSessionRegistry.hpp`
+- `src/TrainingMetricsService.hpp` / `src/TrainingMetricsService.cpp`
+- `src/TrainingMetricsAPI.hpp` / `src/TrainingMetricsAPI.cpp`
+- `src/Config.hpp` / `src/Config.cpp`
+- `config.metrics.conf`
+- `tests/MetricsDatabaseTest.cpp` (new)
+
+Verification:
+
+- ✅ `MetricsDatabaseTest.cpp` present and substantial (884 lines); `src/CMakeLists.txt` links SQLite3 into `adai_core` ("TD-020: Link SQLite3 into adai_core") and registers the SQLite metrics backend
+- ✅ Confirmed by direct code inspection during this rollout, not by re-running the historical test suite
+
+---
+
 ### TD-031: Fix RegistryServer Logger::init call signature mismatch
 
 | Resolution Date | Component | Resolved By |

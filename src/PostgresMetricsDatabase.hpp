@@ -1,5 +1,10 @@
 #pragma once
 
+// @adai-status: experimental        (compile-time optional backend; no test coverage, not built by default)
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-09-07
+
+
 #ifdef ADAI_ENABLE_POSTGRES
 
 #include <condition_variable>

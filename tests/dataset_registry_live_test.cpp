@@ -526,6 +526,25 @@ TEST_F(LiveRegistryTest, SecondRunCannotClaimFilesAssignedToFirst) {
     EXPECT_NE(res2->body.find("\"acquired\":[]"), std::string::npos) << res2->body;
 }
 
+TEST_F(LiveRegistryTest, SameRunCanReclaimItsOwnFiles) {
+    const std::string path = "/data/" + group() + "/reclaimed.txt";
+    ASSERT_TRUE(add_pending(path));
+
+    // First acquire claims it.
+    auto res1 = acquire("run-same");
+    ASSERT_TRUE(res1);
+    EXPECT_EQ(res1->status, 200);
+    EXPECT_NE(res1->body.find(path), std::string::npos) << res1->body;
+
+    // Same run_id, no release in between (simulates a crashed process
+    // restarting and getting the same run_id back) — must get the file back,
+    // not an empty result.
+    auto res2 = acquire("run-same");
+    ASSERT_TRUE(res2);
+    EXPECT_EQ(res2->status, 200);
+    EXPECT_NE(res2->body.find(path), std::string::npos) << res2->body;
+}
+
 TEST_F(LiveRegistryTest, AcquireShowsAssignedRunIdInQueue) {
     const std::string path = "/data/" + group() + "/assigned.txt";
     ASSERT_TRUE(add_pending(path));

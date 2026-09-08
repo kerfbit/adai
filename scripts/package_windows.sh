@@ -1,4 +1,9 @@
 #!/bin/bash
+
+# @adai-status: beta
+# @adai-version: 0.8.0
+# @adai-reviewed: 2026-09-07
+
 # Package Windows executables with all dependencies for distribution
 # Creates a portable Windows package that can be copied and run on any Windows system
 

@@ -1,5 +1,10 @@
 package com.adai.wearcomplications
 
+// @adai-status: experimental
+// @adai-version: 0.1.0
+// @adai-reviewed: 2026-09-07
+
+
 import com.adai.wearsync.WearSyncDefaults
 import com.adai.wearsync.WearSyncKeys
 import com.google.android.gms.wearable.DataMap

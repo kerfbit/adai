@@ -1,6 +1,11 @@
 #ifndef METRICS_TRACKER_HPP
 #define METRICS_TRACKER_HPP
 
+// @adai-status: stable
+// @adai-version: 1.0.0
+// @adai-reviewed: 2026-09-07
+
+
 #include <algorithm>
 #include <cmath>
 #include <fstream>

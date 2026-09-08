@@ -1,3 +1,7 @@
+// @adai-status: stable
+// @adai-version: 1.0.0
+// @adai-reviewed: 2026-09-07
+
 /**
  * @file VocabBuilderHelpers.hpp
  * @brief File-loading helper functions for the VocabBuilder CLI utility.

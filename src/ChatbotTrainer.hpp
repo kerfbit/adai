@@ -1,5 +1,11 @@
 #pragma once
 
+// @adai-status: beta        (large, actively evolving core trainer)
+// @adai-version: 0.9.0
+// @adai-reviewed: 2026-09-07
+
+
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <limits>
@@ -151,6 +157,16 @@ struct TrainingConfig {
 
     // Tokenizer mode: ASCII (default, byte-level) or UNICODE (UTF-8 code-point-level)
     TokenizerMode tokenizer_mode = TokenizerMode::ASCII;
+
+    // On-disk tokenized-data cache: preprocess_data() skips its BPE-encode loops
+    // entirely on a cache hit (see ChatbotTrainer.cpp). Mirrors
+    // DatasetConfig::cache_tokenized_data/tokenized_cache_dir (DatasetRegistry.hpp)
+    // — IncrementalTrainer copies those two here and computes tokenized_cache_key
+    // fresh before each ChatbotTrainer construction, so this class itself stays
+    // unaware of DatasetRegistry/file checksums.
+    bool cache_tokenized_data = false;
+    std::string tokenized_cache_dir = "tokenized_cache";
+    std::string tokenized_cache_key;  // empty = cache effectively disabled for this run
 };
 
 /**
@@ -202,6 +218,14 @@ using BestModelCallback = std::function<void(int epoch, float val_loss)>;
 
 class ChatbotTrainer {
    private:
+    // Allow the tokenized-data cache's unit tests direct access to
+    // load_tokenized_cache()/save_tokenized_cache() and the tokenized_*/
+    // training_data/validation_data members — a full train() integration
+    // test would need a real model+tokenizer and actual forward/backward
+    // passes just to exercise preprocess_data(), which this codebase's other
+    // ChatbotTrainer tests already avoid (see chatbottrainer_test.cpp).
+    friend class ChatbotTrainerCacheTest;
+
     std::unique_ptr<BPETokenizer> tokenizer;
     std::unique_ptr<EncoderDecoderModel> model;
     std::unique_ptr<Optimizer> optimizer;
@@ -253,6 +277,15 @@ class ChatbotTrainer {
     IMetricsReporter* metrics_reporter_{nullptr};
     int abnormal_sample_count_ = 0;  ///< flagged samples reported this training run (TD-021)
 
+    // Cooperative abort (incremental_trainer's `serve` admin API — /admin/pause).
+    // Not owned; caller (IncrementalTrainer) guarantees the pointee outlives
+    // this ChatbotTrainer instance. Checked only at optimizer-step boundaries
+    // (accumulation_step == 0) in train_epoch()'s per-sample loop — never
+    // mid-accumulation-window, so a pause never leaves a half-applied gradient
+    // update. nullptr (the default) means abort is never requested.
+    const std::atomic<bool>* abort_flag_{nullptr};
+    bool was_aborted_{false};
+
     // TD-023: background generation-quality scoring thread
     std::optional<std::thread> generation_quality_thread_;
 
@@ -261,6 +294,21 @@ class ChatbotTrainer {
     void split_data();
     void preprocess_data();
     void shuffle_training_data();
+    /**
+     * @brief Loads tokenized_training_data/tokenized_validation_data from
+     * @p cache_path if present. Returns false (leaving both untouched) on any
+     * missing file, read error, or sample-count mismatch against the current
+     * training_data/validation_data sizes — callers must fall back to
+     * re-tokenizing on a false return, never treat it as fatal.
+     */
+    bool load_tokenized_cache(const std::string& cache_path);
+    /**
+     * @brief Serializes the current tokenized_training_data/
+     * tokenized_validation_data to @p cache_path. Best-effort — logs and
+     * returns on any write failure rather than throwing; a failed cache write
+     * must never fail training itself.
+     */
+    void save_tokenized_cache(const std::string& cache_path) const;
     /**
      * @brief Single entry point for EncoderDecoderModel construction.
      * Reads vocab size from the current tokenizer and all architecture
@@ -457,6 +505,29 @@ class ChatbotTrainer {
      * @param reporter Pointer to IMetricsReporter (not owned, may be nullptr to disable)
      */
     void set_metrics_reporter(IMetricsReporter* reporter);
+
+    /**
+     * @brief Register a cooperative-abort flag (incremental_trainer `serve`'s
+     *        /admin/pause). When *flag becomes true, train_epoch() breaks out
+     *        of its per-sample loop at the next optimizer-step boundary
+     *        (accumulation_step == 0) — never mid-accumulation-window — and
+     *        train()'s epoch loop stops starting further epochs. Pass nullptr
+     *        (the default) to disable; not owned, caller must outlive this
+     *        ChatbotTrainer.
+     */
+    void set_abort_flag(const std::atomic<bool>* flag) {
+        abort_flag_ = flag;
+    }
+
+    /**
+     * @brief True if the most recent train() call ended early because
+     *        abort_flag_ was set, rather than completing all epochs or
+     *        stopping via early-stopping. Reset to false at the start of
+     *        each train() call.
+     */
+    bool was_aborted() const {
+        return was_aborted_;
+    }
 
     // For testing data management
     size_t get_training_data_size() const {

@@ -111,7 +111,37 @@ jobs:
         ./scripts/analyze_code.sh || true
         # Note: Using '|| true' to not fail on warnings for now
         # Remove this once all warnings are addressed
-  
+
+  file-status-check:
+    name: Per-File Status Tag Check
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Determine base ref
+      id: base
+      run: |
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          git fetch origin "${{ github.base_ref }}" --depth=1
+          echo "ref=origin/${{ github.base_ref }}" >> "$GITHUB_OUTPUT"
+        elif [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+          echo "ref=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
+        else
+          # First push to a new branch — nothing to diff against; empty tree.
+          echo "ref=4b825dc642cb6eb9a060e54bf8d69288fbee4904" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Check file status tags on changed files
+      run: |
+        # See docs/development/guides/file-status-standard.md. The whole repo passed
+        # --strict as of the September 2026 rollout, so this is a real, required gate:
+        # any in-scope file touched by this push/PR must carry an @adai-status tag.
+        ./scripts/check_file_status.py --changed "${{ steps.base.outputs.ref }}" --strict
+
   todo-scanner:
     name: Scan for Untracked TODOs
     runs-on: ubuntu-22.04
@@ -125,7 +155,7 @@ jobs:
         echo "🔍 Scanning for TODO comments in source files..."
         
         # Find all TODO comments in C++ source files
-        TODO_COUNT=$(grep -r "TODO:" --include="*.cpp" --include="*.hpp" src/ tests/ include/ | wc -l || true)
+        TODO_COUNT=$(grep -r "TODO:" --include="*.cpp" --include="*.hpp" src/ tests/ | wc -l || true)
         
         echo "Found $TODO_COUNT TODO comments"
         
@@ -134,7 +164,7 @@ jobs:
           echo ""
           echo "📋 TODO Comments Found:"
           echo "===================="
-          grep -rn "TODO:" --include="*.cpp" --include="*.hpp" src/ tests/ include/ || true
+          grep -rn "TODO:" --include="*.cpp" --include="*.hpp" src/ tests/ || true
           echo ""
           echo "⚠️  Please ensure all TODOs are tracked in docs/development/guides/TECHNICAL_DEBT.md"
           echo "   or have associated GitHub issues."
@@ -146,7 +176,7 @@ jobs:
         mkdir -p todo-report
         echo "# TODO Report - $(date)" > todo-report/todos.txt
         echo "" >> todo-report/todos.txt
-        grep -rn "TODO:" --include="*.cpp" --include="*.hpp" src/ tests/ include/ >> todo-report/todos.txt || echo "No TODOs found" >> todo-report/todos.txt
+        grep -rn "TODO:" --include="*.cpp" --include="*.hpp" src/ tests/ >> todo-report/todos.txt || echo "No TODOs found" >> todo-report/todos.txt
     
     - name: Upload TODO Report
       uses: actions/upload-artifact@v7

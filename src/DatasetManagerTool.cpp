@@ -1,3 +1,7 @@
+// @adai-status: beta        (shipped as dataset_manager; no dedicated test file)
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-09-07
+
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -379,6 +383,14 @@ int main(int argc, char* argv[]) {
                 std::cout << "✅ Verified model: " << resolved.model_name
                           << " (id: " << resolved.model_id << ", state: " << resolved.state
                           << ")\n";
+                // MNS-authoritative run_group, same override as incremental_trainer's
+                // (IncrementalTrainingTool.cpp) — only when the model actually has
+                // one on record, so an unmigrated model keeps its local fallback.
+                if (!resolved.run_group.empty()) {
+                    svc_config.run_group = resolved.run_group;
+                    std::cout << "[MNS] run_group resolved from MNS: '" << resolved.run_group
+                              << "'\n";
+                }
             } catch (const std::exception& e) {
                 std::cerr << "❌ Model '" << model_name
                           << "' not found in name service: " << e.what() << "\n";

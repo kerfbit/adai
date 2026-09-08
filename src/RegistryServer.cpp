@@ -1,3 +1,7 @@
+// @adai-status: beta        (shipped as registry_server; tested only via live/integration tests)
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-09-07
+
 /**
  * registry_server — Distributed dataset queue coordination daemon (TD-028 Phase 9)
  *                   + FTP dataset delivery server (Phase 10)
@@ -387,7 +391,10 @@ static void handle_acquire(const httplib::Request& req, httplib::Response& res,
     const int limit = (max_files > 0) ? max_files : static_cast<int>(entries.size());
     std::vector<std::string> acquired;
     for (auto& e : entries) {
-        if (e.run_id.empty() && eligible(e) && static_cast<int>(acquired.size()) < limit) {
+        // Unclaimed, OR already claimed by this exact run_id — see the
+        // matching comment in LocalTransport::acquire() (RegistryTransport.cpp).
+        if ((e.run_id.empty() || e.run_id == run_id) && eligible(e) &&
+            static_cast<int>(acquired.size()) < limit) {
             e.run_id = run_id;
             acquired.push_back(e.path);
         }

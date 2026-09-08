@@ -1,6 +1,7 @@
 # cloudflared ingress config for the ai-machine (192.168.1.24).
-# Fronts chatbot_api_server under kerfbit.dev. See
-# docs/operations/deployment/CLOUDFLARE_TUNNEL_RELAY.md.
+# Fronts chatbot_api_server and incremental_trainer's admin API (opt-in,
+# `serve` only — see CLAUDE.md "Incremental trainer admin API") under
+# kerfbit.dev. See docs/operations/deployment/CLOUDFLARE_TUNNEL_RELAY.md.
 #
 # Fill in the placeholders below with real values from `cloudflared tunnel create
 # adai-chat-tunnel`, then install with:
@@ -16,4 +17,11 @@ credentials-file: /etc/cloudflared/<TUNNEL_UUID>.json
 ingress:
   - hostname: chat.kerfbit.dev
     service: http://localhost:8080
+  # trainer.kerfbit.dev is gated by its OWN Access application/service token,
+  # separate from chat/metrics/mns/registry's shared one — it can pause/
+  # resume/checkpoint a live training run, unlike the read-only dashboards
+  # (and chat, which has no comparable "stop a live process" action). See
+  # CLOUDFLARE_TUNNEL_RELAY.md's Access section.
+  - hostname: trainer.kerfbit.dev
+    service: http://localhost:8084
   - service: http_status:404

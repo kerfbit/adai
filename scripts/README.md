@@ -79,7 +79,7 @@ Systemd service unit file for the ADAI chatbot API server. Includes security har
 
 ### cloudflared/install_cloudflared.sh
 
-Installs a Cloudflare Tunnel connector as a systemd service, exposing metrics/MNS/registry/chatbot to the Android tablet apps under `kerfbit.dev` subdomains when off the home LAN. Runs as a dedicated `cloudflared` system user (not `adai`). Assumes the `cloudflared` binary and the tunnel itself already exist — see [Cloudflare Tunnel Relay](../docs/operations/deployment/CLOUDFLARE_TUNNEL_RELAY.md) for the full setup, including the ingress config templates (`config-storage.yml.template`, `config-chat.yml.template`) in the same directory.
+Installs a Cloudflare Tunnel connector as a systemd service, exposing metrics/MNS/registry/chatbot/trainer-admin to the Android tablet apps under `kerfbit.dev` subdomains when off the home LAN. Runs as a dedicated `cloudflared` system user (not `adai`). Assumes the `cloudflared` binary and the tunnel itself already exist — see [Cloudflare Tunnel Relay](../docs/operations/deployment/CLOUDFLARE_TUNNEL_RELAY.md) for the full setup, including the ingress config templates (`config-storage.yml.template`, `config-chat.yml.template`) in the same directory. `config-chat.yml.template` fronts both `chat.kerfbit.dev` and `trainer.kerfbit.dev` on the one `adai-chat-tunnel` connector (same machine, two Cloudflare Access applications with separate service tokens — see the doc).
 
 ```bash
 sudo ./scripts/cloudflared/install_cloudflared.sh \

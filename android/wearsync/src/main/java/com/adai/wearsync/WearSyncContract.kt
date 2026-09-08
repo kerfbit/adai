@@ -1,5 +1,10 @@
 package com.adai.wearsync
 
+// @adai-status: beta
+// @adai-version: 0.4.0
+// @adai-reviewed: 2026-09-07
+
+
 /**
  * Shared contract between the opsdashboard phone app (producer, pushes via the Data Layer)
  * and the wearcomplications watch app (consumer, feeds two ComplicationDataSourceServices)

@@ -1,5 +1,10 @@
 package com.adai.ops.ui.common
 
+// @adai-status: experimental        ($note)
+// @adai-version: 0.1.0
+// @adai-reviewed: 2026-09-07
+
+
 import android.os.SystemClock
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK

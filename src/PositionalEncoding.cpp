@@ -1,3 +1,7 @@
+// @adai-status: stable
+// @adai-version: 1.0.0
+// @adai-reviewed: 2026-09-07
+
 #include "PositionalEncoding.hpp"
 #include <iomanip>
 #include <iostream>

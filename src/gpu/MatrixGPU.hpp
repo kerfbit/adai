@@ -1,6 +1,11 @@
 #ifndef MATRIX_GPU_HPP
 #define MATRIX_GPU_HPP
 
+// @adai-status: stable
+// @adai-version: 1.0.0
+// @adai-reviewed: 2026-09-07
+
+
 #ifdef ADAI_ENABLE_GPU
 
 #if defined(ADAI_GPU_BACKEND_SYCL)

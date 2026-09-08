@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+
+# @adai-status: beta
+# @adai-version: 0.7.0
+# @adai-reviewed: 2026-09-07
+
 set -euo pipefail
 
 # Package incremental_trainer and chatbot_api_server (SYCL build) into a

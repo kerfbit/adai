@@ -1,5 +1,10 @@
 #pragma once
 
+// @adai-status: beta
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-09-07
+
+
 #include <memory>
 #include <sstream>
 #include <string>

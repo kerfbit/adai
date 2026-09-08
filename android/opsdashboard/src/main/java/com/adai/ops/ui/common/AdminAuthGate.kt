@@ -1,5 +1,10 @@
 package com.adai.ops.ui.common
 
+// @adai-status: beta
+// @adai-version: 0.4.0
+// @adai-reviewed: 2026-09-07
+
+
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.fragment.app.FragmentActivity
 

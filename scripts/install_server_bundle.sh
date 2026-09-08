@@ -1,4 +1,9 @@
 #!/bin/bash
+
+# @adai-status: beta
+# @adai-version: 0.8.0
+# @adai-reviewed: 2026-09-07
+
 # ADAI Server Bundle - Installation Script
 #
 # Installs metrics_api_server, registry_server, and mns_server as a co-located

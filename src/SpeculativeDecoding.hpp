@@ -1,6 +1,11 @@
 #ifndef SPECULATIVE_DECODING_HPP
 #define SPECULATIVE_DECODING_HPP
 
+// @adai-status: beta        (tested but not wired into any shipped binary yet)
+// @adai-version: 0.7.0
+// @adai-reviewed: 2026-09-07
+
+
 #include <algorithm>
 #include <random>
 #include <stdexcept>

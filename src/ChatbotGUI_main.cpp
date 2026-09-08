@@ -1,3 +1,7 @@
+// @adai-status: beta        (thin main() wrapper, no dedicated test)
+// @adai-version: 0.7.0
+// @adai-reviewed: 2026-09-07
+
 #include <QApplication>
 #include <iostream>
 #include <string>

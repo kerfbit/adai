@@ -1,5 +1,10 @@
 package com.adai.ops.network.dto
 
+// @adai-status: beta
+// @adai-version: 0.4.0
+// @adai-reviewed: 2026-09-07
+
+
 import kotlinx.serialization.Serializable
 
 /** Field names verified against docs/development/TRAINING_METRICS_API.md. */

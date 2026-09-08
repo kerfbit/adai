@@ -1,5 +1,10 @@
 #pragma once
 
+// @adai-status: beta        (tested only indirectly via mns_manager_gui_test.cpp)
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-09-07
+
+
 #include <map>
 #include <optional>
 #include <string>
@@ -15,6 +20,11 @@ struct ResolvedModel {
     std::string model_name;
     std::string state;
     ArtifactLocation artifact;
+    // Dataset-registry run_group for this model, per its MNS record — empty
+    // means the model hasn't been registered with one (or predates this
+    // field), in which case callers should keep their own local RUN_GROUP
+    // config / SESSION_DIR-basename fallback instead of overwriting it.
+    std::string run_group;
 };
 
 // Lightweight summary returned by list_models().
@@ -87,6 +97,12 @@ class ModelNameClient {
 
     // Promote a candidate model to production for a role.
     void promote(const std::string& role, const std::string& model_name);
+
+    // Set/update a registered model's dataset-registry run_group. Unlike
+    // architecture (register-time-only, immutable), this is safe to call at
+    // any time — run_group doesn't affect checkpoint compatibility. Throws if
+    // the model isn't registered (404) or on network failure.
+    void update_run_group(const std::string& model_name, const std::string& run_group);
 
    private:
     struct ParsedUrl {

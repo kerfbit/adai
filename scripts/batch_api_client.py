@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# @adai-status: beta        (documented example client, not a maintained production tool)
+# @adai-version: 0.7.0
+# @adai-reviewed: 2026-09-07
+
 """
 Batch Processing API Client Example
 

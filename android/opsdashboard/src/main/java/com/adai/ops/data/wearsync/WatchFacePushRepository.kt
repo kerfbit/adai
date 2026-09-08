@@ -1,5 +1,10 @@
 package com.adai.ops.data.wearsync
 
+// @adai-status: beta
+// @adai-version: 0.4.0
+// @adai-reviewed: 2026-09-07
+
+
 import android.content.Context
 import android.os.ParcelFileDescriptor
 import androidx.wear.watchfacepush.WatchFacePushManager

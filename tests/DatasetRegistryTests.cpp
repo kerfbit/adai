@@ -521,6 +521,24 @@ TEST_F(DatasetRegistryTest, AcquirePendingEmptyWhenNoneAvailable) {
     EXPECT_TRUE(reg.acquire_pending("run-a").files.empty());
 }
 
+TEST_F(DatasetRegistryTest, AcquirePendingReclaimsOwnPriorClaim) {
+    {
+        DatasetRegistry reg(make_cfg());
+        reg.add_file(data_file_);
+    }
+    DatasetRegistry reg2(make_cfg());
+    auto first = reg2.acquire_pending("run-a");
+    ASSERT_EQ(first.files.size(), 1u);
+
+    // Same run_id, no release in between — simulates a crash-restart that
+    // gets the same run_id back (e.g. MNS's new_run=false continuation).
+    // Must reclaim its own prior claim rather than finding nothing pending.
+    DatasetRegistry reg3(make_cfg());
+    auto second = reg3.acquire_pending("run-a");
+    ASSERT_EQ(second.files.size(), 1u);
+    EXPECT_EQ(second.files[0].registry_path, data_file_);
+}
+
 TEST_F(DatasetRegistryTest, ReleasePendingRestoresFileToPool) {
     {
         DatasetRegistry reg(make_cfg());

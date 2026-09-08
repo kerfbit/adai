@@ -42,6 +42,7 @@ Thank you for your interest in contributing to the Advanced Deep Learning AI (AD
 - [ ] No static analysis warnings: `./scripts/analyze_code.sh`
 - [ ] New tests added for new features
 - [ ] Documentation updated
+- [ ] File status tag (`@adai-status`/`@adai-version`/`@adai-reviewed`) added or updated for every new or touched in-scope file — see [file-status-standard.md](docs/development/guides/file-status-standard.md); run `./scripts/check_file_status.py --changed`
 
 ## Pull Request Process
 

@@ -1,3 +1,7 @@
+// @adai-status: stable
+// @adai-version: 1.0.0
+// @adai-reviewed: 2026-09-07
+
 /**
  * @file ParallelDataLoader.hpp
  * @brief Multi-threaded data loading with prefetching for efficient training

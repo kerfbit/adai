@@ -1,3 +1,7 @@
+// @adai-status: beta        (tested only indirectly via mns_manager_gui_test.cpp)
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-09-07
+
 #include "ModelNameClient.hpp"
 #include <chrono>
 #include <sstream>
@@ -234,7 +238,8 @@ std::string adai::ModelNameClient::register_model(const std::string& model_name,
                                                   const std::map<std::string, std::string>& tags) {
     std::ostringstream body;
     body << "{\"model_name\":\"" << json_escape_client(model_name) << "\"" << ",\"role\":\""
-         << json_escape_client(role) << "\"" << ",\"arch\":{" << "\"d_model\":" << arch.d_model
+         << json_escape_client(role) << "\"" << ",\"run_group\":\""
+         << json_escape_client(arch.run_group) << "\"" << ",\"arch\":{" << "\"d_model\":" << arch.d_model
          << ",\"num_heads\":" << arch.num_heads << ",\"d_ff\":" << arch.d_ff
          << ",\"num_encoder_layers\":" << arch.num_encoder_layers
          << ",\"num_decoder_layers\":" << arch.num_decoder_layers
@@ -350,6 +355,7 @@ adai::ResolvedModel adai::ModelNameClient::resolve_model(const std::string& mode
     rm.model_id = json_string_client(out, "model_id");
     rm.model_name = json_string_client(out, "model_name");
     rm.state = json_string_client(out, "state");
+    rm.run_group = json_string_client(out, "run_group");
     rm.artifact.host = json_string_client(out, "host");
     rm.artifact.path = json_string_client(out, "path");
     rm.artifact.checksum = json_string_client(out, "checksum");
@@ -391,6 +397,7 @@ adai::ResolvedModel adai::ModelNameClient::resolve_role(const std::string& role)
     rm.model_id = json_string_client(out, "model_id");
     rm.model_name = json_string_client(out, "model_name");
     rm.state = json_string_client(out, "state");
+    rm.run_group = json_string_client(out, "run_group");
     rm.artifact.host = json_string_client(out, "host");
     rm.artifact.path = json_string_client(out, "path");
     rm.artifact.checksum = json_string_client(out, "checksum");
@@ -405,4 +412,14 @@ void adai::ModelNameClient::promote(const std::string& role, const std::string& 
     std::string out;
     const int status = http_put("/roles/" + role + "/production", body.str(), out);
     check_status(status, out, "promote(" + model_name + " -> " + role + ")");
+}
+
+void adai::ModelNameClient::update_run_group(const std::string& model_name,
+                                             const std::string& run_group) {
+    std::ostringstream body;
+    body << "{\"run_group\":\"" << json_escape_client(run_group) << "\"}";
+
+    std::string out;
+    const int status = http_put("/models/" + model_name + "/run_group", body.str(), out);
+    check_status(status, out, "update_run_group(" + model_name + ")");
 }

@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# @adai-status: experimental        (one-off verification script for a specific past fix)
+# @adai-version: 0.3.0
+# @adai-reviewed: 2026-09-07
+
 """Simple test to verify special token fixes work correctly"""
 
 import subprocess

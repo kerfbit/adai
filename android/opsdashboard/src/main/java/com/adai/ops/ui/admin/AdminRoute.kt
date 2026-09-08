@@ -1,5 +1,10 @@
 package com.adai.ops.ui.admin
 
+// @adai-status: experimental
+// @adai-version: 0.1.0
+// @adai-reviewed: 2026-09-07
+
+
 import androidx.compose.runtime.Composable
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.adai.ops.OpsApp

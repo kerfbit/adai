@@ -1,6 +1,11 @@
 #ifndef GPU_UTILS_HPP
 #define GPU_UTILS_HPP
 
+// @adai-status: stable
+// @adai-version: 1.0.0
+// @adai-reviewed: 2026-09-07
+
+
 #include <cstddef>
 #include <stdexcept>
 #include <string>

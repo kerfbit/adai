@@ -1,6 +1,11 @@
 #ifndef PPO_OPTIMIZER_HPP
 #define PPO_OPTIMIZER_HPP
 
+// @adai-status: experimental        (capped by TD-034 — policy-ratio and KL early-stop are hardcoded placeholders, see TECHNICAL_DEBT.md)
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-09-07
+
+
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>

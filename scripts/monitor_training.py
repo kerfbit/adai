@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# @adai-status: beta        (no doc reference, but self-contained and functional)
+# @adai-version: 0.6.0
+# @adai-reviewed: 2026-09-07
+
 """
 Training Metrics Monitor - Real-time CLI dashboard for training metrics
 

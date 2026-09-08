@@ -1,3 +1,7 @@
+// @adai-status: beta        (large, actively evolving)
+// @adai-version: 0.9.0
+// @adai-reviewed: 2026-09-07
+
 #include "TrainingMetricsService.hpp"
 #include <algorithm>
 #include <cmath>

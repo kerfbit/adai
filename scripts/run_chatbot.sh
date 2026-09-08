@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# @adai-status: beta
+# @adai-version: 0.7.0
+# @adai-reviewed: 2026-09-07
+
+
 # Configuration
 SERVER_HOST="localhost"
 SERVER_PORT="8080"

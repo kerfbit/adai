@@ -1,4 +1,9 @@
 #!/bin/bash
+
+# @adai-status: beta
+# @adai-version: 0.8.0
+# @adai-reviewed: 2026-09-07
+
 # ADAI Incremental Trainer Sub-System - Installation Script
 #
 # Installs incremental_trainer, dataset_manager, and optionally registry_server
@@ -22,6 +27,7 @@ BUILD_DIR="build-gpu-clang"
 CONFIG_SRC=""       # auto-resolved to <repo-root>/config.conf when empty
 VOCAB_SRC=""        # auto-resolved to <repo-root>/vocab.txt when empty
 WITH_REGISTRY_SERVER=false
+WITH_SYSTEMD=false
 COORDINATOR=false
 REMOTE_HOST=""
 SYNC_SESSIONS=false
@@ -64,6 +70,9 @@ Options:
   --config-src PATH         Source config.conf (default: <repo-root>/config.conf)
   --vocab-src PATH          Source vocab.txt (default: <repo-root>/vocab.txt)
   --with-registry-server    Also install the registry_server binary
+  --with-systemd            Install adai-trainer.service (auto-restart on crash via
+                            `incremental_trainer --foreground resume`; see
+                            scripts/adai-trainer.service for what it does and why)
   --coordinator             Install only registry_server as a coordinator node
                             (implies --with-registry-server; no trainer binary required)
   --remote HOST             Install to a remote host via SSH + rsync
@@ -78,6 +87,10 @@ Examples:
 
   # Local install with distributed registry server
   sudo $0 --with-registry-server
+
+  # Local install with crash-resilient auto-restart (see project_ai_machine_gpu_hang
+  # ops notes for why this exists)
+  sudo $0 --with-systemd
 
   # Custom build directory and install path
   sudo $0 --build-dir build-release --install-path /usr/local/adai
@@ -205,6 +218,7 @@ while [[ $# -gt 0 ]]; do
             validate_abs_path "--vocab-src" "$2"
             VOCAB_SRC="$2";     shift 2 ;;
         --with-registry-server) WITH_REGISTRY_SERVER=true; shift ;;
+        --with-systemd)        WITH_SYSTEMD=true;   shift ;;
         --coordinator)        COORDINATOR=true; WITH_REGISTRY_SERVER=true; shift ;;
         --remote)
             validate_remote_host "$2"
@@ -329,11 +343,109 @@ STUBS
 }
 
 # ============================================================================
+# Append Tokenized-Data Cache Config Stubs (idempotent)
+# ============================================================================
+
+append_cache_stubs() {
+    local config_path="$1"
+    if grep -q "CACHE_TOKENIZED_DATA" "${config_path}" 2>/dev/null; then
+        warn "Tokenized-cache stubs already present in ${config_path}, skipping"
+        return
+    fi
+    cat >> "${config_path}" <<'STUBS'
+
+# ============================================================================
+# Tokenized-data cache
+# BPE tokenization can take a very long time on large datasets — enabling
+# this persists the result to disk so a subsequent train/retrain/resume
+# against the same dataset+vocab+config skips straight back to training.
+# Recommended whenever `resume` runs under process supervision (see
+# scripts/adai-trainer.service, --with-systemd) so a crash-restart doesn't
+# cost hours of re-tokenization.
+# ============================================================================
+
+CACHE_TOKENIZED_DATA=true
+
+# Directory for the cache, relative to the trainer's working directory unless
+# given as an absolute path.
+TOKENIZED_CACHE_DIR=tokenized_cache
+STUBS
+    success "Appended tokenized-cache config stubs to ${config_path}"
+}
+
+# ============================================================================
+# Install adai-trainer.service (--with-systemd)
+# ============================================================================
+#
+# Generated inline (not copied from scripts/adai-trainer.service — that file
+# is a standalone manual-install reference using /etc/adai/config.trainer.conf,
+# whereas this script deploys config to ${CONFIG_DIR}/config.conf; the two
+# aren't required to match, this one just has to be consistent with what
+# local_install() actually laid down).
+
+install_trainer_systemd_unit() {
+    if ! command -v systemctl &>/dev/null; then
+        warn "systemd not available on this system — skipping --with-systemd"
+        return
+    fi
+
+    local service_name="adai-trainer"
+    local service_file="/etc/systemd/system/${service_name}.service"
+
+    cat > "${service_file}" <<EOF
+[Unit]
+Description=ADAI Incremental Trainer (crash-resilient, auto-resume)
+Documentation=https://github.com/rjv717/adai
+After=network-online.target
+Wants=network-online.target
+PartOf=multi-user.target
+StartLimitIntervalSec=1800
+StartLimitBurst=10
+
+[Service]
+Type=simple
+User=${SERVICE_USER}
+Group=${SERVICE_GROUP}
+WorkingDirectory=${INSTALL_PATH}
+ExecStart=${BIN_DIR}/incremental_trainer --config ${CONFIG_DIR}/config.conf --foreground resume
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=45
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=${service_name}
+
+# Security hardening — PrivateDevices=no (not "yes"): a private /dev hides
+# the GPU device node and training silently falls back to CPU with no error.
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=${LOG_DIR} ${SESSIONS_DIR} ${INSTALL_PATH}/tokenized_cache
+PrivateDevices=no
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    chmod 644 "${service_file}"
+    success "Installed ${service_file}"
+
+    systemctl daemon-reload
+    systemctl enable "${service_name}.service"
+    success "Service '${service_name}' enabled (will start on boot)"
+    warn "Not starting ${service_name} automatically — 'resume' expects a prior"
+    warn "session (run 'incremental_trainer init' + one manual 'train' first, if"
+    warn "this is a brand-new model). Start when ready: systemctl start ${service_name}"
+}
+
+# ============================================================================
 # LOCAL INSTALL
 # ============================================================================
 
 local_install() {
-    local step_total=7
+    local step_total=9
 
     info "Installation Configuration:"
     echo "  Install Path:      ${INSTALL_PATH}"
@@ -345,6 +457,7 @@ local_install() {
     echo "  Service User:      ${SERVICE_USER}:${SERVICE_GROUP}"
     echo "  Build Directory:   ${BUILD_BIN_DIR}/"
     [[ "${WITH_REGISTRY_SERVER}" == true ]] && echo "  Registry Server:   yes (port 8082)"
+    [[ "${WITH_SYSTEMD}" == true ]] && echo "  systemd unit:      adai-trainer.service (auto-restart on crash)"
     echo ""
 
     confirm "Continue with installation?"
@@ -400,15 +513,27 @@ local_install() {
     info "[5/${step_total}] Adding distributed-registry config stubs..."
     append_registry_stubs "${CONFIG_DIR}/config.conf"
 
-    # Step 6: Set ownership
-    info "[6/${step_total}] Setting ownership and permissions..."
+    # Step 6: Append tokenized-data cache config stubs
+    info "[6/${step_total}] Adding tokenized-cache config stubs..."
+    append_cache_stubs "${CONFIG_DIR}/config.conf"
+
+    # Step 7: Set ownership
+    info "[7/${step_total}] Setting ownership and permissions..."
     chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${INSTALL_PATH}"
     chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${LOG_DIR}"
     chmod 640 "${CONFIG_DIR}/config.conf"
     success "Ownership and permissions set"
 
-    # Step 7: Post-install verification
-    info "[7/${step_total}] Verifying installation..."
+    # Step 8: Install systemd unit (--with-systemd)
+    info "[8/${step_total}] Installing systemd unit..."
+    if [[ "${WITH_SYSTEMD}" == true ]]; then
+        install_trainer_systemd_unit
+    else
+        info "Skipped (pass --with-systemd to install adai-trainer.service)"
+    fi
+
+    # Step 9: Post-install verification
+    info "[9/${step_total}] Verifying installation..."
     local ok=true
 
     if [[ -x "${BIN_DIR}/incremental_trainer" ]]; then
@@ -449,6 +574,15 @@ print_local_summary() {
         echo "Start registry server:"
         echo "  sudo -u ${SERVICE_USER} ${BIN_DIR}/registry_server"
         echo "  (listens on port 8082; configure REGISTRY_SERVER_URL on worker nodes)"
+        echo ""
+    fi
+    if [[ "${WITH_SYSTEMD}" == true ]]; then
+        echo "Crash-resilient auto-restart (adai-trainer.service installed, not started):"
+        echo "  Run 'incremental_trainer init' + one manual 'train' first if this is a"
+        echo "  brand-new model — 'resume' (what the service runs) expects a prior session."
+        echo "  Then: sudo systemctl start adai-trainer"
+        echo "  Status:  systemctl status adai-trainer"
+        echo "  Logs:    journalctl -u adai-trainer -f"
         echo ""
     fi
     echo "Edit config:"

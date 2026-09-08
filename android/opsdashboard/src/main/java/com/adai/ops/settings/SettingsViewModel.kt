@@ -1,5 +1,10 @@
 package com.adai.ops.settings
 
+// @adai-status: beta
+// @adai-version: 0.4.0
+// @adai-reviewed: 2026-09-07
+
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.adai.ops.data.wearsync.WatchFacePushRepository
@@ -19,12 +24,16 @@ data class SettingsUiState(
     val mnsPort: String = OpsSettings.DEFAULT_MNS_PORT.toString(),
     val registryHost: String = "",
     val registryPort: String = OpsSettings.DEFAULT_REGISTRY_PORT.toString(),
+    val trainerHost: String = "",
+    val trainerPort: String = OpsSettings.DEFAULT_TRAINER_PORT.toString(),
     val registryGroups: List<String> = emptyList(),
     val newGroupInput: String = "",
     val basePollIntervalMs: Long = OpsSettings.DEFAULT_POLL_INTERVAL_MS,
     val useHttpsRelay: Boolean = false,
     val accessClientId: String = "",
     val accessClientSecret: String = "",
+    val trainerAccessClientId: String = "",
+    val trainerAccessClientSecret: String = "",
     val watchSyncEnabled: Boolean = true,
     val watchSyncSessionKeyOverride: String = "",
     val saved: Boolean = false,
@@ -53,11 +62,15 @@ class SettingsViewModel(
                 mnsPort = current.mnsPort.toString(),
                 registryHost = current.registryHost,
                 registryPort = current.registryPort.toString(),
+                trainerHost = current.trainerHost,
+                trainerPort = current.trainerPort.toString(),
                 registryGroups = current.registryGroups,
                 basePollIntervalMs = current.basePollIntervalMs,
                 useHttpsRelay = current.useHttpsRelay,
                 accessClientId = current.accessClientId,
                 accessClientSecret = current.accessClientSecret,
+                trainerAccessClientId = current.trainerAccessClientId,
+                trainerAccessClientSecret = current.trainerAccessClientSecret,
                 watchSyncEnabled = current.watchSyncEnabled,
                 watchSyncSessionKeyOverride = current.watchSyncSessionKeyOverride ?: "",
             )
@@ -74,6 +87,14 @@ class SettingsViewModel(
 
     fun onAccessClientSecretChanged(value: String) {
         _uiState.value = _uiState.value.copy(accessClientSecret = value)
+    }
+
+    fun onTrainerAccessClientIdChanged(value: String) {
+        _uiState.value = _uiState.value.copy(trainerAccessClientId = value)
+    }
+
+    fun onTrainerAccessClientSecretChanged(value: String) {
+        _uiState.value = _uiState.value.copy(trainerAccessClientSecret = value)
     }
 
     fun onUseSharedHostChanged(value: Boolean) {
@@ -106,6 +127,14 @@ class SettingsViewModel(
 
     fun onRegistryPortChanged(value: String) {
         _uiState.value = _uiState.value.copy(registryPort = value)
+    }
+
+    fun onTrainerHostChanged(value: String) {
+        _uiState.value = _uiState.value.copy(trainerHost = value)
+    }
+
+    fun onTrainerPortChanged(value: String) {
+        _uiState.value = _uiState.value.copy(trainerPort = value)
     }
 
     fun onNewGroupInputChanged(value: String) {
@@ -194,11 +223,15 @@ class SettingsViewModel(
             mnsPort = state.mnsPort.toIntOrNull() ?: OpsSettings.DEFAULT_MNS_PORT,
             registryHost = state.registryHost.trim(),
             registryPort = state.registryPort.toIntOrNull() ?: OpsSettings.DEFAULT_REGISTRY_PORT,
+            trainerHost = state.trainerHost.trim(),
+            trainerPort = state.trainerPort.toIntOrNull() ?: OpsSettings.DEFAULT_TRAINER_PORT,
             registryGroups = state.registryGroups,
             basePollIntervalMs = state.basePollIntervalMs,
             useHttpsRelay = state.useHttpsRelay,
             accessClientId = state.accessClientId.trim(),
             accessClientSecret = state.accessClientSecret.trim(),
+            trainerAccessClientId = state.trainerAccessClientId.trim(),
+            trainerAccessClientSecret = state.trainerAccessClientSecret.trim(),
             watchSyncEnabled = state.watchSyncEnabled,
             watchSyncSessionKeyOverride = state.watchSyncSessionKeyOverride.trim().takeIf { it.isNotEmpty() },
         )

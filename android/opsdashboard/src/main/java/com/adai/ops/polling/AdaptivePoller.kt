@@ -1,5 +1,10 @@
 package com.adai.ops.polling
 
+// @adai-status: beta
+// @adai-version: 0.4.0
+// @adai-reviewed: 2026-09-07
+
+
 import kotlin.math.abs
 import kotlin.math.roundToLong
 import kotlinx.coroutines.delay

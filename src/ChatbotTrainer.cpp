@@ -1,7 +1,13 @@
+// @adai-status: beta        (large, actively evolving core trainer)
+// @adai-version: 0.9.0
+// @adai-reviewed: 2026-09-07
+
 #include "ChatbotTrainer.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -15,6 +21,8 @@
 #ifdef ADAI_ENABLE_OPENMP
 #include <omp.h>
 #endif
+
+namespace fs = std::filesystem;
 
 // ANSI color codes
 #define COLOR_RESET "\033[0m"
@@ -292,6 +300,150 @@ void ChatbotTrainer::validate_and_correct_config() {
     }
 }
 
+// ============================================================================
+// Tokenized-data cache — binary format, versioned via a leading magic number:
+//   [uint32 magic] [uint64 n_train] [uint64 n_val]
+//   then n_train + n_val repetitions of one TokenizedPair:
+//     [uint32 input_tokens.size()] [int32 * that many]
+//     [uint32 target_tokens.size()] [int32 * that many]
+//     [uint32 input_text.size()]  [bytes]
+//     [uint32 target_text.size()] [bytes]
+// Cache staleness (wrong dataset/vocab/config) is handled by the caller via
+// tokenized_cache_key (see IncrementalTrainer, which computes it from file +
+// vocab checksums + tokenizer_mode + max_seq_length) — this format itself
+// only guards against a truncated/corrupt file and a sample-count mismatch.
+// ============================================================================
+namespace {
+constexpr std::uint32_t kTokenizedCacheMagic = 0x544B4331;  // 'TKC1'
+
+bool read_u32(std::ifstream& in, std::uint32_t& out) {
+    in.read(reinterpret_cast<char*>(&out), sizeof(out));
+    return static_cast<bool>(in);
+}
+
+bool read_u64(std::ifstream& in, std::uint64_t& out) {
+    in.read(reinterpret_cast<char*>(&out), sizeof(out));
+    return static_cast<bool>(in);
+}
+
+bool read_tokenized_pair(std::ifstream& in, TokenizedPair& out) {
+    std::uint32_t n = 0;
+    if (!read_u32(in, n))
+        return false;
+    out.input_tokens.resize(n);
+    if (n > 0 && !in.read(reinterpret_cast<char*>(out.input_tokens.data()),
+                          static_cast<std::streamsize>(n * sizeof(int))))
+        return false;
+
+    if (!read_u32(in, n))
+        return false;
+    out.target_tokens.resize(n);
+    if (n > 0 && !in.read(reinterpret_cast<char*>(out.target_tokens.data()),
+                          static_cast<std::streamsize>(n * sizeof(int))))
+        return false;
+
+    if (!read_u32(in, n))
+        return false;
+    out.input_text.resize(n);
+    if (n > 0 && !in.read(out.input_text.data(), static_cast<std::streamsize>(n)))
+        return false;
+
+    if (!read_u32(in, n))
+        return false;
+    out.target_text.resize(n);
+    if (n > 0 && !in.read(out.target_text.data(), static_cast<std::streamsize>(n)))
+        return false;
+
+    return true;
+}
+
+void write_u32(std::ofstream& out, std::uint32_t v) {
+    out.write(reinterpret_cast<const char*>(&v), sizeof(v));
+}
+
+void write_tokenized_pair(std::ofstream& out, const TokenizedPair& p) {
+    write_u32(out, static_cast<std::uint32_t>(p.input_tokens.size()));
+    if (!p.input_tokens.empty())
+        out.write(reinterpret_cast<const char*>(p.input_tokens.data()),
+                  static_cast<std::streamsize>(p.input_tokens.size() * sizeof(int)));
+    write_u32(out, static_cast<std::uint32_t>(p.target_tokens.size()));
+    if (!p.target_tokens.empty())
+        out.write(reinterpret_cast<const char*>(p.target_tokens.data()),
+                  static_cast<std::streamsize>(p.target_tokens.size() * sizeof(int)));
+    write_u32(out, static_cast<std::uint32_t>(p.input_text.size()));
+    if (!p.input_text.empty())
+        out.write(p.input_text.data(), static_cast<std::streamsize>(p.input_text.size()));
+    write_u32(out, static_cast<std::uint32_t>(p.target_text.size()));
+    if (!p.target_text.empty())
+        out.write(p.target_text.data(), static_cast<std::streamsize>(p.target_text.size()));
+}
+}  // namespace
+
+bool ChatbotTrainer::load_tokenized_cache(const std::string& cache_path) {
+    std::ifstream in(cache_path, std::ios::binary);
+    if (!in.is_open())
+        return false;
+
+    std::uint32_t magic = 0;
+    if (!read_u32(in, magic) || magic != kTokenizedCacheMagic)
+        return false;
+
+    std::uint64_t n_train = 0, n_val = 0;
+    if (!read_u64(in, n_train) || !read_u64(in, n_val))
+        return false;
+
+    // Guard against a stale/corrupt cache whose sample counts no longer match
+    // the raw data actually loaded this run — the tokenized_cache_key is the
+    // primary defense (see IncrementalTrainer), this is a cheap second check.
+    if (n_train != training_data.size() || n_val != validation_data.size())
+        return false;
+
+    std::vector<TokenizedPair> loaded_train(n_train);
+    for (std::uint64_t i = 0; i < n_train; ++i) {
+        if (!read_tokenized_pair(in, loaded_train[i]))
+            return false;
+    }
+    std::vector<TokenizedPair> loaded_val(n_val);
+    for (std::uint64_t i = 0; i < n_val; ++i) {
+        if (!read_tokenized_pair(in, loaded_val[i]))
+            return false;
+    }
+
+    tokenized_training_data = std::move(loaded_train);
+    tokenized_validation_data = std::move(loaded_val);
+    return true;
+}
+
+void ChatbotTrainer::save_tokenized_cache(const std::string& cache_path) const {
+    std::error_code ec;
+    fs::create_directories(fs::path(cache_path).parent_path(), ec);
+    if (ec) {
+        adai::Logger::warn("Tokenized-data cache: failed to create directory for '{}' ({})",
+                           cache_path, ec.message());
+        return;
+    }
+
+    std::ofstream out(cache_path, std::ios::binary | std::ios::trunc);
+    if (!out.is_open()) {
+        adai::Logger::warn("Tokenized-data cache: failed to open '{}' for writing", cache_path);
+        return;
+    }
+
+    write_u32(out, kTokenizedCacheMagic);
+    const std::uint64_t n_train = tokenized_training_data.size();
+    const std::uint64_t n_val = tokenized_validation_data.size();
+    out.write(reinterpret_cast<const char*>(&n_train), sizeof(n_train));
+    out.write(reinterpret_cast<const char*>(&n_val), sizeof(n_val));
+    for (const auto& p : tokenized_training_data)
+        write_tokenized_pair(out, p);
+    for (const auto& p : tokenized_validation_data)
+        write_tokenized_pair(out, p);
+
+    if (!out.good()) {
+        adai::Logger::warn("Tokenized-data cache: write error on '{}'", cache_path);
+    }
+}
+
 /**
  * @brief Preprocess and tokenize all training and validation data
  */
@@ -305,6 +457,39 @@ void ChatbotTrainer::preprocess_data() {
     }
 
     adai::Logger::info("🔄 Preprocessing and tokenizing data...");
+
+    const std::string cache_path =
+        (config.cache_tokenized_data && !config.tokenized_cache_key.empty())
+            ? config.tokenized_cache_dir + "/" + config.tokenized_cache_key + ".cache"
+            : std::string();
+
+    if (!cache_path.empty() && load_tokenized_cache(cache_path)) {
+        // load_tokenized_cache() only populates tokenized_training_data/
+        // tokenized_validation_data — restore the two things the encode loops
+        // below normally set as a side effect: per-pair token_count (used by
+        // outlier detection/quality backfill downstream) and the shuffle index.
+        for (std::size_t i = 0; i < training_data.size(); ++i) {
+            training_data[i].meta.token_count =
+                static_cast<int>(tokenized_training_data[i].input_tokens.size() +
+                                 tokenized_training_data[i].target_tokens.size());
+        }
+        for (std::size_t i = 0; i < validation_data.size(); ++i) {
+            validation_data[i].meta.token_count =
+                static_cast<int>(tokenized_validation_data[i].input_tokens.size() +
+                                 tokenized_validation_data[i].target_tokens.size());
+        }
+        training_indices.resize(tokenized_training_data.size());
+        std::iota(training_indices.begin(), training_indices.end(), 0);
+
+        adai::Logger::info("✅ Tokenized-data cache hit — skipped preprocessing:");
+        adai::Logger::info("  Training samples: {}", tokenized_training_data.size());
+        adai::Logger::info("  Validation samples: {}", tokenized_validation_data.size());
+        return;
+    }
+    if (!cache_path.empty()) {
+        adai::Logger::info("Tokenized-data cache miss ('{}') — preprocessing from scratch",
+                           cache_path);
+    }
 
     const int max_len = static_cast<int>(config.max_seq_length);
     // Pre-truncate raw text to ~max_len*5 chars before BPE encoding to keep O(max_len) cost.
@@ -395,6 +580,10 @@ void ChatbotTrainer::preprocess_data() {
     adai::Logger::info("✅ Data preprocessed:");
     adai::Logger::info("  Training samples: {}", tokenized_training_data.size());
     adai::Logger::info("  Validation samples: {}", tokenized_validation_data.size());
+
+    if (!cache_path.empty()) {
+        save_tokenized_cache(cache_path);
+    }
 }
 
 /**
@@ -840,6 +1029,14 @@ float ChatbotTrainer::train_epoch(int epoch) {
     // ─────────────────────────────────────────────────────────────────────────
 
     for (int i = 0; i < num_samples; i++) {
+        // Cooperative abort (serve's /admin/pause) — only honored at an
+        // optimizer-step boundary, never mid-accumulation-window, so a pause
+        // never leaves a half-applied gradient update.
+        if (accumulation_step == 0 && abort_flag_ && abort_flag_->load(std::memory_order_relaxed)) {
+            was_aborted_ = true;
+            break;
+        }
+
         const auto& pair = tokenized_training_data[training_indices[i]];
 
         // Update learning rate based on schedule (only at optimizer step)
@@ -1620,6 +1817,7 @@ void ChatbotTrainer::backfill_generation_quality() {
 
 bool ChatbotTrainer::train(int num_epochs) {
     config.num_epochs = num_epochs;
+    was_aborted_ = false;
 
     try {
         // Initialize model if needed (this also initializes optimizer)
@@ -1646,6 +1844,13 @@ bool ChatbotTrainer::train(int num_epochs) {
         for (int epoch = 0; epoch < num_epochs; ++epoch) {
             // train_epoch() pushes to training_losses / training_perplexities internally.
             float epoch_loss = train_epoch(epoch);
+
+            // was_aborted_ was set inside train_epoch() if abort_flag_ fired at an
+            // optimizer-step boundary — stop here rather than validating/starting
+            // a further epoch on a training pass the caller has asked to drain.
+            if (was_aborted_) {
+                break;
+            }
 
             // Validate
             // validate() pushes to validation_losses / validation_perplexities and

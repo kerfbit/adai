@@ -1,3 +1,7 @@
+// @adai-status: stable
+// @adai-version: 1.0.0
+// @adai-reviewed: 2026-09-07
+
 #include "ModelNameService.hpp"
 #include <httplib.h>
 #include <sqlite3.h>
@@ -390,7 +394,8 @@ static std::string serialize_record(const ModelRecord& r) {
     std::ostringstream j;
     j << "{\"model_id\":\"" << json_escape(r.model_id) << "\"" << ",\"model_name\":\""
       << json_escape(r.model_name) << "\"" << ",\"role\":\"" << json_escape(r.role) << "\""
-      << ",\"state\":\"" << json_escape(r.state) << "\"" << ",\"run_id\":\""
+      << ",\"run_group\":\"" << json_escape(r.run_group) << "\"" << ",\"state\":\""
+      << json_escape(r.state) << "\"" << ",\"run_id\":\""
       << json_escape(r.run_id) << "\"" << ",\"created_utc\":\"" << json_escape(r.created_utc)
       << "\"" << ",\"updated_utc\":\"" << json_escape(r.updated_utc) << "\""
       << ",\"artifact\":" << serialize_artifact(r.artifact) << ",\"arch\":{"
@@ -433,6 +438,7 @@ static ModelRecord parse_record(const std::string& line) {
     r.model_id = json_string(line, "model_id");
     r.model_name = json_string(line, "model_name");
     r.role = json_string(line, "role");
+    r.run_group = json_string(line, "run_group");
     r.state = json_string(line, "state");
     r.run_id = json_string(line, "run_id");
     r.created_utc = json_string(line, "created_utc");
@@ -480,7 +486,8 @@ static ModelRecord parse_record(const std::string& line) {
 static std::string resolve_json(const ModelRecord& r) {
     std::ostringstream j;
     j << "{\"model_id\":\"" << json_escape(r.model_id) << "\"" << ",\"model_name\":\""
-      << json_escape(r.model_name) << "\"" << ",\"state\":\"" << json_escape(r.state) << "\""
+      << json_escape(r.model_name) << "\"" << ",\"run_group\":\"" << json_escape(r.run_group)
+      << "\"" << ",\"state\":\"" << json_escape(r.state) << "\""
       << ",\"artifact\":" << serialize_artifact(r.artifact) << "}";
     return j.str();
 }
@@ -543,6 +550,13 @@ adai::ModelNameService::ModelNameService(std::string data_dir, int port)
             res.status = status;
             res.set_content(body, "application/json");
         });
+
+    svr.Put(R"(/models/([^/]+)/run_group)",
+            [this](const httplib::Request& req, httplib::Response& res) {
+                auto [status, body] = handle_update_run_group(std::string(req.matches[1]), req.body);
+                res.status = status;
+                res.set_content(body, "application/json");
+            });
 
     svr.Delete(R"(/models/([^/]+))", [this](const httplib::Request& req, httplib::Response& res) {
         auto [status, body] = handle_delete(std::string(req.matches[1]));
@@ -717,7 +731,8 @@ CREATE TABLE IF NOT EXISTS models (
     progress_epoch       INTEGER DEFAULT 0,
     progress_loss        REAL DEFAULT 0.0,
     progress_best_loss   REAL DEFAULT 0.0,
-    progress_updated_utc TEXT DEFAULT ''
+    progress_updated_utc TEXT DEFAULT '',
+    run_group            TEXT DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS training_history (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -775,6 +790,13 @@ CREATE TABLE IF NOT EXISTS roles (
     add_column_if_missing("models", "progress_loss", "REAL DEFAULT 0.0");
     add_column_if_missing("models", "progress_best_loss", "REAL DEFAULT 0.0");
     add_column_if_missing("models", "progress_updated_utc", "TEXT DEFAULT ''");
+    // Must stay last — ALTER TABLE ADD COLUMN always appends physically at the
+    // end regardless of where it's written in the CREATE TABLE literal above,
+    // so migration call order here has to match that literal's column order
+    // (run_group is the last column there) for a fresh vs. migrated DB to end
+    // up with the same physical layout — required for persist_model's
+    // positional `INSERT ... VALUES (?,?,...)` to bind correctly either way.
+    add_column_if_missing("models", "run_group", "TEXT DEFAULT ''");
     add_column_if_missing("training_history", "incomplete", "INTEGER DEFAULT 0");
 
     // Migrate legacy JSONL files on first run (no rows yet).
@@ -913,7 +935,7 @@ void adai::ModelNameService::load_from_disk() {
         "artifact_host,artifact_path,artifact_checksum,artifact_format,"
         "d_model,num_heads,d_ff,num_encoder_layers,num_decoder_layers,max_seq_length,tags_json,"
         "current_run_number,run_started_utc,progress_session_id,progress_epoch,progress_loss,"
-        "progress_best_loss,progress_updated_utc "
+        "progress_best_loss,progress_updated_utc,run_group "
         "FROM models";
     if (sqlite3_prepare_v2(db, sql, -1, &st, nullptr) != SQLITE_OK) {
         Logger::error("ModelNameService: load query failed: {}", sqlite3_errmsg(db));
@@ -953,6 +975,7 @@ void adai::ModelNameService::load_from_disk() {
         r.progress_loss = sqlite3_column_double(st, 22);
         r.progress_best_loss = sqlite3_column_double(st, 23);
         r.progress_updated_utc = col_text(24);
+        r.run_group = col_text(25);
         if (r.state.empty())
             r.state = "initializing";
         if (r.artifact.format.empty())
@@ -1018,7 +1041,7 @@ void adai::ModelNameService::persist_model(const ModelRecord& rec) {
 
     const char* sql =
         "INSERT OR REPLACE INTO models VALUES "
-        "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+        "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
     sqlite3_stmt* st = nullptr;
     if (sqlite3_prepare_v2(db, sql, -1, &st, nullptr) != SQLITE_OK) {
         Logger::warn("ModelNameService: persist_model prepare failed: {}", sqlite3_errmsg(db));
@@ -1050,6 +1073,7 @@ void adai::ModelNameService::persist_model(const ModelRecord& rec) {
     sqlite3_bind_double(st, 23, rec.progress_loss);
     sqlite3_bind_double(st, 24, rec.progress_best_loss);
     sqlite3_bind_text(st, 25, rec.progress_updated_utc.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 26, rec.run_group.c_str(), -1, SQLITE_TRANSIENT);
     if (sqlite3_step(st) != SQLITE_DONE) {
         Logger::warn("ModelNameService: persist_model step failed: {}", sqlite3_errmsg(db));
     }
@@ -1131,6 +1155,7 @@ std::pair<int, std::string> adai::ModelNameService::handle_register(const std::s
     r.model_id = generate_uuid();
     r.model_name = model_name;
     r.role = json_string(body, "role");
+    r.run_group = json_string(body, "run_group");  // optional; empty = not yet migrated to MNS-sourced group
     r.state = "initializing";
     r.created_utc = utc_now();
     r.updated_utc = r.created_utc;
@@ -1363,6 +1388,30 @@ std::pair<int, std::string> adai::ModelNameService::handle_progress_update(
     r.updated_utc = r.progress_updated_utc;
     persist_model(r);
     return {200, "{\"status\":\"ok\"}"};
+}
+
+// ============================================================================
+// Handler: PUT /models/{name}/run_group
+//
+// Deliberately not gated by state (unlike handle_progress_update, which
+// requires "training") — run_group is static routing metadata, valid to set
+// on a model in any state, including one that's already trained/production.
+// No run_id/ownership check either, since it isn't tied to a specific run.
+// ============================================================================
+
+std::pair<int, std::string> adai::ModelNameService::handle_update_run_group(
+    const std::string& name, const std::string& body) {
+    std::unique_lock lock(mutex_);
+    const auto it = models_.find(name);
+    if (it == models_.end())
+        return {404, "{\"error\":\"model not found\"}"};
+
+    ModelRecord& r = it->second;
+    r.run_group = json_string(body, "run_group");
+    r.updated_utc = utc_now();
+    persist_model(r);
+    Logger::info("ModelNameService: run_group for '{}' set to '{}'", name, r.run_group);
+    return {200, "{\"status\":\"ok\",\"run_group\":\"" + json_escape(r.run_group) + "\"}"};
 }
 
 // ============================================================================

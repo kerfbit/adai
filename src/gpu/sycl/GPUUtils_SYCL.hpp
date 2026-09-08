@@ -1,9 +1,15 @@
 #ifndef GPU_UTILS_SYCL_HPP
 #define GPU_UTILS_SYCL_HPP
 
+// @adai-status: beta        (no dedicated test coverage)
+// @adai-version: 0.6.0
+// @adai-reviewed: 2026-09-07
+
+
 #include <cstddef>
 #include <stdexcept>
 #include <string>
+#include <sycl/ext/oneapi/properties/properties.hpp>
 #include <sycl/sycl.hpp>
 
 namespace adai {
@@ -17,6 +23,9 @@ class GPUManager {
     inline static sycl::queue* queue_ = nullptr;
     inline static size_t max_memory_bytes_ = 0;
     inline static size_t allocated_bytes_ = 0;
+    /// Remembered from initialize() so set_device() can recreate the queue
+    /// with the same scheduling priority (GPU_STRATEGY) after a device switch.
+    inline static bool low_priority_ = true;
 
     static std::vector<sycl::device> enumerate_gpu_devices() {
         std::vector<sycl::device> gpus;
@@ -26,6 +35,29 @@ class GPUManager {
             }
         }
         return gpus;
+    }
+
+    /**
+     * @brief Build the ADAI queue with a scheduling-priority hint, mirroring
+     *        the CUDA backend's low/high-priority stream selection.
+     *
+     * use_low_priority=true  → background mode (GPU_STRATEGY=background,
+     *                           default): yields to other GPU work.
+     * use_low_priority=false → full mode (GPU_STRATEGY=full): highest
+     *                           priority, never preempted.
+     *
+     * priority_low/priority_high are hints (sycl_ext_oneapi_queue_priority);
+     * backends that don't support them fall back to normal scheduling.
+     */
+    static sycl::queue make_queue(const sycl::device& dev, bool use_low_priority) {
+        if (use_low_priority) {
+            return sycl::queue(dev, sycl::property_list{
+                                        sycl::property::queue::in_order{},
+                                        sycl::ext::oneapi::property::queue::priority_low{}});
+        }
+        return sycl::queue(dev, sycl::property_list{
+                                    sycl::property::queue::in_order{},
+                                    sycl::ext::oneapi::property::queue::priority_high{}});
     }
 
    public:
@@ -59,7 +91,7 @@ class GPUManager {
     }
 
     static bool initialize(int device_id = 0, float memory_fraction = 0.5f,
-                           bool /*use_low_priority*/ = true) {
+                           bool use_low_priority = true) {
         if (initialized_)
             return true;
 
@@ -76,9 +108,10 @@ class GPUManager {
         }
 
         current_device_ = device_id;
+        low_priority_ = use_low_priority;
         auto& selected = gpus[device_id];
 
-        queue_ = new sycl::queue(selected, sycl::property::queue::in_order{});
+        queue_ = new sycl::queue(make_queue(selected, use_low_priority));
 
         size_t total_bytes = selected.get_info<sycl::info::device::global_mem_size>();
         max_memory_bytes_ = static_cast<size_t>(static_cast<double>(total_bytes) * memory_fraction);
@@ -124,7 +157,10 @@ class GPUManager {
             queue_->wait();
             delete queue_;
         }
-        queue_ = new sycl::queue(gpus[device], sycl::property::queue::in_order{});
+        // Recreate with the same priority the queue was originally initialized
+        // with (GPU_STRATEGY), matching CUDA's set_device() staying on the
+        // stream priority chosen at GPUManager::initialize() time.
+        queue_ = new sycl::queue(make_queue(gpus[device], low_priority_));
         current_device_ = device;
     }
 

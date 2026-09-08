@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# @adai-status: beta
+# @adai-version: 0.8.0
+# @adai-reviewed: 2026-09-07
+
+
 # Quick start script for chatbot_gui
 # This script helps users launch the GUI with the correct settings
 

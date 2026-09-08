@@ -1,3 +1,7 @@
+// @adai-status: beta        (shipped as mns_server; no dedicated test file)
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-09-07
+
 /**
  * mns_server — Model Name Service daemon
  *

@@ -1,5 +1,10 @@
 package com.adai.ops.data.registry
 
+// @adai-status: beta
+// @adai-version: 0.4.0
+// @adai-reviewed: 2026-09-07
+
+
 import com.adai.ops.network.ApiClientProvider
 import com.adai.ops.network.ApiResult
 import com.adai.ops.network.RegistryApiService

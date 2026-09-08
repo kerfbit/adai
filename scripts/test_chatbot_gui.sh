@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# @adai-status: beta
+# @adai-version: 0.7.0
+# @adai-reviewed: 2026-09-07
+
+
 # Test script for chatbot_gui
 # This script verifies the GUI executable is properly built and linked
 

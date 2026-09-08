@@ -1,5 +1,10 @@
 package com.adai.wearcomplications
 
+// @adai-status: experimental
+// @adai-version: 0.1.0
+// @adai-reviewed: 2026-09-07
+
+
 class LossComplicationDataSourceService : TrainingComplicationDataSourceService() {
     override val label: String = "Loss"
     override fun currentValue(snapshot: TrainingSnapshot): Double = snapshot.currentLoss

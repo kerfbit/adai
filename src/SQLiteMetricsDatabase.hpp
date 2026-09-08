@@ -1,5 +1,10 @@
 #pragma once
 
+// @adai-status: beta        (no dedicated unit test file (covered via MetricsDatabaseTest integration paths))
+// @adai-version: 0.9.0
+// @adai-reviewed: 2026-09-07
+
+
 #include <mutex>
 #include <string>
 #include "MetricsDatabase.hpp"

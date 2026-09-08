@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# @adai-status: beta
+# @adai-version: 0.7.0
+# @adai-reviewed: 2026-09-07
+
+
 # Script to test log file rotation and management
 # Tests file creation, rotation, and size limits
 

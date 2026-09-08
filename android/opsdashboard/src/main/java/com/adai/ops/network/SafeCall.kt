@@ -1,5 +1,10 @@
 package com.adai.ops.network
 
+// @adai-status: experimental
+// @adai-version: 0.1.0
+// @adai-reviewed: 2026-09-07
+
+
 import com.adai.ops.network.dto.ErrorResponseDto
 import java.io.IOException
 import kotlinx.serialization.json.Json

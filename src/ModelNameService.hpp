@@ -1,5 +1,10 @@
 #pragma once
 
+// @adai-status: stable
+// @adai-version: 1.0.0
+// @adai-reviewed: 2026-09-07
+
+
 #include <atomic>
 #include <chrono>
 #include <map>
@@ -55,6 +60,17 @@ struct ModelRecord {
     std::string model_id;
     std::string model_name;
     std::string role;
+    // Dataset-registry run_group this model's trainer should use — a per-model
+    // value, set at register time and updatable afterward via
+    // PUT /models/{name}/run_group (handle_update_run_group) — unlike
+    // architecture, changing it doesn't affect checkpoint compatibility, so it
+    // isn't register-only. Empty means "not yet migrated to MNS-sourced
+    // run_group" — clients fall back to their own local RUN_GROUP config /
+    // SESSION_DIR-basename derivation (see DatasetRegistry.cpp's
+    // build_transport()). Distinct from the unrelated daemon-wide
+    // registry_group_ member below (admin-mutable, used only by the
+    // /models/{name}/datasets proxy) — do not conflate the two.
+    std::string run_group;
     std::string state =
         "initializing";  // initializing | training | candidate | production | retired
     std::string run_id;  // set while state == "training"
@@ -149,6 +165,11 @@ class ModelNameService {
     std::pair<int, std::string> handle_admin_put_config(const std::string& body);
     std::pair<int, std::string> handle_progress_update(const std::string& name,
                                                         const std::string& body);
+    // Unlike architecture (immutable — changing it would break checkpoint
+    // compatibility), run_group is pure dataset-routing metadata with no such
+    // constraint, so it gets a real update path rather than register-only.
+    std::pair<int, std::string> handle_update_run_group(const std::string& name,
+                                                         const std::string& body);
 
     // ── Persistence ──────────────────────────────────────────────────────────
     void load_from_disk();

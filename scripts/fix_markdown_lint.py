@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# @adai-status: beta        (general repo-maintenance utility, no test)
+# @adai-version: 0.6.0
+# @adai-reviewed: 2026-09-07
+
 """
 Markdown lint fixer for the ADAI repository.
 
