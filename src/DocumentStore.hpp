@@ -2,7 +2,7 @@
 
 // @adai-status: stable
 // @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 
 #include <algorithm>
@@ -100,6 +100,14 @@ class DocumentStore {
     /**
      * @brief Remove a document from the store
      *
+     * Implemented as swap-with-last-then-pop for O(1) removal: the document
+     * previously at the last index is moved into the removed slot. Any
+     * `const Document*` obtained from retrieve()/getDocument() before this
+     * call may now be dangling (if it pointed at the removed document) or
+     * silently refer to a *different* document (if it pointed at the one
+     * that got moved into the freed slot) — do not hold such pointers across
+     * a removeDocument() call.
+     *
      * @param id Document identifier to remove
      * @return bool True if document was removed, false if not found
      */
@@ -111,6 +119,9 @@ class DocumentStore {
      * Encodes the query text and performs cosine similarity search
      * against all stored documents, returning the k most similar ones.
      *
+     * The returned pointers are valid only until the next call to
+     * addDocument()/removeDocument()/clear() — see removeDocument()'s note.
+     *
      * @param query Query text
      * @param k Number of documents to retrieve
      * @return std::vector<std::pair<float, const Document*>> Pairs of (similarity_score, document)
@@ -121,6 +132,9 @@ class DocumentStore {
 
     /**
      * @brief Get document by ID
+     *
+     * The returned pointer is valid only until the next call to
+     * addDocument()/removeDocument()/clear() — see removeDocument()'s note.
      *
      * @param id Document identifier
      * @return const Document* Pointer to document, or nullptr if not found
