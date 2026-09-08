@@ -3,12 +3,13 @@
 
 // @adai-status: beta        (capped by TD-038 — tested but not wired into any shipped binary)
 // @adai-version: 0.7.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <iostream>
 #include <limits>
 #include <stdexcept>
 #include <vector>
@@ -147,6 +148,30 @@ class Quantizer {
         return {data[lower_idx], data[upper_idx]};
     }
 
+    // TD-075 (fixed): ASYMMETRIC_INT8's quantized range is documented (and
+    // used by calibrate()/quantize_value()) as [0, 255], but every value
+    // that flows through the vector-level quantize()/dequantize() API is
+    // stored in a std::vector<int8_t> — a SIGNED 8-bit type whose range is
+    // only [-128, 127]. quantize()'s explicit static_cast<int8_t> stores the
+    // correct bit pattern via well-defined modular wraparound (e.g. 191
+    // becomes -65), but dequantize()'s implicit int8_t -> int conversion
+    // sign-extends that stored value back to -65, not 191 — silently
+    // corrupting (including flipping the sign of) every quantized value
+    // above 127, which is the entire upper half of ASYMMETRIC_INT8's range.
+    // Reproduced: values 15.0/20.0 (well within a realistic post-ReLU
+    // activation range) dequantized to -5.1/-0.08 instead of ~15/~20.
+    // Reinterpreting the stored byte as unsigned before widening exactly
+    // undoes the storage-time wraparound and recovers the true value; other
+    // modes (SYMMETRIC_INT8's [-127,127], both INT4 ranges) already fit
+    // within int8_t so sign-extension is already correct for them.
+    int decode_stored_value(int8_t stored) const {
+        const bool is_asymmetric_int8 = (mode_ == QuantizationMode::ASYMMETRIC_INT8);
+        if (is_asymmetric_int8) {
+            return static_cast<int>(static_cast<uint8_t>(stored));
+        }
+        return static_cast<int>(stored);
+    }
+
    public:
     /**
      * @brief Construct quantizer
@@ -264,7 +289,7 @@ class Quantizer {
         std::vector<float> data(quantized.size());
 
         for (size_t i = 0; i < quantized.size(); i++) {
-            data[i] = dequantize_value(quantized[i], params);
+            data[i] = dequantize_value(decode_stored_value(quantized[i]), params);
         }
 
         return data;

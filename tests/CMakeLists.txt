@@ -30,6 +30,11 @@ add_executable(matrixSIMDTests matrix_simd_test.cpp)
 target_link_libraries(matrixSIMDTests adai_core GTest::gtest_main)
 add_test(NAME MatrixSIMDTests COMMAND matrixSIMDTests)
 
+# Quantization tests (TD-075 — ASYMMETRIC_INT8 int8_t storage/sign-extension fix)
+add_executable(quantizationTests quantization_test.cpp)
+target_link_libraries(quantizationTests adai_core GTest::gtest_main)
+add_test(NAME QuantizationTests COMMAND quantizationTests)
+
 # Activation tests
 add_executable(activationTests activation_test.cpp)
 target_link_libraries(activationTests adai_core GTest::gtest_main)

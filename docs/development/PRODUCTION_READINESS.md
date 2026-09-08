@@ -207,9 +207,9 @@ None — every in-scope file carries a tag.
 | `src/PipelineInferenceEngine.hpp` | beta | 0.7.0 | 2026-09-08 | TD-038 |
 | `src/PostgresMetricsDatabase.cpp` | experimental | 0.3.0 | 2026-09-08 | TD-042 |
 | `src/PostgresMetricsDatabase.hpp` | experimental | 0.3.0 | 2026-09-07 | TD-042 |
-| `src/Quantization.hpp` | beta | 0.7.0 | 2026-09-07 | TD-038 |
+| `src/Quantization.hpp` | beta | 0.7.0 | 2026-09-08 | TD-038 |
 | `src/RegistryServer.cpp` | beta | 0.8.0 | 2026-09-08 | TD-035 |
-| `src/RewardModel.hpp` | beta | 0.7.0 | 2026-09-07 | TD-038 |
+| `src/RewardModel.hpp` | beta | 0.7.0 | 2026-09-08 | TD-038 |
 | `src/SpeculativeDecoding.hpp` | beta | 0.7.0 | 2026-09-07 | TD-038 |
 | `src/TrainingMetricsAPI.cpp` | beta | 0.9.0 | 2026-09-08 | TD-039 |
 | `src/TrainingMetricsAPI.hpp` | beta | 0.9.0 | 2026-09-08 | TD-039 |

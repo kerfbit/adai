@@ -4,6 +4,56 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-075: Quantization's ASYMMETRIC_INT8 Mode Corrupted Any Value Above the Signed int8_t Range
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 8, 2026 | Quantization (not shipped — see TD-038) | Reinterpret the stored byte as unsigned before widening back to `int` |
+
+Summary:
+Found while reading `src/Quantization.hpp` end to end — the most severe bug found in this file
+family. `ASYMMETRIC_INT8` mode's quantized range is documented and used throughout as `[0, 255]` (see
+`get_quant_range()`, `calibrate()`, `quantize_value()`'s clamping) — but every value that flows
+through the vector-level `quantize()`/`dequantize()` API is stored in a `std::vector<int8_t>`, a
+**signed** 8-bit type whose actual range is only `[-128, 127]`. `quantize()`'s explicit
+`static_cast<int8_t>` stores the correct bit pattern via well-defined modular wraparound (e.g. 191
+becomes -65) — but `dequantize()` passed that stored `int8_t` directly to `dequantize_value(int, ...)`,
+where the implicit `int8_t` → `int` conversion **sign-extends** it back to -65, not 191. Every
+quantized value above 127 — the entire upper half of `ASYMMETRIC_INT8`'s intended range, and the
+*normal* case for realistic data such as post-ReLU activations (all non-negative, naturally using the
+full `[0,255]` span) — silently came back corrupted, frequently with a flipped sign.
+
+Reproduced with a standalone program: values `15.0`/`20.0` (unremarkable activation magnitudes) with
+calibration data `{0, 5, 10, 15, 20}` quantized correctly to `191`/`255` but dequantized to
+`-5.098`/`-0.078` — errors of over 20, in the wrong direction, for exactly the values the mode exists
+to represent. No test file existed for this component at all prior to this fix.
+
+Changes Made:
+
+- Added a `decode_stored_value()` helper that reinterprets a stored `int8_t` as `uint8_t` before
+  widening to `int` when `mode_ == ASYMMETRIC_INT8` — exactly undoing the storage-time wraparound —
+  and used it in `dequantize()`. Other modes (`SYMMETRIC_INT8`'s `[-127,127]`, both INT4 ranges)
+  already fit within `int8_t`, so plain sign-extension remains correct for them and is unchanged.
+- Added the missing `<iostream>` include (`print_quantization_stats()` uses `std::cout` but the header
+  only compiled via transitive inclusion from another header — same class of portability gap as
+  TD-074's `MetricsTracker.hpp` fix, given TD-032 already documents a Windows/MinGW target).
+
+Verification:
+- ✅ Standalone reproduction confirmed the bug and the fix, including the exact before/after values.
+- ✅ Created `tests/quantization_test.cpp` (no test file previously existed for this component) with
+  6 tests covering all four quantization modes, including `AsymmetricInt8RoundTripAboveMidpointIsAccurate`,
+  `AsymmetricInt8SingleValueQuantizedAbove127DoesNotGoNegative`, and
+  `QuantizedMatrixRoundTripAsymmetricInt8`. Confirmed the three `ASYMMETRIC_INT8`-specific tests
+  **fail** against the pre-fix code (with the exact reproduction values) and all 6 **pass** against
+  the fix — reverted/rebuilt/re-applied to verify both directions. Registered as `QuantizationTests`
+  in `tests/CMakeLists.txt`.
+
+Files Changed:
+
+- `src/Quantization.hpp`
+- `tests/quantization_test.cpp` (new)
+- `tests/CMakeLists.txt`
+
 ### TD-074: EfficientBatching's Bucketed Batches Could Silently Exceed max_tokens_per_batch
 
 | Resolution Date | Component | Resolved By |
