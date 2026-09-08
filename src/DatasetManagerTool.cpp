@@ -1,8 +1,9 @@
 // @adai-status: beta        (capped by TD-035 — shipped as dataset_manager, no dedicated test)
 // @adai-version: 0.8.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-08
 
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <sstream>
 #include "Config.hpp"
@@ -526,35 +527,28 @@ int main(int argc, char* argv[]) {
             mns_url = "http://localhost:8083";
         }
         try {
+            // TD-069 (fixed): this used to compute host/port from mns_url and
+            // then never use them — the comment claimed "ModelNameClient
+            // doesn't expose list", which was stale; list_models() has
+            // existed since before this file's last review (used, e.g., by
+            // IncrementalTrainingTool.cpp's resolve_model_name()). The old
+            // code fell back to resolving only the single configured
+            // MODEL_NAME, so `dataset_manager models` never actually listed
+            // registered models despite its own help text saying it would.
             adai::ModelNameClient client(mns_url, svc_config.name_service_timeout_ms);
-            // Use resolve_role to test connectivity; list via HTTP directly
-            std::string host = "localhost";
-            int port = 8083;
-            std::string url = mns_url;
-            if (url.rfind("http://", 0) == 0)
-                url = url.substr(7);
-            auto colon = url.find(':');
-            if (colon != std::string::npos) {
-                host = url.substr(0, colon);
-                try {
-                    port = std::stoi(url.substr(colon + 1));
-                } catch (...) {
-                }
-            }
-            // Query /models endpoint directly
             std::cout << "Querying name service at " << mns_url << "...\n";
-            // ModelNameClient doesn't expose list; use resolve_model for known names
-            // or just report the configured model
-            if (!svc_config.model_name.empty()) {
-                auto resolved = client.resolve_model(svc_config.model_name);
-                std::cout << "  Model: " << resolved.model_name << "  State: " << resolved.state
-                          << "  ID: " << resolved.model_id << "\n";
-                if (!resolved.artifact.path.empty()) {
-                    std::cout << "  Artifact: " << resolved.artifact.path << "\n";
-                }
+            auto models = client.list_models();
+            if (models.empty()) {
+                std::cout << "No models registered.\n";
             } else {
-                std::cout
-                    << "No MODEL_NAME configured. Set NAME_SERVICE_URL and MODEL_NAME in config.\n";
+                std::cout << "  #  | State        | Role       | Model Name\n";
+                std::cout << "-----|--------------|------------|---------------------------\n";
+                for (std::size_t i = 0; i < models.size(); ++i) {
+                    std::cout << "  " << std::setw(2) << (i + 1) << " | " << std::setw(12)
+                              << std::left << models[i].state << " | " << std::setw(10)
+                              << std::left << models[i].role << " | " << models[i].model_name
+                              << "\n";
+                }
             }
         } catch (const std::exception& e) {
             std::cerr << "Name service query failed: " << e.what() << "\n";

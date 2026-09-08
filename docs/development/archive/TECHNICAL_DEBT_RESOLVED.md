@@ -4,6 +4,47 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-069: dataset_manager's `models` Command Never Actually Listed Models
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 8, 2026 | Tooling / MNS Client | Use the existing `ModelNameClient::list_models()` |
+
+Summary:
+Found while reading `src/DatasetManagerTool.cpp` end to end. The `models` command's own help text
+promises `"List registered models from name service"`, but the implementation never listed anything:
+it parsed `host`/`port` out of the configured MNS URL (apparently in preparation for querying the
+`/models` endpoint directly) and then never used either variable, falling back instead to
+`client.resolve_model(svc_config.model_name)` — resolving at most the single model named by the
+local `MODEL_NAME` config value, or printing "No MODEL_NAME configured" if that was unset. The
+justifying comment — `"ModelNameClient doesn't expose list"` — was stale: `ModelNameClient::list_models()`
+has existed all along and is already used elsewhere in this exact codebase
+(`IncrementalTrainingTool.cpp`'s `resolve_model_name()`), so the workaround was unnecessary from the
+start.
+
+Verified end to end against a real running `mns_server` (a throwaway instance on a scratch port/data
+dir): registered two models via `POST /models`, then ran `dataset_manager models` with
+`NAME_SERVICE_URL` pointing at it. Before the fix, only the single `MODEL_NAME`-configured model (or
+nothing, if unset) would ever show up regardless of how many models were actually registered; after
+the fix, both registered models are listed with their state and role, matching `MnsManagerGUI`'s and
+`IncrementalTrainingTool`'s own model-listing table format.
+
+Changes Made:
+
+- Replaced the dead host/port parsing and single-model `resolve_model()` fallback with
+  `client.list_models()`, printed as a table (state, role, model name) matching the format already
+  used by `resolve_model_name()` in `IncrementalTrainingTool.cpp` and the Models tab in
+  `MnsManagerGUI.cpp`.
+
+Verification:
+- ✅ `dataset_manager` rebuilds clean.
+- ✅ End-to-end run against a real local `mns_server` with two registered models: both are listed
+  correctly (previously only one, or none, would show).
+
+Files Changed:
+
+- `src/DatasetManagerTool.cpp`
+
 ### TD-068: MnsManagerGUI's JSON Array Parser Corrupted Records on a Stray Brace in a String Value
 
 | Resolution Date | Component | Resolved By |

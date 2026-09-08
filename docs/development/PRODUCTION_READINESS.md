@@ -180,7 +180,7 @@ None — every in-scope file carries a tag.
 | `src/ChatbotTrainer.hpp` | beta | 0.9.0 | 2026-09-08 | TD-039 |
 | `src/CrossAttention.cpp` | beta | 0.9.0 | 2026-09-08 | TD-050 |
 | `src/CrossAttention.hpp` | beta | 0.9.0 | 2026-09-08 | TD-050 |
-| `src/DatasetManagerTool.cpp` | beta | 0.8.0 | 2026-09-07 | TD-035 |
+| `src/DatasetManagerTool.cpp` | beta | 0.8.0 | 2026-09-08 | TD-035 |
 | `src/Decoder.cpp` | beta | 0.9.0 | 2026-09-08 | TD-050 |
 | `src/Decoder.hpp` | beta | 0.9.0 | 2026-09-08 | TD-050 |
 | `src/EncoderDecoderModel.cpp` | beta | 0.9.0 | 2026-09-08 | TD-050 |
