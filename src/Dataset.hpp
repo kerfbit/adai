@@ -3,7 +3,7 @@
 
 // @adai-status: stable
 // @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-08
+// @adai-reviewed: 2026-09-09
 
 
 #include <algorithm>
@@ -1421,7 +1421,7 @@ class Dataset {
 
         for (size_t i = 0; i < actual_batch_size; ++i) {
             size_t data_idx = (*indices)[i];
-            sequences.push_back(tokenizer_fn(data_[i].input));
+            sequences.push_back(tokenizer_fn(data_[data_idx].input));
         }
 
         // Create batch and compute stats

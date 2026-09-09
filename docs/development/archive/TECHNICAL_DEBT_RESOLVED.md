@@ -4,6 +4,53 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-086: Dataset::get_batch_statistics() Tokenized Raw Dataset Indices Instead of the Requested Split's Samples
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 9, 2026 | Dataset (`get_batch_statistics()`) | Use the already-computed split-mapped `data_idx`, not the raw loop counter `i` |
+
+Summary:
+Found during the second, independent full-codebase re-audit while re-reading `src/Dataset.hpp` end to
+end (1578 lines). `get_batch_statistics(split_type, tokenizer_fn, batch_size)` samples up to
+`batch_size` entries from the requested split's index list to estimate padding efficiency. Its loop
+correctly resolved each split-relative position to a real dataset index —
+`size_t data_idx = (*indices)[i];` — but then ignored it, tokenizing `data_[i].input` (the raw loop
+counter) instead of `data_[data_idx].input`. Since `train_indices_`/`validation_indices_`/
+`test_indices_` are shuffled subsets of `[0, data_.size())` (see `split()`), `i` and `data_idx` only
+coincide by chance. In practice this meant `get_batch_statistics()` silently computed its stats from
+whichever samples happen to occupy raw positions `[0, batch_size)` in the full, unsplit dataset —
+almost never the split actually requested, and reading past the split's own sample count entirely once
+`batch_size` exceeds it (bounded only by the full dataset's size, not the split's).
+
+The method has no current caller in the codebase (confirmed via `grep -rn` across `src/`/`tests/`) and no
+existing test, so this had zero production reachability today, but it's public API with a documented
+usage example in its own doc comment, silently wrong for anyone who starts using it. `data_idx` being
+computed and then never read is exactly the kind of copy-paste slip this audit has repeatedly found
+elsewhere in the codebase (e.g. TD-083's self-comparison bug) — cheap and unambiguous to fix once seen.
+
+Changes Made:
+- `src/Dataset.hpp`: `get_batch_statistics()`'s sampling loop now tokenizes `data_[data_idx].input`
+  instead of `data_[i].input`.
+
+Verification:
+- ✅ Added `BatchStatisticsUsesSplitIndicesNotRawIndices` to `tests/dataset_test.cpp`: builds a dataset
+  where each sample's input length directly encodes its raw index (sample *i* is `i+1` characters), so a
+  character-counting tokenizer's token count reveals which samples were actually used; computes the
+  ground truth by tokenizing the split's real samples directly via `get_split()`, then compares against
+  `get_batch_statistics()`'s result for the same split.
+- ✅ Before/after regression: reverted only this one-line fix, rebuilt `datasetTests`, confirmed the new
+  test fails with the exact predicted symptom (`actual_tokens` 55 — the sum for raw samples 0–9 — instead
+  of the correct split-based 110); restored the fix, rebuilt, confirmed pass plus the full 43/43
+  `DatasetTests` suite.
+
+Files Changed:
+
+- `src/Dataset.hpp`
+- `tests/dataset_test.cpp`
+
+---
+
 ### TD-085: RegistryServer's /trained Endpoint Wrote Duplicate Registry Entries for a Path Repeated Within One Request
 
 | Resolution Date | Component | Resolved By |

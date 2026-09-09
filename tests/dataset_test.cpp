@@ -367,6 +367,38 @@ TEST_F(DatasetTest, BatchIterator) {
     EXPECT_GT(batch_count, 0);
 }
 
+// get_batch_statistics() looked up the tokenizer input by raw dataset index
+// (data_[i]) instead of the split-mapped index (data_[indices[i]] via the
+// already-computed data_idx local) — silently computing stats over whichever
+// samples happen to sit at positions [0, batch_size) in the full dataset
+// rather than the requested split's actual (shuffled) samples.
+TEST_F(DatasetTest, BatchStatisticsUsesSplitIndicesNotRawIndices) {
+    Dataset dataset(123);
+    // Sample i's input is (i+1) characters long, so token count (one token
+    // per character, via the tokenizer below) directly encodes which raw
+    // index a sample came from.
+    for (int i = 0; i < 20; ++i) {
+        dataset.add_sample(std::string(i + 1, 'x'), "target");
+    }
+    dataset.split(0.5f, 0.25f, 0.25f);
+    ASSERT_GT(dataset.size(SplitType::TRAIN), 0u);
+
+    auto tokenizer_fn = [](const std::string& text) { return std::vector<int>(text.size(), 1); };
+
+    // Ground truth: tokenize the split's actual samples directly.
+    const auto train_samples = dataset.get_split(SplitType::TRAIN);
+    int expected_actual_tokens = 0;
+    for (const auto& s : train_samples) {
+        expected_actual_tokens += static_cast<int>(tokenizer_fn(s.input).size());
+    }
+
+    const auto stats = dataset.get_batch_statistics(SplitType::TRAIN, tokenizer_fn,
+                                                     train_samples.size());
+    EXPECT_EQ(stats.actual_tokens, expected_actual_tokens)
+        << "get_batch_statistics must tokenize the split's own samples, not "
+        << "data_[0..batch_size) from the full (unsplit) dataset";
+}
+
 // Test: Load JSON format
 TEST_F(DatasetTest, LoadJsonFormat) {
     create_test_json_file();
