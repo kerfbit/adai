@@ -4,6 +4,138 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-083: IncrementalTrainer's Best-Checkpoint Recovery Was Gated on an Unrelated Flag, and Its Symlink Refresh Was a Silent No-Op
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 9, 2026 | IncrementalTrainer (checkpoint retention cleanup) | Un-gate the recovery bookkeeping; stop routing the symlink refresh through a self-comparing helper |
+
+Summary:
+Found in the same full second-pass re-read of `src/IncrementalTrainer.cpp` that produced TD-082 — two
+related bugs in `cleanup_old_sessions()`'s "the checkpoint we just deleted was the recorded best, so
+find the next-best from what remains" recovery block:
+
+**(A)** The entire recovery block — resetting `best_validation_loss`/`best_checkpoint_path` and
+searching `session_history` for the next-best candidate — was gated behind
+`config.enable_checkpoint_symlinks`, a flag whose own name and doc comment ("Create latest/best
+symlinks") describe it as controlling *filesystem symlink* bookkeeping only. With symlinks disabled,
+the in-memory `best_checkpoint_path`/`best_validation_loss` were left dangling, still referencing the
+checkpoint file `remove_model_files()` had just deleted moments earlier in the same function.
+
+**(B)** Even with symlinks enabled (the shipped default — `enable_checkpoint_symlinks` is not exposed
+via `ServiceConfig`/`config.trainer.conf` at all, so every real `incremental_trainer` deployment runs
+with it `true`), the block refreshed the "best" symlink by calling
+`update_best_checkpoint(best_validation_loss, best_checkpoint_path)` — but by that point the caller had
+already assigned the same `best_validation_loss`/`best_checkpoint_path` **member variables** to those
+exact values via the search loop immediately above. `update_best_checkpoint()`'s own "is this an
+improvement" logic compares its `validation_loss` argument against the current
+`best_validation_loss` member — which is now the same value — so the comparison is a self-comparison,
+always false (barring the vacuous `session_history.size() <= 1` special case, which cannot occur here
+since `cleanup_old_sessions()` only ever runs when history exceeds `max_sessions_to_keep`). The "best"
+symlink was therefore silently never refreshed, left dangling at the just-deleted file — reachable under
+default settings whenever the best-known checkpoint happens to be among the oldest sessions pruned by
+retention cleanup (a realistic outcome any time training regresses after an early low-loss run).
+
+Both reproduced directly with standalone programs mirroring the exact member-state and call pattern:
+(A) confirmed the search loop and its results are skipped entirely when the flag is false; (B) confirmed
+the in-memory `best_checkpoint_path` updates correctly (the caller sets it directly) while the
+stand-in-for-the-symlink flag stayed false, i.e. the refresh never fires, when routed through the
+self-comparing helper.
+
+Changes Made:
+
+- Moved the `best_validation_loss`/`best_checkpoint_path` reset-and-research block outside the
+  `enable_checkpoint_symlinks` check so it always runs when `deleting_best` is true.
+- Nested only the symlink-specific work inside `if (config.enable_checkpoint_symlinks)`, and replaced
+  the `update_best_checkpoint(...)` call with a direct `create_or_update_symlink(best_checkpoint_path,
+  config.best_symlink_name)` (matching what `update_best_checkpoint()` does internally when it does
+  decide something is best) — this callsite already knows, unconditionally, that
+  `best_checkpoint_path` is the correct new best, so it has no use for `update_best_checkpoint()`'s
+  "is this better than the current record" gate in the first place.
+
+Verification:
+- ✅ Standalone reproductions confirmed both bugs independently before the fix.
+- ✅ Added `CleanupOldSessionsRecoversBestTrackingAndSymlinkWhenBestCheckpointIsPruned` (symlinks
+  enabled — covers both the in-memory recovery and the symlink refresh) and
+  `CleanupOldSessionsRecoversBestTrackingWhenSymlinksDisabled` (isolates bug A) to
+  `tests/incrementaltrainer_test.cpp`, deliberately constructing history where the *oldest* session is
+  the *best* one so retention cleanup is guaranteed to delete it. Added a `touch_full_checkpoint()`
+  fixture helper and a `friend class IncrementalTrainerTest;` declaration (the private
+  `get_best_checkpoint_path()` has no public equivalent) to `IncrementalTrainer.hpp`, plus a
+  `best_checkpoint_path_of()` fixture wrapper since friendship does not propagate to gtest's
+  `TEST_F`-generated subclasses.
+- ✅ Before/after regression: reverted `IncrementalTrainer.cpp` to its pre-fix `HEAD` (which already had
+  TD-082's fix, isolating this diff), rebuilt `incrementaltrainerTests`, confirmed both new tests fail
+  with the exact predicted symptoms (dangling symlink assertion failure; stale in-memory best path);
+  restored the fix, rebuilt, confirmed all 9 relevant tests pass, plus the full `IncrementalTrainerTests`
+  suite via `ctest`.
+
+Files Changed:
+
+- `src/IncrementalTrainer.cpp`
+- `src/IncrementalTrainer.hpp`
+- `tests/incrementaltrainer_test.cpp`
+
+---
+
+### TD-082: IncrementalTrainer's session_history.txt Silently Truncated checkpoint_path at the First Space
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 9, 2026 | IncrementalTrainer (session history persistence / checkpoint resume) | Read the rest of the line for checkpoint_path instead of extracting it via `>>` |
+
+Summary:
+Found during a full second-pass re-read of `src/IncrementalTrainer.cpp` end to end (2088 lines) as part
+of a full independent re-verification of the whole prior audit. `load_session_history()` parsed each
+line of `session_history.txt` with
+`iss >> session.session_id >> ... >> session.final_validation_loss >> session.checkpoint_path;` —
+`checkpoint_path` extracted via the whitespace-delimited `operator>>`. `checkpoint_path` is a filesystem
+path built from `get_session_dir()` (`IncrementalConfig::session_dir`, populated from the ordinary,
+freely-user-configurable `SESSION_DIR` config key, default `"training_sessions"`), which can legitimately
+contain a space (e.g. a human choosing `SESSION_DIR=my training data` or `"training sessions"`, an
+entirely unremarkable directory-naming choice). Any such path is silently truncated at the first space
+by `>>` — and critically, `iss.fail()` stays **false** in this case (extracting a shorter-than-intended
+string via `>>` is not a stream failure), so the existing `if (iss.fail() || session.checkpoint_path.empty())`
+guard does not catch it at all. The truncated (nonexistent) path is accepted as a valid checkpoint
+reference, silently breaking "resume from best checkpoint" on every subsequent reload — the constructor's
+best-checkpoint selection loop, and `resume_last_session()`'s checkpoint lookup, both end up checking
+`fs::exists()` against a path that was never real, so training silently proceeds from scratch/whatever
+weights happen to already be loaded instead of the intended best checkpoint, with no error surfaced.
+
+Reproduced directly with a standalone program mirroring the exact write (`save_session_history()`) and
+read (`load_session_history()`) logic: a `checkpoint_path` of `"training sessions/session_1_checkpoint.bin"`
+round-tripped to `"training"` — with `iss.fail()` reporting `0` (false) throughout.
+
+Changes Made:
+
+- `load_session_history()` now extracts only the five numeric fields via `>>`, then reads the remainder
+  of the line via `std::getline()` and strips only the field-delimiter whitespace immediately after
+  `final_validation_loss`, so `checkpoint_path` (and its optional pipe-encoded
+  `|losses:...|vallosses:...` extension, exactly as before) captures the full remainder of the line —
+  spaces included — instead of stopping at the first one.
+
+Verification:
+- ✅ Standalone reproduction confirmed the bug and the fix, including that `iss.fail()` never actually
+  flags the corruption pre-fix.
+- ✅ Added `LoadSessionHistoryPreservesSpacesInCheckpointPath` and
+  `LoadSessionHistoryPreservesSpacesInCheckpointPathWithExtendedFormat` to
+  `tests/incrementaltrainer_test.cpp` (the latter also covering the v2 pipe-encoded per-epoch history
+  extension immediately following a space-containing path).
+- ✅ Before/after regression: reverted `IncrementalTrainer.cpp` to its pre-fix `HEAD` version, rebuilt
+  `incrementaltrainerTests`, confirmed both new tests fail with the exact predicted truncation
+  (`".../my"`) and the extended-format test additionally losing all per-epoch history; restored the fix,
+  rebuilt, and confirmed all 6 `*LoadSessionHistory*`-filtered tests pass, plus the full
+  `IncrementalTrainerTests` suite via `ctest`.
+- ✅ Also confirmed via the same read-through that genuinely malformed lines (missing checkpoint_path,
+  non-numeric session_id) are still correctly rejected by the unchanged `iss.fail()`/empty-path guard.
+
+Files Changed:
+
+- `src/IncrementalTrainer.cpp`
+- `tests/incrementaltrainer_test.cpp`
+
+---
+
 ### TD-081: TrainingMetricsAPI's Legacy "0-default" Alias Routes Returned the Wrong HTTP Status Code on Error
 
 | Resolution Date | Component | Resolved By |

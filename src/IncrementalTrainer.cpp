@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer)
 // @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-08
+// @adai-reviewed: 2026-09-09
 
 #include "IncrementalTrainer.hpp"
 #include <algorithm>
@@ -1140,7 +1140,20 @@ bool IncrementalTrainer::load_session_history() {
         TrainingSession session;
 
         iss >> session.session_id >> session.samples_trained >> session.epochs_completed >>
-            session.final_loss >> session.final_validation_loss >> session.checkpoint_path;
+            session.final_loss >> session.final_validation_loss;
+
+        // Read the rest of the line as checkpoint_path (+ optional
+        // pipe-encoded extension below) instead of extracting it via `>>`,
+        // which stops at the first whitespace. checkpoint_path is a
+        // filesystem path derived from SESSION_DIR (get_session_dir()),
+        // which legitimately may contain spaces — a `>>` extraction would
+        // silently truncate it there with no stream failure to catch
+        // (iss.fail() stays false), corrupting every checkpoint reference on
+        // the very next reload.
+        std::string rest;
+        std::getline(iss, rest);
+        const size_t path_start = rest.find_first_not_of(" \t");
+        session.checkpoint_path = (path_start == std::string::npos) ? "" : rest.substr(path_start);
 
         if (iss.fail() || session.checkpoint_path.empty()) {
             Logger::warn("Skipping malformed session history line: {}", line);
@@ -1435,8 +1448,14 @@ void IncrementalTrainer::cleanup_old_sessions() {
             }
         }
 
-        // If we deleted the best checkpoint, find the next best from remaining sessions
-        if (deleting_best && config.enable_checkpoint_symlinks) {
+        // If we deleted the best checkpoint, find the next best from remaining
+        // sessions. This bookkeeping must happen unconditionally —
+        // enable_checkpoint_symlinks only controls whether a filesystem
+        // symlink is *also* kept in sync below, not whether the trainer's
+        // own best_checkpoint_path/best_validation_loss tracking stays
+        // valid (previously, disabling symlinks left both dangling at the
+        // just-deleted file after this cleanup ran).
+        if (deleting_best) {
             best_validation_loss = std::numeric_limits<float>::max();
             best_checkpoint_path = "";
 
@@ -1450,12 +1469,28 @@ void IncrementalTrainer::cleanup_old_sessions() {
                 }
             }
 
-            // Update the best_checkpoint symlink to new best (or remove if no sessions remain)
-            if (!best_checkpoint_path.empty()) {
-                update_best_checkpoint(best_validation_loss, best_checkpoint_path);
-            } else {
-                // No valid checkpoints remain, remove the symlink
-                remove_symlink_if_exists(config.best_symlink_name);
+            if (config.enable_checkpoint_symlinks) {
+                // Sync the "best" symlink to the just-determined best
+                // checkpoint. Deliberately NOT calling
+                // update_best_checkpoint() here: it decides "is this an
+                // improvement" by comparing its validation_loss argument
+                // against the *current* best_validation_loss member — but
+                // that member was just assigned the same value immediately
+                // above, so the comparison is always false (comparing a
+                // value against itself) and the symlink would silently
+                // never be refreshed, left dangling at the just-deleted
+                // file.
+                if (!best_checkpoint_path.empty()) {
+                    if (!create_or_update_symlink(best_checkpoint_path, config.best_symlink_name)) {
+                        Logger::error(
+                            "Failed to refresh best checkpoint symlink after retention cleanup! "
+                            "target={} link={}",
+                            best_checkpoint_path, config.best_symlink_name);
+                    }
+                } else {
+                    // No valid checkpoints remain, remove the symlink
+                    remove_symlink_if_exists(config.best_symlink_name);
+                }
             }
         }
     }

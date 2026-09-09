@@ -134,6 +134,26 @@ class IncrementalTrainerTest : public ::testing::Test {
         }
         file.close();
     }
+
+    // get_best_checkpoint_path() is private; IncrementalTrainerTest is a
+    // friend of IncrementalTrainer, but friendship does not propagate to the
+    // TEST_F-generated subclasses, so this wrapper (an ordinary inherited
+    // member) is what those subclasses actually call.
+    static std::string best_checkpoint_path_of(IncrementalTrainer& trainer) {
+        return trainer.get_best_checkpoint_path();
+    }
+
+    // Creates a checkpoint base file plus the full realistic set of sidecar
+    // files EncoderDecoderModel::save_model() writes, so
+    // is_sane_checkpoint_candidate() accepts it. Returns the base path.
+    std::string touch_full_checkpoint(int session_id) {
+        std::string base =
+            session_dir.string() + "/session_" + std::to_string(session_id) + "_checkpoint.bin";
+        for (const char* ext : {"", ".config", ".vocab", ".encoder", ".decoder", ".lm_head"}) {
+            std::ofstream(base + ext) << "dummy";
+        }
+        return base;
+    }
 };
 
 // ============================================================================
@@ -242,6 +262,63 @@ TEST_F(IncrementalTrainerTest, LoadSessionHistoryFromFile) {
     EXPECT_FLOAT_EQ(history[0].final_validation_loss, 2.5f);
 }
 
+// TD-082 regression: checkpoint_path used to be extracted from the history
+// line via `>>`, which stops at the first whitespace. checkpoint_path is
+// built from get_session_dir() (SESSION_DIR), which is an ordinary,
+// user-configurable directory name that may legitimately contain spaces
+// (e.g. a human-chosen "training sessions" or "my model" directory) — `>>`
+// would silently truncate it there with no stream failure to catch, so the
+// truncated (nonexistent) path was accepted as valid, silently breaking
+// checkpoint resume on every subsequent reload.
+TEST_F(IncrementalTrainerTest, LoadSessionHistoryPreservesSpacesInCheckpointPath) {
+    IncrementalConfig config;
+    config.session_dir = session_dir.string();
+    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+
+    const std::string checkpoint_with_space = session_dir.string() + "/my checkpoint dir/session_0_checkpoint.bin";
+    std::string history_file = session_dir.string() + "/session_history.txt";
+    {
+        std::ofstream file(history_file);
+        file << "# session_id samples_trained epochs final_loss final_val_loss checkpoint_path\n";
+        file << "0 100 5 2.0 2.5 " << checkpoint_with_space << "\n";
+    }
+
+    bool result = trainer.load_session_history();
+    EXPECT_TRUE(result);
+
+    std::vector<TrainingSession> history = trainer.get_session_history();
+    ASSERT_EQ(history.size(), 1u);
+    EXPECT_EQ(history[0].checkpoint_path, checkpoint_with_space);
+}
+
+// TD-082 regression, extended (v2) format: checkpoint_path with a space,
+// immediately followed by the pipe-encoded per-epoch history extension,
+// must still round-trip both the full path and the per-epoch arrays.
+TEST_F(IncrementalTrainerTest, LoadSessionHistoryPreservesSpacesInCheckpointPathWithExtendedFormat) {
+    IncrementalConfig config;
+    config.session_dir = session_dir.string();
+    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+
+    const std::string checkpoint_with_space = session_dir.string() + "/my checkpoint dir/session_0_checkpoint.bin";
+    std::string history_file = session_dir.string() + "/session_history.txt";
+    {
+        std::ofstream file(history_file);
+        file << "# VERSION 2\n";
+        file << "0 100 5 2.0 2.5 " << checkpoint_with_space
+             << "|losses:2.0,1.8|vallosses:2.5,2.3|lrs:0.001,0.0009|times:10.0,11.0\n";
+    }
+
+    bool result = trainer.load_session_history();
+    EXPECT_TRUE(result);
+
+    std::vector<TrainingSession> history = trainer.get_session_history();
+    ASSERT_EQ(history.size(), 1u);
+    EXPECT_EQ(history[0].checkpoint_path, checkpoint_with_space);
+    ASSERT_EQ(history[0].per_epoch_losses.size(), 2u);
+    EXPECT_FLOAT_EQ(history[0].per_epoch_losses[0], 2.0f);
+    EXPECT_FLOAT_EQ(history[0].per_epoch_losses[1], 1.8f);
+}
+
 TEST_F(IncrementalTrainerTest, SaveSessionHistory) {
     IncrementalConfig config;
     config.session_dir = session_dir.string();
@@ -313,6 +390,97 @@ TEST_F(IncrementalTrainerTest, CleanupOldSessionsKeepsMaxSessions) {
     EXPECT_FALSE(fs::exists(session_dir / "session_0_checkpoint.bin"));
     EXPECT_FALSE(fs::exists(session_dir / "session_1_checkpoint.bin"));
     EXPECT_FALSE(fs::exists(session_dir / "session_2_checkpoint.bin"));
+}
+
+// TD-083 regression (two related bugs found in the same block):
+//
+// (A) The whole "find the next best checkpoint after deleting the current
+//     best" recovery block used to be gated behind
+//     config.enable_checkpoint_symlinks — an unrelated flag that only
+//     controls filesystem symlink bookkeeping — so disabling symlinks left
+//     best_checkpoint_path/best_validation_loss dangling at the just-deleted
+//     checkpoint after retention cleanup.
+//
+// (B) Even with symlinks enabled (the default), the recovery block called
+//     update_best_checkpoint(best_validation_loss, best_checkpoint_path)
+//     with values it had *just* assigned to those exact member variables —
+//     so update_best_checkpoint()'s own "is this an improvement over the
+//     current best_validation_loss" comparison was always comparing a value
+//     against itself (always false), silently skipping the symlink refresh
+//     and leaving it dangling at the deleted file.
+//
+// This test deliberately makes the *oldest* session the *best* one (lowest
+// validation loss), so `max_sessions_to_keep`-driven retention cleanup is
+// guaranteed to delete the current best checkpoint.
+TEST_F(IncrementalTrainerTest,
+      CleanupOldSessionsRecoversBestTrackingAndSymlinkWhenBestCheckpointIsPruned) {
+    std::string checkpoint0 = touch_full_checkpoint(0);
+    std::string checkpoint1 = touch_full_checkpoint(1);
+
+    std::string history_file = session_dir.string() + "/session_history.txt";
+    {
+        std::ofstream file(history_file);
+        file << "# session_id samples_trained epochs final_loss final_val_loss checkpoint_path\n";
+        file << "0 100 5 0.2 0.1 " << checkpoint0 << "\n";  // oldest, but BEST (lowest val loss)
+        file << "1 100 5 0.6 0.5 " << checkpoint1 << "\n";  // newer, worse
+    }
+
+    IncrementalConfig config;
+    config.session_dir = session_dir.string();
+    config.max_sessions_to_keep = 1;
+    config.enable_checkpoint_symlinks = true;
+    config.best_symlink_name = session_dir.string() + "/best_checkpoint_link.bin";
+    // Constructing against the already-written history (unlike other tests in
+    // this file, which write history after construction) is deliberate: the
+    // constructor's own "find best from history" loop is what populates
+    // best_checkpoint_path/best_validation_loss from real history, which this
+    // test needs correctly seeded before calling cleanup_old_sessions().
+    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+
+    ASSERT_EQ(best_checkpoint_path_of(trainer), checkpoint0)
+        << "test setup sanity check: session 0 should be recorded as best after construction";
+
+    trainer.cleanup_old_sessions();
+
+    // Bug A: in-memory best tracking must recover to session 1 (the only
+    // sane checkpoint remaining), not stay dangling on the just-deleted
+    // session 0.
+    EXPECT_EQ(best_checkpoint_path_of(trainer), checkpoint1);
+    EXPECT_FALSE(fs::exists(checkpoint0 + ".config"));
+
+    // Bug B: the "best" symlink must be refreshed to point at session 1, not
+    // left dangling at the deleted session 0 checkpoint.
+    ASSERT_TRUE(fs::is_symlink(config.best_symlink_name));
+    EXPECT_EQ(fs::read_symlink(config.best_symlink_name).string(), checkpoint1);
+}
+
+// Same scenario as above but with symlinks disabled — isolates Bug A: the
+// in-memory best-tracking recovery must happen regardless of
+// enable_checkpoint_symlinks.
+TEST_F(IncrementalTrainerTest,
+      CleanupOldSessionsRecoversBestTrackingWhenSymlinksDisabled) {
+    std::string checkpoint0 = touch_full_checkpoint(0);
+    std::string checkpoint1 = touch_full_checkpoint(1);
+
+    std::string history_file = session_dir.string() + "/session_history.txt";
+    {
+        std::ofstream file(history_file);
+        file << "# session_id samples_trained epochs final_loss final_val_loss checkpoint_path\n";
+        file << "0 100 5 0.2 0.1 " << checkpoint0 << "\n";
+        file << "1 100 5 0.6 0.5 " << checkpoint1 << "\n";
+    }
+
+    IncrementalConfig config;
+    config.session_dir = session_dir.string();
+    config.max_sessions_to_keep = 1;
+    config.enable_checkpoint_symlinks = false;
+    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+
+    ASSERT_EQ(best_checkpoint_path_of(trainer), checkpoint0);
+
+    trainer.cleanup_old_sessions();
+
+    EXPECT_EQ(best_checkpoint_path_of(trainer), checkpoint1);
 }
 
 TEST_F(IncrementalTrainerTest, CleanupDeadSessionsRemovesOrphansAndBrokenHistory) {

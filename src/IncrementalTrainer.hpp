@@ -259,6 +259,13 @@ class IncrementalTrainer {
     // friend-class pattern ChatbotTrainerCacheTest already uses.
     friend class IncrementalTrainerControlTest;
 
+    // Allows tests/incrementaltrainer_test.cpp direct access to
+    // get_best_checkpoint_path() (private — used internally by
+    // cleanup_old_sessions()/the constructor's resume logic, with no public
+    // equivalent) so TD-083's best-checkpoint-tracking recovery after
+    // retention cleanup can be verified directly.
+    friend class IncrementalTrainerTest;
+
     // Training components
     std::string vocab_path_;  ///< Path to vocabulary file (for architecture reinit)
     std::string model_path_;  ///< Path to main model file (for reset)
