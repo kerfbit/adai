@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer)
 // @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-08
+// @adai-reviewed: 2026-09-09
 
 #include "ChatbotTrainer.hpp"
 #include <algorithm>
@@ -268,7 +268,11 @@ void ChatbotTrainer::validate_and_correct_config() {
 
     // Validate min_learning_rate < learning_rate
     if (config.min_learning_rate >= config.learning_rate) {
-        int original_min_lr = static_cast<int>(config.min_learning_rate);
+        // min_learning_rate is a small float (typically << 1, e.g. 0.001) —
+        // truncating it to int before logging always collapses it to 0,
+        // making the warning below misleadingly show "min_learning_rate (0)"
+        // regardless of the actual prior value.
+        float original_min_lr = config.min_learning_rate;
         config.min_learning_rate = config.learning_rate * 0.01f;  // 1% of base LR
         adai::Logger::warn("⚠️  min_learning_rate ({}) >= learning_rate ({})", original_min_lr,
                            config.learning_rate);
