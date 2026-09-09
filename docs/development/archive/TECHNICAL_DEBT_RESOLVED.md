@@ -4,6 +4,138 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-088: matrix_sum_gpu() Recurses Forever on an Empty (size == 0) Input — Both GPU Backends
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 9, 2026 | GPU (CUDA `MatrixGPU.cu` and SYCL `MatrixGPU_SYCL.cpp`, both `matrix_sum_gpu()`) | Early-return 0.0f for `size <= 0` before computing the group/block count |
+
+Summary:
+Found during the second, independent full-codebase re-audit while re-reading `src/gpu/sycl/
+MatrixGPU_SYCL.cpp` end to end (874 lines). `matrix_sum_gpu(data, size)` reduces `size` elements to a
+scalar via a two-level reduction: divide into `num_groups = (size + WG_SIZE - 1) / WG_SIZE` work-groups,
+reduce each to a partial sum, then — unless `num_groups == 1` — recurse on the `num_groups` partial sums
+(`return matrix_sum_gpu(group_sums.get(), num_groups);`). For `size == 0` (an empty tensor — e.g. a
+degenerate zero-length batch or sequence reaching `.sum()`/`.mean()`), `num_groups` computes to `0`: not
+the `num_groups == 1` base case, and not a value that ever shrinks on the recursive call either —
+`matrix_sum_gpu(ptr, 0)` calls itself with the exact same argument forever, unwinding the stack.
+`src/gpu/MatrixGPU.cu`'s CUDA implementation has the byte-for-byte identical structure and the identical
+bug (`blocks = (size + threads - 1) / threads` → `0` for `size == 0`, same non-terminating recursion) —
+this is a pre-existing defect present in both backends equally, not something introduced by one being a
+port of the other. `matrix_count_below_threshold_gpu()` (SYCL) / its CUDA counterpart share the exact same
+`num_groups`-from-`size` shape and recurse into `matrix_sum_gpu()` for their own final reduction, so they
+inherit the fix transitively rather than needing their own guard.
+
+Neither GPU backend can be exercised end-to-end in this environment (no CUDA device present, and no
+`icpx`/oneAPI toolchain installed for SYCL — `cmake --preset=sycl` fails at configure with `icpx` not
+found), and reachability would require tracing every `.sum()`/`.mean()` GPU call site across the encoder/
+decoder/attention/loss code for a genuinely zero-sized tensor, which no specific call site was confirmed
+to hit today. The fix is applied as a correctness guard against a real, analytically-confirmed defect
+rather than as a response to an observed crash.
+
+Changes Made:
+- `src/gpu/sycl/MatrixGPU_SYCL.cpp` and `src/gpu/MatrixGPU.cu`: both `matrix_sum_gpu()` implementations
+  now return `0.0f` immediately when `size <= 0`, before computing `num_groups`/`blocks` or allocating the
+  group-sums buffer.
+
+Verification:
+- ✅ **CUDA side fully compile-verified**: this environment has `nvcc` (CUDA 12.0) even without a physical
+  GPU device. Configured `cmake --preset=gpu` and built `adai_core` (which compiles `MatrixGPU.cu`) from
+  scratch — compiled clean with the fix in place, confirming the change is syntactically and
+  type-correct C++/CUDA. No physical GPU is available to actually execute the kernel, so this is
+  compile-verification, not a full before/after runtime regression test.
+- ⚠️ **SYCL side is inspection-verified only.** `icpx`/oneAPI is not installed in this environment
+  (confirmed: `cmake --preset=sycl` fails at the configure step, before any compilation is attempted), so
+  `MatrixGPU_SYCL.cpp`'s copy of the fix could not be compiled or executed here. The change applies the
+  identical guard pattern proven to compile correctly on the CUDA side (a plain early-return with no
+  SYCL-specific syntax), so confidence is high, but this should be spot-checked by someone with SYCL
+  toolchain access before being treated as fully verified.
+
+Files Changed:
+
+- `src/gpu/sycl/MatrixGPU_SYCL.cpp`
+- `src/gpu/MatrixGPU.cu`
+
+---
+
+### TD-087: TokenBatchLoader's Two Independent Prefetch Queues Could Deadlock Every Worker Thread (and Mismatch Input/Target Pairs)
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 9, 2026 | ParallelDataLoader.hpp (`TokenBatchLoader`) | Push/pop input and target batches as one pair through a single queue instead of two independent queues |
+
+Summary:
+Found during the second, independent full-codebase re-audit while re-reading `src/ParallelDataLoader.hpp`
+end to end (907 lines) — prompted in part by the file's own still-open TD-064 (`paralleldataloaderTests`
+hung indefinitely under a full-suite `ctest -j8` run, root cause never found despite extensive TSan/manual
+review). `TokenBatchLoader` (a second, distinct class in the same file, alongside the already-investigated
+`ParallelDataLoader`) has `config_.load_targets` support that — unlike `ParallelDataLoader`, which has only
+one queue — routes input and target batches through **two independent** `ThreadSafeBatchQueue`s. Each
+worker thread's loop pushed to `batch_queue_` and then, immediately after, to `target_queue_`, both
+bounded to the same capacity (`num_workers * prefetch_factor`).
+
+This has two distinct bugs, both stemming from the same root design flaw (splitting one produced item
+across two independently-bounded queues with no coordination between them):
+
+1. **Deadlock.** Any caller that drains `next_batch()` without also draining `next_target_batch()` at a
+   matching rate (e.g. it doesn't need targets and simply never calls it, or calls it less often) fills
+   `target_queue_` to capacity. Every worker thread then blocks forever inside `target_queue_->push()` —
+   which can never unblock, since nothing ever pops from `target_queue_`. Once *every* worker thread is
+   stuck there, `batch_queue_` stops being refilled too, so subsequent `next_batch()` calls block forever
+   as well: the entire loader wedges, both queues' condition variables parked in `futex_wait` with 0% CPU
+   — the exact forensic signature TD-064 recorded ("both of its threads were blocked in `futex_wait_queue`
+   with 0% CPU usage"), though `TokenBatchLoader` itself is confirmed unrelated to that specific incident
+   (see below).
+2. **Mismatched pairs.** Even when a caller *does* call both accessors in lockstep, with `num_workers > 1`
+   there is no guarantee that the two queues receive pushes from different worker threads in the same
+   relative order — worker A could push its input, then worker B interleaves its own input+target pushes,
+   before worker A gets to push its matching target. A caller alternating `next_batch()`/
+   `next_target_batch()` could silently receive an input from one loaded batch paired with the target
+   from a *different* one.
+
+`TokenBatchLoader` has zero current callers anywhere in the codebase (confirmed via `grep -rn` across
+`src/`/`tests/` before this fix — only its own definition referenced it) and, unlike `ParallelDataLoader`,
+had no dedicated test coverage at all, so neither bug had ever actually fired; the class is tagged
+`@adai-status: experimental`, already capped by TD-052 (fake char-code tokenization) for a separate reason.
+This is **not** a root-cause finding for TD-064: `paralleldataloaderTests` (the test binary in the original
+incident) never instantiates `TokenBatchLoader` — only `ParallelDataLoader`/`ThreadSafeBatchQueue`, which
+use exactly one queue and don't have this specific two-queue interaction at all. TD-064 remains open;
+re-reading `ParallelDataLoader`'s own single-queue synchronization here (again) found nothing beyond what
+that investigation already documented (predicate-based `condition_variable::wait()` is correctly immune to
+the shutdown-flag race one might otherwise suspect, since the predicate itself is checked under the lock
+regardless of notification timing).
+
+Changes Made:
+- `src/ParallelDataLoader.hpp`: `TokenBatchLoader` now holds one
+  `ThreadSafeBatchQueue<std::pair<TokenBatch, TokenBatch>>` instead of two independent queues. The worker
+  thread pushes the input/target pair as a single atomic queue operation. `next_batch()` pops the pair,
+  returns the input half, and latches the target half into a new `pending_target_` member for the
+  immediately-following `next_target_batch()` call to retrieve. `stop()`/`new_epoch()` updated to match
+  (one queue to shut down/clear, plus resetting `pending_target_`).
+
+Verification:
+- ✅ Standalone reproduction (`std::async` consumer draining only `next_batch()`, watchdog-timed) confirmed
+  the deadlock against the pre-fix two-queue design in isolation, mirroring the real class's structure.
+- ✅ Added three tests to `tests/paralleldataloader_test.cpp`: `NextBatchDoesNotDeadlockWhenTargetsNeverDrained`
+  (drains a full epoch via `next_batch()` alone, asserting via `std::async` + `wait_for(10s)` that it
+  completes rather than hanging — matching the timeout-guarded-async pattern already used in
+  `batchedinferenceengine_test.cpp` so a regression fails loudly instead of hanging the test binary),
+  `NextBatchAndTargetBatchStayPaired` (3 workers, asserts every lockstep-drawn pair is non-empty — the
+  structural guarantee from sharing one queue, not a statistical one), and
+  `NoTargetsConfiguredReturnsNulloptForTargetBatch` (unchanged-behavior baseline).
+- ✅ Before/after regression: reverted only `ParallelDataLoader.hpp` to its pre-fix `HEAD`, rebuilt
+  `paralleldataloaderTests`, confirmed `NextBatchDoesNotDeadlockWhenTargetsNeverDrained` hangs (killed by
+  an external `timeout`, exactly as predicted); restored the fix, rebuilt, confirmed all 3 new tests pass.
+- ✅ Full `paralleldataloaderTests` suite (37/37) run 3 times back-to-back with no flakiness, including all
+  pre-existing `ParallelDataLoader`/`ThreadSafeBatchQueue` tests (untouched by this change) still passing.
+
+Files Changed:
+
+- `src/ParallelDataLoader.hpp`
+- `tests/paralleldataloader_test.cpp`
+
+---
+
 ### TD-086: Dataset::get_batch_statistics() Tokenized Raw Dataset Indices Instead of the Requested Split's Samples
 
 | Resolution Date | Component | Resolved By |

@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.10.0
-// @adai-reviewed: 2026-09-08
+// @adai-reviewed: 2026-09-09
 
 #ifdef ADAI_ENABLE_GPU
 
@@ -242,6 +242,16 @@ static inline float workgroup_reduce_sum(sycl::nd_item<1> item,
 }
 
 float matrix_sum_gpu(const float* data, int size) {
+    // size == 0 (an empty tensor reaching sum()/mean() — e.g. a degenerate
+    // zero-length batch or sequence) would otherwise compute num_groups = 0,
+    // which is neither the num_groups == 1 base case below nor a value that
+    // ever shrinks on the recursive call — matrix_sum_gpu(ptr, 0) would call
+    // itself with the same size forever, unwinding the stack. See TD-088 in
+    // TECHNICAL_DEBT.md — the identical bug exists in MatrixGPU.cu's CUDA
+    // version of this function; guarded there too.
+    if (size <= 0) {
+        return 0.0f;
+    }
     auto& q = GPUManager::get_queue();
     constexpr int WG_SIZE = 256;
     int num_groups = (size + WG_SIZE - 1) / WG_SIZE;

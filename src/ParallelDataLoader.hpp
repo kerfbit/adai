@@ -1,6 +1,6 @@
 // @adai-status: experimental        (capped by TD-052 — batches use raw char codes, not a real tokenizer; corrected from an earlier, incorrect "stable" tag)
-// @adai-version: 0.4.0
-// @adai-reviewed: 2026-09-08
+// @adai-version: 0.4.1
+// @adai-reviewed: 2026-09-09
 
 /**
  * @file ParallelDataLoader.hpp
@@ -557,11 +557,11 @@ class TokenBatchLoader {
           batches_loaded_(0) {
         // Calculate prefetch buffer size
         size_t buffer_size = config_.num_workers * config_.prefetch_factor;
-        batch_queue_ = std::make_unique<ThreadSafeBatchQueue<TokenBatch>>(buffer_size);
-
-        if (config_.load_targets) {
-            target_queue_ = std::make_unique<ThreadSafeBatchQueue<TokenBatch>>(buffer_size);
-        }
+        // Input and target batches for one loaded item are pushed/popped as a
+        // single pair through one queue (not two independent queues) — see
+        // the note on batch_queue_'s declaration below for why that matters.
+        batch_queue_ = std::make_unique<ThreadSafeBatchQueue<std::pair<TokenBatch, TokenBatch>>>(
+            buffer_size);
     }
 
     /**
@@ -599,9 +599,6 @@ class TokenBatchLoader {
 
         is_running_ = false;
         batch_queue_->shutdown();
-        if (target_queue_) {
-            target_queue_->shutdown();
-        }
 
         // Join all worker threads
         for (auto& worker : workers_) {
@@ -612,13 +609,18 @@ class TokenBatchLoader {
         workers_.clear();
 
         batch_queue_->clear();
-        if (target_queue_) {
-            target_queue_->clear();
-        }
+        pending_target_.reset();
     }
 
     /**
      * @brief Get next input batch (blocks until available)
+     *
+     * When config_.load_targets is set, this also latches the matching target
+     * batch for retrieval via next_target_batch() — call that immediately
+     * afterward, before the next next_batch() call, to get the pair that
+     * belongs together. See batch_queue_'s declaration for why input and
+     * target are queued as one unit instead of through independent queues.
+     *
      * @return TokenBatch, or empty optional if no more batches
      */
     std::optional<TokenBatch> next_batch() {
@@ -626,19 +628,28 @@ class TokenBatchLoader {
             start();
         }
 
-        return batch_queue_->pop();
+        auto pair = batch_queue_->pop();
+        if (!pair.has_value()) {
+            pending_target_.reset();
+            return std::nullopt;
+        }
+        pending_target_ = std::move(pair->second);
+        return std::move(pair->first);
     }
 
     /**
-     * @brief Get next target batch (blocks until available)
-     * @return TokenBatch, or empty optional if no more batches
+     * @brief Get the target batch matching the most recent next_batch() call
+     * @return TokenBatch, or empty optional if load_targets is disabled or
+     *         next_batch() hasn't been called (or returned no batch) yet
      */
     std::optional<TokenBatch> next_target_batch() {
-        if (!config_.load_targets || !target_queue_) {
+        if (!config_.load_targets || !pending_target_.has_value()) {
             return std::nullopt;
         }
 
-        return target_queue_->pop();
+        TokenBatch target = std::move(*pending_target_);
+        pending_target_.reset();
+        return target;
     }
 
     /**
@@ -649,9 +660,7 @@ class TokenBatchLoader {
     void new_epoch() {
         // Clear any remaining batches from previous epoch
         batch_queue_->clear();
-        if (target_queue_) {
-            target_queue_->clear();
-        }
+        pending_target_.reset();
 
         ++current_epoch_;
         batches_loaded_ = 0;
@@ -717,15 +726,13 @@ class TokenBatchLoader {
             }
 
             try {
-                // Load batch
-                auto [input_batch, target_batch] = load_batch(current_batch);
-
-                // Push to queue (blocks if queue is full)
-                batch_queue_->push(std::move(input_batch));
-
-                if (config_.load_targets && target_queue_) {
-                    target_queue_->push(std::move(target_batch));
-                }
+                // Load batch — input and target are pushed together as one
+                // pair (see batch_queue_'s declaration) so a caller that only
+                // drains next_batch() (never next_target_batch()) can't stall
+                // a second, independently-bounded target queue and deadlock
+                // every worker thread.
+                auto batch_pair = load_batch(current_batch);
+                batch_queue_->push(std::move(batch_pair));
 
             } catch (const std::exception& e) {
                 // Log error and continue
@@ -831,8 +838,28 @@ class TokenBatchLoader {
 
     // Threading
     std::vector<std::thread> workers_;
-    std::unique_ptr<ThreadSafeBatchQueue<TokenBatch>> batch_queue_;
-    std::unique_ptr<ThreadSafeBatchQueue<TokenBatch>> target_queue_;
+    // Input and target batches for the same loaded item are pushed/popped as
+    // one pair through a single queue rather than through two independent
+    // ThreadSafeBatchQueues. With two separate bounded queues, a consumer
+    // that drains next_batch() without also draining next_target_batch() (or
+    // at a different rate) fills the target queue permanently, blocking
+    // every worker thread inside its push() there — and once every worker is
+    // stuck, batch_queue_ stops being refilled too, so next_batch() then
+    // hangs forever as well (see the historical paralleldataloaderTests hang
+    // investigation in TECHNICAL_DEBT.md, TD-064 — a related-in-spirit but
+    // not identical class of two-queue producer deadlock; that investigation
+    // covered ParallelDataLoader/ThreadSafeBatchQueue, which has only one
+    // queue and doesn't have this specific issue, and could not reproduce a
+    // root cause there). A single combined queue also removes a second,
+    // independent bug this design invited: with num_workers > 1, two
+    // separate queues have no guaranteed ordering relationship to each other
+    // across different producer threads, so alternating next_batch()/
+    // next_target_batch() calls could return an *input* from one worker's
+    // batch paired with a *target* from a different worker's unrelated
+    // batch. next_batch() latches the popped pair's target into
+    // pending_target_ for the immediately-following next_target_batch() call.
+    std::unique_ptr<ThreadSafeBatchQueue<std::pair<TokenBatch, TokenBatch>>> batch_queue_;
+    std::optional<TokenBatch> pending_target_;
     std::atomic<bool> is_running_;
 
     // Epoch management

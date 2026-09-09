@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-061 — layer_norm_bwd had an undetected math bug; most kernels have no dedicated test and need real GPU hardware to verify)
 // @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-08
+// @adai-reviewed: 2026-09-09
 
 #ifdef ADAI_ENABLE_GPU
 
@@ -379,6 +379,16 @@ void matrix_apply_activation_gpu(float* data, int size, ActivationType type) {
 }
 
 float matrix_sum_gpu(const float* data, int size) {
+    // size == 0 (an empty tensor reaching sum()/mean() — e.g. a degenerate
+    // zero-length batch or sequence) would otherwise compute blocks = 0,
+    // which is neither the blocks == 1 base case below nor a value that ever
+    // shrinks on the recursive call — matrix_sum_gpu(ptr, 0) would call
+    // itself with the same size forever, unwinding the stack. See TD-088 in
+    // TECHNICAL_DEBT.md — the identical bug exists in MatrixGPU_SYCL.cpp's
+    // SYCL port of this function; guarded there too.
+    if (size <= 0) {
+        return 0.0f;
+    }
     const int threads = 256;
     const int blocks = (size + threads - 1) / threads;
 

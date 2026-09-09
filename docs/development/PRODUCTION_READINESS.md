@@ -202,7 +202,7 @@ None — every in-scope file carries a tag.
 | `src/MultiHeadAttention.cpp` | beta | 0.9.0 | 2026-09-08 | TD-050 |
 | `src/MultiHeadAttention.hpp` | beta | 0.9.0 | 2026-09-08 | TD-050 |
 | `src/PPOOptimizer.hpp` | experimental | 0.2.0 | 2026-09-08 | TD-034 |
-| `src/ParallelDataLoader.hpp` | experimental | 0.4.0 | 2026-09-08 | TD-052 |
+| `src/ParallelDataLoader.hpp` | experimental | 0.4.1 | 2026-09-09 | TD-052 |
 | `src/PerformanceProfiler.hpp` | beta | 0.7.0 | 2026-09-08 | TD-038 |
 | `src/PipelineInferenceEngine.hpp` | beta | 0.7.0 | 2026-09-08 | TD-038 |
 | `src/PostgresMetricsDatabase.cpp` | experimental | 0.3.0 | 2026-09-08 | TD-042 |
@@ -217,10 +217,10 @@ None — every in-scope file carries a tag.
 | `src/TrainingMetricsService.cpp` | beta | 0.9.0 | 2026-09-09 | TD-039 |
 | `src/TrainingMetricsService.hpp` | beta | 0.9.0 | 2026-09-08 | TD-039 |
 | `src/gpu/GPUUtils.hpp` | beta | 0.9.0 | 2026-09-07 | TD-041 |
-| `src/gpu/MatrixGPU.cu` | beta | 0.9.0 | 2026-09-08 | TD-061 |
+| `src/gpu/MatrixGPU.cu` | beta | 0.9.0 | 2026-09-09 | TD-061 |
 | `src/gpu/MatrixGPU.hpp` | beta | 0.9.0 | 2026-09-08 | TD-061 |
 | `src/gpu/sycl/GPUUtils_SYCL.hpp` | beta | 0.6.0 | 2026-09-08 | TD-041 |
-| `src/gpu/sycl/MatrixGPU_SYCL.cpp` | beta | 0.10.0 | 2026-09-08 | TD-050 |
+| `src/gpu/sycl/MatrixGPU_SYCL.cpp` | beta | 0.10.0 | 2026-09-09 | TD-050 |
 | `src/gpu/sycl/MatrixGPU_SYCL.hpp` | beta | 0.9.0 | 2026-09-07 | TD-050 |
 | `tizen-metrics-app/js/app.js` | beta | 0.6.0 | 2026-09-07 | TD-049 |
 | `tizen-metrics-app/js/chart.js` | beta | 0.6.0 | 2026-09-07 | TD-049 |
