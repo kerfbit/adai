@@ -144,6 +144,67 @@ class TrainingMetricsAPICapacityRoutesTest : public TrainingMetricsAPIRoutesTest
     }
 };
 
+// TD-081 regression: every legacy "0-default" alias route (e.g. GET
+// /api/metrics/current, POST /api/metrics/sample) used to catch only
+// `std::exception`, not the more specific `ApiRequestError` its modern
+// /api/sessions/{key}/... counterpart catches — so when
+// resolve_session_service() throws ApiRequestError(404, ...) because
+// "0-default" doesn't exist yet, the legacy route's generic catch swallowed
+// it and returned a hardcoded 500/400 instead of the correct 404. This
+// fixture deliberately skips the base fixture's SetUp()-time
+// create_or_get_session("0-default") call so that scenario is actually
+// exercised.
+class TrainingMetricsAPIRoutesTestNoDefaultSession : public TrainingMetricsAPIRoutesTest {
+   protected:
+    void SetUp() override {
+        const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
+        ASSERT_NE(info, nullptr);
+
+        MetricsServiceConfig cfg = make_test_config(info->name());
+        registry_ = std::make_shared<MetricsSessionRegistry>(cfg, max_live_sessions());
+        ASSERT_NE(registry_, nullptr);
+
+        // Deliberately do NOT pre-create "0-default" here.
+
+        ASSERT_TRUE(start_server_with_retry());
+    }
+};
+
+TEST_F(TrainingMetricsAPIRoutesTestNoDefaultSession,
+      LegacyGetAliasReturns404WhenDefaultSessionDoesNotExist) {
+    auto client = make_client();
+    auto res = client.Get("/api/metrics/current");
+
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 404);
+    EXPECT_NE(res->body.find("Unknown session key"), std::string::npos);
+    // The deprecation headers should still be present on the error response,
+    // matching the success-path behavior of every other legacy alias route.
+    EXPECT_EQ(res->get_header_value("Deprecation"), "true");
+}
+
+TEST_F(TrainingMetricsAPIRoutesTestNoDefaultSession,
+      LegacyPostAliasReturns404WhenDefaultSessionDoesNotExist) {
+    auto client = make_client();
+    const std::string sample_body =
+        R"({"sample":1,"loss":0.42,"gradient_norm":0.12,"learning_rate":0.001})";
+    auto res = client.Post("/api/metrics/sample", sample_body, "application/json");
+
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 404);
+    EXPECT_NE(res->body.find("Unknown session key"), std::string::npos);
+}
+
+TEST_F(TrainingMetricsAPIRoutesTestNoDefaultSession,
+      LegacyControlAliasReturns404WhenDefaultSessionDoesNotExist) {
+    auto client = make_client();
+    auto res = client.Post("/api/control/flush", "", "application/json");
+
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 404);
+    EXPECT_NE(res->body.find("Unknown session key"), std::string::npos);
+}
+
 TEST_F(TrainingMetricsAPIRoutesTest, SessionsEndpointListsKnownSessions) {
     auto alpha = registry_->create_or_get_session("alpha1");
     ASSERT_NE(alpha, nullptr);

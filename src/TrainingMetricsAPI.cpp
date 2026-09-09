@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
 // @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-08
+// @adai-reviewed: 2026-09-09
 
 #include "TrainingMetricsAPI.hpp"
 #include <httplib.h>
@@ -619,6 +619,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
                 set_legacy_deprecation_headers(res, "/api/sessions/0-default/metrics/current");
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                set_legacy_deprecation_headers(res, "/api/sessions/0-default/metrics/current");
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 500;
@@ -632,6 +636,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
                 set_legacy_deprecation_headers(res, "/api/sessions/0-default/metrics/summary");
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                set_legacy_deprecation_headers(res, "/api/sessions/0-default/metrics/summary");
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 500;
@@ -656,6 +664,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
                 set_legacy_deprecation_headers(res, "/api/sessions/0-default/metrics/history");
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                set_legacy_deprecation_headers(res, "/api/sessions/0-default/metrics/history");
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 500;
@@ -669,6 +681,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
                 set_legacy_deprecation_headers(res, "/api/sessions/0-default/metrics/prometheus");
                 res.set_content(response, "text/plain");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                set_legacy_deprecation_headers(res, "/api/sessions/0-default/metrics/prometheus");
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 500;
@@ -682,6 +698,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
                 set_legacy_deprecation_headers(res, "/api/sessions/0-default/metrics/csv");
                 res.set_content(response, "text/csv");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                set_legacy_deprecation_headers(res, "/api/sessions/0-default/metrics/csv");
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 500;
@@ -695,6 +715,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
                 set_legacy_deprecation_headers(res, "/api/sessions/0-default/metrics/abnormal");
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                set_legacy_deprecation_headers(res, "/api/sessions/0-default/metrics/abnormal");
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 500;
@@ -709,6 +733,11 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
                     res, "/api/sessions/0-default/metrics/generation-quality");
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                set_legacy_deprecation_headers(
+                    res, "/api/sessions/0-default/metrics/generation-quality");
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 500;
@@ -723,6 +752,11 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
                     res, "/api/sessions/0-default/metrics/padding-efficiency");
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                set_legacy_deprecation_headers(
+                    res, "/api/sessions/0-default/metrics/padding-efficiency");
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 500;
@@ -736,6 +770,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
                 set_legacy_deprecation_headers(res, "/api/sessions/0-default/status");
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                set_legacy_deprecation_headers(res, "/api/sessions/0-default/status");
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 500;
@@ -749,6 +787,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
                 set_legacy_deprecation_headers(res, "/api/sessions/0-default/epochs");
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                set_legacy_deprecation_headers(res, "/api/sessions/0-default/epochs");
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 500;
@@ -779,6 +821,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
                 set_legacy_deprecation_headers(res, "/api/sessions/0-default/end");
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                set_legacy_deprecation_headers(res, "/api/sessions/0-default/end");
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
@@ -792,6 +838,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
                 set_legacy_deprecation_headers(res, "/api/sessions/0-default/epoch/start");
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                set_legacy_deprecation_headers(res, "/api/sessions/0-default/epoch/start");
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
@@ -805,6 +855,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
                 set_legacy_deprecation_headers(res, "/api/sessions/0-default/epoch/end");
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                set_legacy_deprecation_headers(res, "/api/sessions/0-default/epoch/end");
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
@@ -818,6 +872,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
                 set_legacy_deprecation_headers(res, "/api/sessions/0-default/metrics/sample");
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                set_legacy_deprecation_headers(res, "/api/sessions/0-default/metrics/sample");
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
@@ -831,6 +889,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
                 set_legacy_deprecation_headers(res, "/api/sessions/0-default/metrics/validation");
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                set_legacy_deprecation_headers(res, "/api/sessions/0-default/metrics/validation");
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
@@ -844,6 +906,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
                 set_legacy_deprecation_headers(res, "/api/sessions/0-default/metrics/best");
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                set_legacy_deprecation_headers(res, "/api/sessions/0-default/metrics/best");
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
@@ -857,6 +923,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
                 set_legacy_deprecation_headers(res, "/api/sessions/0-default/metrics/advanced");
                 res.set_content(response, "application/json");
                 res.status = 200;
+            } catch (const ApiRequestError& e) {
+                set_legacy_deprecation_headers(res, "/api/sessions/0-default/metrics/advanced");
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = e.status_code();
             } catch (const std::exception& e) {
                 res.set_content(create_error_response(e.what()), "application/json");
                 res.status = 400;
@@ -871,6 +941,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
                                            "/api/sessions/0-default/metrics/generation-quality");
             res.set_content(response, "application/json");
             res.status = 200;
+        } catch (const ApiRequestError& e) {
+            set_legacy_deprecation_headers(res, "/api/sessions/0-default/metrics/generation-quality");
+            res.set_content(create_error_response(e.what()), "application/json");
+            res.status = e.status_code();
         } catch (const std::exception& e) {
             res.set_content(create_error_response(e.what()), "application/json");
             res.status = 400;
@@ -885,6 +959,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
                     set_legacy_deprecation_headers(res, "/api/sessions/0-default/control/flush");
                     res.set_content(response, "application/json");
                     res.status = 200;
+                } catch (const ApiRequestError& e) {
+                    set_legacy_deprecation_headers(res, "/api/sessions/0-default/control/flush");
+                    res.set_content(create_error_response(e.what()), "application/json");
+                    res.status = e.status_code();
                 } catch (const std::exception& e) {
                     res.set_content(create_error_response(e.what()), "application/json");
                     res.status = 500;
@@ -898,6 +976,10 @@ TrainingMetricsAPI::TrainingMetricsAPI(std::shared_ptr<MetricsSessionRegistry> s
                     set_legacy_deprecation_headers(res, "/api/sessions/0-default/control/clear");
                     res.set_content(response, "application/json");
                     res.status = 200;
+                } catch (const ApiRequestError& e) {
+                    set_legacy_deprecation_headers(res, "/api/sessions/0-default/control/clear");
+                    res.set_content(create_error_response(e.what()), "application/json");
+                    res.status = e.status_code();
                 } catch (const std::exception& e) {
                     res.set_content(create_error_response(e.what()), "application/json");
                     res.status = 500;

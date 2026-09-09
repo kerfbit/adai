@@ -4,6 +4,71 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-081: TrainingMetricsAPI's Legacy "0-default" Alias Routes Returned the Wrong HTTP Status Code on Error
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 9, 2026 | TrainingMetricsAPI (metrics_api_server legacy compatibility routes) | Add the missing `ApiRequestError` catch to every legacy alias route |
+
+Summary:
+Found during a full second-pass re-read of `src/TrainingMetricsAPI.cpp` end to end (2497 lines — the
+largest file in the codebase). Every modern, session-key-scoped route (`GET/POST
+/api/sessions/{key}/...`) wraps its handler call in `catch (const ApiRequestError& e) { ... res.status =
+e.status_code(); }` *before* a generic `catch (const std::exception& e)` fallback, so a handler that
+throws `ApiRequestError(404, "Unknown session key: ...")` — the normal outcome of
+`resolve_session_service(key, false)` when that key doesn't exist yet — correctly surfaces as HTTP 404.
+The pre-TD-018 "legacy" alias routes (`/api/metrics/current`, `/api/metrics/summary`,
+`/api/metrics/history`, `/api/metrics/prometheus`, `/api/metrics/csv`, `/api/metrics/abnormal`,
+`/api/metrics/generation-quality` GET+POST, `/api/metrics/padding-efficiency`, `/api/session/status`,
+`/api/session/epochs`, `/api/session/end`, `/api/epoch/start`, `/api/epoch/end`, `/api/metrics/sample`,
+`/api/metrics/validation`, `/api/metrics/best`, `/api/metrics/advanced`, `/api/control/flush`,
+`/api/control/clear` — 20 routes in total, all hard-coded to operate on session key `"0-default"`) were
+missing that specific catch clause entirely (only `/api/session/start` had it correctly). Since
+`ApiRequestError` still derives from `std::exception`, it was still caught — just by the generic clause,
+which discards `status_code()` and always returns a hard-coded 500 (GET routes) or 400 (POST routes)
+instead. The practical effect: any of these 20 legacy endpoints returns a wrong status code (500/400
+instead of 404) whenever `"0-default"` doesn't currently exist — the normal state right after
+`metrics_api_server` starts, before any trainer has connected, or after the default session has ended/
+been archived — misleading a monitoring client or dashboard into believing the server itself is broken
+rather than simply reporting "no session yet."
+
+Confirmed systematically (not just by inspection) with a script cross-referencing every
+`server_impl_->server.Get/Post(...)` registration against whether its lambda body contained an
+`ApiRequestError` catch: all 20 broken routes identified at once, and the 7 legitimately-excluded routes
+(`/api/sessions`, `/api/metrics/compare`, `/api/metrics/aggregate`,
+`/api/metrics/prometheus/aggregate`, `/admin/config`, `/api/models`, `/health`) confirmed to never call
+`resolve_session_service()` at all, so they correctly need no such catch.
+
+The gap went undetected by the existing test suite because `TrainingMetricsAPIRoutesTest::SetUp()`
+always pre-creates `"0-default"` before every test, so no existing test ever exercised a legacy route
+against a *missing* default session.
+
+Changes Made:
+
+- Added `catch (const ApiRequestError& e) { ...; res.status = e.status_code(); }` to all 20 affected
+  routes, ordered before the existing generic `catch (const std::exception& e)`, matching the exact
+  style of the one route (`/api/session/start`) that already had it correctly (including re-calling
+  `set_legacy_deprecation_headers()` in the new catch branch, so the `Deprecation`/`Link` headers are
+  still present on an error response, consistent with the success path).
+
+Verification:
+- ✅ Added a dedicated `TrainingMetricsAPIRoutesTestNoDefaultSession` fixture (deliberately skipping the
+  base fixture's `SetUp()`-time `create_or_get_session("0-default")` call) with 3 new tests:
+  `LegacyGetAliasReturns404WhenDefaultSessionDoesNotExist`,
+  `LegacyPostAliasReturns404WhenDefaultSessionDoesNotExist`,
+  `LegacyControlAliasReturns404WhenDefaultSessionDoesNotExist`.
+- ✅ Before/after regression: reverted `TrainingMetricsAPI.cpp` to its pre-fix `HEAD` version, rebuilt
+  `trainingMetricsApiRoutesTests`, and confirmed all 3 new tests fail with the exact predicted wrong
+  status codes (500, 400, 500) instead of 404; restored the fix, rebuilt, and confirmed all 3 pass plus
+  the full `TrainingMetricsAPIRoutesTests`/`TrainingMetricsAPILiveTests` suites via `ctest`.
+
+Files Changed:
+
+- `src/TrainingMetricsAPI.cpp`
+- `tests/training_metrics_api_routes_test.cpp`
+
+---
+
 ### TD-080: RAGInference's truncateContext() Returned a *Longer* String Than Its Input for max_tokens <= 0
 
 | Resolution Date | Component | Resolved By |
