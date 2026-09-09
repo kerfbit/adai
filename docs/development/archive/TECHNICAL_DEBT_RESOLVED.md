@@ -4,6 +4,145 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-085: RegistryServer's /trained Endpoint Wrote Duplicate Registry Entries for a Path Repeated Within One Request
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 9, 2026 | registry_server (`POST /registry/<group>/trained`) | Update the in-loop `existing` dedup set as each new `DataVersion` is pushed, not just once before the loop |
+
+Summary:
+Found during the second, independent full-codebase re-audit while re-reading `src/RegistryServer.cpp`
+end to end (1679 lines). `handle_trained()` builds a `std::set<std::string> existing` from the
+already-persisted registry once, before iterating the request's `files` array to decide which paths are
+new: `if (!existing.count(files[i])) { ...; reg.push_back(std::move(dv)); ++trained; }`. `existing` is
+never updated inside that loop, so if the *same request's* `files` array contains the same path twice,
+both occurrences pass the `!existing.count()` check and each gets its own `DataVersion` pushed onto
+`reg` — writing two entries for one file into the persisted registry (`TrainedDeduplicatesInRegistry`,
+the existing coverage, only exercises the cross-call case: the same path committed via two separate
+`/trained` calls, which correctly dedupes because the second call's `existing` set is rebuilt from the
+by-then-updated registry).
+
+The shipped `RemoteTransport::commit_trained()` client (`src/RegistryTransport.cpp`) doesn't currently
+trigger this — it already dedupes when merging `new_entries` against `trained_paths` via a `files_set`
+check — but nothing prevents `new_entries` itself, or a direct API caller (`curl`, `dataset_manager`, or
+any future client), from listing the same path twice in a single call, and the endpoint's own
+`TrainedMultipleFilesInOneCall` test explicitly documents multiple-files-per-call as supported, ordinary
+usage. Fixed as a direct, low-risk defensive correction while already reading this exact function,
+matching `add_pending_path_locked()`'s existing duplicate-prevention convention just above it in the
+same file.
+
+Changes Made:
+- `src/RegistryServer.cpp`: `handle_trained()` now inserts `files[i]` into `existing` immediately after
+  pushing its new `DataVersion`, so a later duplicate in the same `files` array is correctly rejected by
+  the very check already guarding cross-call duplicates.
+
+Verification:
+- ✅ Added `TrainedDeduplicatesWithinSingleCall` to `tests/dataset_registry_live_test.cpp` (same live
+  `registry_server`-backed harness as the existing `TrainedDeduplicatesInRegistry`), asserting a single
+  `/trained` call listing one path twice commits it exactly once (`"trained":1`) and the registry ends up
+  with exactly one entry for that path.
+- ✅ Before/after regression against a real `registry_server` instance: reverted only the one-line fix,
+  rebuilt, confirmed the new test fails with the exact predicted symptom (`"trained":2`, two identical
+  `data_file` entries in the registry response); restored the fix, rebuilt, confirmed pass.
+- ✅ Full `LiveRegistryTest`/`RemoteTransportTest` suite (82/82) passed against the real `registry_server`
+  instance, plus the full 78/78 `ctest` run (which auto-skips this live suite without
+  `REGISTRY_SERVER_HOST` set, confirmed unaffected).
+
+Files Changed:
+
+- `src/RegistryServer.cpp`
+- `tests/dataset_registry_live_test.cpp`
+
+---
+
+### TD-084: MNS "candidate" State Transition Didn't Verify run_id Ownership, Letting a Superseded Trainer Clobber the Active Run
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 9, 2026 | ModelNameService (`PUT /models/{name}/state`, "candidate" transition) | Reject a "candidate" transition from "training" whose `run_id` doesn't match the model's current active `run_id`, mirroring the check `/progress` already had |
+
+Summary:
+Found during the second, independent full-codebase re-audit while re-reading `src/ModelNameService.cpp`
+end to end (1697 lines). `handle_state_transition()`'s `"training"` branch is explicit that MNS —
+not the client — is authoritative for `run_id` (see CLAUDE.md "MNS/registry-authoritative run and
+session numbering"), and `handle_progress_update()` correctly enforces this: it 409s if the caller's
+`run_id` doesn't match the model's current `r.run_id`, so a trainer whose run was superseded by a new
+`set_training` call (e.g. it looked crashed/hung and a second trainer was started for the same model)
+can't push stale progress into the active run's live snapshot. The `"candidate"` branch — reached at the
+*end* of a run, exactly the point a long-lived trainer finally reports back — had no such check at all.
+It read `run_id` from the request body and only ever used it as `h.run_id = run_id.empty() ? r.run_id :
+run_id;` when building the `training_history` entry, never comparing it against `r.run_id`. Any client
+supplying any `run_id` (or none) could drive the state to `"candidate"` as long as the model's *current*
+state happened to be `"training"` — including a trainer whose run had already been superseded.
+
+Concretely: Trainer A starts `run-01`, pushes progress. It appears to have crashed, so a new
+`set_training(new_run=true)` call starts `run-02` for the same model (archiving A's last-known progress
+into `training_history` as `incomplete=true`, per the existing crash-recovery path) — Trainer B is now
+the active run. Trainer A was not actually dead; it eventually finishes and calls
+`PUT /models/{name}/state {"state":"candidate","run_id":"run-01",...}`. Since the model's `cur` state is
+still `"training"` (now under `run-02`), the transition was accepted: A's stale artifact and
+`training_summary` silently became the record's new state, resetting the live progress snapshot and
+clearing `run_id` — completely clobbering Trainer B's still-in-progress run, which then has no way to
+`/progress`-push (its `run_id` no longer matches, having been cleared) or legitimately reach
+`"candidate"` (the model has already left `"training"`).
+
+Every real caller already supplies a `run_id` on the candidate call — `IncrementalTrainer::run()` always
+calls `mns_client_->set_candidate(model_name, current_run_id_, ...)` with the run id captured at
+`begin_run()` time (`src/IncrementalTrainer.cpp`), and `mns_cli set-candidate` takes it as a mandatory
+positional argument (`src/MnsCliTool.cpp`) — so requiring a match imposes nothing on any legitimate
+caller. Deliberately scoped the check to `cur == "training"` only: the `"candidate"` transition is also
+valid from `"initializing"` (importing an already-trained model) and `"retired"` (reviving one), and in
+both of those `r.run_id` is empty with no active run to protect — an ownership check there would be
+meaningless and would break the legitimate import/revival flows, which supply no run in progress to
+match against.
+
+While fixing this, discovered eight existing `MNSLiveTest`/`MnsManagerGUILiveTest` tests were
+inadvertently relying on the very absence of this check: each drove `"training"` with an arbitrary
+client-supplied `run_id` (e.g. `"run-abc"`, `"r1"`) — itself a no-op, since MNS allocates the real
+`run_id` server-side — and then reused that same made-up string on the following `"candidate"` call.
+Before this fix, the missing ownership check let the mismatched `run_id` through anyway; with it in
+place, those calls correctly 409, which caused all eight to fail. Two of them (`ExplicitRetire`,
+`DeleteModel_ProductionReturns409`) never asserted on the intermediate candidate call's status and
+happened to reach the same final assertion regardless, masking the same gap — left alone since they
+aren't wrong once the real bug is fixed, just weaker than they could be.
+
+Changes Made:
+- `src/ModelNameService.cpp`: in `handle_state_transition()`'s `new_state == "candidate"` branch, reject
+  with 409 (`"run_id does not match the active run; this trainer's run has been superseded"`) when
+  `cur == "training"` and the request's `run_id` is empty or doesn't equal `r.run_id`.
+
+Verification:
+- ✅ Added `StateTransition_CandidateRejectsSupersededRunId` to
+  `tests/model_name_service_live_test.cpp`, reproducing the exact Trainer-A/Trainer-B race: asserts the
+  stale candidate call now 409s, the active run's state/`run_id`/progress are untouched, and the real
+  active trainer can still legitimately reach `"candidate"` afterward.
+- ✅ Before/after regression against a real `mns_server` instance (not just the fixture): reverted only
+  the `ModelNameService.cpp` ownership-check hunk, rebuilt `mns_server`/`mnsLiveTests`, confirmed the new
+  test fails with the exact predicted symptoms (stale candidate call returns 200, active run's state
+  becomes `"candidate"`/`run_id` clears/progress resets to 0, the real trainer's later candidate call
+  then 409s because the model already left `"training"`); restored the fix, rebuilt, confirmed pass.
+- ✅ Fixed the eight pre-existing tests exposed by the new check (`StateTransition_
+  TrainingToCandidate_AttachesArtifact`, `Promote_CandidateToProduction`,
+  `Promote_AutoRetiresPreviousProduction`, `ResolveRole_ReturnsArtifact`,
+  `ListRoles_ContainsPromotedRole`, `ResolveModel_CandidateReturnsArtifact`,
+  `TrainingHistory_StoredAfterStateTransitions`, `TrainingHistory_PersistsAcrossGetModel` in
+  `model_name_service_live_test.cpp`; `FullLifecycle_RegisterTrainPromote` and
+  `ListRoles_ParsesWithJsonArrayObjects` in `mns_manager_gui_test.cpp`) to capture and use the real
+  server-allocated `run_id` from the training response instead of an arbitrary hardcoded string;
+  `ListRoles_ParsesWithJsonArrayObjects` was additionally missing the training→candidate→promote
+  sequence it needed to populate `/roles` at all.
+- ✅ Full `MNSLiveTests` (39/39) and `MnsManagerGuiTests` (43/43) suites pass against a real `mns_server`
+  instance launched from a config-isolated directory (to avoid the repo's own `config.mns.conf`
+  supplying a `REGISTRY_SERVER_URL` that would otherwise change `/datasets` endpoint behavior).
+
+Files Changed:
+
+- `src/ModelNameService.cpp`
+- `tests/model_name_service_live_test.cpp`
+- `tests/mns_manager_gui_test.cpp`
+
+---
+
 ### TD-083: IncrementalTrainer's Best-Checkpoint Recovery Was Gated on an Unrelated Flag, and Its Symlink Refresh Was a Silent No-Op
 
 | Resolution Date | Component | Resolved By |

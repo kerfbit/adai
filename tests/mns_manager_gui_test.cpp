@@ -383,6 +383,18 @@ TEST_F(MnsManagerGUILiveTest, ListRoles_ParsesWithJsonArrayObjects) {
     const auto name = unique_model("roles");
     c.Post("/models", register_body(name, role), "application/json");
 
+    // /roles only lists roles that have actually been promoted (handle_promote
+    // populates roles_) — registering a model with a "role" field alone does
+    // not, so drive the model through training -> candidate -> promotion
+    // first, same as FullLifecycle_RegisterTrainPromote below.
+    auto train_res = c.Put("/models/" + name + "/state",
+                           "{\"state\":\"training\",\"run_id\":\"r\"}", "application/json");
+    const std::string run_id = json_value(train_res->body, "run_id");
+    c.Put("/models/" + name + "/state",
+          "{\"state\":\"candidate\",\"run_id\":\"" + run_id + "\"}", "application/json");
+    c.Put("/roles/" + role + "/production", "{\"model_name\":\"" + name + "\"}",
+          "application/json");
+
     auto res = c.Get("/roles");
     ASSERT_TRUE(res);
     ASSERT_EQ(200, res->status);
@@ -435,16 +447,20 @@ TEST_F(MnsManagerGUILiveTest, FullLifecycle_RegisterTrainPromote) {
     ASSERT_EQ(201, r1->status);
     EXPECT_EQ("initializing", json_value(r1->body, "state"));
 
-    // Set training
+    // Set training. run_id in the request body is a legacy no-op — MNS
+    // allocates it server-side — so the candidate transition below must use
+    // the server-allocated id, not this arbitrary one.
     std::string train_body = "{\"state\":\"training\",\"run_id\":\"gui-run-1\"}";
     auto r2 = c.Put("/models/" + name + "/state", train_body, "application/json");
     ASSERT_TRUE(r2);
     EXPECT_EQ(200, r2->status);
     EXPECT_EQ("training", json_value(r2->body, "state"));
+    const std::string run_id = json_value(r2->body, "run_id");
 
     // Set candidate
     std::string cand_body =
-        "{\"state\":\"candidate\",\"run_id\":\"gui-run-1\""
+        "{\"state\":\"candidate\",\"run_id\":\"" + run_id +
+        "\""
         ",\"artifact\":{\"host\":\"\",\"path\":\"/tmp/test.bin\""
         ",\"checksum\":\"abc\",\"format\":\"adai-native\"}}";
     auto r3 = c.Put("/models/" + name + "/state", cand_body, "application/json");

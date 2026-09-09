@@ -1034,6 +1034,35 @@ TEST_F(LiveRegistryTest, TrainedDeduplicatesInRegistry) {
     EXPECT_EQ(count, 1u) << "Duplicate entry written: " << reg_res->body;
 }
 
+// TD-085: unlike TrainedDeduplicatesInRegistry (which covers the same path
+// committed across two separate /trained calls), this covers the same path
+// appearing TWICE in a single call's "files" array — handle_trained's
+// `existing` dedup set was built once from the pre-existing registry and
+// never updated as new entries were pushed within the loop, so a duplicate
+// *within* one request bypassed the check entirely.
+TEST_F(LiveRegistryTest, TrainedDeduplicatesWithinSingleCall) {
+    const std::string path = "/data/" + group() + "/dup-single-call.txt";
+    ASSERT_TRUE(add_pending(path));
+    ASSERT_TRUE(acquire("run-DUP"));
+
+    auto tr_res = trained("run-DUP", {path, path}, {5, 7});
+    ASSERT_TRUE(tr_res);
+    EXPECT_EQ(tr_res->status, 200);
+    EXPECT_EQ(json_int(tr_res->body, "trained"), 1)
+        << "A path repeated within one /trained call must only be committed once: "
+        << tr_res->body;
+
+    auto reg_res = get_registry();
+    ASSERT_TRUE(reg_res);
+    std::size_t count = 0;
+    std::size_t pos = 0;
+    while ((pos = reg_res->body.find(path, pos)) != std::string::npos) {
+        ++count;
+        ++pos;
+    }
+    EXPECT_EQ(count, 1u) << "Duplicate entry written: " << reg_res->body;
+}
+
 TEST_F(LiveRegistryTest, TrainedRecordsSampleCountsInRegistry) {
     if (!server_current_format_)
         GTEST_SKIP() << "Server uses legacy registry format; rebuild and redeploy registry_server";

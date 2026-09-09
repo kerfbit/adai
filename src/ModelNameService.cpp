@@ -1,6 +1,6 @@
 // @adai-status: stable
 // @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-08
+// @adai-reviewed: 2026-09-09
 
 #include "ModelNameService.hpp"
 #include <httplib.h>
@@ -1320,6 +1320,20 @@ std::pair<int, std::string> adai::ModelNameService::handle_state_transition(
         r.run_id = "run-" + zero_pad2(r.current_run_number);
         r.run_started_utc = utc_now();
     } else if (new_state == "candidate") {
+        // Ownership check: mirrors handle_progress_update's stale-run rejection.
+        // Only meaningful when leaving "training" — a candidate transition from
+        // "initializing" (import) or "retired" (revival) has no active run to
+        // protect, and r.run_id is empty in those states anyway. Without this,
+        // a trainer whose run was superseded by a new set_training call (see
+        // the "training" branch above) could still land its late candidate
+        // call, silently clobbering the currently-active run's state/artifact
+        // with stale results.
+        if (cur == "training" && (run_id.empty() || run_id != r.run_id)) {
+            return {409,
+                    "{\"error\":\"run_id does not match the active run; this trainer's run has "
+                    "been superseded\"}"};
+        }
+
         // Attach new artifact location if provided
         const auto art_obj = extract_object(body, "artifact");
         if (art_obj != "{}")
