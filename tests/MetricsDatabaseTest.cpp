@@ -308,6 +308,63 @@ TEST_F(MetricsDatabaseTest, MigratesPreExistingDatabaseMissingFinalLossColumns) 
     EXPECT_FLOAT_EQ(rec2->final_loss, 2.1f);
 }
 
+// TD-090: sqlite3_column_double() returns 0.0 for a SQL NULL column, which is
+// indistinguishable from a genuine 0.0 value — unlike PostgresMetricsDatabase's
+// PQgetisnull()-guarded reads (TD-065). best_validation_loss is a "no data
+// yet" sentinel everywhere else in the codebase (SessionRecord's own default,
+// TrainingMetricsSnapshot, MetricsSessionSummary all default it to
+// std::numeric_limits<float>::max(), never 0) — a session whose row has NULL
+// there (e.g. one written by an older code path, or — as in
+// MigratesPreExistingDatabaseMissingFinalLossColumns above — a pre-existing
+// database from before some column was always populated) must read back the
+// same "unknown" sentinel, not a suspiciously perfect validation loss of 0.0.
+TEST_F(MetricsDatabaseTest, BestValidationLossNullReadsAsSentinelNotZero) {
+    {
+        sqlite3* raw_db = nullptr;
+        ASSERT_EQ(sqlite3_open(db_path_.c_str(), &raw_db), SQLITE_OK);
+        const char* schema = R"SQL(
+            CREATE TABLE sessions (
+                key                  TEXT    PRIMARY KEY,
+                session_id           INTEGER NOT NULL,
+                label                TEXT    NOT NULL DEFAULT '',
+                config_json          TEXT,
+                is_training          INTEGER NOT NULL DEFAULT 1,
+                created_at           TEXT    NOT NULL,
+                ended_at             TEXT,
+                last_update_at       TEXT    NOT NULL,
+                total_epochs         INTEGER NOT NULL DEFAULT 0,
+                total_samples        INTEGER NOT NULL DEFAULT 0,
+                best_validation_loss REAL,
+                best_epoch           INTEGER,
+                final_loss            REAL,
+                final_validation_loss REAL
+            );
+            INSERT INTO sessions (key, session_id, is_training, created_at, last_update_at,
+                                  total_epochs, total_samples, best_epoch)
+            VALUES ('never-validated', 1, 0, '2026-01-01T00:00:00.000Z',
+                   '2026-01-01T00:00:00.000Z', 3, 100, 2);
+        )SQL";
+        char* err = nullptr;
+        ASSERT_EQ(sqlite3_exec(raw_db, schema, nullptr, nullptr, &err), SQLITE_OK)
+            << (err ? err : "unknown error");
+        sqlite3_close(raw_db);
+    }
+
+    SQLiteMetricsDatabase db(db_path_);
+
+    auto rec = db.get_session("never-validated");
+    ASSERT_TRUE(rec.has_value());
+    EXPECT_FLOAT_EQ(rec->best_validation_loss, std::numeric_limits<float>::max())
+        << "best_validation_loss=NULL must read back as \"no data\", not 0.0";
+
+    auto all = db.list_sessions(std::nullopt);
+    auto it = std::find_if(all.begin(), all.end(),
+                           [](const SessionRecord& r) { return r.key == "never-validated"; });
+    ASSERT_NE(it, all.end());
+    EXPECT_FLOAT_EQ(it->best_validation_loss, std::numeric_limits<float>::max())
+        << "list_sessions() must apply the same NULL handling as get_session()";
+}
+
 // Regression test for the TD-013 diagnostic extension: compute_time_ratio,
 // weight_update_ratio, activation_saturation_ratio, attention_entropy,
 // padding_efficiency, and layer_gradient_norms_json must all round-trip

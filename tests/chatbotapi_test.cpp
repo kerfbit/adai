@@ -60,6 +60,16 @@ class ChatbotAPITest : public ::testing::Test {
         model.reset();
         tokenizer.reset();
     }
+
+    // generate_response() is private; ChatbotAPI friends ChatbotAPITest
+    // specifically, and that friendship does not extend to the subclasses
+    // gtest's TEST_F macro generates, so TEST_F bodies call this wrapper
+    // (an ordinary inherited member) instead of api->generate_response()
+    // directly.
+    std::string call_generate_response(const std::string& input,
+                                       const ChatbotAPI::GenerationConfig& config) {
+        return api->generate_response(input, config);
+    }
 };
 
 // ============================================================================
@@ -365,6 +375,48 @@ TEST_F(ChatbotAPITest, GenerateBatchResponses_VariableLengths) {
     // With variable lengths, we should see some batching efficiency
     // Multiple batches should be created
     EXPECT_GE(response.stats.num_batches, 1);
+}
+
+// TD-089: generate_batch_responses() used to iterate create_dynamic_batches()'
+// output to build the response list. That function sorts sequences by length
+// internally and its TokenBatches carry no memory of each sequence's original
+// position, so with inputs of differing lengths the returned responses came
+// back in length-sorted order instead of matching request order — response[i]
+// was not necessarily the answer to inputs[i]. Verified here by comparing
+// against generate_response()'s single-input path (deterministic under
+// "greedy"), called once per input in the caller's original order, which is
+// unaffected by any internal batching/reordering.
+TEST_F(ChatbotAPITest, GenerateBatchResponses_PreservesInputOrder) {
+    // Deliberately NOT in ascending (or descending) length order — this is
+    // what actually exercises create_dynamic_batches()'s internal
+    // length-sort: an already length-sorted input list would "reorder" into
+    // the same order it started in and wouldn't catch a regression here.
+    std::vector<std::string> inputs = {
+        "this is a much longer message that should test variable length handling",  // Long
+        "hi",                                                                       // Very short
+        "this is a medium length message",                                         // Medium
+        "hello world",                                                              // Short
+    };
+
+    ChatbotAPI::GenerationConfig config;
+    config.max_length = 8;
+    config.strategy = "greedy";
+
+    std::vector<std::string> expected;
+    for (const auto& input : inputs) {
+        expected.push_back(call_generate_response(input, config));
+    }
+
+    ChatbotAPI::BatchResponse response = api->generate_batch_responses(inputs, config);
+
+    ASSERT_TRUE(response.success);
+    ASSERT_EQ(response.responses.size(), inputs.size());
+    for (size_t i = 0; i < inputs.size(); ++i) {
+        EXPECT_EQ(response.responses[i], expected[i])
+            << "Batch response at index " << i << " (input: '" << inputs[i] << "') does not "
+            << "match the single-input reference for the same input — batch responses are "
+            << "misordered relative to the request.";
+    }
 }
 
 TEST_F(ChatbotAPITest, BatchResponse_Statistics) {

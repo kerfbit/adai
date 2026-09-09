@@ -1,6 +1,6 @@
 // @adai-status: stable
 // @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-08
+// @adai-reviewed: 2026-09-09
 
 #include "SQLiteMetricsDatabase.hpp"
 #include "GenerationQualityMetrics.hpp"
@@ -12,8 +12,24 @@
 #include <chrono>
 #include <cstring>
 #include <iomanip>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
+
+// sqlite3_column_double() returns 0.0 for a SQL NULL column — indistinguishable
+// from a genuine value of 0.0 — unlike libpq's PQgetvalue()/PQgetisnull() split
+// that PostgresMetricsDatabase.cpp's pg_opt_float() already guards against
+// (TD-065). best_validation_loss is a "no data yet" sentinel everywhere else in
+// the codebase (TrainingMetricsSnapshot/SessionRecord/MetricsSessionSummary all
+// default it to std::numeric_limits<float>::max(), never 0) — a session that
+// completed without ever running validation must read back the same way, not
+// as a suspiciously perfect loss of 0.0.
+static float sqlite_opt_float(sqlite3_stmt* stmt, int col, float fallback) {
+    if (sqlite3_column_type(stmt, col) == SQLITE_NULL) {
+        return fallback;
+    }
+    return static_cast<float>(sqlite3_column_double(stmt, col));
+}
 
 static void check_sqlite(int rc, sqlite3* db, const char* context) {
     if (rc != SQLITE_OK && rc != SQLITE_DONE && rc != SQLITE_ROW) {
@@ -677,7 +693,8 @@ std::vector<SessionRecord> SQLiteMetricsDatabase::list_sessions(
         rec.last_update_at = parse_timestamp(col_text(7));
         rec.total_epochs = sqlite3_column_int(stmt, 8);
         rec.total_samples = sqlite3_column_int(stmt, 9);
-        rec.best_validation_loss = static_cast<float>(sqlite3_column_double(stmt, 10));
+        rec.best_validation_loss =
+            sqlite_opt_float(stmt, 10, std::numeric_limits<float>::max());
         rec.best_epoch = sqlite3_column_int(stmt, 11);
         rec.final_loss = static_cast<float>(sqlite3_column_double(stmt, 12));
         rec.final_validation_loss = static_cast<float>(sqlite3_column_double(stmt, 13));
@@ -717,7 +734,8 @@ std::optional<SessionRecord> SQLiteMetricsDatabase::get_session(const std::strin
     rec.last_update_at = parse_timestamp(col_text(7));
     rec.total_epochs = sqlite3_column_int(stmt_get_session_, 8);
     rec.total_samples = sqlite3_column_int(stmt_get_session_, 9);
-    rec.best_validation_loss = static_cast<float>(sqlite3_column_double(stmt_get_session_, 10));
+    rec.best_validation_loss =
+        sqlite_opt_float(stmt_get_session_, 10, std::numeric_limits<float>::max());
     rec.best_epoch = sqlite3_column_int(stmt_get_session_, 11);
     rec.final_loss = static_cast<float>(sqlite3_column_double(stmt_get_session_, 12));
     rec.final_validation_loss = static_cast<float>(sqlite3_column_double(stmt_get_session_, 13));

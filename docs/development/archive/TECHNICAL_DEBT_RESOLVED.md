@@ -4,6 +4,124 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-090: SQLiteMetricsDatabase Read a NULL best_validation_loss as 0.0 Instead of "No Data"
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 9, 2026 | SQLiteMetricsDatabase (`list_sessions()`, `get_session()`) | Check `sqlite3_column_type() == SQLITE_NULL` before reading, defaulting to `std::numeric_limits<float>::max()` |
+
+Summary:
+Found during the second, independent full-codebase re-audit while re-reading `src/SQLiteMetricsDatabase.cpp`
+end to end (764 lines) — the default (and only bundled) metrics database backend. `sqlite3_column_double()`
+returns `0.0` for a SQL NULL column, indistinguishable from a genuine value of `0.0` — unlike libpq's
+`PQgetvalue()`/`PQgetisnull()` split, which `PostgresMetricsDatabase.cpp`'s `pg_opt_float()` already guards
+against for exactly this column (TD-065). `best_validation_loss` is a "no data yet" sentinel everywhere
+else in the codebase — `SessionRecord`'s own struct default, `TrainingMetricsSnapshot`,
+`MetricsSessionSummary`, `ChatbotTrainer`, `CheckpointManager`, and `MetricsTracker` all initialize it to
+`std::numeric_limits<float>::max()`, never `0` — yet `list_sessions()`/`get_session()` read it via a bare
+`sqlite3_column_double()`, so a row with `best_validation_loss IS NULL` silently came back as `0.0`: a
+completed session that never ran validation would report a suspiciously *perfect* validation loss instead
+of "no data". `list_sessions()` explicitly supplements the live dashboard with completed/evicted sessions
+read from this exact path (`MetricsSessionRegistry::list_sessions()`, `summary.best_validation_loss =
+rec.best_validation_loss;`) — the same function whose neighboring `current_loss`/`current_validation_loss`
+assignment carries a comment explicitly calling out the analogous risk for a *different* pair of fields
+("prevents this from silently reading as 0"), showing the codebase is already alert to this exact failure
+mode, just not applied here.
+
+In practice every current C++ write path (`upsert_session()`) always binds a real float for this column
+(the struct's own default, if never explicitly set, still binds `FLT_MAX` as a genuine value — never
+`NULL`), so a NULL row would only arise from an older code version's INSERT statement, a hand-edited
+database, or any other writer that didn't populate the column — the same class of "pre-existing database"
+scenario the neighboring, already-existing `MigratesPreExistingDatabaseMissingFinalLossColumns` test
+deliberately simulates for a different (missing-entirely) column.
+
+Changes Made:
+- `src/SQLiteMetricsDatabase.cpp`: added a `sqlite_opt_float()` helper (checks `sqlite3_column_type() ==
+  SQLITE_NULL` before falling back to `sqlite3_column_double()`, mirroring the Postgres backend's
+  `pg_opt_float()`) and used it for `best_validation_loss` in both `list_sessions()` and `get_session()`,
+  defaulting to `std::numeric_limits<float>::max()`. `final_loss`/`final_validation_loss` were left as
+  plain `sqlite3_column_double()` reads — their correct NULL fallback really is `0.0` (matching
+  `pg_opt_float(..., 0.0f)` on the Postgres side), so no behavior change was needed there.
+
+Verification:
+- ✅ Added `BestValidationLossNullReadsAsSentinelNotZero` to `tests/MetricsDatabaseTest.cpp`, following the
+  same "hand-write an old-shaped schema/row, bypassing `SQLiteMetricsDatabase` entirely" pattern as the
+  neighboring `MigratesPreExistingDatabaseMissingFinalLossColumns` test: inserts a session row with
+  `best_validation_loss` omitted from the column list (NULL), then asserts both `get_session()` and
+  `list_sessions()` read it back as `std::numeric_limits<float>::max()`.
+- ✅ Before/after regression: reverted only `SQLiteMetricsDatabase.cpp` to its pre-fix `HEAD`, rebuilt
+  `metricsDatabaseTests`, confirmed the new test fails with the exact predicted symptom (`0` instead of
+  `3.4028235e+38` at both call sites); restored the fix, rebuilt, confirmed pass.
+- ✅ Full `metricsDatabaseTests` suite (26/26) passes.
+
+Files Changed:
+
+- `src/SQLiteMetricsDatabase.cpp`
+- `tests/MetricsDatabaseTest.cpp`
+
+---
+
+### TD-089: ChatbotAPI's Batch Endpoints Returned Responses Misordered Relative to the Request
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 9, 2026 | ChatbotAPI (`generate_batch_responses()`, used by `POST /chat/batch` and `/chat/batch-session`) | Generate responses by iterating the original input list, not the length-sorted batches |
+
+Summary:
+Found during the second, independent full-codebase re-audit while re-reading `src/ChatbotAPI.cpp` end
+to end (836 lines) — this is the real, shipped `chatbot_api_server` binary's request handler (confirmed
+via `src/ChatbotAPIServer.cpp`, not a dead/unused class). `generate_batch_responses()` called
+`create_dynamic_batches()` (`src/BatchProcessor.hpp`) to group the request's messages into padding-
+efficient batches, then iterated those batches' contents to build the response list. `create_dynamic_batches()`
+sorts sequences by token length internally for padding efficiency (its whole point, and correct for its
+original training-data-loading callers, where nothing downstream cares which physical position a sample
+came from) and its output `TokenBatch`es carry no memory of each sequence's original index. For a batch
+request whose messages have different lengths, this meant `response.responses[i]` was not necessarily the
+answer to `inputs[i]` — the API silently returned answers in length-sorted order instead of request order.
+This is a correctness bug affecting every real caller of `POST /chat/batch`, and it also broke
+`generate_batch_session_responses()` (`/chat/batch-session`): that function maps
+`temp_response.responses[i]` back to `actual_session_ids[i]` to append the assistant's reply into the
+*correct* session's conversation history, so a misordered `responses` list could append one user's session
+with a different, unrelated user's session's actual response.
+
+The bug was invisible to the existing test suite: `GenerateBatchResponses_VariableLengths` already used
+inputs of differing lengths, but only asserted `response.responses.size() == 4` — never checked that each
+response actually corresponded to its input. Confirmed the "batching" itself provides no real compute
+benefit here to give up by fixing this: each item is still generated one row at a time via
+`model_->forward(...)` inside the per-batch loop, not through any actual batched Matrix op — so
+`create_dynamic_batches()`'s output was being used purely to compute the reported padding-efficiency
+statistics, an order-independent aggregate, and had no reason to also dictate response order.
+
+Changes Made:
+- `src/ChatbotAPI.cpp`: `generate_batch_responses()` still calls `create_dynamic_batches()` to compute
+  `batch_response.stats` (unaffected by internal reordering, since those are aggregate statistics), but
+  now generates and appends responses by iterating `input_token_sequences` directly, in the caller's
+  original order, instead of iterating the length-sorted `batches`.
+
+Verification:
+- ✅ Added `GenerateBatchResponses_PreservesInputOrder` to `tests/chatbotapi_test.cpp`: generates a
+  reference response for each input individually (via `generate_response()`, deterministic under
+  "greedy"), then asserts `generate_batch_responses()`'s output matches at every index — using inputs
+  deliberately *not* in length-sorted order (an already-ascending-length list would "reorder" into the
+  same order it started in and wouldn't catch a regression, which is exactly what a first attempt at this
+  test — reusing the existing `VariableLengths` test's already-ascending-by-length inputs — silently
+  failed to catch, since `create_dynamic_batches()`'s sort produced the same order as the input in that
+  case). `generate_response()` is private, so the fixture gained a small `call_generate_response()`
+  wrapper (`ChatbotAPI` friends `ChatbotAPITest` specifically, and that friendship doesn't extend to the
+  subclasses gtest's `TEST_F` macro generates).
+- ✅ Before/after regression: reverted only `ChatbotAPI.cpp` to its pre-fix `HEAD`, rebuilt
+  `chatbotapiTests`, confirmed the new test fails with the exact predicted symptom — each
+  `response.responses[i]` equal to a *different* index's expected value, a textbook reordering signature
+  (e.g. `expected[1]` appeared at `response.responses[0]`); restored the fix, rebuilt, confirmed pass.
+- ✅ Full `chatbotapiTests` suite (46/46) passes.
+
+Files Changed:
+
+- `src/ChatbotAPI.cpp`
+- `tests/chatbotapi_test.cpp`
+
+---
+
 ### TD-088: matrix_sum_gpu() Recurses Forever on an Empty (size == 0) Input — Both GPU Backends
 
 | Resolution Date | Component | Resolved By |

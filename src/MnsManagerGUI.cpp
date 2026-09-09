@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-037 — no Qt Test infrastructure in this repo)
 // @adai-version: 0.7.0
-// @adai-reviewed: 2026-09-08
+// @adai-reviewed: 2026-09-09
 
 #include "MnsManagerGUI.hpp"
 #include <httplib.h>

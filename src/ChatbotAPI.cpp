@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-033 — generate_response() never uses GPU-resident decode, see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-08
+// @adai-version: 0.9.1
+// @adai-reviewed: 2026-09-09
 
 #include "ChatbotAPI.hpp"
 #include <httplib.h>
@@ -681,7 +681,16 @@ ChatbotAPI::BatchResponse ChatbotAPI::generate_batch_responses(
                 tokenizer_->encode(input, false));  // Encoder: no special tokens
         }
 
-        // Create batches using dynamic batching for efficiency
+        // Dynamic batching is used ONLY to compute padding-efficiency
+        // statistics below — create_dynamic_batches() sorts sequences by
+        // length internally and its output batches carry no memory of each
+        // sequence's original position, so iterating its batches to build
+        // the response list (as this used to do) silently returned responses
+        // in length-sorted order instead of the caller's input order whenever
+        // inputs had differing lengths. The generation loop further down
+        // already processes one sequence at a time regardless (there is no
+        // real batched matrix op here), so it costs nothing to drive it
+        // directly off input_token_sequences in its original order instead.
         std::vector<TokenBatch> batches =
             create_dynamic_batches(input_token_sequences,
                                    32,                         // max_batch_size
@@ -689,67 +698,52 @@ ChatbotAPI::BatchResponse ChatbotAPI::generate_batch_responses(
                                    adai::SpecialTokenIDs::PAD  // pad_token_id
             );
 
-        // Compute batch statistics
+        // Compute batch statistics (order-independent; safe to derive from
+        // the length-sorted batches above).
         batch_response.stats = compute_batch_stats(batches);
 
-        // Process each batch
+        // Process each input in its original order.
         std::vector<std::string> all_responses;
         all_responses.reserve(inputs.size());
 
-        for (const auto& batch : batches) {
-            // Process each item in the batch
-            // Note: In a true batch implementation, we would process all items
-            // in the batch simultaneously. For now, we process them sequentially
-            // but with optimized padding from the batching strategy.
+        for (const auto& input_tokens : input_token_sequences) {
+            // Create TextGenerator configuration
+            TextGenerator::GenerationConfig gen_config;
+            gen_config.max_length = static_cast<int>(config.max_length);
+            gen_config.temperature = config.temperature;
+            gen_config.top_p = config.top_p;
+            gen_config.top_k = static_cast<int>(config.top_k);
+            gen_config.num_beams = static_cast<int>(config.beam_width);
 
-            for (int i = 0; i < batch.batch_size(); ++i) {
-                // Get the token sequence for this batch item
-                const std::vector<int>& input_tokens = batch.batch_token_ids[i];
+            TextGenerator generator(gen_config, 0);
 
-                // Trim padding
-                int actual_length = batch.lengths[i];
-                std::vector<int> trimmed_input(input_tokens.begin(),
-                                               input_tokens.begin() + actual_length);
+            // Model forward function
+            auto model_fn = [this, &input_tokens](const std::vector<int>& decoder_tokens) -> Matrix {
+                return model_->forward(input_tokens, decoder_tokens);
+            };
 
-                // Create TextGenerator configuration
-                TextGenerator::GenerationConfig gen_config;
-                gen_config.max_length = static_cast<int>(config.max_length);
-                gen_config.temperature = config.temperature;
-                gen_config.top_p = config.top_p;
-                gen_config.top_k = static_cast<int>(config.top_k);
-                gen_config.num_beams = static_cast<int>(config.beam_width);
+            // Generate based on strategy
+            std::vector<int> generated_tokens;
 
-                TextGenerator generator(gen_config, 0);
-
-                // Model forward function
-                auto model_fn = [this,
-                                 &trimmed_input](const std::vector<int>& decoder_tokens) -> Matrix {
-                    return model_->forward(trimmed_input, decoder_tokens);
-                };
-
-                // Generate based on strategy
-                std::vector<int> generated_tokens;
-
-                if (config.strategy == "greedy") {
-                    generated_tokens = generator.generate_greedy(model_fn, {});
-                } else if (config.strategy == "beam") {
-                    generated_tokens = generator.generate_beam_search(
-                        model_fn, {}, static_cast<int>(config.beam_width));
-                } else if (config.strategy == "temperature") {
-                    generated_tokens =
-                        generator.generate_sampling(model_fn, {}, config.temperature);
-                } else if (config.strategy == "top_k") {
-                    generated_tokens =
-                        generator.generate_top_k(model_fn, {}, static_cast<int>(config.top_k));
-                } else {
-                    // Default to nucleus sampling (including explicit "nucleus" strategy)
-                    generated_tokens = generator.generate_nucleus(model_fn, {}, config.top_p);
-                }
-
-                // Detokenize and add to responses
-                std::string response = tokenizer_->decode(generated_tokens);
-                all_responses.push_back(response);
+            if (config.strategy == "greedy") {
+                generated_tokens = generator.generate_greedy(model_fn, {});
+            } else if (config.strategy == "beam") {
+                generated_tokens = generator.generate_beam_search(
+                    model_fn, {}, static_cast<int>(config.beam_width));
+            } else if (config.strategy == "temperature") {
+                generated_tokens =
+                    generator.generate_sampling(model_fn, {}, config.temperature);
+            } else if (config.strategy == "top_k") {
+                generated_tokens =
+                    generator.generate_top_k(model_fn, {}, static_cast<int>(config.top_k));
+            } else {
+                // Default to nucleus sampling (including explicit "nucleus" strategy)
+                generated_tokens = generator.generate_nucleus(model_fn, {}, config.top_p);
             }
+
+            // Detokenize and add to responses
+            std::string response = tokenizer_->decode(generated_tokens);
+            all_responses.push_back(response);
         }
 
         batch_response.responses = all_responses;
