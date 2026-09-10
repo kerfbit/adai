@@ -66,6 +66,9 @@ class ConfigTest : public ::testing::Test {
         _putenv("METRICS_MAX_LIVE_SESSIONS=");
         _putenv("METRICS_COMPLETED_TTL_SECONDS=");
         _putenv("METRICS_SWEEP_INTERVAL_SECONDS=");
+        _putenv("ENABLE_METRICS_SERVICE=");
+        _putenv("METRICS_SERVER_URL=");
+        _putenv("METRICS_HEARTBEAT_INTERVAL_MS=");
 #else
         unsetenv("PORT");
         unsetenv("LOG_LEVEL");
@@ -106,6 +109,9 @@ class ConfigTest : public ::testing::Test {
         unsetenv("MAX_PARALLEL_DOWNLOADS");
         unsetenv("LARGE_FILE_WARN_THRESHOLD_MB");
         unsetenv("TOKENIZER_MODE");
+        unsetenv("ENABLE_METRICS_SERVICE");
+        unsetenv("METRICS_SERVER_URL");
+        unsetenv("METRICS_HEARTBEAT_INTERVAL_MS");
 #endif
     }
 
@@ -206,6 +212,37 @@ TEST_F(ConfigTest, LoadMultiInstanceMetricsFromEnvironmentVariables) {
     EXPECT_EQ(config.metrics_max_live_sessions, 32);
     EXPECT_EQ(config.metrics_completed_ttl_seconds, 900);
     EXPECT_EQ(config.metrics_sweep_interval_seconds, 15);
+}
+
+// TD-091: ENABLE_METRICS_SERVICE, METRICS_SERVER_URL, and
+// METRICS_HEARTBEAT_INTERVAL_MS (plus 16 sibling metrics/generation-quality
+// keys) were settable via the config file but had no load_from_env()
+// counterpart at all, silently breaking "env vars override config file" for
+// exactly these keys.
+TEST_F(ConfigTest, LoadTrainingMetricsServiceKeysFromEnvironmentVariables) {
+    // Deliberately set every value to differ from ServiceConfig's own default
+    // (enable_metrics_service defaults true, metrics_server_url defaults to
+    // "http://localhost:8081") — a value that happened to match the default
+    // would pass this assertion whether or not the env var was ever read,
+    // silently failing to catch a regression here.
+    setEnv("ENABLE_METRICS_SERVICE", "false");
+    setEnv("METRICS_SERVER_URL", "http://metrics-host:9999");
+    setEnv("METRICS_HEARTBEAT_INTERVAL_MS", "5000");
+
+    auto config = ConfigLoader::load();
+
+    EXPECT_FALSE(config.enable_metrics_service);
+    EXPECT_EQ(config.metrics_server_url, "http://metrics-host:9999");
+    EXPECT_EQ(config.metrics_heartbeat_interval_ms, 5000);
+}
+
+TEST_F(ConfigTest, TrainingMetricsServiceEnvironmentVariablesOverrideFile) {
+    createConfigFile({{"METRICS_SERVER_URL", "http://file-configured:8081"}});
+    setEnv("METRICS_SERVER_URL", "http://env-configured:8081");
+
+    auto config = ConfigLoader::load(test_file.string());
+
+    EXPECT_EQ(config.metrics_server_url, "http://env-configured:8081");
 }
 
 TEST_F(ConfigTest, EnvironmentVariablesBooleanParsing) {

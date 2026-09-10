@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-035 — shipped as incremental_trainer, no dedicated test; also large and actively evolving)
 // @adai-version: 0.8.0
-// @adai-reviewed: 2026-09-08
+// @adai-reviewed: 2026-09-10
 
 #include <array>
 #include <csignal>

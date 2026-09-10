@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-08
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-09-10
 
 #include "Config.hpp"
 #include <algorithm>
@@ -523,6 +523,74 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env("STRATEGY")) {
         config.strategy = *val;
+    }
+
+    // Training Metrics Service configuration
+    // TD-091 (fixed): these 19 keys (this block + the Generation quality
+    // metrics block below) were settable via the config file but never had a
+    // load_from_env() counterpart, silently breaking the "env vars override
+    // config file" precedence CLAUDE.md documents as a uniform rule for every
+    // key — an env var set for e.g. METRICS_SERVER_URL or
+    // METRICS_HEARTBEAT_INTERVAL_MS had no effect if a config file also set a
+    // value, since load_from_env() never checked for it at all.
+    if (auto val = get_env_bool("ENABLE_METRICS_SERVICE")) {
+        config.enable_metrics_service = *val;
+    }
+    if (auto val = get_env("METRICS_SERVER_URL")) {
+        config.metrics_server_url = *val;
+    }
+    if (auto val = get_env_int("METRICS_PUSH_TIMEOUT_MS")) {
+        config.metrics_push_timeout_ms = *val;
+    }
+    if (auto val = get_env_int("METRICS_HEARTBEAT_INTERVAL_MS")) {
+        config.metrics_heartbeat_interval_ms = *val;
+    }
+    if (auto val = get_env_bool("METRICS_ENABLE_PERSISTENCE")) {
+        config.metrics_enable_persistence = *val;
+    }
+    if (auto val = get_env("METRICS_FILE")) {
+        config.metrics_file = *val;
+    }
+    if (auto val = get_env("METRICS_SUMMARY_FILE")) {
+        config.metrics_summary_file = *val;
+    }
+    if (auto val = get_env_int("METRICS_PERSIST_EVERY_SAMPLES")) {
+        config.metrics_persist_every_samples = *val;
+    }
+    if (auto val = get_env_int("METRICS_PERSIST_EVERY_SECONDS")) {
+        config.metrics_persist_every_seconds = *val;
+    }
+    if (auto val = get_env_int("METRICS_MAX_RECORDS_IN_MEMORY")) {
+        config.metrics_max_records_in_memory = *val;
+    }
+    if (auto val = get_env_int("METRICS_MAX_RECORDS_ON_DISK")) {
+        config.metrics_max_records_on_disk = *val;
+    }
+    if (auto val = get_env_bool("METRICS_ENABLE_PROMETHEUS")) {
+        config.metrics_enable_prometheus = *val;
+    }
+    if (auto val = get_env("METRICS_PROMETHEUS_FILE")) {
+        config.metrics_prometheus_file = *val;
+    }
+    if (auto val = get_env_int("METRICS_API_PORT")) {
+        config.metrics_api_port = *val;
+    }
+    if (auto val = get_env_bool("METRICS_API_ALLOW_CONTROL")) {
+        config.metrics_api_allow_control = *val;
+    }
+
+    // Generation quality metrics configuration
+    if (auto val = get_env_bool("ENABLE_GENERATION_QUALITY_METRICS")) {
+        config.enable_generation_quality_metrics = *val;
+    }
+    if (auto val = get_env_int("GENERATION_QUALITY_SAMPLE_SIZE")) {
+        config.generation_quality_sample_size = *val;
+    }
+    if (auto val = get_env_int("GENERATION_QUALITY_MAX_TOKENS")) {
+        config.generation_quality_max_tokens = *val;
+    }
+    if (auto val = get_env_int("GENERATION_QUALITY_ASYNC_THRESHOLD")) {
+        config.generation_quality_async_threshold = *val;
     }
 
     // Multi-instance metrics configuration

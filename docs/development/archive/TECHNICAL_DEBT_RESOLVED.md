@@ -4,6 +4,67 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-091: 19 Config Keys Were Settable via the File but Had No Environment-Variable Override
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | Config (`ConfigLoader::load_from_env()`) | Add the 19 missing `get_env*()` calls, mirroring their existing `load_from_file()` entries |
+
+Summary:
+Found during the second, independent full-codebase re-audit while re-reading `src/Config.cpp` end to end
+(1118 lines, before this fix). CLAUDE.md documents a single, uniform loading precedence for every
+configuration key: "env vars → config file → hardcoded defaults." `ConfigLoader::load_from_file()` and
+`ConfigLoader::load_from_env()` are two independent, hand-maintained `if (key == "X") / if (auto val =
+get_env("X"))` chains that are supposed to mirror each other key-for-key — and 19 keys had drifted out of
+sync, present in the file-parsing chain but entirely absent from the environment-variable chain: `ENABLE_
+METRICS_SERVICE`, `METRICS_SERVER_URL`, `METRICS_PUSH_TIMEOUT_MS`, `METRICS_HEARTBEAT_INTERVAL_MS`,
+`METRICS_ENABLE_PERSISTENCE`, `METRICS_FILE`, `METRICS_SUMMARY_FILE`, `METRICS_PERSIST_EVERY_SAMPLES`,
+`METRICS_PERSIST_EVERY_SECONDS`, `METRICS_MAX_RECORDS_IN_MEMORY`, `METRICS_MAX_RECORDS_ON_DISK`,
+`METRICS_ENABLE_PROMETHEUS`, `METRICS_PROMETHEUS_FILE`, `METRICS_API_PORT`, `METRICS_API_ALLOW_CONTROL`,
+`ENABLE_GENERATION_QUALITY_METRICS`, `GENERATION_QUALITY_SAMPLE_SIZE`, `GENERATION_QUALITY_MAX_TOKENS`,
+and `GENERATION_QUALITY_ASYNC_THRESHOLD`. Confirmed via a scripted diff of every `key == "..."` literal in
+`load_from_file()` against every `get_env*("...")`/`getenv("...")` literal in `load_from_env()` — this set
+was the entire symmetric difference (nothing was missing in the other direction).
+
+Two of these — `METRICS_SERVER_URL` and `METRICS_HEARTBEAT_INTERVAL_MS` — are documented by name in
+CLAUDE.md's own "Configuration" table as significant settings, so an operator setting either as an
+environment variable (e.g. in a systemd unit's `Environment=` line, or a container's env block) while a
+config file also set a value would find the environment variable **silently ignored** — `load()` calls
+`load_from_file()` then `load_from_env()` expecting the latter to win, but for these 19 keys
+`load_from_env()` never even checked whether the variable was set, so the file's value (or the struct
+default, if no file value either) always won regardless. This is exactly the class of defect this whole
+audit has repeatedly found in other files — two hand-maintained lists that must mirror each other,
+silently drifting apart as keys were added to one but not the other over time.
+
+Changes Made:
+- `src/Config.cpp`: added the 19 missing `get_env()`/`get_env_int()`/`get_env_bool()` calls to
+  `load_from_env()`, matching each key's type and struct field from its existing `load_from_file()` entry.
+  Verified the fix closes the gap completely by re-running the same key-extraction diff script — empty
+  result in both directions afterward.
+
+Verification:
+- ✅ Added `LoadTrainingMetricsServiceKeysFromEnvironmentVariables` and
+  `TrainingMetricsServiceEnvironmentVariablesOverrideFile` to `tests/config_test.cpp`, following the
+  existing `LoadMultiInstanceMetricsFromEnvironmentVariables`/`EnvironmentVariablesOverrideFile` patterns.
+  The first test deliberately sets every asserted value to differ from `ServiceConfig`'s own struct
+  default (`enable_metrics_service` defaults `true`, `metrics_server_url` defaults to
+  `"http://localhost:8081"`) — an initial version of this test picked values that happened to match those
+  defaults and silently passed against the pre-fix code for 2 of its 3 assertions, since a value equal to
+  the untouched default is indistinguishable from a successfully-applied override; only the corrected
+  version (differing values) reliably catches the regression.
+- ✅ Before/after regression: reverted only `Config.cpp` to its pre-fix `HEAD`, rebuilt `configTests`,
+  confirmed both new tests fail with the exact predicted symptom (all three fields read back as their
+  struct defaults instead of the env-set values; the override test's `metrics_server_url` read back as the
+  file's value rather than the env var's); restored the fix, rebuilt, confirmed pass.
+- ✅ Full `configTests` suite (62/62) passes.
+
+Files Changed:
+
+- `src/Config.cpp`
+- `tests/config_test.cpp`
+
+---
+
 ### TD-090: SQLiteMetricsDatabase Read a NULL best_validation_loss as 0.0 Instead of "No Data"
 
 | Resolution Date | Component | Resolved By |
