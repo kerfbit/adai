@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # @adai-status: beta        (capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.8.0
-# @adai-reviewed: 2026-09-07
+# @adai-version: 0.8.1
+# @adai-reviewed: 2026-09-10
 
 # Package Windows executables with all dependencies for distribution
 # Creates a portable Windows package that can be copied and run on any Windows system
@@ -34,7 +34,13 @@ if [ ! -d "${BUILD_DIR}" ]; then
 fi
 
 # Check if executables exist
-if [ ! -f "${BUILD_DIR}/src/chatbot.exe" ]; then
+#
+# src/CMakeLists.txt's `chatbot` target sets RUNTIME_OUTPUT_DIRECTORY to
+# ${CMAKE_BINARY_DIR}/bin (same for every other target) — CMake has never
+# placed built executables under <build_dir>/src/. This preflight check
+# always failed on any real build_windows.sh output, so package_windows.sh
+# could never get past this line. TD-114.
+if [ ! -f "${BUILD_DIR}/bin/chatbot.exe" ]; then
     echo -e "${RED}ERROR: chatbot.exe not found!${NC}"
     echo -e "${YELLOW}Run ./scripts/build_windows.sh first${NC}"
     exit 1
@@ -48,9 +54,18 @@ echo -e "${GREEN}✓ Package directory created${NC}"
 
 # Copy executables
 echo -e "\n${YELLOW}Copying Windows executables...${NC}"
-cp "${BUILD_DIR}/src/chatbot.exe" "${PACKAGE_DIR}/${PACKAGE_NAME}/" 2>/dev/null || true
-cp "${BUILD_DIR}/src/chatbot_trainer.exe" "${PACKAGE_DIR}/${PACKAGE_NAME}/" 2>/dev/null || true
-cp "${BUILD_DIR}/src/chatbot_api_server.exe" "${PACKAGE_DIR}/${PACKAGE_NAME}/" 2>/dev/null || true
+cp "${BUILD_DIR}/bin/chatbot.exe" "${PACKAGE_DIR}/${PACKAGE_NAME}/" 2>/dev/null || true
+# chatbot_trainer.exe: no such CMake target exists any more (it was renamed/
+# absorbed into incremental_trainer well before the current executable list
+# in CLAUDE.md) — kept as a best-effort optional copy (same `|| true` as the
+# others) rather than swapped to incremental_trainer.exe outright, since this
+# package's README/run_chatbot.bat below documents the old --data/--vocab/
+# --output flag style, not incremental_trainer's actual train/retrain/resume/
+# reset/serve subcommands; swapping the binary without rewriting those
+# instructions would just trade one stale reference for a misleading one.
+# Flagged for a follow-up pass rather than fixed here.
+cp "${BUILD_DIR}/bin/chatbot_trainer.exe" "${PACKAGE_DIR}/${PACKAGE_NAME}/" 2>/dev/null || true
+cp "${BUILD_DIR}/bin/chatbot_api_server.exe" "${PACKAGE_DIR}/${PACKAGE_NAME}/" 2>/dev/null || true
 
 # List copied executables
 find "${PACKAGE_DIR}/${PACKAGE_NAME}" -name "*.exe" -type f | while read exe; do

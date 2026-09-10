@@ -2,7 +2,7 @@
 
 # @adai-status: beta        (capped by TD-043 — see TECHNICAL_DEBT.md)
 # @adai-version: 0.7.0
-# @adai-reviewed: 2026-09-07
+# @adai-reviewed: 2026-09-10
 
 set -euo pipefail
 

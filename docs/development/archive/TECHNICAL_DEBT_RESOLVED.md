@@ -4,6 +4,41 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-114: package_windows.sh Looked for Built Executables in the Wrong Directory
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/package_windows.sh` | Corrected `<build_dir>/src/` to `<build_dir>/bin/`, matching CMake's actual `RUNTIME_OUTPUT_DIRECTORY` |
+
+Summary:
+Found while reading `package_windows.sh`, the packaging counterpart to the just-fixed `build_windows.sh`.
+Its preflight check and all three executable-copy steps hardcode `${BUILD_DIR}/src/chatbot*.exe`, but
+`src/CMakeLists.txt` sets `RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin` on the `chatbot` target (and
+every other executable target) — every build, Windows cross-compile included, places its output in
+`<build_dir>/bin/`, never `<build_dir>/src/`. This meant `package_windows.sh` could never get past its own
+first check (`ERROR: chatbot.exe not found!`) against any real `build_windows.sh` output — it has been
+completely non-functional, matching the shape of TD-109's "tool that can never succeed" finding.
+
+Changes Made:
+- `scripts/package_windows.sh`: corrected all four `${BUILD_DIR}/src/...` references (the preflight check
+  plus the three `cp` calls) to `${BUILD_DIR}/bin/...`.
+- Left `chatbot_trainer.exe` as-is (still copied best-effort, `|| true` as before) rather than renaming it
+  to the actual current `incremental_trainer` target: no `chatbot_trainer` CMake target has existed for a
+  long time, but this package's generated `README.txt`/`run_chatbot.bat` document the old
+  `--data/--vocab/--output` flag style, not `incremental_trainer`'s real `train`/`retrain`/`resume`/
+  `reset`/`serve` subcommands — swapping just the binary name would trade one stale reference for a
+  misleading one. Left a comment noting this for a follow-up pass that also rewrites the accompanying
+  documentation, rather than partially fixing it here.
+
+Verification:
+- ✅ Before/after regression against a realistic dummy build tree (`<build_dir>/bin/chatbot.exe`, etc. —
+  matching CMake's real output layout, not a `src/`-based mock): pre-fix reproduced the exact predicted
+  `ERROR: chatbot.exe not found!` / exit 1; post-fix found and copied the executables, created the ZIP
+  archive, and completed with exit 0 and an accurate package summary.
+- ✅ `bash -n` and ShellCheck (`-S warning`, clean; the two `-S info` "read without -r" notes are
+  pre-existing and unrelated to this fix — the loop only ever processes plain `.exe`/size-summary output
+  with no backslashes).
+
 ### TD-113: check_tech_debt.sh Died After Its First Scan and Pointed at a File That No Longer Exists
 
 | Resolution Date | Component | Resolved By |

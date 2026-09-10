@@ -150,9 +150,9 @@ None — every in-scope file carries a tag.
 | `scripts/manual_test_reload.sh` | beta | 0.6.0 | 2026-09-07 | TD-044 |
 | `scripts/model_service.sh` | beta | 0.8.1 | 2026-09-10 | TD-043 |
 | `scripts/monitor_training.py` | beta | 0.6.0 | 2026-09-10 | TD-045 |
-| `scripts/package-sycl.sh` | beta | 0.7.0 | 2026-09-07 | TD-043 |
+| `scripts/package-sycl.sh` | beta | 0.7.0 | 2026-09-10 | TD-043 |
 | `scripts/package_server_bundle.sh` | beta | 0.8.1 | 2026-09-10 | TD-043 |
-| `scripts/package_windows.sh` | beta | 0.8.0 | 2026-09-07 | TD-043 |
+| `scripts/package_windows.sh` | beta | 0.8.1 | 2026-09-10 | TD-043 |
 | `scripts/run_chatbot.sh` | beta | 0.7.0 | 2026-09-07 | TD-044 |
 | `scripts/run_chatbot_gui.sh` | beta | 0.8.0 | 2026-09-07 | TD-044 |
 | `scripts/run_tests.sh` | beta | 0.8.0 | 2026-09-07 | TD-043 |
