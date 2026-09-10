@@ -111,8 +111,8 @@ None — every in-scope file carries a tag.
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/models/ModelsRoute.kt` | experimental | 0.1.0 | 2026-09-07 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/navigation/OpsDestinations.kt` | experimental | 0.1.0 | 2026-09-07 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/navigation/OpsNavHost.kt` | experimental | 0.1.0 | 2026-09-07 | TD-048 |
-| `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupDetailScreen.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
-| `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupDetailViewModel.kt` | beta | 0.4.0 | 2026-09-07 | TD-047 |
+| `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupDetailScreen.kt` | experimental | 0.2.0 | 2026-09-10 | TD-048 |
+| `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupDetailViewModel.kt` | beta | 0.5.0 | 2026-09-10 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupListScreen.kt` | experimental | 0.1.0 | 2026-09-07 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupListViewModel.kt` | experimental | 0.1.0 | 2026-09-07 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/RegistryRoute.kt` | experimental | 0.1.0 | 2026-09-07 | TD-048 |

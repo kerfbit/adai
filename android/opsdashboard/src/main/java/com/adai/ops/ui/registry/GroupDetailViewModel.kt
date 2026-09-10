@@ -1,8 +1,8 @@
 package com.adai.ops.ui.registry
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.4.0
-// @adai-reviewed: 2026-09-07
+// @adai-version: 0.5.0
+// @adai-reviewed: 2026-09-10
 
 
 import androidx.lifecycle.ViewModel
@@ -76,7 +76,16 @@ class GroupDetailViewModel(
                     ?: it.registryEntries,
                 models = (modelsResult as? ApiResult.Success)?.data?.models ?: it.models,
                 isLoading = false,
-                error = queueResult.errorMessageOrNull() ?: runsResult.errorMessageOrNull(),
+                // TD-128: registryResult and modelsResult were fetched (and their
+                // stale-on-failure fallback above already accounted for them) but
+                // never checked here — only queueResult/runsResult's failures ever
+                // reached `error`. registryResult in particular is the Phase 15
+                // trained-files fetch this class's own doc comment calls out as a
+                // newer addition; its errors were silently dropped ever since.
+                error = queueResult.errorMessageOrNull()
+                    ?: runsResult.errorMessageOrNull()
+                    ?: registryResult.errorMessageOrNull()
+                    ?: modelsResult.errorMessageOrNull(),
             )
         }
     }

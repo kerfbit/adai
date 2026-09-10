@@ -1,7 +1,7 @@
 package com.adai.ops.ui.registry
 
 // @adai-status: experimental        (capped by TD-048 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.1.0
+// @adai-version: 0.2.0
 // @adai-reviewed: 2026-09-10
 
 
@@ -178,6 +178,19 @@ private fun GroupDetailContent(
     onRequestAssign: (QueueEntryDto) -> Unit,
 ) {
     LazyColumn(modifier = modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // TD-128: state.error was computed in the ViewModel but never displayed
+        // anywhere in this screen — a failed refresh silently left the queue/runs/
+        // registry sections showing stale data with no indication anything was
+        // wrong. Matches the pattern TrainerScreen's StatusSection already uses.
+        state.error?.let { error ->
+            item {
+                Text(
+                    "Last refresh failed: $error (showing last known state)",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        }
         item { Text("Download", style = MaterialTheme.typography.titleLarge) }
         item {
             Text(

@@ -4,6 +4,42 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-128: GroupDetailViewModel's error State Was Computed Incompletely and Never Displayed
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `android/opsdashboard` — `GroupDetailViewModel.kt`, `GroupDetailScreen.kt` | Extended `error` to check all four fetched results; added the missing UI banner |
+
+Summary:
+Found while reading `GroupDetailViewModel.kt`/`GroupDetailScreen.kt` end to end. Two compounding gaps:
+1. `refresh()` fetches four things every tick (`queue()`, `runs()`, `registry()`, `listModels()`) but its
+   `error` computation only ever checked `queueResult`/`runsResult` — `registryResult` (the class's own doc
+   comment calls this out as a newer, "Phase 15... previously fetched by nothing in this app" addition) and
+   `modelsResult` could fail indefinitely and never surface as an error, even though their stale-data
+   fallback (`?: it.registryEntries` / `?: it.models`) was already correctly wired.
+2. Independent of (1), `GroupDetailUiState.error` was never actually read anywhere in `GroupDetailScreen.kt`
+   at all — confirmed via a full-package grep, the only unrelated `.error` hit was a different data class in
+   `GroupListScreen.kt`. Even a `queue()`/`runs()` failure (the two cases the state computation DID already
+   handle) produced no visible indication to the user; the screen just silently kept showing stale data.
+   `TrainerScreen.kt`'s `StatusSection` already establishes the pattern this screen was missing.
+
+Changes Made:
+- `GroupDetailViewModel.kt`: `error` now falls through all four results
+  (`queueResult ?: runsResult ?: registryResult ?: modelsResult`).
+- `GroupDetailScreen.kt`: added an error banner at the top of `GroupDetailContent`'s `LazyColumn`,
+  matching `TrainerScreen`'s "Last status refresh failed: ... (showing last known state)" wording/styling.
+
+Verification:
+- ✅ Added `GroupDetailViewModelTest.kt` (new file) with two tests: one injects a `registry()` failure via
+  `FakeRegistryApiService` (throwing `IOException`, caught and converted by the existing `safeApiCall`)
+  while `queue()`/`runs()` succeed, asserting `state.error` is now populated and the other two fields are
+  unaffected; the other confirms no error when every fetch succeeds.
+- ✅ Before/after regression: reverted `GroupDetailViewModel.kt` to its pre-fix `HEAD` version in place,
+  ran the new test — it failed exactly as predicted (`AssertionError` on the `assertNotNull(state.error)`
+  line). Restored the fix, re-ran — both tests pass.
+- ✅ Full `./gradlew :opsdashboard:testDebugUnitTest` — 46 tests (44 existing + 2 new), 0 failures, 0
+  errors.
+
 ### TD-127: SettingsViewModel.save() Raced Navigation-Triggered ViewModel Clearing, Silently Losing Saves
 
 | Resolution Date | Component | Resolved By |
