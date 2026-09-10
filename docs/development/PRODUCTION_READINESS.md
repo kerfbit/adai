@@ -136,7 +136,7 @@ None — every in-scope file carries a tag.
 | `scripts/check_intel_driver_updates.py` | beta | 0.6.0 | 2026-09-07 | TD-045 |
 | `scripts/check_ports.sh` | beta | 0.5.0 | 2026-09-07 | TD-045 |
 | `scripts/check_tech_debt.sh` | beta | 0.8.0 | 2026-09-07 | TD-043 |
-| `scripts/docker_build.sh` | beta | 0.8.0 | 2026-09-07 | TD-043 |
+| `scripts/docker_build.sh` | beta | 0.8.1 | 2026-09-10 | TD-043 |
 | `scripts/docker_deploy.sh` | experimental | 0.4.0 | 2026-09-07 | TD-046 |
 | `scripts/fix_markdown_lint.py` | beta | 0.6.0 | 2026-09-07 | TD-045 |
 | `scripts/gen_status_report.py` | beta | 0.9.0 | 2026-09-07 | TD-043 |
@@ -146,7 +146,7 @@ None — every in-scope file carries a tag.
 | `scripts/install_mns_server.sh` | beta | 0.8.0 | 2026-09-07 | TD-043 |
 | `scripts/install_oneapi_libs.sh` | beta | 0.7.0 | 2026-09-07 | TD-043 |
 | `scripts/install_registry_server.sh` | experimental | 0.3.0 | 2026-09-07 | TD-046 |
-| `scripts/install_server_bundle.sh` | beta | 0.8.0 | 2026-09-07 | TD-043 |
+| `scripts/install_server_bundle.sh` | beta | 0.8.2 | 2026-09-10 | TD-043 |
 | `scripts/manual_test_reload.sh` | beta | 0.6.0 | 2026-09-07 | TD-044 |
 | `scripts/model_service.sh` | beta | 0.8.0 | 2026-09-07 | TD-043 |
 | `scripts/monitor_training.py` | beta | 0.6.0 | 2026-09-07 | TD-045 |

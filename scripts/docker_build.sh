@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # @adai-status: beta        (capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.8.0
-# @adai-reviewed: 2026-09-07
+# @adai-version: 0.8.1
+# @adai-reviewed: 2026-09-10
 
 # Docker build script for ADAI Chatbot API Server
 
@@ -115,9 +115,18 @@ BUILD_CMD="$BUILD_CMD -f ${PROJECT_ROOT}/Dockerfile"
 BUILD_CMD="$BUILD_CMD ${PROJECT_ROOT}"
 
 print_info "Running: $BUILD_CMD"
-eval $BUILD_CMD
 
-if [ $? -eq 0 ]; then
+# `eval "$BUILD_CMD"` must be the condition of this if — not a bare statement
+# followed by `if [ $? -eq 0 ]` — because this script runs under `set -e`.
+# A bare failing `eval` is not inside a conditional context, so `set -e` would
+# terminate the script right there on any `docker build` failure, before the
+# `if` below ever ran: the intended "else" branch (print_error + exit 1) was
+# unreachable dead code, and a real build failure just silently killed the
+# script with docker's raw exit status instead of a friendly message. Using
+# the eval directly as the if-condition is one of the documented exemptions
+# to `set -e` (a command's status when tested by if/while/until never
+# triggers it), so the else branch now actually runs. TD-104.
+if eval "$BUILD_CMD"; then
     print_success "Docker image built successfully: ${IMAGE_NAME}:${IMAGE_TAG}"
     
     # Display image information

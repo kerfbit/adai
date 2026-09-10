@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # @adai-status: beta        (capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.8.0
-# @adai-reviewed: 2026-09-07
+# @adai-version: 0.8.2
+# @adai-reviewed: 2026-09-10
 
 # ADAI Server Bundle - Installation Script
 #
@@ -501,13 +501,24 @@ setup_postgres() {
     fi
 
     info "Applying schema from ${SETUP_SQL}..."
-    sudo -u postgres psql -d "${PG_DB_NAME}" -f "${SETUP_SQL}" 2>&1 | \
+    # -v ON_ERROR_STOP=1: without it, psql's default behavior on a `-f` script
+    # is to print each statement's error and keep going, then still exit 0 —
+    # so a real schema failure (the whole file is one BEGIN/COMMIT transaction;
+    # one bad statement rolls all of it back) was invisible to this wrapper.
+    # `set -euo pipefail` (top of file) only helps once psql's own exit status
+    # is actually non-zero to propagate through the pipe. TD-106.
+    #
+    # The `ERROR*` case arm below never matched anyway: real psql error lines
+    # are formatted as "psql:<file>:<line>: ERROR:  <message>", not a bare
+    # "ERROR" prefix — so even before this fix, a failure fell through to the
+    # unstyled `*)` arm instead of being highlighted in red.
+    sudo -u postgres psql -v ON_ERROR_STOP=1 -d "${PG_DB_NAME}" -f "${SETUP_SQL}" 2>&1 | \
         while IFS= read -r line; do
             case "${line}" in
                 BEGIN|COMMIT|"") ;;
                 CREATE*|INSERT*) success "  ${line}" ;;
                 NOTICE*)         info   "  ${line}" ;;
-                ERROR*)          error  "  ${line}" ;;
+                *ERROR:*)        error  "  ${line}" ;;
                 *)               echo   "  ${line}" ;;
             esac
         done
@@ -842,6 +853,16 @@ EOF
     fi
 
     print_summary
+
+    # `all_ok` was computed above but, until this fix, never actually consulted:
+    # print_summary() always prints "installed!" and this function always fell
+    # off the end with a zero exit status regardless of it — so a caller that
+    # scripts this install (CI, a provisioning tool, `&& echo ok`) saw a clean
+    # success exit code even when one or more services never came up. TD-105.
+    if [[ "${all_ok}" != true ]]; then
+        warn "One or more services failed to start — see warnings above. Installation completed with errors."
+        exit 1
+    fi
 }
 
 print_summary() {

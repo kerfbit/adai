@@ -4,6 +4,139 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-106: setup_postgres() Reported "Schema Applied" Even When the Schema Failed Entirely
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/install_server_bundle.sh` (`setup_postgres()`) | Pass `-v ON_ERROR_STOP=1` to `psql -f`, and fix the `ERROR*` case pattern to match real psql error line format |
+
+Summary:
+Found immediately after TD-104/TD-105, continuing the same read-through of `scripts/`. `setup_postgres()`
+applies `scripts/setup_postgres.sql` — a single `BEGIN`/…/`COMMIT` transaction creating every metrics/MNS
+table — via `psql -d "${PG_DB_NAME}" -f "${SETUP_SQL}" | while IFS= read -r line; do case "${line}" in
+...; esac; done`, then unconditionally prints `success "PostgreSQL schema applied"`. Two compounding bugs
+made this always look like success even on a total schema failure:
+1. **`psql`'s own default behavior**: without `-v ON_ERROR_STOP=1`, `psql -f` prints each statement error
+   and keeps going, then still exits `0` at the end (the connection itself succeeded) — even though, since
+   the whole file is one transaction, a single bad statement rolls back *everything*, leaving zero tables
+   created. `set -euo pipefail` (already at the top of the file) only helps once `psql`'s own exit status is
+   actually non-zero — it was always `0` here.
+2. **The `case` pattern for detecting errors never matched real output**: real `psql` error lines are
+   formatted as `psql:<file>:<line>: ERROR:  <message>`, not a bare `ERROR` prefix, so the `ERROR*)`
+   arm silently fell through to the unstyled catch-all `*)` branch — meaning even the per-line diagnostic
+   display never actually highlighted a failure in red.
+Net effect: a real schema error (e.g. a future edit introduces a syntax error, a permissions issue, an
+incompatible PostgreSQL version) would leave the database with **no tables at all**, yet the installer
+would print a plain (unhighlighted) error line buried among green `[SUCCESS]` lines, followed immediately
+by a confident green `"PostgreSQL schema applied"` banner and continue on to `install_bundle`'s own
+"installed!" summary — completely masking a broken deployment.
+
+Changes Made:
+- `scripts/install_server_bundle.sh`: added `-v ON_ERROR_STOP=1` to the `psql -f` invocation, so `psql`
+  now actually returns a non-zero exit status on the first statement error (matching this codebase's
+  established "fail loudly rather than silently corrupt/omit state" philosophy — see `ParquetReader.hpp`'s
+  header doc for the same principle applied elsewhere). Combined with the file's existing
+  `set -euo pipefail`, the script now aborts immediately after the pipeline finishes displaying all
+  diagnostic lines, never reaching the false success banner.
+- Fixed the `case` pattern from `ERROR*)` to `*ERROR:*)` so real psql error lines are actually
+  detected and printed in red via `error()`, instead of falling through to the plain, unstyled `*)` arm.
+
+Verification:
+- ✅ Before/after regression against a **real** PostgreSQL instance (not a mock): initialized a scratch,
+  unprivileged PostgreSQL 16 cluster (`initdb`/`pg_ctl`, custom Unix-socket-only data dir, no root needed)
+  and ran the exact `psql -f ... | while read ...; case ...; esac; done` pattern as a real standalone
+  script file against a deliberately broken schema (a `CREATE TABEL` typo inside a `BEGIN`/`COMMIT` block,
+  mirroring the production file's structure).
+  - Pre-fix: pipeline exited `0`; the error line printed unstyled (matched only the catch-all `*)` arm);
+    script proceeded past `success "PostgreSQL schema applied"` to full completion — exactly the predicted
+    false-success symptom, and confirmed via `ROLLBACK` in the psql output that the table was never
+    actually created despite an earlier line already having been printed as `[SUCCESS] CREATE TABLE`.
+  - Post-fix: `psql` returned exit status `3`; the error line printed correctly styled in red
+    (`[ERROR]   psql:...:3: ERROR:  syntax error at or near "TABEL"`); the script aborted immediately
+    after displaying it and never reached `success "PostgreSQL schema applied"`.
+  - Re-ran the fixed pattern against the real, unmodified `scripts/setup_postgres.sql` against the same
+    scratch cluster: all 12 statements applied cleanly, all printed as `[SUCCESS]`, script reached its own
+    end normally with exit `0` — the success path is unaffected.
+- ✅ `bash -n` and a clean ShellCheck pass (`-S warning`) on the patched file.
+
+### TD-105: install_server_bundle.sh Always Exited 0 Even When a Service Failed to Start
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/install_server_bundle.sh` | Consult the already-computed `all_ok` flag after `print_summary` and `exit 1` when it's false |
+
+Summary:
+Found immediately after TD-104, continuing the same read-through of `scripts/`. `install_bundle()`'s
+verification step polls each of the three systemd services with `systemctl is-active --quiet` and sets a
+local `all_ok=false` if any of them isn't running — but `all_ok` was never actually read again afterward.
+`print_summary()` unconditionally printed the cheerful `"ADAI Server Bundle installed!"` banner, and with
+no explicit exit code anywhere after that, the function (and the whole script, since `install_bundle` is
+its last top-level statement) always returned exit status `0` — success — regardless of whether any
+service actually came up. A caller scripting this installer (CI, a provisioning tool, `./install_server_
+bundle.sh && echo ok`) would see a clean success exit code even for a partially-broken installation; the
+only visible sign of trouble was a `warn` line easy to miss in scrollback, immediately followed by a
+"installed!" success banner.
+
+Changes Made:
+- `scripts/install_server_bundle.sh`: after `print_summary`, check `all_ok` and, if false, print an
+  explicit failure warning and `exit 1`.
+
+Verification:
+- ✅ `bash -n` on the patched file and a clean ShellCheck pass (`-S warning`) — no new findings.
+- ✅ Before/after regression via an isolated mechanism reproduction (the real function requires root and
+  live systemd units, and stubbing that whole environment is exactly the 14-20 hour harness already
+  tracked as TD-043 — not repeated here): extracted the same `local all_ok=true` / loop / `print_summary`
+  / (no check vs. `exit 1` check) shape into a standalone script with a fake `systemctl is-active`
+  that fails for one service.
+  - Pre-fix pattern: printed the "installed!" summary and exited `0` despite the failed service —
+    the exact predicted symptom.
+  - Post-fix pattern: printed the same summary, then the new warning, and exited `1`.
+  - Confirmed the all-services-healthy case is unaffected (exits `0`, no extra warning) — the fake
+    `systemctl is-active` returning true for every service reaches the same code path with `all_ok`
+    still `true`.
+
+### TD-104: docker_build.sh's Error-Handling Branch Was Dead Code Under `set -e`
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/docker_build.sh` | Use `eval "$BUILD_CMD"` directly as the `if` condition instead of a bare statement followed by `if [ $? -eq 0 ]` |
+
+Summary:
+Found while beginning a rigorous read-through of the `scripts/` directory (in scope per CLAUDE.md's
+file-status standard) following the completion of the second full-codebase re-read of `src/`. The script
+runs under `set -e`, then does:
+```bash
+eval $BUILD_CMD
+if [ $? -eq 0 ]; then
+    print_success ...
+else
+    print_error "Docker build failed"
+    exit 1
+fi
+```
+`set -e` exempts a command's exit status only when that command is *itself* the condition of an
+`if`/`while`/`until` — a bare statement followed by a separate `if [ $? -eq 0 ]` check does not qualify,
+because the bare `eval $BUILD_CMD` is a plain top-level command. So the moment `docker build` actually
+fails, `set -e` terminates the whole script right there, before the `if` below is ever reached — the
+`else` branch (the friendly `[ERROR] Docker build failed` message and controlled `exit 1`) was unreachable
+dead code. In practice, a real build failure just silently killed the script with Docker's own raw exit
+code and no diagnostic message from the wrapper at all.
+
+Changes Made:
+- `scripts/docker_build.sh`: changed `eval $BUILD_CMD` from a bare statement to the condition of the `if`
+  itself (`if eval "$BUILD_CMD"; then ... else ... fi`), which is one of `set -e`'s documented exemptions,
+  so the `else` branch now actually executes on failure. Also quoted the `eval` argument.
+
+Verification:
+- ✅ Before/after regression via manual reproduction (this script has no automated test — already covered
+  by the broader TD-043 "deployment scripts have no automated test" item): shadowed `docker` in `PATH`
+  with a fake binary that always exits non-zero, run under both the pre-fix and post-fix script.
+  - Pre-fix: script printed only the fake docker's own output and exited with the fake docker's raw exit
+    code (17) — no `[ERROR] Docker build failed` message ever printed, exactly the predicted symptom.
+  - Post-fix: script printed `[ERROR] Docker build failed` and exited with the intended code `1`.
+  - Also re-verified the success path is unaffected: a fake `docker` that exits 0 still reaches
+    `print_success` and the "Next steps" output exactly as before.
+
 ### TD-103: chatbot_gui Wrapper Located Its Sibling Binary Relative to the Caller's cwd, Not Its Own Install Directory
 
 | Resolution Date | Component | Resolved By |
