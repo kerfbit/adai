@@ -14,13 +14,20 @@ cmake-build-*/
 *.dylib
 
 # Executables
+# Anchored to the repo root (leading /): these are legacy names from a
+# pre-out-of-source-build convention (every build now lands under
+# build/<preset>/, already covered by the build/ and build-*/ rules above) —
+# unanchored, "chatbot" also matched any directory named "chatbot" ANYWHERE in
+# the tree, which silently swallowed the entire android/app module's Kotlin
+# source (com.adai.chatbot, all of src/main + src/test + src/androidTest —
+# 38 files, never tracked by git at all until this fix). See TD-129.
 *.exe
 *.out
 *.app
-tokenizer
-encoder
-chatbot
-chatbot_trainer
+/tokenizer
+/encoder
+/chatbot
+/chatbot_trainer
 *_example
 
 # Build directories
@@ -34,8 +41,16 @@ cmake-build-*/
 *.bin.*
 *.epoch*
 sample_model.*
-models/
+# Anchored to the repo root (leading /): a bare "models/" matches at ANY depth,
+# which silently swallowed the entire android/opsdashboard "Models" tab source
+# tree (android/opsdashboard/src/{main,test}/java/com/adai/ops/ui/models/) —
+# those files were never tracked by git at all until this fix. TD-129.
+/models/
 checkpoints/
+
+# Python bytecode cache
+__pycache__/
+*.pyc
 
 # IDE and editor files
 .vscode/
@@ -75,6 +90,13 @@ docs/print/
 
 # Large training data files (exceed GitHub's 100MB limit)
 *.parquet
+# Exception: tests/fixtures/parquet/*.parquet are tiny (400B-3KB) synthetic
+# fixtures generated once by generate_fixtures.py and meant to be checked in
+# (see the doc comment atop tests/parquet_reader_test.cpp) — the blanket
+# *.parquet rule above, intended for multi-GB HuggingFace dumps, silently
+# swallowed them too: only generate_fixtures.py itself was ever tracked, the
+# six .parquet files it produces never were. TD-129.
+!tests/fixtures/parquet/*.parquet
 huggingface_data/*_large.txt
 
 # Training Sessions and logs

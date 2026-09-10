@@ -4,6 +4,116 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-130: SettingsViewModel (android/app) Raced Navigation the Same Way TD-127 Did in opsdashboard
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `android/app` — `SettingsViewModel.kt`, `SettingsScreen.kt` | Made `save()` a suspend fun with no internal launch, sequenced before `onBack()` in a composable-scoped coroutine — identical fix to TD-127 |
+
+Summary:
+Found while reading through the 37 `android/app` files recovered by the TD-129 `.gitignore` fix (this
+module had never been reviewed before — it only became visible to git as part of that recovery).
+`SettingsScreen`'s Save button did `viewModel.save(); onBack()`, and `SettingsViewModel.save()` was a
+plain `fun` that built the settings object and wrote it via
+`viewModelScope.launch { settingsDataStore.save(...) }` — a fire-and-forget launch returning before the
+write's coroutine actually ran. `onBack()` calls `navController.popBackStack()`, which pops this screen's
+`NavBackStackEntry`, clearing its `ViewModelStore` and cancelling `viewModelScope` along with anything
+still running in it. If that cancellation landed before the write completed — a real race, since Compose
+Navigation's default transition is effectively instant — the save was lost silently: the UI navigates back
+as if it saved, but nothing was persisted. This is the exact same mechanism as TD-127
+(`opsdashboard`'s `SettingsViewModel`), independently present in this sibling module; the isolated,
+empirical proof of the race mechanism recorded under TD-127 (a standalone Kotlin file compiled against the
+project's real `kotlinx-coroutines-core` jar, contrasting fire-and-forget-then-cancel losing a write against
+sequenced-suspend-then-cancel preserving it) covers this occurrence too — the code shape is identical.
+
+Changes Made:
+- `SettingsViewModel.kt`: `save()` → `suspend fun save()`, with the `viewModelScope.launch { ... }` wrapper
+  removed — it now directly awaits `settingsDataStore.save(...)`. Also loosened its constructor's
+  `settingsDataStore` parameter from the concrete `SettingsDataStore` to the existing `SettingsRepository`
+  interface (already the parameter type `ConversationRepository`/`ChatRepository` use), so it can actually
+  be constructed with the existing `FakeSettingsRepository` test fake instead of a real `Context`-backed
+  DataStore.
+- `SettingsScreen.kt`: added `rememberCoroutineScope()`; the Save button's `onClick` now does
+  `coroutineScope.launch { viewModel.save(); onBack() }` instead of two unsequenced calls.
+
+Verification:
+- ✅ Added `SettingsViewModelTest.kt` (new file): installs a `StandardTestDispatcher` as `Dispatchers.Main`
+  (via `kotlinx-coroutines-test`'s `setMain`/`resetMain`, no Robolectric needed) so a fire-and-forget
+  `viewModelScope.launch` is provably still *pending* — not yet run — the instant `save()` returns; asserts
+  the fake repository already reflects the new host/port immediately after `save()`, with no
+  `advanceUntilIdle()` call before the assertion.
+- ✅ Before/after regression: temporarily reverted `save()` in place to the pre-fix fire-and-forget shape,
+  ran the new test — failed exactly as predicted (`ComparisonFailure`, the fake repository still held its
+  construction-time default instead of the newly-entered host). Restored the fix, re-ran — passes.
+- ✅ Full `./gradlew :app:testDebugUnitTest` — 11 tests, 0 failures (4 `ChatRepositoryTest` +
+  6 `ChatDtoParsingTest` + the 1 new `SettingsViewModelTest`).
+- ✅ Full clean `./gradlew` build + `testDebugUnitTest` across all 5 Android modules — 0 failures.
+
+### TD-129: Overly-Broad `.gitignore` Patterns Silently Excluded Real Source Trees From Git Entirely
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `.gitignore`; `android/opsdashboard/.../ui/models/` (5 files); `android/app/src/{main,test,androidTest}/.../chatbot/` (37 files); `tests/fixtures/parquet/` (6 files) | Anchored two bare directory-name patterns to the repo root with a leading `/`, and added a negation exception carving the test fixtures out of a blanket extension rule |
+
+Summary:
+Discovered incidentally while bumping `ModelDetailViewModel.kt`'s `@adai-reviewed` date as part of the
+Android second-pass audit: `git status` reported the file unmodified despite a real edit. A gitignore
+pattern with no leading `/` matches at **any depth** in the tree, not just at the repo root — three
+separate rules in `.gitignore`, all written with a root-level C++ build artifact in mind, coincidentally
+also matched real, unrelated, long-lived Android/test source directories with the same bare name:
+
+1. `models/` (intended for a root-level `models/` directory of trained C++ checkpoints, referenced by
+   `scripts/install_chatbot_API.sh:323`) also matched
+   `android/opsdashboard/src/{main,test}/java/com/adai/ops/ui/models/` — the entire "Models" tab package.
+   `git ls-files` confirmed `ModelDetailScreen.kt`, `ModelDetailViewModel.kt`, `ModelListScreen.kt`,
+   `ModelListViewModel.kt`, and `ModelsRoute.kt` had **never been tracked by git**, since the files were
+   first created.
+2. `tokenizer`, `encoder`, `chatbot`, `chatbot_trainer` (legacy names from a pre-out-of-source-build
+   convention; redundant today since every build lands under `build/<preset>/`, already covered by the
+   `build/`/`build-*/` rules) — `chatbot` also matched
+   `android/app/src/{main,test,androidTest}/java/com/adai/chatbot/`, the entire `com.adai.chatbot` package.
+   `git ls-files android/app/` showed only 11 of 49 files tracked; the missing 37 were **every Kotlin
+   source and test file in the whole `android/app` module** — `ChatbotApp.kt`, `MainActivity.kt`, the Room
+   DB layer, repositories, DI, network layer, settings, every `ui/` screen/ViewModel, and their unit +
+   instrumented tests.
+3. `*.parquet` (intended for multi-GB HuggingFace training dumps, per its own "exceed GitHub's 100MB
+   limit" comment) also matched `tests/fixtures/parquet/*.parquet` — six tiny (400 bytes–3KB) synthetic
+   fixtures generated once by `tests/fixtures/parquet/generate_fixtures.py` and explicitly documented as
+   "checked into `tests/fixtures/parquet/`" in `tests/parquet_reader_test.cpp`'s header comment. Only
+   `generate_fixtures.py` itself was ever tracked; the six `.parquet` files it produces, which
+   `ParquetReaderTest` reads directly off disk at a path relative to `__FILE__`, were not — a fresh clone
+   would silently fail every `ParquetReaderTest` case with a missing-file error, with no gitignore-side
+   indication why.
+
+A full repo-wide sweep (`git status --porcelain --ignored=matching .`, filtered down to non-build/non-data
+noise) after fixing all three found no further collisions: the remaining ignored entries are all
+legitimate (build directories, an `android/local.properties` machine-specific SDK path, Room's generated
+`android/app/schemas/`, large HuggingFace/Gutenberg training data, a downloaded oneAPI installer, deployed
+`adai@<host>` binaries, and `.backup` files).
+
+Changes Made:
+- `.gitignore`: `models/` → `/models/`; `tokenizer`/`encoder`/`chatbot`/`chatbot_trainer` →
+  `/tokenizer`/`/encoder`/`/chatbot`/`/chatbot_trainer`; added `!tests/fixtures/parquet/*.parquet`
+  immediately under the blanket `*.parquet` rule. Each change carries an inline comment explaining what it
+  silently excluded and citing this entry.
+- `git add -f` (bypassing the not-yet-fixed ignore rules at the time) recovered all 42 previously-invisible
+  Kotlin files plus the 6 parquet fixtures as new (`A`) files.
+- Read all 42 recovered Kotlin files end-to-end for the first time (they had never been reviewed under
+  this audit's standard, unlike files that were merely due for a reviewed-date bump) — see the individual
+  per-file `@adai-reviewed`/TD entries for any bugs found during that read.
+
+Verification:
+- ✅ `git check-ignore -v` on a representative path from each of the three families confirmed no match
+  after the fix (all three previously printed the swallowing rule; all three print nothing after).
+- ✅ `git ls-files` counts before/after: `android/opsdashboard/.../ui/models/` 0→5,
+  `android/app/` 11→49, `tests/fixtures/parquet/` 1→7 (the script plus all 6 fixtures).
+- ✅ `check_file_status.py --strict` unaffected (279 files, 0 problems, both before and after) — it globs
+  the filesystem directly rather than going through git, confirming the invisibility was purely a git/CI
+  concern, not a gap in the review-standard tooling.
+- ✅ Full clean `./gradlew` build + `testDebugUnitTest` across all 5 Android modules re-run after
+  recovery to confirm presence-on-disk-only vs. tracked-by-git made no behavioral difference (Gradle was
+  always compiling these files from disk regardless of git status).
+
 ### TD-128: GroupDetailViewModel's error State Was Computed Incompletely and Never Displayed
 
 | Resolution Date | Component | Resolved By |

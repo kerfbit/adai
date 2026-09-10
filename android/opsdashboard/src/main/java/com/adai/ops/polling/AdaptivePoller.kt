@@ -2,7 +2,7 @@ package com.adai.ops.polling
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.4.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-10
 
 
 import kotlin.math.abs
