@@ -4,6 +4,36 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-107: model_service.sh's `help` Command Leaked the Internal File-Status Tag Block
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/model_service.sh` (`cmd_help()`) | Skip the shebang, `@adai-*` tag lines, and leading blank lines by pattern instead of a hardcoded "skip 2 lines" |
+
+Summary:
+Found while continuing the `scripts/` read-through (after TD-104/105/106). `cmd_help()` extracts the
+script's usage documentation directly from its own top-of-file comment block via `awk`, using `NR < 3
+{ next }` to skip past the shebang before printing. That worked back when the shebang was immediately
+followed by the doc banner, but every file in this repo (this one included) now carries a 3-line
+`@adai-status`/`@adai-version`/`@adai-reviewed` header comment right after the shebang, plus a blank line
+— `NR < 3` only skips the shebang and the first tag line, so running `./scripts/model_service.sh help`
+(or `-h`, `--help`, or any unrecognized command, which all fall through to the same `cmd_help`) printed
+the two remaining internal tag lines and a blank line as if they were the first lines of the actual usage
+text, ahead of the real `ADAI Model Service Manager` banner.
+
+Changes Made:
+- `scripts/model_service.sh`: rewrote the `awk` extraction to skip lines by *pattern* — the shebang
+  (`^#!`), any `@adai-*` tag line, and leading blank lines — rather than a hardcoded line count, so it
+  keeps working correctly regardless of how many header lines precede the real doc block (and doesn't
+  regress again the next time this file's own tag block changes shape).
+
+Verification:
+- ✅ Before/after regression by running the actual `help` command against the real file: pre-fix printed
+  the three `@adai-status`/`@adai-version`/`@adai-reviewed`/blank lines before the real banner (confirmed
+  against the pre-fix `HEAD` version); post-fix output starts directly at the `====` banner line.
+  Also confirmed the two other paths that share `cmd_help()` — `-h` and the "unknown command" error
+  fallback — both produce the same corrected output.
+
 ### TD-106: setup_postgres() Reported "Schema Applied" Even When the Schema Failed Entirely
 
 | Resolution Date | Component | Resolved By |

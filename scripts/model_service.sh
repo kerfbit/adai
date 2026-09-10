@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 # @adai-status: beta        (capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.8.0
-# @adai-reviewed: 2026-09-07
+# @adai-version: 0.8.1
+# @adai-reviewed: 2026-09-10
 
 # =============================================================================
 # ADAI Model Service Manager
@@ -440,12 +440,26 @@ cmd_logs() {
 # Help
 # ---------------------------------------------------------------------------
 cmd_help() {
-    # Print lines from the top-of-file comment block (lines starting with #)
-    # Stop at the first non-comment, non-blank line (i.e. the script body)
+    # Print lines from the top-of-file comment block (lines starting with #),
+    # skipping the shebang, the @adai-* file-status tag block (TD-107 — a
+    # hardcoded "skip the first 2 lines" used to work when the shebang was
+    # immediately followed by the doc banner, but every file in this repo now
+    # carries a 3-line @adai-status/@adai-version/@adai-reviewed header right
+    # after the shebang, so `help` was leaking that internal metadata as the
+    # first lines of user-facing output — and would silently start doing so
+    # again on any file lacking the tag, so match by pattern, not line count),
+    # and any leading blank lines. Stops at the first non-comment line (i.e.
+    # the script body).
     awk '
-        NR < 3                  { next }
-        /^[^#]/ && NR > 3      { exit }
-        { sub(/^# ?/, ""); print }
+        BEGIN { printing = 0 }
+        !printing {
+            if ($0 ~ /^#!/ || $0 ~ /^# @adai-/ || $0 ~ /^[[:space:]]*$/) next
+            printing = 1
+        }
+        printing {
+            if ($0 !~ /^#/) exit
+            sub(/^# ?/, ""); print
+        }
     ' "${BASH_SOURCE[0]}"
 }
 

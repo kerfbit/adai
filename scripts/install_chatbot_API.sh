@@ -2,7 +2,7 @@
 
 # @adai-status: beta        (capped by TD-043 — see TECHNICAL_DEBT.md)
 # @adai-version: 0.8.0
-# @adai-reviewed: 2026-09-07
+# @adai-reviewed: 2026-09-10
 
 # ADAI Chatbot API - systemd Service Installation Script
 #
