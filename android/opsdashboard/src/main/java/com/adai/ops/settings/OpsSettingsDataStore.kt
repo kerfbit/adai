@@ -1,8 +1,8 @@
 package com.adai.ops.settings
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.4.0
-// @adai-reviewed: 2026-09-07
+// @adai-version: 0.5.0
+// @adai-reviewed: 2026-09-10
 
 
 import android.content.Context
@@ -14,6 +14,9 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
 private val Context.dataStore by preferencesDataStore(name = "ops_settings")
 
@@ -157,8 +160,24 @@ class OpsSettingsDataStore(private val context: Context) : OpsSettingsRepository
         }
     }
 
-    private fun encodeGroups(groups: List<String>): String = groups.joinToString(",")
+    companion object {
+        /**
+         * TD-131: was a naive `joinToString(",")`/`split(",")` pair. Nothing in the Settings
+         * screen's "Add" flow (SettingsViewModel.addGroup()) rejects a comma in a group name,
+         * so a name like "a,b" round-tripped through this encoding as two separate, wrong
+         * group names ("a" and "b") the next time settings were loaded — silent data
+         * corruption on a perfectly valid free-text input. Now JSON-encoded via
+         * kotlinx.serialization, already used for every DTO in this app, so no character
+         * needs special-casing. [decodeGroups] still falls back to the old comma-split when
+         * JSON parsing fails, so groups saved before this fix (which never had embedded
+         * commas — that was the bug's precondition) still load correctly.
+         */
+        internal fun encodeGroups(groups: List<String>): String = Json.encodeToString(groups)
 
-    private fun decodeGroups(raw: String?): List<String> =
-        raw?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
+        internal fun decodeGroups(raw: String?): List<String> {
+            if (raw.isNullOrBlank()) return emptyList()
+            return runCatching { Json.decodeFromString<List<String>>(raw) }
+                .getOrElse { raw.split(",").map { it.trim() }.filter { it.isNotEmpty() } }
+        }
+    }
 }

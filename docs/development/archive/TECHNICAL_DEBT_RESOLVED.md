@@ -4,6 +4,41 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-131: OpsSettingsDataStore's Comma-Joined Registry Groups Silently Corrupted Names Containing a Comma
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `android/opsdashboard` — `OpsSettingsDataStore.kt` | Replaced `joinToString(",")`/`split(",")` with JSON encoding via kotlinx.serialization |
+
+Summary:
+Found while reading through the remaining, previously-unreviewed `opsdashboard` files for this
+audit's second pass. `OpsSettingsDataStore` persisted `registryGroups` (a `List<String>`) as a single
+DataStore string via `groups.joinToString(",")`, decoded back via `raw.split(",")`. Nothing in the
+Settings screen's "Add" flow (`SettingsViewModel.addGroup()`) rejects a comma in a group name — it only
+trims and checks for emptiness/duplicates — so a name like `"a,b"` was indistinguishable, once encoded,
+from the two separate names `"a"` and `"b"`. The corruption was silent and only surfaced on the next
+load of the settings (app restart, or any recomposition that re-collects `OpsSettingsDataStore.settings`):
+the group the user actually added would be gone, replaced by two unrelated, wrong ones.
+
+Changes Made:
+- `OpsSettingsDataStore.kt`: `encodeGroups`/`decodeGroups` moved to an `internal` companion object (so
+  they're directly testable without a real `Context`) and reimplemented using
+  `kotlinx.serialization`'s `Json.encodeToString`/`decodeFromString` — already the serialization approach
+  used for every DTO in this app, so no character in a group name needs special-casing.
+  `decodeGroups` falls back to the old comma-split when JSON parsing fails, so values written by
+  installs before this fix (which, by the bug's own precondition, never had an embedded comma) keep
+  loading correctly instead of silently resetting to an empty group list.
+
+Verification:
+- ✅ Added `OpsSettingsDataStoreTest.kt` (new file, no `Context` needed): a group name containing a comma
+  round-trips intact; an old-style plain comma-joined value (as written before this fix) still decodes
+  correctly via the fallback; a blank/null raw value decodes to an empty list.
+- ✅ Before/after regression: temporarily restored the old comma-join/split bodies in place (keeping the
+  companion object so the test still compiled against it), ran the new test — the comma round-trip case
+  failed exactly as predicted (`AssertionError`, decoded back as two separate names instead of one).
+  Restored the fix, re-ran — all three pass.
+- ✅ Full clean `./gradlew` build + `testDebugUnitTest` across all 5 Android modules — 0 failures.
+
 ### TD-130: SettingsViewModel (android/app) Raced Navigation the Same Way TD-127 Did in opsdashboard
 
 | Resolution Date | Component | Resolved By |

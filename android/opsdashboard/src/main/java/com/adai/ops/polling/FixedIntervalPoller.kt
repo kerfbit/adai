@@ -2,7 +2,7 @@ package com.adai.ops.polling
 
 // @adai-status: experimental        (capped by TD-048 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-10
 
 
 import kotlinx.coroutines.delay
