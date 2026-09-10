@@ -4,6 +4,42 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-108: install_mns_server.sh and mns-cli-guide.md Told Operators to Set a Config Key That Doesn't Exist
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/install_mns_server.sh`, `docs/operations/guides/mns-cli-guide.md` | Corrected `MNS_SERVER_URL` to the real config key, `NAME_SERVICE_URL` |
+
+Summary:
+Found while reading `install_mns_server.sh` end to end. Its `print_summary()` tells the operator, after a
+successful install: `"Configure clients with: MNS_SERVER_URL=http://<host>:8083"`. But `Config.cpp`
+(`ConfigLoader::load()`, the single config parser used by every ADAI binary — see CLAUDE.md
+"Configuration") only ever recognizes the literal key `NAME_SERVICE_URL` (both from the config file and
+as an environment-variable override); `MNS_SERVER_URL` is not read anywhere in the codebase at all. An
+operator who followed this script's own printed instructions verbatim — adding `MNS_SERVER_URL=...` to a
+worker's `config.trainer.conf`/`config.chatbot.conf` — would get a config key that's silently ignored:
+`name_service_url` stays empty, and per CLAUDE.md's documented MNS-authoritative behavior, the client
+silently falls back to client-local run/session numbering with no error, no warning, nothing — exactly the
+kind of "accepted but never actually applied" failure mode this session found repeatedly in `src/` (e.g.
+TD-092/TD-100/TD-101), just surfacing here as bad documentation rather than a code defect, with the same
+practical consequence for the operator. The identical wrong variable name was also independently present
+in `docs/operations/guides/mns-cli-guide.md`, describing when `incremental_trainer` calls MNS
+automatically.
+
+Changes Made:
+- `scripts/install_mns_server.sh`: `print_summary()` now prints `NAME_SERVICE_URL=...`, matching the real
+  config key.
+- `docs/operations/guides/mns-cli-guide.md`: corrected the same reference.
+
+Verification:
+- ✅ Exhaustive repo-wide `grep -rn "MNS_SERVER_URL"` across `src/`, `scripts/`, `docs/`, `tests/`,
+  `android/`, `tizen-metrics-app/` before the fix found only these two occurrences — confirming it is
+  never read as a real config key anywhere, only ever told to operators. `Config.cpp:341` shows the actual
+  (and only) recognized key is a literal `key == "NAME_SERVICE_URL"` string comparison, which is
+  unambiguous and needs no dynamic reproduction (a plain string-equality check has no runtime-dependent
+  behavior to verify beyond what the source itself guarantees). Re-ran the same grep after the fix: zero
+  remaining occurrences of the wrong key anywhere in the tree.
+
 ### TD-107: model_service.sh's `help` Command Leaked the Internal File-Status Tag Block
 
 | Resolution Date | Component | Resolved By |

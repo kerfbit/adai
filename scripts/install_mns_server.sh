@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # @adai-status: beta        (capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.8.0
-# @adai-reviewed: 2026-09-07
+# @adai-version: 0.8.1
+# @adai-reviewed: 2026-09-10
 
 # ADAI Model Name Service - Installation Script
 #
@@ -412,7 +412,7 @@ print_summary() {
     echo "  GET  http://localhost:${MNS_PORT}/roles"
     echo ""
     echo "Configure clients with:"
-    echo "  MNS_SERVER_URL=http://$(hostname -f 2>/dev/null || hostname):${MNS_PORT}"
+    echo "  NAME_SERVICE_URL=http://$(hostname -f 2>/dev/null || hostname):${MNS_PORT}"
     echo ""
     echo "Override environment variables:"
     echo "  sudo systemctl edit ${SERVICE_NAME}"

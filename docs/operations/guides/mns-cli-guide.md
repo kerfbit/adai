@@ -255,7 +255,7 @@ mns_cli set-training adai-chatbot-v3 run-42 metrics-key-abc
 | Different run_id holds the lock | 409 | Another training run already owns this model |
 | Invalid source state | 409 | Model is in `production` or `retired` (must retire first or start from candidate) |
 
-The `incremental_trainer` calls this automatically when `MNS_SERVER_URL` and `MODEL_NAME` are configured.
+The `incremental_trainer` calls this automatically when `NAME_SERVICE_URL` and `MODEL_NAME` are configured.
 
 ---
 
