@@ -1,8 +1,8 @@
 package com.adai.ops.settings
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.4.0
-// @adai-reviewed: 2026-09-07
+// @adai-version: 0.5.0
+// @adai-reviewed: 2026-09-10
 
 
 import androidx.lifecycle.ViewModel
@@ -212,7 +212,24 @@ class SettingsViewModel(
         _uiState.value = _uiState.value.copy(watchFacePushMessage = null)
     }
 
-    fun save() {
+    /**
+     * Persists the current settings. Deliberately a `suspend fun`, not a fire-and-forget
+     * `viewModelScope.launch` — the Settings screen's Save button navigates back
+     * immediately after calling this, and navigating back pops this screen's
+     * NavBackStackEntry, which clears this ViewModel and cancels viewModelScope
+     * (and everything running in it). A `viewModelScope.launch { settingsRepository
+     * .save(...) }` here would race that cancellation: if the back-stack entry is
+     * destroyed before the DataStore write's coroutine resumes, the write is
+     * cancelled mid-flight and the save is silently lost — the UI already navigated
+     * away as if it succeeded, with no error shown. Reproduced directly (see
+     * TECHNICAL_DEBT_RESOLVED.md) — a fire-and-forget launch immediately followed by
+     * cancelling its scope loses the write every time, while awaiting the same
+     * suspend call before the caller proceeds to whatever might cancel that scope
+     * always completes it first, since the two are sequenced in one coroutine.
+     * The caller (SettingsScreen) is responsible for awaiting this in a scope of
+     * its own (rememberCoroutineScope(), not viewModelScope) before calling onBack().
+     */
+    suspend fun save() {
         val state = _uiState.value
         val settings = OpsSettings(
             useSharedHost = state.useSharedHost,
@@ -235,9 +252,7 @@ class SettingsViewModel(
             watchSyncEnabled = state.watchSyncEnabled,
             watchSyncSessionKeyOverride = state.watchSyncSessionKeyOverride.trim().takeIf { it.isNotEmpty() },
         )
-        viewModelScope.launch {
-            settingsRepository.save(settings)
-            _uiState.value = _uiState.value.copy(saved = true)
-        }
+        settingsRepository.save(settings)
+        _uiState.value = _uiState.value.copy(saved = true)
     }
 }

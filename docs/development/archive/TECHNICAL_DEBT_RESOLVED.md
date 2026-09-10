@@ -4,6 +4,54 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-127: SettingsViewModel.save() Raced Navigation-Triggered ViewModel Clearing, Silently Losing Saves
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `android/opsdashboard` — `SettingsViewModel.kt`, `SettingsScreen.kt` | Made `save()` a suspend fun and sequenced it before `onBack()` in a composable-scoped coroutine, instead of a fire-and-forget `viewModelScope.launch` |
+
+Summary:
+Found while beginning a full read-through of the Android `opsdashboard` module (the second-pass audit's
+first extension beyond `src/`/`scripts/` into `android/` and `tizen-metrics-app/js/`, both in scope per
+CLAUDE.md's file-status standard). `SettingsScreen`'s Save button did `viewModel.save(); onBack()` — two
+unsequenced calls back to back. `SettingsViewModel.save()` built the settings object and then wrote it via
+`viewModelScope.launch { settingsRepository.save(settings) }`: a fire-and-forget launch that returns
+immediately, before the DataStore write's coroutine has actually run. `onBack()` calls
+`navController.popBackStack()`, which pops this screen's `NavBackStackEntry` — and popping it clears its
+`ViewModelStore`, which clears `SettingsViewModel`, which cancels `viewModelScope` and every coroutine still
+running in it. If that cancellation happens before the DataStore write's coroutine resumes and completes
+(a real race — Compose Navigation's default transition is effectively instant with no custom animation),
+the write is cancelled mid-flight and the save is silently lost: the UI has already navigated back as if
+it succeeded, with no error surfaced anywhere.
+
+Changes Made:
+- `SettingsViewModel.kt`: changed `fun save()` to `suspend fun save()`, removing its internal
+  `viewModelScope.launch` — the function now directly awaits `settingsRepository.save(settings)` rather
+  than firing it off and returning immediately.
+- `SettingsScreen.kt`: the Save button now uses `rememberCoroutineScope()` (a scope tied to the
+  composable, not the ViewModel) to launch a coroutine that calls `viewModel.save()` and *then* `onBack()`
+  — sequencing them in one coroutine body guarantees `onBack()` (and the ViewModel-clearing cascade it
+  triggers) cannot run until the save has actually completed, regardless of how fast that cascade would
+  otherwise happen.
+
+Verification:
+- ✅ Isolated mechanism proof using the project's actual `kotlinx-coroutines-core` dependency (no Android
+  framework needed — full ViewModel-level testing was blocked by `WatchFacePushRepository`'s hard
+  dependency on a real `android.content.Context`, which this project has no mocking library or Robolectric
+  to construct in a plain JVM test): compiled and ran a standalone repro contrasting the two patterns
+  against a fake suspend-based repository.
+  - Pre-fix pattern (fire-and-forget launch, then immediately cancel the scope — modeling
+    `viewModelScope.launch { save() }` immediately followed by `onCleared()`'s cancellation): the write
+    was lost every time (`saved = null`).
+  - Post-fix pattern (await the suspend call, then cancel the scope — modeling the fixed sequencing): the
+    write always completed first (`saved = "B"`) before the stand-in "onBack" action even ran, confirming
+    a sequenced suspend call is fundamentally immune to a scope cancellation that happens after it in the
+    same coroutine body, regardless of timing.
+- ✅ `./gradlew :opsdashboard:compileDebugKotlin :opsdashboard:testDebugUnitTest` — clean build, all 44
+  existing `opsdashboard` unit tests still pass (0 failures, 0 errors); this session also established a
+  fresh full-module baseline beforehand (`./gradlew testDebugUnitTest`, all 5 Android modules: 58 tests,
+  0 failures).
+
 ### TD-126: test_chatbot_gui_comprehensive.sh Had the Same Wrong-Binary Bug as TD-124, More Extensively
 
 | Resolution Date | Component | Resolved By |

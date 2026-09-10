@@ -1,8 +1,8 @@
 package com.adai.ops.settings
 
 // @adai-status: experimental        (capped by TD-048 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-07
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-09-10
 
 
 import android.content.pm.PackageManager
@@ -39,6 +39,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -46,6 +47,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.launch
 
 private val POLL_INTERVAL_OPTIONS = listOf(1000L, 2000L, 5000L, 10000L)
 private const val SET_ACTIVE_PERMISSION = "com.google.wear.permission.SET_PUSHED_WATCH_FACE_AS_ACTIVE"
@@ -54,6 +56,7 @@ private const val SET_ACTIVE_PERMISSION = "com.google.wear.permission.SET_PUSHED
 @Composable
 fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val state by viewModel.uiState.collectAsState()
+    val coroutineScope = rememberCoroutineScope()
 
     Scaffold(
         topBar = {
@@ -316,8 +319,15 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
             }
 
             Button(onClick = {
-                viewModel.save()
-                onBack()
+                // save() is a suspend fun specifically so this sequences correctly:
+                // onBack() (and the NavBackStackEntry destruction it triggers, which
+                // clears the ViewModel and cancels viewModelScope) must not run until
+                // the save has actually completed, or it can be cancelled mid-write
+                // and silently lost. See save()'s own doc comment.
+                coroutineScope.launch {
+                    viewModel.save()
+                    onBack()
+                }
             }) {
                 Text("Save")
             }

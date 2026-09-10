@@ -84,10 +84,10 @@ None — every in-scope file carries a tag.
 | `android/opsdashboard/src/main/java/com/adai/ops/polling/AdaptivePoller.kt` | beta | 0.4.0 | 2026-09-07 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/polling/FixedIntervalPoller.kt` | experimental | 0.1.0 | 2026-09-07 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/settings/OpsSettingsDataStore.kt` | beta | 0.4.0 | 2026-09-07 | TD-047 |
-| `android/opsdashboard/src/main/java/com/adai/ops/settings/SettingsScreen.kt` | experimental | 0.1.0 | 2026-09-07 | TD-048 |
-| `android/opsdashboard/src/main/java/com/adai/ops/settings/SettingsViewModel.kt` | beta | 0.4.0 | 2026-09-07 | TD-047 |
+| `android/opsdashboard/src/main/java/com/adai/ops/settings/SettingsScreen.kt` | experimental | 0.2.0 | 2026-09-10 | TD-048 |
+| `android/opsdashboard/src/main/java/com/adai/ops/settings/SettingsViewModel.kt` | beta | 0.5.0 | 2026-09-10 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/admin/AdminRoute.kt` | experimental | 0.1.0 | 2026-09-07 | TD-048 |
-| `android/opsdashboard/src/main/java/com/adai/ops/ui/admin/AdminScreen.kt` | experimental | 0.1.0 | 2026-09-07 | TD-048 |
+| `android/opsdashboard/src/main/java/com/adai/ops/ui/admin/AdminScreen.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/admin/AdminUiState.kt` | experimental | 0.1.0 | 2026-09-07 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/admin/AdminViewModel.kt` | beta | 0.4.0 | 2026-09-07 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/common/AdminActionButton.kt` | experimental | 0.1.0 | 2026-09-07 | TD-048 |
@@ -111,7 +111,7 @@ None — every in-scope file carries a tag.
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/models/ModelsRoute.kt` | experimental | 0.1.0 | 2026-09-07 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/navigation/OpsDestinations.kt` | experimental | 0.1.0 | 2026-09-07 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/navigation/OpsNavHost.kt` | experimental | 0.1.0 | 2026-09-07 | TD-048 |
-| `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupDetailScreen.kt` | experimental | 0.1.0 | 2026-09-07 | TD-048 |
+| `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupDetailScreen.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupDetailViewModel.kt` | beta | 0.4.0 | 2026-09-07 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupListScreen.kt` | experimental | 0.1.0 | 2026-09-07 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupListViewModel.kt` | experimental | 0.1.0 | 2026-09-07 | TD-048 |
@@ -120,7 +120,7 @@ None — every in-scope file carries a tag.
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/theme/Theme.kt` | experimental | 0.1.0 | 2026-09-07 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/theme/Type.kt` | experimental | 0.1.0 | 2026-09-07 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/trainer/TrainerRoute.kt` | experimental | 0.1.0 | 2026-09-07 | TD-048 |
-| `android/opsdashboard/src/main/java/com/adai/ops/ui/trainer/TrainerScreen.kt` | experimental | 0.1.0 | 2026-09-07 | TD-048 |
+| `android/opsdashboard/src/main/java/com/adai/ops/ui/trainer/TrainerScreen.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/trainer/TrainerUiState.kt` | experimental | 0.1.0 | 2026-09-07 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/trainer/TrainerViewModel.kt` | beta | 0.4.0 | 2026-09-07 | TD-047 |
 | `android/wearcomplications/src/main/java/com/adai/wearcomplications/LossComplicationDataSourceService.kt` | experimental | 0.1.0 | 2026-09-07 | TD-048 |
