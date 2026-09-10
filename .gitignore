@@ -52,6 +52,18 @@ checkpoints/
 __pycache__/
 *.pyc
 
+# Tizen app signing secrets (private keys, keystores, keystore passwords) — these
+# were committed in full back in b90bd68 and are still present in git history on
+# both remotes; this only stops NEW commits from re-adding them. See the audit
+# finding discussed 2026-09-10 — rotating the Samsung certs and/or purging
+# history is a decision for whoever owns the Samsung developer account, not
+# something this rule fixes on its own. The .crt (public certificate) files,
+# profiles.xml, tv_duid.txt, and the *.sh tooling are not secrets and stay
+# tracked.
+/tizen-metrics-app/certs/*.key
+/tizen-metrics-app/certs/*.p12
+/tizen-metrics-app/certs/*.pwd
+
 # IDE and editor files
 .vscode/
 .idea/
