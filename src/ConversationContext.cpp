@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
+// @adai-version: 1.1.0
 // @adai-reviewed: 2026-09-10
 
 #include "ConversationContext.hpp"
@@ -207,13 +207,23 @@ bool ConversationContext::is_empty() const {
 }
 
 void ConversationContext::clear() {
-    // Clear all messages but keep system message
-    total_tokens = system_message.has_value() ? system_message->token_count : 0;
+    // TD-125: keep_system_message now actually gates this, per its own doc
+    // comment ("Whether to always keep system message"). Regular messages are
+    // always dropped; the system message survives only when the flag is set.
     messages.clear();
+    if (keep_system_message) {
+        total_tokens = system_message.has_value() ? system_message->token_count : 0;
+    } else {
+        system_message.reset();
+        total_tokens = 0;
+    }
 }
 
 void ConversationContext::clear_all() {
-    // Clear everything including system message
+    // Deliberately unconditional, unlike clear() above: clear_all()'s whole
+    // contract is "including system message" regardless of the persistent
+    // keep_system_message setting — it's the explicit nuclear option, not a
+    // configurable one. (See TD-125.)
     messages.clear();
     system_message.reset();
     total_tokens = 0;
@@ -235,6 +245,20 @@ void ConversationContext::truncate_to_limits() {
                 break;
             }
             remove_oldest_message();
+        }
+
+        // TD-125: keep_system_message previously had no effect here — the
+        // system message sat outside `messages` entirely, so once regular
+        // messages were exhausted the loop above (guarded by
+        // `!messages.empty()`) simply stopped, leaving the context over
+        // budget forever if the system message alone exceeded max_tokens.
+        // When the flag is false the system message is no longer exempt: it
+        // is evicted as a last resort so the token budget is actually
+        // honored. When true (the default), this is a no-op and the system
+        // message is preserved exactly as before.
+        if (!keep_system_message && total_tokens > max_tokens && system_message.has_value()) {
+            total_tokens -= system_message->token_count;
+            system_message.reset();
         }
     }
 }

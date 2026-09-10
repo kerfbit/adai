@@ -355,6 +355,38 @@ TEST(ConversationContextTest, SystemMessageNotTruncated) {
     EXPECT_EQ(context.get_system_message(), "System prompt");
 }
 
+// TD-125: keep_system_message used to be stored/persisted/propagated but
+// never actually read anywhere — setting it to false was a silent no-op.
+// These two tests prove true vs. false now produce different, documented
+// behavior in truncate_to_limits() when the system message alone exceeds
+// the token budget.
+TEST(ConversationContextTest, TruncationKeepsSystemMessageWhenFlagTrue) {
+    ConversationContext context(0, 10, true);  // Tiny token budget, keep system message
+
+    context.set_system_message("System prompt", 100);  // Alone, already over budget
+    context.add_user_message("Message", 5);
+
+    // Every regular message gets evicted trying to reach the budget, but the
+    // system message must survive because the flag is true.
+    EXPECT_EQ(context.get_message_count(), 0);
+    EXPECT_FALSE(context.get_system_message().empty());
+    EXPECT_EQ(context.get_system_message(), "System prompt");
+}
+
+TEST(ConversationContextTest, TruncationEvictsSystemMessageWhenFlagFalse) {
+    ConversationContext context(0, 10, false);  // Tiny token budget, don't keep system message
+
+    context.set_system_message("System prompt", 100);  // Alone, already over budget
+    context.add_user_message("Message", 5);
+
+    // With the flag false, the system message is no longer exempt: it gets
+    // evicted too once regular messages are gone and the budget is still
+    // exceeded.
+    EXPECT_EQ(context.get_message_count(), 0);
+    EXPECT_TRUE(context.get_system_message().empty());
+    EXPECT_LE(context.get_total_tokens(), 10);
+}
+
 TEST(ConversationContextTest, ManualTruncation) {
     ConversationContext context(20, 0);
 
@@ -400,6 +432,39 @@ TEST(ConversationContextTest, ClearMessages) {
     EXPECT_TRUE(context.is_empty());
     EXPECT_EQ(context.get_message_count(), 0);
     EXPECT_FALSE(context.get_system_message().empty());  // System kept
+}
+
+// TD-125: clear() now honors keep_system_message instead of always
+// preserving the system message. ClearMessages above covers the true
+// (default) case; this covers false.
+TEST(ConversationContextTest, ClearDropsSystemMessageWhenFlagFalse) {
+    ConversationContext context(20, 2048, false);
+
+    context.set_system_message("System");
+    context.add_user_message("User");
+    context.add_assistant_message("Assistant");
+
+    context.clear();
+
+    EXPECT_TRUE(context.is_empty());
+    EXPECT_EQ(context.get_message_count(), 0);
+    EXPECT_TRUE(context.get_system_message().empty());  // System dropped
+    EXPECT_EQ(context.get_total_tokens(), 0);
+}
+
+// clear_all() stays unconditional even when keep_system_message is true —
+// it is the explicit "everything, including system message" API, distinct
+// from the persistent flag that only governs clear()/truncate_to_limits().
+TEST(ConversationContextTest, ClearAllIgnoresKeepSystemMessageFlag) {
+    ConversationContext context(20, 2048, true);
+
+    context.set_system_message("System");
+    context.add_user_message("User");
+
+    context.clear_all();
+
+    EXPECT_TRUE(context.is_empty());
+    EXPECT_TRUE(context.get_system_message().empty());
 }
 
 TEST(ConversationContextTest, ClearAll) {

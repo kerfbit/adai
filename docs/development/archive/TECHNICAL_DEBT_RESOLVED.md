@@ -41,6 +41,69 @@ Verification:
 
 ---
 
+### TD-125: ConversationContext's keep_system_message Was a Silent No-Op
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `ConversationContext` (chatbot/GUI conversation history) | Wired `keep_system_message` into `clear()` and `truncate_to_limits()`; left `clear_all()` unconditional |
+
+Summary:
+Found while reading `src/ConversationContext.cpp`/`.hpp` end to end. `keep_system_message` is a
+constructor parameter and member field (default `true`), stored, round-tripped through
+`save_to_file()`/`load_from_file()` (`KEEP_SYSTEM:` line), and propagated in `create_summarized()` —
+but nothing ever read it to gate behavior:
+
+- `clear()` unconditionally preserved the system message regardless of the flag.
+- `clear_all()` unconditionally dropped the system message regardless of the flag (arguably correct —
+  see below).
+- `truncate_to_limits()` never evicted the system message at all when trimming to `max_messages`/
+  `max_tokens`, regardless of the flag — the eviction loop only ever touches `messages`, and the
+  `system_message` optional sits outside it entirely.
+
+So constructing a `ConversationContext` with `keep_system_message=false` had zero observable effect
+anywhere. No production caller ever actually passes `false` (`ChatbotAPI::Session` and `ChatbotGUI`
+both use the 1–2 arg constructor overloads, which default the flag to `true`), so this was latent
+rather than an active behavioral bug for any current caller — but the flag's own doc comment ("Whether
+to always keep system message") and the existing `SystemMessageNotTruncated` test (which constructs
+with `keep_system_message=true` specifically to explain why the system message survives) both describe
+a flag that's supposed to matter, and it didn't.
+
+Design decision: `clear()` and `truncate_to_limits()` now honor the flag — when `false`, `clear()` also
+drops the system message, and `truncate_to_limits()` evicts it as a last resort if the token budget is
+still exceeded once every regular message is gone. `clear_all()` deliberately stays unconditional: its
+own contract ("clear everything including system message") is a distinct, explicit nuclear option, not
+a mode governed by the persistent per-instance flag — gating it on `keep_system_message` would silently
+break its documented behavior (and the existing `ClearAll` test, which constructs with the default
+`true` flag and asserts the system message is gone after `clear_all()`).
+
+Changes Made:
+- `src/ConversationContext.cpp`: `clear()` now resets `system_message` when `keep_system_message` is
+  false. `truncate_to_limits()` now evicts `system_message` after the existing token-truncation loop
+  when `keep_system_message` is false, `total_tokens` is still over `max_tokens`, and a system message
+  is set.
+- `src/ConversationContext.hpp`: updated the doc comments for the constructor's `keep_system_message`
+  parameter, `clear()`, `clear_all()`, and `truncate_to_limits()` to state the actual (now-correct)
+  behavior and cross-reference this entry.
+
+Verification:
+- ✅ Added 4 tests to `tests/conversationcontext_test.cpp`:
+  `TruncationKeepsSystemMessageWhenFlagTrue`, `TruncationEvictsSystemMessageWhenFlagFalse`,
+  `ClearDropsSystemMessageWhenFlagFalse`, `ClearAllIgnoresKeepSystemMessageFlag`.
+- ✅ Before/after regression: reverted `ConversationContext.{cpp,hpp}` to their pre-fix versions
+  (keeping the new tests), rebuilt `conversationcontextTests`, and confirmed exactly the two tests
+  tied to the actual behavior change failed (`TruncationEvictsSystemMessageWhenFlagFalse` — system
+  message survived with 100 tokens still over the budget of 10; `ClearDropsSystemMessageWhenFlagFalse`
+  — system message survived `clear()`), while the flag-true and `clear_all()` tests passed either way
+  as expected; restored the fix, rebuilt, and confirmed all 66 tests in `conversationcontextTests` pass.
+- ✅ `adai_nlp` and `chatbotcliTests` rebuild cleanly against the changed header/implementation.
+
+Files Changed:
+- `src/ConversationContext.hpp`
+- `src/ConversationContext.cpp`
+- `tests/conversationcontext_test.cpp`
+
+---
+
 ### TD-124: test_chatbot_gui.sh Verified the Wrong Binary — Always Failed on a Correct Build
 
 | Resolution Date | Component | Resolved By |

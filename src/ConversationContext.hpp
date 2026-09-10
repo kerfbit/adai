@@ -2,7 +2,7 @@
 #define CONVERSATIONCONTEXT_HPP
 
 // @adai-status: stable
-// @adai-version: 1.0.0
+// @adai-version: 1.1.0
 // @adai-reviewed: 2026-09-10
 
 
@@ -47,7 +47,8 @@ class ConversationContext {
      * @brief Constructor with configurable limits
      * @param max_messages Maximum number of messages to retain (0 = unlimited)
      * @param max_tokens Maximum total tokens in context (0 = unlimited)
-     * @param keep_system_message Whether to always keep system message
+     * @param keep_system_message Whether the system message is exempt from
+     *        clear() and token-budget eviction in truncate_to_limits()
      */
     ConversationContext(int max_messages = 20, int max_tokens = 2048,
                         bool keep_system_message = true);
@@ -166,20 +167,30 @@ class ConversationContext {
     bool is_empty() const;
 
     /**
-     * @brief Clear all messages except system message
+     * @brief Clear all regular messages
+     *
+     * The system message is preserved if keep_system_message is true (the
+     * default), and cleared along with everything else if false. See TD-125
+     * in TECHNICAL_DEBT.md.
      */
     void clear();
 
     /**
      * @brief Clear all messages including system message
+     *
+     * Unconditional — unlike clear(), this always drops the system message
+     * regardless of keep_system_message. See TD-125 in TECHNICAL_DEBT.md.
      */
     void clear_all();
 
     /**
      * @brief Truncate to fit within token/message limits
      *
-     * Removes oldest messages (keeping system message) until within limits.
-     * Uses sliding window strategy.
+     * Removes oldest messages until within limits, using a sliding window
+     * strategy. The system message is exempt from token-budget eviction when
+     * keep_system_message is true (the default); when false, it is evicted
+     * as a last resort if the budget is still exceeded once regular messages
+     * are gone. See TD-125 in TECHNICAL_DEBT.md.
      */
     void truncate_to_limits();
 
