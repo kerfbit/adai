@@ -4,6 +4,92 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-133: Tizen Dashboard's Settings Save/Cancel Buttons Fired Twice Per Remote OK Press
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `tizen-metrics-app/js` — `app.js` | Removed the redundant `nav.on('ok', ...)` special case for `settings-save-btn`/`settings-cancel-btn` |
+
+Summary:
+Found immediately after TD-132, while finishing this session's file-by-file audit of
+`tizen-metrics-app/js/`. `TVNav._onKeyDown`'s `KEY.OK` case (`navigation.js`) unconditionally does both
+`this._emit('ok', this._focused)` and `this._focused.click()` for whatever element is currently
+focused — the `.click()` call exists so that D-pad/remote navigation and an actual mouse/touch click
+produce identical behavior for elements that only have a native `click` listener (e.g. the session-list
+items). But `settings-save-btn` and `settings-cancel-btn` had special-case branches inside
+`app.js`'s `nav.on('ok', ...)` handler (calling `saveSettings()`/`closeSettings()` directly) **and**
+their own native `click` listeners wired in `initSettingsInputs()` — so a single OK press on the remote
+ran `saveSettings()`/`closeSettings()` twice: once from the `nav.on('ok', ...)` branch, once from the
+`.click()`-triggered native listener. For Cancel this was harmless (idempotent UI state reset); for
+Save it meant every settings save via the remote fired a full extra `startPolling()`/`openPicker()`
+cycle — a wasted duplicate poll of the metrics API, or a wasted duplicate `/api/sessions` fetch,
+depending on whether a session was already selected. `card-settings`/`card-session` don't have this
+problem — they have no native click listener of their own, so they still need (and keep) their
+`nav.on('ok', ...)` branch.
+
+Changes Made:
+- `app.js`: removed the `settings-save-btn`/`settings-cancel-btn` branches from `nav.on('ok', ...)`,
+  leaving the native `click` listeners (already required for mouse/touch use) as the single path for
+  both input methods.
+
+Verification:
+- ✅ Manual code-path trace confirmed `card-settings`/`card-session` have no native click listener
+  (grepped `index.html` for `onclick`/`addEventListener` — none), so they still require their
+  `nav.on('ok', ...)` branch and are unaffected by this change.
+- ✅ Standalone Node.js repro (`ok_doublefire_repro.js`) modeling just the control flow (an `emit('ok',
+  el)` + `el.click()` pair, mirroring `_onKeyDown`'s OK case exactly) against a mock `settings-save-btn`
+  with both a `nav.on('ok', ...)` branch and a native click listener: **before** the fix,
+  `saveSettings()` fires twice per simulated OK press; **after**, once. This app has no test framework
+  of its own (see TD-049 — `@adai-status: beta` is explicitly capped by that), so this is deliberately a
+  standalone, throwaway script rather than a committed test, matching how TD-127/TD-130's coroutine-race
+  mechanism was proven in isolation elsewhere in this same audit.
+- ✅ `node --check app.js` — syntax valid.
+
+### TD-132: Tizen Dashboard's weight_update_ratio Display Hid a Real Zero Behind "Missing Data"
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `tizen-metrics-app/js` — `app.js` | Fixed the dead trailing ternary so a genuine `0.0` reading displays instead of always falling through to "—" |
+
+Summary:
+Found while doing this session's first-ever full read-through of `tizen-metrics-app/js/` (`app.js`,
+`navigation.js`, `chart.js` — all in scope per CLAUDE.md's file-status standard, previously only
+tag-bumped, never read end to end this session). `applyMetrics()`'s `weight_update_ratio` display used:
+```js
+var wurStr = (wur != null && !isNaN(wur) && wur !== 0)
+    ? (wur < 0.0001 ? wur.toExponential(3) : fmt(wur, 6))
+    : (wur === 0 ? '—' : '—');
+```
+Both arms of the trailing `(wur === 0 ? '—' : '—')` ternary return the identical string — so whether
+`wur` was a genuine `0.0` (the server's real initial value before any optimizer step;
+`MetricsPushClient.cpp`'s `buf_weight_update_ratio_` defaults to `0.0f`) or truly missing/`NaN`, the
+dashboard showed the same "—", indistinguishable from "no data". Every sibling metric in the same
+function (e.g. `computeRatioValue`, two lines above) correctly displays a real zero rather than hiding
+it — this one field's special-casing of zero was written but never actually took effect, hiding real,
+meaningful "no weight update yet" readings from the operator.
+
+Changes Made:
+- `app.js`: `wurStr` now checks only `wur != null && !isNaN(wur)` to decide displayed-vs-"—", matching
+  the pattern already used by `computeRatioValue`; a genuine `0.0` now formats as `"0.000000"` via
+  `fmt(wur, 6)` instead of collapsing to "—". The scientific-notation branch for a real, tiny nonzero
+  ratio (`wur !== 0 && wur < 0.0001`) is preserved unchanged.
+
+Verification:
+- ✅ Confirmed `weight_update_ratio: 0.0` is a real, server-sent value, not just a theoretical edge
+  case: `src/MetricsPushClient.cpp`'s `buf_weight_update_ratio_` is initialized to `0.0f` and pushed
+  as-is before the first optimizer step.
+- ✅ Standalone Node.js repro (`wur_repro.js`) with the exact buggy ternary copied verbatim alongside
+  the fixed version, run against six cases (real zero, tiny nonzero, normal value, undefined, null,
+  NaN): **before** the fix, the real-zero case incorrectly printed "—"; **after**, it printed
+  `"0.000000"`; all five other cases were identical before and after (no behavior change for the
+  already-correct paths). This app has no test framework of its own (TD-049), so this is a standalone
+  script, not a committed test — same rationale as TD-133 above.
+- ✅ `node --check app.js` — syntax valid.
+
+Also completes this pass's first-ever full read-through of `tizen-metrics-app/js/` — `navigation.js`
+and `chart.js` were read in full and found correct (no bugs); `@adai-reviewed` bumped to 2026-09-10 on
+all three files, `app.js` version bumped 0.6.0 → 0.7.0.
+
 ### TD-131: OpsSettingsDataStore's Comma-Joined Registry Groups Silently Corrupted Names Containing a Comma
 
 | Resolution Date | Component | Resolved By |

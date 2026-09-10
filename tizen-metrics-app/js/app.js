@@ -7,8 +7,8 @@
    ============================================================ */
 
 // @adai-status: beta        (documented, wired into index.html, deployed to Samsung TV hardware; no automated test coverage exists for this app; capped by TD-049 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.6.0
-// @adai-reviewed: 2026-09-07
+// @adai-version: 0.7.0
+// @adai-reviewed: 2026-09-10
 
 (function(window) {
     'use strict';
@@ -426,10 +426,17 @@
         setText(UI.gradVarianceValue, fmt(current.gradient_variance, 6));
         var ctr = current.compute_time_ratio;
         setText(UI.computeRatioValue, (ctr != null && !isNaN(ctr)) ? fmt(ctr * 100, 1) + '%' : '—');
+        /* TD-132: the two branches of this trailing ternary used to both return '—'
+           regardless of whether wur was really 0 or actually missing/NaN — so a
+           genuine weight_update_ratio of exactly 0.0 (the server's real initial
+           value before any optimizer step, see MetricsPushClient.cpp's
+           buf_weight_update_ratio_ default) was indistinguishable from "no data",
+           unlike every sibling metric here (e.g. computeRatioValue two lines up),
+           which correctly display a real zero. */
         var wur = current.weight_update_ratio;
-        var wurStr = (wur != null && !isNaN(wur) && wur !== 0)
-            ? (wur < 0.0001 ? wur.toExponential(3) : fmt(wur, 6))
-            : (wur === 0 ? '—' : '—');
+        var wurStr = (wur != null && !isNaN(wur))
+            ? (wur !== 0 && wur < 0.0001 ? wur.toExponential(3) : fmt(wur, 6))
+            : '—';
         setText(UI.weightUpdateValue, wurStr);
 
         /* --- Activation Saturation (TD-013) --- */
@@ -919,14 +926,20 @@
                 openPicker();
                 return;
             }
-            if (el.id === 'settings-save-btn')   { 
-                saveSettings();
-                return;
-            }
-            if (el.id === 'settings-cancel-btn')  { 
-                closeSettings();
-                return;
-            }
+            /* TD-133: settings-save-btn/settings-cancel-btn deliberately have NO
+               special case here, unlike card-settings/card-session above. TVNav's
+               own _onKeyDown (navigation.js) already calls the focused element's
+               native .click() on every OK press (so a keyboard/remote OK and an
+               actual mouse/touch click behave identically) — these two buttons
+               also carry their own addEventListener('click', ...) wiring
+               (initSettingsInputs(), below), which that .click() already fires.
+               Handling them here too used to run saveSettings()/closeSettings()
+               TWICE per OK press: once from this handler, once from the native
+               click listener — for saveSettings(), that meant two full
+               startPolling()/openPicker() cycles (an extra, wasted poll or
+               /api/sessions fetch) every single time Settings was saved via the
+               remote. card-settings/card-session have no native click listener
+               of their own, so they still need to be special-cased here. */
 
             /* Interval buttons */
             var interval = el.getAttribute('data-interval');
