@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 # @adai-status: beta        (capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.7.0
-# @adai-reviewed: 2026-09-07
+# @adai-version: 0.7.1
+# @adai-reviewed: 2026-09-10
 
 set -euo pipefail
 
@@ -55,7 +55,28 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --help)
-            sed -n '2,/^$/s/^# \?//p' "$0"
+            # TD-120 (same class as TD-107): the previous `sed -n '2,/^$/s/^#
+            # \?//p'` intended "print the header comment block up to its first
+            # blank line," but the @adai-status/@adai-version/@adai-reviewed
+            # tag block right after the shebang has its OWN blank line before
+            # the real usage doc even starts — so the range ended there,
+            # printing only the three tag lines instead of the actual usage
+            # text. Skip the shebang, tag lines, and any non-comment line
+            # (blanks, `set -euo pipefail`) by pattern instead of by a
+            # blank-line boundary that doesn't reliably mark the real doc's
+            # start.
+            awk '
+                BEGIN { printing = 0 }
+                !printing {
+                    if ($0 ~ /^#!/ || $0 ~ /^# @adai-/) next
+                    if ($0 !~ /^#/) next
+                    printing = 1
+                }
+                printing {
+                    if ($0 !~ /^#/) exit
+                    sub(/^# ?/, ""); print
+                }
+            ' "$0"
             exit 0
             ;;
         *)

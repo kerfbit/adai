@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # @adai-status: beta        (capped by TD-044 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.7.0
-# @adai-reviewed: 2026-09-07
+# @adai-version: 0.7.1
+# @adai-reviewed: 2026-09-10
 
 
 # Test script for chatbot_gui
@@ -13,22 +13,41 @@ echo "Chatbot GUI Build Verification"
 echo "========================================"
 echo ""
 
-# Check if executable exists
+# chatbot_gui is a thin exec() launcher (ChatbotGUI_wrapper.cpp) that execs
+# chatbot_gui_binary — the actual Qt GUI logic (ChatbotGUI, BPETokenizer,
+# EncoderDecoderModel, ConversationContext) is compiled into
+# chatbot_gui_binary, not the wrapper. Every check below that inspects size,
+# Qt5 linkage, or symbol content was previously run against the wrapper,
+# which contains none of those things by design — confirmed empirically
+# (0 matching symbols in chatbot_gui vs. 743 in chatbot_gui_binary; wrapper
+# has zero Qt5 linkage and is well under the 1MB size threshold, so the size
+# check alone always failed with `exit 1` before this script could report
+# anything else). TD-124.
+GUI_BINARY="build/src/chatbot_gui_binary"
+
+# Check if launcher exists
 if [ ! -f "build/src/chatbot_gui" ]; then
     echo "❌ FAIL: chatbot_gui executable not found"
     exit 1
 fi
 echo "✅ Executable exists: build/src/chatbot_gui"
 
-# Check if executable is actually executable
+# Check if launcher is actually executable
 if [ ! -x "build/src/chatbot_gui" ]; then
     echo "❌ FAIL: chatbot_gui is not executable"
     exit 1
 fi
 echo "✅ Executable has correct permissions"
 
+# Check the real GUI binary exists
+if [ ! -f "$GUI_BINARY" ]; then
+    echo "❌ FAIL: chatbot_gui_binary not found"
+    exit 1
+fi
+echo "✅ Executable exists: $GUI_BINARY"
+
 # Check file size (should be > 1MB)
-SIZE=$(stat -c%s "build/src/chatbot_gui")
+SIZE=$(stat -c%s "$GUI_BINARY")
 if [ $SIZE -lt 1000000 ]; then
     echo "❌ FAIL: Executable too small ($SIZE bytes)"
     exit 1
@@ -36,7 +55,7 @@ fi
 echo "✅ Executable size: $(numfmt --to=iec-i --suffix=B $SIZE)"
 
 # Check if it's a proper ELF binary
-if ! file build/src/chatbot_gui | grep -q "ELF.*executable"; then
+if ! file "$GUI_BINARY" | grep -q "ELF.*executable"; then
     echo "❌ FAIL: Not a valid ELF executable"
     exit 1
 fi
@@ -45,30 +64,30 @@ echo "✅ Valid ELF executable"
 # Check Qt5 dependencies
 echo ""
 echo "Qt5 Dependencies:"
-ldd build/src/chatbot_gui | grep -i qt5 | head -5
+ldd "$GUI_BINARY" | grep -i qt5 | head -5
 
 # Check for required symbols
 echo ""
 echo "Checking for required components..."
-if nm build/src/chatbot_gui | grep -q "ChatbotGUI"; then
+if nm "$GUI_BINARY" | grep -q "ChatbotGUI"; then
     echo "✅ ChatbotGUI class found"
 else
     echo "❌ ChatbotGUI class not found"
 fi
 
-if nm build/src/chatbot_gui | grep -q "BPETokenizer"; then
+if nm "$GUI_BINARY" | grep -q "BPETokenizer"; then
     echo "✅ BPETokenizer integration found"
 else
     echo "❌ BPETokenizer integration not found"
 fi
 
-if nm build/src/chatbot_gui | grep -q "EncoderDecoderModel"; then
+if nm "$GUI_BINARY" | grep -q "EncoderDecoderModel"; then
     echo "✅ EncoderDecoderModel integration found"
 else
     echo "❌ EncoderDecoderModel integration not found"
 fi
 
-if nm build/src/chatbot_gui | grep -q "ConversationContext"; then
+if nm "$GUI_BINARY" | grep -q "ConversationContext"; then
     echo "✅ ConversationContext integration found"
 else
     echo "❌ ConversationContext integration not found"

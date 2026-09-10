@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # @adai-status: beta        (capped by TD-044 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.7.0
-# @adai-reviewed: 2026-09-07
+# @adai-version: 0.7.1
+# @adai-reviewed: 2026-09-10
 
 
 # Comprehensive test suite for chatbot_gui
@@ -86,19 +86,30 @@ else
     fail "Qt detection not found in CMakeLists.txt"
 fi
 
+# chatbot_gui is a thin exec() launcher (ChatbotGUI_wrapper.cpp) that execs
+# chatbot_gui_binary — the real Qt GUI logic (ChatbotGUI, BPETokenizer,
+# EncoderDecoderModel, ConversationContext, Qt linkage, MOC-generated slots)
+# lives in chatbot_gui_binary, not the wrapper. Every size/Qt-linkage/symbol
+# check below previously targeted the wrapper, which by design contains none
+# of it — confirmed empirically (0 matching symbols vs. 743; zero Qt5
+# linkage; the wrapper is ~124 KB, well under the 1MB size threshold, so
+# Test 3's size check alone always failed against a correct build). TD-124
+# (same class already fixed in test_chatbot_gui.sh).
+GUI_BINARY="build/src/chatbot_gui_binary"
+
 # Test 3: Executable
 section "Test 3: Executable"
 
-if [ -f "build/src/chatbot_gui" ]; then
+if [ -f "build/src/chatbot_gui" ] && [ -f "$GUI_BINARY" ]; then
     pass "Executable built successfully"
-    
-    SIZE=$(stat -c%s "build/src/chatbot_gui")
+
+    SIZE=$(stat -c%s "$GUI_BINARY")
     if [ $SIZE -gt 1000000 ]; then
         pass "Executable size reasonable ($(numfmt --to=iec-i --suffix=B $SIZE))"
     else
         fail "Executable too small ($SIZE bytes)"
     fi
-    
+
     if [ -x "build/src/chatbot_gui" ]; then
         pass "Executable has correct permissions"
     else
@@ -118,30 +129,30 @@ else
     warn "qmake not found (Qt may still be available)"
 fi
 
-if ldd build/src/chatbot_gui 2>/dev/null | grep -q libQt5; then
+if ldd "$GUI_BINARY" 2>/dev/null | grep -q libQt5; then
     pass "Linked against Qt5"
-    QT_WIDGETS=$(ldd build/src/chatbot_gui | grep -c Qt5Widgets)
-    QT_GUI=$(ldd build/src/chatbot_gui | grep -c Qt5Gui)
-    QT_CORE=$(ldd build/src/chatbot_gui | grep -c Qt5Core)
-    
+    QT_WIDGETS=$(ldd "$GUI_BINARY" | grep -c Qt5Widgets)
+    QT_GUI=$(ldd "$GUI_BINARY" | grep -c Qt5Gui)
+    QT_CORE=$(ldd "$GUI_BINARY" | grep -c Qt5Core)
+
     if [ $QT_WIDGETS -gt 0 ]; then
         pass "Qt5Widgets linked"
     else
         fail "Qt5Widgets not linked"
     fi
-    
+
     if [ $QT_GUI -gt 0 ]; then
         pass "Qt5Gui linked"
     else
         fail "Qt5Gui not linked"
     fi
-    
+
     if [ $QT_CORE -gt 0 ]; then
         pass "Qt5Core linked"
     else
         fail "Qt5Core not linked"
     fi
-elif ldd build/src/chatbot_gui 2>/dev/null | grep -q libQt6; then
+elif ldd "$GUI_BINARY" 2>/dev/null | grep -q libQt6; then
     pass "Linked against Qt6"
 else
     fail "No Qt libraries linked"
@@ -150,25 +161,25 @@ fi
 # Test 5: Code Integration
 section "Test 5: Chatbot Component Integration"
 
-if nm build/src/chatbot_gui 2>/dev/null | grep -q "ChatbotGUI"; then
+if nm "$GUI_BINARY" 2>/dev/null | grep -q "ChatbotGUI"; then
     pass "ChatbotGUI class integrated"
 else
     fail "ChatbotGUI class not found in binary"
 fi
 
-if nm build/src/chatbot_gui 2>/dev/null | grep -q "BPETokenizer"; then
+if nm "$GUI_BINARY" 2>/dev/null | grep -q "BPETokenizer"; then
     pass "BPETokenizer integrated"
 else
     fail "BPETokenizer not integrated"
 fi
 
-if nm build/src/chatbot_gui 2>/dev/null | grep -q "EncoderDecoderModel"; then
+if nm "$GUI_BINARY" 2>/dev/null | grep -q "EncoderDecoderModel"; then
     pass "EncoderDecoderModel integrated"
 else
     fail "EncoderDecoderModel not integrated"
 fi
 
-if nm build/src/chatbot_gui 2>/dev/null | grep -q "ConversationContext"; then
+if nm "$GUI_BINARY" 2>/dev/null | grep -q "ConversationContext"; then
     pass "ConversationContext integrated"
 else
     fail "ConversationContext not integrated"
@@ -177,19 +188,19 @@ fi
 # Test 6: Qt Signals/Slots
 section "Test 6: Qt Meta-Object System"
 
-if nm build/src/chatbot_gui 2>/dev/null | grep -q "onSendMessage"; then
+if nm "$GUI_BINARY" 2>/dev/null | grep -q "onSendMessage"; then
     pass "onSendMessage slot found"
 else
     fail "onSendMessage slot not found"
 fi
 
-if nm build/src/chatbot_gui 2>/dev/null | grep -q "onClearConversation"; then
+if nm "$GUI_BINARY" 2>/dev/null | grep -q "onClearConversation"; then
     pass "onClearConversation slot found"
 else
     fail "onClearConversation slot not found"
 fi
 
-if nm build/src/chatbot_gui 2>/dev/null | grep -q "onStrategyChanged"; then
+if nm "$GUI_BINARY" 2>/dev/null | grep -q "onStrategyChanged"; then
     pass "onStrategyChanged slot found"
 else
     fail "onStrategyChanged slot not found"
@@ -300,7 +311,7 @@ if [ $FAIL_COUNT -eq 0 ]; then
     echo "The chatbot_gui is ready to use!"
     echo ""
     echo "To run (requires graphical environment):"
-    echo "  cd /home/rodney/Repos/adai"
+    echo "  cd $(pwd)"
     echo "  ./build/src/chatbot_gui"
     echo ""
     exit 0

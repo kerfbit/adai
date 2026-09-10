@@ -4,13 +4,13 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** September 8, 2026
-**Total Items:** 26
+**Last Updated:** September 10, 2026
+**Total Items:** 27
 **High Priority:** 1
-**Medium Priority:** 12
+**Medium Priority:** 13
 **Low Priority:** 13
 **Future Enhancements:** 19
-**Resolved Items:** 93
+**Resolved Items:** 99
 **Deferred Decisions:** 1
 
 ## Table of Contents
@@ -20,6 +20,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 - [Active Technical Debt](#active-technical-debt)
   - [TD-059: Multi-Head and Cross-Attention Never Actually Split Into Heads](#td-059-multi-head-and-cross-attention-never-actually-split-into-heads)
   - [TD-064: paralleldataloaderTests Hung Indefinitely Under Full-Suite ctest -j8 (Root Cause Not Found)](#td-064-paralleldataloadertests-hung-indefinitely-under-full-suite-ctest--j8-root-cause-not-found)
+  - [TD-123: EncoderBlockTest.BackwardPassMatchesNumericalGradient Flakes Under Full-Suite ctest -j8](#td-123-encoderblocktestbackwardpassmatchesnumericalgradient-flakes-under-full-suite-ctest--j8)
   - [TD-050: GPU-Resident KV-Cache for Autoregressive Generation](#td-050-gpu-resident-kv-cache-for-autoregressive-generation)
   - [TD-033: chatbot_api_server Inference Never Uses Persistent GPU-Resident Decode](#td-033-chatbot_api_server-inference-never-uses-persistent-gpu-resident-decode)
   - [TD-032: Bundle SQLite3 Amalgamation for Windows Cross-Compilation](#td-032-bundle-sqlite3-amalgamation-for-windows-cross-compilation)
@@ -44,7 +45,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [TD-051: IncrementalTrainer::load_conversation_pairs() Is an Unmigrated Duplicate](#td-051-incrementaltrainerload_conversation_pairs-is-an-unmigrated-duplicate)
   - [TD-052: ParallelDataLoader's Batches Use Character Codes, Not Real Tokens](#td-052-paralleldataloaders-batches-use-character-codes-not-real-tokens)
   - [TD-053: ChatbotCLI's /save and /load Commands Are Non-Functional Everywhere](#td-053-chatbotclis-save-and-load-commands-are-non-functional-everywhere)
-- [Resolved Items](#resolved-items) (93 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+- [Resolved Items](#resolved-items) (99 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -229,6 +230,57 @@ Files to Modify:
 
 - `src/ParallelDataLoader.hpp` (pending root cause)
 - `tests/CMakeLists.txt` (timeout mitigation already applied)
+
+---
+
+### TD-123: EncoderBlockTest.BackwardPassMatchesNumericalGradient Flakes Under Full-Suite ctest -j8
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open — reproduced twice under -j8, passes reliably standalone, root cause not investigated | Testing / Numerical | September 10, 2026 | 2-4 hours (root-cause investigation) |
+
+Description:
+Observed twice in a row (two separate full `ctest -j8` runs, back to back, verifying an unrelated
+`scripts/`-only change set) while re-confirming the 78/78 baseline: `EncoderBlockTest.
+BackwardPassMatchesNumericalGradient` (`tests/encoderblock_test.cpp:336`) failed both times with the
+analytic gradient differing from the finite-difference numerical gradient by more than the test's own
+computed tolerance (e.g. a difference of 219.23 against a tolerance of 201.25 at one matrix position, and
+16.67 against 3.40 at another). The same binary run standalone (`./tests/encoderblockTests
+--gtest_filter="*BackwardPassMatchesNumericalGradient*"`) passed cleanly 3/3 times immediately after. No
+`src/` or `tests/` file was touched in the session that produced this observation — this is pre-existing
+test-suite behavior, discovered incidentally, not a regression from that session's (scripts/-only) changes.
+
+Likely cause (not confirmed): a numerical-gradient-check test comparing an analytically-computed gradient
+against a finite-difference approximation is inherently sensitive to any source of floating-point
+non-determinism. Under a full `-j8` suite run, 8 test binaries (several using OpenMP internally, per
+`adai_core`'s "Priority 1: OpenMP matrix operations") compete for the same CPU cores; different scheduling
+of OpenMP worker threads under contention could plausibly shift floating-point summation order enough to
+move a numerically-tight comparison from "just inside tolerance" to "just outside it" — consistent with
+both observed failures being borderline (analytic and numerical values in the same ballpark, not
+wildly divergent) rather than catastrophically wrong. This is a hypothesis, not a confirmed diagnosis.
+
+This is the second distinct test in this codebase now observed to be reliable standalone but flaky
+specifically under full-suite `-j8` contention — see TD-064 (`paralleldataloaderTests`, a hang rather than
+a numerical mismatch, also not root-caused). The existing blanket `TIMEOUT 1200` mitigation from TD-064
+does not help here since this test fails fast (19.88s) rather than hanging.
+
+Action Items:
+
+- [ ] Re-run the full suite under `-j8` several more times to establish a rough flake rate (only 2 data
+  points so far, both failures — could be a very high flake rate under load, or coincidence).
+- [ ] Try `-j8` with only `encoderblockTests` plus 1-2 of the other OpenMP-heavy suites running
+  concurrently (rather than the full 78-suite mix) to narrow down whether contention alone reproduces it
+  with a much faster iteration loop than a full-suite run.
+- [ ] If reproduced in a faster harness, check whether `OMP_NUM_THREADS=1` (forcing single-threaded
+  OpenMP) eliminates the flake — would strongly confirm the thread-scheduling/summation-order hypothesis
+  above.
+- [ ] If confirmed, either loosen `BackwardPassMatchesNumericalGradient`'s tolerance to account for
+  legitimate floating-point variance under thread contention, or pin `OMP_NUM_THREADS` for this specific
+  test if reproducibility matters more than measuring real parallel numerical behavior.
+
+Files to Modify:
+
+- `tests/encoderblock_test.cpp` (pending root cause)
 
 ---
 

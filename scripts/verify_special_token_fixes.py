@@ -2,7 +2,7 @@
 
 # @adai-status: experimental        (one-off verification script for a specific past fix; capped by TD-046 — see TECHNICAL_DEBT.md)
 # @adai-version: 0.3.0
-# @adai-reviewed: 2026-09-07
+# @adai-reviewed: 2026-09-10
 
 """Simple test to verify special token fixes work correctly"""
 

@@ -4,6 +4,199 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-126: test_chatbot_gui_comprehensive.sh Had the Same Wrong-Binary Bug as TD-124, More Extensively
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/test_chatbot_gui_comprehensive.sh` | Same fix as TD-124: point size/Qt-linkage/symbol checks at `chatbot_gui_binary` |
+
+Summary:
+Found immediately after TD-124, checking this file's simpler sibling for the same bug — and it's present
+far more extensively here. Test 3 (size), Test 4 (Qt5/Qt6 linkage, 4 sub-checks), Test 5 (4 component
+symbol checks), and Test 6 (3 Qt slot symbol checks) — 12 individual assertions in total — all ran against
+the thin `chatbot_gui` launcher instead of `chatbot_gui_binary`, the actual Qt GUI executable that contains
+all of that content. Also found a second, unrelated bug while fixing this: the "all tests passed" summary
+printed `cd /home/rodney/Repos/adai` — the same single-developer hardcoded-path pattern already fixed
+elsewhere this session (TD-116/117/118), here in an `echo`'d instruction rather than an actual `cd`.
+
+Changes Made:
+- `scripts/test_chatbot_gui_comprehensive.sh`: introduced a `GUI_BINARY="build/src/chatbot_gui_binary"`
+  variable; Test 3's size check and all of Tests 4-6 now target it instead of `chatbot_gui`. Test 3 also
+  now requires `chatbot_gui_binary` to exist (in addition to the launcher) before reporting "Executable
+  built successfully."
+- Changed the printed `cd /home/rodney/Repos/adai` to `cd $(pwd)`, matching wherever the script is
+  actually being run from rather than one developer's checkout path.
+
+Verification:
+- ✅ Before/after regression against a real, freshly rebuilt tree (same temporary `build/src ->
+  debug/src` symlink technique as TD-124; removed after testing, confirmed no stray git changes since
+  `build/` is gitignored):
+  - Pre-fix: 11 of 28 checks failed — the size check, all 4 Qt-linkage sub-checks, all 4 component-symbol
+    checks, and the corresponding slot checks — confirmed via the actual failing-check list.
+  - Post-fix: those same 11 checks all pass (27 of 31 passed — the 2 remaining failures, "GUI guide
+    documentation not found" and "Quick reference README not found," are genuinely missing files
+    unrelated to this bug, confirmed via direct `ls`, and correctly out of scope for this fix).
+- ✅ `bash -n` and ShellCheck (`-S warning`, clean — the remaining `-S info` notes are pre-existing,
+  unrelated unquoted-numeric-comparison style nits already present throughout this file).
+
+---
+
+### TD-124: test_chatbot_gui.sh Verified the Wrong Binary — Always Failed on a Correct Build
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/test_chatbot_gui.sh` | Point the size/ELF/Qt5/symbol checks at `chatbot_gui_binary`, the real GUI executable, instead of the thin `chatbot_gui` launcher |
+
+Summary:
+Found while reading `test_chatbot_gui.sh` end to end, immediately after confirming (for TD-114/116/117/118)
+that `chatbot_gui` really does build under `build/src/`. `chatbot_gui` is not the GUI itself — per
+`src/CMakeLists.txt`, it's `ChatbotGUI_wrapper.cpp`, a thin `exec()` launcher that just fixes up
+snap/library environment variables and then execs the real binary, `chatbot_gui_binary` (built from
+`ChatbotGUI_main.cpp` + `ChatbotGUI.cpp`, linked against `adai_models`/`adai_nlp`/`adai_attention`/
+`adai_core`). This test script's size check, ELF check, Qt5-dependency listing, and all four `nm` symbol
+checks (`ChatbotGUI`, `BPETokenizer`, `EncoderDecoderModel`, `ConversationContext`) ran against the
+**wrapper**, which by design contains none of that — confirmed directly: `nm` found 0 matching symbols in
+`chatbot_gui` vs. 743 in `chatbot_gui_binary`, and the wrapper has zero Qt5 linkage at all (it doesn't
+`#include` anything Qt-related). Worse, the size check (`< 1MB` fails) meant the script `exit 1`'d
+immediately at that point on *every* run against a correct build — the wrapper is ~124 KB, the real binary
+~17 MB — so this script could never get past its own third check to report anything about the actual
+components it exists to verify.
+
+Changes Made:
+- `scripts/test_chatbot_gui.sh`: kept the existence/executable-permission checks against the actual
+  `chatbot_gui` launcher (that's what a user runs, and checking it exists and is executable is legitimate),
+  but added an explicit existence check for `chatbot_gui_binary` and pointed every other check (size, ELF
+  validity, Qt5 dependencies, all four symbol checks) at it instead.
+
+Verification:
+- ✅ Before/after regression against a real, freshly rebuilt tree (via a temporary `build/src ->
+  debug/src` symlink; `build/` is gitignored, symlink removed after testing, confirmed no stray git
+  changes):
+  - Pre-fix: failed at the size check exactly as predicted — `❌ FAIL: Executable too small (127528
+    bytes)`, exit 1, before any of the Qt5/symbol checks ever ran.
+  - Post-fix: all checks pass against the real 17 MB `chatbot_gui_binary` — correct size, valid ELF, all
+    three Qt5 libraries listed, and all four component symbols found — script reaches its final "Build
+    Verification: SUCCESS" banner and exits 0.
+- ✅ `bash -n` and ShellCheck (`-S warning`, clean — the two remaining `-S info` notes, unquoted
+  `$SIZE`/`$GUI_BINARY` in the size comparison and `numfmt` call, are pre-existing and harmless since
+  `$SIZE` is always a plain integer from `stat -c%s`).
+
+### TD-122: verify_gui_parallel.sh's Printed Convenience-Script Path Was Wrong
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/verify_gui_parallel.sh` | Corrected `./run_chatbot_gui.sh` to `./scripts/run_chatbot_gui.sh` |
+
+Summary:
+Found while reading `verify_gui_parallel.sh` end to end (it already correctly uses `build/src/chatbot_gui*`
+throughout — that target genuinely has no `RUNTIME_OUTPUT_DIRECTORY` override, unlike the `chatbot`/
+`chatbot_api_server` bugs fixed as TD-114/116/117/118). Every path in this script is relative to the repo
+root, consistent with its own `./build/...` checks — but its closing tip said `./run_chatbot_gui.sh`,
+while that script actually lives in `scripts/run_chatbot_gui.sh`. A user following the printed instruction
+verbatim from the repo root would get "No such file or directory."
+
+Changes Made:
+- `scripts/verify_gui_parallel.sh`: corrected the printed path to `./scripts/run_chatbot_gui.sh`.
+
+Verification:
+- ✅ Confirmed `run_chatbot_gui.sh` exists only at `scripts/run_chatbot_gui.sh`, not at the repo root.
+- ✅ `bash -n` and a clean ShellCheck pass (`-S warning`).
+
+### TD-121: check_ports.sh's Own Self-Documented Port List Gap (mns_server, Trainer Admin API)
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/check_ports.sh` | Added ports 8083 (mns_server) and 8084 (trainer admin API) to the checked list |
+
+Summary:
+This file's own `@adai-status` line already documented the gap being fixed here: `PORTS=(8080 8081
+8082)` covers `chatbot_api_server`, `metrics_api_server`, and `registry_server`, but omits `mns_server`
+(8083) and `incremental_trainer serve`'s admin API (8084) — both real, current ports per CLAUDE.md's
+service/port tables. Since the fix is unambiguous (the two missing ports are well-established elsewhere
+in the docs, not a design question) and the change is a trivial, safe addition to a read-only diagnostic
+script's port list, fixed it directly rather than leaving the self-acknowledged gap in place.
+
+Changes Made:
+- `scripts/check_ports.sh`: `PORTS` now includes 8083 and 8084.
+- Removed the now-resolved caveat from the `@adai-status` line.
+
+Verification:
+- ✅ Ran the patched script (read-only — it only queries `ss`/`lsof`/`netstat`, no mutation) and confirmed
+  it now reports on all five ports, including the two previously-omitted ones.
+- ✅ `bash -n` and a clean ShellCheck pass (`-S warning`).
+
+### TD-120: install_oneapi_libs.sh's --help Leaked the Internal Tag Block, Same Bug Class as TD-107
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/install_oneapi_libs.sh` | Replaced the blank-line-bounded `sed` range with the same pattern-based `awk` extraction used to fix TD-107 |
+
+Summary:
+Found while reading `install_oneapi_libs.sh` end to end — the second independent occurrence this session
+of the TD-107 bug class. `--help` ran `sed -n '2,/^$/s/^# \?//p' "$0"`, intending to print the header
+comment block "from line 2 up to its first blank line." But the file's `@adai-status`/`@adai-version`/
+`@adai-reviewed` tag block (lines 3-5, right after the shebang) has its own blank line immediately after
+it (line 6) — well before the real usage documentation even begins — so the sed range ended there,
+printing only the three tag lines. The real usage text (description, `Usage:`, and the full `Options:`
+list) never printed at all.
+
+Changes Made:
+- `scripts/install_oneapi_libs.sh`: replaced the `sed` one-liner with the same `awk` pattern already used
+  to fix TD-107 in `model_service.sh` — skip the shebang, any `@adai-*` tag line, and any other
+  non-comment line (blanks, the `set -euo pipefail` line that sits between the tag block and the real
+  doc) by pattern, then print every subsequent comment line until the first non-comment line.
+
+Verification:
+- ✅ Before/after regression against the real file: pre-fix `--help` printed exactly the 3 tag lines
+  (confirmed via `wc -l` = 3, matching the predicted symptom); post-fix prints the full, correct usage
+  text (description, `Usage:`, and all five `Options:` entries).
+- ✅ `bash -n` and a clean ShellCheck pass (`-S warning`).
+
+### TD-119: fix_markdown_lint.py Corrupted Code-Block Content Containing 2+ Pipe Characters
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/fix_markdown_lint.py` | Gave the MD060/MD036 second pass its own fence-tracking, mirroring the first pass |
+
+Summary:
+Found while reading `fix_markdown_lint.py` end to end. The file runs two passes over each markdown file:
+the first pass tracks `in_code_block` and explicitly leaves fenced code-block content untouched (per its
+own comment, "Inside code blocks: pass through untouched"); the second pass — MD060 table-compacting and
+MD036 emphasis-as-heading — has **no fence tracking of its own** and runs unconditionally over every line
+the first pass produced, including everything inside code fences. Its trigger condition, "line contains 2+
+literal `|` characters," matches extremely common code content: any bash pipeline with two pipes (`cat f |
+grep x | wc -l`), or the two adjacent `|` characters in a C/C++ `||` operator. Reproduced directly: a
+fenced bash block containing `cat foo.txt | grep bar | wc -l` came out as `cat foo.txt |grep bar| wc -l` —
+the tool's table-formatting logic silently stripped the spacing around the pipes in a real, documented
+shell command, in direct contradiction of its own stated invariant. Since this script's whole purpose is
+bulk in-place rewriting of every `.md` file in the repository, a real (non---check) run risked quietly
+degrading code examples throughout the documentation corpus.
+
+While reading the file, also found the docstring's rule list claims MD029 (ordered list renumbering) is
+fixed, but no renumbering logic exists anywhere in the code — a "documented but not implemented" gap. Given
+the tool's high blast radius (it bulk-rewrites real documentation), a new feature implementation risked
+introducing a fresh, untested mutation path rather than fixing a bug with well-understood before/after
+behavior; corrected the docstring to accurately describe what the tool does instead.
+
+Changes Made:
+- `scripts/fix_markdown_lint.py`: the second pass now tracks its own code-fence state (mirroring the
+  first pass's `is_code_fence()`/`in_code_block` logic) and skips both the MD060 and MD036 transformations
+  entirely while inside a fence, applying them only to real prose/table content.
+- Removed the false MD029 claim from the docstring's rule list, with a note on why it isn't implemented.
+
+Verification:
+- ✅ Before/after regression via direct reproduction: a bash code block containing `cat foo.txt | grep
+  bar | wc -l` — pre-fix, `fix_markdown()` returned it mangled to `cat foo.txt |grep bar| wc -l`
+  (`changed=True`); post-fix, the code block passes through byte-for-byte identical, while a genuine
+  markdown table immediately after it in the same input is still correctly compacted
+  (`| Col1  |  Col2 |` → `|Col1|Col2|`) — confirming the fence-tracking fix doesn't regress the feature it
+  was protecting.
+- ✅ Ran the patched tool in its non-mutating `--check` mode against the real repository (155 files
+  flagged, consistent with a large existing corpus of minor pre-existing lint issues, no crashes) —
+  deliberately did not run the mutating (`--fix`) mode against real files, to avoid a second file-mutation
+  incident this session (see the TD-116/117/118 entry's incident note on `run_tests.sh`).
+- ✅ `python3 -m py_compile` and `pyflakes` clean.
+
 ### TD-118: Six More Scripts Referenced chatbot/chatbot_api_server at the Wrong Build Path
 
 | Resolution Date | Component | Resolved By |

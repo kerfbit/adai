@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # @adai-status: beta        (capped by TD-044 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.6.0
-# @adai-reviewed: 2026-09-07
+# @adai-version: 0.6.1
+# @adai-reviewed: 2026-09-10
 
 # Chatbot GUI Parallel Processing Verification Script
 
@@ -100,7 +100,7 @@ echo "To run:"
 echo "  ./build/src/chatbot_gui --vocab vocab.txt --model chatbot_model.bin"
 echo ""
 echo "Or use the convenience script:"
-echo "  ./run_chatbot_gui.sh"
+echo "  ./scripts/run_chatbot_gui.sh"
 echo ""
 echo "For maximum performance, set OpenMP threads:"
 echo "  export OMP_NUM_THREADS=$(nproc)"

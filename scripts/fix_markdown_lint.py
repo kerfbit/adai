@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
 # @adai-status: beta        (general repo-maintenance utility, no test; capped by TD-045 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.6.0
-# @adai-reviewed: 2026-09-07
+# @adai-version: 0.6.1
+# @adai-reviewed: 2026-09-10
 
 """
 Markdown lint fixer for the ADAI repository.
@@ -12,12 +12,18 @@ Finds and fixes common markdownlint violations across all .md files.
 Rules fixed:
   MD009  Trailing whitespace
   MD022  Headings should be surrounded by blank lines
-  MD029  Ordered list item prefix (consistent numbering)
   MD031  Fenced code blocks should be surrounded by blank lines
   MD032  Lists should be surrounded by blank lines
   MD036  Emphasis used instead of heading
   MD040  Fenced code blocks should have a language specifier
   MD060  Table column style (compact, no spaces around pipes)
+
+  NOT fixed despite being listed here in an earlier revision: MD029
+  (ordered list item prefix / consistent numbering). No renumbering logic
+  was ever actually implemented — TD-119 — so a file whose only lint
+  issue is inconsistent ordered-list numbering is silently reported/left
+  as "clean" by this tool. Use `--markdownlint` (if markdownlint-cli is
+  installed) for that rule in the meantime.
 
 Usage:
     # Check all .md files in the repo (exit 1 if issues found)
@@ -177,8 +183,23 @@ def fix_markdown(lines):
         i += 1
 
     # --- Second pass: tables (MD060) and emphasis-as-heading (MD036) ---
+    # Must track code-fence state independently of the first pass: without it,
+    # this loop reached INTO fenced code blocks and reformatted any line with
+    # 2+ literal "|" characters as if it were a table row — corrupting real
+    # code examples (a bash pipeline like `cat f | grep x | wc -l` became
+    # `cat f |grep x| wc -l`) in direct contradiction of the first pass's own
+    # "Inside code blocks: pass through untouched" comment above. TD-119.
     final = []
+    in_code_block_2 = False
     for line in fixed:
+        if is_code_fence(line):
+            in_code_block_2 = not in_code_block_2
+            final.append(line)
+            continue
+        if in_code_block_2:
+            final.append(line)
+            continue
+
         # MD060: compact table style
         if "|" in line and not line.strip().startswith("```") and line.count("|") >= 2:
             parts = line.rstrip("\n").split("|")
