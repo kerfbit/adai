@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-033 — generate_response() never uses GPU-resident decode, see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.1
-// @adai-reviewed: 2026-09-09
+// @adai-version: 0.9.2
+// @adai-reviewed: 2026-09-10
 
 #include "ChatbotAPI.hpp"
 #include <httplib.h>
@@ -166,6 +166,29 @@ std::string ChatbotAPI::handle_chat_session(const std::string& request_body) {
 
     // Get or create session
     Session* session = get_or_create_session(session_id);
+
+    // TD-095 (fixed): when session_id arrives empty (every first message of a
+    // new conversation — see ChatbotCLI::generate_response(), which only
+    // includes "session_id" in the request once it has one to send),
+    // get_or_create_session() allocates a fresh internal id but there was no
+    // way to recover it here — session_id stayed empty for the rest of this
+    // function, so the response below always reported "session_id":"" on
+    // session creation. The client (ChatbotCLI and anything else following
+    // the same "start empty, adopt whatever the server returns" pattern)
+    // never learns the real id, so it can never send it on the next message —
+    // every single message silently created and abandoned a brand-new
+    // session, and multi-turn history never actually accumulated.
+    // generate_batch_session_responses() already solves this exact "might be
+    // newly created" case via the same reverse pointer-lookup; mirrored here.
+    if (session_id.empty()) {
+        std::lock_guard<std::mutex> lock(sessions_mutex_);
+        for (const auto& pair : sessions_) {
+            if (pair.second.get() == session) {
+                session_id = pair.first;
+                break;
+            }
+        }
+    }
 
     // Add user message to conversation context
     session->context->add_user_message(message);

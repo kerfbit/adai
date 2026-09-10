@@ -503,6 +503,36 @@ TEST(DecoderTest, SetLearningRate) {
     });
 }
 
+// TD-093 regression: set_learning_rate() used to only set LLMDecoder's own
+// (otherwise-unread) learning_rate member — every sub-component silently kept
+// whatever learning rate it was constructed with. Assert the new rate actually
+// reaches token_embedding, every decoder block's own sub-components (via
+// DecoderBlock::set_learning_rate(), which does propagate correctly), and
+// final_norm.
+TEST(DecoderTest, SetLearningRatePropagatesToAllSubComponents) {
+    int vocab_size = 100;
+    int d_model = 64;
+    int num_layers = 2;
+    LLMDecoder decoder(vocab_size, d_model, num_layers);
+
+    const float new_lr = 0.0123f;
+    decoder.set_learning_rate(new_lr);
+
+    EXPECT_FLOAT_EQ(decoder.get_token_embedding()->learning_rate, new_lr);
+    EXPECT_FLOAT_EQ(decoder.get_final_norm()->learning_rate, new_lr);
+
+    for (int layer = 0; layer < num_layers; ++layer) {
+        DecoderBlock* block = decoder.get_decoder_block(layer);
+        EXPECT_FLOAT_EQ(block->learning_rate, new_lr) << "layer " << layer;
+        EXPECT_FLOAT_EQ(block->get_self_attention()->learning_rate, new_lr) << "layer " << layer;
+        EXPECT_FLOAT_EQ(block->get_cross_attention()->learning_rate, new_lr) << "layer " << layer;
+        EXPECT_FLOAT_EQ(block->get_feed_forward()->learning_rate, new_lr) << "layer " << layer;
+        EXPECT_FLOAT_EQ(block->get_norm1()->learning_rate, new_lr) << "layer " << layer;
+        EXPECT_FLOAT_EQ(block->get_norm2()->learning_rate, new_lr) << "layer " << layer;
+        EXPECT_FLOAT_EQ(block->get_norm3()->learning_rate, new_lr) << "layer " << layer;
+    }
+}
+
 // ============================================================================
 // Weight Update Tests
 // ============================================================================

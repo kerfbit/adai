@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-038 — tested (PerformanceProfilerTest), but not wired into any shipped binary)
-// @adai-version: 0.7.0
-// @adai-reviewed: 2026-09-08
+// @adai-version: 0.7.1
+// @adai-reviewed: 2026-09-10
 
 
 #include <algorithm>
@@ -312,16 +312,53 @@ class Profiler {
     }
 };
 
+namespace adai_profiler_detail {
+// Minimal RAII scope-guard: runs `func_` from its destructor, i.e. at the end
+// of whatever scope the guard variable lives in — not immediately.
+template <typename F>
+class ScopeGuard {
+   public:
+    explicit ScopeGuard(F func) : func_(std::move(func)) {}
+    ~ScopeGuard() {
+        func_();
+    }
+    ScopeGuard(ScopeGuard&&) = default;
+    ScopeGuard(const ScopeGuard&) = delete;
+    ScopeGuard& operator=(const ScopeGuard&) = delete;
+    ScopeGuard& operator=(ScopeGuard&&) = delete;
+
+   private:
+    F func_;
+};
+
+template <typename F>
+ScopeGuard<F> make_scope_guard(F func) {
+    return ScopeGuard<F>(std::move(func));
+}
+}  // namespace adai_profiler_detail
+
+#define ADAI_PROFILE_CONCAT_(a, b) a##b
+#define ADAI_PROFILE_CONCAT(a, b) ADAI_PROFILE_CONCAT_(a, b)
+
 /**
  * Macro for easy profiling of code blocks
+ *
+ * TD-097 (fixed): the guard variable used to be bound to the *return value*
+ * of an immediately-invoked lambda — `[&](){ profiler.stop(name); return 0; }()`
+ * calls stop() right there on the same line, back-to-back with start(), before
+ * a single instruction of the profiled block ran. Every measurement was ~0ms
+ * regardless of what followed, silently defeating the whole point of a scoped
+ * profiler. It also token-pasted the guard's name directly with `name`
+ * (`__profiler_guard_##name`), which only compiles when `name` is a bare
+ * identifier — the typical call shape, a string literal section name (e.g.
+ * `PROFILE_SCOPE(profiler, "encode")`), failed to compile at all. Fixed with a
+ * real RAII guard whose destructor (not an immediately-invoked function) calls
+ * stop(), named from `__LINE__` so string-literal `name` arguments work too.
  */
-#define PROFILE_SCOPE(profiler, name)      \
-    profiler.start(name);                  \
-    auto __profiler_guard_##name = [&]() { \
-        profiler.stop(name);               \
-        return 0;                          \
-    }();                                   \
-    (void)__profiler_guard_##name;
+#define PROFILE_SCOPE(profiler, name)                                          \
+    (profiler).start(name);                                                    \
+    auto ADAI_PROFILE_CONCAT(__profile_scope_guard_, __LINE__) =               \
+        adai_profiler_detail::make_scope_guard([&]() { (profiler).stop(name); })
 
 /**
  * Benchmark runner for comparing implementations

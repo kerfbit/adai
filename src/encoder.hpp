@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-08
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-09-10
 
 
 #include <algorithm>

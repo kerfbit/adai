@@ -363,6 +363,32 @@ TEST_F(PerformanceProfilerTest, ProfilerMultipleSections) {
     EXPECT_GT(s2.mean_time, 0.0);
 }
 
+// TD-097 regression: PROFILE_SCOPE's "guard" used to be bound to the return
+// value of an immediately-invoked lambda that called stop() right there on
+// the same line — before a single instruction of the profiled block below it
+// ran. Put real, non-trivial work *after* the macro invocation, inside the
+// same scope: pre-fix, that work was never actually timed (stop() had
+// already run), so the recorded duration was ~0ms regardless of the busy
+// loop's size. This call shape (a string-literal section name) also failed
+// to compile at all against the pre-fix macro's `##name` token-paste.
+TEST_F(PerformanceProfilerTest, ProfileScopeMacroTimesTheWholeBlockNotJustItsOwnLine) {
+    Profiler profiler;
+
+    {
+        PROFILE_SCOPE(profiler, "scoped_section");
+        volatile long sum = 0;
+        for (int i = 0; i < 20000000; ++i) {
+            sum += i;
+        }
+    }
+
+    ProfileStats stats = profiler.get_stats("scoped_section");
+    ASSERT_EQ(stats.call_count, 1);
+    EXPECT_GT(stats.total_time, 0.01)
+        << "PROFILE_SCOPE recorded near-zero time despite a large busy-loop inside its "
+           "scope — stop() likely ran immediately instead of at scope exit";
+}
+
 // ============================================================================
 // Integration Tests
 // ============================================================================

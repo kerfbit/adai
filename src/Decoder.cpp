@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-08
+// @adai-version: 0.9.1
+// @adai-reviewed: 2026-09-10
 
 #include "Decoder.hpp"
 #include "Logger.hpp"
@@ -287,8 +287,28 @@ void LLMDecoder::set_training(bool mode) {
 }
 
 // Set learning rate
+//
+// TD-093 (fixed): used to only set this object's own `learning_rate` member,
+// which nothing else in this class ever reads — update_weights(float) takes
+// its own (also-unused) parameter instead, and every sub-component keeps
+// whichever learning_rate it was constructed with. Unlike DecoderBlock's own
+// set_learning_rate() (which does propagate to every sub-component), calling
+// this had no effect on token_embedding or any decoder block at all. Currently
+// masked in the shipped trainer because ChatbotTrainer always registers an
+// Optimizer immediately after construction, and once registered a component's
+// update_weights() permanently routes through optimizer->step() instead of its
+// own learning_rate member — but the optimizer's own rate is set separately
+// (ChatbotTrainer::step() calls both optimizer->set_learning_rate() and
+// model->set_learning_rate() side by side), so anything relying on this call
+// alone (e.g. the SGD fallback path, or a future caller with no optimizer)
+// would silently train at whatever the default learning rate happened to be.
 void LLMDecoder::set_learning_rate(float lr) {
     learning_rate = lr;
+    token_embedding->learning_rate = lr;
+    for (auto& block : decoder_blocks) {
+        block->set_learning_rate(lr);
+    }
+    final_norm->learning_rate = lr;
 }
 
 // Save weights

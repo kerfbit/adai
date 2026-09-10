@@ -2,8 +2,8 @@
 #define GPU_UTILS_SYCL_HPP
 
 // @adai-status: beta        (capped by TD-041 — GPUManager/GPUMemory only exercised incidentally, no dedicated test)
-// @adai-version: 0.6.0
-// @adai-reviewed: 2026-09-08
+// @adai-version: 0.6.1
+// @adai-reviewed: 2026-09-10
 
 
 #include <cstddef>
@@ -298,6 +298,25 @@ class GPUMemory {
     // the device, while keeping the calling thread non-blocking (no .wait()).
     static void defer_free(T* ptr, size_t bytes) {
         if (!ptr) {
+            return;
+        }
+        // TD-096 (fixed): GPUManager::get_queue() throws std::runtime_error
+        // when !initialized_ (e.g. after GPUManager::cleanup()/Matrix::gpu_cleanup()
+        // has already torn down the queue). ~GPUMemory() is implicitly
+        // noexcept(true) (its only members are a raw pointer and a size_t,
+        // both with trivial non-throwing destructors), so an exception
+        // escaping from here during destruction — or from the move-assignment
+        // operator's call to defer_free() on the old resource — calls
+        // std::terminate() immediately, crashing the whole process. Currently
+        // unreachable in practice (Matrix::gpu_cleanup(), the only caller of
+        // GPUManager::cleanup(), itself has zero callers anywhere in this
+        // codebase), but a real, sharp trap the moment graceful-shutdown GPU
+        // teardown is implemented (see ChatbotAPIServer.cpp's own "Model State
+        // Persistence on Shutdown" TODO) and any GPUMatrix/GPUMemory happens to
+        // still be alive when it runs. If the queue is already gone there is
+        // nothing to submit a host_task to anyway — the SYCL runtime reclaims
+        // device allocations when the context itself is destroyed.
+        if (!GPUManager::is_available()) {
             return;
         }
         GPUManager::get_queue().submit([ptr, bytes](sycl::handler& cgh) {

@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-035 — shipped as metrics_api_server, no dedicated test)
 // @adai-version: 0.8.0
-// @adai-reviewed: 2026-09-08
+// @adai-reviewed: 2026-09-10
 
 #include <atomic>
 #include <csignal>
@@ -63,6 +63,8 @@ void print_usage(const char* program_name) {
     std::cout << "  --max-live-sessions N        Max live metrics sessions (default: 16)\n";
     std::cout
         << "  --completed-ttl-seconds N    Completed session TTL in seconds (default: 3600)\n";
+    std::cout << "  --sweep-interval-seconds N   Background eviction sweep interval (default: "
+                 "60)\n";
     std::cout << "  --staleness-threshold-seconds N  Seconds idle before a session is stale "
                  "(default: 60)\n";
     std::cout << "  --no-persistence             Disable persistence to disk\n";
@@ -71,6 +73,12 @@ void print_usage(const char* program_name) {
     std::cout << "  --name-service-url URL       Model Name Service URL (default: "
                  "http://localhost:8083)\n";
     std::cout << "  --no-name-service            Disable name service integration\n";
+    std::cout << "  --storage-backend NAME       Metrics DB backend: sqlite+file|sqlite|postgres "
+                 "(default: sqlite+file)\n";
+    std::cout << "  --db-path PATH               SQLite database file path (default: "
+                 "training_sessions/metrics.db)\n";
+    std::cout << "  --db-url URL                 PostgreSQL connection URL (storage-backend=postgres)\n";
+    std::cout << "  --db-pool-size N             PostgreSQL connection pool size (default: 4)\n";
     std::cout << "  --help                       Show this help message\n\n";
     std::cout << "Examples:\n";
     std::cout << "  " << program_name << "\n";

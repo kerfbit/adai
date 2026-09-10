@@ -776,6 +776,49 @@ TEST_F(TokenBatchLoaderTest, NextBatchAndTargetBatchStayPaired) {
     loader.stop();
 }
 
+// TD-098 regression: with use_dynamic_batching on, load_batch() used to sort
+// input_sequences and target_sequences *independently* by their own lengths
+// before building each TokenBatch — input_batch[k] and target_batch[k] then
+// only corresponded to the same original sample by coincidence. The fixture
+// dataset's input length is driven by i%10 and target length by i%8 (see
+// SetUp() above) specifically so the two independent length-sorts diverge.
+TEST_F(TokenBatchLoaderTest, InputAndTargetRowsWithinABatchStayAligned) {
+    TokenBatchLoaderConfig config;
+    config.batch_size = 10;
+    config.num_workers = 1;
+    config.load_targets = true;
+    config.use_dynamic_batching = true;
+    config.shuffle = false;
+
+    TokenBatchLoader loader(dataset, config, tokenizer_fn);
+    loader.new_epoch();
+
+    for (int b = 0; b < 3; ++b) {
+        auto input = loader.next_batch();
+        auto target = loader.next_target_batch();
+        ASSERT_TRUE(input.has_value());
+        ASSERT_TRUE(target.has_value());
+        ASSERT_EQ(input->batch_size(), target->batch_size());
+
+        for (int k = 0; k < input->batch_size(); ++k) {
+            // Every input row's real (unpadded) content is a repeated
+            // uppercase letter; every target row's real content is a
+            // repeated lowercase letter, both derived from the same i%26 —
+            // input_char - 'A' must equal target_char - 'a' iff row k of
+            // each batch still comes from the same original sample.
+            ASSERT_GT(input->lengths[k], 0);
+            ASSERT_GT(target->lengths[k], 0);
+            int input_char = input->batch_token_ids[k][0];
+            int target_char = target->batch_token_ids[k][0];
+            EXPECT_EQ(input_char - 'A', target_char - 'a')
+                << "batch " << b << " row " << k
+                << ": input/target rows no longer correspond to the same original sample";
+        }
+    }
+
+    loader.stop();
+}
+
 TEST_F(TokenBatchLoaderTest, NoTargetsConfiguredReturnsNulloptForTargetBatch) {
     TokenBatchLoaderConfig config;
     config.batch_size = 5;

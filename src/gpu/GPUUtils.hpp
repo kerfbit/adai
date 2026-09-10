@@ -3,7 +3,7 @@
 
 // @adai-status: beta        (capped by TD-041 — GPUManager/GPUMemory only exercised incidentally via Matrix's tests, no dedicated test)
 // @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-10
 
 
 #include <cstddef>

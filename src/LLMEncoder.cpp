@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-08
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-09-10
 
 #include <algorithm>
 #include <cassert>
@@ -196,11 +196,22 @@ void LLMEncoder::set_requires_grad(bool requires_grad) {
     this->requires_grad = requires_grad;
 }
 
+// TD-093 (fixed): the "propagation happens through their components" comment
+// was aspirational, not actual — nothing here ever touched encoder_blocks, and
+// EncoderBlock has no set_learning_rate() of its own to delegate to (only a
+// public learning_rate member that its own update_weights() re-syncs to
+// sub-components right before applying gradients). Every encoder block was
+// permanently stuck at its constructor default (0.001f) no matter what this
+// was called with. See Decoder.cpp's LLMDecoder::set_learning_rate() for the
+// identical defect on the decoder side and why it's currently masked in the
+// shipped trainer (Optimizer path bypasses these members once registered).
 void LLMEncoder::set_learning_rate(float lr) {
     learning_rate = lr;
     token_embedding->learning_rate = lr;
+    for (auto& block : encoder_blocks) {
+        block->learning_rate = lr;
+    }
     final_norm->learning_rate = lr;
-    // Learning rate propagation to encoder blocks happens through their components
 }
 
 void LLMEncoder::load_tokenizer_vocab(const std::string& vocab_file) {

@@ -1,6 +1,6 @@
 // @adai-status: experimental        (capped by TD-052 — batches use raw char codes, not a real tokenizer; corrected from an earlier, incorrect "stable" tag)
-// @adai-version: 0.4.1
-// @adai-reviewed: 2026-09-09
+// @adai-version: 0.4.2
+// @adai-reviewed: 2026-09-10
 
 /**
  * @file ParallelDataLoader.hpp
@@ -782,30 +782,34 @@ class TokenBatchLoader {
         }
 
         // Create batches using BatchProcessor utilities
-        TokenBatch input_batch;
+        //
+        // TD-098 (fixed): config_.use_dynamic_batching used to route through
+        // create_dynamic_batches() here, passing max_batch_size ==
+        // input_sequences.size() specifically so this whole already-fixed
+        // slice (start_idx..end_idx above) would land in one TokenBatch.
+        // create_dynamic_batches() is designed to split an unbounded pool
+        // into multiple length-homogeneous batches, and does so purely
+        // internally (sorting by each list's own lengths) whenever a slice's
+        // length spread exceeds length_tolerance, regardless of
+        // max_batch_size — two real bugs followed: (1) input_sequences and
+        // target_sequences were sorted *independently* by their own
+        // (generally uncorrelated) lengths, so input_batch[k] and
+        // target_batch[k] stopped corresponding to the same original sample
+        // the moment their length orderings diverged — every affected
+        // training step would pair a token sequence with the wrong target;
+        // (2) when a split did happen, only the first resulting group
+        // (batches[0]) was kept, silently dropping every sequence in the
+        // later groups from training. Padding within a single
+        // fixed-membership batch is unaffected by the sequences' internal
+        // order, so there is no efficiency benefit "dynamic" batching could
+        // have offered here anyway — plain create_batch() for both,
+        // unconditionally, guarantees no drops and preserves index
+        // correspondence between input_batch and target_batch by
+        // construction.
+        TokenBatch input_batch = create_batch(input_sequences, config_.pad_token_id);
         TokenBatch target_batch;
-
-        if (config_.use_dynamic_batching) {
-            // Use dynamic batching by length
-            auto batches = create_dynamic_batches(
-                input_sequences,
-                input_sequences.size(),  // All in one batch since we already sized it
-                config_.length_tolerance, config_.pad_token_id);
-            input_batch = batches.empty() ? TokenBatch() : batches[0];
-
-            if (config_.load_targets && !target_sequences.empty()) {
-                auto target_batches =
-                    create_dynamic_batches(target_sequences, target_sequences.size(),
-                                           config_.length_tolerance, config_.pad_token_id);
-                target_batch = target_batches.empty() ? TokenBatch() : target_batches[0];
-            }
-        } else {
-            // Simple batching with padding
-            input_batch = create_batch(input_sequences, config_.pad_token_id);
-
-            if (config_.load_targets && !target_sequences.empty()) {
-                target_batch = create_batch(target_sequences, config_.pad_token_id);
-            }
+        if (config_.load_targets && !target_sequences.empty()) {
+            target_batch = create_batch(target_sequences, config_.pad_token_id);
         }
 
         return {input_batch, target_batch};

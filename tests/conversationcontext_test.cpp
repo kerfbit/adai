@@ -435,7 +435,18 @@ TEST(ConversationContextTest, SaveToFile) {
     context.add_user_message("Hello");
     context.add_assistant_message("Hi");
 
-    std::string filepath = "test_conversation.txt";
+    // TD-099 (fixed): this used to be the bare name "test_conversation.txt" —
+    // tests/chatbotcli_improved_test.cpp's ChatbotCLITest fixture uses the
+    // exact same literal for its own conv_file and unconditionally
+    // std::remove()s it in TearDown() after every one of its test cases,
+    // regardless of whether that test actually wrote it. Under a parallel
+    // `ctest -j`, that binary and this one run concurrently in the same
+    // working directory, so ChatbotCLITest's teardown could delete this
+    // file out from under the save-then-reopen-and-verify sequence below,
+    // making file.good() intermittently false — a real, reproducible
+    // flake under -j, not a ConversationContext defect. A distinctive name
+    // removes the possibility of collision with any other test binary.
+    std::string filepath = "test_conversationcontext_savetofile.txt";
 
     EXPECT_NO_THROW({ context.save_to_file(filepath); });
 

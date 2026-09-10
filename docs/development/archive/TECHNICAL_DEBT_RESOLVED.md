@@ -4,6 +4,356 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-099: conversationcontext_test.cpp and chatbotcli_improved_test.cpp Raced on the Same Hardcoded Filename
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `tests/conversationcontext_test.cpp` (`SaveToFile`) | Use a filename distinctive to this test instead of one shared with another test binary |
+
+Summary:
+Found incidentally while verifying this session's second-pass batch: a full `ctest -j$(nproc)` run reported
+`ConversationContextTests` failing (`SaveToFile`, `file.good()` false) — running the binary alone passed
+100%, pointing at a parallel-execution-only flake rather than a real `ConversationContext` defect. Both
+`tests/conversationcontext_test.cpp`'s `SaveToFile` test and `tests/chatbotcli_improved_test.cpp`'s
+`ChatbotCLITest` fixture used the exact same hardcoded relative filename, `"test_conversation.txt"`, in
+the same working directory (`build/<preset>/`, ctest's default cwd for every test binary). `ChatbotCLITest`
+unconditionally calls `std::remove()` on it in `TearDown()` after *every one* of its test cases regardless
+of whether that particular test ever wrote it. Under `ctest -j`, both binaries run concurrently, so
+`ChatbotCLITest`'s teardown could delete the file out from under `SaveToFile`'s
+save-then-reopen-and-verify sequence in the other binary — a classic TOCTOU race between two otherwise
+fully independent test binaries sharing unguarded external state (a bare relative filename).
+
+Changes Made:
+- `tests/conversationcontext_test.cpp`: renamed `SaveToFile`'s filename to
+  `"test_conversationcontext_savetofile.txt"`, distinctive enough that no other test binary in this repo
+  could plausibly reuse it.
+
+Verification:
+- ✅ Reproduced the race directly and rigorously: reverted just this filename to the pre-fix
+  `"test_conversation.txt"`, then ran `chatbotcliImprovedTests` and `conversationcontextTests
+  --gtest_filter=*SaveToFile*` concurrently (backgrounded pairs, `wait`ed) for 30 iterations —
+  `SaveToFile` failed in 28 of 30 (only 2 passed), matching the exact `file.good()` symptom seen in the
+  full ctest run.
+- ✅ Restored the fix and re-ran the identical 30-iteration concurrent stress loop: 30/30 passed, 0
+  failures — confirms the race is gone, not just less likely.
+
+### TD-098: TokenBatchLoader's Dynamic Batching Silently Misaligned Input/Target Rows and Dropped Sequences
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `TokenBatchLoader::load_batch()` (`ParallelDataLoader.hpp`) | Always build both batches via plain `create_batch()`, dropping the broken `create_dynamic_batches()` path for this already-fixed-size slice |
+
+Summary:
+Found during the second, independent full-codebase re-audit while re-reading `src/BatchProcessor.hpp` end
+to end and tracing its `create_dynamic_batches()` free function into every caller — one of which,
+`TokenBatchLoader::load_batch()` (the same class fixed for TD-087 earlier in this pass, for an unrelated
+dual-queue deadlock), had `config_.use_dynamic_batching` (`true` by default) routed through it with
+`max_batch_size == input_sequences.size()` specifically so the whole already-fixed-size slice
+(`start_idx..end_idx`, computed just above from a sequential chunk of the shuffled epoch — this loader has
+no upstream length-based grouping across the epoch, only this one per-slice call) would land in a single
+`TokenBatch`. `create_dynamic_batches()` is designed to split an *unbounded pool* into multiple
+length-homogeneous batches, and does so purely from each list's own lengths regardless of `max_batch_size`
+whenever the slice's length spread exceeds `length_tolerance` — two real bugs followed: (1)
+`input_sequences` and `target_sequences` were sorted **independently** by their own (generally
+uncorrelated) lengths before batching, so `input_batch.batch_token_ids[k]` and
+`target_batch.batch_token_ids[k]` stopped corresponding to the same original sample the moment their
+length orderings diverged — every affected training step would silently pair one sample's input with a
+*different* sample's target; (2) when `create_dynamic_batches()` did split a slice into multiple
+length-groups, only the first group (`batches[0]`) was kept, silently dropping every sequence in the later
+groups from that training step entirely. Padding within a single fixed-membership batch is unaffected by
+the sequences' internal order — `create_batch()` always pads every member to the same shared max length
+regardless of order — so "dynamic" batching could never have offered any real efficiency benefit at this
+call site even before these two bugs. `TokenBatchLoader` still has zero callers anywhere in this codebase
+(confirmed via grep, same as at TD-087), so neither defect has ever fired in production, but the existing
+TD-087 regression tests (`NextBatchAndTargetBatchStayPaired` etc.) only check that a batch pair came from
+the same `load_batch()` call, never that individual rows *within* one already-correctly-paired batch still
+correspond to each other — so they did not, and could not, catch this.
+
+Changes Made:
+- `src/ParallelDataLoader.hpp`: `TokenBatchLoader::load_batch()` now builds both `input_batch` and
+  `target_batch` unconditionally via `create_batch()` — no `create_dynamic_batches()` call, no
+  `config_.use_dynamic_batching` branch — guaranteeing every sequence in the slice is kept and that index
+  `k` means the same original sample in both batches by construction.
+
+Verification:
+- ✅ Added `InputAndTargetRowsWithinABatchStayAligned` to `tests/paralleldataloader_test.cpp`, using the
+  existing `TokenBatchLoaderTest` fixture's dataset (input length driven by `i%10`, target length by
+  `i%8`, and both encoding the same `i%26` letter in their repeated-character content) — asserts every row
+  `k` of every batch has `input_char - 'A' == target_char - 'a'`, which only holds if row `k` in both
+  batches still comes from the same original sample.
+- ✅ Before/after regression: reverted `ParallelDataLoader.hpp` to its pre-fix `HEAD`, rebuilt
+  `paralleldataloaderTests`, confirmed the new test fails with the exact predicted symptom (mismatched
+  input/target rows across most of the batch — e.g. `input_char - 'A'` = 19 vs `target_char - 'a'` = 16);
+  restored the fix, rebuilt, confirmed pass.
+- ✅ Full `paralleldataloaderTests` suite (38/38) passes.
+
+### TD-097: PROFILE_SCOPE Stopped Its Timer Immediately Instead of at Scope Exit
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `PROFILE_SCOPE` macro (`PerformanceProfiler.hpp`) | Replace the immediately-invoked lambda with a real RAII scope-guard whose destructor calls `stop()` |
+
+Summary:
+Found during the second, independent full-codebase re-audit while re-reading `src/PerformanceProfiler.hpp`
+end to end (372 lines). `PROFILE_SCOPE(profiler, name)` was meant to be the `Profiler`-based counterpart to
+the file's own (correctly-implemented, immediately above it) RAII `ScopedTimer` class — start a timer on
+entry, stop it automatically whenever the enclosing scope ends. Instead, its "guard" variable was bound to
+the *return value* of an **immediately-invoked** lambda: `auto __profiler_guard_##name = [&](){
+profiler.stop(name); return 0; }();` — the trailing `()` calls the lambda, and therefore `stop()`, right
+there on that same line, back-to-back with the `start()` call one line above it, before a single
+instruction of the "profiled" block that follows had executed. Every measurement taken through this macro
+was ~0ms regardless of how much work the block actually did, silently defeating the entire point of a
+scoped profiler. Separately, the guard variable's name was built by token-pasting `__profiler_guard_`
+directly with the macro parameter (`__profiler_guard_##name`), which only produces a valid identifier when
+`name` is itself a bare identifier token — the typical call shape shown in the file's own usage pattern (a
+string-literal section name, e.g. `PROFILE_SCOPE(profiler, "encode")`) failed to compile at all, confirmed
+by attempting exactly that call shape against the pre-fix macro. `PROFILE_SCOPE` has zero call sites
+anywhere in this codebase today, so neither defect had ever been exercised.
+
+Changes Made:
+- `src/PerformanceProfiler.hpp`: added a minimal `adai_profiler_detail::ScopeGuard<F>` RAII template (calls
+  a stored callable from its destructor) and `make_scope_guard()` factory, then rewrote `PROFILE_SCOPE` to
+  construct one of these — via a `__LINE__`-based unique variable name, so a string-literal `name` no
+  longer needs to be part of any identifier — with a lambda that calls `stop()`. The destructor now fires
+  at actual scope exit instead of on the macro's own line.
+
+Verification:
+- ✅ Added `ProfileScopeMacroTimesTheWholeBlockNotJustItsOwnLine` to `tests/inference_optimization_test.cpp`
+  (in the existing `PerformanceProfilerTest` fixture): wraps a large busy-loop in `PROFILE_SCOPE(profiler,
+  "scoped_section")` and asserts the recorded `total_time` is well above a near-zero floor — a result only
+  possible if `stop()` genuinely ran after the loop, not before it.
+- ✅ Before/after regression: reverted `PerformanceProfiler.hpp` to its pre-fix `HEAD` and rebuilt
+  `inferenceOptimizationTests` — confirmed the exact predicted compile failure (`pasting
+  "__profiler_guard_" and ""scoped_section"" does not give a valid preprocessing token`); restored the fix,
+  rebuilt, confirmed the new test compiles and passes.
+- ✅ Full `inferenceOptimizationTests` suite (20/20, 1 pre-existing `DISABLED_` test unaffected) passes.
+
+### TD-096: SYCL GPUMemory's Deferred Free Could Throw Out of a noexcept Destructor
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `adai::gpu::GPUMemory<T>::defer_free()` (SYCL backend) | Skip the deferred host_task submission when `GPUManager` is no longer initialized, instead of calling `get_queue()` unconditionally |
+
+Summary:
+Found during the second, independent full-codebase re-audit while re-reading `src/gpu/sycl/GPUUtils_SYCL.hpp`
+end to end (378 lines). `GPUMemory<T>::defer_free()` — called from `~GPUMemory()` and from the move-assignment
+operator's release of the old resource — unconditionally called `GPUManager::get_queue()` to submit the
+actual `sycl::free()` as a deferred `host_task`. `get_queue()` throws `std::runtime_error` when
+`GPUManager` isn't initialized (e.g. after `GPUManager::cleanup()` — reachable via `Matrix::gpu_cleanup()`
+— has already destroyed the queue). `~GPUMemory()` is implicitly `noexcept(true)` (its only members, a raw
+pointer and a `size_t`, both have trivial non-throwing destructors), so any exception escaping from inside
+it — including one thrown transitively from `defer_free()` — triggers `std::terminate()` immediately, not a
+catchable `std::runtime_error`: any `GPUMemory`/`GPUMatrix` object still alive after `GPUManager::cleanup()`
+runs would crash the whole process the instant it (or a move-assignment onto it) is destructed. The CUDA
+backend's equivalent `GPUMemory::~GPUMemory()` has no analogous hazard — it calls `cudaFree()` directly
+without going through `GPUManager` at all — so this was a SYCL-only gap between the two backends that are
+otherwise meant to expose the same contract, the same "one backend fixed/hardened, the twin quietly wasn't"
+shape this audit keeps finding (see TD-088, TD-090).
+
+Currently unreachable in production: `Matrix::gpu_cleanup()` (the only caller of `GPUManager::cleanup()`
+anywhere in this codebase) itself has zero callers — nothing in any shipped binary ever tears the GPU
+subsystem down before process exit. But it is a real, sharp trap for the moment graceful GPU shutdown is
+implemented (`ChatbotAPIServer.cpp` already carries a "Model State Persistence on Shutdown" TODO in the
+same spirit) and any GPU-resident layer state happens to still be alive when it runs.
+
+Changes Made:
+- `src/gpu/sycl/GPUUtils_SYCL.hpp`: `defer_free()` now checks `GPUManager::is_available()` first and
+  returns immediately if the subsystem is already torn down — there is nothing to submit a `host_task` to
+  in that case, and the SYCL runtime reclaims device allocations when the context itself is destroyed.
+
+Verification:
+- ⚠️ Inspection-verified only, same caveat as TD-088's SYCL half: this sandboxed environment has no `icpx`
+  (`cmake --preset=sycl` fails at the CMake `project()`/compiler-detection step before any compilation is
+  attempted), so this fix could not be compiled or exercised. The change is a narrow, purely-defensive
+  early return guarded by an existing, already-used predicate (`GPUManager::is_available()`), touching no
+  other code path — no observable difference in behavior while `GPUManager` is initialized (the only case
+  currently reachable in practice, since nothing calls `cleanup()`).
+
+### TD-095: handle_chat_session() Never Reported a Newly-Created session_id, Breaking All Multi-Turn History
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `ChatbotAPI::handle_chat_session()` | Recover the internally-generated session id via the same reverse pointer-lookup `generate_batch_session_responses()` already uses, before writing the response |
+
+Summary:
+Found during the second, independent full-codebase re-audit while re-reading `ChatbotCLI.cpp` end to end
+and following its `/chat/session` request/response contract into `ChatbotAPI.cpp`. `ChatbotCLI::generate_response()`
+only includes a `session_id` field in its request body once `session_id` is non-empty — the very first
+message of every conversation sends none, exactly matching the documented "server allocates one, client
+adopts it" pattern. Server-side, `get_or_create_session("")` correctly allocates a fresh internal id
+(`create_session_id()`) and creates a new `Session` for it — but `handle_chat_session()` never recovered
+that generated id anywhere: it kept using its own local `session_id` variable (parsed once from the
+request, at that point still empty) all the way through to the response it writes, so
+`{"success":true,"response":"...","session_id":""}` was returned on every single first message.
+`ChatbotCLI`, and anything else following the same "start empty, adopt whatever the server returns"
+convention, could then never learn the real id to send on the *next* message — so every message request
+again arrived with an empty `session_id`, silently creating and immediately abandoning a brand-new session
+each time. Multi-turn conversation history — the entire reason `/chat/session` exists, as opposed to the
+stateless `/chat` endpoint — never actually accumulated for any client behaving this way.
+
+This is the exact same "might be newly created" case `ChatbotAPI::generate_batch_session_responses()`
+already solves correctly, just a few hundred lines away in the same file: it reverse-looks-up
+`sessions_` by the `Session*` pointer returned from `get_or_create_session()` to recover the assigned id
+whenever the caller passed one empty. `handle_chat_session()` — the *older*, singular-request sibling of
+that batch method — never received the same fix, and had no direct unit test coverage to catch it: the
+existing TD-063 JSON-escaping tests exercise `handle_chat_session()` only indirectly (it's a private
+method, and C++ friendship doesn't propagate to the `TEST_F`-generated fixture subclass), and no live/
+integration test for `chatbot_api_server` exists in this repository to have caught it at the HTTP level.
+
+Changes Made:
+- `src/ChatbotAPI.cpp`: `handle_chat_session()` now performs the same reverse pointer-lookup into
+  `sessions_` (already proven correct in `generate_batch_session_responses()`) immediately after
+  `get_or_create_session()`, populating `session_id` before it's used anywhere else in the function —
+  including the final JSON response.
+
+Verification:
+- ✅ Added a `call_handle_chat_session()` friend-wrapper to the `ChatbotAPITest` fixture in
+  `tests/chatbotapi_test.cpp` (matching the existing `call_generate_response()` pattern — `handle_chat_session()`
+  is private and friendship doesn't propagate to `TEST_F` subclasses), plus two new tests:
+  `HandleChatSession_NewConversationReturnsNonEmptySessionId` (a request with no `session_id` must get a
+  non-empty one back) and `HandleChatSession_ReturnedSessionIdContinuesTheSameConversation` (sending that
+  id back on a second message must return the identical id, proving it addresses the same live session).
+- ✅ Before/after regression: reverted `ChatbotAPI.cpp` to its pre-fix `HEAD`, rebuilt `chatbotapiTests`,
+  confirmed both new tests fail with the exact predicted symptom (`session_id` empty both times); restored
+  the fix, rebuilt, confirmed pass.
+- ✅ Full `chatbotapiTests` suite (48/48) passes.
+
+### TD-094: CheckpointManager's Superseded "Best" Flag Never Cleared On Disk
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `CheckpointManager::save_checkpoint()` | Re-persist each superseded checkpoint's metadata when its `is_best` flag is cleared, not just the in-memory copy |
+
+Summary:
+Found during the second, independent full-codebase re-audit while re-reading `src/CheckpointManager.hpp`
+end to end (452 lines). When a new checkpoint becomes the best (lowest validation loss),
+`save_checkpoint()` clears `is_best` on every other checkpoint — but only in the in-memory `checkpoints_`
+vector; it never called `save_metadata()` again for the checkpoint(s) whose flag just changed, so their
+`.meta` file on disk kept saying `is_best=true` forever. This was harmless as long as the process stayed
+up (`rotate_checkpoints()` reads the in-memory flag, which was correctly cleared, and by construction only
+one entry was ever the true in-memory best). But `load_existing_checkpoints()` — run at the top of every
+`CheckpointManager` constructor, i.e. on every resumed training session, a normal and expected path for
+this codebase's incremental training model — rebuilds `checkpoints_` straight from these `.meta` files and
+trusts each one's `is_best` at face value. Every checkpoint ever marked best in *any* past session before
+being superseded would come back as `is_best=true` on the next restart, and `rotate_checkpoints()` never
+deletes an `is_best` checkpoint — so stale "best" checkpoints from earlier sessions became permanently
+immune to rotation, accumulating on disk indefinitely and silently defeating the class's whole stated
+purpose ("Automatic rotation (keep N best checkpoints)", "Automatic cleanup of old checkpoints"). A second,
+related consequence: with multiple `is_best=true` entries reloaded, directory-iteration order (not epoch
+order) would decide which one `load_existing_checkpoints()`'s tracking loop settled on as
+`best_checkpoint_path_`/`best_validation_loss_`, so a genuinely worse checkpoint could even win over the
+true best depending on filesystem enumeration order.
+
+Changes Made:
+- `src/CheckpointManager.hpp`: `save_checkpoint()`'s existing "mark previous best as not best" loop now
+  calls `save_metadata(ckpt)` immediately after clearing each checkpoint's `is_best`, so disk and memory
+  never diverge — including self-healing any already-corrupted directory that (pre-fix) accumulated
+  multiple stale `is_best=true` files, since every one found still set is cleared and re-persisted here.
+
+Verification:
+- ✅ Added `SupersededBestIsClearedOnDisk` to `tests/checkpointmanager_test.cpp`: saves two checkpoints
+  where the second supersedes the first, then reads the first's `.meta` file directly off disk and asserts
+  it says `is_best=false`.
+- ✅ Added `RestartDoesNotResurrectStaleBestFlags`, reproducing the real-world consequence: saves two
+  checkpoints (with dummy `.bin` files, matching the existing `LoadExistingCheckpoints` test's pattern) in
+  one `CheckpointManager` scope, destroys it (simulating process exit), constructs a fresh
+  `CheckpointManager` over the same directory (simulating a resumed session), and asserts exactly one
+  reloaded checkpoint is marked best and that it's the correct (lowest validation loss) one.
+- ✅ Before/after regression: reverted `CheckpointManager.hpp` to its pre-fix `HEAD`, rebuilt
+  `checkpointmanagerTests`, confirmed both new tests fail with the exact predicted symptom (epoch 0's
+  on-disk metadata still reading `is_best=true`; the restarted manager reloading `best_count == 2` instead
+  of 1); restored the fix, rebuilt, confirmed pass.
+- ✅ Full `checkpointmanagerTests` suite (20/20) passes.
+
+### TD-093: LLMEncoder/LLMDecoder's set_learning_rate() Never Reached Their Own Blocks
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `LLMDecoder::set_learning_rate()`, `LLMEncoder::set_learning_rate()` | Propagate the new rate to every sub-component (decoder/encoder blocks, token embedding, final norm) instead of just an unread top-level member |
+
+Summary:
+Found during the second, independent full-codebase re-audit while re-reading `src/Decoder.cpp` end to end
+(479 lines) — spotted while checking whether `update_weights(float learning_rate)`'s parameter was actually
+used (it isn't; every callee is called with no arguments). `LLMDecoder::set_learning_rate(float lr)` set
+only its own `learning_rate` member, which nothing else in the class reads: `token_embedding` and every
+`DecoderBlock` kept whichever learning rate they were constructed with (0.001f), forever. This is the exact
+opposite of `DecoderBlock::set_learning_rate()` (its own sub-component, one level down), which correctly
+propagates to `self_attention`/`cross_attention`/`feed_forward`/`norm1-3` — `LLMDecoder` just never made the
+one extra call needed to chain into it. Checking the sibling class turned up the identical defect:
+`LLMEncoder::set_learning_rate()` propagated to `token_embedding` and `final_norm` but not to any
+`encoder_blocks` entry, despite an inline comment claiming "propagation... happens through their
+components" — untrue; `EncoderBlock` has no `set_learning_rate()` to delegate to, only a public
+`learning_rate` member that its own `update_weights()` re-syncs to sub-components right before applying
+gradients, and nothing ever wrote to that member from the encoder level.
+
+Currently masked in the shipped trainer: `ChatbotTrainer` always constructs an `Optimizer` and calls
+`model->register_parameters(*optimizer)` immediately afterward (`ChatbotTrainer.cpp:748`/`:1953`), and once
+a component's `optimizer` pointer is set it permanently routes `update_weights()` through `optimizer->step()`
+instead of the SGD-fallback branch that reads these `learning_rate` members — so today's training runs are
+governed by `optimizer->set_learning_rate()` (called right next to `model->set_learning_rate()` in
+`ChatbotTrainer.cpp:828-830`), not by this. But anything that calls `set_learning_rate()` expecting it to
+behave like its own sub-component's identically-named method (or a future/alternate caller that trains
+without an optimizer) would silently keep training every block at the constructor-default rate with no
+error — the same class of silent, hard-to-notice divergence this whole audit keeps finding between two
+things that are supposed to mirror each other.
+
+Changes Made:
+- `src/Decoder.cpp`: `LLMDecoder::set_learning_rate()` now also sets `token_embedding->learning_rate`,
+  calls `block->set_learning_rate(lr)` for every decoder block, and sets `final_norm->learning_rate`.
+- `src/LLMEncoder.cpp`: `LLMEncoder::set_learning_rate()` now also sets `block->learning_rate` directly for
+  every encoder block (no `set_learning_rate()` exists on `EncoderBlock` to call instead), alongside its
+  existing `token_embedding`/`final_norm` propagation.
+
+Verification:
+- ✅ Added `SetLearningRatePropagatesToAllSubComponents` to `tests/decoder_test.cpp` and
+  `SetLearningRatePropagatesToEncoderBlocks` to `tests/llmencoder_test.cpp`, reading back
+  `learning_rate` from every sub-component via existing `get_*()` accessors after calling
+  `set_learning_rate()` with a value distinct from the 0.001f constructor default.
+- ✅ Before/after regression: reverted both `Decoder.cpp` and `LLMEncoder.cpp` to their pre-fix `HEAD`,
+  rebuilt `decoderTests`/`llmencoderTests`, confirmed both new tests fail with the exact predicted symptom
+  (every sub-component reading back the 0.001f default instead of the newly-set rate); restored the fix,
+  rebuilt, confirmed pass.
+- ✅ Full `decoderTests` (48/48) and `llmencoderTests` (37/37) suites pass.
+
+### TD-092: BatchedInferenceEngine Silently Ignored Every Per-Request Generation Config
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `BatchedInferenceEngine::process_batch()` | Apply each request's own `gen_config` via `generator_->set_config()` before generating it, instead of delegating the whole batch to `generate_batch()` |
+
+Summary:
+Found during the second, independent full-codebase re-audit while re-reading `src/BatchedInferenceEngine.hpp`
+end to end (483 lines). `submit()`'s own doc comment advertises a `gen_config` parameter as "Optional
+per-request generation config (uses default if not specified)", and `InferenceRequest` faithfully captures
+it. But `process_batch()` never read `InferenceRequest::gen_config` at all — it extracted just the prompt
+strings and handed them to `generator_->generate_batch(model_fn_, *tokenizer_, prompts)`, which internally
+loops calling `generate_text()` using `generator_`'s own fixed member `config` (set once at construction
+from `default_gen_config_` and never touched again). Two requests submitted with different
+`strategy`/`temperature`/`max_length` always generated identically, silently using whichever config the
+engine happened to be constructed with — the entire per-request override feature was a no-op. The existing
+`SubmitWithExplicitGenConfig` test only checked that submitting with a `gen_config` didn't crash and
+eventually completed; it never checked the config was actually applied, so it passed both before and after
+this fix and did not catch the defect.
+
+Changes Made:
+- `src/BatchedInferenceEngine.hpp`: `process_batch()` now loops over `batch` directly, calling
+  `generator_->set_config(req.gen_config)` immediately before `generator_->generate_text(model_fn_,
+  *tokenizer_, req.prompt)` for each request — the same sequential-generation shape `generate_batch()` had
+  internally, now actually honoring what each caller asked for. Restores `default_gen_config_` on
+  `generator_` after the loop so the engine's own default is what's active between batches.
+
+Verification:
+- ✅ Added `SubmitWithExplicitGenConfigAppliesPerRequestMaxLength` to
+  `tests/batchedinferenceengine_test.cpp`: builds a small real vocab via `build_vocab()`, uses a model_fn
+  that always predicts the same non-stop-token id (so only `max_length` can end generation), submits one
+  request with the engine's default `max_length=2` and another with an explicit per-request
+  `max_length=15`, and asserts the second produces strictly more decoded output than the first.
+- ✅ Before/after regression: reverted only `BatchedInferenceEngine.hpp` to its pre-fix `HEAD`, rebuilt
+  `batchedinferenceengineTests`, confirmed the new test fails with the exact predicted symptom (both
+  results identical — `"startthe"` vs `"startthe"` — since both silently used the engine's default
+  `max_length=2` instead of the override's 15); restored the fix, rebuilt, confirmed pass.
+- ✅ Full `batchedinferenceengineTests` suite (52/52) passes.
+
 ### TD-091: 19 Config Keys Were Settable via the File but Had No Environment-Variable Override
 
 | Resolution Date | Component | Resolved By |

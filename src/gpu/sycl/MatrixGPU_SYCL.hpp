@@ -3,7 +3,7 @@
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-10
 
 
 #include "GPUUtils_SYCL.hpp"

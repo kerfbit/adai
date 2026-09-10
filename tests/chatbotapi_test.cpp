@@ -70,6 +70,12 @@ class ChatbotAPITest : public ::testing::Test {
                                        const ChatbotAPI::GenerationConfig& config) {
         return api->generate_response(input, config);
     }
+
+    // handle_chat_session() is private; same friendship-doesn't-propagate
+    // reason as call_generate_response() above.
+    std::string call_handle_chat_session(const std::string& request_body) {
+        return api->handle_chat_session(request_body);
+    }
 };
 
 // ============================================================================
@@ -283,6 +289,45 @@ TEST_F(ChatbotAPITest, CreateBatchJsonResponse_EscapesEmbeddedQuoteInError) {
 
     EXPECT_EQ(response.find(R"("pwned":true)"), std::string::npos)
         << "unescaped quote in batch error injected a sibling field: " << response;
+}
+
+// ============================================================================
+// Session Continuity Regression Tests (TD-095)
+//
+// handle_chat_session() used to only echo back whatever session_id arrived in
+// the request. On the very first message of a new conversation the request
+// carries no session_id at all (see ChatbotCLI::generate_response(), which
+// only includes the field once it has a real one to send) — get_or_create_session()
+// allocates a fresh internal id in that case, but handle_chat_session() never
+// recovered it, so the response's "session_id" field stayed "" and the caller
+// could never send it back on the next message. Every message silently
+// created and abandoned a brand-new session — multi-turn history never
+// accumulated. generate_batch_session_responses() already solved this exact
+// case via a reverse pointer-lookup into sessions_; the same pattern is now
+// applied to handle_chat_session().
+// ============================================================================
+
+TEST_F(ChatbotAPITest, HandleChatSession_NewConversationReturnsNonEmptySessionId) {
+    std::string response = call_handle_chat_session(R"({"message":"hello"})");
+    std::string session_id = api->parse_json_string(response, "session_id");
+
+    EXPECT_FALSE(session_id.empty())
+        << "server allocated a new session but never reported its id back to the caller: "
+        << response;
+}
+
+TEST_F(ChatbotAPITest, HandleChatSession_ReturnedSessionIdContinuesTheSameConversation) {
+    std::string first_response = call_handle_chat_session(R"({"message":"hello"})");
+    std::string session_id = api->parse_json_string(first_response, "session_id");
+    ASSERT_FALSE(session_id.empty());
+
+    std::string second_request =
+        R"({"session_id":")" + session_id + R"(","message":"how are you"})";
+    std::string second_response = call_handle_chat_session(second_request);
+    std::string second_session_id = api->parse_json_string(second_response, "session_id");
+
+    EXPECT_EQ(second_session_id, session_id)
+        << "the id the caller sent back should identify the same, still-live session";
 }
 
 // ============================================================================

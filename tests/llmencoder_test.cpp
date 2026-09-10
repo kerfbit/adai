@@ -308,6 +308,24 @@ TEST_F(LLMEncoderTest, SetLearningRate) {
     // Should not crash
 }
 
+// TD-093 regression: set_learning_rate() used to only set LLMEncoder's own
+// (otherwise-unread) learning_rate member and token_embedding/final_norm —
+// every encoder block's own learning_rate member (the one its own
+// update_weights() re-syncs to its sub-components right before applying
+// gradients) silently stayed at its 0.001f constructor default forever.
+TEST_F(LLMEncoderTest, SetLearningRatePropagatesToEncoderBlocks) {
+    LLMEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
+
+    const float new_lr = 0.0123f;
+    encoder.set_learning_rate(new_lr);
+
+    EXPECT_FLOAT_EQ(encoder.get_token_embedding()->learning_rate, new_lr);
+    EXPECT_FLOAT_EQ(encoder.get_final_norm()->learning_rate, new_lr);
+    for (int layer = 0; layer < NUM_LAYERS; ++layer) {
+        EXPECT_FLOAT_EQ(encoder.get_encoder_block(layer)->learning_rate, new_lr) << "layer " << layer;
+    }
+}
+
 TEST_F(LLMEncoderTest, ZeroGrad) {
     LLMEncoder encoder(VOCAB_SIZE, D_MODEL, NUM_LAYERS, NUM_HEADS, D_FF, MAX_SEQ_LEN);
     encoder.zero_grad();

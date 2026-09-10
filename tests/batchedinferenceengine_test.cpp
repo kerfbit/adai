@@ -513,6 +513,63 @@ TEST_F(EngineFunctionalTest, SubmitWithExplicitGenConfig) {
     engine.shutdown();
 }
 
+// TD-092 regression: a request's own gen_config (passed to submit()) used to be
+// captured into InferenceRequest and then never read again — process_batch()
+// generated every request in the batch through generator_'s own fixed
+// default_gen_config_ regardless of what each caller asked for. This model_fn
+// never predicts EOS (unlike eos_model_fn above), so generation always runs
+// until max_length is hit — making max_length differences directly observable
+// in the decoded output length.
+TEST_F(EngineFunctionalTest, SubmitWithExplicitGenConfigAppliesPerRequestMaxLength) {
+    auto tok = std::make_shared<BPETokenizer>();
+    tok->build_vocab({"the quick brown fox jumps over the lazy dog"}, 50);
+
+    // Any real (non-special) vocab id works — the model just has to keep
+    // predicting something that isn't a stop token so max_length is the only
+    // thing that can end generation.
+    int target_id = tok->encode("the", /*add_special_tokens=*/false)[0];
+    ASSERT_GE(target_id, 4);  // past the reserved PAD/UNK/BOS/EOS ids (0-3)
+    const int vocab_cols = static_cast<int>(tok->get_vocab_size());
+
+    auto repeat_model_fn = [target_id, vocab_cols](const std::vector<int>& /*tokens*/) {
+        Matrix logits(1, vocab_cols);
+        logits(0, target_id) = 100.0f;
+        return logits;
+    };
+
+    BatchedInferenceConfig cfg;
+    cfg.timeout_ms = 200;  // generous enough to let both requests land in one batch
+
+    TextGenerator::GenerationConfig default_gen;
+    default_gen.temperature = 0.0f;  // deterministic argmax
+    default_gen.max_length = 2;
+
+    BatchedInferenceEngine engine(repeat_model_fn, tok, cfg, default_gen);
+
+    auto default_future = engine.submit("start");
+
+    TextGenerator::GenerationConfig override_gen;
+    override_gen.temperature = 0.0f;
+    override_gen.max_length = 15;
+    auto override_future = engine.submit("start", &override_gen);
+
+    ASSERT_EQ(default_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+    ASSERT_EQ(override_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+
+    const std::string default_result = default_future.get();
+    const std::string override_result = override_future.get();
+
+    // Both requests share the same prompt and tokenizer, so any length
+    // difference comes purely from how many tokens each generated — which
+    // must track each request's own max_length, not just the engine default.
+    EXPECT_GT(override_result.size(), default_result.size())
+        << "default_result=\"" << default_result << "\" override_result=\"" << override_result
+        << "\" — override's max_length=15 should generate more tokens than "
+           "default's max_length=2, proving the per-request gen_config was applied";
+
+    engine.shutdown();
+}
+
 TEST_F(EngineFunctionalTest, MultipleSequentialSubmits) {
     auto tok = make_tokenizer();
     BatchedInferenceEngine engine(eos_model_fn, tok, fast_config());

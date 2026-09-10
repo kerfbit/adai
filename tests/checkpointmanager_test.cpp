@@ -202,6 +202,48 @@ TEST_F(CheckpointManagerTest, BestCheckpointMarking) {
     EXPECT_FALSE(info2.is_best);
 }
 
+// TD-094 regression: superseding a checkpoint's is_best flag used to only
+// clear it in memory, never re-writing the superseded checkpoint's .meta
+// file — so the file on disk kept saying "is_best=true" forever.
+TEST_F(CheckpointManagerTest, SupersededBestIsClearedOnDisk) {
+    CheckpointManager manager(test_dir, 5);
+
+    manager.save_checkpoint(0, 5.0f, 5.5f);  // Best for a moment
+    manager.save_checkpoint(1, 4.0f, 4.5f);  // Supersedes epoch 0
+
+    std::ifstream meta0(test_dir + "checkpoint_epoch_0000.bin.meta");
+    ASSERT_TRUE(meta0.is_open());
+    std::string content((std::istreambuf_iterator<char>(meta0)), std::istreambuf_iterator<char>());
+    EXPECT_NE(content.find("is_best=false"), std::string::npos)
+        << "epoch 0's on-disk metadata still claims is_best=true after being superseded:\n"
+        << content;
+}
+
+// TD-094 regression: reproduces the real-world consequence — a process
+// restart (CheckpointManager re-constructed over the same directory, as
+// happens on every resumed training session) used to resurrect every
+// checkpoint ever marked best in any past session as permanently immune to
+// rotation, since load_existing_checkpoints() trusts each .meta file's
+// stale is_best=true at face value.
+TEST_F(CheckpointManagerTest, RestartDoesNotResurrectStaleBestFlags) {
+    {
+        CheckpointManager manager(test_dir, 5);
+        create_dummy_checkpoint(manager.save_checkpoint(0, 5.0f, 5.5f));  // Best for a moment
+        create_dummy_checkpoint(manager.save_checkpoint(1, 4.0f, 4.5f));  // Supersedes epoch 0
+    }
+
+    // Simulate a process restart: a fresh manager over the same directory.
+    CheckpointManager restarted(test_dir, 5);
+
+    int best_count = 0;
+    for (const auto& ckpt : restarted.get_checkpoints()) {
+        if (ckpt.is_best)
+            ++best_count;
+    }
+    EXPECT_EQ(best_count, 1) << "exactly one checkpoint should be marked best after reload";
+    EXPECT_EQ(restarted.get_best_checkpoint_path(), test_dir + "checkpoint_epoch_0001.bin");
+}
+
 // Test: Timestamp recording
 TEST_F(CheckpointManagerTest, TimestampRecording) {
     CheckpointManager manager(test_dir, 5);

@@ -3,7 +3,7 @@
 
 // @adai-status: experimental        (capped by TD-034 — policy-ratio and KL early-stop are hardcoded placeholders, see TECHNICAL_DEBT.md)
 // @adai-version: 0.2.0
-// @adai-reviewed: 2026-09-08
+// @adai-reviewed: 2026-09-10
 
 
 #include <algorithm>

@@ -2,8 +2,8 @@
 #define CHECKPOINT_MANAGER_HPP
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-08
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-09-10
 
 
 #include <algorithm>
@@ -312,9 +312,26 @@ class CheckpointManager {
             best_checkpoint_path_ = filepath;
             is_best = true;
 
-            // Mark previous best as not best
+            // Mark previous best as not best.
+            //
+            // TD-094 (fixed): this used to only clear the in-memory flag —
+            // the superseded checkpoint's .meta file on disk still said
+            // "is_best=true" forever. rotate_checkpoints() never deletes an
+            // is_best checkpoint, so that stale flag alone wasn't fatal while
+            // the process stayed up (only one in-memory entry ever had
+            // is_best=true). But load_existing_checkpoints() rebuilds
+            // checkpoints_ straight from these .meta files on the next
+            // process start — a completely normal path for resumable
+            // training — and every checkpoint ever marked best in any past
+            // session would still say is_best=true, becoming permanently
+            // immune to rotation from that point on and silently defeating
+            // "keep only N best" over repeated resumes. Re-persisting each
+            // cleared checkpoint's metadata keeps disk and memory in sync.
             for (auto& ckpt : checkpoints_) {
-                ckpt.is_best = false;
+                if (ckpt.is_best) {
+                    ckpt.is_best = false;
+                    save_metadata(ckpt);
+                }
             }
         }
 

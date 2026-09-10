@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-038 — tested but not wired into any shipped binary)
-// @adai-version: 0.7.0
-// @adai-reviewed: 2026-09-08
+// @adai-version: 0.7.1
+// @adai-reviewed: 2026-09-10
 
 /**
  * @file BatchedInferenceEngine.hpp
@@ -417,17 +417,28 @@ class BatchedInferenceEngine {
         }
 
         try {
-            // Extract prompts
-            std::vector<std::string> prompts;
-            prompts.reserve(batch.size());
+            // Generate responses using the model.
+            //
+            // TD-092 (fixed): this used to hand the whole prompt list to
+            // generator_->generate_batch(), which internally just loops calling
+            // generate_text() with generator_'s own fixed config — every
+            // InferenceRequest::gen_config captured in submit() (the "per-request
+            // generation config" the class's own doc comments advertise) was
+            // read into the request and then never looked at again. Two requests
+            // submitted with different strategy/temperature/max_length always
+            // generated identically, silently using whichever config the engine
+            // happened to be constructed with. TextGenerator has no per-call
+            // config parameter, only a settable member (set_config()), so the
+            // fix sets it immediately before each request's own generate_text()
+            // call — same sequential-generation shape generate_batch() had,
+            // now actually honoring what each caller asked for.
+            std::vector<std::string> results;
+            results.reserve(batch.size());
             for (const auto& req : batch) {
-                prompts.push_back(req.prompt);
+                generator_->set_config(req.gen_config);
+                results.push_back(generator_->generate_text(model_fn_, *tokenizer_, req.prompt));
             }
-
-            // Generate responses using the model
-            // Note: This uses the existing generate_batch from TextGenerator
-            std::vector<std::string> results =
-                generator_->generate_batch(model_fn_, *tokenizer_, prompts);
+            generator_->set_config(default_gen_config_);
 
             // Distribute results to promises
             for (size_t i = 0; i < batch.size(); ++i) {
