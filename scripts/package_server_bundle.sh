@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # @adai-status: beta        (capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.8.0
-# @adai-reviewed: 2026-09-07
+# @adai-version: 0.8.1
+# @adai-reviewed: 2026-09-10
 
 # ADAI Server Bundle — Packaging Script
 #
@@ -202,10 +202,28 @@ if [[ ${#missing[@]} -gt 0 ]]; then
     exit 1
 fi
 
-for f in config.conf config-remote.conf vocab.txt dashboard.html; do
+# config.conf is a real, still-tracked file and always required. config-remote.conf,
+# vocab.txt, and dashboard.html are NOT hard requirements: all three were
+# deliberately deleted from version control as stale/generated artifacts
+# (commits 1f06218 and c338e8f — vocab.txt and dashboard.html are per-model /
+# per-run outputs, not source; config-remote.conf's remote-training template
+# role is now superseded by the per-service config.{chatbot,trainer,metrics,
+# mns,registry}.conf files) — but this preflight check was never updated to
+# match, so it unconditionally hard-failed on every run against the current
+# repo layout regardless of what was actually being packaged. None of the
+# three are needed for install_server_bundle.sh's own bundle contents
+# (mns_server/registry_server/metrics_api_server) to work. TD-109. Treat them
+# the same as the already-established "optional bonus" pattern used below for
+# mns_manager_gui/vocab_builder: include if present, skip with a warning
+# otherwise, instead of aborting the whole package.
+if [[ ! -f "${REPO_ROOT}/config.conf" ]]; then
+    error "Missing file: ${REPO_ROOT}/config.conf"
+    exit 1
+fi
+
+for f in config-remote.conf vocab.txt dashboard.html; do
     if [[ ! -f "${REPO_ROOT}/${f}" ]]; then
-        error "Missing file: ${REPO_ROOT}/${f}"
-        exit 1
+        warn "Optional file not found, skipping: ${REPO_ROOT}/${f}"
     fi
 done
 
@@ -270,12 +288,17 @@ done
 chmod 755 "${STAGE}"/scripts/*.sh 2>/dev/null || true
 
 # --- Config / data files ---
+# config.conf is always present (checked above); the other three are
+# optional bonus content — see the TD-109 note above the preflight check.
 info "Copying configuration and data files..."
-cp "${REPO_ROOT}/config.conf"        "${STAGE}/config.conf"
-cp "${REPO_ROOT}/config-remote.conf" "${STAGE}/config-remote.conf"
-cp "${REPO_ROOT}/vocab.txt"          "${STAGE}/vocab.txt"
-cp "${REPO_ROOT}/dashboard.html"     "${STAGE}/dashboard.html"
-success "  config.conf, config-remote.conf, vocab.txt, dashboard.html"
+cp "${REPO_ROOT}/config.conf" "${STAGE}/config.conf"
+success "  config.conf"
+for f in config-remote.conf vocab.txt dashboard.html; do
+    if [[ -f "${REPO_ROOT}/${f}" ]]; then
+        cp "${REPO_ROOT}/${f}" "${STAGE}/${f}"
+        success "  ${f} (bonus)"
+    fi
+done
 
 # --- README ---
 cat > "${STAGE}/README.txt" <<'READMEEOF'
@@ -317,6 +340,12 @@ After installation:
   curl http://localhost:8081/health
   curl http://localhost:8081/api/sessions
 
+READMEEOF
+
+# dashboard.html is optional bonus content (see TD-109) — only promise it in
+# the README if this particular bundle actually includes it.
+if [[ -f "${STAGE}/dashboard.html" ]]; then
+    cat >> "${STAGE}/README.txt" <<'READMEEOF'
 Training metrics dashboard:
 
   The dashboard.html file is installed to the install path.  Serve it with
@@ -325,6 +354,7 @@ Training metrics dashboard:
     python3 -m http.server 9090 --directory /opt/adai
 
 READMEEOF
+fi
 success "  README.txt"
 
 # ============================================================================

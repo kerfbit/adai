@@ -7,7 +7,7 @@ Usage:
 """
 # @adai-status: beta        (validated via manual test cases this session; no formal test suite; capped by TD-043 — see TECHNICAL_DEBT.md)
 # @adai-version: 0.9.0
-# @adai-reviewed: 2026-09-07
+# @adai-reviewed: 2026-09-10
 from __future__ import annotations
 
 import datetime

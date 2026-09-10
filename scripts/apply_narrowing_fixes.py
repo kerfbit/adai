@@ -2,7 +2,7 @@
 
 # @adai-status: experimental        (one-off codemod for a specific past clang-tidy cleanup; capped by TD-046 — see TECHNICAL_DEBT.md)
 # @adai-version: 0.3.0
-# @adai-reviewed: 2026-09-07
+# @adai-reviewed: 2026-09-10
 
 """Apply static_cast fixes for cppcoreguidelines-narrowing-conversions warnings.
 

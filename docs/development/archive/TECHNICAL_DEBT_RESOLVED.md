@@ -4,6 +4,78 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-110: serve_dashboard.py Served From Its Own Directory Instead of the Repo Root Where dashboard.html Lives
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/serve_dashboard.py` | Serve from the repo root (parent of `scripts/`), not from `scripts/` itself |
+
+Summary:
+Found immediately after TD-109, while checking whether `serve_dashboard.py` has its own independent bug
+beyond `dashboard.html`'s absence. `DIRECTORY = os.path.dirname(os.path.abspath(__file__))` resolves to
+the directory this script itself lives in — `scripts/` — but `dashboard.html` has always lived at the
+**repo root**, confirmed by `docs/operations/OPERATIONS_MANUAL.md`'s component table (`| Dashboard |
+dashboard.html |`) and by `package_server_bundle.sh`, which reads it from `"${REPO_ROOT}/dashboard.html"`.
+So even independent of TD-109 (the file being entirely missing from the repo), this script would still
+404 on its own advertised URL (`http://localhost:8082/dashboard.html`, printed by the script itself at
+startup) the moment someone places `dashboard.html` back at its documented, correct location — it was
+looking one directory too deep the whole time.
+
+Changes Made:
+- `scripts/serve_dashboard.py`: `DIRECTORY` now resolves to `dirname(dirname(__file__))` — the repo
+  root — instead of `dirname(__file__)`.
+
+Verification:
+- ✅ Live end-to-end reproduction: placed a dummy `dashboard.html` at the repo root (its documented,
+  correct location) and started the real server.
+  - Pre-fix: `GET /dashboard.html` → `404 Not Found` (server logged "File not found").
+  - Post-fix: `GET /dashboard.html` → `200 OK` with the dummy file's actual content returned.
+- ✅ Also directly confirmed the resolved `DIRECTORY` value: pre-fix `.../scripts` (wrong — that's where
+  `dashboard.html` would need to live for the old code to find it, contradicting the documented location);
+  post-fix `.../adai` (the real repo root, matching `OPERATIONS_MANUAL.md` and `package_server_bundle.sh`).
+
+### TD-109: package_server_bundle.sh Could Never Succeed — Required Three Files Deleted Elsewhere as Stale
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/package_server_bundle.sh` | Made `config-remote.conf`/`vocab.txt`/`dashboard.html` optional bonus content instead of hard preflight requirements |
+
+Summary:
+Found while reading `package_server_bundle.sh` end to end and noticing its preflight check hard-required
+`config-remote.conf`, `vocab.txt`, and `dashboard.html` at the repo root — none of which exist in this
+repository at all. `git log` traced this to two earlier, unrelated cleanup commits: `1f06218` ("chore: add
+opsdashboard Android app, DaemonConfigStore, per-service config files; remove tracked training data
+artifacts") deleted `config-remote.conf` and `vocab.txt` as stale/generated data, and `c338e8f` ("chore:
+untrack generated dashboard/training-session artifacts") deleted `dashboard.html` under the stated belief
+that it's "regenerated per-run" — but no such regeneration mechanism exists anywhere in the codebase, so
+it is simply gone from a fresh checkout. Neither cleanup commit updated `package_server_bundle.sh`'s
+preflight check to match, so every invocation of the script against the current repo has unconditionally
+failed with `Missing file: .../config-remote.conf` (or `vocab.txt`/`dashboard.html`, depending which check
+ran first) — the tool has been completely non-functional since `1f06218` landed, with no way to ever
+successfully produce a deployment tarball. None of the three files are actually needed for what
+`install_server_bundle.sh` (the installer this bundle exists to feed) installs — `mns_server`,
+`registry_server`, and `metrics_api_server` — which generates its own `config.conf` from scratch and
+never reads a chatbot vocabulary or a static dashboard page at all.
+
+Changes Made:
+- `scripts/package_server_bundle.sh`: `config.conf` (which does still exist and is still needed) remains
+  a hard requirement; `config-remote.conf`, `vocab.txt`, and `dashboard.html` are now treated the same as
+  the file's own already-established "optional bonus" pattern (already used for the `mns_manager_gui`/
+  `vocab_builder` binaries just above this code) — included in the tarball if present, skipped with a
+  warning otherwise, instead of aborting packaging entirely.
+- The generated `README.txt`'s "Training metrics dashboard" section is now appended conditionally, only
+  when `dashboard.html` was actually bundled, so the instructions never promise a file that isn't there.
+
+Verification:
+- ✅ Before/after regression against the real, current repository state (not a synthetic mock): reverted
+  to the pre-fix version in place (`git stash`), ran it — reproduced the exact predicted failure
+  (`Missing file: .../config-remote.conf`, exit 1, no tarball produced). Restored the fix, re-ran with the
+  same arguments — completed successfully (exit 0), producing a real 3.0M, 17-file tarball containing the
+  actual built binaries, `config.conf`, and the install scripts. Extracted the bundled `README.txt` and
+  confirmed the "Training metrics dashboard" section is correctly absent (since `dashboard.html` wasn't
+  available to bundle in this environment).
+- ✅ `bash -n` and a clean ShellCheck pass (`-S warning`) on the patched file.
+
 ### TD-108: install_mns_server.sh and mns-cli-guide.md Told Operators to Set a Config Key That Doesn't Exist
 
 | Resolution Date | Component | Resolved By |

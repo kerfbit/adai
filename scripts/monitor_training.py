@@ -2,7 +2,7 @@
 
 # @adai-status: beta        (no doc reference, but self-contained and functional; capped by TD-045 — see TECHNICAL_DEBT.md)
 # @adai-version: 0.6.0
-# @adai-reviewed: 2026-09-07
+# @adai-reviewed: 2026-09-10
 
 """
 Training Metrics Monitor - Real-time CLI dashboard for training metrics
