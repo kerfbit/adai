@@ -2,7 +2,7 @@
 
 # @adai-status: stable
 # @adai-version: 1.0.0
-# @adai-reviewed: 2026-09-07
+# @adai-reviewed: 2026-09-10
 
 #
 # Run static analysis on C++ source files using clang-tidy
