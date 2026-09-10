@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-036 — thin main() wrapper, no smoke test)
 // @adai-version: 0.8.0
-// @adai-reviewed: 2026-09-07
+// @adai-reviewed: 2026-09-10
 
 #include <iostream>
 #include <string>

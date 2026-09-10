@@ -4,6 +4,42 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-103: chatbot_gui Wrapper Located Its Sibling Binary Relative to the Caller's cwd, Not Its Own Install Directory
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `ChatbotGUI_wrapper.cpp` | Resolve own path via `/proc/self/exe` instead of parsing `argv[0]` |
+
+Summary:
+Found during the second, independent full-codebase re-audit while reading `ChatbotGUI_wrapper.cpp` end to
+end. `main()` located its own directory by taking `argv[0]` and slicing off everything after the last `/`,
+then exec'd `<that dir>/chatbot_gui_binary`. This only works when `argv[0]` actually contains a `/` — true
+when the wrapper is invoked as `./chatbot_gui` or `build/debug/src/chatbot_gui`, but **not** when it's
+invoked via a bare `PATH` lookup (e.g. a `.desktop` launcher's `Exec=chatbot_gui`, or the wrapper copied/
+symlinked into a directory on `PATH`), where the shell passes `argv[0]` as literally `"chatbot_gui"` with no
+slash at all. In that case `find_last_of("/")` returns `npos`, `exe_dir` silently fell back to `"."`, and the
+subsequent `execvp("<cwd>/chatbot_gui_binary", ...)` looked in the *caller's current working directory*
+instead of the wrapper's actual install directory — failing with "Failed to execute ... No such file or
+directory" for any cwd that doesn't happen to equal the install directory.
+
+Changes Made:
+- `src/ChatbotGUI_wrapper.cpp`: extracted a `resolve_exe_dir()` helper that first tries
+  `readlink("/proc/self/exe", ...)`, which always resolves to the real path of the running executable
+  regardless of how it was invoked; falls back to the old `argv[0]`-parsing behavior only if that fails.
+
+Verification:
+- ✅ Before/after regression via manual reproduction (this file has no automated test — pre-existing
+  `TD-036` caps its status at "beta" specifically for having no smoke test — so verification is a real,
+  reproducible shell repro rather than a gtest case): copied the built `chatbot_gui` wrapper alone into an
+  isolated directory on `PATH`, then ran `exec -a chatbot_gui chatbot_gui --help` from an unrelated cwd
+  (`/tmp`) so `argv[0]` carries no `/`.
+  - Pre-fix: wrapper printed `Error: Failed to execute ./chatbot_gui_binary` / `No such file or directory`
+    — it looked in `/tmp` (the caller's cwd), not its own directory.
+  - Post-fix: wrapper's error path (with the sibling binary absent) correctly named
+    `/tmp/guitest/chatbot_gui_binary` (its own real directory via `/proc/self/exe`); with the sibling
+    binary copied alongside it, the exec succeeded and printed the GUI binary's own `--help` usage text.
+- ✅ Full rebuild of the `chatbot_gui`/`chatbot_gui_binary` targets succeeds clean under Qt5.
+
 ### TD-102: json_pretty() Got Stuck "Inside a String" After a Value Ending in an Escaped Backslash
 
 | Resolution Date | Component | Resolved By |

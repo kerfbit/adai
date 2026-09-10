@@ -171,11 +171,11 @@ None — every in-scope file carries a tag.
 | `src/ChatbotAPI.cpp` | beta | 0.9.2 | 2026-09-10 | TD-033 |
 | `src/ChatbotAPI.hpp` | beta | 0.9.2 | 2026-09-10 | TD-033 |
 | `src/ChatbotAPIServer.cpp` | beta | 0.8.0 | 2026-09-10 | TD-035 |
-| `src/ChatbotCLI_main.cpp` | beta | 0.8.0 | 2026-09-07 | TD-036 |
+| `src/ChatbotCLI_main.cpp` | beta | 0.8.0 | 2026-09-10 | TD-036 |
 | `src/ChatbotGUI.cpp` | beta | 0.7.0 | 2026-09-10 | TD-037 |
 | `src/ChatbotGUI.hpp` | beta | 0.7.0 | 2026-09-10 | TD-037 |
-| `src/ChatbotGUI_main.cpp` | beta | 0.7.0 | 2026-09-07 | TD-036 |
-| `src/ChatbotGUI_wrapper.cpp` | beta | 0.7.0 | 2026-09-07 | TD-036 |
+| `src/ChatbotGUI_main.cpp` | beta | 0.7.0 | 2026-09-10 | TD-036 |
+| `src/ChatbotGUI_wrapper.cpp` | beta | 0.7.1 | 2026-09-10 | TD-036 |
 | `src/ChatbotTrainer.cpp` | beta | 0.9.0 | 2026-09-09 | TD-039 |
 | `src/ChatbotTrainer.hpp` | beta | 0.9.0 | 2026-09-10 | TD-039 |
 | `src/CrossAttention.cpp` | beta | 0.9.0 | 2026-09-10 | TD-050 |
@@ -197,7 +197,7 @@ None — every in-scope file carries a tag.
 | `src/MnsCliTool.cpp` | beta | 0.8.0 | 2026-09-10 | TD-035 |
 | `src/MnsManagerGUI.cpp` | beta | 0.7.0 | 2026-09-09 | TD-037 |
 | `src/MnsManagerGUI.hpp` | beta | 0.7.0 | 2026-09-10 | TD-037 |
-| `src/MnsManagerGUI_main.cpp` | beta | 0.7.0 | 2026-09-07 | TD-036 |
+| `src/MnsManagerGUI_main.cpp` | beta | 0.7.0 | 2026-09-10 | TD-036 |
 | `src/ModelNameServiceServer.cpp` | beta | 0.8.0 | 2026-09-10 | TD-035 |
 | `src/MultiHeadAttention.cpp` | beta | 0.9.0 | 2026-09-09 | TD-050 |
 | `src/MultiHeadAttention.hpp` | beta | 0.9.0 | 2026-09-10 | TD-050 |
@@ -206,7 +206,7 @@ None — every in-scope file carries a tag.
 | `src/PerformanceProfiler.hpp` | beta | 0.7.1 | 2026-09-10 | TD-038 |
 | `src/PipelineInferenceEngine.hpp` | beta | 0.7.0 | 2026-09-10 | TD-038 |
 | `src/PostgresMetricsDatabase.cpp` | experimental | 0.3.0 | 2026-09-09 | TD-042 |
-| `src/PostgresMetricsDatabase.hpp` | experimental | 0.3.0 | 2026-09-08 | TD-042 |
+| `src/PostgresMetricsDatabase.hpp` | experimental | 0.3.0 | 2026-09-10 | TD-042 |
 | `src/Quantization.hpp` | beta | 0.7.0 | 2026-09-10 | TD-038 |
 | `src/RegistryServer.cpp` | beta | 0.8.0 | 2026-09-09 | TD-035 |
 | `src/RewardModel.hpp` | beta | 0.7.0 | 2026-09-10 | TD-038 |

@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-036 — thin main() wrapper, no smoke test)
-// @adai-version: 0.7.0
-// @adai-reviewed: 2026-09-07
+// @adai-version: 0.7.1
+// @adai-reviewed: 2026-09-10
 
 /**
  * @file ChatbotGUI_wrapper.cpp
@@ -12,6 +12,7 @@
  * - Then exec'ing the actual GUI application
  */
 
+#include <limits.h>
 #include <unistd.h>
 #include <cstdlib>
 #include <cstring>
@@ -21,12 +22,39 @@
 
 extern char** environ;
 
+// Resolve the directory this executable actually lives in.
+//
+// argv[0] is NOT a reliable way to find our own location: when invoked via a
+// PATH lookup with a bare command name (e.g. a .desktop launcher's `Exec=
+// chatbot_gui`, or the wrapper symlinked into a bin directory), the shell/
+// exec passes argv[0] as literally "chatbot_gui" with no '/' in it at all,
+// so a naive find_last_of("/") falls back to "." — the *caller's* current
+// working directory, not this binary's install directory — and the
+// subsequent exec of "./chatbot_gui_binary" fails unless the caller happens
+// to be cd'ed into the same directory. TD-103.
+//
+// /proc/self/exe (Linux) always resolves to this process's real executable
+// path regardless of how it was invoked, so prefer that and only fall back
+// to argv[0]-based parsing (best-effort) if it's unavailable.
+std::string resolve_exe_dir(const char* argv0) {
+    char buf[PATH_MAX];
+    const ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (len > 0) {
+        buf[len] = '\0';
+        const std::string self_path(buf);
+        const size_t slash = self_path.find_last_of('/');
+        return (slash != std::string::npos) ? self_path.substr(0, slash) : ".";
+    }
+
+    // Fallback: argv[0]-based (wrong if invoked via PATH with no '/' in argv[0]).
+    const std::string wrapper_path = argv0 ? argv0 : "";
+    const size_t last_slash = wrapper_path.find_last_of("/");
+    return (last_slash != std::string::npos) ? wrapper_path.substr(0, last_slash) : ".";
+}
+
 int main(int argc, char* argv[]) {
     // Get the directory where this wrapper is located
-    std::string wrapper_path = argv[0];
-    size_t last_slash = wrapper_path.find_last_of("/");
-    std::string exe_dir =
-        (last_slash != std::string::npos) ? wrapper_path.substr(0, last_slash) : ".";
+    std::string exe_dir = resolve_exe_dir(argv[0]);
 
     // Path to the actual GUI executable
     std::string gui_executable = exe_dir + "/chatbot_gui_binary";
