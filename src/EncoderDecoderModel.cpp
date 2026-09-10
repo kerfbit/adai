@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-09
+// @adai-version: 0.9.1
+// @adai-reviewed: 2026-09-10
 
 #include "EncoderDecoderModel.hpp"
 #include <algorithm>
@@ -204,6 +204,32 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
                                                                  float top_p, int num_beams) {
     // Ensure special token IDs are synced with tokenizer
     sync_special_tokens();
+
+    // TD-100 (fixed): generate_greedy()/generate_sampling()/generate_top_k()/
+    // generate_nucleus() each take at most ONE of their own filter values as
+    // an explicit parameter (e.g. generate_top_k()'s own `k`) — everything
+    // else, including max_length itself, is read straight from `generator`'s
+    // *stored* config. Only the "beam" branch below ever pushed this call's
+    // arguments into that config; every other strategy silently generated
+    // using whichever max_length/temperature/top_k/top_p `generator` already
+    // happened to hold (its constructor default, or whatever an unrelated
+    // earlier call last left behind) — this caller's own arguments of the
+    // same name were accepted, validated by nothing, and then ignored.
+    // Concretely: "topk" and "nucleus" read config.temperature for their own
+    // internal apply_temperature() step (they only take k/p as an explicit
+    // parameter), so a caller's `temperature` was dropped for those two
+    // strategies specifically; max_length was dropped for every strategy
+    // except "beam". Syncing once, up front, for every strategy closes all
+    // of these gaps without changing any strategy's own filtering logic.
+    {
+        TextGenerator::GenerationConfig synced_config = generator->get_config();
+        synced_config.max_length = max_length;
+        synced_config.temperature = temperature;
+        synced_config.top_k = top_k;
+        synced_config.top_p = top_p;
+        synced_config.num_beams = num_beams;
+        generator->set_config(synced_config);
+    }
 
     // Normalize strategy name (handle hyphens)
     std::string normalized_strategy = strategy;

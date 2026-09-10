@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-08
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-09-10
 
 
 #include <string>
@@ -117,13 +117,29 @@ inline std::string json_escape(const std::string& s) {
 inline std::string json_pretty(const std::string& s) {
     std::string out;
     int indent = 0;
-    bool in_string = false;
     for (size_t i = 0; i < s.size(); ++i) {
         char c = s[i];
-        if (c == '"' && (i == 0 || s[i - 1] != '\\'))
-            in_string = !in_string;
-        if (in_string) {
+        if (c == '"') {
+            // TD-102 (fixed): used to toggle an in_string flag by checking only
+            // whether the *immediately preceding* character was a backslash —
+            // for a real closing quote that happens to follow an escaped
+            // backslash in the JSON text (`\\"`, i.e. the string's own content
+            // ends in a literal backslash, e.g. a Windows-style artifact path
+            // like "C:\\models\\"), that preceding character IS a backslash,
+            // so the check misclassified the true closing quote as escaped and
+            // never toggled out of "in string" — garbling every character
+            // after it for the rest of the output. json_array_objects() above
+            // already had (and was fixed for, TD-068) the identical class of
+            // bug; this reuses that fix's escape-aware find_string_end()
+            // scanner instead of a naive single-character lookback.
             out += c;
+            auto end = find_string_end(s, i + 1);
+            if (end == std::string::npos) {
+                out += s.substr(i + 1);
+                break;
+            }
+            out += s.substr(i + 1, end - i);  // string content + its closing quote
+            i = end;
             continue;
         }
         switch (c) {

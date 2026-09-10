@@ -376,6 +376,33 @@ TEST_F(RAGInferenceTest, GenerateWithEmptyDocumentStore) {
     EXPECT_NO_THROW({ std::string response = rag->generate("What is machine learning?"); });
 }
 
+// TD-101 regression: generate()/generateWithRetrieval() used to call
+// model->generate_response(prompt, config.gen_config.max_length) —
+// generate_response()'s max_length parameter is a documented no-op, and
+// temperature/top_k/top_p/num_beams were never passed at all despite
+// RAGConfig::gen_config being a full TextGenerator::GenerationConfig.
+// Verified directly against generator's config state (get_generator() is a
+// public accessor), the same technique used for TD-100, rather than
+// generated output length/content, which would be unreliable against an
+// untrained, randomly-initialized model.
+TEST_F(RAGInferenceTest, GenerateSyncsGeneratorConfigFromRAGConfig) {
+    RAGInference::RAGConfig custom_config;
+    custom_config.gen_config.max_length = 17;
+    custom_config.gen_config.temperature = 0.42f;
+    custom_config.gen_config.top_k = 7;
+    custom_config.gen_config.top_p = 0.55f;
+    custom_config.gen_config.num_beams = 1;  // stay off the separate beam-search code path
+
+    RAGInference custom_rag(model, doc_store, custom_config);
+    EXPECT_NO_THROW({ custom_rag.generate("What is machine learning?"); });
+
+    auto cfg = model->get_generator()->get_config();
+    EXPECT_EQ(cfg.max_length, 17);
+    EXPECT_FLOAT_EQ(cfg.temperature, 0.42f);
+    EXPECT_EQ(cfg.top_k, 7);
+    EXPECT_FLOAT_EQ(cfg.top_p, 0.55f);
+}
+
 TEST_F(RAGInferenceTest, GenerateWithRetrievalOutputsDocuments) {
     add_sample_documents();
 

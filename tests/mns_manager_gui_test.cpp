@@ -214,6 +214,22 @@ TEST(MnsJsonPretty, PreservesStringContent) {
     EXPECT_NE(result.find("/tmp/a,b{c}"), std::string::npos);
 }
 
+// TD-102 regression: a string value ending in an escaped backslash (e.g. a
+// Windows-style artifact path like "C:\\models\\") used to make the naive
+// "was the previous character a backslash?" check misclassify the real
+// closing quote right after it as still escaped, so json_pretty never
+// realized it had left the string — every character for the rest of the
+// output (including real structural commas/braces) was then appended
+// verbatim with no further indentation/newline insertion.
+TEST(MnsJsonPretty, HandlesStringEndingInEscapedBackslash) {
+    std::string input = R"({"path":"C:\\models\\","next":"ok"})";
+    std::string result = json_pretty(input);
+    EXPECT_NE(result.find(",\n"), std::string::npos)
+        << "no newline after the comma following the escaped-backslash-terminated string — "
+           "json_pretty is still stuck thinking it's inside a string: "
+        << result;
+}
+
 TEST(MnsJsonPretty, HandlesEmptyObject) {
     std::string result = json_pretty("{}");
     EXPECT_NE(result.find('{'), std::string::npos);

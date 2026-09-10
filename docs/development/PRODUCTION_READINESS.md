@@ -169,11 +169,11 @@ None — every in-scope file carries a tag.
 | `scripts/verify_special_token_fixes.py` | experimental | 0.3.0 | 2026-09-07 | TD-046 |
 | `src/BatchedInferenceEngine.hpp` | beta | 0.7.1 | 2026-09-10 | TD-038 |
 | `src/ChatbotAPI.cpp` | beta | 0.9.2 | 2026-09-10 | TD-033 |
-| `src/ChatbotAPI.hpp` | beta | 0.9.0 | 2026-09-08 | TD-033 |
+| `src/ChatbotAPI.hpp` | beta | 0.9.2 | 2026-09-10 | TD-033 |
 | `src/ChatbotAPIServer.cpp` | beta | 0.8.0 | 2026-09-10 | TD-035 |
 | `src/ChatbotCLI_main.cpp` | beta | 0.8.0 | 2026-09-07 | TD-036 |
 | `src/ChatbotGUI.cpp` | beta | 0.7.0 | 2026-09-10 | TD-037 |
-| `src/ChatbotGUI.hpp` | beta | 0.7.0 | 2026-09-08 | TD-037 |
+| `src/ChatbotGUI.hpp` | beta | 0.7.0 | 2026-09-10 | TD-037 |
 | `src/ChatbotGUI_main.cpp` | beta | 0.7.0 | 2026-09-07 | TD-036 |
 | `src/ChatbotGUI_wrapper.cpp` | beta | 0.7.0 | 2026-09-07 | TD-036 |
 | `src/ChatbotTrainer.cpp` | beta | 0.9.0 | 2026-09-09 | TD-039 |
@@ -183,7 +183,7 @@ None — every in-scope file carries a tag.
 | `src/DatasetManagerTool.cpp` | beta | 0.8.0 | 2026-09-10 | TD-035 |
 | `src/Decoder.cpp` | beta | 0.9.1 | 2026-09-10 | TD-050 |
 | `src/Decoder.hpp` | beta | 0.9.1 | 2026-09-10 | TD-050 |
-| `src/EncoderDecoderModel.cpp` | beta | 0.9.0 | 2026-09-09 | TD-050 |
+| `src/EncoderDecoderModel.cpp` | beta | 0.9.1 | 2026-09-10 | TD-050 |
 | `src/EncoderDecoderModel.hpp` | beta | 0.9.0 | 2026-09-10 | TD-050 |
 | `src/FtpDataServer.hpp` | beta | 0.8.0 | 2026-09-09 | TD-040 |
 | `src/IncrementalTrainer.cpp` | beta | 0.9.0 | 2026-09-09 | TD-039 |
@@ -196,9 +196,9 @@ None — every in-scope file carries a tag.
 | `src/Matrix.hpp` | beta | 0.9.0 | 2026-09-10 | TD-033 |
 | `src/MnsCliTool.cpp` | beta | 0.8.0 | 2026-09-10 | TD-035 |
 | `src/MnsManagerGUI.cpp` | beta | 0.7.0 | 2026-09-09 | TD-037 |
-| `src/MnsManagerGUI.hpp` | beta | 0.7.0 | 2026-09-08 | TD-037 |
+| `src/MnsManagerGUI.hpp` | beta | 0.7.0 | 2026-09-10 | TD-037 |
 | `src/MnsManagerGUI_main.cpp` | beta | 0.7.0 | 2026-09-07 | TD-036 |
-| `src/ModelNameServiceServer.cpp` | beta | 0.8.0 | 2026-09-08 | TD-035 |
+| `src/ModelNameServiceServer.cpp` | beta | 0.8.0 | 2026-09-10 | TD-035 |
 | `src/MultiHeadAttention.cpp` | beta | 0.9.0 | 2026-09-09 | TD-050 |
 | `src/MultiHeadAttention.hpp` | beta | 0.9.0 | 2026-09-10 | TD-050 |
 | `src/PPOOptimizer.hpp` | experimental | 0.2.0 | 2026-09-10 | TD-034 |
@@ -212,7 +212,7 @@ None — every in-scope file carries a tag.
 | `src/RewardModel.hpp` | beta | 0.7.0 | 2026-09-10 | TD-038 |
 | `src/SpeculativeDecoding.hpp` | beta | 0.7.0 | 2026-09-10 | TD-038 |
 | `src/TrainingMetricsAPI.cpp` | beta | 0.9.0 | 2026-09-09 | TD-039 |
-| `src/TrainingMetricsAPI.hpp` | beta | 0.9.0 | 2026-09-08 | TD-039 |
+| `src/TrainingMetricsAPI.hpp` | beta | 0.9.0 | 2026-09-10 | TD-039 |
 | `src/TrainingMetricsAPIServer.cpp` | beta | 0.8.0 | 2026-09-10 | TD-035 |
 | `src/TrainingMetricsService.cpp` | beta | 0.9.0 | 2026-09-09 | TD-039 |
 | `src/TrainingMetricsService.hpp` | beta | 0.9.0 | 2026-09-10 | TD-039 |

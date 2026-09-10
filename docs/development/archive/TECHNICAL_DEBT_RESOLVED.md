@@ -4,6 +4,130 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-102: json_pretty() Got Stuck "Inside a String" After a Value Ending in an Escaped Backslash
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `mns_gui::json_pretty()` (`MnsJsonHelpers.hpp`) | Reuse the escape-aware `find_string_end()` scanner (already fixed for the same bug class under TD-068) instead of a naive single-character lookback |
+
+Summary:
+Found during the second, independent full-codebase re-audit while re-reading `MnsJsonHelpers.hpp` end to
+end, immediately after re-verifying the already-fixed TD-068 bug in `json_array_objects()`. That function's
+own comment claims `json_pretty()` "already" skips string content the same (correct, escape-aware) way —
+but `json_pretty()` actually used a much weaker check: `if (c == '"' && (i == 0 || s[i-1] != '\\'))` toggles
+an `in_string` flag by looking at only the *immediately preceding* character. For a real closing quote that
+happens to follow an escaped backslash in the JSON text — e.g. a string value ending in a literal
+backslash, such as a Windows-style artifact path `"C:\\models\\"` — that preceding character genuinely is
+`\`, so the check misclassified the true closing quote as itself escaped and never toggled back out of
+"in string". Every character for the rest of the output (real commas, braces, colons included) was then
+appended verbatim with no further indentation or newline insertion, garbling the pretty-printed result from
+that point on. `json_array_objects()` had the identical class of bug and was already fixed under TD-068 by
+introducing `find_string_end()`, an escape-aware scanner that correctly walks past `\X` pairs instead of
+looking at only one preceding character — `json_pretty()` was simply never updated to use it.
+
+Changes Made:
+- `src/MnsJsonHelpers.hpp`: `json_pretty()` now calls `find_string_end()` to locate each string literal's
+  true closing quote and copies the whole literal (quotes and content) verbatim in one step, instead of
+  toggling a flag per-character based on a one-character lookback.
+
+Verification:
+- ✅ Added `HandlesStringEndingInEscapedBackslash` to `tests/mns_manager_gui_test.cpp` (next to the
+  existing `MnsJsonPretty` tests): pretty-prints `{"path":"C:\\models\\","next":"ok"}` and asserts a
+  newline follows the comma after the path value — only possible if the scanner correctly recognized it
+  had left the string there.
+- ✅ Before/after regression: reverted `MnsJsonHelpers.hpp` to its pre-fix `HEAD`, rebuilt
+  `mnsManagerGuiTests`, confirmed the new test fails with the exact predicted symptom (output showed
+  `"path": "C:\\models\\","next":"ok"}` — everything after the path value squashed onto one line with no
+  further formatting); restored the fix, rebuilt, confirmed pass.
+- ✅ Full `mnsManagerGuiTests` non-live suite (36/36; 8 live tests skip without a running `mns_server`,
+  unaffected by this change) passes.
+
+### TD-101: RAGInference Silently Dropped Its Own gen_config's temperature/top_k/top_p/num_beams
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `RAGInference::generateWithRetrieval()` | Route through the now-fixed `generate_response_with_strategy()` instead of `generate_response()`, passing all of `gen_config`'s fields |
+
+Summary:
+Found immediately after TD-100 while re-reading `RAGInference.cpp` end to end and tracing where
+`RAGConfig::gen_config` (declared as a full `TextGenerator::GenerationConfig`, "Generation parameters") was
+actually used. `generateWithRetrieval()` called `model->generate_response(augmented_prompt,
+config.gen_config.max_length)` — but `generate_response()`'s `max_length` parameter is a documented no-op
+(kept only "for interface parity", per the comment on its `gpu_generate_response()` twin), and
+`temperature`/`top_k`/`top_p`/`num_beams` were never even passed to it at all — that overload doesn't
+accept them. A caller configuring `RAGConfig::gen_config` with a specific temperature, top-k/top-p
+threshold, or beam width got none of it honored; RAG generation always ran with whatever
+`EncoderDecoderModel`'s internal `generator` already held.
+
+Changes Made:
+- `src/RAGInference.cpp`: `generateWithRetrieval()` now calls `generate_response_with_strategy()` (the
+  method TD-100 just fixed to actually sync its arguments into `generator`'s config) with an empty
+  strategy string — which falls through to the same "combined generate() using config" behavior
+  `generate_response()` always used — passing `gen_config`'s `max_length`, `temperature`, `top_k`, `top_p`,
+  and `num_beams` through explicitly.
+
+Verification:
+- ✅ Added `GenerateSyncsGeneratorConfigFromRAGConfig` to `tests/raginference_test.cpp`: constructs a
+  `RAGInference` with a `RAGConfig` carrying distinctive `gen_config` values, calls `generate()`, and
+  asserts `model->get_generator()->get_config()` (a public accessor) reflects them — the same
+  internal-state verification technique used for TD-100, rather than generated output length/content,
+  which would be unreliable against an untrained, randomly-initialized model.
+- ✅ Before/after regression: reverted `RAGInference.cpp` to its pre-fix `HEAD`, rebuilt
+  `raginferenceTests`, confirmed the new test fails with the exact predicted symptom (`max_length` read
+  back as 128 — the model's own `max_seq_length` — instead of the requested 17; `temperature`/`top_k`/
+  `top_p` stuck at their defaults instead of 0.42/7/0.55); restored the fix, rebuilt, confirmed pass.
+- ✅ Full `raginferenceTests` suite (37/37) passes.
+
+### TD-100: generate_response_with_strategy() Ignored max_length (and Often temperature) for Every Non-Beam Strategy
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `EncoderDecoderModel::generate_response_with_strategy()` | Sync `generator`'s stored config with this call's arguments once, up front, before dispatching to any strategy |
+
+Summary:
+Found during the second, independent full-codebase re-audit while re-reading `RAGInference.cpp`, tracing
+its call into `EncoderDecoderModel::generate_response()` (already known, per an existing comment on the
+`gpu_generate_response()` twin, to silently ignore its own `max_length` parameter — kept only "for
+interface parity"), and cross-checking the richer sibling method, `generate_response_with_strategy()`, that
+`ChatbotGUI.cpp` calls directly with its own strategy/temperature/top_k/top_p/max_length arguments.
+`TextGenerator::generate_greedy()`/`generate_sampling()`/`generate_top_k()`/`generate_nucleus()` each take
+at most one of their own filter values as an explicit parameter (e.g. `generate_top_k()`'s own `k`) —
+everything else, **including `max_length` itself**, is read from `generator`'s own *stored* `config`, not
+from any parameter. Only the `"beam"` branch of `generate_response_with_strategy()` ever pushed this call's
+arguments (`max_length`, `num_beams`) into that stored config before generating; every other named strategy
+— `"greedy"`, `"sampling"`, `"topk"`, `"nucleus"`, and the unrecognized-strategy fallback — silently
+generated using whichever `max_length` `generator` already happened to hold (its constructor default, e.g.
+the model's `max_seq_length`, or whatever an unrelated earlier call left behind), never this call's own
+argument of the same name. `"topk"` and `"nucleus"` compound this for `temperature` specifically: both call
+their own internal `apply_temperature(logits, config.temperature)` (temperature isn't one of their explicit
+parameters at all), so a caller's `temperature` argument was silently dropped for those two strategies
+too — a caller requesting `generate_response_with_strategy(text, 12, "nucleus", 0.3f, 5, 0.6f)` got
+whatever `max_length`/`temperature` `generator` already had, `top_p=0.6f` honored (nucleus's own explicit
+parameter), and no error of any kind. Existing tests (`GenerateWith{Sampling,TopK,Nucleus,Greedy}Strategy`)
+only asserted `EXPECT_NO_THROW`, never that the requested values actually took effect, so this went
+uncaught.
+
+Changes Made:
+- `src/EncoderDecoderModel.cpp`: `generate_response_with_strategy()` now reads `generator->get_config()`,
+  overwrites `max_length`/`temperature`/`top_k`/`top_p`/`num_beams` with this call's own arguments, and
+  writes it back via `generator->set_config()` — once, before the strategy dispatch — so every strategy's
+  internal "read from config" fallback sees the values this specific call actually asked for. No
+  per-strategy filtering logic changed; only which values feed it.
+
+Verification:
+- ✅ Added `GenerateWithStrategySyncsGeneratorConfig` to `tests/encoderdecoder_test.cpp`: calls
+  `generate_response_with_strategy()` with `"topk"` (temperature not one of its explicit parameters) and
+  distinctive `max_length`/`temperature`/`top_k`/`top_p`/`num_beams` values, then asserts
+  `model.get_generator()->get_config()` (a public accessor) actually reflects them — verified directly
+  against internal state rather than generated output length/content, which would be unreliable against
+  an untrained, randomly-initialized model. A second call with different `"nucleus"` values confirms the
+  sync overwrites rather than merely coexisting with a prior call's config.
+- ✅ Before/after regression: reverted `EncoderDecoderModel.cpp` to its pre-fix `HEAD`, rebuilt
+  `encoderdecoderTests`, confirmed the new test fails with the exact predicted symptom (`max_length` stuck
+  at 512 — the model's `max_seq_length` constructor default — instead of the requested 12; `temperature`
+  and `top_p` stuck at their 1.0 defaults instead of 0.3/0.6); restored the fix, rebuilt, confirmed pass.
+- ✅ Full `encoderdecoderTests` suite (62/62) passes.
+
 ### TD-099: conversationcontext_test.cpp and chatbotcli_improved_test.cpp Raced on the Same Hardcoded Filename
 
 | Resolution Date | Component | Resolved By |

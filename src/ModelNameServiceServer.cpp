@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-035 — shipped as mns_server, no dedicated test)
 // @adai-version: 0.8.0
-// @adai-reviewed: 2026-09-08
+// @adai-reviewed: 2026-09-10
 
 /**
  * mns_server — Model Name Service daemon

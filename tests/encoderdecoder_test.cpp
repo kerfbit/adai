@@ -397,6 +397,45 @@ TEST(EncoderDecoderModelTest, GenerateWithBeamStrategy) {
         { model.generate_response_with_strategy(input, 10, "beam", 1.0f, 50, 0.9f, 3); });
 }
 
+// TD-100 regression: generate_greedy()/generate_sampling()/generate_top_k()/
+// generate_nucleus() each read most of their filter values (including
+// max_length itself) straight from `generator`'s *stored* config rather than
+// from generate_response_with_strategy()'s own arguments. Only the "beam"
+// branch ever pushed those arguments into that config, so every other
+// strategy silently used generator's already-stored values instead of this
+// call's own. Verified directly against generator's config state (get_generator()
+// is a public accessor) rather than generated output length/content, which
+// would be unreliable against an untrained, randomly-initialized model.
+TEST(EncoderDecoderModelTest, GenerateWithStrategySyncsGeneratorConfig) {
+    int vocab_size = 100;
+    int d_model = 64;
+    EncoderDecoderModel model(vocab_size, d_model, 2, 2);
+
+    build_test_vocab(model.get_tokenizer(), vocab_size);
+    model.set_training(false);
+
+    // "topk" only takes k as an explicit parameter — temperature and
+    // max_length previously came from whatever generator's config already
+    // held, not this call's arguments.
+    model.generate_response_with_strategy("hello", 37, "topk", 0.5f, 15, 0.8f, 2);
+
+    auto cfg = model.get_generator()->get_config();
+    EXPECT_EQ(cfg.max_length, 37);
+    EXPECT_FLOAT_EQ(cfg.temperature, 0.5f);
+    EXPECT_EQ(cfg.top_k, 15);
+    EXPECT_FLOAT_EQ(cfg.top_p, 0.8f);
+    EXPECT_EQ(cfg.num_beams, 2);
+
+    // A second call with different values must overwrite, not merely
+    // coexist with, the first — proving this is a real sync, not a
+    // one-time default that happened to match.
+    model.generate_response_with_strategy("hi", 12, "nucleus", 0.3f, 5, 0.6f, 1);
+    cfg = model.get_generator()->get_config();
+    EXPECT_EQ(cfg.max_length, 12);
+    EXPECT_FLOAT_EQ(cfg.temperature, 0.3f);
+    EXPECT_FLOAT_EQ(cfg.top_p, 0.6f);
+}
+
 // ============================================================================
 // Training Tests
 // ============================================================================

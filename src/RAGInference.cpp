@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-08
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-09-10
 
 #include "RAGInference.hpp"
 #include <algorithm>
@@ -118,7 +118,24 @@ std::string RAGInference::generateWithRetrieval(
     std::string augmented_prompt = buildAugmentedPrompt(query, context);
 
     // Step 5: Generate response using the model
-    std::string response = model->generate_response(augmented_prompt, config.gen_config.max_length);
+    //
+    // TD-101 (fixed): this used to call generate_response(), whose max_length
+    // parameter is a documented no-op (see its own body / the comment on its
+    // gpu_generate_response() twin) — config.gen_config's temperature/top_k/
+    // top_p/num_beams were never even passed at all. RAGConfig::gen_config is
+    // declared as a full TextGenerator::GenerationConfig specifically to
+    // carry generation parameters, but only max_length ever reached the model,
+    // and even that was silently dropped once inside generate_response().
+    // generate_response_with_strategy() has no unrecognized-strategy error
+    // path — passing "" falls through to its own "default to main generate
+    // method (uses config)" branch, which since TD-100 syncs generator's
+    // config with exactly these arguments first — the same combined
+    // temperature+top-k+top-p generation generate_response() always used,
+    // now actually configured by this call instead of by whatever generator
+    // last happened to hold.
+    std::string response = model->generate_response_with_strategy(
+        augmented_prompt, config.gen_config.max_length, /*strategy=*/"", config.gen_config.temperature,
+        config.gen_config.top_k, config.gen_config.top_p, config.gen_config.num_beams);
 
     return response;
 }
