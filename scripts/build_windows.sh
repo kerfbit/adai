@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # @adai-status: beta        (capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.8.0
-# @adai-reviewed: 2026-09-07
+# @adai-version: 0.8.1
+# @adai-reviewed: 2026-09-10
 
 # Cross-compile ADAI chatbot for Windows from Linux
 # Requires: mingw-w64 toolchain
@@ -69,16 +69,19 @@ echo -e "${GREEN}✓ Build directory: ${BUILD_DIR}${NC}"
 echo -e "\n${YELLOW}Configuring CMake for Windows...${NC}"
 cd "${BUILD_DIR}"
 
-cmake \
+# Same TD-104/TD-111 class of bug: under `set -e`, a bare failing command
+# followed by a separate `if [ $? -eq 0 ]` is not a conditional context, so a
+# real cmake failure would kill the script right there — the `else` branch
+# below was unreachable dead code. The command itself must be the if's
+# condition.
+if cmake \
     -DCMAKE_TOOLCHAIN_FILE="${TOOLCHAIN_FILE}" \
     -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
     -DBUILD_TESTING=OFF \
     -DBUILD_EXAMPLES=OFF \
     -DBUILD_API_SERVER=OFF \
     -DENABLE_GPU=OFF \
-    "${PROJECT_DIR}"
-
-if [ $? -eq 0 ]; then
+    "${PROJECT_DIR}"; then
     echo -e "${GREEN}✓ CMake configuration successful${NC}"
 else
     echo -e "${RED}✗ CMake configuration failed${NC}"
@@ -89,9 +92,7 @@ fi
 echo -e "\n${YELLOW}Building Windows executables...${NC}"
 echo -e "${BLUE}Using ${JOBS} parallel jobs${NC}"
 
-cmake --build . --config "${BUILD_TYPE}" -j "${JOBS}"
-
-if [ $? -eq 0 ]; then
+if cmake --build . --config "${BUILD_TYPE}" -j "${JOBS}"; then
     echo -e "\n${GREEN}========================================${NC}"
     echo -e "${GREEN}✓ Build successful!${NC}"
     echo -e "${GREEN}========================================${NC}"

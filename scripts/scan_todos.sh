@@ -2,7 +2,7 @@
 
 # @adai-status: experimental        (undocumented duplicate of check_tech_debt.sh, superseded by it; capped by TD-046 — see TECHNICAL_DEBT.md)
 # @adai-version: 0.3.0
-# @adai-reviewed: 2026-09-07
+# @adai-reviewed: 2026-09-10
 
 
 # Script to scan for TODO comments in the codebase

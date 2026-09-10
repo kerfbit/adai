@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # @adai-status: experimental        (not referenced by current docs (docker.md documents docker_build.sh + docker-compose instead); capped by TD-046 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.4.0
-# @adai-reviewed: 2026-09-07
+# @adai-version: 0.4.1
+# @adai-reviewed: 2026-09-10
 
 # Docker deployment script for ADAI Chatbot API Server
 
@@ -194,9 +194,12 @@ start_container() {
     RUN_CMD="$RUN_CMD ${IMAGE_NAME}:${IMAGE_TAG}"
     
     print_info "Running: $RUN_CMD"
-    eval $RUN_CMD
-    
-    if [ $? -eq 0 ]; then
+
+    # Same TD-104 bug as docker_build.sh: `eval "$RUN_CMD"` must be the if's own
+    # condition, not a bare statement followed by `if [ $? -eq 0 ]` — under
+    # `set -e`, a failing bare `eval` is not itself a conditional context, so it
+    # would terminate the script right there, before the `if` below ever ran.
+    if eval "$RUN_CMD"; then
         print_success "Container started successfully: $CONTAINER_NAME"
         print_info "API available at: http://localhost:${PORT}"
         print_info "Health check: http://localhost:${PORT}/health"

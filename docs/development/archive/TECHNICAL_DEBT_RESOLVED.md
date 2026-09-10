@@ -4,6 +4,111 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-113: check_tech_debt.sh Died After Its First Scan and Pointed at a File That No Longer Exists
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/check_tech_debt.sh` | Report scan counts via a global variable instead of the function's own exit status; fixed `DEBT_FILE`'s stale path |
+
+Summary:
+Found while sweeping `scripts/*.sh` for the `set -e` dead-branch pattern already fixed under TD-104/
+TD-111/TD-112, and turned out to be an even more severe variant. `scan_pattern()` ends with `return
+$count` so its caller can read the count back via `$?`; a bash function's return value **is** an exit
+status, though, and this script runs under `set -e` — so the very first call, `scan_pattern "TODO" ...`,
+returns non-zero the moment even one TODO exists (which is always true for this codebase — CLAUDE.md
+itself documents that most `// TD-NNN` tags left inline today are intentional historical footnotes, not
+open work), and `set -e` kills the script immediately, right there, before `TODO_COUNT=$?` on the next
+line ever runs. In practice this meant the script never got past printing the raw TODO listing: the
+FIXME/HACK/XXX scans, the `=== Summary ===` block, the tracked-vs-untracked check, and the "Tracked
+Technical Debt" report at the end never executed at all, and the script exited with `count mod 256` — a
+meaningless leftover number, not a real status. Separately, `DEBT_FILE="TECHNICAL_DEBT.md"` pointed at
+the repo root, but that file was moved to `docs/development/guides/TECHNICAL_DEBT.md` (per this session's
+own commits) and never existed there at all in the current repo layout — so even the parts of the script
+downstream of the `set -e` bug would have reported "WARNING: TECHNICAL_DEBT.md not found!" and exited,
+same TD-109/TD-110 class of "referenced a path that moved elsewhere" bug.
+
+Changes Made:
+- `scripts/check_tech_debt.sh`: `scan_pattern()` now sets a global `LAST_COUNT` instead of `return`ing
+  the count; each caller reads `LAST_COUNT` immediately after the call instead of `$?`.
+- `DEBT_FILE` now points at `docs/development/guides/TECHNICAL_DEBT.md`, its real current location.
+- Left the pre-existing "any marker found ⇒ exit 1 with instructions to track it" policy unchanged —
+  whether that check should instead verify each marker actually cites a tracked `TD-XXX` (rather than
+  treating any marker at all as untracked debt) is a design question, not a bug this pass is positioned
+  to resolve; restoring the script to actually *run* and report accurate counts is the scope here.
+
+Verification:
+- ✅ Before/after regression against the real script and real repository (not a synthetic mock):
+  - Pre-fix: captured output truncated at exactly 42 lines — the TODO listing only — with a meaningless
+    exit code (36, i.e. this run's actual TODO count mod 256). No FIXME/HACK/XXX/Summary output at all,
+    confirming the predicted symptom.
+  - Post-fix: full output (68 lines) including correct `FIXME markers: None found`, `HACK markers: None
+    found`, `XXX markers: None found`, an accurate `=== Summary ===` block (`TODO: 36, Total: 36`), and
+    the untracked-debt message correctly citing the real path
+    (`docs/development/guides/TECHNICAL_DEBT.md`).
+- ✅ `bash -n` and ShellCheck (`-S warning`, clean).
+
+### TD-112: build_windows.sh Had the Same set -e/bare-command Dead-Error-Branch Bug, Twice
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/build_windows.sh` | Made both the `cmake` configure step and the `cmake --build` step the `if`'s own condition |
+
+Summary:
+Found while proactively sweeping all of `scripts/*.sh` for the same anti-pattern already fixed twice this
+session (TD-104 `docker_build.sh`, TD-111 `docker_deploy.sh`): `grep -rln '\[ \$? -eq 0 \]' scripts/*.sh`
+turned up a third file. `build_windows.sh` runs under `set -e` and has the identical shape at **two**
+separate points — the CMake configure step and the `cmake --build` step each run as a bare multi-line
+statement, then check `if [ $? -eq 0 ]` on the next line. In both cases, a real failure (missing
+toolchain file, a broken CMakeLists change, a compile error) would trigger `set -e` and kill the script
+immediately at the bare command, before either `if` was ever reached — both `else` branches (the red
+"✗ CMake configuration failed" / "✗ Build failed" messages plus a controlled `exit 1`) were unreachable
+dead code, and a real failure just silently died with cmake's own raw exit code instead.
+
+Changes Made:
+- `scripts/build_windows.sh`: both the CMake configure invocation and the `cmake --build` invocation are
+  now the direct condition of their `if` statements, same fix pattern as TD-104/TD-111.
+
+Verification:
+- ✅ Before/after regression against the real script with a fake `cmake` shim in `PATH`: exercised all
+  four paths — configure-fails, build-fails (configure succeeds), and full success.
+  - Pre-fix (`git stash` to the original, run, restore fix): a failing fake `cmake` configure call exited
+    with its own raw code (5) and printed no "✗ CMake configuration failed" message — the predicted
+    symptom.
+  - Post-fix: configure failure correctly prints the red failure message and exits `1`; build failure
+    (with configure succeeding) correctly prints "✗ Build failed" and exits `1`; full success reaches the
+    final "Build Summary" section and exits `0`, unchanged from before.
+- ✅ `bash -n` and ShellCheck (`-S warning`, clean — the one remaining `-S info` note at line 108,
+  `read exe` without `-r`, is pre-existing, unrelated to this fix, and not a demonstrated bug for the
+  plain `.exe` filenames this loop actually processes).
+
+### TD-111: docker_deploy.sh Had the Same set -e/eval Dead-Error-Branch Bug as TD-104
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/docker_deploy.sh` | Use `eval "$RUN_CMD"` directly as the `if` condition, same fix as TD-104 |
+
+Summary:
+Found while reading `docker_deploy.sh` end to end — the exact same bug already fixed under TD-104 in the
+sibling `docker_build.sh`, independently present here: `start_container()` ran `eval $RUN_CMD` as a bare
+statement, then checked `if [ $? -eq 0 ]`. Under this script's `set -e`, a failing `docker run` terminates
+the script immediately at the bare `eval`, before the `if` below is ever reached — the `else` branch
+(`print_error "Failed to start container"; exit 1`) was unreachable dead code, and a real failure to start
+the container just silently killed the script with Docker's own raw exit code.
+
+Changes Made:
+- `scripts/docker_deploy.sh`: changed `eval $RUN_CMD` from a bare statement into the `if`'s own condition
+  (`if eval "$RUN_CMD"; then ... else ... fi`), identical to the TD-104 fix.
+
+Verification:
+- ✅ Before/after regression against the real script (not a synthetic snippet): shadowed `docker` in
+  `PATH` with a fake binary whose `run` subcommand exits non-zero.
+  - Pre-fix (`git stash` to restore the original in place, run, then restore the fix): exited with the
+    fake docker's raw code (42), no `[ERROR] Failed to start container` message ever printed.
+  - Post-fix: printed `[ERROR] Failed to start container` and exited the intended code `1`.
+  - Re-verified the success path with a fake `docker run` that exits `0`: reaches `[SUCCESS] Container
+    started successfully` and the follow-up info lines exactly as before.
+- ✅ `bash -n` and a clean ShellCheck pass (`-S warning`) on the patched file.
+
 ### TD-110: serve_dashboard.py Served From Its Own Directory Instead of the Repo Root Where dashboard.html Lives
 
 | Resolution Date | Component | Resolved By |

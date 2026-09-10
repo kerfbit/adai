@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # @adai-status: beta        (documented official scanner; no automated test of the script itself; capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.8.0
-# @adai-reviewed: 2026-09-07
+# @adai-version: 0.8.1
+# @adai-reviewed: 2026-09-10
 
 # Script to scan codebase for technical debt markers and verify tracking
 
@@ -20,7 +20,9 @@ echo -e "${BLUE}=== Technical Debt Scanner ===${NC}\n"
 # Configuration
 SRC_DIR="src"
 TESTS_DIR="tests"
-DEBT_FILE="TECHNICAL_DEBT.md"
+# Moved from the repo root to docs/development/guides/ some time ago; this
+# was never updated, so the file-existence check below always failed. TD-113.
+DEBT_FILE="docs/development/guides/TECHNICAL_DEBT.md"
 
 # Initialize counters
 TODO_COUNT=0
@@ -68,23 +70,31 @@ scan_pattern() {
     if [ $count -eq 0 ]; then
         echo -e "  ${GREEN}None found ✓${NC}"
     fi
-    
+
     echo ""
-    return $count
+    # Report the count via a global, not the function's exit/return status.
+    # `return $count` looked convenient, but a bash function's return value IS
+    # an exit status: under `set -e`, any top-level call that returns non-zero
+    # is treated as a failure and kills the script immediately — which is
+    # every single call here as soon as `count` is above zero. In practice
+    # this meant the script died right after printing the very first (TODO)
+    # listing and never even reached the FIXME/HACK/XXX scans, the summary,
+    # or the tracked-items report below. TD-113.
+    LAST_COUNT=$count
 }
 
 # Scan for different markers
 scan_pattern "TODO" "TODO" "$YELLOW"
-TODO_COUNT=$?
+TODO_COUNT=$LAST_COUNT
 
 scan_pattern "FIXME" "FIXME" "$RED"
-FIXME_COUNT=$?
+FIXME_COUNT=$LAST_COUNT
 
 scan_pattern "HACK" "HACK" "$RED"
-HACK_COUNT=$?
+HACK_COUNT=$LAST_COUNT
 
 scan_pattern "XXX" "XXX" "$RED"
-XXX_COUNT=$?
+XXX_COUNT=$LAST_COUNT
 
 # Calculate total
 TOTAL=$((TODO_COUNT + FIXME_COUNT + HACK_COUNT + XXX_COUNT))

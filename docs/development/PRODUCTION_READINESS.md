@@ -130,14 +130,14 @@ None — every in-scope file carries a tag.
 | `android/wearsync/src/main/java/com/adai/wearsync/WearSyncContract.kt` | beta | 0.4.0 | 2026-09-07 | TD-047 |
 | `scripts/apply_narrowing_fixes.py` | experimental | 0.3.0 | 2026-09-10 | TD-046 |
 | `scripts/batch_api_client.py` | beta | 0.7.0 | 2026-09-10 | TD-045 |
-| `scripts/build_windows.sh` | beta | 0.8.0 | 2026-09-07 | TD-043 |
+| `scripts/build_windows.sh` | beta | 0.8.1 | 2026-09-10 | TD-043 |
 | `scripts/chatbot_gui_fixed.sh` | beta | 0.7.0 | 2026-09-07 | TD-044 |
 | `scripts/check_file_status.py` | beta | 0.9.0 | 2026-09-10 | TD-043 |
 | `scripts/check_intel_driver_updates.py` | beta | 0.6.0 | 2026-09-10 | TD-045 |
 | `scripts/check_ports.sh` | beta | 0.5.0 | 2026-09-07 | TD-045 |
-| `scripts/check_tech_debt.sh` | beta | 0.8.0 | 2026-09-07 | TD-043 |
+| `scripts/check_tech_debt.sh` | beta | 0.8.1 | 2026-09-10 | TD-043 |
 | `scripts/docker_build.sh` | beta | 0.8.1 | 2026-09-10 | TD-043 |
-| `scripts/docker_deploy.sh` | experimental | 0.4.0 | 2026-09-07 | TD-046 |
+| `scripts/docker_deploy.sh` | experimental | 0.4.1 | 2026-09-10 | TD-046 |
 | `scripts/fix_markdown_lint.py` | beta | 0.6.0 | 2026-09-07 | TD-045 |
 | `scripts/gen_status_report.py` | beta | 0.9.0 | 2026-09-10 | TD-043 |
 | `scripts/install_chatbot_API.sh` | beta | 0.8.0 | 2026-09-10 | TD-043 |
@@ -156,7 +156,7 @@ None — every in-scope file carries a tag.
 | `scripts/run_chatbot.sh` | beta | 0.7.0 | 2026-09-07 | TD-044 |
 | `scripts/run_chatbot_gui.sh` | beta | 0.8.0 | 2026-09-07 | TD-044 |
 | `scripts/run_tests.sh` | beta | 0.8.0 | 2026-09-07 | TD-043 |
-| `scripts/scan_todos.sh` | experimental | 0.3.0 | 2026-09-07 | TD-046 |
+| `scripts/scan_todos.sh` | experimental | 0.3.0 | 2026-09-10 | TD-046 |
 | `scripts/serve_dashboard.py` | beta | 0.6.1 | 2026-09-10 | TD-045 |
 | `scripts/test_chatbot_gui.sh` | beta | 0.7.0 | 2026-09-07 | TD-044 |
 | `scripts/test_chatbot_gui_comprehensive.sh` | beta | 0.7.0 | 2026-09-07 | TD-044 |
