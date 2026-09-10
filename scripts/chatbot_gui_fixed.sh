@@ -2,7 +2,7 @@
 
 # @adai-status: beta        (workaround for a specific Qt threading bug — see THREAD_ERROR_FIX.md; capped by TD-044 — see TECHNICAL_DEBT.md)
 # @adai-version: 0.7.0
-# @adai-reviewed: 2026-09-07
+# @adai-reviewed: 2026-09-10
 
 
 # Wrapper script to run chatbot_gui with correct library paths

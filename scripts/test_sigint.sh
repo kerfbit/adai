@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # @adai-status: experimental        (near-duplicate of test_signal_handling.sh, superseded by it; capped by TD-046 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.3.0
-# @adai-reviewed: 2026-09-07
+# @adai-version: 0.3.1
+# @adai-reviewed: 2026-09-10
 
 # Test script for SIGINT signal handling
 
@@ -11,8 +11,15 @@ echo "SIGINT Signal Handling Test"
 echo "==================================================================="
 echo ""
 
+# Resolve paths relative to this script instead of hardcoding one developer's
+# checkout location (TD-118 — same class as TD-116/TD-117). Also corrects
+# build/src/ to build/bin/: chatbot_api_server's CMake target sets
+# RUNTIME_OUTPUT_DIRECTORY to ${CMAKE_BINARY_DIR}/bin, never .../src/.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "${SCRIPT_DIR}")"
+
 # Set up configuration
-export VOCAB_PATH=/home/rodney/Repos/adai/vocab.txt
+export VOCAB_PATH="${REPO_ROOT}/vocab.txt"
 export PORT=18081  # Use different port
 export LOG_LEVEL=INFO  # Enable INFO level logging for testing
 
@@ -21,7 +28,7 @@ pkill -9 chatbot_api_server 2>/dev/null
 sleep 1
 
 echo "Starting chatbot_api_server on port $PORT..."
-/home/rodney/Repos/adai/build/src/chatbot_api_server > /tmp/sigint_test.log 2>&1 &
+"${REPO_ROOT}/build/bin/chatbot_api_server" > /tmp/sigint_test.log 2>&1 &
 SERVER_PID=$!
 
 echo "Server started with PID: $SERVER_PID"

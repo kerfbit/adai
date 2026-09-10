@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # @adai-status: beta        (capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.8.1
+# @adai-version: 0.8.2
 # @adai-reviewed: 2026-09-10
 
 # =============================================================================
@@ -115,9 +115,13 @@ done
 # Locate the binary for the requested build type
 # ---------------------------------------------------------------------------
 get_binary() {
+    # chatbot_api_server's CMake target sets RUNTIME_OUTPUT_DIRECTORY to
+    # ${CMAKE_BINARY_DIR}/bin — it has never actually been built under a
+    # .../src/ subdirectory. TD-118 (same class as TD-114/TD-116/TD-117,
+    # missed in this file's own earlier TD-107 pass in this same session).
     case "${BUILD_TYPE}" in
-        release) echo "${REPO_ROOT}/build/release/src/chatbot_api_server" ;;
-        debug)   echo "${REPO_ROOT}/build/src/chatbot_api_server" ;;
+        release) echo "${REPO_ROOT}/build/release/bin/chatbot_api_server" ;;
+        debug)   echo "${REPO_ROOT}/build/bin/chatbot_api_server" ;;
         *)       die "Unknown build type '${BUILD_TYPE}'. Use 'debug' or 'release'." ;;
     esac
 }

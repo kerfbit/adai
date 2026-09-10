@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # @adai-status: beta        (capped by TD-044 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.6.0
-# @adai-reviewed: 2026-09-07
+# @adai-version: 0.6.1
+# @adai-reviewed: 2026-09-10
 
 
 echo "╔═══════════════════════════════════════════════════════════════╗"
@@ -10,7 +10,9 @@ echo "║        CLI Chatbot Parallel Processing Verification         ║"
 echo "╚═══════════════════════════════════════════════════════════════╝"
 echo ""
 
-CHATBOT_BINARY="./build/src/chatbot"
+# chatbot's CMake target sets RUNTIME_OUTPUT_DIRECTORY to
+# ${CMAKE_BINARY_DIR}/bin, never .../src/. TD-118.
+CHATBOT_BINARY="./build/bin/chatbot"
 
 # Check if binary exists
 if [ ! -f "$CHATBOT_BINARY" ]; then
@@ -94,11 +96,11 @@ echo "  • CPU usage: 60-100% across all cores during generation"
 echo ""
 echo "Usage:"
 echo "  # Standard run"
-echo "  ./build/src/chatbot --vocab vocab.txt --model chatbot_model.bin"
+echo "  ./build/bin/chatbot --vocab vocab.txt --model chatbot_model.bin"
 echo ""
 echo "  # Maximum performance (set OpenMP threads)"
 echo "  export OMP_NUM_THREADS=$CORES"
-echo "  ./build/src/chatbot --vocab vocab.txt --model chatbot_model.bin"
+echo "  ./build/bin/chatbot --vocab vocab.txt --model chatbot_model.bin"
 echo ""
 echo "  # Monitor CPU usage in another terminal"
 echo "  htop"

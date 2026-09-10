@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # @adai-status: beta        (capped by TD-044 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.7.0
-# @adai-reviewed: 2026-09-07
+# @adai-version: 0.7.1
+# @adai-reviewed: 2026-09-10
 
 
 # Configuration
@@ -13,8 +13,11 @@ SERVER_URL="http://${SERVER_HOST}:${SERVER_PORT}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="${ROOT_DIR}/build"
-CLIENT_BIN="${BUILD_DIR}/src/chatbot"
-SERVER_BIN="${BUILD_DIR}/src/chatbot_api_server"
+# Both `chatbot` and `chatbot_api_server` set RUNTIME_OUTPUT_DIRECTORY to
+# ${CMAKE_BINARY_DIR}/bin in src/CMakeLists.txt — neither has ever actually
+# been built under .../src/. TD-117 (same class as TD-114/TD-116).
+CLIENT_BIN="${BUILD_DIR}/bin/chatbot"
+SERVER_BIN="${BUILD_DIR}/bin/chatbot_api_server"
 CONFIG_FILE="${ROOT_DIR}/config.conf"
 LOG_FILE="${ROOT_DIR}/chatbot_server.log"
 

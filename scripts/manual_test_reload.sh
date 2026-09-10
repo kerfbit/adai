@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # @adai-status: beta        (capped by TD-044 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.6.0
-# @adai-reviewed: 2026-09-07
+# @adai-version: 0.6.1
+# @adai-reviewed: 2026-09-10
 
 
 # Manual test for configuration hot-reload
@@ -39,5 +39,12 @@ echo ""
 echo "Press Ctrl+C to stop the server"
 echo ""
 
-cd /home/rodney/Repos/adai
-exec ./build/src/chatbot_api_server --config "$TEST_CONFIG"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "${SCRIPT_DIR}")"
+# chatbot_api_server's CMake target sets RUNTIME_OUTPUT_DIRECTORY to
+# ${CMAKE_BINARY_DIR}/bin, not .../src/ — this previously pointed at a path
+# the build has never actually produced. Also replaced the hardcoded
+# /home/rodney/Repos/adai path (broken for any other checkout) with the
+# same SCRIPT_DIR-relative resolution every other script in this repo uses.
+cd "${REPO_ROOT}" || exit 1
+exec ./build/bin/chatbot_api_server --config "$TEST_CONFIG"

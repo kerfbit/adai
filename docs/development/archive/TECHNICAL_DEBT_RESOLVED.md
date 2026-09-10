@@ -4,6 +4,144 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-118: Six More Scripts Referenced chatbot/chatbot_api_server at the Wrong Build Path
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/model_service.sh`, `verify_cli_parallel.sh`, `test_signal_handling.sh`, `test_sigint.sh`, `test_config_reload.sh`, `test_log_rotation.sh` | Corrected `build/src/` to `build/bin/`; resolved paths from `${BASH_SOURCE[0]}` instead of a hardcoded developer path |
+
+Summary:
+Found via a proactive repo-wide grep for `/src/chatbot`, `/src/chatbot_api_server`, etc. across all of
+`scripts/*.sh`, prompted by finding the same wrong-directory bug independently in TD-114
+(`package_windows.sh`), TD-116 (`manual_test_reload.sh`), and TD-117 (`run_chatbot.sh`). The grep also
+turned up many correct references to `build/src/chatbot_gui` — that target genuinely has no
+`RUNTIME_OUTPUT_DIRECTORY` override in `src/CMakeLists.txt`, so it really does build under `.../src/`,
+unlike `chatbot` and `chatbot_api_server`, which both explicitly set `RUNTIME_OUTPUT_DIRECTORY` to
+`${CMAKE_BINARY_DIR}/bin`. Six more files had the wrong one:
+- **`model_service.sh`** (already reviewed once this session under TD-107, without catching this) —
+  `get_binary()` returned `.../build/src/chatbot_api_server` (and `.../build/release/src/...`) for a tool
+  whose entire job is finding and launching that exact binary.
+- **`verify_cli_parallel.sh`** — `CHATBOT_BINARY="./build/src/chatbot"`.
+- **`test_signal_handling.sh`** and **`test_sigint.sh`** — both also hardcoded
+  `/home/rodney/Repos/adai/build/src/chatbot_api_server` (the TD-116-class absolute-path bug) on top of
+  the wrong subdirectory.
+- **`test_config_reload.sh`** and **`test_log_rotation.sh`** — both `cd /home/rodney/Repos/adai` then
+  `./build/src/chatbot_api_server`, the same double bug.
+
+Changes Made:
+- All six: `build/src/chatbot*` corrected to `build/bin/chatbot*`.
+- The four that also hardcoded `/home/rodney/Repos/adai` (`test_signal_handling.sh`, `test_sigint.sh`,
+  `test_config_reload.sh`, `test_log_rotation.sh`) now resolve `REPO_ROOT` from `${BASH_SOURCE[0]}`,
+  matching every other script in `scripts/`.
+
+Verification:
+- ✅ `src/CMakeLists.txt` confirms both `chatbot` and `chatbot_api_server` set `RUNTIME_OUTPUT_DIRECTORY`
+  to `${CMAKE_BINARY_DIR}/bin` — the same authoritative source already used to verify TD-114/116/117 — and
+  this session's own build logs show `Linking CXX executable ../bin/chatbot_api_server`.
+- ✅ `bash -n` and a clean ShellCheck pass (`-S warning`) on all six patched files (the remaining `-S
+  info` notes on `test_log_rotation.sh` — an unused loop counter, `ls` vs `find` style suggestions — are
+  pre-existing and unrelated).
+
+### TD-117: run_chatbot.sh Had the Same build/src/ vs build/bin/ Bug, Twice
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/run_chatbot.sh` | Corrected both `CLIENT_BIN` and `SERVER_BIN` from `build/src/` to `build/bin/` |
+
+Summary:
+Found immediately after TD-116, while checking `run_chatbot.sh` — the general-purpose "start the server
+if needed and launch the CLI" convenience script. `CLIENT_BIN="${BUILD_DIR}/src/chatbot"` and
+`SERVER_BIN="${BUILD_DIR}/src/chatbot_api_server"` both pointed at the wrong subdirectory for the same
+reason as TD-114/TD-116: neither target has ever built there. Unlike TD-116, this script already resolved
+`BUILD_DIR` correctly relative to `${BASH_SOURCE[0]}` — only the `bin` vs `src` subdirectory was wrong.
+
+Changes Made:
+- `scripts/run_chatbot.sh`: corrected both `CLIENT_BIN` and `SERVER_BIN` to `${BUILD_DIR}/bin/...`.
+
+Verification:
+- ✅ Confirmed against `src/CMakeLists.txt`'s `set_target_properties(chatbot ... RUNTIME_OUTPUT_DIRECTORY
+  ${CMAKE_BINARY_DIR}/bin)` and the equivalent for `chatbot_api_server`, plus this session's own build
+  logs showing both binaries actually linked into `.../bin/`.
+- ✅ `bash -n` and ShellCheck (`-S warning`, clean — the one remaining `-S info` note, unquoted
+  `$SERVER_CMD`, is a pre-existing, intentional word-splitting idiom for the appended CLI flags,
+  unrelated to this fix).
+
+### TD-116: manual_test_reload.sh Hardcoded One Developer's Home Directory and the Wrong Build Subdirectory
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/manual_test_reload.sh` | Resolve the repo root from `${BASH_SOURCE[0]}` like every other script; corrected `build/src/` to `build/bin/` |
+
+Summary:
+Found while checking the ShellCheck-flagged `cd` calls in `scripts/*.sh`. This manual SIGHUP-reload test
+script did `cd /home/rodney/Repos/adai` — a single developer's absolute home-directory path hardcoded into
+a file tracked in shared version control — instead of the `SCRIPT_DIR="$(cd "$(dirname
+"${BASH_SOURCE[0]}")" && pwd)"` pattern every other script in `scripts/` uses. It happened to work in this
+environment purely because the checkout coincidentally lives at that exact path; it would fail immediately
+for any other developer, any other checkout location, or CI. Separately, the executable path it then ran —
+`./build/src/chatbot_api_server` — was also wrong: `chatbot_api_server`'s CMake target sets
+`RUNTIME_OUTPUT_DIRECTORY` to `${CMAKE_BINARY_DIR}/bin` (confirmed directly against `src/CMakeLists.txt`
+and against this session's own build logs, which show `Linking CXX executable ../bin/chatbot_api_server`)
+— the build has never actually produced a binary at `build/src/chatbot_api_server`.
+
+Changes Made:
+- `scripts/manual_test_reload.sh`: resolves `REPO_ROOT` from `${BASH_SOURCE[0]}`, matching every sibling
+  script, and `cd`s there with an explicit `|| exit 1` (also addressing the ShellCheck SC2164 note on the
+  original bare `cd`). Corrected the binary path to `./build/bin/chatbot_api_server`.
+
+Verification:
+- ✅ Verified the corrected path resolution logic directly (prints the real `SCRIPT_DIR`/`REPO_ROOT` and
+  the resulting exec path, matching the actual repo layout) and confirmed `chatbot_api_server`'s real
+  build output location against both `src/CMakeLists.txt`'s `set_target_properties` call and this
+  session's own build log.
+- ✅ `bash -n` and a clean ShellCheck pass (`-S warning`).
+- A full live run (actually launching the server) is deferred until the `build/debug` rebuild in progress
+  completes — see the note below about an incident during this same round of work.
+
+**Incident note:** while testing `run_tests.sh`'s TD-115 fix, a `--coverage` run of the *real* script
+against the *real* repository (not a copy) executed its `rm -rf "$BUILD_DIR"` step with
+`BUILD_DIR="$PROJECT_ROOT/build"` — deleting the entire `build/` directory, including the fully-built
+`build/debug` tree from earlier in this session (verified 78/78 passing). This was a mistake: `run_tests.sh`
+should have been exercised in an isolated copy the way every other destructive-flag test in this session
+was, not run in place. `build/debug` was immediately reconfigured (`cmake --preset=debug`) and a full
+rebuild was kicked off; the tail of this session re-runs the full `ctest` suite once it completes, before
+the final checkpoint, to re-confirm the 78/78 baseline.
+
+### TD-115: run_tests.sh Silently Skipped Coverage-Report Generation Whenever a Test Failed
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/run_tests.sh` | Bracket the `ctest` call with `set +e`/`set -e` so a failing test run no longer kills the script before its own `$?` is captured |
+
+Summary:
+Found while continuing the sweep for the `set -e` dead-branch bug already fixed under TD-104/111/112/113
+in sibling scripts — a new variant. `ctest --output-on-failure[--verbose]` runs as a bare statement (not
+an `if`'s own condition), immediately followed by `TEST_RESULT=$?` and, later, an `if [ "$COVERAGE" = true
+]` block that generates an lcov coverage report and prints a summary. Under this script's `set -e`, a
+failing test run terminates the script right at the bare `ctest` call — `TEST_RESULT=$?` never executes,
+and neither does the entire coverage-report section below it. The final exit code happens to still be
+correct by coincidence (`set -e`'s own termination propagates the failing command's exit status as the
+script's exit status), but the practical, observable bug is that `--coverage` combined with any failing
+test silently produced no coverage report at all — exactly the case where seeing what was and wasn't
+exercised is most useful.
+
+Changes Made:
+- `scripts/run_tests.sh`: wrapped the `ctest` invocation in `set +e` / `set -e`, so a non-zero exit is
+  captured into `TEST_RESULT` without killing the script, and execution reaches the coverage-report
+  section (and the final `exit $TEST_RESULT`) regardless of whether tests passed.
+
+Verification:
+- ✅ Before/after regression against the real script with fake `cmake`/`make`/`ctest`/`lcov` binaries in
+  `PATH` (the fake `ctest` exits non-zero to simulate a failing test, `--coverage` requested):
+  - Pre-fix: output ended immediately after "fake ctest: 1 test failed" — no "📊 Generating coverage
+    report..." line, exactly the predicted symptom.
+  - Post-fix: "📊 Generating coverage report..." correctly prints, the `lcov` calls run, and the script
+    still exits with the correct code (8, the fake ctest's exit status) via the intended `exit
+    $TEST_RESULT` path.
+  - Re-verified the plain success path (no sanitizer/coverage flags, tests pass): unaffected, exits 0.
+- ✅ `bash -n` and ShellCheck (`-S warning`, clean — the two remaining `-S info` notes, unquoted
+  `$CMAKE_OPTS`/`$(nproc)`, are pre-existing, intentional word-splitting idioms unrelated to this fix).
+
 ### TD-114: package_windows.sh Looked for Built Executables in the Wrong Directory
 
 | Resolution Date | Component | Resolved By |

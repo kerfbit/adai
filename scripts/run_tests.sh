@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # @adai-status: beta        (documented in CLAUDE.md; no automated test of the script itself; capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.8.0
-# @adai-reviewed: 2026-09-07
+# @adai-version: 0.8.1
+# @adai-reviewed: 2026-09-10
 
 #
 # Run all tests with optional sanitizers
@@ -91,13 +91,20 @@ cd "$BUILD_DIR"
 echo "🧪 Running tests..."
 echo ""
 
+# `ctest` must run with errexit suspended: it's a bare statement (not an if's
+# own condition), so under this script's `set -e` a failing test run would
+# terminate the script right here — before `TEST_RESULT=$?` on the next line,
+# and before the "Generate coverage report" section below, ever ran. That
+# silently skipped coverage-report generation on any `--coverage` run with a
+# failing test, which is exactly when a coverage report is most useful.
+set +e
 if [ "$VERBOSE" = true ]; then
     ctest --output-on-failure --verbose
 else
     ctest --output-on-failure
 fi
-
 TEST_RESULT=$?
+set -e
 echo ""
 
 # Generate coverage report if requested
