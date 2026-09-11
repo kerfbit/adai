@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # @adai-status: beta        (capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.8.1
+# @adai-version: 0.8.2
 # @adai-reviewed: 2026-09-10
 
 # Docker build script for ADAI Chatbot API Server
@@ -100,38 +100,49 @@ print_info "Building Docker image: ${IMAGE_NAME}:${IMAGE_TAG}"
 print_info "Build context: ${PROJECT_ROOT}"
 
 # Construct build command
-BUILD_CMD="docker build"
+# TD-151: this used to be built as a single string ("BUILD_CMD=\"docker
+# build\"", appending flags with plain string concatenation) and run via
+# `eval "$BUILD_CMD"`. --tag/--name/--platform are all unvalidated CLI flags
+# assigned straight from "$2" — eval re-parses the whole concatenated string
+# as shell input, so e.g. `--tag 'x; rm -rf ~; #'` executed the injected
+# command with this script's own privileges (confirmed directly: a benign
+# `touch`-marker payload in the equivalent construction in docker_deploy.sh
+# actually ran). A bash array avoids `eval` entirely — each element is
+# passed to `docker` as one literal argument, never re-interpreted as shell
+# syntax, regardless of what characters it contains.
+BUILD_CMD=(docker build)
 
 if [ "$NO_CACHE" = true ]; then
-    BUILD_CMD="$BUILD_CMD --no-cache"
+    BUILD_CMD+=(--no-cache)
 fi
 
 if [ -n "$PLATFORM" ]; then
-    BUILD_CMD="$BUILD_CMD --platform $PLATFORM"
+    BUILD_CMD+=(--platform "$PLATFORM")
 fi
 
-BUILD_CMD="$BUILD_CMD -t ${IMAGE_NAME}:${IMAGE_TAG}"
-BUILD_CMD="$BUILD_CMD -f ${PROJECT_ROOT}/Dockerfile"
-BUILD_CMD="$BUILD_CMD ${PROJECT_ROOT}"
+BUILD_CMD+=(-t "${IMAGE_NAME}:${IMAGE_TAG}")
+BUILD_CMD+=(-f "${PROJECT_ROOT}/Dockerfile")
+BUILD_CMD+=("${PROJECT_ROOT}")
 
-print_info "Running: $BUILD_CMD"
+print_info "Running: ${BUILD_CMD[*]}"
 
-# `eval "$BUILD_CMD"` must be the condition of this if — not a bare statement
+# `"${BUILD_CMD[@]}"` must be the condition of this if — not a bare statement
 # followed by `if [ $? -eq 0 ]` — because this script runs under `set -e`.
-# A bare failing `eval` is not inside a conditional context, so `set -e` would
-# terminate the script right there on any `docker build` failure, before the
-# `if` below ever ran: the intended "else" branch (print_error + exit 1) was
-# unreachable dead code, and a real build failure just silently killed the
-# script with docker's raw exit status instead of a friendly message. Using
-# the eval directly as the if-condition is one of the documented exemptions
-# to `set -e` (a command's status when tested by if/while/until never
-# triggers it), so the else branch now actually runs. TD-104.
-if eval "$BUILD_CMD"; then
+# A bare failing command is not inside a conditional context, so `set -e`
+# would terminate the script right there on any `docker build` failure,
+# before the `if` below ever ran: the intended "else" branch (print_error +
+# exit 1) was unreachable dead code, and a real build failure just silently
+# killed the script with docker's raw exit status instead of a friendly
+# message. Testing the command directly as the if-condition is one of the
+# documented exemptions to `set -e` (a command's status when tested by
+# if/while/until never triggers it), so the else branch now actually runs.
+# TD-104.
+if "${BUILD_CMD[@]}"; then
     print_success "Docker image built successfully: ${IMAGE_NAME}:${IMAGE_TAG}"
-    
+
     # Display image information
     print_info "Image details:"
-    docker images ${IMAGE_NAME}:${IMAGE_TAG}
+    docker images "${IMAGE_NAME}:${IMAGE_TAG}"
     
     print_info ""
     print_info "Next steps:"

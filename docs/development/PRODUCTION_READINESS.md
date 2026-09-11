@@ -137,8 +137,8 @@ None — every in-scope file carries a tag.
 | `scripts/check_ports.sh` | beta | 0.5.1 | 2026-09-10 | TD-045 |
 | `scripts/check_tech_debt.sh` | beta | 0.8.1 | 2026-09-10 | TD-043 |
 | `scripts/cloudflared/install_cloudflared.sh` | beta | 0.1.0 | 2026-09-10 | TD-043 |
-| `scripts/docker_build.sh` | beta | 0.8.1 | 2026-09-10 | TD-043 |
-| `scripts/docker_deploy.sh` | experimental | 0.4.1 | 2026-09-10 | TD-046 |
+| `scripts/docker_build.sh` | beta | 0.8.2 | 2026-09-10 | TD-043 |
+| `scripts/docker_deploy.sh` | experimental | 0.4.2 | 2026-09-10 | TD-046 |
 | `scripts/fix_markdown_lint.py` | beta | 0.6.1 | 2026-09-10 | TD-045 |
 | `scripts/gen_status_report.py` | beta | 0.9.0 | 2026-09-10 | TD-043 |
 | `scripts/install_chatbot_API.sh` | beta | 0.8.1 | 2026-09-10 | TD-043 |

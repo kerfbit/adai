@@ -4,6 +4,26 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-151: docker_build.sh/docker_deploy.sh Allowed Command Injection via eval
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 11, 2026 | `scripts/docker_build.sh`, `scripts/docker_deploy.sh` | Replaced string-concatenation-then-`eval` command construction with bash arrays |
+
+Summary:
+Found immediately after TD-150, continuing the same injection/quoting-focused re-read. Both scripts build their `docker build`/`docker run` invocation as a single string via plain concatenation (`BUILD_CMD="$BUILD_CMD -t ${IMAGE_NAME}:${IMAGE_TAG}"`, `RUN_CMD="$RUN_CMD --name $CONTAINER_NAME"`, etc.) and then execute it with `eval "$BUILD_CMD"` / `eval "$RUN_CMD"` (added under TD-104, which fixed the exit-status handling but didn't touch the underlying construction). Every flag feeding these strings — `--tag`/`--platform` in `docker_build.sh`; `--name`/`--port`/`--vocab-file`/`--model-dir`/`--log-dir`/`--tag` in `docker_deploy.sh` — is assigned straight from `"$2"` with zero validation. Since `eval` re-parses its argument as shell input, any of these flags could smuggle in arbitrary shell syntax.
+
+Reproduced directly (not assumed):
+- `docker_deploy.sh`-equivalent construction, `--name` set to `x; touch <marker>; echo injected`: the `eval`'d command actually created the marker file — full command execution with this script's own privileges, confirmed by the marker's presence afterward.
+- Same result reproducing `docker_build.sh`'s construction via `--tag`.
+
+Changes Made — both scripts converted their command from a single `eval`'d string to a bash array (`CMD=(docker build); CMD+=(-t "...")`; run as `"${CMD[@]}"`), the same pattern already used correctly elsewhere in this codebase (`model_service.sh`'s `"${server_args[@]}"`). An array element is passed to `docker` as one literal argument and never re-interpreted as shell syntax, regardless of its contents — this removes the injection vector entirely rather than trying to sanitize each flag. TD-104's `if "${CMD[@]}"; then ... else ...; fi` structure (needed so a real build/run failure under `set -e` still reaches the friendly error message) carries over unchanged, since testing a command directly as an if-condition is exempt from `set -e` regardless of whether that command is a string-eval or an array expansion.
+
+Verification:
+- ✅ Re-ran the exact same injection payload (`--name`/`--tag` containing `; touch <marker>; #`) through the fixed array-based construction: the whole malicious string became a single literal (and here, invalid) argument to `docker` — no marker file created, confirming the injection is fully neutralized.
+- ✅ `bash -n` syntax check on both files: passed.
+- ✅ Swept the rest of `scripts/` for any other `eval` usage: none found — these were the only two.
+
 ### TD-150: Seven Install Scripts' Generated systemd Units Broke on Space-Containing Paths
 
 | Resolution Date | Component | Resolved By |

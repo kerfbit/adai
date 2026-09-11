@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # @adai-status: experimental        (not referenced by current docs (docker.md documents docker_build.sh + docker-compose instead); capped by TD-046 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.4.1
+# @adai-version: 0.4.2
 # @adai-reviewed: 2026-09-10
 
 # Docker deployment script for ADAI Chatbot API Server
@@ -173,33 +173,44 @@ start_container() {
     fi
     
     # Build run command
-    RUN_CMD="docker run"
-    
+    # TD-151: this used to be built as a single string ("RUN_CMD=\"docker
+    # run\"", appending flags with plain string concatenation) and run via
+    # `eval "$RUN_CMD"`. --name/--port/--vocab-file/--model-dir/--log-dir/--tag
+    # are all unvalidated CLI flags assigned straight from "$2" — eval
+    # re-parses the whole concatenated string as shell input, so e.g.
+    # `--name 'x; touch /tmp/pwned; #'` executed the injected command with
+    # this script's own privileges. Confirmed directly: that exact payload,
+    # run through the old string+eval construction, actually created the
+    # marker file. A bash array avoids `eval` entirely — each element is
+    # passed to `docker` as one literal argument, never re-interpreted as
+    # shell syntax, regardless of what characters it contains.
+    RUN_CMD=(docker run)
+
     if [ "$DETACH" = true ]; then
-        RUN_CMD="$RUN_CMD -d"
+        RUN_CMD+=(-d)
     fi
-    
-    RUN_CMD="$RUN_CMD --name $CONTAINER_NAME"
-    RUN_CMD="$RUN_CMD -p ${PORT}:8080"
-    
+
+    RUN_CMD+=(--name "$CONTAINER_NAME")
+    RUN_CMD+=(-p "${PORT}:8080")
+
     # Mount vocabulary file if it exists
     if [ -f "$VOCAB_FILE" ]; then
-        RUN_CMD="$RUN_CMD -v ${VOCAB_FILE}:/app/vocab/vocab.txt:ro"
+        RUN_CMD+=(-v "${VOCAB_FILE}:/app/vocab/vocab.txt:ro")
     fi
-    
-    # Mount directories
-    RUN_CMD="$RUN_CMD -v ${MODEL_DIR}:/app/models:ro"
-    RUN_CMD="$RUN_CMD -v ${LOG_DIR}:/app/logs:rw"
-    
-    RUN_CMD="$RUN_CMD ${IMAGE_NAME}:${IMAGE_TAG}"
-    
-    print_info "Running: $RUN_CMD"
 
-    # Same TD-104 bug as docker_build.sh: `eval "$RUN_CMD"` must be the if's own
+    # Mount directories
+    RUN_CMD+=(-v "${MODEL_DIR}:/app/models:ro")
+    RUN_CMD+=(-v "${LOG_DIR}:/app/logs:rw")
+
+    RUN_CMD+=("${IMAGE_NAME}:${IMAGE_TAG}")
+
+    print_info "Running: ${RUN_CMD[*]}"
+
+    # Same TD-104 bug as docker_build.sh: the command must be the if's own
     # condition, not a bare statement followed by `if [ $? -eq 0 ]` — under
-    # `set -e`, a failing bare `eval` is not itself a conditional context, so it
-    # would terminate the script right there, before the `if` below ever ran.
-    if eval "$RUN_CMD"; then
+    # `set -e`, a failing bare command is not itself a conditional context, so
+    # it would terminate the script right there, before the `if` below ever ran.
+    if "${RUN_CMD[@]}"; then
         print_success "Container started successfully: $CONTAINER_NAME"
         print_info "API available at: http://localhost:${PORT}"
         print_info "Health check: http://localhost:${PORT}/health"
