@@ -7,7 +7,7 @@
    ============================================================ */
 
 // @adai-status: beta        (documented, wired into index.html, deployed to Samsung TV hardware; no automated test coverage exists for this app; capped by TD-049 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.7.0
+// @adai-version: 0.7.1
 // @adai-reviewed: 2026-09-10
 
 (function(window) {
@@ -128,6 +128,23 @@
     ------------------------------------------------------- */
     function apiBase() {
         return 'http://' + Config.host + ':' + Config.port;
+    }
+
+    /* TD-153: renderSessionList() and fetchAndRenderSessions()'s error path both
+       concatenate externally-sourced strings (a session key from the server's
+       /api/sessions response; apiBase()/err.message) directly into an HTML
+       string before assigning it via .innerHTML — with no escaping, any HTML
+       markup in those strings is parsed as real DOM, not displayed as text.
+       Confirmed exploitable directly in a real browser: a session key of
+       '<img src=x onerror="...">' had its onerror handler actually fire the
+       moment the session list rendered. escapeHtml() leans on the DOM's own
+       serializer (setting textContent then reading back innerHTML) rather than
+       a hand-rolled replace() chain, so it can't itself miss a character class
+       the browser's own parser cares about. */
+    function escapeHtml(str) {
+        var div = document.createElement('div');
+        div.textContent = String(str);
+        return div.innerHTML;
     }
 
     function fmt(val, decimals) {
@@ -787,8 +804,8 @@
                    of replacing it with an error. */
                 if (UI.sessionList.innerHTML.indexOf('session-item') === -1) {
                     UI.sessionList.innerHTML =
-                        '<div class="session-error">Cannot reach ' + apiBase() +
-                        '<br>' + err.message +
+                        '<div class="session-error">Cannot reach ' + escapeHtml(apiBase()) +
+                        '<br>' + escapeHtml(err.message) +
                         '<br><span style="opacity:0.6;font-size:0.85em">Press ■ (Blue) to change server address</span></div>';
                     nav.refresh(document.getElementById('session-picker-panel'));
                 }
@@ -861,7 +878,7 @@
 
             el.innerHTML =
                 '<div class="session-item-header">' +
-                  '<span class="session-item-key">' + s.key + '</span>' +
+                  '<span class="session-item-key">' + escapeHtml(s.key) + '</span>' +
                   '<div class="session-item-badges">' +
                     (s.key === activeKey ? '<span class="session-current-label">WATCHING</span>' : '') +
                     '<span class="badge ' + statusClass + '">' + statusText + '</span>' +

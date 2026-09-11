@@ -4,6 +4,26 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-153: tizen-metrics-app's Session Picker Had a DOM-Based XSS via the Session Key
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 11, 2026 | `tizen-metrics-app/js/app.js` | Added an `escapeHtml()` helper and applied it everywhere an externally-sourced string is concatenated into an `.innerHTML` assignment |
+
+Summary:
+Found during a fourth-pass re-read of `tizen-metrics-app/js/`, applying the same "externally-sourced data flowing into a dangerous sink" lens that found TD-149/150/151/152 in `scripts/`/`android/`. `renderSessionList()` builds each session-picker row by concatenating `s.key` — a session key taken directly from the `/api/sessions` server response — into an HTML string, then assigns it via `el.innerHTML = ...`, with no escaping. `fetchAndRenderSessions()`'s error path does the same with `apiBase()` (built from the user-configured `Config.host`, but still worth closing) and `err.message`. Any HTML markup in the session key is parsed as real DOM rather than displayed as text.
+
+Reproduced directly in a real browser engine (not assumed): copied the exact vulnerable code from `renderSessionList()` verbatim into a live page, fed it a fake session object with `key: '<img src=x onerror="...">'`, and confirmed the `onerror` handler actually fired the moment the row rendered — proving genuine script execution, not just a theoretical HTML-parsing concern.
+
+Changes Made:
+- `app.js`: added `escapeHtml(str)` (creates a detached `<div>`, sets `textContent`, reads back `innerHTML` — leans on the browser's own DOM serializer rather than a hand-rolled character-replacement list, so it can't itself miss an escaping edge case the browser's parser cares about).
+- Applied it to `s.key` in `renderSessionList()`'s row-building `innerHTML` assignment, and to `apiBase()`/`err.message` in `fetchAndRenderSessions()`'s error-rendering path. `el.setAttribute('data-key', s.key)` and the `s.key === activeKey` comparisons elsewhere in the same function were already safe as-is (`setAttribute` never parses its value as HTML, and a `===` comparison isn't a sink at all) and were left untouched. Confirmed via a full read of the file that every other user-facing string update goes through `setText()`, which uses `.textContent` (inherently safe), so these were the only two vulnerable call sites.
+
+Verification:
+- ✅ Reproduced the exploit in a real browser (the same tool this session already uses for artifact/page verification): the unescaped version's injected `onerror` fired and mutated an unrelated DOM element, proving real script execution.
+- ✅ Re-ran the identical scenario through the fixed (`escapeHtml`-wrapped) code in the same browser: the marker element stayed unchanged and the malicious string rendered as its own literal, inert text — confirming the fix neutralizes the exploit while still displaying the session key's real content.
+- ✅ `node --check` on the real, fully-patched file: passed.
+
 ### TD-152: Both Android Apps' Cloudflare Access Secrets Were Backed Up in Plain Text
 
 | Resolution Date | Component | Resolved By |

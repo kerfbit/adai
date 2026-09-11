@@ -223,7 +223,7 @@ None — every in-scope file carries a tag.
 | `src/gpu/sycl/GPUUtils_SYCL.hpp` | beta | 0.6.1 | 2026-09-10 | TD-041 |
 | `src/gpu/sycl/MatrixGPU_SYCL.cpp` | beta | 0.10.0 | 2026-09-10 | TD-050 |
 | `src/gpu/sycl/MatrixGPU_SYCL.hpp` | beta | 0.9.0 | 2026-09-10 | TD-050 |
-| `tizen-metrics-app/js/app.js` | beta | 0.7.0 | 2026-09-10 | TD-049 |
+| `tizen-metrics-app/js/app.js` | beta | 0.7.1 | 2026-09-10 | TD-049 |
 | `tizen-metrics-app/js/chart.js` | beta | 0.6.0 | 2026-09-10 | TD-049 |
 | `tizen-metrics-app/js/navigation.js` | beta | 0.6.0 | 2026-09-10 | TD-049 |
 
