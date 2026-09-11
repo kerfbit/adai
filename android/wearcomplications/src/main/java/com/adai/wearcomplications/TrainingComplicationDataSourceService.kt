@@ -1,7 +1,7 @@
 package com.adai.wearcomplications
 
 // @adai-status: experimental        (capped by TD-048 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.1.0
+// @adai-version: 0.1.1
 // @adai-reviewed: 2026-09-10
 
 
@@ -15,11 +15,10 @@ import androidx.wear.watchface.complications.datasource.ComplicationDataSourceSe
 import androidx.wear.watchface.complications.datasource.ComplicationDataSourceService.ComplicationRequestListener
 import androidx.wear.watchface.complications.datasource.ComplicationRequest
 import com.adai.wearsync.WearSyncPaths
-import com.google.android.gms.tasks.Tasks
+import com.google.android.gms.wearable.DataItemBuffer
 import com.google.android.gms.wearable.DataMapItem
 import com.google.android.gms.wearable.Wearable
 import java.util.Locale
-import java.util.concurrent.TimeUnit
 
 /**
  * Shared logic for the loss/perplexity RANGED_VALUE complications: read whatever the phone
@@ -38,14 +37,42 @@ abstract class TrainingComplicationDataSourceService : ComplicationDataSourceSer
     protected abstract fun minValue(snapshot: TrainingSnapshot): Double
     protected abstract fun maxValue(snapshot: TrainingSnapshot): Double
 
+    // TD-146: `onComplicationRequest` is dispatched by the platform via a Handler bound to this
+    // service's main thread (confirmed directly against the pinned
+    // watchface-complications-data-source:1.2.1 library bytecode — IComplicationProviderWrapper's
+    // onUpdate2 calls getMainThreadHandler().post { ...onComplicationRequest... }), not a
+    // background thread. The previous implementation called `Tasks.await(dataClient.dataItems, 2,
+    // TimeUnit.SECONDS)` here — a synchronous block of up to 2 seconds on that same main thread,
+    // every single time either complication is requested (raise-to-wake, tap, or the periodic
+    // update), on every real device. Fixed by switching to the non-blocking
+    // addOnSuccessListener/addOnFailureListener form of the same Task, which answers the
+    // ComplicationRequestListener from the callback instead of blocking the calling thread —
+    // matching the documented non-blocking contract `onComplicationRequest` expects, and Google's
+    // own recommended pattern for Data-Layer-backed complications.
     override fun onComplicationRequest(request: ComplicationRequest, listener: ComplicationRequestListener) {
-        val snapshot = readLatestSnapshot()
-        val data: ComplicationData = if (snapshot == null || snapshot.isStale(System.currentTimeMillis())) {
+        val dataClient = Wearable.getDataClient(applicationContext)
+        dataClient.dataItems
+            .addOnSuccessListener { buffer -> listener.onComplicationData(dataFromBuffer(buffer)) }
+            .addOnFailureListener { e ->
+                Log.w(TAG, "Failed to read latest training snapshot", e)
+                listener.onComplicationData(NoDataComplicationData())
+            }
+    }
+
+    private fun dataFromBuffer(buffer: DataItemBuffer): ComplicationData = try {
+        val snapshot = buffer
+            .firstOrNull { it.uri.path == WearSyncPaths.TRAINING_SNAPSHOT }
+            ?.let { TrainingSnapshot.fromDataMap(DataMapItem.fromDataItem(it).dataMap) }
+        if (snapshot == null || snapshot.isStale(System.currentTimeMillis())) {
             NoDataComplicationData()
         } else {
             buildRangedValue(snapshot)
         }
-        listener.onComplicationData(data)
+    } catch (e: Exception) {
+        Log.w(TAG, "Failed to decode latest training snapshot", e)
+        NoDataComplicationData()
+    } finally {
+        buffer.release()
     }
 
     override fun getPreviewData(type: ComplicationType): ComplicationData? {
@@ -74,23 +101,7 @@ abstract class TrainingComplicationDataSourceService : ComplicationDataSourceSer
             .build()
     }
 
-    private fun readLatestSnapshot(): TrainingSnapshot? = try {
-        val dataClient = Wearable.getDataClient(applicationContext)
-        val buffer = Tasks.await(dataClient.dataItems, READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        try {
-            buffer
-                .firstOrNull { it.uri.path == WearSyncPaths.TRAINING_SNAPSHOT }
-                ?.let { TrainingSnapshot.fromDataMap(DataMapItem.fromDataItem(it).dataMap) }
-        } finally {
-            buffer.release()
-        }
-    } catch (e: Exception) {
-        Log.w(TAG, "Failed to read latest training snapshot", e)
-        null
-    }
-
     private companion object {
         const val TAG = "TrainingComplication"
-        const val READ_TIMEOUT_SECONDS = 2L
     }
 }

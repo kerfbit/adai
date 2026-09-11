@@ -125,7 +125,7 @@ None — every in-scope file carries a tag.
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/trainer/TrainerViewModel.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
 | `android/wearcomplications/src/main/java/com/adai/wearcomplications/LossComplicationDataSourceService.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
 | `android/wearcomplications/src/main/java/com/adai/wearcomplications/PerplexityComplicationDataSourceService.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
-| `android/wearcomplications/src/main/java/com/adai/wearcomplications/TrainingComplicationDataSourceService.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
+| `android/wearcomplications/src/main/java/com/adai/wearcomplications/TrainingComplicationDataSourceService.kt` | experimental | 0.1.1 | 2026-09-10 | TD-048 |
 | `android/wearcomplications/src/main/java/com/adai/wearcomplications/TrainingSnapshot.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
 | `android/wearsync/src/main/java/com/adai/wearsync/WearSyncContract.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
 | `scripts/apply_narrowing_fixes.py` | experimental | 0.3.0 | 2026-09-10 | TD-046 |

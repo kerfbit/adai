@@ -4,6 +4,54 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-146: TrainingComplicationDataSourceService Blocked the Main Thread on Every Complication Request
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `android/wearcomplications/.../TrainingComplicationDataSourceService.kt` | Replaced blocking `Tasks.await(dataClient.dataItems, 2, SECONDS)` with the non-blocking `addOnSuccessListener`/`addOnFailureListener` form of the same `Task` |
+
+Summary:
+Found at the start of this session's third-pass re-read of `android/`, starting with the small
+`wearcomplications` module. `onComplicationRequest()` called `readLatestSnapshot()`, which called
+`Tasks.await(dataClient.dataItems, READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)` — a **synchronous block of
+up to 2 seconds** — directly inside the override. The concern: is `onComplicationRequest` actually
+invoked on the main thread (where this would be a real ANR/jank risk), or some other executor (where
+blocking would be harmless)? Rather than assume either way, confirmed it directly against the actual
+pinned dependency: `watchface-complications-data-source:1.2.1`'s real `.class` files are already
+present in this machine's Gradle cache (fetched by a prior build), so its bytecode was decompiled and
+inspected directly — `IComplicationProviderWrapper.onUpdate2()`'s bytecode calls
+`ComplicationDataSourceService.getMainThreadHandler().post { ...invokes onComplicationRequest... }`,
+proving the callback runs on the service's main thread by default (this subclass never overrides an
+alternate executor). So every single complication request — raise-to-wake, tap, or the periodic
+`UPDATE_PERIOD_SECONDS` refresh, for both the Loss and Perplexity complications — blocked that main
+thread for up to 2 real seconds on every actual device, a textbook ANR/jank risk the framework's own
+non-blocking `ComplicationRequestListener` callback contract exists specifically to avoid.
+
+Reproduced/confirmed directly:
+- Extracted and decompiled (`javap -c`) the actual `watchface-complications-data-source-1.2.1`
+  library classes from this project's own Gradle dependency cache — not assumed or guessed from
+  documentation — and confirmed the `Handler.post(Runnable)` dispatch to the main thread in
+  `IComplicationProviderWrapper.onUpdate2()`'s bytecode.
+
+Changes Made:
+- `TrainingComplicationDataSourceService.kt`: `onComplicationRequest()` now calls
+  `dataClient.dataItems.addOnSuccessListener { ... }.addOnFailureListener { ... }` and answers
+  `listener.onComplicationData(...)` from within those callbacks, instead of blocking the calling
+  thread with `Tasks.await(...)`. The buffer-decoding logic (find the training-snapshot `DataItem`,
+  decode it, check staleness, release the buffer) moved unchanged into a new `dataFromBuffer()` helper
+  called from the success callback. The local 2-second timeout was dropped — Play Services' own
+  `Task` failure path plus the complications framework's own per-request timeout already cover a
+  hung/slow read, and a `dataItems` fetch is documented as a fast local cache read, not a network
+  call.
+
+Verification:
+- ✅ `./gradlew :wearcomplications:compileDebugKotlin --offline --rerun-tasks`: forced (not
+  cached/up-to-date) recompilation of the fixed file against the real `watchface-complications-*`
+  and Play Services Wearable dependencies — `BUILD SUCCESSFUL`, zero warnings or errors.
+- ✅ Confirmed the initial `--offline` compile run (without `--rerun-tasks`) had reported
+  `compileDebugKotlin UP-TO-DATE` despite the file being freshly edited — re-ran with `--rerun-tasks`
+  after `touch`ing the file to force genuine recompilation, ruling out a stale-cache false pass.
+
 ### TD-145: install_cloudflared.sh Was Invisible to the File-Status Tagging Standard
 
 | Resolution Date | Component | Resolved By |
