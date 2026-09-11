@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
-# @adai-status: beta        (capped by TD-045 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.6.2
-# @adai-reviewed: 2026-09-10
+# @adai-status: beta        (TD-045 resolved — real test suite added, see tests/scripts/test_serve_dashboard.py)
+# @adai-version: 0.6.3
+# @adai-reviewed: 2026-09-11
 
 """
 Simple HTTP server to serve the dashboard

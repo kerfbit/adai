@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
-# @adai-status: beta        (no doc reference, but self-contained and functional; capped by TD-045 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.6.0
-# @adai-reviewed: 2026-09-10
+# @adai-status: beta        (TD-045 resolved — self-contained, real test suite added, see tests/scripts/test_monitor_training.py)
+# @adai-version: 0.6.1
+# @adai-reviewed: 2026-09-11
 
 """
 Training Metrics Monitor - Real-time CLI dashboard for training metrics
@@ -288,8 +288,20 @@ def main():
     print(f"Format: {args.format}")
     print(f"Refresh rate: {args.refresh_rate}s")
     print()
-    time.sleep(2)
-    
+    # TD-045: this sleep used to sit outside monitor_training()'s own
+    # try/except KeyboardInterrupt, so Ctrl+C during these first 2 seconds
+    # (a perfectly plausible time to press it — right after noticing a
+    # typo'd --summary-file, say) propagated all the way up uncaught,
+    # crashing with a raw traceback instead of the same friendly
+    # "Monitoring stopped." message + clean exit 0 that pressing Ctrl+C
+    # anywhere else in the tool's lifetime already produces. Found writing
+    # this script's TD-045 smoke test.
+    try:
+        time.sleep(2)
+    except KeyboardInterrupt:
+        print("\n\nMonitoring stopped.")
+        sys.exit(0)
+
     monitor_training(args.summary_file, args.refresh_rate, args.format)
 
 if __name__ == '__main__':

@@ -937,6 +937,7 @@ add_test(NAME IncrementalTrainerControlTests COMMAND incrementalTrainerControlTe
 set(ADAI_SCRIPTS_TEST_DIR "${CMAKE_SOURCE_DIR}/tests/scripts")
 foreach(_script_test IN ITEMS
     build_windows_test.sh
+    check_ports_test.sh
     check_tech_debt_test.sh
     docker_build_test.sh
     install_chatbot_api_test.sh
@@ -959,10 +960,24 @@ endforeach()
 
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
-    add_test(NAME ScriptsTests_check_file_status
-             COMMAND ${Python3_EXECUTABLE} "${ADAI_SCRIPTS_TEST_DIR}/test_check_file_status.py")
-    add_test(NAME ScriptsTests_gen_status_report
-             COMMAND ${Python3_EXECUTABLE} "${ADAI_SCRIPTS_TEST_DIR}/test_gen_status_report.py")
+    # TD-045: same rationale as the TD-043 Python suites above — standard
+    # library unittest only, run each test file directly rather than via
+    # `-m unittest discover` so a single file's own name identifies it in
+    # `ctest -R`.
+    foreach(_py_test IN ITEMS
+        test_check_file_status.py
+        test_gen_status_report.py
+        test_batch_api_client.py
+        test_check_intel_driver_updates.py
+        test_fix_markdown_lint.py
+        test_monitor_training.py
+        test_serve_dashboard.py
+    )
+        string(REPLACE "test_" "" _py_test_name "${_py_test}")
+        string(REPLACE ".py" "" _py_test_name "${_py_test_name}")
+        add_test(NAME ScriptsTests_${_py_test_name}
+                 COMMAND ${Python3_EXECUTABLE} "${ADAI_SCRIPTS_TEST_DIR}/${_py_test}")
+    endforeach()
 endif()
 
 # TD-064: no test in this file had a TIMEOUT property, so ctest had no way to

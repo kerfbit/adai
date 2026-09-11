@@ -4,6 +4,92 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-045: Standalone Dev-Utility Scripts Have No Test or Integration
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 11, 2026 | `tests/scripts/` (extended), 2 of the 6 covered scripts | New bash/unittest smoke tests, reusing TD-043's harness; 2 genuine bugs found and fixed along the way |
+
+Summary:
+6 self-contained utility scripts (an example API client, a driver-update monitor, a markdown
+linter, a training dashboard, a static file server, a port checker) with no test and no other
+script depending on them. This item's own original description also carried a specific claim —
+`check_ports.sh`'s hardcoded port list omitting `mns_server` (8083) and the trainer admin API
+(8084) — that turned out to already be fixed: reading the current file found `PORTS=(8080 8081
+8082 8083 8084)`, all 5 ports present, and `git log` traced the fix to commit `2729625` (TD-121,
+September 10, 2026), whose own message explicitly names "check_ports.sh's own self-documented gap
+(missing mns_server 8083 and trainer admin API 8084)." TD-045's action item was simply never
+updated after TD-121 landed. The real remaining work was exactly the second action item: "a
+minimal smoke test per script."
+
+Following the "full unit tests aren't warranted for tools this small and low-stakes" guidance
+literally would have under-tested two of these scripts, which turned out to have genuine bugs only
+findable by actually exercising real behavior — so `fix_markdown_lint.py` (a pure, regression-
+history-bearing text transform with a documented past corruption bug, TD-119) and
+`check_intel_driver_updates.py` (real per-source error handling worth pinning down) got fuller
+`unittest` suites; the other four got the lighter "invoke it, assert it doesn't crash" treatment
+TD-045 asked for, layered with real process lifecycle tests (SIGINT/SIGTERM) where the script
+supports it. `check_ports.sh` reused TD-043's `tests/scripts/harness.sh` directly since it's purely
+read-only (queries `ss`/`netstat`/`lsof`, never modifies anything) and safe to invoke as-is.
+
+Writing real tests against real behavior surfaced 2 genuine, previously-undiscovered bugs:
+
+1. **`batch_api_client.py`'s health check only caught `ConnectionError`**: anything else reachable
+   on port 8080 but not actually the chatbot API (a stray dev server, a proxy, a typo'd port
+   already in use by something unrelated) raised an unhandled
+   `requests.exceptions.JSONDecodeError` from `health()`'s own `response.json()` call — a raw
+   traceback instead of the same friendly "Cannot connect to server" message a straightforward
+   connection refusal already produced. Reproduced directly in this sandbox, where something
+   already listening on 8080 (unrelated to this project) returned a non-JSON response and
+   triggered exactly this crash. Fixed: broadened to catch `requests.exceptions.RequestException`
+   (the base class `ConnectionError` already belongs to) plus `ValueError` (the version-portable
+   way to catch a JSON-decode failure, since `JSONDecodeError`'s exact class hierarchy varies by
+   installed `requests`/`simplejson` version) with its own distinct, still-friendly message.
+2. **`monitor_training.py`'s initial 2-second startup delay wasn't covered by its own
+   `KeyboardInterrupt` handling**: `main()` prints a startup banner, then calls a bare
+   `time.sleep(2)`, then calls `monitor_training()` — whose own `while True` loop IS wrapped in
+   `try/except KeyboardInterrupt` (`sys.exit(0)` + a friendly "Monitoring stopped." message), but
+   that `sleep(2)` sits entirely outside it. A `Ctrl+C` landing in that 2-second window — a
+   perfectly plausible time to press it, e.g. right after noticing a typo'd `--summary-file` in the
+   banner it just printed — propagated the `KeyboardInterrupt` all the way up uncaught, producing a
+   raw traceback and exit code 130 instead of the same graceful shutdown available everywhere else
+   in the tool's lifetime. Reproduced directly (manual `kill -INT` timed to land inside the window).
+   Fixed: wrapped that one `sleep(2)` call in the same `try/except KeyboardInterrupt` pattern.
+
+Changes Made:
+- `tests/scripts/check_ports_test.sh` (new): reuses `tests/scripts/harness.sh` from TD-043.
+  Pins the already-fixed 5-port list as a permanent regression check.
+- 5 new `tests/scripts/test_*.py` `unittest` suites (`batch_api_client`,
+  `check_intel_driver_updates`, `fix_markdown_lint`, `monitor_training`, `serve_dashboard`) — 83
+  test methods total. Network-dependent tests (the driver-update monitor's real sources) are
+  exercised against a deterministic, always-unreachable local address by default, with a separate,
+  explicitly-skippable live-network test for the real URLs. Process-lifecycle tests (`monitor_
+  training.py`, `serve_dashboard.py`) spawn the real script and tear down via a genuine `SIGINT`,
+  confirming the documented graceful-shutdown path actually fires — not just that the process can
+  be killed.
+- `tests/CMakeLists.txt`: 6 new `ScriptsTests_*` registrations alongside TD-043's, run through
+  `ctest`.
+- `batch_api_client.py` and `monitor_training.py` fixed for the 2 bugs above.
+- All 6 covered scripts' `@adai-status`/`@adai-version`/`@adai-reviewed` tags updated to drop the
+  "capped by TD-045" note.
+- `docs/development/guides/TECHNICAL_DEBT.md`: TD-045's now-stale port-list action item removed
+  (already fixed under TD-121, never reflected here) rather than "re-fixed."
+
+Verification:
+- ✅ Both bugs independently reproduced against the real, unmodified script before fixing (a
+  non-JSON response on port 8080 in this exact sandbox for the first; a timed `kill -INT` for the
+  second), then reverted-and-confirmed-to-fail after fixing (temporarily undoing just that fix and
+  confirming the corresponding new test genuinely fails), then restored with all tests passing
+  again.
+- ✅ All 6 new `ScriptsTests_*` pass individually and together under `ctest -j4`.
+- ✅ Full project test suite: 102/102 tests pass (96 pre-existing + 6 new ScriptsTests).
+- ✅ `bash -n`/`ast.parse()` on every modified script: all pass.
+- ✅ `scripts/check_file_status.py`: 274 files checked, 0 problems.
+- ✅ No leftover background processes or bound ports (confirmed via `pgrep`/`ss`) after the full
+  suite run, including the real-process SIGINT tests for `monitor_training.py`/`serve_dashboard.py`.
+- ✅ TOC-vs-heading cross-check across the whole `TECHNICAL_DEBT.md` file: clean, matching the same
+  check re-run after TD-043's resolution.
+
 ### TD-043: Deployment-Critical Scripts Have No Automated Test
 
 | Resolution Date | Component | Resolved By |

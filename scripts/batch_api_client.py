@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
-# @adai-status: beta        (documented example client, not a maintained production tool; capped by TD-045 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.7.0
-# @adai-reviewed: 2026-09-10
+# @adai-status: beta        (TD-045 resolved — example client, real smoke test added, see tests/scripts/test_batch_api_client.py)
+# @adai-version: 0.7.1
+# @adai-reviewed: 2026-09-11
 
 """
 Batch Processing API Client Example
@@ -312,12 +312,33 @@ def main():
     client = BatchChatbotClient()
     
     # Check server health
+    #
+    # TD-045: only caught ConnectionError (the outright "nothing is
+    # listening" case) — anything else reachable on the port but not
+    # actually the chatbot API (a stray dev server left over from another
+    # tool, a proxy, a typo'd port already in use) raised an unhandled
+    # requests.exceptions.JSONDecodeError from health()'s own
+    # response.json() call, a raw traceback instead of the same friendly
+    # message. Broadened to every requests.exceptions.RequestException
+    # (ConnectionError's own base class) plus a JSON-decode failure
+    # specifically, since both mean "this isn't a server we can talk to,"
+    # not something worth a traceback for an example/demo script. Found
+    # writing this script's TD-045 smoke test.
     try:
         health = client.health()
         print(f"✓ Server Status: {health.get('status', 'unknown')}")
         print(f"  Active sessions: {health.get('active_sessions', 0)}\n")
-    except requests.exceptions.ConnectionError:
+    except requests.exceptions.RequestException:
         print("✗ Error: Cannot connect to server. Is it running?")
+        return
+    except ValueError:
+        # requests.exceptions.JSONDecodeError subclasses ValueError (and,
+        # depending on the installed requests/simplejson version, may not
+        # even be reachable as an attribute of requests.exceptions on some
+        # versions) — catching ValueError directly is the version-portable
+        # way to mean "the response body wasn't JSON."
+        print("✗ Error: Server responded, but not with valid JSON. Is the "
+              "right service running on this port?")
         return
     
     try:

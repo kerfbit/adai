@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-# @adai-status: beta        (capped by TD-045 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.5.1
-# @adai-reviewed: 2026-09-10
+# @adai-status: beta        (TD-045 resolved — real test suite added, see tests/scripts/check_ports_test.sh)
+# @adai-version: 0.5.2
+# @adai-reviewed: 2026-09-11
 
 
 PORTS=(8080 8081 8082 8083 8084)

@@ -35,14 +35,13 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [TD-041: GPUUtils Has No Dedicated Test on Either Backend](#td-041-gpuutils-has-no-dedicated-test-on-either-backend)
   - [TD-042: PostgresMetricsDatabase Has Zero Test Coverage](#td-042-postgresmetricsdatabase-has-zero-test-coverage)
   - [TD-044: Manual-QA Launcher Scripts Have No Automated Test](#td-044-manual-qa-launcher-scripts-have-no-automated-test)
-  - [TD-045: Standalone Dev-Utility Scripts Have No Test or Integration](#td-045-standalone-dev-utility-scripts-have-no-test-or-integration)
   - [TD-047: Android Data/Repository/API Layer Has No CI or Release History](#td-047-android-datarepositoryapi-layer-has-no-ci-or-release-history)
   - [TD-048: Android UI/DI/Entry-Point Classes Are Untested and Unreleased](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
   - [TD-049: No JS Test Framework for the Tizen TV App](#td-049-no-js-test-framework-for-the-tizen-tv-app)
   - [TD-051: IncrementalTrainer::load_conversation_pairs() Is an Unmigrated Duplicate](#td-051-incrementaltrainerload_conversation_pairs-is-an-unmigrated-duplicate)
   - [TD-052: ParallelDataLoader's Batches Use Character Codes, Not Real Tokens](#td-052-paralleldataloaders-batches-use-character-codes-not-real-tokens)
   - [TD-053: ChatbotCLI's /save and /load Commands Are Non-Functional Everywhere](#td-053-chatbotclis-save-and-load-commands-are-non-functional-everywhere)
-- [Resolved Items](#resolved-items) (132 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+- [Resolved Items](#resolved-items) (133 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -801,32 +800,6 @@ Files to Modify:
 
 ---
 
-### TD-045: Standalone Dev-Utility Scripts Have No Test or Integration
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Scripts / Tooling | September 7, 2026 | 4-6 hours |
-
-Description:
-6 self-contained utility scripts (an example API client, a driver-update monitor, a markdown
-linter, a training dashboard, a static file server, a port checker) with no test and no other
-script depending on them. `check_ports.sh` additionally has a known, specific bug beyond "no
-test": its hardcoded port list (`8080 8081 8082`) omits `mns_server` (8083) and the trainer admin
-API (8084), so it under-reports what's actually listening.
-
-Action Items:
-
-- [ ] Fix `check_ports.sh`'s port list to include 8083/8084.
-- [ ] Add a minimal smoke test per script (invoke it, assert it doesn't crash) — full unit tests
-  aren't warranted for tools this small and low-stakes.
-
-Files to Modify:
-
-- `scripts/batch_api_client.py`, `scripts/check_intel_driver_updates.py`, `scripts/check_ports.sh`,
-  `scripts/fix_markdown_lint.py`, `scripts/monitor_training.py`, `scripts/serve_dashboard.py`
-
----
-
 ### TD-047: Android Data/Repository/API Layer Has No CI or Release History
 
 | Priority | Status | Component | Created | Effort Estimate |
@@ -1022,7 +995,7 @@ Files to Modify:
 
 ## Resolved Items
 
-132 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+133 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements
