@@ -4,6 +4,39 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-140: install_oneapi_libs.sh Died With a Raw `find` Error on a Nonexistent `--lib-dir`
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/install_oneapi_libs.sh` | Added an explicit `-d "$LIB_DIR"` existence check before the `find` pipeline |
+
+Summary:
+Found while continuing this session's third-pass re-read of `scripts/`. The auto-detect branch for
+`$LIB_DIR` (when `--lib-dir` isn't passed) already checks `-d "$PACKAGE_ROOT/lib"` before assigning
+it, but a user-supplied `--lib-dir` skipped that check entirely — it went straight into
+`LIB_COUNT=$(find "$LIB_DIR" ... | wc -l)`. This script runs under `set -euo pipefail`: when
+`$LIB_DIR` doesn't exist, `find` fails and (under `pipefail`) the whole `| wc -l` pipeline reports
+that nonzero exit status even though `wc -l` itself succeeds, and `set -e` kills the script right
+there — before it ever reached the intended, friendly `"ERROR: No shared libraries found in
+$LIB_DIR"` message a few lines below. Reproduced directly: `install_oneapi_libs.sh --dry-run
+--lib-dir /tmp/definitely_does_not_exist_xyz` printed only a raw
+`find: '/tmp/definitely_does_not_exist_xyz': No such file or directory` with no indication it came
+from this script's own error handling, exit code 1.
+
+Changes Made:
+- `scripts/install_oneapi_libs.sh`: added `if [[ ! -d "$LIB_DIR" ]]; then echo "ERROR: --lib-dir
+  '$LIB_DIR' does not exist or is not a directory."; exit 1; fi` immediately before the `find`
+  pipeline, so both the auto-detected and user-supplied paths are validated before `find` ever runs.
+
+Verification:
+- ✅ `--lib-dir /tmp/definitely_does_not_exist_xyz` (nonexistent): **before** the fix, raw `find`
+  error, exit 1; **after**, `ERROR: --lib-dir '...' does not exist or is not a directory.`, exit 1.
+- ✅ `--lib-dir` pointing at a real, empty directory: still correctly reaches and prints the original
+  `ERROR: No shared libraries found in ...` message, exit 1 — the new check doesn't shadow this case.
+- ✅ `--lib-dir` pointing at a real directory containing one `.so` file: proceeds normally to the
+  `--dry-run` summary output, exit 0 — confirming the fix doesn't disturb the legitimate path.
+- ✅ `bash -n scripts/install_oneapi_libs.sh` — syntax valid.
+
 ### TD-139: test_log_rotation.sh's Closing Summary Claimed Success Even After Printing a Failure
 
 | Resolution Date | Component | Resolved By |

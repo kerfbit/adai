@@ -138,6 +138,19 @@ if [[ -z "$LIB_DIR" ]]; then
     fi
 fi
 
+# The auto-detect branch above already confirms $PACKAGE_ROOT/lib exists
+# before assigning it, but a user-supplied --lib-dir skips that check
+# entirely. Under `set -euo pipefail`, find failing on a nonexistent
+# directory makes the `| wc -l` pipeline exit nonzero too (pipefail reports
+# the rightmost failing command), which killed the script right here with a
+# raw `find: '...': No such file or directory` instead of ever reaching the
+# friendly "No shared libraries found" message below. Reproduced with
+# `--lib-dir /nonexistent/path`.
+if [[ ! -d "$LIB_DIR" ]]; then
+    echo "ERROR: --lib-dir '$LIB_DIR' does not exist or is not a directory."
+    exit 1
+fi
+
 LIB_COUNT=$(find "$LIB_DIR" -maxdepth 1 \( -name "*.so" -o -name "*.so.*" \) -not -type d | wc -l)
 if [[ "$LIB_COUNT" -eq 0 ]]; then
     echo "ERROR: No shared libraries found in $LIB_DIR"
