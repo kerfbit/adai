@@ -1,6 +1,12 @@
-// @adai-status: beta        (capped by TD-035 (no dedicated unit test) and TD-040 (embeds FtpDataServer's unreviewed auth path))
-// @adai-version: 0.8.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: beta        (capped by TD-035 — no dedicated unit test; TD-040's confirmed gap is fixed, see below)
+// @adai-version: 0.8.1
+// @adai-reviewed: 2026-09-11
+
+// TD-040's security review is done and its one confirmed gap — handle_acquire()'s FTP-token path
+// confinement — is now fixed (see the fix and its comment there). TD-040 itself stays open in
+// TECHNICAL_DEBT.md only for its remaining hardening/defense-in-depth sub-items (RAND_bytes() for
+// ftp_detail::random_hex(), optional validation at handle_pending_add() time, a dedicated
+// RegistryServer unit test).
 
 /**
  * registry_server — Distributed dataset queue coordination daemon (TD-028 Phase 9)
@@ -388,16 +394,70 @@ static void handle_acquire(const httplib::Request& req, httplib::Response& res,
         return e.model_name.empty() || e.model_name == model_name;
     };
 
+    // TD-040: when FTP delivery is active, an entry must also resolve under
+    // data_dir before it's claimable — otherwise the per-file loop below
+    // would mint a real, remotely-servable FTP token whose allowed_path
+    // escapes data_dir (lexically_relative() on an out-of-tree path produces
+    // a "../../etc/passwd"-style string; cmd_retr's exact-match check has no
+    // problem serving it). Reachable today since handle_pending_add() accepts
+    // any path with zero validation. Mirrors handle_delete()'s existing
+    // containment check (weakly_canonical both sides, then reject if the
+    // relative path starts with ".."), applied here against the same
+    // data_root handle_acquire's own ftp_path computation already uses below
+    // (plain data_dir, not data_dir/group — pending entries aren't assumed to
+    // live under a per-group subdirectory; handle_pending_add() accepts any
+    // absolute path).
+    //
+    // Checked at claim time, not filtered out of the response afterward: an
+    // out-of-tree entry is left unclaimed entirely (run_id untouched) rather
+    // than claimed-then-released, so it doesn't consume a max_files slot a
+    // deliverable file could have used instead, and a legacy/non-FTP acquire
+    // (or an operator fixing/deleting the offending entry) can still reach it
+    // later. Non-FTP (legacy) acquires are unaffected — those hand the raw
+    // registry_path back to the same local trainer process that already has
+    // full filesystem access, not a remote FTP client, so there's no trust
+    // boundary being crossed for that path.
+    const bool ftp_active = ftp_enabled && g_ftp_server != nullptr;
+    fs::path data_root;
+    if (ftp_active) {
+        try {
+            data_root = fs::weakly_canonical(fs::path(data_dir));
+        } catch (...) {
+            data_root.clear();
+        }
+    }
+    const auto ftp_deliverable = [&](const PendingEntry& e) {
+        if (!ftp_active)
+            return true;
+        try {
+            const auto canon = fs::weakly_canonical(e.path);
+            const auto rel = canon.lexically_relative(data_root);
+            return !rel.empty() && rel.native().compare(0, 2, "..") != 0;
+        } catch (...) {
+            return false;
+        }
+    };
+
     const int limit = (max_files > 0) ? max_files : static_cast<int>(entries.size());
     std::vector<std::string> acquired;
+    std::vector<std::string> ftp_rejected;
     for (auto& e : entries) {
         // Unclaimed, OR already claimed by this exact run_id — see the
         // matching comment in LocalTransport::acquire() (RegistryTransport.cpp).
         if ((e.run_id.empty() || e.run_id == run_id) && eligible(e) &&
             static_cast<int>(acquired.size()) < limit) {
+            if (!ftp_deliverable(e)) {
+                ftp_rejected.push_back(e.path);
+                continue;
+            }
             e.run_id = run_id;
             acquired.push_back(e.path);
         }
+    }
+
+    for (const auto& p : ftp_rejected) {
+        Logger::warn(
+            "[{}] acquire: refusing to claim '{}' for FTP delivery — outside data_dir", group, p);
     }
 
     if (!acquired.empty()) {
@@ -420,8 +480,9 @@ static void handle_acquire(const httplib::Request& req, httplib::Response& res,
     }
 
     // Phase 10: extended response with per-file FTP tokens
-    // ftp_path is the registry path made relative to data_dir.
-    const fs::path data_root(data_dir);
+    // ftp_path is the registry path made relative to data_dir. data_root was
+    // already computed above (ftp_active is true in this branch by
+    // construction — we only get here when ftp_enabled && g_ftp_server).
     std::ostringstream json;
     json << "{\"run_id\":\"" << json_escape(run_id) << "\"," << "\"ftp_server_host\":\""
          << json_escape(ftp_advertise_ip) << "\"," << "\"ftp_server_port\":" << ftp_port << ","
@@ -436,17 +497,14 @@ static void handle_acquire(const httplib::Request& req, httplib::Response& res,
         std::size_t size_bytes = 0;
         std::string checksum;
 
-        // Compute ftp_path relative to data_dir
-        // TODO: See TECHNICAL_DEBT.md TD-040 - unlike handle_delete() below (which
-        // canonicalizes both sides and checks rel.native().compare(0,2,"..")!=0
-        // before unlinking anything), this has no containment check at all. If
-        // acquired[i] isn't actually under data_root (reachable today since
-        // handle_pending_add() accepts any path with zero validation), the
-        // resulting ftp_path is a "../../etc/passwd"-style string that gets
-        // minted as a real FTP token's allowed_path — cmd_retr's exact-match
-        // check has no problem with it, and fs::path(data_dir_)/requested then
-        // resolves outside data_dir_, exposing an arbitrary local file to
-        // whoever holds this token.
+        // Compute ftp_path relative to data_dir. TD-040 fixed: every entry in
+        // `acquired` has already passed the canonicalized containment check
+        // (ftp_deliverable(), above, computed against this same data_root)
+        // before it was ever claimed — an out-of-tree entry never reaches
+        // this loop at all. This lexically_relative() call (deliberately not
+        // re-canonicalizing — that's already been done) is purely computing
+        // the relative-path *string* to embed in the token, not re-validating
+        // containment.
         try {
             ftp_path = file_path.lexically_relative(data_root).string();
         } catch (...) {

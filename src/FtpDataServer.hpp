@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-040 — security review done; one real path-confinement gap found in the caller, RegistryServer.cpp's handle_acquire())
-// @adai-version: 0.8.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: beta        (TD-040 — security review done; the one real gap found (caller-side) is now fixed, see below)
+// @adai-version: 0.8.1
+// @adai-reviewed: 2026-09-11
 
 /**
  * FtpDataServer — embedded read-only FTP server for dataset delivery.
@@ -26,12 +26,18 @@
  * against st.allowed_path makes client-side path traversal via the RETR
  * argument impossible, credentials are never written to the audit log, and
  * token validation/consumption is race-free under TokenStore's mutex. The one
- * confirmed gap is upstream of this file, in the caller: RegistryServer.cpp's
- * handle_acquire() has no containment check when computing the ftp_path handed
- * to issue_token() below, so a pending entry referencing a file outside the
- * registry's data_dir mints a token whose allowed_path legitimately escapes
- * data_dir via "../" segments — see TD-040 in TECHNICAL_DEBT.md for the full
- * writeup and the fix this class itself doesn't need to make.
+ * confirmed gap was upstream of this file, in the caller: RegistryServer.cpp's
+ * handle_acquire() minted a token via issue_token() below for any acquired
+ * entry with no containment check, so a pending entry referencing a file
+ * outside the registry's data_dir got a token whose allowed_path legitimately
+ * escaped data_dir via "../" segments. Reproduced end-to-end (September 11,
+ * 2026): a real minted token for such an entry successfully RETR'd a file
+ * outside data_dir over a live FTP session. Fixed in handle_acquire() itself
+ * (an entry that doesn't resolve under data_dir is now never claimed for FTP
+ * delivery in the first place — this class needed no change) — see TD-040 in
+ * TECHNICAL_DEBT.md for the full writeup. TD-040 remains open only for its
+ * remaining hardening items (RAND_bytes() for random_hex(), a dedicated
+ * RegistryServer unit test, defense-in-depth validation at pending/add time).
  */
 
 #pragma once

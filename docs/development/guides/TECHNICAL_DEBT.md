@@ -705,7 +705,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open — security read done, one real gap found and not yet fixed | Security / Registry | September 7, 2026 (security read completed September 8, 2026) | 4-6 hours (down from 6-10 — the read is done; remaining work is the fix + its test) |
+| MEDIUM | Open — security read done, real gap **fixed** (September 11, 2026); remaining scope is hardening + a dedicated unit test | Security / Registry | September 7, 2026 (security read completed September 8, 2026; fix landed September 11, 2026) | 1-3 hours remaining (RAND_bytes() hardening + dedicated RegistryServer unit test) |
 
 Description:
 `FtpDataServer.hpp` implements a hand-rolled FTP server with its own authentication, token, and
@@ -758,6 +758,32 @@ caller of the registry's own HTTP API (a `dataset_manager add` mistake, a compro
 misconfigured trainer node) can turn this into arbitrary local file exposure to whichever training
 node next acquires that entry with FTP delivery enabled.
 
+**Fixed (September 11, 2026):** `handle_acquire()` now checks containment (the same
+`weakly_canonical` + `lexically_relative` + reject-if-`..`-prefixed pattern `handle_delete()` already
+used) *before* claiming an entry, not just when computing the display string afterward. The decision
+called for in the action items below — what happens to a rejected file — went with "exclude it from
+the response entirely and leave it unclaimed" rather than "fall back to a raw `registry_path`": traced
+`RemoteTransport::acquire()`'s parsing (`RegistryTransport.cpp`) and `IncrementalTrainingTool.cpp`'s
+caller and confirmed the FTP-vs-direct decision is made **once for the whole batch**
+(`use_ftp = !resp.ftp_server_host.empty() && ...`), not per file — so a file with empty/missing FTP
+fields would still be swept into `DataTransport::fetch_all()`'s all-FTP download path and fail there,
+taking the whole batch down with it, rather than degrading gracefully. Excluding the file from
+`files[]` entirely means `fetch_all()` (which iterates exactly `resp.files.size()` entries) never
+attempts it at all — zero client-side changes needed. An excluded entry's `run_id` is left empty
+(never claimed), so it doesn't consume a `max_files` slot a deliverable file could have used, and
+remains available for a future acquire, a legacy/non-FTP deployment, or manual operator cleanup.
+
+Verified end-to-end against the real `registry_server` binary, not just read: reproduced the original
+vulnerability first — a pending entry outside `data_dir`, acquired with `--ftp-enabled`, minted a real
+token with `"ftp_path": "../outside/secret.txt"`; used that exact token over a raw FTP session (`USER`/
+`PASS`/`PASV`/`RETR`, matching `DataTransport.hpp`'s own real no-CWD protocol usage, not a simplified
+client) to **successfully retrieve the file's contents** from outside `data_dir`. Rebuilt with the fix
+and reproduced the same scenario: the out-of-tree entry is excluded from the response with a logged
+warning, a same-batch legitimate file still receives a working token, and the rejected entry's
+`run_id` remains empty in a follow-up `/queue` check. All 82 existing `DatasetRegistryLiveTests` plus
+the `RegistryTransport`/`RegistryTransportPhase9` unit tests (49 more) still pass against the fixed
+binary — no regression.
+
 **Lower-severity hardening note:** `ftp_detail::random_hex()` (used for the FTP username's random
 suffix always, and for the *password* whenever `--ftp-secret` is not configured — which is the
 default; confirmed in `RegistryServer.cpp`: `ftp_server_secret` starts empty and is only set via an
@@ -771,21 +797,19 @@ Action Items:
   virtual-user permission logic — done September 8, 2026 (see findings above).
 - [x] Confirm token expiry/scope enforcement can't be bypassed and credentials aren't logged — client-side
   RETR scope confirmed unbypassable; the *issuance*-side scope-confinement gap is the finding above.
-- [ ] Fix `handle_acquire()` in `RegistryServer.cpp`: apply the same containment check
-  `handle_delete()` already uses (`fs::weakly_canonical` both paths, then
-  `rel.native().compare(0, 2, "..") != 0`) before minting an FTP token for a file; decide and
-  implement the right behavior for a rejected file (skip the FTP token but still return
-  `registry_path` so the caller can fall back to a direct filesystem path in same-machine
-  deployments? Exclude the file from the response entirely and release its claim? — needs a
-  decision informed by how `RemoteTransport`'s trainer-side FTP client actually consumes a
-  files[] entry with no token, which wasn't verified this pass).
+- [x] Fix `handle_acquire()` in `RegistryServer.cpp` — done September 11, 2026 (see the fix writeup
+  above). Applied the same containment check `handle_delete()` already uses, at claim time rather
+  than only when computing the display string; a rejected file is excluded from the response
+  entirely and left unclaimed (traced the trainer-side client to confirm this is the safe choice —
+  no per-file fallback exists, only a whole-batch FTP-vs-direct decision).
 - [ ] Consider also validating at `handle_pending_add()` time (reject/flag paths outside `data_dir`
   before they ever reach the pending queue) as defense in depth, not just at acquire-time.
 - [ ] Switch `ftp_detail::random_hex()` to `RAND_bytes()` under `BUILD_FTPS` (hardening, not a fix
   for an active exploit path given the exact-match RETR gate).
 - [ ] Add a dedicated `RegistryServer` unit test isolating its request-handling logic from the live
-  server it's normally only exercised through, including a regression test for the path-confinement
-  fix once implemented (a pending entry outside `data_dir` must not receive a working FTP token).
+  server it's normally only exercised through, including a permanent regression test for the
+  path-confinement fix above (a pending entry outside `data_dir` must not receive a working FTP
+  token) — verified manually/live this pass, but not yet captured as an automated, always-run test.
 
 Files to Modify:
 
