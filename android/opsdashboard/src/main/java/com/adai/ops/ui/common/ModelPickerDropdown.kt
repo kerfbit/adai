@@ -1,7 +1,7 @@
 package com.adai.ops.ui.common
 
 // @adai-status: experimental        (capped by TD-048 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.1.0
+// @adai-version: 0.1.1
 // @adai-reviewed: 2026-09-10
 
 
@@ -27,8 +27,20 @@ private const val UNASSIGNED_LABEL = "(unassigned)"
  * Read-only dropdown over the live MNS model list, used everywhere the registry
  * screens need to pick a model_name — assigning a pending file or tagging a
  * server-side fetch's per-model rotating cursor. Always offers "(unassigned)",
- * mapping to an empty model_name, since that's a valid choice server-side (buckets
- * into a shared cursor for fetches; simply clears the assignment for /assign).
+ * mapping to an empty model_name.
+ *
+ * TD-148: this used to also claim an empty model_name "clears the assignment for
+ * /assign" — wrong. RegistryServer.cpp's handle_assign flatly rejects an empty
+ * model_name with 400 ("non-empty model_name matching [A-Za-z0-9._-]+ required");
+ * there is no way to clear an existing assignment through /assign itself (the
+ * server exposes a separate /unassign endpoint for that, not currently wired up
+ * in RegistryApiService.kt). "(unassigned)" is only a genuinely valid choice for
+ * the two fetch dialogs (handle_fetch_gutenberg/huggingface accept an empty
+ * model_name — it just buckets into a shared, unassigned rotating cursor); for
+ * the assign dialog it's presented so the current "no model assigned" state has
+ * a visible label, but selecting it there correctly leaves the Assign button
+ * disabled (see AssignModelDialog's `enabled = modelName.isNotEmpty()`) rather
+ * than sending a request the server would 400 on.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

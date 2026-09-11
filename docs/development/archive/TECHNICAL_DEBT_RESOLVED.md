@@ -4,6 +4,24 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-148: ModelPickerDropdown's Doc Comment Falsely Claimed Empty model_name Clears an /assign
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 11, 2026 | `android/opsdashboard/.../ui/common/ModelPickerDropdown.kt` | Corrected the doc comment; no behavior change (the code was already correct) |
+
+Summary:
+Found immediately after TD-147, while cross-checking every doc comment this session's `ModelPickerDropdown`/`GroupDetailViewModel`/`RegistryRepository` reading touched against the real server handlers — the same technique that caught TD-147. `ModelPickerDropdown`'s comment claimed its "(unassigned)" option, mapping to an empty `model_name`, was "a valid choice server-side ... simply clears the assignment for /assign". `RegistryServer.cpp`'s `handle_assign` does the opposite: `if (!is_safe_model_name(model_name) || model_name.empty()) { return 400 "non-empty model_name ... required"; }` — an empty `model_name` is flatly rejected, not treated as "clear the assignment." There is no way to clear an existing assignment through `/assign` at all; the server has a separate `/unassign` endpoint for that, which isn't currently wired up in `RegistryApiService.kt`.
+
+Unlike TD-147, this was **comment-only** — the actual code was already safe: `AssignModelDialog`'s confirm button is `enabled = modelName.isNotEmpty()`, so the app has never actually sent an empty `model_name` to `/assign`. The risk was purely that a future change relying on the comment's false claim (e.g. "fixing" that disabled-button condition, or implementing an unassign feature by sending an empty `model_name` to `/assign`) would introduce a real bug based on incorrect documentation. The "(unassigned)" option genuinely is valid for the two *fetch* dialogs that also use this same dropdown (`handle_fetch_gutenberg`/`huggingface` accept an empty `model_name` — it just buckets into a shared, unassigned rotating cursor) — only the `/assign` half of the claim was wrong.
+
+Changes Made:
+- `ModelPickerDropdown.kt`: rewrote the doc comment to state the real `/assign` constraint (empty `model_name` rejected with 400) and clarify that "(unassigned)" is valid for the fetch dialogs but not submittable for assign, matching what `AssignModelDialog` already correctly enforces.
+
+Verification:
+- ✅ Confirmed directly against `RegistryServer.cpp`'s `handle_assign` (400 rejection of empty `model_name`) and `handle_fetch_gutenberg` (no such rejection — a bare `is_safe_model_name()` check, which a regex with `*` not `+` passes for an empty string).
+- ✅ `./gradlew :opsdashboard:compileDebugKotlin --offline --rerun-tasks`: `BUILD SUCCESSFUL` (comment-only change).
+
 ### TD-147: opsdashboard's "Clear Stale Training Lock" Admin Action Was Completely Non-Functional
 
 | Resolution Date | Component | Resolved By |

@@ -96,7 +96,7 @@ None — every in-scope file carries a tag.
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/common/ConfirmActionDialog.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/common/LoadingErrorState.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/common/MetricHistoryChart.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
-| `android/opsdashboard/src/main/java/com/adai/ops/ui/common/ModelPickerDropdown.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
+| `android/opsdashboard/src/main/java/com/adai/ops/ui/common/ModelPickerDropdown.kt` | experimental | 0.1.1 | 2026-09-10 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/common/SettingsAction.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/common/StaleBadge.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/metrics/SessionDetailScreen.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
