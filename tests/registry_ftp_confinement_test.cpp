@@ -255,3 +255,114 @@ TEST_F(RegistryFtpConfinementTest, PendingAddStillAcceptsOutOfTreePathForDirectF
     EXPECT_EQ(res->status, 200);
     EXPECT_NE(res->body.find("\"added\":true"), std::string::npos) << res->body;
 }
+
+// TD-040 (found during a completeness re-check, September 11, 2026):
+// path_resolves_under()'s first cut canonicalized `path` but not `root`.
+// data_dir defaults to (and is commonly configured as) a *relative* path
+// ("registry_sessions") — lexically_relative() is purely lexical, so
+// comparing an absolute canonicalized `path` against a relative,
+// uncanonicalized `root` returns an empty relative path regardless of actual
+// containment, making EVERY legitimate in-tree pending/add spuriously log
+// the "does not resolve under data_dir" warning. Not a security hole (the
+// real enforcement point, handle_acquire()'s ftp_deliverable, already
+// canonicalized its own data_root correctly) but it defeated the operator
+// visibility this warning exists to provide. Neither the fixture above (its
+// --data-dir is always an absolute scratch path) nor the original manual
+// live check exercised a relative --data-dir, which is how this slipped
+// through — this test closes that gap directly, independent of the fixture.
+TEST(RegistryPendingAddRelativeDataDirTest, InTreeAddWithRelativeDataDirLogsNoWarning) {
+#ifndef REGISTRY_SERVER_BINARY_PATH
+    GTEST_SKIP() << "REGISTRY_SERVER_BINARY_PATH not defined at build time";
+    return;
+#else
+    if (!fs::exists(REGISTRY_SERVER_BINARY_PATH)) {
+        GTEST_SKIP() << "registry_server binary not found at " << REGISTRY_SERVER_BINARY_PATH;
+        return;
+    }
+
+    const int http_port = pick_port(static_cast<int>(::getpid()), 2);
+    const fs::path scratch_root =
+        fs::temp_directory_path() / ("adai_td040_relroot_" + std::to_string(::getpid()));
+    fs::create_directories(scratch_root / "data" / "g2");
+    {
+        std::ofstream f(scratch_root / "data" / "g2" / "legit.jsonl");
+        f << "legit\n";
+    }
+    const fs::path log_path = scratch_root / "server.log";
+
+    const pid_t pid = ::fork();
+    ASSERT_GE(pid, 0) << "fork() failed: " << strerror(errno);
+    if (pid == 0) {
+        if (::chdir(scratch_root.c_str()) != 0) {
+            ::_exit(126);
+        }
+        const std::string port_str = std::to_string(http_port);
+        // Deliberately relative --data-dir, matching the real default
+        // ("registry_sessions") — the exact shape that exposed the bug.
+        char* argv[] = {
+            const_cast<char*>(REGISTRY_SERVER_BINARY_PATH),
+            const_cast<char*>("--port"),
+            const_cast<char*>(port_str.c_str()),
+            const_cast<char*>("--data-dir"),
+            const_cast<char*>("data"),
+            nullptr,
+        };
+        const int log_fd = ::open(log_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (log_fd >= 0) {
+            ::dup2(log_fd, STDOUT_FILENO);
+            ::dup2(log_fd, STDERR_FILENO);
+        }
+        ::execv(REGISTRY_SERVER_BINARY_PATH, argv);
+        ::_exit(127);
+    }
+
+    httplib::Client probe("127.0.0.1", http_port);
+    probe.set_connection_timeout(std::chrono::milliseconds(200));
+    probe.set_read_timeout(std::chrono::milliseconds(200));
+    bool ready = false;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (auto res = probe.Get("/health"); res && res->status == 200) {
+            ready = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    if (!ready) {
+        ::kill(pid, SIGKILL);
+        int status = 0;
+        ::waitpid(pid, &status, 0);
+        std::error_code ec;
+        fs::remove_all(scratch_root, ec);
+        GTEST_SKIP() << "registry_server did not become ready within 5s";
+        return;
+    }
+
+    httplib::Client cli("127.0.0.1", http_port);
+    const std::string abs_legit =
+        fs::absolute(scratch_root / "data" / "g2" / "legit.jsonl").string();
+    std::ostringstream body;
+    body << "{\"path\":\"" << abs_legit << "\"}";
+    auto res = cli.Post("/registry/g2/pending/add", body.str(), "application/json");
+    ASSERT_TRUE(res);
+    EXPECT_EQ(res->status, 200);
+
+    // Give the logger a moment to flush before reading the log back.
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+    ::kill(pid, SIGKILL);
+    int status = 0;
+    ::waitpid(pid, &status, 0);
+
+    std::ifstream log_file(log_path);
+    std::ostringstream log_contents;
+    log_contents << log_file.rdbuf();
+    EXPECT_EQ(log_contents.str().find("does not resolve under data_dir"), std::string::npos)
+        << "pending/add spuriously warned about a genuinely in-tree path when --data-dir is "
+           "relative; full server log:\n"
+        << log_contents.str();
+
+    std::error_code ec;
+    fs::remove_all(scratch_root, ec);
+#endif
+}

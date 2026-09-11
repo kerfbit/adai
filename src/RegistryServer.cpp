@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-035; TD-040 fully resolved, see below)
-// @adai-version: 0.8.2
+// @adai-version: 0.8.3
 // @adai-reviewed: 2026-09-11
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
@@ -343,7 +343,14 @@ static int count_jsonl_entries(const std::string& path) {
 static bool path_resolves_under(const std::string& path, const fs::path& root) {
     try {
         const auto canon = fs::weakly_canonical(path);
-        const auto rel = canon.lexically_relative(root);
+        // `root` must be canonicalized too, not just `path`: data_dir defaults
+        // to (and is commonly configured as) a *relative* path ("registry_sessions").
+        // lexically_relative() is purely lexical — comparing an absolute `canon`
+        // against a relative, uncanonicalized `root` returns an empty path
+        // regardless of actual containment (mismatched root-name/absoluteness),
+        // which would make every legitimate in-tree path look out-of-tree here.
+        const auto canon_root = fs::weakly_canonical(root);
+        const auto rel = canon.lexically_relative(canon_root);
         return !rel.empty() && rel.native().compare(0, 2, "..") != 0;
     } catch (...) {
         return false;

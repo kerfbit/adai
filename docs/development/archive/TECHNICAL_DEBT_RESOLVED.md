@@ -84,6 +84,37 @@ Verification:
 - ✅ `python3 scripts/check_file_status.py`: 280 files checked, 0 problems (both modified files'
   `@adai-version` bumped to `0.8.2`).
 
+**Post-resolution correction (September 11, 2026, same day):** a completeness re-check of this
+resolution found that the new `path_resolves_under()` helper (added for `handle_pending_add()`'s
+defense-in-depth warning) canonicalized `path` but not `root` — and `data_dir` defaults to (and is
+commonly configured as) a *relative* path (`"registry_sessions"`). `lexically_relative()` is purely
+lexical: comparing an absolute canonicalized `path` against a relative, uncanonicalized `root`
+returns an empty relative path regardless of actual containment, so with a relative `--data-dir`
+*every* legitimate in-tree `pending/add` spuriously logged the "does not resolve under data_dir"
+warning. Not a security hole — the real enforcement point, `handle_acquire()`'s `ftp_deliverable`,
+already canonicalized its own `data_root` correctly and was unaffected — but it defeated the
+operator-visibility purpose this warning exists for. Neither the manual live check above nor the
+new `registryFtpConfinementTests` fixture caught it, since both always used an absolute
+`--data-dir` scratch path.
+
+- Fixed: `path_resolves_under()` now canonicalizes `root` via `fs::weakly_canonical()` before
+  calling `lexically_relative()`, matching the pattern `handle_delete()`'s `group_root` and
+  `handle_acquire()`'s `data_root` already used correctly.
+- Reproduced standalone first: a minimal repro comparing the buggy vs. fixed logic against a
+  relative root confirmed the buggy version returns `false` (empty `lexically_relative` result)
+  for a genuinely in-tree absolute path, while the fixed version correctly returns `true`.
+- Reproduced live against the real binary: started `registry_server` with a relative
+  `--data-dir registry_sessions` (matching the real default) from a scratch working directory;
+  confirmed a legitimate in-tree add produced no warning and an out-of-tree add still did.
+- Added a new permanent regression test, `RegistryPendingAddRelativeDataDirTest.
+  InTreeAddWithRelativeDataDirLogsNoWarning`, which starts `registry_server` with a relative
+  `--data-dir` (independent of the main fixture's always-absolute one, specifically to keep
+  covering this case) and asserts the server's own log contains no such warning after adding a
+  genuinely in-tree path. Deliberately reverted the fix (root canonicalization removed) and
+  confirmed this test fails with the exact spurious warning, then restored the fix and confirmed
+  all 4 tests in the suite pass.
+- `@adai-version` bumped to `0.8.3`; full 79-suite project test suite re-run, 100% passing.
+
 ### TD-155: install_server_bundle.sh's config.conf Could Expose a PostgreSQL Password World-Readable
 
 | Resolution Date | Component | Resolved By |

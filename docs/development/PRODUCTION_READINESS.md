@@ -209,7 +209,7 @@ None — every in-scope file carries a tag.
 | `src/PostgresMetricsDatabase.cpp` | experimental | 0.3.0 | 2026-09-10 | TD-042 |
 | `src/PostgresMetricsDatabase.hpp` | experimental | 0.3.0 | 2026-09-10 | TD-042 |
 | `src/Quantization.hpp` | beta | 0.7.0 | 2026-09-10 | TD-038 |
-| `src/RegistryServer.cpp` | beta | 0.8.2 | 2026-09-11 | TD-035 |
+| `src/RegistryServer.cpp` | beta | 0.8.3 | 2026-09-11 | TD-035 |
 | `src/RewardModel.hpp` | beta | 0.7.0 | 2026-09-10 | TD-038 |
 | `src/SpeculativeDecoding.hpp` | beta | 0.7.0 | 2026-09-10 | TD-038 |
 | `src/TrainingMetricsAPI.cpp` | beta | 0.9.0 | 2026-09-10 | TD-039 |
