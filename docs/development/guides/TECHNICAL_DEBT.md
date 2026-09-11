@@ -34,7 +34,6 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [TD-039: Core Training/Metrics Classes Too Large and Fast-Moving to Certify Stable](#td-039-core-trainingmetrics-classes-too-large-and-fast-moving-to-certify-stable)
   - [TD-041: GPUUtils Has No Dedicated Test on Either Backend](#td-041-gpuutils-has-no-dedicated-test-on-either-backend)
   - [TD-042: PostgresMetricsDatabase Has Zero Test Coverage](#td-042-postgresmetricsdatabase-has-zero-test-coverage)
-  - [TD-043: Deployment-Critical Scripts Have No Automated Test](#td-043-deployment-critical-scripts-have-no-automated-test)
   - [TD-044: Manual-QA Launcher Scripts Have No Automated Test](#td-044-manual-qa-launcher-scripts-have-no-automated-test)
   - [TD-045: Standalone Dev-Utility Scripts Have No Test or Integration](#td-045-standalone-dev-utility-scripts-have-no-test-or-integration)
   - [TD-047: Android Data/Repository/API Layer Has No CI or Release History](#td-047-android-datarepositoryapi-layer-has-no-ci-or-release-history)
@@ -43,7 +42,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [TD-051: IncrementalTrainer::load_conversation_pairs() Is an Unmigrated Duplicate](#td-051-incrementaltrainerload_conversation_pairs-is-an-unmigrated-duplicate)
   - [TD-052: ParallelDataLoader's Batches Use Character Codes, Not Real Tokens](#td-052-paralleldataloaders-batches-use-character-codes-not-real-tokens)
   - [TD-053: ChatbotCLI's /save and /load Commands Are Non-Functional Everywhere](#td-053-chatbotclis-save-and-load-commands-are-non-functional-everywhere)
-- [Resolved Items](#resolved-items) (131 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+- [Resolved Items](#resolved-items) (132 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -772,45 +771,6 @@ Files to Modify:
 
 ---
 
-### TD-043: Deployment-Critical Scripts Have No Automated Test
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Scripts / Tooling | September 7, 2026 | 14-20 hours |
-
-Description:
-17 scripts that the project actually depends on for building, packaging, and deploying — every
-`install_*.sh` (including `scripts/cloudflared/install_cloudflared.sh`, added to this list once
-TD-145 made it visible to the file-status standard), `package_*.sh`/`package-sycl.sh`,
-`build_windows.sh`, `docker_build.sh`, `model_service.sh`, plus `check_tech_debt.sh`, `run_tests.sh`,
-and this standard's own `check_file_status.py`/`gen_status_report.py` — have no automated test of the
-script itself.
-Several are documented as the sanctioned way to do something (`CLAUDE.md`, `SERVER_BUNDLE_DEPLOYMENT.md`)
-but nothing verifies the script's own argument parsing, error handling, or output stays correct
-across changes.
-
-Action Items:
-
-- [ ] Add a lightweight test harness for shell scripts (e.g. bats-core or a plain
-  assert-and-diff wrapper) and wire it into `ctest` or a dedicated CI job.
-- [ ] For the two Python tools (`check_file_status.py`, `gen_status_report.py`), add a real
-  `pytest`/`unittest` suite — they currently rely only on the manual test cases run interactively
-  during this rollout, not anything repeatable.
-- [ ] Prioritize `install_server_bundle.sh` and `check_tech_debt.sh`/`run_tests.sh` first — the
-  most central of the sixteen.
-
-Files to Modify:
-
-- `scripts/build_windows.sh`, `scripts/docker_build.sh`, `scripts/install_chatbot_API.sh`,
-  `scripts/install_incremental_trainer.sh`, `scripts/install_metrics_service.sh`,
-  `scripts/install_mns_server.sh`, `scripts/install_oneapi_libs.sh`,
-  `scripts/install_server_bundle.sh`, `scripts/cloudflared/install_cloudflared.sh`,
-  `scripts/model_service.sh`, `scripts/package-sycl.sh`,
-  `scripts/package_server_bundle.sh`, `scripts/package_windows.sh`, `scripts/check_tech_debt.sh`,
-  `scripts/run_tests.sh`, `scripts/check_file_status.py`, `scripts/gen_status_report.py`
-
----
-
 ### TD-044: Manual-QA Launcher Scripts Have No Automated Test
 
 | Priority | Status | Component | Created | Effort Estimate |
@@ -820,14 +780,16 @@ Files to Modify:
 Description:
 11 scripts covering chatbot/GUI launching and manual regression checks for already-shipped
 features (config hot-reload, log rotation, signal handling, parallel processing) — same "no
-automated test of the script itself" gap as TD-043, split out because these are lower-stakes,
-developer-facing manual QA tools rather than the deployment path.
+automated test of the script itself" gap TD-043 covered for the deployment-path scripts, split out
+because these are lower-stakes, developer-facing manual QA tools rather than the deployment path.
 
 Action Items:
 
-- [ ] Same harness as TD-043, applied here once that's stood up — no need to design a second
-  approach.
-- [ ] Lower priority than TD-043; address opportunistically.
+- [ ] TD-043 is now resolved: `tests/scripts/harness.sh` (a plain, dependency-free bash assertion
+  library) and its `add_test(NAME ScriptsTests_... COMMAND bash ...)` wiring in
+  `tests/CMakeLists.txt` already exist and are the harness to reuse here — no new approach to
+  design, just apply the same pattern to this file list.
+- [ ] Lower priority than TD-043 was; address opportunistically.
 
 Files to Modify:
 
@@ -1060,7 +1022,7 @@ Files to Modify:
 
 ## Resolved Items
 
-131 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+132 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements

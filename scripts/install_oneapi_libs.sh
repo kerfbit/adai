@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-# @adai-status: beta        (capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.7.2
-# @adai-reviewed: 2026-09-10
+# @adai-status: beta        (TD-043 resolved — real test suite added, see tests/scripts/install_oneapi_libs_test.sh)
+# @adai-version: 0.7.3
+# @adai-reviewed: 2026-09-11
 
 set -euo pipefail
 
@@ -114,7 +114,16 @@ validate_install_path() {
     fi
     local trimmed="${val%/}"
     local depth
-    depth=$(tr -s '/' '\n' <<< "${trimmed}" | grep -c .)
+    # TD-043: `grep -c` exits 1 when it counts zero matching lines (its
+    # count of 0 is still printed, but the exit status is still nonzero) —
+    # under `set -euo pipefail`, that made `depth=$(... | grep -c .)`
+    # silently kill the script right here, with zero output, for the one
+    # input where trimmed ends up empty: val="/" (val%/ strips its only
+    # character). Every other top-level directory (/home, /etc, ...) has at
+    # least one non-slash character left in `trimmed` and so never hit
+    # this — found writing the TD-043 test suite, which specifically
+    # exercises every FHS top-level directory including "/" itself.
+    depth=$(tr -s '/' '\n' <<< "${trimmed}" | grep -c . || true)
     if (( depth < 2 )); then
         echo "ERROR: ${flag}: '${val}' is too shallow — refusing to recursively" >&2
         echo "  remove a top-level system directory. Use a path at least two" >&2

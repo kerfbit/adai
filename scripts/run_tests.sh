@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# @adai-status: beta        (documented in CLAUDE.md; no automated test of the script itself; capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.8.1
-# @adai-reviewed: 2026-09-10
+# @adai-status: beta        (TD-043 resolved — real test suite added, see tests/scripts/run_tests_test.sh)
+# @adai-version: 0.8.2
+# @adai-reviewed: 2026-09-11
 
 #
 # Run all tests with optional sanitizers

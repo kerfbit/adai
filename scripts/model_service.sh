@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-# @adai-status: beta        (capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.8.2
-# @adai-reviewed: 2026-09-10
+# @adai-status: beta        (TD-043 resolved — real test suite added, see tests/scripts/model_service_test.sh)
+# @adai-version: 0.8.3
+# @adai-reviewed: 2026-09-11
 
 # =============================================================================
 # ADAI Model Service Manager
@@ -119,9 +119,19 @@ get_binary() {
     # ${CMAKE_BINARY_DIR}/bin — it has never actually been built under a
     # .../src/ subdirectory. TD-118 (same class as TD-114/TD-116/TD-117,
     # missed in this file's own earlier TD-107 pass in this same session).
+    #
+    # TD-043: the "debug" case pointed at "${REPO_ROOT}/build/bin/..." (bare
+    # build/, no debug/ subdirectory) — CLAUDE.md's own build docs and every
+    # preset in CMakePresets.json put a debug build under "build/debug/",
+    # the same way "release" already correctly used "build/release/" here.
+    # Reproduced directly: `./model_service.sh build --build-type debug`
+    # against a real, fully-configured build/debug always failed with
+    # "CMake build directory '.../build' is not configured" — the debug
+    # build type was completely non-functional for this script's build/
+    # start commands. Found writing the TD-043 test suite.
     case "${BUILD_TYPE}" in
         release) echo "${REPO_ROOT}/build/release/bin/chatbot_api_server" ;;
-        debug)   echo "${REPO_ROOT}/build/bin/chatbot_api_server" ;;
+        debug)   echo "${REPO_ROOT}/build/debug/bin/chatbot_api_server" ;;
         *)       die "Unknown build type '${BUILD_TYPE}'. Use 'debug' or 'release'." ;;
     esac
 }
@@ -129,7 +139,7 @@ get_binary() {
 get_build_dir() {
     case "${BUILD_TYPE}" in
         release) echo "${REPO_ROOT}/build/release" ;;
-        debug)   echo "${REPO_ROOT}/build" ;;
+        debug)   echo "${REPO_ROOT}/build/debug" ;;
     esac
 }
 

@@ -5,9 +5,9 @@
 Usage:
     ./scripts/gen_status_report.py
 """
-# @adai-status: beta        (validated via manual test cases this session; no formal test suite; capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.9.0
-# @adai-reviewed: 2026-09-10
+# @adai-status: beta        (TD-043 resolved — real unittest suite added, see tests/scripts/test_gen_status_report.py)
+# @adai-version: 0.9.1
+# @adai-reviewed: 2026-09-11
 from __future__ import annotations
 
 import datetime

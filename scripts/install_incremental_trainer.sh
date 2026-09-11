@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# @adai-status: beta        (capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.8.1
-# @adai-reviewed: 2026-09-10
+# @adai-status: beta        (TD-043 resolved — real test suite added, see tests/scripts/install_incremental_trainer_test.sh)
+# @adai-version: 0.8.2
+# @adai-reviewed: 2026-09-11
 
 # ADAI Incremental Trainer Sub-System - Installation Script
 #
@@ -161,7 +161,12 @@ validate_build_dir() {
         error "${flag}: value must not be empty"
         exit 1
     fi
-    if [[ ! "${val}" =~ ^[a-zA-Z0-9._/-]+$ ]] || [[ "${val}" =~ \.\. ]]; then
+    # TD-043: the character class below allows '/', so an absolute path
+    # satisfied it and was never actually rejected despite the error
+    # message's own claim. See install_server_bundle.sh's validate_build_dir
+    # for the full writeup — same bug, same fix, across every install script
+    # sharing this function.
+    if [[ "${val}" == /* ]] || [[ ! "${val}" =~ ^[a-zA-Z0-9._/-]+$ ]] || [[ "${val}" =~ \.\. ]]; then
         error "${flag}: '${val}' must be a relative path with no '..' (allowed: a-z A-Z 0-9 . _ - /)"
         exit 1
     fi
@@ -178,7 +183,15 @@ validate_abs_path() {
         error "${flag}: '${val}' must be an absolute path (starting with /)"
         exit 1
     fi
-    if [[ "${val}" =~ $'\n' || "${val}" =~ $'\0' ]]; then
+    # TD-043: `$'\0'` evaluates to the empty string in bash (a shell
+    # variable can never actually hold a NUL byte — argv is itself
+    # NUL-terminated at the execve() level), so `=~ $'\0'` was an
+    # always-true empty-pattern match, rejecting every explicit absolute
+    # path passed to this validator with a false "illegal characters" error.
+    # See install_server_bundle.sh's validate_abs_path for the full
+    # writeup — same bug, same fix, across every install script sharing
+    # this function. The newline check is real and kept.
+    if [[ "${val}" =~ $'\n' ]]; then
         error "${flag}: path contains illegal characters"
         exit 1
     fi

@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# @adai-status: beta        (capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.8.3
+# @adai-status: beta        (TD-043 resolved — real test suite added, see tests/scripts/docker_build_test.sh)
+# @adai-version: 0.8.4
 # @adai-reviewed: 2026-09-11
 
 # Docker build script for ADAI Chatbot API Server
@@ -42,7 +42,13 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Function to display usage
+# Function to display usage.
+# TD-043: takes an optional exit code (default 0, for the -h/--help path).
+# Previously hardcoded `exit 0` unconditionally, so the unknown-option branch
+# below — which also calls this after printing an error — reported success
+# (exit 0) for a run that never built anything, e.g. a typo'd flag like
+# `--tag` misspelled `--tga` silently did nothing while looking like it
+# passed in any caller (CI job, wrapper script) that only checks $?.
 usage() {
     cat << EOF
 Usage: $(basename "$0") [OPTIONS]
@@ -63,7 +69,7 @@ Examples:
     $(basename "$0") --platform linux/amd64   # Build for specific platform
 
 EOF
-    exit 0
+    exit "${1:-0}"
 }
 
 # Parse command line arguments
@@ -90,7 +96,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             print_error "Unknown option: $1"
-            usage
+            usage 1
             ;;
     esac
 done

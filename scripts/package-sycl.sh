@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-# @adai-status: beta        (capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.7.0
-# @adai-reviewed: 2026-09-10
+# @adai-status: beta        (TD-043 resolved — real test suite added, see tests/scripts/package_sycl_test.sh)
+# @adai-version: 0.7.1
+# @adai-reviewed: 2026-09-11
 
 set -euo pipefail
 

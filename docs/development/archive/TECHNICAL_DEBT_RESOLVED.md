@@ -4,6 +4,120 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-043: Deployment-Critical Scripts Have No Automated Test
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 11, 2026 | `tests/scripts/` (new), 15 of the 17 covered scripts | New dependency-free bash/unittest test suite, wired into `ctest`; 6 genuine bugs found and fixed along the way |
+
+Summary:
+17 scripts the project actually depends on for building, packaging, and deploying — every
+`install_*.sh`, `package_*.sh`/`package-sycl.sh`, `build_windows.sh`, `docker_build.sh`,
+`model_service.sh`, `check_tech_debt.sh`, `run_tests.sh`, and `check_file_status.py`/
+`gen_status_report.py` — had no automated test of the script itself. Added `tests/scripts/
+harness.sh`, a plain, dependency-free bash assertion library (neither `bats-core` nor `pytest` is
+installed or otherwise part of this project's toolchain, so this avoids introducing either as a
+new CI/dependency-file change for no real benefit over plain bash/`unittest` here), plus one
+`*_test.sh` file per shell script and two `unittest` suites for the two Python tools — 17 test
+files total, wired into `ctest` via `tests/CMakeLists.txt`'s new `ScriptsTests_*` registrations.
+
+Every install_*.sh/package_*.sh test runs safely as a non-root user: each either exercises
+argument-parsing/error paths that run before anything privileged or destructive (confirmed by
+reading each script's own preflight-check ordering), or — where a script supports it
+(`install_oneapi_libs.sh`'s `--dry-run`, `package_server_bundle.sh` needing no root at all) —
+exercises its real happy path end-to-end inside an isolated scratch directory, including one full
+real packaging run against this repo's own `build/debug` producing and inspecting a genuine
+tarball. `model_service.sh`'s `status`/`stop` are exercised against a harmless `sleep` process the
+suite spawns and owns itself (the script only ever inspects it via `kill -0`/`kill -TERM`, with no
+way to tell it isn't a real service) — including confirming a real SIGTERM graceful-shutdown path.
+
+Writing real tests against real script behavior surfaced 6 genuine, previously-undiscovered bugs,
+each independently reproduced before fixing and reverted-and-confirmed-to-fail after:
+
+1. **`docker_build.sh`**: `usage()` hardcoded `exit 0` unconditionally, so the unknown-option
+   branch (which also calls it, after printing an error) reported success for a run that never
+   built anything — a typo'd flag silently did nothing while looking like it passed to any caller
+   that only checked `$?`. Fixed: `usage()` now takes an optional exit code (default 0), and the
+   unknown-option branch passes 1.
+2. **`validate_abs_path`'s `$'\0'` bug (5 scripts)**: `install_server_bundle.sh`,
+   `install_mns_server.sh`, `install_metrics_service.sh`, `install_incremental_trainer.sh`, and
+   `scripts/cloudflared/install_cloudflared.sh` all shared a validator whose illegal-character
+   check was `[[ "${val}" =~ $'\n' || "${val}" =~ $'\0' ]]` — `$'\0'` evaluates to the *empty
+   string* in bash (a shell variable can never actually hold a NUL byte; argv is itself
+   NUL-terminated at the `execve()` level), and matching an empty regex pattern is always true. This
+   condition fired unconditionally for every value, meaning **every explicit absolute-path
+   override on every flag these validators guard (`--install-path` and its siblings) was silently
+   broken**, always rejected with a false "illegal characters" error — reachable only when an
+   operator actually customized one of these paths, which is presumably why it went unnoticed.
+   Fixed: removed the dead/harmful `$'\0'` clause in all 5 files, keeping the real, correct newline
+   check.
+3. **`validate_build_dir`'s missing absolute-path rejection (5 scripts)**: the same 5 scripts
+   above plus `install_chatbot_API.sh` had a `--build-dir` validator whose character class
+   (`a-zA-Z0-9._/-`) allows `/`, so an absolute path like `/etc/passwd` satisfied it and was never
+   actually rejected, despite the error message's own claim ("must be a relative path"). Not a
+   path-traversal risk (`BUILD_DIR` is only ever used as `"${REPO_ROOT}/${BUILD_DIR}"`, and POSIX
+   collapses the resulting `//` rather than re-rooting) — just a validator that didn't enforce what
+   it claimed to. Fixed: added an explicit leading-`/` rejection in all 6 files.
+4. **`install_server_bundle.sh`'s `validate_port` misnamed itself in errors**: this script has
+   three port flags (`--mns-port`/`--registry-port`/`--metrics-port`) sharing one validator that
+   never received the flag name, so every one of them reported the error as `"--port: 'X' is not a
+   valid port number"` regardless of which flag was actually invalid. Fixed: `validate_port` now
+   takes the flag name explicitly; all three call sites updated.
+5. **`install_oneapi_libs.sh`'s silent death on `--install-path /`**: its depth-check computed
+   `depth=$(tr -s '/' '\n' <<< "${trimmed}" | grep -c .)` — `grep -c` exits 1 when it counts zero
+   matching lines (the count of 0 is still printed, but the exit status is still nonzero), and
+   under `set -euo pipefail` that silently killed the script with **zero output** for the one input
+   where `trimmed` ends up empty: `val="/"` (`val%/` strips its only character). Every other
+   top-level directory (`/home`, `/etc`, ...) has at least one non-slash character left in
+   `trimmed` and so never hit this. Fixed: `|| true` on the pipeline, matching the same "avoid
+   pipefail killing the script on a benign zero-count case" idiom already used elsewhere in this
+   codebase (e.g. `check_tech_debt.sh`).
+6. **`model_service.sh`'s "debug" build type was completely non-functional**: `get_binary()`/
+   `get_build_dir()`'s `debug` case pointed at bare `"${REPO_ROOT}/build"` (no `debug/`
+   subdirectory) instead of `"${REPO_ROOT}/build/debug"` — every preset in this repo (per
+   `CLAUDE.md`) builds into `build/<preset>/`, the same convention the `release` case already
+   correctly followed (`build/release`). Reproduced directly: `./model_service.sh build
+   --build-type debug` against a real, fully-configured `build/debug` always failed with "CMake
+   build directory '.../build' is not configured". Fixed: both functions' `debug` case now points
+   at `build/debug`.
+
+`install_chatbot_API.sh` was found to have a *different*, larger gap — unlike every sibling
+install script, it validates only `--build-dir`, leaving `--user`/`--group`/`--port`/
+`--install-path` completely unvalidated before they reach `useradd`, a `chown`, and a systemd unit
+file `sed` substitution. This is new validation logic to add, not a broken check to fix, so it was
+flagged as its own separate follow-up task rather than folded into this pass; the test file for
+this script covers its actual current behavior, including that gap.
+
+Changes Made:
+- `tests/scripts/harness.sh` (new): shared bash assertion library (`assert_eq`, `assert_exit`,
+  `assert_contains`, `assert_file_exists`, `run`/`run_in` output+exit-code capture with ANSI
+  stripping, `mktemp_dir` with automatic cleanup via an EXIT trap).
+- 15 new `tests/scripts/*_test.sh` files (one per shell script) + 2 new
+  `tests/scripts/test_*.py` `unittest` suites (for the two Python tools) — 431 bash assertions
+  and 36 Python test methods in total.
+- `tests/CMakeLists.txt`: new `ScriptsTests_*` registrations for all 17, run through `ctest`
+  alongside the existing C++ suites.
+- 9 scripts fixed for the 6 bugs above: `docker_build.sh`, `install_server_bundle.sh`,
+  `install_mns_server.sh`, `install_metrics_service.sh`, `install_incremental_trainer.sh`,
+  `scripts/cloudflared/install_cloudflared.sh`, `install_chatbot_API.sh`, `install_oneapi_libs.sh`,
+  `model_service.sh`.
+- All 17 covered scripts' `@adai-status`/`@adai-version`/`@adai-reviewed` tags updated to drop the
+  "capped by TD-043" note (`install_chatbot_API.sh`'s instead notes the separate follow-up).
+
+Verification:
+- ✅ Each of the 6 bugs above independently reproduced against the real, unmodified script before
+  fixing, then reverted-and-confirmed-to-fail after fixing (temporarily undoing just that fix and
+  confirming the corresponding new test genuinely fails, then restoring the fix and confirming all
+  tests pass again) — not just "the new test passes."
+- ✅ All 17 new `ScriptsTests_*` pass individually and together under `ctest -j4` (parallel,
+  confirming no shared-state conflicts between them).
+- ✅ Full project test suite: 96/96 tests pass (79 pre-existing C++ suites + 17 new ScriptsTests).
+- ✅ `bash -n` on every modified shell script and `ast.parse()` on both modified Python files:
+  all pass.
+- ✅ `scripts/check_file_status.py`: 274 files checked, 0 problems.
+- ✅ No leftover background processes (confirmed via `pgrep`) or scratch files after the full
+  suite run, including `model_service.sh`'s real-process stop/status tests.
+
 ### TD-046: Orphaned/Superseded Scripts Removed
 
 | Resolution Date | Component | Resolved By |

@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# @adai-status: beta        (capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.8.4
-# @adai-reviewed: 2026-09-10
+# @adai-status: beta        (TD-043 resolved — real test suite added, see tests/scripts/install_server_bundle_test.sh)
+# @adai-version: 0.8.5
+# @adai-reviewed: 2026-09-11
 
 # ADAI Server Bundle - Installation Script
 #
@@ -208,7 +208,16 @@ validate_build_dir() {
         error "${flag}: value must not be empty"
         exit 1
     fi
-    if [[ ! "${val}" =~ ^[a-zA-Z0-9._/-]+$ ]] || [[ "${val}" =~ \.\. ]]; then
+    # TD-043: the character class below allows '/', so an absolute path
+    # (e.g. "/etc/passwd") satisfied it and was never actually rejected
+    # despite the error message's own claim — found writing the TD-043 test
+    # suite for install_server_bundle.sh, confirmed identically present in
+    # 4 sibling install scripts. Not a path-traversal risk (BUILD_DIR is
+    # only ever used as "${REPO_ROOT}/${BUILD_DIR}", and POSIX collapses the
+    # resulting "//" rather than re-rooting), just a validator that didn't
+    # enforce what it claimed to — the explicit leading-'/' check below
+    # closes that gap directly.
+    if [[ "${val}" == /* ]] || [[ ! "${val}" =~ ^[a-zA-Z0-9._/-]+$ ]] || [[ "${val}" =~ \.\. ]]; then
         error "${flag}: '${val}' must be a relative path with no '..' (allowed: a-z A-Z 0-9 . _ - /)"
         exit 1
     fi
@@ -224,16 +233,37 @@ validate_abs_path() {
         error "${flag}: '${val}' must be an absolute path (starting with /)"
         exit 1
     fi
-    if [[ "${val}" =~ $'\n' || "${val}" =~ $'\0' ]]; then
+    # TD-043: `$'\0'` does not represent a NUL byte here — bash strings are
+    # themselves NUL-terminated C strings under the hood, so a literal NUL
+    # can never survive into a shell variable in the first place (argv is
+    # NUL-terminated at the execve() level; the byte itself would truncate
+    # the argument, never appear inside it) — `$'\0'` just evaluates to the
+    # EMPTY string. `[[ "${val}" =~ "" ]]` (matching an empty pattern) is
+    # ALWAYS true, so this condition fired unconditionally for every value,
+    # rejecting every explicit absolute-path override on every flag this
+    # validator guards (--install-path and friends) with a false "illegal
+    # characters" error — found writing the TD-043 test suite for this
+    # script, confirmed identically broken in 4 sibling install scripts.
+    # The embedded-newline check is real and correct on its own (a literal
+    # newline in val would otherwise be perfectly valid bash-string content
+    # and could break downstream single-line log/status output) — kept.
+    if [[ "${val}" =~ $'\n' ]]; then
         error "${flag}: path contains illegal characters"
         exit 1
     fi
 }
 
 validate_port() {
-    local val="$1"
+    # TD-043: takes the flag name explicitly, unlike the single-port
+    # installers (install_mns_server.sh, install_metrics_service.sh) where a
+    # hardcoded "--port:" happens to always be right. This script has three
+    # port flags (--mns-port/--registry-port/--metrics-port) sharing this one
+    # validator — before this fix, every one of them reported the error as
+    # "--port: 'X' is not a valid port number", regardless of which flag was
+    # actually wrong. Found writing the TD-043 test suite for this script.
+    local flag="$1" val="$2"
     if [[ ! "${val}" =~ ^[0-9]+$ ]] || (( val < 1 || val > 65535 )); then
-        error "--port: '${val}' is not a valid port number (1-65535)"
+        error "${flag}: '${val}' is not a valid port number (1-65535)"
         exit 1
     fi
 }
@@ -253,13 +283,13 @@ while [[ $# -gt 0 ]]; do
             validate_build_dir "--build-dir" "$2"
             BUILD_DIR="$2"; shift 2 ;;
         --mns-port)
-            validate_port "$2"
+            validate_port "--mns-port" "$2"
             MNS_PORT="$2"; shift 2 ;;
         --registry-port)
-            validate_port "$2"
+            validate_port "--registry-port" "$2"
             REGISTRY_PORT="$2"; shift 2 ;;
         --metrics-port)
-            validate_port "$2"
+            validate_port "--metrics-port" "$2"
             METRICS_PORT="$2"; shift 2 ;;
         --metrics-dir)
             validate_abs_path "--metrics-dir" "$2"

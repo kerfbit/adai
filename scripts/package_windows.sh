@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# @adai-status: beta        (capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.8.1
-# @adai-reviewed: 2026-09-10
+# @adai-status: beta        (TD-043 resolved — real test suite added, see tests/scripts/package_windows_test.sh)
+# @adai-version: 0.8.2
+# @adai-reviewed: 2026-09-11
 
 # Package Windows executables with all dependencies for distribution
 # Creates a portable Windows package that can be copied and run on any Windows system

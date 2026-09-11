@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# @adai-status: beta        (capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.8.1
-# @adai-reviewed: 2026-09-10
+# @adai-status: beta        (TD-043 resolved (test suite added); missing --user/--group/--port/--install-path validation flagged as a separate follow-up)
+# @adai-version: 0.8.2
+# @adai-reviewed: 2026-09-11
 
 # ADAI Chatbot API - systemd Service Installation Script
 #
@@ -58,7 +58,12 @@ validate_build_dir() {
         echo "ERROR: ${flag}: value must not be empty" >&2
         exit 1
     fi
-    if [[ ! "${val}" =~ ^[a-zA-Z0-9._/-]+$ ]] || [[ "${val}" =~ \.\. ]]; then
+    # TD-043: the character class below allows '/', so an absolute path
+    # satisfied it and was never actually rejected despite the error
+    # message's own claim. See install_server_bundle.sh's validate_build_dir
+    # for the full writeup — same bug, same fix, across every install script
+    # sharing this function.
+    if [[ "${val}" == /* ]] || [[ ! "${val}" =~ ^[a-zA-Z0-9._/-]+$ ]] || [[ "${val}" =~ \.\. ]]; then
         echo "ERROR: ${flag}: '${val}' must be a relative path with no '..' (allowed: a-z A-Z 0-9 . _ - /)" >&2
         exit 1
     fi

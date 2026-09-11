@@ -917,6 +917,54 @@ add_test(NAME IncrementalTrainerControlTests COMMAND incrementalTrainerControlTe
 # are covered above (TrainerControlStateTests, IncrementalTrainerControlTests)
 # instead of duplicating the loop's control flow against fabricated state.
 
+# ============================================================================
+# TD-043: scripts/ test suite
+#
+# A lightweight, dependency-free bash assertion harness (tests/scripts/
+# harness.sh) plus one *_test.sh file per deployment-critical shell script,
+# and two Python unittest suites for the two Python tools (check_file_status.py,
+# gen_status_report.py) — neither bats-core nor pytest is installed or
+# otherwise part of this project's toolchain, so this avoids introducing
+# either as a new CI/dependency-file change for no benefit over plain bash/
+# unittest here. Each test file is self-contained (locates its own target
+# script via $CMAKE_SOURCE_DIR-relative path, never assumes a particular
+# CWD) and safe to run as a normal, non-root ctest invocation: every
+# install_*.sh/package_*.sh test either exercises argument-parsing/error
+# paths that run before anything privileged or destructive, or — where a
+# script supports it (install_oneapi_libs.sh's --dry-run, package_server_
+# bundle.sh needing no root at all) — exercises its real happy path inside
+# an isolated scratch directory.
+set(ADAI_SCRIPTS_TEST_DIR "${CMAKE_SOURCE_DIR}/tests/scripts")
+foreach(_script_test IN ITEMS
+    build_windows_test.sh
+    check_tech_debt_test.sh
+    docker_build_test.sh
+    install_chatbot_api_test.sh
+    install_cloudflared_test.sh
+    install_incremental_trainer_test.sh
+    install_metrics_service_test.sh
+    install_mns_server_test.sh
+    install_oneapi_libs_test.sh
+    install_server_bundle_test.sh
+    model_service_test.sh
+    package_server_bundle_test.sh
+    package_sycl_test.sh
+    package_windows_test.sh
+    run_tests_test.sh
+)
+    string(REPLACE ".sh" "" _test_name "${_script_test}")
+    add_test(NAME ScriptsTests_${_test_name}
+             COMMAND bash "${ADAI_SCRIPTS_TEST_DIR}/${_script_test}")
+endforeach()
+
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME ScriptsTests_check_file_status
+             COMMAND ${Python3_EXECUTABLE} "${ADAI_SCRIPTS_TEST_DIR}/test_check_file_status.py")
+    add_test(NAME ScriptsTests_gen_status_report
+             COMMAND ${Python3_EXECUTABLE} "${ADAI_SCRIPTS_TEST_DIR}/test_gen_status_report.py")
+endif()
+
 # TD-064: no test in this file had a TIMEOUT property, so ctest had no way to
 # bound a hung test — confirmed the hard way when paralleldataloaderTests hung
 # for ~9 hours under a full `ctest -j8` run (both its threads genuinely
