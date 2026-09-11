@@ -4,6 +4,58 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-135: check_ports.sh's `ss` Path Never Actually Reported "No Service Listening"
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/check_ports.sh` | Reset `result` each loop iteration; filter `ss`'s output to `LISTEN` rows before testing emptiness |
+
+Summary:
+Found during this session's third full-repository audit pass, restarting on `scripts/`. Two
+independent bugs in the same ~10-line loop:
+
+1. **Stale `$result` carryover.** `result` was assigned only inside the `if command -v ss` / `elif
+   command -v netstat` branches, with no `else`. On a host with neither tool, `result` kept
+   whatever value the *previous* port's iteration left it at — the next port's check would
+   silently report the prior port's (possibly "listening") status as its own. Reproduced with a
+   standalone harness mimicking the script's exact control flow (fake `command -v` returning true
+   for `ss` only on the first of two ports): the second port printed the first port's stale
+   `LISTEN ... pid=1234` line instead of "No service listening".
+2. **`ss`'s header row made `result` non-empty even with zero matches — the far more reachable
+   bug.** `ss -tlnp "sport = :$port"` always prints its column header
+   (`State Recv-Q Send-Q Local Address:Port Peer Address:Port Process`) regardless of whether the
+   sport filter matched anything; verified directly against a real port with no listener on this
+   machine (`ss -tlnp "sport = :19999"` still emitted a 64-byte non-empty header line, exit 0).
+   Since `result` was never actually empty whenever `ss` was installed — true on essentially every
+   modern Linux host, since `ss` ships with `iproute2` — the "No service listening on port $port"
+   message and the entire `lsof` fallback were dead code on every unused port checked with `ss`
+   available; the script instead echoed a bare, data-less header line for every port with nothing
+   listening. Reproduced by running the (pre-fix) script against this machine's real ports
+   8081–8084 (none listening): each printed only the `ss` header, never "No service listening".
+
+Changes Made:
+- `scripts/check_ports.sh`: added `result=""` at the top of the loop body (before the
+  `ss`/`netstat` branches) so a port with neither tool available always evaluates against its own
+  empty state, never the previous port's.
+- Changed the `ss` branch to `result=$(ss -tlnp "sport = :$port" 2>/dev/null | grep "LISTEN")`,
+  mirroring the `netstat` branch's own grep-filtering pattern, so `result` reflects an actual match
+  rather than "ss produced any output at all."
+
+Verification:
+- ✅ Standalone bash repro of bug 1 mimicking the script's control flow: **before**, second port
+  echoed the first port's stale result; **after** (with `result=""` added), second port correctly
+  reported "No service listening".
+- ✅ Direct verification of bug 2 against real `ss` output on this machine: confirmed the header row
+  is present with zero matching rows (`sport = :19999`, an unused port) and confirmed
+  `... | grep "LISTEN"` correctly yields empty output for that same unused port while still
+  capturing the real data row for an actually-listening port (8080, a `python3 -m http.server`
+  bound for this test).
+- ✅ `bash -n scripts/check_ports.sh` — syntax valid.
+- ✅ Full before/after run of the real, unmodified/modified script against this machine's actual
+  ports 8080 (listening) and 8081–8084 (not listening): **before** the fix, 8081–8084 each printed
+  a bare `ss` header line; **after**, each correctly prints "No service listening on port $port",
+  while 8080 still correctly reports its `LISTEN ... python3` line and `Process: python3`.
+
 ### TD-134: MetricsSessionRegistry's Sweep Thread Raced an Admin Config Write on `completed_ttl_seconds_`
 
 | Resolution Date | Component | Resolved By |
