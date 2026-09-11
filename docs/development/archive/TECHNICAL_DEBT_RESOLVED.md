@@ -4,6 +4,48 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-144: serve_dashboard.py Exposed the Entire Repo (Including .git/) Over Unauthenticated HTTP
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/serve_dashboard.py` | Replaced the directory-serving `SimpleHTTPRequestHandler` with a minimal handler that only ever answers `GET /` or `GET /dashboard.html` |
+
+Summary:
+Found while re-checking `serve_dashboard.py` immediately after TD-110 (this session). TD-110 fixed
+`DIRECTORY` to correctly point at the repo root, where `dashboard.html` actually lives — but the handler
+was (and, until now, remained) `SimpleHTTPRequestHandler` configured with `directory=REPO_ROOT`, which
+serves *every* file under that directory tree, not just `dashboard.html`: `.git/` (the full commit
+history — the same tree that once carried the now-rotated GitHub PAT this project had previously
+exposed and fixed), `config.conf`, `vocab.txt`, `training_sessions/` checkpoints, and a browsable
+directory listing of all of it. The server also binds to all interfaces (`socketserver.TCPServer(("",
+PORT), ...)`), not just localhost, so this isn't confined to whoever is logged into the host machine.
+`dashboard.html` itself is a single self-contained file — confirmed against the last tracked revision
+before it was untracked as a generated artifact (TD-109): its only external references are a CDN
+`<script>` tag and two `/favicon` requests browsers already tolerate 404ing — so it has no sibling
+assets that legitimately need serving from that directory at all.
+
+Reproduced directly:
+- Placed a dummy `.git/config` and `config.conf` alongside a dummy `dashboard.html` in a scratch
+  directory laid out like the real repo, and ran the actual pre-fix `serve_dashboard.py`: `GET
+  /.git/config` and `GET /config.conf` both returned `200 OK` with their real file contents.
+
+Changes Made:
+- `scripts/serve_dashboard.py`: replaced `SimpleHTTPRequestHandler`(`directory=...`) with a
+  `BaseHTTPRequestHandler` subclass whose `do_GET` only recognizes `/` and `/dashboard.html` — reading
+  and returning that one file's bytes directly — and returns `404` for every other path, instead of
+  trying to allowlist individual sensitive paths within an otherwise fully-served directory tree. CORS
+  header behavior preserved unchanged.
+
+Verification:
+- ✅ Re-ran the same scratch-directory reproduction against the pre-fix file: confirmed `.git/config`
+  and `config.conf` both returned `200` with real content, `dashboard.html` also `200`.
+- ✅ Ran the identical reproduction against the fixed file: `.git/config` and `config.conf` now both
+  return `404`; `GET /dashboard.html` and `GET /` both still return `200` with the real dashboard
+  content.
+- ✅ Confirmed CORS response headers (`Access-Control-Allow-Origin`/`-Methods`/`-Headers`) are still
+  present on the successful response after the rewrite.
+- ✅ `python3 -m py_compile` clean on the real, fully-patched file.
+
 ### TD-143: chatbot_gui_fixed.sh Could Never Find the Binary — cd'd Into scripts/ Instead of the Repo Root
 
 | Resolution Date | Component | Resolved By |
