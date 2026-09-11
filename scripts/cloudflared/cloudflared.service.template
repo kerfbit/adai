@@ -24,7 +24,14 @@ Type=simple
 User=@SERVICE_USER@
 Group=@SERVICE_GROUP@
 
-ExecStart=@CLOUDFLARED_BIN@ tunnel --config @CONFIG_PATH@ run @TUNNEL_NAME@
+# TD-150: the binary path and config path placeholders below are quoted —
+# ExecStart= word-splits unquoted whitespace (confirmed against real systemd),
+# and --cloudflared-bin has no validation at all in install_cloudflared.sh.
+# The tunnel-name placeholder doesn't need it: validate_identifier already
+# restricts it to [a-zA-Z0-9._-]+. (Comment deliberately avoids spelling out
+# the placeholder tokens themselves — this file is sed's target, so any "@..@"
+# text anywhere in it, comments included, gets substituted too.)
+ExecStart="@CLOUDFLARED_BIN@" tunnel --config "@CONFIG_PATH@" run @TUNNEL_NAME@
 
 Restart=on-failure
 RestartSec=5s
@@ -41,7 +48,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=yes
-ReadOnlyPaths=@CONFIG_DIR@
+ReadOnlyPaths="@CONFIG_DIR@"
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 ProtectKernelLogs=yes
 ProtectKernelModules=yes

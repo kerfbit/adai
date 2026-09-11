@@ -4,6 +4,38 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-150: Seven Install Scripts' Generated systemd Units Broke on Space-Containing Paths
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 11, 2026 | `scripts/install_server_bundle.sh`, `install_mns_server.sh`, `install_metrics_service.sh`, `install_registry_server.sh`, `install_incremental_trainer.sh`, `install_chatbot_API.sh`, `cloudflared/cloudflared.service.template` | Quoted every path-bearing token in each generated unit's `ExecStart=`/`ReadWritePaths=`/`ReadOnlyPaths=` line |
+
+Summary:
+Found immediately after TD-149, while re-reading `install_server_bundle.sh` with an eye specifically for quoting/injection issues rather than the `set -e` trap family already fully swept in the third pass. `validate_abs_path` (used for `--install-path`/`--*-data-dir`/`--metrics-dir` across every install script) permits embedded spaces — it only rejects a non-absolute path or an embedded newline/NUL byte — and several of these scripts' `--install-path`-equivalent (`install_chatbot_API.sh`) or `--cloudflared-bin` (`cloudflared/install_cloudflared.sh`) have no validation at all. Every one of these scripts then embeds the resulting path **unquoted** into a generated systemd unit's `ExecStart=`/`ReadWritePaths=`/`ReadOnlyPaths=` line.
+
+The consequence depends on the systemd directive type, confirmed directly against a real systemd instance (a `systemctl --user` session — no root needed) rather than assumed from documentation, since the three directive types behave differently:
+- `WorkingDirectory=` is a **single-value** directive — it takes the rest of the line literally with no word-splitting, so it's actually safe unquoted even with an embedded space. Confirmed by running `pwd` inside a unit with an unquoted, space-containing `WorkingDirectory=`.
+- `ExecStart=` is a **command-line** directive — it word-splits unquoted whitespace to separate the executable from its arguments, exactly like a shell command line. A space in `--data-dir`'s value (or in the executable's own path) splits into multiple positional arguments the target binary never asked for. Confirmed with a real unit whose target script dumped its actual `argv`: an unquoted space-containing path split into 3+ separate arguments.
+- `ReadWritePaths=`/`ReadOnlyPaths=` are **path-list** directives — same word-splitting, but the failure mode is different and quieter: a space-containing path silently truncates to just its first word as the real read-write grant, and systemd logs (not fails outright) a warning for each remaining word as an invalid relative path. Confirmed both the truncation (`systemctl show -p ReadWritePaths` after loading the bad unit) and that quoting the same value files it correctly, then proved end-to-end that a real `ProtectSystem=strict` unit could actually write into the full, space-containing directory only once quoted — confirming both the break and the fix, not just a syntax-level observation.
+
+Reproduced/verified entirely against real systemd (`systemctl --user`, no root required) rather than assumption:
+- Unquoted `ExecStart=.../argv_dump.sh --port 8083 --data-dir <path with space>`: target process's real `argv` showed the path split across 3 separate arguments.
+- Unquoted `ReadWritePaths=<path with space>`: `systemctl show` confirmed only the first word was retained as the actual grant; the unit load logged "path is not absolute, ignoring" for each remaining word.
+- The same two cases with the value quoted: `argv` correctly showed the whole path as one argument; a `ProtectSystem=strict` unit granted `ReadWritePaths="<path with space>"` successfully wrote a file into that exact directory end-to-end.
+- Confirmed systemd's `$VAR`-style environment substitution does **not** apply inside `ExecStart=` values (ruled out as a second potential injection surface via the same real-systemd method, rather than assumed).
+
+Changes Made — quoted every path-bearing token in each affected unit (executable path plus every directory/file-path argument in `ExecStart=`; each individual entry in `ReadWritePaths=`/`ReadOnlyPaths=`), found via a repo-wide `grep -n "^ExecStart=\|^ReadWritePaths="` sweep:
+- `install_server_bundle.sh`: all three generated units (adai-mns, adai-registry, adai-metrics), including the dynamically-built `metrics_exec` string.
+- `install_mns_server.sh`, `install_metrics_service.sh`, `install_registry_server.sh`: their one generated unit each.
+- `install_incremental_trainer.sh`: both generated units (the trainer service and the coordinator-mode registry_server service).
+- `install_chatbot_API.sh`: the `sed`-based template rendering (adai.service → the installed unit) — `INSTALL_PATH` has no validation at all in this script, so this was the least-guarded of the seven.
+- `cloudflared/cloudflared.service.template`: quoted the binary-path and config-path placeholders (left the tunnel-name placeholder unquoted — it's already restricted to `[a-zA-Z0-9._-]+` by `validate_identifier`, so it can never contain a space). Caught and fixed a self-inflicted issue while editing this one: the first draft of the explanatory comment spelled out the literal `@PLACEHOLDER@` tokens, which `install_cloudflared.sh`'s `sed` pipeline matches and substitutes everywhere in the file, comments included — corrected to describe the fix without using that literal syntax.
+
+Verification:
+- ✅ All real-systemd reproductions above, both before and after quoting.
+- ✅ `bash -n` syntax check on all seven touched files: passed.
+- ✅ Re-simulated the `metrics_exec` string-building logic and the `install_chatbot_API.sh` `sed` pipeline directly (not just visual inspection) to confirm they emit correctly-quoted output text.
+
 ### TD-149: install_server_bundle.sh's --pg-db-name/--pg-db-user Allowed SQL and Conninfo Injection
 
 | Resolution Date | Component | Resolved By |

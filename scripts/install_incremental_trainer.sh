@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # @adai-status: beta        (capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.8.0
+# @adai-version: 0.8.1
 # @adai-reviewed: 2026-09-10
 
 # ADAI Incremental Trainer Sub-System - Installation Script
@@ -407,7 +407,7 @@ Type=simple
 User=${SERVICE_USER}
 Group=${SERVICE_GROUP}
 WorkingDirectory=${INSTALL_PATH}
-ExecStart=${BIN_DIR}/incremental_trainer --config ${CONFIG_DIR}/config.conf --foreground resume
+ExecStart="${BIN_DIR}/incremental_trainer" --config "${CONFIG_DIR}/config.conf" --foreground resume
 KillMode=mixed
 KillSignal=SIGTERM
 TimeoutStopSec=30
@@ -423,7 +423,7 @@ PrivateTmp=true
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=${LOG_DIR} ${SESSIONS_DIR} ${INSTALL_PATH}/tokenized_cache
+ReadWritePaths="${LOG_DIR}" "${SESSIONS_DIR}" "${INSTALL_PATH}/tokenized_cache"
 PrivateDevices=no
 
 [Install]
@@ -697,7 +697,7 @@ Type=simple
 User=${SERVICE_USER}
 Group=${SERVICE_GROUP}
 WorkingDirectory=${INSTALL_PATH}
-ExecStart=${BIN_DIR}/registry_server
+ExecStart="${BIN_DIR}/registry_server"
 Restart=on-failure
 RestartSec=5s
 StandardOutput=journal
@@ -708,7 +708,7 @@ PrivateTmp=true
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=${LOG_DIR}
+ReadWritePaths="${LOG_DIR}"
 
 [Install]
 WantedBy=multi-user.target

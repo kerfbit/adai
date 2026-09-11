@@ -722,7 +722,7 @@ Type=simple
 User=${SERVICE_USER}
 Group=${SERVICE_GROUP}
 WorkingDirectory=${INSTALL_PATH}
-ExecStart=${BIN_DIR}/mns_server --port ${MNS_PORT} --data-dir ${MNS_DATA_DIR}
+ExecStart="${BIN_DIR}/mns_server" --port ${MNS_PORT} --data-dir "${MNS_DATA_DIR}"
 Restart=on-failure
 RestartSec=5s
 StandardOutput=journal
@@ -735,7 +735,7 @@ PrivateTmp=true
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=${MNS_DATA_DIR} ${LOG_DIR}
+ReadWritePaths="${MNS_DATA_DIR}" "${LOG_DIR}"
 
 [Install]
 WantedBy=multi-user.target
@@ -754,7 +754,7 @@ Type=simple
 User=${SERVICE_USER}
 Group=${SERVICE_GROUP}
 WorkingDirectory=${INSTALL_PATH}
-ExecStart=${BIN_DIR}/registry_server --port ${REGISTRY_PORT} --data-dir ${REGISTRY_DATA_DIR}
+ExecStart="${BIN_DIR}/registry_server" --port ${REGISTRY_PORT} --data-dir "${REGISTRY_DATA_DIR}"
 Restart=on-failure
 RestartSec=5s
 StandardOutput=journal
@@ -766,7 +766,7 @@ PrivateTmp=true
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=${REGISTRY_DATA_DIR} ${LOG_DIR}
+ReadWritePaths="${REGISTRY_DATA_DIR}" "${LOG_DIR}"
 
 [Install]
 WantedBy=multi-user.target
@@ -775,13 +775,20 @@ EOF
     success "  Wrote adai-registry.service"
 
     # --- adai-metrics ---
-    local metrics_exec="${BIN_DIR}/metrics_api_server --port ${METRICS_PORT} --name-service-url http://localhost:${MNS_PORT}"
+    # TD-150: every path-bearing token quoted below — systemd's ExecStart= is a
+    # command-line directive that word-splits on unquoted whitespace (confirmed
+    # directly against real systemd: an unquoted space-containing --data-dir value
+    # elsewhere in this file split into extra stray positional arguments the
+    # target binary never asked for). --install-path/--metrics-dir/--db-path
+    # (validate_abs_path, or unvalidated for --db-path) permit embedded spaces,
+    # so this isn't just a theoretical concern.
+    local metrics_exec="\"${BIN_DIR}/metrics_api_server\" --port ${METRICS_PORT} --name-service-url http://localhost:${MNS_PORT}"
     metrics_exec+=" --storage-backend ${STORAGE_BACKEND}"
     if [[ "${STORAGE_BACKEND}" == *sqlite* ]]; then
-        metrics_exec+=" --db-path ${DB_PATH}"
+        metrics_exec+=" --db-path \"${DB_PATH}\""
     fi
     if [[ "${STORAGE_BACKEND}" == *postgres* ]]; then
-        metrics_exec+=" --db-url ${DB_URL} --db-pool-size ${DB_POOL_SIZE}"
+        metrics_exec+=" --db-url \"${DB_URL}\" --db-pool-size ${DB_POOL_SIZE}"
     fi
 
     cat > "/etc/systemd/system/adai-metrics.service" <<EOF
@@ -809,7 +816,7 @@ PrivateTmp=true
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=${METRICS_DIR} ${LOG_DIR}
+ReadWritePaths="${METRICS_DIR}" "${LOG_DIR}"
 
 [Install]
 WantedBy=multi-user.target

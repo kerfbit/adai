@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # @adai-status: beta        (capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.8.1
+# @adai-version: 0.8.2
 # @adai-reviewed: 2026-09-10
 
 # ADAI Model Name Service - Installation Script
@@ -348,7 +348,7 @@ Type=simple
 User=${SERVICE_USER}
 Group=${SERVICE_GROUP}
 WorkingDirectory=${INSTALL_PATH}
-ExecStart=${BIN_DIR}/mns_server --port ${MNS_PORT} --data-dir ${DATA_DIR}
+ExecStart="${BIN_DIR}/mns_server" --port ${MNS_PORT} --data-dir "${DATA_DIR}"
 Restart=on-failure
 RestartSec=5s
 StandardOutput=journal
@@ -363,7 +363,7 @@ PrivateTmp=true
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=${DATA_DIR} ${LOG_DIR}
+ReadWritePaths="${DATA_DIR}" "${LOG_DIR}"
 
 [Install]
 WantedBy=multi-user.target

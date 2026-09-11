@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # @adai-status: experimental        (not called by install_server_bundle.sh and not documented — registry_server install is now handled there directly; capped by TD-046 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.3.0
+# @adai-version: 0.3.1
 # @adai-reviewed: 2026-09-10
 
 # ADAI Distributed Dataset Registry - Installation Script
@@ -364,7 +364,7 @@ Type=simple
 User=${SERVICE_USER}
 Group=${SERVICE_GROUP}
 WorkingDirectory=${INSTALL_PATH}
-ExecStart=${BIN_DIR}/registry_server --port ${REGISTRY_PORT} --data-dir ${DATA_DIR}
+ExecStart="${BIN_DIR}/registry_server" --port ${REGISTRY_PORT} --data-dir "${DATA_DIR}"
 Restart=on-failure
 RestartSec=5s
 StandardOutput=journal
@@ -375,7 +375,7 @@ PrivateTmp=true
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=${DATA_DIR} ${LOG_DIR}
+ReadWritePaths="${DATA_DIR}" "${LOG_DIR}"
 
 [Install]
 WantedBy=multi-user.target

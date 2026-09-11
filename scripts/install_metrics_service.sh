@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # @adai-status: beta        (capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.8.0
+# @adai-version: 0.8.1
 # @adai-reviewed: 2026-09-10
 
 # ADAI Training Metrics API Server - Installation Script
@@ -350,7 +350,7 @@ Type=simple
 User=${SERVICE_USER}
 Group=${SERVICE_GROUP}
 WorkingDirectory=${INSTALL_PATH}
-ExecStart=${BIN_DIR}/metrics_api_server --port ${METRICS_PORT} --metrics-file ${METRICS_DIR}/metrics.jsonl --summary-file ${METRICS_DIR}/metrics_summary.json --db-path ${METRICS_DIR}/metrics.db
+ExecStart="${BIN_DIR}/metrics_api_server" --port ${METRICS_PORT} --metrics-file "${METRICS_DIR}/metrics.jsonl" --summary-file "${METRICS_DIR}/metrics_summary.json" --db-path "${METRICS_DIR}/metrics.db"
 Restart=on-failure
 RestartSec=5s
 StandardOutput=journal
@@ -364,7 +364,7 @@ PrivateTmp=true
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=${METRICS_DIR}
+ReadWritePaths="${METRICS_DIR}"
 
 [Install]
 WantedBy=multi-user.target

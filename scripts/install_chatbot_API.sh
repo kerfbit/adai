@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # @adai-status: beta        (capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.8.0
+# @adai-version: 0.8.1
 # @adai-reviewed: 2026-09-10
 
 # ADAI Chatbot API - systemd Service Installation Script
@@ -421,8 +421,15 @@ if [[ "${IS_GPU_BUILD}" == true ]]; then
     PRIVATE_DEVICES="no"
 fi
 
+# TD-150: ExecStart=/ReadWritePaths= are systemd command-line-style directives
+# that word-split on unquoted whitespace (confirmed directly against real
+# systemd), unlike WorkingDirectory= (a single-value directive, safe unquoted
+# even with an embedded space) and the Environment="KEY=value" lines below
+# (already safe since the whole assignment is one quoted token). INSTALL_PATH
+# has no validation at all in this script, so a space-containing value isn't
+# just theoretical.
 sed -e "s|WorkingDirectory=.*|WorkingDirectory=${INSTALL_PATH}|" \
-    -e "s|ExecStart=.*|ExecStart=${BIN_DIR}/chatbot_api_server|" \
+    -e "s|ExecStart=.*|ExecStart=\"${BIN_DIR}/chatbot_api_server\"|" \
     -e "s|User=.*|User=${SERVICE_USER}|" \
     -e "s|Group=.*|Group=${SERVICE_GROUP}|" \
     -e "s|^SupplementaryGroups=.*|SupplementaryGroups=${SUPPLEMENTARY_GROUPS}|" \
@@ -430,7 +437,7 @@ sed -e "s|WorkingDirectory=.*|WorkingDirectory=${INSTALL_PATH}|" \
     -e "s|Environment=\"PORT=.*\"|Environment=\"PORT=${SERVER_PORT}\"|" \
     -e "s|Environment=\"LOG_LEVEL=.*\"|Environment=\"LOG_LEVEL=${LOG_LEVEL}\"|" \
     -e "s|Environment=\"CONFIG_FILE=.*\"|Environment=\"CONFIG_FILE=${CONFIG_FILE}\"|" \
-    -e "s|ReadWritePaths=.*|ReadWritePaths=${LOG_DIR} ${MODELS_DIR}|" \
+    -e "s|ReadWritePaths=.*|ReadWritePaths=\"${LOG_DIR}\" \"${MODELS_DIR}\"|" \
     -e "s|^PrivateDevices=.*|PrivateDevices=${PRIVATE_DEVICES}|" \
     "${SCRIPT_DIR}/adai.service" > "${SERVICE_FILE}"
 
