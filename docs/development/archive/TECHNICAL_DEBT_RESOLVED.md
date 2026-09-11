@@ -4,6 +4,51 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-145: install_cloudflared.sh Was Invisible to the File-Status Tagging Standard
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/cloudflared/install_cloudflared.sh`, `scripts/check_file_status.py`, `docs/development/guides/file-status-standard.md` | Added the missing tag block; extended the scanner's `IN_SCOPE_GLOBS` and the standard's documented Scope section to explicitly cover `scripts/cloudflared/` |
+
+Summary:
+Found during this session's third-pass re-read of `scripts/`, while checking `install_cloudflared.sh`
+end to end — it had no `@adai-status`/`@adai-version`/`@adai-reviewed` header at all, unlike every
+sibling `install_*.sh` script. Root cause: `check_file_status.py`'s `IN_SCOPE_GLOBS` and the standard's
+own documented Scope section both use the non-recursive glob `scripts/*.sh` / `scripts/*.py`, which
+never matches a file in a subdirectory like `scripts/cloudflared/`. This is a real, deploy-critical
+install/service script — installs a systemd unit as root, handles tunnel credentials — exactly what the
+standard means by "operational scripts," and exactly the kind of script `TD-043` tracks for "no
+automated test," yet it was invisible to both the enforcement tool and the generated
+`PRODUCTION_READINESS.md` dashboard: `check_file_status.py` reported "0 missing the tag entirely" while
+this file sat completely untagged the whole time, because it was never counted as in-scope in the first
+place.
+
+Reproduced directly:
+- Ran the real (pre-fix) `check_file_status.py` against the repo: reported "Checked 279 file(s); 0
+  missing the tag entirely; 0 problem(s) total" — confirming the completely untagged file was silently
+  excluded rather than flagged.
+
+Changes Made:
+- `scripts/cloudflared/install_cloudflared.sh`: added the standard `@adai-status: beta (capped by
+  TD-043)` / `@adai-version: 0.1.0` / `@adai-reviewed: 2026-09-10` header, matching its sibling install
+  scripts.
+- `scripts/check_file_status.py`: added `scripts/cloudflared/*.sh` and `scripts/cloudflared/*.py` to
+  `IN_SCOPE_GLOBS`, listed explicitly (not switched to a blanket recursive glob) to match the list's own
+  "extend deliberately" convention — any future subdirectory still needs to be added here on purpose.
+- `docs/development/guides/file-status-standard.md`: updated the documented Scope section to list the
+  same two globs, keeping the doc and the enforcement tool in sync.
+- Regenerated `docs/development/PRODUCTION_READINESS.md` via `gen_status_report.py`.
+
+Verification:
+- ✅ Re-ran `check_file_status.py` after the fix: "Checked 280 file(s); 0 missing the tag entirely; 0
+  problem(s) total" — the file count increased by exactly one (the newly-covered file) and the new tag
+  validates cleanly.
+- ✅ `gen_status_report.py` regeneration confirmed: `PRODUCTION_READINESS.md` now lists
+  `scripts/cloudflared/install_cloudflared.sh | beta | 0.1.0 | 2026-09-10 | TD-043` and its header count
+  updated from 279 to 280.
+- ✅ Confirmed via `find scripts -mindepth 2 -type f \( -name "*.sh" -o -name "*.py" \)` that this was
+  the only file affected — no other `scripts/` subdirectory currently holds a `.sh`/`.py` file.
+
 ### TD-144: serve_dashboard.py Exposed the Entire Repo (Including .git/) Over Unauthenticated HTTP
 
 | Resolution Date | Component | Resolved By |

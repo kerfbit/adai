@@ -45,7 +45,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [TD-051: IncrementalTrainer::load_conversation_pairs() Is an Unmigrated Duplicate](#td-051-incrementaltrainerload_conversation_pairs-is-an-unmigrated-duplicate)
   - [TD-052: ParallelDataLoader's Batches Use Character Codes, Not Real Tokens](#td-052-paralleldataloaders-batches-use-character-codes-not-real-tokens)
   - [TD-053: ChatbotCLI's /save and /load Commands Are Non-Functional Everywhere](#td-053-chatbotclis-save-and-load-commands-are-non-functional-everywhere)
-- [Resolved Items](#resolved-items) (118 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+- [Resolved Items](#resolved-items) (119 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -870,10 +870,12 @@ Files to Modify:
 | MEDIUM | Open | Scripts / Tooling | September 7, 2026 | 14-20 hours |
 
 Description:
-16 scripts that the project actually depends on for building, packaging, and deploying — every
-`install_*.sh`, `package_*.sh`/`package-sycl.sh`, `build_windows.sh`, `docker_build.sh`,
-`model_service.sh`, plus `check_tech_debt.sh`, `run_tests.sh`, and this standard's own
-`check_file_status.py`/`gen_status_report.py` — have no automated test of the script itself.
+17 scripts that the project actually depends on for building, packaging, and deploying — every
+`install_*.sh` (including `scripts/cloudflared/install_cloudflared.sh`, added to this list once
+TD-145 made it visible to the file-status standard), `package_*.sh`/`package-sycl.sh`,
+`build_windows.sh`, `docker_build.sh`, `model_service.sh`, plus `check_tech_debt.sh`, `run_tests.sh`,
+and this standard's own `check_file_status.py`/`gen_status_report.py` — have no automated test of the
+script itself.
 Several are documented as the sanctioned way to do something (`CLAUDE.md`, `SERVER_BUNDLE_DEPLOYMENT.md`)
 but nothing verifies the script's own argument parsing, error handling, or output stays correct
 across changes.
@@ -893,7 +895,8 @@ Files to Modify:
 - `scripts/build_windows.sh`, `scripts/docker_build.sh`, `scripts/install_chatbot_API.sh`,
   `scripts/install_incremental_trainer.sh`, `scripts/install_metrics_service.sh`,
   `scripts/install_mns_server.sh`, `scripts/install_oneapi_libs.sh`,
-  `scripts/install_server_bundle.sh`, `scripts/model_service.sh`, `scripts/package-sycl.sh`,
+  `scripts/install_server_bundle.sh`, `scripts/cloudflared/install_cloudflared.sh`,
+  `scripts/model_service.sh`, `scripts/package-sycl.sh`,
   `scripts/package_server_bundle.sh`, `scripts/package_windows.sh`, `scripts/check_tech_debt.sh`,
   `scripts/run_tests.sh`, `scripts/check_file_status.py`, `scripts/gen_status_report.py`
 
@@ -1179,7 +1182,7 @@ Files to Modify:
 
 ## Resolved Items
 
-118 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+119 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements

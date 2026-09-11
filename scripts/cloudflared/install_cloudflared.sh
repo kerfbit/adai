@@ -1,4 +1,9 @@
 #!/bin/bash
+
+# @adai-status: beta        (capped by TD-043 — see TECHNICAL_DEBT.md)
+# @adai-version: 0.1.0
+# @adai-reviewed: 2026-09-10
+
 # Cloudflare Tunnel connector - Installation Script
 #
 # Installs a filled-in cloudflared config + credentials as a systemd service,

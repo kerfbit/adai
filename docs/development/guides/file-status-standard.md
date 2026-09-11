@@ -81,8 +81,9 @@ Required on:
 - `src/**/*.{cpp,hpp,h,cu}`
 - `android/**/src/**/*.{kt,java}`
 - `tizen-metrics-app/js/*.js`
-- Operational scripts in `scripts/*.sh` / `scripts/*.py` (install/deploy/service scripts — not
-  one-off analysis throwaways; tag `experimental` if genuinely unsure)
+- Operational scripts in `scripts/*.sh` / `scripts/*.py` / `scripts/cloudflared/*.sh` /
+  `scripts/cloudflared/*.py` (install/deploy/service scripts — not one-off analysis throwaways;
+  tag `experimental` if genuinely unsure)
 
 Out of scope (don't add the tag):
 

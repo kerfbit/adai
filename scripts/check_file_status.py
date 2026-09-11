@@ -33,6 +33,14 @@ EXCLUDE_DIR_PARTS = {
 }
 
 # (glob, ) pairs defining what's in scope. Extend deliberately, not opportunistically.
+#
+# TD-145: "scripts/*.sh" / "scripts/*.py" is a non-recursive glob — it silently
+# never matched scripts/cloudflared/install_cloudflared.sh (a real install/deploy
+# script, exactly what this standard means by "operational scripts"), which sat
+# completely untagged and unflagged since it was added, invisible to both this
+# checker and the generated PRODUCTION_READINESS.md dashboard. Listed explicitly
+# rather than switched to a blanket "scripts/**/*.sh" so any future subdirectory
+# still has to be added here deliberately, matching this list's own stated intent.
 IN_SCOPE_GLOBS = [
     "src/**/*.cpp",
     "src/**/*.hpp",
@@ -43,6 +51,8 @@ IN_SCOPE_GLOBS = [
     "tizen-metrics-app/js/*.js",
     "scripts/*.sh",
     "scripts/*.py",
+    "scripts/cloudflared/*.sh",
+    "scripts/cloudflared/*.py",
 ]
 
 TAG_RE = re.compile(
