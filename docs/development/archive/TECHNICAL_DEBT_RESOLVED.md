@@ -4,6 +4,55 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-141: model_service.sh's Start/Stop Polling Loops Silently Died on Their First Iteration
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/model_service.sh` | Replaced `(( attempts++ ))` / `(( waited++ ))` with plain arithmetic assignments in `cmd_start()` and `cmd_stop()` |
+
+Summary:
+Found during this session's third-pass re-read of `scripts/` — the same `set -e` + post-increment
+trap as TD-137 (`analyze_code.sh`), but here it broke the two most operationally important loops in
+the file: `cmd_start()`'s HTTP-readiness poll (waits up to 30s for the just-launched server to answer
+`/health`) and `cmd_stop()`'s graceful-shutdown wait (waits up to 30s for SIGTERM to take effect
+before escalating to SIGKILL). This script has `set -euo pipefail` at the top. Both loops counted
+elapsed seconds with `(( attempts++ ))` / `(( waited++ ))` — a post-increment whose exit status is the
+*pre*-increment value, which is `0` (falsy, i.e. failing exit status) on the very first iteration.
+`set -e` treats that as fatal and kills the whole script immediately — meaning in practice, on
+essentially every real invocation (a server almost never becomes HTTP-ready or exits within the same
+instant it's checked), `model_service.sh start` would die right after printing "Waiting for HTTP
+server on port ..." and `model_service.sh stop` would die right after the first `sleep 1` — in both
+cases with no summary message, no indication of what actually happened, and (for `stop`) a stale PID
+file left behind with the actual process possibly still running.
+
+Reproduced directly:
+- A standalone harness mirroring `cmd_start()`'s exact loop structure (`while (( attempts <
+  max_attempts )); do ...; (( attempts++ )); done`) with a `curl` check that never succeeds: died
+  silently after printing the first "checking..." line, exit code 1 — never reached the "did not
+  respond" warning or any later output.
+- A standalone harness with a real backgrounded process and `cmd_stop()`'s exact loop (`while kill -0
+  "$pid" 2>/dev/null && (( waited < 30 )); do sleep 1; (( waited++ )); done`): died silently after the
+  first `sleep 1`, exit code 1 — the process was still alive and never got followed up on.
+- The real `cmd_stop()` function itself, extracted from the actual (pre-fix) script and run against a
+  real backgrounded process that ignores SIGTERM for a few seconds: died the same way, before ever
+  reaching the SIGKILL fallback, the "Service stopped" message, or the PID-file cleanup.
+
+Changes Made:
+- `scripts/model_service.sh`: `cmd_start()`'s poll loop now uses `attempts=$((attempts + 1))`;
+  `cmd_stop()`'s wait loop now uses `waited=$((waited + 1))`. Plain arithmetic assignment has no
+  increment-dependent exit status, so it's safe under `set -e`.
+
+Verification:
+- ✅ Standalone repro of the fixed `cmd_start()`-style loop: ran to completion, correctly printed
+  "did not respond within 3s" and "loop finished cleanly", exit code 0.
+- ✅ Standalone repro of the fixed `cmd_stop()`-style loop against a real backgrounded process:
+  printed `waited=1`, `waited=2`, `waited=3` and "loop done", exit code 0.
+- ✅ The real, patched `cmd_stop()` function extracted from `scripts/model_service.sh` and run against
+  a real backgrounded process (one that traps and ignores SIGTERM, exiting only when its own 3-second
+  sleep completes): correctly waited, then printed "Service stopped (was PID ...)", exit code 0 —
+  matching the pre-fix reproduction's exact opposite (silent death) one-for-one.
+- ✅ `bash -n scripts/model_service.sh` — syntax valid.
+
 ### TD-140: install_oneapi_libs.sh Died With a Raw `find` Error on a Nonexistent `--lib-dir`
 
 | Resolution Date | Component | Resolved By |

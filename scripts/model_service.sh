@@ -301,7 +301,14 @@ cmd_start() {
                     success "Server is ready at http://localhost:${effective_port}"
                     break
                 fi
-                (( attempts++ ))
+                # `set -e` is active in this script: `(( attempts++ ))` is a
+                # post-increment, so its exit status is the PRE-increment
+                # value — 0 on the very first failed poll — which `set -e`
+                # treats as fatal, silently killing the whole script mid-poll
+                # (before ever reaching the "did not respond" warning below,
+                # or reporting the server's actual state). Plain arithmetic
+                # assignment has no such exit-status trap.
+                attempts=$((attempts + 1))
                 sleep 1
             done
             if (( attempts >= max_attempts )); then
@@ -339,10 +346,16 @@ cmd_stop() {
     kill -TERM "${pid}"
 
     # Wait for graceful shutdown
+    #
+    # Same set -e + post-increment trap as cmd_start()'s readiness poll:
+    # `(( waited++ ))`'s exit status is the pre-increment value (0 on the
+    # first iteration), which set -e treats as fatal — killing the script
+    # mid-shutdown-wait, before ever reaching the SIGKILL fallback, the
+    # "Service stopped" message, or the PID file cleanup below.
     local waited=0
     while kill -0 "${pid}" 2>/dev/null && (( waited < 30 )); do
         sleep 1
-        (( waited++ ))
+        waited=$((waited + 1))
     done
 
     if kill -0 "${pid}" 2>/dev/null; then
