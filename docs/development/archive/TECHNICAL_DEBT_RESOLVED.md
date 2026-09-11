@@ -4,6 +4,41 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-143: chatbot_gui_fixed.sh Could Never Find the Binary — cd'd Into scripts/ Instead of the Repo Root
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/chatbot_gui_fixed.sh` | Resolve `REPO_ROOT` from `SCRIPT_DIR` and `cd` there instead of `cd`ing to `SCRIPT_DIR` itself |
+
+Summary:
+Found during this session's third-pass re-read of `scripts/`. A different bug from the TD-114/116/
+117/118 family (which was about `build/src/` vs `build/bin/` — the wrong *subdirectory*): here the
+subdirectory was already right (`chatbot_gui` genuinely has no `RUNTIME_OUTPUT_DIRECTORY` override in
+`src/CMakeLists.txt`, confirmed against that same prior check, so `build/src/chatbot_gui` is correct),
+but the script resolved `SCRIPT_DIR` from `${BASH_SOURCE[0]}` and then did `cd "$SCRIPT_DIR"` — landing
+in `scripts/` itself — before `exec ./build/src/chatbot_gui "$@"`. A relative path resolved from
+`scripts/` looks for `scripts/build/src/chatbot_gui`, one directory too deep; the real binary is at
+`<repo-root>/build/src/chatbot_gui`, i.e. resolved from the repo root, not from `scripts/`. Every
+sibling launcher script in this file family (`run_chatbot.sh`, `manual_test_reload.sh`, etc., per
+TD-116/117/118) computes a `REPO_ROOT` one directory up from `SCRIPT_DIR` and `cd`s there instead —
+this file never did.
+
+Reproduced directly:
+- A standalone harness mirroring the exact directory layout (`adai/build/src/chatbot_gui` as the real
+  binary, `adai/scripts/chatbot_gui_fixed.sh` as the script) with the original `cd "$SCRIPT_DIR"` logic:
+  confirmed it looked for (and failed to find) `adai/scripts/build/src/chatbot_gui`.
+
+Changes Made:
+- `scripts/chatbot_gui_fixed.sh`: added `REPO_ROOT="$(dirname "${SCRIPT_DIR}")"` and changed
+  `cd "$SCRIPT_DIR"` to `cd "$REPO_ROOT"` right before the `exec`.
+
+Verification:
+- ✅ Reverted to the original `cd "$SCRIPT_DIR"` in the same standalone harness: reproduced "NOT FOUND"
+  exactly as predicted.
+- ✅ Restored the `REPO_ROOT`-based fix in the same harness: correctly found and would exec the real
+  binary path.
+- ✅ `bash -n` syntax check on the real, fully-patched file: passed.
+
 ### TD-142: install_incremental_trainer.sh's Remote Chmod Step Died on the Common `--remote`-Only Case
 
 | Resolution Date | Component | Resolved By |

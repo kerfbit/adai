@@ -10,6 +10,17 @@
 
 # Save current directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# chatbot_gui has no RUNTIME_OUTPUT_DIRECTORY override in src/CMakeLists.txt,
+# so it genuinely builds under <repo-root>/build/src/ (confirmed against
+# TD-114/116/117/118's identical check). But this script used to `cd
+# "$SCRIPT_DIR"` (scripts/ itself) and then exec the relative path
+# `./build/src/chatbot_gui` — looking for scripts/build/src/chatbot_gui,
+# one directory too deep, since the real binary lives at
+# <repo-root>/build/src/chatbot_gui, not scripts/build/src/chatbot_gui.
+# The exec below never found a binary; reproduced directly. Resolve and cd
+# to REPO_ROOT (one level up from scripts/) instead, matching every sibling
+# launcher script.
+REPO_ROOT="$(dirname "${SCRIPT_DIR}")"
 
 # Unset snap-related environment variables that cause conflicts
 unset GTK_PATH
@@ -28,5 +39,5 @@ export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/lib/x86_64-linux-gnu
 export GTK_MODULES=""
 
 # Run the GUI
-cd "$SCRIPT_DIR"
+cd "$REPO_ROOT"
 exec ./build/src/chatbot_gui "$@"
