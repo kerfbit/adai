@@ -1,7 +1,7 @@
 package com.adai.ops.data.mns
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.4.0
+// @adai-version: 0.4.1
 // @adai-reviewed: 2026-09-10
 
 
@@ -59,15 +59,21 @@ class ModelRepository(
         safeResponseCall { service().resolveRoleProduction(role) }
 
     /**
-     * Admin action: PUT /models/{name}/state {"state":"candidate"}. Verified against
-     * ModelNameService.cpp — "candidate" is a valid transition from "training" and
-     * releases the run_id lock (the handler clears run_id and appends a
-     * training_history entry for the abandoned run). Unlike "retired", this keeps the
-     * model eligible for promotion, since a crashed run may still have produced a
-     * usable checkpoint.
+     * Admin action: PUT /models/{name}/state {"state":"candidate","run_id":runId}.
+     * TD-147: ModelNameService.cpp's "candidate" transition has an ownership check that
+     * fires whenever the model is currently "training" — the exact state this action
+     * exists to recover from — and rejects the request with 409 unless [runId] matches
+     * the model's own current run_id exactly (an *empty* run_id does NOT bypass the
+     * check the way DatasetRegistry's release endpoint does; it fails the check like
+     * any other mismatch). The previous version never sent a run_id at all, so every
+     * real invocation — the button is only enabled when state=="training" — was
+     * rejected. [runId] must be the run_id from the most recently fetched
+     * [ModelRecordDto] for this model (the caller already has this from its polled
+     * state); a stale/mismatched value correctly still 409s, which is the intended
+     * protection against clobbering a run that was superseded by a new one.
      */
-    suspend fun clearStaleTrainingLock(name: String): ApiResult<ModelRecordDto> =
-        safeResponseCall { service().setState(name, SetStateRequestDto(state = "candidate")) }
+    suspend fun clearStaleTrainingLock(name: String, runId: String): ApiResult<ModelRecordDto> =
+        safeResponseCall { service().setState(name, SetStateRequestDto(state = "candidate", run_id = runId)) }
 
     /**
      * Admin action: PUT /models/{name}/state {"state":"retired"}. For discarding a

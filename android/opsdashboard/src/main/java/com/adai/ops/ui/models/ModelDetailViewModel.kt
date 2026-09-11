@@ -1,7 +1,7 @@
 package com.adai.ops.ui.models
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.4.0
+// @adai-version: 0.4.1
 // @adai-reviewed: 2026-09-10
 
 
@@ -54,9 +54,13 @@ class ModelDetailViewModel(
     }
 
     fun clearStaleTrainingLock() {
+        // TD-147: the server's ownership check on this transition requires the model's
+        // own current run_id — an empty one is rejected, not treated as an override —
+        // so it must be threaded through from the most recently polled record.
+        val runId = _uiState.value.model?.run_id.orEmpty()
         viewModelScope.launch {
             _uiState.update { it.copy(actionInProgress = true, actionMessage = null) }
-            when (val result = modelRepository.clearStaleTrainingLock(modelName)) {
+            when (val result = modelRepository.clearStaleTrainingLock(modelName, runId)) {
                 is ApiResult.Success -> _uiState.update {
                     it.copy(model = result.data, actionInProgress = false, actionMessage = "Lock cleared — model is now a candidate.")
                 }

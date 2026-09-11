@@ -4,6 +4,59 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-147: opsdashboard's "Clear Stale Training Lock" Admin Action Was Completely Non-Functional
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 11, 2026 | `android/opsdashboard/.../data/mns/ModelRepository.kt`, `.../ui/models/ModelDetailViewModel.kt` | Threaded the model's current `run_id` into the `PUT /models/{name}/state {"state":"candidate"}` request body |
+
+Summary:
+Found during this session's third-pass re-read of `android/opsdashboard`, while cross-checking
+`ModelRepository.kt`'s doc comments against the real `ModelNameService.cpp` handler it claimed to be
+"verified against." `clearStaleTrainingLock(name)` sent `SetStateRequestDto(state = "candidate")` with
+no `run_id` (defaulting to `null`, omitted from the JSON body entirely since the client's `Json` config
+sets `explicitNulls = false`). But `handle_state_transition`'s "candidate" branch has an ownership check
+that fires whenever the model is currently `"training"` — **the one and only state this admin action
+exists to recover from** (the "Clear stale training lock" button in `ModelDetailScreen.kt` is
+`enabled = model.state == "training"`, never shown otherwise) — and rejects the request with `409`
+unless the request's `run_id` exactly matches the model's own current `run_id`. Critically, an *empty*
+`run_id` does **not** bypass this check the way `DatasetRegistry`'s `/release` endpoint treats an empty
+`run_id` as an admin override — it fails the check like any other mismatch (`run_id.empty() ||
+run_id != r.run_id`). So every real invocation of this action — it is unreachable in any other state —
+received a 409 "run_id does not match the active run; this trainer's run has been superseded" and the
+model stayed permanently stuck in `"training"`, exactly the stuck state the button exists to clear. The
+model's current `run_id` was already available to the `ViewModel` the whole time, via the same
+`ModelRecordDto` its own polling loop (`refresh()`) had just fetched — it simply was never passed
+through.
+
+Reproduced/verified end-to-end against the real server (not a mock):
+- Built and ran the actual `mns_server` binary (`build/debug/bin/mns_server`) against a scratch data
+  directory.
+- Registered a test model, transitioned it to `"training"` via the real API (server allocated
+  `run_id: "run-01"`).
+- Sent the *exact* pre-fix request (`PUT /models/td147-test/state {"state":"candidate"}`, no `run_id`):
+  got `409 {"error":"run_id does not match the active run; this trainer's run has been superseded"}`,
+  and confirmed via a follow-up `GET` that the model was still stuck in `"training"`.
+- Sent the *exact* post-fix request (`PUT /models/td147-test/state {"state":"candidate","run_id":"run-
+  01"}`): got `200`, with the response confirming `"state":"candidate"`, `"run_id":""` (cleared), and a
+  new `training_history` entry for the abandoned run — precisely the effect the button's own confirmation
+  dialog describes.
+
+Changes Made:
+- `ModelRepository.kt`: `clearStaleTrainingLock` now takes a `runId: String` parameter and includes it
+  in the `SetStateRequestDto` sent to the server.
+- `ModelDetailViewModel.kt`: `clearStaleTrainingLock()` reads `_uiState.value.model?.run_id.orEmpty()`
+  (the most recently polled record for this model) and passes it through. A stale/mismatched value
+  still correctly 409s — that's the ownership check doing its job, not a regression.
+
+Verification:
+- ✅ End-to-end against the real `mns_server` binary, both before and after the fix (see above) —
+  the most direct verification available for this class of bug.
+- ✅ `./gradlew :opsdashboard:compileDebugKotlin --offline --rerun-tasks`: forced (not cached)
+  recompilation — `BUILD SUCCESSFUL`.
+- ✅ Confirmed via grep that `ModelDetailViewModel.kt` is the only caller of
+  `ModelRepository.clearStaleTrainingLock`, so no other call site needed updating.
+
 ### TD-146: TrainingComplicationDataSourceService Blocked the Main Thread on Every Complication Request
 
 | Resolution Date | Component | Resolved By |
