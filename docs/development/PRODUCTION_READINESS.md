@@ -145,7 +145,7 @@ None — every in-scope file carries a tag.
 | `scripts/install_incremental_trainer.sh` | beta | 0.8.1 | 2026-09-10 | TD-043 |
 | `scripts/install_metrics_service.sh` | beta | 0.8.1 | 2026-09-10 | TD-043 |
 | `scripts/install_mns_server.sh` | beta | 0.8.2 | 2026-09-10 | TD-043 |
-| `scripts/install_oneapi_libs.sh` | beta | 0.7.1 | 2026-09-10 | TD-043 |
+| `scripts/install_oneapi_libs.sh` | beta | 0.7.2 | 2026-09-10 | TD-043 |
 | `scripts/install_registry_server.sh` | experimental | 0.3.1 | 2026-09-10 | TD-046 |
 | `scripts/install_server_bundle.sh` | beta | 0.8.3 | 2026-09-10 | TD-043 |
 | `scripts/manual_test_reload.sh` | beta | 0.6.1 | 2026-09-10 | TD-044 |

@@ -4,6 +4,29 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-154: install_oneapi_libs.sh Could rm -rf Any Top-Level Directory via an --install-path Typo
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 11, 2026 | `scripts/install_oneapi_libs.sh` | Added a path-depth check rejecting any `--install-path` shallow enough to be a top-level system directory |
+
+Summary:
+Found continuing the fourth-pass sweep for unsafe sinks, this time specifically `rm -rf` calls fed by unvalidated input rather than shell/SQL interpolation. `--install-path` had no validation at all — unlike every other install script's `--install-path`/`--*-dir` flags, which all use `validate_abs_path` or stricter. `--uninstall`'s cleanup does `rm -rf "$INSTALL_PATH"` unconditionally once `--dry-run` is off. Every other "clean up an old install" routine in this project's scripts (`wipe_old_data()` in `install_server_bundle.sh` and its siblings) deliberately moves data aside to a timestamped backup instead of deleting it outright, specifically to avoid this class of mistake — this uninstall path never got the same treatment. An operator typo like `--install-path /home` instead of the intended `/opt/adai/lib` would recursively delete the given directory in full.
+
+`validate_abs_path` (used everywhere else) doesn't catch this on its own — `/home` is a perfectly valid absolute path. The fix checks path *depth* instead: the default and every realistic install path is at least two segments deep (`/opt/adai/lib`), while every FHS top-level directory (`/`, `/home`, `/etc`, `/usr`, `/var`, `/root`, `/tmp`, `/opt` itself) is one segment or fewer.
+
+Reproduced/verified directly:
+- Ran the real script with `--install-path /home --uninstall --dry-run`: before the fix, this would have been accepted and (without `--dry-run`) proceeded straight to `rm -rf /home`; confirmed the exact validation logic rejects `/`, `/home`, `/etc`, `/usr`, `/var`, `/root`, `/tmp`, and `/opt` (all depth ≤ 1) while accepting legitimate paths like the default `/opt/adai/lib`, `/usr/local/adai-libs`, and `/data/oneapi-libs` (all depth ≥ 2).
+- Ran the real, fully-patched script end-to-end with the default install path in `--dry-run` mode: unaffected, completes normally.
+- Ran it with `--install-path /home --uninstall --dry-run`: correctly exits 1 with the new error message, before the privilege check or any filesystem operation.
+
+Changes Made:
+- `scripts/install_oneapi_libs.sh`: added `validate_install_path()`, called on `INSTALL_PATH` immediately after argument parsing (before the root-privilege preflight check, so the rejection doesn't depend on execution context).
+
+Verification:
+- ✅ Real end-to-end run of the actual script, both the dangerous case (rejected, exit 1, before any destructive operation) and the legitimate default case (unaffected).
+- ✅ `bash -n` syntax check: passed.
+
 ### TD-153: tizen-metrics-app's Session Picker Had a DOM-Based XSS via the Session Key
 
 | Resolution Date | Component | Resolved By |

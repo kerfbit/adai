@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # @adai-status: beta        (capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.7.1
+# @adai-version: 0.7.2
 # @adai-reviewed: 2026-09-10
 
 set -euo pipefail
@@ -86,6 +86,43 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# TD-154: --install-path had no validation at all, unlike every other
+# install script's --install-path/--*-dir flags (all use validate_abs_path
+# or stricter). The --uninstall branch below does `rm -rf "$INSTALL_PATH"`
+# unconditionally (once --dry-run is off) — every other rm -rf-adjacent
+# cleanup in this project's scripts moves data aside to a timestamped
+# backup instead of deleting it outright specifically to avoid this class
+# of mistake (see wipe_old_data() in install_server_bundle.sh and its
+# siblings), but this uninstall path never got that treatment. An operator
+# typo like `--install-path /home` (instead of the intended
+# `/opt/adai/lib`) would recursively delete the given directory in full.
+# validate_abs_path alone doesn't catch this — "/home" is a perfectly
+# valid absolute path — so this checks path *depth* instead: the default
+# and every realistic install path is at least two segments deep
+# (/opt/adai/lib); every FHS top-level directory (/home, /etc, /usr, /var,
+# /root, /tmp, /opt itself, and / itself) is one segment or fewer.
+validate_install_path() {
+    local flag="$1" val="$2"
+    if [[ -z "${val}" ]]; then
+        echo "ERROR: ${flag}: value must not be empty" >&2
+        exit 1
+    fi
+    if [[ "${val}" != /* ]]; then
+        echo "ERROR: ${flag}: '${val}' must be an absolute path (starting with /)" >&2
+        exit 1
+    fi
+    local trimmed="${val%/}"
+    local depth
+    depth=$(tr -s '/' '\n' <<< "${trimmed}" | grep -c .)
+    if (( depth < 2 )); then
+        echo "ERROR: ${flag}: '${val}' is too shallow — refusing to recursively" >&2
+        echo "  remove a top-level system directory. Use a path at least two" >&2
+        echo "  segments deep, e.g. the default /opt/adai/lib." >&2
+        exit 1
+    fi
+}
+validate_install_path "--install-path" "$INSTALL_PATH"
 
 # ============================================================================
 # Preflight
