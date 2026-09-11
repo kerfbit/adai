@@ -4,6 +4,45 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-139: test_log_rotation.sh's Closing Summary Claimed Success Even After Printing a Failure
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/test_log_rotation.sh` | Track the log-count/timestamp-format checks in `TEST_PASSED`; make the closing summary and exit code reflect it |
+
+Summary:
+Found immediately after TD-138, continuing this session's third-pass re-read of `scripts/` — the
+same "unconditional success footer" bug class in a sibling test script. The "Verifying timestamp
+format" check could print `✗ Timestamp format not found`, and the "log rotation operational" check
+could print `✗ No log files found`, but neither result was recorded anywhere; the closing "Summary"
+block unconditionally printed `✓ Timestamped log format correct` and the banner unconditionally said
+`Log Rotation Test Complete ✓`, with no final exit code reflecting either check. Reproduced by
+extracting the script's own post-check logic (from the log-count check through the final `exit`)
+into a standalone harness with a fake log file containing no bracketed timestamps: the run printed
+`✗ Timestamp format not found` and, two screens later, `✓ Timestamped log format correct` in the same
+output, exit code 0.
+
+Changes Made:
+- `scripts/test_log_rotation.sh`: added a `TEST_PASSED` flag (default `true`), set to `false` in
+  each of the two `✗ ...` branches (log-count and timestamp-format checks).
+- The closing banner now prints `Log Rotation Test Complete ✓` or `... — WITH FAILURES ✗`; the
+  summary's timestamp/rotation lines are now conditional on `TEST_PASSED` (falling back to
+  `✗ See ✗ lines above for what failed`) instead of two unconditional `✓` lines.
+- Added `exit 0` / `exit 1` at the very end based on `TEST_PASSED` — after cleanup (server shutdown,
+  config removal) has already run, so a failing test no longer silently reports success while still
+  performing all the same teardown it always did.
+
+Verification:
+- ✅ Extracted the script's own post-check-through-exit logic into a standalone harness with a log
+  file containing no timestamp: **before** the fix, printed `✗ Timestamp format not found` followed
+  later by a contradicting `✓ Timestamped log format correct` and exit 0; **after**, the closing
+  banner reads `Log Rotation Test Complete — WITH FAILURES ✗` and the summary shows
+  `✗ See ✗ lines above for what failed`.
+- ✅ Same harness with a log file containing a correctly-formatted timestamp: unaffected —
+  `Log Rotation Test Complete ✓` and the original two `✓` summary lines, matching prior behavior for
+  a genuinely passing run.
+- ✅ `bash -n scripts/test_log_rotation.sh` — syntax valid.
+
 ### TD-138: test_chatbot_gui.sh Reported "SUCCESS" Even When Every Required Symbol Check Failed
 
 | Resolution Date | Component | Resolved By |

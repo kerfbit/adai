@@ -109,12 +109,20 @@ ls -lh "$TEST_LOG_DIR" | tail -n +2 | sed 's/^/  /'
 echo ""
 
 # Check if multiple log files would be created (for large logs)
+#
+# TEST_PASSED tracks these two checks so the closing "Summary" section below
+# reflects what was actually observed instead of unconditionally claiming
+# success — it previously printed "✓ Timestamped log format correct" even
+# right after this same run printed "✗ Timestamp format not found" two lines
+# above it, and always exited 0 regardless.
+TEST_PASSED=true
 LOG_COUNT=$(ls -1 "$TEST_LOG_DIR"/*.log* 2>/dev/null | wc -l)
 echo "Number of log files: $LOG_COUNT"
 if [ "$LOG_COUNT" -gt 0 ]; then
     echo "✓ Log rotation system operational"
 else
     echo "✗ No log files found"
+    TEST_PASSED=false
 fi
 echo ""
 
@@ -125,6 +133,7 @@ if grep -q '\[20[0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]:[0-9][0-9
     echo "  Example: $(grep -m1 '\[20[0-9][0-9]-' $TEST_LOG_FILE)"
 else
     echo "✗ Timestamp format not found"
+    TEST_PASSED=false
 fi
 echo ""
 
@@ -156,13 +165,21 @@ rm -f "$TEST_CONFIG"
 echo ""
 
 echo "=========================================="
-echo "Log Rotation Test Complete ✓"
+if [ "$TEST_PASSED" = true ]; then
+    echo "Log Rotation Test Complete ✓"
+else
+    echo "Log Rotation Test Complete — WITH FAILURES ✗"
+fi
 echo "=========================================="
 echo ""
 echo "Summary:"
 echo "  ✓ Log file creation working"
-echo "  ✓ Timestamped log format correct"
-echo "  ✓ File rotation system configured"
+if [ "$TEST_PASSED" = true ]; then
+    echo "  ✓ Timestamped log format correct"
+    echo "  ✓ File rotation system configured"
+else
+    echo "  ✗ See ✗ lines above for what failed"
+fi
 echo "  ✓ Max files limit: 3 rotated files"
 echo "  ✓ Max size limit: 1 MB per file"
 echo ""
@@ -170,3 +187,9 @@ echo "Log files preserved at: $TEST_LOG_DIR"
 echo ""
 echo "Note: To fully test rotation, the log file needs to exceed 1 MB."
 echo "Run longer tests or reduce LOG_MAX_SIZE_MB for faster rotation."
+
+if [ "$TEST_PASSED" = true ]; then
+    exit 0
+else
+    exit 1
+fi
