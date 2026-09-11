@@ -4,6 +4,86 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-040: FtpDataServer Path-Confinement Gap in Token Issuance; RegistryServer Untested in Isolation
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 11, 2026 | `src/RegistryServer.cpp`, `src/FtpDataServer.hpp`, `tests/registry_ftp_confinement_test.cpp` | Path-containment check at claim time in `handle_acquire()`, CSPRNG hardening, defense-in-depth logging, and a permanent regression test |
+
+Summary:
+`RegistryServer.cpp`'s `handle_acquire()` computed each acquired file's FTP delivery path via
+`file_path.lexically_relative(data_root)` with no check that the file actually resolved under
+`data_dir`. A pending entry registered outside `data_dir` (addable via `POST
+/registry/<group>/pending/add`, which validated nothing about the path) produced a
+`../`-laden `ftp_path`, which was then minted as a real, working FTP token's `allowed_path` and
+handed to whichever training node next acquired that entry with `--ftp-enabled` — `cmd_retr`'s
+permission check is an exact string match against that same string, so it raised no objection.
+This is the identical class of bug `handle_delete()` in the same file already defended against
+(`weakly_canonical` + `lexically_relative` + reject-if-`..`-prefixed, before ever unlinking) — the
+equivalent guard had simply never been added to `handle_acquire()`'s FTP-token path. A full
+security read of `FtpDataServer.hpp` alongside this fix confirmed everything else in the FTP
+server itself (client-side RETR scope, token expiry/consumption, audit logging, password
+handling) was already sound; this was the one real gap.
+
+Reproduced end-to-end against the real compiled `registry_server` binary, not just read: added a
+pending entry outside `data_dir`, acquired it with `--ftp-enabled`, and confirmed the response
+minted a real token with `"ftp_path": "../outside/secret.txt"`. Used that exact token over a raw,
+hand-rolled FTP session (`USER`/`PASS`/`PASV`/`RETR`, deliberately issuing no `CWD` — matching
+`DataTransport.hpp`'s own documented real-client protocol usage, not a simplified `curl ftp://`
+client, which fails against this server's separate, unrelated `cmd_cwd` hardening and would have
+given a false negative) and successfully retrieved the out-of-tree file's contents, proving the
+vulnerability was genuinely exploitable via the actual production client protocol.
+
+Changes Made:
+- `src/RegistryServer.cpp`: `handle_acquire()` now checks containment (`fs::weakly_canonical` on
+  both the entry path and `data_dir`, then `lexically_relative` + reject-if-`..`-prefixed) *before*
+  claiming an entry for FTP delivery, factored into a shared `path_resolves_under()` helper. A
+  rejected entry is excluded from the response entirely and left unclaimed (`run_id` untouched)
+  rather than falling back to a raw `registry_path` — traced `RemoteTransport::acquire()`
+  (`RegistryTransport.cpp`) and `IncrementalTrainingTool.cpp`'s caller through to
+  `DataTransport::fetch_all()` and confirmed the FTP-vs-direct choice is made once per whole batch,
+  not per file, so a partial/malformed entry would otherwise take the whole batch down instead of
+  degrading gracefully. `handle_pending_add()` was deliberately left still *accepting* an
+  out-of-tree path with no rejection — rejecting outright would break legitimate non-FTP,
+  direct-filesystem-path deployments that never route through `FtpDataServer` at all — but now logs
+  a same-request warning via the same `path_resolves_under()` helper, giving an operator immediate
+  visibility into an add that `handle_acquire()` will later have to refuse for FTP purposes.
+- `src/FtpDataServer.hpp`: `ftp_detail::random_hex()` — used for the FTP username's random suffix
+  always, and for the password whenever `--ftp-secret` is left unconfigured (the default) — now
+  draws from OpenSSL's `RAND_bytes()` under `BUILD_FTPS` (already linked for HMAC/TLS, so no new
+  dependency) instead of `std::mt19937`, falling back to the `mt19937` path only when `BUILD_FTPS`
+  is off or in the practically-unreachable case where `RAND_bytes()` itself reports failure.
+- `tests/registry_ftp_confinement_test.cpp` (new) + `tests/CMakeLists.txt`: a permanent regression
+  test gated on `if(TARGET registry_server AND HTTPLIB_INCLUDE_DIR)`. Spawns the real compiled
+  `registry_server` binary via `fork()`/`execl()` (path baked in at build time via
+  `$<TARGET_FILE:registry_server>`) with a test-owned `--data-dir`/`--ftp-enabled`/`--ftp-port`,
+  polls `/health` for readiness, and asserts an out-of-tree pending entry never appears anywhere in
+  an `/acquire` response while a same-batch in-tree entry still receives a working FTP token, that
+  the rejected entry's `run_id` remains empty on a follow-up `/queue` check, and that
+  `pending/add` still accepts (rather than rejects) an out-of-tree path per the design above.
+
+Verification:
+- ✅ Reproduced the pre-fix vulnerability live against the real binary: out-of-tree entry minted a
+  working FTP token with a `../`-traversal `ftp_path`; retrieved via a raw FTP client with no `CWD`
+  (matching the real trainer client's protocol usage).
+- ✅ Rebuilt with the fix and reproduced the same scenario: the out-of-tree entry is excluded from
+  the response with a logged warning, a same-batch legitimate file still receives a working token,
+  and the rejected entry's `run_id` remains empty in a follow-up `/queue` check.
+- ✅ `RAND_bytes()` hardening proven genuinely invoked at runtime, not just linked: an `LD_PRELOAD`
+  shim intercepting `RAND_bytes` via `dlsym(RTLD_NEXT, ...)` logged one call per `random_hex()`
+  call when built with `BUILD_FTPS`; a build without `BUILD_FTPS` produced zero shim log lines and
+  still returned valid output via the `mt19937` fallback.
+- ✅ New `registryFtpConfinementTests` (3 tests) deliberately run against a temporarily-reverted
+  `handle_acquire()` (containment check replaced with an always-true stub) and confirmed the two
+  security-relevant assertions genuinely **fail** — proving the test would have caught this bug —
+  then confirmed all 3 **pass** again once the real fix was restored.
+- ✅ Full regression sweep on the restored fix: all 82 `DatasetRegistryLiveTests`, the 49
+  `RegistryTransport`/`RegistryTransportPhase9` tests, `FtpDataServerTests`, `DataTransportTests`,
+  `DataTransportFtpTests`, and the new `RegistryFtpConfinementTests` pass — plus the complete
+  79-suite project test suite (`ctest`), 100% passing, no regressions.
+- ✅ `python3 scripts/check_file_status.py`: 280 files checked, 0 problems (both modified files'
+  `@adai-version` bumped to `0.8.2`).
+
 ### TD-155: install_server_bundle.sh's config.conf Could Expose a PostgreSQL Password World-Readable
 
 | Resolution Date | Component | Resolved By |

@@ -1,5 +1,5 @@
-// @adai-status: beta        (TD-040 — security review done; the one real gap found (caller-side) is now fixed, see below)
-// @adai-version: 0.8.1
+// @adai-status: beta        (TD-040 fully resolved — see below)
+// @adai-version: 0.8.2
 // @adai-reviewed: 2026-09-11
 
 /**
@@ -34,10 +34,11 @@
  * 2026): a real minted token for such an entry successfully RETR'd a file
  * outside data_dir over a live FTP session. Fixed in handle_acquire() itself
  * (an entry that doesn't resolve under data_dir is now never claimed for FTP
- * delivery in the first place — this class needed no change) — see TD-040 in
- * TECHNICAL_DEBT.md for the full writeup. TD-040 remains open only for its
- * remaining hardening items (RAND_bytes() for random_hex(), a dedicated
- * RegistryServer unit test, defense-in-depth validation at pending/add time).
+ * delivery in the first place — this class needed no change). TD-040 is now fully resolved:
+ * random_hex() below is hardened to RAND_bytes(), RegistryServer.cpp's handle_pending_add() logs
+ * a defense-in-depth warning for an out-of-tree path, and tests/registry_ftp_confinement_test.cpp
+ * is a permanent regression test for the fix — see TECHNICAL_DEBT_RESOLVED.md for the full
+ * writeup.
  */
 
 #pragma once
@@ -179,12 +180,34 @@ class TokenStore {
 
 namespace ftp_detail {
 
+// TD-040 hardening: used for the FTP username's random suffix always, and for
+// the *password* whenever --ftp-secret is left unconfigured (the default —
+// see RegistryServer.cpp, ftp_server_secret starts empty). BUILD_FTPS already
+// links OpenSSL for HMAC/TLS, so RAND_bytes() (a real CSPRNG, seeded from the
+// OS entropy source) is available at no new dependency cost and is strictly
+// stronger than std::mt19937 for anything used as a credential. The mt19937
+// path remains as the only option when BUILD_FTPS is off (no OpenSSL linked
+// in that configuration) and as a defensive fallback for the practically
+// unreachable case where RAND_bytes() itself reports failure.
 inline std::string random_hex(std::size_t bytes) {
     static const char hex[] = "0123456789abcdef";
-    static thread_local std::mt19937 gen(std::random_device{}());
-    std::uniform_int_distribution<unsigned> dis(0, 255);
     std::string out;
     out.reserve(bytes * 2);
+#ifdef BUILD_FTPS
+    std::vector<unsigned char> buf(bytes);
+    if (RAND_bytes(buf.data(), static_cast<int>(bytes)) == 1) {
+        for (std::size_t i = 0; i < bytes; ++i) {
+            out += hex[buf[i] >> 4];
+            out += hex[buf[i] & 0xf];
+        }
+        return out;
+    }
+    // RAND_bytes() failed (extremely rare — an unseeded/exhausted entropy
+    // source) — fall through to the PRNG fallback below rather than return
+    // an empty/short token.
+#endif
+    static thread_local std::mt19937 gen(std::random_device{}());
+    std::uniform_int_distribution<unsigned> dis(0, 255);
     for (std::size_t i = 0; i < bytes; ++i) {
         unsigned v = dis(gen);
         out += hex[v >> 4];

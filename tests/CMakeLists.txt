@@ -624,6 +624,29 @@ if(TARGET adai_metrics_api)
     add_test(NAME DatasetRegistryLiveTests COMMAND datasetRegistryLiveTests)
 endif()
 
+# TD-040: permanent regression test for the FTP-token path-confinement fix.
+# Unlike datasetRegistryLiveTests above (connects to an externally-managed
+# instance, skips if unreachable), this spawns its own registry_server
+# subprocess with a --data-dir it fully controls, so it runs unattended in
+# any environment and can deliberately construct an out-of-tree pending
+# entry. Needs the actual registry_server executable (not just adai_core) —
+# gated on that target existing, independent of the adai_metrics_api block
+# above.
+if(TARGET registry_server AND HTTPLIB_INCLUDE_DIR)
+    add_executable(registryFtpConfinementTests registry_ftp_confinement_test.cpp)
+    target_include_directories(registryFtpConfinementTests PRIVATE
+        ${CMAKE_SOURCE_DIR}/src ${HTTPLIB_INCLUDE_DIR})
+    target_compile_definitions(registryFtpConfinementTests PRIVATE
+        REGISTRY_SERVER_BINARY_PATH="$<TARGET_FILE:registry_server>")
+    target_link_libraries(registryFtpConfinementTests
+        adai_core
+        pthread
+        GTest::gtest_main
+    )
+    add_dependencies(registryFtpConfinementTests registry_server)
+    add_test(NAME RegistryFtpConfinementTests COMMAND registryFtpConfinementTests)
+endif()
+
 # Model Name Service live-server integration tests.
 # Override target with: MNS_SERVER_HOST=<host> MNS_SERVER_PORT=<port>
 # Tests auto-skip when mns_server is unreachable.

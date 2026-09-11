@@ -1,12 +1,12 @@
-// @adai-status: beta        (capped by TD-035 — no dedicated unit test; TD-040's confirmed gap is fixed, see below)
-// @adai-version: 0.8.1
+// @adai-status: beta        (capped by TD-035; TD-040 fully resolved, see below)
+// @adai-version: 0.8.2
 // @adai-reviewed: 2026-09-11
 
-// TD-040's security review is done and its one confirmed gap — handle_acquire()'s FTP-token path
-// confinement — is now fixed (see the fix and its comment there). TD-040 itself stays open in
-// TECHNICAL_DEBT.md only for its remaining hardening/defense-in-depth sub-items (RAND_bytes() for
-// ftp_detail::random_hex(), optional validation at handle_pending_add() time, a dedicated
-// RegistryServer unit test).
+// TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
+// fix and its comment there), ftp_detail::random_hex() (FtpDataServer.hpp) is hardened to
+// RAND_bytes(), handle_pending_add() below logs a defense-in-depth warning for an out-of-tree
+// path, and tests/registry_ftp_confinement_test.cpp is a permanent regression test for the fix.
+// See TECHNICAL_DEBT_RESOLVED.md for the full writeup.
 
 /**
  * registry_server — Distributed dataset queue coordination daemon (TD-028 Phase 9)
@@ -332,6 +332,22 @@ static int count_jsonl_entries(const std::string& path) {
             ++count;
     }
     return count;
+}
+
+// TD-040: true iff `path` resolves under `root` — both sides canonicalized,
+// then reject if the relative path starts with "..". Same pattern
+// handle_delete() and handle_acquire() each already apply inline against
+// their own respective roots (data_dir/group and plain data_dir); factored
+// out here specifically for handle_pending_add()'s defense-in-depth warning
+// below, without touching either of those two already-verified call sites.
+static bool path_resolves_under(const std::string& path, const fs::path& root) {
+    try {
+        const auto canon = fs::weakly_canonical(path);
+        const auto rel = canon.lexically_relative(root);
+        return !rel.empty() && rel.native().compare(0, 2, "..") != 0;
+    } catch (...) {
+        return false;
+    }
 }
 
 // ============================================================================
@@ -1067,14 +1083,17 @@ static bool add_pending_path_locked(GroupState& gs, const std::string& path,
 }
 
 // POST /registry/<group>/pending/add  {"path":"..."}
-// TODO: See TECHNICAL_DEBT.md TD-040 - accepts any path with no validation that
-// it resolves under data_dir. Combined with handle_acquire()'s unguarded
-// lexically_relative() when minting FTP tokens (--ftp-enabled), an out-of-tree
-// path added here can result in a real FTP token that serves an arbitrary
-// local file. Considered defense-in-depth here (the primary fix belongs in
-// handle_acquire, per TD-040) rather than fixed inline, since rejecting a path
-// here would also block any legitimate use of this endpoint for files outside
-// data_dir in non-FTP (direct-filesystem-path) deployments.
+// TD-040: deliberately still accepts any path with no *rejection* for one
+// outside data_dir — handle_acquire() is now the actual enforcement point
+// (an out-of-tree entry is simply never claimed for FTP delivery, see its own
+// TD-040 comment), and rejecting here would also block legitimate use of this
+// endpoint for files outside data_dir in non-FTP (direct-filesystem-path)
+// deployments, which never routes through FtpDataServer at all. This does add
+// the defense-in-depth half of that decision: a same-request warning log so
+// an operator gets immediate visibility into an add that handle_acquire()
+// will later have to reject for FTP purposes, instead of only discovering it
+// from handle_acquire()'s own warning (or not at all, if FTP happens to be
+// disabled at add-time and enabled later).
 static void handle_pending_add(const httplib::Request& req, httplib::Response& res,
                                const std::string& group) {
     const std::string path = json_string(req.body, "path");
@@ -1082,6 +1101,14 @@ static void handle_pending_add(const httplib::Request& req, httplib::Response& r
         res.status = 400;
         res.set_content("{\"error\":\"path required\"}", "application/json");
         return;
+    }
+
+    if (!path_resolves_under(path, fs::path(data_dir))) {
+        Logger::warn(
+            "[{}] pending/add: '{}' does not resolve under data_dir — will be accepted for "
+            "direct-filesystem-path use, but handle_acquire() will refuse to mint an FTP token "
+            "for it if --ftp-enabled",
+            group, path);
     }
 
     auto& gs = get_group(group);
