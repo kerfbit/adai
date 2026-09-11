@@ -4,6 +4,35 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-136: test_signal_handling.sh's Graceful-Shutdown Wait Was 2s Despite Printing "5 seconds"
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/test_signal_handling.sh` | Changed `sleep 2` to `sleep 5` to match the printed message and the sibling script's pattern |
+
+Summary:
+Found immediately after TD-135, continuing this session's third-pass re-read of `scripts/`. The
+SIGTERM graceful-shutdown wait printed `"Waiting for graceful shutdown (5 seconds)..."` but the
+actual `sleep` right below it was `sleep 2` — a 3-second shortfall. The sibling script,
+`test_sigint.sh` (same structure, SIGINT instead of SIGTERM), prints `"...(3 seconds)..."` and
+correctly sleeps `3`, confirming `test_signal_handling.sh`'s `2` was the outlier, not the message.
+Consequence: a `chatbot_api_server` that takes 3–5 seconds to shut down gracefully (plausible for a
+multi-threaded HTTP server draining connections and joining threads) would still be running when
+this script's `kill -0 $SERVER_PID` check ran, triggering the false-positive `"WARNING: Server is
+still running after SIGTERM"` branch — which then sends `kill -9` and force-kills a server that was
+still in the middle of the very graceful shutdown this script exists to verify, potentially cutting
+off in-progress cleanup/log-flush work before it finished on its own.
+
+Changes Made:
+- `scripts/test_signal_handling.sh`: changed `sleep 2` to `sleep 5` immediately after the "Waiting
+  for graceful shutdown (5 seconds)..." message, so the wait matches what's printed (and what the
+  server is actually given to shut down).
+
+Verification:
+- ✅ `bash -n scripts/test_signal_handling.sh` — syntax valid.
+- ✅ Cross-checked against `test_sigint.sh`'s equivalent wait (`sleep 3` matching its own "...(3
+  seconds)..." message) to confirm `5` — not `2` — was the intended value here.
+
 ### TD-135: check_ports.sh's `ss` Path Never Actually Reported "No Service Listening"
 
 | Resolution Date | Component | Resolved By |

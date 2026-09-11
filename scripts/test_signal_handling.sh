@@ -61,7 +61,7 @@ kill -TERM $SERVER_PID
 
 # Wait for graceful shutdown
 echo "Waiting for graceful shutdown (5 seconds)..."
-sleep 2
+sleep 5
 
 # Check shutdown output
 echo ""
