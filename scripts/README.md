@@ -217,14 +217,6 @@ Runs clang-tidy static analysis on C++ source files. Generates `compile_commands
 ./scripts/analyze_code.sh src/Matrix.cpp src/Optimizer.cpp
 ```
 
-### apply_narrowing_fixes.py
-
-Reads a clang-tidy warnings file and automatically applies `static_cast` fixes for `cppcoreguidelines-narrowing-conversions` and related `bugprone` warnings.
-
-```bash
-python3 scripts/apply_narrowing_fixes.py <warnings_file>
-```
-
 ### fix_markdown_lint.py
 
 Finds and fixes common markdownlint violations across all `.md` files in the repository. Fixes MD009 (trailing whitespace), MD022 (blank lines around headings), MD029 (ordered list numbering), MD031 (blank lines around code blocks), MD032 (blank lines around lists), MD036 (emphasis as heading), MD040 (code block language), and MD060 (table formatting).
@@ -252,17 +244,6 @@ Scans source code for TODO, FIXME, HACK, and XXX markers and verifies they are t
 
 ```bash
 ./scripts/check_tech_debt.sh
-```
-
-### scan_todos.sh
-
-Scans `src/`, `tests/`, and `include/` (the last of which hasn't existed in this repo for a long
-time — see TD-046) for TODO comments and cross-references them against `TECHNICAL_DEBT.md`.
-Generates a timestamped report file. This script is an undocumented, superseded duplicate of
-`check_tech_debt.sh` — see TD-046 for the removal/reconciliation decision.
-
-```bash
-./scripts/scan_todos.sh
 ```
 
 ## Testing
@@ -302,14 +283,6 @@ Verifies the server handles SIGTERM gracefully for clean shutdown.
 
 ```bash
 ./scripts/test_signal_handling.sh
-```
-
-### test_sigint.sh
-
-Tests SIGINT (Ctrl+C) signal handling for graceful server shutdown.
-
-```bash
-./scripts/test_sigint.sh
 ```
 
 ### manual_test_reload.sh
@@ -352,14 +325,6 @@ Verifies parallel processing support in the chatbot GUI binary (checks OpenMP li
 ./scripts/verify_gui_parallel.sh
 ```
 
-### verify_special_token_fixes.py
-
-Runs tokenizer tests and API server tests to verify special token handling is correct after vocabulary fixes.
-
-```bash
-python3 scripts/verify_special_token_fixes.py
-```
-
 ### batch_api_client.py
 
 Example/test client demonstrating the batch processing API. Includes five examples: basic batch chat, batch sessions, performance comparison (single vs. batch), variable-length efficiency analysis, and a customer support simulation.
@@ -389,20 +354,6 @@ Builds the Docker image for the ADAI chatbot API server.
 ./scripts/docker_build.sh -t v1.0.0              # Specific tag
 ./scripts/docker_build.sh --no-cache             # Build without cache
 ./scripts/docker_build.sh --platform linux/amd64 # Specific platform
-```
-
-### docker_deploy.sh
-
-Manages Docker container lifecycle for the ADAI chatbot API server (start, stop, restart, logs, status, shell, clean).
-
-```bash
-./scripts/docker_deploy.sh start                 # Start with defaults
-./scripts/docker_deploy.sh start -p 9090         # Custom port
-./scripts/docker_deploy.sh stop                  # Stop container
-./scripts/docker_deploy.sh status                # Check status + health
-./scripts/docker_deploy.sh logs                  # Tail container logs
-./scripts/docker_deploy.sh shell                 # Open shell in container
-./scripts/docker_deploy.sh clean                 # Remove container and image
 ```
 
 ## Quick Start

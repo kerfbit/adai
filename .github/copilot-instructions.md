@@ -63,9 +63,9 @@ adai/
 ├── scripts/                  # Shell / Python helper scripts
 │   # Build helpers: build_and_vocab.sh, build_windows.sh, package_windows.sh
 │   # Run helpers:   run_chatbot.sh, run_chatbot_gui.sh, model_service.sh
-│   # Deployment:    docker_build.sh, docker_deploy.sh, install_*_service.sh
+│   # Deployment:    docker_build.sh, install_*_service.sh
 │   # Data helpers:  download_minipile.py, expand_training_data.py, …
-│   # Quality:       format_code.sh, check_tech_debt.sh, scan_todos.sh
+│   # Quality:       format_code.sh, check_tech_debt.sh
 │
 ├── src/                      # All production C++ source & headers
 │   ├── gpu/                  # Optional CUDA backend (MatrixGPU.cu/.hpp)

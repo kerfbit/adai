@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # @adai-status: beta        (capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.8.2
-# @adai-reviewed: 2026-09-10
+# @adai-version: 0.8.3
+# @adai-reviewed: 2026-09-11
 
 # Docker build script for ADAI Chatbot API Server
 
@@ -106,10 +106,12 @@ print_info "Build context: ${PROJECT_ROOT}"
 # assigned straight from "$2" — eval re-parses the whole concatenated string
 # as shell input, so e.g. `--tag 'x; rm -rf ~; #'` executed the injected
 # command with this script's own privileges (confirmed directly: a benign
-# `touch`-marker payload in the equivalent construction in docker_deploy.sh
-# actually ran). A bash array avoids `eval` entirely — each element is
-# passed to `docker` as one literal argument, never re-interpreted as shell
-# syntax, regardless of what characters it contains.
+# `touch`-marker payload in the equivalent construction in the
+# now-removed docker_deploy.sh — deleted under TD-046 as a superseded
+# duplicate of this docker-compose-based workflow — actually ran). A bash
+# array avoids `eval` entirely — each element is passed to `docker` as one
+# literal argument, never re-interpreted as shell syntax, regardless of
+# what characters it contains.
 BUILD_CMD=(docker build)
 
 if [ "$NO_CACHE" = true ]; then

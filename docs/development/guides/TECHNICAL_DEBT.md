@@ -32,20 +32,18 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [TD-037: No Qt Test Infrastructure for GUI Classes](#td-037-no-qt-test-infrastructure-for-gui-classes)
   - [TD-038: Advanced Features Tested in Isolation, Never Wired Into a Shipped Binary](#td-038-advanced-features-tested-in-isolation-never-wired-into-a-shipped-binary)
   - [TD-039: Core Training/Metrics Classes Too Large and Fast-Moving to Certify Stable](#td-039-core-trainingmetrics-classes-too-large-and-fast-moving-to-certify-stable)
-  - [TD-040: FtpDataServer's Auth Path Unreviewed; RegistryServer Untested in Isolation](#td-040-ftpdataservers-auth-path-unreviewed-registryserver-untested-in-isolation)
   - [TD-041: GPUUtils Has No Dedicated Test on Either Backend](#td-041-gpuutils-has-no-dedicated-test-on-either-backend)
   - [TD-042: PostgresMetricsDatabase Has Zero Test Coverage](#td-042-postgresmetricsdatabase-has-zero-test-coverage)
   - [TD-043: Deployment-Critical Scripts Have No Automated Test](#td-043-deployment-critical-scripts-have-no-automated-test)
   - [TD-044: Manual-QA Launcher Scripts Have No Automated Test](#td-044-manual-qa-launcher-scripts-have-no-automated-test)
   - [TD-045: Standalone Dev-Utility Scripts Have No Test or Integration](#td-045-standalone-dev-utility-scripts-have-no-test-or-integration)
-  - [TD-046: Orphaned/Superseded Scripts Should Be Removed or Reconciled](#td-046-orphanedsuperseded-scripts-should-be-removed-or-reconciled)
   - [TD-047: Android Data/Repository/API Layer Has No CI or Release History](#td-047-android-datarepositoryapi-layer-has-no-ci-or-release-history)
   - [TD-048: Android UI/DI/Entry-Point Classes Are Untested and Unreleased](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
   - [TD-049: No JS Test Framework for the Tizen TV App](#td-049-no-js-test-framework-for-the-tizen-tv-app)
   - [TD-051: IncrementalTrainer::load_conversation_pairs() Is an Unmigrated Duplicate](#td-051-incrementaltrainerload_conversation_pairs-is-an-unmigrated-duplicate)
   - [TD-052: ParallelDataLoader's Batches Use Character Codes, Not Real Tokens](#td-052-paralleldataloaders-batches-use-character-codes-not-real-tokens)
   - [TD-053: ChatbotCLI's /save and /load Commands Are Non-Functional Everywhere](#td-053-chatbotclis-save-and-load-commands-are-non-functional-everywhere)
-- [Resolved Items](#resolved-items) (130 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+- [Resolved Items](#resolved-items) (131 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -867,37 +865,6 @@ Files to Modify:
 
 ---
 
-### TD-046: Orphaned/Superseded Scripts Should Be Removed or Reconciled
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Scripts / Cleanup | September 7, 2026 | 2-3 hours |
-
-Description:
-6 scripts that aren't a testing gap at all — they're dead weight or duplicates, found during the
-per-file rollout: `scan_todos.sh` duplicates `check_tech_debt.sh` almost line-for-line and isn't
-documented anywhere; `test_sigint.sh` is a near-identical, less-complete twin of
-`test_signal_handling.sh`; `install_registry_server.sh` isn't called by
-`install_server_bundle.sh` (which now handles `registry_server` directly) and isn't documented;
-`docker_deploy.sh` isn't referenced by current docs (`docker.md` documents `docker_build.sh` +
-`docker-compose` instead); `apply_narrowing_fixes.py` and `verify_special_token_fixes.py` are
-explicitly one-off scripts tied to a specific already-completed past fix. This item is a decision
-to make (delete vs. keep for reference), not a fix to implement.
-
-Action Items:
-
-- [ ] Confirm each is genuinely superseded (spot-checked already during the rollout — see
-  [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md)) and delete, or explicitly document why
-  it's being kept.
-
-Files to Modify:
-
-- `scripts/apply_narrowing_fixes.py`, `scripts/docker_deploy.sh`,
-  `scripts/install_registry_server.sh`, `scripts/scan_todos.sh`, `scripts/test_sigint.sh`,
-  `scripts/verify_special_token_fixes.py`
-
----
-
 ### TD-047: Android Data/Repository/API Layer Has No CI or Release History
 
 | Priority | Status | Component | Created | Effort Estimate |
@@ -1093,7 +1060,7 @@ Files to Modify:
 
 ## Resolved Items
 
-130 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+131 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements

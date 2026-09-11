@@ -4,6 +4,84 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-046: Orphaned/Superseded Scripts Removed
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 11, 2026 | `scripts/` | Deleted 6 confirmed-superseded scripts and their references |
+
+Summary:
+6 scripts flagged during the per-file rollout as dead weight or duplicates, never a testing gap.
+This item was a decision to make (delete vs. keep for reference), not a fix to implement —
+independently re-verified each of the 6 original claims before acting on them rather than deleting
+on the strength of the original assessment alone:
+
+- **`scan_todos.sh`** vs. `check_tech_debt.sh`: read both in full. `check_tech_debt.sh` is the
+  documented, official scanner (`scripts/README.md`, `.github/copilot-instructions.md`) and covers
+  TODO/FIXME/HACK/XXX with a tracked-items summary; `scan_todos.sh` covers TODO only, scans a
+  directory (`include/`) that hasn't existed in this repo for a long time, and was itself already
+  tagged `undocumented duplicate of check_tech_debt.sh` during an earlier pass. Confirmed genuine
+  duplicate.
+- **`test_sigint.sh`** vs. `test_signal_handling.sh`: read both in full — they test different
+  signals (SIGINT vs. SIGTERM), not identical behavior, so this needed more than a text diff to
+  settle. Checked `ChatbotAPIServer.cpp`'s actual signal handler: `signal_handler(int signal)`
+  branches on `signal == SIGINT || signal == SIGTERM` as one combined case — the server treats both
+  signals identically, so the two near-identical scripts exercise the exact same code path and
+  `test_sigint.sh` adds no coverage `test_signal_handling.sh` doesn't already provide. Confirmed
+  genuine duplicate.
+- **`install_registry_server.sh`**: confirmed `install_server_bundle.sh` now creates the
+  `registry_server` systemd unit directly (`ExecStart=.../registry_server --port ... --data-dir
+  ...`); confirmed no script, doc, or CI workflow calls `install_registry_server.sh`; confirmed it
+  has no `scripts/README.md` entry (undocumented). Confirmed genuinely orphaned.
+- **`docker_deploy.sh`**: confirmed `docs/operations/deployment/docker.md` (the current, living
+  deployment guide) documents `docker_build.sh` + `docker-compose` for the entire container
+  lifecycle (build, up, down, logs, restart, scale) and never mentions `docker_deploy.sh` anywhere
+  in the file. Read `docker_deploy.sh` itself: it wraps a standalone `docker run`-based single
+  container lifecycle (`start`/`stop`/`restart`/`logs`/`status`/`shell`/`cleanup`), a different,
+  now-superseded approach from the documented docker-compose workflow. The one remaining reference
+  (`docs/development/reference/chatbot-completeness.md`) already carries an explicit "stale as of
+  2026-09-07 ... kept for historical context only" banner, so it was left untouched. Confirmed
+  genuinely superseded.
+- **`apply_narrowing_fixes.py`**: read in full — a codemod that parses one specific clang-tidy
+  warnings-file format and rewrites `static_cast`s for a since-completed cleanup pass; no repeatable
+  workflow or doc ties it to ongoing use. Confirmed one-off.
+- **`verify_special_token_fixes.py`**: read in full — hardcodes `/home/rodney/Repos/adai` absolute
+  paths (never brought in line with TD-118's hardcoded-path fixes to the other test scripts, itself
+  evidence it's dead rather than maintained) and asserts the presence of specific already-landed
+  code strings (e.g. `gen_config.bos_token_id = 2`) tied to one historical bug. Confirmed one-off.
+
+None of the 6 were referenced by any CI workflow, `Makefile`, or other script.
+
+Changes Made:
+- Deleted `scripts/apply_narrowing_fixes.py`, `scripts/docker_deploy.sh`,
+  `scripts/install_registry_server.sh`, `scripts/scan_todos.sh`, `scripts/test_sigint.sh`,
+  `scripts/verify_special_token_fixes.py`.
+- `scripts/README.md`: removed the dedicated section (and its usage example) for each of the 5
+  deleted scripts that had one (`install_registry_server.sh` had none — already undocumented).
+- `.github/copilot-instructions.md`: removed `scan_todos.sh` and `docker_deploy.sh` from the
+  scripts-directory summary comment.
+- `scripts/docker_build.sh`: its TD-151 comment referenced a benign PoC payload that "actually ran"
+  in `docker_deploy.sh`'s equivalent (now-fixed) `eval` construction, as evidence for why this
+  script's own array-based fix was needed — reworded to note the file has since been removed under
+  TD-046, so the comment doesn't dangle-reference a file that no longer exists. `@adai-version`
+  bumped 0.8.2 → 0.8.3.
+- Left untouched, deliberately: every mention of these scripts in `docs/development/archive/*.md`
+  and the already-self-flagged-stale `chatbot-completeness.md` — those are historical records of
+  what was true at the time, not living documentation that needs to track current script inventory.
+- `docs/development/PRODUCTION_READINESS.md`: regenerated via `scripts/gen_status_report.py` (the 6
+  deleted files' rows drop out automatically).
+
+Verification:
+- ✅ Re-verified each of the 6 original claims independently (see Summary above) rather than
+  deleting on the strength of the original assessment alone — in particular, confirmed
+  `test_sigint.sh`/`test_signal_handling.sh` are genuinely redundant by reading the actual server
+  signal-handling code, not just diffing the two scripts.
+- ✅ `grep -rl` for each of the 6 filenames across `.github/workflows/`, all `*.sh`/`*.py`/`*.md`/
+  `*.yml` in the repo (excluding historical `docs/development/archive/`): confirmed zero remaining
+  references outside the archive after the README/copilot-instructions edits.
+- ✅ `scripts/README.md` re-grepped for all 6 filenames after editing: zero matches.
+- ✅ `python3 scripts/check_file_status.py`: passes (deleted files' tags simply no longer counted).
+
 ### TD-040: FtpDataServer Path-Confinement Gap in Token Issuance; RegistryServer Untested in Isolation
 
 | Resolution Date | Component | Resolved By |
