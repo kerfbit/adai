@@ -55,7 +55,11 @@ else
         2>/dev/null)
 fi
 
-FILE_COUNT=$(echo "$FILES_TO_CHECK" | wc -l)
+# wc -w (not -l): when files come from "$@" (explicit args), FILES_TO_CHECK
+# is one space-separated line, so -l always reported 1 file regardless of how
+# many were actually passed. -w counts correctly for both that case and the
+# find-populated (one path per line) case below.
+FILE_COUNT=$(echo "$FILES_TO_CHECK" | wc -w)
 echo "   Found $FILE_COUNT files to analyze"
 echo ""
 
@@ -72,7 +76,13 @@ for file in $FILES_TO_CHECK; do
     
     if clang-tidy -p "$BUILD_DIR" "$file" 2>&1 | grep -q "warning:"; then
         clang-tidy -p "$BUILD_DIR" "$file" 2>&1
-        ((ISSUES_FOUND++))
+        # `set -e` is active in this script: `((ISSUES_FOUND++))` is a
+        # post-increment, so its exit status is the PRE-increment value —
+        # 0 the very first time a file with issues is found — and `set -e`
+        # treats that as a failure, killing the whole script right there,
+        # before any later file is ever analyzed or the summary is printed.
+        # Plain arithmetic assignment has no such exit-status trap.
+        ISSUES_FOUND=$((ISSUES_FOUND + 1))
     else
         echo "✅ No issues found"
     fi

@@ -4,6 +4,55 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-137: analyze_code.sh Silently Died After the First File With Warnings, Never Printed a Summary
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/analyze_code.sh` | Replaced `((ISSUES_FOUND++))` with a plain arithmetic assignment; fixed the "files found" count to use `wc -w` instead of `wc -l` |
+
+Summary:
+Found during this session's third-pass re-read of `scripts/`. Two bugs, one severe:
+
+1. **Silent early exit under `set -e` — the severe one.** This script has `set -e` at the top. Its
+   per-file loop counted files with clang-tidy warnings via `((ISSUES_FOUND++))` — a post-increment
+   whose exit status is the *pre*-increment value: `0` the very first time a warning-carrying file
+   was found. `set -e` treats any nonzero-exit-status command outside a condition position as fatal,
+   so the script terminated immediately at that line — before analyzing any subsequent file and
+   before ever printing the "📊 Analysis Summary" section. Reproduced directly against a copy of the
+   real (pre-fix) script with a fake `clang-tidy` flagging one of three files: the run stopped dead
+   right after printing that one file's warning, exit code 1, files after it in the list (and the
+   whole summary) never ran/printed. The exact same `((count++))`-while-starting-at-0 pattern exists
+   in the sibling `format_code.sh`, but that script has no `set -e`, so it doesn't trigger this;
+   verified by grepping both files for `set -e`.
+2. **"Found N files to analyze" undercounted when files were passed as explicit arguments.** When
+   invoked as `analyze_code.sh file1.cpp file2.cpp file3.cpp`, `FILES_TO_CHECK="$@"` is one
+   space-separated string, and `FILE_COUNT=$(echo "$FILES_TO_CHECK" | wc -l)` counts *newlines*, so
+   it always reported `1` file regardless of how many were actually passed (the default,
+   `find`-populated path — one path per line — was unaffected). The analysis loop itself
+   (`for file in $FILES_TO_CHECK`, unquoted word-splitting) still iterated every file correctly
+   regardless, so this was cosmetic-only: a wrong count in the printed banner and final summary.
+
+Changes Made:
+- `scripts/analyze_code.sh`: replaced `((ISSUES_FOUND++))` with `ISSUES_FOUND=$((ISSUES_FOUND + 1))`
+  — a plain assignment has no increment-dependent exit status, so it's safe under `set -e`.
+- Changed `FILE_COUNT=$(echo "$FILES_TO_CHECK" | wc -l)` to `wc -w`, which counts correctly whether
+  `FILES_TO_CHECK` is space-separated (explicit args) or newline-separated (the `find` default).
+
+Verification:
+- ✅ Standalone bash repro isolating just the `set -e` + `((count++))` pattern: **before**, the loop
+  died silently (exit 1) the instant the counter first incremented from 0; **after** (plain
+  assignment), the loop ran to completion and printed the final count.
+- ✅ Ran a full copy of the real script (`scripts/analyze_code.sh`, unmodified) against a 3-file
+  fixture with a fake `clang-tidy` that flags the middle file: **before** the fix, output stopped
+  after `src/B.cpp`'s warning, exit code 1, `src/C.cpp` and the summary never appeared; **after**,
+  all three files were analyzed, the summary printed "Files analyzed: 3 / Files with issues: 1",
+  exit code 0.
+- ✅ Same fixture confirmed the file-count fix: "Found 3 files to analyze" (was "Found 1") when
+  invoked with three explicit file arguments; the default `find`-based invocation (no arguments)
+  against a separate 2-file fixture still correctly reported "Found 2 files to analyze" — unaffected
+  by the `wc -w` change, since it was already newline-separated single-path-per-line output.
+- ✅ `bash -n scripts/analyze_code.sh` — syntax valid.
+
 ### TD-136: test_signal_handling.sh's Graceful-Shutdown Wait Was 2s Despite Printing "5 seconds"
 
 | Resolution Date | Component | Resolved By |
