@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # @adai-status: beta        (capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.8.3
+# @adai-version: 0.8.4
 # @adai-reviewed: 2026-09-10
 
 # ADAI Server Bundle - Installation Script
@@ -690,7 +690,19 @@ METRICS_DB_URL=${DB_URL}
 METRICS_DB_POOL_SIZE=${DB_POOL_SIZE}
 EOF
     fi
-    chmod 644 "${CONF_DIR}/config.conf"
+    # TD-155: was 644 (world-readable). Unlike install_chatbot_API.sh's
+    # config.conf (verified to hold nothing sensitive — port, model
+    # architecture, generation params only), this one can carry
+    # METRICS_DB_URL, which is exactly a `postgresql://user:PASSWORD@host/db`
+    # connection string whenever --db-url is supplied for a non-local
+    # (password-authenticated, not Unix-socket-peer-authenticated) PostgreSQL
+    # server. install_incremental_trainer.sh's config.conf — the one other
+    # script in this family whose config file has the same "may embed a real
+    # credential" shape — already correctly uses 640; this file just never
+    # got the same treatment. 640 (owner rw, group r, no world access) still
+    # lets the adai group (and the service, which runs as SERVICE_USER) read
+    # it.
+    chmod 640 "${CONF_DIR}/config.conf"
     success "Wrote ${CONF_DIR}/config.conf"
 
     # Step: PostgreSQL setup (conditional)

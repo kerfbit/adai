@@ -4,6 +4,25 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-155: install_server_bundle.sh's config.conf Could Expose a PostgreSQL Password World-Readable
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 11, 2026 | `scripts/install_server_bundle.sh` | Changed `config.conf`'s permissions from `644` to `640` |
+
+Summary:
+Found on a fifth-pass re-read of `scripts/`, this time specifically comparing `chmod` permissions across every install script for files that can hold credentials. `install_server_bundle.sh` writes `METRICS_DB_URL=${DB_URL}` into `config.conf` whenever the storage backend includes postgres — and `DB_URL` is exactly a `postgresql://user:PASSWORD@host/db` connection string whenever `--db-url` is supplied for a non-local PostgreSQL server (the auto-derived default, `postgresql://user@localhost/db` via `--setup-postgres`, has no password since local peer auth doesn't need one — but a real remote deployment, the whole point of a distributed server bundle, would need password auth and therefore a real embedded credential). This file was written with `chmod 644` — world-readable — while the sibling `install_incremental_trainer.sh`, whose `config.conf` has the exact same "may embed a real credential" shape, already correctly uses `640`. `install_chatbot_API.sh`'s `config.conf` also uses `644`, but was checked directly and confirmed to hold nothing sensitive at all (port, model architecture, generation parameters only) — its permission is correctly matched to its actual content; `install_server_bundle.sh`'s was not.
+
+Reproduced directly: wrote a file with the exact `METRICS_DB_URL=postgresql://adai:MyRealPassword123@remote-db.example.com:5432/adai` line install_server_bundle.sh's own heredoc produces, `chmod 644`'d it (matching the pre-fix line), and confirmed via `ls -la`/`cat` that the permission bits (`-rw-r--r--`) and content are both readable by any local account, not just the owning `adai` user/group.
+
+Changes Made:
+- `scripts/install_server_bundle.sh`: changed `chmod 644 "${CONF_DIR}/config.conf"` to `chmod 640`, matching `install_incremental_trainer.sh`'s already-correct handling of the same risk. `640` (owner rw, group r, no world access) still lets the `adai` group — and the service itself, which runs as `SERVICE_USER` — read it; the subsequent `chown -R "${SERVICE_USER}:${SERVICE_GROUP}"` step (unchanged) still applies afterward.
+
+Verification:
+- ✅ Reproduced the pre-fix permission (`644`) with the exact credential-bearing content this script's own heredoc produces, confirmed world-readable via `ls -la`.
+- ✅ Reproduced the post-fix permission (`640`) with the same content, confirmed via `stat -c "%a %A"`: `-rw-r-----`, no world access.
+- ✅ `bash -n` syntax check on the real, fully-patched file: passed.
+
 ### TD-154: install_oneapi_libs.sh Could rm -rf Any Top-Level Directory via an --install-path Typo
 
 | Resolution Date | Component | Resolved By |
