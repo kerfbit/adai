@@ -808,11 +808,29 @@ REMOTE_MKDIR
     info "[3/${step_total}] Setting remote binary permissions..."
     local extra_bin=""
     [[ "${WITH_REGISTRY_SERVER}" == true ]] && extra_bin="${remote_bin}/registry_server"
+    # Plain `--remote host` (no --with-registry-server) leaves extra_bin empty,
+    # so $2 on the remote side is an empty positional arg. This heredoc runs
+    # under a bare `bash -s` with no `set -e` of its own, so nothing here
+    # aborts on a failed chmod — but bash still exits with the *last executed
+    # command's* status, and `[[ -n "$2" ]] && chmod 755 "$2"` used to BE that
+    # last command: with $2 empty, the test is false, the chmod short-circuits
+    # away, and the bare list's exit status is the test's own failing 1 — even
+    # though nothing actually went wrong. That 1 becomes bash -s's exit
+    # status, then ssh's, and since this ssh call sits at the top level of the
+    # parent script (which runs under `set -euo pipefail`), it silently killed
+    # the whole install right after printing "[3/6] Setting remote binary
+    # permissions..." — no error message, and the true "chmod 755 $1"
+    # succeeded moments earlier. Reproduced with a plain `--remote host`
+    # install (no --with-registry-server). An `if` statement's own exit
+    # status is 0 when its condition is false and there's no else, which
+    # sidesteps the trap entirely.
     ssh "${SSH_ARGS[@]}" "${REMOTE_HOST}" bash -s -- \
         "${remote_bin}/incremental_trainer" \
         "${extra_bin}" <<'REMOTE_CHMOD'
 chmod 755 "$1"
-[[ -n "$2" ]] && chmod 755 "$2"
+if [[ -n "$2" ]]; then
+    chmod 755 "$2"
+fi
 REMOTE_CHMOD
     success "Remote permissions set"
 

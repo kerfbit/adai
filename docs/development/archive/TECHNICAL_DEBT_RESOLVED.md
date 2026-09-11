@@ -4,6 +4,54 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-142: install_incremental_trainer.sh's Remote Chmod Step Died on the Common `--remote`-Only Case
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/install_incremental_trainer.sh` | Replaced a bare `[[ -n "$2" ]] && chmod 755 "$2"` with an `if` block in `remote_install()`'s chmod heredoc |
+
+Summary:
+Found during this session's third-pass re-read of `scripts/`. `remote_install()`'s step 3 sets remote
+binary permissions via `ssh ... bash -s -- "$bin" "$extra_bin" <<'REMOTE_CHMOD' ... REMOTE_CHMOD`, where
+`extra_bin` is only populated when `--with-registry-server` is passed — otherwise it's left as an empty
+string, becoming an empty `$2` inside the remote heredoc. The heredoc itself has no `set -e` of its own,
+but its last statement was `chmod 755 "$1"` followed by `[[ -n "$2" ]] && chmod 755 "$2"` — with `$2`
+empty, that test is false, the `chmod` short-circuits away, and the exit status of that (now the *last*
+executed) statement is the test's own failing `1`, even though nothing actually went wrong. A bare
+`bash -s` script's exit status is whatever its last executed command returned, so this `1` became `bash
+-s`'s exit status, then `ssh`'s. Since this `ssh` call sits at the top level of `remote_install()` — not
+inside an `if`/`&&` in the *parent* script — and the parent script runs under `set -euo pipefail`, that
+`1` killed the whole install immediately, silently, with no error message, right after printing "[3/6]
+Setting remote binary permissions..." — even though the real `chmod 755 "$1"` on `incremental_trainer`
+had already succeeded moments earlier. This hits the plain, most-basic documented usage from the
+script's own `--help` text (`sudo $0 --remote user@192.168.1.7`, no `--with-registry-server`) — i.e. the
+common case, not an edge case.
+
+Reproduced directly:
+- A standalone harness mirroring the exact heredoc body (`chmod 755 "$1"` then `[[ -n "$2" ]] && chmod
+  755 "$2"`) invoked via `bash -s -- "fakebin" ""` (empty second arg, matching plain `--remote` with no
+  `--with-registry-server`): confirmed `bash -s`'s own exit status was `1` despite the first `chmod`
+  succeeding.
+- A standalone harness reproducing the full surrounding context — an outer script under `set -euo
+  pipefail` calling that same `bash -s -- ...` heredoc, exactly as `remote_install()` does via `ssh`:
+  confirmed the outer script died with exit status `1` immediately after printing "[3/6] Setting remote
+  binary permissions...", never reaching the "Remote permissions set" success line — reproducing the
+  exact silent-death symptom.
+
+Changes Made:
+- `scripts/install_incremental_trainer.sh`: the remote chmod heredoc's second line changed from
+  `[[ -n "$2" ]] && chmod 755 "$2"` to an `if [[ -n "$2" ]]; then chmod 755 "$2"; fi` block. An `if`
+  statement's own exit status is `0` when its condition is false and there's no `else`, sidestepping the
+  trap entirely regardless of whether `$2` is empty or not.
+
+Verification:
+- ✅ Reverted to the original bare `&&` form in the same standalone outer-script harness: reproduced the
+  predicted symptom exactly — dies with exit status `1` right after "[3/6] Setting remote binary
+  permissions...", "Remote permissions set" never printed.
+- ✅ Restored the `if`-block fix in the same harness: ran to completion, "Remote permissions set" printed,
+  exit status `0`.
+- ✅ `bash -n` syntax check on the real, fully-patched file: passed.
+
 ### TD-141: model_service.sh's Start/Stop Polling Loops Silently Died on Their First Iteration
 
 | Resolution Date | Component | Resolved By |
