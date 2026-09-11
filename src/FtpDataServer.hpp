@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-040 — security review done; one real path-confinement gap found in the caller, RegistryServer.cpp's handle_acquire())
 // @adai-version: 0.8.0
-// @adai-reviewed: 2026-09-09
+// @adai-reviewed: 2026-09-10
 
 /**
  * FtpDataServer — embedded read-only FTP server for dataset delivery.
