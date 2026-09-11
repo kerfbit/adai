@@ -4,6 +4,32 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-149: install_server_bundle.sh's --pg-db-name/--pg-db-user Allowed SQL and Conninfo Injection
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 11, 2026 | `scripts/install_server_bundle.sh` | Applied the existing `validate_identifier()` allowlist to `--pg-db-name`/`--pg-db-user`, matching `--user`/`--group` |
+
+Summary:
+Found during a fourth-pass re-read of `scripts/`, prompted specifically to look for injection/quoting issues rather than re-tread the `set -e` trap family already fully swept in the third pass. `--pg-db-name` and `--pg-db-user` were the only two identifier-shaped flags in this script's argument parser with **no validation at all** — every sibling flag (`--user`, `--group`, ports, paths) is validated, but these two flowed straight into `setup_postgres()`'s PostgreSQL calls unchecked. Two independent, separately-verified injection classes:
+
+1. **Raw SQL string interpolation**: `pg_role_exists()`/`pg_db_exists()`/`setup_postgres()` all build SQL via `psql -c "CREATE ROLE ${PG_DB_USER} LOGIN;"` and `WHERE rolname = '${1}'`-style string concatenation. A `--pg-db-user` value like `x; CREATE ROLE evil LOGIN SUPERUSER; --` gets executed as two statements, not one.
+2. **libpq conninfo-string parsing**: every `psql -d "${PG_DB_NAME}"` call is subject to libpq's documented behavior that a value containing `=` is parsed as a full `key=value ...` connection string, not a literal database name — meaning `host=`, `user=`, `sslmode=`, etc. are all reachable through what looks like a plain `--pg-db-name` argument.
+
+Both were confirmed against a real, throwaway local PostgreSQL 16 instance (`initdb`/`pg_ctl` under a non-root user, no system-wide postgres access needed) rather than assumed from documentation.
+
+Reproduced directly:
+- `psql -d postgres -c "CREATE ROLE attacker_role; CREATE ROLE totally_unrelated_superuser LOGIN SUPERUSER; --  LOGIN;"` (the exact string `setup_postgres()` builds when given that `--pg-db-user` value): `\du` afterward showed **both** roles created, the second with real `Superuser` attributes — full privilege escalation from an ordinary installer flag.
+- `psql -d "dbname=postgres application_name=INJECTED_VIA_DB_NAME"` (the exact call shape used for `--pg-db-name`): `SELECT ... application_name FROM pg_stat_activity` confirmed the connection actually carried the injected `application_name`, proving the whole string was parsed as connection parameters rather than a database name — the same mechanism that would let `host=` redirect the connection to an attacker-controlled server for the `-f "${SETUP_SQL}"` schema-apply step.
+
+Changes Made:
+- `scripts/install_server_bundle.sh`: added `validate_identifier "--pg-db-name" "$2"` and `validate_identifier "--pg-db-user" "$2"` to the argument parser, reusing the same `^[a-zA-Z0-9._-]+$` allowlist already applied to `--user`/`--group` — it forbids every character either exploit needs (`;`, `=`, spaces, quotes), closing both classes at the single point these values enter the script rather than patching each downstream `psql`/`createdb` call individually. `DB_URL`/`DB_PATH` were deliberately left out of scope: they only ever land in config files consumed later by the compiled server binary, the same trust boundary as the already-root operator running this installer, not the shell-level `psql -c`/`-d` contexts these two identifiers pass through.
+
+Verification:
+- ✅ Re-ran both exact malicious payloads through the actual `validate_identifier()` logic: both correctly rejected ("invalid chars").
+- ✅ Confirmed ordinary legitimate values (`adai`, `adai_prod`) still pass.
+- ✅ `bash -n` syntax check on the real, fully-patched file: passed.
+
 ### TD-148: ModelPickerDropdown's Doc Comment Falsely Claimed Empty model_name Clears an /assign
 
 | Resolution Date | Component | Resolved By |

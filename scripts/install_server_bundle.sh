@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # @adai-status: beta        (capped by TD-043 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.8.2
+# @adai-version: 0.8.3
 # @adai-reviewed: 2026-09-10
 
 # ADAI Server Bundle - Installation Script
@@ -279,9 +279,31 @@ while [[ $# -gt 0 ]]; do
         --db-pool-size)
             DB_POOL_SIZE="$2"; shift 2 ;;
         --setup-postgres) SETUP_POSTGRES=true; shift ;;
+        # TD-149: PG_DB_NAME/PG_DB_USER used to reach setup_postgres()'s psql/createdb
+        # calls completely unvalidated, unlike every other identifier-shaped flag here
+        # (--user/--group). Two distinct, separately-verified injection classes:
+        #   (1) pg_role_exists()/pg_db_exists()/setup_postgres()'s
+        #       `psql -c "CREATE ROLE ${PG_DB_USER} LOGIN;"` interpolates the value
+        #       directly into a raw SQL string — confirmed against a real local
+        #       PostgreSQL instance that `--pg-db-user 'x; CREATE ROLE evil LOGIN
+        #       SUPERUSER; --'` creates an attacker-named superuser role.
+        #   (2) every `psql -d "${PG_DB_NAME}"` call is vulnerable to libpq's own
+        #       conninfo-string parsing: if the value contains "=", libpq treats the
+        #       WHOLE string as `key=value ...` connection parameters instead of a
+        #       literal database name — confirmed that `--pg-db-name 'dbname=postgres
+        #       application_name=INJECTED'` actually connects with the injected
+        #       application_name, meaning host=/user=/sslmode=/etc. are equally
+        #       reachable this way (e.g. redirecting the connection to a
+        #       different/remote server entirely).
+        # validate_identifier's existing `[a-zA-Z0-9._-]+` allowlist forbids every
+        # character either exploit needs (;, =, spaces, quotes), so reusing it here
+        # closes both at the single point where these values enter the script,
+        # rather than patching each downstream psql/createdb call individually.
         --pg-db-name)
+            validate_identifier "--pg-db-name" "$2"
             PG_DB_NAME="$2"; shift 2 ;;
         --pg-db-user)
+            validate_identifier "--pg-db-user" "$2"
             PG_DB_USER="$2"; shift 2 ;;
         --wipe-data) WIPE_DATA=true; shift ;;
         --yes)  YES=true; shift ;;
