@@ -67,30 +67,43 @@ echo "Qt5 Dependencies:"
 ldd "$GUI_BINARY" | grep -i qt5 | head -5
 
 # Check for required symbols
+#
+# Unlike the existence/permissions/size/ELF checks above (which exit 1
+# immediately on failure), these four never fed into the final verdict —
+# printing "❌ ... not found" here previously had no effect on anything;
+# the script went on to unconditionally print "Build Verification: SUCCESS"
+# and exit 0 regardless of how many of these actually failed. Track them in
+# SYMBOL_CHECK_FAILED so a genuinely broken/stripped binary is reported as
+# a failure instead of a false "SUCCESS".
 echo ""
 echo "Checking for required components..."
+SYMBOL_CHECK_FAILED=false
 if nm "$GUI_BINARY" | grep -q "ChatbotGUI"; then
     echo "✅ ChatbotGUI class found"
 else
     echo "❌ ChatbotGUI class not found"
+    SYMBOL_CHECK_FAILED=true
 fi
 
 if nm "$GUI_BINARY" | grep -q "BPETokenizer"; then
     echo "✅ BPETokenizer integration found"
 else
     echo "❌ BPETokenizer integration not found"
+    SYMBOL_CHECK_FAILED=true
 fi
 
 if nm "$GUI_BINARY" | grep -q "EncoderDecoderModel"; then
     echo "✅ EncoderDecoderModel integration found"
 else
     echo "❌ EncoderDecoderModel integration not found"
+    SYMBOL_CHECK_FAILED=true
 fi
 
 if nm "$GUI_BINARY" | grep -q "ConversationContext"; then
     echo "✅ ConversationContext integration found"
 else
     echo "❌ ConversationContext integration not found"
+    SYMBOL_CHECK_FAILED=true
 fi
 
 # Check required files
@@ -111,6 +124,15 @@ fi
 
 echo ""
 echo "========================================"
+if [ "$SYMBOL_CHECK_FAILED" = true ]; then
+    echo "Build Verification: FAILED ❌"
+    echo "========================================"
+    echo ""
+    echo "One or more required components were not found in $GUI_BINARY."
+    echo "See the ❌ lines above."
+    echo ""
+    exit 1
+fi
 echo "Build Verification: SUCCESS ✅"
 echo "========================================"
 echo ""

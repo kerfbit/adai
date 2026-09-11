@@ -4,6 +4,39 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-138: test_chatbot_gui.sh Reported "SUCCESS" Even When Every Required Symbol Check Failed
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `scripts/test_chatbot_gui.sh` | Track symbol-check failures in `SYMBOL_CHECK_FAILED` and report/exit accordingly instead of an unconditional final "SUCCESS" |
+
+Summary:
+Found during this session's third-pass re-read of `scripts/`. The four `nm`-based component checks
+(`ChatbotGUI`, `BPETokenizer`, `EncoderDecoderModel`, `ConversationContext` symbols in
+`chatbot_gui_binary`) each printed `✅`/`❌` but never recorded the result anywhere — unlike the
+existence/permissions/size/ELF checks earlier in the same script, which `exit 1` immediately on
+failure. The script always fell through to an unconditional `echo "Build Verification: SUCCESS ✅"`
+and `exit 0` regardless of how many symbol checks had actually failed. Reproduced with a copy of the
+real script and a fake `nm` that matches nothing: all four checks printed `❌ ... not found`, and the
+script still finished with `Build Verification: SUCCESS ✅` and exit code 0 — so a genuinely
+broken/stripped/wrong `chatbot_gui_binary` (missing the very classes this test exists to confirm are
+linked in) would be reported as a passing build.
+
+Changes Made:
+- `scripts/test_chatbot_gui.sh`: added a `SYMBOL_CHECK_FAILED` flag, set to `true` alongside each of
+  the four `❌ ... not found` branches. The final section now checks it: prints
+  `Build Verification: FAILED ❌` and `exit 1` if any symbol check failed, otherwise the original
+  `SUCCESS` path and `exit 0` unchanged.
+
+Verification:
+- ✅ Copy of the real script run with a fake `nm` matching zero symbols: **before** the fix, printed
+  four `❌` lines but still ended with "SUCCESS ✅", real exit code 0; **after**, ends with
+  "FAILED ❌", real exit code 1 (verified via `$?` on the script's own exit, not a piped `tail`'s,
+  after the first check mistakenly reported the wrong exit code from the pipeline).
+- ✅ Same harness with a fake `nm` matching all four required symbols: still correctly reports
+  "SUCCESS ✅" and exit code 0 — the fix doesn't introduce a false failure on a genuinely good build.
+- ✅ `bash -n scripts/test_chatbot_gui.sh` — syntax valid.
+
 ### TD-137: analyze_code.sh Silently Died After the First File With Warnings, Never Printed a Summary
 
 | Resolution Date | Component | Resolved By |
