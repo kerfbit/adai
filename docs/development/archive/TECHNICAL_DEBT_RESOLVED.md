@@ -4,6 +4,28 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-152: Both Android Apps' Cloudflare Access Secrets Were Backed Up in Plain Text
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 11, 2026 | `android/app`, `android/opsdashboard` manifests + new `res/xml/data_extraction_rules.xml`/`backup_rules.xml` | Excluded the Preferences DataStore file holding the secrets from Android's Auto Backup |
+
+Summary:
+Found during a fourth-pass re-read of `android/`, checking manifest-level security configuration (exported components, network security config, TrustManager overrides) — an angle not specifically targeted in the third pass. Both `SettingsDataStore.kt` (chatbot app) and `OpsSettingsDataStore.kt` (opsdashboard) store a Cloudflare Access Client Secret (`accessClientSecret`, plus `trainerAccessClientSecret` in opsdashboard — the one gating the trainer admin API that can pause/resume/checkpoint a live training run) as a plain `stringPreferencesKey`, mixed into the same Preferences DataStore file as ordinary, non-sensitive settings (host, port, poll interval). Both manifests declare `android:allowBackup="true"` with no `dataExtractionRules`/`fullBackupContent` to scope it — meaning Android's Auto Backup (cloud backup, or a local `adb backup`) would include that DataStore file, secrets included, verbatim. A lost, stolen, or reset device's backup — or anyone with `adb` access before a factory reset — could recover the Cloudflare Access secret and use it to authenticate through the kerfbit.dev tunnel.
+
+Verified the exact file to exclude by decompiling the actual pinned `androidx.datastore` library (not assumed from memory): `PreferenceDataStoreFile.preferencesDataStoreFile(context, name)` builds `"<name>.preferences_pb"`, and `DataStoreFile.dataStoreFile(context, fileName)` resolves that to `context.filesDir/datastore/<fileName>` — confirmed via direct bytecode inspection (`javap -c`) of both classes from this project's own Gradle dependency cache. Combined with each app's actual `preferencesDataStore(name = "settings")` / `preferencesDataStore(name = "ops_settings")` call site, this gives the exact real paths: `files/datastore/settings.preferences_pb` (chatbot app) and `files/datastore/ops_settings.preferences_pb` (opsdashboard).
+
+Changes Made:
+- `android/app/src/main/res/xml/data_extraction_rules.xml` (new, API 31+ mechanism) and `backup_rules.xml` (new, legacy mechanism — `app`'s `minSdk` is 26, below `dataExtractionRules`' effective floor of 31): both exclude `datastore/settings.preferences_pb` from cloud backup and device-to-device transfer.
+- `android/opsdashboard/src/main/res/xml/data_extraction_rules.xml` (new): excludes `datastore/ops_settings.preferences_pb`. No legacy `fullBackupContent` needed — `opsdashboard`'s `minSdk` is already 33, above the point where any device could run an older backup mechanism.
+- Both `AndroidManifest.xml` files: added `android:dataExtractionRules="@xml/data_extraction_rules"` (and, for `app` only, `android:fullBackupContent="@xml/backup_rules"`), leaving `android:allowBackup="true"` itself unchanged — the fix scopes what's excluded from backup rather than disabling backup entirely over one file's worth of secrets.
+
+Verification:
+- ✅ Confirmed the exact DataStore file path via direct bytecode inspection of the real, pinned library (not assumption): `javap -c` on `PreferenceDataStoreFile.class` and `DataStoreFile.class` from this project's own Gradle cache.
+- ✅ `./gradlew :app:processDebugMainManifest :app:processDebugResources :opsdashboard:processDebugMainManifest :opsdashboard:processDebugResources --offline --rerun-tasks`: `BUILD SUCCESSFUL` — both the manifest merger and resource linker accepted the new XML resources and attribute references with no errors.
+- ✅ Inspected the actual merged manifest output for both modules (`build/intermediates/merged_manifest/debug/...`) and confirmed `android:dataExtractionRules`/`android:fullBackupContent` are present with the correct values in the final, real manifest — not just the source file.
+- Not independently verified via an actual on-device `adb backup`/restore cycle (no device/emulator available in this environment); the fix follows Android's documented `dataExtractionRules`/`fullBackupContent` exclusion mechanism exactly, verified structurally as above.
+
 ### TD-151: docker_build.sh/docker_deploy.sh Allowed Command Injection via eval
 
 | Resolution Date | Component | Resolved By |

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  TD-152: OpsSettingsDataStore stores accessClientSecret/trainerAccessClientSecret
+  (Cloudflare Access service-token secrets — the trainer one specifically guards
+  an admin API that can pause/resume/checkpoint a live training run) as plain
+  stringPreferencesKeys alongside ordinary, non-sensitive settings (hosts/ports/
+  poll interval) in one Preferences DataStore file. android:allowBackup="true"
+  (below, in AndroidManifest.xml) means Android's Auto Backup would otherwise
+  include that file verbatim — cloud backup or `adb backup` on a lost/stolen/
+  reset tablet would carry both secrets out with it. Excludes just that one file
+  (confirmed via direct bytecode inspection of the pinned androidx.datastore
+  library: preferencesDataStore(name="ops_settings") resolves to
+  files/datastore/ops_settings.preferences_pb) from both cloud backup and
+  device-to-device transfer, rather than disabling backup for the whole app
+  over one file.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="datastore/ops_settings.preferences_pb"/>
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="datastore/ops_settings.preferences_pb"/>
+    </device-transfer>
+</data-extraction-rules>

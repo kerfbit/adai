@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  TD-152: legacy (pre-Android-12) counterpart to data_extraction_rules.xml —
+  minSdk is 26, below dataExtractionRules' effective floor of API 31, so a
+  device on API 26-30 falls back to this file for Auto Backup instead. Same
+  exclusion, see data_extraction_rules.xml's comment for the full rationale.
+-->
+<full-backup-content>
+    <exclude domain="file" path="datastore/settings.preferences_pb"/>
+</full-backup-content>
