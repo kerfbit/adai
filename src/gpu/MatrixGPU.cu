@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-061 — layer_norm_bwd had an undetected math bug; most kernels have no dedicated test and need real GPU hardware to verify)
 // @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-09
+// @adai-reviewed: 2026-09-10
 
 #ifdef ADAI_ENABLE_GPU
 

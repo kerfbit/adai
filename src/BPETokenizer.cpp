@@ -1,6 +1,6 @@
 // @adai-status: stable
 // @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-09
+// @adai-reviewed: 2026-09-10
 
 #include "BPETokenizer.hpp"
 #include <cmath>

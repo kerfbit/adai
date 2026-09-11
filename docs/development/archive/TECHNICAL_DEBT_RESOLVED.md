@@ -4,6 +4,60 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-134: MetricsSessionRegistry's Sweep Thread Raced an Admin Config Write on `completed_ttl_seconds_`
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 10, 2026 | `src/MetricsSessionRegistry.hpp` | `sweep_loop()` now reads `completed_ttl_seconds_` through the existing mutex-protected `completed_ttl_seconds()` getter instead of the raw member |
+
+Summary:
+Found during this session's third full-repository audit pass while re-reading
+`MetricsSessionRegistry.hpp` end to end. `completed_ttl_seconds_` (a plain `int`, not atomic) is
+guarded by `registry_mutex_` everywhere in the class's public API —
+`set_completed_ttl_seconds(int)` writes it under a `std::unique_lock<std::shared_mutex>` on
+`registry_mutex_`, and the `completed_ttl_seconds()` getter reads it under a matching
+`std::shared_lock`. But the background `sweep_loop()` (a dedicated `std::thread` started whenever
+`sweep_interval_seconds > 0`, which is the default in every real deployment — `metrics_api_server`
+always constructs its `MetricsSessionRegistry` with a nonzero `sweep_interval_seconds`) read the
+member directly and unguarded:
+```cpp
+lock.unlock();                                    // sweep_mutex_ released
+evict_completed_sessions(completed_ttl_seconds_); // <-- raw, unsynchronized read
+lock.lock();
+```
+This read happens once per sweep tick (every `sweep_interval_seconds`, default 60s) with **no lock
+of any kind held** — `sweep_mutex_` was just released and `registry_mutex_` was never acquired for
+this read. Meanwhile, `TrainingMetricsAPI::handle_admin_put_config()` (`PUT /admin/config`, enabled
+by default via `METRICS_API_ALLOW_CONTROL=true`) calls `session_registry_->set_completed_ttl_seconds(...)`
+from an arbitrary HTTP-handling thread whenever an operator changes the `completed_ttl_seconds` admin
+setting. An unsynchronized concurrent read/write of a non-`atomic` variable from two different threads
+is a data race — undefined behavior under the C++ memory model, independent of whether it happens to
+"look" safe on any particular platform's `int` representation.
+
+Changes Made:
+- `MetricsSessionRegistry::sweep_loop()`: changed `evict_completed_sessions(completed_ttl_seconds_)` to
+  `evict_completed_sessions(completed_ttl_seconds())`, routing the read through the same
+  `registry_mutex_`-protected getter every other caller already uses. No deadlock risk: the getter's
+  `shared_lock` is fully released (function returns) before `evict_completed_sessions()`'s own
+  `unique_lock` acquisition begins — they never overlap.
+
+Verification:
+- ✅ Standalone regression test added (`tests/metrics_session_registry_test.cpp`,
+  `ConcurrentSetCompletedTtlSecondsDuringSweepIsRaceFree`): constructs a `MetricsSessionRegistry` with
+  `sweep_interval_seconds=1`, then races a tight-spinning thread calling `set_completed_ttl_seconds()`
+  against the registry's own background sweep thread for 2.5 seconds.
+- ✅ **Before fix**, built with the `tsan` CMake preset (ThreadSanitizer) and run with ASLR disabled
+  (`setarch $(uname -m) -R`, required in this sandboxed environment for TSan's shadow-memory mapping):
+  ThreadSanitizer reported `WARNING: ThreadSanitizer: data race ... in MetricsSessionRegistry::sweep_loop()`
+  in roughly 1 of every 3–5 runs (inherently timing-dependent, as expected for a real race — the read
+  only fires once per second-long sweep tick), confirming the exact read (`sweep_loop()`) and write
+  (`set_completed_ttl_seconds()`, via mutex `M0` = `registry_mutex_`) predicted above, both against the
+  same stack address.
+- ✅ **After fix**, same test, same TSan build, run 15 consecutive times: zero data-race warnings, exit
+  code 0 every time (vs. TSan's default `exitcode=66` on a detected race pre-fix).
+- ✅ Full `metricsSessionRegistryTests` suite (24 tests, including the new one) passes under the `tsan`
+  preset post-fix.
+
 ### TD-133: Tizen Dashboard's Settings Save/Cancel Buttons Fired Twice Per Remote OK Press
 
 | Resolution Date | Component | Resolved By |

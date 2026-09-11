@@ -537,3 +537,32 @@ TEST(MetricsSessionRegistry, SweepThreadEvictsCompletedSessionsAutomatically) {
 
     EXPECT_EQ(registry.size(), 0U);
 }
+
+TEST(MetricsSessionRegistry, ConcurrentSetCompletedTtlSecondsDuringSweepIsRaceFree) {
+    // Regression test for a data race between sweep_loop() (background thread)
+    // and set_completed_ttl_seconds() (any caller, e.g. PUT /admin/config):
+    // sweep_loop() used to read completed_ttl_seconds_ directly, unguarded by
+    // any mutex, right after unlocking sweep_mutex_ and before
+    // evict_completed_sessions() acquires registry_mutex_ — while
+    // set_completed_ttl_seconds() writes the same non-atomic int under
+    // registry_mutex_. Under ThreadSanitizer this is reported as a data race;
+    // under a plain (non-TSan) build it simply proves the two threads
+    // genuinely overlap without crashing. sweep_interval_seconds=1 keeps the
+    // sweep thread reading the field on a tight cadence for the duration of
+    // the test.
+    MetricsSessionRegistry registry(MetricsServiceConfig(), 16, /*ttl=*/1, /*sweep=*/1);
+
+    std::atomic<bool> stop{false};
+    std::thread writer([&] {
+        int ttl = 1;
+        while (!stop.load(std::memory_order_relaxed)) {
+            registry.set_completed_ttl_seconds(ttl);
+            ttl = (ttl % 5) + 1;
+        }
+    });
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+    stop.store(true, std::memory_order_relaxed);
+    writer.join();
+    SUCCEED();
+}

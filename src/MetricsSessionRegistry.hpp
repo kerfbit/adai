@@ -488,7 +488,14 @@ class MetricsSessionRegistry {
             if (stop_sweep_)
                 break;
             lock.unlock();
-            evict_completed_sessions(completed_ttl_seconds_);
+            // TD-134 (fixed): completed_ttl_seconds_ is guarded by registry_mutex_
+            // everywhere else (set_completed_ttl_seconds()/completed_ttl_seconds()
+            // both take it) — reading the member directly here raced with a
+            // concurrent set_completed_ttl_seconds() call (e.g. from
+            // TrainingMetricsAPI's PUT /admin/config), an unsynchronized
+            // concurrent read/write of a non-atomic int. Routing through the
+            // mutex-protected getter closes the race.
+            evict_completed_sessions(completed_ttl_seconds());
             lock.lock();
         }
     }
