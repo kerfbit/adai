@@ -1,8 +1,8 @@
 package com.adai.ops.ui.admin
 
-// @adai-status: experimental        (capped by TD-048 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: beta        (TD-048 resolved — see AdminViewModelTest.kt)
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-09-12
 
 
 import com.adai.ops.network.dto.MetricsAdminConfigDto

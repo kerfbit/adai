@@ -1,8 +1,8 @@
 package com.adai.ops.ui.trainer
 
-// @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.4.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: beta        (TD-048 resolved — was mistagged "capped by TD-047"; see TECHNICAL_DEBT.md)
+// @adai-version: 0.5.0
+// @adai-reviewed: 2026-09-12
 
 
 import androidx.lifecycle.ViewModel

@@ -769,7 +769,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Android / Testing | September 7, 2026 | 24-32 hours |
+| MEDIUM | Open (all 8 ViewModels done; Compose/DI/entry-points remain) | Android / Testing | September 7, 2026 | 24-32 hours |
 
 Description:
 62 files — Compose screens, ViewModels without tests, DI containers, `Activity`/`Application`
@@ -778,20 +778,40 @@ top of sharing TD-047's no-CI/no-release problem. `BiometricAdminAuthGate.kt` is
 exception: hard to unit-test (`BiometricPrompt` needs a real `FragmentActivity`), but it was read
 manually during the rollout and appears complete — the gap there is coverage, not a known defect.
 
+**Update (September 12, 2026):** all 8 ViewModels now have real test coverage —
+`ChatViewModel`, `GroupListViewModel`, `SessionListViewModel`, `ModelListViewModel` (the four
+originally tagged `experimental` here), plus `ModelDetailViewModel`, `AdminViewModel`,
+`SessionDetailViewModel`, and `TrainerViewModel`. **The latter four turned out to be mistagged**
+— each was already `beta`/"capped by TD-047" despite having zero dedicated tests (TD-047's own
+scope is explicitly the repository/DTO layer, never ViewModels, and `beta` requires real test
+coverage per the file-status standard). `AdminUiState.kt` was promoted alongside `AdminViewModel`
+since its own documented per-daemon error-independence invariant is what got tested. Every test
+was verified via the standard revert-confirm-fail cycle (a real behavior removed from the
+ViewModel, the corresponding test confirmed to fail, then restored) — several of these are
+regression tests for real historical bugs that had never had ViewModel-level coverage before
+(e.g. `ModelDetailViewModelTest`'s `clearStaleTrainingLock` test is the first regression test for
+TD-147's own fix). `AdminAuthGate.kt` was checked and confirmed to be correctly tagged as-is — a
+pure interface/sealed-type declaration with no behavior of its own to test, unlike the four
+mistagged ViewModels.
+
 Action Items:
 
-- [ ] Add ViewModel unit tests first (cheapest — no Compose/Activity needed), following the
-  pattern already established for `TrainerViewModel`, `SettingsViewModel`, etc.
+- [x] Add ViewModel unit tests first (cheapest — no Compose/Activity needed) — all 8 done; see
+  the per-ViewModel test files under `android/app/src/test`/`android/opsdashboard/src/test`.
 - [ ] Adopt Compose UI testing (`androidx.compose.ui.test`) for screens once ViewModels are
-  covered.
+  covered — ViewModels are now covered; this is the next real chunk of TD-048.
 - [ ] `BiometricAdminAuthGate.kt` specifically: consider an instrumented test using
   `BiometricPrompt`'s test/fake authenticator support instead of leaving it permanently untested.
+- [ ] DI containers (`AppContainer.kt`/`AppViewModelProvider.kt` in both apps), `Activity`/
+  `Application` entry points, and the `wearcomplications` services remain entirely untested —
+  not attempted in this pass.
 
 Files to Modify:
 
-- 62 files under `android/app/src/main`, `android/opsdashboard/src/main`, and
-  `android/wearcomplications/src/main` tagged `experimental` — see
-  [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md) for the exact list.
+- ~53 remaining files under `android/app/src/main`, `android/opsdashboard/src/main`, and
+  `android/wearcomplications/src/main` still tagged `experimental` — see
+  [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md) for the exact, current list.
+- Done: the 8 ViewModel files listed above, plus `AdminUiState.kt`.
 
 ---
 

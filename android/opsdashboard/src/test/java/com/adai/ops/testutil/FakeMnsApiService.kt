@@ -14,6 +14,9 @@ import kotlinx.serialization.json.JsonObject
 import retrofit2.Response
 
 class FakeMnsApiService(
+    private val listModelsResponse: (String?, String?, Int?) -> ModelsResponseDto =
+        { _, _, _ -> ModelsResponseDto() },
+    private val getModelResponse: (String) -> Response<ModelRecordDto> = { Response.success(ModelRecordDto()) },
     private val setStateResponse: (String, SetStateRequestDto) -> Response<ModelRecordDto> =
         { _, _ -> Response.success(ModelRecordDto()) },
     private val promoteResponse: (String, PromoteRequestDto) -> Response<PromoteResultDto> =
@@ -27,9 +30,10 @@ class FakeMnsApiService(
     val promoteCalls = mutableListOf<Pair<String, PromoteRequestDto>>()
     val putAdminConfigCalls = mutableListOf<JsonObject>()
 
-    override suspend fun listModels(state: String?, role: String?, limit: Int?): ModelsResponseDto = ModelsResponseDto()
+    override suspend fun listModels(state: String?, role: String?, limit: Int?): ModelsResponseDto =
+        listModelsResponse(state, role, limit)
 
-    override suspend fun getModel(name: String): Response<ModelRecordDto> = Response.success(ModelRecordDto())
+    override suspend fun getModel(name: String): Response<ModelRecordDto> = getModelResponse(name)
 
     override suspend fun resolveModel(name: String): Response<ResolvedModelDto> = Response.success(ResolvedModelDto())
 
