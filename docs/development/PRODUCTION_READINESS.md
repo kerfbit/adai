@@ -134,7 +134,7 @@ None — every in-scope file carries a tag.
 | `scripts/check_intel_driver_updates.py` | beta | 0.6.1 | 2026-09-11 | TD-045 |
 | `scripts/cloudflared/install_cloudflared.sh` | beta | 0.1.1 | 2026-09-11 | TD-043 |
 | `scripts/docker_build.sh` | beta | 0.8.4 | 2026-09-11 | TD-043 |
-| `scripts/install_chatbot_API.sh` | beta | 0.8.2 | 2026-09-11 | TD-043 |
+| `scripts/install_chatbot_API.sh` | beta | 0.8.3 | 2026-09-12 | TD-043 |
 | `scripts/install_incremental_trainer.sh` | beta | 0.8.2 | 2026-09-11 | TD-043 |
 | `scripts/install_metrics_service.sh` | beta | 0.8.2 | 2026-09-11 | TD-043 |
 | `scripts/install_mns_server.sh` | beta | 0.8.3 | 2026-09-11 | TD-043 |

@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# @adai-status: beta        (TD-043 resolved (test suite added); missing --user/--group/--port/--install-path validation flagged as a separate follow-up)
-# @adai-version: 0.8.2
-# @adai-reviewed: 2026-09-11
+# @adai-status: beta        (TD-043, TD-157 resolved)
+# @adai-version: 0.8.3
+# @adai-reviewed: 2026-09-12
 
 # ADAI Chatbot API - systemd Service Installation Script
 #
@@ -65,6 +65,55 @@ validate_build_dir() {
     # sharing this function.
     if [[ "${val}" == /* ]] || [[ ! "${val}" =~ ^[a-zA-Z0-9._/-]+$ ]] || [[ "${val}" =~ \.\. ]]; then
         echo "ERROR: ${flag}: '${val}' must be a relative path with no '..' (allowed: a-z A-Z 0-9 . _ - /)" >&2
+        exit 1
+    fi
+}
+
+# validate_identifier/validate_abs_path/validate_port: this script previously assigned
+# --install-path/--user/--group/--port with zero validation, unlike every sibling install
+# script (install_metrics_service.sh, install_mns_server.sh, install_server_bundle.sh,
+# install_incremental_trainer.sh, scripts/cloudflared/install_cloudflared.sh) — the same
+# unsanitized-identifier-into-a-privileged-command class of bug TD-149 already fixed for
+# install_server_bundle.sh's --pg-db-name/--pg-db-user, just missed here at the time. A
+# SERVICE_USER starting with '-' could be interpreted as a useradd option instead of a
+# username (line ~292's `useradd ... "${SERVICE_USER}"`); a value containing '|' would break
+# the sed substitutions below (they use '|' as their own delimiter); INSTALL_PATH flows
+# unquoted into ExecStart=/ReadWritePaths= (TD-150) and was never even checked for being
+# absolute. Copied verbatim from install_metrics_service.sh's own (already-fixed) versions —
+# see that file for the TD-043 writeups on validate_abs_path's `$'\0'`-always-matches bug and
+# validate_build_dir's missing-leading-slash-rejection bug, both already fixed there.
+validate_identifier() {
+    local flag="$1" val="$2"
+    if [[ -z "${val}" ]]; then
+        error "${flag}: value must not be empty"
+        exit 1
+    fi
+    if [[ ! "${val}" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+        error "${flag}: '${val}' contains invalid characters (allowed: a-z A-Z 0-9 . _ -)"
+        exit 1
+    fi
+}
+
+validate_abs_path() {
+    local flag="$1" val="$2"
+    if [[ -z "${val}" ]]; then
+        error "${flag}: value must not be empty"
+        exit 1
+    fi
+    if [[ "${val}" != /* ]]; then
+        error "${flag}: '${val}' must be an absolute path (starting with /)"
+        exit 1
+    fi
+    if [[ "${val}" =~ $'\n' ]]; then
+        error "${flag}: path contains illegal characters"
+        exit 1
+    fi
+}
+
+validate_port() {
+    local val="$1"
+    if [[ ! "${val}" =~ ^[0-9]+$ ]] || (( val < 1 || val > 65535 )); then
+        error "--port: '${val}' is not a valid port number (1-65535)"
         exit 1
     fi
 }
@@ -152,6 +201,7 @@ EOF
 while [[ $# -gt 0 ]]; do
     case $1 in
         --install-path)
+            validate_abs_path "--install-path" "$2"
             INSTALL_PATH="$2"
             shift 2
             ;;
@@ -161,14 +211,17 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --user)
+            validate_identifier "--user" "$2"
             SERVICE_USER="$2"
             shift 2
             ;;
         --group)
+            validate_identifier "--group" "$2"
             SERVICE_GROUP="$2"
             shift 2
             ;;
         --port)
+            validate_port "$2"
             SERVER_PORT="$2"
             shift 2
             ;;

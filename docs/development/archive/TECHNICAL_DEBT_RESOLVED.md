@@ -4,6 +4,74 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-157: install_chatbot_API.sh's --install-path/--user/--group/--port Had Zero Validation
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 12, 2026 | `scripts/install_chatbot_API.sh` | Added `validate_identifier`/`validate_abs_path`/`validate_port` calls, copied from `install_metrics_service.sh`'s own already-fixed versions |
+
+Summary:
+`install_chatbot_API.sh`'s argument-parsing loop assigned `--install-path`, `--user`, `--group`,
+and `--port` directly with no validation at all — only `--build-dir` was checked (via
+`validate_build_dir`). Every other install script in `scripts/` (`install_metrics_service.sh`,
+`install_mns_server.sh`, `install_server_bundle.sh`, `install_incremental_trainer.sh`,
+`cloudflared/install_cloudflared.sh`) already validates the equivalent flags — this file was the
+one outlier, and the gap was already known: TD-150's own resolution writeup explicitly called out
+"`INSTALL_PATH` has no validation at all in this script" as the least-guarded of the seven files it
+quoted, without adding the validation itself (out of scope for a quoting fix). This is the same
+general class of bug as TD-149 (an unsanitized identifier flowing into a privileged system
+command), just in a script TD-149's own pass didn't touch.
+
+Concretely, before this fix, the unvalidated values reached:
+- `useradd -r -s /bin/false -d "${INSTALL_PATH}" ... "${SERVICE_USER}"` — a `SERVICE_USER`
+  starting with `-` could be interpreted as a `useradd` option instead of a username.
+- `sed -e "s|User=.*|User=${SERVICE_USER}|" -e "s|Group=.*|Group=${SERVICE_GROUP}|"` writing the
+  generated systemd unit — a value containing `|` (the delimiter these `sed` expressions
+  themselves use) would break the substitution in an undefined way.
+- `chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${INSTALL_PATH}"`.
+- `Environment="PORT=${SERVER_PORT}"`, with no numeric-range check at all.
+- `INSTALL_PATH` was never checked for being an absolute path, unlike every sibling script's
+  equivalent flag.
+
+Changes Made:
+- Added `validate_identifier`/`validate_abs_path`/`validate_port` to `install_chatbot_API.sh`,
+  copied verbatim from `install_metrics_service.sh`'s current (post-TD-043) versions — confirmed
+  via `git log`/reading that file directly that its `validate_abs_path` no longer has the
+  `$'\0'`-always-matches bug and its `validate_build_dir` no longer has the missing-leading-slash-
+  rejection bug TD-043 fixed, so what got copied here is the fixed implementation, not a
+  regression of either.
+- Wired those validators into the `--install-path`/`--user`/`--group`/`--port` case branches.
+  `--log-level` was left unvalidated — no sibling script has an equivalent flag to match, and it
+  only ever reaches a config-file line (`LOG_LEVEL=...`), not a privileged command, so it's a
+  different risk class and out of scope for this fix.
+- Extended `tests/scripts/install_chatbot_api_test.sh` (added for TD-043) with the same coverage
+  `install_metrics_service_test.sh` already has for these validators: each flag rejecting an
+  invalid value with the expected error, and a valid value proceeding cleanly to the EUID guard.
+
+Verification:
+- ✅ `bash -n scripts/install_chatbot_API.sh`: passes.
+- ✅ Ran the real script directly (not root) with a deliberately invalid value for each of the
+  four newly-validated flags — each rejected at the validator with the expected message, never
+  reaching the EUID check or any privileged operation; a valid value for each proceeded through to
+  "This script must be run as root", matching the script's pre-existing behavior for everything
+  else.
+- ✅ Standard revert-confirm-fail cycle: temporarily commented out three of the four new validator
+  calls (`--install-path`, `--user`, `--port`; left `--group`'s in place as a control), reran the
+  test suite, confirmed exactly the 5 tests covering those three flags failed and the `--group`
+  tests kept passing — proving the new tests actually exercise the fix and aren't false positives
+  — then restored and reconfirmed all 37 tests pass.
+- ✅ Full `tests/scripts/` suite (26 files): all pass, no regressions.
+
+**Noted, not fixed here (pre-existing, shared across every sibling script, out of scope for this
+fix):** `validate_identifier`'s character class (`^[a-zA-Z0-9._-]+$`) permits a leading `-` — a
+value like `--user -r` passes validation and would reach `useradd` as `useradd ... -r`, which
+could still be interpreted as an option rather than a plain positional username, depending on
+`getopt` parsing order. This is a property of the exact canonical validator already shared by
+`install_metrics_service.sh`/`install_mns_server.sh`/`install_server_bundle.sh`/
+`install_incremental_trainer.sh` — fixing it only here would make this file *inconsistent* with
+its siblings in the opposite direction. Worth its own follow-up across all five scripts at once,
+not folded into this one-file fix.
+
 ### TD-049: No JS Test Framework for the Tizen TV App
 
 | Resolution Date | Component | Resolved By |

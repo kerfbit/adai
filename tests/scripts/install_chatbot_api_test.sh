@@ -1,17 +1,19 @@
 #!/bin/bash
 #
-# Tests for scripts/install_chatbot_API.sh (TD-043).
+# Tests for scripts/install_chatbot_API.sh (TD-043, TD-157).
 #
 # See install_server_bundle_test.sh's header comment for why running the
 # real script as a non-root user is safe here.
 #
-# NOTE: unlike every sibling install script, this one currently validates
-# only --build-dir — --install-path/--user/--group/--port are assigned with
-# zero validation. That gap is real (flagged separately as its own follow-up
-# fix, not folded into this TD-043 pass, since it's new validation logic to
-# add rather than a broken check to fix) — this test file covers the
-# script's actual current behavior, including that gap, rather than
-# asserting behavior the script doesn't have yet.
+# TD-157: --install-path/--user/--group/--port used to be assigned with zero
+# validation, unlike every sibling install script (install_metrics_service.sh,
+# install_mns_server.sh, install_server_bundle.sh, install_incremental_trainer.sh,
+# cloudflared/install_cloudflared.sh) — the same unsanitized-identifier-into-a-
+# privileged-command class of bug TD-149 already fixed for install_server_bundle.sh's
+# --pg-db-name/--pg-db-user. Fixed by adding validate_identifier/validate_abs_path/
+# validate_port calls (copied from install_metrics_service.sh's own already-fixed
+# versions); the tests below mirror install_metrics_service_test.sh's own coverage
+# of those same validators.
 
 set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -52,8 +54,50 @@ assert_not_contains "must be a relative path"
 assert_contains "must be run as root"
 
 # ---------------------------------------------------------------------------
+# TD-157: --install-path/--user/--group/--port validation, added to match every
+# sibling install script — see install_metrics_service_test.sh for the same
+# coverage of these shared validators.
+
+t "--install-path rejects a relative path"
+run bash "$TARGET" --install-path "relative/path"
+assert_exit 1
+assert_contains "must be an absolute path"
+
+t "--install-path accepts an ordinary absolute path, proceeds to the EUID guard"
+run bash "$TARGET" --install-path "/tmp/adai-td157-regress"
+assert_not_contains "illegal characters"
+assert_contains "must be run as root"
+
+t "--install-path rejects an embedded newline"
+run bash "$TARGET" --install-path "$(printf '/tmp/foo\nbar')"
+assert_exit 1
+assert_contains "illegal characters"
+
+for flag in --user --group; do
+    t "$flag rejects invalid characters"
+    run bash "$TARGET" "$flag" 'bad;value'
+    assert_exit 1
+    assert_contains "contains invalid characters"
+
+    t "$flag accepts an ordinary identifier, proceeds to the EUID guard"
+    run bash "$TARGET" "$flag" "chatbotsvc"
+    assert_not_contains "contains invalid characters"
+    assert_contains "must be run as root"
+done
+
+t "--port rejects an out-of-range value"
+run bash "$TARGET" --port 99999
+assert_exit 1
+assert_contains "--port: '99999' is not a valid port number"
+
+t "--port rejects a non-numeric value"
+run bash "$TARGET" --port abc
+assert_exit 1
+assert_contains "is not a valid port number"
+
+# ---------------------------------------------------------------------------
 t "valid arguments, no root -> refuses cleanly"
-run bash "$TARGET" --install-path /tmp/adai-test --port 8080
+run bash "$TARGET" --install-path /tmp/adai-test --user chatbotsvc --group chatbotsvc --port 8080
 assert_exit 1
 assert_contains "must be run as root"
 
