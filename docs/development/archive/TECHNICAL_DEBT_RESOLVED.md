@@ -4,6 +4,91 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-052: ParallelDataLoader's Batches Used Character Codes, Not Real Tokens
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 12, 2026 | `src/ParallelDataLoader.hpp`, `tests/paralleldataloader_test.cpp`, `tests/datapipeline_test.cpp`, `examples/DataPipelineExample.cpp` | Retired `ParallelDataLoader`/`DataLoaderIterator`/`DataLoaderConfig` rather than fixing their tokenization in place |
+
+Summary:
+`ParallelDataLoader.hpp`'s batch-generation code was an explicit placeholder — each character of
+the input text was converted to its raw `unsigned char` value and used directly as a "token ID,"
+with a comment admitting as much (`// In a real implementation, this should use a tokenizer`).
+Investigation confirmed nothing in production (`src/*.cpp`) ever used `ParallelDataLoader` at
+all — only its own tests exercised it — and the same file already had a second, working class,
+`TokenBatchLoader`, that takes a real tokenizer function via constructor injection and is
+genuinely tested (alignment/pairing/deadlock-avoidance tests using a real `tokenizer_fn`). Given a
+correct replacement already existed in the same file with no production caller for either class,
+retiring the broken one was chosen over duplicating `TokenBatchLoader`'s own tokenizer-injection
+pattern into a class nothing calls.
+
+Changes Made:
+- Removed `ParallelDataLoader`, `DataLoaderIterator`, and `DataLoaderConfig` from
+  `src/ParallelDataLoader.hpp` (`ThreadSafeBatchQueue` — used by both the removed class and
+  `TokenBatchLoader` — and everything from `TokenBatchLoaderConfig` onward were kept unchanged).
+  Updated a stale comment inside `TokenBatchLoader` that referenced the now-retired class by name
+  in its TD-064 cross-reference.
+- Removed `ParallelDataLoaderTest`/`DataLoaderConfigTest` and all their `TEST_F`/`TEST` cases from
+  `tests/paralleldataloader_test.cpp` (kept `ThreadSafeBatchQueueTest` and `TokenBatchLoaderTest`,
+  both still exercising real, present code) and from `tests/datapipeline_test.cpp` (which had its
+  own, separate duplicate `ParallelDataLoaderTest` suite; kept `EfficientBatchingTest` and its own
+  `ThreadSafeBatchQueueTest`).
+- Added `TokenBatchIteratorTest` (3 new tests: full-epoch iteration, reset, next_target()
+  forwarding) to `tests/paralleldataloader_test.cpp` — `TokenBatchIterator` had no dedicated test
+  of its own before this, only `TokenBatchLoader` (which it wraps) did; added while re-evaluating
+  this file's tag now that the actually-broken classes are gone.
+- Rewrote `tests/datapipeline_test.cpp`'s `DataPipelineIntegrationTest.EndToEndPipeline` (full
+  end-to-end pipeline test) to use `TokenBatchLoader`/`TokenBatchIterator` with a real (test)
+  tokenizer function instead of `ParallelDataLoader`/`DataLoaderConfig`, preserving integration
+  coverage rather than just deleting it. Dropped the augmentation-config portion of that test —
+  `TokenBatchLoaderConfig` has no built-in augmentation support (unlike the retired
+  `DataLoaderConfig`) — augmentation is already covered separately by
+  `EfficientBatchingTest.DataAugmentationTokenDropout`/`DataAugmentationTokenMasking` in the same
+  file.
+- Fixed `examples/DataPipelineExample.cpp` (not caught by `ctest` — a separate example binary,
+  found only via a full project build), which also used the retired classes in two of its five
+  demo functions (`example_parallel_loading`/`example_training_loop`): rewrote both against
+  `TokenBatchLoader`/`TokenBatchIterator`, added a shared `char_code_tokenizer_fn()` demo
+  stand-in (explicitly commented as such, not real tokenization) since `TokenBatchLoader` requires
+  an injected tokenizer function, and rewrote `print_batch_info()` for `TokenBatch`'s fields
+  (`batch_token_ids`/`lengths`/`max_length`, via `compute_batch_stats()`) instead of
+  `SequenceBatch`'s.
+- Promoted `src/ParallelDataLoader.hpp` from `experimental` (capped by this item) to `beta`:
+  `ThreadSafeBatchQueue` and `TokenBatchLoader`/`TokenBatchIterator` are the only classes left in
+  the file and all three now have real, direct test coverage. `@adai-version` bumped 0.4.2 → 0.5.0
+  (MINOR — meaningful removal + status promotion, not a pure internal patch, but not a breaking
+  change either since nothing external ever called the removed classes).
+- Added a banner to three "live" (non-archive) docs that documented `ParallelDataLoader`/
+  `DataLoaderConfig` as current, working API — `docs/development/api/data/
+  dataset-batch-processing.md` and `docs/development/guides/training/data-pipeline-enhancement.md`
+  (both dated January 2026, marked "Status: Production Ready") — flagging their code examples as
+  historical rather than rewriting every example, matching the precedent set by TD-053's
+  `chatbot-guide.md` staleness banner. Left `docs/development/archive/**` untouched (historical
+  record) and `docs/development/guides/quick-reference/BATCH_PROCESSING_QUICK_REFERENCE.md`
+  untouched (only lists the implementation file path, doesn't describe the removed API directly).
+- Added an "Update" note to TD-064's entry (the `paralleldataloaderTests` hang investigation,
+  still open) recording that one of its two originally-suspected components
+  (`ParallelDataLoader`) is now gone, while being explicit that this is *not* a resolution of that
+  item — `ThreadSafeBatchQueue`, the other suspect, remains and is still exercised (now solely via
+  `TokenBatchLoader`) in the same test binary.
+
+Verification:
+- ✅ `paralleldataloaderTests` (13 tests, down from 30) and `datapipelineTests` (21 tests): both
+  pass in full.
+- ✅ `python3 scripts/check_file_status.py`: 288 files checked, 0 problems (confirms the new
+  single-line `@adai-status` tag parses correctly).
+- ✅ Full project build (`cmake --build --preset=debug`, all targets, not just the two test
+  binaries): clean — this is what caught `examples/DataPipelineExample.cpp`, which `ctest` alone
+  would have missed since it isn't a registered test.
+- ✅ `data_pipeline_example` binary run end-to-end manually: completes all 5 demo functions
+  without error, including the two rewritten ones, with sensible output (padding ratios, batch
+  counts, simulated training loss).
+- ✅ Full `ctest -j8` suite (127 tests, matching this session's own established practice of a
+  full-suite check after a change touching shared test infrastructure): all pass, no regressions.
+- ✅ 5 repeated standalone runs of `paralleldataloaderTests` plus 5 repeated `ctest -R
+  "ParallelDataLoaderTests|DataPipelineTests" -j8` runs: all clean — relevant to TD-064's open hang
+  investigation (see the note added there), though not a claim that investigation is resolved.
+
 ### TD-156: EncoderDecoderModel::forward() Corrupted the Heap Under Concurrent Requests
 
 | Resolution Date | Component | Resolved By |

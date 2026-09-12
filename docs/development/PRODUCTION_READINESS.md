@@ -12,7 +12,7 @@ See [file-status-standard.md](guides/file-status-standard.md) for what these sta
 |---|---|---|---|---|---|---|---|
 | android | 0 | 46 | 57 | 0 | 0 | 0 | 103 |
 | scripts | 9 | 27 | 0 | 0 | 0 | 0 | 36 |
-| src | 91 | 39 | 16 | 0 | 0 | 0 | 146 |
+| src | 91 | 40 | 15 | 0 | 0 | 0 | 146 |
 | tizen-metrics-app | 2 | 1 | 0 | 0 | 0 | 0 | 3 |
 
 **102/288 files (35%) are tagged `stable`.**
@@ -192,7 +192,7 @@ None — every in-scope file carries a tag.
 | `src/MultiHeadAttention.cpp` | beta | 0.9.0 | 2026-09-10 | TD-050 |
 | `src/MultiHeadAttention.hpp` | beta | 0.9.0 | 2026-09-10 | TD-050 |
 | `src/PPOOptimizer.hpp` | experimental | 0.2.0 | 2026-09-10 | TD-034 |
-| `src/ParallelDataLoader.hpp` | experimental | 0.4.2 | 2026-09-10 | TD-052 |
+| `src/ParallelDataLoader.hpp` | beta | 0.5.0 | 2026-09-12 | TD-052 |
 | `src/PostgresMetricsDatabase.cpp` | beta | 0.4.0 | 2026-09-11 | TD-042 |
 | `src/PostgresMetricsDatabase.hpp` | beta | 0.4.0 | 2026-09-11 | TD-042 |
 | `src/Quantization.hpp` | beta | 0.7.0 | 2026-09-10 | TD-038 |

@@ -14,33 +14,42 @@
 #include <chrono>
 
 // Helper function to print batch info
-void print_batch_info(const SequenceBatch& batch, size_t batch_num) {
+void print_batch_info(const TokenBatch& batch, size_t batch_num) {
     std::cout << "\n=== Batch " << batch_num << " ===\n";
-    std::cout << "Number of sequences: " << batch.sequences.size() << "\n";
+    std::cout << "Number of sequences: " << batch.batch_size() << "\n";
     std::cout << "Max length: " << batch.max_length << "\n";
-    std::cout << "Total tokens: " << batch.total_tokens() << "\n";
-    std::cout << "Padding tokens: " << batch.padding_tokens() << "\n";
-    std::cout << "Padding ratio: " << std::fixed << std::setprecision(2) 
-              << (batch.padding_ratio() * 100) << "%\n";
-    
-    // Show first sequence and mask
-    if (!batch.sequences.empty()) {
+
+    BatchStats stats = compute_batch_stats({batch});
+    std::cout << "Total tokens: " << stats.total_tokens << "\n";
+    std::cout << "Padding tokens: " << (stats.total_tokens - stats.actual_tokens) << "\n";
+    std::cout << "Padding ratio: " << std::fixed << std::setprecision(2)
+              << (stats.padding_ratio * 100) << "%\n";
+
+    // Show the first sequence's real (unpadded) content
+    if (!batch.batch_token_ids.empty()) {
+        const auto& first = batch.batch_token_ids[0];
         std::cout << "First sequence: [";
-        for (size_t i = 0; i < std::min(size_t(10), batch.sequences[0].size()); ++i) {
-            std::cout << batch.sequences[0][i];
-            if (i < std::min(size_t(10), batch.sequences[0].size()) - 1) std::cout << ", ";
+        for (size_t i = 0; i < std::min(size_t(10), first.size()); ++i) {
+            std::cout << first[i];
+            if (i < std::min(size_t(10), first.size()) - 1) std::cout << ", ";
         }
-        if (batch.sequences[0].size() > 10) std::cout << ", ...";
-        std::cout << "]\n";
-        
-        std::cout << "First mask: [";
-        for (size_t i = 0; i < std::min(size_t(10), batch.masks[0].size()); ++i) {
-            std::cout << batch.masks[0][i];
-            if (i < std::min(size_t(10), batch.masks[0].size()) - 1) std::cout << ", ";
-        }
-        if (batch.masks[0].size() > 10) std::cout << ", ...";
-        std::cout << "]\n";
+        if (first.size() > 10) std::cout << ", ...";
+        std::cout << "] (" << (batch.lengths.empty() ? first.size() : batch.lengths[0])
+                  << " real tokens)\n";
     }
+}
+
+// TD-052: ParallelDataLoader/DataLoaderConfig (this example's original loader) tokenized
+// internally via raw char codes with no real tokenizer at all. TokenBatchLoader, their tested
+// replacement, instead takes a tokenizer function via constructor injection — this stand-in
+// (character codes, not a real BPE vocabulary) exists purely to keep this example
+// self-contained; a real trainer would pass BPETokenizer::encode() here instead.
+std::vector<int> char_code_tokenizer_fn(const std::string& text) {
+    std::vector<int> tokens;
+    for (char c : text) {
+        tokens.push_back(static_cast<int>(static_cast<unsigned char>(c)));
+    }
+    return tokens;
 }
 
 // Example 1: Basic efficient batching
@@ -221,36 +230,36 @@ void example_parallel_loading() {
               << dataset.size(SplitType::VALIDATION) << " val\n";
     
     // Configure data loader
-    DataLoaderConfig loader_config;
+    TokenBatchLoaderConfig loader_config;
     loader_config.batch_size = 16;
     loader_config.num_workers = 4;
     loader_config.prefetch_factor = 2;
     loader_config.shuffle = true;
     loader_config.use_dynamic_batching = true;
-    
+
     std::cout << "\nData Loader Configuration:\n";
     std::cout << "Batch size: " << loader_config.batch_size << "\n";
     std::cout << "Number of workers: " << loader_config.num_workers << "\n";
     std::cout << "Prefetch factor: " << loader_config.prefetch_factor << "\n";
     std::cout << "Dynamic batching: " << (loader_config.use_dynamic_batching ? "Yes" : "No") << "\n";
-    
+
     // Create data loader
-    ParallelDataLoader loader(dataset, loader_config);
-    
+    TokenBatchLoader loader(dataset, loader_config, char_code_tokenizer_fn);
+
     std::cout << "\nStarting parallel data loading...\n";
     std::cout << "Expected batches per epoch: " << loader.num_batches() << "\n";
-    
+
     // Time the data loading
     auto start_time = std::chrono::high_resolution_clock::now();
-    
-    DataLoaderIterator iter(loader);
+
+    TokenBatchIterator iter(loader);
     size_t batches_processed = 0;
     size_t total_sequences = 0;
-    
+
     while (auto batch = iter.next()) {
         ++batches_processed;
-        total_sequences += batch->sequences.size();
-        
+        total_sequences += static_cast<size_t>(batch->batch_size());
+
         // Print info for first 3 batches
         if (batches_processed <= 3) {
             print_batch_info(*batch, batches_processed);
@@ -292,25 +301,24 @@ void example_training_loop() {
     
     dataset.split(1.0, 0.0, 0.0);  // All training data
     
-    // Configure loader with augmentation
-    DataLoaderConfig config;
+    // Configure loader. Note: TokenBatchLoaderConfig has no built-in augmentation support
+    // (unlike the retired DataLoaderConfig) — apply EfficientBatching::apply_augmentation()
+    // directly to tokenized sequences before batching if augmentation is needed, the way
+    // example_augmentation() above demonstrates.
+    TokenBatchLoaderConfig config;
     config.batch_size = 8;
     config.num_workers = 2;
     config.shuffle = true;
     config.use_dynamic_batching = true;
-    config.augmentation_config.enable_token_masking = true;
-    config.augmentation_config.token_mask_prob = 0.15f;
-    config.augmentation_config.enable_token_dropout = true;
-    config.augmentation_config.token_dropout_prob = 0.1f;
-    
-    ParallelDataLoader loader(dataset, config);
+
+    TokenBatchLoader loader(dataset, config, char_code_tokenizer_fn);
     
     std::cout << "Simulating 3 training epochs...\n\n";
     
     for (int epoch = 0; epoch < 3; ++epoch) {
         std::cout << "=== Epoch " << (epoch + 1) << " ===\n";
         
-        DataLoaderIterator iter(loader);
+        TokenBatchIterator iter(loader);
         size_t step = 0;
         double total_loss = 0.0;
         

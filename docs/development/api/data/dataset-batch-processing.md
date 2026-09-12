@@ -4,6 +4,17 @@
 **Date:** January 2026
 **Status:** Production Ready
 
+> **Partially stale (September 12, 2026):** the "Production Ready" status above predates TD-052's
+> finding that `ParallelDataLoader`/`DataLoaderConfig`/`DataLoaderIterator` (described throughout
+> this doc) were never actually used by any production `src/*.cpp` file, and that their batch
+> generation used raw char codes as a placeholder rather than real tokenization. Those classes were
+> retired (not fixed in place) as part of TD-052's resolution — see
+> `docs/development/guides/TECHNICAL_DEBT.md`'s resolved archive. `TokenBatchLoader`/
+> `TokenBatchIterator` (same file, `src/ParallelDataLoader.hpp`) are the tested replacement: they
+> take a real tokenizer function via constructor injection instead of tokenizing internally. This
+> doc's `ParallelDataLoader`/`DataLoaderConfig`/`DataLoaderIterator` code examples below have not
+> been rewritten against the new API — treat them as historical, not as current usage guidance.
+
 ## Overview
 
 This document describes the integration of batch processing capabilities into the ADAI dataset system. The integration enables efficient multi-sequence processing for transformer models by combining the Dataset class with BatchProcessor utilities.

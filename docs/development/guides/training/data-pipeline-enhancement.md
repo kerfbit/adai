@@ -4,6 +4,15 @@
 **Date:** January 2026
 **Status:** Production Ready
 
+> **Partially stale (September 12, 2026):** TD-052 found `ParallelDataLoader`/`DataLoaderConfig`
+> (described below) were never used by any production `src/*.cpp` file and used raw char codes as
+> a placeholder instead of real tokenization. They were retired as part of TD-052's resolution —
+> see `docs/development/guides/TECHNICAL_DEBT.md`'s resolved archive. `TokenBatchLoader`/
+> `TokenBatchIterator` (same file, `src/ParallelDataLoader.hpp`) replace them, taking a real
+> tokenizer function via constructor injection. This guide's `ParallelDataLoader`/
+> `DataLoaderConfig` code examples have not been rewritten against the new API — treat them as
+> historical.
+
 ---
 
 ## Table of Contents

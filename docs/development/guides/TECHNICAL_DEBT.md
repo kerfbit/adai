@@ -5,12 +5,12 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** September 12, 2026
-**Total Items:** 27
+**Total Items:** 26
 **High Priority:** 1
-**Medium Priority:** 13
+**Medium Priority:** 12
 **Low Priority:** 13
 **Future Enhancements:** 19
-**Resolved Items:** 108
+**Resolved Items:** 109
 **Deferred Decisions:** 1
 
 ## Table of Contents
@@ -37,9 +37,8 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [TD-047: Android Data/Repository/API Layer Has No CI or Release History](#td-047-android-datarepositoryapi-layer-has-no-ci-or-release-history)
   - [TD-048: Android UI/DI/Entry-Point Classes Are Untested and Unreleased](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
   - [TD-051: IncrementalTrainer::load_conversation_pairs() Is an Unmigrated Duplicate](#td-051-incrementaltrainerload_conversation_pairs-is-an-unmigrated-duplicate)
-  - [TD-052: ParallelDataLoader's Batches Use Character Codes, Not Real Tokens](#td-052-paralleldataloaders-batches-use-character-codes-not-real-tokens)
   - [TD-053: ChatbotCLI's /save and /load Commands Are Non-Functional Everywhere](#td-053-chatbotclis-save-and-load-commands-are-non-functional-everywhere)
-- [Resolved Items](#resolved-items) (141 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+- [Resolved Items](#resolved-items) (142 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -172,6 +171,19 @@ that this was a genuine hang, not a slow computation: both of its threads were b
 in `ThreadSafeBatchQueue`'s or `ParallelDataLoader`'s condition-variable-based synchronization
 (`src/ParallelDataLoader.hpp`), not a busy-spin or an infinite non-blocking loop.
 
+**Update (September 12, 2026):** TD-052's resolution retired `ParallelDataLoader`/
+`DataLoaderIterator` entirely (broken tokenization, never used in production — see the resolved
+archive) — one of the two components this hang was originally attributed to. `ThreadSafeBatchQueue`
+itself remains (still used by `TokenBatchLoader`, in the same file and test binary), so this is
+**not** a resolution of this item: if the real root cause was in the queue rather than in
+`ParallelDataLoader`'s own worker-thread/`stop()` interaction, `TokenBatchLoader` shares the same
+exposure. Noting for the record: `paralleldataloaderTests` now has 13 tests instead of 30 (all of
+`ParallelDataLoader`'s own tests are gone) and runs in ~0.2s instead of the multi-second,
+`sleep_for`-heavy runs before; 5 repeated standalone runs immediately after the change passed clean.
+That's consistent with reduced risk but proves nothing conclusively — the original investigation's
+25 TSan runs and 24 concurrent-standalone runs also all passed, and the hang still happened for real
+once. Root cause remains open; action items below are unchanged.
+
 **Could not reproduce despite substantial effort:**
 - 1 standalone full-suite run: passed in 1.4s.
 - 4 concurrent standalone runs (same binary): all passed.
@@ -187,9 +199,10 @@ in `ThreadSafeBatchQueue`'s or `ParallelDataLoader`'s condition-variable-based s
   `std::atomic<bool>`, and every access to the queue's `shutdown_` flag is under `mutex_`, so no
   obvious data race or classic AB-BA lock-order deadlock was found by inspection).
 
-Given `ParallelDataLoader.hpp` is tagged `experimental` (TD-052 — the same file's char-code
-"tokenization" is already known-fake) and confirmed not included by any production `src/*.cpp` file,
-the immediate risk is contained to CI/test time, not production training runs — but a genuine,
+Given `ParallelDataLoader.hpp` was tagged `experimental` at the time (TD-052 — the same file's
+char-code "tokenization" was already known-fake) and confirmed not included by any production
+`src/*.cpp` file, the immediate risk was contained to CI/test time, not production training runs
+— but a genuine,
 intermittent deadlock in the class's core synchronization primitive is exactly the kind of defect
 that would resurface with real consequences if this class were ever wired into production, and the
 fact that it happened once, for real, under real (if hard to pin down) conditions means it can't be
@@ -848,40 +861,6 @@ Files to Modify:
 
 ---
 
-### TD-052: ParallelDataLoader's Batches Use Character Codes, Not Real Tokens
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Training / Data Loading | September 8, 2026 | 4-6 hours |
-
-Description:
-`ParallelDataLoader.hpp` was incorrectly tagged `stable` in the original per-file
-production-readiness rollout — corrected to `experimental` when this was found during a
-broader re-audit. Its batch-generation code is explicit about being a placeholder:
-`// Note: For now we'll create dummy token sequences from the text` / `// In a real
-implementation, this should use a tokenizer`, followed by `// Create simple token sequence
-(char codes for demonstration)` — each character of the input text is converted to its raw
-`unsigned char` value and used directly as a "token ID," with no BPE tokenizer involved at all.
-`ParallelDataLoaderTest`'s tests do exercise this code path (`next_batch()`), but they only
-check batch shape/counting, not token content — so the tests passing gave false confidence
-during the original rollout that this class was production-ready. It is also not included by
-any production `src/*.cpp` file — only by its own test.
-
-Action Items:
-
-- [ ] Replace the char-code loop with a real `BPETokenizer::encode()` call.
-- [ ] Add a test asserting batch contents are valid vocabulary token IDs, not raw byte values.
-- [ ] Re-evaluate whether `ParallelDataLoader` should be wired into a real training path once
-  fixed, or whether `EfficientBatching`/`Dataset` already cover this need and it should be
-  retired instead.
-
-Files to Modify:
-
-- `src/ParallelDataLoader.hpp`
-- `tests/paralleldataloader_test.cpp`
-
----
-
 ### TD-053: ChatbotCLI's /save and /load Commands Are Non-Functional Everywhere
 
 | Priority | Status | Component | Created | Effort Estimate |
@@ -929,7 +908,7 @@ Files to Modify:
 
 ## Resolved Items
 
-141 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+142 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements

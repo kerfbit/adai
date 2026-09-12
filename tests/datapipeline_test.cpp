@@ -1,6 +1,8 @@
 /**
  * @file datapipeline_test.cpp
- * @brief Comprehensive tests for data pipeline (EfficientBatching and ParallelDataLoader)
+ * @brief Comprehensive tests for data pipeline (EfficientBatching, ThreadSafeBatchQueue, and
+ * the end-to-end TokenBatchLoader integration test) — TD-052: ParallelDataLoader/
+ * DataLoaderConfig/DataLoaderIterator, formerly tested here too, were retired.
  */
 
 #include <gtest/gtest.h>
@@ -261,242 +263,6 @@ TEST_F(EfficientBatchingTest, PaddingRatioCalculation) {
 }
 
 // ============================================================================
-// ParallelDataLoader Tests
-// ============================================================================
-
-class ParallelDataLoaderTest : public ::testing::Test {
-   protected:
-    void SetUp() override {
-        // Create a test dataset
-        dataset_ = std::make_unique<Dataset>();
-
-        // Add test samples
-        for (int i = 0; i < 100; ++i) {
-            std::string input = "Input " + std::to_string(i);
-            std::string target = "Response " + std::to_string(i);
-            dataset_->add_sample(input, target);
-        }
-
-        // Split the data (100% train for simplicity)
-        dataset_->split(1.0, 0.0, 0.0);
-    }
-
-    std::unique_ptr<Dataset> dataset_;
-};
-
-TEST_F(ParallelDataLoaderTest, ConstructorAndBasicSetup) {
-    DataLoaderConfig config;
-    config.batch_size = 10;
-    config.num_workers = 2;
-
-    ParallelDataLoader loader(*dataset_, config);
-
-    EXPECT_FALSE(loader.is_running());
-    EXPECT_EQ(loader.current_epoch(), 0);
-    EXPECT_EQ(loader.batches_loaded(), 0);
-}
-
-TEST_F(ParallelDataLoaderTest, NumBatchesCalculation) {
-    DataLoaderConfig config;
-    config.batch_size = 10;
-    config.drop_last = false;
-
-    ParallelDataLoader loader(*dataset_, config);
-
-    // 100 samples / 10 per batch = 10 batches
-    EXPECT_EQ(loader.num_batches(), 10);
-}
-
-TEST_F(ParallelDataLoaderTest, NumBatchesDropLast) {
-    DataLoaderConfig config;
-    config.batch_size = 15;
-    config.drop_last = true;
-
-    ParallelDataLoader loader(*dataset_, config);
-
-    // 100 samples / 15 per batch = 6 complete batches (drop last with 10 samples)
-    EXPECT_EQ(loader.num_batches(), 6);
-}
-
-TEST_F(ParallelDataLoaderTest, StartAndStop) {
-    DataLoaderConfig config;
-    config.batch_size = 10;
-    config.num_workers = 2;
-
-    ParallelDataLoader loader(*dataset_, config);
-
-    loader.start();
-    EXPECT_TRUE(loader.is_running());
-
-    loader.stop();
-    EXPECT_FALSE(loader.is_running());
-}
-
-TEST_F(ParallelDataLoaderTest, LoadBatches) {
-    DataLoaderConfig config;
-    config.batch_size = 10;
-    config.num_workers = 2;
-    config.shuffle = false;
-
-    ParallelDataLoader loader(*dataset_, config);
-
-    // Use iterator which properly initializes the epoch
-    DataLoaderIterator iter(loader);
-
-    // Load a few batches
-    int batches_received = 0;
-    for (int i = 0; i < 5; ++i) {
-        auto batch = iter.next();
-        if (batch.has_value() && batch->sequences.size() > 0) {
-            ++batches_received;
-            EXPECT_GT(batch->sequences.size(), 0);
-            EXPECT_LE(batch->sequences.size(), config.batch_size);
-        }
-    }
-
-    EXPECT_GT(batches_received, 0);
-}
-
-TEST_F(ParallelDataLoaderTest, EpochIteration) {
-    DataLoaderConfig config;
-    config.batch_size = 10;
-    config.num_workers = 2;
-
-    ParallelDataLoader loader(*dataset_, config);
-    loader.start();
-
-    size_t expected_batches = loader.num_batches();
-
-    // Iterate through one epoch
-    size_t batches_received = 0;
-    for (size_t i = 0; i < expected_batches; ++i) {
-        auto batch = loader.next_batch();
-        if (batch.has_value()) {
-            ++batches_received;
-        }
-    }
-
-    EXPECT_EQ(batches_received, expected_batches);
-
-    loader.stop();
-}
-
-TEST_F(ParallelDataLoaderTest, NewEpoch) {
-    DataLoaderConfig config;
-    config.batch_size = 10;
-    config.num_workers = 1;
-
-    ParallelDataLoader loader(*dataset_, config);
-
-    EXPECT_EQ(loader.current_epoch(), 0);
-
-    loader.new_epoch();
-    EXPECT_EQ(loader.current_epoch(), 1);
-
-    loader.new_epoch();
-    EXPECT_EQ(loader.current_epoch(), 2);
-}
-
-TEST_F(ParallelDataLoaderTest, DataLoaderIterator) {
-    DataLoaderConfig config;
-    config.batch_size = 20;
-    config.num_workers = 2;
-
-    ParallelDataLoader loader(*dataset_, config);
-    DataLoaderIterator iter(loader);
-
-    size_t batches_received = 0;
-    while (auto batch = iter.next()) {
-        ++batches_received;
-        EXPECT_GT(batch->sequences.size(), 0);
-    }
-
-    EXPECT_EQ(batches_received, loader.num_batches());
-    EXPECT_EQ(iter.batches_returned(), loader.num_batches());
-}
-
-TEST_F(ParallelDataLoaderTest, IteratorReset) {
-    DataLoaderConfig config;
-    config.batch_size = 25;
-    config.num_workers = 1;
-
-    ParallelDataLoader loader(*dataset_, config);
-    DataLoaderIterator iter(loader);
-
-    // First iteration
-    size_t first_count = 0;
-    while (auto batch = iter.next()) {
-        ++first_count;
-    }
-
-    // Reset and iterate again
-    iter.reset();
-    size_t second_count = 0;
-    while (auto batch = iter.next()) {
-        ++second_count;
-    }
-
-    EXPECT_EQ(first_count, second_count);
-    EXPECT_GT(first_count, 0);
-}
-
-TEST_F(ParallelDataLoaderTest, PrefetchQueueSize) {
-    DataLoaderConfig config;
-    config.batch_size = 10;
-    config.num_workers = 2;
-    config.prefetch_factor = 2;
-
-    ParallelDataLoader loader(*dataset_, config);
-    loader.start();
-
-    // Give workers time to prefetch
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
-
-    // Queue should have some batches
-    EXPECT_GT(loader.queue_size(), 0);
-
-    loader.stop();
-}
-
-TEST_F(ParallelDataLoaderTest, DynamicBatchingEnabled) {
-    DataLoaderConfig config;
-    config.batch_size = 10;
-    config.num_workers = 1;
-    config.use_dynamic_batching = true;
-
-    ParallelDataLoader loader(*dataset_, config);
-    loader.start();
-
-    auto batch = loader.next_batch();
-    EXPECT_TRUE(batch.has_value());
-
-    // Should have attention masks
-    EXPECT_EQ(batch->sequences.size(), batch->masks.size());
-
-    loader.stop();
-}
-
-TEST_F(ParallelDataLoaderTest, AugmentationEnabled) {
-    DataLoaderConfig config;
-    config.batch_size = 10;
-    config.num_workers = 1;
-    config.augmentation_config.enable_token_masking = true;
-    config.augmentation_config.token_mask_prob =
-        0.2f;  // Lower probability to avoid all tokens being masked
-
-    ParallelDataLoader loader(*dataset_, config);
-
-    // Use iterator which properly initializes
-    DataLoaderIterator iter(loader);
-
-    auto batch = iter.next();
-    EXPECT_TRUE(batch.has_value());
-    if (batch.has_value()) {
-        EXPECT_GT(batch->sequences.size(), 0);
-    }
-}
-
-// ============================================================================
 // ThreadSafeBatchQueue Tests
 // ============================================================================
 
@@ -614,38 +380,48 @@ TEST(DataPipelineIntegrationTest, EndToEndPipeline) {
 
     dataset.split(1.0, 0.0, 0.0);  // All training
 
-    // Create data loader with all features
-    DataLoaderConfig loader_config;
+    // Create data loader with a real tokenizer function. TD-052: this used to
+    // go through ParallelDataLoader/DataLoaderConfig, whose batch generation
+    // used raw char codes with no tokenizer parameter at all — retired in
+    // favor of TokenBatchLoader, which takes a tokenizer function via
+    // constructor injection instead (see TECHNICAL_DEBT.md's resolved
+    // archive).
+    TokenBatchLoaderConfig loader_config;
     loader_config.batch_size = 8;
     loader_config.num_workers = 2;
     loader_config.shuffle = true;
     loader_config.use_dynamic_batching = true;
-    loader_config.augmentation_config.enable_token_masking = true;
-    loader_config.augmentation_config.token_mask_prob = 0.1f;
 
-    ParallelDataLoader loader(dataset, loader_config);
-    DataLoaderIterator iter(loader);
+    auto tokenizer_fn = [](const std::string& text) {
+        std::vector<int> tokens;
+        for (char c : text) {
+            tokens.push_back(static_cast<int>(static_cast<unsigned char>(c)));
+        }
+        return tokens;
+    };
+
+    TokenBatchLoader loader(dataset, loader_config, tokenizer_fn);
+    TokenBatchIterator iter(loader);
 
     // Process one epoch
     size_t total_sequences = 0;
-    BatchStatistics cumulative_stats;
 
     while (auto batch = iter.next()) {
-        EXPECT_GT(batch->sequences.size(), 0);
-        EXPECT_LE(batch->sequences.size(), loader_config.batch_size);
+        EXPECT_GT(batch->batch_size(), 0);
+        EXPECT_LE(static_cast<size_t>(batch->batch_size()), loader_config.batch_size);
 
-        // Verify masks match sequences
-        EXPECT_EQ(batch->sequences.size(), batch->masks.size());
+        // Verify lengths match batch size
+        EXPECT_EQ(static_cast<size_t>(batch->batch_size()), batch->lengths.size());
 
-        // Verify all sequences have same length (padded)
-        for (const auto& seq : batch->sequences) {
-            EXPECT_EQ(seq.size(), batch->max_length);
+        // Verify every row is padded to the batch's max length
+        for (const auto& row : batch->batch_token_ids) {
+            EXPECT_EQ(static_cast<int>(row.size()), batch->max_length);
         }
 
-        total_sequences += batch->sequences.size();
+        total_sequences += static_cast<size_t>(batch->batch_size());
     }
 
-    EXPECT_EQ(total_sequences, 50);
+    EXPECT_EQ(total_sequences, 50u);
 }
 
 int main(int argc, char** argv) {
