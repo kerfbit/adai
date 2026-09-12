@@ -695,7 +695,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open (CI added; release process still pending) | Android / CI | September 7, 2026 | 10-14 hours |
+| MEDIUM | Open (CI added; release process defined, first real release still pending) | Android / CI | September 7, 2026 | 10-14 hours |
 
 Description:
 41 files across `android/app` (15) and `android/opsdashboard`/`android/wearsync` (26) — the
@@ -723,15 +723,37 @@ Setting up this CI job also surfaced a real, already-shipped regression it now g
 `clearStaleTrainingLock` with the pre-TD-147 one-argument signature) — fixed alongside the CI
 work; see that commit for the full story.
 
+**Update (September 12, 2026, later same day):** [`android-release.md`](android-release.md) (the
+versioning/release convention doc) and [`android-release.yml`](../../../.github/workflows/android-release.yml)
+(the tag-triggered workflow enforcing it) added together — `app-vX.Y.Z`/`opsdashboard-vX.Y.Z` tags
+now validate `versionName`/`versionCode` against the tagged commit, re-run the full test suite, and
+build+publish both a debug-signed and an unsigned release APK to a GitHub Release, failing loudly
+before publishing anything if any check doesn't hold. Neither app has actually cut a real release
+with it yet — both are still at `0.1.0`/`versionCode 1` — but every path through the mechanism was
+verified against real GitHub Actions runs (on the kerfbit mirror, to avoid touching the primary
+`origin` repo's release history with test artifacts): a malformed tag (`app-v1.0.0-beta`) rejected
+before any other step ran, a version-mismatched tag (`app-v9.9.9` against the real `0.1.0` code)
+rejected with the expected error, a stale-`versionCode` tag (a throwaway commit bumping only
+`versionName`) rejected once a prior release existed to compare against, and a correct
+`app-v0.1.0` tag matching the code exactly running the full happy path — real `assembleRelease`/
+`assembleDebug` builds and a real GitHub Release with both APKs attached. All test tags, the
+throwaway commit/branch, and the test release were deleted afterward; nothing from this
+verification was left in place. Real production signing (a keystore + GitHub secrets) is
+explicitly out of scope — see the doc's own "Signing status" section for why that's a deliberate,
+one-way decision left to a human, not something to generate as a side effect of automating this.
+
 Action Items:
 
 - [x] Add a GitHub Actions workflow building both `:app` and `:opsdashboard` and running their
   unit tests (`./gradlew testDebugUnitTest`).
 - [ ] Resolve the `origin` repo's GitHub billing/spending-limit issue so `android-ci.yml` actually
   runs there (confirmed working on the kerfbit mirror already).
-- [ ] Establish a real release/versioning process before either app leaves `0.1.0` — intentionally
-  not attempted alongside the CI work above; it's a product/process decision (signing strategy,
-  distribution channel, version-bump cadence), not a mechanical fix.
+- [x] Establish a real release/versioning process before either app leaves `0.1.0` — defined in
+  `android-release.md` and mechanically enforced by `android-release.yml`.
+- [ ] Actually cut the first real release of each app under this process (both are still at
+  `0.1.0`/`versionCode 1`).
+- [ ] Set up real release signing (production keystore + GitHub secrets) once someone has made the
+  keystore-custody decision `android-release.md` calls out.
 
 Files to Modify:
 
@@ -739,6 +761,7 @@ Files to Modify:
   `android/wearsync/src/main` tagged `beta` — see [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md)
   for the exact list.
 - `.github/workflows/android-ci.yml` — done.
+- `docs/development/guides/android-release.md`, `.github/workflows/android-release.yml` — done.
 
 ---
 
