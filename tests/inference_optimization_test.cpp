@@ -5,6 +5,8 @@
  */
 
 #include <gtest/gtest.h>
+#include <atomic>
+#include <thread>
 #include <vector>
 #include "BatchProcessor.hpp"
 #include "Decoder.hpp"
@@ -387,6 +389,60 @@ TEST_F(PerformanceProfilerTest, ProfileScopeMacroTimesTheWholeBlockNotJustItsOwn
     EXPECT_GT(stats.total_time, 0.01)
         << "PROFILE_SCOPE recorded near-zero time despite a large busy-loop inside its "
            "scope — stop() likely ran immediately instead of at scope exit";
+}
+
+// TD-038 follow-up: ChatbotAPI::generate_response() unconditionally wraps itself in
+// PROFILE_SCOPE(profiler_, "generate_response"), and chatbot_api_server serves
+// concurrent requests via httplib's real thread pool. Profiler::active_timers used to be
+// keyed by section name ALONE, so two threads concurrently timing the *same* name shared
+// one Timer instance: a later start() overwrote an earlier one's start_time, and once one
+// thread's stop() stopped that shared Timer, the other thread's later stop() found it
+// already stopped and silently recorded 0ms instead of its real elapsed time — a wrong
+// measurement, not merely a data race. Fixed by keying active_timers on
+// (name, thread::id). This test forces a specific, deterministic interleaving (via
+// synchronization flags, not scheduling luck) rather than hoping a race manifests:
+// thread_a starts "shared_section", thread_b starts the SAME name ~100ms later and
+// finishes quickly, then thread_a finally stops. Pre-fix, thread_a's recorded timing
+// comes out as ~0ms; post-fix it reflects its own real ~130ms span.
+TEST_F(PerformanceProfilerTest, ConcurrentSameSectionNameFromDifferentThreadsRecordsIndependentTimings) {
+    Profiler profiler;
+    std::atomic<bool> a_started{false};
+    std::atomic<bool> b_finished{false};
+
+    std::thread thread_a([&]() {
+        profiler.start("shared_section");
+        a_started = true;
+        while (!b_finished.load()) {
+            std::this_thread::yield();
+        }
+        profiler.stop("shared_section");
+    });
+
+    while (!a_started.load()) {
+        std::this_thread::yield();
+    }
+    // Let thread_a's timer "run" for a while before thread_b starts the same named
+    // section concurrently — a large, reliable gap (not dependent on scheduler luck).
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    std::thread thread_b([&]() {
+        profiler.start("shared_section");
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        profiler.stop("shared_section");
+        b_finished = true;
+    });
+
+    thread_a.join();
+    thread_b.join();
+
+    ProfileStats stats = profiler.get_stats("shared_section");
+    ASSERT_EQ(stats.call_count, 2);
+    EXPECT_GT(stats.min_time, 10.0)
+        << "one of the two concurrent same-name timings was recorded as ~0ms — "
+           "active_timers is not correctly isolated per thread";
+    EXPECT_GT(stats.max_time, 90.0)
+        << "the longer-running thread's timing was corrupted by the other thread's "
+           "concurrent start() call on the same section name";
 }
 
 // ============================================================================

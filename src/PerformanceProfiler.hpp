@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.0
+// @adai-version: 1.0.1
 // @adai-reviewed: 2026-09-12
 
 
@@ -10,7 +10,9 @@
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 /**
@@ -213,40 +215,74 @@ struct ProfileStats {
 
 /**
  * Profiler for tracking multiple named sections
+ *
+ * Thread-safety (fixed — see below): `profiles`/`active_timers` are shared
+ * state, and this class is genuinely used from multiple threads —
+ * ChatbotAPI::generate_response() unconditionally wraps itself in
+ * PROFILE_SCOPE(profiler_, "generate_response") (TD-038), and
+ * chatbot_api_server serves concurrent requests via httplib's real thread
+ * pool. Two problems existed, not just one:
+ *
+ *  1. Plain data race: concurrent start()/stop()/get_stats() calls mutate
+ *     `std::map`s with no locking at all — real UB (corruption/crash
+ *     potential), not merely "unlikely interleavings look weird".
+ *  2. Deeper logical bug, orthogonal to locking: `active_timers` was keyed
+ *     by section name ALONE. Two threads concurrently timing the *same*
+ *     name (exactly generate_response's case) would share one Timer
+ *     instance — the second thread's start() overwrites the first's
+ *     start_time, so whichever thread calls stop() first measures the
+ *     WRONG thread's elapsed time. A mutex alone fixes #1 but not #2:
+ *     serializing access to a single shared Timer doesn't make its
+ *     recorded duration correct for concurrent invocations.
+ *
+ * Fixed by keying active_timers on (name, thread::id) — each thread gets
+ * its own independent Timer per section name, so concurrent same-name
+ * start()/stop() pairs never interfere, while single-threaded callers
+ * (e.g. inference_optimization_test.cpp's sequential start()/stop() calls)
+ * see identical behavior to before (one thread ⇒ one key). The mutex then
+ * only needs to protect map structure/iteration, not cross-thread timing
+ * correctness.
  */
 class Profiler {
    private:
     std::map<std::string, ProfileStats> profiles;
-    std::map<std::string, Timer> active_timers;
+    std::map<std::pair<std::string, std::thread::id>, Timer> active_timers;
+    mutable std::mutex mutex_;
 
    public:
     /**
      * Start timing a named section
      */
     void start(const std::string& name) {
+        std::lock_guard<std::mutex> lock(mutex_);
         if (profiles.find(name) == profiles.end()) {
             profiles[name] = ProfileStats(name);
         }
-        active_timers[name].start();
+        active_timers[{name, std::this_thread::get_id()}].start();
     }
 
     /**
      * Stop timing a named section
      */
     void stop(const std::string& name) {
-        if (active_timers.find(name) == active_timers.end()) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto key = std::make_pair(name, std::this_thread::get_id());
+        auto it = active_timers.find(key);
+        if (it == active_timers.end()) {
             std::cerr << "Warning: Timer '" << name << "' was never started" << std::endl;
             return;
         }
 
-        double elapsed = active_timers[name].stop();
+        double elapsed = it->second.stop();
         profiles[name].add_timing(elapsed);
+        active_timers.erase(it);
     }
 
     /**
      * Get statistics for a specific profile
      */
     ProfileStats get_stats(const std::string& name) {
+        std::lock_guard<std::mutex> lock(mutex_);
         if (profiles.find(name) == profiles.end()) {
             return ProfileStats(name);
         }
@@ -260,6 +296,7 @@ class Profiler {
      * Print all profiles
      */
     void print_all() {
+        std::lock_guard<std::mutex> lock(mutex_);
         std::cout << "\n=== Profiling Results ===" << std::endl;
         for (auto& pair : profiles) {
             pair.second.compute_median();
@@ -273,6 +310,7 @@ class Profiler {
      * Reset all profiles
      */
     void reset() {
+        std::lock_guard<std::mutex> lock(mutex_);
         profiles.clear();
         active_timers.clear();
     }
