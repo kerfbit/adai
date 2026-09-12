@@ -752,8 +752,11 @@ Action Items:
   `android-release.md` and mechanically enforced by `android-release.yml`.
 - [ ] Actually cut the first real release of each app under this process (both are still at
   `0.1.0`/`versionCode 1`).
-- [ ] Set up real release signing (production keystore + GitHub secrets) once someone has made the
-  keystore-custody decision `android-release.md` calls out.
+- [x] Decide on real release signing — deliberately deferred (September 12, 2026): both apps are
+  currently side-loaded on the maintainer's own devices, not distributed further, so the
+  debug-signed APK already produced is sufficient. `android-release.md`'s "Signing status"
+  section records the concrete plan for if/when that changes (self-managed keystore vs. Play App
+  Signing) so this doesn't need to be re-decided later.
 
 Files to Modify:
 

@@ -103,8 +103,28 @@ secrets, and wiring a `signingConfigs.release` block to it — is a deliberate, 
 whoever holds that keystore can publish updates to the same Play Store listing (or the same
 install identity) forever, and losing it means never being able to update the app under that
 identity again. That's not something to generate as a side effect of a CI task; it needs an
-explicit decision about who holds the keystore and how it's backed up, and is intentionally left
-as follow-up work rather than done here.
+explicit decision about who holds the keystore and how it's backed up.
+
+**Decision (September 12, 2026):** real signing is deliberately deferred — both apps are
+currently installed via `adb`/side-load on the maintainer's own devices, not distributed to
+anyone else or through Play Store, so the debug-signed APK the release workflow already produces
+is sufficient. **If that changes** — either app starts going to other people, or Play Store
+distribution becomes the real plan — revisit this:
+
+- **Self-managed keystore** (the default answer for direct/GitHub-Releases distribution, no Play
+  Store): the maintainer generates a keystore locally (`keytool -genkeypair -v -keystore
+  release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias <app>`), backs the resulting
+  `.jks` file up somewhere durable and secure themselves (this is the single point of failure —
+  losing it is exactly the one-way loss described above), and adds it plus its passwords as
+  GitHub encrypted repo secrets themselves (`gh secret set` or the web UI — not something an
+  assistant should do on a human's behalf, since it means entering real credentials). A
+  `signingConfigs.release` block reading those secrets would then need to be added to both
+  `build.gradle.kts` files and `android-release.yml`'s build step.
+- **Play App Signing** (only if/when Play Store distribution actually happens): Google holds the
+  final signing key and the developer only manages a recoverable upload key — the better answer
+  for `:app` specifically if it's ever meant for the Play Store, since losing an upload key is
+  fixable through Play Console rather than fatal. Doesn't apply to the current GitHub-Releases
+  distribution at all.
 
 ## Troubleshooting
 
