@@ -49,6 +49,19 @@ jobs:
     - name: Set up Android SDK
       uses: android-actions/setup-android@v4
 
+    - name: Generate a debug keystore
+      # wearface/build.gradle.kts's resignWffApk task calls apksigner directly against
+      # ~/.android/debug.keystore (the same well-known debug credentials AGP itself uses,
+      # pass:android / androiddebugkey) rather than going through AGP's own signing-config
+      # resolution — the one path that normally auto-creates this file on first use. On a
+      # local dev machine it already exists from prior Android Studio/Gradle use, but a fresh
+      # runner has nothing at that path, so resignWffApk fails with FileNotFoundException.
+      run: |
+        mkdir -p ~/.android
+        keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android \
+          -alias androiddebugkey -keypass android -dname "CN=Android Debug,O=Android,C=US" \
+          -keyalg RSA -keysize 2048 -validity 10000
+
     - name: Grant execute permission for gradlew
       run: chmod +x ./gradlew
 
