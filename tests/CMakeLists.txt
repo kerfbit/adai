@@ -1119,6 +1119,34 @@ if(TARGET mns_manager_gui)
              COMMAND bash "${ADAI_SMOKE_TEST_DIR}/mns_manager_gui_main_test.sh")
 endif()
 
+# ============================================================================
+# TD-049: tizen-metrics-app JS test suite
+#
+# tizen-metrics-app/js/{chart,navigation,app}.js had never had any automated test — this app
+# lives outside the C++/CMake build entirely, so there's no existing test infrastructure to
+# extend. Node's built-in `node:test`/`node:assert` (stable since Node 18, no npm install, no
+# package.json) plays the same role here that plain bash/unittest does for the scripts/ suite
+# above: no new dependency footprint for a project that has never had one for JS. Each file's
+# own real, unmodified source is executed via Node's built-in `vm` module against a small
+# hand-written DOM/canvas stub (tests/tizen/dom_stub.js) covering exactly what these three files
+# call — not jsdom or any other npm package. Wired as one ctest entry per file (matching the
+# scripts/ convention) rather than pointing at the whole tests/tizen directory, since Node's
+# directory-based test auto-discovery doesn't recognize this project's `*_test.js` naming
+# (confirmed directly: `node --test tests/tizen` fails outright rather than silently finding zero
+# tests, because nothing matches its default file-discovery glob).
+find_program(NODE_EXECUTABLE node)
+if(NODE_EXECUTABLE)
+    foreach(_js_test IN ITEMS
+        chart_test.js
+        navigation_test.js
+        app_test.js
+    )
+        string(REPLACE "_test.js" "" _js_test_name "${_js_test}")
+        add_test(NAME TizenJsTests_${_js_test_name}
+                 COMMAND ${NODE_EXECUTABLE} --test "${CMAKE_SOURCE_DIR}/tests/tizen/${_js_test}")
+    endforeach()
+endif()
+
 # TD-064: no test in this file had a TIMEOUT property, so ctest had no way to
 # bound a hung test — confirmed the hard way when paralleldataloaderTests hung
 # for ~9 hours under a full `ctest -j8` run (both its threads genuinely

@@ -4,6 +4,89 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-049: No JS Test Framework for the Tizen TV App
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 12, 2026 | `tizen-metrics-app/js/{chart,navigation,app}.js` | New `tests/tizen/` suite (44 tests) using Node's built-in `node:test`; 2 of 3 files promoted to `stable` |
+
+Summary:
+`tizen-metrics-app/js/{app,chart,navigation}.js` had no test framework at all. Added
+`tests/tizen/` with one test file per app file, using Node's built-in `node:test`/
+`node:assert/strict` (stable since Node 18, no npm install, no `package.json`) — the same
+"no new dependency footprint" stance the C++ side already takes for `tests/scripts/` (plain bash/
+Python `unittest`, no bats-core/pytest). A small hand-written DOM/canvas stub
+(`tests/tizen/dom_stub.js`) covers exactly the browser surface these three files actually call —
+not jsdom or any other npm package — and each real, unmodified `.js` file is executed against it
+via Node's built-in `vm` module, so tests exercise the actual shipped source, not a
+reimplementation of its logic.
+
+- **`chart.js`** (7 tests): `LossChart`'s coordinate math — the piece this TD's own action items
+  called out as "the most testable without a real DOM/TV remote" — verified by asserting on the
+  exact coordinates `draw()` passes to a fake canvas 2D context that records every call
+  (`arc`/`fillText`/etc.), for real data, the empty-data state, single-valid-point series (which
+  `drawSeries()` deliberately skips), non-finite (`NaN`/`Infinity`) filtering, and custom vs.
+  default x-axis labels.
+- **`navigation.js`** (19 tests): `TVNav`'s remote-control key-code dispatch (`OK`/`BACK`/color
+  keys/`EXIT`/an unrecognized code) and its distance-weighted spatial neighbor search
+  (`_findNeighbor` — nearest-in-direction, closer-of-two-candidates, and the 2.5x off-axis
+  distance penalty), plus `refresh()`'s visibility filtering, `focusById()`, `_move()`'s
+  no-focus fallback, and `destroy()`.
+- **`app.js`** (18 tests): unlike its siblings, app.js exports nothing onto `window` and its
+  whole IIFE runs top-level browser calls (`localStorage`, `document.getElementById` for every
+  UI element, `setInterval`, `DOMContentLoaded`) the instant it loads — stubbing all of that for
+  very little payoff, since none of it is pure logic. Instead, added `extractFunction()`/
+  `extractFunctions()` to the shared stub: walks brace depth from the real file to pull out one
+  named top-level function's exact source (the same "read a snippet of a real, unmodified file"
+  technique `tests/scripts/harness.sh`'s `assert_find_build_dir_correct` already uses on the C++
+  side), then evaluates just that against a minimal stub. Covers the genuinely standalone
+  helpers that don't close over `app.js`'s own `Config`/`State`/`UI` module state: `fmt`/
+  `fmtInt`/`fmtTime`/`pad2`/`fmtLR` (number/time formatting, including the "a real zero must not
+  read as 'no data'" case TD-132 already fixed), `gaugeArcPath` (SVG arc math, including the
+  large-arc-flag boundary), `escapeHtml` (the TD-153 DOM-serializer XSS fix), and the three
+  color-threshold helpers (`applyRangeColor`/`applyGenQualColor`/`applyLRColor`). The bulk of
+  `app.js` — `applyMetrics()`'s ~200-line dashboard update, the polling/retry state machine, the
+  settings and session-picker overlays, gauge-needle animation — remains untested; that's a much
+  larger lift than this item's own LOW/4-6h scope anticipated; see "Files to Modify" for the
+  files this leaves at `beta`.
+
+Every test's real regression-catching power was verified directly, not assumed: one representative
+assertion in each of the three test files was checked against a temporarily broken copy of the
+real source (chart.js's `xFor()` offset by a constant, navigation.js's off-axis penalty weight
+gutted, app.js's `fmtLR()` scientific-notation threshold moved) — confirmed to fail — then the
+source was restored and the suite reconfirmed passing. One test-writing mistake was itself
+caught this way: an early `fmt()` test assumed a non-numeric string like `'training'` would pass
+through unformatted, but `fmt()`'s own `isNaN(val)` check uses the global `isNaN`, which coerces
+its argument first — `isNaN('training')` is `true` (`Number('training')` is `NaN`), so that
+string actually renders as `'—'` ("no data"), not itself. Not a bug in `fmt()` — a real, if
+slightly surprising, existing behavior — the test was corrected to assert the actual behavior and
+a second test added distinguishing it from a value that genuinely survives the coercion (a
+boolean, or a numeric-looking string).
+
+Wired into `ctest` as `TizenJsTests_chart`/`TizenJsTests_navigation`/`TizenJsTests_app`
+(`find_program(NODE_EXECUTABLE node)`-gated, so the suite no-ops on a machine without Node
+instead of failing) — one entry per file rather than pointing `ctest` at the whole `tests/tizen`
+directory, since Node's directory-based test auto-discovery doesn't recognize this project's
+`*_test.js` naming (confirmed directly: `node --test tests/tizen` fails outright — `Cannot find
+module '.../tests/tizen'` — rather than silently finding zero tests, because nothing in the
+directory matches Node's default file-discovery glob).
+
+Promoted `chart.js` and `navigation.js` to `stable` (`0.6.0` → `1.0.0`): each now has coverage
+close to the entirety of its actual logic (construction, the full public method surface, and the
+edge cases that matter), with no known correctness gap. `app.js` stays `beta` (`0.7.1` → `0.8.0`)
+— the tested helpers are a small fraction of a 1069-line file whose majority (dashboard-update
+orchestration, polling/retry, settings/session-picker UI flows) remains completely untested;
+calling that `stable` would overstate what's actually covered.
+
+Files Modified:
+
+- `tests/tizen/dom_stub.js`, `tests/tizen/chart_test.js`, `tests/tizen/navigation_test.js`,
+  `tests/tizen/app_test.js` (all new, 44 tests total)
+- `tests/CMakeLists.txt` — wired in as `TizenJsTests_*`, gated on `find_program(NODE_EXECUTABLE)`
+- `tizen-metrics-app/js/chart.js`, `tizen-metrics-app/js/navigation.js` — tag bump only,
+  `beta 0.6.0` → `stable 1.0.0`
+- `tizen-metrics-app/js/app.js` — tag bump only, `beta 0.7.1` → `beta 0.8.0`
+
 ### TD-035: Shipped Daemon/CLI Binaries Have No Dedicated Test
 
 | Resolution Date | Component | Resolved By |

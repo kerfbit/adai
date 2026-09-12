@@ -718,29 +718,6 @@ Files to Modify:
 
 ---
 
-### TD-049: No JS Test Framework for the Tizen TV App
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Tizen / Testing | September 7, 2026 | 4-6 hours |
-
-Description:
-`tizen-metrics-app/js/{app,chart,navigation}.js` have no test framework at all — unlike the rest
-of the tree, this app has never had one. All three are wired into `index.html`, iterated on over
-24 commits, and actually deployed to Samsung TV hardware, so this isn't a correctness concern,
-just a gap: nothing would catch a regression before it ships to the TV.
-
-Action Items:
-
-- [ ] Add a minimal JS test setup (e.g. a small assertion helper run via Node, or a headless
-  browser harness) for the pure-logic pieces — `chart.js`'s coordinate math and `navigation.js`'s
-  key-code mapping are the most testable without a real DOM/TV remote.
-
-Files to Modify:
-
-- `tizen-metrics-app/js/app.js`, `tizen-metrics-app/js/chart.js`,
-  `tizen-metrics-app/js/navigation.js`
-
 ---
 
 ### TD-051: IncrementalTrainer::load_conversation_pairs() Is an Unmigrated Duplicate
@@ -853,7 +830,7 @@ Files to Modify:
 
 ## Resolved Items
 
-137 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+138 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements

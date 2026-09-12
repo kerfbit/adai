@@ -6,9 +6,9 @@
    API docs: /docs/TRAINING_METRICS_API.md
    ============================================================ */
 
-// @adai-status: beta        (documented, wired into index.html, deployed to Samsung TV hardware; no automated test coverage exists for this app; capped by TD-049 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.7.1
-// @adai-reviewed: 2026-09-10
+// @adai-status: beta        (TD-049 partially resolved — pure formatting/color/gauge-math helpers now tested; the bulk of this file's dashboard-update, polling/retry, and settings/session-picker UI logic remains untested)
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-09-12
 
 (function(window) {
     'use strict';
