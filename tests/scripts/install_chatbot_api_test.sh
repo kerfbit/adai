@@ -79,6 +79,11 @@ for flag in --user --group; do
     assert_exit 1
     assert_contains "contains invalid characters"
 
+    t "$flag rejects a leading dash (TD-158)"
+    run bash "$TARGET" "$flag" '-r'
+    assert_exit 1
+    assert_contains "must not start with '-'"
+
     t "$flag accepts an ordinary identifier, proceeds to the EUID guard"
     run bash "$TARGET" "$flag" "chatbotsvc"
     assert_not_contains "contains invalid characters"

@@ -74,6 +74,11 @@ for flag in --user --group --pg-db-name --pg-db-user; do
     run bash "$TARGET" "$flag" 'bad;value' --yes
     assert_exit 1
     assert_contains "contains invalid characters"
+
+    t "$flag rejects a leading dash (TD-158)"
+    run bash "$TARGET" "$flag" '-r' --yes
+    assert_exit 1
+    assert_contains "must not start with '-'"
 done
 
 # ---------------------------------------------------------------------------

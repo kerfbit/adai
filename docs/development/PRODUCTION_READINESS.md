@@ -134,12 +134,12 @@ None — every in-scope file carries a tag.
 | `scripts/check_intel_driver_updates.py` | beta | 0.6.1 | 2026-09-11 | TD-045 |
 | `scripts/cloudflared/install_cloudflared.sh` | beta | 0.1.1 | 2026-09-11 | TD-043 |
 | `scripts/docker_build.sh` | beta | 0.8.4 | 2026-09-11 | TD-043 |
-| `scripts/install_chatbot_API.sh` | beta | 0.8.3 | 2026-09-12 | TD-043 |
-| `scripts/install_incremental_trainer.sh` | beta | 0.8.2 | 2026-09-11 | TD-043 |
-| `scripts/install_metrics_service.sh` | beta | 0.8.2 | 2026-09-11 | TD-043 |
-| `scripts/install_mns_server.sh` | beta | 0.8.3 | 2026-09-11 | TD-043 |
+| `scripts/install_chatbot_API.sh` | beta | 0.8.4 | 2026-09-12 | TD-043 |
+| `scripts/install_incremental_trainer.sh` | beta | 0.8.3 | 2026-09-12 | TD-043 |
+| `scripts/install_metrics_service.sh` | beta | 0.8.3 | 2026-09-12 | TD-043 |
+| `scripts/install_mns_server.sh` | beta | 0.8.4 | 2026-09-12 | TD-043 |
 | `scripts/install_oneapi_libs.sh` | beta | 0.7.3 | 2026-09-11 | TD-043 |
-| `scripts/install_server_bundle.sh` | beta | 0.8.5 | 2026-09-11 | TD-043 |
+| `scripts/install_server_bundle.sh` | beta | 0.8.6 | 2026-09-12 | TD-043 |
 | `scripts/manual_test_reload.sh` | beta | 0.6.2 | 2026-09-11 | TD-044 |
 | `scripts/model_service.sh` | beta | 0.8.3 | 2026-09-11 | TD-043 |
 | `scripts/package-sycl.sh` | beta | 0.7.1 | 2026-09-11 | TD-043 |

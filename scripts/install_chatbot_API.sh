@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# @adai-status: beta        (TD-043, TD-157 resolved)
-# @adai-version: 0.8.3
+# @adai-status: beta        (TD-043, TD-157, TD-158 resolved)
+# @adai-version: 0.8.4
 # @adai-reviewed: 2026-09-12
 
 # ADAI Chatbot API - systemd Service Installation Script
@@ -86,6 +86,15 @@ validate_identifier() {
     local flag="$1" val="$2"
     if [[ -z "${val}" ]]; then
         error "${flag}: value must not be empty"
+        exit 1
+    fi
+    # TD-158: the character class below (a-z A-Z 0-9 . _ -) permits a leading '-', so
+    # e.g. --user -r passed this check and reached useradd/groupadd/usermod as a bare
+    # -r-style token — indistinguishable from a real command-line option depending on
+    # that command's own argument-parsing order. Same fix, same rationale, applied
+    # identically across every install script sharing this function.
+    if [[ "${val}" == -* ]]; then
+        error "${flag}: '${val}' must not start with '-' (could be misread as a command-line option)"
         exit 1
     fi
     if [[ ! "${val}" =~ ^[a-zA-Z0-9._-]+$ ]]; then

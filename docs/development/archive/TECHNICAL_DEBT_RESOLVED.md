@@ -4,6 +4,46 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-158: validate_identifier's Allowlist Permitted a Leading '-' Across Five Install Scripts
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 12, 2026 | `scripts/install_metrics_service.sh`, `install_mns_server.sh`, `install_server_bundle.sh`, `install_incremental_trainer.sh`, `install_chatbot_API.sh` | Added a leading-`-` rejection to `validate_identifier`, identical across all five files |
+
+Summary:
+`validate_identifier()` — byte-identical across all five install scripts (confirmed via `md5sum`
+before and after this fix) — used the character class `^[a-zA-Z0-9._-]+$` for `--user`/`--group`
+(and, in `install_server_bundle.sh`, `--pg-db-name`/`--pg-db-user` too, per TD-149). That class
+includes `-`, so it permits a leading `-`: a value like `--user -r` passed validation intact and
+reached `useradd`/`groupadd`/`usermod` as a bare `-r`-style token — indistinguishable from a real
+command-line option depending on that command's own argument-parsing order. Found immediately
+after TD-157 (which copied this same function, unmodified, into `install_chatbot_API.sh`) while
+reviewing what `validate_identifier` does and doesn't actually reject.
+
+Changes Made:
+- Added an explicit `[[ "${val}" == -* ]]` check (rejecting with a clear message) to
+  `validate_identifier` in all five scripts, ahead of the existing character-class check —
+  identical wording and placement in every file, keeping them byte-for-byte the same as they were
+  before this fix (verified via `md5sum` on the extracted function body in each).
+- Extended each corresponding test file under `tests/scripts/` (`install_metrics_service_test.sh`,
+  `install_mns_server_test.sh`, `install_server_bundle_test.sh`, `install_incremental_trainer_test.sh`,
+  `install_chatbot_api_test.sh`) with a test asserting `--user -r`-style values are now rejected
+  (plus `--pg-db-name`/`--pg-db-user` in `install_server_bundle.sh`'s case).
+
+Verification:
+- ✅ `bash -n` on all five scripts: passes.
+- ✅ Ran each real script directly (not root) with `--user -r`: rejected with the new error
+  message before reaching any privileged operation; `--user validname` still proceeds cleanly to
+  each script's own EUID guard, unchanged. Spot-checked `install_server_bundle.sh --pg-db-name -r`
+  and `install_metrics_service.sh --group -r` too.
+- ✅ Standard revert-confirm-fail cycle, run against all five scripts: temporarily removed the new
+  check from each (scripted via a small Python regex substitution to keep the five edits
+  identical), reran each corresponding test file, confirmed exactly the new leading-dash tests
+  failed in every file (2 in four of them, 4 in `install_server_bundle_test.sh` for its extra
+  `--pg-db-name`/`--pg-db-user` cases) while every pre-existing test kept passing, then restored
+  all five from backups and reconfirmed the full suite is green.
+- ✅ Full `tests/scripts/` suite (26 files): all pass, no regressions.
+
 ### TD-157: install_chatbot_API.sh's --install-path/--user/--group/--port Had Zero Validation
 
 | Resolution Date | Component | Resolved By |
