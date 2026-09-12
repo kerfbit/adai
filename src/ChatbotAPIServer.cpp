@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.2.0
+// @adai-version: 1.3.0
 // @adai-reviewed: 2026-09-12
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
@@ -110,6 +110,11 @@ void print_usage(const char* program_name) {
            "(default: nucleus)\n"
         << "  --profile            Enable GET /admin/profile (generate_response() timing "
            "stats)\n"
+        << "  --batched-inference  Route generation through a background queue/worker thread\n"
+           "                       (real batching, not per-request) instead of running inline\n"
+           "                       on the HTTP handler's thread\n"
+        << "  --batch-timeout-ms <n>  Max wait to collect a batch when --batched-inference is\n"
+           "                       set (default: 50)\n"
         << "  --help               Show this help message\n"
         << "\nEnvironment Variables:\n"
         << "  All configuration can be set via environment variables.\n"
@@ -330,6 +335,17 @@ int main(int argc, char* argv[]) {
             adai::Logger::info("  Profiling enabled: GET /admin/profile");
         }
 
+        // TD-038: --batched-inference routes generate_response() through a background
+        // queue/worker thread (BatchedInferenceEngine) instead of running inline on the HTTP
+        // handler's own thread.
+        if (cli.batched_inference) {
+            BatchedInferenceConfig batch_config;
+            batch_config.timeout_ms = cli.batch_timeout_ms;
+            api->enable_batched_inference(batch_config);
+            adai::Logger::info("  Batched inference enabled (batch timeout: {} ms)",
+                               cli.batch_timeout_ms);
+        }
+
         // Set generation configuration
         ChatbotAPI::GenerationConfig gen_config;
         gen_config.max_length = config.max_gen_length;
@@ -433,6 +449,10 @@ int main(int argc, char* argv[]) {
         if (draft_model) {
             adai::Logger::info("  Speculative decoding: enabled (K={}, draft={})",
                                config.speculative_num_candidates, config.draft_model_path);
+        }
+        if (cli.batched_inference) {
+            adai::Logger::info("  Batched inference: enabled (batch timeout: {} ms)",
+                               cli.batch_timeout_ms);
         }
         // TODO: See TECHNICAL_DEBT.md Future Enhancement (Container and Deployment #2) - Add /metrics endpoint
         // Expose Prometheus metrics: request_count, request_duration, active_sessions, etc.

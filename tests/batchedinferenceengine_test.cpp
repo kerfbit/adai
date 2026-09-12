@@ -51,6 +51,17 @@ static Matrix eos_model_fn(const std::vector<int>& /*tokens*/) {
 }
 
 /**
+ * Model forward function that always throws — used as a deliberately "poisoned" engine-default
+ * model_fn so a test can prove a per-request override (TD-038) was actually used instead of
+ * silently falling back to this one.
+ */
+static Matrix poison_default_model_fn(const std::vector<int>& /*tokens*/) {
+    throw std::runtime_error(
+        "poison_default_model_fn was invoked — a per-request model_fn override should have been "
+        "used instead");
+}
+
+/**
  * Convenience factory: engine that terminates generation immediately.
  * timeout_ms is set small for fast test execution.
  */
@@ -423,6 +434,53 @@ TEST_F(EngineFunctionalTest, SubmitGetsResult) {
 
     // Result should not throw
     EXPECT_NO_THROW(future.get());
+    engine.shutdown();
+}
+
+TEST_F(EngineFunctionalTest, SubmitWithPerRequestModelFnOverridesEngineDefault) {
+    // TD-038: BatchedInferenceEngine's single constructor-time model_fn_ can't represent a fresh
+    // encoder input per request in an encoder-decoder architecture (a genuine gap this same file
+    // already fixed once for gen_config, see the TD-092 comment on InferenceRequest above) — so
+    // submit() now accepts a per-request model_fn override. Constructs the engine with a
+    // deliberately poisoned default (throws if ever invoked) and confirms a request supplying
+    // its own well-behaved override succeeds — proving process_batch() actually used the
+    // per-request function rather than silently falling back to the poisoned default.
+    auto tok = make_tokenizer();
+    BatchedInferenceEngine engine(poison_default_model_fn, tok, fast_config());
+
+    TextGenerator::GenerationConfig gen_config;
+    auto future = engine.submit("hello", &gen_config, eos_model_fn);
+
+    auto status = future.wait_for(std::chrono::seconds(5));
+    ASSERT_EQ(status, std::future_status::ready);
+    EXPECT_NO_THROW(future.get());
+    engine.shutdown();
+}
+
+TEST_F(EngineFunctionalTest, EmptyResponseFromOneRequestDoesNotFailOtherRequestsInSameBatch) {
+    // Regression test: eos_model_fn (above) makes generate_text() legitimately return an empty
+    // string, since sampling picks EOS as the very first token — a real, valid outcome. Fixed
+    // bug: process_batch()'s token-count stats update called tokenizer_->encode() on that empty
+    // string, which throws ("Input text is empty"). Left unguarded, that exception escaped the
+    // "distribute results" loop into the batch-wide catch clause, which sets an exception on
+    // *every* request in the batch — including ones queued after the one that first hit the
+    // empty-string case, even though generate_text() had already produced a valid result for
+    // each of them. One request's empty response would spuriously fail every other request
+    // batched alongside it. A long timeout_ms keeps this batch's collection window open long
+    // enough for all three back-to-back submit_batch() calls below to land in the same batch.
+    BatchedInferenceConfig cfg;
+    cfg.timeout_ms = 200;
+    auto tok = make_tokenizer();
+    BatchedInferenceEngine engine(eos_model_fn, tok, cfg);
+
+    auto futures = engine.submit_batch({"a", "b", "c"});
+    ASSERT_EQ(futures.size(), 3u);
+
+    for (auto& f : futures) {
+        auto status = f.wait_for(std::chrono::seconds(5));
+        ASSERT_EQ(status, std::future_status::ready);
+        EXPECT_NO_THROW(f.get());
+    }
     engine.shutdown();
 }
 

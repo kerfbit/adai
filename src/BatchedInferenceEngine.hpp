@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-038 — tested but not wired into any shipped binary)
-// @adai-version: 0.7.1
-// @adai-reviewed: 2026-09-10
+// @adai-status: stable
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-09-12
 
 /**
  * @file BatchedInferenceEngine.hpp
@@ -105,6 +105,14 @@ struct InferenceRequest {
     std::promise<std::string> result;                   ///< Promise for async result
     std::chrono::steady_clock::time_point submit_time;  ///< Time request was submitted
     TextGenerator::GenerationConfig gen_config;         ///< Per-request generation config
+    // TD-038: per-request model forward function — empty (the default) means "use the engine's
+    // own model_fn_ set at construction", same as every request did before this field existed.
+    // An encoder-decoder model needs a *different* encoder input baked into this function for
+    // every single request (there is no single "the model" forward function independent of what
+    // was just asked), so a real caller for this architecture must always supply one — this
+    // mirrors TD-092's fix just above (gen_config used to be silently ignored per-request the
+    // same way; this field closes the identical gap for model_fn).
+    TextGenerator::ModelForwardFn model_fn;
 
     InferenceRequest() = default;
 
@@ -112,7 +120,8 @@ struct InferenceRequest {
         : prompt(std::move(other.prompt)),
           result(std::move(other.result)),
           submit_time(other.submit_time),
-          gen_config(other.gen_config) {}
+          gen_config(other.gen_config),
+          model_fn(std::move(other.model_fn)) {}
 
     InferenceRequest& operator=(InferenceRequest&& other) noexcept {
         if (this != &other) {
@@ -120,6 +129,7 @@ struct InferenceRequest {
             result = std::move(other.result);
             submit_time = other.submit_time;
             gen_config = other.gen_config;
+            model_fn = std::move(other.model_fn);
         }
         return *this;
     }
@@ -196,11 +206,16 @@ class BatchedInferenceEngine {
      *
      * @param prompt Input text prompt
      * @param gen_config Optional per-request generation config (uses default if not specified)
+     * @param model_fn Optional per-request model forward function (uses the engine's own
+     *        model_fn_ from construction if not specified). Required in practice for an
+     *        encoder-decoder model, where every request's own encoder input must be baked into
+     *        this function — see InferenceRequest::model_fn's doc comment (TD-038).
      * @return Future that will contain the generated text
      * @throws std::runtime_error if queue is full or engine is shutdown
      */
     std::future<std::string> submit(const std::string& prompt,
-                                    const TextGenerator::GenerationConfig* gen_config = nullptr) {
+                                    const TextGenerator::GenerationConfig* gen_config = nullptr,
+                                    TextGenerator::ModelForwardFn model_fn = nullptr) {
         if (!running_) {
             throw std::runtime_error("Cannot submit request: engine is shutdown");
         }
@@ -209,6 +224,7 @@ class BatchedInferenceEngine {
         request.prompt = prompt;
         request.submit_time = std::chrono::steady_clock::now();
         request.gen_config = gen_config ? *gen_config : default_gen_config_;
+        request.model_fn = std::move(model_fn);
 
         auto future = request.result.get_future();
 
@@ -432,24 +448,46 @@ class BatchedInferenceEngine {
             // fix sets it immediately before each request's own generate_text()
             // call — same sequential-generation shape generate_batch() had,
             // now actually honoring what each caller asked for.
+            // TD-038: same fix, same reasoning as TD-092's config passthrough right above — a
+            // request's own model_fn (when supplied; see InferenceRequest::model_fn) must be
+            // used for that request specifically, not the engine's constructor-time default
+            // for every request regardless of what encoder input it actually carries.
             std::vector<std::string> results;
             results.reserve(batch.size());
             for (const auto& req : batch) {
                 generator_->set_config(req.gen_config);
-                results.push_back(generator_->generate_text(model_fn_, *tokenizer_, req.prompt));
+                const auto& fn = req.model_fn ? req.model_fn : model_fn_;
+                results.push_back(generator_->generate_text(fn, *tokenizer_, req.prompt));
             }
             generator_->set_config(default_gen_config_);
 
             // Distribute results to promises
+            //
+            // (fixed): the stats-only token-count update below used to call tokenizer_->encode()
+            // unguarded, right after set_value(). generate_text() legitimately returns an empty
+            // string whenever sampling produces only special tokens (e.g. EOS as the very first
+            // token) — a real, valid outcome, not an error — but encode() throws on empty input
+            // ("Input text is empty"). That exception escaped this loop entirely and landed in
+            // the catch block below, which sets an exception on *every* request in the batch —
+            // including ones after index i that hadn't been distributed yet, even though
+            // generate_text() had already produced a perfectly good (if empty) result for each of
+            // them. One request's empty response would spuriously fail every other concurrently
+            // batched request. Stats tracking must never be able to affect promise fulfillment
+            // for this or any other request, so it's now isolated in its own try/catch.
             for (size_t i = 0; i < batch.size(); ++i) {
                 if (i < results.size()) {
                     batch[i].result.set_value(results[i]);
 
-                    // Update token count (approximate)
-                    auto tokens = tokenizer_->encode(results[i]);
-                    {
-                        std::lock_guard<std::mutex> lock(stats_mutex_);
-                        stats_.total_tokens_processed += tokens.size();
+                    // Update token count (approximate) — best-effort; must never fail the batch.
+                    try {
+                        if (!results[i].empty()) {
+                            auto tokens = tokenizer_->encode(results[i]);
+                            std::lock_guard<std::mutex> lock(stats_mutex_);
+                            stats_.total_tokens_processed += tokens.size();
+                        }
+                    } catch (const std::exception&) {
+                        // Approximate stat only; a tokenization quirk on the generated text must
+                        // not turn an already-successful result into a failed request.
                     }
                 } else {
                     batch[i].result.set_exception(std::make_exception_ptr(

@@ -14,6 +14,7 @@
 #include "BatchProcessor.hpp"
 #include "ConversationContext.hpp"
 #include "EncoderDecoderModel.hpp"
+#include "BatchedInferenceEngine.hpp"
 #include "PerformanceProfiler.hpp"
 #include "RAGInference.hpp"
 #include "SpeculativeDecoding.hpp"
@@ -149,6 +150,19 @@ class ChatbotAPI {
     }
 
     /**
+     * @brief Enable batched/queued inference mode (TD-038).
+     *
+     * generate_response() normally runs generation inline on the HTTP handler's own thread.
+     * With this enabled, it instead submits the request to a background BatchedInferenceEngine
+     * worker thread and blocks on the returned future — real queueing/batching behavior, not a
+     * no-op wrapper. Note this mode always uses BatchedInferenceEngine's combined
+     * top-k/top-p/temperature sampling (TextGenerator::generate_text()'s only decoding path);
+     * GenerationConfig::strategy ("greedy"/"beam"/etc.) is not consulted while this is enabled,
+     * the same way rag_engine_/draft_model_ above each override strategy for their own reasons.
+     */
+    void enable_batched_inference(const BatchedInferenceConfig& config = BatchedInferenceConfig());
+
+    /**
      * @brief Generate batch responses (stateless)
      * @param inputs Vector of input messages
      * @param config Generation configuration
@@ -227,6 +241,13 @@ class ChatbotAPI {
     // opt-in/out.
     EncoderDecoderModel* draft_model_{nullptr};
     int speculative_num_candidates_{4};
+
+    // Batched/queued inference (TD-038): owned (unlike model_/tokenizer_/draft_model_, which
+    // outlive this object and are never owned by it) since the engine's own background worker
+    // thread's lifetime needs to be tied to this object's, matching BatchedInferenceEngine's own
+    // RAII shutdown-on-destruct design. nullptr (default) means generate_response() runs inline
+    // on the caller's own thread, unchanged from before this member existed.
+    std::unique_ptr<BatchedInferenceEngine> batched_engine_;
 
     // RAG engine (optional; when set, all generate_response calls route through it)
     std::shared_ptr<RAGInference> rag_engine_;

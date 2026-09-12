@@ -649,6 +649,20 @@ void ChatbotAPI::enableRAG(std::shared_ptr<RAGInference> rag_engine) {
     rag_engine_ = std::move(rag_engine);
 }
 
+void ChatbotAPI::enable_batched_inference(const BatchedInferenceConfig& config) {
+    // The engine's own constructor requires a model_fn even though every real call this class
+    // makes always supplies its own per-request override (see generate_response() below) — this
+    // placeholder only exists to satisfy that requirement and should never actually run.
+    auto unused_placeholder_fn = [](const std::vector<int>&) -> Matrix {
+        throw std::logic_error(
+            "BatchedInferenceEngine's default model_fn was invoked — every submit() call from "
+            "ChatbotAPI must supply its own per-request model_fn (see generate_response())");
+    };
+    batched_engine_ = std::make_unique<BatchedInferenceEngine>(
+        unused_placeholder_fn, std::shared_ptr<BPETokenizer>(tokenizer_, [](BPETokenizer*) {}),
+        config);
+}
+
 // ============================================================================
 // Text Generation
 // ============================================================================
@@ -707,6 +721,30 @@ std::string ChatbotAPI::generate_response(const std::string& input,
             std::vector<int> generated_tokens =
                 decoder.generate_tokens({}, static_cast<int>(config.max_length));
             return tokenizer_->decode(generated_tokens);
+        }
+
+        // TD-038: batched/queued inference — submits to the background worker thread and blocks
+        // on the future, so generate_response() stays synchronous from the caller's point of
+        // view while real queueing/batching happens underneath. An empty prompt string keeps
+        // TextGenerator::generate_text() from tokenizing anything as *decoder* seed tokens (its
+        // own "prompt" concept is a text-continuation seed, not an encoder input) — the actual
+        // request text is instead baked into request_model_fn, exactly like every other path in
+        // this function bakes it into model_fn. Captured by value (not reference, unlike the
+        // other paths' model_fns): this closure runs on a different thread after this scope may
+        // already be blocked in future.get() below, and a by-value copy needs no lifetime
+        // coordination beyond that block.
+        if (batched_engine_) {
+            TextGenerator::GenerationConfig gen_config;
+            gen_config.max_length = static_cast<int>(config.max_length);
+            gen_config.temperature = config.temperature;
+            gen_config.top_p = config.top_p;
+            gen_config.top_k = static_cast<int>(config.top_k);
+
+            auto request_model_fn = [this, input_tokens](const std::vector<int>& decoder_tokens)
+                -> Matrix { return model_->forward(input_tokens, decoder_tokens); };
+
+            auto future = batched_engine_->submit("", &gen_config, request_model_fn);
+            return future.get();
         }
 
         // Create a TextGenerator with appropriate configuration

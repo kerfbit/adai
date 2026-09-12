@@ -82,6 +82,15 @@ class ChatbotAPITest : public ::testing::Test {
     std::string call_handle_profile() {
         return api->handle_profile();
     }
+
+    // batched_engine_ is private; same friendship-doesn't-propagate reason as
+    // call_generate_response() above (TD-038). Used to prove generate_response() actually routed
+    // a request through the engine's real queue/worker thread, not merely that it didn't throw —
+    // the plain (non-batched) path can also succeed and throw nothing, so total_requests is the
+    // discriminator that only the batched path can move.
+    BatchedInferenceStats call_get_batched_stats() {
+        return api->batched_engine_ ? api->batched_engine_->get_stats() : BatchedInferenceStats();
+    }
 };
 
 // ============================================================================
@@ -873,6 +882,100 @@ TEST_F(ChatbotAPITest, SpeculativeDecoding_NoDraftModelUsesNormalPathUnaffected)
     config.max_length = 5;
     config.strategy = "greedy";
     EXPECT_NO_THROW(call_generate_response("hello", config));
+}
+
+// ============================================================================
+// Batched Inference (TD-038): BatchedInferenceEngine wiring
+// ============================================================================
+//
+// Integration tests in the same sense as the two sections above — proving generate_response()
+// genuinely routes through a real BatchedInferenceEngine worker thread (not a no-op wrapper)
+// via real (small) inference through a real ChatbotAPI instance.
+
+TEST_F(ChatbotAPITest, BatchedInference_DisabledByDefaultUsesNormalPathUnaffected) {
+    // No enable_batched_inference() call — confirms adding batched_engine_ didn't disturb the
+    // existing, already-covered normal generation path.
+    ChatbotAPI::GenerationConfig config;
+    config.max_length = 5;
+    config.strategy = "greedy";
+    EXPECT_NO_THROW(call_generate_response("hello", config));
+}
+
+TEST_F(ChatbotAPITest, BatchedInference_EnabledGeneratesThroughTheQueueWithoutThrowing) {
+    // A short timeout keeps this test fast rather than waiting out the default 50ms per request.
+    BatchedInferenceConfig batch_config;
+    batch_config.timeout_ms = 10;
+    api->enable_batched_inference(batch_config);
+
+    ChatbotAPI::GenerationConfig config;
+    config.max_length = 5;
+    config.strategy = "greedy";
+    EXPECT_NO_THROW(call_generate_response("hello world", config));
+
+    // Falsifiable proof the request actually went through the engine's real queue/worker thread
+    // rather than silently falling through to the plain inline path (which would also succeed
+    // without throwing, so EXPECT_NO_THROW alone doesn't prove this).
+    EXPECT_EQ(call_get_batched_stats().total_requests, 1u);
+}
+
+TEST_F(ChatbotAPITest, BatchedInference_ConcurrentRequestsAllCompleteCorrectly) {
+    // Real proof of wiring: if generate_response() silently fell back to the inline path (or the
+    // engine's worker thread were broken), this would either hang (nothing ever resolves the
+    // futures) or throw. Firing several requests concurrently from real threads exercises the
+    // engine's actual queue/worker-thread machinery, not just a single call that could coincidentally
+    // succeed even if submit()/process_batch() were subtly wrong. This is also the test that
+    // surfaced (and, once fixed, now safely exercises) the Profiler thread-safety bug: every one of
+    // these concurrent generate_response() calls internally profiles itself via the always-on
+    // PROFILE_SCOPE.
+    BatchedInferenceConfig batch_config;
+    batch_config.timeout_ms = 10;
+    api->enable_batched_inference(batch_config);
+    api->enable_profiling(true);
+
+    ChatbotAPI::GenerationConfig config;
+    config.max_length = 5;
+    config.strategy = "greedy";
+
+    constexpr int kNumThreads = 6;
+    std::vector<std::thread> threads;
+    std::vector<std::string> results(kNumThreads);
+    std::vector<bool> threw(kNumThreads, false);
+    std::vector<std::string> errors(kNumThreads);
+
+    for (int i = 0; i < kNumThreads; ++i) {
+        threads.emplace_back([&, i]() {
+            try {
+                results[i] = call_generate_response("hello world", config);
+            } catch (const std::exception& e) {
+                threw[i] = true;
+                errors[i] = e.what();
+            }
+        });
+    }
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    for (int i = 0; i < kNumThreads; ++i) {
+        // Not asserting non-empty: generate_text() (used by every request here) always samples
+        // via combined top-k/top-p/temperature regardless of GenerationConfig::strategy, so on
+        // this tiny randomly-initialized test model it can legitimately sample EOS as the very
+        // first token — decode(..., skip_special_tokens=true) then correctly returns "". That's
+        // valid output, not a wiring failure; only an actual exception indicates one here.
+        EXPECT_FALSE(threw[i]) << "concurrent request " << i << " threw unexpectedly: "
+                               << errors[i];
+    }
+
+    // Every concurrent call's PROFILE_SCOPE must have recorded independently and correctly —
+    // exactly the scenario the Profiler thread-safety fix (PerformanceProfiler.hpp) targets.
+    std::string profile = call_handle_profile();
+    EXPECT_NE(profile.find("\"call_count\":" + std::to_string(kNumThreads)), std::string::npos)
+        << "expected all " << kNumThreads << " concurrent calls reflected: " << profile;
+
+    // Same discriminator as BatchedInference_EnabledGeneratesThroughTheQueueWithoutThrowing above:
+    // proves all kNumThreads requests genuinely passed through the engine, not just that none of
+    // them threw.
+    EXPECT_EQ(call_get_batched_stats().total_requests, static_cast<uint64_t>(kNumThreads));
 }
 
 // ============================================================================

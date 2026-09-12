@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.3.0
+// @adai-version: 0.4.0
 // @adai-reviewed: 2026-09-12
 
 #include "ChatbotApiServerArgs.hpp"
@@ -66,6 +66,10 @@ ChatbotApiServerArgsResult apply_chatbot_api_server_args(int argc, char* argv[],
             config.strategy = argv[++i];
         } else if (arg == "--profile") {
             result.profile = true;
+        } else if (arg == "--batched-inference") {
+            result.batched_inference = true;
+        } else if (arg == "--batch-timeout-ms" && i + 1 < argc) {
+            result.batch_timeout_ms = std::atoi(argv[++i]);
         } else {
             result.error = true;
             result.error_message = "Unknown argument: " + arg;

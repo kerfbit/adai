@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.2.0
+// @adai-version: 0.3.0
 // @adai-reviewed: 2026-09-12
 
 // TD-035: chatbot_api_server's argv parsing and required-config validation, pulled out of
@@ -29,6 +29,13 @@ struct ChatbotApiServerArgsResult {
     // runtime behavior toggle, not part of ServiceConfig, so it lives on the result rather than
     // being applied to `config` like every other flag here.
     bool profile = false;
+    // TD-038: enables ChatbotAPI::enable_batched_inference() — same reasoning as `profile` above:
+    // a runtime mode toggle for this one process, not a persisted/hot-reloadable setting, so it
+    // lives here rather than on ServiceConfig. batch_timeout_ms only takes effect when
+    // batched_inference is true; it mirrors BatchedInferenceConfig::timeout_ms's own default (see
+    // BatchedInferenceEngine.hpp) so an unset flag reproduces that default exactly.
+    bool batched_inference = false;
+    int batch_timeout_ms = 50;
 };
 
 // Second pass: applies every flag except --config (already consumed) onto an already-loaded
