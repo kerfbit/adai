@@ -4,9 +4,9 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** September 10, 2026
-**Total Items:** 27
-**High Priority:** 1
+**Last Updated:** September 12, 2026
+**Total Items:** 28
+**High Priority:** 2
 **Medium Priority:** 13
 **Low Priority:** 13
 **Future Enhancements:** 19
@@ -36,10 +36,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [TD-042: PostgresMetricsDatabase Has Zero Test Coverage](#td-042-postgresmetricsdatabase-has-zero-test-coverage)
   - [TD-047: Android Data/Repository/API Layer Has No CI or Release History](#td-047-android-datarepositoryapi-layer-has-no-ci-or-release-history)
   - [TD-048: Android UI/DI/Entry-Point Classes Are Untested and Unreleased](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
-  - [TD-049: No JS Test Framework for the Tizen TV App](#td-049-no-js-test-framework-for-the-tizen-tv-app)
   - [TD-051: IncrementalTrainer::load_conversation_pairs() Is an Unmigrated Duplicate](#td-051-incrementaltrainerload_conversation_pairs-is-an-unmigrated-duplicate)
   - [TD-052: ParallelDataLoader's Batches Use Character Codes, Not Real Tokens](#td-052-paralleldataloaders-batches-use-character-codes-not-real-tokens)
   - [TD-053: ChatbotCLI's /save and /load Commands Are Non-Functional Everywhere](#td-053-chatbotclis-save-and-load-commands-are-non-functional-everywhere)
+  - [TD-156: EncoderDecoderModel::forward() Corrupts the Heap Under Concurrent Requests](#td-156-encoderdecodermodelforward-corrupts-the-heap-under-concurrent-requests)
 - [Resolved Items](#resolved-items) (134 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -825,6 +825,100 @@ Files to Modify:
 
 - `src/ChatbotCLI.cpp`
 - `docs/operations/guides/chatbot-guide.md`
+
+---
+
+### TD-156: EncoderDecoderModel::forward() Corrupts the Heap Under Concurrent Requests
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| HIGH | Open | Core Model / Concurrency | September 12, 2026 | 4-8 hours |
+
+Description:
+`EncoderDecoderModel::forward(input_tokens, target_tokens)` (`src/EncoderDecoderModel.cpp:681-717`)
+unconditionally writes to shared, unsynchronized member state on every single call — no
+`requires_grad` gate, no locking, nothing:
+
+```cpp
+Matrix EncoderDecoderModel::forward(const std::vector<int>& input_tokens,
+                                    const std::vector<int>& target_tokens) {
+    cached_input_tokens = input_tokens;      // line 684
+    cached_target_tokens = target_tokens;    // line 685
+    ...
+    cached_encoder_output = encoder->encode_with_mask(input_tokens, encoder_mask);   // line 695
+    ...
+    cached_decoder_output = decoder->forward_with_encoder(decoder_input, cached_encoder_output); // line 711
+```
+
+`ChatbotAPI::generate_response()`'s **default (plain, non-batched, non-pipelined) generation
+path** — still the default for any `chatbot_api_server` deployment that doesn't pass
+`--batched-inference` or `--pipeline-inference` — calls `model_->forward()` directly on each
+HTTP request's own handler thread via its `model_fn` closure. `chatbot_api_server` serves
+concurrent requests through httplib's real thread pool (`class ThreadPool : public TaskQueue` in
+`httplib.h`), so two concurrent `/chat` requests calling `forward()` on the same shared `model_`
+instance race on these four `std::vector`/`Matrix` member writes — vector/Matrix copy-assignment
+involves internal heap reallocation, and two threads reallocating/freeing the same buffer
+concurrently is a textbook heap-corruption bug.
+
+**Confirmed, not theoretical:** a minimal repro (default `ChatbotAPITest` fixture, no TD-038
+modes enabled, 6 threads calling `generate_response()`/`handle_chat()` concurrently on the same
+`api`/`model`) crashed 13 out of 15 runs with genuine glibc heap-corruption signatures:
+`double free or corruption (!prev)`, `malloc(): unaligned tcache chunk detected`,
+`free(): corrupted unsorted chunks`. This is a live, reproducible production risk, not an
+unlikely edge case — every deployment handling ordinary concurrent traffic on the default path
+hits it eventually.
+
+**Why TD-038's new opt-in modes are incidentally unaffected:** `BatchedInferenceEngine` and
+`PipelineInferenceEngine` (both wired into `chatbot_api_server` this session, see their TD-038
+commits) each serialize all model access onto their own single background worker thread —
+`process_batch()`/`decoder_worker()` never call into the model concurrently with each other,
+purely as a side effect of their own single-worker-thread design, not as a deliberate mitigation
+for this bug. The plain, default, no-flags-needed path has no such protection.
+
+This was found by accident while live-testing `PipelineInferenceEngine`'s wiring (TD-038): a
+diagnostic test isolating "does the default path alone crash under concurrency, with zero
+TD-038 features involved" reproduced it immediately and repeatably. No code change has been made
+for this item — filed here per explicit direction, to be addressed as a dedicated piece of work
+given the real fix requires an architectural decision (see below), the same caution class as the
+`MultiHeadAttention`-touching risk already flagged and deferred for TD-038's LoRA/Quantization
+items.
+
+Action Items:
+
+- [ ] Decide on the fix's shape — at least two real options exist with different cost/benefit:
+  1. **Mutex around the plain path's `model_->forward()` calls** (or around `forward()` itself):
+     small, low-risk diff, immediately closes the crash. Trade-off: serializes the plain path's
+     generation under concurrent load, losing whatever throughput benefit httplib's thread pool
+     would otherwise offer it (real concurrent throughput remains available via
+     `--batched-inference`/`--pipeline-inference`, which already serialize model access safely).
+  2. **Remove `forward()`'s dependency on mutable shared cache for pure inference** — e.g. a
+     separate inference-only entry point that returns encoder/decoder output via return values
+     instead of caching them on the object, leaving the existing cache-based `forward()` +
+     `backward()` pair for training call sites that actually need it. Correct and keeps
+     concurrency, but touches core `EncoderDecoderModel`/`LLMEncoder`/`LLMDecoder` forward-pass
+     code used by every training and inference path in the codebase — a bigger, riskier change.
+- [ ] Once a direction is chosen, verify via the standard revert-confirm-fail cycle: a test
+  exercising genuine concurrent `generate_response()`/`forward()` calls (the repro above is a
+  ready-made starting point) must reliably crash/corrupt before the fix and run clean after,
+  ideally confirmed under the `tsan` preset too given the nature of the bug.
+- [ ] Audit other direct callers of `EncoderDecoderModel::forward()` for the same exposure —
+  `SpeculativeDecoding`'s draft/target `TextGenerator`s both call it via their own `model_fn`
+  closures on `generate_response()`'s calling thread, so a concurrent speculative-decoding
+  request is presumably exposed to this same race; the batched/pipeline engines are the only
+  callers confirmed safe (each serializes onto one worker thread, see above).
+- [ ] Once fixed, consider whether the plain (non-batched, non-pipelined) path should stay the
+  documented default for concurrent deployments, or whether the startup banner/docs should more
+  clearly recommend `--batched-inference` for anything beyond single-client/CLI use.
+
+Files to Modify:
+
+- `src/EncoderDecoderModel.cpp` / `src/EncoderDecoderModel.hpp`
+- Possibly `src/encoder.hpp` (`LLMEncoder`), `src/Decoder.hpp` (`LLMDecoder`) if option 2 above is
+  chosen, since their own `encode_with_mask()`/`forward_with_encoder()` calls also mutate cached
+  activation state unconditionally
+- `src/ChatbotAPI.cpp` (call sites, if the fix changes `forward()`'s signature/contract)
+- `tests/chatbotapi_test.cpp` and/or `tests/encoderdecodermodel_test.cpp` (new concurrency
+  regression test)
 
 ---
 
