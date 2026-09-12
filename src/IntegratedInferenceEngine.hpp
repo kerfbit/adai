@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-038 — tested but not wired into any shipped binary)
-// @adai-version: 0.7.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: stable
+// @adai-version: 1.0.0
+// @adai-reviewed: 2026-09-12
 
 /**
  * @file IntegratedInferenceEngine.hpp
@@ -361,13 +361,35 @@ class IntegratedInferenceEngine {
                 batch.batch_id = next_batch_id_.fetch_add(1);
                 batch.requests = std::move(pending_requests);
 
-                // Tokenize inputs
-                for (const auto& req : batch.requests) {
-                    batch.tokenized_inputs.push_back(tokenizer_->encode(req.input_text));
+                // Tokenize inputs. (fixed): this used to call tokenizer_->encode() unguarded —
+                // an empty input_text throws TokenizerInputError, and nothing in batcher_worker()
+                // (or the std::thread entry point running it) ever catches exceptions, so that
+                // would propagate out of the worker thread and call std::terminate(), crashing
+                // the entire process over one bad request. Filters any request whose input fails
+                // to tokenize out of the batch (delivering the real exception to *that* request's
+                // own caller instead), keeping batch.requests and batch.tokenized_inputs in the
+                // 1:1 correspondence the encoder/decoder stages below require.
+                std::vector<IntegratedRequest> tokenizable_requests;
+                tokenizable_requests.reserve(batch.requests.size());
+                for (auto& req : batch.requests) {
+                    try {
+                        batch.tokenized_inputs.push_back(tokenizer_->encode(req.input_text));
+                        tokenizable_requests.push_back(std::move(req));
+                    } catch (const std::exception&) {
+                        try {
+                            req.result_promise.set_exception(std::current_exception());
+                        } catch (...) {
+                            // Promise may have already been fulfilled
+                        }
+                    }
                 }
+                batch.requests = std::move(tokenizable_requests);
 
-                // Submit to encoder queue
-                batch_queue_.push(std::move(batch));
+                // Submit to encoder queue — skip if every request in this batch failed to
+                // tokenize (each already got its own exception above; nothing left to process).
+                if (!batch.requests.empty()) {
+                    batch_queue_.push(std::move(batch));
+                }
 
                 // Reset for next batch
                 pending_requests.clear();
@@ -474,8 +496,26 @@ class IntegratedInferenceEngine {
 
                 results.push_back(result);
 
-                // Track tokens
-                req.output_tokens = tokenizer_->encode(result).size();
+                // Track tokens (approximate stat only; must never crash the process). (fixed):
+                // generate_from_encoder_output() is always greedy and can legitimately pick EOS
+                // as the very first token, producing an empty `result` via decode(...,
+                // skip_special_tokens=true) — a real, valid outcome, not an error. This call used
+                // to be unguarded: tokenizer_->encode("") throws TokenizerInputError, and since
+                // nothing in decoder_worker() (or the std::thread entry point running it) ever
+                // catches exceptions, that would propagate out of the worker thread and call
+                // std::terminate() — crashing the entire process, not just failing this request's
+                // promise. See BatchedInferenceEngine.hpp's process_batch() for the same bug
+                // (there, isolated to failing sibling requests rather than terminating the
+                // process) and the identical fix shape.
+                if (!result.empty()) {
+                    try {
+                        req.output_tokens = tokenizer_->encode(result).size();
+                    } catch (const std::exception&) {
+                        req.output_tokens = 0;
+                    }
+                } else {
+                    req.output_tokens = 0;
+                }
             }
 
             auto decoder_end = std::chrono::steady_clock::now();

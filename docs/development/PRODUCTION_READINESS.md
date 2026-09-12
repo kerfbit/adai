@@ -12,10 +12,10 @@ See [file-status-standard.md](guides/file-status-standard.md) for what these sta
 |---|---|---|---|---|---|---|---|
 | android | 0 | 41 | 62 | 0 | 0 | 0 | 103 |
 | scripts | 9 | 27 | 0 | 0 | 0 | 0 | 36 |
-| src | 90 | 40 | 16 | 0 | 0 | 0 | 146 |
+| src | 91 | 39 | 16 | 0 | 0 | 0 | 146 |
 | tizen-metrics-app | 2 | 1 | 0 | 0 | 0 | 0 | 3 |
 
-**101/288 files (35%) are tagged `stable`.**
+**102/288 files (35%) are tagged `stable`.**
 
 ## Untagged files
 
@@ -155,10 +155,10 @@ None — every in-scope file carries a tag.
 | `scripts/test_signal_handling.sh` | beta | 0.7.2 | 2026-09-11 | TD-044 |
 | `scripts/verify_cli_parallel.sh` | beta | 0.6.2 | 2026-09-11 | TD-044 |
 | `scripts/verify_gui_parallel.sh` | beta | 0.6.2 | 2026-09-11 | TD-044 |
-| `src/ChatbotAPI.cpp` | beta | 0.9.5 | 2026-09-12 | TD-033 |
-| `src/ChatbotAPI.hpp` | beta | 0.9.5 | 2026-09-12 | TD-033 |
-| `src/ChatbotApiServerArgs.cpp` | experimental | 0.5.0 | 2026-09-12 | — |
-| `src/ChatbotApiServerArgs.hpp` | experimental | 0.4.0 | 2026-09-12 | — |
+| `src/ChatbotAPI.cpp` | beta | 0.9.6 | 2026-09-12 | TD-033 |
+| `src/ChatbotAPI.hpp` | beta | 0.9.6 | 2026-09-12 | TD-033 |
+| `src/ChatbotApiServerArgs.cpp` | experimental | 0.6.0 | 2026-09-12 | — |
+| `src/ChatbotApiServerArgs.hpp` | experimental | 0.5.0 | 2026-09-12 | — |
 | `src/ChatbotGUI.cpp` | beta | 0.7.0 | 2026-09-10 | TD-037 |
 | `src/ChatbotGUI.hpp` | beta | 0.7.0 | 2026-09-10 | TD-037 |
 | `src/ChatbotTrainer.cpp` | beta | 0.9.0 | 2026-09-10 | TD-039 |
@@ -177,7 +177,6 @@ None — every in-scope file carries a tag.
 | `src/IncrementalTrainerArgs.cpp` | experimental | 0.1.0 | 2026-09-11 | — |
 | `src/IncrementalTrainerArgs.hpp` | experimental | 0.1.0 | 2026-09-11 | — |
 | `src/IncrementalTrainingTool.cpp` | beta | 0.9.0 | 2026-09-11 | TD-035 |
-| `src/IntegratedInferenceEngine.hpp` | beta | 0.7.0 | 2026-09-10 | TD-038 |
 | `src/KVCache.hpp` | beta | 0.6.0 | 2026-09-10 | TD-050 |
 | `src/LoRA.hpp` | beta | 0.7.0 | 2026-09-10 | TD-038 |
 | `src/Matrix.cpp` | beta | 0.9.0 | 2026-09-10 | TD-033 |

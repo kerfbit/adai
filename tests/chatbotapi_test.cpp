@@ -109,6 +109,14 @@ class ChatbotAPITest : public ::testing::Test {
         tokenizer->save_vocab(path);
         return path;
     }
+
+    // integrated_engine_ is private; same friendship-doesn't-propagate reason as
+    // call_generate_response() above (TD-038). Same discriminator role as
+    // call_get_batched_stats()/call_get_pipeline_stats() above.
+    IntegratedInferenceStats call_get_integrated_stats() {
+        return api->integrated_engine_ ? api->integrated_engine_->get_stats()
+                                       : IntegratedInferenceStats();
+    }
 };
 
 // ============================================================================
@@ -1082,6 +1090,78 @@ TEST_F(ChatbotAPITest, PipelineInference_ConcurrentRequestsAllCompleteCorrectly)
     }
 
     EXPECT_EQ(call_get_pipeline_stats().total_requests, static_cast<uint64_t>(kNumThreads));
+}
+
+// ============================================================================
+// Integrated Inference (TD-038): IntegratedInferenceEngine wiring
+// ============================================================================
+//
+// Integration tests in the same sense as the sections above — proving generate_response()
+// genuinely routes through a real IntegratedInferenceEngine (its own batcher/encoder/decoder
+// worker threads) via real (small) inference through a real ChatbotAPI instance. Unlike pipeline
+// inference, no vocab file is needed — this engine tokenizes via ChatbotAPI's own tokenizer_
+// directly (see enable_integrated_inference()'s doc comment).
+
+TEST_F(ChatbotAPITest, IntegratedInference_DisabledByDefaultUsesNormalPathUnaffected) {
+    ChatbotAPI::GenerationConfig config;
+    config.max_length = 5;
+    config.strategy = "greedy";
+    EXPECT_NO_THROW(call_generate_response("hello", config));
+}
+
+TEST_F(ChatbotAPITest, IntegratedInference_EnabledGeneratesThroughTheEngineWithoutThrowing) {
+    api->enable_integrated_inference();
+
+    ChatbotAPI::GenerationConfig config;
+    config.max_length = 5;
+    EXPECT_NO_THROW(call_generate_response("hello world", config));
+
+    // Falsifiable proof the request actually went through the engine's real worker threads
+    // rather than silently falling through to the plain inline path.
+    EXPECT_EQ(call_get_integrated_stats().total_requests, 1u);
+}
+
+TEST_F(ChatbotAPITest, IntegratedInference_ConcurrentRequestsAllCompleteCorrectly) {
+    // Real proof of wiring, exercising the engine's actual batcher/encoder/decoder worker
+    // threads under genuine concurrent load — this is also the scenario that surfaced (and now
+    // safely exercises the fix for) IntegratedInferenceEngine's own two real bugs: decoder_worker()
+    // and batcher_worker() each used to call tokenizer_->encode() unguarded on text that can
+    // legitimately be empty/invalid, and since nothing caught it, the exception would escape the
+    // worker thread and crash the whole process via std::terminate() (see
+    // IntegratedInferenceEngine.hpp's "(fixed)" comments).
+    api->enable_integrated_inference();
+
+    ChatbotAPI::GenerationConfig config;
+    config.max_length = 5;
+
+    constexpr int kNumThreads = 6;
+    std::vector<std::thread> threads;
+    std::vector<bool> threw(kNumThreads, false);
+    std::vector<std::string> errors(kNumThreads);
+
+    for (int i = 0; i < kNumThreads; ++i) {
+        threads.emplace_back([&, i]() {
+            try {
+                call_generate_response("hello world", config);
+            } catch (const std::exception& e) {
+                threw[i] = true;
+                errors[i] = e.what();
+            }
+        });
+    }
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    for (int i = 0; i < kNumThreads; ++i) {
+        // Not asserting non-empty output: this engine's decoder loop is always greedy and can
+        // legitimately pick EOS as the very first token on this tiny randomly-initialized test
+        // model, producing a valid empty string — not a wiring failure.
+        EXPECT_FALSE(threw[i]) << "concurrent request " << i << " threw unexpectedly: "
+                               << errors[i];
+    }
+
+    EXPECT_EQ(call_get_integrated_stats().total_requests, static_cast<uint64_t>(kNumThreads));
 }
 
 // ============================================================================

@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-033 — generate_response() never uses GPU-resident decode, see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.5
+// @adai-version: 0.9.6
 // @adai-reviewed: 2026-09-12
 
 
@@ -15,6 +15,7 @@
 #include "ConversationContext.hpp"
 #include "EncoderDecoderModel.hpp"
 #include "BatchedInferenceEngine.hpp"
+#include "IntegratedInferenceEngine.hpp"
 #include "PerformanceProfiler.hpp"
 #include "PipelineInferenceEngine.hpp"
 #include "RAGInference.hpp"
@@ -191,6 +192,27 @@ class ChatbotAPI {
                                    const PipelineConfig& config = PipelineConfig());
 
     /**
+     * @brief Enable the fully-integrated inference engine mode (TD-038).
+     *
+     * IntegratedInferenceEngine combines continuous batching + pipeline parallelism + OpenMP +
+     * parallel attention heads into one engine (see IntegratedInferenceEngine.hpp's own file
+     * doc comment). Unlike enable_pipeline_inference(), no vocab_path is needed: this engine
+     * tokenizes via a plain constructor-supplied BPETokenizer* — ChatbotAPI's own tokenizer_ is
+     * passed directly — rather than an encoder-internal one.
+     *
+     * Like pipeline inference, generation is **always greedy**: submit()'s strategy parameter is
+     * accepted but never consulted by generate_from_encoder_output() ("greedy for simplicity"),
+     * so GenerationConfig::temperature/top_p/top_k/strategy have no effect while this is enabled.
+     *
+     * At most one of enable_batched_inference()/enable_pipeline_inference()/
+     * enable_integrated_inference() should be enabled at a time — generate_response() checks
+     * them in that order, so if more than one is set, the first one wins silently rather than
+     * combining or erroring.
+     */
+    void enable_integrated_inference(
+        const IntegratedInferenceConfig& config = IntegratedInferenceConfig());
+
+    /**
      * @brief Generate batch responses (stateless)
      * @param inputs Vector of input messages
      * @param config Generation configuration
@@ -281,6 +303,11 @@ class ChatbotAPI {
     // own encoder/decoder worker threads must not outlive this object). nullptr (default) means
     // generate_response() is unaffected by this mode's existence.
     std::unique_ptr<StandardPipelineEngine> pipeline_engine_;
+
+    // Integrated inference (TD-038): owned, same lifetime reasoning as batched_engine_/
+    // pipeline_engine_ above. nullptr (default) means generate_response() is unaffected by this
+    // mode's existence.
+    std::unique_ptr<IntegratedInferenceEngine> integrated_engine_;
 
     // RAG engine (optional; when set, all generate_response calls route through it)
     std::shared_ptr<RAGInference> rag_engine_;

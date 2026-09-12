@@ -26,6 +26,10 @@
 #include <vector>
 
 #include "../src/IntegratedInferenceEngine.hpp"
+#include "../src/BPETokenizer.hpp"
+#include "../src/Decoder.hpp"
+#include "../src/LanguageModelHead.hpp"
+#include "../src/encoder.hpp"
 
 // ============================================================================
 // IntegratedInferenceConfig Tests
@@ -586,6 +590,108 @@ TEST_F(IntegratedInferenceEngineLifecycleTest, ResetStatsAfterShutdown) {
 
     auto stats = engine.get_stats();
     EXPECT_EQ(stats.total_requests, static_cast<uint64_t>(0));
+}
+
+// ============================================================================
+// IntegratedInferenceEngine Functional Tests (real, small model components)
+// ============================================================================
+//
+// The lifecycle tests above only ever construct the engine with null pointers and never submit a
+// request — nothing in this file previously exercised submit()'s actual encoder/decoder/lm_head
+// path. That gap is exactly how this class's two real bugs (see IntegratedInferenceEngine.hpp's
+// batcher_worker()/decoder_worker() "(fixed)" comments) went uncaught: decoder_worker() called
+// tokenizer_->encode() unguarded on a generated response that can legitimately be empty (this
+// engine's generation is always greedy — see generate_from_encoder_output() — and a randomly
+// initialized small model can genuinely pick EOS as its very first token), and
+// batcher_worker() did the same for caller-supplied input text. BPETokenizer::encode("") throws,
+// and neither worker function ever caught anything — an uncaught exception escaping a
+// std::thread's entry function calls std::terminate(), crashing the whole process over a single
+// legitimately-empty response, not just failing one request's promise.
+class IntegratedInferenceEngineFunctionalTest : public ::testing::Test {
+   protected:
+    std::unique_ptr<BPETokenizer> tokenizer;
+    std::unique_ptr<LLMEncoder> encoder;
+    std::unique_ptr<LLMDecoder> decoder;
+    std::unique_ptr<LanguageModelHead> lm_head;
+
+    void SetUp() override {
+        std::vector<std::string> texts = {"hello world test", "hi there how are you",
+                                          "what is the answer to this question",
+                                          "test message for training"};
+        tokenizer = std::make_unique<BPETokenizer>();
+        tokenizer->build_vocab(texts, 50);
+
+        int vocab_size = static_cast<int>(tokenizer->get_vocab_size());
+        int d_model = 32, layers = 1, heads = 2, d_ff = 64, max_seq = 128;
+        encoder = std::make_unique<LLMEncoder>(vocab_size, d_model, layers, heads, d_ff, max_seq);
+        decoder = std::make_unique<LLMDecoder>(vocab_size, d_model, layers, heads, d_ff, max_seq);
+        lm_head = std::make_unique<LanguageModelHead>(d_model, vocab_size);
+    }
+
+    IntegratedInferenceConfig make_fast_config() {
+        IntegratedInferenceConfig config;
+        config.batch_timeout_ms = 20;
+        config.encoder_timeout_ms = 20;
+        config.decoder_timeout_ms = 20;
+        config.default_max_length = 5;
+        return config;
+    }
+};
+
+TEST_F(IntegratedInferenceEngineFunctionalTest, SingleRequestDoesNotCrashOnEmptyGeneration) {
+    IntegratedInferenceEngine engine(encoder.get(), decoder.get(), lm_head.get(), tokenizer.get(),
+                                     make_fast_config());
+
+    auto future = engine.submit("hello world");
+    auto status = future.wait_for(std::chrono::seconds(5));
+    ASSERT_EQ(status, std::future_status::ready);
+    EXPECT_NO_THROW(future.get());
+
+    engine.shutdown();
+}
+
+TEST_F(IntegratedInferenceEngineFunctionalTest, ConcurrentRequestsDoNotCrashTheProcess) {
+    // Real proof, not a single lucky call: fire several requests so at least one very likely
+    // exercises the empty-generation path (this tiny randomly-initialized model's greedy decode
+    // frequently picks EOS first), through the real batcher/encoder/decoder worker threads.
+    IntegratedInferenceEngine engine(encoder.get(), decoder.get(), lm_head.get(), tokenizer.get(),
+                                     make_fast_config());
+
+    constexpr int kNumRequests = 8;
+    std::vector<std::future<std::string>> futures;
+    for (int i = 0; i < kNumRequests; ++i) {
+        futures.push_back(engine.submit("hello world"));
+    }
+
+    for (auto& f : futures) {
+        auto status = f.wait_for(std::chrono::seconds(5));
+        ASSERT_EQ(status, std::future_status::ready);
+        EXPECT_NO_THROW(f.get());
+    }
+
+    EXPECT_EQ(engine.get_stats().total_requests, static_cast<uint64_t>(kNumRequests));
+    engine.shutdown();
+}
+
+TEST_F(IntegratedInferenceEngineFunctionalTest, EmptyInputTextDeliversExceptionToItsOwnCaller) {
+    // batcher_worker()'s fix: an unparseable request (here, empty input_text — encode() rejects
+    // it) must fail only its own promise with the real exception, not crash the worker thread or
+    // block/corrupt any other request sharing its batch.
+    IntegratedInferenceEngine engine(encoder.get(), decoder.get(), lm_head.get(), tokenizer.get(),
+                                     make_fast_config());
+
+    auto bad_future = engine.submit("");
+    auto good_future = engine.submit("hello world");
+
+    auto bad_status = bad_future.wait_for(std::chrono::seconds(5));
+    ASSERT_EQ(bad_status, std::future_status::ready);
+    EXPECT_THROW(bad_future.get(), std::exception);
+
+    auto good_status = good_future.wait_for(std::chrono::seconds(5));
+    ASSERT_EQ(good_status, std::future_status::ready);
+    EXPECT_NO_THROW(good_future.get());
+
+    engine.shutdown();
 }
 
 // ============================================================================

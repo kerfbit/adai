@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.5.0
+// @adai-version: 0.6.0
 // @adai-reviewed: 2026-09-12
 
 #include "ChatbotApiServerArgs.hpp"
@@ -72,6 +72,8 @@ ChatbotApiServerArgsResult apply_chatbot_api_server_args(int argc, char* argv[],
             result.batch_timeout_ms = std::atoi(argv[++i]);
         } else if (arg == "--pipeline-inference") {
             result.pipeline_inference = true;
+        } else if (arg == "--integrated-inference") {
+            result.integrated_inference = true;
         } else {
             result.error = true;
             result.error_message = "Unknown argument: " + arg;

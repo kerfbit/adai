@@ -207,6 +207,23 @@ TEST_F(ApplyChatbotApiServerArgsTest, PipelineInferenceFlagDefaultsFalseAndCanBe
     EXPECT_TRUE(r_on.pipeline_inference);
 }
 
+TEST_F(ApplyChatbotApiServerArgsTest, IntegratedInferenceFlagDefaultsFalseAndCanBeEnabled) {
+    // TD-038: --integrated-inference enables ChatbotAPI::enable_integrated_inference() — a
+    // runtime toggle on the result, not part of ServiceConfig, same reasoning as --profile above.
+    std::vector<std::string> raw_off = {"chatbot_api_server"};
+    auto argv_off = make_argv(raw_off);
+    auto r_off =
+        apply_chatbot_api_server_args(static_cast<int>(argv_off.size()), argv_off.data(), config);
+    EXPECT_FALSE(r_off.integrated_inference);
+
+    std::vector<std::string> raw_on = {"chatbot_api_server", "--integrated-inference"};
+    auto argv_on = make_argv(raw_on);
+    auto r_on =
+        apply_chatbot_api_server_args(static_cast<int>(argv_on.size()), argv_on.data(), config);
+    ASSERT_FALSE(r_on.error);
+    EXPECT_TRUE(r_on.integrated_inference);
+}
+
 TEST_F(ApplyChatbotApiServerArgsTest, CliValueOverridesWhateverConfigAlreadyHad) {
     config.port = 8080;
     std::vector<std::string> raw = {"chatbot_api_server", "--port", "1234"};

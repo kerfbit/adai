@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-033 — generate_response() never uses GPU-resident decode, see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.5
+// @adai-version: 0.9.6
 // @adai-reviewed: 2026-09-12
 
 #include "ChatbotAPI.hpp"
@@ -675,6 +675,11 @@ void ChatbotAPI::enable_pipeline_inference(const std::string& vocab_path,
         model_->get_encoder(), model_->get_decoder(), model_->get_lm_head(), tokenizer_, config);
 }
 
+void ChatbotAPI::enable_integrated_inference(const IntegratedInferenceConfig& config) {
+    integrated_engine_ = std::make_unique<IntegratedInferenceEngine>(
+        model_->get_encoder(), model_->get_decoder(), model_->get_lm_head(), tokenizer_, config);
+}
+
 // ============================================================================
 // Text Generation
 // ============================================================================
@@ -768,6 +773,18 @@ std::string ChatbotAPI::generate_response(const std::string& input,
         // same run's vocabulary). Always greedy decoding — see that same doc comment.
         if (pipeline_engine_) {
             auto future = pipeline_engine_->submit(input, static_cast<int>(config.max_length));
+            return future.get();
+        }
+
+        // TD-038: integrated inference — combines batching + pipeline + OpenMP + parallel
+        // attention into one engine (see enable_integrated_inference()'s doc comment). Like the
+        // pipeline path above, the real input text is passed directly; unlike it, no
+        // encoder-internal tokenizer reload is needed (this engine tokenizes via the same
+        // tokenizer_ this class already owns). config.strategy is passed through but never
+        // consulted by the engine's always-greedy generation loop.
+        if (integrated_engine_) {
+            auto future = integrated_engine_->submit(input, static_cast<int>(config.max_length),
+                                                      config.strategy);
             return future.get();
         }
 
