@@ -1,0 +1,68 @@
+name: Android CI
+
+# TD-047: android/app, android/opsdashboard, and android/wearsync each have real, passing unit
+# tests, but nothing ever built or ran them in CI before this — the entire Android surface landed
+# in one commit with no automated gate at all. `./gradlew testDebugUnitTest` (no module scoping)
+# naturally covers app + opsdashboard + wearsync and safely no-ops on wearface/wearcomplications
+# (which have no tests yet — see TD-048), so a single job is enough; splitting into a matrix per
+# module would just re-run the same Gradle daemon/config four times for no benefit.
+#
+# Scoped to android/** changes only (unlike ci.yml/coverage.yml/release.yml, which don't path-
+# filter): this is an independent Gradle sub-project inside the C++ repo, and a 5-10 minute
+# Android build/test run has nothing to gate on a pure C++ commit.
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'android/**'
+      - '.github/workflows/android-ci.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'android/**'
+      - '.github/workflows/android-ci.yml'
+
+jobs:
+  build-and-test:
+    name: Build and Unit Test
+    runs-on: ubuntu-22.04
+
+    defaults:
+      run:
+        working-directory: android
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v6
+      with:
+        distribution: temurin
+        java-version: '17'
+        cache: gradle
+        cache-dependency-path: |
+          android/**/*.gradle*
+          android/gradle/wrapper/gradle-wrapper.properties
+
+    - name: Set up Android SDK
+      uses: android-actions/setup-android@v4
+
+    - name: Grant execute permission for gradlew
+      run: chmod +x ./gradlew
+
+    - name: Build debug APKs (:app, :opsdashboard)
+      run: ./gradlew :app:assembleDebug :opsdashboard:assembleDebug --console=plain
+
+    - name: Run unit tests (all modules)
+      run: ./gradlew testDebugUnitTest --console=plain
+
+    - name: Upload unit test results
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: android-unit-test-results
+        path: android/**/build/test-results/**/*.xml
+        retention-days: 7
+        if-no-files-found: warn

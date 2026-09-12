@@ -1,8 +1,8 @@
 package com.adai.ops.network.dto
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.4.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 0.4.1
+// @adai-reviewed: 2026-09-12
 
 
 import kotlinx.serialization.Serializable
@@ -80,7 +80,13 @@ data class RolesResponseDto(
 
 /**
  * state must be "training" | "candidate" | "retired" (server-validated state machine).
- * For the "clear stale lock" admin action, always send state="retired" with no run_id.
+ *
+ * TD-147 (fixed): the "clear stale lock" admin action (state="candidate", recovering a model
+ * stuck in "training") must send the model's own current run_id — the server's ownership check
+ * on that transition rejects a missing/mismatched run_id with 409, even though an empty run_id
+ * is treated as an override on some other endpoints (e.g. DatasetRegistry's /release). See
+ * ModelRepository.clearStaleTrainingLock() / ModelDetailViewModel.clearStaleTrainingLock().
+ * retireCandidate() (state="retired") is the one that always sends no run_id.
  */
 @Serializable
 data class SetStateRequestDto(

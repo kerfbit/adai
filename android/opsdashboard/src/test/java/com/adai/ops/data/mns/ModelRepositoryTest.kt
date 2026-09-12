@@ -20,17 +20,21 @@ import retrofit2.Response
 class ModelRepositoryTest {
 
     @Test
-    fun `clearStaleTrainingLock sends state=candidate with no run_id`() = runTest {
+    fun `clearStaleTrainingLock sends state=candidate with the given run_id`() = runTest {
+        // TD-147 (fixed): the server's ownership check on this transition requires the model's
+        // own current run_id — this test previously asserted the pre-fix (broken) behavior of
+        // sending no run_id at all, and had silently stopped compiling against the real
+        // ModelRepository once that fix shipped (caught wiring up Android CI for TD-047).
         val fakeService = FakeMnsApiService()
         val repository = ModelRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
 
-        val result = repository.clearStaleTrainingLock("my-model")
+        val result = repository.clearStaleTrainingLock("my-model", "run-01")
 
         assertTrue(result is ApiResult.Success)
         val (name, body) = fakeService.setStateCalls.single()
         assertEquals("my-model", name)
         assertEquals("candidate", body.state)
-        assertNull(body.run_id)
+        assertEquals("run-01", body.run_id)
     }
 
     @Test
@@ -56,7 +60,7 @@ class ModelRepositoryTest {
         )
         val repository = ModelRepository(FakeApiClientProvider(fakeService), FakeSettingsRepository())
 
-        val result = repository.clearStaleTrainingLock("my-model")
+        val result = repository.clearStaleTrainingLock("my-model", "run-01")
 
         assertTrue(result is ApiResult.Conflict)
         assertEquals("invalid transition", (result as ApiResult.Conflict).message)
