@@ -393,7 +393,8 @@ message(STATUS "Building chatbot as lightweight API client")
 
 # Incremental Training Tool - Incremental model training with data management
 add_executable(incremental_trainer IncrementalTrainingTool.cpp IncrementalTrainer.cpp
-    ChatbotTrainer.cpp Config.cpp TrainingMetricsService.cpp)  # Logger.cpp compiled into adai_core
+    ChatbotTrainer.cpp Config.cpp TrainingMetricsService.cpp
+    IncrementalTrainerArgs.cpp)  # Logger.cpp compiled into adai_core
 target_link_libraries(incremental_trainer 
     adai_models 
     adai_nlp
@@ -538,7 +539,7 @@ endif()
 # Registry Server - Distributed dataset queue coordination daemon (TD-028 Phase 9)
 # Requires cpp-httplib; skipped when not available.
 if(HTTPLIB_INCLUDE_DIR)
-    add_executable(registry_server RegistryServer.cpp Config.cpp)
+    add_executable(registry_server RegistryServer.cpp Config.cpp RegistryServerArgs.cpp)
     target_link_libraries(registry_server
         adai_core
         spdlog::spdlog

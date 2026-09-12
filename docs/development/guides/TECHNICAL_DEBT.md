@@ -526,48 +526,6 @@ Files to Modify:
 
 ---
 
-### TD-035: Shipped Daemon/CLI Binaries Have No Dedicated Test
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Testing / Tooling | September 7, 2026 | 12-16 hours |
-
-Description:
-Six of the binaries in CLAUDE.md's own "Executable Targets" table — the actual shipped
-product — have no automated test at all: `chatbot_api_server`, `dataset_manager`, `mns_cli`,
-`mns_server`, `metrics_api_server`, and `incremental_trainer` each have their `main()`-hosting
-`.cpp` file doing real work (argument parsing, command dispatch, server lifecycle) with zero
-coverage. `ChatbotCLI` already shows the fix: `ChatbotCLI.cpp`/`.hpp` hold the testable logic
-(and have a real test) while `ChatbotCLI_main.cpp` is a thin, untested wrapper (tracked separately
-as TD-036, since a 40-line argv shim isn't the same problem as a whole untested server).
-
-Action Items:
-
-- [ ] For each binary, extract its command-dispatch / server-setup logic out of `main()` into a
-  testable function or class, the way `ChatbotCLI` already separates from `ChatbotCLI_main`.
-- [ ] Add a dedicated test per binary covering: argument parsing, config loading, and (for the
-  three daemons) the request-handling entry points not already covered by a live/integration test.
-- [ ] `RegistryServer.cpp` is a partial case — already exercised indirectly by
-  `dataset_registry_live_test.cpp`/`trainer_admin_api_test.cpp` as a live instance, and (as of
-  TD-040's resolution) also by `tests/registry_ftp_confinement_test.cpp`, a permanent regression
-  test that spawns the real compiled binary via `fork()`/`execl()` and drives it over HTTP — this
-  covers the one security-relevant behavior TD-040 needed pinned down, but is not the in-process,
-  request-handler-isolated unit test this item still calls for (that still needs `main()`'s
-  logic extracted into a reusable class first, same as the other five binaries here).
-
-Files to Modify:
-
-- `src/ChatbotAPIServer.cpp`
-- `src/DatasetManagerTool.cpp`
-- `src/MnsCliTool.cpp`
-- `src/ModelNameServiceServer.cpp`
-- `src/TrainingMetricsAPIServer.cpp`
-- `src/IncrementalTrainingTool.cpp`
-- `src/RegistryServer.cpp` (see note above — narrower scope)
-- `tests/` — one new test file per binary
-
----
-
 ### TD-037: No Qt Test Infrastructure for GUI Classes
 
 | Priority | Status | Component | Created | Effort Estimate |
@@ -895,7 +853,7 @@ Files to Modify:
 
 ## Resolved Items
 
-136 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+137 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements

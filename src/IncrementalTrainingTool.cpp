@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-035 — shipped as incremental_trainer, no dedicated test; also large and actively evolving)
-// @adai-version: 0.8.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: beta        (TD-035 resolved — argv/config parsing extracted and tested; still large and actively evolving, see TD-039)
+// @adai-version: 0.9.0
+// @adai-reviewed: 2026-09-11
 
 #include <array>
 #include <csignal>
@@ -15,6 +15,7 @@
 #include "DataTransport.hpp"
 #include "DatasetRegistry.hpp"
 #include "IncrementalTrainer.hpp"
+#include "IncrementalTrainerArgs.hpp"
 #include "Logger.hpp"
 #include "Matrix.hpp"
 #include "ModelNameClient.hpp"
@@ -170,25 +171,6 @@ static void cleanup_downloads(const std::vector<fs::path>& local_paths) {
             }
         }
     }
-}
-
-std::string derive_run_id(const std::string& configured) {
-    if (!configured.empty())
-        return configured;
-    std::string host = "host";
-#ifdef _WIN32
-    if (const char* env_host = std::getenv("COMPUTERNAME"))
-        host = env_host;
-    const int pid_tail = static_cast<int>(_getpid() % 10000);
-#else
-    std::array<char, 256> buf{};
-    if (gethostname(buf.data(), buf.size() - 1) == 0)
-        host = buf.data();
-    const int pid_tail = static_cast<int>(getpid() % 10000);
-#endif
-    if (host.size() > 8)
-        host = host.substr(0, 8);
-    return host + "_" + std::to_string(pid_tail);
 }
 
 // Resolve which model to train.
@@ -349,37 +331,22 @@ int main(int argc, char* argv[]) {
     // rest of the command-dispatch logic sees a clean args list.
     // Usage:  incremental_trainer [--config <path>] <command> [args...]
     // -----------------------------------------------------------------------
-    std::string config_path;
-    std::string gpu_strategy_override;
-    std::string cli_model_name;
-    bool foreground = false;
-    std::vector<std::string> args;  // args[0] = command, args[1..] = its args
-
-    for (int i = 1; i < argc; ++i) {
-        std::string a = argv[i];
-        if (a == "--config" && i + 1 < argc) {
-            config_path = argv[++i];
-        } else if (a == "--gpu-strategy" && i + 1 < argc) {
-            gpu_strategy_override = argv[++i];
-        } else if (a == "--model" && i + 1 < argc) {
-            cli_model_name = argv[++i];
-        } else if (a == "--foreground") {
-            foreground = true;
-        } else {
-            args.push_back(a);
-        }
-    }
+    adai::IncrementalTrainerGlobalArgs cli = adai::parse_incremental_trainer_global_args(argc, argv);
+    const std::string cli_model_name = cli.model_name.value_or("");
+    const bool foreground = cli.foreground;
+    std::vector<std::string>& args = cli.args;  // args[0] = command, args[1..] = its args
 
     // Load model architecture + training params from config file.
     // Priority: file < environment variables (ConfigLoader already handles this).
     // Discovery: --config > ./config.trainer.conf > /etc/adai/config.trainer.conf
     // > ./config.conf (legacy) > /etc/adai/config.conf (legacy).
-    config_path = adai::ConfigLoader::discover_config_path(config_path, "config.trainer.conf");
+    std::string config_path =
+        adai::ConfigLoader::discover_config_path(cli.config_path.value_or(""), "config.trainer.conf");
     adai::ServiceConfig svc_config = adai::ConfigLoader::load(config_path);
 
     // CLI --gpu-strategy overrides the config file value.
-    if (!gpu_strategy_override.empty()) {
-        svc_config.gpu_strategy = adai::gpu_strategy_from_string(gpu_strategy_override);
+    if (cli.gpu_strategy) {
+        svc_config.gpu_strategy = adai::gpu_strategy_from_string(*cli.gpu_strategy);
     }
 
     // GPU init is deferred for commands that fork (train/retrain/resume): the
@@ -391,8 +358,7 @@ int main(int argc, char* argv[]) {
     // through that, not whatever the pre-init default logger state is.
     // For all other commands (chat, infer, status, …) we initialise here.
     const bool command_defers_init =
-        (!args.empty() && (args[0] == "train" || args[0] == "retrain" || args[0] == "resume" ||
-                           args[0] == "serve"));
+        !args.empty() && adai::incremental_trainer_command_defers_gpu_init(args[0]);
 
     auto init_gpu = [&]() {
         if (!svc_config.gpu_enabled)
@@ -565,7 +531,7 @@ int main(int argc, char* argv[]) {
                 // file ownership below, unifying both systems' notion of "run".
                 std::string run_id = trainer.begin_run(/*is_retrain=*/false);
                 if (run_id.empty())
-                    run_id = derive_run_id(svc_config.run_id);
+                    run_id = adai::derive_run_id(svc_config.run_id);
 
                 DatasetConfig dcfg = DatasetRegistry::make_config(svc_config);
                 DatasetRegistry reg(dcfg);
@@ -664,7 +630,7 @@ int main(int argc, char* argv[]) {
                 // file ownership below, unifying both systems' notion of "run".
                 std::string run_id = trainer.begin_run(/*is_retrain=*/true);
                 if (run_id.empty())
-                    run_id = derive_run_id(svc_config.run_id);
+                    run_id = adai::derive_run_id(svc_config.run_id);
 
                 DatasetConfig dcfg = DatasetRegistry::make_config(svc_config);
                 DatasetRegistry reg(dcfg);
@@ -736,15 +702,10 @@ int main(int argc, char* argv[]) {
 
     } else if (command == "reset") {
         // Parse reset-specific flags from remaining args
-        bool auto_yes = false;
-        bool keep_data = false;
-        for (size_t i = 1; i < args.size(); ++i) {
-            if (args[i] == "--yes") {
-                auto_yes = true;
-            } else if (args[i] == "--keep-data") {
-                keep_data = true;
-            }
-        }
+        const std::vector<std::string> reset_flags(args.begin() + 1, args.end());
+        const adai::ResetCommandArgs reset_args = adai::parse_reset_command_args(reset_flags);
+        const bool auto_yes = reset_args.yes;
+        const bool keep_data = reset_args.keep_data;
 
         // Show what will happen
         std::cout << "\n⚠️  RESET will:\n";

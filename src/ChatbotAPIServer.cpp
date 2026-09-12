@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-035 — shipped as chatbot_api_server, no dedicated test)
-// @adai-version: 0.8.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: stable
+// @adai-version: 1.0.0
+// @adai-reviewed: 2026-09-11
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
 #include <atomic>

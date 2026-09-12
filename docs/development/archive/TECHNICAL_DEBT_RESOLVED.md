@@ -4,6 +4,93 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-035: Shipped Daemon/CLI Binaries Have No Dedicated Test
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 12, 2026 | 7 shipped binaries (`chatbot_api_server`, `dataset_manager`, `mns_cli`, `mns_server`, `metrics_api_server`, `incremental_trainer`, `registry_server`) | Argv parsing / config-precedence resolution extracted into 7 new testable header+cpp pairs; 5 binaries promoted to `stable`, 1 real crash bug fixed |
+
+Summary:
+Each binary's `main()`-hosting `.cpp` file had its argument parsing and config-precedence
+resolution (file < persisted admin overrides < CLI, where applicable) pulled out into a
+dedicated, directly-testable `<Binary>Args.{hpp,cpp}` pair, following the pattern
+`ChatbotCLI`/`ChatbotCLI_main.cpp` already established: the real class doing the work
+(`ChatbotAPI`, `DatasetRegistry`, `ModelNameService`, `TrainingMetricsAPI`,
+`MetricsSessionRegistry`, `IncrementalTrainer`, the registry's own `httplib::Server` route
+handlers) stays untouched in `main()`, only the parsing/precedence logic moves out where GTest
+can exercise it with no real server, database, network call, or fork.
+
+- **`mns_server`** → `MnsServerArgs.{hpp,cpp}`: argv parsing + file/admin-override/CLI precedence
+  for port/data_dir/registry_url/registry_group/admin_enabled. 16 tests.
+- **`mns_cli`** → `MnsCliCommands.{hpp,cpp}`: per-command argument parsing and JSON-body
+  construction for all 12 subcommands (`list`/`get`/`register`/`update`/`resolve`/
+  `set-training`/`set-candidate`/`delete`/`roles`/`resolve-role`/`promote`/`health`), pure — no
+  network I/O; the actual HTTP send stays in `MnsCliTool.cpp`. 34 tests.
+- **`dataset_manager`** → `DatasetManagerArgs.{hpp,cpp}`: per-command argument parsing for all 8
+  subcommands. 26 tests. Found and fixed a real latent crash along the way: an invalid Gutenberg
+  book id, batch id, or `--count`/numeric value used to call `std::stoi`/`std::stoul` completely
+  unguarded, throwing `std::invalid_argument` **uncaught** — the whole process would terminate
+  with a raw C++ exception message instead of the normal "Usage: ..." error every other bad-input
+  path in this file already produces. Reproduced directly (`dataset_manager gutenberg not-a-number`
+  used to crash; now prints `Invalid book_id: not-a-number` and exits 1).
+- **`chatbot_api_server`** → `ChatbotApiServerArgs.{hpp,cpp}`: argv parsing + the
+  "vocab path is required" validation check. 13 tests.
+- **`metrics_api_server`** → `MetricsApiServerArgs.{hpp,cpp}`: this file already had a
+  `ServerConfig` struct + `parse_args()` — pulled both out as-is (plus the admin-override overlay,
+  previously three inline lambdas) rather than redesigning something that was already well-shaped.
+  13 tests.
+- **`incremental_trainer`** → `IncrementalTrainerArgs.{hpp,cpp}`: global argv parsing
+  (`--config`/`--gpu-strategy`/`--model`/`--foreground`), the `train`/`retrain`/`resume`/`serve`
+  GPU-init-deferral classification, `derive_run_id()`'s hostname+pid fallback, and `reset`'s own
+  `--yes`/`--keep-data` flag parsing. The actual training/forking/GPU-init logic this file
+  orchestrates is already covered by `IncrementalTrainerTests`/`IncrementalTrainerBackgroundTests`/
+  `IncrementalTrainerControlTests`/`TrainerControlStateTests`/`TrainerAdminAPITests` — extracting
+  *that* into something more unit-testable is a much larger undertaking this file's own tag
+  already flags as "large and actively evolving" (see TD-039). 12 tests.
+- **`registry_server`** → `RegistryServerArgs.{hpp,cpp}`: argv parsing + file/admin-override/CLI
+  precedence for port/data_dir/ftp_token_ttl_minutes/ftp_max_sessions_per_run/admin_enabled — the
+  narrower scope this item's own action items anticipated, since `RegistryServer.cpp`'s dozens of
+  request handlers share file-scope global state (`data_dir`, `ftp_max_sessions`, etc.) that would
+  need extracting into a reusable class before they could be tested in-process; that remains
+  future work, not attempted here. 11 tests. Found and pinned down (not "fixed," since it's
+  existing shipped behavior and changing it is outside a narrow args-extraction pass) a real
+  quirk: unlike every sibling daemon's argv parser in this codebase, an unrecognized argument here
+  has never produced an error or message — it's silently ignored and parsing continues. Preserved
+  exactly; regression-pinned in `RegistryServerArgsTests.UnrecognizedArgumentIsSilentlyIgnored` so
+  a future change to this is deliberate, not accidental.
+
+Every extraction was verified against the real built binary end to end (`--help`, invalid flags,
+and — for `mns_cli`, `dataset_manager`, and `registry_server` — a live round-trip against a real
+`mns_server`/registry or a real spawned `registry_server` process) to confirm behavior is
+unchanged, and at least one assertion per new test file was reverted against the real source and
+confirmed to fail before being restored. The full existing test suite (including the ~7-minute
+`IncrementalTrainerTests`) was re-run afterward with zero regressions.
+
+Promoted `ChatbotAPIServer.cpp`, `DatasetManagerTool.cpp`, `MnsCliTool.cpp`,
+`ModelNameServiceServer.cpp`, and `TrainingMetricsAPIServer.cpp` to `stable` (`1.0.0`): each now
+has real coverage of both its own parsing/precedence logic and (via existing live/integration
+tests) its request-handling, with no known correctness gap. `IncrementalTrainingTool.cpp` and
+`RegistryServer.cpp` stay `beta` (bumped `0.8.x` → `0.9.0`) — each for its own already-tracked
+reason: the trainer tool is still large and actively evolving (TD-039), and the registry server's
+own action items always anticipated that a deeper class extraction, not attempted in this pass,
+would still be needed for full closure.
+
+Files Modified:
+
+- `src/MnsServerArgs.{hpp,cpp}`, `src/MnsCliCommands.{hpp,cpp}`,
+  `src/DatasetManagerArgs.{hpp,cpp}`, `src/ChatbotApiServerArgs.{hpp,cpp}`,
+  `src/MetricsApiServerArgs.{hpp,cpp}`, `src/IncrementalTrainerArgs.{hpp,cpp}`,
+  `src/RegistryServerArgs.{hpp,cpp}` (all new)
+- `src/ModelNameServiceServer.cpp`, `src/MnsCliTool.cpp`, `src/DatasetManagerTool.cpp`,
+  `src/ChatbotAPIServer.cpp`, `src/TrainingMetricsAPIServer.cpp`,
+  `src/IncrementalTrainingTool.cpp`, `src/RegistryServer.cpp` — rewired to call the extracted
+  functions; tag bumps
+- `tests/mns_server_args_test.cpp`, `tests/mns_cli_commands_test.cpp`,
+  `tests/dataset_manager_args_test.cpp`, `tests/chatbot_api_server_args_test.cpp`,
+  `tests/metrics_api_server_args_test.cpp`, `tests/incremental_trainer_args_test.cpp`,
+  `tests/registry_server_args_test.cpp` (all new, 125 tests total)
+- `src/CMakeLists.txt`, `tests/CMakeLists.txt` — wired in the 7 new source files and test targets
+
 ### TD-042: PostgresMetricsDatabase Has Zero Test Coverage
 
 | Resolution Date | Component | Resolved By |

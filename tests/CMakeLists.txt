@@ -765,6 +765,31 @@ target_link_libraries(metricsApiServerArgsTests
 )
 add_test(NAME MetricsApiServerArgsTests COMMAND metricsApiServerArgsTests)
 
+# TD-035: incremental_trainer's global argv parsing + a few small pure helpers, extracted into
+# IncrementalTrainerArgs.{hpp,cpp} so they're testable without a real IncrementalTrainer (real
+# training, forking, GPU init) — IncrementalTrainer itself is already covered by
+# IncrementalTrainerTests/IncrementalTrainerBackgroundTests/IncrementalTrainerControlTests/
+# TrainerControlStateTests/TrainerAdminAPITests.
+add_executable(incrementalTrainerArgsTests incremental_trainer_args_test.cpp
+    ${CMAKE_SOURCE_DIR}/src/IncrementalTrainerArgs.cpp)
+target_include_directories(incrementalTrainerArgsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(incrementalTrainerArgsTests
+    GTest::gtest_main
+)
+add_test(NAME IncrementalTrainerArgsTests COMMAND incrementalTrainerArgsTests)
+
+# TD-035 (narrower scope, per the item's own note): registry_server's argv parsing /
+# config-precedence resolution, extracted into RegistryServerArgs.{hpp,cpp} so that piece is
+# testable without a real HTTP server. The request handlers themselves are already covered live
+# by DatasetRegistryLiveTests/TrainerAdminAPITests/RegistryFtpConfinementTests.
+add_executable(registryServerArgsTests registry_server_args_test.cpp
+    ${CMAKE_SOURCE_DIR}/src/RegistryServerArgs.cpp)
+target_include_directories(registryServerArgsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(registryServerArgsTests
+    GTest::gtest_main
+)
+add_test(NAME RegistryServerArgsTests COMMAND registryServerArgsTests)
+
 # TD-017: Adaptive gradient clipping tests (TrainingMetricsService)
 add_executable(adaptiveClippingTests adaptive_clipping_test.cpp)
 target_include_directories(adaptiveClippingTests PRIVATE ${CMAKE_SOURCE_DIR}/src)

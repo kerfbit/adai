@@ -1,5 +1,5 @@
-// @adai-status: beta        (capped by TD-035; TD-040 fully resolved, see below)
-// @adai-version: 0.8.3
+// @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
+// @adai-version: 0.9.0
 // @adai-reviewed: 2026-09-11
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
@@ -69,6 +69,7 @@
 #include <vector>
 #include "Config.hpp"
 #include "DaemonConfigStore.hpp"
+#include "RegistryServerArgs.hpp"
 #include "DataFetcher.hpp"
 #include "FtpDataServer.hpp"
 #include "Logger.hpp"
@@ -1576,92 +1577,55 @@ static void print_usage(const char* prog) {
 }
 
 int main(int argc, char* argv[]) {
-    // Single pass: collect raw CLI values without applying any precedence yet.
-    // Precedence (config.registry.conf < persisted admin overrides < this run's
-    // CLI flags) is resolved explicitly below — see CLAUDE.md "Daemon admin
-    // config API".
-    std::optional<std::string> cli_config_path;
-    std::optional<int> cli_port;
-    std::optional<std::string> cli_data_dir;
-    std::optional<int> cli_ftp_ttl;
-    std::optional<int> cli_ftp_max_sessions;
-    std::optional<bool> cli_admin_enabled;
-
-    for (int i = 1; i < argc; ++i) {
-        const std::string arg = argv[i];
-        if (arg == "--config" && i + 1 < argc) {
-            cli_config_path = argv[++i];
-        } else if ((arg == "--port" || arg == "-p") && i + 1 < argc) {
-            cli_port = std::stoi(argv[++i]);
-        } else if (arg == "--data-dir" && i + 1 < argc) {
-            cli_data_dir = argv[++i];
-        } else if (arg == "--ftp-enabled") {
-            ftp_enabled = true;
-        } else if (arg == "--ftp-port" && i + 1 < argc) {
-            ftp_port = std::stoi(argv[++i]);
-        } else if (arg == "--ftp-ip" && i + 1 < argc) {
-            ftp_advertise_ip = argv[++i];
-        } else if (arg == "--ftp-pasv-min" && i + 1 < argc) {
-            ftp_pasv_min = std::stoi(argv[++i]);
-        } else if (arg == "--ftp-pasv-max" && i + 1 < argc) {
-            ftp_pasv_max = std::stoi(argv[++i]);
-        } else if (arg == "--ftp-ttl" && i + 1 < argc) {
-            cli_ftp_ttl = std::stoi(argv[++i]);
-        } else if (arg == "--ftp-secret" && i + 1 < argc) {
-            ftp_server_secret = argv[++i];
-        } else if (arg == "--ftps") {
-            ftps_enabled = true;
-        } else if (arg == "--ftp-cert" && i + 1 < argc) {
-            ftp_cert_file = argv[++i];
-        } else if (arg == "--ftp-key" && i + 1 < argc) {
-            ftp_key_file = argv[++i];
-        } else if (arg == "--ftp-max-sessions" && i + 1 < argc) {
-            cli_ftp_max_sessions = std::stoi(argv[++i]);
-        } else if (arg == "--admin-enabled" && i + 1 < argc) {
-            std::string v = argv[++i];
-            for (auto& c : v)
-                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-            cli_admin_enabled = (v == "true" || v == "1" || v == "yes" || v == "on");
-        } else if (arg == "--help" || arg == "-h") {
-            print_usage(argv[0]);
-            return 0;
-        }
+    // Argument parsing and config-precedence resolution themselves live in
+    // RegistryServerArgs.{hpp,cpp} (TD-035) — everything from here down still runs against this
+    // file's own shared globals exactly as before.
+    adai::RegistryServerArgs cli = adai::parse_registry_server_args(argc, argv);
+    if (cli.help) {
+        print_usage(argv[0]);
+        return 0;
     }
 
     const std::string config_path = adai::ConfigLoader::discover_config_path(
-        cli_config_path.value_or(""), "config.registry.conf");
+        cli.config_path.value_or(""), "config.registry.conf");
     adai::ServiceConfig file_config = adai::ConfigLoader::load(config_path);
 
-    int port = cli_port.value_or(file_config.registry_listen_port);
-    data_dir = cli_data_dir.value_or(file_config.registry_data_dir);
-    // ftp_server_port/pasv range/cert/key/ftps_enabled intentionally keep their
-    // CLI-only defaults above — they're immutable-at-runtime listener settings
-    // (see kImmutableKeys in handle_admin_put_config) and not worth threading
-    // through the file for the same reason port/data_dir aren't either. Only
-    // the two admin-mutable FTP settings get the full file/DB/CLI treatment:
-    int ftp_ttl_value = file_config.ftp_token_ttl_minutes;
-    ftp_max_sessions = file_config.ftp_max_sessions_per_run;
+    // ftp_server_port/pasv range/cert/key/ftps_enabled are CLI-only listener settings — applied
+    // directly from `cli` with no file/admin-override layer, same as before.
+    ftp_enabled = cli.ftp_enabled;
+    ftp_port = cli.ftp_port;
+    ftp_advertise_ip = cli.ftp_advertise_ip;
+    ftp_pasv_min = cli.ftp_pasv_min;
+    ftp_pasv_max = cli.ftp_pasv_max;
+    ftp_server_secret = cli.ftp_server_secret;
+    ftps_enabled = cli.ftps_enabled;
+    ftp_cert_file = cli.ftp_cert_file;
+    ftp_key_file = cli.ftp_key_file;
 
+    int port = 0;
     // Overlay persisted admin overrides on top of the file defaults.
     try {
+        data_dir = cli.data_dir.value_or(file_config.registry_data_dir);
         fs::create_directories(data_dir);
         g_config_store = std::make_unique<adai::DaemonConfigStore>(data_dir + "/daemon_config.db");
         const auto overrides = g_config_store->load_all();
-        if (auto it = overrides.find("ftp_token_ttl_minutes"); it != overrides.end()) {
-            try {
-                ftp_ttl_value = std::stoi(it->second);
-            } catch (...) {
-            }
-        }
-        if (auto it = overrides.find("ftp_max_sessions_per_run"); it != overrides.end()) {
-            try {
-                ftp_max_sessions = std::stoi(it->second);
-            } catch (...) {
-            }
-        }
+        const auto effective = adai::resolve_registry_server_config(cli, file_config, overrides);
+        port = effective.port;
+        data_dir = effective.data_dir;
+        ftp_token_ttl_min.store(effective.ftp_ttl_minutes);
+        ftp_max_sessions = effective.ftp_max_sessions;
+        admin_enabled = effective.admin_enabled;
     } catch (const std::exception& e) {
         std::cerr << "Warning: daemon_config.db unavailable (" << e.what()
                   << "); admin config changes won't persist across restarts\n";
+        // No persisted overrides available — resolve with an empty override map instead, so
+        // file/CLI precedence still applies even though the DB itself couldn't be opened.
+        const auto effective = adai::resolve_registry_server_config(cli, file_config, {});
+        port = effective.port;
+        data_dir = effective.data_dir;
+        ftp_token_ttl_min.store(effective.ftp_ttl_minutes);
+        ftp_max_sessions = effective.ftp_max_sessions;
+        admin_enabled = effective.admin_enabled;
     }
 
     try {
@@ -1672,15 +1636,6 @@ int main(int argc, char* argv[]) {
         std::cerr << "Warning: session_counters.db unavailable (" << e.what()
                   << "); POST /registry/<group>/session/next will fail\n";
     }
-
-    // This run's explicit CLI flags win over everything, including persisted
-    // admin overrides.
-    if (cli_ftp_ttl)
-        ftp_ttl_value = *cli_ftp_ttl;
-    if (cli_ftp_max_sessions)
-        ftp_max_sessions = *cli_ftp_max_sessions;
-    ftp_token_ttl_min.store(ftp_ttl_value);
-    admin_enabled = cli_admin_enabled.value_or(true);
 
     Logger::init(Logger::Level::INFO, "registry_server");
 
