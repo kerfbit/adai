@@ -695,7 +695,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Android / CI | September 7, 2026 | 10-14 hours |
+| MEDIUM | Open (CI added; release process still pending) | Android / CI | September 7, 2026 | 10-14 hours |
 
 Description:
 41 files across `android/app` (15) and `android/opsdashboard`/`android/wearsync` (26) — the
@@ -705,19 +705,40 @@ the entire Android surface landed in a single commit, both apps still declare
 isn't the same as having a release process; that's the actual gap here, distinct from TD-048
 (files with no test at all).
 
+**Update (September 12, 2026):** `.github/workflows/android-ci.yml` added — builds `:app`/
+`:opsdashboard` (`assembleDebug`) and runs `testDebugUnitTest` across all modules on every
+`android/**` push/PR. Verified genuinely green on a real GitHub Actions run (kerfbit mirror), not
+just locally — the first version failed on its actual first run despite passing every local
+check, because `wearface`'s `resignWffApk` task needs `~/.android/debug.keystore` to already
+exist and a dev machine has one from prior Android Studio use, but a fresh CI runner doesn't;
+fixed by generating the same well-known debug keystore as an explicit CI step. **The primary
+`origin` (rjv717/adai) repo's own runs have not actually executed yet** — GitHub reports "recent
+account payments have failed or your spending limit needs to be increased" on that account,
+unrelated to this workflow; needs that billing issue resolved before this CI job is actually
+gating anything on the repo's primary remote (it is confirmed working on the kerfbit mirror in
+the meantime).
+
+Setting up this CI job also surfaced a real, already-shipped regression it now guards against:
+`opsdashboard`'s test suite didn't even compile on `main` (`ModelRepositoryTest.kt` was calling
+`clearStaleTrainingLock` with the pre-TD-147 one-argument signature) — fixed alongside the CI
+work; see that commit for the full story.
+
 Action Items:
 
-- [ ] Add a GitHub Actions workflow building both `:app` and `:opsdashboard` and running their
-  unit tests (`./gradlew testDebugUnitTest`) — no such job currently exists anywhere in
-  `.github/workflows/`.
-- [ ] Establish a real release/versioning process before either app leaves `0.1.0`.
+- [x] Add a GitHub Actions workflow building both `:app` and `:opsdashboard` and running their
+  unit tests (`./gradlew testDebugUnitTest`).
+- [ ] Resolve the `origin` repo's GitHub billing/spending-limit issue so `android-ci.yml` actually
+  runs there (confirmed working on the kerfbit mirror already).
+- [ ] Establish a real release/versioning process before either app leaves `0.1.0` — intentionally
+  not attempted alongside the CI work above; it's a product/process decision (signing strategy,
+  distribution channel, version-bump cadence), not a mechanical fix.
 
 Files to Modify:
 
 - 41 files under `android/app/src/main` and `android/opsdashboard/src/main` /
   `android/wearsync/src/main` tagged `beta` — see [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md)
   for the exact list.
-- `.github/workflows/` (new Android CI job)
+- `.github/workflows/android-ci.yml` — done.
 
 ---
 
