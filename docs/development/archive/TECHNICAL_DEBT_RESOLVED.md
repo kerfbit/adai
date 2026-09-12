@@ -4,6 +4,94 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-042: PostgresMetricsDatabase Has Zero Test Coverage
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 11, 2026 | `src/PostgresMetricsDatabase.{cpp,hpp}` | New `tests/postgres_metrics_database_test.cpp` (18 tests) against a real local Postgres instance; 3 real bugs found and fixed |
+
+Summary:
+`PostgresMetricsDatabase` implements the same `IMetricsDatabase` interface as
+`SQLiteMetricsDatabase` but had zero test coverage — this item's own action items note that
+exactly this gap is what let [TD-065](../archive/TECHNICAL_DEBT_RESOLVED.md#td-065-postgresmetricsdatabases-list_sessionsget_session-lost-all-data-on-a-nullable-column-session-row)
+ship undetected. Added `tests/postgres_metrics_database_test.cpp`, mirroring
+`MetricsDatabaseTest.cpp`'s `IMetricsDatabase`-level coverage (session upsert/list/get/archive,
+metrics history insert/query with time-range and limit filtering, gradient variance history,
+abnormal samples, generation quality, the TD-065 NULL-column regression, and the factory) against
+a real PostgreSQL 16 server, not a mock — `initdb`/`pg_ctl`'d by the test itself into a scratch
+directory on a unix socket with a PID-derived port (so parallel `ctest -j` runs don't collide),
+matching TD-065's own reproduction approach rather than touching the system's real
+`postgresql.service`. Wired into `ctest` as `PostgresMetricsDatabaseTests`, built only when
+`ENABLE_POSTGRES_METRICS` links `PostgresMetricsDatabase.cpp`/libpq into `adai_core` at all —
+this also satisfies the item's second action item ("document a local setup"): the test file's own
+`initdb`/`pg_ctl` invocation *is* that documented, working local setup, runnable with
+`cmake -DENABLE_POSTGRES_METRICS=ON` and a real local Postgres install (confirmed against Postgres
+16.15 on this machine; no CI job was added, since this repo has no CI pipeline to add one to).
+
+Writing real tests against real behavior surfaced 3 previously-undiscovered bugs, each
+independently reproduced before fixing and reverted-and-confirmed-to-fail after:
+
+1. **Every TIMESTAMPTZ column round-trips through the wrong timezone unless the server happens to
+   default to UTC.** `format_timestamp()` always writes a `+00`-suffixed UTC timestamp, and
+   `parse_timestamp()` runs the parsed wall-clock fields through `timegm()` unconditionally — both
+   assume Postgres always hands back UTC. It doesn't: a session's `TimeZone` defaults to whatever
+   `initdb` picked for the *host*, and a `TIMESTAMPTZ` is displayed converted to that zone, not
+   UTC. Reproduced directly: a fresh `initdb` on this machine defaulted to `America/Los_Angeles`,
+   and a value stored as UTC noon (`2026-01-01T12:00:00.000+00`) read back from `psql` as
+   `2026-01-01 04:00:00-08` — `parse_timestamp()` then misread that wall-clock text as if it were
+   UTC, silently skewing every timestamp this class returns by the server's UTC offset (7-8h for
+   US Pacific, depending on DST). `TimeRangeFilter`'s query returned rows hours before its own
+   `from` bound before the fix. Fixed by running `SET TIME ZONE 'UTC'` on every pooled connection
+   right after it's opened (`create_connection()`), so the session's own display timezone always
+   matches what the write side already assumes, independent of the server's default.
+2. **`std::to_string(float)` silently truncates small values to ~6 decimal *places*, not 6
+   significant digits.** Used to build every `REAL`-column SQL parameter in this file (loss,
+   learning_rate, gradient_norm, perplexity, `best_validation_loss`/`final_loss`/
+   `final_validation_loss`, all 5 TD-013 diagnostic ratios, `gradient_variance_history`'s value,
+   `abnormal_samples`' loss/grad_norm, and all 6 BLEU/ROUGE scores). Reproduced directly:
+   `std::to_string(1.23e-5f) == "0.000012"` — losing the `3` and rounding what's left, from a
+   value magnitude entirely plausible for a field literally named `weight_update_ratio`. Fixed by
+   adding a `pg_float_to_string()` helper using `std::numeric_limits<float>::max_digits10` (9)
+   significant digits — the standard guarantee for exact float round-tripping through decimal
+   text — and replacing every float-valued `std::to_string()` call site with it (integer fields —
+   `session_id`, `epoch`, `sample`, `best_epoch`, `sample_id`, `step` — were left untouched, since
+   `std::to_string(int)` has no such precision loss).
+3. **A sustained connection failure permanently deadlocks the entire connection pool.**
+   `acquire_connection()` marked a pool slot `in_use = true` *before* attempting to (re)connect it,
+   and left it that way forever if the connection failed — `execute_with_retry()`'s
+   `if (!conn) { ...; continue; }` branch never calls `release_connection()` for a null result.
+   With `RETRY_COUNT` (3) `>=` a small `pool_size`, one sustained outage burns through the entire
+   pool within a single `execute_with_retry()` call, and every `acquire_connection()` anywhere
+   after that blocks in `pool_cv_.wait()` forever — any client using this backend
+   (`chatbot_api_server`/`incremental_trainer`/`metrics_api_server`) would need a full process
+   restart to recover from what should have been a simple "retries exhausted, return false"
+   failure. Reproduced directly with a standalone repro (a bad connection target, run as its own
+   process under a shell `timeout` so the reproduction itself couldn't hang the terminal): the
+   very first `upsert_session()` call never returned. Fixed by releasing the slot
+   (`in_use = false` + `notify_one()`) when `ensure_connection()` fails, instead of leaving it
+   permanently claimed. The new regression test verifies this via a `std::promise`/`future` pair
+   on a detached `std::thread` rather than `std::async` — a `std::async` future blocks in its own
+   destructor until the task completes, which would turn a real regression into a different,
+   equally-total hang the instant the test function returned.
+
+All 3 fixes were verified with the standard revert-and-confirm-fail cycle: each fix was
+temporarily undone, the corresponding test (or, for the pool deadlock, a bounded wait) confirmed
+to fail, then the fix was restored and the full 18-test suite reconfirmed passing.
+
+Promoted `PostgresMetricsDatabase.{cpp,hpp}` `experimental` → `beta` (`0.3.0` → `0.4.0`), not
+`stable`: it's still not built by default, and finding 3 real bugs in one verification pass on a
+file that had *already* had one caught the same way ([TD-065](../archive/TECHNICAL_DEBT_RESOLVED.md#td-065-postgresmetricsdatabases-list_sessionsget_session-lost-all-data-on-a-nullable-column-session-row))
+is itself evidence against a `stable` claim, not for one — matching the reasoning applied to
+`scripts/serve_dashboard.py` earlier in this same pass of work.
+
+Files Modified:
+
+- `src/PostgresMetricsDatabase.cpp` — `SET TIME ZONE 'UTC'` on connect, `pg_float_to_string()`
+  helper + call-site replacements, `acquire_connection()` slot-release fix
+- `tests/postgres_metrics_database_test.cpp` (new, 18 tests)
+- `tests/CMakeLists.txt` — wired in as `PostgresMetricsDatabaseTests`, gated on
+  `ENABLE_POSTGRES_METRICS`
+
 ### TD-036: Thin main() Wrappers Have No Smoke Test
 
 | Resolution Date | Component | Resolved By |

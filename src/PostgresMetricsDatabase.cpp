@@ -1,6 +1,6 @@
-// @adai-status: experimental        (capped by TD-042 — zero test coverage, not built by default)
-// @adai-version: 0.3.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: beta        (TD-042 resolved — real test coverage added; still not built by default)
+// @adai-version: 0.4.0
+// @adai-reviewed: 2026-09-11
 
 #ifdef ADAI_ENABLE_POSTGRES
 
@@ -55,6 +55,27 @@ PGconn* PostgresMetricsDatabase::create_connection() {
         PQfinish(conn);
         return nullptr;
     }
+
+    // format_timestamp()/parse_timestamp() both assume every TIMESTAMPTZ round-trips through
+    // this connection as UTC — format_timestamp() always writes a "+00" suffix, and
+    // parse_timestamp() runs the parsed wall-clock fields through timegm() unconditionally.
+    // Without this, a server whose TimeZone GUC defaults to the *host's* local zone (initdb's
+    // own default — confirmed directly: a fresh initdb on this machine picked
+    // "America/Los_Angeles") returns every TIMESTAMPTZ column already converted to that zone's
+    // wall-clock (e.g. "2026-01-01 04:00:00-08" for a value stored as UTC noon), which
+    // parse_timestamp() then misreads as if it were UTC — silently skewing every timestamp read
+    // back through this class by the server's UTC offset (7-8h for US Pacific, depending on
+    // DST). Reproduced directly: TimeRangeFilter's query returned rows whose parsed
+    // timestamps were hours before the query's own `from` bound. Setting the session to UTC
+    // makes the text Postgres sends back match what parse_timestamp() actually parses,
+    // independent of the server's own default TimeZone.
+    PGresult* res = PQexec(conn, "SET TIME ZONE 'UTC'");
+    if (PQresultStatus(res) != PGRES_COMMAND_OK) {
+        adai::Logger::error("[PostgresMetricsDB] SET TIME ZONE 'UTC' failed: {}",
+                            PQerrorMessage(conn));
+    }
+    PQclear(res);
+
     return conn;
 }
 
@@ -81,7 +102,21 @@ PGconn* PostgresMetricsDatabase::acquire_connection() {
     for (auto& entry : pool_) {
         if (!entry.in_use) {
             entry.in_use = true;
-            ensure_connection(entry.conn);
+            if (!ensure_connection(entry.conn)) {
+                // A failed (re)connect must not leave this slot permanently marked in_use — a
+                // caller who gets nullptr back never calls release_connection() (see
+                // execute_with_retry()'s `if (!conn) { ...; continue; }` branch), so without
+                // this a slot burned by one failed attempt would never open up again. With
+                // RETRY_COUNT (3) >= pool_size, one sustained connection outage would then burn
+                // through every pool slot within a single execute_with_retry() call, and the
+                // next acquire_connection() anywhere would block in pool_cv_.wait() forever —
+                // reproduced directly: a bad connection target hung the very first
+                // upsert_session() call indefinitely (confirmed via a bounded std::async wait,
+                // not an actual unbounded hang of the reproduction itself).
+                entry.in_use = false;
+                pool_cv_.notify_one();
+                return nullptr;
+            }
             return entry.conn;
         }
     }
@@ -335,6 +370,21 @@ std::chrono::system_clock::time_point PostgresMetricsDatabase::parse_timestamp(
     return tp;
 }
 
+// std::to_string(float) formats with a fixed 6 digits after the decimal point (equivalent to
+// "%f") — for any value whose magnitude needs more decimal places than that to keep its
+// significant digits (weight_update_ratio is typically ~1e-5, and several other REAL columns
+// written this way, e.g. gradient_variance's value, can be just as small), that silently
+// truncates real digits instead of just dropping insignificant ones. Reproduced directly:
+// std::to_string(1.23e-5f) == "0.000012" — losing the 3 and rounding what's left.
+// std::numeric_limits<float>::max_digits10 (9) significant digits is the standard guarantee for
+// exact float round-tripping through decimal text; used here for every REAL column parameter
+// instead.
+static std::string pg_float_to_string(float v) {
+    std::ostringstream oss;
+    oss << std::setprecision(std::numeric_limits<float>::max_digits10) << v;
+    return oss.str();
+}
+
 // PQgetvalue() returns "" for a SQL NULL (indistinguishable from a real empty
 // string without PQgetisnull() — see the identical note in query_history()
 // below). best_validation_loss, final_loss, and final_validation_loss are
@@ -362,14 +412,14 @@ void PostgresMetricsDatabase::upsert_session(const SessionRecord& rec) {
     execute_with_retry("upsert_session", [&](PGconn* conn) -> bool {
         auto ts_created = format_timestamp(rec.created_at);
         auto ts_updated = format_timestamp(rec.last_update_at);
-        auto bv_loss = std::to_string(rec.best_validation_loss);
+        auto bv_loss = pg_float_to_string(rec.best_validation_loss);
         auto sid = std::to_string(rec.session_id);
         auto is_t = std::string(rec.is_training ? "true" : "false");
         auto epochs = std::to_string(rec.total_epochs);
         auto samples = std::to_string(rec.total_samples);
         auto best_ep = std::to_string(rec.best_epoch);
-        auto f_loss = std::to_string(rec.final_loss);
-        auto f_val_loss = std::to_string(rec.final_validation_loss);
+        auto f_loss = pg_float_to_string(rec.final_loss);
+        auto f_val_loss = pg_float_to_string(rec.final_validation_loss);
 
         const char* params[] = {rec.key.c_str(),         sid.c_str(),     rec.label.c_str(),
                                 rec.config_json.c_str(), is_t.c_str(),    ts_created.c_str(),
@@ -481,16 +531,16 @@ void PostgresMetricsDatabase::insert_metrics_record(const std::string& session_k
         auto ts = format_timestamp(rec.timestamp);
         auto epoch = std::to_string(rec.epoch);
         auto sample = std::to_string(rec.sample);
-        auto loss = std::to_string(rec.loss);
-        auto vloss = std::to_string(rec.validation_loss);
-        auto lr = std::to_string(rec.learning_rate);
-        auto gnorm = std::to_string(rec.gradient_norm);
-        auto ppl = std::to_string(rec.perplexity);
-        auto ctr = std::to_string(rec.compute_time_ratio);
-        auto wur = std::to_string(rec.weight_update_ratio);
-        auto asr = std::to_string(rec.activation_saturation_ratio);
-        auto aent = std::to_string(rec.attention_entropy);
-        auto peff = std::to_string(rec.padding_efficiency);
+        auto loss = pg_float_to_string(rec.loss);
+        auto vloss = pg_float_to_string(rec.validation_loss);
+        auto lr = pg_float_to_string(rec.learning_rate);
+        auto gnorm = pg_float_to_string(rec.gradient_norm);
+        auto ppl = pg_float_to_string(rec.perplexity);
+        auto ctr = pg_float_to_string(rec.compute_time_ratio);
+        auto wur = pg_float_to_string(rec.weight_update_ratio);
+        auto asr = pg_float_to_string(rec.activation_saturation_ratio);
+        auto aent = pg_float_to_string(rec.attention_entropy);
+        auto peff = pg_float_to_string(rec.padding_efficiency);
         // PQexecParams treats a NULL entry in the params array as SQL NULL —
         // pass nullptr instead of an empty string when not reported this epoch.
         const char* lg_json = rec.layer_gradient_norms_json.empty()
@@ -527,7 +577,7 @@ void PostgresMetricsDatabase::insert_gradient_variance_sample(const std::string&
         auto ts = format_timestamp(std::chrono::system_clock::now());
         auto step_str = std::to_string(step);
         auto epoch_str = std::to_string(epoch);
-        auto value_str = std::to_string(value);
+        auto value_str = pg_float_to_string(value);
 
         const char* params[] = {session_key.c_str(), ts.c_str(), step_str.c_str(),
                                 epoch_str.c_str(), value_str.c_str()};
@@ -553,8 +603,8 @@ void PostgresMetricsDatabase::insert_abnormal_sample(const std::string& session_
         auto ts = format_timestamp(sample.timestamp);
         auto epoch = std::to_string(sample.epoch);
         auto sid = std::to_string(sample.sample_id);
-        auto loss = std::to_string(sample.loss);
-        auto gnorm = std::to_string(sample.grad_norm);
+        auto loss = pg_float_to_string(sample.loss);
+        auto gnorm = pg_float_to_string(sample.grad_norm);
 
         const char* params[] = {session_key.c_str(),
                                 epoch.c_str(),
@@ -587,12 +637,12 @@ void PostgresMetricsDatabase::insert_generation_quality(const std::string& sessi
     execute_with_retry("insert_generation_quality", [&](PGconn* conn) -> bool {
         auto ts = format_timestamp(std::chrono::system_clock::now());
         auto ep = std::to_string(epoch);
-        auto b1 = std::to_string(score.bleu1);
-        auto b2 = std::to_string(score.bleu2);
-        auto b4 = std::to_string(score.bleu4);
-        auto r1 = std::to_string(score.rouge1);
-        auto r2 = std::to_string(score.rouge2);
-        auto rL = std::to_string(score.rougeL);
+        auto b1 = pg_float_to_string(score.bleu1);
+        auto b2 = pg_float_to_string(score.bleu2);
+        auto b4 = pg_float_to_string(score.bleu4);
+        auto r1 = pg_float_to_string(score.rouge1);
+        auto r2 = pg_float_to_string(score.rouge2);
+        auto rL = pg_float_to_string(score.rougeL);
 
         const char* params[] = {session_key.c_str(), ts.c_str(), ep.c_str(), b1.c_str(), b2.c_str(),
                                 b4.c_str(),          r1.c_str(), r2.c_str(), rL.c_str()};

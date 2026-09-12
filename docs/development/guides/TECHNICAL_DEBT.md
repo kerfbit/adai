@@ -700,44 +700,6 @@ Files to Modify:
 
 ---
 
-### TD-042: PostgresMetricsDatabase Has Zero Test Coverage
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Metrics / Testing | September 7, 2026 | 4-6 hours |
-
-Description:
-`PostgresMetricsDatabase.{cpp,hpp}` is the optional Postgres backend selected by
-`ENABLE_POSTGRES_METRICS`; it isn't built by default and has no test, unlike its SQLite sibling
-(`SQLiteMetricsDatabase`, thoroughly covered by `MetricsDatabaseTest.cpp`). Since it implements the
-same `IMetricsDatabase` interface, `MetricsDatabaseTest.cpp`'s existing fixtures are a natural
-starting point rather than a from-scratch design.
-
-Compiled standalone against the system `libpq` (`g++ -std=c++17 -DENABLE_POSTGRES_METRICS`,
-September 7, 2026) to check whether it even builds, since no configured build here has
-`ENABLE_POSTGRES_METRICS=ON` — it compiled clean, zero errors or warnings.
-
-**Update (September 8, 2026):** this coverage gap is exactly what let a real code defect ship
-undetected — see [TD-065](../archive/TECHNICAL_DEBT_RESOLVED.md#td-065-postgresmetricsdatabases-list_sessionsget_session-lost-all-data-on-a-nullable-column-session-row)
-(resolved), found and fixed by standing up a real local Postgres instance and exercising
-`list_sessions()`/`get_session()` directly. The action items below — parameterizing
-`MetricsDatabaseTest.cpp` against this backend — would have caught TD-065 automatically; they
-remain open and are now higher-value than when this item was created.
-
-Action Items:
-
-- [ ] Parameterize (or duplicate) `MetricsDatabaseTest.cpp`'s `IMetricsDatabase` test cases to run
-  against `PostgresMetricsDatabase` when `ENABLE_POSTGRES_METRICS` is on.
-- [ ] Add a CI job (or document a local setup) that builds with `ENABLE_POSTGRES_METRICS=ON`
-  against a real Postgres instance, since this configuration is currently untested by any CI path.
-
-Files to Modify:
-
-- `src/PostgresMetricsDatabase.cpp` / `src/PostgresMetricsDatabase.hpp`
-- `tests/MetricsDatabaseTest.cpp`
-
----
-
 ### TD-047: Android Data/Repository/API Layer Has No CI or Release History
 
 | Priority | Status | Component | Created | Effort Estimate |
@@ -933,7 +895,7 @@ Files to Modify:
 
 ## Resolved Items
 
-135 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+136 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements

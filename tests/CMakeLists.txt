@@ -519,6 +519,25 @@ if(SQLITE3_FOUND)
 endif()
 add_test(NAME MetricsDatabaseTests COMMAND metricsDatabaseTests)
 
+# TD-042: PostgresMetricsDatabase test coverage, parameterizing the same IMetricsDatabase-level
+# behavior MetricsDatabaseTest.cpp covers for SQLite against a real local Postgres instance
+# (initdb/pg_ctl'd by the test itself — see postgres_metrics_database_test.cpp). Only buildable
+# when ENABLE_POSTGRES_METRICS links PostgresMetricsDatabase.cpp/libpq into adai_core at all
+# (PostgreSQL::PostgreSQL and ADAI_ENABLE_POSTGRES flow in transitively via that PUBLIC link, per
+# src/CMakeLists.txt — no separate include/link needed here).
+if(ENABLE_POSTGRES_METRICS)
+    add_executable(postgresMetricsDatabaseTests postgres_metrics_database_test.cpp)
+    target_include_directories(postgresMetricsDatabaseTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(postgresMetricsDatabaseTests
+        adai_core
+        GTest::gtest_main
+    )
+    add_test(NAME PostgresMetricsDatabaseTests COMMAND postgresMetricsDatabaseTests)
+    # Real initdb + 17 CREATE DATABASE/DROP DATABASE round trips is slower than the in-process
+    # SQLite suite; keep it well under the blanket 1200s but give it real headroom.
+    set_tests_properties(PostgresMetricsDatabaseTests PROPERTIES TIMEOUT 300)
+endif()
+
 # Daemon admin config persistence (metrics_api_server / mns_server / registry_server)
 add_executable(daemonConfigStoreTests daemonconfigstore_test.cpp)
 target_include_directories(daemonConfigStoreTests PRIVATE ${CMAKE_SOURCE_DIR}/src)

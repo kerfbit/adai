@@ -12,7 +12,7 @@ See [file-status-standard.md](guides/file-status-standard.md) for what these sta
 |---|---|---|---|---|---|---|---|
 | android | 0 | 41 | 62 | 0 | 0 | 0 | 103 |
 | scripts | 9 | 27 | 0 | 0 | 0 | 0 | 36 |
-| src | 81 | 47 | 4 | 0 | 0 | 0 | 132 |
+| src | 81 | 49 | 2 | 0 | 0 | 0 | 132 |
 | tizen-metrics-app | 0 | 3 | 0 | 0 | 0 | 0 | 3 |
 
 **90/274 files (33%) are tagged `stable`.**
@@ -189,8 +189,8 @@ None — every in-scope file carries a tag.
 | `src/ParallelDataLoader.hpp` | experimental | 0.4.2 | 2026-09-10 | TD-052 |
 | `src/PerformanceProfiler.hpp` | beta | 0.7.1 | 2026-09-10 | TD-038 |
 | `src/PipelineInferenceEngine.hpp` | beta | 0.7.0 | 2026-09-10 | TD-038 |
-| `src/PostgresMetricsDatabase.cpp` | experimental | 0.3.0 | 2026-09-10 | TD-042 |
-| `src/PostgresMetricsDatabase.hpp` | experimental | 0.3.0 | 2026-09-10 | TD-042 |
+| `src/PostgresMetricsDatabase.cpp` | beta | 0.4.0 | 2026-09-11 | TD-042 |
+| `src/PostgresMetricsDatabase.hpp` | beta | 0.4.0 | 2026-09-11 | TD-042 |
 | `src/Quantization.hpp` | beta | 0.7.0 | 2026-09-10 | TD-038 |
 | `src/RegistryServer.cpp` | beta | 0.8.3 | 2026-09-11 | TD-035 |
 | `src/RewardModel.hpp` | beta | 0.7.0 | 2026-09-10 | TD-038 |
