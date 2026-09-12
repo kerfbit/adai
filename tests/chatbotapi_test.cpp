@@ -820,6 +820,62 @@ TEST_F(ChatbotAPITest, Profile_EnabledBeforeAnyGenerationReportsZeroCalls) {
 }
 
 // ============================================================================
+// Speculative Decoding (TD-038): draft-model wiring
+// ============================================================================
+//
+// Integration tests in the same sense as the Profiling section above — proving the wiring
+// through a real second EncoderDecoderModel and real (small) inference, not just
+// SpeculativeDecoder's own existing unit tests in isolation.
+
+TEST_F(ChatbotAPITest, SpeculativeDecoding_ZeroCandidatesReachesTheDraftPathAndThrows) {
+    // A deliberately observable, falsifiable signal that generate_response() genuinely reaches
+    // SpeculativeDecoder rather than silently falling through to the plain strategy-based path:
+    // with num_candidates=0, SpeculativeDecoder::generate_candidates() proposes nothing on every
+    // round, so generate_tokens() breaks on its first iteration with zero output tokens — and
+    // BPETokenizer::decode() on an empty token vector throws ("Input token ID vector is empty"),
+    // caught and rethrown here as a generation failure. Confirmed directly: this only happens
+    // via the speculative path — plain generation on this same (untrained, randomly-initialized)
+    // model never legitimately produces zero tokens (max_length=5 greedy decoding always emits
+    // at least one token before it could possibly hit EOS), so this exception could only
+    // originate from SpeculativeDecoder actually being invoked with num_candidates=0.
+    auto draft_model = std::make_unique<EncoderDecoderModel>(tokenizer->get_vocab_size(),
+                                                             /*d_model=*/16, /*enc_layers=*/1,
+                                                             /*dec_layers=*/1, /*num_heads=*/2,
+                                                             /*d_ff=*/32, /*max_seq_length=*/128);
+    api = std::make_unique<ChatbotAPI>(model.get(), tokenizer.get(), 8080, 30, draft_model.get(),
+                                       /*speculative_num_candidates=*/0);
+
+    ChatbotAPI::GenerationConfig config;
+    config.max_length = 5;
+    config.strategy = "greedy";
+
+    EXPECT_THROW(call_generate_response("hello", config), std::runtime_error);
+}
+
+TEST_F(ChatbotAPITest, SpeculativeDecoding_RealCandidateCountGeneratesWithoutThrowing) {
+    auto draft_model = std::make_unique<EncoderDecoderModel>(tokenizer->get_vocab_size(), 16, 1, 1,
+                                                             2, 32, 128);
+    api = std::make_unique<ChatbotAPI>(model.get(), tokenizer.get(), 8080, 30, draft_model.get(),
+                                       /*speculative_num_candidates=*/4);
+
+    ChatbotAPI::GenerationConfig config;
+    config.max_length = 5;
+    config.strategy = "greedy";
+
+    EXPECT_NO_THROW(call_generate_response("hello world", config));
+}
+
+TEST_F(ChatbotAPITest, SpeculativeDecoding_NoDraftModelUsesNormalPathUnaffected) {
+    // No draft model configured (the fixture's default `api`) — confirms adding the
+    // draft_model_/speculative_num_candidates_ constructor parameters didn't disturb the
+    // existing, already-covered normal generation path.
+    ChatbotAPI::GenerationConfig config;
+    config.max_length = 5;
+    config.strategy = "greedy";
+    EXPECT_NO_THROW(call_generate_response("hello", config));
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 

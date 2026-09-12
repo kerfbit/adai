@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
+// @adai-version: 1.2.0
 // @adai-reviewed: 2026-09-12
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
@@ -90,6 +90,10 @@ void print_usage(const char* program_name) {
            "/etc/adai/config.chatbot.conf)\n"
         << "  --model <path>       Path to model file\n"
         << "  --vocab <path>       Path to vocabulary file\n"
+        << "  --draft-model <path> Enable speculative decoding: path to a second model's\n"
+           "                       weights, sharing this run's architecture and tokenizer,\n"
+           "                       used as the fast \"draft\" model\n"
+        << "  --speculative-candidates <n>  Draft-model candidates per round (default: 4)\n"
         << "  --port <number>      Port number (default: 8080)\n"
         << "  --timeout <minutes>  Session timeout in minutes (default: 30)\n"
         << "  --log-level <level>  Logging level: DEBUG, INFO, WARN, ERROR (default: INFO)\n"
@@ -291,11 +295,34 @@ int main(int argc, char* argv[]) {
             adai::Logger::info("  Using randomly initialized model (training required)");
         }
 
+        // TD-038: optional draft model for speculative decoding — shares this run's
+        // architecture and tokenizer (see Config.hpp's draft_model_path doc comment); only its
+        // weights differ. A load failure here disables speculative decoding for this run
+        // (falls back to normal generation) rather than aborting startup, the same tolerant
+        // stance the main model's own load failure above takes.
+        std::shared_ptr<EncoderDecoderModel> draft_model;
+        if (!config.draft_model_path.empty()) {
+            adai::Logger::info("  Loading draft model weights from: {}", config.draft_model_path);
+            try {
+                draft_model = std::make_shared<EncoderDecoderModel>(
+                    tokenizer->get_vocab_size(), config.d_model, config.num_encoder_layers,
+                    config.num_decoder_layers, config.num_heads, config.d_ff,
+                    config.max_seq_length);
+                draft_model->load_model(config.draft_model_path);
+                adai::Logger::info("  Draft model weights loaded successfully");
+            } catch (const std::exception& e) {
+                adai::Logger::warn("  Failed to load draft model weights: {}", e.what());
+                adai::Logger::warn("  Speculative decoding disabled for this run");
+                draft_model.reset();
+            }
+        }
+
         // Initialize API server
         adai::Logger::info("");
         adai::Logger::info("[3/4] Initializing API server...");
         auto api = std::make_unique<ChatbotAPI>(model.get(), tokenizer.get(), config.port,
-                                                config.session_timeout);
+                                                config.session_timeout, draft_model.get(),
+                                                config.speculative_num_candidates);
 
         // TD-038: --profile enables GET /admin/profile (generate_response() timing stats).
         if (cli.profile) {
@@ -402,6 +429,10 @@ int main(int argc, char* argv[]) {
         if (config.rag_enabled && rag_engine) {
             adai::Logger::info("  RAG:   enabled ({} docs indexed, retrieving top-{})",
                                rag_engine->getNumDocuments(), config.rag_num_docs);
+        }
+        if (draft_model) {
+            adai::Logger::info("  Speculative decoding: enabled (K={}, draft={})",
+                               config.speculative_num_candidates, config.draft_model_path);
         }
         // TODO: See TECHNICAL_DEBT.md Future Enhancement (Container and Deployment #2) - Add /metrics endpoint
         // Expose Prometheus metrics: request_count, request_duration, active_sessions, etc.

@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-09-12
 
 
 #include <cstdint>
@@ -55,6 +55,19 @@ struct ServiceConfig {
 
     /// Path to the vocabulary file
     std::string vocab_path;
+
+    /// Path to a second model's weights to use as the "draft" model for speculative decoding
+    /// (TD-038) — empty (default) disables it entirely, falling back to the normal
+    /// strategy-based generation. The draft model shares the target model's architecture
+    /// (d_model/num_heads/etc. below) and tokenizer; only its weights differ. Wiring an
+    /// independently-*sized* draft model would need its own DRAFT_D_MODEL/etc. keys, which this
+    /// intentionally does not add — see TECHNICAL_DEBT_RESOLVED.md's TD-038 entry.
+    std::string draft_model_path;
+
+    /// Number of candidate tokens (K) the draft model proposes per verification round when
+    /// speculative decoding is active (default: 4, matching SpeculativeDecodingConfig's own
+    /// default). Ignored when draft_model_path is empty.
+    int speculative_num_candidates = 4;
 
     /// Server port (default: 8080)
     int port = 8080;

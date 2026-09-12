@@ -46,6 +46,8 @@ class ConfigTest : public ::testing::Test {
         _putenv("SESSION_TIMEOUT=");
         _putenv("VOCAB_PATH=");
         _putenv("MODEL_PATH=");
+        _putenv("DRAFT_MODEL_PATH=");
+        _putenv("SPECULATIVE_NUM_CANDIDATES=");
         _putenv("LOG_FILE_PATH=");
         _putenv("LOG_MAX_SIZE_MB=");
         _putenv("LOG_MAX_FILES=");
@@ -75,6 +77,8 @@ class ConfigTest : public ::testing::Test {
         unsetenv("SESSION_TIMEOUT");
         unsetenv("VOCAB_PATH");
         unsetenv("MODEL_PATH");
+        unsetenv("DRAFT_MODEL_PATH");
+        unsetenv("SPECULATIVE_NUM_CANDIDATES");
         unsetenv("LOG_FILE_PATH");
         unsetenv("LOG_MAX_SIZE_MB");
         unsetenv("LOG_MAX_FILES");
@@ -200,6 +204,16 @@ TEST_F(ConfigTest, LoadFromEnvironmentVariables) {
     EXPECT_EQ(config.strategy, "greedy");
 }
 
+TEST_F(ConfigTest, LoadDraftModelSettingsFromEnvironmentVariables) {
+    setEnv("DRAFT_MODEL_PATH", "/env/draft.bin");
+    setEnv("SPECULATIVE_NUM_CANDIDATES", "8");
+
+    auto config = ConfigLoader::load();
+
+    EXPECT_EQ(config.draft_model_path, "/env/draft.bin");
+    EXPECT_EQ(config.speculative_num_candidates, 8);
+}
+
 TEST_F(ConfigTest, LoadMultiInstanceMetricsFromEnvironmentVariables) {
     setEnv("METRICS_SESSION_KEY", "42-gpu0");
     setEnv("METRICS_MAX_LIVE_SESSIONS", "32");
@@ -305,6 +319,23 @@ TEST_F(ConfigTest, LoadFromFile) {
     EXPECT_EQ(config.d_model, 1024);
     EXPECT_EQ(config.num_heads, 16);
     EXPECT_EQ(config.strategy, "beam");
+}
+
+TEST_F(ConfigTest, LoadDraftModelSettingsFromFile) {
+    // TD-038: speculative decoding config.
+    createConfigFile(
+        {{"DRAFT_MODEL_PATH", "/path/to/draft.bin"}, {"SPECULATIVE_NUM_CANDIDATES", "6"}});
+
+    auto config = ConfigLoader::load(test_file.string());
+
+    EXPECT_EQ(config.draft_model_path, "/path/to/draft.bin");
+    EXPECT_EQ(config.speculative_num_candidates, 6);
+}
+
+TEST_F(ConfigTest, DraftModelPathDefaultsEmptyAndDisabled) {
+    auto config = ConfigLoader::load(test_file.string());
+    EXPECT_TRUE(config.draft_model_path.empty());
+    EXPECT_EQ(config.speculative_num_candidates, 4);
 }
 
 TEST_F(ConfigTest, LoadMultiInstanceMetricsFromFile) {

@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-033 — generate_response() never uses GPU-resident decode, see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.3
+// @adai-version: 0.9.4
 // @adai-reviewed: 2026-09-12
 
 #include "ChatbotAPI.hpp"
@@ -18,9 +18,12 @@ class ChatbotAPI::ServerImpl {
 };
 
 ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int port,
-                       int session_timeout_minutes)
+                       int session_timeout_minutes, EncoderDecoderModel* draft_model,
+                       int speculative_num_candidates)
     : model_(model),
       tokenizer_(tokenizer),
+      draft_model_(draft_model),
+      speculative_num_candidates_(speculative_num_candidates),
       port_(port),
       session_timeout_(session_timeout_minutes),
 
@@ -668,6 +671,43 @@ std::string ChatbotAPI::generate_response(const std::string& input,
     try {
         // Tokenize input (no special tokens for encoder input)
         std::vector<int> input_tokens = tokenizer_->encode(input, false);
+
+        // TD-038: speculative decoding takes over generation entirely once a draft model is
+        // configured — a server-level decoding mechanism (see draft_model_'s doc comment in
+        // ChatbotAPI.hpp), not a per-request strategy choice, so this bypasses the
+        // strategy-based dispatch below rather than adding "speculative" as another strategy
+        // string. The draft/target model_fns are otherwise identical to the plain path's below
+        // (same input_tokens capture, same forward() signature) — only which model each one
+        // calls into differs.
+        if (draft_model_) {
+            auto draft_model_fn =
+                [this, &input_tokens](const std::vector<int>& decoder_tokens) -> Matrix {
+                return draft_model_->forward(input_tokens, decoder_tokens);
+            };
+            auto target_model_fn =
+                [this, &input_tokens](const std::vector<int>& decoder_tokens) -> Matrix {
+                return model_->forward(input_tokens, decoder_tokens);
+            };
+
+            TextGenerator draft_gen;
+            draft_gen.set_model_fn(draft_model_fn);
+            draft_gen.set_tokenizer(tokenizer_);
+
+            TextGenerator target_gen;
+            target_gen.set_model_fn(target_model_fn);
+            target_gen.set_tokenizer(tokenizer_);
+
+            SpeculativeDecodingConfig spec_config;
+            spec_config.num_candidates = speculative_num_candidates_;
+            spec_config.temperature = config.temperature;
+            spec_config.max_length = static_cast<int>(config.max_length);
+            spec_config.use_greedy = (config.strategy == "greedy");
+
+            SpeculativeDecoder decoder(&draft_gen, &target_gen, spec_config);
+            std::vector<int> generated_tokens =
+                decoder.generate_tokens({}, static_cast<int>(config.max_length));
+            return tokenizer_->decode(generated_tokens);
+        }
 
         // Create a TextGenerator with appropriate configuration
         TextGenerator::GenerationConfig gen_config;

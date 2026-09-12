@@ -1,5 +1,5 @@
 // @adai-status: experimental
-// @adai-version: 0.2.0
+// @adai-version: 0.3.0
 // @adai-reviewed: 2026-09-12
 
 #include "ChatbotApiServerArgs.hpp"
@@ -34,6 +34,10 @@ ChatbotApiServerArgsResult apply_chatbot_api_server_args(int argc, char* argv[],
             config.model_path = argv[++i];
         } else if (arg == "--vocab" && i + 1 < argc) {
             config.vocab_path = argv[++i];
+        } else if (arg == "--draft-model" && i + 1 < argc) {
+            config.draft_model_path = argv[++i];
+        } else if (arg == "--speculative-candidates" && i + 1 < argc) {
+            config.speculative_num_candidates = std::atoi(argv[++i]);
         } else if (arg == "--port" && i + 1 < argc) {
             config.port = std::atoi(argv[++i]);
         } else if (arg == "--timeout" && i + 1 < argc) {

@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-033 — generate_response() never uses GPU-resident decode, see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.3
+// @adai-version: 0.9.4
 // @adai-reviewed: 2026-09-12
 
 
@@ -16,6 +16,7 @@
 #include "EncoderDecoderModel.hpp"
 #include "PerformanceProfiler.hpp"
 #include "RAGInference.hpp"
+#include "SpeculativeDecoding.hpp"
 #include "TextGenerator.hpp"
 
 /**
@@ -79,9 +80,16 @@ class ChatbotAPI {
      * @param tokenizer BPE tokenizer for text processing
      * @param port Port number for HTTP server (default: 8080)
      * @param session_timeout_minutes Session timeout in minutes (default: 30)
+     * @param draft_model Optional second model (same architecture/tokenizer, different weights)
+     *        used as the fast "draft" model for speculative decoding (TD-038). nullptr
+     *        (default) disables it — generate_response() then always uses the normal
+     *        strategy-based path, unchanged from before this parameter existed.
+     * @param speculative_num_candidates Draft-model candidates per verification round; ignored
+     *        when draft_model is nullptr.
      */
     ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int port = 8080,
-               int session_timeout_minutes = 30);
+               int session_timeout_minutes = 30, EncoderDecoderModel* draft_model = nullptr,
+               int speculative_num_candidates = 4);
 
     /**
      * @brief Destructor
@@ -211,6 +219,14 @@ class ChatbotAPI {
     // Model components
     EncoderDecoderModel* model_;
     BPETokenizer* tokenizer_;
+
+    // Speculative decoding (TD-038): non-owning, non-null only when a --draft-model was
+    // configured. When set, generate_response() always uses speculative decoding regardless of
+    // GenerationConfig::strategy — a server-level decoding mechanism, the same way rag_engine_
+    // above takes over every generate_response call once set rather than being a per-request
+    // opt-in/out.
+    EncoderDecoderModel* draft_model_{nullptr};
+    int speculative_num_candidates_{4};
 
     // RAG engine (optional; when set, all generate_response calls route through it)
     std::shared_ptr<RAGInference> rag_engine_;

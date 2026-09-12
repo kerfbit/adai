@@ -1,9 +1,9 @@
 #ifndef SPECULATIVE_DECODING_HPP
 #define SPECULATIVE_DECODING_HPP
 
-// @adai-status: beta        (capped by TD-038 — tested but not wired into any shipped binary)
-// @adai-version: 0.7.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: stable
+// @adai-version: 1.0.0
+// @adai-reviewed: 2026-09-12
 
 
 #include <algorithm>

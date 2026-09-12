@@ -116,6 +116,25 @@ TEST_F(ApplyChatbotApiServerArgsTest, EveryStringAndIntFlagIsApplied) {
     EXPECT_EQ(config.strategy, "greedy");
 }
 
+TEST_F(ApplyChatbotApiServerArgsTest, DraftModelFlagsAreApplied) {
+    // TD-038: --draft-model / --speculative-candidates enable speculative decoding.
+    std::vector<std::string> raw = {"chatbot_api_server", "--draft-model", "/draft.bin",
+                                    "--speculative-candidates", "6"};
+    auto argv = make_argv(raw);
+    auto r = apply_chatbot_api_server_args(static_cast<int>(argv.size()), argv.data(), config);
+    ASSERT_FALSE(r.error) << r.error_message;
+    EXPECT_EQ(config.draft_model_path, "/draft.bin");
+    EXPECT_EQ(config.speculative_num_candidates, 6);
+}
+
+TEST_F(ApplyChatbotApiServerArgsTest, DraftModelPathDefaultsEmpty) {
+    std::vector<std::string> raw = {"chatbot_api_server"};
+    auto argv = make_argv(raw);
+    auto r = apply_chatbot_api_server_args(static_cast<int>(argv.size()), argv.data(), config);
+    ASSERT_FALSE(r.error);
+    EXPECT_TRUE(config.draft_model_path.empty());
+}
+
 TEST_F(ApplyChatbotApiServerArgsTest, FloatFlagsAreApplied) {
     std::vector<std::string> raw = {"chatbot_api_server", "--temperature", "0.7", "--top-p",
                                     "0.85"};

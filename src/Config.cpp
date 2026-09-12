@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.1
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.0.2
+// @adai-reviewed: 2026-09-12
 
 #include "Config.hpp"
 #include <algorithm>
@@ -142,6 +142,10 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.model_path = value;
             } else if (key == "VOCAB_PATH") {
                 config.vocab_path = value;
+            } else if (key == "DRAFT_MODEL_PATH") {
+                config.draft_model_path = value;
+            } else if (key == "SPECULATIVE_NUM_CANDIDATES") {
+                config.speculative_num_candidates = std::stoi(value);
             } else if (key == "PORT") {
                 config.port = std::stoi(value);
             } else if (key == "SESSION_TIMEOUT") {
@@ -413,6 +417,12 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env("VOCAB_PATH")) {
         config.vocab_path = *val;
+    }
+    if (auto val = get_env("DRAFT_MODEL_PATH")) {
+        config.draft_model_path = *val;
+    }
+    if (auto val = get_env_int("SPECULATIVE_NUM_CANDIDATES")) {
+        config.speculative_num_candidates = *val;
     }
     if (auto val = get_env_int("PORT")) {
         config.port = *val;
@@ -844,6 +854,11 @@ void ConfigLoader::print(const ServiceConfig& config) {
               << (config.model_path.empty() ? "<new model>" : config.model_path) << '\n';
     std::cout << "  Vocabulary:       "
               << (config.vocab_path.empty() ? "<not set>" : config.vocab_path) << '\n';
+    if (!config.draft_model_path.empty()) {
+        std::cout << "  Draft model:      " << config.draft_model_path
+                  << " (speculative decoding, K=" << config.speculative_num_candidates << ")"
+                  << '\n';
+    }
     std::cout << "  Port:             " << config.port << '\n';
     std::cout << "  Session timeout:  " << config.session_timeout << " minutes" << '\n';
     std::cout << "  Log level:        " << config.log_level << '\n';
@@ -1095,6 +1110,10 @@ std::vector<std::string> ConfigLoader::detect_changes(const ServiceConfig& old_c
     if (old_config.vocab_path != new_config.vocab_path) {
         changes.push_back("vocab_path: '" + old_config.vocab_path + "' -> '" +
                           new_config.vocab_path + "'");
+    }
+    if (old_config.draft_model_path != new_config.draft_model_path) {
+        changes.push_back("draft_model_path: '" + old_config.draft_model_path + "' -> '" +
+                          new_config.draft_model_path + "'");
     }
     if (old_config.port != new_config.port) {
         changes.push_back("port: " + std::to_string(old_config.port) + " -> " +
