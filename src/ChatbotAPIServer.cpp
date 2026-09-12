@@ -16,6 +16,7 @@
 #include <thread>
 #include "BPETokenizer.hpp"
 #include "ChatbotAPI.hpp"
+#include "ChatbotApiServerArgs.hpp"
 #include "Config.hpp"
 #include "DocumentStore.hpp"
 #include "EncoderDecoderModel.hpp"
@@ -126,79 +127,32 @@ int main(int argc, char* argv[]) {
     std::cout << "[OpenMP] Not compiled with OpenMP support - running single-threaded" << std::endl;
 #endif
 
-    // Load configuration from file and environment variables
-    std::string config_file_path;
-
-    // First pass: check for --config argument
-    for (int i = 1; i < argc; ++i) {
-        std::string arg = argv[i];
-        if (arg == "--config" && i + 1 < argc) {
-            config_file_path = argv[++i];
-            break;
-        }
-    }
-
+    // Load configuration from file and environment variables.
     // Discovery: --config > ./config.chatbot.conf > /etc/adai/config.chatbot.conf
     // > ./config.conf (legacy) > /etc/adai/config.conf (legacy)
-    const std::string resolved_config_path =
-        adai::ConfigLoader::discover_config_path(config_file_path, "config.chatbot.conf");
+    const std::string resolved_config_path = adai::ConfigLoader::discover_config_path(
+        adai::extract_config_path_arg(argc, argv).value_or(""), "config.chatbot.conf");
 
     // Load base configuration
     adai::ServiceConfig config = adai::ConfigLoader::load(resolved_config_path);
 
-    // Parse command line arguments (these override config file and env vars)
-    for (int i = 1; i < argc; ++i) {
-        std::string arg = argv[i];
-
-        if (arg == "--help" || arg == "-h") {
-            print_usage(argv[0]);
-            return 0;
-        }
-        if (arg == "--config") {
-            // Already handled in first pass
-            ++i;  // Skip the value
-        } else if (arg == "--model" && i + 1 < argc) {
-            config.model_path = argv[++i];
-        } else if (arg == "--vocab" && i + 1 < argc) {
-            config.vocab_path = argv[++i];
-        } else if (arg == "--port" && i + 1 < argc) {
-            config.port = std::atoi(argv[++i]);
-        } else if (arg == "--timeout" && i + 1 < argc) {
-            config.session_timeout = std::atoi(argv[++i]);
-        } else if (arg == "--log-level" && i + 1 < argc) {
-            config.log_level = argv[++i];
-        } else if (arg == "--d-model" && i + 1 < argc) {
-            config.d_model = std::atoi(argv[++i]);
-        } else if (arg == "--num-heads" && i + 1 < argc) {
-            config.num_heads = std::atoi(argv[++i]);
-        } else if (arg == "--d-ff" && i + 1 < argc) {
-            config.d_ff = std::atoi(argv[++i]);
-        } else if (arg == "--enc-layers" && i + 1 < argc) {
-            config.num_encoder_layers = std::atoi(argv[++i]);
-        } else if (arg == "--dec-layers" && i + 1 < argc) {
-            config.num_decoder_layers = std::atoi(argv[++i]);
-        } else if (arg == "--max-seq-len" && i + 1 < argc) {
-            config.max_seq_length = std::atoi(argv[++i]);
-        } else if (arg == "--max-gen-len" && i + 1 < argc) {
-            config.max_gen_length = std::atoi(argv[++i]);
-        } else if (arg == "--temperature" && i + 1 < argc) {
-            config.temperature = static_cast<float>(std::atof(argv[++i]));
-        } else if (arg == "--top-p" && i + 1 < argc) {
-            config.top_p = static_cast<float>(std::atof(argv[++i]));
-        } else if (arg == "--strategy" && i + 1 < argc) {
-            config.strategy = argv[++i];
-        } else {
-            std::cerr << "Unknown argument: " << arg << '\n';
-            print_usage(argv[0]);
-            return 1;
-        }
+    // Parse command line arguments (these override config file and env vars). See
+    // ChatbotApiServerArgs.hpp for why this is a separate, directly-testable function rather
+    // than inline here.
+    auto cli = adai::apply_chatbot_api_server_args(argc, argv, config);
+    if (cli.help) {
+        print_usage(argv[0]);
+        return 0;
+    }
+    if (cli.error) {
+        std::cerr << cli.error_message << '\n';
+        print_usage(argv[0]);
+        return 1;
     }
 
     // Validate required configuration
-    if (config.vocab_path.empty()) {
-        std::cerr << "Error: Vocabulary path is required (use --vocab, VOCAB_PATH env var, or "
-                     "config file)"
-                  << '\n';
+    if (auto err = adai::validate_chatbot_api_server_config(config)) {
+        std::cerr << *err << '\n';
         print_usage(argv[0]);
         return 1;
     }

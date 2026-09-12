@@ -12,6 +12,7 @@
 #include <vector>
 #include "Config.hpp"
 #include "DaemonConfigStore.hpp"
+#include "MetricsApiServerArgs.hpp"
 #include "MetricsSessionRegistry.hpp"
 #include "TrainingMetricsAPI.hpp"
 #include "TrainingMetricsService.hpp"
@@ -105,105 +106,14 @@ void print_usage(const char* program_name) {
     std::cout << "  GET  /health                    - Health check\n";
 }
 
-/**
- * @brief Configuration structure for command-line parsing
- */
-struct ServerConfig {
-    int port = 8081;
-    bool enable_persistence = true;
-    bool enable_prometheus = false;
-    bool allow_control = true;
-    std::string metrics_file = "training_sessions/metrics.jsonl";
-    std::string summary_file = "training_sessions/metrics_summary.json";
-    std::string prometheus_file = "training_sessions/metrics.prom";
-    int persist_every_samples = 100;
-    int persist_every_seconds = 30;
-    int max_records_in_memory = 10000;
-    int max_records_on_disk = 100000;
-    size_t max_live_sessions = 16;
-    int completed_ttl_seconds = 3600;
-    int sweep_interval_seconds = 60;  // TD-021: background eviction sweep interval
-    int staleness_threshold_seconds = 60;
-    std::string name_service_url = "http://localhost:8083";
-    // TD-020: Database persistence
-    std::string storage_backend = "sqlite+file";
-    std::string db_path = "training_sessions/metrics.db";
-    std::string db_url;
-    int db_pool_size = 4;
-};
-
-/**
- * @brief Parse command-line arguments
- */
-bool parse_args(int argc, char** argv, ServerConfig& config) {  // NOLINT(modernize-avoid-c-arrays)
-    for (int i = 1; i < argc; ++i) {
-        std::string arg = argv[i];
-
-        if (arg == "--help" || arg == "-h") {
-            print_usage(argv[0]);
-            return false;
-        }
-        if (arg == "--port" && i + 1 < argc) {
-            config.port = std::atoi(argv[++i]);
-        } else if (arg == "--metrics-file" && i + 1 < argc) {
-            config.metrics_file = argv[++i];
-        } else if (arg == "--summary-file" && i + 1 < argc) {
-            config.summary_file = argv[++i];
-        } else if (arg == "--prometheus-file" && i + 1 < argc) {
-            config.prometheus_file = argv[++i];
-        } else if (arg == "--persist-samples" && i + 1 < argc) {
-            config.persist_every_samples = std::atoi(argv[++i]);
-        } else if (arg == "--persist-seconds" && i + 1 < argc) {
-            config.persist_every_seconds = std::atoi(argv[++i]);
-        } else if (arg == "--max-memory-records" && i + 1 < argc) {
-            config.max_records_in_memory = std::atoi(argv[++i]);
-        } else if (arg == "--max-disk-records" && i + 1 < argc) {
-            config.max_records_on_disk = std::atoi(argv[++i]);
-        } else if (arg == "--max-live-sessions" && i + 1 < argc) {
-            config.max_live_sessions = static_cast<size_t>(std::strtoul(argv[++i], nullptr, 10));
-        } else if (arg == "--completed-ttl-seconds" && i + 1 < argc) {
-            config.completed_ttl_seconds = std::atoi(argv[++i]);
-        } else if (arg == "--sweep-interval-seconds" && i + 1 < argc) {
-            config.sweep_interval_seconds = std::atoi(argv[++i]);
-        } else if (arg == "--staleness-threshold-seconds" && i + 1 < argc) {
-            config.staleness_threshold_seconds = std::atoi(argv[++i]);
-        } else if (arg == "--config" && i + 1 < argc) {
-            ++i;  // handled in a first pass before parse_args runs
-        } else if (arg == "--no-persistence") {
-            config.enable_persistence = false;
-        } else if (arg == "--enable-prometheus") {
-            config.enable_prometheus = true;
-        } else if (arg == "--no-control") {
-            config.allow_control = false;
-        } else if (arg == "--name-service-url" && i + 1 < argc) {
-            config.name_service_url = argv[++i];
-        } else if (arg == "--no-name-service") {
-            config.name_service_url.clear();
-        } else if (arg == "--storage-backend" && i + 1 < argc) {
-            config.storage_backend = argv[++i];
-        } else if (arg == "--db-path" && i + 1 < argc) {
-            config.db_path = argv[++i];
-        } else if (arg == "--db-url" && i + 1 < argc) {
-            config.db_url = argv[++i];
-        } else if (arg == "--db-pool-size" && i + 1 < argc) {
-            config.db_pool_size = std::atoi(argv[++i]);
-        } else {
-            std::cerr << "Unknown option: " << arg << '\n';
-            print_usage(argv[0]);
-            return false;
-        }
-    }
-
-    return true;
-}
-
 int main(int argc, char* argv[]) {
+    using adai::MetricsApiServerConfig;
     std::cout << "==================================================\n";
     std::cout << "  Training Metrics REST API Server\n";
     std::cout << "==================================================\n\n";
 
     // First pass: --config only, resolved before anything else so its values
-    // can seed ServerConfig's defaults ahead of the persisted-admin-override
+    // can seed MetricsApiServerConfig's defaults ahead of the persisted-admin-override
     // and CLI passes below.
     std::string cli_config_path;
     for (int i = 1; i < argc; ++i) {
@@ -217,30 +127,10 @@ int main(int argc, char* argv[]) {
     adai::ServiceConfig file_config = adai::ConfigLoader::load(config_path);
 
     // Seed from config.metrics.conf (file < persisted admin overrides < CLI —
-    // see CLAUDE.md "Daemon admin config API"). parse_args() below only
+    // see CLAUDE.md "Daemon admin config API"). parse_metrics_api_server_args() below only
     // mutates fields whose flag was actually passed, so anything left alone
     // here keeps whatever the file (or the DB overlay right after) set.
-    ServerConfig server_config;
-    server_config.port = file_config.metrics_api_port;
-    server_config.enable_persistence = file_config.metrics_enable_persistence;
-    server_config.metrics_file = file_config.metrics_file;
-    server_config.summary_file = file_config.metrics_summary_file;
-    server_config.prometheus_file = file_config.metrics_prometheus_file;
-    server_config.persist_every_samples = file_config.metrics_persist_every_samples;
-    server_config.persist_every_seconds = file_config.metrics_persist_every_seconds;
-    server_config.max_records_in_memory = file_config.metrics_max_records_in_memory;
-    server_config.max_records_on_disk = file_config.metrics_max_records_on_disk;
-    server_config.max_live_sessions = file_config.metrics_max_live_sessions;
-    server_config.completed_ttl_seconds = file_config.metrics_completed_ttl_seconds;
-    server_config.sweep_interval_seconds = file_config.metrics_sweep_interval_seconds;
-    server_config.staleness_threshold_seconds = file_config.metrics_staleness_threshold_seconds;
-    server_config.enable_prometheus = file_config.metrics_enable_prometheus;
-    server_config.allow_control = file_config.metrics_api_allow_control;
-    server_config.name_service_url = file_config.name_service_url;
-    server_config.storage_backend = file_config.metrics_storage_backend;
-    server_config.db_path = file_config.metrics_db_path;
-    server_config.db_url = file_config.metrics_db_url;
-    server_config.db_pool_size = file_config.metrics_db_pool_size;
+    MetricsApiServerConfig server_config = adai::seed_metrics_server_config_from_file(file_config);
 
     // db_path (file/CLI-resolved final value comes later, but the admin store's
     // directory only needs to be *a* stable location — it's never itself
@@ -255,34 +145,7 @@ int main(int argc, char* argv[]) {
     try {
         std::filesystem::create_directories(admin_config_db_dir);
         adai::DaemonConfigStore config_store(admin_config_db_dir + "/daemon_config.db");
-        const auto overrides = config_store.load_all();
-        auto apply_int = [&](const char* key, int& field) {
-            if (auto it = overrides.find(key); it != overrides.end()) {
-                try {
-                    field = std::stoi(it->second);
-                } catch (...) {
-                }
-            }
-        };
-        auto apply_size_t = [&](const char* key, size_t& field) {
-            if (auto it = overrides.find(key); it != overrides.end()) {
-                try {
-                    field = static_cast<size_t>(std::stoull(it->second));
-                } catch (...) {
-                }
-            }
-        };
-        apply_size_t("max_live_sessions", server_config.max_live_sessions);
-        apply_int("completed_ttl_seconds", server_config.completed_ttl_seconds);
-        apply_int("sweep_interval_seconds", server_config.sweep_interval_seconds);
-        apply_int("persist_every_samples", server_config.persist_every_samples);
-        apply_int("persist_every_seconds", server_config.persist_every_seconds);
-        apply_int("max_records_in_memory", server_config.max_records_in_memory);
-        apply_int("max_records_on_disk", server_config.max_records_on_disk);
-        apply_int("staleness_threshold_seconds", server_config.staleness_threshold_seconds);
-        if (auto it = overrides.find("enable_prometheus"); it != overrides.end()) {
-            server_config.enable_prometheus = (it->second == "true");
-        }
+        adai::apply_metrics_admin_overrides(server_config, config_store.load_all());
     } catch (const std::exception& e) {
         std::cerr << "Warning: daemon_config.db unavailable (" << e.what()
                   << "); using file/CLI settings\n";
@@ -290,8 +153,15 @@ int main(int argc, char* argv[]) {
 
     // This run's explicit CLI flags win over everything, including persisted
     // admin overrides.
-    if (!parse_args(argc, argv, server_config)) {
-        return 0;  // Help was shown or invalid args
+    auto cli = adai::parse_metrics_api_server_args(argc, argv, server_config);
+    if (cli.help) {
+        print_usage(argv[0]);
+        return 0;
+    }
+    if (cli.error) {
+        std::cerr << cli.error_message << '\n';
+        print_usage(argv[0]);
+        return 0;  // Matches original parse_args() behavior: invalid args exit 0, not 1.
     }
 
     try {

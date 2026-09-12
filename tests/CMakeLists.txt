@@ -709,6 +709,62 @@ if(TARGET adai_mns)
     add_test(NAME ModelNameClientTests COMMAND modelnameclientTests)
 endif()
 
+# TD-035: mns_server's argv parsing / config-precedence resolution, extracted into
+# MnsServerArgs.{hpp,cpp} so it's testable without a real ModelNameService/HTTP server (that
+# server-lifecycle behavior is already covered live by MNSLiveTests). No httplib dependency —
+# unlike the MNS tests above, this doesn't need to be gated on HTTPLIB_INCLUDE_DIR.
+add_executable(mnsServerArgsTests mns_server_args_test.cpp ${CMAKE_SOURCE_DIR}/src/MnsServerArgs.cpp)
+target_include_directories(mnsServerArgsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(mnsServerArgsTests
+    GTest::gtest_main
+)
+add_test(NAME MnsServerArgsTests COMMAND mnsServerArgsTests)
+
+# TD-035: mns_cli's per-command argument parsing / JSON-body construction, extracted into
+# MnsCliCommands.{hpp,cpp} so it's testable without a real mns_server to talk to. No httplib
+# dependency (that stays in MnsCliTool.cpp's own send/http_* functions, untouched here).
+add_executable(mnsCliCommandsTests mns_cli_commands_test.cpp ${CMAKE_SOURCE_DIR}/src/MnsCliCommands.cpp)
+target_include_directories(mnsCliCommandsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(mnsCliCommandsTests
+    GTest::gtest_main
+)
+add_test(NAME MnsCliCommandsTests COMMAND mnsCliCommandsTests)
+
+# TD-035: dataset_manager's per-command argument parsing, extracted into
+# DatasetManagerArgs.{hpp,cpp} so it's testable without a real DatasetRegistry/DataFetcher (real
+# file I/O and network downloads) — DatasetRegistry's own behavior is already covered by
+# DatasetRegistryTests/DatasetRegistryLiveTests.
+add_executable(datasetManagerArgsTests dataset_manager_args_test.cpp
+    ${CMAKE_SOURCE_DIR}/src/DatasetManagerArgs.cpp)
+target_include_directories(datasetManagerArgsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(datasetManagerArgsTests
+    GTest::gtest_main
+)
+add_test(NAME DatasetManagerArgsTests COMMAND datasetManagerArgsTests)
+
+# TD-035: chatbot_api_server's argv parsing / required-config validation, extracted into
+# ChatbotApiServerArgs.{hpp,cpp} so it's testable without a real tokenizer/model/HTTP server
+# (ChatbotAPI's own request-handling is already covered by chatbotapiTests).
+add_executable(chatbotApiServerArgsTests chatbot_api_server_args_test.cpp
+    ${CMAKE_SOURCE_DIR}/src/ChatbotApiServerArgs.cpp)
+target_include_directories(chatbotApiServerArgsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(chatbotApiServerArgsTests
+    GTest::gtest_main
+)
+add_test(NAME ChatbotApiServerArgsTests COMMAND chatbotApiServerArgsTests)
+
+# TD-035: metrics_api_server's config-precedence resolution / argv parsing, extracted into
+# MetricsApiServerArgs.{hpp,cpp} so it's testable without a real MetricsSessionRegistry/HTTP
+# server (TrainingMetricsAPI's own request-handling is already covered by
+# TrainingMetricsAPIRoutesTests/TrainingMetricsAPILiveTests).
+add_executable(metricsApiServerArgsTests metrics_api_server_args_test.cpp
+    ${CMAKE_SOURCE_DIR}/src/MetricsApiServerArgs.cpp)
+target_include_directories(metricsApiServerArgsTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(metricsApiServerArgsTests
+    GTest::gtest_main
+)
+add_test(NAME MetricsApiServerArgsTests COMMAND metricsApiServerArgsTests)
+
 # TD-017: Adaptive gradient clipping tests (TrainingMetricsService)
 add_executable(adaptiveClippingTests adaptive_clipping_test.cpp)
 target_include_directories(adaptiveClippingTests PRIVATE ${CMAKE_SOURCE_DIR}/src)

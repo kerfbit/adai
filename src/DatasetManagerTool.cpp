@@ -8,6 +8,7 @@
 #include <sstream>
 #include "Config.hpp"
 #include "DataFetcher.hpp"
+#include "DatasetManagerArgs.hpp"
 #include "DatasetRegistry.hpp"
 #include "Logger.hpp"
 #ifdef BUILD_MNS_SERVER
@@ -105,13 +106,15 @@ int main(int argc, char* argv[]) {
 
     const std::string command = args[0];
 
+    std::vector<std::string> cmd_args(args.begin() + 1, args.end());
+
     if (command == "add") {
-        if (args.size() < 2) {
-            std::cerr << "Usage: " << argv[0] << " add <data_file>\n";
+        auto parsed = adai::parse_add_args(cmd_args);
+        if (parsed.error) {
+            std::cerr << parsed.error_message << "\n";
             return 1;
         }
-
-        std::string data_file = args[1];
+        const std::string& data_file = parsed.data_file;
 
         DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
         reg.load_registry();
@@ -135,8 +138,9 @@ int main(int argc, char* argv[]) {
         }
 
     } else if (command == "gutenberg") {
-        if (args.size() < 2) {
-            std::cerr << "Usage: " << argv[0] << " gutenberg <book_id> [num_pairs] [model]\n";
+        auto parsed = adai::parse_gutenberg_args(cmd_args);
+        if (parsed.error) {
+            std::cerr << parsed.error_message << "\n";
             std::cerr << "Example: " << argv[0] << " gutenberg 1342 500\n";
             std::cerr << "  [model] is only meaningful when REGISTRY_SERVER_URL is set: the "
                         "registry\n";
@@ -146,9 +150,9 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        int book_id = std::stoi(args[1]);
-        int num_pairs = (args.size() >= 3) ? std::stoi(args[2]) : 500;
-        std::string model = (args.size() >= 4) ? args[3] : "";
+        int book_id = parsed.book_id;
+        int num_pairs = parsed.num_pairs;
+        std::string model = parsed.model;
 
         DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
         reg.load_registry();
@@ -175,22 +179,16 @@ int main(int argc, char* argv[]) {
         }
 
     } else if (command == "gutenberg-batch") {
-        if (args.size() < 2) {
-            std::cerr << "Usage: " << argv[0]
-                      << " gutenberg-batch <id1,id2,id3,...> [num_pairs_each] [model]\n";
+        auto parsed = adai::parse_gutenberg_batch_args(cmd_args);
+        if (parsed.error) {
+            std::cerr << parsed.error_message << "\n";
             std::cerr << "Example: " << argv[0] << " gutenberg-batch 1342,11,84,1661 300\n";
             return 1;
         }
 
-        std::string ids_str = args[1];
-        int num_pairs_each = (args.size() >= 3) ? std::stoi(args[2]) : 500;
-        std::string model = (args.size() >= 4) ? args[3] : "";
-
-        std::vector<int> book_ids;
-        std::stringstream ss(ids_str);
-        std::string tok;
-        while (std::getline(ss, tok, ','))
-            book_ids.push_back(std::stoi(tok));
+        int num_pairs_each = parsed.num_pairs_each;
+        std::string model = parsed.model;
+        std::vector<int> book_ids = parsed.book_ids;
 
         DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
         reg.load_registry();
@@ -223,10 +221,9 @@ int main(int argc, char* argv[]) {
         }
 
     } else if (command == "huggingface") {
-        if (args.size() < 2) {
-            std::cerr << "Usage: " << argv[0]
-                      << " huggingface <dataset_id> [num_pairs] [split] [input_field] "
-                        "[output_field] [model]\n";
+        auto parsed = adai::parse_huggingface_args(cmd_args);
+        if (parsed.error) {
+            std::cerr << parsed.error_message << "\n";
             std::cerr << "Example: " << argv[0] << " huggingface daily_dialog 500\n";
             std::cerr << "Example: " << argv[0]
                       << " huggingface tatsu-lab/alpaca 300 train instruction output\n";
@@ -240,12 +237,12 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        std::string dataset_id = args[1];
-        int num_pairs = (args.size() >= 3) ? std::stoi(args[2]) : 500;
-        std::string split = (args.size() >= 4) ? args[3] : "train";
-        std::string input_field = (args.size() >= 5) ? args[4] : "";
-        std::string output_field = (args.size() >= 6) ? args[5] : "";
-        std::string model = (args.size() >= 7) ? args[6] : "";
+        std::string dataset_id = parsed.dataset_id;
+        int num_pairs = parsed.num_pairs;
+        std::string split = parsed.split;
+        std::string input_field = parsed.input_field;
+        std::string output_field = parsed.output_field;
+        std::string model = parsed.model;
 
         DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
         reg.load_registry();
@@ -328,12 +325,12 @@ int main(int argc, char* argv[]) {
         }
 
     } else if (command == "remove") {
-        if (args.size() < 2) {
-            std::cerr << "Usage: " << argv[0] << " remove <data_file>\n";
+        auto parsed = adai::parse_remove_args(cmd_args);
+        if (parsed.error) {
+            std::cerr << parsed.error_message << "\n";
             return 1;
         }
-
-        std::string target = args[1];
+        const std::string& target = parsed.target;
 
         DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
         reg.load_pending_list();
@@ -365,15 +362,15 @@ int main(int argc, char* argv[]) {
         }
 
     } else if (command == "assign") {
-        if (args.size() < 2) {
-            std::cerr << "Usage: " << argv[0]
-                      << " assign <model_name> [file1 file2 ...] [--count N]\n";
+        auto assign_parsed = adai::parse_assign_args(cmd_args);
+        if (assign_parsed.error) {
+            std::cerr << assign_parsed.error_message << "\n";
             std::cerr << "  Omit files and --count to assign all pending files to the model.\n";
             std::cerr << "  --count is ignored when explicit files are given.\n";
             return 1;
         }
 
-        std::string model_name = args[1];
+        std::string model_name = assign_parsed.model_name;
 
 #ifdef BUILD_MNS_SERVER
         std::string mns_url = svc_config.name_service_url;
@@ -410,20 +407,8 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        std::vector<std::string> targets;
-        int count = 0;
-        for (std::size_t i = 2; i < args.size(); ++i) {
-            if (args[i] == "--count" && i + 1 < args.size()) {
-                try {
-                    count = std::stoi(args[++i]);
-                } catch (...) {
-                    std::cerr << "❌ Invalid --count value\n";
-                    return 1;
-                }
-            } else {
-                targets.push_back(args[i]);
-            }
-        }
+        const std::vector<std::string>& targets = assign_parsed.targets;
+        const int count = assign_parsed.count;
 
         auto result = reg.assign_model(model_name, targets, count);
         if (result.assigned > 0) {
@@ -442,23 +427,17 @@ int main(int argc, char* argv[]) {
         }
 
     } else if (command == "unassign") {
-        if (args.size() < 2) {
-            std::cerr << "Usage: " << argv[0] << " unassign <model_name> [file1 file2 ...] [--force]\n";
+        auto parsed = adai::parse_unassign_args(cmd_args);
+        if (parsed.error) {
+            std::cerr << parsed.error_message << "\n";
             std::cerr << "  Omit files to clear every entry currently assigned to the model.\n";
             std::cerr << "  --force also clears entries actively claimed by a training run.\n";
             return 1;
         }
 
-        const std::string model_name = args[1];
-        std::vector<std::string> targets;
-        bool force = false;
-        for (std::size_t i = 2; i < args.size(); ++i) {
-            if (args[i] == "--force") {
-                force = true;
-            } else {
-                targets.push_back(args[i]);
-            }
-        }
+        const std::string& model_name = parsed.model_name;
+        const std::vector<std::string>& targets = parsed.targets;
+        const bool force = parsed.force;
 
         DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
         reg.load_pending_list();
@@ -475,9 +454,9 @@ int main(int argc, char* argv[]) {
         }
 
     } else if (command == "delete") {
-        if (args.size() < 2) {
-            std::cerr << "Usage: " << argv[0]
-                      << " delete <file1> [file2 ...] [--force] [--delete-files]\n";
+        auto parsed = adai::parse_delete_args(cmd_args);
+        if (parsed.error) {
+            std::cerr << parsed.error_message << "\n";
             std::cerr << "  Purges entries from the pending queue and trained registry.\n";
             std::cerr << "  --force overrides the active-run-claim guard on pending entries.\n";
             std::cerr << "  --delete-files also unlinks the underlying file when the registry\n";
@@ -485,22 +464,9 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        std::vector<std::string> targets;
-        bool force = false;
-        bool delete_files = false;
-        for (std::size_t i = 1; i < args.size(); ++i) {
-            if (args[i] == "--force") {
-                force = true;
-            } else if (args[i] == "--delete-files") {
-                delete_files = true;
-            } else {
-                targets.push_back(args[i]);
-            }
-        }
-        if (targets.empty()) {
-            std::cerr << "❌ At least one file is required\n";
-            return 1;
-        }
+        const std::vector<std::string>& targets = parsed.targets;
+        const bool force = parsed.force;
+        const bool delete_files = parsed.delete_files;
 
         DatasetRegistry reg(DatasetRegistry::make_config(svc_config));
         reg.load_registry();

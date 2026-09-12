@@ -23,39 +23,13 @@
 #include <string>
 #include <vector>
 #include "Config.hpp"
+#include "MnsCliCommands.hpp"
 #include "ModelNameClient.hpp"
 
-// ============================================================================
-// URL parsing (lightweight, same approach as ModelNameClient::ParsedUrl)
-// ============================================================================
-
-struct ParsedUrl {
-    std::string host = "localhost";
-    int port = 8083;
-};
-
-static ParsedUrl parse_url(const std::string& raw) {
-    ParsedUrl p;
-    std::string s = raw;
-    if (s.rfind("http://", 0) == 0)
-        s = s.substr(7);
-    if (s.rfind("https://", 0) == 0)
-        s = s.substr(8);
-    auto slash = s.find('/');
-    if (slash != std::string::npos)
-        s = s.substr(0, slash);
-    auto colon = s.find(':');
-    if (colon != std::string::npos) {
-        p.host = s.substr(0, colon);
-        try {
-            p.port = std::stoi(s.substr(colon + 1));
-        } catch (...) {
-        }
-    } else {
-        p.host = s;
-    }
-    return p;
-}
+using adai::HttpMethod;
+using adai::MnsCliRequest;
+using ParsedUrl = adai::ParsedUrl;
+using adai::parse_url;
 
 // ============================================================================
 // HTTP helper — issues GET/POST/PUT/DELETE and prints the response
@@ -113,34 +87,26 @@ static int http_delete(const ParsedUrl& u, const std::string& path) {
 }
 
 // ============================================================================
-// JSON helpers
+// Dispatch — sends a request already built by one of MnsCliCommands.hpp's build_*_request()
+// functions, or prints its usage error and returns 1 without touching the network at all.
 // ============================================================================
 
-static std::string json_escape(const std::string& s) {
-    std::string out;
-    for (unsigned char c : s) {
-        switch (c) {
-            case '"':
-                out += "\\\"";
-                break;
-            case '\\':
-                out += "\\\\";
-                break;
-            case '\n':
-                out += "\\n";
-                break;
-            case '\r':
-                out += "\\r";
-                break;
-            case '\t':
-                out += "\\t";
-                break;
-            default:
-                out += static_cast<char>(c);
-                break;
-        }
+static int send(const ParsedUrl& u, const MnsCliRequest& req) {
+    if (req.error) {
+        std::cerr << req.error_message << "\n";
+        return 1;
     }
-    return out;
+    switch (req.method) {
+        case HttpMethod::Get:
+            return http_get(u, req.path);
+        case HttpMethod::Post:
+            return http_post(u, req.path, req.body);
+        case HttpMethod::Put:
+            return http_put(u, req.path, req.body);
+        case HttpMethod::Delete:
+            return http_delete(u, req.path);
+    }
+    return 1;  // unreachable — silences -Wreturn-type for the enum switch above
 }
 
 // ============================================================================
@@ -210,231 +176,54 @@ static void print_usage(const char* prog) {
 // ============================================================================
 
 static int cmd_list(const ParsedUrl& u, const std::vector<std::string>& args) {
-    std::string state, role;
-    int limit = 0;
-    for (size_t i = 0; i < args.size(); ++i) {
-        if (args[i] == "--state" && i + 1 < args.size()) {
-            state = args[++i];
-        } else if (args[i] == "--role" && i + 1 < args.size()) {
-            role = args[++i];
-        } else if (args[i] == "--limit" && i + 1 < args.size()) {
-            limit = std::stoi(args[++i]);
-        }
-    }
-    std::string path = "/models";
-    std::string sep = "?";
-    if (!state.empty()) {
-        path += sep + "state=" + state;
-        sep = "&";
-    }
-    if (!role.empty()) {
-        path += sep + "role=" + role;
-        sep = "&";
-    }
-    if (limit > 0) {
-        path += sep + "limit=" + std::to_string(limit);
-    }
-    return http_get(u, path);
+    return send(u, adai::build_list_request(args));
 }
 
 static int cmd_get(const ParsedUrl& u, const std::vector<std::string>& args) {
-    if (args.empty()) {
-        std::cerr << "Usage: get <name>\n";
-        return 1;
-    }
-    return http_get(u, "/models/" + args[0]);
+    return send(u, adai::build_get_request(args));
 }
 
 static int cmd_register(const ParsedUrl& u, const std::vector<std::string>& args,
                         const adai::ServiceConfig& cfg) {
-    if (args.size() < 2) {
-        std::cerr << "Usage: register <name> <role> [options...]\n";
-        return 1;
-    }
-    const std::string& name = args[0];
-    const std::string& role = args[1];
-
-    size_t d_model = cfg.d_model;
-    size_t num_heads = cfg.num_heads;
-    size_t d_ff = cfg.d_ff;
-    size_t enc_layers = cfg.num_encoder_layers;
-    size_t dec_layers = cfg.num_decoder_layers;
-    size_t max_seq = cfg.max_seq_length;
-    std::string run_group = cfg.run_group;
-    std::map<std::string, std::string> tags;
-
-    for (size_t i = 2; i < args.size(); ++i) {
-        if (args[i] == "--d-model" && i + 1 < args.size())
-            d_model = static_cast<size_t>(std::stoul(args[++i]));
-        else if (args[i] == "--num-heads" && i + 1 < args.size())
-            num_heads = static_cast<size_t>(std::stoul(args[++i]));
-        else if (args[i] == "--d-ff" && i + 1 < args.size())
-            d_ff = static_cast<size_t>(std::stoul(args[++i]));
-        else if (args[i] == "--encoder-layers" && i + 1 < args.size())
-            enc_layers = static_cast<size_t>(std::stoul(args[++i]));
-        else if (args[i] == "--decoder-layers" && i + 1 < args.size())
-            dec_layers = static_cast<size_t>(std::stoul(args[++i]));
-        else if (args[i] == "--max-seq-length" && i + 1 < args.size())
-            max_seq = static_cast<size_t>(std::stoul(args[++i]));
-        else if (args[i] == "--run-group" && i + 1 < args.size())
-            run_group = args[++i];
-        else if (args[i] == "--tag" && i + 1 < args.size()) {
-            const auto& kv = args[++i];
-            auto eq = kv.find('=');
-            if (eq != std::string::npos)
-                tags[kv.substr(0, eq)] = kv.substr(eq + 1);
-        }
-    }
-
-    std::ostringstream body;
-    body << "{\"model_name\":\"" << json_escape(name) << "\"" << ",\"role\":\"" << json_escape(role)
-         << "\"" << ",\"run_group\":\"" << json_escape(run_group) << "\""
-         << ",\"arch\":{" << "\"d_model\":" << d_model << ",\"num_heads\":" << num_heads
-         << ",\"d_ff\":" << d_ff << ",\"num_encoder_layers\":" << enc_layers
-         << ",\"num_decoder_layers\":" << dec_layers << ",\"max_seq_length\":" << max_seq << "}";
-    if (!tags.empty()) {
-        body << ",\"tags\":{";
-        bool first = true;
-        for (const auto& [k, v] : tags) {
-            if (!first)
-                body << ',';
-            first = false;
-            body << '"' << json_escape(k) << "\":\"" << json_escape(v) << '"';
-        }
-        body << "}";
-    }
-    body << "}";
-
-    return http_post(u, "/models", body.str());
+    return send(u, adai::build_register_request(args, cfg));
 }
 
 static int cmd_resolve(const ParsedUrl& u, const std::vector<std::string>& args) {
-    if (args.empty()) {
-        std::cerr << "Usage: resolve <name>\n";
-        return 1;
-    }
-    return http_get(u, "/models/" + args[0] + "/resolve");
+    return send(u, adai::build_resolve_request(args));
 }
 
 static int cmd_set_training(const ParsedUrl& u, const std::vector<std::string>& args) {
-    if (args.empty()) {
-        std::cerr << "Usage: set-training <name> [--new-run] [session-key]\n"
-                     "  MNS allocates run_id (definitive standard); --new-run requests a fresh\n"
-                     "  run (equivalent to 'retrain'), omitted means continue the current run.\n"
-                     "  The allocated run_id is printed in the response's \"run_id\" field.\n";
-        return 1;
-    }
-    const std::string& name = args[0];
-    bool new_run = false;
-    std::string session_key;
-    for (size_t i = 1; i < args.size(); ++i) {
-        if (args[i] == "--new-run")
-            new_run = true;
-        else
-            session_key = args[i];
-    }
-
-    std::ostringstream body;
-    body << "{\"state\":\"training\"" << ",\"new_run\":" << (new_run ? "true" : "false");
-    if (!session_key.empty())
-        body << ",\"metrics_session_key\":\"" << json_escape(session_key) << "\"";
-    body << "}";
-
-    return http_put(u, "/models/" + name + "/state", body.str());
+    return send(u, adai::build_set_training_request(args));
 }
 
 static int cmd_set_candidate(const ParsedUrl& u, const std::vector<std::string>& args) {
-    if (args.size() < 2) {
-        std::cerr << "Usage: set-candidate <name> <run-id> [options...]\n";
-        return 1;
-    }
-    const std::string& name = args[0];
-    const std::string& run_id = args[1];
-
-    std::string art_path, art_host, art_checksum, art_format = "adai-native";
-    std::map<std::string, std::string> summary;
-
-    for (size_t i = 2; i < args.size(); ++i) {
-        if (args[i] == "--artifact-path" && i + 1 < args.size())
-            art_path = args[++i];
-        else if (args[i] == "--artifact-host" && i + 1 < args.size())
-            art_host = args[++i];
-        else if (args[i] == "--artifact-checksum" && i + 1 < args.size())
-            art_checksum = args[++i];
-        else if (args[i] == "--artifact-format" && i + 1 < args.size())
-            art_format = args[++i];
-        else if (args[i] == "--summary" && i + 1 < args.size()) {
-            const auto& kv = args[++i];
-            auto eq = kv.find('=');
-            if (eq != std::string::npos)
-                summary[kv.substr(0, eq)] = kv.substr(eq + 1);
-        }
-    }
-
-    std::ostringstream body;
-    body << "{\"state\":\"candidate\"" << ",\"run_id\":\"" << json_escape(run_id) << "\""
-         << ",\"artifact\":{" << "\"host\":\"" << json_escape(art_host) << "\"" << ",\"path\":\""
-         << json_escape(art_path) << "\"" << ",\"checksum\":\"" << json_escape(art_checksum) << "\""
-         << ",\"format\":\"" << json_escape(art_format) << "\"" << "}";
-    if (!summary.empty()) {
-        body << ",\"training_summary\":{";
-        bool first = true;
-        for (const auto& [k, v] : summary) {
-            if (!first)
-                body << ',';
-            first = false;
-            body << '"' << json_escape(k) << "\":\"" << json_escape(v) << '"';
-        }
-        body << "}";
-    }
-    body << "}";
-
-    return http_put(u, "/models/" + name + "/state", body.str());
+    return send(u, adai::build_set_candidate_request(args));
 }
 
 static int cmd_delete(const ParsedUrl& u, const std::vector<std::string>& args) {
-    if (args.empty()) {
-        std::cerr << "Usage: delete <name>\n";
-        return 1;
-    }
-    return http_delete(u, "/models/" + args[0]);
+    return send(u, adai::build_delete_request(args));
 }
 
 static int cmd_roles(const ParsedUrl& u) {
-    return http_get(u, "/roles");
+    return send(u, adai::build_roles_request());
 }
 
 static int cmd_resolve_role(const ParsedUrl& u, const std::vector<std::string>& args) {
-    if (args.empty()) {
-        std::cerr << "Usage: resolve-role <role>\n";
-        return 1;
-    }
-    return http_get(u, "/roles/" + args[0] + "/production");
+    return send(u, adai::build_resolve_role_request(args));
 }
 
 static int cmd_promote(const ParsedUrl& u, const std::vector<std::string>& args) {
-    if (args.size() < 2) {
-        std::cerr << "Usage: promote <role> <model-name>\n";
-        return 1;
-    }
-    std::ostringstream body;
-    body << "{\"model_name\":\"" << json_escape(args[1]) << "\"}";
-    return http_put(u, "/roles/" + args[0] + "/production", body.str());
+    return send(u, adai::build_promote_request(args));
 }
 
 static int cmd_update_run_group(const ParsedUrl& u, const std::vector<std::string>& args) {
-    if (args.size() < 2 || args[1] != "--run-group" || args.size() < 3) {
-        std::cerr << "Usage: update <name> --run-group <value>\n";
-        return 1;
-    }
-    std::ostringstream body;
-    body << "{\"run_group\":\"" << json_escape(args[2]) << "\"}";
-    return http_put(u, "/models/" + args[0] + "/run_group", body.str());
+    return send(u, adai::build_update_run_group_request(args));
 }
 
 static int cmd_health(const ParsedUrl& u) {
-    return http_get(u, "/health");
+    return send(u, adai::build_health_request());
 }
+
 
 // ============================================================================
 // Main

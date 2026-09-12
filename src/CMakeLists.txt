@@ -487,7 +487,7 @@ endif()
 
 # Model Name Service daemon (mns_server)
 if(HTTPLIB_INCLUDE_DIR)
-    add_executable(mns_server ModelNameServiceServer.cpp Config.cpp)
+    add_executable(mns_server ModelNameServiceServer.cpp Config.cpp MnsServerArgs.cpp)
     target_link_libraries(mns_server
         adai_mns
         adai_core
@@ -506,7 +506,7 @@ endif()
 
 # Model Name Service CLI (mns_cli)
 if(HTTPLIB_INCLUDE_DIR AND TARGET adai_mns)
-    add_executable(mns_cli MnsCliTool.cpp Config.cpp)
+    add_executable(mns_cli MnsCliTool.cpp Config.cpp MnsCliCommands.cpp)
     target_link_libraries(mns_cli
         adai_mns
         adai_core
@@ -562,7 +562,7 @@ endif()
 
 # Dataset Manager - Standalone data queue management tool (TD-028 Phase 6)
 # Links adai_core (DatasetRegistry, DataFetcher, Logger), Config.cpp, and optionally adai_mns.
-add_executable(dataset_manager DatasetManagerTool.cpp Config.cpp)
+add_executable(dataset_manager DatasetManagerTool.cpp Config.cpp DatasetManagerArgs.cpp)
 target_link_libraries(dataset_manager
     adai_core
     spdlog::spdlog
@@ -712,6 +712,7 @@ if(BUILD_API_SERVER)
     add_executable(chatbot_api_server
         ChatbotAPIServer.cpp
         Config.cpp
+        ChatbotApiServerArgs.cpp
     )  # Logger.cpp compiled into adai_core
     target_link_libraries(chatbot_api_server
         adai_api
@@ -737,6 +738,7 @@ if(BUILD_METRICS_API_SERVER)
     add_executable(metrics_api_server
         TrainingMetricsAPIServer.cpp
         Config.cpp
+        MetricsApiServerArgs.cpp
     )
     target_link_libraries(metrics_api_server
         adai_metrics_api
