@@ -560,38 +560,71 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Advanced Features / Integration | September 7, 2026 | 16-24 hours |
+| LOW | Open (5/7 non-blocked items done) | Advanced Features / Integration | September 7, 2026 | 16-24 hours |
 
 Description:
 `BatchedInferenceEngine`, `IntegratedInferenceEngine`, `PipelineInferenceEngine`,
-`SpeculativeDecoding`, `LoRA`, `Quantization`, `RewardModel`, and `PerformanceProfiler` each have
-real, passing dedicated tests — the gap isn't test coverage, it's that nothing in `chatbot`,
-`chatbot_api_server`, or `incremental_trainer` actually calls any of them. They're complete,
-correct implementations of a scoped feature sitting unreachable from the actual product. Each
-needs its own integration decision (a CLI flag, a config option, a training-mode switch) rather
-than one shared fix — grouped here because they share the identical structural gap, not because
-one change resolves all eight.
+`SpeculativeDecoding`, `LoRA`, `Quantization`, `RewardModel`, and `PerformanceProfiler` each had
+real, passing dedicated tests — the gap wasn't test coverage, it was that nothing in `chatbot`,
+`chatbot_api_server`, or `incremental_trainer` actually called any of them. Each needed its own
+integration decision (a CLI flag, a config option, a training-mode switch) rather than one shared
+fix — grouped here because they shared the identical structural gap, not because one change
+resolves all eight.
+
+**Update (September 12, 2026):** all five non-blocked, non-deferred items are now wired into
+`chatbot_api_server` — see the commits below. Two of the five (`PipelineInferenceEngine`,
+`IntegratedInferenceEngine`) turned out to be genuinely broken, not just untested: each had a real
+bug that had never been exercised against real model components, because their own dedicated unit
+test suites used mock/null types shaped to match the (buggy) production code rather than the real
+dependency — exactly the failure mode this TD's title describes, confirmed in the most direct way
+possible. `LoRA`/`Quantization` were explicitly scoped out after a user decision (both would
+require touching `MultiHeadAttention`'s forward pass for any real integration — the same
+foundational-class risk class as TD-059); `RewardModel` remains genuinely blocked on TD-034.
 
 Action Items:
 
-- [ ] `BatchedInferenceEngine` / `PipelineInferenceEngine`: wire into `chatbot_api_server`'s
-  request path as an opt-in serving mode.
-- [ ] `SpeculativeDecoding`: add a CLI/config flag to `chatbot`/`chatbot_api_server` enabling it
-  for generation.
-- [ ] `LoRA` / `Quantization`: hook into `ModelSerializer` save/load or `IncrementalTrainer`'s
-  fine-tuning flow.
-- [ ] `RewardModel`: wire into an actual RLHF training command (blocked on TD-034's PPO fix landing
-  first — no point integrating a reward model into a policy-update loop that doesn't work yet).
-- [ ] `PerformanceProfiler`: wire into at least one binary's `--profile` flag or equivalent.
-- [ ] Add an integration test per feature proving the wiring works end-to-end, not just the
-  existing isolated unit test.
+- [x] `BatchedInferenceEngine`: wired into `ChatbotAPI::enable_batched_inference()` /
+  `chatbot_api_server --batched-inference`. Found and fixed a real bug along the way:
+  `process_batch()`'s per-response token-count stat called `tokenizer_->encode()` unguarded on a
+  generated response that can legitimately be empty, and one request's empty response would
+  spuriously fail every other request batched alongside it.
+- [x] `PipelineInferenceEngine`: wired into `ChatbotAPI::enable_pipeline_inference()` /
+  `chatbot_api_server --pipeline-inference`. Found and fixed a real bug: `decoder_worker()` called
+  a method, `forward_with_cross_attention(tokens, encoder_output, nullptr)`, that does not exist
+  on the real `LLMDecoder` — its own test suite and `PipelineBenchmark.cpp` both instantiated the
+  class exclusively against mocks shaped to match that wrong call, silently masking the mismatch.
+- [x] `IntegratedInferenceEngine`: wired into `ChatbotAPI::enable_integrated_inference()` /
+  `chatbot_api_server --integrated-inference`. Found and fixed two real bugs, worse than
+  `BatchedInferenceEngine`'s: `decoder_worker()` and `batcher_worker()` each called
+  `tokenizer_->encode()` unguarded with no try/catch anywhere in either function, so an empty
+  generated response or empty input text would escape the worker thread and call
+  `std::terminate()` — crashing the entire `chatbot_api_server` process, not just failing one
+  request. Confirmed via genuine reproduction (real, non-mock model components — this class isn't
+  templated) before and after the fix.
+- [x] `SpeculativeDecoding`: `ChatbotAPI::draft_model_` + `--draft-model`/
+  `--speculative-candidates` CLI flags / `DRAFT_MODEL_PATH`/`SPECULATIVE_NUM_CANDIDATES` config
+  keys.
+- [x] `PerformanceProfiler`: `ChatbotAPI::enable_profiling()` / `chatbot_api_server --profile` →
+  `GET /admin/profile`. Found and fixed a real, session-introduced thread-safety bug along the
+  way: `Profiler`'s internal maps had no locking, and `active_timers` was keyed by section name
+  alone, so concurrent same-name `start()`/`stop()` pairs (exactly `generate_response()`'s case
+  under `chatbot_api_server`'s real thread pool) corrupted each other's recorded timings.
+- [ ] `LoRA` / `Quantization`: explicitly deferred (see above) — not attempted this pass. Still
+  needs a scoping decision: a standalone checkpoint-manipulation CLI tool (lower risk) vs. actually
+  modifying `MultiHeadAttention`'s forward pass for real inference/training integration (the real
+  thing, higher risk).
+- [ ] `RewardModel`: still blocked on TD-034's PPO fix landing first.
+- [x] Add an integration test per wired feature proving the wiring works end-to-end — done for all
+  five above (ChatbotAPI-level integration tests plus live end-to-end verification against a real
+  running `chatbot_api_server` process for each).
 
 Files to Modify:
 
-- `src/BatchedInferenceEngine.hpp`, `src/IntegratedInferenceEngine.hpp`,
-  `src/PipelineInferenceEngine.hpp`, `src/SpeculativeDecoding.hpp`, `src/LoRA.hpp`,
-  `src/Quantization.hpp`, `src/RewardModel.hpp`, `src/PerformanceProfiler.hpp`
-- `src/ChatbotAPI.cpp`, `src/IncrementalTrainer.cpp` (likely integration points)
+- `src/LoRA.hpp`, `src/Quantization.hpp`, `src/RewardModel.hpp` — remaining, unattempted work.
+- Already done: `src/BatchedInferenceEngine.hpp`, `src/PipelineInferenceEngine.hpp`,
+  `src/IntegratedInferenceEngine.hpp`, `src/SpeculativeDecoding.hpp`, `src/PerformanceProfiler.hpp`,
+  `src/ChatbotAPI.{hpp,cpp}`, `src/ChatbotApiServerArgs.{hpp,cpp}`, `src/ChatbotAPIServer.cpp`,
+  `src/Config.{hpp,cpp}`.
 
 ---
 
