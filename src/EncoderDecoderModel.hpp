@@ -1,13 +1,14 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 0.9.1
+// @adai-reviewed: 2026-09-12
 
 
 #include <functional>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 #include "BPETokenizer.hpp"
@@ -81,6 +82,25 @@ class EncoderDecoderModel {
     Matrix cached_decoder_output;
     std::vector<int> cached_input_tokens;
     std::vector<int> cached_target_tokens;
+
+    // TD-156: forward()/backward()/generate_response()/generate_response_with_strategy() all
+    // read and write the four cached_* members above with no synchronization of their own.
+    // chatbot_api_server serves concurrent requests through httplib's real thread pool, and
+    // every one of those entry points is reachable from a request-handler thread (forward()
+    // via ChatbotAPI's plain/speculative-decoding model_fn closures,
+    // generate_response_with_strategy() via RAGInference — see TECHNICAL_DEBT.md for the
+    // confirmed repro) — two threads calling into the same model concurrently raced on these
+    // members' internal heap buffers, a confirmed (not theoretical) heap-corruption bug.
+    // Locking this mutex for the full duration of each of those four calls serializes all
+    // access to a single EncoderDecoderModel instance, closing the race at the cost of the
+    // plain/RAG inference path's concurrent throughput; real concurrency remains available via
+    // --batched-inference/--pipeline-inference, which already serialize model access safely by
+    // construction (each routes every call through its own single worker thread) and are
+    // unaffected by this lock. Not held across gpu_forward()/gpu_backward()/
+    // gpu_generate_response() — those touch a disjoint set of GPU-resident members
+    // (gpu_encoder_out_ etc.) and are not reachable from chatbot_api_server's live serving path
+    // (see TD-033).
+    std::mutex model_mutex_;
 
 #ifdef ADAI_ENABLE_GPU
     bool gpu_initialized_{false};

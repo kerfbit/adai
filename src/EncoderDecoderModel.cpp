@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.1
-// @adai-reviewed: 2026-09-10
+// @adai-version: 0.9.2
+// @adai-reviewed: 2026-09-12
 
 #include "EncoderDecoderModel.hpp"
 #include <algorithm>
@@ -149,6 +149,11 @@ Matrix EncoderDecoderModel::compute_loss_gradient(const Matrix& logits,
 
 // Generate response
 std::string EncoderDecoderModel::generate_response(const std::string& input_text, int max_length) {
+    // TD-156: serializes this whole (potentially multi-token) generation against any other
+    // thread's forward()/backward()/generate_response()/generate_response_with_strategy() call
+    // on this same instance — see model_mutex_'s doc comment in EncoderDecoderModel.hpp.
+    std::lock_guard<std::mutex> lock(model_mutex_);
+
     // Encode input (no special tokens for encoder input)
     std::vector<int> input_tokens = tokenizer->encode(input_text, false);
     int input_len = static_cast<int>(input_tokens.size());
@@ -202,6 +207,11 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
                                                                  const std::string& strategy,
                                                                  float temperature, int top_k,
                                                                  float top_p, int num_beams) {
+    // TD-156: see generate_response()'s identical lock above / model_mutex_'s doc comment in
+    // EncoderDecoderModel.hpp. This is the entry point RAGInference calls directly (bypassing
+    // forward()), so it needs its own lock rather than relying on forward()'s.
+    std::lock_guard<std::mutex> lock(model_mutex_);
+
     // Ensure special token IDs are synced with tokenizer
     sync_special_tokens();
 
@@ -680,6 +690,11 @@ std::unique_ptr<EncoderDecoderModel> EncoderDecoderModel::clone() const {
 // Forward pass
 Matrix EncoderDecoderModel::forward(const std::vector<int>& input_tokens,
                                     const std::vector<int>& target_tokens) {
+    // TD-156: see generate_response()'s identical lock above / model_mutex_'s doc comment in
+    // EncoderDecoderModel.hpp. This is the entry point ChatbotAPI's plain and
+    // speculative-decoding paths call directly, on the HTTP handler thread.
+    std::lock_guard<std::mutex> lock(model_mutex_);
+
     // Cache inputs
     cached_input_tokens = input_tokens;
     cached_target_tokens = target_tokens;
@@ -718,6 +733,13 @@ Matrix EncoderDecoderModel::forward(const std::vector<int>& input_tokens,
 
 // Backward pass
 void EncoderDecoderModel::backward(const Matrix& grad_output) {
+    // TD-156: see generate_response()'s identical lock above / model_mutex_'s doc comment in
+    // EncoderDecoderModel.hpp. backward() itself reads no cached_* member directly, but
+    // lm_head/decoder/encoder's own internal activation caches were written by this same
+    // instance's most recent forward() — this lock keeps that pairing atomic against a
+    // concurrent forward() call on another thread, not just the four members forward() writes.
+    std::lock_guard<std::mutex> lock(model_mutex_);
+
     if (!requires_grad) {
         return;
     }

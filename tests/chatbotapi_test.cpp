@@ -1165,6 +1165,68 @@ TEST_F(ChatbotAPITest, IntegratedInference_ConcurrentRequestsAllCompleteCorrectl
 }
 
 // ============================================================================
+// TD-156: Plain (non-batched, non-pipelined) path concurrency
+// ============================================================================
+//
+// Unlike every concurrency test above, this one deliberately enables NONE of TD-038's
+// batched/pipeline/integrated inference modes — it exercises the plain default path every
+// chatbot_api_server deployment uses unless one of those flags is passed. That path calls
+// model_->forward() directly on each request's own handler thread via a per-request model_fn
+// closure (see ChatbotAPI::generate_response()), with no serialization of its own; the batched/
+// pipeline/integrated engines above are all incidentally safe only because each routes every
+// call through its own single worker thread, which is exactly what makes them a poor stand-in
+// for testing this path.
+//
+// Before the TD-156 fix (EncoderDecoderModel::forward()/generate_response()/
+// generate_response_with_strategy()/backward() all writing/reading cached_encoder_output et al.
+// with no lock), concurrent calls into the same model instance raced on those members'
+// internal heap buffers — confirmed via a manual repro crashing 13/15 runs with genuine glibc
+// heap-corruption signatures ("double free or corruption (!prev)", "malloc(): unaligned tcache
+// chunk detected", "free(): corrupted unsorted chunks"). That corruption aborts the whole
+// process (SIGABRT from glibc's own allocator, not a catchable C++ exception), so the
+// regression signal here is "this test binary completes at all" as much as any individual
+// EXPECT — running many rounds raises the odds a reverted fix actually gets caught in one CI
+// run rather than passing by luck the way a single round of 6 threads sometimes did in manual
+// testing.
+TEST_F(ChatbotAPITest, PlainPathConcurrentRequestsDoNotCorruptTheHeap) {
+    ChatbotAPI::GenerationConfig config;
+    config.max_length = 5;
+    config.strategy = "greedy";
+
+    constexpr int kNumRounds = 20;
+    constexpr int kNumThreads = 6;
+
+    for (int round = 0; round < kNumRounds; ++round) {
+        std::vector<std::thread> threads;
+        std::vector<bool> threw(kNumThreads, false);
+        std::vector<std::string> errors(kNumThreads);
+
+        for (int i = 0; i < kNumThreads; ++i) {
+            threads.emplace_back([&, i]() {
+                try {
+                    call_generate_response("hello world", config);
+                } catch (const std::exception& e) {
+                    threw[i] = true;
+                    errors[i] = e.what();
+                }
+            });
+        }
+        for (auto& t : threads) {
+            t.join();
+        }
+
+        for (int i = 0; i < kNumThreads; ++i) {
+            // Not asserting non-empty output, same reason as the batched/pipeline/integrated
+            // versions of this test above: this tiny randomly-initialized model can legitimately
+            // sample EOS as its very first token. Only an actual exception (or the process not
+            // surviving to report it) indicates the bug this test targets.
+            EXPECT_FALSE(threw[i]) << "round " << round << ", concurrent request " << i
+                                   << " threw unexpectedly: " << errors[i];
+        }
+    }
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 

@@ -277,7 +277,6 @@ trusting a `grep TD-NNN` alone. Currently active items:
 
 | Tag | Description |
 |---|---|
-| **TD-156** (HIGH) | `EncoderDecoderModel::forward()` unconditionally writes shared, unsynchronized member state (`cached_input_tokens`/`cached_target_tokens`/`cached_encoder_output`/`cached_decoder_output`) on every call — confirmed via a real repro (13/15 runs) that `chatbot_api_server`'s default (non-batched, non-pipelined) generation path corrupts the heap under genuinely concurrent requests, since httplib's real thread pool calls `forward()` from multiple threads on the same shared model. `--batched-inference`/`--pipeline-inference` are incidentally safe (each serializes model access onto one worker thread) but are not the default. Fix requires an architectural decision (mutex vs. removing the shared-cache dependency), not a silent patch. |
 | **TD-059** (HIGH) | `MultiHeadAttention`/`CrossAttention`'s production `forward()`/`forward_with_cache()` never split into per-head slices — every self- and cross-attention call is single-head attention over the full `d_model` width with a mismatched softmax scale; `num_heads` has no effect on the actual math. Needs a deliberate fix-and-retrain-everything vs. document-as-is decision, not a silent patch. |
 | TD-050 | GPU-resident KV-cache for autoregressive generation — CPU cache has a known correctness bug; no GPU cache exists at all |
 | **TD-033** | `chatbot_api_server` inference never uses the persistent GPU-resident decode path — training already does |

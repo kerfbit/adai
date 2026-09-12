@@ -4,6 +4,70 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-156: EncoderDecoderModel::forward() Corrupted the Heap Under Concurrent Requests
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 12, 2026 | `src/EncoderDecoderModel.{hpp,cpp}` | Added a per-instance `model_mutex_`, held for the full duration of `forward()`, `backward()`, `generate_response()`, and `generate_response_with_strategy()` |
+
+Summary:
+`EncoderDecoderModel::forward()` wrote four shared, unsynchronized members
+(`cached_input_tokens`/`cached_target_tokens`/`cached_encoder_output`/`cached_decoder_output`) on
+every call with no locking. `chatbot_api_server` serves concurrent requests through httplib's real
+thread pool, and `ChatbotAPI::generate_response()`'s default (non-batched, non-pipelined)
+generation path calls `model_->forward()` directly on each request's own handler thread — so two
+concurrent requests raced on those members' internal heap buffers, a confirmed (not theoretical)
+heap-corruption bug: a manual repro (6 threads, default `ChatbotAPITest` fixture, no TD-038 modes
+enabled) crashed 13/15 runs with genuine glibc heap-corruption signatures. Auditing other direct
+callers (the TD's own action item) found the race was broader than `forward()` alone:
+`EncoderDecoderModel::generate_response()`/`generate_response_with_strategy()` mutate
+`cached_encoder_output` directly across their whole (potentially multi-token) generation loop
+without ever calling `forward()`, and `generate_response_with_strategy()` is exactly what
+`RAGInference.cpp` calls on ChatbotAPI's RAG-enabled request path — a second, independent way to
+hit the same class of corruption that a `forward()`-only fix would have missed entirely.
+
+Of the two fix shapes the TD laid out (mutex vs. removing `forward()`'s shared-cache dependency
+entirely), the mutex was chosen: small, low-risk diff that immediately closes the crash, accepting
+that the plain/RAG inference path loses concurrent throughput under load — real concurrency
+remains available via `--batched-inference`/`--pipeline-inference`, which already serialize model
+access safely by construction (each routes every call through its own single worker thread) and
+are unaffected by this lock.
+
+Changes Made:
+- Added `std::mutex model_mutex_` as a private member of `EncoderDecoderModel`
+  (`EncoderDecoderModel.hpp`), with a doc comment explaining what it protects and why
+  `gpu_forward()`/`gpu_backward()`/`gpu_generate_response()` are deliberately excluded (disjoint
+  GPU-resident state, not reachable from `chatbot_api_server`'s live serving path — see TD-033).
+  Copy/move were already deleted on this class, so adding a non-copyable/non-movable `std::mutex`
+  member required no further changes.
+- Added `std::lock_guard<std::mutex> lock(model_mutex_);` at the top of `forward()`,
+  `generate_response()`, `generate_response_with_strategy()`, and `backward()` — the last one
+  reads no `cached_*` member directly, but keeps its implicit pairing with the most recent
+  `forward()` call (via `lm_head`/`decoder`/`encoder`'s own internal activation caches) atomic
+  against a concurrent `forward()` call on another thread. Confirmed no recursion between these
+  four methods (none of them call another one of the four internally), so no self-deadlock risk.
+- Added `ChatbotAPITest.PlainPathConcurrentRequestsDoNotCorruptTheHeap` to
+  `tests/chatbotapi_test.cpp`: 20 rounds of 6 concurrent threads calling `generate_response()`
+  through the plain (no TD-038 modes enabled) path — deliberately not reusing the
+  batched/pipeline/integrated concurrency tests already in that file, since each of those engines
+  is incidentally safe by routing through a single worker thread, exactly the shape that would
+  fail to exercise this bug at all.
+
+Verification:
+- ✅ `adai_models`/`adai_api`/`chatbotapiTests` build clean under the `debug` preset.
+- ✅ Full `chatbotapiTests` suite (66 tests) and `encoderdecoderTests` suite (62 tests): all pass.
+- ✅ Standard revert-confirm-fail cycle: temporarily removed all four lock sites, rebuilt, and ran
+  the new test 3 times — every run crashed with genuine corruption signatures (`corrupted size vs.
+  prev_size while consolidating`, `double free or corruption (out)`, a plain segfault), matching
+  the TD's own manually-observed symptoms. Restored the fix, rebuilt, reran the new test 5 times
+  clean (0/5 failures) plus the full suite green.
+- ✅ Per the TD's own suggestion, also ran the new test — and the full `chatbotapiTests` suite —
+  under the `tsan` preset (ThreadSanitizer): the new test reports zero races. The full-suite tsan
+  run separately reports ~31 pre-existing, unrelated data-race warnings inside
+  `Matrix::operator*`/`Matrix::transpose()`'s OpenMP parallel regions (`src/Matrix.cpp`) —
+  confirmed via `git stash` to already exist on pristine `main` before this fix, so unrelated to
+  TD-156. Flagged separately as a follow-up rather than fixed here (out of scope for this item).
+
 ### TD-158: validate_identifier's Allowlist Permitted a Leading '-' Across Five Install Scripts
 
 | Resolution Date | Component | Resolved By |
