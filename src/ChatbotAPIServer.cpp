@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.3.0
+// @adai-version: 1.4.0
 // @adai-reviewed: 2026-09-12
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
@@ -115,6 +115,9 @@ void print_usage(const char* program_name) {
            "                       on the HTTP handler's thread\n"
         << "  --batch-timeout-ms <n>  Max wait to collect a batch when --batched-inference is\n"
            "                       set (default: 50)\n"
+        << "  --pipeline-inference Route generation through a two-stage encoder/decoder\n"
+           "                       worker-thread pipeline instead of running inline; always\n"
+           "                       uses greedy decoding regardless of --strategy\n"
         << "  --help               Show this help message\n"
         << "\nEnvironment Variables:\n"
         << "  All configuration can be set via environment variables.\n"
@@ -346,6 +349,22 @@ int main(int argc, char* argv[]) {
                                cli.batch_timeout_ms);
         }
 
+        // TD-038: --pipeline-inference routes generate_response() through StandardPipelineEngine's
+        // own encoder/decoder worker threads. enable_pipeline_inference() throws on a bad vocab
+        // path (see its doc comment); tolerant here the same way the draft-model load above is —
+        // a load failure disables the mode for this run rather than aborting startup.
+        bool pipeline_inference_enabled = false;
+        if (cli.pipeline_inference) {
+            try {
+                api->enable_pipeline_inference(config.vocab_path);
+                pipeline_inference_enabled = true;
+                adai::Logger::info("  Pipeline inference enabled");
+            } catch (const std::exception& e) {
+                adai::Logger::warn("  Failed to enable pipeline inference: {}", e.what());
+                adai::Logger::warn("  Pipeline inference disabled for this run");
+            }
+        }
+
         // Set generation configuration
         ChatbotAPI::GenerationConfig gen_config;
         gen_config.max_length = config.max_gen_length;
@@ -453,6 +472,9 @@ int main(int argc, char* argv[]) {
         if (cli.batched_inference) {
             adai::Logger::info("  Batched inference: enabled (batch timeout: {} ms)",
                                cli.batch_timeout_ms);
+        }
+        if (pipeline_inference_enabled) {
+            adai::Logger::info("  Pipeline inference: enabled");
         }
         // TODO: See TECHNICAL_DEBT.md Future Enhancement (Container and Deployment #2) - Add /metrics endpoint
         // Expose Prometheus metrics: request_count, request_duration, active_sessions, etc.

@@ -68,10 +68,12 @@ public:
     MockDecoder(int vocab_size, int d_model, int processing_time_ms = 15)
         : processing_time_ms_(processing_time_ms) {}
     
-    Matrix forward_with_cross_attention(
+    // (fixed) Renamed from forward_with_cross_attention()/3-arg to match LLMDecoder's real
+    // encoder-decoder forward method, forward_with_encoder(token_ids, encoder_output) — see
+    // PipelineInferenceEngine.hpp's decoder_worker() for the full story (TD-038).
+    Matrix forward_with_encoder(
         const std::vector<int>& token_ids,
-        const Matrix& encoder_output,
-        const Matrix* mask = nullptr
+        const Matrix& encoder_output
     ) {
         // Simulate decoder processing time (scales with sequence length)
         int delay = processing_time_ms_ * token_ids.size() / 10;
@@ -202,8 +204,7 @@ public:
             std::vector<int> generated = {1};  // BOS token
             
             for (int step = 0; step < max_length; ++step) {
-                Matrix decoder_output = decoder_->forward_with_cross_attention(
-                    generated, encoder_output, nullptr);
+                Matrix decoder_output = decoder_->forward_with_encoder(generated, encoder_output);
                 
                 Matrix last_hidden(1, decoder_output.cols);
                 for (int j = 0; j < decoder_output.cols; ++j) {

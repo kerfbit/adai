@@ -29,9 +29,18 @@ class MockEncoder {
 
 class MockDecoder {
    public:
-    // Returns hidden states; called with (tokens, encoder_output, mask_ptr)
-    Matrix forward_with_cross_attention(const std::vector<int>& tokens,
-                                        const Matrix& /*encoder_output*/, const Matrix* /*mask*/) {
+    // Returns hidden states; called with (tokens, encoder_output).
+    //
+    // (fixed) This used to be named forward_with_cross_attention() and take a third (mask)
+    // argument, matching PipelineInferenceEngine::decoder_worker()'s call at the time — but no
+    // real DecoderType (LLMDecoder) ever had a method by that name/signature, so this mock had
+    // silently diverged from the interface it stood in for, masking the mismatch entirely
+    // (templates only check a method exists when actually instantiated with a concrete type).
+    // The bug surfaced only once ChatbotAPI actually instantiated StandardPipelineEngine against
+    // the real LLMDecoder (TD-038 wiring). Renamed/re-signatured to match the corrected
+    // decoder_worker() call, which now uses LLMDecoder's real forward_with_encoder(token_ids,
+    // encoder_output).
+    Matrix forward_with_encoder(const std::vector<int>& tokens, const Matrix& /*encoder_output*/) {
         int rows = static_cast<int>(tokens.size());
         return Matrix(rows > 0 ? rows : 1, 8);
     }

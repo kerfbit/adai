@@ -1,5 +1,5 @@
 // @adai-status: beta        (capped by TD-033 — generate_response() never uses GPU-resident decode, see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.4
+// @adai-version: 0.9.5
 // @adai-reviewed: 2026-09-12
 
 #include "ChatbotAPI.hpp"
@@ -663,6 +663,18 @@ void ChatbotAPI::enable_batched_inference(const BatchedInferenceConfig& config) 
         config);
 }
 
+void ChatbotAPI::enable_pipeline_inference(const std::string& vocab_path,
+                                           const PipelineConfig& config) {
+    // Load the same vocabulary into the model's own encoder-internal tokenizer so the token IDs
+    // PipelineInferenceEngine's encoder stage produces are compatible with this model's trained
+    // embeddings — see enable_pipeline_inference()'s doc comment in ChatbotAPI.hpp. Throws
+    // VocabularyFileError on a bad path; deliberately not caught here (see that same comment).
+    model_->get_encoder()->load_tokenizer_vocab(vocab_path);
+
+    pipeline_engine_ = std::make_unique<StandardPipelineEngine>(
+        model_->get_encoder(), model_->get_decoder(), model_->get_lm_head(), tokenizer_, config);
+}
+
 // ============================================================================
 // Text Generation
 // ============================================================================
@@ -744,6 +756,18 @@ std::string ChatbotAPI::generate_response(const std::string& input,
                 -> Matrix { return model_->forward(input_tokens, decoder_tokens); };
 
             auto future = batched_engine_->submit("", &gen_config, request_model_fn);
+            return future.get();
+        }
+
+        // TD-038: pipeline inference — routes through StandardPipelineEngine's own two-stage
+        // (encoder/decoder) worker threads instead of TextGenerator. Unlike every other path in
+        // this function, the real input text is passed directly (not baked into a model_fn
+        // closure): PipelineInferenceEngine's encoder stage calls LLMEncoder::encode(input) on
+        // it itself, tokenizing internally via the encoder's own tokenizer (see
+        // enable_pipeline_inference()'s doc comment for why that must have been loaded with this
+        // same run's vocabulary). Always greedy decoding — see that same doc comment.
+        if (pipeline_engine_) {
+            auto future = pipeline_engine_->submit(input, static_cast<int>(config.max_length));
             return future.get();
         }
 

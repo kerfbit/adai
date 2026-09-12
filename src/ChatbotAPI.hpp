@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-033 — generate_response() never uses GPU-resident decode, see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.4
+// @adai-version: 0.9.5
 // @adai-reviewed: 2026-09-12
 
 
@@ -16,6 +16,7 @@
 #include "EncoderDecoderModel.hpp"
 #include "BatchedInferenceEngine.hpp"
 #include "PerformanceProfiler.hpp"
+#include "PipelineInferenceEngine.hpp"
 #include "RAGInference.hpp"
 #include "SpeculativeDecoding.hpp"
 #include "TextGenerator.hpp"
@@ -163,6 +164,33 @@ class ChatbotAPI {
     void enable_batched_inference(const BatchedInferenceConfig& config = BatchedInferenceConfig());
 
     /**
+     * @brief Enable two-stage pipeline inference mode (TD-038).
+     *
+     * generate_response() normally runs generation inline on the HTTP handler's own thread via
+     * TextGenerator (which supports temperature/top_p/top_k/beam/repetition-penalty). This mode
+     * instead routes through a real StandardPipelineEngine (PipelineInferenceEngine.hpp) with
+     * dedicated encoder and decoder worker threads overlapping across requests. That engine
+     * reimplements its own generation loop directly against the model's raw encoder/decoder/
+     * lm_head components rather than delegating to TextGenerator, and that loop is
+     * **always greedy** — GenerationConfig::temperature/top_p/top_k/strategy are not consulted
+     * while this is enabled, the same way rag_engine_/draft_model_/batched_engine_ above each
+     * override generation for their own reasons.
+     *
+     * vocab_path must name the exact same vocabulary file the rest of this ChatbotAPI instance
+     * was built with: PipelineInferenceEngine's encoder stage calls the model's own LLMEncoder::
+     * encode(text), which tokenizes internally via LLMEncoder's own private BPETokenizer member
+     * — a second tokenizer instance, entirely separate from ChatbotAPI's tokenizer_ (used
+     * everywhere else, including this same pipeline's own decode() step). Loading a different or
+     * mismatched vocab here would silently produce token IDs incompatible with the model's
+     * trained embeddings. load_tokenizer_vocab() throws VocabularyFileError on a bad path; this
+     * method does not catch it — callers decide whether a load failure should disable the mode
+     * (see ChatbotAPIServer.cpp's tolerant handling of --draft-model for the established
+     * precedent) or abort startup.
+     */
+    void enable_pipeline_inference(const std::string& vocab_path,
+                                   const PipelineConfig& config = PipelineConfig());
+
+    /**
      * @brief Generate batch responses (stateless)
      * @param inputs Vector of input messages
      * @param config Generation configuration
@@ -248,6 +276,11 @@ class ChatbotAPI {
     // RAII shutdown-on-destruct design. nullptr (default) means generate_response() runs inline
     // on the caller's own thread, unchanged from before this member existed.
     std::unique_ptr<BatchedInferenceEngine> batched_engine_;
+
+    // Pipeline inference (TD-038): owned, same lifetime reasoning as batched_engine_ above (its
+    // own encoder/decoder worker threads must not outlive this object). nullptr (default) means
+    // generate_response() is unaffected by this mode's existence.
+    std::unique_ptr<StandardPipelineEngine> pipeline_engine_;
 
     // RAG engine (optional; when set, all generate_response calls route through it)
     std::shared_ptr<RAGInference> rag_engine_;

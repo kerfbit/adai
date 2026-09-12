@@ -1,7 +1,7 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.3.0
+// @adai-version: 0.4.0
 // @adai-reviewed: 2026-09-12
 
 // TD-035: chatbot_api_server's argv parsing and required-config validation, pulled out of
@@ -36,6 +36,11 @@ struct ChatbotApiServerArgsResult {
     // BatchedInferenceEngine.hpp) so an unset flag reproduces that default exactly.
     bool batched_inference = false;
     int batch_timeout_ms = 50;
+    // TD-038: enables ChatbotAPI::enable_pipeline_inference() — same "runtime toggle on the
+    // result" reasoning as batched_inference above. Requires vocab_path to be set (validated the
+    // same place --vocab itself is), since enable_pipeline_inference() needs an actual file to
+    // reload into the model's encoder-internal tokenizer.
+    bool pipeline_inference = false;
 };
 
 // Second pass: applies every flag except --config (already consumed) onto an already-loaded

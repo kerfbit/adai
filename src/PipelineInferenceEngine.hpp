@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-038 — tested but not wired into any shipped binary)
-// @adai-version: 0.7.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: stable
+// @adai-version: 1.0.0
+// @adai-reviewed: 2026-09-12
 
 /**
  * Pipeline Parallelism for Encoder-Decoder Models
@@ -334,9 +334,17 @@ class PipelineInferenceEngine {
                     std::vector<int> generated_tokens = {bos_token_id_};
 
                     for (int step = 0; step < enc_output.max_length; ++step) {
-                        // Forward pass through decoder
-                        Matrix decoder_output = decoder_->forward_with_cross_attention(
-                            generated_tokens, encoder_output, nullptr);
+                        // Forward pass through decoder (fixed: this called a method,
+                        // forward_with_cross_attention(tokens, encoder_output, nullptr), that
+                        // does not exist on LLMDecoder — DecoderType's actual encoder-decoder
+                        // cross-attention entry point is forward_with_encoder(token_ids,
+                        // encoder_output), which takes no third argument. Since this is a
+                        // template method, the mismatch compiled silently until something
+                        // actually instantiated PipelineInferenceEngine/StandardPipelineEngine
+                        // against the real LLMDecoder — nothing had, until this file was wired
+                        // into ChatbotAPI (TD-038), which is how this was caught.
+                        Matrix decoder_output =
+                            decoder_->forward_with_encoder(generated_tokens, encoder_output);
 
                         // Get logits for last token
                         Matrix last_hidden = Matrix(1, decoder_output.cols);
