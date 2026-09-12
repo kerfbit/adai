@@ -12,10 +12,10 @@ See [file-status-standard.md](guides/file-status-standard.md) for what these sta
 |---|---|---|---|---|---|---|---|
 | android | 0 | 41 | 62 | 0 | 0 | 0 | 103 |
 | scripts | 9 | 27 | 0 | 0 | 0 | 0 | 36 |
-| src | 77 | 51 | 4 | 0 | 0 | 0 | 132 |
+| src | 81 | 47 | 4 | 0 | 0 | 0 | 132 |
 | tizen-metrics-app | 0 | 3 | 0 | 0 | 0 | 0 | 3 |
 
-**86/274 files (31%) are tagged `stable`.**
+**90/274 files (33%) are tagged `stable`.**
 
 ## Untagged files
 
@@ -159,11 +159,8 @@ None — every in-scope file carries a tag.
 | `src/ChatbotAPI.cpp` | beta | 0.9.2 | 2026-09-10 | TD-033 |
 | `src/ChatbotAPI.hpp` | beta | 0.9.2 | 2026-09-10 | TD-033 |
 | `src/ChatbotAPIServer.cpp` | beta | 0.8.0 | 2026-09-10 | TD-035 |
-| `src/ChatbotCLI_main.cpp` | beta | 0.8.0 | 2026-09-10 | TD-036 |
 | `src/ChatbotGUI.cpp` | beta | 0.7.0 | 2026-09-10 | TD-037 |
 | `src/ChatbotGUI.hpp` | beta | 0.7.0 | 2026-09-10 | TD-037 |
-| `src/ChatbotGUI_main.cpp` | beta | 0.7.0 | 2026-09-10 | TD-036 |
-| `src/ChatbotGUI_wrapper.cpp` | beta | 0.7.1 | 2026-09-10 | TD-036 |
 | `src/ChatbotTrainer.cpp` | beta | 0.9.0 | 2026-09-10 | TD-039 |
 | `src/ChatbotTrainer.hpp` | beta | 0.9.0 | 2026-09-10 | TD-039 |
 | `src/CrossAttention.cpp` | beta | 0.9.0 | 2026-09-10 | TD-050 |
@@ -185,7 +182,6 @@ None — every in-scope file carries a tag.
 | `src/MnsCliTool.cpp` | beta | 0.8.0 | 2026-09-10 | TD-035 |
 | `src/MnsManagerGUI.cpp` | beta | 0.7.0 | 2026-09-10 | TD-037 |
 | `src/MnsManagerGUI.hpp` | beta | 0.7.0 | 2026-09-10 | TD-037 |
-| `src/MnsManagerGUI_main.cpp` | beta | 0.7.0 | 2026-09-10 | TD-036 |
 | `src/ModelNameServiceServer.cpp` | beta | 0.8.0 | 2026-09-10 | TD-035 |
 | `src/MultiHeadAttention.cpp` | beta | 0.9.0 | 2026-09-10 | TD-050 |
 | `src/MultiHeadAttention.hpp` | beta | 0.9.0 | 2026-09-10 | TD-050 |

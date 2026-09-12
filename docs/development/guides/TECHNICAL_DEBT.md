@@ -568,37 +568,6 @@ Files to Modify:
 
 ---
 
-### TD-036: Thin main() Wrappers Have No Smoke Test
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Testing / Tooling | September 7, 2026 | 3-5 hours |
-
-Description:
-`ChatbotCLI_main.cpp`, `ChatbotGUI_main.cpp`, `ChatbotGUI_wrapper.cpp`, and
-`MnsManagerGUI_main.cpp` are all 40-75 line argv-parsing shims that construct and delegate to
-already-tested library classes. A GTest unit test isn't a good fit for a `main()` — the realistic
-path is a scripted smoke test (invoke the binary, check exit code and `--help` output), the same
-category as the manual QA scripts already in `scripts/` (`test_chatbot_gui.sh`, etc.), just made
-automated and part of the suite instead of a manual step.
-
-Action Items:
-
-- [ ] Add a lightweight smoke-test script (or a CTest `add_test` entry wrapping one) per binary:
-  invoke with `--help`/`--version`, assert exit code 0 and non-empty output.
-- [ ] Wire these into `ctest` (e.g. via `add_test(... COMMAND sh -c "...")`) so they run alongside
-  the rest of the suite instead of living only as manual `scripts/test_*.sh` invocations.
-
-Files to Modify:
-
-- `src/ChatbotCLI_main.cpp`
-- `src/ChatbotGUI_main.cpp`
-- `src/ChatbotGUI_wrapper.cpp`
-- `src/MnsManagerGUI_main.cpp`
-- `tests/CMakeLists.txt`
-
----
-
 ### TD-037: No Qt Test Infrastructure for GUI Classes
 
 | Priority | Status | Component | Created | Effort Estimate |
@@ -964,7 +933,7 @@ Files to Modify:
 
 ## Resolved Items
 
-134 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+135 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements

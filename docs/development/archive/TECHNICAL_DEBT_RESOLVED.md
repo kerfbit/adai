@@ -4,6 +4,65 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-036: Thin main() Wrappers Have No Smoke Test
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 11, 2026 | `src/ChatbotCLI_main.cpp`, `src/ChatbotGUI_main.cpp`, `src/ChatbotGUI_wrapper.cpp`, `src/MnsManagerGUI_main.cpp` | New `tests/smoke/` suite (4 scripts, wired into ctest); all 4 files promoted to `stable` |
+
+Summary:
+4 argv-parsing `main()` shims (`ChatbotCLI_main.cpp`, `ChatbotGUI_main.cpp`,
+`ChatbotGUI_wrapper.cpp`, `MnsManagerGUI_main.cpp`) had no automated coverage at all — a GTest unit
+test isn't a good fit for a `main()`. Added one `tests/smoke/*_test.sh` per binary, reusing the
+TD-043 `harness.sh` (`assert_exit`/`assert_contains`), each invoking the real *built* binary's
+`--help`/`-h` path and checking exit code + output — the same category as the manual-QA scripts
+TD-044 already automated, just applied to compiled `main()`s instead of shell scripts. Wired into
+`ctest` as `SmokeTests_*`, with the two Qt-GUI tests gated on the relevant CMake `TARGET` existing
+so they no-op cleanly on a non-GUI configure instead of failing.
+
+Each test's actual regression-catching power was verified directly, not assumed: the `--help`
+check in each file was temporarily disabled, the binary rebuilt, and the test confirmed to fail —
+then the source was restored and the test reconfirmed passing. That process surfaced one thing
+worth flagging for anyone reusing this pattern: `ChatbotGUI_main.cpp` and `MnsManagerGUI_main.cpp`
+both construct a real `QApplication` *before* ever inspecting argv, so a broken `--help` check
+doesn't fail cleanly — it falls through to `window.show(); app.exec()` and hangs in the GUI event
+loop instead of exiting non-zero. Reproduced directly (a disabled `--help` check hung rather than
+exiting). Both GUI `main()` smoke tests, and the wrapper test (which ends up running through
+`chatbot_gui_binary` too), now wrap the invocation in `timeout 10` so a real future regression here
+fails fast instead of consuming the suite's full blanket `TIMEOUT 1200`.
+
+`ChatbotGUI_wrapper.cpp`'s smoke test additionally regression-tests TD-103 (the `/proc/self/exe`-
+based sibling-binary resolution): invoked once normally and once from a scratch CWD via absolute
+path, asserting the same success output both times and that `"Failed to execute"` never appears.
+Verified this assertion is real, not vacuous, by temporarily forcing `resolve_exe_dir()` to always
+return `"."` (simulating the pre-TD-103 bug) — the wrapper failed with `Failed to execute
+./chatbot_gui_binary: No such file or directory` exactly as it would have before TD-103's fix, then
+passed again after reverting.
+
+All 4 binaries were built and exercised for real: `chatbot`/`mns_manager_gui` build into
+`build/<preset>/bin/`; `chatbot_gui`/`chatbot_gui_binary` build into `build/<preset>/src/` — each
+test's `find_build_dir()` checks the correct location by marker path, matching the existing
+`test_chatbot_gui.sh` convention rather than assuming one location. `QT_QPA_PLATFORM=offscreen` is
+set explicitly in each GUI test rather than relying on ambient environment, since both GUI
+`main()`s construct a `QApplication` before their `--help` check runs.
+
+Per [file-status-standard.md](../guides/file-status-standard.md), closing this TD alone doesn't
+promote a file — each of the 4 files' tags was explicitly bumped `beta` → `stable` (`0.x` →
+`1.0.0`) in the same change, since each now has real coverage of the entirety of what a thin
+`main()` shim does, with no known correctness gap.
+
+Files Modified:
+
+- `tests/smoke/chatbot_main_test.sh` (new)
+- `tests/smoke/chatbot_gui_binary_main_test.sh` (new)
+- `tests/smoke/chatbot_gui_wrapper_test.sh` (new)
+- `tests/smoke/mns_manager_gui_main_test.sh` (new)
+- `tests/CMakeLists.txt` — wired the 4 new tests in as `SmokeTests_*`
+- `src/ChatbotCLI_main.cpp`, `src/ChatbotGUI_main.cpp`, `src/ChatbotGUI_wrapper.cpp`,
+  `src/MnsManagerGUI_main.cpp` — tag bump only, `beta 0.x` → `stable 1.0.0`
+
+---
+
 ### TD-044: Manual-QA Launcher Scripts Have No Automated Test
 
 | Resolution Date | Component | Resolved By |

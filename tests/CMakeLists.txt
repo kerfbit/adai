@@ -991,6 +991,34 @@ if(Python3_Interpreter_FOUND)
     endforeach()
 endif()
 
+# ============================================================================
+# TD-036: thin main() wrapper smoke tests
+#
+# ChatbotCLI_main.cpp, ChatbotGUI_main.cpp, ChatbotGUI_wrapper.cpp, and
+# MnsManagerGUI_main.cpp are argv-parsing shims around already-tested library
+# classes — a GTest unit test isn't a good fit for a main(), so each gets a
+# scripted smoke test (same harness.sh as the TD-043 scripts/ suite above)
+# invoking the real built binary with --help/-h and checking exit code +
+# output, the same category as the manual QA scripts in scripts/, just
+# automated. The two Qt-GUI ones are gated on the binary's own CMake target
+# existing rather than re-deriving BUILD_GUI/Qt5_FOUND/Qt6_FOUND here, so
+# they automatically no-op (rather than fail) on a non-GUI configure.
+set(ADAI_SMOKE_TEST_DIR "${CMAKE_SOURCE_DIR}/tests/smoke")
+add_test(NAME SmokeTests_chatbot_main
+         COMMAND bash "${ADAI_SMOKE_TEST_DIR}/chatbot_main_test.sh")
+if(TARGET chatbot_gui_binary)
+    add_test(NAME SmokeTests_chatbot_gui_binary_main
+             COMMAND bash "${ADAI_SMOKE_TEST_DIR}/chatbot_gui_binary_main_test.sh")
+endif()
+if(TARGET chatbot_gui)
+    add_test(NAME SmokeTests_chatbot_gui_wrapper
+             COMMAND bash "${ADAI_SMOKE_TEST_DIR}/chatbot_gui_wrapper_test.sh")
+endif()
+if(TARGET mns_manager_gui)
+    add_test(NAME SmokeTests_mns_manager_gui_main
+             COMMAND bash "${ADAI_SMOKE_TEST_DIR}/mns_manager_gui_main_test.sh")
+endif()
+
 # TD-064: no test in this file had a TIMEOUT property, so ctest had no way to
 # bound a hung test — confirmed the hard way when paralleldataloaderTests hung
 # for ~9 hours under a full `ctest -j8` run (both its threads genuinely

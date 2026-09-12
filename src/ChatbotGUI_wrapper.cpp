@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-036 — thin main() wrapper, no smoke test)
-// @adai-version: 0.7.1
-// @adai-reviewed: 2026-09-10
+// @adai-status: stable
+// @adai-version: 1.0.0
+// @adai-reviewed: 2026-09-11
 
 /**
  * @file ChatbotGUI_wrapper.cpp
