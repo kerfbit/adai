@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# @adai-status: beta        (capped by TD-044 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.7.1
-# @adai-reviewed: 2026-09-10
+# @adai-status: beta        (TD-044 resolved — real test suite added, see tests/scripts/run_chatbot_test.sh)
+# @adai-version: 0.7.2
+# @adai-reviewed: 2026-09-11
 
 
 # Configuration
@@ -11,15 +11,36 @@ SERVER_PORT="8080"
 SERVER_URL="http://${SERVER_HOST}:${SERVER_PORT}"
 # Determine directories relative to script location
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(dirname "$SCRIPT_DIR")"
-BUILD_DIR="${ROOT_DIR}/build"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 # Both `chatbot` and `chatbot_api_server` set RUNTIME_OUTPUT_DIRECTORY to
 # ${CMAKE_BINARY_DIR}/bin in src/CMakeLists.txt — neither has ever actually
 # been built under .../src/. TD-117 (same class as TD-114/TD-116).
+#
+# TD-044: bare "${REPO_ROOT}/build" was STILL wrong even after that fix —
+# every preset in CMakePresets.json builds into "build/<preset>/", never
+# bare "build/". Auto-detects the first preset build directory that
+# actually has chatbot_api_server (used as the marker since a working
+# setup needs both binaries from the same build anyway), falling back to
+# bare "build/" for a non-preset configure.
+find_build_dir() {
+    local marker="$1"
+    local dir
+    for dir in "${REPO_ROOT}/build/debug" "${REPO_ROOT}/build/release" \
+               "${REPO_ROOT}/build/portable" "${REPO_ROOT}/build/relwithdebinfo" \
+               "${REPO_ROOT}/build/gpu" "${REPO_ROOT}/build/sycl" \
+               "${REPO_ROOT}/build"; do
+        if [ -f "${dir}/${marker}" ]; then
+            echo "$dir"
+            return 0
+        fi
+    done
+    return 1
+}
+BUILD_DIR="$(find_build_dir bin/chatbot_api_server || echo "${REPO_ROOT}/build")"
 CLIENT_BIN="${BUILD_DIR}/bin/chatbot"
 SERVER_BIN="${BUILD_DIR}/bin/chatbot_api_server"
-CONFIG_FILE="${ROOT_DIR}/config.conf"
-LOG_FILE="${ROOT_DIR}/chatbot_server.log"
+CONFIG_FILE="${REPO_ROOT}/config.conf"
+LOG_FILE="${REPO_ROOT}/chatbot_server.log"
 
 # Colors
 GREEN='\033[0;32m'

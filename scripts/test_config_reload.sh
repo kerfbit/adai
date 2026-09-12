@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# @adai-status: beta        (capped by TD-044 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.7.1
-# @adai-reviewed: 2026-09-10
+# @adai-status: beta        (TD-044 resolved — real test suite added, see tests/scripts/test_config_reload_test.sh)
+# @adai-version: 0.7.2
+# @adai-reviewed: 2026-09-11
 
 
 # Script to test configuration hot-reloading feature
@@ -49,10 +49,36 @@ echo ""
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "${SCRIPT_DIR}")"
 
+# TD-044: "${REPO_ROOT}/build/bin/..." was STILL wrong even after that fix —
+# every preset in CMakePresets.json builds into "build/<preset>/", never
+# bare "build/". Auto-detects the first preset build directory that
+# actually has the binary, falling back to bare "build/" for a non-preset
+# configure.
+find_build_dir() {
+    local marker="$1"
+    local dir
+    for dir in "${REPO_ROOT}/build/debug" "${REPO_ROOT}/build/release" \
+               "${REPO_ROOT}/build/portable" "${REPO_ROOT}/build/relwithdebinfo" \
+               "${REPO_ROOT}/build/gpu" "${REPO_ROOT}/build/sycl" \
+               "${REPO_ROOT}/build"; do
+        if [ -f "${dir}/${marker}" ]; then
+            echo "$dir"
+            return 0
+        fi
+    done
+    return 1
+}
+
+BUILD_DIR="$(find_build_dir bin/chatbot_api_server)" || {
+    echo "ERROR: chatbot_api_server not found in any build/<preset>/bin/ directory."
+    echo "Build it first, e.g.: cmake --preset=debug && cmake --build --preset=debug --target chatbot_api_server"
+    exit 1
+}
+
 # Start the server in background
 echo "Starting server with test configuration..."
 cd "${REPO_ROOT}"
-./build/bin/chatbot_api_server --config "$TEST_CONFIG" &
+"${BUILD_DIR}/bin/chatbot_api_server" --config "$TEST_CONFIG" &
 SERVER_PID=$!
 echo "Server started with PID: $SERVER_PID"
 echo ""
@@ -218,7 +244,15 @@ echo "=========================================="
 echo "Cleanup"
 echo "=========================================="
 echo "Stopping server..."
-kill -TERM $SERVER_PID
+# TD-044: unguarded under this script's own `set -e` — every prior check
+# in this script re-verifies the server is alive before proceeding, so the
+# window for it to have died by the time we reach here is narrow, but not
+# zero (see test_log_rotation.sh's sibling fix, where the equivalent call
+# with no such prior checks reliably hit this: `kill -TERM` on an
+# already-dead PID returns nonzero, and set -e would kill the whole script
+# right here, before the config cleanup or final summary/exit code ever
+# ran). `2>/dev/null || true` makes an already-dead process a silent no-op.
+kill -TERM $SERVER_PID 2>/dev/null || true
 sleep 2
 
 # Force kill if still running

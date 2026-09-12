@@ -4,6 +4,103 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-044: Manual-QA Launcher Scripts Have No Automated Test
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 11, 2026 | `tests/scripts/` (extended), all 11 covered scripts | New bash test suite reusing TD-043's harness; 1 systemic bug (all 11 scripts) plus 3 further distinct bugs found and fixed |
+
+Summary:
+11 scripts covering chatbot/GUI launching and manual regression checks for already-shipped
+features (config hot-reload, log rotation, signal handling, parallel processing) — same "no
+automated test of the script itself" gap TD-043 covered for the deployment-path scripts. Reused
+`tests/scripts/harness.sh` directly, per this item's own action item, adding one `*_test.sh` file
+per script (124 assertions total) plus a new shared harness helper,
+`assert_find_build_dir_correct`, purpose-built for the systemic bug below.
+
+Writing real tests against real behavior surfaced that literally **all 11** scripts shared one
+severe, previously-undiscovered bug, plus 3 further distinct ones — each independently reproduced
+before fixing and reverted-and-confirmed-to-fail after:
+
+1. **Every one of the 11 scripts hardcoded a bare `build/...` path** (`build/src/chatbot_gui`,
+   `build/bin/chatbot_api_server`, etc.) instead of a preset-aware one. This project's
+   `CMakePresets.json` builds every preset into `build/<preset>/` (`build/debug`, `build/release`,
+   ...) via one shared `binaryDir` pattern — there is no preset that produces a bare `build/`.
+   Reproduced directly and exhaustively: `chatbot_gui_fixed.sh` — whose own name and file header
+   claim to be *the fixed version* of a previous path bug — still failed with "No such file or
+   directory" against a real, fully-built `build/debug/src/chatbot_gui`; running
+   `test_chatbot_gui_comprehensive.sh` for real against that same correct build reported **11
+   false failures** purely from this bug, down to 1 genuine one (see item 3) after the fix. 5 of
+   the 11 scripts (`run_chatbot_gui.sh`, `test_chatbot_gui.sh`,
+   `test_chatbot_gui_comprehensive.sh`, `verify_cli_parallel.sh`, `verify_gui_parallel.sh`) also
+   used bare relative paths with no anchor to the script's own location at all, so they only
+   happened to work when the caller's CWD was already the repo root — `cd scripts/foo.sh` broke
+   them outright, independent of the build-dir bug. Fixed uniformly: each script's own
+   `find_build_dir()` function (this codebase's established no-shared-library convention — small
+   helpers are duplicated per-script, not sourced from one file, the same way the color-print
+   functions already are) tries `debug`, `release`, `portable`, `relwithdebinfo`, `gpu`, `sycl`, in
+   that order, then falls back to bare `build/` for a non-preset configure; the 5 CWD-dependent
+   scripts also gained the standard `SCRIPT_DIR`/`REPO_ROOT` resolution + `cd` every sibling
+   script already used. `run_chatbot.sh`'s pre-existing `ROOT_DIR` variable was renamed to
+   `REPO_ROOT` for consistency with all 10 siblings (and so the new shared test helper's fabricated
+   fixtures — which set `REPO_ROOT` — actually reach the function under test).
+2. **`test_signal_handling.sh` never propagated its own verdict to its exit code**: it printed
+   "WARNING: Server is still running after SIGTERM" vs. "SUCCESS: Server shut down gracefully" but
+   nothing set a failing exit code — a server that never shuts down gracefully on SIGTERM (the
+   actual thing this script exists to verify) was reported as a pass to any caller checking `$?`.
+   Fixed: tracks `GRACEFUL_SHUTDOWN` explicitly and exits 1 on a non-graceful shutdown.
+3. **`test_chatbot_gui_comprehensive.sh`'s "GUI guide documentation" check pointed at a path from
+   before a docs reorganization**: `docs/guides/chatbot-gui-guide.md` moved to
+   `docs/operations/guides/chatbot-gui-guide.md` in commit `965e447` ("docs: reorganize directory
+   structure") and this check was never updated, so it always reported the guide missing even
+   though it still exists, just moved. Fixed by updating the path; confirmed via `find` that the
+   file is genuinely present under its new location. (The sibling "Quick reference README" check
+   is a genuine, accurate finding — `CHATBOT_GUI_README.md` was deleted, not renamed, per `git
+   log` — left as-is rather than "fixed," since there's nothing stale to correct there.)
+4. **`test_log_rotation.sh`'s cleanup `kill -TERM $SERVER_PID` was unguarded under this script's
+   own `set -e`**: if the server had already died before reaching cleanup (crashed, or — as
+   discovered while writing this fix's own test, since this checkout has no `vocab.txt` — simply
+   exited during startup for any reason), `kill -TERM` on the nonexistent PID returned nonzero and
+   `set -e` killed the *whole script* right there, before the log-file preservation summary, config
+   cleanup, or final pass/fail report/exit code ever ran — reporting an accidental exit 1 (`kill`'s
+   own failure) regardless of whether the test's own tracked `$TEST_PASSED` was genuinely `true`.
+   Reproduced directly. Fixed with `2>/dev/null || true`, matching this same script's other two
+   `kill` calls' existing spirit. `test_config_reload.sh` has the identical `set -e` +
+   `kill -TERM $SERVER_PID` shape at its own cleanup step; every prior check in that script
+   re-verifies the server is alive first, so the risk window there is narrower, but the same
+   defensive fix was applied for consistency and to close it entirely.
+   `test_signal_handling.sh`'s own `kill -TERM` is safe as-is — that script has no `set -e` at all.
+
+Changes Made:
+- 11 new `tests/scripts/*_test.sh` files (one per script) — 124 bash assertions total.
+- `tests/scripts/harness.sh`: new `assert_find_build_dir_correct(script, marker)` helper —
+  extracts each script's own copy of `find_build_dir()` and verifies its preset-preference order
+  and fallback behavior against a fabricated build tree, independently per script (not assuming
+  "one passes -> all do" just because they currently read identically).
+- `tests/CMakeLists.txt`: 11 new `ScriptsTests_*` registrations alongside TD-043/TD-045's, run
+  through `ctest`.
+- All 11 scripts fixed for the build-path/CWD bug; `test_signal_handling.sh` additionally fixed
+  for its exit-code gap; `test_chatbot_gui_comprehensive.sh` additionally fixed for its stale doc
+  path; `test_log_rotation.sh` and `test_config_reload.sh` additionally fixed for the `set -e` +
+  unguarded `kill` gap; `run_chatbot.sh`'s `ROOT_DIR` renamed to `REPO_ROOT`.
+- All 11 scripts' `@adai-status`/`@adai-version`/`@adai-reviewed` tags updated to drop the "capped
+  by TD-044" note.
+
+Verification:
+- ✅ Each bug independently reproduced against the real, unmodified script before fixing, then
+  reverted-and-confirmed-to-fail after fixing (temporarily undoing just that fix and confirming the
+  corresponding new test genuinely fails), then restored with all tests passing again.
+- ✅ All 11 new `ScriptsTests_*` pass individually and together under `ctest -j4` (parallel,
+  confirming no shared-state conflicts — several spawn real `chatbot_api_server`/`chatbot_gui`
+  processes on non-default ports).
+- ✅ Full project test suite: 113/113 tests pass (102 pre-existing + 11 new ScriptsTests).
+- ✅ `bash -n` on every modified script: all pass.
+- ✅ `scripts/check_file_status.py`: 274 files checked, 0 problems.
+- ✅ No leftover background processes (confirmed via `pgrep`) after the full suite run, including
+  every real-process test (`chatbot_api_server`, `chatbot_gui`, and the harmless `sleep`
+  substitutes used for `test_signal_handling.sh`'s exit-code regression tests).
+- ✅ TOC-vs-heading cross-check across the whole `TECHNICAL_DEBT.md` file: clean.
+
 ### TD-045: Standalone Dev-Utility Scripts Have No Test or Integration
 
 | Resolution Date | Component | Resolved By |

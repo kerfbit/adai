@@ -34,14 +34,13 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [TD-039: Core Training/Metrics Classes Too Large and Fast-Moving to Certify Stable](#td-039-core-trainingmetrics-classes-too-large-and-fast-moving-to-certify-stable)
   - [TD-041: GPUUtils Has No Dedicated Test on Either Backend](#td-041-gpuutils-has-no-dedicated-test-on-either-backend)
   - [TD-042: PostgresMetricsDatabase Has Zero Test Coverage](#td-042-postgresmetricsdatabase-has-zero-test-coverage)
-  - [TD-044: Manual-QA Launcher Scripts Have No Automated Test](#td-044-manual-qa-launcher-scripts-have-no-automated-test)
   - [TD-047: Android Data/Repository/API Layer Has No CI or Release History](#td-047-android-datarepositoryapi-layer-has-no-ci-or-release-history)
   - [TD-048: Android UI/DI/Entry-Point Classes Are Untested and Unreleased](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
   - [TD-049: No JS Test Framework for the Tizen TV App](#td-049-no-js-test-framework-for-the-tizen-tv-app)
   - [TD-051: IncrementalTrainer::load_conversation_pairs() Is an Unmigrated Duplicate](#td-051-incrementaltrainerload_conversation_pairs-is-an-unmigrated-duplicate)
   - [TD-052: ParallelDataLoader's Batches Use Character Codes, Not Real Tokens](#td-052-paralleldataloaders-batches-use-character-codes-not-real-tokens)
   - [TD-053: ChatbotCLI's /save and /load Commands Are Non-Functional Everywhere](#td-053-chatbotclis-save-and-load-commands-are-non-functional-everywhere)
-- [Resolved Items](#resolved-items) (133 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+- [Resolved Items](#resolved-items) (134 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -770,36 +769,6 @@ Files to Modify:
 
 ---
 
-### TD-044: Manual-QA Launcher Scripts Have No Automated Test
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Scripts / Tooling | September 7, 2026 | 6-10 hours |
-
-Description:
-11 scripts covering chatbot/GUI launching and manual regression checks for already-shipped
-features (config hot-reload, log rotation, signal handling, parallel processing) — same "no
-automated test of the script itself" gap TD-043 covered for the deployment-path scripts, split out
-because these are lower-stakes, developer-facing manual QA tools rather than the deployment path.
-
-Action Items:
-
-- [ ] TD-043 is now resolved: `tests/scripts/harness.sh` (a plain, dependency-free bash assertion
-  library) and its `add_test(NAME ScriptsTests_... COMMAND bash ...)` wiring in
-  `tests/CMakeLists.txt` already exist and are the harness to reuse here — no new approach to
-  design, just apply the same pattern to this file list.
-- [ ] Lower priority than TD-043 was; address opportunistically.
-
-Files to Modify:
-
-- `scripts/chatbot_gui_fixed.sh`, `scripts/manual_test_reload.sh`, `scripts/run_chatbot.sh`,
-  `scripts/run_chatbot_gui.sh`, `scripts/test_chatbot_gui.sh`,
-  `scripts/test_chatbot_gui_comprehensive.sh`, `scripts/test_config_reload.sh`,
-  `scripts/test_log_rotation.sh`, `scripts/test_signal_handling.sh`,
-  `scripts/verify_cli_parallel.sh`, `scripts/verify_gui_parallel.sh`
-
----
-
 ### TD-047: Android Data/Repository/API Layer Has No CI or Release History
 
 | Priority | Status | Component | Created | Effort Estimate |
@@ -995,7 +964,7 @@ Files to Modify:
 
 ## Resolved Items
 
-133 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+134 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements

@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# @adai-status: beta        (capped by TD-044 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.6.1
-# @adai-reviewed: 2026-09-10
+# @adai-status: beta        (TD-044 resolved — real test suite added, see tests/scripts/verify_cli_parallel_test.sh)
+# @adai-version: 0.6.2
+# @adai-reviewed: 2026-09-11
 
 
 echo "╔═══════════════════════════════════════════════════════════════╗"
@@ -10,14 +10,45 @@ echo "║        CLI Chatbot Parallel Processing Verification         ║"
 echo "╚═══════════════════════════════════════════════════════════════╝"
 echo ""
 
+# TD-044: bare relative paths ("./build/bin/chatbot", "./build/CMakeCache.txt"
+# below) with no anchor to the script's own location — only worked when the
+# caller's CWD happened to already be the repo root. Resolved via
+# SCRIPT_DIR/REPO_ROOT, matching every sibling launcher script, then cd to
+# REPO_ROOT so every relative path below resolves the same way regardless
+# of caller CWD.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "${SCRIPT_DIR}")"
+cd "${REPO_ROOT}" || exit 1
+
 # chatbot's CMake target sets RUNTIME_OUTPUT_DIRECTORY to
 # ${CMAKE_BINARY_DIR}/bin, never .../src/. TD-118.
-CHATBOT_BINARY="./build/bin/chatbot"
+#
+# TD-044: even once anchored to REPO_ROOT, "build/bin/chatbot" was still
+# wrong for any standard, documented build — every preset in
+# CMakePresets.json builds into "build/<preset>/", never bare "build/".
+# Auto-detects the first preset build directory that actually has the
+# binary, falling back to bare "build/" for a non-preset configure.
+find_build_dir() {
+    local marker="$1"
+    local dir
+    for dir in "${REPO_ROOT}/build/debug" "${REPO_ROOT}/build/release" \
+               "${REPO_ROOT}/build/portable" "${REPO_ROOT}/build/relwithdebinfo" \
+               "${REPO_ROOT}/build/gpu" "${REPO_ROOT}/build/sycl" \
+               "${REPO_ROOT}/build"; do
+        if [ -f "${dir}/${marker}" ]; then
+            echo "$dir"
+            return 0
+        fi
+    done
+    return 1
+}
+BUILD_DIR="$(find_build_dir bin/chatbot || echo "${REPO_ROOT}/build")"
+CHATBOT_BINARY="${BUILD_DIR}/bin/chatbot"
 
 # Check if binary exists
 if [ ! -f "$CHATBOT_BINARY" ]; then
     echo "❌ CLI chatbot binary not found at: $CHATBOT_BINARY"
-    echo "   Run: cd build && make chatbot -j\$(nproc)"
+    echo "   Run: cmake --preset=debug && cmake --build --preset=debug --target chatbot"
     exit 1
 fi
 
@@ -51,20 +82,20 @@ echo ""
 
 # Check build type
 echo "🔍 Checking build configuration..."
-if [ -f "./build/CMakeCache.txt" ]; then
-    BUILD_TYPE=$(grep "CMAKE_BUILD_TYPE" ./build/CMakeCache.txt | head -1 | cut -d= -f2)
+if [ -f "${BUILD_DIR}/CMakeCache.txt" ]; then
+    BUILD_TYPE=$(grep "CMAKE_BUILD_TYPE" "${BUILD_DIR}/CMakeCache.txt" | head -1 | cut -d= -f2)
     echo "   Build Type: $BUILD_TYPE"
-    
+
     # Check for optimization flags
-    if grep -q "CMAKE_CXX_FLAGS_RELEASE.*-O3" ./build/CMakeCache.txt; then
+    if grep -q "CMAKE_CXX_FLAGS_RELEASE.*-O3" "${BUILD_DIR}/CMakeCache.txt"; then
         echo "✅ Optimizations enabled: -O3"
     fi
-    
-    if grep -q "march=native" ./build/CMakeCache.txt; then
+
+    if grep -q "march=native" "${BUILD_DIR}/CMakeCache.txt"; then
         echo "✅ Architecture-specific optimization: -march=native"
     fi
-    
-    if grep -q "fopenmp" ./build/CMakeCache.txt; then
+
+    if grep -q "fopenmp" "${BUILD_DIR}/CMakeCache.txt"; then
         echo "✅ OpenMP flags: -fopenmp"
     fi
 fi
@@ -96,11 +127,11 @@ echo "  • CPU usage: 60-100% across all cores during generation"
 echo ""
 echo "Usage:"
 echo "  # Standard run"
-echo "  ./build/bin/chatbot --vocab vocab.txt --model chatbot_model.bin"
+echo "  ${CHATBOT_BINARY} --vocab vocab.txt --model chatbot_model.bin"
 echo ""
 echo "  # Maximum performance (set OpenMP threads)"
 echo "  export OMP_NUM_THREADS=$CORES"
-echo "  ./build/bin/chatbot --vocab vocab.txt --model chatbot_model.bin"
+echo "  ${CHATBOT_BINARY} --vocab vocab.txt --model chatbot_model.bin"
 echo ""
 echo "  # Monitor CPU usage in another terminal"
 echo "  htop"

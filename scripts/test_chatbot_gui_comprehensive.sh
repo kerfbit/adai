@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# @adai-status: beta        (capped by TD-044 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.7.1
-# @adai-reviewed: 2026-09-10
+# @adai-status: beta        (TD-044 resolved — real test suite added, see tests/scripts/test_chatbot_gui_comprehensive_test.sh)
+# @adai-version: 0.7.2
+# @adai-reviewed: 2026-09-11
 
 
 # Comprehensive test suite for chatbot_gui
@@ -43,6 +43,41 @@ section() {
     echo "  $1"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 }
+
+# TD-044: bare relative paths ("src/...", "build/src/...", "vocab.txt")
+# with no anchor to the script's own location — only worked when the
+# caller's CWD happened to already be the repo root. Resolved via
+# SCRIPT_DIR/REPO_ROOT, matching every sibling launcher script, then cd to
+# REPO_ROOT so every relative path below resolves the same way regardless
+# of caller CWD.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(dirname "${SCRIPT_DIR}")"
+cd "${REPO_ROOT}" || exit 1
+
+# TD-044: even once anchored to REPO_ROOT, "build/src/..." was still wrong
+# for any standard, documented build — every preset in CMakePresets.json
+# builds into "build/<preset>/", never bare "build/". Auto-detects the
+# first preset build directory that actually has the GUI binary, falling
+# back to bare "build/" for a non-preset configure (and, if none match at
+# all, to "build/src" so Test 3 below still reports a clean "not found"
+# through its own existing check rather than this helper silently
+# swallowing the failure).
+find_build_dir() {
+    local marker="$1"
+    local dir
+    for dir in "${REPO_ROOT}/build/debug" "${REPO_ROOT}/build/release" \
+               "${REPO_ROOT}/build/portable" "${REPO_ROOT}/build/relwithdebinfo" \
+               "${REPO_ROOT}/build/gpu" "${REPO_ROOT}/build/sycl" \
+               "${REPO_ROOT}/build"; do
+        if [ -f "${dir}/${marker}" ]; then
+            echo "$dir"
+            return 0
+        fi
+    done
+    return 1
+}
+BUILD_DIR="$(find_build_dir src/chatbot_gui_binary || echo "${REPO_ROOT}/build")"
+LAUNCHER="${BUILD_DIR}/src/chatbot_gui"
 
 # Test 1: Source Files
 section "Test 1: Source Files"
@@ -95,12 +130,12 @@ fi
 # linkage; the wrapper is ~124 KB, well under the 1MB size threshold, so
 # Test 3's size check alone always failed against a correct build). TD-124
 # (same class already fixed in test_chatbot_gui.sh).
-GUI_BINARY="build/src/chatbot_gui_binary"
+GUI_BINARY="${BUILD_DIR}/src/chatbot_gui_binary"
 
 # Test 3: Executable
 section "Test 3: Executable"
 
-if [ -f "build/src/chatbot_gui" ] && [ -f "$GUI_BINARY" ]; then
+if [ -f "$LAUNCHER" ] && [ -f "$GUI_BINARY" ]; then
     pass "Executable built successfully"
 
     SIZE=$(stat -c%s "$GUI_BINARY")
@@ -110,7 +145,7 @@ if [ -f "build/src/chatbot_gui" ] && [ -f "$GUI_BINARY" ]; then
         fail "Executable too small ($SIZE bytes)"
     fi
 
-    if [ -x "build/src/chatbot_gui" ]; then
+    if [ -x "$LAUNCHER" ]; then
         pass "Executable has correct permissions"
     else
         fail "Executable not executable"
@@ -233,7 +268,11 @@ fi
 # Test 8: Documentation
 section "Test 8: Documentation"
 
-if [ -f "docs/guides/chatbot-gui-guide.md" ]; then
+# TD-044: docs/guides/ was reorganized into docs/operations/guides/ (see
+# commit 965e447, "docs: reorganize directory structure") — this check was
+# never updated, so it always reported the guide missing even though it
+# still exists, just moved. Confirmed the file is there under its new path.
+if [ -f "docs/operations/guides/chatbot-gui-guide.md" ]; then
     pass "GUI guide documentation exists"
 else
     fail "GUI guide documentation not found"
@@ -277,10 +316,10 @@ fi
 # Test 10: Build Artifacts
 section "Test 10: Build Artifacts"
 
-if [ -d "build/src/chatbot_gui_autogen" ]; then
+if [ -d "${BUILD_DIR}/src/chatbot_gui_autogen" ]; then
     pass "Qt MOC autogen directory exists"
-    
-    if ls build/src/chatbot_gui_autogen/mocs_*.cpp >/dev/null 2>&1; then
+
+    if ls "${BUILD_DIR}"/src/chatbot_gui_autogen/mocs_*.cpp >/dev/null 2>&1; then
         pass "MOC files generated"
     else
         warn "MOC files not found"
@@ -311,8 +350,7 @@ if [ $FAIL_COUNT -eq 0 ]; then
     echo "The chatbot_gui is ready to use!"
     echo ""
     echo "To run (requires graphical environment):"
-    echo "  cd $(pwd)"
-    echo "  ./build/src/chatbot_gui"
+    echo "  ${LAUNCHER}"
     echo ""
     exit 0
 else

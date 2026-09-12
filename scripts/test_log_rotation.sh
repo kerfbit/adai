@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# @adai-status: beta        (capped by TD-044 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.7.1
-# @adai-reviewed: 2026-09-10
+# @adai-status: beta        (TD-044 resolved — real test suite added, see tests/scripts/test_log_rotation_test.sh)
+# @adai-version: 0.7.2
+# @adai-reviewed: 2026-09-11
 
 
 # Script to test log file rotation and management
@@ -59,10 +59,36 @@ echo ""
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "${SCRIPT_DIR}")"
 
+# TD-044: "${REPO_ROOT}/build/bin/..." was STILL wrong even after that fix —
+# every preset in CMakePresets.json builds into "build/<preset>/", never
+# bare "build/". Auto-detects the first preset build directory that
+# actually has the binary, falling back to bare "build/" for a non-preset
+# configure.
+find_build_dir() {
+    local marker="$1"
+    local dir
+    for dir in "${REPO_ROOT}/build/debug" "${REPO_ROOT}/build/release" \
+               "${REPO_ROOT}/build/portable" "${REPO_ROOT}/build/relwithdebinfo" \
+               "${REPO_ROOT}/build/gpu" "${REPO_ROOT}/build/sycl" \
+               "${REPO_ROOT}/build"; do
+        if [ -f "${dir}/${marker}" ]; then
+            echo "$dir"
+            return 0
+        fi
+    done
+    return 1
+}
+
+BUILD_DIR="$(find_build_dir bin/chatbot_api_server)" || {
+    echo "ERROR: chatbot_api_server not found in any build/<preset>/bin/ directory."
+    echo "Build it first, e.g.: cmake --preset=debug && cmake --build --preset=debug --target chatbot_api_server"
+    exit 1
+}
+
 # Start the server in background
 echo "Starting server with file logging..."
 cd "${REPO_ROOT}"
-./build/bin/chatbot_api_server --config "$TEST_CONFIG" > /dev/null 2>&1 &
+"${BUILD_DIR}/bin/chatbot_api_server" --config "$TEST_CONFIG" > /dev/null 2>&1 &
 SERVER_PID=$!
 echo "Server started with PID: $SERVER_PID"
 echo ""
@@ -142,7 +168,18 @@ echo "=========================================="
 echo "Cleanup"
 echo "=========================================="
 echo "Stopping server..."
-kill -TERM $SERVER_PID
+# TD-044: unguarded, unlike the two other kill calls in this same file
+# (line ~107 redirects stderr, the one below only runs inside an `if ps -p`
+# check) — if the server had already died before reaching cleanup (crashed,
+# OOM, or simply exited on its own for any reason, as it does whenever
+# vocab.txt is missing), `kill -TERM` on a nonexistent PID returns nonzero
+# and `set -e` killed the whole script right here, before the log-file
+# preservation summary, config cleanup, or final pass/fail report/exit code
+# ever ran — reporting an accidental exit 1 (kill's own failure) regardless
+# of whether $TEST_PASSED was genuinely true. Reproduced directly. `2>
+# /dev/null || true` makes an already-dead process a silent no-op here,
+# matching this script's other two kill calls' spirit.
+kill -TERM $SERVER_PID 2>/dev/null || true
 sleep 2
 
 # Force kill if still running

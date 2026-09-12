@@ -175,3 +175,65 @@ harness_cleanup() {
     done
 }
 trap harness_cleanup EXIT
+
+# assert_find_build_dir_correct SCRIPT MARKER — TD-044.
+#
+# 11 launcher/manual-QA scripts each carry an identical, independently
+# copy-pasted find_build_dir() function (this codebase's established
+# no-shared-library convention — every other small helper, e.g. the color
+# print functions, is duplicated the same way rather than sourced from one
+# file). Verifies each script's OWN copy of the function directly, against
+# a fabricated build tree, rather than assuming "one passes -> all do"
+# just because they currently read identically — a future edit to one
+# script's copy without the others should be caught here, not silently
+# diverge.
+#
+# Extracts the function body via sed (matching run_tests_test.sh's TD-043
+# technique for isolating a snippet of a real, unmodified script rather
+# than reimplementing its logic), sources it into a throwaway REPO_ROOT,
+# and checks: preset-directory preference order, fallback to bare
+# "build/", and a clean failure when nothing matches at all.
+assert_find_build_dir_correct() {
+    local script="$1" marker="$2"
+    local d fn_file
+
+    t "find_build_dir() in $(basename "$script"): function is present and extractable"
+    fn_file="$(mktemp_dir)/find_build_dir.sh"
+    sed -n '/^find_build_dir()/,/^}/p' "$script" > "$fn_file"
+    if [[ ! -s "$fn_file" ]]; then
+        fail "no find_build_dir() function found in $script"
+        return
+    fi
+    pass
+
+    d="$(mktemp_dir)"
+
+    t "find_build_dir() in $(basename "$script"): prefers debug over release when both exist"
+    mkdir -p "$d/build/debug/$(dirname "$marker")" "$d/build/release/$(dirname "$marker")"
+    touch "$d/build/debug/$marker" "$d/build/release/$marker"
+    REPO_ROOT="$d" run bash -c "source '$fn_file'; find_build_dir '$marker'"
+    assert_contains "$d/build/debug"
+    assert_not_contains "$d/build/release"
+    rm -rf "$d/build"
+
+    t "find_build_dir() in $(basename "$script"): falls back to release when debug is absent"
+    mkdir -p "$d/build/release/$(dirname "$marker")"
+    touch "$d/build/release/$marker"
+    REPO_ROOT="$d" run bash -c "source '$fn_file'; find_build_dir '$marker'"
+    assert_contains "$d/build/release"
+    rm -rf "$d/build"
+
+    t "find_build_dir() in $(basename "$script"): falls back to bare build/ for a non-preset configure"
+    mkdir -p "$d/build/$(dirname "$marker")"
+    touch "$d/build/$marker"
+    REPO_ROOT="$d" run bash -c "source '$fn_file'; find_build_dir '$marker'"
+    assert_contains "$d/build"
+    rm -rf "$d/build"
+
+    t "find_build_dir() in $(basename "$script"): fails cleanly when the marker exists nowhere"
+    mkdir -p "$d/build/debug"
+    REPO_ROOT="$d" run bash -c "source '$fn_file'; find_build_dir '$marker'"
+    assert_exit 1
+    assert_eq "" "$RUN_OUT" "should print nothing on failure"
+    rm -rf "$d/build"
+}

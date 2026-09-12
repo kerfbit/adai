@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# @adai-status: beta        (capped by TD-044 — see TECHNICAL_DEBT.md)
-# @adai-version: 0.6.1
-# @adai-reviewed: 2026-09-10
+# @adai-status: beta        (TD-044 resolved — real test suite added, see tests/scripts/manual_test_reload_test.sh)
+# @adai-version: 0.6.2
+# @adai-reviewed: 2026-09-11
 
 
 # Manual test for configuration hot-reload
@@ -46,5 +46,32 @@ REPO_ROOT="$(dirname "${SCRIPT_DIR}")"
 # the build has never actually produced. Also replaced the hardcoded
 # /home/rodney/Repos/adai path (broken for any other checkout) with the
 # same SCRIPT_DIR-relative resolution every other script in this repo uses.
+#
+# TD-044: "${REPO_ROOT}/build/bin/..." was STILL wrong even after that fix —
+# every preset in CMakePresets.json builds into "build/<preset>/", never
+# bare "build/". Auto-detects the first preset build directory that
+# actually has the binary, falling back to bare "build/" for a non-preset
+# configure.
+find_build_dir() {
+    local marker="$1"
+    local dir
+    for dir in "${REPO_ROOT}/build/debug" "${REPO_ROOT}/build/release" \
+               "${REPO_ROOT}/build/portable" "${REPO_ROOT}/build/relwithdebinfo" \
+               "${REPO_ROOT}/build/gpu" "${REPO_ROOT}/build/sycl" \
+               "${REPO_ROOT}/build"; do
+        if [ -f "${dir}/${marker}" ]; then
+            echo "$dir"
+            return 0
+        fi
+    done
+    return 1
+}
+
+BUILD_DIR="$(find_build_dir bin/chatbot_api_server)" || {
+    echo "ERROR: chatbot_api_server not found in any build/<preset>/bin/ directory." >&2
+    echo "Build it first, e.g.: cmake --preset=debug && cmake --build --preset=debug --target chatbot_api_server" >&2
+    exit 1
+}
+
 cd "${REPO_ROOT}" || exit 1
-exec ./build/bin/chatbot_api_server --config "$TEST_CONFIG"
+exec "${BUILD_DIR}/bin/chatbot_api_server" --config "$TEST_CONFIG"

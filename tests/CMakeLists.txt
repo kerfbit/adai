@@ -937,6 +937,7 @@ add_test(NAME IncrementalTrainerControlTests COMMAND incrementalTrainerControlTe
 set(ADAI_SCRIPTS_TEST_DIR "${CMAKE_SOURCE_DIR}/tests/scripts")
 foreach(_script_test IN ITEMS
     build_windows_test.sh
+    chatbot_gui_fixed_test.sh
     check_ports_test.sh
     check_tech_debt_test.sh
     docker_build_test.sh
@@ -947,11 +948,21 @@ foreach(_script_test IN ITEMS
     install_mns_server_test.sh
     install_oneapi_libs_test.sh
     install_server_bundle_test.sh
+    manual_test_reload_test.sh
     model_service_test.sh
     package_server_bundle_test.sh
     package_sycl_test.sh
     package_windows_test.sh
+    run_chatbot_gui_test.sh
+    run_chatbot_test.sh
     run_tests_test.sh
+    test_chatbot_gui_comprehensive_test.sh
+    test_chatbot_gui_test.sh
+    test_config_reload_test.sh
+    test_log_rotation_test.sh
+    test_signal_handling_test.sh
+    verify_cli_parallel_test.sh
+    verify_gui_parallel_test.sh
 )
     string(REPLACE ".sh" "" _test_name "${_script_test}")
     add_test(NAME ScriptsTests_${_test_name}
