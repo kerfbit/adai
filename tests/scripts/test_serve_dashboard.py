@@ -161,6 +161,62 @@ class MainSmokeTest(unittest.TestCase):
             self.assertEqual(proc.returncode, 0)
             self.assertIn("Shutting down", out)
 
+    def test_quick_restart_after_serving_a_request_does_not_crash(self):
+        # Regression test: plain socketserver.TCPServer defaults
+        # allow_reuse_address to False (unlike http.server.HTTPServer,
+        # which this file doesn't use). A client connection followed by a
+        # restart within the OS's TIME_WAIT window (typically ~60s) used to
+        # crash with "OSError: [Errno 98] Address already in use" before
+        # ever printing a line — hit on every systemd auto-restart after a
+        # crash, or a developer's Ctrl+C-then-immediately-rerun. Exercises
+        # exactly that sequence for real: serve one request, SIGINT, then
+        # immediately start a second instance and confirm IT also binds
+        # and serves successfully, with no restart delay at all.
+        if port_in_use(8082):
+            self.skipTest("port 8082 is already in use in this environment")
+
+        import signal
+
+        def start_and_stop_after_one_request():
+            proc = subprocess.Popen(
+                [sys.executable, str(SCRIPT_PATH)],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+            deadline = time.time() + 5
+            while time.time() < deadline:
+                if port_in_use(8082):
+                    break
+                time.sleep(0.1)
+            else:
+                proc.kill()
+                proc.communicate()
+                self.fail("server never started listening on 8082")
+
+            conn = http.client.HTTPConnection("127.0.0.1", 8082, timeout=5)
+            conn.request("GET", "/")
+            conn.getresponse().read()
+            conn.close()
+
+            proc.send_signal(signal.SIGINT)
+            try:
+                out, err = proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                out, err = proc.communicate()
+            return proc.returncode, out, err
+
+        code1, out1, err1 = start_and_stop_after_one_request()
+        self.assertEqual(code1, 0, f"first instance failed: {err1}")
+
+        # No delay here at all — this is the exact window the bug hit.
+        code2, out2, err2 = start_and_stop_after_one_request()
+        self.assertEqual(
+            code2, 0,
+            f"second instance failed to restart immediately after the first "
+            f"served a request (TIME_WAIT regression); stderr:\n{err2}",
+        )
+        self.assertNotIn("Address already in use", err2)
+
 
 if __name__ == "__main__":
     unittest.main()

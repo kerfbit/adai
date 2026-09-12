@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
-# @adai-status: beta        (TD-045 resolved — self-contained, real test suite added, see tests/scripts/test_monitor_training.py)
-# @adai-version: 0.6.1
+# @adai-status: stable
+# @adai-version: 1.0.0
 # @adai-reviewed: 2026-09-11
 
 """

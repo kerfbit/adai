@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-# @adai-status: beta        (TD-045 resolved — real test suite added, see tests/scripts/check_ports_test.sh)
-# @adai-version: 0.5.2
+# @adai-status: stable
+# @adai-version: 1.0.0
 # @adai-reviewed: 2026-09-11
 
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
-# @adai-status: beta        (TD-045 resolved — real test suite added, see tests/scripts/test_fix_markdown_lint.py)
-# @adai-version: 0.6.2
+# @adai-status: stable
+# @adai-version: 1.0.0
 # @adai-reviewed: 2026-09-11
 
 """

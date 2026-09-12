@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
-# @adai-status: beta        (TD-045 resolved — real test suite added, see tests/scripts/test_serve_dashboard.py)
-# @adai-version: 0.6.3
+# @adai-status: beta        (TD-045 resolved; also fixed a TIME_WAIT restart crash found re-verifying its test suite)
+# @adai-version: 0.6.4
 # @adai-reviewed: 2026-09-11
 
 """
@@ -71,8 +71,24 @@ class DashboardOnlyHandler(http.server.BaseHTTPRequestHandler):
         http.server.BaseHTTPRequestHandler.log_message(self, fmt, *args)
 
 
+# Found verifying this file's own tests after a TD-045 follow-up: plain
+# socketserver.TCPServer defaults allow_reuse_address to False (unlike
+# http.server.HTTPServer, which sets it True — this file uses the more
+# generic TCPServer directly, so it never got that). Reproduced directly: a
+# real client request followed by a restart within the OS's TIME_WAIT
+# window (typically ~60s) crashed with "OSError: [Errno 98] Address already
+# in use" before ever printing a single line — a systemd auto-restart after
+# a crash, or a developer doing Ctrl+C then immediately re-running this
+# script, would hit this every time. allow_reuse_address only affects
+# SO_REUSEADDR (safe to rebind past a lingering TIME_WAIT entry from this
+# same process's own prior instance) — it does not allow two live processes
+# to simultaneously bind the same port.
+class ReusableTCPServer(socketserver.TCPServer):
+    allow_reuse_address = True
+
+
 if __name__ == '__main__':
-    with socketserver.TCPServer(("", PORT), DashboardOnlyHandler) as httpd:
+    with ReusableTCPServer(("", PORT), DashboardOnlyHandler) as httpd:
         print(f"Dashboard server running at http://localhost:{PORT}/dashboard.html")
         print(f"Make sure metrics-api-server is running on port 8081")
         print("Press Ctrl+C to stop")

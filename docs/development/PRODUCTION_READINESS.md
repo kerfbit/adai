@@ -11,11 +11,11 @@ See [file-status-standard.md](guides/file-status-standard.md) for what these sta
 | Component | Stable | Beta | Experimental | Deprecated | Legacy | Untagged | Total |
 |---|---|---|---|---|---|---|---|
 | android | 0 | 41 | 62 | 0 | 0 | 0 | 103 |
-| scripts | 2 | 34 | 0 | 0 | 0 | 0 | 36 |
+| scripts | 9 | 27 | 0 | 0 | 0 | 0 | 36 |
 | src | 77 | 51 | 4 | 0 | 0 | 0 | 132 |
 | tizen-metrics-app | 0 | 3 | 0 | 0 | 0 | 0 | 3 |
 
-**79/274 files (29%) are tagged `stable`.**
+**86/274 files (31%) are tagged `stable`.**
 
 ## Untagged files
 
@@ -131,14 +131,9 @@ None — every in-scope file carries a tag.
 | `scripts/batch_api_client.py` | beta | 0.7.1 | 2026-09-11 | TD-045 |
 | `scripts/build_windows.sh` | beta | 0.8.2 | 2026-09-11 | TD-043 |
 | `scripts/chatbot_gui_fixed.sh` | beta | 0.7.1 | 2026-09-11 | TD-044 |
-| `scripts/check_file_status.py` | beta | 0.9.1 | 2026-09-11 | TD-043 |
 | `scripts/check_intel_driver_updates.py` | beta | 0.6.1 | 2026-09-11 | TD-045 |
-| `scripts/check_ports.sh` | beta | 0.5.2 | 2026-09-11 | TD-045 |
-| `scripts/check_tech_debt.sh` | beta | 0.8.2 | 2026-09-11 | TD-043 |
 | `scripts/cloudflared/install_cloudflared.sh` | beta | 0.1.1 | 2026-09-11 | TD-043 |
 | `scripts/docker_build.sh` | beta | 0.8.4 | 2026-09-11 | TD-043 |
-| `scripts/fix_markdown_lint.py` | beta | 0.6.2 | 2026-09-11 | TD-045 |
-| `scripts/gen_status_report.py` | beta | 0.9.1 | 2026-09-11 | TD-043 |
 | `scripts/install_chatbot_API.sh` | beta | 0.8.2 | 2026-09-11 | TD-043 |
 | `scripts/install_incremental_trainer.sh` | beta | 0.8.2 | 2026-09-11 | TD-043 |
 | `scripts/install_metrics_service.sh` | beta | 0.8.2 | 2026-09-11 | TD-043 |
@@ -147,14 +142,12 @@ None — every in-scope file carries a tag.
 | `scripts/install_server_bundle.sh` | beta | 0.8.5 | 2026-09-11 | TD-043 |
 | `scripts/manual_test_reload.sh` | beta | 0.6.2 | 2026-09-11 | TD-044 |
 | `scripts/model_service.sh` | beta | 0.8.3 | 2026-09-11 | TD-043 |
-| `scripts/monitor_training.py` | beta | 0.6.1 | 2026-09-11 | TD-045 |
 | `scripts/package-sycl.sh` | beta | 0.7.1 | 2026-09-11 | TD-043 |
-| `scripts/package_server_bundle.sh` | beta | 0.8.2 | 2026-09-11 | TD-043 |
 | `scripts/package_windows.sh` | beta | 0.8.2 | 2026-09-11 | TD-043 |
 | `scripts/run_chatbot.sh` | beta | 0.7.2 | 2026-09-11 | TD-044 |
 | `scripts/run_chatbot_gui.sh` | beta | 0.8.1 | 2026-09-11 | TD-044 |
 | `scripts/run_tests.sh` | beta | 0.8.2 | 2026-09-11 | TD-043 |
-| `scripts/serve_dashboard.py` | beta | 0.6.3 | 2026-09-11 | TD-045 |
+| `scripts/serve_dashboard.py` | beta | 0.6.4 | 2026-09-11 | TD-045 |
 | `scripts/test_chatbot_gui.sh` | beta | 0.7.2 | 2026-09-11 | TD-044 |
 | `scripts/test_chatbot_gui_comprehensive.sh` | beta | 0.7.2 | 2026-09-11 | TD-044 |
 | `scripts/test_config_reload.sh` | beta | 0.7.2 | 2026-09-11 | TD-044 |

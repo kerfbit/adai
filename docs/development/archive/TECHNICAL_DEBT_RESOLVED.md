@@ -187,6 +187,24 @@ Verification:
 - ✅ TOC-vs-heading cross-check across the whole `TECHNICAL_DEBT.md` file: clean, matching the same
   check re-run after TD-043's resolution.
 
+**Post-resolution correction (September 11, 2026, same day):** re-verifying this item's test
+suites as part of assessing scripts for promotion to `@adai-status: stable` surfaced a third bug in
+`serve_dashboard.py`, missed by the original pass because its own tests never ran the exact
+zero-delay-restart sequence needed to trigger it. Plain `socketserver.TCPServer` defaults
+`allow_reuse_address` to `False` (unlike `http.server.HTTPServer`, which this file doesn't use and
+which sets it `True`) — a real client request followed by a restart within the OS's `TIME_WAIT`
+window (typically ~60s) crashed with `OSError: [Errno 98] Address already in use` before ever
+printing a line, hit on every systemd auto-restart after a crash or a developer's
+Ctrl+C-then-immediately-rerun. Reproduced directly (serve one real request, `SIGINT`, restart
+immediately); fixed with a small `ReusableTCPServer(socketserver.TCPServer)` subclass setting
+`allow_reuse_address = True`; reverted-and-confirmed the new dedicated regression test
+(`test_quick_restart_after_serving_a_request_does_not_crash`) genuinely fails against the bug, then
+restored the fix and confirmed it holds even with multiple pre-existing `TIME_WAIT` entries already
+on the port from repeated manual testing. `@adai-version` bumped `0.6.3` → `0.6.4`. Not promoted to
+`stable` in the same pass as the other seven files below — this is the second real bug found in
+this one file in as many verification passes, and it still binds all interfaces by design; better
+to let it sit at `beta` for now rather than treat one clean pass as sufficient evidence.
+
 ### TD-043: Deployment-Critical Scripts Have No Automated Test
 
 | Resolution Date | Component | Resolved By |

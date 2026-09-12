@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# @adai-status: beta        (TD-043 resolved — real test suite added, see tests/scripts/package_server_bundle_test.sh)
-# @adai-version: 0.8.2
+# @adai-status: stable
+# @adai-version: 1.0.0
 # @adai-reviewed: 2026-09-11
 
 # ADAI Server Bundle — Packaging Script

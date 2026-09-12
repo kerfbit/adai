@@ -5,8 +5,8 @@
 Usage:
     ./scripts/gen_status_report.py
 """
-# @adai-status: beta        (TD-043 resolved — real unittest suite added, see tests/scripts/test_gen_status_report.py)
-# @adai-version: 0.9.1
+# @adai-status: stable
+# @adai-version: 1.0.0
 # @adai-reviewed: 2026-09-11
 from __future__ import annotations
 
