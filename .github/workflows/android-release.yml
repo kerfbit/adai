@@ -1,0 +1,155 @@
+name: Android Release
+
+# See docs/development/guides/android-release.md — that doc is the spec, this workflow is the
+# enforcement of it. Tag format: app-vMAJOR.MINOR.PATCH / opsdashboard-vMAJOR.MINOR.PATCH
+# (deliberately not this repo's existing v*.*.* scheme, which release.yml already owns for the
+# C++ binaries — two independently-versioned Android apps need their own disambiguated tags).
+#
+# Every check below runs BEFORE any build or publish step, and each one maps to a real, easy
+# release-process mistake — see the doc's own table for the full rationale per check. If any
+# check fails, the workflow fails loudly and nothing is published.
+
+on:
+  push:
+    tags:
+      - 'app-v*.*.*'
+      - 'opsdashboard-v*.*.*'
+
+jobs:
+  release:
+    name: Validate, Build, and Release
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write   # required to create the GitHub Release
+
+    defaults:
+      run:
+        working-directory: android
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0   # full history + all tags — needed for the versionCode check below
+
+    - name: Parse and validate the tag format
+      id: tag
+      run: |
+        TAG="${GITHUB_REF_NAME}"
+        if [[ "$TAG" =~ ^(app|opsdashboard)-v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+          MODULE="${BASH_REMATCH[1]}"
+          VERSION="${BASH_REMATCH[2]}"
+        else
+          echo "::error::Tag '$TAG' doesn't match the required app-vX.Y.Z / opsdashboard-vX.Y.Z format — see docs/development/guides/android-release.md"
+          exit 1
+        fi
+        echo "Tag '$TAG' parsed: module=$MODULE version=$VERSION"
+        echo "module=$MODULE" >> "$GITHUB_OUTPUT"
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+    - name: Verify versionName matches the tag
+      run: |
+        MODULE="${{ steps.tag.outputs.module }}"
+        EXPECTED="${{ steps.tag.outputs.version }}"
+        ACTUAL=$(grep -oP 'versionName\s*=\s*"\K[^"]+' "$MODULE/build.gradle.kts" | head -1)
+        if [ "$ACTUAL" != "$EXPECTED" ]; then
+          echo "::error::Tag says version $EXPECTED but $MODULE/build.gradle.kts has versionName=\"$ACTUAL\" at this commit — bump versionName to match before tagging (see docs/development/guides/android-release.md)."
+          exit 1
+        fi
+        echo "versionName matches: $ACTUAL"
+
+    - name: Verify versionCode increased from the previous release
+      run: |
+        MODULE="${{ steps.tag.outputs.module }}"
+        TAG="${{ steps.tag.outputs.tag }}"
+        CURR=$(grep -oP 'versionCode\s*=\s*\K[0-9]+' "$MODULE/build.gradle.kts" | head -1)
+
+        # Previous release tag for this SAME app, excluding the one just pushed. Read directly
+        # from that tag's own build.gradle.kts via git history — no separate registry to keep
+        # in sync (see docs/development/guides/android-release.md).
+        PREV_TAG=$(git tag --list "${MODULE}-v*" --sort=-v:refname | grep -vFx "$TAG" | head -1 || true)
+
+        if [ -z "$PREV_TAG" ]; then
+          echo "No previous $MODULE release tag found — first release, versionCode=$CURR accepted."
+        else
+          PREV=$(git show "${PREV_TAG}:android/${MODULE}/build.gradle.kts" | grep -oP 'versionCode\s*=\s*\K[0-9]+' | head -1)
+          if [ "$CURR" -le "$PREV" ]; then
+            echo "::error::versionCode ($CURR) did not increase from the previous release ($PREV_TAG had $PREV) — bump versionCode too, it must be strictly increasing (Play Store requirement)."
+            exit 1
+          fi
+          echo "versionCode increased: $PREV ($PREV_TAG) -> $CURR ($TAG)"
+        fi
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v6
+      with:
+        distribution: temurin
+        java-version: '17'
+        cache: gradle
+        cache-dependency-path: |
+          android/**/*.gradle*
+          android/gradle/wrapper/gradle-wrapper.properties
+
+    - name: Set up Android SDK
+      uses: android-actions/setup-android@v4
+
+    - name: Generate a debug keystore
+      # Same reasoning as android-ci.yml: wearface's resignWffApk task (pulled in transitively
+      # when building :opsdashboard) needs ~/.android/debug.keystore to already exist.
+      run: |
+        mkdir -p ~/.android
+        keytool -genkey -v -keystore ~/.android/debug.keystore -storepass android \
+          -alias androiddebugkey -keypass android -dname "CN=Android Debug,O=Android,C=US" \
+          -keyalg RSA -keysize 2048 -validity 10000
+
+    - name: Grant execute permission for gradlew
+      run: chmod +x ./gradlew
+
+    - name: Run unit tests
+      # Re-verified at release time, not just trusted from main's own CI history — see the
+      # doc's rationale table.
+      run: ./gradlew ":${{ steps.tag.outputs.module }}:testDebugUnitTest" --console=plain
+
+    - name: Build release and debug APKs
+      run: |
+        ./gradlew \
+          ":${{ steps.tag.outputs.module }}:assembleRelease" \
+          ":${{ steps.tag.outputs.module }}:assembleDebug" \
+          --console=plain
+
+    - name: Locate built APKs
+      id: apks
+      run: |
+        MODULE="${{ steps.tag.outputs.module }}"
+        DEBUG_APK=$(find "$MODULE/build/outputs/apk/debug" -name '*.apk' | head -1)
+        RELEASE_APK=$(find "$MODULE/build/outputs/apk/release" -name '*.apk' | head -1)
+        if [ -z "$DEBUG_APK" ] || [ -z "$RELEASE_APK" ]; then
+          echo "::error::Expected APK(s) not found under $MODULE/build/outputs/apk/{debug,release} after a successful build."
+          exit 1
+        fi
+        echo "debug=android/$DEBUG_APK" >> "$GITHUB_OUTPUT"
+        echo "release=android/$RELEASE_APK" >> "$GITHUB_OUTPUT"
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.tag.outputs.tag }}
+        name: "${{ steps.tag.outputs.module }} v${{ steps.tag.outputs.version }}"
+        files: |
+          ${{ steps.apks.outputs.debug }}
+          ${{ steps.apks.outputs.release }}
+        body: |
+          ## `${{ steps.tag.outputs.module }}` v${{ steps.tag.outputs.version }}
+
+          - **`*-debug.apk`** — debug-signed with the well-known public Android debug key.
+            Installable directly via `adb install`. For internal testing only — do not hand this
+            to anyone outside the team.
+          - **`*-release-unsigned.apk`** — genuinely **unsigned** (no production signing key is
+            configured yet — see
+            [android-release.md](https://github.com/${{ github.repository }}/blob/main/docs/development/guides/android-release.md#signing-status-read-before-distributing-anything)).
+            Not installable as-is; re-sign before distributing externally.
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
