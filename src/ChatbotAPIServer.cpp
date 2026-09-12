@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-11
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-09-12
 
 #include <unistd.h>  // getpid() — POSIX (Linux + macOS)
 #include <atomic>
@@ -104,6 +104,8 @@ void print_usage(const char* program_name) {
         << "  --top-p <f>          Nucleus sampling threshold (default: 0.9)\n"
         << "  --strategy <str>     Generation strategy: greedy, beam, temperature, top_k, nucleus "
            "(default: nucleus)\n"
+        << "  --profile            Enable GET /admin/profile (generate_response() timing "
+           "stats)\n"
         << "  --help               Show this help message\n"
         << "\nEnvironment Variables:\n"
         << "  All configuration can be set via environment variables.\n"
@@ -295,6 +297,12 @@ int main(int argc, char* argv[]) {
         auto api = std::make_unique<ChatbotAPI>(model.get(), tokenizer.get(), config.port,
                                                 config.session_timeout);
 
+        // TD-038: --profile enables GET /admin/profile (generate_response() timing stats).
+        if (cli.profile) {
+            api->enable_profiling(true);
+            adai::Logger::info("  Profiling enabled: GET /admin/profile");
+        }
+
         // Set generation configuration
         ChatbotAPI::GenerationConfig gen_config;
         gen_config.max_length = config.max_gen_length;
@@ -388,6 +396,9 @@ int main(int argc, char* argv[]) {
         adai::Logger::info("  POST   /chat/session   - Multi-turn conversation");
         adai::Logger::info("  POST   /clear-session  - Clear session history");
         adai::Logger::info("  GET    /health         - Health check");
+        if (cli.profile) {
+            adai::Logger::info("  GET    /admin/profile  - generate_response() timing stats");
+        }
         if (config.rag_enabled && rag_engine) {
             adai::Logger::info("  RAG:   enabled ({} docs indexed, retrieving top-{})",
                                rag_engine->getNumDocuments(), config.rag_num_docs);

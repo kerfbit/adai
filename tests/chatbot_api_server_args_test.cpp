@@ -126,6 +126,23 @@ TEST_F(ApplyChatbotApiServerArgsTest, FloatFlagsAreApplied) {
     EXPECT_FLOAT_EQ(config.top_p, 0.85f);
 }
 
+TEST_F(ApplyChatbotApiServerArgsTest, ProfileFlagDefaultsFalseAndCanBeEnabled) {
+    // TD-038: --profile enables ChatbotAPI::enable_profiling() / GET /admin/profile — a runtime
+    // toggle on the result, not part of ServiceConfig (see ChatbotApiServerArgs.hpp).
+    std::vector<std::string> raw_off = {"chatbot_api_server"};
+    auto argv_off = make_argv(raw_off);
+    auto r_off =
+        apply_chatbot_api_server_args(static_cast<int>(argv_off.size()), argv_off.data(), config);
+    EXPECT_FALSE(r_off.profile);
+
+    std::vector<std::string> raw_on = {"chatbot_api_server", "--profile"};
+    auto argv_on = make_argv(raw_on);
+    auto r_on =
+        apply_chatbot_api_server_args(static_cast<int>(argv_on.size()), argv_on.data(), config);
+    ASSERT_FALSE(r_on.error);
+    EXPECT_TRUE(r_on.profile);
+}
+
 TEST_F(ApplyChatbotApiServerArgsTest, CliValueOverridesWhateverConfigAlreadyHad) {
     config.port = 8080;
     std::vector<std::string> raw = {"chatbot_api_server", "--port", "1234"};

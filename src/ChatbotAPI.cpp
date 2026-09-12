@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-033 — generate_response() never uses GPU-resident decode, see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.2
-// @adai-reviewed: 2026-09-10
+// @adai-version: 0.9.3
+// @adai-reviewed: 2026-09-12
 
 #include "ChatbotAPI.hpp"
 #include <httplib.h>
@@ -72,6 +72,14 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
         res.set_content(response, "application/json");
         res.status = 200;
     });
+
+    // GET /admin/profile - generate_response() timing stats (TD-038); reports disabled unless
+    // enable_profiling() was called (see chatbot_api_server's --profile flag).
+    server_impl_->server.Get(
+        "/admin/profile", [this](const httplib::Request&, httplib::Response& res) {
+            res.set_content(handle_profile(), "application/json");
+            res.status = 200;
+        });
 
     // POST /chat/batch - Batch processing for multiple messages
     server_impl_->server.Post(
@@ -247,6 +255,24 @@ std::string ChatbotAPI::handle_health() {
 
     std::ostringstream oss;
     oss << R"({"status":"ok","active_sessions":)" << active_sessions << "}";
+    return oss.str();
+}
+
+std::string ChatbotAPI::handle_profile() {
+    if (!profiling_enabled_) {
+        return R"({"enabled":false,"message":)"
+              R"("Profiling is disabled; start chatbot_api_server with --profile to enable."})";
+    }
+
+    ProfileStats stats = profiler_.get_stats("generate_response");
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(3);
+    oss << R"({"enabled":true,"section":"generate_response")"
+        << R"(,"call_count":)" << stats.call_count << R"(,"total_ms":)" << stats.total_time
+        << R"(,"mean_ms":)" << stats.mean_time << R"(,"median_ms":)" << stats.median_time
+        << R"(,"min_ms":)" << stats.min_time << R"(,"max_ms":)" << stats.max_time
+        << R"(,"p95_ms":)" << stats.get_percentile(95.0) << R"(,"p99_ms":)"
+        << stats.get_percentile(99.0) << "}";
     return oss.str();
 }
 
@@ -626,6 +652,11 @@ void ChatbotAPI::enableRAG(std::shared_ptr<RAGInference> rag_engine) {
 
 std::string ChatbotAPI::generate_response(const std::string& input,
                                           const GenerationConfig& config) {
+    // TD-038: always timed (start()/stop() are cheap map lookups next to actual model
+    // inference) — enable_profiling()/GET /admin/profile gate exposure, not collection, so
+    // stats are already warm the moment profiling is turned on rather than starting from zero.
+    PROFILE_SCOPE(profiler_, "generate_response");
+
     // Route through RAG engine when enabled
     {
         std::lock_guard<std::mutex> lock(config_mutex_);

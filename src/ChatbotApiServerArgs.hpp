@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-11
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-09-12
 
 // TD-035: chatbot_api_server's argv parsing and required-config validation, pulled out of
 // ChatbotAPIServer.cpp so it's testable without loading a real tokenizer/model or starting a
@@ -25,6 +25,10 @@ struct ChatbotApiServerArgsResult {
     bool help = false;
     bool error = false;
     std::string error_message;
+    // TD-038: enables the GET /admin/profile endpoint (ChatbotAPI::enable_profiling()) — a
+    // runtime behavior toggle, not part of ServiceConfig, so it lives on the result rather than
+    // being applied to `config` like every other flag here.
+    bool profile = false;
 };
 
 // Second pass: applies every flag except --config (already consumed) onto an already-loaded

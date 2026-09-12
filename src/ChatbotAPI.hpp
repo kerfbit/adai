@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-033 — generate_response() never uses GPU-resident decode, see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.2
-// @adai-reviewed: 2026-09-10
+// @adai-version: 0.9.3
+// @adai-reviewed: 2026-09-12
 
 
 #include <chrono>
@@ -14,6 +14,7 @@
 #include "BatchProcessor.hpp"
 #include "ConversationContext.hpp"
 #include "EncoderDecoderModel.hpp"
+#include "PerformanceProfiler.hpp"
 #include "RAGInference.hpp"
 #include "TextGenerator.hpp"
 
@@ -126,6 +127,20 @@ class ChatbotAPI {
     void enableRAG(std::shared_ptr<RAGInference> rag_engine);
 
     /**
+     * @brief Enable/disable the GET /admin/profile endpoint (TD-038).
+     *
+     * generate_response() is always internally timed via PerformanceProfiler.hpp's Profiler
+     * (start()/stop() are cheap map lookups next to actual model inference — negligible
+     * overhead regardless of this setting). What this flag actually gates is exposure: with
+     * profiling disabled (the default), GET /admin/profile reports itself disabled rather than
+     * returning timing data, the same opt-in stance this codebase's daemons already take for
+     * other introspection/control surfaces (e.g. METRICS_API_ALLOW_CONTROL).
+     */
+    void enable_profiling(bool enabled = true) {
+        profiling_enabled_ = enabled;
+    }
+
+    /**
      * @brief Generate batch responses (stateless)
      * @param inputs Vector of input messages
      * @param config Generation configuration
@@ -178,6 +193,7 @@ class ChatbotAPI {
     std::string handle_chat_session(const std::string& request_body);
     std::string handle_clear_session(const std::string& request_body);
     std::string handle_health();
+    std::string handle_profile();
 
     // Batch endpoint handlers
     std::string handle_batch_chat(const std::string& request_body);
@@ -198,6 +214,11 @@ class ChatbotAPI {
 
     // RAG engine (optional; when set, all generate_response calls route through it)
     std::shared_ptr<RAGInference> rag_engine_;
+
+    // Performance profiling (TD-038) — always timed internally; enable_profiling() only gates
+    // whether GET /admin/profile reports the results.
+    Profiler profiler_;
+    bool profiling_enabled_{false};
 
     // Server configuration
     int port_;

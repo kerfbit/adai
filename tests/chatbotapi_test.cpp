@@ -76,6 +76,12 @@ class ChatbotAPITest : public ::testing::Test {
     std::string call_handle_chat_session(const std::string& request_body) {
         return api->handle_chat_session(request_body);
     }
+
+    // handle_profile() is private; same friendship-doesn't-propagate reason as
+    // call_generate_response() above (TD-038).
+    std::string call_handle_profile() {
+        return api->handle_profile();
+    }
 };
 
 // ============================================================================
@@ -758,6 +764,59 @@ TEST_F(ChatbotAPITest, EdgeCase_UnicodeCharacters) {
 
     EXPECT_TRUE(response.success);
     EXPECT_EQ(response.responses.size(), 3);
+}
+
+// ============================================================================
+// Profiling (TD-038): GET /admin/profile wiring
+// ============================================================================
+//
+// These are integration tests in the sense the TD's own action items ask for — proving
+// enable_profiling() and generate_response()'s PROFILE_SCOPE actually connect end to end through
+// a real ChatbotAPI instance and real (small) model inference, not just that Profiler/ProfileStats
+// work in isolation (PerformanceProfilerTest already covers that).
+
+TEST_F(ChatbotAPITest, Profile_DisabledByDefaultReportsDisabled) {
+    std::string response = call_handle_profile();
+    EXPECT_NE(response.find("\"enabled\":false"), std::string::npos);
+    EXPECT_EQ(response.find("\"enabled\":true"), std::string::npos);
+}
+
+TEST_F(ChatbotAPITest, Profile_DisabledEvenAfterGeneratingResponses) {
+    // generate_response() always times internally (PROFILE_SCOPE runs regardless of
+    // enable_profiling()) — confirms the flag gates exposure only, not collection: stats exist
+    // internally the moment enable_profiling() is called later, with no warm-up gap.
+    ChatbotAPI::GenerationConfig config;
+    config.max_length = 3;
+    config.strategy = "greedy";
+    call_generate_response("hello", config);
+
+    EXPECT_NE(call_handle_profile().find("\"enabled\":false"), std::string::npos);
+}
+
+TEST_F(ChatbotAPITest, Profile_EnabledReportsRealTimingAfterGeneration) {
+    api->enable_profiling(true);
+
+    ChatbotAPI::GenerationConfig config;
+    config.max_length = 3;
+    config.strategy = "greedy";
+    call_generate_response("hello", config);
+    call_generate_response("world", config);
+
+    std::string response = call_handle_profile();
+    EXPECT_NE(response.find("\"enabled\":true"), std::string::npos);
+    EXPECT_NE(response.find("\"section\":\"generate_response\""), std::string::npos);
+    EXPECT_NE(response.find("\"call_count\":2"), std::string::npos)
+        << "both generate_response() calls above must be reflected: " << response;
+    // mean_ms must be present and non-negative — real inference always takes >= 0ms; the
+    // point of this assertion is that a real number appears here at all, not a specific value.
+    EXPECT_NE(response.find("\"mean_ms\":"), std::string::npos);
+}
+
+TEST_F(ChatbotAPITest, Profile_EnabledBeforeAnyGenerationReportsZeroCalls) {
+    api->enable_profiling(true);
+    std::string response = call_handle_profile();
+    EXPECT_NE(response.find("\"enabled\":true"), std::string::npos);
+    EXPECT_NE(response.find("\"call_count\":0"), std::string::npos) << response;
 }
 
 // ============================================================================

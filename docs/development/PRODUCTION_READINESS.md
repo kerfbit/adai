@@ -12,10 +12,10 @@ See [file-status-standard.md](guides/file-status-standard.md) for what these sta
 |---|---|---|---|---|---|---|---|
 | android | 0 | 41 | 62 | 0 | 0 | 0 | 103 |
 | scripts | 9 | 27 | 0 | 0 | 0 | 0 | 36 |
-| src | 86 | 44 | 16 | 0 | 0 | 0 | 146 |
+| src | 87 | 43 | 16 | 0 | 0 | 0 | 146 |
 | tizen-metrics-app | 2 | 1 | 0 | 0 | 0 | 0 | 3 |
 
-**97/288 files (34%) are tagged `stable`.**
+**98/288 files (34%) are tagged `stable`.**
 
 ## Untagged files
 
@@ -156,10 +156,10 @@ None — every in-scope file carries a tag.
 | `scripts/verify_cli_parallel.sh` | beta | 0.6.2 | 2026-09-11 | TD-044 |
 | `scripts/verify_gui_parallel.sh` | beta | 0.6.2 | 2026-09-11 | TD-044 |
 | `src/BatchedInferenceEngine.hpp` | beta | 0.7.1 | 2026-09-10 | TD-038 |
-| `src/ChatbotAPI.cpp` | beta | 0.9.2 | 2026-09-10 | TD-033 |
-| `src/ChatbotAPI.hpp` | beta | 0.9.2 | 2026-09-10 | TD-033 |
-| `src/ChatbotApiServerArgs.cpp` | experimental | 0.1.0 | 2026-09-11 | — |
-| `src/ChatbotApiServerArgs.hpp` | experimental | 0.1.0 | 2026-09-11 | — |
+| `src/ChatbotAPI.cpp` | beta | 0.9.3 | 2026-09-12 | TD-033 |
+| `src/ChatbotAPI.hpp` | beta | 0.9.3 | 2026-09-12 | TD-033 |
+| `src/ChatbotApiServerArgs.cpp` | experimental | 0.2.0 | 2026-09-12 | — |
+| `src/ChatbotApiServerArgs.hpp` | experimental | 0.2.0 | 2026-09-12 | — |
 | `src/ChatbotGUI.cpp` | beta | 0.7.0 | 2026-09-10 | TD-037 |
 | `src/ChatbotGUI.hpp` | beta | 0.7.0 | 2026-09-10 | TD-037 |
 | `src/ChatbotTrainer.cpp` | beta | 0.9.0 | 2026-09-10 | TD-039 |
@@ -195,7 +195,6 @@ None — every in-scope file carries a tag.
 | `src/MultiHeadAttention.hpp` | beta | 0.9.0 | 2026-09-10 | TD-050 |
 | `src/PPOOptimizer.hpp` | experimental | 0.2.0 | 2026-09-10 | TD-034 |
 | `src/ParallelDataLoader.hpp` | experimental | 0.4.2 | 2026-09-10 | TD-052 |
-| `src/PerformanceProfiler.hpp` | beta | 0.7.1 | 2026-09-10 | TD-038 |
 | `src/PipelineInferenceEngine.hpp` | beta | 0.7.0 | 2026-09-10 | TD-038 |
 | `src/PostgresMetricsDatabase.cpp` | beta | 0.4.0 | 2026-09-11 | TD-042 |
 | `src/PostgresMetricsDatabase.hpp` | beta | 0.4.0 | 2026-09-11 | TD-042 |

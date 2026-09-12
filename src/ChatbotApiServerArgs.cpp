@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-11
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-09-12
 
 #include "ChatbotApiServerArgs.hpp"
 #include <cstdlib>
@@ -60,6 +60,8 @@ ChatbotApiServerArgsResult apply_chatbot_api_server_args(int argc, char* argv[],
             config.top_p = static_cast<float>(std::atof(argv[++i]));
         } else if (arg == "--strategy" && i + 1 < argc) {
             config.strategy = argv[++i];
+        } else if (arg == "--profile") {
+            result.profile = true;
         } else {
             result.error = true;
             result.error_message = "Unknown argument: " + arg;
