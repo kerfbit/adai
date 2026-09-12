@@ -78,7 +78,7 @@ None — every in-scope file carries a tag.
 | `android/opsdashboard/src/main/java/com/adai/ops/network/TrainerApiService.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/network/dto/CommonDtos.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/network/dto/MetricsDtos.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
-| `android/opsdashboard/src/main/java/com/adai/ops/network/dto/MnsDtos.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
+| `android/opsdashboard/src/main/java/com/adai/ops/network/dto/MnsDtos.kt` | beta | 0.4.1 | 2026-09-12 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/network/dto/RegistryDtos.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/network/dto/TrainerDtos.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/polling/AdaptivePoller.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
