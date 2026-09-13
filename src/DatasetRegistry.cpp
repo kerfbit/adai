@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-09-12
 
 #include "DatasetRegistry.hpp"
 #include <algorithm>
@@ -14,6 +14,7 @@
 #include <sstream>
 #include <utility>
 #include "Logger.hpp"
+#include "PortableTime.hpp"
 #include "RegistryTransport.hpp"
 #include "TrainingSampleMeta.hpp"
 
@@ -31,11 +32,7 @@ std::string utc_now_string() {
     const auto now = std::chrono::system_clock::now();
     const std::time_t t = std::chrono::system_clock::to_time_t(now);
     std::tm tm_buf{};
-#ifdef _WIN32
-    gmtime_s(&tm_buf, &t);
-#else
-    gmtime_r(&t, &tm_buf);
-#endif
+    adai::gmtime_utc(&t, &tm_buf);
     char buf[32];
     std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm_buf);
     return buf;

@@ -1,11 +1,12 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-09-12
 
 #include "SQLiteMetricsDatabase.hpp"
 #include "GenerationQualityMetrics.hpp"
 #include "IMetricsReporter.hpp"
 #include "Logger.hpp"
+#include "PortableTime.hpp"
 #include "TrainingMetricsService.hpp"
 
 #include <sqlite3.h>
@@ -367,7 +368,7 @@ std::string SQLiteMetricsDatabase::format_timestamp(
     const std::chrono::system_clock::time_point& tp) {
     auto time_t = std::chrono::system_clock::to_time_t(tp);
     std::tm tm{};
-    gmtime_r(&time_t, &tm);
+    adai::gmtime_utc(&time_t, &tm);
 
     std::ostringstream oss;
     oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%S");
@@ -384,13 +385,13 @@ std::chrono::system_clock::time_point SQLiteMetricsDatabase::parse_timestamp(con
     int ms = 0;
 
     // Parse "YYYY-MM-DDTHH:MM:SS.mmmZ" or "YYYY-MM-DDTHH:MM:SS"
-    if (auto* end = strptime(s.c_str(), "%Y-%m-%dT%H:%M:%S", &tm)) {
+    if (auto* end = adai::strptime_utc(s.c_str(), 'T', &tm)) {
         if (*end == '.') {
             ms = std::atoi(end + 1);
         }
     }
 
-    auto tp = std::chrono::system_clock::from_time_t(timegm(&tm));
+    auto tp = std::chrono::system_clock::from_time_t(adai::timegm_utc(&tm));
     tp += std::chrono::milliseconds(ms);
     return tp;
 }

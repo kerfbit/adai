@@ -1,8 +1,9 @@
 // @adai-status: beta        (capped by TD-039 — large, actively evolving)
-// @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 0.9.1
+// @adai-reviewed: 2026-09-12
 
 #include "TrainingMetricsAPI.hpp"
+#include "PortableTime.hpp"
 #include <httplib.h>
 #include <algorithm>
 #include <cctype>
@@ -2315,11 +2316,11 @@ static std::chrono::system_clock::time_point parse_iso8601(const std::string& s)
         return {};
     std::tm tm{};
     int ms = 0;
-    if (auto* end = strptime(s.c_str(), "%Y-%m-%dT%H:%M:%S", &tm)) {
+    if (auto* end = adai::strptime_utc(s.c_str(), 'T', &tm)) {
         if (*end == '.')
             ms = std::atoi(end + 1);
     }
-    auto tp = std::chrono::system_clock::from_time_t(timegm(&tm));
+    auto tp = std::chrono::system_clock::from_time_t(adai::timegm_utc(&tm));
     tp += std::chrono::milliseconds(ms);
     return tp;
 }
@@ -2327,7 +2328,7 @@ static std::chrono::system_clock::time_point parse_iso8601(const std::string& s)
 static std::string format_iso8601(const std::chrono::system_clock::time_point& tp) {
     auto time_t = std::chrono::system_clock::to_time_t(tp);
     std::tm tm{};
-    gmtime_r(&time_t, &tm);
+    adai::gmtime_utc(&time_t, &tm);
     std::ostringstream oss;
     oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%S");
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(tp.time_since_epoch()) % 1000;

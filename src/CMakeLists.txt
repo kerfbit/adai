@@ -47,11 +47,22 @@ endif()
 # itself shows up correctly in CMakeCache.txt from that point on, which is
 # what made this so easy to misdiagnose as a runtime/deployment issue instead
 # of a configure-time ordering bug.
+#
+# TD-159: when cross-compiling (e.g. cmake/toolchains/mingw-w64.cmake sets
+# CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY), find_path() by default only searches inside
+# CMAKE_FIND_ROOT_PATH (the target sysroot, /usr/x86_64-w64-mingw32) — it silently ignores the
+# ${CMAKE_SOURCE_DIR}/external/cpp-httplib path above even though httplib.h genuinely lives
+# there, since that path is outside the sysroot. NO_CMAKE_FIND_ROOT_PATH restores normal
+# (host-filesystem) search behavior for this specific call, which is correct here: httplib.h is
+# a vendored, header-only, platform-independent file, not a compiled sysroot library — unlike
+# SQLite3 below (TD-032), which genuinely needs a target-platform-compiled binary and can't use
+# this same fix.
 find_path(HTTPLIB_INCLUDE_DIR httplib.h
     PATHS
         /usr/include
         /usr/local/include
         ${CMAKE_SOURCE_DIR}/external/cpp-httplib
+    NO_CMAKE_FIND_ROOT_PATH
 )
 
 # ============================================================================
@@ -382,9 +393,27 @@ endif()
 
 # Chatbot CLI - Interactive chatbot API client
 add_executable(chatbot ChatbotCLI_main.cpp ChatbotCLI.cpp)
+# TD-159: was unconditional (no if(HTTPLIB_INCLUDE_DIR) guard) — on any platform where httplib
+# genuinely isn't found, that fed a literal NOTFOUND value into target_include_directories(),
+# which CMake treats as a hard configure-time error ("used in this project but set to NOTFOUND")
+# rather than the intended graceful degradation every other httplib consumer in this file uses.
+# ChatbotCLI.cpp/.hpp use httplib::Client unconditionally (this binary's whole purpose is being
+# an HTTP client to chatbot_api_server — see CLAUDE.md), so without it chatbot cannot build at
+# all; that's an acceptable hard requirement, but it must fail with a clear message instead of
+# CMake's generic NOTFOUND error.
+if(NOT HTTPLIB_INCLUDE_DIR)
+    message(FATAL_ERROR "cpp-httplib not found — required by the chatbot CLI (ChatbotCLI.cpp is "
+                        "an HTTP client to chatbot_api_server). Install libhttplib-dev, or "
+                        "confirm external/cpp-httplib/httplib.h is present.")
+endif()
 target_include_directories(chatbot PRIVATE ${HTTPLIB_INCLUDE_DIR})
 find_package(Threads)
 target_link_libraries(chatbot Threads::Threads)
+# TD-159: Windows' own Winsock2 import library (ws2_32, ships with every Windows install — not
+# something to vendor) is linked into every executable via cmake/toolchains/mingw-w64.cmake's
+# CMAKE_EXE_LINKER_FLAGS, not per-target here — cpp-httplib's socket layer needs it in every
+# httplib-consuming binary (chatbot, incremental_trainer's admin API, adai_mns-based tools, etc.),
+# and a toolchain-wide default is far less fragile than remembering it at each of those call sites.
 set_target_properties(chatbot PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
@@ -444,11 +473,13 @@ if(OpenMP_CXX_FOUND)
 endif()
 
 # Find SQLite3 (pkg-config not always available; fall back to find_path/find_library)
-# TODO: See TECHNICAL_DEBT.md TD-032 - this only ever finds a system-installed SQLite3
-#       (paths below are Linux-only), which the MinGW Windows cross-compilation path
-#       (scripts/build_windows.sh) has no equivalent for. Bundle the SQLite amalgamation
-#       under external/sqlite3/ and build it as a static lib when this find fails on
-#       a Windows target instead of leaving the metrics SQLite backend unavailable there.
+# The paths below only ever find a system-installed SQLite3, which the MinGW Windows
+# cross-compilation path (scripts/build_windows.sh) has no equivalent for — there is no
+# libsqlite3-dev-equivalent package to install into a mingw sysroot. Unlike httplib.h just above
+# (a vendored, header-only, platform-independent file — NO_CMAKE_FIND_ROOT_PATH alone fixed it),
+# SQLite genuinely needs a target-platform-compiled binary, so falling back to the vendored
+# public-domain amalgamation (external/sqlite3/, see its own header comment for exact
+# version/provenance) and building it as a static lib is the real fix (TD-032).
 find_path(SQLITE3_INCLUDE_DIR sqlite3.h
     PATHS /usr/include /usr/local/include /usr/include/x86_64-linux-gnu)
 find_library(SQLITE3_LIBRARY NAMES sqlite3
@@ -456,6 +487,22 @@ find_library(SQLITE3_LIBRARY NAMES sqlite3
 if(SQLITE3_INCLUDE_DIR AND SQLITE3_LIBRARY)
     message(STATUS "SQLite3 found: ${SQLITE3_LIBRARY} (headers: ${SQLITE3_INCLUDE_DIR})")
     set(SQLITE3_FOUND TRUE)
+elseif(EXISTS "${CMAKE_SOURCE_DIR}/external/sqlite3/sqlite3.c" AND
+       EXISTS "${CMAKE_SOURCE_DIR}/external/sqlite3/sqlite3.h")
+    # The top-level project() only declares LANGUAGES CXX (this is otherwise an all-C++
+    # project) — sqlite3.c must be compiled as real C, not forced through the C++ compiler:
+    # confirmed by trying the latter directly, which fails outright (the amalgamation uses `new`
+    # as an ordinary identifier, relies on C's implicit void*-to-T* conversions, and has
+    # C-legal/C++-illegal tentative redeclarations). enable_language(C) here (rather than at the
+    # top level) keeps this a no-op for every build that never takes this fallback branch.
+    enable_language(C)
+    add_library(sqlite3_bundled STATIC ${CMAKE_SOURCE_DIR}/external/sqlite3/sqlite3.c)
+    target_include_directories(sqlite3_bundled PUBLIC ${CMAKE_SOURCE_DIR}/external/sqlite3)
+    set(SQLITE3_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/external/sqlite3)
+    set(SQLITE3_LIBRARY sqlite3_bundled)
+    set(SQLITE3_FOUND TRUE)
+    message(STATUS "SQLite3 not found on this system — building the vendored amalgamation "
+                   "instead (TD-032)")
 else()
     message(WARNING "SQLite3 not found — adai_mns and SQLite metrics backend will not be built. Install with: sudo apt-get install libsqlite3-dev")
     set(SQLITE3_FOUND FALSE)
@@ -537,8 +584,14 @@ if(TARGET adai_mns)
 endif()
 
 # Registry Server - Distributed dataset queue coordination daemon (TD-028 Phase 9)
-# Requires cpp-httplib; skipped when not available.
-if(HTTPLIB_INCLUDE_DIR)
+# Requires cpp-httplib; skipped when not available. Also skipped on Windows — see TD-161:
+# FtpDataServer.hpp (included transitively via RegistryServer.cpp) uses raw POSIX sockets
+# (arpa/inet.h, close() on socket fds, ~27 call sites) with no Windows/Winsock port at all.
+# Unlike TD-159/TD-160's fixes, this is a materially bigger, separate undertaking (different
+# headers, a different SOCKET type, WSAStartup()/WSACleanup() lifecycle) — filed rather than
+# attempted here, matching the existing BUILD_API_SERVER OFF precedent just below for
+# chatbot_api_server.
+if(HTTPLIB_INCLUDE_DIR AND NOT WIN32)
     add_executable(registry_server RegistryServer.cpp Config.cpp RegistryServerArgs.cpp)
     target_link_libraries(registry_server
         adai_core
@@ -557,6 +610,8 @@ if(HTTPLIB_INCLUDE_DIR)
         message(STATUS "FTPS enabled for registry_server (OpenSSL found)")
     endif()
     message(STATUS "Building registry_server - distributed dataset queue coordination")
+elseif(WIN32)
+    message(STATUS "registry_server not built on Windows (TD-161 — FtpDataServer.hpp has no Winsock port)")
 else()
     message(STATUS "registry_server not built (cpp-httplib not found)")
 endif()

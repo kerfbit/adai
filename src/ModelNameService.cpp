@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-09-12
 
 #include "ModelNameService.hpp"
 #include <httplib.h>
@@ -16,6 +16,7 @@
 #include <random>
 #include <sstream>
 #include "Logger.hpp"
+#include "PortableTime.hpp"
 
 namespace fs = std::filesystem;
 using adai::Logger;
@@ -342,7 +343,7 @@ std::string generate_uuid() {
 std::string utc_now() {
     const auto t = std::time(nullptr);
     struct tm tm_utc {};
-    gmtime_r(&t, &tm_utc);
+    adai::gmtime_utc(&t, &tm_utc);
     char buf[24];
     std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm_utc);
     return buf;

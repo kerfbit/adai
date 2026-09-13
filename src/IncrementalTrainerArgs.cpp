@@ -1,12 +1,17 @@
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-11
+// @adai-version: 0.1.1
+// @adai-reviewed: 2026-09-12
 
 #include "IncrementalTrainerArgs.hpp"
 #include <array>
 #include <cstdlib>
 
-#ifndef _WIN32
+#ifdef _WIN32
+// TD-159: _getpid() below is declared here, not in <cstdlib>/<unistd.h> — was previously called
+// with no include providing it at all, confirmed via a real cross-compile error ("'_getpid' was
+// not declared in this scope").
+#include <process.h>
+#else
 #include <unistd.h>
 #endif
 

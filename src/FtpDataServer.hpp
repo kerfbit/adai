@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-040 fully resolved — see below)
-// @adai-version: 0.8.2
-// @adai-reviewed: 2026-09-11
+// @adai-version: 0.8.3
+// @adai-reviewed: 2026-09-12
 
 /**
  * FtpDataServer — embedded read-only FTP server for dataset delivery.
@@ -67,6 +67,7 @@
 #include <unistd.h>
 
 #include "Logger.hpp"
+#include "PortableTime.hpp"
 
 // Phase 3: OpenSSL for FTPS (TLS) and HMAC-SHA256 token signing
 #ifdef BUILD_FTPS
@@ -220,11 +221,7 @@ inline std::string random_hex(std::size_t bytes) {
 inline std::string utc_string(std::chrono::system_clock::time_point tp) {
     std::time_t t = std::chrono::system_clock::to_time_t(tp);
     std::tm tm_buf{};
-#ifdef _WIN32
-    gmtime_s(&tm_buf, &t);
-#else
-    gmtime_r(&t, &tm_buf);
-#endif
+    adai::gmtime_utc(&t, &tm_buf);
     char buf[32];
     std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm_buf);
     return buf;

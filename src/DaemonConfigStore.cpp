@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-09-12
 
 #include "DaemonConfigStore.hpp"
 #include <sqlite3.h>
@@ -8,6 +8,7 @@
 #include <ctime>
 #include <stdexcept>
 #include "Logger.hpp"
+#include "PortableTime.hpp"
 
 namespace {
 
@@ -15,7 +16,7 @@ std::string utc_now() {
     const auto now = std::chrono::system_clock::now();
     const std::time_t t = std::chrono::system_clock::to_time_t(now);
     std::tm tm{};
-    gmtime_r(&t, &tm);
+    adai::gmtime_utc(&t, &tm);
     char buf[32];
     std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm);
     return buf;

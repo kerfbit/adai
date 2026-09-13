@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-11
+// @adai-version: 0.9.1
+// @adai-reviewed: 2026-09-12
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
 // fix and its comment there), ftp_detail::random_hex() (FtpDataServer.hpp) is hardened to
@@ -73,6 +73,7 @@
 #include "DataFetcher.hpp"
 #include "FtpDataServer.hpp"
 #include "Logger.hpp"
+#include "PortableTime.hpp"
 #include "RegistryTransport.hpp"
 
 namespace fs = std::filesystem;
@@ -288,11 +289,7 @@ static std::string utc_now_string() {
     const auto now = std::chrono::system_clock::now();
     const std::time_t t = std::chrono::system_clock::to_time_t(now);
     std::tm tm_buf{};
-#ifdef _WIN32
-    gmtime_s(&tm_buf, &t);
-#else
-    gmtime_r(&t, &tm_buf);
-#endif
+    adai::gmtime_utc(&t, &tm_buf);
     char buf[32];
     std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm_buf);
     return buf;

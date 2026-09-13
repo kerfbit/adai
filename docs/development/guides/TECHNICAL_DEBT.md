@@ -7,10 +7,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 **Last Updated:** September 12, 2026
 **Total Items:** 25
 **High Priority:** 1
-**Medium Priority:** 12
-**Low Priority:** 12
+**Medium Priority:** 13
+**Low Priority:** 11
 **Future Enhancements:** 19
-**Resolved Items:** 110
+**Resolved Items:** 113
 **Deferred Decisions:** 2
 
 ## Table of Contents
@@ -23,7 +23,6 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [TD-123: EncoderBlockTest.BackwardPassMatchesNumericalGradient Flakes Under Full-Suite ctest -j8](#td-123-encoderblocktestbackwardpassmatchesnumericalgradient-flakes-under-full-suite-ctest--j8)
   - [TD-050: GPU-Resident KV-Cache for Autoregressive Generation](#td-050-gpu-resident-kv-cache-for-autoregressive-generation)
   - [TD-033: chatbot_api_server Inference Never Uses Persistent GPU-Resident Decode](#td-033-chatbot_api_server-inference-never-uses-persistent-gpu-resident-decode)
-  - [TD-032: Bundle SQLite3 Amalgamation for Windows Cross-Compilation](#td-032-bundle-sqlite3-amalgamation-for-windows-cross-compilation)
   - [TD-014: LLM Operations and Training Tooling Suite](#td-014-llm-operations-and-training-tooling-suite)
   - [TD-006: Fill-in-the-Middle (FIM) Training Data Generation](#td-006-fill-in-the-middle-fim-training-data-generation)
   - [TD-034: PPOOptimizer's Core Update Loop Is a Placeholder, Not Real PPO](#td-034-ppooptimizers-core-update-loop-is-a-placeholder-not-real-ppo)
@@ -37,7 +36,8 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [TD-047: Android Data/Repository/API Layer Has No CI or Release History](#td-047-android-datarepositoryapi-layer-has-no-ci-or-release-history)
   - [TD-048: Android UI/DI/Entry-Point Classes Are Untested and Unreleased](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
   - [TD-053: ChatbotCLI's /save and /load Commands Are Non-Functional Everywhere](#td-053-chatbotclis-save-and-load-commands-are-non-functional-everywhere)
-- [Resolved Items](#resolved-items) (143 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+  - [TD-161: FtpDataServer.hpp Uses Raw POSIX Sockets, No Windows/Winsock Port](#td-161-ftpdataserverhpp-uses-raw-posix-sockets-no-windowswinsock-port)
+- [Resolved Items](#resolved-items) (146 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -372,29 +372,6 @@ Files to Modify:
 - `src/EncoderDecoderModel.cpp` / `src/EncoderDecoderModel.hpp` — adjust `gpu_generate_response()` for a non-training caller if needed (e.g. strategy support)
 - `src/TextGenerator.cpp` / `src/TextGenerator.hpp` — verify/extend strategy support against the GPU-resident decode path
 - `tests/` — coverage confirming identical output between the CPU and GPU-resident serving paths
-
----
-
-### TD-032: Bundle SQLite3 Amalgamation for Windows Cross-Compilation
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Build / Windows / Metrics | September 7, 2026 | 2-4 hours |
-
-Description:
-TD-020 (Persistent Metrics Storage via SQL Database, resolved — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md)) links SQLite3 via `find_path`/`find_library` in `src/CMakeLists.txt`, which works on Linux/macOS but has no equivalent for the MinGW Windows cross-compilation path (`scripts/build_windows.sh`, `scripts/package_windows.sh`). TD-020's original proposal called for bundling the public-domain SQLite amalgamation specifically to cover this case; that one item was the only part of the proposal not carried out. Everything else in TD-020 shipped and is verified working.
-
-Action Items:
-
-- [ ] Vendor the SQLite amalgamation into `external/sqlite3/` (`sqlite3.c`, `sqlite3.h`).
-- [ ] Add a CMake option to build it as a static lib on MinGW/Windows targets when system SQLite3 isn't found.
-- [ ] Verify `metrics_api_server` builds and runs under Wine or a Windows VM with the SQLite backend enabled.
-
-Files to Modify:
-
-- `external/sqlite3/` (new)
-- `src/CMakeLists.txt`
-- `scripts/build_windows.sh`
 
 ---
 
@@ -877,9 +854,55 @@ Files to Modify:
 
 ---
 
+### TD-161: FtpDataServer.hpp Uses Raw POSIX Sockets, No Windows/Winsock Port
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open | Build / Windows / Networking | September 12, 2026 | 6-10 hours |
+
+Description:
+Found while verifying TD-032's fix end-to-end: once `scripts/build_windows.sh` could actually
+reach `registry_server` (TD-159/TD-160 unblocked cpp-httplib and SQLite3 for MinGW), it failed
+with `fatal error: arpa/inet.h: No such file or directory` — `src/FtpDataServer.hpp` (included by
+`RegistryServer.cpp`) uses raw BSD sockets (`<arpa/inet.h>`, `<netinet/in.h>`, `<sys/socket.h>`,
+`htons`, `::inet_ntop`, `AF_INET`/`sockaddr_in`, and ~10 `::close(fd)` calls on socket
+descriptors) with no Windows/Winsock port at all. Unlike TD-159/TD-160's fixes (a missing
+`NO_CMAKE_FIND_ROOT_PATH`, a differently-named CRT equivalent, or a small from-scratch
+reimplementation), this is a materially bigger, separate undertaking: Winsock needs different
+headers (`<winsock2.h>`/`<ws2tcpip.h>`), uses a distinct `SOCKET` type (not interchangeable with
+a plain `int` on 64-bit Windows — `UINT_PTR`-sized, so an `int fd` holding one would truncate),
+requires `closesocket()` instead of `close()` for socket descriptors specifically, and needs a
+one-time `WSAStartup()`/`WSACleanup()` lifecycle that nothing in this codebase currently calls
+anywhere. `registry_server` is excluded from Windows builds for now
+(`if(HTTPLIB_INCLUDE_DIR AND NOT WIN32)` in `src/CMakeLists.txt`, mirroring the existing
+`BUILD_API_SERVER OFF` precedent for `chatbot_api_server`) rather than attempting this — every
+other Windows target (`chatbot`, `incremental_trainer`, `dataset_manager`, `vocab_builder`,
+`mns_server`, `mns_cli`, `metrics_api_server`) builds and, per TD-032's/TD-159's/TD-160's
+resolution writeups, has been runtime-verified under Wine.
+
+Action Items:
+
+- [ ] Add a portable socket header (mirroring `src/PortableTime.hpp`'s approach for TD-160) that
+  picks the right includes/types/`close` function per platform, and wraps a one-time
+  `WSAStartup()`/`WSACleanup()` — likely as a small RAII guard held for the process lifetime on
+  Windows, a no-op elsewhere.
+- [ ] Port `FtpDataServer.hpp`'s ~27 socket call sites to it.
+- [ ] Remove the `NOT WIN32` exclusion on `registry_server` in `src/CMakeLists.txt` once it builds.
+- [ ] Verify `registry_server.exe` actually accepts a real FTP connection under Wine (a clean
+  build alone doesn't prove the Winsock port is behaviorally correct — sockets are exactly the
+  kind of thing that compiles fine and fails at runtime).
+
+Files to Modify:
+
+- `src/FtpDataServer.hpp`
+- Possibly a new `src/PortableSocket.hpp` (or similar) for the shared WSAStartup/type-alias logic
+- `src/CMakeLists.txt` (remove the `NOT WIN32` exclusion once done)
+
+---
+
 ## Resolved Items
 
-143 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+146 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements

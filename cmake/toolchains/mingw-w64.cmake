@@ -44,9 +44,41 @@ set(CMAKE_STATIC_LIBRARY_SUFFIX .a)
 set(CMAKE_EXE_LINKER_FLAGS "-static-libgcc -static-libstdc++ -static" CACHE STRING "" FORCE)
 set(CMAKE_SHARED_LINKER_FLAGS "-static-libgcc -static-libstdc++" CACHE STRING "" FORCE)
 
+# TD-159: cpp-httplib's socket layer (used by chatbot, and by every other current/future
+# httplib-consuming binary this toolchain builds) calls straight into Winsock2 APIs
+# (socket/select/shutdown/closesocket/recv/WSACleanup), confirmed via real undefined-reference
+# link errors (__imp_socket etc.) before this was added. ws2_32 is Windows' own system import
+# library (ships with every Windows install), not something to vendor.
+#
+# Deliberately NOT folded into CMAKE_EXE_LINKER_FLAGS above: that variable is placed by the
+# Makefiles generator *before* a target's own object files on the link command line (confirmed
+# via the actual generated link.txt), so a library listed there is invisible to ld's single-pass,
+# left-to-right symbol resolution by the time it reaches the objects that need it — ld had
+# already moved past `-lws2_32` before discovering chatbot.exe's own undefined winsock
+# references, so the link still failed with this in CMAKE_EXE_LINKER_FLAGS. link_libraries()
+# instead appends to each target's own LINK_LIBRARIES list, which the same generator places
+# *after* the object files (see linkLibs.rsp in that same link.txt) — the position that actually
+# resolves symbols referenced by those objects.
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    link_libraries(ws2_32)
+endif()
+
 # Windows-specific compiler flags
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_WIN32_WINNT=0x0601" CACHE STRING "" FORCE)
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_WIN32_WINNT=0x0601" CACHE STRING "" FORCE)
+#
+# TD-159: NOGDI/NOMINMAX/WIN32_LEAN_AND_MEAN, applied globally rather than at each windows.h
+# include site (there's no single one to patch — httplib.h pulls it in transitively via
+# winsock2.h, and any future includer would reopen the same problem). Confirmed with a real
+# repro: without NOGDI specifically, <wingdi.h> (pulled in by <windows.h> unconditionally on this
+# MinGW headers version — WIN32_LEAN_AND_MEAN does not gate that particular include) #defines
+# ERROR as a plain macro, which silently rewrites this codebase's own
+# `enum class Level { ..., ERROR }` (src/Logger.hpp) into `enum class Level { ..., 0 }` wherever
+# any file transitively includes windows.h before Logger.hpp — confirmed via a real cross-compile
+# of ModelNameService.cpp failing with "expected identifier before numeric constant" pointing at
+# that exact enumerator. NOMINMAX (suppresses windows.h's own min/max macros, which would
+# otherwise shadow std::min/std::max at every call site across this codebase) is the standard
+# companion define for the same class of problem and is included pre-emptively.
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_WIN32_WINNT=0x0601 -DWIN32_LEAN_AND_MEAN -DNOMINMAX -DNOGDI" CACHE STRING "" FORCE)
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -D_WIN32_WINNT=0x0601 -DWIN32_LEAN_AND_MEAN -DNOMINMAX -DNOGDI" CACHE STRING "" FORCE)
 
 # Disable features that may cause issues in cross-compilation
 set(BUILD_API_SERVER OFF CACHE BOOL "Disable API server for Windows build" FORCE)

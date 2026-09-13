@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-042 resolved — real test coverage added; still not built by default)
-// @adai-version: 0.4.0
-// @adai-reviewed: 2026-09-11
+// @adai-version: 0.4.1
+// @adai-reviewed: 2026-09-12
 
 #ifdef ADAI_ENABLE_POSTGRES
 
@@ -8,6 +8,7 @@
 #include "GenerationQualityMetrics.hpp"
 #include "IMetricsReporter.hpp"
 #include "Logger.hpp"
+#include "PortableTime.hpp"
 #include "TrainingMetricsService.hpp"
 
 #include <libpq-fe.h>
@@ -339,7 +340,7 @@ std::string PostgresMetricsDatabase::format_timestamp(
     const std::chrono::system_clock::time_point& tp) {
     auto time_t = std::chrono::system_clock::to_time_t(tp);
     std::tm tm{};
-    gmtime_r(&time_t, &tm);
+    adai::gmtime_utc(&time_t, &tm);
 
     std::ostringstream oss;
     oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%S");
@@ -355,17 +356,17 @@ std::chrono::system_clock::time_point PostgresMetricsDatabase::parse_timestamp(
 
     std::tm tm{};
     int ms = 0;
-    if (auto* end = strptime(s.c_str(), "%Y-%m-%dT%H:%M:%S", &tm)) {
+    if (auto* end = adai::strptime_utc(s.c_str(), 'T', &tm)) {
         if (*end == '.') {
             ms = std::atoi(end + 1);
         }
-    } else if (auto* end2 = strptime(s.c_str(), "%Y-%m-%d %H:%M:%S", &tm)) {
+    } else if (auto* end2 = adai::strptime_utc(s.c_str(), ' ', &tm)) {
         if (*end2 == '.') {
             ms = std::atoi(end2 + 1);
         }
     }
 
-    auto tp = std::chrono::system_clock::from_time_t(timegm(&tm));
+    auto tp = std::chrono::system_clock::from_time_t(adai::timegm_utc(&tm));
     tp += std::chrono::milliseconds(ms);
     return tp;
 }

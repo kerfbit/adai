@@ -4,6 +4,196 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-159: cpp-httplib Unusable for Windows Cross-Compilation (Not Found + No Winsock Linkage)
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 12, 2026 | `src/CMakeLists.txt`, `cmake/toolchains/mingw-w64.cmake`, `src/IncrementalTrainerArgs.cpp` | `NO_CMAKE_FIND_ROOT_PATH` on the httplib find_path, a toolchain-wide `ws2_32` link, a `FATAL_ERROR` guard, `NOGDI`/`NOMINMAX`, and a missing `<process.h>` include |
+
+Summary:
+Found while verifying TD-032's SQLite fix: `scripts/build_windows.sh` (MinGW cross-compilation)
+was completely broken at configure time, before ever reaching anything SQLite-related.
+`src/CMakeLists.txt:395`'s `target_include_directories(chatbot PRIVATE ${HTTPLIB_INCLUDE_DIR})`
+had no `if(HTTPLIB_INCLUDE_DIR)` guard (every other httplib consumer in the file has one), so a
+`NOTFOUND` value fed straight into it, and CMake hard-fails ("used in this project but set to
+NOTFOUND") rather than degrading gracefully. Chasing why `HTTPLIB_INCLUDE_DIR` was `NOTFOUND` at
+all — `external/cpp-httplib/httplib.h` is genuinely vendored in-repo, and the `find_path()` call
+already lists that exact path — led to the real root cause and three more real bugs found
+progressively as each one was fixed and the build got further:
+
+1. `cmake/toolchains/mingw-w64.cmake` sets `CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY`, which makes
+   `find_path()` search *only* inside the target sysroot (`/usr/x86_64-w64-mingw32`) by default —
+   silently ignoring `external/cpp-httplib`, which lies outside it, even though the file is
+   right there.
+2. Once found, linking `chatbot.exe` failed with undefined references to `__imp_socket`,
+   `__imp_select`, `__imp_shutdown`, `__imp_closesocket`, `__imp_recv`, `__imp_WSACleanup`, etc. —
+   cpp-httplib's socket layer calls straight into Winsock2, and nothing linked `ws2_32`.
+3. Once httplib/adai_mns became reachable, `ModelNameService.cpp` (which transitively includes
+   `<windows.h>` via `httplib.h`'s own `winsock2.h`) failed to compile at all: `<wingdi.h>` (which
+   `<windows.h>` includes unconditionally on this MinGW headers version — `WIN32_LEAN_AND_MEAN`
+   does not gate that particular include) `#define`s `ERROR` as a plain macro, silently rewriting
+   this codebase's `enum class Level { ..., ERROR }` (`src/Logger.hpp`) into
+   `enum class Level { ..., 0 }` and cascading into dozens of "'info'/'warn' is not a member of
+   adai::Logger" errors in every file that includes both headers in that order.
+4. `src/IncrementalTrainerArgs.cpp` already had a `#ifdef _WIN32` branch calling `_getpid()` —
+   correctly anticipating this exact cross-compilation scenario — but never included
+   `<process.h>`, where MinGW/MSVC actually declare it.
+
+Changes Made:
+- Added `NO_CMAKE_FIND_ROOT_PATH` to the `HTTPLIB_INCLUDE_DIR` `find_path()` call — correct here
+  specifically because `httplib.h` is a vendored, header-only, platform-independent file, not a
+  compiled sysroot binary (unlike SQLite3, which genuinely needs `NO_CMAKE_FIND_ROOT_PATH`'s
+  opposite: a real target-platform-compiled library, hence TD-032's amalgamation approach instead).
+- Added an explicit `if(NOT HTTPLIB_INCLUDE_DIR) message(FATAL_ERROR ...)` guard before `chatbot`'s
+  `target_include_directories()` call, with a clear message, instead of leaving CMake's generic
+  NOTFOUND error as the only signal.
+- Added `link_libraries(ws2_32)` to the toolchain file (guarded by
+  `CMAKE_SYSTEM_NAME STREQUAL "Windows"`), applying to every target defined afterward — not folded
+  into `CMAKE_EXE_LINKER_FLAGS` (tried first): that variable is placed *before* a target's own
+  object files on this generator's link command line, so a library listed there is invisible to
+  ld's single-pass, left-to-right symbol resolution by the time it reaches the objects that need
+  it (confirmed via the real generated `link.txt`) — `link_libraries()`'s
+  per-target `LINK_LIBRARIES` list is placed *after* the objects, which actually works.
+- Added `-DWIN32_LEAN_AND_MEAN -DNOMINMAX -DNOGDI` to the toolchain's global `CMAKE_CXX_FLAGS`/
+  `CMAKE_C_FLAGS` — `NOGDI` is the one that actually matters for the `ERROR` collision (confirmed
+  by testing `WIN32_LEAN_AND_MEAN` alone first, which did *not* fix it, since `<wingdi.h>` is
+  included unconditionally by `<windows.h>` on this headers version regardless of that macro);
+  `NOMINMAX` is the standard companion fix for the same class of problem (windows.h's own
+  `min`/`max` macros shadowing `std::min`/`std::max`), added pre-emptively.
+- Added the missing `#include <process.h>` to `src/IncrementalTrainerArgs.cpp`'s existing
+  `#ifdef _WIN32` branch.
+
+Verification:
+- ✅ Each of the four fixes was isolated and confirmed individually against the real MinGW
+  toolchain before moving to the next: reproduced each failure with a minimal standalone snippet
+  (`open()`/`_locking()`-style test compiles for the `_WIN32` include; a `windows.h` + `enum class
+  Level { ..., ERROR }` snippet failing without `NOGDI` and succeeding with it) where feasible,
+  and via the real `scripts/build_windows.sh` output otherwise.
+- ✅ `chatbot.exe`, `mns_server.exe`, `mns_cli.exe`, `dataset_manager.exe`, `vocab_builder.exe`,
+  `metrics_api_server.exe`, `incremental_trainer.exe` all build and link successfully; `chatbot.exe
+  --help` and `metrics_api_server.exe --help` both run correctly under Wine with sensible output.
+- ✅ Linux `debug` preset build: unaffected (these are all Windows-toolchain-scoped changes,
+  confirmed via a clean full rebuild).
+
+### TD-160: Several POSIX-Only Calls Had No Windows/MinGW Equivalent, Breaking Cross-Compilation
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 12, 2026 | `src/RegistryTransport.cpp`, `src/PortableTime.hpp` (new), and 8 files migrated to it | A `#ifdef _WIN32` CRT-equivalent swap for `flock()`, and a new centralized portable-time header for `gmtime_r`/`timegm`/`strptime` |
+
+Summary:
+Found progressively while verifying TD-032/TD-159 got `scripts/build_windows.sh` all the way to a
+working build — each fix below unblocked the build far enough to discover the next.
+
+`src/RegistryTransport.cpp`'s `lock_pending()`/`unlock_pending()` used `<sys/file.h>`'s
+`flock()`/`LOCK_EX`/`LOCK_UN` (BSD/Linux-only) to serialize access to `DatasetRegistry`'s pending
+file — MinGW has no equivalent header or function at all, so this file (part of `adai_core`,
+always compiled) failed outright on the Windows target.
+
+Once that was fixed and the build reached further, `DaemonConfigStore.cpp` and
+`SQLiteMetricsDatabase.cpp` (also always-compiled `adai_core` members) failed on `gmtime_r`
+(POSIX-only; MinGW's CRT has the reversed-argument, differently-typed `gmtime_s` instead),
+`strptime` (POSIX-only, **no** Windows/MinGW equivalent at all under any name), and `timegm`
+(POSIX-only; MinGW's CRT has the functionally-identical `_mkgmtime` under a different name). A
+repo-wide search for the same three functions found **8 files** total using them — 4 already had
+an ad hoc `#ifdef _WIN32 ... gmtime_s ... #else ... gmtime_r ... #endif` inline (`DatasetRegistry.cpp`,
+`RegistryServer.cpp`, `FtpDataServer.hpp`; `ModelNameService.cpp` was missing even that), and the
+other 4 (`DaemonConfigStore.cpp`, `SQLiteMetricsDatabase.cpp`, `PostgresMetricsDatabase.cpp`,
+`TrainingMetricsAPI.cpp`) had no Windows handling of any kind for these calls.
+
+Changes Made:
+- `src/RegistryTransport.cpp`: replaced `flock(fd, LOCK_EX/LOCK_UN)` with `#ifdef _WIN32` calls to
+  `_locking(fd, _LK_LOCK/_LK_UNLCK, 1)` (`<io.h>`/`<sys/locking.h>`) — a byte-range lock rather
+  than `flock()`'s whole-file lock, but one byte is sufficient for this file's only purpose
+  (mutual exclusion via its own openness), and works correctly even on a currently-empty file
+  (confirmed under Wine). The non-Windows `flock()` path is unchanged.
+- Added `src/PortableTime.hpp`: `adai::gmtime_utc()`/`adai::timegm_utc()` wrap the platform's real
+  CRT function under each name (`gmtime_r`/`timegm` on POSIX, `gmtime_s`/`_mkgmtime` on Windows) so
+  callers don't need their own `#ifdef`. `adai::strptime_utc(s, separator, tm)` is a from-scratch,
+  narrow reimplementation (not a wrapper — `strptime` has no Windows equivalent under any name) for
+  this codebase's only two formats in actual use (`"...T..."` / `"... ..."`, `separator` picks
+  which), used **unconditionally on every platform** (not just under `#ifdef _WIN32`) so there is
+  exactly one parsing implementation to verify rather than real `strptime` silently diverging from
+  a Windows-only replacement on some future edge case.
+- Migrated all 8 files (`DaemonConfigStore.cpp`, `DatasetRegistry.cpp`, `SQLiteMetricsDatabase.cpp`,
+  `TrainingMetricsAPI.cpp`, `RegistryServer.cpp`, `FtpDataServer.hpp`, `ModelNameService.cpp`,
+  `PostgresMetricsDatabase.cpp`) to the shared helpers, removing every ad hoc inline `#ifdef` in
+  the process — one implementation to maintain instead of up to 8 slightly-different copies.
+
+Verification:
+- ✅ Confirmed `gmtime_s`/`_mkgmtime` round-trip correctly under Wine with a standalone test
+  (`time_t` → `gmtime_s` → `_mkgmtime` → back to the same `time_t`).
+- ✅ Confirmed `open()`/`_locking()`/`<sys/locking.h>`'s `_LK_LOCK`/`_LK_UNLCK` compile, link, and
+  run correctly under Wine with a standalone test before touching the real file.
+- ✅ Full project build on the real MinGW toolchain: `adai_core` and every dependent target compile
+  clean past every one of these call sites.
+- ✅ Linux `debug` preset: `metricsDatabaseTests` (26), `daemonConfigStoreTests` (4),
+  `ftpDataServerTests` (62), `trainingMetricsApiRoutesTests` (15), `datasetRegistryTests` (51) —
+  158 tests across every test binary touching a migrated file — all pass, confirming the
+  `adai::gmtime_utc`/`timegm_utc` wrappers (which call the exact same real POSIX functions on
+  Linux, just through a one-line indirection) introduced no behavior change there.
+- ✅ Full `ctest -j8` suite (127 tests): all pass (see TD-032's verification note for the one
+  known-flaky, unrelated, contention-only test also seen in that run).
+
+### TD-032: Bundle SQLite3 Amalgamation for Windows Cross-Compilation
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 12, 2026 | `external/sqlite3/` (new), `src/CMakeLists.txt` | Vendored the official SQLite amalgamation, built as a static lib when system SQLite3 isn't found |
+
+Summary:
+TD-020's SQL-database metrics backend links SQLite3 via `find_path`/`find_library` in
+`src/CMakeLists.txt`, which only ever finds a system-installed package — there's no
+libsqlite3-dev-equivalent to install into a MinGW sysroot, so `scripts/build_windows.sh` had no
+way to get a working SQLite3 for the Windows cross-compilation target at all. This was the one
+piece of TD-020's original proposal never carried out.
+
+This resolution was reached alongside TD-159/TD-160 (below): all three were needed together to
+get `scripts/build_windows.sh` actually producing working `.exe` files, since a MinGW build that
+can't find cpp-httplib or hit POSIX-only functions never even reaches the SQLite-specific code
+path to prove this fix works. See TD-159/TD-160 for those.
+
+Changes Made:
+- Downloaded the official SQLite amalgamation (version 3.53.4) directly from sqlite.org
+  (`https://www.sqlite.org/2026/sqlite-amalgamation-3530400.zip`), verified against its published
+  SHA3-256 checksum before extracting, and vendored just `sqlite3.c`/`sqlite3.h` (not `shell.c`/
+  `sqlite3ext.h`, neither needed here) into `external/sqlite3/` — a genuine, unmodified copy of
+  the public-domain upstream source, not a derivative pulled from an unrelated project.
+- Added an `elseif` branch to `src/CMakeLists.txt`'s existing SQLite3 `find_path`/`find_library`
+  block: when no system SQLite3 is found but `external/sqlite3/sqlite3.c`+`.h` exist, builds a new
+  `sqlite3_bundled` static library target from the amalgamation and points `SQLITE3_INCLUDE_DIR`/
+  `SQLITE3_LIBRARY` at it — every existing consumer (`adai_core`, `adai_mns`, `mns_cli`,
+  `dataset_manager`, etc.) picks it up transparently via the same `SQLITE3_FOUND`/
+  `SQLITE3_LIBRARY` variables they already used, no consumer-side changes needed.
+- Added `enable_language(C)` inside that same branch (not at the top level): the project only
+  declares `LANGUAGES CXX`, and `sqlite3.c` genuinely needs a real C compiler — confirmed by first
+  trying to force it through the C++ compiler directly, which fails outright (the amalgamation
+  uses `new` as an ordinary identifier, relies on C's implicit `void*`-to-`T*` conversions, and
+  has C-legal/C++-illegal tentative redeclarations). Scoped to the fallback branch specifically so
+  every build that already has a system SQLite3 never touches C-language machinery at all.
+
+Verification:
+- ✅ `scripts/build_windows.sh` (MinGW cross-compilation): builds `sqlite3_bundled` cleanly,
+  links into `mns_server.exe`/`mns_cli.exe`/`dataset_manager.exe`/`metrics_api_server.exe`/
+  `incremental_trainer.exe`.
+- ✅ Ran `metrics_api_server.exe` under Wine with `--storage-backend sqlite --db-path
+  test_metrics.db`: produced a genuine SQLite database file, logged
+  `"[SQLiteMetricsDB] Opened database: test_metrics.db"` and
+  `"Database backend initialized: sqlite"`, and its `/health` endpoint responded with valid JSON
+  — this is TD-032's own originally-stated verification criterion, met for real, not just a clean
+  compile.
+- ✅ Ran `mns_server.exe` under Wine with `--data-dir mns_data`: created `models.db` (plus its
+  WAL-mode `-shm`/`-wal` sidecar files, confirming the amalgamation is fully functional, not just
+  minimally linking), logged `"SQLite DB ready"` and `"loaded 0 models, 0 roles from SQLite"`, and
+  its `/health` endpoint responded correctly.
+- ✅ Linux `debug` preset: unaffected — `adai_core`/`adai_mns` etc. still find and link the real
+  system `libsqlite3.so` exactly as before (confirmed via `SQLite3 found: /usr/lib/...` in the
+  configure log and a clean rebuild needing no recompilation of unrelated files).
+- ✅ Full `ctest -j8` suite (127 tests): all pass (one single-run flake in an unrelated,
+  already-known-flaky-under-contention test — `IntegratedInference_...` — reproduced clean 3/3 in
+  isolation, confirming it's the same pre-existing full-suite-contention class as TD-064/TD-123,
+  not a regression from this change).
+
 ### TD-051: IncrementalTrainer::load_conversation_pairs() Was an Unmigrated Duplicate
 
 | Resolution Date | Component | Resolved By |

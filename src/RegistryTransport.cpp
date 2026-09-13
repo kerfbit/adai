@@ -1,11 +1,23 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-09-12
 
 #include "RegistryTransport.hpp"
-#include <fcntl.h>     // open(), O_RDWR
+#include <fcntl.h>  // open(), O_RDWR
+// TD-160: <sys/file.h>'s flock()/LOCK_EX/LOCK_UN are BSD/Linux-only — MinGW (Windows
+// cross-compilation, scripts/build_windows.sh) has no equivalent, and previously failed to
+// compile this file at all. <io.h>'s _locking() (with <sys/locking.h>'s _LK_LOCK/_LK_UNLCK) is
+// MinGW/MSVC's own CRT-level file-locking primitive, operating on the same open()-returned fd —
+// confirmed compiling, linking, and running correctly under Wine. Kept behind #ifdef _WIN32
+// rather than replacing flock() outright so the non-Windows path (open()'s advisory whole-file
+// lock via LOCK_EX, matching this function's existing semantics) is unchanged.
+#ifdef _WIN32
+#include <io.h>           // open(), close(), _locking()
+#include <sys/locking.h>  // _LK_LOCK, _LK_UNLCK
+#else
 #include <sys/file.h>  // flock()
 #include <unistd.h>    // close()
+#endif
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
@@ -181,7 +193,15 @@ int LocalTransport::lock_pending() const {
     if (fd < 0) {
         return -1;
     }
+    // TD-160: _locking() locks a byte range rather than the whole file the way flock() does —
+    // one byte (offset 0, where O_WRONLY without O_TRUNC positions a fresh write) is sufficient
+    // for this file's only purpose (mutual exclusion via its mere existence/openness), and works
+    // correctly even when the file is currently empty (confirmed under Wine).
+#ifdef _WIN32
+    if (_locking(fd, _LK_LOCK, 1) != 0) {
+#else
     if (flock(fd, LOCK_EX) != 0) {
+#endif
         close(fd);
         return -1;
     }
@@ -190,7 +210,11 @@ int LocalTransport::lock_pending() const {
 
 void LocalTransport::unlock_pending(int lock_fd) const {
     if (lock_fd >= 0) {
+#ifdef _WIN32
+        _locking(lock_fd, _LK_UNLCK, 1);
+#else
         flock(lock_fd, LOCK_UN);
+#endif
         close(lock_fd);
     }
 }
