@@ -1,8 +1,8 @@
 package com.adai.chatbot.ui.common
 
-// @adai-status: experimental        (capped by TD-048 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: beta        (TD-048 — message/dismiss-action rendering exercised by ChatScreenTest.kt)
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-09-13
 
 
 import androidx.compose.foundation.layout.Arrangement

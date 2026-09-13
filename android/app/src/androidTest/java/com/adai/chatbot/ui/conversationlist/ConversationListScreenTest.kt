@@ -14,6 +14,7 @@ import androidx.compose.ui.test.performClick
 import com.adai.chatbot.data.db.ConversationEntity
 import com.adai.chatbot.data.repository.ConversationRepository
 import com.adai.chatbot.network.ApiClientProvider
+import com.adai.chatbot.settings.ServerSettings
 import com.adai.chatbot.testutil.FakeConversationDao
 import com.adai.chatbot.testutil.FakeMessageDao
 import com.adai.chatbot.testutil.FakeSettingsRepository
@@ -25,10 +26,12 @@ import org.junit.Test
  * establishing the pattern for the rest of TD-048's "adopt Compose UI testing" chunk. Uses a
  * real ConversationListViewModel/ConversationRepository backed by the shared src/sharedTest
  * fakes (already used by the plain-JVM ViewModel/repository tests) rather than a real Room
- * database or network — a default (host-blank) FakeSettingsRepository means
- * ConversationRepository.deleteConversation() never actually calls ApiClientProvider (see its
- * own `if (settings.isConfigured)` guard), so a real, never-configured ApiClientProvider is
- * enough; nothing here needs a fake HTTP layer.
+ * database or network. FakeSettingsRepository's own *default* constructor value is actually
+ * host="localhost" (matching the plain-JVM tests' need for a working fake network path) --
+ * passed a blank-host ServerSettings() explicitly here instead, so `isConfigured` is genuinely
+ * false and ConversationRepository.deleteConversation() never calls ApiClientProvider at all
+ * (see its own `if (settings.isConfigured)` guard), rather than relying on a real, unconfigured
+ * ApiClientProvider's inevitable connection failure being silently swallowed.
  */
 class ConversationListScreenTest {
 
@@ -48,7 +51,7 @@ class ConversationListScreenTest {
         conversationDao = FakeConversationDao(seed),
         messageDao = FakeMessageDao(),
         apiClientProvider = ApiClientProvider(),
-        settingsDataStore = FakeSettingsRepository(),
+        settingsDataStore = FakeSettingsRepository(ServerSettings()),
     )
 
     @Test

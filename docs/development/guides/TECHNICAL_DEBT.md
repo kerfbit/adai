@@ -53,7 +53,7 @@ are deliberately deferred by prior user decision, not blocked, so TD-038 itself 
 
 **Tier 4 — Sustained, low-risk test-coverage investment** (systematic, already-validated pattern,
 no open design questions): [TD-048](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
-(Compose UI testing now adopted, 1/12 screens done September 13, 2026 — 11 screens plus DI/entry-points
+(Compose UI testing now adopted, 2/12 screens done September 13, 2026 — 10 screens plus DI/entry-points
 remain, continuing the now-proven ViewModel-then-screen-testing approach)
 and [TD-037](#td-037-no-qt-test-infrastructure-for-gui-classes) (8-12h — the same shape for the
 desktop Qt GUI).
@@ -696,7 +696,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open (8/8 ViewModels done; Compose UI testing adopted, 1/12 screens covered; DI/entry-points remain) | Android / Testing | September 7, 2026 | 24-32 hours |
+| MEDIUM | Open (8/8 ViewModels done; Compose UI testing adopted, 2/12 screens covered; DI/entry-points remain) | Android / Testing | September 7, 2026 | 24-32 hours |
 
 Description:
 62 files — Compose screens, ViewModels without tests, DI containers, `Activity`/`Application`
@@ -740,14 +740,37 @@ without depending on list order. 5 tests added
 row click → `onOpenConversation(id)`, settings icon click → `onOpenSettings()`, delete click →
 conversation removed from the rendered list, FAB click → new conversation created and opened.
 
+**Update (September 13, 2026, continued):** `ChatScreen` (`app` module) done as the second screen
+— along with it, `ChatInputBar`, `MessageBubble`, and `ErrorBanner` (three separate files it
+composes) each got their own specific behavior genuinely exercised and were promoted
+`experimental` → `beta` alongside it: `ChatInputBar`'s text-entry/send wiring, `MessageBubble`'s
+FAILED-state rendering and retry click, and `ErrorBanner`'s message rendering and dismiss-action
+callback. `TypingIndicator` (also composed by `ChatScreen`) was deliberately left `experimental`
+— none of the 4 new tests ever observe `isSending == true` for long enough to assert on it,
+since the fake chat service resolves synchronously with no artificial delay, so nothing here
+actually exercises its own rendering. Along the way, found and fixed a real inaccuracy in
+`ConversationListScreenTest`'s own doc comment from earlier the same day: it claimed
+`FakeSettingsRepository()`'s default made `ConversationRepository.deleteConversation()` skip
+`ApiClientProvider` entirely, but that fake's actual default constructor value is a *configured*
+`ServerSettings(host = "localhost", ...)` (needed elsewhere for `ChatViewModelTest`'s real
+fake-network path) — meaning the delete test had silently been attempting a real (harmlessly
+failing, try/caught) network call to `localhost:8080` the whole time. Fixed by passing a blank
+`ServerSettings()` explicitly, matching what the comment always claimed was happening.
+4 tests added (`ChatScreenTest`): send a message → user bubble then assistant reply bubble
+appear; back button → `onBack()`; a failed send → `ErrorBanner` shows the server's error message,
+Dismiss hides it; retrying a pre-seeded `FAILED` message → resends and shows a new assistant
+reply, `"Failed — tap to retry"` no longer rendered.
+
 Action Items:
 
 - [x] Add ViewModel unit tests first (cheapest — no Compose/Activity needed) — all 8 done; see
   the per-ViewModel test files under `android/app/src/test`/`android/opsdashboard/src/test`.
 - [x] Adopt Compose UI testing (`androidx.compose.ui.test`) for screens once ViewModels are
-  covered — infrastructure adopted; `ConversationListScreen` done as the first of 12 screens (see
-  update above). The other 11 (`ChatScreen`, `SettingsScreen` ×2, and the 9 `opsdashboard`
-  screens) remain — same pattern, not attempted in this pass.
+  covered — infrastructure adopted; `ConversationListScreen` and `ChatScreen` done (2 of 12; see
+  updates above). The other 10 remain: `SettingsScreen` (`app` module), and 9 screens in
+  `opsdashboard` (`SettingsScreen`, `GroupListScreen`, `GroupDetailScreen`, `SessionListScreen`,
+  `SessionDetailScreen`, `AdminScreen`, `ModelListScreen`, `ModelDetailScreen`, `TrainerScreen`)
+  — same pattern, not attempted in this pass.
 - [ ] `BiometricAdminAuthGate.kt` specifically: consider an instrumented test using
   `BiometricPrompt`'s test/fake authenticator support instead of leaving it permanently untested.
 - [ ] DI containers (`AppContainer.kt`/`AppViewModelProvider.kt` in both apps), `Activity`/
@@ -756,10 +779,11 @@ Action Items:
 
 Files to Modify:
 
-- ~52 remaining files under `android/app/src/main`, `android/opsdashboard/src/main`, and
+- ~48 remaining files under `android/app/src/main`, `android/opsdashboard/src/main`, and
   `android/wearcomplications/src/main` still tagged `experimental` — see
   [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md) for the exact, current list.
-- Done: the 8 ViewModel files, `AdminUiState.kt`, and `ConversationListScreen.kt`.
+- Done: the 8 ViewModel files, `AdminUiState.kt`, `ConversationListScreen.kt`, `ChatScreen.kt`,
+  `ChatInputBar.kt`, `MessageBubble.kt`, and `ErrorBanner.kt`.
 
 ---
 
