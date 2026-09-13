@@ -10,7 +10,7 @@ See [file-status-standard.md](guides/file-status-standard.md) for what these sta
 
 | Component | Stable | Beta | Experimental | Deprecated | Legacy | Untagged | Total |
 |---|---|---|---|---|---|---|---|
-| android | 0 | 54 | 52 | 0 | 0 | 0 | 106 |
+| android | 0 | 55 | 51 | 0 | 0 | 0 | 106 |
 | scripts | 9 | 27 | 0 | 0 | 0 | 0 | 36 |
 | src | 91 | 42 | 15 | 0 | 0 | 0 | 148 |
 | tizen-metrics-app | 2 | 1 | 0 | 0 | 0 | 0 | 3 |
@@ -43,7 +43,7 @@ None — every in-scope file carries a tag.
 | `android/app/src/main/java/com/adai/chatbot/network/CloudflareAccessInterceptor.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
 | `android/app/src/main/java/com/adai/chatbot/network/dto/ChatDtos.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
 | `android/app/src/main/java/com/adai/chatbot/settings/SettingsDataStore.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
-| `android/app/src/main/java/com/adai/chatbot/settings/SettingsScreen.kt` | experimental | 0.2.0 | 2026-09-10 | TD-048 |
+| `android/app/src/main/java/com/adai/chatbot/settings/SettingsScreen.kt` | beta | 0.3.0 | 2026-09-13 | TD-048 |
 | `android/app/src/main/java/com/adai/chatbot/settings/SettingsViewModel.kt` | beta | 0.5.0 | 2026-09-10 | TD-047 |
 | `android/app/src/main/java/com/adai/chatbot/ui/chat/ChatInputBar.kt` | beta | 0.2.0 | 2026-09-13 | TD-048 |
 | `android/app/src/main/java/com/adai/chatbot/ui/chat/ChatScreen.kt` | beta | 0.2.0 | 2026-09-13 | TD-048 |

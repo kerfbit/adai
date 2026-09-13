@@ -53,8 +53,9 @@ are deliberately deferred by prior user decision, not blocked, so TD-038 itself 
 
 **Tier 4 — Sustained, low-risk test-coverage investment** (systematic, already-validated pattern,
 no open design questions): [TD-048](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
-(Compose UI testing now adopted, 2/12 screens done September 13, 2026 — 10 screens plus DI/entry-points
-remain, continuing the now-proven ViewModel-then-screen-testing approach)
+(Compose UI testing now adopted, 3/12 screens done September 13, 2026 — 9 screens (all in
+`opsdashboard`, which still needs its own `androidx.compose.ui.test` infra wired up first) plus
+DI/entry-points remain, continuing the now-proven ViewModel-then-screen-testing approach)
 and [TD-037](#td-037-no-qt-test-infrastructure-for-gui-classes) (8-12h — the same shape for the
 desktop Qt GUI).
 
@@ -696,7 +697,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open (8/8 ViewModels done; Compose UI testing adopted, 2/12 screens covered; DI/entry-points remain) | Android / Testing | September 7, 2026 | 24-32 hours |
+| MEDIUM | Open (8/8 ViewModels done; Compose UI testing adopted, 3/12 screens covered; DI/entry-points remain) | Android / Testing | September 7, 2026 | 24-32 hours |
 
 Description:
 62 files — Compose screens, ViewModels without tests, DI containers, `Activity`/`Application`
@@ -761,16 +762,47 @@ appear; back button → `onBack()`; a failed send → `ErrorBanner` shows the se
 Dismiss hides it; retrying a pre-seeded `FAILED` message → resends and shows a new assistant
 reply, `"Failed — tap to retry"` no longer rendered.
 
+**Update (September 13, 2026, continued further):** `SettingsScreen` (`app` module) done as the
+third screen, promoted `experimental` → `beta` alongside it. 5 tests added (`SettingsScreenTest`):
+back button → `onBack()` without persisting anything; entering a host and clicking Save →
+`SettingsViewModel.save()` is reached with the typed value and `onBack()` eventually fires;
+toggling the HTTPS switch swaps the Port field for the two Cloudflare Access Client fields; a
+blank-host "Test Connection" click shows the validation error without ever reaching the fake
+server; a successful "Test Connection" shows the real "Connected — N active session(s)" message
+from the fake `health()` response. Two real findings along the way:
+- A genuine test-writing mistake, caught by its own revert-confirm-fail rather than shipped
+  silently: the HTTPS-toggle test first tried clicking the `Switch`'s adjacent label `Text`, which
+  has no click handler of its own (`Switch` and its label are separate composables in
+  `SettingsScreen.kt`, not wrapped in one shared `clickable`) — the assertion failed for the right
+  reason (the switch never toggled) but the wrong cause (a test bug, not a production one). Fixed
+  by targeting `isToggleable()` instead of the label text.
+- The Save-button test was originally written to assert TD-130's happens-before ordering (`save()`
+  landing before `onBack()` fires) the same way `ChatScreenTest`'s tests assert ordering-sensitive
+  outcomes — but revert-confirm-fail disproved that this actually works here: temporarily restoring
+  TD-130's original fire-and-forget shape in `SettingsScreen.kt` did *not* make the assertion fail,
+  because `performClick()` waits for the real device's Main dispatcher to reach idle before
+  returning, and by then every scheduled coroutine on it — sequenced or not — has typically already
+  run. A real-device instrumented test genuinely cannot distinguish "sequenced" from
+  "fire-and-forget-but-fast" the way `SettingsViewModelTest`'s own `StandardTestDispatcher`
+  -controlled plain-JVM test already does; only that finer-grained test actually guards TD-130's
+  ordering invariant. Reworded the UI test's assertion and doc comment to claim only what it can
+  actually verify (the wiring reaches `save()` with the right value, and `onBack()` eventually
+  fires) — confirmed to still fail for a real reason via a second revert-confirm-fail pass
+  (removing the `save()` call entirely).
+
 Action Items:
 
 - [x] Add ViewModel unit tests first (cheapest — no Compose/Activity needed) — all 8 done; see
   the per-ViewModel test files under `android/app/src/test`/`android/opsdashboard/src/test`.
 - [x] Adopt Compose UI testing (`androidx.compose.ui.test`) for screens once ViewModels are
-  covered — infrastructure adopted; `ConversationListScreen` and `ChatScreen` done (2 of 12; see
-  updates above). The other 10 remain: `SettingsScreen` (`app` module), and 9 screens in
-  `opsdashboard` (`SettingsScreen`, `GroupListScreen`, `GroupDetailScreen`, `SessionListScreen`,
+  covered — infrastructure adopted; `ConversationListScreen`, `ChatScreen`, and `SettingsScreen`
+  (`app` module) done (3 of 12; see updates above). The other 9 remain, all in `opsdashboard`
+  (`SettingsScreen`, `GroupListScreen`, `GroupDetailScreen`, `SessionListScreen`,
   `SessionDetailScreen`, `AdminScreen`, `ModelListScreen`, `ModelDetailScreen`, `TrainerScreen`)
-  — same pattern, not attempted in this pass.
+  — same pattern, not attempted in this pass. Note for whoever picks up `opsdashboard`: that
+  module doesn't yet have `androidx.compose.ui.test`/`ui-test-manifest` wired into its own
+  `build.gradle.kts`, nor a `sharedTest` source set of its own — both need setting up there first,
+  same as was done for `app` here.
 - [ ] `BiometricAdminAuthGate.kt` specifically: consider an instrumented test using
   `BiometricPrompt`'s test/fake authenticator support instead of leaving it permanently untested.
 - [ ] DI containers (`AppContainer.kt`/`AppViewModelProvider.kt` in both apps), `Activity`/
@@ -779,11 +811,11 @@ Action Items:
 
 Files to Modify:
 
-- ~48 remaining files under `android/app/src/main`, `android/opsdashboard/src/main`, and
+- ~47 remaining files under `android/app/src/main`, `android/opsdashboard/src/main`, and
   `android/wearcomplications/src/main` still tagged `experimental` — see
   [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md) for the exact, current list.
 - Done: the 8 ViewModel files, `AdminUiState.kt`, `ConversationListScreen.kt`, `ChatScreen.kt`,
-  `ChatInputBar.kt`, `MessageBubble.kt`, and `ErrorBanner.kt`.
+  `ChatInputBar.kt`, `MessageBubble.kt`, `ErrorBanner.kt`, and `SettingsScreen.kt` (`app` module).
 
 ---
 
