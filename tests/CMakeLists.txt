@@ -937,6 +937,30 @@ if(ENABLE_GPU OR ENABLE_SYCL)
     add_test(NAME MatrixGPUTD003Tests COMMAND matrixgpuTd003Tests)
 endif()
 
+# TD-041: GPUManager/GPUMemory tests. Two files, not one, because
+# GPUUtils.hpp compiles to genuinely different code depending on
+# ADAI_ENABLE_GPU — a real device backend (CUDA or SYCL, sharing an identical
+# public interface, so one file covers both, same convention as
+# matrixgpuTd003Tests above) vs. the CPU-only stub class that exists only when
+# neither is set.
+if(ENABLE_GPU OR ENABLE_SYCL)
+    add_executable(gpuutilsTests gpuutils_test.cpp)
+    target_link_libraries(gpuutilsTests adai_gpu GTest::gtest_main)
+    add_test(NAME GPUUtilsTests COMMAND gpuutilsTests)
+endif()
+
+# Only when GPU support is off: ADAI_ENABLE_GPU is set via a top-level
+# add_compile_definitions() (see CMakeLists.txt) whenever ENABLE_GPU/
+# ENABLE_SYCL is configured, applying to every target project-wide — so this
+# stub-path test would silently compile and exercise the *real* backend
+# instead of the CPU-only stub if built alongside those presets. Header-only
+# and self-contained either way — no adai_gpu link needed.
+if(NOT (ENABLE_GPU OR ENABLE_SYCL))
+    add_executable(gpuutilsStubTests gpuutils_stub_test.cpp)
+    target_link_libraries(gpuutilsStubTests GTest::gtest_main)
+    add_test(NAME GPUUtilsStubTests COMMAND gpuutilsStubTests)
+endif()
+
 # ============================================================================
 # Trainer admin control daemon (`incremental_trainer serve`) tests
 # ============================================================================

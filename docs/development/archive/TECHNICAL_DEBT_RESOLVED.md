@@ -4,6 +4,72 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-041: GPUUtils Has No Dedicated Test on Either Backend
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 13, 2026 | `tests/gpuutils_test.cpp` (new), `tests/gpuutils_stub_test.cpp` (new), `tests/CMakeLists.txt`, `src/gpu/GPUUtils.hpp`, `src/gpu/sycl/GPUUtils_SYCL.hpp` | Two new test files covering `GPUManager`/`GPUMemory` on both real backends plus the CPU-only stub |
+
+Summary:
+Neither `GPUManager`/`GPUMemory` implementation (CUDA in `gpu/GPUUtils.hpp`, SYCL in
+`gpu/sycl/GPUUtils_SYCL.hpp`) had a dedicated test — both were only exercised incidentally
+through `Matrix`'s GPU dispatch tests. Unlike this TD's original filing (no SYCL toolchain was
+available at the time), this pass had both an Intel oneAPI (`icpx`) and a CUDA (`nvcc`) toolchain
+available, but — confirmed directly — neither in an environment with a physical GPU device
+attached. That distinction shaped the whole approach: the existing GPU test precedent
+(`tests/matrixgpu_td003_test.cpp`) assumes real hardware unconditionally and was confirmed, in
+this exact environment, to fail outright without it ("cudaMalloc failed: no CUDA-capable device
+is detected") rather than skip — flagged separately as a follow-up rather than fixed here (out of
+this TD's own stated scope). The new tests were written to avoid that trap.
+
+Changes Made:
+- Added `tests/gpuutils_test.cpp`, gated behind `if(ENABLE_GPU OR ENABLE_SYCL)` in
+  `tests/CMakeLists.txt` (one file for both backends — `GPUManager`/`GPUMemory` share an
+  identical public interface, same convention as `matrixgpu_td003_test.cpp` for `GPUMatrix`).
+  Hardware-adaptive throughout: tests of the documented soft-fail contract (`probe()`,
+  `probe_diagnostic()`, `initialize()` returning exactly what `probe()` predicted and never
+  throwing merely for "no device present"), `set_device()`'s bounds check (rewritten to compute
+  an always-out-of-range index from the *current* `device_count()` rather than assuming zero
+  devices, since `cleanup()` never resets `device_count_`), and the memory-budget getters' default
+  state run unconditionally; tests of real device init, `reserve_memory()`/`release_memory()`
+  budget tracking, and `GPUMemory`'s allocation/copy-round-trip/move-semantics/out-of-range-copy
+  behavior check `GPUManager::probe()` first and `GTEST_SKIP()` with an explanatory message when
+  no device is present, rather than either asserting untested behavior or failing outright.
+- Added `tests/gpuutils_stub_test.cpp`, gated the opposite way (`if(NOT (ENABLE_GPU OR
+  ENABLE_SYCL))`) — the CPU-only stub `GPUManager` class only exists in that configuration.
+  Discovered along the way: `ADAI_ENABLE_GPU` is set via a top-level `add_compile_definitions()`
+  that applies to every target project-wide whenever `ENABLE_GPU`/`ENABLE_SYCL` is configured, so
+  an ungated "stub" test would have silently compiled and exercised the *real* backend instead
+  under those presets — the CMake gate exists specifically to prevent that. Covers every stub
+  method: `probe()`/`initialize()` always returning false, `is_available()`/`device_count()`/
+  `current_device()`'s fixed values, `set_device()`/`get_device_info()`'s "not compiled"
+  behavior, and the always-zero memory getters.
+- Bumped `gpu/GPUUtils.hpp` (0.9.0→0.9.1) and `gpu/sycl/GPUUtils_SYCL.hpp` (0.6.1→0.6.2) with a
+  short class-level doc comment on each pointing at this resolution and its residual scope, and
+  updated both `@adai-status` reasons from "capped by TD-041" to "TD-041 resolved."
+- Found two real, minor issues along the way, both flagged as separate follow-ups rather than
+  fixed here (out of this TD's own scope, a test-coverage item, not a behavior-reconciliation
+  one): (1) `matrixgpu_td003_test.cpp`'s hardware-assumption fragility, above; (2)
+  `get_device_info()` behaves inconsistently between backends when called before any successful
+  `initialize()` (current_device_ still -1): CUDA's `cudaGetDeviceProperties(&prop, -1)` call
+  throws `std::runtime_error`, SYCL's own bounds check instead returns an "Invalid device ID"
+  string. `gpuutils_test.cpp` deliberately does not test this scenario, documented inline in the
+  file's own header comment, specifically because of this divergence.
+
+Verification:
+- ✅ Confirmed via revert-confirm-fail on two representative checks: temporarily disabled the stub
+  `set_device()`'s throw (`GPUManagerStubTest.SetDeviceThrows` failed as expected, then passed
+  again once restored) and the CUDA backend's `set_device()` bounds check
+  (`GPUManagerTest.SetDeviceThrowsWhenIndexOutOfRange` failed with the *wrong* exception type —
+  a real CUDA error instead of the expected `std::out_of_range` — then passed again once restored).
+- ✅ `gpuutilsStubTests`: 11/11 pass under the default (no `ADAI_ENABLE_GPU`) `debug` preset.
+- ✅ `gpuutilsTests`: compiles and runs clean under both the `gpu` (CUDA, `nvcc`) and `sycl` (Intel
+  oneAPI, `icpx`) presets — 8/17 pass, 9/17 correctly `GTEST_SKIP()` (no physical GPU device
+  present in either configuration), 0 failures, in both.
+- ✅ Full `ctest -j8` (128 tests, up from 127) on the default `debug` preset: 100% pass.
+
+---
+
 ### TD-161: FtpDataServer.hpp Uses Raw POSIX Sockets, No Windows/Winsock Port
 
 | Resolution Date | Component | Resolved By |

@@ -1,9 +1,9 @@
 #ifndef GPU_UTILS_HPP
 #define GPU_UTILS_HPP
 
-// @adai-status: beta        (capped by TD-041 — GPUManager/GPUMemory only exercised incidentally via Matrix's tests, no dedicated test)
-// @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: beta        (TD-041 resolved — dedicated tests added; real-device paths still unverified by an actual run, see below)
+// @adai-version: 0.9.1
+// @adai-reviewed: 2026-09-13
 
 
 #include <cstddef>
@@ -54,6 +54,15 @@ namespace gpu {
  *  3. cleanup() destroys only the resources ADAI owns — it does NOT call
  *     cudaDeviceReset(), which would terminate every other process that
  *     shares the same GPU.
+ *
+ * TD-041 (resolved September 13, 2026): added dedicated tests (tests/gpuutils_test.cpp) for
+ * probe()/initialize()'s soft-fail contract, set_device()'s bounds check, the memory-budget
+ * getters/reserve_memory()/release_memory(), and GPUMemory's allocation/copy/move/budget-tracking
+ * behavior. Every environment this codebase has actually been built and run in so far has a
+ * compiler toolchain but no physical GPU device, so the real-hardware paths (real device
+ * selection, real cudaMalloc-backed allocation and host↔device copies) are exercised by these
+ * tests only when GPUManager::probe() reports a device present — they skip gracefully rather
+ * than asserting behavior nobody has actually run. See TECHNICAL_DEBT_RESOLVED.md.
  */
 class GPUManager {
    private:

@@ -5,12 +5,12 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** September 13, 2026
-**Total Items:** 14
+**Total Items:** 13
 **High Priority:** 1
 **Medium Priority:** 7
-**Low Priority:** 6
+**Low Priority:** 5
 **Future Enhancements:** 19
-**Resolved Items:** 117
+**Resolved Items:** 118
 **Deferred Decisions:** 2
 
 ## Recommended Execution Order
@@ -34,8 +34,6 @@ blocked on this in the first place (its routing work doesn't touch attention mat
 
 **Tier 2 — Contained, high-confidence wins** (proven patterns or small isolated scope, no design
 ambiguity, can start immediately regardless of Tier 1's outcome):
-- [TD-041](#td-041-gpuutils-has-no-dedicated-test-on-either-backend) (3-5h) — isolated test gap,
-  no dependencies.
 - [TD-033](#td-033-chatbot_api_server-inference-never-uses-persistent-gpu-resident-decode) (6-8h)
   — routes an already-built GPU-resident decode path into real chat serving; a genuine latency win
   independent of TD-050 (still O(n²) per generation without a KV-cache, but eliminates the
@@ -91,7 +89,6 @@ here — a standalone benchmark binary, not gating anything, not part of `ctest`
   - [TD-037: No Qt Test Infrastructure for GUI Classes](#td-037-no-qt-test-infrastructure-for-gui-classes)
   - [TD-038: Advanced Features Tested in Isolation, Never Wired Into a Shipped Binary](#td-038-advanced-features-tested-in-isolation-never-wired-into-a-shipped-binary)
   - [TD-039: Core Training/Metrics Classes Too Large and Fast-Moving to Certify Stable](#td-039-core-trainingmetrics-classes-too-large-and-fast-moving-to-certify-stable)
-  - [TD-041: GPUUtils Has No Dedicated Test on Either Backend](#td-041-gpuutils-has-no-dedicated-test-on-either-backend)
   - [TD-047: Android Data/Repository/API Layer Has No CI or Release History](#td-047-android-datarepositoryapi-layer-has-no-ci-or-release-history)
   - [TD-048: Android UI/DI/Entry-Point Classes Are Untested and Unreleased](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
   - [TD-053: ChatbotCLI's /save and /load Commands Are Non-Functional Everywhere](#td-053-chatbotclis-save-and-load-commands-are-non-functional-everywhere)
@@ -618,37 +615,6 @@ Files to Modify:
 
 ---
 
-### TD-041: GPUUtils Has No Dedicated Test on Either Backend
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | GPU / Testing | September 7, 2026 | 3-5 hours |
-
-Description:
-Neither `gpu/GPUUtils.hpp` (CUDA) nor `gpu/sycl/GPUUtils_SYCL.hpp` (SYCL) has a dedicated test —
-both `GPUManager`/`GPUMemory` are only exercised incidentally through `Matrix`'s GPU dispatch
-tests. `gpu/GPUUtils.hpp` was incorrectly tagged `stable` during the original per-file rollout
-(the "stable requires tests" rule was violated); corrected to `beta` as part of filing this item.
-`gpu/sycl/GPUUtils_SYCL.hpp` could not be built or tested during that rollout — no SYCL toolchain
-(Intel oneAPI `icpx`) was available in that environment — so its status is asserted from reading
-the code, not from a passing build.
-
-Action Items:
-
-- [ ] Add a dedicated test for `GPUManager`/`GPUMemory` (device init, allocation, the CPU-only
-  stub path) — one for CUDA, one for SYCL, both gated behind their respective `ENABLE_GPU`/
-  `ENABLE_SYCL` CMake options like the rest of the GPU-specific tests.
-- [ ] Build and run the SYCL variant on a machine with Intel oneAPI installed to confirm it
-  actually compiles — this has not been verified since the file was last touched.
-
-Files to Modify:
-
-- `src/gpu/GPUUtils.hpp`
-- `src/gpu/sycl/GPUUtils_SYCL.hpp`
-- `tests/CMakeLists.txt`
-
----
-
 ### TD-047: Android Data/Repository/API Layer Has No CI or Release History
 
 | Priority | Status | Component | Created | Effort Estimate |
@@ -868,7 +834,7 @@ Files to Modify:
 
 ## Resolved Items
 
-150 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+151 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements
