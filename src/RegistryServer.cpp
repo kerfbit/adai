@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-035 partially resolved — argv/config parsing extracted and tested; the full request-handler-isolated unit test this item calls for still needs main() extracted into a reusable class; TD-040 fully resolved, see below)
-// @adai-version: 0.9.1
-// @adai-reviewed: 2026-09-12
+// @adai-version: 0.9.2
+// @adai-reviewed: 2026-09-13
 
 // TD-040 is fully resolved: handle_acquire()'s FTP-token path-confinement gap is fixed (see the
 // fix and its comment there), ftp_detail::random_hex() (FtpDataServer.hpp) is hardened to
@@ -349,7 +349,7 @@ static bool path_resolves_under(const std::string& path, const fs::path& root) {
         // which would make every legitimate in-tree path look out-of-tree here.
         const auto canon_root = fs::weakly_canonical(root);
         const auto rel = canon.lexically_relative(canon_root);
-        return !rel.empty() && rel.native().compare(0, 2, "..") != 0;
+        return !rel.empty() && rel.string().compare(0, 2, "..") != 0;
     } catch (...) {
         return false;
     }
@@ -453,7 +453,7 @@ static void handle_acquire(const httplib::Request& req, httplib::Response& res,
         try {
             const auto canon = fs::weakly_canonical(e.path);
             const auto rel = canon.lexically_relative(data_root);
-            return !rel.empty() && rel.native().compare(0, 2, "..") != 0;
+            return !rel.empty() && rel.string().compare(0, 2, "..") != 0;
         } catch (...) {
             return false;
         }
@@ -846,7 +846,7 @@ static void handle_delete(const httplib::Request& req, httplib::Response& res,
                         const auto canon = fs::weakly_canonical(p);
                         const auto rel = canon.lexically_relative(group_root);
                         const bool contained =
-                            !rel.empty() && rel.native().compare(0, 2, "..") != 0;
+                            !rel.empty() && rel.string().compare(0, 2, "..") != 0;
                         if (contained) {
                             std::error_code ec;
                             fs::remove(canon, ec);

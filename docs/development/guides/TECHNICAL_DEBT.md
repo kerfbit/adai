@@ -5,12 +5,12 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** September 13, 2026
-**Total Items:** 15
+**Total Items:** 14
 **High Priority:** 1
-**Medium Priority:** 8
+**Medium Priority:** 7
 **Low Priority:** 6
 **Future Enhancements:** 19
-**Resolved Items:** 116
+**Resolved Items:** 117
 **Deferred Decisions:** 2
 
 ## Recommended Execution Order
@@ -34,8 +34,6 @@ blocked on this in the first place (its routing work doesn't touch attention mat
 
 **Tier 2 — Contained, high-confidence wins** (proven patterns or small isolated scope, no design
 ambiguity, can start immediately regardless of Tier 1's outcome):
-- [TD-161](#td-161-ftpdataserverhpp-uses-raw-posix-sockets-no-windowswinsock-port) (6-10h) — same
-  shape as the just-resolved TD-159/TD-160; `PortableTime.hpp` is an explicit template to follow.
 - [TD-041](#td-041-gpuutils-has-no-dedicated-test-on-either-backend) (3-5h) — isolated test gap,
   no dependencies.
 - [TD-033](#td-033-chatbot_api_server-inference-never-uses-persistent-gpu-resident-decode) (6-8h)
@@ -97,9 +95,8 @@ here — a standalone benchmark binary, not gating anything, not part of `ctest`
   - [TD-047: Android Data/Repository/API Layer Has No CI or Release History](#td-047-android-datarepositoryapi-layer-has-no-ci-or-release-history)
   - [TD-048: Android UI/DI/Entry-Point Classes Are Untested and Unreleased](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
   - [TD-053: ChatbotCLI's /save and /load Commands Are Non-Functional Everywhere](#td-053-chatbotclis-save-and-load-commands-are-non-functional-everywhere)
-  - [TD-161: FtpDataServer.hpp Uses Raw POSIX Sockets, No Windows/Winsock Port](#td-161-ftpdataserverhpp-uses-raw-posix-sockets-no-windowswinsock-port)
   - [TD-163: AttentionHeadBenchmark Hangs Indefinitely](#td-163-attentionheadbenchmark-hangs-indefinitely)
-- [Resolved Items](#resolved-items) (149 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+- [Resolved Items](#resolved-items) (150 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -826,52 +823,6 @@ Files to Modify:
 
 ---
 
-### TD-161: FtpDataServer.hpp Uses Raw POSIX Sockets, No Windows/Winsock Port
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | Build / Windows / Networking | September 12, 2026 | 6-10 hours |
-
-Description:
-Found while verifying TD-032's fix end-to-end: once `scripts/build_windows.sh` could actually
-reach `registry_server` (TD-159/TD-160 unblocked cpp-httplib and SQLite3 for MinGW), it failed
-with `fatal error: arpa/inet.h: No such file or directory` — `src/FtpDataServer.hpp` (included by
-`RegistryServer.cpp`) uses raw BSD sockets (`<arpa/inet.h>`, `<netinet/in.h>`, `<sys/socket.h>`,
-`htons`, `::inet_ntop`, `AF_INET`/`sockaddr_in`, and ~10 `::close(fd)` calls on socket
-descriptors) with no Windows/Winsock port at all. Unlike TD-159/TD-160's fixes (a missing
-`NO_CMAKE_FIND_ROOT_PATH`, a differently-named CRT equivalent, or a small from-scratch
-reimplementation), this is a materially bigger, separate undertaking: Winsock needs different
-headers (`<winsock2.h>`/`<ws2tcpip.h>`), uses a distinct `SOCKET` type (not interchangeable with
-a plain `int` on 64-bit Windows — `UINT_PTR`-sized, so an `int fd` holding one would truncate),
-requires `closesocket()` instead of `close()` for socket descriptors specifically, and needs a
-one-time `WSAStartup()`/`WSACleanup()` lifecycle that nothing in this codebase currently calls
-anywhere. `registry_server` is excluded from Windows builds for now
-(`if(HTTPLIB_INCLUDE_DIR AND NOT WIN32)` in `src/CMakeLists.txt`, mirroring the existing
-`BUILD_API_SERVER OFF` precedent for `chatbot_api_server`) rather than attempting this — every
-other Windows target (`chatbot`, `incremental_trainer`, `dataset_manager`, `vocab_builder`,
-`mns_server`, `mns_cli`, `metrics_api_server`) builds and, per TD-032's/TD-159's/TD-160's
-resolution writeups, has been runtime-verified under Wine.
-
-Action Items:
-
-- [ ] Add a portable socket header (mirroring `src/PortableTime.hpp`'s approach for TD-160) that
-  picks the right includes/types/`close` function per platform, and wraps a one-time
-  `WSAStartup()`/`WSACleanup()` — likely as a small RAII guard held for the process lifetime on
-  Windows, a no-op elsewhere.
-- [ ] Port `FtpDataServer.hpp`'s ~27 socket call sites to it.
-- [ ] Remove the `NOT WIN32` exclusion on `registry_server` in `src/CMakeLists.txt` once it builds.
-- [ ] Verify `registry_server.exe` actually accepts a real FTP connection under Wine (a clean
-  build alone doesn't prove the Winsock port is behaviorally correct — sockets are exactly the
-  kind of thing that compiles fine and fails at runtime).
-
-Files to Modify:
-
-- `src/FtpDataServer.hpp`
-- Possibly a new `src/PortableSocket.hpp` (or similar) for the shared WSAStartup/type-alias logic
-- `src/CMakeLists.txt` (remove the `NOT WIN32` exclusion once done)
-
----
-
 ### TD-163: AttentionHeadBenchmark Hangs Indefinitely
 
 | Priority | Status | Component | Created | Effort Estimate |
@@ -917,7 +868,7 @@ Files to Modify:
 
 ## Resolved Items
 
-149 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+150 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements

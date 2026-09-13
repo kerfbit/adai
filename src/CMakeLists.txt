@@ -584,14 +584,13 @@ if(TARGET adai_mns)
 endif()
 
 # Registry Server - Distributed dataset queue coordination daemon (TD-028 Phase 9)
-# Requires cpp-httplib; skipped when not available. Also skipped on Windows — see TD-161:
-# FtpDataServer.hpp (included transitively via RegistryServer.cpp) uses raw POSIX sockets
-# (arpa/inet.h, close() on socket fds, ~27 call sites) with no Windows/Winsock port at all.
-# Unlike TD-159/TD-160's fixes, this is a materially bigger, separate undertaking (different
-# headers, a different SOCKET type, WSAStartup()/WSACleanup() lifecycle) — filed rather than
-# attempted here, matching the existing BUILD_API_SERVER OFF precedent just below for
-# chatbot_api_server.
-if(HTTPLIB_INCLUDE_DIR AND NOT WIN32)
+# Requires cpp-httplib; skipped when not available. Builds on Windows too as of TD-161:
+# FtpDataServer.hpp (included transitively via RegistryServer.cpp) now goes through
+# src/PortableSocket.hpp for its raw socket calls instead of assuming POSIX
+# (arpa/inet.h, close() on socket fds) directly — see PortableSocket.hpp's own doc comment
+# and TECHNICAL_DEBT_RESOLVED.md for the fix. ws2_32 is linked for every executable on
+# Windows via cmake/toolchains/mingw-w64.cmake (TD-159), so nothing extra is needed here.
+if(HTTPLIB_INCLUDE_DIR)
     add_executable(registry_server RegistryServer.cpp Config.cpp RegistryServerArgs.cpp)
     target_link_libraries(registry_server
         adai_core
@@ -610,8 +609,6 @@ if(HTTPLIB_INCLUDE_DIR AND NOT WIN32)
         message(STATUS "FTPS enabled for registry_server (OpenSSL found)")
     endif()
     message(STATUS "Building registry_server - distributed dataset queue coordination")
-elseif(WIN32)
-    message(STATUS "registry_server not built on Windows (TD-161 — FtpDataServer.hpp has no Winsock port)")
 else()
     message(STATUS "registry_server not built (cpp-httplib not found)")
 endif()

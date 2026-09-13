@@ -4,6 +4,74 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-161: FtpDataServer.hpp Uses Raw POSIX Sockets, No Windows/Winsock Port
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 13, 2026 | `src/PortableSocket.hpp` (new), `src/FtpDataServer.hpp`, `src/RegistryServer.cpp`, `src/CMakeLists.txt` | New portable socket abstraction (mirroring `PortableTime.hpp`'s TD-160 approach) + a `.native()`→`.string()` portability fix + removing the `NOT WIN32` build exclusion |
+
+Summary:
+`src/FtpDataServer.hpp` used raw BSD sockets (`<arpa/inet.h>`, `int` file descriptors, `::close()`,
+`MSG_NOSIGNAL`, `SHUT_RDWR`, a `struct timeval` for `SO_RCVTIMEO`, `errno`/`strerror()`) with no
+Windows/Winsock port, so `registry_server` (which embeds it) was excluded from Windows builds
+entirely. Unlike TD-159/TD-160's fixes, this needed a genuine small abstraction layer rather than
+a one-line workaround: Winsock uses a distinct `SOCKET` type (`UINT_PTR`-sized on 64-bit Windows,
+not interchangeable with `int`), `closesocket()` instead of `close()`, a per-process
+`WSAStartup()`/`WSACleanup()` lifecycle, a millisecond `DWORD` instead of a `struct timeval` for
+`SO_RCVTIMEO` (passing a `timeval`'s raw bytes as a `DWORD` compiles but silently sets a nonsense
+timeout), `WSAGetLastError()` instead of `errno`, and an `int`-not-`size_t` length parameter for
+`send()`/`recv()`.
+
+Changes Made:
+- Added `src/PortableSocket.hpp`: `adai::socket_t` (`SOCKET`/`int`), `adai::kInvalidSocket`,
+  `adai::WinsockGuard` (RAII `WSAStartup`/`WSACleanup`, refcounted so it coexists safely with
+  cpp-httplib's own independent Winsock init), `close_socket()`, `set_reuse_addr()`,
+  `set_recv_timeout()`, `send_bytes()`/`recv_bytes()`, `last_socket_error()`. `::socket()`/
+  `::bind()`/`::listen()`/`::accept()`/`::shutdown()`/`::inet_ntop()` themselves needed no wrapper
+  — Winsock already mirrors the BSD API for those — only the genuine differences above did.
+- Ported all ~27 socket call sites in `FtpDataServer.hpp` to the new header: `ConnState::fd`/
+  `pasv_listen_fd` and `listen_fd_` retyped to `adai::socket_t`; every `< 0`/`>= 0` fd check
+  retyped to compare against `adai::kInvalidSocket` (critical — `SOCKET` is unsigned on Windows,
+  so a stale `< 0` check would silently never fire); added a `WinsockGuard` member to
+  `FtpDataServer`. OpenSSL/FTPS-only code paths (`#ifdef BUILD_FTPS`) were left largely
+  untouched — `find_package(OpenSSL QUIET)` doesn't locate a MinGW-cross-compiled OpenSSL in this
+  build environment, so FTPS is inactive on Windows regardless — except two `SSL_set_fd()` calls
+  given an explicit `SOCKET`→`int` cast, since OpenSSL's own API takes `int` even on Windows.
+- Found and fixed a second, unrelated but blocking issue while attempting the actual Windows
+  build: `RegistryServer.cpp` (three call sites) called `fs::path::native()` and compared it
+  against a narrow string literal — `native()` returns `std::wstring` on Windows (native Windows
+  paths are wide strings) vs `std::string` on POSIX, so this never compiled for Windows at all
+  once `FtpDataServer.hpp`'s own blocker was cleared. Switched to `fs::path::string()`, which is
+  always `std::string` regardless of platform and preserves the exact existing (POSIX) comparison
+  semantics.
+- Removed the `NOT WIN32` exclusion on `registry_server` in `src/CMakeLists.txt` — `ws2_32` is
+  already linked for every Windows executable via `cmake/toolchains/mingw-w64.cmake` (TD-159), so
+  nothing additional was needed there.
+- Dropped the now-unused `<fcntl.h>` include (never actually used by this file) and `<cstring>`
+  (only used for the `std::strerror(errno)` calls this change replaced).
+
+Verification:
+- ✅ Linux (`debug` preset): `registry_server` builds clean; `ftpDataServerTests` (62/62) and
+  `registryFtpConfinementTests` (4/4) pass.
+- ✅ A disposable, from-scratch smoke-test harness (not committed) confirmed the refactored socket
+  code still performs a real, live FTP round-trip on Linux: a genuine external client (`curl`)
+  connected, authenticated with an issued token, and retrieved a file's exact byte-for-byte
+  content.
+- ✅ Windows cross-compile (`cmake/toolchains/mingw-w64.cmake`): `registry_server.exe` builds
+  clean as a valid PE32+ executable with all symbols (including Winsock functions) resolved.
+- ✅ **The real test, per this TD's own action items** ("a clean build alone doesn't prove the
+  Winsock port is behaviorally correct"): ran `registry_server.exe` under Wine with
+  `--ftp-enabled`, drove it entirely through its real HTTP API (`pending/add`, `acquire` — which
+  mints a real per-file token) and then a genuine external FTP client (`curl`) against its
+  Winsock-backed FTP port — a real `USER`/`PASS`/`PASV`/`RETR` exchange completed successfully,
+  with the retrieved content verified byte-for-byte correct. Every other already-Windows-building
+  target (`chatbot`, `incremental_trainer`, `dataset_manager`, `vocab_builder`, `mns_server`,
+  `mns_cli`, `metrics_api_server`) was previously verified the same way per TD-032's/TD-159's/
+  TD-160's own writeups; `registry_server` now joins that list.
+- ✅ Full `ctest -j8` (127 tests) on Linux: 100% pass, no regressions.
+
+---
+
 ### TD-162: Promise-Fulfilled-Before-Stats-Updated Race in IntegratedInferenceEngine and BatchedInferenceEngine
 
 | Resolution Date | Component | Resolved By |

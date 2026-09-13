@@ -1,6 +1,6 @@
 // @adai-status: beta        (TD-040 fully resolved — see below)
-// @adai-version: 0.8.3
-// @adai-reviewed: 2026-09-12
+// @adai-version: 0.9.0
+// @adai-reviewed: 2026-09-13
 
 /**
  * FtpDataServer — embedded read-only FTP server for dataset delivery.
@@ -39,6 +39,14 @@
  * a defense-in-depth warning for an out-of-tree path, and tests/registry_ftp_confinement_test.cpp
  * is a permanent regression test for the fix — see TECHNICAL_DEBT_RESOLVED.md for the full
  * writeup.
+ *
+ * TD-161 (resolved September 13, 2026): this file's raw socket calls now go through
+ * PortableSocket.hpp instead of assuming POSIX (`<arpa/inet.h>`, `int` file descriptors,
+ * `::close()`) directly, so it — and the registry_server binary that embeds it — build and run
+ * on Windows/MinGW. Verified with a real end-to-end FTP session (HTTP `pending/add` →
+ * `acquire` → a genuine FTP `USER`/`PASS`/`PASV`/`RETR` exchange, byte-for-byte correct
+ * transfer) against `registry_server.exe` cross-compiled for Windows and run under Wine — see
+ * TECHNICAL_DEBT_RESOLVED.md for the full writeup.
  */
 
 #pragma once
@@ -46,7 +54,6 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -59,14 +66,8 @@
 #include <unordered_map>
 #include <vector>
 
-// POSIX networking
-#include <arpa/inet.h>
-#include <fcntl.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
-
 #include "Logger.hpp"
+#include "PortableSocket.hpp"  // TD-161: socket_t, close_socket(), WinsockGuard, etc.
 #include "PortableTime.hpp"
 
 // Phase 3: OpenSSL for FTPS (TLS) and HMAC-SHA256 token signing
@@ -445,13 +446,12 @@ class FtpDataServer {
 #endif
 
         listen_fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
-        if (listen_fd_ < 0) {
-            Logger::error("[FTP] Failed to create listen socket: {}", std::strerror(errno));
+        if (listen_fd_ == adai::kInvalidSocket) {
+            Logger::error("[FTP] Failed to create listen socket: {}", adai::last_socket_error());
             running_.store(false);
             return;
         }
-        int opt = 1;
-        ::setsockopt(listen_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+        adai::set_reuse_addr(listen_fd_);
 
         sockaddr_in addr{};
         addr.sin_family = AF_INET;
@@ -459,16 +459,17 @@ class FtpDataServer {
         addr.sin_port = htons(static_cast<uint16_t>(control_port_));
 
         if (::bind(listen_fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
-            Logger::error("[FTP] bind on port {} failed: {}", control_port_, std::strerror(errno));
-            ::close(listen_fd_);
-            listen_fd_ = -1;
+            Logger::error("[FTP] bind on port {} failed: {}", control_port_,
+                          adai::last_socket_error());
+            adai::close_socket(listen_fd_);
+            listen_fd_ = adai::kInvalidSocket;
             running_.store(false);
             return;
         }
         if (::listen(listen_fd_, 16) < 0) {
-            Logger::error("[FTP] listen failed: {}", std::strerror(errno));
-            ::close(listen_fd_);
-            listen_fd_ = -1;
+            Logger::error("[FTP] listen failed: {}", adai::last_socket_error());
+            adai::close_socket(listen_fd_);
+            listen_fd_ = adai::kInvalidSocket;
             running_.store(false);
             return;
         }
@@ -483,10 +484,10 @@ class FtpDataServer {
     void stop() {
         if (!running_.exchange(false))
             return;
-        if (listen_fd_ >= 0) {
-            ::shutdown(listen_fd_, SHUT_RDWR);
-            ::close(listen_fd_);
-            listen_fd_ = -1;
+        if (listen_fd_ != adai::kInvalidSocket) {
+            ::shutdown(listen_fd_, adai::kShutdownBoth);
+            adai::close_socket(listen_fd_);
+            listen_fd_ = adai::kInvalidSocket;
         }
         if (listener_thread_.joinable())
             listener_thread_.join();
@@ -516,9 +517,15 @@ class FtpDataServer {
 
     TokenStore tokens_;
     std::atomic<bool> running_{false};
-    int listen_fd_ = -1;
+    adai::socket_t listen_fd_ = adai::kInvalidSocket;
     std::thread listener_thread_;
     std::thread sweep_thread_;
+
+    // TD-161: ensures Winsock is initialized before start()'s first ::socket() call and torn
+    // down only after this object (and everything else touching listen_fd_/ConnState::fd) is
+    // gone — see PortableSocket.hpp's own doc comment for why this doesn't need to coordinate
+    // with cpp-httplib's own independent WSAStartup call elsewhere in the same process.
+    adai::WinsockGuard winsock_guard_;
 
     // PASV port pool
     std::mutex pasv_mtx_;
@@ -576,11 +583,11 @@ class FtpDataServer {
         while (running_.load()) {
             sockaddr_in client_addr{};
             socklen_t client_len = sizeof(client_addr);
-            int conn_fd =
+            adai::socket_t conn_fd =
                 ::accept(listen_fd_, reinterpret_cast<sockaddr*>(&client_addr), &client_len);
-            if (conn_fd < 0) {
+            if (conn_fd == adai::kInvalidSocket) {
                 if (running_.load())
-                    Logger::warn("[FTP] accept error: {}", std::strerror(errno));
+                    Logger::warn("[FTP] accept error: {}", adai::last_socket_error());
                 break;
             }
             char ip_buf[INET_ADDRSTRLEN] = {};
@@ -604,14 +611,14 @@ class FtpDataServer {
     // ── Per-connection state ──────────────────────────────────────────────
 
     struct ConnState {
-        int fd;
+        adai::socket_t fd;
         std::string client_ip;
         bool authenticated = false;
         std::string username;
         std::string run_id;        // Phase 3: set at login for audit/rate-limit
         std::string pending_user;  // set by USER, cleared by PASS
         std::string allowed_path;  // ftp_path granted after login
-        int pasv_listen_fd = -1;
+        adai::socket_t pasv_listen_fd = adai::kInvalidSocket;
         int pasv_port = -1;
         bool type_binary = false;
         std::size_t bytes_transferred = 0;  // Phase 3: audit log
@@ -632,20 +639,20 @@ class FtpDataServer {
             return;
         }
 #endif
-        ::send(st.fd, line.c_str(), line.size(), MSG_NOSIGNAL);
+        adai::send_bytes(st.fd, line.c_str(), line.size());
     }
 
     static std::string read_line(ConnState& st) {
         std::string line;
         char c;
         while (true) {
-            ssize_t n;
+            long n;
 #ifdef BUILD_FTPS
             if (st.ssl)
                 n = SSL_read(st.ssl, &c, 1);
             else
 #endif
-                n = ::recv(st.fd, &c, 1, 0);
+                n = adai::recv_bytes(st.fd, &c, 1);
             if (n <= 0)
                 break;
             if (c == '\n')
@@ -658,7 +665,7 @@ class FtpDataServer {
 
     // ── Per-connection state machine ──────────────────────────────────────
 
-    void handle_connection(int fd, std::string client_ip) {
+    void handle_connection(adai::socket_t fd, std::string client_ip) {
         ConnState st;
         st.fd = fd;
         st.client_ip = std::move(client_ip);
@@ -717,7 +724,7 @@ class FtpDataServer {
                 std::string resp = "211-Features:\r\n PASV\r\n211 End";
 #endif
                 resp += "\r\n";
-                ::send(st.fd, resp.c_str(), resp.size(), MSG_NOSIGNAL);
+                adai::send_bytes(st.fd, resp.c_str(), resp.size());
             } else if (cmd == "PWD") {
                 send_reply(st, 257, "\"/\" is the current directory");
             } else if (!st.authenticated) {
@@ -752,8 +759,8 @@ class FtpDataServer {
         }
 
         // Clean up passive socket if still open
-        if (st.pasv_listen_fd >= 0) {
-            ::close(st.pasv_listen_fd);
+        if (st.pasv_listen_fd != adai::kInvalidSocket) {
+            adai::close_socket(st.pasv_listen_fd);
             release_pasv_port(st.pasv_port);
         }
 
@@ -765,7 +772,7 @@ class FtpDataServer {
         }
 #endif
 
-        ::close(fd);
+        adai::close_socket(fd);
     }
 
     // ── FTP command handlers ──────────────────────────────────────────────
@@ -832,7 +839,7 @@ class FtpDataServer {
         send_reply(st, 234, "AUTH TLS OK.");
 
         SSL* ssl = SSL_new(ssl_ctx_);
-        SSL_set_fd(ssl, st.fd);
+        SSL_set_fd(ssl, static_cast<int>(st.fd));  // TD-161: SOCKET->int narrowing on Windows, OpenSSL's own API shape
         if (SSL_accept(ssl) != 1) {
             Logger::error("[FTP/TLS] TLS handshake failed for client '{}'", st.client_ip);
             SSL_free(ssl);
@@ -862,10 +869,10 @@ class FtpDataServer {
 
     void cmd_pasv(ConnState& st) {
         // Close any previous PASV listener
-        if (st.pasv_listen_fd >= 0) {
-            ::close(st.pasv_listen_fd);
+        if (st.pasv_listen_fd != adai::kInvalidSocket) {
+            adai::close_socket(st.pasv_listen_fd);
             release_pasv_port(st.pasv_port);
-            st.pasv_listen_fd = -1;
+            st.pasv_listen_fd = adai::kInvalidSocket;
             st.pasv_port = -1;
         }
 
@@ -875,14 +882,13 @@ class FtpDataServer {
             return;
         }
 
-        int srv = ::socket(AF_INET, SOCK_STREAM, 0);
-        if (srv < 0) {
+        adai::socket_t srv = ::socket(AF_INET, SOCK_STREAM, 0);
+        if (srv == adai::kInvalidSocket) {
             release_pasv_port(port);
             send_reply(st, 425, "Cannot open data connection.");
             return;
         }
-        int opt = 1;
-        ::setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+        adai::set_reuse_addr(srv);
 
         sockaddr_in addr{};
         addr.sin_family = AF_INET;
@@ -891,7 +897,7 @@ class FtpDataServer {
 
         if (::bind(srv, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0 ||
             ::listen(srv, 1) < 0) {
-            ::close(srv);
+            adai::close_socket(srv);
             release_pasv_port(port);
             send_reply(st, 425, "Cannot bind data port.");
             return;
@@ -929,7 +935,7 @@ class FtpDataServer {
             return;
         }
 
-        if (st.pasv_listen_fd < 0) {
+        if (st.pasv_listen_fd == adai::kInvalidSocket) {
             send_reply(st, 425, "Use PASV first.");
             return;
         }
@@ -942,17 +948,14 @@ class FtpDataServer {
 
         send_reply(st, 150, "Opening data connection.");
 
-        struct timeval tv {
-            30, 0
-        };
-        ::setsockopt(st.pasv_listen_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-        int data_fd = ::accept(st.pasv_listen_fd, nullptr, nullptr);
-        ::close(st.pasv_listen_fd);
+        adai::set_recv_timeout(st.pasv_listen_fd, 30);
+        adai::socket_t data_fd = ::accept(st.pasv_listen_fd, nullptr, nullptr);
+        adai::close_socket(st.pasv_listen_fd);
         release_pasv_port(st.pasv_port);
-        st.pasv_listen_fd = -1;
+        st.pasv_listen_fd = adai::kInvalidSocket;
         st.pasv_port = -1;
 
-        if (data_fd < 0) {
+        if (data_fd == adai::kInvalidSocket) {
             send_reply(st, 425, "Could not open data connection.");
             return;
         }
@@ -962,12 +965,12 @@ class FtpDataServer {
         SSL* data_ssl = nullptr;
         if (ssl_ctx_ && st.data_prot_p) {
             data_ssl = SSL_new(ssl_ctx_);
-            SSL_set_fd(data_ssl, data_fd);
+            SSL_set_fd(data_ssl, static_cast<int>(data_fd));  // TD-161: SOCKET->int narrowing on Windows
             if (SSL_accept(data_ssl) != 1) {
                 Logger::error("[FTP/TLS] Data-channel TLS handshake failed for '{}'", st.username);
                 SSL_free(data_ssl);
                 data_ssl = nullptr;
-                ::close(data_fd);
+                adai::close_socket(data_fd);
                 send_reply(st, 425, "TLS handshake on data connection failed.");
                 return;
             }
@@ -982,7 +985,7 @@ class FtpDataServer {
                 SSL_free(data_ssl);
             }
 #endif
-            ::close(data_fd);
+            adai::close_socket(data_fd);
             send_reply(st, 550, "Cannot read file.");
             return;
         }
@@ -1008,8 +1011,7 @@ class FtpDataServer {
             } else
 #endif
             {
-                ssize_t sent =
-                    ::send(data_fd, buf.data(), static_cast<std::size_t>(n), MSG_NOSIGNAL);
+                long sent = adai::send_bytes(data_fd, buf.data(), static_cast<std::size_t>(n));
                 if (sent < 0) {
                     ok = false;
                     break;
@@ -1024,7 +1026,7 @@ class FtpDataServer {
             SSL_free(data_ssl);
         }
 #endif
-        ::close(data_fd);
+        adai::close_socket(data_fd);
 
         st.bytes_transferred += bytes_sent;
 
