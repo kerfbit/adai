@@ -21,6 +21,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -215,6 +216,37 @@ class InScopeFilesTests(unittest.TestCase):
         self.assertIn(
             (REPO_ROOT / "scripts" / "cloudflared" / "install_cloudflared.sh").resolve(),
             files,
+        )
+
+
+class ChangedFilesTests(unittest.TestCase):
+    """changed_files() is hardcoded to the real REPO_ROOT (see module docstring), so its git
+    invocation is exercised via a mocked subprocess.run rather than a synthetic git repo."""
+
+    def test_diff_filter_includes_rename_status(self):
+        # Regression: --diff-filter=ACM (Added/Copied/Modified) alone misses pure renames
+        # (git's R status) -- a file moved via `git mv` into a directory that's newly in-scope
+        # for the file-status standard (no content change at all) would silently skip the tag
+        # check here, even though the whole-repo scan (no --changed) catches it. Confirmed for
+        # real against this repo's own history: android/app/src/sharedTest/java/.../FakeDaos.kt
+        # (moved via `git mv` from src/test, TD-048) was invisible to `--changed` before this
+        # fix and visible after, with `git diff --name-only` reporting just the new path for a
+        # rename (no special output parsing needed here beyond the diff-filter itself).
+        captured: dict = {}
+
+        def fake_run(args, **kwargs):
+            captured["args"] = args
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        with unittest.mock.patch.object(cfs.subprocess, "run", side_effect=fake_run):
+            cfs.changed_files("HEAD")
+
+        diff_filter_args = [a for a in captured["args"] if a.startswith("--diff-filter=")]
+        self.assertEqual(len(diff_filter_args), 1, f"expected exactly one --diff-filter arg in {captured['args']}")
+        self.assertIn(
+            "R", diff_filter_args[0],
+            "diff-filter must include R so a pure rename (git mv) into newly in-scope territory "
+            "isn't silently skipped by --changed",
         )
 
 

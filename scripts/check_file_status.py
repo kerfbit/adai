@@ -11,8 +11,8 @@ Usage:
     ./scripts/check_file_status.py --changed HEAD~5     # custom base ref
 """
 # @adai-status: stable
-# @adai-version: 1.0.0
-# @adai-reviewed: 2026-09-11
+# @adai-version: 1.0.1
+# @adai-reviewed: 2026-09-13
 from __future__ import annotations
 
 import argparse
@@ -78,7 +78,12 @@ def in_scope_files() -> list[Path]:
 def changed_files(base_ref: str) -> list[Path]:
     try:
         out = subprocess.run(
-            ["git", "diff", "--name-only", "--diff-filter=ACM", f"{base_ref}...HEAD"],
+            # ACM (Added/Copied/Modified) alone misses pure renames (git's R status) --
+            # e.g. a `git mv` relocating a file into a directory that's newly in-scope (no
+            # content change at all) would silently skip the tag check here even though the
+            # whole-repo scan (no --changed) catches it. --name-only reports just the new path
+            # for a rename (confirmed directly), so no extra parsing is needed for the R case.
+            ["git", "diff", "--name-only", "--diff-filter=ACMR", f"{base_ref}...HEAD"],
             cwd=REPO_ROOT, capture_output=True, text=True, check=True,
         ).stdout
     except subprocess.CalledProcessError as e:
