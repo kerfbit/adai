@@ -53,7 +53,8 @@ are deliberately deferred by prior user decision, not blocked, so TD-038 itself 
 
 **Tier 4 — Sustained, low-risk test-coverage investment** (systematic, already-validated pattern,
 no open design questions): [TD-048](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
-(24-32h remaining — Compose/DI/entry-points, continuing the now-proven ViewModel-testing approach)
+(Compose UI testing now adopted, 1/12 screens done September 13, 2026 — 11 screens plus DI/entry-points
+remain, continuing the now-proven ViewModel-then-screen-testing approach)
 and [TD-037](#td-037-no-qt-test-infrastructure-for-gui-classes) (8-12h — the same shape for the
 desktop Qt GUI).
 
@@ -695,7 +696,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open (all 8 ViewModels done; Compose/DI/entry-points remain) | Android / Testing | September 7, 2026 | 24-32 hours |
+| MEDIUM | Open (8/8 ViewModels done; Compose UI testing adopted, 1/12 screens covered; DI/entry-points remain) | Android / Testing | September 7, 2026 | 24-32 hours |
 
 Description:
 62 files — Compose screens, ViewModels without tests, DI containers, `Activity`/`Application`
@@ -720,12 +721,33 @@ TD-147's own fix). `AdminAuthGate.kt` was checked and confirmed to be correctly 
 pure interface/sealed-type declaration with no behavior of its own to test, unlike the four
 mistagged ViewModels.
 
+**Update (September 13, 2026):** Compose UI testing adopted — `ConversationListScreen` (`app`
+module) is the first screen with real coverage, establishing the pattern for the remaining 11.
+This repo had no `androidx.compose.ui.test` infrastructure at all, and the existing plain-JVM
+`test`-source-set fakes (`FakeConversationDao`, `FakeApiClientProvider`, `FakeSettingsRepository`
+— used by `ChatViewModelTest`/`ChatRepositoryTest`) live in a source set instrumented
+(`androidTest`) tests can't see; rather than duplicate them, `android/app/src/sharedTest/java` was
+added and wired into both the `test` and `androidTest` source sets (`build.gradle.kts`), and the
+three fake files moved there — they depend only on plain Kotlin/coroutines and this module's own
+domain interfaces, nothing Android-framework-specific, so nothing about moving them changes what
+either source set can compile or run. `androidx.compose.ui:ui-test-junit4` (`androidTestImplementation`)
+and `ui-test-manifest` (`debugImplementation`) added, both version-pinned via the existing
+`compose-bom` platform already in use, no new version to track. `ConversationRow`'s delete
+`IconButton` gained a `Modifier.testTag("delete_conversation_$id")` — every row otherwise shares
+one `contentDescription` ("Delete conversation"), which a UI test can't disambiguate between rows
+without depending on list order. 5 tests added
+(`ConversationListScreenTest`): empty state, populated state (titles shown, placeholder hidden),
+row click → `onOpenConversation(id)`, settings icon click → `onOpenSettings()`, delete click →
+conversation removed from the rendered list, FAB click → new conversation created and opened.
+
 Action Items:
 
 - [x] Add ViewModel unit tests first (cheapest — no Compose/Activity needed) — all 8 done; see
   the per-ViewModel test files under `android/app/src/test`/`android/opsdashboard/src/test`.
-- [ ] Adopt Compose UI testing (`androidx.compose.ui.test`) for screens once ViewModels are
-  covered — ViewModels are now covered; this is the next real chunk of TD-048.
+- [x] Adopt Compose UI testing (`androidx.compose.ui.test`) for screens once ViewModels are
+  covered — infrastructure adopted; `ConversationListScreen` done as the first of 12 screens (see
+  update above). The other 11 (`ChatScreen`, `SettingsScreen` ×2, and the 9 `opsdashboard`
+  screens) remain — same pattern, not attempted in this pass.
 - [ ] `BiometricAdminAuthGate.kt` specifically: consider an instrumented test using
   `BiometricPrompt`'s test/fake authenticator support instead of leaving it permanently untested.
 - [ ] DI containers (`AppContainer.kt`/`AppViewModelProvider.kt` in both apps), `Activity`/
@@ -734,10 +756,10 @@ Action Items:
 
 Files to Modify:
 
-- ~53 remaining files under `android/app/src/main`, `android/opsdashboard/src/main`, and
+- ~52 remaining files under `android/app/src/main`, `android/opsdashboard/src/main`, and
   `android/wearcomplications/src/main` still tagged `experimental` — see
   [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md) for the exact, current list.
-- Done: the 8 ViewModel files listed above, plus `AdminUiState.kt`.
+- Done: the 8 ViewModel files, `AdminUiState.kt`, and `ConversationListScreen.kt`.
 
 ---
 

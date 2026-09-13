@@ -1,8 +1,8 @@
 package com.adai.chatbot.ui.conversationlist
 
-// @adai-status: experimental        (capped by TD-048 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: beta        (TD-048 — first Compose screen with real UI test coverage)
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-09-13
 
 
 import androidx.compose.foundation.clickable
@@ -31,6 +31,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import com.adai.chatbot.data.db.ConversationEntity
 import java.text.DateFormat
 import java.util.Date
@@ -100,7 +101,14 @@ private fun ConversationRow(
             Text(DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(conversation.updatedAt)))
         },
         trailingContent = {
-            IconButton(onClick = onDelete) {
+            IconButton(
+                onClick = onDelete,
+                // Every row's button otherwise shares the same contentDescription ("Delete
+                // conversation"), which a Compose UI test can't disambiguate between rows by
+                // content description alone — id-qualified so a test can target one specific
+                // row's delete action without depending on list order.
+                modifier = Modifier.testTag("delete_conversation_${conversation.id}"),
+            ) {
                 Icon(Icons.Filled.Delete, contentDescription = "Delete conversation")
             }
         },

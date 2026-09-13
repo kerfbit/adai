@@ -1,5 +1,10 @@
 package com.adai.chatbot.testutil
 
+// @adai-status: beta        (in-memory fakes backing both plain-JVM and instrumented tests, TD-048)
+// @adai-version: 0.1.0
+// @adai-reviewed: 2026-09-13
+
+
 import com.adai.chatbot.network.ApiClientProvider
 import com.adai.chatbot.network.ChatApiService
 import com.adai.chatbot.network.dto.ChatRequest
