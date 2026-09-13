@@ -53,7 +53,7 @@ are deliberately deferred by prior user decision, not blocked, so TD-038 itself 
 
 **Tier 4 — Sustained, low-risk test-coverage investment** (systematic, already-validated pattern,
 no open design questions): [TD-048](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
-(Compose UI testing now adopted in both modules, 5/12 screens done September 13, 2026 — 7 screens
+(Compose UI testing now adopted in both modules, 6/12 screens done September 13, 2026 — 6 screens
 remain, all in `opsdashboard`, whose debug APK can't be installed/run on this sandbox's emulator
 at all — `wear-sdk` shared-library requirement, no Wear-capable device available here — so further
 `opsdashboard` screens stay compile-verified only pending real device access; plus DI/entry-points
@@ -699,7 +699,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open (8/8 ViewModels done; Compose UI testing adopted, 5/12 screens covered; DI/entry-points remain) | Android / Testing | September 7, 2026 | 24-32 hours |
+| MEDIUM | Open (8/8 ViewModels done; Compose UI testing adopted, 6/12 screens covered; DI/entry-points remain) | Android / Testing | September 7, 2026 | 24-32 hours |
 
 Description:
 62 files — Compose screens, ViewModels without tests, DI containers, `Activity`/`Application`
@@ -835,15 +835,28 @@ covers it with precise control; duplicating it here for a screen-level test woul
 wall-clock time in the suite for coverage that already exists. `ModelListScreen.kt` promoted
 `experimental` → `beta` with the same real-device-still-unverified caveat.
 
+**Update (September 13, 2026, and further still):** `SessionListScreen` (`opsdashboard` module)
+done as the sixth screen, same compile-verified-only caveat. 7 tests added
+(`SessionListScreenTest`): no sessions shows the placeholder message; idle-only sessions (hidden
+by default) show the correct hidden-count message; clicking "Show idle" reveals the idle rows and
+flips the button label to "Hide idle"; a mix of training/idle sessions shows only the training row
+by default, with the exact `"Epoch N/M · loss X.XXXX"` formatting and `StatusBadge` label; a fetch
+failing with no prior sessions shows `FullScreenError`; clicking a row invokes
+`onOpenSession(key)`; clicking the settings icon invokes `onOpenSettings()`. The idle-session
+hide/show filtering (`visibleSessions`/`hiddenIdleCount`) lives entirely in the composable, not
+the ViewModel — only the `showIdle` flag flip itself is covered by `SessionListViewModelTest` —
+so this is genuinely new coverage, not a duplicate of existing tests. `SessionListScreen.kt`
+promoted `experimental` → `beta` with the same real-device-still-unverified caveat.
+
 Action Items:
 
 - [x] Add ViewModel unit tests first (cheapest — no Compose/Activity needed) — all 8 done; see
   the per-ViewModel test files under `android/app/src/test`/`android/opsdashboard/src/test`.
 - [x] Adopt Compose UI testing (`androidx.compose.ui.test`) for screens once ViewModels are
   covered — infrastructure adopted for both modules now; `ConversationListScreen`, `ChatScreen`,
-  `SettingsScreen` (`app` module), `GroupListScreen`, and `ModelListScreen` (`opsdashboard` module)
-  done (5 of 12; see updates above). The other 7 remain, all in `opsdashboard` (`SettingsScreen`,
-  `GroupDetailScreen`, `SessionListScreen`, `SessionDetailScreen`, `AdminScreen`,
+  `SettingsScreen` (`app` module), `GroupListScreen`, `ModelListScreen`, and `SessionListScreen`
+  (`opsdashboard` module) done (6 of 12; see updates above). The other 6 remain, all in
+  `opsdashboard` (`SettingsScreen`, `GroupDetailScreen`, `SessionDetailScreen`, `AdminScreen`,
   `ModelDetailScreen`, `TrainerScreen`) — same pattern, infra already in place. Note: this sandbox
   cannot install/run `opsdashboard`'s debug APK on a device (see `GroupListScreen`'s update above,
   `wear-sdk` shared-library requirement) — further `opsdashboard` screens will be compile-verified
@@ -856,12 +869,12 @@ Action Items:
 
 Files to Modify:
 
-- ~45 remaining files under `android/app/src/main`, `android/opsdashboard/src/main`, and
+- ~44 remaining files under `android/app/src/main`, `android/opsdashboard/src/main`, and
   `android/wearcomplications/src/main` still tagged `experimental` — see
   [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md) for the exact, current list.
 - Done: the 8 ViewModel files, `AdminUiState.kt`, `ConversationListScreen.kt`, `ChatScreen.kt`,
   `ChatInputBar.kt`, `MessageBubble.kt`, `ErrorBanner.kt`, `SettingsScreen.kt` (`app` module), and
-  `GroupListScreen.kt`/`ModelListScreen.kt` (`opsdashboard` module).
+  `GroupListScreen.kt`/`ModelListScreen.kt`/`SessionListScreen.kt` (`opsdashboard` module).
 
 ---
 
