@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.1
-// @adai-reviewed: 2026-09-12
+// @adai-version: 0.10.0
+// @adai-reviewed: 2026-09-13
 
 
 #include <functional>
@@ -96,10 +96,23 @@ class EncoderDecoderModel {
     // plain/RAG inference path's concurrent throughput; real concurrency remains available via
     // --batched-inference/--pipeline-inference, which already serialize model access safely by
     // construction (each routes every call through its own single worker thread) and are
-    // unaffected by this lock. Not held across gpu_forward()/gpu_backward()/
-    // gpu_generate_response() — those touch a disjoint set of GPU-resident members
-    // (gpu_encoder_out_ etc.) and are not reachable from chatbot_api_server's live serving path
-    // (see TD-033).
+    // unaffected by this lock. Not held across gpu_forward()/gpu_backward() — those are
+    // training-only (ChatbotTrainer's single-threaded loop), touch a disjoint set of
+    // GPU-resident members (gpu_encoder_out_ etc.), and are not reachable from
+    // chatbot_api_server's live serving path at all.
+    //
+    // TD-033 (resolved September 13, 2026): gpu_generate_response()/
+    // gpu_generate_response_with_strategy() DO now need this same lock, unlike gpu_forward()/
+    // gpu_backward() above — they're inference methods newly wired into
+    // ChatbotAPI::generate_response()'s concurrently-served path, and although neither touches
+    // this class's own gpu_encoder_out_/gpu_logits_/gpu_targets_dev_ members (they use local
+    // GPUMatrix variables instead), encoder/decoder/lm_head's own gpu_forward() calls write
+    // through to *those* sub-objects' persistent per-instance GPUState (cached_Q/cached_K/
+    // cached_head_weights/cached_attn_out — see MultiHeadAttention::gpu_forward()), which are
+    // exactly as shared and exactly as unsynchronized as the four CPU-side cached_* members
+    // above. Two concurrent chat requests hitting the GPU-resident path would race on that
+    // state the same way TD-156 found the CPU path racing — closed the same way, by holding
+    // this mutex for the full duration of each call.
     std::mutex model_mutex_;
 
 #ifdef ADAI_ENABLE_GPU
@@ -192,18 +205,54 @@ class EncoderDecoderModel {
      * just GPU-accelerated. Only the last position's logits are downloaded
      * per step. (See TD-050 for the KV-cache gap.)
      *
-     * See TD-033 in TECHNICAL_DEBT.md - this is the persistent GPU-resident
-     * decode path chatbot_api_server's live serving code should be using, but
-     * currently isn't: ChatbotAPI::generate_response() calls forward() instead
-     * (ChatbotAPI.cpp). Today this function is only reached from
-     * ChatbotTrainer's internal generation-quality backfill / BLEU-ROUGE
-     * scoring (ChatbotTrainer.cpp), never from a real chat request.
+     * TD-033 (resolved September 13, 2026): wired into ChatbotAPI::generate_response()'s
+     * plain serving path when GPUManager::is_available(). Kept as-is (uses whichever
+     * config generator already holds) for the BLEU/ROUGE-scoring caller in
+     * ChatbotTrainer.cpp this was originally built for; ChatbotAPI's own per-request
+     * strategy/temperature/top-k/top-p/beam-width needs are served by
+     * gpu_generate_response_with_strategy() below instead, which sets that config
+     * explicitly per call the way generate_response_with_strategy() does on the CPU
+     * path.
      *
      * @param input_text Input text to encode
      * @param max_length Maximum output length
      * @return Generated response text
      */
     std::string gpu_generate_response(const std::string& input_text, int max_length = 100);
+
+    /**
+     * GPU-resident equivalent of generate_response_with_strategy() — TD-033's actual
+     * serving-path entry point for ChatbotAPI::generate_response(). Explicitly sets
+     * generator's config from this call's own arguments (mirroring
+     * generate_response_with_strategy()'s TD-100 fix, so every strategy's filters see
+     * the caller's actual temperature/top_k/top_p/num_beams, not generator's
+     * previously-set state) and dispatches to the matching TextGenerator method.
+     *
+     * Unlike generate_response_with_strategy(), needs no separate KV-cache-vs-no-cache
+     * branch per strategy: gpu_decode() already recomputes the full sequence from
+     * scratch on every call regardless (no GPU KV-cache exists yet — TD-050), so a
+     * single model_fn (identical in shape to gpu_generate_response()'s own) serves
+     * every strategy, including beam search — confirmed by reading
+     * TextGenerator::generate_beam_search(): it calls model_fn once per beam per step
+     * with that beam's own token sequence and reads only the last row of whatever
+     * shape model_fn returns, the same contract every other generation method uses.
+     *
+     * @param input_text Input text to encode
+     * @param max_length Maximum output length
+     * @param strategy "greedy", "beam", "sampling"/"temperature", "topk"/"top_k", or
+     *                 "nucleus"/"top_p" (accepts both ChatbotAPI's and
+     *                 generate_response_with_strategy()'s own spellings)
+     * @param temperature Temperature for sampling strategies
+     * @param top_k Top-k value for the "topk" strategy
+     * @param top_p Nucleus threshold for the "nucleus" strategy
+     * @param num_beams Beam width for the "beam" strategy
+     * @return Generated response text
+     */
+    std::string gpu_generate_response_with_strategy(const std::string& input_text,
+                                                     int max_length = 100,
+                                                     const std::string& strategy = "greedy",
+                                                     float temperature = 1.0f, int top_k = 50,
+                                                     float top_p = 0.9f, int num_beams = 4);
 #endif
 
     /**

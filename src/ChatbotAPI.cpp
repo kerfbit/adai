@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-033 — generate_response() never uses GPU-resident decode, see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.6
-// @adai-reviewed: 2026-09-12
+// @adai-status: beta        (TD-033 resolved — see TECHNICAL_DEBT_RESOLVED.md)
+// @adai-version: 0.10.0
+// @adai-reviewed: 2026-09-13
 
 #include "ChatbotAPI.hpp"
 #include <httplib.h>
@@ -788,6 +788,22 @@ std::string ChatbotAPI::generate_response(const std::string& input,
             return future.get();
         }
 
+        // TD-033 (resolved September 13, 2026): route through the persistent GPU-resident
+        // decode path when a GPU is available, instead of unconditionally taking the plain CPU
+        // Matrix::forward() path below — whose Matrix::operator*() (Matrix.cpp) auto-dispatches
+        // per call to multiply_gpu() when GPU is available: full alloc+upload+compute+download
+        // on every matmul, every layer, every generated token. gpu_generate_response_with_
+        // strategy() accepts config.strategy's exact spellings directly (see that method's own
+        // doc comment in EncoderDecoderModel.hpp).
+#ifdef ADAI_ENABLE_GPU
+        if (adai::gpu::GPUManager::is_available()) {
+            return model_->gpu_generate_response_with_strategy(
+                input, static_cast<int>(config.max_length), config.strategy, config.temperature,
+                static_cast<int>(config.top_k), config.top_p,
+                static_cast<int>(config.beam_width));
+        }
+#endif
+
         // Create a TextGenerator with appropriate configuration
         TextGenerator::GenerationConfig gen_config;
         gen_config.max_length = static_cast<int>(config.max_length);
@@ -798,14 +814,8 @@ std::string ChatbotAPI::generate_response(const std::string& input,
 
         TextGenerator generator(gen_config, 0);  // seed=0 for random
 
-        // Create model forward function (uses encoder-decoder model)
-        // See TD-033 in TECHNICAL_DEBT.md - this always takes the plain CPU
-        // Matrix::forward() path, whose Matrix::operator*() (Matrix.cpp) auto-dispatches
-        // per call to multiply_gpu() when GPU is available: full alloc+upload+compute+
-        // download on every matmul, every layer, every generated token. The persistent
-        // GPU-resident alternative (EncoderDecoderModel::gpu_generate_response()) already
-        // exists but is currently wired only into ChatbotTrainer's internal generation-
-        // quality backfill, never into this serving path.
+        // Create model forward function (uses encoder-decoder model). CPU fallback for when no
+        // GPU is available (see the GPU-resident branch above).
         auto model_fn = [this, &input_tokens](const std::vector<int>& decoder_tokens) -> Matrix {
             // For encoder-decoder model: encode input once, then use decoder
             // This is a simplified version - in practice, you might cache encoder output

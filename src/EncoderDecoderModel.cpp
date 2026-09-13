@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.2
-// @adai-reviewed: 2026-09-12
+// @adai-version: 0.10.0
+// @adai-reviewed: 2026-09-13
 
 #include "EncoderDecoderModel.hpp"
 #include <algorithm>
@@ -857,6 +857,11 @@ float EncoderDecoderModel::gpu_evaluate_tokenized(const std::vector<int>& input_
 
 std::string EncoderDecoderModel::gpu_generate_response(const std::string& input_text,
                                                        int max_length) {
+    // TD-033: see model_mutex_'s doc comment in EncoderDecoderModel.hpp — encoder/decoder/
+    // lm_head's own gpu_forward() calls below write through to their persistent per-instance
+    // GPUState, which two concurrent callers on the same model instance would race on.
+    std::lock_guard<std::mutex> lock(model_mutex_);
+
     // Matches generate_response(): the caller's max_length is not forwarded to
     // TextGenerator, which generates up to its own, separately configured
     // config.max_length. Kept as a parameter for interface parity.
@@ -892,6 +897,86 @@ std::string EncoderDecoderModel::gpu_generate_response(const std::string& input_
     };
 
     std::vector<int> output_tokens = generator->generate(model_fn, {bos_token_id});
+    return tokenizer->decode(output_tokens, true);
+}
+
+std::string EncoderDecoderModel::gpu_generate_response_with_strategy(
+    const std::string& input_text, int max_length, const std::string& strategy,
+    float temperature, int top_k, float top_p, int num_beams) {
+    // TD-033: GPU-resident analog of generate_response_with_strategy() — see this class's
+    // header for why no separate KV-cache-vs-no-cache branch per strategy is needed here, unlike
+    // that CPU version. Locked for the same reason generate_response_with_strategy() locks
+    // (model_mutex_'s doc comment): encoder/decoder/lm_head's own gpu_forward() calls below
+    // write through to their persistent per-instance GPUState, which two concurrent callers
+    // (this is ChatbotAPI's real serving path once GPU-resident decode is wired in) would race
+    // on.
+    std::lock_guard<std::mutex> lock(model_mutex_);
+    sync_special_tokens();
+
+    // Sync generator's config from this call's own arguments, the same way
+    // generate_response_with_strategy() does (see that function's TD-100 comment) — every
+    // strategy's filters must see the caller's actual values, not whatever generator's config
+    // last happened to hold.
+    {
+        TextGenerator::GenerationConfig synced_config = generator->get_config();
+        synced_config.max_length = max_length;
+        synced_config.temperature = temperature;
+        synced_config.top_k = top_k;
+        synced_config.top_p = top_p;
+        synced_config.num_beams = num_beams;
+        generator->set_config(synced_config);
+    }
+
+    // Normalize strategy name — accepts both ChatbotAPI's spellings ("temperature", "top_k")
+    // and generate_response_with_strategy()'s own ("sampling", "topk", hyphenated forms).
+    std::string normalized_strategy = strategy;
+    if (normalized_strategy == "temperature") {
+        normalized_strategy = "sampling";
+    } else if (normalized_strategy == "top_k" || normalized_strategy == "top-k") {
+        normalized_strategy = "topk";
+    } else if (normalized_strategy == "top_p" || normalized_strategy == "top-p") {
+        normalized_strategy = "nucleus";
+    }
+
+    std::vector<int> input_tokens = tokenizer->encode(input_text, false);
+
+    // Encode once on GPU; read-only input to every decode step below.
+    adai::gpu::GPUMatrix gpu_encoder_out = encoder->gpu_encode(input_tokens);
+
+    // Identical in shape to gpu_generate_response()'s own model_fn — see this class's header
+    // comment for why one model_fn serves every strategy here, including beam search.
+    auto model_fn = [this, &gpu_encoder_out](const std::vector<int>& tokens) -> Matrix {
+        adai::gpu::GPUMatrix dec_out = decoder->gpu_decode(tokens, gpu_encoder_out);
+        adai::gpu::GPUMatrix logits = lm_head->gpu_forward(dec_out);
+
+        const int tgt = static_cast<int>(tokens.size());
+        std::vector<float> last_row(vocab_size);
+        adai::gpu::matrix_download_gpu(logits.device_ptr() + (tgt - 1) * vocab_size,
+                                       last_row.data(), vocab_size);
+
+        Matrix last_logits(1, vocab_size);
+        for (int v = 0; v < vocab_size; ++v) {
+            last_logits.data[0][v] = last_row[v];
+        }
+        return last_logits;
+    };
+
+    std::vector<int> output_tokens;
+    if (normalized_strategy == "greedy") {
+        output_tokens = generator->generate_greedy(model_fn, {bos_token_id});
+    } else if (normalized_strategy == "beam") {
+        output_tokens = generator->generate_beam_search(model_fn, {bos_token_id});
+    } else if (normalized_strategy == "sampling") {
+        output_tokens = generator->generate_sampling(model_fn, {bos_token_id}, temperature);
+    } else if (normalized_strategy == "topk") {
+        output_tokens = generator->generate_top_k(model_fn, {bos_token_id}, top_k);
+    } else {
+        // Default to nucleus sampling (including explicit "nucleus" strategy) — matches
+        // ChatbotAPI::generate_response()'s own default-branch semantics exactly, since that's
+        // this method's actual caller.
+        output_tokens = generator->generate_nucleus(model_fn, {bos_token_id}, top_p);
+    }
+
     return tokenizer->decode(output_tokens, true);
 }
 

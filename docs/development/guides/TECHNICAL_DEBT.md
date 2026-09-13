@@ -34,10 +34,9 @@ blocked on this in the first place (its routing work doesn't touch attention mat
 
 **Tier 2 — Contained, high-confidence wins** (proven patterns or small isolated scope, no design
 ambiguity, can start immediately regardless of Tier 1's outcome):
-- [TD-033](#td-033-chatbot_api_server-inference-never-uses-persistent-gpu-resident-decode) (6-8h)
-  — routes an already-built GPU-resident decode path into real chat serving; a genuine latency win
-  independent of TD-050 (still O(n²) per generation without a KV-cache, but eliminates the
-  per-matmul alloc/upload/download overhead today).
+- [TD-033](#td-033-chatbot_api_server-inference-never-uses-persistent-gpu-resident-decode) —
+  wired in and verified September 13, 2026 (code + concurrency fix + tests); only the before/after
+  latency benchmark remains, blocked on real GPU hardware not available in this dev environment.
 - [TD-053](#td-053-chatbotclis-save-and-load-commands-are-non-functional-everywhere) (6-10h) — a
   currently-published doc actively misleads users about a working feature; small, two clear
   options (implement or formally scope out).
@@ -310,7 +309,7 @@ Context: added alongside `gpu_evaluate()` and `gpu_generate_response()` (July 20
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | GPU / Inference / Performance | September 7, 2026 | 6-8 hours |
+| MEDIUM | Open — wired in and verified September 13, 2026; before/after benchmark not performed (no GPU hardware in this environment) | GPU / Inference / Performance | September 7, 2026 | 6-8 hours |
 
 Description:
 Originally filed as "Matrix GPU Dispatch Doesn't Use Persistent GPUMatrix Residency," on the claim that nothing in the training/inference hot path calls `to_gpu()`/`from_gpu()` and that TD-003's persistent-residency win was never realized outside code that explicitly opts in. That claim is only half true, and the half that's false changes where the fix belongs — this entry replaces it with the verified scope.
@@ -325,19 +324,71 @@ Related: TD-050 (GPU-Resident KV-Cache) covers a different problem inside `gpu_g
 
 Discovered during the per-file production-readiness rollout (September 7, 2026) — see [file-status-standard.md](file-status-standard.md); corrected same day after tracing both GPU backends end-to-end.
 
+**Wired in September 13, 2026.** `ChatbotAPI::generate_response()`'s plain path now checks
+`GPUManager::is_available()` and, when true, calls a new
+`EncoderDecoderModel::gpu_generate_response_with_strategy()` instead of building the CPU
+`model_fn`/`TextGenerator` path — added alongside the existing `gpu_generate_response()` (kept
+unchanged for its original BLEU/ROUGE-scoring caller in `ChatbotTrainer.cpp`) rather than
+extending it, since `ChatbotAPI` needs per-request `strategy`/`temperature`/`top_k`/`top_p`/
+`num_beams`, which the original method never took as parameters (it relied on whatever config
+`generator` already held).
+
+Confirmed by reading `TextGenerator.cpp` directly (not merely assumed) that a single model_fn
+returning only the last position's logits — the same shape `gpu_generate_response()`'s model_fn
+already used — is the correct, sufficient contract for *every* strategy: `generate_greedy()`,
+`generate_sampling()`, `generate_top_k()`, `generate_nucleus()`, and `generate_beam_search()`
+(called once per beam per step, with that beam's own token sequence) all extract only
+`logits.rows - 1`'s row from whatever model_fn returns. This means, unlike the CPU
+`generate_response_with_strategy()`, the GPU-resident version needs no separate KV-cache-vs-
+no-cache branch per strategy — `gpu_decode()` already recomputes the full sequence from scratch
+every call regardless (no GPU KV-cache exists yet — TD-050), so one model_fn serves every
+strategy uniformly, including beam search.
+
+**Found and fixed a real concurrency gap while doing this wiring — not merely a hypothetical
+one.** `model_mutex_` (added by TD-156 to serialize `forward()`/`backward()`/`generate_response()`/
+`generate_response_with_strategy()` against `chatbot_api_server`'s real concurrent request
+threads) was deliberately *not* held across `gpu_forward()`/`gpu_backward()`/
+`gpu_generate_response()`, justified at the time by "not reachable from chatbot_api_server's live
+serving path" — a justification this exact fix removes. Confirmed by reading
+`MultiHeadAttention::gpu_forward()` (and the analogous `EncoderBlock`/`LayerNorm`/`FeedForward`
+methods it calls into): `encoder->gpu_encode()`/`decoder->gpu_decode()`/`lm_head->gpu_forward()`
+all write through to those sub-objects' own persistent per-instance `GPUState` (`cached_Q`,
+`cached_K`, `cached_head_weights`, `cached_attn_out`) — exactly as shared and exactly as
+unsynchronized as the four CPU-side `cached_*` members TD-156 already found racing. Two
+concurrent chat requests hitting the newly-wired GPU-resident path would have reintroduced that
+same class of heap-corruption bug. Fixed by holding `model_mutex_` for the full duration of both
+`gpu_generate_response()` and the new `gpu_generate_response_with_strategy()` — the same fix
+shape TD-156 used, applied before this bug could ever manifest for real rather than after.
+
 Action Items:
 
-- [ ] Give `ChatbotAPI::generate_response()`'s `model_fn` a GPU-resident branch that calls `EncoderDecoderModel::gpu_generate_response()` (or an equivalent single-pass GPU decode) when `GPUManager::is_available()`, instead of unconditionally calling `model_->forward()`.
-- [ ] Confirm `TextGenerator`'s beam/top-k/nucleus/temperature strategies all work against the GPU-resident decode path — `gpu_generate_response()` was built for BLEU/ROUGE scoring and may only need to support greedy today; verify before switching real callers over, extend if needed.
-- [ ] Benchmark chat response latency before/after on a representative prompt/`max_length` on both CUDA and SYCL builds to confirm the per-token round-trip elimination.
-- [ ] Leave `Matrix::multiply_gpu()` and siblings as-is for callers that only have CPU `Matrix` data and no persistent-residency alternative — this item is about routing the identified hot path around them, not removing them.
+- [x] Give `ChatbotAPI::generate_response()`'s `model_fn` a GPU-resident branch that calls a
+  GPU-resident decode path when `GPUManager::is_available()`, instead of unconditionally calling
+  `model_->forward()`.
+- [x] Confirm `TextGenerator`'s beam/top-k/nucleus/temperature strategies all work against the
+  GPU-resident decode path — confirmed by reading `TextGenerator.cpp` directly; see above.
+- [ ] Benchmark chat response latency before/after on a representative prompt/`max_length` on
+  both CUDA and SYCL builds to confirm the per-token round-trip elimination — **not performed**:
+  this dev environment has the CUDA (`nvcc`) and Intel oneAPI (`icpx`) toolchains but no physical
+  GPU device in either configuration (confirmed directly — see TD-041's writeup for the same
+  finding), so `GPUManager::is_available()` never becomes true here and the new branch, while
+  compiled and reachable, has never actually executed end-to-end on real hardware. Needs the
+  user's own GPU-equipped machine.
+- [x] Leave `Matrix::multiply_gpu()` and siblings as-is for callers that only have CPU `Matrix`
+  data and no persistent-residency alternative — untouched; this item routed the identified hot
+  path around them rather than removing them.
 
-Files to Modify:
+Files Modified:
 
-- `src/ChatbotAPI.cpp` / `src/ChatbotAPI.hpp` — `generate_response()`'s `model_fn`
-- `src/EncoderDecoderModel.cpp` / `src/EncoderDecoderModel.hpp` — adjust `gpu_generate_response()` for a non-training caller if needed (e.g. strategy support)
-- `src/TextGenerator.cpp` / `src/TextGenerator.hpp` — verify/extend strategy support against the GPU-resident decode path
-- `tests/` — coverage confirming identical output between the CPU and GPU-resident serving paths
+- `src/ChatbotAPI.cpp` — `generate_response()`'s plain path, GPU-resident branch
+- `src/EncoderDecoderModel.hpp` / `src/EncoderDecoderModel.cpp` — new
+  `gpu_generate_response_with_strategy()`; `model_mutex_` now held across both GPU generation
+  methods (concurrency fix, see above)
+- `tests/chatbotapi_test.cpp` — two new tests (functional correctness across every strategy;
+  concurrent-request safety mirroring TD-156's own regression test), both `GTEST_SKIP()`-guarded
+  on `GPUManager::is_available()`/`initialize()` for the reason given in the benchmark item above
+  — real, permanent coverage for whenever a GPU is available, not exercised by this session's own
+  verification run
 
 ---
 

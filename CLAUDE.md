@@ -107,7 +107,7 @@ Two mutually exclusive backends, selected at compile time:
 
 Both backends expose the same interface through `src/gpu/MatrixGPU.hpp` (`GPUMatrix`, `GPUMemory<T>`, `GPUManager`). `Matrix.cpp` dispatches to GPU when `GPUManager::is_available()` and matrix dimensions meet a minimum threshold.
 
-**TD-033** (active): `chatbot_api_server` inference never uses persistent GPU-resident decode. Training already has full GPU residency — `ChatbotTrainer::gpu_forward()`/`gpu_backward()` chain `GPUMatrix` end-to-end via TD-003's `to_gpu()`/`from_gpu()`. But `ChatbotAPI::generate_response()` still calls the plain CPU `forward()` path, so `Matrix::multiply_gpu()` uploads, computes, and downloads on every call, for every matmul, for every generated token — the one caller that most needs the existing `EncoderDecoderModel::gpu_generate_response()` persistent-residency path has never been wired to use it.
+**TD-033** (mostly resolved September 13, 2026): `ChatbotAPI::generate_response()`'s plain path now checks `GPUManager::is_available()` and routes through a new `EncoderDecoderModel::gpu_generate_response_with_strategy()` — a persistent-residency decode path supporting every generation strategy — instead of unconditionally calling the plain CPU `forward()` path. `model_mutex_` is now held across it (and the pre-existing `gpu_generate_response()`), closing a concurrency gap this exact wiring would otherwise have reintroduced (encoder/decoder/lm_head's own `gpu_forward()` calls write through to persistent per-instance `GPUState`, shared across concurrent chat requests — the same class of bug TD-156 fixed for the CPU path). Only the before/after latency benchmark remains open, blocked on real GPU hardware not available in the environment this was developed in.
 
 **`GPU_STRATEGY`** (config key): `background` (low-priority queue, default) or `full` (normal priority).
 
@@ -279,7 +279,7 @@ trusting a `grep TD-NNN` alone. Currently active items:
 |---|---|
 | **TD-059** (HIGH) | Fixed September 13, 2026: `MultiHeadAttention`/`CrossAttention` now genuinely split into per-head slices on both CPU and GPU paths (previously every self- and cross-attention call was single-head attention over the full `d_model` width with a mismatched softmax scale). Retraining every existing checkpoint under the new math is still outstanding — needs the user's own training infrastructure, not available in a dev session. |
 | TD-050 | GPU-resident KV-cache for autoregressive generation — CPU cache has a known correctness bug; no GPU cache exists at all |
-| **TD-033** | `chatbot_api_server` inference never uses the persistent GPU-resident decode path — training already does |
+| **TD-033** | Mostly resolved — wired in and concurrency-safe; only the before/after GPU latency benchmark remains, blocked on real hardware |
 | **TD-034** | `PPOOptimizer::train()`'s ratio/KL terms are a placeholder, and `ValueFunction::update()` never writes its computed gradient into the weight update — the value function's weights never change |
 | TD-014 | Missing standalone tooling (quantization, eval, data-prep binaries) |
 | TD-006 | Fill-in-the-Middle (FIM) training data generation not implemented |

@@ -155,8 +155,8 @@ None — every in-scope file carries a tag.
 | `scripts/test_signal_handling.sh` | beta | 0.7.2 | 2026-09-11 | TD-044 |
 | `scripts/verify_cli_parallel.sh` | beta | 0.6.2 | 2026-09-11 | TD-044 |
 | `scripts/verify_gui_parallel.sh` | beta | 0.6.2 | 2026-09-11 | TD-044 |
-| `src/ChatbotAPI.cpp` | beta | 0.9.6 | 2026-09-12 | TD-033 |
-| `src/ChatbotAPI.hpp` | beta | 0.9.6 | 2026-09-12 | TD-033 |
+| `src/ChatbotAPI.cpp` | beta | 0.10.0 | 2026-09-13 | TD-033 |
+| `src/ChatbotAPI.hpp` | beta | 0.9.7 | 2026-09-13 | TD-033 |
 | `src/ChatbotApiServerArgs.cpp` | experimental | 0.6.0 | 2026-09-12 | — |
 | `src/ChatbotApiServerArgs.hpp` | experimental | 0.5.0 | 2026-09-12 | — |
 | `src/ChatbotGUI.cpp` | beta | 0.7.0 | 2026-09-10 | TD-037 |
@@ -169,8 +169,8 @@ None — every in-scope file carries a tag.
 | `src/DatasetManagerArgs.hpp` | experimental | 0.1.0 | 2026-09-11 | — |
 | `src/Decoder.cpp` | beta | 0.9.1 | 2026-09-10 | TD-050 |
 | `src/Decoder.hpp` | beta | 0.9.1 | 2026-09-10 | TD-050 |
-| `src/EncoderDecoderModel.cpp` | beta | 0.9.2 | 2026-09-12 | TD-050 |
-| `src/EncoderDecoderModel.hpp` | beta | 0.9.1 | 2026-09-12 | TD-050 |
+| `src/EncoderDecoderModel.cpp` | beta | 0.10.0 | 2026-09-13 | TD-050 |
+| `src/EncoderDecoderModel.hpp` | beta | 0.10.0 | 2026-09-13 | TD-050 |
 | `src/FtpDataServer.hpp` | beta | 0.9.0 | 2026-09-13 | TD-040 |
 | `src/IncrementalTrainer.cpp` | beta | 0.9.1 | 2026-09-12 | TD-039 |
 | `src/IncrementalTrainer.hpp` | beta | 0.9.1 | 2026-09-12 | TD-039 |

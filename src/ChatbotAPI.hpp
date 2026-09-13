@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-033 — generate_response() never uses GPU-resident decode, see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.6
-// @adai-reviewed: 2026-09-12
+// @adai-status: beta        (TD-033 resolved — see TECHNICAL_DEBT_RESOLVED.md)
+// @adai-version: 0.9.7
+// @adai-reviewed: 2026-09-13
 
 
 #include <chrono>

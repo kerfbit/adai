@@ -1226,6 +1226,82 @@ TEST_F(ChatbotAPITest, PlainPathConcurrentRequestsDoNotCorruptTheHeap) {
     }
 }
 
+#ifdef ADAI_ENABLE_GPU
+// TD-033: confirms the GPU-resident decode path (ChatbotAPI::generate_response() ->
+// EncoderDecoderModel::gpu_generate_response_with_strategy()) actually gets exercised and
+// produces valid, non-crashing output for every strategy ChatbotAPI::GenerationConfig::strategy
+// can hold, on a real device. Skips gracefully when no physical GPU is present -- confirmed via
+// tests/gpuutils_test.cpp (TD-041) that this codebase's own gpu/sycl presets cannot be assumed
+// to have real hardware attached; asserting real generation here unconditionally would make this
+// test fail everywhere except on a machine that happens to have a GPU, rather than verify
+// anything.
+TEST_F(ChatbotAPITest, GpuResidentPathProducesValidOutputForEveryStrategy) {
+    if (!adai::gpu::GPUManager::is_available() && !adai::gpu::GPUManager::initialize()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+
+    ChatbotAPI::GenerationConfig config;
+    config.max_length = 5;
+
+    for (const std::string& strategy : {"greedy", "beam", "temperature", "top_k", "nucleus"}) {
+        config.strategy = strategy;
+        std::string response;
+        EXPECT_NO_THROW(response = call_generate_response("hello world", config))
+            << "strategy=" << strategy;
+    }
+}
+
+// TD-033: GPU-resident analog of PlainPathConcurrentRequestsDoNotCorruptTheHeap above --
+// confirms EncoderDecoderModel::gpu_generate_response_with_strategy()'s model_mutex_ lock
+// (added alongside this same fix; see that method's own doc comment in
+// EncoderDecoderModel.hpp for why it's needed: encoder/decoder/lm_head's own gpu_forward()
+// calls write through to persistent per-instance GPUState that two concurrent callers would
+// otherwise race on, the same class of bug TD-156 fixed for the CPU cached_* members). Not
+// verified via revert-confirm-fail against a real crash the way TD-156's own regression test
+// was: with no physical GPU present in any environment this codebase has been developed in so
+// far, GPUManager::is_available() never becomes true, so the GPU-resident branch in
+// ChatbotAPI::generate_response() is never actually taken regardless of whether the lock is
+// present -- there is nothing to race on without real hardware. Skips gracefully for the same
+// reason as the test above; left in place as permanent coverage for whenever a GPU is available.
+TEST_F(ChatbotAPITest, GpuResidentPathConcurrentRequestsDoNotCrash) {
+    if (!adai::gpu::GPUManager::is_available() && !adai::gpu::GPUManager::initialize()) {
+        GTEST_SKIP() << "No GPU device present.";
+    }
+
+    ChatbotAPI::GenerationConfig config;
+    config.max_length = 5;
+    config.strategy = "greedy";
+
+    constexpr int kNumRounds = 20;
+    constexpr int kNumThreads = 6;
+
+    for (int round = 0; round < kNumRounds; ++round) {
+        std::vector<std::thread> threads;
+        std::vector<bool> threw(kNumThreads, false);
+        std::vector<std::string> errors(kNumThreads);
+
+        for (int i = 0; i < kNumThreads; ++i) {
+            threads.emplace_back([&, i]() {
+                try {
+                    call_generate_response("hello world", config);
+                } catch (const std::exception& e) {
+                    threw[i] = true;
+                    errors[i] = e.what();
+                }
+            });
+        }
+        for (auto& t : threads) {
+            t.join();
+        }
+
+        for (int i = 0; i < kNumThreads; ++i) {
+            EXPECT_FALSE(threw[i]) << "round " << round << ", concurrent request " << i
+                                   << " threw unexpectedly: " << errors[i];
+        }
+    }
+}
+#endif  // ADAI_ENABLE_GPU
+
 // ============================================================================
 // Main
 // ============================================================================
