@@ -191,7 +191,7 @@ None — every in-scope file carries a tag.
 | `src/MnsServerArgs.hpp` | experimental | 0.1.0 | 2026-09-11 | — |
 | `src/MultiHeadAttention.cpp` | beta | 0.10.0 | 2026-09-13 | TD-050 |
 | `src/MultiHeadAttention.hpp` | beta | 0.10.0 | 2026-09-13 | TD-050 |
-| `src/PPOOptimizer.hpp` | experimental | 0.2.0 | 2026-09-10 | TD-034 |
+| `src/PPOOptimizer.hpp` | experimental | 0.3.0 | 2026-09-13 | TD-034 |
 | `src/ParallelDataLoader.hpp` | beta | 0.5.1 | 2026-09-12 | TD-064 |
 | `src/PortableSocket.hpp` | beta | 0.1.0 | 2026-09-13 | TD-161 |
 | `src/PortableTime.hpp` | beta | 0.1.0 | 2026-09-12 | TD-160 |

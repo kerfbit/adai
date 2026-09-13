@@ -280,7 +280,6 @@ trusting a `grep TD-NNN` alone. Currently active items:
 | **TD-059** (HIGH) | Fixed September 13, 2026: `MultiHeadAttention`/`CrossAttention` now genuinely split into per-head slices on both CPU and GPU paths (previously every self- and cross-attention call was single-head attention over the full `d_model` width with a mismatched softmax scale). Retraining every existing checkpoint under the new math is still outstanding — needs the user's own training infrastructure, not available in a dev session. |
 | TD-050 | GPU-resident KV-cache for autoregressive generation — CPU cache has a known correctness bug; no GPU cache exists at all |
 | **TD-033** | Mostly resolved — wired in and concurrency-safe; only the before/after GPU latency benchmark remains, blocked on real hardware |
-| **TD-034** | `PPOOptimizer::train()`'s ratio/KL terms are a placeholder, and `ValueFunction::update()` never writes its computed gradient into the weight update — the value function's weights never change |
 | TD-014 | Missing standalone tooling (quantization, eval, data-prep binaries) |
 | TD-006 | Fill-in-the-Middle (FIM) training data generation not implemented |
 | TD-162 | `IntegratedInferenceEngine`/`BatchedInferenceEngine` fulfill a request's `std::promise` before finishing that request's mutex-guarded stats update — a client's `f.wait_for()`/`f.get()` can race `get_stats()` against the still-in-flight counter increment on another thread. Confirmed via a real flake (`total_requests` undercounted by one under full-suite `ctest -j8`). |

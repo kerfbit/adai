@@ -4,6 +4,80 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-034: PPOOptimizer's Core Update Loop Is a Placeholder, Not Real PPO
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 13, 2026 | `src/PPOOptimizer.hpp`, `tests/phase5_test.cpp`, `examples/Phase5Examples.cpp` | A caller-supplied policy log-prob callback for a real clipped-ratio/KL, plus a real `ValueFunction` backward pass ported from `RewardModel`'s existing pattern |
+
+Summary:
+Two independent placeholders made `PPOOptimizer`/`ValueFunction` silently not do what they
+claimed. `PPOOptimizer::update()`'s minibatch loop set `new_log_prob = batch_old_log_probs[i]`
+(a copy of the old value) instead of recomputing it under the current policy, so the clipped-ratio
+term `exp(new_log_prob - old_log_prob)` always evaluated to `exp(0) = 1` — not PPO's clipped
+surrogate objective at all — and `approx_kl` was hardcoded to `0.0f`, so the `> 1.5 * kl_target`
+early-stop condition could never fire. Separately, `ValueFunction::update()` computed a real
+per-sample gradient (`float grad = 2.0f * error / states.size();`) and then discarded it without
+ever writing it into `weight_grads`/`bias_grads` — the weight-update loop below ran against
+gradients that were still exactly zero, so `update()` returned a real, plausible-looking MSE loss
+while never changing a single weight; the value function was permanently frozen at its random
+initialization no matter how many times `update()` was called.
+
+Fixing the ratio/KL placeholder surfaced a real architectural gap: `PPOOptimizer` holds no
+reference to an actual policy model at all (states/actions are opaque encodings/token ids, not
+tied to any one model class — the class's own doc comment even showed a `model` constructor
+argument that was never part of the real 3-argument constructor), so "recompute under the current
+policy" had no existing forward-pass path to call. Resolved with a caller-supplied callback
+(`PPOOptimizer::PolicyLogProbFn`), matching `TextGenerator::ModelForwardFn`'s identical
+shape/rationale elsewhere in this codebase — this keeps `PPOOptimizer` decoupled from any one
+concrete model type. The callback only evaluates log-probabilities; as before this fix, applying
+`policy_loss` to update an actual policy's weights remains the caller's own responsibility once a
+real policy class is wired in (a separate, not-yet-started integration decision, tracked under
+TD-038's still-open `RewardModel`-wiring item, now unblocked by this fix).
+
+Changes Made:
+- Added `PPOOptimizer::PolicyLogProbFn` (`std::function<float(const std::vector<float>&, int)>`)
+  and changed `update()`'s signature to `update(Trajectory&, const PolicyLogProbFn&)`, throwing
+  `std::invalid_argument` on a null callback. Recomputes `new_log_prob` via the callback for a
+  real ratio, and accumulates a k1 approx-KL estimate
+  (`http://joschu.net/blog/kl-approx.html`: `mean(old_log_prob - new_log_prob)`) across each
+  epoch's minibatches, checked once per epoch at the same point the original hardcoded check was.
+- Gave `ValueFunction` the same caching-forward + `backward()` pattern `RewardModel` already used
+  correctly in `RewardModel.hpp` (identical MLP shape: ReLU hidden layers, linear output):
+  `predict()` now caches `activations_`/`pre_activations_` (and validates input dimension, which
+  it previously didn't), and a new `backward()` recomputes `predict()` for its exact input before
+  backpropagating a sample's output gradient through every layer via standard MLP backprop,
+  accumulating into the caller's `weight_grads`/`bias_grads`. `update()` now calls `backward()`
+  per sample instead of computing and discarding `grad`, and rejects an empty batch.
+- Fixed the class-level example usage doc comment, which showed a `PPOOptimizer ppo(model,
+  reward_model, config);` constructor call that never matched the real 3-argument signature, and
+  updated `@adai-status`/`@adai-version`/`@adai-reviewed`.
+- Updated the one real call site outside tests, `examples/Phase5Examples.cpp` (a demo with no
+  real policy model of its own), to pass a placeholder callback with an explanatory comment.
+- Added 6 new tests to `tests/phase5_test.cpp`: `UpdateRejectsNullPolicyCallback`,
+  `RatioReflectsLiveCurrentPolicyNotJustOldLogProb` (directly targets the ratio placeholder: two
+  otherwise-identical `update()` calls differing only in what the callback returns must produce
+  different `policy_loss`), `KLEarlyStopCanActuallyTrigger` (proves the early-stop condition can
+  now actually fire, previously impossible), and for `ValueFunction`:
+  `UpdateActuallyTrainsOnToyRegression` (loss decreases and prediction moves toward a fixed
+  target over 51 calls), `UpdateRejectsMismatchedSizes`, `UpdateRejectsEmptyBatch`.
+
+Verification:
+- ✅ Confirmed via revert-confirm-fail on all three fixed placeholders independently: (1)
+  commenting out `backward()`'s call site left `UpdateActuallyTrainsOnToyRegression` failing on
+  all three of its assertions (loss unchanged, prediction unchanged, error not reduced), passing
+  again once restored; (2) reverting `new_log_prob` to `batch_old_log_probs[i]` left
+  `RatioReflectsLiveCurrentPolicyNotJustOldLogProb` failing (both losses identical), passing again
+  once restored; (3) reverting `approx_kl` to hardcoded `0.0f` left `KLEarlyStopCanActuallyTrigger`
+  failing (ran all 40 calls across 10 epochs instead of stopping after the first), passing again
+  once restored.
+- ✅ `phase5Tests`: 34/34 pass (28 pre-existing + 6 new).
+- ✅ Full project build (`cmake --build . -j$(nproc)`) clean, including `examples/Phase5Examples.cpp`'s
+  updated call site.
+- ✅ Full `ctest -j8`: 128/128 pass.
+
+---
+
 ### TD-053: ChatbotCLI's /save and /load Commands Are Non-Functional Everywhere
 
 | Resolution Date | Component | Resolved By |

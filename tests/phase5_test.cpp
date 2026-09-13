@@ -110,8 +110,86 @@ TEST(PPOOptimizerTest, TrajectoryUpdate) {
         traj.add_step(state, i, 0.5f, -0.1f, 0.3f);
     }
 
-    float loss = ppo.update(traj);
+    float loss = ppo.update(
+        traj, [](const std::vector<float>&, int) { return -0.1f; });
     EXPECT_TRUE(std::isfinite(loss));
+}
+
+TEST(PPOOptimizerTest, UpdateRejectsNullPolicyCallback) {
+    RewardModel reward_model(10, {8, 1});
+    PPOConfig config;
+    PPOOptimizer ppo(&reward_model, config, 10);
+
+    Trajectory traj;
+    traj.add_step(std::vector<float>(10, 0.1f), 0, 0.5f, -0.1f, 0.3f);
+
+    EXPECT_THROW(ppo.update(traj, PPOOptimizer::PolicyLogProbFn{}), std::invalid_argument);
+}
+
+TEST(PPOOptimizerTest, RatioReflectsLiveCurrentPolicyNotJustOldLogProb) {
+    // Directly targets TD-034's core placeholder bug: before the fix, new_log_prob was always
+    // a copy of the trajectory's recorded old_log_prob, so ratio = exp(new - old) was always
+    // exp(0) = 1 no matter what a real current policy would have said -- policy_loss was
+    // therefore blind to what current_policy_log_prob returns. Disabling clipping (a very large
+    // clip_epsilon) isolates the ratio's effect on the loss unambiguously.
+    RewardModel reward_model(4, {4, 1});
+    PPOConfig config;
+    config.num_epochs = 1;
+    config.batch_size = 8;
+    config.clip_epsilon = 100.0f;
+
+    Trajectory traj;
+    std::vector<float> state(4, 0.1f);
+    for (int i = 0; i < 8; i++) {
+        traj.add_step(state, 0, 1.0f, /*log_prob=*/-1.0f, /*value=*/0.0f);
+    }
+
+    PPOOptimizer ppo_same_policy(&reward_model, config, 4);
+    float loss_same_policy = ppo_same_policy.update(
+        traj, [](const std::vector<float>&, int) { return -1.0f; });  // matches old_log_prob exactly
+
+    PPOOptimizer ppo_shifted_policy(&reward_model, config, 4);
+    float loss_shifted_policy = ppo_shifted_policy.update(
+        traj, [](const std::vector<float>&, int) { return -2.0f; });  // a genuinely different policy
+
+    EXPECT_TRUE(std::isfinite(loss_same_policy));
+    EXPECT_TRUE(std::isfinite(loss_shifted_policy));
+    EXPECT_NE(loss_same_policy, loss_shifted_policy)
+        << "policy_loss must depend on the live policy's log-prob, not just echo old_log_prob; "
+           "before TD-034's fix both values above were always identical (ratio pinned to 1)";
+}
+
+TEST(PPOOptimizerTest, KLEarlyStopCanActuallyTrigger) {
+    // Before TD-034's fix, approx_kl was hardcoded to 0.0f, so `approx_kl > 1.5 * kl_target`
+    // could never be true regardless of how large a policy shift the callback reports --
+    // num_epochs would always run to completion. A tiny kl_target plus a huge log-prob shift
+    // should trip early-stop after the very first epoch.
+    RewardModel reward_model(4, {4, 1});
+    PPOConfig config;
+    config.num_epochs = 10;
+    config.batch_size = 4;
+    config.kl_target = 0.01f;
+
+    PPOOptimizer ppo(&reward_model, config, 4);
+
+    Trajectory traj;
+    std::vector<float> state(4, 0.1f);
+    for (int i = 0; i < 4; i++) {
+        traj.add_step(state, 0, 1.0f, /*log_prob=*/-1.0f, /*value=*/0.0f);
+    }
+
+    int policy_calls = 0;
+    ppo.update(traj, [&](const std::vector<float>&, int) {
+        policy_calls++;
+        return -5.0f;  // wildly different from the recorded -1.0f old_log_prob
+    });
+
+    // One minibatch (4 steps) per epoch; 10 full epochs would be 40 calls. Early-stop after
+    // the first epoch should leave this far short of that.
+    EXPECT_LT(policy_calls, 4 * config.num_epochs)
+        << "KL early-stop should have fired after the first epoch given such a large policy "
+           "shift, but ran all "
+        << config.num_epochs << " epochs instead";
 }
 
 TEST(PPOOptimizerTest, ConfigUpdate) {
@@ -126,6 +204,63 @@ TEST(PPOOptimizerTest, ConfigUpdate) {
     config2.clip_epsilon = 0.1f;
     ppo.set_config(config2);
     EXPECT_EQ(ppo.get_config().clip_epsilon, 0.1f);
+}
+
+// ============================================================================
+// ValueFunction Tests (TD-034)
+// ============================================================================
+
+TEST(ValueFunctionTest, UpdateActuallyTrainsOnToyRegression) {
+    // Before TD-034's fix, update()'s per-sample gradient was computed and immediately
+    // discarded, so predict() never changed no matter how many times update() ran -- it
+    // returned a real, plausible-looking loss value while leaving every weight permanently
+    // frozen at its random initialization. Trains toward a fixed target away from the
+    // network's initial output and checks both that loss decreases and that the prediction
+    // actually moves.
+    ValueFunction vf(4, {8, 1});
+
+    std::vector<std::vector<float>> states;
+    std::vector<float> targets;
+    for (int i = 0; i < 8; i++) {
+        states.push_back({0.1f * i, 0.2f, -0.1f, 0.05f * i});
+        targets.push_back(2.0f);
+    }
+
+    float initial_pred = vf.predict(states[0]);
+    float loss_first = vf.update(states, targets, 0.05f);
+
+    float loss_last = loss_first;
+    for (int iter = 0; iter < 50; iter++) {
+        loss_last = vf.update(states, targets, 0.05f);
+    }
+
+    float final_pred = vf.predict(states[0]);
+    float initial_error = std::fabs(initial_pred - 2.0f);
+    float final_error = std::fabs(final_pred - 2.0f);
+
+    EXPECT_TRUE(std::isfinite(loss_last));
+    EXPECT_LT(loss_last, loss_first)
+        << "loss should decrease under real gradient descent (was a permanent no-op before "
+           "TD-034's fix)";
+    EXPECT_NE(final_pred, initial_pred)
+        << "weights should actually move -- before TD-034's fix, predict() never changed no "
+           "matter how many times update() ran";
+    EXPECT_LT(final_error, initial_error * 0.5f)
+        << "prediction should move substantially closer to the target after 51 update() calls";
+}
+
+TEST(ValueFunctionTest, UpdateRejectsMismatchedSizes) {
+    ValueFunction vf(4, {4, 1});
+    std::vector<std::vector<float>> states = {std::vector<float>(4, 0.1f)};
+    std::vector<float> targets = {1.0f, 2.0f};
+    EXPECT_THROW(vf.update(states, targets, 0.01f), std::invalid_argument);
+}
+
+TEST(ValueFunctionTest, UpdateRejectsEmptyBatch) {
+    ValueFunction vf(4, {4, 1});
+    std::vector<std::vector<float>> states;
+    std::vector<float> targets;
+    EXPECT_THROW(vf.update(states, targets, 0.01f), std::invalid_argument);
 }
 
 // ============================================================================

@@ -5,12 +5,12 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** September 13, 2026
-**Total Items:** 13
+**Total Items:** 12
 **High Priority:** 1
 **Medium Priority:** 6
-**Low Priority:** 6
+**Low Priority:** 5
 **Future Enhancements:** 19
-**Resolved Items:** 152
+**Resolved Items:** 153
 **Deferred Decisions:** 2
 
 ## Recommended Execution Order
@@ -43,11 +43,13 @@ ambiguity, can start immediately regardless of Tier 1's outcome):
   Its remaining doc-verification item continues as
   [TD-164](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass).
 
-**Tier 3 — Unblocks chained work:** [TD-034](#td-034-ppooptimizers-core-update-loop-is-a-placeholder-not-real-ppo)
-(10-16h) fixes PPO/`ValueFunction` for real and is the only thing blocking
+**Tier 3 — Unblocked, ready to pick up:** TD-034 resolved September 13, 2026 (real policy-ratio/KL
+via a caller-supplied log-prob callback, plus a real `ValueFunction` backward pass) — see
+[archive](../archive/TECHNICAL_DEBT_RESOLVED.md#td-034-ppooptimizers-core-update-loop-is-a-placeholder-not-real-ppo).
+That was the only thing blocking
 [TD-038](#td-038-advanced-features-tested-in-isolation-never-wired-into-a-shipped-binary)'s last
-open item (`RewardModel` wiring) — the other two open TD-038 items (LoRA/Quantization) are
-deliberately deferred by prior user decision, not blocked, so TD-038 itself needs no separate pick.
+open item (`RewardModel` wiring), now unblocked — the other two open TD-038 items (LoRA/Quantization)
+are deliberately deferred by prior user decision, not blocked, so TD-038 itself needs no separate pick.
 
 **Tier 4 — Sustained, low-risk test-coverage investment** (systematic, already-validated pattern,
 no open design questions): [TD-048](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
@@ -86,7 +88,6 @@ here — a standalone benchmark binary, not gating anything, not part of `ctest`
   - [TD-033: chatbot_api_server Inference Never Uses Persistent GPU-Resident Decode](#td-033-chatbot_api_server-inference-never-uses-persistent-gpu-resident-decode)
   - [TD-014: LLM Operations and Training Tooling Suite](#td-014-llm-operations-and-training-tooling-suite)
   - [TD-006: Fill-in-the-Middle (FIM) Training Data Generation](#td-006-fill-in-the-middle-fim-training-data-generation)
-  - [TD-034: PPOOptimizer's Core Update Loop Is a Placeholder, Not Real PPO](#td-034-ppooptimizers-core-update-loop-is-a-placeholder-not-real-ppo)
   - [TD-037: No Qt Test Infrastructure for GUI Classes](#td-037-no-qt-test-infrastructure-for-gui-classes)
   - [TD-038: Advanced Features Tested in Isolation, Never Wired Into a Shipped Binary](#td-038-advanced-features-tested-in-isolation-never-wired-into-a-shipped-binary)
   - [TD-039: Core Training/Metrics Classes Too Large and Fast-Moving to Certify Stable](#td-039-core-trainingmetrics-classes-too-large-and-fast-moving-to-certify-stable)
@@ -94,7 +95,7 @@ here — a standalone benchmark binary, not gating anything, not part of `ctest`
   - [TD-048: Android UI/DI/Entry-Point Classes Are Untested and Unreleased](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
   - [TD-163: AttentionHeadBenchmark Hangs Indefinitely](#td-163-attentionheadbenchmark-hangs-indefinitely)
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
-- [Resolved Items](#resolved-items) (152 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+- [Resolved Items](#resolved-items) (153 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -476,64 +477,6 @@ Evaluation:
 
 ---
 
-### TD-034: PPOOptimizer's Core Update Loop Is a Placeholder, Not Real PPO
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | RLHF / PPOOptimizer | September 7, 2026 | 10-16 hours |
-
-Description:
-`PPOOptimizer::train()`'s minibatch loop never recomputes log-probabilities under the current
-policy: `float new_log_prob = batch_old_log_probs[i];  // Placeholder` makes the clipped-ratio term
-`exp(new_log_prob - batch_old_log_probs[i])` always evaluate to `exp(0) = 1`, so the policy loss is
-not actually PPO's clipped surrogate objective — it silently trains as something else. The KL-based
-early-stopping check has the same problem: `float approx_kl = 0.0f;  // Placeholder` means the
-`> 1.5 * kl_target` early-stop condition can never fire. `PPOOptimizer` is not wired into any
-shipped binary (`phase5_test.cpp` exercises it in isolation only — see
-[PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md)), so this has no effect on any current
-training path, but it would silently misbehave the moment RLHF fine-tuning is wired up.
-
-**A second, more severe bug in the same file, found during a later re-audit (September 8, 2026):**
-`ValueFunction::update()` allocates `weight_grads`/`bias_grads` (zero-initialized), then its
-per-sample loop computes a local `grad` variable (`// Backward pass (simplified...)`) that is
-**never written into `weight_grads`/`bias_grads` at all** — the variable is computed and
-immediately discarded. The weight-update loop below then does
-`weights_[i](r, c) -= learning_rate * weight_grads[i](r, c)` against gradients that are still
-exactly zero. Net effect: `update()` returns a real, correctly-computed MSE loss (so a caller
-would see a plausible-looking "loss" value) but **never changes a single weight** — the value
-function is permanently frozen at its random initialization, no matter how many times `update()`
-is called. This is strictly worse than the ratio/KL issue above (that one degrades to a wrong-but-
-nonzero gradient signal; this one is a complete no-op) and was missed on the first pass because
-the file's `@adai-status` tag already flagged it as broken for the ratio/KL reason — nobody
-checked whether *every* function in the file had the same problem.
-
-Discovered during the per-file production-readiness rollout (September 7, 2026) — see
-[file-status-standard.md](file-status-standard.md).
-
-Action Items:
-
-- [ ] Recompute `new_log_prob` via a real forward pass of the current policy over `batch_states[i]`,
-  not a copy of `batch_old_log_probs[i]`.
-- [ ] Track actual per-minibatch KL divergence between old and current policy for `approx_kl`
-  instead of the hardcoded `0.0f`.
-- [ ] Implement `ValueFunction::update()`'s backward pass for real: accumulate `grad` into
-  `weight_grads`/`bias_grads` via actual backprop through the network's cached activations,
-  instead of computing and discarding it.
-- [ ] Add a test that trains `ValueFunction` on a toy regression target and asserts its weights
-  actually move and its loss actually decreases over iterations — the current test suite doesn't
-  catch a permanently-frozen value function because it likely only checks that `update()` runs
-  without crashing and returns a plausible loss value.
-- [ ] Add a test that trains `PPOOptimizer` end-to-end on a toy environment/reward and asserts the
-  policy actually changes (a no-op ratio would previously have passed any test that doesn't check
-  this).
-
-Files to Modify:
-
-- `src/PPOOptimizer.hpp`
-- `tests/phase5_test.cpp`
-
----
-
 ### TD-037: No Qt Test Infrastructure for GUI Classes
 
 | Priority | Status | Component | Created | Effort Estimate |
@@ -587,7 +530,8 @@ test suites used mock/null types shaped to match the (buggy) production code rat
 dependency — exactly the failure mode this TD's title describes, confirmed in the most direct way
 possible. `LoRA`/`Quantization` were explicitly scoped out after a user decision (both would
 require touching `MultiHeadAttention`'s forward pass for any real integration — the same
-foundational-class risk class as TD-059); `RewardModel` remains genuinely blocked on TD-034.
+foundational-class risk class as TD-059); `RewardModel` was genuinely blocked on TD-034, resolved
+September 13, 2026 — the wiring itself is still a separate, not-yet-started integration decision.
 
 Action Items:
 
@@ -621,7 +565,9 @@ Action Items:
   needs a scoping decision: a standalone checkpoint-manipulation CLI tool (lower risk) vs. actually
   modifying `MultiHeadAttention`'s forward pass for real inference/training integration (the real
   thing, higher risk).
-- [ ] `RewardModel`: still blocked on TD-034's PPO fix landing first.
+- [ ] `RewardModel`: unblocked now that TD-034's PPO fix has landed — still needs its own
+  integration decision (how `chatbot_api_server`/`incremental_trainer` would drive an actual RLHF
+  fine-tuning pass), not attempted as part of TD-034 itself.
 - [x] Add an integration test per wired feature proving the wiring works end-to-end — done for all
   five above (ChatbotAPI-level integration tests plus live end-to-end verification against a real
   running `chatbot_api_server` process for each).
@@ -876,7 +822,7 @@ Files to Modify:
 
 ## Resolved Items
 
-152 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+153 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements

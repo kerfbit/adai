@@ -1,13 +1,14 @@
 #ifndef PPO_OPTIMIZER_HPP
 #define PPO_OPTIMIZER_HPP
 
-// @adai-status: experimental        (capped by TD-034 — policy-ratio and KL early-stop are hardcoded placeholders, see TECHNICAL_DEBT.md)
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: experimental        (TD-034 resolved — real ratio/KL/ValueFunction backprop; still not wired into any shipped binary)
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-09-13
 
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <stdexcept>
 #include <vector>
 #include "Matrix.hpp"
@@ -97,6 +98,8 @@ class ValueFunction {
     std::vector<int> layer_dims_;
     std::vector<Matrix> weights_;
     std::vector<std::vector<float>> biases_;
+    std::vector<Matrix> activations_;      // Cached activations from the last predict() call
+    std::vector<Matrix> pre_activations_;  // Cached pre-activation (before ReLU) values
 
     float relu(float x) const {
         return std::max(0.0f, x);
@@ -137,32 +140,102 @@ class ValueFunction {
 
     /**
      * @brief Predict value for a state
+     *
+     * Also caches per-layer activations/pre-activations for backward() -- every call
+     * (including the ones update() makes just to compute a prediction) refreshes the cache to
+     * match its own input, mirroring RewardModel::forward()'s identical caching contract in
+     * RewardModel.hpp.
      */
     float predict(const std::vector<float>& state) {
+        if ((int)state.size() != input_dim_) {
+            throw std::invalid_argument("State dimension mismatch");
+        }
+
+        activations_.clear();
+        pre_activations_.clear();
+
         Matrix activation(1, input_dim_);
         for (int i = 0; i < input_dim_; i++) {
             activation(0, i) = state[i];
         }
+        activations_.push_back(activation);
 
         for (size_t i = 0; i < weights_.size(); i++) {
             Matrix z = activation * weights_[i];
             for (int j = 0; j < z.cols; j++) {
                 z(0, j) += biases_[i][j];
             }
+            pre_activations_.push_back(z);
 
+            Matrix act(1, z.cols);
             if (i < weights_.size() - 1) {
                 // Apply ReLU activation
-                Matrix next_activation(1, z.cols);
                 for (int j = 0; j < z.cols; j++) {
-                    next_activation(0, j) = relu(z(0, j));
+                    act(0, j) = relu(z(0, j));
                 }
-                activation = next_activation;
             } else {
-                activation = z;
+                act = z;
             }
+            activations_.push_back(act);
+            activation = act;
         }
 
         return activation(0, 0);
+    }
+
+    /**
+     * @brief Backward pass: accumulate one sample's real gradients into weight_grads/bias_grads
+     *
+     * TD-034 fix: previously update() computed a local `grad` and discarded it, so this network
+     * never actually learned. Ported directly from RewardModel::backward()'s pattern in
+     * RewardModel.hpp (identical MLP shape: ReLU hidden layers, linear output) -- recomputes
+     * predict(state) first so activations_/pre_activations_ are guaranteed to match this exact
+     * input (a minibatch interleaves many samples through the same cache), then backprops
+     * output_grad (dL/d(predicted value)) through every layer via standard MLP backprop:
+     * ReLU derivative gating on hidden layers, identity on the linear output layer.
+     * Accumulates into the caller's weight_grads/bias_grads rather than applying an update
+     * directly, so update() can sum over a whole minibatch before taking a single step.
+     *
+     * @param state Input that will be re-predicted to populate the activation cache
+     * @param output_grad Gradient of the loss with respect to this sample's predicted value
+     * @param weight_grads Accumulated weight gradients (same shape as weights_)
+     * @param bias_grads Accumulated bias gradients (same shape as biases_)
+     */
+    void backward(const std::vector<float>& state, float output_grad,
+                  std::vector<Matrix>& weight_grads, std::vector<std::vector<float>>& bias_grads) {
+        predict(state);  // repopulate activations_/pre_activations_ for this exact input
+
+        Matrix grad(1, 1);
+        grad(0, 0) = output_grad;
+
+        for (int i = (int)weights_.size() - 1; i >= 0; i--) {
+            Matrix grad_pre_act(1, pre_activations_[i].cols);
+            if (i < (int)weights_.size() - 1) {
+                // Hidden layer: gate by the ReLU derivative at this layer's pre-activation
+                for (int j = 0; j < grad.cols; j++) {
+                    grad_pre_act(0, j) = grad(0, j) * relu_derivative(pre_activations_[i](0, j));
+                }
+            } else {
+                // Output layer: linear, derivative is 1
+                grad_pre_act = grad;
+            }
+
+            // dL/dW = activation_in^T * grad_pre_act
+            Matrix activation_T = activations_[i].transpose();
+            Matrix dW = activation_T * grad_pre_act;
+            for (int r = 0; r < dW.rows; r++) {
+                for (int c = 0; c < dW.cols; c++) {
+                    weight_grads[i](r, c) += dW(r, c);
+                }
+            }
+            for (int j = 0; j < grad_pre_act.cols; j++) {
+                bias_grads[i][j] += grad_pre_act(0, j);
+            }
+
+            // Propagate gradient to this layer's input for the next iteration back
+            Matrix weights_T = weights_[i].transpose();
+            grad = grad_pre_act * weights_T;
+        }
     }
 
     /**
@@ -178,6 +251,9 @@ class ValueFunction {
         if (states.size() != targets.size()) {
             throw std::invalid_argument("States and targets size mismatch");
         }
+        if (states.empty()) {
+            throw std::invalid_argument("Cannot update on an empty batch");
+        }
 
         float total_loss = 0.0f;
 
@@ -189,21 +265,16 @@ class ValueFunction {
             bias_grads.push_back(std::vector<float>(biases_[i].size(), 0.0f));
         }
 
-        // Compute gradients for each sample
+        // Compute and accumulate real gradients for each sample (TD-034 fix)
         for (size_t idx = 0; idx < states.size(); idx++) {
             float pred = predict(states[idx]);
             float error = pred - targets[idx];
             total_loss += error * error;
 
-            // TODO: See TECHNICAL_DEBT.md TD-034 - grad is computed here but never written into
-            // weight_grads/bias_grads below, so the weight-update loop always applies a zero
-            // gradient — update() returns a real loss value but never actually changes a weight.
-            // Backward pass (simplified - assumes caching of activations)
-            // In practice, would need full backprop implementation
+            // dL/d(pred) for per-sample squared error (pred - target)^2, pre-divided by the
+            // batch size so the accumulated gradients are already the batch mean.
             float grad = 2.0f * error / states.size();
-
-            // Update accumulation (simplified)
-            // Full implementation would backprop through all layers
+            backward(states[idx], grad, weight_grads, bias_grads);
         }
 
         // Update weights
@@ -235,17 +306,41 @@ class ValueFunction {
  * config.clip_epsilon = 0.2;
  * config.learning_rate = 1e-5;
  *
- * PPOOptimizer ppo(model, reward_model, config);
+ * PPOOptimizer ppo(&reward_model, config, state_dim);
  *
  * // Training loop
  * for (int iter = 0; iter < 1000; iter++) {
  *     Trajectory traj = collect_rollout(model, prompts);
- *     float loss = ppo.update(traj);
+ *     // Evaluates the live policy's log-prob of an action in a state -- see
+ *     // PPOOptimizer::PolicyLogProbFn's doc comment for why this is a callback.
+ *     float loss = ppo.update(traj, [&model](const std::vector<float>& state, int action) {
+ *         return model.log_prob(state, action);
+ *     });
  *     std::cout << "PPO Loss: " << loss << std::endl;
  * }
  * @endcode
  */
 class PPOOptimizer {
+   public:
+    /**
+     * @brief Current policy's log-probability of taking `action` in `state`
+     *
+     * TD-034: PPOOptimizer::update() needs to recompute each trajectory step's log-probability
+     * under the *current* (post-previous-update) policy to form a real clipped-ratio term --
+     * before this fix, `new_log_prob` was just a copy of the old value, making
+     * `exp(new_log_prob - old_log_prob)` always evaluate to `exp(0) = 1`. PPOOptimizer itself
+     * holds no policy reference (Trajectory's states/actions are opaque encodings/token ids, not
+     * tied to any one model class -- the class-level doc's own former example even showed a
+     * `model` constructor argument that was never actually part of the real signature), so a
+     * callback is how the caller's real policy gets plugged in, matching
+     * TextGenerator::ModelForwardFn's identical shape/rationale in TextGenerator.hpp. This
+     * callback does not itself update any weights -- as before this fix, `update()` only ever
+     * mutates its own internal ValueFunction; applying policy_loss to the policy's own weights
+     * remains the caller's responsibility once a real policy class is wired in (see TD-038's
+     * still-open RewardModel-wiring item, which depends on that separate integration).
+     */
+    using PolicyLogProbFn = std::function<float(const std::vector<float>& state, int action)>;
+
    private:
     PPOConfig config_;
     RewardModel* reward_model_;
@@ -356,11 +451,17 @@ class PPOOptimizer {
      * @brief Perform PPO update on trajectory
      *
      * @param trajectory Collected rollout data
+     * @param current_policy_log_prob Evaluates the live policy's log-probability of each
+     *   trajectory step's action -- see PolicyLogProbFn's doc comment for why this is a
+     *   callback rather than a stored model reference.
      * @return Average policy loss
      */
-    float update(Trajectory& trajectory) {
+    float update(Trajectory& trajectory, const PolicyLogProbFn& current_policy_log_prob) {
         if (trajectory.length() == 0) {
             throw std::invalid_argument("Empty trajectory");
+        }
+        if (!current_policy_log_prob) {
+            throw std::invalid_argument("current_policy_log_prob callback must be set");
         }
 
         // Compute advantages and returns
@@ -373,34 +474,43 @@ class PPOOptimizer {
 
         // PPO epochs
         for (int epoch = 0; epoch < config_.num_epochs; epoch++) {
+            // Accumulated across every minibatch this epoch, checked once per epoch below --
+            // same cadence the original (placeholder) code used.
+            float epoch_kl_sum = 0.0f;
+            int epoch_kl_count = 0;
+
             // Minibatch training
             for (size_t start = 0; start < trajectory.length(); start += config_.batch_size) {
                 size_t end = std::min(start + config_.batch_size, trajectory.length());
 
                 // Extract minibatch
                 std::vector<std::vector<float>> batch_states;
+                std::vector<int> batch_actions;
                 std::vector<float> batch_advantages;
                 std::vector<float> batch_returns;
                 std::vector<float> batch_old_log_probs;
 
                 for (size_t i = start; i < end; i++) {
                     batch_states.push_back(trajectory.states[i]);
+                    batch_actions.push_back(trajectory.actions[i]);
                     batch_advantages.push_back(advantages[i]);
                     batch_returns.push_back(returns[i]);
                     batch_old_log_probs.push_back(trajectory.log_probs[i]);
                 }
 
-                // Compute policy loss
+                // Compute policy loss against the live policy (TD-034 fix)
                 float policy_loss = 0.0f;
                 for (size_t i = 0; i < batch_states.size(); i++) {
-                    // TODO: See TECHNICAL_DEBT.md TD-034 - new_log_prob is never recomputed
-                    // under the current policy, so ratio always evaluates to exp(0) = 1 and
-                    // this isn't PPO's clipped surrogate objective. Needs a real forward pass
-                    // of the current policy over batch_states[i].
-                    float new_log_prob = batch_old_log_probs[i];  // Placeholder
+                    float new_log_prob = current_policy_log_prob(batch_states[i], batch_actions[i]);
                     float ratio = std::exp(new_log_prob - batch_old_log_probs[i]);
 
                     policy_loss += compute_policy_loss(ratio, batch_advantages[i]);
+
+                    // k1 approx-KL estimator (http://joschu.net/blog/kl-approx.html): a cheap,
+                    // unbiased-in-expectation estimate of KL(old || new) computable from
+                    // log-prob samples alone, without needing the full action distribution.
+                    epoch_kl_sum += (batch_old_log_probs[i] - new_log_prob);
+                    epoch_kl_count++;
                 }
                 policy_loss /= batch_states.size();
 
@@ -413,10 +523,9 @@ class PPOOptimizer {
                 num_updates++;
             }
 
-            // TODO: See TECHNICAL_DEBT.md TD-034 - approx_kl is hardcoded to 0.0f, so the
-            // early-stop condition below can never fire. Needs real per-minibatch KL
-            // divergence between old and current policy.
-            float approx_kl = 0.0f;  // Placeholder
+            // TD-034 fix: real per-epoch mean KL divergence, replacing the hardcoded 0.0f that
+            // could never trip this early-stop condition.
+            float approx_kl = epoch_kl_count > 0 ? epoch_kl_sum / epoch_kl_count : 0.0f;
             if (approx_kl > 1.5f * config_.kl_target) {
                 break;
             }

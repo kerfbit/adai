@@ -128,7 +128,12 @@ void example_rlhf_training() {
         trajectory.add_step(state, action, reward, log_prob, value);
     }
     
-    float policy_loss = ppo.update(trajectory);
+    // This example has no real policy model to query -- echoing each step's own recorded
+    // log_prob back is a stand-in for a real forward pass (see PPOOptimizer::PolicyLogProbFn's
+    // doc comment in PPOOptimizer.hpp for why this is a caller-supplied callback).
+    float policy_loss = ppo.update(trajectory, [](const std::vector<float>&, int) {
+        return -0.1f;
+    });
     std::cout << "Policy loss: " << policy_loss << "\n";
     std::cout << "Trajectory length: " << trajectory.length() << " steps\n";
     
