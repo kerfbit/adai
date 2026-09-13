@@ -35,7 +35,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [TD-048: Android UI/DI/Entry-Point Classes Are Untested and Unreleased](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
   - [TD-053: ChatbotCLI's /save and /load Commands Are Non-Functional Everywhere](#td-053-chatbotclis-save-and-load-commands-are-non-functional-everywhere)
   - [TD-161: FtpDataServer.hpp Uses Raw POSIX Sockets, No Windows/Winsock Port](#td-161-ftpdataserverhpp-uses-raw-posix-sockets-no-windowswinsock-port)
-  - [TD-162: IntegratedInferenceEngineFunctionalTest.ConcurrentRequestsDoNotCrashTheProcess Flakes Under Full-Suite ctest -j8](#td-162-integratedinferenceenginefunctionaltestconcurrentrequestsdonotcrashtheprocess-flakes-under-full-suite-ctest--j8)
+  - [TD-162: Promise-Fulfilled-Before-Stats-Updated Race in IntegratedInferenceEngine and BatchedInferenceEngine](#td-162-promise-fulfilled-before-stats-updated-race-in-integratedinferenceengine-and-batchedinferenceengine)
 - [Resolved Items](#resolved-items) (148 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -765,11 +765,11 @@ Files to Modify:
 
 ---
 
-### TD-162: IntegratedInferenceEngineFunctionalTest.ConcurrentRequestsDoNotCrashTheProcess Flakes Under Full-Suite ctest -j8
+### TD-162: Promise-Fulfilled-Before-Stats-Updated Race in IntegratedInferenceEngine and BatchedInferenceEngine
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open — reproduced once under -j8, passes reliably standalone, likely cause identified but not confirmed | Testing / Concurrency | September 12, 2026 | 2-4 hours |
+| MEDIUM | Open — one instance observed flaking under -j8, a second found by code search but not yet observed to fail any test, likely cause identified but not confirmed | Testing / Concurrency | September 12, 2026 | 3-5 hours |
 
 Description:
 Observed once during a full `ctest -j8` run (127 tests) while verifying TD-064's fix:
@@ -797,14 +797,15 @@ noticed under, **this item's own "contention" framing should not be assumed corr
 investigation** — it is exactly as unconfirmed as those two were at filing time.
 
 Likely cause (not confirmed): `IntegratedInferenceEngine`'s worker thread fulfills each request's
-promise *before* it updates `stats_.total_requests` under `stats_mutex_`:
+promise *before* it updates `stats_.total_requests` under `stats_mutex_`
+(`src/IntegratedInferenceEngine.hpp:519-536`):
 
 ```cpp
-req.result_promise.set_value(results[i]);        // line ~528: client can wake up here
+req.result_promise.set_value(results[i]);        // line 527: client can wake up here
 ...
 {
     std::lock_guard<std::mutex> lock(stats_mutex_);
-    stats_.total_requests++;                     // line ~537: counter incremented here
+    stats_.total_requests++;                     // line 535: counter incremented here
     ...
 }
 ```
@@ -821,6 +822,35 @@ missed. This would explain both the off-by-exactly-one (only the last-to-resolve
 can plausibly be missed this way) and the contention-sensitivity — but it is a hypothesis from
 reading the code once, not a confirmed diagnosis.
 
+**Codebase-wide search for the same pattern (September 12, 2026):** grepped every file using
+`std::promise`/`std::future` for request/response delivery (`src/BatchedInferenceEngine.hpp`,
+`src/IntegratedInferenceEngine.hpp`, `src/PipelineInferenceEngine.hpp` — the only three) and
+checked each `set_value()` call site's ordering relative to any stats update in the same
+function:
+
+- **`BatchedInferenceEngine.hpp` — a second, previously-unnoticed instance of the same shape**
+  (`process_batch()`, lines 477-491): `batch[i].result.set_value(results[i]);` (line 479) runs
+  *before* the token-count stat update (`stats_.total_tokens_processed += tokens.size();`, line
+  486, under `stats_mutex_`) for that same request. Unlike the `IntegratedInferenceEngine`
+  instance above, no currently-committed test happens to check `total_tokens_processed`
+  immediately after concurrent completions in a way that would expose this — it hasn't been
+  observed to fail anything yet, but the ordering gap is real and identical in shape. (Note:
+  `stats_.total_batches`/`stats_.total_requests` in this same file are incremented at the *start*
+  of `process_batch()`, lines 430-432, before any generation or `set_value()` happens at all — those
+  two fields are not exposed to this race.)
+- **`PipelineInferenceEngine.hpp` — checked, confirmed clean.** Its one success-path
+  `set_value()` (line 407) is preceded by its matching stats update (`stats_.decoder_processed`/
+  `avg_decoder_time_ms`/`avg_total_latency_ms`/`avg_throughput_rps`, lines 388-404) in the correct
+  order — the client cannot observe the future as ready before those fields are updated.
+  `stats_.total_requests` in this file is incremented in `submit_batch()`, before the request is
+  even queued for processing (line 477), so it's likewise never exposed to this race. Recorded
+  here so this file isn't re-audited from scratch if this item resurfaces.
+- Also checked `PerformanceProfiler.hpp`'s `PROFILE_SCOPE` mechanism (used by `ChatbotAPI.cpp`)
+  for the same general class of "signal completion across a thread boundary before finishing
+  bookkeeping" risk: it's RAII-based and records timing on scope-exit within the *same* call
+  frame and thread as the function returning to its caller, so there's no cross-thread handoff for
+  a race to occur across — not applicable here.
+
 Action Items:
 
 - [ ] Reproduce in a fast, targeted harness (e.g. this test run repeatedly alongside a few other
@@ -831,18 +861,23 @@ Action Items:
   after the last future resolves (e.g. have the test also wait until
   `get_stats().total_requests == kNumRequests` with its own short timeout, or fix the engine to
   update stats *before* calling `set_value()`) and check whether that alone eliminates the flake.
-- [ ] Once a fix (or confirmed non-fix) is identified, verify via the standard revert-confirm-fail
-  cycle before closing.
-- [ ] While investigating, also check whether the same fulfill-before-stats-update ordering
-  affects any of `IntegratedInferenceEngine`'s other stats fields (`total_batches`,
-  `total_tokens_generated`, `avg_latency_ms`, etc.), all updated in the same critical section
-  after the same `set_value()` calls.
+- [ ] Apply the same fix shape to `BatchedInferenceEngine::process_batch()`'s
+  `total_tokens_processed` update (move it before `set_value()`, or otherwise make it
+  observable-safe) even though no test currently exercises the gap — add a regression test that
+  would have caught it (check `total_tokens_processed` immediately after all submitted futures in
+  a batch resolve).
+- [ ] Once a fix (or confirmed non-fix) is identified for each engine, verify via the standard
+  revert-confirm-fail cycle before closing.
+- [ ] While investigating `IntegratedInferenceEngine`, also check whether the same
+  fulfill-before-stats-update ordering affects its other stats fields updated in the same critical
+  section after `set_value()` (`total_tokens_generated`, `avg_latency_ms`, etc.).
 
 Files to Modify:
 
 - `src/IntegratedInferenceEngine.hpp` (pending confirmation)
-- `tests/integratedinferenceengine_test.cpp` (regression test, once the exact interleaving is
-  understood)
+- `src/BatchedInferenceEngine.hpp` (pending confirmation)
+- `tests/integratedinferenceengine_test.cpp` / `tests/batchedinferenceengine_test.cpp` (regression
+  tests, once the exact interleaving for each is understood)
 
 ---
 
