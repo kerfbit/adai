@@ -53,7 +53,7 @@ are deliberately deferred by prior user decision, not blocked, so TD-038 itself 
 
 **Tier 4 — Sustained, low-risk test-coverage investment** (systematic, already-validated pattern,
 no open design questions): [TD-048](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
-(Compose UI testing now adopted in both modules, 4/12 screens done September 13, 2026 — 8 screens
+(Compose UI testing now adopted in both modules, 5/12 screens done September 13, 2026 — 7 screens
 remain, all in `opsdashboard`, whose debug APK can't be installed/run on this sandbox's emulator
 at all — `wear-sdk` shared-library requirement, no Wear-capable device available here — so further
 `opsdashboard` screens stay compile-verified only pending real device access; plus DI/entry-points
@@ -699,7 +699,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open (8/8 ViewModels done; Compose UI testing adopted, 4/12 screens covered; DI/entry-points remain) | Android / Testing | September 7, 2026 | 24-32 hours |
+| MEDIUM | Open (8/8 ViewModels done; Compose UI testing adopted, 5/12 screens covered; DI/entry-points remain) | Android / Testing | September 7, 2026 | 24-32 hours |
 
 Description:
 62 files — Compose screens, ViewModels without tests, DI containers, `Activity`/`Application`
@@ -821,20 +821,33 @@ emulator or real device should run `opsdashboard`'s `connectedDebugAndroidTest` 
 once to close this gap — nothing here is expected to fail, but it hasn't actually been observed
 passing on a device the way the three `app`-module screens have.
 
+**Update (September 13, 2026, yet further still):** `ModelListScreen` (`opsdashboard` module) done
+as the fifth screen, same compile-verified-only caveat as `GroupListScreen` above (this sandbox
+still can't install/run `opsdashboard` on a device). 5 tests added (`ModelListScreenTest`): no
+models registered shows the placeholder message; multiple models each show their own row with
+role (including the blank-role → `"(none)"` fallback) and state; a fetch failing with no prior
+models shows `FullScreenError`; clicking a row invokes `onOpenModel(name)`; clicking the settings
+icon invokes `onOpenSettings()`. Deliberately did not attempt `ModelListViewModelTest`'s own
+"a failed *second* poll keeps the first poll's models" scenario at the UI level — that test needs
+virtual time control (`advanceTimeBy` past the 8s poll interval) a real-device instrumented test
+can't do without an actual ~9s real-time wait, and the existing ViewModel-level test already
+covers it with precise control; duplicating it here for a screen-level test would cost real
+wall-clock time in the suite for coverage that already exists. `ModelListScreen.kt` promoted
+`experimental` → `beta` with the same real-device-still-unverified caveat.
+
 Action Items:
 
 - [x] Add ViewModel unit tests first (cheapest — no Compose/Activity needed) — all 8 done; see
   the per-ViewModel test files under `android/app/src/test`/`android/opsdashboard/src/test`.
 - [x] Adopt Compose UI testing (`androidx.compose.ui.test`) for screens once ViewModels are
   covered — infrastructure adopted for both modules now; `ConversationListScreen`, `ChatScreen`,
-  `SettingsScreen` (`app` module), and `GroupListScreen` (`opsdashboard` module) done (4 of 12;
-  see updates above). The other 8 remain, all in `opsdashboard` (`SettingsScreen`,
+  `SettingsScreen` (`app` module), `GroupListScreen`, and `ModelListScreen` (`opsdashboard` module)
+  done (5 of 12; see updates above). The other 7 remain, all in `opsdashboard` (`SettingsScreen`,
   `GroupDetailScreen`, `SessionListScreen`, `SessionDetailScreen`, `AdminScreen`,
-  `ModelListScreen`, `ModelDetailScreen`, `TrainerScreen`) — same pattern, infra already in place.
-  Note: this sandbox cannot install/run `opsdashboard`'s debug APK on a device (see
-  `GroupListScreen`'s update above, `wear-sdk` shared-library requirement) — further
-  `opsdashboard` screens will be compile-verified only here too, pending real Wear-capable device
-  access to actually run any of them.
+  `ModelDetailScreen`, `TrainerScreen`) — same pattern, infra already in place. Note: this sandbox
+  cannot install/run `opsdashboard`'s debug APK on a device (see `GroupListScreen`'s update above,
+  `wear-sdk` shared-library requirement) — further `opsdashboard` screens will be compile-verified
+  only here too, pending real Wear-capable device access to actually run any of them.
 - [ ] `BiometricAdminAuthGate.kt` specifically: consider an instrumented test using
   `BiometricPrompt`'s test/fake authenticator support instead of leaving it permanently untested.
 - [ ] DI containers (`AppContainer.kt`/`AppViewModelProvider.kt` in both apps), `Activity`/
@@ -843,12 +856,12 @@ Action Items:
 
 Files to Modify:
 
-- ~46 remaining files under `android/app/src/main`, `android/opsdashboard/src/main`, and
+- ~45 remaining files under `android/app/src/main`, `android/opsdashboard/src/main`, and
   `android/wearcomplications/src/main` still tagged `experimental` — see
   [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md) for the exact, current list.
 - Done: the 8 ViewModel files, `AdminUiState.kt`, `ConversationListScreen.kt`, `ChatScreen.kt`,
   `ChatInputBar.kt`, `MessageBubble.kt`, `ErrorBanner.kt`, `SettingsScreen.kt` (`app` module), and
-  `GroupListScreen.kt` (`opsdashboard` module).
+  `GroupListScreen.kt`/`ModelListScreen.kt` (`opsdashboard` module).
 
 ---
 
