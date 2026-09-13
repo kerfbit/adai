@@ -179,10 +179,21 @@ TEST(ThreadSafeBatchQueueTest, ConcurrentPushPop) {
 // queue permanently, blocking every worker thread inside its push() there —
 // and once every worker is stuck, batch_queue_ stops being refilled too, so
 // next_batch() then hangs forever as well. Fixed by pushing/popping the pair
-// as a single unit through one queue. These tests use a background
-// std::async + wait_for(timeout) (matching the pattern in
-// batchedinferenceengine_test.cpp) so a regression here fails loudly with a
-// timeout instead of hanging the whole test binary.
+// as a single unit through one queue.
+//
+// NextBatchDoesNotDeadlockWhenTargetsNeverDrained below drives this through a
+// background thread + wait_for(timeout), the same shape as
+// ThreadSafeBatchQueueTest.ClearWakesBlockedProducer above — see that test's
+// comment for why it's deliberately NOT std::async (a std::async future
+// blocks in its own destructor until its task finishes, which would turn a
+// reintroduced regression's timeout into the exact whole-binary hang this
+// test exists to catch instead of a clean, fast, reported failure). Unlike
+// that test, TokenBatchLoader also *references* its Dataset rather than
+// owning a copy (`const Dataset& dataset_;` above) — this fixture's own
+// `dataset` member is destroyed the moment each TestBody() returns, so an
+// abandoned background thread that outlived a timeout would dereference a
+// destroyed object through the loader otherwise. The dataset is therefore
+// heap-allocated too, alongside the loader itself.
 // ============================================================================
 
 class TokenBatchLoaderTest : public ::testing::Test {
@@ -213,7 +224,11 @@ TEST_F(TokenBatchLoaderTest, NextBatchDoesNotDeadlockWhenTargetsNeverDrained) {
     config.prefetch_factor = 2;
     config.load_targets = true;
 
-    TokenBatchLoader loader(dataset, config, tokenizer_fn);
+    // Heap-allocated and captured into the background thread by shared_ptr (not by reference) —
+    // see this section's header comment above for why both the dataset and the loader need to
+    // be heap-allocated here, not just the loader.
+    auto owned_dataset = std::make_shared<Dataset>(dataset);
+    auto loader = std::make_shared<TokenBatchLoader>(*owned_dataset, config, tokenizer_fn);
     // num_batches() (16 with this batch_size against the 80-sample TRAIN
     // split) comfortably exceeds the queue's capacity (num_workers *
     // prefetch_factor = 4), so draining a full epoch still exercises the
@@ -221,27 +236,32 @@ TEST_F(TokenBatchLoaderTest, NextBatchDoesNotDeadlockWhenTargetsNeverDrained) {
     // epoch's batch count without calling new_epoch() — going further would
     // hang by design (the workers idle-wait for a new epoch), which is
     // orthogonal to the bug this test targets.
-    const int total_batches = static_cast<int>(loader.num_batches());
+    const int total_batches = static_cast<int>(loader->num_batches());
     ASSERT_GT(total_batches, 4) << "test assumes more batches than the prefetch buffer holds";
+
+    auto count_promise = std::make_shared<std::promise<int>>();
+    std::future<int> count_ready = count_promise->get_future();
 
     // Drain a full epoch using only next_batch() — never next_target_batch()
     // — which used to permanently stall every worker thread on the
-    // (never-drained) target queue.
-    auto fut = std::async(std::launch::async, [&]() {
+    // (never-drained) target queue. Detached immediately: if this hangs, there is nothing to
+    // join, and the promise's future has ordinary (non-blocking) destructor semantics regardless
+    // of whether it was ever fulfilled.
+    std::thread([owned_dataset, loader, total_batches, count_promise]() {
         int count = 0;
         for (int i = 0; i < total_batches; ++i) {
-            auto batch = loader.next_batch();
+            auto batch = loader->next_batch();
             if (batch.has_value())
                 ++count;
         }
-        return count;
-    });
+        count_promise->set_value(count);
+    }).detach();
 
-    ASSERT_EQ(fut.wait_for(std::chrono::seconds(10)), std::future_status::ready)
+    ASSERT_EQ(count_ready.wait_for(std::chrono::seconds(10)), std::future_status::ready)
         << "next_batch() hung when next_target_batch() was never called (TD-087 regression)";
-    EXPECT_GT(fut.get(), 0);
+    EXPECT_GT(count_ready.get(), 0);
 
-    loader.stop();
+    loader->stop();
 }
 
 TEST_F(TokenBatchLoaderTest, NextBatchAndTargetBatchStayPaired) {

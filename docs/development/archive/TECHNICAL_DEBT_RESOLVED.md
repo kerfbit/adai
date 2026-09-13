@@ -4,6 +4,110 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-166: matrixgpu_td003_test.cpp Fails Outright Instead of Skipping With No Physical GPU
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 13, 2026 | `tests/matrixgpu_td003_test.cpp` | A `GPUManager::probe()` + `GTEST_SKIP()` guard at the top of every test, matching `tests/gpuutils_test.cpp`'s TD-041 pattern |
+
+Summary:
+Flagged (not fixed) as a follow-up while resolving TD-041: that investigation confirmed directly,
+in a sandbox with the CUDA (`nvcc`) and Intel oneAPI (`icpx`) toolchains installed but no physical
+GPU device, that `matrixgpu_td003_test.cpp` assumes real hardware unconditionally — every test
+fails outright rather than skipping, e.g. `C++ exception with description "cudaMalloc failed: no
+CUDA-capable device is detected" thrown in the test body.` — and deliberately wrote the new
+`gpuutils_test.cpp`/`gpuutils_stub_test.cpp` to avoid the same trap instead of also fixing this
+pre-existing file, which was out of that TD's own stated scope.
+
+Root cause: every test constructs a `GPUMatrix` via the file's own `upload()` helper, which calls
+straight into `GPUMemory`'s constructor — real device memory allocation (`cudaMalloc`/the SYCL
+equivalent) with no `GPUManager`-mediated soft-fail check in between, unlike `GPUManager`'s own
+public API (`initialize()`, etc.), which is designed to never throw merely for "no device
+present."
+
+Changes Made:
+- Added `if (!GPUManager::probe()) { GTEST_SKIP() << "No GPU device present."; }` as the first
+  statement of all 13 tests in `tests/matrixgpu_td003_test.cpp`, plus a `using
+  adai::gpu::GPUManager;` alongside the existing `GPUMatrix` one (already transitively available
+  via the file's existing `MatrixGPU.hpp` include, which pulls in `GPUUtils.hpp` — no new
+  `#include` needed).
+
+Verification:
+- ✅ Revert-confirm-fail: temporarily removed the guard from one test, rebuilt under the `gpu`
+  (CUDA) preset, and reproduced the exact reported failure verbatim (`cudaMalloc failed: no
+  CUDA-capable device is detected`). Restored the guard and reconfirmed a clean skip.
+- ✅ `matrixgpuTd003Tests` (13/13 skip cleanly, 0 failures, process exit code 0) under both the
+  `gpu` (CUDA, `nvcc`) and `sycl` (Intel oneAPI, `icpx`) presets in this same no-physical-GPU
+  sandbox — the SYCL binary needed `LD_LIBRARY_PATH` pointed at the oneAPI compiler's runtime
+  (`libsycl.so.9`) to even launch, an environment quirk unrelated to this fix.
+
+---
+
+### TD-165: TokenBatchLoaderTest's Own TD-087 Regression Test Could Hang the Whole Binary
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 13, 2026 | `tests/paralleldataloader_test.cpp` | Replaced `std::async` + `wait_for(timeout)` with a heap-allocated, detached background thread + `std::promise`/`std::future` |
+
+Summary:
+Flagged (not fixed) as a follow-up while resolving TD-064's `ClearWakesBlockedProducer` test: that
+investigation found and fixed a `std::async`-based draft of ITS OWN new test hanging the whole
+binary the hard way, switched it to a safe raw-`std::thread` pattern, and then noticed the
+pre-existing `TokenBatchLoaderTest.NextBatchDoesNotDeadlockWhenTargetsNeverDrained` (TD-087's own
+regression test, same file) had the identical exposure but left it alone as out of scope for that
+pass. `std::async(std::launch::async, ...)`'s returned `std::future` has a destructor that blocks
+until the launched task actually finishes — so if `wait_for(std::chrono::seconds(10))` ever timed
+out (i.e., TD-087's original bug recurred) and the resulting `ASSERT_EQ` failure returned from the
+test function, destroying that future would have blocked forever waiting for the still-deadlocked
+task, turning what should be a clean, fast, reported test failure back into the exact whole-binary
+hang this regression test exists to prevent.
+
+Fixing this surfaced a second, TokenBatchLoader-specific wrinkle beyond the general
+`std::async`-destructor issue: `TokenBatchLoader` *references* its `Dataset` rather than owning a
+copy (`const Dataset& dataset_;`), and this fixture's `dataset` member is destroyed the moment
+each `TestBody()` returns — so merely heap-allocating the loader (mirroring
+`ClearWakesBlockedProducer`'s pattern exactly) would not have been enough; an abandoned background
+thread that outlived a timeout would still dereference a destroyed `Dataset` through the loader,
+trading one hang for a use-after-free.
+
+A repo-wide audit for the same pattern (`std::async(std::launch::async` across `tests/`, plus a
+broader `std::async(` sweep across the whole repo) found no other occurrence in any test file.
+`tests/batchedinferenceengine_test.cpp` was checked specifically (an old, now-corrected comment in
+`paralleldataloader_test.cpp` claimed it used "the same pattern") and does not have this issue: its
+futures come from `std::promise::get_future()` (ordinary, non-blocking destructor semantics
+regardless of standard) fulfilled by `BatchedInferenceEngine`'s own long-lived internal thread, not
+from `std::async`. Its one test using a deliberately-blocking `model_fn`
+(`EngineFunctionalTest.QueueFullThrows`) was also checked for the analogous "engine's own
+destructor joins a thread stuck inside that blocking call" risk and confirmed already safe: it
+unblocks the gate and calls `engine.shutdown()` unconditionally before returning, using only a
+non-fatal `EXPECT_THROW` (not `ASSERT_`) on its one assertion that could otherwise skip that
+cleanup.
+
+Changes Made:
+- `NextBatchDoesNotDeadlockWhenTargetsNeverDrained`: `loader` and its `Dataset` are now both
+  heap-allocated (`std::shared_ptr`) and captured by value into a `std::thread` that detaches
+  immediately; the loop's result comes back through a `std::promise<int>`/`std::future<int>` pair
+  instead of `std::async`'s. Matches
+  `PostgresMetricsDatabaseTest.PoolDoesNotDeadlockOnSustainedConnectionFailure`'s identical
+  promise/detached-thread shape in `tests/postgres_metrics_database_test.cpp` (an independent
+  instance of the same safe idiom already in this codebase).
+- Updated this section's header comment (previously describing the now-removed `std::async`
+  pattern as the intended approach) to describe the actual safe pattern and why both the loader
+  and its dataset need to be heap-allocated.
+
+Verification:
+- ✅ Revert-confirm-fail against a temporary, hand-applied inverse of TD-087's actual fix commit
+  (`81465300`) in `src/ParallelDataLoader.hpp` — reintroducing the two-independent-queues design —
+  run under a shell `timeout` wrapper for safety: the test correctly waited its own full 10
+  seconds, failed with a clear "TD-087 regression" diagnostic, and the process exited normally
+  well inside the wrapper's bound (not hung). Restored the real fix via `git checkout` (confirmed
+  a clean, zero-diff restore) and reconfirmed a fast, clean pass.
+- ✅ Full `paralleldataloaderTests` suite (14 tests): all pass, both before this fix (baseline) and
+  after.
+- ✅ Full project rebuild and full `ctest -j8` suite: clean.
+
+---
+
 ### TD-034: PPOOptimizer's Core Update Loop Is a Placeholder, Not Real PPO
 
 | Resolution Date | Component | Resolved By |
@@ -196,7 +300,10 @@ Changes Made:
   updated both `@adai-status` reasons from "capped by TD-041" to "TD-041 resolved."
 - Found two real, minor issues along the way, both flagged as separate follow-ups rather than
   fixed here (out of this TD's own scope, a test-coverage item, not a behavior-reconciliation
-  one): (1) `matrixgpu_td003_test.cpp`'s hardware-assumption fragility, above; (2)
+  one): (1) `matrixgpu_td003_test.cpp`'s hardware-assumption fragility, above — **resolved
+  September 13, 2026 as
+  [TD-166](#td-166-matrixgpu_td003_testcpp-fails-outright-instead-of-skipping-with-no-physical-gpu)**;
+  (2)
   `get_device_info()` behaves inconsistently between backends when called before any successful
   `initialize()` (current_device_ still -1): CUDA's `cudaGetDeviceProperties(&prop, -1)` call
   throws `std::runtime_error`, SYCL's own bounds check instead returns an "Invalid device ID"
@@ -426,7 +533,8 @@ Verification:
   pre-existing `TokenBatchLoaderTest.NextBatchDoesNotDeadlockWhenTargetsNeverDrained` (TD-087's
   own regression test, same file) has the identical `std::async`-destructor-blocks-forever
   exposure this investigation found and fixed for the new test above — if TD-087's bug ever
-  recurs, that test would also hang the whole binary instead of failing cleanly.
+  recurs, that test would also hang the whole binary instead of failing cleanly. **Resolved
+  September 13, 2026 as [TD-165](#td-165-tokenbatchloadertests-own-td-087-regression-test-could-hang-the-whole-binary).**
 
 ### TD-123: EncoderBlockTest.BackwardPassMatchesNumericalGradient Flaked From an Unseeded RNG, Not Contention
 
