@@ -4,6 +4,77 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-123: EncoderBlockTest.BackwardPassMatchesNumericalGradient Flaked From an Unseeded RNG, Not Contention
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 12, 2026 | `tests/encoderblock_test.cpp` | Deterministic fixed-seed weight re-initialization after `EncoderBlock` construction |
+
+Summary:
+Filed after two observed failures under full-suite `ctest -j8` runs, with a working hypothesis
+that OpenMP thread-scheduling nondeterminism under CPU contention was shifting floating-point
+summation order enough to move this numerical-gradient check from "just inside tolerance" to
+"just outside it." That hypothesis turned out to be wrong. The real cause: `EncoderBlock`'s
+constructor seeds its `MultiHeadAttention`/`FeedForward` sub-components' weights from
+`std::random_device` — genuinely different weights on every process invocation, not just every
+test run — and roughly 1-3% of those random draws land on a numerically ill-conditioned point
+where the `epsilon=1e-3` central-difference approximation's own truncation error exceeds the
+test's tolerance even though the analytic gradient is correct. This is a property of the
+finite-difference method under an unconstrained random weight draw, unrelated to system load.
+
+Investigation, following the TD's own action items:
+- Reproduced the flake in a fast, tight harness (contention from several OpenMP-heavy test
+  binaries running concurrently, target test spammed in a loop for the duration): ~3,000+
+  attempts, ~2.2-2.7% failure rate — confirming the flake is real and establishing a rate (the
+  TD's own first action item), and reproducing much faster than a full-suite run (its second).
+- Per the TD's third action item, re-ran the same harness with `OMP_NUM_THREADS=1` forced for the
+  target test's own process: the failure rate was **unchanged** (247/9318 ≈ 2.65%, same order as
+  without it) — directly refuting the OpenMP-thread-scheduling hypothesis rather than confirming
+  it.
+- Re-ran with **zero background contention at all**: 4/300 ≈ 1.3% failure rate — the same order
+  of magnitude as under heavy load. This was the deciding result: the flake has nothing to do
+  with contention, full-suite runs, or thread scheduling at all — it was always there, just rare
+  enough that casual/manual testing (a handful of runs) rarely hit it, while a full-suite run
+  repeated across many CI sessions eventually would.
+- Ran the target test under `valgrind --track-origins=yes`: no uninitialized-read warnings,
+  ruling out a garbage-memory explanation for the run-to-run variance.
+- Confirmed the actual source: `FeedForward`'s and `MultiHeadAttention`'s constructors each seed
+  an `std::mt19937` from `std::random_device` for their weight matrices (Xavier/He
+  initialization) — genuinely non-deterministic per process, exactly matching the observed
+  per-run variance.
+
+Changes Made:
+- Added `seed_encoder_block_weights_deterministically()` (test-file-local, not production code)
+  to `tests/encoderblock_test.cpp`: after constructing the `EncoderBlock` under test, overwrites
+  `W_q`/`W_k`/`W_v`/`W_o` (via `MultiHeadAttention`'s existing public `set_Wq`/`set_Wk`/`set_Wv`/
+  `set_Wo`, reached via `EncoderBlock::get_self_attention()`) and `W1`/`W2` (via `FeedForward`'s
+  existing public `set_W1`/`set_W2`, reached via `EncoderBlock::get_feed_forward()`) with values
+  drawn from a **fixed-seed** `std::mt19937`, using the same distributions/scales the real
+  constructors use. No production code was changed — weight initialization everywhere else in
+  the codebase is correctly left non-deterministic; only this one gradient-check test needed
+  reproducibility.
+- Spot-checked ~20 candidate seeds (all deterministic and either reliably pass or reliably fail,
+  confirming the fix's own determinism) and picked one (`5`) with the most comfortable margin
+  across all four checked matrix positions (diff/tolerance ratio ≤ ~1.1% at every position,
+  vs. some other passing seeds sitting as high as ~23% at one position) — deliberately not just
+  "the first one that happened to pass."
+
+Verification:
+- ✅ Revert-confirm-fail (the RNG-seed side): with the original code (`std::mt19937 gen(42)`,
+  a seed that happens to land on an ill-conditioned draw), the test fails deterministically and
+  identically across repeated runs — proving the fix's determinism works, before swapping to the
+  chosen seed `5`.
+- ✅ Revert-confirm-fail (the real bug the test itself is supposed to catch): temporarily dropped
+  the `+=` gradient accumulation in `EncoderBlock::backward()` (simulating exactly the
+  "accumulation point moved to the wrong residual" bug class this test's own doc comment warns
+  about) — with the fixed seed, the test still failed clearly and immediately, confirming the fix
+  didn't accidentally pick a seed insensitive to genuine backward-pass bugs. Restored the real
+  code and confirmed a clean pass again.
+- ✅ 100 standalone runs with the fix, zero background load: 0 failures (was ~1.3% before).
+- ✅ 2,725 attempts under the same heavy-contention harness that reproduced the original flake:
+  0 failures (was ~2.2-2.7% before).
+- ✅ Full `encoderblockTests` suite (34 tests): all pass.
+
 ### TD-159: cpp-httplib Unusable for Windows Cross-Compilation (Not Found + No Winsock Linkage)
 
 | Resolution Date | Component | Resolved By |
