@@ -53,10 +53,12 @@ are deliberately deferred by prior user decision, not blocked, so TD-038 itself 
 
 **Tier 4 — Sustained, low-risk test-coverage investment** (systematic, already-validated pattern,
 no open design questions): [TD-048](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
-(Compose UI testing now adopted in both modules, 6/12 screens done September 13, 2026 — 6 screens
+(Compose UI testing now adopted in both modules, 7/12 screens done September 13, 2026 — 5 screens
 remain, all in `opsdashboard`, whose debug APK can't be installed/run on this sandbox's emulator
 at all — `wear-sdk` shared-library requirement, no Wear-capable device available here — so further
-`opsdashboard` screens stay compile-verified only pending real device access; plus DI/entry-points
+`opsdashboard` screens stay compile-verified only pending real device access; `AdminScreen` and
+`GroupDetailScreen` additionally need the not-yet-built admin-action confirm-dialog test
+infrastructure `ModelDetailScreen`'s own update flagged; plus DI/entry-points
 remain, continuing the now-proven ViewModel-then-screen-testing approach)
 and [TD-037](#td-037-no-qt-test-infrastructure-for-gui-classes) (8-12h — the same shape for the
 desktop Qt GUI).
@@ -699,7 +701,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open (8/8 ViewModels done; Compose UI testing adopted, 6/12 screens covered; DI/entry-points remain) | Android / Testing | September 7, 2026 | 24-32 hours |
+| MEDIUM | Open (8/8 ViewModels done; Compose UI testing adopted, 7/12 screens covered; DI/entry-points remain) | Android / Testing | September 7, 2026 | 24-32 hours |
 
 Description:
 62 files — Compose screens, ViewModels without tests, DI containers, `Activity`/`Application`
@@ -848,19 +850,52 @@ the ViewModel — only the `showIdle` flag flip itself is covered by `SessionLis
 so this is genuinely new coverage, not a duplicate of existing tests. `SessionListScreen.kt`
 promoted `experimental` → `beta` with the same real-device-still-unverified caveat.
 
+**Update (September 13, 2026, continuing on):** `ModelDetailScreen` (`opsdashboard` module) done
+as the seventh screen. 9 tests added (`ModelDetailScreenTest`): all detail fields render correctly
+(architecture, artifact, identity fields); blank optional fields (role, run ID, artifact
+host/path) fall back to their documented placeholder text (`"(none)"`/`"(local)"`); each training
+history entry renders with the right formatting; the "Training History" section is hidden
+entirely when there's none; the three admin-action buttons' enabled/disabled state correctly
+follows `model.state` (training → only "Clear lock" enabled; candidate → "Retire"/"Promote"
+enabled; production → all three disabled); a fetch failing with no prior model shows
+`FullScreenError`; the back button invokes `onBack()`.
+
+**Deliberately out of scope for this pass:** the admin-action confirm-dialog flow itself (clicking
+"Clear stale training lock"/"Retire candidate"/"Promote to production" and confirming) is not
+tested. `ConfirmActionDialog` unconditionally does `LocalContext.current as FragmentActivity` and
+reads `LocalAdminAuthGate.current` (a `staticCompositionLocalOf` that throws if never provided)
+the moment it composes — true the instant the dialog opens, before its own confirm button is ever
+clicked. A plain `createComposeRule()`'s default test host activity is a bare `ComponentActivity`,
+not a `FragmentActivity` (only `MainActivity` itself is), so that cast would crash immediately;
+there is also no fake `AdminAuthGate` implementation anywhere in this codebase yet. Testing this
+flow for real needs a small, genuinely new piece of test infrastructure — a minimal
+`androidTest`-only `FragmentActivity` host used via `createAndroidComposeRule<...>()`, plus a
+`FakeAdminAuthGate` — that wasn't built speculatively here since this sandbox can't run any of it
+live anyway to confirm it's wired correctly (see the `wear-sdk` limitation below). Flagged as a
+concrete follow-up rather than left implicit: whoever has real device access and picks this up
+should build that infrastructure once (it will be needed again for `AdminScreen` and
+`GroupDetailScreen`'s own admin actions) rather than per-screen. `ModelDetailScreen.kt` promoted
+`experimental` → `beta` anyway — the read-only majority of the screen has real coverage, and
+`beta`'s own definition ("known gaps exist") fits a disclosed, scoped gap like this one — with
+both this gap and the real-device-still-unverified caveat noted in its own status comment.
+
 Action Items:
 
 - [x] Add ViewModel unit tests first (cheapest — no Compose/Activity needed) — all 8 done; see
   the per-ViewModel test files under `android/app/src/test`/`android/opsdashboard/src/test`.
 - [x] Adopt Compose UI testing (`androidx.compose.ui.test`) for screens once ViewModels are
   covered — infrastructure adopted for both modules now; `ConversationListScreen`, `ChatScreen`,
-  `SettingsScreen` (`app` module), `GroupListScreen`, `ModelListScreen`, and `SessionListScreen`
-  (`opsdashboard` module) done (6 of 12; see updates above). The other 6 remain, all in
-  `opsdashboard` (`SettingsScreen`, `GroupDetailScreen`, `SessionDetailScreen`, `AdminScreen`,
-  `ModelDetailScreen`, `TrainerScreen`) — same pattern, infra already in place. Note: this sandbox
+  `SettingsScreen` (`app` module), `GroupListScreen`, `ModelListScreen`, `SessionListScreen`, and
+  `ModelDetailScreen` (`opsdashboard` module) done (7 of 12; see updates above). The other 5
+  remain, all in `opsdashboard` (`SettingsScreen`, `GroupDetailScreen`, `SessionDetailScreen`,
+  `AdminScreen`, `TrainerScreen`) — same pattern, infra already in place. Note: this sandbox
   cannot install/run `opsdashboard`'s debug APK on a device (see `GroupListScreen`'s update above,
   `wear-sdk` shared-library requirement) — further `opsdashboard` screens will be compile-verified
   only here too, pending real Wear-capable device access to actually run any of them.
+- [ ] Build the admin-action confirm-dialog testing infrastructure (a minimal `androidTest`-only
+  `FragmentActivity` host + `createAndroidComposeRule<...>()` + a `FakeAdminAuthGate`) — see
+  `ModelDetailScreen`'s update above for the full explanation of why it's needed and doesn't exist
+  yet. `AdminScreen` and `GroupDetailScreen` will need it too, so build it once, not per-screen.
 - [ ] `BiometricAdminAuthGate.kt` specifically: consider an instrumented test using
   `BiometricPrompt`'s test/fake authenticator support instead of leaving it permanently untested.
 - [ ] DI containers (`AppContainer.kt`/`AppViewModelProvider.kt` in both apps), `Activity`/
@@ -869,12 +904,13 @@ Action Items:
 
 Files to Modify:
 
-- ~44 remaining files under `android/app/src/main`, `android/opsdashboard/src/main`, and
+- ~43 remaining files under `android/app/src/main`, `android/opsdashboard/src/main`, and
   `android/wearcomplications/src/main` still tagged `experimental` — see
   [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md) for the exact, current list.
 - Done: the 8 ViewModel files, `AdminUiState.kt`, `ConversationListScreen.kt`, `ChatScreen.kt`,
   `ChatInputBar.kt`, `MessageBubble.kt`, `ErrorBanner.kt`, `SettingsScreen.kt` (`app` module), and
-  `GroupListScreen.kt`/`ModelListScreen.kt`/`SessionListScreen.kt` (`opsdashboard` module).
+  `GroupListScreen.kt`/`ModelListScreen.kt`/`SessionListScreen.kt`/`ModelDetailScreen.kt`
+  (`opsdashboard` module, the last with its admin-action confirm-dialog flow still uncovered).
 
 ---
 

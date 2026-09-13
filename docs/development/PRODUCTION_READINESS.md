@@ -10,7 +10,7 @@ See [file-status-standard.md](guides/file-status-standard.md) for what these sta
 
 | Component | Stable | Beta | Experimental | Deprecated | Legacy | Untagged | Total |
 |---|---|---|---|---|---|---|---|
-| android | 0 | 64 | 48 | 0 | 0 | 0 | 112 |
+| android | 0 | 65 | 47 | 0 | 0 | 0 | 112 |
 | scripts | 9 | 27 | 0 | 0 | 0 | 0 | 36 |
 | src | 91 | 42 | 15 | 0 | 0 | 0 | 148 |
 | tizen-metrics-app | 2 | 1 | 0 | 0 | 0 | 0 | 3 |
@@ -107,7 +107,7 @@ None — every in-scope file carries a tag.
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/metrics/SessionListScreen.kt` | beta | 0.2.0 | 2026-09-13 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/metrics/SessionListViewModel.kt` | beta | 0.2.0 | 2026-09-12 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/metrics/SessionsRoute.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
-| `android/opsdashboard/src/main/java/com/adai/ops/ui/models/ModelDetailScreen.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
+| `android/opsdashboard/src/main/java/com/adai/ops/ui/models/ModelDetailScreen.kt` | beta | 0.2.0 | 2026-09-13 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/models/ModelDetailViewModel.kt` | beta | 0.5.0 | 2026-09-12 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/models/ModelListScreen.kt` | beta | 0.2.0 | 2026-09-13 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/models/ModelListViewModel.kt` | beta | 0.2.0 | 2026-09-12 | TD-048 |
