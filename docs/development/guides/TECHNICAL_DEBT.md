@@ -4,11 +4,11 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** September 12, 2026
-**Total Items:** 14
+**Last Updated:** September 13, 2026
+**Total Items:** 15
 **High Priority:** 1
 **Medium Priority:** 8
-**Low Priority:** 5
+**Low Priority:** 6
 **Future Enhancements:** 19
 **Resolved Items:** 116
 **Deferred Decisions:** 2
@@ -75,6 +75,8 @@ has no fixed action — it resolves once the trainer/metrics API surface stops c
 estimate, likely the largest remaining item). Note TD-014's planned `adai-weights-tool`
 (quantization) overlaps with TD-038's deferred Quantization-wiring decision — scope those two
 together when either is picked up, rather than designing quantization twice.
+[TD-163](#td-163-attentionheadbenchmark-hangs-indefinitely) (root cause unknown) also belongs
+here — a standalone benchmark binary, not gating anything, not part of `ctest`.
 
 ## Table of Contents
 
@@ -96,6 +98,7 @@ together when either is picked up, rather than designing quantization twice.
   - [TD-048: Android UI/DI/Entry-Point Classes Are Untested and Unreleased](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
   - [TD-053: ChatbotCLI's /save and /load Commands Are Non-Functional Everywhere](#td-053-chatbotclis-save-and-load-commands-are-non-functional-everywhere)
   - [TD-161: FtpDataServer.hpp Uses Raw POSIX Sockets, No Windows/Winsock Port](#td-161-ftpdataserverhpp-uses-raw-posix-sockets-no-windowswinsock-port)
+  - [TD-163: AttentionHeadBenchmark Hangs Indefinitely](#td-163-attentionheadbenchmark-hangs-indefinitely)
 - [Resolved Items](#resolved-items) (149 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -866,6 +869,49 @@ Files to Modify:
 - `src/FtpDataServer.hpp`
 - Possibly a new `src/PortableSocket.hpp` (or similar) for the shared WSAStartup/type-alias logic
 - `src/CMakeLists.txt` (remove the `NOT WIN32` exclusion once done)
+
+---
+
+### TD-163: AttentionHeadBenchmark Hangs Indefinitely
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| LOW | Open | Benchmarks / Tooling | September 13, 2026 | Not yet estimated — root cause unknown |
+
+Description:
+`benchmarks/AttentionHeadBenchmark.cpp` hangs indefinitely when run. Confirmed via
+`timeout 20 ./attention_head_benchmark` (built from the `debug` preset's `attention_head_benchmark`
+target): output stops right after printing the "Benchmark: Scaling with Number of Attention Heads"
+table header — it never prints even the first row (`num_heads=2`, `seq_len=128`, `d_model=512`, 3
+warmup pairs + 50 timed iterations of `MultiHeadAttention::forward_parallel()`).
+
+Found while verifying TD-059's attention-head-splitting fix — confirmed via `git stash` to be
+**pre-existing**, reproducing identically against the original (pre-TD-059-fix) `MultiHeadAttention.cpp`
+as well as the fixed version, so it is not a regression from that change. Not part of the `ctest`
+suite (`attention_head_benchmark` is a standalone binary, not a registered test), so it isn't
+gating anything — found incidentally while smoke-testing the benchmark still built and ran cleanly
+after TD-059's fix.
+
+Action Items:
+
+- [ ] Root-cause the hang. Candidates worth checking first: an OpenMP interaction specific to
+  sandboxed/containerized environments (`OMP_NUM_THREADS`, nested-parallelism settings, thread pool
+  exhaustion under a CPU quota/cgroup), the `Timer` class used for the benchmark's own timing (check
+  for a busy-wait or blocking call), or something in `PerformanceProfiler.hpp` (also included by
+  this benchmark) triggering a deadlock on include or static initialization.
+- [ ] Use a fast, disposable repro harness (a minimal standalone program calling just
+  `MultiHeadAttention::forward_parallel()` a handful of times with the same config —
+  `d_model=512`, `seq_len=128`, `num_heads=2`) rather than re-running the full benchmark repeatedly,
+  to localize the exact call that hangs.
+- [ ] Fix it if the root cause is a real bug; if it turns out to be inherent to this specific
+  sandboxed environment (e.g. no real multi-core CPU affinity, a container cgroup/CPU-quota
+  interaction with `libgomp`), document that plainly in the benchmark's own comments rather than
+  leaving it silently broken.
+
+Files to Modify:
+
+- `benchmarks/AttentionHeadBenchmark.cpp`
+- Possibly `src/PerformanceProfiler.hpp` or wherever `Timer` is defined, depending on root cause
 
 ---
 
