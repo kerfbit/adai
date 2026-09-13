@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-033 — GPU dispatch still round-trips per op, see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 0.9.1
+// @adai-reviewed: 2026-09-12
 
 #include "Matrix.hpp"
 #include <iomanip>
@@ -14,6 +14,25 @@
 #ifdef ADAI_ENABLE_BLAS
 #include <cblas.h>
 #endif
+
+// NOTE on ThreadSanitizer + this file's #pragma omp parallel for regions (operator*(),
+// transpose(), scale(), and the other OpenMP-parallelized methods below): running any test that
+// exercises real matrix multiplication under the `tsan` CMake preset reports a large number
+// (~20-90+, scales with how much multiplication the test does) of "data race" warnings with
+// stack frames inside this file's OpenMP regions. Investigated in depth (see "ThreadSanitizer
+// 'Data Races' in Matrix.cpp's OpenMP-Parallelized Code" under Deferred Decisions in
+// TECHNICAL_DEBT.md for the full writeup, including sources) and confirmed to be a known
+// GCC-libgomp + ThreadSanitizer limitation, not a real bug: every flagged pair is a worker
+// thread's read/write inside a parallel region racing against the calling thread's *own* access
+// to the same Matrix immediately after the region's mandatory implicit barrier returns — a
+// happens-before edge OpenMP's standard guarantees but that libgomp's barrier implementation
+// doesn't make visible to TSan's instrumentation. Confirmed present on pristine `main` (via `git
+// stash`) independent of any specific change, and confirmed that
+// `TSAN_OPTIONS=ignore_noninstrumented_modules=1` does NOT suppress it (the racing accesses are
+// in our own instrumented code; only the synchronization connecting them is invisible to TSan).
+// Do not "fix" these OpenMP regions in response to tsan output without first checking whether a
+// newly-reported warning actually matches this pattern (worker-thread access vs.
+// post-barrier-return caller access) or is a genuinely different shape.
 
 // Default constructor
 Matrix::Matrix() : rows(0), cols(0) {}

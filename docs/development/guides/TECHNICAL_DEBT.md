@@ -11,7 +11,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 **Low Priority:** 12
 **Future Enhancements:** 19
 **Resolved Items:** 110
-**Deferred Decisions:** 1
+**Deferred Decisions:** 2
 
 ## Table of Contents
 
@@ -47,6 +47,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [Container and Deployment](#container-and-deployment)
 - [Deferred Decisions](#deferred-decisions)
   - [AMD Radeon / ROCm-HIP GPU Backend — Not Pursued](#amd-radeon--rocm-hip-gpu-backend--not-pursued)
+  - [ThreadSanitizer "Data Races" in Matrix.cpp's OpenMP-Parallelized Code — Confirmed Tool Limitation, Not a Bug](#threadsanitizer-data-races-in-matrixcpps-openmp-parallelized-code--confirmed-tool-limitation-not-a-bug)
 - [Process Guidelines](#process-guidelines)
   - [Adding New Technical Debt](#adding-new-technical-debt)
   - [Prioritization Criteria](#prioritization-criteria)
@@ -1198,6 +1199,65 @@ against, or (b) a concrete deployment target requires it. The CMake mutual-exclu
 
 ---
 
+### ThreadSanitizer "Data Races" in Matrix.cpp's OpenMP-Parallelized Code — Confirmed Tool Limitation, Not a Bug
+
+**Date:** September 12, 2026
+**Component:** Testing / Sanitizers / Core Matrix Ops
+
+**Decision:** Do not modify `src/Matrix.cpp`'s `#pragma omp parallel for` regions (`operator*()`,
+`transpose()`, `scale()`, and the other OpenMP-parallelized methods) in response to the ThreadSanitizer
+"data race" warnings they produce under the `tsan` CMake preset — running `chatbotapiTests` (or any
+other suite exercising real matrix multiplication) reports roughly 20-90+ of them depending on how
+much multiplication the run does. Originally surfaced as a side observation while verifying TD-156's
+concurrency fix, flagged for follow-up, and investigated here to a definitive conclusion rather than
+left open.
+
+**Reasoning:**
+
+- Confirmed via `git stash` (independently, across two separate investigations) that these warnings
+  are pre-existing on pristine `main`, unrelated to any specific change — identical counts with or
+  without, e.g., TD-156's mutex.
+- Read the full race-report bodies (not just the one-line summaries `TSAN_OPTIONS` prints by
+  default) with `TSAN_OPTIONS=history_size=7` for deeper history. Every one follows the same shape:
+  a worker thread spawned by libgomp (visible in the stack traces via `pthread_create` inside
+  `libgomp.so.1`) reads/writes a `Matrix`'s backing `std::vector<std::vector<float>>` inside a
+  `#pragma omp parallel for` region, and the "previous access" it's reported racing against is the
+  *calling* thread's own move-assignment/`delete`/further construction of that same `Matrix`
+  immediately after the parallel region returns — exactly the access pattern OpenMP's **mandatory
+  implicit barrier** at the end of a `parallel for` (no `nowait` is used anywhere in this file)
+  guarantees is safe.
+- Manual review of every flagged call site confirms genuinely disjoint memory per loop iteration
+  (distinct output rows/elements per index; each `Matrix`'s backing buffers are already fully
+  allocated, single-threaded, before its parallel region starts — see `Matrix::Matrix(int, int)`'s
+  `data.resize(...)`) — there is no aliasing bug to fix in this file's own logic.
+- This is a known, documented ThreadSanitizer + GCC-`libgomp` limitation, not specific to this
+  codebase: a ThreadSanitizer co-author has stated on the GCC mailing list that TSan reliably
+  supports "pthread-based synchronization and atomic compiler builtins" only ([Konstantin
+  Serebryany, gcc.gnu.org, 2013](https://gcc.gnu.org/legacy-ml/gcc/2013-02/msg00295.html)). GCC's
+  `libgomp` implements its own barrier/thread-pool synchronization without routing through
+  primitives TSan instruments, so TSan cannot see the happens-before edge the barrier actually
+  provides at runtime. The documented fix for accurate OpenMP race detection is **Archer**, an
+  LLVM/OMPT-based race predictor built on Clang's `libomp` rather than GCC's `libgomp` ([HPC Wiki,
+  ThreadSanitizer](https://hpc-wiki.info/hpc/ThreadSanitizer)) — a real but nontrivial toolchain
+  change (Clang + `libomp` + Archer instead of GCC + `libgomp` for `tsan` builds specifically), not
+  a code fix in this repository.
+- Tested the commonly-suggested `TSAN_OPTIONS=ignore_noninstrumented_modules=1` workaround directly
+  against `chatbotapiTests`: it does **not** suppress these warnings (18 races still reported in that
+  run) — that flag only helps when the racing access itself happens inside literal non-instrumented
+  code, but here both accesses are in our own instrumented `Matrix.cpp`; only the *synchronization
+  connecting them* (libgomp's barrier) is invisible to TSan, which this flag doesn't address.
+- A durable comment documenting this (with a pointer back to this entry) was added directly in
+  `src/Matrix.cpp`, since that's where anyone confused by a `tsan` run will actually be looking.
+
+**Revisit when:** The project adopts a Clang + `libomp` (+ Archer) toolchain for `tsan` builds
+instead of GCC + `libgomp` — until then, expect roughly 20-90+ TSan warnings inside `Matrix.cpp`'s
+OpenMP regions on any `tsan` run that exercises real matrix multiplication, all attributable to this
+limitation. A genuinely different-shaped warning — e.g., one whose two accesses implicate actually
+overlapping memory rather than a pre-barrier/post-barrier access pair — would still be worth
+investigating on its own merits rather than dismissed by pattern-matching against this entry.
+
+---
+
 ## Process Guidelines
 
 ### Adding New Technical Debt
@@ -1364,9 +1424,10 @@ Recently Completed:
 
 ### Deferred Decisions Summary
 
-**Total Deferred Decisions:** 1
+**Total Deferred Decisions:** 2
 
 - AMD Radeon / ROCm-HIP GPU Backend — Not Pursued (September 7, 2026)
+- ThreadSanitizer "Data Races" in Matrix.cpp's OpenMP-Parallelized Code — Confirmed Tool Limitation, Not a Bug (September 12, 2026)
 
 ---
 
