@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.0.1
+// @adai-version: 1.0.2
 // @adai-reviewed: 2026-09-12
 
 /**
@@ -474,10 +474,14 @@ class BatchedInferenceEngine {
             // them. One request's empty response would spuriously fail every other concurrently
             // batched request. Stats tracking must never be able to affect promise fulfillment
             // for this or any other request, so it's now isolated in its own try/catch.
+            //
+            // TD-162: that try/catch block is also run *before* set_value() now, not after — a
+            // client's f.wait_for()/f.get() can observe the promise as ready the instant
+            // set_value() returns and immediately check get_stats() from another thread, so a
+            // stats update issued after set_value() isn't guaranteed to be visible yet when that
+            // happens (the same confirmed race as IntegratedInferenceEngine's total_requests).
             for (size_t i = 0; i < batch.size(); ++i) {
                 if (i < results.size()) {
-                    batch[i].result.set_value(results[i]);
-
                     // Update token count (approximate) — best-effort; must never fail the batch.
                     try {
                         if (!results[i].empty()) {
@@ -489,6 +493,8 @@ class BatchedInferenceEngine {
                         // Approximate stat only; a tokenization quirk on the generated text must
                         // not turn an already-successful result into a failed request.
                     }
+
+                    batch[i].result.set_value(results[i]);
                 } else {
                     batch[i].result.set_exception(std::make_exception_ptr(
                         std::runtime_error("Model failed to generate result")));

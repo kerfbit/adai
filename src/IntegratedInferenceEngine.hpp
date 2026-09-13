@@ -1,5 +1,5 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
+// @adai-version: 1.0.1
 // @adai-reviewed: 2026-09-12
 
 /**
@@ -523,11 +523,16 @@ class IntegratedInferenceEngine {
                 std::chrono::duration<double, std::milli>(decoder_end - decoder_start).count();
 
             // Return results to clients
+            //
+            // TD-162: update stats *before* fulfilling the promise, not after. A client's
+            // f.wait_for()/f.get() can observe the promise as ready the instant set_value()
+            // returns and immediately check get_stats() from another thread — anything this
+            // request's own stats update does *after* set_value() isn't guaranteed to be visible
+            // yet when that happens, confirmed as a real, reproducible flake
+            // (total_requests undercounted by exactly one under full-suite ctest -j8 contention).
             for (size_t i = 0; i < encoder_output.requests.size(); ++i) {
                 auto& req = encoder_output.requests[i];
-                req.result_promise.set_value(results[i]);
 
-                // Update request-level stats
                 double latency_ms =
                     std::chrono::duration<double, std::milli>(decoder_end - req.submit_time)
                         .count();
@@ -546,6 +551,8 @@ class IntegratedInferenceEngine {
                             alpha * latency_ms + (1 - alpha) * stats_.avg_latency_ms;
                     }
                 }
+
+                req.result_promise.set_value(results[i]);
             }
 
             // Update decoder stats

@@ -281,8 +281,6 @@ trusting a `grep TD-NNN` alone. Currently active items:
 | TD-050 | GPU-resident KV-cache for autoregressive generation — CPU cache has a known correctness bug; no GPU cache exists at all |
 | **TD-033** | `chatbot_api_server` inference never uses the persistent GPU-resident decode path — training already does |
 | **TD-034** | `PPOOptimizer::train()`'s ratio/KL terms are a placeholder, and `ValueFunction::update()` never writes its computed gradient into the weight update — the value function's weights never change |
-| TD-032 | SQLite amalgamation not bundled for Windows/MinGW cross-compilation |
 | TD-014 | Missing standalone tooling (quantization, eval, data-prep binaries) |
 | TD-006 | Fill-in-the-Middle (FIM) training data generation not implemented |
-| TD-064 | `paralleldataloaderTests` hung indefinitely under a full-suite `ctest -j8` run; root cause not found despite extensive reproduction attempts (including TSan). A blanket `TIMEOUT 1200` on all registered tests (`tests/CMakeLists.txt`) mitigates the CI blast radius, but the underlying hang is unresolved. |
-| TD-123 | `EncoderBlockTest.BackwardPassMatchesNumericalGradient` failed twice in a row under full-suite `ctest -j8` (borderline analytic-vs-numerical-gradient tolerance miss) but passes reliably standalone (3/3) — likely OpenMP thread-scheduling-induced floating-point variance under `-j8` contention, not confirmed. Second instance of the TD-064 "flaky only under full-suite -j8" pattern. |
+| TD-162 | `IntegratedInferenceEngine`/`BatchedInferenceEngine` fulfill a request's `std::promise` before finishing that request's mutex-guarded stats update — a client's `f.wait_for()`/`f.get()` can race `get_stats()` against the still-in-flight counter increment on another thread. Confirmed via a real flake (`total_requests` undercounted by one under full-suite `ctest -j8`). |

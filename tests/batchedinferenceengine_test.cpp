@@ -518,6 +518,52 @@ TEST_F(EngineFunctionalTest, TotalRequestsIncrements) {
     engine.shutdown();
 }
 
+TEST_F(EngineFunctionalTest, TotalTokensProcessedVisibleImmediatelyAfterFutureResolves) {
+    // TD-162 regression: process_batch() used to call batch[i].result.set_value(...) *before*
+    // updating stats_.total_tokens_processed (under stats_mutex_) for that same request. A
+    // caller's f.wait_for()/f.get() can observe the future as ready and read get_stats() from
+    // another thread before that request's own stats update has actually run on the worker
+    // thread — undercounting total_tokens_processed right after this test's own future resolves.
+    // Needs a model_fn that produces real, non-empty generated text: eos_model_fn (used by every
+    // other test in this file) picks EOS as the very first token, so generate_text() returns "",
+    // and process_batch() skips the tokenizer_->encode()-based count update entirely for an empty
+    // result — never touching the exact code path this bug lives in.
+    auto tok = make_tokenizer();
+    tok->build_vocab({"hi"}, 20);
+    auto real_token_ids = tok->encode("hi", /*add_special_tokens=*/false);
+    ASSERT_FALSE(real_token_ids.empty());
+    int real_token_id = real_token_ids[0];
+
+    // Emits one real vocab token, then EOS — so generate_text() returns non-empty text after
+    // exactly two steps.
+    auto step = std::make_shared<std::atomic<int>>(0);
+    TextGenerator::ModelForwardFn one_real_token_then_eos =
+        [step, real_token_id](const std::vector<int>& /*tokens*/) {
+            Matrix logits(1, 50);
+            if (step->fetch_add(1) == 0) {
+                logits(0, real_token_id) = 100.0f;
+            } else {
+                logits(0, adai::SpecialTokenIDs::EOS) = 100.0f;
+            }
+            return logits;
+        };
+
+    BatchedInferenceConfig cfg;
+    cfg.timeout_ms = 10;
+    BatchedInferenceEngine engine(one_real_token_then_eos, tok, cfg);
+
+    auto future = engine.submit("prompt");
+    auto status = future.wait_for(std::chrono::seconds(5));
+    ASSERT_EQ(status, std::future_status::ready);
+    std::string result = future.get();
+    ASSERT_FALSE(result.empty());
+
+    // No sleep, no retry loop — the stats update for this exact request must already be visible
+    // the instant the future is ready.
+    EXPECT_GT(engine.get_stats().total_tokens_processed, 0u);
+    engine.shutdown();
+}
+
 TEST_F(EngineFunctionalTest, TotalBatchesIncrements) {
     auto tok = make_tokenizer();
     BatchedInferenceEngine engine(eos_model_fn, tok, fast_config());

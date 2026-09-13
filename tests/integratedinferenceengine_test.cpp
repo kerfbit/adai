@@ -654,6 +654,13 @@ TEST_F(IntegratedInferenceEngineFunctionalTest, ConcurrentRequestsDoNotCrashTheP
     // Real proof, not a single lucky call: fire several requests so at least one very likely
     // exercises the empty-generation path (this tiny randomly-initialized model's greedy decode
     // frequently picks EOS first), through the real batcher/encoder/decoder worker threads.
+    //
+    // TD-162 regression coverage: this is the exact test that surfaced the bug (observed flaking
+    // with total_requests == kNumRequests - 1 under full-suite ctest -j8). The decoder worker used
+    // to call req.result_promise.set_value(...) before updating stats_ under stats_mutex_, so a
+    // caller's f.wait_for()/f.get() below could see its future ready and this test's own
+    // get_stats() call could run before that request's stats update had actually happened on the
+    // worker thread. Fixed by reordering the stats update to happen before set_value().
     IntegratedInferenceEngine engine(encoder.get(), decoder.get(), lm_head.get(), tokenizer.get(),
                                      make_fast_config());
 

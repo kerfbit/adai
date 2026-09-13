@@ -4,6 +4,75 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-162: Promise-Fulfilled-Before-Stats-Updated Race in IntegratedInferenceEngine and BatchedInferenceEngine
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 12, 2026 | `src/IntegratedInferenceEngine.hpp`, `src/BatchedInferenceEngine.hpp`, `tests/integratedinferenceengine_test.cpp`, `tests/batchedinferenceengine_test.cpp` | Reordered each engine's per-request stats update to happen before `set_value()`, not after |
+
+Summary:
+Filed after `IntegratedInferenceEngineFunctionalTest.ConcurrentRequestsDoNotCrashTheProcess`
+flaked once under a full `ctest -j8` run (`total_requests` came back `7` instead of `8` even
+though all 8 futures resolved successfully), then confirmed via a codebase-wide search for the
+same `std::promise`/`std::future` shape across all three engines that use it
+(`IntegratedInferenceEngine.hpp`, `BatchedInferenceEngine.hpp`, `PipelineInferenceEngine.hpp`).
+
+Root cause (confirmed): both `IntegratedInferenceEngine`'s decoder worker and
+`BatchedInferenceEngine::process_batch()` called `result_promise.set_value(...)` / `result.
+set_value(...)` for a request *before* finishing that same request's mutex-guarded stats update
+(`total_requests`/`total_tokens_generated`/`avg_latency_ms` in the former;
+`total_tokens_processed` in the latter). A client's `f.wait_for()`/`f.get()` can observe the
+promise as fulfilled and, on another thread, call `get_stats()` before the worker thread has
+actually finished (or even started) that request's stats increment — a genuine cross-thread
+visibility gap, not a lost-update race (the increment itself was always correctly mutex-guarded).
+`PipelineInferenceEngine.hpp` was checked and confirmed already correct: its one success-path
+`set_value()` is preceded by its matching stats update, and its `total_requests` is incremented
+at submit time, before the request is even queued — no change needed there.
+
+Confirmed both instances are real, not just theoretical, using the standard revert-confirm-fail
+cycle with an artificially widened race window (a temporary 200µs sleep inserted between
+`set_value()` and the stats update, reverting each engine to the pre-fix ordering): with the sleep
+in place, `IntegratedInferenceEngineFunctionalTest.ConcurrentRequestsDoNotCrashTheProcess` failed
+10/10 runs, and the new `BatchedInferenceEngine` regression test (see below) failed 10/10 runs.
+Removing the sleep and restoring the fixed ordering, both tests passed 30/30 combined runs with no
+sleep at all — the natural race window is real, just far narrower than the artificially widened
+one used to confirm the tests actually catch it.
+
+Changes Made:
+- `IntegratedInferenceEngine.hpp`: moved the per-request stats update (`latency_ms` computation,
+  then the `stats_mutex_`-guarded `total_requests`/`total_tokens_generated`/`avg_latency_ms`
+  update) to before `req.result_promise.set_value(results[i]);` in the "Return results to
+  clients" loop.
+- `BatchedInferenceEngine.hpp`: moved the token-count stats update (already isolated in its own
+  try/catch so a tokenization quirk can never fail an otherwise-successful request — a separate,
+  earlier fix) to before `batch[i].result.set_value(results[i]);` in `process_batch()`'s
+  "Distribute results to promises" loop.
+- `tests/integratedinferenceengine_test.cpp`: no new test needed —
+  `ConcurrentRequestsDoNotCrashTheProcess` (the test that originally flaked and led to this TD)
+  already checks `get_stats().total_requests` immediately after every submitted future resolves,
+  which is exactly the assertion this bug violates. Added a comment documenting that this is the
+  TD-162 regression coverage.
+- `tests/batchedinferenceengine_test.cpp`: added
+  `EngineFunctionalTest.TotalTokensProcessedVisibleImmediatelyAfterFutureResolves` — no existing
+  test exercised the buggy code path at all, since every other test in this file uses a model_fn
+  that returns EOS as the very first token, producing an empty generated string, and
+  `process_batch()` skips the token-count update entirely for an empty result. The new test uses a
+  model_fn that emits one real vocabulary token (built via `BPETokenizer::build_vocab({"hi"}, 20)`)
+  before EOS, so `generate_text()` returns non-empty text and the `tokenizer_->encode()`-based
+  count update actually runs; asserts `total_tokens_processed > 0` immediately after the future
+  resolves, with no sleep or retry loop.
+
+Verification:
+- ✅ Reproduced both bugs on demand via a temporary widened race window (revert-confirm-fail);
+  10/10 failures with the bug reintroduced, for both engines.
+- ✅ 30 combined standalone runs of both regression tests with the real fix, no sleep: 0 failures.
+- ✅ Full `integratedinferenceengineTests` suite: 50/50 passed.
+- ✅ Full `batchedinferenceengineTests` suite: 55/55 passed.
+- ✅ `PipelineInferenceEngine.hpp` re-confirmed clean (no change made; documented in the original
+  TD-162 filing so it isn't re-audited from scratch in the future).
+
+---
+
 ### TD-064: paralleldataloaderTests Hang — Root Cause Found: ThreadSafeBatchQueue::clear() Never Notified a Blocked Producer
 
 | Resolution Date | Component | Resolved By |
