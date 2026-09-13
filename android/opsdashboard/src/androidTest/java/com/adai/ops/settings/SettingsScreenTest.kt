@@ -1,7 +1,7 @@
 package com.adai.ops.settings
 
 // @adai-status: experimental        (capped by TD-048 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.1.0
+// @adai-version: 0.2.0
 // @adai-reviewed: 2026-09-13
 
 
@@ -15,9 +15,9 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
-import androidx.test.platform.app.InstrumentationRegistry
-import com.adai.ops.data.wearsync.WatchFacePushRepository
+import com.adai.ops.data.wearsync.WatchFacePushResult
 import com.adai.ops.testutil.FakeSettingsRepository
+import com.adai.ops.testutil.FakeWatchFacePushRepository
 import org.junit.Rule
 import org.junit.Test
 
@@ -25,18 +25,16 @@ import org.junit.Test
  * TD-048: SettingsScreen (opsdashboard module) had zero coverage -- unlike every other screen
  * covered so far, there wasn't even a pre-existing SettingsViewModelTest to reuse a Fixture shape
  * from, so this test builds its own directly against SettingsViewModel's real constructor shape
- * (FakeSettingsRepository + a real WatchFacePushRepository).
+ * (FakeSettingsRepository + FakeWatchFacePushRepository).
  *
- * WatchFacePushRepository is a concrete class wrapping androidx.wear.watchfacepush (a real Wear
- * system service), not an interface -- there is no fake for it, and introducing one would mean
- * changing production code shape for a screen-test task alone, which this pass deliberately
- * doesn't do. It's constructed here with the instrumentation's real target Context (safe -- the
- * constructor just stores the Context, it doesn't touch any Wear API until pushWatchFace()/
- * isSupported() are actually called). Deliberately out of scope for this pass: clicking
- * "Install / update" or "Activate" -- both call into WatchFacePushManagerFactory, a real AndroidX
- * Wear library this sandbox has no paired-watch/Wear-capable emulator to exercise (same
- * `wear-sdk` limitation already blocking a live device run of this whole module -- see
- * GroupListScreen's TECHNICAL_DEBT.md update). Only the button's default rendering is checked.
+ * WatchFacePushRepository was split into an interface (see its own doc comment) specifically so
+ * SettingsViewModel didn't need a real Wear system service (androidx.wear.watchfacepush) just to
+ * be testable -- FakeWatchFacePushRepository (shared src/sharedTest fake) now lets the
+ * "Install / update" (pushWatchFace()) flow itself be exercised here. Still deliberately out of
+ * scope: actually clicking "Activate" -- unlike "Install / update", it first checks a runtime
+ * permission (SET_PUSHED_WATCH_FACE_AS_ACTIVE) and, if not yet granted, launches the system
+ * permission dialog via rememberLauncherForActivityResult, which needs a real Activity/device to
+ * interact with meaningfully; only that its button appears after a successful push is checked.
  *
  * NOTE: same sandbox limitation as the other opsdashboard screen tests -- compile-verified and
  * hand-checked against the real production code paths, not run on a device here.
@@ -48,11 +46,11 @@ class SettingsScreenTest {
 
     private val sharedHostLabel = "Host (e.g. 192.168.1.16)"
 
-    private class Fixture(initial: OpsSettings = OpsSettings()) {
+    private class Fixture(
+        initial: OpsSettings = OpsSettings(),
+        val watchFacePushRepository: FakeWatchFacePushRepository = FakeWatchFacePushRepository(),
+    ) {
         val settingsRepo = FakeSettingsRepository(initial)
-        private val watchFacePushRepository = WatchFacePushRepository(
-            InstrumentationRegistry.getInstrumentation().targetContext,
-        )
 
         fun viewModel() = SettingsViewModel(settingsRepo, watchFacePushRepository)
     }
@@ -229,5 +227,75 @@ class SettingsScreenTest {
             composeTestRule.onAllNodesWithText("Galaxy Watch face (Watch Face Format)").fetchSemanticsNodes().isNotEmpty()
         }
         composeTestRule.onNodeWithText("Install / update").assertIsEnabled()
+    }
+
+    @Test
+    fun clickingInstallUpdate_successShowsSlotIdMessageAndActivateButton() {
+        val fixture = Fixture(
+            watchFacePushRepository = FakeWatchFacePushRepository(
+                pushResult = { WatchFacePushResult.Success("slot-7") },
+            ),
+        )
+
+        composeTestRule.setContent {
+            SettingsScreen(viewModel = fixture.viewModel(), onBack = {})
+        }
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) {
+            composeTestRule.onAllNodesWithText("Install / update").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithText("Install / update").performClick()
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) {
+            composeTestRule.onAllNodesWithText("slot-7", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithText("Activate").assertExists()
+    }
+
+    @Test
+    fun clickingInstallUpdate_validationFailureShowsReasons() {
+        val fixture = Fixture(
+            watchFacePushRepository = FakeWatchFacePushRepository(
+                pushResult = { WatchFacePushResult.ValidationFailed(listOf("bad manifest")) },
+            ),
+        )
+
+        composeTestRule.setContent {
+            SettingsScreen(viewModel = fixture.viewModel(), onBack = {})
+        }
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) {
+            composeTestRule.onAllNodesWithText("Install / update").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithText("Install / update").performClick()
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) {
+            composeTestRule.onAllNodesWithText("bad manifest", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
+        // A failed validation must not offer to activate a face that was never installed.
+        composeTestRule.onNodeWithText("Activate").assertDoesNotExist()
+    }
+
+    @Test
+    fun clickingInstallUpdate_failureShowsMessage() {
+        val fixture = Fixture(
+            watchFacePushRepository = FakeWatchFacePushRepository(
+                pushResult = { WatchFacePushResult.Failure("no watch paired") },
+            ),
+        )
+
+        composeTestRule.setContent {
+            SettingsScreen(viewModel = fixture.viewModel(), onBack = {})
+        }
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) {
+            composeTestRule.onAllNodesWithText("Install / update").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithText("Install / update").performClick()
+
+        composeTestRule.waitUntil(timeoutMillis = 5_000) {
+            composeTestRule.onAllNodesWithText("no watch paired").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithText("Activate").assertDoesNotExist()
     }
 }

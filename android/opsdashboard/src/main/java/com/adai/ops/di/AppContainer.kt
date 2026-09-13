@@ -1,8 +1,8 @@
 package com.adai.ops.di
 
 // @adai-status: experimental        (capped by TD-048 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 0.1.1
+// @adai-reviewed: 2026-09-13
 
 
 import android.content.Context
@@ -10,8 +10,8 @@ import com.adai.ops.data.metrics.MetricsRepository
 import com.adai.ops.data.mns.ModelRepository
 import com.adai.ops.data.registry.RegistryRepository
 import com.adai.ops.data.trainer.TrainerRepository
-import com.adai.ops.data.wearsync.WatchFacePushRepository
 import com.adai.ops.data.wearsync.WatchSyncRepository
+import com.adai.ops.data.wearsync.WearWatchFacePushRepository
 import com.adai.ops.network.ApiClientProvider
 import com.adai.ops.settings.OpsSettingsDataStore
 import com.adai.ops.ui.common.AdminAuthGate
@@ -33,7 +33,7 @@ class AppContainer(context: Context) {
     val registryRepository = RegistryRepository(apiClientProvider, settingsDataStore)
     val trainerRepository = TrainerRepository(apiClientProvider, settingsDataStore)
     val watchSyncRepository = WatchSyncRepository(context, metricsRepository, settingsDataStore)
-    val watchFacePushRepository = WatchFacePushRepository(context)
+    val watchFacePushRepository = WearWatchFacePushRepository(context)
 
     // Singleton so BiometricAdminAuthGate's grace-period timer is shared across every
     // screen/action, not reset each time a screen recomposes.

@@ -701,7 +701,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open (8/8 ViewModels done; Compose UI testing adopted, 9/12 screens covered; DI/entry-points remain) | Android / Testing | September 7, 2026 | 24-32 hours |
+| MEDIUM | Open (11/12 ViewModels done — see correction below; Compose UI testing adopted, 9/12 screens covered; DI/entry-points remain) | Android / Testing | September 7, 2026 | 24-32 hours |
 
 Description:
 62 files — Compose screens, ViewModels without tests, DI containers, `Activity`/`Application`
@@ -923,10 +923,43 @@ blocking a live device run of this whole module). Only the button's default rend
 `SettingsScreen.kt` promoted `experimental` → `beta` (0.3.0) — the gap is disclosed in its own status
 comment and here.
 
+**Correction (September 13, 2026):** this entry's "8/8 ViewModels done" claim (Action Items below)
+was stale/wrong — enumerating every `*ViewModel.kt` under both modules' `src/main` against every
+`*ViewModelTest.kt` under the matching `src/test` found two real gaps it had missed: opsdashboard's
+`SettingsViewModel` (fixed by this update, see below) and `app`'s `ConversationListViewModel`
+(still open — flagged separately). There are 12 ViewModels total (3 `app`, 9 `opsdashboard`); the
+true count as of this correction is 11/12.
+
+`SettingsViewModel` (`opsdashboard` module) now has `SettingsViewModelTest` (15 tests): initial
+state loads every field from the repository correctly (including the `watchSyncSessionKeyOverride
+== null` → `""` mapping); every field-change handler updates its own state field independently;
+`addGroup` trims the input, ignores blank/whitespace-only input, and ignores a name already in the
+list; `removeGroup` removes only the matching entry; `save()` trims string fields, falls back to
+each service's default port on an unparseable port string, and persists a blank/whitespace-only
+session-key override as `null` rather than as a literal blank string (verified via
+revert-confirm-fail — temporarily un-trimming that field before the `takeIf` made the test fail for
+the right reason); and `pushWatchFace()`/`activateWatchFace()`'s success/validation-failure/
+failure/no-slot-id branches, including a real fake instead of a mock.
+
+That last group needed `WatchFacePushRepository` split into an interface (production change) plus
+`WearWatchFacePushRepository` (the real `androidx.wear.watchfacepush`-backed implementation, wired
+into `AppContainer` exactly where the old concrete class was) and a new
+`FakeWatchFacePushRepository` (shared `src/sharedTest` fake) — the same interface-plus-fake shape
+already used for `AdminAuthGate`/`BiometricAdminAuthGate` in this same module. This also let
+`SettingsScreenTest` (from the prior update) drop its awkward real-`Context`-backed
+`WatchFacePushRepository` construction in favor of the new fake, and gained three tests actually
+exercising the "Install / update" button's success/validation-failure/failure paths — a
+previously-disclosed gap this closes at the ViewModel-orchestration level. Still out of scope:
+clicking "Activate" itself, which first checks/requests a runtime permission via
+`rememberLauncherForActivityResult` — real system-permission-dialog interaction needs a real
+device, not a fake repository. `SettingsScreen.kt`'s status comment updated to reflect this.
+
 Action Items:
 
-- [x] Add ViewModel unit tests first (cheapest — no Compose/Activity needed) — all 8 done; see
-  the per-ViewModel test files under `android/app/src/test`/`android/opsdashboard/src/test`.
+- [x] Add ViewModel unit tests first (cheapest — no Compose/Activity needed) — 11 of 12 done (see
+  the Correction above); `ConversationListViewModel` (`app` module) still has zero test coverage,
+  flagged separately. See the per-ViewModel test files under `android/app/src/test`/
+  `android/opsdashboard/src/test`.
 - [x] Adopt Compose UI testing (`androidx.compose.ui.test`) for screens once ViewModels are
   covered — infrastructure adopted for both modules now; `ConversationListScreen`, `ChatScreen`,
   `SettingsScreen` (`app` module), `GroupListScreen`, `ModelListScreen`, `SessionListScreen`,
@@ -956,7 +989,8 @@ Files to Modify:
   `GroupListScreen.kt`/`ModelListScreen.kt`/`SessionListScreen.kt`/`ModelDetailScreen.kt`/
   `SessionDetailScreen.kt`/`SettingsScreen.kt` (`opsdashboard` module — `ModelDetailScreen.kt`/
   `SessionDetailScreen.kt` with their admin-action confirm-dialog flows still uncovered,
-  `SettingsScreen.kt` with its watch-face-push flow still uncovered).
+  `SettingsScreen.kt` with its watch-face-push Activate-click still uncovered — see the
+  Correction above).
 
 ---
 

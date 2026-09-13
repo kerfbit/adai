@@ -1,7 +1,7 @@
 package com.adai.ops.settings
 
-// @adai-status: beta        (TD-048 — SettingsScreenTest.kt added; watch-face-push flow and real-device run still unverified, see below)
-// @adai-version: 0.3.0
+// @adai-status: beta        (TD-048 — SettingsScreenTest.kt added; watch-face-push flow now covered via a fake, Activate-click and real-device run still unverified, see below)
+// @adai-version: 0.4.0
 // @adai-reviewed: 2026-09-13
 
 
