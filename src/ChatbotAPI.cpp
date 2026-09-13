@@ -1,5 +1,5 @@
-// @adai-status: beta        (TD-033 resolved — see TECHNICAL_DEBT_RESOLVED.md)
-// @adai-version: 0.10.0
+// @adai-status: beta        (TD-033, TD-053 resolved — see TECHNICAL_DEBT_RESOLVED.md)
+// @adai-version: 0.11.0
 // @adai-reviewed: 2026-09-13
 
 #include "ChatbotAPI.hpp"
@@ -61,6 +61,32 @@ ChatbotAPI::ChatbotAPI(EncoderDecoderModel* model, BPETokenizer* tokenizer, int 
         "/clear-session", [this](const httplib::Request& req, httplib::Response& res) {
             try {
                 std::string response = handle_clear_session(req.body);
+                res.set_content(response, "application/json");
+                res.status = 200;
+            } catch (const std::exception& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 400;
+            }
+        });
+
+    // POST /chat/session/export - Export a session's conversation history (TD-053)
+    server_impl_->server.Post(
+        "/chat/session/export", [this](const httplib::Request& req, httplib::Response& res) {
+            try {
+                std::string response = handle_export_session(req.body);
+                res.set_content(response, "application/json");
+                res.status = 200;
+            } catch (const std::exception& e) {
+                res.set_content(create_error_response(e.what()), "application/json");
+                res.status = 400;
+            }
+        });
+
+    // POST /chat/session/import - Restore a conversation history into a session (TD-053)
+    server_impl_->server.Post(
+        "/chat/session/import", [this](const httplib::Request& req, httplib::Response& res) {
+            try {
+                std::string response = handle_import_session(req.body);
                 res.set_content(response, "application/json");
                 res.status = 200;
             } catch (const std::exception& e) {
@@ -245,6 +271,68 @@ std::string ChatbotAPI::handle_clear_session(const std::string& request_body) {
         return R"({"success":true,"message":"Session cleared"})";
     }
     return create_error_response("Session not found");
+}
+
+std::string ChatbotAPI::handle_export_session(const std::string& request_body) {
+    // TD-053: exports session_id's ConversationContext as ConversationContext::serialize()'s own
+    // string format, JSON-escaped into the "data" field — the client (ChatbotCLI's /save) writes
+    // that field's content straight to its local file.
+    std::string session_id = parse_json_string(request_body, "session_id");
+    if (session_id.empty()) {
+        return create_error_response("Missing 'session_id' field in request");
+    }
+
+    std::string data;
+    {
+        std::lock_guard<std::mutex> lock(sessions_mutex_);
+        auto it = sessions_.find(session_id);
+        if (it == sessions_.end()) {
+            return create_error_response("Session not found");
+        }
+        data = it->second->context->serialize();
+    }
+
+    std::ostringstream oss;
+    oss << R"({"success":true,"session_id":")" << escape_json_string(session_id)
+        << R"(","data":")" << escape_json_string(data) << "\"}";
+    return oss.str();
+}
+
+std::string ChatbotAPI::handle_import_session(const std::string& request_body) {
+    // TD-053: restores a ConversationContext from previously-exported data (ChatbotCLI's /load
+    // reads its local file and sends the content here verbatim). Creates a new session the same
+    // way handle_chat_session() does when session_id arrives empty — mirrors that function's
+    // TD-095 fix (recovering the newly-allocated id via the same reverse pointer-lookup) so a
+    // client with no prior session yet can still adopt one from a /load.
+    std::string session_id = parse_json_string(request_body, "session_id");
+    std::string data = parse_json_string(request_body, "data");
+
+    if (data.empty()) {
+        return create_error_response("Missing 'data' field in request");
+    }
+
+    Session* session = get_or_create_session(session_id);
+    if (session_id.empty()) {
+        std::lock_guard<std::mutex> lock(sessions_mutex_);
+        for (const auto& pair : sessions_) {
+            if (pair.second.get() == session) {
+                session_id = pair.first;
+                break;
+            }
+        }
+    }
+
+    try {
+        session->context->deserialize(data);
+    } catch (const std::exception& e) {
+        return create_error_response(std::string("Failed to import conversation: ") + e.what());
+    }
+    session->last_access = std::chrono::steady_clock::now();
+
+    std::ostringstream oss;
+    oss << R"({"success":true,"session_id":")" << escape_json_string(session_id)
+        << R"(","message_count":)" << session->context->get_message_count() << "}";
+    return oss.str();
 }
 
 std::string ChatbotAPI::handle_health() {

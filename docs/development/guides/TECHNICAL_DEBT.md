@@ -7,10 +7,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 **Last Updated:** September 13, 2026
 **Total Items:** 13
 **High Priority:** 1
-**Medium Priority:** 7
-**Low Priority:** 5
+**Medium Priority:** 6
+**Low Priority:** 6
 **Future Enhancements:** 19
-**Resolved Items:** 118
+**Resolved Items:** 152
 **Deferred Decisions:** 2
 
 ## Recommended Execution Order
@@ -37,9 +37,11 @@ ambiguity, can start immediately regardless of Tier 1's outcome):
 - [TD-033](#td-033-chatbot_api_server-inference-never-uses-persistent-gpu-resident-decode) —
   wired in and verified September 13, 2026 (code + concurrency fix + tests); only the before/after
   latency benchmark remains, blocked on real GPU hardware not available in this dev environment.
-- [TD-053](#td-053-chatbotclis-save-and-load-commands-are-non-functional-everywhere) (6-10h) — a
-  currently-published doc actively misleads users about a working feature; small, two clear
-  options (implement or formally scope out).
+- TD-053 resolved September 13, 2026 (`/save`/`/load`/auto-save-on-exit implemented for real,
+  transporting `ConversationContext::serialize()`/`deserialize()` over two new `ChatbotAPI`
+  endpoints) — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md#td-053-chatbotclis-save-and-load-commands-are-non-functional-everywhere).
+  Its remaining doc-verification item continues as
+  [TD-164](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass).
 
 **Tier 3 — Unblocks chained work:** [TD-034](#td-034-ppooptimizers-core-update-loop-is-a-placeholder-not-real-ppo)
 (10-16h) fixes PPO/`ValueFunction` for real and is the only thing blocking
@@ -90,9 +92,9 @@ here — a standalone benchmark binary, not gating anything, not part of `ctest`
   - [TD-039: Core Training/Metrics Classes Too Large and Fast-Moving to Certify Stable](#td-039-core-trainingmetrics-classes-too-large-and-fast-moving-to-certify-stable)
   - [TD-047: Android Data/Repository/API Layer Has No CI or Release History](#td-047-android-datarepositoryapi-layer-has-no-ci-or-release-history)
   - [TD-048: Android UI/DI/Entry-Point Classes Are Untested and Unreleased](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
-  - [TD-053: ChatbotCLI's /save and /load Commands Are Non-Functional Everywhere](#td-053-chatbotclis-save-and-load-commands-are-non-functional-everywhere)
   - [TD-163: AttentionHeadBenchmark Hangs Indefinitely](#td-163-attentionheadbenchmark-hangs-indefinitely)
-- [Resolved Items](#resolved-items) (150 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+  - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
+- [Resolved Items](#resolved-items) (152 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -795,47 +797,36 @@ Files to Modify:
 
 ---
 
-### TD-053: ChatbotCLI's /save and /load Commands Are Non-Functional Everywhere
+### TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open | CLI / User-Facing | September 8, 2026 | 6-10 hours |
+| LOW | Open | Documentation | September 13, 2026 | 2-4 hours |
 
 Description:
-`docs/operations/guides/chatbot-guide.md` documents an entire "Conversation History" feature set
-— automatic save-on-exit, manual `/save`, manual `/load` — as real and working, with example
-usage shown twice. None of it exists: `ChatbotCLI.cpp`'s `/exit`/`/quit` handler only sets
-`running = false` (no save call, no "conversation_history.txt" string anywhere in the file), and
-`/save`/`/load` share one handler that unconditionally prints `"Save/Load not supported in API
-client mode yet."` The message's wording implies a working alternative mode exists; it doesn't —
-there is no other code path anywhere in `ChatbotCLI.cpp`/`.hpp` that saves or loads a
-conversation. A user following the documented examples would hit a dead end on all three.
-
-**Broader context found while fixing the doc:** `chatbot-guide.md` turned out to describe an
-entire earlier CLI architecture — a standalone binary taking `[vocab_file] [model_file]
-[conversation_save_file]` — that predates `ChatbotCLI` becoming a thin HTTP client for
-`chatbot_api_server` (current args, verified against `ChatbotCLI_main.cpp`:
-`[server_url] [conversation_save_file]`). The Quick Start banner, File Requirements, Default
-File Paths, "Starting the Chatbot", and Command-Line Help sections have been corrected to match
-current behavior (September 8, 2026); a banner at the top of the doc flags that later sections
-(Commands Reference details, Generation Strategies, Configuration Parameters) have not been
-re-verified against a live `chatbot`/`chatbot_api_server` pair and may have the same problem.
+Split off from [TD-053](../archive/TECHNICAL_DEBT_RESOLVED.md#td-053-chatbotclis-save-and-load-commands-are-non-functional-everywhere)
+when that item was resolved. TD-053 fixed `chatbot-guide.md` sections verifiable by reading source
+directly: the Quick Start banner, File Requirements, Default File Paths, "Starting the Chatbot",
+and Command-Line Help sections (all corrected September 8, 2026, when the doc was found to
+describe an entire earlier CLI architecture — a standalone binary taking `[vocab_file]
+[model_file] [conversation_save_file]` — that predates `ChatbotCLI` becoming a thin HTTP client
+for `chatbot_api_server`), plus the Conversation History / `/save` / `/load` sections and the
+`vocab.txt`/`model.bin` example invocations and tokenizer-loading troubleshooting entry (all
+corrected September 13, 2026, once `/save`/`/load`/auto-save-on-exit became real). What's left is
+a genuinely interactive check — Commands Reference details, Generation Strategies, and
+Configuration Parameters — none of which can be confidently verified by reading source alone the
+way the sections above were.
 
 Action Items:
 
-- [ ] Either implement save-on-exit and `/save`/`/load` (serialize/restore `ConversationContext`
-  to/from disk) or formally decide they're out of scope for the API-client CLI and remove the
-  "planned" framing from the doc instead of leaving it aspirational indefinitely.
-- [ ] Add a CLI test asserting the actual current behavior (clear error on `/save`/`/load`, no
-  crash or silent no-op on exit) so this doesn't regress silently either way.
-- [ ] Do a full pass over the rest of `chatbot-guide.md` (Commands Reference, Generation
-  Strategies, Configuration Parameters) against a live `chatbot` + `chatbot_api_server` pair —
-  the sections already fixed were the ones verifiable by reading source directly; the rest need
-  interactive verification. Remove the "partially stale" banner once done.
+- [ ] Start a real `chatbot_api_server` + `chatbot` pair and walk every example in the Commands
+  Reference, Generation Strategies, and Configuration Parameters sections, fixing any output that
+  no longer matches.
+- [ ] Remove the "targeted correction, not a full re-verification" caveat from the top-of-file
+  banner once done.
 
 Files to Modify:
 
-- `src/ChatbotCLI.cpp`
 - `docs/operations/guides/chatbot-guide.md`
 
 ---
@@ -885,7 +876,7 @@ Files to Modify:
 
 ## Resolved Items
 
-151 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+152 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements

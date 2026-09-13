@@ -18,6 +18,7 @@
 #include <memory>
 #include <thread>
 #include "../src/BPETokenizer.hpp"
+#include "../src/ConversationContext.hpp"
 #include "../src/EncoderDecoderModel.hpp"
 
 class ChatbotAPITest : public ::testing::Test {
@@ -75,6 +76,15 @@ class ChatbotAPITest : public ::testing::Test {
     // reason as call_generate_response() above.
     std::string call_handle_chat_session(const std::string& request_body) {
         return api->handle_chat_session(request_body);
+    }
+
+    // handle_export_session()/handle_import_session() are private (TD-053); same
+    // friendship-doesn't-propagate reason as call_generate_response() above.
+    std::string call_handle_export_session(const std::string& request_body) {
+        return api->handle_export_session(request_body);
+    }
+    std::string call_handle_import_session(const std::string& request_body) {
+        return api->handle_import_session(request_body);
     }
 
     // handle_profile() is private; same friendship-doesn't-propagate reason as
@@ -369,6 +379,97 @@ TEST_F(ChatbotAPITest, HandleChatSession_ReturnedSessionIdContinuesTheSameConver
 
     EXPECT_EQ(second_session_id, session_id)
         << "the id the caller sent back should identify the same, still-live session";
+}
+
+// ============================================================================
+// Session Export/Import Tests (TD-053)
+//
+// A session's conversation history lives entirely server-side (Session::context) — a remote
+// ChatbotCLI has no local state of its own to persist, so /save and /load need real network
+// round-trips instead of a local file operation. These two endpoints transport
+// ConversationContext::serialize()/deserialize()'s string format over HTTP.
+// ============================================================================
+
+TEST_F(ChatbotAPITest, HandleExportSession_MissingSessionIdReturnsError) {
+    std::string response = call_handle_export_session(R"({})");
+    // "success" is an unquoted JSON boolean, not a string -- parse_json_string() only handles
+    // quoted string values (confirmed the hard way: it mis-parses past an unquoted true/false to
+    // whatever quoted key or value comes next), so every check here matches the rest of this
+    // file's own established convention of a raw substring search for boolean/numeric fields.
+    EXPECT_NE(response.find(R"("success":false)"), std::string::npos) << response;
+    EXPECT_NE(response.find("Missing 'session_id'"), std::string::npos) << response;
+}
+
+TEST_F(ChatbotAPITest, HandleExportSession_UnknownSessionIdReturnsError) {
+    std::string response = call_handle_export_session(R"({"session_id":"does-not-exist"})");
+    EXPECT_NE(response.find(R"("success":false)"), std::string::npos) << response;
+    EXPECT_NE(response.find("Session not found"), std::string::npos) << response;
+}
+
+TEST_F(ChatbotAPITest, HandleExportSession_ReturnsSerializedConversationData) {
+    std::string chat_response = call_handle_chat_session(R"({"message":"hello"})");
+    std::string session_id = api->parse_json_string(chat_response, "session_id");
+    ASSERT_FALSE(session_id.empty());
+
+    std::string response =
+        call_handle_export_session(R"({"session_id":")" + session_id + R"("})");
+    EXPECT_NE(response.find(R"("success":true)"), std::string::npos) << response;
+    std::string data = api->parse_json_string(response, "data");
+    // ConversationContext::serialize()'s own format -- exercised directly in
+    // conversationcontext_test.cpp, only spot-checked here to confirm the real conversation
+    // (not a placeholder) crossed the HTTP boundary.
+    EXPECT_NE(data.find("MAX_MESSAGES:"), std::string::npos) << data;
+    EXPECT_NE(data.find("user|"), std::string::npos) << data;
+}
+
+TEST_F(ChatbotAPITest, HandleImportSession_MissingDataReturnsError) {
+    std::string response = call_handle_import_session(R"({"session_id":"whatever"})");
+    EXPECT_NE(response.find(R"("success":false)"), std::string::npos) << response;
+    EXPECT_NE(response.find("Missing 'data'"), std::string::npos) << response;
+}
+
+TEST_F(ChatbotAPITest, HandleImportSession_CreatesNewSessionWhenNoneGiven) {
+    ConversationContext source;
+    source.add_user_message("Imported question");
+    source.add_assistant_message("Imported answer");
+
+    std::string request = R"({"data":")" + api->escape_json_string(source.serialize()) + R"("})";
+    std::string response = call_handle_import_session(request);
+
+    EXPECT_NE(response.find(R"("success":true)"), std::string::npos) << response;
+    std::string session_id = api->parse_json_string(response, "session_id");
+    EXPECT_FALSE(session_id.empty())
+        << "server should allocate and report a fresh session id, the same TD-095 fix "
+           "handle_chat_session() already applies";
+    EXPECT_NE(response.find(R"("message_count":2)"), std::string::npos) << response;
+}
+
+TEST_F(ChatbotAPITest, ExportThenImportRoundTripPreservesMessageContent) {
+    // Real end-to-end round trip through both new endpoints, including a message content that
+    // needs real JSON escaping (an embedded quote) to survive the trip -- the direct analog of
+    // ChatbotCLISaveLoadRoundTripTest.SaveThenLoadRestoresSessionOnAFreshClient in
+    // chatbotcli_improved_test.cpp, but exercising ChatbotAPI's own handlers directly rather
+    // than through a real ChatbotCLI + real sockets.
+    std::string chat_response =
+        call_handle_chat_session(R"({"message":")" +
+                                 api->escape_json_string(R"(say "hi" please)") + R"("})");
+    std::string session_id = api->parse_json_string(chat_response, "session_id");
+    ASSERT_FALSE(session_id.empty());
+
+    std::string export_response =
+        call_handle_export_session(R"({"session_id":")" + session_id + R"("})");
+    ASSERT_NE(export_response.find(R"("success":true)"), std::string::npos) << export_response;
+    std::string data = api->parse_json_string(export_response, "data");
+
+    std::string import_response =
+        call_handle_import_session(R"({"data":")" + api->escape_json_string(data) + R"("})");
+    ASSERT_NE(import_response.find(R"("success":true)"), std::string::npos) << import_response;
+    EXPECT_NE(import_response.find(R"("message_count":2)"), std::string::npos) << import_response;
+
+    ConversationContext restored;
+    ASSERT_NO_THROW(restored.deserialize(data));
+    ASSERT_EQ(restored.get_message_count(), 2);
+    EXPECT_EQ(restored.get_messages()[0].content, R"(say "hi" please)");
 }
 
 // ============================================================================

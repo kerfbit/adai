@@ -4,6 +4,79 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-053: ChatbotCLI's /save and /load Commands Are Non-Functional Everywhere
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 13, 2026 | `src/ConversationContext.{hpp,cpp}`, `src/ChatbotAPI.{hpp,cpp}`, `src/ChatbotCLI.{hpp,cpp}`, `tests/conversationcontext_test.cpp`, `tests/chatbotapi_test.cpp`, `tests/chatbotcli_improved_test.cpp`, `tests/CMakeLists.txt` | Real `/save`/`/load`/auto-save-on-exit, transporting server-side conversation state over two new `ChatbotAPI` HTTP endpoints |
+
+Summary:
+`docs/operations/guides/chatbot-guide.md` documented an entire "Conversation History" feature set
+— automatic save-on-exit, manual `/save`, manual `/load` — as real and working. None of it existed:
+`ChatbotCLI.cpp`'s `/exit`/`/quit` handler only set `running = false`, and `/save`/`/load` shared
+one handler that unconditionally printed an error. Investigating the fix surfaced the real
+architectural reason: `ChatbotCLI` is a thin HTTP client with no local conversation state of its
+own — it only holds a `session_id` string, and the full conversation lives server-side in
+`ChatbotAPI`'s `Session::context`. That ruled out the naive fix (giving `ChatbotCLI` its own
+`ConversationContext` to serialize locally, which would only diverge further from server state)
+in favor of transporting the server's own, already-tested `ConversationContext` serialization
+format over HTTP. Given a choice between implementing this for real or formally descoping
+`/save`/`/load` from the API-client CLI and rewriting the docs to match, the user chose to
+implement it for real.
+
+Changes Made:
+- Refactored `ConversationContext::save_to_file()`/`load_from_file()` (`src/ConversationContext.{hpp,cpp}`)
+  into thin wrappers around new public `serialize()`/`deserialize()` methods that operate on a
+  `std::string` in the same line-oriented format, rather than a file path — a server-local file
+  path is meaningless to a remote `ChatbotCLI` client, but the string format itself is exactly
+  what needs to cross the HTTP boundary. All 66 pre-existing tests confirmed still passing
+  unchanged; added 4 new tests (`SerializeDeserializeRoundTrip`,
+  `SerializeMatchesSaveToFileContent`, `DeserializeReplacesExistingState`,
+  `SerializeDeserializeRoundTripPreservesEmbeddedNewlines`) to `tests/conversationcontext_test.cpp`
+  (70 total, up from 66).
+- Added `ChatbotAPI::handle_export_session()`/`handle_import_session()` (`src/ChatbotAPI.{hpp,cpp}`)
+  and two new routes, `POST /chat/session/export` and `POST /chat/session/import`, mirroring
+  `/clear-session`'s existing try/catch/status-code pattern. Import reuses TD-095's session-id-recovery
+  pattern (a reverse pointer-lookup through the `sessions_` map) when no `session_id` is given, so
+  importing into a fresh client-side session allocates and reports a real server-side id the same
+  way a first chat message does.
+- Wired real `save_conversation()`/`load_conversation()` into `ChatbotCLI` (`src/ChatbotCLI.{hpp,cpp}`),
+  replacing the old combined error-printing branch, plus automatic save-on-exit from `/exit`/`/quit`
+  (silently skipped, not an error, when no message was ever sent in the session).
+- Added 6 new tests to `tests/chatbotapi_test.cpp` covering both new endpoints directly (missing/unknown
+  session id, missing data, successful export, successful import creating a fresh session, and a
+  full export-then-import round trip) and 4 new tests plus a real end-to-end round-trip test to
+  `tests/chatbotcli_improved_test.cpp` (added `adai_api` to its link libraries so it can host a real
+  `ChatbotAPI` server in-process, mirroring `trainer_admin_api_test.cpp`'s established
+  background-thread-plus-health-poll pattern).
+- Corrected `docs/operations/guides/chatbot-guide.md`'s Conversation History / `/save` / `/load`
+  sections to describe the real behavior (including the "nothing to save yet" and file-not-found
+  error paths), and separately fixed leftover stale `vocab.txt`/`model.bin` example invocations and
+  a tokenizer-loading troubleshooting entry that predated `ChatbotCLI` becoming an HTTP client
+  (`chatbot_api_server` owns the tokenizer/model now, not `chatbot`). A full interactive
+  verification pass over the rest of the guide (Commands Reference, Generation Strategies,
+  Configuration Parameters) was intentionally left for a follow-up,
+  [TD-164](../guides/TECHNICAL_DEBT.md#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass).
+- Bumped `@adai-version` on every touched `src/` file (`ConversationContext.{hpp,cpp}` 1.1.0→1.2.0,
+  `ChatbotAPI.hpp` 0.9.7→0.10.0, `ChatbotAPI.cpp` 0.10.0→0.11.0, `ChatbotCLI.{hpp,cpp}` 1.0.0→1.1.0)
+  and `@adai-reviewed` dates to September 13, 2026.
+
+Verification:
+- ✅ Confirmed via revert-confirm-fail: the round-trip test in `chatbotcli_improved_test.cpp`
+  originally used the message `"hello world"`, which contains no character needing JSON escaping —
+  deliberately reintroducing a bug (removing `escape_json_string(data)` from
+  `handle_export_session()`) left the test passing, proving it wasn't exercising the escaping path
+  at all. Rewrote the message to `say "hi" please` (a literal embedded quote,
+  `ConversationContext::serialize()`'s own line format deliberately leaves quotes unescaped, making
+  the JSON transport layer solely responsible for protecting it); re-ran with the bug still present
+  and confirmed the test now correctly failed, then restored the fix and confirmed it passed.
+- ✅ `conversationcontextTests`: 70/70 pass.
+- ✅ `chatbotapiTests`: 72/72 pass (66 pre-existing + 6 new).
+- ✅ `chatbotcliTests`: 83/83 pass. `chatbotcliImprovedTests`: 28/28 pass.
+- ✅ Full project build (`cmake --build . -j$(nproc)`) clean with no new warnings.
+
+---
+
 ### TD-041: GPUUtils Has No Dedicated Test on Either Backend
 
 | Resolution Date | Component | Resolved By |

@@ -608,6 +608,89 @@ TEST(ConversationContextTest, LoadFromNonexistentFile) {
     EXPECT_THROW({ context.load_from_file("nonexistent_file.txt"); }, std::runtime_error);
 }
 
+// TD-053: serialize()/deserialize() are the string-based cores save_to_file()/load_from_file()
+// are now thin wrappers around — added so ChatbotAPI can expose conversation export/import over
+// HTTP (a server-local file path is meaningless to a remote ChatbotCLI client).
+
+TEST(ConversationContextTest, SerializeDeserializeRoundTrip) {
+    ConversationContext context1(15, 1500, true);
+
+    context1.set_system_message("You are helpful");
+    context1.add_user_message("Question 1");
+    context1.add_assistant_message("Answer 1");
+    context1.add_user_message("Question 2");
+    context1.add_assistant_message("Answer 2");
+
+    std::string data = context1.serialize();
+    EXPECT_FALSE(data.empty());
+
+    ConversationContext context2;
+    context2.deserialize(data);
+
+    EXPECT_EQ(context2.get_message_count(), 4);
+    EXPECT_EQ(context2.get_system_message(), "You are helpful");
+    EXPECT_EQ(context2.get_last_user_message(), "Question 2");
+    EXPECT_EQ(context2.get_last_assistant_message(), "Answer 2");
+}
+
+TEST(ConversationContextTest, SerializeMatchesSaveToFileContent) {
+    // serialize() and save_to_file() must produce byte-identical output -- save_to_file() is
+    // documented as a thin wrapper around serialize(), not an independent reimplementation.
+    ConversationContext context(15, 1500, true);
+    context.set_system_message("System prompt");
+    context.add_user_message("Hello");
+    context.add_assistant_message("Hi there");
+
+    std::string filepath = "test_serialize_matches_savetofile.txt";
+    context.save_to_file(filepath);
+
+    std::ifstream file(filepath);
+    std::ostringstream file_contents;
+    file_contents << file.rdbuf();
+    file.close();
+    std::remove(filepath.c_str());
+
+    EXPECT_EQ(context.serialize(), file_contents.str());
+}
+
+TEST(ConversationContextTest, DeserializeReplacesExistingState) {
+    // deserialize() must fully replace prior state, the same way load_from_file() does --
+    // exercised directly since deserialize() is now load_from_file()'s own implementation.
+    ConversationContext context1;
+    context1.set_system_message("First");
+    context1.add_user_message("First question");
+
+    ConversationContext context2(10, 1000, true);
+    context2.set_system_message("Second");
+    context2.add_user_message("Old message that should be gone");
+    context2.add_user_message("Another old message");
+
+    context2.deserialize(context1.serialize());
+
+    EXPECT_EQ(context2.get_system_message(), "First");
+    EXPECT_EQ(context2.get_message_count(), 1);
+    EXPECT_EQ(context2.get_last_user_message(), "First question");
+}
+
+// TD-071's embedded-newline fix (see SaveLoadRoundTripPreservesEmbeddedNewlines above) must
+// hold for the string-based path too, since deserialize() is now load_from_file()'s real
+// implementation.
+TEST(ConversationContextTest, SerializeDeserializeRoundTripPreservesEmbeddedNewlines) {
+    ConversationContext context1(15, 1500, true);
+    context1.set_system_message("Line one\nLine two of the system prompt");
+    context1.add_user_message("Hello\nWorld, this is\na multi-line message.");
+    context1.add_assistant_message("Single line reply.");
+
+    ConversationContext context2;
+    context2.deserialize(context1.serialize());
+
+    EXPECT_EQ(context2.get_system_message(), "Line one\nLine two of the system prompt");
+    ASSERT_EQ(context2.get_message_count(), 2);
+    auto messages = context2.get_messages();
+    EXPECT_EQ(messages[0].content, "Hello\nWorld, this is\na multi-line message.");
+    EXPECT_EQ(messages[1].content, "Single line reply.");
+}
+
 // ============================================================================
 // Summarization Tests
 // ============================================================================

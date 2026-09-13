@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-09-13
 
 #include "ChatbotCLI.hpp"
 #include <ctime>
@@ -214,12 +214,10 @@ void ChatbotCLI::handle_command(const std::string& command) {
         print_settings();
     } else if (cmd_view.size() > 5 && cmd_view.substr(0, 5) == "/set ") {
         handle_setting(cmd_view.substr(5));
-    } else if (command == "/save" || command == "/load") {
-        // TODO: See TECHNICAL_DEBT.md TD-053 - this is the only handler for /save and /load;
-        // there is no other mode where either command works, despite
-        // docs/operations/guides/chatbot-guide.md documenting them as working examples.
-        std::cout << COLOR_ERROR << "❌ Save/Load not supported in API client mode yet."
-                  << COLOR_RESET << '\n';
+    } else if (command == "/save") {
+        save_conversation();
+    } else if (command == "/load") {
+        load_conversation();
     } else {
         std::cout << COLOR_ERROR << "❓ Unknown command. Type /help for available commands."
                   << COLOR_RESET << '\n';
@@ -340,6 +338,104 @@ std::string ChatbotCLI::generate_response(const std::string& user_input) {
     return err.str();
 }
 
+void ChatbotCLI::save_conversation() {
+    // TD-053: session state lives server-side, not in this object -- "saving" means asking the
+    // server to export it, then writing the result to our local file.
+    if (session_id.empty()) {
+        std::cout << COLOR_ERROR << "❌ Nothing to save yet — send a message first."
+                  << COLOR_RESET << '\n';
+        return;
+    }
+    if (!client) {
+        std::cout << COLOR_ERROR << "❌ Client not initialized" << COLOR_RESET << '\n';
+        return;
+    }
+
+    std::string body = R"({"session_id":")" + escape_json_string(session_id) + "\"}";
+    auto res = client->Post("/chat/session/export", body, "application/json");
+    if (!res) {
+        std::cout << COLOR_ERROR << "❌ Failed to reach server to export conversation"
+                  << COLOR_RESET << '\n';
+        return;
+    }
+    if (parse_json_value(res->body, "success") != "true") {
+        std::string error = parse_json_value(res->body, "error");
+        std::cout << COLOR_ERROR << "❌ " << (error.empty() ? "Export failed" : error)
+                  << COLOR_RESET << '\n';
+        return;
+    }
+
+    std::ofstream out(conversation_save_path);
+    if (!out.is_open()) {
+        std::cout << COLOR_ERROR << "❌ Failed to open '" << conversation_save_path
+                  << "' for writing" << COLOR_RESET << '\n';
+        return;
+    }
+    out << parse_json_value(res->body, "data");
+    out.close();
+
+    std::cout << COLOR_SYSTEM << "✅ Conversation saved to " << conversation_save_path
+              << COLOR_RESET << '\n';
+}
+
+void ChatbotCLI::load_conversation() {
+    // TD-053: reads our local file, then asks the server to import it into a session (a fresh
+    // one if we don't have one yet) -- there is no local ConversationContext of our own to
+    // populate.
+    std::ifstream in(conversation_save_path);
+    if (!in.is_open()) {
+        std::cout << COLOR_ERROR << "❌ No saved conversation found at '"
+                  << conversation_save_path << "'" << COLOR_RESET << '\n';
+        return;
+    }
+    std::ostringstream buf;
+    buf << in.rdbuf();
+    in.close();
+    std::string data = buf.str();
+    if (data.empty()) {
+        std::cout << COLOR_ERROR << "❌ Saved conversation file '" << conversation_save_path
+                  << "' is empty" << COLOR_RESET << '\n';
+        return;
+    }
+    if (!client) {
+        std::cout << COLOR_ERROR << "❌ Client not initialized" << COLOR_RESET << '\n';
+        return;
+    }
+
+    std::stringstream ss;
+    ss << "{";
+    if (!session_id.empty()) {
+        ss << R"("session_id":")" << escape_json_string(session_id) << "\",";
+    }
+    ss << R"("data":")" << escape_json_string(data) << "\"";
+    ss << "}";
+
+    auto res = client->Post("/chat/session/import", ss.str(), "application/json");
+    if (!res) {
+        std::cout << COLOR_ERROR << "❌ Failed to reach server to import conversation"
+                  << COLOR_RESET << '\n';
+        return;
+    }
+    if (parse_json_value(res->body, "success") != "true") {
+        std::string error = parse_json_value(res->body, "error");
+        std::cout << COLOR_ERROR << "❌ " << (error.empty() ? "Import failed" : error)
+                  << COLOR_RESET << '\n';
+        return;
+    }
+
+    std::string new_sid = parse_json_value(res->body, "session_id");
+    if (!new_sid.empty()) {
+        session_id = new_sid;
+    }
+
+    std::cout << COLOR_SYSTEM << "✅ Conversation loaded from " << conversation_save_path;
+    std::string message_count = parse_json_value(res->body, "message_count");
+    if (!message_count.empty()) {
+        std::cout << " (" << message_count << " messages)";
+    }
+    std::cout << COLOR_RESET << '\n';
+}
+
 void ChatbotCLI::run() {
     if (!initialize()) {
         std::cerr << COLOR_ERROR << "Failed to initialize chatbot!" << COLOR_RESET << '\n';
@@ -363,6 +459,14 @@ void ChatbotCLI::run() {
         }
 
         if (user_input == "/exit" || user_input == "/quit") {
+            // TD-053: automatic save-on-exit, matching chatbot-guide.md's documented behavior.
+            // Silently skipped (not an error) when no conversation ever started — save_conversation()
+            // itself would print a "nothing to save yet" message otherwise, which is the right
+            // message for an explicit /save but noise on every exit of a session that never sent
+            // a message.
+            if (!session_id.empty()) {
+                save_conversation();
+            }
             running = false;
             continue;
         }

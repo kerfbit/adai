@@ -1,7 +1,7 @@
 #pragma once
 
-// @adai-status: beta        (TD-033 resolved — see TECHNICAL_DEBT_RESOLVED.md)
-// @adai-version: 0.9.7
+// @adai-status: beta        (TD-033, TD-053 resolved — see TECHNICAL_DEBT_RESOLVED.md)
+// @adai-version: 0.10.0
 // @adai-reviewed: 2026-09-13
 
 
@@ -264,6 +264,14 @@ class ChatbotAPI {
     std::string handle_chat(const std::string& request_body);
     std::string handle_chat_session(const std::string& request_body);
     std::string handle_clear_session(const std::string& request_body);
+    // TD-053: a session's conversation history lives entirely server-side (Session::context
+    // below) — a remote ChatbotCLI has no local state of its own to persist, so /save and /load
+    // need real network round-trips rather than a local file operation. These two endpoints
+    // transport ConversationContext::serialize()/deserialize()'s string format over HTTP instead
+    // of save_to_file()/load_from_file()'s local-disk path, which would only ever touch the
+    // server's own filesystem.
+    std::string handle_export_session(const std::string& request_body);
+    std::string handle_import_session(const std::string& request_body);
     std::string handle_health();
     std::string handle_profile();
 

@@ -2,14 +2,17 @@
 
 A comprehensive guide to using the ADAI transformer-based chatbot command-line interface.
 
-> **Partially stale (tracked as TD-053):** `ChatbotCLI` was re-architected at some point from a
-> standalone CLI that loaded its own vocabulary/model files directly into a thin HTTP client for
-> `chatbot_api_server` (it now takes `[server_url] [conversation_save_file]`, not
+> **Note (TD-053, resolved September 13, 2026):** `ChatbotCLI` was re-architected at some point
+> from a standalone CLI that loaded its own vocabulary/model files directly into a thin HTTP
+> client for `chatbot_api_server` (it now takes `[server_url] [conversation_save_file]`, not
 > `[vocab_file] [model_file] [conversation_save_file]`), and this guide was never fully updated to
-> match. The "Conversation History" behavior (auto-save, `/save`, `/load`) has been corrected
-> in place below; the vocabulary/model file sections and command-line examples further down have
-> not been fully re-verified against the current API-client architecture — treat anything
-> describing `vocab_file`/`model_file` arguments as suspect until TD-053 is resolved.
+> match at the time — the vocabulary/model file examples and error messages below have now been
+> corrected to describe the current API-client architecture. Separately, `/save`, `/load`, and
+> auto-save on exit were previously non-functional stubs (`ChatbotCLI` has no local conversation
+> state — history lives entirely server-side); they are now real, and are documented as such
+> throughout this guide, including in the "Conversation Management" section below. This pass was
+> a targeted correction of known-stale text, not a line-by-line re-verification against a live
+> `chatbot` + `chatbot_api_server` pair — flag anything else that looks off.
 
 ---
 
@@ -110,7 +113,7 @@ requirements.
 |Argument|Default|Purpose|
 |------|-------------|---------|
 |`server_url`|`http://localhost:8080`|`chatbot_api_server` to connect to|
-|`conversation_save_file`|`conversation_history.txt`|Stored but not currently used — see TD-053|
+|`conversation_save_file`|`conversation_history.txt`|Local path used by `/save`, `/load`, and auto-save on exit|
 
 ---
 
@@ -217,19 +220,29 @@ You: /clear
 
 #### `/save` and `/load`
 
-> **Not currently implemented** (tracked as TD-053): `ChatbotCLI` has a single handler for both
-> commands that always prints "Save/Load not supported in API client mode yet." — there is no
-> working code path for either command in any mode today. The examples below describe the
-> intended behavior once implemented, not current behavior.
+`ChatbotCLI` holds no conversation history of its own — the full conversation lives server-side,
+in `chatbot_api_server`'s `Session`. `/save` asks the server to export the active session's
+history (over `POST /chat/session/export`) and writes the result to the local
+`conversation_save_file` path; `/load` reads that local file back and asks the server to import
+it (`POST /chat/session/import`) into a session — reusing the current one if there is one, or
+having the server allocate a fresh one otherwise.
 
 ```text
 You: /save
-✅ Conversation saved to: conversation_history.txt
+✅ Conversation saved to conversation_history.txt
 ```
 
 ```text
 You: /load
-✅ Conversation loaded from: conversation_history.txt
+✅ Conversation loaded from conversation_history.txt (4 messages)
+```
+
+`/save` before any message has been sent (no active session yet) reports the same "nothing to
+save" condition rather than writing an empty file:
+
+```text
+You: /save
+❌ Nothing to save yet — send a message first.
 ```
 
 ### Configuration
@@ -262,11 +275,12 @@ You: /system You are a helpful programming assistant
 
 #### `/exit` or `/quit`
 
-Exit the chatbot. Auto-save on exit is planned but not implemented (TD-053) — `/exit` and
-`/quit` end the session immediately, with no save step:
+Exit the chatbot. `/exit` and `/quit` automatically save the conversation first (equivalent to
+running `/save`), skipped silently if no message was ever sent in the session:
 
 ```text
 You: /exit
+✅ Conversation saved to conversation_history.txt
 👋 Goodbye!
 ```
 
@@ -464,38 +478,39 @@ You: /set temp 0.7
 
 ## Conversation History
 
-> **Not currently implemented** (tracked as TD-053): none of automatic save-on-exit, `/save`, or
-> `/load` exist in `ChatbotCLI.cpp` today — `/exit` and `/quit` simply end the session, and
-> `/save`/`/load` both print an error. Everything below describes the intended behavior once
-> this is built, not current behavior.
+Conversation history itself lives entirely server-side, in `chatbot_api_server`'s `Session` for
+this client's `session_id` — `ChatbotCLI` holds no copy of its own. `/save` and `/load` transport
+that server-side state to and from a local file over HTTP (see [`/save` and
+`/load`](#save-and-load) above); there is no other local persistence.
 
-### Automatic Saving (planned)
+### Automatic Saving
 
-Conversations would be **automatically saved** when you exit:
+Conversations are **automatically saved** when you exit, unless no message was ever sent:
 
 ```text
 You: /exit
-💾 Saving conversation...
-✅ Conversation saved to: conversation_history.txt
+✅ Conversation saved to conversation_history.txt
+👋 Goodbye!
 ```
 
-### Manual Saving (planned)
+### Manual Saving
 
 Save at any time:
 
 ```text
 You: /save
-✅ Conversation saved to: conversation_history.txt
+✅ Conversation saved to conversation_history.txt
 ```
 
-### Loading Previous Conversations (planned)
+### Loading Previous Conversations
 
 ```text
 You: /load
-✅ Conversation loaded from: conversation_history.txt
+✅ Conversation loaded from conversation_history.txt (4 messages)
 ```
 
-**Note:** Loading would replace current conversation history.
+**Note:** Loading replaces the current session's conversation history on the server (or, if this
+client has no active session yet, creates a new one populated from the file).
 
 ### Conversation Limits
 
@@ -533,10 +548,10 @@ Use different save files for different topics:
 
 ```bash
 # Work conversations
-./src/chatbot vocab.txt model.bin work_chat.txt
+./src/chatbot http://localhost:8080 work_chat.txt
 
 # Personal conversations
-./src/chatbot vocab.txt model.bin personal_chat.txt
+./src/chatbot http://localhost:8080 personal_chat.txt
 ```
 
 ### Parameter Experimentation
@@ -567,42 +582,41 @@ echo -e "Hello\nWhat is AI?\n/exit" | ./src/chatbot
 
 ### Common Issues
 
-#### **Error: Failed to load tokenizer**
+#### **Error: cannot connect to the server**
+
+`chatbot` is an HTTP client — it loads no tokenizer or model file itself, so a failure here means
+`chatbot_api_server` isn't reachable at the configured `server_url`, not a local file problem:
 
 ```text
-❌ Failed to load tokenizer from: vocab.txt
+Error: Connection failed
 ```
 
-**Solution:** Ensure `vocab.txt` exists and is formatted correctly:
+**Solution:**
 
-```text
-token1 frequency1
-token2 frequency2
-...
-```
-
-#### **Warning: Model not found**
-
-```text
-ℹ️  No pre-trained model found. Using random initialization.
-   (Train the model first for better results)
-```
-
-**Solution:** Either:
-
-1. Provide a trained model file
-2. Continue with random weights (for testing only)
+1. Confirm `chatbot_api_server` is running (`curl http://localhost:8080/health`)
+2. Check the `server_url` argument matches where it's actually listening
+3. See [../deployment/README.md](../deployment/README.md) for starting `chatbot_api_server`,
+   including its own tokenizer/model file requirements (`chatbot` itself has none)
 
 #### **Conversation not loading**
 
 ```text
-❌ Failed to load conversation
+❌ No saved conversation found at 'conversation_history.txt'
+```
+
+or, if the server rejects the import (e.g. the file's data is corrupt or empty):
+
+```text
+❌ Saved conversation file 'conversation_history.txt' is empty
 ```
 
 Solution:
 
-- Check file exists and has read permissions
-- Verify file format is correct
+- Check the file exists (relative to the directory `chatbot` was run from) and has read permissions
+- Verify the file is one `/save` actually wrote — it holds `ConversationContext::serialize()`'s
+  own format, not arbitrary text
+- Confirm `chatbot_api_server` is reachable — `/load` needs a live round trip to import the data,
+  same as `/save` needs one to export it
 - Try `/clear` and start fresh
 
 #### **Invalid command**

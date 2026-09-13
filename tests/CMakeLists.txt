@@ -188,14 +188,19 @@ target_link_libraries(chatbotcliTests GTest::gtest_main)
 add_test(NAME ChatbotCLITests COMMAND chatbotcliTests)
 
 # ChatbotCLI improved tests (full unit tests with header support)
-add_executable(chatbotcliImprovedTests 
+# TD-053: also links adai_api (ChatbotAPI) so this binary can start a real ChatbotAPI server on
+# a background thread and drive a real ChatbotCLI's /save and /load against it end-to-end —
+# same style as trainer_admin_api_test.cpp's real-server-real-client tests, not a mocked HTTP
+# layer, since /save and /load are now real network round-trips (see ChatbotCLI.cpp).
+add_executable(chatbotcliImprovedTests
     chatbotcli_improved_test.cpp
     ../src/ChatbotCLI.cpp  # Include implementation
     ../src/Config.cpp
 )
-target_link_libraries(chatbotcliImprovedTests 
-    adai_models 
-    adai_nlp 
+target_link_libraries(chatbotcliImprovedTests
+    adai_models
+    adai_nlp
+    adai_api
     GTest::gtest_main
 )
 if(HTTPLIB_INCLUDE_DIR)

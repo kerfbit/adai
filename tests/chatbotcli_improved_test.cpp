@@ -1,10 +1,17 @@
 #include <../gtest/gtest.h>
+#include <httplib.h>
 #include <cstdio>
+#include <chrono>
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
+#include "../src/BPETokenizer.hpp"
+#include "../src/ChatbotAPI.hpp"
 #include "../src/ChatbotCLI.hpp"
+#include "../src/ConversationContext.hpp"
+#include "../src/EncoderDecoderModel.hpp"
 
 // ============================================================================
 // Test Fixtures
@@ -264,6 +271,183 @@ TEST_F(ChatbotCLITest, HandleSettingNonNumericValueDoesNotThrow) {
     EXPECT_FLOAT_EQ(cli.get_temperature(), original_temp);
 
     std::cout.rdbuf(old);
+}
+
+// ============================================================================
+// TD-053: /save and /load
+//
+// ChatbotCLI holds no local conversation state -- history lives server-side in ChatbotAPI's
+// Session/ConversationContext -- so /save and /load are real network round-trips
+// (POST /chat/session/export, POST /chat/session/import), not local file operations on
+// anything this object owns directly. The three tests below exercise paths that need no server
+// at all (no active session yet, no saved file, an empty saved file); the real round-trip
+// against a live ChatbotAPI is further down, alongside the other real-server tests.
+// ============================================================================
+
+TEST_F(ChatbotCLITest, SaveWithNoActiveSessionPrintsErrorAndWritesNoFile) {
+    ChatbotCLI cli(server_url, conv_file);
+
+    std::stringstream buffer;
+    std::streambuf* old = std::cout.rdbuf(buffer.rdbuf());
+    cli.handle_command("/save");
+    std::cout.rdbuf(old);
+
+    EXPECT_NE(buffer.str().find("Nothing to save"), std::string::npos) << buffer.str();
+    std::ifstream file(conv_file);
+    EXPECT_FALSE(file.good());
+}
+
+TEST_F(ChatbotCLITest, LoadWithNoSavedFilePrintsError) {
+    ChatbotCLI cli(server_url, conv_file);
+
+    std::stringstream buffer;
+    std::streambuf* old = std::cout.rdbuf(buffer.rdbuf());
+    cli.handle_command("/load");
+    std::cout.rdbuf(old);
+
+    EXPECT_NE(buffer.str().find("No saved conversation found"), std::string::npos) << buffer.str();
+}
+
+TEST_F(ChatbotCLITest, LoadWithEmptySavedFilePrintsError) {
+    ChatbotCLI cli(server_url, conv_file);
+    { std::ofstream(conv_file).close(); }  // create an empty file
+
+    std::stringstream buffer;
+    std::streambuf* old = std::cout.rdbuf(buffer.rdbuf());
+    cli.handle_command("/load");
+    std::cout.rdbuf(old);
+
+    EXPECT_NE(buffer.str().find("is empty"), std::string::npos) << buffer.str();
+}
+
+// ============================================================================
+// TD-053: /save and /load, real round-trip against a live ChatbotAPI
+//
+// Real ChatbotAPI bound to 127.0.0.1 on a background thread, driven by a real ChatbotCLI over
+// a real httplib::Client -- same style as trainer_admin_api_test.cpp's tests, not a mocked HTTP
+// layer, since this is exactly the network round-trip TD-053 added.
+// ============================================================================
+
+namespace {
+
+constexpr int kChatbotApiTestBasePort = 43900;
+constexpr int kChatbotApiTestPortSpan = 100;
+
+int pick_chatbot_api_test_port() {
+    return kChatbotApiTestBasePort +
+           ((static_cast<int>(::getpid()) + static_cast<int>(reinterpret_cast<uintptr_t>(
+                                                 &kChatbotApiTestBasePort))) %
+            kChatbotApiTestPortSpan);
+}
+
+/// Starts `api` on a background thread and polls GET /health until it responds or 3s elapse.
+bool start_chatbot_api(ChatbotAPI& api, int port, std::thread& thread) {
+    thread = std::thread([&api] { api.start(); });
+
+    httplib::Client probe("127.0.0.1", port);
+    probe.set_connection_timeout(std::chrono::milliseconds(200));
+    probe.set_read_timeout(std::chrono::milliseconds(200));
+
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (auto res = probe.Get("/health"); res && res->status == 200) {
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    return false;
+}
+
+}  // namespace
+
+class ChatbotCLISaveLoadRoundTripTest : public ::testing::Test {
+   protected:
+    std::unique_ptr<BPETokenizer> tokenizer;
+    std::unique_ptr<EncoderDecoderModel> model;
+    std::unique_ptr<ChatbotAPI> api;
+    std::thread server_thread;
+    int port = 0;
+    std::string conv_file;
+
+    void SetUp() override {
+        port = pick_chatbot_api_test_port();
+        conv_file = "test_cli_save_load_roundtrip_" + std::to_string(port) + ".txt";
+
+        std::vector<std::string> test_texts = {"hello world test", "hi there how are you"};
+        tokenizer = std::make_unique<BPETokenizer>();
+        tokenizer->build_vocab(test_texts, 50);
+
+        model = std::make_unique<EncoderDecoderModel>(tokenizer->get_vocab_size(), 32, 1, 1, 2, 64,
+                                                      128);
+        api = std::make_unique<ChatbotAPI>(model.get(), tokenizer.get(), port, 30);
+
+        ASSERT_TRUE(start_chatbot_api(*api, port, server_thread))
+            << "ChatbotAPI never became reachable on port " << port;
+    }
+
+    void TearDown() override {
+        api->stop();
+        if (server_thread.joinable()) {
+            server_thread.join();
+        }
+        std::remove(conv_file.c_str());
+    }
+};
+
+TEST_F(ChatbotCLISaveLoadRoundTripTest, SaveThenLoadRestoresSessionOnAFreshClient) {
+    std::string server_url = "http://127.0.0.1:" + std::to_string(port);
+    // Deliberately contains a literal '"' -- ConversationContext::serialize()'s own escaping
+    // (escape_for_line()) only handles '\\'/'\n'/'\r', not '"' (no need to, for its own
+    // pipe-delimited-lines format), so this quote survives into the exported "data" field
+    // completely unescaped from ConversationContext's point of view. It's on
+    // handle_export_session()/parse_json_value() to escape/unescape it correctly at the JSON
+    // layer instead -- exactly the step a naive "just embed the string" implementation would
+    // skip, so this is the case that actually exercises that step (confirmed via
+    // revert-confirm-fail: a plain "hello world" message does not, since it contains nothing
+    // that needs escaping at either layer).
+    const std::string user_message = R"(say "hi" please)";
+
+    // First client: establish a session by sending one message, then /save it.
+    {
+        ChatbotCLI cli(server_url, conv_file);
+        ASSERT_TRUE(cli.initialize());
+
+        std::stringstream buffer;
+        std::streambuf* old = std::cout.rdbuf(buffer.rdbuf());
+        std::string response = cli.generate_response(user_message);
+        cli.handle_command("/save");
+        std::cout.rdbuf(old);
+
+        // Not asserting on response content -- this tiny randomly-initialized model's actual
+        // generated text isn't the point here, only that a real session now exists to save.
+        EXPECT_NE(buffer.str().find("Conversation saved to"), std::string::npos) << buffer.str();
+    }
+
+    // The saved file must be a real, complete, correctly round-tripped export -- parse it with
+    // ConversationContext's own (separately tested) load_from_file() and confirm the exact
+    // original message, quote included, survived the full server-export -> HTTP JSON ->
+    // local-file trip.
+    ConversationContext loaded_directly;
+    ASSERT_NO_THROW(loaded_directly.load_from_file(conv_file));
+    ASSERT_EQ(loaded_directly.get_message_count(), 2);
+    EXPECT_EQ(loaded_directly.get_messages()[0].content, user_message);
+
+    // Second client: a fresh instance (simulating a new process, no session_id yet) loads the
+    // same file and must adopt a real session with the restored message count.
+    {
+        ChatbotCLI cli(server_url, conv_file);
+        ASSERT_TRUE(cli.initialize());
+
+        std::stringstream buffer;
+        std::streambuf* old = std::cout.rdbuf(buffer.rdbuf());
+        cli.handle_command("/load");
+        std::cout.rdbuf(old);
+
+        EXPECT_NE(buffer.str().find("Conversation loaded from"), std::string::npos) << buffer.str();
+        // Two messages: the user message plus the assistant's reply, both recorded by
+        // handle_chat_session() server-side during the first client's generate_response() call.
+        EXPECT_NE(buffer.str().find("(2 messages)"), std::string::npos) << buffer.str();
+    }
 }
 
 // ============================================================================

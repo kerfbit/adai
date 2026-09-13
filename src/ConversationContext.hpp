@@ -2,8 +2,8 @@
 #define CONVERSATIONCONTEXT_HPP
 
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-09-13
 
 
 #include <deque>
@@ -207,18 +207,37 @@ class ConversationContext {
     void set_max_tokens(int max_tokens);
 
     /**
-     * @brief Save conversation to file
+     * @brief Save conversation to file. Thin wrapper around serialize() (TD-053) — writes its
+     * result to @p filepath.
      * @param filepath Path to save file
      * @throws std::runtime_error on write failure
      */
     void save_to_file(const std::string& filepath) const;
 
     /**
-     * @brief Load conversation from file
+     * @brief Load conversation from file. Thin wrapper around deserialize() (TD-053) — reads
+     * @p filepath's full contents and passes them through.
      * @param filepath Path to load file
      * @throws std::runtime_error on read failure
      */
     void load_from_file(const std::string& filepath);
+
+    /**
+     * @brief Serialize the full conversation state (metadata + system message + messages) to a
+     * string, in the same line-oriented format save_to_file() writes to disk. Added for TD-053
+     * so ChatbotAPI can expose conversation export over HTTP (a server-local file path is
+     * meaningless to a remote ChatbotCLI client) without duplicating the format logic.
+     * @return Serialized conversation state.
+     */
+    std::string serialize() const;
+
+    /**
+     * @brief Restore conversation state from a string previously produced by serialize().
+     * Replaces all current state, the same way load_from_file() does. Added for TD-053 so
+     * ChatbotAPI can accept an uploaded conversation export over HTTP.
+     * @param data Serialized conversation state, as produced by serialize().
+     */
+    void deserialize(const std::string& data);
 
     /**
      * @brief Get conversation summary statistics

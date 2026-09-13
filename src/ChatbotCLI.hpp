@@ -2,8 +2,8 @@
 #define CHATBOT_CLI_HPP
 
 // @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-09-13
 
 
 #include <../external/cpp-httplib/httplib.h>
@@ -87,6 +87,29 @@ class ChatbotCLI {
      * @return The generated response
      */
     std::string generate_response(const std::string& user_input);
+
+    /**
+     * @brief Save the current conversation to conversation_save_path (TD-053).
+     *
+     * ChatbotCLI holds no local conversation state of its own — the actual history lives
+     * server-side in ChatbotAPI's Session/ConversationContext, keyed by session_id — so this
+     * exports it over HTTP (POST /chat/session/export) and writes the returned serialized text
+     * to the local file, rather than serializing anything held in this object directly. Prints
+     * a clear message either way (success, "nothing to save yet" if no session exists, or a
+     * network/file error) — called both by the explicit /save command and automatically on
+     * /exit and /quit.
+     */
+    void save_conversation();
+
+    /**
+     * @brief Load a conversation from conversation_save_path and restore it server-side (TD-053).
+     *
+     * Reads the local file and POSTs its content to /chat/session/import, adopting whatever
+     * session_id the server returns (a fresh session if this instance had none yet, matching
+     * generate_response()'s own "adopt the server's session id" pattern). Prints a clear message
+     * either way (success with the restored message count, or a file/network/parse error).
+     */
+    void load_conversation();
 
     // Accessors for testing
     const std::string& get_generation_strategy() const {

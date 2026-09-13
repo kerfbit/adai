@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.1.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.2.0
+// @adai-reviewed: 2026-09-13
 
 #include "ConversationContext.hpp"
 #include <algorithm>
@@ -273,45 +273,47 @@ void ConversationContext::set_max_tokens(int max_tokens) {
     truncate_to_limits();
 }
 
+std::string ConversationContext::serialize() const {
+    std::ostringstream oss;
+
+    // Write metadata
+    oss << "MAX_MESSAGES:" << max_messages << "\n";
+    oss << "MAX_TOKENS:" << max_tokens << "\n";
+    oss << "KEEP_SYSTEM:" << (keep_system_message ? "1" : "0") << "\n";
+    oss << "---\n";
+
+    // Write system message if exists
+    if (system_message.has_value()) {
+        oss << "SYSTEM|" << system_message->token_count << "|"
+            << escape_for_line(system_message->content) << "\n";
+    }
+
+    // Write all messages
+    for (const auto& msg : messages) {
+        oss << msg.role << "|" << msg.token_count << "|" << escape_for_line(msg.content) << "\n";
+    }
+
+    return oss.str();
+}
+
 void ConversationContext::save_to_file(const std::string& filepath) const {
     std::ofstream file(filepath);
     if (!file.is_open()) {
         throw std::runtime_error("Failed to open file for writing: " + filepath);
     }
-
-    // Write metadata
-    file << "MAX_MESSAGES:" << max_messages << "\n";
-    file << "MAX_TOKENS:" << max_tokens << "\n";
-    file << "KEEP_SYSTEM:" << (keep_system_message ? "1" : "0") << "\n";
-    file << "---\n";
-
-    // Write system message if exists
-    if (system_message.has_value()) {
-        file << "SYSTEM|" << system_message->token_count << "|"
-             << escape_for_line(system_message->content) << "\n";
-    }
-
-    // Write all messages
-    for (const auto& msg : messages) {
-        file << msg.role << "|" << msg.token_count << "|" << escape_for_line(msg.content) << "\n";
-    }
-
+    file << serialize();
     file.close();
 }
 
-void ConversationContext::load_from_file(const std::string& filepath) {
-    std::ifstream file(filepath);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file for reading: " + filepath);
-    }
-
+void ConversationContext::deserialize(const std::string& data) {
     // Clear current state
     clear_all();
 
+    std::istringstream iss(data);
     std::string line;
     bool metadata_section = true;
 
-    while (std::getline(file, line)) {
+    while (std::getline(iss, line)) {
         if (line == "---") {
             metadata_section = false;
             continue;
@@ -355,8 +357,17 @@ void ConversationContext::load_from_file(const std::string& filepath) {
             }
         }
     }
+}
 
+void ConversationContext::load_from_file(const std::string& filepath) {
+    std::ifstream file(filepath);
+    if (!file.is_open()) {
+        throw std::runtime_error("Failed to open file for reading: " + filepath);
+    }
+    std::ostringstream buf;
+    buf << file.rdbuf();
     file.close();
+    deserialize(buf.str());
 }
 
 std::string ConversationContext::get_statistics() const {
