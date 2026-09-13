@@ -1,5 +1,5 @@
-// @adai-status: beta        (TD-052 resolved — ParallelDataLoader/DataLoaderIterator retired; TokenBatchLoader/TokenBatchIterator already tokenize correctly and are tested — see TECHNICAL_DEBT.md's resolved archive)
-// @adai-version: 0.5.0
+// @adai-status: beta        (TD-064 resolved — ThreadSafeBatchQueue::clear() missing-notify deadlock fixed; see TECHNICAL_DEBT.md's resolved archive)
+// @adai-version: 0.5.1
 // @adai-reviewed: 2026-09-12
 
 /**
@@ -115,10 +115,24 @@ class ThreadSafeBatchQueue {
      * @brief Clear all batches in queue
      */
     void clear() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        while (!queue_.empty()) {
-            queue_.pop();
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            while (!queue_.empty()) {
+                queue_.pop();
+            }
         }
+        // TD-064: this used to drain the queue without notifying cv_producer_ — a producer
+        // already blocked in push()'s wait (queue was full) has no way to know clear() just
+        // made room, since condition_variable::wait() only re-checks its predicate when
+        // actually woken (a spurious wakeup can happen per the standard, but isn't guaranteed
+        // in any bounded time). With num_workers == 1, that one producer is the *only* source
+        // of new items, so it stays stuck forever, and the next next_batch()/pop() call (now
+        // finding a permanently-empty queue) blocks forever too — a genuine, real deadlock,
+        // confirmed via a dedicated repro harness reproducing it in ~2,600 iterations of
+        // TokenBatchIterator::reset() called while a single-worker loader's prefetch buffer was
+        // full. This is the root cause behind the historical paralleldataloaderTests hang
+        // (see TECHNICAL_DEBT.md's resolved archive for the full writeup).
+        cv_producer_.notify_all();
     }
 
    private:

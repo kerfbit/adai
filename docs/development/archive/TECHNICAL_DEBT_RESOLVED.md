@@ -4,6 +4,80 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-064: paralleldataloaderTests Hang — Root Cause Found: ThreadSafeBatchQueue::clear() Never Notified a Blocked Producer
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 12, 2026 | `src/ParallelDataLoader.hpp`, `tests/paralleldataloader_test.cpp` | Added the missing `cv_producer_.notify_all()` to `ThreadSafeBatchQueue::clear()` |
+
+Summary:
+Originally filed after a real 9-hour hang (both threads blocked in `futex_wait_queue`, 0% CPU)
+that could not be reproduced despite 54+ combined repro attempts (standalone, concurrent,
+25 full-suite TSan runs) and careful manual code review. Root-caused here by re-reading
+`ThreadSafeBatchQueue`/`TokenBatchLoader` fresh (now simpler post-TD-052, with
+`ParallelDataLoader` gone) and finding the actual bug: `clear()` drains the queue under `mutex_`
+but never calls `cv_producer_.notify_all()` afterward. A producer thread already blocked inside
+`push()`'s `cv_producer_.wait(lock, pred)` (because the queue was full) has no way to know
+`clear()` just made room — `std::condition_variable::wait()` only re-checks its predicate when
+actually woken by a `notify_*` call (a spurious wakeup can happen per the standard, but isn't
+guaranteed within any bounded time). With `num_workers == 1` (used by several existing tests,
+including `TokenBatchIterator::reset()`-based ones), that one producer is the *only* source of
+new items, so it stays stuck forever — and the next `next_batch()`/`pop()` call, now finding a
+permanently-empty queue that will never be refilled, blocks forever too. Two threads, both
+genuinely blocked, 0% CPU: exactly the original symptom.
+
+Confirmed with a dedicated standalone repro harness (not committed — a scratch CMake target,
+removed after use) exercising the exact realistic shape (`TokenBatchIterator::next()` twice,
+`reset()`, `next()` again, with `num_workers=1`) in a tight loop with a per-attempt watchdog:
+reproduced the hang at iteration 2,617 of 20,000 before the fix, and zero times across 40,000
+combined iterations (two full 20,000-iteration runs) after it.
+
+Changes Made:
+- Added `cv_producer_.notify_all()` to `ThreadSafeBatchQueue::clear()`, called after releasing
+  `mutex_` (draining the queue and notifying are two separate steps now, matching `shutdown()`'s
+  existing lock-then-notify-outside-the-lock shape in the same class).
+- Added `ThreadSafeBatchQueueTest.ClearWakesBlockedProducer` (`tests/paralleldataloader_test.cpp`)
+  as a permanent, deterministic (not probabilistic) regression test: directly fills a
+  `ThreadSafeBatchQueue<int>` to capacity, blocks a producer thread in `push()`, calls `clear()`,
+  and asserts the producer wakes and completes within a bounded timeout. Deliberately does *not*
+  use the `std::async` + `wait_for(timeout)` pattern used elsewhere in this file: a
+  `std::future`'s destructor blocks until its task finishes if the task is still running when the
+  future is destroyed, so a *reintroduced* regression would make this very regression test hang
+  the whole binary again the moment a timeout-triggered failure destroyed that future — confirmed
+  the hard way when an earlier `std::async`-based draft of this test did exactly that against the
+  reverted bug. Uses a raw `std::thread` instead (no such blocking destructor — only
+  `std::terminate()` if never joined/detached), with the queue and completion flag heap-allocated
+  via `std::shared_ptr` and captured by value into the thread's lambda, so that if a timeout is
+  ever hit, `.detach()`-ing the stuck thread doesn't leave it holding a dangling reference into
+  this test function's own (about to be destroyed) stack frame — tried and confirmed unsafe first
+  (a reference-capturing version detach()'d cleanly in principle but still hung the binary,
+  apparently via undefined behavior in the abandoned thread touching freed stack memory).
+- Left the TD's own "add bounded wait timeouts to push()/pop() as defense in depth" action item
+  undone: it was suggested when the root cause was still unknown, as a hedge against exactly this
+  kind of bug; now that the actual bug is found and fixed, adding speculative timeout/retry logic
+  to the otherwise-correct `push()`/`pop()` wait loops would add complexity without a concrete
+  problem left to defend against.
+
+Verification:
+- ✅ Revert-confirm-fail: with the original `clear()` (no notify), the new
+  `ClearWakesBlockedProducer` test fails cleanly in exactly 5 seconds (its own timeout) — not a
+  hang — confirming both that the bug is real and that the test's own failure mode is safe.
+  Restored the fix and reconfirmed a fast (~25ms), clean pass, 5/5 repeated runs.
+- ✅ The dedicated repro harness described above: 0 hangs in 40,000 iterations with the fix,
+  vs. a real hang at iteration 2,617 without it.
+- ✅ Full `paralleldataloaderTests` suite (14 tests): all pass.
+- ✅ Full project rebuild (`cmake --build --preset=debug`, all targets) and full `ctest -j8` suite
+  (127 tests): 126/127 clean; the one failure
+  (`IntegratedInferenceEngineFunctionalTest.ConcurrentRequestsDoNotCrashTheProcess`, an unrelated
+  subsystem this fix never touches) reproduced clean 3/3 standalone immediately after — the same
+  pre-existing full-suite-contention flakiness class already documented for other tests this
+  session (TD-123, `ScriptsTests_monitor_training`), not a regression from this fix.
+- A related, separate finding was surfaced and flagged (not fixed here) as a follow-up: the
+  pre-existing `TokenBatchLoaderTest.NextBatchDoesNotDeadlockWhenTargetsNeverDrained` (TD-087's
+  own regression test, same file) has the identical `std::async`-destructor-blocks-forever
+  exposure this investigation found and fixed for the new test above — if TD-087's bug ever
+  recurs, that test would also hang the whole binary instead of failing cleanly.
+
 ### TD-123: EncoderBlockTest.BackwardPassMatchesNumericalGradient Flaked From an Unseeded RNG, Not Contention
 
 | Resolution Date | Component | Resolved By |

@@ -5,12 +5,12 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** September 12, 2026
-**Total Items:** 24
+**Total Items:** 23
 **High Priority:** 1
-**Medium Priority:** 12
+**Medium Priority:** 11
 **Low Priority:** 11
 **Future Enhancements:** 19
-**Resolved Items:** 114
+**Resolved Items:** 115
 **Deferred Decisions:** 2
 
 ## Table of Contents
@@ -19,7 +19,6 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 - [Table of Contents](#table-of-contents)
 - [Active Technical Debt](#active-technical-debt)
   - [TD-059: Multi-Head and Cross-Attention Never Actually Split Into Heads](#td-059-multi-head-and-cross-attention-never-actually-split-into-heads)
-  - [TD-064: paralleldataloaderTests Hung Indefinitely Under Full-Suite ctest -j8 (Root Cause Not Found)](#td-064-paralleldataloadertests-hung-indefinitely-under-full-suite-ctest--j8-root-cause-not-found)
   - [TD-050: GPU-Resident KV-Cache for Autoregressive Generation](#td-050-gpu-resident-kv-cache-for-autoregressive-generation)
   - [TD-033: chatbot_api_server Inference Never Uses Persistent GPU-Resident Decode](#td-033-chatbot_api_server-inference-never-uses-persistent-gpu-resident-decode)
   - [TD-014: LLM Operations and Training Tooling Suite](#td-014-llm-operations-and-training-tooling-suite)
@@ -36,7 +35,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [TD-048: Android UI/DI/Entry-Point Classes Are Untested and Unreleased](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
   - [TD-053: ChatbotCLI's /save and /load Commands Are Non-Functional Everywhere](#td-053-chatbotclis-save-and-load-commands-are-non-functional-everywhere)
   - [TD-161: FtpDataServer.hpp Uses Raw POSIX Sockets, No Windows/Winsock Port](#td-161-ftpdataserverhpp-uses-raw-posix-sockets-no-windowswinsock-port)
-- [Resolved Items](#resolved-items) (147 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+- [Resolved Items](#resolved-items) (148 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -153,89 +152,6 @@ Files to Modify:
   coverage)
 - Every existing trained checkpoint, if option (a) is chosen (out of source-tree scope, but the real
   cost driver of this item)
-
----
-
-### TD-064: paralleldataloaderTests Hung Indefinitely Under Full-Suite ctest -j8 (Root Cause Not Found)
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| MEDIUM | Open — CI-hang mitigated, underlying race not reproduced/root-caused | Testing / Concurrency | September 8, 2026 | 4-8 hours (root-cause investigation; the mitigation below is already done) |
-
-Description:
-While running a full `ctest -j8` pass as part of this session's verification work, `paralleldataloaderTests`
-hung for approximately 9 hours before being noticed and killed. Confirmed via `/proc/<pid>/task/*/stack`
-that this was a genuine hang, not a slow computation: both of its threads were blocked in
-`futex_wait_queue` with 0% CPU usage the entire time — consistent with a deadlock or a missed wakeup
-in `ThreadSafeBatchQueue`'s or `ParallelDataLoader`'s condition-variable-based synchronization
-(`src/ParallelDataLoader.hpp`), not a busy-spin or an infinite non-blocking loop.
-
-**Update (September 12, 2026):** TD-052's resolution retired `ParallelDataLoader`/
-`DataLoaderIterator` entirely (broken tokenization, never used in production — see the resolved
-archive) — one of the two components this hang was originally attributed to. `ThreadSafeBatchQueue`
-itself remains (still used by `TokenBatchLoader`, in the same file and test binary), so this is
-**not** a resolution of this item: if the real root cause was in the queue rather than in
-`ParallelDataLoader`'s own worker-thread/`stop()` interaction, `TokenBatchLoader` shares the same
-exposure. Noting for the record: `paralleldataloaderTests` now has 13 tests instead of 30 (all of
-`ParallelDataLoader`'s own tests are gone) and runs in ~0.2s instead of the multi-second,
-`sleep_for`-heavy runs before; 5 repeated standalone runs immediately after the change passed clean.
-That's consistent with reduced risk but proves nothing conclusively — the original investigation's
-25 TSan runs and 24 concurrent-standalone runs also all passed, and the hang still happened for real
-once. Root cause remains open; action items below are unchanged.
-
-**Could not reproduce despite substantial effort:**
-- 1 standalone full-suite run: passed in 1.4s.
-- 4 concurrent standalone runs (same binary): all passed.
-- 24 concurrent standalone runs across 3 batches of 8 (mimicking the `-j8` contention that triggered
-  the original hang): all passed.
-- 25 full-suite runs under a from-scratch `tsan` preset build (ThreadSanitizer) with ASLR disabled
-  (`setarch -R`, required to work around a `FATAL: ThreadSanitizer: unexpected memory mapping` issue
-  in this sandboxed environment): all passed, zero races or deadlocks reported by TSan.
-- 15 additional TSan runs targeting only the threading-sensitive tests
-  (`*Concurrent*:*Shutdown*:*Stop*:*Multiple*:*Start*`): all passed once the ASLR workaround was applied.
-- Manual code review of `ThreadSafeBatchQueue::push()`/`pop()`/`shutdown()` and
-  `ParallelDataLoader::stop()`/`worker_thread()`'s interaction (the `is_running_` flag is
-  `std::atomic<bool>`, and every access to the queue's `shutdown_` flag is under `mutex_`, so no
-  obvious data race or classic AB-BA lock-order deadlock was found by inspection).
-
-Given `ParallelDataLoader.hpp` was tagged `experimental` at the time (TD-052 — the same file's
-char-code "tokenization" was already known-fake) and confirmed not included by any production
-`src/*.cpp` file, the immediate risk was contained to CI/test time, not production training runs
-— but a genuine,
-intermittent deadlock in the class's core synchronization primitive is exactly the kind of defect
-that would resurface with real consequences if this class were ever wired into production, and the
-fact that it happened once, for real, under real (if hard to pin down) conditions means it can't be
-dismissed as a fluke without more evidence either way.
-
-**Mitigation already applied** (this doesn't fix the race, but bounds its blast radius): no test
-in `tests/CMakeLists.txt` had a `TIMEOUT` property, so `ctest` had no way to bound a hung test —
-confirmed by this exact 9-hour incident. Added a blanket `TIMEOUT 1200` (20 minutes — chosen with
-headroom above the slowest legitimately-long suites observed in the same run: `EncoderDecoderTests`
-~623s, `IncrementalTrainerTests` ~531s, `RAGBERTComparisonTests` ~508s) applied to every registered
-test via `get_property(... DIRECTORY PROPERTY TESTS)` + `set_tests_properties(... TIMEOUT 1200)` at
-the end of `tests/CMakeLists.txt`. Verified: `ctest --show-only=json-v1` confirms `TIMEOUT: 1200.0`
-on all 77 registered tests. A recurrence of this hang (or any future one) will now fail loudly
-within 20 minutes instead of blocking a CI run indefinitely.
-
-Action Items:
-
-- [x] Add a global default `ctest` timeout so a hung test can never again block a full run
-  indefinitely — done (see above).
-- [ ] If this recurs, capture `/proc/<pid>/task/*/stack` (or `gdb -p <pid> -batch -ex "thread apply
-  all bt"` if ptrace is permitted in that environment — it was not in this one) *before* killing the
-  process, to get an exact line-level stack trace instead of just the wait-channel name.
-- [ ] Consider adding explicit, bounded wait timeouts to `ThreadSafeBatchQueue::push()`/`pop()`'s
-  `condition_variable::wait()` calls (`wait_for()` with a generous timeout + a diagnostic log on
-  timeout) as defense in depth, independent of whether the root cause is ever isolated — a
-  false-negative timeout is cheap; an unbounded wait is what caused this incident.
-- [ ] If reproduced again, bisect with `--gtest_filter` and repeated runs (as attempted here) to
-  identify which specific test triggers it, then add a regression test once the exact
-  interleaving is understood.
-
-Files to Modify:
-
-- `src/ParallelDataLoader.hpp` (pending root cause)
-- `tests/CMakeLists.txt` (timeout mitigation already applied)
 
 ---
 
@@ -850,7 +766,7 @@ Files to Modify:
 
 ## Resolved Items
 
-147 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+148 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements

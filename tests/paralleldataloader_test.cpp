@@ -1,7 +1,9 @@
 #include "ParallelDataLoader.hpp"
 #include <gtest/gtest.h>
+#include <atomic>
 #include <chrono>
 #include <future>
+#include <memory>
 #include <thread>
 #include "Dataset.hpp"
 
@@ -66,6 +68,58 @@ TEST(ThreadSafeBatchQueueTest, ShutdownClearsBlockedConsumer) {
     consumer.join();
 
     EXPECT_TRUE(popped_nullopt);
+}
+
+// TD-064: clear() used to drain the queue without notifying cv_producer_, so a producer already
+// blocked in push() (queue full) had no way to know clear() just made room — a genuine, real
+// deadlock (not a false alarm; std::condition_variable::wait() only re-checks its predicate when
+// actually woken, and a spurious wakeup isn't guaranteed within any bounded time). This is the
+// confirmed root cause of the historical paralleldataloaderTests hang this file is named after
+// (see TECHNICAL_DEBT.md's resolved archive for the full investigation and a dedicated
+// ~20,000-iteration repro harness that reproduced it in ~2,600 iterations before this fix, and
+// zero times in 40,000 iterations after).
+//
+// Deliberately NOT std::async + wait_for(timeout) (the pattern used elsewhere in this file):
+// if a future from std::async is destroyed while its task is still running, ~future() itself
+// blocks until that task finishes — so a *reintroduced* regression here would make this
+// regression test hang the whole binary again the moment a timeout-triggered failure destroyed
+// that future, exactly the failure mode this test exists to turn into a clean, fast, reported
+// failure instead (confirmed the hard way: an earlier std::async version of this test hung for
+// real when tried against the reverted bug). A raw std::thread has no such blocking destructor
+// (only std::terminate if neither join() nor detach() was ever called), so a timeout can safely
+// detach and abandon the stuck thread — but only because `queue`/`pushed` below are heap-
+// allocated and captured into the thread's lambda by shared_ptr (by value, not by reference):
+// an abandoned thread that outlives this test function must never touch this function's own
+// (about to be destroyed) stack, or detaching would trade one hang for a use-after-free.
+TEST(ThreadSafeBatchQueueTest, ClearWakesBlockedProducer) {
+    auto queue = std::make_shared<ThreadSafeBatchQueue<int>>(2);
+    queue->push(1);
+    queue->push(2);  // queue now at capacity (max_size_ == 2)
+
+    auto pushed = std::make_shared<std::atomic<bool>>(false);
+    std::thread producer([queue, pushed]() {
+        queue->push(3);  // blocks here until something makes room
+        *pushed = true;
+    });
+
+    // Brief sleep to ensure the producer above is genuinely blocked in its wait before clear()
+    // runs, matching ShutdownClearsBlockedConsumer's own approach.
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+    queue->clear();  // drains the queue to empty; must also wake the blocked producer
+
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!pushed->load() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+
+    if (!pushed->load()) {
+        producer.detach();
+        FAIL() << "push() never woke up after clear() made room (TD-064 regression)";
+    }
+    producer.join();
+
+    EXPECT_EQ(queue->size(), 1);  // the producer's pushed item, after clear() emptied the queue
 }
 
 TEST(ThreadSafeBatchQueueTest, ClearQueue) {
