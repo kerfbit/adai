@@ -20,14 +20,15 @@ just priority label — several depend on each other or on a single owner decisi
 "Medium/Low" labels alone don't capture that. Re-derive this ordering rather than trusting it
 blindly once several of these items have moved.
 
-**Tier 1 — Decision gate.** [TD-059](#td-059-multi-head-and-cross-attention-never-actually-split-into-heads)
-is the one item that changes the shape of other work: it's a choice between a 30-50 hour
-fix-and-retrain-everything and a ~1-2 hour documentation correction, and two other items
+**Tier 1 — Decided, not yet built.** [TD-059](#td-059-multi-head-and-cross-attention-never-actually-split-into-heads)'s
+owner decision landed September 12, 2026: fix the attention math for real and retrain everything
+(30-50 hours), not document the current single-head behavior as-is. Two other items
 ([TD-050](#td-050-gpu-resident-kv-cache-for-autoregressive-generation),
 [TD-033](#td-033-chatbot_api_server-inference-never-uses-persistent-gpu-resident-decode)) build
-GPU-side inference machinery on top of the current attention math. Getting this decision made
-first avoids sinking 26-36 hours of GPU work that a later attention-math change could partially
-invalidate. This is an owner call on model quality, not something to silently pick.
+GPU-side inference machinery on top of the attention math — TD-033's routing work doesn't touch
+the math itself so it's safe to do in either order, but TD-050's incremental attention kernels
+should be written after TD-059 lands so they're built against final math rather than math that's
+about to change under them.
 
 **Tier 2 — Contained, high-confidence wins** (proven patterns or small isolated scope, no design
 ambiguity, can start immediately regardless of Tier 1's outcome):
@@ -122,7 +123,7 @@ together when either is picked up, rather than designing quantization twice.
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open — needs a decision, not just a fix | Core Model Architecture | September 8, 2026 | 30-50 hours (implementation + full retrain/validation cycle) |
+| **HIGH** | Open — decision made (fix + retrain), implementation not started | Core Model Architecture | September 8, 2026 | 30-50 hours (implementation + full retrain/validation cycle) |
 
 Description:
 Found while reading `src/MultiHeadAttention.cpp`/`.hpp` end to end, then confirmed independently
@@ -168,39 +169,38 @@ per-head reference, and nothing asserts that changing `num_heads` (with `d_model
 attention pattern in a way consistent with genuine multi-head behavior. The same is true of
 `CrossAttention`'s test suite.
 
-**This is a decision item, not a drop-in fix.** Every model ever trained with this codebase — every
-existing checkpoint — was trained under the current (single-head-over-d_model, mis-scaled) math.
-Silently switching `forward()`/`forward_with_cache()` over to `forward_parallel()`'s approach would
-change what every layer's `W_q`/`W_k`/`W_v`/`W_o` weights actually mean at inference time, since the
-same weights would now be sliced and attended-to differently — existing checkpoints would produce
-different (likely much worse, since they were never optimized for it) output under the "fixed" math
-without retraining. That tradeoff — fix now and require retraining everything, or document the actual
-(single-head) behavior as the real architecture and stop calling it multi-head — needs a deliberate
-call from whoever owns model quality, not a silent patch during a documentation/tech-debt pass.
+**Decision made (September 12, 2026): fix the math and retrain.** Every model ever trained with
+this codebase — every existing checkpoint — was trained under the current
+(single-head-over-d_model, mis-scaled) math, and switching `forward()`/`forward_with_cache()` over
+to `forward_parallel()`'s approach changes what every layer's `W_q`/`W_k`/`W_v`/`W_o` weights
+actually mean at inference time, so every existing checkpoint needs retraining from scratch to be
+meaningful under the new math. The owner of model quality chose this over documenting the current
+single-head behavior as-is. Not yet started.
 
 Action Items:
 
-- [ ] Decide: (a) fix the attention math to genuinely split per head (wire `forward()`/
-  `forward_with_cache()` through `forward_parallel()`'s per-head logic, fix the cross-attention
-  equivalent, fix both scale factors to `1/sqrt(d_k)` *applied per head* — which is what
-  `forward_parallel()` already does correctly) and accept that every existing checkpoint needs
-  retraining from scratch to be meaningful under the new math; or (b) formally accept the current
-  behavior as "single global attention, `num_heads` cosmetic" and correct all documentation/naming
-  accordingly instead of describing it as multi-head.
-- [ ] If (a): delete `forward_parallel()`'s redundancy by making it the one `forward()` implementation
-  (or inline its logic into `forward()`), do the same for `CrossAttention`, and add
-  `forward_with_cache()` equivalents that use per-head slicing over the cached K/V.
-- [ ] If (a): add tests that would have caught this — e.g. constructing two `MultiHeadAttention`
+- [ ] Wire `MultiHeadAttention::forward()`/`forward_with_cache()` through `forward_parallel()`'s
+  already-correct per-head logic (delete the redundancy by making it the one implementation, or
+  inline its logic into `forward()`), and do the same for `CrossAttention` — including a
+  `forward_with_cache()` equivalent that uses per-head slicing over the cached K/V (this doesn't
+  exist as a parallel/correct variant today, unlike `MultiHeadAttention`).
+- [ ] Fix both scale factors to `1/sqrt(d_k)` *applied per head* — what `forward_parallel()`
+  already does correctly — replacing the current `1/sqrt(d_k)` applied over a `d_model`-wide
+  contraction.
+- [ ] Add tests that would have caught the original bug: construct two `MultiHeadAttention`
   instances with `num_heads=1` vs `num_heads=4` (same `d_model`, same weights via a shared seed or
-  explicit weight copy) and asserting their outputs *differ* in a way consistent with per-head
+  explicit weight copy) and assert their outputs *differ* in a way consistent with per-head
   softmax normalization, not just that both produce a plausible-shaped, plausible-valued output.
-  Currently the test suite is architecture-blind: it would pass identically against a correct or an
-  incorrect implementation.
-- [ ] If (a): benchmark/validate against a from-scratch retrain before declaring any existing
-  deployment upgraded — this is not a hot-fixable-in-place change.
-- [ ] Either way: update `MultiHeadAttention.hpp`/`CrossAttention.hpp`'s class-level architecture
-  comments (already flagged with this TD number) once a decision is made, and remove the `forward_parallel()`
-  dead-code path or promote it, rather than leaving both forever.
+  Same for `CrossAttention`.
+- [ ] Update `MultiHeadAttention.hpp`/`CrossAttention.hpp`'s class-level architecture comments
+  (already flagged with this TD number) once the fix lands, and remove the now-redundant
+  `forward_parallel()` dead-code path once its logic is the one implementation.
+- [ ] Retrain from scratch and validate against a from-scratch baseline before declaring any
+  existing deployment upgraded — this is not a hot-fixable-in-place change. Every currently-shipped
+  checkpoint needs this before it means anything under the new math.
+- [ ] Benchmark generation quality/perplexity before vs. after on the same held-out data to confirm
+  genuine multi-head attention is actually an improvement, not just "different," before retiring
+  the old checkpoints.
 
 Files to Modify:
 
