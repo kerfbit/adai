@@ -5,17 +5,78 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** September 12, 2026
-**Total Items:** 23
+**Total Items:** 14
 **High Priority:** 1
-**Medium Priority:** 11
-**Low Priority:** 11
+**Medium Priority:** 8
+**Low Priority:** 5
 **Future Enhancements:** 19
 **Resolved Items:** 116
 **Deferred Decisions:** 2
 
+## Recommended Execution Order
+
+Analyzed September 12, 2026 to sequence the 14 active items by dependency and risk rather than
+just priority label — several depend on each other or on a single owner decision, and the
+"Medium/Low" labels alone don't capture that. Re-derive this ordering rather than trusting it
+blindly once several of these items have moved.
+
+**Tier 1 — Decision gate.** [TD-059](#td-059-multi-head-and-cross-attention-never-actually-split-into-heads)
+is the one item that changes the shape of other work: it's a choice between a 30-50 hour
+fix-and-retrain-everything and a ~1-2 hour documentation correction, and two other items
+([TD-050](#td-050-gpu-resident-kv-cache-for-autoregressive-generation),
+[TD-033](#td-033-chatbot_api_server-inference-never-uses-persistent-gpu-resident-decode)) build
+GPU-side inference machinery on top of the current attention math. Getting this decision made
+first avoids sinking 26-36 hours of GPU work that a later attention-math change could partially
+invalidate. This is an owner call on model quality, not something to silently pick.
+
+**Tier 2 — Contained, high-confidence wins** (proven patterns or small isolated scope, no design
+ambiguity, can start immediately regardless of Tier 1's outcome):
+- [TD-161](#td-161-ftpdataserverhpp-uses-raw-posix-sockets-no-windowswinsock-port) (6-10h) — same
+  shape as the just-resolved TD-159/TD-160; `PortableTime.hpp` is an explicit template to follow.
+- [TD-041](#td-041-gpuutils-has-no-dedicated-test-on-either-backend) (3-5h) — isolated test gap,
+  no dependencies.
+- [TD-033](#td-033-chatbot_api_server-inference-never-uses-persistent-gpu-resident-decode) (6-8h)
+  — routes an already-built GPU-resident decode path into real chat serving; a genuine latency win
+  independent of TD-050 (still O(n²) per generation without a KV-cache, but eliminates the
+  per-matmul alloc/upload/download overhead today).
+- [TD-053](#td-053-chatbotclis-save-and-load-commands-are-non-functional-everywhere) (6-10h) — a
+  currently-published doc actively misleads users about a working feature; small, two clear
+  options (implement or formally scope out).
+
+**Tier 3 — Unblocks chained work:** [TD-034](#td-034-ppooptimizers-core-update-loop-is-a-placeholder-not-real-ppo)
+(10-16h) fixes PPO/`ValueFunction` for real and is the only thing blocking
+[TD-038](#td-038-advanced-features-tested-in-isolation-never-wired-into-a-shipped-binary)'s last
+open item (`RewardModel` wiring) — the other two open TD-038 items (LoRA/Quantization) are
+deliberately deferred by prior user decision, not blocked, so TD-038 itself needs no separate pick.
+
+**Tier 4 — Sustained, low-risk test-coverage investment** (systematic, already-validated pattern,
+no open design questions): [TD-048](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
+(24-32h remaining — Compose/DI/entry-points, continuing the now-proven ViewModel-testing approach)
+and [TD-037](#td-037-no-qt-test-infrastructure-for-gui-classes) (8-12h — the same shape for the
+desktop Qt GUI).
+
+**Tier 5 — Larger investigation, sequence after Tier 1:** [TD-050](#td-050-gpu-resident-kv-cache-for-autoregressive-generation)
+(20-28h). Its own action items note the concrete next step is still confirming whether the CPU
+`DecoderKVCache` bug is even live via a real incremental-vs-full-recompute comparison — start
+there, not the full GPU buildout, and ideally after TD-059 lands so the incremental attention
+kernels are written against final math rather than math that might change under them.
+
+**Tier 6 — Process, not code:** [TD-047](#td-047-android-datarepositoryapi-layer-has-no-ci-or-release-history)'s
+remaining items are cutting the first real Android release (small, whenever desired) and
+resolving the `origin` repo's GitHub billing issue (on the account holder, not something to fix in
+a coding session). [TD-039](#td-039-core-trainingmetrics-classes-too-large-and-fast-moving-to-certify-stable)
+has no fixed action — it resolves once the trainer/metrics API surface stops changing, not before.
+
+**Tier 7 — Standalone features, lowest urgency:** [TD-006](#td-006-fill-in-the-middle-fim-training-data-generation)
+(6-8h, FIM training data) and [TD-014](#td-014-llm-operations-and-training-tooling-suite) (no
+estimate, likely the largest remaining item). Note TD-014's planned `adai-weights-tool`
+(quantization) overlaps with TD-038's deferred Quantization-wiring decision — scope those two
+together when either is picked up, rather than designing quantization twice.
+
 ## Table of Contents
 
 - [Overview](#overview)
+- [Recommended Execution Order](#recommended-execution-order)
 - [Table of Contents](#table-of-contents)
 - [Active Technical Debt](#active-technical-debt)
   - [TD-059: Multi-Head and Cross-Attention Never Actually Split Into Heads](#td-059-multi-head-and-cross-attention-never-actually-split-into-heads)
@@ -24,13 +85,10 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [TD-014: LLM Operations and Training Tooling Suite](#td-014-llm-operations-and-training-tooling-suite)
   - [TD-006: Fill-in-the-Middle (FIM) Training Data Generation](#td-006-fill-in-the-middle-fim-training-data-generation)
   - [TD-034: PPOOptimizer's Core Update Loop Is a Placeholder, Not Real PPO](#td-034-ppooptimizers-core-update-loop-is-a-placeholder-not-real-ppo)
-  - [TD-035: Shipped Daemon/CLI Binaries Have No Dedicated Test](#td-035-shipped-daemoncli-binaries-have-no-dedicated-test)
-  - [TD-036: Thin main() Wrappers Have No Smoke Test](#td-036-thin-main-wrappers-have-no-smoke-test)
   - [TD-037: No Qt Test Infrastructure for GUI Classes](#td-037-no-qt-test-infrastructure-for-gui-classes)
   - [TD-038: Advanced Features Tested in Isolation, Never Wired Into a Shipped Binary](#td-038-advanced-features-tested-in-isolation-never-wired-into-a-shipped-binary)
   - [TD-039: Core Training/Metrics Classes Too Large and Fast-Moving to Certify Stable](#td-039-core-trainingmetrics-classes-too-large-and-fast-moving-to-certify-stable)
   - [TD-041: GPUUtils Has No Dedicated Test on Either Backend](#td-041-gpuutils-has-no-dedicated-test-on-either-backend)
-  - [TD-042: PostgresMetricsDatabase Has Zero Test Coverage](#td-042-postgresmetricsdatabase-has-zero-test-coverage)
   - [TD-047: Android Data/Repository/API Layer Has No CI or Release History](#td-047-android-datarepositoryapi-layer-has-no-ci-or-release-history)
   - [TD-048: Android UI/DI/Entry-Point Classes Are Untested and Unreleased](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
   - [TD-053: ChatbotCLI's /save and /load Commands Are Non-Functional Everywhere](#td-053-chatbotclis-save-and-load-commands-are-non-functional-everywhere)
