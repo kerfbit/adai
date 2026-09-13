@@ -53,7 +53,7 @@ are deliberately deferred by prior user decision, not blocked, so TD-038 itself 
 
 **Tier 4 — Sustained, low-risk test-coverage investment** (systematic, already-validated pattern,
 no open design questions): [TD-048](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
-(Compose UI testing now adopted in both modules, 8/12 screens done September 13, 2026 — 4 screens
+(Compose UI testing now adopted in both modules, 9/12 screens done September 13, 2026 — 3 screens
 remain, all in `opsdashboard`, whose debug APK can't be installed/run on this sandbox's emulator
 at all — `wear-sdk` shared-library requirement, no Wear-capable device available here — so further
 `opsdashboard` screens stay compile-verified only pending real device access; `AdminScreen` and
@@ -701,7 +701,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open (8/8 ViewModels done; Compose UI testing adopted, 8/12 screens covered; DI/entry-points remain) | Android / Testing | September 7, 2026 | 24-32 hours |
+| MEDIUM | Open (8/8 ViewModels done; Compose UI testing adopted, 9/12 screens covered; DI/entry-points remain) | Android / Testing | September 7, 2026 | 24-32 hours |
 
 Description:
 62 files — Compose screens, ViewModels without tests, DI containers, `Activity`/`Application`
@@ -897,6 +897,32 @@ infrastructure gap as `ModelDetailScreen` above: the "End session" confirm-dialo
 default-enabled rendering is checked, not the click. `SessionDetailScreen.kt` promoted
 `experimental` → `beta`, same rationale as `ModelDetailScreen`.
 
+**Update (September 13, 2026, still continuing on further):** `SettingsScreen` (`opsdashboard`
+module) done as the ninth screen. Unlike every screen so far, there was no pre-existing
+`SettingsViewModelTest` to reuse a Fixture shape from (opsdashboard's `SettingsViewModel` had zero
+coverage at any level) — `SettingsScreenTest`'s own Fixture was built directly against
+`SettingsViewModel`'s real constructor (`FakeSettingsRepository` + a real `WatchFacePushRepository`).
+9 tests added: the default shared-host layout (per-service Host fields hidden, Port fields shown);
+toggling "one host for all services" swaps that; toggling the HTTPS-relay switch shows the
+Cloudflare/Trainer Access Client fields and hides all Port fields; adding and removing a registry
+group chip; selecting a poll-interval chip and Save persisting it and firing `onBack()`; toggling
+watch-sync hides/shows the session-key-override field; Back without Save persists nothing; the
+watch-face section's "Install / update" button renders enabled by default. Three `Switch`
+composables share this screen (unlike `SettingsScreen` in the `app` module, which has only one), so
+each gained its own `testTag` (`switch_use_shared_host`/`switch_use_https_relay`/
+`switch_watch_sync_enabled`) — a no-op production change, same precedent as `ConversationListScreen`'s
+delete-button `testTag`. `WatchFacePushRepository` is a concrete class wrapping
+`androidx.wear.watchfacepush` (a real Wear system service), not an interface — no fake exists for it,
+and building one would mean reshaping production code for a screen-test task alone, which this pass
+doesn't do; it's constructed here with the instrumentation's real target `Context` (safe — the
+constructor only stores the `Context`, touching no Wear API until `pushWatchFace()`/`isSupported()`
+are actually called). Deliberately out of scope for this pass: clicking "Install / update" or
+"Activate" — both call into `WatchFacePushManagerFactory`, a real AndroidX Wear library this sandbox
+has no paired-watch/Wear-capable emulator to exercise (the same `wear-sdk` limitation already
+blocking a live device run of this whole module). Only the button's default rendering is checked.
+`SettingsScreen.kt` promoted `experimental` → `beta` (0.3.0) — the gap is disclosed in its own status
+comment and here.
+
 Action Items:
 
 - [x] Add ViewModel unit tests first (cheapest — no Compose/Activity needed) — all 8 done; see
@@ -904,8 +930,8 @@ Action Items:
 - [x] Adopt Compose UI testing (`androidx.compose.ui.test`) for screens once ViewModels are
   covered — infrastructure adopted for both modules now; `ConversationListScreen`, `ChatScreen`,
   `SettingsScreen` (`app` module), `GroupListScreen`, `ModelListScreen`, `SessionListScreen`,
-  `ModelDetailScreen`, and `SessionDetailScreen` (`opsdashboard` module) done (8 of 12; see updates
-  above). The other 4 remain, all in `opsdashboard` (`SettingsScreen`, `GroupDetailScreen`,
+  `ModelDetailScreen`, `SessionDetailScreen`, and `SettingsScreen` (`opsdashboard` module) done (9
+  of 12; see updates above). The other 3 remain, all in `opsdashboard` (`GroupDetailScreen`,
   `AdminScreen`, `TrainerScreen`) — same pattern, infra already in place. Note: this sandbox
   cannot install/run `opsdashboard`'s debug APK on a device (see `GroupListScreen`'s update above,
   `wear-sdk` shared-library requirement) — further `opsdashboard` screens will be compile-verified
@@ -922,14 +948,15 @@ Action Items:
 
 Files to Modify:
 
-- ~42 remaining files under `android/app/src/main`, `android/opsdashboard/src/main`, and
+- ~41 remaining files under `android/app/src/main`, `android/opsdashboard/src/main`, and
   `android/wearcomplications/src/main` still tagged `experimental` — see
   [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md) for the exact, current list.
 - Done: the 8 ViewModel files, `AdminUiState.kt`, `ConversationListScreen.kt`, `ChatScreen.kt`,
   `ChatInputBar.kt`, `MessageBubble.kt`, `ErrorBanner.kt`, `SettingsScreen.kt` (`app` module), and
   `GroupListScreen.kt`/`ModelListScreen.kt`/`SessionListScreen.kt`/`ModelDetailScreen.kt`/
-  `SessionDetailScreen.kt` (`opsdashboard` module, the last two with their admin-action
-  confirm-dialog flows still uncovered).
+  `SessionDetailScreen.kt`/`SettingsScreen.kt` (`opsdashboard` module — `ModelDetailScreen.kt`/
+  `SessionDetailScreen.kt` with their admin-action confirm-dialog flows still uncovered,
+  `SettingsScreen.kt` with its watch-face-push flow still uncovered).
 
 ---
 

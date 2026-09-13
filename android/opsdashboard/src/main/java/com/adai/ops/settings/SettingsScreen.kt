@@ -1,8 +1,8 @@
 package com.adai.ops.settings
 
-// @adai-status: experimental        (capped by TD-048 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: beta        (TD-048 — SettingsScreenTest.kt added; watch-face-push flow and real-device run still unverified, see below)
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-09-13
 
 
 import android.content.pm.PackageManager
@@ -43,6 +43,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -89,7 +90,11 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Switch(checked = state.useSharedHost, onCheckedChange = viewModel::onUseSharedHostChanged)
+                Switch(
+                    checked = state.useSharedHost,
+                    onCheckedChange = viewModel::onUseSharedHostChanged,
+                    modifier = Modifier.testTag("switch_use_shared_host"),
+                )
                 Text("Use one host for all services", style = MaterialTheme.typography.bodyLarge)
             }
 
@@ -114,7 +119,11 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Switch(checked = state.useHttpsRelay, onCheckedChange = viewModel::onUseHttpsRelayChanged)
+                Switch(
+                    checked = state.useHttpsRelay,
+                    onCheckedChange = viewModel::onUseHttpsRelayChanged,
+                    modifier = Modifier.testTag("switch_use_https_relay"),
+                )
                 Text("Use secure relay (HTTPS via kerfbit.dev)", style = MaterialTheme.typography.bodyLarge)
             }
 
@@ -257,7 +266,11 @@ fun SettingsScreen(viewModel: SettingsViewModel, onBack: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Switch(checked = state.watchSyncEnabled, onCheckedChange = viewModel::onWatchSyncEnabledChanged)
+                Switch(
+                    checked = state.watchSyncEnabled,
+                    onCheckedChange = viewModel::onWatchSyncEnabledChanged,
+                    modifier = Modifier.testTag("switch_watch_sync_enabled"),
+                )
                 Text("Sync training metrics to Galaxy Watch face", style = MaterialTheme.typography.bodyLarge)
             }
             if (state.watchSyncEnabled) {
