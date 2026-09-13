@@ -4,6 +4,45 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-051: IncrementalTrainer::load_conversation_pairs() Was an Unmigrated Duplicate
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 12, 2026 | `src/IncrementalTrainer.cpp`, `src/IncrementalTrainer.hpp` | Redirected both call sites to `DatasetRegistry::load_conversation_pairs()` and deleted the duplicate |
+
+Summary:
+TD-028's dataset management refactor (resolved June 7, 2026) added
+`DatasetRegistry::load_conversation_pairs()` as the intended new home for this parsing logic —
+confirmed byte-for-byte identical to `IncrementalTrainer::load_conversation_pairs()` (same 73
+lines, both delegating to the same shared `parse_jsonl_sample()` helper in
+`TrainingSampleMeta.hpp`, only a renamed parameter, `filepath` vs `path`) — but never actually
+removed the original or redirected its two call sites (`train_on_files()`/`retrain_on_files()`),
+which kept calling the old copy. TD-028 itself is closed, so this was an orphaned,
+never-completed sub-task inside an otherwise-resolved item.
+
+Changes Made:
+- Redirected both call sites (`IncrementalTrainer.cpp`, inside the `#pragma omp parallel for`
+  loops in `train_on_files()` and `retrain_on_files()`) to
+  `DatasetRegistry::load_conversation_pairs()` — safe under the same OpenMP parallelization
+  since it's documented as pure I/O with no shared mutable state, callable from any thread, and
+  each thread already writes to its own `per_file[fi]` slot.
+- Deleted `IncrementalTrainer::load_conversation_pairs()`'s definition (and its stale
+  `TODO(TD-028)`/`TODO(TD-051)` comments) and its declaration in `IncrementalTrainer.hpp`.
+  `DatasetRegistry.hpp` was already included via `IncrementalTrainer.hpp`, so no new include was
+  needed.
+
+Verification:
+- ✅ `python3 scripts/check_file_status.py`: 288 files, 0 problems.
+- ✅ Full project build (`cmake --build --preset=debug`, all targets): clean.
+- ✅ `incrementaltrainerTests` (37 tests, the suite covering `IncrementalTrainer` directly): all
+  pass.
+- ✅ `incrementalTrainerControlTests` (7 tests) and `incrementalTrainerDecouplingTests` (14 tests)
+  — the other two binaries linking `IncrementalTrainer.cpp` — both pass in full.
+- ✅ `DatasetRegistry::load_conversation_pairs()` already has substantial dedicated test coverage
+  in `tests/DatasetRegistryTests.cpp` (missing file, JSONL, legacy `INPUT:`/`RESPONSE:` format,
+  empty file) — confirmed as the reason redirecting to it, rather than just deleting the
+  duplicate, was safe.
+
 ### TD-052: ParallelDataLoader's Batches Used Character Codes, Not Real Tokens
 
 | Resolution Date | Component | Resolved By |

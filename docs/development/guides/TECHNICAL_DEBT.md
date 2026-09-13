@@ -5,12 +5,12 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** September 12, 2026
-**Total Items:** 26
+**Total Items:** 25
 **High Priority:** 1
 **Medium Priority:** 12
-**Low Priority:** 13
+**Low Priority:** 12
 **Future Enhancements:** 19
-**Resolved Items:** 109
+**Resolved Items:** 110
 **Deferred Decisions:** 1
 
 ## Table of Contents
@@ -36,9 +36,8 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [TD-042: PostgresMetricsDatabase Has Zero Test Coverage](#td-042-postgresmetricsdatabase-has-zero-test-coverage)
   - [TD-047: Android Data/Repository/API Layer Has No CI or Release History](#td-047-android-datarepositoryapi-layer-has-no-ci-or-release-history)
   - [TD-048: Android UI/DI/Entry-Point Classes Are Untested and Unreleased](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
-  - [TD-051: IncrementalTrainer::load_conversation_pairs() Is an Unmigrated Duplicate](#td-051-incrementaltrainerload_conversation_pairs-is-an-unmigrated-duplicate)
   - [TD-053: ChatbotCLI's /save and /load Commands Are Non-Functional Everywhere](#td-053-chatbotclis-save-and-load-commands-are-non-functional-everywhere)
-- [Resolved Items](#resolved-items) (142 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+- [Resolved Items](#resolved-items) (143 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -832,35 +831,6 @@ Files to Modify:
 
 ---
 
-### TD-051: IncrementalTrainer::load_conversation_pairs() Is an Unmigrated Duplicate
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Training / Data Management | September 7, 2026 | 1-2 hours |
-
-Description:
-Found while auditing every active TD entry for an appropriate in-code TODO. TD-028's dataset
-management refactor (resolved June 7, 2026) added `DatasetRegistry::load_conversation_pairs()`
-as the intended new home for this logic — confirmed byte-for-byte identical to
-`IncrementalTrainer::load_conversation_pairs()` (same 73 lines, only a renamed parameter,
-`filepath` vs `path`) — but never actually removed the original or redirected its two call sites
-(`IncrementalTrainer.cpp:926,993`), which still call the old copy. A `// TODO(TD-028): Move to
-DatasetRegistry::load_conversation_pairs()` comment has sat on the unmigrated copy since — but
-TD-028 itself is closed, so this was effectively an orphaned, never-completed sub-task inside an
-otherwise-resolved item.
-
-Action Items:
-
-- [ ] Redirect `IncrementalTrainer.cpp:926,993` to call `DatasetRegistry::load_conversation_pairs()`.
-- [ ] Delete `IncrementalTrainer::load_conversation_pairs()` and its declaration.
-- [ ] Verify `incrementaltrainerTests` still pass after the redirect.
-
-Files to Modify:
-
-- `src/IncrementalTrainer.cpp` / `src/IncrementalTrainer.hpp`
-
----
-
 ### TD-053: ChatbotCLI's /save and /load Commands Are Non-Functional Everywhere
 
 | Priority | Status | Component | Created | Effort Estimate |
@@ -908,7 +878,7 @@ Files to Modify:
 
 ## Resolved Items
 
-142 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+143 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements

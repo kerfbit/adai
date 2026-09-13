@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer)
-// @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 0.9.1
+// @adai-reviewed: 2026-09-12
 
 
 #include <chrono>
@@ -341,8 +341,6 @@ class IncrementalTrainer {
     std::string generate_session_checkpoint_path();
     std::string get_session_dir() const;
     void ensure_directories_exist();
-    static int load_conversation_pairs(const std::string& filepath,
-                                       std::vector<ConversationPair>& pairs);
 
     // Remove a saved model and all its sidecar files (.config, .vocab, .encoder, .decoder,
     // .lm_head)
