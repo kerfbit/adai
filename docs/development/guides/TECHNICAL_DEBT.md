@@ -5,9 +5,9 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** September 12, 2026
-**Total Items:** 23
+**Total Items:** 24
 **High Priority:** 1
-**Medium Priority:** 11
+**Medium Priority:** 12
 **Low Priority:** 11
 **Future Enhancements:** 19
 **Resolved Items:** 115
@@ -35,6 +35,7 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
   - [TD-048: Android UI/DI/Entry-Point Classes Are Untested and Unreleased](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
   - [TD-053: ChatbotCLI's /save and /load Commands Are Non-Functional Everywhere](#td-053-chatbotclis-save-and-load-commands-are-non-functional-everywhere)
   - [TD-161: FtpDataServer.hpp Uses Raw POSIX Sockets, No Windows/Winsock Port](#td-161-ftpdataserverhpp-uses-raw-posix-sockets-no-windowswinsock-port)
+  - [TD-162: IntegratedInferenceEngineFunctionalTest.ConcurrentRequestsDoNotCrashTheProcess Flakes Under Full-Suite ctest -j8](#td-162-integratedinferenceenginefunctionaltestconcurrentrequestsdonotcrashtheprocess-flakes-under-full-suite-ctest--j8)
 - [Resolved Items](#resolved-items) (148 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
@@ -761,6 +762,87 @@ Files to Modify:
 - `src/FtpDataServer.hpp`
 - Possibly a new `src/PortableSocket.hpp` (or similar) for the shared WSAStartup/type-alias logic
 - `src/CMakeLists.txt` (remove the `NOT WIN32` exclusion once done)
+
+---
+
+### TD-162: IntegratedInferenceEngineFunctionalTest.ConcurrentRequestsDoNotCrashTheProcess Flakes Under Full-Suite ctest -j8
+
+| Priority | Status | Component | Created | Effort Estimate |
+|----------|--------|-----------|---------|------------------|
+| MEDIUM | Open — reproduced once under -j8, passes reliably standalone, likely cause identified but not confirmed | Testing / Concurrency | September 12, 2026 | 2-4 hours |
+
+Description:
+Observed once during a full `ctest -j8` run (127 tests) while verifying TD-064's fix:
+`IntegratedInferenceEngineFunctionalTest.ConcurrentRequestsDoNotCrashTheProcess`
+(`tests/integratedinferenceengine_test.cpp:672`) failed with
+`engine.get_stats().total_requests` equal to `7` instead of the expected `8`. All 8 submitted
+requests themselves completed successfully — every `f.wait_for(std::chrono::seconds(5))` returned
+`ready` and every `f.get()` returned without throwing (lines 666-670 all passed) — only the
+engine's own aggregate stats counter undercounted by exactly one. Re-run standalone (not under
+`-j8` load) 3/3 times immediately after with no failure. No `src/` or `tests/` file touched in
+the session that produced this observation was related to `IntegratedInferenceEngine` — this is
+pre-existing test-suite behavior, discovered incidentally, not a regression from that session's
+(`ThreadSafeBatchQueue`-only) change.
+
+This is at least the third distinct test now observed in this codebase to be reliable standalone
+but flaky specifically under full-suite `-j8` contention this same week — see TD-064 (resolved: a
+genuine `ThreadSafeBatchQueue::clear()` deadlock, confirmed unrelated to contention itself despite
+first surfacing that way) and TD-123 (resolved: an unseeded-RNG test-tolerance issue, also
+confirmed *unrelated* to contention despite its own original filing assuming otherwise) — plus an
+unfiled `ChatbotAPITest.IntegratedInference_EnabledGeneratesThroughTheEngineWithoutThrowing`
+sighting and an unfiled `ScriptsTests_monitor_training` sighting, both noted only in passing in
+other TDs' resolution writeups. Given TD-064's and TD-123's own root causes both turned out to
+have nothing to do with `-j8` contention despite that being the circumstance they were first
+noticed under, **this item's own "contention" framing should not be assumed correct without
+investigation** — it is exactly as unconfirmed as those two were at filing time.
+
+Likely cause (not confirmed): `IntegratedInferenceEngine`'s worker thread fulfills each request's
+promise *before* it updates `stats_.total_requests` under `stats_mutex_`:
+
+```cpp
+req.result_promise.set_value(results[i]);        // line ~528: client can wake up here
+...
+{
+    std::lock_guard<std::mutex> lock(stats_mutex_);
+    stats_.total_requests++;                     // line ~537: counter incremented here
+    ...
+}
+```
+
+A client thread's `f.wait_for()`/`f.get()` can observe the promise as fulfilled and proceed
+immediately, racing ahead of that same request's own stats increment — so a test that checks
+`get_stats().total_requests` right after every future resolves is checking a value that isn't
+guaranteed to include the very last request it just waited on. This is a genuine ordering gap
+(not a lost-update race — the increment itself is correctly mutex-guarded), and its likelihood of
+manifesting plausibly scales with system load: less CPU contention gives the worker thread more
+of a chance to reach the stats-increment line before the test thread's own next scheduled slice
+checks it, while heavier contention (a full `-j8` suite) makes that window more likely to be
+missed. This would explain both the off-by-exactly-one (only the last-to-resolve request's count
+can plausibly be missed this way) and the contention-sensitivity — but it is a hypothesis from
+reading the code once, not a confirmed diagnosis.
+
+Action Items:
+
+- [ ] Reproduce in a fast, targeted harness (e.g. this test run repeatedly alongside a few other
+  concurrency-heavy test binaries as background load, matching the approach that resolved TD-064/
+  TD-123) rather than relying on further full-suite runs, to get a real repro rate before
+  concluding anything.
+- [ ] If the ordering hypothesis above holds up, confirm by adding a brief synchronization point
+  after the last future resolves (e.g. have the test also wait until
+  `get_stats().total_requests == kNumRequests` with its own short timeout, or fix the engine to
+  update stats *before* calling `set_value()`) and check whether that alone eliminates the flake.
+- [ ] Once a fix (or confirmed non-fix) is identified, verify via the standard revert-confirm-fail
+  cycle before closing.
+- [ ] While investigating, also check whether the same fulfill-before-stats-update ordering
+  affects any of `IntegratedInferenceEngine`'s other stats fields (`total_batches`,
+  `total_tokens_generated`, `avg_latency_ms`, etc.), all updated in the same critical section
+  after the same `set_value()` calls.
+
+Files to Modify:
+
+- `src/IntegratedInferenceEngine.hpp` (pending confirmation)
+- `tests/integratedinferenceengine_test.cpp` (regression test, once the exact interleaving is
+  understood)
 
 ---
 
