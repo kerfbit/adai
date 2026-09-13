@@ -46,6 +46,21 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+
+    // Fakes under src/sharedTest depend only on plain Kotlin/coroutines and this module's own
+    // domain interfaces -- nothing Android-framework-specific -- so the same doubles serve both
+    // the plain-JVM `test` source set (existing ViewModel/repository tests) and the real-device
+    // `androidTest` source set (new Compose UI tests, TD-048). Same setup as :app's own
+    // build.gradle.kts.
+    sourceSets {
+        val sharedTestDir = "src/sharedTest/java"
+        getByName("test") {
+            java.srcDir(sharedTestDir)
+        }
+        getByName("androidTest") {
+            java.srcDir(sharedTestDir)
+        }
+    }
 }
 
 dependencies {
@@ -93,6 +108,13 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.test.ext.junit)
+
+    // TD-048: Compose UI testing (createComposeRule()) — first real coverage of opsdashboard
+    // screen composables, previously untested entirely (only ViewModels had coverage).
+    androidTestImplementation(platform(libs.compose.bom))
+    androidTestImplementation(libs.compose.ui.test.junit4)
+    androidTestImplementation(libs.kotlinx.coroutines.test)
+    debugImplementation(libs.compose.ui.test.manifest)
 }
 
 // Bundles the compiled :wearface Watch Face Format APK as a raw asset so

@@ -1,5 +1,10 @@
 package com.adai.ops.testutil
 
+// @adai-status: beta        (in-memory fake backing both plain-JVM and instrumented tests, TD-048)
+// @adai-version: 0.1.0
+// @adai-reviewed: 2026-09-13
+
+
 import com.adai.ops.network.RegistryApiService
 import com.adai.ops.network.dto.AssignRequestDto
 import com.adai.ops.network.dto.AssignResponseDto

@@ -53,9 +53,11 @@ are deliberately deferred by prior user decision, not blocked, so TD-038 itself 
 
 **Tier 4 — Sustained, low-risk test-coverage investment** (systematic, already-validated pattern,
 no open design questions): [TD-048](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
-(Compose UI testing now adopted, 3/12 screens done September 13, 2026 — 9 screens (all in
-`opsdashboard`, which still needs its own `androidx.compose.ui.test` infra wired up first) plus
-DI/entry-points remain, continuing the now-proven ViewModel-then-screen-testing approach)
+(Compose UI testing now adopted in both modules, 4/12 screens done September 13, 2026 — 8 screens
+remain, all in `opsdashboard`, whose debug APK can't be installed/run on this sandbox's emulator
+at all — `wear-sdk` shared-library requirement, no Wear-capable device available here — so further
+`opsdashboard` screens stay compile-verified only pending real device access; plus DI/entry-points
+remain, continuing the now-proven ViewModel-then-screen-testing approach)
 and [TD-037](#td-037-no-qt-test-infrastructure-for-gui-classes) (8-12h — the same shape for the
 desktop Qt GUI).
 
@@ -697,7 +699,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open (8/8 ViewModels done; Compose UI testing adopted, 3/12 screens covered; DI/entry-points remain) | Android / Testing | September 7, 2026 | 24-32 hours |
+| MEDIUM | Open (8/8 ViewModels done; Compose UI testing adopted, 4/12 screens covered; DI/entry-points remain) | Android / Testing | September 7, 2026 | 24-32 hours |
 
 Description:
 62 files — Compose screens, ViewModels without tests, DI containers, `Activity`/`Application`
@@ -790,19 +792,49 @@ from the fake `health()` response. Two real findings along the way:
   fires) — confirmed to still fail for a real reason via a second revert-confirm-fail pass
   (removing the `save()` call entirely).
 
+**Update (September 13, 2026, continued still further):** `GroupListScreen` (`opsdashboard`
+module) done as the fourth screen — the first in `opsdashboard`, which needed its own
+`androidx.compose.ui.test`/`ui-test-manifest` dependencies and `src/sharedTest` source set wired
+up first (identical setup to `:app`'s own, done earlier the same day); its 6 fake test-utility
+files moved there and newly tagged (`beta`, not previously in-scope for the file-status standard
+under `src/test`). 5 tests added (`GroupListScreenTest`): no configured groups shows the
+placeholder message; multiple configured groups each show their own row with the right pending
+count; one group's fetch failing shows its own error without hiding or corrupting the others'
+results (mirrors `GroupListViewModelTest`'s own TD-128-style isolation test at the UI level);
+clicking a row invokes `onOpenGroup(name)`; clicking the settings icon invokes `onOpenSettings()`.
+
+**Known limitation, disclosed rather than worked around:** `opsdashboard`'s debug APK could not
+be installed on this sandbox's phone emulator to run these tests live —
+`INSTALL_FAILED_MISSING_SHARED_LIBRARY`, because its merged manifest declares
+`<uses-library android:name="wear-sdk" android:required="true"/>` (auto-injected by its Wear
+watch-face-push dependencies), and no Wear-capable emulator/device was available here even with
+the `google_apis_playstore` system image. Per user decision, proceeded compile-verified only:
+`GroupListScreenTest` compiles clean and was cross-checked carefully against the real production
+code path by hand (`SafeCall.kt`/`ApiResult.kt`'s exact error-message strings, confirmed to
+produce `"Error: connection refused"` verbatim for an `IOException("connection refused")`;
+`ConversationListScreenTest`'s already-device-verified `ListItem` + `Modifier.clickable` and
+`IconButton` + `contentDescription` interaction patterns, structurally identical here) rather than
+run end-to-end. `GroupListScreen.kt` promoted `experimental` → `beta` with an explicit
+real-device-still-unverified caveat in its own status comment, matching `GPUUtils.hpp`'s TD-041
+precedent for hardware-gated code in this same tracker. Whoever next has access to a Wear-capable
+emulator or real device should run `opsdashboard`'s `connectedDebugAndroidTest` for real at least
+once to close this gap — nothing here is expected to fail, but it hasn't actually been observed
+passing on a device the way the three `app`-module screens have.
+
 Action Items:
 
 - [x] Add ViewModel unit tests first (cheapest — no Compose/Activity needed) — all 8 done; see
   the per-ViewModel test files under `android/app/src/test`/`android/opsdashboard/src/test`.
 - [x] Adopt Compose UI testing (`androidx.compose.ui.test`) for screens once ViewModels are
-  covered — infrastructure adopted; `ConversationListScreen`, `ChatScreen`, and `SettingsScreen`
-  (`app` module) done (3 of 12; see updates above). The other 9 remain, all in `opsdashboard`
-  (`SettingsScreen`, `GroupListScreen`, `GroupDetailScreen`, `SessionListScreen`,
-  `SessionDetailScreen`, `AdminScreen`, `ModelListScreen`, `ModelDetailScreen`, `TrainerScreen`)
-  — same pattern, not attempted in this pass. Note for whoever picks up `opsdashboard`: that
-  module doesn't yet have `androidx.compose.ui.test`/`ui-test-manifest` wired into its own
-  `build.gradle.kts`, nor a `sharedTest` source set of its own — both need setting up there first,
-  same as was done for `app` here.
+  covered — infrastructure adopted for both modules now; `ConversationListScreen`, `ChatScreen`,
+  `SettingsScreen` (`app` module), and `GroupListScreen` (`opsdashboard` module) done (4 of 12;
+  see updates above). The other 8 remain, all in `opsdashboard` (`SettingsScreen`,
+  `GroupDetailScreen`, `SessionListScreen`, `SessionDetailScreen`, `AdminScreen`,
+  `ModelListScreen`, `ModelDetailScreen`, `TrainerScreen`) — same pattern, infra already in place.
+  Note: this sandbox cannot install/run `opsdashboard`'s debug APK on a device (see
+  `GroupListScreen`'s update above, `wear-sdk` shared-library requirement) — further
+  `opsdashboard` screens will be compile-verified only here too, pending real Wear-capable device
+  access to actually run any of them.
 - [ ] `BiometricAdminAuthGate.kt` specifically: consider an instrumented test using
   `BiometricPrompt`'s test/fake authenticator support instead of leaving it permanently untested.
 - [ ] DI containers (`AppContainer.kt`/`AppViewModelProvider.kt` in both apps), `Activity`/
@@ -811,13 +843,12 @@ Action Items:
 
 Files to Modify:
 
-- ~47 remaining files under `android/app/src/main`, `android/opsdashboard/src/main`, and
+- ~46 remaining files under `android/app/src/main`, `android/opsdashboard/src/main`, and
   `android/wearcomplications/src/main` still tagged `experimental` — see
   [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md) for the exact, current list.
 - Done: the 8 ViewModel files, `AdminUiState.kt`, `ConversationListScreen.kt`, `ChatScreen.kt`,
-  `ChatInputBar.kt`, `MessageBubble.kt`, `ErrorBanner.kt`, and `SettingsScreen.kt` (`app` module).
-
----
+  `ChatInputBar.kt`, `MessageBubble.kt`, `ErrorBanner.kt`, `SettingsScreen.kt` (`app` module), and
+  `GroupListScreen.kt` (`opsdashboard` module).
 
 ---
 
