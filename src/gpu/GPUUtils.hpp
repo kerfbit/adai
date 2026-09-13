@@ -2,7 +2,7 @@
 #define GPU_UTILS_HPP
 
 // @adai-status: beta        (TD-041 resolved — dedicated tests added; real-device paths still unverified by an actual run, see below)
-// @adai-version: 0.9.1
+// @adai-version: 0.9.2
 // @adai-reviewed: 2026-09-13
 
 
@@ -281,10 +281,31 @@ class GPUManager {
         allocated_bytes_ = (bytes <= allocated_bytes_) ? (allocated_bytes_ - bytes) : 0;
     }
 
-    /** @brief Human-readable description of the selected device plus memory budget. */
+    /**
+     * @brief Human-readable description of the selected device plus memory budget.
+     *
+     * @throws std::out_of_range if `device` (or, when left at its default, current_device_) is
+     *         not a valid index into the live device list -- including the case this is called
+     *         before any successful initialize()/set_device(), when current_device_ is still its
+     *         own default of -1. A fresh cudaGetDeviceCount() is used here rather than the
+     *         cached device_count_ member (only ever populated by initialize()) specifically so
+     *         this check is correct even when called before initialize(), matching probe()'s own
+     *         pre-initialize()-safe contract. Matches set_device()'s identical validation and
+     *         exception type/message for the same "invalid device ID" condition -- previously
+     *         this let cudaGetDeviceProperties() fail on its own for device == -1, surfacing as
+     *         a generic std::runtime_error from CUDA_CHECK ("CUDA error: no CUDA-capable device
+     *         is detected" with no physical GPU) instead of the same std::out_of_range every
+     *         other invalid-device-ID path in this class already throws.
+     */
     static std::string get_device_info(int device = -1) {
         if (device == -1)
             device = current_device_;
+
+        int live_device_count = 0;
+        if (device < 0 || cudaGetDeviceCount(&live_device_count) != cudaSuccess ||
+            device >= live_device_count) {
+            throw std::out_of_range("Invalid device ID: " + std::to_string(device));
+        }
 
         cudaDeviceProp prop;
         CUDA_CHECK(cudaGetDeviceProperties(&prop, device));

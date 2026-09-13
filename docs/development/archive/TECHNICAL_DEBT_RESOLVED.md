@@ -4,6 +4,65 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-167: GPUManager::get_device_info() Diverges Between Backends for an Invalid Device ID
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 13, 2026 | `src/gpu/GPUUtils.hpp`, `src/gpu/sycl/GPUUtils_SYCL.hpp`, `tests/gpuutils_test.cpp` | Both backends now throw `std::out_of_range`, matching `set_device()`'s own validation for the same condition |
+
+Summary:
+Flagged (not fixed) as a follow-up while resolving TD-041, which deliberately left this scenario
+untested in `gpuutils_test.cpp` rather than baking a backend-specific branch into an otherwise
+backend-agnostic file. `GPUManager::get_device_info(int device = -1)` resolves `device == -1` to
+`current_device_` in both backends, then looks up device properties — but diverged on what
+happens next for an invalid result (either `current_device_` still at its own default of -1
+because `initialize()` was never successfully called, or an explicit out-of-range index): CUDA
+called straight into `cudaGetDeviceProperties()`, which fails for device -1 and surfaces as a
+generic `std::runtime_error` from `CUDA_CHECK` (confirmed directly, no physical GPU: `CUDA error:
+no CUDA-capable device is detected`); SYCL instead bounds-checked first and returned the string
+`"Invalid device ID"` — silently, without throwing at all.
+
+Neither matched `set_device()`'s own convention in the exact same class for the identical "invalid
+device ID" condition: both backends' `set_device()` already throw `std::out_of_range` for exactly
+this. SYCL's silent string return was judged the more dangerous divergence — a caller checking
+only for an exception (or a truthy/non-empty return) would never notice anything was wrong, unlike
+CUDA's at-least-visible (if wrongly-typed) exception.
+
+Changes Made:
+- `src/gpu/GPUUtils.hpp` (CUDA): `get_device_info()` now does its own live
+  `cudaGetDeviceCount()`-backed bounds check before ever calling `cudaGetDeviceProperties()`,
+  throwing `std::out_of_range("Invalid device ID: " + ...)` for `device < 0` or an out-of-range
+  index — deliberately a *fresh* count rather than the cached `device_count_` member (only ever
+  populated by `initialize()`), since this exact scenario needs to stay correct when called
+  *before* `initialize()`, mirroring `probe()`'s own pre-`initialize()`-safe contract.
+- `src/gpu/sycl/GPUUtils_SYCL.hpp`: kept its existing (already-correct, already-live)
+  `enumerate_gpu_devices()`-based bounds check, changing only the failure action from `return
+  "Invalid device ID"` to `throw std::out_of_range(...)`, with the identical message format as
+  CUDA's and as `set_device()`'s own.
+- `tests/gpuutils_test.cpp`: added `GetDeviceInfoThrowsForInvalidDeviceId`, covering the default-
+  argument path (`device == -1` → `current_device_`), an explicit `-1`, and an explicit
+  `device_count() + 100` — placed before any test in the fixture that could call a *successful*
+  `initialize()`, so `current_device_` is guaranteed to still be at its own untouched default
+  regardless of whether real hardware is present in the process. Updated the file's header
+  comment (previously explaining why this scenario was deliberately left untested) to describe
+  the now-unified behavior instead.
+- Bumped `@adai-version` on both fixed files (`GPUUtils.hpp` 0.9.1→0.9.2, `GPUUtils_SYCL.hpp`
+  0.6.2→0.6.3).
+
+Verification:
+- ✅ Revert-confirm-fail on both backends independently: temporarily restored each one's original
+  (pre-fix) code in turn, rebuilt, and reconfirmed the new test fails with the exact original
+  symptom in each case (CUDA: `std::runtime_error` with the same "CUDA error: no CUDA-capable
+  device is detected" message; SYCL: "it throws nothing"). Restored both fixes and reconfirmed a
+  clean pass.
+- ✅ `gpuutilsTests`: 18/18 (9 pass, 9 skip — no physical GPU in this environment, 0 failures)
+  under both the `gpu` (CUDA, `nvcc`) and `sycl` (Intel oneAPI, `icpx`) presets.
+- ✅ `gpuutilsStubTests` (CPU-only stub, untouched by this fix): 11/11 pass.
+- ✅ Full project rebuild under the `gpu` (CUDA) preset: clean, no new warnings.
+- ✅ Full `ctest -j8` under the default `debug` preset: 128/128 pass.
+
+---
+
 ### TD-166: matrixgpu_td003_test.cpp Fails Outright Instead of Skipping With No Physical GPU
 
 | Resolution Date | Component | Resolved By |
@@ -308,7 +367,9 @@ Changes Made:
   `initialize()` (current_device_ still -1): CUDA's `cudaGetDeviceProperties(&prop, -1)` call
   throws `std::runtime_error`, SYCL's own bounds check instead returns an "Invalid device ID"
   string. `gpuutils_test.cpp` deliberately does not test this scenario, documented inline in the
-  file's own header comment, specifically because of this divergence.
+  file's own header comment, specifically because of this divergence — **resolved September 13,
+  2026 as
+  [TD-167](#td-167-gpumanagerget_device_info-diverges-between-backends-for-an-invalid-device-id)**.
 
 Verification:
 - ✅ Confirmed via revert-confirm-fail on two representative checks: temporarily disabled the stub

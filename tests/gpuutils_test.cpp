@@ -5,23 +5,19 @@
 // GPUMatrix).
 //
 // Adaptive to whether real GPU hardware is actually present at runtime, rather than assuming it
-// the way matrixgpu_td003_test.cpp does: this repo's ENABLE_GPU/ENABLE_SYCL presets are
-// typically only built on a machine known to have a device, but nothing here should spuriously
-// fail on a CI runner or dev sandbox that only has the compiler toolchain installed (confirmed
-// via this exact scenario while filing this test -- matrixgpu_td003_test.cpp's own tests fail
-// outright in such an environment, e.g. "cudaMalloc failed: no CUDA-capable device is
-// detected"; flagged separately as a follow-up, out of TD-041's own stated scope). When
-// GPUManager::probe() reports no device, tests assert the documented soft-fail contract instead
-// of exercising real device I/O -- both are real, valuable things to verify, just not always at
-// the same time on the same machine.
+// the way matrixgpu_td003_test.cpp used to (both now GTEST_SKIP() when GPUManager::probe()
+// reports no device, matching each other and this file's own convention): this repo's
+// ENABLE_GPU/ENABLE_SYCL presets are typically only built on a machine known to have a device,
+// but nothing here should spuriously fail on a CI runner or dev sandbox that only has the
+// compiler toolchain installed. When GPUManager::probe() reports no device, tests assert the
+// documented soft-fail contract instead of exercising real device I/O -- both are real, valuable
+// things to verify, just not always at the same time on the same machine.
 //
-// get_device_info() called before any successful initialize() is deliberately NOT tested here:
-// confirmed to behave differently per backend in that state (CUDA's cudaGetDeviceProperties()
-// call throws std::runtime_error when passed the still-default current_device_ of -1; SYCL's
-// own bounds check catches the same -1 first and returns an "Invalid device ID" string instead
-// of throwing) -- a real, minor API-consistency gap, but reconciling it is out of scope for a
-// test-coverage item, so it's left untested here rather than baking a backend-specific branch
-// into an otherwise backend-agnostic file. See TECHNICAL_DEBT.md if this needs a proper item.
+// get_device_info() called before any successful initialize() (current_device_ still its
+// default of -1): both backends now throw std::out_of_range, matching set_device()'s own
+// validation for the identical condition -- previously CUDA let cudaGetDeviceProperties() fail
+// on its own (surfacing as a generic std::runtime_error from CUDA_CHECK) while SYCL silently
+// returned the string "Invalid device ID" instead of throwing at all.
 
 #include <gtest/gtest.h>
 #include <stdexcept>
@@ -99,6 +95,21 @@ TEST_F(GPUManagerTest, MemoryGettersAreZeroWhenNeverInitialized) {
 
 TEST_F(GPUManagerTest, SynchronizeDoesNotThrowBeforeInitialize) {
     EXPECT_NO_THROW(GPUManager::synchronize());
+}
+
+TEST_F(GPUManagerTest, GetDeviceInfoThrowsForInvalidDeviceId) {
+    // TD-041 follow-up: get_device_info() used to diverge between backends for an invalid
+    // device ID -- CUDA let cudaGetDeviceProperties() fail on its own (surfacing as a generic
+    // std::runtime_error from CUDA_CHECK), while SYCL silently returned the string "Invalid
+    // device ID" instead of throwing at all. Both now throw std::out_of_range, matching
+    // set_device()'s own validation for the identical condition. Placed before any test in this
+    // fixture that could call a *successful* initialize() (only the real-device tests further
+    // down do), so the default-argument case (device == -1 -> current_device_) is guaranteed to
+    // still resolve to current_device_'s own never-touched default of -1, regardless of whether
+    // real hardware is present in this process.
+    EXPECT_THROW(GPUManager::get_device_info(), std::out_of_range);    // default -> current_device_ (-1)
+    EXPECT_THROW(GPUManager::get_device_info(-1), std::out_of_range);  // explicit -1
+    EXPECT_THROW(GPUManager::get_device_info(GPUManager::device_count() + 100), std::out_of_range);
 }
 
 TEST_F(GPUManagerTest, InvalidDeviceIdThrowsOnceADeviceExists) {

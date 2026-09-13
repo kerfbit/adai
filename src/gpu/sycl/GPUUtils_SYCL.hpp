@@ -2,7 +2,7 @@
 #define GPU_UTILS_SYCL_HPP
 
 // @adai-status: beta        (TD-041 resolved — dedicated tests added; real-device paths still unverified by an actual run, see below)
-// @adai-version: 0.6.2
+// @adai-version: 0.6.3
 // @adai-reviewed: 2026-09-13
 
 
@@ -258,13 +258,25 @@ class GPUManager {
         allocated_bytes_ = (bytes <= allocated_bytes_) ? (allocated_bytes_ - bytes) : 0;
     }
 
+    /**
+     * @brief Human-readable description of the selected device plus memory budget.
+     *
+     * @throws std::out_of_range if `device` (or, when left at its default, current_device_) is
+     *         not a valid index into the live device list -- including the case this is called
+     *         before any successful initialize()/set_device(), when current_device_ is still its
+     *         own default of -1. Matches set_device()'s identical validation and exception
+     *         type/message for the same "invalid device ID" condition, and the CUDA backend's
+     *         identical throw in GPUUtils.hpp -- previously this backend alone returned the
+     *         string "Invalid device ID" instead of throwing, silently divergent from every
+     *         other invalid-device-ID path in this class (and from CUDA's own get_device_info()).
+     */
     static std::string get_device_info(int device = -1) {
         if (device == -1)
             device = current_device_;
 
         auto gpus = enumerate_gpu_devices();
         if (device < 0 || device >= static_cast<int>(gpus.size()))
-            return "Invalid device ID";
+            throw std::out_of_range("Invalid device ID: " + std::to_string(device));
 
         auto& dev = gpus[device];
         std::string name = dev.get_info<sycl::info::device::name>();
