@@ -1,6 +1,6 @@
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 0.10.0
+// @adai-reviewed: 2026-09-13
 
 #include "MultiHeadAttention.hpp"
 #include <cmath>
@@ -55,121 +55,37 @@ MultiHeadAttention::MultiHeadAttention(int d_model, int num_heads)
     }
 }
 
-Matrix MultiHeadAttention::scaled_dot_product_attention(const Matrix& Q, const Matrix& K,
-                                                        const Matrix& V, const Matrix* mask) {
-    int seq_len = Q.rows;
-
-    // Compute attention scores: QK^T
-    Matrix scores = Q * K.transpose();
-
-    // Scale by sqrt(d_k) to prevent softmax saturation
-    float scale_factor = 1.0f / std::sqrt(static_cast<float>(d_k));
-    scores = scores.scale(scale_factor);
-
-    // Cache scores for backward pass
-    cached_scores = scores;
-
-    // Apply mask if provided
-    if (mask != nullptr) {
-        // Validate mask dimensions
-        if (mask->rows != seq_len || mask->cols != seq_len) {
-            throw std::invalid_argument("Mask dimensions (" + std::to_string(mask->rows) + ", " +
-                                        std::to_string(mask->cols) +
-                                        ") must match sequence length (" + std::to_string(seq_len) +
-                                        ", " + std::to_string(seq_len) + ")");
-        }
-
-        // Apply mask: set masked positions to large negative value
-        for (int i = 0; i < seq_len; ++i) {
-            for (int j = 0; j < seq_len; ++j) {
-                if ((*mask)(i, j) == 0.0f) {
-                    scores(i, j) = -1e9f;  // Large negative value
-                }
-            }
+// TD-059: shared helpers for slicing/scattering a head's [*, d_k] column range out of
+// (or into) a full [*, d_model] matrix. Used by backward() to materialize per-head
+// sub-matrices for Matrix's ordinary GEMM/transpose operators; forward_parallel() below
+// indexes columns directly in its own raw loops instead (avoids constructing temporaries
+// inside the OpenMP-parallelized per-head loop).
+namespace {
+Matrix slice_head_columns(const Matrix& m, int start, int width) {
+    Matrix result(m.rows, width);
+    for (int i = 0; i < m.rows; ++i) {
+        for (int k = 0; k < width; ++k) {
+            result(i, k) = m(i, start + k);
         }
     }
-
-    // Apply softmax to get attention weights
-    Matrix attention_weights = Activation::softmax(scores);
-
-    // Apply attention weights to values
-    Matrix output = attention_weights * V;
-
-    return output;
+    return result;
 }
+
+void scatter_head_columns(Matrix& dst, int start, const Matrix& src) {
+    for (int i = 0; i < src.rows; ++i) {
+        for (int k = 0; k < src.cols; ++k) {
+            dst(i, start + k) = src(i, k);
+        }
+    }
+}
+}  // namespace
 
 Matrix MultiHeadAttention::forward(const Matrix& input, const Matrix* mask) {
-    // Cache input for backward pass
-    cached_input = input;
-
-    int seq_len = input.rows;
-
-    // Validate input dimensions
-    if (input.cols != d_model) {
-        throw std::invalid_argument("Input dimension (" + std::to_string(input.cols) +
-                                    ") must match d_model (" + std::to_string(d_model) + ")");
-    }
-
-    // Linear projections to get Q, K, V
-    cached_Q = input * W_q;
-    cached_K = input * W_k;
-    cached_V = input * W_v;
-
-    // Compute scaled dot-product attention
-    // This function also caches scores and computes attention_weights
-    // TODO: See TECHNICAL_DEBT.md TD-059 - this is the production self-attention path
-    // (called by EncoderBlock/DecoderBlock) and it does NOT split into per-head slices:
-    // the QK^T below contracts over the full d_model width, not d_k, making this
-    // single-head attention over d_model dims regardless of num_heads. See
-    // forward_parallel() below for the (currently unused) correct per-head version.
-    Matrix scores = cached_Q * cached_K.transpose();
-
-    // Scale by sqrt(d_k) — TD-059: mismatched with the actual contraction width
-    // (d_model, not d_k) used just above; should be 1/sqrt(d_model) for this
-    // computation, which would be off by sqrt(num_heads) from what's written here.
-    float scale_factor = 1.0f / std::sqrt(static_cast<float>(d_k));
-    scores = scores.scale(scale_factor);
-
-    // Cache scores for backward pass
-    cached_scores = scores;
-
-    // Apply mask if provided
-    if (mask != nullptr) {
-        if (mask->rows != seq_len || mask->cols != seq_len) {
-            throw std::invalid_argument("Mask dimensions must match sequence length");
-        }
-
-        for (int i = 0; i < seq_len; ++i) {
-            for (int j = 0; j < seq_len; ++j) {
-                if ((*mask)(i, j) == 0.0f) {
-                    scores(i, j) = -1e9f;
-                }
-            }
-        }
-    }
-
-    // Apply softmax to get attention weights
-    cached_attention_weights = Activation::softmax(scores);
-
-    // Fire attention hook if registered (used for entropy tracking, TD-013)
-    if (attention_hook_) {
-        attention_hook_(cached_attention_weights);
-    }
-
-    // Apply attention to values
-    cached_attention_output = cached_attention_weights * cached_V;
-
-    // Final linear projection
-    Matrix output = cached_attention_output * W_o;
-
-    return output;
+    // TD-059: forward_parallel() holds the one real per-head implementation; forward()
+    // just calls it with parallel head computation enabled.
+    return forward_parallel(input, mask, true);
 }
 
-// TODO: See TECHNICAL_DEBT.md TD-059 - this is the only method in this class that
-// correctly implements per-head attention (explicit start_dim = h*d_k slicing
-// below); forward()/forward_with_cache() above do not, and are the only ones any
-// caller actually invokes (grep confirms zero callers of forward_parallel() outside
-// this file) — this method is dead code holding the one correct implementation.
 Matrix MultiHeadAttention::forward_parallel(const Matrix& input, const Matrix* mask,
                                             bool use_parallel) {
     // Cache input for backward pass
@@ -181,6 +97,14 @@ Matrix MultiHeadAttention::forward_parallel(const Matrix& input, const Matrix* m
     if (input.cols != d_model) {
         throw std::invalid_argument("Input dimension (" + std::to_string(input.cols) +
                                     ") must match d_model (" + std::to_string(d_model) + ")");
+    }
+    // TD-059: forward() used to validate mask dimensions before forward_parallel() existed
+    // as its implementation; keep that check here now that forward() delegates to this
+    // method, so an invalid mask still throws std::invalid_argument rather than the
+    // std::out_of_range Matrix::operator() would throw once the per-head loop below
+    // indexes past a too-small mask.
+    if (mask != nullptr && (mask->rows != seq_len || mask->cols != seq_len)) {
+        throw std::invalid_argument("Mask dimensions must match sequence length");
     }
 
     // Linear projections to get Q, K, V
@@ -194,161 +118,126 @@ Matrix MultiHeadAttention::forward_parallel(const Matrix& input, const Matrix* m
 
     // Allocate output matrix once
     Matrix concatenated(seq_len, d_model);
+    // TD-059: one real post-softmax weight matrix per head, cached for backward().
+    std::vector<Matrix> head_weights(num_heads, Matrix(seq_len, seq_len));
+
+    // Per-head scaled dot-product attention: Q_h, K_h, V_h are this head's own
+    // [seq_len, d_k] column slice ([h*d_k, (h+1)*d_k)) of the full-width Q/K/V above —
+    // this is the actual "split into num_heads" step the class-level doc describes.
+    // Written as raw indexed loops (not Matrix::operator*) so each head's block below
+    // can run in its own OpenMP thread without nesting into operator*'s own internal
+    // #pragma omp parallel for.
+    auto compute_head = [&](int h) {
+        int start_dim = h * d_k;
+        Matrix& scores_head = head_weights[h];
+
+        // scores_head = Q_h * K_h^T
+        for (int i = 0; i < seq_len; ++i) {
+            for (int j = 0; j < seq_len; ++j) {
+                float sum = 0.0f;
+                for (int k = 0; k < d_k; ++k) {
+                    sum += Q(i, start_dim + k) * K(j, start_dim + k);
+                }
+                scores_head(i, j) = sum;
+            }
+        }
+
+        // Scale by 1/sqrt(d_k) — correct for this width, since the contraction above is
+        // genuinely over d_k dimensions now (TD-059's mismatched-scale half of the bug
+        // only existed because the contraction used to be over the full d_model width).
+        float scale_factor = 1.0f / std::sqrt(static_cast<float>(d_k));
+        for (int i = 0; i < seq_len; ++i) {
+            for (int j = 0; j < seq_len; ++j) {
+                scores_head(i, j) *= scale_factor;
+            }
+        }
+
+        // Apply mask if provided (same mask shared across every head)
+        if (mask != nullptr) {
+            for (int i = 0; i < seq_len; ++i) {
+                for (int j = 0; j < seq_len; ++j) {
+                    if ((*mask)(i, j) == 0.0f) {
+                        scores_head(i, j) = -1e9f;
+                    }
+                }
+            }
+        }
+
+        // Softmax row-wise, in place — scores_head now holds this head's real attention
+        // weights (cached below for backward()).
+        for (int i = 0; i < seq_len; ++i) {
+            float max_score = scores_head(i, 0);
+            for (int j = 1; j < seq_len; ++j) {
+                max_score = std::max(max_score, scores_head(i, j));
+            }
+
+            float sum_exp = 0.0f;
+            for (int j = 0; j < seq_len; ++j) {
+                scores_head(i, j) = std::exp(scores_head(i, j) - max_score);
+                sum_exp += scores_head(i, j);
+            }
+
+            for (int j = 0; j < seq_len; ++j) {
+                scores_head(i, j) /= sum_exp;
+            }
+        }
+
+        // Apply attention to values: output_h = attention_weights_h * V_h, written
+        // directly into this head's column slice of the concatenated output.
+        for (int i = 0; i < seq_len; ++i) {
+            for (int k = 0; k < d_k; ++k) {
+                float sum = 0.0f;
+                for (int j = 0; j < seq_len; ++j) {
+                    sum += scores_head(i, j) * V(j, start_dim + k);
+                }
+                concatenated(i, start_dim + k) = sum;
+            }
+        }
+    };
 
 #ifdef _OPENMP
     if (use_parallel) {
-// Parallel version using OpenMP
-// Process each head in parallel - each thread works on its own head
 #pragma omp parallel for schedule(static)
         for (int h = 0; h < num_heads; ++h) {
-            int start_dim = h * d_k;
-
-            // Compute attention for this head directly into output buffer
-            // scores = Q_head * K_head^T
-            Matrix scores_head(seq_len, seq_len);
-            for (int i = 0; i < seq_len; ++i) {
-                for (int j = 0; j < seq_len; ++j) {
-                    float sum = 0.0f;
-                    for (int k = 0; k < d_k; ++k) {
-                        sum += Q(i, start_dim + k) * K(j, start_dim + k);
-                    }
-                    scores_head(i, j) = sum;
-                }
-            }
-
-            // Scale by sqrt(d_k)
-            float scale_factor = 1.0f / std::sqrt(static_cast<float>(d_k));
-            for (int i = 0; i < seq_len; ++i) {
-                for (int j = 0; j < seq_len; ++j) {
-                    scores_head(i, j) *= scale_factor;
-                }
-            }
-
-            // Apply mask if provided
-            if (mask != nullptr) {
-                for (int i = 0; i < seq_len; ++i) {
-                    for (int j = 0; j < seq_len; ++j) {
-                        if ((*mask)(i, j) == 0.0f) {
-                            scores_head(i, j) = -1e9f;
-                        }
-                    }
-                }
-            }
-
-            // Apply softmax row-wise
-            for (int i = 0; i < seq_len; ++i) {
-                // Find max for numerical stability
-                float max_score = scores_head(i, 0);
-                for (int j = 1; j < seq_len; ++j) {
-                    max_score = std::max(max_score, scores_head(i, j));
-                }
-
-                // Compute exp and sum
-                float sum_exp = 0.0f;
-                for (int j = 0; j < seq_len; ++j) {
-                    scores_head(i, j) = std::exp(scores_head(i, j) - max_score);
-                    sum_exp += scores_head(i, j);
-                }
-
-                // Normalize
-                for (int j = 0; j < seq_len; ++j) {
-                    scores_head(i, j) /= sum_exp;
-                }
-            }
-
-            // Apply attention to values: output = attention_weights * V_head
-            // Write directly to concatenated output
-            for (int i = 0; i < seq_len; ++i) {
-                for (int k = 0; k < d_k; ++k) {
-                    float sum = 0.0f;
-                    for (int j = 0; j < seq_len; ++j) {
-                        sum += scores_head(i, j) * V(j, start_dim + k);
-                    }
-                    concatenated(i, start_dim + k) = sum;
-                }
-            }
+            compute_head(h);
         }
     } else {
-#endif
-        // Sequential fallback
         for (int h = 0; h < num_heads; ++h) {
-            int start_dim = h * d_k;
-
-            Matrix scores_head(seq_len, seq_len);
-            for (int i = 0; i < seq_len; ++i) {
-                for (int j = 0; j < seq_len; ++j) {
-                    float sum = 0.0f;
-                    for (int k = 0; k < d_k; ++k) {
-                        sum += Q(i, start_dim + k) * K(j, start_dim + k);
-                    }
-                    scores_head(i, j) = sum;
-                }
-            }
-
-            float scale_factor = 1.0f / std::sqrt(static_cast<float>(d_k));
-            for (int i = 0; i < seq_len; ++i) {
-                for (int j = 0; j < seq_len; ++j) {
-                    scores_head(i, j) *= scale_factor;
-                }
-            }
-
-            if (mask != nullptr) {
-                for (int i = 0; i < seq_len; ++i) {
-                    for (int j = 0; j < seq_len; ++j) {
-                        if ((*mask)(i, j) == 0.0f) {
-                            scores_head(i, j) = -1e9f;
-                        }
-                    }
-                }
-            }
-
-            for (int i = 0; i < seq_len; ++i) {
-                float max_score = scores_head(i, 0);
-                for (int j = 1; j < seq_len; ++j) {
-                    max_score = std::max(max_score, scores_head(i, j));
-                }
-
-                float sum_exp = 0.0f;
-                for (int j = 0; j < seq_len; ++j) {
-                    scores_head(i, j) = std::exp(scores_head(i, j) - max_score);
-                    sum_exp += scores_head(i, j);
-                }
-
-                for (int j = 0; j < seq_len; ++j) {
-                    scores_head(i, j) /= sum_exp;
-                }
-            }
-
-            for (int i = 0; i < seq_len; ++i) {
-                for (int k = 0; k < d_k; ++k) {
-                    float sum = 0.0f;
-                    for (int j = 0; j < seq_len; ++j) {
-                        sum += scores_head(i, j) * V(j, start_dim + k);
-                    }
-                    concatenated(i, start_dim + k) = sum;
-                }
-            }
+            compute_head(h);
         }
-#ifdef _OPENMP
+    }
+#else
+    for (int h = 0; h < num_heads; ++h) {
+        compute_head(h);
     }
 #endif
 
-    // Cache for backward pass (compute average attention for compatibility)
-    Matrix scores = Q * K.transpose();
-    float scale_factor = 1.0f / std::sqrt(static_cast<float>(d_k));
-    scores = scores.scale(scale_factor);
-    if (mask != nullptr) {
+    cached_head_weights_ = std::move(head_weights);
+    cached_attention_output = concatenated;
+
+    // cached_attention_weights: mean across heads, elementwise — a convex combination of
+    // per-row probability distributions is itself a valid probability distribution (still
+    // sums to 1, still non-negative, still ~0 at masked positions), so this stays a
+    // faithful [seq_len, seq_len] summary for get_attention_weights() and the entropy
+    // hook below, without claiming to be any single head's actual weights.
+    Matrix avg_weights(seq_len, seq_len);
+    float inv_num_heads = 1.0f / static_cast<float>(num_heads);
+    for (int h = 0; h < num_heads; ++h) {
+        const Matrix& hw = cached_head_weights_[h];
         for (int i = 0; i < seq_len; ++i) {
             for (int j = 0; j < seq_len; ++j) {
-                if ((*mask)(i, j) == 0.0f) {
-                    scores(i, j) = -1e9f;
-                }
+                avg_weights(i, j) += hw(i, j) * inv_num_heads;
             }
         }
     }
-    cached_scores = scores;
-    cached_attention_weights = Activation::softmax(scores);
-    cached_attention_output = concatenated;
+    cached_attention_weights = avg_weights;
+
+    // Fire attention hook if registered (used for entropy tracking, TD-013). forward_parallel()
+    // never fired this before (it was dead code with no caller); now that forward() delegates
+    // here, preserve forward()'s existing hook contract.
+    if (attention_hook_) {
+        attention_hook_(cached_attention_weights);
+    }
 
     // Final linear projection
     Matrix output = concatenated * W_o;
@@ -394,47 +283,65 @@ Matrix MultiHeadAttention::forward_with_cache(const Matrix& input, const Matrix*
 
     int total_seq_len = K_full.rows;
 
-    // Compute attention scores: Q_new * K_full^T
-    // Shape: [num_new_tokens, total_seq_len]
-    // TODO: See TECHNICAL_DEBT.md TD-059 - same missing per-head split as forward()
-    // above; the KV-cache decode path also runs single-head attention over the
-    // full d_model width.
-    Matrix scores = Q_new * K_full.transpose();
+    // Mask shape should be [num_new_tokens, total_seq_len], shared across every head
+    if (mask != nullptr && (mask->rows != num_new_tokens || mask->cols != total_seq_len)) {
+        throw std::invalid_argument(
+            "Mask dimensions (" + std::to_string(mask->rows) + ", " + std::to_string(mask->cols) +
+            ") must match [num_new_tokens=" + std::to_string(num_new_tokens) +
+            ", total_seq_len=" + std::to_string(total_seq_len) + "]");
+    }
 
-    // Scale by sqrt(d_k) — TD-059: mismatched, see forward()'s note above.
+    // TD-059: genuine per-head attention over the cached K/V, same as forward_parallel().
+    // Q_new_h/K_full_h/V_full_h are this head's own [*, d_k] column slice.
     float scale_factor = 1.0f / std::sqrt(static_cast<float>(d_k));
-    scores = scores.scale(scale_factor);
+    Matrix concatenated(num_new_tokens, d_model);
+    std::vector<Matrix> head_weights;
+    head_weights.reserve(num_heads);
 
-    // Cache scores for backward pass
-    cached_scores = scores;
+    for (int h = 0; h < num_heads; ++h) {
+        int start_dim = h * d_k;
+        Matrix Q_h = slice_head_columns(Q_new, start_dim, d_k);
+        Matrix K_h = slice_head_columns(K_full, start_dim, d_k);
+        Matrix V_h = slice_head_columns(V_full, start_dim, d_k);
 
-    // Apply mask if provided
-    // Mask shape should be [num_new_tokens, total_seq_len]
-    if (mask != nullptr) {
-        if (mask->rows != num_new_tokens || mask->cols != total_seq_len) {
-            throw std::invalid_argument(
-                "Mask dimensions (" + std::to_string(mask->rows) + ", " +
-                std::to_string(mask->cols) +
-                ") must match [num_new_tokens=" + std::to_string(num_new_tokens) +
-                ", total_seq_len=" + std::to_string(total_seq_len) + "]");
-        }
+        Matrix scores_h = Q_h * K_h.transpose();  // [num_new_tokens, total_seq_len]
+        scores_h = scores_h.scale(scale_factor);
 
-        for (int i = 0; i < num_new_tokens; ++i) {
-            for (int j = 0; j < total_seq_len; ++j) {
-                if ((*mask)(i, j) == 0.0f) {
-                    scores(i, j) = -1e9f;
+        if (mask != nullptr) {
+            for (int i = 0; i < num_new_tokens; ++i) {
+                for (int j = 0; j < total_seq_len; ++j) {
+                    if ((*mask)(i, j) == 0.0f) {
+                        scores_h(i, j) = -1e9f;
+                    }
                 }
             }
         }
+
+        Matrix weights_h = Activation::softmax(scores_h);
+        Matrix out_h = weights_h * V_h;  // [num_new_tokens, d_k]
+
+        scatter_head_columns(concatenated, start_dim, out_h);
+        head_weights.push_back(std::move(weights_h));
     }
 
-    // Apply softmax to get attention weights
-    // Shape: [num_new_tokens, total_seq_len]
-    cached_attention_weights = Activation::softmax(scores);
+    cached_head_weights_ = std::move(head_weights);
+    cached_attention_output = concatenated;
 
-    // Apply attention to values
-    // [num_new_tokens, total_seq_len] * [total_seq_len, d_model] = [num_new_tokens, d_model]
-    cached_attention_output = cached_attention_weights * V_full;
+    // Mean across heads for get_attention_weights() — see forward_parallel()'s identical
+    // rationale. forward_with_cache() never fired attention_hook_ before this fix (only
+    // forward() did); preserved as still not firing it here, matching this method's prior
+    // observable behavior.
+    Matrix avg_weights(num_new_tokens, total_seq_len);
+    float inv_num_heads = 1.0f / static_cast<float>(num_heads);
+    for (int h = 0; h < num_heads; ++h) {
+        const Matrix& hw = cached_head_weights_[h];
+        for (int i = 0; i < num_new_tokens; ++i) {
+            for (int j = 0; j < total_seq_len; ++j) {
+                avg_weights(i, j) += hw(i, j) * inv_num_heads;
+            }
+        }
+    }
+    cached_attention_weights = avg_weights;
 
     // Final linear projection
     Matrix output = cached_attention_output * W_o;
@@ -457,58 +364,71 @@ Matrix MultiHeadAttention::backward(const Matrix& grad_output) {
     // grad_attn_out = grad_output * W_o^T
     Matrix grad_attn_out = grad_output * W_o.transpose();
 
-    // Gradient w.r.t. V
-    // grad_V = attention_weights^T * grad_attn_out
-    Matrix grad_V = cached_attention_weights.transpose() * grad_attn_out;
+    // TD-059: differentiate through each head's own softmax separately (using the real
+    // per-head weights cached_head_weights_[h] from the matching forward pass), instead of
+    // one d_model-wide softmax gradient. Each head only touches its own [*, d_k] column
+    // slice of Q/K/V, so dQ/dK/dV can be assembled by scattering each head's gradient into
+    // the matching column range of a full-width zero matrix — no cross-head terms exist,
+    // since a given column of Q/K/V feeds exactly one head.
+    int q_rows = cached_Q.rows;
+    int kv_rows = cached_K.rows;
+    Matrix dQ(q_rows, d_model);
+    Matrix dK(kv_rows, d_model);
+    Matrix dV(kv_rows, d_model);
+    float scale_factor = 1.0f / std::sqrt(static_cast<float>(d_k));
 
-    // Gradient w.r.t. attention weights
-    // grad_attn_weights = grad_attn_out * V^T
-    Matrix grad_attn_weights = grad_attn_out * cached_V.transpose();
+    for (int h = 0; h < num_heads; ++h) {
+        int start_dim = h * d_k;
+        const Matrix& weights_h = cached_head_weights_[h];  // [q_rows, kv_rows]
 
-    // Gradient through softmax
-    // This is complex: for softmax, we need to compute the Jacobian
-    // For simplicity, we use: grad_scores = attention_weights * (grad_attn_weights - sum)
-    Matrix grad_scores(cached_scores.rows, cached_scores.cols);
+        Matrix grad_out_h = slice_head_columns(grad_attn_out, start_dim, d_k);  // [q_rows, d_k]
+        Matrix V_h = slice_head_columns(cached_V, start_dim, d_k);              // [kv_rows, d_k]
 
-    for (int i = 0; i < cached_scores.rows; ++i) {
-        // Compute sum of (attention_weights * grad_attn_weights) for this row
-        float sum = 0.0f;
-        for (int k = 0; k < cached_scores.cols; ++k) {
-            sum += cached_attention_weights(i, k) * grad_attn_weights(i, k);
+        // grad_V_h = weights_h^T * grad_out_h
+        Matrix grad_V_h = weights_h.transpose() * grad_out_h;
+        // grad_weights_h = grad_out_h * V_h^T
+        Matrix grad_weights_h = grad_out_h * V_h.transpose();
+
+        // Softmax backward, row-wise, for this head's own weights:
+        // grad_scores_h(i,j) = weights_h(i,j) * (grad_weights_h(i,j) - sum_k weights_h(i,k)*grad_weights_h(i,k))
+        Matrix grad_scores_h(q_rows, kv_rows);
+        for (int i = 0; i < q_rows; ++i) {
+            float sum = 0.0f;
+            for (int k = 0; k < kv_rows; ++k) {
+                sum += weights_h(i, k) * grad_weights_h(i, k);
+            }
+            for (int j = 0; j < kv_rows; ++j) {
+                grad_scores_h(i, j) = weights_h(i, j) * (grad_weights_h(i, j) - sum);
+            }
         }
+        grad_scores_h = grad_scores_h.scale(scale_factor);
 
-        // Compute gradient for each element in the row
-        for (int j = 0; j < cached_scores.cols; ++j) {
-            grad_scores(i, j) = cached_attention_weights(i, j) * (grad_attn_weights(i, j) - sum);
-        }
+        Matrix Q_h = slice_head_columns(cached_Q, start_dim, d_k);  // [q_rows, d_k]
+        Matrix K_h = slice_head_columns(cached_K, start_dim, d_k);  // [kv_rows, d_k]
+
+        Matrix grad_Q_h = grad_scores_h * K_h;                // [q_rows, d_k]
+        Matrix grad_K_h = grad_scores_h.transpose() * Q_h;    // [kv_rows, d_k]
+
+        scatter_head_columns(dQ, start_dim, grad_Q_h);
+        scatter_head_columns(dK, start_dim, grad_K_h);
+        scatter_head_columns(dV, start_dim, grad_V_h);
     }
 
-    // Scale gradient (derivative of scaling)
-    float scale_factor = 1.0f / std::sqrt(static_cast<float>(d_k));
-    grad_scores = grad_scores.scale(scale_factor);
-
-    // Gradient w.r.t. Q and K
-    // grad_Q = grad_scores * K
-    Matrix grad_Q = grad_scores * cached_K;
-
-    // grad_K = grad_scores^T * Q
-    Matrix grad_K = grad_scores.transpose() * cached_Q;
-
     // Gradients w.r.t. projection weights
-    // W_q_grad = input^T * grad_Q
-    W_q_grad = cached_input.transpose() * grad_Q;
+    // W_q_grad = input^T * dQ
+    W_q_grad = cached_input.transpose() * dQ;
 
-    // W_k_grad = input^T * grad_K
-    W_k_grad = cached_input.transpose() * grad_K;
+    // W_k_grad = input^T * dK
+    W_k_grad = cached_input.transpose() * dK;
 
-    // W_v_grad = input^T * grad_V
-    W_v_grad = cached_input.transpose() * grad_V;
+    // W_v_grad = input^T * dV
+    W_v_grad = cached_input.transpose() * dV;
 
     // Gradient w.r.t. input (sum gradients from all three projections)
-    // grad_input = grad_Q * W_q^T + grad_K * W_k^T + grad_V * W_v^T
-    Matrix grad_input = grad_Q * W_q.transpose();
-    Matrix grad_from_K = grad_K * W_k.transpose();
-    Matrix grad_from_V = grad_V * W_v.transpose();
+    // grad_input = dQ * W_q^T + dK * W_k^T + dV * W_v^T
+    Matrix grad_input = dQ * W_q.transpose();
+    Matrix grad_from_K = dK * W_k.transpose();
+    Matrix grad_from_V = dV * W_v.transpose();
 
     // Add gradients
     for (int i = 0; i < grad_input.rows; ++i) {
@@ -757,6 +677,32 @@ void MultiHeadAttention::gpu_zero_grads() {
     gpu_->dWo.zero();
 }
 
+namespace {
+// TD-059: GPU-side equivalents of slice_head_columns()/scatter_head_columns() above, built
+// entirely from matrix_copy_device_to_device_gpu() — an existing, already-used primitive
+// (see gpu_upload_weights()'s cached_input copy above) — with pointer-offset device-to-device
+// copies. No new CUDA/SYCL kernels: correctness here rests on primitives already exercised
+// elsewhere in this file, which matters because this environment can compile but not
+// runtime-verify either GPU backend (no physical GPU device available) — see TD-059's
+// writeup in TECHNICAL_DEBT_RESOLVED.md for that residual verification gap.
+adai::gpu::GPUMatrix gpu_slice_head_columns(const adai::gpu::GPUMatrix& m, int start, int width) {
+    adai::gpu::GPUMatrix result(m.rows, width);
+    for (int i = 0; i < m.rows; ++i) {
+        adai::gpu::matrix_copy_device_to_device_gpu(m.device_ptr() + i * m.cols + start,
+                                                     result.device_ptr() + i * width, width);
+    }
+    return result;
+}
+
+void gpu_scatter_head_columns(adai::gpu::GPUMatrix& dst, int start,
+                              const adai::gpu::GPUMatrix& src) {
+    for (int i = 0; i < src.rows; ++i) {
+        adai::gpu::matrix_copy_device_to_device_gpu(
+            src.device_ptr() + i * src.cols, dst.device_ptr() + i * dst.cols + start, src.cols);
+    }
+}
+}  // namespace
+
 adai::gpu::GPUMatrix MultiHeadAttention::gpu_forward(const adai::gpu::GPUMatrix& input,
                                                      const adai::gpu::GPUMatrix* mask) {
     if (!gpu_)
@@ -770,8 +716,12 @@ adai::gpu::GPUMatrix MultiHeadAttention::gpu_forward(const adai::gpu::GPUMatrix&
         gpu_->cached_Q = adai::gpu::GPUMatrix(seq, d_model);
         gpu_->cached_K = adai::gpu::GPUMatrix(seq, d_model);
         gpu_->cached_V = adai::gpu::GPUMatrix(seq, d_model);
-        gpu_->cached_weights = adai::gpu::GPUMatrix(seq, seq);
         gpu_->cached_attn_out = adai::gpu::GPUMatrix(seq, d_model);
+        gpu_->cached_head_weights.clear();
+        gpu_->cached_head_weights.reserve(num_heads);
+        for (int h = 0; h < num_heads; ++h) {
+            gpu_->cached_head_weights.emplace_back(seq, seq);
+        }
     }
     adai::gpu::matrix_copy_device_to_device_gpu(input.device_ptr(), gpu_->cached_input.device_ptr(),
                                                 seq * d_model);
@@ -781,23 +731,40 @@ adai::gpu::GPUMatrix MultiHeadAttention::gpu_forward(const adai::gpu::GPUMatrix&
     gpu_->cached_K = input * gpu_->Wk;
     gpu_->cached_V = input * gpu_->Wv;
 
-    // Scores = Q * K^T * scale
-    adai::gpu::GPUMatrix scores = gpu_->cached_Q * gpu_->cached_K.transpose();
-    scores = scores.scale(scale);
+    // TD-059: genuine per-head attention — each head operates on its own [seq, d_k] column
+    // slice of Q/K/V, mirroring forward_parallel()'s CPU implementation exactly (same formula,
+    // same scale, same shared mask per head).
+    adai::gpu::GPUMatrix concatenated(seq, d_model);
+    float total_entropy = 0.0f;
+    for (int h = 0; h < num_heads; ++h) {
+        int start_dim = h * d_k;
+        adai::gpu::GPUMatrix Q_h = gpu_slice_head_columns(gpu_->cached_Q, start_dim, d_k);
+        adai::gpu::GPUMatrix K_h = gpu_slice_head_columns(gpu_->cached_K, start_dim, d_k);
+        adai::gpu::GPUMatrix V_h = gpu_slice_head_columns(gpu_->cached_V, start_dim, d_k);
 
-    // Apply causal / padding mask
-    if (mask != nullptr)
-        scores.masked_fill_inplace(*mask, -1e9f);
+        adai::gpu::GPUMatrix scores_h = Q_h * K_h.transpose();
+        scores_h = scores_h.scale(scale);
+        if (mask != nullptr) {
+            scores_h.masked_fill_inplace(*mask, -1e9f);
+        }
+        scores_h.softmax_rows_inplace();
 
-    // Softmax → cached_weights
-    gpu_->cached_weights = std::move(scores);
-    gpu_->cached_weights.softmax_rows_inplace();
-    if (gpu_attention_stats_hook_) {
-        gpu_attention_stats_hook_(gpu_->cached_weights.row_entropy_avg());
+        if (gpu_attention_stats_hook_) {
+            total_entropy += scores_h.row_entropy_avg();
+        }
+
+        adai::gpu::GPUMatrix out_h = scores_h * V_h;
+        gpu_scatter_head_columns(concatenated, start_dim, out_h);
+        gpu_->cached_head_weights[h] = std::move(scores_h);
     }
 
-    // attn_out = weights * V
-    gpu_->cached_attn_out = gpu_->cached_weights * gpu_->cached_V;
+    // Average entropy across heads — see forward_parallel()'s identical rationale for why an
+    // average is the right representative single-scalar summary here.
+    if (gpu_attention_stats_hook_) {
+        gpu_attention_stats_hook_(total_entropy / static_cast<float>(num_heads));
+    }
+
+    gpu_->cached_attn_out = std::move(concatenated);
 
     // output = attn_out * W_o
     return gpu_->cached_attn_out * gpu_->Wo;
@@ -812,19 +779,40 @@ adai::gpu::GPUMatrix MultiHeadAttention::gpu_backward(const adai::gpu::GPUMatrix
     // d_attn_out = dout * W_o^T
     adai::gpu::GPUMatrix d_attn_out = dout * gpu_->Wo.transpose();
 
-    // dV += weights^T * d_attn_out
-    adai::gpu::GPUMatrix dV = gpu_->cached_weights.transpose() * d_attn_out;
+    // TD-059: per-head backward, symmetric with the CPU implementation in backward() above —
+    // see that function's comment for why no cross-head terms exist.
+    const int seq = gpu_->cached_Q.rows;
+    adai::gpu::GPUMatrix dQ(seq, d_model);
+    adai::gpu::GPUMatrix dK(seq, d_model);
+    adai::gpu::GPUMatrix dV(seq, d_model);
 
-    // d_weights = d_attn_out * V^T
-    adai::gpu::GPUMatrix d_weights = d_attn_out * gpu_->cached_V.transpose();
+    for (int h = 0; h < num_heads; ++h) {
+        int start_dim = h * d_k;
+        const adai::gpu::GPUMatrix& weights_h = gpu_->cached_head_weights[h];
 
-    // Softmax backward → d_scores
-    adai::gpu::GPUMatrix d_scores = gpu_->cached_weights.softmax_backward(d_weights);
-    d_scores = d_scores.scale(scale);
+        adai::gpu::GPUMatrix d_out_h = gpu_slice_head_columns(d_attn_out, start_dim, d_k);
+        adai::gpu::GPUMatrix V_h = gpu_slice_head_columns(gpu_->cached_V, start_dim, d_k);
 
-    // dQ = d_scores * K,  dK = d_scores^T * Q
-    adai::gpu::GPUMatrix dQ = d_scores * gpu_->cached_K;
-    adai::gpu::GPUMatrix dK = d_scores.transpose() * gpu_->cached_Q;
+        // dV_h = weights_h^T * d_out_h
+        adai::gpu::GPUMatrix dV_h = weights_h.transpose() * d_out_h;
+        // d_weights_h = d_out_h * V_h^T
+        adai::gpu::GPUMatrix d_weights_h = d_out_h * V_h.transpose();
+
+        // Softmax backward → d_scores_h, for this head's own weights only
+        adai::gpu::GPUMatrix d_scores_h = weights_h.softmax_backward(d_weights_h);
+        d_scores_h = d_scores_h.scale(scale);
+
+        adai::gpu::GPUMatrix Q_h = gpu_slice_head_columns(gpu_->cached_Q, start_dim, d_k);
+        adai::gpu::GPUMatrix K_h = gpu_slice_head_columns(gpu_->cached_K, start_dim, d_k);
+
+        // dQ_h = d_scores_h * K_h,  dK_h = d_scores_h^T * Q_h
+        adai::gpu::GPUMatrix dQ_h = d_scores_h * K_h;
+        adai::gpu::GPUMatrix dK_h = d_scores_h.transpose() * Q_h;
+
+        gpu_scatter_head_columns(dQ, start_dim, dQ_h);
+        gpu_scatter_head_columns(dK, start_dim, dK_h);
+        gpu_scatter_head_columns(dV, start_dim, dV_h);
+    }
 
     // Weight grads
     adai::gpu::GPUMatrix in_T = gpu_->cached_input.transpose();

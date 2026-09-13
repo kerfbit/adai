@@ -3,7 +3,10 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <random>
 #include <stdexcept>
+#include <utility>
+#include <vector>
 #include "../src/Matrix.hpp"
 #include "../src/Optimizer.hpp"
 
@@ -351,6 +354,203 @@ TEST(CrossAttentionMaskingTest, AllOnesVsAllZerosMask) {
 
     // Should be very similar (might have tiny numerical differences)
     EXPECT_TRUE(matrices_equal(output_all_ones, output_no_mask, 1e-5f));
+}
+
+// ============================================================================
+// TD-059 Regression Tests: genuine per-head cross-attention
+//
+// See multiheadattention_test.cpp's identical section for the full rationale, including why
+// a naive "does output change with num_heads" test is a weaker check than it looks (d_k
+// changes too, and the old scale factor already varied with d_k on its own).
+// ============================================================================
+
+namespace {
+void seed_ca_weights_deterministically(CrossAttention& ca, int d_model, unsigned int seed) {
+    std::mt19937 gen(seed);
+    float scale = std::sqrt(2.0f / static_cast<float>(d_model));
+    std::normal_distribution<float> dist(0.0f, scale);
+
+    auto fill = [&]() {
+        Matrix m(d_model, d_model);
+        for (int i = 0; i < d_model; ++i) {
+            for (int j = 0; j < d_model; ++j) {
+                m(i, j) = dist(gen);
+            }
+        }
+        return m;
+    };
+
+    ca.set_Wq(fill());
+    ca.set_Wk(fill());
+    ca.set_Wv(fill());
+    ca.set_Wo(fill());
+}
+}  // namespace
+
+TEST(CrossAttentionArchitectureTest, MatchesIndependentPerHeadReference) {
+    // TD-059 regression: check forward()'s output against an independent, from-scratch
+    // implementation of the documented per-head formula -- softmax(Q_h K_h^T / sqrt(d_k))
+    // V_h computed separately per head, concatenated, then projected through W_o -- built
+    // here directly from the class's own weights via the public accessors, not by reusing
+    // any of CrossAttention's own forward code.
+    int d_model = 8;
+    int num_heads = 2;
+    int d_k = d_model / num_heads;
+    CrossAttention ca(d_model, num_heads);
+
+    int tgt_len = 3;
+    int src_len = 4;
+    Matrix query_input(tgt_len, d_model);
+    Matrix kv_input(src_len, d_model);
+    for (int i = 0; i < tgt_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            query_input(i, j) = 0.1f * static_cast<float>(i + 1) - 0.05f * static_cast<float>(j);
+        }
+    }
+    for (int i = 0; i < src_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            kv_input(i, j) = 0.07f * static_cast<float>(i) + 0.02f * static_cast<float>(j);
+        }
+    }
+
+    Matrix actual = ca.forward(query_input, kv_input);
+
+    // --- Independent reference, reimplemented from scratch ---
+    Matrix Wq = ca.get_Wq(), Wk = ca.get_Wk(), Wv = ca.get_Wv(), Wo = ca.get_Wo();
+
+    auto matmul = [](const Matrix& a, const Matrix& b) {
+        Matrix out(a.rows, b.cols);
+        for (int i = 0; i < a.rows; ++i) {
+            for (int j = 0; j < b.cols; ++j) {
+                float sum = 0.0f;
+                for (int k = 0; k < a.cols; ++k) {
+                    sum += a(i, k) * b(k, j);
+                }
+                out(i, j) = sum;
+            }
+        }
+        return out;
+    };
+
+    Matrix Q = matmul(query_input, Wq);
+    Matrix K = matmul(kv_input, Wk);
+    Matrix V = matmul(kv_input, Wv);
+
+    Matrix concatenated(tgt_len, d_model);
+    float scale = 1.0f / std::sqrt(static_cast<float>(d_k));
+    for (int h = 0; h < num_heads; ++h) {
+        int start = h * d_k;
+        std::vector<std::vector<float>> scores(tgt_len, std::vector<float>(src_len, 0.0f));
+        for (int i = 0; i < tgt_len; ++i) {
+            for (int j = 0; j < src_len; ++j) {
+                float sum = 0.0f;
+                for (int k = 0; k < d_k; ++k) {
+                    sum += Q(i, start + k) * K(j, start + k);
+                }
+                scores[i][j] = sum * scale;
+            }
+        }
+        for (int i = 0; i < tgt_len; ++i) {
+            float max_v = scores[i][0];
+            for (int j = 1; j < src_len; ++j) {
+                max_v = std::max(max_v, scores[i][j]);
+            }
+            float sum_exp = 0.0f;
+            for (int j = 0; j < src_len; ++j) {
+                scores[i][j] = std::exp(scores[i][j] - max_v);
+                sum_exp += scores[i][j];
+            }
+            for (int j = 0; j < src_len; ++j) {
+                scores[i][j] /= sum_exp;
+            }
+        }
+        for (int i = 0; i < tgt_len; ++i) {
+            for (int k = 0; k < d_k; ++k) {
+                float sum = 0.0f;
+                for (int j = 0; j < src_len; ++j) {
+                    sum += scores[i][j] * V(j, start + k);
+                }
+                concatenated(i, start + k) = sum;
+            }
+        }
+    }
+
+    Matrix expected = matmul(concatenated, Wo);
+
+    ASSERT_EQ(actual.rows, expected.rows);
+    ASSERT_EQ(actual.cols, expected.cols);
+    for (int i = 0; i < actual.rows; ++i) {
+        for (int j = 0; j < actual.cols; ++j) {
+            EXPECT_NEAR(actual(i, j), expected(i, j), 1e-4f)
+                << "mismatch at (" << i << "," << j << ")";
+        }
+    }
+}
+
+TEST(CrossAttentionArchitectureTest, BackwardPassMatchesNumericalGradient) {
+    // Finite-difference gradient check with num_heads > 1, w.r.t. the query input, added
+    // alongside TD-059's per-head backward rewrite. Confirms backward() is the correct
+    // gradient of whatever forward() actually computes (a complementary property to
+    // MatchesIndependentPerHeadReference above, which pins down the formula itself -- see
+    // multiheadattention_test.cpp's identical test for why these two checks are both needed).
+    int d_model = 16;
+    int num_heads = 4;
+    CrossAttention ca(d_model, num_heads);
+    seed_ca_weights_deterministically(ca, d_model, /*seed=*/13);
+
+    int tgt_len = 4;
+    int src_len = 5;
+    Matrix query_input(tgt_len, d_model);
+    for (int i = 0; i < tgt_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            query_input(i, j) = 0.05f * std::sin(static_cast<float>(i * d_model + j));
+        }
+    }
+    Matrix kv_input(src_len, d_model);
+    for (int i = 0; i < src_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            kv_input(i, j) = 0.05f * std::cos(static_cast<float>(i * d_model + j));
+        }
+    }
+
+    auto scalar_loss = [](const Matrix& out) {
+        float loss = 0.0f;
+        for (int i = 0; i < out.rows; ++i) {
+            for (int j = 0; j < out.cols; ++j) {
+                loss += out(i, j) * out(i, j);
+            }
+        }
+        return loss;
+    };
+
+    Matrix output = ca.forward(query_input, kv_input);
+    Matrix grad_output(output.rows, output.cols);
+    for (int i = 0; i < output.rows; ++i) {
+        for (int j = 0; j < output.cols; ++j) {
+            grad_output(i, j) = 2.0f * output(i, j);
+        }
+    }
+    Matrix analytic_grad_query, analytic_grad_kv;
+    ca.backward(grad_output, analytic_grad_query, analytic_grad_kv);
+
+    const float epsilon = 1e-3f;
+    const std::vector<std::pair<int, int>> positions = {
+        {0, 0}, {0, d_model / 2}, {1, 3}, {tgt_len - 1, d_model - 1}};
+
+    for (const auto& [pi, pj] : positions) {
+        Matrix query_plus = query_input;
+        query_plus(pi, pj) += epsilon;
+        Matrix query_minus = query_input;
+        query_minus(pi, pj) -= epsilon;
+
+        float loss_plus = scalar_loss(ca.forward(query_plus, kv_input));
+        float loss_minus = scalar_loss(ca.forward(query_minus, kv_input));
+        float numerical_grad = (loss_plus - loss_minus) / (2.0f * epsilon);
+
+        float tolerance = std::max(1e-2f, 0.05f * std::abs(numerical_grad));
+        EXPECT_NEAR(analytic_grad_query(pi, pj), numerical_grad, tolerance)
+            << "gradient mismatch at (" << pi << "," << pj << ")";
+    }
 }
 
 // ============================================================================

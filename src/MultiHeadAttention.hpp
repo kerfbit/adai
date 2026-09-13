@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 0.10.0
+// @adai-reviewed: 2026-09-13
 
 
 #include <functional>
@@ -42,18 +42,23 @@
  * - Attention_i = softmax((Q_iK_i^T)/√d_k)V_i
  * - Output = Concat(Attention_1, ..., Attention_h)W_o
  *
- * TD-059 (open — see TECHNICAL_DEBT.md): the design above is NOT what runs today.
+ * TD-059 (fixed September 12, 2026 — see TECHNICAL_DEBT_RESOLVED.md): until this fix,
  * `forward()` and `forward_with_cache()` — the only two entry points anything in this
- * codebase actually calls (EncoderBlock/DecoderBlock self-attention, and the KV-cache
- * decode path) — compute `Q * K.transpose()` over the FULL d_model width, once, with no
- * per-head split at all: mathematically single-head attention over d_model dimensions,
- * still scaled by 1/√d_k (wrong for that width — should be 1/√d_model, off by √num_heads).
- * `forward_parallel()` below is the only method that implements the design correctly
- * (explicit per-head [h*d_k, (h+1)*d_k) column slicing, matching the formulation above
- * exactly) — but nothing calls it; it is dead code. `num_heads` therefore has no effect
- * on the actual computation other than gating the constructor's divisibility check.
- * `CrossAttention` (`CrossAttention.cpp`) has the identical gap, independently. See
- * TD-059 before trusting "multi-head" as an accurate description of current behavior.
+ * codebase actually called (EncoderBlock/DecoderBlock self-attention, and the KV-cache
+ * decode path), plus `gpu_forward()`/`gpu_backward()` — computed `Q * K.transpose()` over
+ * the FULL d_model width, once, with no per-head split at all: mathematically single-head
+ * attention over d_model dimensions, still scaled by 1/√d_k (wrong for that width — should
+ * have been 1/√d_model, off by √num_heads). `forward_parallel()` was the only method that
+ * implemented the design correctly (explicit per-head [h*d_k, (h+1)*d_k) column slicing,
+ * matching the formulation above exactly) — but nothing called it; `num_heads` had no
+ * effect on the actual computation other than gating the constructor's divisibility
+ * check. `forward()` now delegates to `forward_parallel()`'s per-head logic (which
+ * `forward_with_cache()`, `backward()`, `gpu_forward()`, and `gpu_backward()` also now
+ * implement), so genuine multi-head attention is what actually runs. **Every checkpoint
+ * trained before this fix was trained under the old (single-head-over-d_model) math and
+ * needs retraining from scratch to be meaningful under the new math** — this is not a
+ * hot-swappable weight format change. `CrossAttention` (`CrossAttention.cpp`) had the
+ * identical gap, independently, and was fixed the same way in the same pass.
  */
 /// Callback invoked after softmax in every forward() pass, receiving the
 /// attention weight matrix [seq_len × seq_len].
@@ -93,9 +98,16 @@ class MultiHeadAttention {
     Matrix cached_Q;                  // Projected queries
     Matrix cached_K;                  // Projected keys
     Matrix cached_V;                  // Projected values
-    Matrix cached_attention_weights;  // Softmax attention weights
+    Matrix cached_attention_weights;  // TD-059: mean-across-heads weights, for
+                                      // get_attention_weights()/hooks only — backward() uses
+                                      // cached_head_weights_ below, the real per-head values.
     Matrix cached_attention_output;   // Output after applying attention to values
-    Matrix cached_scores;             // Pre-softmax attention scores
+
+    // TD-059: per-head post-softmax attention weights from the most recent forward pass —
+    // cached_head_weights_[h] is [q_rows, kv_rows] (q_rows/kv_rows: seq_len for forward(),
+    // num_new_tokens/total_seq_len for forward_with_cache()). backward() differentiates
+    // through these directly instead of a single d_model-wide softmax.
+    std::vector<Matrix> cached_head_weights_;
 
     // Optimizer for weight updates
     Optimizer* optimizer{
@@ -108,19 +120,6 @@ class MultiHeadAttention {
     // GPU-path equivalent, fired after softmax in gpu_forward() (see GPUAttentionStatsHookFn).
     GPUAttentionStatsHookFn gpu_attention_stats_hook_;
 #endif
-
-    // Helper function for scaled dot-product attention
-    /**
-     * Compute scaled dot-product attention
-     *
-     * @param Q Queries matrix [seq_len, d_model]
-     * @param K Keys matrix [seq_len, d_model]
-     * @param V Values matrix [seq_len, d_model]
-     * @param mask Optional attention mask [seq_len, seq_len]
-     * @return Attention output [seq_len, d_model]
-     */
-    Matrix scaled_dot_product_attention(const Matrix& Q, const Matrix& K, const Matrix& V,
-                                        const Matrix* mask);
 
    public:
     float learning_rate{0.001f};  // Learning rate for weight updates
@@ -140,8 +139,9 @@ class MultiHeadAttention {
     /**
      * Forward pass through multi-head attention
      *
-     * Computes multi-head self-attention on the input sequence.
-     * Caches intermediate values for backward pass.
+     * Computes genuine multi-head self-attention on the input sequence — delegates to
+     * forward_parallel()'s per-head implementation (TD-059). Caches intermediate values
+     * for backward pass, including per-head attention weights.
      *
      * @param input Input matrix [seq_len, d_model]
      * @param mask Optional attention mask [seq_len, seq_len]
@@ -149,31 +149,35 @@ class MultiHeadAttention {
      *             Values of 1 indicate positions to attend to
      * @return Attention output [seq_len, d_model]
      *
-     * Process:
+     * Process (per head h, over its own [h*d_k, (h+1)*d_k) column slice of Q/K/V):
      * 1. Project input to Q, K, V using W_q, W_k, W_v
-     * 2. Compute attention scores: scores = QK^T / √d_k
-     * 3. Apply mask (optional)
+     * 2. Compute attention scores: scores_h = Q_h K_h^T / √d_k
+     * 3. Apply mask (optional, shared across heads)
      * 4. Apply softmax to get attention weights
-     * 5. Apply attention weights to values: output = attention_weights * V
-     * 6. Project through W_o
+     * 5. Apply attention weights to values: output_h = attention_weights_h * V_h
+     * 6. Concatenate all heads' output_h and project through W_o
      */
     Matrix forward(const Matrix& input, const Matrix* mask = nullptr);
 
     /**
-     * Forward pass with parallel attention head computation
+     * Forward pass with explicit parallel-vs-sequential head computation control
      *
-     * Properly splits input into num_heads and processes each head independently
-     * using OpenMP parallelization. This provides 2-4x speedup for multi-head attention.
+     * The actual per-head implementation (TD-059) — forward() calls this with
+     * use_parallel=true. Splits Q, K, V into num_heads column slices and processes each
+     * head independently (optionally via OpenMP), matching "Attention is All You Need"'s
+     * formulation exactly. Exposed separately (rather than folded entirely into forward())
+     * so AttentionHeadBenchmark.cpp can compare the parallel and sequential branches
+     * directly.
      *
      * @param input Input matrix [seq_len, d_model]
      * @param mask Optional attention mask [seq_len, seq_len]
-     * @param use_parallel Enable/disable parallel computation (default: true)
+     * @param use_parallel Enable/disable OpenMP parallelization over heads (default: true)
      * @return Attention output [seq_len, d_model]
      *
      * Implementation:
      * 1. Project input to Q, K, V
      * 2. Split Q, K, V into num_heads parts (each of dimension d_k)
-     * 3. Compute attention for each head IN PARALLEL using OpenMP
+     * 3. Compute attention for each head (optionally IN PARALLEL using OpenMP)
      * 4. Concatenate head outputs
      * 5. Apply output projection
      */
@@ -183,8 +187,9 @@ class MultiHeadAttention {
     /**
      * Forward pass with KV cache support (for inference optimization)
      *
-     * Enables caching of key-value pairs during autoregressive generation.
-     * In subsequent calls, only computes K/V for new tokens and reuses cached values.
+     * Enables caching of key-value pairs during autoregressive generation. In subsequent
+     * calls, only computes K/V for new tokens and reuses cached values. Implements genuine
+     * per-head attention (TD-059) over the cached K/V, same as forward_parallel().
      *
      * @param input Input matrix [num_new_tokens, d_model]
      * @param mask Optional attention mask [num_new_tokens, total_seq_len]
@@ -195,7 +200,7 @@ class MultiHeadAttention {
      * Cache Behavior:
      * - First call (empty cache): Compute K/V for all tokens, store in cache
      * - Subsequent calls: Compute K/V for new token only, concatenate with cache
-     * - Attention computed over all tokens (cached + new)
+     * - Attention computed per-head over all tokens (cached + new)
      *
      * Performance: ~2-3x speedup for long sequences
      */
@@ -391,7 +396,10 @@ class MultiHeadAttention {
         adai::gpu::GPUMatrix cached_Q;         // [seq, d_model]
         adai::gpu::GPUMatrix cached_K;         // [seq, d_model]
         adai::gpu::GPUMatrix cached_V;         // [seq, d_model]
-        adai::gpu::GPUMatrix cached_weights;   // softmax output [seq, seq]
+        // TD-059: one real per-head post-softmax weight matrix, each [seq, seq] — replaces the
+        // old single d_model-wide cached_weights now that gpu_forward()/gpu_backward()
+        // genuinely split into heads instead of computing one global attention pattern.
+        std::vector<adai::gpu::GPUMatrix> cached_head_weights;
         adai::gpu::GPUMatrix cached_attn_out;  // [seq, d_model]
 
         explicit GPUState(int d)
@@ -407,7 +415,6 @@ class MultiHeadAttention {
               cached_Q(1, 1),
               cached_K(1, 1),
               cached_V(1, 1),
-              cached_weights(1, 1),
               cached_attn_out(1, 1) {}
     };
     std::unique_ptr<GPUState> gpu_;

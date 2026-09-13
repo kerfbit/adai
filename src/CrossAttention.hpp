@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-10
+// @adai-version: 0.10.0
+// @adai-reviewed: 2026-09-13
 
 
 #include <memory>
@@ -46,11 +46,14 @@
  * - Attention = softmax(Scores) * V ∈ ℝ^(tgt_len × d_model)
  * - Output = Attention * W_o ∈ ℝ^(tgt_len × d_model)
  *
- * TD-059 (open — see TECHNICAL_DEBT.md): despite "extends multi-head attention"
- * above, Q/K/V here are never split into per-head slices — the formulation is
- * applied once over the full d_model width, making this single-head cross-attention
- * regardless of num_heads (same gap as MultiHeadAttention's self-attention path,
- * found independently in this class).
+ * TD-059 (fixed September 12, 2026 — see TECHNICAL_DEBT_RESOLVED.md): despite "extends
+ * multi-head attention" above, Q/K/V used to never be split into per-head slices — the
+ * formulation was applied once over the full d_model width, making this single-head
+ * cross-attention regardless of num_heads (same gap as MultiHeadAttention's self-attention
+ * path, found independently in this class, fixed the same way in the same pass).
+ * forward()/forward_with_cache()/backward()/gpu_forward()/gpu_backward() now genuinely
+ * split into num_heads per-head computations. **Every checkpoint trained before this fix
+ * needs retraining from scratch to be meaningful under the new math.**
  */
 class CrossAttention {
    private:
@@ -77,25 +80,18 @@ class CrossAttention {
     Matrix cached_Q;                  // Projected queries
     Matrix cached_K;                  // Projected keys
     Matrix cached_V;                  // Projected values
-    Matrix cached_attention_weights;  // Softmax attention weights
+    Matrix cached_attention_weights;  // TD-059: mean-across-heads weights, for callers/
+                                      // visualization only — backward() uses
+                                      // cached_head_weights_ below, the real per-head values.
     Matrix cached_attention_output;   // Output after applying attention to values
-    Matrix cached_scores;             // Pre-softmax attention scores
+
+    // TD-059: per-head post-softmax attention weights from the most recent forward pass —
+    // cached_head_weights_[h] is [tgt_len, src_len]. backward() differentiates through these
+    // directly instead of a single d_model-wide softmax.
+    std::vector<Matrix> cached_head_weights_;
 
     // Optimizer support
     Optimizer* optimizer{nullptr};  // Optional optimizer (nullptr = simple gradient descent)
-
-    // Helper function for scaled dot-product attention
-    /**
-     * Compute scaled dot-product attention with separate Q, K, V
-     *
-     * @param Q Queries matrix [tgt_len, d_model]
-     * @param K Keys matrix [src_len, d_model]
-     * @param V Values matrix [src_len, d_model]
-     * @param mask Optional attention mask [tgt_len, src_len]
-     * @return Attention output [tgt_len, d_model]
-     */
-    Matrix scaled_dot_product_attention(const Matrix& Q, const Matrix& K, const Matrix& V,
-                                        const Matrix* mask);
 
    public:
     float learning_rate{
@@ -279,7 +275,10 @@ class CrossAttention {
         adai::gpu::GPUMatrix cached_Q;         // [tgt, d_model]
         adai::gpu::GPUMatrix cached_K;         // [src, d_model]
         adai::gpu::GPUMatrix cached_V;         // [src, d_model]
-        adai::gpu::GPUMatrix cached_weights;   // [tgt, src]
+        // TD-059: one real per-head post-softmax weight matrix, each [tgt, src] — replaces the
+        // old single d_model-wide cached_weights now that gpu_forward()/gpu_backward()
+        // genuinely split into heads.
+        std::vector<adai::gpu::GPUMatrix> cached_head_weights;
         adai::gpu::GPUMatrix cached_attn_out;  // [tgt, d_model]
 
         explicit GPUState(int d)
@@ -296,7 +295,6 @@ class CrossAttention {
               cached_Q(1, 1),
               cached_K(1, 1),
               cached_V(1, 1),
-              cached_weights(1, 1),
               cached_attn_out(1, 1) {}
     };
     std::unique_ptr<GPUState> gpu_;

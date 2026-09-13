@@ -20,15 +20,17 @@ just priority label — several depend on each other or on a single owner decisi
 "Medium/Low" labels alone don't capture that. Re-derive this ordering rather than trusting it
 blindly once several of these items have moved.
 
-**Tier 1 — Decided, not yet built.** [TD-059](#td-059-multi-head-and-cross-attention-never-actually-split-into-heads)'s
-owner decision landed September 12, 2026: fix the attention math for real and retrain everything
-(30-50 hours), not document the current single-head behavior as-is. Two other items
-([TD-050](#td-050-gpu-resident-kv-cache-for-autoregressive-generation),
-[TD-033](#td-033-chatbot_api_server-inference-never-uses-persistent-gpu-resident-decode)) build
-GPU-side inference machinery on top of the attention math — TD-033's routing work doesn't touch
-the math itself so it's safe to do in either order, but TD-050's incremental attention kernels
-should be written after TD-059 lands so they're built against final math rather than math that's
-about to change under them.
+**Tier 1 — Code fix landed, retrain still outstanding.** [TD-059](#td-059-multi-head-and-cross-attention-never-actually-split-into-heads)'s
+owner decision landed September 12, 2026 (fix the attention math for real and retrain everything,
+not document the current single-head behavior as-is), and the code side of that landed September
+13, 2026 — `MultiHeadAttention`/`CrossAttention` now genuinely split into heads on both CPU and GPU
+paths, verified via an independent-reference test and finite-difference gradient checks, full
+ctest green. What's still outstanding is the actual retrain: this dev environment has no real
+trained checkpoint or dataset to retrain against, so that step needs the user's own training
+infrastructure. [TD-050](#td-050-gpu-resident-kv-cache-for-autoregressive-generation)'s incremental
+attention kernels are now unblocked to build against final math (the code fix is in);
+[TD-033](#td-033-chatbot_api_server-inference-never-uses-persistent-gpu-resident-decode) was never
+blocked on this in the first place (its routing work doesn't touch attention math).
 
 **Tier 2 — Contained, high-confidence wins** (proven patterns or small isolated scope, no design
 ambiguity, can start immediately regardless of Tier 1's outcome):
@@ -123,7 +125,7 @@ together when either is picked up, rather than designing quantization twice.
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| **HIGH** | Open — decision made (fix + retrain), implementation not started | Core Model Architecture | September 8, 2026 | 30-50 hours (implementation + full retrain/validation cycle) |
+| **HIGH** | Open — code fix landed and verified (September 13, 2026); retraining not performed | Core Model Architecture | September 8, 2026 | 30-50 hours (implementation + full retrain/validation cycle) |
 
 Description:
 Found while reading `src/MultiHeadAttention.cpp`/`.hpp` end to end, then confirmed independently
@@ -175,41 +177,85 @@ this codebase — every existing checkpoint — was trained under the current
 to `forward_parallel()`'s approach changes what every layer's `W_q`/`W_k`/`W_v`/`W_o` weights
 actually mean at inference time, so every existing checkpoint needs retraining from scratch to be
 meaningful under the new math. The owner of model quality chose this over documenting the current
-single-head behavior as-is. Not yet started.
+single-head behavior as-is.
+
+**Code fix landed September 13, 2026.** `MultiHeadAttention::forward()` now delegates to
+`forward_parallel()`'s per-head logic (kept as a separate public method, not inlined, since
+`benchmarks/AttentionHeadBenchmark.cpp` calls it directly to compare the parallel/sequential
+branches); `forward_with_cache()`, `backward()`, `gpu_forward()`, and `gpu_backward()` were
+rewritten the same way. `CrossAttention` got the identical treatment across all five entry points
+(it had no `forward_parallel()` to reuse, so this is new code written directly). Both classes now
+cache real per-head post-softmax weights (`cached_head_weights_`) for `backward()` to differentiate
+through per-head, instead of one d_model-wide softmax; `get_attention_weights()` returns the
+mean-across-heads matrix (still a valid row-stochastic distribution) for callers/hooks that just
+want a single summary. The GPU paths extract/scatter each head's column slice using the existing
+`matrix_copy_device_to_device_gpu()` primitive rather than new CUDA/SYCL kernels — deliberately,
+since this sandbox has the CUDA and SYCL toolchains to *compile* against (confirmed: both the `gpu`
+and `sycl` presets build `adai_attention` clean) but no physical GPU device to *run* either backend
+on, so new low-level kernel code would have shipped with zero ability to catch a bug in it; reusing
+an already-exercised primitive keeps that residual risk bounded. The two unused dead-code
+`scaled_dot_product_attention()` private methods (one per class, both TD-059-carriers not called
+by anything) were deleted along with the `cached_scores` members they were the only readers of.
+
+Verification: a first regression-test draft (comparing `num_heads=1` vs `num_heads=4` outputs under
+shared weights) turned out to be a weak check — `d_k = d_model/num_heads` changes with `num_heads`
+regardless of whether heads are genuinely split, and the pre-fix scale factor already varied with
+`d_k` on its own, so that draft passed against *both* the pre-fix and post-fix code. Replaced with
+`MatchesIndependentPerHeadReference` in both `tests/multiheadattention_test.cpp` and
+`tests/crossattention_test.cpp` — an independent, from-scratch reimplementation of the documented
+per-head formula, computed from the class's own weights via public accessors, confirmed via the
+standard revert-confirm-fail cycle to fail against the pre-fix code and pass against the fix.
+Finite-difference gradient checks (`BackwardPassMatchesNumericalGradient`, both classes, `num_heads
+> 1`) confirm the rewritten `backward()` is the correct gradient of the rewritten `forward()`.
+Existing `EncoderBlockTest`/`DecoderBlockTest` numeric-gradient-check tests continue to pass
+(composed correctness through `EncoderBlock`/`DecoderBlock`). Full targeted suites
+(`multiheadattentionTests` 60/60, `crossattentionTests` 41/41, `encoderblockTests` 34/34,
+`decoderblockTests` 28/28) and the full `ctest -j8` (127/127) all pass clean. `adai_attention`
+compiles clean under both the `gpu` (CUDA) and `sycl` (Intel oneAPI) presets — see the residual
+GPU-runtime-verification-gap note above.
+
+**Retraining not performed.** This dev environment has no real trained checkpoint or training
+dataset to retrain — `training_sessions/` here holds only test-fixture output from `ctest` runs
+(`alpha-key`, `both-fields`, etc.), not a real model. Retraining every existing checkpoint under
+the new math has to happen on whatever infrastructure holds the real training data and currently-
+deployed checkpoints, which is outside this environment/session's reach. This item stays open until
+that's done and the before/after quality benchmark below is run.
+
+While investigating: `gpu_forward()`/`gpu_backward()` (not called out in the original filing) had
+the identical bug — training already runs on GPU when available (`ChatbotTrainer::train_epoch()`
+via `EncoderDecoderModel::gpu_forward()`/`gpu_backward()`, see TD-033's writeup for that call
+chain), so this was the actual production training path, not just a documentation gap. Fixed
+identically to the CPU path.
 
 Action Items:
 
-- [ ] Wire `MultiHeadAttention::forward()`/`forward_with_cache()` through `forward_parallel()`'s
-  already-correct per-head logic (delete the redundancy by making it the one implementation, or
-  inline its logic into `forward()`), and do the same for `CrossAttention` — including a
-  `forward_with_cache()` equivalent that uses per-head slicing over the cached K/V (this doesn't
-  exist as a parallel/correct variant today, unlike `MultiHeadAttention`).
-- [ ] Fix both scale factors to `1/sqrt(d_k)` *applied per head* — what `forward_parallel()`
-  already does correctly — replacing the current `1/sqrt(d_k)` applied over a `d_model`-wide
-  contraction.
-- [ ] Add tests that would have caught the original bug: construct two `MultiHeadAttention`
-  instances with `num_heads=1` vs `num_heads=4` (same `d_model`, same weights via a shared seed or
-  explicit weight copy) and assert their outputs *differ* in a way consistent with per-head
-  softmax normalization, not just that both produce a plausible-shaped, plausible-valued output.
-  Same for `CrossAttention`.
-- [ ] Update `MultiHeadAttention.hpp`/`CrossAttention.hpp`'s class-level architecture comments
-  (already flagged with this TD number) once the fix lands, and remove the now-redundant
-  `forward_parallel()` dead-code path once its logic is the one implementation.
+- [x] Wire `MultiHeadAttention::forward()`/`forward_with_cache()`/`backward()` through genuine
+  per-head logic, and do the same for `CrossAttention`'s three CPU entry points.
+- [x] Fix both scale factors — resolved as a side effect of the per-head rewrite; `1/sqrt(d_k)` was
+  always the right constant, it was just being applied to the wrong (`d_model`-wide) contraction.
+- [x] Fix `gpu_forward()`/`gpu_backward()` identically for both classes (found during this pass —
+  not in the original filing's scope, but the same bug, and the actual training-time path).
+- [x] Add tests that would have caught the original bug (see Verification above for why the first
+  draft wasn't strong enough, and what replaced it).
+- [x] Update `MultiHeadAttention.hpp`/`CrossAttention.hpp`'s class-level architecture comments; the
+  `forward_parallel()`/`scaled_dot_product_attention()` dead-code question resolved as: keep
+  `forward_parallel()` (real external caller in the benchmark), delete `scaled_dot_product_attention()`
+  (genuinely unused by anything).
 - [ ] Retrain from scratch and validate against a from-scratch baseline before declaring any
-  existing deployment upgraded — this is not a hot-fixable-in-place change. Every currently-shipped
-  checkpoint needs this before it means anything under the new math.
+  existing deployment upgraded — needs the real training data/infrastructure this session doesn't
+  have access to.
 - [ ] Benchmark generation quality/perplexity before vs. after on the same held-out data to confirm
   genuine multi-head attention is actually an improvement, not just "different," before retiring
   the old checkpoints.
 
 Files to Modify:
 
-- `src/MultiHeadAttention.cpp` / `src/MultiHeadAttention.hpp`
-- `src/CrossAttention.cpp` / `src/CrossAttention.hpp`
-- `tests/multiheadattention_test.cpp` / `tests/crossattention_test.cpp` (new architecture-sensitive
-  coverage)
-- Every existing trained checkpoint, if option (a) is chosen (out of source-tree scope, but the real
-  cost driver of this item)
+- `src/MultiHeadAttention.cpp` / `src/MultiHeadAttention.hpp` — done
+- `src/CrossAttention.cpp` / `src/CrossAttention.hpp` — done
+- `tests/multiheadattention_test.cpp` / `tests/crossattention_test.cpp` — done (new
+  architecture-sensitive coverage)
+- Every existing trained checkpoint (out of source-tree scope, and the real remaining cost driver
+  of this item) — not done, needs the user's own training infrastructure
 
 ---
 
@@ -233,11 +279,12 @@ Action Items:
       `2*(i/2)/d_model` for odd `i`, since integer `i/2` floors); its causal-mask construction for the
       new-tokens-only query range; `LayerNorm::forward()`'s per-row independence (so normalizing a
       single new token in isolation is provably identical to normalizing that same row within a full
-      batch); and `CrossAttention::forward_with_cache()`'s cache-encoder-K/V-once-then-reuse logic. The
-      already-tracked TD-059 (missing per-head split) is present in both `MultiHeadAttention::forward()`
-      and `forward_with_cache()` identically, so it cannot itself be the source of a cached-vs-uncached
-      *divergence* (it would produce equally-wrong-but-matching output in both modes) — it's a candidate
-      to fix incidentally while in this code, not the TD-050 root cause. Not yet checked: an actual
+      batch); and `CrossAttention::forward_with_cache()`'s cache-encoder-K/V-once-then-reuse logic.
+      TD-059 (missing per-head split, now fixed — see its own entry) was present in both
+      `MultiHeadAttention::forward()` and `forward_with_cache()` identically at the time of this
+      trace, so it could not itself have been the source of a cached-vs-uncached *divergence* (it
+      would have produced equally-wrong-but-matching output in both modes) — it's fixed now, as its
+      own item, not as part of this one. Not yet checked: an actual
       multi-step incremental-decode-vs-single-shot-full-recompute numerical comparison with identical
       weights (the only way to confirm the bug is still live at all, and if so, localize which step
       first diverges) — this is the next concrete step, not yet attempted.

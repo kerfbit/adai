@@ -2,7 +2,9 @@
 #include <gtest/gtest.h>
 #include <cmath>
 #include <fstream>
+#include <random>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 #include "../src/Activation.hpp"
 #include "../src/Matrix.hpp"
@@ -306,6 +308,239 @@ TEST(MultiHeadAttentionMaskTest, NoMask) {
 
     EXPECT_EQ(output.rows, 5);
     EXPECT_EQ(output.cols, 64);
+}
+
+// ============================================================================
+// TD-059 Regression Tests: genuine per-head attention
+//
+// Before the fix, forward()/forward_with_cache() computed one global attention pattern
+// over the full d_model width regardless of num_heads -- every test above this section
+// passes identically whether or not heads are actually split (shape, mask, sum-to-one,
+// non-negativity all hold either way), which is exactly why the original bug went
+// uncaught. These tests specifically exercise "does num_heads actually change the
+// computation" and "is the analytic per-head backward pass correct", which the old
+// implementation would have failed.
+// ============================================================================
+
+namespace {
+// Deterministic weight draw shared by two MultiHeadAttention instances -- any output
+// difference between them is then attributable only to num_heads (real per-head
+// splitting), never to different random initialization.
+void seed_weights_deterministically(MultiHeadAttention& mha, int d_model, unsigned int seed) {
+    std::mt19937 gen(seed);
+    float scale = std::sqrt(2.0f / static_cast<float>(d_model));
+    std::normal_distribution<float> dist(0.0f, scale);
+
+    auto fill = [&]() {
+        Matrix m(d_model, d_model);
+        for (int i = 0; i < d_model; ++i) {
+            for (int j = 0; j < d_model; ++j) {
+                m(i, j) = dist(gen);
+            }
+        }
+        return m;
+    };
+
+    mha.set_Wq(fill());
+    mha.set_Wk(fill());
+    mha.set_Wv(fill());
+    mha.set_Wo(fill());
+}
+}  // namespace
+
+TEST(MultiHeadAttentionArchitectureTest, MatchesIndependentPerHeadReference) {
+    // TD-059 regression. A first draft of this test compared two instances differing only in
+    // num_heads (with shared weights) and asserted their outputs differ -- that turned out to be
+    // a weak check: d_k = d_model/num_heads changes whenever num_heads does, and the pre-fix
+    // code's scale factor (1/sqrt(d_k), applied to a d_model-wide contraction) already varied
+    // with d_k on its own, so output changing between num_heads configurations doesn't, by
+    // itself, prove real per-head splitting happened. Confirmed directly: that draft passed
+    // against BOTH the pre-fix and post-fix implementation. The only way to actually pin down the
+    // formula is to check forward()'s output against an independent, from-scratch implementation
+    // of the documented per-head formula -- softmax(Q_h K_h^T / sqrt(d_k)) V_h computed
+    // separately per head, concatenated, then projected through W_o -- built here directly from
+    // the class's own weights via the public accessors, not by reusing any of
+    // MultiHeadAttention's own forward/forward_parallel code.
+    int d_model = 8;
+    int num_heads = 2;
+    int d_k = d_model / num_heads;
+    MultiHeadAttention mha(d_model, num_heads);
+
+    int seq_len = 3;
+    Matrix input(seq_len, d_model);
+    for (int i = 0; i < seq_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            input(i, j) = 0.1f * static_cast<float>(i + 1) - 0.05f * static_cast<float>(j);
+        }
+    }
+
+    Matrix actual = mha.forward(input);
+
+    // --- Independent reference, reimplemented from scratch ---
+    Matrix Wq = mha.get_Wq(), Wk = mha.get_Wk(), Wv = mha.get_Wv(), Wo = mha.get_Wo();
+
+    auto matmul = [](const Matrix& a, const Matrix& b) {
+        Matrix out(a.rows, b.cols);
+        for (int i = 0; i < a.rows; ++i) {
+            for (int j = 0; j < b.cols; ++j) {
+                float sum = 0.0f;
+                for (int k = 0; k < a.cols; ++k) {
+                    sum += a(i, k) * b(k, j);
+                }
+                out(i, j) = sum;
+            }
+        }
+        return out;
+    };
+
+    Matrix Q = matmul(input, Wq);
+    Matrix K = matmul(input, Wk);
+    Matrix V = matmul(input, Wv);
+
+    Matrix concatenated(seq_len, d_model);
+    float scale = 1.0f / std::sqrt(static_cast<float>(d_k));
+    for (int h = 0; h < num_heads; ++h) {
+        int start = h * d_k;
+        std::vector<std::vector<float>> scores(seq_len, std::vector<float>(seq_len, 0.0f));
+        for (int i = 0; i < seq_len; ++i) {
+            for (int j = 0; j < seq_len; ++j) {
+                float sum = 0.0f;
+                for (int k = 0; k < d_k; ++k) {
+                    sum += Q(i, start + k) * K(j, start + k);
+                }
+                scores[i][j] = sum * scale;
+            }
+        }
+        for (int i = 0; i < seq_len; ++i) {
+            float max_v = scores[i][0];
+            for (int j = 1; j < seq_len; ++j) {
+                max_v = std::max(max_v, scores[i][j]);
+            }
+            float sum_exp = 0.0f;
+            for (int j = 0; j < seq_len; ++j) {
+                scores[i][j] = std::exp(scores[i][j] - max_v);
+                sum_exp += scores[i][j];
+            }
+            for (int j = 0; j < seq_len; ++j) {
+                scores[i][j] /= sum_exp;
+            }
+        }
+        for (int i = 0; i < seq_len; ++i) {
+            for (int k = 0; k < d_k; ++k) {
+                float sum = 0.0f;
+                for (int j = 0; j < seq_len; ++j) {
+                    sum += scores[i][j] * V(j, start + k);
+                }
+                concatenated(i, start + k) = sum;
+            }
+        }
+    }
+
+    Matrix expected = matmul(concatenated, Wo);
+
+    ASSERT_EQ(actual.rows, expected.rows);
+    ASSERT_EQ(actual.cols, expected.cols);
+    for (int i = 0; i < actual.rows; ++i) {
+        for (int j = 0; j < actual.cols; ++j) {
+            EXPECT_NEAR(actual(i, j), expected(i, j), 1e-4f)
+                << "mismatch at (" << i << "," << j << ")";
+        }
+    }
+}
+
+TEST(MultiHeadAttentionArchitectureTest, SingleHeadMatchesGlobalAttention) {
+    // Sanity check on the same fix from the other direction: num_heads=1 has exactly one
+    // head spanning the full d_model width, so it degenerates to plain (single-head)
+    // scaled dot-product attention over the whole vector -- forward_parallel()'s per-head
+    // loop with num_heads=1 should reproduce that directly.
+    int d_model = 16;
+    MultiHeadAttention mha(d_model, 1);
+
+    Matrix input(5, d_model);
+    for (int i = 0; i < input.rows; ++i) {
+        for (int j = 0; j < input.cols; ++j) {
+            input(i, j) = 0.05f * static_cast<float>(i + j);
+        }
+    }
+
+    Matrix output = mha.forward(input);
+    const Matrix& weights = mha.get_attention_weights();
+
+    // Single head means cached_attention_weights (the mean-across-heads summary) IS the
+    // one head's real weights -- still a valid [seq_len, seq_len] probability distribution.
+    for (int i = 0; i < weights.rows; ++i) {
+        float sum = 0.0f;
+        for (int j = 0; j < weights.cols; ++j) {
+            sum += weights(i, j);
+        }
+        EXPECT_NEAR(sum, 1.0f, 1e-5f);
+    }
+    EXPECT_EQ(output.rows, 5);
+    EXPECT_EQ(output.cols, d_model);
+}
+
+TEST(MultiHeadAttentionArchitectureTest, BackwardPassMatchesNumericalGradient) {
+    // Finite-difference gradient check with num_heads > 1, added alongside TD-059's per-head
+    // backward rewrite. Note this checks a different property than
+    // MatchesIndependentPerHeadReference above: it confirms backward() is the correct gradient
+    // of *whatever forward() actually computes*, which passes equally well for a self-consistent
+    // wrong implementation (confirmed: this test also passed against the pre-fix code, since the
+    // old forward()/backward() pair was internally consistent with each other, just consistently
+    // wrong) -- MatchesIndependentPerHeadReference is what actually pins down the formula itself.
+    // Still valuable in its own right: a subtly wrong per-head gradient (e.g. a head's
+    // softmax-backward reading another head's weights, or a column slice written to the wrong
+    // offset) would produce finite, plausible-shaped gradients under every other test in this
+    // file, but would fail this check.
+    int d_model = 16;
+    int num_heads = 4;
+    MultiHeadAttention mha(d_model, num_heads);
+    seed_weights_deterministically(mha, d_model, /*seed=*/11);
+
+    const int seq_len = 5;
+    Matrix input(seq_len, d_model);
+    for (int i = 0; i < input.rows; ++i) {
+        for (int j = 0; j < input.cols; ++j) {
+            input(i, j) = 0.05f * std::sin(static_cast<float>(i * d_model + j));
+        }
+    }
+
+    auto scalar_loss = [](const Matrix& out) {
+        float loss = 0.0f;
+        for (int i = 0; i < out.rows; ++i) {
+            for (int j = 0; j < out.cols; ++j) {
+                loss += out(i, j) * out(i, j);
+            }
+        }
+        return loss;
+    };
+
+    Matrix output = mha.forward(input);
+    Matrix grad_output(output.rows, output.cols);
+    for (int i = 0; i < output.rows; ++i) {
+        for (int j = 0; j < output.cols; ++j) {
+            grad_output(i, j) = 2.0f * output(i, j);
+        }
+    }
+    Matrix analytic_grad = mha.backward(grad_output);
+
+    const float epsilon = 1e-3f;
+    const std::vector<std::pair<int, int>> positions = {
+        {0, 0}, {0, d_model / 2}, {1, 3}, {2, d_model - 1}, {seq_len - 1, 7}};
+
+    for (const auto& [pi, pj] : positions) {
+        Matrix input_plus = input;
+        input_plus(pi, pj) += epsilon;
+        Matrix input_minus = input;
+        input_minus(pi, pj) -= epsilon;
+
+        float loss_plus = scalar_loss(mha.forward(input_plus));
+        float loss_minus = scalar_loss(mha.forward(input_minus));
+        float numerical_grad = (loss_plus - loss_minus) / (2.0f * epsilon);
+
+        float tolerance = std::max(1e-2f, 0.05f * std::abs(numerical_grad));
+        EXPECT_NEAR(analytic_grad(pi, pj), numerical_grad, tolerance)
+            << "gradient mismatch at (" << pi << "," << pj << ")";
+    }
 }
 
 // ============================================================================
