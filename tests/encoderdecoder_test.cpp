@@ -397,6 +397,58 @@ TEST(EncoderDecoderModelTest, GenerateWithBeamStrategy) {
         { model.generate_response_with_strategy(input, 10, "beam", 1.0f, 50, 0.9f, 3); });
 }
 
+// TD-050 follow-up regression (September 14, 2026): generate_response_with_strategy()'s "beam"
+// branch mutates generator's persistent GenerationConfig as a side effect (num_beams stays > 1
+// after the call returns). The plain generate_response() had no guard for this: it always built
+// a single, shared, growing DecoderKVCache-backed model_fn and handed it to
+// TextGenerator::generate(), which silently routes to generate_beam_search() whenever
+// generator's stored config.num_beams > 1 regardless of how it got that way — but beam search
+// calls model_fn once per beam per step with each beam's own diverging sequence, which a single
+// shared KV cache cannot correctly serve (two beams sharing the same starting sequence length
+// produce an EMPTY "new tokens" slice for every beam after the first at a given step, since the
+// cache's processed_length was already advanced by the first beam's call — a 0-row matrix that
+// propagates into `Matrix::rows - 1` == -1 by the time TextGenerator indexes the last-position
+// row, a real out-of-bounds access, not merely numerically wrong output).
+//
+// Verifies the fix by confirming generate_response(), called right after a beam-search call left
+// num_beams > 1 on this same instance, produces output IDENTICAL to an explicit
+// generate_response_with_strategy(..., "beam", ...) call with the same parameters on the same
+// instance: both must now compute via the same non-cached beam_model_fn / generate_beam_search()
+// path (deterministic — beam search has no sampling RNG), so their outputs should match exactly
+// given the same encoder input, weights, and generator config. Before the fix, generate_response()
+// instead used its cached model_fn for beam search, which either crashes (see above) or produces
+// different output than the explicit beam call — this test caught exactly that: reverting the
+// generate_response() beam-vs-cache guard reproduces the crash/mismatch this test exists to catch.
+TEST(EncoderDecoderModelTest, GenerateResponseNotCorruptedByLeftoverBeamConfig) {
+    int vocab_size = 100;
+    int d_model = 64;
+    EncoderDecoderModel model(vocab_size, d_model, 2, 2);
+
+    build_test_vocab(model.get_tokenizer(), vocab_size);
+    model.set_training(false);
+
+    std::string input = "hello";
+
+    // Leaves generator's config with num_beams == 3, matching a real caller sequence where an
+    // earlier, unrelated generate_response_with_strategy(..., "beam", ...) call precedes a later
+    // plain generate_response() call on the same model instance.
+    std::string beam_response;
+    EXPECT_NO_THROW({
+        beam_response = model.generate_response_with_strategy(input, 10, "beam", 1.0f, 50, 0.9f, 3);
+    });
+    ASSERT_EQ(model.get_generator()->get_config().num_beams, 3)
+        << "test setup assumption violated: num_beams should stay leaked on generator's config";
+
+    // The real regression check: generate_response() must not crash and must correctly perform
+    // (safe, non-cached) beam search rather than silently using its cached model_fn for it.
+    std::string plain_response;
+    EXPECT_NO_THROW({ plain_response = model.generate_response(input, 10); });
+    EXPECT_EQ(plain_response, beam_response)
+        << "generate_response() with leftover num_beams > 1 should compute identically to an "
+           "explicit beam-search call — a mismatch means it silently used the cached, "
+           "beam-unsafe model_fn instead of the guard's non-cached beam_model_fn";
+}
+
 // TD-100 regression: generate_greedy()/generate_sampling()/generate_top_k()/
 // generate_nucleus() each read most of their filter values (including
 // max_length itself) straight from `generator`'s *stored* config rather than

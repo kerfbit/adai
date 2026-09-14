@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.2
-// @adai-reviewed: 2026-09-12
+// @adai-version: 1.0.3
+// @adai-reviewed: 2026-09-14
 
 /**
  * @file BatchedInferenceEngine.hpp
@@ -112,6 +112,17 @@ struct InferenceRequest {
     // was just asked), so a real caller for this architecture must always supply one — this
     // mirrors TD-092's fix just above (gen_config used to be silently ignored per-request the
     // same way; this field closes the identical gap for model_fn).
+    //
+    // Beam-search contract (checked while investigating the identical trap in
+    // EncoderDecoderModel::generate_response(), see TECHNICAL_DEBT.md's TD-050 resolved entry):
+    // process_batch() calls generator_->generate_text(fn, ...), which internally calls
+    // TextGenerator::generate() and silently routes to generate_beam_search() whenever
+    // gen_config.num_beams > 1. A single shared KV-cache-backed model_fn cannot correctly serve
+    // beam search's multiple diverging per-beam token sequences (each beam's calls would corrupt
+    // the cache the others depend on) — if a future caller ever sets gen_config.num_beams > 1
+    // here, this field's model_fn MUST be a full-recompute (no persistent cache) function, the
+    // same constraint generate_response_with_strategy()'s own beam_model_fn exists to satisfy.
+    // Not currently reachable: no caller of submit() in this codebase sets num_beams > 1 today.
     TextGenerator::ModelForwardFn model_fn;
 
     InferenceRequest() = default;

@@ -1,5 +1,5 @@
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in)
-// @adai-version: 0.13.0
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in; TD-050 CPU beam-vs-cache guard added to generate_response()/generate_response_with_strategy())
+// @adai-version: 0.14.0
 // @adai-reviewed: 2026-09-14
 
 #include "EncoderDecoderModel.hpp"
@@ -165,6 +165,48 @@ std::string EncoderDecoderModel::generate_response(const std::string& input_text
     }
     cached_encoder_output = encoder->encode_with_mask(input_tokens, encoder_mask);
 
+    // TD-050 follow-up (September 14, 2026): beam search explores multiple diverging token-
+    // sequence hypotheses by calling model_fn once per beam per step with that beam's own
+    // sequence; a single shared DecoderKVCache has no way to correctly serve more than one
+    // hypothesis at once (this is exactly why generate_response_with_strategy()'s own "beam"
+    // branch below never uses DecoderKVCache, using a separate non-cached beam_model_fn
+    // instead). This plain entry point had no equivalent guard, even though it's just as
+    // reachable: generator's GenerationConfig is a persistent member of this class, and
+    // generate_response_with_strategy()'s config-sync step mutates it — so a prior, unrelated
+    // call with strategy="beam" (num_beams > 1) leaves that value set on this instance, and
+    // TextGenerator::generate() silently routes to generate_beam_search() using whatever
+    // model_fn is handed to it, corrupting every beam but whichever one happens to match the
+    // cache's assumed prefix. Checking generator's own already-stored config here — the same
+    // check gpu_generate_response() already uses for the identical constraint — closes this
+    // gap without needing this method to take its own strategy parameter.
+    if (generator->get_config().num_beams > 1) {
+        // Get actual tokenizer vocab size to mask invalid tokens — mirrors
+        // generate_response_with_strategy()'s own beam_model_fn exactly, masking included, so
+        // this path and that one compute identically given the same inputs.
+        int actual_vocab_size = static_cast<int>(tokenizer->get_vocab_size());
+        auto beam_model_fn = [this, actual_vocab_size](const std::vector<int>& tokens) -> Matrix {
+            // Process all tokens from scratch (no caching) — mirrors
+            // generate_response_with_strategy()'s own beam_model_fn.
+            Matrix decoder_out = decoder->forward_with_encoder(tokens, cached_encoder_output);
+            Matrix logits = lm_head->forward(decoder_out);
+
+            // Mask out invalid token IDs beyond actual vocabulary size, same as
+            // generate_response_with_strategy()'s beam_model_fn.
+            if (actual_vocab_size < logits.cols) {
+                for (int i = 0; i < logits.rows; ++i) {
+                    for (int j = actual_vocab_size; j < logits.cols; ++j) {
+                        logits.data[i][j] = -1e9f;
+                    }
+                }
+            }
+
+            return logits;
+        };
+        std::vector<int> output_tokens =
+            generator->generate_beam_search(beam_model_fn, {bos_token_id});
+        return tokenizer->decode(output_tokens, true);
+    }
+
     // Initialize KV cache for efficient generation
     DecoderKVCache kv_cache(decoder_layers);
     size_t processed_length = 0;
@@ -264,8 +306,20 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
     std::vector<int> output_tokens;
 
     // IMPORTANT: Beam search requires different handling because each beam has its own sequence
-    // and KV caching doesn't work when we need to explore multiple hypotheses simultaneously
-    if (normalized_strategy == "beam") {
+    // and KV caching doesn't work when we need to explore multiple hypotheses simultaneously.
+    //
+    // Also route here whenever num_beams > 1 regardless of the strategy string, not only when
+    // normalized_strategy == "beam" literally: an unrecognized/typo'd strategy name falls to the
+    // `else` branch below, which calls generator->generate(model_fn, ...) — and
+    // TextGenerator::generate() itself routes to generate_beam_search() whenever
+    // config.num_beams > 1 (synced from this call's own num_beams argument just above),
+    // regardless of what strategy string got it there. Without this, a single call with e.g.
+    // strategy="quux", num_beams=5 would silently hand the CACHED model_fn (built below) to beam
+    // search — the same cache-can't-serve-multiple-diverging-hypotheses corruption this whole
+    // guard exists to prevent, reachable in one call with no leftover state from a previous one
+    // required. explicit "greedy"/"sampling"/"topk"/"nucleus" below are unaffected: they call
+    // TextGenerator's single-hypothesis methods directly, none of which consult num_beams.
+    if (normalized_strategy == "beam" || num_beams > 1) {
         // Update config for beam search
         TextGenerator::GenerationConfig config = generator->get_config();
         config.num_beams = num_beams;

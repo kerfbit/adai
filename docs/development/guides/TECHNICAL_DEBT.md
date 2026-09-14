@@ -308,7 +308,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open — CPU cache root-caused clean and GPU-resident cache designed/implemented (September 14, 2026); correctness validation and benchmark blocked on real GPU hardware | GPU / Inference / Training | July 4, 2026 | 4-6 hours (revised down again — only the hardware-blocked validation/benchmark remain) |
+| MEDIUM | Open — CPU cache root-caused clean, GPU-resident cache designed/implemented, and the flagged CPU beam-vs-cache gap fixed (all September 14, 2026); correctness validation and benchmark blocked on real GPU hardware | GPU / Inference / Training | July 4, 2026 | 4-6 hours (revised down again — only the hardware-blocked validation/benchmark remain) |
 
 Description:
 The GPU decode path has no working incremental KV-cache at all: `EncoderDecoderModel::gpu_generate_response()` (added to GPU-accelerate BLEU/ROUGE scoring during validation) recomputes the full sequence from scratch every decode step via `LLMDecoder::gpu_decode()` — O(n) work per step, O(n^2) total over a generation, instead of O(1) per step / O(n) total with a real cache. This is functionally correct but leaves an easy performance win on the table now that generation runs on GPU.
@@ -376,13 +376,50 @@ already proved, not by new, unverifiable kernel code.
   silently broken the moment a shared cache was introduced without this guard. Both GPU methods
   now check for `num_beams > 1` and route to a separate, deliberately non-cached
   `beam_model_fn` (the original full-recompute `gpu_decode()` call) in that case.
-- A related, pre-existing gap was found but deliberately **not** fixed here (out of this item's
-  scope): the CPU `EncoderDecoderModel::generate_response()` (the plain, non-strategy method) has
-  no equivalent beam-vs-cache guard at all — it always builds one cached `model_fn` regardless,
-  and `TextGenerator::generate()` will silently route to beam search using it if `generator`'s
-  persistent config happens to have `num_beams > 1` left over from an earlier
-  `generate_response_with_strategy(..., "beam", ...)` call. Flagged as a separate follow-up task
-  rather than fixed here, since it's a CPU-side gap unrelated to this item's own GPU-cache scope.
+- A related, pre-existing gap was found and flagged as a separate follow-up task rather than fixed
+  in the moment (out of this item's own GPU-cache scope): the CPU `EncoderDecoderModel::
+  generate_response()` (the plain, non-strategy method) had no equivalent beam-vs-cache guard at
+  all — it always built one cached `model_fn` regardless, and `TextGenerator::generate()` would
+  silently route to beam search using it if `generator`'s persistent config happened to have
+  `num_beams > 1` left over from an earlier `generate_response_with_strategy(..., "beam", ...)`
+  call.
+
+  **Fixed September 14, 2026** (same day, later): confirmed genuinely reachable, not just
+  theoretical — `RAGInference::generateResponse()` calls `generate_response_with_strategy(...,
+  /*strategy=*/"", ..., config.gen_config.num_beams)` (see its own TD-101 comment), so any RAG
+  caller that ever sets `num_beams > 1` hits exactly this path. Reproduced directly: a
+  `generate_response_with_strategy(..., "beam", ..., num_beams=3)` call followed by a plain
+  `generate_response()` call on the same instance **segfaults** — worse than silently wrong output.
+  Root cause: at beam-search step 0 every beam shares the same starting token sequence and length;
+  the first beam's call advances the shared `DecoderKVCache`'s `processed_length` to that length,
+  so the *second* beam's call computes an empty "new tokens" slice, producing a 0-row `Matrix`
+  whose `rows - 1` the caller then indexes as `-1` — a genuine out-of-bounds access, not merely a
+  numerical divergence. Fixed the same way `gpu_generate_response()` already was: check
+  `generator->get_config().num_beams > 1` and route to a separate, non-cached `beam_model_fn`
+  (mirroring `generate_response_with_strategy()`'s own, vocab-masking included) via
+  `generate_beam_search()` directly instead of the generic `generate()`. Also found and fixed the
+  identical class of gap one level deeper: `generate_response_with_strategy()`'s own `else`
+  (unrecognized-strategy) fallback branch called the generic `generate()` with its *cached*
+  `model_fn` too, so a single call with an unrecognized/empty strategy string **and** `num_beams >
+  1` — exactly `RAGInference`'s own calling pattern — hit the same corruption in one call, with no
+  leftover state from a previous call required. Fixed by widening that branch's guard condition
+  from `normalized_strategy == "beam"` to `normalized_strategy == "beam" || num_beams > 1`.
+  Checked every other `TextGenerator::generate()`/`generate_text()` call site in the codebase
+  (`gpu_generate_response_with_strategy()`, `ChatbotAPI::generate_response()`/
+  `generate_batch_responses()`'s CPU fallbacks, `BatchedInferenceEngine::process_batch()`) for the
+  same class of risk: all dispatch explicitly per strategy without a generic-`generate()` fallback,
+  or use an inherently stateless (no persistent cache) `model_fn`, except
+  `BatchedInferenceEngine`, which is generic enough that a *future* caller could hit this if it
+  ever passes both a cached `model_fn` and `num_beams > 1` — not reachable today (no caller sets
+  `num_beams > 1` through it), so left as a documented contract on `InferenceRequest::model_fn`
+  rather than a code change. Added `EncoderDecoderModelTest.
+  GenerateResponseNotCorruptedByLeftoverBeamConfig` (`tests/encoderdecoder_test.cpp`): confirmed
+  against the pre-fix code that it reproduces the exact segfault (via a scoped `git stash` of just
+  the fix, rebuild, run, restore — not merely inferred), and against the post-fix code that
+  `generate_response()`'s output with leftover `num_beams > 1` now exactly matches an explicit
+  `generate_response_with_strategy(..., "beam", ...)` call (beam search has no sampling RNG, so
+  the two safe, non-cached paths are deterministic and must agree). Full `ctest` suite: 129/129
+  passing.
 
 Action Items:
 
@@ -397,12 +434,17 @@ Action Items:
 - [x] Wire `EncoderDecoderModel::gpu_generate_response()` to use the new incremental path instead of recomputing the full sequence every step. Done — for every strategy except beam search, which keeps the full-recompute path deliberately (see Update above).
 - [ ] Validate correctness against the existing full-recompute GPU path (identical token-for-token output for greedy decoding) — the CPU path is already confirmed correct and every new GPU method reuses already-verified primitives, but genuine on-device numeric validation still needs real hardware. **Blocked on real GPU hardware** — not available in this environment.
 - [ ] Benchmark generation latency before/after for representative `max_length` values (e.g. 50, 100 tokens) to confirm the expected O(n) vs O(n^2) improvement. **Blocked on real GPU hardware**, same as TD-033's own remaining benchmark item — not available in this environment.
+- [x] Fix the flagged CPU `generate_response()` beam-vs-cache gap (and the identical gap in
+  `generate_response_with_strategy()`'s unrecognized-strategy fallback). Done — see the
+  September 14, 2026 (same day, later) update above.
 
 Files to Modify:
 
 - `src/KVCache.hpp` / `src/Decoder.{hpp,cpp}` (CPU) — done, no fix needed (root-cause investigation found no bug)
-- `src/EncoderDecoderModel.{hpp,cpp}` — done: greedy-decoding cache-bypass workaround removed; `gpu_generate_response()`/`gpu_generate_response_with_strategy()` wired to the incremental GPU path with a beam-search guard
+- `src/EncoderDecoderModel.{hpp,cpp}` — done: greedy-decoding cache-bypass workaround removed; `gpu_generate_response()`/`gpu_generate_response_with_strategy()` wired to the incremental GPU path with a beam-search guard; `generate_response()`'s own beam-vs-cache guard added, `generate_response_with_strategy()`'s unrecognized-strategy fallback guard widened (see the September 14, 2026, same day, later update above)
 - `tests/inference_optimization_test.cpp` — done: real incremental-vs-full-recompute regression test added (CPU)
+- `tests/encoderdecoder_test.cpp` — done: `GenerateResponseNotCorruptedByLeftoverBeamConfig` regression test, confirmed to reproduce the pre-fix segfault
+- `src/BatchedInferenceEngine.hpp` — done: documented the same beam-vs-cache contract on `InferenceRequest::model_fn` (not currently reachable, no code change needed)
 - `src/gpu/MatrixGPU.hpp` — done: new `GPUKVCache`/`GPUDecoderKVCache` types (backend-agnostic, one definition for both CUDA and SYCL)
 - `src/MultiHeadAttention.{hpp,cpp}` / `src/CrossAttention.{hpp,cpp}` — done: `gpu_forward_with_cache()` on both
 - `src/DecoderBlock.{hpp,cpp}` / `src/Decoder.{hpp,cpp}` (GPU) — done: `gpu_forward_with_cache()` / `gpu_decode_step()`

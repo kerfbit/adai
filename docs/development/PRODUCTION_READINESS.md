@@ -182,7 +182,7 @@ None — every in-scope file carries a tag.
 | `src/DatasetManagerArgs.hpp` | experimental | 0.1.0 | 2026-09-11 | — |
 | `src/Decoder.cpp` | beta | 0.10.0 | 2026-09-14 | TD-050 |
 | `src/Decoder.hpp` | beta | 0.10.0 | 2026-09-14 | TD-050 |
-| `src/EncoderDecoderModel.cpp` | beta | 0.13.0 | 2026-09-14 | TD-050 |
+| `src/EncoderDecoderModel.cpp` | beta | 0.14.0 | 2026-09-14 | TD-050 |
 | `src/EncoderDecoderModel.hpp` | beta | 0.13.0 | 2026-09-14 | TD-050 |
 | `src/FtpDataServer.hpp` | beta | 0.9.0 | 2026-09-13 | TD-040 |
 | `src/IncrementalTrainer.cpp` | beta | 0.9.2 | 2026-09-13 | TD-039 |
