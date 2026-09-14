@@ -53,13 +53,13 @@ are deliberately deferred by prior user decision, not blocked, so TD-038 itself 
 
 **Tier 4 — Sustained, low-risk test-coverage investment** (systematic, already-validated pattern,
 no open design questions): [TD-048](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
-(Compose UI testing now adopted in both modules, 10/12 screens done September 13, 2026 — 2 screens
-remain, both in `opsdashboard`, whose debug APK can't be installed/run on this sandbox's emulator
-at all — `wear-sdk` shared-library requirement, no Wear-capable device available here — so further
-`opsdashboard` screens stay compile-verified only pending real device access; `AdminScreen` (still
-remaining) additionally needs the not-yet-built admin-action confirm-dialog test infrastructure
-`ModelDetailScreen`'s own update flagged — `GroupDetailScreen`'s own confirm-dialog flow (already
-done otherwise) needs the same infrastructure too; plus DI/entry-points remain, continuing the
+(Compose UI testing now adopted in both modules, 11/12 screens done September 13, 2026 — only
+`TrainerScreen` remains, in `opsdashboard`, whose debug APK can't be installed/run on this
+sandbox's emulator at all — `wear-sdk` shared-library requirement, no Wear-capable device
+available here — so it stays compile-verified only pending real device access; the not-yet-built
+admin-action confirm-dialog test infrastructure `ModelDetailScreen`'s own update flagged is still
+needed for `ModelDetailScreen`/`SessionDetailScreen`/`GroupDetailScreen`/`AdminScreen`'s own
+confirm-dialog flows (each screen otherwise done); plus DI/entry-points remain, continuing the
 now-proven ViewModel-then-screen-testing approach)
 and [TD-037](#td-037-no-qt-test-infrastructure-for-gui-classes) (8-12h — the same shape for the
 desktop Qt GUI).
@@ -702,7 +702,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open (12/12 ViewModels done; Compose UI testing adopted, 10/12 screens covered; DI/entry-points remain) | Android / Testing | September 7, 2026 | 24-32 hours |
+| MEDIUM | Open (12/12 ViewModels done; Compose UI testing adopted, 11/12 screens covered; DI/entry-points remain) | Android / Testing | September 7, 2026 | 24-32 hours |
 
 Description:
 62 files — Compose screens, ViewModels without tests, DI containers, `Activity`/`Application`
@@ -990,6 +990,22 @@ repository's own "local deletion is authoritative" doc comment. `RecordingFakeCh
 (shared `src/sharedTest` fake) gained a configurable `clearSessionResponse` and a
 `clearedSessionIds` recorder to support this. True ViewModel coverage is now **12/12**.
 
+**Update (September 13, 2026, moving right along):** `AdminScreen` (`opsdashboard` module) done as
+the eleventh screen — the most infrastructure-gap-constrained one yet. Per this screen's own doc
+comment, EVERY field edit (not just one admin action, unlike every prior screen) flows through
+`ConfirmActionDialog`, gated the instant it composes by the same `FragmentActivity`/
+`LocalAdminAuthGate` requirement flagged for `ModelDetailScreen`/`SessionDetailScreen`/
+`GroupDetailScreen` — clicking a field's "Next" button is what makes `pendingValue` non-null and
+composes it. 9 tests added (`AdminScreenTest`), scoped to what doesn't touch that: each of the
+three daemon sections' three render states (populated, admin-disabled, error-with-no-config) —
+including the genuinely distinct behavior that `ApiResult.NotFound`'s raw "Not found" message is
+shown verbatim for `mns_server`/`registry_server` but mapped to a friendlier "admin routes not
+enabled" message only for `metrics_api_server` (see `MetricsSection`); the boolean field's `Switch`
+rendering; and the Int/String edit dialogs' own input validation (opening with the right title, the
+Int dialog's "Next" button gated on parseable input via `hasSetTextAction()` to target the dialog's
+field unambiguously) — stopping before ever clicking "Next". `AdminScreen.kt` promoted
+`experimental` → `beta` (0.2.0).
+
 Action Items:
 
 - [x] Add ViewModel unit tests first (cheapest — no Compose/Activity needed) — 12 of 12 done (see
@@ -998,11 +1014,11 @@ Action Items:
 - [x] Adopt Compose UI testing (`androidx.compose.ui.test`) for screens once ViewModels are
   covered — infrastructure adopted for both modules now; `ConversationListScreen`, `ChatScreen`,
   `SettingsScreen` (`app` module), `GroupListScreen`, `ModelListScreen`, `SessionListScreen`,
-  `ModelDetailScreen`, `SessionDetailScreen`, `SettingsScreen`, and `GroupDetailScreen`
-  (`opsdashboard` module) done (10 of 12; see updates above). The other 2 remain, both in
-  `opsdashboard` (`AdminScreen`, `TrainerScreen`) — same pattern, infra already in place. Note:
-  this sandbox cannot install/run `opsdashboard`'s debug APK on a device (see `GroupListScreen`'s
-  update above, `wear-sdk` shared-library requirement) — further `opsdashboard` screens will be
+  `ModelDetailScreen`, `SessionDetailScreen`, `SettingsScreen`, `GroupDetailScreen`, and
+  `AdminScreen` (`opsdashboard` module) done (11 of 12; see updates above). Only `TrainerScreen`
+  remains — same pattern, infra already in place. Note: this sandbox cannot install/run
+  `opsdashboard`'s debug APK on a device (see `GroupListScreen`'s update above, `wear-sdk`
+  shared-library requirement) — further `opsdashboard` screens will be
   compile-verified only here too, pending real Wear-capable device access to actually run any of them.
 - [ ] Build the admin-action confirm-dialog testing infrastructure (a minimal `androidTest`-only
   `FragmentActivity` host + `createAndroidComposeRule<...>()` + a `FakeAdminAuthGate`) — see
@@ -1016,16 +1032,17 @@ Action Items:
 
 Files to Modify:
 
-- ~40 remaining files under `android/app/src/main`, `android/opsdashboard/src/main`, and
+- ~39 remaining files under `android/app/src/main`, `android/opsdashboard/src/main`, and
   `android/wearcomplications/src/main` still tagged `experimental` — see
   [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md) for the exact, current list.
 - Done: the 8 ViewModel files, `AdminUiState.kt`, `ConversationListScreen.kt`, `ChatScreen.kt`,
   `ChatInputBar.kt`, `MessageBubble.kt`, `ErrorBanner.kt`, `SettingsScreen.kt` (`app` module), and
   `GroupListScreen.kt`/`ModelListScreen.kt`/`SessionListScreen.kt`/`ModelDetailScreen.kt`/
-  `SessionDetailScreen.kt`/`SettingsScreen.kt`/`GroupDetailScreen.kt` (`opsdashboard` module —
-  `ModelDetailScreen.kt`/`SessionDetailScreen.kt`/`GroupDetailScreen.kt` with their admin-action
-  confirm-dialog flows still uncovered, `SettingsScreen.kt` with its watch-face-push
-  Activate-click still uncovered — see the
+  `SessionDetailScreen.kt`/`SettingsScreen.kt`/`GroupDetailScreen.kt`/`AdminScreen.kt`
+  (`opsdashboard` module — `ModelDetailScreen.kt`/`SessionDetailScreen.kt`/`GroupDetailScreen.kt`/
+  `AdminScreen.kt` with their admin-action confirm-dialog flows still uncovered (`AdminScreen.kt`'s
+  being every field edit on the screen, not just one action), `SettingsScreen.kt` with its
+  watch-face-push Activate-click still uncovered — see the
   Correction above).
 
 ---

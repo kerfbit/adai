@@ -10,7 +10,7 @@ See [file-status-standard.md](guides/file-status-standard.md) for what these sta
 
 | Component | Stable | Beta | Experimental | Deprecated | Legacy | Untagged | Total |
 |---|---|---|---|---|---|---|---|
-| android | 0 | 70 | 44 | 0 | 0 | 0 | 114 |
+| android | 0 | 71 | 43 | 0 | 0 | 0 | 114 |
 | scripts | 9 | 27 | 0 | 0 | 0 | 0 | 36 |
 | src | 91 | 42 | 15 | 0 | 0 | 0 | 148 |
 | tizen-metrics-app | 2 | 1 | 0 | 0 | 0 | 0 | 3 |
@@ -91,7 +91,7 @@ None — every in-scope file carries a tag.
 | `android/opsdashboard/src/main/java/com/adai/ops/settings/SettingsScreen.kt` | beta | 0.4.0 | 2026-09-13 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/settings/SettingsViewModel.kt` | beta | 0.5.0 | 2026-09-10 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/admin/AdminRoute.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
-| `android/opsdashboard/src/main/java/com/adai/ops/ui/admin/AdminScreen.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
+| `android/opsdashboard/src/main/java/com/adai/ops/ui/admin/AdminScreen.kt` | beta | 0.2.0 | 2026-09-13 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/admin/AdminUiState.kt` | beta | 0.2.0 | 2026-09-12 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/admin/AdminViewModel.kt` | beta | 0.5.0 | 2026-09-12 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/common/AdminActionButton.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
