@@ -15,10 +15,13 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Recommended Execution Order
 
-Analyzed September 12, 2026 to sequence the 14 active items by dependency and risk rather than
+Analyzed September 12, 2026 to sequence the active items by dependency and risk rather than
 just priority label — several depend on each other or on a single owner decision, and the
 "Medium/Low" labels alone don't capture that. Re-derive this ordering rather than trusting it
-blindly once several of these items have moved.
+blindly once several of these items have moved. (For the current exact count and breakdown, see
+the Overview and Statistics sections — deliberately not restated here as a number, since this
+prose goes stale every time an item resolves or a new one is filed while the tiering below does
+not.)
 
 **Tier 1 — Code fix landed, retrain still outstanding.** [TD-059](#td-059-multi-head-and-cross-attention-never-actually-split-into-heads)'s
 owner decision landed September 12, 2026 (fix the attention math for real and retrain everything,
@@ -1881,52 +1884,43 @@ When resolving a debt item:
 
 ### By Priority
 
+Recomputed directly from the 11 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|1|4%|
-|Medium|12|46%|
-|Low|13|50%|
+|High|1|9%|
+|Medium|6|55%|
+|Low|4|36%|
 
-**Total Active Items:** 26
+**Total Active Items:** 11
 
 ### By Component
 
 |Component|Count|
 |----------------------|-------|
 |Core Model Architecture|1|
-|Training / Data Generation|1|
-|Training / Data Management|1|
-|Training / Data Loading|1|
-|CLI / User-Facing|1|
-|Tooling / Toolchain|1|
 |GPU / Inference / Training|1|
 |GPU / Inference / Performance|1|
-|Build / Windows / Metrics|1|
-|RLHF / PPOOptimizer|1|
-|Testing / Tooling|2|
+|Tooling / Toolchain|1|
+|Training / Data Generation|1|
 |GUI / Testing|1|
 |Advanced Features / Integration|1|
 |Training / Metrics / Core|1|
-|Security / Registry|1|
-|GPU / Testing|1|
-|Metrics / Testing|1|
-|Scripts / Tooling|3|
-|Scripts / Cleanup|1|
 |Android / CI|1|
 |Android / Testing|1|
-|Tizen / Testing|1|
+|Documentation|1|
 
 ### Effort Distribution
 
 |Effort Range|Count|
 |--------------|-------|
-|0-2 hours|1|
-|2-4 hours|4|
-|4-8 hours|7|
-|8+ hours|12|
+|0-2 hours|0|
+|2-4 hours|1|
+|4-8 hours|2|
+|8+ hours|6|
 |Not estimated|2|
 
-**Total Estimated Effort (Active Items):** 203-305 hours (excludes TD-014 and TD-039, which have no effort estimate)
+**Total Estimated Effort (Active Items):** 122-180 hours (excludes TD-014 and TD-039, which have no effort estimate)
 
 ### Future Enhancements Summary
 
