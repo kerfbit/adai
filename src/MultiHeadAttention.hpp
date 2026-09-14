@@ -1,7 +1,7 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.10.0
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added)
+// @adai-version: 0.11.0
 // @adai-reviewed: 2026-09-13
 
 
@@ -9,6 +9,7 @@
 #include <memory>
 #include <vector>
 #include "KVCache.hpp"
+#include "LoRA.hpp"
 #include "Matrix.hpp"
 #include "Optimizer.hpp"
 #ifdef ADAI_ENABLE_GPU
@@ -59,6 +60,12 @@
  * needs retraining from scratch to be meaningful under the new math** — this is not a
  * hot-swappable weight format change. `CrossAttention` (`CrossAttention.cpp`) had the
  * identical gap, independently, and was fixed the same way in the same pass.
+ *
+ * TD-038 (September 13, 2026): LoRA adapters (see enable_lora() below) are applied only on
+ * this CPU path (forward()/forward_parallel()/forward_with_cache()/backward()) — the separate
+ * gpu_forward()/gpu_backward() persistent-residency path (TD-033's decode route) does not
+ * apply them. Enabling LoRA while a caller uses that GPU path silently runs the unmodified
+ * base weights instead; not currently guarded against here.
  */
 /// Callback invoked after softmax in every forward() pass, receiving the
 /// attention weight matrix [seq_len × seq_len].
@@ -115,6 +122,14 @@ class MultiHeadAttention {
 
     // Attention hook (for entropy tracking, TD-013)
     AttentionHookFn attention_hook_;
+
+    // TD-038: optional LoRA adapters on each projection, nullptr = disabled (the default --
+    // an instance with no enable_lora() call behaves identically to before this feature
+    // existed). See enable_lora()'s own doc comment for the zero-init-is-a-no-op guarantee.
+    std::unique_ptr<LoRAAdapter> lora_q_;
+    std::unique_ptr<LoRAAdapter> lora_k_;
+    std::unique_ptr<LoRAAdapter> lora_v_;
+    std::unique_ptr<LoRAAdapter> lora_o_;
 
 #ifdef ADAI_ENABLE_GPU
     // GPU-path equivalent, fired after softmax in gpu_forward() (see GPUAttentionStatsHookFn).
@@ -384,6 +399,59 @@ class MultiHeadAttention {
      * @param max_norm Maximum allowed gradient norm
      */
     void clip_gradients(float max_norm);
+
+    // ── TD-038: LoRA (Low-Rank Adaptation) integration ───────────────────────
+    /**
+     * @brief Attaches LoRA adapters to this layer's Q/K/V/O projections, per config's
+     * apply_to_query/key/value/output flags (apply_to_ffn/dropout are not applicable here
+     * -- see LoRAConfig's own doc). Safe to call on an already-trained instance: LoRAAdapter's
+     * B matrix starts at zero, so forward()'s output is IDENTICAL to the pre-LoRA output
+     * until the adapters are actually trained via register_lora_parameters() below. Replaces
+     * any adapters from a previous enable_lora() call (each starts fresh, at ΔW=0 again).
+     */
+    void enable_lora(const LoRAConfig& config);
+
+    /** @brief True if any LoRA adapter is currently attached. */
+    bool has_lora() const {
+        return lora_q_ || lora_k_ || lora_v_ || lora_o_;
+    }
+
+    /**
+     * @brief Registers ONLY the active LoRA adapters' own A/B matrices with `optimizer` --
+     * NOT W_q/W_k/W_v/W_o. This is what makes LoRA training "freeze the base model": the
+     * base weights are never registered anywhere, so Optimizer::step() never touches them,
+     * the same register-with-an-external-optimizer pattern EncoderDecoderModel::
+     * register_parameters() already uses for full fine-tuning. Independent of
+     * set_optimizer()/register_parameters()/update_weights() above, which remain unchanged
+     * for the traditional non-LoRA full-fine-tune path (and can still be used simultaneously
+     * with LoRA active, e.g. to fine-tune W_o fully while adapting Q/K/V via LoRA, though
+     * the usual LoRA setup is to register only the adapters).
+     */
+    void register_lora_parameters(Optimizer& optimizer);
+
+    /**
+     * @brief Folds every active adapter's ΔW = (alpha/r)*A^T*B^T into the corresponding base
+     * weight matrix (LoRAAdapter::merge_with_base()) and discards the adapters -- "no
+     * additional inference latency" from LoRA.hpp's own file doc, exercised for real. After
+     * this call has_lora() is false and forward() runs the plain base-weight path, bit-for-bit
+     * equivalent (up to floating-point summation order) to the adapted path just before the
+     * merge.
+     */
+    void merge_lora();
+
+    // LoRA adapter accessors, primarily for tests/inspection. May return nullptr.
+    LoRAAdapter* get_lora_q() {
+        return lora_q_.get();
+    }
+    LoRAAdapter* get_lora_k() {
+        return lora_k_.get();
+    }
+    LoRAAdapter* get_lora_v() {
+        return lora_v_.get();
+    }
+    LoRAAdapter* get_lora_o() {
+        return lora_o_.get();
+    }
 
 #ifdef ADAI_ENABLE_GPU
     struct GPUState {

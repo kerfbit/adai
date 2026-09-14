@@ -554,6 +554,253 @@ TEST(CrossAttentionArchitectureTest, BackwardPassMatchesNumericalGradient) {
 }
 
 // ============================================================================
+// TD-038: LoRA integration tests
+// ============================================================================
+
+TEST(CrossAttentionLoRATest, EnableLoraIsNoOpBeforeTraining) {
+    int d_model = 16;
+    CrossAttention ca(d_model, 4);
+    seed_ca_weights_deterministically(ca, d_model, /*seed=*/9);
+
+    Matrix query_input(3, d_model);
+    Matrix kv_input(5, d_model);
+    for (int i = 0; i < query_input.rows; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            query_input(i, j) = 0.05f * std::cos(static_cast<float>(i * d_model + j));
+        }
+    }
+    for (int i = 0; i < kv_input.rows; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            kv_input(i, j) = 0.04f * std::sin(static_cast<float>(i * d_model + j));
+        }
+    }
+
+    Matrix output_before = ca.forward(query_input, kv_input);
+
+    LoRAConfig config;
+    config.rank = 4;
+    ca.enable_lora(config);
+    ASSERT_TRUE(ca.has_lora());
+
+    Matrix output_after = ca.forward(query_input, kv_input);
+    ASSERT_EQ(output_after.rows, output_before.rows);
+    ASSERT_EQ(output_after.cols, output_before.cols);
+    for (int i = 0; i < output_before.rows; ++i) {
+        for (int j = 0; j < output_before.cols; ++j) {
+            EXPECT_FLOAT_EQ(output_before(i, j), output_after(i, j))
+                << "enabling LoRA changed forward() output before any training at ("
+                << i << "," << j << ")";
+        }
+    }
+}
+
+TEST(CrossAttentionLoRATest, BackwardPassMatchesNumericalGradientWithLoraActive) {
+    // Same shape as CrossAttentionArchitectureTest.BackwardPassMatchesNumericalGradient
+    // above, with LoRA adapters enabled and pre-trained (B != 0) so the LoRA branch
+    // genuinely contributes -- exercises LoRAAdapter::backward()'s grad_input return value
+    // wired through both grad_query_input and grad_kv_input (TD-038).
+    int d_model = 16;
+    int num_heads = 4;
+    CrossAttention ca(d_model, num_heads);
+    seed_ca_weights_deterministically(ca, d_model, /*seed=*/17);
+
+    LoRAConfig config;
+    config.rank = 4;
+    config.alpha = 8.0f;
+    ca.enable_lora(config);
+
+    int tgt_len = 4;
+    int src_len = 5;
+    Matrix query_input(tgt_len, d_model);
+    for (int i = 0; i < tgt_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            query_input(i, j) = 0.05f * std::sin(static_cast<float>(i * d_model + j));
+        }
+    }
+    Matrix kv_input(src_len, d_model);
+    for (int i = 0; i < src_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            kv_input(i, j) = 0.05f * std::cos(static_cast<float>(i * d_model + j));
+        }
+    }
+
+    for (int step = 0; step < 3; ++step) {
+        Matrix out = ca.forward(query_input, kv_input);
+        Matrix grad(out.rows, out.cols);
+        for (int i = 0; i < grad.rows; ++i) {
+            for (int j = 0; j < grad.cols; ++j) {
+                grad(i, j) = 0.1f * (i + j + 1);
+            }
+        }
+        Matrix gq, gkv;
+        ca.backward(grad, gq, gkv);
+        ca.get_lora_q()->update(0.05f);
+        ca.get_lora_k()->update(0.05f);
+        ca.get_lora_v()->update(0.05f);
+        ca.get_lora_o()->update(0.05f);
+    }
+
+    auto scalar_loss = [](const Matrix& out) {
+        float loss = 0.0f;
+        for (int i = 0; i < out.rows; ++i) {
+            for (int j = 0; j < out.cols; ++j) {
+                loss += out(i, j) * out(i, j);
+            }
+        }
+        return loss;
+    };
+
+    Matrix output = ca.forward(query_input, kv_input);
+    Matrix grad_output(output.rows, output.cols);
+    for (int i = 0; i < output.rows; ++i) {
+        for (int j = 0; j < output.cols; ++j) {
+            grad_output(i, j) = 2.0f * output(i, j);
+        }
+    }
+    Matrix analytic_grad_query, analytic_grad_kv;
+    ca.backward(grad_output, analytic_grad_query, analytic_grad_kv);
+
+    const float epsilon = 1e-3f;
+    const std::vector<std::pair<int, int>> query_positions = {
+        {0, 0}, {0, d_model / 2}, {1, 3}, {tgt_len - 1, d_model - 1}};
+    for (const auto& [pi, pj] : query_positions) {
+        Matrix query_plus = query_input;
+        query_plus(pi, pj) += epsilon;
+        Matrix query_minus = query_input;
+        query_minus(pi, pj) -= epsilon;
+
+        float loss_plus = scalar_loss(ca.forward(query_plus, kv_input));
+        float loss_minus = scalar_loss(ca.forward(query_minus, kv_input));
+        float numerical_grad = (loss_plus - loss_minus) / (2.0f * epsilon);
+
+        float tolerance = std::max(1e-2f, 0.05f * std::abs(numerical_grad));
+        EXPECT_NEAR(analytic_grad_query(pi, pj), numerical_grad, tolerance)
+            << "query gradient mismatch at (" << pi << "," << pj << ") with LoRA active";
+    }
+
+    const std::vector<std::pair<int, int>> kv_positions = {
+        {0, 0}, {0, d_model / 2}, {1, 3}, {src_len - 1, d_model - 1}};
+    for (const auto& [pi, pj] : kv_positions) {
+        Matrix kv_plus = kv_input;
+        kv_plus(pi, pj) += epsilon;
+        Matrix kv_minus = kv_input;
+        kv_minus(pi, pj) -= epsilon;
+
+        float loss_plus = scalar_loss(ca.forward(query_input, kv_plus));
+        float loss_minus = scalar_loss(ca.forward(query_input, kv_minus));
+        float numerical_grad = (loss_plus - loss_minus) / (2.0f * epsilon);
+
+        float tolerance = std::max(1e-2f, 0.05f * std::abs(numerical_grad));
+        EXPECT_NEAR(analytic_grad_kv(pi, pj), numerical_grad, tolerance)
+            << "kv gradient mismatch at (" << pi << "," << pj << ") with LoRA active";
+    }
+}
+
+TEST(CrossAttentionLoRATest, RegisterLoraParametersFreezesBaseWeights) {
+    int d_model = 12;
+    CrossAttention ca(d_model, 3);
+    seed_ca_weights_deterministically(ca, d_model, /*seed=*/31);
+
+    LoRAConfig config;
+    config.rank = 3;
+    ca.enable_lora(config);
+
+    Matrix Wq_before = ca.get_Wq();
+    Matrix Wk_before = ca.get_Wk();
+    Matrix Wv_before = ca.get_Wv();
+    Matrix Wo_before = ca.get_Wo();
+
+    Optimizer optimizer(OptimizerType::ADAM, 0.05f);
+    ca.register_lora_parameters(optimizer);
+
+    Matrix query_input(4, d_model);
+    Matrix kv_input(4, d_model);
+    for (int i = 0; i < 4; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            query_input(i, j) = 0.05f * (i + j);
+            kv_input(i, j) = 0.04f * (i - j);
+        }
+    }
+
+    for (int step = 0; step < 2; ++step) {
+        ca.zero_grad();
+        Matrix output = ca.forward(query_input, kv_input);
+        Matrix grad(output.rows, output.cols);
+        for (int i = 0; i < grad.rows; ++i) {
+            for (int j = 0; j < grad.cols; ++j) {
+                grad(i, j) = 0.1f;
+            }
+        }
+        Matrix gq, gkv;
+        ca.backward(grad, gq, gkv);
+        optimizer.step();
+    }
+
+    const Matrix& Wq_after = ca.get_Wq();
+    const Matrix& Wk_after = ca.get_Wk();
+    const Matrix& Wv_after = ca.get_Wv();
+    const Matrix& Wo_after = ca.get_Wo();
+    for (int i = 0; i < d_model; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            EXPECT_FLOAT_EQ(Wq_before(i, j), Wq_after(i, j));
+            EXPECT_FLOAT_EQ(Wk_before(i, j), Wk_after(i, j));
+            EXPECT_FLOAT_EQ(Wv_before(i, j), Wv_after(i, j));
+            EXPECT_FLOAT_EQ(Wo_before(i, j), Wo_after(i, j));
+        }
+    }
+}
+
+TEST(CrossAttentionLoRATest, MergeLoraPreservesForwardOutput) {
+    int d_model = 12;
+    CrossAttention ca(d_model, 3);
+    seed_ca_weights_deterministically(ca, d_model, /*seed=*/37);
+
+    LoRAConfig config;
+    config.rank = 3;
+    config.alpha = 6.0f;
+    ca.enable_lora(config);
+
+    Matrix query_input(4, d_model);
+    Matrix kv_input(4, d_model);
+    for (int i = 0; i < 4; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            query_input(i, j) = 0.03f * (i - j);
+            kv_input(i, j) = 0.02f * (i + j);
+        }
+    }
+
+    for (int step = 0; step < 3; ++step) {
+        Matrix out = ca.forward(query_input, kv_input);
+        Matrix grad(out.rows, out.cols);
+        for (int i = 0; i < grad.rows; ++i) {
+            for (int j = 0; j < grad.cols; ++j) {
+                grad(i, j) = 0.05f * (i + 1);
+            }
+        }
+        Matrix gq, gkv;
+        ca.backward(grad, gq, gkv);
+        ca.get_lora_q()->update(0.1f);
+        ca.get_lora_k()->update(0.1f);
+        ca.get_lora_v()->update(0.1f);
+        ca.get_lora_o()->update(0.1f);
+    }
+
+    Matrix output_before_merge = ca.forward(query_input, kv_input);
+    ca.merge_lora();
+    EXPECT_FALSE(ca.has_lora());
+    Matrix output_after_merge = ca.forward(query_input, kv_input);
+
+    ASSERT_EQ(output_before_merge.rows, output_after_merge.rows);
+    ASSERT_EQ(output_before_merge.cols, output_after_merge.cols);
+    for (int i = 0; i < output_before_merge.rows; ++i) {
+        for (int j = 0; j < output_before_merge.cols; ++j) {
+            EXPECT_NEAR(output_before_merge(i, j), output_after_merge(i, j), 1e-4f)
+                << "merge_lora() changed forward()'s output at (" << i << "," << j << ")";
+        }
+    }
+}
+
+// ============================================================================
 // Backward Pass Tests
 // ============================================================================
 

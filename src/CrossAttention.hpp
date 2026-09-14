@@ -1,13 +1,14 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.10.0
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added)
+// @adai-version: 0.11.0
 // @adai-reviewed: 2026-09-13
 
 
 #include <memory>
 #include <vector>
 #include "KVCache.hpp"
+#include "LoRA.hpp"
 #include "Matrix.hpp"
 #include "Optimizer.hpp"
 #ifdef ADAI_ENABLE_GPU
@@ -54,6 +55,12 @@
  * forward()/forward_with_cache()/backward()/gpu_forward()/gpu_backward() now genuinely
  * split into num_heads per-head computations. **Every checkpoint trained before this fix
  * needs retraining from scratch to be meaningful under the new math.**
+ *
+ * TD-038 (September 13, 2026): LoRA adapters (see enable_lora() below) are applied only on
+ * this CPU path (forward()/forward_with_cache()/backward()) — the separate
+ * gpu_forward()/gpu_backward() persistent-residency path does not apply them. Enabling LoRA
+ * while a caller uses that GPU path silently runs the unmodified base weights instead; not
+ * currently guarded against here. See MultiHeadAttention.hpp's identical note.
  */
 class CrossAttention {
    private:
@@ -92,6 +99,14 @@ class CrossAttention {
 
     // Optimizer support
     Optimizer* optimizer{nullptr};  // Optional optimizer (nullptr = simple gradient descent)
+
+    // TD-038: optional LoRA adapters on each projection, nullptr = disabled (the default --
+    // an instance with no enable_lora() call behaves identically to before this feature
+    // existed). Q takes decoder input; K/V take encoder input — see enable_lora()'s doc.
+    std::unique_ptr<LoRAAdapter> lora_q_;
+    std::unique_ptr<LoRAAdapter> lora_k_;
+    std::unique_ptr<LoRAAdapter> lora_v_;
+    std::unique_ptr<LoRAAdapter> lora_o_;
 
    public:
     float learning_rate{
@@ -264,6 +279,50 @@ class CrossAttention {
      * @param filepath Path to load file
      */
     void load(const std::string& filepath);
+
+    // ── TD-038: LoRA (Low-Rank Adaptation) integration ───────────────────────
+    /**
+     * @brief Attaches LoRA adapters to this layer's Q/K/V/O projections, per config's
+     * apply_to_query/key/value/output flags. Q adapts the decoder-side query projection; K/V
+     * adapt the encoder-side key/value projections — see this class's own doc comment on
+     * which input feeds which. Safe to call on an already-trained instance: LoRAAdapter's B
+     * matrix starts at zero, so forward()'s output is IDENTICAL to the pre-LoRA output until
+     * the adapters are actually trained via register_lora_parameters() below.
+     */
+    void enable_lora(const LoRAConfig& config);
+
+    /** @brief True if any LoRA adapter is currently attached. */
+    bool has_lora() const {
+        return lora_q_ || lora_k_ || lora_v_ || lora_o_;
+    }
+
+    /**
+     * @brief Registers ONLY the active LoRA adapters' own A/B matrices with `optimizer` --
+     * NOT W_q/W_k/W_v/W_o. See MultiHeadAttention::register_lora_parameters()'s identical
+     * doc comment for the full rationale (same pattern, same class of caller).
+     */
+    void register_lora_parameters(Optimizer& optimizer);
+
+    /**
+     * @brief Folds every active adapter's ΔW into the corresponding base weight matrix
+     * (LoRAAdapter::merge_with_base()) and discards the adapters. See
+     * MultiHeadAttention::merge_lora()'s identical doc comment.
+     */
+    void merge_lora();
+
+    // LoRA adapter accessors, primarily for tests/inspection. May return nullptr.
+    LoRAAdapter* get_lora_q() {
+        return lora_q_.get();
+    }
+    LoRAAdapter* get_lora_k() {
+        return lora_k_.get();
+    }
+    LoRAAdapter* get_lora_v() {
+        return lora_v_.get();
+    }
+    LoRAAdapter* get_lora_o() {
+        return lora_o_.get();
+    }
 
 #ifdef ADAI_ENABLE_GPU
     struct GPUState {

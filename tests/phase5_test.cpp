@@ -366,6 +366,131 @@ TEST(LoRATest, MergeWithBase) {
     EXPECT_EQ(merged.cols, 10);
 }
 
+// TD-038: merge_with_base() used to compute delta_W = B*A and validate W against a
+// (output_dim, input_dim) shape -- the "y = W*x" column-vector convention forward() does NOT
+// use (forward() computes y = x*W + scale*(x*A^T)*B^T, treating W as (input_dim, output_dim)).
+// A square adapter's own shape check couldn't catch this (both conventions pass the same
+// check), and no existing test compared merge_with_base()'s output against forward()'s own
+// output for the same weights -- only its shape. Deliberately non-square here (input_dim !=
+// output_dim) so a convention mismatch would fail outright (mismatched-shape throw) rather
+// than silently succeed with transposed numbers.
+TEST(LoRATest, MergeMatchesForwardOutput) {
+    const int input_dim = 6;
+    const int output_dim = 10;
+    LoRAAdapter lora(input_dim, output_dim, 3, 6.0f);
+
+    Matrix x(2, input_dim);
+    for (int i = 0; i < x.rows; i++) {
+        for (int j = 0; j < x.cols; j++) {
+            x(i, j) = 0.1f * (i + 1) + 0.05f * j;
+        }
+    }
+
+    Matrix W(input_dim, output_dim);  // "y = x*W" convention, matching forward()'s own usage
+    for (int i = 0; i < W.rows; i++) {
+        for (int j = 0; j < W.cols; j++) {
+            W(i, j) = 0.02f * (i - j);
+        }
+    }
+
+    // Train the adapter briefly so B is non-zero (B=0 at init would trivially pass any
+    // convention, correct or not).
+    Matrix W_output = x * W;
+    Matrix grad(2, output_dim);
+    for (int i = 0; i < grad.rows; i++) {
+        for (int j = 0; j < grad.cols; j++) {
+            grad(i, j) = 0.1f * (i + j + 1);
+        }
+    }
+    lora.backward(x, grad);
+    lora.update(0.5f);
+
+    Matrix adapted_output = lora.forward(x, x * W);
+    Matrix merged_W = lora.merge_with_base(W);
+    ASSERT_EQ(merged_W.rows, input_dim);
+    ASSERT_EQ(merged_W.cols, output_dim);
+    Matrix output_from_merged = x * merged_W;
+
+    ASSERT_EQ(output_from_merged.rows, adapted_output.rows);
+    ASSERT_EQ(output_from_merged.cols, adapted_output.cols);
+    for (int i = 0; i < adapted_output.rows; i++) {
+        for (int j = 0; j < adapted_output.cols; j++) {
+            EXPECT_NEAR(output_from_merged(i, j), adapted_output(i, j), 1e-4f)
+                << "merged weight's output diverges from the adapter's own forward() output "
+                   "at (" << i << "," << j << ") -- merge_with_base() is using the wrong "
+                   "matrix-orientation convention";
+        }
+    }
+}
+
+// TD-038: backward() used to return void and never expose the LoRA branch's own contribution
+// to dL/dx at all -- a real gap for any caller with layers before this adapter (which is
+// exactly how MultiHeadAttention/CrossAttention use it: cached_input feeds earlier layers via
+// grad_input). Verified here via finite differences against a scalar loss, isolating the LoRA
+// branch alone by holding the "frozen" W_output argument constant so only the (x*A^T)*B^T
+// branch contributes to d(output)/dx.
+TEST(LoRATest, BackwardReturnsCorrectInputGradient) {
+    const int input_dim = 5;
+    const int output_dim = 7;
+    LoRAAdapter lora(input_dim, output_dim, 3, 6.0f);
+
+    Matrix x(1, input_dim);
+    for (int j = 0; j < input_dim; j++) {
+        x(0, j) = 0.1f * (j + 1);
+    }
+    Matrix w_output(1, output_dim);  // held fixed across all forward() calls below
+    for (int j = 0; j < output_dim; j++) {
+        w_output(0, j) = 0.3f;
+    }
+
+    // Train briefly so B is non-zero -- otherwise the LoRA branch's own gradient w.r.t. x is
+    // identically zero regardless of correctness (B=0 kills every x-dependent term).
+    Matrix grad_for_training(1, output_dim);
+    for (int j = 0; j < output_dim; j++) {
+        grad_for_training(0, j) = 0.2f;
+    }
+    lora.backward(x, grad_for_training);
+    lora.update(0.3f);
+
+    // Sum-of-squares scalar loss: L = sum(output^2), so dL/doutput = 2*output.
+    auto scalar_loss = [](const Matrix& out) {
+        float loss = 0.0f;
+        for (int i = 0; i < out.rows; i++) {
+            for (int j = 0; j < out.cols; j++) {
+                loss += out(i, j) * out(i, j);
+            }
+        }
+        return loss;
+    };
+
+    Matrix output = lora.forward(x, w_output);
+    Matrix grad_output(output.rows, output.cols);
+    for (int i = 0; i < output.rows; i++) {
+        for (int j = 0; j < output.cols; j++) {
+            grad_output(i, j) = 2.0f * output(i, j);
+        }
+    }
+    Matrix analytic_grad = lora.backward(x, grad_output);
+    ASSERT_EQ(analytic_grad.rows, x.rows);
+    ASSERT_EQ(analytic_grad.cols, x.cols);
+
+    const float epsilon = 1e-3f;
+    for (int j = 0; j < input_dim; j++) {
+        Matrix x_plus = x;
+        x_plus(0, j) += epsilon;
+        Matrix x_minus = x;
+        x_minus(0, j) -= epsilon;
+
+        float loss_plus = scalar_loss(lora.forward(x_plus, w_output));
+        float loss_minus = scalar_loss(lora.forward(x_minus, w_output));
+        float numerical_grad = (loss_plus - loss_minus) / (2.0f * epsilon);
+
+        float tolerance = std::max(1e-2f, 0.05f * std::abs(numerical_grad));
+        EXPECT_NEAR(analytic_grad(0, j), numerical_grad, tolerance)
+            << "gradient mismatch at input position " << j;
+    }
+}
+
 TEST(LoRATest, SaveLoad) {
     LoRAAdapter lora1(10, 10, 4, 8.0f);
     lora1.save("test_lora.bin");

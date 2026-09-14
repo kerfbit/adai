@@ -1,7 +1,7 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.10.0
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added)
+// @adai-version: 0.11.0
 // @adai-reviewed: 2026-09-13
 
 
@@ -360,6 +360,38 @@ class EncoderDecoderModel {
      * @param optimizer Optimizer to register parameters with
      */
     void register_parameters(class Optimizer& optimizer);
+
+    // ── TD-038: LoRA (Low-Rank Adaptation) integration ───────────────────────
+    /**
+     * @brief Attaches LoRA adapters to every self-/cross-attention layer's Q/K/V/O
+     * projections across both the encoder and decoder, per config's apply_to_* flags. Safe
+     * to call on an already-trained model — LoRAAdapter's B matrix starts at zero, so
+     * forward()'s output is IDENTICAL to the pre-LoRA output until the adapters are
+     * actually trained (see register_lora_parameters() below). FeedForward layers are NOT
+     * touched — config.apply_to_ffn is not applicable to this call (no FeedForward LoRA
+     * support exists in this codebase; see TECHNICAL_DEBT.md's TD-038 entry).
+     */
+    void enable_lora(const LoRAConfig& config);
+
+    /** @brief True if LoRA is active on any encoder or decoder attention layer. */
+    bool has_lora();
+
+    /**
+     * @brief Registers ONLY the active LoRA adapters' own A/B matrices — across every
+     * encoder/decoder attention layer — with `optimizer`. NOT the base model's weights,
+     * which stay completely frozen if this is the only registration ever made against
+     * `optimizer` (don't also call register_parameters() on the same optimizer unless full
+     * fine-tuning on top of LoRA is actually intended). See
+     * MultiHeadAttention::register_lora_parameters()'s doc comment for the full rationale.
+     */
+    void register_lora_parameters(class Optimizer& optimizer);
+
+    /**
+     * @brief Folds every active adapter's ΔW into its base weight matrix, across the whole
+     * model, and discards the adapters — see MultiHeadAttention::merge_lora()'s doc comment.
+     * After this call has_lora() is false.
+     */
+    void merge_lora();
 
     /**
      * Backward pass without updating weights

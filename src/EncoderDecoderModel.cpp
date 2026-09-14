@@ -1,5 +1,5 @@
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.10.0
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added)
+// @adai-version: 0.11.0
 // @adai-reviewed: 2026-09-13
 
 #include "EncoderDecoderModel.hpp"
@@ -503,6 +503,56 @@ void EncoderDecoderModel::register_parameters(Optimizer& optimizer) {
 
     // Register language model head parameters
     lm_head->set_optimizer(&optimizer);
+}
+
+// TD-038: LoRA -- attach adapters to every attention layer's Q/K/V/O projections, across
+// both the encoder (self-attention only) and decoder (self- and cross-attention).
+void EncoderDecoderModel::enable_lora(const LoRAConfig& config) {
+    for (int i = 0; i < encoder->get_num_layers(); ++i) {
+        encoder->get_encoder_block(i)->get_self_attention()->enable_lora(config);
+    }
+    for (int i = 0; i < decoder->get_num_layers(); ++i) {
+        DecoderBlock* block = decoder->get_decoder_block(i);
+        block->get_self_attention()->enable_lora(config);
+        block->get_cross_attention()->enable_lora(config);
+    }
+}
+
+bool EncoderDecoderModel::has_lora() {
+    for (int i = 0; i < encoder->get_num_layers(); ++i) {
+        if (encoder->get_encoder_block(i)->get_self_attention()->has_lora()) {
+            return true;
+        }
+    }
+    for (int i = 0; i < decoder->get_num_layers(); ++i) {
+        DecoderBlock* block = decoder->get_decoder_block(i);
+        if (block->get_self_attention()->has_lora() || block->get_cross_attention()->has_lora()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void EncoderDecoderModel::register_lora_parameters(Optimizer& optimizer) {
+    for (int i = 0; i < encoder->get_num_layers(); ++i) {
+        encoder->get_encoder_block(i)->get_self_attention()->register_lora_parameters(optimizer);
+    }
+    for (int i = 0; i < decoder->get_num_layers(); ++i) {
+        DecoderBlock* block = decoder->get_decoder_block(i);
+        block->get_self_attention()->register_lora_parameters(optimizer);
+        block->get_cross_attention()->register_lora_parameters(optimizer);
+    }
+}
+
+void EncoderDecoderModel::merge_lora() {
+    for (int i = 0; i < encoder->get_num_layers(); ++i) {
+        encoder->get_encoder_block(i)->get_self_attention()->merge_lora();
+    }
+    for (int i = 0; i < decoder->get_num_layers(); ++i) {
+        DecoderBlock* block = decoder->get_decoder_block(i);
+        block->get_self_attention()->merge_lora();
+        block->get_cross_attention()->merge_lora();
+    }
 }
 
 // Backward pass without weight update (for use with external optimizer)

@@ -47,12 +47,15 @@ ambiguity, can start immediately regardless of Tier 1's outcome):
 caller-supplied log-prob callback, plus a real `ValueFunction` backward pass) — see
 [archive](../archive/TECHNICAL_DEBT_RESOLVED.md#td-034-ppooptimizers-core-update-loop-is-a-placeholder-not-real-ppo).
 That unblocked
-[TD-038](#td-038-advanced-features-tested-in-isolation-never-wired-into-a-shipped-binary)'s last
-open item (`RewardModel` wiring), also done September 13, 2026 — user chose the full RLHF
-fine-tuning loop; new `src/RLHFTrainer.{hpp,cpp}` drives `RewardModel`/`PPOOptimizer` against a
-live policy with a real, tested policy-gradient update (see TD-038's own Update for the mechanism
-and its disclosed scope limits). TD-038's other two items (LoRA/Quantization) remain deliberately
-deferred by prior user decision, not blocked — TD-038 itself needs no separate pick.
+[TD-038](#td-038-advanced-features-tested-in-isolation-never-wired-into-a-shipped-binary)'s
+`RewardModel` item, also done September 13, 2026 — user chose the full RLHF fine-tuning loop; new
+`src/RLHFTrainer.{hpp,cpp}` drives `RewardModel`/`PPOOptimizer` against a live policy with a real,
+tested policy-gradient update (see TD-038's own Update for the mechanism and its disclosed scope
+limits). `LoRA`, deferred in TD-038's first pass alongside `Quantization`, was revisited the same
+day once TD-059's attention-math fix made touching `MultiHeadAttention`/`CrossAttention`'s forward
+pass a well-understood change rather than an open risk — now wired in too (see TD-038's second
+Update), catching two more real bugs in `LoRAAdapter` itself along the way. Only `Quantization`
+remains deliberately deferred — TD-038 itself needs no separate pick.
 
 **Tier 4 — Sustained, low-risk test-coverage investment** (systematic, already-validated pattern,
 no open design questions): [TD-048](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
@@ -566,7 +569,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open (6/7 non-blocked items done) | Advanced Features / Integration | September 7, 2026 | 16-24 hours |
+| LOW | Open (7/7 non-blocked items done — Quantization deliberately deferred) | Advanced Features / Integration | September 7, 2026 | 16-24 hours |
 
 Description:
 `BatchedInferenceEngine`, `IntegratedInferenceEngine`, `PipelineInferenceEngine`,
@@ -583,10 +586,13 @@ resolves all eight.
 bug that had never been exercised against real model components, because their own dedicated unit
 test suites used mock/null types shaped to match the (buggy) production code rather than the real
 dependency — exactly the failure mode this TD's title describes, confirmed in the most direct way
-possible. `LoRA`/`Quantization` were explicitly scoped out after a user decision (both would
-require touching `MultiHeadAttention`'s forward pass for any real integration — the same
-foundational-class risk class as TD-059); `RewardModel` was genuinely blocked on TD-034, resolved
-September 13, 2026.
+possible. `LoRA`/`Quantization` were explicitly scoped out after a user decision at the time (both
+would require touching `MultiHeadAttention`'s forward pass for any real integration — the same
+foundational-class risk class as TD-059, which had not yet landed); `RewardModel` was genuinely
+blocked on TD-034, resolved September 13, 2026. `LoRA` was revisited and wired in later the same
+day, once TD-059's fix had landed and made touching the attention forward pass a well-understood,
+already-tested change rather than an open risk — see the Update below. `Quantization` remains
+deliberately deferred (see its own Action Item).
 
 **Update (September 13, 2026):** `RewardModel`/`PPOOptimizer` wiring done — user chose the "full
 RLHF fine-tuning loop" option (rollout generation, encoding bridge, PPOOptimizer, and a real
@@ -642,6 +648,63 @@ ready to be driven, but nothing yet calls it from a shipped binary's command-lin
 here rather than assumed, since the user's "full RLHF fine-tuning loop" choice didn't explicitly
 promise that CLI wiring.
 
+**Update (September 13, 2026):** `LoRA` wiring done — revisited after being deferred alongside
+`Quantization` in the first pass above, now that TD-059's fix made touching
+`MultiHeadAttention`/`CrossAttention`'s forward pass a well-understood, already-tested change
+rather than an open risk. `LoRAAdapter` (`src/LoRA.hpp`) is now genuinely attached to every
+self-/cross-attention layer's Q/K/V/O projections, in both the encoder and decoder:
+- **Wiring shape**: `MultiHeadAttention`/`CrossAttention` each gained `enable_lora(LoRAConfig)`,
+  `has_lora()`, `register_lora_parameters(Optimizer&)`, and `merge_lora()`, following
+  `LoRAAdapter::forward(x, W_output)`'s own existing "add my delta to an already-computed base
+  output" contract — `forward_parallel()`/`forward_with_cache()` apply each active adapter right
+  after its corresponding base projection, so the per-head attention math itself needed no changes
+  at all, only the four projection call sites and the matching four spots in `backward()`.
+  `EncoderDecoderModel` cascades the same three calls across every attention layer via the
+  existing `LLMEncoder`/`LLMDecoder` per-block accessors (`get_encoder_block(i)`/
+  `get_decoder_block(i)`), so a caller enables/trains/merges LoRA for the whole model in one call
+  each, the same shape as `register_parameters(Optimizer&)`'s existing full-fine-tune cascade.
+  `register_lora_parameters()` registers ONLY the adapters' own A/B matrices — never the base
+  W_q/W_k/W_v/W_o — so a base model stays genuinely frozen whenever only that method (not also
+  `register_parameters()`) is called against a training optimizer.
+- **A real, previously-undiscovered bug found and fixed along the way**: `LoRAAdapter::backward()`
+  used to return `void` and never exposed the LoRA branch's own gradient w.r.t. its input `x` at
+  all — harmless for a standalone adapter with no caller before it, but a real, silent
+  gradient-flow gap for exactly how this class is now used (`MultiHeadAttention`/`CrossAttention`
+  have layers before them across a multi-block encoder/decoder stack; without this, LoRA on any
+  layer but the very first would have silently truncated backpropagation to everything upstream of
+  it, undetectable by that adapter's own existing unit tests since none had a caller feeding it a
+  further input). Fixed by deriving and returning the correct contribution
+  (`scale * (grad_output * B) * A`) and wiring it into both attention classes' `backward()`, then
+  verifying with finite-difference gradient checks against the model's actual forward pass with
+  LoRA active (`MultiHeadAttentionLoRATest.BackwardPassMatchesNumericalGradientWithLoraActive`,
+  and `CrossAttention`'s equivalent) — not just checked in isolation.
+- **A second real, previously-undiscovered bug**: `LoRAAdapter::merge_with_base()` computed
+  `ΔW = B*A` and validated its `W` argument against an (output_dim, input_dim) shape — the
+  column-vector "y = W*x" convention. `forward()` uses the opposite row-vector "y = x*W"
+  convention throughout (`ΔW_effective = A^T*B^T`, matching how every real caller in this codebase,
+  including this class's own new integration, stores its weight matrices). A square adapter (the
+  only shape this class's own pre-existing tests ever exercised) couldn't catch this — both
+  conventions pass the same shape check, and `(B*A)` happens to have the same shape as
+  `(A^T*B^T)` when square, just different (generically wrong) numbers. Caught only once
+  `merge_with_base()`'s actual output was compared against `forward()`'s own output for the same
+  weights on a deliberately non-square adapter (`LoRATest.MergeMatchesForwardOutput`), rather than
+  just its shape as the original test did.
+- **Scope**: FeedForward layers are NOT touched — `LoRAConfig::apply_to_ffn` (already `false` by
+  default) is not implemented by any class in this pass; only the Q/K/V/O attention projections
+  `apply_to_query`/`key`/`value`/`output` gate. LoRA is applied only on the CPU forward/backward
+  path (`forward()`/`forward_parallel()`/`forward_with_cache()`/`backward()`) — the separate
+  persistent-GPU-residency decode path (`gpu_forward()`/`gpu_backward()`, TD-033's route) does not
+  apply adapters at all; enabling LoRA while a caller uses that GPU path silently runs the
+  unmodified base weights, not currently guarded against. Also out of scope, same as RewardModel
+  above: wiring this into an actual CLI subcommand of `incremental_trainer`/`chatbot_api_server`
+  (e.g. a `--lora-rank`/`--lora-checkpoint` flag) — the mechanism is built, tested (13 new tests:
+  2 unit-level in `phase5_test.cpp` covering the two bugs above, 4 each in
+  `multiheadattention_test.cpp`/`crossattention_test.cpp` covering the real wiring (no-op at
+  init, finite-difference gradient check with LoRA active, base-weight freezing, merge
+  equivalence), 3 model-wide in `encoderdecoder_test.cpp` covering the same properties cascaded
+  across every encoder/decoder attention layer), and ready to be driven, but nothing yet calls it
+  from a shipped binary's command-line surface.
+
 Action Items:
 
 - [x] `BatchedInferenceEngine`: wired into `ChatbotAPI::enable_batched_inference()` /
@@ -670,10 +733,18 @@ Action Items:
   way: `Profiler`'s internal maps had no locking, and `active_timers` was keyed by section name
   alone, so concurrent same-name `start()`/`stop()` pairs (exactly `generate_response()`'s case
   under `chatbot_api_server`'s real thread pool) corrupted each other's recorded timings.
-- [ ] `LoRA` / `Quantization`: explicitly deferred (see above) — not attempted this pass. Still
-  needs a scoping decision: a standalone checkpoint-manipulation CLI tool (lower risk) vs. actually
-  modifying `MultiHeadAttention`'s forward pass for real inference/training integration (the real
-  thing, higher risk).
+- [ ] `Quantization`: still explicitly deferred — needs a scoping decision: a standalone
+  checkpoint-manipulation CLI tool (lower risk) vs. actually modifying `MultiHeadAttention`'s
+  forward pass for real inference/training integration (the real thing, higher risk). Unlike
+  `LoRA` below, no user decision to revisit this has been made yet.
+- [x] `LoRA`: `MultiHeadAttention`/`CrossAttention` gained `enable_lora()`/`has_lora()`/
+  `register_lora_parameters()`/`merge_lora()`, applied to every Q/K/V/O projection per
+  `LoRAConfig`'s `apply_to_*` flags; `EncoderDecoderModel` cascades all four across every encoder/
+  decoder attention layer. Found and fixed two real, previously-undiscovered bugs in
+  `LoRAAdapter` itself along the way (`backward()` never returning its branch's own input
+  gradient; `merge_with_base()` using the wrong matrix-orientation convention) — see the Update
+  above for both. Not yet wired into any CLI subcommand of a shipped binary — see the
+  scope-limitation note above.
 - [x] `RewardModel`/`PPOOptimizer`: new `src/RLHFTrainer.{hpp,cpp}` drives both against a live
   `EncoderDecoderModel` policy — real rollout generation, the encoding bridge, and a real policy
   gradient applied to the model's actual weights (see the Update above for the full mechanism and
@@ -681,12 +752,18 @@ Action Items:
   scope-limitation note above.
 - [x] Add an integration test per wired feature proving the wiring works end-to-end — done for all
   five items above (ChatbotAPI-level integration tests plus live end-to-end verification against a
-  real running `chatbot_api_server` process for each) and for `RewardModel`/`PPOOptimizer`
-  (`tests/rlhftrainer_test.cpp`, 4/4 passing).
+  real running `chatbot_api_server` process for each), for `RewardModel`/`PPOOptimizer`
+  (`tests/rlhftrainer_test.cpp`, 4/4 passing), and for `LoRA` (13 new tests across four files, all
+  passing — see the Update above).
 
 Files to Modify:
 
-- `src/LoRA.hpp`, `src/Quantization.hpp` — remaining, unattempted work.
+- `src/Quantization.hpp` — remaining, unattempted work.
+- `src/LoRA.hpp` (fixed `backward()`/`merge_with_base()`, added `register_parameters()`),
+  `src/MultiHeadAttention.{hpp,cpp}`, `src/CrossAttention.{hpp,cpp}`,
+  `src/EncoderDecoderModel.{hpp,cpp}` (LoRA cascade), `tests/phase5_test.cpp`,
+  `tests/multiheadattention_test.cpp`, `tests/crossattention_test.cpp`,
+  `tests/encoderdecoder_test.cpp` — done.
 - `src/RLHFTrainer.{hpp,cpp}` (new), `tests/rlhftrainer_test.cpp` (new), `src/PPOOptimizer.hpp`
   (new public `compute_advantages()`), `src/RewardModel.hpp` (status tag only) — done.
 - Already done (prior items): `src/BatchedInferenceEngine.hpp`, `src/PipelineInferenceEngine.hpp`,

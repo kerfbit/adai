@@ -1,9 +1,9 @@
 #ifndef LORA_HPP
 #define LORA_HPP
 
-// @adai-status: beta        (capped by TD-038 — tested but not wired into any shipped binary)
-// @adai-version: 0.7.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: beta        (TD-038 — now genuinely wired into MultiHeadAttention/CrossAttention)
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-09-13
 
 
 #include <algorithm>
@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 #include "Matrix.hpp"
+#include "Optimizer.hpp"
 
 /**
  * @file LoRA.hpp
@@ -154,12 +155,22 @@ class LoRAAdapter {
     /**
      * @brief Backward pass for LoRA adapter
      *
-     * Computes gradients for A and B given output gradient.
+     * Computes gradients for A and B given the output gradient, AND returns this branch's
+     * own contribution to the gradient w.r.t. `x` -- TD-038: needed for real integration,
+     * since y = x*W + scale*(x*A^T)*B^T is a SUM of the frozen base-weight branch and this
+     * LoRA branch sharing the same x; a caller with layers before this adapter (e.g.
+     * MultiHeadAttention, stacked across multiple encoder/decoder blocks) must add this to
+     * whatever gradient the frozen W branch itself contributes to get the real dL/dx. This
+     * was previously a real gap: earlier versions of this method returned void and never
+     * exposed the LoRA branch's own contribution at all, silently truncating gradient flow
+     * to any layer feeding a LoRA-adapted one.
      *
      * @param x Input to forward pass (cached)
-     * @param grad_output Gradient flowing back from loss
+     * @param grad_output Gradient flowing back from loss (dL/dy, same shape as forward()'s
+     *   return value)
+     * @return dL/dx contributed by this LoRA branch alone (shape matches `x`)
      */
-    void backward(const Matrix& x, const Matrix& grad_output) {
+    Matrix backward(const Matrix& x, const Matrix& grad_output) {
         float scale = alpha_ / rank_;
 
         // For ΔW = B * A where B is (output_dim, rank), A is (rank, input_dim)
@@ -190,6 +201,31 @@ class LoRAAdapter {
                 grad_A_(r, c) *= scale;
             }
         }
+
+        // dL/dx from this branch: y_delta = (x*A^T)*B^T, so
+        //   dL/d(x*A^T) = grad_output * B     (chain rule through the second matmul)
+        //   dL/dx       = dL/d(x*A^T) * A     (chain rule through the first matmul)
+        Matrix grad_xA = grad_output * B_;  // (batch, rank)
+        Matrix grad_input = grad_xA * A_;   // (batch, input_dim)
+        for (int r = 0; r < grad_input.rows; r++) {
+            for (int c = 0; c < grad_input.cols; c++) {
+                grad_input(r, c) *= scale;
+            }
+        }
+        return grad_input;
+    }
+
+    /**
+     * @brief TD-038: registers this adapter's own A/B matrices with an external optimizer --
+     * the same register-with-an-external-optimizer pattern MultiHeadAttention/CrossAttention/
+     * EncoderDecoderModel already use elsewhere in this codebase (`register_parameters()`),
+     * so a caller can train just the LoRA matrices (freezing the base model) by registering
+     * ONLY these and never registering the base W_q/W_k/W_v/W_o anywhere. Independent of
+     * update() above, which remains for simple manual-learning-rate descent.
+     */
+    void register_parameters(Optimizer& optimizer) {
+        optimizer.add_parameter_group(&A_, &grad_A_);
+        optimizer.add_parameter_group(&B_, &grad_B_);
     }
 
     /**
@@ -232,20 +268,37 @@ class LoRAAdapter {
     /**
      * @brief Merge LoRA adapter into base weight matrix
      *
-     * Computes: W' = W + (alpha/r) * B * A
+     * Computes: W' = W + (alpha/r) * A^T * B^T -- TD-038: fixed to match forward()'s actual
+     * convention. forward() computes y = x*W + scale*(x*A^T)*B^T, i.e. it treats W as
+     * (input_dim, output_dim) in the row-vector "y = x*W" convention every caller in this
+     * codebase actually uses (MultiHeadAttention/CrossAttention's own W_q/W_k/W_v/W_o are
+     * all stored this way). The effective added weight in that same convention is
+     * (A^T*B^T) = (B*A)^T, NOT (B*A) itself.
+     *
+     * This was a real, previously-undiscovered bug: the original implementation computed
+     * ΔW = B*A and validated `W` against a (output_dim, input_dim) shape -- the OPPOSITE
+     * "y = W*x" column-vector convention forward() does not use. For non-square adapters
+     * this would have thrown on a perfectly valid (input_dim, output_dim) W; for square
+     * ones (the only shape this class's own tests ever exercised) it silently merged the
+     * TRANSPOSE of the correct delta, since (B*A) != (A^T*B^T) in general even when both are
+     * square. Caught only once this class was actually wired in and merge_with_base()'s
+     * output was checked against forward()'s own output for the same weights, rather than
+     * just its shape (see LoRATest.MergeMatchesForwardOutput).
      *
      * This allows removing LoRA overhead during inference.
      *
-     * @param W Base weight matrix
-     * @return Merged weight matrix
+     * @param W Base weight matrix, shape (input_dim, output_dim) -- the same shape/convention
+     *   as the W this adapter's forward() was called alongside.
+     * @return Merged weight matrix, same shape as `W`.
      */
     Matrix merge_with_base(const Matrix& W) {
-        if (W.rows != output_dim_ || W.cols != input_dim_) {
+        if (W.rows != input_dim_ || W.cols != output_dim_) {
             throw std::invalid_argument("Weight matrix dimension mismatch");
         }
 
-        // Compute ΔW = B * A
-        Matrix delta_W = B_ * A_;
+        // Compute ΔW = A^T * B^T (== (B*A)^T) -- the exact quantity forward() adds to its
+        // W_output argument, precomputed once here instead of applied per-call.
+        Matrix delta_W = A_.transpose() * B_.transpose();
 
         // Scale by alpha/r
         float scale = alpha_ / rank_;
@@ -256,9 +309,9 @@ class LoRAAdapter {
         }
 
         // Add to base weights
-        Matrix merged(output_dim_, input_dim_);
-        for (int r = 0; r < output_dim_; r++) {
-            for (int c = 0; c < input_dim_; c++) {
+        Matrix merged(input_dim_, output_dim_);
+        for (int r = 0; r < input_dim_; r++) {
+            for (int c = 0; c < output_dim_; c++) {
                 merged(r, c) = W(r, c) + delta_W(r, c);
             }
         }

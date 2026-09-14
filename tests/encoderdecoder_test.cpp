@@ -1520,6 +1520,123 @@ TEST(EncoderDecoderModelTest, MemoryStability) {
 }
 
 // ============================================================================
+// TD-038: LoRA model-wide integration tests
+// ============================================================================
+
+TEST(EncoderDecoderModelLoRATest, EnableLoraAcrossModelIsNoOp) {
+    int vocab_size = 100;
+    int d_model = 32;
+    EncoderDecoderModel model(vocab_size, d_model, 2, 2, /*num_heads=*/4, /*d_ff=*/64);
+    build_test_vocab(model.get_tokenizer(), vocab_size);
+
+    std::vector<int> input_tokens = {1, 5, 10, 2};
+    std::vector<int> target_tokens = {1, 3, 7, 2};
+
+    Matrix logits_before = model.forward(input_tokens, target_tokens);
+
+    LoRAConfig config;
+    config.rank = 4;
+    model.enable_lora(config);
+    ASSERT_TRUE(model.has_lora());
+
+    Matrix logits_after = model.forward(input_tokens, target_tokens);
+    EXPECT_TRUE(matrices_equal(logits_before, logits_after, 1e-5f))
+        << "enabling LoRA across the whole model changed forward() output before any training";
+}
+
+TEST(EncoderDecoderModelLoRATest, RegisterLoraParametersFreezesWholeModelWeights) {
+    int vocab_size = 100;
+    int d_model = 32;
+    EncoderDecoderModel model(vocab_size, d_model, 2, 2, /*num_heads=*/4, /*d_ff=*/64);
+    build_test_vocab(model.get_tokenizer(), vocab_size);
+    model.set_training(true);
+
+    LoRAConfig config;
+    config.rank = 4;
+    model.enable_lora(config);
+
+    // Snapshot base weights across every attention layer in both the encoder and decoder --
+    // encoder self-attention, decoder self-attention, and decoder cross-attention.
+    MultiHeadAttention* enc0_attn = model.get_encoder()->get_encoder_block(0)->get_self_attention();
+    MultiHeadAttention* dec0_self = model.get_decoder()->get_decoder_block(0)->get_self_attention();
+    CrossAttention* dec0_cross = model.get_decoder()->get_decoder_block(0)->get_cross_attention();
+    Matrix enc0_Wq_before = enc0_attn->get_Wq();
+    Matrix dec0_self_Wq_before = dec0_self->get_Wq();
+    Matrix dec0_cross_Wq_before = dec0_cross->get_Wq();
+
+    Optimizer optimizer(OptimizerType::ADAM, 0.01f);
+    // Deliberately register ONLY the LoRA parameters -- never register_parameters() on this
+    // optimizer -- so the base model's weights are never in its parameter_groups at all.
+    model.register_lora_parameters(optimizer);
+
+    std::vector<int> input_tokens = {1, 5, 10, 2};
+    std::vector<int> target_tokens = {1, 3, 7, 2};
+
+    for (int step = 0; step < 2; ++step) {
+        model.zero_grad();
+        Matrix logits = model.forward(input_tokens, target_tokens);
+        Matrix grad_loss = model.compute_loss_gradient_for_training(logits, target_tokens);
+        model.backward_pass(grad_loss);
+        optimizer.step();
+    }
+
+    // Base weights, across every attention layer touched, must be bit-for-bit untouched.
+    EXPECT_TRUE(matrices_equal(enc0_Wq_before, enc0_attn->get_Wq(), 1e-6f))
+        << "encoder self-attention's base W_q moved despite never being registered";
+    EXPECT_TRUE(matrices_equal(dec0_self_Wq_before, dec0_self->get_Wq(), 1e-6f))
+        << "decoder self-attention's base W_q moved despite never being registered";
+    EXPECT_TRUE(matrices_equal(dec0_cross_Wq_before, dec0_cross->get_Wq(), 1e-6f))
+        << "decoder cross-attention's base W_q moved despite never being registered";
+
+    // But the LoRA adapters actually trained.
+    Matrix B_after = enc0_attn->get_lora_q()->get_B();
+    bool b_changed = false;
+    for (int i = 0; i < B_after.rows && !b_changed; ++i) {
+        for (int j = 0; j < B_after.cols; ++j) {
+            if (std::abs(B_after(i, j)) > 1e-6f) {
+                b_changed = true;
+                break;
+            }
+        }
+    }
+    EXPECT_TRUE(b_changed) << "encoder self-attention's LoRA_q never trained";
+}
+
+TEST(EncoderDecoderModelLoRATest, MergeLoraAcrossModelPreservesOutput) {
+    int vocab_size = 100;
+    int d_model = 32;
+    EncoderDecoderModel model(vocab_size, d_model, 2, 2, /*num_heads=*/4, /*d_ff=*/64);
+    build_test_vocab(model.get_tokenizer(), vocab_size);
+    model.set_training(true);
+
+    LoRAConfig config;
+    config.rank = 4;
+    model.enable_lora(config);
+
+    Optimizer optimizer(OptimizerType::ADAM, 0.02f);
+    model.register_lora_parameters(optimizer);
+
+    std::vector<int> input_tokens = {1, 5, 10, 2};
+    std::vector<int> target_tokens = {1, 3, 7, 2};
+
+    for (int step = 0; step < 3; ++step) {
+        model.zero_grad();
+        Matrix logits = model.forward(input_tokens, target_tokens);
+        Matrix grad_loss = model.compute_loss_gradient_for_training(logits, target_tokens);
+        model.backward_pass(grad_loss);
+        optimizer.step();
+    }
+
+    Matrix logits_before_merge = model.forward(input_tokens, target_tokens);
+    model.merge_lora();
+    EXPECT_FALSE(model.has_lora());
+    Matrix logits_after_merge = model.forward(input_tokens, target_tokens);
+
+    EXPECT_TRUE(matrices_equal(logits_before_merge, logits_after_merge, 1e-3f))
+        << "merge_lora() changed the whole model's forward() output";
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 

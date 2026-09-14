@@ -544,6 +544,256 @@ TEST(MultiHeadAttentionArchitectureTest, BackwardPassMatchesNumericalGradient) {
 }
 
 // ============================================================================
+// TD-038: LoRA integration tests
+// ============================================================================
+
+TEST(MultiHeadAttentionLoRATest, EnableLoraIsNoOpBeforeTraining) {
+    int d_model = 16;
+    MultiHeadAttention mha(d_model, 4);
+    seed_weights_deterministically(mha, d_model, /*seed=*/7);
+
+    Matrix input(5, d_model);
+    for (int i = 0; i < input.rows; ++i) {
+        for (int j = 0; j < input.cols; ++j) {
+            input(i, j) = 0.05f * std::cos(static_cast<float>(i * d_model + j));
+        }
+    }
+
+    Matrix output_before = mha.forward(input);
+
+    LoRAConfig config;
+    config.rank = 4;
+    mha.enable_lora(config);
+    ASSERT_TRUE(mha.has_lora());
+
+    // LoRAAdapter's B matrix starts at zero, so ΔW=0 -- forward() must be untouched.
+    Matrix output_after = mha.forward(input);
+    ASSERT_EQ(output_after.rows, output_before.rows);
+    ASSERT_EQ(output_after.cols, output_before.cols);
+    for (int i = 0; i < output_before.rows; ++i) {
+        for (int j = 0; j < output_before.cols; ++j) {
+            EXPECT_FLOAT_EQ(output_before(i, j), output_after(i, j))
+                << "enabling LoRA changed forward() output before any training at ("
+                << i << "," << j << ")";
+        }
+    }
+}
+
+TEST(MultiHeadAttentionLoRATest, BackwardPassMatchesNumericalGradientWithLoraActive) {
+    // Same finite-difference shape as
+    // MultiHeadAttentionArchitectureTest.BackwardPassMatchesNumericalGradient above, but with
+    // LoRA adapters enabled AND pre-trained (so B != 0 and the LoRA branch actually
+    // contributes to the output) -- this is what actually exercises the new
+    // LoRAAdapter::backward() grad_input return value wired into
+    // MultiHeadAttention::backward() (TD-038), not just the pre-existing frozen-weight path.
+    int d_model = 16;
+    int num_heads = 4;
+    MultiHeadAttention mha(d_model, num_heads);
+    seed_weights_deterministically(mha, d_model, /*seed=*/13);
+
+    LoRAConfig config;
+    config.rank = 4;
+    config.alpha = 8.0f;
+    mha.enable_lora(config);
+
+    const int seq_len = 5;
+    Matrix input(seq_len, d_model);
+    for (int i = 0; i < input.rows; ++i) {
+        for (int j = 0; j < input.cols; ++j) {
+            input(i, j) = 0.05f * std::sin(static_cast<float>(i * d_model + j));
+        }
+    }
+
+    // Pre-train the adapters a few steps with plain manual-learning-rate descent so every
+    // adapter's B matrix is genuinely non-zero before the gradient check below.
+    for (int step = 0; step < 3; ++step) {
+        Matrix out = mha.forward(input);
+        Matrix grad(out.rows, out.cols);
+        for (int i = 0; i < grad.rows; ++i) {
+            for (int j = 0; j < grad.cols; ++j) {
+                grad(i, j) = 0.1f * (i + j + 1);
+            }
+        }
+        mha.backward(grad);
+        mha.get_lora_q()->update(0.05f);
+        mha.get_lora_k()->update(0.05f);
+        mha.get_lora_v()->update(0.05f);
+        mha.get_lora_o()->update(0.05f);
+    }
+
+    auto scalar_loss = [](const Matrix& out) {
+        float loss = 0.0f;
+        for (int i = 0; i < out.rows; ++i) {
+            for (int j = 0; j < out.cols; ++j) {
+                loss += out(i, j) * out(i, j);
+            }
+        }
+        return loss;
+    };
+
+    Matrix output = mha.forward(input);
+    Matrix grad_output(output.rows, output.cols);
+    for (int i = 0; i < output.rows; ++i) {
+        for (int j = 0; j < output.cols; ++j) {
+            grad_output(i, j) = 2.0f * output(i, j);
+        }
+    }
+    Matrix analytic_grad = mha.backward(grad_output);
+
+    const float epsilon = 1e-3f;
+    const std::vector<std::pair<int, int>> positions = {
+        {0, 0}, {0, d_model / 2}, {1, 3}, {2, d_model - 1}, {seq_len - 1, 7}};
+
+    for (const auto& [pi, pj] : positions) {
+        Matrix input_plus = input;
+        input_plus(pi, pj) += epsilon;
+        Matrix input_minus = input;
+        input_minus(pi, pj) -= epsilon;
+
+        float loss_plus = scalar_loss(mha.forward(input_plus));
+        float loss_minus = scalar_loss(mha.forward(input_minus));
+        float numerical_grad = (loss_plus - loss_minus) / (2.0f * epsilon);
+
+        float tolerance = std::max(1e-2f, 0.05f * std::abs(numerical_grad));
+        EXPECT_NEAR(analytic_grad(pi, pj), numerical_grad, tolerance)
+            << "gradient mismatch at (" << pi << "," << pj << ") with LoRA active";
+    }
+}
+
+TEST(MultiHeadAttentionLoRATest, RegisterLoraParametersFreezesBaseWeights) {
+    int d_model = 12;
+    MultiHeadAttention mha(d_model, 3);
+    seed_weights_deterministically(mha, d_model, /*seed=*/23);
+
+    LoRAConfig config;
+    config.rank = 3;
+    mha.enable_lora(config);
+
+    Matrix Wq_before = mha.get_Wq();
+    Matrix Wk_before = mha.get_Wk();
+    Matrix Wv_before = mha.get_Wv();
+    Matrix Wo_before = mha.get_Wo();
+    Matrix A_before = mha.get_lora_q()->get_A();
+    Matrix B_before = mha.get_lora_q()->get_B();
+
+    Optimizer optimizer(OptimizerType::ADAM, 0.05f);
+    // Deliberately register ONLY the LoRA parameters -- never register_parameters() on this
+    // optimizer -- so the base weights are never in its parameter_groups at all.
+    mha.register_lora_parameters(optimizer);
+
+    Matrix input(4, d_model);
+    for (int i = 0; i < input.rows; ++i) {
+        for (int j = 0; j < input.cols; ++j) {
+            input(i, j) = 0.05f * (i + j);
+        }
+    }
+
+    // Two steps: on the first, grad_A is identically zero (LoRAAdapter's own grad_A
+    // computation multiplies through B, which starts at zero -- see this codebase's own
+    // LoRATest.UpdateWeights for the same documented property), so only B moves initially;
+    // A only starts moving once B is non-zero, from the second step onward.
+    for (int step = 0; step < 2; ++step) {
+        mha.zero_grad();
+        Matrix output = mha.forward(input);
+        Matrix grad(output.rows, output.cols);
+        for (int i = 0; i < grad.rows; ++i) {
+            for (int j = 0; j < grad.cols; ++j) {
+                grad(i, j) = 0.1f;
+            }
+        }
+        mha.backward(grad);
+        optimizer.step();
+    }
+
+    // Base weights must be bit-for-bit untouched -- they were never registered anywhere.
+    const Matrix& Wq_after = mha.get_Wq();
+    const Matrix& Wk_after = mha.get_Wk();
+    const Matrix& Wv_after = mha.get_Wv();
+    const Matrix& Wo_after = mha.get_Wo();
+    for (int i = 0; i < d_model; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            EXPECT_FLOAT_EQ(Wq_before(i, j), Wq_after(i, j));
+            EXPECT_FLOAT_EQ(Wk_before(i, j), Wk_after(i, j));
+            EXPECT_FLOAT_EQ(Wv_before(i, j), Wv_after(i, j));
+            EXPECT_FLOAT_EQ(Wo_before(i, j), Wo_after(i, j));
+        }
+    }
+
+    // But the LoRA adapter's own A/B must have actually moved.
+    const Matrix& A_after = mha.get_lora_q()->get_A();
+    const Matrix& B_after = mha.get_lora_q()->get_B();
+    bool a_changed = false, b_changed = false;
+    for (int i = 0; i < A_before.rows && !a_changed; ++i) {
+        for (int j = 0; j < A_before.cols; ++j) {
+            if (std::abs(A_before(i, j) - A_after(i, j)) > 1e-6f) {
+                a_changed = true;
+                break;
+            }
+        }
+    }
+    for (int i = 0; i < B_before.rows && !b_changed; ++i) {
+        for (int j = 0; j < B_before.cols; ++j) {
+            if (std::abs(B_before(i, j) - B_after(i, j)) > 1e-6f) {
+                b_changed = true;
+                break;
+            }
+        }
+    }
+    EXPECT_TRUE(a_changed) << "LoRA_q's A matrix never moved -- register_lora_parameters() "
+                              "isn't actually training the adapter";
+    EXPECT_TRUE(b_changed) << "LoRA_q's B matrix never moved -- register_lora_parameters() "
+                              "isn't actually training the adapter";
+}
+
+TEST(MultiHeadAttentionLoRATest, MergeLoraPreservesForwardOutput) {
+    int d_model = 12;
+    MultiHeadAttention mha(d_model, 3);
+    seed_weights_deterministically(mha, d_model, /*seed=*/29);
+
+    LoRAConfig config;
+    config.rank = 3;
+    config.alpha = 6.0f;
+    mha.enable_lora(config);
+
+    Matrix input(4, d_model);
+    for (int i = 0; i < input.rows; ++i) {
+        for (int j = 0; j < input.cols; ++j) {
+            input(i, j) = 0.03f * (i - j);
+        }
+    }
+
+    // Train the adapters a bit so ΔW != 0, otherwise this test would pass trivially.
+    for (int step = 0; step < 3; ++step) {
+        Matrix out = mha.forward(input);
+        Matrix grad(out.rows, out.cols);
+        for (int i = 0; i < grad.rows; ++i) {
+            for (int j = 0; j < grad.cols; ++j) {
+                grad(i, j) = 0.05f * (i + 1);
+            }
+        }
+        mha.backward(grad);
+        mha.get_lora_q()->update(0.1f);
+        mha.get_lora_k()->update(0.1f);
+        mha.get_lora_v()->update(0.1f);
+        mha.get_lora_o()->update(0.1f);
+    }
+
+    Matrix output_before_merge = mha.forward(input);
+    mha.merge_lora();
+    EXPECT_FALSE(mha.has_lora());
+    Matrix output_after_merge = mha.forward(input);
+
+    ASSERT_EQ(output_before_merge.rows, output_after_merge.rows);
+    ASSERT_EQ(output_before_merge.cols, output_after_merge.cols);
+    for (int i = 0; i < output_before_merge.rows; ++i) {
+        for (int j = 0; j < output_before_merge.cols; ++j) {
+            EXPECT_NEAR(output_before_merge(i, j), output_after_merge(i, j), 1e-4f)
+                << "merge_lora() changed forward()'s output at (" << i << "," << j << ")";
+        }
+    }
+}
+
+// ============================================================================
 // Backward Pass Tests
 // ============================================================================
 

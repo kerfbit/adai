@@ -1,5 +1,5 @@
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.10.0
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added)
+// @adai-version: 0.11.0
 // @adai-reviewed: 2026-09-13
 
 #include "MultiHeadAttention.hpp"
@@ -111,6 +111,21 @@ Matrix MultiHeadAttention::forward_parallel(const Matrix& input, const Matrix* m
     Matrix Q = input * W_q;
     Matrix K = input * W_k;
     Matrix V = input * W_v;
+
+    // TD-038: each active LoRA adapter adds its own low-rank ΔW to the frozen base
+    // projection's output; B starts at zero, so this is a no-op until the adapter is
+    // actually trained (see enable_lora()'s own doc comment). Q/K/V below become "the" real
+    // values used by every downstream computation in this method — the per-head math has no
+    // idea whether they came from the base weight alone or base+LoRA.
+    if (lora_q_) {
+        Q = lora_q_->forward(input, Q);
+    }
+    if (lora_k_) {
+        K = lora_k_->forward(input, K);
+    }
+    if (lora_v_) {
+        V = lora_v_->forward(input, V);
+    }
 
     cached_Q = Q;
     cached_K = K;
@@ -241,6 +256,9 @@ Matrix MultiHeadAttention::forward_parallel(const Matrix& input, const Matrix* m
 
     // Final linear projection
     Matrix output = concatenated * W_o;
+    if (lora_o_) {
+        output = lora_o_->forward(concatenated, output);
+    }
 
     return output;
 }
@@ -267,6 +285,18 @@ Matrix MultiHeadAttention::forward_with_cache(const Matrix& input, const Matrix*
     Matrix Q_new = input * W_q;
     Matrix K_new = input * W_k;
     Matrix V_new = input * W_v;
+
+    // TD-038: same LoRA adapters as forward_parallel() above — Q_new/K_new/V_new below
+    // become the real, LoRA-adjusted values cached into the KV cache and used downstream.
+    if (lora_q_) {
+        Q_new = lora_q_->forward(input, Q_new);
+    }
+    if (lora_k_) {
+        K_new = lora_k_->forward(input, K_new);
+    }
+    if (lora_v_) {
+        V_new = lora_v_->forward(input, V_new);
+    }
 
     // Query is always from the new tokens
     cached_Q = Q_new;
@@ -345,6 +375,9 @@ Matrix MultiHeadAttention::forward_with_cache(const Matrix& input, const Matrix*
 
     // Final linear projection
     Matrix output = cached_attention_output * W_o;
+    if (lora_o_) {
+        output = lora_o_->forward(cached_attention_output, output);
+    }
 
     return output;
 }
@@ -363,6 +396,18 @@ Matrix MultiHeadAttention::backward(const Matrix& grad_output) {
     // Gradient w.r.t. attention output
     // grad_attn_out = grad_output * W_o^T
     Matrix grad_attn_out = grad_output * W_o.transpose();
+
+    // TD-038: LoRA_o shares the same `concatenated` input as W_o (forward_parallel()'s
+    // `output = concatenated*W_o [+ LoRA_o delta]`) — its own branch's gradient w.r.t. that
+    // shared input adds directly onto grad_attn_out, same as any two branches feeding a sum.
+    if (lora_o_) {
+        Matrix grad_from_lora_o = lora_o_->backward(cached_attention_output, grad_output);
+        for (int i = 0; i < grad_attn_out.rows; ++i) {
+            for (int j = 0; j < grad_attn_out.cols; ++j) {
+                grad_attn_out(i, j) += grad_from_lora_o(i, j);
+            }
+        }
+    }
 
     // TD-059: differentiate through each head's own softmax separately (using the real
     // per-head weights cached_head_weights_[h] from the matching forward pass), instead of
@@ -437,6 +482,25 @@ Matrix MultiHeadAttention::backward(const Matrix& grad_output) {
         }
     }
 
+    // TD-038: LoRA_q/k/v each share the same `cached_input` as W_q/W_k/W_v — dQ/dK/dV above
+    // are exactly the gradients w.r.t. their (post-adapter) outputs, the same "grad_output"
+    // each adapter's own backward() needs; their branch's contribution to dL/d(cached_input)
+    // adds directly onto grad_input, same rationale as the LoRA_o addition above.
+    auto add_lora_grad = [&](LoRAAdapter* adapter, const Matrix& d_proj) {
+        if (!adapter) {
+            return;
+        }
+        Matrix g = adapter->backward(cached_input, d_proj);
+        for (int i = 0; i < grad_input.rows; ++i) {
+            for (int j = 0; j < grad_input.cols; ++j) {
+                grad_input(i, j) += g(i, j);
+            }
+        }
+    };
+    add_lora_grad(lora_q_.get(), dQ);
+    add_lora_grad(lora_k_.get(), dK);
+    add_lora_grad(lora_v_.get(), dV);
+
     return grad_input;
 }
 
@@ -483,6 +547,71 @@ void MultiHeadAttention::zero_grad() {
             W_v_grad(i, j) = 0.0f;
             W_o_grad(i, j) = 0.0f;
         }
+    }
+    // TD-038: also zero any active LoRA adapters' own gradients.
+    if (lora_q_) {
+        lora_q_->zero_grad();
+    }
+    if (lora_k_) {
+        lora_k_->zero_grad();
+    }
+    if (lora_v_) {
+        lora_v_->zero_grad();
+    }
+    if (lora_o_) {
+        lora_o_->zero_grad();
+    }
+}
+
+void MultiHeadAttention::enable_lora(const LoRAConfig& config) {
+    // Square (d_model, d_model) for every projection here, since Q/K/V/O all map
+    // d_model -> d_model. Each starts fresh (B=0), so re-calling this discards any
+    // previously-trained adapters, per this method's own doc comment.
+    lora_q_ = config.apply_to_query
+                  ? std::make_unique<LoRAAdapter>(d_model, d_model, config.rank, config.alpha)
+                  : nullptr;
+    lora_k_ = config.apply_to_key
+                  ? std::make_unique<LoRAAdapter>(d_model, d_model, config.rank, config.alpha)
+                  : nullptr;
+    lora_v_ = config.apply_to_value
+                  ? std::make_unique<LoRAAdapter>(d_model, d_model, config.rank, config.alpha)
+                  : nullptr;
+    lora_o_ = config.apply_to_output
+                  ? std::make_unique<LoRAAdapter>(d_model, d_model, config.rank, config.alpha)
+                  : nullptr;
+}
+
+void MultiHeadAttention::register_lora_parameters(Optimizer& optimizer) {
+    if (lora_q_) {
+        lora_q_->register_parameters(optimizer);
+    }
+    if (lora_k_) {
+        lora_k_->register_parameters(optimizer);
+    }
+    if (lora_v_) {
+        lora_v_->register_parameters(optimizer);
+    }
+    if (lora_o_) {
+        lora_o_->register_parameters(optimizer);
+    }
+}
+
+void MultiHeadAttention::merge_lora() {
+    if (lora_q_) {
+        W_q = lora_q_->merge_with_base(W_q);
+        lora_q_.reset();
+    }
+    if (lora_k_) {
+        W_k = lora_k_->merge_with_base(W_k);
+        lora_k_.reset();
+    }
+    if (lora_v_) {
+        W_v = lora_v_->merge_with_base(W_v);
+        lora_v_.reset();
+    }
+    if (lora_o_) {
+        W_o = lora_o_->merge_with_base(W_o);
+        lora_o_.reset();
     }
 }
 

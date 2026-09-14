@@ -1,5 +1,5 @@
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.10.0
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added)
+// @adai-version: 0.11.0
 // @adai-reviewed: 2026-09-13
 
 #include "CrossAttention.hpp"
@@ -104,6 +104,19 @@ Matrix CrossAttention::forward(const Matrix& query_input, const Matrix& kv_input
     cached_K = kv_input * W_k;     // [src_len, d_model]
     cached_V = kv_input * W_v;     // [src_len, d_model]
 
+    // TD-038: each active LoRA adapter adds its own low-rank ΔW to the frozen base
+    // projection's output; B starts at zero, so this is a no-op until trained. cached_Q/K/V
+    // below become "the" real values used by every downstream computation in this method.
+    if (lora_q_) {
+        cached_Q = lora_q_->forward(query_input, cached_Q);
+    }
+    if (lora_k_) {
+        cached_K = lora_k_->forward(kv_input, cached_K);
+    }
+    if (lora_v_) {
+        cached_V = lora_v_->forward(kv_input, cached_V);
+    }
+
     // TD-059: genuine per-head cross-attention — Q_h/K_h/V_h are this head's own [*, d_k]
     // column slice ([h*d_k, (h+1)*d_k)); same mask shared across every head.
     float scale_factor = 1.0f / std::sqrt(static_cast<float>(d_k));
@@ -157,6 +170,9 @@ Matrix CrossAttention::forward(const Matrix& query_input, const Matrix& kv_input
 
     // Apply output projection
     Matrix output = concatenated * W_o;
+    if (lora_o_) {
+        output = lora_o_->forward(concatenated, output);
+    }
 
     return output;
 }
@@ -181,6 +197,10 @@ Matrix CrossAttention::forward_with_cache(const Matrix& query_input, const Matri
 
     // Project queries (always from new decoder tokens)
     cached_Q = query_input * W_q;  // [num_new_tokens, d_model]
+    // TD-038: same LoRA_q adapter as forward() above.
+    if (lora_q_) {
+        cached_Q = lora_q_->forward(query_input, cached_Q);
+    }
 
     // For cross-attention, K and V from encoder are constant across all generation steps
     // Compute and cache them only once (on first call when cache is empty)
@@ -196,6 +216,15 @@ Matrix CrossAttention::forward_with_cache(const Matrix& query_input, const Matri
 
         Matrix K_encoder = kv_input * W_k;  // [src_len, d_model]
         Matrix V_encoder = kv_input * W_v;  // [src_len, d_model]
+
+        // TD-038: same LoRA_k/LoRA_v adapters as forward() above -- applied once here since
+        // the encoder K/V are only ever computed on this first, cache-populating call.
+        if (lora_k_) {
+            K_encoder = lora_k_->forward(kv_input, K_encoder);
+        }
+        if (lora_v_) {
+            V_encoder = lora_v_->forward(kv_input, V_encoder);
+        }
 
         // Initialize cache with encoder K/V (these remain constant)
         kv_cache->append(K_encoder, V_encoder);
@@ -267,6 +296,9 @@ Matrix CrossAttention::forward_with_cache(const Matrix& query_input, const Matri
 
     // Output projection
     Matrix output = concatenated * W_o;
+    if (lora_o_) {
+        output = lora_o_->forward(concatenated, output);
+    }
 
     return output;
 }
@@ -276,6 +308,19 @@ void CrossAttention::backward(const Matrix& grad_output, Matrix& grad_query_inpu
     // Gradient through output projection
     Matrix grad_attention_output = grad_output * W_o.transpose();
     W_o_grad = W_o_grad + (cached_attention_output.transpose() * grad_output);
+
+    // TD-038: LoRA_o shares the same `concatenated`/cached_attention_output input as W_o —
+    // its own branch's gradient w.r.t. that shared input adds directly onto
+    // grad_attention_output, same as any two branches feeding a sum (see
+    // MultiHeadAttention::backward()'s identical rationale).
+    if (lora_o_) {
+        Matrix grad_from_lora_o = lora_o_->backward(cached_attention_output, grad_output);
+        for (int i = 0; i < grad_attention_output.rows; ++i) {
+            for (int j = 0; j < grad_attention_output.cols; ++j) {
+                grad_attention_output(i, j) += grad_from_lora_o(i, j);
+            }
+        }
+    }
 
     // TD-059: differentiate through each head's own softmax separately, using the real
     // per-head weights cached_head_weights_[h] — see MultiHeadAttention::backward()'s
@@ -336,6 +381,34 @@ void CrossAttention::backward(const Matrix& grad_output, Matrix& grad_query_inpu
     W_q_grad = W_q_grad + (cached_query_input.transpose() * dQ);
     W_k_grad = W_k_grad + (cached_kv_input.transpose() * dK);
     W_v_grad = W_v_grad + (cached_kv_input.transpose() * dV);
+
+    // TD-038: LoRA_q shares cached_query_input; LoRA_k/LoRA_v share cached_kv_input. dQ/dK/dV
+    // above are exactly the gradients w.r.t. their (post-adapter) outputs, the same
+    // "grad_output" each adapter's own backward() needs.
+    if (lora_q_) {
+        Matrix g = lora_q_->backward(cached_query_input, dQ);
+        for (int i = 0; i < grad_query_input.rows; ++i) {
+            for (int j = 0; j < grad_query_input.cols; ++j) {
+                grad_query_input(i, j) += g(i, j);
+            }
+        }
+    }
+    if (lora_k_) {
+        Matrix g = lora_k_->backward(cached_kv_input, dK);
+        for (int i = 0; i < grad_kv_input.rows; ++i) {
+            for (int j = 0; j < grad_kv_input.cols; ++j) {
+                grad_kv_input(i, j) += g(i, j);
+            }
+        }
+    }
+    if (lora_v_) {
+        Matrix g = lora_v_->backward(cached_kv_input, dV);
+        for (int i = 0; i < grad_kv_input.rows; ++i) {
+            for (int j = 0; j < grad_kv_input.cols; ++j) {
+                grad_kv_input(i, j) += g(i, j);
+            }
+        }
+    }
 }
 
 void CrossAttention::set_optimizer(Optimizer* opt) {
@@ -386,6 +459,71 @@ void CrossAttention::zero_grad() {
             W_v_grad(i, j) = 0.0f;
             W_o_grad(i, j) = 0.0f;
         }
+    }
+    // TD-038: also zero any active LoRA adapters' own gradients.
+    if (lora_q_) {
+        lora_q_->zero_grad();
+    }
+    if (lora_k_) {
+        lora_k_->zero_grad();
+    }
+    if (lora_v_) {
+        lora_v_->zero_grad();
+    }
+    if (lora_o_) {
+        lora_o_->zero_grad();
+    }
+}
+
+void CrossAttention::enable_lora(const LoRAConfig& config) {
+    // Square (d_model, d_model) for every projection here, since Q/K/V/O all map
+    // d_model -> d_model. Each starts fresh (B=0), so re-calling this discards any
+    // previously-trained adapters.
+    lora_q_ = config.apply_to_query
+                  ? std::make_unique<LoRAAdapter>(d_model, d_model, config.rank, config.alpha)
+                  : nullptr;
+    lora_k_ = config.apply_to_key
+                  ? std::make_unique<LoRAAdapter>(d_model, d_model, config.rank, config.alpha)
+                  : nullptr;
+    lora_v_ = config.apply_to_value
+                  ? std::make_unique<LoRAAdapter>(d_model, d_model, config.rank, config.alpha)
+                  : nullptr;
+    lora_o_ = config.apply_to_output
+                  ? std::make_unique<LoRAAdapter>(d_model, d_model, config.rank, config.alpha)
+                  : nullptr;
+}
+
+void CrossAttention::register_lora_parameters(Optimizer& optimizer) {
+    if (lora_q_) {
+        lora_q_->register_parameters(optimizer);
+    }
+    if (lora_k_) {
+        lora_k_->register_parameters(optimizer);
+    }
+    if (lora_v_) {
+        lora_v_->register_parameters(optimizer);
+    }
+    if (lora_o_) {
+        lora_o_->register_parameters(optimizer);
+    }
+}
+
+void CrossAttention::merge_lora() {
+    if (lora_q_) {
+        W_q = lora_q_->merge_with_base(W_q);
+        lora_q_.reset();
+    }
+    if (lora_k_) {
+        W_k = lora_k_->merge_with_base(W_k);
+        lora_k_.reset();
+    }
+    if (lora_v_) {
+        W_v = lora_v_->merge_with_base(W_v);
+        lora_v_.reset();
+    }
+    if (lora_o_) {
+        W_o = lora_o_->merge_with_base(W_o);
+        lora_o_.reset();
     }
 }
 
