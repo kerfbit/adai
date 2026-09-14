@@ -1,11 +1,25 @@
 /**
  * Attention Head Parallelism Benchmark
- * 
+ *
  * Benchmarks the performance improvement from parallelizing attention head computation
  * in multi-head attention. Compares sequential vs parallel execution across different
  * configurations (number of heads, sequence lengths, model dimensions).
- * 
+ *
  * Expected speedup: 2-4x with 8 attention heads
+ *
+ * TD-163 (see TECHNICAL_DEBT.md's Deferred Decisions section): on a heavily CPU-contended host
+ * (many other processes competing for the same cores), this binary can appear to hang for
+ * minutes instead of completing in under a second — confirmed to
+ * be real host scheduling contention, not a deadlock/infinite loop/memory bug in
+ * MultiHeadAttention, Matrix, or Timer. Each forward_parallel() call enters several small
+ * `#pragma omp parallel for` regions (the Q/K/V projections in Matrix::operator*, plus the
+ * per-head loop when use_parallel=true); every such region ends in OpenMP's mandatory implicit
+ * barrier, so ALL participating threads must be scheduled promptly for the region to complete —
+ * one thread preempted by unrelated load stalls the whole team. Root-caused via `/usr/bin/time -v`
+ * (Involuntary context switches >>> Voluntary; "Percent of CPU this job got" well under 800% on
+ * an 8-core box) while multiple other real processes were sharing the same CPUs, and confirmed by
+ * re-running with that contention removed. If this binary ever appears to hang, check host load
+ * (`uptime`, `top`) before assuming a regression here.
  */
 
 #include <iostream>

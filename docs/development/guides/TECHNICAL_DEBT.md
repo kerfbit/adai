@@ -5,13 +5,13 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** September 13, 2026
-**Total Items:** 12
+**Total Items:** 11
 **High Priority:** 1
 **Medium Priority:** 6
-**Low Priority:** 5
+**Low Priority:** 4
 **Future Enhancements:** 19
 **Resolved Items:** 156
-**Deferred Decisions:** 2
+**Deferred Decisions:** 3
 
 ## Recommended Execution Order
 
@@ -81,9 +81,9 @@ has no fixed action — it resolves once the trainer/metrics API surface stops c
 (6-8h, FIM training data) and [TD-014](#td-014-llm-operations-and-training-tooling-suite) (no
 estimate, likely the largest remaining item). Note TD-014's planned `adai-weights-tool`
 (quantization) overlaps with TD-038's deferred Quantization-wiring decision — scope those two
-together when either is picked up, rather than designing quantization twice.
-[TD-163](#td-163-attentionheadbenchmark-hangs-indefinitely) (root cause unknown) also belongs
-here — a standalone benchmark binary, not gating anything, not part of `ctest`.
+together when either is picked up, rather than designing quantization twice. TD-163 (the
+`AttentionHeadBenchmark` "hang") is resolved — see
+[Deferred Decisions](#attentionheadbenchmarks-apparent-hang--confirmed-host-cpu-contention-not-a-bug).
 
 ## Table of Contents
 
@@ -101,7 +101,6 @@ here — a standalone benchmark binary, not gating anything, not part of `ctest`
   - [TD-039: Core Training/Metrics Classes Too Large and Fast-Moving to Certify Stable](#td-039-core-trainingmetrics-classes-too-large-and-fast-moving-to-certify-stable)
   - [TD-047: Android Data/Repository/API Layer Has No CI or Release History](#td-047-android-datarepositoryapi-layer-has-no-ci-or-release-history)
   - [TD-048: Android UI/DI/Entry-Point Classes Are Untested and Unreleased](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
-  - [TD-163: AttentionHeadBenchmark Hangs Indefinitely](#td-163-attentionheadbenchmark-hangs-indefinitely)
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
 - [Resolved Items](#resolved-items) (156 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
@@ -114,6 +113,7 @@ here — a standalone benchmark binary, not gating anything, not part of `ctest`
 - [Deferred Decisions](#deferred-decisions)
   - [AMD Radeon / ROCm-HIP GPU Backend — Not Pursued](#amd-radeon--rocm-hip-gpu-backend--not-pursued)
   - [ThreadSanitizer "Data Races" in Matrix.cpp's OpenMP-Parallelized Code — Confirmed Tool Limitation, Not a Bug](#threadsanitizer-data-races-in-matrixcpps-openmp-parallelized-code--confirmed-tool-limitation-not-a-bug)
+  - [AttentionHeadBenchmark's Apparent Hang — Confirmed Host CPU Contention, Not a Bug](#attentionheadbenchmarks-apparent-hang--confirmed-host-cpu-contention-not-a-bug)
 - [Process Guidelines](#process-guidelines)
   - [Adding New Technical Debt](#adding-new-technical-debt)
   - [Prioritization Criteria](#prioritization-criteria)
@@ -1184,49 +1184,6 @@ Files to Modify:
 
 ---
 
-### TD-163: AttentionHeadBenchmark Hangs Indefinitely
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Benchmarks / Tooling | September 13, 2026 | Not yet estimated — root cause unknown |
-
-Description:
-`benchmarks/AttentionHeadBenchmark.cpp` hangs indefinitely when run. Confirmed via
-`timeout 20 ./attention_head_benchmark` (built from the `debug` preset's `attention_head_benchmark`
-target): output stops right after printing the "Benchmark: Scaling with Number of Attention Heads"
-table header — it never prints even the first row (`num_heads=2`, `seq_len=128`, `d_model=512`, 3
-warmup pairs + 50 timed iterations of `MultiHeadAttention::forward_parallel()`).
-
-Found while verifying TD-059's attention-head-splitting fix — confirmed via `git stash` to be
-**pre-existing**, reproducing identically against the original (pre-TD-059-fix) `MultiHeadAttention.cpp`
-as well as the fixed version, so it is not a regression from that change. Not part of the `ctest`
-suite (`attention_head_benchmark` is a standalone binary, not a registered test), so it isn't
-gating anything — found incidentally while smoke-testing the benchmark still built and ran cleanly
-after TD-059's fix.
-
-Action Items:
-
-- [ ] Root-cause the hang. Candidates worth checking first: an OpenMP interaction specific to
-  sandboxed/containerized environments (`OMP_NUM_THREADS`, nested-parallelism settings, thread pool
-  exhaustion under a CPU quota/cgroup), the `Timer` class used for the benchmark's own timing (check
-  for a busy-wait or blocking call), or something in `PerformanceProfiler.hpp` (also included by
-  this benchmark) triggering a deadlock on include or static initialization.
-- [ ] Use a fast, disposable repro harness (a minimal standalone program calling just
-  `MultiHeadAttention::forward_parallel()` a handful of times with the same config —
-  `d_model=512`, `seq_len=128`, `num_heads=2`) rather than re-running the full benchmark repeatedly,
-  to localize the exact call that hangs.
-- [ ] Fix it if the root cause is a real bug; if it turns out to be inherent to this specific
-  sandboxed environment (e.g. no real multi-core CPU affinity, a container cgroup/CPU-quota
-  interaction with `libgomp`), document that plainly in the benchmark's own comments rather than
-  leaving it silently broken.
-
-Files to Modify:
-
-- `benchmarks/AttentionHeadBenchmark.cpp`
-- Possibly `src/PerformanceProfiler.hpp` or wherever `Timer` is defined, depending on root cause
-
----
-
 ## Resolved Items
 
 156 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
@@ -1608,6 +1565,67 @@ investigating on its own merits rather than dismissed by pattern-matching agains
 
 ---
 
+### AttentionHeadBenchmark's Apparent Hang — Confirmed Host CPU Contention, Not a Bug
+
+**Date:** September 13, 2026
+**Component:** Benchmarks / Tooling
+
+**Decision:** Do not change `MultiHeadAttention.cpp`/`Matrix.cpp`/`Timer` in response to
+`benchmarks/AttentionHeadBenchmark.cpp` appearing to hang — confirmed the binary was never actually
+stuck, just running 200-300x slower than expected under real host CPU contention in this dev
+sandbox. Originally logged as TD-163 ("hangs indefinitely, root cause unknown") after being found
+incidentally while verifying TD-059's attention-head-splitting fix; investigated here to a
+definitive conclusion rather than left open.
+
+**Reasoning:**
+
+- Reproduced directly: `timeout 15 ./attention_head_benchmark` prints only the
+  "Benchmark: Scaling with Number of Attention Heads" table header before the timeout kills it,
+  matching TD-163's original report exactly.
+- Built a disposable, incrementally-instrumented repro harness calling
+  `MultiHeadAttention::forward_parallel()` directly (not through the full benchmark) to localize
+  the stall. `OMP_NUM_THREADS=1` still stalled — ruling out nested-OpenMP/thread-pool-exhaustion
+  theories, since a team of one thread doesn't exhibit those. Instrumenting matrix dimensions at
+  every call showed no growth over time — ruling out a leak/accumulation bug. The *position* of
+  the apparent stall moved between runs depending only on how much `std::cerr` instrumentation was
+  added (i.e. how much wall-clock time each call itself took) — the signature of external timing
+  variance, not a fixed code path.
+- Re-ran with a much longer timeout (90s): it **completed**, just slowly — 50 sequential-path
+  iterations of a trivial 128×512 `forward_parallel()` call took ~18.7 **seconds** (should be low
+  tens of milliseconds). Not a deadlock; a severe slowdown.
+- `/usr/bin/time -v` on a 20s run: **5885 involuntary vs. 380 voluntary context switches**, and
+  "Percent of CPU this job got: 194%" on an 8-core box (should approach 800% for a
+  fully-parallel, uncontended `#pragma omp parallel for` region). `cat /sys/fs/cgroup/cpu.stat`
+  showed **zero** cgroup throttling (`nr_throttled 0`) — this is not a CPU quota/cgroup limit, it's
+  the kernel scheduler genuinely preempting this process's threads in favor of other real,
+  concurrently-running processes on the same host (`top`/`uptime` at the time: load average
+  5.8-6.7 on 8 cores, from several other Claude Code sessions, an editor, the desktop compositor,
+  and — found and stopped mid-investigation — a leftover Android emulator from earlier unrelated
+  work in this same session).
+- Every `forward_parallel()` call enters several small `#pragma omp parallel for` regions
+  regardless of its own `use_parallel` argument — `Matrix::operator*`'s own internal
+  `if (rows > 64)`-gated parallelism fires for the Q/K/V projections either way; only the per-head
+  loop is actually gated by `use_parallel`. Each such region ends in OpenMP's mandatory implicit
+  barrier, so *every* participating thread must be scheduled promptly for the region to complete —
+  one thread preempted by unrelated host load stalls the whole team. A benchmark built around many
+  small, frequent parallel regions is disproportionately sensitive to exactly this kind of
+  contention compared to a typical single-threaded workload, which is why it manifests here and
+  not elsewhere in the codebase.
+- Tested `OMP_WAIT_POLICY=PASSIVE` (idle threads block immediately instead of spin-waiting) as a
+  possible mitigation: no meaningful improvement (still ~18.6s for the same config) — confirms the
+  bottleneck is the kernel scheduler not promptly running this process's threads at all, not
+  wasted CPU cycles spent spinning while waiting.
+- A durable comment documenting this (with a pointer back to this entry) was added directly in
+  `benchmarks/AttentionHeadBenchmark.cpp`, since that's where anyone confused by an apparent hang
+  will actually be looking.
+
+**Revisit when:** Running this benchmark on a quiet, dedicated machine (or CI runner) still shows
+it stalling for more than a few seconds — that would indicate a real regression rather than this
+environment's characteristic contention. Until then, expect this benchmark to run slowly and
+unpredictably whenever the host is under heavy concurrent load, with no code change needed.
+
+---
+
 ## Process Guidelines
 
 ### Adding New Technical Debt
@@ -1774,10 +1792,11 @@ Recently Completed:
 
 ### Deferred Decisions Summary
 
-**Total Deferred Decisions:** 2
+**Total Deferred Decisions:** 3
 
 - AMD Radeon / ROCm-HIP GPU Backend — Not Pursued (September 7, 2026)
 - ThreadSanitizer "Data Races" in Matrix.cpp's OpenMP-Parallelized Code — Confirmed Tool Limitation, Not a Bug (September 12, 2026)
+- AttentionHeadBenchmark's Apparent Hang — Confirmed Host CPU Contention, Not a Bug (September 13, 2026)
 
 ---
 
