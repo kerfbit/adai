@@ -43,13 +43,16 @@ ambiguity, can start immediately regardless of Tier 1's outcome):
   Its remaining doc-verification item continues as
   [TD-164](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass).
 
-**Tier 3 — Unblocked, ready to pick up:** TD-034 resolved September 13, 2026 (real policy-ratio/KL
-via a caller-supplied log-prob callback, plus a real `ValueFunction` backward pass) — see
+**Tier 3 — Resolved:** TD-034 resolved September 13, 2026 (real policy-ratio/KL via a
+caller-supplied log-prob callback, plus a real `ValueFunction` backward pass) — see
 [archive](../archive/TECHNICAL_DEBT_RESOLVED.md#td-034-ppooptimizers-core-update-loop-is-a-placeholder-not-real-ppo).
-That was the only thing blocking
+That unblocked
 [TD-038](#td-038-advanced-features-tested-in-isolation-never-wired-into-a-shipped-binary)'s last
-open item (`RewardModel` wiring), now unblocked — the other two open TD-038 items (LoRA/Quantization)
-are deliberately deferred by prior user decision, not blocked, so TD-038 itself needs no separate pick.
+open item (`RewardModel` wiring), also done September 13, 2026 — user chose the full RLHF
+fine-tuning loop; new `src/RLHFTrainer.{hpp,cpp}` drives `RewardModel`/`PPOOptimizer` against a
+live policy with a real, tested policy-gradient update (see TD-038's own Update for the mechanism
+and its disclosed scope limits). TD-038's other two items (LoRA/Quantization) remain deliberately
+deferred by prior user decision, not blocked — TD-038 itself needs no separate pick.
 
 **Tier 4 — Sustained, low-risk test-coverage investment** (systematic, already-validated pattern,
 no open design questions): [TD-048](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
@@ -563,7 +566,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open (5/7 non-blocked items done) | Advanced Features / Integration | September 7, 2026 | 16-24 hours |
+| LOW | Open (6/7 non-blocked items done) | Advanced Features / Integration | September 7, 2026 | 16-24 hours |
 
 Description:
 `BatchedInferenceEngine`, `IntegratedInferenceEngine`, `PipelineInferenceEngine`,
@@ -583,7 +586,61 @@ dependency — exactly the failure mode this TD's title describes, confirmed in 
 possible. `LoRA`/`Quantization` were explicitly scoped out after a user decision (both would
 require touching `MultiHeadAttention`'s forward pass for any real integration — the same
 foundational-class risk class as TD-059); `RewardModel` was genuinely blocked on TD-034, resolved
-September 13, 2026 — the wiring itself is still a separate, not-yet-started integration decision.
+September 13, 2026.
+
+**Update (September 13, 2026):** `RewardModel`/`PPOOptimizer` wiring done — user chose the "full
+RLHF fine-tuning loop" option (rollout generation, encoding bridge, PPOOptimizer, and a real
+mechanism applying the PPO policy gradient to `EncoderDecoderModel`'s actual weights), not just
+RewardModel-only scoring or deferring the item further. New `src/RLHFTrainer.{hpp,cpp}` is the
+first real integration driving both classes against a live policy, closing two gaps neither had
+anywhere else in the tree:
+- **Encoding bridge**: `RewardModel` takes fixed-width vectors, not token sequences.
+  `RLHFTrainer::encode_to_vector()` mean-pools `LLMEncoder::encode_with_mask()`'s per-token output
+  (the same real encoder representations the policy already learns) rather than using
+  `LLMEncoder::encode(std::string)`, which turned out to be unusable — its own `tokenizer` member
+  is a fresh, never-vocab-loaded `BPETokenizer`, confirmed by reading the constructor directly.
+- **Applying the policy gradient**: `PPOOptimizer::update()` computes a real clipped-ratio loss and
+  trains its own internal `ValueFunction`, but — per its own doc comment, confirmed by reading its
+  full body — it has no policy reference and never touches any model's weights.
+  `RLHFTrainer::apply_policy_gradient()` builds the actual advantage-weighted gradient at the
+  logits level (`advantage * (softmax(logits) - one_hot(action))` — the same shape
+  `EncoderDecoderModel::compute_loss_gradient()` already uses for ordinary cross-entropy training,
+  generalized by a per-position advantage weight; `advantage ≡ 1` reduces to that exact proven
+  formula, used as the sign-convention check) and applies it via `backward_pass()` + a real
+  `Optimizer::step()` — the same `zero_grad → forward → backward_pass → step` shape
+  `ChatbotTrainer` already uses in production. Deliberately NOT
+  `EncoderDecoderModel::update_weights()`, which a full read of its body showed never actually
+  updates the encoder's weights at all (`// encoder->update_weights(learning_rate); // LLMEncoder
+  doesn't have this method`) — only the external-optimizer path updates every component including
+  the encoder.
+
+Real, previously-undiscovered subtleties found and worked around along the way:
+`EncoderBlock::forward()` caches its own activations unconditionally, with no `requires_grad` guard
+at that level — any encoder call for reward-scoring or value-estimation between a policy
+`forward()` and its matching `backward_pass()` would silently corrupt the gradient. Fixed by strict
+ordering (all side encoder calls complete before the one authoritative policy `forward()`,
+documented prominently in `RLHFTrainer.hpp`), not by a code change to `EncoderBlock` itself
+(out of scope here). Also: `PPOOptimizer::compute_gae()`'s advantage normalization is per-trajectory
+and, combined with an end-loaded reward and an uncalibrated, randomly-initialized `ValueFunction`,
+made the sign of a rollout's own GAE advantage arbitrary on a cold start — not a bug, but it meant
+the original correctness test (asserting a preferred response's log-prob rises after a full
+`run_iteration()`) could fail for reasons unrelated to the gradient mechanism itself. Resolved by
+exposing `apply_policy_gradient()` as its own public, directly-testable method taking
+caller-supplied advantages, and testing the sign convention against it in isolation
+(`PositiveAdvantageIncreasesLogProbNegativeAdvantageDecreasesIt`), independent of
+`RewardModel`/`ValueFunction`/GAE's cold-start dynamics.
+
+Scope limitation, disclosed in `RLHFTrainer.hpp`'s own doc comment: `run_iteration()` applies
+exactly one gradient step per rollout, using the rollout-time policy's own log-probs as
+`old_log_probs` — this makes PPO's clipped-ratio term inert on the very rollout it was computed
+from (ratio ≡ 1), mathematically equivalent to REINFORCE with a learned (GAE) baseline. Real
+intra-rollout PPO clipping (multiple gradient epochs per rollout, re-deriving log-probs between
+them) is not implemented. Also out of scope: wiring `RLHFTrainer` into an actual CLI subcommand of
+`incremental_trainer` or `chatbot_api_server` — the class is built, tested (4/4 tests passing,
+including a full training-loop weight-change proof and the isolated gradient-sign proof), and
+ready to be driven, but nothing yet calls it from a shipped binary's command-line surface. Flagged
+here rather than assumed, since the user's "full RLHF fine-tuning loop" choice didn't explicitly
+promise that CLI wiring.
 
 Action Items:
 
@@ -617,17 +674,22 @@ Action Items:
   needs a scoping decision: a standalone checkpoint-manipulation CLI tool (lower risk) vs. actually
   modifying `MultiHeadAttention`'s forward pass for real inference/training integration (the real
   thing, higher risk).
-- [ ] `RewardModel`: unblocked now that TD-034's PPO fix has landed — still needs its own
-  integration decision (how `chatbot_api_server`/`incremental_trainer` would drive an actual RLHF
-  fine-tuning pass), not attempted as part of TD-034 itself.
+- [x] `RewardModel`/`PPOOptimizer`: new `src/RLHFTrainer.{hpp,cpp}` drives both against a live
+  `EncoderDecoderModel` policy — real rollout generation, the encoding bridge, and a real policy
+  gradient applied to the model's actual weights (see the Update above for the full mechanism and
+  the two gaps closed). Not yet wired into any CLI subcommand of a shipped binary — see the
+  scope-limitation note above.
 - [x] Add an integration test per wired feature proving the wiring works end-to-end — done for all
-  five above (ChatbotAPI-level integration tests plus live end-to-end verification against a real
-  running `chatbot_api_server` process for each).
+  five items above (ChatbotAPI-level integration tests plus live end-to-end verification against a
+  real running `chatbot_api_server` process for each) and for `RewardModel`/`PPOOptimizer`
+  (`tests/rlhftrainer_test.cpp`, 4/4 passing).
 
 Files to Modify:
 
-- `src/LoRA.hpp`, `src/Quantization.hpp`, `src/RewardModel.hpp` — remaining, unattempted work.
-- Already done: `src/BatchedInferenceEngine.hpp`, `src/PipelineInferenceEngine.hpp`,
+- `src/LoRA.hpp`, `src/Quantization.hpp` — remaining, unattempted work.
+- `src/RLHFTrainer.{hpp,cpp}` (new), `tests/rlhftrainer_test.cpp` (new), `src/PPOOptimizer.hpp`
+  (new public `compute_advantages()`), `src/RewardModel.hpp` (status tag only) — done.
+- Already done (prior items): `src/BatchedInferenceEngine.hpp`, `src/PipelineInferenceEngine.hpp`,
   `src/IntegratedInferenceEngine.hpp`, `src/SpeculativeDecoding.hpp`, `src/PerformanceProfiler.hpp`,
   `src/ChatbotAPI.{hpp,cpp}`, `src/ChatbotApiServerArgs.{hpp,cpp}`, `src/ChatbotAPIServer.cpp`,
   `src/Config.{hpp,cpp}`.

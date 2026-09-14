@@ -1,8 +1,8 @@
 #ifndef PPO_OPTIMIZER_HPP
 #define PPO_OPTIMIZER_HPP
 
-// @adai-status: experimental        (TD-034 resolved — real ratio/KL/ValueFunction backprop; still not wired into any shipped binary)
-// @adai-version: 0.3.0
+// @adai-status: experimental        (TD-038 — now driven for real by RLHFTrainer; see TECHNICAL_DEBT.md)
+// @adai-version: 0.4.0
 // @adai-reviewed: 2026-09-13
 
 
@@ -542,6 +542,17 @@ class PPOOptimizer {
      */
     float estimate_value(const std::vector<float>& state) {
         return value_function_.predict(state);
+    }
+
+    /**
+     * @brief TD-038: exposes this optimizer's own GAE advantage computation publicly, using its
+     * PPOConfig's gamma/gae_lambda. update() computes these internally but never applying any
+     * gradient to a policy model (see its own doc comment) means a real integration needs these
+     * same advantage values to build its own policy-gradient step -- see RLHFTrainer, the first
+     * such caller. Exposed rather than duplicated so both stay in sync with one formula.
+     */
+    std::vector<float> compute_advantages(const Trajectory& trajectory) {
+        return compute_gae(trajectory);
     }
 
     /**

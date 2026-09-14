@@ -135,6 +135,14 @@ add_executable(encoderdecoderTests encoderdecoder_test.cpp)
 target_link_libraries(encoderdecoderTests adai_models adai_nlp GTest::gtest_main)
 add_test(NAME EncoderDecoderTests COMMAND encoderdecoderTests)
 
+# RLHFTrainer tests (TD-038 — real RewardModel/PPOOptimizer integration against a live policy)
+add_executable(rlhftrainerTests
+    rlhftrainer_test.cpp
+    ../src/RLHFTrainer.cpp
+)
+target_link_libraries(rlhftrainerTests adai_models adai_nlp GTest::gtest_main)
+add_test(NAME RLHFTrainerTests COMMAND rlhftrainerTests)
+
 # LLMEncoder tests
 add_executable(llmencoderTests 
     llmencoder_test.cpp
