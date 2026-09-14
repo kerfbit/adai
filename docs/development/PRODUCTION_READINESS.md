@@ -10,7 +10,7 @@ See [file-status-standard.md](guides/file-status-standard.md) for what these sta
 
 | Component | Stable | Beta | Experimental | Deprecated | Legacy | Untagged | Total |
 |---|---|---|---|---|---|---|---|
-| android | 0 | 71 | 43 | 0 | 0 | 0 | 114 |
+| android | 0 | 73 | 41 | 0 | 0 | 0 | 114 |
 | scripts | 9 | 27 | 0 | 0 | 0 | 0 | 36 |
 | src | 91 | 42 | 15 | 0 | 0 | 0 | 148 |
 | tizen-metrics-app | 2 | 1 | 0 | 0 | 0 | 0 | 3 |
@@ -124,8 +124,8 @@ None — every in-scope file carries a tag.
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/theme/Theme.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/theme/Type.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/trainer/TrainerRoute.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
-| `android/opsdashboard/src/main/java/com/adai/ops/ui/trainer/TrainerScreen.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
-| `android/opsdashboard/src/main/java/com/adai/ops/ui/trainer/TrainerUiState.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
+| `android/opsdashboard/src/main/java/com/adai/ops/ui/trainer/TrainerScreen.kt` | beta | 0.2.0 | 2026-09-13 | TD-048 |
+| `android/opsdashboard/src/main/java/com/adai/ops/ui/trainer/TrainerUiState.kt` | beta | 0.2.0 | 2026-09-13 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/trainer/TrainerViewModel.kt` | beta | 0.5.0 | 2026-09-12 | TD-048 |
 | `android/opsdashboard/src/sharedTest/java/com/adai/ops/testutil/FakeApiClientProvider.kt` | beta | 0.1.0 | 2026-09-13 | TD-048 |
 | `android/opsdashboard/src/sharedTest/java/com/adai/ops/testutil/FakeMetricsApiService.kt` | beta | 0.1.0 | 2026-09-13 | TD-048 |

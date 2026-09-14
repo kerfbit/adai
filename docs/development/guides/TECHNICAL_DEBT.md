@@ -53,14 +53,16 @@ are deliberately deferred by prior user decision, not blocked, so TD-038 itself 
 
 **Tier 4 — Sustained, low-risk test-coverage investment** (systematic, already-validated pattern,
 no open design questions): [TD-048](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
-(Compose UI testing now adopted in both modules, 11/12 screens done September 13, 2026 — only
-`TrainerScreen` remains, in `opsdashboard`, whose debug APK can't be installed/run on this
-sandbox's emulator at all — `wear-sdk` shared-library requirement, no Wear-capable device
-available here — so it stays compile-verified only pending real device access; the not-yet-built
-admin-action confirm-dialog test infrastructure `ModelDetailScreen`'s own update flagged is still
-needed for `ModelDetailScreen`/`SessionDetailScreen`/`GroupDetailScreen`/`AdminScreen`'s own
-confirm-dialog flows (each screen otherwise done); plus DI/entry-points remain, continuing the
-now-proven ViewModel-then-screen-testing approach)
+(Compose UI testing now adopted in both modules — **all 12/12 screens done as of September 13,
+2026**; every `opsdashboard` screen's coverage is compile-verified only, since this sandbox can't
+install/run that module's debug APK on a device at all (`wear-sdk` shared-library requirement, no
+Wear-capable device available here); the not-yet-built admin-action confirm-dialog test
+infrastructure `ModelDetailScreen`'s own update flagged is still needed for `ModelDetailScreen`/
+`SessionDetailScreen`/`GroupDetailScreen`/`AdminScreen`/`TrainerScreen`'s own confirm-dialog flows
+(each screen otherwise done); plus DI/entry-points remain — the now-proven ViewModel-then-screen
+approach has run its course for screens themselves, so what's left is the confirm-dialog
+infrastructure, DI containers/entry points, and real-device verification once a Wear-capable
+device is available)
 and [TD-037](#td-037-no-qt-test-infrastructure-for-gui-classes) (8-12h — the same shape for the
 desktop Qt GUI).
 
@@ -702,7 +704,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open (12/12 ViewModels done; Compose UI testing adopted, 11/12 screens covered; DI/entry-points remain) | Android / Testing | September 7, 2026 | 24-32 hours |
+| MEDIUM | Open (12/12 ViewModels done; Compose UI testing adopted, 12/12 screens covered; DI/entry-points and the admin-dialog confirm-click infrastructure remain) | Android / Testing | September 7, 2026 | 24-32 hours |
 
 Description:
 62 files — Compose screens, ViewModels without tests, DI containers, `Activity`/`Application`
@@ -1006,24 +1008,46 @@ Int dialog's "Next" button gated on parseable input via `hasSetTextAction()` to 
 field unambiguously) — stopping before ever clicking "Next". `AdminScreen.kt` promoted
 `experimental` → `beta` (0.2.0).
 
+**Update (September 13, 2026, the twelfth and last one):** `TrainerScreen` (`opsdashboard` module)
+done as the twelfth and final screen — **all 12 screens now have Compose UI test coverage.** Reused
+`TrainerViewModelTest`'s own real-repository Fixture shape (`TrainerRepository` backed by the
+shared `src/sharedTest` fakes). Same infrastructure gap as `AdminScreen` (its closest sibling):
+every config-field edit AND all three control actions (Checkpoint/Pause/Resume) flow through
+`ConfirmActionDialog`, so — as with `AdminScreen` — only rendering, button enabled/disabled state,
+and the edit dialogs' own input validation are exercised, stopping before "Next"/before any control
+action is clicked. 12 tests added (`TrainerScreenTest`): the status section's not-loaded/populated/
+paused-badge states and its per-field `DetailRow`s; the Checkpoint/Pause/Resume buttons' correct
+enabled state derived from `status.phase`/`status.paused`; the config section's not-loaded/
+populated states and its Int/Bool field rendering; the Int edit dialog's input-validation gating;
+the activity log's empty state and per-entry message rendering (deliberately not asserting the
+exact formatted timestamp text, since `SimpleDateFormat(..., Locale.getDefault())` against the
+device's default time zone isn't deterministic across environments); and the Settings icon.
+Deliberately not attempted, for the same reason `ModelListScreenTest` already skipped its own
+analogous scenario: a "status refresh succeeds once, then a later poll fails, revealing the
+stale-data-with-error banner" test, since `FixedIntervalPoller`'s real 5s interval would need
+virtual-time control unavailable at this level. `TrainerScreen.kt` promoted `experimental` → `beta`
+(0.2.0); `TrainerUiState.kt` promoted the same way (mirrors `AdminUiState.kt`'s earlier promotion).
+
 Action Items:
 
 - [x] Add ViewModel unit tests first (cheapest — no Compose/Activity needed) — 12 of 12 done (see
   the Correction and "closing the loop" updates above). See the per-ViewModel test files under
   `android/app/src/test`/`android/opsdashboard/src/test`.
 - [x] Adopt Compose UI testing (`androidx.compose.ui.test`) for screens once ViewModels are
-  covered — infrastructure adopted for both modules now; `ConversationListScreen`, `ChatScreen`,
-  `SettingsScreen` (`app` module), `GroupListScreen`, `ModelListScreen`, `SessionListScreen`,
-  `ModelDetailScreen`, `SessionDetailScreen`, `SettingsScreen`, `GroupDetailScreen`, and
-  `AdminScreen` (`opsdashboard` module) done (11 of 12; see updates above). Only `TrainerScreen`
-  remains — same pattern, infra already in place. Note: this sandbox cannot install/run
-  `opsdashboard`'s debug APK on a device (see `GroupListScreen`'s update above, `wear-sdk`
-  shared-library requirement) — further `opsdashboard` screens will be
-  compile-verified only here too, pending real Wear-capable device access to actually run any of them.
+  covered — infrastructure adopted for both modules now; **all 12 screens done** (`ConversationListScreen`,
+  `ChatScreen`, `SettingsScreen` (`app` module), `GroupListScreen`, `ModelListScreen`,
+  `SessionListScreen`, `ModelDetailScreen`, `SessionDetailScreen`, `SettingsScreen`,
+  `GroupDetailScreen`, `AdminScreen`, and `TrainerScreen` (`opsdashboard` module) — see updates
+  above). Note: this sandbox cannot install/run `opsdashboard`'s debug APK on a device (see
+  `GroupListScreen`'s update above, `wear-sdk` shared-library requirement), so every
+  `opsdashboard` screen's coverage is compile-verified only here, pending real Wear-capable
+  device access to actually run any of them.
 - [ ] Build the admin-action confirm-dialog testing infrastructure (a minimal `androidTest`-only
   `FragmentActivity` host + `createAndroidComposeRule<...>()` + a `FakeAdminAuthGate`) — see
   `ModelDetailScreen`'s update above for the full explanation of why it's needed and doesn't exist
-  yet. `AdminScreen` and `GroupDetailScreen` will need it too, so build it once, not per-screen.
+  yet. Four screens now have flows gated behind it and would benefit: `ModelDetailScreen`,
+  `SessionDetailScreen`, `GroupDetailScreen`'s force-release, and `AdminScreen`/`TrainerScreen`'s
+  entire field-edit and control-action surface — build it once, not per-screen.
 - [ ] `BiometricAdminAuthGate.kt` specifically: consider an instrumented test using
   `BiometricPrompt`'s test/fake authenticator support instead of leaving it permanently untested.
 - [ ] DI containers (`AppContainer.kt`/`AppViewModelProvider.kt` in both apps), `Activity`/
@@ -1032,18 +1056,19 @@ Action Items:
 
 Files to Modify:
 
-- ~39 remaining files under `android/app/src/main`, `android/opsdashboard/src/main`, and
+- ~37 remaining files under `android/app/src/main`, `android/opsdashboard/src/main`, and
   `android/wearcomplications/src/main` still tagged `experimental` — see
   [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md) for the exact, current list.
 - Done: the 8 ViewModel files, `AdminUiState.kt`, `ConversationListScreen.kt`, `ChatScreen.kt`,
   `ChatInputBar.kt`, `MessageBubble.kt`, `ErrorBanner.kt`, `SettingsScreen.kt` (`app` module), and
   `GroupListScreen.kt`/`ModelListScreen.kt`/`SessionListScreen.kt`/`ModelDetailScreen.kt`/
-  `SessionDetailScreen.kt`/`SettingsScreen.kt`/`GroupDetailScreen.kt`/`AdminScreen.kt`
-  (`opsdashboard` module — `ModelDetailScreen.kt`/`SessionDetailScreen.kt`/`GroupDetailScreen.kt`/
-  `AdminScreen.kt` with their admin-action confirm-dialog flows still uncovered (`AdminScreen.kt`'s
-  being every field edit on the screen, not just one action), `SettingsScreen.kt` with its
-  watch-face-push Activate-click still uncovered — see the
-  Correction above).
+  `SessionDetailScreen.kt`/`SettingsScreen.kt`/`GroupDetailScreen.kt`/`AdminScreen.kt`/
+  `TrainerScreen.kt`/`TrainerUiState.kt` (`opsdashboard` module — `ModelDetailScreen.kt`/
+  `SessionDetailScreen.kt`/`GroupDetailScreen.kt`/`AdminScreen.kt`/`TrainerScreen.kt` with their
+  admin-action confirm-dialog flows still uncovered (`AdminScreen.kt`/`TrainerScreen.kt`'s being
+  every field edit and, for `TrainerScreen.kt`, every control action too — not just one action),
+  `SettingsScreen.kt` with its watch-face-push Activate-click still uncovered — see the
+  Correction above). **All 12 TD-048 screens are now done.**
 
 ---
 
