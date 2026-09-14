@@ -1,8 +1,8 @@
 package com.adai.ops.di
 
-// @adai-status: experimental        (capped by TD-048 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: beta        (TD-048 — AppViewModelProviderTest.kt added; real-device run still unverified, see below)
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-09-13
 
 
 import androidx.lifecycle.viewmodel.initializer

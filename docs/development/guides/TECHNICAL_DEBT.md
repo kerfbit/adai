@@ -55,12 +55,13 @@ are deliberately deferred by prior user decision, not blocked, so TD-038 itself 
 no open design questions): [TD-048](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
 (Compose UI testing now adopted in both modules — **all 12/12 screens done as of September 13,
 2026, including the admin-action confirm-dialog flows on all 5 screens that had one** (see the
-"admin-dialog infrastructure, built at last" update); every `opsdashboard` screen's coverage is
+"admin-dialog infrastructure, built at last" update), **plus both apps' DI containers and
+`Application`/`Activity` entry points** (see the "DI containers and entry points" update) —
+`app`-module coverage verified live on a real device (`Medium_Phone_API_35`), `opsdashboard`
 compile-verified only, since this sandbox can't install/run that module's debug APK on a device at
-all (`wear-sdk` shared-library requirement, no Wear-capable device available here) — the
-now-proven ViewModel-then-screen approach has run its course for screens themselves, so what's
-left is DI containers/entry points (never attempted) and real-device verification of everything
-above once a Wear-capable device is available)
+all (`wear-sdk` shared-library requirement, no Wear-capable device available here) — what's left
+is the `wearcomplications` services (untouched, a distinct area) and real-device verification of
+every `opsdashboard` piece once a Wear-capable device is available)
 and [TD-037](#td-037-no-qt-test-infrastructure-for-gui-classes) (8-12h — the same shape for the
 desktop Qt GUI).
 
@@ -702,7 +703,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open (12/12 ViewModels done; Compose UI testing adopted, 12/12 screens covered; admin-dialog confirm-click flows now covered on all 5 gated screens; DI/entry-points and real-device verification remain) | Android / Testing | September 7, 2026 | 24-32 hours |
+| MEDIUM | Open (12/12 ViewModels done; Compose UI testing adopted, 12/12 screens covered; admin-dialog confirm-click flows and DI containers/entry points now covered too; `wearcomplications` services and full real-device verification remain) | Android / Testing | September 7, 2026 | 24-32 hours |
 
 Description:
 62 files — Compose screens, ViewModels without tests, DI containers, `Activity`/`Application`
@@ -1061,6 +1062,46 @@ merging and resource linking for the new activity/manifest — not just Kotlin c
 strongest verification available without a Wear-capable device in this sandbox. All 5 screens'
 own status comments updated to say their confirm-dialog flow is now covered.
 
+**Update (September 13, 2026, DI containers and entry points):** added coverage for both apps'
+manual-DI graphs (`AppContainer.kt`/`AppViewModelProvider.kt`) and launcher entry points
+(`Application`/`MainActivity`) — the last item on this entry's original Action Items list.
+
+`app` module — booted `Medium_Phone_API_35` and ran these for real, the first `app`-module test
+files verified live end-to-end since `SettingsScreenTest`'s own device run early in this rollout:
+`AppContainerTest` (2 tests) reaches the real, already-running `ChatbotApp.container` singleton
+(via `ApplicationProvider`) rather than constructing a second `AppContainer` against the same
+on-disk Room file — a real collision risk, since every instrumented test in this module already
+runs inside that live process — and proves `conversationRepository`/`chatRepository` share one
+actual database, cleaning up the one row it creates afterward instead of touching the database
+file itself. `AppViewModelProviderTest` (3 tests) exercises `factory()`/`chatFactory()` the same
+way `AdaiNavHost` does, including that two `ConversationListViewModel`s built from the same
+factory share the same repository. `MainActivityTest` (1 test) launches the real activity and
+navigates conversation-list → settings → back. Two genuine, real-device-only bugs surfaced and
+fixed along the way (neither reachable from a JVM unit test): `viewModelFactory { initializer {} }`'s
+legacy `Factory.create(Class<T>)` throws `UnsupportedOperationException` — the
+`create(Class<T>, CreationExtras)` overload with `CreationExtras.Empty` is required instead; and a
+brand-new `stateIn(WhileSubscribed(5_000), emptyList())` instance's very first plain `.first()`
+can return that initial empty default synchronously, before its upstream has actually run its
+first real query — fixed by using `first { predicate }` (keeps collecting until it matches) where
+that race mattered. All 23 pre-existing `app`-module instrumented tests plus these 6 new ones pass
+together on the real device.
+
+`opsdashboard` module — same shape (`AppContainerTest`, 1 test; `AppViewModelProviderTest`, 6
+tests, one per factory method; `MainActivityTest`, 3 tests covering the start destination, a
+bottom-nav tab switch, and settings navigation), applying both real-device-discovered fixes above
+proactively since they're general `viewModelFactory`/`stateIn` gotchas, not `app`-module-specific
+ones. Compile-verified only, plus the full androidTest APK assembling cleanly (same verification
+level as every other `opsdashboard` addition, per the standing `wear-sdk` sandbox limitation).
+`MainActivityTest` deliberately never clicks an admin action (would open a real `BiometricPrompt`
+this sandbox can't drive).
+
+`ChatbotApp.kt`/`OpsApp.kt` promoted `experimental` → `beta` too, on the strength of being
+exercised indirectly by these same test files (both `Application.onCreate()` must have already
+run correctly by the time `ApplicationProvider.getApplicationContext<...>()` returns a working
+`.container`). Not attempted in this pass: the `wearcomplications` services (a distinct, unrelated
+untested area — background services, not UI/DI) and `BiometricAdminAuthGate.kt`'s own
+`BiometricPrompt` integration test, both already flagged separately below.
+
 Action Items:
 
 - [x] Add ViewModel unit tests first (cheapest — no Compose/Activity needed) — 12 of 12 done (see
@@ -1083,20 +1124,25 @@ Action Items:
   everywhere it was flagged.
 - [ ] `BiometricAdminAuthGate.kt` specifically: consider an instrumented test using
   `BiometricPrompt`'s test/fake authenticator support instead of leaving it permanently untested.
-- [ ] DI containers (`AppContainer.kt`/`AppViewModelProvider.kt` in both apps), `Activity`/
-  `Application` entry points, and the `wearcomplications` services remain entirely untested —
-  not attempted in this pass.
+- [x] DI containers (`AppContainer.kt`/`AppViewModelProvider.kt` in both apps) and `Activity`/
+  `Application` entry points — done, see the "DI containers and entry points" update above
+  (`app` module verified live on a real device; `opsdashboard` compile-verified only, per the
+  standing `wear-sdk` limitation). The `wearcomplications` services remain entirely untested —
+  not attempted in this pass, a distinct area (background services, not UI/DI).
 
 Files to Modify:
 
-- ~37 remaining files under `android/app/src/main`, `android/opsdashboard/src/main`, and
+- ~33 remaining files under `android/app/src/main`, `android/opsdashboard/src/main`, and
   `android/wearcomplications/src/main` still tagged `experimental` — see
-  [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md) for the exact, current list.
+  [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md) for the exact, current list (all of it
+  now `wearcomplications`, the one area this pass didn't touch).
 - Done: the 8 ViewModel files, `AdminUiState.kt`, `ConversationListScreen.kt`, `ChatScreen.kt`,
-  `ChatInputBar.kt`, `MessageBubble.kt`, `ErrorBanner.kt`, `SettingsScreen.kt` (`app` module), and
+  `ChatInputBar.kt`, `MessageBubble.kt`, `ErrorBanner.kt`, `SettingsScreen.kt`, `ChatbotApp.kt`,
+  `MainActivity.kt`, `AppContainer.kt`, `AppViewModelProvider.kt` (`app` module), and
   `GroupListScreen.kt`/`ModelListScreen.kt`/`SessionListScreen.kt`/`ModelDetailScreen.kt`/
   `SessionDetailScreen.kt`/`SettingsScreen.kt`/`GroupDetailScreen.kt`/`AdminScreen.kt`/
-  `TrainerScreen.kt`/`TrainerUiState.kt` (`opsdashboard` module — their admin-action confirm-dialog
+  `TrainerScreen.kt`/`TrainerUiState.kt`/`OpsApp.kt`/`MainActivity.kt`/`AppContainer.kt`/
+  `AppViewModelProvider.kt` (`opsdashboard` module — their admin-action confirm-dialog
   flows are now covered too, via the new `*ScreenConfirmActionTest` files, see the "admin-dialog
   infrastructure, built at last" update above; `SettingsScreen.kt`'s watch-face-push Activate-click
   is the one remaining disclosed gap, still uncovered — see the Correction above). **All 12 TD-048

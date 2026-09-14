@@ -10,7 +10,7 @@ See [file-status-standard.md](guides/file-status-standard.md) for what these sta
 
 | Component | Stable | Beta | Experimental | Deprecated | Legacy | Untagged | Total |
 |---|---|---|---|---|---|---|---|
-| android | 0 | 74 | 41 | 0 | 0 | 0 | 115 |
+| android | 0 | 82 | 33 | 0 | 0 | 0 | 115 |
 | scripts | 9 | 27 | 0 | 0 | 0 | 0 | 36 |
 | src | 91 | 42 | 15 | 0 | 0 | 0 | 148 |
 | tizen-metrics-app | 2 | 1 | 0 | 0 | 0 | 0 | 3 |
@@ -25,8 +25,8 @@ None — every in-scope file carries a tag.
 
 | File | Status | Version | Reviewed | Debt ref |
 |---|---|---|---|---|
-| `android/app/src/main/java/com/adai/chatbot/ChatbotApp.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
-| `android/app/src/main/java/com/adai/chatbot/MainActivity.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
+| `android/app/src/main/java/com/adai/chatbot/ChatbotApp.kt` | beta | 0.2.0 | 2026-09-13 | TD-048 |
+| `android/app/src/main/java/com/adai/chatbot/MainActivity.kt` | beta | 0.2.0 | 2026-09-13 | TD-048 |
 | `android/app/src/main/java/com/adai/chatbot/data/db/AppDatabase.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
 | `android/app/src/main/java/com/adai/chatbot/data/db/ConversationDao.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
 | `android/app/src/main/java/com/adai/chatbot/data/db/ConversationEntity.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
@@ -35,8 +35,8 @@ None — every in-scope file carries a tag.
 | `android/app/src/main/java/com/adai/chatbot/data/db/MessageEntity.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
 | `android/app/src/main/java/com/adai/chatbot/data/repository/ChatRepository.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
 | `android/app/src/main/java/com/adai/chatbot/data/repository/ConversationRepository.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
-| `android/app/src/main/java/com/adai/chatbot/di/AppContainer.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
-| `android/app/src/main/java/com/adai/chatbot/di/AppViewModelProvider.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
+| `android/app/src/main/java/com/adai/chatbot/di/AppContainer.kt` | beta | 0.2.0 | 2026-09-13 | TD-048 |
+| `android/app/src/main/java/com/adai/chatbot/di/AppViewModelProvider.kt` | beta | 0.2.0 | 2026-09-13 | TD-048 |
 | `android/app/src/main/java/com/adai/chatbot/network/ApiClientProvider.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
 | `android/app/src/main/java/com/adai/chatbot/network/ApiResult.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
 | `android/app/src/main/java/com/adai/chatbot/network/ChatApiService.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
@@ -59,8 +59,8 @@ None — every in-scope file carries a tag.
 | `android/app/src/sharedTest/java/com/adai/chatbot/testutil/FakeApiClientProvider.kt` | beta | 0.2.0 | 2026-09-13 | TD-048 |
 | `android/app/src/sharedTest/java/com/adai/chatbot/testutil/FakeDaos.kt` | beta | 0.1.0 | 2026-09-13 | TD-048 |
 | `android/app/src/sharedTest/java/com/adai/chatbot/testutil/FakeSettingsRepository.kt` | beta | 0.1.0 | 2026-09-13 | TD-048 |
-| `android/opsdashboard/src/main/java/com/adai/ops/MainActivity.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
-| `android/opsdashboard/src/main/java/com/adai/ops/OpsApp.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
+| `android/opsdashboard/src/main/java/com/adai/ops/MainActivity.kt` | beta | 0.2.0 | 2026-09-13 | TD-048 |
+| `android/opsdashboard/src/main/java/com/adai/ops/OpsApp.kt` | beta | 0.2.0 | 2026-09-13 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/data/metrics/MetricsRepository.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/data/mns/ModelRepository.kt` | beta | 0.4.1 | 2026-09-10 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/data/registry/RegistryRepository.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
@@ -70,8 +70,8 @@ None — every in-scope file carries a tag.
 | `android/opsdashboard/src/main/java/com/adai/ops/data/wearsync/WatchSyncRepository.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/data/wearsync/WatchSyncWorker.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/data/wearsync/WearWatchFacePushRepository.kt` | beta | 0.1.0 | 2026-09-13 | TD-047 |
-| `android/opsdashboard/src/main/java/com/adai/ops/di/AppContainer.kt` | experimental | 0.1.1 | 2026-09-13 | TD-048 |
-| `android/opsdashboard/src/main/java/com/adai/ops/di/AppViewModelProvider.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
+| `android/opsdashboard/src/main/java/com/adai/ops/di/AppContainer.kt` | beta | 0.2.0 | 2026-09-13 | TD-048 |
+| `android/opsdashboard/src/main/java/com/adai/ops/di/AppViewModelProvider.kt` | beta | 0.2.0 | 2026-09-13 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/network/ApiClientProvider.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/network/ApiResult.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/network/CloudflareAccessInterceptor.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
