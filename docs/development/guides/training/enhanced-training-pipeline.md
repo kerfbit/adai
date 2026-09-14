@@ -4,6 +4,16 @@
 **Date:** January 2026
 **Status:** Production Ready
 
+> **Partially stale (September 13, 2026):** TD-168 found `CheckpointManager` (described in
+> "3. CheckpointManager" below) was never used by any production `src/*.cpp` file — the real
+> checkpoint-rotation/best-tracking logic lives inline in `IncrementalTrainer` (see
+> `docs/development/guides/TECHNICAL_DEBT.md`'s resolved archive), and was never swapped out for
+> this class. `CheckpointManager` was retired as part of TD-168's resolution; there is no drop-in
+> replacement class — see `IncrementalTrainer::finalize_session()`/`cleanup_old_sessions()` for the
+> real, current implementation. This guide's `CheckpointManager` section (usage example, API
+> reference, and the "S3CheckpointManager" extension idea near the end) has not been rewritten —
+> treat it as historical.
+
 ---
 
 ## Overview

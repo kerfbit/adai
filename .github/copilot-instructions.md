@@ -116,7 +116,6 @@ adai/
 │   ├── ChatbotTrainer.{cpp,hpp}
 │   ├── IncrementalTrainer.{cpp,hpp}
 │   ├── IncrementalTrainingTool.cpp  # CLI entry point for incremental training
-│   ├── CheckpointManager.hpp
 │   ├── PPOOptimizer.hpp
 │   ├── RewardModel.hpp
 │   │

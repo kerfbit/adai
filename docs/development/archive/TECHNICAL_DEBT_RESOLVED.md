@@ -4,6 +4,71 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-168: CheckpointManager Was a Fully-Built, Tested Duplicate of IncrementalTrainer's Own Inline Checkpoint Logic, Never Wired In
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 13, 2026 | `src/CheckpointManager.hpp` (removed), `tests/checkpointmanager_test.cpp` (removed), `examples/EnhancedTrainingExample.cpp`, `tests/CMakeLists.txt` | Retired the class, its test, and its build registration; rewrote its one remaining caller (the example) against a simple inline best-checkpoint-tracking pattern instead |
+
+Summary:
+Filed the same day as TD-169/TD-170 in a follow-up sweep to TD-038's original "tested in
+isolation, never wired into a shipped binary" audit: `src/CheckpointManager.hpp` (`stable`, dated
+"January 2026" in its own file doc) provided checkpoint rotation (keep N best by validation loss),
+best-model tracking, metadata sidecars, and automatic cleanup — with its own dedicated test
+(`tests/checkpointmanager_test.cpp`) and example (`examples/EnhancedTrainingExample.cpp`) — but
+zero production callers anywhere in `src/`. **TD-005** (resolved February 18, 2026) had already
+implemented this exact feature by hand, directly inside `IncrementalTrainer::{finalize_session,
+cleanup_old_sessions, update_checkpoint_symlinks, update_best_checkpoint}`. `CheckpointManager` was
+a generic, independently-tested reimplementation of the same responsibility, written separately and
+never swapped in.
+
+Unlike TD-169's `MetricsTracker` (wired in the same day, since it was purely additive), this one
+was retired rather than adapted: the two checkpoint-retention models are not drop-in compatible.
+`IncrementalTrainer`'s real model is session-based (`session_<N>_checkpoint.bin`, driven by
+`MAX_SESSIONS_TO_KEEP`, symlinks, a `session_history.txt` file, auto-save-by-samples-or-minutes
+cadence); `CheckpointManager::save_checkpoint(epoch, ...)` assumes a single global epoch counter
+(`checkpoint_epoch_NNNN.bin` naming, its own separate `.meta` sidecar format) with no concept of
+sessions at all. Adapting `CheckpointManager` to a session-keyed scheme would have meant redesigning
+most of the class just to reach parity with logic that already works and is already tested in
+`IncrementalTrainer` itself — the same "a correct, tested replacement already exists with no
+caller of its own" situation TD-052 resolved by retiring the class that had no future, not
+grafting one system onto the other.
+
+Changes Made:
+- Deleted `src/CheckpointManager.hpp` and `tests/checkpointmanager_test.cpp`.
+- Removed the `checkpointmanagerTests` target and its `add_test()` registration from
+  `tests/CMakeLists.txt`.
+- Rewrote `examples/EnhancedTrainingExample.cpp` (the only remaining caller) to track the best
+  checkpoint with a simple inline pattern — a local `best_checkpoint_path`/`best_checkpoint_val_loss`
+  pair updated each epoch, no rotation — instead of reintroducing a second reusable checkpoint
+  class nothing else would call. Updated the file's own header doc (version 1.0→1.1) to explain why.
+- Added a staleness banner to `docs/development/guides/training/enhanced-training-pipeline.md`
+  (its "3. CheckpointManager" section, usage example, API reference, and "S3CheckpointManager"
+  extension idea are now historical — matches the banner TD-052 added to
+  `data-pipeline-enhancement.md` for the identical reason). Left
+  `docs/development/reference/chatbot-completeness.md` untouched — it already carries a
+  general "Stale as of 2026-09-07" banner covering this and every other per-component claim in
+  that file — and left every `docs/development/archive/**` mention alone (historical record).
+  `docs/development/TEST_COVERAGE_IMPROVEMENTS.md`'s one passing mention is itself a dated,
+  point-in-time historical report (like an archive entry, just not physically filed under
+  `archive/`) rather than a currently-followed usage guide, so left alone for the same reason.
+- Removed the now-stale `CheckpointManager.hpp` line from `.github/copilot-instructions.md`'s
+  file-tree listing.
+
+Verification:
+- ✅ Full project rebuild (`cmake --build .`, all targets): clean, including the rewritten
+  `enhanced_training_example`.
+- ✅ `enhanced_training_example` run manually end-to-end: completes all steps, tracks and loads
+  the best checkpoint correctly, exports metrics CSV — sensible output throughout.
+- ✅ Full `ctest -j8` (130 tests, down from 131 with `CheckpointManagerTests` removed): all pass.
+  One unrelated flake (`ScriptsTests_monitor_training`, a Python script test with no connection to
+  this change) failed under full-suite contention and passed cleanly standalone — not investigated
+  further as part of this item.
+- ✅ `python3 scripts/check_file_status.py`: 304 files checked (305 minus the removed header), 0
+  problems.
+
+---
+
 ### TD-169: MetricsTracker Was a Fully-Built, Tested Duplicate of ChatbotTrainer's Own Inline Metrics Tracking, Never Wired In
 
 | Resolution Date | Component | Resolved By |

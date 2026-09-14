@@ -1,27 +1,34 @@
 /**
  * @file EnhancedTrainingExample.cpp
  * @brief Example demonstrating the enhanced training pipeline
- * 
- * This example shows how to use Dataset, MetricsTracker, and CheckpointManager
- * for production-ready model training.
- * 
+ *
+ * This example shows how to use Dataset and MetricsTracker for
+ * production-ready model training, plus a simple best-checkpoint-tracking
+ * pattern (TD-168: this used to demonstrate a separate CheckpointManager
+ * class, retired once it turned out to be a fully-built, tested duplicate
+ * of checkpoint bookkeeping IncrementalTrainer already implements inline —
+ * see TECHNICAL_DEBT.md's resolved archive. The inline pattern below is
+ * intentionally simple, mirroring the essence of that real implementation
+ * rather than reintroducing a second reusable class nothing else calls).
+ *
  * Features demonstrated:
  * - Dataset loading and splitting
  * - Metrics tracking with perplexity calculation
- * - Checkpoint management with rotation
+ * - Best-checkpoint tracking (simple inline pattern, no rotation)
  * - Early stopping
  * - CSV export for visualization
- * 
- * @version 1.0
- * @date January 2026
+ *
+ * @version 1.1
+ * @date September 2026
  */
 
-#include <iostream>
-#include <iomanip>
+#include <filesystem>
 #include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <sstream>
 #include "Dataset.hpp"
 #include "MetricsTracker.hpp"
-#include "CheckpointManager.hpp"
 
 // Mock training functions for demonstration
 struct MockModel {
@@ -138,11 +145,17 @@ int main() {
     
     MockModel model;
     MetricsTracker metrics(3);  // Smoothing window of 3
-    CheckpointManager checkpoints("checkpoints/", 3);  // Keep 3 best checkpoints
-    
+
+    // Simple inline best-checkpoint tracking (see this file's own header doc
+    // for why this replaced a separate CheckpointManager class).
+    const std::string checkpoint_dir = "checkpoints/";
+    std::filesystem::create_directories(checkpoint_dir);
+    std::string best_checkpoint_path;
+    float best_checkpoint_val_loss = std::numeric_limits<float>::max();
+
     std::cout << "✓ Model initialized\n";
     std::cout << "✓ Metrics tracker initialized (smoothing window: 3)\n";
-    std::cout << "✓ Checkpoint manager initialized (max checkpoints: 3)\n\n";
+    std::cout << "✓ Checkpoint directory ready: " << checkpoint_dir << "\n\n";
     
     // ============================================================
     // 4. Training Configuration
@@ -197,13 +210,19 @@ int main() {
         metrics.record_epoch(epoch, train_loss, val_loss, 
                            mock_lr, mock_grad_norm, epoch_duration);
         
-        // Save checkpoint
-        std::string checkpoint_path = checkpoints.save_checkpoint(
-            epoch, train_loss, val_loss
-        );
+        // Save checkpoint and track the best one by validation loss (no
+        // rotation here — see this file's own header doc)
+        std::ostringstream checkpoint_name;
+        checkpoint_name << checkpoint_dir << "checkpoint_epoch_" << std::setw(4)
+                       << std::setfill('0') << epoch << ".bin";
+        std::string checkpoint_path = checkpoint_name.str();
         model.save(checkpoint_path);
         std::cout << "  Checkpoint: " << checkpoint_path << "\n";
-        
+        if (val_loss < best_checkpoint_val_loss) {
+            best_checkpoint_val_loss = val_loss;
+            best_checkpoint_path = checkpoint_path;
+        }
+
         // Check for improvement
         if (val_loss < best_val_loss - min_delta) {
             best_val_loss = val_loss;
@@ -266,19 +285,18 @@ int main() {
     
     // Checkpoint summary
     std::cout << "\nStep 8: Checkpoint Summary\n";
-    checkpoints.print_summary();
-    
+    std::cout << "  Best checkpoint: " << best_checkpoint_path << "\n";
+    std::cout << "  Best val loss: " << best_checkpoint_val_loss << "\n";
+
     // ============================================================
     // 7. Load Best Model
     // ============================================================
     std::cout << "\nStep 9: Loading best model...\n";
-    
-    std::string best_checkpoint = checkpoints.get_best_checkpoint_path();
-    if (!best_checkpoint.empty()) {
-        model.load(best_checkpoint);
-        std::cout << "✓ Best model loaded from: " << best_checkpoint << "\n";
-        std::cout << "  Best validation loss: " 
-                 << checkpoints.get_best_validation_loss() << "\n";
+
+    if (!best_checkpoint_path.empty()) {
+        model.load(best_checkpoint_path);
+        std::cout << "✓ Best model loaded from: " << best_checkpoint_path << "\n";
+        std::cout << "  Best validation loss: " << best_checkpoint_val_loss << "\n";
     } else {
         std::cout << "⚠ No best checkpoint found\n";
     }

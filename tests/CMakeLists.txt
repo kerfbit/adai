@@ -236,10 +236,7 @@ add_executable(metricstrackerTests metricstracker_test.cpp)
 target_link_libraries(metricstrackerTests GTest::gtest_main)
 add_test(NAME MetricsTrackerTests COMMAND metricstrackerTests)
 
-# CheckpointManager tests (model checkpoint management)
-add_executable(checkpointmanagerTests checkpointmanager_test.cpp)
-target_link_libraries(checkpointmanagerTests GTest::gtest_main)
-add_test(NAME CheckpointManagerTests COMMAND checkpointmanagerTests)
+# CheckpointManager retired (TD-168) -- see TECHNICAL_DEBT.md's resolved archive.
 
 # ============================================================================
 # Service Infrastructure Tests (Daemon Service - TD Future Enhancements)

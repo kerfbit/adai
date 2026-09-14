@@ -5,12 +5,12 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** September 13, 2026
-**Total Items:** 13
+**Total Items:** 12
 **High Priority:** 1
 **Medium Priority:** 6
-**Low Priority:** 6
+**Low Priority:** 5
 **Future Enhancements:** 19
-**Resolved Items:** 157
+**Resolved Items:** 158
 **Deferred Decisions:** 3
 
 ## Recommended Execution Order
@@ -101,13 +101,13 @@ just what compiles) that turned up three more fully-built, independently-tested 
 production callers. TD-169 (`MetricsTracker`) was the safest of the three — purely additive, no
 competing on-disk state — and was wired into `ChatbotTrainer`/`IncrementalTrainer` the same day it
 was filed; see its [resolved entry](../archive/TECHNICAL_DEBT_RESOLVED.md#td-169-metricstracker-was-a-fully-built-tested-duplicate-of-chatbottrainers-own-inline-metrics-tracking-never-wired-in).
-[TD-168](#td-168-checkpointmanager-is-a-fully-built-tested-duplicate-of-incrementaltrainers-own-inline-checkpoint-logic-never-wired-in)
-(`CheckpointManager`) still needs an owner decision (adapt to `IncrementalTrainer`'s session-based
-retention scheme vs. retire it, the way TD-052 retired `ParallelDataLoader`'s broken sibling) before
-either direction is picked.
+TD-168 (`CheckpointManager`) turned out to be the opposite case — the owner decision landed on
+retiring it, the same way TD-052 retired `ParallelDataLoader`'s broken sibling, once it was clear
+`IncrementalTrainer`'s real session-based retention model wasn't a drop-in match for
+`CheckpointManager`'s own epoch-keyed one; see its [resolved entry](../archive/TECHNICAL_DEBT_RESOLVED.md#td-168-checkpointmanager-was-a-fully-built-tested-duplicate-of-incrementaltrainers-own-inline-checkpoint-logic-never-wired-in).
 [TD-170](#td-170-paralleldataloaders-tokenbatchloaderthreadsafebatchqueue-still-have-no-production-caller)
-(`TokenBatchLoader`) is the highest-risk of the three — real batched training is an architecture
-change with retrain implications, not a bookkeeping swap — and needs the same kind of owner
+(`TokenBatchLoader`) remains open and is the highest-risk of the three — real batched training is
+an architecture change with retrain implications, not a bookkeeping swap — the same kind of owner
 decision TD-059/LoRA/Quantization already got.
 
 ## Table of Contents
@@ -127,9 +127,8 @@ decision TD-059/LoRA/Quantization already got.
   - [TD-047: Android Data/Repository/API Layer Has No CI or Release History](#td-047-android-datarepositoryapi-layer-has-no-ci-or-release-history)
   - [TD-048: Android UI/DI/Entry-Point Classes Are Untested and Unreleased](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
-  - [TD-168: CheckpointManager Is a Fully-Built, Tested Duplicate of IncrementalTrainer's Own Inline Checkpoint Logic, Never Wired In](#td-168-checkpointmanager-is-a-fully-built-tested-duplicate-of-incrementaltrainers-own-inline-checkpoint-logic-never-wired-in)
   - [TD-170: ParallelDataLoader's TokenBatchLoader/ThreadSafeBatchQueue Still Have No Production Caller](#td-170-paralleldataloaders-tokenbatchloaderthreadsafebatchqueue-still-have-no-production-caller)
-- [Resolved Items](#resolved-items) (157 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+- [Resolved Items](#resolved-items) (158 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -1387,63 +1386,6 @@ Files to Modify:
 
 ---
 
-### TD-168: CheckpointManager Is a Fully-Built, Tested Duplicate of IncrementalTrainer's Own Inline Checkpoint Logic, Never Wired In
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Training / Checkpointing | September 13, 2026 | 6-10 hours |
-
-Description:
-Found while auditing the codebase for the same "tested in isolation, never wired into a shipped
-binary" pattern TD-038 already covers (that TD's own list, plus `RewardModel`/`LoRA`, was
-generated from an earlier, narrower audit — this is a follow-up sweep, not part of TD-038 itself
-since none of these three are advanced/optional features, and the audit method — checking what
-every non-test, non-example `.cpp` actually includes/calls, not just what compiles — is different).
-
-`src/CheckpointManager.hpp` (`stable`, dated "January 2026" in its own file doc, `@adai-reviewed:
-2026-09-10`) is a complete, self-contained class: checkpoint rotation (keep N best by validation
-loss), best-model tracking, metadata sidecars, automatic cleanup — with its own dedicated test
-(`tests/checkpointmanager_test.cpp`) and example (`examples/EnhancedTrainingExample.cpp`). Grepping
-every `src/*.hpp`/`src/*.cpp` for `#include "CheckpointManager.hpp"` finds **zero** production
-callers — only its own test and example ever include it.
-
-Why: **TD-005** (resolved February 18, 2026 — see
-[archive](../archive/TECHNICAL_DEBT_RESOLVED.md)) implemented this exact feature — best-checkpoint
-tracking, symlink management to "latest"/"best", cleanup — by hand, directly inside
-`IncrementalTrainer::{finalize_session, cleanup_old_sessions, update_checkpoint_symlinks,
-update_best_checkpoint}` (`best_checkpoint_path`/`best_validation_loss` members, initialized from
-session history on startup). `CheckpointManager.hpp` is a generic, reusable, independently-tested
-reimplementation of the same responsibility, written separately and never swapped in.
-
-The two are not drop-in compatible as-is: `IncrementalTrainer`'s real retention model is
-session-based (`session_<N>_checkpoint.bin`, driven by `MAX_SESSIONS_TO_KEEP`, symlinks, a
-`session_history.txt` file, auto-save-by-samples-or-minutes cadence) and doesn't track a single
-global "epoch" counter the way `CheckpointManager::save_checkpoint(epoch, ...)` assumes
-(`checkpoint_epoch_NNNN.bin` naming, its own separate `.meta` sidecar format). Swapping one for the
-other is a real design decision, not a mechanical rename — this item stays open until that
-decision (adapt `CheckpointManager` to a session-keyed scheme and replace the inline logic, or
-retire `CheckpointManager` the way TD-052 retired `ParallelDataLoader`'s broken duplicate) is made
-and executed.
-
-Action Items:
-
-- [ ] Decide: adapt `CheckpointManager` for `IncrementalTrainer`'s session-based retention model
-  and swap it in (deleting the duplicated inline logic), or retire `CheckpointManager.hpp`/its test/
-  its example the way TD-052 retired `ParallelDataLoader` once a superior, already-tested
-  alternative was confirmed to already exist with no caller of its own.
-- [ ] Whichever direction: resolve the naming/metadata-format mismatch described above.
-- [ ] If wiring in: add a test proving `IncrementalTrainer`'s real checkpoint rotation now goes
-  through `CheckpointManager`, not just that both classes pass their own separate unit tests.
-
-Files to Modify:
-
-- `src/CheckpointManager.hpp`
-- `src/IncrementalTrainer.{hpp,cpp}` (if wiring in — `finalize_session()`, `cleanup_old_sessions()`,
-  `update_checkpoint_symlinks()`, `update_best_checkpoint()`)
-- `tests/checkpointmanager_test.cpp`, `examples/EnhancedTrainingExample.cpp` (if retiring)
-
----
-
 ### TD-170: ParallelDataLoader's TokenBatchLoader/ThreadSafeBatchQueue Still Have No Production Caller
 
 | Priority | Status | Component | Created | Effort Estimate |
@@ -1496,7 +1438,7 @@ Files to Modify:
 
 ## Resolved Items
 
-157 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+158 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements
@@ -2008,15 +1950,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 13 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 12 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|1|8%|
-|Medium|6|46%|
-|Low|6|46%|
+|Medium|6|50%|
+|Low|5|42%|
 
-**Total Active Items:** 13
+**Total Active Items:** 12
 
 ### By Component
 
@@ -2033,7 +1975,6 @@ Recomputed directly from the 13 `### TD-NNN` entries under [Active Technical Deb
 |Android / CI|1|
 |Android / Testing|1|
 |Documentation|1|
-|Training / Checkpointing|1|
 |Training / Data Loading|1|
 
 ### Effort Distribution
@@ -2042,11 +1983,11 @@ Recomputed directly from the 13 `### TD-NNN` entries under [Active Technical Deb
 |--------------|-------|
 |0-2 hours|0|
 |2-4 hours|1|
-|4-8 hours|3|
+|4-8 hours|2|
 |8+ hours|7|
 |Not estimated|2|
 
-**Total Estimated Effort (Active Items):** 138-206 hours (excludes TD-014 and TD-039, which have no effort estimate)
+**Total Estimated Effort (Active Items):** 132-196 hours (excludes TD-014 and TD-039, which have no effort estimate)
 
 ### Future Enhancements Summary
 
