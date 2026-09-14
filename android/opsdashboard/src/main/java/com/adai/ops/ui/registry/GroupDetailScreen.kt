@@ -1,7 +1,7 @@
 package com.adai.ops.ui.registry
 
-// @adai-status: beta        (TD-048 — GroupDetailScreenTest.kt added; force-release admin-action confirm-dialog flow and real-device run still unverified, see below)
-// @adai-version: 0.3.0
+// @adai-status: beta        (TD-048 — GroupDetailScreenConfirmActionTest.kt now covers the force-release admin-action confirm-dialog flow; real-device run still unverified, see below)
+// @adai-version: 0.4.0
 // @adai-reviewed: 2026-09-13
 
 

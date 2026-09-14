@@ -1,7 +1,7 @@
 package com.adai.ops.ui.admin
 
-// @adai-status: beta        (TD-048 — AdminScreenTest.kt added; every field-save flow (ConfirmActionDialog) and real-device run still unverified, see below)
-// @adai-version: 0.2.0
+// @adai-status: beta        (TD-048 — AdminScreenConfirmActionTest.kt now covers the field-save ConfirmActionDialog flow (one representative field; all fields share the same code path); real-device run still unverified, see below)
+// @adai-version: 0.3.0
 // @adai-reviewed: 2026-09-13
 
 

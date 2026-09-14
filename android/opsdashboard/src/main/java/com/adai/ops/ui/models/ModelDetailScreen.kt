@@ -1,7 +1,7 @@
 package com.adai.ops.ui.models
 
-// @adai-status: beta        (TD-048 — ModelDetailScreenTest.kt added; admin-action confirm-dialog flow and real-device run still unverified, see below)
-// @adai-version: 0.2.0
+// @adai-status: beta        (TD-048 — ModelDetailScreenConfirmActionTest.kt now covers the admin-action confirm-dialog flow; real-device run still unverified, see below)
+// @adai-version: 0.3.0
 // @adai-reviewed: 2026-09-13
 
 

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+TD-048: declares ConfirmDialogTestActivity (see
+com.adai.ops.testutil.ConfirmDialogTestActivity) so createAndroidComposeRule<...>() can launch
+it, since a FragmentActivity host is required by every screen's admin-action confirm-dialog flow
+(ConfirmActionDialog does `LocalContext.current as FragmentActivity`), which the default
+createComposeRule()'s bare ComponentActivity host cannot satisfy.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name="com.adai.ops.testutil.ConfirmDialogTestActivity"
+            android:exported="false" />
+    </application>
+</manifest>

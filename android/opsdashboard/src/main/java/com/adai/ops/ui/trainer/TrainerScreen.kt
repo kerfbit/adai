@@ -1,7 +1,7 @@
 package com.adai.ops.ui.trainer
 
-// @adai-status: beta        (TD-048 — TrainerScreenTest.kt added; control-action and config-field ConfirmActionDialog flows and real-device run still unverified, see below)
-// @adai-version: 0.2.0
+// @adai-status: beta        (TD-048 — TrainerScreenConfirmActionTest.kt now covers the control-action ConfirmActionDialog flow (Pause, representative of Checkpoint/Resume/config-field edits); real-device run still unverified, see below)
+// @adai-version: 0.3.0
 // @adai-reviewed: 2026-09-13
 
 

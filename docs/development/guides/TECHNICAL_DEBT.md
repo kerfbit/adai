@@ -54,15 +54,13 @@ are deliberately deferred by prior user decision, not blocked, so TD-038 itself 
 **Tier 4 — Sustained, low-risk test-coverage investment** (systematic, already-validated pattern,
 no open design questions): [TD-048](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
 (Compose UI testing now adopted in both modules — **all 12/12 screens done as of September 13,
-2026**; every `opsdashboard` screen's coverage is compile-verified only, since this sandbox can't
-install/run that module's debug APK on a device at all (`wear-sdk` shared-library requirement, no
-Wear-capable device available here); the not-yet-built admin-action confirm-dialog test
-infrastructure `ModelDetailScreen`'s own update flagged is still needed for `ModelDetailScreen`/
-`SessionDetailScreen`/`GroupDetailScreen`/`AdminScreen`/`TrainerScreen`'s own confirm-dialog flows
-(each screen otherwise done); plus DI/entry-points remain — the now-proven ViewModel-then-screen
-approach has run its course for screens themselves, so what's left is the confirm-dialog
-infrastructure, DI containers/entry points, and real-device verification once a Wear-capable
-device is available)
+2026, including the admin-action confirm-dialog flows on all 5 screens that had one** (see the
+"admin-dialog infrastructure, built at last" update); every `opsdashboard` screen's coverage is
+compile-verified only, since this sandbox can't install/run that module's debug APK on a device at
+all (`wear-sdk` shared-library requirement, no Wear-capable device available here) — the
+now-proven ViewModel-then-screen approach has run its course for screens themselves, so what's
+left is DI containers/entry points (never attempted) and real-device verification of everything
+above once a Wear-capable device is available)
 and [TD-037](#td-037-no-qt-test-infrastructure-for-gui-classes) (8-12h — the same shape for the
 desktop Qt GUI).
 
@@ -704,7 +702,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open (12/12 ViewModels done; Compose UI testing adopted, 12/12 screens covered; DI/entry-points and the admin-dialog confirm-click infrastructure remain) | Android / Testing | September 7, 2026 | 24-32 hours |
+| MEDIUM | Open (12/12 ViewModels done; Compose UI testing adopted, 12/12 screens covered; admin-dialog confirm-click flows now covered on all 5 gated screens; DI/entry-points and real-device verification remain) | Android / Testing | September 7, 2026 | 24-32 hours |
 
 Description:
 62 files — Compose screens, ViewModels without tests, DI containers, `Activity`/`Application`
@@ -1028,6 +1026,41 @@ stale-data-with-error banner" test, since `FixedIntervalPoller`'s real 5s interv
 virtual-time control unavailable at this level. `TrainerScreen.kt` promoted `experimental` → `beta`
 (0.2.0); `TrainerUiState.kt` promoted the same way (mirrors `AdminUiState.kt`'s earlier promotion).
 
+**Update (September 13, 2026, the admin-dialog infrastructure, built at last):** built the
+admin-action confirm-dialog testing infrastructure this entry has been flagging since
+`ModelDetailScreen`'s own update, and used it to close that exact gap on all five screens that had
+one. Two new pieces, both under `opsdashboard`:
+`com.adai.ops.testutil.ConfirmDialogTestActivity` (`src/androidTest`-only — a bare
+`FragmentActivity` subclass, declared in a new `src/androidTest/AndroidManifest.xml`, that does
+nothing but give `createAndroidComposeRule<ConfirmDialogTestActivity>()` a real `FragmentActivity`
+to launch, since `ConfirmActionDialog`'s `LocalContext.current as FragmentActivity` cast crashes
+under the plain `createComposeRule()`/`ComponentActivity` host every other screen test uses) and
+`FakeAdminAuthGate` (shared `src/sharedTest` fake implementing `AdminAuthGate`, configurable to
+return any `AdminAuthResult`, recording every `reason` it was called with) — the same
+interface-plus-fake shape as `WatchFacePushRepository`/`FakeWatchFacePushRepository`.
+
+Five new test files, one per screen with a confirm-dialog-gated flow, each wrapping the screen
+under test in `CompositionLocalProvider(LocalAdminAuthGate provides fakeGate) { ... }`:
+`ModelDetailScreenConfirmActionTest` (4 tests — the representative one, covering every
+`AdminAuthResult` branch: `Success` invokes the action and closes the dialog; `Cancelled` leaves it
+open with no error, per its own "not an error" doc comment; `Failed` shows the error message
+inside the still-open dialog; a plain "Cancel" tap never calls `authenticate()` at all — verified
+via revert-confirm-fail, temporarily making the `Cancelled` branch call `onConfirm()` and
+confirming the *"leaves it open"* test would then fail), `SessionDetailScreenConfirmActionTest`,
+`GroupDetailScreenConfirmActionTest`, `AdminScreenConfirmActionTest`, and
+`TrainerScreenConfirmActionTest` (each just the `Success` happy path for one representative
+flow — `AdminAuthResult`'s branch handling is screen-agnostic, so re-testing every branch on
+every screen would be pure duplication). Every one of these asserts the real API call the action
+makes lands with the right arguments (e.g. `GroupDetailScreenConfirmActionTest` confirms
+`forceRelease`'s empty `run_id` and file list; `AdminScreenConfirmActionTest` confirms the PUT body
+carries the edited field) and that the dialog actually closes afterward.
+
+Verified end-to-end beyond plain `compileDebugAndroidTestKotlin`: the full androidTest APK now
+assembles (`./gradlew :opsdashboard:assembleDebugAndroidTest`), which exercises real manifest
+merging and resource linking for the new activity/manifest — not just Kotlin compilation — the
+strongest verification available without a Wear-capable device in this sandbox. All 5 screens'
+own status comments updated to say their confirm-dialog flow is now covered.
+
 Action Items:
 
 - [x] Add ViewModel unit tests first (cheapest — no Compose/Activity needed) — 12 of 12 done (see
@@ -1042,12 +1075,12 @@ Action Items:
   `GroupListScreen`'s update above, `wear-sdk` shared-library requirement), so every
   `opsdashboard` screen's coverage is compile-verified only here, pending real Wear-capable
   device access to actually run any of them.
-- [ ] Build the admin-action confirm-dialog testing infrastructure (a minimal `androidTest`-only
-  `FragmentActivity` host + `createAndroidComposeRule<...>()` + a `FakeAdminAuthGate`) — see
-  `ModelDetailScreen`'s update above for the full explanation of why it's needed and doesn't exist
-  yet. Four screens now have flows gated behind it and would benefit: `ModelDetailScreen`,
-  `SessionDetailScreen`, `GroupDetailScreen`'s force-release, and `AdminScreen`/`TrainerScreen`'s
-  entire field-edit and control-action surface — build it once, not per-screen.
+- [x] Build the admin-action confirm-dialog testing infrastructure (a minimal `androidTest`-only
+  `FragmentActivity` host + `createAndroidComposeRule<...>()` + a `FakeAdminAuthGate`) — done, see
+  the "admin-dialog infrastructure, built at last" update above. Used to add a dedicated
+  `*ScreenConfirmActionTest` file per gated screen (`ModelDetailScreen`, `SessionDetailScreen`,
+  `GroupDetailScreen`'s force-release, `AdminScreen`, `TrainerScreen`), closing this gap
+  everywhere it was flagged.
 - [ ] `BiometricAdminAuthGate.kt` specifically: consider an instrumented test using
   `BiometricPrompt`'s test/fake authenticator support instead of leaving it permanently untested.
 - [ ] DI containers (`AppContainer.kt`/`AppViewModelProvider.kt` in both apps), `Activity`/
@@ -1063,12 +1096,11 @@ Files to Modify:
   `ChatInputBar.kt`, `MessageBubble.kt`, `ErrorBanner.kt`, `SettingsScreen.kt` (`app` module), and
   `GroupListScreen.kt`/`ModelListScreen.kt`/`SessionListScreen.kt`/`ModelDetailScreen.kt`/
   `SessionDetailScreen.kt`/`SettingsScreen.kt`/`GroupDetailScreen.kt`/`AdminScreen.kt`/
-  `TrainerScreen.kt`/`TrainerUiState.kt` (`opsdashboard` module — `ModelDetailScreen.kt`/
-  `SessionDetailScreen.kt`/`GroupDetailScreen.kt`/`AdminScreen.kt`/`TrainerScreen.kt` with their
-  admin-action confirm-dialog flows still uncovered (`AdminScreen.kt`/`TrainerScreen.kt`'s being
-  every field edit and, for `TrainerScreen.kt`, every control action too — not just one action),
-  `SettingsScreen.kt` with its watch-face-push Activate-click still uncovered — see the
-  Correction above). **All 12 TD-048 screens are now done.**
+  `TrainerScreen.kt`/`TrainerUiState.kt` (`opsdashboard` module — their admin-action confirm-dialog
+  flows are now covered too, via the new `*ScreenConfirmActionTest` files, see the "admin-dialog
+  infrastructure, built at last" update above; `SettingsScreen.kt`'s watch-face-push Activate-click
+  is the one remaining disclosed gap, still uncovered — see the Correction above). **All 12 TD-048
+  screens are now done, including their admin-dialog confirm-click flows.**
 
 ---
 
