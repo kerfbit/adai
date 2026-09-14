@@ -76,10 +76,12 @@ done (39 new tests across `MnsJsonHelpers.hpp`/`ChatbotGuiLogic.hpp`); only full
 testing (would need revisiting the QTest decision) remains, not currently planned.
 
 **Tier 5 — Larger investigation, sequence after Tier 1:** [TD-050](#td-050-gpu-resident-kv-cache-for-autoregressive-generation)
-(20-28h). Its own action items note the concrete next step is still confirming whether the CPU
-`DecoderKVCache` bug is even live via a real incremental-vs-full-recompute comparison — start
-there, not the full GPU buildout, and ideally after TD-059 lands so the incremental attention
-kernels are written against final math rather than math that might change under them.
+(14-20h, revised down). The CPU-side root-cause step is done (September 14, 2026) — a real
+incremental-vs-full-recompute comparison found no `DecoderKVCache` bug, and the greedy-decoding
+workaround built around that assumption has been removed. What remains is purely the GPU-resident
+cache buildout (design, kernels, wiring, benchmark) — sequence after TD-059 (already landed) so the
+incremental attention kernels are written against final math, and note the final benchmark item is
+blocked on real GPU hardware not available in this environment, same as TD-033's own remaining item.
 
 **Tier 6 — Process, not code:** [TD-047](#td-047-android-datarepositoryapi-layer-has-no-ci-or-release-history)'s
 remaining items are cutting the first real Android release (small, whenever desired) and
@@ -303,47 +305,60 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Planned | GPU / Inference / Training | July 4, 2026 | 20-28 hours |
+| MEDIUM | Open — CPU cache root-caused clean, no bug found (September 14, 2026); GPU-resident cache not started | GPU / Inference / Training | July 4, 2026 | 14-20 hours (revised down — the CPU root-cause item, previously unbounded, is done) |
 
 Description:
-Neither the CPU nor the GPU decode path has a working incremental KV-cache. On CPU, `generate_response_with_strategy()`'s greedy branch explicitly bypasses `DecoderKVCache`/`forward_with_cache()` via a documented workaround ("TODO: Fix KV cache to properly handle autoregressive generation" — `src/EncoderDecoderModel.cpp`) because the cache produces incorrect results for greedy decoding. `EncoderDecoderModel::gpu_generate_response()` (added to GPU-accelerate BLEU/ROUGE scoring during validation) inherits the same limitation by necessity: no GPU-resident cache exists at all, so every decode step recomputes the full sequence from scratch via `LLMDecoder::gpu_decode()` — O(n) work per step, O(n^2) total over a generation, instead of O(1) per step / O(n) total with a correct cache. This is functionally correct (mirrors the CPU workaround's algorithmic shape) but leaves an easy performance win on the table now that generation runs on GPU.
+The GPU decode path has no working incremental KV-cache at all: `EncoderDecoderModel::gpu_generate_response()` (added to GPU-accelerate BLEU/ROUGE scoring during validation) recomputes the full sequence from scratch every decode step via `LLMDecoder::gpu_decode()` — O(n) work per step, O(n^2) total over a generation, instead of O(1) per step / O(n) total with a real cache. This is functionally correct but leaves an easy performance win on the table now that generation runs on GPU. Still fully open, not started — see Action Items.
+
+**Update (September 14, 2026):** the CPU side is resolved. `generate_response_with_strategy()`'s
+greedy branch used to bypass `DecoderKVCache`/`forward_with_cache()` entirely via a dedicated
+non-cached `greedy_model_fn`, on the assumption (never actually verified) that the cache had a
+self-attention/cross-attention indexing bug producing incorrect results specifically for greedy
+decoding. The real diagnostic this item's own tracker text had been calling for since September
+8 — "an actual multi-step incremental-decode-vs-single-shot-full-recompute numerical comparison
+with identical weights" — was finally run: `tests/inference_optimization_test.cpp`'s new
+`IncrementalCacheMatchesFullRecomputePerStep` reproduces the real production call pattern (one new
+token per `forward_with_cache()` call, one `DecoderKVCache` instance threaded across every step, a
+real non-null `encoder_output` so cross-attention is exercised) and compares each step's hidden
+state against a from-scratch `forward_with_encoder()` recompute of the identical growing prefix.
+Across 40 decode steps (`d_model=128`, 4 layers, 8 heads): max abs diff stays flat at ~1e-6-2e-6
+for every single step, with no growth or accumulation trend as the sequence lengthens — the
+signature of ordinary float32 summation-order rounding noise, not an algorithmic bug (a real
+indexing/masking bug would show either an immediate large divergence or unbounded growth). **No
+CPU cache correctness bug exists.** The workaround's premise was wrong; it has been removed —
+`generate_response_with_strategy()`'s greedy branch now uses the same cached `model_fn` every
+other non-beam strategy already used, closing the O(n) vs O(n^2) gap the workaround left open for
+greedy specifically. The previous, much older (pre-existing, disabled) `DISABLED_
+CacheOutputConsistency` test this replaces had actually tested something different and much
+weaker — a single non-incremental `forward_with_cache()` call with `encoder_output=nullptr` (no
+cross-attention at all) against a 0.5-tolerance threshold loose enough to hide a real bug either
+way — and never actually confirmed or refuted anything about the real incremental, cross-attention
+call pattern production uses.
 
 Action Items:
 
-- [ ] Root-cause the existing CPU `DecoderKVCache` correctness bug (self-attention and/or cross-attention cache indexing) in `src/KVCache.hpp` / `src/Decoder.cpp` `forward_with_cache()` before building the GPU equivalent on top of the same flawed model.
-      Partial progress (September 8, 2026, from a full end-to-end read of `KVCache.hpp`): traced and
-      hand-verified as mathematically consistent between the cached and non-cached paths (i.e. ruled out
-      as the source of the divergence) — `KVCache::append()`'s row-wise concatenation;
-      `LLMDecoder::forward_with_cache()`'s inline positional-encoding reimplementation (its odd-index
-      exponent `(i-1)/d_model` is algebraically identical to the canonical `PositionalEncoding.cpp`'s
-      `2*(i/2)/d_model` for odd `i`, since integer `i/2` floors); its causal-mask construction for the
-      new-tokens-only query range; `LayerNorm::forward()`'s per-row independence (so normalizing a
-      single new token in isolation is provably identical to normalizing that same row within a full
-      batch); and `CrossAttention::forward_with_cache()`'s cache-encoder-K/V-once-then-reuse logic.
-      TD-059 (missing per-head split, now fixed — see its own entry) was present in both
-      `MultiHeadAttention::forward()` and `forward_with_cache()` identically at the time of this
-      trace, so it could not itself have been the source of a cached-vs-uncached *divergence* (it
-      would have produced equally-wrong-but-matching output in both modes) — it's fixed now, as its
-      own item, not as part of this one. Not yet checked: an actual
-      multi-step incremental-decode-vs-single-shot-full-recompute numerical comparison with identical
-      weights (the only way to confirm the bug is still live at all, and if so, localize which step
-      first diverges) — this is the next concrete step, not yet attempted.
+- [x] Root-cause the existing CPU `DecoderKVCache` correctness bug (self-attention and/or
+  cross-attention cache indexing) in `src/KVCache.hpp` / `src/Decoder.cpp` `forward_with_cache()`
+  before building the GPU equivalent on top of the same flawed model. **Resolved: no bug found**
+  — see the Update above. `src/KVCache.hpp`/`src/Decoder.cpp` needed no changes; the fix was
+  removing the now-unnecessary greedy-decoding workaround in `src/EncoderDecoderModel.cpp`.
 - [ ] Design a GPU-resident cache type (e.g. `GPUKVCache`) holding persistent per-layer `GPUMatrix` key/value buffers in `src/gpu/sycl/MatrixGPU_SYCL.hpp`, sized for `max_seq_length` and appended to in-place as new tokens are generated (no per-step malloc_device/free churn).
 - [ ] Add incremental self-attention kernels that compute Q/K/V for only the newest token(s) and attend against the full cached K/V (mirrors the CPU cache's intent), plus a one-time cross-attention K/V cache populated from the encoder output and reused unchanged across all decode steps.
 - [ ] Add `LLMDecoder::gpu_decode_step()` (single-token incremental decode using the cache) alongside the existing full-sequence `gpu_decode()` (retained for training's teacher-forced forward pass, which doesn't need a cache).
 - [ ] Wire `EncoderDecoderModel::gpu_generate_response()` to use the new incremental path instead of recomputing the full sequence every step.
-- [ ] Validate correctness against the existing full-recompute GPU path (identical token-for-token output for greedy decoding) and against the CPU path once its cache bug is fixed.
-- [ ] Benchmark generation latency before/after for representative `max_length` values (e.g. 50, 100 tokens) to confirm the expected O(n) vs O(n^2) improvement.
+- [ ] Validate correctness against the existing full-recompute GPU path (identical token-for-token output for greedy decoding) — the CPU path is already confirmed correct, so this is the GPU kernels' own correctness check, not a prerequisite fix.
+- [ ] Benchmark generation latency before/after for representative `max_length` values (e.g. 50, 100 tokens) to confirm the expected O(n) vs O(n^2) improvement. Blocked on real GPU hardware, same as TD-033's own remaining benchmark item — not available in this environment.
 
 Files to Modify:
 
-- `src/KVCache.hpp` — fix existing CPU cache bug
-- `src/Decoder.cpp` / `src/Decoder.hpp` — `forward_with_cache()` fix; new `gpu_decode_step()`
-- `src/gpu/sycl/MatrixGPU_SYCL.hpp` / `src/gpu/sycl/MatrixGPU_SYCL.cpp` — new `GPUKVCache` type and incremental attention kernels
-- `src/MultiHeadAttention.cpp` / `src/MultiHeadAttention.hpp` — GPU incremental self-attention using the cache
-- `src/CrossAttention.cpp` / `src/CrossAttention.hpp` — one-time GPU cross-attention K/V cache
-- `src/EncoderDecoderModel.cpp` / `src/EncoderDecoderModel.hpp` — `gpu_generate_response()` switched to incremental decode
-- `tests/` — new coverage for cache correctness and generation parity
+- `src/KVCache.hpp` / `src/Decoder.{hpp,cpp}` — done, no fix needed (root-cause investigation found no bug)
+- `src/EncoderDecoderModel.{hpp,cpp}` — done: greedy-decoding cache-bypass workaround removed
+- `tests/inference_optimization_test.cpp` — done: real incremental-vs-full-recompute regression test added
+- `src/gpu/sycl/MatrixGPU_SYCL.hpp` / `src/gpu/sycl/MatrixGPU_SYCL.cpp` — new `GPUKVCache` type and incremental attention kernels (not started)
+- `src/MultiHeadAttention.cpp` / `src/MultiHeadAttention.hpp` — GPU incremental self-attention using the cache (not started)
+- `src/CrossAttention.cpp` / `src/CrossAttention.hpp` — one-time GPU cross-attention K/V cache (not started)
+- `src/EncoderDecoderModel.cpp` / `src/EncoderDecoderModel.hpp` — `gpu_generate_response()` switched to incremental decode (not started)
+- `tests/` — new coverage for GPU cache correctness and generation parity (not started)
 
 Context: added alongside `gpu_evaluate()` and `gpu_generate_response()` (July 2026), which GPU-accelerated validation loss and BLEU/ROUGE scoring — see git history around that change for the full-recompute implementation this replaces.
 
@@ -1988,7 +2003,7 @@ Recomputed directly from the 12 `### TD-NNN` entries under [Active Technical Deb
 |8+ hours|6|
 |Not estimated|3|
 
-**Total Estimated Effort (Active Items):** 122-180 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate)
+**Total Estimated Effort (Active Items):** 116-172 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate)
 
 ### Future Enhancements Summary
 

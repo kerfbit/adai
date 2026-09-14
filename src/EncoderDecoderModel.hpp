@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added)
-// @adai-version: 0.11.0
-// @adai-reviewed: 2026-09-13
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 greedy KV-cache workaround removed)
+// @adai-version: 0.12.0
+// @adai-reviewed: 2026-09-14
 
 
 #include <functional>

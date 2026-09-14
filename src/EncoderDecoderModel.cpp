@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added)
-// @adai-version: 0.11.0
-// @adai-reviewed: 2026-09-13
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 greedy KV-cache workaround removed)
+// @adai-version: 0.12.0
+// @adai-reviewed: 2026-09-14
 
 #include "EncoderDecoderModel.hpp"
 #include <algorithm>
@@ -346,24 +346,19 @@ std::string EncoderDecoderModel::generate_response_with_strategy(const std::stri
     // Generate based on strategy
 
     if (normalized_strategy == "greedy") {
-        // WORKAROUND: Use non-cached path for greedy due to KV cache bug
-        // TODO: See TECHNICAL_DEBT.md TD-050 - Fix KV cache to properly handle autoregressive
-        //       generation (self-attention/cross-attention indexing bug), then build the
-        //       GPU-resident cache on top of the corrected model.
-        int actual_vocab_size = static_cast<int>(tokenizer->get_vocab_size());
-        auto greedy_model_fn = [this, actual_vocab_size](const std::vector<int>& tokens) -> Matrix {
-            Matrix decoder_out = decoder->forward_with_encoder(tokens, cached_encoder_output);
-            Matrix logits = lm_head->forward(decoder_out);
-            if (actual_vocab_size < logits.cols) {
-                for (int i = 0; i < logits.rows; ++i) {
-                    for (int j = actual_vocab_size; j < logits.cols; ++j) {
-                        logits.data[i][j] = -1e9f;
-                    }
-                }
-            }
-            return logits;
-        };
-        output_tokens = generator->generate_greedy(greedy_model_fn, {bos_token_id});
+        // TD-050 (root-caused September 14, 2026): this used to bypass the KV cache here via a
+        // dedicated non-cached greedy_model_fn ("WORKAROUND: Use non-cached path for greedy due
+        // to KV cache bug"), on the assumption that DecoderKVCache had a self-attention/
+        // cross-attention indexing bug producing incorrect results specifically for greedy
+        // decoding. A real multi-step incremental-decode-vs-full-recompute numerical comparison
+        // (tests/inference_optimization_test.cpp,
+        // InferenceOptimizationIntegrationTest.IncrementalCacheMatchesFullRecomputePerStep) found
+        // no such bug: across 40 decode steps the two paths agree to ~1e-6, with no growth or
+        // accumulation trend as the sequence lengthens — ordinary float32 rounding noise, not an
+        // algorithmic divergence. Greedy now uses the same cached `model_fn` every other
+        // non-beam strategy already did, closing the O(n) vs O(n^2)-per-generation gap this
+        // workaround left on the table for greedy specifically.
+        output_tokens = generator->generate_greedy(model_fn, {bos_token_id});
     } else if (normalized_strategy == "sampling") {
         output_tokens = generator->generate_sampling(model_fn, {bos_token_id}, temperature);
     } else if (normalized_strategy == "topk") {
