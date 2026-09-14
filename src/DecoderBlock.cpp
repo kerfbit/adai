@@ -1,6 +1,6 @@
-// @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: stable        (TD-050 GPU incremental-cache forward added)
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-09-14
 
 #include "DecoderBlock.hpp"
 #include <cmath>
@@ -458,6 +458,28 @@ adai::gpu::GPUMatrix DecoderBlock::gpu_forward(const adai::gpu::GPUMatrix& input
 
     // 3. norm3 -> feed-forward -> residual3 (unnormalized — final_norm handles
     // normalization once, after the last block, at the LLMDecoder level)
+    adai::gpu::GPUMatrix normed3 = norm3->gpu_forward(res2);
+    adai::gpu::GPUMatrix ff_out = feed_forward->gpu_forward(normed3);
+    return res2 + ff_out;
+}
+
+adai::gpu::GPUMatrix DecoderBlock::gpu_forward_with_cache(
+    const adai::gpu::GPUMatrix& input, const adai::gpu::GPUMatrix& encoder_out,
+    const adai::gpu::GPUMatrix& self_attn_mask, adai::gpu::GPUKVCache* self_attn_cache,
+    adai::gpu::GPUKVCache* cross_attn_cache, bool use_cache) {
+    // Identical structure to gpu_forward() above — only the two attention sub-layers change,
+    // to their own *_with_cache() incremental equivalents. Feed-forward and every norm are
+    // exactly as in gpu_forward(), since neither depends on sequence position.
+    adai::gpu::GPUMatrix normed1 = norm1->gpu_forward(input);
+    adai::gpu::GPUMatrix self_attn = self_attention->gpu_forward_with_cache(
+        normed1, &self_attn_mask, self_attn_cache, use_cache);
+    adai::gpu::GPUMatrix res1 = input + self_attn;
+
+    adai::gpu::GPUMatrix normed2 = norm2->gpu_forward(res1);
+    adai::gpu::GPUMatrix cross_attn = cross_attention->gpu_forward_with_cache(
+        normed2, encoder_out, nullptr, cross_attn_cache, use_cache);
+    adai::gpu::GPUMatrix res2 = res1 + cross_attn;
+
     adai::gpu::GPUMatrix normed3 = norm3->gpu_forward(res2);
     adai::gpu::GPUMatrix ff_out = feed_forward->gpu_forward(normed3);
     return res2 + ff_out;

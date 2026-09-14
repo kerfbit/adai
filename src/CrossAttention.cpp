@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added)
-// @adai-version: 0.11.0
-// @adai-reviewed: 2026-09-13
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache forward added)
+// @adai-version: 0.12.0
+// @adai-reviewed: 2026-09-14
 
 #include "CrossAttention.hpp"
 
@@ -773,6 +773,55 @@ adai::gpu::GPUMatrix CrossAttention::gpu_forward(const adai::gpu::GPUMatrix& que
 
     gpu_->cached_attn_out = std::move(concatenated);
     return gpu_->cached_attn_out * gpu_->Wo;
+}
+
+adai::gpu::GPUMatrix CrossAttention::gpu_forward_with_cache(const adai::gpu::GPUMatrix& query,
+                                                            const adai::gpu::GPUMatrix& kv,
+                                                            const adai::gpu::GPUMatrix* mask,
+                                                            adai::gpu::GPUKVCache* kv_cache,
+                                                            bool use_cache) {
+    if (!use_cache || kv_cache == nullptr) {
+        return gpu_forward(query, kv, mask);
+    }
+    if (!gpu_)
+        gpu_upload_weights();
+
+    const int num_new = query.rows;
+    const float scale = 1.0f / std::sqrt(static_cast<float>(d_k));
+
+    // Encoder K/V never change across decode steps — project and cache them exactly once, on
+    // the first call (cache empty). Every later call reuses what's already there; `kv` is not
+    // read again after this.
+    if (kv_cache->is_empty()) {
+        adai::gpu::GPUMatrix K_all = kv * gpu_->Wk;
+        adai::gpu::GPUMatrix V_all = kv * gpu_->Wv;
+        kv_cache->append(K_all, V_all);
+    }
+    adai::gpu::GPUMatrix K_full = kv_cache->get_keys();    // [src_len, d_model]
+    adai::gpu::GPUMatrix V_full = kv_cache->get_values();  // [src_len, d_model]
+
+    // Query is always fresh from the new decoder token(s) — no cache on the query side.
+    adai::gpu::GPUMatrix Q_new = query * gpu_->Wq;
+
+    adai::gpu::GPUMatrix concatenated(num_new, d_model);
+    for (int h = 0; h < num_heads; ++h) {
+        int start_dim = h * d_k;
+        adai::gpu::GPUMatrix Q_h = ca_gpu_slice_head_columns(Q_new, start_dim, d_k);
+        adai::gpu::GPUMatrix K_h = ca_gpu_slice_head_columns(K_full, start_dim, d_k);
+        adai::gpu::GPUMatrix V_h = ca_gpu_slice_head_columns(V_full, start_dim, d_k);
+
+        adai::gpu::GPUMatrix scores_h = Q_h * K_h.transpose();  // [num_new, src_len]
+        scores_h = scores_h.scale(scale);
+        if (mask != nullptr) {
+            scores_h.masked_fill_inplace(*mask, -1e9f);
+        }
+        scores_h.softmax_rows_inplace();
+
+        adai::gpu::GPUMatrix out_h = scores_h * V_h;  // [num_new, d_k]
+        ca_gpu_scatter_head_columns(concatenated, start_dim, out_h);
+    }
+
+    return concatenated * gpu_->Wo;
 }
 
 std::pair<adai::gpu::GPUMatrix, adai::gpu::GPUMatrix> CrossAttention::gpu_backward(

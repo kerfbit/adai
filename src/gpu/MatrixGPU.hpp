@@ -1,10 +1,13 @@
 #ifndef MATRIX_GPU_HPP
 #define MATRIX_GPU_HPP
 
-// @adai-status: beta        (capped by TD-061 — see MatrixGPU.cu's tag; this header just declares/wraps its kernels)
-// @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: beta        (capped by TD-061 — see MatrixGPU.cu's tag; this header just declares/wraps its kernels; TD-050 GPUKVCache added)
+// @adai-version: 0.10.0
+// @adai-reviewed: 2026-09-14
 
+
+#include <stdexcept>
+#include <vector>
 
 #ifdef ADAI_ENABLE_GPU
 
@@ -375,6 +378,192 @@ class GPUMatrix {
 }  // namespace adai
 
 #endif  // CUDA backend
+
+namespace adai {
+namespace gpu {
+
+// ============================================================================
+// GPUKVCache / GPUDecoderKVCache — GPU-resident KV cache for incremental
+// autoregressive decoding (TD-050)
+// ============================================================================
+
+/**
+ * @brief GPU-resident key-value cache for one attention layer's incremental decode (TD-050).
+ *
+ * Backend-agnostic by construction: placed here (outside the CUDA-vs-SYCL `#if`/`#else` split
+ * above) and built entirely from GPUMatrix's own public interface plus the existing
+ * matrix_copy_device_to_device_gpu() primitive — the same one MultiHeadAttention's
+ * gpu_slice_head_columns()/gpu_scatter_head_columns() helpers already use for TD-059's per-head
+ * GPU attention — so this single definition compiles unchanged under either the CUDA or SYCL
+ * backend with no new low-level kernels. That matters because this environment can compile but
+ * not runtime-verify either GPU backend (no physical GPU device available) — see TD-059's own
+ * writeup in TECHNICAL_DEBT_RESOLVED.md for that residual verification gap, which applies here
+ * identically: correctness rests on primitives already exercised elsewhere, not on new kernel
+ * code with zero ability to catch a bug in it.
+ *
+ * Unlike the CPU KVCache (KVCache.hpp), which reallocates a larger Matrix on every append() call,
+ * this pre-allocates a [max_seq_length, d_model] device buffer once at construction and grows
+ * current_length_ in place — no per-decode-step device malloc/free churn, per this item's own
+ * action item. get_keys()/get_values() materialize a freshly-sized [current_length, d_model]
+ * GPUMatrix via a single bulk device-to-device copy of the populated prefix (rows are contiguous
+ * in this row-major layout, so this is one copy, not the per-row loop TD-059's column-slicing
+ * helpers need for non-contiguous column ranges).
+ */
+class GPUKVCache {
+   public:
+    GPUKVCache(int max_seq_length, int d_model)
+        : max_seq_length_(max_seq_length),
+          d_model_(d_model),
+          keys_(max_seq_length, d_model),
+          values_(max_seq_length, d_model),
+          current_length_(0) {
+        if (max_seq_length <= 0 || d_model <= 0) {
+            throw std::invalid_argument("GPUKVCache: max_seq_length and d_model must be positive");
+        }
+    }
+
+    // Move-only — owns device memory via GPUMatrix, which is itself move-only.
+    GPUKVCache(const GPUKVCache&) = delete;
+    GPUKVCache& operator=(const GPUKVCache&) = delete;
+    GPUKVCache(GPUKVCache&&) = default;
+    GPUKVCache& operator=(GPUKVCache&&) = default;
+
+    bool is_empty() const {
+        return current_length_ == 0;
+    }
+    int size() const {
+        return current_length_;
+    }
+    int capacity() const {
+        return max_seq_length_;
+    }
+
+    /** @brief Rewind to empty without freeing/reallocating the underlying device buffer. */
+    void clear() {
+        current_length_ = 0;
+    }
+
+    /**
+     * @brief Append new_keys/new_values (each [num_new, d_model], already device-resident) at
+     * the current write position.
+     * @throws std::invalid_argument on shape mismatch, std::out_of_range if this would exceed
+     *   the max_seq_length capacity supplied at construction.
+     */
+    void append(const GPUMatrix& new_keys, const GPUMatrix& new_values) {
+        if (new_keys.rows != new_values.rows || new_keys.cols != d_model_ ||
+            new_values.cols != d_model_) {
+            throw std::invalid_argument("GPUKVCache::append: shape mismatch");
+        }
+        if (current_length_ + new_keys.rows > max_seq_length_) {
+            throw std::out_of_range("GPUKVCache::append: exceeds max_seq_length capacity");
+        }
+        if (new_keys.rows > 0) {
+            matrix_copy_device_to_device_gpu(new_keys.device_ptr(),
+                                             keys_.device_ptr() + current_length_ * d_model_,
+                                             new_keys.rows * d_model_);
+            matrix_copy_device_to_device_gpu(new_values.device_ptr(),
+                                             values_.device_ptr() + current_length_ * d_model_,
+                                             new_values.rows * d_model_);
+        }
+        current_length_ += new_keys.rows;
+    }
+
+    /** @brief Materialize the populated [current_length, d_model] prefix as a fresh GPUMatrix. */
+    GPUMatrix get_keys() const {
+        return materialize(keys_);
+    }
+    /** @brief Materialize the populated [current_length, d_model] prefix as a fresh GPUMatrix. */
+    GPUMatrix get_values() const {
+        return materialize(values_);
+    }
+
+   private:
+    GPUMatrix materialize(const GPUMatrix& buffer) const {
+        GPUMatrix result(current_length_, d_model_);
+        if (current_length_ > 0) {
+            matrix_copy_device_to_device_gpu(buffer.device_ptr(), result.device_ptr(),
+                                             current_length_ * d_model_);
+        }
+        return result;
+    }
+
+    int max_seq_length_;
+    int d_model_;
+    GPUMatrix keys_;
+    GPUMatrix values_;
+    int current_length_;
+};
+
+/**
+ * @brief GPU-resident multi-layer KV cache for the full decoder (TD-050) — mirrors
+ * DecoderKVCache's (KVCache.hpp) shape: one self-attention cache and one cross-attention cache
+ * per decoder layer. Cross-attention caches hold the encoder's K/V projections, computed once on
+ * the first decode step and reused unchanged for the rest of generation (encoder output never
+ * changes across decode steps) — callers populate a layer's cross-attention cache via a single
+ * append() with the full encoder sequence, then never append to it again.
+ */
+class GPUDecoderKVCache {
+   public:
+    GPUDecoderKVCache(int num_layers, int max_seq_length, int d_model) {
+        self_attention_caches_.reserve(num_layers);
+        cross_attention_caches_.reserve(num_layers);
+        for (int i = 0; i < num_layers; ++i) {
+            self_attention_caches_.emplace_back(max_seq_length, d_model);
+            // Cross-attention K/V come from the encoder output, whose length is bounded by the
+            // same MAX_SEQ_LENGTH config value this codebase already applies to both encoder and
+            // decoder sequences — reusing it here as a safe, simple capacity upper bound.
+            cross_attention_caches_.emplace_back(max_seq_length, d_model);
+        }
+    }
+
+    GPUDecoderKVCache(const GPUDecoderKVCache&) = delete;
+    GPUDecoderKVCache& operator=(const GPUDecoderKVCache&) = delete;
+    GPUDecoderKVCache(GPUDecoderKVCache&&) = default;
+    GPUDecoderKVCache& operator=(GPUDecoderKVCache&&) = default;
+
+    GPUKVCache& self_attention_cache(int layer_idx) {
+        return self_attention_caches_[layer_idx];
+    }
+    GPUKVCache& cross_attention_cache(int layer_idx) {
+        return cross_attention_caches_[layer_idx];
+    }
+
+    void clear() {
+        for (auto& c : self_attention_caches_) {
+            c.clear();
+        }
+        for (auto& c : cross_attention_caches_) {
+            c.clear();
+        }
+    }
+    /** @brief Clear self-attention caches only (keep the one-time cross-attention K/V). */
+    void clear_self_attention() {
+        for (auto& c : self_attention_caches_) {
+            c.clear();
+        }
+    }
+
+    bool is_empty() const {
+        for (const auto& c : self_attention_caches_) {
+            if (!c.is_empty()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** @brief Current sequence length, read from the first layer's self-attention cache. */
+    int current_length() const {
+        return self_attention_caches_.empty() ? 0 : self_attention_caches_[0].size();
+    }
+
+   private:
+    std::vector<GPUKVCache> self_attention_caches_;
+    std::vector<GPUKVCache> cross_attention_caches_;
+};
+
+}  // namespace gpu
+}  // namespace adai
 
 #endif  // ADAI_ENABLE_GPU
 

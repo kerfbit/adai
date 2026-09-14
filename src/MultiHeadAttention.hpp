@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added)
-// @adai-version: 0.11.0
-// @adai-reviewed: 2026-09-13
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache forward added)
+// @adai-version: 0.12.0
+// @adai-reviewed: 2026-09-14
 
 
 #include <functional>
@@ -493,5 +493,26 @@ class MultiHeadAttention {
     adai::gpu::GPUMatrix gpu_forward(const adai::gpu::GPUMatrix& input,
                                      const adai::gpu::GPUMatrix* mask = nullptr);
     adai::gpu::GPUMatrix gpu_backward(const adai::gpu::GPUMatrix& dout);
+
+    /**
+     * @brief TD-050: GPU incremental self-attention using a GPUKVCache, mirroring
+     * forward_with_cache()'s CPU algorithm exactly — new-token Q/K/V computed fresh, K/V
+     * appended to the cache, attention computed as [num_new_tokens, total_seq_len] against the
+     * full cached K/V. Built entirely from gpu_forward()'s own already-verified per-head
+     * primitives (gpu_slice_head_columns()/gpu_scatter_head_columns(), GPUMatrix's own
+     * operators) — no new kernels. Inference-only: does not populate GPUState's own
+     * backward-oriented caches, so gpu_backward() must not be called after this.
+     *
+     * @param input New-token(s) input [num_new_tokens, d_model] (typically 1 row during
+     *   generation)
+     * @param mask Optional mask, shape [num_new_tokens, total_seq_len_after_append]
+     * @param kv_cache Cache to append to and read from; nullptr or use_cache=false falls back
+     *   to plain gpu_forward()
+     * @param use_cache Whether to actually use/update the cache
+     */
+    adai::gpu::GPUMatrix gpu_forward_with_cache(const adai::gpu::GPUMatrix& input,
+                                                const adai::gpu::GPUMatrix* mask,
+                                                adai::gpu::GPUKVCache* kv_cache,
+                                                bool use_cache = true);
 #endif
 };

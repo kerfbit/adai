@@ -1,7 +1,7 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 greedy KV-cache workaround removed)
-// @adai-version: 0.12.0
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in)
+// @adai-version: 0.13.0
 // @adai-reviewed: 2026-09-14
 
 
@@ -199,11 +199,14 @@ class EncoderDecoderModel {
      * top-p as configured), but each decode step runs through the
      * GPU-resident encoder/decoder/lm_head instead of the CPU Matrix path.
      *
-     * No GPU KV-cache exists yet, so each step recomputes the full decoded
-     * sequence from scratch via gpu_decode() rather than incrementally
-     * caching — same algorithmic shape as the CPU "greedy workaround" path,
-     * just GPU-accelerated. Only the last position's logits are downloaded
-     * per step. (See TD-050 for the KV-cache gap.)
+     * TD-050 (September 14, 2026): uses a real GPU-resident incremental cache
+     * (GPUDecoderKVCache) via decoder->gpu_decode_step() — each step processes only the
+     * newly-generated token(s), not the full sequence from scratch. Falls back to the
+     * previous full-recompute gpu_decode() path only when generator's config has
+     * num_beams > 1 (beam search explores multiple diverging hypotheses through one
+     * model_fn, which a single shared cache cannot correctly serve — same constraint the
+     * CPU generate_response_with_strategy()'s own "beam" branch already respects). Only
+     * the last position's logits are downloaded per step.
      *
      * TD-033 (resolved September 13, 2026): wired into ChatbotAPI::generate_response()'s
      * plain serving path when GPUManager::is_available(). Kept as-is (uses whichever
@@ -228,14 +231,16 @@ class EncoderDecoderModel {
      * the caller's actual temperature/top_k/top_p/num_beams, not generator's
      * previously-set state) and dispatches to the matching TextGenerator method.
      *
-     * Unlike generate_response_with_strategy(), needs no separate KV-cache-vs-no-cache
-     * branch per strategy: gpu_decode() already recomputes the full sequence from
-     * scratch on every call regardless (no GPU KV-cache exists yet — TD-050), so a
-     * single model_fn (identical in shape to gpu_generate_response()'s own) serves
-     * every strategy, including beam search — confirmed by reading
-     * TextGenerator::generate_beam_search(): it calls model_fn once per beam per step
-     * with that beam's own token sequence and reads only the last row of whatever
-     * shape model_fn returns, the same contract every other generation method uses.
+     * TD-050 (September 14, 2026): greedy/sampling/topk/nucleus share one real
+     * GPU-resident incremental cache (GPUDecoderKVCache) via decoder->gpu_decode_step() —
+     * each step processes only the newly-generated token(s). "beam" gets its own,
+     * deliberately non-cached model_fn using the previous full-recompute gpu_decode()
+     * path instead, for the same reason generate_response_with_strategy()'s own CPU
+     * "beam" branch never uses DecoderKVCache: TextGenerator::generate_beam_search()
+     * calls model_fn once per beam per step with that beam's own diverging token
+     * sequence, and a single shared cache has no way to correctly serve more than one
+     * hypothesis at once — using the cached model_fn there would silently corrupt every
+     * beam but whichever one happened to match the cache's assumed prefix.
      *
      * @param input_text Input text to encode
      * @param max_length Maximum output length

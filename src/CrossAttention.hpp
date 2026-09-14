@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added)
-// @adai-version: 0.11.0
-// @adai-reviewed: 2026-09-13
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache forward added)
+// @adai-version: 0.12.0
+// @adai-reviewed: 2026-09-14
 
 
 #include <memory>
@@ -368,5 +368,29 @@ class CrossAttention {
     // Returns {d_query, d_kv}
     std::pair<adai::gpu::GPUMatrix, adai::gpu::GPUMatrix> gpu_backward(
         const adai::gpu::GPUMatrix& dout);
+
+    /**
+     * @brief TD-050: GPU incremental cross-attention using a GPUKVCache. Unlike self-attention,
+     * the encoder's K/V never change across decode steps, so `kv_cache` is populated with the
+     * encoder's projected K/V exactly once (on the first call, when it's empty) and simply read
+     * back on every subsequent call — `kv` (the raw encoder output) is only actually used on
+     * that first call; callers may pass the same reference every time regardless. Query is
+     * always computed fresh from `query` (the new decoder token's hidden state). Built entirely
+     * from gpu_forward()'s own already-verified per-head primitives, no new kernels.
+     * Inference-only, same as MultiHeadAttention::gpu_forward_with_cache() — does not populate
+     * GPUState's backward-oriented caches.
+     *
+     * @param query New decoder-token(s) query input [num_new_tokens, d_model]
+     * @param kv Raw encoder output [encoder_seq_len, d_model] — read only when kv_cache is empty
+     * @param mask Optional mask, shape [num_new_tokens, encoder_seq_len]
+     * @param kv_cache Cache holding the one-time-computed encoder K/V; nullptr or
+     *   use_cache=false falls back to plain gpu_forward()
+     * @param use_cache Whether to actually use the cache
+     */
+    adai::gpu::GPUMatrix gpu_forward_with_cache(const adai::gpu::GPUMatrix& query,
+                                                const adai::gpu::GPUMatrix& kv,
+                                                const adai::gpu::GPUMatrix* mask,
+                                                adai::gpu::GPUKVCache* kv_cache,
+                                                bool use_cache = true);
 #endif
 };

@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.1
-// @adai-reviewed: 2026-09-10
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; gpu_decode_step() incremental-cache decode added)
+// @adai-version: 0.10.0
+// @adai-reviewed: 2026-09-14
 
 
 #include <algorithm>
@@ -313,6 +313,25 @@ class LLMDecoder {
      */
     std::pair<adai::gpu::GPUMatrix, adai::gpu::GPUMatrix> gpu_backward(
         const adai::gpu::GPUMatrix& dout);
+
+    /**
+     * @brief TD-050: GPU incremental decode using a GPUDecoderKVCache — mirrors
+     * forward_with_cache()'s CPU algorithm (Decoder.cpp) exactly: embeds and positional-encodes
+     * only the new tokens (offset by kv_cache.current_length(), the position they start at),
+     * builds the [num_new_tokens, total_seq_len_after] causal mask for just those new tokens,
+     * then runs every decoder block's own gpu_forward_with_cache(). Retained alongside the
+     * existing full-sequence gpu_decode() (still used for training's teacher-forced forward
+     * pass, which has no cache to use) — this is purely the inference-time incremental path.
+     *
+     * @param new_token_ids New token ID(s) not yet in the cache (typically 1 during generation)
+     * @param kv_cache Cache threaded across every call for one generation; grows with each call
+     * @param encoder_out GPU-resident encoder output [src_len, d_model] — only read on each
+     *   block's cross-attention cache's first (cache-populating) call
+     * @return GPU matrix [num_new_tokens, d_model] (decoder output, before lm_head)
+     */
+    adai::gpu::GPUMatrix gpu_decode_step(const std::vector<int>& new_token_ids,
+                                         adai::gpu::GPUDecoderKVCache& kv_cache,
+                                         const adai::gpu::GPUMatrix& encoder_out);
 
     LayerNorm* get_final_norm_dec() {
         return final_norm.get();

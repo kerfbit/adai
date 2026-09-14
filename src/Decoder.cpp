@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.9.1
-// @adai-reviewed: 2026-09-10
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; gpu_decode_step() incremental-cache decode added)
+// @adai-version: 0.10.0
+// @adai-reviewed: 2026-09-14
 
 #include "Decoder.hpp"
 #include "Logger.hpp"
@@ -464,6 +464,70 @@ adai::gpu::GPUMatrix LLMDecoder::gpu_decode(const std::vector<int>& token_ids,
 
     for (auto& block : decoder_blocks)
         x = block->gpu_forward(x, encoder_out, &causal_mask);
+
+    return final_norm->gpu_forward(x);
+}
+
+adai::gpu::GPUMatrix LLMDecoder::gpu_decode_step(const std::vector<int>& new_token_ids,
+                                                 adai::gpu::GPUDecoderKVCache& kv_cache,
+                                                 const adai::gpu::GPUMatrix& encoder_out) {
+    const int num_new = static_cast<int>(new_token_ids.size());
+    const int current_position = kv_cache.current_length();
+    const int total_seq_len = current_position + num_new;
+
+    // 1. Embed only the new tokens (CPU — fast, matches gpu_decode()'s own pattern).
+    Matrix embeddings = token_embedding->forward(new_token_ids);
+
+    // 2. Positional encoding offset by current_position — identical formula to
+    // forward_with_cache()'s own inline reimplementation above (TD-050's own trace already
+    // confirmed this is algebraically identical to PositionalEncoding.cpp's canonical formula),
+    // reproduced verbatim here for exact parity with the already-verified CPU incremental path.
+    Matrix pos_encoded(num_new, d_model);
+    for (int pos = 0; pos < num_new; ++pos) {
+        int absolute_pos = current_position + pos;
+        for (int i = 0; i < d_model; ++i) {
+            if (i % 2 == 0) {
+                float angle = static_cast<float>(absolute_pos) /
+                             std::pow(10000.0f, (2.0f * static_cast<float>(static_cast<float>(i) / 2)) /
+                                                     static_cast<float>(d_model));
+                pos_encoded(pos, i) = embeddings(pos, i) + std::sin(angle);
+            } else {
+                float angle = static_cast<float>(absolute_pos) /
+                             std::pow(10000.0f, static_cast<float>(i - 1) / static_cast<float>(d_model));
+                pos_encoded(pos, i) = embeddings(pos, i) + std::cos(angle);
+            }
+        }
+    }
+
+    adai::gpu::GPUMatrix x(num_new, d_model);
+    {
+        std::vector<float> flat;
+        flat.reserve(num_new * d_model);
+        for (const auto& row : pos_encoded.data)
+            for (float v : row)
+                flat.push_back(v);
+        x.upload(flat.data(), num_new * d_model);
+    }
+
+    // 3. Causal mask for the new tokens: [num_new, total_seq_len] — new tokens can attend to
+    // every previous cached position plus themselves, same as forward_with_cache()'s own mask.
+    adai::gpu::GPUMatrix causal_mask(num_new, total_seq_len);
+    {
+        std::vector<float> cm(static_cast<size_t>(num_new) * total_seq_len);
+        for (int i = 0; i < num_new; ++i) {
+            int current_token_pos = current_position + i;
+            for (int j = 0; j < total_seq_len; ++j)
+                cm[i * total_seq_len + j] = (j <= current_token_pos) ? 1.0f : 0.0f;
+        }
+        causal_mask.upload(cm.data(), num_new * total_seq_len);
+    }
+
+    // 4. Run every decoder block's own incremental cache-based forward.
+    for (int layer_idx = 0; layer_idx < num_layers; ++layer_idx) {
+        x = decoder_blocks[layer_idx]->gpu_forward_with_cache(
+            x, encoder_out, causal_mask, &kv_cache.self_attention_cache(layer_idx),
+            &kv_cache.cross_attention_cache(layer_idx), /*use_cache=*/true);
+    }
 
     return final_norm->gpu_forward(x);
 }

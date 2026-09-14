@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: stable        (TD-050 GPU incremental-cache forward added)
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-09-14
 
 
 #include <memory>
@@ -258,5 +258,29 @@ class DecoderBlock {
     // and gradient w.r.t. this block's cross-attention encoder input.
     std::pair<adai::gpu::GPUMatrix, adai::gpu::GPUMatrix> gpu_backward(
         const adai::gpu::GPUMatrix& dout);
+
+    /**
+     * @brief TD-050: GPU incremental decode using GPUKVCache — mirrors gpu_forward()'s own
+     * Pre-LN residual structure (norm1 -> self-attn -> residual -> norm2 -> cross-attn ->
+     * residual -> norm3 -> feed-forward -> residual) exactly, swapping in
+     * MultiHeadAttention::gpu_forward_with_cache()/CrossAttention::gpu_forward_with_cache() for
+     * the two attention sub-layers. Feed-forward and every norm are unchanged — nothing about
+     * them depends on sequence position, only the attention sub-layers need a cache at all.
+     * Inference-only, no backward() counterpart (matches the attention layers' own
+     * gpu_forward_with_cache() contract).
+     *
+     * @param input New-token(s) input [num_new_tokens, d_model]
+     * @param encoder_out Raw encoder output — only read on cross_attn_cache's first (cache-
+     *   populating) call; safe to pass every time regardless
+     * @param self_attn_mask Causal mask [num_new_tokens, total_seq_len_after_append]
+     * @param self_attn_cache This block's own self-attention cache (grows every call)
+     * @param cross_attn_cache This block's own cross-attention cache (populated once, reused)
+     */
+    adai::gpu::GPUMatrix gpu_forward_with_cache(const adai::gpu::GPUMatrix& input,
+                                                const adai::gpu::GPUMatrix& encoder_out,
+                                                const adai::gpu::GPUMatrix& self_attn_mask,
+                                                adai::gpu::GPUKVCache* self_attn_cache,
+                                                adai::gpu::GPUKVCache* cross_attn_cache,
+                                                bool use_cache = true);
 #endif
 };

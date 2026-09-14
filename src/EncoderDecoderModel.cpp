@@ -1,5 +1,5 @@
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 greedy KV-cache workaround removed)
-// @adai-version: 0.12.0
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache generation wired in)
+// @adai-version: 0.13.0
 // @adai-reviewed: 2026-09-14
 
 #include "EncoderDecoderModel.hpp"
@@ -917,19 +917,51 @@ std::string EncoderDecoderModel::gpu_generate_response(const std::string& input_
     // Encode once on GPU; read-only input to every decode step below.
     adai::gpu::GPUMatrix gpu_encoder_out = encoder->gpu_encode(input_tokens);
 
-    // No GPU KV-cache exists yet, so every step recomputes the full decoded
-    // sequence from scratch via gpu_decode() (same causal self-attention +
-    // cross-attention to gpu_encoder_out as training) — algorithmically the
-    // same shape as the CPU "greedy workaround" path in
-    // generate_response_with_strategy(), just GPU-accelerated throughout.
-    auto model_fn = [this, &gpu_encoder_out](const std::vector<int>& tokens) -> Matrix {
-        adai::gpu::GPUMatrix dec_out = decoder->gpu_decode(tokens, gpu_encoder_out);
+    // TD-050 (September 14, 2026): beam search explores multiple diverging hypotheses through
+    // one model_fn — a single shared KV cache cannot correctly serve that (each beam's calls
+    // would corrupt the cache the others depend on), the same constraint the CPU path already
+    // respects (generate_response_with_strategy()'s own "beam" branch never uses DecoderKVCache
+    // either). This entry point has no explicit strategy name — generate() itself decides
+    // beam-vs-not from generator's own already-stored config — so check that directly and use
+    // the same full-recompute-every-step gpu_decode() this method used unconditionally before
+    // the cache existed, for beam search specifically.
+    if (generator->get_config().num_beams > 1) {
+        auto beam_model_fn = [this, &gpu_encoder_out](const std::vector<int>& tokens) -> Matrix {
+            adai::gpu::GPUMatrix dec_out = decoder->gpu_decode(tokens, gpu_encoder_out);
+            adai::gpu::GPUMatrix logits = lm_head->gpu_forward(dec_out);
+            const int tgt = static_cast<int>(tokens.size());
+            std::vector<float> last_row(vocab_size);
+            adai::gpu::matrix_download_gpu(logits.device_ptr() + (tgt - 1) * vocab_size,
+                                           last_row.data(), vocab_size);
+            Matrix last_logits(1, vocab_size);
+            for (int v = 0; v < vocab_size; ++v) {
+                last_logits.data[0][v] = last_row[v];
+            }
+            return last_logits;
+        };
+        std::vector<int> output_tokens = generator->generate(beam_model_fn, {bos_token_id});
+        return tokenizer->decode(output_tokens, true);
+    }
+
+    // Real GPU-resident incremental cache (TD-050) — replaces the previous full-recompute-
+    // every-step gpu_decode() call. Mirrors generate_response()'s own CPU cached model_fn:
+    // tracks processed_length, slices only the new tokens each call, threads one
+    // GPUDecoderKVCache across the whole generation.
+    adai::gpu::GPUDecoderKVCache gpu_kv_cache(decoder_layers, max_seq_length, d_model);
+    size_t processed_length = 0;
+    auto model_fn = [this, &gpu_encoder_out, &gpu_kv_cache,
+                     &processed_length](const std::vector<int>& tokens) -> Matrix {
+        std::vector<int> new_tokens(tokens.begin() + static_cast<std::ptrdiff_t>(processed_length),
+                                    tokens.end());
+        adai::gpu::GPUMatrix dec_out =
+            decoder->gpu_decode_step(new_tokens, gpu_kv_cache, gpu_encoder_out);
+        processed_length = tokens.size();
         adai::gpu::GPUMatrix logits = lm_head->gpu_forward(dec_out);
 
-        // generate() only ever reads the last row of what model_fn returns,
-        // so download just that row instead of the whole [tgt, vocab_size]
-        // logits matrix.
-        const int tgt = static_cast<int>(tokens.size());
+        // generate() only ever reads the last row of what model_fn returns, so download just
+        // that row — dec_out/logits now has only new_tokens.size() rows (not tokens.size()),
+        // unlike the old full-recompute version, since this is the incremental output.
+        const int tgt = static_cast<int>(new_tokens.size());
         std::vector<float> last_row(vocab_size);
         adai::gpu::matrix_download_gpu(logits.device_ptr() + (tgt - 1) * vocab_size,
                                        last_row.data(), vocab_size);
@@ -988,13 +1020,39 @@ std::string EncoderDecoderModel::gpu_generate_response_with_strategy(
     // Encode once on GPU; read-only input to every decode step below.
     adai::gpu::GPUMatrix gpu_encoder_out = encoder->gpu_encode(input_tokens);
 
-    // Identical in shape to gpu_generate_response()'s own model_fn — see this class's header
-    // comment for why one model_fn serves every strategy here, including beam search.
-    auto model_fn = [this, &gpu_encoder_out](const std::vector<int>& tokens) -> Matrix {
+    // TD-050 (September 14, 2026): beam search gets its own, deliberately non-cached model_fn —
+    // same reasoning as gpu_generate_response()'s identical guard: a single shared KV cache
+    // cannot correctly serve beam search's multiple diverging hypotheses (each beam's calls
+    // would corrupt the cache the others depend on). This mirrors generate_response_with_
+    // strategy()'s own CPU "beam" branch, which never uses DecoderKVCache either. Every other
+    // strategy below shares one real GPU-resident incremental cache instead of gpu_decode()'s
+    // previous full-recompute-every-step call.
+    auto beam_model_fn = [this, &gpu_encoder_out](const std::vector<int>& tokens) -> Matrix {
         adai::gpu::GPUMatrix dec_out = decoder->gpu_decode(tokens, gpu_encoder_out);
         adai::gpu::GPUMatrix logits = lm_head->gpu_forward(dec_out);
-
         const int tgt = static_cast<int>(tokens.size());
+        std::vector<float> last_row(vocab_size);
+        adai::gpu::matrix_download_gpu(logits.device_ptr() + (tgt - 1) * vocab_size,
+                                       last_row.data(), vocab_size);
+        Matrix last_logits(1, vocab_size);
+        for (int v = 0; v < vocab_size; ++v) {
+            last_logits.data[0][v] = last_row[v];
+        }
+        return last_logits;
+    };
+
+    adai::gpu::GPUDecoderKVCache gpu_kv_cache(decoder_layers, max_seq_length, d_model);
+    size_t processed_length = 0;
+    auto model_fn = [this, &gpu_encoder_out, &gpu_kv_cache,
+                     &processed_length](const std::vector<int>& tokens) -> Matrix {
+        std::vector<int> new_tokens(tokens.begin() + static_cast<std::ptrdiff_t>(processed_length),
+                                    tokens.end());
+        adai::gpu::GPUMatrix dec_out =
+            decoder->gpu_decode_step(new_tokens, gpu_kv_cache, gpu_encoder_out);
+        processed_length = tokens.size();
+        adai::gpu::GPUMatrix logits = lm_head->gpu_forward(dec_out);
+
+        const int tgt = static_cast<int>(new_tokens.size());
         std::vector<float> last_row(vocab_size);
         adai::gpu::matrix_download_gpu(logits.device_ptr() + (tgt - 1) * vocab_size,
                                        last_row.data(), vocab_size);
@@ -1010,7 +1068,7 @@ std::string EncoderDecoderModel::gpu_generate_response_with_strategy(
     if (normalized_strategy == "greedy") {
         output_tokens = generator->generate_greedy(model_fn, {bos_token_id});
     } else if (normalized_strategy == "beam") {
-        output_tokens = generator->generate_beam_search(model_fn, {bos_token_id});
+        output_tokens = generator->generate_beam_search(beam_model_fn, {bos_token_id});
     } else if (normalized_strategy == "sampling") {
         output_tokens = generator->generate_sampling(model_fn, {bos_token_id}, temperature);
     } else if (normalized_strategy == "topk") {

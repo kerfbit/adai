@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added)
-// @adai-version: 0.11.0
-// @adai-reviewed: 2026-09-13
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache forward added)
+// @adai-version: 0.12.0
+// @adai-reviewed: 2026-09-14
 
 #include "MultiHeadAttention.hpp"
 #include <cmath>
@@ -897,6 +897,54 @@ adai::gpu::GPUMatrix MultiHeadAttention::gpu_forward(const adai::gpu::GPUMatrix&
 
     // output = attn_out * W_o
     return gpu_->cached_attn_out * gpu_->Wo;
+}
+
+adai::gpu::GPUMatrix MultiHeadAttention::gpu_forward_with_cache(const adai::gpu::GPUMatrix& input,
+                                                                const adai::gpu::GPUMatrix* mask,
+                                                                adai::gpu::GPUKVCache* kv_cache,
+                                                                bool use_cache) {
+    if (!use_cache || kv_cache == nullptr) {
+        return gpu_forward(input, mask);
+    }
+    if (!gpu_)
+        gpu_upload_weights();
+
+    const int num_new = input.rows;
+    const float scale = 1.0f / std::sqrt(static_cast<float>(d_k));
+
+    // Q/K/V for the new token(s) only — mirrors forward_with_cache()'s CPU algorithm exactly.
+    adai::gpu::GPUMatrix Q_new = input * gpu_->Wq;
+    adai::gpu::GPUMatrix K_new = input * gpu_->Wk;
+    adai::gpu::GPUMatrix V_new = input * gpu_->Wv;
+
+    kv_cache->append(K_new, V_new);
+    adai::gpu::GPUMatrix K_full = kv_cache->get_keys();    // [total_seq_len, d_model]
+    adai::gpu::GPUMatrix V_full = kv_cache->get_values();  // [total_seq_len, d_model]
+    const int total_seq_len = K_full.rows;
+
+    // TD-059's own per-head primitives, unmodified — the only difference from gpu_forward()'s
+    // loop is that K_h/V_h come from the cache (width total_seq_len) instead of from this same
+    // call's own Q/K/V (width num_new). Attention shape is [num_new, total_seq_len], exactly
+    // matching forward_with_cache()'s CPU shape.
+    adai::gpu::GPUMatrix concatenated(num_new, d_model);
+    for (int h = 0; h < num_heads; ++h) {
+        int start_dim = h * d_k;
+        adai::gpu::GPUMatrix Q_h = gpu_slice_head_columns(Q_new, start_dim, d_k);
+        adai::gpu::GPUMatrix K_h = gpu_slice_head_columns(K_full, start_dim, d_k);
+        adai::gpu::GPUMatrix V_h = gpu_slice_head_columns(V_full, start_dim, d_k);
+
+        adai::gpu::GPUMatrix scores_h = Q_h * K_h.transpose();  // [num_new, total_seq_len]
+        scores_h = scores_h.scale(scale);
+        if (mask != nullptr) {
+            scores_h.masked_fill_inplace(*mask, -1e9f);
+        }
+        scores_h.softmax_rows_inplace();
+
+        adai::gpu::GPUMatrix out_h = scores_h * V_h;  // [num_new, d_k]
+        gpu_scatter_head_columns(concatenated, start_dim, out_h);
+    }
+
+    return concatenated * gpu_->Wo;
 }
 
 adai::gpu::GPUMatrix MultiHeadAttention::gpu_backward(const adai::gpu::GPUMatrix& dout) {
