@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.1
-// @adai-reviewed: 2026-09-12
+// @adai-version: 1.0.2
+// @adai-reviewed: 2026-09-14
 
 
 #include <cstdint>
@@ -439,6 +439,15 @@ struct ServiceConfig {
     /// than session_dir directly, to avoid colliding with
     /// metrics_api_server's own daemon_config.db location.
     std::string trainer_admin_dir = "trainer_admin";
+
+    /// TD-172: loopback-only port the trainer-service process supervisor assigns to each
+    /// single-pass `incremental_trainer --admin-port <N> resume` child it launches (via
+    /// `--admin-port`), distinct from `trainer_admin_port` above (the supervisor's OWN
+    /// public-facing admin listener, which proxies /admin/* requests to whichever child is
+    /// currently alive on this port). Only one child ever runs at a time under this design, so a
+    /// single fixed port needs no runtime discovery. Default: 8085 (next free slot after
+    /// trainer_admin_port's own 8084).
+    int trainer_child_admin_port = 8085;
 
     // ============================================================
     // Auto-save / Checkpoint Retention Configuration

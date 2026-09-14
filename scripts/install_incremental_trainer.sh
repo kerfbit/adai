@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# @adai-status: beta        (TD-043, TD-158 resolved — see tests/scripts/install_incremental_trainer_test.sh)
-# @adai-version: 0.8.3
-# @adai-reviewed: 2026-09-12
+# @adai-status: beta        (TD-043, TD-158 resolved — see tests/scripts/install_incremental_trainer_test.sh; TD-172 trainer_service copying added)
+# @adai-version: 0.9.0
+# @adai-reviewed: 2026-09-14
 
 # ADAI Incremental Trainer Sub-System - Installation Script
 #
@@ -111,6 +111,10 @@ Description:
 
   Binaries:
     incremental_trainer   training loop and session manager
+    trainer_service       optional (TD-172) process supervisor for incremental_trainer,
+                          needed only for scripts/adai-trainer.service's admin-API-capable
+                          deployment style — copied when present in <build-dir>/bin/, never
+                          a hard requirement
     registry_server       optional HTTP daemon (port 8082) for distributed pools
 
   Build first:
@@ -515,6 +519,22 @@ local_install() {
     chmod 755 "${BIN_DIR}/incremental_trainer"
     success "Installed incremental_trainer"
 
+    # TD-172: trainer_service is optional at build time (it isn't built at all without
+    # cpp-httplib, same gate as incremental_trainer's own admin API) and only needed for the
+    # admin-API-capable scripts/adai-trainer.service deployment style — the --with-systemd flag's
+    # own generated unit below drives incremental_trainer directly via systemd's own restart
+    # cycle and has no admin API at all, so it doesn't need this binary present.
+    if [[ -f "${BUILD_BIN_DIR}/trainer_service" ]]; then
+        cp "${BUILD_BIN_DIR}/trainer_service" "${BIN_DIR}/trainer_service"
+        chmod 755 "${BIN_DIR}/trainer_service"
+        success "Installed trainer_service"
+    else
+        warn "trainer_service not found at ${BUILD_BIN_DIR}/trainer_service — skipped (built only"
+        warn "when cpp-httplib is found at configure time). Needed only if you plan to use"
+        warn "scripts/adai-trainer.service's admin-API-capable deployment; --with-systemd's own"
+        warn "generated unit doesn't need it."
+    fi
+
     if [[ "${WITH_REGISTRY_SERVER}" == true ]]; then
         cp "${BUILD_BIN_DIR}/registry_server" "${BIN_DIR}/registry_server"
         chmod 755 "${BIN_DIR}/registry_server"
@@ -565,6 +585,12 @@ local_install() {
     else
         warn "incremental_trainer is not executable at ${BIN_DIR}/incremental_trainer"
         ok=false
+    fi
+
+    # trainer_service is optional (see the copy step above) — its absence is never a failed
+    # install, just a note that the admin-API-capable systemd deployment isn't available.
+    if [[ -x "${BIN_DIR}/trainer_service" ]]; then
+        success "trainer_service is installed and executable"
     fi
 
     if [[ "${ok}" == false ]]; then
@@ -824,12 +850,25 @@ REMOTE_MKDIR
             "${BUILD_BIN_DIR}/registry_server" \
             "${REMOTE_HOST}:${remote_bin}/"
     fi
+    # TD-172: optional, same as the local install path above — present only when built with
+    # cpp-httplib, needed only for scripts/adai-trainer.service's admin-API-capable deployment.
+    if [[ -f "${BUILD_BIN_DIR}/trainer_service" ]]; then
+        rsync -az --progress \
+            -e "${RSYNC_SSH_CMD}" \
+            "${BUILD_BIN_DIR}/trainer_service" \
+            "${REMOTE_HOST}:${remote_bin}/"
+    else
+        warn "trainer_service not found at ${BUILD_BIN_DIR}/trainer_service — skipped (see the"
+        warn "local install path's identical note above)"
+    fi
     success "Binaries transferred"
 
     # Step 3: Set remote binary permissions
     info "[3/${step_total}] Setting remote binary permissions..."
     local extra_bin=""
     [[ "${WITH_REGISTRY_SERVER}" == true ]] && extra_bin="${remote_bin}/registry_server"
+    local trainer_service_bin=""
+    [[ -f "${BUILD_BIN_DIR}/trainer_service" ]] && trainer_service_bin="${remote_bin}/trainer_service"
     # Plain `--remote host` (no --with-registry-server) leaves extra_bin empty,
     # so $2 on the remote side is an empty positional arg. This heredoc runs
     # under a bare `bash -s` with no `set -e` of its own, so nothing here
@@ -848,10 +887,14 @@ REMOTE_MKDIR
     # sidesteps the trap entirely.
     ssh "${SSH_ARGS[@]}" "${REMOTE_HOST}" bash -s -- \
         "${remote_bin}/incremental_trainer" \
-        "${extra_bin}" <<'REMOTE_CHMOD'
+        "${extra_bin}" \
+        "${trainer_service_bin}" <<'REMOTE_CHMOD'
 chmod 755 "$1"
 if [[ -n "$2" ]]; then
     chmod 755 "$2"
+fi
+if [[ -n "$3" ]]; then
+    chmod 755 "$3"
 fi
 REMOTE_CHMOD
     success "Remote permissions set"
@@ -943,6 +986,11 @@ REMOTE_CHOWN
     else
         warn "Could not verify incremental_trainer on ${REMOTE_HOST}"
         remote_ok=false
+    fi
+
+    if [[ -n "${trainer_service_bin}" ]] && \
+        ssh "${SSH_ARGS[@]}" "${REMOTE_HOST}" "test -x '${remote_bin}/trainer_service'"; then
+        success "trainer_service is present and executable on ${REMOTE_HOST}"
     fi
 
     [[ "${remote_ok}" == false ]] && warn "Some remote verification checks did not pass"

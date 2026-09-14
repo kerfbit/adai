@@ -1,6 +1,6 @@
 // @adai-status: experimental
-// @adai-version: 0.1.1
-// @adai-reviewed: 2026-09-12
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-09-14
 
 #include "IncrementalTrainerArgs.hpp"
 #include <array>
@@ -30,6 +30,8 @@ IncrementalTrainerGlobalArgs parse_incremental_trainer_global_args(int argc, cha
             result.model_name = argv[++i];
         } else if (a == "--foreground") {
             result.foreground = true;
+        } else if (a == "--admin-port" && i + 1 < argc) {
+            result.admin_port = std::stoi(argv[++i]);
         } else {
             result.args.push_back(a);
         }
@@ -39,8 +41,9 @@ IncrementalTrainerGlobalArgs parse_incremental_trainer_global_args(int argc, cha
 }
 
 bool incremental_trainer_command_defers_gpu_init(const std::string& command) {
-    return command == "train" || command == "retrain" || command == "resume" ||
-          command == "serve";
+    // TD-172: "serve" removed — incremental_trainer no longer has an always-on service command
+    // (see trainer_service, which never links adai_models/GPU objects at all).
+    return command == "train" || command == "retrain" || command == "resume";
 }
 
 std::string derive_run_id(const std::string& configured) {

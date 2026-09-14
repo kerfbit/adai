@@ -69,7 +69,8 @@ For sanitizer testing: `./scripts/run_tests.sh --asan|--ubsan|--tsan|--coverage`
 | `chatbot` | Interactive CLI client | — |
 | `chatbot_api_server` | REST inference API + session management | 8080 |
 | `chatbot_gui` | Qt GUI (optional) | — |
-| `incremental_trainer` | Online/incremental training with GPU support | 8084 (admin API, `serve` only, opt-in) |
+| `incremental_trainer` | Online/incremental training with GPU support (CLI only — see `trainer_service` for the always-on service) | — |
+| `trainer_service` | Process supervisor (TD-172) that launches `incremental_trainer` as a single-pass child, repeatedly, for the always-on training service; never touches GPU/CUDA/SYCL objects itself | 8084 (admin API proxy, opt-in) |
 | `metrics_api_server` | Training metrics collection + export | 8081 |
 | `registry_server` | Distributed dataset queue coordination | 8082 |
 | `mns_server` | Model Name Service: model identity + role registry | 8083 |
@@ -125,9 +126,22 @@ IncrementalTrainer
   └── ModelNameClient → mns_server  (begin_run / set_training / push_progress / set_candidate)
 ```
 
-`IncrementalConfig` is separate from `ServiceConfig`. `IncrementalTrainer::make_incremental_config(svc)` maps `ServiceConfig` → `IncrementalConfig`; any new config field added to `ServiceConfig` must also be added to `IncrementalConfig` and mapped there. `IncrementalConfig::dataset` (a `DatasetConfig`) is populated the same way — `IncrementalTrainer`'s 3-arg constructor (the one `incremental_trainer`'s `train`/`retrain`/`resume`/`reset`/`serve` commands all use) copies it into `dataset_config_`, so `resume_last_session()`/`reset_all()` see the real `REGISTRY_SERVER_URL`/`MODEL_NAME` instead of an all-default `DatasetConfig`.
+`IncrementalConfig` is separate from `ServiceConfig`. `IncrementalTrainer::make_incremental_config(svc)` maps `ServiceConfig` → `IncrementalConfig`; any new config field added to `ServiceConfig` must also be added to `IncrementalConfig` and mapped there. `IncrementalConfig::dataset` (a `DatasetConfig`) is populated the same way — `IncrementalTrainer`'s 3-arg constructor (the one `incremental_trainer`'s `train`/`retrain`/`resume`/`reset` commands all use) copies it into `dataset_config_`, so `resume_last_session()`/`reset_all()` see the real `REGISTRY_SERVER_URL`/`MODEL_NAME` instead of an all-default `DatasetConfig`.
 
-`incremental_trainer serve` (recommended for `adai-trainer.service`, see `scripts/adai-trainer.service`) is a distinct top-level command, not routed through `train`/`retrain`/`resume`'s fork+daemonize path — it never forks and stays alive for the process's entire lifetime, internally looping between checking for pending work and running a pass via `resume_last_session()`'s existing logic once per iteration (default 45s idle-poll interval). This is what lets it host the always-on admin HTTP API below — see "Incremental trainer admin API".
+**TD-172 (September 14, 2026):** the always-on training service is `trainer_service`, a separate
+binary from `incremental_trainer` — not a top-level command of it (the old `incremental_trainer
+serve` command has been removed). `trainer_service` is a thin process supervisor: it launches
+`incremental_trainer --foreground --admin-port <N> resume` as a single-pass child, waits for it to
+exit, and launches another immediately if that pass did work (more may be pending) or after a poll
+interval (default 45s) if not — the same idle-poll loop shape `serve` used to run in-process.
+`trainer_service` never links `adai_models`/`adai_nlp` and never touches GPU/CUDA/SYCL objects at
+all; every actual training pass runs inside the child. This is what lets a GPU-driver crash during
+a pass take down only that child process — `trainer_service` itself (and its admin API, which
+proxies to whichever child is alive) keeps running and launches a fresh child on the next poll
+cycle. See "Incremental trainer admin API" below for how the admin surface works across this
+process boundary, and [TECHNICAL_DEBT.md](docs/development/guides/TECHNICAL_DEBT.md)'s TD-172
+entry for the full design rationale (why a process supervisor over in-process reuse, why loopback
+HTTP over a file-based channel).
 
 ### MNS/registry-authoritative run and session numbering
 
@@ -220,7 +234,8 @@ Other architecturally significant keys:
 | `REGISTRY_SERVER_URL`, `RUN_GROUP`, `RUN_ID` | Distributed dataset registry |
 | `REGISTRY_LISTEN_PORT`, `REGISTRY_DATA_DIR` | `registry_server`'s own listen port / data dir (server-side, distinct from the client-side `REGISTRY_SERVER_URL` above) |
 | `AUTO_SAVE_ENABLED`, `AUTO_SAVE_EVERY_SAMPLES`, `AUTO_SAVE_EVERY_MINUTES`, `MAX_SESSIONS_TO_KEEP` | Checkpoint cadence / retention — map into `IncrementalConfig`'s matching fields via `make_incremental_config()`; live-tunable under `serve` via `PUT /admin/config`, see below |
-| `TRAINER_ADMIN_ENABLED`, `TRAINER_ADMIN_PORT`, `TRAINER_ADMIN_HOST`, `TRAINER_ADMIN_DIR` | `incremental_trainer serve`'s admin HTTP API — see below |
+| `TRAINER_ADMIN_ENABLED`, `TRAINER_ADMIN_PORT`, `TRAINER_ADMIN_HOST`, `TRAINER_ADMIN_DIR` | `trainer_service`'s admin HTTP API — see below |
+| `TRAINER_CHILD_ADMIN_PORT` | Loopback-only port `trainer_service` assigns each single-pass child it launches — see below |
 
 ### Daemon admin config API
 
@@ -235,29 +250,38 @@ endpoint is gated behind `--admin-enabled` (`registry_server`, `mns_server`) or 
 
 ### Incremental trainer admin API
 
-`incremental_trainer serve` — not `train`/`retrain`/`resume` — is the only command that hosts this;
-those three remain simple one-shot CLI invocations with no HTTP server at all. Unlike the three admin
-daemons above, `serve`'s admin port is **opt-in** (`TRAINER_ADMIN_ENABLED=false` by default) since it's
-the first thing to open a network port on a host that previously had none, and it's **genuinely
-always-on**: bound once at `serve` startup and kept alive for the whole process lifetime, independent of
-any single training pass — the design point that makes it different from a lighter "control-file" or
+**TD-172:** this API's HTTP surface is unchanged, but which process answers it changed —
+`trainer_service` hosts the public-facing listener below (`TrainerServiceProxy`), and proxies every
+`/admin/*` request to whichever `incremental_trainer --admin-port` child is currently running its own
+private `TrainerAdminAPI` (bound to `127.0.0.1:TRAINER_CHILD_ADMIN_PORT`, never exposed directly).
+`train`/`retrain`/plain `resume` (no `--admin-port`) remain simple one-shot CLI invocations with no
+HTTP server at all — only a `resume` launched by `trainer_service` itself hosts one, for that single
+pass's duration. Unlike the three admin daemons elsewhere in this table, this admin port is **opt-in**
+(`TRAINER_ADMIN_ENABLED=false` by default) since it's the first thing to open a network port on a host
+that previously had none, and it's **genuinely always-on** despite each *child*'s `TrainerAdminAPI`
+living only as long as one pass: `trainer_service`'s own listener is bound once at its own startup and
+kept alive for the whole process lifetime, transparently proxying to whichever child is alive (or
+answering an idle default when none is) — the design point that makes it different from a lighter
 "only reachable while a worker process happens to be up between systemd restarts" alternative. See
-`src/TrainerControlState.hpp`/`src/TrainerAdminAPI.{hpp,cpp}`.
+`src/TrainerControlState.hpp`/`src/TrainerAdminAPI.{hpp,cpp}` (used unchanged, by the child) and
+`src/TrainerServiceProxy.{hpp,cpp}`/`src/ChildProcess.{hpp,cpp}`/`src/TrainerServiceMain.cpp` (the
+supervisor's own proxy and process-launch/monitor logic).
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/health` | liveness |
-| GET | `/admin/config` | current `auto_save_enabled`/`auto_save_every_samples`/`auto_save_every_minutes`/`max_sessions_to_keep` |
-| PUT | `/admin/config` | mutate the same four keys; persisted to `TRAINER_ADMIN_DIR/daemon_config.db` |
+| GET | `/health` | liveness — always answered by `trainer_service` itself, never proxied |
+| GET | `/admin/config` | current `auto_save_enabled`/`auto_save_every_samples`/`auto_save_every_minutes`/`max_sessions_to_keep` — read from the current child if one is alive, else from the shared `TRAINER_ADMIN_DIR/daemon_config.db` directly |
+| PUT | `/admin/config` | mutate the same four keys; persisted to `TRAINER_ADMIN_DIR/daemon_config.db` either way (via the live child's own overlay, or directly when idle) — either way the next child launched picks it up |
 | GET | `/admin/status` | phase (`idle`/`loading_data`/`tokenizing`/`training`/`checkpointing`/`pausing`), run/session identity, epoch/sample/loss progress, `paused`, checkpoint counters |
 | POST | `/admin/checkpoint[?wait_ms=N]` | force a checkpoint at the next optimizer-step boundary; 409 if idle (no active pass to checkpoint) |
-| POST | `/admin/pause` | drain the current pass (if any) via `ChatbotTrainer::set_abort_flag()`, checkpoint, release claimed files back to pending, return to idle — the supervisory loop keeps serving, it does not exit |
+| POST | `/admin/pause` | drain the current pass (if any) via `ChatbotTrainer::set_abort_flag()`, checkpoint, release claimed files back to pending, return to idle — `trainer_service` keeps serving regardless, it does not exit |
 | POST | `/admin/resume` | clear pause, wake the idle-poll sleep so pending work is checked immediately |
 
 No HTTP shutdown endpoint exists or is planned — `systemctl stop`/SIGTERM stays the sole way to end the
-process, unchanged from `train`/`retrain`/`resume`. No companion CLI wraps this API (matches
-`mns_cli`/`dataset_manager` not wrapping their daemons' `/admin/config` either) — `curl` is the
-documented interface, e.g. `curl -s http://127.0.0.1:8084/admin/status`.
+`trainer_service` process, which in turn forwards a graceful-stop request to whatever child is
+currently running. No companion CLI wraps this API (matches `mns_cli`/`dataset_manager` not wrapping
+their daemons' `/admin/config` either) — `curl` is the documented interface, e.g.
+`curl -s http://127.0.0.1:8084/admin/status`.
 
 ## Code Conventions
 
@@ -283,3 +307,4 @@ trusting a `grep TD-NNN` alone. Currently active items:
 | TD-014 | Missing standalone tooling (quantization, eval, data-prep binaries) |
 | TD-006 | Fill-in-the-Middle (FIM) training data generation not implemented |
 | TD-162 | `IntegratedInferenceEngine`/`BatchedInferenceEngine` fulfill a request's `std::promise` before finishing that request's mutex-guarded stats update — a client's `f.wait_for()`/`f.get()` can race `get_stats()` against the still-in-flight counter increment on another thread. Confirmed via a real flake (`total_requests` undercounted by one under full-suite `ctest -j8`). |
+| TD-172 | Implemented September 14, 2026: `trainer_service` (process supervisor) replaces `incremental_trainer serve`; see "Incremental trainer admin API" above. Code implemented, unit-tested, and verified end-to-end locally (real training pass, real proxying, clean shutdown) — a live deployed host still needs its own `adai-trainer.service` file and binaries updated to actually cut over. |

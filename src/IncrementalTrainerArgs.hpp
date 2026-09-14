@@ -1,8 +1,8 @@
 #pragma once
 
 // @adai-status: experimental
-// @adai-version: 0.1.0
-// @adai-reviewed: 2026-09-11
+// @adai-version: 0.2.0
+// @adai-reviewed: 2026-09-14
 
 // TD-035: incremental_trainer's global argv parsing and a few small pure helpers, pulled out of
 // IncrementalTrainingTool.cpp so they're testable without touching a real IncrementalTrainer
@@ -21,9 +21,14 @@ struct IncrementalTrainerGlobalArgs {
     std::optional<std::string> gpu_strategy;
     std::optional<std::string> model_name;
     bool foreground = false;
+    // TD-172: set only by the process-supervisor binary when it launches a single-pass child
+    // (`--foreground --admin-port <N> resume`). Starts a TrainerAdminAPI bound to 127.0.0.1:<N>
+    // for the duration of that one pass — the supervisor's own admin listener proxies to it while
+    // the child is alive. Absent for every interactive/manual invocation.
+    std::optional<int> admin_port;
     // args[0] is the command (e.g. "train"), args[1..] are its own arguments — --config,
-    // --gpu-strategy, --model, and --foreground are stripped out before this is populated,
-    // exactly like the original inline loop.
+    // --gpu-strategy, --model, --foreground, and --admin-port are stripped out before this is
+    // populated, exactly like the original inline loop.
     std::vector<std::string> args;
 };
 

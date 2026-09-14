@@ -122,19 +122,19 @@ the underlying reason `TokenBatchLoader` had nowhere to attach is that no layer 
 model stack has a batch dimension at all — flagged as its own large, multi-session architecture
 question, not attempted.
 
-**Tier 9 — Newly filed, deployment architecture:**
+**Tier 9 — Resolved except a live host's own deployment cutover:**
 [TD-172](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
-(14-20h). `incremental_trainer serve` — the always-on systemd-managed training service — is a
-branch of the same `main()` that also handles every one-shot CLI command
-(`init`/`train`/`retrain`/`reset`/`resume`/`status`/`history`). **Both design decisions made
-September 14, 2026:** the new service binary will be a **process supervisor** (treats
-`incremental_trainer` as an external subprocess it launches/monitors per pass, not in-process
-library reuse — trading TD-028's simpler `dataset_manager`-style split for real process-crash
-isolation between the admin API and a training pass), and the supervisor↔child IPC will be
-**loopback HTTP with the supervisor proxying to the child's own `TrainerAdminAPI`** — chosen over a
-file-based channel for being an already-established pattern in this codebase and more portable,
-and because it turns out to require zero changes to `TrainerControlState`/`TrainerAdminAPI`
-themselves. Design/implementation not started.
+(14-20h, matched). `incremental_trainer serve` — the always-on systemd-managed training service —
+used to be a branch of the same `main()` that also handles every one-shot CLI command; both design
+decisions (**process supervisor** over in-process reuse; **loopback HTTP, supervisor proxies to
+the child's own `TrainerAdminAPI`** over a file-based channel) and the full implementation landed
+the same day, September 14, 2026 — new `trainer_service` binary, `ChildProcess`/
+`TrainerServiceProxy` classes (19 new unit tests), `incremental_trainer resume --admin-port`,
+`serve` removed entirely, `scripts/adai-trainer.service`/`install_incremental_trainer.sh`/
+CLAUDE.md updated, verified end-to-end against a real training pass. What remains is purely
+operational: an actual live deployed host still needs its own systemd unit and binaries updated to
+cut over, which is outside a coding session's reach — same category as TD-047's release cut or
+TD-033/TD-050's hardware-blocked validation.
 
 ## Table of Contents
 
@@ -1562,7 +1562,7 @@ equivalent under `src/gpu/`.
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open — process-supervisor + loopback-HTTP-proxy design decided, implementation not started | Training / Deployment / Tooling | September 14, 2026 | 14-20 hours (revised from 8-12h for the process-supervisor split, then back down from an initial 20-28h once the loopback-HTTP-proxy IPC choice confirmed `TrainerControlState`/`TrainerAdminAPI` need no redesign — see the decision updates below) |
+| MEDIUM | Open — implemented, unit-tested, and verified end-to-end locally (September 14, 2026); only a live deployed host's own systemd cutover remains | Training / Deployment / Tooling | September 14, 2026 | 14-20 hours (matched the revised estimate — see the Implementation update below) |
 
 Description:
 `incremental_trainer` is one binary, built from `IncrementalTrainingTool.cpp`'s single ~894-line
@@ -1653,6 +1653,71 @@ doesn't currently cover). Concretely:
   say "starting," not error or hang) and the moment a child exits (proxy should fall back to
   "idle" instead of erroring on a now-dead connection).
 
+**Implemented (September 14, 2026, same day):** every action item below is done. Summary of what
+landed:
+- `incremental_trainer resume` gained `--admin-port <N>` (`IncrementalTrainerArgs.hpp/.cpp`): when
+  set (always alongside `--foreground`, only ever passed by `trainer_service`), it constructs a
+  `TrainerControlState`/`TrainerAdminAPI` exactly as the old `serve` command used to, bound to
+  `127.0.0.1:<N>`, for the duration of that one pass — waiting (bounded, 2s) for the listener to
+  actually bind before starting the pass, and stopping/joining it cleanly afterward. Absent for
+  every interactive/manual invocation, so nothing changes for `train`/`retrain`/plain `resume`.
+- New `src/ChildProcess.{hpp,cpp}`: cross-platform launch/monitor helper (POSIX fork/execvp/waitpid;
+  Windows CreateProcess/GetExitCodeProcess/TerminateProcess), unit-tested against real `/bin/sh`
+  children (8 tests: exit-code capture, still-running polling, `request_stop()` termination,
+  double-start rejection, destructor reaping a still-running child without hanging, sequential
+  reuse).
+- New `src/TrainerServiceProxy.{hpp,cpp}`: the supervisor's own admin HTTP listener. Proxies every
+  `/admin/*` request to the current child's `TrainerAdminAPI` port via a plain `httplib::Client`
+  call when one is set; falls back to an idle-shaped default (matching `TrainerAdminAPI::handle_
+  status()`'s own shape) when none is, and to a distinct 503 "starting or exiting" response when a
+  child is expected but its connection fails (the two edge windows called out in the IPC decision
+  above). `GET`/`PUT /admin/config` while idle read/write the shared `daemon_config.db` directly
+  (reusing `DaemonConfigStore`) so a config change made while idle still applies to the next child.
+  11 tests: idle defaults for every endpoint, a real `TrainerAdminAPI` instance used as the "live
+  child" to verify real proxying (not a hand-rolled fake), the unreachable-port 503 case, and the
+  live-to-idle transition.
+- New `src/TrainerServiceMain.cpp`: the `trainer_service` binary's `main()` — reuses
+  `parse_incremental_trainer_global_args()` for its own `--config`/`--model`/`--gpu-strategy`
+  passthrough (no new parser needed; `--foreground`/`--admin-port` are what *it* passes to each
+  child, not something an operator passes to it), resolves the sibling `incremental_trainer`
+  binary path from `argv[0]`, and runs the launch/poll loop (immediate relaunch after a pass that
+  did work, 45s poll interval otherwise — the same shape `serve`'s loop used) with
+  `SIGTERM`/`SIGINT` forwarded to whatever child is currently running.
+- New `TRAINER_CHILD_ADMIN_PORT` config key (`Config.hpp/.cpp`, default 8085) — the child's private
+  port, distinct from `TRAINER_ADMIN_PORT` (the supervisor's own public listener).
+- `src/CMakeLists.txt`: new `trainer_service` target, gated on `HTTPLIB_INCLUDE_DIR` like
+  `incremental_trainer`'s own admin API — but with no reduced-functionality fallback build, since
+  hosting the admin proxy is this binary's entire purpose. Deliberately minimal dependencies: no
+  `adai_models`/`adai_nlp`/GPU objects at all, just `adai_core` + httplib + pthread.
+  `IncrementalTrainingTool.cpp`'s `serve` branch removed entirely (owner chose no deprecated
+  alias — a clean break, consistent with this tracker's usual preference).
+- `scripts/adai-trainer.service` rewritten for `trainer_service` (documents the real operational
+  improvement this design gives for free: a GPU-driver crash during a pass now only takes down the
+  *child*, not the whole always-on process/admin-API — previously the identical crash took `serve`
+  itself down, relying on systemd's own restart). `scripts/install_incremental_trainer.sh` copies
+  `trainer_service` alongside `incremental_trainer` when built (optional, like `registry_server`),
+  both locally and over the `--remote` SSH+rsync path; existing shell-test suite (57 tests) still
+  passes unchanged. `CLAUDE.md`'s Executable Targets table and "Incremental trainer admin API"
+  section updated for the new binary and process boundary.
+- Note on the originally-planned "factor the shared bootstrap preamble" action item: turned out
+  unnecessary once the actual scope became clear — `trainer_service` never needs the ~140-line
+  MNS-resolution/architecture-sync preamble at all (that logic stays entirely inside each spawned
+  `incremental_trainer` child, unchanged); it only needs a plain `ConfigLoader::discover_config_
+  path()`/`load()` call for its own settings, which isn't duplication worth abstracting — every
+  other binary in this codebase already calls those same two static methods independently.
+
+Verified end-to-end, not just unit-by-unit: built a minimal real session (`vocab_builder` +
+`incremental_trainer init` + one pending file) and ran `trainer_service` against it directly —
+observed a real training pass complete, the child's own `TrainerAdminAPI` come up
+(`Admin API listening on 127.0.0.1:18501` in the log), `GET /admin/status` through the
+supervisor's proxy port correctly relay that child's live phase, an immediate second pass launch
+after the first did work, and a clean SIGTERM shutdown with `pgrep` confirming zero leftover
+`incremental_trainer`/`trainer_service` processes afterward. Full `ctest` suite: 131/131 passing
+(two single-test flakes — `TrainerAdminAPITests`, `ScriptsTests_monitor_training` — seen once each
+under full `-j$(nproc)` parallel load and confirmed as pre-existing resource-contention flakiness,
+not real failures: both passed standalone and on a second full-suite run, and a *different*,
+completely unrelated test flaked instead on that second run).
+
 Action Items:
 
 - [x] **Owner decision** on the new service binary's shape: **process supervisor** (external
@@ -1660,68 +1725,49 @@ Action Items:
 - [x] **IPC mechanism decision:** loopback HTTP with the supervisor proxying to whichever child is
   currently alive. See the IPC decision update above. `TrainerControlState`/`TrainerAdminAPI`
   require no redesign under this choice.
-- [ ] Give `incremental_trainer` a clean, supervisor-friendly single-pass invocation (formalize
-  what `resume` already does — acquire pending work, run one pass via
-  `resume_last_session()`/equivalent, exit with a status code the supervisor can act on), plus a
-  new `--admin-port <N>` (or equivalent env var) flag that starts `TrainerAdminAPI` for the
-  duration of that one pass, bound to the port the supervisor assigns.
-- [ ] Build the new supervisor binary: launches/monitors the child process (fork+exec/waitpid or
-  the Windows equivalent, mirroring `launch_background()`'s existing POSIX/Windows split), restarts
-  it per the existing poll-interval/idle logic `serve`'s loop already has, and owns the
-  process-lifetime signal handling (`SIGTERM`/`SIGINT`) `serve` has today — now also responsible for
-  forwarding a graceful-stop signal to whatever child is currently running.
-- [ ] Implement the supervisor's own admin HTTP listener as a thin reverse proxy to the current
-  child's `TrainerAdminAPI` port (falling back to answering "idle" directly when no child is
-  running), including the two edge windows called out above (child starting up; child just exited).
-- [ ] Factor `IncrementalTrainingTool.cpp` `main()`'s shared bootstrap preamble (`--config`
-  discovery, `ServiceConfig` load, MNS model-name/architecture resolution, default vocab/model
-  path resolution — currently ~140 lines before the `command` dispatch) into a reusable function
-  both binaries call, rather than duplicating argv/config-loading logic in the new one.
-- [ ] Remove the `serve` branch from `IncrementalTrainingTool.cpp` once the supervisor binary
-  covers its responsibilities. Decide what `incremental_trainer serve` should do post-split for
-  anyone with old muscle memory or scripts — remove the command entirely (usage error) vs. keep it
-  as a deprecated alias that prints the new binary's name and exits nonzero. Removing entirely is
-  simpler and matches this tracker's usual preference for not carrying compatibility shims with no
-  real caller inside this codebase, but flag it explicitly rather than deciding silently, since
-  it's a backward-compatibility call for whoever operates the deployed service.
-- [ ] Update `scripts/adai-trainer.service`'s `ExecStart` to point at the new supervisor binary;
-  the rest of the unit (hardening, `Restart=always`/`RestartSec=45`, `ReadWritePaths`) describes
-  the *service's* operational profile and stays correct regardless of which binary implements it.
-  No new `ReadWritePaths` entry needed (loopback HTTP, not a new file path) — but confirm the
-  child's assigned admin port doesn't collide with the supervisor's own, and that
-  `RestrictAddressFamilies=AF_INET AF_INET6` (already present) still covers both.
-- [ ] Update `scripts/install_incremental_trainer.sh` and `tests/scripts/install_incremental_trainer_test.sh`
-  to install/reference the new binary alongside `incremental_trainer`.
-- [ ] Add the new binary to `src/CMakeLists.txt` (own `add_executable`, linking `TrainerAdminAPI.cpp`/
-  `TrainerControlState.hpp` unchanged, plus `BUILD_TRAINER_ADMIN`/httplib the way
-  `incremental_trainer` conditionally does today) and to CLAUDE.md's Executable Targets table. Give
-  the new `.cpp` its own `@adai-status: experimental`, `@adai-version: 0.1.0` file-status tag per
-  convention.
-- [ ] Review `tests/incremental_trainer_control_test.cpp` / `tests/incremental_trainer_background_test.cpp`
-  for whether either exercises the `serve` branch through the CLI tool binary specifically —
-  `TrainerControlState`/`TrainerAdminAPI`'s own existing unit tests need no change under this
-  design, so this is purely about where `serve`-branch-specific coverage should move to.
-- [ ] New tests specifically for the supervisor↔child boundary: the proxy correctly forwards to a
-  live child, correctly answers "idle" with no child running, handles the child-starting-up and
-  child-just-exited windows without erroring, and a child crash mid-pass is observed and recovered
-  from correctly (new pass launched on the next poll cycle).
+- [x] Give `incremental_trainer` a clean, supervisor-friendly single-pass invocation. Done —
+  `resume --admin-port <N>`, see the Implementation update above.
+- [x] Build the new supervisor binary. Done — `trainer_service`/`TrainerServiceMain.cpp`.
+- [x] Implement the supervisor's own admin HTTP listener as a thin reverse proxy. Done —
+  `TrainerServiceProxy`.
+- [x] Factor the shared bootstrap preamble. Turned out unnecessary — see the Implementation
+  update above for why.
+- [x] Remove the `serve` branch. Done — owner chose a clean removal, no deprecated alias.
+- [x] Update `scripts/adai-trainer.service`. Done.
+- [x] Update `scripts/install_incremental_trainer.sh` / its test suite. Done — 57/57 still passing.
+- [x] Add the new binary to `src/CMakeLists.txt` / CLAUDE.md. Done.
+- [x] Review `tests/incremental_trainer_control_test.cpp` / `..._background_test.cpp`. Reviewed —
+  neither exercised the `serve` branch through the CLI binary specifically (both already test
+  `TrainerControlState`/`IncrementalTrainer` directly), so no change was needed.
+- [x] New tests for the supervisor↔child boundary. Done — `ChildProcessTests` (8),
+  `TrainerServiceProxyTests` (11).
+- [ ] **Not done, not this session's to do:** cut over an actual live deployed host's systemd
+  unit and binaries. Everything in this repo is ready for that cutover (updated
+  `adai-trainer.service`, `trainer_service` binary, install-script support) but actually running
+  it against a real production host is an operational step outside a coding session's reach —
+  same category as TD-047's "cut the first Android release" or TD-033/TD-050's hardware-blocked
+  validation items.
 
-Files to Modify:
+Files Modified:
 
-- `src/IncrementalTrainingTool.cpp` — remove the `serve` branch; hoist the shared bootstrap
-  preamble into a reusable function; add the `--admin-port` single-pass invocation mode
-- New file(s) (e.g. `src/TrainerServiceMain.cpp` for the supervisor binary's `main()`, plus a small
-  proxy helper) — the thin wrapper binary and its reverse-proxy glue. `TrainerControlState.hpp` and
-  `TrainerAdminAPI.{hpp,cpp}` are used as-is by the child process, unchanged.
-- `src/CMakeLists.txt` — new `add_executable` target
-- `scripts/adai-trainer.service` — `ExecStart` path
-- `scripts/install_incremental_trainer.sh` / `tests/scripts/install_incremental_trainer_test.sh`
-- `CLAUDE.md` — Executable Targets table, "Incremental trainer admin API" section
-- `tests/incremental_trainer_control_test.cpp` / `tests/incremental_trainer_background_test.cpp` —
-  review; likely little to no change needed since `TrainerControlState`/`TrainerAdminAPI` are
-  unchanged
-- New test file for the supervisor's reverse-proxy behavior and the supervisor↔child process
-  boundary
+- `src/IncrementalTrainingTool.cpp` — `serve` branch removed; `--admin-port` single-pass invocation
+  mode added to `resume`; usage text updated
+- `src/IncrementalTrainerArgs.{hpp,cpp}` — `--admin-port` flag parsing; `"serve"` removed from
+  `incremental_trainer_command_defers_gpu_init()`
+- `src/ChildProcess.{hpp,cpp}` (new) — cross-platform child-process launch/monitor helper
+- `src/TrainerServiceProxy.{hpp,cpp}` (new) — the supervisor's reverse-proxy admin HTTP listener
+- `src/TrainerServiceMain.cpp` (new) — the `trainer_service` binary's `main()`
+- `src/Config.{hpp,cpp}` / `config.trainer.conf` — new `TRAINER_CHILD_ADMIN_PORT` key
+- `src/CMakeLists.txt` — new `trainer_service` target
+- `tests/incremental_trainer_args_test.cpp` — `--admin-port` parsing tests; `"serve"` removed from
+  the defers-GPU-init test
+- `tests/child_process_test.cpp` (new), `tests/trainer_service_proxy_test.cpp` (new)
+- `tests/CMakeLists.txt` — new `childProcessTests`/`trainerServiceProxyTests` targets
+- `scripts/adai-trainer.service` — rewritten for `trainer_service`
+- `scripts/install_incremental_trainer.sh` — installs `trainer_service` alongside
+  `incremental_trainer` (local and `--remote`), optional like `registry_server`
+- `CLAUDE.md` — Executable Targets table, "Incremental trainer admin API" section, `IncrementalConfig`
+  paragraph, config key table, Active Technical Debt Tags table
 
 Context: originally scoped at 8-12 hours under the (not chosen) in-process-reuse option, where
 `TrainerControlState`/`TrainerAdminAPI` needed no change at all — this item was purely about where

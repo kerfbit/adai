@@ -1,6 +1,6 @@
 // @adai-status: stable
-// @adai-version: 1.0.2
-// @adai-reviewed: 2026-09-12
+// @adai-version: 1.0.3
+// @adai-reviewed: 2026-09-14
 
 #include "Config.hpp"
 #include <algorithm>
@@ -366,6 +366,8 @@ void ConfigLoader::load_from_file(ServiceConfig& config, const std::string& file
                 config.trainer_admin_host = value;
             } else if (key == "TRAINER_ADMIN_DIR") {
                 config.trainer_admin_dir = value;
+            } else if (key == "TRAINER_CHILD_ADMIN_PORT") {
+                config.trainer_child_admin_port = std::stoi(value);
                 // Auto-save / checkpoint retention configuration
             } else if (key == "AUTO_SAVE_ENABLED") {
                 std::string lower = value;
@@ -774,6 +776,9 @@ void ConfigLoader::load_from_env(ServiceConfig& config) {
     }
     if (auto val = get_env("TRAINER_ADMIN_DIR")) {
         config.trainer_admin_dir = *val;
+    }
+    if (auto val = get_env_int("TRAINER_CHILD_ADMIN_PORT")) {
+        config.trainer_child_admin_port = *val;
     }
 
     // Auto-save / checkpoint retention

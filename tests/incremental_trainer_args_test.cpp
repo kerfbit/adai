@@ -32,6 +32,7 @@ TEST(ParseIncrementalTrainerGlobalArgs, NoArgsLeavesEverythingUnsetAndCommandLis
     EXPECT_FALSE(r.gpu_strategy.has_value());
     EXPECT_FALSE(r.model_name.has_value());
     EXPECT_FALSE(r.foreground);
+    EXPECT_FALSE(r.admin_port.has_value());
     EXPECT_TRUE(r.args.empty());
 }
 
@@ -44,6 +45,8 @@ TEST(ParseIncrementalTrainerGlobalArgs, StripsGlobalFlagsAndKeepsCommandArgs) {
                                     "--model",
                                     "my-model",
                                     "--foreground",
+                                    "--admin-port",
+                                    "18432",
                                     "train",
                                     "5"};
     auto argv = make_argv(raw);
@@ -56,9 +59,23 @@ TEST(ParseIncrementalTrainerGlobalArgs, StripsGlobalFlagsAndKeepsCommandArgs) {
     ASSERT_TRUE(r.model_name.has_value());
     EXPECT_EQ(*r.model_name, "my-model");
     EXPECT_TRUE(r.foreground);
+    ASSERT_TRUE(r.admin_port.has_value());
+    EXPECT_EQ(*r.admin_port, 18432);
     ASSERT_EQ(r.args.size(), 2u);
     EXPECT_EQ(r.args[0], "train");
     EXPECT_EQ(r.args[1], "5");
+}
+
+TEST(ParseIncrementalTrainerGlobalArgs, AdminPortMissingItsValueFallsThroughAsPositional) {
+    // Same "no following value" contract as --config (see
+    // FlagMissingItsValueFallsThroughAsPositional below) — TD-172's supervisor always passes a
+    // value, but a malformed manual invocation shouldn't crash on std::stoi with no argument.
+    std::vector<std::string> raw = {"incremental_trainer", "--admin-port"};
+    auto argv = make_argv(raw);
+    auto r = parse_incremental_trainer_global_args(static_cast<int>(argv.size()), argv.data());
+    EXPECT_FALSE(r.admin_port.has_value());
+    ASSERT_EQ(r.args.size(), 1u);
+    EXPECT_EQ(r.args[0], "--admin-port");
 }
 
 TEST(ParseIncrementalTrainerGlobalArgs, FlagsCanAppearInAnyOrderRelativeToTheCommand) {
@@ -82,11 +99,10 @@ TEST(ParseIncrementalTrainerGlobalArgs, FlagMissingItsValueFallsThroughAsPositio
     EXPECT_EQ(r.args[0], "--config");
 }
 
-TEST(IncrementalTrainerCommandDefersGpuInit, TrainRetrainResumeServeDefer) {
+TEST(IncrementalTrainerCommandDefersGpuInit, TrainRetrainResumeDefer) {
     EXPECT_TRUE(incremental_trainer_command_defers_gpu_init("train"));
     EXPECT_TRUE(incremental_trainer_command_defers_gpu_init("retrain"));
     EXPECT_TRUE(incremental_trainer_command_defers_gpu_init("resume"));
-    EXPECT_TRUE(incremental_trainer_command_defers_gpu_init("serve"));
 }
 
 TEST(IncrementalTrainerCommandDefersGpuInit, EveryOtherCommandInitsImmediately) {
@@ -94,6 +110,8 @@ TEST(IncrementalTrainerCommandDefersGpuInit, EveryOtherCommandInitsImmediately) 
     EXPECT_FALSE(incremental_trainer_command_defers_gpu_init("reset"));
     EXPECT_FALSE(incremental_trainer_command_defers_gpu_init("status"));
     EXPECT_FALSE(incremental_trainer_command_defers_gpu_init("history"));
+    // TD-172: "serve" removed — incremental_trainer no longer has an always-on service command.
+    EXPECT_FALSE(incremental_trainer_command_defers_gpu_init("serve"));
     EXPECT_FALSE(incremental_trainer_command_defers_gpu_init("bogus"));
     EXPECT_FALSE(incremental_trainer_command_defers_gpu_init(""));
 }

@@ -1018,6 +1018,44 @@ else()
     message(STATUS "TrainerAdminAPITests not built (cpp-httplib not found)")
 endif()
 
+# TrainerServiceProxy (TD-172) — trainer_service's own admin HTTP listener. Same real-server,
+# real-client style as TrainerAdminAPITests above; the "live child" side of its proxying tests
+# uses a real TrainerAdminAPI instance too (see the test file's own header comment). Gated on
+# HTTPLIB_INCLUDE_DIR like trainer_service itself (see src/CMakeLists.txt).
+if(HTTPLIB_INCLUDE_DIR)
+    add_executable(trainerServiceProxyTests
+        trainer_service_proxy_test.cpp
+        ../src/TrainerServiceProxy.cpp
+        ../src/TrainerAdminAPI.cpp
+    )
+    target_include_directories(trainerServiceProxyTests PRIVATE ${CMAKE_SOURCE_DIR}/src
+        ${HTTPLIB_INCLUDE_DIR})
+    target_link_libraries(trainerServiceProxyTests
+        adai_core
+        spdlog::spdlog
+        pthread
+        GTest::gtest_main
+    )
+    add_test(NAME TrainerServiceProxyTests COMMAND trainerServiceProxyTests)
+else()
+    message(STATUS "TrainerServiceProxyTests not built (cpp-httplib not found)")
+endif()
+
+# ChildProcess (TD-172) — trainer_service's cross-platform launch/monitor helper. POSIX-only
+# tests for now (see the test file's own header comment); the source itself still compiles its
+# Windows branch under scripts/build_windows.sh, just not run-verified there either.
+add_executable(childProcessTests
+    child_process_test.cpp
+    ../src/ChildProcess.cpp
+)
+target_include_directories(childProcessTests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(childProcessTests
+    adai_core
+    spdlog::spdlog
+    GTest::gtest_main
+)
+add_test(NAME ChildProcessTests COMMAND childProcessTests)
+
 # IncrementalTrainer × TrainerControlState integration — proves
 # should_auto_save()/cleanup_old_sessions() actually prefer an attached
 # control state's live-tunable values over the config-file ones, via the

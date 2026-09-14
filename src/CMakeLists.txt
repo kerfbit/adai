@@ -472,6 +472,33 @@ if(OpenMP_CXX_FOUND)
     message(STATUS "Building incremental_trainer with full parallel optimizations")
 endif()
 
+# trainer_service (TD-172) — thin process-supervisor binary replacing `incremental_trainer serve`.
+# Deliberately minimal dependencies: no adai_models/adai_nlp/adai_attention, no GPU/CUDA/SYCL
+# objects at all — it only launches/monitors incremental_trainer as a subprocess per pass (see
+# TrainerServiceMain.cpp's own header comment) and hosts an HTTP admin proxy, so it needs only
+# adai_core (Config/Logger/DaemonConfigStore) plus cpp-httplib. Unlike incremental_trainer's own
+# admin API (optional — `serve` still runs with no admin port if httplib isn't found), this
+# binary's entire purpose is hosting that admin surface, so it isn't built at all without httplib.
+if(HTTPLIB_INCLUDE_DIR)
+    add_executable(trainer_service
+        TrainerServiceMain.cpp
+        ChildProcess.cpp
+        TrainerServiceProxy.cpp
+        Config.cpp
+        IncrementalTrainerArgs.cpp
+    )
+    target_link_libraries(trainer_service adai_core spdlog::spdlog pthread)
+    target_include_directories(trainer_service PRIVATE ${HTTPLIB_INCLUDE_DIR})
+    set_target_properties(trainer_service PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+    )
+    message(STATUS "Building trainer_service (process supervisor for incremental_trainer)")
+else()
+    message(STATUS "trainer_service not built (cpp-httplib not found) — its entire purpose is "
+                   "hosting the admin HTTP proxy, so it has no reduced-functionality fallback "
+                   "build the way incremental_trainer's own optional admin API does")
+endif()
+
 # Find SQLite3 (pkg-config not always available; fall back to find_path/find_library)
 # The paths below only ever find a system-installed SQLite3, which the MinGW Windows
 # cross-compilation path (scripts/build_windows.sh) has no equivalent for — there is no
