@@ -10,7 +10,7 @@ See [file-status-standard.md](guides/file-status-standard.md) for what these sta
 
 | Component | Stable | Beta | Experimental | Deprecated | Legacy | Untagged | Total |
 |---|---|---|---|---|---|---|---|
-| android | 0 | 69 | 45 | 0 | 0 | 0 | 114 |
+| android | 0 | 70 | 44 | 0 | 0 | 0 | 114 |
 | scripts | 9 | 27 | 0 | 0 | 0 | 0 | 36 |
 | src | 91 | 42 | 15 | 0 | 0 | 0 | 148 |
 | tizen-metrics-app | 2 | 1 | 0 | 0 | 0 | 0 | 3 |
@@ -115,7 +115,7 @@ None — every in-scope file carries a tag.
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/models/ModelsRoute.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/navigation/OpsDestinations.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/navigation/OpsNavHost.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
-| `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupDetailScreen.kt` | experimental | 0.2.0 | 2026-09-10 | TD-048 |
+| `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupDetailScreen.kt` | beta | 0.3.0 | 2026-09-13 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupDetailViewModel.kt` | beta | 0.5.0 | 2026-09-10 | TD-047 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupListScreen.kt` | beta | 0.2.0 | 2026-09-13 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/ui/registry/GroupListViewModel.kt` | beta | 0.2.0 | 2026-09-12 | TD-048 |
@@ -130,7 +130,7 @@ None — every in-scope file carries a tag.
 | `android/opsdashboard/src/sharedTest/java/com/adai/ops/testutil/FakeApiClientProvider.kt` | beta | 0.1.0 | 2026-09-13 | TD-048 |
 | `android/opsdashboard/src/sharedTest/java/com/adai/ops/testutil/FakeMetricsApiService.kt` | beta | 0.1.0 | 2026-09-13 | TD-048 |
 | `android/opsdashboard/src/sharedTest/java/com/adai/ops/testutil/FakeMnsApiService.kt` | beta | 0.1.0 | 2026-09-13 | TD-048 |
-| `android/opsdashboard/src/sharedTest/java/com/adai/ops/testutil/FakeRegistryApiService.kt` | beta | 0.1.0 | 2026-09-13 | TD-048 |
+| `android/opsdashboard/src/sharedTest/java/com/adai/ops/testutil/FakeRegistryApiService.kt` | beta | 0.2.0 | 2026-09-13 | TD-048 |
 | `android/opsdashboard/src/sharedTest/java/com/adai/ops/testutil/FakeSettingsRepository.kt` | beta | 0.1.0 | 2026-09-13 | TD-048 |
 | `android/opsdashboard/src/sharedTest/java/com/adai/ops/testutil/FakeTrainerApiService.kt` | beta | 0.1.0 | 2026-09-13 | TD-048 |
 | `android/opsdashboard/src/sharedTest/java/com/adai/ops/testutil/FakeWatchFacePushRepository.kt` | beta | 0.1.0 | 2026-09-13 | TD-048 |

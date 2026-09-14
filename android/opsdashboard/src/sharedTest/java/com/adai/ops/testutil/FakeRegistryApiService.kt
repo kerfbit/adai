@@ -1,7 +1,7 @@
 package com.adai.ops.testutil
 
 // @adai-status: beta        (in-memory fake backing both plain-JVM and instrumented tests, TD-048)
-// @adai-version: 0.1.0
+// @adai-version: 0.2.0
 // @adai-reviewed: 2026-09-13
 
 
@@ -25,6 +25,7 @@ import retrofit2.Response
 class FakeRegistryApiService(
     private val queueResponse: (String) -> QueueResponseDto = { QueueResponseDto() },
     private val registryResponse: (String) -> RegistryResponseDto = { RegistryResponseDto() },
+    private val runsResponse: (String) -> RunsResponseDto = { RunsResponseDto() },
     private val releaseResponse: (String, ReleaseRequestDto) -> ReleaseResponseDto = { _, _ -> ReleaseResponseDto() },
     private val assignResponse: (String, AssignRequestDto) -> AssignResponseDto = { _, _ -> AssignResponseDto() },
     private val fetchGutenbergResponse: (String, FetchGutenbergRequestDto) -> Response<FetchResponseDto> =
@@ -47,7 +48,7 @@ class FakeRegistryApiService(
 
     override suspend fun registry(group: String): RegistryResponseDto = registryResponse(group)
 
-    override suspend fun runs(group: String): RunsResponseDto = RunsResponseDto()
+    override suspend fun runs(group: String): RunsResponseDto = runsResponse(group)
 
     override suspend fun history(group: String, modelId: String?): HistoryResponseDto = HistoryResponseDto()
 

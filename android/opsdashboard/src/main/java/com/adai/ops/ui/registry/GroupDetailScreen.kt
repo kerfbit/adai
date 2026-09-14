@@ -1,8 +1,8 @@
 package com.adai.ops.ui.registry
 
-// @adai-status: experimental        (capped by TD-048 — see TECHNICAL_DEBT.md)
-// @adai-version: 0.2.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: beta        (TD-048 — GroupDetailScreenTest.kt added; force-release admin-action confirm-dialog flow and real-device run still unverified, see below)
+// @adai-version: 0.3.0
+// @adai-reviewed: 2026-09-13
 
 
 import androidx.compose.foundation.layout.Arrangement
