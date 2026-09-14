@@ -5,12 +5,12 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** September 13, 2026
-**Total Items:** 14
+**Total Items:** 13
 **High Priority:** 1
 **Medium Priority:** 6
-**Low Priority:** 7
+**Low Priority:** 6
 **Future Enhancements:** 19
-**Resolved Items:** 156
+**Resolved Items:** 157
 **Deferred Decisions:** 3
 
 ## Recommended Execution Order
@@ -95,6 +95,21 @@ together when either is picked up, rather than designing quantization twice. TD-
 `AttentionHeadBenchmark` "hang") is resolved — see
 [Deferred Decisions](#attentionheadbenchmarks-apparent-hang--confirmed-host-cpu-contention-not-a-bug).
 
+**Tier 8 — Newly filed, same "tested but never wired" shape as TD-038's original list:** found via
+a follow-up sweep (checking what every non-test, non-example `.cpp` actually includes/calls, not
+just what compiles) that turned up three more fully-built, independently-tested classes with zero
+production callers. TD-169 (`MetricsTracker`) was the safest of the three — purely additive, no
+competing on-disk state — and was wired into `ChatbotTrainer`/`IncrementalTrainer` the same day it
+was filed; see its [resolved entry](../archive/TECHNICAL_DEBT_RESOLVED.md#td-169-metricstracker-was-a-fully-built-tested-duplicate-of-chatbottrainers-own-inline-metrics-tracking-never-wired-in).
+[TD-168](#td-168-checkpointmanager-is-a-fully-built-tested-duplicate-of-incrementaltrainers-own-inline-checkpoint-logic-never-wired-in)
+(`CheckpointManager`) still needs an owner decision (adapt to `IncrementalTrainer`'s session-based
+retention scheme vs. retire it, the way TD-052 retired `ParallelDataLoader`'s broken sibling) before
+either direction is picked.
+[TD-170](#td-170-paralleldataloaders-tokenbatchloaderthreadsafebatchqueue-still-have-no-production-caller)
+(`TokenBatchLoader`) is the highest-risk of the three — real batched training is an architecture
+change with retrain implications, not a bookkeeping swap — and needs the same kind of owner
+decision TD-059/LoRA/Quantization already got.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -113,9 +128,8 @@ together when either is picked up, rather than designing quantization twice. TD-
   - [TD-048: Android UI/DI/Entry-Point Classes Are Untested and Unreleased](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
   - [TD-168: CheckpointManager Is a Fully-Built, Tested Duplicate of IncrementalTrainer's Own Inline Checkpoint Logic, Never Wired In](#td-168-checkpointmanager-is-a-fully-built-tested-duplicate-of-incrementaltrainers-own-inline-checkpoint-logic-never-wired-in)
-  - [TD-169: MetricsTracker Is a Fully-Built, Tested Duplicate of ChatbotTrainer's Own Inline Metrics Tracking, Never Wired In](#td-169-metricstracker-is-a-fully-built-tested-duplicate-of-chatbottrainers-own-inline-metrics-tracking-never-wired-in)
   - [TD-170: ParallelDataLoader's TokenBatchLoader/ThreadSafeBatchQueue Still Have No Production Caller](#td-170-paralleldataloaders-tokenbatchloaderthreadsafebatchqueue-still-have-no-production-caller)
-- [Resolved Items](#resolved-items) (156 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+- [Resolved Items](#resolved-items) (157 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -1430,57 +1444,6 @@ Files to Modify:
 
 ---
 
-### TD-169: MetricsTracker Is a Fully-Built, Tested Duplicate of ChatbotTrainer's Own Inline Metrics Tracking, Never Wired In
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Open | Training / Metrics | September 13, 2026 | 3-5 hours |
-
-Description:
-Found in the same sweep as TD-168, immediately above — identical shape, different class.
-`src/MetricsTracker.hpp` (`stable`, also dated "January 2026," `@adai-reviewed: 2026-09-10`)
-provides per-epoch loss/perplexity/learning-rate/gradient-norm history, best-metric tracking,
-moving-average smoothing, `is_converging()`/`is_overfitting()` trend detection, and CSV export —
-with its own dedicated test (`tests/metricstracker_test.cpp`) and example
-(`examples/EnhancedTrainingExample.cpp`). Zero production callers — same grep method as TD-168,
-same result.
-
-Why: **TD-004** (absorbed into TD-009, resolved March 2, 2026 — see
-[archive](../archive/TECHNICAL_DEBT_RESOLVED.md)) delivered equivalent capability by extending
-`TrainingSession`/`ChatbotTrainer` directly (`per_epoch_losses`/`per_epoch_validation_losses`/
-`per_epoch_learning_rates` vectors, an `EpochCallback` mechanism, Unicode-sparkline trend
-rendering in `print_training_summary()`). `MetricsTracker` duplicates the raw tracking but adds
-real analysis those inline vectors don't have on their own (`is_converging()`, `is_overfitting()`,
-`calculate_improvement_rate()`, structured CSV export) — unlike TD-168's `CheckpointManager`, this
-one is **additive, not a competing on-disk format**: `MetricsTracker` keeps its own in-memory
-history and only touches disk via an explicit, opt-in `export_csv()` call, so it can be wired
-alongside the existing inline tracking with no risk of the two disagreeing about what's on disk.
-Lower estimated effort than TD-168 for that reason.
-
-Action Items:
-
-- [ ] Add a `MetricsTracker` member to `ChatbotTrainer`, fed from the same per-epoch data already
-  available where `EpochCallback` fires (loss, validation loss, learning rate, gradient norm —
-  already-tracked members; only per-epoch wall-clock duration needs new tracking).
-- [ ] Expose it (or an `export_metrics_csv()` convenience method) publicly so `IncrementalTrainer`
-  can write a metrics CSV sidecar next to each checkpoint and log convergence/overfitting
-  diagnostics through the existing `Logger`/`TrainerControlState` channels (not `MetricsTracker`'s
-  own `print_summary()`/`print_history()`, which use `std::cout` directly — against this
-  codebase's own logging convention for library code).
-- [ ] Extend `IncrementalTrainer::remove_model_files()`'s sidecar-deletion list so the new CSV
-  doesn't leak when a checkpoint is rotated out or cleaned up.
-- [ ] Add tests proving the wiring is faithful (recorded values match `ChatbotTrainer`'s own
-  already-tracked vectors), not just that `MetricsTracker` still passes its own isolated tests.
-
-Files to Modify:
-
-- `src/MetricsTracker.hpp`
-- `src/ChatbotTrainer.{hpp,cpp}`
-- `src/IncrementalTrainer.cpp`
-- `tests/chatbottrainer_test.cpp`, `tests/incrementaltrainer_test.cpp`
-
----
-
 ### TD-170: ParallelDataLoader's TokenBatchLoader/ThreadSafeBatchQueue Still Have No Production Caller
 
 | Priority | Status | Component | Created | Effort Estimate |
@@ -1533,7 +1496,7 @@ Files to Modify:
 
 ## Resolved Items
 
-156 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+157 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements
@@ -2045,15 +2008,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 14 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 13 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|1|7%|
-|Medium|6|43%|
-|Low|7|50%|
+|High|1|8%|
+|Medium|6|46%|
+|Low|6|46%|
 
-**Total Active Items:** 14
+**Total Active Items:** 13
 
 ### By Component
 
@@ -2071,7 +2034,6 @@ Recomputed directly from the 14 `### TD-NNN` entries under [Active Technical Deb
 |Android / Testing|1|
 |Documentation|1|
 |Training / Checkpointing|1|
-|Training / Metrics|1|
 |Training / Data Loading|1|
 
 ### Effort Distribution
@@ -2079,12 +2041,12 @@ Recomputed directly from the 14 `### TD-NNN` entries under [Active Technical Deb
 |Effort Range|Count|
 |--------------|-------|
 |0-2 hours|0|
-|2-4 hours|2|
+|2-4 hours|1|
 |4-8 hours|3|
 |8+ hours|7|
 |Not estimated|2|
 
-**Total Estimated Effort (Active Items):** 141-211 hours (excludes TD-014 and TD-039, which have no effort estimate)
+**Total Estimated Effort (Active Items):** 138-206 hours (excludes TD-014 and TD-039, which have no effort estimate)
 
 ### Future Enhancements Summary
 

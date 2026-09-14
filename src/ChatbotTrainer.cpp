@@ -1,9 +1,10 @@
-// @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer)
-// @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added)
+// @adai-version: 0.10.0
+// @adai-reviewed: 2026-09-13
 
 #include "ChatbotTrainer.hpp"
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <ctime>
@@ -1867,6 +1868,13 @@ bool ChatbotTrainer::train(int num_epochs) {
 
         // Train for specified epochs
         for (int epoch = 0; epoch < num_epochs; ++epoch) {
+            // TD-169: wall-clock duration for this epoch, fed to metrics_tracker_ below
+            // alongside the other per-epoch data — independent of
+            // IncrementalTrainer::run_training()'s own, coarser steady_clock measurement
+            // around its epoch callback (that one also captures inter-epoch overhead this
+            // one doesn't; both are approximate wall-clock diagnostics, not exact).
+            auto epoch_wall_start = std::chrono::steady_clock::now();
+
             // train_epoch() pushes to training_losses / training_perplexities internally.
             float epoch_loss = train_epoch(epoch);
 
@@ -1895,6 +1903,20 @@ bool ChatbotTrainer::train(int num_epochs) {
                     early_stopped = true;
                     break;
                 }
+            }
+
+            // TD-169: feed this epoch's metrics into metrics_tracker_ for real convergence/
+            // overfitting/CSV-export analysis — see get_metrics_tracker()/export_metrics_csv()'s
+            // own doc comments. Reuses the same values the epoch callback below receives
+            // (cb_val) plus gradient_norms.back() (pushed inside train_epoch(), already
+            // reflects this epoch — see its own call site) and this epoch's wall-clock duration.
+            {
+                float cb_val = validation_losses.empty() ? 0.0f : validation_losses.back();
+                float epoch_grad_norm = gradient_norms.empty() ? 0.0f : gradient_norms.back();
+                auto epoch_duration = std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::steady_clock::now() - epoch_wall_start);
+                metrics_tracker_.record_epoch(epoch, epoch_loss, cb_val, current_learning_rate,
+                                              epoch_grad_norm, epoch_duration.count());
             }
 
             // Invoke per-epoch callback for real-time monitoring (TD-009)

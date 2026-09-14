@@ -4,6 +4,81 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-169: MetricsTracker Was a Fully-Built, Tested Duplicate of ChatbotTrainer's Own Inline Metrics Tracking, Never Wired In
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 13, 2026 | `src/ChatbotTrainer.{hpp,cpp}`, `src/MetricsTracker.hpp`, `src/IncrementalTrainer.cpp`, `tests/chatbottrainer_test.cpp`, `tests/incrementaltrainer_test.cpp` | Added a `MetricsTracker` member to `ChatbotTrainer`, fed from the existing per-epoch data at the same point `EpochCallback` fires |
+
+Summary:
+Filed the same day as a follow-up sweep to TD-038's original "tested in isolation, never wired
+into a shipped binary" audit (see TD-168/TD-170, filed alongside it, still open): `src/
+MetricsTracker.hpp` (`stable`, dated "January 2026" in its own file doc) provided per-epoch loss/
+perplexity/learning-rate/gradient-norm history, best-metric tracking, moving-average smoothing,
+`is_converging()`/`is_overfitting()` trend detection, and CSV export — with real, dedicated test
+coverage (`tests/metricstracker_test.cpp`) — but zero production callers anywhere in `src/`. TD-004
+(absorbed into TD-009, resolved March 2, 2026) had already delivered equivalent raw tracking by
+extending `TrainingSession`/`ChatbotTrainer` directly; `MetricsTracker` duplicated that but added
+real analysis those inline vectors never had on their own. Unlike TD-168's `CheckpointManager`
+(still open — genuinely incompatible on-disk retention models), this one turned out to be purely
+additive: `MetricsTracker` keeps its own in-memory history and only touches disk via an explicit
+`export_csv()` call, so it could be wired in without touching or risking any of `IncrementalTrainer`
+'s existing session-history/checkpoint-retention persistence.
+
+Changes Made:
+- `src/ChatbotTrainer.hpp`: added a `MetricsTracker metrics_tracker_` member (default-constructed
+  fresh per instance — `IncrementalTrainer::run_training()` already constructs a new
+  `ChatbotTrainer` per training pass, so this naturally scopes to just the current run with no
+  explicit reset needed). Added `get_metrics_tracker()` (const accessor) and
+  `export_metrics_csv(filepath)` (delegates to `MetricsTracker::export_csv()`) — deliberately NOT
+  exposing `MetricsTracker::print_summary()`/`print_history()`, which write to `std::cout`
+  directly, against this codebase's own logging convention for library code (`CLAUDE.md`: "never
+  `std::cout` in library code").
+- `src/ChatbotTrainer.cpp`: in `train()`'s per-epoch loop, added a `std::chrono::steady_clock`
+  wall-clock measurement around each epoch and a `metrics_tracker_.record_epoch(...)` call — reusing
+  the exact same values the pre-existing `EpochCallback` invocation right below it already computes
+  (`epoch_loss`, `cb_val`, `current_learning_rate`) plus `gradient_norms.back()` (pushed inside
+  `train_epoch()` before it returns, confirmed by reading the call order directly, so it already
+  reflects the just-completed epoch by the time this runs).
+- `src/IncrementalTrainer.cpp`: `run_training()`'s success path now calls
+  `trainer.export_metrics_csv(checkpoint_path + ".metrics.csv")` right after saving the checkpoint,
+  and logs a warning through `TrainerControlState`/`Logger` (matching every other diagnostic in
+  this function) when `trainer.get_metrics_tracker().is_overfitting()`. `remove_model_files()`'s
+  sidecar-deletion list gained `.metrics.csv` so a rotated-out or cleaned-up checkpoint's metrics
+  file doesn't leak forever.
+- Bumped `@adai-version` on all four touched files (`ChatbotTrainer.{hpp,cpp}` 0.9.0→0.10.0,
+  `IncrementalTrainer.{hpp,cpp}` 0.9.1→0.9.2, `MetricsTracker.hpp` 1.0.0→1.0.1) and their
+  `@adai-status` tags to note the wiring.
+
+Verification:
+- ✅ `tests/chatbottrainer_test.cpp`: two new tests, both doing genuine end-to-end training (the
+  first test anywhere in this codebase's `ChatbotTrainer` suite to call `train()` with real
+  tokenized data end-to-end — its other tests deliberately avoid this). `RecordsOneEntryPerEpochMatchingRawVectors`
+  trains 3 real epochs on 4 tiny conversation pairs and asserts `metrics_tracker_`'s recorded
+  `train_loss`/`gradient_norm`/`learning_rate` for every epoch are bit-identical to
+  `ChatbotTrainer`'s own already-tracked vectors (the actual correctness claim — not just "some
+  numbers got recorded"). `ExportsRealCsvAfterTraining` trains 2 real epochs and confirms
+  `export_metrics_csv()` writes a real file with the expected header and exactly one data row per
+  epoch trained.
+- ✅ `tests/incrementaltrainer_test.cpp`: `CleanupOldSessionsRemovesMetricsCsvSidecar` (new) confirms
+  a `.metrics.csv` sidecar is deleted alongside its checkpoint when
+  `cleanup_old_sessions()` rotates it out, mirroring the pre-existing `CleanupOldSessionsKeepsMaxSessions`
+  test's own pattern.
+- ✅ `chatbottrainerTests`: 71/71 (69 pre-existing + 2 new).
+- ✅ `incrementaltrainerTests`: full suite green (pre-existing tests unaffected — the new sidecar
+  extension only adds a filename to a deletion list already exercised by
+  `CleanupOldSessionsKeepsMaxSessions`/`CleanupDeadSessionsRemovesOrphansAndBrokenHistory`).
+- ✅ `python3 scripts/check_file_status.py`: 305 files checked, 0 problems.
+
+Scope note: `IncrementalTrainer::run_training()` itself still has no dedicated end-to-end test
+(confirmed: no test file anywhere in this repo calls `train_on_files()`/`retrain_on_files()`/
+`resume_last_session()`/`run_training()` directly — a pre-existing gap, not introduced or
+widened by this change) — its two new lines (`export_metrics_csv()` call, `is_overfitting()`
+check) are covered indirectly via `ChatbotTrainer`'s own direct tests of the exact methods being
+called, and directly via the sidecar-cleanup test above, but not via a real `run_training()` pass.
+
+---
+
 ### TD-167: GPUManager::get_device_info() Diverges Between Backends for an Invalid Device ID
 
 | Resolution Date | Component | Resolved By |

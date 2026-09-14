@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer)
-// @adai-version: 0.9.1
-// @adai-reviewed: 2026-09-12
+// @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added)
+// @adai-version: 0.9.2
+// @adai-reviewed: 2026-09-13
 
 #include "IncrementalTrainer.hpp"
 #include <algorithm>
@@ -854,6 +854,28 @@ bool IncrementalTrainer::run_training(ChatbotTrainer& trainer, int num_epochs,
         std::string checkpoint_path = generate_session_checkpoint_path();
         save_model(checkpoint_path);
 
+        // TD-169: export this pass's per-epoch metrics (loss/perplexity/LR/gradient-norm/
+        // duration) as a CSV sidecar next to the checkpoint, and log an overfitting warning
+        // through the existing Logger/TrainerControlState channels if the final epoch's
+        // validation loss diverged from training loss — real diagnostics MetricsTracker
+        // computes but never had a caller for anywhere in this codebase until now (see
+        // TECHNICAL_DEBT.md's TD-169). remove_model_files() below already knows to delete
+        // this sidecar too when the checkpoint is rotated out or cleaned up.
+        const std::string metrics_csv_path = checkpoint_path + ".metrics.csv";
+        if (!trainer.export_metrics_csv(metrics_csv_path)) {
+            Logger::warn("Failed to export training metrics CSV to {}", metrics_csv_path);
+        }
+        if (trainer.get_metrics_tracker().is_overfitting()) {
+            const std::string msg =
+                "Possible overfitting detected this pass (validation loss significantly "
+                "exceeds training loss on the final epoch)";
+            if (control_) {
+                control_->log(adai::TrainerLogLevel::Warn, msg);
+            } else {
+                Logger::warn("{}", msg);
+            }
+        }
+
         float final_loss = trainer.get_final_training_loss();
         float final_val_loss = trainer.get_final_validation_loss();
         finalize_session(finalize_sample_count, num_epochs, final_loss, final_val_loss);
@@ -1395,8 +1417,11 @@ void IncrementalTrainer::cleanup_dead_sessions() {
 }
 
 void IncrementalTrainer::remove_model_files(const std::string& base_path) {
+    // TD-169: ".metrics.csv" added once run_training() started writing one alongside every
+    // checkpoint (see its own comment) — without this, every rotated-out or cleaned-up
+    // checkpoint would leak its metrics CSV forever.
     static const std::vector<std::string> sidecars = {".config", ".vocab", ".encoder", ".decoder",
-                                                      ".lm_head"};
+                                                      ".lm_head", ".metrics.csv"};
     std::error_code ec;
     // Remove bare base file (empty marker written by finalize_model)
     if (fs::exists(base_path, ec)) {

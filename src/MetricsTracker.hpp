@@ -1,9 +1,9 @@
 #ifndef METRICS_TRACKER_HPP
 #define METRICS_TRACKER_HPP
 
-// @adai-status: stable
-// @adai-version: 1.0.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: stable        (TD-169 — now genuinely wired into ChatbotTrainer/IncrementalTrainer)
+// @adai-version: 1.0.1
+// @adai-reviewed: 2026-09-13
 
 
 #include <algorithm>

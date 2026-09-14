@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer)
-// @adai-version: 0.9.1
-// @adai-reviewed: 2026-09-12
+// @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker CSV export/cleanup added)
+// @adai-version: 0.9.2
+// @adai-reviewed: 2026-09-13
 
 
 #include <chrono>

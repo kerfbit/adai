@@ -630,6 +630,123 @@ TEST_F(ChatbotTrainerTest, LearningRate_InitialValue) {
 }
 
 // ============================================================================
+// TD-169: MetricsTracker wiring tests — real end-to-end training runs (this
+// codebase's other ChatbotTrainer tests avoid calling train() with real data;
+// this is the first to do so, since faithfulness to the real per-epoch data is
+// exactly what needs proving here, not just "record_epoch() works in
+// isolation" — that's already covered by tests/metricstracker_test.cpp).
+// ============================================================================
+
+class MetricsTrackerWiringTest : public ::testing::Test {
+   protected:
+    std::filesystem::path vocab_path_;
+    std::filesystem::path data_path_;
+
+    void SetUp() override {
+        vocab_path_ =
+            std::filesystem::temp_directory_path() / "adai_metricstracker_wiring_vocab.txt";
+        data_path_ = std::filesystem::temp_directory_path() / "adai_metricstracker_wiring_data.jsonl";
+    }
+
+    void TearDown() override {
+        std::filesystem::remove(vocab_path_);
+        std::filesystem::remove(data_path_);
+    }
+
+    static TrainingConfig tiny_config() {
+        TrainingConfig config;
+        config.log_level = LogLevel::SILENT;
+        config.d_model = 16;
+        config.num_heads = 2;
+        config.d_ff = 32;
+        config.num_encoder_layers = 1;
+        config.num_decoder_layers = 1;
+        config.max_seq_length = 16;
+        config.validation_split = 0;  // keep these tests focused on the training-loss path
+        config.enable_early_stopping = false;
+        return config;
+    }
+};
+
+TEST_F(MetricsTrackerWiringTest, RecordsOneEntryPerEpochMatchingRawVectors) {
+    ChatbotTrainer trainer(tiny_config());
+    std::vector<std::string> corpus = {"hello world",  "how are you",  "I am fine",   "thank you",
+                                       "good morning", "good evening", "see you later", "goodbye"};
+    ASSERT_TRUE(trainer.build_vocabulary(corpus, 100, vocab_path_.string()));
+
+    {
+        std::ofstream f(data_path_);
+        f << "{\"input\":\"hello world\",\"response\":\"how are you\"}\n"
+             "{\"input\":\"I am fine\",\"response\":\"thank you\"}\n"
+             "{\"input\":\"good morning\",\"response\":\"good evening\"}\n"
+             "{\"input\":\"see you later\",\"response\":\"goodbye\"}\n";
+    }
+    ASSERT_TRUE(trainer.load_conversation_data(data_path_.string()));
+    ASSERT_EQ(trainer.get_training_data_size(), 4u);
+
+    const int num_epochs = 3;
+    ASSERT_TRUE(trainer.train(num_epochs));
+
+    const MetricsTracker& tracker = trainer.get_metrics_tracker();
+    ASSERT_EQ(tracker.size(), static_cast<size_t>(num_epochs));
+    ASSERT_EQ(trainer.get_training_losses().size(), static_cast<size_t>(num_epochs));
+    ASSERT_EQ(trainer.get_gradient_norms().size(), static_cast<size_t>(num_epochs));
+    ASSERT_EQ(trainer.get_learning_rates().size(), static_cast<size_t>(num_epochs));
+
+    // The core correctness claim: metrics_tracker_ isn't just "recording something" -- its
+    // history must be the SAME data ChatbotTrainer's own already-tracked vectors hold, epoch
+    // for epoch, not an independently-computed or subtly-offset copy.
+    const auto& history = tracker.get_history();
+    for (int i = 0; i < num_epochs; ++i) {
+        EXPECT_EQ(history[i].epoch, i);
+        EXPECT_FLOAT_EQ(history[i].train_loss, trainer.get_training_losses()[i]);
+        EXPECT_FLOAT_EQ(history[i].gradient_norm, trainer.get_gradient_norms()[i]);
+        EXPECT_FLOAT_EQ(history[i].learning_rate, trainer.get_learning_rates()[i]);
+        EXPECT_FLOAT_EQ(history[i].validation_loss, 0.0f)
+            << "no validation data was loaded, so every recorded validation_loss should be 0";
+    }
+}
+
+TEST_F(MetricsTrackerWiringTest, ExportsRealCsvAfterTraining) {
+    ChatbotTrainer trainer(tiny_config());
+    std::vector<std::string> corpus = {"hello world", "how are you", "I am fine", "thank you"};
+    ASSERT_TRUE(trainer.build_vocabulary(corpus, 100, vocab_path_.string()));
+
+    {
+        std::ofstream f(data_path_);
+        f << "{\"input\":\"hello world\",\"response\":\"how are you\"}\n"
+             "{\"input\":\"I am fine\",\"response\":\"thank you\"}\n";
+    }
+    ASSERT_TRUE(trainer.load_conversation_data(data_path_.string()));
+
+    const int num_epochs = 2;
+    ASSERT_TRUE(trainer.train(num_epochs));
+
+    std::filesystem::path csv_path =
+        std::filesystem::temp_directory_path() / "adai_metricstracker_wiring_export.csv";
+    ASSERT_TRUE(trainer.export_metrics_csv(csv_path.string()));
+    ASSERT_TRUE(std::filesystem::exists(csv_path));
+
+    std::ifstream f(csv_path);
+    std::string header;
+    std::getline(f, header);
+    EXPECT_EQ(header,
+             "epoch,train_loss,validation_loss,train_perplexity,validation_perplexity,"
+             "learning_rate,gradient_norm,duration_seconds");
+
+    int data_rows = 0;
+    std::string line;
+    while (std::getline(f, line)) {
+        if (!line.empty()) {
+            ++data_rows;
+        }
+    }
+    EXPECT_EQ(data_rows, num_epochs);
+
+    std::filesystem::remove(csv_path);
+}
+
+// ============================================================================
 // Edge Case Tests
 // ============================================================================
 

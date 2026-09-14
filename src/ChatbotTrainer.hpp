@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer)
-// @adai-version: 0.9.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: beta        (capped by TD-039 — large, actively evolving core trainer; TD-169 MetricsTracker wiring added)
+// @adai-version: 0.10.0
+// @adai-reviewed: 2026-09-13
 
 
 #include <atomic>
@@ -18,6 +18,7 @@
 #include "BPETokenizer.hpp"
 #include "EncoderDecoderModel.hpp"
 #include "IMetricsReporter.hpp"
+#include "MetricsTracker.hpp"
 #include "Optimizer.hpp"
 #include "TrainingSampleMeta.hpp"
 
@@ -251,6 +252,13 @@ class ChatbotTrainer {
     float best_validation_loss;
     int best_epoch{0};
 
+    // TD-169: real analysis (convergence/overfitting detection, CSV export) over the same
+    // per-epoch data as the raw vectors above — see get_metrics_tracker()'s own doc comment.
+    // Default-constructed fresh per ChatbotTrainer instance (one per training pass — see
+    // IncrementalTrainer::run_training()'s own local `ChatbotTrainer trainer(...)`), so this
+    // naturally scopes to just the current run with no explicit reset needed.
+    MetricsTracker metrics_tracker_;
+
     // Learning rate scheduling state
     int global_step{0};
     int total_training_steps{0};
@@ -455,6 +463,30 @@ class ChatbotTrainer {
     const std::vector<float>& get_gradient_norms() const {
         return gradient_norms;
     }
+
+    /**
+     * @brief TD-169: real-time analysis (best-epoch tracking, moving-average smoothing,
+     * is_converging()/is_overfitting() trend detection, calculate_improvement_rate()) over
+     * this run's own per-epoch metrics — fed the same loss/val_loss/learning_rate/
+     * gradient_norm data as the raw vectors above (get_training_losses() etc.), one
+     * record_epoch() call per epoch, right alongside where those vectors are updated. See
+     * MetricsTracker.hpp's own file doc for the full analysis surface.
+     */
+    const MetricsTracker& get_metrics_tracker() const {
+        return metrics_tracker_;
+    }
+
+    /**
+     * @brief Exports this run's per-epoch metrics to a CSV file — see
+     * MetricsTracker::export_csv(). Deliberately not MetricsTracker::print_summary()/
+     * print_history(), which write to std::cout directly, against this codebase's own
+     * logging convention for library code (CLAUDE.md: "never std::cout in library code").
+     * @return true on success (see MetricsTracker::export_csv() for failure conditions).
+     */
+    bool export_metrics_csv(const std::string& filepath) const {
+        return metrics_tracker_.export_csv(filepath);
+    }
+
     float get_best_validation_loss() const {
         return best_validation_loss;
     }

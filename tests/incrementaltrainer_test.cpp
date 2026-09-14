@@ -392,6 +392,36 @@ TEST_F(IncrementalTrainerTest, CleanupOldSessionsKeepsMaxSessions) {
     EXPECT_FALSE(fs::exists(session_dir / "session_2_checkpoint.bin"));
 }
 
+// TD-169: remove_model_files() (shared by cleanup_old_sessions()/cleanup_dead_sessions())
+// gained ".metrics.csv" to its sidecar-deletion list once
+// IncrementalTrainer::run_training() started writing one next to every checkpoint via
+// ChatbotTrainer::export_metrics_csv() -- without this, every rotated-out checkpoint would
+// leak its metrics CSV forever.
+TEST_F(IncrementalTrainerTest, CleanupOldSessionsRemovesMetricsCsvSidecar) {
+    IncrementalConfig config;
+    config.session_dir = session_dir.string();
+    config.max_sessions_to_keep = 2;
+    IncrementalTrainer trainer(vocab_file.string(), model_file.string(), config);
+
+    std::string history_file = session_dir.string() + "/session_history.txt";
+    create_session_history_file(history_file, 5);
+    trainer.load_session_history();
+
+    for (int i = 0; i < 5; ++i) {
+        std::string checkpoint =
+            session_dir.string() + "/session_" + std::to_string(i) + "_checkpoint.bin";
+        std::ofstream(checkpoint) << "dummy";
+        std::ofstream(checkpoint + ".metrics.csv") << "epoch,train_loss\n0,1.0\n";
+    }
+
+    trainer.cleanup_old_sessions();
+
+    // Rotated-out sessions' metrics CSVs must be deleted along with their checkpoints.
+    EXPECT_FALSE(fs::exists(session_dir / "session_0_checkpoint.bin.metrics.csv"));
+    EXPECT_FALSE(fs::exists(session_dir / "session_1_checkpoint.bin.metrics.csv"));
+    EXPECT_FALSE(fs::exists(session_dir / "session_2_checkpoint.bin.metrics.csv"));
+}
+
 // TD-083 regression (two related bugs found in the same block):
 //
 // (A) The whole "find the next best checkpoint after deleting the current
