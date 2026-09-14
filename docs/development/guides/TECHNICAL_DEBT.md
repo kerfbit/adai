@@ -124,18 +124,17 @@ question, not attempted.
 
 **Tier 9 — Newly filed, deployment architecture:**
 [TD-172](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
-(20-28h, revised up from 8-12h once the owner decision landed). `incremental_trainer serve` — the
-always-on systemd-managed training service — is a branch of the same `main()` that also handles
-every one-shot CLI command (`init`/`train`/`retrain`/`reset`/`resume`/`status`/`history`), even
-though `TrainerControlState`/`TrainerAdminAPI` are already cleanly factored, reusable components.
-**Owner decision made September 14, 2026: process supervisor**, not in-process library reuse — the
-new service binary treats `incremental_trainer` as an external subprocess it launches/monitors per
-pass, trading TD-028's simpler `dataset_manager`-style split for real process-crash isolation
-between the admin API and a training pass, at the cost of needing an actual IPC design (status
-reporting + pause/checkpoint control across the process boundary) where the in-process approach
-needed none. A file-based IPC channel is recommended as the starting design (matching
-`DaemonConfigStore`/`DatasetRegistry`'s existing file/sqlite-based patterns) but not yet confirmed.
-Design/implementation not started.
+(14-20h). `incremental_trainer serve` — the always-on systemd-managed training service — is a
+branch of the same `main()` that also handles every one-shot CLI command
+(`init`/`train`/`retrain`/`reset`/`resume`/`status`/`history`). **Both design decisions made
+September 14, 2026:** the new service binary will be a **process supervisor** (treats
+`incremental_trainer` as an external subprocess it launches/monitors per pass, not in-process
+library reuse — trading TD-028's simpler `dataset_manager`-style split for real process-crash
+isolation between the admin API and a training pass), and the supervisor↔child IPC will be
+**loopback HTTP with the supervisor proxying to the child's own `TrainerAdminAPI`** — chosen over a
+file-based channel for being an already-established pattern in this codebase and more portable,
+and because it turns out to require zero changes to `TrainerControlState`/`TrainerAdminAPI`
+themselves. Design/implementation not started.
 
 ## Table of Contents
 
@@ -1563,7 +1562,7 @@ equivalent under `src/gpu/`.
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open — owner decision made (process supervisor), design/implementation not started | Training / Deployment / Tooling | September 14, 2026 | 20-28 hours (revised up from 8-12h — see the September 14, 2026 decision update below) |
+| MEDIUM | Open — process-supervisor + loopback-HTTP-proxy design decided, implementation not started | Training / Deployment / Tooling | September 14, 2026 | 14-20 hours (revised from 8-12h for the process-supervisor split, then back down from an initial 20-28h once the loopback-HTTP-proxy IPC choice confirmed `TrainerControlState`/`TrainerAdminAPI` need no redesign — see the decision updates below) |
 
 Description:
 `incremental_trainer` is one binary, built from `IncrementalTrainingTool.cpp`'s single ~894-line
@@ -1630,48 +1629,50 @@ decision means:
   they're different processes. This is the concrete benefit the original entry called out as the
   reason to consider option 2 at all.
 
-Recommended design direction for the IPC boundary (not yet decided by the owner — surfaced here as
-a starting point, not a final call): a file-based status/control channel, matching this codebase's
-existing preference for simple file/sqlite-backed IPC over new sockets or ports (`DaemonConfigStore`'s
-per-daemon `daemon_config.db` overlay, `DatasetRegistry`'s flat pending-file registry with advisory
-`flock()`). Concretely: the child process periodically writes its current `TrainerControlState`-shaped
-progress as JSON to a status file in a working directory the supervisor also reads (analogous to
-`TRAINER_ADMIN_DIR` today); the supervisor's `TrainerAdminAPI` (largely unchanged as an HTTP surface)
-serves `GET /admin/status`/`GET /admin/logs` by reading that file instead of an in-process struct,
-and serves `POST /admin/pause`/`POST /admin/checkpoint` by writing a small control file the running
-child polls at existing checkpoint/optimizer-step boundaries (the same cadence it already checks
-`paused`/`checkpoint_requested` today) — no new dependency, no new port, and the polling cadence
-already exists in the training loop for exactly this purpose. A Unix domain socket or a small
-private HTTP port opened by each child are real alternatives with lower latency, at the cost of a
-new dependency/attack surface for a control signal that's tolerant of a few seconds' delay today
-(the existing 45s poll interval and checkpoint cadence are already coarse-grained) — worth
-confirming with the owner before implementation, not assumed here.
+**IPC decision (September 14, 2026, same day):** loopback HTTP, supervisor-proxies-to-child —
+explicitly chosen over the file-based channel first proposed here, on the grounds that it's already
+an established pattern in this codebase (this *is* exactly what `TrainerAdminAPI` already is: an
+httplib server bound to `127.0.0.1`) and is more portable (no new file-format/staleness-detection
+protocol to invent, and cpp-httplib already builds on every platform `incremental_trainer` ships
+on, including Windows — confirmed `incremental_trainer.exe` is a real packaged target, unlike a
+Unix-domain-socket approach which would need new platform-specific code `PortableSocket.hpp`
+doesn't currently cover). Concretely:
+- `incremental_trainer` gains a mode where a single-pass invocation also starts its own
+  `TrainerAdminAPI`, bound to a port the supervisor assigns at launch (env var or `--admin-port`
+  flag — only one child ever runs at a time under this design, so no port-discovery problem).
+  **`TrainerControlState`/`TrainerAdminAPI` need zero changes** — they keep working exactly as they
+  do today, just owned by the child process instead of `serve`'s process. This is the direct payoff
+  of choosing this option: the best-tested, most subtle part of the current system (the atomic
+  field semantics, the log ring buffer, the `checkpoint`'s `wait_ms` busy-poll loop, the
+  pause/resume `wake()` condvar dance) is reused completely unchanged.
+- The supervisor hosts its own always-on `TrainerAdminAPI`-shaped HTTP listener (same host/port
+  config keys operators already know) that acts as a thin reverse proxy: while a child is alive,
+  forward every `/admin/*` request to the child's port and relay its response; while idle (no child
+  running), answer directly (e.g. `phase: idle`) without proxying anywhere.
+- Handle the short window between spawning a child and its admin port coming up (the proxy should
+  say "starting," not error or hang) and the moment a child exits (proxy should fall back to
+  "idle" instead of erroring on a now-dead connection).
 
 Action Items:
 
 - [x] **Owner decision** on the new service binary's shape: **process supervisor** (external
   subprocess model), not in-process library reuse. See the Decision update above.
-- [ ] **Design decision (not yet made):** the specific IPC mechanism for status reporting and
-  pause/checkpoint control across the supervisor↔child process boundary — the file-based channel
-  above is the recommended starting point, but should be confirmed (or replaced) before
-  implementation, since it's the one piece of this item without a direct precedent already in the
-  codebase to copy.
+- [x] **IPC mechanism decision:** loopback HTTP with the supervisor proxying to whichever child is
+  currently alive. See the IPC decision update above. `TrainerControlState`/`TrainerAdminAPI`
+  require no redesign under this choice.
 - [ ] Give `incremental_trainer` a clean, supervisor-friendly single-pass invocation (formalize
   what `resume` already does — acquire pending work, run one pass via
-  `resume_last_session()`/equivalent, exit with a status code the supervisor can act on) — audit
-  whether `resume`'s existing exit-code/behavior contract is already sufficient or needs
-  tightening for being driven by a supervisor instead of a human/cron/systemd-restart.
-- [ ] Design and implement the chosen IPC mechanism: the child-side status writer (replacing
-  `TrainerControlState`'s in-process progress fields with periodic external reporting) and the
-  child-side control-signal poll (replacing direct reads of `paused`/`checkpoint_requested` with
-  whatever the chosen mechanism delivers, still feeding the same `ChatbotTrainer::set_abort_flag()`
-  / forced-checkpoint call sites unchanged).
-- [ ] Build the new supervisor binary: launches/monitors the child process (fork+exec or
-  equivalent), restarts it per the existing poll-interval/idle logic `serve`'s loop already has,
-  hosts `TrainerAdminAPI` (adapted to read/write through the new IPC channel instead of a shared
-  `TrainerControlState*`), and owns the process-lifetime signal handling (`SIGTERM`/`SIGINT`)
-  `serve` has today — now also responsible for forwarding a graceful-stop signal to whatever child
-  is currently running.
+  `resume_last_session()`/equivalent, exit with a status code the supervisor can act on), plus a
+  new `--admin-port <N>` (or equivalent env var) flag that starts `TrainerAdminAPI` for the
+  duration of that one pass, bound to the port the supervisor assigns.
+- [ ] Build the new supervisor binary: launches/monitors the child process (fork+exec/waitpid or
+  the Windows equivalent, mirroring `launch_background()`'s existing POSIX/Windows split), restarts
+  it per the existing poll-interval/idle logic `serve`'s loop already has, and owns the
+  process-lifetime signal handling (`SIGTERM`/`SIGINT`) `serve` has today — now also responsible for
+  forwarding a graceful-stop signal to whatever child is currently running.
+- [ ] Implement the supervisor's own admin HTTP listener as a thin reverse proxy to the current
+  child's `TrainerAdminAPI` port (falling back to answering "idle" directly when no child is
+  running), including the two edge windows called out above (child starting up; child just exited).
 - [ ] Factor `IncrementalTrainingTool.cpp` `main()`'s shared bootstrap preamble (`--config`
   discovery, `ServiceConfig` load, MNS model-name/architecture resolution, default vocab/model
   path resolution — currently ~140 lines before the `command` dispatch) into a reusable function
@@ -1685,60 +1686,62 @@ Action Items:
   it's a backward-compatibility call for whoever operates the deployed service.
 - [ ] Update `scripts/adai-trainer.service`'s `ExecStart` to point at the new supervisor binary;
   the rest of the unit (hardening, `Restart=always`/`RestartSec=45`, `ReadWritePaths`) describes
-  the *service's* operational profile and stays correct regardless of which binary implements it —
-  though `ReadWritePaths` will need the new IPC channel's working directory added once that's
-  designed.
+  the *service's* operational profile and stays correct regardless of which binary implements it.
+  No new `ReadWritePaths` entry needed (loopback HTTP, not a new file path) — but confirm the
+  child's assigned admin port doesn't collide with the supervisor's own, and that
+  `RestrictAddressFamilies=AF_INET AF_INET6` (already present) still covers both.
 - [ ] Update `scripts/install_incremental_trainer.sh` and `tests/scripts/install_incremental_trainer_test.sh`
   to install/reference the new binary alongside `incremental_trainer`.
 - [ ] Add the new binary to `src/CMakeLists.txt` (own `add_executable`, linking `TrainerAdminAPI.cpp`/
-  `TrainerControlState.hpp` — likely reshaped for the IPC design — plus `BUILD_TRAINER_ADMIN`/httplib
-  the way `incremental_trainer` conditionally does today) and to CLAUDE.md's Executable Targets
-  table. Give the new `.cpp` its own `@adai-status: experimental`, `@adai-version: 0.1.0`
-  file-status tag per convention.
+  `TrainerControlState.hpp` unchanged, plus `BUILD_TRAINER_ADMIN`/httplib the way
+  `incremental_trainer` conditionally does today) and to CLAUDE.md's Executable Targets table. Give
+  the new `.cpp` its own `@adai-status: experimental`, `@adai-version: 0.1.0` file-status tag per
+  convention.
 - [ ] Review `tests/incremental_trainer_control_test.cpp` / `tests/incremental_trainer_background_test.cpp`
-  for whether either exercises the `serve` branch through the CLI tool binary specifically, or unit
-  tests `TrainerControlState`/`TrainerAdminAPI` in isolation — the latter needs updating for
-  whatever shape those classes take after the IPC redesign, not merely moving unchanged.
-- [ ] New tests specifically for the supervisor↔child boundary: a child crash mid-pass is observed
-  and recovered from correctly, a pause/checkpoint request reaches a running child within a bounded
-  time, and status reporting survives a child restart (the supervisor shouldn't show stale progress
-  from a dead child indefinitely).
+  for whether either exercises the `serve` branch through the CLI tool binary specifically —
+  `TrainerControlState`/`TrainerAdminAPI`'s own existing unit tests need no change under this
+  design, so this is purely about where `serve`-branch-specific coverage should move to.
+- [ ] New tests specifically for the supervisor↔child boundary: the proxy correctly forwards to a
+  live child, correctly answers "idle" with no child running, handles the child-starting-up and
+  child-just-exited windows without erroring, and a child crash mid-pass is observed and recovered
+  from correctly (new pass launched on the next poll cycle).
 
 Files to Modify:
 
 - `src/IncrementalTrainingTool.cpp` — remove the `serve` branch; hoist the shared bootstrap
-  preamble into a reusable function; formalize the single-pass invocation contract
-- `src/TrainerControlState.hpp` — likely reshaped: the live-progress fields and action flags need
-  to serialize across the IPC boundary instead of (or in addition to) being read in-process
-- `src/TrainerAdminAPI.{hpp,cpp}` — handlers adapted to read/write through the new IPC channel
-- New file(s) (names TBD by the IPC design decision above, e.g. `src/TrainerServiceMain.cpp` for
-  the supervisor binary's `main()`, plus whatever status/control-channel helper class the chosen
-  IPC mechanism needs) — the thin wrapper binary and its IPC glue
+  preamble into a reusable function; add the `--admin-port` single-pass invocation mode
+- New file(s) (e.g. `src/TrainerServiceMain.cpp` for the supervisor binary's `main()`, plus a small
+  proxy helper) — the thin wrapper binary and its reverse-proxy glue. `TrainerControlState.hpp` and
+  `TrainerAdminAPI.{hpp,cpp}` are used as-is by the child process, unchanged.
 - `src/CMakeLists.txt` — new `add_executable` target
-- `scripts/adai-trainer.service` — `ExecStart` path; `ReadWritePaths` for the IPC channel's
-  working directory
+- `scripts/adai-trainer.service` — `ExecStart` path
 - `scripts/install_incremental_trainer.sh` / `tests/scripts/install_incremental_trainer_test.sh`
 - `CLAUDE.md` — Executable Targets table, "Incremental trainer admin API" section
 - `tests/incremental_trainer_control_test.cpp` / `tests/incremental_trainer_background_test.cpp` —
-  review and update for the new `TrainerControlState`/`TrainerAdminAPI` shape
-- New test file for the supervisor↔child process boundary itself
+  review; likely little to no change needed since `TrainerControlState`/`TrainerAdminAPI` are
+  unchanged
+- New test file for the supervisor's reverse-proxy behavior and the supervisor↔child process
+  boundary
 
 Context: originally scoped at 8-12 hours under the (not chosen) in-process-reuse option, where
 `TrainerControlState`/`TrainerAdminAPI` needed no change at all — this item was purely about where
 ~90 lines of orchestration live. The process-supervisor decision trades that simplicity for real
-process-crash isolation between the admin API and a training pass, at the cost of needing an actual
-IPC design for status/control instead of a shared in-process struct — hence the revised 20-28 hour
-estimate. Does not touch `IncrementalTrainer.{hpp,cpp}`'s own API surface (the child process still
-calls it exactly as today), so it remains compatible with
+process-crash isolation between the admin API and a training pass; a first pass at the IPC choice
+(file-based status/control) would have needed re-deriving `TrainerControlState`'s serialization and
+a new staleness-detection protocol, pushing the estimate up to 20-28 hours. Settling on loopback
+HTTP with the supervisor proxying to the child — chosen for being an already-established pattern in
+this codebase (`TrainerAdminAPI` already is exactly this: an httplib server on `127.0.0.1`) and for
+portability (no new per-platform IPC code, unlike a Unix-domain-socket approach) — brought
+`TrainerControlState`/`TrainerAdminAPI` back to needing zero changes, settling the estimate at
+14-20 hours: real work, but proxy-layer-and-process-lifecycle work, not a redesign of the
+already-tested control/status machinery. Does not touch `IncrementalTrainer.{hpp,cpp}`'s own API
+surface (the child process still calls it exactly as today), so it remains compatible with
 [TD-039](#td-039-core-trainingmetrics-classes-too-large-and-fast-moving-to-certify-stable)'s
 freeze-in-place plan for that class. Direct precedent for the binary split itself: TD-028 (June 7,
 2026) split `dataset_manager` out of this exact same `IncrementalTrainingTool.cpp` for the
 identical reason (a command that needed only a subset of the tool's dependencies was growing
 another branch of one large `main()` instead of becoming its own focused binary) — see its
 [resolved entry](../archive/TECHNICAL_DEBT_RESOLVED.md#td-028-separate-dataset-management-from-incrementaltrainer).
-No direct precedent yet in this codebase for the supervisor↔child IPC piece specifically — closest
-analogues are `DaemonConfigStore`'s sqlite config overlay and `DatasetRegistry`'s flat-file registry
-with advisory locking, both cited above as the basis for the recommended file-based approach.
 
 ---
 
@@ -2293,7 +2296,7 @@ Recomputed directly from the 13 `### TD-NNN` entries under [Active Technical Deb
 |8+ hours|6|
 |Not estimated|3|
 
-**Total Estimated Effort (Active Items):** 126-186 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate)
+**Total Estimated Effort (Active Items):** 120-178 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate)
 
 ### Future Enhancements Summary
 
