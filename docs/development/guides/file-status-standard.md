@@ -10,10 +10,13 @@ is often *capped* by an open TD item; see [Relationship to Technical Debt](#rela
 ## Why this exists
 
 `docs/development/reference/chatbot-completeness.md` marks `MultiHeadAttention`'s KV-cache path
-"✅ Production-ready," but [TECHNICAL_DEBT.md](TECHNICAL_DEBT.md) TD-050 documents that the same
-cache produces incorrect results for greedy decoding. Neither doc is wrong for its moment — the
-completeness doc just has no mechanism to notice when the ground shifts under it. A tag that lives
-in the file itself, is checked by CI, and is cheap to keep current doesn't have that failure mode.
+"✅ Production-ready" as a January 2026 snapshot, with no mechanism to notice when the ground shifts
+under it — and it did: [TECHNICAL_DEBT.md](TECHNICAL_DEBT.md) TD-050 spent months believing (never
+actually verified) that the same cache produced incorrect results for greedy decoding, until a real
+incremental-vs-full-recompute test on September 14, 2026 found no bug at all. Neither doc was wrong
+for its moment, but a stale snapshot and an unverified assumption both look identical to a reader
+until someone re-checks — a tag that lives in the file itself, is checked by CI, and is cheap to
+keep current doesn't have that failure mode.
 
 ## The tag
 

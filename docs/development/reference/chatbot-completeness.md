@@ -2,9 +2,11 @@
 
 > **Stale as of 2026-09-07:** this doc's per-component "Production-ready" claims are a
 > point-in-time snapshot with no mechanism to stay current — e.g. the `MultiHeadAttention` KV-cache
-> entry below is marked "✅ Production-ready," but [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md)
-> (TD-050) documents that same cache producing incorrect results for greedy decoding. Treat the
-> per-file `@adai-status` tags described in
+> entry below is marked "✅ Production-ready," which [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md)
+> (TD-050) spent months disputing based on a never-verified assumption of a greedy-decoding
+> correctness bug — only for a real numerical test on September 14, 2026 to find no bug at all.
+> The claim on this page happened to be right, but only by accident; nothing here would have caught
+> it if the assumption had gone the other way. Treat the per-file `@adai-status` tags described in
 > [file-status-standard.md](../guides/file-status-standard.md) and the generated
 > [PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md) as authoritative going forward; this doc
 > is kept for historical context only.

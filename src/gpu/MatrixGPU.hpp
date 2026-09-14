@@ -1,7 +1,7 @@
 #ifndef MATRIX_GPU_HPP
 #define MATRIX_GPU_HPP
 
-// @adai-status: beta        (capped by TD-061 — see MatrixGPU.cu's tag; this header just declares/wraps its kernels; TD-050 GPUKVCache added)
+// @adai-status: beta        (TD-061 resolved — see MatrixGPU.cu's tag; this header just declares/wraps its kernels; TD-050 GPUKVCache added)
 // @adai-version: 0.10.0
 // @adai-reviewed: 2026-09-14
 

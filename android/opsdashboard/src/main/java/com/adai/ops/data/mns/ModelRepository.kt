@@ -2,7 +2,7 @@ package com.adai.ops.data.mns
 
 // @adai-status: beta        (capped by TD-047 — see TECHNICAL_DEBT.md)
 // @adai-version: 0.4.1
-// @adai-reviewed: 2026-09-10
+// @adai-reviewed: 2026-09-11
 
 
 import com.adai.ops.network.ApiClientProvider
