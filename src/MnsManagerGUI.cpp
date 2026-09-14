@@ -1,19 +1,21 @@
-// @adai-status: beta        (capped by TD-037 — no Qt Test infrastructure in this repo)
-// @adai-version: 0.7.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: beta        (capped by TD-037 — no Qt Test infrastructure in this repo; onRegisterModel/onSetCandidate's body logic extracted to MnsJsonHelpers.hpp, see TECHNICAL_DEBT.md)
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-09-13
 
 #include "MnsManagerGUI.hpp"
 #include <httplib.h>
 #include <QApplication>
 #include <QMessageBox>
 #include <QScrollBar>
-#include <sstream>
 #include "MnsJsonHelpers.hpp"
 
+using mns_gui::build_register_model_body;
+using mns_gui::build_set_candidate_body;
 using mns_gui::json_array_objects;
 using mns_gui::json_escape;
 using mns_gui::json_pretty;
 using mns_gui::json_value;
+using mns_gui::RegisterModelArch;
 
 // ============================================================================
 // Construction
@@ -418,46 +420,11 @@ void MnsManagerGUI::onRegisterModel() {
         return;
     }
 
-    std::ostringstream body;
-    body << "{\"model_name\":\"" << json_escape(name) << "\"" << ",\"role\":\"" << json_escape(role)
-         << "\"" << ",\"arch\":{" << "\"d_model\":" << regDModel_->value()
-         << ",\"num_heads\":" << regHeads_->value() << ",\"d_ff\":" << regDff_->value()
-         << ",\"num_encoder_layers\":" << regEncLayers_->value()
-         << ",\"num_decoder_layers\":" << regDecLayers_->value()
-         << ",\"max_seq_length\":" << regMaxSeq_->value() << "}";
+    RegisterModelArch arch{regDModel_->value(),    regHeads_->value(),     regDff_->value(),
+                           regEncLayers_->value(), regDecLayers_->value(), regMaxSeq_->value()};
+    std::string body = build_register_model_body(name, role, arch, regTags_->text().toStdString());
 
-    // Parse tags
-    std::string tags_str = regTags_->text().toStdString();
-    if (!tags_str.empty()) {
-        body << ",\"tags\":{";
-        std::istringstream ss(tags_str);
-        std::string tok;
-        bool first = true;
-        while (std::getline(ss, tok, ',')) {
-            auto eq = tok.find('=');
-            if (eq == std::string::npos)
-                continue;
-            std::string k = tok.substr(0, eq);
-            std::string v = tok.substr(eq + 1);
-            // trim
-            while (!k.empty() && k.front() == ' ')
-                k.erase(k.begin());
-            while (!k.empty() && k.back() == ' ')
-                k.pop_back();
-            while (!v.empty() && v.front() == ' ')
-                v.erase(v.begin());
-            while (!v.empty() && v.back() == ' ')
-                v.pop_back();
-            if (!first)
-                body << ',';
-            first = false;
-            body << '"' << json_escape(k) << "\":\"" << json_escape(v) << '"';
-        }
-        body << "}";
-    }
-    body << "}";
-
-    auto resp = httpPost("/models", body.str());
+    auto resp = httpPost("/models", body);
     if (resp.empty()) {
         setStatusMessage("Connection failed", true);
         return;
@@ -505,17 +472,9 @@ void MnsManagerGUI::onSetCandidate() {
     std::string run_id = actionRunId_->text().toStdString();
     std::string art_path = actionArtifactPath_->text().toStdString();
 
-    std::ostringstream body;
-    body << "{\"state\":\"candidate\"";
-    if (!run_id.empty())
-        body << ",\"run_id\":\"" << json_escape(run_id) << "\"";
-    if (!art_path.empty()) {
-        body << ",\"artifact\":{\"path\":\"" << json_escape(art_path)
-             << "\",\"host\":\"\",\"checksum\":\"\",\"format\":\"adai-native\"}";
-    }
-    body << "}";
+    std::string body = build_set_candidate_body(run_id, art_path);
 
-    auto resp = httpPut("/models/" + selectedModel_.toStdString() + "/state", body.str());
+    auto resp = httpPut("/models/" + selectedModel_.toStdString() + "/state", body);
     if (resp.empty()) {
         setStatusMessage("Connection failed", true);
         return;

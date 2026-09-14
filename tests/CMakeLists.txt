@@ -45,6 +45,16 @@ add_executable(optimizerTests optimizer_test.cpp)
 target_link_libraries(optimizerTests adai_core GTest::gtest_main)
 add_test(NAME OptimizerTests COMMAND optimizerTests)
 
+# MnsJsonHelpers tests (TD-037 — pure Qt-free logic extracted from MnsManagerGUI)
+add_executable(mnsjsonhelpersTests mnsjsonhelpers_test.cpp)
+target_link_libraries(mnsjsonhelpersTests GTest::gtest_main)
+add_test(NAME MnsJsonHelpersTests COMMAND mnsjsonhelpersTests)
+
+# ChatbotGuiLogic tests (TD-037 — pure Qt-free logic extracted from ChatbotGUI)
+add_executable(chatbotguilogicTests chatbotguilogic_test.cpp)
+target_link_libraries(chatbotguilogicTests GTest::gtest_main)
+add_test(NAME ChatbotGuiLogicTests COMMAND chatbotguilogicTests)
+
 # ============================================================================
 # Layer Tests
 # ============================================================================

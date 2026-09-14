@@ -1,11 +1,12 @@
 #pragma once
 
 // @adai-status: stable
-// @adai-version: 1.0.1
-// @adai-reviewed: 2026-09-10
+// @adai-version: 1.1.0
+// @adai-reviewed: 2026-09-13
 
-
+#include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace mns_gui {
@@ -170,6 +171,93 @@ inline std::string json_pretty(const std::string& s) {
         }
     }
     return out;
+}
+
+// TD-037: parses MnsManagerGUI's "Register" tab tags field (comma-separated `key=value` pairs,
+// arbitrary surrounding whitespace around each key/value) into ordered pairs — extracted
+// verbatim from onRegisterModel() so it's testable without a QMainWindow/QLineEdit. An entry with
+// no '=' is silently skipped (matches the original widget code's behavior).
+inline std::vector<std::pair<std::string, std::string>> parse_tags(const std::string& tags_str) {
+    std::vector<std::pair<std::string, std::string>> tags;
+    if (tags_str.empty())
+        return tags;
+
+    std::istringstream ss(tags_str);
+    std::string tok;
+    while (std::getline(ss, tok, ',')) {
+        auto eq = tok.find('=');
+        if (eq == std::string::npos)
+            continue;
+        std::string k = tok.substr(0, eq);
+        std::string v = tok.substr(eq + 1);
+        while (!k.empty() && k.front() == ' ')
+            k.erase(k.begin());
+        while (!k.empty() && k.back() == ' ')
+            k.pop_back();
+        while (!v.empty() && v.front() == ' ')
+            v.erase(v.begin());
+        while (!v.empty() && v.back() == ' ')
+            v.pop_back();
+        tags.emplace_back(std::move(k), std::move(v));
+    }
+    return tags;
+}
+
+// TD-037: the register-model request body's architecture sub-object — one field per
+// MnsManagerGUI "Register" tab spin box, extracted so the whole body can be built (and tested)
+// without any of those widgets existing.
+struct RegisterModelArch {
+    int d_model = 0;
+    int num_heads = 0;
+    int d_ff = 0;
+    int num_encoder_layers = 0;
+    int num_decoder_layers = 0;
+    int max_seq_length = 0;
+};
+
+// TD-037: builds POST /models's JSON body — extracted verbatim from onRegisterModel() (the
+// tags-parsing loop now lives in parse_tags() above).
+inline std::string build_register_model_body(const std::string& name, const std::string& role,
+                                             const RegisterModelArch& arch,
+                                             const std::string& tags_str) {
+    std::ostringstream body;
+    body << "{\"model_name\":\"" << json_escape(name) << "\"" << ",\"role\":\"" << json_escape(role)
+         << "\"" << ",\"arch\":{" << "\"d_model\":" << arch.d_model
+         << ",\"num_heads\":" << arch.num_heads << ",\"d_ff\":" << arch.d_ff
+         << ",\"num_encoder_layers\":" << arch.num_encoder_layers
+         << ",\"num_decoder_layers\":" << arch.num_decoder_layers
+         << ",\"max_seq_length\":" << arch.max_seq_length << "}";
+
+    auto tags = parse_tags(tags_str);
+    if (!tags.empty()) {
+        body << ",\"tags\":{";
+        bool first = true;
+        for (const auto& [k, v] : tags) {
+            if (!first)
+                body << ',';
+            first = false;
+            body << '"' << json_escape(k) << "\":\"" << json_escape(v) << '"';
+        }
+        body << "}";
+    }
+    body << "}";
+    return body.str();
+}
+
+// TD-037: builds PUT /models/{name}/state's JSON body for the "candidate" transition — extracted
+// verbatim from onSetCandidate(). run_id/artifact_path are both optional (either may be empty).
+inline std::string build_set_candidate_body(const std::string& run_id,
+                                            const std::string& artifact_path) {
+    std::ostringstream body;
+    body << "{\"state\":\"candidate\"";
+    if (!run_id.empty())
+        body << ",\"run_id\":\"" << json_escape(run_id) << "\"";
+    if (!artifact_path.empty()) {
+        body << ",\"artifact\":{\"path\":\"" << json_escape(artifact_path)
+             << "\",\"host\":\"\",\"checksum\":\"\",\"format\":\"adai-native\"}";
+    }
+    body << "}";
+    return body.str();
 }
 
 struct ParsedUrl {

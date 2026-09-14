@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-037 — no Qt Test infrastructure in this repo)
-// @adai-version: 0.7.0
-// @adai-reviewed: 2026-09-10
+// @adai-status: beta        (capped by TD-037 — no Qt Test infrastructure in this repo; onStrategyChanged's mapping extracted to ChatbotGuiLogic.hpp, see TECHNICAL_DEBT.md)
+// @adai-version: 0.8.0
+// @adai-reviewed: 2026-09-13
 
 #include "ChatbotGUI.hpp"
 #include <QApplication>
@@ -10,6 +10,7 @@
 #include <QScrollBar>
 #include <fstream>
 #include "BPETokenizer.hpp"
+#include "ChatbotGuiLogic.hpp"
 #include "Config.hpp"
 #include "ConversationContext.hpp"
 #include "EncoderDecoderModel.hpp"
@@ -435,26 +436,7 @@ void ChatbotGUI::onLoadConversation() {
 }
 
 void ChatbotGUI::onStrategyChanged(int index) {
-    switch (index) {
-        case 0:
-            generation_strategy = "nucleus";
-            break;
-        case 1:
-            generation_strategy = "top-k";
-            break;
-        case 2:
-            generation_strategy = "greedy";
-            break;
-        case 3:
-            generation_strategy = "beam";
-            break;
-        case 4:
-            generation_strategy = "sampling";
-            break;
-        default:
-            generation_strategy = "nucleus";
-            break;
-    }
+    generation_strategy = chatbot_gui::generation_strategy_for_index(index);
 }
 
 void ChatbotGUI::onTemperatureChanged(double value) {

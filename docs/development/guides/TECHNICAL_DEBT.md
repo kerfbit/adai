@@ -62,8 +62,9 @@ compile-verified only, since this sandbox can't install/run that module's debug 
 all (`wear-sdk` shared-library requirement, no Wear-capable device available here) — what's left
 is the `wearcomplications` services (untouched, a distinct area) and real-device verification of
 every `opsdashboard` piece once a Wear-capable device is available)
-and [TD-037](#td-037-no-qt-test-infrastructure-for-gui-classes) (8-12h — the same shape for the
-desktop Qt GUI).
+and [TD-037](#td-037-no-qt-test-infrastructure-for-gui-classes) — the logic-extraction half is
+done (39 new tests across `MnsJsonHelpers.hpp`/`ChatbotGuiLogic.hpp`); only full widget-level
+testing (would need revisiting the QTest decision) remains, not currently planned.
 
 **Tier 5 — Larger investigation, sequence after Tier 1:** [TD-050](#td-050-gpu-resident-kv-cache-for-autoregressive-generation)
 (20-28h). Its own action items note the concrete next step is still confirming whether the CPU
@@ -489,7 +490,7 @@ Evaluation:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | GUI / Testing | September 7, 2026 | 8-12 hours |
+| LOW | Open (logic-extraction path adopted; widget-level testing still not attempted) | GUI / Testing | September 7, 2026 | 8-12 hours |
 
 Description:
 `ChatbotGUI.{cpp,hpp}` and `MnsManagerGUI.{cpp,hpp}` have no automated coverage, and this repo
@@ -499,19 +500,62 @@ tractable near-term step is separating non-widget logic (state transitions, sign
 decisions, data formatting) out of the widget classes into plain C++ that GTest can already
 exercise, deferring full widget testing until QTest is actually adopted.
 
+**Update (September 13, 2026):** picked the logic-extraction path over adopting QTest — this
+entry's own Description already called that out as the more tractable near-term step, so this
+wasn't treated as an open question needing a separate decision. Also found and closed a real gap
+along the way: `MnsJsonHelpers.hpp` (used by `MnsManagerGUI` for JSON parsing/formatting and URL
+parsing) was *already* plain, Qt-free, GTest-exercisable code — including two real bug fixes in
+its own history (TD-068, TD-102) — yet had zero tests of its own despite being tagged `stable`.
+
+- Added `tests/mnsjsonhelpers_test.cpp` (37 tests, `MnsJsonHelpersTests` in `ctest`): full coverage
+  of `find_string_end`, `json_value`, `json_array_objects` (including the TD-068 brace-desync
+  regression), `json_escape`, `json_pretty` (including the TD-102 escaped-backslash regression),
+  and `ParsedUrl::from`.
+- Extracted two more pieces of real logic that were previously inline in `MnsManagerGUI`'s slots,
+  into new functions in `MnsJsonHelpers.hpp`, each with its own tests: `parse_tags()` (the
+  "Register" tab's comma-separated `key=value` tags field, extracted verbatim from
+  `onRegisterModel()`) and `build_register_model_body()`/`build_set_candidate_body()` (the
+  `POST /models` and `PUT /models/{name}/state` request bodies `onRegisterModel()`/
+  `onSetCandidate()` used to build inline). Verified via revert-confirm-fail: temporarily broke
+  the tags-joining comma logic and confirmed the new test caught it before restoring.
+- Extracted `ChatbotGUI::onStrategyChanged()`'s combo-box-index-to-strategy-name switch statement
+  into a new `src/ChatbotGuiLogic.hpp` (`generation_strategy_for_index()`), with its own
+  `tests/chatbotguilogic_test.cpp` (2 tests, `ChatbotGuiLogicTests` in `ctest`) covering every
+  combo box index plus the out-of-range fallback.
+- Confirmed both `chatbot_gui`/`mns_manager_gui` binaries still build and link cleanly against the
+  refactored call sites.
+- `MnsJsonHelpers.hpp` bumped 1.0.1 → 1.1.0 (stays `stable`); `ChatbotGuiLogic.hpp` is a new file,
+  tagged `beta` from the start (100% branch coverage). `ChatbotGUI.cpp`/`MnsManagerGUI.cpp` stay
+  `beta` (still capped — the widgets themselves remain untested) but their status comments now
+  note what's covered.
+
 Action Items:
 
-- [ ] Decide whether to adopt QTest (`Qt::Test` component, `QTEST_MAIN`) as a second test
-  framework alongside GTest, or to keep pushing logic out of the widget classes instead.
-- [ ] Extract testable non-widget logic from `ChatbotGUI`/`MnsManagerGUI` into plain classes.
-- [ ] Add tests for the extracted logic; add QTest-based tests for the remaining widget code if
-  that framework is adopted.
+- [x] Decide whether to adopt QTest (`Qt::Test` component, `QTEST_MAIN`) as a second test
+  framework alongside GTest, or to keep pushing logic out of the widget classes instead — the
+  latter, per this entry's own Description.
+- [x] Extract testable non-widget logic from `ChatbotGUI`/`MnsManagerGUI` into plain classes — done
+  for the highest-value pieces (see the Update above): URL/JSON parsing, the tags mini-parser, two
+  request-body builders, and the strategy-index mapping. `onSetTraining`/`onPromote`/`onRetire`/
+  `onDelete`'s own request bodies are one-or-zero-field string literals with no real logic worth
+  extracting on their own.
+- [x] Add tests for the extracted logic — done (39 new tests total across two new test files).
+- [ ] Full widget-level testing (button clicks, layout, signal/slot wiring under a real Qt event
+  loop) remains untested and would need the QTest framework decision revisited — deliberately not
+  pursued this pass, since the logic-extraction path already captured the highest-value, lowest-risk
+  coverage available without it.
 
 Files to Modify:
 
-- `src/ChatbotGUI.cpp` / `src/ChatbotGUI.hpp`
-- `src/MnsManagerGUI.cpp` / `src/MnsManagerGUI.hpp`
-- `tests/CMakeLists.txt` (if QTest is adopted)
+- `src/ChatbotGUI.cpp` / `src/ChatbotGUI.hpp` — done (see Update above); the widgets themselves
+  (button clicks, layout) remain untested.
+- `src/MnsManagerGUI.cpp` / `src/MnsManagerGUI.hpp` — done (see Update above); same widget-level
+  caveat.
+- `src/MnsJsonHelpers.hpp` — done (tested, gained `parse_tags`/`build_register_model_body`/
+  `build_set_candidate_body`).
+- `src/ChatbotGuiLogic.hpp` — new file, done.
+- `tests/CMakeLists.txt` — done (`mnsjsonhelpersTests`, `chatbotguilogicTests` registered); no
+  QTest integration needed, per the Decision above.
 
 ---
 
