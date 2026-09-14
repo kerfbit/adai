@@ -702,7 +702,7 @@ Files to Modify:
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| MEDIUM | Open (11/12 ViewModels done — see correction below; Compose UI testing adopted, 10/12 screens covered; DI/entry-points remain) | Android / Testing | September 7, 2026 | 24-32 hours |
+| MEDIUM | Open (12/12 ViewModels done; Compose UI testing adopted, 10/12 screens covered; DI/entry-points remain) | Android / Testing | September 7, 2026 | 24-32 hours |
 
 Description:
 62 files — Compose screens, ViewModels without tests, DI containers, `Activity`/`Application`
@@ -974,12 +974,27 @@ this same screen's "Force release" action, which does use `ConfirmActionDialog` 
 `ModelDetailScreen`/`SessionDetailScreen` — only that button's default-enabled rendering is checked,
 not the click. `GroupDetailScreen.kt` promoted `experimental` → `beta` (0.3.0).
 
+**Update (September 13, 2026, closing the loop):** the last ViewModel-coverage gap from the
+September 13 Correction above is closed — `app` module's `ConversationListViewModel` now has
+`ConversationListViewModelTest` (7 tests): `conversations` starts empty with nothing in the
+repository and reflects it sorted by most recently updated once populated (`conversations` is a
+`stateIn(SharingStarted.WhileSubscribed(5_000), emptyList())`, so these tests start a
+`backgroundScope` collector before reading `.value`, the same shape this module's poller-based
+ViewModel tests already use for their own StateFlows); `createConversation()` inserts a new
+conversation and invokes its callback with the real generated id; `deleteConversation()` removes it
+from the list, calls the server's clear-session endpoint when settings are configured (and doesn't
+when they aren't), and — verified via revert-confirm-fail (temporarily dropping
+`ConversationRepository.deleteConversation()`'s `try`/`catch` around the clear-session call made the
+test fail for the right reason) — still deletes locally even when that call throws, matching the
+repository's own "local deletion is authoritative" doc comment. `RecordingFakeChatApiService`
+(shared `src/sharedTest` fake) gained a configurable `clearSessionResponse` and a
+`clearedSessionIds` recorder to support this. True ViewModel coverage is now **12/12**.
+
 Action Items:
 
-- [x] Add ViewModel unit tests first (cheapest — no Compose/Activity needed) — 11 of 12 done (see
-  the Correction above); `ConversationListViewModel` (`app` module) still has zero test coverage,
-  flagged separately. See the per-ViewModel test files under `android/app/src/test`/
-  `android/opsdashboard/src/test`.
+- [x] Add ViewModel unit tests first (cheapest — no Compose/Activity needed) — 12 of 12 done (see
+  the Correction and "closing the loop" updates above). See the per-ViewModel test files under
+  `android/app/src/test`/`android/opsdashboard/src/test`.
 - [x] Adopt Compose UI testing (`androidx.compose.ui.test`) for screens once ViewModels are
   covered — infrastructure adopted for both modules now; `ConversationListScreen`, `ChatScreen`,
   `SettingsScreen` (`app` module), `GroupListScreen`, `ModelListScreen`, `SessionListScreen`,

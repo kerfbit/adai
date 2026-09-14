@@ -56,7 +56,7 @@ None — every in-scope file carries a tag.
 | `android/app/src/main/java/com/adai/chatbot/ui/navigation/AdaiNavHost.kt` | beta | 0.4.0 | 2026-09-10 | TD-047 |
 | `android/app/src/main/java/com/adai/chatbot/ui/theme/Theme.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
 | `android/app/src/main/java/com/adai/chatbot/ui/theme/Type.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |
-| `android/app/src/sharedTest/java/com/adai/chatbot/testutil/FakeApiClientProvider.kt` | beta | 0.1.0 | 2026-09-13 | TD-048 |
+| `android/app/src/sharedTest/java/com/adai/chatbot/testutil/FakeApiClientProvider.kt` | beta | 0.2.0 | 2026-09-13 | TD-048 |
 | `android/app/src/sharedTest/java/com/adai/chatbot/testutil/FakeDaos.kt` | beta | 0.1.0 | 2026-09-13 | TD-048 |
 | `android/app/src/sharedTest/java/com/adai/chatbot/testutil/FakeSettingsRepository.kt` | beta | 0.1.0 | 2026-09-13 | TD-048 |
 | `android/opsdashboard/src/main/java/com/adai/ops/MainActivity.kt` | experimental | 0.1.0 | 2026-09-10 | TD-048 |

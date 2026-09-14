@@ -1,7 +1,7 @@
 package com.adai.chatbot.testutil
 
 // @adai-status: beta        (in-memory fakes backing both plain-JVM and instrumented tests, TD-048)
-// @adai-version: 0.1.0
+// @adai-version: 0.2.0
 // @adai-reviewed: 2026-09-13
 
 
@@ -20,9 +20,13 @@ class RecordingFakeChatApiService(
     private val nextResponse: () -> ChatSessionResponse = {
         ChatSessionResponse(success = true, response = "ok", session_id = "")
     },
+    private val clearSessionResponse: () -> ClearSessionResponse = {
+        ClearSessionResponse(success = true, message = "Session cleared")
+    },
 ) : ChatApiService {
 
     val sentSessionIds = mutableListOf<String>()
+    val clearedSessionIds = mutableListOf<String>()
 
     override suspend fun chatSession(request: ChatSessionRequest): ChatSessionResponse {
         sentSessionIds += request.session_id
@@ -31,8 +35,10 @@ class RecordingFakeChatApiService(
 
     override suspend fun chat(request: ChatRequest): ChatResponse = ChatResponse(success = true, response = "ok")
 
-    override suspend fun clearSession(request: ClearSessionRequest): ClearSessionResponse =
-        ClearSessionResponse(success = true, message = "Session cleared")
+    override suspend fun clearSession(request: ClearSessionRequest): ClearSessionResponse {
+        clearedSessionIds += request.session_id
+        return clearSessionResponse()
+    }
 
     override suspend fun health(): HealthResponse = HealthResponse(status = "ok", active_sessions = 0)
 }
