@@ -319,10 +319,8 @@ target_link_libraries(chatbotapiTests
 )
 add_test(NAME ChatbotAPITests COMMAND chatbotapiTests)
 
-# ParallelDataLoader tests (multi-threaded data loading with prefetching)
-add_executable(paralleldataloaderTests paralleldataloader_test.cpp)
-target_link_libraries(paralleldataloaderTests adai_nlp GTest::gtest_main)
-add_test(NAME ParallelDataLoaderTests COMMAND paralleldataloaderTests)
+# ParallelDataLoader (TokenBatchLoader/TokenBatchIterator/ThreadSafeBatchQueue) retired (TD-170)
+# -- see TECHNICAL_DEBT.md's resolved archive.
 
 # IntegratedInferenceEngine tests (combined batching + pipeline + OpenMP + attention parallelism)
 add_executable(integratedinferenceengineTests integratedinferenceengine_test.cpp)
@@ -1206,4 +1204,4 @@ if(_adai_all_tests)
     set_tests_properties(${_adai_all_tests} PROPERTIES TIMEOUT 1200)
 endif()
 
-message(STATUS "Configured 57+ test suites using library targets (including Config, Logger, IncrementalTrainer, LLMEncoder, DocumentStore, RAGInference, BatchProcessor, ParallelDataLoader, IntegratedInferenceEngine, PipelineInferenceEngine, BatchedInferenceEngine, SpeculativeDecoding, VocabBuilder, ChatbotAPI, ChatbotTrainer, GenerationQuality, GenerationQualityAsync, PaddingEfficiency, AdaptiveClipping, ModelSerializer, StaleDetection, BackgroundLaunch, integration, RAG/BERT comparison, Phase 5, DatasetRegistry, DatasetRegistryLive, DataFetcher, FtpDataServer, DataTransport, DataTransportFtp, StartupSweep, TrainingSampleMeta, and TrainerAdminAPI tests)")
+message(STATUS "Configured 57+ test suites using library targets (including Config, Logger, IncrementalTrainer, LLMEncoder, DocumentStore, RAGInference, BatchProcessor, IntegratedInferenceEngine, PipelineInferenceEngine, BatchedInferenceEngine, SpeculativeDecoding, VocabBuilder, ChatbotAPI, ChatbotTrainer, GenerationQuality, GenerationQualityAsync, PaddingEfficiency, AdaptiveClipping, ModelSerializer, StaleDetection, BackgroundLaunch, integration, RAG/BERT comparison, Phase 5, DatasetRegistry, DatasetRegistryLive, DataFetcher, FtpDataServer, DataTransport, DataTransportFtp, StartupSweep, TrainingSampleMeta, and TrainerAdminAPI tests)")

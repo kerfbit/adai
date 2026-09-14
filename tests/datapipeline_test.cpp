@@ -1,17 +1,24 @@
 /**
  * @file datapipeline_test.cpp
- * @brief Comprehensive tests for data pipeline (EfficientBatching, ThreadSafeBatchQueue, and
- * the end-to-end TokenBatchLoader integration test) — TD-052: ParallelDataLoader/
- * DataLoaderConfig/DataLoaderIterator, formerly tested here too, were retired.
+ * @brief Tests for EfficientBatching (dynamic/bucketed batching, padding, augmentation).
+ *
+ * TD-052 (Sept 12, 2026) retired ParallelDataLoader/DataLoaderConfig/DataLoaderIterator, formerly
+ * tested here too. TD-170 (Sept 14, 2026) retired ThreadSafeBatchQueue and TokenBatchLoader/
+ * TokenBatchIterator (src/ParallelDataLoader.hpp, now removed entirely) the same way, once it
+ * became clear their real value-adds — background tokenization prefetch, shuffling, batch
+ * grouping for gradient accumulation — were each already duplicated by existing, working
+ * ChatbotTrainer machinery, and their padding/batch-dimension machinery had no model to consume
+ * it (EncoderDecoderModel::forward() takes one sequence at a time, no batch dimension anywhere in
+ * this codebase's Matrix/model stack) — see TECHNICAL_DEBT.md's resolved archive. Their own
+ * ThreadSafeBatchQueueTest suite and the DataPipelineIntegrationTest.EndToEndPipeline test (the
+ * only thing in this file depending on them) were removed along with them.
  */
 
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <numeric>
 #include <vector>
-#include "Dataset.hpp"
 #include "EfficientBatching.hpp"
-#include "ParallelDataLoader.hpp"
 
 // ============================================================================
 // EfficientBatching Tests
@@ -260,168 +267,6 @@ TEST_F(EfficientBatchingTest, PaddingRatioCalculation) {
     EXPECT_EQ(batches[0].total_tokens(), 8);
     EXPECT_EQ(batches[0].padding_tokens(), 2);
     EXPECT_FLOAT_EQ(batches[0].padding_ratio(), 0.25);
-}
-
-// ============================================================================
-// ThreadSafeBatchQueue Tests
-// ============================================================================
-
-TEST(ThreadSafeBatchQueueTest, PushAndPop) {
-    ThreadSafeBatchQueue<int> queue(10);
-
-    queue.push(42);
-    auto result = queue.pop();
-
-    EXPECT_TRUE(result.has_value());
-    EXPECT_EQ(*result, 42);
-}
-
-TEST(ThreadSafeBatchQueueTest, MultipleElements) {
-    ThreadSafeBatchQueue<int> queue(10);
-
-    for (int i = 0; i < 5; ++i) {
-        queue.push(i);
-    }
-
-    EXPECT_EQ(queue.size(), 5);
-
-    for (int i = 0; i < 5; ++i) {
-        auto result = queue.pop();
-        EXPECT_TRUE(result.has_value());
-        EXPECT_EQ(*result, i);
-    }
-
-    EXPECT_TRUE(queue.empty());
-}
-
-TEST(ThreadSafeBatchQueueTest, Shutdown) {
-    ThreadSafeBatchQueue<int> queue(10);
-
-    queue.push(1);
-    queue.push(2);
-
-    queue.shutdown();
-
-    // After shutdown, pop should return empty
-    auto result1 = queue.pop();
-    EXPECT_TRUE(result1.has_value());  // Still has queued items
-
-    auto result2 = queue.pop();
-    EXPECT_TRUE(result2.has_value());
-
-    auto result3 = queue.pop();
-    EXPECT_FALSE(result3.has_value());  // Queue empty after shutdown
-}
-
-TEST(ThreadSafeBatchQueueTest, Clear) {
-    ThreadSafeBatchQueue<int> queue(10);
-
-    queue.push(1);
-    queue.push(2);
-    queue.push(3);
-
-    EXPECT_EQ(queue.size(), 3);
-
-    queue.clear();
-
-    EXPECT_EQ(queue.size(), 0);
-    EXPECT_TRUE(queue.empty());
-}
-
-TEST(ThreadSafeBatchQueueTest, ConcurrentAccess) {
-    ThreadSafeBatchQueue<int> queue(100);
-
-    // Producer thread
-    std::thread producer([&queue]() {
-        for (int i = 0; i < 50; ++i) {
-            queue.push(i);
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-    });
-
-    // Consumer thread
-    std::atomic<int> consumed_count(0);
-    std::thread consumer([&queue, &consumed_count]() {
-        for (int i = 0; i < 50; ++i) {
-            auto result = queue.pop();
-            if (result.has_value()) {
-                consumed_count++;
-            }
-        }
-    });
-
-    producer.join();
-    consumer.join();
-
-    EXPECT_EQ(consumed_count, 50);
-}
-
-// ============================================================================
-// Integration Tests
-// ============================================================================
-
-TEST(DataPipelineIntegrationTest, EndToEndPipeline) {
-    // Create dataset
-    Dataset dataset;
-
-    // Add samples with varying lengths
-    for (int i = 0; i < 50; ++i) {
-        std::string input = "Input " + std::to_string(i);
-        std::string target = "Response " + std::to_string(i);
-
-        // Add varying length text
-        int extra_words = i % 5;
-        for (int j = 0; j < extra_words; ++j) {
-            input += " word" + std::to_string(j);
-        }
-
-        dataset.add_sample(input, target);
-    }
-
-    dataset.split(1.0, 0.0, 0.0);  // All training
-
-    // Create data loader with a real tokenizer function. TD-052: this used to
-    // go through ParallelDataLoader/DataLoaderConfig, whose batch generation
-    // used raw char codes with no tokenizer parameter at all — retired in
-    // favor of TokenBatchLoader, which takes a tokenizer function via
-    // constructor injection instead (see TECHNICAL_DEBT.md's resolved
-    // archive).
-    TokenBatchLoaderConfig loader_config;
-    loader_config.batch_size = 8;
-    loader_config.num_workers = 2;
-    loader_config.shuffle = true;
-    loader_config.use_dynamic_batching = true;
-
-    auto tokenizer_fn = [](const std::string& text) {
-        std::vector<int> tokens;
-        for (char c : text) {
-            tokens.push_back(static_cast<int>(static_cast<unsigned char>(c)));
-        }
-        return tokens;
-    };
-
-    TokenBatchLoader loader(dataset, loader_config, tokenizer_fn);
-    TokenBatchIterator iter(loader);
-
-    // Process one epoch
-    size_t total_sequences = 0;
-
-    while (auto batch = iter.next()) {
-        EXPECT_GT(batch->batch_size(), 0);
-        EXPECT_LE(static_cast<size_t>(batch->batch_size()), loader_config.batch_size);
-
-        // Verify lengths match batch size
-        EXPECT_EQ(static_cast<size_t>(batch->batch_size()), batch->lengths.size());
-
-        // Verify every row is padded to the batch's max length
-        for (const auto& row : batch->batch_token_ids) {
-            EXPECT_EQ(static_cast<int>(row.size()), batch->max_length);
-        }
-
-        total_sequences += static_cast<size_t>(batch->batch_size());
-    }
-
-    EXPECT_EQ(total_sequences, 50u);
 }
 
 int main(int argc, char** argv) {

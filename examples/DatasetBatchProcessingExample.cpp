@@ -1,23 +1,30 @@
 /**
  * @file DatasetBatchProcessingExample.cpp
  * @brief Examples demonstrating batch processing integration with Dataset system
- * 
- * This file shows how to use the new batch processing features added to the
- * Dataset and ParallelDataLoader classes.
- * 
+ *
+ * This file shows how to use the batch processing features built into Dataset itself
+ * (get_batch_with_padding()/get_dynamic_batches()/get_batch_statistics()).
+ *
  * Topics covered:
  * 1. Basic batch creation with padding
  * 2. Dynamic batching by sequence length
  * 3. Batch statistics and efficiency analysis
- * 4. Parallel loading with TokenBatchLoader
- * 5. Training pipeline integration
- * 
- * @version 1.0
- * @date January 2026
+ *
+ * This file used to also cover parallel loading with TokenBatchLoader and a simulated
+ * training-pipeline integration built on it (src/ParallelDataLoader.hpp) — retired as part of
+ * TD-170 (September 14, 2026) once it became clear its real value-adds (background tokenization
+ * prefetch, shuffling, batch grouping for gradient accumulation) were each already duplicated by
+ * existing, working ChatbotTrainer machinery, and its padding/batch-dimension output had no model
+ * to consume it (EncoderDecoderModel::forward() takes one sequence at a time, no batch dimension
+ * anywhere in this codebase's Matrix/model stack) — see TECHNICAL_DEBT.md's resolved archive. The
+ * two demo functions that used it were removed along with it rather than rewritten against a
+ * replacement, since none exists.
+ *
+ * @version 1.1
+ * @date September 2026
  */
 
 #include "Dataset.hpp"
-#include "ParallelDataLoader.hpp"
 #include "BatchProcessor.hpp"
 #include "BPETokenizer.hpp"
 #include "Matrix.hpp"
@@ -25,7 +32,6 @@
 #include <iomanip>
 #include <vector>
 #include <string>
-#include <chrono>
 
 // ============================================================================
 // Example 1: Basic Batch Creation with Padding
@@ -281,207 +287,6 @@ void example3_batch_statistics() {
 }
 
 // ============================================================================
-// Example 4: Parallel Loading with TokenBatchLoader
-// ============================================================================
-
-void example4_parallel_loading() {
-    std::cout << "\n";
-    std::cout << "╔════════════════════════════════════════════════════════════╗\n";
-    std::cout << "║         Example 4: Parallel Loading                       ║\n";
-    std::cout << "╚════════════════════════════════════════════════════════════╝\n\n";
-    
-    // Create larger dataset
-    Dataset dataset;
-    for (int i = 0; i < 100; ++i) {
-        std::string input = "Input sample number " + std::to_string(i);
-        std::string target = "Target response for sample " + std::to_string(i);
-        dataset.add_sample(input, target);
-    }
-    
-    dataset.split(0.8, 0.1, 0.1);
-    
-    auto simple_tokenizer = [](const std::string& text) {
-        std::vector<int> tokens;
-        for (char c : text) {
-            tokens.push_back(static_cast<int>(static_cast<unsigned char>(c)));
-        }
-        return tokens;
-    };
-    
-    std::cout << "Dataset: " << dataset.size() << " samples\n";
-    std::cout << "Train: " << dataset.size(SplitType::TRAIN) << " samples\n\n";
-    
-    // Configure loader
-    TokenBatchLoaderConfig config;
-    config.batch_size = 10;
-    config.num_workers = 2;
-    config.prefetch_factor = 2;
-    config.shuffle = true;
-    config.use_dynamic_batching = true;
-    config.length_tolerance = 5;
-    config.load_targets = true;
-    
-    std::cout << "Loader configuration:\n";
-    std::cout << "  Batch size: " << config.batch_size << "\n";
-    std::cout << "  Workers: " << config.num_workers << "\n";
-    std::cout << "  Prefetch factor: " << config.prefetch_factor << "\n";
-    std::cout << "  Shuffle: " << (config.shuffle ? "Yes" : "No") << "\n";
-    std::cout << "  Dynamic batching: " << (config.use_dynamic_batching ? "Yes" : "No") << "\n";
-    std::cout << "  Load targets: " << (config.load_targets ? "Yes" : "No") << "\n\n";
-    
-    // Create and start loader
-    TokenBatchLoader loader(dataset, config, simple_tokenizer, SplitType::TRAIN);
-    loader.start();
-    
-    std::cout << "Loading batches...\n";
-    auto start_time = std::chrono::high_resolution_clock::now();
-    
-    int batch_count = 0;
-    while (auto input_batch = loader.next_batch()) {
-        auto target_batch = loader.next_target_batch();
-        
-        if (batch_count == 0) {
-            std::cout << "\nFirst batch details:\n";
-            std::cout << "  Input batch size: " << input_batch->batch_size() << "\n";
-            std::cout << "  Input max length: " << input_batch->max_length << "\n";
-            if (target_batch.has_value()) {
-                std::cout << "  Target batch size: " << target_batch->batch_size() << "\n";
-                std::cout << "  Target max length: " << target_batch->max_length << "\n";
-            }
-        }
-        
-        batch_count++;
-        
-        if (batch_count >= static_cast<int>(loader.num_batches())) {
-            break;
-        }
-    }
-    
-    auto end_time = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-        end_time - start_time);
-    
-    std::cout << "\nLoading complete!\n";
-    std::cout << "  Batches loaded: " << batch_count << "\n";
-    std::cout << "  Time: " << duration.count() << " ms\n";
-    std::cout << "  Avg per batch: " 
-              << (duration.count() / static_cast<float>(batch_count)) << " ms\n";
-    
-    loader.stop();
-    
-    std::cout << "\n✓ Example 4 complete!\n";
-}
-
-// ============================================================================
-// Example 5: Training Pipeline Integration
-// ============================================================================
-
-void example5_training_pipeline() {
-    std::cout << "\n";
-    std::cout << "╔════════════════════════════════════════════════════════════╗\n";
-    std::cout << "║         Example 5: Training Pipeline                      ║\n";
-    std::cout << "╚════════════════════════════════════════════════════════════╝\n\n";
-    
-    // Create dataset
-    Dataset dataset;
-    for (int i = 0; i < 50; ++i) {
-        std::string input = "Training sample " + std::to_string(i);
-        std::string target = "Expected output " + std::to_string(i);
-        dataset.add_sample(input, target);
-    }
-    
-    dataset.split(0.8, 0.2, 0.0);
-    
-    auto simple_tokenizer = [](const std::string& text) {
-        std::vector<int> tokens;
-        for (char c : text) {
-            tokens.push_back(static_cast<int>(static_cast<unsigned char>(c)));
-        }
-        return tokens;
-    };
-    
-    std::cout << "Dataset prepared:\n";
-    std::cout << "  Training samples: " << dataset.size(SplitType::TRAIN) << "\n";
-    std::cout << "  Validation samples: " << dataset.size(SplitType::VALIDATION) << "\n\n";
-    
-    // Setup loaders
-    TokenBatchLoaderConfig train_config;
-    train_config.batch_size = 8;
-    train_config.num_workers = 2;
-    train_config.shuffle = true;
-    train_config.load_targets = true;
-    
-    TokenBatchLoaderConfig val_config = train_config;
-    val_config.shuffle = false;  // Don't shuffle validation
-    
-    TokenBatchLoader train_loader(dataset, train_config, simple_tokenizer, SplitType::TRAIN);
-    TokenBatchLoader val_loader(dataset, val_config, simple_tokenizer, SplitType::VALIDATION);
-    
-    train_loader.start();
-    val_loader.start();
-    
-    // Simulated training loop
-    int num_epochs = 3;
-    std::cout << "Starting training for " << num_epochs << " epochs...\n\n";
-    
-    for (int epoch = 0; epoch < num_epochs; ++epoch) {
-        std::cout << "Epoch " << (epoch + 1) << "/" << num_epochs << ":\n";
-        
-        // Training phase
-        // Note: TokenBatchIterator constructor calls new_epoch() automatically
-        TokenBatchIterator train_iter(train_loader);
-        
-        int train_batches = 0;
-        float simulated_train_loss = 0.0f;
-        
-        while (auto input_batch = train_iter.next()) {
-            auto target_batch = train_iter.next_target();
-            
-            // Simulate training step
-            // In real training:
-            // - Forward pass through model
-            // - Compute loss
-            // - Backward pass
-            // - Update weights
-            
-            simulated_train_loss += 1.0f / (epoch + 1);  // Fake decreasing loss
-            train_batches++;
-        }
-        
-        float avg_train_loss = simulated_train_loss / train_batches;
-        std::cout << "  Training - " << train_batches << " batches, "
-                  << "avg loss: " << std::fixed << std::setprecision(4)
-                  << avg_train_loss << "\n";
-        
-        // Validation phase
-        // Note: TokenBatchIterator constructor calls new_epoch() automatically
-        TokenBatchIterator val_iter(val_loader);
-        
-        int val_batches = 0;
-        float simulated_val_loss = 0.0f;
-        
-        while (auto input_batch = val_iter.next()) {
-            auto target_batch = val_iter.next_target();
-            
-            // Simulate validation step (no gradient updates)
-            simulated_val_loss += 0.9f / (epoch + 1);
-            val_batches++;
-        }
-        
-        float avg_val_loss = simulated_val_loss / val_batches;
-        std::cout << "  Validation - " << val_batches << " batches, "
-                  << "avg loss: " << std::fixed << std::setprecision(4)
-                  << avg_val_loss << "\n\n";
-    }
-    
-    train_loader.stop();
-    val_loader.stop();
-    
-    std::cout << "Training complete!\n";
-    std::cout << "\n✓ Example 5 complete!\n";
-}
-
-// ============================================================================
 // Main
 // ============================================================================
 
@@ -497,9 +302,7 @@ int main() {
         example1_basic_batching();
         example2_dynamic_batching();
         example3_batch_statistics();
-        example4_parallel_loading();
-        example5_training_pipeline();
-        
+
         std::cout << "\n";
         std::cout << "╔════════════════════════════════════════════════════════════╗\n";
         std::cout << "║                                                            ║\n";

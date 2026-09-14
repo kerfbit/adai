@@ -101,7 +101,6 @@ adai/
 │   ├── PipelineInferenceEngine.hpp
 │   ├── EfficientBatching.hpp
 │   ├── BatchProcessor.hpp
-│   ├── ParallelDataLoader.hpp
 │   │
 │   # ── NLP / Tokenization ─────────────────────────────────────────────────
 │   ├── BPETokenizer.{cpp,hpp}

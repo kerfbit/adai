@@ -1,5 +1,12 @@
 # Dataset Batch Processing - Quick Reference Guide
 
+> **Stale (September 14, 2026):** the "TokenBatchLoader"/"TokenBatchIterator" sections below
+> describe classes retired as part of TD-170 — `src/ParallelDataLoader.hpp` was removed entirely
+> (along with `ThreadSafeBatchQueue`) once it became clear their real value-adds were each already
+> duplicated by existing, working `ChatbotTrainer` machinery, and their padding/batch-dimension
+> output had no model to consume it. See `docs/development/guides/TECHNICAL_DEBT.md`'s resolved
+> archive. The "Dataset Batch Methods" section immediately below remains current.
+
 ## Quick API Reference
 
 ### Dataset Batch Methods

@@ -4,16 +4,24 @@
 **Date:** January 2026
 **Status:** Production Ready
 
-> **Partially stale (September 12, 2026):** the "Production Ready" status above predates TD-052's
-> finding that `ParallelDataLoader`/`DataLoaderConfig`/`DataLoaderIterator` (described throughout
-> this doc) were never actually used by any production `src/*.cpp` file, and that their batch
-> generation used raw char codes as a placeholder rather than real tokenization. Those classes were
-> retired (not fixed in place) as part of TD-052's resolution — see
-> `docs/development/guides/TECHNICAL_DEBT.md`'s resolved archive. `TokenBatchLoader`/
-> `TokenBatchIterator` (same file, `src/ParallelDataLoader.hpp`) are the tested replacement: they
-> take a real tokenizer function via constructor injection instead of tokenizing internally. This
-> doc's `ParallelDataLoader`/`DataLoaderConfig`/`DataLoaderIterator` code examples below have not
-> been rewritten against the new API — treat them as historical, not as current usage guidance.
+> **Stale (September 14, 2026):** the "Production Ready" status above predates two rounds of
+> retirement. TD-052 (September 12, 2026) found `ParallelDataLoader`/`DataLoaderConfig`/
+> `DataLoaderIterator` (described throughout this doc) were never actually used by any production
+> `src/*.cpp` file, and that their batch generation used raw char codes as a placeholder rather than
+> real tokenization — retired, with `TokenBatchLoader`/`TokenBatchIterator` (same file) kept as the
+> tested replacement. TD-170 (September 14, 2026) then found `TokenBatchLoader`/`TokenBatchIterator`
+> *themselves* had no production caller either — their real value-adds (background tokenization
+> prefetch, shuffling, batch grouping for gradient accumulation) were each already duplicated by
+> existing, working `ChatbotTrainer` machinery, and their padding/batch-dimension output had no
+> model to consume it (`EncoderDecoderModel::forward()` takes one sequence at a time, no batch
+> dimension anywhere in this codebase's Matrix/model stack). `src/ParallelDataLoader.hpp` was
+> removed entirely, along with `ThreadSafeBatchQueue` — see `docs/development/guides/
+> TECHNICAL_DEBT.md`'s resolved archive for both. **Every code example in this document describing
+> `ParallelDataLoader`, `DataLoaderConfig`, `DataLoaderIterator`, `TokenBatchLoader`,
+> `TokenBatchIterator`, or `ThreadSafeBatchQueue` refers to code that no longer exists in this
+> repository.** Only the `Dataset`-class-only sections (`get_batch_with_padding()`,
+> `get_dynamic_batches()`, `get_batch_statistics()`) remain current — see
+> `examples/DatasetBatchProcessingExample.cpp` for working, up-to-date usage.
 
 ## Overview
 

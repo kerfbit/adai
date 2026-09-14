@@ -4,13 +4,13 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 
 ## Overview
 
-**Last Updated:** September 13, 2026
+**Last Updated:** September 14, 2026
 **Total Items:** 12
 **High Priority:** 1
 **Medium Priority:** 6
 **Low Priority:** 5
 **Future Enhancements:** 19
-**Resolved Items:** 158
+**Resolved Items:** 159
 **Deferred Decisions:** 3
 
 ## Recommended Execution Order
@@ -105,10 +105,17 @@ TD-168 (`CheckpointManager`) turned out to be the opposite case — the owner de
 retiring it, the same way TD-052 retired `ParallelDataLoader`'s broken sibling, once it was clear
 `IncrementalTrainer`'s real session-based retention model wasn't a drop-in match for
 `CheckpointManager`'s own epoch-keyed one; see its [resolved entry](../archive/TECHNICAL_DEBT_RESOLVED.md#td-168-checkpointmanager-was-a-fully-built-tested-duplicate-of-incrementaltrainers-own-inline-checkpoint-logic-never-wired-in).
-[TD-170](#td-170-paralleldataloaders-tokenbatchloaderthreadsafebatchqueue-still-have-no-production-caller)
-(`TokenBatchLoader`) remains open and is the highest-risk of the three — real batched training is
-an architecture change with retrain implications, not a bookkeeping swap — the same kind of owner
-decision TD-059/LoRA/Quantization already got.
+TD-170 (`TokenBatchLoader`/`ThreadSafeBatchQueue`) also ended up retired, once reading
+`ChatbotTrainer::train_epoch()`'s actual ~700-line implementation showed its real value-adds
+(background tokenization prefetch, shuffling, batch grouping for gradient accumulation) were each
+already duplicated by existing, working machinery there, and its padding/batch-dimension output
+had no model to consume it — see its
+[resolved entry](../archive/TECHNICAL_DEBT_RESOLVED.md#td-170-paralleldataloaders-tokenbatchloaderthreadsafebatchqueue-retired--no-production-caller-and-nothing-to-attach-to).
+That investigation split off
+[TD-171](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported):
+the underlying reason `TokenBatchLoader` had nowhere to attach is that no layer in this codebase's
+model stack has a batch dimension at all — flagged as its own large, multi-session architecture
+question, not attempted.
 
 ## Table of Contents
 
@@ -127,8 +134,8 @@ decision TD-059/LoRA/Quantization already got.
   - [TD-047: Android Data/Repository/API Layer Has No CI or Release History](#td-047-android-datarepositoryapi-layer-has-no-ci-or-release-history)
   - [TD-048: Android UI/DI/Entry-Point Classes Are Untested and Unreleased](#td-048-android-uidientry-point-classes-are-untested-and-unreleased)
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
-  - [TD-170: ParallelDataLoader's TokenBatchLoader/ThreadSafeBatchQueue Still Have No Production Caller](#td-170-paralleldataloaders-tokenbatchloaderthreadsafebatchqueue-still-have-no-production-caller)
-- [Resolved Items](#resolved-items) (158 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
+  - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
+- [Resolved Items](#resolved-items) (159 items — see [archive](../archive/TECHNICAL_DEBT_RESOLVED.md))
 - [Future Improvements](#future-improvements)
   - [Performance Optimizations](#performance-optimizations)
   - [Code Quality](#code-quality)
@@ -1386,59 +1393,54 @@ Files to Modify:
 
 ---
 
-### TD-170: ParallelDataLoader's TokenBatchLoader/ThreadSafeBatchQueue Still Have No Production Caller
+### TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported
 
 | Priority | Status | Component | Created | Effort Estimate |
 |----------|--------|-----------|---------|------------------|
-| LOW | Open | Training / Data Loading | September 13, 2026 | 10-16 hours (needs a design decision — see below) |
+| LOW | Open — flagged, not started | Core Model Architecture | September 14, 2026 | Not estimated (large, multi-session architecture project) |
 
 Description:
-Found in the same sweep as TD-168/TD-169, but this one is at least partially self-documented
-already: **TD-052**'s own resolution (September 12, 2026 — see
-[archive](../archive/TECHNICAL_DEBT_RESOLVED.md)) retired `ParallelDataLoader`/`DataLoaderConfig`
-(broken placeholder tokenization) but explicitly kept `TokenBatchLoader`/`ThreadSafeBatchQueue` —
-the file's other, correct, genuinely-tested classes — specifically because they were "genuinely
-tested" even though that same writeup states outright: *"Investigation confirmed nothing in
-production (`src/*.cpp`) ever used `ParallelDataLoader` at all... [and] a correct replacement
-already existed in the same file with no production caller for either class."* Re-confirmed today:
-still true. `IncrementalTrainer`/`ChatbotTrainer`'s actual training loop does not batch multiple
-samples through a shared queue at all — it processes one `ConversationPair` at a time (with
-gradient accumulation substituting for true batching).
+Split off while investigating TD-170 (`TokenBatchLoader`, resolved by retirement — see the
+resolved archive): `EncoderDecoderModel::forward()` and every layer beneath it —
+`MultiHeadAttention`, `CrossAttention`, `EncoderBlock`, `DecoderBlock`, `FeedForward`, `LayerNorm`,
+`TokenEmbedding`, `PositionalEncoding`, `LanguageModelHead`, and `Matrix` itself — processes exactly
+one sequence at a time. There is no batch dimension anywhere in this codebase's model/Matrix stack.
+This is the underlying reason `TokenBatchLoader`'s padded, multi-sequence `TokenBatch` output had
+nowhere to attach: it assumes a model that can consume a batch dimension, and this one cannot.
 
-Unlike TD-168/TD-169, wiring this in is a genuine architecture change, not a bookkeeping swap:
-`TokenBatchLoader` producing real multi-sample batches for `ChatbotTrainer::train_epoch()` to
-consume would change the training loop's fundamental unit of work, with follow-on effects on
-gradient-accumulation semantics, per-sample callback timing (`SampleCallback`'s existing contract),
-and possibly loss-curve behavior relative to every existing trained checkpoint — the same class of
-"changes what training actually does" risk TD-059 and the LoRA/Quantization deferral were built
-around, not a self-contained utility swap.
+Real batched training (multiple sequences forwarded/backwarded together in one GEMM call per
+layer, with padding and attention masking to keep sequences independent) would require adding a
+batch dimension throughout `Matrix` and every layer built on it. This is not a bug fix or a wiring
+task — it is a foundational architecture change, larger in scope than TD-059's per-head attention
+fix (which touched exactly two files), and would need its own careful masking-strategy design
+before any code is written, given how many layers are involved. Not attempted here; flagged so the
+gap is on record rather than rediscovered from scratch next time someone reaches for real batched
+training.
 
 Action Items:
 
-- [ ] Owner decision needed: is switching `ChatbotTrainer`'s training loop to real batched
-  training (via `TokenBatchLoader`) worth the risk/retrain cost, or should `TokenBatchLoader`/
-  `ThreadSafeBatchQueue` be retired the same way `ParallelDataLoader`/`DataLoaderConfig` already
-  were, closing this out as "correctly built, but this codebase's training loop was never going to
-  use it"?
-- [ ] If pursuing batching: scope how `SampleCallback`/`EpochCallback`/gradient-accumulation
-  interact with a batch-of-N rather than one sample at a time, before touching `ChatbotTrainer`
-  itself.
-- [ ] If retiring: remove `TokenBatchLoader`/`TokenBatchIterator`/`ThreadSafeBatchQueue` and their
-  tests/example usage, matching TD-052's own precedent exactly.
+- [ ] Owner decision: is this worth pursuing at all? The current per-sample training loop already
+  works correctly (gradient accumulation already gives a real "effective batch size" for training
+  dynamics) — the only thing true batch-dimension support would add is CPU/GPU parallelism
+  efficiency, not new training capability.
+- [ ] If pursued: design the batch-dimension convention (e.g. leading batch axis vs. some other
+  layout) and the padding/masking strategy for every attention layer, before touching any
+  production code — this is a design document on its own, not a first coding step.
+- [ ] Scope as its own multi-session project if picked up — not something to fold into any other
+  active item's effort estimate.
 
-Files to Modify:
-
-- `src/ParallelDataLoader.hpp`
-- `src/ChatbotTrainer.{hpp,cpp}` (if pursuing batching)
-- `tests/paralleldataloader_test.cpp`, `tests/datapipeline_test.cpp`,
-  `examples/DataPipelineExample.cpp`, `examples/DatasetBatchProcessingExample.cpp` (either
-  direction)
+Files to Modify (if pursued): effectively the entire model stack — `src/Matrix.{hpp,cpp}`,
+`src/MultiHeadAttention.{hpp,cpp}`, `src/CrossAttention.{hpp,cpp}`, `src/EncoderBlock.{hpp,cpp}`,
+`src/DecoderBlock.{hpp,cpp}`, `src/FeedForward.{hpp,cpp}`, `src/LayerNorm.{hpp,cpp}`,
+`src/TokenEmbedding.{hpp,cpp}`, `src/PositionalEncoding.{hpp,cpp}`,
+`src/LanguageModelHead.{hpp,cpp}`, `src/EncoderDecoderModel.{hpp,cpp}`, and every GPU backend
+equivalent under `src/gpu/`.
 
 ---
 
 ## Resolved Items
 
-158 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
+159 items resolved. See [archive/TECHNICAL_DEBT_RESOLVED.md](../archive/TECHNICAL_DEBT_RESOLVED.md) for full details.
 
 ---
 ## Future Improvements
@@ -1964,7 +1966,7 @@ Recomputed directly from the 12 `### TD-NNN` entries under [Active Technical Deb
 
 |Component|Count|
 |----------------------|-------|
-|Core Model Architecture|1|
+|Core Model Architecture|2|
 |GPU / Inference / Training|1|
 |GPU / Inference / Performance|1|
 |Tooling / Toolchain|1|
@@ -1975,7 +1977,6 @@ Recomputed directly from the 12 `### TD-NNN` entries under [Active Technical Deb
 |Android / CI|1|
 |Android / Testing|1|
 |Documentation|1|
-|Training / Data Loading|1|
 
 ### Effort Distribution
 
@@ -1984,10 +1985,10 @@ Recomputed directly from the 12 `### TD-NNN` entries under [Active Technical Deb
 |0-2 hours|0|
 |2-4 hours|1|
 |4-8 hours|2|
-|8+ hours|7|
-|Not estimated|2|
+|8+ hours|6|
+|Not estimated|3|
 
-**Total Estimated Effort (Active Items):** 132-196 hours (excludes TD-014 and TD-039, which have no effort estimate)
+**Total Estimated Effort (Active Items):** 122-180 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate)
 
 ### Future Enhancements Summary
 

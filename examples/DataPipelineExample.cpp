@@ -1,56 +1,22 @@
 /**
  * @file DataPipelineExample.cpp
- * @brief Demonstration of efficient batching and parallel data loading
- * 
- * This example shows how to use the data pipeline components for efficient
- * training with dynamic batching, parallel loading, and data augmentation.
+ * @brief Demonstration of efficient batching
+ *
+ * This example shows how to use EfficientBatching for dynamic/bucketed batching and data
+ * augmentation. It used to also demonstrate parallel data loading via TokenBatchLoader
+ * (src/ParallelDataLoader.hpp) — retired as part of TD-170 (September 14, 2026) once it became
+ * clear its real value-adds (background tokenization prefetch, shuffling, batch grouping for
+ * gradient accumulation) were each already duplicated by existing, working ChatbotTrainer
+ * machinery, and its padding/batch-dimension output had no model to consume it
+ * (EncoderDecoderModel::forward() takes one sequence at a time, no batch dimension anywhere in
+ * this codebase's Matrix/model stack) — see TECHNICAL_DEBT.md's resolved archive. The two demo
+ * functions that used it (`example_parallel_loading`, `example_training_loop`) were removed along
+ * with it rather than rewritten against a replacement, since none exists.
  */
 
 #include "EfficientBatching.hpp"
-#include "ParallelDataLoader.hpp"
-#include "Dataset.hpp"
 #include <iostream>
 #include <iomanip>
-#include <chrono>
-
-// Helper function to print batch info
-void print_batch_info(const TokenBatch& batch, size_t batch_num) {
-    std::cout << "\n=== Batch " << batch_num << " ===\n";
-    std::cout << "Number of sequences: " << batch.batch_size() << "\n";
-    std::cout << "Max length: " << batch.max_length << "\n";
-
-    BatchStats stats = compute_batch_stats({batch});
-    std::cout << "Total tokens: " << stats.total_tokens << "\n";
-    std::cout << "Padding tokens: " << (stats.total_tokens - stats.actual_tokens) << "\n";
-    std::cout << "Padding ratio: " << std::fixed << std::setprecision(2)
-              << (stats.padding_ratio * 100) << "%\n";
-
-    // Show the first sequence's real (unpadded) content
-    if (!batch.batch_token_ids.empty()) {
-        const auto& first = batch.batch_token_ids[0];
-        std::cout << "First sequence: [";
-        for (size_t i = 0; i < std::min(size_t(10), first.size()); ++i) {
-            std::cout << first[i];
-            if (i < std::min(size_t(10), first.size()) - 1) std::cout << ", ";
-        }
-        if (first.size() > 10) std::cout << ", ...";
-        std::cout << "] (" << (batch.lengths.empty() ? first.size() : batch.lengths[0])
-                  << " real tokens)\n";
-    }
-}
-
-// TD-052: ParallelDataLoader/DataLoaderConfig (this example's original loader) tokenized
-// internally via raw char codes with no real tokenizer at all. TokenBatchLoader, their tested
-// replacement, instead takes a tokenizer function via constructor injection — this stand-in
-// (character codes, not a real BPE vocabulary) exists purely to keep this example
-// self-contained; a real trainer would pass BPETokenizer::encode() here instead.
-std::vector<int> char_code_tokenizer_fn(const std::string& text) {
-    std::vector<int> tokens;
-    for (char c : text) {
-        tokens.push_back(static_cast<int>(static_cast<unsigned char>(c)));
-    }
-    return tokens;
-}
 
 // Example 1: Basic efficient batching
 void example_basic_batching() {
@@ -201,174 +167,6 @@ void example_augmentation() {
     }
 }
 
-// Example 4: Parallel data loading
-void example_parallel_loading() {
-    std::cout << "\n" << std::string(80, '=') << "\n";
-    std::cout << "EXAMPLE 4: Parallel Data Loading\n";
-    std::cout << std::string(80, '=') << "\n";
-    
-    // Create a dataset
-    Dataset dataset;
-    
-    std::cout << "Creating dataset with 200 samples...\n";
-    for (int i = 0; i < 200; ++i) {
-        std::string input = "Input " + std::to_string(i);
-        std::string target = "Response " + std::to_string(i);
-        
-        // Varying length text
-        int extra_words = i % 10;
-        for (int j = 0; j < extra_words; ++j) {
-            input += " word" + std::to_string(j);
-        }
-        
-        dataset.add_sample(input, target);
-    }
-    
-    dataset.split(0.8, 0.2, 0.0);  // 80% train, 20% val, 0% test
-    
-    std::cout << "Dataset split: " << dataset.size(SplitType::TRAIN) << " train, "
-              << dataset.size(SplitType::VALIDATION) << " val\n";
-    
-    // Configure data loader
-    TokenBatchLoaderConfig loader_config;
-    loader_config.batch_size = 16;
-    loader_config.num_workers = 4;
-    loader_config.prefetch_factor = 2;
-    loader_config.shuffle = true;
-    loader_config.use_dynamic_batching = true;
-
-    std::cout << "\nData Loader Configuration:\n";
-    std::cout << "Batch size: " << loader_config.batch_size << "\n";
-    std::cout << "Number of workers: " << loader_config.num_workers << "\n";
-    std::cout << "Prefetch factor: " << loader_config.prefetch_factor << "\n";
-    std::cout << "Dynamic batching: " << (loader_config.use_dynamic_batching ? "Yes" : "No") << "\n";
-
-    // Create data loader
-    TokenBatchLoader loader(dataset, loader_config, char_code_tokenizer_fn);
-
-    std::cout << "\nStarting parallel data loading...\n";
-    std::cout << "Expected batches per epoch: " << loader.num_batches() << "\n";
-
-    // Time the data loading
-    auto start_time = std::chrono::high_resolution_clock::now();
-
-    TokenBatchIterator iter(loader);
-    size_t batches_processed = 0;
-    size_t total_sequences = 0;
-
-    while (auto batch = iter.next()) {
-        ++batches_processed;
-        total_sequences += static_cast<size_t>(batch->batch_size());
-
-        // Print info for first 3 batches
-        if (batches_processed <= 3) {
-            print_batch_info(*batch, batches_processed);
-        }
-    }
-    
-    auto end_time = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-    
-    std::cout << "\n=== Loading Statistics ===\n";
-    std::cout << "Batches processed: " << batches_processed << "\n";
-    std::cout << "Total sequences: " << total_sequences << "\n";
-    std::cout << "Time taken: " << duration.count() << " ms\n";
-    std::cout << "Throughput: " << std::fixed << std::setprecision(1)
-              << (total_sequences * 1000.0 / duration.count()) << " sequences/second\n";
-}
-
-// Example 5: Training loop simulation
-void example_training_loop() {
-    std::cout << "\n" << std::string(80, '=') << "\n";
-    std::cout << "EXAMPLE 5: Training Loop Simulation\n";
-    std::cout << std::string(80, '=') << "\n";
-    
-    // Create dataset
-    Dataset dataset;
-    
-    for (int i = 0; i < 100; ++i) {
-        std::string input = "Training input " + std::to_string(i);
-        std::string target = "Training response " + std::to_string(i);
-        
-        // Add varying length text
-        int extra_words = i % 8;
-        for (int j = 0; j < extra_words; ++j) {
-            input += " data" + std::to_string(j);
-        }
-        
-        dataset.add_sample(input, target);
-    }
-    
-    dataset.split(1.0, 0.0, 0.0);  // All training data
-    
-    // Configure loader. Note: TokenBatchLoaderConfig has no built-in augmentation support
-    // (unlike the retired DataLoaderConfig) — apply EfficientBatching::apply_augmentation()
-    // directly to tokenized sequences before batching if augmentation is needed, the way
-    // example_augmentation() above demonstrates.
-    TokenBatchLoaderConfig config;
-    config.batch_size = 8;
-    config.num_workers = 2;
-    config.shuffle = true;
-    config.use_dynamic_batching = true;
-
-    TokenBatchLoader loader(dataset, config, char_code_tokenizer_fn);
-    
-    std::cout << "Simulating 3 training epochs...\n\n";
-    
-    for (int epoch = 0; epoch < 3; ++epoch) {
-        std::cout << "=== Epoch " << (epoch + 1) << " ===\n";
-        
-        TokenBatchIterator iter(loader);
-        size_t step = 0;
-        double total_loss = 0.0;
-        
-        auto epoch_start = std::chrono::high_resolution_clock::now();
-        
-        while (auto batch = iter.next()) {
-            ++step;
-            
-            // Simulate training step (just measure batch processing time)
-            auto step_start = std::chrono::high_resolution_clock::now();
-            
-            // In real training, you would:
-            // 1. Forward pass through model
-            // 2. Calculate loss
-            // 3. Backward pass
-            // 4. Update weights
-            
-            // Simulate some processing time
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
-            
-            auto step_end = std::chrono::high_resolution_clock::now();
-            auto step_duration = std::chrono::duration_cast<std::chrono::microseconds>(
-                step_end - step_start
-            );
-            
-            // Fake loss that decreases
-            double loss = 2.0 / (epoch + 1) + (0.1 * (loader.num_batches() - step) / loader.num_batches());
-            total_loss += loss;
-            
-            if (step % 5 == 0) {
-                std::cout << "Step " << std::setw(3) << step << "/" << loader.num_batches()
-                          << " | Loss: " << std::fixed << std::setprecision(4) << loss
-                          << " | Batch time: " << step_duration.count() << " μs"
-                          << " | Queue size: " << loader.queue_size() << "\n";
-            }
-        }
-        
-        auto epoch_end = std::chrono::high_resolution_clock::now();
-        auto epoch_duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-            epoch_end - epoch_start
-        );
-        
-        double avg_loss = total_loss / loader.num_batches();
-        
-        std::cout << "Epoch " << (epoch + 1) << " complete | "
-                  << "Avg Loss: " << std::fixed << std::setprecision(4) << avg_loss
-                  << " | Time: " << epoch_duration.count() << " ms\n\n";
-    }
-}
-
 int main() {
     std::cout << "\n";
     std::cout << "╔══════════════════════════════════════════════════════════════════════════╗\n";
@@ -381,9 +179,7 @@ int main() {
         example_basic_batching();
         example_bucketing();
         example_augmentation();
-        example_parallel_loading();
-        example_training_loop();
-        
+
         std::cout << "\n" << std::string(80, '=') << "\n";
         std::cout << "All examples completed successfully!\n";
         std::cout << std::string(80, '=') << "\n\n";

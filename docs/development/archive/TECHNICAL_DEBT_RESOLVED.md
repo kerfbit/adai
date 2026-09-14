@@ -4,6 +4,92 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-170: ParallelDataLoader's TokenBatchLoader/ThreadSafeBatchQueue Retired — No Production Caller and Nothing to Attach To
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 14, 2026 | `src/ParallelDataLoader.hpp` (removed), `tests/paralleldataloader_test.cpp` (removed), `tests/datapipeline_test.cpp`, `examples/DataPipelineExample.cpp`, `examples/DatasetBatchProcessingExample.cpp`, `tests/CMakeLists.txt` | Retired the remaining classes (`TokenBatchLoader`/`TokenBatchIterator`/`ThreadSafeBatchQueue`), their tests, and every example usage — no wiring attempted |
+
+Summary:
+Filed the same day as TD-168/TD-169 in the same follow-up sweep. TD-052 (September 12, 2026) had
+already retired `ParallelDataLoader`/`DataLoaderConfig` from this file but explicitly kept
+`TokenBatchLoader`/`TokenBatchIterator`/`ThreadSafeBatchQueue` as "genuinely tested" — while its own
+writeup already noted neither had a production caller. Filing TD-170 confirmed that was still true
+one session later, and the initial plan (per user direction) was to wire `TokenBatchLoader` into
+`ChatbotTrainer` as a real batch-grouping driver for gradient accumulation, forwarding one
+un-padded sequence at a time internally (no model changes needed).
+
+That plan changed after actually reading `ChatbotTrainer::train_epoch()` in full — a ~700-line
+function tightly coupled to a dozen TD-numbered diagnostic accumulators (adaptive gradient clipping
+EMA, Welford variance, padding-efficiency windows, activation/entropy hooks), all keyed to the
+current per-sample iteration order. Critically, `TrainingConfig::batch_size` — despite its name and
+doc comment ("samples per gradient accumulation") — already exists and is genuinely read, but only
+ever multiplied into a log line (`effective_batch_size`); the real, load-bearing "N samples per
+gradient step" mechanism is `gradient_accumulation_steps`, already working. Every value
+`TokenBatchLoader` could add — background tokenization prefetch, shuffling, batch grouping for
+gradient accumulation — was already duplicated by something `ChatbotTrainer` already does
+(`preprocess_data()`'s upfront tokenization + caching via `load_tokenized_cache()`/
+`save_tokenized_cache()`, `shuffle_training_data()`, `gradient_accumulation_steps`). Its own
+padding/multi-sequence `TokenBatch` output had nothing to attach to either way, since
+`EncoderDecoderModel::forward()` (and every layer under it) takes exactly one sequence at a time —
+confirmed directly, no batch dimension exists anywhere in this codebase's Matrix/model stack (see
+the new TD-171, split off from this investigation). Given no real wiring point existed without
+either rewriting the delicate 700-line accumulator loop for a same-effect duplicate, or replacing
+the upfront-tokenization architecture with a regression (per-epoch retokenization), the resolution
+was retirement — the same call TD-052 already made for this file's other, broken classes.
+
+Changes Made:
+- Deleted `src/ParallelDataLoader.hpp` in its entirety (nothing salvageable remained once
+  `ThreadSafeBatchQueue`/`TokenBatchLoader`/`TokenBatchIterator`/`TokenBatchLoaderConfig` — its only
+  contents — were all retired) and `tests/paralleldataloader_test.cpp` (every test in it covered
+  exactly those classes). Removed the `paralleldataloaderTests` target and its `add_test()`
+  registration, and the stale `ParallelDataLoader` mention in the test-suite summary
+  `message(STATUS ...)`, from `tests/CMakeLists.txt`.
+- `tests/datapipeline_test.cpp`: removed its own separate `ThreadSafeBatchQueueTest` suite and
+  `DataPipelineIntegrationTest.EndToEndPipeline` (the only test depending on `TokenBatchLoader`);
+  kept `EfficientBatchingTest` untouched (unrelated, still real and used elsewhere via
+  `BatchedInferenceEngine`). Removed the now-unused `Dataset.hpp` include.
+- `examples/DataPipelineExample.cpp`: removed `example_parallel_loading()`/`example_training_loop()`
+  (the only two of five demo functions using `TokenBatchLoader`) and their now-unused helpers
+  (`print_batch_info()`, `char_code_tokenizer_fn()`); kept the three `EfficientBatching`-only
+  demos. Removed the now-unused `ParallelDataLoader.hpp`/`Dataset.hpp`/`<chrono>` includes.
+- `examples/DatasetBatchProcessingExample.cpp`: removed `example4_parallel_loading()`/
+  `example5_training_pipeline()` (the only two of five using `TokenBatchLoader` directly — examples
+  1-3 use `Dataset`'s own `get_batch_with_padding()`/`get_dynamic_batches()`/
+  `get_batch_statistics()` methods, unrelated to `ParallelDataLoader.hpp`); kept those three. Removed
+  the now-unused `ParallelDataLoader.hpp`/`<chrono>` includes.
+- Regenerated `docs/development/PRODUCTION_READINESS.md` via `scripts/gen_status_report.py` (its
+  own header already says not to hand-edit it) — the removed file naturally dropped out.
+- Added/extended staleness banners on the two "live" (non-archive) docs that centrally describe
+  these classes as current API: `docs/development/api/data/dataset-batch-processing.md` (already
+  had a TD-052 banner claiming `TokenBatchLoader` was "the tested replacement" — now itself stale,
+  extended to cover the further retirement) and `docs/development/guides/quick-reference/
+  BATCH_PROCESSING_QUICK_REFERENCE.md` (new banner). Left passing/low-density mentions in
+  `docs/development/SPECIAL_TOKEN_CONSOLIDATION.md`, `docs/development/guides/features/
+  AUGMENTATION_CHECKLIST.md` (a dated, completed-status checklist), `docs/development/guides/
+  features/AUGMENTATION_IMPLEMENTATION.md` (one incidental `#include` in a guide primarily about
+  augmentation, not this feature), and `docs/development/reference/README.md` (an index blurb)
+  alone, matching TD-052's own proportionate-effort precedent. Left every
+  `docs/development/archive/**` mention untouched (historical record).
+- Removed the stale `ParallelDataLoader.hpp` line from `.github/copilot-instructions.md`'s file-tree
+  listing.
+- Filed **TD-171** (new, open): the root architectural reason `TokenBatchLoader` had nowhere to
+  attach — no layer in this codebase's model stack has a batch dimension at all — as its own large,
+  explicitly-not-attempted, multi-session item, separate from this retirement.
+
+Verification:
+- ✅ Full project rebuild (`cmake --build .`, all targets): clean, including both rewritten
+  examples and `datapipelineTests`.
+- ✅ `data_pipeline_example` and `dataset_batch_processing_example` run manually end-to-end: all
+  remaining demo functions complete with sensible output.
+- ✅ Full `ctest -j8` (129 tests, down from 130 with `ParallelDataLoaderTests` removed): all pass.
+  Same unrelated `ScriptsTests_monitor_training` flake as TD-168's verification (fails under
+  full-suite contention, passes clean standalone) — not investigated further, not connected to
+  this change.
+- ✅ `python3 scripts/check_file_status.py`: 303 files checked, 0 problems.
+
+---
+
 ### TD-168: CheckpointManager Was a Fully-Built, Tested Duplicate of IncrementalTrainer's Own Inline Checkpoint Logic, Never Wired In
 
 | Resolution Date | Component | Resolved By |
