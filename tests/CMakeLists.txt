@@ -55,6 +55,26 @@ add_executable(predictorTests predictor_test.cpp)
 target_link_libraries(predictorTests adai_lejepa adai_core GTest::gtest_main)
 add_test(NAME PredictorTests COMMAND predictorTests)
 
+# LeJEPAEncoder tests (TD-177 / LJ-2a) — same library set llmencoderTests needs, since
+# LeJEPAEncoder mirrors LLMEncoder's own composition. Compiles LLMEncoder.cpp directly (same
+# "include implementation" pattern llmencoderTests itself uses) since the drop-in-shape test
+# below constructs a real LLMEncoder to compare against.
+add_executable(lejepaencoderTests
+    lejepaencoder_test.cpp
+    ../src/LLMEncoder.cpp
+)
+target_link_libraries(lejepaencoderTests
+    adai_lejepa
+    adai_nlp
+    adai_transformer
+    adai_attention
+    adai_feedforward
+    adai_layers
+    adai_core
+    GTest::gtest_main
+)
+add_test(NAME LeJEPAEncoderTests COMMAND lejepaencoderTests)
+
 # MnsJsonHelpers tests (TD-037 — pure Qt-free logic extracted from MnsManagerGUI)
 add_executable(mnsjsonhelpersTests mnsjsonhelpers_test.cpp)
 target_link_libraries(mnsjsonhelpersTests GTest::gtest_main)

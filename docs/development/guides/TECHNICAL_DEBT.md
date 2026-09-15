@@ -5,12 +5,12 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** September 15, 2026
-**Total Items:** 23
+**Total Items:** 22
 **High Priority:** 2
-**Medium Priority:** 12
+**Medium Priority:** 11
 **Low Priority:** 9
 **Future Enhancements:** 19
-**Resolved Items:** 163
+**Resolved Items:** 164
 **Deferred Decisions:** 3
 
 **September 15, 2026:** Filed TD-174 through TD-186 (13 items) — the construction pieces of
@@ -170,19 +170,22 @@ sequence and is worth checking against, not trusting blindly, per this section's
   [archive](../archive/TECHNICAL_DEBT_RESOLVED.md#td-176-predictor-embedding-space-predictor)) —
   three unrelated, independently-testable pieces with no reason not to have parallelized across
   sessions if more than one had been available.
-- **Level 1:** [TD-177](#td-177-lejepaencoder-construction) (`LeJEPAEncoder` construction, 5-7h) —
-  needs TD-175/TD-176 (both now done) to exist as class members even though its own Description
-  says "depends on nothing else in this list" (true for the *logic*, not for *compiling*).
+- **Level 1:** **TD-177 (`LeJEPAEncoder` construction) — resolved September 15, 2026, same day**
+  (see
+  [archive](../archive/TECHNICAL_DEBT_RESOLVED.md#td-177-lejepaencoder-construction)) — needed
+  TD-175/TD-176 to exist as class members even though its own Description said "depends on
+  nothing else in this list" (true for the *logic*, not for *compiling*).
 - **Level 2 — two independent branches open here:**
   [TD-178](#td-178-lejepaencodertrain_step-self-supervised-training-loop) (`train_step`, 8-10h,
   the LeJEPA/cortical branch) and [TD-179](#td-179-hippocampalmemory-buffer) (`HippocampalMemory`
-  buffer, 5-7h, the hippocampal/episodic branch) both only need TD-177 — genuinely parallelizable;
-  TD-179 does *not* need TD-178 (confirmed in its own entry).
+  buffer, 5-7h, the hippocampal/episodic branch) both only need TD-177 (now done) — genuinely
+  parallelizable; TD-179 does *not* need TD-178 (confirmed in its own entry).
 - **Level 3 — the synchronization point:**
   [TD-180](#td-180-gated-decoderblock-extension-world-model--hippocampal-memory-repetition-penalized)
   (gated `DecoderBlock` extension, 12-16h, **HIGH** — the one item in this batch touching existing
-  production code) needs TD-174 (Level 0, now done), TD-177 (Level 1), *and* TD-179 (Level 2) —
-  both branches above must land first. It does **not** need TD-178: the gated-attention path and the world
+  production code) needs TD-174 (Level 0, now done), TD-177 (Level 1, now done), *and* TD-179
+  (Level 2) — both branches above must land first. It does **not** need TD-178: the
+  gated-attention path and the world
   model's training loop are independent, so TD-178 can keep running in parallel with TD-180 and
   beyond. [TD-183](#td-183-incremental_trainer---objectivelejepa-mode--world-model-config-keys)
   (`--objective=lejepa` mode, 5-7h) only needs TD-178, so it's also Level 3 and can run alongside
@@ -193,7 +196,7 @@ sequence and is worth checking against, not trusting blindly, per this section's
   [TD-185](#td-185-hippocampalmemory-wiring--config--write-policy-call-site) (`HippocampalMemory`
   wiring, 4-5h) all only need TD-180 (TD-185's other dependency, TD-179, is already satisfied by
   Level 2). [TD-184](#td-184-world-model-mns-registration--checkpointing) (MNS registration +
-  checkpointing, 3-4h) needs TD-177 and TD-183, both already done by this point.
+  checkpointing, 3-4h) needs TD-177 (now done) and TD-183, both already done by this point.
 - **Level 5 — the pilot, and this batch's actual go/no-go gate:**
   [TD-186](#td-186-lejepa--hippocampal-memory-pilot-run) (10-14h) — explicitly not startable until
   everything above is done. Its own Description already frames "the gate never opens" or "the
@@ -201,12 +204,13 @@ sequence and is worth checking against, not trusting blindly, per this section's
   restating here since this is the one item in the batch that isn't "build the thing," it's "find
   out whether the thing was worth building."
 
-Total estimated effort across the 10 remaining active items: 54-74 hours (TD-174, 2-3h, TD-175,
-3-4h, and TD-176, 2-3h, all resolved September 15, 2026, same day — see
+Total estimated effort across the 9 remaining active items: 49-67 hours (TD-174, 2-3h, TD-175,
+3-4h, TD-176, 2-3h, and TD-177, 5-7h, all resolved September 15, 2026, same day — see
 [TD-174](../archive/TECHNICAL_DEBT_RESOLVED.md#td-174-crossattentionforward_with_scores-score-bias-entry-point),
 [TD-175](../archive/TECHNICAL_DEBT_RESOLVED.md#td-175-sigreg-sketched-isotropic-gaussian-regularization),
-and [TD-176](../archive/TECHNICAL_DEBT_RESOLVED.md#td-176-predictor-embedding-space-predictor);
-sum of the rest matches the Statistics section's own total below) — comparable in size to the
+[TD-176](../archive/TECHNICAL_DEBT_RESOLVED.md#td-176-predictor-embedding-space-predictor), and
+[TD-177](../archive/TECHNICAL_DEBT_RESOLVED.md#td-177-lejepaencoder-construction); sum of the rest
+matches the Statistics section's own total below) — comparable in size to the
 entire rest of the active backlog combined. If
 [reasoning_process_plan.md](../../proposals/reasoning_process_plan.md)'s own
 chunks are also in scope, see that plan's interaction notes referenced from TD-180 (`RP-2a`,
@@ -232,7 +236,6 @@ that ignores it.
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
   - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
-  - [TD-177: `LeJEPAEncoder` Construction](#td-177-lejepaencoder-construction)
   - [TD-178: `LeJEPAEncoder::train_step` (Self-Supervised Training Loop)](#td-178-lejepaencodertrain_step-self-supervised-training-loop)
   - [TD-179: `HippocampalMemory` Buffer](#td-179-hippocampalmemory-buffer)
   - [TD-180: Gated `DecoderBlock` Extension (World Model + Hippocampal Memory, Repetition-Penalized)](#td-180-gated-decoderblock-extension-world-model--hippocampal-memory-repetition-penalized)
@@ -1884,36 +1887,6 @@ another branch of one large `main()` instead of becoming its own focused binary)
 
 ---
 
-### TD-177: `LeJEPAEncoder` Construction
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| MEDIUM | Planned | World Model / Memory (LeJEPA) | September 15, 2026 | 5-7 hours |
-
-Description:
-Filed from [lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md#1-lejepaencoder)
-(chunk `LJ-2a`) — not yet built. Structurally a transformer encoder stack, mirroring
-`LLMEncoder`'s own composition (reuses `EncoderBlock`, `TokenEmbedding`, `PositionalEncoding`);
-the difference from `LLMEncoder` is entirely in training objective (TD-178), not construction.
-This item is construction/`encode()`/save-load only — no training logic yet. Depends on nothing
-else in this list, but TD-176/TD-175 (`Predictor`/`SIGReg`) are held as members and must exist
-first for the class to compile as specified.
-
-Action Items:
-
-- [ ] Implement the constructor + `encode()` (same shape contract as `LLMEncoder::encode()`)
-- [ ] Implement `save()`/`load()`/`print_config()`
-- [ ] Implement `get_encoder_block(layer)` diagnostics accessor, mirroring `LLMEncoder`'s own
-- [ ] Confirm `encode()` output is a drop-in match for anything expecting `LLMEncoder::encode()`'s
-  shape (needed by TD-179's key reuse)
-
-Files to Modify:
-
-- `src/LeJEPAEncoder.hpp` / `src/LeJEPAEncoder.cpp` — new
-- `tests/lejepaencoder_test.cpp` — new (construction/encode/save-load only at this stage)
-
----
-
 ### TD-178: `LeJEPAEncoder::train_step` (Self-Supervised Training Loop)
 
 | Priority | Status | Component | Created | Effort Estimate |
@@ -2713,15 +2686,15 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 23 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 22 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
 |High|2|9%|
-|Medium|12|52%|
-|Low|9|39%|
+|Medium|11|50%|
+|Low|9|41%|
 
-**Total Active Items:** 23
+**Total Active Items:** 22
 
 ### By Component
 
@@ -2739,7 +2712,7 @@ Recomputed directly from the 23 `### TD-NNN` entries under [Active Technical Deb
 |Android / Testing|1|
 |Documentation|1|
 |Training / Deployment / Tooling|2|
-|World Model / Memory (LeJEPA)|8|
+|World Model / Memory (LeJEPA)|7|
 
 ### Effort Distribution
 
@@ -2747,11 +2720,11 @@ Recomputed directly from the 23 `### TD-NNN` entries under [Active Technical Deb
 |--------------|-------|
 |0-2 hours|2|
 |2-4 hours|2|
-|4-8 hours|7|
+|4-8 hours|6|
 |8+ hours|9|
 |Not estimated|3|
 
-**Total Estimated Effort (Active Items):** 174-252 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate; the remaining 10 items from the TD-174 through TD-186 batch — TD-174, TD-175, and TD-176 all now resolved — add an estimated 54-74 hours)
+**Total Estimated Effort (Active Items):** 169-245 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate; the remaining 9 items from the TD-174 through TD-186 batch — TD-174, TD-175, TD-176, and TD-177 all now resolved — add an estimated 49-67 hours)
 
 ### Future Enhancements Summary
 

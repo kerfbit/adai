@@ -269,36 +269,16 @@ add_library(adai_feedforward STATIC
 )
 target_link_libraries(adai_feedforward adai_core)
 
-# LeJEPA world model + hippocampal memory (docs/proposals/lejepa_world_model_gated_injection_plan.md;
-# TD-175 SIGReg and TD-176 Predictor are the first two pieces — LeJEPAEncoder/HippocampalMemory
-# join this same library as their own TD items land, per that plan's Implementation Phases)
-add_library(adai_lejepa STATIC
-    SIGReg.cpp
-    Predictor.cpp
-)
-target_link_libraries(adai_lejepa adai_core adai_feedforward)
-
 # Transformer blocks
 add_library(adai_transformer STATIC
     EncoderBlock.cpp
     DecoderBlock.cpp
 )
-target_link_libraries(adai_transformer 
-    adai_attention 
-    adai_feedforward 
+target_link_libraries(adai_transformer
+    adai_attention
+    adai_feedforward
     adai_layers
 )  # spdlog transitive via adai_core
-
-# Complete models
-add_library(adai_models STATIC
-    LLMEncoder.cpp
-    Decoder.cpp
-    LanguageModelHead.cpp
-    EncoderDecoderModel.cpp
-    ModelSerializer.cpp
-)
-target_link_libraries(adai_models adai_transformer)
-target_include_directories(adai_models PRIVATE ${CMAKE_SOURCE_DIR}/external)
 
 # Tokenization and generation
 add_library(adai_nlp STATIC
@@ -320,6 +300,36 @@ if(NOT ENABLE_SYCL)
             <cctype>
     )
 endif()
+
+# LeJEPA world model + hippocampal memory (docs/proposals/lejepa_world_model_gated_injection_plan.md;
+# TD-175 SIGReg, TD-176 Predictor, and TD-177 LeJEPAEncoder are the first three pieces —
+# HippocampalMemory joins this same library as its own TD item lands, per that plan's
+# Implementation Phases). LeJEPAEncoder mirrors LLMEncoder's own composition (EncoderBlock stack
+# + BPETokenizer/TokenEmbedding/PositionalEncoding), hence the transformer/layers/nlp deps below.
+add_library(adai_lejepa STATIC
+    SIGReg.cpp
+    Predictor.cpp
+    LeJEPAEncoder.cpp
+)
+target_link_libraries(adai_lejepa
+    adai_core
+    adai_feedforward
+    adai_transformer
+    adai_attention
+    adai_layers
+    adai_nlp
+)
+
+# Complete models
+add_library(adai_models STATIC
+    LLMEncoder.cpp
+    Decoder.cpp
+    LanguageModelHead.cpp
+    EncoderDecoderModel.cpp
+    ModelSerializer.cpp
+)
+target_link_libraries(adai_models adai_transformer)
+target_include_directories(adai_models PRIVATE ${CMAKE_SOURCE_DIR}/external)
 
 # ============================================================================
 # libcurl — required for FTP dataset transport (Phase 10)

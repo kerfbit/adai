@@ -4,6 +4,87 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-177: `LeJEPAEncoder` Construction
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 15, 2026 | World Model / Memory (LeJEPA) | New `LeJEPAEncoder` class (`src/LeJEPAEncoder.{hpp,cpp}`), added to the `adai_lejepa` static library |
+
+Summary:
+Third construction piece of the LeJEPA world-model plan
+([lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md),
+Component 1) — LJ-2a. `LeJEPAEncoder` is structurally a transformer encoder stack, mirroring
+`LLMEncoder`'s own composition exactly (`BPETokenizer`, `TokenEmbedding`, `PositionalEncoding`, a
+stack of `EncoderBlock`, a final `LayerNorm`) — the difference from `LLMEncoder` is entirely in
+training objective (`train_step()`, TD-178), not construction. Scope here was deliberately
+narrow, per the item's own Action Items: constructor, `encode()`, `save()`/`load()`,
+`print_config()`, `get_encoder_block()`, and the plumbing methods
+(`set_requires_grad`/`set_learning_rate`/`register_parameters_with_optimizer`) a later training
+loop needs to attach to — no `train_step()`, no `backward()`. The class holds `predictor_`
+(TD-176) and `sigreg_` (TD-175) as constructed members, per the plan's own class spec, purely so
+TD-178 can add `train_step()` without also needing to touch this constructor; nothing references
+either member yet.
+
+Design decisions made along the way:
+- `Predictor`'s `hidden_dim` has no dedicated constructor parameter on `LeJEPAEncoder` — the
+  plan's own constructor signature is deliberately identical to `LLMEncoder`'s ("same shape
+  contract"), so `d_ff` (already sized for an "expand, then project back to d_model" shape inside
+  every `EncoderBlock`'s own `FeedForward`) is reused as a natural, parameter-free default rather
+  than inventing a new constructor argument for a component whose actual use starts in TD-178.
+- `save()`/`load()` take a directory (created if absent), following `ModelSerializer`'s own
+  "`<dir>`, created if absent" convention rather than `LLMEncoder`'s filename-with-suffix one —
+  matching the plan's own `save(const std::string& directory)` signature. Only `token_embedding`,
+  `encoder_blocks`, and `final_norm` are persisted — `predictor`/`sigreg` are deliberately NOT,
+  since they are pretraining scaffolding whose job ends once this encoder is frozen (SIGReg's own
+  class doc already states it is "not used at inference time"); the reusable downstream artifact
+  is the encoder's own weights, exactly what `LLMEncoder::save_weights()` persists for itself.
+- `encode()` populates the same `cached_token_ids`/`cached_encoder_outputs` fields, guarded by the
+  same `requires_grad` check, that `LLMEncoder::encode()` already uses — so TD-178 can add a
+  private `backward()` later without changing `encode()` at all.
+- `load_tokenizer_vocab()`/`build_tokenizer()` were added even though the plan's own abbreviated
+  class snippet didn't list them: without a way to populate the tokenizer's vocabulary, the class
+  would be constructible but not usable for `encode()`, and "mirrors `LLMEncoder`'s own
+  composition" was read as including its tokenizer-management interface too (the same kind of
+  small, reasonable addition beyond a plan snippet's literal text that TD-175/TD-176 also made for
+  their own accessor methods).
+
+Changes Made:
+
+- New `src/LeJEPAEncoder.hpp`/`.cpp`: `LeJEPAEncoder` class, structurally a near-duplicate of
+  `LLMEncoder` (see design decisions above for the deliberate differences).
+- `src/CMakeLists.txt`: `LeJEPAEncoder.cpp` added to the `adai_lejepa` static library; that
+  library's own dependency list extended with `adai_transformer`/`adai_attention`/`adai_layers`/
+  `adai_nlp` (needed for `EncoderBlock`/`LayerNorm`/`PositionalEncoding`/`TokenEmbedding`/
+  `BPETokenizer`) — the pre-existing `adai_nlp` target definition was relocated earlier in the
+  file (not duplicated) so `adai_lejepa` could declare it as a dependency.
+- New `tests/lejepaencoder_test.cpp` + `lejepaencoderTests` CMake test target, compiling
+  `LLMEncoder.cpp` directly (same "include implementation" pattern `llmencoderTests` itself uses)
+  for the drop-in-shape comparison test.
+
+Verification:
+
+- ✅ 23 new `LeJEPAEncoderTests`, including the specific requirement from TD-177's own Action
+  Items: `EncodeShapeMatchesLLMEncoderForSameInput` constructs both a `LeJEPAEncoder` and an
+  `LLMEncoder` against the identical vocabulary and confirms `encode()`'s output shape
+  (`[seq_len, d_model]`) matches exactly for the same input text, even though the two encoders'
+  weights (and therefore values) differ. Plus construction, tokenizer load/build,
+  encode-truncation/empty-string, `save()`/`load()` round-trip (directory + component files
+  created, architecture-mismatch rejection, output preserved after a save/load cycle),
+  `get_encoder_block()` bounds-checking, `print_config()`, and
+  `register_parameters_with_optimizer()` tests.
+- ✅ Full `ctest` suite green modulo the same two pre-existing, unrelated conditions noted in
+  TD-174's own entry (`IncrementalTrainerTests`, slow not flaky; `RLHFTrainerTest`'s advantage-
+  direction test, flaky pre-existing, already flagged separately) — 132/132 of everything else
+  passing, up from 131 (the new `LeJEPAEncoderTests` suite).
+- ✅ `check_file_status.py`: 315 files, 0 problems.
+
+Files Changed:
+
+- `src/LeJEPAEncoder.hpp`, `src/LeJEPAEncoder.cpp` (new)
+- `src/CMakeLists.txt`
+- `tests/lejepaencoder_test.cpp` (new)
+- `tests/CMakeLists.txt`
+
 ### TD-174: `CrossAttention::forward_with_scores` (Score-Bias Entry Point)
 
 | Resolution Date | Component | Resolved By |
