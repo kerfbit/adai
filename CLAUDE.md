@@ -321,7 +321,7 @@ trusting a `grep TD-NNN` alone. Currently active items:
 | Tag | Description |
 |---|---|
 | **TD-059** (HIGH) | Fixed September 13, 2026: `MultiHeadAttention`/`CrossAttention` now genuinely split into per-head slices on both CPU and GPU paths (previously every self- and cross-attention call was single-head attention over the full `d_model` width with a mismatched softmax scale). Retraining every existing checkpoint under the new math is still outstanding — needs the user's own training infrastructure, not available in a dev session. |
-| TD-050 | GPU-resident KV-cache for autoregressive generation — CPU cache has a known correctness bug; no GPU cache exists at all |
+| TD-050 | Mostly resolved — CPU cache root-caused clean (no bug found) and a GPU-resident cache (`GPUKVCache`/`GPUDecoderKVCache`) designed and implemented; only on-device validation and the latency benchmark remain, blocked on real GPU hardware |
 | **TD-033** | Mostly resolved — wired in and concurrency-safe; only the before/after GPU latency benchmark remains, blocked on real hardware |
 | TD-014 | Missing standalone tooling (quantization, eval, data-prep binaries) |
 | TD-006 | Fill-in-the-Middle (FIM) training data generation not implemented |
