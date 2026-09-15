@@ -4,6 +4,71 @@ Resolved items extracted from [TECHNICAL_DEBT.md](../guides/TECHNICAL_DEBT.md).
 
 ## Resolved Items
 
+### TD-174: `CrossAttention::forward_with_scores` (Score-Bias Entry Point)
+
+| Resolution Date | Component | Resolved By |
+|-----------------|-----------|-------------|
+| September 15, 2026 | Core Model Architecture | New `CrossAttention::forward_with_scores()` method |
+
+Summary:
+Filed from the LeJEPA world-model plan
+([lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md),
+Component 6, chunk `HM-2`) — the hippocampal-memory repetition penalty (TD-180) needs a
+pre-softmax additive bias per key position, and `CrossAttention::forward()` had no way for a
+caller to supply one: it computes its own attention scores internally with no hook for
+anything but a boolean mask (which can only fully suppress a position, not gradually discourage
+it via a scalar penalty). Rather than a new attention class, this adds one entry point,
+`forward_with_scores(query_input, kv_input, score_bias, mask = nullptr)`, that accepts a
+pre-computed bias matrix; every other part of `CrossAttention` — projections, LoRA, per-head
+softmax, output projection, and `backward()` — is structurally identical to `forward()`/
+`forward_with_cache()`, following the same duplication convention those two already use rather
+than one delegating to the other. Fully standalone; no dependency on `SIGReg`/`Predictor`
+(TD-175/TD-176) or anything else in the batch.
+
+Design: `score_bias` (shape `[tgt_len, src_len]`) is added to every head's scaled scores — same
+value shared across all heads, same broadcast convention as `mask` — *before* masking. Masking is
+applied after the bias, so a masked position is always forced to `-1e9` regardless of whatever
+bias value it carried: mask always takes precedence over the bias, not the other way around. An
+all-zero `score_bias` reproduces `forward()`'s output exactly, since adding `0.0f` to a score is
+an exact no-op in IEEE floating point — this makes `forward_with_scores()` a strict superset of
+`forward()`, not merely a close approximation of it. `backward()` needed no changes at all: it
+differentiates through the cached post-softmax per-head weights, which already correctly reflect
+whatever bias was applied during the forward pass — the bias itself has no learnable parameters,
+so no new gradient path was needed.
+
+Changes Made:
+
+- `src/CrossAttention.hpp`/`.cpp`: new `forward_with_scores()` method, structurally a duplicate of
+  `forward()` (same validation, LoRA branches, per-head split, softmax, output projection) plus
+  the `score_bias` addition and its own shape validation. File-status version bumped (0.12.0 →
+  0.13.0) since this is a new public entry point on a `beta` file.
+
+Verification:
+
+- ✅ 6 new `CrossAttentionScoreBiasTest` cases in `tests/crossattention_test.cpp`, including the
+  two TD-174 Action Items specifically required: an all-zero `score_bias` reproduces `forward()`'s
+  output bit-for-bit (`EXPECT_FLOAT_EQ`, with and without a mask also applied), and a large
+  negative bias (`-1e9f`) at one key position produces output matching `forward()` with that same
+  position masked out (within numerical tolerance). Plus a test confirming mask takes precedence
+  over a large *positive* bias at the same position, a mismatched-`score_bias`-shape rejection
+  test, and a test confirming `backward()` still produces finite, correctly-shaped gradients after
+  a `forward_with_scores()` call.
+- ✅ Full `tests/crossattention_test.cpp` binary: 51/51 passing (45 pre-existing + 6 new, zero
+  regressions).
+- ✅ Full `ctest` suite green, modulo two pre-existing, unrelated conditions confirmed via repeated
+  standalone runs on both this change and the prior commit: `IncrementalTrainerTests` (slow, not
+  flaky — ~400s, passes every time) and `RLHFTrainerTest.PositiveAdvantageIncreasesLogProb...`
+  (genuinely flaky — fails on roughly half of runs on main *before* this change too, confirmed via
+  `git stash`; flagged separately as its own follow-up rather than folded into this item's scope,
+  since `forward_with_scores()` is not called anywhere outside its own new tests — nothing in this
+  change could plausibly affect that test's behavior).
+- ✅ `check_file_status.py`: 313 files, 0 problems.
+
+Files Changed:
+
+- `src/CrossAttention.hpp`, `src/CrossAttention.cpp`
+- `tests/crossattention_test.cpp`
+
 ### TD-176: `Predictor` (Embedding-Space Predictor)
 
 | Resolution Date | Component | Resolved By |

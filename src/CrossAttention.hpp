@@ -1,8 +1,8 @@
 #pragma once
 
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache forward added)
-// @adai-version: 0.12.0
-// @adai-reviewed: 2026-09-14
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache forward added; TD-174 forward_with_scores added)
+// @adai-version: 0.13.0
+// @adai-reviewed: 2026-09-15
 
 
 #include <memory>
@@ -164,6 +164,36 @@ class CrossAttention {
     Matrix forward_with_cache(const Matrix& query_input, const Matrix& kv_input,
                               const Matrix* mask = nullptr, KVCache* kv_cache = nullptr,
                               bool use_cache = true);
+
+    /**
+     * Forward pass with a caller-supplied pre-softmax additive score bias (TD-174).
+     *
+     * Identical to forward() in every other respect (projections, LoRA, per-head split,
+     * softmax, output projection, backward() caching) — the only difference is that
+     * `score_bias` is added to each head's scaled scores before masking/softmax. This is the
+     * entry point the hippocampal-memory repetition penalty (see
+     * docs/proposals/lejepa_world_model_gated_injection_plan.md's Component 6) needs: a
+     * subtractive, per-key-position bias derived from how much attention each memory slot has
+     * already received, applied without needing a boolean mask (which can only fully suppress
+     * a position, not gradually discourage it).
+     *
+     * An all-zero `score_bias` reproduces forward()'s output exactly — adding 0.0f to a score
+     * is an exact no-op in IEEE floating point, so this is a strict superset of forward(), not
+     * an approximation of it.
+     *
+     * @param query_input Query input from decoder [tgt_len, d_model]
+     * @param kv_input Key-Value input from encoder [src_len, d_model]
+     * @param score_bias Additive bias [tgt_len, src_len], added to every head's scaled scores
+     *                    before masking/softmax (same value shared across all heads, same
+     *                    broadcast convention as `mask`). Typically negative (a penalty); the
+     *                    caller decides sign and magnitude.
+     * @param mask Optional attention mask [tgt_len, src_len], applied after the bias — a
+     *             masked position is forced to -1e9 regardless of its bias value, so masking
+     *             always takes precedence over the bias.
+     * @return Attention output [tgt_len, d_model]
+     */
+    Matrix forward_with_scores(const Matrix& query_input, const Matrix& kv_input,
+                               const Matrix& score_bias, const Matrix* mask = nullptr);
 
     /**
      * Backward pass through cross-attention

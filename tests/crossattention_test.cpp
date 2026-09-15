@@ -357,6 +357,245 @@ TEST(CrossAttentionMaskingTest, AllOnesVsAllZerosMask) {
 }
 
 // ============================================================================
+// TD-174 Tests: forward_with_scores (pre-softmax additive score bias)
+//
+// The hippocampal-memory repetition penalty (see
+// docs/proposals/lejepa_world_model_gated_injection_plan.md's Component 6) needs a caller-
+// supplied additive bias per key position, applied before softmax — these are exactly the two
+// checks TD-174's own Action Items call for: an all-zero bias must reproduce forward()'s
+// existing output exactly, and a large negative bias at one position must suppress attention
+// to it the same way masking that position would.
+// ============================================================================
+
+TEST(CrossAttentionScoreBiasTest, ZeroBiasReproducesForwardExactly) {
+    int d_model = 32;
+    int num_heads = 4;
+    int tgt_len = 5;
+    int src_len = 7;
+
+    CrossAttention cross_attn(d_model, num_heads);
+
+    Matrix query_input(tgt_len, d_model);
+    Matrix kv_input(src_len, d_model);
+    for (int i = 0; i < tgt_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            query_input(i, j) = 0.1f * static_cast<float>(i + j);
+        }
+    }
+    for (int i = 0; i < src_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            kv_input(i, j) = 0.05f * static_cast<float>(i - j);
+        }
+    }
+
+    Matrix output_forward = cross_attn.forward(query_input, kv_input);
+
+    Matrix zero_bias(tgt_len, src_len);  // default-initialized to 0.0f
+    Matrix output_with_scores = cross_attn.forward_with_scores(query_input, kv_input, zero_bias);
+
+    ASSERT_EQ(output_with_scores.rows, output_forward.rows);
+    ASSERT_EQ(output_with_scores.cols, output_forward.cols);
+    for (int i = 0; i < output_forward.rows; ++i) {
+        for (int j = 0; j < output_forward.cols; ++j) {
+            // Adding 0.0f to a score is an exact no-op in IEEE floating point — this should be
+            // bit-identical, not merely close, since forward_with_scores() otherwise performs
+            // the identical sequence of operations forward() does.
+            EXPECT_FLOAT_EQ(output_with_scores(i, j), output_forward(i, j));
+        }
+    }
+}
+
+TEST(CrossAttentionScoreBiasTest, ZeroBiasWithMaskReproducesForwardExactly) {
+    int d_model = 24;
+    int num_heads = 3;
+    int tgt_len = 4;
+    int src_len = 6;
+
+    CrossAttention cross_attn(d_model, num_heads);
+
+    Matrix query_input(tgt_len, d_model);
+    Matrix kv_input(src_len, d_model);
+    for (int i = 0; i < tgt_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            query_input(i, j) = 0.2f * static_cast<float>(i);
+        }
+    }
+    for (int i = 0; i < src_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            kv_input(i, j) = 0.1f * static_cast<float>(j);
+        }
+    }
+
+    Matrix mask(tgt_len, src_len);
+    for (int i = 0; i < tgt_len; ++i) {
+        for (int j = 0; j < src_len; ++j) {
+            mask(i, j) = (j < src_len - 2) ? 1.0f : 0.0f;
+        }
+    }
+
+    Matrix output_forward = cross_attn.forward(query_input, kv_input, &mask);
+
+    Matrix zero_bias(tgt_len, src_len);
+    Matrix output_with_scores =
+        cross_attn.forward_with_scores(query_input, kv_input, zero_bias, &mask);
+
+    for (int i = 0; i < output_forward.rows; ++i) {
+        for (int j = 0; j < output_forward.cols; ++j) {
+            EXPECT_FLOAT_EQ(output_with_scores(i, j), output_forward(i, j));
+        }
+    }
+}
+
+TEST(CrossAttentionScoreBiasTest, LargeNegativeBiasSuppressesAttentionLikeMasking) {
+    int d_model = 32;
+    int num_heads = 4;
+    int tgt_len = 4;
+    int src_len = 6;
+    int suppressed_col = 2;
+
+    CrossAttention cross_attn(d_model, num_heads);
+
+    Matrix query_input(tgt_len, d_model);
+    Matrix kv_input(src_len, d_model);
+    for (int i = 0; i < tgt_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            query_input(i, j) = 0.15f * static_cast<float>(i + j);
+        }
+    }
+    for (int i = 0; i < src_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            kv_input(i, j) = 0.1f * static_cast<float>(i - j);
+        }
+    }
+
+    // Reference: suppress the one column via a boolean mask.
+    Matrix mask(tgt_len, src_len);
+    for (int i = 0; i < tgt_len; ++i) {
+        for (int j = 0; j < src_len; ++j) {
+            mask(i, j) = (j == suppressed_col) ? 0.0f : 1.0f;
+        }
+    }
+    Matrix output_masked = cross_attn.forward(query_input, kv_input, &mask);
+
+    // Same suppression via a large negative score_bias instead, no mask at all.
+    Matrix bias(tgt_len, src_len);  // default-initialized to 0.0f everywhere else
+    for (int i = 0; i < tgt_len; ++i) {
+        bias(i, suppressed_col) = -1e9f;
+    }
+    Matrix output_biased = cross_attn.forward_with_scores(query_input, kv_input, bias, nullptr);
+
+    EXPECT_TRUE(matrices_equal(output_masked, output_biased, 1e-3f));
+}
+
+TEST(CrossAttentionScoreBiasTest, MaskTakesPrecedenceOverBiasAtTheSamePosition) {
+    // A masked position must end up suppressed (-1e9) regardless of whatever bias value it
+    // carries — even a large *positive* bias, which alone would otherwise dominate the softmax.
+    int d_model = 16;
+    int num_heads = 2;
+    int tgt_len = 3;
+    int src_len = 5;
+    int masked_col = 1;
+
+    CrossAttention cross_attn(d_model, num_heads);
+
+    Matrix query_input(tgt_len, d_model);
+    Matrix kv_input(src_len, d_model);
+    for (int i = 0; i < tgt_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            query_input(i, j) = 0.1f * static_cast<float>(i + j);
+        }
+    }
+    for (int i = 0; i < src_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            kv_input(i, j) = 0.05f * static_cast<float>(i + j);
+        }
+    }
+
+    Matrix mask(tgt_len, src_len);
+    for (int i = 0; i < tgt_len; ++i) {
+        for (int j = 0; j < src_len; ++j) {
+            mask(i, j) = (j == masked_col) ? 0.0f : 1.0f;
+        }
+    }
+
+    Matrix bias(tgt_len, src_len);
+    for (int i = 0; i < tgt_len; ++i) {
+        bias(i, masked_col) = 1e6f;  // would otherwise dominate the softmax at this column
+    }
+
+    Matrix output_masked_only = cross_attn.forward(query_input, kv_input, &mask);
+
+    Matrix zero_bias(tgt_len, src_len);
+    Matrix output_masked_and_biased =
+        cross_attn.forward_with_scores(query_input, kv_input, bias, &mask);
+
+    // The positive bias at the masked column must have no effect — mask wins.
+    EXPECT_TRUE(matrices_equal(output_masked_only, output_masked_and_biased, 1e-3f));
+}
+
+TEST(CrossAttentionScoreBiasTest, RejectsMismatchedScoreBiasDimensions) {
+    CrossAttention cross_attn(16, 2);
+
+    Matrix query_input(3, 16);
+    Matrix kv_input(4, 16);
+    Matrix wrong_shape_bias(2, 4);  // should be [3, 4]
+
+    EXPECT_THROW(cross_attn.forward_with_scores(query_input, kv_input, wrong_shape_bias),
+                 std::invalid_argument);
+}
+
+TEST(CrossAttentionScoreBiasTest, BackwardWorksAfterForwardWithScores) {
+    int d_model = 16;
+    int num_heads = 2;
+    int tgt_len = 3;
+    int src_len = 4;
+
+    CrossAttention cross_attn(d_model, num_heads);
+
+    Matrix query_input(tgt_len, d_model);
+    Matrix kv_input(src_len, d_model);
+    for (int i = 0; i < tgt_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            query_input(i, j) = 0.1f * static_cast<float>(i + j);
+        }
+    }
+    for (int i = 0; i < src_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            kv_input(i, j) = 0.05f * static_cast<float>(i + j);
+        }
+    }
+
+    Matrix bias(tgt_len, src_len);
+    for (int i = 0; i < tgt_len; ++i) {
+        for (int j = 0; j < src_len; ++j) {
+            bias(i, j) = 0.01f * static_cast<float>(i - j);
+        }
+    }
+
+    cross_attn.forward_with_scores(query_input, kv_input, bias);
+
+    Matrix grad_output(tgt_len, d_model);
+    for (int i = 0; i < tgt_len; ++i) {
+        for (int j = 0; j < d_model; ++j) {
+            grad_output(i, j) = 0.1f;
+        }
+    }
+
+    Matrix grad_query, grad_kv;
+    cross_attn.backward(grad_output, grad_query, grad_kv);
+
+    EXPECT_EQ(grad_query.rows, tgt_len);
+    EXPECT_EQ(grad_query.cols, d_model);
+    EXPECT_EQ(grad_kv.rows, src_len);
+    EXPECT_EQ(grad_kv.cols, d_model);
+    for (int i = 0; i < grad_query.rows; ++i) {
+        for (int j = 0; j < grad_query.cols; ++j) {
+            EXPECT_TRUE(std::isfinite(grad_query(i, j)));
+        }
+    }
+}
+
+// ============================================================================
 // TD-059 Regression Tests: genuine per-head cross-attention
 //
 // See multiheadattention_test.cpp's identical section for the full rationale, including why

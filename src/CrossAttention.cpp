@@ -1,6 +1,6 @@
-// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache forward added)
-// @adai-version: 0.12.0
-// @adai-reviewed: 2026-09-14
+// @adai-status: beta        (capped by TD-050 — see TECHNICAL_DEBT.md; TD-038 LoRA support added; TD-050 GPU incremental-cache forward added; TD-174 forward_with_scores added)
+// @adai-version: 0.13.0
+// @adai-reviewed: 2026-09-15
 
 #include "CrossAttention.hpp"
 
@@ -156,6 +156,119 @@ Matrix CrossAttention::forward(const Matrix& query_input, const Matrix& kv_input
     // Mean across heads, elementwise, for callers that just want a [tgt_len, src_len]
     // summary — still a valid probability distribution (see MultiHeadAttention.cpp's
     // identical rationale). backward() uses cached_head_weights_ directly, not this.
+    Matrix avg_weights(tgt_len, src_len);
+    float inv_num_heads = 1.0f / static_cast<float>(num_heads);
+    for (int h = 0; h < num_heads; ++h) {
+        const Matrix& hw = cached_head_weights_[h];
+        for (int i = 0; i < tgt_len; ++i) {
+            for (int j = 0; j < src_len; ++j) {
+                avg_weights(i, j) += hw(i, j) * inv_num_heads;
+            }
+        }
+    }
+    cached_attention_weights = avg_weights;
+
+    // Apply output projection
+    Matrix output = concatenated * W_o;
+    if (lora_o_) {
+        output = lora_o_->forward(concatenated, output);
+    }
+
+    return output;
+}
+
+Matrix CrossAttention::forward_with_scores(const Matrix& query_input, const Matrix& kv_input,
+                                           const Matrix& score_bias, const Matrix* mask) {
+    // Cache inputs for backward pass
+    cached_query_input = query_input;
+    cached_kv_input = kv_input;
+
+    int tgt_len = query_input.rows;
+    int src_len = kv_input.rows;
+
+    // Validate dimensions
+    if (query_input.cols != d_model) {
+        throw std::invalid_argument("Query input dimension (" + std::to_string(query_input.cols) +
+                                    ") must match d_model (" + std::to_string(d_model) + ")");
+    }
+    if (kv_input.cols != d_model) {
+        throw std::invalid_argument("Key-Value input dimension (" + std::to_string(kv_input.cols) +
+                                    ") must match d_model (" + std::to_string(d_model) + ")");
+    }
+    if (score_bias.rows != tgt_len || score_bias.cols != src_len) {
+        throw std::invalid_argument(
+            "score_bias dimensions (" + std::to_string(score_bias.rows) + ", " +
+            std::to_string(score_bias.cols) + ") must match attention dimensions (" +
+            std::to_string(tgt_len) + ", " + std::to_string(src_len) + ")");
+    }
+    if (mask != nullptr && (mask->rows != tgt_len || mask->cols != src_len)) {
+        throw std::invalid_argument(
+            "Mask dimensions (" + std::to_string(mask->rows) + ", " + std::to_string(mask->cols) +
+            ") must match attention dimensions (" + std::to_string(tgt_len) + ", " +
+            std::to_string(src_len) + ")");
+    }
+
+    // Project to Q, K, V
+    cached_Q = query_input * W_q;  // [tgt_len, d_model]
+    cached_K = kv_input * W_k;     // [src_len, d_model]
+    cached_V = kv_input * W_v;     // [src_len, d_model]
+
+    // TD-038: same LoRA adapters as forward() above.
+    if (lora_q_) {
+        cached_Q = lora_q_->forward(query_input, cached_Q);
+    }
+    if (lora_k_) {
+        cached_K = lora_k_->forward(kv_input, cached_K);
+    }
+    if (lora_v_) {
+        cached_V = lora_v_->forward(kv_input, cached_V);
+    }
+
+    // TD-059's genuine per-head split, same as forward(), plus TD-174's score_bias: added to
+    // every head's scaled scores (same value shared across heads, same broadcast convention as
+    // mask) before masking/softmax. Masking is applied after the bias so a masked position is
+    // always forced to -1e9 regardless of what bias value it carried.
+    float scale_factor = 1.0f / std::sqrt(static_cast<float>(d_k));
+    Matrix concatenated(tgt_len, d_model);
+    std::vector<Matrix> head_weights;
+    head_weights.reserve(num_heads);
+
+    for (int h = 0; h < num_heads; ++h) {
+        int start_dim = h * d_k;
+        Matrix Q_h = ca_slice_head_columns(cached_Q, start_dim, d_k);
+        Matrix K_h = ca_slice_head_columns(cached_K, start_dim, d_k);
+        Matrix V_h = ca_slice_head_columns(cached_V, start_dim, d_k);
+
+        Matrix scores_h = Q_h * K_h.transpose();  // [tgt_len, src_len]
+        scores_h = scores_h.scale(scale_factor);
+
+        for (int i = 0; i < tgt_len; ++i) {
+            for (int j = 0; j < src_len; ++j) {
+                scores_h(i, j) += score_bias(i, j);
+            }
+        }
+
+        if (mask != nullptr) {
+            for (int i = 0; i < tgt_len; ++i) {
+                for (int j = 0; j < src_len; ++j) {
+                    if ((*mask)(i, j) == 0.0f) {
+                        scores_h(i, j) = -1e9f;
+                    }
+                }
+            }
+        }
+
+        Matrix weights_h = Activation::softmax(scores_h);
+        Matrix out_h = weights_h * V_h;  // [tgt_len, d_k]
+
+        ca_scatter_head_columns(concatenated, start_dim, out_h);
+        head_weights.push_back(std::move(weights_h));
+    }
+
+    cached_head_weights_ = std::move(head_weights);
+    cached_attention_output = concatenated;
+
+    // Mean across heads — same rationale as forward().
     Matrix avg_weights(tgt_len, src_len);
     float inv_num_heads = 1.0f / static_cast<float>(num_heads);
     for (int h = 0; h < num_heads; ++h) {

@@ -5,12 +5,12 @@ This document tracks all known technical debt items, TODOs, and improvement oppo
 ## Overview
 
 **Last Updated:** September 15, 2026
-**Total Items:** 24
+**Total Items:** 23
 **High Priority:** 2
 **Medium Priority:** 12
-**Low Priority:** 10
+**Low Priority:** 9
 **Future Enhancements:** 19
-**Resolved Items:** 162
+**Resolved Items:** 163
 **Deferred Decisions:** 3
 
 **September 15, 2026:** Filed TD-174 through TD-186 (13 items) — the construction pieces of
@@ -148,7 +148,7 @@ cut over, which is outside a coding session's reach — same category as TD-047'
 TD-033/TD-050's hardware-blocked validation.
 
 **Tier 10 — Newly filed, large exploratory research batch (LeJEPA world model + hippocampal
-memory):** [TD-174](#td-174-crossattentionforward_with_scores-score-bias-entry-point) through
+memory):** TD-174 through
 [TD-186](#td-186-lejepa--hippocampal-memory-pilot-run) (13 items, filed September 15, 2026 from
 [lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md)).
 None of this exists yet, and the whole batch sits below every item in Tiers 1-9 in real urgency —
@@ -160,11 +160,12 @@ own "Depends on" statement, not copied from the plan doc's own bullet order (whi
 logically-parallel tracks — LeJEPA/"cortical" and hippocampal/"episodic" — into one linear reading
 sequence and is worth checking against, not trusting blindly, per this section's own opening note):
 
-- **Level 0 — fully standalone, startable immediately, in any order:**
-  [TD-174](#td-174-crossattentionforward_with_scores-score-bias-entry-point) (`forward_with_scores`,
-  2-3h, still open) — the other two items originally at this level are now both resolved, same day
-  (September 15, 2026): **TD-175 (`SIGReg`)** (see
-  [archive](../archive/TECHNICAL_DEBT_RESOLVED.md#td-175-sigreg-sketched-isotropic-gaussian-regularization))
+- **Level 0 — fully standalone, startable immediately, in any order:** all three items originally
+  at this level are now resolved, same day (September 15, 2026): **TD-174
+  (`forward_with_scores`)** (see
+  [archive](../archive/TECHNICAL_DEBT_RESOLVED.md#td-174-crossattentionforward_with_scores-score-bias-entry-point)),
+  **TD-175 (`SIGReg`)** (see
+  [archive](../archive/TECHNICAL_DEBT_RESOLVED.md#td-175-sigreg-sketched-isotropic-gaussian-regularization)),
   and **TD-176 (`Predictor`)** (see
   [archive](../archive/TECHNICAL_DEBT_RESOLVED.md#td-176-predictor-embedding-space-predictor)) —
   three unrelated, independently-testable pieces with no reason not to have parallelized across
@@ -180,8 +181,8 @@ sequence and is worth checking against, not trusting blindly, per this section's
 - **Level 3 — the synchronization point:**
   [TD-180](#td-180-gated-decoderblock-extension-world-model--hippocampal-memory-repetition-penalized)
   (gated `DecoderBlock` extension, 12-16h, **HIGH** — the one item in this batch touching existing
-  production code) needs TD-174 (Level 0), TD-177 (Level 1), *and* TD-179 (Level 2) — both branches
-  above must land first. It does **not** need TD-178: the gated-attention path and the world
+  production code) needs TD-174 (Level 0, now done), TD-177 (Level 1), *and* TD-179 (Level 2) —
+  both branches above must land first. It does **not** need TD-178: the gated-attention path and the world
   model's training loop are independent, so TD-178 can keep running in parallel with TD-180 and
   beyond. [TD-183](#td-183-incremental_trainer---objectivelejepa-mode--world-model-config-keys)
   (`--objective=lejepa` mode, 5-7h) only needs TD-178, so it's also Level 3 and can run alongside
@@ -200,9 +201,10 @@ sequence and is worth checking against, not trusting blindly, per this section's
   restating here since this is the one item in the batch that isn't "build the thing," it's "find
   out whether the thing was worth building."
 
-Total estimated effort across the 11 remaining active items: 56-77 hours (TD-175, 3-4h, and
-TD-176, 2-3h, both resolved September 15, 2026, same day — see
-[TD-175](../archive/TECHNICAL_DEBT_RESOLVED.md#td-175-sigreg-sketched-isotropic-gaussian-regularization)
+Total estimated effort across the 10 remaining active items: 54-74 hours (TD-174, 2-3h, TD-175,
+3-4h, and TD-176, 2-3h, all resolved September 15, 2026, same day — see
+[TD-174](../archive/TECHNICAL_DEBT_RESOLVED.md#td-174-crossattentionforward_with_scores-score-bias-entry-point),
+[TD-175](../archive/TECHNICAL_DEBT_RESOLVED.md#td-175-sigreg-sketched-isotropic-gaussian-regularization),
 and [TD-176](../archive/TECHNICAL_DEBT_RESOLVED.md#td-176-predictor-embedding-space-predictor);
 sum of the rest matches the Statistics section's own total below) — comparable in size to the
 entire rest of the active backlog combined. If
@@ -230,7 +232,6 @@ that ignores it.
   - [TD-164: chatbot-guide.md Needs a Live-Pair Verification Pass](#td-164-chatbot-guidemd-needs-a-live-pair-verification-pass)
   - [TD-171: No Batch Dimension Anywhere in the Model Stack — Real Parallel Batched Training Not Supported](#td-171-no-batch-dimension-anywhere-in-the-model-stack--real-parallel-batched-training-not-supported)
   - [TD-172: incremental_trainer's `serve` Command Embeds the Always-On Service in the Same Binary as Its CLI Commands](#td-172-incremental_trainers-serve-command-embeds-the-always-on-service-in-the-same-binary-as-its-cli-commands)
-  - [TD-174: `CrossAttention::forward_with_scores` (Score-Bias Entry Point)](#td-174-crossattentionforward_with_scores-score-bias-entry-point)
   - [TD-177: `LeJEPAEncoder` Construction](#td-177-lejepaencoder-construction)
   - [TD-178: `LeJEPAEncoder::train_step` (Self-Supervised Training Loop)](#td-178-lejepaencodertrain_step-self-supervised-training-loop)
   - [TD-179: `HippocampalMemory` Buffer](#td-179-hippocampalmemory-buffer)
@@ -1883,35 +1884,6 @@ another branch of one large `main()` instead of becoming its own focused binary)
 
 ---
 
-### TD-174: `CrossAttention::forward_with_scores` (Score-Bias Entry Point)
-
-| Priority | Status | Component | Created | Effort Estimate |
-|----------|--------|-----------|---------|------------------|
-| LOW | Planned | Core Model Architecture | September 15, 2026 | 2-3 hours |
-
-Description:
-Filed from [lejepa_world_model_gated_injection_plan.md](../../proposals/lejepa_world_model_gated_injection_plan.md#6-repetition-penalized-gated-cross-attention-hippocampal-memory)
-(chunk `HM-2`) — not yet built, no code exists for this. `CrossAttention::forward()` computes its
-own attention scores internally with no way for a caller to bias them before softmax. The
-hippocampal-memory repetition penalty (TD-180) needs exactly that: a pre-softmax additive bias
-per key position. Rather than a new attention class, this adds one entry point that accepts a
-pre-computed bias matrix; every other part of `CrossAttention` (projections, softmax, backward)
-is reused unchanged. Fully standalone — no dependency on any other item below.
-
-Action Items:
-
-- [ ] Add `CrossAttention::forward_with_scores(query_input, kv_input, score_bias, mask = nullptr)`
-- [ ] Unit test: all-zero `score_bias` reproduces `forward()`'s existing output exactly
-- [ ] Unit test: a large negative bias at one key position suppresses attention to it, same as
-  masking that position, without needing a boolean mask
-
-Files to Modify:
-
-- `src/CrossAttention.hpp` / `src/CrossAttention.cpp` — new method
-- `tests/crossattention_test.cpp` — new tests
-
----
-
 ### TD-177: `LeJEPAEncoder` Construction
 
 | Priority | Status | Component | Created | Effort Estimate |
@@ -2741,21 +2713,21 @@ When resolving a debt item:
 
 ### By Priority
 
-Recomputed directly from the 24 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
+Recomputed directly from the 23 `### TD-NNN` entries under [Active Technical Debt](#active-technical-debt) — re-derive this from that list rather than trusting it blindly once an item resolves or a new one is filed.
 
 |Priority|Count|Percentage|
 |----------|-------|------------|
-|High|2|8%|
-|Medium|12|50%|
-|Low|10|42%|
+|High|2|9%|
+|Medium|12|52%|
+|Low|9|39%|
 
-**Total Active Items:** 24
+**Total Active Items:** 23
 
 ### By Component
 
 |Component|Count|
 |----------------------|-------|
-|Core Model Architecture|4|
+|Core Model Architecture|3|
 |GPU / Inference / Training|1|
 |GPU / Inference / Performance|1|
 |Tooling / Toolchain|1|
@@ -2774,12 +2746,12 @@ Recomputed directly from the 24 `### TD-NNN` entries under [Active Technical Deb
 |Effort Range|Count|
 |--------------|-------|
 |0-2 hours|2|
-|2-4 hours|3|
+|2-4 hours|2|
 |4-8 hours|7|
 |8+ hours|9|
 |Not estimated|3|
 
-**Total Estimated Effort (Active Items):** 176-255 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate; the remaining 11 items from the TD-174 through TD-186 batch — TD-175 and TD-176 both now resolved — add an estimated 56-77 hours)
+**Total Estimated Effort (Active Items):** 174-252 hours (excludes TD-014, TD-039, and TD-171, which have no effort estimate; the remaining 10 items from the TD-174 through TD-186 batch — TD-174, TD-175, and TD-176 all now resolved — add an estimated 54-74 hours)
 
 ### Future Enhancements Summary
 
